@@ -25,7 +25,8 @@ The initial scene is a playable migration slice: move with **WASD**, hold **Shif
 - reusable relay, battery, safe-zone and service-lift interactions, now placed procedurally each floor instead of hardcoded
 - relay-gated depth progression loop, regenerating a fresh floor (and moving the player to its spawn) each descent
 - folders that mirror the browser game's modular architecture
-- migration plan separating reusable content from rewritten runtime systems, including an open rendering-architecture decision — see `MIGRATION.md`
+- migration plan separating reusable content from rewritten runtime systems — this 2D renderer is a deliberately temporary stage; the decided long-term direction is a `Node3D` world with a top-down/first-person camera toggle, queued behind the current gameplay milestones — see `MIGRATION.md`
+- real HUD meters (battery, stamina) with the original's exact color-state and label logic, plus a live depth/relay objective readout — see `src/main.gd`
 
 ## Project layout
 

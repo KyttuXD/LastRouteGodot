@@ -12,6 +12,7 @@ var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
+var movement_mode := "walk"
 
 
 func _ready() -> void:
@@ -27,9 +28,13 @@ func _physics_process(delta: float) -> void:
 
 	if Input.is_action_pressed("crouch"):
 		movement_speed = GameConfig.PLAYER_CROUCH_SPEED
+		movement_mode = "crouch"
 	elif wants_to_sprint and stamina > 0.0:
 		movement_speed = GameConfig.PLAYER_SPRINT_SPEED
 		is_sprinting = true
+		movement_mode = "sprint"
+	else:
+		movement_mode = "walk"
 
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
@@ -87,6 +92,17 @@ func restore_at_safe_zone() -> void:
 	stamina = GameConfig.MAX_STAMINA
 	lamp_charge = GameConfig.MAX_LAMP_CHARGE
 	exhausted = false
+
+
+## Mirrors ui-controller.js's inSafeZone battery-color branch — true while
+## standing within a safe zone's rest radius, regardless of whether it has
+## already been activated with [E].
+func is_in_safe_zone() -> bool:
+	for candidate in get_tree().get_nodes_in_group("interactable"):
+		if candidate is RouteInteractable and candidate.kind == RouteInteractable.Kind.SAFE_ZONE \
+			and global_position.distance_to(candidate.global_position) <= GameConfig.SAFE_ZONE_RADIUS:
+			return true
+	return false
 
 
 func get_interaction_prompt() -> String:
