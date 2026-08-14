@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://src/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://src/game/facility_preview.gd" id="2_facility"]
 [ext_resource type="Script" path="res://src/game/player_controller.gd" id="3_player"]
+[ext_resource type="Script" path="res://src/game/interactable.gd" id="4_interactable"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
 size = Vector2(8, 8)
@@ -44,6 +45,33 @@ color = Color(0.25, 0.92, 0.84, 1)
 [node name="CollisionShape2D" type="CollisionShape2D" parent="World/Player"]
 shape = SubResource("RectangleShape2D_player")
 
+[node name="Relay" type="Node2D" parent="World"]
+position = Vector2(72, 72)
+script = ExtResource("4_interactable")
+prompt_text = "RECOVER SIGNAL RELAY"
+accent_color = Color(0.26, 0.88, 0.92, 1)
+
+[node name="Battery" type="Node2D" parent="World"]
+position = Vector2(408, 72)
+script = ExtResource("4_interactable")
+kind = 1
+prompt_text = "COLLECT BATTERY"
+accent_color = Color(0.95, 0.82, 0.25, 1)
+
+[node name="SafeZone" type="Node2D" parent="World"]
+position = Vector2(72, 210)
+script = ExtResource("4_interactable")
+kind = 2
+prompt_text = "REST AT SAFE ZONE"
+accent_color = Color(0.35, 0.95, 0.52, 1)
+
+[node name="ServiceLift" type="Node2D" parent="World"]
+position = Vector2(408, 210)
+script = ExtResource("4_interactable")
+kind = 3
+prompt_text = "USE SERVICE LIFT"
+accent_color = Color(0.76, 0.55, 0.96, 1)
+
 [node name="HUD" type="CanvasLayer" parent="."]
 
 [node name="StatusPanel" type="PanelContainer" parent="HUD"]
@@ -69,7 +97,64 @@ offset_right = 304.0
 offset_bottom = 46.0
 theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
 theme_override_font_sizes/font_size = 8
-text = "WASD MOVE   SHIFT SPRINT   C CROUCH   F LIGHT   ESC PAUSE"
+text = "WASD MOVE  SHIFT RUN  C CROUCH  F LIGHT  E USE  M MAP  ESC PAUSE"
+
+[node name="InteractionLabel" type="Label" parent="HUD"]
+unique_name_in_owner = true
+offset_left = 90.0
+offset_top = 205.0
+offset_right = 390.0
+offset_bottom = 224.0
+theme_override_colors/font_color = Color(0.78, 0.96, 0.91, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 10
+horizontal_alignment = 1
+
+[node name="MessageLabel" type="Label" parent="HUD"]
+unique_name_in_owner = true
+visible = false
+offset_left = 70.0
+offset_top = 49.0
+offset_right = 410.0
+offset_bottom = 69.0
+theme_override_colors/font_color = Color(0.95, 0.85, 0.48, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 10
+horizontal_alignment = 1
+
+[node name="MapOverlay" type="ColorRect" parent="HUD"]
+unique_name_in_owner = true
+visible = false
+offset_left = 56.0
+offset_top = 48.0
+offset_right = 424.0
+offset_bottom = 222.0
+color = Color(0.02, 0.05, 0.065, 0.94)
+
+[node name="Title" type="Label" parent="HUD/MapOverlay"]
+layout_mode = 0
+offset_top = 10.0
+offset_right = 368.0
+offset_bottom = 29.0
+theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+text = "FACILITY MAP — MIGRATION SLICE"
+horizontal_alignment = 1
+
+[node name="Legend" type="Label" parent="HUD/MapOverlay"]
+layout_mode = 0
+offset_left = 26.0
+offset_top = 48.0
+offset_right = 342.0
+offset_bottom = 137.0
+theme_override_colors/font_color = Color(0.68, 0.78, 0.78, 1)
+theme_override_font_sizes/font_size = 10
+text = "CYAN      Signal relay\nYELLOW    Battery\nGREEN     Safe zone\nPURPLE    Service lift\n\nPress M to close"
+horizontal_alignment = 1
 
 [node name="PauseLabel" type="Label" parent="HUD"]
 unique_name_in_owner = true
@@ -86,4 +171,3 @@ theme_override_font_sizes/font_size = 24
 text = "PAUSED"
 horizontal_alignment = 1
 vertical_alignment = 1
-

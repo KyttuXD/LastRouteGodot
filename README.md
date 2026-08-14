@@ -10,7 +10,7 @@ This repository begins with a deliberately small, runnable foundation rather tha
 2. Select **Import** and choose this repository's `project.godot`.
 3. Open the project and press **F6** or **F5**.
 
-The initial scene is a playable foundation: move the placeholder with **WASD**, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, and press **Escape/P** to pause.
+The initial scene is a playable migration slice: move with **WASD**, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, **E** to interact, **M** for the map, and **Escape/P** to pause.
 
 ## Current foundation
 
@@ -19,7 +19,10 @@ The initial scene is a playable foundation: move the placeholder with **WASD**, 
 - Linux-friendly OpenGL Compatibility renderer
 - LastRoute input actions
 - global run-state autoload
-- placeholder facility/player/flashlight scene
+- collidable test facility with player and flashlight
+- stamina exhaustion/recovery and lamp battery drain
+- reusable relay, battery, safe-zone and service-lift interactions
+- first relay-gated depth progression loop
 - folders that mirror the browser game's modular architecture
 - migration plan separating reusable content from rewritten runtime systems
 
@@ -45,4 +48,3 @@ See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries
 - Store tuning/content in Resources instead of scattering constants across scenes.
 - Preserve the existing Node server protocol until the single-player foundation is stable.
 - Do not commit `.godot/`, exports, secrets, or runtime account saves.
-

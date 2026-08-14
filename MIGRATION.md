@@ -22,9 +22,9 @@ The original game is a dependency-free JavaScript/Canvas project. Its source is 
 
 ## Recommended milestones
 
-1. **Foundation** — viewport, controls, folder structure and placeholder scene. *(This commit.)*
+1. **Foundation** — viewport, controls, folder structure and placeholder scene. *(Complete.)*
 2. **Asset intake** — copy canonical tiles/player art and define import presets.
-3. **Static room slice** — collision, movement, camera, flashlight and HUD.
+3. **Static room slice** — collision, movement, camera, flashlight and HUD. *(In progress: collision, movement, stamina, lamp and HUD are playable.)*
 4. **Procedural facility** — deterministic seed, rooms, corridors and A* movement.
 5. **Last Route loop** — relays, batteries, hiding, safe zone, lift and depth.
 6. **First hunter** — shared perception/chase state machine plus one identity.
@@ -47,4 +47,3 @@ The first meaningful target should be one deterministic floor containing:
 - one service lift
 
 Completing that slice validates the architecture before the full hunter roster and multiplayer multiply the workload.
-
