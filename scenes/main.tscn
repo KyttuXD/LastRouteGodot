@@ -1,9 +1,8 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://src/main.gd" id="1_main"]
-[ext_resource type="Script" path="res://src/game/facility_preview.gd" id="2_facility"]
+[ext_resource type="Script" path="res://src/game/facility_view.gd" id="2_facility"]
 [ext_resource type="Script" path="res://src/game/player_controller.gd" id="3_player"]
-[ext_resource type="Script" path="res://src/game/interactable.gd" id="4_interactable"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
 size = Vector2(8, 8)
@@ -25,13 +24,17 @@ script = ExtResource("1_main")
 
 [node name="World" type="Node2D" parent="."]
 
-[node name="FacilityPreview" type="Node2D" parent="World"]
+[node name="FacilityView" type="Node2D" parent="World"]
+unique_name_in_owner = true
 script = ExtResource("2_facility")
 
 [node name="Player" type="CharacterBody2D" parent="World"]
 unique_name_in_owner = true
-position = Vector2(240, 135)
 script = ExtResource("3_player")
+
+[node name="Camera2D" type="Camera2D" parent="World/Player"]
+position_smoothing_enabled = true
+position_smoothing_speed = 8.0
 
 [node name="FlashlightVisual" type="Polygon2D" parent="World/Player"]
 z_index = -1
@@ -44,33 +47,6 @@ color = Color(0.25, 0.92, 0.84, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="World/Player"]
 shape = SubResource("RectangleShape2D_player")
-
-[node name="Relay" type="Node2D" parent="World"]
-position = Vector2(72, 72)
-script = ExtResource("4_interactable")
-prompt_text = "RECOVER SIGNAL RELAY"
-accent_color = Color(0.26, 0.88, 0.92, 1)
-
-[node name="Battery" type="Node2D" parent="World"]
-position = Vector2(408, 72)
-script = ExtResource("4_interactable")
-kind = 1
-prompt_text = "COLLECT BATTERY"
-accent_color = Color(0.95, 0.82, 0.25, 1)
-
-[node name="SafeZone" type="Node2D" parent="World"]
-position = Vector2(72, 210)
-script = ExtResource("4_interactable")
-kind = 2
-prompt_text = "REST AT SAFE ZONE"
-accent_color = Color(0.35, 0.95, 0.52, 1)
-
-[node name="ServiceLift" type="Node2D" parent="World"]
-position = Vector2(408, 210)
-script = ExtResource("4_interactable")
-kind = 3
-prompt_text = "USE SERVICE LIFT"
-accent_color = Color(0.76, 0.55, 0.96, 1)
 
 [node name="HUD" type="CanvasLayer" parent="."]
 

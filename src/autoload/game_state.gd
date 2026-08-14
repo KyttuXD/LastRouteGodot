@@ -30,3 +30,9 @@ func start_floor() -> void:
 func descend() -> void:
 	depth += 1
 	start_floor()
+
+
+## Deterministic per-floor seed text, mirroring LastRoute's `${seed}-D${depth}`
+## levelSeed (game.js's buildLevel) so each depth of a run gets its own layout.
+func level_seed_text() -> String:
+	return "%d-D%d" % [run_seed, depth]

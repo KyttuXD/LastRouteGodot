@@ -19,12 +19,13 @@ The initial scene is a playable migration slice: move with **WASD**, hold **Shif
 - Linux-friendly OpenGL Compatibility renderer
 - LastRoute input actions
 - global run-state autoload
-- collidable test facility with player and flashlight
+- a deterministic, seeded procedural facility generator (`src/game/facility_generator.gd`) — sector-grid room carving, a Kruskal-connected 3-wide corridor graph, and relay/battery/safe-zone/service-lift placement, ported from the original's `maze.js` and validated against 1000 seeds (see `MIGRATION.md`)
+- a scrolling `Camera2D` following the player through the generated facility, with collision from a runtime-built `TileMapLayer`
 - stamina exhaustion/recovery and lamp battery drain
-- reusable relay, battery, safe-zone and service-lift interactions
-- first relay-gated depth progression loop
+- reusable relay, battery, safe-zone and service-lift interactions, now placed procedurally each floor instead of hardcoded
+- relay-gated depth progression loop, regenerating a fresh floor (and moving the player to its spawn) each descent
 - folders that mirror the browser game's modular architecture
-- migration plan separating reusable content from rewritten runtime systems
+- migration plan separating reusable content from rewritten runtime systems, including an open rendering-architecture decision — see `MIGRATION.md`
 
 ## Project layout
 

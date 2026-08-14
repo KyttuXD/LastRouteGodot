@@ -1,5 +1,6 @@
 extends Node
 
+@onready var facility_view: FacilityView = %FacilityView
 @onready var player: PlayerController = %Player
 @onready var status_label: Label = %StatusLabel
 @onready var pause_label: Label = %PauseLabel
@@ -17,6 +18,7 @@ func _ready() -> void:
 	observed_depth = GameState.depth
 	player.flashlight_changed.connect(_on_flashlight_changed)
 	player.interaction_message.connect(_on_interaction_message)
+	_build_floor()
 	_update_status()
 
 
@@ -29,7 +31,7 @@ func _process(_delta: float) -> void:
 
 	if GameState.depth != observed_depth:
 		observed_depth = GameState.depth
-		_reset_floor_objects()
+		_build_floor()
 
 	message_time_left = maxf(0.0, message_time_left - _delta)
 	message_label.visible = message_time_left > 0.0
@@ -59,8 +61,18 @@ func _on_interaction_message(message: String) -> void:
 	message_time_left = 2.8
 
 
-func _reset_floor_objects() -> void:
-	for candidate in get_tree().get_nodes_in_group("interactable"):
-		if candidate is RouteInteractable:
-			candidate.reset_for_floor()
-	player.position = Vector2(240, 135)
+func _build_floor() -> void:
+	facility_view.generate_floor(GameState.level_seed_text())
+	GameState.relay_target = facility_view.generator.relay_count
+	player.position = facility_view.start_world_position()
+	_configure_camera_limits()
+
+
+func _configure_camera_limits() -> void:
+	var camera := player.get_node("Camera2D") as Camera2D
+	var facility_size := facility_view.facility_pixel_size()
+	camera.limit_left = 0
+	camera.limit_top = 0
+	camera.limit_right = int(facility_size.x)
+	camera.limit_bottom = int(facility_size.y)
+	camera.reset_smoothing()

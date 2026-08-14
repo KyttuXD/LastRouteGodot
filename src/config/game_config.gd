@@ -11,8 +11,6 @@ const PLAYER_WALK_SPEED := 64.0
 const PLAYER_SPRINT_SPEED := 100.0
 const PLAYER_CROUCH_SPEED := 36.0
 
-const PLAYER_BOUNDS := Rect2(8.0, 8.0, 464.0, 254.0)
-
 const MAX_STAMINA := 100.0
 const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
@@ -25,3 +23,14 @@ const LAMP_SPRINT_DRAIN := 0.35
 const BATTERY_RECHARGE := 25.0
 
 const INTERACTION_RANGE := 26.0
+
+## Facility generation defaults, mirroring LastRoute's Standard MAP_SCALE_PROFILES
+## entry (src/config/game-config.js) and the safeZoneAtSpawn/safeZoneCount
+## a normal (non-Endless) Last Route floor requests in game.js's buildLevel().
+const FACILITY_COLS := 45
+const FACILITY_ROWS := 45
+const FACILITY_RELAY_COUNT := 5
+const FACILITY_BATTERY_COUNT := 7
+const FACILITY_ROOM_COUNT := 9
+const FACILITY_SAFE_ZONE_COUNT := 1
+const FACILITY_SAFE_ZONE_AT_SPAWN := true

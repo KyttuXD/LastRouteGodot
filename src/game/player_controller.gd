@@ -36,7 +36,6 @@ func _physics_process(delta: float) -> void:
 
 	velocity = input_vector * movement_speed
 	move_and_slide()
-	position = position.clamp(GameConfig.PLAYER_BOUNDS.position, GameConfig.PLAYER_BOUNDS.end)
 
 	if input_vector.length_squared() > 0.0:
 		rotation = input_vector.angle()
