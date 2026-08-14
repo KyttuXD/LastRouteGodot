@@ -1,0 +1,17 @@
+# Godot 4 generated files
+.godot/
+
+# Exported builds
+builds/
+dist/
+
+# Local editor/OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Local secrets and account data
+.env
+data/accounts.json
+

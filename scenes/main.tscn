@@ -1,0 +1,89 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://src/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://src/game/facility_preview.gd" id="2_facility"]
+[ext_resource type="Script" path="res://src/game/player_controller.gd" id="3_player"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
+size = Vector2(8, 8)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
+bg_color = Color(0.015, 0.025, 0.035, 0.88)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.48, 0.47, 0.8)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[node name="Main" type="Node"]
+script = ExtResource("1_main")
+
+[node name="World" type="Node2D" parent="."]
+
+[node name="FacilityPreview" type="Node2D" parent="World"]
+script = ExtResource("2_facility")
+
+[node name="Player" type="CharacterBody2D" parent="World"]
+unique_name_in_owner = true
+position = Vector2(240, 135)
+script = ExtResource("3_player")
+
+[node name="FlashlightVisual" type="Polygon2D" parent="World/Player"]
+z_index = -1
+polygon = PackedVector2Array(0, 0, 64, -22, 64, 22)
+color = Color(0.88, 0.92, 0.68, 0.18)
+
+[node name="BodyVisual" type="Polygon2D" parent="World/Player"]
+polygon = PackedVector2Array(7, 0, -5, -5, -3, 0, -5, 5)
+color = Color(0.25, 0.92, 0.84, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="World/Player"]
+shape = SubResource("RectangleShape2D_player")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="StatusPanel" type="PanelContainer" parent="HUD"]
+offset_left = 8.0
+offset_top = 238.0
+offset_right = 472.0
+offset_bottom = 262.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="StatusLabel" type="Label" parent="HUD/StatusPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.94, 0.88, 1)
+theme_override_font_sizes/font_size = 10
+text = "DEPTH 01   POS 240,135   LAMP ON"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ControlsLabel" type="Label" parent="HUD"]
+offset_left = 10.0
+offset_top = 29.0
+offset_right = 304.0
+offset_bottom = 46.0
+theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
+theme_override_font_sizes/font_size = 8
+text = "WASD MOVE   SHIFT SPRINT   C CROUCH   F LIGHT   ESC PAUSE"
+
+[node name="PauseLabel" type="Label" parent="HUD"]
+unique_name_in_owner = true
+visible = false
+offset_left = 174.0
+offset_top = 113.0
+offset_right = 306.0
+offset_bottom = 158.0
+theme_override_colors/font_color = Color(0.75, 0.96, 0.91, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 24
+text = "PAUSED"
+horizontal_alignment = 1
+vertical_alignment = 1
+
