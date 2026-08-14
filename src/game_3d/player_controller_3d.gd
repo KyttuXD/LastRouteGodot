@@ -1,0 +1,195 @@
+class_name PlayerController3D
+extends CharacterBody3D
+
+## 3D counterpart to src/game/player_controller.gd. Same stamina/lamp/
+## interaction rules (GameConfig is shared, untouched), CharacterBody3D
+## movement on the XZ ground plane instead of CharacterBody2D on XY, and two
+## camera rigs (orthographic top-down, perspective first-person) toggled by
+## the toggle_view input action.
+
+signal flashlight_changed(enabled: bool)
+signal interaction_message(message: String)
+
+const MOUSE_SENSITIVITY := 0.0035
+const CAMERA_HEIGHT := 1.6
+const TOP_DOWN_HEIGHT := 12.0
+const TOP_DOWN_ORTHO_SIZE := 10.0
+
+## Sibling, not a child — the top-down camera must NOT inherit the player's
+## facing rotation (it stays fixed, looking straight down, and only follows
+## position each frame). See _physics_process.
+@onready var top_down_camera: Camera3D = get_node("../TopDownCamera")
+@onready var first_person_camera: Camera3D = $FirstPersonPivot/FirstPersonCamera
+@onready var first_person_pivot: Node3D = $FirstPersonPivot
+@onready var flashlight: SpotLight3D = $FirstPersonPivot/Flashlight
+@onready var body_visual: MeshInstance3D = $BodyVisual
+
+var flashlight_enabled := true
+var stamina := GameConfig.MAX_STAMINA
+var lamp_charge := GameConfig.MAX_LAMP_CHARGE
+var exhausted := false
+var stamina_recovery_delay := 0.0
+var movement_mode := "walk"
+var first_person := false
+
+var _yaw := 0.0
+var _pitch := 0.0
+
+
+func _ready() -> void:
+	flashlight.visible = flashlight_enabled
+	_set_view_mode(false)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if first_person and event is InputEventMouseMotion:
+		_yaw -= event.relative.x * MOUSE_SENSITIVITY
+		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.4, 1.4)
+		rotation.y = _yaw
+		first_person_pivot.rotation.x = _pitch
+
+
+func _physics_process(delta: float) -> void:
+	if Input.is_action_just_pressed("toggle_view"):
+		_set_view_mode(not first_person)
+
+	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var movement_speed := GameConfig.PLAYER_WALK_SPEED
+	var is_moving := input_vector.length_squared() > 0.0
+	var wants_to_sprint := Input.is_action_pressed("sprint") and is_moving and not exhausted
+	var is_sprinting := false
+
+	if Input.is_action_pressed("crouch"):
+		movement_speed = GameConfig.PLAYER_CROUCH_SPEED
+		movement_mode = "crouch"
+	elif wants_to_sprint and stamina > 0.0:
+		movement_speed = GameConfig.PLAYER_SPRINT_SPEED
+		is_sprinting = true
+		movement_mode = "sprint"
+	else:
+		movement_mode = "walk"
+
+	_update_stamina(delta, is_sprinting)
+	_update_lamp(delta, is_sprinting)
+
+	var move_direction: Vector3
+	if first_person:
+		# Relative to facing: forward/back on move_up/move_down, strafe on move_left/move_right.
+		move_direction = (transform.basis * Vector3(input_vector.x, 0.0, input_vector.y)).normalized() if is_moving else Vector3.ZERO
+	else:
+		# Fixed world axes, matching the 2D top-down control scheme.
+		move_direction = Vector3(input_vector.x, 0.0, input_vector.y)
+		if is_moving:
+			rotation.y = atan2(input_vector.x, input_vector.y)
+			_yaw = rotation.y
+
+	# GameConfig's speed constants are px/s at TILE_SIZE=16px per 2D tile;
+	# the 3D world uses 1 tile = 1 meter (see art/props-3d/README.md), so
+	# converting px/s -> tiles/s gives the equivalent m/s.
+	var speed_mps := movement_speed / GameConfig.TILE_SIZE
+	velocity.x = move_direction.x * speed_mps
+	velocity.z = move_direction.z * speed_mps
+	velocity.y = 0.0
+	move_and_slide()
+
+	top_down_camera.global_position = Vector3(global_position.x, TOP_DOWN_HEIGHT, global_position.z)
+
+	if Input.is_action_just_pressed("flashlight"):
+		_set_flashlight(not flashlight_enabled)
+
+	if Input.is_action_just_pressed("interact"):
+		_try_interact()
+
+
+func _set_view_mode(is_first_person: bool) -> void:
+	first_person = is_first_person
+	top_down_camera.current = not first_person
+	first_person_camera.current = first_person
+	body_visual.visible = not first_person
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if first_person else Input.MOUSE_MODE_VISIBLE
+	if not first_person:
+		first_person_pivot.rotation.x = 0.0
+		_pitch = 0.0
+
+
+func _update_stamina(delta: float, is_sprinting: bool) -> void:
+	if is_sprinting:
+		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN * delta)
+		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
+		if stamina <= 0.0:
+			exhausted = true
+		return
+
+	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
+	if stamina_recovery_delay <= 0.0:
+		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
+	if exhausted and stamina >= GameConfig.STAMINA_EXHAUSTED_RECOVERY:
+		exhausted = false
+
+
+func _update_lamp(delta: float, is_sprinting: bool) -> void:
+	if not flashlight_enabled:
+		return
+	var drain := GameConfig.LAMP_IDLE_DRAIN
+	if is_sprinting:
+		drain += GameConfig.LAMP_SPRINT_DRAIN
+	lamp_charge = maxf(0.0, lamp_charge - drain * delta)
+	if lamp_charge <= 0.0:
+		_set_flashlight(false)
+
+
+func _set_flashlight(enabled: bool) -> void:
+	flashlight_enabled = enabled and lamp_charge > 0.0
+	flashlight.visible = flashlight_enabled
+	flashlight_changed.emit(flashlight_enabled)
+
+
+func restore_lamp(amount: float) -> void:
+	lamp_charge = minf(GameConfig.MAX_LAMP_CHARGE, lamp_charge + amount)
+
+
+func restore_at_safe_zone() -> void:
+	stamina = GameConfig.MAX_STAMINA
+	lamp_charge = GameConfig.MAX_LAMP_CHARGE
+	exhausted = false
+
+
+## Mirrors ui-controller.js's inSafeZone battery-color branch — true while
+## standing within a safe zone's rest radius, regardless of whether it has
+## already been activated with [E].
+func is_in_safe_zone() -> bool:
+	var radius_m := GameConfig.SAFE_ZONE_RADIUS / GameConfig.TILE_SIZE
+	for candidate in get_tree().get_nodes_in_group("interactable"):
+		if candidate is RouteInteractable3D and candidate.kind == RouteInteractable3D.Kind.SAFE_ZONE \
+			and global_position.distance_to(candidate.global_position) <= radius_m:
+			return true
+	return false
+
+
+func get_interaction_prompt() -> String:
+	var target := _nearest_interactable()
+	if target == null:
+		return ""
+	var prompt: String = target.get_prompt()
+	return "[E] %s" % prompt if not prompt.is_empty() else ""
+
+
+func _try_interact() -> void:
+	var target := _nearest_interactable()
+	if target == null:
+		interaction_message.emit("Nothing is within reach.")
+		return
+	interaction_message.emit(target.activate(self))
+
+
+func _nearest_interactable() -> RouteInteractable3D:
+	var nearest: RouteInteractable3D = null
+	var nearest_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
+	for candidate in get_tree().get_nodes_in_group("interactable"):
+		if not candidate is RouteInteractable3D:
+			continue
+		var distance := global_position.distance_to(candidate.global_position)
+		if distance <= nearest_distance and not candidate.get_prompt().is_empty():
+			nearest = candidate
+			nearest_distance = distance
+	return nearest

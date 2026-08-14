@@ -12,7 +12,7 @@ The original game (`KyttuXD/LastRoute`) is a dependency-free JavaScript/Canvas p
 
 ## Rewrite in Godot
 
-- Canvas renderer → Node2D/TileMapLayer/Light2D now, **superseded by a Node3D world with a top-down/first-person camera toggle** once the 2D gameplay milestones are further along — see below
+- Canvas renderer → **now a Node3D world with a top-down/first-person camera toggle** (`scenes/main_3d.tscn`, the active default scene); the earlier Node2D/TileMapLayer/Light2D port (`scenes/main.tscn`) still exists and works but is no longer the default — see below
 - procedural maze/A* → generator service plus AStarGrid2D *(generator done; AStarGrid2D pathfinding not yet wired to anything, since there's no hunter AI yet)*
 - player loop → CharacterBody2D controller and gameplay components
 - hunter prototype mixins → hunter scenes with shared and per-identity states
@@ -20,18 +20,33 @@ The original game (`KyttuXD/LastRoute`) is a dependency-free JavaScript/Canvas p
 - browser storage → ConfigFile/Resource saves
 - HTTP polling client → HTTPRequest-based network service
 
-## Decided: rendering architecture is moving to 3D (queued, not started)
+## Decided: rendering architecture is moving to 3D (basic slice playable)
 
-The original's real art (`last-route/assets/environment/*.png`, ~220×220px per tile) is built for its custom fake-3D "2.5D diorama" canvas renderer (`rendering/renderer.js`, 4409 lines: vertically compressed floors, extruded walls, depth-sorted actors, ray-traced light cones). It does not drop into a flat top-down `TileMapLayer` as-is — the pixels are drawn for a specific projection, not orthographic top-down tiles. Character sheets are also large (96×96px/frame, flat 4-directional), authored for that same diorama scale — none of it is being ported into the current 2D renderer.
+The original's real art (`last-route/assets/environment/*.png`, ~220×220px per tile) is built for its custom fake-3D "2.5D diorama" canvas renderer (`rendering/renderer.js`, 4409 lines: vertically compressed floors, extruded walls, depth-sorted actors, ray-traced light cones). It does not drop into a flat top-down `TileMapLayer` as-is — the pixels are drawn for a specific projection, not orthographic top-down tiles. Character sheets are also large (96×96px/frame, flat 4-directional), authored for that same diorama scale — none of it is being ported into the 3D renderer either (it's a placeholder-grey-box stage, see below).
 
-**Confirmed direction:** the project owner is authoring real 3D models and wants an eventual **top-down / first-person camera toggle**. The decided approach is a single `Node3D` world as the source of truth with two camera rigs on it — an orthographic top-down `Camera3D` and a mouselook first-person one — rather than maintaining the current 2D `Node2D` port and a separate 3D scene in parallel (that would mean building every gameplay feature twice, forever). This **supersedes** the old milestone 11 ("XR experiment, decoupled 3D scene") — it's now a planned replacement of the render/control layer, not a side experiment.
+**Confirmed direction:** the project owner is authoring real 3D models and wants a **top-down / first-person camera toggle**. The approach is a single `Node3D` world as the source of truth with two camera rigs on it — an orthographic top-down `Camera3D` and a mouselook first-person one — rather than maintaining the 2D `Node2D` port and a separate 3D scene in parallel (that would mean building every gameplay feature twice, forever). This **supersedes** the old milestone 11 ("XR experiment, decoupled 3D scene") and the original "queue it behind 2D gameplay" sequencing — the project owner asked to start on it directly, so it's now the active track.
 
-**Sequencing (explicitly decided):** this is queued behind the current 2D gameplay milestone track, not started now. Keep shipping milestones 5 onward (hunter AI next) in the existing 2D `Node2D`/`CharacterBody2D` setup. When the 3D milestone is taken up:
+**`project.godot`'s `run/main_scene` now points at `scenes/main_3d.tscn`.** `scenes/main.tscn` (the 2D port) is untouched and still fully functional — nothing was deleted — but it's no longer what runs by default. Switch `run/main_scene` back to `res://scenes/main.tscn` to return to it.
 
-- `src/game/facility_generator.gd` carries over untouched — it already produces plain grid/room/corridor data with zero rendering assumptions baked in (confirmed by design: it feeds a 2D or 3D presentation layer equally).
-- `src/game/facility_view.gd` (the 2D `TileMapLayer` renderer), `player_controller.gd`'s `CharacterBody2D` movement, and the `Control`-based HUD all get rebuilt for 3D — they do not carry over.
-- `art/props-3d/` (grey-box placeholders, scale/pivot convention documented there) is the starting scaffold for real art.
-- Simulation/gameplay logic added between now and then (hunter AI, hiding, etc.) should stay presentation-agnostic where practical, the same way the facility generator does, so it doesn't have to be rewritten a second time for the 3D pass.
+### What's in the 3D slice today
+
+Feature-parity with the 2D slice it replaces, rebuilt for 3D:
+
+- `src/game/facility_generator.gd` carries over **completely untouched** — proof the "presentation-agnostic simulation" design worked. The 3D scene calls the exact same generator the 2D one does.
+- `src/game_3d/facility_view_3d.gd` — a `GridMap` (3D's `TileMapLayer` equivalent) with a runtime-built two-item `MeshLibrary` (placeholder flat-colored floor/wall boxes, physics collision included), painted from the generator's grid. 1 grid cell = 1 meter (matches `art/props-3d/README.md`'s scale convention).
+- `src/game_3d/player_controller_3d.gd` — `CharacterBody3D`, same stamina/lamp math as the 2D controller (`GameConfig` is shared), plus two `Camera3D` rigs toggled by the new `toggle_view` input action (bound to `V`): orthographic top-down (position-only follow, doesn't inherit player facing) and perspective first-person (mouselook yaw/pitch, movement relative to facing). Flashlight is now a real `SpotLight3D`.
+- `src/game_3d/route_interactable_3d.gd` — same `kind`/`activate()` contract as the 2D `RouteInteractable`, rendered as an emissive marker sphere for now.
+- `src/ui/hud.gd` + `scenes/hud.tscn` — **shared as-is** between the 2D and 3D scenes (extracted into its own scene specifically to make this possible; see `src/main.gd`/`src/main_3d.gd` both instancing it). It's pure `Control`/screen-space UI, so it never needed a 3D rewrite.
+- Verified headlessly: facility/player/interactable counts and positions, physical wall collision (a `PhysicsRayQueryParameters3D` raycast confirms the `GridMap`'s collision lines up exactly with the generator's grid boundary), and the camera toggle flipping both cameras' `current` flag and mouse capture mode correctly in both directions.
+
+**Known headless-only artifact:** running the 3D scene under `--headless` prints 14 "`mesh_get_surface_count`... Parameter m is null" errors once, right after the interactables spawn (14 = the interactable count). The error is explicitly scoped to `servers/rendering/dummy/storage` in the engine — the no-GPU stub renderer headless mode falls back to — and is a one-time command-queue timing artifact for procedurally-created meshes, not a logic bug: everything downstream (physics, positions, camera state) verified correct once queried a few frames later. It should not reproduce in the real editor with an actual renderer; if it does, revisit `facility_view_3d.gd`'s `_build_mesh_library()` and `route_interactable_3d.gd`'s runtime mesh construction.
+
+### What's not in the 3D slice yet
+
+- **Real 3D art.** Still flat placeholder colors (GridMap boxes, emissive marker spheres). `art/props-3d/` is the intended scaffold for real imports.
+- **Hunter AI.** Not started in either the 2D or 3D layer. Extensive research is already banked for this (see the hunter AI research summaries from this session) — perception/state-machine, movement/tuning/spawn-placement, and sprite-sheet-layout specs are all gathered and ready to implement against, for whichever presentation layer it's built in.
+- **Themed rooms/props, hiding spots, coins, the heater station** — see "Deferred from milestone 4" below; none of this changed with the 3D move.
+- **A camera-relative HUD nuance:** the interaction/objective HUD text is presentation-agnostic (just strings), but nothing here reads "am I looking at X" for first-person — interaction is still nearest-in-range, same as 2D, not a raycast-from-camera "looking at" check. Worth revisiting once first-person is the primary way people play.
 
 ## Recommended milestones
 
@@ -45,7 +60,7 @@ The original's real art (`last-route/assets/environment/*.png`, ~220×220px per 
 8. **Persistence** — checkpoint and account-facing client calls.
 9. **Co-op** — preserve host-authoritative snapshots against the existing Node server.
 10. **Additional modes** — Hide & Seek and Office Survivor after the core is stable.
-11. **3D rewrite: top-down/first-person camera toggle** *(decided direction, explicitly queued — not started)* — rebuild the render/control layer as a single `Node3D` world with two camera rigs, replacing `facility_view.gd`, the `CharacterBody2D` player controller, and the `Control` HUD. Supersedes the old "XR experiment, decoupled" plan. See "Decided: rendering architecture is moving to 3D" above for what carries over and what doesn't.
+11. **3D rewrite: top-down/first-person camera toggle** *(active — basic slice playable)* — a single `Node3D` world with two camera rigs, replacing `facility_view.gd`, the `CharacterBody2D` player controller (`facility_generator.gd` and the HUD carry over unchanged). `run/main_scene` now points here. Supersedes the old "XR experiment, decoupled" plan. See "Decided: rendering architecture is moving to 3D" above for exactly what's done and what's left — the placeholder-art-to-real-art swap and hunter AI are the big remaining pieces.
 
 ### Deferred from milestone 4
 
