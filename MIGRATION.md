@@ -13,10 +13,10 @@ The original game (`KyttuXD/LastRoute`) is a dependency-free JavaScript/Canvas p
 ## Rewrite in Godot
 
 - Canvas renderer → **now a Node3D world with a top-down/first-person camera toggle** (`scenes/main_3d.tscn`, the active default scene); the earlier Node2D/TileMapLayer/Light2D port (`scenes/main.tscn`) still exists and works but is no longer the default — see below
-- procedural maze/A* → generator service plus AStarGrid2D *(generator done; AStarGrid2D pathfinding not yet wired to anything, since there's no hunter AI yet)*
-- player loop → CharacterBody2D controller and gameplay components
-- hunter prototype mixins → hunter scenes with shared and per-identity states
-- DOM HUD/menu → Control scenes
+- procedural maze/A* → generator service plus AStarGrid2D *(done — `facility_generator.gd`'s `find_path()`, used by hunter_brain.gd)*
+- player loop → CharacterBody2D controller and gameplay components *(3D: CharacterBody3D, see below)*
+- hunter prototype mixins → `hunter_brain.gd`, a presentation-agnostic shared brain, plus a thin per-scene view wrapper *(Dovelle done, see "First hunter" below)*
+- DOM HUD/menu → Control scenes *(HUD done and shared across both presentation layers; a main menu with settings is also done, see below)*
 - browser storage → ConfigFile/Resource saves
 - HTTP polling client → HTTPRequest-based network service
 
@@ -44,9 +44,32 @@ Feature-parity with the 2D slice it replaces, rebuilt for 3D:
 ### What's not in the 3D slice yet
 
 - **Real 3D art.** Still flat placeholder colors (GridMap boxes, emissive marker spheres). `art/props-3d/` is the intended scaffold for real imports.
-- **Hunter AI.** Not started in either the 2D or 3D layer. Extensive research is already banked for this (see the hunter AI research summaries from this session) — perception/state-machine, movement/tuning/spawn-placement, and sprite-sheet-layout specs are all gathered and ready to implement against, for whichever presentation layer it's built in.
+- **The rest of the hunter roster.** Dovelle only — see the "First hunter" section below.
 - **Themed rooms/props, hiding spots, coins, the heater station** — see "Deferred from milestone 4" below; none of this changed with the 3D move.
 - **A camera-relative HUD nuance:** the interaction/objective HUD text is presentation-agnostic (just strings), but nothing here reads "am I looking at X" for first-person — interaction is still nearest-in-range, same as 2D, not a raycast-from-camera "looking at" check. Worth revisiting once first-person is the primary way people play.
+
+## First hunter: Dovelle (shared brain implemented, playable)
+
+Milestone 6 is done for one identity. `src/game/hunter_brain.gd` ports the shared perception/state-machine/movement/capture brain from `hunter-ai.js`, scoped to **Dovelle** — the original's own zero-gimmick baseline (`HUNTER_ABILITIES.dovelle = {}`; her one method, `isBaselineHunter`, is a pure identity check). Built from three parallel research passes (perception/state-machine, movement/tuning/spawn-placement, sprite-sheet layout) banked earlier in this session — see git history for the full specs if extending this to another hunter.
+
+**Presentation-agnostic, like the facility generator.** `hunter_brain.gd` is a `RefCounted` that only knows grid-cell coordinates and calls into `facility_generator.gd` (which gained `find_path()` — an `AStarGrid2D` wrapper, finally wiring up the "generator service plus AStarGrid2D" from the rewrite plan — and `has_line_of_sight()`, a grid-raymarch port of `maze.js`'s `hasLineOfSight`). `src/game_3d/hunter_view_3d.gd` is the only 3D-specific piece: an ~20-line wrapper that reads `brain.position` and converts it to world space. Porting this to the 2D scene later would mean writing an equally small 2D wrapper, not touching the brain at all.
+
+**What's implemented**, matching the original's exact constants and formulas (now in `GameConfig`, `src/config/game_config.gd`):
+
+- Sight (range + line-of-sight, reduced when the player's flashlight is off — `UNLIT_SIGHT_SCALE`) and hearing (outer straight-line gate, then a real pathfind-length gate — walls muffle sound in walking distance, not straight-line distance).
+- States `IDLE → WANDER → (CHASE | INVESTIGATE) → SEARCH → IDLE`, with the exact priority order and timers from the original (0.45s lost-sight grace before dropping out of chase, 3.2s search duration, arrival-triggered transitions).
+- Chase speed scaling by relays collected and depth, stamina drain/winded-slowdown while chasing.
+- Capture is pure proximity (hidden/safe-zone exempt) → the escape struggle (`GameState`, `src/autoload/game_state.gd`): mash `[E]` `ESCAPE_PRESSES` (6) times within `ESCAPE_DURATION` (3.2s). Success knocks the player back, staggers the hunter 3s into a short search, costs a life, and starts a shrinking reuse cooldown (16s × 0.95 per use). Failure (or being caught again while on cooldown) spends a life and respawns at the start with the hunter calmed, or ends the run once out of lives (Standard's 2-life pool — no difficulty selection exists yet, so it's the only pool used).
+- Activation ties to the 3rd relay (`ROUTE_HUNTER_ACTIVATION_SPACING` from the original), matching `facility_generator.gd`'s new `place_hunter_spawn()` (a simplified single-spawn version of `maze.js`'s `placeHunterSpawns`/`pickHunterSpawns`, called on demand — not part of `generate()`, so the validator's contract is unaffected).
+- HUD: a lives readout next to the objective panel, and an escape-struggle overlay (press prompt + progress/time bars) in the shared `hud.gd`/`hud.tscn` — both scenes get it, though only `main_3d.gd` drives it today.
+
+**Verified**, not just written: an isolated `HunterBrain` test exercised every transition (idle→wander with real movement, sight→chase, hearing→investigate with real pathfind-length gating, chase→search→idle on timeout, capture proximity, hidden/safe-zone exemption, stun/`enter_search_from`/`calm_reset`). A full integration run through the real `main_3d.tscn` exercised the entire capture pipeline end to end — including an unplanned second cycle the test surfaced organically: successful escape → grace-protected window → cooldown-gated instant-fail capture → respawn (second-to-last life) → stun window → another cooldown-gated capture → game over at 0 lives — with every transition matching the original's semantics exactly.
+
+**Deliberately out of scope for this pass** (all confirmed no-ops for a solo Dovelle by the research, not silently dropped): multi-hunter separation, lures, temperature/room-power sight modifiers, per-hunter gimmicks, difficulty scaling (fixed at Standard's 1.0 multiplier throughout — no difficulty selection UI exists), and the rest of the 26-hunter roster. A no-game-over-screen-yet gap: `main_3d.gd` currently just shows "GAME OVER" and auto-restarts a fresh run after 3 seconds — a real end screen is a natural pairing with milestone 7 (roster) or the eventual menu/UI pass.
+
+## Main menu (playable)
+
+`scenes/main_menu.tscn` is now `project.godot`'s `run/main_scene` — the game boots into a title screen instead of straight into a run. **PLAY** starts a real solo run (`scenes/main_3d.tscn`). **CREATE ROOM**/**JOIN ROOM** are visibly present (matching the original's real menu) but disabled with a "COMING SOON" caption — milestone 9 (Co-op) is completely unstarted, so there's nothing for them to call; they're not faked. **SETTINGS** opens a same-scene overlay (mirroring the HUD's `MapOverlay` pattern) with a working master-volume slider (real `AudioServer` bus control — no audio content is routed through it yet, but the infrastructure is genuine) and full key-rebinding for every input action, both persisted to `user://settings.cfg` via a new `Settings` autoload (`src/autoload/settings.gd`) that applies them at startup regardless of which scene boots first.
 
 ## Recommended milestones
 
@@ -55,9 +78,9 @@ Feature-parity with the 2D slice it replaces, rebuilt for 3D:
 3. **Static room slice** — collision, movement, camera, flashlight and HUD. *(Complete: collision, movement, stamina, lamp, HUD, and a scrolling camera are playable.)*
 4. **Procedural facility** — deterministic seed, rooms, corridors and A\* movement. *(Structural generation complete: `src/game/facility_generator.gd` faithfully ports maze.js's sector-grid carving, Kruskal-connected 3-wide corridor graph, and seeded relay/battery/safe-zone/service-lift placement, cross-checked bit-exact against the original's PRNG. Themed room types/furniture (maze.js's `ROOM_TYPES`/`populateRooms`, ~50+ prop types) are deliberately deferred — see "Deferred from milestone 4" below. `AStarGrid2D` pathfinding isn't wired up yet since nothing needs to path — that's part of milestone 6.)*
 5. **Last Route loop** — relays, batteries, hiding, safe zone, lift and depth. *(Mostly riding on milestone 4: relay/battery/safe-zone/lift placement and collection, and depth progression via the service lift, are playable. Hiding spots are not — they're props, deferred with the rest of milestone 4's room content.)*
-6. **First hunter** — shared perception/chase state machine plus one identity.
+6. **First hunter** — shared perception/chase state machine plus one identity. *(Done — Dovelle. See "First hunter: Dovelle" above.)*
 7. **Roster** — migrate hunters individually with behavior fixtures.
-8. **Persistence** — checkpoint and account-facing client calls.
+8. **Persistence** — checkpoint and account-facing client calls. *(A slice exists early: Settings' `user://settings.cfg` persists volume/key-bindings. Run/score checkpoint persistence is still unstarted.)*
 9. **Co-op** — preserve host-authoritative snapshots against the existing Node server.
 10. **Additional modes** — Hide & Seek and Office Survivor after the core is stable.
 11. **3D rewrite: top-down/first-person camera toggle** *(active — basic slice playable)* — a single `Node3D` world with two camera rigs, replacing `facility_view.gd`, the `CharacterBody2D` player controller (`facility_generator.gd` and the HUD carry over unchanged). `run/main_scene` now points here. Supersedes the old "XR experiment, decoupled" plan. See "Decided: rendering architecture is moving to 3D" above for exactly what's done and what's left — the placeholder-art-to-real-art swap and hunter AI are the big remaining pieces.
@@ -83,11 +106,11 @@ Checks full-floor reachability from spawn, exact 3-wide corridors, an intact bor
 The first meaningful target was one deterministic floor containing:
 
 - one player — done (movement, stamina, sprint, crouch)
-- one hunter — **not started** (milestone 6)
+- one hunter — **done** (Dovelle: full perception/chase/capture/escape loop, see above)
 - relays — done, procedurally placed (5 on a Standard floor)
 - batteries — done, procedurally placed (7 on a Standard floor)
 - one hiding spot — **not started** (deferred prop content, see above)
 - one safe zone — done, procedurally placed
 - one service lift — done, procedurally placed, gates depth progression
 
-Every piece here is now backed by the real seeded generator rather than a hardcoded test room. The two gaps — a hunter and hiding — are the next two milestones' entire job, not small follow-ups: hunter AI alone is ~1,795 lines in the original (`hunter-ai.js`) before any per-identity behavior.
+Every piece here is now backed by the real seeded generator and a real hunter rather than a hardcoded test room. The remaining gap — hiding — is coupled to the deferred prop/room-content milestone (hiding spots are props), not a small standalone follow-up.

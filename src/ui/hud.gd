@@ -16,6 +16,7 @@ const MESSAGE_DURATION := 2.8
 
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
+@onready var lives_label: Label = %LivesLabel
 @onready var battery_bar: ProgressBar = %BatteryMeter.get_node("Bar")
 @onready var battery_caption: Label = %BatteryMeter.get_node("Caption")
 @onready var stamina_bar: ProgressBar = %StaminaMeter.get_node("Bar")
@@ -24,6 +25,9 @@ const MESSAGE_DURATION := 2.8
 @onready var interaction_label: Label = %InteractionLabel
 @onready var message_label: Label = %MessageLabel
 @onready var map_overlay: Control = %MapOverlay
+@onready var escape_overlay: Control = %EscapeOverlay
+@onready var escape_progress_bar: ProgressBar = %EscapeProgressBar
+@onready var escape_time_bar: ProgressBar = %EscapeTimeBar
 
 var _message_time_left := 0.0
 
@@ -33,9 +37,21 @@ func _process(delta: float) -> void:
 	message_label.visible = _message_time_left > 0.0
 
 
-func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
+func update_objective(depth: int, relays_collected: int, relay_target: int, lives_remaining: int) -> void:
 	depth_label.text = "DEPTH %02d" % depth
 	relay_label.text = "%d/%d SIGNAL RELAYS" % [relays_collected, relay_target]
+	lives_label.text = "LIVES %d" % lives_remaining
+
+
+func set_escape_active(active: bool) -> void:
+	escape_overlay.visible = active
+
+
+func update_escape(progress: int, required: int, remaining: float, duration: float) -> void:
+	escape_progress_bar.max_value = required
+	escape_progress_bar.value = progress
+	escape_time_bar.max_value = duration
+	escape_time_bar.value = remaining
 
 
 func update_battery(charge: float, flashlight_enabled: bool, in_safe_zone: bool, movement_mode: String) -> void:

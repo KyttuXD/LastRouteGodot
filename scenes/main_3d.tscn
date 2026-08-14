@@ -33,6 +33,7 @@ script = ExtResource("1_main")
 environment = SubResource("Environment_dark")
 
 [node name="World" type="Node3D" parent="."]
+unique_name_in_owner = true
 
 [node name="FacilityView" type="Node3D" parent="World"]
 unique_name_in_owner = true

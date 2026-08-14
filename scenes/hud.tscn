@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
 
@@ -28,6 +28,12 @@ bg_color = Color(0.949, 0.733, 0.384, 1)
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_stamina"]
 bg_color = Color(0.561, 0.816, 0.878, 1)
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_escape_progress"]
+bg_color = Color(0.95, 0.85, 0.48, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_escape_time"]
+bg_color = Color(0.902, 0.267, 0.318, 1)
+
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
 
@@ -55,6 +61,13 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.92, 0.9, 1)
 theme_override_font_sizes/font_size = 9
 text = "0/5 SIGNAL RELAYS"
+
+[node name="LivesLabel" type="Label" parent="ObjectivePanel/ObjectiveBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.4, 0.42, 1)
+theme_override_font_sizes/font_size = 9
+text = "LIVES 2"
 
 [node name="MetersPanel" type="PanelContainer" parent="."]
 offset_left = 178.0
@@ -174,6 +187,47 @@ theme_override_colors/font_color = Color(0.68, 0.78, 0.78, 1)
 theme_override_font_sizes/font_size = 10
 text = "CYAN      Signal relay\nYELLOW    Battery\nGREEN     Safe zone\nPURPLE    Service lift\n\nPress M to close"
 horizontal_alignment = 1
+
+[node name="EscapeOverlay" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+offset_left = 150.0
+offset_top = 96.0
+offset_right = 330.0
+offset_bottom = 156.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="EscapeBox" type="VBoxContainer" parent="EscapeOverlay"]
+layout_mode = 2
+theme_override_constants/separation = 5
+alignment = 1
+
+[node name="EscapePrompt" type="Label" parent="EscapeOverlay/EscapeBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.85, 0.48, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 11
+text = "MASH [E] TO BREAK FREE!"
+horizontal_alignment = 1
+
+[node name="EscapeProgressBar" type="ProgressBar" parent="EscapeOverlay/EscapeBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(160, 8)
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_escape_progress")
+
+[node name="EscapeTimeBar" type="ProgressBar" parent="EscapeOverlay/EscapeBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(160, 4)
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_escape_time")
 
 [node name="PauseLabel" type="Label" parent="."]
 unique_name_in_owner = true

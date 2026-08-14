@@ -6,12 +6,13 @@ config_version=5
 [application]
 
 config/name="KYTTU: The Last Route"
-run/main_scene="res://scenes/main_3d.tscn"
+run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.3")
 
 [autoload]
 
 GameState="*res://src/autoload/game_state.gd"
+Settings="*res://src/autoload/settings.gd"
 
 [display]
 

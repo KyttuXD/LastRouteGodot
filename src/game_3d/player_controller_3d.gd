@@ -31,6 +31,12 @@ var exhausted := false
 var stamina_recovery_delay := 0.0
 var movement_mode := "walk"
 var first_person := false
+## Noise emitted this frame by movement, consumed by hunter hearing
+## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
+var noise := 0.0
+## Frozen during the capture/escape struggle (main_3d.gd) — movement and
+## interaction stop, but the scene keeps rendering/ticking around the player.
+var input_frozen := false
 
 var _yaw := 0.0
 var _pitch := 0.0
@@ -50,6 +56,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if input_frozen:
+		velocity = Vector3.ZERO
+		move_and_slide()
+		top_down_camera.global_position = Vector3(global_position.x, TOP_DOWN_HEIGHT, global_position.z)
+		noise = 0.0
+		return
+
 	if Input.is_action_just_pressed("toggle_view"):
 		_set_view_mode(not first_person)
 
@@ -68,6 +81,8 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "sprint"
 	else:
 		movement_mode = "walk"
+
+	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
@@ -146,6 +161,13 @@ func _set_flashlight(enabled: bool) -> void:
 
 func restore_lamp(amount: float) -> void:
 	lamp_charge = minf(GameConfig.MAX_LAMP_CHARGE, lamp_charge + amount)
+
+
+## World position projected onto facility_generator.gd's grid-cell space —
+## valid because the 3D world uses 1 cell = 1 meter with the grid's (x,y)
+## mapped directly onto the XZ ground plane (see facility_view_3d.gd).
+func grid_position() -> Vector2:
+	return Vector2(global_position.x, global_position.z)
 
 
 func restore_at_safe_zone() -> void:

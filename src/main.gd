@@ -32,7 +32,7 @@ func _process(_delta: float) -> void:
 
 
 func _update_hud() -> void:
-	hud.update_objective(GameState.depth, GameState.relays_collected, GameState.relay_target)
+	hud.update_objective(GameState.depth, GameState.relays_collected, GameState.relay_target, GameState.lives_remaining)
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
 

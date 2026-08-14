@@ -60,6 +60,8 @@ var exit_cell: Vector2i
 
 var random: SeededRandom
 
+var _astar: AStarGrid2D
+
 
 func _init(p_seed_text: String, options: Dictionary = {}) -> void:
 	seed_text = p_seed_text
@@ -420,6 +422,53 @@ func can_occupy(x: float, y: float, radius: float = DEFAULT_AGENT_RADIUS, blocke
 	return true
 
 
+## Grid-space A* over the facility, matching maze.js's pathfind(): 8-way,
+## octile heuristic, and diagonal steps rejected unless both flanking
+## orthogonal cells are also open (no corner-cutting through wall corners).
+## Built lazily and cached — safe because a generator's grid never changes
+## after generate() completes.
+func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
+	var astar := _get_astar()
+	if not astar.is_in_boundsv(from_cell) or not astar.is_in_boundsv(to_cell):
+		return []
+	if astar.is_point_solid(from_cell) or astar.is_point_solid(to_cell):
+		return []
+	var path: PackedVector2Array = astar.get_id_path(from_cell, to_cell)
+	var result: Array = []
+	for point in path:
+		result.append(Vector2i(point))
+	return result
+
+
+func _get_astar() -> AStarGrid2D:
+	if _astar == null:
+		_astar = AStarGrid2D.new()
+		_astar.region = Rect2i(0, 0, cols, rows)
+		_astar.cell_size = Vector2(1, 1)
+		_astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+		_astar.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+		_astar.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+		_astar.update()
+		for y in rows:
+			for x in cols:
+				_astar.set_point_solid(Vector2i(x, y), grid[y][x] != 0)
+	return _astar
+
+
+## Grid-raymarch line of sight, matching maze.js's hasLineOfSight(): samples
+## the straight segment at ceil(distance*6) points and rejects on the first
+## sampled point that isn't floor. Walls only — no prop occlusion (matches
+## the original; props aren't ported yet, see MIGRATION.md).
+func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
+	var distance := from.distance_to(to)
+	var steps: int = maxi(1, int(ceil(distance * 6.0)))
+	for i in range(steps + 1):
+		var point := from.lerp(to, float(i) / float(steps))
+		if not is_floor(point.x, point.y):
+			return false
+	return true
+
+
 func floor_cells() -> Array:
 	var cells: Array = []
 	for y in range(1, rows - 1):
@@ -648,6 +697,31 @@ func place_batteries(from_start: Dictionary) -> void:
 			if chosen.size() == battery_count:
 				break
 	batteries = chosen
+
+
+## Not part of generate() — called on demand once a hunter milestone actually
+## needs it (see MIGRATION.md), simplified to ONE spawn from maze.js's
+## placeHunterSpawns (which picks two, for a roster this port doesn't have
+## yet). Reuses the same random stream as relay/battery placement.
+func place_hunter_spawn(from_start: Dictionary) -> Vector2i:
+	var hunter_component := occupiable_component(start, 0.25, get_safe_zone_blocked_cells())
+	var candidates: Array = []
+	for cell in floor_cells():
+		var distance: int = from_start.get(cell, 0)
+		if distance <= 20:
+			continue
+		if not hunter_component.has(cell):
+			continue
+		if not can_occupy(cell.x + 0.5, cell.y + 0.5, 0.25):
+			continue
+		if not _far_from_all(cell, safe_zones, 7.0):
+			continue
+		if Vector2(cell.x - exit_cell.x, cell.y - exit_cell.y).length() <= 4:
+			continue
+		candidates.append(cell)
+	if candidates.is_empty():
+		return exit_cell
+	return candidates[random.next_index(candidates.size())]
 
 
 static func _far_from_all(cell: Vector2i, zones: Array, min_dist: float) -> bool:
