@@ -26,9 +26,9 @@ python3 tools/office/build_office_room.py /tmp/office_room.bbmodel
 python3 tools/office/bbmodel_to_glb.py /tmp/office_room.bbmodel art/props-3d/office
 ```
 
-`--gd` regenerates the floor plan the desk console draws. Pass it whenever a
-room moves, or the console will keep drawing the building's previous shape
-underneath buttons that have already moved.
+`--gd` regenerates the floor plan the desk console draws on its screen. Pass it
+whenever a room moves, or the console keeps showing a building the facility no
+longer is.
 
 ## Checking the result
 
@@ -58,7 +58,7 @@ python3 scripts/check_map_connectivity.py /tmp/office_map.bbmodel
 | `office_layout.py` | Room positions and camera assignments. The one source of truth, and the generator for `src/config/office_layout.gd`. |
 | `room_paint.py` | Procedural pixel-art materials and atlas packing. |
 | `room_kit.py` | `Room` (boxes, groups, UVs), plus `shell`, `corridor`, `recessed_panel`, `louvered_grille`. |
-| `build_office_room.py` | The office: desk, doors, vent, CRT, camera console. |
+| `build_office_room.py` | The office: desk, doors, vent, CRT, and the PREV/NEXT camera console. |
 | `build_camera_rooms.py` | The nine rooms the cameras watch. |
 | `build_merged_map.py` | Places every room, cuts the openings, builds the corridors and junction patches. |
 | `split_office_map.py` | Splits the map into shell and props so dressing can be edited by hand. |

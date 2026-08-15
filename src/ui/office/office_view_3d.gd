@@ -13,7 +13,7 @@ extends SubViewportContainer
 ## and walk the facility, and in real danger while away from it.
 ##
 ## Parts of the world are found BY NAME -- LeftDoor, RightDoor, DeskLamp,
-## MonitorScreen, CamPanelScreen, CamButton1..11 -- which is why the exporter
+## MonitorScreen, CamPanelScreen, CamPrev, CamNext -- which is why the exporter
 ## preserves group names; see scripts/validate_office_rooms.gd.
 
 ## The whole facility, split shell/props, WITH collision -- the player can walk
@@ -35,18 +35,21 @@ const SEAT := Vector3(0.0, 1.40, 2.28)
 ## against, for parity with the 2D view.
 const YAW_LIMIT := 75.0
 
-## How far past the console's edge still counts as pointing at it, in metres.
-## Small: everything INSIDE the panel belongs to some room already.
-const PICK_MARGIN := 0.012
+## How far outside a button's own face still counts as pointing at it, in
+## metres across the console. The two buttons leave a 4.8 cm gap between them,
+## so this stays under half of that and they can never both claim a point --
+## which the validator checks, because the margin that makes near-misses count
+## is exactly what would cause it.
+const PICK_MARGIN := 0.018
 
-## How far the live camera's cap sits into the panel. A latched button that
-## stays down says which feed is up without relying on colour, so the console
-## still reads during a blackout.
-const CAP_TRAVEL := 0.006
+## How far a button sinks when pressed, and for how long. These are momentary
+## switches, not latching ones -- which feed is live is the screen's job to say.
+const BUTTON_TRAVEL := 0.008
+const BUTTON_HOLD := 0.13
 
-const CAP_IDLE := Color(0.16, 0.30, 0.32)
-const CAP_LIVE := Color(0.35, 1.0, 0.92)
-const CAP_DEAD := Color(0.95, 0.28, 0.32)
+const BUTTON_IDLE := Color(0.17, 0.31, 0.33)
+const BUTTON_HOVER := Color(0.55, 0.95, 0.92)
+const BUTTON_DEAD := Color(0.62, 0.24, 0.26)
 
 ## Set false while the monitor is up -- you cannot look around the office with
 ## a tablet in your face. Same contract as OfficeView.can_move.
@@ -78,15 +81,17 @@ var _switch_flash := 0.0
 var _panel: OfficePanel
 var _panel_face: MeshInstance3D
 var _panel_material: StandardMaterial3D
-var _caps := {}                 # camera id -> MeshInstance3D
-var _cap_rest := {}             # camera id -> global position, cap out
-var _cap_local := {}            # camera id -> (right, up) on the console face
-var _cap_materials := {}        # camera id -> StandardMaterial3D
+## "prev" / "next" -> the button's node, its rest position, its rect on the
+## console face, its material, and how long it has left to stay pressed in.
+var _buttons := {}
+var _button_rest := {}
+var _button_rect := {}
+var _button_materials := {}
+var _button_flash := {"prev": 0.0, "next": 0.0}
 var _panel_point := Vector3.ZERO
 var _panel_right := Vector3.RIGHT
 var _panel_up := Vector3.UP
 var _panel_normal := Vector3.BACK
-var _panel_rect := Rect2()
 var _console_ready := false
 var _hovered := ""
 
@@ -228,11 +233,11 @@ func _build_feed() -> void:
 
 func _build_console() -> void:
 	_panel_face = _find(_room, "CamPanelScreen") as MeshInstance3D
-	for index in OfficeConfig.CAMERAS.size():
-		var cap := _find(_room, "CamButton%d" % (index + 1)) as MeshInstance3D
-		if cap != null:
-			_caps[OfficeConfig.CAMERAS[index]] = cap
-	if _panel_face == null or _caps.is_empty():
+	for key in ["prev", "next"]:
+		var button := _find(_room, "Cam%s" % key.capitalize()) as MeshInstance3D
+		if button != null:
+			_buttons[key] = button
+	if _panel_face == null or _buttons.size() < 2:
 		push_warning("OfficeView3D: no camera console in the map")
 		return
 
@@ -245,96 +250,51 @@ func _build_console() -> void:
 	_fit_to_face(_panel_face, _panel_material)
 	_panel_face.material_override = _panel_material
 
-	for cam in _caps:
+	for key in _buttons:
 		var material := StandardMaterial3D.new()
 		material.emission_enabled = true
-		_cap_materials[cam] = material
-		(_caps[cam] as MeshInstance3D).material_override = material
+		_button_materials[key] = material
+		(_buttons[key] as MeshInstance3D).material_override = material
 
 
 ## Measure the console off the model rather than restating its dimensions here.
 ## Runs once the scene has settled, because a global transform read during
 ## _ready is not guaranteed to be final.
 func _measure_console() -> bool:
-	if _panel_face == null or _caps.is_empty():
+	if _panel_face == null or _buttons.size() < 2:
 		return false
 	var basis := _panel_face.global_transform.basis
 	_panel_right = basis.x.normalized()
 	_panel_up = basis.y.normalized()
 	_panel_normal = basis.z.normalized()
 
-	# The caps are coplanar, so their centroid is a point on the plane a finger
-	# would actually touch -- better than the display surface behind them.
+	# The two buttons are coplanar, so their midpoint is a point on the plane a
+	# finger would actually touch -- in front of the board they stand on.
 	var centroid := Vector3.ZERO
-	for cam in _caps:
-		var cap: MeshInstance3D = _caps[cam]
-		_cap_rest[cam] = cap.global_position
-		centroid += cap.global_position
-	_panel_point = centroid / float(_caps.size())
+	for key in _buttons:
+		_button_rest[key] = (_buttons[key] as MeshInstance3D).global_position
+		centroid += _button_rest[key] as Vector3
+	_panel_point = centroid / float(_buttons.size())
 
-	for cam in _caps:
-		_cap_local[cam] = _to_panel(_cap_rest[cam])
-
-	# The drawable area, from the display mesh's own bounds projected onto the
-	# same plane, so the plan fills the glass exactly.
-	var aabb := _panel_face.get_aabb()
-	var xform := _panel_face.global_transform
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for corner in 8:
-		var p := _to_panel(xform * aabb.get_endpoint(corner))
-		lo = lo.min(p)
-		hi = hi.max(p)
-	_panel_rect = Rect2(lo, hi - lo)
-	if _panel_rect.size.x <= 0.0 or _panel_rect.size.y <= 0.0:
-		return false
-
-	_panel.cap_tex = {}
-	for cam in _cap_local:
-		_panel.cap_tex[cam] = _to_texture(_cap_local[cam])
-	_panel.to_tex = _fit_plan()
+	for key in _buttons:
+		var button: MeshInstance3D = _buttons[key]
+		var aabb := button.get_aabb()
+		var xform := button.global_transform
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		for corner in 8:
+			var p := _to_panel(xform * aabb.get_endpoint(corner))
+			lo = lo.min(p)
+			hi = hi.max(p)
+		if hi.x <= lo.x or hi.y <= lo.y:
+			return false
+		_button_rect[key] = Rect2(lo, hi - lo).grow(PICK_MARGIN)
 	return true
 
 
 func _to_panel(point: Vector3) -> Vector2:
 	var d := point - _panel_point
 	return Vector2(d.dot(_panel_right), d.dot(_panel_up))
-
-
-## Console face -> the panel viewport's pixels. The vertical flip is the usual
-## one: the face's local +Y is up, a texture's +Y is down.
-func _to_texture(local: Vector2) -> Vector2:
-	var size := Vector2(OfficePanel.PANEL_SIZE)
-	return Vector2(
-		(local.x - _panel_rect.position.x) / _panel_rect.size.x * size.x,
-		(_panel_rect.end.y - local.y) / _panel_rect.size.y * size.y)
-
-
-## Map metres -> panel pixels, solved from where two pairs of caps physically
-## are. The plan is affine in map coordinates, so the extreme cameras on each
-## axis pin it exactly -- and deriving it means the drawn rooms land under the
-## buttons even if the console is moved or resized in the editor.
-func _fit_plan() -> Transform2D:
-	var by_x := _cap_local.keys()
-	by_x.sort_custom(func(a, b): return _map_xz(a).x < _map_xz(b).x)
-	var by_z := _cap_local.keys()
-	by_z.sort_custom(func(a, b): return _map_xz(a).y < _map_xz(b).y)
-	var xa: String = by_x.front()
-	var xb: String = by_x.back()
-	var za: String = by_z.front()
-	var zb: String = by_z.back()
-	var sx := (_to_texture(_cap_local[xb]).x - _to_texture(_cap_local[xa]).x) \
-		/ maxf(0.001, _map_xz(xb).x - _map_xz(xa).x)
-	var sz := (_to_texture(_cap_local[zb]).y - _to_texture(_cap_local[za]).y) \
-		/ maxf(0.001, _map_xz(zb).y - _map_xz(za).y)
-	return Transform2D(Vector2(sx, 0.0), Vector2(0.0, sz), Vector2(
-		_to_texture(_cap_local[xa]).x - sx * _map_xz(xa).x,
-		_to_texture(_cap_local[za]).y - sz * _map_xz(za).y))
-
-
-func _map_xz(cam: String) -> Vector2:
-	var at: Variant = OfficeLayout.CAMERA_XZ.get(cam, Vector2.ZERO)
-	return at
 
 
 ## Where the player is pointing, in this viewport's pixels. Seated, that is the
@@ -347,43 +307,44 @@ func _aim_point() -> Vector2:
 	return get_local_mouse_position()
 
 
-## Which cap the pointer is over, and where on the console the ray lands.
-## Picking against the console's PLANE rather than each cap's collider is what
-## makes 2.8 cm buttons usable: the nearest cap within PICK_RADIUS wins, so
-## aiming into the gap between two of them still selects one.
-func _pick(aim: Vector2) -> Dictionary:
+## Which button the pointer is over: "prev", "next", or "".
+##
+## Against the console's PLANE rather than each button's collider, so a
+## near-miss past the edge of a button still counts. They are 36 x 11 cm and
+## 4.8 cm apart, which is over 20 pixels of cursor travel apiece -- the
+## eleven-cap floor plan this replaced gave the tightest button 17 pixels and
+## asked you to find it among ten others.
+func _pick(aim: Vector2) -> String:
 	if not _console_ready or _camera == null:
-		return {}
+		return ""
 	var from := _camera.project_ray_origin(aim)
 	var direction := _camera.project_ray_normal(aim)
 	var denominator := direction.dot(_panel_normal)
 	if absf(denominator) < 0.0001:
-		return {}
+		return ""
 	var distance := (_panel_point - from).dot(_panel_normal) / denominator
 	if distance <= 0.0:
-		return {}
+		return ""
 	var local := _to_panel(from + direction * distance)
-	if not _panel_rect.grow(PICK_MARGIN).has_point(local):
-		return {}
-	# The caps PARTITION the console: every point on the glass belongs to the
-	# nearest one, with no dead space between them. Requiring a hit on a cap's
-	# own 2.8 cm face would be hopeless -- the whole console is about 64 x 55
-	# pixels of cursor travel at this project's 480 x 270 base resolution,
-	# because seated the cursor swings the head as well as the ray. Partitioned,
-	# aiming at a region of the building is enough.
-	var best := ""
-	var best_distance := INF
-	for cam in _cap_local:
-		var d: float = local.distance_to(_cap_local[cam])
-		if d < best_distance:
-			best_distance = d
-			best = cam
-	return {"local": local, "cam": best}
+	for key in _button_rect:
+		if (_button_rect[key] as Rect2).has_point(local):
+			return key
+	return ""
 
 
-## Press a cap. Whether the press takes is the simulation's call -- it refuses
-## and says why while the camera bus is down -- so the console cannot show a
-## feed the tablet would not.
+## Step to the camera `delta` places along OfficeConfig.CAMERAS, wrapping.
+## That order is also what the number-key shortcuts use, so pressing NEXT and
+## pressing the next number agree about what comes next.
+func _step(delta: int) -> void:
+	if simulation == null or _panel == null:
+		return
+	_press(_panel.neighbour(delta))
+	_button_flash["next" if delta > 0 else "prev"] = BUTTON_HOLD
+
+
+## Switch the feed. Whether the press takes is the simulation's call -- it
+## refuses and says why while the camera bus is down -- so the console cannot
+## show a feed the tablet would not.
 func _press(cam: String) -> void:
 	if simulation == null or cam.is_empty() or simulation.current_camera == cam:
 		return
@@ -395,14 +356,10 @@ func _process(delta: float) -> void:
 	if not _console_ready and _panel_face != null:
 		_console_ready = _measure_console()
 
-	var hit: Dictionary = _pick(_aim_point()) if can_move else {}
-	_hovered = String(hit.get("cam", ""))
+	_hovered = _pick(_aim_point()) if can_move else ""
 	if _panel != null:
 		_panel.simulation = simulation
 		_panel.hovered = _hovered
-		_panel.pointing = not hit.is_empty()
-		if not hit.is_empty():
-			_panel.pointer = _plan_position(hit["local"])
 
 	_update_seating()
 	_switch_flash = maxf(0.0, _switch_flash - delta * 5.0)
@@ -410,23 +367,16 @@ func _process(delta: float) -> void:
 	_reflect_console(delta)
 
 
-## The pointer's console position expressed back in map metres, so the panel
-## can draw a reticle on its own plan without knowing anything about 3D.
-func _plan_position(local: Vector2) -> Vector2:
-	var tex := _to_texture(local)
-	return _panel.to_tex.affine_inverse() * tex
-
-
 ## Sit and stand with the interact key, and only when close enough to the desk
 ## -- so returning to the office is a deliberate act, not a teleport. Pointing
-## at the console takes priority: the same key presses the button you are
-## looking at, which is why standing up never happens by accident mid-sweep.
+## at the console takes priority: the same key works the button you are looking
+## at, so standing up never happens by accident while cycling feeds.
 func _update_seating() -> void:
 	if _walker == null:
 		return
 	if Input.is_action_just_pressed("interact") and can_move:
 		if not _hovered.is_empty():
-			_press(_hovered)
+			_step(1 if _hovered == "next" else -1)
 		elif _walker.seated:
 			_walker.stand()
 		elif _walker.can_sit():
@@ -438,13 +388,23 @@ func _update_seating() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not can_move or _hovered.is_empty():
+	if not can_move or _hovered.is_empty() or not event is InputEventMouseButton:
 		return
-	if event is InputEventMouseButton:
-		var click := event as InputEventMouseButton
-		if click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
-			_press(_hovered)
-			get_viewport().set_input_as_handled()
+	var click := event as InputEventMouseButton
+	if not click.pressed:
+		return
+	match click.button_index:
+		MOUSE_BUTTON_LEFT:
+			_step(1 if _hovered == "next" else -1)
+		# Scrolling over the console cycles too. With only two buttons the wheel
+		# is the natural way to run down the bank quickly, and it costs nothing.
+		MOUSE_BUTTON_WHEEL_DOWN:
+			_step(1)
+		MOUSE_BUTTON_WHEEL_UP:
+			_step(-1)
+		_:
+			return
+	get_viewport().set_input_as_handled()
 
 
 ## Everything here READS the simulation; nothing writes to it. The sim stays
@@ -481,44 +441,38 @@ func _reflect_simulation() -> void:
 				Color(1.6, 1.7, 1.7), _switch_flash * 0.8)
 
 
-## Cap state, on the two channels a control panel has: what colour it burns,
-## and whether it is latched down. Colour alone would vanish in a blackout,
-## which is exactly when knowing the live feed matters most.
+## Light the two buttons and push one in when it is worked.
+##
+## They carry no feed state of their own -- these are momentary switches, and
+## which camera is live is the screen's job. All they have to say is "you are
+## pointing at me", "I just fired", and "the bus is down so I will do nothing".
 func _reflect_console(delta: float) -> void:
 	if not _console_ready or simulation == null:
 		return
 	var offline := simulation.blackout_timer > 0.0 \
 		or simulation.is_system_disabled("cameras")
-	for cam in _caps:
-		var colour := CAP_IDLE
-		var energy := 0.22
-		if simulation.corrupted_cameras.has(cam):
-			colour = CAP_DEAD
-			energy = 0.85
-		else:
-			var seen: Array = simulation.camera_signals(cam)
-			if not seen.is_empty():
-				colour = simulation.threats[seen[0]]["color"] as Color
-				energy = 0.8
-		if simulation.current_camera == cam:
-			colour = colour.lerp(CAP_LIVE, 0.7)
-			energy = maxf(energy, 1.15)
-		if cam == _hovered:
-			colour = colour.lerp(Color.WHITE, 0.4)
-			energy += 0.35
-		if offline:
-			colour = colour.darkened(0.72)
-			energy *= 0.2
+	for key in _buttons:
+		_button_flash[key] = maxf(0.0, float(_button_flash[key]) - delta)
+		var pressed: bool = _button_flash[key] > 0.0
+		var colour := BUTTON_DEAD if offline else BUTTON_IDLE
+		var energy := 0.2 if offline else 0.3
+		if key == _hovered and not offline:
+			colour = BUTTON_HOVER
+			energy = 0.75
+		if pressed:
+			colour = colour.lerp(Color.WHITE, 0.5)
+			energy += 0.6
 
-		var material: StandardMaterial3D = _cap_materials[cam]
+		var material: StandardMaterial3D = _button_materials[key]
 		material.albedo_color = colour.darkened(0.55)
 		material.emission = colour
 		material.emission_energy_multiplier = energy
 
-		var cap: MeshInstance3D = _caps[cam]
-		var sunk: float = CAP_TRAVEL if simulation.current_camera == cam else 0.0
-		var want: Vector3 = _cap_rest[cam] - _panel_normal * sunk
-		cap.global_position = cap.global_position.lerp(want, clampf(delta * 14.0, 0.0, 1.0))
+		var button: MeshInstance3D = _buttons[key]
+		var sunk: float = BUTTON_TRAVEL if pressed else 0.0
+		var want: Vector3 = (_button_rest[key] as Vector3) - _panel_normal * sunk
+		button.global_position = button.global_position.lerp(
+			want, clampf(delta * 22.0, 0.0, 1.0))
 
 
 func _set_door(door: Node3D, closed: bool) -> void:

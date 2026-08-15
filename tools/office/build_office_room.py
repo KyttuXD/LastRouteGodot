@@ -21,7 +21,6 @@ import sys, os, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from room_kit import Room, recessed_panel, louvered_grille, M
 from room_paint import ALL_MATERIALS, TEAL
-import office_layout as LAY
 
 W, D, H = 6.0, 5.0, 3.0      # room metres: width, depth, height
 T = 0.15                     # wall thickness
@@ -29,26 +28,27 @@ DOOR_W, DOOR_H = 1.1, 2.2    # doorway opening
 VENT_W, VENT_H = 0.8, 0.6
 
 # -- camera console ----------------------------------------------------------
-# The button bank is a MAP: every cap sits where its room actually is, so
-# picking a camera is reading a floor plan rather than remembering which number
-# is which. That is only worth doing now the facility is one connected building
-# the player can walk through.
+# Two big buttons, not eleven small ones. Laying the caps out as a floor plan
+# read beautifully and aimed badly: seated, the cursor swings the head as well
+# as the aiming ray, so the whole console is only about 64 x 55 pixels of
+# cursor travel at this project's 480 x 270 base resolution, and eleven caps
+# inside that are 3.6 cm dots you have to hunt for.
+#
+# The map did not have to go, though -- it just stopped being the thing you
+# aim at. The plan is now a READOUT on the console's screen, showing where the
+# live camera is and where the two buttons will take you, while PREV and NEXT
+# are 36 cm slabs that are hard to miss.
 PANEL_X0, PANEL_X1 = -0.10, 0.74   # across the desk, between monitor and lamp
-# Extent up the board's own tilted face. Sized by the tightest pair of
-# cameras on the plan, not by taste: ARCHIVE and EAST PASSAGE are only 3.5 m
-# apart in a 33 m building, so a shorter board puts their two caps close
-# enough together to be a coin toss to aim between.
-PANEL_V = 0.56
+PANEL_V = 0.56                     # extent up the board's own tilted face
 PANEL_TILT = 34.0                  # degrees back from vertical
-PANEL_MARGIN = 0.055               # board edge -> plan area
 PANEL_FOOT_Y = 0.81                # front-bottom edge, just clear of the desk
 PANEL_FOOT_Z = D / 2 - 0.98
-# Button cap, square. Bounded by the tightest pair on the plan (ARCHIVE and
-# EAST PASSAGE, 4.7 cm apart) -- caps that touch stop reading as separate
-# buttons. Size is cosmetic for aiming: the caps partition the console face
-# between them, so the pointer resolves to the nearest one either way.
-CAP = 0.036
-CAP_RISE = 0.018                   # how far a cap stands off the display
+BEZEL = 0.022                      # frame around the well
+# Height of the button strip along the bottom of the board, measured from the
+# inside of the bezel. Everything above it is screen.
+STRIP = 0.15
+BUTTON_W, BUTTON_H = 0.36, 0.11
+BUTTON_RISE = 0.018                # how far a button stands off the board
 
 
 def _panel_origin():
@@ -65,61 +65,62 @@ def _panel_origin():
 
 def _tilt(oy, oz, dy, dz, th):
     """Authoring-frame offset -> world, matching a group rotation of -tilt
-    about X. A cap's own group rotates it about ITS centre, so its centre has
-    to arrive here already rotated about the console's."""
+    about X. A button's own group rotates it about ITS centre, so its centre
+    has to arrive here already rotated about the console's."""
     return (oy + dy * math.cos(th) + dz * math.sin(th),
             oz - dy * math.sin(th) + dz * math.cos(th))
 
 
 def camera_console(room):
-    """The desk console: a tilted board, a display, and one cap per camera.
+    """The desk console: a tilted board, a screen, and PREV / NEXT.
 
-    Each cap is its own group so it becomes its own glTF node -- that is what
-    lets Godot light them individually and sink the selected one, and what
-    gives the raycast something per-camera to resolve against."""
+    Each button is its own group so it becomes its own glTF node -- that is
+    what lets Godot light them separately, sink one when it is pressed, and
+    give the aiming ray something per-button to resolve against."""
     oy, oz, th = _panel_origin()
-    hu, hv = (PANEL_X1 - PANEL_X0) / 2, PANEL_V / 2
+    hv = PANEL_V / 2
     cx = (PANEL_X0 + PANEL_X1) / 2
 
-    # Body, then a bezel frame standing proud of it, then the display set into
+    # Body, then a bezel frame standing proud of it, then the screen set into
     # the well between them. Each layer overlaps the last by a millimetre;
     # sharing a plane exactly would z-fight along every seam.
     room.add("CamPanel", [
         room.box("CamPanelBody", PANEL_X0, oy - hv, oz - 0.018,
                  PANEL_X1, oy + hv, oz + 0.016, "metal", None, 8),
-        room.box("CamPanelBezelTop", PANEL_X0, oy + hv - 0.022, oz + 0.015,
+        room.box("CamPanelBezelTop", PANEL_X0, oy + hv - BEZEL, oz + 0.015,
                  PANEL_X1, oy + hv, oz + 0.042, "metal", None, 8),
         room.box("CamPanelBezelBot", PANEL_X0, oy - hv, oz + 0.015,
-                 PANEL_X1, oy - hv + 0.022, oz + 0.042, "metal", None, 8),
+                 PANEL_X1, oy - hv + BEZEL, oz + 0.042, "metal", None, 8),
         room.box("CamPanelBezelL", PANEL_X0, oy - hv, oz + 0.015,
-                 PANEL_X0 + 0.022, oy + hv, oz + 0.042, "metal", None, 8),
-        room.box("CamPanelBezelR", PANEL_X1 - 0.022, oy - hv, oz + 0.015,
+                 PANEL_X0 + BEZEL, oy + hv, oz + 0.042, "metal", None, 8),
+        room.box("CamPanelBezelR", PANEL_X1 - BEZEL, oy - hv, oz + 0.015,
                  PANEL_X1, oy + hv, oz + 0.042, "metal", None, 8),
+        # A raised lip between the screen and the buttons, so the two halves of
+        # the console read as separate things rather than one flat face.
+        room.box("CamPanelLedge", PANEL_X0 + BEZEL, oy - hv + BEZEL + STRIP,
+                 oz + 0.015, PANEL_X1 - BEZEL, oy - hv + BEZEL + STRIP + 0.012,
+                 oz + 0.038, "metal", None, 8),
     ], origin=(cx, oy, oz), rotation=(-PANEL_TILT, 0, 0))
 
     # One material on every face, so the mesh's UV bounds are exactly the
-    # display patch and Godot can remap a live viewport onto it -- see the note
+    # screen patch and Godot can remap a live viewport onto it -- see the note
     # in room_kit.recessed_panel.
+    screen_bottom = oy - hv + BEZEL + STRIP + 0.012
     room.add("CamPanelScreen", [
-        room.box("CamPanelFace", PANEL_X0 + 0.022, oy - hv + 0.022, oz + 0.014,
-                 PANEL_X1 - 0.022, oy + hv - 0.022, oz + 0.030, "screen", None, 3)],
+        room.box("CamPanelFace", PANEL_X0 + BEZEL, screen_bottom, oz + 0.014,
+                 PANEL_X1 - BEZEL, oy + hv - BEZEL, oz + 0.030, "screen", None, 3)],
         origin=(cx, oy, oz), rotation=(-PANEL_TILT, 0, 0))
 
-    inner_u = (PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN
-    inner_v = PANEL_V - 2 * PANEL_MARGIN
-    dz = 0.031 + CAP_RISE / 2
+    dz = 0.031 + BUTTON_RISE / 2
+    by, bz = _tilt(oy, oz, -hv + BEZEL + STRIP / 2, dz, th)
     placed = {}
-    for cam in LAY.CAMERAS:
-        u, v = LAY.plan_uv(cam)
-        bx = cx + (u - 0.5) * inner_u
-        dy = (v - 0.5) * inner_v
-        by, bz = _tilt(oy, oz, dy, dz, th)
-        placed[cam] = (bx, by, bz)
-        index = int(cam[3:])
-        room.add(f"CamButton{index}", [
-            room.box(f"CamButton{index}", bx - CAP / 2, by - CAP / 2, bz - CAP_RISE / 2,
-                     bx + CAP / 2, by + CAP / 2, bz + CAP_RISE / 2,
-                     "panel", None, 4)],
+    for name, bx in (("CamPrev", PANEL_X0 + BEZEL + 0.014 + BUTTON_W / 2),
+                     ("CamNext", PANEL_X1 - BEZEL - 0.014 - BUTTON_W / 2)):
+        placed[name] = (bx, by, bz)
+        room.add(name, [
+            room.box(name, bx - BUTTON_W / 2, by - BUTTON_H / 2, bz - BUTTON_RISE / 2,
+                     bx + BUTTON_W / 2, by + BUTTON_H / 2, bz + BUTTON_RISE / 2,
+                     "emissive", None, 4)],
             origin=(bx, by, bz), rotation=(-PANEL_TILT, 0, 0))
     return placed
 
@@ -196,35 +197,36 @@ def build(room, openings=()):
 
 
 def console_problems(room, prefix=""):
-    """Caps that overlap, or that collide with the desk furniture beside them.
+    """The console standing in the desk furniture beside it, or its own
+    buttons off the board.
 
-    The plan is normalised, so a change to the building's shape silently
-    changes the button pitch -- CAM 4 and CAM 5 are only 3.5 m apart in the map
-    and end up under 4 cm apart on the panel. This is the check that turns that
-    into a build failure instead of two caps fused together in-engine."""
+    Props planted inside other props is a mistake this desk has made more than
+    once -- the arcade cabinets in their own doorway, the archive cabinets in
+    theirs -- so the console checks itself rather than waiting to be noticed."""
     problems = []
-    inner_u = (PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN
-    inner_v = PANEL_V - 2 * PANEL_MARGIN
-    # Tested in the UPRIGHT authoring frame, not on the exported boxes. Every
-    # cap is tilted about its own centre by the same rotation, so the world
-    # separation is that rotation applied to the upright one -- and comparing
-    # world-space AABBs instead would quietly let a pair through.
-    flat = {c: (LAY.plan_uv(c)[0] * inner_u, LAY.plan_uv(c)[1] * inner_v)
-            for c in LAY.CAMERAS}
-    names = sorted(flat)
-    for i, a in enumerate(names):
-        for b in names[i + 1:]:
-            if (abs(flat[a][0] - flat[b][0]) < CAP
-                    and abs(flat[a][1] - flat[b][1]) < CAP):
-                problems.append(f"cap {a} overlaps {b}")
+    named = {e["name"]: e for e in room.elements}
+    board = named.get(prefix + "CamPanelBody")
+    for name in (prefix + "CamPrev", prefix + "CamNext"):
+        button = named.get(name)
+        if button is None:
+            problems.append(f"{name} missing")
+        elif board is not None and not (
+                board["from"][0] <= button["from"][0]
+                and button["to"][0] <= board["to"][0]
+                and board["from"][1] <= button["from"][1]
+                and button["to"][1] <= board["to"][1]):
+            problems.append(f"{name} hangs off the console body")
+    prev, nxt = named.get(prefix + "CamPrev"), named.get(prefix + "CamNext")
+    if prev is not None and nxt is not None and prev["to"][0] >= nxt["from"][0]:
+        problems.append("CamPrev and CamNext overlap")
+
     # The console shares the desk with the monitor on one side and the lamp on
-    # the other, and props standing in their own furniture is a mistake this
-    # project has already made more than once.
+    # the other.
     mine = [e for e in room.elements
-            if e["name"].startswith(prefix + "CamButton")
-            or e["name"].startswith(prefix + "CamPanel")]
+            if e["name"].startswith(prefix + "Cam")
+            and not e["name"].startswith(prefix + "Camera")]
     for other in ("MonitorBezelR", "MonitorStand", "LampBase", "LampArm", "LampHead"):
-        oe = next((e for e in room.elements if e["name"] == prefix + other), None)
+        oe = named.get(prefix + other)
         if oe is None:
             continue
         for e in mine:
@@ -243,12 +245,8 @@ def main():
     print(f"wrote {path}\n     + {png}")
     print(f"  room {W}x{D}x{H} m  ({W*M:.0f}x{D*M:.0f}x{H*M:.0f} units at {M:.0f}/m)")
     print(f"  {len(room.elements)} cubes in {len(room.groups)} groups")
-    gap, a, b = LAY.min_cam_spacing((PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN,
-                                    PANEL_V - 2 * PANEL_MARGIN)
-    print(f"  console {PANEL_X1 - PANEL_X0:.2f} x {PANEL_V:.2f} m at {PANEL_TILT:.0f} deg, "
-          f"{len(LAY.CAMERAS)} caps of {CAP * 100:.1f} cm")
-    print(f"  tightest pair {a}/{b}: {gap * 100:.1f} cm apart, "
-          f"{(gap - CAP) * 100:.1f} cm clear")
+    print(f"  console {PANEL_X1 - PANEL_X0:.2f} x {PANEL_V:.2f} m at {PANEL_TILT:.0f} deg")
+    print(f"  buttons PREV/NEXT, {BUTTON_W * 100:.0f} x {BUTTON_H * 100:.0f} cm each")
     if problems:
         print(f"  !! {len(problems)} problems")
         for p in problems[:8]:
