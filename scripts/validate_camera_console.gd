@@ -194,7 +194,21 @@ func _check_reach(view: OfficeView3D) -> int:
 		var tag := "ctrl:%s" % name
 		if not hits.has(tag):
 			failures += _fail("the %s key cannot be aimed at from the seat" % name)
-	print("  keys      %d desk controls, all reachable" % view._keys.size())
+	var seen := {}
+	for name in view._keys:
+		view._hovered = "ctrl:%s" % name
+		var hint: String = view._control_hint()
+		if hint.is_empty():
+			failures += _fail("the %s key says nothing about what it does" % name)
+		elif seen.has(hint):
+			failures += _fail("%s and %s both read '%s'" % [name, seen[hint], hint])
+		else:
+			seen[hint] = name
+		if not view.KEY_FAMILY.has(name):
+			failures += _fail("the %s key has no colour family" % name)
+	view._hovered = ""
+	print("  keys      %d desk controls, all reachable and self-describing"
+		% view._keys.size())
 
 	for key in ["prev", "next"]:
 		# The narrow side of the cursor box a button answers to, in the

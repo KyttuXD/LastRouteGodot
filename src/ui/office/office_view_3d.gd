@@ -112,6 +112,27 @@ const CONTROL_COMMANDS := {
 	"Radio": "cycle_radio", "Breaker": "reset_breaker",
 	"Reboot": "reboot_cameras", "Flash": "trigger_emergency_flash",
 }
+## What each key is called and what working it does, shown on the console
+## screen while the pointer is on it. Nine unlabelled slabs is a puzzle; the
+## keys are 22 cm wide and the art is 12 texels per metre, so a printed legend
+## would be under three texels tall -- the name has to live somewhere it can
+## actually be read.
+const CONTROL_LABELS := {
+	"LeftDoor": "LEFT DOOR", "RightDoor": "RIGHT DOOR",
+	"DeskLight": "DESK LIGHT", "Vent": "VENT HATCH", "Monitor": "CAMERAS",
+	"Radio": "RADIO", "Breaker": "BREAKER RESET", "Reboot": "CAMERA REBOOT",
+	"Flash": "EMERGENCY FLASH",
+}
+## Keys are grouped by colour so the bank reads as three kinds of thing without
+## being hovered: the two doors, the systems that sit on or off, and the
+## one-shot commands that fire and are done.
+const KEY_FAMILY := {
+	"LeftDoor": Color(0.95, 0.62, 0.30), "RightDoor": Color(0.95, 0.62, 0.30),
+	"DeskLight": Color(0.35, 0.85, 0.90), "Vent": Color(0.35, 0.85, 0.90),
+	"Monitor": Color(0.35, 0.85, 0.90),
+	"Radio": Color(0.85, 0.45, 0.55), "Breaker": Color(0.85, 0.45, 0.55),
+	"Reboot": Color(0.85, 0.45, 0.55), "Flash": Color(0.85, 0.45, 0.55),
+}
 var _keys := {}
 var _key_rest := {}
 var _key_rect := {}
@@ -388,6 +409,26 @@ func _aim_point() -> Vector2:
 	return get_local_mouse_position()
 
 
+## What the console screen should say about the key under the pointer -- its
+## name and what working it would do right now, so a control is legible before
+## it is pressed rather than after.
+func _control_hint() -> String:
+	if not _hovered.begins_with("ctrl:") or simulation == null:
+		return ""
+	var name := _hovered.substr(5)
+	var label := String(CONTROL_LABELS.get(name, name.to_upper()))
+	var control := String(CONTROL_KEYS.get(name, ""))
+	if not control.is_empty():
+		if simulation.is_system_disabled(control):
+			return "%s // OFFLINE" % label
+		return "%s // %s" % [label, "ON" if _is_control_on(control) else "OFF"]
+	if name == "Radio":
+		return "%s %d // CYCLE" % [label, simulation.radio_frequency]
+	if name == "Flash" and not simulation.emergency_flash_ready:
+		return "%s // RECHARGING" % label
+	return label
+
+
 ## Which button the pointer is over: "prev", "next", or "".
 ##
 ## Against the console's PLANE rather than each button's collider, so a
@@ -473,7 +514,8 @@ func _process(delta: float) -> void:
 	_hovered = _pick(_aim_point()) if can_move else ""
 	if _panel != null:
 		_panel.simulation = simulation
-		_panel.hovered = _hovered
+		_panel.hovered = _hovered if not _hovered.begins_with("ctrl:") else ""
+		_panel.control_hint = _control_hint()
 
 	_update_seating()
 	_switch_flash = maxf(0.0, _switch_flash - delta * 5.0)
@@ -606,13 +648,16 @@ func _reflect_keys(delta: float, _offline: bool) -> void:
 		var control := String(CONTROL_KEYS.get(name, ""))
 		var latched := not control.is_empty() and _is_control_on(control)
 		var dead := not control.is_empty() and simulation.is_system_disabled(control)
-		var colour := BUTTON_IDLE
-		var energy := 0.28
+		# Dim in its family colour when off, full when on -- so the grouping
+		# survives the state rather than being replaced by it.
+		var family: Color = KEY_FAMILY.get(name, BUTTON_IDLE)
+		var colour := family.darkened(0.55)
+		var energy := 0.3
 		if dead:
 			colour = BUTTON_DEAD
 			energy = 0.2
 		elif latched:
-			colour = CAP_LIVE_KEY
+			colour = family
 			energy = 1.0
 		if ("ctrl:%s" % name) == _hovered and not dead:
 			colour = colour.lerp(Color.WHITE, 0.4)

@@ -44,6 +44,10 @@ const SHORT := {
 var simulation: OfficeSimulation
 ## Which physical button the player is pointing at: "prev", "next", or "".
 var hovered := ""
+## The desk control under the pointer, named and with its current state. The
+## keys themselves are too small to print on, so the screen above them says
+## what the hand is about to work.
+var control_hint := ""
 
 var _canvas: Control
 var _font: Font
@@ -105,6 +109,22 @@ func _draw_console() -> void:
 	_draw_plan(offline)
 	_draw_column("prev", -1, Rect2(4, 24, COLUMN, 114), HORIZONTAL_ALIGNMENT_LEFT, offline)
 	_draw_column("next", 1, Rect2(221, 24, COLUMN, 114), HORIZONTAL_ALIGNMENT_RIGHT, offline)
+	_draw_control_hint()
+
+
+## A strip across the foot of the screen naming the desk key being pointed at.
+## Drawn over everything else because it is momentary and only appears when the
+## pointer is actually on a control.
+func _draw_control_hint() -> void:
+	if control_hint.is_empty():
+		return
+	var band := Rect2(0, PANEL_SIZE.y - 15, PANEL_SIZE.x, 15)
+	_canvas.draw_rect(band, Palette.INSET)
+	_canvas.draw_line(band.position, band.position + Vector2(band.size.x, 0),
+		Palette.AMBER, 1.0)
+	var width := _font.get_string_size(control_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+	_canvas.draw_string(_font, Vector2((PANEL_SIZE.x - width) * 0.5, PANEL_SIZE.y - 4),
+		control_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Palette.AMBER)
 
 
 func _draw_header(offline: bool) -> void:
