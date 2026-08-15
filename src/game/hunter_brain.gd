@@ -32,6 +32,15 @@ var state: State = State.IDLE
 var active := false
 var hunter_id: String
 var gimmick: HunterGimmick
+
+## Changes a gimmick made to the shared world, for the scene above to drain.
+##
+## A hunter who takes a battery off the floor -- Ysolde -- has changed something
+## every player can see, and the brain is presentation-agnostic and knows
+## nothing about peers. So it records what happened and main_3d applies and
+## broadcasts it, the same way it already drains _hunter_report. Same event
+## shape a player's own pickup uses, because it IS the same event.
+var world_events: Array = []
 ## Unit vector she last actually moved along — the equivalent of the
 ## original's per-hunter facingX/facingY, which its beam checks read. Only
 ## updated by real movement, so it persists while she stands still.
@@ -118,6 +127,8 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 		gimmick.before_perception(self, delta, target, generator)
 
 	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
+	if gimmick:
+		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 

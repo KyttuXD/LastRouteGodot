@@ -5,10 +5,12 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 12 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 15 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
-(shapeshifter) and Thessine (see below), plus the three temperature/darkness
+(shapeshifter), Thessine (see below), **Haelith** (relay pursuer), **Ysolde**
+(battery thief) and **Opalie** (relay guardian), plus the three
+temperature/darkness
 hunters that the meters pass unblocked: **Nyxie** (darkness stalker),
 **Solyth** (heat-summoned) and **Wynelle** (cold materializer). See
 `MIGRATION.md`'s "Hunter roster" section for how they're wired.
@@ -110,12 +112,12 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 | Subsystem | Hunters | Count |
 | --- | --- | --- |
 | Hiding spots | Ceryth, Jyvra, Loxelle | 3 |
-| Audio system (positional / mimicked cues) | Haelith, Thessine | 2 |
+| Audio system (positional / mimicked cues) | Haelith (ported; her footstep tell is the missing half), Thessine (ported; her cues change no state) | 0 blocked |
 | Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zephyra (sec.) | 1 (+1 sec.) |
 | Accumulating noise/corruption meter — **BUILT** | Ferryn (also needs player beam-aim), Glyra (also needs a music-box prop) | 2 |
 | Concurrent multi-hunter activation — **BUILT** | Ysolde (sec.) | 1 (sec.) |
 | Exposure/sanity meter — **BUILT** | Aki (also needs player beam-aim) | 1 |
-| Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state), Haelith, Opalie, Ysolde | 4 |
+| Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state) — Haelith, Opalie and Ysolde are **ported** | 1 |
 | Currency/inventory + shop UI | Zephyra | 1 |
 | Player radar/gadget item | Porcelle | 1 |
 | Vent-travel network | Verrine | 1 |
@@ -233,3 +235,40 @@ weights; theirs are not recorded here and are not being guessed at.
 - **intermediate** — ceryth, ferryn, ilyra, mavrine, porcelle, thessine, verrine, xivvy
 - **difficult** — eirys, kathy, ravelle, umbriel, wynelle
 - **special** (never in the random draw; summoned by a rule) — solyth (temperature extreme), nyxie (darkness)
+
+
+## The objective-driven three, and the hook they needed
+
+Haelith, Ysolde and Opalie were the first hunters whose behaviour is about the
+**floor** rather than the player, and all three depend on the generator's
+`collected` flag actually meaning something — which for a long time nothing
+wrote.
+
+They also needed a genuinely new hook. `HunterGimmick.before_perception` runs
+ahead of the shared sight/hearing block, which is right for Kathy (her beam
+*feeds* perception) and wrong for these three: in the original they live in the
+movement block, where they **override** what perception just decided. Ported
+onto `before_perception` first, every one of them became an ordinary chaser the
+moment she laid eyes on anybody. `after_perception` is that call site, and the
+`hunters` check suite is what caught it — by driving a real brain across real
+frames on a real facility rather than confirming the gimmick had been called.
+
+What is deliberately absent, so it is not mistaken for finished:
+
+- **Haelith's footsteps.** In the original they are her whole counter — panned
+  and attenuated so the cue itself carries direction and distance. Without
+  audio she is genuinely harder than she should be, not merely quieter.
+- **Ysolde's torch retaliation**, which fires on a player torch ability that
+  does not exist. She currently has no answer to being confronted.
+- **Opalie's Nightmare pairing** with Briselle, which needs both a difficulty
+  selection and Briselle.
+
+Opalie also brought the first interaction **veto**: a guardian denies
+everything inside her radius — the lift, a battery, a safe zone, not just her
+relay — and testing her pings your position to every active hunter. It is a
+simulation rule checked where the interaction resolves, matching the original's
+`performInteraction` → `guardianBlocking` path, not a renderer effect.
+
+Ysolde brought the first hunter who **changes the shared world**: her theft
+goes out as the same event a player's own pickup does, so a battery stolen on
+the host does not stay glowing on a client.

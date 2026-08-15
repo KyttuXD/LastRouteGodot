@@ -42,6 +42,7 @@ func _ready() -> void:
 	GameState.start_new_run(RoomState.run_seed())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
+	player.interaction_veto = _guardian_blocking
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -135,6 +136,15 @@ func _update_gameplay(delta: float) -> void:
 		view.sync_from_brain()
 		_hunter_report.append({"id": view.name, "at": view.global_position,
 			"facing": view.rotation.y, "active": view.brain.active})
+		# Anything a gimmick did to the floor. Only the host reaches here, which
+		# is what makes it safe to broadcast without a second authority check.
+		for event in view.brain.world_events:
+			facility_view.apply_event(event)
+			_remotes.broadcast_event(event)
+			var note := String(event.get("message", ""))
+			if not note.is_empty():
+				hud.show_message(note)
+		view.brain.world_events.clear()
 		# Wynelle's freeze grace is a second way to lose that isn't a grab:
 		# if it runs out you die where you stand, with no struggle.
 		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
@@ -144,6 +154,29 @@ func _update_gameplay(delta: float) -> void:
 		if captured:
 			_trigger_capture(view)
 			return
+
+
+## Mirrors hunter-ai.js's guardianBlocking(), called from the same place its
+## performInteraction() calls it: a guardian denies EVERYTHING inside her
+## radius, not only the relay she came for -- the lift, a battery, a safe zone.
+## Touching what she guards pings the player's position to every active hunter,
+## which is the cost of testing her.
+func _guardian_blocking(target: RouteInteractable3D) -> String:
+	var at := Vector2(target.source_cell) + Vector2(0.5, 0.5)
+	for view in hunter_views:
+		var gimmick := view.brain.gimmick
+		if not view.brain.active or gimmick == null or not gimmick.has_method("blocks"):
+			continue
+		if not gimmick.call("blocks", at):
+			continue
+		var name := String(HunterRoster.get_identity(view.brain.hunter_id)["display_name"])
+		for ally in hunter_views:
+			if not ally.brain.active:
+				continue
+			ally.brain.enter_search_from(player.grid_position(), 1.8)
+			ally.sync_from_brain()
+		return "%s IS GUARDING THIS // DRAW HER OFF" % name.to_upper()
+	return ""
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:

@@ -26,6 +26,17 @@ func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, 
 	pass
 
 
+## Called after _update_perception() and before movement — the original's
+## line-909 block, where the objective-driven hunters live. The distinction from
+## before_perception is not cosmetic: a hook here OVERRIDES what perception just
+## decided, which is the whole point for a hunter who goes where the relays are
+## rather than where the player is. Haelith, Ysolde and Opalie all need this;
+## running them earlier made every one of them an ordinary chaser the moment she
+## laid eyes on anybody, which is exactly the bug the hunters suite caught.
+func after_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator: FacilityGenerator) -> void:
+	pass
+
+
 ## Multiplies HunterBrain._current_speed()'s computed result. Default: 1.0
 ## (no change).
 func speed_scale(_brain: HunterBrain) -> float:
@@ -82,5 +93,11 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return SolythGimmick.new()
 		"wynelle":
 			return WynelleGimmick.new()
+		"haelith":
+			return HaelithGimmick.new()
+		"ysolde":
+			return YsoldeGimmick.new()
+		"opalie":
+			return OpalieGimmick.new()
 		_:
 			return null

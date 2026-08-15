@@ -245,3 +245,21 @@ const RESPAWN_LIVES_STANDARD := 2
 ## ROUTE_HUNTER_ACTIVATION_SPACING from the original: activationRelay =
 ## min((index+1)*spacing, relayCount), index 0 for the first/only hunter.
 const HUNTER_ACTIVATION_SPACING := 3
+
+
+## Haelith — relay pursuer (hunterAbilities.haelith.relayPursuer). Her only
+## numbers in the original are the audio ones (AUDIBLE_RANGE 9,
+## FOOTSTEP_INTERVAL 0.4), which have nothing to attach to until there is
+## sound, so she has none here.
+
+## Ysolde — battery thief (hunterAbilities.ysolde.batteryThief). torchRange 7
+## is deliberately absent: it gates a retaliation that fires on a player torch
+## ability this port does not have.
+const YSOLDE_STEAL_RANGE := 0.8
+
+## Opalie — relay guardian (hunterAbilities.opalie.relayGuardian). While she
+## holds station, nothing within the suppression radius can be interacted with.
+## The arrival distance is opalie.js's own 0.75 threshold for "close enough to
+## settle", not a tuning choice.
+const OPALIE_SUPPRESSION_RADIUS := 1.5
+const OPALIE_GUARD_ARRIVAL := 0.75

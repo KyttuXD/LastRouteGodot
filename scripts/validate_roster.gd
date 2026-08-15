@@ -64,6 +64,22 @@ func _the_pool_is_real() -> void:
 		_expect(HunterGimmick.for_id(id) != null,
 			"%s is summoned by a rule but has no gimmick to decide it" % id)
 
+	# Every drawn hunter resolves a gimmick, except the two whose difference
+	# really is only tuning. Without this, a gimmick that fails to compile --
+	# a new class_name before an import pass registers it -- leaves for_id()
+	# returning null for everyone, and the whole roster quietly plays Dovelle.
+	const TUNING_ONLY := ["dovelle", "thessine"]
+	var missing: Array[String] = []
+	for id in HunterRoster.IMPLEMENTED_IDS:
+		var has_gimmick := HunterGimmick.for_id(id) != null
+		if TUNING_ONLY.has(id):
+			_expect(not has_gimmick,
+				"%s is listed as tuning-only but resolves a gimmick" % id)
+		elif not has_gimmick:
+			missing.append(id)
+	_expect(missing.is_empty(),
+		"drawn but plays as Dovelle -- no gimmick resolved: %s" % ", ".join(missing))
+
 
 func _the_draw_is_replayable() -> void:
 	for depth in [1, 2, 7]:

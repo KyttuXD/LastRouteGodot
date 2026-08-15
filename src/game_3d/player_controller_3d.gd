@@ -241,11 +241,23 @@ func get_interaction_prompt() -> String:
 	return "[E] %s" % prompt if not prompt.is_empty() else ""
 
 
+## Something on the floor may refuse an interaction outright -- Opalie standing
+## watch over a relay. Set by the scene that owns the hunters; returns the
+## refusal to show, or "" to let it through. A Callable rather than a direct
+## call because the player has no business knowing what a hunter is.
+var interaction_veto: Callable
+
+
 func _try_interact() -> void:
 	var target := _nearest_interactable()
 	if target == null:
 		interaction_message.emit("Nothing is within reach.")
 		return
+	if interaction_veto.is_valid():
+		var refused := String(interaction_veto.call(target))
+		if not refused.is_empty():
+			interaction_message.emit(refused)
+			return
 	interaction_message.emit(target.activate(self))
 
 
