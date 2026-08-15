@@ -647,8 +647,15 @@ func toggle_control(control: String) -> bool:
 	return result
 
 
+## Refuses while the camera bus is down. A blackout or Orange's sabotage takes
+## the whole system out, not just the picture, and this is the rule rather than
+## the tablet's or the console's -- both go through here, so the two physical
+## ways of switching a feed cannot disagree about whether a switch happened.
 func select_camera(camera_id: String) -> bool:
-	if not OfficeConfig.CAMERAS.has(camera_id):
+	if not OfficeConfig.CAMERAS.has(camera_id) or phase != Phase.ACTIVE:
+		return false
+	if blackout_timer > 0.0 or is_system_disabled("cameras"):
+		_announce("CAMERA BUS DOWN // NO FEED TO SWITCH TO")
 		return false
 	current_camera = camera_id
 	return true

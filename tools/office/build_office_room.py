@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""
+Builds the Office Mode room as a Hytale-style Blockbench model.
+
+Shares room_kit/room_paint with the camera-feed rooms so both use one texture
+and geometry pipeline. Unit convention matches the hunter models: 64 units = 1
+metre, floor at Y=0, per art/props-3d/README.md.
+
+Group names are the integration contract -- the Godot side finds parts by name
+to reflect simulation state, unlike the 2D office whose doorway/vent ColorRects
+are static decoration.
+
+Doors are modelled full-height in the CLOSED position with each group's origin
+at the TOP of its opening, so Godot closes them by scaling Y from 0 to 1: a
+roll-down shutter. Sliding a solid door up instead would need 2.2 m of hiding
+space above the opening, and the header is only 0.8 m tall.
+
+    python3 build_office_room.py [out.bbmodel]
+"""
+import sys, os, math
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from room_kit import Room, recessed_panel, louvered_grille, M
+from room_paint import ALL_MATERIALS, TEAL
+import office_layout as LAY
+
+W, D, H = 6.0, 5.0, 3.0      # room metres: width, depth, height
+T = 0.15                     # wall thickness
+DOOR_W, DOOR_H = 1.1, 2.2    # doorway opening
+VENT_W, VENT_H = 0.8, 0.6
+
+# -- camera console ----------------------------------------------------------
+# The button bank is a MAP: every cap sits where its room actually is, so
+# picking a camera is reading a floor plan rather than remembering which number
+# is which. That is only worth doing now the facility is one connected building
+# the player can walk through.
+PANEL_X0, PANEL_X1 = -0.10, 0.74   # across the desk, between monitor and lamp
+# Extent up the board's own tilted face. Sized by the tightest pair of
+# cameras on the plan, not by taste: ARCHIVE and EAST PASSAGE are only 3.5 m
+# apart in a 33 m building, so a shorter board puts their two caps close
+# enough together to be a coin toss to aim between.
+PANEL_V = 0.56
+PANEL_TILT = 34.0                  # degrees back from vertical
+PANEL_MARGIN = 0.055               # board edge -> plan area
+PANEL_FOOT_Y = 0.81                # front-bottom edge, just clear of the desk
+PANEL_FOOT_Z = D / 2 - 0.98
+# Button cap, square. Bounded by the tightest pair on the plan (ARCHIVE and
+# EAST PASSAGE, 4.7 cm apart) -- caps that touch stop reading as separate
+# buttons. Size is cosmetic for aiming: the caps partition the console face
+# between them, so the pointer resolves to the nearest one either way.
+CAP = 0.036
+CAP_RISE = 0.018                   # how far a cap stands off the display
+
+
+def _panel_origin():
+    """Centre of the console's face, and the tilt in radians.
+
+    The board is authored UPRIGHT about this point and tilted by its group
+    rotation, because that is the only rotation the exporter carries into glTF.
+    Everything below therefore works in two frames: the upright authoring frame
+    and the tilted world one."""
+    th = math.radians(PANEL_TILT)
+    return (PANEL_FOOT_Y + (PANEL_V / 2) * math.cos(th),
+            PANEL_FOOT_Z - (PANEL_V / 2) * math.sin(th), th)
+
+
+def _tilt(oy, oz, dy, dz, th):
+    """Authoring-frame offset -> world, matching a group rotation of -tilt
+    about X. A cap's own group rotates it about ITS centre, so its centre has
+    to arrive here already rotated about the console's."""
+    return (oy + dy * math.cos(th) + dz * math.sin(th),
+            oz - dy * math.sin(th) + dz * math.cos(th))
+
+
+def camera_console(room):
+    """The desk console: a tilted board, a display, and one cap per camera.
+
+    Each cap is its own group so it becomes its own glTF node -- that is what
+    lets Godot light them individually and sink the selected one, and what
+    gives the raycast something per-camera to resolve against."""
+    oy, oz, th = _panel_origin()
+    hu, hv = (PANEL_X1 - PANEL_X0) / 2, PANEL_V / 2
+    cx = (PANEL_X0 + PANEL_X1) / 2
+
+    # Body, then a bezel frame standing proud of it, then the display set into
+    # the well between them. Each layer overlaps the last by a millimetre;
+    # sharing a plane exactly would z-fight along every seam.
+    room.add("CamPanel", [
+        room.box("CamPanelBody", PANEL_X0, oy - hv, oz - 0.018,
+                 PANEL_X1, oy + hv, oz + 0.016, "metal", None, 8),
+        room.box("CamPanelBezelTop", PANEL_X0, oy + hv - 0.022, oz + 0.015,
+                 PANEL_X1, oy + hv, oz + 0.042, "metal", None, 8),
+        room.box("CamPanelBezelBot", PANEL_X0, oy - hv, oz + 0.015,
+                 PANEL_X1, oy - hv + 0.022, oz + 0.042, "metal", None, 8),
+        room.box("CamPanelBezelL", PANEL_X0, oy - hv, oz + 0.015,
+                 PANEL_X0 + 0.022, oy + hv, oz + 0.042, "metal", None, 8),
+        room.box("CamPanelBezelR", PANEL_X1 - 0.022, oy - hv, oz + 0.015,
+                 PANEL_X1, oy + hv, oz + 0.042, "metal", None, 8),
+    ], origin=(cx, oy, oz), rotation=(-PANEL_TILT, 0, 0))
+
+    # One material on every face, so the mesh's UV bounds are exactly the
+    # display patch and Godot can remap a live viewport onto it -- see the note
+    # in room_kit.recessed_panel.
+    room.add("CamPanelScreen", [
+        room.box("CamPanelFace", PANEL_X0 + 0.022, oy - hv + 0.022, oz + 0.014,
+                 PANEL_X1 - 0.022, oy + hv - 0.022, oz + 0.030, "screen", None, 3)],
+        origin=(cx, oy, oz), rotation=(-PANEL_TILT, 0, 0))
+
+    inner_u = (PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN
+    inner_v = PANEL_V - 2 * PANEL_MARGIN
+    dz = 0.031 + CAP_RISE / 2
+    placed = {}
+    for cam in LAY.CAMERAS:
+        u, v = LAY.plan_uv(cam)
+        bx = cx + (u - 0.5) * inner_u
+        dy = (v - 0.5) * inner_v
+        by, bz = _tilt(oy, oz, dy, dz, th)
+        placed[cam] = (bx, by, bz)
+        index = int(cam[3:])
+        room.add(f"CamButton{index}", [
+            room.box(f"CamButton{index}", bx - CAP / 2, by - CAP / 2, bz - CAP_RISE / 2,
+                     bx + CAP / 2, by + CAP / 2, bz + CAP_RISE / 2,
+                     "panel", None, 4)],
+            origin=(bx, by, bz), rotation=(-PANEL_TILT, 0, 0))
+    return placed
+
+
+def build(room, openings=()):
+    hw, hd = W / 2, D / 2
+
+    room.add("Floor", [room.box("Floor", -hw, -T, -hd, hw, 0.0, hd,
+                                "wall", {"up": "floor"}, 6)])
+    room.add("Ceiling", [room.box("Ceiling", -hw, H, -hd, hw, H + T, hd,
+                                  "wall", {"down": "ceiling"}, 6)])
+    # The player faces -Z, so the wall behind the desk is the +Z one.
+    room.add("BackWall", [room.box("BackWall", -hw, 0, hd - T, hw, H, hd, "wall", None, 7)])
+    room.add("FrontWall", [room.box("FrontWall", -hw, 0, -hd, hw, H, -hd + T, "wall", None, 7)])
+
+    for side, sx in (("Left", -1), ("Right", 1)):
+        x0, x1 = (-hw, -hw + T) if sx < 0 else (hw - T, hw)
+        dz0, dz1 = -DOOR_W / 2, DOOR_W / 2
+        room.add(f"{side}Wall", [
+            room.box(f"{side}Wall_Front", x0, 0, -hd, x1, H, dz0, "wall", None, 7),
+            room.box(f"{side}Wall_Back", x0, 0, dz1, x1, H, hd, "wall", None, 7),
+            room.box(f"{side}Wall_Above", x0, DOOR_H, dz0, x1, H, dz1, "wall", None, 7),
+        ])
+        # Trim straddles the inner wall face so the opening reads as a real jamb.
+        inner = x1 if sx < 0 else x0
+        tx0, tx1 = inner - 0.03, inner + 0.03
+        room.add(f"{side}DoorFrame", [
+            room.box(f"{side}Jamb_Front", tx0, 0, dz0 - 0.06, tx1, DOOR_H + 0.06, dz0, "metal", None, 8),
+            room.box(f"{side}Jamb_Back", tx0, 0, dz1, tx1, DOOR_H + 0.06, dz1 + 0.06, "metal", None, 8),
+            room.box(f"{side}Lintel", tx0, DOOR_H, dz0 - 0.06, tx1, DOOR_H + 0.06, dz1 + 0.06, "metal", None, 8),
+        ])
+        # Inset into the wall slot so it never z-fights the wall faces.
+        room.add(f"{side}Door", [
+            room.box(f"{side}Door", x0 + 0.02, 0.0, dz0, x1 - 0.02, DOOR_H, dz1,
+                     "metal", {"east": "door", "west": "door"}, 4)
+        ], origin=(inner, DOOR_H, 0))
+
+    # Vent: real angled slats over a dark back plate, so the dark stripes are
+    # depth the camera can look into rather than paint that stays flat.
+    vx = W / 2 - 1.4
+    room.add("VentFrame", [
+        room.box("VentFrame", vx - VENT_W / 2 - 0.06, 2.1 - 0.06, hd - T - 0.03,
+                 vx + VENT_W / 2 + 0.06, 2.1 + VENT_H + 0.06, hd - T, "metal", None, 8)])
+    louvered_grille(room, "Vent", vx - VENT_W / 2, 2.1,
+                    vx + VENT_W / 2, 2.1 + VENT_H, hd - T - 0.10, slats=5)
+
+    room.add("Desk", [
+        room.box("DeskTop", -1.1, 0.72, hd - 1.5, 1.1, 0.80, hd - 0.35, "desk", None, 5),
+        room.box("DeskLegL", -1.05, 0.0, hd - 1.45, -0.9, 0.72, hd - 0.45, "metal", None, 5),
+        room.box("DeskLegR", 0.9, 0.0, hd - 1.45, 1.05, 0.72, hd - 0.45, "metal", None, 5),
+    ])
+    # Off to the player's left, not dead centre. The camera tablet is its own
+    # UI overlay, so this screen is decoration -- centred on the desk it filled
+    # the whole forward view from the seat and hid the room the mode is about.
+    room.add("MonitorStand", [
+        room.box("MonitorStand", -0.72, 0.80, hd - 1.0, -0.48, 0.95, hd - 0.9, "metal", None, 8)])
+    # Screen set behind a raised bezel instead of painted on a slab. It faces
+    # SOUTH: the seat is at +Z looking toward -Z, so the side of the monitor
+    # the player can actually see is its +Z one. Built the default way round,
+    # the recess and the screen's texture rect both ended up on the far side.
+    recessed_panel(room, "Monitor", -1.05, 0.95, -0.15, 1.45, hd - 1.02,
+                   facing="south")
+
+    camera_console(room)
+
+    room.add("DeskLamp", [
+        # Shifted out to the desk's edge to make room for the camera console;
+        # the console needs every centimetre of width it can get.
+        room.box("LampBase", 0.86, 0.80, hd - 1.15, 1.02, 0.86, hd - 0.99, "metal", None, 8),
+        room.box("LampArm", 0.92, 0.86, hd - 1.10, 0.96, 1.20, hd - 1.06, "metal", None, 8),
+        room.box("LampHead", 0.80, 1.20, hd - 1.20, 1.08, 1.30, hd - 0.92, "lamp", None, 4),
+    ])
+    return W, D, H, T
+
+
+def console_problems(room, prefix=""):
+    """Caps that overlap, or that collide with the desk furniture beside them.
+
+    The plan is normalised, so a change to the building's shape silently
+    changes the button pitch -- CAM 4 and CAM 5 are only 3.5 m apart in the map
+    and end up under 4 cm apart on the panel. This is the check that turns that
+    into a build failure instead of two caps fused together in-engine."""
+    problems = []
+    inner_u = (PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN
+    inner_v = PANEL_V - 2 * PANEL_MARGIN
+    # Tested in the UPRIGHT authoring frame, not on the exported boxes. Every
+    # cap is tilted about its own centre by the same rotation, so the world
+    # separation is that rotation applied to the upright one -- and comparing
+    # world-space AABBs instead would quietly let a pair through.
+    flat = {c: (LAY.plan_uv(c)[0] * inner_u, LAY.plan_uv(c)[1] * inner_v)
+            for c in LAY.CAMERAS}
+    names = sorted(flat)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if (abs(flat[a][0] - flat[b][0]) < CAP
+                    and abs(flat[a][1] - flat[b][1]) < CAP):
+                problems.append(f"cap {a} overlaps {b}")
+    # The console shares the desk with the monitor on one side and the lamp on
+    # the other, and props standing in their own furniture is a mistake this
+    # project has already made more than once.
+    mine = [e for e in room.elements
+            if e["name"].startswith(prefix + "CamButton")
+            or e["name"].startswith(prefix + "CamPanel")]
+    for other in ("MonitorBezelR", "MonitorStand", "LampBase", "LampArm", "LampHead"):
+        oe = next((e for e in room.elements if e["name"] == prefix + other), None)
+        if oe is None:
+            continue
+        for e in mine:
+            if all(e["from"][k] < oe["to"][k] and oe["from"][k] < e["to"][k]
+                   for k in range(3)):
+                problems.append(f"{e['name']} intersects {other}")
+    return problems
+
+
+def main():
+    out = sys.argv[1] if len(sys.argv) > 1 else "office_room.bbmodel"
+    room = Room("office_room", TEAL, ALL_MATERIALS, seed=7)
+    build(room)
+    problems = room.check() + console_problems(room)
+    path, png = room.save(out)
+    print(f"wrote {path}\n     + {png}")
+    print(f"  room {W}x{D}x{H} m  ({W*M:.0f}x{D*M:.0f}x{H*M:.0f} units at {M:.0f}/m)")
+    print(f"  {len(room.elements)} cubes in {len(room.groups)} groups")
+    gap, a, b = LAY.min_cam_spacing((PANEL_X1 - PANEL_X0) - 2 * PANEL_MARGIN,
+                                    PANEL_V - 2 * PANEL_MARGIN)
+    print(f"  console {PANEL_X1 - PANEL_X0:.2f} x {PANEL_V:.2f} m at {PANEL_TILT:.0f} deg, "
+          f"{len(LAY.CAMERAS)} caps of {CAP * 100:.1f} cm")
+    print(f"  tightest pair {a}/{b}: {gap * 100:.1f} cm apart, "
+          f"{(gap - CAP) * 100:.1f} cm clear")
+    if problems:
+        print(f"  !! {len(problems)} problems")
+        for p in problems[:8]:
+            print("    ", p)
+        return 1
+    print("  clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

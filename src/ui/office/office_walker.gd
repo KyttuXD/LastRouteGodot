@@ -21,6 +21,11 @@ const MOUSE_SENSITIVITY := 0.0022
 const PITCH_LIMIT := deg_to_rad(85.0)
 ## Sitting back down within this distance of the seat.
 const SIT_RANGE := 1.1
+## Seated look range. Wide enough to reach both doorways (each about 56 deg
+## off centre) and to look down at the desk console, without letting the player
+## spin round to the blank wall behind.
+const SEATED_YAW := 75.0
+const SEATED_PITCH := 28.0
 
 @export var seat_position := Vector3(0.0, 1.40, 2.28)
 @export var eye_height := 1.62
@@ -87,14 +92,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if seated:
-		# Seated look is driven by mouse POSITION, matching the fixed-seat view
-		# it replaces, so the cursor stays free for the control bar.
-		var rect := get_viewport().get_visible_rect().size
-		if rect.x > 0.0 and rect.y > 0.0:
-			var m := get_viewport().get_mouse_position()
-			_yaw = -(clampf((m.x / rect.x) * 2.0 - 1.0, -1.0, 1.0)) * deg_to_rad(75.0)
-			_pitch = -(clampf((m.y / rect.y) * 2.0 - 1.0, -1.0, 1.0)) * deg_to_rad(28.0)
-		_apply_look()
+		aim_seated(get_viewport().get_mouse_position(),
+			get_viewport().get_visible_rect().size)
 		return
 
 	_apply_look()
@@ -111,6 +110,21 @@ func _physics_process(delta: float) -> void:
 	velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
 	velocity.y = 0.0
 	move_and_slide()
+
+
+## Point the seated head at a screen position, in a viewport of size `rect`.
+##
+## Seated look is driven by mouse POSITION rather than captured motion, so the
+## cursor stays free for the control bar. It is a method rather than inline in
+## _physics_process because the head and the desk console's aiming ray are
+## driven by the SAME cursor -- turning to look at a button also swings the ray
+## -- so anything checking whether a button can be aimed at has to be able to
+## reproduce this exactly rather than approximate it.
+func aim_seated(mouse: Vector2, rect: Vector2) -> void:
+	if rect.x > 0.0 and rect.y > 0.0:
+		_yaw = -clampf((mouse.x / rect.x) * 2.0 - 1.0, -1.0, 1.0) * deg_to_rad(SEATED_YAW)
+		_pitch = -clampf((mouse.y / rect.y) * 2.0 - 1.0, -1.0, 1.0) * deg_to_rad(SEATED_PITCH)
+	_apply_look()
 
 
 func _apply_look() -> void:
