@@ -126,6 +126,7 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	if gimmick and not self_summoning:
 		gimmick.before_perception(self, delta, target, generator)
 
+	_update_beam_attention(delta, generator, target)
 	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
@@ -397,6 +398,39 @@ func next_random_index(exclusive_max: int) -> int:
 ## cone checks that differ only in whose facing and which constants they use
 ## (Kathy's search beam today; Aki/Ferryn/Ilyra read the *player's* beam the
 ## same way once player facing is threaded through — see HUNTER_ROSTER.md).
+## How long the PLAYER's beam has been held on this hunter, and the two signals
+## gimmicks read off it. Ported from hunter-ai.js's updateHunterBeamAttention.
+##
+## The distinction the original draws, and the reason this is not just "is she
+## lit": `beam_alerted` is true for every frame the beam stays on target once
+## the dwell completes, while `flash_triggered` is only the RISING EDGE of that
+## — one deliberate flash, not a continuous stream. A gimmick that fired on the
+## former when it meant the latter would retrigger sixty times a second.
+##
+## This is HUNTER_ROSTER.md's "directional flashlight beam-aim" unlock. It sat
+## deferred because it unblocked nothing on its own: Kathy reads her own facing,
+## and everyone who needs the player's was also blocked on a second system.
+## Aki's is now the first gimmick that reads it.
+var beam_attention := 0.0
+var beam_alerted := false
+var flash_triggered := false
+
+
+func _update_beam_attention(delta: float, generator: FacilityGenerator, target: Dictionary) -> void:
+	var facing: Vector2 = target.get("facing", Vector2.ZERO)
+	var lit := bool(target.get("flashlight_on", false)) and beam_reaches(
+		target["position"], facing, position,
+		GameConfig.BEAM_ATTENTION_RANGE, GameConfig.BEAM_ATTENTION_HALF_ANGLE, generator)
+
+	var previous := beam_attention
+	if lit:
+		beam_attention = minf(GameConfig.BEAM_ATTENTION_TIME, previous + delta)
+	else:
+		beam_attention = maxf(0.0, previous - delta * GameConfig.BEAM_ATTENTION_DECAY)
+	beam_alerted = lit and beam_attention >= GameConfig.BEAM_ATTENTION_TIME
+	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME
+
+
 func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator: FacilityGenerator) -> bool:
 	var offset := target - from
 	var distance := offset.length()

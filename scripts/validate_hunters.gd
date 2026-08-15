@@ -32,6 +32,7 @@ func run(_host: Node) -> int:
 	_haelith_goes_where_the_relays_are(generator)
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
+	_aki_answers_a_flash(generator)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -143,3 +144,54 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		"Opalie denies interactions far outside her suppression radius")
 	print("  opalie    settles on a relay and denies %.1f cells around it"
 		% GameConfig.OPALIE_SUPPRESSION_RADIUS)
+
+
+## Aki does nothing until you point a torch at her and HOLD it. The two ways to
+## get her wrong are firing on a beam that merely swept past, and firing on
+## every frame the beam stays on her -- so both are driven here, not asserted
+## about.
+func _aki_answers_a_flash(generator: FacilityGenerator) -> void:
+	var post := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var brain := _brain("aki", post)
+	if brain.gimmick == null:
+		_fail("Aki has no gimmick")
+		return
+	var meters := PlayerMeters.new()
+
+	# Two cells apart, torch aimed straight at her, so line of sight holds.
+	var from := post - Vector2(0.0, 2.0)
+	var lit := _target(from)
+	lit["flashlight_on"] = true
+	lit["facing"] = (post - from).normalized()
+	lit["meters"] = meters
+	var dark := lit.duplicate()
+	dark["flashlight_on"] = false
+
+	# A beam that only brushes her is not a flash.
+	brain.update(STEP, generator, lit, 1, 0)
+	brain.update(STEP, generator, dark, 1, 0)
+	_expect(brain.gimmick.phase == AkiGimmick.Phase.IDLE,
+		"Aki woke on a beam that swept past her, not on a held flash")
+
+	var flashes := 0
+	for i in 120:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashes += 1
+	_expect(flashes == 1,
+		"holding the beam on Aki counted as %d flashes; a held torch is one" % flashes)
+	if brain.gimmick.phase == AkiGimmick.Phase.IDLE:
+		_fail("Aki never woke despite a torch held on her for two seconds")
+		return
+
+	# The fuse, then three bursts five seconds apart.
+	var before := meters.exposure
+	for i in int(GameConfig.AKI_INITIAL_DELAY / STEP) + 2:
+		brain.update(STEP, generator, lit, 1, 0)
+	_expect(meters.exposure > before, "Aki's fuse ran out and nothing happened")
+	for i in int(GameConfig.AKI_BURST_INTERVAL / STEP) * 3 + 8:
+		brain.update(STEP, generator, lit, 1, 0)
+	_expect(brain.gimmick.bursts_remaining == 0 and brain.gimmick.phase == AkiGimmick.Phase.IDLE,
+		"Aki did not settle back to idle after her %d bursts" % GameConfig.AKI_BURST_COUNT)
+	print("  aki       wakes on one held flash, spikes exposure %dx, goes quiet"
+		% GameConfig.AKI_BURST_COUNT)

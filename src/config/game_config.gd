@@ -263,3 +263,21 @@ const YSOLDE_STEAL_RANGE := 0.8
 ## settle", not a tuning choice.
 const OPALIE_SUPPRESSION_RADIUS := 1.5
 const OPALIE_GUARD_ARRIVAL := 0.75
+
+
+## Player beam attention, from TUNING.beamAttentionTime / beamAttentionDecay.
+## How long the player must hold a torch on a hunter before it registers as a
+## deliberate flash, and how fast that dwell bleeds off when the beam moves
+## away. Range and cone are the flashlight's own reach.
+const BEAM_ATTENTION_TIME := 0.35
+const BEAM_ATTENTION_DECAY := 1.6
+const BEAM_ATTENTION_RANGE := 12.0
+const BEAM_ATTENTION_HALF_ANGLE := 0.28
+
+## Aki — phantom exposure (hunterAbilities.aki.phantomExposure). Flashing her
+## starts a fuse, then she spikes exposure to full three times, five seconds
+## apart. The burst amount is aki.js's own addExposure(100).
+const AKI_INITIAL_DELAY := 10.0
+const AKI_BURST_INTERVAL := 5.0
+const AKI_BURST_COUNT := 3
+const AKI_BURST_EXPOSURE := 100.0

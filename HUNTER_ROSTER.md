@@ -5,11 +5,11 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 15 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 16 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Thessine (see below), **Haelith** (relay pursuer), **Ysolde**
-(battery thief) and **Opalie** (relay guardian), plus the three
+(battery thief), **Opalie** (relay guardian) and **Aki** (phantom exposure), plus the three
 temperature/darkness
 hunters that the meters pass unblocked: **Nyxie** (darkness stalker),
 **Solyth** (heat-summoned) and **Wynelle** (cold materializer). See
@@ -80,7 +80,7 @@ once, and both are far cheaper than the big subsystems below.
 | Unlock | Hunters unblocked | What it takes |
 | --- | --- | --- |
 | **Relay/battery collected-state wiring** | up to 6 — Briselle, Haelith, Opalie, Ysolde outright; Solyth, Zephyra partially | `facility_generator.gd` already declares a `"collected": false` key on every relay and battery, but nothing ever writes `true` to it — `interactable.gd`/`route_interactable_3d.gd`'s `activate()` only flips a local `completed` flag on the presentation node and bumps `GameState.relays_collected`. Any hunter reading `generator.relays`/`generator.batteries` today sees everything as uncollected. Fix: have `activate()` also update the matching generator entry. |
-| **Directional flashlight beam-aim detection** | up to 5 — Aki, Ferryn, Ilyra outright; Briselle, Nyxie partially | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quirith. |
+| **Directional flashlight beam-aim detection** — **BUILT** | Aki is **ported**; Ferryn and Ilyra still need a second system each | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quirith. |
 
 A third, trivial gap: **room-at(x, y) lookup**. Rooms carry bounding data but
 there's no point→room query. Never gates anything on its own.
@@ -272,3 +272,53 @@ simulation rule checked where the interaction resolves, matching the original's
 Ysolde brought the first hunter who **changes the shared world**: her theft
 goes out as the same event a player's own pickup does, so a battery stolen on
 the host does not stay glowing on a client.
+
+
+## Beam attention, and what it cost to build
+
+`HunterBrain` now tracks how long the **player's** torch has been held on a
+hunter, and exposes the two signals gimmicks read off it: `beam_alerted` (true
+every frame the beam stays on target once the dwell completes) and
+`flash_triggered` (only the rising edge — one deliberate flash). A gimmick that
+fired on the former when it meant the latter would retrigger sixty times a
+second, and the `hunters` suite drives both cases rather than asserting about
+them.
+
+This was HUNTER_ROSTER.md's second Tier 1 unlock, deferred for a long time
+because it unblocked nothing on its own. **Aki** is the first gimmick to read
+it: she does nothing until you point a torch at her and hold it, then spikes
+your exposure to full three times, five seconds apart.
+
+## Correction: Porcelle is not blocked on a gadget
+
+This plan recorded Porcelle as needing a "player radar/gadget item". She does
+not. The original's dossier is explicit — *"She only shows on the full-screen
+radar map, so tracking her means giving up your view of your surroundings"* —
+and that radar is the **map overlay**, which this port already has on `M`.
+
+What she actually needs is for the map to draw hunters at all, which it does
+not yet. That is a HUD feature, not a gadget, and it is the whole of her
+counterplay: porting her invisibility without it would ship a hunter who cannot
+be seen or found by any means. She is the cheapest remaining hunter once the
+map shows hunters.
+
+## What each of the last ten still needs
+
+| Hunter | Needs |
+| --- | --- |
+| Porcelle | hunters drawn on the map overlay (small) |
+| Ferryn | `emberVeil` scheduler + the noise meter's flash-noise path |
+| Briselle | a sabotaged-relay state on the generator |
+| Glyra | a music-box prop the player winds, in the spawn room |
+| Verrine | a vent network: 4 vents at room centres, player `in_vent` travel |
+| Ilyra | a player stun/incapacitation state |
+| Zephyra | currency, an inventory and a shop UI |
+| Ceryth, Jyvra, Loxelle | **hiding spots** |
+
+Hiding spots are the biggest single unlock at three hunters, and are harder
+here than the plan implies: in the original they are derived from *props*
+(`locker`, `privacyCurtain`, `supplyCrates`) placed by `populateRooms`, which is
+the deferred room-content milestone. Placing spots directly on open cells near
+room walls — the same simplification `place_hunter_spawn()` already makes — is
+the honest way to unblock the three without porting the whole prop catalogue
+first.
