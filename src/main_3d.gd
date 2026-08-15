@@ -27,6 +27,9 @@ var hunter_view: HunterView3D
 var capturing_view: HunterView3D
 var _game_over_timer := 0.0
 var _remotes: RemotePlayers
+## Rebuilt each frame on the host and sent as-is; empty on a client, which
+## never fills it because it never runs a brain.
+var _hunter_report: Array = []
 
 
 func _ready() -> void:
@@ -44,6 +47,7 @@ func _ready() -> void:
 	_remotes = RemotePlayers.new()
 	_remotes.name = "RemotePlayers"
 	_remotes.local_player = player
+	_remotes.hunters_received.connect(_apply_hunters)
 	world.add_child(_remotes)
 	_build_admin()
 	_build_floor()
@@ -71,6 +75,8 @@ func _process(delta: float) -> void:
 	else:
 		_update_gameplay(delta)
 
+	if _remotes != null:
+		_remotes.broadcast_hunters(_hunter_report)
 	if GameState.depth != observed_depth:
 		observed_depth = GameState.depth
 		_build_floor()
@@ -108,9 +114,18 @@ func _update_gameplay(delta: float) -> void:
 		"heater_powered": _heater_state() == RouteInteractable3D.HeaterState.POWERED,
 	}
 
+	# Only the host thinks for the hunters. A client that ran the same brains
+	# would run them against ITS player, so each window would be chased by a
+	# hunter the others cannot see.
+	if not _remotes.simulates():
+		return
+
+	_hunter_report.clear()
 	for view in hunter_views:
 		var captured: bool = view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
 		view.sync_from_brain()
+		_hunter_report.append({"id": view.name, "at": view.global_position,
+			"facing": view.rotation.y, "active": view.brain.active})
 		# Wynelle's freeze grace is a second way to lose that isn't a grab:
 		# if it runs out you die where you stand, with no struggle.
 		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
@@ -245,6 +260,22 @@ func _build_admin() -> void:
 			{"label": "REBUILD FLOOR", "action": _build_floor},
 			{"label": "DESCEND", "action": func() -> void: GameState.descend()},
 		])
+
+
+## Put the host's hunters where the host says they are.
+##
+## Position only. The brains, the capture and the gimmicks all stay on the
+## host -- this is the smallest thing that makes every window agree about where
+## a hunter is standing, which is what has to be true before anything about a
+## shared chase is worth writing.
+func _apply_hunters(data: Array) -> void:
+	for entry in data:
+		for view in hunter_views:
+			if String(view.name) != String(entry["id"]):
+				continue
+			view.global_position = entry["at"]
+			view.rotation.y = entry["facing"]
+			break
 
 
 func _on_abandoned() -> void:

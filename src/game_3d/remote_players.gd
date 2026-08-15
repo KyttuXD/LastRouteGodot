@@ -22,6 +22,9 @@ const SEND_HZ := 20.0
 var local_player: Node3D
 
 var _bodies := {}
+## Peer id -> that body's AnimationPlayer, found once when the body is made
+## rather than walked for every packet.
+var _players := {}
 var _since_send := 0.0
 
 
@@ -37,13 +40,26 @@ func _process(delta: float) -> void:
 	if _since_send < 1.0 / SEND_HZ:
 		return
 	_since_send = 0.0
-	_place.rpc(local_player.global_position, local_player.rotation.y)
+	# The clip name rides along with the position. Everyone wears the same
+	# mannequin, so the clip is all a body needs to move like the player it
+	# belongs to -- and without it a remote player slid around frozen, which
+	# read as a broken model rather than as missing sync.
+	_place.rpc(local_player.global_position, local_player.rotation.y, _local_clip())
 
 
 ## Any peer may tell the others where IT is; nobody may move anyone else. That
 ## is what "call_remote" and the sender check together buy.
+## What the local player's body is doing, in the vocabulary ModelSlot uses.
+## Read from the controller rather than tracked here, so it cannot drift from
+## what the local body is actually playing.
+func _local_clip() -> String:
+	if local_player == null or not local_player.has_method("current_clip"):
+		return "idle"
+	return String(local_player.call("current_clip"))
+
+
 @rpc("any_peer", "call_remote", "unreliable_ordered")
-func _place(at: Vector3, facing: float) -> void:
+func _place(at: Vector3, facing: float, clip: String) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	if id == multiplayer.get_unique_id():
 		return
@@ -55,8 +71,10 @@ func _place(at: Vector3, facing: float) -> void:
 		body.name = "Peer%d" % id
 		add_child(body)
 		_bodies[id] = body
+		_players[id] = ModelSlot.find_animation_player(body)
 	body.global_position = at
 	body.rotation.y = facing
+	ModelSlot.play_if_available(_players.get(id), clip)
 
 
 func _drop(id: int) -> void:
@@ -64,6 +82,37 @@ func _drop(id: int) -> void:
 	if body != null:
 		body.queue_free()
 	_bodies.erase(id)
+	_players.erase(id)
+
+
+## Hunters, from the host only.
+##
+## The brains run in ONE place. They are deterministic given the same inputs,
+## but the biggest input is which player they are chasing -- so every client
+## running its own would have every client chased by a hunter standing
+## somewhere else. The host runs them against the room and says where they
+## ended up.
+##
+## This lives here rather than on the scene root because RPCs need the same
+## node path on every peer, and this node already has one.
+signal hunters_received(data: Array)
+
+
+func broadcast_hunters(data: Array) -> void:
+	if RoomState.online and RoomState.is_host:
+		_hunters.rpc(data)
+
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func _hunters(data: Array) -> void:
+	hunters_received.emit(data)
+
+
+## Whether this peer is allowed to run the simulation at all. Offline it is,
+## because a solo room has no host to defer to and there is no second code path
+## for a solo run.
+func simulates() -> bool:
+	return not RoomState.online or RoomState.is_host
 
 
 func count() -> int:

@@ -57,6 +57,9 @@ var facing := Vector2(0, 1)
 var _yaw := 0.0
 var _pitch := 0.0
 var _animation_player: AnimationPlayer
+## The clip this body is playing, published so remote copies can play the same
+## one. Set where the local body is told to play, so the two cannot disagree.
+var _clip := "idle"
 
 
 func _ready() -> void:
@@ -85,7 +88,8 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		move_and_slide()
 		noise = 0.0
-		ModelSlot.play_if_available(_animation_player, "idle")
+		_clip = "idle"
+		ModelSlot.play_if_available(_animation_player, _clip)
 		return
 
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -117,7 +121,8 @@ func _physics_process(delta: float) -> void:
 
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
-	ModelSlot.play_if_available(_animation_player, movement_mode if is_moving else "idle")
+	_clip = movement_mode if is_moving else "idle"
+	ModelSlot.play_if_available(_animation_player, _clip)
 
 	var move_direction: Vector3
 	# Movement is camera-relative: forward is where you are looking.
@@ -154,6 +159,11 @@ func _physics_process(delta: float) -> void:
 
 ## First person is the only view. The body is hidden because you are inside it,
 ## and the mouse is captured because the camera is aimed with it.
+## What this body is playing, for RemotePlayers to send on.
+func current_clip() -> String:
+	return _clip
+
+
 func _enter_first_person() -> void:
 	first_person_camera.current = true
 	body_visual.visible = false
