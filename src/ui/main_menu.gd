@@ -7,14 +7,17 @@ extends Control
 ## transport attached, so the route a run takes to start is already the route a
 ## multiplayer run will take -- see src/autoload/room_state.gd.
 ##
-## That is what makes PLAY and OFFICE MODE becoming CREATE ROOM and JOIN ROOM
-## a rename rather than a rewrite. CREATE ROOM is live now for the same reason:
-## opening a room never needed a backend, only having someone else JOIN one
-## does, so JOIN is the single button still waiting on milestone 9.
+## That is what makes PLAY becoming CREATE ROOM a rename rather than a rewrite
+## when there is a backend to join through.
+##
+## There is ONE way in. Office Mode is not a second front door -- it is a mode,
+## picked in staging alongside DEFAULT and HIDE & SEEK, so the place you choose
+## what to play is the place that shows you all of it. CREATE ROOM and JOIN
+## ROOM are absent for the same reason: PLAY already opens a room, and a second
+## button doing the same thing beside a third that cannot work is three
+## questions where there was none.
 
 @onready var play_button: Button = %PlayButton
-@onready var office_button: Button = %OfficeButton
-@onready var create_room_button: Button = %CreateRoomButton
 @onready var settings_button: Button = %SettingsButton
 @onready var quit_button: Button = %QuitButton
 @onready var settings_overlay: SettingsPanel = %SettingsOverlay
@@ -26,8 +29,6 @@ func _ready() -> void:
 	MouseLock.release_all()
 	_apply_palette()
 	play_button.pressed.connect(_on_play_pressed)
-	office_button.pressed.connect(_on_office_pressed)
-	create_room_button.pressed.connect(_on_create_room_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
 
@@ -53,23 +54,15 @@ func _apply_palette() -> void:
 		panel.add_theme_stylebox_override("panel", Palette.panel_box())
 	# PLAY and OFFICE MODE are the two things you can actually do, so they are
 	# the primaries; everything else is secondary or waiting on a backend.
-	for path in ["ButtonPanel/ButtonBox/PlayButton", "ButtonPanel/ButtonBox/OfficeButton"]:
+	for path in ["ButtonPanel/ButtonBox/PlayButton"]:
 		var button := get_node_or_null(path) as Button
 		if button != null:
 			Palette.style_button(button, true)
-	for path in ["ButtonPanel/ButtonBox/CreateRoomButton",
-			"ButtonPanel/ButtonBox/JoinRoomButton",
-			"ButtonPanel/ButtonBox/SettingsButton",
+	for path in ["ButtonPanel/ButtonBox/SettingsButton",
 			"ButtonPanel/ButtonBox/QuitButton"]:
 		var button := get_node_or_null(path) as Button
 		if button != null:
 			Palette.style_button(button, false)
-	for path in ["ButtonPanel/ButtonBox/OfficeCaption",
-			"ButtonPanel/ButtonBox/CreateRoomCaption",
-			"ButtonPanel/ButtonBox/JoinRoomCaption"]:
-		var caption := get_node_or_null(path) as Label
-		if caption != null:
-			caption.add_theme_color_override("font_color", Palette.MUTED)
 
 
 ## Both play buttons open a ROOM now, rather than a scene.
@@ -80,21 +73,6 @@ func _apply_palette() -> void:
 ## nothing past this point changes: a joined room fills the same fields from
 ## the host instead of from create_local.
 func _on_play_pressed() -> void:
-	RoomState.create_local(RoomState.Mode.DEFAULT)
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
-
-
-## Office Mode is a separate, self-contained shift — it shares no state with a
-## Last Route run (see MIGRATION.md) — but it still stages through a room, so
-## there is one way into the game rather than two.
-func _on_office_pressed() -> void:
-	RoomState.create_local(RoomState.Mode.OFFICE)
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
-
-
-## CREATE ROOM does exactly what PLAY does. It is enabled now because opening
-## a room never needed a backend -- only having someone else JOIN one does.
-func _on_create_room_pressed() -> void:
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
 

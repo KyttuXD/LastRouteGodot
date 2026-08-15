@@ -194,66 +194,22 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
 
 [node name="ButtonBox" type="VBoxContainer" parent="ButtonPanel"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 2
 
 [node name="PlayButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 unique_name_in_owner = true
 layout_mode = 2
 text = "PLAY"
 
-[node name="OfficeButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "A separate FNAF-style desk shift against ten Void signals."
-text = "OFFICE MODE"
-
-[node name="OfficeCaption" type="Label" parent="ButtonPanel/ButtonBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.45, 0.6, 0.62, 1)
-theme_override_font_sizes/font_size = 6
-text = "SEPARATE MODE — TEN VOID SIGNALS, NOT THE HUNTER ROSTER"
-
-[node name="CreateRoomButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Open a room. Solo until there is a backend to invite anyone through."
-text = "CREATE ROOM"
-
-[node name="CreateRoomCaption" type="Label" parent="ButtonPanel/ButtonBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.8, 0.62, 0.38, 0.9)
-theme_override_font_sizes/font_size = 7
-text = "SOLO FOR NOW — NO BACKEND TO INVITE THROUGH"
-horizontal_alignment = 1
-autowrap_mode = 2
-
-[node name="JoinRoomButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Multiplayer isn't implemented yet."
-disabled = true
-text = "JOIN ROOM"
-
-[node name="JoinRoomCaption" type="Label" parent="ButtonPanel/ButtonBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.8, 0.62, 0.38, 0.9)
-theme_override_font_sizes/font_size = 7
-text = "COMING SOON — NO MULTIPLAYER BACKEND YET"
-horizontal_alignment = 1
-autowrap_mode = 2
-
 [node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 unique_name_in_owner = true
 layout_mode = 2
 text = "SETTINGS"
 
 [node name="QuitButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 unique_name_in_owner = true
 layout_mode = 2
 text = "QUIT"

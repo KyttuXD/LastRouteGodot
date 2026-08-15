@@ -58,6 +58,11 @@ const ANCHORED := {
 		"ButtonPanel": ["hcentre", "vcentre"],
 		"SettingsOverlay": ["hcentre", "vcentre"],
 	},
+	# Staging is built in code and grows with the room, so it is exactly the
+	# screen most likely to push its own start button off the bottom.
+	"res://scenes/room_lobby.tscn": {
+		"StagingPanel": ["hcentre", "vcentre"],
+	},
 	"res://scenes/office_3d.tscn": {
 		"TopBar": ["left", "right", "top"],
 		"SystemsLabel": ["left", "top"],

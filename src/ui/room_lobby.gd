@@ -14,6 +14,8 @@ extends Control
 ## a transport arrives.
 
 const ROW_HEIGHT := 13
+## Clear space left between the staging panel and the edge of the screen.
+const MARGIN_Y := 10
 
 
 func _ready() -> void:
@@ -33,6 +35,7 @@ func _rebuild() -> void:
 	add_child(background)
 
 	var panel := PanelContainer.new()
+	panel.name = "StagingPanel"
 	panel.add_theme_stylebox_override("panel", Palette.panel_box(Palette.PANEL,
 		Palette.PANEL_EDGE, 12))
 	panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -40,13 +43,28 @@ func _rebuild() -> void:
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	panel.offset_left = -190
 	panel.offset_right = 190
-	panel.offset_top = -118
-	panel.offset_bottom = 118
+	# Bounded to the viewport with a real margin rather than sized by its
+	# content. Staging grows -- more players, more config -- and a panel that
+	# sizes itself pushes ENTER ROUTE off the bottom of the screen, which is
+	# the one button that has to be reachable.
+	panel.offset_top = MARGIN_Y
+	panel.offset_bottom = -MARGIN_Y
+	panel.anchor_top = 0.0
+	panel.anchor_bottom = 1.0
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	add_child(panel)
+
+	# ...and scrolls if it still does not fit, so nothing is ever simply
+	# unreachable on a short window.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.add_child(scroll)
 
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 5)
-	panel.add_child(column)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
 
 	var header := HBoxContainer.new()
 	column.add_child(header)
