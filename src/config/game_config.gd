@@ -304,3 +304,10 @@ const LOXELLE_BREAK_STALL := 10.0
 ## Ceryth — hiding trap (hunterAbilities.ceryth.hidingTrap). lockSeconds is her
 ## own plan's fallback of 30.
 const CERYTH_LOCK_SECONDS := 30.0
+
+## Briselle — room-entry relay sabotage (hunterAbilities.briselle.saboteur).
+## dwell is her plan's own value; RELAY_RESECURE_SECONDS is TUNING's
+## relayResecureSeconds fallback (2.6), the hold time to bring one back online.
+const BRISELLE_ROOM_CHANCE := 0.5
+const BRISELLE_SABOTAGE_DWELL := 5.0
+const RELAY_RESECURE_SECONDS := 2.6

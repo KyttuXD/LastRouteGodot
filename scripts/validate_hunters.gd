@@ -45,6 +45,7 @@ func run(_host: Node) -> int:
 	await _hiding_spots_and_jyvra(_host)
 	await _loxelle_burns_and_regrows(_host)
 	await _ceryth_traps_and_disperses(_host)
+	await _briselle_sabotages_and_resecures(_host)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -453,4 +454,90 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 		"Ceryth is dispersed but still drawn in the room")
 
 	print("  ceryth    stakes one spot forever, locks a wrong answer, disperses on a right one")
+	scene.queue_free()
+
+
+## Briselle takes a collected relay offline without un-collecting it -- the
+## lift gate has to notice (relays_sabotaged, not relays_collected), the
+## interactable has to come back into view to be worked, and holding [E]
+## there has to actually restore it. Driven through the real scene because
+## "the gimmick sets sabotaged=true" is exactly the check that passes while
+## the lift, the prompt and GameState's own count all still disagree with it.
+func _briselle_sabotages_and_resecures(host: Node) -> void:
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test Briselle against")
+		scene.queue_free()
+		return
+
+	# Room-interior specifically, not just "a" relay: a relay in a corridor has
+	# no room for Briselle's room-entry check to ever find (room_at() returns
+	# {} there, same reason a corridor hiding spot stumped Loxelle's own
+	# check once) -- she is not broken by that, there is just nothing to
+	# assert about her in a scenario her gimmick was never meant to act in.
+	var relay_cell := Vector2i(-1, -1)
+	for relay in generator.relays:
+		var cell := Vector2i(relay["x"], relay["y"])
+		if not generator.room_at(cell.x + 0.5, cell.y + 0.5).is_empty():
+			relay_cell = cell
+			break
+	if relay_cell.x < 0:
+		_fail("no room-interior relay on the live floor to test Briselle against")
+		scene.queue_free()
+		return
+	# Collect it for real, through the real interactable, so relays_collected
+	# and the interactable's own completed flag start where Briselle expects.
+	var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+	if relay_node == null:
+		_fail("no interactable at the first relay's cell")
+		scene.queue_free()
+		return
+	relay_node.activate(scene.player)
+	_expect(GameState.relays_collected == 1, "collecting the relay did not register")
+
+	var brain := _brain("briselle", Vector2(relay_cell) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Briselle has no gimmick")
+		scene.queue_free()
+		return
+	var target := _target(Vector2(relay_cell) + Vector2(0.5, 0.5))
+	target["hidden"] = true  # see Loxelle's own note: otherwise she locks CHASE at distance 0
+
+	var sabotaged := false
+	for i in int((GameConfig.BRISELLE_SABOTAGE_DWELL + 10.0) / STEP):
+		brain.update(STEP, generator, target, 1, 0)
+		for event in brain.world_events:
+			if event.get("what") == "sabotage" and event.get("cell") == relay_cell:
+				sabotaged = true
+		brain.world_events.clear()
+		if sabotaged:
+			break
+	if not sabotaged:
+		_fail("Briselle never sabotaged the collected relay she was standing next to")
+		scene.queue_free()
+		return
+
+	# The event has to actually reach the interactable and GameState, the way
+	# main_3d's drain loop would apply it -- not asserted about, applied.
+	scene.facility_view.apply_event({"what": "sabotage", "cell": relay_cell, "sabotaged": true})
+	_expect(relay_node.sabotaged, "the sabotage event never reached the relay's own interactable")
+	_expect(GameState.relays_sabotaged == 1,
+		"GameState does not know a relay is offline")
+	_expect(scene.facility_view.hiding_spot_at(relay_cell) == null,  # sanity: still a relay, not a locker
+		"setup sanity check failed")
+	var lift: RouteInteractable3D = scene.facility_view._at(generator.exit_cell, RouteInteractable3D.Kind.LIFT)
+	_expect(lift != null and not lift.get_prompt().is_empty(),
+		"the lift has no complaint to make while a relay is offline")
+	_expect(not relay_node.get_prompt().is_empty(),
+		"a sabotaged relay offers no way to restore it")
+
+	var restore_message := relay_node.set_sabotaged(false)
+	_expect(not relay_node.sabotaged, "set_sabotaged(false) did not clear the flag")
+	_expect(GameState.relays_sabotaged == 0, "restoring the relay left GameState's count off")
+	_expect(not restore_message.is_empty(), "restoring a relay produced no message for the player")
+
+	print("  briselle  takes a collected relay offline, blocks the lift, and can be restored")
 	scene.queue_free()

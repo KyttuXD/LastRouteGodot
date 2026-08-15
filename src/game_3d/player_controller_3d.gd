@@ -252,6 +252,7 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("flashlight") and not flashlight_seized():
 		_set_flashlight(not flashlight_enabled)
 
+	_update_resecure(delta)
 	if Input.is_action_just_pressed("interact"):
 		_try_interact()
 
@@ -348,6 +349,9 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	var percent := resecure_percent()
+	if percent >= 0:
+		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target == null:
 		return ""
@@ -367,12 +371,56 @@ func _try_interact() -> void:
 	if target == null:
 		interaction_message.emit("Nothing is within reach.")
 		return
+	# A sabotaged relay is worked entirely through the hold in
+	# _update_resecure() -- a single press would just bounce off activate()'s
+	# "already collected" case, which is technically true but not what a
+	# HOLD prompt told the player to do.
+	if target.kind == RouteInteractable3D.Kind.RELAY and target.sabotaged:
+		return
 	if interaction_veto.is_valid():
 		var refused := String(interaction_veto.call(target))
 		if not refused.is_empty():
 			interaction_message.emit(refused)
 			return
 	interaction_message.emit(target.activate(self))
+
+
+## Briselle's counter: hold [E] near a relay she has sabotaged for
+## RELAY_RESECURE_SECONDS to bring it back online. Continuous, not
+## edge-triggered like _try_interact -- matches the original's own hold-to-
+## restore, and unlike a single press this has visible progress to show.
+var _resecure_target: RouteInteractable3D
+var _resecure_progress := 0.0
+
+
+func _update_resecure(delta: float) -> void:
+	var target := _nearest_interactable()
+	var is_sabotaged_relay := target != null and target.kind == RouteInteractable3D.Kind.RELAY \
+		and target.sabotaged
+	if not is_sabotaged_relay or target != _resecure_target:
+		_resecure_target = target if is_sabotaged_relay else null
+		_resecure_progress = 0.0
+	if _resecure_target == null:
+		return
+	if not Input.is_action_pressed("interact"):
+		_resecure_progress = 0.0
+		return
+	_resecure_progress += delta
+	if _resecure_progress >= GameConfig.RELAY_RESECURE_SECONDS:
+		var message := _resecure_target.set_sabotaged(false)
+		_resecure_progress = 0.0
+		_resecure_target = null
+		if not message.is_empty():
+			interaction_message.emit(message)
+
+
+## Percent through a resecure hold, or -1 while nothing is being held --
+## the interaction prompt reads this to show live progress the same way the
+## original's own "[ HOLD E ] // 40%" readout does.
+func resecure_percent() -> int:
+	if _resecure_target == null:
+		return -1
+	return clampi(roundi(_resecure_progress / GameConfig.RELAY_RESECURE_SECONDS * 100.0), 0, 100)
 
 
 func _nearest_interactable() -> RouteInteractable3D:

@@ -14,6 +14,11 @@ var run_seed: int = 0
 var score: int = 0
 var relays_collected: int = 0
 var relay_target: int = 1
+## Collected relays currently knocked offline by Briselle -- taken offline
+## without being un-collected, matching the original's own split: hunter
+## activation and chase speed stay driven by relays_collected (never
+## decreases), while the lift gate reads "collected AND not sabotaged".
+var relays_sabotaged: int = 0
 
 ## Capture/escape struggle, ported from hunter-ai.js's triggerGameOver/
 ## beginEscape/breakFree/finish. lives_remaining follows the Standard
@@ -48,6 +53,7 @@ func start_new_run(seed_value: int = 0) -> void:
 
 func start_floor() -> void:
 	relays_collected = 0
+	relays_sabotaged = 0
 
 
 func descend() -> void:

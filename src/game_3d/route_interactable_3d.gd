@@ -85,10 +85,15 @@ func _ready() -> void:
 
 
 func get_prompt() -> String:
+	if kind == Kind.RELAY and sabotaged:
+		return "[ HOLD E ] RESTORE SABOTAGED RELAY"
 	if completed or disabled:
 		return ""
-	if kind == Kind.LIFT and GameState.relays_collected < GameState.relay_target:
-		return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
+	if kind == Kind.LIFT:
+		if GameState.relays_collected < GameState.relay_target:
+			return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
+		if GameState.relays_sabotaged > 0:
+			return "%s — SIGNAL LOST // %d RELAY OFFLINE" % [prompt_text, GameState.relays_sabotaged]
 	return prompt_text
 
 
@@ -121,6 +126,8 @@ func activate(player: PlayerController3D) -> String:
 		Kind.LIFT:
 			if GameState.relays_collected < GameState.relay_target:
 				return "The service lift has no route signal."
+			if GameState.relays_sabotaged > 0:
+				return "The service lift has no route signal — a relay is offline."
 			GameState.descend()
 			# The lift takes the whole shift down, not just the person who
 			# pressed the button -- a floor half the room has left is not a
@@ -151,6 +158,13 @@ func activate(player: PlayerController3D) -> String:
 	return "Nothing happens."
 
 
+## Briselle's counter (RELAY only). Sabotaged is not "uncollected" -- the
+## relay stays completed=true (GameState.relays_collected never decreases,
+## same split the original makes) but goes offline and blocks the lift until
+## someone holds [E] here to bring it back.
+var sabotaged := false
+
+
 ## The part of a pickup that is true for everyone in the room, kept in one place
 ## so the peer that walked to it and the peers that heard about it cannot end up
 ## in different states.
@@ -163,6 +177,30 @@ func _take() -> void:
 	_refresh_visual()
 
 
+## Called after RESECURE_SECONDS held near a sabotaged relay -- see
+## PlayerController3D's hold tracking. The one direct-action entry point:
+## Briselle's OWN sabotage never calls this -- her gimmick raises a
+## world_event the same way Ysolde's theft does, applied here (and on every
+## other peer) through adopt() below, so the host is not treated as a
+## special case. This one emits `changed`, for the room to hear about it;
+## adopt() shares the mutation but must not re-emit, or a peer receiving the
+## event would immediately re-broadcast it back out.
+func set_sabotaged(value: bool) -> String:
+	var message := _apply_sabotage(value)
+	if not message.is_empty():
+		changed.emit({"what": "sabotage", "cell": source_cell, "sabotaged": value})
+	return message
+
+
+func _apply_sabotage(value: bool) -> String:
+	if kind != Kind.RELAY or sabotaged == value:
+		return ""
+	sabotaged = value
+	GameState.relays_sabotaged = maxi(0, GameState.relays_sabotaged + (1 if value else -1))
+	_refresh_visual()
+	return "SIGNAL LOST // RELAY OFFLINE" if value else "RELAY BACK ONLINE"
+
+
 ## Apply what another peer did here. Same effects as activate(), minus anything
 ## personal to the player who triggered it, and without re-broadcasting.
 func adopt(event: Dictionary) -> void:
@@ -173,6 +211,14 @@ func adopt(event: Dictionary) -> void:
 		"heater":
 			heater_state = event.get("state", heater_state) as HeaterState
 			_refresh_visual()
+		"sabotage":
+			# _apply_sabotage(), not set_sabotaged() -- this event ALREADY
+			# happened elsewhere; re-emitting `changed` here would broadcast it
+			# straight back out and every peer would echo it forever. Still
+			# goes through the shared mutation, not a direct field write, so
+			# GameState.relays_sabotaged stays right on every peer, not just
+			# whichever one caused it.
+			_apply_sabotage(bool(event.get("sabotaged", false)))
 
 
 ## Keeps the generator's own relay/battery data in step with what the player
@@ -216,13 +262,20 @@ func set_disabled(value: bool) -> void:
 
 
 func _refresh_visual() -> void:
-	var taken := (completed and PICKUPS.has(kind)) or (kind == Kind.HIDING_SPOT and disabled)
+	# A sabotaged relay is completed (never un-collected) but goes back on
+	# display -- it is not a pickup waiting to be taken again, it is a fixture
+	# with a problem, the same reason the heater station stays visible.
+	var taken := (completed and PICKUPS.has(kind) and not sabotaged) \
+		or (kind == Kind.HIDING_SPOT and disabled)
 	if _visual:
 		_visual.visible = not taken
 	if _light:
-		_light.visible = not completed
+		_light.visible = not completed or sabotaged
+		if kind == Kind.RELAY:
+			_light.light_color = Color(0.95, 0.25, 0.25) if sabotaged else GLOW_COLORS[kind]
 	# Collision goes with it, so a collected relay is not still something the
-	# player bumps into on an empty tile.
+	# player bumps into on an empty tile -- restored while sabotaged, since
+	# there is something there to walk up to again.
 	for child in get_children():
 		if child is CollisionObject3D:
 			(child as CollisionObject3D).process_mode = \

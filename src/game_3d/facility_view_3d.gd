@@ -323,6 +323,10 @@ func apply_event(event: Dictionary) -> void:
 			var spot := hiding_spot_at(cell)
 			if spot:
 				spot.set_disabled(bool(event.get("disabled", false)))
+		"sabotage":
+			var relay := _at(cell, RouteInteractable3D.Kind.RELAY)
+			if relay:
+				relay.adopt(event)
 
 
 func hiding_spot_at(cell: Vector2i) -> RouteInteractable3D:
@@ -341,13 +345,19 @@ func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:
 ## otherwise get wrong.
 func shared_state() -> Dictionary:
 	var taken := []
+	var sabotaged := []
 	for node in _interactables:
 		var item := node as RouteInteractable3D
-		if item and item.completed and RouteInteractable3D.PICKUPS.has(item.kind):
+		if item == null:
+			continue
+		if item.completed and RouteInteractable3D.PICKUPS.has(item.kind):
 			taken.append({"cell": item.source_cell, "kind": int(item.kind)})
+		if item.kind == RouteInteractable3D.Kind.RELAY and item.sabotaged:
+			sabotaged.append(item.source_cell)
 	return {
 		"taken": taken,
 		"heater": int(heater_station.heater_state) if heater_station else 0,
+		"sabotaged": sabotaged,
 	}
 
 
@@ -356,6 +366,8 @@ func adopt_state(state: Dictionary) -> void:
 		apply_event({"what": "pickup", "cell": entry["cell"], "kind": entry["kind"]})
 	if heater_station:
 		heater_station.adopt({"what": "heater", "state": state.get("heater", 0)})
+	for cell in state.get("sabotaged", []):
+		apply_event({"what": "sabotage", "cell": cell, "sabotaged": true})
 
 
 ## Floor, wall and ceiling as plain boxes.
