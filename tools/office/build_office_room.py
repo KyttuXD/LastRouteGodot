@@ -24,10 +24,40 @@ from room_paint import ALL_MATERIALS, TEAL
 
 # Room metres. WIDTH is fixed at 6: the side walls meet the two halls exactly
 # there, and that shared edge is how the doorways connect. Depth grew 5 -> 7
-# because the desk, the console and the control strip left a walkable strip
-# barely a metre deep behind the chair, and the player got pinned to the back
-# wall trying to move.
-W, D, H = 6.0, 7.0, 3.0
+# once already, because the desk, the console and the control strip left a
+# walkable strip barely a metre deep behind the chair and the player got
+# pinned to the back wall trying to move -- and the same complaint came back
+# even at 7: the desk/console/seat side (the "back" half, toward +Z) is fixed
+# furniture and has to stay where it is, so growing D further just moved
+# BOTH walls out symmetrically and gave the desk more empty space behind IT
+# instead of giving the player more room in FRONT of it.
+#
+# So depth is asymmetric now. `hd` (used everywhere the desk/console/seat are
+# built) still measures from the room's Z origin to the BACK wall, unchanged
+# from the D=7 layout -- nothing about the desk moves. FRONT_EXTRA pushes only
+# the FrontWall (and the floor/ceiling/side walls out to meet it) further
+# from that origin, opening up the stretch of floor the player actually
+# retreats into.
+D = 7.0
+# Extra metres of floor beyond the old front wall.
+#
+# There is very little slack here, and it comes from the merged map, not this
+# file: build_merged_map.py places the Electrical room directly north of the
+# office, centred at the SAME x=0 the office is, only 6m away -- Electrical is
+# 4m deep, so its own near wall sits at Z=-4.0. The LinkElecE/W corridor
+# connecting to it runs through the gap between that wall and the office's old
+# one at Z=-3.5, so the true budget before the office's floor collides with
+# ELECTRICAL ITSELF (not just the corridor passing through) is well under a
+# metre. 0.35m leaves a 0.15m gap to that wall.
+#
+# This was pushed to 1.0m once and pulled back: at that size the office's new
+# floor overlapped Electrical's own room, not merely the corridor. Going
+# further than 0.35m needs the Electrical room (or the corridor between them)
+# moved too, which is out of scope for "push the office's wall back" and,
+# like this whole change, wants a visual check in Blockbench before shipping
+# -- unavailable this session (MCP disconnected).
+FRONT_EXTRA = 0.35
+W, H = 6.0, 3.0
 T = 0.15                     # wall thickness
 DOOR_W, DOOR_H = 1.1, 2.2    # doorway opening
 VENT_W, VENT_H = 0.8, 0.6
@@ -346,20 +376,29 @@ def camera_console(room):
 
 def build(room, openings=()):
     hw, hd = W / 2, D / 2
+    # Where the FrontWall actually sits: further out than -hd by FRONT_EXTRA.
+    # Everything that used to reference "-hd" as the front boundary (floor,
+    # ceiling, side walls, the front wall itself) now reaches out to -fd
+    # instead; everything on the desk/back-wall side keeps using hd unchanged.
+    fd = hd + FRONT_EXTRA
 
-    room.add("Floor", [room.box("Floor", -hw, -T, -hd, hw, 0.0, hd,
+    room.add("Floor", [room.box("Floor", -hw, -T, -fd, hw, 0.0, hd,
                                 "wall", {"up": "floor"}, 6)])
-    room.add("Ceiling", [room.box("Ceiling", -hw, H, -hd, hw, H + T, hd,
+    room.add("Ceiling", [room.box("Ceiling", -hw, H, -fd, hw, H + T, hd,
                                   "wall", {"down": "ceiling"}, 6)])
     # The player faces -Z, so the wall behind the desk is the +Z one.
     room.add("BackWall", [room.box("BackWall", -hw, 0, hd - T, hw, H, hd, "wall", None, 7)])
-    room.add("FrontWall", [room.box("FrontWall", -hw, 0, -hd, hw, H, -hd + T, "wall", None, 7)])
+    room.add("FrontWall", [room.box("FrontWall", -hw, 0, -fd, hw, H, -fd + T, "wall", None, 7)])
 
     for side, sx in (("Left", -1), ("Right", 1)):
         x0, x1 = (-hw, -hw + T) if sx < 0 else (hw - T, hw)
         dz0, dz1 = -DOOR_W / 2, DOOR_W / 2
+        # Doorways stay at the room's Z origin (unchanged from the D=7 layout
+        # -- they line up with the hallway pieces either side), so each side
+        # wall is now three unequal segments: an extended run out to the new
+        # front wall, the doorway gap, then the run back to the desk side.
         room.add(f"{side}Wall", [
-            room.box(f"{side}Wall_Front", x0, 0, -hd, x1, H, dz0, "wall", None, 7),
+            room.box(f"{side}Wall_Front", x0, 0, -fd, x1, H, dz0, "wall", None, 7),
             room.box(f"{side}Wall_Back", x0, 0, dz1, x1, H, hd, "wall", None, 7),
             room.box(f"{side}Wall_Above", x0, DOOR_H, dz0, x1, H, dz1, "wall", None, 7),
         ])

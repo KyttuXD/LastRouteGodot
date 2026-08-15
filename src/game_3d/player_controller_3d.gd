@@ -61,6 +61,61 @@ var _animation_player: AnimationPlayer
 ## one. Set where the local body is told to play, so the two cannot disagree.
 var _clip := "idle"
 
+## Out of sight, in a locker. Movement stops, the body is not drawn, and
+## perception treats you as gone -- the shared brain's `hidden` gate has always
+## been there, wired to a literal false because nothing could hide.
+var hidden := false
+var hidden_spot := Vector2i(-1, -1)
+
+## Ceryth's trap: a spot she has staked out answers the flashlight riddle wrong
+## and locks you in rather than letting you hide. Set by the scene; called
+## before every voluntary entry, never for a hunter reaching in from outside.
+var hiding_trap_resolver: Callable
+## Ceryth's lock. Counts down regardless of input_frozen, which is what makes
+## it a real lock rather than a freeze the exit key already bypasses.
+var hiding_lock_timer := 0.0
+
+
+func enter_hiding(cell: Vector2i) -> String:
+	var cleared_message := ""
+	if hiding_trap_resolver.is_valid():
+		var result: Dictionary = hiding_trap_resolver.call(cell, flashlight_enabled and lamp_charge > 0.0)
+		if bool(result.get("trapped", false)):
+			hidden = true
+			hidden_spot = cell
+			velocity = Vector3.ZERO
+			input_frozen = true
+			if body_visual:
+				body_visual.visible = false
+			hiding_lock_timer = GameConfig.CERYTH_LOCK_SECONDS
+			_set_flashlight(false)
+			return String(result.get("message", "Trapped."))
+		# Answered right: she disperses, but the spot itself is a normal safe
+		# hide from here on -- the riddle was the trap, not the locker.
+		cleared_message = String(result.get("message", ""))
+	hidden = true
+	hidden_spot = cell
+	velocity = Vector3.ZERO
+	input_frozen = true
+	if body_visual:
+		body_visual.visible = false
+	return cleared_message if not cleared_message.is_empty() else "Hidden. [E] to come out."
+
+
+## `forced`: another hunter reaching in (Jyvra, Loxelle) rather than the player
+## working the exit key. A forced pull ignores Ceryth's lock on purpose --
+## being physically dragged out is not the thing the lock exists to prevent.
+func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
+	if hiding_lock_timer > 0.0 and not forced:
+		return "Locked in hiding for %.0fs." % hiding_lock_timer
+	hidden = false
+	hidden_spot = Vector2i(-1, -1)
+	input_frozen = false
+	hiding_lock_timer = 0.0
+	if at != Vector2.ZERO:
+		global_position = Vector3(at.x, global_position.y, at.y)
+	return "Out of hiding."
+
 
 func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
@@ -84,12 +139,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if hiding_lock_timer > 0.0:
+		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
 	if input_frozen:
 		velocity = Vector3.ZERO
 		move_and_slide()
 		noise = 0.0
 		_clip = "idle"
 		ModelSlot.play_if_available(_animation_player, _clip)
+		# Hiding freezes movement, and freezing movement used to swallow the key
+		# that gets you back out -- a locker you could enter and never leave. The
+		# struggle freeze is the other user of input_frozen and deliberately does
+		# NOT get this: mashing [E] there is the escape, handled in main_3d.
+		if hidden and Input.is_action_just_pressed("interact"):
+			_try_interact()
 		return
 
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -114,7 +177,7 @@ func _physics_process(delta: float) -> void:
 		"flashlight_on": flashlight_enabled,
 		"noise": noise,
 		"crouching": movement_mode == "crouch",
-		"hidden": false,
+		"hidden": hidden,
 		"in_safe_zone": is_in_safe_zone(),
 		"heater_on": heater_on,
 	})

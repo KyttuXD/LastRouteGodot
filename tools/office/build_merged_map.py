@@ -94,7 +94,13 @@ CORRIDORS = [
     # cut (see PLAN above). It used to start at +2.50 -- the wall BEHIND the
     # desk -- so the duct ran the full five metre depth of the office as a
     # 1.4 m tube through the middle of the room the player sits in.
-    ("OfficeDuct", (1.10, -3.40), (1.10, -4.60), 1.4, 1.1),
+    #
+    # Shifted -0.35 (build_office_room.py's FRONT_EXTRA) when the office's
+    # front wall moved further out to open up floor space in front of the
+    # desk: the north wall itself moved by exactly that much, and this has to
+    # start exactly where that wall now is or it either floats clear of it
+    # (no wall to have cut a crawl opening in) or buries itself in the room.
+    ("OfficeDuct", (1.10, -3.75), (1.10, -4.95), 1.4, 1.1),
     # South wing
     ("LinkArcade", (-11.0, 1.50), (-11.0, 6.00), 2.6, 2.2),
     ("LinkDineB", (11.0, 1.50), (11.0, 5.50), 2.6, 2.2),

@@ -16,6 +16,7 @@ enum Kind {
 	SAFE_ZONE,
 	LIFT,
 	HEATER_STATION,
+	HIDING_SPOT,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -34,6 +35,7 @@ const MODEL_SCENES := {
 	Kind.SAFE_ZONE: "res://art/props-3d/interactables/safe_zone.tscn",
 	Kind.LIFT: "res://art/props-3d/interactables/lift.tscn",
 	Kind.HEATER_STATION: "res://art/props-3d/interactables/heater_station.tscn",
+	Kind.HIDING_SPOT: "res://art/props-3d/interactables/hiding_spot.tscn",
 }
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
@@ -41,6 +43,7 @@ const GLOW_COLORS := {
 	Kind.SAFE_ZONE: Color(0.35, 0.95, 0.52),
 	Kind.LIFT: Color(0.76, 0.55, 0.96),
 	Kind.HEATER_STATION: Color(0.98, 0.55, 0.25),
+	Kind.HIDING_SPOT: Color(0.45, 0.60, 0.70),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -82,7 +85,7 @@ func _ready() -> void:
 
 
 func get_prompt() -> String:
-	if completed:
+	if completed or disabled:
 		return ""
 	if kind == Kind.LIFT and GameState.relays_collected < GameState.relay_target:
 		return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
@@ -109,6 +112,12 @@ func activate(player: PlayerController3D) -> String:
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
 			return "Safe zone: lamp and stamina restored."
+		Kind.HIDING_SPOT:
+			# A locker is a toggle, not a pickup: the same key gets you in and
+			# back out, and it never completes.
+			if player.hidden_spot == source_cell:
+				return player.leave_hiding()
+			return player.enter_hiding(source_cell)
 		Kind.LIFT:
 			if GameState.relays_collected < GameState.relay_target:
 				return "The service lift has no route signal."
@@ -194,8 +203,20 @@ func reset_for_floor() -> void:
 const PICKUPS := [Kind.RELAY, Kind.BATTERY]
 
 
+## Loxelle's incinerator only, and distinct from `completed`: a broken hiding
+## spot is not gone forever the way a collected relay is, it comes back after a
+## regeneration window. Kept as its own flag so that window cannot be confused
+## with the pickup/fixture split _refresh_visual otherwise draws.
+var disabled := false
+
+
+func set_disabled(value: bool) -> void:
+	disabled = value
+	_refresh_visual()
+
+
 func _refresh_visual() -> void:
-	var taken := completed and PICKUPS.has(kind)
+	var taken := (completed and PICKUPS.has(kind)) or (kind == Kind.HIDING_SPOT and disabled)
 	if _visual:
 		_visual.visible = not taken
 	if _light:

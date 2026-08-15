@@ -281,3 +281,26 @@ const AKI_INITIAL_DELAY := 10.0
 const AKI_BURST_INTERVAL := 5.0
 const AKI_BURST_COUNT := 3
 const AKI_BURST_EXPOSURE := 100.0
+
+
+## Jyvra — hiding timeout (hunterAbilities.jyvra.hidingTimeout). The reach is
+## jyvra.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
+## the ejection is non-lethal, so she is left briefly winded rather than
+## capturing the player she just pulled into the open.
+const JYVRA_HIDING_SECONDS := 8.0
+const JYVRA_REACH := 2.0
+const JYVRA_EJECT_STALL := 2.2
+
+
+## Loxelle — passive incinerator (hunterAbilities.loxelle.passiveIncinerator /
+## breaksHiding). Regen uses the Standard/easy rate (regenerateSeconds *
+## easyRegenerateScale) since there is no difficulty selection yet.
+const LOXELLE_INTERVAL := 5.0
+const LOXELLE_CHANCE := 0.25
+const LOXELLE_REGEN_SECONDS := 30.0
+const LOXELLE_BREAK_STALL := 10.0
+
+
+## Ceryth — hiding trap (hunterAbilities.ceryth.hidingTrap). lockSeconds is her
+## own plan's fallback of 30.
+const CERYTH_LOCK_SECONDS := 30.0

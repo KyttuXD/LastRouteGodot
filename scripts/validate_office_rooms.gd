@@ -36,8 +36,12 @@ const ROOMS := {
 }
 
 ## Authored size in metres (width, depth, height), for the scale check.
+## office_room's depth: 7.0 (grown from 5 once already -- pinning the player
+## behind the desk with too little room to move) + 0.35 (build_office_room.py's
+## FRONT_EXTRA, pushing the front wall back a second time for the same reason,
+## capped by the Electrical room sitting close behind it in the merged map).
 const SIZES := {
-	"office_room": Vector3(6.0, 5.0, 3.0),
+	"office_room": Vector3(6.0, 7.35, 3.0),
 	"hall": Vector3(3.0, 12.0, 3.0),
 	"storage": Vector3(7.0, 6.0, 3.2),
 	"archive": Vector3(6.0, 5.0, 3.0),

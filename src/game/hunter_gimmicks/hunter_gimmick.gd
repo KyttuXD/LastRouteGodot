@@ -110,5 +110,11 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return AkiGimmick.new()
 		"porcelle":
 			return PorcelleGimmick.new()
+		"jyvra":
+			return JyvraGimmick.new()
+		"loxelle":
+			return LoxelleGimmick.new()
+		"ceryth":
+			return CerythGimmick.new()
 		_:
 			return null

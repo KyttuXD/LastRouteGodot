@@ -47,12 +47,18 @@ func _apply_model(model_id: String) -> void:
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
-		# Porcelle. Hidden, not absent: she keeps moving, perceiving and
-		# grabbing, and the map still draws her. Hiding the MODEL rather than
-		# this node keeps her animating, so she reads correctly the moment
-		# anything ever reveals her.
-		if brain != null and brain.gimmick != null and brain.gimmick.hidden_from_view():
-			_model.visible = false
+		_apply_visibility()
+
+
+## Porcelle is hidden every frame she exists; Ceryth only becomes hidden
+## partway through the floor, the moment she disperses. Checked every sync
+## rather than only when the model is (re)built, so a gimmick that changes its
+## mind mid-floor is reflected without needing a model swap to trigger it.
+func _apply_visibility() -> void:
+	if _model == null:
+		return
+	_model.visible = not (brain != null and brain.gimmick != null
+		and brain.gimmick.hidden_from_view())
 
 
 func sync_from_brain() -> void:
@@ -60,6 +66,7 @@ func sync_from_brain() -> void:
 		return
 	position = Vector3(brain.position.x, 0.0, brain.position.y)
 	_apply_model(_desired_model_id())
+	_apply_visibility()
 	_update_animation()
 
 

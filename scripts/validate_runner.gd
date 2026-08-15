@@ -14,7 +14,7 @@ extends Node
 ##   godot4 --headless res://scenes/validate.tscn -- pause layout camera_console
 
 const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
-	"camera_console", "sync", "roster", "hunters"]
+	"camera_console", "sync", "roster", "hunters", "office_monitor"]
 
 
 func _ready() -> void:

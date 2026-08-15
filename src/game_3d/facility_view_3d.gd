@@ -106,6 +106,9 @@ func _spawn_interactables() -> void:
 	for zone in generator.safe_zones:
 		_spawn_interactable(RouteInteractable3D.Kind.SAFE_ZONE, Vector2i(zone["x"], zone["y"]), "REST AT SAFE ZONE")
 	_spawn_interactable(RouteInteractable3D.Kind.LIFT, generator.exit_cell, "USE SERVICE LIFT")
+	for spot in generator.place_hiding_spots():
+		_spawn_interactable(RouteInteractable3D.Kind.HIDING_SPOT,
+			Vector2i(spot["x"], spot["y"]), "HIDE")
 	# One heater station per floor — Wynelle's counterplay. NEAR the start so
 	# it's findable without hunting for it, matching the original's "single
 	# station, known location" role, but not ON it: placed on the spawn cell
@@ -115,9 +118,16 @@ func _spawn_interactables() -> void:
 		_near_start(), "USE HEATER STATION")
 
 
-## An open cell next to the spawn, or the spawn itself if it is somehow walled
-## in. Prefers the cell furthest from the player's facing so the station is
-## behind them rather than in the doorway they are about to walk through.
+## An open cell within reach of the spawn, but not touching it: the spawn's
+## safe zone sits ON the start cell, and a heater one step away from that put
+## its interaction prompt fighting the safe zone's the moment the player
+## turned around -- two "[E]" prompts within arm's reach of each other and no
+## room to pick one without the other stealing focus. A short walk apart is
+## still "findable without hunting for it" (the design goal in the comment
+## this replaces) without the two treading on each other.
+const HEATER_MIN_DISTANCE := 3
+const HEATER_MAX_DISTANCE := 7
+
 func _near_start() -> Vector2i:
 	var taken := {}
 	for relay in generator.relays:
@@ -126,14 +136,46 @@ func _near_start() -> Vector2i:
 		taken[Vector2i(battery["x"], battery["y"])] = true
 	for zone in generator.safe_zones:
 		taken[Vector2i(zone["x"], zone["y"])] = true
+	for spot in generator.hiding_spots:
+		taken[Vector2i(spot["x"], spot["y"])] = true
 	taken[generator.exit_cell] = true
-	for step in [Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1)]:
-		var cell: Vector2i = generator.start + step
-		if cell.x < 0 or cell.y < 0 or cell.x >= generator.cols or cell.y >= generator.rows:
+
+	# BFS out from the start along actual walkable cells, not straight-line
+	# distance -- a cell three tiles away as the crow flies can be on the far
+	# side of a wall and a much longer walk, which would defeat the point.
+	var visited := {generator.start: true}
+	var distance_of := {generator.start: 0}
+	var queue: Array = [generator.start]
+	var by_distance: Array = []  # [[cell, distance], ...] in BFS (walking) order
+	var qi := 0
+	while qi < queue.size():
+		var cell: Vector2i = queue[qi]
+		qi += 1
+		var distance: int = distance_of[cell]
+		for step in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+			var next: Vector2i = cell + step
+			if next.x < 0 or next.y < 0 or next.x >= generator.cols or next.y >= generator.rows:
+				continue
+			if generator.grid[next.y][next.x] != 0 or visited.has(next):
+				continue
+			visited[next] = true
+			distance_of[next] = distance + 1
+			queue.append(next)
+			by_distance.append([next, distance + 1])
+
+	for entry in by_distance:
+		var cell: Vector2i = entry[0]
+		var distance: int = entry[1]
+		if distance < HEATER_MIN_DISTANCE or distance > HEATER_MAX_DISTANCE:
 			continue
-		if generator.grid[cell.y][cell.x] != 0 or taken.has(cell):
+		if taken.has(cell):
 			continue
 		return cell
+	# A facility too small for the preferred band: take the first open cell at
+	# or past the minimum distance, whatever it is, rather than fail outright.
+	for entry in by_distance:
+		if int(entry[1]) >= HEATER_MIN_DISTANCE and not taken.has(entry[0]):
+			return entry[0]
 	return generator.start
 
 
@@ -168,6 +210,14 @@ func apply_event(event: Dictionary) -> void:
 		"heater":
 			if heater_station:
 				heater_station.adopt(event)
+		"hiding_disabled":
+			var spot := hiding_spot_at(cell)
+			if spot:
+				spot.set_disabled(bool(event.get("disabled", false)))
+
+
+func hiding_spot_at(cell: Vector2i) -> RouteInteractable3D:
+	return _at(cell, RouteInteractable3D.Kind.HIDING_SPOT)
 
 
 func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:

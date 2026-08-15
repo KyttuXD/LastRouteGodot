@@ -812,3 +812,100 @@ func _shuffle_array(items: Array) -> void:
 		var tmp = items[index]
 		items[index] = items[swap_index]
 		items[swap_index] = tmp
+
+
+## Where the player can get out of sight.
+##
+## In the original these are derived from PROPS -- lockers, privacy curtains,
+## supply crates -- placed by populateRooms(), which is the deferred
+## room-content milestone and is enormous. Rather than block three hunters on
+## that whole catalogue, spots are placed directly here on open cells that back
+## onto a wall, which is where a locker would stand anyway. The same
+## simplification place_hunter_spawn() already makes: real placement, honest
+## about being a simpler rule than the original's.
+##
+## Called on demand rather than from generate(), so the validator's contract is
+## unaffected.
+var hiding_spots: Array = []
+
+
+## HUNTER_ROSTER.md's "trivial gap": a point -> room query nothing needed
+## until Loxelle, whose passive only ever destroys spots in her OWN room.
+func room_at(x: float, y: float) -> Dictionary:
+	for room in rooms:
+		if x >= room["x"] and x < room["x"] + room["width"] \
+				and y >= room["y"] and y < room["y"] + room["height"]:
+			return room
+	return {}
+
+
+func place_hiding_spots(count: int = 6) -> Array:
+	hiding_spots = []
+	var rng := SeededRandom.new("%s:HIDING-SPOTS" % seed_text)
+	var taken := {start: true, exit_cell: true}
+	for group in [relays, batteries, safe_zones]:
+		for entry in group:
+			taken[Vector2i(entry["x"], entry["y"])] = true
+
+	# Room cells preferred over corridor ones: a locker in a room is furniture,
+	# a locker wedged in a corridor wall is not somewhere real. It also gives
+	# every spot a real room_id, which Loxelle's passive depends on -- she only
+	# ever burns a spot in her OWN room, and a spot with no room could never be
+	# hers or anyone else's. Corridor cells are the fallback for a layout with
+	# too little room floor to seat every spot, not the first choice.
+	var in_room: Array = []
+	var in_corridor: Array = []
+	for y in range(1, rows - 1):
+		for x in range(1, cols - 1):
+			var cell := Vector2i(x, y)
+			if grid[y][x] != 0 or taken.has(cell):
+				continue
+			# Backed onto a wall, and not in a doorway: a spot in the middle of a
+			# corridor is not somewhere you could hide, and a spot in a doorway
+			# blocks the way through.
+			if _walls_around(cell) != 1:
+				continue
+			if room_at(cell.x, cell.y).is_empty():
+				in_corridor.append(cell)
+			else:
+				in_room.append(cell)
+	if in_room.is_empty() and in_corridor.is_empty():
+		return hiding_spots
+
+	# Spread them out. Six lockers clustered in one room is one hiding place
+	# with six doors, not six hiding places.
+	var spacing := maxf(4.0, float(mini(cols, rows)) / float(maxi(1, count)))
+	# Room candidates exhausted first, corridor cells only to fill what is left.
+	for candidates in [in_room, in_corridor]:
+		while hiding_spots.size() < count and not candidates.is_empty():
+			var pick: Vector2i = candidates[rng.next_index(candidates.size())]
+			var clear := true
+			for spot in hiding_spots:
+				if Vector2(pick).distance_to(Vector2(spot["x"], spot["y"])) < spacing:
+					clear = false
+					break
+			candidates.erase(pick)
+			if not clear:
+				continue
+			var room := room_at(pick.x, pick.y)
+			hiding_spots.append({"id": "hide-%d" % hiding_spots.size(),
+				"x": pick.x, "y": pick.y,
+				"room_id": String(room.get("id", ""))})
+	return hiding_spots
+
+
+func _walls_around(cell: Vector2i) -> int:
+	var walls := 0
+	for step in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+		var at: Vector2i = cell + step
+		if at.x < 0 or at.y < 0 or at.x >= cols or at.y >= rows or grid[at.y][at.x] != 0:
+			walls += 1
+	return walls
+
+
+## An open cell beside a spot, for stepping out of it.
+func hiding_exit_position(spot: Dictionary) -> Vector2:
+	var open := nearest_open_position(spot["x"] + 0.5, spot["y"] + 0.5, GameConfig.PLAYER_RADIUS)
+	if open.is_empty():
+		return Vector2(spot["x"] + 0.5, spot["y"] + 0.5)
+	return Vector2(open["x"], open["y"])

@@ -556,6 +556,16 @@ func _process(delta: float) -> void:
 func _update_seating() -> void:
 	if _walker == null:
 		return
+	# The monitor raised is a real soft lock otherwise: it sets can_move false
+	# (you cannot look around the office with a tablet in your face), which
+	# also empties `_hovered` -- so the physical Monitor key that raised it
+	# becomes unpickable and unclickable the moment it goes up, and there was
+	# no other way back down. [E] closing it, unconditionally, is the same
+	# control that opened it (toggle_control("cameras") both ways) -- not a
+	# new key, just the one the player already tries.
+	if simulation != null and simulation.monitor_open and Input.is_action_just_pressed("interact"):
+		_work_key("Monitor")
+		return
 	if Input.is_action_just_pressed("interact") and can_move:
 		# Seated, interact ALWAYS stands you up. It used to work whatever the
 		# pointer was on, which meant it almost never stood you up at all: the

@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_locker"]
+size = Vector3(0.7, 1.9, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_locker"]
+albedo_color = Color(0.22, 0.26, 0.29, 1)
+metallic = 0.3
+roughness = 0.7
+
+; Placeholder locker. In the original a hiding spot is a PROP -- a locker, a
+; privacy curtain, a supply crate -- placed by the room-content pass this port
+; has not ported. Until it is, the spot is real and the box is a stand-in, which
+; is the honest way round: the mechanic works and the art is obviously pending,
+; rather than the art implying a mechanic that is not there.
+[node name="HidingSpot" type="Node3D"]
+
+[node name="Model" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
+mesh = SubResource("BoxMesh_locker")
+surface_material_override/0 = SubResource("StandardMaterial3D_locker")

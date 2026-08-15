@@ -43,6 +43,7 @@ func _ready() -> void:
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
 	player.interaction_veto = _guardian_blocking
+	player.hiding_trap_resolver = _ceryth_trap_check
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -110,7 +111,8 @@ func _update_gameplay(delta: float) -> void:
 
 	var target := {
 		"position": player.grid_position(),
-		"hidden": false,
+		"hidden": player.hidden,
+		"hiding_spot": player.hidden_spot,
 		"in_safe_zone": player.is_in_safe_zone(),
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
@@ -148,6 +150,25 @@ func _update_gameplay(delta: float) -> void:
 			if not note.is_empty():
 				hud.show_message(note)
 		view.brain.world_events.clear()
+		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
+		# because it moves the PLAYER, which the brain has no handle on.
+		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
+			player.leave_hiding(view.brain.gimmick.ejected_to, true)
+			hud.show_message("JYVRA PULLED YOU OUT OF HIDING")
+		if view.brain.gimmick is LoxelleGimmick:
+			for toggle in view.brain.gimmick.toggles:
+				var cell: Vector2i = toggle["cell"]
+				if toggle.has("eject_to"):
+					if player.hidden and player.hidden_spot == cell:
+						player.leave_hiding(toggle["eject_to"], true)
+						hud.show_message("LOXELLE BROKE YOUR COVER")
+				else:
+					var spot := facility_view.hiding_spot_at(cell)
+					if spot:
+						spot.set_disabled(bool(toggle["disabled"]))
+					_remotes.broadcast_event({"what": "hiding_disabled",
+						"cell": cell, "disabled": bool(toggle["disabled"])})
+			view.brain.gimmick.toggles.clear()
 		# Wynelle's freeze grace is a second way to lose that isn't a grab:
 		# if it runs out you die where you stand, with no struggle.
 		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
@@ -196,6 +217,16 @@ func _map_marks() -> Array:
 			"active": true,
 		})
 	return marks
+
+
+## Ceryth's riddle, asked at the moment the player tries to hide in the spot
+## she has staked out. Not a veto -- unlike Opalie's, a wrong answer does not
+## refuse the interaction, it changes what happens inside it.
+func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
+	for view in hunter_views:
+		if view.brain.gimmick is CerythGimmick:
+			return view.brain.gimmick.resolve_entry(cell, flashlight_active)
+	return {}
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:
