@@ -1,0 +1,452 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/main_office.gd" id="1_office"]
+[ext_resource type="Script" path="res://src/ui/office/office_view_3d.gd" id="2_view"]
+[ext_resource type="Script" path="res://src/ui/office/camera_monitor.gd" id="3_monitor"]
+[ext_resource type="Shader" path="res://third_party/cupcakes-framework/crtwave_shader.gdshader" id="4_crt"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_crt"]
+shader = ExtResource("4_crt")
+shader_parameter/roll_speed = 2.0
+shader_parameter/roll_size = 25.0
+shader_parameter/roll_variation = 0.62
+shader_parameter/distort_intensity = 0.01
+shader_parameter/noise_opacity = 0.15
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.04, 0.055, 0.065, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.45, 0.45, 0.75)
+content_margin_left = 4.0
+content_margin_top = 3.0
+content_margin_right = 4.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_alert"]
+bg_color = Color(0.14, 0.03, 0.045, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.85, 0.3, 0.35, 0.9)
+content_margin_left = 4.0
+content_margin_top = 3.0
+content_margin_right = 4.0
+content_margin_bottom = 3.0
+
+[node name="Office" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_office")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.012, 0.016, 0.022, 1)
+
+[node name="OfficeView" type="SubViewportContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+stretch = true
+script = ExtResource("2_view")
+
+[node name="TopBar" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 22.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="ClockLabel" type="Label" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 6.0
+offset_top = 3.0
+offset_right = 140.0
+offset_bottom = 17.0
+theme_override_colors/font_color = Color(0.8, 0.9, 0.9, 1)
+text = "12 AM"
+
+[node name="PowerLabel" type="Label" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 150.0
+offset_top = 3.0
+offset_right = 240.0
+offset_bottom = 17.0
+text = "POWER 100%"
+
+[node name="PowerBar" type="ProgressBar" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 244.0
+offset_top = 6.0
+offset_right = 344.0
+offset_bottom = 15.0
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="UsageLabel" type="Label" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 350.0
+offset_top = 3.0
+offset_right = 430.0
+offset_bottom = 17.0
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+text = "USAGE |"
+
+[node name="ExposureBar" type="ProgressBar" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 434.0
+offset_top = 6.0
+offset_right = 474.0
+offset_bottom = 15.0
+max_value = 100.0
+value = 0.0
+show_percentage = false
+
+[node name="SystemsLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 6.0
+offset_top = 24.0
+offset_right = 300.0
+offset_bottom = 38.0
+theme_override_colors/font_color = Color(0.95, 0.55, 0.3, 1)
+text = ""
+
+[node name="EventLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -230.0
+offset_top = -54.0
+offset_right = 230.0
+offset_bottom = -40.0
+theme_override_colors/font_color = Color(0.95, 0.85, 0.5, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="ControlBar" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -236.0
+offset_top = -38.0
+offset_right = 236.0
+offset_bottom = -4.0
+theme_override_constants/separation = 2
+
+[node name="LeftDoorButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+toggle_mode = true
+focus_mode = 0
+text = "L DOOR"
+
+[node name="RightDoorButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+toggle_mode = true
+focus_mode = 0
+text = "R DOOR"
+
+[node name="DeskLightButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(46, 0)
+layout_mode = 2
+toggle_mode = true
+focus_mode = 0
+text = "LIGHT"
+
+[node name="VentButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(42, 0)
+layout_mode = 2
+toggle_mode = true
+focus_mode = 0
+text = "VENT"
+
+[node name="MonitorButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+toggle_mode = true
+focus_mode = 0
+text = "MONITOR"
+
+[node name="RadioButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+focus_mode = 0
+text = "RADIO 0"
+
+[node name="BreakerButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+focus_mode = 0
+text = "BREAKER"
+
+[node name="RebootButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+focus_mode = 0
+text = "REBOOT"
+
+[node name="FlashButton" type="Button" parent="ControlBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+focus_mode = 0
+text = "FLASH"
+
+[node name="CameraMonitor" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 1
+script = ExtResource("3_monitor")
+
+[node name="MonitorFrame" type="Panel" parent="CameraMonitor"]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 26.0
+offset_right = 450.0
+offset_bottom = 214.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="FeedBody" type="ColorRect" parent="CameraMonitor"]
+unique_name_in_owner = true
+material = SubResource("ShaderMaterial_crt")
+layout_mode = 0
+offset_left = 36.0
+offset_top = 44.0
+offset_right = 444.0
+offset_bottom = 186.0
+color = Color(0.05, 0.06, 0.07, 1)
+
+[node name="RoomLabel" type="Label" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 38.0
+offset_top = 29.0
+offset_right = 340.0
+offset_bottom = 43.0
+theme_override_colors/font_color = Color(0.6, 0.9, 0.9, 1)
+text = "CAM1 // WEST HALL"
+
+[node name="SignalLabel" type="Label" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 46.0
+offset_top = 100.0
+offset_right = 434.0
+offset_bottom = 118.0
+text = "NO SIGNAL DETECTED"
+horizontal_alignment = 1
+
+[node name="FeedStatusLabel" type="Label" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 46.0
+offset_top = 124.0
+offset_right = 434.0
+offset_bottom = 140.0
+theme_override_colors/font_color = Color(0.95, 0.45, 0.45, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="ConnectionsLabel" type="Label" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 38.0
+offset_top = 188.0
+offset_right = 444.0
+offset_bottom = 202.0
+theme_override_colors/font_color = Color(0.45, 0.6, 0.62, 1)
+text = ""
+
+[node name="StaticOverlay" type="ColorRect" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 36.0
+offset_top = 44.0
+offset_right = 444.0
+offset_bottom = 186.0
+mouse_filter = 2
+color = Color(0.7, 0.72, 0.75, 0)
+
+[node name="CameraButtons" type="GridContainer" parent="CameraMonitor"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 214.0
+offset_top = 216.0
+offset_right = 410.0
+offset_bottom = 232.0
+theme_override_constants/h_separation = 2
+columns = 8
+
+[node name="RearPrompt" type="Panel" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -120.0
+offset_top = 60.0
+offset_right = 120.0
+offset_bottom = 82.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_alert")
+
+[node name="RearLabel" type="Label" parent="RearPrompt"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_colors/font_color = Color(1, 0.6, 0.6, 1)
+text = "BREATHING BEHIND YOU"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="GasPrompt" type="Panel" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -110.0
+offset_top = 88.0
+offset_right = 110.0
+offset_bottom = 128.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_alert")
+
+[node name="GasLabel" type="Label" parent="GasPrompt"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 4.0
+offset_top = 3.0
+offset_right = 216.0
+offset_bottom = 17.0
+text = "GAS LEAK // HOLD MASK"
+horizontal_alignment = 1
+
+[node name="GasMaskButton" type="Button" parent="GasPrompt"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 60.0
+offset_top = 19.0
+offset_right = 160.0
+offset_bottom = 37.0
+focus_mode = 0
+text = "HOLD MASK"
+
+[node name="ParkourPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 134.0
+offset_right = 100.0
+offset_bottom = 180.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_alert")
+
+[node name="ParkourLabel" type="Label" parent="ParkourPanel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 4.0
+offset_top = 3.0
+offset_right = 196.0
+offset_bottom = 17.0
+theme_override_colors/font_color = Color(0.85, 0.85, 0.9, 1)
+text = "GRAY PARKOUR"
+horizontal_alignment = 1
+
+[node name="ParkourButtons" type="HBoxContainer" parent="ParkourPanel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 30.0
+offset_top = 20.0
+offset_right = 170.0
+offset_bottom = 40.0
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="EndPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="EndTitle" type="Label" parent="EndPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 96.0
+offset_right = 200.0
+offset_bottom = 118.0
+text = "SHIFT FAILED"
+horizontal_alignment = 1
+
+[node name="EndCause" type="Label" parent="EndPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 122.0
+offset_right = 200.0
+offset_bottom = 136.0
+theme_override_colors/font_color = Color(0.75, 0.8, 0.82, 1)
+text = ""
+horizontal_alignment = 1
+
+[node name="EndHint" type="Label" parent="EndPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 148.0
+offset_right = 200.0
+offset_bottom = 162.0
+theme_override_colors/font_color = Color(0.5, 0.72, 0.72, 1)
+text = "[E] RETURN TO MENU"
+horizontal_alignment = 1
