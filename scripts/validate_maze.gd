@@ -56,15 +56,28 @@ func run(host: Node) -> int:
 	# A cube that samples most of the atlas is showing several unrelated
 	# materials at once -- the collage that made every floor tile a mess. One
 	# patch is a small fraction of the sheet; half of it is not a patch.
+	#
+	# The wall is a deliberate exception, and dividing it back out is the
+	# honest way to check it rather than exempting it outright: its uv1_scale
+	# is intentionally > 1 because it TILES one small patch several times
+	# across the face (FacilityView3D.WALL_REPEAT_X/Y), which this check
+	# would otherwise be unable to tell apart from the original collage bug
+	# -- both produce a large final scale. Dividing the known repeat back out
+	# recovers the actual per-tile patch size, which is what this check is
+	# really asking about.
 	for id in [FacilityView3D.ITEM_FLOOR, FacilityView3D.ITEM_WALL,
 			FacilityView3D.ITEM_CEILING]:
 		var mesh := grid.mesh_library.get_item_mesh(id)
 		var material := mesh.surface_get_material(0) if mesh != null else null
 		if material is StandardMaterial3D:
 			var scale: Vector3 = (material as StandardMaterial3D).uv1_scale
-			if scale.x > 0.5 or scale.y > 0.5:
-				_fail("grid item %d samples %.0f%% x %.0f%% of its atlas, not one patch"
-					% [id, scale.x * 100.0, scale.y * 100.0])
+			var repeat_x: float = FacilityView3D.WALL_REPEAT_X if id == FacilityView3D.ITEM_WALL else 1.0
+			var repeat_y: float = FacilityView3D.WALL_REPEAT_Y if id == FacilityView3D.ITEM_WALL else 1.0
+			var patch_x: float = scale.x / repeat_x
+			var patch_y: float = scale.y / repeat_y
+			if patch_x > 0.5 or patch_y > 0.5:
+				_fail("grid item %d samples %.0f%% x %.0f%% of its atlas per tile, not one patch"
+					% [id, patch_x * 100.0, patch_y * 100.0])
 
 	# The floor has to stop things. It did not, and nothing noticed because the
 	# player has no gravity -- a floor that only works because nothing pulls

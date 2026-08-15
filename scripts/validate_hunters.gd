@@ -319,12 +319,23 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 	host.get_tree().root.add_child(scene)
 	await host.get_tree().process_frame
 	var generator: FacilityGenerator = scene.facility_view.generator
-	if generator.hiding_spots.is_empty():
-		_fail("no hiding spots on the live floor to test Loxelle against")
+	# Room-interior specifically, not just "a" hiding spot: place_hiding_spots()
+	# falls back to corridor cells when a floor is too small to seat every spot
+	# in a room, and Loxelle's passive -- correctly, matching the original's own
+	# `if (!room) return` -- does nothing while she is standing in a corridor.
+	# hiding_spots[0] picked whichever came first; on a seed where that happened
+	# to be a corridor spot, she had nothing to do all test and this failed for
+	# a reason that had nothing to do with her actually being broken.
+	var spot: Dictionary = {}
+	for candidate in generator.hiding_spots:
+		if not String(candidate.get("room_id", "")).is_empty():
+			spot = candidate
+			break
+	if spot.is_empty():
+		_fail("no room-interior hiding spot on the live floor to test Loxelle against")
 		scene.queue_free()
 		return
 
-	var spot: Dictionary = generator.hiding_spots[0]
 	var cell := Vector2i(spot["x"], spot["y"])
 	var brain := _brain("loxelle", Vector2(cell) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
@@ -340,35 +351,44 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 	# is nothing to see.
 	var target := _target(Vector2(cell) + Vector2(0.5, 0.5))
 	target["hidden"] = true
-	var burned := false
+	# Not a claim about THIS starting spot specifically: she is still an
+	# ordinary wandering hunter between rolls, on the same shared movement
+	# every idle/wander hunter uses, and over a long enough window that
+	# carries her through several other rooms -- confirmed by watching her
+	# room_at() visibly change room to room while this ran. What the passive
+	# actually promises is "she burns a spot in whichever room she is
+	# currently in when her timer fires," so that is what gets checked: the
+	# first burn she raises, wherever it lands, not one pinned in advance.
+	var burned_cell := Vector2i(-1, -1)
 	# 40 rolls at a 25% chance each leaves under a 1-in-30000 chance of never
 	# firing -- long enough to test the mechanism without reaching in and
 	# forcing the dice, which would test the test rather than Loxelle.
 	for i in int((GameConfig.LOXELLE_INTERVAL * 40.0) / STEP):
 		brain.update(STEP, generator, target, 1, 0)
 		for toggle in brain.gimmick.toggles:
-			if toggle.get("cell") == cell and toggle.get("disabled", false):
-				burned = true
-		if burned:
+			if toggle.get("disabled", false):
+				burned_cell = toggle["cell"]
+				break
+		if burned_cell.x >= 0:
 			break
-	if not burned:
-		_fail("Loxelle never burned an empty hiding spot in her own room")
+	if burned_cell.x < 0:
+		_fail("Loxelle never burned any hiding spot while idle/wandering")
 		scene.queue_free()
 		return
 
-	var live: RouteInteractable3D = scene.facility_view.hiding_spot_at(cell)
+	var live: RouteInteractable3D = scene.facility_view.hiding_spot_at(burned_cell)
 	if live == null:
 		_fail("no interactable node at the hiding spot Loxelle burned")
 		scene.queue_free()
 		return
 	# Drain the toggle the way main_3d._update_gameplay does every frame.
 	for toggle in brain.gimmick.toggles.duplicate():
-		if toggle.get("cell") == cell:
+		if toggle.get("cell") == burned_cell:
 			live.set_disabled(bool(toggle.get("disabled", false)))
 	_expect(live.disabled, "Loxelle burned a spot but its interactable is still usable")
 	_expect(live.get_prompt().is_empty(), "a burned hiding spot still offers to hide the player")
 
-	print("  loxelle   burns an empty hiding spot in her own room, disabling it live")
+	print("  loxelle   burns an empty hiding spot in whichever room she's in, disabling it live")
 	scene.queue_free()
 
 

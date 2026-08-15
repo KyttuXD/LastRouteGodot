@@ -32,6 +32,7 @@ var _ceiling_map: GridMap
 var _interactables: Array = []
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
+var _ceiling_decor: CeilingDecor
 
 
 func _ready() -> void:
@@ -52,6 +53,7 @@ func generate_floor(seed_text: String) -> void:
 	generator = FacilityGenerator.new(seed_text, RoomState.generator_options())
 	_paint_grid()
 	_spawn_interactables()
+	_hang_ceiling_lights(seed_text)
 
 
 ## World-space size of the facility footprint on the XZ ground plane.
@@ -179,6 +181,60 @@ func _near_start() -> Vector2i:
 	return generator.start
 
 
+## Fairy-light strands hung across the ceiling: sparse, and spread out rather
+## than clustered, so they read as scattered decoration and not as a landing
+## strip. An absolute cap, not a fraction of the floor -- a fixed fraction of
+## open cells scales with facility AREA, and the largest scale has thousands
+## of them; that turned "a few strands here and there" into well over a
+## hundred, spending most of a frame building small meshes and lights nothing
+## was ever meant to see all at once.
+const LIGHT_COUNT_MIN := 8
+const LIGHT_COUNT_MAX := 18
+const LIGHT_MIN_SPACING := 6.0
+
+func _hang_ceiling_lights(seed_text: String) -> void:
+	if _ceiling_decor != null:
+		_ceiling_decor.queue_free()
+	_ceiling_decor = CeilingDecor.new()
+	add_child(_ceiling_decor)
+
+	var rng := SeededRandom.new("%s:CEILING-LIGHTS" % seed_text)
+	var candidates: Array[Vector2i] = []
+	for y in generator.rows:
+		for x in generator.cols:
+			if generator.grid[y][x] == 0:
+				candidates.append(Vector2i(x, y))
+	if candidates.is_empty():
+		return
+
+	var target := clampi(candidates.size() / 60, LIGHT_COUNT_MIN, LIGHT_COUNT_MAX)
+	var chosen: Array[Vector2i] = []
+	# Shuffled draw-without-replacement rather than a scan with a spacing
+	# reject loop: wanting only a handful out of a floor that can run to
+	# thousands of open cells, a reject loop over all of them to find those
+	# few is the expensive way to do it.
+	var pool := candidates.duplicate()
+	while chosen.size() < target and not pool.is_empty():
+		var pick: Vector2i = pool[rng.next_index(pool.size())]
+		pool.erase(pick)
+		var clear := true
+		for other in chosen:
+			if Vector2(pick).distance_to(Vector2(other)) < LIGHT_MIN_SPACING:
+				clear = false
+				break
+		if clear:
+			chosen.append(pick)
+
+	var anchors: Array = []
+	for cell in chosen:
+		var at := cell_to_world(cell)
+		# Just under the ceiling slab, not touching it -- a bulb flush with the
+		# ceiling reads as embedded in it rather than hanging from it.
+		at.y = WALL_HEIGHT - 0.22
+		anchors.append(at)
+	_ceiling_decor.build(anchors, rng)
+
+
 func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_text: String) -> RouteInteractable3D:
 	var node := RouteInteractable3D.new()
 	node.position = cell_to_world(cell)
@@ -267,6 +323,7 @@ func _build_mesh_library() -> MeshLibrary:
 	# the patch its own model used on that face.
 	var floor_material := _cube_material(FLOOR_SCENE, Vector3.UP)
 	var wall_material := _cube_material(WALL_SCENE, Vector3.FORWARD)
+	_widen_wall_crop(wall_material)
 	# A ceiling is a floor seen from underneath.
 	var ceiling_material := _cube_material(FLOOR_SCENE, Vector3.UP)
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
@@ -382,3 +439,32 @@ static func _cube_material(scene_path: String, facing: Vector3) -> Material:
 	material.uv1_scale = Vector3(span.x, span.y, 1.0)
 	material.uv1_offset = Vector3(origin.x, origin.y, 0.0)
 	return material
+
+
+## _cube_material's own patch, for the wall specifically, turned out to be a
+## narrow 12x27px trim seam -- correctly the LARGEST single triangle group on
+## that face (the heuristic did its job right), but a sliver, stretched once
+## across a full 1m x 3m face with nothing else to sample from. That is what
+## "walls look bland" actually was: not the wrong patch, just one 12-pixel-wide
+## crop blown up 8x with no repeat.
+##
+## Retiles the SAME patch instead of replacing it with a different one. Wider
+## regions of this atlas look more detailed at a glance (a brick field, a
+## checker floor, ribbed panelling), but this model is ONE mesh shared with
+## other environment props across ONE atlas, and nothing here can confirm
+## which of those regions actually belongs to this piece rather than the door
+## frame or the floor tile it sits beside -- guessing wrong would trade a bland
+## wall for a wrong one, and there is no renderer in this session to catch
+## that before it ships. Repeating the patch this model's own geometry already
+## points at is the improvement this method can actually stand behind: the
+## same seam-and-trim line repeating every ~15cm reads as panelled wall
+## segments, and Godot's default 3D sampler wraps a >1 uv1_scale without
+## needing any texture-import change.
+const WALL_REPEAT_X := 6.0
+const WALL_REPEAT_Y := 6.0
+
+static func _widen_wall_crop(material: Material) -> void:
+	if material == null or not material is StandardMaterial3D:
+		return
+	var std: StandardMaterial3D = material
+	std.uv1_scale = Vector3(std.uv1_scale.x * WALL_REPEAT_X, std.uv1_scale.y * WALL_REPEAT_Y, 1.0)
