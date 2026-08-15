@@ -41,16 +41,16 @@ plan["Chest"]["down"] = sliced_uv("body_base", "north", 12, 6, 1)  # low-impact 
 plan["Belly"]["up"] = sliced_uv("body_base", "north", 12, 6, 1)    # low-impact internal seam
 plan["Belly"]["down"] = uv_for("body_base", "down")
 
-# ARMS split: Arm(top 5px) / Fofrontm(mid 4px) / Hand(bottom 3px) of 12, ratio 20:16:12
+# ARMS split: Arm(top 5px) / Forearm(mid 4px) / Hand(bottom 3px) of 12, ratio 20:16:12
 for side, region in [("R", "r_arm_base"), ("L", "l_arm_base")]:
-    for part, (start, length) in [(f"{side}-Arm", (0,5)), (f"{side}-Fofrontm", (5,4)), (f"{side}-Hand", (9,3))]:
+    for part, (start, length) in [(f"{side}-Arm", (0,5)), (f"{side}-Forearm", (5,4)), (f"{side}-Hand", (9,3))]:
         plan[part] = {}
         for f in ["north","south","east","west"]:
             plan[part][f] = sliced_uv(region, f, 12, start, length)
     plan[f"{side}-Arm"]["up"] = uv_for(region, "up")
     plan[f"{side}-Arm"]["down"] = sliced_uv(region, "north", 12, 4, 1)
-    plan[f"{side}-Fofrontm"]["up"] = sliced_uv(region, "north", 12, 4, 1)
-    plan[f"{side}-Fofrontm"]["down"] = sliced_uv(region, "north", 12, 8, 1)
+    plan[f"{side}-Forearm"]["up"] = sliced_uv(region, "north", 12, 4, 1)
+    plan[f"{side}-Forearm"]["down"] = sliced_uv(region, "north", 12, 8, 1)
     plan[f"{side}-Hand"]["up"] = sliced_uv(region, "north", 12, 8, 1)
     plan[f"{side}-Hand"]["down"] = uv_for(region, "down")
 

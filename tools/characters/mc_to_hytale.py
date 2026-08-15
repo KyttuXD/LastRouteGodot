@@ -494,8 +494,23 @@ def region_has_content(im, region_name, alpha_thresh=10):
 # ---------------------------------------------------------------------------
 SWAP_BASENAMES = {
     "Eyebrow-Attachment", "Eye-Attachment", "Ear-Attachment", "Shoulder",
-    "Arm", "Fofrontm", "Hand", "Attachment", "Shoulder2", "Thigh", "Calf", "Foot",
+    "Arm", "Forearm", "Hand", "Attachment", "Shoulder2", "Thigh", "Calf", "Foot",
 }
+
+def fix_bone_spelling(data):
+    """The template ships one bone misspelled: "Fofrontm" for "Forearm".
+
+    Corrected in memory, like the L-/R- bug above and for the same reason --
+    the file on disk is somebody else's asset and is never written to. Every
+    plan key, swap-list entry and animation binding in this toolchain spells it
+    correctly, so this is the one place the template's typo is absorbed. Do it
+    BEFORE fix_lr_naming, whose swap list is keyed on the corrected name.
+    """
+    for coll in (data["groups"], data["elements"]):
+        for item in coll:
+            if "Fofrontm" in item.get("name", ""):
+                item["name"] = item["name"].replace("Fofrontm", "Forearm")
+
 
 def fix_lr_naming(data):
     for coll in (data["groups"], data["elements"]):
@@ -546,14 +561,14 @@ def build_uv_plan(im):
     for side, base_region, overlay_region in [("R", "r_arm_base_slim", "r_arm_overlay_slim"),
                                                ("L", "l_arm_base_slim", "l_arm_overlay_slim")]:
         overlay_present[f"{side}_arm"] = region_has_content(im, overlay_region)
-        for part, (start, length) in [(f"{side}-Arm", (0,5)), (f"{side}-Fofrontm", (5,4)), (f"{side}-Hand", (9,3))]:
+        for part, (start, length) in [(f"{side}-Arm", (0,5)), (f"{side}-Forearm", (5,4)), (f"{side}-Hand", (9,3))]:
             plan[part] = {f: sliced_uv(base_region, f, 12, start, length) for f in ["north","south","east","west"]}
             if overlay_present[f"{side}_arm"]:
                 plan[part + "-Overlay"] = {f: sliced_uv(overlay_region, f, 12, start, length) for f in ["north","south","east","west"]}
         plan[f"{side}-Arm"]["up"] = uv_for(base_region, "up")
         plan[f"{side}-Arm"]["down"] = sliced_uv(base_region, "north", 12, 4, 1)
-        plan[f"{side}-Fofrontm"]["up"] = sliced_uv(base_region, "north", 12, 4, 1)
-        plan[f"{side}-Fofrontm"]["down"] = sliced_uv(base_region, "north", 12, 8, 1)
+        plan[f"{side}-Forearm"]["up"] = sliced_uv(base_region, "north", 12, 4, 1)
+        plan[f"{side}-Forearm"]["down"] = sliced_uv(base_region, "north", 12, 8, 1)
         plan[f"{side}-Hand"]["up"] = sliced_uv(base_region, "north", 12, 8, 1)
         plan[f"{side}-Hand"]["down"] = uv_for(base_region, "down")
 
@@ -591,8 +606,8 @@ def build_uv_plan(im):
 # .bbmodel manipulation
 # ---------------------------------------------------------------------------
 SLIM_ARM_SHIFTS = {
-    "R-Arm": ("to", 17.5), "R-Fofrontm": ("to", 17.50167), "R-Hand": ("to", 18.501669),
-    "L-Arm": ("from", -17.5), "L-Fofrontm": ("from", -17.50167), "L-Hand": ("from", -18.501669),
+    "R-Arm": ("to", 17.5), "R-Forearm": ("to", 17.50167), "R-Hand": ("to", 18.501669),
+    "L-Arm": ("from", -17.5), "L-Forearm": ("from", -17.50167), "L-Hand": ("from", -18.501669),
 }
 
 def find_element(data, name):
@@ -894,6 +909,7 @@ def convert(skin_path, output_path, template_path=DEFAULT_TEMPLATE, extra_fn=Non
     the format tag and its editor-side constraints differ."""
     with open(template_path) as f:
         data = json.load(f)
+    fix_bone_spelling(data)
     fix_lr_naming(data)
     data.setdefault("meta", {})["model_format"] = model_format
 
@@ -1117,7 +1133,7 @@ def convert(skin_path, output_path, template_path=DEFAULT_TEMPLATE, extra_fn=Non
     for side, arm_reg, leg_reg in (("R", "r_arm_overlay", "r_leg_overlay"),
                                     ("L", "l_arm_overlay", "l_leg_overlay")):
         if region_has_content(effective, arm_reg):
-            for seg in ["Arm", "Fofrontm", "Hand"]:
+            for seg in ["Arm", "Forearm", "Hand"]:
                 add_overlay_cube(data, f"{side}-{seg}", f"{side}-{seg}-Overlay", plan, inflate=1.5)
         if region_has_content(effective, leg_reg):
             for seg in ["Thigh", "Calf"]:

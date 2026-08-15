@@ -55,11 +55,51 @@ func run(host: Node) -> int:
 	print("  figure    %d parts, %.2f m tall, %.2f m across, feet at %.3f"
 		% [parts.size(), whole.size.y, whole.size.x, whole.position.y])
 	print("  clips     %s" % ", ".join(CLIPS))
+	body.queue_free()
+
+	await _every_hunter_model(host)
 	if _failures == 0:
 		print("body OK")
-
-	body.queue_free()
 	return _failures
+
+
+## Every model in art/props-3d/characters/, not just the ones the roster
+## currently draws from. All 26 hunters have models now while 13 have AI, so
+## the ones nothing loads yet are exactly the ones a silent build failure would
+## hide -- and they get wired in one at a time as the roster fills.
+func _every_hunter_model(host: Node) -> void:
+	var dir := DirAccess.open("res://art/props-3d/characters")
+	if dir == null:
+		_fail("no character model directory")
+		return
+	var checked := 0
+	var clipless: Array[String] = []
+	for file in dir.get_files():
+		if not file.ends_with(".tscn") or file.begins_with("character_scale"):
+			continue
+		var path := "res://art/props-3d/characters/%s" % file
+		var model: Node3D = ModelSlot.instantiate(path)
+		if model == null:
+			_fail("%s did not instantiate" % file)
+			continue
+		host.get_tree().root.add_child(model)
+		await host.get_tree().process_frame
+		checked += 1
+		if _parts(model).is_empty():
+			_fail("%s has no meshes" % file)
+		var player := ModelSlot.find_animation_player(model)
+		if player == null:
+			clipless.append(file)
+		else:
+			for clip in CLIPS:
+				if not player.has_animation(clip):
+					_fail("%s has no '%s' clip" % [file, clip])
+		for node in _walk(model):
+			if node is CollisionObject3D:
+				_fail("%s carries its own collider '%s'" % [file, node.name])
+		model.queue_free()
+	_expect(clipless.is_empty(), "no AnimationPlayer on: %s" % ", ".join(clipless))
+	print("  roster    %d character models, all with the five clips" % checked)
 
 
 func _parts(body: Node3D) -> Array:
