@@ -69,6 +69,9 @@ func _update_gameplay(delta: float) -> void:
 		"in_safe_zone": player.is_in_safe_zone(),
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
+		# Actually moving under sprint, not merely holding the key — the
+		# original gates on `sprinting && travelSpeed > .1` (Eirys).
+		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 	}
 	var captured: bool = hunter_view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
 	hunter_view.sync_from_brain()

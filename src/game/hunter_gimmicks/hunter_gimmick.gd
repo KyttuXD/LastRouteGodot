@@ -19,8 +19,10 @@ extends RefCounted
 ## mirrors where the original's per-hunter ability hooks run, ahead of the
 ## shared sight/hearing block in hunter-ai.js's updateHunterInner(). Free to
 ## set brain.state/last_known/lost_sight_timer/etc. directly to override or
-## pre-empt ordinary perception for this frame.
-func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary) -> void:
+## pre-empt ordinary perception for this frame. `generator` is passed through
+## because several gimmicks are spatial (line of sight, floor-cell searches,
+## pathfinding) — see KathyGimmick and MavrineGimmick.
+func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator: FacilityGenerator) -> void:
 	pass
 
 
@@ -28,6 +30,13 @@ func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary) 
 ## (no change).
 func speed_scale(_brain: HunterBrain) -> float:
 	return 1.0
+
+
+## True while the gimmick pins her in place — the equivalent of the original's
+## `movementScale: 0 / holdPosition: true` modifier. Perception and timers
+## keep running; only movement stops. Used by MavrineGimmick's survey phase.
+func holds_position() -> bool:
+	return false
 
 
 ## The one place a hunter id maps to her gimmick instance. Returns null for
@@ -38,5 +47,17 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 	match hunter_id:
 		"quirith":
 			return QuirithGimmick.new()
+		"eirys":
+			return EirysGimmick.new()
+		"xivvy":
+			return XivvyGimmick.new()
+		"kathy":
+			return KathyGimmick.new()
+		"ravelle":
+			return RavelleGimmick.new()
+		"mavrine":
+			return MavrineGimmick.new()
+		"umbriel":
+			return UmbrielGimmick.new()
 		_:
 			return null

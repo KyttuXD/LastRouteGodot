@@ -32,6 +32,10 @@ var state: State = State.IDLE
 var active := false
 var hunter_id: String
 var gimmick: HunterGimmick
+## Unit vector she last actually moved along — the equivalent of the
+## original's per-hunter facingX/facingY, which its beam checks read. Only
+## updated by real movement, so it persists while she stands still.
+var facing := Vector2(0, 1)
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
@@ -105,7 +109,7 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
 
 	if gimmick:
-		gimmick.before_perception(self, delta, target)
+		gimmick.before_perception(self, delta, target, generator)
 
 	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	_update_stamina(delta)
@@ -213,6 +217,11 @@ func _update_movement(delta: float, generator: FacilityGenerator, depth: int, re
 				_has_path_target = false
 				return
 
+	# A gimmick can pin her in place (Mavrine's survey) without freezing the
+	# state machine itself — timers above still ran, only movement stops.
+	if gimmick and gimmick.holds_position():
+		return
+
 	var target_info := _current_move_target()
 	if not target_info["has"]:
 		return
@@ -295,6 +304,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator: Facili
 	if distance > 0.001:
 		var travel := minf(speed * delta, distance)
 		var direction := to_waypoint / distance
+		facing = direction
 		_move_with_collision(direction.x * travel, direction.y * travel, generator)
 
 
@@ -351,6 +361,35 @@ func _pick_search_target(generator: FacilityGenerator) -> Vector2:
 			if candidate.distance_to(position) > 0.5:
 				return candidate
 	return last_known
+
+
+## Gimmicks draw from the brain's own seeded stream rather than a global RNG,
+## mirroring the original's shared `aiRandom` — so a replayed run reproduces
+## gimmick decisions (wire placement, mark cells) as well as movement.
+func next_random_float() -> float:
+	return _rng.next_float()
+
+
+func next_random_index(exclusive_max: int) -> int:
+	return _rng.next_index(exclusive_max)
+
+
+## Direct port of hunter-ai.js's beamIlluminates(): is `target` inside a cone
+## of half-angle `half_angle` radians, centred on `from_facing`, within
+## `range`, and in line of sight? Shared because several hunters' gimmicks are
+## cone checks that differ only in whose facing and which constants they use
+## (Kathy's search beam today; Aki/Ferryn/Ilyra read the *player's* beam the
+## same way once player facing is threaded through — see HUNTER_ROSTER.md).
+func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator: FacilityGenerator) -> bool:
+	var offset := target - from
+	var distance := offset.length()
+	if distance <= 0.001 or distance > range_limit:
+		return false
+	if from_facing.length() <= 0.001:
+		return false
+	if offset.normalized().dot(from_facing.normalized()) < cos(half_angle):
+		return false
+	return generator.has_line_of_sight(from, target)
 
 
 static func _cell_of(pos: Vector2) -> Vector2i:

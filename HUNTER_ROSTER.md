@@ -5,9 +5,12 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 2 of 26 ported** — Dovelle (zero-gimmick baseline) and Quirith
-(flashlight tracker). See `MIGRATION.md`'s "Hunter roster" section for how
-they're wired.
+**Status: 8 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
+(search beam), Ravelle (doorway tripwires), Mavrine (lattice mark) and
+Umbriel (shapeshifter). That is every hunter portable without new
+simulation systems — Tier 2 below is now complete. See `MIGRATION.md`'s
+"Hunter roster" section for how they're wired.
 
 ## How a hunter gets added
 
@@ -48,16 +51,25 @@ once, and both are far cheaper than the big subsystems below.
 A third, trivial gap: **room-at(x, y) lookup**. Rooms carry bounding data but
 there's no point→room query. Never gates anything on its own.
 
-### Tier 2 — self-contained hunters, ascending complexity
+**Sequencing note:** the beam-aim unlock was *deferred* rather than built
+with Tier 2, because it turned out to unblock nothing on its own. Kathy —
+the only Tier 2 hunter with a cone check — reads her **own** facing, which
+now lives on `HunterBrain.facing`, not the player's. Every hunter that needs
+the *player's* beam (Aki, Ferryn, Ilyra) is also blocked by a second missing
+system (exposure meter, noise meter, player stun respectively), so build it
+alongside whichever of those lands first. The shared cone maths is already
+in place as `HunterBrain.beam_reaches()`.
+
+### Tier 2 — self-contained hunters *(all ported)*
 
 | # | Hunter | Tier | Gimmick | Size |
 | --- | --- | --- | --- | --- |
-| 1 | **Eirys** | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
-| 2 | **Xivvy** | intermediate | Auto-locks to chase on pure proximity (no sight/hearing), then chase speed permanently ramps with chase duration. Caveat: her lock radius scales with player exposure, which doesn't exist — evaluating the same formula at exposure's rest value (0) gives a constant 0.5× radius, a legitimate default rather than a fabricated number. Full fidelity on that one knob wants the exposure meter later. | ~20-25 lines, 2 rules |
-| 3 | **Kathy** | difficult | A search-beam cone that spots the player past ordinary sight range. Needs new self-tracked facing bookkeeping (derived from her own movement) that no ported hunter has needed yet. Her second ability (`affectedSummon`) requires other already-active route hunters, which is structurally impossible at `ROUTE_HUNTER_COUNT = 1` in *both* codebases — permanently inert, not a blocker. | ~20-30 lines, 1 rule |
-| 4 | **Umbriel** | difficult | Every 30s, disguises as a random other roster hunter. On Standard this is purely cosmetic — attribute-copying is Nightmare-only. Just a timer, an exclusion-aware random pick, and telling `HunterView3D` to load a different model than `brain.hunter_id` implies. **Best deferred until more of the roster exists**, since her disguise pool is whatever's ported. Only self-contained hunter that touches the presentation layer. | ~40-50 lines |
-| 5 | **Ravelle** | difficult | Two invisible tripwires at doorway-shaped cells (detected by scanning `generator.grid`), refreshed every 30s unless triggered; crossing one locks chase and *permanently* adds speed. Her "fake doorway" decoy is consumed only by the original's renderer — zero gameplay logic reads it, so it's future art, not a dependency. | ~50-60 lines, 4-5 rules |
-| 6 | **Mavrine** | intermediate | Periodically scans for a valid open cell (never on the player, never near start/lift/relays/hiding spots), drops an invisible ~6s tripwire "frame", pursues if crossed. Uses only already-public generator API. Most complex of the self-contained set: a 4-phase state machine plus a real candidate-search algorithm. | ~90-110 lines |
+| 1 | **Eirys** *(ported)* | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
+| 2 | **Xivvy** *(ported)* | intermediate | Auto-locks to chase on pure proximity (no sight/hearing), then chase speed permanently ramps with chase duration. Caveat: her lock radius scales with player exposure, which doesn't exist — evaluating the same formula at exposure's rest value (0) gives a constant 0.5× radius, a legitimate default rather than a fabricated number. Full fidelity on that one knob wants the exposure meter later. | ~20-25 lines, 2 rules |
+| 3 | **Kathy** *(ported)* | difficult | A search-beam cone that spots the player past ordinary sight range. Needs new self-tracked facing bookkeeping (derived from her own movement) that no ported hunter has needed yet. Her second ability (`affectedSummon`) requires other already-active route hunters, which is structurally impossible at `ROUTE_HUNTER_COUNT = 1` in *both* codebases — permanently inert, not a blocker. | ~20-30 lines, 1 rule |
+| 4 | **Umbriel** *(ported)* | difficult | Every 30s, disguises as a random other roster hunter. On Standard this is purely cosmetic — attribute-copying is Nightmare-only. Just a timer, an exclusion-aware random pick, and telling `HunterView3D` to load a different model than `brain.hunter_id` implies. **Best deferred until more of the roster exists**, since her disguise pool is whatever's ported. Only self-contained hunter that touches the presentation layer. | ~40-50 lines |
+| 5 | **Ravelle** *(ported)* | difficult | Two invisible tripwires at doorway-shaped cells (detected by scanning `generator.grid`), refreshed every 30s unless triggered; crossing one locks chase and *permanently* adds speed. Her "fake doorway" decoy is consumed only by the original's renderer — zero gameplay logic reads it, so it's future art, not a dependency. | ~50-60 lines, 4-5 rules |
+| 6 | **Mavrine** *(ported)* | intermediate | Periodically scans for a valid open cell (never on the player, never near start/lift/relays/hiding spots), drops an invisible ~6s tripwire "frame", pursues if crossed. Uses only already-public generator API. Most complex of the self-contained set: a 4-phase state machine plus a real candidate-search algorithm. | ~90-110 lines |
 
 ### Tier 3 — blocked on new systems
 

@@ -102,6 +102,92 @@ const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
 const QUIRITH_MAX_SPEED_SCALE := 1.45
 const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
 
+## Eirys — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
+## actually sprinting outside a safe zone accumulates and NEVER decays; at
+## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
+## `breachesHiding` flag isn't ported — hiding spots don't exist yet, so it
+## would be a no-op either way.
+const EIRYS_BASE_SPEED := 0.82
+const EIRYS_CHASE_SPEED := 3.58
+const EIRYS_CHASE_PROGRESSION_SCALE := 0.18
+const EIRYS_SIGHT_RANGE := 8.1
+const EIRYS_HEARING_SCALE := 1.05
+const EIRYS_SECONDS_TO_FULL := 50.0
+
+## Xivvy — chase accelerator (hunterAbilities.xivvy.chaseAccelerator). Locks on
+## by pure proximity (no sight/hearing check), then her chase speed ramps the
+## longer the chase runs. XIVVY_CLOSE_SCALE is the original's
+## `.5 + exposure / 200` evaluated at exposure 0 — no exposure meter exists
+## yet, so this is that formula's genuine rest value, not an invented number.
+## Her `flight` flag isn't ported: nothing blocks movement that walking doesn't
+## already block, so it's a no-op here.
+const XIVVY_BASE_SPEED := 0.97
+const XIVVY_CHASE_SPEED := 4.35
+const XIVVY_CHASE_PROGRESSION_SCALE := 0.12
+const XIVVY_SIGHT_RANGE := 6.72
+const XIVVY_HEARING_SCALE := 0.84
+const XIVVY_CLOSE_LOCK_RADIUS := 1.5
+const XIVVY_CLOSE_SCALE := 0.5
+const XIVVY_SPEED_PER_SECOND := 0.035
+const XIVVY_MAX_SPEED_SCALE := 1.8
+
+## Kathy — search beam (hunterAbilities.kathy.beamDetection). A cone along her
+## own facing that spots the player well past ordinary sight range. Her second
+## ability (affectedSummon) is deliberately not ported: it requires other
+## already-active route hunters, which is impossible at one hunter per floor
+## in both codebases, so it is permanently inert rather than skipped.
+const KATHY_BASE_SPEED := 0.82
+const KATHY_CHASE_SPEED := 4.15
+const KATHY_CHASE_PROGRESSION_SCALE := 0.2
+const KATHY_SIGHT_RANGE := 8.2
+const KATHY_HEARING_SCALE := 1.0
+const KATHY_BEAM_RANGE := 11.5
+const KATHY_BEAM_HALF_ANGLE := 0.24
+
+## Ravelle — tripwire trapper (hunterAbilities.ravelle.tripwireTrapper). Two
+## invisible wires on doorway-shaped cells; crossing one locks a chase and
+## PERMANENTLY adds to her speed. Her chase speed starts below the roster floor
+## on purpose — the per-trigger bonus is what carries her past it. Her fake
+## doorway is not ported: only the original's renderer reads it, no gameplay
+## logic does.
+const RAVELLE_BASE_SPEED := 0.81
+const RAVELLE_CHASE_SPEED := 3.15
+const RAVELLE_CHASE_PROGRESSION_SCALE := 0.18
+const RAVELLE_SIGHT_RANGE := 7.7
+const RAVELLE_HEARING_SCALE := 1.0
+const RAVELLE_TRIPWIRE_REFRESH := 30.0
+const RAVELLE_TRIPWIRE_COUNT := 2
+const RAVELLE_TRIGGER_RADIUS := 0.8
+const RAVELLE_SPEED_PER_TRIGGER := 0.08
+
+## Mavrine — lattice mark (hunterAbilities.mavrine.latticeMark). Cycles
+## cooldown -> survey (holds still) -> project (an armed frame somewhere on the
+## floor) -> ping, pursuing if the player crosses the frame.
+const MAVRINE_BASE_SPEED := 0.8
+const MAVRINE_CHASE_SPEED := 3.5
+const MAVRINE_CHASE_PROGRESSION_SCALE := 0.17
+const MAVRINE_SIGHT_RANGE := 8.2
+const MAVRINE_HEARING_SCALE := 0.95
+const MAVRINE_SURVEY_DELAY := 6.2
+const MAVRINE_SURVEY_DURATION := 0.9
+const MAVRINE_PROJECTION_DURATION := 6.0
+const MAVRINE_COOLDOWN_DURATION := 4.2
+const MAVRINE_PING_DURATION := 0.45
+const MAVRINE_MARK_TRIGGER_RADIUS := 0.62
+
+## Umbriel — shapeshifter (hunterAbilities.umbriel.shapeshifter). Swaps her
+## apparent identity every UMBRIEL_DISGUISE_INTERVAL seconds. On Standard this
+## is purely cosmetic; attribute-copying is a Nightmare-only behaviour and no
+## difficulty selection exists, so only the disguise is ported. Kathy is
+## excluded from the pool, as in the original.
+const UMBRIEL_BASE_SPEED := 0.82
+const UMBRIEL_CHASE_SPEED := 3.46
+const UMBRIEL_CHASE_PROGRESSION_SCALE := 0.18
+const UMBRIEL_SIGHT_RANGE := 8.5
+const UMBRIEL_HEARING_SCALE := 0.86
+const UMBRIEL_DISGUISE_INTERVAL := 30.0
+const UMBRIEL_DISGUISE_EXCLUDED := ["kathy"]
+
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
 const HUNTER_RELAY_SPEED_BONUS := 0.1
 const HUNTER_DEPTH_SPEED_BONUS_PER_LEVEL := 0.055

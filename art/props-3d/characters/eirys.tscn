@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_eirys"]
+radius = 0.22
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_eirys"]
+albedo_color = Color(0.35, 0.85, 0.55, 1)
+emission_enabled = true
+emission = Color(0.35, 0.85, 0.55, 1)
+emission_energy_multiplier = 0.25
+
+[node name="Eirys" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.9, 0)
+mesh = SubResource("CapsuleMesh_eirys")
+surface_material_override/0 = SubResource("StandardMaterial3D_eirys")
