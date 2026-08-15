@@ -85,8 +85,37 @@ func _every_hunter_model(host: Node) -> void:
 		host.get_tree().root.add_child(model)
 		await host.get_tree().process_frame
 		checked += 1
-		if _parts(model).is_empty():
+		var parts := _parts(model)
+		if parts.is_empty():
 			_fail("%s has no meshes" % file)
+		else:
+			# The mannequin passed everything else this suite had and was still
+			# visibly broken in game -- limbs standing apart with daylight
+			# between them. That was never checked for anything but her; every
+			# hunter model gets the same cohesion pass now, using Godot's own
+			# global_transform (real parent-bone rotation and all, not an
+			# approximation), which is the only thing that can actually tell.
+			#
+			# Reported, not failed: unlike the plain mannequin, a hunter can
+			# legitimately have a part meant to stand apart from her body --
+			# a halo hovering over a head, gills flared out from a cheek --
+			# and telling those from a real disconnection needs a look this
+			# suite cannot give it. What it CAN do honestly is name every gap
+			# so a real one cannot hide among the intentional ones unnoticed.
+			var floating: Array[String] = []
+			for part in parts:
+				var box: AABB = (part["box"] as AABB).grow(0.02)
+				var touches := false
+				for other in parts:
+					if other["name"] == part["name"]:
+						continue
+					if box.intersects(other["box"]):
+						touches = true
+						break
+				if not touches:
+					floating.append(String(part["name"]))
+			if not floating.is_empty():
+				print("  %-16s stands apart from the rest: %s" % [file, ", ".join(floating)])
 		var player := ModelSlot.find_animation_player(model)
 		if player == null:
 			clipless.append(file)

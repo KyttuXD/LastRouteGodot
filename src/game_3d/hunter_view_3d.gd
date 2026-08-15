@@ -54,11 +54,21 @@ func _apply_model(model_id: String) -> void:
 ## partway through the floor, the moment she disperses. Checked every sync
 ## rather than only when the model is (re)built, so a gimmick that changes its
 ## mind mid-floor is reflected without needing a model swap to trigger it.
+##
+## Also hidden while `brain.active` is false -- matching the original's own
+## renderer, which only ever draws `hunter.active` hunters. Rule-summoned
+## specials (Nyxie, Solyth) exist on the floor from the start but stay
+## INACTIVE until their own wake condition fires, sitting inert wherever they
+## spawned; nothing here used to hide that, so a special was a fully visible,
+## motionless, silently-standing figure for however long it took the player
+## to stumble across her -- which reads as a broken model, not as a hunter
+## who has not woken up yet.
 func _apply_visibility() -> void:
 	if _model == null:
 		return
-	_model.visible = not (brain != null and brain.gimmick != null
-		and brain.gimmick.hidden_from_view())
+	var gimmick_hidden := brain != null and brain.gimmick != null and brain.gimmick.hidden_from_view()
+	var inactive := brain != null and not brain.active
+	_model.visible = not (gimmick_hidden or inactive)
 
 
 func sync_from_brain() -> void:

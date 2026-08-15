@@ -20,8 +20,3 @@ data/accounts.json
 __pycache__/
 *.pyc
 
-# Character build intermediates. `tools/characters/build_hunters.py` writes a
-# .bbmodel next to each .glb so a model can be opened in Blockbench, but the
-# pipeline runs skin -> model: a hand edit here is overwritten by the next
-# rebuild, so the .glb is the committed artefact and this is scratch.
-art/props-3d/characters/*.bbmodel

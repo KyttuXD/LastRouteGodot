@@ -10,6 +10,14 @@ scripts were recovered from a session transcript and now live in version
 control, where a build product's builder belongs. **Nothing here may import
 from a path outside `tools/`.**
 
+**The `.bbmodel` files are committed too**, next to each `.glb`, for the same
+reason the toolchain itself is: they're what opens directly in Blockbench for
+a hand look or a hand edit, texture (embedded as base64) included, with
+nothing to run first. Editing one by hand and rerunning the pipeline will
+overwrite it — the skin PNGs are still the actual source of truth — so treat a
+hand edit here as a preview of a change to make upstream (the skin, or the
+converter), not a permanent one.
+
 ## Two pipelines, on purpose
 
 | | Hunters | Player mannequin |
