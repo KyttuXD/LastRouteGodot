@@ -49,6 +49,9 @@ const BUTTON_HOLD := 0.13
 const BUTTON_IDLE := Color(0.17, 0.31, 0.33)
 const BUTTON_HOVER := Color(0.55, 0.95, 0.92)
 const BUTTON_DEAD := Color(0.62, 0.24, 0.26)
+## A latched control key: brighter than a camera button, because a closed door
+## is a state you are paying power for and need to see without looking.
+const CAP_LIVE_KEY := Color(0.42, 1.0, 0.78)
 
 ## Set false while the monitor is up -- you cannot look around the office with
 ## a tablet in your face.
@@ -93,6 +96,32 @@ var _panel_up := Vector3.UP
 var _panel_normal := Vector3.BACK
 var _console_ready := false
 var _hovered := ""
+
+# -- desk control strip --------------------------------------------------
+## The nine shift controls as physical keys. Same machinery as the console --
+## a plane, a rect per button, a ray -- but its own board, because it sits at a
+## keyboard's angle in front of a monitor's.
+##
+## Key -> what the simulation calls it. Toggles go through toggle_control; the
+## rest are one-shot commands, so the value is a Callable name instead.
+const CONTROL_KEYS := {
+	"LeftDoor": "leftDoor", "RightDoor": "rightDoor", "DeskLight": "deskLight",
+	"Vent": "vent", "Monitor": "cameras",
+}
+const CONTROL_COMMANDS := {
+	"Radio": "cycle_radio", "Breaker": "reset_breaker",
+	"Reboot": "reboot_cameras", "Flash": "trigger_emergency_flash",
+}
+var _keys := {}
+var _key_rest := {}
+var _key_rect := {}
+var _key_materials := {}
+var _key_flash := {}
+var _strip_point := Vector3.ZERO
+var _strip_right := Vector3.RIGHT
+var _strip_up := Vector3.UP
+var _strip_normal := Vector3.BACK
+var _strip_ready := false
 
 
 func _ready() -> void:
@@ -249,6 +278,17 @@ func _build_console() -> void:
 	_fit_to_face(_panel_face, _panel_material)
 	_panel_face.material_override = _panel_material
 
+	for name in CONTROL_KEYS.keys() + CONTROL_COMMANDS.keys():
+		var node := _find(_room, "Ctrl%s" % name) as MeshInstance3D
+		if node == null:
+			continue
+		_keys[name] = node
+		_key_flash[name] = 0.0
+		var key_material := StandardMaterial3D.new()
+		key_material.emission_enabled = true
+		_key_materials[name] = key_material
+		node.material_override = key_material
+
 	for key in _buttons:
 		var material := StandardMaterial3D.new()
 		material.emission_enabled = true
@@ -298,7 +338,39 @@ func _measure_console() -> bool:
 		if hi.x <= lo.x or hi.y <= lo.y:
 			return false
 		_button_rect[key] = Rect2(lo, hi - lo).grow(PICK_MARGIN)
+	_measure_strip()
 	return true
+
+
+## The control strip's own plane. Measured the same way and separately, because
+## it is tilted differently -- a ray hitting one board says nothing about where
+## it crosses the other.
+func _measure_strip() -> void:
+	if _keys.is_empty():
+		return
+	var sample: MeshInstance3D = _keys.values()[0]
+	var basis := sample.global_transform.basis
+	_strip_right = basis.x.normalized()
+	_strip_up = basis.y.normalized()
+	_strip_normal = basis.z.normalized()
+	var centroid := Vector3.ZERO
+	for name in _keys:
+		_key_rest[name] = (_keys[name] as MeshInstance3D).global_position
+		centroid += _key_rest[name] as Vector3
+	_strip_point = centroid / float(_keys.size())
+	for name in _keys:
+		var node: MeshInstance3D = _keys[name]
+		var aabb := node.get_aabb()
+		var xform := node.global_transform
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		for corner in 8:
+			var d := xform * aabb.get_endpoint(corner) - _strip_point
+			var p := Vector2(d.dot(_strip_right), d.dot(_strip_up))
+			lo = lo.min(p)
+			hi = hi.max(p)
+		_key_rect[name] = Rect2(lo, hi - lo).grow(0.012)
+	_strip_ready = true
 
 
 func _to_panel(point: Vector3) -> Vector2:
@@ -338,7 +410,38 @@ func _pick(aim: Vector2) -> String:
 	for key in _button_rect:
 		if (_button_rect[key] as Rect2).has_point(local):
 			return key
+	return _pick_key(from, direction)
+
+
+## Which control key the pointer is over, as "ctrl:<name>", or "".
+func _pick_key(from: Vector3, direction: Vector3) -> String:
+	if not _strip_ready:
+		return ""
+	var denominator := direction.dot(_strip_normal)
+	if absf(denominator) < 0.0001:
+		return ""
+	var distance := (_strip_point - from).dot(_strip_normal) / denominator
+	if distance <= 0.0:
+		return ""
+	var at := from + direction * distance - _strip_point
+	var local := Vector2(at.dot(_strip_right), at.dot(_strip_up))
+	for name in _key_rect:
+		if (_key_rect[name] as Rect2).has_point(local):
+			return "ctrl:%s" % name
 	return ""
+
+
+## Work whichever control the pointer is on. Toggles go through the simulation's
+## own toggle_control so the physical key and the keyboard shortcut cannot
+## disagree about what a door is doing; the rest are one-shot commands.
+func _work_key(name: String) -> void:
+	if simulation == null:
+		return
+	_key_flash[name] = BUTTON_HOLD
+	if CONTROL_KEYS.has(name):
+		simulation.toggle_control(String(CONTROL_KEYS[name]))
+	elif CONTROL_COMMANDS.has(name):
+		simulation.call(String(CONTROL_COMMANDS[name]))
 
 
 ## Step to the camera `delta` places along OfficeConfig.CAMERAS, wrapping.
@@ -386,7 +489,9 @@ func _update_seating() -> void:
 	if _walker == null:
 		return
 	if Input.is_action_just_pressed("interact") and can_move:
-		if not _hovered.is_empty():
+		if _hovered.begins_with("ctrl:"):
+			_work_key(_hovered.substr(5))
+		elif not _hovered.is_empty():
 			_step(1 if _hovered == "next" else -1)
 		elif _walker.seated:
 			_walker.stand()
@@ -406,7 +511,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match click.button_index:
 		MOUSE_BUTTON_LEFT:
-			_step(1 if _hovered == "next" else -1)
+			if _hovered.begins_with("ctrl:"):
+				_work_key(_hovered.substr(5))
+			else:
+				_step(1 if _hovered == "next" else -1)
 		# Scrolling over the console cycles too. With only two buttons the wheel
 		# is the natural way to run down the bank quickly, and it costs nothing.
 		MOUSE_BUTTON_WHEEL_DOWN:
@@ -484,6 +592,56 @@ func _reflect_console(delta: float) -> void:
 		var want: Vector3 = (_button_rest[key] as Vector3) - _panel_normal * sunk
 		button.global_position = button.global_position.lerp(
 			want, clampf(delta * 22.0, 0.0, 1.0))
+
+	_reflect_keys(delta, offline)
+
+
+## The control keys. Unlike the camera buttons these are LATCHING where the
+## control is -- a closed door stays lit and stays down, because that is the
+## thing the player most needs to read at a glance and the one the power meter
+## is quietly charging them for.
+func _reflect_keys(delta: float, _offline: bool) -> void:
+	for name in _keys:
+		_key_flash[name] = maxf(0.0, float(_key_flash[name]) - delta)
+		var control := String(CONTROL_KEYS.get(name, ""))
+		var latched := not control.is_empty() and _is_control_on(control)
+		var dead := not control.is_empty() and simulation.is_system_disabled(control)
+		var colour := BUTTON_IDLE
+		var energy := 0.28
+		if dead:
+			colour = BUTTON_DEAD
+			energy = 0.2
+		elif latched:
+			colour = CAP_LIVE_KEY
+			energy = 1.0
+		if ("ctrl:%s" % name) == _hovered and not dead:
+			colour = colour.lerp(Color.WHITE, 0.4)
+			energy += 0.4
+		if float(_key_flash[name]) > 0.0:
+			colour = colour.lerp(Color.WHITE, 0.5)
+			energy += 0.5
+
+		var material: StandardMaterial3D = _key_materials[name]
+		material.albedo_color = colour.darkened(0.55)
+		material.emission = colour
+		material.emission_energy_multiplier = energy
+
+		var node: MeshInstance3D = _keys[name]
+		var down: bool = latched or float(_key_flash[name]) > 0.0
+		var want: Vector3 = (_key_rest[name] as Vector3) \
+			- _strip_normal * (BUTTON_TRAVEL if down else 0.0)
+		node.global_position = node.global_position.lerp(
+			want, clampf(delta * 22.0, 0.0, 1.0))
+
+
+func _is_control_on(control: String) -> bool:
+	match control:
+		"leftDoor": return simulation.left_door
+		"rightDoor": return simulation.right_door
+		"deskLight": return simulation.desk_light
+		"vent": return simulation.vent_sealed
+		"cameras": return simulation.monitor_open
+	return false
 
 
 func _set_door(door: Node3D, closed: bool) -> void:

@@ -79,6 +79,64 @@ def _tilt(oy, oz, dy, dz, th):
             oz - dy * math.sin(th) + dz * math.cos(th))
 
 
+# -- control strip -----------------------------------------------------------
+# The nine shift controls, as physical buttons on the desk rather than a row of
+# UI along the bottom of the screen. Office Mode is played from a chair looking
+# at a desk; reaching for a doorm switch should be reaching for a switch.
+#
+# A separate board from the camera console, lower and flatter, sitting between
+# the console and the player -- a keyboard's angle rather than a monitor's.
+STRIP_X0, STRIP_X1 = -0.68, 0.68
+STRIP_V = 0.34                     # up the board's own tilted face
+STRIP_TILT = 58.0                  # nearly flat: it is under your hands
+STRIP_FOOT_Y = 0.81
+STRIP_FOOT_Z = D / 2 - 0.46        # just in front of the console's foot
+KEY_W, KEY_H = 0.22, 0.115
+KEY_RISE = 0.014
+# Which control each key works, in two rows. Order follows the bar it replaces
+# so the muscle memory carries over.
+KEY_ROWS = [
+    ["LeftDoor", "RightDoor", "DeskLight", "Vent", "Monitor"],
+    ["Radio", "Breaker", "Reboot", "Flash"],
+]
+
+
+def control_strip(room):
+    """A tilted board of nine keys, each its own group so Godot can light it,
+    press it in, and resolve a ray against it."""
+    th = math.radians(STRIP_TILT)
+    hv = STRIP_V / 2
+    cx = (STRIP_X0 + STRIP_X1) / 2
+    oy = STRIP_FOOT_Y + hv * math.cos(th)
+    oz = STRIP_FOOT_Z - hv * math.sin(th)
+
+    room.add("CtrlPanel", [
+        room.box("CtrlPanelBody", STRIP_X0, oy - hv, oz - 0.016,
+                 STRIP_X1, oy + hv, oz + 0.014, "metal", None, 8),
+        room.box("CtrlPanelLipL", STRIP_X0, oy - hv, oz + 0.013,
+                 STRIP_X0 + 0.018, oy + hv, oz + 0.034, "metal", None, 8),
+        room.box("CtrlPanelLipR", STRIP_X1 - 0.018, oy - hv, oz + 0.013,
+                 STRIP_X1, oy + hv, oz + 0.034, "metal", None, 8),
+    ], origin=(cx, oy, oz), rotation=(-STRIP_TILT, 0, 0))
+
+    dz = 0.015 + KEY_RISE / 2
+    placed = {}
+    for r, row in enumerate(KEY_ROWS):
+        # Rows run back to front, so the first row is the far one.
+        dy = hv - 0.03 - KEY_H / 2 - r * (KEY_H + 0.022)
+        span = len(row) * KEY_W + (len(row) - 1) * 0.02
+        for i, key in enumerate(row):
+            bx = cx - span / 2 + KEY_W / 2 + i * (KEY_W + 0.02)
+            by, bz = _tilt(oy, oz, dy, dz, th)
+            placed[key] = (bx, by, bz)
+            room.add("Ctrl" + key, [
+                room.box("Ctrl" + key, bx - KEY_W / 2, by - KEY_H / 2, bz - KEY_RISE / 2,
+                         bx + KEY_W / 2, by + KEY_H / 2, bz + KEY_RISE / 2,
+                         "emissive", None, 4)],
+                origin=(bx, by, bz), rotation=(-STRIP_TILT, 0, 0))
+    return placed
+
+
 def _arrow(room, name, bx, by, bz, sign):
     """A stepped triangle pointing left (sign -1) or right (+1).
 
@@ -217,6 +275,7 @@ def build(room, openings=()):
                    facing="south")
 
     camera_console(room)
+    control_strip(room)
 
     room.add("DeskLamp", [
         # Shifted out to the desk's edge to make room for the camera console;

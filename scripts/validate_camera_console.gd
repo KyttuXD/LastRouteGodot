@@ -190,6 +190,12 @@ func _check_reach(view: OfficeView3D) -> int:
 	var failures := 0
 	var smallest := INF
 	var smallest_cam := ""
+	for name in view._keys:
+		var tag := "ctrl:%s" % name
+		if not hits.has(tag):
+			failures += _fail("the %s key cannot be aimed at from the seat" % name)
+	print("  keys      %d desk controls, all reachable" % view._keys.size())
+
 	for key in ["prev", "next"]:
 		# The narrow side of the cursor box a button answers to, in the
 		# project's 480 x 270 base pixels. That is the number a hand has to

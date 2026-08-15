@@ -32,6 +32,7 @@ var pause_menu: PauseMenu
 @onready var _exposure_bar: ProgressBar = %ExposureBar
 @onready var _systems_label: Label = %SystemsLabel
 
+@onready var _control_bar: HBoxContainer = %ControlBar
 @onready var _left_door_button: Button = %LeftDoorButton
 @onready var _right_door_button: Button = %RightDoorButton
 @onready var _desk_light_button: Button = %DeskLightButton
@@ -96,6 +97,13 @@ func _ready() -> void:
 		_parkour_buttons.add_child(button)
 
 	_build_admin()
+	# The controls are physical keys on the desk now (see office_view_3d's
+	# control strip), so the on-screen row is hidden. Its Buttons stay in the
+	# scene as the state holders _refresh already writes to; they are what the
+	# keyboard shortcuts and the mode's own disable rules drive, and the desk
+	# keys read the SIMULATION rather than these, so nothing depends on them
+	# being visible.
+	_control_bar.visible = false
 	_end_panel.visible = false
 	_refresh()
 
