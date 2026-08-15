@@ -91,6 +91,9 @@ func _process(delta: float) -> void:
 		observed_depth = GameState.depth
 		_build_floor()
 
+	if hud.map_is_open():
+		hud.update_map(facility_view.generator, player.grid_position(),
+			player.facing, _map_marks())
 	hud.set_interaction_prompt(player.get_interaction_prompt())
 	_update_hud()
 
@@ -177,6 +180,22 @@ func _guardian_blocking(target: RouteInteractable3D) -> String:
 			ally.sync_from_brain()
 		return "%s IS GUARDING THIS // DRAW HER OFF" % name.to_upper()
 	return ""
+
+
+## What the map shows. Every ACTIVE hunter, including the ones the room cannot
+## see -- Porcelle is invisible in the world and appears only here, which is the
+## whole reason this panel had to become a real map.
+func _map_marks() -> Array:
+	var marks: Array = []
+	for view in hunter_views:
+		if not view.brain.active:
+			continue
+		marks.append({
+			"at": view.brain.position,
+			"name": String(HunterRoster.get_identity(view.brain.hunter_id)["display_name"]),
+			"active": true,
+		})
+	return marks
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:

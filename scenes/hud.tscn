@@ -1,7 +1,8 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://src/ui/crosshair.gd" id="2_crosshair"]
+[ext_resource type="Script" path="res://src/ui/facility_map.gd" id="5_map"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
 bg_color = Color(0.015, 0.025, 0.035, 0.88)
@@ -43,7 +44,6 @@ bg_color = Color(0.95, 0.85, 0.48, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_escape_time"]
 bg_color = Color(0.902, 0.267, 0.318, 1)
-
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
 
@@ -296,18 +296,33 @@ offset_right = 368.0
 offset_bottom = 29.0
 theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
 theme_override_font_sizes/font_size = 13
-text = "FACILITY MAP — MIGRATION SLICE"
+text = "FACILITY MAP"
 horizontal_alignment = 1
 
+[node name="Plan" type="Control" parent="MapOverlay"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 30.0
+offset_bottom = -22.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("5_map")
+
 [node name="Legend" type="Label" parent="MapOverlay"]
-layout_mode = 0
-offset_left = 26.0
-offset_top = 48.0
-offset_right = 342.0
-offset_bottom = 137.0
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -20.0
+grow_horizontal = 2
+grow_vertical = 0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.78, 1)
-theme_override_font_sizes/font_size = 10
-text = "CYAN      Signal relay\nYELLOW    Battery\nGREEN     Safe zone\nPURPLE    Service lift\n\nPress M to close"
+theme_override_font_sizes/font_size = 9
+text = "AMBER relay   YELLOW battery   PURPLE lift   RED hunter   //   M to close"
 horizontal_alignment = 1
 
 [node name="EscapeOverlay" type="PanelContainer" parent="."]

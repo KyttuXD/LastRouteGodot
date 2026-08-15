@@ -47,6 +47,12 @@ func _apply_model(model_id: String) -> void:
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
+		# Porcelle. Hidden, not absent: she keeps moving, perceiving and
+		# grabbing, and the map still draws her. Hiding the MODEL rather than
+		# this node keeps her animating, so she reads correctly the moment
+		# anything ever reveals her.
+		if brain != null and brain.gimmick != null and brain.gimmick.hidden_from_view():
+			_model.visible = false
 
 
 func sync_from_brain() -> void:

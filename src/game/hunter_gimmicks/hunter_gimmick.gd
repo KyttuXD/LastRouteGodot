@@ -43,6 +43,13 @@ func speed_scale(_brain: HunterBrain) -> float:
 	return 1.0
 
 
+## True when this hunter is not drawn in the world at all — Porcelle, who
+## exists only on the map. Presentation-only, like Umbriel's disguise: the brain
+## never reads it, HunterView3D does.
+func hidden_from_view() -> bool:
+	return false
+
+
 ## True while the gimmick pins her in place — the equivalent of the original's
 ## `movementScale: 0 / holdPosition: true` modifier. Perception and timers
 ## keep running; only movement stops. Used by MavrineGimmick's survey phase.
@@ -101,5 +108,7 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return OpalieGimmick.new()
 		"aki":
 			return AkiGimmick.new()
+		"porcelle":
+			return PorcelleGimmick.new()
 		_:
 			return null

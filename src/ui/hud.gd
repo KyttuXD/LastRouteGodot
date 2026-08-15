@@ -30,6 +30,7 @@ const MESSAGE_DURATION := 2.8
 @onready var interaction_label: Label = %InteractionLabel
 @onready var message_label: Label = %MessageLabel
 @onready var map_overlay: Control = %MapOverlay
+@onready var plan: FacilityMap = %Plan
 @onready var escape_overlay: Control = %EscapeOverlay
 @onready var escape_progress_bar: ProgressBar = %EscapeProgressBar
 @onready var escape_time_bar: ProgressBar = %EscapeTimeBar
@@ -139,3 +140,13 @@ func show_message(text: String) -> void:
 
 func toggle_map_overlay() -> void:
 	map_overlay.visible = not map_overlay.visible
+
+
+## The map is only worth redrawing while somebody is looking at it, and the
+## original charges the same price for reading it: your view of the room.
+func map_is_open() -> bool:
+	return map_overlay.visible
+
+
+func update_map(generator: FacilityGenerator, at: Vector2, facing: Vector2, marks: Array) -> void:
+	plan.show_state(generator, at, facing, marks)

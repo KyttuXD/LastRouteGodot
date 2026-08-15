@@ -5,11 +5,11 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 16 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 17 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Thessine (see below), **Haelith** (relay pursuer), **Ysolde**
-(battery thief), **Opalie** (relay guardian) and **Aki** (phantom exposure), plus the three
+(battery thief), **Opalie** (relay guardian) **Aki** (phantom exposure) and **Porcelle** (radar-only), plus the three
 temperature/darkness
 hunters that the meters pass unblocked: **Nyxie** (darkness stalker),
 **Solyth** (heat-summoned) and **Wynelle** (cold materializer). See
@@ -119,7 +119,7 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 | Exposure/sanity meter — **BUILT** | Aki (also needs player beam-aim) | 1 |
 | Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state) — Haelith, Opalie and Ysolde are **ported** | 1 |
 | Currency/inventory + shop UI | Zephyra | 1 |
-| Player radar/gadget item | Porcelle | 1 |
+| ~~Player radar/gadget item~~ — Porcelle is **ported**; her radar was always the map | 0 |
 | Vent-travel network | Verrine | 1 |
 | Player stun/incapacitation state | Ilyra | 1 |
 | Torch player ability | Ysolde (sec.) | 1 (sec.) |
@@ -289,7 +289,7 @@ because it unblocked nothing on its own. **Aki** is the first gimmick to read
 it: she does nothing until you point a torch at her and hold it, then spikes
 your exposure to full three times, five seconds apart.
 
-## Correction: Porcelle is not blocked on a gadget
+## Correction: Porcelle was never blocked on a gadget *(resolved)*
 
 This plan recorded Porcelle as needing a "player radar/gadget item". She does
 not. The original's dossier is explicit — *"She only shows on the full-screen
@@ -306,7 +306,6 @@ map shows hunters.
 
 | Hunter | Needs |
 | --- | --- |
-| Porcelle | hunters drawn on the map overlay (small) |
 | Ferryn | `emberVeil` scheduler + the noise meter's flash-noise path |
 | Briselle | a sabotaged-relay state on the generator |
 | Glyra | a music-box prop the player winds, in the spawn room |
@@ -322,3 +321,22 @@ the deferred room-content milestone. Placing spots directly on open cells near
 room walls — the same simplification `place_hunter_spawn()` already makes — is
 the honest way to unblock the three without porting the whole prop catalogue
 first.
+
+
+## The map became a real map
+
+`MapOverlay` was a coloured rectangle with the caption FACILITY MAP and a
+legend for symbols it never drew. `src/ui/facility_map.gd` replaces it: walls,
+relays, batteries, the lift, a facing wedge for the player, and **every active
+hunter** with her initial on it.
+
+Porcelle is why it had to stop being a placeholder. She is invisible in the room
+and drawn only here, so the map is the whole of her counterplay — and the price
+the original charges for using it is the balance: reading the map means not
+looking at the room she is walking through. Shipping her invisibility against a
+placeholder map would have put a hunter on the floor who could not be found by
+any means, which is not a hard hunter but a broken one.
+
+The `hunters` suite drives both halves together through the real scene, because
+"the gimmick returns true" is exactly the check that passes while the model is
+still on screen.

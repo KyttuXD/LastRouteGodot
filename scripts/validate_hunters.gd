@@ -33,6 +33,7 @@ func run(_host: Node) -> int:
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
 	_aki_answers_a_flash(generator)
+	await _porcelle_is_only_on_the_map(_host)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -195,3 +196,44 @@ func _aki_answers_a_flash(generator: FacilityGenerator) -> void:
 		"Aki did not settle back to idle after her %d bursts" % GameConfig.AKI_BURST_COUNT)
 	print("  aki       wakes on one held flash, spikes exposure %dx, goes quiet"
 		% GameConfig.AKI_BURST_COUNT)
+
+
+## Porcelle is invisible in the room and visible ONLY on the map, so the two
+## halves have to be checked together: hiding her without the map drawing her
+## puts a hunter on the floor who cannot be found by any means. Driven through
+## the real scene, because "the gimmick returns true" is exactly the kind of
+## check that passes while the model is still on screen.
+func _porcelle_is_only_on_the_map(host: Node) -> void:
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+
+	var view: HunterView3D = scene.hunter_views[0] if not scene.hunter_views.is_empty() else null
+	if view == null:
+		_fail("no hunter on the floor to make Porcelle out of")
+		scene.queue_free()
+		return
+	view.brain.hunter_id = "porcelle"
+	view.brain.gimmick = HunterGimmick.for_id("porcelle")
+	view.brain.active = true
+	view._shown_id = ""
+	view._apply_model("porcelle")
+	# The hunter she replaced is queue_free()d, which does not take effect until
+	# the end of the frame -- without this the sweep below finds the OLD body
+	# still hanging in the tree and blames Porcelle for it.
+	await host.get_tree().process_frame
+
+	var drawn := false
+	for child in view.get_children():
+		if child is Node3D and (child as Node3D).visible:
+			drawn = true
+	_expect(not drawn, "Porcelle is drawn in the room; she is supposed to be invisible there")
+
+	var marks: Array = scene._map_marks()
+	var found := false
+	for mark in marks:
+		if String(mark.get("name", "")).to_lower() == "porcelle":
+			found = true
+	_expect(found, "Porcelle is invisible AND missing from the map, so nothing can find her")
+	print("  porcelle  invisible in the room, drawn on the map")
+	scene.queue_free()
