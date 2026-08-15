@@ -115,6 +115,24 @@ func run(host: Node) -> int:
 	if not scene.player.flashlight_enabled:
 		_fail("the player spawns with the flashlight off")
 
+	# The top-down view is the ORIGINAL game's primary perspective and it has
+	# come back black twice. Check the three things that make it a picture at
+	# all: something to look through, something lit, and no lid in the way.
+	var top_down: Camera3D = scene.player.top_down_camera
+	view.set_ceiling_visible(false)
+	if not top_down.current:
+		_fail("the top-down camera is not the current one at startup")
+	if lid.visible:
+		_fail("the ceiling is still drawn over the top-down view")
+	if scene.player._overhead_light == null or not scene.player._overhead_light.visible:
+		_fail("the top-down view has no overhead light")
+	var span: float = top_down.size
+	var reach: float = top_down.global_position.y - top_down.far
+	print("  topdown   ortho %.0f units, floor %.1f above the far plane, lid %s"
+		% [span, -reach, "hidden" if not lid.visible else "SHOWN"])
+	if reach > 0.0:
+		_fail("the far plane sits %.1f above the floor, so nothing renders" % reach)
+
 	if _failures == 0:
 		print("  fabric    %d floors, %d walls, %d ceiling cells, all boxes"
 			% [floors, walls, lids])

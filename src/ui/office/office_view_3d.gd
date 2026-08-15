@@ -22,13 +22,13 @@ const ROOM_SCENE := "res://scenes/office_map.tscn"
 ## The office room's footprint. Outside this you are "away from the desk", and
 ## the simulation starts counting.
 const OFFICE_HALF_X := 3.2
-const OFFICE_HALF_Z := 2.7
+const OFFICE_HALF_Z := 3.7
 
 ## Seat position in the room, in metres. The office is 6 x 5 m with the desk
-## against the +Z wall spanning z 1.0-2.15, so the seat sits BEHIND it at 2.28
+## against the +Z wall spanning z 2.0-3.15, so the seat sits BEHIND it at 3.28
 ## -- the desk and its monitor are then in front of you and the doorways are
 ## forward-left and forward-right, which is the whole framing of the mode.
-const SEAT := Vector3(0.0, 1.40, 2.28)
+const SEAT := Vector3(0.0, 1.40, 3.28)
 
 ## How far the head may turn while seated. Also the scale `pan_ratio` reports
 ## against, for parity with the 2D view.

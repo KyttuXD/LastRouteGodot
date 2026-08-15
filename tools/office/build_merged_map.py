@@ -94,7 +94,7 @@ CORRIDORS = [
     # cut (see PLAN above). It used to start at +2.50 -- the wall BEHIND the
     # desk -- so the duct ran the full five metre depth of the office as a
     # 1.4 m tube through the middle of the room the player sits in.
-    ("OfficeDuct", (1.10, -2.40), (1.10, -4.00), 1.4, 1.1),
+    ("OfficeDuct", (1.10, -3.40), (1.10, -4.60), 1.4, 1.1),
     # South wing
     ("LinkArcade", (-11.0, 1.50), (-11.0, 6.00), 2.6, 2.2),
     ("LinkDineB", (11.0, 1.50), (11.0, 5.50), 2.6, 2.2),

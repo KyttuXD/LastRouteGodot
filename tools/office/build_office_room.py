@@ -22,7 +22,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from room_kit import Room, recessed_panel, louvered_grille, M
 from room_paint import ALL_MATERIALS, TEAL
 
-W, D, H = 6.0, 5.0, 3.0      # room metres: width, depth, height
+# Room metres. WIDTH is fixed at 6: the side walls meet the two halls exactly
+# there, and that shared edge is how the doorways connect. Depth grew 5 -> 7
+# because the desk, the console and the control strip left a walkable strip
+# barely a metre deep behind the chair, and the player got pinned to the back
+# wall trying to move.
+W, D, H = 6.0, 7.0, 3.0
 T = 0.15                     # wall thickness
 DOOR_W, DOOR_H = 1.1, 2.2    # doorway opening
 VENT_W, VENT_H = 0.8, 0.6

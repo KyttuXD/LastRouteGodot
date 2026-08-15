@@ -37,7 +37,9 @@ var exhausted := false
 var stamina_recovery_delay := 0.0
 var movement_mode := "walk"
 var first_person := false
-var _overhead_light: OmniLight3D
+## Light3D, not OmniLight3D: it is directional now, and a plan view wants
+## flat light rather than a pool.
+var _overhead_light: Light3D
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
 var noise := 0.0
@@ -163,11 +165,15 @@ func _physics_process(delta: float) -> void:
 ## across it. This is the plan view's equivalent of the original's room
 ## lighting, not an extra light in the maze: first person never sees it.
 func _build_overhead_light() -> void:
-	_overhead_light = OmniLight3D.new()
-	_overhead_light.position = Vector3(0.0, 2.4, 0.0)
-	_overhead_light.omni_range = 9.0
-	_overhead_light.light_energy = 1.15
-	_overhead_light.light_color = Color(0.72, 0.74, 0.84)
+	# DIRECTIONAL, not a lamp on the player. An omni was a pool of light in the
+	# middle of an otherwise black plan -- which is why this view kept reading
+	# as blank even once the ceiling stopped covering it. A plan view has to
+	# show a whole room at once, so it is lit like a plan: flat, from straight
+	# above, reaching everything the orthographic camera can see.
+	_overhead_light = DirectionalLight3D.new()
+	_overhead_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	_overhead_light.light_energy = 1.0
+	_overhead_light.light_color = Color(0.74, 0.76, 0.86)
 	_overhead_light.shadow_enabled = false
 	add_child(_overhead_light)
 	_overhead_light.visible = not first_person
