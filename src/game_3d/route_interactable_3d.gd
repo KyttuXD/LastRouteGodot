@@ -1,9 +1,14 @@
 class_name RouteInteractable3D
 extends Node3D
 
-## 3D counterpart to src/game/interactable.gd — same kind/activate contract,
-## rendered as a simple emissive marker mesh instead of a 2D _draw() glyph
-## until real 3D props (see art/props-3d/) are wired in per kind.
+## 3D counterpart to src/game/interactable.gd — same kind/activate contract.
+## Its visual is instanced from art/props-3d/interactables/<kind>.tscn (see
+## ModelSlot.instantiate) rather than any hardcoded geometry, so swapping
+## that scene's contents for a real model needs no code change here. The
+## completed/not-completed state is shown by toggling a glow light rather
+## than recoloring the model — a real imported model can be as structurally
+## complex as it needs to be (multiple meshes, a skeleton) with nothing here
+## assuming otherwise.
 
 enum Kind {
 	RELAY,
@@ -12,38 +17,40 @@ enum Kind {
 	LIFT,
 }
 
+const MODEL_SCENES := {
+	Kind.RELAY: "res://art/props-3d/interactables/relay.tscn",
+	Kind.BATTERY: "res://art/props-3d/interactables/battery.tscn",
+	Kind.SAFE_ZONE: "res://art/props-3d/interactables/safe_zone.tscn",
+	Kind.LIFT: "res://art/props-3d/interactables/lift.tscn",
+}
+const GLOW_COLORS := {
+	Kind.RELAY: Color(0.26, 0.88, 0.92),
+	Kind.BATTERY: Color(0.95, 0.82, 0.25),
+	Kind.SAFE_ZONE: Color(0.35, 0.95, 0.52),
+	Kind.LIFT: Color(0.76, 0.55, 0.96),
+}
+
 @export var kind: Kind = Kind.RELAY
 @export var prompt_text := "INTERACT"
-@export var accent_color := Color(0.35, 0.9, 0.8)
 
 var completed := false
 
-var _material: StandardMaterial3D
+var _light: OmniLight3D
 
 
 func _ready() -> void:
 	add_to_group("interactable")
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := SphereMesh.new()
-	mesh.radius = 0.26
-	mesh.height = 0.52
-	mesh.radial_segments = 12
-	mesh.rings = 8
-	mesh_instance.mesh = mesh
-	mesh_instance.position = Vector3(0, 0.5, 0)
 
-	_material = StandardMaterial3D.new()
-	_material.emission_enabled = true
-	_material.emission_energy_multiplier = 0.8
-	mesh_instance.material_override = _material
-	add_child(mesh_instance)
+	var visual := ModelSlot.instantiate(MODEL_SCENES[kind])
+	if visual:
+		add_child(visual)
 
-	var light := OmniLight3D.new()
-	light.position = Vector3(0, 0.5, 0)
-	light.light_energy = 0.4
-	light.omni_range = 2.0
-	light.light_color = accent_color
-	add_child(light)
+	_light = OmniLight3D.new()
+	_light.position = Vector3(0, 0.5, 0)
+	_light.light_energy = 0.4
+	_light.omni_range = 2.0
+	_light.light_color = GLOW_COLORS[kind]
+	add_child(_light)
 
 	_refresh_visual()
 
@@ -90,8 +97,5 @@ func reset_for_floor() -> void:
 
 
 func _refresh_visual() -> void:
-	if _material == null:
-		return
-	var color := accent_color.darkened(0.72) if completed else accent_color
-	_material.albedo_color = color
-	_material.emission = color
+	if _light:
+		_light.visible = not completed

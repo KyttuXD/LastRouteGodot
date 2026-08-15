@@ -3,30 +3,25 @@ extends Node3D
 
 ## Thin 3D presentation wrapper around a HunterBrain: reads its grid-space
 ## `position` each frame and converts to world space (1 cell = 1 meter, same
-## convention as facility_view_3d.gd). Placeholder capsule mesh, distinct
-## color from the player, until real 3D art exists (see art/props-3d/).
+## convention as facility_view_3d.gd). Visual is instanced from
+## art/props-3d/characters/ via ModelSlot — currently only Dovelle exists,
+## so that's the only model this maps yet; extend MODEL_SCENES per hunter id
+## as the roster grows (see MIGRATION.md).
 
-const BODY_COLOR := Color(0.85, 0.18, 0.22)
+const MODEL_SCENES := {
+	"dovelle": "res://art/props-3d/characters/dovelle.tscn",
+}
+const FALLBACK_MODEL_SCENE := "res://art/props-3d/characters/dovelle.tscn"
 
 var brain: HunterBrain
-
-var _mesh_instance: MeshInstance3D
+var hunter_id := "dovelle"
 
 
 func _ready() -> void:
-	var capsule := CapsuleMesh.new()
-	capsule.radius = GameConfig.HUNTER_RADIUS
-	capsule.height = 1.8
-	_mesh_instance = MeshInstance3D.new()
-	_mesh_instance.mesh = capsule
-	_mesh_instance.position = Vector3(0, 0.9, 0)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = BODY_COLOR
-	material.emission_enabled = true
-	material.emission = BODY_COLOR
-	material.emission_energy_multiplier = 0.25
-	_mesh_instance.material_override = material
-	add_child(_mesh_instance)
+	var scene_path: String = MODEL_SCENES.get(hunter_id, FALLBACK_MODEL_SCENE)
+	var model := ModelSlot.instantiate(scene_path)
+	if model:
+		add_child(model)
 
 
 func sync_from_brain() -> void:

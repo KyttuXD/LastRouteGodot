@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="SphereMesh" id="SphereMesh_relay"]
+radius = 0.26
+height = 0.52
+radial_segments = 12
+rings = 8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_relay"]
+albedo_color = Color(0.26, 0.88, 0.92, 1)
+emission_enabled = true
+emission = Color(0.26, 0.88, 0.92, 1)
+emission_energy_multiplier = 0.8
+
+[node name="Relay" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.5, 0)
+mesh = SubResource("SphereMesh_relay")
+surface_material_override/0 = SubResource("StandardMaterial3D_relay")

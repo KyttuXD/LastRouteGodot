@@ -4,15 +4,14 @@ extends Node3D
 ## 3D counterpart to src/game/facility_view.gd. Renders the SAME
 ## facility_generator.gd grid data (unchanged, engine-agnostic) via a
 ## GridMap — the 3D equivalent of the 2D renderer's TileMapLayer — with
-## physics collision. Placeholder box meshes stand in for real 3D art; see
+## physics collision. Floor/wall visuals and collision come from
+## art/props-3d/environment/ via ModelSlot, not hardcoded geometry — see
 ## art/props-3d/README.md for the scale/pivot convention this mirrors:
 ## 1 grid cell = 1 meter, ground plane is XZ (Godot is Y-up).
 
 const CELL_SIZE := 1.0
-const WALL_HEIGHT := 2.4
-const FLOOR_THICKNESS := 0.1
-const FLOOR_COLOR := Color(0.09, 0.13, 0.15)
-const WALL_COLOR := Color(0.18, 0.27, 0.30)
+const FLOOR_SCENE := "res://art/props-3d/environment/floor_tile.tscn"
+const WALL_SCENE := "res://art/props-3d/environment/wall_block.tscn"
 
 const ITEM_FLOOR := 0
 const ITEM_WALL := 1
@@ -63,51 +62,35 @@ func _spawn_interactables() -> void:
 	_interactables.clear()
 
 	for relay in generator.relays:
-		_spawn_interactable(RouteInteractable3D.Kind.RELAY, Vector2i(relay["x"], relay["y"]), "RECOVER SIGNAL RELAY", Color(0.26, 0.88, 0.92))
+		_spawn_interactable(RouteInteractable3D.Kind.RELAY, Vector2i(relay["x"], relay["y"]), "RECOVER SIGNAL RELAY")
 	for battery in generator.batteries:
-		_spawn_interactable(RouteInteractable3D.Kind.BATTERY, Vector2i(battery["x"], battery["y"]), "COLLECT BATTERY", Color(0.95, 0.82, 0.25))
+		_spawn_interactable(RouteInteractable3D.Kind.BATTERY, Vector2i(battery["x"], battery["y"]), "COLLECT BATTERY")
 	for zone in generator.safe_zones:
-		_spawn_interactable(RouteInteractable3D.Kind.SAFE_ZONE, Vector2i(zone["x"], zone["y"]), "REST AT SAFE ZONE", Color(0.35, 0.95, 0.52))
-	_spawn_interactable(RouteInteractable3D.Kind.LIFT, generator.exit_cell, "USE SERVICE LIFT", Color(0.76, 0.55, 0.96))
+		_spawn_interactable(RouteInteractable3D.Kind.SAFE_ZONE, Vector2i(zone["x"], zone["y"]), "REST AT SAFE ZONE")
+	_spawn_interactable(RouteInteractable3D.Kind.LIFT, generator.exit_cell, "USE SERVICE LIFT")
 
 
-func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_text: String, accent_color: Color) -> void:
+func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_text: String) -> void:
 	var node := RouteInteractable3D.new()
 	node.position = cell_to_world(cell)
 	node.kind = kind
 	node.prompt_text = prompt_text
-	node.accent_color = accent_color
 	add_child(node)
 	_interactables.append(node)
 
 
 func _build_mesh_library() -> MeshLibrary:
 	var library := MeshLibrary.new()
-
-	var floor_mesh := BoxMesh.new()
-	floor_mesh.size = Vector3(CELL_SIZE, FLOOR_THICKNESS, CELL_SIZE)
-	var floor_material := StandardMaterial3D.new()
-	floor_material.albedo_color = FLOOR_COLOR
-	floor_mesh.material = floor_material
-	var floor_transform := Transform3D(Basis(), Vector3(0, -FLOOR_THICKNESS / 2.0, 0))
-	var floor_shape := BoxShape3D.new()
-	floor_shape.size = floor_mesh.size
-	library.create_item(ITEM_FLOOR)
-	library.set_item_mesh(ITEM_FLOOR, floor_mesh)
-	library.set_item_mesh_transform(ITEM_FLOOR, floor_transform)
-	library.set_item_shapes(ITEM_FLOOR, [floor_shape, floor_transform])
-
-	var wall_mesh := BoxMesh.new()
-	wall_mesh.size = Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE)
-	var wall_material := StandardMaterial3D.new()
-	wall_material.albedo_color = WALL_COLOR
-	wall_mesh.material = wall_material
-	var wall_transform := Transform3D(Basis(), Vector3(0, WALL_HEIGHT / 2.0, 0))
-	var wall_shape := BoxShape3D.new()
-	wall_shape.size = wall_mesh.size
-	library.create_item(ITEM_WALL)
-	library.set_item_mesh(ITEM_WALL, wall_mesh)
-	library.set_item_mesh_transform(ITEM_WALL, wall_transform)
-	library.set_item_shapes(ITEM_WALL, [wall_shape, wall_transform])
-
+	_add_item(library, ITEM_FLOOR, FLOOR_SCENE)
+	_add_item(library, ITEM_WALL, WALL_SCENE)
 	return library
+
+
+static func _add_item(library: MeshLibrary, id: int, scene_path: String) -> void:
+	var loaded := ModelSlot.load_gridmap_item(scene_path)
+	library.create_item(id)
+	if loaded["mesh"]:
+		library.set_item_mesh(id, loaded["mesh"])
+		library.set_item_mesh_transform(id, loaded["mesh_transform"])
+	if loaded["shape"]:
+		library.set_item_shapes(id, [loaded["shape"], loaded["shape_transform"]])

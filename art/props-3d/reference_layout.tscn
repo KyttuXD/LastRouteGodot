@@ -1,10 +1,15 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=11 format=3]
 
-[ext_resource type="PackedScene" path="res://art/props-3d/floor_tile.tscn" id="1_floor"]
-[ext_resource type="PackedScene" path="res://art/props-3d/wall_block.tscn" id="2_wall"]
-[ext_resource type="PackedScene" path="res://art/props-3d/door_frame.tscn" id="3_door"]
-[ext_resource type="PackedScene" path="res://art/props-3d/generic_prop.tscn" id="4_prop"]
-[ext_resource type="PackedScene" path="res://art/props-3d/character_scale_reference.tscn" id="5_char"]
+[ext_resource type="PackedScene" path="res://art/props-3d/environment/floor_tile.tscn" id="1_floor"]
+[ext_resource type="PackedScene" path="res://art/props-3d/environment/wall_block.tscn" id="2_wall"]
+[ext_resource type="PackedScene" path="res://art/props-3d/environment/door_frame.tscn" id="3_door"]
+[ext_resource type="PackedScene" path="res://art/props-3d/props/generic_prop.tscn" id="4_prop"]
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/character_scale_reference.tscn" id="5_char"]
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/player.tscn" id="6_player"]
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/dovelle.tscn" id="7_dovelle"]
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/relay.tscn" id="8_relay"]
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/battery.tscn" id="9_battery"]
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/safe_zone.tscn" id="10_safe_zone"]
 
 [node name="ReferenceLayout" type="Node3D"]
 
@@ -13,7 +18,7 @@ rotation_degrees = Vector3(-55, -30, 0)
 shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="."]
-position = Vector3(6, 6, 10)
+position = Vector3(6, 8, 13)
 rotation_degrees = Vector3(-25, 15, 0)
 current = true
 
@@ -76,3 +81,37 @@ position = Vector3(5, 0, 2)
 
 [node name="Character" parent="SampleRow" instance=ExtResource("5_char")]
 position = Vector3(5, 0, 2)
+
+[node name="CastRow" type="Node3D" parent="."]
+
+[node name="FloorPlayer" parent="CastRow" instance=ExtResource("1_floor")]
+position = Vector3(7, 0, 0)
+
+[node name="Player" parent="CastRow" instance=ExtResource("6_player")]
+position = Vector3(7, 0, 0)
+
+[node name="FloorDovelle" parent="CastRow" instance=ExtResource("1_floor")]
+position = Vector3(7, 0, 1)
+
+[node name="Dovelle" parent="CastRow" instance=ExtResource("7_dovelle")]
+position = Vector3(7, 0, 1)
+
+[node name="InteractablesRow" type="Node3D" parent="."]
+
+[node name="FloorRelay" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 0)
+
+[node name="Relay" parent="InteractablesRow" instance=ExtResource("8_relay")]
+position = Vector3(9, 0, 0)
+
+[node name="FloorBattery" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 1)
+
+[node name="Battery" parent="InteractablesRow" instance=ExtResource("9_battery")]
+position = Vector3(9, 0, 1)
+
+[node name="FloorSafeZone" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 2)
+
+[node name="SafeZone" parent="InteractablesRow" instance=ExtResource("10_safe_zone")]
+position = Vector3(9, 0, 2)

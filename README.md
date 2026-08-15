@@ -29,14 +29,14 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 ## Project layout
 
 ```text
-art/props-3d/           Placeholder 3D prop scaffold for real asset imports
+art/props-3d/           3D prop scaffold — every model the game loads at runtime; drop real assets in to replace the placeholders (see its README)
 assets/                 Imported art, audio, fonts and data
 scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, hud.tscn = shared HUD)
 scripts/                Headless validation/dev scripts
 src/autoload/           Project-wide state (GameState, Settings)
 src/config/             Tuning and content definitions
 src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd) and 2D gameplay nodes
-src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view)
+src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, model_slot.gd loads visuals from art/props-3d/)
 src/ui/                  Shared HUD, main menu, settings panel
 ```
 

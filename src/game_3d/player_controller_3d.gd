@@ -14,6 +14,7 @@ const MOUSE_SENSITIVITY := 0.0035
 const CAMERA_HEIGHT := 1.6
 const TOP_DOWN_HEIGHT := 12.0
 const TOP_DOWN_ORTHO_SIZE := 10.0
+const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
 
 ## Sibling, not a child — the top-down camera must NOT inherit the player's
 ## facing rotation (it stays fixed, looking straight down, and only follows
@@ -22,7 +23,10 @@ const TOP_DOWN_ORTHO_SIZE := 10.0
 @onready var first_person_camera: Camera3D = $FirstPersonPivot/FirstPersonCamera
 @onready var first_person_pivot: Node3D = $FirstPersonPivot
 @onready var flashlight: SpotLight3D = $FirstPersonPivot/Flashlight
-@onready var body_visual: MeshInstance3D = $BodyVisual
+## Empty container — its child model comes from ModelSlot (see _ready), so
+## replacing BODY_MODEL_SCENE's contents with a real model needs no changes
+## here.
+@onready var body_visual: Node3D = $BodyVisual
 
 var flashlight_enabled := true
 var stamina := GameConfig.MAX_STAMINA
@@ -43,6 +47,9 @@ var _pitch := 0.0
 
 
 func _ready() -> void:
+	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
+	if model:
+		body_visual.add_child(model)
 	flashlight.visible = flashlight_enabled
 	_set_view_mode(false)
 
