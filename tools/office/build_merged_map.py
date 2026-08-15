@@ -85,12 +85,16 @@ CORRIDORS = [
     ("LinkBayW2", (-13.25, -19.50), (-4.50, -19.50), 2.6, 2.2),    #         -> Loading
     ("LinkBayE1", (14.35, -15.50), (14.35, -18.40), 2.6, 2.2),     # Archive -> south
     ("LinkBayE2", (13.25, -19.50), (4.50, -19.50), 2.6, 2.2),      #         -> Loading
-    # The only duct in the map: office back wall to Electrical, crawl-only.
+    # The only duct in the map: office to Electrical, crawl-only.
     # 1.4 m, not 1.0. Measured on the rig: a hands-and-knees crawl pose is
     # 85.1 units = 1.26 m tall, so a 1.0 m duct is one nothing can actually
     # crawl through. 1.4 m clears that with headroom while staying far under
     # the 1.80 m standing height, so it is still crawl-only.
-    ("OfficeDuct", (1.10, 2.50), (1.10, -4.00), 1.4, 1.1),
+    # Starts at the office's NORTH wall, which is where its crawl opening is
+    # cut (see PLAN above). It used to start at +2.50 -- the wall BEHIND the
+    # desk -- so the duct ran the full five metre depth of the office as a
+    # 1.4 m tube through the middle of the room the player sits in.
+    ("OfficeDuct", (1.10, -2.40), (1.10, -4.00), 1.4, 1.1),
     # South wing
     ("LinkArcade", (-11.0, 1.50), (-11.0, 6.00), 2.6, 2.2),
     ("LinkDineB", (11.0, 1.50), (11.0, 5.50), 2.6, 2.2),

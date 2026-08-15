@@ -137,6 +137,36 @@ func _check_office() -> void:
 
 	_expect(not menu.tap_to_pause, "office pauses on a tap instead of a hold")
 
+	# Standing up has to capture the mouse and show the reticle. Seated, the
+	# free cursor IS the pointer and a second mark in the middle of the screen
+	# would be clutter -- but the office is walkable now, and walking with a
+	# loose cursor and no crosshair is the complaint this checks for.
+	var view: OfficeView3D = scene.get_node("%OfficeView")
+	var walker: OfficeWalker = view._walker
+	var reticle: Crosshair = scene.find_child("Crosshair", true, false)
+	if walker == null or reticle == null:
+		_fail("the office has no walker or no crosshair")
+	else:
+		_expect(walker.seated, "the office did not start at the desk")
+		_expect(MouseLock.cursor_visible(), "the desk took the cursor away from its own UI")
+		# Standing must be reachable BY PLAYING, not only by calling stand().
+		# Pointing at the console used to make interact press a button instead,
+		# so the chair was effectively inescapable.
+		view._hovered = "ctrl:LeftDoor"
+		Input.action_press("interact")
+		view._update_seating()
+		Input.action_release("interact")
+		_expect(not walker.seated,
+			"interact worked a control instead of standing the player up")
+		view._hovered = ""
+		_expect(MouseLock.is_captured(), "standing up did not capture the mouse")
+		reticle._process(0.016)
+		_expect(reticle._shown, "standing up did not show the crosshair")
+		walker.sit()
+		_expect(MouseLock.cursor_visible(), "sitting back down did not free the cursor")
+		reticle._process(0.016)
+		_expect(not reticle._shown, "the crosshair stayed up at the desk")
+
 	# A tap, then a hold, driven by hand rather than in real time.
 	Input.action_press("pause")
 	menu._process(0.2)

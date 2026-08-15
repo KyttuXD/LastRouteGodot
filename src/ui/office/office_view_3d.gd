@@ -419,7 +419,16 @@ func _aim_point() -> Vector2:
 ## name and what working it would do right now, so a control is legible before
 ## it is pressed rather than after.
 func _control_hint() -> String:
-	if not _hovered.begins_with("ctrl:") or simulation == null:
+	if simulation == null:
+		return ""
+	if not _hovered.begins_with("ctrl:"):
+		# Nothing under the pointer: say how to get out of the chair. A control
+		# that cannot be discovered may as well not exist, and this one gates
+		# the whole walkable half of the mode.
+		if _walker != null and _walker.seated:
+			return "[E] STAND  //  CLICK A CONTROL"
+		if _walker != null and _walker.can_sit():
+			return "[E] SIT AT THE DESK"
 		return ""
 	var name := _hovered.substr(5)
 	var label := String(CONTROL_LABELS.get(name, name.to_upper()))
@@ -548,12 +557,21 @@ func _update_seating() -> void:
 	if _walker == null:
 		return
 	if Input.is_action_just_pressed("interact") and can_move:
-		if _hovered.begins_with("ctrl:"):
+		# Seated, interact ALWAYS stands you up. It used to work whatever the
+		# pointer was on, which meant it almost never stood you up at all: the
+		# console and the key bank fill most of what a seated player is looking
+		# at, so E pressed a button instead and the office read as having no
+		# walking, no mouse capture and no crosshair.
+		#
+		# Working a control from the chair is a CLICK, which is unambiguous
+		# because the cursor is free there anyway. Standing, the mouse is
+		# captured and interact works whatever the crosshair is on.
+		if _walker.seated:
+			_walker.stand()
+		elif _hovered.begins_with("ctrl:"):
 			_work_key(_hovered.substr(5))
 		elif not _hovered.is_empty():
 			_step(1 if _hovered == "next" else -1)
-		elif _walker.seated:
-			_walker.stand()
 		elif _walker.can_sit():
 			_walker.sit()
 	if simulation != null:
