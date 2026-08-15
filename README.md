@@ -6,7 +6,7 @@ This repository begins with a deliberately small, runnable foundation rather tha
 
 ## Open it
 
-1. Start Godot 4.3 or newer.
+1. Start Godot 4.7 or newer (the project targets 4.7.1).
 2. Select **Import** and choose this repository's `project.godot`.
 3. Open the project and press **F6** or **F5**.
 
@@ -39,6 +39,7 @@ src/config/             Tuning and content definitions
 src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd, hunter_gimmicks/, office/) and 2D gameplay nodes
 src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, model_slot.gd loads visuals from art/props-3d/)
 src/ui/                  Shared HUD, main menu, settings panel
+third_party/            Vendored third-party assets, each with its own license (see Credits)
 ```
 
 See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries, and exactly what's done versus deferred.
@@ -50,3 +51,11 @@ See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries
 - Store tuning/content in Resources instead of scattering constants across scenes.
 - Preserve the existing Node server protocol until the single-player foundation is stable.
 - Do not commit `.godot/`, exports, secrets, or runtime account saves.
+
+## Credits
+
+Original game — **KYTTU: The Last Route** by [KyttuXD](https://github.com/KyttuXD/LastRoute). This repository is a Godot 4 port of it.
+
+Third-party assets vendored into `third_party/`, each under its own license:
+
+- **[Cupcakes Framework](https://github.com/Oplexitie/Cupcakes-Framework)** by Oplexitie — MIT. Two shaders (`equirectangular_perspective`, `crtwave`) used for Office Mode's office view and camera-monitor feed. Vendored verbatim; see [`third_party/cupcakes-framework/`](third_party/cupcakes-framework/) for the license text and full attribution.

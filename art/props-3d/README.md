@@ -33,7 +33,7 @@ this (look at the transform on their child `MeshInstance3D`/
 
 ## Import format
 
-**Export to FBX (`.fbx`).** Godot 4.3 (what this project runs) has a native
+**Export to FBX (`.fbx`).** Godot (this project targets 4.7) has a native
 FBX importer built on the `ufbx` library — no external FBX2glTF conversion
 tool needed, `.fbx` files import directly like any other scene format.
 `ufbx` reads both binary and ASCII FBX (v3000+), which matters here because
