@@ -25,6 +25,10 @@ const ITEM_CEILING := 2
 var generator: FacilityGenerator
 
 var _grid_map: GridMap
+## The ceiling is its OWN GridMap so it can be hidden wholesale. A GridMap has
+## no per-item visibility, and the top-down view has to see through it -- that
+## view is the original game's primary perspective, not a debug camera.
+var _ceiling_map: GridMap
 var _interactables: Array = []
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
@@ -33,8 +37,13 @@ var heater_station: RouteInteractable3D
 func _ready() -> void:
 	_grid_map = GridMap.new()
 	_grid_map.cell_size = Vector3(CELL_SIZE, CELL_SIZE, CELL_SIZE)
-	_grid_map.mesh_library = _build_mesh_library()
+	var library := _build_mesh_library()
+	_grid_map.mesh_library = library
 	add_child(_grid_map)
+	_ceiling_map = GridMap.new()
+	_ceiling_map.cell_size = Vector3(CELL_SIZE, CELL_SIZE, CELL_SIZE)
+	_ceiling_map.mesh_library = library
+	add_child(_ceiling_map)
 
 
 func generate_floor(seed_text: String) -> void:
@@ -58,6 +67,7 @@ func start_world_position() -> Vector3:
 
 func _paint_grid() -> void:
 	_grid_map.clear()
+	_ceiling_map.clear()
 	for y in generator.rows:
 		for x in generator.cols:
 			var open: bool = generator.grid[y][x] == 0
@@ -68,7 +78,18 @@ func _paint_grid() -> void:
 			# already fills its cell to the ceiling. A GridMap cell holds one
 			# item, so the lid lives a layer up.
 			if open:
-				_grid_map.set_cell_item(Vector3i(x, 1, y), ITEM_CEILING)
+				_ceiling_map.set_cell_item(Vector3i(x, 1, y), ITEM_CEILING)
+
+
+## Lift the lid for the top-down view.
+##
+## Looking down from 12 m at a sealed corridor shows a ceiling, which is why
+## switching to that view went completely black. Hiding it is not a hack around
+## the ceiling -- a plan view of a building never draws the floor above the one
+## you are reading.
+func set_ceiling_visible(shown: bool) -> void:
+	if _ceiling_map != null:
+		_ceiling_map.visible = shown
 
 
 func _spawn_interactables() -> void:

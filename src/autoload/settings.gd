@@ -11,6 +11,13 @@ signal display_changed
 
 const SETTINGS_PATH := "user://settings.cfg"
 const DEFAULT_VOLUME_PERCENT := 100.0
+## Radians of turn per pixel of mouse travel. Both first-person controllers
+## read this rather than each carrying a constant, so one slider moves the maze
+## and the office together -- they were 0.0035 and 0.0022, which felt like two
+## different games.
+const DEFAULT_MOUSE_SENSITIVITY := 0.0030
+const MIN_MOUSE_SENSITIVITY := 0.0005
+const MAX_MOUSE_SENSITIVITY := 0.0120
 const MIN_VOLUME_DB := -80.0
 
 ## The design size every 2D layout is authored against, and the project's
@@ -38,6 +45,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 ]
 
 var master_volume_percent := DEFAULT_VOLUME_PERCENT
+var mouse_sensitivity := DEFAULT_MOUSE_SENSITIVITY
 var fullscreen := false
 
 var _master_bus_index := -1
@@ -71,6 +79,11 @@ func set_fullscreen(on: bool) -> void:
 func set_master_volume(percent: float) -> void:
 	master_volume_percent = clampf(percent, 0.0, 100.0)
 	_apply_volume()
+	_save()
+
+
+func set_mouse_sensitivity(value: float) -> void:
+	mouse_sensitivity = clampf(value, MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
 	_save()
 
 
@@ -130,6 +143,9 @@ func _load() -> void:
 
 	master_volume_percent = config.get_value("audio", "master_volume_percent", DEFAULT_VOLUME_PERCENT)
 	fullscreen = config.get_value("display", "fullscreen", false)
+	mouse_sensitivity = clampf(
+		config.get_value("controls", "mouse_sensitivity", DEFAULT_MOUSE_SENSITIVITY),
+		MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
 	for action in REBINDABLE_ACTIONS:
 		var physical_keycode: int = config.get_value("controls", action, -1)
 		if physical_keycode != -1 and InputMap.has_action(action):
@@ -144,6 +160,7 @@ func _save() -> void:
 	var config := ConfigFile.new()
 	config.set_value("audio", "master_volume_percent", master_volume_percent)
 	config.set_value("display", "fullscreen", fullscreen)
+	config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	for action in REBINDABLE_ACTIONS:
 		for event in InputMap.action_get_events(action):
 			if event is InputEventKey:

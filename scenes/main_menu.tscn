@@ -308,12 +308,38 @@ layout_mode = 2
 vertical_alignment = 1
 text = "100%"
 
-[node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
+[node name="SensitivityRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
 offset_top = 58.0
 offset_right = 420.0
 offset_bottom = 74.0
+theme_override_constants/separation = 8
+
+[node name="SensitivityLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "MOUSE SENSITIVITY"
+
+[node name="SensitivitySlider" type="HSlider" parent="SettingsOverlay/SensitivityRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="SensitivityValueLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "50"
+
+[node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 76.0
+offset_right = 420.0
+offset_bottom = 92.0
 theme_override_constants/separation = 8
 
 [node name="DisplayLabel" type="Label" parent="SettingsOverlay/DisplayRow"]
@@ -337,7 +363,7 @@ text = "F11 ANYWHERE"
 [node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 80.0
+offset_top = 98.0
 offset_right = 420.0
 offset_bottom = 228.0
 horizontal_scroll_mode = 0

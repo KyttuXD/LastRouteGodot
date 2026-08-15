@@ -10,7 +10,6 @@ extends CharacterBody3D
 signal flashlight_changed(enabled: bool)
 signal interaction_message(message: String)
 
-const MOUSE_SENSITIVITY := 0.0035
 const CAMERA_HEIGHT := 1.6
 const TOP_DOWN_HEIGHT := 12.0
 const TOP_DOWN_ORTHO_SIZE := 10.0
@@ -38,6 +37,7 @@ var exhausted := false
 var stamina_recovery_delay := 0.0
 var movement_mode := "walk"
 var first_person := false
+var _overhead_light: OmniLight3D
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
 var noise := 0.0
@@ -67,13 +67,14 @@ func _ready() -> void:
 	# The maze is lit almost entirely by this beam; starting dark reads as a
 	# broken build rather than as atmosphere.
 	_set_flashlight(true)
+	_build_overhead_light()
 	_set_view_mode(false)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if first_person and event is InputEventMouseMotion:
-		_yaw -= event.relative.x * MOUSE_SENSITIVITY
-		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.4, 1.4)
+		_yaw -= event.relative.x * Settings.mouse_sensitivity
+		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
 		first_person_pivot.rotation.x = _pitch
 
@@ -154,8 +155,28 @@ func _physics_process(delta: float) -> void:
 		_try_interact()
 
 
+## A soft lamp overhead, on only in the top-down view.
+##
+## That view is the original game's primary perspective, and it reads a whole
+## room at once -- but the 3D world is lit by a forward-facing beam, so from
+## 12 m up the room the player is standing in was a dark rectangle with a cone
+## across it. This is the plan view's equivalent of the original's room
+## lighting, not an extra light in the maze: first person never sees it.
+func _build_overhead_light() -> void:
+	_overhead_light = OmniLight3D.new()
+	_overhead_light.position = Vector3(0.0, 2.4, 0.0)
+	_overhead_light.omni_range = 9.0
+	_overhead_light.light_energy = 1.15
+	_overhead_light.light_color = Color(0.72, 0.74, 0.84)
+	_overhead_light.shadow_enabled = false
+	add_child(_overhead_light)
+	_overhead_light.visible = not first_person
+
+
 func _set_view_mode(is_first_person: bool) -> void:
 	first_person = is_first_person
+	if _overhead_light != null:
+		_overhead_light.visible = not is_first_person
 	top_down_camera.current = not first_person
 	first_person_camera.current = first_person
 	body_visual.visible = not first_person

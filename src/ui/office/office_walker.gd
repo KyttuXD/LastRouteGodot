@@ -19,7 +19,6 @@ signal seated_changed(seated: bool)
 
 const WALK_SPEED := 2.6
 const ACCEL := 12.0
-const MOUSE_SENSITIVITY := 0.0022
 const PITCH_LIMIT := deg_to_rad(85.0)
 ## Sitting back down within this distance of the seat.
 const SIT_RANGE := 1.1
@@ -88,8 +87,8 @@ func stand() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and not seated:
 		var motion := event as InputEventMouseMotion
-		_yaw -= motion.relative.x * MOUSE_SENSITIVITY
-		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY,
+		_yaw -= motion.relative.x * Settings.mouse_sensitivity
+		_pitch = clampf(_pitch - motion.relative.y * Settings.mouse_sensitivity,
 			-PITCH_LIMIT, PITCH_LIMIT)
 
 

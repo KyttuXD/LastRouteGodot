@@ -29,7 +29,9 @@ func run(host: Node) -> int:
 
 	var view: FacilityView3D = scene.facility_view
 	var grid: GridMap = view.get_child(0) as GridMap
-	if grid == null:
+	# The ceiling lives on its own GridMap so the top-down view can hide it.
+	var lid: GridMap = view.get_child(1) as GridMap
+	if grid == null or lid == null:
 		_fail("no GridMap under the facility view")
 		scene.queue_free()
 		return _failures
@@ -43,7 +45,7 @@ func run(host: Node) -> int:
 		match grid.get_cell_item(cell):
 			FacilityView3D.ITEM_FLOOR: floors += 1
 			FacilityView3D.ITEM_WALL: walls += 1
-			FacilityView3D.ITEM_CEILING: lids += 1
+	lids = lid.get_used_cells().size()
 	for id in [FacilityView3D.ITEM_FLOOR, FacilityView3D.ITEM_WALL,
 			FacilityView3D.ITEM_CEILING]:
 		if not grid.mesh_library.get_item_mesh(id) is BoxMesh:
@@ -60,6 +62,16 @@ func run(host: Node) -> int:
 	var start: Vector2i = view.generator.start
 	if view.heater_station != null and view.heater_station.source_cell == start:
 		_fail("the heater station is still on the spawn cell")
+
+	# Looking down at a sealed corridor shows a ceiling, which is why that view
+	# went black. It is the original game's primary perspective, so it has to
+	# see through the lid rather than lose it.
+	view.set_ceiling_visible(false)
+	if lid.visible:
+		_fail("the ceiling stayed visible for the top-down view")
+	view.set_ceiling_visible(true)
+	if not lid.visible:
+		_fail("the ceiling did not come back for first person")
 
 	# The maze is lit almost entirely by the lamp; starting dark reads as a
 	# broken build rather than as atmosphere.
