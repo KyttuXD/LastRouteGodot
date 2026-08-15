@@ -31,6 +31,13 @@ const CAM_ROOM := {
 ## as much as from any shader.
 const FEED_SIZE := Vector2i(320, 240)
 
+## How far forward of the mount to put the lens. The mount ORIGIN is the middle
+## of the camera housing -- CamBody and CamLens sit at 0.00 m from it -- so a
+## camera placed exactly there renders the inside of its own casing, which put
+## a dark slab across part of every feed. 0.45 m clears the housing (about
+## 0.24 m deep) and the wall fittings beside it.
+const LENS_OFFSET := 0.45
+
 ## Height above a Nav marker to mount a passage camera, and how far along the
 ## passage it looks.
 const PASSAGE_EYE := 2.3
@@ -84,9 +91,15 @@ func select(camera_id: String) -> void:
 		var mount: Node = _find(_map, "%s_CameraMount" % room)
 		var target: Node = _find(_map, "%s_CameraTarget" % room)
 		if mount is Node3D:
-			_camera.position = (mount as Node3D).position
+			var eye: Vector3 = (mount as Node3D).position
 			if target is Node3D:
-				_look_at_safe((target as Node3D).position)
+				var aim: Vector3 = (target as Node3D).position
+				if eye.distance_to(aim) > 0.05:
+					eye += (aim - eye).normalized() * LENS_OFFSET
+				_camera.position = eye
+				_look_at_safe(aim)
+			else:
+				_camera.position = eye
 			return
 
 	# The passages (cam5/cam6) are corridors, not rooms, so they carry only a
