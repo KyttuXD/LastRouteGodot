@@ -10,17 +10,22 @@ extends RefCounted
 
 ## The camera map is also the threat-navigation graph — one office described
 ## once, rather than separate flat routes per threat.
-const CAMERAS := ["cam1", "cam2", "cam3", "cam4", "cam5", "cam6", "cam7", "cam8"]
+const CAMERAS := ["cam1", "cam2", "cam3", "cam4", "cam5", "cam6", "cam7", "cam8",
+	"cam9", "cam10", "cam11"]
 
 const CAMERA_GRAPH := {
-	"cam1": ["cam3", "cam6"],
-	"cam2": ["cam4", "cam5"],
+	"cam1": ["cam3", "cam6", "cam9"],
+	"cam2": ["cam4", "cam5", "cam11"],
 	"cam3": ["cam8", "cam1", "cam6"],
 	"cam4": ["cam8", "cam2", "cam5"],
 	"cam5": ["cam4", "cam2", "cam7"],
 	"cam6": ["cam3", "cam1", "cam7"],
 	"cam7": ["cam6", "cam5"],
 	"cam8": ["cam3", "cam4"],
+	# South wing, reached from the two halls.
+	"cam9": ["cam1", "cam10"],
+	"cam10": ["cam9", "cam11"],
+	"cam11": ["cam10", "cam2"],
 }
 
 ## Room identities are simulation-owned metadata: the presentation layer reads
@@ -31,10 +36,15 @@ const CAMERA_VIEWS := {
 	"cam2": {"room": "EAST HALL", "layout": "hall", "accent": Color("785457")},
 	"cam3": {"room": "STORAGE", "layout": "storage", "accent": Color("5d6970")},
 	"cam4": {"room": "ARCHIVE", "layout": "archive", "accent": Color("766154")},
-	"cam5": {"room": "VENT A", "layout": "vent", "accent": Color("54756a")},
-	"cam6": {"room": "VENT B", "layout": "vent", "accent": Color("54756a")},
+	# 5 and 6 were ducts; they are walk-height passages now, and the only
+	# crawlable vent left in the map is the office's own back-wall duct.
+	"cam5": {"room": "EAST PASSAGE", "layout": "passage", "accent": Color("54756a")},
+	"cam6": {"room": "WEST PASSAGE", "layout": "passage", "accent": Color("54756a")},
 	"cam7": {"room": "ELECTRICAL", "layout": "electrical", "accent": Color("8a7045")},
 	"cam8": {"room": "LOADING", "layout": "loading", "accent": Color("6b5d70")},
+	"cam9": {"room": "ARCADE", "layout": "arcade", "accent": Color("6d4f7a")},
+	"cam10": {"room": "DINING A", "layout": "dining", "accent": Color("7a5a4a")},
+	"cam11": {"room": "DINING B", "layout": "dining", "accent": Color("4a6a7a")},
 }
 
 const SHIFT_DURATION := 180.0
