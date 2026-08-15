@@ -143,6 +143,12 @@ func _update_gameplay(delta: float) -> void:
 		return
 
 	_hunter_report.clear()
+	# Ferryn's scream, collected during the loop below and applied to every
+	# OTHER hunter only after every hunter has had her own update() this
+	# frame -- applying it inline would let whoever raised it stomp a
+	# not-yet-updated sibling, then have that sibling's own update() overwrite
+	# it right back a moment later.
+	var facility_alerts: Array = []
 	for view in hunter_views:
 		var captured: bool = view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
 		view.sync_from_brain()
@@ -151,6 +157,9 @@ func _update_gameplay(delta: float) -> void:
 		# Anything a gimmick did to the floor. Only the host reaches here, which
 		# is what makes it safe to broadcast without a second authority check.
 		for event in view.brain.world_events:
+			if String(event.get("what", "")) == "facility_alert":
+				facility_alerts.append(event)
+				continue
 			facility_view.apply_event(event)
 			_remotes.broadcast_event(event)
 			var note := String(event.get("message", ""))
@@ -185,6 +194,20 @@ func _update_gameplay(delta: float) -> void:
 		if captured:
 			_trigger_capture(view)
 			return
+
+	for alert in facility_alerts:
+		var at: Vector2 = alert["at"]
+		var except_id := String(alert.get("except", ""))
+		for view in hunter_views:
+			if not view.brain.active or view.brain.hunter_id == except_id:
+				continue
+			view.brain.state = HunterBrain.State.INVESTIGATE
+			view.brain.has_last_known = true
+			view.brain.last_known = at
+			view.sync_from_brain()
+		var note := String(alert.get("message", ""))
+		if not note.is_empty():
+			hud.show_message(note)
 
 
 ## Mirrors hunter-ai.js's guardianBlocking(), called from the same place its

@@ -311,3 +311,7 @@ const CERYTH_LOCK_SECONDS := 30.0
 const BRISELLE_ROOM_CHANCE := 0.5
 const BRISELLE_SABOTAGE_DWELL := 5.0
 const RELAY_RESECURE_SECONDS := 2.6
+
+## Ferryn — persistent stalk (hunterAbilities.ferryn.roundStalker). flashNoise
+## is her plan's own value.
+const FERRYN_FLASH_NOISE := 100.0

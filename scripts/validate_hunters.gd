@@ -46,6 +46,7 @@ func run(_host: Node) -> int:
 	await _loxelle_burns_and_regrows(_host)
 	await _ceryth_traps_and_disperses(_host)
 	await _briselle_sabotages_and_resecures(_host)
+	_ferryn_stalks_and_screams(generator)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -541,3 +542,74 @@ func _briselle_sabotages_and_resecures(host: Node) -> void:
 
 	print("  briselle  takes a collected relay offline, blocks the lift, and can be restored")
 	scene.queue_free()
+
+
+## Ferryn always knows where the player is -- no sight or hearing check gates
+## her chase at all -- and only stops for hiding, a safe zone, or a held
+## torch, which sends her back to a fixed origin AND, for a flash specifically,
+## puts every other active hunter onto the player. Driven through two real
+## brains, because "she raises a facility_alert" is exactly the kind of check
+## that passes while the SECOND hunter never actually receives it.
+func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
+	var far := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var brain := _brain("ferryn", far)
+	if brain.gimmick == null:
+		_fail("Ferryn has no gimmick")
+		return
+	var meters := PlayerMeters.new()
+	var elsewhere := far + Vector2(6.0, 6.0)
+	var target := _target(elsewhere)
+	target["meters"] = meters
+
+	# No sight, no hearing, nothing lit -- and she still locks CHASE at range,
+	# which no other hunter in this roster does.
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"Ferryn did not chase a player she has no way to have sensed")
+	_expect(brain.last_known == elsewhere, "Ferryn is not tracking the player's real position")
+	for i in 30:
+		brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"Ferryn's chase decayed on its own -- the lost-sight reset is not holding")
+
+	# Hiding sends her home and quiets her down, no scream.
+	var hidden_target := target.duplicate()
+	hidden_target["hidden"] = true
+	brain.update(STEP, generator, hidden_target, 1, 0)
+	_expect(brain.state == HunterBrain.State.WANDER, "hiding did not send Ferryn back to wander")
+	_expect(brain.position == brain.gimmick.stalker_origin, "hiding did not return Ferryn to her origin")
+	_expect(brain.world_events.is_empty(), "merely hiding raised a facility alert -- only a flash should")
+	brain.world_events.clear()
+
+	# Flash her: real beam, real dwell, not an injected flag. Aimed at wherever
+	# she ACTUALLY is (she was just teleported to her origin by hiding above),
+	# not the stale `elsewhere` from before that -- a beam aimed at the wrong
+	# point never lights her no matter how long it's held.
+	brain.update(STEP, generator, target, 1, 0)  # re-lock chase first
+	var from := brain.position - Vector2(0.0, 2.0)
+	var lit := _target(from)
+	lit["flashlight_on"] = true
+	lit["facing"] = (brain.position - from).normalized()
+	lit["meters"] = meters
+	var before_noise: float = meters.noise_meter
+	var flashed := false
+	for i in 60:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashed = true
+	_expect(flashed, "never actually held a flash on Ferryn -- setup problem, not her")
+	# add_noise() only banks a rise; PlayerMeters.update() is what actually
+	# folds it into noise_meter, same as the real per-frame player loop does.
+	meters.update(STEP, {})
+	_expect(meters.noise_meter > before_noise, "flashing Ferryn raised no facility noise")
+
+	var alert: Dictionary = {}
+	for event in brain.world_events:
+		if event.get("what") == "facility_alert":
+			alert = event
+	_expect(not alert.is_empty(), "flashing Ferryn raised no facility_alert for other hunters")
+	if not alert.is_empty():
+		_expect(String(alert.get("except", "")) == "ferryn",
+			"her own alert would re-target herself if a sibling brain applied it blindly")
+
+	print("  ferryn    chases with no sight or hearing, resets on a flash, and screams the facility awake")
