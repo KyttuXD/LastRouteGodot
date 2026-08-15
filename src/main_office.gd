@@ -95,6 +95,7 @@ func _ready() -> void:
 		button.pressed.connect(_on_parkour_node_pressed.bind(position))
 		_parkour_buttons.add_child(button)
 
+	_build_admin()
 	_end_panel.visible = false
 	_refresh()
 
@@ -145,6 +146,26 @@ func _unhandled_input(_event: InputEvent) -> void:
 		for index in OfficeConfig.CAMERAS.size():
 			if Input.is_action_just_pressed("office_camera_%d" % (index + 1)):
 				monitor.select_by_index(index)
+
+
+## Returns null outside a debug build, so nothing here exists in a release.
+func _build_admin() -> void:
+	AdminMenu.attach(self,
+		func() -> String:
+			return "ROOM %s  OFFICE\nPOWER %d%%  %02d:%02d ELAPSED\nAWAY %.1fs  CAM %s" % [
+				RoomState.code, roundi(simulation.power),
+				int(simulation.elapsed) / 60, int(simulation.elapsed) % 60,
+				simulation.away_timer, simulation.current_camera],
+		[
+			{"label": "REFILL POWER", "action": func() -> void:
+				simulation.power = 100.0},
+			{"label": "SKIP TO 5 AM", "action": func() -> void:
+				simulation.elapsed = simulation.shift_duration * (5.0 / 6.0)},
+			{"label": "CLEAR FAULTS", "action": func() -> void:
+				simulation.disabled_systems.clear()
+				simulation.corrupted_cameras.clear()
+				simulation.blackout_timer = 0.0},
+		])
 
 
 func _on_abandoned() -> void:

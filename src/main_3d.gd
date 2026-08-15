@@ -38,6 +38,7 @@ func _ready() -> void:
 	pause_menu.abandon_label = "ABANDON ROUTE"
 	pause_menu.abandoned.connect(_on_abandoned)
 	add_child(pause_menu)
+	_build_admin()
 	_build_floor()
 	_update_hud()
 
@@ -217,6 +218,28 @@ func _update_hud() -> void:
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
 		hud.update_escape(GameState.escape_progress, GameState.escape_required, GameState.escape_remaining, GameState.escape_duration)
+
+
+## Returns null outside a debug build, so nothing here exists in a release.
+func _build_admin() -> void:
+	AdminMenu.attach(self,
+		func() -> String:
+			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s" % [
+				RoomState.code, RoomState.SCALE_LABELS[RoomState.map_scale],
+				GameState.depth, GameState.relays_collected,
+				GameState.relay_target, GameState.lives_remaining,
+				RoomState.seed_text],
+		[
+			{"label": "GRANT RELAY", "action": func() -> void:
+				GameState.relays_collected = mini(GameState.relay_target,
+					GameState.relays_collected + 1)},
+			{"label": "ALL RELAYS", "action": func() -> void:
+				GameState.relays_collected = GameState.relay_target},
+			{"label": "FULL LAMP", "action": func() -> void:
+				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
+			{"label": "REBUILD FLOOR", "action": _build_floor},
+			{"label": "DESCEND", "action": func() -> void: GameState.descend()},
+		])
 
 
 func _on_abandoned() -> void:
