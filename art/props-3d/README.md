@@ -33,12 +33,23 @@ this (look at the transform on their child `MeshInstance3D`/
 
 ## Import format
 
-Export to **glTF 2.0 (`.glb`)** — Godot 4 imports it natively with no
-plugin, including materials, and it's the format Godot's own docs recommend
-for 3D pipelines. Forward/up axis: Godot's default glTF import expects
-+Y up, -Z forward, which is Blender's own default glTF export orientation —
-no axis-fixup step should be needed if you export straight from Blender with
-default settings.
+**Export to FBX (`.fbx`).** Godot 4.3 (what this project runs) has a native
+FBX importer built on the `ufbx` library — no external FBX2glTF conversion
+tool needed, `.fbx` files import directly like any other scene format.
+`ufbx` reads both binary and ASCII FBX (v3000+), which matters here because
+**Blockbench's FBX exporter only writes ASCII FBX** — that's fine, ufbx
+handles it. `ModelSlot` (`src/game_3d/model_slot.gd`) only ever looks at
+the imported result — a scene with a `MeshInstance3D`/`CollisionShape3D`
+somewhere in it — so it makes no difference which format produced that
+scene; nothing in this pipeline hardcodes `.fbx` vs `.glb` anywhere.
+
+glTF 2.0 (`.glb`) still works exactly the same way (Godot's own docs call
+it out as the reference format for 3D pipelines, and it's what Blender
+exports natively) — use it instead of FBX for any asset that isn't coming
+out of Blockbench, if that's ever more convenient. Forward/up axis for
+either format: Godot expects +Y up, -Z forward, which matches Blender's and
+Blockbench's own default export orientation — no axis-fixup step should be
+needed with default export settings from either tool.
 
 ## What's here
 
@@ -90,34 +101,37 @@ two loading strategies, and which one applies depends on how the slot is
 ### Scene structure ModelSlot expects
 
 - **GridMap items**: needs at least one `MeshInstance3D` somewhere in the
-  scene tree (found by *type*, not by node name — so a glTF import naming
-  its mesh node after the Blender object, e.g. `WallBlock`, works fine, no
-  renaming required). A `CollisionShape3D` is optional but expected for
-  anything the player should collide with — see import settings below for
-  how to get one out of a glTF import automatically.
+  scene tree (found by *type*, not by node name — so an FBX/glTF import
+  naming its mesh node after the source object, e.g. `WallBlock`, works
+  fine, no renaming required). A `CollisionShape3D` is optional but expected
+  for anything the player should collide with — see import settings below
+  for how to get one out of an import automatically.
 - **Everything else**: no required structure at all — the scene is
   instanced whole. Its root should be a `Node3D` (or subclass) so it can be
   added as a child of the game's own wrapper node.
 
 ## Swapping in a real model
 
-1. Export the real asset as `.glb` from Blender: origin at base center
-   (floor-flush pivot, see "Pivot convention" above), real-world scale (1
-   unit = 1m, see "Scale convention" above).
-2. Drop the `.glb` anywhere under this folder (alongside the placeholder
-   it's replacing is fine) and let Godot import it.
+1. Export the real asset as `.fbx` from Blockbench (or `.glb`/`.fbx` from
+   Blender): origin at base center (floor-flush pivot, see "Pivot
+   convention" above), real-world scale (1 unit = 1m, see "Scale
+   convention" above).
+2. Drop the file anywhere under this folder (alongside the placeholder it's
+   replacing is fine) and let Godot import it.
 3. For a **GridMap item** (wall/floor) that needs collision: select the
-   imported `.glb` in the FileSystem dock, open the **Import** tab, and
-   under **Meshes** set **Physics → Body Type** to `Static` and **Shape
-   Type** to `Trimesh` (exact geometry — fine for static level geometry at
-   this scale) or `Decompose Convex` if you'd rather have a simplified
-   collision shape for a complex prop. Reimport. This makes the import
-   generate a `StaticBody3D`/`CollisionShape3D` pair alongside the mesh,
-   which `ModelSlot.load_gridmap_item()` picks up automatically (again, by
-   type — the generated node's name doesn't matter).
+   imported file in the FileSystem dock, open the **Import** tab, and under
+   **Meshes** set **Physics → Body Type** to `Static` and **Shape Type** to
+   `Trimesh` (exact geometry — fine for static level geometry at this
+   scale) or `Decompose Convex` if you'd rather have a simplified collision
+   shape for a complex prop. Reimport. This makes the import generate a
+   `StaticBody3D`/`CollisionShape3D` pair alongside the mesh, which
+   `ModelSlot.load_gridmap_item()` picks up automatically (again, by type —
+   the generated node's name doesn't matter). This dock is the same for FBX
+   and glTF imports — it's part of Godot's generic scene-import pipeline,
+   not format-specific.
 4. Open the placeholder `.tscn` this model replaces and either:
    - **Simplest**: delete the placeholder's `MeshInstance3D` child, drag the
-     imported `.glb` in as a new child instance instead, and re-check the
+     imported model in as a new child instance instead, and re-check the
      pivot/transform lines up with `y = 0` at the object's origin (nudge the
      instance's own transform if the export's pivot was slightly off,
      rather than touching the placeholder's other nodes).
@@ -126,8 +140,12 @@ two loading strategies, and which one applies depends on how the slot is
      `MeshInstance3D` is reachable somewhere under it. Keep the file at the
      same path; nothing in `src/game_3d/` references node names inside
      these scenes, only the file path.
-5. Open `reference_layout.tscn` and check it still reads correctly at scale
+5. If the model's textures come out blurry (common with Blockbench's
+   pixel-art-style textures under Godot's default linear filtering): select
+   the imported texture resource, open **Import**, and set **Filter** to
+   `Nearest`, then reimport.
+6. Open `reference_layout.tscn` and check it still reads correctly at scale
    next to everything else that hasn't been replaced yet.
-6. Run the game (`scenes/main_3d.tscn`) and confirm the model shows up where
+7. Run the game (`scenes/main_3d.tscn`) and confirm the model shows up where
    expected — no code changes should be needed for any slot in the table
    above.
