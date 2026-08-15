@@ -1,20 +1,10 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="SphereMesh" id="SphereMesh_battery"]
-radius = 0.26
-height = 0.52
-radial_segments = 12
-rings = 8
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/battery.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_battery"]
-albedo_color = Color(0.95, 0.82, 0.25, 1)
-emission_enabled = true
-emission = Color(0.95, 0.82, 0.25, 1)
-emission_energy_multiplier = 0.8
-
+; Real model, replacing the flat-coloured primitive placeholder. The glow that
+; shows completed/not-completed is still RouteInteractable3D's own OmniLight3D
+; -- nothing here recolours the model, per that script's contract.
 [node name="Battery" type="Node3D"]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-position = Vector3(0, 0.5, 0)
-mesh = SubResource("SphereMesh_battery")
-surface_material_override/0 = SubResource("StandardMaterial3D_battery")
+[node name="Model" parent="." instance=ExtResource("1_model")]
