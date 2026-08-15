@@ -135,37 +135,49 @@ theme = SubResource("Theme_menu")
 script = ExtResource("1_menu")
 
 [node name="Background" type="ColorRect" parent="."]
-layout_mode = 0
-offset_right = 480.0
-offset_bottom = 270.0
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1
+anchor_bottom = 1
 color = Color(0.015, 0.02, 0.028, 1)
 
 [node name="TitleLabel" type="Label" parent="."]
-layout_mode = 0
-offset_top = 16.0
-offset_right = 480.0
-offset_bottom = 42.0
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1
+offset_top = 16
+offset_bottom = 42
+grow_horizontal = 2
 theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
 theme_override_font_sizes/font_size = 20
 text = "KYTTU: THE LAST ROUTE"
 horizontal_alignment = 1
 
 [node name="SubtitleLabel" type="Label" parent="."]
-layout_mode = 0
-offset_top = 42.0
-offset_right = 480.0
-offset_bottom = 53.0
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1
+offset_top = 42
+offset_bottom = 53
+grow_horizontal = 2
 theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
 theme_override_font_sizes/font_size = 8
 text = "GODOT 4 MIGRATION BUILD"
 horizontal_alignment = 1
 
 [node name="ButtonPanel" type="PanelContainer" parent="."]
-layout_mode = 0
-offset_left = 155.0
-offset_top = 64.0
-offset_right = 325.0
-offset_bottom = 233.0
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -85
+offset_top = -71
+offset_right = 85
+offset_bottom = 98
+grow_horizontal = 2
+grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
 
 [node name="ButtonBox" type="VBoxContainer" parent="ButtonPanel"]
@@ -230,14 +242,21 @@ layout_mode = 2
 text = "QUIT"
 
 [node name="SettingsOverlay" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220
+offset_top = -127
+offset_right = 220
+offset_bottom = 127
+grow_horizontal = 2
+grow_vertical = 2
 unique_name_in_owner = true
 visible = false
 script = ExtResource("2_settings")
-layout_mode = 0
-offset_left = 20.0
-offset_top = 8.0
-offset_right = 460.0
-offset_bottom = 262.0
 color = Color(0.02, 0.05, 0.065, 0.94)
 
 [node name="Title" type="Label" parent="SettingsOverlay"]
@@ -289,10 +308,36 @@ layout_mode = 2
 vertical_alignment = 1
 text = "100%"
 
+[node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 58.0
+offset_right = 420.0
+offset_bottom = 74.0
+theme_override_constants/separation = 8
+
+[node name="DisplayLabel" type="Label" parent="SettingsOverlay/DisplayRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "FULLSCREEN"
+
+[node name="FullscreenButton" type="CheckButton" parent="SettingsOverlay/DisplayRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+text = "OFF"
+
+[node name="FullscreenHint" type="Label" parent="SettingsOverlay/DisplayRow"]
+layout_mode = 2
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
+theme_override_font_sizes/font_size = 7
+text = "F11 ANYWHERE"
+
 [node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 62.0
+offset_top = 80.0
 offset_right = 420.0
 offset_bottom = 228.0
 horizontal_scroll_mode = 0

@@ -34,6 +34,7 @@ const LISTENING_TEXT := "PRESS A KEY..."
 
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var volume_value_label: Label = %VolumeValueLabel
+@onready var fullscreen_button: CheckButton = %FullscreenButton
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
@@ -44,6 +45,10 @@ var _key_labels: Dictionary = {}
 
 func _ready() -> void:
 	volume_slider.value_changed.connect(_on_volume_changed)
+	fullscreen_button.toggled.connect(Settings.set_fullscreen)
+	# F11 works anywhere, so the toggle can be flipped from outside this panel
+	# while it is open.
+	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_build_control_rows()
 	_refresh_from_settings()
@@ -84,6 +89,8 @@ func close() -> void:
 func _refresh_from_settings() -> void:
 	volume_slider.value = Settings.master_volume_percent
 	_update_volume_label(Settings.master_volume_percent)
+	fullscreen_button.set_pressed_no_signal(Settings.fullscreen)
+	fullscreen_button.text = "ON" if Settings.fullscreen else "OFF"
 	for action in _key_labels:
 		_key_labels[action].text = Settings.get_action_key_label(action)
 
