@@ -1,18 +1,12 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_umbriel"]
-radius = 0.22
-height = 1.8
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/umbriel.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_umbriel"]
-albedo_color = Color(0.6, 0.6, 0.68, 1)
-emission_enabled = true
-emission = Color(0.6, 0.6, 0.68, 1)
-emission_energy_multiplier = 0.25
-
+; Converted Hytale-style model, replacing the coloured capsule placeholder.
+; Carries an AnimationPlayer with the clips ModelSlot.play_if_available()
+; asks for -- idle / walk / chase / sprint / crouch. Those names are
+; case-sensitive in Godot, so the converter renames them from the Hytale
+; sources' Idle / Walk / Run / Sprint / Crouch.
 [node name="Umbriel" type="Node3D"]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-position = Vector3(0, 0.9, 0)
-mesh = SubResource("CapsuleMesh_umbriel")
-surface_material_override/0 = SubResource("StandardMaterial3D_umbriel")
+[node name="Model" parent="." instance=ExtResource("1_model")]
