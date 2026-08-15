@@ -1,5 +1,7 @@
 extends Node
 
+var pause_menu: PauseMenu
+
 @onready var facility_view: FacilityView = %FacilityView
 @onready var player: PlayerController = %Player
 @onready var hud: HUD = %HUD
@@ -12,14 +14,14 @@ func _ready() -> void:
 	GameState.start_new_run()
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
+	pause_menu = PauseMenu.new()
+	pause_menu.abandoned.connect(_on_abandoned)
+	add_child(pause_menu)
 	_build_floor()
 	_update_hud()
 
 
 func _process(_delta: float) -> void:
-	if Input.is_action_just_pressed("pause"):
-		get_tree().paused = not get_tree().paused
-		hud.set_paused(get_tree().paused)
 	if Input.is_action_just_pressed("toggle_map"):
 		hud.toggle_map_overlay()
 
@@ -35,6 +37,11 @@ func _update_hud() -> void:
 	hud.update_objective(GameState.depth, GameState.relays_collected, GameState.relay_target, GameState.lives_remaining)
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
+
+
+func _on_abandoned() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 func _on_interaction_message(message: String) -> void:

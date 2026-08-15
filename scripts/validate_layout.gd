@@ -1,4 +1,4 @@
-extends SceneTree
+extends RefCounted
 
 ## Headless check that the UI survives the screen it is put on.
 ##
@@ -14,7 +14,25 @@ extends SceneTree
 ## five real aspect ratios instead and compares.
 ##
 ## Run with:
-##   godot4 --headless --script scripts/validate_layout.gd
+##   godot4 --headless res://scenes/validate.tscn -- layout
+
+## The suite runs inside scenes/validate.tscn, so the tree comes from the host
+## node rather than from `self` -- see scripts/validate_runner.gd for why these
+## are not `--script` SceneTree scripts any more.
+var _host: Node
+
+
+func _tree() -> SceneTree:
+	return _host.get_tree()
+
+
+func _root() -> Window:
+	return _host.get_tree().root
+
+
+func _frame() -> Signal:
+	return _host.get_tree().process_frame
+
 
 const SIZES := [
 	Vector2i(1920, 1080),   # 16:9, the design aspect
@@ -34,7 +52,6 @@ const ANCHORED := {
 		"MessageLabel": ["hcentre", "top"],
 		"MapOverlay": ["hcentre", "vcentre"],
 		"EscapeOverlay": ["hcentre", "vcentre"],
-		"PauseLabel": ["hcentre", "vcentre"],
 	},
 	"res://scenes/main_menu.tscn": {
 		"TitleLabel": ["hcentre", "top"],
@@ -59,20 +76,14 @@ const ANCHORED := {
 const DRIFT_TOLERANCE := 1.5
 
 
-func _initialize() -> void:
-	_run()
-
-
-func _run() -> void:
+func run(host: Node) -> int:
+	_host = host
 	var failures := 0
 	for path in ANCHORED:
 		failures += await _check_scene(path)
-	if failures > 0:
-		push_error("%d layout check(s) failed" % failures)
-		quit(1)
-	else:
+	if failures == 0:
 		print("layout OK")
-		quit(0)
+	return failures
 
 
 func _fail(message: String) -> int:
@@ -86,18 +97,18 @@ func _check_scene(path: String) -> int:
 	if packed == null:
 		return _fail("could not load %s" % path)
 	var scene: Node = packed.instantiate()
-	root.add_child(scene)
-	await process_frame
+	_root().add_child(scene)
+	await _frame()
 
 	var widest := 0.0
 	var gaps := {}          # "node/edge" -> the distances seen across sizes
 	for size in SIZES:
-		root.size = size
+		_root().size = size
 		# Two frames: one for the window resize, one for the containers inside
 		# it to settle against their new anchors.
-		await process_frame
-		await process_frame
-		var view := root.get_visible_rect()
+		await _frame()
+		await _frame()
+		var view := _root().get_visible_rect()
 		widest = maxf(widest, view.size.x)
 		for name in ANCHORED[path]:
 			var node := scene.find_child(name, true, false)
@@ -115,9 +126,9 @@ func _check_scene(path: String) -> int:
 				% [path.get_file(), key, drift]
 				+ "pinned to the design size, not to that edge")
 
-	root.size = Vector2i(960, 540)
+	_root().size = Vector2i(960, 540)
 	scene.queue_free()
-	await process_frame
+	await _frame()
 	print("  %-28s %d nodes held across %d aspect ratios, up to %.0f design px wide"
 		% [path.get_file(), ANCHORED[path].size(), SIZES.size(), widest])
 	return failures

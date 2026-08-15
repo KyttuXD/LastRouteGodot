@@ -12,6 +12,8 @@ extends CharacterBody3D
 ## office's control bar is real UI that has to stay clickable. Sitting down is
 ## therefore not just a camera position, it is the mode in which you can press
 ## buttons -- which is the same trade the game already makes with the monitor.
+## The cursor itself is claimed through MouseLock rather than set here, so a
+## pause menu can take it without this fighting for it every frame.
 
 signal seated_changed(seated: bool)
 
@@ -71,14 +73,15 @@ func sit() -> void:
 	global_position = Vector3(seat_position.x, 0.0, seat_position.z)
 	_pivot.position.y = seat_position.y
 	velocity = Vector3.ZERO
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseLock.set_gameplay_capture(true)
+	MouseLock.claim("seated", true)
 	seated_changed.emit(true)
 
 
 func stand() -> void:
 	seated = false
 	_pivot.position.y = eye_height
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseLock.claim("seated", false)
 	seated_changed.emit(false)
 
 

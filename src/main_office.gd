@@ -16,6 +16,7 @@ const ACTION_TO_CONTROL := {
 }
 
 var simulation: OfficeSimulation
+var pause_menu: PauseMenu
 
 # The office itself. This file drives it through one property, `can_move`,
 # which is what let the 3D office replace the flat ColorRect one without this
@@ -62,6 +63,16 @@ func _ready() -> void:
 	# and the camera console. It never writes to it.
 	office_view.simulation = simulation
 	monitor.visible = false
+
+	# Office Mode HOLDS ESC. It is singleplayer by design so nothing is waiting
+	# on the player, and the whole mode is about not being able to step away --
+	# a one-tap escape hatch would undercut the shift it is asking you to sit.
+	pause_menu = PauseMenu.new()
+	pause_menu.tap_to_pause = false
+	pause_menu.abandon_label = "ABANDON SHIFT"
+	pause_menu.abandon_warning = "This ends the shift with no credit and returns to the main menu."
+	pause_menu.abandoned.connect(_on_abandoned)
+	add_child(pause_menu)
 
 	_left_door_button.pressed.connect(_toggle.bind("leftDoor"))
 	_right_door_button.pressed.connect(_toggle.bind("rightDoor"))
@@ -129,14 +140,16 @@ func _unhandled_input(_event: InputEvent) -> void:
 		simulation.trigger_emergency_flash()
 	if Input.is_action_just_pressed("office_rear_flash"):
 		simulation.answer_rear_threat()
-	if Input.is_action_just_pressed("pause"):
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
-
 	# Direct camera bank, only while the monitor is actually up.
 	if simulation.monitor_open:
 		for index in OfficeConfig.CAMERAS.size():
 			if Input.is_action_just_pressed("office_camera_%d" % (index + 1)):
 				monitor.select_by_index(index)
+
+
+func _on_abandoned() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 func _process(delta: float) -> void:

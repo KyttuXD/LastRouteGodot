@@ -1,4 +1,4 @@
-extends SceneTree
+extends RefCounted
 
 ## Headless check on the desk camera console, in the same spirit as
 ## scripts/validate_office_rooms.gd.
@@ -21,30 +21,45 @@ extends SceneTree
 ##      the node tree and looks like a screen that is simply off.
 ##
 ## Run with:
-##   godot4 --headless --script scripts/validate_camera_console.gd
+##   godot4 --headless res://scenes/validate.tscn -- camera_console
 ##
 ## It reaches into OfficeView3D's private state on purpose: this is the
 ## project's own harness, and the alternative is widening that class's API for
 ## no one but the test.
-
 ## The cursor sweep's resolution. Coarse grids lie: the console occupies about
 ## a fifth of the screen, so a low-resolution sweep reports buttons as
 ## unreachable that a player would find immediately.
+
+## The suite runs inside scenes/validate.tscn, so the tree comes from the host
+## node rather than from `self` -- see scripts/validate_runner.gd for why these
+## are not `--script` SceneTree scripts any more.
+var _host: Node
+
+
+func _tree() -> SceneTree:
+	return _host.get_tree()
+
+
+func _root() -> Window:
+	return _host.get_tree().root
+
+
+func _frame() -> Signal:
+	return _host.get_tree().process_frame
+
+
 const SWEEP := Vector2i(420, 300)
 
 
-func _initialize() -> void:
-	_run()
-
-
-func _run() -> void:
+func run(host: Node) -> int:
+	_host = host
 	var failures := 0
 	var scene: Node = load("res://scenes/office_3d.tscn").instantiate()
-	root.add_child(scene)
+	_root().add_child(scene)
 	# One frame to build the world, one more for OfficeView3D to measure the
 	# console off transforms that have actually settled.
-	await process_frame
-	await process_frame
+	await _frame()
+	await _frame()
 
 	var view: OfficeView3D = scene.get_node("%OfficeView")
 	var sim: OfficeSimulation = scene.simulation
@@ -55,12 +70,9 @@ func _run() -> void:
 	failures += _check_reach(view)
 	failures += await _check_cycle(view, sim)
 
-	if failures > 0:
-		push_error("%d camera console check(s) failed" % failures)
-		quit(1)
-	else:
+	if failures == 0:
 		print("camera console OK")
-		quit(0)
+	return failures
 
 
 func _fail(message: String) -> int:
@@ -233,7 +245,7 @@ func _check_cycle(view: OfficeView3D, sim: OfficeSimulation) -> int:
 		failures += _fail("screen promised NEXT would reach %s, button went to %s"
 			% [promised_next, sim.current_camera])
 
-	await process_frame
+	await _frame()
 	if view._feed != null and view._feed._current != sim.current_camera:
 		failures += _fail("feed is showing %s while the console says %s"
 			% [view._feed._current, sim.current_camera])

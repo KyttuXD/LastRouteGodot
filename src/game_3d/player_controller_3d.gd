@@ -155,7 +155,9 @@ func _set_view_mode(is_first_person: bool) -> void:
 	top_down_camera.current = not first_person
 	first_person_camera.current = first_person
 	body_visual.visible = not first_person
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if first_person else Input.MOUSE_MODE_VISIBLE
+	# Stated as a preference, not set directly: a menu on top has to be able to
+	# hand the cursor back without this taking it again next frame.
+	MouseLock.set_gameplay_capture(first_person)
 	if not first_person:
 		first_person_pivot.rotation.x = 0.0
 		_pitch = 0.0

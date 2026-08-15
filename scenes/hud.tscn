@@ -1,6 +1,7 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://src/ui/crosshair.gd" id="2_crosshair"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
 bg_color = Color(0.015, 0.025, 0.035, 0.88)
@@ -358,26 +359,10 @@ show_percentage = false
 theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
 theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_escape_time")
 
-[node name="PauseLabel" type="Label" parent="."]
+[node name="Crosshair" type="Control" parent="."]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -66
-offset_top = -22
-offset_right = 66
-offset_bottom = 23
-grow_horizontal = 2
-grow_vertical = 2
-unique_name_in_owner = true
-visible = false
-theme_override_colors/font_color = Color(0.75, 0.96, 0.91, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
-theme_override_constants/shadow_offset_x = 2
-theme_override_constants/shadow_offset_y = 2
-theme_override_font_sizes/font_size = 24
-text = "PAUSED"
-horizontal_alignment = 1
-vertical_alignment = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("2_crosshair")

@@ -7,6 +7,8 @@ extends Node
 ## (hunter_brain.gd is pure simulation; this is where its results turn into
 ## game state, matching how game.js's update() drives hunter-ai.js).
 
+var pause_menu: PauseMenu
+
 @onready var world: Node3D = %World
 @onready var facility_view: FacilityView3D = %FacilityView
 @onready var player: PlayerController3D = %Player
@@ -31,6 +33,11 @@ func _ready() -> void:
 	GameState.start_new_run()
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
+	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
+	pause_menu = PauseMenu.new()
+	pause_menu.abandon_label = "ABANDON ROUTE"
+	pause_menu.abandoned.connect(_on_abandoned)
+	add_child(pause_menu)
 	_build_floor()
 	_update_hud()
 
@@ -40,9 +47,9 @@ func _process(delta: float) -> void:
 		_handle_game_over_tick(delta)
 		return
 
-	if Input.is_action_just_pressed("pause") and not GameState.escape_active:
-		get_tree().paused = not get_tree().paused
-		hud.set_paused(get_tree().paused)
+	# Being held by a hunter is the one moment pausing would be an exploit, so
+	# the menu is locked out for the length of the struggle.
+	pause_menu.tap_to_pause = not GameState.escape_active
 	if Input.is_action_just_pressed("toggle_map") and not GameState.escape_active:
 		hud.toggle_map_overlay()
 
@@ -208,6 +215,11 @@ func _update_hud() -> void:
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
 		hud.update_escape(GameState.escape_progress, GameState.escape_required, GameState.escape_remaining, GameState.escape_duration)
+
+
+func _on_abandoned() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 func _on_interaction_message(message: String) -> void:

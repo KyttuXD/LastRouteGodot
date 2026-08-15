@@ -1,9 +1,10 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://src/main_office.gd" id="1_office"]
 [ext_resource type="Script" path="res://src/ui/office/office_view_3d.gd" id="2_view"]
 [ext_resource type="Script" path="res://src/ui/office/camera_monitor.gd" id="3_monitor"]
 [ext_resource type="Shader" path="res://third_party/cupcakes-framework/crtwave_shader.gdshader" id="4_crt"]
+[ext_resource type="Script" path="res://src/ui/crosshair.gd" id="5_crosshair"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_crt"]
 shader = ExtResource("4_crt")
@@ -459,3 +460,11 @@ offset_bottom = 162.0
 theme_override_colors/font_color = Color(0.5, 0.72, 0.72, 1)
 text = "[E] RETURN TO MENU"
 horizontal_alignment = 1
+
+[node name="Crosshair" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("5_crosshair")

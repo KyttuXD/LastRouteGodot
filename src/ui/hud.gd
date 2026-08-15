@@ -27,7 +27,6 @@ const MESSAGE_DURATION := 2.8
 @onready var noise_caption: Label = %NoiseMeter.get_node("Caption")
 @onready var temperature_bar: ProgressBar = %TemperatureMeter.get_node("Bar")
 @onready var temperature_caption: Label = %TemperatureMeter.get_node("Caption")
-@onready var pause_label: Label = %PauseLabel
 @onready var interaction_label: Label = %InteractionLabel
 @onready var message_label: Label = %MessageLabel
 @onready var map_overlay: Control = %MapOverlay
@@ -136,10 +135,6 @@ func show_message(text: String) -> void:
 	message_label.text = text
 	message_label.visible = true
 	_message_time_left = MESSAGE_DURATION
-
-
-func set_paused(is_paused: bool) -> void:
-	pause_label.visible = is_paused
 
 
 func toggle_map_overlay() -> void:

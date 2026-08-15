@@ -18,6 +18,7 @@ config/features=PackedStringArray("4.7")
 
 GameState="*res://src/autoload/game_state.gd"
 Settings="*res://src/autoload/settings.gd"
+MouseLock="*res://src/autoload/mouse_lock.gd"
 
 [display]
 

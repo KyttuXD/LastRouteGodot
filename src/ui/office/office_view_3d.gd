@@ -364,6 +364,8 @@ func _press(cam: String) -> void:
 func _process(delta: float) -> void:
 	if not _console_ready and _panel_face != null:
 		_console_ready = _measure_console()
+	# The raised tablet is a full-screen Control, so it needs the pointer.
+	MouseLock.claim("tablet", not can_move)
 
 	_hovered = _pick(_aim_point()) if can_move else ""
 	if _panel != null:
