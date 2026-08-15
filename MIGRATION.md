@@ -83,6 +83,33 @@ Milestone 6 is done for two identities, on an architecture built to keep adding 
 
 `scenes/main_menu.tscn` is now `project.godot`'s `run/main_scene` — the game boots into a title screen instead of straight into a run. **PLAY** starts a real solo run (`scenes/main_3d.tscn`). **CREATE ROOM**/**JOIN ROOM** are visibly present (matching the original's real menu) but disabled with a "COMING SOON" caption — milestone 9 (Co-op) is completely unstarted, so there's nothing for them to call; they're not faked. **SETTINGS** opens a same-scene overlay (mirroring the HUD's `MapOverlay` pattern) with a working master-volume slider (real `AudioServer` bus control — no audio content is routed through it yet, but the infrastructure is genuine) and full key-rebinding for every input action, both persisted to `user://settings.cfg` via a new `Settings` autoload (`src/autoload/settings.gd`) that applies them at startup regardless of which scene boots first.
 
+## Office Mode (simulation complete, no UI yet)
+
+**Office Mode does not use the A-Z hunter roster.** This is worth stating plainly because the name suggests otherwise: the original's own mode definition calls it "a fully self-contained FNAF-style stationary-defense simulation... Ten Void signals (never the A-Z roster)", and `office-survivor-system.js`'s startup explicitly clears `this.hunters = []` / `this.routeHunterIds = []` with the comment that its actor "never enters movement, collision, rendering, or hunter perception". It has its own separate cast of ten colour-named **Void signals** (Crimson, Azure, Amber, Emerald, Rose, Orange, Violet, White, Gray, Black), each with an independent 0-20 AI dial (Custom Night). Nothing in `src/game/office/` touches `HunterRoster`, `HunterBrain`, `FacilityGenerator`, or `GameConfig`.
+
+`src/game/office/office_simulation.gd` ports the whole night simulation; `src/config/office_config.gd` holds its static data (the 8-camera map, which doubles as the threat-navigation graph, plus power costs and per-threat definitions). Presentation-agnostic in the same way the facility generator and hunter brain are — it owns every timer and the complete state, renders nothing, and a UI layer will read it and call named controls back. **The UI is the remaining piece**; the simulation underneath it is complete and verified.
+
+**What each Void signal does, and its counter** — all ported with the original's exact formulas:
+
+| Signal | Threat | Counter |
+| --- | --- | --- |
+| Crimson | Walks a camera route to one door, then a 2s window | Shut the correct door — she retreats and re-routes to a fresh side |
+| Azure | Builds continuously while the office is dark | *Flash* the desk light (fires on the off→on edge only — holding it on doesn't keep helping) |
+| Amber | Builds while the camera monitor is raised, accelerating the longer it stays up | Lower the monitor; she bleeds back down |
+| Emerald | Crawls the vent on a constant timer | Seal the hatch once she's past 70% |
+| Rose | Never attacks — emits false cues so every other warning becomes untrustworthy | (none — she's pure misinformation) |
+| Orange | Knocks systems offline, and periodically floods the office with gas | Breaker reset (a live CAM 7 view also clears her parasitic power drain); hold the mask through a leak |
+| Violet | Corrupts cameras one at a time; three forces a monitor blackout | Reboot the feed, at the cost of a short blind window |
+| White | Advances only in darkness, freezes solid in light — no warning, no minigame | Keep the desk light on, weighed against what it costs in power |
+| Gray | Opens a shuffled 4-node parkour challenge cold off a timer | Click the nodes in the shuffled order before it expires |
+| Black | Already behind you — a 1s window | Rear counter-flash (spends its own charge, not office power) |
+
+Plus the systems they play against: a power budget that drains per active system (and is itself a loss condition), the 8-camera monitor, doors, vent seal, radio (pushes back three specific signals), a one-use emergency flash that stuns everything for 5s, and the shared HUD meter set (battery/stamina/noise/exposure) computed from office state rather than a player that doesn't exist here.
+
+**Verified headlessly**, 31 checks: every signal's failure path fires *and* every counter genuinely counters it, power depletion ends the shift, surviving to the shift duration wins, AI 0 fully disables a signal (no timer, sabotage, challenge or failure path runs at all), the camera graph is fully connected with correct BFS routes, the Gray challenge accepts only the shuffled order and instant-fails any other node, and the same seed reproduces the same night. Three failures the suite initially reported turned out to be bugs in the test rather than the port — at AI 20 several signals are lethal faster than the test's setup assumed, so it was asserting against an already-ended shift.
+
+**Not ported** (absent, not stubbed): audio cues (`queueOfficeCue` — no audio system exists in this port yet; every cue in the original was paired with an on-screen event message, which *is* ported), the developer/admin invulnerability shield, and co-op (Office is host-only, and this port is single-player).
+
 ## Recommended milestones
 
 1. **Foundation** — viewport, controls, folder structure and placeholder scene. *(Complete.)*
@@ -94,7 +121,7 @@ Milestone 6 is done for two identities, on an architecture built to keep adding 
 7. **Roster** — migrate hunters individually with behavior fixtures. *(Started: Quirith (flashlight tracker) is the second of 26. See "Hunter roster" above for why she was next and what's genuinely reusable vs. hunter-specific about the approach.)*
 8. **Persistence** — checkpoint and account-facing client calls. *(A slice exists early: Settings' `user://settings.cfg` persists volume/key-bindings. Run/score checkpoint persistence is still unstarted.)*
 9. **Co-op** — preserve host-authoritative snapshots against the existing Node server.
-10. **Additional modes** — Hide & Seek and Office Survivor after the core is stable.
+10. **Additional modes** — Hide & Seek and Office Mode after the core is stable. *(Office Mode's simulation is complete and verified — see "Office Mode" above; its UI is the remaining piece. Hide & Seek is unstarted, and is the mode that actually reuses the hunter roster: its round loop layers NPC hunters in via an `npcHunters` rule, unlike Office.)*
 11. **3D rewrite: top-down/first-person camera toggle** *(active — basic slice playable)* — a single `Node3D` world with two camera rigs, replacing `facility_view.gd`, the `CharacterBody2D` player controller (`facility_generator.gd` and the HUD carry over unchanged). `run/main_scene` now points here. Supersedes the old "XR experiment, decoupled" plan. See "Decided: rendering architecture is moving to 3D" above for exactly what's done and what's left — the placeholder-art-to-real-art swap and hunter AI are the big remaining pieces.
 
 ### Deferred from milestone 4

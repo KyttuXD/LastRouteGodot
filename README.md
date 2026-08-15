@@ -24,6 +24,7 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 - **3D (`scenes/main_3d.tscn`):** a `GridMap`-rendered facility (placeholder flat-colored floor/wall meshes, real physics collision), a `CharacterBody3D` player with two `Camera3D` rigs (orthographic top-down, mouselook first-person) toggled at runtime, and a `SpotLight3D` flashlight. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention for future real-art imports.
 - **2D (`scenes/main.tscn`, still available):** 480×270 pixel-perfect viewport, nearest-neighbor rendering, a scrolling `Camera2D`, and a runtime-built `TileMapLayer` for facility collision. Not yet wired to the hunter.
 - shared between both presentation layers: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`, one shared scene instanced by both).
+- **Office Mode's simulation** (`src/game/office/office_simulation.gd`) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget. Complete and verified (31 headless checks); the UI is the remaining piece. See `MIGRATION.md`.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -35,7 +36,7 @@ scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tsc
 scripts/                Headless validation/dev scripts
 src/autoload/           Project-wide state (GameState, Settings)
 src/config/             Tuning and content definitions
-src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd) and 2D gameplay nodes
+src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd, hunter_gimmicks/, office/) and 2D gameplay nodes
 src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, model_slot.gd loads visuals from art/props-3d/)
 src/ui/                  Shared HUD, main menu, settings panel
 ```
