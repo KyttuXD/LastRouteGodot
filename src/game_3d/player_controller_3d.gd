@@ -80,6 +80,17 @@ var hiding_lock_timer := 0.0
 ## a plain interactable has no business knowing what a hunter is.
 var music_box_resolver: Callable
 
+## Ilyra's pounce. Deliberately its OWN field rather than reusing
+## input_frozen: a stun and a struggle/hiding freeze look the same to the
+## player but come from unrelated systems that each clear input_frozen when
+## THEY resolve -- exiting a locker while also stunned would have ended the
+## stun early if it shared the flag. Independently ticked and checked.
+var stun_timer := 0.0
+
+
+func is_stunned() -> bool:
+	return stun_timer > 0.0
+
 
 func enter_hiding(cell: Vector2i) -> String:
 	var cleared_message := ""
@@ -181,7 +192,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if hiding_lock_timer > 0.0:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
-	if input_frozen:
+	if stun_timer > 0.0:
+		stun_timer = maxf(0.0, stun_timer - delta)
+	if input_frozen or stun_timer > 0.0:
 		velocity = Vector3.ZERO
 		move_and_slide()
 		noise = 0.0
@@ -190,8 +203,10 @@ func _physics_process(delta: float) -> void:
 		# Hiding freezes movement, and freezing movement used to swallow the key
 		# that gets you back out -- a locker you could enter and never leave. The
 		# struggle freeze is the other user of input_frozen and deliberately does
-		# NOT get this: mashing [E] there is the escape, handled in main_3d.
-		if hidden and Input.is_action_just_pressed("interact"):
+		# NOT get this: mashing [E] there is the escape, handled in main_3d. A
+		# stun gets neither -- Ilyra's pounce is a real incapacitation, not a
+		# state with its own exit key.
+		if input_frozen and hidden and Input.is_action_just_pressed("interact"):
 			_try_interact()
 		return
 

@@ -48,6 +48,7 @@ func run(_host: Node) -> int:
 	await _briselle_sabotages_and_resecures(_host)
 	_ferryn_stalks_and_screams(generator)
 	_glyra_winds_down_and_back_up(generator)
+	_ilyra_tags_and_pounces(generator)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -664,3 +665,63 @@ func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
 		"a freshly rewound box is already raising noise or warnings again")
 
 	print("  glyra     silent while wound, raises real noise once run down, reclaims it on rewind")
+
+
+## Ilyra teleports to a corner and watches. Seen once, then LOOKED AWAY FROM
+## (not chased off -- she never chases), she tags wherever the player was and
+## pounces after a short delay regardless of where the player has since gone.
+## A held torch banishes her outright. Driven through real perception (sight,
+## not an injected flag) because "she sets _tagged=true" is exactly the check
+## that passes while sight/hearing never actually gated it.
+func _ilyra_tags_and_pounces(generator: FacilityGenerator) -> void:
+	var brain := _brain("ilyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Ilyra has no gimmick")
+		return
+
+	# Her first update teleports her from wherever activate_at() put her to
+	# her own chosen corner -- that jump is real and expected, so what gets
+	# tested for "never walks" is stillness AFTER that landing, not agreement
+	# with the arbitrary spot she started at.
+	brain.update(STEP, generator, _target(brain.position + Vector2(40, 40)), 1, 0)
+	var corner := brain.position
+
+	# Close enough for real sight to land, torch off so it is sight and not
+	# a beam that puts her in the wrong branch.
+	var near := _target(corner + Vector2(1.0, 0.0))
+	for i in 5:
+		brain.update(STEP, generator, near, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"setup problem: Ilyra never actually saw the player at this range")
+	_expect(brain.position == corner, "Ilyra moved -- she is supposed to only ever teleport")
+
+	# Looked away: push the player out of sight/hearing range entirely.
+	var far := _target(corner + Vector2(40.0, 40.0))
+	far["hidden"] = true
+	var pounced := false
+	for i in int((GameConfig.ILYRA_POUNCE_DELAY + 1.0) / STEP):
+		brain.update(STEP, generator, far, 1, 0)
+		for event in brain.world_events:
+			if event.get("what") == "stun":
+				pounced = true
+		brain.world_events.clear()
+		if pounced:
+			break
+	_expect(pounced, "Ilyra saw the player and lost sight of her, but never pounced")
+
+	var after_pounce := brain.position
+	_expect(after_pounce != corner, "Ilyra did not teleport to a new corner after pouncing")
+
+	# A held torch banishes her outright -- hidden, and inert.
+	var lit := _target(brain.position - Vector2(0.0, 2.0))
+	lit["flashlight_on"] = true
+	lit["facing"] = Vector2(0, 1)
+	var flashed := false
+	for i in 90:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashed = true
+	_expect(flashed, "setup problem: never actually held a flash on Ilyra")
+	_expect(brain.gimmick.hidden_from_view(), "flashing Ilyra did not banish her")
+
+	print("  ilyra     tags a real sighting, pounces after the delay, banished by a held torch")

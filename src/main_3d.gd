@@ -158,8 +158,18 @@ func _update_gameplay(delta: float) -> void:
 		# Anything a gimmick did to the floor. Only the host reaches here, which
 		# is what makes it safe to broadcast without a second authority check.
 		for event in view.brain.world_events:
-			if String(event.get("what", "")) == "facility_alert":
+			var what := String(event.get("what", ""))
+			if what == "facility_alert":
 				facility_alerts.append(event)
+				continue
+			if what == "stun":
+				# Ilyra's pounce. Applied straight to the local player, same as
+				# the capture/escape struggle -- neither is synced to remote
+				# peers yet (see MIGRATION.md's "still per-client" note).
+				player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
+				var stun_note := String(event.get("message", ""))
+				if not stun_note.is_empty():
+					hud.show_message(stun_note)
 				continue
 			facility_view.apply_event(event)
 			_remotes.broadcast_event(event)

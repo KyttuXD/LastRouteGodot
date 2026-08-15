@@ -320,3 +320,10 @@ const FERRYN_FLASH_NOISE := 100.0
 ## baySeconds/noisePerSecond are her plan's own values.
 const GLYRA_BAY_SECONDS := 20.0
 const GLYRA_NOISE_PER_SECOND := 1.0
+
+## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Standard's
+## values only -- Nightmare's zero-delay pounce needs a difficulty selection
+## this port does not have.
+const ILYRA_POUNCE_DELAY := 0.75
+const ILYRA_STUN_SECONDS := 5.0
+const ILYRA_BANISH_SECONDS := 30.0

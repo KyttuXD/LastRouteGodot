@@ -1,0 +1,86 @@
+class_name IlyraGimmick
+extends HunterGimmick
+
+## Ilyra's corner observation and shadow pounce (hunterAbilities.ilyra.
+## cornerObserver). Ported from ilyra.js's prepareCornerObserver/
+## respawnCornerObserver/resolveCornerObserver.
+##
+## She never walks anywhere -- she TELEPORTS to a corner of a random room and
+## watches. Seen once (real sight, not hearing), then lost sight of again --
+## looked away from, not chased off -- she tags wherever the player was at
+## that moment and, after a short delay, pounces: the player is stunned for
+## ILYRA_STUN_SECONDS regardless of where they have since moved, and she
+## teleports to a fresh corner to start over.
+##
+## A held player torch does not just interrupt her, it banishes her --
+## invisible and completely inert for ILYRA_BANISH_SECONDS, reusing the same
+## hidden_from_view() Porcelle already established.
+##
+## Nightmare's zero-delay pounce is not ported (no difficulty selection
+## exists), so ILYRA_POUNCE_DELAY (the original's Standard value) is the only
+## delay this port has.
+
+var _has_corner := false
+var _hidden_remaining := 0.0
+var _saw_player := false
+var _tagged := false
+var _pounce_remaining := 0.0
+
+
+func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+	if not _has_corner:
+		_respawn_corner(brain, generator)
+		_has_corner = true
+
+	if _hidden_remaining > 0.0:
+		_hidden_remaining -= delta
+		return
+
+	if brain.flash_triggered:
+		_hidden_remaining = GameConfig.ILYRA_BANISH_SECONDS
+		_saw_player = false
+		_tagged = false
+		_pounce_remaining = 0.0
+		return
+
+	# She never chases on her own, so any CHASE here came from ordinary
+	# sight, not a gimmick-driven one -- unlike Briselle/Ferryn, nothing of
+	# hers ever sets this state, so there is no ambiguity to untangle.
+	var sees := brain.state == HunterBrain.State.CHASE
+	if sees:
+		_saw_player = true
+	elif _saw_player and not _tagged:
+		_tagged = true
+		_pounce_remaining = GameConfig.ILYRA_POUNCE_DELAY
+		_saw_player = false
+
+	if _tagged:
+		_pounce_remaining -= delta
+		if _pounce_remaining <= 0.0:
+			brain.world_events.append({"what": "stun", "seconds": GameConfig.ILYRA_STUN_SECONDS,
+				"message": "ILYRA SHADOW POUNCE // STUNNED %ds" % int(GameConfig.ILYRA_STUN_SECONDS)})
+			_tagged = false
+			_respawn_corner(brain, generator)
+
+
+func holds_position() -> bool:
+	return true
+
+
+func hidden_from_view() -> bool:
+	return _hidden_remaining > 0.0
+
+
+func _respawn_corner(brain: HunterBrain, generator: FacilityGenerator) -> void:
+	if generator.rooms.is_empty():
+		return
+	var room: Dictionary = generator.rooms[brain.next_random_index(generator.rooms.size())]
+	var corners := [
+		Vector2(room["x"] + 1.5, room["y"] + 1.5),
+		Vector2(room["x"] + room["width"] - 1.5, room["y"] + 1.5),
+		Vector2(room["x"] + 1.5, room["y"] + room["height"] - 1.5),
+		Vector2(room["x"] + room["width"] - 1.5, room["y"] + room["height"] - 1.5),
+	]
+	var chosen: Vector2 = corners[brain.next_random_index(corners.size())]
+	var open := generator.nearest_open_position(chosen.x, chosen.y, brain.radius)
+	brain.position = Vector2(open["x"], open["y"]) if not open.is_empty() else chosen

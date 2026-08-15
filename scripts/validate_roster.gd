@@ -148,8 +148,21 @@ func _umbriel_can_wear_the_roster() -> void:
 		_expect(not pool.has(id), "Umbriel can wear %s, who is a special" % id)
 	for id in GameConfig.UMBRIEL_DISGUISE_EXCLUDED:
 		_expect(not pool.has(id), "Umbriel can wear %s, who is excluded" % id)
-	# The point of drawing from the roster rather than the implemented pool.
-	_expect(pool.size() > HunterRoster.IMPLEMENTED_IDS.size(),
-		"Umbriel's disguises (%d) are no wider than the implemented pool (%d), so she is a progress bar"
-			% [pool.size(), HunterRoster.IMPLEMENTED_IDS.size()])
+	# The point of drawing from the roster rather than the implemented pool:
+	# with the roster nearly complete, the two pools' SIZES can coincidentally
+	# match (kathy and umbriel are implemented but excluded from her own
+	# disguise pool for reasons that have nothing to do with the roster being
+	# unfinished, which nets against verrine/zephyra still being missing) --
+	# a raw size comparison stopped meaning what it used to mean. What still
+	# has to be true is the actual claim: at least one face in her pool has no
+	# gimmick behind it at all, proving she draws from PROFILES and not from
+	# whoever happens to be finished.
+	var wears_an_unfinished_face := false
+	for id in pool:
+		if not HunterRoster.IMPLEMENTED_IDS.has(id):
+			wears_an_unfinished_face = true
+			break
+	_expect(wears_an_unfinished_face,
+		"every face in Umbriel's disguise pool (%d) already has a gimmick -- she is a progress bar again"
+			% pool.size())
 	print("  disguise  %d faces Umbriel can wear" % pool.size())
