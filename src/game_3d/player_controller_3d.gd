@@ -75,6 +75,11 @@ var hiding_trap_resolver: Callable
 ## it a real lock rather than a freeze the exit key already bypasses.
 var hiding_lock_timer := 0.0
 
+## Glyra's music box: winding it is resolved by whoever owns her gimmick
+## (main_3d), the same indirection as interaction_veto/hiding_trap_resolver --
+## a plain interactable has no business knowing what a hunter is.
+var music_box_resolver: Callable
+
 
 func enter_hiding(cell: Vector2i) -> String:
 	var cleared_message := ""

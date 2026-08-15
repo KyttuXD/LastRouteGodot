@@ -67,7 +67,7 @@ const PROFILES := {
 ## on her own tuning, and gains her cues later without a behaviour change.
 const IMPLEMENTED_IDS := [
 	"dovelle", "quirith", "eirys", "xivvy", "kathy", "ravelle", "mavrine",
-	"umbriel", "wynelle", "thessine", "haelith", "ysolde", "opalie", "aki", "porcelle", "jyvra", "loxelle", "ceryth", "briselle", "ferryn",
+	"umbriel", "wynelle", "thessine", "haelith", "ysolde", "opalie", "aki", "porcelle", "jyvra", "loxelle", "ceryth", "briselle", "ferryn", "glyra",
 ]
 
 ## Never entered into the random draw. These are always present on a floor but

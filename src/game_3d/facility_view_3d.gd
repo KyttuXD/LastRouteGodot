@@ -58,6 +58,9 @@ var _ceiling_map: GridMap
 var _interactables: Array = []
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
+## Glyra's counterplay, read by GlyraGimmick each frame the same way Wynelle's
+## gimmick reads heater_station.
+var music_box: RouteInteractable3D
 var _ceiling_decor: CeilingDecor
 
 
@@ -171,6 +174,11 @@ func _spawn_interactables() -> void:
 	# out of their own spawn.
 	heater_station = _spawn_interactable(RouteInteractable3D.Kind.HEATER_STATION,
 		_near_start(), "USE HEATER STATION")
+	# Glyra's music box: in the spawn room specifically, and Glyra herself
+	# never leaves that room either -- she is stationary infrastructure, not
+	# a hunter who has to be found.
+	music_box = _spawn_interactable(RouteInteractable3D.Kind.MUSIC_BOX,
+		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "WIND MUSIC BOX")
 
 
 ## An open cell within reach of the spawn, but not touching it: the spawn's
@@ -182,8 +190,17 @@ func _spawn_interactables() -> void:
 ## this replaces) without the two treading on each other.
 const HEATER_MIN_DISTANCE := 3
 const HEATER_MAX_DISTANCE := 7
+## Glyra's music box: the original keeps it in the spawn room specifically
+## ("spawn-room music-box timer"), so its band sits inside the lobby rather
+## than the walk-a-bit-further band the heater uses.
+const MUSIC_BOX_MIN_DISTANCE := 1
+const MUSIC_BOX_MAX_DISTANCE := 4
 
-func _near_start() -> Vector2i:
+## Every already-placed interactable's cell, gathered fresh each call so two
+## calls in the same floor build (heater, then the music box) cannot land on
+## the same cell -- generator.relays/batteries/etc alone would not catch that,
+## since neither knows about the OTHER call's pick.
+func _taken_cells() -> Dictionary:
 	var taken := {}
 	for relay in generator.relays:
 		taken[Vector2i(relay["x"], relay["y"])] = true
@@ -194,6 +211,15 @@ func _near_start() -> Vector2i:
 	for spot in generator.hiding_spots:
 		taken[Vector2i(spot["x"], spot["y"])] = true
 	taken[generator.exit_cell] = true
+	for node in _interactables:
+		var item := node as RouteInteractable3D
+		if item:
+			taken[item.source_cell] = true
+	return taken
+
+
+func _near_start(min_distance: int = HEATER_MIN_DISTANCE, max_distance: int = HEATER_MAX_DISTANCE) -> Vector2i:
+	var taken := _taken_cells()
 
 	# BFS out from the start along actual walkable cells, not straight-line
 	# distance -- a cell three tiles away as the crow flies can be on the far
@@ -221,7 +247,7 @@ func _near_start() -> Vector2i:
 	for entry in by_distance:
 		var cell: Vector2i = entry[0]
 		var distance: int = entry[1]
-		if distance < HEATER_MIN_DISTANCE or distance > HEATER_MAX_DISTANCE:
+		if distance < min_distance or distance > max_distance:
 			continue
 		if taken.has(cell):
 			continue
@@ -229,7 +255,7 @@ func _near_start() -> Vector2i:
 	# A facility too small for the preferred band: take the first open cell at
 	# or past the minimum distance, whatever it is, rather than fail outright.
 	for entry in by_distance:
-		if int(entry[1]) >= HEATER_MIN_DISTANCE and not taken.has(entry[0]):
+		if int(entry[1]) >= min_distance and not taken.has(entry[0]):
 			return entry[0]
 	return generator.start
 

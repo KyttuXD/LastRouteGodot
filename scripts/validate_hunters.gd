@@ -47,6 +47,7 @@ func run(_host: Node) -> int:
 	await _ceryth_traps_and_disperses(_host)
 	await _briselle_sabotages_and_resecures(_host)
 	_ferryn_stalks_and_screams(generator)
+	_glyra_winds_down_and_back_up(generator)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -613,3 +614,53 @@ func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
 			"her own alert would re-target herself if a sibling brain applied it blindly")
 
 	print("  ferryn    chases with no sight or hearing, resets on a flash, and screams the facility awake")
+
+
+## Glyra never moves -- she is a timer wearing a hunter's slot -- and only
+## matters through her music box: silent while wound, a real noise
+## contribution once it runs down, and winding it gives back exactly what she
+## added rather than leaving the meter wherever it happened to land.
+func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
+	var brain := _brain("glyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Glyra has no gimmick")
+		return
+	var meters := PlayerMeters.new()
+	var target := _target(brain.position)
+	target["meters"] = meters
+
+	# Freshly wound: silent, and pinned in place.
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.gimmick.holds_position(), "Glyra is not pinned in place")
+	_expect(brain.world_events.is_empty(), "a freshly wound music box already raised a warning")
+
+	# Run the wind all the way down.
+	for i in int(GameConfig.GLYRA_BAY_SECONDS / STEP) + 5:
+		brain.update(STEP, generator, target, 1, 0)
+	var warned := false
+	for event in brain.world_events:
+		if String(event.get("message", "")).find("WOUND DOWN") >= 0:
+			warned = true
+	_expect(warned, "Glyra's music box ran down with no warning to the player")
+	brain.world_events.clear()
+
+	# Unwound now: real noise, accumulating.
+	meters.update(STEP, {})
+	var before := meters.noise_meter
+	for i in 30:
+		brain.update(STEP, generator, target, 1, 0)
+	meters.update(STEP, {})
+	_expect(meters.noise_meter > before, "an unwound music box raised no facility noise")
+
+	# Winding it gives back what it took, not just stops taking more.
+	var winding := meters.noise_meter
+	brain.gimmick.wind(meters)
+	meters.update(STEP, {})
+	_expect(meters.noise_meter < winding,
+		"winding the music box did not reclaim the noise it had added")
+	for i in 10:
+		brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.world_events.is_empty(),
+		"a freshly rewound box is already raising noise or warnings again")
+
+	print("  glyra     silent while wound, raises real noise once run down, reclaims it on rewind")

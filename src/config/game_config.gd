@@ -315,3 +315,8 @@ const RELAY_RESECURE_SECONDS := 2.6
 ## Ferryn — persistent stalk (hunterAbilities.ferryn.roundStalker). flashNoise
 ## is her plan's own value.
 const FERRYN_FLASH_NOISE := 100.0
+
+## Glyra — spawn-room music box (hunterAbilities.glyra.musicBoxThreat).
+## baySeconds/noisePerSecond are her plan's own values.
+const GLYRA_BAY_SECONDS := 20.0
+const GLYRA_NOISE_PER_SECOND := 1.0

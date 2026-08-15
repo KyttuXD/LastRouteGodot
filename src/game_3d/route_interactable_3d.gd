@@ -17,6 +17,7 @@ enum Kind {
 	LIFT,
 	HEATER_STATION,
 	HIDING_SPOT,
+	MUSIC_BOX,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -36,6 +37,7 @@ const MODEL_SCENES := {
 	Kind.LIFT: "res://art/props-3d/interactables/lift.tscn",
 	Kind.HEATER_STATION: "res://art/props-3d/interactables/heater_station.tscn",
 	Kind.HIDING_SPOT: "res://art/props-3d/interactables/hiding_spot.tscn",
+	Kind.MUSIC_BOX: "res://art/props-3d/interactables/music_box.tscn",
 }
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
@@ -44,6 +46,7 @@ const GLOW_COLORS := {
 	Kind.LIFT: Color(0.76, 0.55, 0.96),
 	Kind.HEATER_STATION: Color(0.98, 0.55, 0.25),
 	Kind.HIDING_SPOT: Color(0.45, 0.60, 0.70),
+	Kind.MUSIC_BOX: Color(0.85, 0.65, 0.35),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -123,6 +126,14 @@ func activate(player: PlayerController3D) -> String:
 			if player.hidden_spot == source_cell:
 				return player.leave_hiding()
 			return player.enter_hiding(source_cell)
+		Kind.MUSIC_BOX:
+			# Never completes either -- winding it is a thing you keep doing,
+			# not a thing you finish. Resolved by whoever owns Glyra's gimmick
+			# (main_3d), the same indirection Ceryth's riddle uses, since a
+			# plain interactable has no business knowing what a hunter is.
+			if player.music_box_resolver.is_valid():
+				return String(player.music_box_resolver.call())
+			return "Nothing happens."
 		Kind.LIFT:
 			if GameState.relays_collected < GameState.relay_target:
 				return "The service lift has no route signal."

@@ -5,15 +5,23 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 17 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 23 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
-(shapeshifter), Thessine (see below), **Haelith** (relay pursuer), **Ysolde**
-(battery thief), **Opalie** (relay guardian) **Aki** (phantom exposure) and **Porcelle** (radar-only), plus the three
-temperature/darkness
-hunters that the meters pass unblocked: **Nyxie** (darkness stalker),
-**Solyth** (heat-summoned) and **Wynelle** (cold materializer). See
-`MIGRATION.md`'s "Hunter roster" section for how they're wired.
+(shapeshifter), Wynelle (cold materializer), Thessine (see below), Haelith
+(relay pursuer), Ysolde (battery thief), Opalie (relay guardian), Aki
+(phantom exposure), Porcelle (radar-only), Jyvra (locker ejection), Loxelle
+(passive incinerator), Ceryth (hiding trap), **Briselle** (relay sabotage +
+resecure hold), **Ferryn** (permanent stalk + facility-wide scream) and
+**Glyra** (spawn-room music box), plus the two rule-summoned specials Nyxie
+(darkness stalker) and Solyth (heat-summoned). See `MIGRATION.md`'s "Hunter
+roster" section for how they're wired.
+
+**Three left, each blocked on a real new system**: Ilyra (player
+stun/incapacitation), Verrine (a vent-travel network the player and hunter
+both use), Zephyra (currency, inventory, a shop UI). Every hiding-spot,
+relay-collected-state, beam-aim and facility-wide-alert hunter is done —
+these three are what remains once those systems existed.
 
 **All 26 have models and tuning.** `HunterRoster.PROFILES` carries every
 hunter's `HUNTER_PROFILES` row and `art/props-3d/characters/` has a model for

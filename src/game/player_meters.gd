@@ -51,6 +51,16 @@ func add_exposure(amount: float) -> void:
 	exposure = clampf(exposure + amount, 0.0, 100.0)
 
 
+## Glyra's counter: winding the music box takes back exactly what her
+## unwound timer has contributed so far, from both the visible meter and
+## whatever is still staged in this frame's input bank -- reclaiming only the
+## meter would have it fall on wind, then rise right back up next frame from
+## an already-cancelled tick still sitting in the bank.
+func reclaim_noise(amount: float) -> void:
+	noise_meter = maxf(0.0, noise_meter - amount)
+	_noise_input = maxf(0.0, _noise_input - amount)
+
+
 ## Banked, not applied immediately — see _noise_input.
 func add_noise(amount: float) -> void:
 	_noise_input += amount

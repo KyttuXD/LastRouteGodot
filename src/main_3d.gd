@@ -50,6 +50,7 @@ func _ready() -> void:
 	player.interaction_message.connect(_on_interaction_message)
 	player.interaction_veto = _guardian_blocking
 	player.hiding_trap_resolver = _ceryth_trap_check
+	player.music_box_resolver = _wind_music_box
 	player.trigger_static_effect = hud.trigger_static
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
@@ -257,6 +258,19 @@ func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 		if view.brain.gimmick is CerythGimmick:
 			return view.brain.gimmick.resolve_entry(cell, flashlight_active)
 	return {}
+
+
+## Winding Glyra's music box. She is always on the floor once implemented
+## (no wake condition, no activation schedule -- see her gimmick), but a
+## hunter roll could still draw someone else as the route hunter while she
+## sits inert as a special-like fixture; if there is no Glyra on this floor
+## at all, there is nothing to wind.
+func _wind_music_box() -> String:
+	for view in hunter_views:
+		if view.brain.gimmick is GlyraGimmick:
+			view.brain.gimmick.wind(player.meters)
+			return "Music box wound. The room settles."
+	return "The box is still. Nothing winds it."
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:
