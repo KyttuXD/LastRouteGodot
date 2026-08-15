@@ -18,7 +18,7 @@ extends SubViewportContainer
 ## so the feel carries over.
 ##
 ## The room model is art/props-3d/office/office_room.glb. Parts are found BY
-## NAME -- LeftDoor, RightDoor, DeskLamp, Monitor -- which is why the exporter
+## NAME -- LeftDoor, RightDoor, DeskLamp, MonitorScreen -- which is why the exporter
 ## preserves group names; see scripts/validate_office_rooms.gd.
 
 const ROOM_SCENE := "res://art/props-3d/office/office_room.glb"
@@ -53,6 +53,8 @@ var _ceiling_light: OmniLight3D
 var _left_door: Node3D
 var _right_door: Node3D
 var _monitor_face: MeshInstance3D
+var _feed: OfficeFeed
+var _feed_material: StandardMaterial3D
 var _yaw := 0.0
 var _pitch := 0.0
 
@@ -88,10 +90,14 @@ func _ready() -> void:
 		world.add_child(_room)
 		_left_door = _find(_room, "LeftDoor") as Node3D
 		_right_door = _find(_room, "RightDoor") as Node3D
-		_monitor_face = _find(_room, "MonitorFace") as MeshInstance3D
+		# "MonitorScreen" is the GROUP; the exporter emits one node per group,
+		# so the cube name "MonitorFace" is not a node and never resolved.
+		_monitor_face = _find(_room, "MonitorScreen") as MeshInstance3D
 		_attach_lamp()
 	else:
 		push_warning("OfficeView3D: could not load %s" % ROOM_SCENE)
+
+	_build_feed()
 
 	_ceiling_light = OmniLight3D.new()
 	_ceiling_light.position = Vector3(0.0, 2.7, 0.6)
@@ -137,6 +143,22 @@ func _attach_lamp() -> void:
 		_room.add_child(_lamp_light)
 
 
+## The desk screen shows a LIVE 3D feed, not a texture: a SubViewport renders
+## the selected camera's room and its ViewportTexture is the screen material.
+## Unshaded, so the office's own dim lighting does not darken a CRT that is
+## supposed to be emitting.
+func _build_feed() -> void:
+	if _monitor_face == null:
+		return
+	_feed = OfficeFeed.new()
+	add_child(_feed)
+	_feed_material = StandardMaterial3D.new()
+	_feed_material.albedo_texture = _feed.get_texture()
+	_feed_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_feed_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	_monitor_face.material_override = _feed_material
+
+
 func _process(delta: float) -> void:
 	_update_look(delta)
 	_reflect_simulation()
@@ -180,9 +202,17 @@ func _reflect_simulation() -> void:
 		_lamp_light.light_energy = lerpf(_lamp_light.light_energy, want, 0.25)
 	if _ceiling_light != null:
 		_ceiling_light.light_energy = 0.0 if blacked_out else 0.55
-	if _monitor_face != null:
-		# The desk screen goes dark while the tablet is up or the feed is down.
-		_monitor_face.visible = not (simulation.monitor_open or blacked_out)
+	if _feed != null:
+		_feed.select(simulation.current_camera)
+	if _feed_material != null:
+		# A dead feed is a dark screen, not a hidden one -- the CRT is still
+		# physically there. Corrupted reads red, matching the 2D monitor.
+		var tint := Color(1, 1, 1)
+		if blacked_out:
+			tint = Color(0.05, 0.05, 0.06)
+		elif simulation.corrupted_cameras.has(simulation.current_camera):
+			tint = Color(0.9, 0.35, 0.35)
+		_feed_material.albedo_color = _feed_material.albedo_color.lerp(tint, 0.2)
 
 
 func _set_door(door: Node3D, closed: bool) -> void:
