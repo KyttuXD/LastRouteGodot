@@ -228,6 +228,30 @@ func run_seed() -> int:
 ## HIDE & SEEK needs someone to hide from, so it is unavailable offline. That
 ## is a property of the room rather than a disabled button in the menu, so the
 ## rule holds wherever a mode gets chosen.
+## Everyone in the room WITH who they are: their peer id, whether they host it
+## and whether they are you.
+##
+## roster() alone was not enough -- the staging screen printed "HOST // YOU" on
+## every row because a bare name cannot say otherwise, so a guest's window
+## claimed to be hosting.
+##
+## Peer 1 is always the host; that is ENet's rule, not ours, which is why the
+## check is against the id rather than against this peer's own is_host flag.
+func roster_rows() -> Array:
+	var me := multiplayer.get_unique_id() if online else 1
+	var rows: Array = []
+	if not online:
+		for name in players:
+			rows.append({"name": String(name), "id": 1, "host": true, "you": true})
+		return rows
+	var ids: Array = peers.keys()
+	ids.sort()
+	for id in ids:
+		rows.append({"name": String(peers[id]), "id": id,
+			"host": int(id) == 1, "you": int(id) == me})
+	return rows
+
+
 func roster() -> PackedStringArray:
 	if not online:
 		return players

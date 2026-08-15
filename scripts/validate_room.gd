@@ -123,6 +123,22 @@ func run(host: Node) -> int:
 		# company.
 		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
 			"HIDE & SEEK opened up with one player in the room")
+		# Exactly one host, and it is peer 1. Every row used to claim both, so
+		# a guest's window showed itself hosting the room it had joined.
+		var rows: Array = RoomState.roster_rows()
+		var hosts := 0
+		var mine := 0
+		for row in rows:
+			if row["host"]:
+				hosts += 1
+				if int(row["id"]) != 1:
+					_fail("peer %d is marked host; only peer 1 hosts" % row["id"])
+			if row["you"]:
+				mine += 1
+		if hosts != 1:
+			_fail("%d rows claim to be the host" % hosts)
+		if mine != 1:
+			_fail("%d rows claim to be you" % mine)
 		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
 			RoomState.roster().size()])
 

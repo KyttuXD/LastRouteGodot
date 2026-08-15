@@ -86,8 +86,8 @@ func _rebuild() -> void:
 	column.add_child(_seed_block())
 	column.add_child(_config_block())
 	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
-	for name in RoomState.roster():
-		column.add_child(_player_row(String(name)))
+	for row in RoomState.roster_rows():
+		column.add_child(_player_row(row))
 	if not _notice.is_empty():
 		column.add_child(_label(_notice, Palette.ALERT, 7))
 	column.add_child(_label(
@@ -178,17 +178,25 @@ func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
 	return row
 
 
-func _player_row(name: String) -> Control:
+## One seat. Every part of this used to be hardcoded, so a guest's window
+## showed itself as the host.
+func _player_row(entry: Dictionary) -> Control:
 	var box := PanelContainer.new()
 	box.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
 		Palette.PANEL_EDGE, 4))
 	var row := HBoxContainer.new()
 	box.add_child(row)
-	row.add_child(_label("%s // YOU" % name, Palette.BODY, 7))
+	var you: bool = entry["you"]
+	var label: String = String(entry["name"])
+	if you:
+		label += "  //  YOU"
+	row.add_child(_label(label, Palette.INK if you else Palette.BODY, 7))
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
-	row.add_child(_label("HOST // STAGING", Palette.MUTED, 6))
+	var role: String = "HOST" if entry["host"] else "GUEST"
+	row.add_child(_label("%s // STAGING" % role,
+		Palette.AMBER if entry["host"] else Palette.MUTED, 6))
 	return box
 
 
