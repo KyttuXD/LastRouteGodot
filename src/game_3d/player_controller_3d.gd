@@ -62,7 +62,11 @@ func _ready() -> void:
 	if model:
 		body_visual.add_child(model)
 		_animation_player = ModelSlot.find_animation_player(model)
-	flashlight.visible = flashlight_enabled
+	# Explicitly through _set_flashlight rather than by poking `visible`, so the
+	# lamp-charge gate applies at spawn exactly as it does on a manual toggle.
+	# The maze is lit almost entirely by this beam; starting dark reads as a
+	# broken build rather than as atmosphere.
+	_set_flashlight(true)
 	_set_view_mode(false)
 
 
