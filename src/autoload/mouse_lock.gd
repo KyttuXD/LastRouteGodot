@@ -47,6 +47,16 @@ func claim(who: String, wants_cursor: bool) -> void:
 	_apply()
 
 
+## Hand the cursor back unconditionally. Leaving a mode does not tidy up after
+## itself -- change_scene_to_file just swaps the tree, so gameplay's capture
+## preference outlived the gameplay and the pointer stayed locked to a window
+## showing a menu. Whatever is about to run states its own needs.
+func release_all() -> void:
+	_claims.clear()
+	_gameplay_capture = false
+	_apply()
+
+
 func cursor_visible() -> bool:
 	return not _claims.is_empty() or not _gameplay_capture
 

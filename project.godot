@@ -27,11 +27,6 @@ window/size/viewport_height=270
 window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
-; "expand" rather than "keep": the 480x270 design size becomes a MINIMUM, and a
-; window that is not 16:9 reveals more of the scene instead of growing black
-; bars. Every top-level Control is anchored to the edge or centre it belongs
-; to, so that extra area lands where it should. Settings.gd sizes the window
-; for the screen it actually starts on.
 window/stretch/aspect="expand"
 window/handheld/orientation=1
 

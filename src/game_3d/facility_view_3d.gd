@@ -161,8 +161,12 @@ func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_
 ## _cube_material for why the UVs have to be remapped to keep it.
 func _build_mesh_library() -> MeshLibrary:
 	var library := MeshLibrary.new()
-	var floor_material := _cube_material(FLOOR_SCENE)
-	var wall_material := _cube_material(WALL_SCENE)
+	# The floor is read from above and the wall from the side, so each takes
+	# the patch its own model used on that face.
+	var floor_material := _cube_material(FLOOR_SCENE, Vector3.UP)
+	var wall_material := _cube_material(WALL_SCENE, Vector3.FORWARD)
+	# A ceiling is a floor seen from underneath.
+	var ceiling_material := _cube_material(FLOOR_SCENE, Vector3.UP)
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
 	# is why every offset below is measured up from zero rather than from a
 	# centre.
@@ -173,7 +177,7 @@ func _build_mesh_library() -> MeshLibrary:
 	# Painted a layer up, so subtract that layer back out of the offset.
 	_add_box(library, ITEM_CEILING, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
 		Vector3(0.0, WALL_HEIGHT - CELL_SIZE - SLAB * 0.5, 0.0),
-		floor_material, false)
+		ceiling_material, false)
 	return library
 
 
@@ -195,15 +199,22 @@ static func _add_box(library: MeshLibrary, id: int, size: Vector3,
 		library.set_item_shapes(id, [shape, placement])
 
 
-## The imported model's material, retargeted at the patch of its atlas that
-## model actually used.
+## The imported model's material, retargeted at ONE patch of its atlas.
 ##
-## A BoxMesh generates its own 0..1 UVs, so dropping an atlas material onto one
-## stretches the WHOLE sheet across every face -- several unrelated materials at
-## once. Scaling by the inverse of the source mesh's UV bounds points the box at
-## the same patch the model was drawn with. Same trick as the office screens,
-## for the same reason.
-static func _cube_material(scene_path: String) -> Material:
+## A BoxMesh generates its own 0..1 UVs, so an atlas material dropped on one
+## stretches the whole sheet across every face. Two narrowings are needed and
+## neither alone is enough.
+##
+## First by FACING: only triangles pointing the way this surface will be seen
+## from count, since the source model draws its top and its sides from
+## different patches.
+##
+## Then by AREA, because facing still is not enough -- the floor model draws
+## tile, trim and grate all on its top, so the bounds of every up-facing
+## triangle enclosed all three and the cube came out a collage. Grouping those
+## triangles by which patch they sample and keeping the one covering the most
+## surface gives the material that tile actually reads as.
+static func _cube_material(scene_path: String, facing: Vector3) -> Material:
 	var loaded := ModelSlot.load_gridmap_item(scene_path)
 	var mesh: Mesh = loaded["mesh"]
 	if mesh == null or mesh.get_surface_count() == 0:
@@ -212,17 +223,49 @@ static func _cube_material(scene_path: String) -> Material:
 	if not source is StandardMaterial3D:
 		return source
 	var material: StandardMaterial3D = (source as StandardMaterial3D).duplicate()
-	var uvs: PackedVector2Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV]
-	if uvs.is_empty():
+
+	var arrays := mesh.surface_get_arrays(0)
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	if uvs.is_empty() or indices.is_empty() or verts.is_empty():
 		return material
-	var lo := uvs[0]
-	var hi := uvs[0]
-	for uv in uvs:
-		lo = lo.min(uv)
-		hi = hi.max(uv)
-	var span := hi - lo
+
+	var patches := {}
+	for i in range(0, indices.size() - 2, 3):
+		var a: int = indices[i]
+		var b: int = indices[i + 1]
+		var c: int = indices[i + 2]
+		# 0.7 is a little over 45 degrees, so a triangle lands on exactly one
+		# of the six box facings and none are counted twice.
+		if a < normals.size() and normals[a].dot(facing) < 0.7:
+			continue
+		var corner: Vector2 = uvs[a].min(uvs[b]).min(uvs[c])
+		var far: Vector2 = uvs[a].max(uvs[b]).max(uvs[c])
+		# Snapped so the same patch keyed from different triangles buckets
+		# together rather than splitting on float noise.
+		var key := "%.3f,%.3f" % [snappedf(corner.x, 0.002), snappedf(corner.y, 0.002)]
+		var area: float = (verts[b] - verts[a]).cross(verts[c] - verts[a]).length() * 0.5
+		if patches.has(key):
+			var seen: Dictionary = patches[key]
+			seen["lo"] = (seen["lo"] as Vector2).min(corner)
+			seen["hi"] = (seen["hi"] as Vector2).max(far)
+			seen["area"] = float(seen["area"]) + area
+		else:
+			patches[key] = {"lo": corner, "hi": far, "area": area}
+
+	var best := {}
+	for key in patches:
+		var patch: Dictionary = patches[key]
+		if best.is_empty() or float(patch["area"]) > float(best["area"]):
+			best = patch
+	if best.is_empty():
+		return material
+	var origin: Vector2 = best["lo"]
+	var span: Vector2 = (best["hi"] as Vector2) - origin
 	if span.x <= 0.0 or span.y <= 0.0:
 		return material
 	material.uv1_scale = Vector3(span.x, span.y, 1.0)
-	material.uv1_offset = Vector3(lo.x, lo.y, 0.0)
+	material.uv1_offset = Vector3(origin.x, origin.y, 0.0)
 	return material

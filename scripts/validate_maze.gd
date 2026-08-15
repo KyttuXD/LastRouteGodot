@@ -53,6 +53,19 @@ func run(host: Node) -> int:
 		# A cell is square to the grid, so an item that fills it must be too.
 		if grid.mesh_library.get_item_mesh_transform(id).basis != Basis.IDENTITY:
 			_fail("grid item %d is placed with a rotation" % id)
+	# A cube that samples most of the atlas is showing several unrelated
+	# materials at once -- the collage that made every floor tile a mess. One
+	# patch is a small fraction of the sheet; half of it is not a patch.
+	for id in [FacilityView3D.ITEM_FLOOR, FacilityView3D.ITEM_WALL,
+			FacilityView3D.ITEM_CEILING]:
+		var mesh := grid.mesh_library.get_item_mesh(id)
+		var material := mesh.surface_get_material(0) if mesh != null else null
+		if material is StandardMaterial3D:
+			var scale: Vector3 = (material as StandardMaterial3D).uv1_scale
+			if scale.x > 0.5 or scale.y > 0.5:
+				_fail("grid item %d samples %.0f%% x %.0f%% of its atlas, not one patch"
+					% [id, scale.x * 100.0, scale.y * 100.0])
+
 	if lids == 0:
 		_fail("the maze still has no ceiling")
 	elif lids != floors:

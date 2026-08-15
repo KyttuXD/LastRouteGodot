@@ -13,6 +13,9 @@ extends Control
 
 
 func _ready() -> void:
+	# The menu is where every mode lands on the way out, so it is the one place
+	# that can be sure the cursor should be free.
+	MouseLock.release_all()
 	_apply_palette()
 	play_button.pressed.connect(_on_play_pressed)
 	office_button.pressed.connect(_on_office_pressed)
