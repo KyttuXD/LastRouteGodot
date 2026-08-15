@@ -65,6 +65,18 @@ var players: PackedStringArray = []
 var online := false
 var is_host := true
 
+## Peer id -> callsign. The host is always peer 1. Kept as a dictionary rather
+## than a list so a player leaving removes the right row without the others
+## shuffling under it.
+var peers := {}
+
+const DEFAULT_PORT := 8421
+## Loopback by default: this exists to test with two windows on one machine
+## before there is anything to connect to.
+const DEFAULT_ADDRESS := "127.0.0.1"
+
+var _peer: ENetMultiplayerPeer
+
 
 func _ready() -> void:
 	# A room always exists, so nothing has to null-check it. Landing straight
@@ -82,11 +94,116 @@ func create_local(for_mode: Mode) -> void:
 	mode = for_mode
 	map_scale = Scale.STANDARD
 	difficulty = Difficulty.STANDARD
-	online = false
-	is_host = true
+	leave_network()
 	players = PackedStringArray([_make_callsign()])
 	reroll_seed()
 	changed.emit()
+
+
+## Open this room to the network.
+##
+## Everything above already describes a room; this only gives it a transport.
+## The host keeps the room it already had -- same code, same seed, same
+## configuration -- so hosting is not "start a multiplayer game", it is the
+## singleplayer room you are already in becoming joinable.
+func host_room(port: int = DEFAULT_PORT) -> String:
+	leave_network()
+	_peer = ENetMultiplayerPeer.new()
+	var error := _peer.create_server(port, MAX_PLAYERS)
+	if error != OK:
+		_peer = null
+		return "COULD NOT OPEN PORT %d" % port
+	multiplayer.multiplayer_peer = _peer
+	online = true
+	is_host = true
+	peers = {1: _local_name()}
+	_bind_signals()
+	changed.emit()
+	return ""
+
+
+## Join someone else's room. Their configuration replaces ours wholesale --
+## the host owns the route, so a client that kept its own seed would generate a
+## different building from the same room.
+func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> String:
+	leave_network()
+	_peer = ENetMultiplayerPeer.new()
+	var error := _peer.create_client(address, port)
+	if error != OK:
+		_peer = null
+		return "COULD NOT REACH %s:%d" % [address, port]
+	multiplayer.multiplayer_peer = _peer
+	online = true
+	is_host = false
+	peers = {}
+	_bind_signals()
+	changed.emit()
+	return ""
+
+
+func leave_network() -> void:
+	if _peer != null:
+		_peer.close()
+		_peer = null
+	multiplayer.multiplayer_peer = null
+	online = false
+	is_host = true
+	peers = {}
+	changed.emit()
+
+
+func _bind_signals() -> void:
+	if not multiplayer.peer_connected.is_connected(_on_peer_connected):
+		multiplayer.peer_connected.connect(_on_peer_connected)
+		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+		multiplayer.connected_to_server.connect(_on_joined)
+		multiplayer.server_disconnected.connect(leave_network)
+
+
+func _on_peer_connected(id: int) -> void:
+	if not is_host:
+		return
+	peers[id] = "SIGNAL-%d" % id
+	# The host is the only authority on the route, so a joiner is TOLD the room
+	# rather than asked about it.
+	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+	changed.emit()
+
+
+func _on_peer_disconnected(id: int) -> void:
+	peers.erase(id)
+	if is_host:
+		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+	changed.emit()
+
+
+func _on_joined() -> void:
+	peers[multiplayer.get_unique_id()] = _local_name()
+	changed.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
+		p_difficulty: int, p_peers: Dictionary) -> void:
+	code = p_code
+	seed_text = p_seed
+	mode = p_mode
+	map_scale = p_scale
+	difficulty = p_difficulty
+	peers = p_peers
+	changed.emit()
+
+
+## Push the host's configuration to everyone. Called after any host-side change,
+## so a client never generates a building from a stale route.
+func broadcast() -> void:
+	if online and is_host:
+		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+
+
+func _local_name() -> String:
+	return String(players[0]) if not players.is_empty() else _make_callsign()
 
 
 ## A fresh route for the same room. The web build regenerates the facility from
@@ -95,6 +212,7 @@ func create_local(for_mode: Mode) -> void:
 func reroll_seed() -> void:
 	var stamp := "%d%d" % [Time.get_ticks_usec(), randi()]
 	seed_text = "ROOM-%s-%s" % [code, stamp.md5_text().substr(0, 20).to_upper()]
+	broadcast()
 	changed.emit()
 
 
@@ -110,9 +228,18 @@ func run_seed() -> int:
 ## HIDE & SEEK needs someone to hide from, so it is unavailable offline. That
 ## is a property of the room rather than a disabled button in the menu, so the
 ## rule holds wherever a mode gets chosen.
+func roster() -> PackedStringArray:
+	if not online:
+		return players
+	var out := PackedStringArray()
+	for id in peers:
+		out.append(String(peers[id]))
+	return out
+
+
 func mode_available(candidate: Mode) -> bool:
 	if candidate == Mode.HIDE_SEEK:
-		return online and players.size() > 1
+		return online and roster().size() > 1
 	return true
 
 
@@ -174,6 +301,7 @@ func set_mode(value: Mode) -> void:
 	if mode == value or not mode_available(value):
 		return
 	mode = value
+	broadcast()
 	changed.emit()
 
 
@@ -181,6 +309,7 @@ func set_map_scale(value: Scale) -> void:
 	if map_scale == value:
 		return
 	map_scale = value
+	broadcast()
 	changed.emit()
 
 
@@ -188,6 +317,7 @@ func set_difficulty(value: Difficulty) -> void:
 	if difficulty == value:
 		return
 	difficulty = value
+	broadcast()
 	changed.emit()
 
 

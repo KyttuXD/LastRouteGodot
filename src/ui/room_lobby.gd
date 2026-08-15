@@ -17,6 +17,8 @@ const ROW_HEIGHT := 13
 ## Clear space left between the staging panel and the edge of the screen.
 const MARGIN_Y := 10
 
+var _notice := ""
+
 
 func _ready() -> void:
 	MouseLock.release_all()
@@ -84,11 +86,14 @@ func _rebuild() -> void:
 	column.add_child(_seed_block())
 	column.add_child(_config_block())
 	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
-	for name in RoomState.players:
+	for name in RoomState.roster():
 		column.add_child(_player_row(String(name)))
+	if not _notice.is_empty():
+		column.add_child(_label(_notice, Palette.ALERT, 7))
 	column.add_child(_label(
-		"ROOM %s // SIGNAL STABLE" % RoomState.code if RoomState.online
-		else "ROOM %s // LOCAL SESSION // NO BACKEND" % RoomState.code,
+		"ROOM %s // ONLINE // %d CONNECTED"
+			% [RoomState.code, RoomState.roster().size()] if RoomState.online
+		else "ROOM %s // LOCAL SESSION" % RoomState.code,
 		Palette.MUTED, 7))
 	column.add_child(_actions())
 
@@ -207,6 +212,34 @@ func _actions() -> Control:
 	reroll.pressed.connect(func() -> void: RoomState.reroll_seed())
 	row.add_child(reroll)
 
+	# Opening the room to the network, or reaching someone else's. Loopback by
+	# default: this is here so two windows on one machine can meet before there
+	# is any server to meet on.
+	if not RoomState.online:
+		var host := Button.new()
+		host.text = "HOST ON %d" % RoomState.DEFAULT_PORT
+		host.add_theme_font_size_override("font_size", 7)
+		host.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(host, false)
+		host.pressed.connect(func() -> void: _network(RoomState.host_room()))
+		row.add_child(host)
+
+		var join := Button.new()
+		join.text = "JOIN LOCAL"
+		join.add_theme_font_size_override("font_size", 7)
+		join.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(join, false)
+		join.pressed.connect(func() -> void: _network(RoomState.join_room()))
+		row.add_child(join)
+	else:
+		var close := Button.new()
+		close.text = "GO OFFLINE"
+		close.add_theme_font_size_override("font_size", 7)
+		close.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(close, false)
+		close.pressed.connect(func() -> void: RoomState.leave_network())
+		row.add_child(close)
+
 	var leave := Button.new()
 	leave.text = "LEAVE ROOM"
 	leave.add_theme_font_size_override("font_size", 7)
@@ -216,6 +249,16 @@ func _actions() -> Control:
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
 	row.add_child(leave)
 	return row
+
+
+## Show why a host or join failed rather than silently doing nothing -- a port
+## already in use is the single most likely outcome of testing this with two
+## windows, and it looks identical to a dead button.
+func _network(error: String) -> void:
+	if error.is_empty():
+		return
+	_notice = error
+	_rebuild()
 
 
 func _label(text: String, tint: Color, size: int) -> Label:

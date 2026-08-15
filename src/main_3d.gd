@@ -26,6 +26,7 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var _game_over_timer := 0.0
+var _remotes: RemotePlayers
 
 
 func _ready() -> void:
@@ -38,6 +39,12 @@ func _ready() -> void:
 	pause_menu.abandon_label = "ABANDON ROUTE"
 	pause_menu.abandoned.connect(_on_abandoned)
 	add_child(pause_menu)
+	# Other players' bodies. Present offline too, doing nothing, so there is no
+	# second code path for a solo run.
+	_remotes = RemotePlayers.new()
+	_remotes.name = "RemotePlayers"
+	_remotes.local_player = player
+	world.add_child(_remotes)
 	_build_admin()
 	_build_floor()
 	_update_hud()

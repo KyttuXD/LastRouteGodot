@@ -106,6 +106,35 @@ func run(host: Node) -> int:
 	lobby.queue_free()
 	await host.get_tree().process_frame
 
+	# Actually open a port. Everything above is bookkeeping; this is the part
+	# that either works on the machine or does not, and "COULD NOT OPEN PORT"
+	# is the single most likely outcome of testing with two windows.
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var error := RoomState.host_room()
+	if not error.is_empty():
+		_fail("hosting failed: %s" % error)
+	else:
+		_expect(RoomState.online, "hosting did not put the room online")
+		_expect(RoomState.is_host, "the host is not the host")
+		_expect(RoomState.roster().size() == 1,
+			"a freshly hosted room lists %d players" % RoomState.roster().size())
+		# Alone in a room, HIDE & SEEK still has nobody to hide from -- being
+		# online is not the same as having company, and the rule is about
+		# company.
+		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
+			"HIDE & SEEK opened up with one player in the room")
+		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
+			RoomState.roster().size()])
+
+	# Hosting twice must not leave the first port held.
+	error = RoomState.host_room()
+	if not error.is_empty():
+		_fail("re-hosting failed, so the previous socket was never released: %s" % error)
+	RoomState.leave_network()
+	_expect(not RoomState.online, "leaving did not take the room offline")
+	_expect(RoomState.roster().size() == 1,
+		"going offline left %d players in the room" % RoomState.roster().size())
+
 	if _failures == 0:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
