@@ -1,0 +1,234 @@
+extends Control
+
+## Office Mode's scene controller — the counterpart to src/main_3d.gd, but
+## for a mode with no world, no movement and no hunters. It owns an
+## OfficeSimulation (src/game/office/office_simulation.gd), forwards player
+## input to its named controls, and reflects its state into the UI. The
+## simulation is authoritative for everything; nothing here advances a timer
+## or decides an outcome on its own.
+
+const ACTION_TO_CONTROL := {
+	"office_left_door": "leftDoor",
+	"office_right_door": "rightDoor",
+	"office_desk_light": "deskLight",
+	"office_vent": "vent",
+	"office_cameras": "cameras",
+}
+
+var simulation: OfficeSimulation
+
+@onready var office_view: OfficeView = %OfficeView
+@onready var monitor: CameraMonitor = %CameraMonitor
+
+@onready var _power_bar: ProgressBar = %PowerBar
+@onready var _power_label: Label = %PowerLabel
+@onready var _usage_label: Label = %UsageLabel
+@onready var _clock_label: Label = %ClockLabel
+@onready var _event_label: Label = %EventLabel
+@onready var _exposure_bar: ProgressBar = %ExposureBar
+@onready var _systems_label: Label = %SystemsLabel
+
+@onready var _left_door_button: Button = %LeftDoorButton
+@onready var _right_door_button: Button = %RightDoorButton
+@onready var _desk_light_button: Button = %DeskLightButton
+@onready var _vent_button: Button = %VentButton
+@onready var _monitor_button: Button = %MonitorButton
+@onready var _radio_button: Button = %RadioButton
+@onready var _breaker_button: Button = %BreakerButton
+@onready var _reboot_button: Button = %RebootButton
+@onready var _flash_button: Button = %FlashButton
+
+@onready var _rear_prompt: Panel = %RearPrompt
+@onready var _rear_label: Label = %RearLabel
+@onready var _gas_prompt: Panel = %GasPrompt
+@onready var _gas_button: Button = %GasMaskButton
+@onready var _gas_label: Label = %GasLabel
+@onready var _parkour_panel: Panel = %ParkourPanel
+@onready var _parkour_buttons: HBoxContainer = %ParkourButtons
+@onready var _parkour_label: Label = %ParkourLabel
+@onready var _end_panel: Panel = %EndPanel
+@onready var _end_title: Label = %EndTitle
+@onready var _end_cause: Label = %EndCause
+@onready var _end_hint: Label = %EndHint
+
+
+func _ready() -> void:
+	simulation = OfficeSimulation.new("OFFICE-%d" % randi())
+	monitor.simulation = simulation
+	monitor.visible = false
+
+	_left_door_button.pressed.connect(_toggle.bind("leftDoor"))
+	_right_door_button.pressed.connect(_toggle.bind("rightDoor"))
+	_desk_light_button.pressed.connect(_toggle.bind("deskLight"))
+	_vent_button.pressed.connect(_toggle.bind("vent"))
+	_monitor_button.pressed.connect(_toggle.bind("cameras"))
+	_radio_button.pressed.connect(func() -> void: simulation.cycle_radio())
+	_breaker_button.pressed.connect(func() -> void: simulation.reset_breaker())
+	_reboot_button.pressed.connect(func() -> void: simulation.reboot_cameras())
+	_flash_button.pressed.connect(func() -> void: simulation.trigger_emergency_flash())
+
+	# Held, not clicked — the mask only helps while it's actually on your face.
+	_gas_button.button_down.connect(func() -> void: simulation.set_gas_mask(true))
+	_gas_button.button_up.connect(func() -> void: simulation.set_gas_mask(false))
+
+	for position in 4:
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(26, 20)
+		button.focus_mode = Control.FOCUS_NONE
+		button.pressed.connect(_on_parkour_node_pressed.bind(position))
+		_parkour_buttons.add_child(button)
+
+	_end_panel.visible = false
+	_refresh()
+
+
+func _toggle(control: String) -> void:
+	simulation.toggle_control(control)
+	if control == "cameras":
+		_sync_monitor_visibility()
+
+
+## The monitor being up is simulation state (`monitor_open`), not a separate
+## UI flag — Violet's blackout and Orange's sabotage can both force it down
+## without the player touching anything, so the view always follows the sim.
+func _sync_monitor_visibility() -> void:
+	var raised := simulation.monitor_open
+	if raised and not monitor.visible:
+		monitor.play_static()
+	monitor.visible = raised
+	office_view.can_move = not raised
+
+
+func _on_parkour_node_pressed(position: int) -> void:
+	simulation.advance_gray_challenge(position)
+
+
+func _unhandled_input(_event: InputEvent) -> void:
+	if simulation == null or simulation.phase != OfficeSimulation.Phase.ACTIVE:
+		if Input.is_action_just_pressed("interact") and simulation != null \
+			and simulation.phase in [OfficeSimulation.Phase.LOST, OfficeSimulation.Phase.WON]:
+			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		return
+
+	for action in ACTION_TO_CONTROL:
+		if Input.is_action_just_pressed(action):
+			_toggle(ACTION_TO_CONTROL[action])
+	if Input.is_action_just_pressed("office_radio"):
+		simulation.cycle_radio()
+	if Input.is_action_just_pressed("office_breaker"):
+		simulation.reset_breaker()
+	if Input.is_action_just_pressed("office_reboot"):
+		simulation.reboot_cameras()
+	if Input.is_action_just_pressed("office_emergency_flash"):
+		simulation.trigger_emergency_flash()
+	if Input.is_action_just_pressed("office_rear_flash"):
+		simulation.answer_rear_threat()
+	if Input.is_action_just_pressed("pause"):
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+	# Direct camera bank, only while the monitor is actually up.
+	if simulation.monitor_open:
+		for index in OfficeConfig.CAMERAS.size():
+			if Input.is_action_just_pressed("office_camera_%d" % (index + 1)):
+				monitor.select_by_index(index)
+
+
+func _process(delta: float) -> void:
+	if simulation == null:
+		return
+	simulation.update(delta)
+	_sync_monitor_visibility()
+	_refresh()
+
+
+func _refresh() -> void:
+	_power_bar.value = simulation.power
+	_power_label.text = "POWER %d%%" % roundi(simulation.power)
+	_power_label.modulate = _power_color(simulation.power)
+	_usage_label.text = "USAGE %s" % "|".repeat(simulation.usage)
+
+	var remaining: float = maxf(0.0, simulation.shift_duration - simulation.elapsed)
+	# Presented as a 12AM-6AM shift, the way the original frames its clock.
+	var hour := int((simulation.elapsed / simulation.shift_duration) * 6.0)
+	_clock_label.text = "%d AM   %02d:%02d LEFT" % [hour, int(remaining) / 60, int(remaining) % 60]
+
+	_event_label.text = simulation.event if simulation.event_timer > 0.0 else ""
+	_exposure_bar.value = simulation.exposure
+
+	_left_door_button.button_pressed = simulation.left_door
+	_right_door_button.button_pressed = simulation.right_door
+	_desk_light_button.button_pressed = simulation.desk_light
+	_vent_button.button_pressed = simulation.vent_sealed
+	_monitor_button.button_pressed = simulation.monitor_open
+	_radio_button.text = "RADIO %d" % simulation.radio_frequency
+	_flash_button.disabled = not simulation.emergency_flash_ready
+
+	_left_door_button.disabled = simulation.is_system_disabled("leftDoor")
+	_right_door_button.disabled = simulation.is_system_disabled("rightDoor")
+	_desk_light_button.disabled = simulation.is_system_disabled("deskLight")
+	_vent_button.disabled = simulation.is_system_disabled("vent")
+	_monitor_button.disabled = simulation.is_system_disabled("cameras")
+	_radio_button.disabled = simulation.is_system_disabled("radio")
+
+	_systems_label.text = "FAULT: %s" % " ".join(simulation.disabled_systems) if not simulation.disabled_systems.is_empty() else ""
+
+	_rear_prompt.visible = simulation.rear_threat_timer > 0.0
+	if _rear_prompt.visible:
+		_rear_label.text = "BREATHING BEHIND YOU // [Q] FLASH  %.1f" % simulation.rear_threat_timer
+
+	_gas_prompt.visible = simulation.gas_active
+	if _gas_prompt.visible:
+		_gas_label.text = "GAS LEAK // HOLD MASK   %.1f" % simulation.gas_remaining
+		_gas_label.modulate = Color(1, 0.5, 0.3).lerp(Color(1, 0.1, 0.1), simulation.gas_unmasked / 1.15)
+
+	_refresh_parkour()
+	_refresh_end_state()
+
+
+func _refresh_parkour() -> void:
+	var challenge = simulation.gray_challenge
+	_parkour_panel.visible = challenge != null
+	if challenge == null:
+		return
+	_parkour_label.text = "GRAY PARKOUR // IN ORDER   %.1f" % challenge["remaining"]
+	var order: Array = challenge["order"]
+	var next: int = challenge["next"]
+	for position in _parkour_buttons.get_child_count():
+		var button: Button = _parkour_buttons.get_child(position)
+		# The node's label is its shuffled step number — clicking by position
+		# only counts when that position holds the next required step.
+		button.text = "%d" % (int(order[position]) + 1)
+		button.disabled = int(order[position]) < next
+
+
+func _refresh_end_state() -> void:
+	match simulation.phase:
+		OfficeSimulation.Phase.ACTIVE:
+			_end_panel.visible = false
+		OfficeSimulation.Phase.JUMPSCARE:
+			_end_panel.visible = true
+			var threat: Dictionary = simulation.threats.get(simulation.caught_by, {})
+			_end_title.text = String(threat.get("label", "VOID"))
+			_end_title.modulate = threat.get("color", Color.RED)
+			_end_cause.text = simulation.cause
+			_end_hint.text = ""
+		OfficeSimulation.Phase.LOST:
+			_end_panel.visible = true
+			_end_title.text = "SHIFT FAILED"
+			_end_title.modulate = Color(0.9, 0.25, 0.3)
+			_end_cause.text = simulation.cause
+			_end_hint.text = "[E] RETURN TO MENU"
+		OfficeSimulation.Phase.WON:
+			_end_panel.visible = true
+			_end_title.text = "6 AM"
+			_end_title.modulate = Color(0.4, 0.95, 0.6)
+			_end_cause.text = simulation.cause
+			_end_hint.text = "[E] RETURN TO MENU"
+
+
+func _power_color(value: float) -> Color:
+	if value <= 15.0:
+		return Color(0.95, 0.25, 0.3)
+	if value <= 40.0:
+		return Color(0.95, 0.75, 0.3)
+	return Color(0.45, 0.9, 0.85)

@@ -9,10 +9,18 @@ const SETTINGS_PATH := "user://settings.cfg"
 const DEFAULT_VOLUME_PERCENT := 100.0
 const MIN_VOLUME_DB := -80.0
 
+## Office Mode's controls live in their own action namespace (office_*),
+## mirroring the original's deliberate split: rebinding a Last Route key can
+## never collide with or silently clear an Office one, so the two sets can
+## share physical keys freely. The office_camera_N bank is intentionally not
+## rebindable — it's a fixed 1-8 hotbar, same as the original.
 const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"sprint", "crouch", "flashlight", "interact",
 	"toggle_map", "toggle_view", "pause",
+	"office_left_door", "office_right_door", "office_desk_light",
+	"office_vent", "office_cameras", "office_radio", "office_breaker",
+	"office_reboot", "office_emergency_flash", "office_rear_flash",
 ]
 
 var master_volume_percent := DEFAULT_VOLUME_PERCENT

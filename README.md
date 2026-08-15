@@ -24,7 +24,7 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 - **3D (`scenes/main_3d.tscn`):** a `GridMap`-rendered facility (placeholder flat-colored floor/wall meshes, real physics collision), a `CharacterBody3D` player with two `Camera3D` rigs (orthographic top-down, mouselook first-person) toggled at runtime, and a `SpotLight3D` flashlight. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention for future real-art imports.
 - **2D (`scenes/main.tscn`, still available):** 480×270 pixel-perfect viewport, nearest-neighbor rendering, a scrolling `Camera2D`, and a runtime-built `TileMapLayer` for facility collision. Not yet wired to the hunter.
 - shared between both presentation layers: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`, one shared scene instanced by both).
-- **Office Mode's simulation** (`src/game/office/office_simulation.gd`) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget. Complete and verified (31 headless checks); the UI is the remaining piece. See `MIGRATION.md`.
+- **Office Mode** (`scenes/office.tscn`, from the menu's OFFICE MODE button) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -32,17 +32,17 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 ```text
 art/props-3d/           3D prop scaffold — every model the game loads at runtime; drop real assets in to replace the placeholders (see its README)
 assets/                 Imported art, audio, fonts and data
-scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, hud.tscn = shared HUD)
+scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, office.tscn = Office Mode, hud.tscn = shared HUD)
 scripts/                Headless validation/dev scripts
 src/autoload/           Project-wide state (GameState, Settings)
 src/config/             Tuning and content definitions
 src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd, hunter_gimmicks/, office/) and 2D gameplay nodes
 src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, model_slot.gd loads visuals from art/props-3d/)
-src/ui/                  Shared HUD, main menu, settings panel
+src/ui/                  Shared HUD, main menu, settings panel, office/ (Office Mode UI)
 third_party/            Vendored third-party assets, each with its own license (see Credits)
 ```
 
-See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries, and exactly what's done versus deferred.
+See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries, and exactly what's done versus deferred. [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md) is the working plan for porting the remaining 24 hunters.
 
 ## Ground rules
 
@@ -58,4 +58,4 @@ Original game — **KYTTU: The Last Route** by [KyttuXD](https://github.com/Kytt
 
 Third-party assets vendored into `third_party/`, each under its own license:
 
-- **[Cupcakes Framework](https://github.com/Oplexitie/Cupcakes-Framework)** by Oplexitie — MIT. Two shaders (`equirectangular_perspective`, `crtwave`) used for Office Mode's office view and camera-monitor feed. Vendored verbatim; see [`third_party/cupcakes-framework/`](third_party/cupcakes-framework/) for the license text and full attribution.
+- **[Cupcakes Framework](https://github.com/Oplexitie/Cupcakes-Framework)** by Oplexitie — MIT. Two shaders vendored verbatim (`equirectangular_perspective`, `crtwave`), plus Office Mode's office-panning and camera-monitor scripts adapted from its presentation code. See [`third_party/cupcakes-framework/`](third_party/cupcakes-framework/) for the license text, what's verbatim vs. derived, and what wasn't used.

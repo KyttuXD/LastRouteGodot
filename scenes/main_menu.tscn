@@ -177,6 +177,18 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "PLAY"
 
+[node name="OfficeButton" type="Button" parent="ButtonPanel/ButtonBox"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "A separate FNAF-style desk shift against ten Void signals."
+text = "OFFICE MODE"
+
+[node name="OfficeCaption" type="Label" parent="ButtonPanel/ButtonBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 0.6, 0.62, 1)
+theme_override_font_sizes/font_size = 6
+text = "SEPARATE MODE — TEN VOID SIGNALS, NOT THE HUNTER ROSTER"
+
 [node name="CreateRoomButton" type="Button" parent="ButtonPanel/ButtonBox"]
 unique_name_in_owner = true
 layout_mode = 2

@@ -17,6 +17,16 @@ const ACTION_LABELS := {
 	"toggle_map": "TOGGLE MAP",
 	"toggle_view": "TOGGLE VIEW",
 	"pause": "PAUSE",
+	"office_left_door": "OFFICE — LEFT DOOR",
+	"office_right_door": "OFFICE — RIGHT DOOR",
+	"office_desk_light": "OFFICE — DESK LIGHT",
+	"office_vent": "OFFICE — VENT HATCH",
+	"office_cameras": "OFFICE — MONITOR",
+	"office_radio": "OFFICE — RADIO",
+	"office_breaker": "OFFICE — BREAKER",
+	"office_reboot": "OFFICE — CAMERA REBOOT",
+	"office_emergency_flash": "OFFICE — EMERGENCY FLASH",
+	"office_rear_flash": "OFFICE — REAR FLASH",
 }
 
 const KEY_LABEL_COLOR := Color(0.95, 0.75, 0.42, 1)

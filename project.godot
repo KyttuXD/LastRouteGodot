@@ -69,6 +69,78 @@ toggle_view={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"physical_keycode":86)]
 }
+office_left_door={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":65)]
+}
+office_right_door={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":68)]
+}
+office_desk_light={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":76)]
+}
+office_vent={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":86)]
+}
+office_cameras={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":67)]
+}
+office_radio={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":82)]
+}
+office_breaker={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":66)]
+}
+office_reboot={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":78)]
+}
+office_emergency_flash={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":70)]
+}
+office_rear_flash={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":81)]
+}
+office_camera_1={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":49)]
+}
+office_camera_2={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":50)]
+}
+office_camera_3={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":51)]
+}
+office_camera_4={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":52)]
+}
+office_camera_5={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":53)]
+}
+office_camera_6={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":54)]
+}
+office_camera_7={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":55)]
+}
+office_camera_8={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":56)]
+}
 
 [rendering]
 
