@@ -1,18 +1,15 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
-radius = 0.25
-height = 1.7
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/mannequin.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_player"]
-albedo_color = Color(0.25, 0.92, 0.84, 1)
-emission_enabled = true
-emission = Color(0.25, 0.92, 0.84, 1)
-emission_energy_multiplier = 0.3
-
+; The body EVERY player wears. Not a character -- the roster is the hunters,
+; and a runner is anonymous, so this is one shared mannequin rather than a
+; per-player model. Built by the same skin pipeline the hunters use, with the
+; per-character extras off and no skin-tone normalisation: it is wood, and
+; normalising would drag it toward flesh.
+;
+; Carries the five clips ModelSlot.play_if_available asks for by name --
+; idle, walk, chase, sprint, crouch.
 [node name="Player" type="Node3D"]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-position = Vector3(0, 0.85, 0)
-mesh = SubResource("CapsuleMesh_player")
-surface_material_override/0 = SubResource("StandardMaterial3D_player")
+[node name="Model" parent="." instance=ExtResource("1_model")]

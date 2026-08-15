@@ -66,6 +66,14 @@ func run(host: Node) -> int:
 				_fail("grid item %d samples %.0f%% x %.0f%% of its atlas, not one patch"
 					% [id, scale.x * 100.0, scale.y * 100.0])
 
+	# The floor has to stop things. It did not, and nothing noticed because the
+	# player has no gravity -- a floor that only works because nothing pulls
+	# down is not a floor.
+	if grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_FLOOR).is_empty():
+		_fail("the maze floor has no collision")
+	if not grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_CEILING).is_empty():
+		_fail("the ceiling has collision, so the player has a head to bump")
+
 	if lids == 0:
 		_fail("the maze still has no ceiling")
 	elif lids != floors:

@@ -172,8 +172,11 @@ func _build_mesh_library() -> MeshLibrary:
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
 	# is why every offset below is measured up from zero rather than from a
 	# centre.
+	# The floor is solid. It was not, and nothing noticed because the player
+	# has no gravity -- but anything that ever gains some would drop straight
+	# through the building.
 	_add_box(library, ITEM_FLOOR, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
-		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, false)
+		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, true)
 	_add_box(library, ITEM_WALL, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
 		Vector3(0.0, WALL_HEIGHT * 0.5, 0.0), wall_material, true)
 	# Painted a layer up, so subtract that layer back out of the offset.
