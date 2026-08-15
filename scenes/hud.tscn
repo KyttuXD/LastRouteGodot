@@ -230,7 +230,7 @@ offset_right = 304.0
 offset_bottom = 46.0
 theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
 theme_override_font_sizes/font_size = 8
-text = "WASD MOVE  SHIFT RUN  C CROUCH  F LIGHT  E USE  M MAP  V VIEW  ESC PAUSE"
+text = "WASD MOVE  SHIFT RUN  C CROUCH  F LIGHT  E USE  M MAP   ESC PAUSE"
 
 [node name="InteractionLabel" type="Label" parent="."]
 layout_mode = 1

@@ -15,7 +15,6 @@ const ACTION_LABELS := {
 	"flashlight": "FLASHLIGHT",
 	"interact": "INTERACT",
 	"toggle_map": "TOGGLE MAP",
-	"toggle_view": "TOGGLE VIEW",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -42,8 +41,7 @@ const LISTENING_TEXT := "PRESS A KEY..."
 const SECTIONS := [
 	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
 		"move_right", "sprint", "crouch"]},
-	{"title": "ACTIONS", "actions": ["interact", "flashlight", "toggle_map",
-		"toggle_view"]},
+	{"title": "ACTIONS", "actions": ["interact", "flashlight", "toggle_map"]},
 	{"title": "SYSTEM", "actions": ["pause"]},
 	{"title": "OFFICE MODE", "actions": ["office_left_door", "office_right_door",
 		"office_desk_light", "office_vent", "office_cameras", "office_radio",

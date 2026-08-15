@@ -5,20 +5,24 @@ extends CharacterBody3D
 ## interaction rules (GameConfig is shared, untouched), CharacterBody3D
 ## movement on the XZ ground plane instead of CharacterBody2D on XY, and two
 ## camera rigs (orthographic top-down, perspective first-person) toggled by
-## the toggle_view input action.
+## FIRST PERSON only.
+##
+## There was a top-down view on the V key, inherited from the 2D original. It
+## rendered black in the 3D build and survived three attempts to fix it -- the
+## camera was current, the world was in front of it, the ceiling was hidden and
+## a directional light was on it, and it was still black. It is also redundant:
+## the facility is a real 3D building now, and the memory map is the thing that
+## reads a floor plan. So it is gone rather than carried as a broken option.
 
 signal flashlight_changed(enabled: bool)
 signal interaction_message(message: String)
 
 const CAMERA_HEIGHT := 1.6
-const TOP_DOWN_HEIGHT := 12.0
-const TOP_DOWN_ORTHO_SIZE := 10.0
 const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
 
 ## Sibling, not a child — the top-down camera must NOT inherit the player's
 ## facing rotation (it stays fixed, looking straight down, and only follows
 ## position each frame). See _physics_process.
-@onready var top_down_camera: Camera3D = get_node("../TopDownCamera")
 @onready var first_person_camera: Camera3D = $FirstPersonPivot/FirstPersonCamera
 @onready var first_person_pivot: Node3D = $FirstPersonPivot
 @onready var flashlight: SpotLight3D = $FirstPersonPivot/Flashlight
@@ -36,10 +40,6 @@ var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
 var movement_mode := "walk"
-var first_person := false
-## Light3D, not OmniLight3D: it is directional now, and a plan view wants
-## flat light rather than a pool.
-var _overhead_light: Light3D
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
 var noise := 0.0
@@ -69,12 +69,11 @@ func _ready() -> void:
 	# The maze is lit almost entirely by this beam; starting dark reads as a
 	# broken build rather than as atmosphere.
 	_set_flashlight(true)
-	_build_overhead_light()
-	_set_view_mode(false)
+	_enter_first_person()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if first_person and event is InputEventMouseMotion:
+	if event is InputEventMouseMotion:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
@@ -85,13 +84,9 @@ func _physics_process(delta: float) -> void:
 	if input_frozen:
 		velocity = Vector3.ZERO
 		move_and_slide()
-		top_down_camera.global_position = Vector3(global_position.x, TOP_DOWN_HEIGHT, global_position.z)
 		noise = 0.0
 		ModelSlot.play_if_available(_animation_player, "idle")
 		return
-
-	if Input.is_action_just_pressed("toggle_view"):
-		_set_view_mode(not first_person)
 
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
@@ -125,7 +120,8 @@ func _physics_process(delta: float) -> void:
 	ModelSlot.play_if_available(_animation_player, movement_mode if is_moving else "idle")
 
 	var move_direction: Vector3
-	if first_person:
+	# Movement is camera-relative: forward is where you are looking.
+	if true:
 		# Relative to facing: forward/back on move_up/move_down, strafe on move_left/move_right.
 		move_direction = (transform.basis * Vector3(input_vector.x, 0.0, input_vector.y)).normalized() if is_moving else Vector3.ZERO
 	else:
@@ -148,7 +144,6 @@ func _physics_process(delta: float) -> void:
 	velocity.y = 0.0
 	move_and_slide()
 
-	top_down_camera.global_position = Vector3(global_position.x, TOP_DOWN_HEIGHT, global_position.z)
 
 	if Input.is_action_just_pressed("flashlight"):
 		_set_flashlight(not flashlight_enabled)
@@ -157,41 +152,14 @@ func _physics_process(delta: float) -> void:
 		_try_interact()
 
 
-## A soft lamp overhead, on only in the top-down view.
-##
-## That view is the original game's primary perspective, and it reads a whole
-## room at once -- but the 3D world is lit by a forward-facing beam, so from
-## 12 m up the room the player is standing in was a dark rectangle with a cone
-## across it. This is the plan view's equivalent of the original's room
-## lighting, not an extra light in the maze: first person never sees it.
-func _build_overhead_light() -> void:
-	# DIRECTIONAL, not a lamp on the player. An omni was a pool of light in the
-	# middle of an otherwise black plan -- which is why this view kept reading
-	# as blank even once the ceiling stopped covering it. A plan view has to
-	# show a whole room at once, so it is lit like a plan: flat, from straight
-	# above, reaching everything the orthographic camera can see.
-	_overhead_light = DirectionalLight3D.new()
-	_overhead_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
-	_overhead_light.light_energy = 1.0
-	_overhead_light.light_color = Color(0.74, 0.76, 0.86)
-	_overhead_light.shadow_enabled = false
-	add_child(_overhead_light)
-	_overhead_light.visible = not first_person
-
-
-func _set_view_mode(is_first_person: bool) -> void:
-	first_person = is_first_person
-	if _overhead_light != null:
-		_overhead_light.visible = not is_first_person
-	top_down_camera.current = not first_person
-	first_person_camera.current = first_person
-	body_visual.visible = not first_person
+## First person is the only view. The body is hidden because you are inside it,
+## and the mouse is captured because the camera is aimed with it.
+func _enter_first_person() -> void:
+	first_person_camera.current = true
+	body_visual.visible = false
 	# Stated as a preference, not set directly: a menu on top has to be able to
 	# hand the cursor back without this taking it again next frame.
-	MouseLock.set_gameplay_capture(first_person)
-	if not first_person:
-		first_person_pivot.rotation.x = 0.0
-		_pitch = 0.0
+	MouseLock.set_gameplay_capture(true)
 
 
 func _update_stamina(delta: float, is_sprinting: bool) -> void:

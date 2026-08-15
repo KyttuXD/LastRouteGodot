@@ -41,7 +41,7 @@ const WINDOW_SCREEN_SHARE := 0.85
 const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"sprint", "crouch", "flashlight", "interact",
-	"toggle_map", "toggle_view", "pause",
+	"toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",

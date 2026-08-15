@@ -68,8 +68,6 @@ func _process(delta: float) -> void:
 		observed_depth = GameState.depth
 		_build_floor()
 
-	# The lid is only in the way of the view that looks down through it.
-	facility_view.set_ceiling_visible(player.first_person)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
 	_update_hud()
 

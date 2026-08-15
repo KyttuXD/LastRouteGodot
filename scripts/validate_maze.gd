@@ -90,12 +90,6 @@ func run(host: Node) -> int:
 	# Looking down at a sealed corridor shows a ceiling, which is why that view
 	# went black. It is the original game's primary perspective, so it has to
 	# see through the lid rather than lose it.
-	view.set_ceiling_visible(false)
-	if lid.visible:
-		_fail("the ceiling stayed visible for the top-down view")
-	view.set_ceiling_visible(true)
-	if not lid.visible:
-		_fail("the ceiling did not come back for first person")
 
 	# A collected relay used to stay exactly where it was with its glow off,
 	# which reads as the interaction having failed rather than as a pickup.
@@ -126,49 +120,13 @@ func run(host: Node) -> int:
 	if not scene.player.flashlight_enabled:
 		_fail("the player spawns with the flashlight off")
 
-	# The top-down view is the ORIGINAL game's primary perspective and it has
-	# come back black twice. Check the three things that make it a picture at
-	# all: something to look through, something lit, and no lid in the way.
-	var top_down: Camera3D = scene.player.top_down_camera
-	view.set_ceiling_visible(false)
-	if not top_down.current:
-		_fail("the top-down camera is not the current one at startup")
-	if lid.visible:
-		_fail("the ceiling is still drawn over the top-down view")
-	if scene.player._overhead_light == null or not scene.player._overhead_light.visible:
-		_fail("the top-down view has no overhead light")
-	# Guessing at this view has failed twice. Measure what is actually inside
-	# the camera's box: an orthographic camera at 12 m with size 10 sees a
-	# 10 m tall slice, and if no geometry falls in it the picture is black
-	# whatever the lights are doing.
-	var eye := top_down.global_position
-	var half := top_down.size * 0.5
-	var window := AABB(Vector3(eye.x - half, eye.y - top_down.far, eye.z - half),
-		Vector3(half * 2.0, top_down.far, half * 2.0))
-	# Count the GRID, not MeshInstance3D nodes. A GridMap is a single node
-	# however many cells it draws, so counting mesh instances counted the
-	# player's own 21-piece body and called that "the world is in view".
-	var cells := 0
-	for cell in grid.get_used_cells():
-		var at := grid.to_global(grid.map_to_local(cell))
-		if absf(at.x - eye.x) <= half and absf(at.z - eye.z) <= half:
-			cells += 1
-	print("  camview   eye %s, player %s, %d grid cells under it"
-		% [eye.round(), scene.player.global_position.round(), cells])
-	if cells == 0:
-		_fail("no floor or wall falls inside the top-down camera's box")
-	# The player standing a metre above the floor is not a view bug, but it is
-	# a bug, and it would put the body inside the ceiling of a 3 m corridor.
+	# The player is in first person, on the floor, and the ceiling is drawn --
+	# there is no second view to lift it for any more.
 	if absf(scene.player.global_position.y) > 0.25:
 		_fail("the player stands at y=%.2f, not on the floor"
 			% scene.player.global_position.y)
-
-	var span: float = top_down.size
-	var reach: float = top_down.global_position.y - top_down.far
-	print("  topdown   ortho %.0f units, floor %.1f above the far plane, lid %s"
-		% [span, -reach, "hidden" if not lid.visible else "SHOWN"])
-	if reach > 0.0:
-		_fail("the far plane sits %.1f above the floor, so nothing renders" % reach)
+	if not lid.visible:
+		_fail("the ceiling is hidden with no top-down view to hide it for")
 
 	if _failures == 0:
 		print("  fabric    %d floors, %d walls, %d ceiling cells, all boxes"

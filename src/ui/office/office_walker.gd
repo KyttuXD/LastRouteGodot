@@ -4,7 +4,7 @@ extends CharacterBody3D
 ## First-person movement for the walkable office.
 ##
 ## Deliberately NOT PlayerController3D. That one belongs to maze mode: it
-## requires a sibling ../TopDownCamera, a Flashlight and a BodyVisual, and it
+## requires a Flashlight and a BodyVisual, and it
 ## tracks stamina, lamp charge and noise -- none of which Office Mode has. This
 ## is the small subset the office actually needs: walk, look, collide.
 ##
