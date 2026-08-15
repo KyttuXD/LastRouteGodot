@@ -7,13 +7,16 @@ extends Control
 ## simulation is authoritative for everything; nothing here advances a timer
 ## or decides an outcome on its own.
 
-const ACTION_TO_CONTROL := {
-	"office_left_door": "leftDoor",
-	"office_right_door": "rightDoor",
-	"office_desk_light": "deskLight",
-	"office_vent": "vent",
-	"office_cameras": "cameras",
-}
+## The office_* control shortcuts are GONE, not merely unbound.
+##
+## They shared physical keys with movement -- the left door was A, the vent was
+## W, the emergency flash was E -- which was harmless while the player was
+## pinned to a chair and unplayable once they could walk: crossing the room
+## worked both doors. Every control is a switch in the world now, so there is
+## nothing for a shortcut to duplicate.
+##
+## The rear flash keeps its key. It answers a timed prompt and has no switch to
+## point at, and T collides with nothing.
 
 var simulation: OfficeSimulation
 var pause_menu: PauseMenu
@@ -136,17 +139,6 @@ func _unhandled_input(_event: InputEvent) -> void:
 			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 		return
 
-	for action in ACTION_TO_CONTROL:
-		if Input.is_action_just_pressed(action):
-			_toggle(ACTION_TO_CONTROL[action])
-	if Input.is_action_just_pressed("office_radio"):
-		simulation.cycle_radio()
-	if Input.is_action_just_pressed("office_breaker"):
-		simulation.reset_breaker()
-	if Input.is_action_just_pressed("office_reboot"):
-		simulation.reboot_cameras()
-	if Input.is_action_just_pressed("office_emergency_flash"):
-		simulation.trigger_emergency_flash()
 	if Input.is_action_just_pressed("office_rear_flash"):
 		simulation.answer_rear_threat()
 	# Direct camera bank, only while the monitor is actually up.

@@ -190,10 +190,31 @@ func _check_reach(view: OfficeView3D) -> int:
 	var failures := 0
 	var smallest := INF
 	var smallest_cam := ""
+	# Not every control is a chair control any more. The doors sit beside their
+	# own doorways and are still inside the seated cone; the vent switch is
+	# under the vent on the wall BEHIND the desk, which a seated player cannot
+	# turn to face -- reaching it is the walking the mode now asks for. So the
+	# seated sweep covers everything except that one, and the vent is checked
+	# from where a standing player would work it.
+	const WALK_TO := ["Vent"]
 	for name in view._keys:
-		var tag := "ctrl:%s" % name
-		if not hits.has(tag):
+		if WALK_TO.has(name):
+			if hits.has("ctrl:%s" % name):
+				failures += _fail("the %s key is reachable from the chair, so "
+					% name + "mounting it on the far wall bought nothing")
+			continue
+		if not hits.has("ctrl:%s" % name):
 			failures += _fail("the %s key cannot be aimed at from the seat" % name)
+
+	# Standing in front of it, it has to work.
+	for name in WALK_TO:
+		var node: MeshInstance3D = view._keys[name]
+		var plane: Dictionary = view._key_plane[name]
+		var normal: Vector3 = plane["normal"]
+		var stand: Vector3 = node.global_position + normal * 0.9
+		if view._pick_key(stand, -normal) != "ctrl:%s" % name:
+			failures += _fail("the %s key cannot be worked from directly in front of it"
+				% name)
 	var seen := {}
 	for name in view._keys:
 		view._hovered = "ctrl:%s" % name
@@ -210,6 +231,18 @@ func _check_reach(view: OfficeView3D) -> int:
 		var glyph := view._find(view._keys[name], "Ctrl%sGlyph" % name)
 		if glyph == null:
 			failures += _fail("the %s key carries no glyph" % name)
+		if not view._key_plane.has(name):
+			failures += _fail("the %s key has no surface of its own" % name)
+	# Place-bound controls sit on the thing they work, not on the desk, so
+	# their surfaces must genuinely differ -- one shared plane was true only
+	# while every key was on one board.
+	var normals := {}
+	for name in view._key_plane:
+		var normal: Vector3 = (view._key_plane[name] as Dictionary)["normal"]
+		normals["%.1f,%.1f,%.1f" % [normal.x, normal.y, normal.z]] = true
+	if normals.size() < 2:
+		failures += _fail("every control key still shares one surface")
+	print("  surfaces  %d controls across %d facings" % [view._keys.size(), normals.size()])
 	view._hovered = ""
 	print("  keys      %d desk controls, all reachable and self-describing"
 		% view._keys.size())

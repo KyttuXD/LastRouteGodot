@@ -96,9 +96,23 @@ KEY_RISE = 0.014
 # Which control each key works, in two rows. Order follows the bar it replaces
 # so the muscle memory carries over.
 KEY_ROWS = [
-    ["LeftDoor", "RightDoor", "DeskLight", "Vent", "Monitor"],
-    ["Radio", "Breaker", "Reboot", "Flash"],
+    ["DeskLight", "Monitor", "Radio"],
+    ["Breaker", "Reboot", "Flash"],
 ]
+
+# Three controls belong to a PLACE rather than to the desk, so they are mounted
+# on it: a door switch beside its own door, the vent switch under the vent.
+# Reaching for the left door should mean turning to the left door. The desk
+# keeps the systems that have no location -- the breaker, the radio, the
+# cameras -- because those are things you do at a desk.
+#
+# (x, y, z, rotation) with the plate facing into the room.
+WALL_KEYS = {
+    "LeftDoor": (-W / 2 + T + 0.02, 1.24, 0.95, (0, 90, 0)),
+    "RightDoor": (W / 2 - T - 0.02, 1.24, 0.95, (0, -90, 0)),
+    "Vent": (W / 2 - 1.4, 1.55, D / 2 - T - 0.02, (0, 180, 0)),
+}
+WALL_KEY_W, WALL_KEY_H, WALL_KEY_D = 0.22, 0.13, 0.016
 
 
 # A 7x5 bitmap per key, emitted as boxes. Same reasoning as the PREV/NEXT
@@ -159,6 +173,54 @@ def _glyph(room, group, bx, by, bz, rows):
     # takes the lit override -- and so Godot can reparent it and have it sink
     # along when the key goes down.
     room.add(group, parts, origin=(bx, by, bz), rotation=(-STRIP_TILT, 0, 0))
+
+
+def wall_controls(room):
+    """The place-bound controls, on the surface each one belongs to."""
+    for name, (bx, by, bz, rot) in WALL_KEYS.items():
+        # A backplate, so the switch reads as fitted to the wall rather than
+        # stuck on it.
+        room.add("Ctrl%sPlate" % name, [
+            room.box("Ctrl%sPlate" % name,
+                     bx - WALL_KEY_W / 2 - 0.02, by - WALL_KEY_H / 2 - 0.02, bz - 0.012,
+                     bx + WALL_KEY_W / 2 + 0.02, by + WALL_KEY_H / 2 + 0.02, bz + 0.008,
+                     "metal", None, 8)],
+            origin=(bx, by, bz), rotation=rot)
+        room.add("Ctrl%s" % name, [
+            room.box("Ctrl%s" % name,
+                     bx - WALL_KEY_W / 2, by - WALL_KEY_H / 2, bz - WALL_KEY_D / 2,
+                     bx + WALL_KEY_W / 2, by + WALL_KEY_H / 2, bz + WALL_KEY_D / 2,
+                     "emissive", None, 4)],
+            origin=(bx, by, bz), rotation=rot)
+        if name in KEY_GLYPHS:
+            _wall_glyph(room, "Ctrl%sGlyph" % name, bx, by, bz, rot, KEY_GLYPHS[name])
+
+
+def _wall_glyph(room, group, bx, by, bz, rot, rows):
+    """A key's mark on a wall-mounted switch. Same bitmap, laid on a face whose
+    outward direction is +Z before the group's own rotation turns it."""
+    height = len(rows)
+    width = max(len(r) for r in rows)
+    x0 = bx - width * GLYPH_CELL / 2
+    y0 = by + height * GLYPH_CELL / 2
+    z0 = bz + WALL_KEY_D / 2
+    parts = []
+    for r, row in enumerate(rows):
+        c = 0
+        while c < len(row):
+            if row[c] != "#":
+                c += 1
+                continue
+            run = c
+            while run < len(row) and row[run] == "#":
+                run += 1
+            parts.append(room.box(
+                f"{group}{r}_{c}",
+                x0 + c * GLYPH_CELL, y0 - (r + 1) * GLYPH_CELL, z0 - 0.001,
+                x0 + run * GLYPH_CELL, y0 - r * GLYPH_CELL, z0 + GLYPH_RISE,
+                "recess", None, 0))
+            c = run
+    room.add(group, parts, origin=(bx, by, bz), rotation=rot)
 
 
 def control_strip(room):
@@ -338,6 +400,7 @@ def build(room, openings=()):
 
     camera_console(room)
     control_strip(room)
+    wall_controls(room)
 
     room.add("DeskLamp", [
         # Shifted out to the desk's edge to make room for the camera console;

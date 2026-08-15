@@ -136,12 +136,10 @@ const KEY_FAMILY := {
 var _keys := {}
 var _key_rest := {}
 var _key_rect := {}
+## Key -> its own surface: point, right, up, normal.
+var _key_plane := {}
 var _key_materials := {}
 var _key_flash := {}
-var _strip_point := Vector3.ZERO
-var _strip_right := Vector3.RIGHT
-var _strip_up := Vector3.UP
-var _strip_normal := Vector3.BACK
 var _strip_ready := false
 
 
@@ -370,34 +368,35 @@ func _measure_console() -> bool:
 	return true
 
 
-## The control strip's own plane. Measured the same way and separately, because
-## it is tilted differently -- a ray hitting one board says nothing about where
-## it crosses the other.
+## Each key's OWN plane.
+##
+## They used to share one, which was true while they were all on a single desk
+## strip. Two of them are on the side walls now and one is under the vent, so a
+## ray crossing the desk says nothing about where it crosses a door switch --
+## every key carries its own surface and is tested against it.
 func _measure_strip() -> void:
 	if _keys.is_empty():
 		return
-	var sample: MeshInstance3D = _keys.values()[0]
-	var basis := sample.global_transform.basis
-	_strip_right = basis.x.normalized()
-	_strip_up = basis.y.normalized()
-	_strip_normal = basis.z.normalized()
-	var centroid := Vector3.ZERO
-	for name in _keys:
-		_key_rest[name] = (_keys[name] as MeshInstance3D).global_position
-		centroid += _key_rest[name] as Vector3
-	_strip_point = centroid / float(_keys.size())
 	for name in _keys:
 		var node: MeshInstance3D = _keys[name]
-		var aabb := node.get_aabb()
 		var xform := node.global_transform
+		_key_rest[name] = xform.origin
+		_key_plane[name] = {
+			"point": xform.origin,
+			"right": xform.basis.x.normalized(),
+			"up": xform.basis.y.normalized(),
+			"normal": xform.basis.z.normalized(),
+		}
+		var aabb := node.get_aabb()
 		var lo := Vector2(INF, INF)
 		var hi := Vector2(-INF, -INF)
 		for corner in 8:
-			var d := xform * aabb.get_endpoint(corner) - _strip_point
-			var p := Vector2(d.dot(_strip_right), d.dot(_strip_up))
+			var d := xform * aabb.get_endpoint(corner) - xform.origin
+			var p := Vector2(d.dot(xform.basis.x.normalized()),
+				d.dot(xform.basis.y.normalized()))
 			lo = lo.min(p)
 			hi = hi.max(p)
-		_key_rect[name] = Rect2(lo, hi - lo).grow(0.012)
+		_key_rect[name] = Rect2(lo, hi - lo).grow(0.018)
 	_strip_ready = true
 
 
@@ -462,21 +461,32 @@ func _pick(aim: Vector2) -> String:
 
 
 ## Which control key the pointer is over, as "ctrl:<name>", or "".
+##
+## Tested per key against its own surface, and the NEAREST hit wins -- a ray
+## down the room can cross a door switch's plane and the desk's within a metre
+## of each other, and picking whichever was checked first would let you work a
+## door by pointing at the desk behind it.
 func _pick_key(from: Vector3, direction: Vector3) -> String:
 	if not _strip_ready:
 		return ""
-	var denominator := direction.dot(_strip_normal)
-	if absf(denominator) < 0.0001:
-		return ""
-	var distance := (_strip_point - from).dot(_strip_normal) / denominator
-	if distance <= 0.0:
-		return ""
-	var at := from + direction * distance - _strip_point
-	var local := Vector2(at.dot(_strip_right), at.dot(_strip_up))
-	for name in _key_rect:
+	var best := ""
+	var best_distance := INF
+	for name in _key_plane:
+		var plane: Dictionary = _key_plane[name]
+		var normal: Vector3 = plane["normal"]
+		var denominator := direction.dot(normal)
+		if absf(denominator) < 0.0001:
+			continue
+		var distance: float = ((plane["point"] as Vector3) - from).dot(normal) / denominator
+		if distance <= 0.0 or distance >= best_distance:
+			continue
+		var at := from + direction * distance - (plane["point"] as Vector3)
+		var local := Vector2(at.dot(plane["right"] as Vector3),
+			at.dot(plane["up"] as Vector3))
 		if (_key_rect[name] as Rect2).has_point(local):
-			return "ctrl:%s" % name
-	return ""
+			best = name
+			best_distance = distance
+	return "ctrl:%s" % best if not best.is_empty() else ""
 
 
 ## Work whichever control the pointer is on. Toggles go through the simulation's
@@ -680,8 +690,9 @@ func _reflect_keys(delta: float, _offline: bool) -> void:
 
 		var node: MeshInstance3D = _keys[name]
 		var down: bool = latched or float(_key_flash[name]) > 0.0
+		var normal: Vector3 = (_key_plane[name] as Dictionary)["normal"]
 		var want: Vector3 = (_key_rest[name] as Vector3) \
-			- _strip_normal * (BUTTON_TRAVEL if down else 0.0)
+			- normal * (BUTTON_TRAVEL if down else 0.0)
 		node.global_position = node.global_position.lerp(
 			want, clampf(delta * 22.0, 0.0, 1.0))
 
