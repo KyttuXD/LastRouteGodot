@@ -61,6 +61,14 @@ const POWER_CAMERAS := 0.34
 const POWER_VENT := 0.42
 const POWER_RADIO := 0.2
 
+## How long you may be away from the desk before something finds you.
+## Office Mode's premise is that the desk is the only safe place; walking is a
+## real risk, not free movement. 14 s is long enough to reach the breaker in
+## ELECTRICAL and get back, and short enough that wandering is a decision.
+const AWAY_FROM_DESK_GRACE := 14.0
+## Warn with this long left, so being caught is never a surprise.
+const AWAY_FROM_DESK_WARNING := 5.0
+
 const REAR_FLASH_COST := 3.0
 const VENT_SEAL_DURATION := 8.0
 const EMERGENCY_STUN_DURATION := 5.0

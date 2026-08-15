@@ -62,6 +62,12 @@ var blackout_timer := 0.0
 var rear_threat_timer := 0.0
 
 var gas_active := false
+
+## Set by the presentation layer when the player leaves the office. The
+## simulation owns the timer and the failure, so a 2D view, a 3D view or a
+## headless test all reach the same outcome from the same report.
+var away_from_desk := false
+var away_timer := 0.0
 var gas_remaining := 0.0
 var gas_unmasked := 0.0
 var gas_mask_held := false
@@ -215,6 +221,7 @@ func camera_view(camera_id := ""):
 #region Frame update
 
 func update(delta: float) -> void:
+	_update_away_from_desk(delta)
 	if phase == Phase.JUMPSCARE:
 		jumpscare_remaining = maxf(0.0, jumpscare_remaining - delta)
 		if jumpscare_remaining <= 0.0:
@@ -758,6 +765,39 @@ func set_gas_mask(held: bool) -> bool:
 
 
 #region Internals
+
+## Time spent outside the office. Being away is safe for a while and then it
+## is not -- which is what makes leaving the desk a decision rather than a
+## free action.
+func _update_away_from_desk(delta: float) -> void:
+	if phase != Phase.ACTIVE:
+		return
+	if not away_from_desk:
+		if away_timer > 0.0:
+			away_timer = 0.0
+			_announce("BACK AT THE DESK")
+		return
+	var was := away_timer
+	away_timer += delta
+	var left := OfficeConfig.AWAY_FROM_DESK_GRACE - away_timer
+	if left <= 0.0:
+		_fail("CAUGHT AWAY FROM THE DESK", _nearest_active_threat())
+		return
+	if left <= OfficeConfig.AWAY_FROM_DESK_WARNING \
+			and was < OfficeConfig.AWAY_FROM_DESK_GRACE - OfficeConfig.AWAY_FROM_DESK_WARNING:
+		_announce("SOMETHING IS MOVING // RETURN TO THE DESK",
+			OfficeConfig.AWAY_FROM_DESK_WARNING)
+
+
+## Whichever signal is live takes the credit, so the game-over screen names a
+## real threat rather than a placeholder.
+func _nearest_active_threat() -> String:
+	for id in threats:
+		var threat: Dictionary = threats[id]
+		if threat.get("active", false):
+			return String(id)
+	return "crimson"
+
 
 func _fail(failure_cause: String, threat_id: String) -> void:
 	if phase != Phase.ACTIVE:

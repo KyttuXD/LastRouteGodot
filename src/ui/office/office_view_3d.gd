@@ -21,7 +21,14 @@ extends SubViewportContainer
 ## NAME -- LeftDoor, RightDoor, DeskLamp, MonitorScreen -- which is why the exporter
 ## preserves group names; see scripts/validate_office_rooms.gd.
 
-const ROOM_SCENE := "res://art/props-3d/office/office_room.glb"
+## The whole facility, split shell/props, WITH collision -- the player can walk
+## out of the office and down the halls, so the world can no longer be one room.
+const ROOM_SCENE := "res://scenes/office_map.tscn"
+
+## The office room's footprint. Outside this you are "away from the desk", and
+## the simulation starts counting.
+const OFFICE_HALF_X := 3.2
+const OFFICE_HALF_Z := 2.7
 
 ## Seat position in the room, in metres. The office is 6 x 5 m with the desk
 ## against the +Z wall spanning z 1.0-2.15, so the seat sits BEHIND it at 2.28
@@ -54,6 +61,7 @@ var _left_door: Node3D
 var _right_door: Node3D
 var _monitor_face: MeshInstance3D
 var _feed: OfficeFeed
+var _walker: OfficeWalker
 var _feed_material: StandardMaterial3D
 var _yaw := 0.0
 var _pitch := 0.0
@@ -106,12 +114,10 @@ func _ready() -> void:
 	_ceiling_light.light_color = Color(0.62, 0.72, 0.78)
 	world.add_child(_ceiling_light)
 
-	_camera = Camera3D.new()
-	_camera.position = SEAT
-	_camera.fov = 72.0
-	_camera.current = true
-	world.add_child(_camera)
-	_apply_look()
+	_walker = OfficeWalker.new()
+	_walker.seat_position = SEAT
+	world.add_child(_walker)
+	_camera = _walker.camera()
 
 
 ## Depth-first by name. The exporter emits a "<name>-colonly" sibling for
@@ -159,9 +165,25 @@ func _build_feed() -> void:
 	_monitor_face.material_override = _feed_material
 
 
-func _process(delta: float) -> void:
-	_update_look(delta)
+func _process(_delta: float) -> void:
+	_update_seating()
 	_reflect_simulation()
+
+
+## Sit and stand with the interact key, and only when close enough to the desk
+## -- so returning to the office is a deliberate act, not a teleport.
+func _update_seating() -> void:
+	if _walker == null:
+		return
+	if Input.is_action_just_pressed("interact"):
+		if _walker.seated:
+			_walker.stand()
+		elif _walker.can_sit():
+			_walker.sit()
+	if simulation != null:
+		var p := _walker.global_position
+		simulation.away_from_desk = not _walker.seated and (
+			absf(p.x) > OFFICE_HALF_X or absf(p.z) > OFFICE_HALF_Z)
 
 
 func _update_look(delta: float) -> void:
