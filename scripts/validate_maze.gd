@@ -69,8 +69,11 @@ func run(host: Node) -> int:
 	# The floor has to stop things. It did not, and nothing noticed because the
 	# player has no gravity -- a floor that only works because nothing pulls
 	# down is not a floor.
-	if grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_FLOOR).is_empty():
-		_fail("the maze floor has no collision")
+	# The floor is deliberately collider-less until there is gravity: a slab
+	# whose top is flush with the capsule's base ejects the player upward every
+	# frame, half a metre at a time, with nothing to bring him back down.
+	if not grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_FLOOR).is_empty():
+		_fail("the floor has collision again, which makes the player climb")
 	if not grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_CEILING).is_empty():
 		_fail("the ceiling has collision, so the player has a head to bump")
 
@@ -134,6 +137,32 @@ func run(host: Node) -> int:
 		_fail("the ceiling is still drawn over the top-down view")
 	if scene.player._overhead_light == null or not scene.player._overhead_light.visible:
 		_fail("the top-down view has no overhead light")
+	# Guessing at this view has failed twice. Measure what is actually inside
+	# the camera's box: an orthographic camera at 12 m with size 10 sees a
+	# 10 m tall slice, and if no geometry falls in it the picture is black
+	# whatever the lights are doing.
+	var eye := top_down.global_position
+	var half := top_down.size * 0.5
+	var window := AABB(Vector3(eye.x - half, eye.y - top_down.far, eye.z - half),
+		Vector3(half * 2.0, top_down.far, half * 2.0))
+	# Count the GRID, not MeshInstance3D nodes. A GridMap is a single node
+	# however many cells it draws, so counting mesh instances counted the
+	# player's own 21-piece body and called that "the world is in view".
+	var cells := 0
+	for cell in grid.get_used_cells():
+		var at := grid.to_global(grid.map_to_local(cell))
+		if absf(at.x - eye.x) <= half and absf(at.z - eye.z) <= half:
+			cells += 1
+	print("  camview   eye %s, player %s, %d grid cells under it"
+		% [eye.round(), scene.player.global_position.round(), cells])
+	if cells == 0:
+		_fail("no floor or wall falls inside the top-down camera's box")
+	# The player standing a metre above the floor is not a view bug, but it is
+	# a bug, and it would put the body inside the ceiling of a 3 m corridor.
+	if absf(scene.player.global_position.y) > 0.25:
+		_fail("the player stands at y=%.2f, not on the floor"
+			% scene.player.global_position.y)
+
 	var span: float = top_down.size
 	var reach: float = top_down.global_position.y - top_down.far
 	print("  topdown   ortho %.0f units, floor %.1f above the far plane, lid %s"

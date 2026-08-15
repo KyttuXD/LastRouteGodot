@@ -172,11 +172,19 @@ func _build_mesh_library() -> MeshLibrary:
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
 	# is why every offset below is measured up from zero rather than from a
 	# centre.
-	# The floor is solid. It was not, and nothing noticed because the player
-	# has no gravity -- but anything that ever gains some would drop straight
-	# through the building.
+	# The floor carries NO collider, and that is deliberate.
+	#
+	# Giving it one looked like an obvious fix -- a floor should be solid --
+	# and it made the player climb: the capsule rests with its base exactly on
+	# y=0, the slab's top is exactly y=0, and depenetration pushed the body up
+	# half a metre in the first few frames and kept going, because velocity.y
+	# is pinned to zero so nothing ever brings it back down.
+	#
+	# Nothing falls through because nothing pulls down. When gravity arrives,
+	# the floor needs a collider AND the capsule needs to rest above it rather
+	# than flush with it; one without the other is worse than neither.
 	_add_box(library, ITEM_FLOOR, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
-		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, true)
+		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, false)
 	_add_box(library, ITEM_WALL, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
 		Vector3(0.0, WALL_HEIGHT * 0.5, 0.0), wall_material, true)
 	# Painted a layer up, so subtract that layer back out of the offset.
