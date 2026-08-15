@@ -5,12 +5,18 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 8 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 12 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark) and
-Umbriel (shapeshifter). That is every hunter portable without new
-simulation systems — Tier 2 below is now complete. See `MIGRATION.md`'s
+Umbriel (shapeshifter), plus the three temperature/darkness hunters that
+the meters pass unblocked: **Nyxie** (darkness stalker), **Solyth**
+(heat-summoned) and **Wynelle** (cold materializer). See `MIGRATION.md`'s
 "Hunter roster" section for how they're wired.
+
+Nyxie and Solyth are **specials**: registered but never entered into the
+random draw, always present on a floor but inert, woken by their own rule
+and hunting *alongside* whichever route hunter was drawn. That is why
+`main_3d.gd` now holds a collection of hunters rather than one.
 
 ## How a hunter gets added
 
@@ -77,12 +83,13 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 
 | Subsystem | Hunters | Count |
 | --- | --- | --- |
-| Room/player temperature (+ heater station) | Loxelle, Solyth, Wynelle, Zephyra (sec.) | 4 |
-| Hiding spots | Ceryth, Jyvra, Loxelle, Solyth (sec.) | 4 |
-| Accumulating noise/corruption meter | Ferryn, Glyra | 2 |
+| Hiding spots | Ceryth, Jyvra, Loxelle | 3 |
 | Audio system (positional / mimicked cues) | Haelith, Thessine | 2 |
-| Concurrent multi-hunter activation | Nyxie, Solyth, Ysolde (sec.) | 2 (+1 sec.) |
-| Exposure/sanity meter | Aki | 1 |
+| Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zephyra (sec.) | 1 (+1 sec.) |
+| Accumulating noise/corruption meter — **BUILT** | Ferryn (also needs player beam-aim), Glyra (also needs a music-box prop) | 2 |
+| Concurrent multi-hunter activation — **BUILT** | Ysolde (sec.) | 1 (sec.) |
+| Exposure/sanity meter — **BUILT** | Aki (also needs player beam-aim) | 1 |
+| Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state), Haelith, Opalie, Ysolde | 4 |
 | Currency/inventory + shop UI | Zephyra | 1 |
 | Player radar/gadget item | Porcelle | 1 |
 | Vent-travel network | Verrine | 1 |

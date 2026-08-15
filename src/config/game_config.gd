@@ -77,6 +77,46 @@ const NOISE_SPRINT := 10.5
 ## inner (real) hearing radius is walking distance <= noise, via pathfind().
 const HEARING_OUTER_SCALE := 1.45
 
+## Exposure meter (0-100): how detectable the runner is right now, eased
+## toward a target computed from flashlight, movement noise and cover. Pure
+## simulation — hunter mechanics push it via PlayerMeters.add_exposure()
+## (Aki's phantom burst). From the original's TUNING block.
+const EXPOSURE_BASE := 18.0
+const EXPOSURE_FLASHLIGHT := 55.0
+const EXPOSURE_NOISE_SCALE := 40.0
+const EXPOSURE_CROUCH_SCALE := 0.55
+const EXPOSURE_EASE := 1.8
+
+## Noise meter (0-100, facility-wide): accumulated racket. Rises with the
+## runner's own gait plus per-frame contributions banked by props/hunters via
+## PlayerMeters.add_noise() (Glyra's music box, Ferryn's flash scream), and
+## decays steadily toward quiet.
+const NOISE_METER_PLAYER_RATE := 8.0
+const NOISE_METER_DECAY := 5.0
+
+## Temperature (0-100). The player's body eases toward the facility's ambient,
+## which drifts upward on a shortening interval; a safe zone pulls hard back
+## toward neutral. Both extremes have real costs, and 100 latches Solyth
+## permanently (see SOLYTH_* below).
+##
+## Per-room climate profiles from the original are NOT ported: its rooms carry
+## a `region` that drives a per-room target, and this port's rooms are still
+## geometric-only (`type: "generic"`) pending the deferred room-content
+## milestone. A single facility-wide ambient is the honest equivalent for now.
+const TEMPERATURE_START := 60.0
+const TEMPERATURE_NEUTRAL := 60.0
+const BODY_TEMPERATURE_RESPONSE := 1.6
+const TEMPERATURE_AMBIENT_DRIFT := 0.85
+const TEMPERATURE_OVERHEAT := 90.0
+const TEMPERATURE_FREEZE := 10.0
+const TEMPERATURE_FREEZE_SLOW := 0.72
+const TEMPERATURE_OVERHEAT_DRAIN := 1.35
+const TEMPERATURE_SAFE_ZONE_PULL := 14.0
+const TEMPERATURE_HEATER_WARM := 3.0
+## Ordinary route hunters move faster at either extreme; rule-summoned
+## specials (Nyxie/Solyth) keep their own tuning and are exempt.
+const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
+
 ## Dovelle — the zero-gimmick baseline hunter (HUNTER_ABILITIES.dovelle = {}
 ## in the original). Consumed via HunterRoster, not referenced directly by
 ## hunter_brain.gd (see src/config/hunter_roster.gd).
@@ -187,6 +227,57 @@ const UMBRIEL_SIGHT_RANGE := 8.5
 const UMBRIEL_HEARING_SCALE := 0.86
 const UMBRIEL_DISGUISE_INTERVAL := 30.0
 const UMBRIEL_DISGUISE_EXCLUDED := ["kathy"]
+
+## Nyxie — darkness stalker (hunterAbilities.nyxie.darknessStalker). A special:
+## always present, never in the random draw, woken by sustained darkness rather
+## than the relay schedule. Two wake modes — a plain flashlight-off timer, and
+## a dead lamp held NYXIE_EMPTY_DELAY seconds, which is an *inescapable*
+## capture (the original calls triggerGameOver directly, skipping the
+## struggle). A timer wake is dispelled by shining the beam at her.
+## Her hearing scale is 0 in the original: she does not hear at all.
+const NYXIE_BASE_SPEED := 0.9
+const NYXIE_CHASE_SPEED := 3.9
+const NYXIE_CHASE_PROGRESSION_SCALE := 0.15
+const NYXIE_SIGHT_RANGE := 8.4
+const NYXIE_HEARING_SCALE := 0.0
+const NYXIE_TIMER_DELAY := 120.0
+const NYXIE_EMPTY_DELAY := 10.0
+const NYXIE_DESPAWN_RANGE := 7.0
+const NYXIE_DISPEL_HALF_ANGLE := 0.33
+const NYXIE_SPAWN_DISTANCE := 10.0
+
+## Solyth — heat-summoned pursuer (hunterAbilities.solyth.heatManifest). The
+## other special. Temperature reaching 100 latches her PERMANENTLY for the rest
+## of the run (PlayerMeters.heat_locked), which also pins temperature to a 90F
+## floor so cooling can never send her away again. While locked in she burns an
+## uncollected battery every SOLYTH_BATTERY_BURN_INTERVAL seconds. Her
+## hiding-spot burn isn't ported — no hiding spots exist yet.
+const SOLYTH_BASE_SPEED := 0.8
+const SOLYTH_CHASE_SPEED := 3.0
+const SOLYTH_CHASE_PROGRESSION_SCALE := 0.17
+const SOLYTH_SIGHT_RANGE := 7.6
+const SOLYTH_HEARING_SCALE := 0.95
+const SOLYTH_BATTERY_BURN_INTERVAL := 30.0
+const SOLYTH_SPAWN_DISTANCE := 12.0
+
+## Wynelle — cold materializer (hunterAbilities.wynelle.coldMaterializer).
+## Unlike the two specials she IS drawn normally; she just starts dormant and
+## activates on cold rather than on the relay count. Cold below the warm
+## threshold builds a hidden meter; at 100 she materialises directly on the
+## player and opens a freeze-grace window. The facility heater station is the
+## counterplay — powering it zeroes her progress, unfreezing it dematerialises
+## her outright.
+const WYNELLE_BASE_SPEED := 0.81
+const WYNELLE_CHASE_SPEED := 3.0
+const WYNELLE_CHASE_PROGRESSION_SCALE := 0.18
+const WYNELLE_SIGHT_RANGE := 7.8
+const WYNELLE_HEARING_SCALE := 1.15
+const WYNELLE_WARM_THRESHOLD := 60.0
+const WYNELLE_DEEP_COLD_THRESHOLD := 30.0
+const WYNELLE_PER_DEGREE_RATE := 0.5
+const WYNELLE_DEEP_COLD_RATE := 1.0
+const WYNELLE_DEATH_GRACE_SECONDS := 10.0
+const WYNELLE_DEMATERIALIZE_RESET_PROGRESS := 50.0
 
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
 const HUNTER_RELAY_SPEED_BONUS := 0.1

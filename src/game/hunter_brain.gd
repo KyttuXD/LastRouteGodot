@@ -96,6 +96,12 @@ func activate_at(target_position: Vector2) -> void:
 ## "noise": float, "flashlight_on": bool}. Returns true if this frame
 ## captured the target (pure proximity check, hidden/safe-zone exempt).
 func update(delta: float, generator: FacilityGenerator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	# A rule-summoned hunter decides her own activation inside her gimmick, so
+	# it has to run before the inactive check that would otherwise stop it.
+	var self_summoning := gimmick != null and gimmick.runs_while_inactive()
+	if self_summoning:
+		gimmick.before_perception(self, delta, target, generator)
+
 	if not active:
 		return false
 	if stun_timer > 0.0:
@@ -108,7 +114,7 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
 
-	if gimmick:
+	if gimmick and not self_summoning:
 		gimmick.before_perception(self, delta, target, generator)
 
 	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)

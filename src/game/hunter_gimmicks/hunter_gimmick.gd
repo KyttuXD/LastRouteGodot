@@ -39,6 +39,23 @@ func holds_position() -> bool:
 	return false
 
 
+## True when a grab by this hunter skips the escape struggle entirely and goes
+## straight to the outcome — Nyxie's dead-lamp wake is the original's one case
+## (`triggerGameOver` is called directly, with no beginEscape).
+func capture_is_inescapable() -> bool:
+	return false
+
+
+## True for a gimmick that decides its hunter's OWN activation, so it has to
+## keep running while she is still inert. Rule-summoned hunters (Nyxie on
+## darkness, Solyth on heat, Wynelle on cold) need this — without it the
+## brain's `if not active: return` would stop the very code that wakes them.
+## Ordinary gimmicks stay dormant until the relay schedule activates their
+## hunter, which is why this defaults to false rather than always running.
+func runs_while_inactive() -> bool:
+	return false
+
+
 ## The one place a hunter id maps to her gimmick instance. Returns null for
 ## any id with no behavior-changing gimmick (tuning-only hunters like
 ## Dovelle, and every not-yet-ported id) — HunterBrain treats null as "skip
@@ -59,5 +76,11 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return MavrineGimmick.new()
 		"umbriel":
 			return UmbrielGimmick.new()
+		"nyxie":
+			return NyxieGimmick.new()
+		"solyth":
+			return SolythGimmick.new()
+		"wynelle":
+			return WynelleGimmick.new()
 		_:
 			return null

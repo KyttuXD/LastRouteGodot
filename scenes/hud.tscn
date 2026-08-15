@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
 
@@ -24,6 +24,15 @@ border_color = Color(0.2, 0.3, 0.3, 0.8)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_battery"]
 bg_color = Color(0.949, 0.733, 0.384, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_exposure"]
+bg_color = Color(0.561, 0.816, 0.878, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_noise"]
+bg_color = Color(0.561, 0.816, 0.878, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_temperature"]
+bg_color = Color(0.561, 0.816, 0.878, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_stamina"]
 bg_color = Color(0.561, 0.816, 0.878, 1)
@@ -120,6 +129,66 @@ theme_override_colors/font_color = Color(0.78, 0.86, 0.86, 1)
 theme_override_font_sizes/font_size = 8
 horizontal_alignment = 1
 text = "STAMINA 100%"
+
+[node name="ExposureMeter" type="VBoxContainer" parent="MetersPanel/MetersRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 1
+
+[node name="Bar" type="ProgressBar" parent="MetersPanel/MetersRow/ExposureMeter"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 6)
+value = 0.0
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_exposure")
+
+[node name="Caption" type="Label" parent="MetersPanel/MetersRow/ExposureMeter"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.86, 0.86, 1)
+theme_override_font_sizes/font_size = 8
+horizontal_alignment = 1
+text = "EXPOSURE 0%"
+
+[node name="NoiseMeter" type="VBoxContainer" parent="MetersPanel/MetersRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 1
+
+[node name="Bar" type="ProgressBar" parent="MetersPanel/MetersRow/NoiseMeter"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 6)
+value = 0.0
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_noise")
+
+[node name="Caption" type="Label" parent="MetersPanel/MetersRow/NoiseMeter"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.86, 0.86, 1)
+theme_override_font_sizes/font_size = 8
+horizontal_alignment = 1
+text = "NOISE 0%"
+
+[node name="TemperatureMeter" type="VBoxContainer" parent="MetersPanel/MetersRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 1
+
+[node name="Bar" type="ProgressBar" parent="MetersPanel/MetersRow/TemperatureMeter"]
+layout_mode = 2
+custom_minimum_size = Vector2(96, 6)
+value = 60.0
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_temperature")
+
+[node name="Caption" type="Label" parent="MetersPanel/MetersRow/TemperatureMeter"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.86, 0.86, 1)
+theme_override_font_sizes/font_size = 8
+horizontal_alignment = 1
+text = "TEMP 60F"
 
 [node name="ControlsLabel" type="Label" parent="."]
 unique_name_in_owner = true

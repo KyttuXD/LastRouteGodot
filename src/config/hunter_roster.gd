@@ -26,7 +26,15 @@ const DEFAULT_ID := "dovelle"
 ## two-hunter pool.
 const IMPLEMENTED_IDS := [
 	"dovelle", "quirith", "eirys", "xivvy", "kathy", "ravelle", "mavrine", "umbriel",
+	"wynelle",
 ]
+
+## Never entered into the random draw. These are always present on a floor but
+## inert, woken by their own rule instead of the relay schedule — Nyxie by
+## sustained darkness, Solyth by a sustained heat extreme. They hunt alongside
+## whichever route hunter was drawn, which is why main_3d.gd keeps a
+## collection of hunters rather than one.
+const SPECIAL_IDS := ["nyxie", "solyth"]
 
 
 static func get_identity(id: String) -> Dictionary:
@@ -106,6 +114,33 @@ static func _identities() -> Dictionary:
 			"sight_range": GameConfig.MAVRINE_SIGHT_RANGE,
 			"hearing_scale": GameConfig.MAVRINE_HEARING_SCALE,
 			"model_scene": "res://art/props-3d/characters/mavrine.tscn",
+		},
+		"nyxie": {
+			"display_name": "Nyxie",
+			"base_speed": GameConfig.NYXIE_BASE_SPEED,
+			"chase_speed": GameConfig.NYXIE_CHASE_SPEED,
+			"chase_progression_scale": GameConfig.NYXIE_CHASE_PROGRESSION_SCALE,
+			"sight_range": GameConfig.NYXIE_SIGHT_RANGE,
+			"hearing_scale": GameConfig.NYXIE_HEARING_SCALE,
+			"model_scene": "res://art/props-3d/characters/nyxie.tscn",
+		},
+		"solyth": {
+			"display_name": "Solyth",
+			"base_speed": GameConfig.SOLYTH_BASE_SPEED,
+			"chase_speed": GameConfig.SOLYTH_CHASE_SPEED,
+			"chase_progression_scale": GameConfig.SOLYTH_CHASE_PROGRESSION_SCALE,
+			"sight_range": GameConfig.SOLYTH_SIGHT_RANGE,
+			"hearing_scale": GameConfig.SOLYTH_HEARING_SCALE,
+			"model_scene": "res://art/props-3d/characters/solyth.tscn",
+		},
+		"wynelle": {
+			"display_name": "Wynelle",
+			"base_speed": GameConfig.WYNELLE_BASE_SPEED,
+			"chase_speed": GameConfig.WYNELLE_CHASE_SPEED,
+			"chase_progression_scale": GameConfig.WYNELLE_CHASE_PROGRESSION_SCALE,
+			"sight_range": GameConfig.WYNELLE_SIGHT_RANGE,
+			"hearing_scale": GameConfig.WYNELLE_HEARING_SCALE,
+			"model_scene": "res://art/props-3d/characters/wynelle.tscn",
 		},
 		"umbriel": {
 			"display_name": "Umbriel",

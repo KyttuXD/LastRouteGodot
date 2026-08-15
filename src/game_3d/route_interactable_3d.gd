@@ -15,6 +15,17 @@ enum Kind {
 	BATTERY,
 	SAFE_ZONE,
 	LIFT,
+	HEATER_STATION,
+}
+
+## The facility's single heater station, and Wynelle's counterplay. Three
+## states, mirroring the original's interactionState: FROZEN (useless),
+## UNFROZEN (dematerialises her but doesn't stop the cold building again),
+## POWERED (holds her progress at zero and warms the facility).
+enum HeaterState {
+	FROZEN,
+	UNFROZEN,
+	POWERED,
 }
 
 const MODEL_SCENES := {
@@ -22,18 +33,26 @@ const MODEL_SCENES := {
 	Kind.BATTERY: "res://art/props-3d/interactables/battery.tscn",
 	Kind.SAFE_ZONE: "res://art/props-3d/interactables/safe_zone.tscn",
 	Kind.LIFT: "res://art/props-3d/interactables/lift.tscn",
+	Kind.HEATER_STATION: "res://art/props-3d/interactables/heater_station.tscn",
 }
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
 	Kind.BATTERY: Color(0.95, 0.82, 0.25),
 	Kind.SAFE_ZONE: Color(0.35, 0.95, 0.52),
 	Kind.LIFT: Color(0.76, 0.55, 0.96),
+	Kind.HEATER_STATION: Color(0.98, 0.55, 0.25),
 }
 
 @export var kind: Kind = Kind.RELAY
 @export var prompt_text := "INTERACT"
 
 var completed := false
+## Which generated cell this came from, so activate() can mark that entry
+## collected in the generator's own arrays.
+var source_cell := Vector2i(-1, -1)
+var generator: FacilityGenerator
+## Heater station only.
+var heater_state: HeaterState = HeaterState.FROZEN
 
 var _light: OmniLight3D
 
@@ -70,12 +89,14 @@ func activate(player: PlayerController3D) -> String:
 	match kind:
 		Kind.RELAY:
 			completed = true
+			_mark_collected_in_generator()
 			GameState.relays_collected += 1
 			GameState.score += 100
 			_refresh_visual()
 			return "Signal relay recovered."
 		Kind.BATTERY:
 			completed = true
+			_mark_collected_in_generator()
 			player.restore_lamp(GameConfig.BATTERY_RECHARGE)
 			_refresh_visual()
 			return "Battery recovered: +%d%% lamp." % int(GameConfig.BATTERY_RECHARGE)
@@ -87,8 +108,38 @@ func activate(player: PlayerController3D) -> String:
 				return "The service lift has no route signal."
 			GameState.descend()
 			return "Descending to depth %d..." % GameState.depth
+		Kind.HEATER_STATION:
+			# Two-step: thaw it, then power it. Thawing alone is enough to
+			# dematerialise Wynelle; only powering it holds her off for good.
+			match heater_state:
+				HeaterState.FROZEN:
+					heater_state = HeaterState.UNFROZEN
+					_refresh_visual()
+					return "Heater station thawed. Power it to hold the cold off."
+				HeaterState.UNFROZEN:
+					heater_state = HeaterState.POWERED
+					player.heater_on = true
+					_refresh_visual()
+					return "Heater station powered. The facility is warming."
+				HeaterState.POWERED:
+					heater_state = HeaterState.UNFROZEN
+					player.heater_on = false
+					_refresh_visual()
+					return "Heater station powered down."
 
 	return "Nothing happens."
+
+
+## Keeps the generator's own relay/battery data in step with what the player
+## has actually picked up, so hunter gimmicks that read it see the truth.
+func _mark_collected_in_generator() -> void:
+	if generator == null:
+		return
+	match kind:
+		Kind.RELAY:
+			generator.mark_collected(generator.relays, source_cell)
+		Kind.BATTERY:
+			generator.mark_collected(generator.batteries, source_cell)
 
 
 func reset_for_floor() -> void:

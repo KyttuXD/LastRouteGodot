@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_solyth"]
+radius = 0.22
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_solyth"]
+albedo_color = Color(0.98, 0.42, 0.18, 1)
+emission_enabled = true
+emission = Color(0.98, 0.42, 0.18, 1)
+emission_energy_multiplier = 0.25
+
+[node name="Solyth" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.9, 0)
+mesh = SubResource("CapsuleMesh_solyth")
+surface_material_override/0 = SubResource("StandardMaterial3D_solyth")

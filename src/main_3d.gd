@@ -13,7 +13,16 @@ extends Node
 @onready var hud: HUD = %HUD
 
 var observed_depth := 1
+## Every hunter on the floor. Usually one drawn route hunter, plus any
+## rule-summoned special that has woken (Nyxie on darkness, Solyth on heat) —
+## the original runs those *alongside* the ordinary hunter, not instead of it.
+var hunter_views: Array[HunterView3D] = []
+## The route hunter specifically, kept separate because only she follows the
+## relay activation schedule.
 var hunter_view: HunterView3D
+## Whoever actually grabbed the player, so the escape struggle resolves
+## against the right hunter rather than always the route one.
+var capturing_view: HunterView3D
 var _game_over_timer := 0.0
 
 
@@ -56,12 +65,14 @@ func _process(delta: float) -> void:
 
 
 func _update_gameplay(delta: float) -> void:
-	if hunter_view == null:
-		return
 	var generator := facility_view.generator
-	var activation_relay: int = mini(GameConfig.HUNTER_ACTIVATION_SPACING, generator.relay_count)
-	if not hunter_view.brain.active and GameState.relays_collected >= activation_relay:
-		hunter_view.brain.activate_at(player.grid_position())
+
+	# Only the drawn route hunter follows the relay schedule; the specials
+	# below wake on their own rules instead.
+	if hunter_view and not hunter_view.brain.active:
+		var activation_relay: int = mini(GameConfig.HUNTER_ACTIVATION_SPACING, generator.relay_count)
+		if GameState.relays_collected >= activation_relay:
+			hunter_view.brain.activate_at(player.grid_position())
 
 	var target := {
 		"position": player.grid_position(),
@@ -72,22 +83,47 @@ func _update_gameplay(delta: float) -> void:
 		# Actually moving under sprint, not merely holding the key — the
 		# original gates on `sprinting && travelSpeed > .1` (Eirys).
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
+		# For beam-aim checks (Nyxie's dispel).
+		"facing": player.facing,
+		"lamp_charge": player.lamp_charge,
+		"meters": player.meters,
+		# Wynelle reads the heater station's two distinct states: merely
+		# thawed dematerialises her, powered holds her off entirely.
+		"heater_unfrozen": _heater_state() != RouteInteractable3D.HeaterState.FROZEN,
+		"heater_powered": _heater_state() == RouteInteractable3D.HeaterState.POWERED,
 	}
-	var captured: bool = hunter_view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
-	hunter_view.sync_from_brain()
 
-	if captured:
-		_trigger_capture()
+	for view in hunter_views:
+		var captured: bool = view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
+		view.sync_from_brain()
+		# Wynelle's freeze grace is a second way to lose that isn't a grab:
+		# if it runs out you die where you stand, with no struggle.
+		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
+			capturing_view = view
+			_resolve_capture_outcome()
+			return
+		if captured:
+			_trigger_capture(view)
+			return
 
 
-func _trigger_capture() -> void:
+func _heater_state() -> RouteInteractable3D.HeaterState:
+	var station := facility_view.heater_station
+	return station.heater_state if station else RouteInteractable3D.HeaterState.FROZEN
+
+
+func _trigger_capture(view: HunterView3D) -> void:
 	if GameState.is_capture_immune():
 		return
-	if GameState.escape_on_cooldown():
+	capturing_view = view
+	# Some captures skip the struggle entirely — a cooldown-gated grab, or a
+	# hunter whose gimmick declares the grab inescapable (Nyxie's dead-lamp
+	# wake). Both go straight to the outcome, matching triggerGameOver().
+	if GameState.escape_on_cooldown() or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()):
 		_resolve_capture_outcome()
 		return
 	player.input_frozen = true
-	GameState.begin_escape(hunter_view.brain.hunter_id)
+	GameState.begin_escape(view.brain.hunter_id)
 
 
 func _update_escape_struggle(delta: float) -> void:
@@ -104,7 +140,7 @@ func _update_escape_struggle(delta: float) -> void:
 func _resolve_escape_success() -> void:
 	GameState.resolve_escape_success()
 
-	var hunter_pos: Vector2 = hunter_view.brain.position
+	var hunter_pos: Vector2 = capturing_view.brain.position if capturing_view else player.grid_position()
 	var player_pos := player.grid_position()
 	var away := player_pos - hunter_pos
 	if away.length() < 0.01:
@@ -117,9 +153,10 @@ func _resolve_escape_success() -> void:
 	player.global_position = Vector3(new_pos.x, player.global_position.y, new_pos.y)
 	player.input_frozen = false
 
-	hunter_view.brain.enter_search_from(new_pos, 1.8)
-	hunter_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
-	hunter_view.sync_from_brain()
+	if capturing_view:
+		capturing_view.brain.enter_search_from(new_pos, 1.8)
+		capturing_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+		capturing_view.sync_from_brain()
 
 	hud.show_message("You broke free!")
 
@@ -139,8 +176,9 @@ func _respawn_after_capture() -> void:
 	player.position = facility_view.start_world_position()
 	player.velocity = Vector3.ZERO
 	player.input_frozen = false
-	hunter_view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
-	hunter_view.sync_from_brain()
+	for view in hunter_views:
+		view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
+		view.sync_from_brain()
 	hud.show_message("Caught! Respawned at the start.")
 
 
@@ -166,6 +204,7 @@ func _update_hud() -> void:
 	hud.update_objective(GameState.depth, GameState.relays_collected, GameState.relay_target, GameState.lives_remaining)
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
+	hud.update_meters(player.meters)
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
 		hud.update_escape(GameState.escape_progress, GameState.escape_required, GameState.escape_remaining, GameState.escape_duration)
@@ -185,18 +224,33 @@ func _build_floor() -> void:
 
 
 func _spawn_hunter() -> void:
-	if hunter_view != null:
-		hunter_view.queue_free()
-		hunter_view = null
+	for view in hunter_views:
+		view.queue_free()
+	hunter_views.clear()
+	hunter_view = null
+	capturing_view = null
 
 	var generator := facility_view.generator
 	var from_start := generator.distance_map(generator.start.x, generator.start.y)
 	var spawn_cell := generator.place_hunter_spawn(from_start)
 	var spawn_pos := Vector2(spawn_cell) + Vector2(0.5, 0.5)
+	var seed_text := GameState.level_seed_text()
 
-	var hunter_id := HunterRoster.pick_for_floor(GameState.level_seed_text(), GameState.depth)
-	var brain := HunterBrain.new(spawn_pos, "%s:HUNTER" % GameState.level_seed_text(), hunter_id)
-	hunter_view = HunterView3D.new()
-	hunter_view.brain = brain
-	world.add_child(hunter_view)
-	hunter_view.sync_from_brain()
+	# The drawn route hunter, on the relay activation schedule.
+	hunter_view = _add_hunter(HunterRoster.pick_for_floor(seed_text, GameState.depth), spawn_pos, "%s:HUNTER" % seed_text)
+
+	# Rule-summoned specials are always PRESENT but inert, exactly as in the
+	# original — they wake on their own condition (darkness, heat) rather than
+	# the relay count, and hunt alongside the route hunter rather than
+	# replacing her.
+	for special_id in HunterRoster.SPECIAL_IDS:
+		_add_hunter(special_id, spawn_pos, "%s:%s" % [seed_text, special_id.to_upper()])
+
+
+func _add_hunter(hunter_id: String, spawn_pos: Vector2, seed_text: String) -> HunterView3D:
+	var view := HunterView3D.new()
+	view.brain = HunterBrain.new(spawn_pos, seed_text, hunter_id)
+	world.add_child(view)
+	view.sync_from_brain()
+	hunter_views.append(view)
+	return view

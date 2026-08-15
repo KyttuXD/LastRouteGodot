@@ -605,6 +605,30 @@ static func _make_safe_zones(rooms_subset: Array) -> Array:
 	return zones
 
 
+## Marks a generated relay/battery as collected. The `collected` field has
+## existed on these dictionaries since generation, but nothing wrote to it —
+## so any hunter reading generator.relays/batteries saw a floor where nothing
+## had ever been picked up. Opalie guards collected relays, Haelith hunts
+## uncollected ones, Ysolde steals uncollected batteries and Solyth burns
+## them, so the write side has to exist for those to mean anything.
+## `entries` is the generator array to search; returns true if it found one.
+func mark_collected(entries: Array, cell: Vector2i) -> bool:
+	for entry in entries:
+		if entry["x"] == cell.x and entry["y"] == cell.y:
+			entry["collected"] = true
+			return true
+	return false
+
+
+## Convenience for the two callers that always want "every uncollected one".
+func uncollected(entries: Array) -> Array:
+	var remaining: Array = []
+	for entry in entries:
+		if not entry.get("collected", false):
+			remaining.append(entry)
+	return remaining
+
+
 func get_safe_zone_blocked_cells() -> Dictionary:
 	var blocked := {}
 	for zone in safe_zones:

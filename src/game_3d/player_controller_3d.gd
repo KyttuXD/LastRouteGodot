@@ -29,6 +29,9 @@ const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
 @onready var body_visual: Node3D = $BodyVisual
 
 var flashlight_enabled := true
+## True while the facility's heater station is running — warms the ambient,
+## and is Wynelle's counterplay (see heater_station in route_interactable_3d).
+var heater_on := false
 var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
@@ -41,6 +44,13 @@ var noise := 0.0
 ## Frozen during the capture/escape struggle (main_3d.gd) — movement and
 ## interaction stop, but the scene keeps rendering/ticking around the player.
 var input_frozen := false
+
+## Exposure / noise / temperature, shared with hunter gimmicks that read them
+## (see src/game/player_meters.gd).
+var meters := PlayerMeters.new()
+## Facing on the facility's XZ ground plane, for beam-aim checks (Nyxie's
+## dispel). Derived from body yaw, which both control schemes already set.
+var facing := Vector2(0, 1)
 
 var _yaw := 0.0
 var _pitch := 0.0
@@ -94,6 +104,15 @@ func _physics_process(delta: float) -> void:
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 
+	meters.update(delta, {
+		"flashlight_on": flashlight_enabled,
+		"noise": noise,
+		"crouching": movement_mode == "crouch",
+		"hidden": false,
+		"in_safe_zone": is_in_safe_zone(),
+		"heater_on": heater_on,
+	})
+
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
 	ModelSlot.play_if_available(_animation_player, movement_mode if is_moving else "idle")
@@ -111,8 +130,12 @@ func _physics_process(delta: float) -> void:
 
 	# GameConfig's speed constants are px/s at TILE_SIZE=16px per 2D tile;
 	# the 3D world uses 1 tile = 1 meter (see art/props-3d/README.md), so
-	# converting px/s -> tiles/s gives the equivalent m/s.
-	var speed_mps := movement_speed / GameConfig.TILE_SIZE
+	# converting px/s -> tiles/s gives the equivalent m/s. Freezing slows you.
+	var speed_mps := movement_speed * meters.movement_scale() / GameConfig.TILE_SIZE
+	# Grid-space facing: the facility's (x, y) maps onto XZ, and body yaw is
+	# measured with atan2(x, z), so this is the same direction the beam points.
+	facing = Vector2(sin(rotation.y), cos(rotation.y))
+
 	velocity.x = move_direction.x * speed_mps
 	velocity.z = move_direction.z * speed_mps
 	velocity.y = 0.0
@@ -159,7 +182,7 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	var drain := GameConfig.LAMP_IDLE_DRAIN
 	if is_sprinting:
 		drain += GameConfig.LAMP_SPRINT_DRAIN
-	lamp_charge = maxf(0.0, lamp_charge - drain * delta)
+	lamp_charge = maxf(0.0, lamp_charge - drain * meters.drain_scale() * delta)
 	if lamp_charge <= 0.0:
 		_set_flashlight(false)
 

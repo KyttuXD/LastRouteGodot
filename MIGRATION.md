@@ -56,7 +56,7 @@ Feature-parity with the 2D slice it replaces, rebuilt for 3D:
 - **Themed rooms/props, hiding spots, coins, the heater station** — see "Deferred from milestone 4" below; none of this changed with the 3D move.
 - **A camera-relative HUD nuance:** the interaction/objective HUD text is presentation-agnostic (just strings), but nothing here reads "am I looking at X" for first-person — interaction is still nearest-in-range, same as 2D, not a raycast-from-camera "looking at" check. Worth revisiting once first-person is the primary way people play.
 
-## Hunter roster: 8 of 26 ported (data-driven, playable)
+## Hunter roster: 12 of 26 ported (data-driven, playable)
 
 Milestone 6 is done for two identities, on an architecture built to keep adding more. `src/game/hunter_brain.gd` ports the shared perception/state-machine/movement/capture brain from `hunter-ai.js`. The shared rules ARE **Dovelle**'s behavior — the original's own zero-gimmick baseline (`HUNTER_ABILITIES.dovelle = {}`; her one method, `isBaselineHunter`, is a pure identity check) — so any hunter whose gimmick only changes tuning numbers, not behavior, needs zero changes to `hunter_brain.gd`. Built from three parallel research passes (perception/state-machine, movement/tuning/spawn-placement, sprite-sheet layout) banked earlier in this session — see git history for the full specs if extending this to another hunter.
 
@@ -76,6 +76,26 @@ Milestone 6 is done for two identities, on an architecture built to keep adding 
 Gimmicks now draw from the brain's own seeded RNG rather than a global one, so a replayed run reproduces wire placement and mark cells as well as movement. Three hunters' abilities were deliberately **not** ported because they are structurally inert rather than merely unimplemented: Kathy's `affectedSummon` needs other concurrently-active route hunters (impossible at one hunter per floor in *both* codebases), Ravelle's fake doorway is read only by the original's renderer, and Xivvy's `flight` blocks nothing that walking doesn't already block.
 
 **Presentation-agnostic, like the facility generator.** `hunter_brain.gd` is a `RefCounted` that only knows grid-cell coordinates and calls into `facility_generator.gd` (which gained `find_path()` — an `AStarGrid2D` wrapper, finally wiring up the "generator service plus AStarGrid2D" from the rewrite plan — and `has_line_of_sight()`, a grid-raymarch port of `maze.js`'s `hasLineOfSight`). `src/game_3d/hunter_view_3d.gd` is the only 3D-specific piece: reads `brain.position`/`brain.state` each frame, converts position to world space, and (see "Animation-driving infrastructure" below) drives a named animation clip from state. Porting this to the 2D scene later would mean writing an equally small 2D wrapper, not touching the brain at all.
+
+### Facility pressure meters, and the hunters they unblocked
+
+`src/game/player_meters.gd` ports the original's three facility-pressure meters, all shown on the shared HUD:
+
+- **Exposure** (0-100) — how findable you are right now, eased toward a target from flashlight, gait noise and cover. Hunters can push it directly (Aki's burst).
+- **Noise** (0-100, facility-wide) — accumulated racket that rises with your gait and decays toward quiet, with per-frame contributions banked by props and hunters.
+- **Temperature** (0-100) — your body eases toward a facility ambient that warms on its own, on a *shortening* interval, so a run that never manages it is eventually forced to an extreme. A safe zone pulls hard back to neutral. Freezing slows movement; overheating burns lamp and stamina faster. Per-room climate profiles are **not** ported — the original drives them from a room `region`, and this port's rooms are still geometric-only pending the deferred room-content milestone, so a single facility-wide ambient is the honest equivalent.
+
+Two smaller unlocks landed with them: `activate()` now writes the `collected` flag the generator had always declared but nothing ever set (so hunters reading relays/batteries finally see the truth), and the player's facing is threaded into the target dict for beam-aim checks.
+
+**`main_3d.gd` now owns a collection of hunters rather than one**, because the rule-summoned specials hunt *alongside* the drawn route hunter rather than replacing her. Capture resolves against whichever hunter actually grabbed you, and a gimmick can declare its grab inescapable (Nyxie's dead-lamp wake skips the escape struggle entirely, matching the original calling `triggerGameOver` directly).
+
+That unblocked three more hunters:
+
+- **Nyxie** (special) — sustained darkness wakes her to hunt; a *dead* lamp held 10s is an inescapable capture instead. A live beam aimed at her dispels a timer wake and resets the darkness clock, so keeping the lamp alive is the whole counterplay.
+- **Solyth** (special) — temperature reaching 100 latches her permanently, which also pins temperature to a 90F floor so cooling can never send her away again. The latch lives on the meters rather than the gimmick precisely because it outlives her. While locked in she burns an uncollected battery every 30s.
+- **Wynelle** — drawn normally but starts dormant, waking on cold instead of the relay count. Cold builds a hidden meter; at 100 she materialises directly on the player and opens a 10-second freeze grace. The new **heater station** interactable is her counterplay, with the original's two distinct states preserved: merely *thawed* dematerialises her partway, only *powered* holds her at zero.
+
+A design bug surfaced and was fixed during this: `HunterBrain.update()` returned early for inactive hunters, which meant the very gimmick code that decides when a summon-rule hunter wakes never ran. Gimmicks now declare `runs_while_inactive()`, true only for the three self-summoning hunters, so ordinary gimmicks still stay dormant until the relay schedule activates them.
 
 ### Animation-driving infrastructure (ready for rigged models)
 

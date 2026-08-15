@@ -20,6 +20,8 @@ var generator: FacilityGenerator
 
 var _grid_map: GridMap
 var _interactables: Array = []
+## The floor's single heater station, read by Wynelle's gimmick each frame.
+var heater_station: RouteInteractable3D
 
 
 func _ready() -> void:
@@ -68,15 +70,22 @@ func _spawn_interactables() -> void:
 	for zone in generator.safe_zones:
 		_spawn_interactable(RouteInteractable3D.Kind.SAFE_ZONE, Vector2i(zone["x"], zone["y"]), "REST AT SAFE ZONE")
 	_spawn_interactable(RouteInteractable3D.Kind.LIFT, generator.exit_cell, "USE SERVICE LIFT")
+	# One heater station per floor — Wynelle's counterplay. Placed at the
+	# facility's start so it's findable without hunting for it, matching the
+	# original's "single station, known location" role.
+	heater_station = _spawn_interactable(RouteInteractable3D.Kind.HEATER_STATION, generator.start, "USE HEATER STATION")
 
 
-func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_text: String) -> void:
+func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_text: String) -> RouteInteractable3D:
 	var node := RouteInteractable3D.new()
 	node.position = cell_to_world(cell)
 	node.kind = kind
 	node.prompt_text = prompt_text
+	node.source_cell = cell
+	node.generator = generator
 	add_child(node)
 	_interactables.append(node)
+	return node
 
 
 func _build_mesh_library() -> MeshLibrary:
