@@ -47,7 +47,9 @@ func _ready() -> void:
 
 
 func generate_floor(seed_text: String) -> void:
-	generator = FacilityGenerator.new(seed_text)
+	# Sized by the room, not by the renderer -- see
+	# RoomState.generator_options().
+	generator = FacilityGenerator.new(seed_text, RoomState.generator_options())
 	_paint_grid()
 	_spawn_interactables()
 

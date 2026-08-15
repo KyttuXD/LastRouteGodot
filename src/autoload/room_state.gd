@@ -141,6 +141,42 @@ func seats() -> int:
 	return 1 if mode == Mode.OFFICE else MAX_PLAYERS
 
 
+## What each map scale actually builds.
+##
+## The generator has taken these as options since it was ported -- cols, rows,
+## room and pickup counts -- but nothing passed any, so every route came out
+## the 45x45 default and MAP SCALE was a button that did nothing. Sizes stay
+## inside the generator's own 35..121 clamp; relays scale with the walking
+## distance so a SPRAWLING route is longer rather than merely emptier.
+const SCALE_OPTIONS := {
+	Scale.SMALL: {"cols": 35, "rows": 35, "room_count": 7, "relay_count": 4,
+		"battery_count": 5},
+	Scale.STANDARD: {"cols": 45, "rows": 45, "room_count": 9, "relay_count": 5,
+		"battery_count": 7},
+	Scale.LARGE: {"cols": 61, "rows": 61, "room_count": 12, "relay_count": 6,
+		"battery_count": 9},
+	Scale.SPRAWLING: {"cols": 79, "rows": 79, "room_count": 16, "relay_count": 7,
+		"battery_count": 12},
+	Scale.CAVERNOUS: {"cols": 99, "rows": 99, "room_count": 20, "relay_count": 8,
+		"battery_count": 15},
+	# The web build's ENDLESS keeps growing as a route goes on. The growth
+	# itself is not ported yet, so this is its starting footprint: the largest
+	# the generator will build, which is honest about being big without
+	# pretending it expands.
+	Scale.ENDLESS: {"cols": 121, "rows": 121, "room_count": 26, "relay_count": 10,
+		"battery_count": 20},
+}
+
+
+## The generator options this room's configuration asks for.
+##
+## Read by both facility views, so the 2D and 3D renderers cannot disagree
+## about how big the route is -- and so a joined room builds the host's
+## facility rather than its own.
+func generator_options() -> Dictionary:
+	return (SCALE_OPTIONS.get(map_scale, SCALE_OPTIONS[Scale.STANDARD]) as Dictionary).duplicate()
+
+
 func set_mode(value: Mode) -> void:
 	if mode == value or not mode_available(value):
 		return

@@ -86,6 +86,30 @@ func run(host: Node) -> int:
 	if not lid.visible:
 		_fail("the ceiling did not come back for first person")
 
+	# A collected relay used to stay exactly where it was with its glow off,
+	# which reads as the interaction having failed rather than as a pickup.
+	var relay: RouteInteractable3D = null
+	for node in host.get_tree().get_nodes_in_group("interactable"):
+		if node is RouteInteractable3D \
+				and (node as RouteInteractable3D).kind == RouteInteractable3D.Kind.RELAY:
+			relay = node
+			break
+	if relay == null:
+		_fail("the floor generated no signal relays")
+	else:
+		var before: int = GameState.relays_collected
+		relay.activate(scene.player)
+		if not relay.completed:
+			_fail("activating a relay did not collect it")
+		if GameState.relays_collected != before + 1:
+			_fail("collecting a relay did not count toward the objective")
+		var seen := false
+		for child in relay.get_children():
+			if child is Node3D and (child as Node3D).visible and not child is Light3D:
+				seen = true
+		if seen:
+			_fail("a collected relay is still standing there")
+
 	# The maze is lit almost entirely by the lamp; starting dark reads as a
 	# broken build rather than as atmosphere.
 	if not scene.player.flashlight_enabled:

@@ -73,6 +73,30 @@ func run(host: Node) -> int:
 	_expect(RoomState.start_label() == "ENTER ROUTE",
 		"route staging says '%s'" % RoomState.start_label())
 
+	# MAP SCALE was a button that did nothing: the generator has taken these
+	# options since it was ported, but neither view passed any, so every route
+	# came out the same 45x45 default whatever staging said.
+	var sizes := {}
+	for scale in RoomState.SCALE_LABELS:
+		RoomState.set_map_scale(scale)
+		var options := RoomState.generator_options()
+		var key := "%dx%d" % [options["cols"], options["rows"]]
+		if sizes.has(key):
+			_fail("%s builds the same %s as %s" % [RoomState.SCALE_LABELS[scale],
+				key, sizes[key]])
+		sizes[key] = RoomState.SCALE_LABELS[scale]
+		var built := FacilityGenerator.new("scale-check", options)
+		_expect(built.cols == options["cols"] and built.rows == options["rows"],
+			"%s asked for %s and got %dx%d" % [RoomState.SCALE_LABELS[scale], key,
+				built.cols, built.rows])
+		_expect(built.relays.size() == options["relay_count"],
+			"%s placed %d relays, not %d" % [RoomState.SCALE_LABELS[scale],
+				built.relays.size(), options["relay_count"]])
+		# A route nobody can walk is not a route.
+		_expect(built.floor_cells().size() > 0,
+			"%s generated no floor at all" % RoomState.SCALE_LABELS[scale])
+	RoomState.set_map_scale(RoomState.Scale.STANDARD)
+
 	# Staging has to actually draw, since it is built entirely in code.
 	var lobby: Node = load("res://scenes/room_lobby.tscn").instantiate()
 	host.get_tree().root.add_child(lobby)
@@ -86,5 +110,6 @@ func run(host: Node) -> int:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
 		print("  rules     HIDE & SEEK held back offline, office seats one")
+		print("  scales    %d map scales, each a distinct walkable facility" % sizes.size())
 		print("room OK")
 	return _failures

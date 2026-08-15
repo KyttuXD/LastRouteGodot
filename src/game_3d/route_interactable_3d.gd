@@ -55,14 +55,16 @@ var generator: FacilityGenerator
 var heater_state: HeaterState = HeaterState.FROZEN
 
 var _light: OmniLight3D
+## The model itself, kept so a collected pickup can actually leave.
+var _visual: Node3D
 
 
 func _ready() -> void:
 	add_to_group("interactable")
 
-	var visual := ModelSlot.instantiate(MODEL_SCENES[kind])
-	if visual:
-		add_child(visual)
+	_visual = ModelSlot.instantiate(MODEL_SCENES[kind])
+	if _visual:
+		add_child(_visual)
 
 	_light = OmniLight3D.new()
 	_light.position = Vector3(0, 0.5, 0)
@@ -147,6 +149,26 @@ func reset_for_floor() -> void:
 	_refresh_visual()
 
 
+## Things you PICK UP leave when picked up. Only the light was being hidden, so
+## a recovered relay sat there looking exactly like an uncollected one with the
+## glow off -- which reads as the interaction having failed, not as a pickup.
+##
+## Fixtures are the other case and stay put: a safe zone, the lift and the
+## heater station are part of the building, and the heater in particular has to
+## remain visible because its three states are the whole of Wynelle's
+## counterplay.
+const PICKUPS := [Kind.RELAY, Kind.BATTERY]
+
+
 func _refresh_visual() -> void:
+	var taken := completed and PICKUPS.has(kind)
+	if _visual:
+		_visual.visible = not taken
 	if _light:
 		_light.visible = not completed
+	# Collision goes with it, so a collected relay is not still something the
+	# player bumps into on an empty tile.
+	for child in get_children():
+		if child is CollisionObject3D:
+			(child as CollisionObject3D).process_mode = \
+				Node.PROCESS_MODE_DISABLED if taken else Node.PROCESS_MODE_INHERIT
