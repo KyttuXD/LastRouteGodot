@@ -1,21 +1,11 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="BoxMesh" id="BoxMesh_floor"]
-size = Vector3(1, 0.1, 1)
+[ext_resource type="PackedScene" path="res://art/props-3d/environment/floor_tile.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
-albedo_color = Color(0.09, 0.13, 0.15, 1)
+; Real model, replacing the flat-coloured primitive placeholder.
+; ONE mesh group on purpose: ModelSlot.load_gridmap_item() keeps only the
+; first MeshInstance3D and the first CollisionShape3D it finds, so anything
+; split across groups would be silently dropped from the GridMap.
+[node name="FloorTile" type="Node3D"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
-size = Vector3(1, 0.1, 1)
-
-[node name="FloorTile" type="StaticBody3D"]
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-position = Vector3(0, -0.05, 0)
-mesh = SubResource("BoxMesh_floor")
-surface_material_override/0 = SubResource("StandardMaterial3D_floor")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, -0.05, 0)
-shape = SubResource("BoxShape3D_floor")
+[node name="Model" parent="." instance=ExtResource("1_model")]
