@@ -204,15 +204,14 @@ text = "SEPARATE MODE — TEN VOID SIGNALS, NOT THE HUNTER ROSTER"
 [node name="CreateRoomButton" type="Button" parent="ButtonPanel/ButtonBox"]
 unique_name_in_owner = true
 layout_mode = 2
-tooltip_text = "Multiplayer isn't implemented yet."
-disabled = true
+tooltip_text = "Open a room. Solo until there is a backend to invite anyone through."
 text = "CREATE ROOM"
 
 [node name="CreateRoomCaption" type="Label" parent="ButtonPanel/ButtonBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.8, 0.62, 0.38, 0.9)
 theme_override_font_sizes/font_size = 7
-text = "COMING SOON — NO MULTIPLAYER BACKEND YET"
+text = "SOLO FOR NOW — NO BACKEND TO INVITE THROUGH"
 horizontal_alignment = 1
 autowrap_mode = 2
 
