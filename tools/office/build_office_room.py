@@ -101,6 +101,66 @@ KEY_ROWS = [
 ]
 
 
+# A 7x5 bitmap per key, emitted as boxes. Same reasoning as the PREV/NEXT
+# arrows: at 12 texels per metre a painted legend on a 22 cm key would be under
+# three texels tall, so a readable mark has to be BUILT. Dark and raised
+# against a cap that lights up, which is what makes it read from the seat.
+GLYPH_CELL = 0.017
+GLYPH_RISE = 0.005
+KEY_GLYPHS = {
+    # A door slab with the way it travels.
+    "LeftDoor":  ["#..#...", "#.##...", "####...", "#.##...", "#..#..."],
+    "RightDoor": ["...#..#", "...##.#", "...####", "...##.#", "...#..#"],
+    # A shade over a cone of light.
+    "DeskLight": [".#####.", "..###..", "...#...", ".......", "..###.."],
+    # Louvres.
+    "Vent":      ["#######", ".......", "#######", ".......", "#######"],
+    # A screen on a stand.
+    "Monitor":   ["#######", "#.....#", "#.....#", "#######", "...#..."],
+    # Rising signal bars.
+    "Radio":     ["......#", "....#.#", "..#.#.#", "..#.#.#", "#.#.#.#"],
+    # A bolt.
+    "Breaker":   ["...##..", "..##...", ".####..", "..##...", ".##...."],
+    # An open ring: something that comes back round.
+    "Reboot":    [".#####.", "#.....#", "#......", "#.....#", ".####.."],
+    # A burst.
+    "Flash":     ["...#...", ".#.#.#.", "..###..", ".#.#.#.", "...#..."],
+}
+
+
+def _glyph(room, group, bx, by, bz, rows):
+    """One key's mark, as boxes.
+
+    Horizontally adjacent cells merge into a single run rather than becoming a
+    cube each -- nine glyphs at one box per cell would roughly halve again the
+    prop budget for no visible difference."""
+    height = len(rows)
+    width = max(len(r) for r in rows)
+    x0 = bx - width * GLYPH_CELL / 2
+    y0 = by + height * GLYPH_CELL / 2
+    z0 = bz + KEY_RISE / 2
+    parts = []
+    for r, row in enumerate(rows):
+        c = 0
+        while c < len(row):
+            if row[c] != "#":
+                c += 1
+                continue
+            run = c
+            while run < len(row) and row[run] == "#":
+                run += 1
+            parts.append(room.box(
+                f"{group}{r}_{c}",
+                x0 + c * GLYPH_CELL, y0 - (r + 1) * GLYPH_CELL, z0 - 0.001,
+                x0 + run * GLYPH_CELL, y0 - r * GLYPH_CELL, z0 + GLYPH_RISE,
+                "recess", None, 0))
+            c = run
+    # Its own group, so it keeps the dark atlas material while the key beneath
+    # takes the lit override -- and so Godot can reparent it and have it sink
+    # along when the key goes down.
+    room.add(group, parts, origin=(bx, by, bz), rotation=(-STRIP_TILT, 0, 0))
+
+
 def control_strip(room):
     """A tilted board of nine keys, each its own group so Godot can light it,
     press it in, and resolve a ray against it."""
@@ -134,6 +194,8 @@ def control_strip(room):
                          bx + KEY_W / 2, by + KEY_H / 2, bz + KEY_RISE / 2,
                          "emissive", None, 4)],
                 origin=(bx, by, bz), rotation=(-STRIP_TILT, 0, 0))
+            if key in KEY_GLYPHS:
+                _glyph(room, "Ctrl%sGlyph" % key, bx, by, bz, KEY_GLYPHS[key])
     return placed
 
 

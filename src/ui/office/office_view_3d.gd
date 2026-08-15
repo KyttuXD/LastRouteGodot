@@ -305,6 +305,13 @@ func _build_console() -> void:
 			continue
 		_keys[name] = node
 		_key_flash[name] = 0.0
+		# The mark is a separate node so it keeps the dark atlas material while
+		# the key beneath lights up -- that contrast is what makes it readable.
+		# Reparenting it to the key is what stops it hanging in the air over a
+		# key that has just gone down.
+		var glyph := _find(_room, "Ctrl%sGlyph" % name) as Node3D
+		if glyph != null:
+			glyph.reparent(node, true)
 		var key_material := StandardMaterial3D.new()
 		key_material.emission_enabled = true
 		_key_materials[name] = key_material

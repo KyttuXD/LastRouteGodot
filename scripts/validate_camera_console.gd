@@ -206,6 +206,10 @@ func _check_reach(view: OfficeView3D) -> int:
 			seen[hint] = name
 		if not view.KEY_FAMILY.has(name):
 			failures += _fail("the %s key has no colour family" % name)
+		# A raised mark, attached to the key so it travels with it.
+		var glyph := view._find(view._keys[name], "Ctrl%sGlyph" % name)
+		if glyph == null:
+			failures += _fail("the %s key carries no glyph" % name)
 	view._hovered = ""
 	print("  keys      %d desk controls, all reachable and self-describing"
 		% view._keys.size())

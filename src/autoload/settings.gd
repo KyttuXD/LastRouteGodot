@@ -15,7 +15,10 @@ const DEFAULT_VOLUME_PERCENT := 100.0
 ## read this rather than each carrying a constant, so one slider moves the maze
 ## and the office together -- they were 0.0035 and 0.0022, which felt like two
 ## different games.
-const DEFAULT_MOUSE_SENSITIVITY := 0.0030
+## 0.0030 read as sluggish in play; 0.0050 is what felt right at the desk.
+## The slider still spans 0.0005..0.0120, so this only moves where a fresh
+## install starts.
+const DEFAULT_MOUSE_SENSITIVITY := 0.0050
 const MIN_MOUSE_SENSITIVITY := 0.0005
 const MAX_MOUSE_SENSITIVITY := 0.0120
 const MIN_VOLUME_DB := -80.0
