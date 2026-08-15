@@ -22,6 +22,32 @@ const ITEM_FLOOR := 0
 const ITEM_WALL := 1
 const ITEM_CEILING := 2
 
+## Per-region floor tints, keyed by the same region names CustomMapParser's
+## paint palette uses. Real, bespoke floor art per theme (a mansion's own
+## herringbone, a beach's own sand) is a much bigger asset pass than this
+## session has scope for -- Blockbench isn't connected to author or verify
+## one -- so this is a first pass that at least makes a painted region READ
+## as a distinct place while a real texture is still future work: the same
+## floor material, tinted. `albedo_color` multiplies the existing texture
+## rather than replacing it, so the tile pattern underneath still shows
+## through, just recoloured.
+##
+## "frozen tideline" reads as one region here, not two: it is a beach with
+## the tide iced over, not a separate room type, so it gets beach's own
+## entry rather than inventing a parallel one nothing places yet.
+const REGION_FLOOR_TINTS := {
+	"mansion": Color(0.55, 0.42, 0.30),
+	"beach": Color(0.68, 0.82, 0.90),
+	"office": Color(0.55, 0.62, 0.72),
+	"maintenance": Color(0.80, 0.62, 0.35),
+	"arcade": Color(0.85, 0.55, 0.85),
+	"circus": Color(0.95, 0.55, 0.65),
+	"nether": Color(0.70, 0.30, 0.30),
+	"garden": Color(0.55, 0.80, 0.55),
+}
+## region name -> GridMap item id, filled in by _build_mesh_library().
+var _region_floor_items := {}
+
 var generator: FacilityGenerator
 
 var _grid_map: GridMap
@@ -56,6 +82,22 @@ func generate_floor(seed_text: String) -> void:
 	_hang_ceiling_lights(seed_text)
 
 
+## Same as generate_floor(), from a hand-painted PNG instead of procedural
+## carving. Returns "" on success or an error to show the admin who asked for
+## this floor, matching CustomMapParser.parse()'s own {"ok", "error"} shape.
+func generate_floor_from_custom_map(image: Image, seed_text: String) -> String:
+	var parsed := CustomMapParser.parse(image)
+	if not parsed.get("ok", false):
+		return String(parsed.get("error", "custom map failed to parse"))
+	generator = FacilityGenerator.new(seed_text, RoomState.generator_options(), parsed)
+	_paint_grid()
+	_spawn_interactables()
+	_hang_ceiling_lights(seed_text)
+	for warning in parsed.get("warnings", []):
+		push_warning("custom map: %s" % warning)
+	return ""
+
+
 ## World-space size of the facility footprint on the XZ ground plane.
 func facility_extent() -> Vector3:
 	return Vector3(generator.cols, 0.0, generator.rows) * CELL_SIZE
@@ -72,11 +114,22 @@ func start_world_position() -> Vector3:
 func _paint_grid() -> void:
 	_grid_map.clear()
 	_ceiling_map.clear()
+	# Procedural rooms carry no "region" -- only a custom map's flood-filled
+	# ones do (see CustomMapParser) -- so this is a no-op lookup, always
+	# falling through to the ordinary floor, for every floor that isn't one.
+	var has_regions := not _region_floor_items.is_empty() and generator.rooms.any(
+		func(r): return not String(r.get("region", "")).is_empty())
 	for y in generator.rows:
 		for x in generator.cols:
 			var open: bool = generator.grid[y][x] == 0
+			var floor_item := ITEM_FLOOR
+			if open and has_regions:
+				var room := generator.room_at(x + 0.5, y + 0.5)
+				var region := String(room.get("region", ""))
+				if _region_floor_items.has(region):
+					floor_item = _region_floor_items[region]
 			_grid_map.set_cell_item(Vector3i(x, 0, y),
-				ITEM_FLOOR if open else ITEM_WALL)
+				floor_item if open else ITEM_WALL)
 			# The maze had no lid at all, so corridors opened onto the void and
 			# lost every bounce of light. Only open cells need one -- a wall
 			# already fills its cell to the ceiling. A GridMap cell holds one
@@ -348,6 +401,17 @@ func _build_mesh_library() -> MeshLibrary:
 	_add_box(library, ITEM_CEILING, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
 		Vector3(0.0, WALL_HEIGHT - CELL_SIZE - SLAB * 0.5, 0.0),
 		ceiling_material, false)
+
+	_region_floor_items.clear()
+	var next_id := ITEM_CEILING + 1
+	for region in REGION_FLOOR_TINTS:
+		var tinted: Material = floor_material.duplicate() if floor_material else null
+		if tinted is StandardMaterial3D:
+			(tinted as StandardMaterial3D).albedo_color = REGION_FLOOR_TINTS[region]
+		_add_box(library, next_id, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
+			Vector3(0.0, -SLAB * 0.5, 0.0), tinted, false)
+		_region_floor_items[region] = next_id
+		next_id += 1
 	return library
 
 

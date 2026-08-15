@@ -18,29 +18,31 @@ overwrite it — the skin PNGs are still the actual source of truth — so treat
 hand edit here as a preview of a change to make upstream (the skin, or the
 converter), not a permanent one.
 
-## Two pipelines, on purpose
+## One pipeline now
 
-| | Hunters | Player mannequin |
-|---|---|---|
-| Entry point | `build_hunters.py` | `build_mannequin.py` |
-| Rig | Hytale "Player" template, ~21 parts | six Minecraft boxes |
-| Source | `~/Documents/Skins Yttu/<L>yttu.png` | `mannequin_skin.png` |
-| Needs Pillow | yes | no |
-| Needs the Hytale asset library | yes | no |
+The mannequin used to go through a separate from-scratch six-box exporter
+(`mc_skin.py`), because the first attempt through the real Hytale rig came out
+with its head, arms and legs standing apart with daylight between them. The
+actual cause was a corrupted bone name in the shared converter at the time
+(`Fofrontm` for `Forearm`, from a botched recovery after the toolchain was
+lost and rebuilt), not a structural mismatch between a 64×64 skin's six UV
+islands and the rig's ~21 parts. With that fixed, the mannequin goes through
+the exact same pipeline the hunters do — one converter, one rig, one set of
+rules, checked by the same cohesion pass (`scripts/validate_body.gd`) either
+way. `mc_skin.py`/`mannequin_anim.py` are still here as a smaller,
+dependency-free fallback (no Pillow, no Hytale asset library) if this rig ever
+regresses again, but nothing calls them by default.
 
-They are separate because the mannequin tried to be a hunter and it did not
-work. A 64×64 Minecraft skin has exactly **six** UV islands; the Hytale rig has
-twenty-one parts. Run one through the other and fifteen parts sample whatever
-happens to lie under their coordinates — which is why the first mannequin
-rendered as a uniform tan figure with its limbs scattered in the air. The
-hunters get away with it because `mc_to_hytale.py` does real work to map a skin
-onto that rig: repacking regions, building overlay shells, adding hair planes.
-The mannequin does not need any of that. It needs to look like a person.
+The one real difference left is **scale**: the mannequin's `.glb.import`
+carries `nodes/root_scale=0.9`, every hunter's carries `1.1` — so a hunter
+reads as visibly larger than the player without either model's own geometry
+changing. Import-time, not exporter code, so it survives a rebuild without
+needing to be re-applied.
 
 ## Building
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install Pillow   # hunters only
+python3 -m venv .venv && .venv/bin/pip install Pillow
 ```
 
 Hunters — every roster letter, or a few:
@@ -49,13 +51,14 @@ Hunters — every roster letter, or a few:
 .venv/bin/python tools/characters/build_hunters.py --only D,K,W
 ```
 
-The player mannequin — stdlib only, no venv:
+The player mannequin:
 
 ```bash
-python3 tools/characters/build_mannequin.py tools/characters/mannequin_skin.png art/props-3d/characters/mannequin.bbmodel art/props-3d/characters/mannequin.glb
+.venv/bin/python tools/characters/build_mannequin.py tools/characters/mannequin_skin.png art/props-3d/characters/mannequin.bbmodel art/props-3d/characters/mannequin.glb
 ```
 
-Then re-import so Godot picks the new mesh up, and check it:
+Then re-import so Godot picks the new mesh up (this is also where a fresh
+`.glb.import` gets `root_scale=1.0` again — reapply it, see above), and check:
 
 ```bash
 godot4 --headless --path . --import
@@ -79,7 +82,11 @@ godot4 --headless --path . res://scenes/validate.tscn -- body
   `build_hunters.py` is the wrapper that also attaches clips and exports glTF;
   the per-hunter scripts are still useful when iterating on one character.
 
-**Mannequin only**
+- `build_mannequin.py` — the player wrapper, same shape as `build_hunters.py`
+  minus the roster loop: one skin, one model, skin-tone normalisation skipped
+  on purpose (it would drag a wooden mannequin toward the roster's flesh tone).
+
+**Fallback, unused by default**
 
 - `mc_skin.py` — a Minecraft skin to a six-box Blockbench model, stdlib only
   (it decodes PNG with `zlib` rather than pulling in Pillow). Vanilla

@@ -24,15 +24,22 @@ var _open := false
 ## Ordered [{"label": String, "action": Callable}] and a Callable returning the
 ## status text, both handed in by the mode that built this.
 var _actions: Array = []
+## Ordered [{"label": String, "placeholder": String, "on_submit": Callable(String)}]
+## -- a LineEdit per entry, for the rare admin action that needs a value typed
+## in (a URL, say) rather than just a press. Enter submits; the field is not
+## cleared automatically, since re-submitting the same value (reload the same
+## map) is a real thing to want.
+var _text_fields: Array = []
 var _status: Callable = Callable()
 
 
-static func attach(host: Node, status: Callable, actions: Array) -> AdminMenu:
+static func attach(host: Node, status: Callable, actions: Array, text_fields: Array = []) -> AdminMenu:
 	if not Build.tools_enabled():
 		return null
 	var menu := AdminMenu.new()
 	menu._status = status
 	menu._actions = actions
+	menu._text_fields = text_fields
 	host.add_child(menu)
 	return menu
 
@@ -84,6 +91,23 @@ func _build() -> void:
 			action.call()
 			_refresh())
 		column.add_child(button)
+
+	for entry in _text_fields:
+		var field_label := Label.new()
+		field_label.text = String(entry["label"])
+		field_label.add_theme_color_override("font_color", Palette.MUTED)
+		field_label.add_theme_font_size_override("font_size", 6)
+		column.add_child(field_label)
+
+		var field := LineEdit.new()
+		field.placeholder_text = String(entry.get("placeholder", ""))
+		field.add_theme_font_size_override("font_size", 7)
+		field.custom_minimum_size = Vector2(0, 15)
+		var on_submit: Callable = entry["on_submit"]
+		field.text_submitted.connect(func(value: String) -> void:
+			on_submit.call(value)
+			_refresh())
+		column.add_child(field)
 
 	var hint := Label.new()
 	hint.text = "0 CLOSES"

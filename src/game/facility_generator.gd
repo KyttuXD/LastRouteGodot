@@ -63,10 +63,15 @@ var random: SeededRandom
 var _astar: AStarGrid2D
 
 
-func _init(p_seed_text: String, options: Dictionary = {}) -> void:
+## `custom_layout`, when given, skips procedural carving entirely and loads a
+## pre-parsed grid/rooms/start/exit instead (see CustomMapParser) — the same
+## shape `_init` builds internally, just handed in rather than carved.
+## Objective placement (relays/batteries/safe zones/service lift) still runs
+## either way: those algorithms only ever read `self.grid`/`self.rooms`, so a
+## hand-painted floor gets the same seeded, deterministic placement a
+## procedural one does.
+func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Dictionary = {}) -> void:
 	seed_text = p_seed_text
-	cols = clampi(options.get("cols", GameConfig.FACILITY_COLS), MIN_ROUTE_SIZE, MAX_ROUTE_SIZE)
-	rows = clampi(options.get("rows", GameConfig.FACILITY_ROWS), MIN_ROUTE_SIZE, MAX_ROUTE_SIZE)
 	relay_count = maxi(1, options.get("relay_count", GameConfig.FACILITY_RELAY_COUNT))
 	battery_count = maxi(1, options.get("battery_count", GameConfig.FACILITY_BATTERY_COUNT))
 	room_count = maxi(5, options.get("room_count", GameConfig.FACILITY_ROOM_COUNT))
@@ -74,16 +79,33 @@ func _init(p_seed_text: String, options: Dictionary = {}) -> void:
 	safe_zone_at_spawn = options.get("safe_zone_at_spawn", GameConfig.FACILITY_SAFE_ZONE_AT_SPAWN)
 	random = SeededRandom.new(seed_text)
 
-	grid = []
-	for _y in rows:
-		var row_data: Array = []
-		row_data.resize(cols)
-		row_data.fill(1)
-		grid.append(row_data)
-
-	start = Vector2i(cols / 2, rows / 2)
-	exit_cell = start
-	generate()
+	if custom_layout.is_empty():
+		cols = clampi(options.get("cols", GameConfig.FACILITY_COLS), MIN_ROUTE_SIZE, MAX_ROUTE_SIZE)
+		rows = clampi(options.get("rows", GameConfig.FACILITY_ROWS), MIN_ROUTE_SIZE, MAX_ROUTE_SIZE)
+		grid = []
+		for _y in rows:
+			var row_data: Array = []
+			row_data.resize(cols)
+			row_data.fill(1)
+			grid.append(row_data)
+		start = Vector2i(cols / 2, rows / 2)
+		exit_cell = start
+		generate()
+	else:
+		cols = custom_layout["cols"]
+		rows = custom_layout["rows"]
+		grid = custom_layout["grid"]
+		rooms = custom_layout["rooms"]
+		start = custom_layout["start"]
+		var from_start := distance_map(start.x, start.y)
+		var custom_exit: Vector2i = custom_layout.get("exit_cell", Vector2i(-1, -1))
+		# A painted exit is used as-is; an unpainted one falls back to the same
+		# auto-pick a procedural floor gets rather than leaving the floor with
+		# no way down -- see CustomMapParser's note on why.
+		exit_cell = custom_exit if custom_exit.x >= 0 else pick_service_lift(from_start)
+		place_safe_zones(from_start)
+		place_relays(from_start)
+		place_batteries(from_start)
 
 
 func generate() -> void:

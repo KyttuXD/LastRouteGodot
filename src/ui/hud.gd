@@ -14,6 +14,25 @@ const COLOR_METER_STAMINA_NORMAL := Color(0.561, 0.816, 0.878) # #8fd0e0
 
 const MESSAGE_DURATION := 2.8
 
+var _static_overlay: StaticOverlay
+
+
+func _ready() -> void:
+	_static_overlay = StaticOverlay.new()
+	# Above every meter and label this scene already owns, below nothing --
+	# a screen effect that a HUD element could still peek through would not
+	# read as covering the player's view.
+	add_child(_static_overlay)
+	_static_overlay.z_index = 4096
+
+
+## TV static over the whole view for `duration` seconds. Generic infrastructure
+## for a hunter gimmick to reach for, the same way PlayerController3D's
+## force_flashlight_flicker is -- nothing here knows or cares which hunter
+## asked for it.
+func trigger_static(duration: float, intensity: float = 0.75) -> void:
+	_static_overlay.trigger(duration, intensity)
+
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
 @onready var lives_label: Label = %LivesLabel

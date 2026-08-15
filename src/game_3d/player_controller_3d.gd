@@ -117,6 +117,41 @@ func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 	return "Out of hiding."
 
 
+## Forces the flashlight to strobe on/off at random short intervals for
+## `duration` seconds, then restores whatever it was actually set to --
+## generic infrastructure for a hunter gimmick to reach for (a signal jam, a
+## "she's close" tell), the same way interaction_veto/hiding_trap_resolver
+## are. Overrides the beam regardless of the player's own F-key state while
+## it runs; a forced effect the player could shrug off by holding F down
+## would not read as forced.
+var _flicker_remaining := 0.0
+var _flicker_next_toggle := 0.0
+var _flicker_min_period := 0.08
+var _flicker_max_period := 0.35
+
+
+## The other half of the same idea, for an effect that isn't the flashlight --
+## TV static, currently. Set by the scene (HUD.trigger_static), called the
+## same way: `player.trigger_static_effect.call(duration)`. A Callable rather
+## than a direct HUD reference so a gimmick reaching for it needs only the
+## player, matching interaction_veto/hiding_trap_resolver.
+var trigger_static_effect: Callable
+
+
+func force_flashlight_flicker(duration: float, min_period: float = 0.08, max_period: float = 0.35) -> void:
+	_flicker_remaining = maxf(_flicker_remaining, duration)
+	_flicker_min_period = min_period
+	_flicker_max_period = max_period
+	_flicker_next_toggle = 0.0
+
+
+## True while a hunter is holding the beam hostage -- so the player's own [F]
+## does not fight it or leave the light in a state force_flashlight_flicker
+## did not intend.
+func flashlight_seized() -> bool:
+	return _flicker_remaining > 0.0
+
+
 func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
@@ -213,7 +248,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
-	if Input.is_action_just_pressed("flashlight"):
+	_update_flashlight_flicker(delta)
+	if Input.is_action_just_pressed("flashlight") and not flashlight_seized():
 		_set_flashlight(not flashlight_enabled)
 
 	if Input.is_action_just_pressed("interact"):
@@ -259,6 +295,21 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	lamp_charge = maxf(0.0, lamp_charge - drain * meters.drain_scale() * delta)
 	if lamp_charge <= 0.0:
 		_set_flashlight(false)
+
+
+func _update_flashlight_flicker(delta: float) -> void:
+	if _flicker_remaining <= 0.0:
+		return
+	_flicker_remaining -= delta
+	_flicker_next_toggle -= delta
+	if _flicker_remaining <= 0.0:
+		# Restore the real state rather than leaving the beam wherever the
+		# last random toggle left it.
+		flashlight.visible = flashlight_enabled
+		return
+	if _flicker_next_toggle <= 0.0:
+		flashlight.visible = not flashlight.visible
+		_flicker_next_toggle = randf_range(_flicker_min_period, _flicker_max_period)
 
 
 func _set_flashlight(enabled: bool) -> void:

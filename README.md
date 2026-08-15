@@ -63,7 +63,8 @@ Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, bre
 - **2D (`scenes/main.tscn`, legacy):** the original 480×270 pixel-perfect `TileMapLayer` port. Left in the tree as reference; not maintained and not reachable from the menu.
 - shared across modes: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`).
 - **Office Mode** (`scenes/office_3d.tscn`, chosen as a mode in the room lobby) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against a camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. You walk the office and work it by clicking physical desk controls — nine keys with engraved glyphs and hover labels, plus a camera console with PREV/NEXT caps — rather than by pressing keybinds. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
-- **an admin overlay** on the **0** key (`src/ui/admin_menu.gd`) for granting relays, refilling the lamp, rebuilding the floor and descending — gated behind `src/config/build.gd`'s `tools_enabled()`, so a release build contains no way to open it.
+- **an admin overlay** on the **0** key (`src/ui/admin_menu.gd`) for granting relays, refilling the lamp, rebuilding the floor, descending, and loading a hand-painted custom map from a raw PNG URL — gated behind `src/config/build.gd`'s `tools_enabled()`, so a release build contains no way to open it.
+- **custom maps** (`src/game/custom_map_parser.gd`) — a colour-coded PNG stands in for procedural generation, ported from the original's own developer format: black wall, white floor, one green start pixel, an optional red exit, and region colours (office, mansion, beach, and more) flood-filled into rooms. Fed into the same `FacilityGenerator` a procedural floor uses, so relay/battery/safe-zone placement is the same generic, seeded algorithm either way. Loaded by URL through the admin overlay, not hardcoded to a local path. Prop and dialog-trigger authoring from the original are not ported — this port has no prop or dialog system yet for them to place anything into.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -92,7 +93,7 @@ The headless suites boot the real project — autoloads and all — and drive th
 godot4 --headless --path . res://scenes/validate.tscn
 ```
 
-Name suites after `--` to run a subset (`room`, `player`, `pause`, `maze`, `admin`, `layout`, `camera_console`, `sync`):
+Name suites after `--` to run a subset (`room`, `player`, `body`, `pause`, `maze`, `admin`, `layout`, `camera_console`, `sync`, `roster`, `hunters`, `office_monitor`, `custom_map`, `player_effects`):
 
 ```sh
 godot4 --headless --path . res://scenes/validate.tscn -- sync layout

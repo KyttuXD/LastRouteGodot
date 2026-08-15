@@ -21,7 +21,13 @@ extends Node
 signal changed
 
 enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
-enum Scale { SMALL, STANDARD, LARGE, SPRAWLING, CAVERNOUS }
+## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
+## steps that only differed by how big, with nothing else changing between
+## them, was a choice that cost more attention at the lobby than it earned.
+## Not named LARGE: that name was already taken by the tier below it, and
+## renaming an existing tier just to free the word felt like a bigger change
+## than "merge the two biggest" asked for.
+enum Scale { SMALL, STANDARD, LARGE, IMMENSE }
 enum Difficulty { RELAXED, STANDARD, NIGHTMARE }
 
 ## The web build calls a slot a "signal" and seats sixteen of them.
@@ -37,7 +43,7 @@ const MODE_LABELS := {
 }
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
-	Scale.SPRAWLING: "SPRAWLING", Scale.CAVERNOUS: "CAVERNOUS",
+	Scale.IMMENSE: "IMMENSE",
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
@@ -308,9 +314,11 @@ const SCALE_OPTIONS := {
 		"battery_count": 7},
 	Scale.LARGE: {"cols": 61, "rows": 61, "room_count": 12, "relay_count": 6,
 		"battery_count": 9},
-	Scale.SPRAWLING: {"cols": 79, "rows": 79, "room_count": 16, "relay_count": 7,
-		"battery_count": 12},
-	Scale.CAVERNOUS: {"cols": 99, "rows": 99, "room_count": 20, "relay_count": 8,
+	# The old CAVERNOUS numbers -- the bigger of the two merged tiers, kept
+	# rather than split the difference, so IMMENSE still means the biggest
+	# route this port offers rather than a step down from what SPRAWLING used
+	# to be on its own.
+	Scale.IMMENSE: {"cols": 99, "rows": 99, "room_count": 20, "relay_count": 8,
 		"battery_count": 15},
 }
 

@@ -27,6 +27,12 @@ var hunter_view: HunterView3D
 var capturing_view: HunterView3D
 var _game_over_timer := 0.0
 var _remotes: RemotePlayers
+var _custom_map_request: HTTPRequest
+## True while a fetch is in flight, so a second admin submission cannot start
+## one on top of it. Tracked here rather than read off HTTPRequest itself --
+## simpler than trusting an internal client-status API to mean what it sounds
+## like it means.
+var _custom_map_fetching := false
 ## Rebuilt each frame on the host and sent as-is; empty on a client, which
 ## never fills it because it never runs a brain.
 var _hunter_report: Array = []
@@ -44,6 +50,7 @@ func _ready() -> void:
 	player.interaction_message.connect(_on_interaction_message)
 	player.interaction_veto = _guardian_blocking
 	player.hiding_trap_resolver = _ceryth_trap_check
+	player.trigger_static_effect = hud.trigger_static
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -351,6 +358,10 @@ func _build_admin() -> void:
 				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
 			{"label": "REBUILD FLOOR", "action": _build_floor},
 			{"label": "DESCEND", "action": func() -> void: GameState.descend()},
+		],
+		[
+			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
+				"on_submit": _load_custom_map},
 		])
 
 
@@ -437,11 +448,61 @@ func _on_interaction_message(message: String) -> void:
 
 func _build_floor() -> void:
 	facility_view.generate_floor(GameState.level_seed_text())
+	_after_floor_built()
+
+
+## The end of a floor build every path shares: sync the relay target to
+## whatever actually got placed, put the player on the real start (not
+## wherever they stood on the last floor), and give the hunters a fresh spawn.
+func _after_floor_built() -> void:
 	GameState.relay_target = facility_view.generator.relay_count
 	player.position = facility_view.start_world_position()
 	player.velocity = Vector3.ZERO
 	player.input_frozen = false
 	_spawn_hunter()
+
+
+## Admin-only: fetches a raw PNG by URL and rebuilds the current floor from it
+## via CustomMapParser, instead of the next depth's procedural one. Async --
+## HTTPRequest is signal-driven, so this kicks the fetch off and the actual
+## rebuild happens in _on_custom_map_response() once it lands.
+func _load_custom_map(url: String) -> void:
+	var trimmed := url.strip_edges()
+	if trimmed.is_empty():
+		return
+	if _custom_map_fetching:
+		hud.show_message("CUSTOM MAP // ALREADY FETCHING ONE")
+		return
+	if _custom_map_request == null:
+		_custom_map_request = HTTPRequest.new()
+		add_child(_custom_map_request)
+		_custom_map_request.request_completed.connect(_on_custom_map_response)
+	var error := _custom_map_request.request(trimmed)
+	if error != OK:
+		hud.show_message("CUSTOM MAP // COULD NOT START REQUEST (%d)" % error)
+		return
+	_custom_map_fetching = true
+	hud.show_message("CUSTOM MAP // FETCHING...")
+
+
+func _on_custom_map_response(result: int, code: int, _headers: PackedStringArray,
+		body: PackedByteArray) -> void:
+	_custom_map_fetching = false
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		hud.show_message("CUSTOM MAP // FETCH FAILED (result %d, HTTP %d)" % [result, code])
+		return
+	var image := Image.new()
+	var decode_error := image.load_png_from_buffer(body)
+	if decode_error != OK:
+		hud.show_message("CUSTOM MAP // NOT A READABLE PNG")
+		return
+	var seed_text := "%s:CUSTOM" % GameState.level_seed_text()
+	var parse_error := facility_view.generate_floor_from_custom_map(image, seed_text)
+	if not parse_error.is_empty():
+		hud.show_message("CUSTOM MAP // %s" % parse_error.to_upper())
+		return
+	_after_floor_built()
+	hud.show_message("CUSTOM MAP LOADED // %dx%d" % [facility_view.generator.cols, facility_view.generator.rows])
 
 
 func _spawn_hunter() -> void:
