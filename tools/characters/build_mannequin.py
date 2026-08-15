@@ -1,44 +1,45 @@
 """Builds the shared player mannequin from a Minecraft skin.
 
-Everyone is the same figure: this is the body every player wears, not a
-character, so it goes through the hunter pipeline with the per-character extras
-switched OFF -- no skirt, no ears, no glyphs -- and WITHOUT skin-tone
-normalisation, which exists to pull a roster face onto the shared palette and
-would drag a wooden mannequin toward flesh.
+Everyone wears the same figure: this is a body, not a character, so it is one
+model rather than one per player.
+
+    python3 tools/characters/build_mannequin.py \
+        tools/characters/mannequin_skin.png \
+        art/props-3d/characters/mannequin.bbmodel \
+        art/props-3d/characters/mannequin.glb
+
+Everything it needs is in this repository. An earlier version of this script
+imported its converter from a scratch directory, which was later deleted --
+taking the only way to rebuild any of the character models with it. Nothing
+here reaches outside `tools/`.
 """
-import sys, os, glob, json
-sys.path.insert(0, "/tmp/claude-1000/-home-kyttu-Documents-blockbench-test/1ca1681a-887e-4993-bce5-2141bc9d5618/scratchpad")
-from mc_to_hytale import convert
-from hytale_anim import attach_animations
-from bbmodel_to_glb import convert as to_glb
+import json
+import os
+import sys
 
-HYTALE = "/home/kyttu/Documents/HytaleAssets/Assets/Common"
-# Godot asks for these by name and AnimationPlayer.has_animation is
-# case-sensitive, so the Hytale clip names are renamed on the way in.
-CANONICAL = {"Idle": "idle", "Walk": "walk", "Run": "chase",
-             "Sprint": "sprint", "Crouch": "crouch"}
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, os.pardir, "office"))
 
-skin, out_bb, out_glb = sys.argv[1], sys.argv[2], sys.argv[3]
-result = convert(skin, out_bb, extra_fn=None, normalize_skin=False)
+import mc_skin                                    # noqa: E402
+import mannequin_anim                             # noqa: E402
+from bbmodel_to_glb import convert as to_glb      # noqa: E402
 
-pairs = []
-for name in CANONICAL:
-    hits = glob.glob("%s/Characters/Animations/**/%s.blockyanim" % (HYTALE, name),
-                     recursive=True)
-    if hits:
-        pairs.append((name, hits[0]))
-model = json.load(open(out_bb))
-by_path = {p: n for n, p in pairs}
-attached, _skipped = attach_animations(model, [p for _n, p in pairs],
-                                       rename=lambda n, p: by_path.get(p, n))
-for anim in model.get("animations", []):
-    anim["name"] = CANONICAL.get(anim["name"], anim["name"])
-json.dump(model, open(out_bb, "w"))
 
-# collision=False: see above -- the player's own CollisionShape3D is the
-# only collider a character should have.
-info = to_glb(out_bb, out_glb, collision=False)
-print("  elements %d  animations %d  ->  %d meshes, %d tris, %d anims"
-      % (result["elements"], len(attached), info["meshes"], info["tris"],
-         info["animations"]))
-print("  clips:", ", ".join(sorted(a["name"] for a in model.get("animations", []))))
+def main(skin, out_bb, out_glb):
+    model = mc_skin.build(skin, name=os.path.splitext(os.path.basename(out_bb))[0])
+    clips = mannequin_anim.attach(model)
+    json.dump(model, open(out_bb, "w"))
+
+    # collision=False: a character's only collider is the CharacterBody3D's own
+    # CollisionShape3D. Exporting one "-colonly" mesh per box is what dropped
+    # the first mannequin through the floor.
+    info = to_glb(out_bb, out_glb, collision=False)
+    print("  %d boxes, %d bones  ->  %d meshes, %d tris, %d anims"
+          % (len(model["elements"]), len(model["outliner"]),
+             info["meshes"], info["tris"], info["animations"]))
+    print("  clips:", ", ".join(sorted(clips)))
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:4])

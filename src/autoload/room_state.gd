@@ -219,8 +219,11 @@ func reroll_seed() -> void:
 ## The seed as GameState wants it. Derived from the text rather than stored
 ## separately, so the string on screen and the facility on the floor cannot
 ## disagree about which route this is.
+##
+## Never zero: GameState.start_new_run() reads zero as "pick one at random",
+## which would hand two peers in the same room two different facilities.
 func run_seed() -> int:
-	return abs(int(seed_text.hash()))
+	return maxi(1, abs(int(seed_text.hash())))
 
 
 ## Whether a mode can be picked in this room's current state.

@@ -144,9 +144,59 @@ func _spawn_interactable(kind: RouteInteractable3D.Kind, cell: Vector2i, prompt_
 	node.prompt_text = prompt_text
 	node.source_cell = cell
 	node.generator = generator
+	node.changed.connect(world_changed.emit)
 	add_child(node)
 	_interactables.append(node)
 	return node
+
+
+## Anything on this floor the rest of the room has to hear about. Re-emitted
+## from the interactables so the scene above has one thing to listen to instead
+## of a subscription per relay.
+signal world_changed(event: Dictionary)
+
+
+## Apply an event another peer raised. Cell-addressed, because both peers built
+## this floor from the same seed and therefore have an object on that cell.
+func apply_event(event: Dictionary) -> void:
+	var cell: Vector2i = event.get("cell", Vector2i(-1, -1))
+	match String(event.get("what", "")):
+		"pickup":
+			var node := _at(cell, event.get("kind", -1))
+			if node:
+				node.adopt(event)
+		"heater":
+			if heater_station:
+				heater_station.adopt(event)
+
+
+func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:
+	for node in _interactables:
+		var item := node as RouteInteractable3D
+		if item and item.source_cell == cell and int(item.kind) == kind:
+			return item
+	return null
+
+
+## Everything about this floor that a peer joining halfway through would
+## otherwise get wrong.
+func shared_state() -> Dictionary:
+	var taken := []
+	for node in _interactables:
+		var item := node as RouteInteractable3D
+		if item and item.completed and RouteInteractable3D.PICKUPS.has(item.kind):
+			taken.append({"cell": item.source_cell, "kind": int(item.kind)})
+	return {
+		"taken": taken,
+		"heater": int(heater_station.heater_state) if heater_station else 0,
+	}
+
+
+func adopt_state(state: Dictionary) -> void:
+	for entry in state.get("taken", []):
+		apply_event({"what": "pickup", "cell": entry["cell"], "kind": entry["kind"]})
+	if heater_station:
+		heater_station.adopt({"what": "heater", "state": state.get("heater", 0)})
 
 
 ## Floor, wall and ceiling as plain boxes.

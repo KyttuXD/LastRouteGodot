@@ -13,7 +13,8 @@ extends Node
 ##
 ##   godot4 --headless res://scenes/validate.tscn -- pause layout camera_console
 
-const SUITES := ["room", "player", "pause", "maze", "admin", "layout", "camera_console"]
+const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
+	"camera_console", "sync"]
 
 
 func _ready() -> void:
@@ -37,7 +38,16 @@ func _run() -> void:
 			failures += 1
 			continue
 		print("== %s" % name)
-		var suite: RefCounted = (load(path) as GDScript).new()
+		# A suite that fails to PARSE loads as null, and awaiting a call on null
+		# never returns -- so a typo in a check script used to look exactly like
+		# a hanging game, with the parse error scrolled off above it. Say what
+		# happened and keep going.
+		var script := load(path) as GDScript
+		var suite: RefCounted = script.new() if script != null else null
+		if suite == null:
+			print("  FAIL  %s did not compile (see the parse error above)" % path)
+			failures += 1
+			continue
 		failures += await suite.run(self)
 	if failures > 0:
 		push_error("%d check(s) failed" % failures)

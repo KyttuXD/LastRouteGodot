@@ -43,6 +43,11 @@ const GLOW_COLORS := {
 	Kind.HEATER_STATION: Color(0.98, 0.55, 0.25),
 }
 
+## Something happened here that the rest of the room has to know about. Carries
+## the cell rather than this node, because the peer receiving it has its own
+## node standing on that cell.
+signal changed(event: Dictionary)
+
 @export var kind: Kind = Kind.RELAY
 @export var prompt_text := "INTERACT"
 
@@ -90,17 +95,16 @@ func activate(player: PlayerController3D) -> String:
 
 	match kind:
 		Kind.RELAY:
-			completed = true
-			_mark_collected_in_generator()
-			GameState.relays_collected += 1
-			GameState.score += 100
-			_refresh_visual()
+			_take()
+			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Signal relay recovered."
 		Kind.BATTERY:
-			completed = true
-			_mark_collected_in_generator()
+			_take()
+			# The charge is the one part that is NOT shared: the battery leaves
+			# the floor for everyone, but it goes in the lamp of whoever walked
+			# to it.
 			player.restore_lamp(GameConfig.BATTERY_RECHARGE)
-			_refresh_visual()
+			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Battery recovered: +%d%% lamp." % int(GameConfig.BATTERY_RECHARGE)
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
@@ -109,27 +113,57 @@ func activate(player: PlayerController3D) -> String:
 			if GameState.relays_collected < GameState.relay_target:
 				return "The service lift has no route signal."
 			GameState.descend()
+			# The lift takes the whole shift down, not just the person who
+			# pressed the button -- a floor half the room has left is not a
+			# floor anyone can finish.
+			changed.emit({"what": "descend", "depth": GameState.depth})
 			return "Descending to depth %d..." % GameState.depth
 		Kind.HEATER_STATION:
 			# Two-step: thaw it, then power it. Thawing alone is enough to
 			# dematerialise Wynelle; only powering it holds her off for good.
+			var message := ""
 			match heater_state:
 				HeaterState.FROZEN:
 					heater_state = HeaterState.UNFROZEN
-					_refresh_visual()
-					return "Heater station thawed. Power it to hold the cold off."
+					message = "Heater station thawed. Power it to hold the cold off."
 				HeaterState.UNFROZEN:
 					heater_state = HeaterState.POWERED
-					player.heater_on = true
-					_refresh_visual()
-					return "Heater station powered. The facility is warming."
+					message = "Heater station powered. The facility is warming."
 				HeaterState.POWERED:
 					heater_state = HeaterState.UNFROZEN
-					player.heater_on = false
-					_refresh_visual()
-					return "Heater station powered down."
+					message = "Heater station powered down."
+			_refresh_visual()
+			# One station warms one building. Wynelle reads its state, so a room
+			# that disagreed about it would have her dematerialised in one
+			# window and hunting in another.
+			changed.emit({"what": "heater", "state": heater_state})
+			return message
 
 	return "Nothing happens."
+
+
+## The part of a pickup that is true for everyone in the room, kept in one place
+## so the peer that walked to it and the peers that heard about it cannot end up
+## in different states.
+func _take() -> void:
+	completed = true
+	_mark_collected_in_generator()
+	if kind == Kind.RELAY:
+		GameState.relays_collected += 1
+		GameState.score += 100
+	_refresh_visual()
+
+
+## Apply what another peer did here. Same effects as activate(), minus anything
+## personal to the player who triggered it, and without re-broadcasting.
+func adopt(event: Dictionary) -> void:
+	match String(event.get("what", "")):
+		"pickup":
+			if not completed:
+				_take()
+		"heater":
+			heater_state = event.get("state", heater_state) as HeaterState
+			_refresh_visual()
 
 
 ## Keeps the generator's own relay/battery data in step with what the player

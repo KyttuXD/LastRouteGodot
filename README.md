@@ -2,7 +2,7 @@
 
 Godot 4 migration workspace for [KYTTU: The Last Route](https://github.com/KyttuXD/LastRoute).
 
-This repository begins with a deliberately small, runnable foundation rather than a generated rewrite, and ports gameplay feature by feature. The active track is a **3D world with a top-down/first-person camera toggle** — see `MIGRATION.md` for why (the original's 2D art is built for a custom perspective canvas renderer that doesn't port cleanly, and the project owner is authoring real 3D assets instead). An earlier 2D `Node2D` port (`scenes/main.tscn`) still exists and works, but is no longer the default scene.
+This repository begins with a deliberately small, runnable foundation rather than a generated rewrite, and ports gameplay feature by feature. The active track is a **first-person 3D world** — see `MIGRATION.md` for why (the original's 2D art is built for a custom perspective canvas renderer that doesn't port cleanly, and the project owner is authoring real 3D assets instead). An earlier 2D `Node2D` port (`scenes/main.tscn`) is still in the tree but is no longer built against and is not the default scene.
 
 ## Open it
 
@@ -45,21 +45,25 @@ flatpak override --user --filesystem=home org.godotengine.Godot
 `.godot/` is always safe — it is pure cache and is rebuilt by the next
 import.
 
-The game now boots into a **main menu** (`scenes/main_menu.tscn`): **PLAY** starts a real solo run, **SETTINGS** opens key rebinding and a master volume slider, and **CREATE ROOM**/**JOIN ROOM** are visibly present but disabled — there's no multiplayer backend yet (see `MIGRATION.md`).
+The game boots into a **main menu** (`scenes/main_menu.tscn`) with three buttons: **PLAY**, **SETTINGS** and **QUIT**.
 
-In a run: move with **WASD**, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, **E** to interact (also used to mash your way out of a hunter's grip), **M** for the map, **V** to toggle between the top-down and first-person cameras (the latter captures the mouse for look), and **Escape/P** to pause.
+**PLAY** opens the **room lobby** (`scenes/room_lobby.tscn`), which is where a session is actually configured — mode (LAST ROUTE, HIDE & SEEK, OFFICE), map scale, difficulty and the route seed. Office Mode lives here rather than on the main menu, because it is a mode of a room like any other. The lobby also hosts and joins: **HOST ON 8421** opens the room to the network, **JOIN LOCAL** connects to one, **GO OFFLINE** closes it again. A solo run is a room with one player in it, so there is no separate singleplayer path.
 
-To run the earlier 2D version instead, open `scenes/main.tscn` directly.
+In a run: move with **WASD**, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, **E** to interact (also used to mash your way out of a hunter's grip), **M** for the map and **Escape** to pause (Last Route taps it; Office Mode holds it for three seconds). The mouse looks, and is captured while you play — the pause menu, the camera tablet and the office chair each release it. **F11** toggles fullscreen anywhere. In a debug build only, **0** opens the admin overlay.
+
+Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, breaker and monitor are physical buttons on the desk that you walk up to and click.
 
 ## Current foundation
 
 - a deterministic, seeded procedural facility generator (`src/game/facility_generator.gd`) — sector-grid room carving, a Kruskal-connected 3-wide corridor graph, `AStarGrid2D` pathfinding, grid-raymarch line of sight, and relay/battery/safe-zone/service-lift/hunter-spawn placement, ported from the original's `maze.js` and validated against 1000 seeds (see `MIGRATION.md`). Fully presentation-agnostic — both the 2D and 3D scenes below call the exact same generator unchanged.
 - **twelve hunters** (`src/game/hunter_brain.gd`) — the original's shared perception/state-machine/movement/capture brain, ported faithfully (sight+hearing detection, idle/wander/investigate/chase/search states, chase-speed scaling, a real mash-`[E]` escape struggle with knockback/stagger/cooldown/lives), plus a data-driven roster (`src/config/hunter_roster.gd`) so tuning/model lookups aren't hardcoded to one identity. Dovelle is the zero-gimmick baseline; Quirith, Eirys, Xivvy, Kathy, Ravelle, Mavrine and Umbriel each add a real behaviour gimmick as a pluggable `HunterGimmick` (`src/game/hunter_gimmicks/`, one script per hunter). That is every hunter portable without new simulation systems — see [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md). Presentation-agnostic like the generator — `src/game_3d/hunter_view_3d.gd` is a thin 3D rendering + animation-state wrapper around it.
-- **a main menu** (`scenes/main_menu.tscn`, the default scene) with working settings (`src/autoload/settings.gd`): master volume and full key-rebinding, persisted across sessions.
-- **3D (`scenes/main_3d.tscn`):** a `GridMap`-rendered facility (placeholder flat-colored floor/wall meshes, real physics collision), a `CharacterBody3D` player with two `Camera3D` rigs (orthographic top-down, mouselook first-person) toggled at runtime, and a `SpotLight3D` flashlight. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention for future real-art imports.
-- **2D (`scenes/main.tscn`, still available):** 480×270 pixel-perfect viewport, nearest-neighbor rendering, a scrolling `Camera2D`, and a runtime-built `TileMapLayer` for facility collision. Not yet wired to the hunter.
-- shared between both presentation layers: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`, one shared scene instanced by both).
-- **Office Mode** (`scenes/office_3d.tscn`, from the menu's OFFICE MODE button) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
+- **a main menu** (`scenes/main_menu.tscn`, the default scene) in the web build's palette, with settings grouped into categories (`src/autoload/settings.gd`): master volume, mouse sensitivity, fullscreen and full key-rebinding, persisted across sessions. The display adapts to whatever machine it runs on — `canvas_items` stretch against a 480×270 design size treated as a minimum, so HUDs hold their layout from a phone aspect to an ultrawide one.
+- **rooms** (`src/autoload/room_state.gd`, `scenes/room_lobby.tscn`) — one session's single source of truth: code, seed, mode, map scale, difficulty and roster. A solo run is a one-player room hosted locally with no transport, so singleplayer is not a second code path. **Localhost multiplayer works**: ENet host/join, a live roster, and remote players wearing the same mannequin with their animation state synced.
+- **3D (`scenes/main_3d.tscn`, the mode the menu's PLAY leads to):** a `GridMap`-rendered facility built from plain cubes with real physics collision, a first-person `CharacterBody3D` player with a `SpotLight3D` flashlight and a crosshair, and a mannequin body (`art/props-3d/characters/player.tscn`) worn by every player. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention for real-art imports.
+- **2D (`scenes/main.tscn`, legacy):** the original 480×270 pixel-perfect `TileMapLayer` port. Left in the tree as reference; not maintained and not reachable from the menu.
+- shared across modes: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`).
+- **Office Mode** (`scenes/office_3d.tscn`, chosen as a mode in the room lobby) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against a camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. You walk the office and work it by clicking physical desk controls — nine keys with engraved glyphs and hover labels, plus a camera console with PREV/NEXT caps — rather than by pressing keybinds. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
+- **an admin overlay** on the **0** key (`src/ui/admin_menu.gd`) for granting relays, refilling the lamp, rebuilding the floor and descending — gated behind `src/config/build.gd`'s `tools_enabled()`, so a release build contains no way to open it.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -67,23 +71,44 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 ```text
 art/props-3d/           3D prop scaffold — every model the game loads at runtime; drop real assets in to replace the placeholders (see its README)
 assets/                 Imported art, audio, fonts and data
-scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, office_3d.tscn = Office Mode, hud.tscn = shared HUD)
-scripts/                Headless validation/dev scripts
-src/autoload/           Project-wide state (GameState, Settings)
-src/config/             Tuning and content definitions
-src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd, hunter_gimmicks/, office/) and 2D gameplay nodes
-src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, model_slot.gd loads visuals from art/props-3d/)
-src/ui/                  Shared HUD, main menu, settings panel, office/ (Office Mode UI)
+scenes/                 Godot scene files (main_menu.tscn = boot scene, room_lobby.tscn = session setup, main_3d.tscn = Last Route, office_3d.tscn = Office Mode, hud.tscn = shared HUD, validate.tscn = check harness, main.tscn = legacy 2D)
+scripts/                Headless check suites (validate_*.gd) and dev scripts
+tools/                  Model pipeline — Blockbench .bbmodel → glTF exporters and the office/character builders
+src/autoload/           Project-wide state (GameState, Settings, MouseLock, RoomState)
+src/config/             Tuning and content definitions (game_config.gd, hunter_roster.gd, palette.gd, build.gd)
+src/game/                Presentation-agnostic simulation (facility_generator.gd, hunter_brain.gd, hunter_gimmicks/, office/) and legacy 2D gameplay nodes
+src/game_3d/             3D presentation layer (GridMap renderer, CharacterBody3D controller, interactables, hunter view, remote_players.gd netcode, model_slot.gd loads visuals from art/props-3d/)
+src/ui/                  Shared HUD, main menu, room lobby, settings panel, pause/admin overlays, crosshair, office/ (Office Mode UI)
 third_party/            Vendored third-party assets, each with its own license (see Credits)
 ```
 
 See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries, and exactly what's done versus deferred. [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md) is the working plan for porting the remaining 24 hunters.
 
+## Checks
+
+The headless suites boot the real project — autoloads and all — and drive the actual scenes, so they test what ships:
+
+```sh
+godot4 --headless --path . res://scenes/validate.tscn
+```
+
+Name suites after `--` to run a subset (`room`, `player`, `pause`, `maze`, `admin`, `layout`, `camera_console`, `sync`):
+
+```sh
+godot4 --headless --path . res://scenes/validate.tscn -- sync layout
+```
+
+The whole set runs in about two seconds. Two things are worth knowing before adding one:
+
+- **Run them as a scene, never with `--script`.** In `--script` mode Godot registers no autoloads at all, so every script that mentions `GameState` or `MouseLock` fails to *compile* — and the suite hangs with no output, which is a worse failure than the one it exists to catch.
+- **Drive the thing the way a player would.** Several checks in here originally confirmed a mechanism (calling `stand()` directly, sweeping reach from a seated pose) and passed while the feature was unusable in the game. A check that cannot fail the way the player fails is not a check.
+
 ## Ground rules
 
-- Keep simulation code independent from presentation where practical — `facility_generator.gd` and `hunter_brain.gd` are the proof this works: identical code drives both the 2D and 3D renderers (2D wiring is currently unfinished for the hunter, but the brain itself needs no changes to support it).
+- Keep simulation code independent from presentation where practical — `facility_generator.gd` and `hunter_brain.gd` are the proof this works: the 3D scene calls the exact same generator the 2D port did, unchanged.
 - Build each hunter as a reusable scene plus a state-machine script.
 - Store tuning/content in Resources instead of scattering constants across scenes.
+- **Singleplayer is not a second code path.** Offline is a one-player room, and `RemotePlayers.simulates()` answers `true` there, so the same branch runs solo and hosted.
 - Preserve the existing Node server protocol until the single-player foundation is stable.
 - Do not commit `.godot/`, exports, secrets, or runtime account saves.
 

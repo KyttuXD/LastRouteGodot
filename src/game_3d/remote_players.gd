@@ -31,6 +31,7 @@ var _since_send := 0.0
 func _ready() -> void:
 	if RoomState.online:
 		multiplayer.peer_disconnected.connect(_drop)
+		multiplayer.peer_connected.connect(_greet)
 
 
 func _process(delta: float) -> void:
@@ -113,6 +114,54 @@ func _hunters(data: Array) -> void:
 ## for a solo run.
 func simulates() -> bool:
 	return not RoomState.online or RoomState.is_host
+
+
+## The shared world: pickups, the heater station, the lift.
+##
+## Positions are sent on a timer and a dropped packet costs nothing, because
+## another one is 50ms behind it. These are the opposite: a relay is collected
+## ONCE, and a peer that misses the packet keeps a relay nobody else can see and
+## a count that never reaches the target. So they go reliable, and they carry
+## the cell rather than a node path -- every peer generates the same facility
+## from the same seed, so a cell names the same object everywhere without any
+## agreement about spawn order.
+##
+## Anyone may collect. There is no host arbitration here on purpose: the race it
+## would settle (two players reaching one relay in the same 50ms) resolves the
+## same way either way, since the second `activate()` finds it already
+## `completed` and does nothing.
+signal world_event(event: Dictionary)
+## The whole shared state at once, for a peer that arrived after some of it
+## already happened.
+signal world_snapshot(state: Dictionary)
+
+## Fills a snapshot for a joining peer. Set by the scene that owns the world;
+## only ever called on the host.
+var snapshot_source: Callable
+
+
+func broadcast_event(event: Dictionary) -> void:
+	if RoomState.online:
+		_event.rpc(event)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _event(event: Dictionary) -> void:
+	world_event.emit(event)
+
+
+## A peer that joins mid-floor has generated the same facility everyone else
+## has, which means it has generated every relay that was already picked up.
+## Without this it would walk a floor of ghosts.
+func _greet(id: int) -> void:
+	if not RoomState.is_host or not snapshot_source.is_valid():
+		return
+	_snapshot.rpc_id(id, snapshot_source.call())
+
+
+@rpc("authority", "call_remote", "reliable")
+func _snapshot(state: Dictionary) -> void:
+	world_snapshot.emit(state)
 
 
 func count() -> int:

@@ -34,7 +34,12 @@ var _hunter_report: Array = []
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	GameState.start_new_run()
+	# The room's seed, not a fresh random one. Every shared thing below is
+	# addressed by grid cell, which only names the same object on two machines
+	# if both machines generated the same facility -- so this line is what makes
+	# the rest of the sync mean anything. Offline it is still a stable seed, so
+	# a solo run behaves the same way.
+	GameState.start_new_run(RoomState.run_seed())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
@@ -48,7 +53,11 @@ func _ready() -> void:
 	_remotes.name = "RemotePlayers"
 	_remotes.local_player = player
 	_remotes.hunters_received.connect(_apply_hunters)
+	_remotes.world_event.connect(_apply_world_event)
+	_remotes.world_snapshot.connect(_apply_world_snapshot)
+	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
+	facility_view.world_changed.connect(_on_world_changed)
 	_build_admin()
 	_build_floor()
 	_update_hud()
@@ -276,6 +285,62 @@ func _apply_hunters(data: Array) -> void:
 			view.global_position = entry["at"]
 			view.rotation.y = entry["facing"]
 			break
+
+
+## Something the local player did that the room shares. Sent as-is; the effect
+## already happened here.
+func _on_world_changed(event: Dictionary) -> void:
+	if _remotes != null:
+		_remotes.broadcast_event(event)
+
+
+## The same thing, arriving from someone else.
+##
+## Not gated on simulates(): a pickup is not a simulation, it is a fact, and the
+## peer that reports it is the authority on it. Gating this on the host would
+## mean a client's relay took a round trip to disappear.
+func _apply_world_event(event: Dictionary) -> void:
+	match String(event.get("what", "")):
+		"descend":
+			# Let the depth change do the work -- _process already rebuilds the
+			# floor whenever it moves, which is the same path the local lift
+			# takes.
+			var depth := int(event.get("depth", GameState.depth))
+			if depth != GameState.depth:
+				GameState.depth = depth
+				GameState.start_floor()
+		"heater":
+			facility_view.apply_event(event)
+			# One station, one building: the cold it holds off is held off for
+			# whoever is standing in it, not just whoever threw the switch.
+			player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
+		_:
+			facility_view.apply_event(event)
+
+
+## What the host tells a peer that joined after the floor started.
+func _build_snapshot() -> Dictionary:
+	var state := facility_view.shared_state()
+	state["depth"] = GameState.depth
+	state["relays"] = GameState.relays_collected
+	return state
+
+
+func _apply_world_snapshot(state: Dictionary) -> void:
+	var depth := int(state.get("depth", GameState.depth))
+	if depth != GameState.depth:
+		GameState.depth = depth
+		GameState.start_floor()
+		_build_floor()
+		# Built here rather than left to _process, because the state below has
+		# to land on the floor it describes and not on the one being replaced.
+		observed_depth = depth
+	facility_view.adopt_state(state)
+	# adopt_state re-counts the relays it applies, so this is a correction for
+	# anything the count could still miss rather than the source of it.
+	GameState.relays_collected = maxi(GameState.relays_collected, int(state.get("relays", 0)))
+	player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
+	_update_hud()
 
 
 func _on_abandoned() -> void:
