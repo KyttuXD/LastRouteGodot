@@ -78,12 +78,29 @@ const NOISE_SPRINT := 10.5
 const HEARING_OUTER_SCALE := 1.45
 
 ## Dovelle — the zero-gimmick baseline hunter (HUNTER_ABILITIES.dovelle = {}
-## in the original). First and, for now, only implemented identity.
+## in the original). Consumed via HunterRoster, not referenced directly by
+## hunter_brain.gd (see src/config/hunter_roster.gd).
 const DOVELLE_BASE_SPEED := 0.8
 const DOVELLE_CHASE_SPEED := 3.55
 const DOVELLE_CHASE_PROGRESSION_SCALE := 0.18
 const DOVELLE_SIGHT_RANGE := 8.0
 const DOVELLE_HEARING_SCALE := 1.0
+
+## Quirith — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
+## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
+## straight earns a permanent chase lock; every flashlight on/off flick after
+## that ramps her chase speed further, capped at QUIRITH_MAX_SPEED_SCALE after
+## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Nightmare's shorter 5s threshold
+## isn't ported — no difficulty selection exists yet, matching every other
+## Standard-only tuning value in this file.
+const QUIRITH_BASE_SPEED := 0.81
+const QUIRITH_CHASE_SPEED := 3.5
+const QUIRITH_CHASE_PROGRESSION_SCALE := 0.17
+const QUIRITH_SIGHT_RANGE := 8.1
+const QUIRITH_HEARING_SCALE := 0.85
+const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
+const QUIRITH_MAX_SPEED_SCALE := 1.45
+const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
 
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
 const HUNTER_RELAY_SPEED_BONUS := 0.1

@@ -79,3 +79,32 @@ static func instantiate(scene_path: String) -> Node3D:
 		push_warning("ModelSlot: could not load %s" % scene_path)
 		return null
 	return scene.instantiate()
+
+
+## Finds an AnimationPlayer anywhere under `root` by type — same reasoning as
+## _find_mesh_instance: a real character import's AnimationPlayer could be
+## named anything. Character controllers call this once, right after
+## instantiate(), and keep the result (or null — every placeholder today has
+## no AnimationPlayer at all, which is a supported, silent no-op state, not
+## an error).
+static func find_animation_player(root: Node) -> AnimationPlayer:
+	if root is AnimationPlayer:
+		return root
+	for child in root.get_children():
+		var found := find_animation_player(child)
+		if found:
+			return found
+	return null
+
+
+## Plays `name` on `player` if both exist and it isn't already the current
+## animation — safe to call every frame regardless of model complexity. A
+## no-op whenever `player` is null or has no clip called `name`, which is
+## every placeholder scene as of this writing: dropping in a rigged model
+## with clips named per art/props-3d/README.md's convention is the entire
+## remaining step to make these calls do something.
+static func play_if_available(player: AnimationPlayer, name: String) -> void:
+	if player == null or not player.has_animation(name):
+		return
+	if player.current_animation != name or not player.is_playing():
+		player.play(name)

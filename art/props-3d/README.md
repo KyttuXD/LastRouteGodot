@@ -59,6 +59,7 @@ needed with default export settings from either tool.
 | `environment/floor_tile.tscn` | one 1m² floor cell | Yes — `GridMap` item, `facility_view_3d.gd` | 1m × 1m | 0.1m (thin slab, top flush at y=0) |
 | `characters/player.tscn` | the player's own body (visible in third-person view) | Yes — `player_controller_3d.gd` | 0.5m diameter | 1.7m |
 | `characters/dovelle.tscn` | hunter "Dovelle" | Yes — `hunter_view_3d.gd` | 0.44m diameter | 1.8m |
+| `characters/quirith.tscn` | hunter "Quirith" | Yes — `hunter_view_3d.gd` | 0.44m diameter | 1.8m |
 | `interactables/relay.tscn` | signal relay pickup | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |
 | `interactables/battery.tscn` | battery pickup | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |
 | `interactables/safe_zone.tscn` | rest/safe-zone marker | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |
@@ -108,7 +109,33 @@ two loading strategies, and which one applies depends on how the slot is
   for how to get one out of an import automatically.
 - **Everything else**: no required structure at all — the scene is
   instanced whole. Its root should be a `Node3D` (or subclass) so it can be
-  added as a child of the game's own wrapper node.
+  added as a child of the game's own wrapper node. An `AnimationPlayer`
+  anywhere under it is optional — see "Animations" below.
+
+## Animations
+
+The player and hunter controllers each look for an `AnimationPlayer`
+anywhere under their instanced model (`ModelSlot.find_animation_player()` —
+found by type, same reasoning as the mesh/collision lookups above, so it
+doesn't matter what the import named it) and, every frame, ask it to play a
+clip named after the current movement/AI state
+(`ModelSlot.play_if_available()`). Both lookups are fully optional: no
+`AnimationPlayer`, or no clip with that exact name, is a silent no-op, not
+an error — true for every placeholder in this folder today, since none of
+them have any animation at all. Naming an animated model's clips to match
+is the entire remaining step to make it move:
+
+| Model | Clip names it should have |
+| --- | --- |
+| `characters/player.tscn` | `idle`, `walk`, `sprint`, `crouch` |
+| `characters/dovelle.tscn`, `characters/quirith.tscn` (and any future hunter) | `idle`, `walk`, `chase` |
+
+A hunter's clip is picked from her `HunterBrain.state`: `IDLE` → `idle`;
+`WANDER`/`INVESTIGATE`/`SEARCH` → `walk` (she's purposefully headed
+somewhere, just not at chase urgency); `CHASE` → `chase`. The player's clip
+is picked from whichever of `idle`/`walk`/`sprint`/`crouch` matches its
+current `movement_mode`, or `idle` while not moving or frozen (e.g. during
+the capture/escape struggle).
 
 ## Swapping in a real model
 
@@ -144,8 +171,11 @@ two loading strategies, and which one applies depends on how the slot is
    pixel-art-style textures under Godot's default linear filtering): select
    the imported texture resource, open **Import**, and set **Filter** to
    `Nearest`, then reimport.
-6. Open `reference_layout.tscn` and check it still reads correctly at scale
+6. If the model is animated (player or a hunter): name its clips per the
+   "Animations" table above. Nothing else to wire up — `ModelSlot` finds the
+   `AnimationPlayer` and the game starts driving it by name automatically.
+7. Open `reference_layout.tscn` and check it still reads correctly at scale
    next to everything else that hasn't been replaced yet.
-7. Run the game (`scenes/main_3d.tscn`) and confirm the model shows up where
-   expected — no code changes should be needed for any slot in the table
-   above.
+8. Run the game (`scenes/main_3d.tscn`) and confirm the model shows up (and,
+   if animated, moves) where expected — no code changes should be needed
+   for any slot in the table above.

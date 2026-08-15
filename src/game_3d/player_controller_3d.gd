@@ -44,12 +44,14 @@ var input_frozen := false
 
 var _yaw := 0.0
 var _pitch := 0.0
+var _animation_player: AnimationPlayer
 
 
 func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		body_visual.add_child(model)
+		_animation_player = ModelSlot.find_animation_player(model)
 	flashlight.visible = flashlight_enabled
 	_set_view_mode(false)
 
@@ -68,6 +70,7 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		top_down_camera.global_position = Vector3(global_position.x, TOP_DOWN_HEIGHT, global_position.z)
 		noise = 0.0
+		ModelSlot.play_if_available(_animation_player, "idle")
 		return
 
 	if Input.is_action_just_pressed("toggle_view"):
@@ -93,6 +96,7 @@ func _physics_process(delta: float) -> void:
 
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
+	ModelSlot.play_if_available(_animation_player, movement_mode if is_moving else "idle")
 
 	var move_direction: Vector3
 	if first_person:

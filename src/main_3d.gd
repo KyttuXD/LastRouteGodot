@@ -84,7 +84,7 @@ func _trigger_capture() -> void:
 		_resolve_capture_outcome()
 		return
 	player.input_frozen = true
-	GameState.begin_escape("dovelle")
+	GameState.begin_escape(hunter_view.brain.hunter_id)
 
 
 func _update_escape_struggle(delta: float) -> void:
@@ -191,7 +191,8 @@ func _spawn_hunter() -> void:
 	var spawn_cell := generator.place_hunter_spawn(from_start)
 	var spawn_pos := Vector2(spawn_cell) + Vector2(0.5, 0.5)
 
-	var brain := HunterBrain.new(spawn_pos, "%s:HUNTER" % GameState.level_seed_text())
+	var hunter_id := HunterRoster.pick_for_floor(GameState.level_seed_text(), GameState.depth)
+	var brain := HunterBrain.new(spawn_pos, "%s:HUNTER" % GameState.level_seed_text(), hunter_id)
 	hunter_view = HunterView3D.new()
 	hunter_view.brain = brain
 	world.add_child(hunter_view)
