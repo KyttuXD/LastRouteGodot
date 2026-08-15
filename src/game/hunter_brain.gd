@@ -7,18 +7,19 @@ extends RefCounted
 ## baseline (HUNTER_ABILITIES.dovelle = {} in the original: no bespoke
 ## behavior at all) — any hunter whose gimmick only changes tuning numbers,
 ## not behavior, works with zero changes here (see HunterRoster). A hunter
-## whose gimmick changes actual behavior gets a small hook instead, e.g.
-## Quirith's flashlight tracker below — see `hunter_id == "quirith"` in
-## update() and _current_speed(). Operates entirely in
-## facility_generator.gd's grid-cell coordinate space; presentation layers
-## (src/game_3d/hunter_view_3d.gd) read `position` each frame and convert to
-## their own world units.
+## whose gimmick changes actual behavior gets a HunterGimmick instead (see
+## src/game/hunter_gimmicks/ — one script per hunter, mirroring the
+## original's one-file-per-hunter layout); `gimmick` is null for every
+## tuning-only hunter, so its hooks below are simply skipped. Operates
+## entirely in facility_generator.gd's grid-cell coordinate space;
+## presentation layers (src/game_3d/hunter_view_3d.gd) read `position` each
+## frame and convert to their own world units.
 ##
 ## Deferred (see MIGRATION.md): multi-hunter separation, lures, temperature/
 ## power-state sight modifiers, most per-hunter gimmicks, difficulty scaling
 ## (no difficulty selection exists yet, so it's fixed at the Standard 1.0
-## multiplier throughout) — all no-ops for the two implemented hunters per
-## the banked research, so nothing here is a stub for them, they're simply
+## multiplier throughout) — all no-ops for the implemented hunters per the
+## banked research, so nothing here is a stub for them, they're simply
 ## absent.
 
 enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
@@ -30,6 +31,7 @@ var position: Vector2
 var state: State = State.IDLE
 var active := false
 var hunter_id: String
+var gimmick: HunterGimmick
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
@@ -40,15 +42,6 @@ var hearing_scale: float
 
 var stamina := GameConfig.HUNTER_STAMINA_MAX
 var winded := false
-
-## Quirith's flashlight tracker (hunterAbilities.quirith.flashlightTracker) —
-## fields stay allocated for every hunter (cheap, avoids a subclass just for
-## one gimmick) but only ever change for hunter_id == "quirith".
-var _flashlight_tracking := false
-var _flashlight_track_elapsed := 0.0
-var _flashlight_activations := 0
-var _flashlight_was_on := false
-var _flashlight_speed_scale := 1.0
 
 var stun_timer := 0.0
 var idle_timer := 0.0
@@ -76,6 +69,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String, id: String = HunterRo
 	position = spawn_position
 	_rng = SeededRandom.new(rng_seed_text)
 	hunter_id = id
+	gimmick = HunterGimmick.for_id(id)
 	var identity := HunterRoster.get_identity(id)
 	base_speed = identity["base_speed"]
 	chase_speed = identity["chase_speed"]
@@ -110,8 +104,8 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
 
-	if hunter_id == "quirith":
-		_update_flashlight_tracker(delta, target_position, target_in_safe_zone, target_flashlight_on)
+	if gimmick:
+		gimmick.before_perception(self, delta, target)
 
 	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	_update_stamina(delta)
@@ -154,37 +148,6 @@ func calm_reset(stun_duration: float) -> void:
 	_path.clear()
 	_has_path_target = false
 	apply_stun(stun_duration)
-
-
-## Quirith only. Mirrors quirith.js's updateFlashlightTracker(): sustained
-## flashlight-on time earns a permanent lock (never un-sets once true); once
-## locked, every frame she re-affirms chase + last_known + a zeroed
-## lost_sight_timer, so _update_perception's own grace-timer decay (below)
-## never actually accumulates past a single frame — functionally perfect
-## tracking, matching the original's every-frame reassignment. Off-to-on
-## flashlight flicks (tracked regardless of lock state) ramp her chase speed,
-## applied in _current_speed(), capped after QUIRITH_SPEED_RAMP_ACTIVATIONS.
-## "not hidden" isn't checked here (unlike the original's flashlightOn) since
-## hiding spots don't exist in this port yet — target_hidden is always false.
-func _update_flashlight_tracker(delta: float, target_position: Vector2, target_in_safe_zone: bool, target_flashlight_on: bool) -> void:
-	if target_flashlight_on and not _flashlight_was_on:
-		_flashlight_activations += 1
-	_flashlight_was_on = target_flashlight_on
-
-	if not _flashlight_tracking:
-		_flashlight_track_elapsed = _flashlight_track_elapsed + delta if target_flashlight_on else 0.0
-		if _flashlight_track_elapsed >= GameConfig.QUIRITH_FLASHLIGHT_LOCK_SECONDS:
-			_flashlight_tracking = true
-
-	var activation_progress := minf(1.0, float(_flashlight_activations) / GameConfig.QUIRITH_SPEED_RAMP_ACTIVATIONS)
-	_flashlight_speed_scale = 1.0 + activation_progress * (GameConfig.QUIRITH_MAX_SPEED_SCALE - 1.0) \
-		if _flashlight_tracking and target_flashlight_on else 1.0
-
-	if _flashlight_tracking and not target_in_safe_zone:
-		state = State.CHASE
-		has_last_known = true
-		last_known = target_position
-		lost_sight_timer = 0.0
 
 
 func _update_perception(delta: float, generator: FacilityGenerator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
@@ -301,7 +264,9 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed = base_speed + progression
 	if winded:
 		speed *= GameConfig.HUNTER_WINDED_SPEED_SCALE
-	return speed * _flashlight_speed_scale
+	if gimmick:
+		speed *= gimmick.speed_scale(self)
+	return speed
 
 
 func _pursue(move_target: Vector2, speed: float, delta: float, generator: FacilityGenerator) -> void:
