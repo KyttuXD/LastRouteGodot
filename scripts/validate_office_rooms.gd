@@ -114,7 +114,12 @@ func _check(room_name: String) -> int:
 
 
 func _collect(node: Node, out: Dictionary) -> void:
-	out[node.name] = node
+	# First one wins. Godot names the node it generates from a "-colonly"
+	# child after that node MINUS the suffix, so it shares its parent's name.
+	# Overwriting would return that child -- sitting at local origin -- rather
+	# than the mount whose transform is the whole point.
+	if not out.has(node.name):
+		out[node.name] = node
 	for child in node.get_children():
 		_collect(child, out)
 
