@@ -80,6 +80,14 @@ func _check_buttons(view: OfficeView3D) -> int:
 	if failures > 0:
 		return failures
 
+	# The arrow has to travel with the button it is drawn on, which is what
+	# being its child buys -- a glyph left behind in the world would float over
+	# a pressed button.
+	for key in ["prev", "next"]:
+		var glyph := view._find(view._buttons[key], "Cam%sGlyph" % key.capitalize())
+		if glyph == null:
+			failures += _fail("%s button has no arrow attached to it" % key)
+
 	# Overlapping pick rects would make one button unreachable, and the margin
 	# that makes near-misses count is exactly what could cause that.
 	var prev: Rect2 = view._button_rect["prev"]

@@ -1,13 +1,12 @@
 class_name OfficeView3D
 extends SubViewportContainer
 
-## The office rendered in 3D, as a drop-in replacement for OfficeView.
+## The office rendered in 3D.
 ##
-## It is a SubViewportContainer -- a Control -- so it occupies exactly the same
-## slot in the scene tree as the 2D view, and main_office.gd drives it through
-## the same single property, `can_move`. Everything else in scenes/office.tscn
-## (the HUD, the control bar, the camera monitor) is untouched, and
-## scenes/office.tscn itself stays as the 2D fallback.
+## It is a SubViewportContainer -- a Control -- so it occupies the same slot in
+## the scene tree the flat ColorRect office used to, and main_office.gd drives
+## it through one property, `can_move`. That is why the rest of the mode (the
+## HUD, the control bar, the camera monitor) never had to change.
 ##
 ## The player is an OfficeWalker: seated at the desk by default, able to stand
 ## and walk the facility, and in real danger while away from it.
@@ -52,7 +51,7 @@ const BUTTON_HOVER := Color(0.55, 0.95, 0.92)
 const BUTTON_DEAD := Color(0.62, 0.24, 0.26)
 
 ## Set false while the monitor is up -- you cannot look around the office with
-## a tablet in your face. Same contract as OfficeView.can_move.
+## a tablet in your face.
 var can_move := true
 
 ## Assigned by main_office.gd, exactly as it assigns monitor.simulation.
@@ -255,6 +254,16 @@ func _build_console() -> void:
 		material.emission_enabled = true
 		_button_materials[key] = material
 		(_buttons[key] as MeshInstance3D).material_override = material
+		# The arrow is a separate node so it can keep its dark atlas material
+		# while the button beneath lights up -- that contrast is what makes it
+		# read from the seat. Reparenting it to the button, keeping its world
+		# transform, is what stops it hanging in the air over a button that has
+		# just been pressed in.
+		var glyph := _find(_room, "Cam%sGlyph" % key.capitalize()) as Node3D
+		if glyph != null:
+			glyph.reparent(_buttons[key], true)
+		else:
+			push_warning("OfficeView3D: %s button has no arrow" % key)
 
 
 ## Measure the console off the model rather than restating its dimensions here.
@@ -482,8 +491,7 @@ func _set_door(door: Node3D, closed: bool) -> void:
 	door.scale.y = lerpf(door.scale.y, want, 0.2)
 
 
-## Kept for parity with OfficeView so either view satisfies the same surface.
-## 0.0 centred, -1.0 fully left, 1.0 fully right.
+## How far the head is turned: 0.0 centred, -1.0 fully left, 1.0 fully right.
 func pan_ratio() -> float:
 	if _walker == null or YAW_LIMIT <= 0.0:
 		return 0.0

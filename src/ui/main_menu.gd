@@ -26,7 +26,7 @@ func _on_play_pressed() -> void:
 ## Office Mode is a separate, self-contained shift — it shares no state with
 ## a Last Route run, so it just swaps scenes (see MIGRATION.md).
 func _on_office_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/office.tscn")
+	get_tree().change_scene_to_file("res://scenes/office_3d.tscn")
 
 
 func _on_settings_pressed() -> void:

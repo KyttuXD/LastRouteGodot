@@ -17,10 +17,10 @@ const ACTION_TO_CONTROL := {
 
 var simulation: OfficeSimulation
 
-# Either OfficeView (2D, scenes/office.tscn) or OfficeView3D
-# (scenes/office_3d.tscn). Both are Controls and both expose
-# `can_move`, which is the entire contract this file needs.
-@onready var office_view: Control = %OfficeView
+# The office itself. This file drives it through one property, `can_move`,
+# which is what let the 3D office replace the flat ColorRect one without this
+# controller changing at all.
+@onready var office_view: OfficeView3D = %OfficeView
 @onready var monitor: CameraMonitor = %CameraMonitor
 
 @onready var _power_bar: ProgressBar = %PowerBar
@@ -58,10 +58,9 @@ var simulation: OfficeSimulation
 func _ready() -> void:
 	simulation = OfficeSimulation.new("OFFICE-%d" % randi())
 	monitor.simulation = simulation
-	# The 3D view reads simulation state to show the doors, desk lamp and
-	# monitor. The 2D view is decorative and needs nothing.
-	if office_view is OfficeView3D:
-		(office_view as OfficeView3D).simulation = simulation
+	# The view READS simulation state to show the doors, the desk lamp, the CRT
+	# and the camera console. It never writes to it.
+	office_view.simulation = simulation
 	monitor.visible = false
 
 	_left_door_button.pressed.connect(_toggle.bind("leftDoor"))

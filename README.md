@@ -59,7 +59,7 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 - **3D (`scenes/main_3d.tscn`):** a `GridMap`-rendered facility (placeholder flat-colored floor/wall meshes, real physics collision), a `CharacterBody3D` player with two `Camera3D` rigs (orthographic top-down, mouselook first-person) toggled at runtime, and a `SpotLight3D` flashlight. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention for future real-art imports.
 - **2D (`scenes/main.tscn`, still available):** 480×270 pixel-perfect viewport, nearest-neighbor rendering, a scrolling `Camera2D`, and a runtime-built `TileMapLayer` for facility collision. Not yet wired to the hunter.
 - shared between both presentation layers: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, lives, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`, one shared scene instanced by both).
-- **Office Mode** (`scenes/office.tscn`, from the menu's OFFICE MODE button) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
+- **Office Mode** (`scenes/office_3d.tscn`, from the menu's OFFICE MODE button) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against an 8-camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -67,7 +67,7 @@ To run the earlier 2D version instead, open `scenes/main.tscn` directly.
 ```text
 art/props-3d/           3D prop scaffold — every model the game loads at runtime; drop real assets in to replace the placeholders (see its README)
 assets/                 Imported art, audio, fonts and data
-scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, office.tscn = Office Mode, hud.tscn = shared HUD)
+scenes/                 Godot scene files (main_menu.tscn = boot scene, main.tscn = 2D, main_3d.tscn = 3D, office_3d.tscn = Office Mode, hud.tscn = shared HUD)
 scripts/                Headless validation/dev scripts
 src/autoload/           Project-wide state (GameState, Settings)
 src/config/             Tuning and content definitions

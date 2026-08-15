@@ -49,6 +49,14 @@ BEZEL = 0.022                      # frame around the well
 STRIP = 0.15
 BUTTON_W, BUTTON_H = 0.36, 0.11
 BUTTON_RISE = 0.018                # how far a button stands off the board
+# The arrow standing on each button. A stepped triangle rather than a painted
+# one: at 12 texels per metre a 9 cm glyph is barely a texel across, so the
+# only way to draw a readable shape at this scale is to build it. Raised and
+# dark against a button that lights up, which is what makes it read from the
+# seat -- roughly 8 of the 27 pixels the button occupies there.
+GLYPH_W, GLYPH_H = 0.09, 0.07
+GLYPH_RISE = 0.006
+GLYPH_STEPS = 5
 
 
 def _panel_origin():
@@ -69,6 +77,28 @@ def _tilt(oy, oz, dy, dz, th):
     has to arrive here already rotated about the console's."""
     return (oy + dy * math.cos(th) + dz * math.sin(th),
             oz - dy * math.sin(th) + dz * math.cos(th))
+
+
+def _arrow(room, name, bx, by, bz, sign):
+    """A stepped triangle pointing left (sign -1) or right (+1).
+
+    Columns of growing height, tip first. Everything in this pipeline is an
+    axis-aligned box -- the exporter drops cube rotation -- so a diagonal edge
+    is a staircase, which suits pixel art anyway."""
+    z0 = bz + BUTTON_RISE / 2
+    step = GLYPH_W / GLYPH_STEPS
+    parts = []
+    for i in range(GLYPH_STEPS):
+        height = GLYPH_H * (i + 1) / GLYPH_STEPS
+        x0 = (bx - GLYPH_W / 2 + i * step) if sign < 0 \
+            else (bx + GLYPH_W / 2 - (i + 1) * step)
+        parts.append(room.box(f"{name}{i}", x0, by - height / 2, z0 - 0.001,
+                              x0 + step, by + height / 2, z0 + GLYPH_RISE,
+                              "recess", None, 0))
+    # Its own group, so it keeps the dark atlas material while the button under
+    # it takes the lit override -- and so Godot can reparent it to the button
+    # and have it sink along when the button is pressed.
+    room.add(name, parts, origin=(bx, by, bz), rotation=(-PANEL_TILT, 0, 0))
 
 
 def camera_console(room):
@@ -114,14 +144,16 @@ def camera_console(room):
     dz = 0.031 + BUTTON_RISE / 2
     by, bz = _tilt(oy, oz, -hv + BEZEL + STRIP / 2, dz, th)
     placed = {}
-    for name, bx in (("CamPrev", PANEL_X0 + BEZEL + 0.014 + BUTTON_W / 2),
-                     ("CamNext", PANEL_X1 - BEZEL - 0.014 - BUTTON_W / 2)):
+    for name, bx, sign in (
+            ("CamPrev", PANEL_X0 + BEZEL + 0.014 + BUTTON_W / 2, -1),
+            ("CamNext", PANEL_X1 - BEZEL - 0.014 - BUTTON_W / 2, 1)):
         placed[name] = (bx, by, bz)
         room.add(name, [
             room.box(name, bx - BUTTON_W / 2, by - BUTTON_H / 2, bz - BUTTON_RISE / 2,
                      bx + BUTTON_W / 2, by + BUTTON_H / 2, bz + BUTTON_RISE / 2,
                      "emissive", None, 4)],
             origin=(bx, by, bz), rotation=(-PANEL_TILT, 0, 0))
+        _arrow(room, name + "Glyph", bx, by, bz, sign)
     return placed
 
 
@@ -220,11 +252,26 @@ def console_problems(room, prefix=""):
     if prev is not None and nxt is not None and prev["to"][0] >= nxt["from"][0]:
         problems.append("CamPrev and CamNext overlap")
 
+    # An arrow hanging over the edge of the button it labels reads as damage.
+    for base in ("CamPrev", "CamNext"):
+        button = named.get(prefix + base)
+        if button is None:
+            continue
+        steps = [e for e in room.elements
+                 if e["name"].startswith(prefix + base + "Glyph")]
+        if len(steps) != GLYPH_STEPS:
+            problems.append(f"{base} has {len(steps)} arrow steps, expected {GLYPH_STEPS}")
+        for e in steps:
+            if not all(button["from"][k] <= e["from"][k] and e["to"][k] <= button["to"][k]
+                       for k in (0, 1)):
+                problems.append(f"{e['name']} hangs off {base}")
+
     # The console shares the desk with the monitor on one side and the lamp on
     # the other.
     mine = [e for e in room.elements
             if e["name"].startswith(prefix + "Cam")
-            and not e["name"].startswith(prefix + "Camera")]
+            and not e["name"].startswith(prefix + "Camera")
+            and "Glyph" not in e["name"]]
     for other in ("MonitorBezelR", "MonitorStand", "LampBase", "LampArm", "LampHead"):
         oe = named.get(prefix + other)
         if oe is None:
@@ -246,7 +293,8 @@ def main():
     print(f"  room {W}x{D}x{H} m  ({W*M:.0f}x{D*M:.0f}x{H*M:.0f} units at {M:.0f}/m)")
     print(f"  {len(room.elements)} cubes in {len(room.groups)} groups")
     print(f"  console {PANEL_X1 - PANEL_X0:.2f} x {PANEL_V:.2f} m at {PANEL_TILT:.0f} deg")
-    print(f"  buttons PREV/NEXT, {BUTTON_W * 100:.0f} x {BUTTON_H * 100:.0f} cm each")
+    print(f"  buttons PREV/NEXT, {BUTTON_W * 100:.0f} x {BUTTON_H * 100:.0f} cm each, "
+          f"{GLYPH_W * 100:.0f} x {GLYPH_H * 100:.0f} cm arrows in {GLYPH_STEPS} steps")
     if problems:
         print(f"  !! {len(problems)} problems")
         for p in problems[:8]:

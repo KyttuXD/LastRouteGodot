@@ -14,7 +14,7 @@ work" below.
 
 | File | Used for | Wired up? |
 | --- | --- | --- |
-| `crtwave_shader.gdshader` | Rolling CRT distortion on the camera monitor feed. | **Yes** — `scenes/office.tscn`, on the feed body. |
+| `crtwave_shader.gdshader` | Rolling CRT distortion on the camera monitor feed. | **Yes** — `scenes/office_3d.tscn`, on the feed body. |
 | `equirectangular_perspective.gdshader` | The curved-panorama office view — the FNAF-style "you're sitting in the room" look, applied over a flat office image. | Not yet. It distorts a rendered office *image*; the office is currently placeholder `ColorRect`s, so applying it would warp flat blocks to no benefit. Apply it once real office art exists — and pick up `button_scroll.gd` at the same time (see below). |
 
 `equirectangular_perspective.gdshader` carries its own FOV formula in a
