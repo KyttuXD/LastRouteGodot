@@ -54,7 +54,7 @@ const ANCHORED := {
 		"EscapeOverlay": ["hcentre", "vcentre"],
 	},
 	"res://scenes/main_menu.tscn": {
-		"TitleLabel": ["hcentre", "top"],
+		"TitleLabel": ["hcentre", "vcentre"],
 		"ButtonPanel": ["hcentre", "vcentre"],
 		"SettingsOverlay": ["hcentre", "vcentre"],
 	},
@@ -118,6 +118,12 @@ func _check_scene(path: String) -> int:
 			failures += _measure(path, size, view, node as Control,
 				ANCHORED[path][name], gaps)
 
+	# Siblings must not land on each other. Containment and drift both passed
+	# while the menu title sat ON the button panel: title anchored to the top,
+	# panel to the centre, so a taller viewport walked them together. Nothing
+	# was off-screen and nothing drifted -- they just collided.
+	failures += _check_overlaps(scene, path)
+
 	for key in gaps:
 		var seen: Array = gaps[key]
 		var drift: float = seen.max() - seen.min()
@@ -131,6 +137,33 @@ func _check_scene(path: String) -> int:
 	await _frame()
 	print("  %-28s %d nodes held across %d aspect ratios, up to %.0f design px wide"
 		% [path.get_file(), ANCHORED[path].size(), SIZES.size(), widest])
+	return failures
+
+
+## Every anchored node in a scene, checked pairwise. Text can legitimately sit
+## over a backdrop, so full-rect nodes are skipped -- they ARE the backdrop.
+func _check_overlaps(scene: Node, path: String) -> int:
+	var failures := 0
+	var rects := {}
+	var view := _root().get_visible_rect()
+	for name in ANCHORED[path]:
+		var node := scene.find_child(name, true, false) as Control
+		if node == null or not node.visible:
+			continue
+		var rect := Rect2(node.global_position, node.size)
+		if rect.size.x >= view.size.x * 0.95 and rect.size.y >= view.size.y * 0.95:
+			continue
+		rects[name] = rect
+	var names: Array = rects.keys()
+	names.sort()
+	for i in names.size():
+		for j in range(i + 1, names.size()):
+			var a: Rect2 = rects[names[i]]
+			var b: Rect2 = rects[names[j]]
+			var hit := a.intersection(b)
+			if hit.size.x > 1.0 and hit.size.y > 1.0:
+				failures += _fail("%s %s overlaps %s by %.0f x %.0f px"
+					% [path.get_file(), names[i], names[j], hit.size.x, hit.size.y])
 	return failures
 
 

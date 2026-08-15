@@ -21,7 +21,7 @@ extends Node
 signal changed
 
 enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
-enum Scale { SMALL, STANDARD, LARGE, SPRAWLING, CAVERNOUS, ENDLESS }
+enum Scale { SMALL, STANDARD, LARGE, SPRAWLING, CAVERNOUS }
 enum Difficulty { RELAXED, STANDARD, NIGHTMARE }
 
 ## The web build calls a slot a "signal" and seats sixteen of them.
@@ -38,7 +38,6 @@ const MODE_LABELS := {
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
 	Scale.SPRAWLING: "SPRAWLING", Scale.CAVERNOUS: "CAVERNOUS",
-	Scale.ENDLESS: "ENDLESS",
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
@@ -159,12 +158,6 @@ const SCALE_OPTIONS := {
 		"battery_count": 12},
 	Scale.CAVERNOUS: {"cols": 99, "rows": 99, "room_count": 20, "relay_count": 8,
 		"battery_count": 15},
-	# The web build's ENDLESS keeps growing as a route goes on. The growth
-	# itself is not ported yet, so this is its starting footprint: the largest
-	# the generator will build, which is honest about being big without
-	# pretending it expands.
-	Scale.ENDLESS: {"cols": 121, "rows": 121, "room_count": 26, "relay_count": 10,
-		"battery_count": 20},
 }
 
 
