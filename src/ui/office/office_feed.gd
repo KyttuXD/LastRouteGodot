@@ -9,13 +9,16 @@ extends SubViewport
 ## camera actually being watched is ever rendered, which is also how the
 ## simulation treats them (one `current_camera`).
 ##
-## The whole facility is loaded once, from art/props-3d/office/office_map.glb,
+## The whole facility is loaded once, from scenes/office_map.tscn,
 ## so a threat crossing between rooms is the same object throughout and feeds
 ## share one world. Viewpoints are NOT hand-placed here: every room in that
 ## map carries an authored `<Room>_CameraMount` and `<Room>_CameraTarget`,
 ## which is what those groups exist for.
 
-const MAP_SCENE := "res://art/props-3d/office/office_map.glb"
+# The SPLIT scene, not the monolithic .glb: it instances the shell and the
+# props as separate branches so dressing can be edited by hand in the editor
+# without the map being regenerated over it.
+const MAP_SCENE := "res://scenes/office_map.tscn"
 
 ## Camera id -> node prefix in office_map.glb. Mirrors CAM_ROOM in the map's
 ## build script; the two passages have no room of their own, so they fall back
