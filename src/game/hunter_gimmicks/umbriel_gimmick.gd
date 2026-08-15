@@ -10,12 +10,14 @@ extends HunterGimmick
 ## (`nightmareCopiesAbilities`), and no difficulty selection exists in this
 ## port, so it is genuinely absent rather than stubbed.
 ##
-## Kathy is excluded from the pool, as in the original. The pool is drawn from
-## HunterRoster.IMPLEMENTED_IDS, so it widens on its own as more hunters are
-## ported — with a small roster she simply has fewer faces to wear.
+## Kathy is excluded from the pool, as in the original.
 ##
-## The disguise is presentation-only, so the brain never reads it:
-## HunterView3D polls `disguise_id` and swaps its model when it changes.
+## The pool is the whole ROSTER, not the implemented pool. A disguise is a model
+## and a name — the brain never reads it, HunterView3D polls `disguise_id` and
+## swaps its model — so she can wear the face of a hunter whose AI is not
+## ported. Drawing from the implemented pool instead would have made her a
+## walking progress bar for the port, showing the player only the faces of
+## hunters that happen to be finished.
 
 var disguise_id := ""
 
@@ -28,13 +30,11 @@ func before_perception(brain: HunterBrain, delta: float, _target: Dictionary, _g
 		return
 	_timer = GameConfig.UMBRIEL_DISGUISE_INTERVAL
 
-	var pool: Array = []
-	for id in HunterRoster.IMPLEMENTED_IDS:
-		if id == brain.hunter_id or id == disguise_id:
-			continue
-		if id in GameConfig.UMBRIEL_DISGUISE_EXCLUDED:
-			continue
-		pool.append(id)
+	var excluded: Array = GameConfig.UMBRIEL_DISGUISE_EXCLUDED.duplicate()
+	excluded.append(brain.hunter_id)
+	if not disguise_id.is_empty():
+		excluded.append(disguise_id)
+	var pool := HunterRoster.disguise_ids(excluded)
 	if pool.is_empty():
 		return
 	disguise_id = pool[brain.next_random_index(pool.size())]

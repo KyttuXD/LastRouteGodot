@@ -7,11 +7,36 @@ cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 
 **Status: 12 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
-(search beam), Ravelle (doorway tripwires), Mavrine (lattice mark) and
-Umbriel (shapeshifter), plus the three temperature/darkness hunters that
-the meters pass unblocked: **Nyxie** (darkness stalker), **Solyth**
-(heat-summoned) and **Wynelle** (cold materializer). See `MIGRATION.md`'s
-"Hunter roster" section for how they're wired.
+(search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
+(shapeshifter) and Thessine (see below), plus the three temperature/darkness
+hunters that the meters pass unblocked: **Nyxie** (darkness stalker),
+**Solyth** (heat-summoned) and **Wynelle** (cold materializer). See
+`MIGRATION.md`'s "Hunter roster" section for how they're wired.
+
+**All 26 have models and tuning.** `HunterRoster.PROFILES` carries every
+hunter's `HUNTER_PROFILES` row and `art/props-3d/characters/` has a model for
+each, built by `tools/characters/build_hunters.py`. That is deliberately *not*
+a claim that 26 are playable: `IMPLEMENTED_IDS` is the pool the game draws
+from, and a hunter with a profile but no gimmick stays out of it, because
+shipping her would be a Dovelle reskin wearing someone else's name. What it
+buys is that adding a hunter is now one line plus her gimmick, that the draw
+can be weighted by real tiers, and that Umbriel can wear the whole cast's faces
+rather than only the finished ones.
+
+**Thessine is ported**, on tuning alone. Her entire gimmick is playing fake
+sound cues, which changes no state whatsoever — so without an audio system she
+is not a degraded Thessine, she is a complete one. She gains her cues later
+with no behaviour change. She is the only hunter this is true of; Jyvra and
+Porcelle look similar and are not (see the notes below).
+
+**The tier-weighted draw is restored.** `pick_for_floor()` now does the
+original's tier-weighted seeded pick (Standard: easy .35 / intermediate .50 /
+difficult .15) rather than a uniform draw. A tier with nobody implemented in it
+drops out and the rest renormalise, so a partial roster cannot hand "difficult"
+a share far above its weight. Only Standard's weights are recorded here, so
+Relaxed and Nightmare use them too rather than have numbers invented for them.
+The `roster` check suite asserts the distribution, that every implemented
+hunter is actually reachable, and that the draw is replay-stable.
 
 Nyxie and Solyth are **specials**: registered but never entered into the
 random draw, always present on a floor but inert, woken by their own rule
@@ -25,12 +50,13 @@ and hunting *alongside* whichever route hunter was drawn. That is why
    original's one-file-per-hunter layout. Override only the hooks she needs;
    each has a no-op default.
 2. Register her in `HunterGimmick.for_id()`.
-3. Add her tuning constants to `GameConfig` and an entry to
-   `HunterRoster._identities()`, plus her id in `HunterRoster.IMPLEMENTED_IDS`.
-4. Add a placeholder scene at `art/props-3d/characters/<id>.tscn`.
+3. Add her **ability** constants to `GameConfig` (ranges, intervals,
+   thresholds — the things her gimmick script reads by name).
+4. Add her id to `HunterRoster.IMPLEMENTED_IDS`.
 
-A hunter whose gimmick is **only different tuning numbers** needs no gimmick
-class at all — steps 3 and 4 alone. The `HunterGimmick` hook surface
+Her movement/perception tuning and her model are already there — every hunter's
+`HUNTER_PROFILES` row is in `HunterRoster.PROFILES` and every model is built.
+A hunter whose gimmick is **only different tuning numbers** needs step 4 alone. The `HunterGimmick` hook surface
 (`before_perception`, `speed_scale`) is meant to grow: adding a new hook of
 that shape when a real hunter needs one is the established mechanism, not a
 new system.
@@ -197,11 +223,11 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 
 ## Difficulty tiers and selection
 
-From `NORMAL_ROUTE_HUNTER_TIERS`. The original weights a seeded draw across
-all 26 by tier (Standard: easy .35 / intermediate .50 / difficult .15); this
-port currently does a seeded uniform draw across `IMPLEMENTED_IDS` instead,
-which is the honest equivalent for a small pool. Restore the real tier
-weighting once enough of the roster exists to make it meaningful.
+From `NORMAL_ROUTE_HUNTER_TIERS` (Standard: easy .35 / intermediate .50 /
+difficult .15). **Implemented** — `pick_for_floor()` draws by tier weight over
+whichever tiers have implemented hunters in them, renormalising so a partial
+roster does not distort the shares. Relaxed and Nightmare reuse Standard's
+weights; theirs are not recorded here and are not being guessed at.
 
 - **easy** — aki, briselle, dovelle, glyra, haelith, jyvra, loxelle, opalie, quirith, ysolde, zephyra
 - **intermediate** — ceryth, ferryn, ilyra, mavrine, porcelle, thessine, verrine, xivvy

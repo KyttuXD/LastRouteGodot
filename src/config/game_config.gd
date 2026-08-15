@@ -120,11 +120,6 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## Dovelle — the zero-gimmick baseline hunter (HUNTER_ABILITIES.dovelle = {}
 ## in the original). Consumed via HunterRoster, not referenced directly by
 ## hunter_brain.gd (see src/config/hunter_roster.gd).
-const DOVELLE_BASE_SPEED := 0.8
-const DOVELLE_CHASE_SPEED := 3.55
-const DOVELLE_CHASE_PROGRESSION_SCALE := 0.18
-const DOVELLE_SIGHT_RANGE := 8.0
-const DOVELLE_HEARING_SCALE := 1.0
 
 ## Quirith — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
 ## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
@@ -133,11 +128,6 @@ const DOVELLE_HEARING_SCALE := 1.0
 ## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Nightmare's shorter 5s threshold
 ## isn't ported — no difficulty selection exists yet, matching every other
 ## Standard-only tuning value in this file.
-const QUIRITH_BASE_SPEED := 0.81
-const QUIRITH_CHASE_SPEED := 3.5
-const QUIRITH_CHASE_PROGRESSION_SCALE := 0.17
-const QUIRITH_SIGHT_RANGE := 8.1
-const QUIRITH_HEARING_SCALE := 0.85
 const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
 const QUIRITH_MAX_SPEED_SCALE := 1.45
 const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
@@ -147,11 +137,6 @@ const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
 ## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
 ## `breachesHiding` flag isn't ported — hiding spots don't exist yet, so it
 ## would be a no-op either way.
-const EIRYS_BASE_SPEED := 0.82
-const EIRYS_CHASE_SPEED := 3.58
-const EIRYS_CHASE_PROGRESSION_SCALE := 0.18
-const EIRYS_SIGHT_RANGE := 8.1
-const EIRYS_HEARING_SCALE := 1.05
 const EIRYS_SECONDS_TO_FULL := 50.0
 
 ## Xivvy — chase accelerator (hunterAbilities.xivvy.chaseAccelerator). Locks on
@@ -161,11 +146,6 @@ const EIRYS_SECONDS_TO_FULL := 50.0
 ## yet, so this is that formula's genuine rest value, not an invented number.
 ## Her `flight` flag isn't ported: nothing blocks movement that walking doesn't
 ## already block, so it's a no-op here.
-const XIVVY_BASE_SPEED := 0.97
-const XIVVY_CHASE_SPEED := 4.35
-const XIVVY_CHASE_PROGRESSION_SCALE := 0.12
-const XIVVY_SIGHT_RANGE := 6.72
-const XIVVY_HEARING_SCALE := 0.84
 const XIVVY_CLOSE_LOCK_RADIUS := 1.5
 const XIVVY_CLOSE_SCALE := 0.5
 const XIVVY_SPEED_PER_SECOND := 0.035
@@ -176,11 +156,6 @@ const XIVVY_MAX_SPEED_SCALE := 1.8
 ## ability (affectedSummon) is deliberately not ported: it requires other
 ## already-active route hunters, which is impossible at one hunter per floor
 ## in both codebases, so it is permanently inert rather than skipped.
-const KATHY_BASE_SPEED := 0.82
-const KATHY_CHASE_SPEED := 4.15
-const KATHY_CHASE_PROGRESSION_SCALE := 0.2
-const KATHY_SIGHT_RANGE := 8.2
-const KATHY_HEARING_SCALE := 1.0
 const KATHY_BEAM_RANGE := 11.5
 const KATHY_BEAM_HALF_ANGLE := 0.24
 
@@ -190,11 +165,6 @@ const KATHY_BEAM_HALF_ANGLE := 0.24
 ## on purpose — the per-trigger bonus is what carries her past it. Her fake
 ## doorway is not ported: only the original's renderer reads it, no gameplay
 ## logic does.
-const RAVELLE_BASE_SPEED := 0.81
-const RAVELLE_CHASE_SPEED := 3.15
-const RAVELLE_CHASE_PROGRESSION_SCALE := 0.18
-const RAVELLE_SIGHT_RANGE := 7.7
-const RAVELLE_HEARING_SCALE := 1.0
 const RAVELLE_TRIPWIRE_REFRESH := 30.0
 const RAVELLE_TRIPWIRE_COUNT := 2
 const RAVELLE_TRIGGER_RADIUS := 0.8
@@ -203,11 +173,6 @@ const RAVELLE_SPEED_PER_TRIGGER := 0.08
 ## Mavrine — lattice mark (hunterAbilities.mavrine.latticeMark). Cycles
 ## cooldown -> survey (holds still) -> project (an armed frame somewhere on the
 ## floor) -> ping, pursuing if the player crosses the frame.
-const MAVRINE_BASE_SPEED := 0.8
-const MAVRINE_CHASE_SPEED := 3.5
-const MAVRINE_CHASE_PROGRESSION_SCALE := 0.17
-const MAVRINE_SIGHT_RANGE := 8.2
-const MAVRINE_HEARING_SCALE := 0.95
 const MAVRINE_SURVEY_DELAY := 6.2
 const MAVRINE_SURVEY_DURATION := 0.9
 const MAVRINE_PROJECTION_DURATION := 6.0
@@ -220,11 +185,6 @@ const MAVRINE_MARK_TRIGGER_RADIUS := 0.62
 ## is purely cosmetic; attribute-copying is a Nightmare-only behaviour and no
 ## difficulty selection exists, so only the disguise is ported. Kathy is
 ## excluded from the pool, as in the original.
-const UMBRIEL_BASE_SPEED := 0.82
-const UMBRIEL_CHASE_SPEED := 3.46
-const UMBRIEL_CHASE_PROGRESSION_SCALE := 0.18
-const UMBRIEL_SIGHT_RANGE := 8.5
-const UMBRIEL_HEARING_SCALE := 0.86
 const UMBRIEL_DISGUISE_INTERVAL := 30.0
 const UMBRIEL_DISGUISE_EXCLUDED := ["kathy"]
 
@@ -235,11 +195,6 @@ const UMBRIEL_DISGUISE_EXCLUDED := ["kathy"]
 ## capture (the original calls triggerGameOver directly, skipping the
 ## struggle). A timer wake is dispelled by shining the beam at her.
 ## Her hearing scale is 0 in the original: she does not hear at all.
-const NYXIE_BASE_SPEED := 0.9
-const NYXIE_CHASE_SPEED := 3.9
-const NYXIE_CHASE_PROGRESSION_SCALE := 0.15
-const NYXIE_SIGHT_RANGE := 8.4
-const NYXIE_HEARING_SCALE := 0.0
 const NYXIE_TIMER_DELAY := 120.0
 const NYXIE_EMPTY_DELAY := 10.0
 const NYXIE_DESPAWN_RANGE := 7.0
@@ -252,11 +207,6 @@ const NYXIE_SPAWN_DISTANCE := 10.0
 ## floor so cooling can never send her away again. While locked in she burns an
 ## uncollected battery every SOLYTH_BATTERY_BURN_INTERVAL seconds. Her
 ## hiding-spot burn isn't ported — no hiding spots exist yet.
-const SOLYTH_BASE_SPEED := 0.8
-const SOLYTH_CHASE_SPEED := 3.0
-const SOLYTH_CHASE_PROGRESSION_SCALE := 0.17
-const SOLYTH_SIGHT_RANGE := 7.6
-const SOLYTH_HEARING_SCALE := 0.95
 const SOLYTH_BATTERY_BURN_INTERVAL := 30.0
 const SOLYTH_SPAWN_DISTANCE := 12.0
 
@@ -267,11 +217,6 @@ const SOLYTH_SPAWN_DISTANCE := 12.0
 ## player and opens a freeze-grace window. The facility heater station is the
 ## counterplay — powering it zeroes her progress, unfreezing it dematerialises
 ## her outright.
-const WYNELLE_BASE_SPEED := 0.81
-const WYNELLE_CHASE_SPEED := 3.0
-const WYNELLE_CHASE_PROGRESSION_SCALE := 0.18
-const WYNELLE_SIGHT_RANGE := 7.8
-const WYNELLE_HEARING_SCALE := 1.15
 const WYNELLE_WARM_THRESHOLD := 60.0
 const WYNELLE_DEEP_COLD_THRESHOLD := 30.0
 const WYNELLE_PER_DEGREE_RATE := 0.5
