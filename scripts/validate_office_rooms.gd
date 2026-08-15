@@ -28,6 +28,11 @@ const ROOMS := {
 	"vent": ["Floor", "Walls", "CameraMount"],
 	"electrical": ["Floor", "Walls", "CameraMount"],
 	"loading": ["Floor", "Walls", "CameraMount"],
+	# OfficeConfig names these three layouts too; they had no standalone feed
+	# model, so cam5/6/9/10/11 had nothing to draw.
+	"passage": ["Floor", "Walls", "CameraMount"],
+	"arcade": ["Floor", "Walls", "CameraMount"],
+	"dining": ["Floor", "Walls", "CameraMount"],
 }
 
 ## Authored size in metres (width, depth, height), for the scale check.
@@ -39,6 +44,9 @@ const SIZES := {
 	"vent": Vector3(1.3, 9.0, 1.3),
 	"electrical": Vector3(5.0, 4.0, 3.0),
 	"loading": Vector3(9.0, 7.0, 4.5),
+	"passage": Vector3(2.2, 9.0, 2.6),
+	"arcade": Vector3(8.0, 6.0, 3.2),
+	"dining": Vector3(9.0, 7.0, 3.2),
 }
 
 
