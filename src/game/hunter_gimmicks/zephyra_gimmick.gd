@@ -61,8 +61,17 @@ func immune_to_capture() -> bool:
 	return true
 
 
-func in_range(player_position: Vector2, brain_position: Vector2) -> bool:
-	return player_position.distance_to(brain_position) <= GameConfig.ZEPHYRA_SHOP_RANGE
+## In range AND actually being faced, the same requirement every other
+## interactable now has (see PlayerController3D._nearest_interactable) --
+## she is not a RouteInteractable3D, so this is her own copy of that check.
+func in_range(player_position: Vector2, brain_position: Vector2, player_facing: Vector2) -> bool:
+	var offset := brain_position - player_position
+	var distance := offset.length()
+	if distance > GameConfig.ZEPHYRA_SHOP_RANGE:
+		return false
+	if distance <= 0.001:
+		return true
+	return offset.normalized().dot(player_facing) >= cos(GameConfig.INTERACTION_FACING_HALF_ANGLE)
 
 
 func offer_menu_text() -> String:
@@ -75,8 +84,8 @@ func offer_menu_text() -> String:
 
 ## Opens (or re-toasts) the menu. `brain_position` is Zephyra's own spot on
 ## the floor, since the gimmick has no HunterBrain reference of its own.
-func open_shop(player_position: Vector2, brain_position: Vector2) -> String:
-	if not in_range(player_position, brain_position):
+func open_shop(player_position: Vector2, brain_position: Vector2, player_facing: Vector2) -> String:
+	if not in_range(player_position, brain_position, player_facing):
 		return ""
 	shop_open = true
 	return offer_menu_text()

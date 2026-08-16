@@ -312,7 +312,7 @@ func _use_shop(action: String) -> String:
 			continue
 		var gimmick: ZephyraGimmick = view.brain.gimmick
 		if action == "open":
-			return gimmick.open_shop(player.grid_position(), view.brain.position)
+			return gimmick.open_shop(player.grid_position(), view.brain.position, player.facing)
 		return gimmick.choose_offer(int(action), player, facility_view)
 	return ""
 
@@ -326,7 +326,7 @@ func _shop_prompt() -> String:
 		var gimmick: ZephyraGimmick = view.brain.gimmick
 		if gimmick.shop_open:
 			return gimmick.offer_menu_text()
-		if gimmick.in_range(player.grid_position(), view.brain.position):
+		if gimmick.in_range(player.grid_position(), view.brain.position, player.facing):
 			return "OPEN ZYTTU COIN EXCHANGE"
 	return ""
 

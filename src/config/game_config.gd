@@ -23,6 +23,11 @@ const LAMP_SPRINT_DRAIN := 0.35
 const BATTERY_RECHARGE := 25.0
 
 const INTERACTION_RANGE := 26.0
+## How far off-center (radians) an interactable can sit from the player's
+## facing and still be reachable -- generous on purpose, an aim-assist cone
+## rather than a precise reticle, unlike the much narrower beam-aim cones
+## (KATHY_BEAM_HALF_ANGLE etc.) those exist to be hard to hold on target.
+const INTERACTION_FACING_HALF_ANGLE := 0.7
 
 ## TUNING.safeRadius (2.5 tiles) from the original's game-config.js, converted
 ## to pixels — how close the player must be to a safe zone for the HUD's

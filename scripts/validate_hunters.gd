@@ -51,6 +51,7 @@ func run(_host: Node) -> int:
 	_ilyra_tags_and_pounces(generator)
 	await _verrine_lurks_and_chases(_host)
 	await _zephyra_trades_and_repairs(_host)
+	await _interactables_require_facing(_host)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -866,15 +867,24 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	_expect(not captured, "Zephyra captured the player -- she is supposed to be immune")
 
 	# Out of range: no shop.
-	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at)
+	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at, Vector2(0, 1))
 	_expect(message.is_empty(), "the shop opened from far outside its range")
 
-	# In range: opens with a real offer menu.
+	# In range and facing her (distance 0 counts as facing -- there is no
+	# meaningful "behind you" when you're standing exactly where she is):
+	# opens with a real offer menu.
 	GameState.coins = 20
-	message = brain.gimmick.open_shop(settled_at, settled_at)
+	message = brain.gimmick.open_shop(settled_at, settled_at, Vector2(0, 1))
 	_expect(not message.is_empty() and message.begins_with("ZYTTU SHOP"),
-		"opening the shop in range did not return a menu")
+		"opening the shop in range and facing her did not return a menu")
 	_expect(brain.gimmick.shop_open, "opening the shop did not mark it open")
+
+	# In range but facing away: refused, same as any other interactable.
+	brain.gimmick.shop_open = false
+	var away_point := settled_at + Vector2(1.0, 0.0)
+	message = brain.gimmick.open_shop(away_point, settled_at, Vector2(0, 1))
+	_expect(message.is_empty(), "the shop opened while facing away from her")
+	_expect(not brain.gimmick.shop_open, "facing away still marked the shop open")
 
 	# Choosing before it's open is a no-op (guarded separately below by
 	# closing it first).
@@ -944,3 +954,51 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 
 	scene.queue_free()
 	print("  zephyra   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
+
+
+## Not hunter-specific -- general player/interactable infrastructure, tested
+## here because this file already has the real-scene + real-relay harness
+## (see _briselle_sabotages_and_resecures) that a facing check needs. Being
+## in reach used to be the whole gate; now the player also has to be turned
+## toward the thing, which _nearest_interactable() enforces for every
+## interactable at once (see PlayerController3D._nearest_interactable).
+func _interactables_require_facing(host: Node) -> void:
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test facing-gated interaction against")
+		scene.queue_free()
+		return
+	var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
+	var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+	if relay_node == null:
+		_fail("no interactable at the first relay's cell")
+		scene.queue_free()
+		return
+
+	# Close enough to reach, one metre off the relay.
+	player.global_position = relay_node.global_position + Vector3(0.0, 0.0, 1.0)
+
+	# Facing away from it: no prompt, and pressing interact does nothing --
+	# proximity alone used to be enough for both.
+	player.facing = Vector2(0.0, 1.0)
+	_expect(player.get_interaction_prompt().is_empty(),
+		"a relay right next to the player showed a prompt while they faced away from it")
+	player._try_interact()
+	_expect(GameState.relays_collected == 0,
+		"pressing interact while facing away from a relay collected it anyway")
+
+	# Turned to face it: the same relay, now reachable both for the prompt
+	# and for the press.
+	player.facing = Vector2(0.0, -1.0)
+	_expect(not player.get_interaction_prompt().is_empty(),
+		"a relay right in front of the player showed no prompt while facing it directly")
+	player._try_interact()
+	_expect(GameState.relays_collected == 1,
+		"pressing interact while facing a relay directly did not collect it")
+
+	scene.queue_free()
+	print("  facing    a nearby interactable is only reachable while actually faced")

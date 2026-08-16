@@ -490,14 +490,25 @@ func resecure_percent() -> int:
 	return clampi(roundi(_resecure_progress / GameConfig.RELAY_RESECURE_SECONDS * 100.0), 0, 100)
 
 
+## Nearest interactable in reach AND actually being looked at -- being close
+## to something used to be enough on its own, which let a player trigger
+## whatever was nearest behind or beside them without turning to face it.
+## Facing is checked on the grid plane only (same 2D convention `facing`
+## already uses for the hunters' own beam-aim checks), so looking up or down
+## at a target roughly at eye height still counts.
 func _nearest_interactable() -> RouteInteractable3D:
 	var nearest: RouteInteractable3D = null
 	var nearest_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
 			continue
-		var distance := global_position.distance_to(candidate.global_position)
-		if distance <= nearest_distance and not candidate.get_prompt().is_empty():
-			nearest = candidate
-			nearest_distance = distance
+		var offset := Vector2(candidate.global_position.x - global_position.x,
+			candidate.global_position.z - global_position.z)
+		var distance := offset.length()
+		if distance > nearest_distance or candidate.get_prompt().is_empty():
+			continue
+		if distance > 0.001 and offset.normalized().dot(facing) < cos(GameConfig.INTERACTION_FACING_HALF_ANGLE):
+			continue
+		nearest = candidate
+		nearest_distance = distance
 	return nearest
