@@ -14,7 +14,9 @@ const TIMEOUT_SECONDS := 8.0
 var _client_waiting_for_start := false
 var _remotes: RemotePlayers
 var _host_received_interaction := false
+var _host_received_admin := false
 var _client_received_effect := false
+var _client_received_snapshot := false
 
 
 func _ready() -> void:
@@ -69,10 +71,11 @@ func _run_host() -> void:
 		_finish(false, "host could not identify the joined peer")
 		return
 	_remotes.send_player_event(client_id, {"what": "smoke_effect", "value": 37})
-	if not await _wait_for(func() -> bool: return _host_received_interaction):
-		_finish(false, "guest interaction request never reached host authority")
+	if not await _wait_for(func() -> bool:
+		return _host_received_interaction and _host_received_admin):
+		_finish(false, "guest gameplay/admin requests never reached host authority")
 		return
-	print("ENET HOST AUTHORITY OK // guest interaction request received")
+	print("ENET HOST AUTHORITY OK // guest gameplay/admin requests received")
 	# Exercise the same authority RPC RoomState.enter() uses without replacing
 	# this smoke-test scene on the host. The client's changed signal verifies the
 	# synchronized start before its deferred scene transition can remove it.
@@ -110,10 +113,13 @@ func _run_client() -> void:
 	print("ENET CLIENT OK // room %s // %d signals" % [RoomState.code,
 		RoomState.roster().size()])
 	_remotes.request_interaction({"what": "music_box"})
-	if not await _wait_for(func() -> bool: return _client_received_effect):
-		_finish(false, "host-targeted player effect never reached the guest")
+	_remotes.request_interaction({"what": "admin_world", "action": "rebuild"})
+	if not await _wait_for(func() -> bool:
+		return _client_received_effect and _client_received_snapshot):
+		_finish(false, "targeted effect or fragmented snapshot never reached the guest")
 		return
 	print("ENET CLIENT AUTHORITY OK // targeted effect received")
+	print("ENET CLIENT SNAPSHOT OK // transferable floor payload received")
 	# _on_client_room_changed quits on the host's start RPC. Staying alive here
 	# also gives the reliable callsign registration time to reach the host.
 	await get_tree().create_timer(TIMEOUT_SECONDS).timeout
@@ -150,14 +156,37 @@ func _install_replication(at: Vector3) -> void:
 	_remotes = RemotePlayers.new()
 	_remotes.name = "RemotePlayers"
 	_remotes.local_player = local
-	_remotes.interaction_requested.connect(func(peer_id: int, event: Dictionary) -> void:
-		if peer_id > 1 and String(event.get("what", "")) == "music_box":
-			_host_received_interaction = true)
+	_remotes.snapshot_source = _smoke_snapshot
+	_remotes.interaction_requested.connect(_on_smoke_interaction)
 	_remotes.player_event.connect(func(event: Dictionary) -> void:
 		if String(event.get("what", "")) == "smoke_effect" \
 				and int(event.get("value", 0)) == 37:
 			_client_received_effect = true)
+	_remotes.world_snapshot.connect(func(state: Dictionary) -> void:
+		var payload = state.get("custom_map_png", PackedByteArray())
+		if int(state.get("marker", 0)) == 91 and payload is PackedByteArray \
+				and payload.size() == 65536 and payload[0] == 0xA5 \
+				and payload[payload.size() - 1] == 0xA5:
+			_client_received_snapshot = true
+			_remotes.confirm_snapshot_applied())
 	add_child(_remotes)
+
+
+func _on_smoke_interaction(peer_id: int, event: Dictionary) -> void:
+	if peer_id <= 1:
+		return
+	match String(event.get("what", "")):
+		"music_box":
+			_host_received_interaction = true
+		"admin_world":
+			_host_received_admin = String(event.get("action", "")) == "rebuild"
+
+
+func _smoke_snapshot() -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(65536)
+	payload.fill(0xA5)
+	return {"marker": 91, "floor_source": "custom", "custom_map_png": payload}
 
 
 func _finish(ok: bool, message: String) -> void:

@@ -63,6 +63,10 @@ func run(host: Node) -> int:
 	print("  authority guest world actions are validated and canonicalized by the host")
 	await _snapshot_catches_up(host, alice)
 	print("  latecomer a peer joining mid-floor is told what it missed")
+	await _custom_map_snapshot_catches_up(host, alice)
+	print("  custom    authored floor and mutations bootstrap before guest control")
+	_admin_world_changes_persist(alice)
+	print("  admin     shared debug edits commit on host and advance floor revision")
 
 	alice.queue_free()
 	bob.queue_free()
@@ -206,6 +210,100 @@ func _snapshot_catches_up(host: Node, alice: Node) -> void:
 	_expect(GameState.coins == 13 and GameState.score == 725,
 		"a joining peer did not adopt shared economy/progression totals")
 	latecomer.queue_free()
+
+
+## A custom map is the base world, not merely another mutation. The PNG must
+## arrive before cell-addressed pickup/hiding state, and an invalid payload
+## must leave the guest locked so RemotePlayers will request another snapshot.
+func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
+	var size := CustomMapParser.MIN_SIZE
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 1))
+	for y in range(1, size - 1):
+		for x in range(1, size - 1):
+			image.set_pixel(x, y, Color(1, 1, 1, 1))
+	image.set_pixel(2, 2, Color8(0, 255, 0))
+	image.set_pixel(size - 3, size - 3, Color8(255, 0, 0))
+	for y in range(5, 8):
+		for x in range(5, 8):
+			image.set_pixel(x, y, Color8(0x8e, 0x5f, 0xd9))
+
+	var install_error: String = alice._install_custom_map_png(
+		image.save_png_to_buffer(), "SYNC:CUSTOM")
+	_expect(install_error.is_empty(), "host could not install the custom map: %s" % install_error)
+	if not install_error.is_empty():
+		return
+	var relay := _first(alice, RouteInteractable3D.Kind.RELAY)
+	if relay != null:
+		relay.activate(alice.player)
+	var hiding := _first(alice, RouteInteractable3D.Kind.HIDING_SPOT)
+	if hiding != null:
+		hiding.set_disabled(true)
+	alice.facility_view.heater_station.adopt({
+		"what": "heater", "state": RouteInteractable3D.HeaterState.POWERED})
+	var state: Dictionary = alice._build_snapshot()
+	_expect(state.get("floor_source", "") == "custom",
+		"custom snapshot was labelled procedural")
+	_expect((state.get("custom_map_png", PackedByteArray()) as PackedByteArray).size() > 0,
+		"custom snapshot omitted its transferable PNG")
+
+	var latecomer: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(latecomer)
+	await host.get_tree().process_frame
+	latecomer._awaiting_initial_snapshot = true
+	latecomer.player.input_frozen = true
+	latecomer._remotes._snapshot_received = false
+	latecomer._apply_world_snapshot({
+		"floor_source": "custom",
+		"custom_map_png": PackedByteArray(),
+		"depth": GameState.depth,
+	})
+	_expect(latecomer._awaiting_initial_snapshot and latecomer.player.input_frozen,
+		"an invalid custom-map packet unlocked the joining player")
+	_expect(not latecomer._remotes._snapshot_received,
+		"an invalid custom-map packet disabled snapshot retries")
+
+	latecomer._apply_world_snapshot(state)
+	_expect(latecomer.facility_view.generator.cols == size
+		and latecomer.facility_view.generator.rows == size,
+		"joining peer did not rebuild the authored map dimensions")
+	_expect(latecomer.facility_view.generator.start == Vector2i(2, 2),
+		"joining peer did not rebuild the authored start cell")
+	_expect(latecomer.facility_view.generator.grid == alice.facility_view.generator.grid,
+		"joining peer rebuilt different custom-map walls")
+	if relay != null:
+		var late_relay: RouteInteractable3D = latecomer.facility_view._at(
+			relay.source_cell, RouteInteractable3D.Kind.RELAY)
+		_expect(late_relay != null and late_relay.completed,
+			"custom-map pickup state landed before/without its base floor")
+	if hiding != null:
+		var late_hiding: RouteInteractable3D = latecomer.facility_view.hiding_spot_at(
+			hiding.source_cell)
+		_expect(late_hiding != null and late_hiding.disabled,
+			"custom-map hiding state did not catch up")
+	_expect(latecomer.facility_view.heater_station.heater_state
+		== RouteInteractable3D.HeaterState.POWERED,
+		"custom-map heater state did not catch up")
+	_expect(not latecomer._awaiting_initial_snapshot and not latecomer.player.input_frozen,
+		"valid snapshot did not release joining player control")
+	_expect(latecomer._remotes._snapshot_received,
+		"valid snapshot did not stop retry traffic")
+	latecomer.queue_free()
+
+
+func _admin_world_changes_persist(scene: Node) -> void:
+	var revision_before: int = scene._floor_revision
+	scene._apply_admin_world_action("all_relays")
+	_expect(GameState.relays_collected == GameState.relay_target,
+		"room-wide admin relay grant did not commit on host state")
+	scene._apply_admin_world_action("rebuild")
+	var state: Dictionary = scene._build_snapshot()
+	_expect(scene._floor_revision > revision_before,
+		"admin rebuild did not advance the host floor revision")
+	_expect(state.get("floor_source", "") == "procedural",
+		"admin rebuild did not replace the prior custom floor on host")
+	_expect(int(state.get("floor_revision", -1)) == scene._floor_revision,
+		"admin rebuild snapshot did not publish its new floor revision")
 
 
 func _hunter_state_travels(alice: Node, bob: Node) -> void:

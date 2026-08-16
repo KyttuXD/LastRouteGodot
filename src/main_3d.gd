@@ -36,6 +36,20 @@ var _custom_map_request: HTTPRequest
 ## simpler than trusting an internal client-status API to mean what it sounds
 ## like it means.
 var _custom_map_fetching := false
+## A custom floor cannot be regenerated from RoomState's procedural seed. The
+## host retains a compact canonical PNG so a late joiner's first snapshot can
+## rebuild the exact authored grid before applying collected/disabled state.
+const CUSTOM_MAP_MAX_BYTES := 2 * 1024 * 1024
+var _custom_map_png := PackedByteArray()
+var _custom_map_seed := ""
+## Changes whenever the host replaces the base floor, even if depth/seed stay
+## the same (for example REBUILD FLOOR). Guests compare the host revision from
+## snapshots so cleared pickups cannot remain completed on an old local base.
+var _floor_revision := 0
+var _applied_host_floor_revision := -1
+## Guests enter the live scene before their world snapshot can arrive. Keep
+## their controller locked until that snapshot has been validated and applied.
+var _awaiting_initial_snapshot := false
 ## Rebuilt each frame on the host and sent as-is; empty on a client, which
 ## never fills it because it never runs a brain.
 var _hunter_report: Array = []
@@ -50,6 +64,7 @@ var _remote_meter_effect_elapsed := 0.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_awaiting_initial_snapshot = RoomState.online and not RoomState.is_host
 	# The room's seed, not a fresh random one. Every shared thing below is
 	# addressed by grid cell, which only names the same object on two machines
 	# if both machines generated the same facility -- so this line is what makes
@@ -92,10 +107,17 @@ func _ready() -> void:
 	facility_view.world_changed.connect(_on_world_changed)
 	_build_admin()
 	_build_floor()
+	if _awaiting_initial_snapshot:
+		player.input_frozen = true
+		hud.show_message("SYNCING CURRENT FLOOR...")
 	_update_hud()
 
 
 func _process(delta: float) -> void:
+	# Menu/stun callbacks may also write input_frozen. Snapshot readiness wins
+	# over all of them: a guest must never walk around the temporary floor.
+	if _awaiting_initial_snapshot:
+		player.input_frozen = true
 	if GameState.game_over:
 		_handle_game_over_tick(delta)
 		if not RoomState.online:
@@ -531,10 +553,22 @@ func _shop_prompt() -> String:
 func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
 	if not _remotes.simulates():
 		return
+	var what := String(event.get("what", ""))
+	# A debug-tools build treats access to its admin overlay as the admin role.
+	# Shared commands are still executed by peer 1, so a guest never mutates a
+	# private copy and assumes the host saw it.
+	if what == "admin_custom_map":
+		if Build.tools_enabled():
+			_load_custom_map(String(event.get("url", "")))
+		return
+	if what == "admin_world":
+		if Build.tools_enabled():
+			_apply_admin_world_action(String(event.get("action", "")))
+		return
 	var source := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
 	if source.is_empty():
 		return
-	match String(event.get("what", "")):
+	match what:
 		"music_box":
 			if facility_view.music_box == null \
 					or not _target_can_interact(source, facility_view.music_box.source_cell):
@@ -822,14 +856,15 @@ func _build_admin() -> void:
 				"ON" if player.admin_god_mode else "OFF"],
 		[
 			{"label": "GRANT RELAY", "action": func() -> void:
-				GameState.relays_collected = mini(GameState.relay_target,
-					GameState.relays_collected + 1)},
+				_admin_world_action("grant_relay")},
 			{"label": "ALL RELAYS", "action": func() -> void:
-				GameState.relays_collected = GameState.relay_target},
+				_admin_world_action("all_relays")},
 			{"label": "FULL LAMP", "action": func() -> void:
 				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
-			{"label": "REBUILD FLOOR", "action": _build_floor},
-			{"label": "DESCEND", "action": func() -> void: GameState.descend()},
+			{"label": "REBUILD FLOOR", "action": func() -> void:
+				_admin_world_action("rebuild")},
+			{"label": "DESCEND", "action": func() -> void:
+				_admin_world_action("descend")},
 			# Both maps read _admin_reveal_hunters fresh every frame in
 			# _process(), so flipping this needs nothing else to take effect.
 			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
@@ -842,6 +877,39 @@ func _build_admin() -> void:
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
 				"on_submit": _load_custom_map},
 		])
+
+
+## Route-wide debug commands use the same guest -> host intent path as hunter
+## interactions. Personal commands (lamp/no-target/god/reveal) deliberately
+## stay on the admin who pressed them.
+func _admin_world_action(action: String) -> void:
+	if not Build.tools_enabled():
+		return
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "admin_world", "action": action})
+		hud.show_message("ADMIN // %s SENT TO HOST" % action.replace("_", " ").to_upper())
+		return
+	_apply_admin_world_action(action)
+
+
+func _apply_admin_world_action(action: String) -> void:
+	if not Build.tools_enabled() or not ["grant_relay", "all_relays", "rebuild",
+			"descend"].has(action):
+		return
+	match action:
+		"grant_relay":
+			GameState.relays_collected = mini(GameState.relay_target,
+				GameState.relays_collected + 1)
+		"all_relays":
+			GameState.relays_collected = GameState.relay_target
+		"rebuild":
+			_build_floor()
+		"descend":
+			GameState.descend()
+			observed_depth = GameState.depth
+			_build_floor()
+	if _remotes != null:
+		_remotes.broadcast_snapshot()
 
 
 func _toggle_admin_god_mode() -> void:
@@ -1114,6 +1182,12 @@ func _play_world_audio(event: Dictionary) -> void:
 func _build_snapshot() -> Dictionary:
 	_collect_hunter_report()
 	var state := facility_view.shared_state()
+	state["snapshot_protocol"] = 2
+	state["floor_revision"] = _floor_revision
+	state["floor_source"] = "custom" if not _custom_map_png.is_empty() else "procedural"
+	if not _custom_map_png.is_empty():
+		state["custom_map_png"] = _custom_map_png.duplicate()
+		state["custom_map_seed"] = _custom_map_seed
 	state["depth"] = GameState.depth
 	state["relays"] = GameState.relays_collected
 	state["relays_sabotaged"] = GameState.relays_sabotaged
@@ -1125,13 +1199,33 @@ func _build_snapshot() -> Dictionary:
 
 func _apply_world_snapshot(state: Dictionary) -> void:
 	var depth := int(state.get("depth", GameState.depth))
+	var depth_changed := depth != GameState.depth
 	if depth != GameState.depth:
 		GameState.depth = depth
 		GameState.start_floor()
-		_build_floor()
-		# Built here rather than left to _process, because the state below has
-		# to land on the floor it describes and not on the one being replaced.
 		observed_depth = depth
+
+	# Build the authoritative base floor before applying cell-addressed state.
+	# A late joiner initially has a procedural placeholder, which is not useful
+	# when the host loaded a hand-painted map during this depth.
+	var floor_source := String(state.get("floor_source", "procedural"))
+	var host_floor_revision := int(state.get("floor_revision", 0))
+	if floor_source == "custom":
+		var payload = state.get("custom_map_png", PackedByteArray())
+		if not payload is PackedByteArray:
+			hud.show_message("SYNC FAILED // CUSTOM MAP PAYLOAD INVALID // RETRYING")
+			return
+		var custom_seed := String(state.get("custom_map_seed",
+			"%s:CUSTOM" % GameState.level_seed_text()))
+		var custom_error := _install_custom_map_png(payload, custom_seed)
+		if not custom_error.is_empty():
+			hud.show_message("SYNC FAILED // %s // RETRYING" % custom_error.to_upper())
+			return
+	elif depth_changed or not _custom_map_png.is_empty() \
+			or host_floor_revision != _applied_host_floor_revision:
+		_build_floor()
+	# Built here rather than left to _process, because the state below has to
+	# land on the floor it describes and not on the one being replaced.
 	facility_view.adopt_state(state)
 	# adopt_state re-counts the relays it applies, so this is a correction for
 	# anything the count could still miss rather than the source of it.
@@ -1144,6 +1238,11 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 	if hunters is Array:
 		_apply_hunters(hunters)
 	player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
+	_awaiting_initial_snapshot = false
+	_applied_host_floor_revision = host_floor_revision
+	player.input_frozen = GameState.escape_active or player.hidden or player.is_stunned()
+	if _remotes != null:
+		_remotes.confirm_snapshot_applied()
 	_update_hud()
 
 
@@ -1166,7 +1265,8 @@ func _on_pause_opened() -> void:
 
 func _on_pause_resumed() -> void:
 	if RoomState.online:
-		player.input_frozen = GameState.escape_active or player.hidden or player.is_stunned()
+		player.input_frozen = _awaiting_initial_snapshot or GameState.escape_active \
+			or player.hidden or player.is_stunned()
 
 
 func _on_interaction_message(message: String) -> void:
@@ -1174,6 +1274,9 @@ func _on_interaction_message(message: String) -> void:
 
 
 func _build_floor() -> void:
+	_floor_revision += 1
+	_custom_map_png = PackedByteArray()
+	_custom_map_seed = ""
 	facility_view.generate_floor(GameState.level_seed_text())
 	_after_floor_built()
 
@@ -1185,7 +1288,7 @@ func _after_floor_built() -> void:
 	GameState.relay_target = facility_view.generator.relay_count
 	player.position = _player_spawn_world_position()
 	player.velocity = Vector3.ZERO
-	player.input_frozen = false
+	player.input_frozen = _awaiting_initial_snapshot
 	_spawn_hunter()
 
 
@@ -1224,11 +1327,20 @@ func _load_custom_map(url: String) -> void:
 	var trimmed := url.strip_edges()
 	if trimmed.is_empty():
 		return
+	if trimmed.length() > 2048 or not (trimmed.begins_with("https://") \
+			or trimmed.begins_with("http://")):
+		hud.show_message("CUSTOM MAP // ENTER A VALID HTTP(S) PNG URL")
+		return
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "admin_custom_map", "url": trimmed})
+		hud.show_message("CUSTOM MAP // SENT TO HOST FOR INSTALL")
+		return
 	if _custom_map_fetching:
 		hud.show_message("CUSTOM MAP // ALREADY FETCHING ONE")
 		return
 	if _custom_map_request == null:
 		_custom_map_request = HTTPRequest.new()
+		_custom_map_request.body_size_limit = CUSTOM_MAP_MAX_BYTES
 		add_child(_custom_map_request)
 		_custom_map_request.request_completed.connect(_on_custom_map_response)
 	var error := _custom_map_request.request(trimmed)
@@ -1245,18 +1357,39 @@ func _on_custom_map_response(result: int, code: int, _headers: PackedStringArray
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		hud.show_message("CUSTOM MAP // FETCH FAILED (result %d, HTTP %d)" % [result, code])
 		return
-	var image := Image.new()
-	var decode_error := image.load_png_from_buffer(body)
-	if decode_error != OK:
-		hud.show_message("CUSTOM MAP // NOT A READABLE PNG")
-		return
 	var seed_text := "%s:CUSTOM" % GameState.level_seed_text()
-	var parse_error := facility_view.generate_floor_from_custom_map(image, seed_text)
+	var parse_error := _install_custom_map_png(body, seed_text)
 	if not parse_error.is_empty():
 		hud.show_message("CUSTOM MAP // %s" % parse_error.to_upper())
 		return
-	_after_floor_built()
+	if _remotes != null:
+		_remotes.broadcast_snapshot()
 	hud.show_message("CUSTOM MAP LOADED // %dx%d" % [facility_view.generator.cols, facility_view.generator.rows])
+
+
+## Decode, validate and install the transferable representation of a custom
+## floor. Used by both the admin HTTP response and a late-join snapshot so
+## those paths cannot disagree about size limits or parsing.
+func _install_custom_map_png(body: PackedByteArray, seed_text: String) -> String:
+	if body.is_empty():
+		return "CUSTOM MAP PAYLOAD IS EMPTY"
+	if body.size() > CUSTOM_MAP_MAX_BYTES:
+		return "CUSTOM MAP EXCEEDS %d KB" % (CUSTOM_MAP_MAX_BYTES / 1024)
+	var image := Image.new()
+	var decode_error := image.load_png_from_buffer(body)
+	if decode_error != OK:
+		return "NOT A READABLE PNG"
+	var parse_error := facility_view.generate_floor_from_custom_map(image, seed_text)
+	if not parse_error.is_empty():
+		return parse_error
+	# Keep the already size-limited, successfully decoded source bytes. Re-
+	# encoding could grow beyond the transport limit after the floor had already
+	# been replaced, leaving the host with a map it could no longer publish.
+	_custom_map_png = body.duplicate()
+	_custom_map_seed = seed_text
+	_floor_revision += 1
+	_after_floor_built()
+	return ""
 
 
 func _spawn_hunter() -> void:

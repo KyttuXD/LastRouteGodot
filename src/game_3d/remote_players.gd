@@ -96,8 +96,8 @@ func _local_state() -> Dictionary:
 		"game_over": GameState.game_over,
 		"visible": not controller.hidden,
 		# Read-only meter values let host-side targeting rules use the same inputs.
-		# Effects which mutate a PlayerMeters object remain local-player mechanics;
-		# see MIGRATION.md's remaining co-op limitations.
+		# The host diffs any hunter mutation against these values and returns the
+		# delta through a targeted reliable player event.
 		"exposure": controller.meters.exposure,
 		"noise_meter": controller.meters.noise_meter,
 		"temperature": controller.meters.temperature,
@@ -313,7 +313,7 @@ func _request_interaction(event: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zephyra_trade"].has(what):
+			"vent_used", "zephyra_trade", "admin_custom_map", "admin_world"].has(what):
 		return
 	var accepted := event.duplicate(true)
 	accepted["peer_id"] = sender
@@ -324,6 +324,13 @@ func _greet(id: int) -> void:
 	if not RoomState.is_host or not snapshot_source.is_valid():
 		return
 	_snapshot.rpc_id(id, snapshot_source.call())
+
+
+## A host-side floor replacement (currently the debug custom-map loader) must
+## rebuild already-connected guests too, not only peers which join afterward.
+func broadcast_snapshot() -> void:
+	if RoomState.online and RoomState.is_host and snapshot_source.is_valid():
+		_snapshot.rpc(snapshot_source.call())
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -337,8 +344,20 @@ func _request_snapshot() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _snapshot(state: Dictionary) -> void:
-	_snapshot_received = true
 	world_snapshot.emit(state)
+
+
+## The route scene confirms only after it has rebuilt the authoritative floor
+## and adopted every durable mutation. A malformed/incomplete custom-map
+## snapshot therefore keeps retrying instead of unlocking the guest on the
+## wrong building merely because an RPC packet arrived.
+func confirm_snapshot_applied() -> void:
+	_snapshot_received = true
+	_snapshot_elapsed = 0.0
+
+
+func awaiting_snapshot() -> bool:
+	return RoomState.online and not RoomState.is_host and not _snapshot_received
 
 
 ## Targeted effects (capture, stun, forced hiding exit) are decided by the
