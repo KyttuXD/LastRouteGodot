@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_vent"]
+size = Vector3(0.6, 0.5, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vent"]
+albedo_color = Color(0.2, 0.22, 0.24, 1)
+metallic = 0.6
+roughness = 0.4
+
+; Placeholder vent grate -- Verrine's whole network. A real louvered-metal
+; look is future art, same honest-placeholder pattern as hiding_spot.tscn
+; and music_box.tscn: the mechanic is real and the grate is a stand-in.
+[node name="Vent" type="Node3D"]
+
+[node name="Model" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+mesh = SubResource("BoxMesh_vent")
+surface_material_override/0 = SubResource("StandardMaterial3D_vent")

@@ -18,6 +18,7 @@ enum Kind {
 	HEATER_STATION,
 	HIDING_SPOT,
 	MUSIC_BOX,
+	VENT,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -38,6 +39,7 @@ const MODEL_SCENES := {
 	Kind.HEATER_STATION: "res://art/props-3d/interactables/heater_station.tscn",
 	Kind.HIDING_SPOT: "res://art/props-3d/interactables/hiding_spot.tscn",
 	Kind.MUSIC_BOX: "res://art/props-3d/interactables/music_box.tscn",
+	Kind.VENT: "res://art/props-3d/interactables/vent.tscn",
 }
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
@@ -47,6 +49,7 @@ const GLOW_COLORS := {
 	Kind.HEATER_STATION: Color(0.98, 0.55, 0.25),
 	Kind.HIDING_SPOT: Color(0.45, 0.60, 0.70),
 	Kind.MUSIC_BOX: Color(0.85, 0.65, 0.35),
+	Kind.VENT: Color(0.30, 0.70, 0.55),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -64,6 +67,8 @@ var source_cell := Vector2i(-1, -1)
 var generator: FacilityGenerator
 ## Heater station only.
 var heater_state: HeaterState = HeaterState.FROZEN
+## Vent only -- which entry in FacilityGenerator.vents this node stands on.
+var vent_id := ""
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -133,6 +138,15 @@ func activate(player: PlayerController3D) -> String:
 			# plain interactable has no business knowing what a hunter is.
 			if player.music_box_resolver.is_valid():
 				return String(player.music_box_resolver.call())
+			return "Nothing happens."
+		Kind.VENT:
+			# Never completes, and the prompt stays the same coming or going --
+			# a simplification of the original's context-sensitive text, which
+			# knew whether Verrine herself was inside. Resolved the same
+			# indirection as the music box, since a plain interactable has no
+			# business knowing what a hunter is.
+			if player.vent_resolver.is_valid():
+				return String(player.vent_resolver.call(vent_id))
 			return "Nothing happens."
 		Kind.LIFT:
 			if GameState.relays_collected < GameState.relay_target:

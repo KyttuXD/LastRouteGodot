@@ -327,3 +327,10 @@ const GLYRA_NOISE_PER_SECOND := 1.0
 const ILYRA_POUNCE_DELAY := 0.75
 const ILYRA_STUN_SECONDS := 5.0
 const ILYRA_BANISH_SECONDS := 30.0
+
+## Verrine — vent lurker (hunterAbilities.verrine.ventLurker):
+## {count:4, initialSpeedScale:.4, speedPerSecond:.025, maximumSpeedScale:2.4}.
+const VERRINE_VENT_COUNT := 4
+const VERRINE_INITIAL_SPEED_SCALE := 0.4
+const VERRINE_SPEED_PER_SECOND := 0.025
+const VERRINE_MAX_SPEED_SCALE := 2.4

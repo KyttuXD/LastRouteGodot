@@ -51,6 +51,7 @@ func _ready() -> void:
 	player.interaction_veto = _guardian_blocking
 	player.hiding_trap_resolver = _ceryth_trap_check
 	player.music_box_resolver = _wind_music_box
+	player.vent_resolver = _use_vent
 	player.trigger_static_effect = hud.trigger_static
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
@@ -135,6 +136,10 @@ func _update_gameplay(delta: float) -> void:
 		# thawed dematerialises her, powered holds her off entirely.
 		"heater_unfrozen": _heater_state() != RouteInteractable3D.HeaterState.FROZEN,
 		"heater_powered": _heater_state() == RouteInteractable3D.HeaterState.POWERED,
+		# Verrine only chases while the player is actually inside the vent
+		# network she lurks in -- see VerrineGimmick.after_perception.
+		"in_vent": player.in_vent,
+		"vent_time_in": player.vent_time_in,
 	}
 
 	# Only the host thinks for the hunters. A client that ran the same brains
@@ -281,6 +286,17 @@ func _wind_music_box() -> String:
 			view.brain.gimmick.wind(player.meters)
 			return "Music box wound. The room settles."
 	return "The box is still. Nothing winds it."
+
+
+## Verrine's vent network. Like _wind_music_box, resolved here because it
+## moves the PLAYER (entry/transit/exit) and reaches into a gimmick's own
+## network state, neither of which a plain interactable has any business
+## knowing about.
+func _use_vent(vent_id: String) -> String:
+	for view in hunter_views:
+		if view.brain.gimmick is VerrineGimmick:
+			return view.brain.gimmick.use_vent(vent_id, view.brain, player, facility_view.generator)
+	return "The grate won't budge."
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:

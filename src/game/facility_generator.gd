@@ -931,3 +931,30 @@ func hiding_exit_position(spot: Dictionary) -> Vector2:
 	if open.is_empty():
 		return Vector2(spot["x"] + 0.5, spot["y"] + 0.5)
 	return Vector2(open["x"], open["y"])
+
+
+## Verrine's vent network: a fixed set of stops at real room centers, shared
+## between the physical interactable a player steps into (see
+## FacilityView3D._spawn_interactables) and her own gimmick, which reads this
+## SAME list rather than picking its own -- the two have to agree on where
+## every vent is, or the props on the floor and what she thinks the network
+## looks like would disagree.
+var vents: Array = []
+
+
+func place_vents(count: int = 4) -> Array:
+	vents = []
+	if rooms.is_empty():
+		return vents
+	var rng := SeededRandom.new("%s:VENT-NETWORK" % seed_text)
+	var pool := rooms.duplicate()
+	while vents.size() < count and not pool.is_empty():
+		var index := rng.next_index(pool.size())
+		var room: Dictionary = pool[index]
+		pool.remove_at(index)
+		var center: Vector2i = room["center"]
+		var open := nearest_open_position(center.x + 0.5, center.y + 0.5, DEFAULT_AGENT_RADIUS)
+		var at := Vector2i(int(open["x"]), int(open["y"])) if not open.is_empty() else center
+		vents.append({"id": "vent-%d" % (vents.size() + 1), "x": at.x, "y": at.y,
+			"room_id": String(room.get("id", "")), "index": vents.size()})
+	return vents

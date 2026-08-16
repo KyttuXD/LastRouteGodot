@@ -87,6 +87,16 @@ var music_box_resolver: Callable
 ## stun early if it shared the flag. Independently ticked and checked.
 var stun_timer := 0.0
 
+## Verrine's vent network. Resolved the same indirection as
+## music_box_resolver -- a plain interactable has no business knowing what a
+## hunter is. `in_vent`/`vent_entry_id`/`vent_time_in` are read by
+## VerrineGimmick through main_3d's per-frame target dict, mirroring how
+## `hidden` already crosses that boundary.
+var vent_resolver: Callable
+var in_vent := false
+var vent_entry_id := ""
+var vent_time_in := 0.0
+
 
 func is_stunned() -> bool:
 	return stun_timer > 0.0
@@ -194,6 +204,8 @@ func _physics_process(delta: float) -> void:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
 	if stun_timer > 0.0:
 		stun_timer = maxf(0.0, stun_timer - delta)
+	if in_vent:
+		vent_time_in += delta
 	if input_frozen or stun_timer > 0.0:
 		velocity = Vector3.ZERO
 		move_and_slide()

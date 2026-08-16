@@ -49,6 +49,7 @@ func run(_host: Node) -> int:
 	_ferryn_stalks_and_screams(generator)
 	_glyra_winds_down_and_back_up(generator)
 	_ilyra_tags_and_pounces(generator)
+	await _verrine_lurks_and_chases(_host)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -725,3 +726,89 @@ func _ilyra_tags_and_pounces(generator: FacilityGenerator) -> void:
 	_expect(brain.gimmick.hidden_from_view(), "flashing Ilyra did not banish her")
 
 	print("  ilyra     tags a real sighting, pounces after the delay, banished by a held torch")
+
+
+func _verrine_lurks_and_chases(host: Node) -> void:
+	# A real scene, purely for a real player node -- global_position is
+	# unreadable/unsettable on a PlayerController3D that was never actually
+	# built from its own scene (its @onready camera/flashlight children do
+	# not exist on a bare .new()). The generator comes along with it, already
+	# carrying a real vent network from _spawn_interactables' own call to
+	# place_vents(). Verrine's own brain is still built by hand, same as
+	# Jyvra/Ceryth's checks -- the scene's own random draw has no reason to
+	# have actually drawn her.
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+	var vents: Array = generator.vents
+
+	if vents.size() < GameConfig.VERRINE_VENT_COUNT:
+		_fail("only %d vents placed on a whole floor" % vents.size())
+		scene.queue_free()
+		return
+	for vent in vents:
+		var cell := Vector2i(vent["x"], vent["y"])
+		_expect(generator.grid[cell.y][cell.x] == 0, "vent %s is inside a wall" % cell)
+
+	var brain := _brain("verrine", Vector2(vents[0]["x"], vents[0]["y"]) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Verrine has no gimmick")
+		scene.queue_free()
+		return
+
+	# Not in the network at all: hidden, holding position, and ignoring a
+	# player standing right next to her -- the whole point of a lurker.
+	var away := _target(brain.position + Vector2(1.0, 0.0))
+	for i in 5:
+		brain.update(STEP, generator, away, 1, 0)
+	_expect(brain.gimmick.hidden_from_view(), "Verrine is visible before the player ever entered a vent")
+	_expect(brain.state != HunterBrain.State.CHASE, "Verrine chased a player who never entered the network")
+	var still_here := brain.position
+
+	player.global_position = Vector3(vents[0]["x"] + 0.5, 0.0, vents[0]["y"] + 0.5)
+
+	var message: String = brain.gimmick.use_vent(String(vents[0]["id"]), brain, player, generator)
+	_expect(player.in_vent, "entering a vent did not mark the player in_vent")
+	_expect(message.begins_with("VENT TRANSIT"), "entering the network did not transit forward: got '%s'" % message)
+	_expect(brain.position != still_here, "Verrine did not teleport in when the player entered the network")
+
+	# Driven frames with in_vent true: chase, and speed ramping over time.
+	var in_vent_target := _target(player.grid_position())
+	in_vent_target["in_vent"] = true
+	in_vent_target["vent_time_in"] = 0.0
+	brain.update(STEP, generator, in_vent_target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE, "Verrine did not chase once the player was in the vent network")
+	_expect(not brain.gimmick.hidden_from_view(), "Verrine stayed hidden while actively chasing through the vents")
+	var early_speed: float = brain.gimmick.speed_scale(brain)
+	_expect(is_equal_approx(early_speed, GameConfig.VERRINE_INITIAL_SPEED_SCALE),
+		"Verrine's speed scale did not start at the network's initial value")
+
+	in_vent_target["vent_time_in"] = 200.0
+	brain.update(STEP, generator, in_vent_target, 1, 0)
+	var ramped_speed: float = brain.gimmick.speed_scale(brain)
+	_expect(ramped_speed > early_speed, "Verrine's speed did not ramp up the longer the player stayed in the vents")
+	_expect(ramped_speed <= GameConfig.VERRINE_MAX_SPEED_SCALE + 0.001,
+		"Verrine's speed scale exceeded the network's maximum")
+
+	# Walk the ring all the way back around to the entry vent to exit --
+	# each interaction happens at whichever vent the last transit landed on,
+	# not the entry vent itself.
+	var standing_index := 1
+	var exited := false
+	for i in vents.size() - 1:
+		message = brain.gimmick.use_vent(String(vents[standing_index]["id"]), brain, player, generator)
+		if message == "VENT NETWORK EXITED":
+			exited = true
+			break
+		standing_index = (standing_index + 1) % vents.size()
+	_expect(exited, "walking the whole ring never brought the player back to the entry vent")
+	_expect(not player.in_vent, "exiting the network did not clear in_vent")
+
+	# Back outside the network: inert again.
+	brain.update(STEP, generator, _target(brain.position + Vector2(1.0, 0.0)), 1, 0)
+	_expect(brain.gimmick.hidden_from_view(), "Verrine stayed visible after the player left the vent network")
+
+	scene.queue_free()
+	print("  verrine   inert outside the network, chases and ramps speed inside it, resets on exit")

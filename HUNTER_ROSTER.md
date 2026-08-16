@@ -5,23 +5,23 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 24 of 26 ported** — Dovelle (baseline), Quirith (flashlight
+**Status: 25 of 26 ported** — Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Wynelle (cold materializer), Thessine (see below), Haelith
 (relay pursuer), Ysolde (battery thief), Opalie (relay guardian), Aki
 (phantom exposure), Porcelle (radar-only), Jyvra (locker ejection), Loxelle
 (passive incinerator), Ceryth (hiding trap), **Briselle** (relay sabotage +
-resecure hold), **Ferryn** (permanent stalk + facility-wide scream) and
-**Glyra** (spawn-room music box), plus the two rule-summoned specials Nyxie
-(darkness stalker) and Solyth (heat-summoned). See `MIGRATION.md`'s "Hunter
-roster" section for how they're wired.
+resecure hold), **Ferryn** (permanent stalk + facility-wide scream),
+**Glyra** (spawn-room music box), **Ilyra** (corner observer + shadow
+pounce) and **Verrine** (vent lurker), plus the two rule-summoned specials
+Nyxie (darkness stalker) and Solyth (heat-summoned). See `MIGRATION.md`'s
+"Hunter roster" section for how they're wired.
 
-**Three left, each blocked on a real new system**: Ilyra (player
-stun/incapacitation), Verrine (a vent-travel network the player and hunter
-both use), Zephyra (currency, inventory, a shop UI). Every hiding-spot,
-relay-collected-state, beam-aim and facility-wide-alert hunter is done —
-these three are what remains once those systems existed.
+**One left, blocked on a real new system**: Zephyra (currency, inventory, a
+shop UI). Every hiding-spot, relay-collected-state, beam-aim, facility-wide-
+alert, player-stun and vent-network hunter is done — she is what remains
+once that system exists.
 
 **All 26 have models and tuning.** `HunterRoster.PROFILES` carries every
 hunter's `HUNTER_PROFILES` row and `art/props-3d/characters/` has a model for
@@ -128,8 +128,8 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 | Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state) — Haelith, Opalie and Ysolde are **ported** | 1 |
 | Currency/inventory + shop UI | Zephyra | 1 |
 | ~~Player radar/gadget item~~ — Porcelle is **ported**; her radar was always the map | 0 |
-| Vent-travel network | Verrine | 1 |
-| Player stun/incapacitation state | Ilyra | 1 |
+| ~~Vent-travel network~~ — **BUILT**; Verrine is **ported** | 0 |
+| ~~Player stun/incapacitation state~~ — **BUILT**; Ilyra is **ported** | 0 |
 | Torch player ability | Ysolde (sec.) | 1 (sec.) |
 
 Notes worth keeping:
@@ -310,17 +310,16 @@ counterplay: porting her invisibility without it would ship a hunter who cannot
 be seen or found by any means. She is the cheapest remaining hunter once the
 map shows hunters.
 
-## What each of the last ten still needs
+## What the last one still needs
 
 | Hunter | Needs |
 | --- | --- |
-| Ferryn | `emberVeil` scheduler + the noise meter's flash-noise path |
-| Briselle | a sabotaged-relay state on the generator |
-| Glyra | a music-box prop the player winds, in the spawn room |
-| Verrine | a vent network: 4 vents at room centres, player `in_vent` travel |
-| Ilyra | a player stun/incapacitation state |
 | Zephyra | currency, an inventory and a shop UI |
-| Ceryth, Jyvra, Loxelle | **hiding spots** |
+
+The rest of the ten this section used to track are all ported: Ferryn,
+Briselle, Glyra, Verrine (a vent network: 4 vents at room centres, player
+`in_vent` travel), Ilyra (a player stun/incapacitation state), and Ceryth/
+Jyvra/Loxelle (hiding spots).
 
 Hiding spots are the biggest single unlock at three hunters, and are harder
 here than the plan implies: in the original they are derived from *props*

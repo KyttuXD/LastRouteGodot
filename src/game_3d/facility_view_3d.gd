@@ -179,6 +179,12 @@ func _spawn_interactables() -> void:
 	# a hunter who has to be found.
 	music_box = _spawn_interactable(RouteInteractable3D.Kind.MUSIC_BOX,
 		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "WIND MUSIC BOX")
+	# Verrine's vent network: one grate per generator.vents entry, at the exact
+	# positions VerrineGimmick itself reads -- see FacilityGenerator.place_vents.
+	for vent in generator.place_vents(GameConfig.VERRINE_VENT_COUNT):
+		var node := _spawn_interactable(RouteInteractable3D.Kind.VENT,
+			Vector2i(vent["x"], vent["y"]), "ENTER VENT")
+		node.vent_id = String(vent["id"])
 
 
 ## An open cell within reach of the spawn, but not touching it: the spawn's
