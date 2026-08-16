@@ -53,31 +53,30 @@ func run(host: Node) -> int:
 		# A cell is square to the grid, so an item that fills it must be too.
 		if grid.mesh_library.get_item_mesh_transform(id).basis != Basis.IDENTITY:
 			_fail("grid item %d is placed with a rotation" % id)
-	# A cube that samples most of the atlas is showing several unrelated
-	# materials at once -- the collage that made every floor tile a mess. One
-	# patch is a small fraction of the sheet; half of it is not a patch.
-	#
-	# The wall is a deliberate exception, and dividing it back out is the
-	# honest way to check it rather than exempting it outright: its uv1_scale
-	# is intentionally > 1 because it TILES one small patch several times
-	# across the face (FacilityView3D.WALL_REPEAT_X/Y), which this check
-	# would otherwise be unable to tell apart from the original collage bug
-	# -- both produce a large final scale. Dividing the known repeat back out
-	# recovers the actual per-tile patch size, which is what this check is
-	# really asking about.
-	for id in [FacilityView3D.ITEM_FLOOR, FacilityView3D.ITEM_WALL,
-			FacilityView3D.ITEM_CEILING]:
+	# Floor/ceiling and the wall each carry their OWN dedicated texture
+	# (FacilityView3D.FLOOR_TEXTURE / WALL_TEXTURE) rather than a shared atlas
+	# cropped down to one patch -- there is no longer a "patch fraction of a
+	# bigger sheet" to infer, so this checks the thing that can now actually
+	# go wrong: the wrong texture wired to the wrong item, or a repeat that
+	# silently reverted to the atlas-cropping era's uv1_offset/scale shape.
+	var expected_texture := {
+		FacilityView3D.ITEM_FLOOR: FacilityView3D.FLOOR_TEXTURE,
+		FacilityView3D.ITEM_WALL: FacilityView3D.WALL_TEXTURE,
+		FacilityView3D.ITEM_CEILING: FacilityView3D.FLOOR_TEXTURE,
+	}
+	for id in expected_texture:
 		var mesh := grid.mesh_library.get_item_mesh(id)
 		var material := mesh.surface_get_material(0) if mesh != null else null
-		if material is StandardMaterial3D:
-			var scale: Vector3 = (material as StandardMaterial3D).uv1_scale
-			var repeat_x: float = FacilityView3D.WALL_REPEAT_X if id == FacilityView3D.ITEM_WALL else 1.0
-			var repeat_y: float = FacilityView3D.WALL_REPEAT_Y if id == FacilityView3D.ITEM_WALL else 1.0
-			var patch_x: float = scale.x / repeat_x
-			var patch_y: float = scale.y / repeat_y
-			if patch_x > 0.5 or patch_y > 0.5:
-				_fail("grid item %d samples %.0f%% x %.0f%% of its atlas per tile, not one patch"
-					% [id, patch_x * 100.0, patch_y * 100.0])
+		if not material is StandardMaterial3D:
+			_fail("grid item %d has no StandardMaterial3D at all" % id)
+			continue
+		var std: StandardMaterial3D = material
+		if std.albedo_texture == null or std.albedo_texture.resource_path != expected_texture[id]:
+			_fail("grid item %d is not wired to its own dedicated texture (%s)" % [id, expected_texture[id]])
+		# A leftover atlas-offset would mean the old cropping heuristic came
+		# back; a dedicated texture is read from its own origin, whole.
+		if std.uv1_offset != Vector3.ZERO:
+			_fail("grid item %d has a nonzero uv1_offset -- looks like a cropped atlas patch, not a whole dedicated texture" % id)
 
 	# The floor has to stop things. It did not, and nothing noticed because the
 	# player has no gravity -- a floor that only works because nothing pulls

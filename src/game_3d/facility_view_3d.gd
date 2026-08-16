@@ -10,8 +10,13 @@ extends Node3D
 ## 1 grid cell = 1 meter, ground plane is XZ (Godot is Y-up).
 
 const CELL_SIZE := 1.0
-const FLOOR_SCENE := "res://art/props-3d/environment/floor_tile.tscn"
-const WALL_SCENE := "res://art/props-3d/environment/wall_block.tscn"
+## Dedicated single-purpose block textures (Minecraft/Hytale block-format
+## style: one small texture per block, no shared atlas to crop), cropped
+## once from the wider environment kit sheet by
+## tools/environment/bake_block_textures.gd -- see _build_mesh_library()'s
+## own note on why this replaced the previous runtime-heuristic approach.
+const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
+const WALL_TEXTURE := "res://art/props-3d/environment/wall_texture.png"
 
 ## Corridor height, and the thickness of the slabs that cap it. 3 m matches the
 ## office rooms, so a player moving between modes reads the same scale.
@@ -430,18 +435,30 @@ func adopt_state(state: Dictionary) -> void:
 ## a 1 m cube: a box is unambiguously square to the grid and cannot be rotated
 ## wrongly, which is the whole point.
 ##
-## The art is not thrown away. Each box takes the imported model's own material
-## and samples the same patch of its atlas, so the pixel art survives -- see
-## _cube_material for why the UVs have to be remapped to keep it.
+## Floor and wall each get their OWN small dedicated texture (FLOOR_TEXTURE /
+## WALL_TEXTURE) rather than sharing the wider environment kit sheet the
+## original imported models draw from. That kit packs many unrelated swatches
+## -- tile, plank trim, hazard stripe, brick, ribbed panelling -- onto one
+## atlas per model export, and a plain BoxMesh has no way to know which of
+## those patches its own faces are supposed to read: an earlier version of
+## this method guessed at runtime (biggest same-facing triangle group wins),
+## and got it wrong twice -- once as a collage of several patches at once,
+## once as a single 12-pixel trim sliver blown up across a whole wall face
+## with nothing else to sample from. A dedicated texture has exactly one
+## thing on it, so there is nothing left to guess: `_tile_material()` loads
+## it and repeats it, the same shape a Minecraft/Hytale block texture is
+## sampled in. See tools/environment/bake_block_textures.gd for how
+## FLOOR_TEXTURE/WALL_TEXTURE were cropped out of the kit sheet, once,
+## offline -- not at runtime, and not by a heuristic.
 func _build_mesh_library() -> MeshLibrary:
 	var library := MeshLibrary.new()
-	# The floor is read from above and the wall from the side, so each takes
-	# the patch its own model used on that face.
-	var floor_material := _cube_material(FLOOR_SCENE, Vector3.UP)
-	var wall_material := _cube_material(WALL_SCENE, Vector3.FORWARD)
-	_widen_wall_crop(wall_material)
+	# One tile per 1 m cell.
+	var floor_material := _tile_material(FLOOR_TEXTURE, Vector3(1.0, 1.0, 1.0))
+	# Repeated up the wall's full WALL_HEIGHT so a tile stays roughly
+	# proportional rather than stretching one copy across all 3 m.
+	var wall_material := _tile_material(WALL_TEXTURE, Vector3(1.0, WALL_HEIGHT, 1.0))
 	# A ceiling is a floor seen from underneath.
-	var ceiling_material := _cube_material(FLOOR_SCENE, Vector3.UP)
+	var ceiling_material := _tile_material(FLOOR_TEXTURE, Vector3(1.0, 1.0, 1.0))
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
 	# is why every offset below is measured up from zero rather than from a
 	# centre.
@@ -496,102 +513,18 @@ static func _add_box(library: MeshLibrary, id: int, size: Vector3,
 		library.set_item_shapes(id, [shape, placement])
 
 
-## The imported model's material, retargeted at ONE patch of its atlas.
-##
-## A BoxMesh generates its own 0..1 UVs, so an atlas material dropped on one
-## stretches the whole sheet across every face. Two narrowings are needed and
-## neither alone is enough.
-##
-## First by FACING: only triangles pointing the way this surface will be seen
-## from count, since the source model draws its top and its sides from
-## different patches.
-##
-## Then by AREA, because facing still is not enough -- the floor model draws
-## tile, trim and grate all on its top, so the bounds of every up-facing
-## triangle enclosed all three and the cube came out a collage. Grouping those
-## triangles by which patch they sample and keeping the one covering the most
-## surface gives the material that tile actually reads as.
-static func _cube_material(scene_path: String, facing: Vector3) -> Material:
-	var loaded := ModelSlot.load_gridmap_item(scene_path)
-	var mesh: Mesh = loaded["mesh"]
-	if mesh == null or mesh.get_surface_count() == 0:
+## Loads a dedicated block texture and tiles it -- a BoxMesh's default 0..1
+## UVs need nothing more than that, unlike a shared-atlas material, which
+## needed cropping to isolate one patch out of many. `repeat` scales those
+## UVs directly, so `Vector3(1, 1, 1)` is one copy per face and
+## `Vector3(1, 3, 1)` is three copies stacked vertically (used for the wall,
+## whose face is three times taller than it is wide).
+static func _tile_material(texture_path: String, repeat: Vector3) -> StandardMaterial3D:
+	var texture: Texture2D = load(texture_path)
+	if texture == null:
 		return null
-	var source := mesh.surface_get_material(0)
-	if not source is StandardMaterial3D:
-		return source
-	var material: StandardMaterial3D = (source as StandardMaterial3D).duplicate()
-
-	var arrays := mesh.surface_get_arrays(0)
-	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	if uvs.is_empty() or indices.is_empty() or verts.is_empty():
-		return material
-
-	var patches := {}
-	for i in range(0, indices.size() - 2, 3):
-		var a: int = indices[i]
-		var b: int = indices[i + 1]
-		var c: int = indices[i + 2]
-		# 0.7 is a little over 45 degrees, so a triangle lands on exactly one
-		# of the six box facings and none are counted twice.
-		if a < normals.size() and normals[a].dot(facing) < 0.7:
-			continue
-		var corner: Vector2 = uvs[a].min(uvs[b]).min(uvs[c])
-		var far: Vector2 = uvs[a].max(uvs[b]).max(uvs[c])
-		# Snapped so the same patch keyed from different triangles buckets
-		# together rather than splitting on float noise.
-		var key := "%.3f,%.3f" % [snappedf(corner.x, 0.002), snappedf(corner.y, 0.002)]
-		var area: float = (verts[b] - verts[a]).cross(verts[c] - verts[a]).length() * 0.5
-		if patches.has(key):
-			var seen: Dictionary = patches[key]
-			seen["lo"] = (seen["lo"] as Vector2).min(corner)
-			seen["hi"] = (seen["hi"] as Vector2).max(far)
-			seen["area"] = float(seen["area"]) + area
-		else:
-			patches[key] = {"lo": corner, "hi": far, "area": area}
-
-	var best := {}
-	for key in patches:
-		var patch: Dictionary = patches[key]
-		if best.is_empty() or float(patch["area"]) > float(best["area"]):
-			best = patch
-	if best.is_empty():
-		return material
-	var origin: Vector2 = best["lo"]
-	var span: Vector2 = (best["hi"] as Vector2) - origin
-	if span.x <= 0.0 or span.y <= 0.0:
-		return material
-	material.uv1_scale = Vector3(span.x, span.y, 1.0)
-	material.uv1_offset = Vector3(origin.x, origin.y, 0.0)
+	var material := StandardMaterial3D.new()
+	material.albedo_texture = texture
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	material.uv1_scale = repeat
 	return material
-
-
-## _cube_material's own patch, for the wall specifically, turned out to be a
-## narrow 12x27px trim seam -- correctly the LARGEST single triangle group on
-## that face (the heuristic did its job right), but a sliver, stretched once
-## across a full 1m x 3m face with nothing else to sample from. That is what
-## "walls look bland" actually was: not the wrong patch, just one 12-pixel-wide
-## crop blown up 8x with no repeat.
-##
-## Retiles the SAME patch instead of replacing it with a different one. Wider
-## regions of this atlas look more detailed at a glance (a brick field, a
-## checker floor, ribbed panelling), but this model is ONE mesh shared with
-## other environment props across ONE atlas, and nothing here can confirm
-## which of those regions actually belongs to this piece rather than the door
-## frame or the floor tile it sits beside -- guessing wrong would trade a bland
-## wall for a wrong one, and there is no renderer in this session to catch
-## that before it ships. Repeating the patch this model's own geometry already
-## points at is the improvement this method can actually stand behind: the
-## same seam-and-trim line repeating every ~15cm reads as panelled wall
-## segments, and Godot's default 3D sampler wraps a >1 uv1_scale without
-## needing any texture-import change.
-const WALL_REPEAT_X := 6.0
-const WALL_REPEAT_Y := 6.0
-
-static func _widen_wall_crop(material: Material) -> void:
-	if material == null or not material is StandardMaterial3D:
-		return
-	var std: StandardMaterial3D = material
-	std.uv1_scale = Vector3(std.uv1_scale.x * WALL_REPEAT_X, std.uv1_scale.y * WALL_REPEAT_Y, 1.0)
