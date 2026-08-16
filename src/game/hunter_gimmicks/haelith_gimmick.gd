@@ -11,12 +11,10 @@ extends HunterGimmick
 ## being true, which for a long time nothing ever wrote. Relays she has already
 ## seen taken drop out of her search on their own.
 ##
-## Her footsteps are NOT ported. In the original they are the whole counter --
-## "you can hear her coming", panned and attenuated so the cue itself carries
-## direction and distance -- and there is no audio system here yet. That makes
-## her genuinely harder than she should be rather than merely quieter, which is
-## worth saying plainly: she is playable but not finished, unlike Thessine,
-## whose cues change no state at all.
+## Her positional footsteps are presentation, so main_3d.gd reads this brain's
+## position and plays them relative to the local runner. Keeping audio out of
+## this simulation class also means a host does not accidentally play a remote
+## runner's directional cue through the host's speakers.
 
 
 func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:

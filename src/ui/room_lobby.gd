@@ -10,20 +10,25 @@ extends Control
 ##
 ## Offline this shows exactly what it shows online, minus the modes that need
 ## other people. That is deliberate: the screen is not a singleplayer menu
-## wearing a room's clothes, it IS the room, so nothing here has to change when
-## a transport arrives.
+## wearing a room's clothes, it IS the room; ENet only changes who occupies it.
 
 const ROW_HEIGHT := 13
 ## Clear space left between the staging panel and the edge of the screen.
 const MARGIN_Y := 10
 
 var _notice := ""
+var _join_address := RoomState.DEFAULT_ADDRESS
+var _join_port := RoomState.DEFAULT_PORT
+var _join_code := ""
 
 
 func _ready() -> void:
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	RoomState.changed.connect(_rebuild)
+	Backend.room_resolved.connect(_on_room_resolved)
+	if not RoomState.status_message.is_empty():
+		_notice = RoomState.status_message
 	_rebuild()
 
 
@@ -74,7 +79,7 @@ func _rebuild() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(spacer)
-	header.add_child(_label("%d / %d SIGNALS" % [RoomState.players.size(),
+	header.add_child(_label("%d / %d SIGNALS" % [RoomState.roster().size(),
 		RoomState.seats()], Palette.MUTED, 7))
 
 	var title := HBoxContainer.new()
@@ -88,13 +93,20 @@ func _rebuild() -> void:
 	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
 	for row in RoomState.roster_rows():
 		column.add_child(_player_row(row))
-	if not _notice.is_empty():
-		column.add_child(_label(_notice, Palette.ALERT, 7))
+	var notice := _notice if not _notice.is_empty() else RoomState.status_message
+	if not notice.is_empty():
+		column.add_child(_label(notice, Palette.ALERT, 7))
 	column.add_child(_label(
 		"ROOM %s // ONLINE // %d CONNECTED"
 			% [RoomState.code, RoomState.roster().size()] if RoomState.online
+		else "CONNECTING TO HOST..." if RoomState.connecting
 		else "ROOM %s // LOCAL SESSION" % RoomState.code,
 		Palette.MUTED, 7))
+	if RoomState.online and RoomState.is_host:
+		var addresses := RoomState.host_addresses()
+		if not addresses.is_empty():
+			column.add_child(_label("JOIN AT %s:%d" % [", ".join(addresses),
+				RoomState.DEFAULT_PORT], Palette.MUTED, 7))
 	column.add_child(_actions())
 
 
@@ -108,7 +120,7 @@ func _seed_block() -> Control:
 	stack.add_child(_label(Palette.track("ROUTE SEED"), Palette.AMBER, 6))
 	stack.add_child(_label(RoomState.seed_text, Palette.INK, 9))
 	stack.add_child(_label(
-		"Players enter from separate marked access points. The route is shared.",
+		"Players enter from separate nearby access points. The route is shared.",
 		Palette.MUTED, 6))
 	return box
 
@@ -132,8 +144,9 @@ func _config_block() -> Control:
 
 	stack.add_child(_label("MODE", Palette.MUTED, 6))
 	stack.add_child(_toggles(RoomState.MODE_LABELS, RoomState.mode,
-		func(value: int) -> void: RoomState.set_mode(value),
-		func(value: int) -> bool: return RoomState.mode_available(value)))
+			func(value: int) -> void: RoomState.set_mode(value),
+			func(value: int) -> bool:
+				return RoomState.is_host and RoomState.mode_available(value)))
 
 	# Office Mode is one person at a desk; scale and difficulty are the maze's
 	# dials and would be lying about doing something here.
@@ -141,11 +154,11 @@ func _config_block() -> Control:
 		stack.add_child(_label("MAP SCALE", Palette.MUTED, 6))
 		stack.add_child(_toggles(RoomState.SCALE_LABELS, RoomState.map_scale,
 			func(value: int) -> void: RoomState.set_map_scale(value),
-			func(_value: int) -> bool: return true))
+			func(_value: int) -> bool: return RoomState.is_host))
 		stack.add_child(_label("DIFFICULTY", Palette.MUTED, 6))
 		stack.add_child(_toggles(RoomState.DIFFICULTY_LABELS, RoomState.difficulty,
 			func(value: int) -> void: RoomState.set_difficulty(value),
-			func(_value: int) -> bool: return true))
+			func(_value: int) -> bool: return RoomState.is_host))
 
 	var note := RoomState.mode_unavailable_reason(RoomState.Mode.HIDE_SEEK)
 	stack.add_child(_label(note if not note.is_empty()
@@ -201,15 +214,23 @@ func _player_row(entry: Dictionary) -> Control:
 
 
 func _actions() -> Control:
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 4)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 5)
+	stack.add_child(row)
 
 	var enter := Button.new()
-	enter.text = RoomState.start_label()
+	enter.text = "CONNECTING..." if RoomState.connecting else (
+		"WAITING FOR HOST" if RoomState.online and not RoomState.is_host
+		else RoomState.start_label())
 	enter.add_theme_font_size_override("font_size", 10)
 	enter.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(enter, true)
-	enter.pressed.connect(func() -> void: RoomState.enter(get_tree()))
+	enter.disabled = RoomState.connecting or (RoomState.online and not RoomState.is_host) \
+		or not RoomState.mode_available(RoomState.mode)
+	if not enter.disabled:
+		enter.pressed.connect(func() -> void: RoomState.enter(get_tree()))
 	row.add_child(enter)
 
 	var reroll := Button.new()
@@ -217,36 +238,10 @@ func _actions() -> Control:
 	reroll.add_theme_font_size_override("font_size", 7)
 	reroll.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(reroll, false)
-	reroll.pressed.connect(func() -> void: RoomState.reroll_seed())
+	reroll.disabled = RoomState.connecting or (RoomState.online and not RoomState.is_host)
+	if not reroll.disabled:
+		reroll.pressed.connect(func() -> void: RoomState.reroll_seed())
 	row.add_child(reroll)
-
-	# Opening the room to the network, or reaching someone else's. Loopback by
-	# default: this is here so two windows on one machine can meet before there
-	# is any server to meet on.
-	if not RoomState.online:
-		var host := Button.new()
-		host.text = "HOST ON %d" % RoomState.DEFAULT_PORT
-		host.add_theme_font_size_override("font_size", 7)
-		host.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(host, false)
-		host.pressed.connect(func() -> void: _network(RoomState.host_room()))
-		row.add_child(host)
-
-		var join := Button.new()
-		join.text = "JOIN LOCAL"
-		join.add_theme_font_size_override("font_size", 7)
-		join.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(join, false)
-		join.pressed.connect(func() -> void: _network(RoomState.join_room()))
-		row.add_child(join)
-	else:
-		var close := Button.new()
-		close.text = "GO OFFLINE"
-		close.add_theme_font_size_override("font_size", 7)
-		close.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(close, false)
-		close.pressed.connect(func() -> void: RoomState.leave_network())
-		row.add_child(close)
 
 	var leave := Button.new()
 	leave.text = "LEAVE ROOM"
@@ -254,9 +249,93 @@ func _actions() -> Control:
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
+		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
 	row.add_child(leave)
-	return row
+
+	# The official directory and a custom direct ENet endpoint are deliberately
+	# separate surfaces. The Node backend resolves codes; it never carries game
+	# packets, while a custom host address connects straight to that host's UDP
+	# port and bypasses directory lookup entirely.
+	if not RoomState.online and not RoomState.connecting:
+		stack.add_child(_label(Backend.directory_label(), Palette.MUTED, 6))
+		var directory_row := HBoxContainer.new()
+		directory_row.add_theme_constant_override("separation", 5)
+		stack.add_child(directory_row)
+		var host := Button.new()
+		host.text = "HOST + LIST ROOM" if Backend.configured() else "HOST ROOM"
+		host.add_theme_font_size_override("font_size", 7)
+		host.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(host, false)
+		host.pressed.connect(func() -> void: _network(RoomState.host_room()))
+		directory_row.add_child(host)
+
+		if Backend.configured():
+			var room_code := LineEdit.new()
+			room_code.text = _join_code
+			room_code.placeholder_text = "5-CHAR ROOM CODE"
+			room_code.max_length = RoomState.CODE_LENGTH
+			room_code.custom_minimum_size = Vector2(118, 18)
+			room_code.add_theme_font_size_override("font_size", 7)
+			room_code.text_changed.connect(func(value: String) -> void:
+				_join_code = value.to_upper())
+			directory_row.add_child(room_code)
+			var code_join := Button.new()
+			code_join.text = "JOIN ROOM CODE"
+			code_join.add_theme_font_size_override("font_size", 7)
+			code_join.custom_minimum_size = Vector2(0, 18)
+			Palette.style_button(code_join, false)
+			code_join.pressed.connect(func() -> void:
+				_notice = "LOOKING UP ROOM %s..." % _join_code
+				Backend.resolve_room(_join_code)
+				_rebuild())
+			directory_row.add_child(code_join)
+
+		stack.add_child(_label("CUSTOM DIRECT HOST // BYPASSES ROOM DIRECTORY",
+			Palette.MUTED, 6))
+		var custom_row := HBoxContainer.new()
+		custom_row.add_theme_constant_override("separation", 5)
+		stack.add_child(custom_row)
+		var address := LineEdit.new()
+		address.text = _join_address
+		address.placeholder_text = "HOST IP OR NAME"
+		address.custom_minimum_size = Vector2(118, 18)
+		address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		address.add_theme_font_size_override("font_size", 7)
+		address.text_changed.connect(func(value: String) -> void: _join_address = value)
+		custom_row.add_child(address)
+		var port := SpinBox.new()
+		port.min_value = 1
+		port.max_value = 65535
+		port.step = 1
+		port.value = _join_port
+		port.custom_minimum_size = Vector2(66, 18)
+		port.add_theme_font_size_override("font_size", 7)
+		port.value_changed.connect(func(value: float) -> void: _join_port = int(value))
+		custom_row.add_child(port)
+		var join := Button.new()
+		join.text = "JOIN CUSTOM HOST"
+		join.add_theme_font_size_override("font_size", 7)
+		join.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(join, false)
+		join.pressed.connect(func() -> void:
+			_network(RoomState.join_room(_join_address, _join_port)))
+		custom_row.add_child(join)
+	else:
+		var network_row := HBoxContainer.new()
+		network_row.add_theme_constant_override("separation", 5)
+		stack.add_child(network_row)
+		var close := Button.new()
+		close.text = "CANCEL CONNECTION" if RoomState.connecting else "GO OFFLINE"
+		close.add_theme_font_size_override("font_size", 7)
+		close.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(close, false)
+		close.pressed.connect(func() -> void:
+			_notice = "CONNECTION CLOSED"
+			RoomState.status_message = _notice
+			RoomState.leave_network())
+		network_row.add_child(close)
+	return stack
 
 
 ## Show why a host or join failed rather than silently doing nothing -- a port
@@ -267,6 +346,17 @@ func _network(error: String) -> void:
 		return
 	_notice = error
 	_rebuild()
+
+
+func _on_room_resolved(_code: String, endpoint: Dictionary, error: String) -> void:
+	if not error.is_empty():
+		_notice = error
+		_rebuild()
+		return
+	_join_address = String(endpoint.get("address", ""))
+	var port := int(endpoint.get("port", RoomState.DEFAULT_PORT))
+	_join_port = port
+	_network(RoomState.join_room(_join_address, port))
 
 
 func _label(text: String, tint: Color, size: int) -> Label:

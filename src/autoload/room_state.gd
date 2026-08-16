@@ -19,6 +19,10 @@ extends Node
 ## modes that do not need anyone else.
 
 signal changed
+## A transport-level failure that takes a guest out of a room. The message is
+## also kept in `status_message` so the staging scene can show it after the
+## gameplay scene has been replaced.
+signal connection_lost(reason: String)
 
 enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
 ## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
@@ -67,9 +71,17 @@ var map_scale: Scale = Scale.STANDARD
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
-## False until there is a backend. Everything that would need one asks this.
+## True after an ENet room handshake (or immediately for its host).
 var online := false
 var is_host := true
+## A client socket exists but ENet has not completed its handshake yet.
+var connecting := false
+## True between the host starting a mode and returning the room to staging.
+## Kept on the autoload so a player joining after the start can be sent straight
+## into the live scene and catch up from the host's world snapshot.
+var session_active := false
+## Player-facing transport/lifecycle feedback which survives scene changes.
+var status_message := ""
 
 ## Peer id -> callsign. The host is always peer 1. Kept as a dictionary rather
 ## than a list so a player leaving removes the right row without the others
@@ -82,9 +94,11 @@ const DEFAULT_PORT := 8421
 const DEFAULT_ADDRESS := "127.0.0.1"
 
 var _peer: ENetMultiplayerPeer
+var _host_port := DEFAULT_PORT
 
 
 func _ready() -> void:
+	Backend.registration_changed.connect(_on_directory_registration)
 	# A room always exists, so nothing has to null-check it. Landing straight
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
@@ -101,6 +115,8 @@ func create_local(for_mode: Mode) -> void:
 	map_scale = Scale.STANDARD
 	difficulty = Difficulty.STANDARD
 	leave_network()
+	session_active = false
+	status_message = ""
 	players = PackedStringArray([_make_callsign()])
 	reroll_seed()
 	changed.emit()
@@ -120,10 +136,15 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 		_peer = null
 		return "COULD NOT OPEN PORT %d" % port
 	multiplayer.multiplayer_peer = _peer
+	_host_port = port
 	online = true
+	connecting = false
 	is_host = true
+	session_active = false
+	status_message = "HOSTING ON PORT %d" % port
 	peers = {1: _local_name()}
 	_bind_signals()
+	Backend.register_room(code, port, peers.size(), session_active)
 	changed.emit()
 	return ""
 
@@ -133,14 +154,20 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 ## different building from the same room.
 func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> String:
 	leave_network()
+	var trimmed := address.strip_edges()
+	if trimmed.is_empty():
+		return "ENTER A HOST ADDRESS"
 	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_client(address, port)
+	var error := _peer.create_client(trimmed, port)
 	if error != OK:
 		_peer = null
-		return "COULD NOT REACH %s:%d" % [address, port]
+		return "COULD NOT REACH %s:%d" % [trimmed, port]
 	multiplayer.multiplayer_peer = _peer
-	online = true
+	online = false
+	connecting = true
 	is_host = false
+	session_active = false
+	status_message = "CONNECTING TO %s:%d..." % [trimmed, port]
 	peers = {}
 	_bind_signals()
 	changed.emit()
@@ -148,12 +175,16 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> S
 
 
 func leave_network() -> void:
+	if online and is_host:
+		Backend.unregister_room()
 	if _peer != null:
 		_peer.close()
 		_peer = null
 	multiplayer.multiplayer_peer = null
 	online = false
+	connecting = false
 	is_host = true
+	session_active = false
 	peers = {}
 	changed.emit()
 
@@ -163,7 +194,8 @@ func _bind_signals() -> void:
 		multiplayer.peer_connected.connect(_on_peer_connected)
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 		multiplayer.connected_to_server.connect(_on_joined)
-		multiplayer.server_disconnected.connect(leave_network)
+		multiplayer.connection_failed.connect(_on_connection_failed)
+		multiplayer.server_disconnected.connect(_on_server_disconnected)
 
 
 func _on_peer_connected(id: int) -> void:
@@ -172,32 +204,94 @@ func _on_peer_connected(id: int) -> void:
 	peers[id] = "SIGNAL-%d" % id
 	# The host is the only authority on the route, so a joiner is TOLD the room
 	# rather than asked about it.
-	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
+		session_active)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
+		session_active)
+	# A room remains joinable while a route is running. The new peer first gets
+	# the room seed/config above, then enters the same scene; RemotePlayers asks
+	# the host for the current floor snapshot once that fixed RPC path exists.
+	if session_active:
+		_receive_start.rpc_id(id, code, seed_text, mode, map_scale, difficulty)
+	Backend.update_room(peers.size(), session_active)
 	changed.emit()
 
 
 func _on_peer_disconnected(id: int) -> void:
 	peers.erase(id)
 	if is_host:
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
+			session_active)
+		Backend.update_room(peers.size(), session_active)
+	changed.emit()
+
+
+func _on_directory_registration(listed: bool, message: String) -> void:
+	if not online or not is_host:
+		return
+	status_message = message if listed else "HOSTING ON PORT %d // %s" % [_host_port, message]
 	changed.emit()
 
 
 func _on_joined() -> void:
+	connecting = false
+	online = true
+	status_message = "CONNECTED // WAITING FOR HOST"
 	peers[multiplayer.get_unique_id()] = _local_name()
+	_register_peer.rpc_id(1, _local_name())
+	changed.emit()
+
+
+func _on_connection_failed() -> void:
+	_close_failed_connection("CONNECTION FAILED // CHECK ADDRESS AND PORT")
+
+
+func _on_server_disconnected() -> void:
+	_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+
+
+func _close_failed_connection(reason: String) -> void:
+	if _peer != null:
+		_peer.close()
+		_peer = null
+	multiplayer.multiplayer_peer = null
+	online = false
+	connecting = false
+	is_host = true
+	session_active = false
+	peers = {}
+	status_message = reason
+	changed.emit()
+	connection_lost.emit(reason)
+	call_deferred("_return_to_staging")
+
+
+## Replace the host's temporary SIGNAL-id label with the callsign the joining
+## peer already had in its local room. The sender id, never a client-supplied
+## id, decides which roster row changes.
+@rpc("any_peer", "call_remote", "reliable")
+func _register_peer(requested_name: String) -> void:
+	if not is_host:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id <= 1 or not peers.has(id):
+		return
+	var clean := requested_name.strip_edges().to_upper().substr(0, 32)
+	peers[id] = clean if not clean.is_empty() else "SIGNAL-%d" % id
+	broadcast()
 	changed.emit()
 
 
 @rpc("authority", "call_remote", "reliable")
 func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
-		p_difficulty: int, p_peers: Dictionary) -> void:
+		p_difficulty: int, p_peers: Dictionary, p_session_active: bool) -> void:
 	code = p_code
 	seed_text = p_seed
 	mode = p_mode
 	map_scale = p_scale
 	difficulty = p_difficulty
 	peers = p_peers
+	session_active = p_session_active
 	changed.emit()
 
 
@@ -205,7 +299,8 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 ## so a client never generates a building from a stale route.
 func broadcast() -> void:
 	if online and is_host:
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers)
+		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
+			session_active)
 
 
 func _local_name() -> String:
@@ -216,6 +311,8 @@ func _local_name() -> String:
 ## the seed, so changing it is how you get a different building without leaving
 ## staging.
 func reroll_seed() -> void:
+	if online and not is_host:
+		return
 	var stamp := "%d%d" % [Time.get_ticks_usec(), randi()]
 	seed_text = "ROOM-%s-%s" % [code, stamp.md5_text().substr(0, 20).to_upper()]
 	broadcast()
@@ -251,7 +348,8 @@ func roster_rows() -> Array:
 	var rows: Array = []
 	if not online:
 		for name in players:
-			rows.append({"name": String(name), "id": 1, "host": true, "you": true})
+			rows.append({"name": String(name), "id": 1,
+				"host": not connecting, "you": true})
 		return rows
 	var ids: Array = peers.keys()
 	ids.sort()
@@ -273,14 +371,18 @@ func roster() -> PackedStringArray:
 func mode_available(candidate: Mode) -> bool:
 	if candidate == Mode.HIDE_SEEK:
 		return online and roster().size() > 1
+	if candidate == Mode.OFFICE:
+		return not online
 	return true
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
 	if candidate == Mode.HIDE_SEEK and not online:
-		return "NEEDS A SECOND SIGNAL // NO BACKEND YET"
+		return "NEEDS A SECOND SIGNAL IN THE ROOM"
 	if candidate == Mode.HIDE_SEEK:
 		return "NEEDS A SECOND SIGNAL IN THE ROOM"
+	if candidate == Mode.OFFICE and online:
+		return "OFFICE MODE IS LOCAL ONLY // GO OFFLINE FIRST"
 	return ""
 
 
@@ -333,6 +435,8 @@ func generator_options() -> Dictionary:
 
 
 func set_mode(value: Mode) -> void:
+	if online and not is_host:
+		return
 	if mode == value or not mode_available(value):
 		return
 	mode = value
@@ -341,6 +445,8 @@ func set_mode(value: Mode) -> void:
 
 
 func set_map_scale(value: Scale) -> void:
+	if online and not is_host:
+		return
 	if map_scale == value:
 		return
 	map_scale = value
@@ -349,6 +455,8 @@ func set_map_scale(value: Scale) -> void:
 
 
 func set_difficulty(value: Difficulty) -> void:
+	if online and not is_host:
+		return
 	if difficulty == value:
 		return
 	difficulty = value
@@ -362,9 +470,85 @@ func set_difficulty(value: Difficulty) -> void:
 ## players entering the same room get the same building -- which is the part
 ## that has to be true before any networking is worth writing.
 func enter(tree: SceneTree) -> void:
-	if mode != Mode.OFFICE:
-		GameState.start_new_run(run_seed())
-	tree.change_scene_to_file(String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT])))
+	if connecting or (online and not is_host):
+		return
+	if not mode_available(mode):
+		status_message = mode_unavailable_reason(mode)
+		changed.emit()
+		return
+	session_active = true
+	status_message = "ROUTE IN PROGRESS"
+	broadcast()
+	Backend.update_room(peers.size(), session_active)
+	if online:
+		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
+	_enter_session_scene(tree)
+
+
+## Host-owned synchronized scene start. It lives on the autoload rather than
+## the lobby so the RPC path exists before, during and after scene changes.
+@rpc("authority", "call_remote", "reliable")
+func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
+		p_difficulty: int) -> void:
+	code = p_code
+	seed_text = p_seed
+	mode = p_mode
+	map_scale = p_scale
+	difficulty = p_difficulty
+	session_active = true
+	status_message = "ROUTE IN PROGRESS"
+	changed.emit()
+	call_deferred("_enter_session_scene", get_tree())
+
+
+func _enter_session_scene(tree: SceneTree) -> void:
+	var path := String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
+	if tree.current_scene != null and tree.current_scene.scene_file_path == path:
+		return
+	tree.change_scene_to_file(path)
+
+
+## The host can end a run without destroying the room. Guests stay connected
+## and all peers return to staging together; a guest leaving on her own closes
+## only her connection instead (handled by main_3d.gd).
+func end_session(reason: String = "ROUTE ENDED // RETURNED TO STAGING") -> void:
+	if online and not is_host:
+		return
+	if online:
+		_receive_end.rpc(reason)
+	_receive_end(reason)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_end(reason: String) -> void:
+	session_active = false
+	status_message = reason
+	if online and is_host:
+		Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	call_deferred("_return_to_staging")
+
+
+func _return_to_staging() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	if tree.current_scene != null \
+			and tree.current_scene.scene_file_path == "res://scenes/room_lobby.tscn":
+		return
+	tree.change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+## Addresses worth showing beside the host button. Loopback and IPv6 link-local
+## entries are omitted because another machine cannot use the former and the
+## latter needs a scope id the simple address field does not expose.
+func host_addresses() -> PackedStringArray:
+	var out := PackedStringArray()
+	for address in IP.get_local_addresses():
+		if address == "127.0.0.1" or address.contains(":"):
+			continue
+		out.append(address)
+	return out
 
 
 static func _make_code() -> String:

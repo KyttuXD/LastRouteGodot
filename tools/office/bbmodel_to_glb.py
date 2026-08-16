@@ -28,6 +28,12 @@ here -- rotation as rest*delta, position as origin+delta.
 import json, struct, base64, io, os, sys, math
 
 M = 64.0        # Blockbench units per metre
+# The shared source crouch lowers Pelvis by 25 Blockbench units. Its bent
+# calves/feet recover part of that distance, leaving the rendered sole 13.7
+# units below the model origin. Blockbench previews without a world floor, but
+# Godot places this origin exactly on y=0; carry a root lift in that clip so a
+# crouching character stays planted instead of disappearing into the slab.
+CROUCH_GROUND_LIFT = 13.7 / M
 
 # Vertex order per face is (bottom-left, bottom-right, top-right, top-left) as
 # seen from OUTSIDE the box, so one UV order serves every face. Winding is
@@ -59,6 +65,19 @@ def _quat_mul(a, b):
             aw * bw - ax * bx - ay * by - az * bz)
 
 
+def _quat_rotate(q, vector):
+    """Rotate a 3-vector by quaternion ``q`` without allocating matrices."""
+    x, y, z, w = q
+    vx, vy, vz = vector
+    # q * (v, 0) * conjugate(q), simplified.
+    tx = 2.0 * (y * vz - z * vy)
+    ty = 2.0 * (z * vx - x * vz)
+    tz = 2.0 * (x * vy - y * vx)
+    return (vx + w * tx + y * tz - z * ty,
+            vy + w * ty + z * tx - x * tz,
+            vz + w * tz + x * ty - y * tx)
+
+
 def _euler_zyx_to_quat(dx, dy, dz):
     """Degrees -> (x,y,z,w), composing Rz*Ry*Rx.
 
@@ -75,13 +94,18 @@ def _euler_zyx_to_quat(dx, dy, dz):
 
 def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
     model = json.load(open(bb_path))
-    res = model.get("resolution", {"width": 64, "height": 64})
-    tw, th = res["width"], res["height"]
-
     tex = (model.get("textures") or [None])[0]
     if tex is None or not str(tex.get("source", "")).startswith("data:"):
         raise SystemExit(f"{bb_path}: no embedded texture to export")
     png = base64.b64decode(tex["source"].split(",", 1)[1])
+    # Blockbench's model resolution can remain 64x64 while a texture atlas
+    # grows vertically as extracted hair/accessory swatches are appended.
+    # UVs address the texture atlas, not that stale project-grid resolution.
+    # Reading the embedded PNG is authoritative and fixes the previous V
+    # scaling that sampled shirt rows onto faces and empty padding onto bodies.
+    if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 24:
+        raise SystemExit(f"{bb_path}: embedded texture is not a valid PNG")
+    tw, th = struct.unpack(">II", png[16:24])
 
     by_uuid = {e["uuid"]: e for e in model["elements"]}
     groups = {g["uuid"]: g for g in model.get("groups", [])}
@@ -89,6 +113,7 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
     bin_parts, accessors, buffer_views, meshes, nodes = [], [], [], [], []
     offset = 0
     node_for_group = {}          # group uuid -> glTF node index, for animation
+    parent_origin_for_group = {} # group uuid -> parent's absolute BB origin
 
     def add_view(data, target=None):
         nonlocal offset
@@ -122,6 +147,7 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
         if keep is not None and not keep(g["name"]):
             return None
         gx, gy, gz = [c / M for c in g.get("origin", [0, 0, 0])]
+        parent_origin_for_group[g["uuid"]] = parent_origin
         pos, nrm, uvs, idx = [], [], [], []
         children = []
 
@@ -134,8 +160,12 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
             el = by_uuid.get(child)
             if el is None or el.get("type") != "cube":
                 continue
-            x0, y0, z0 = [c / M for c in el["from"]]
-            x1, y1, z1 = [c / M for c in el["to"]]
+            inflate = float(el.get("inflate", 0.0) or 0.0) / M
+            x0, y0, z0 = [c / M - inflate for c in el["from"]]
+            x1, y1, z1 = [c / M + inflate for c in el["to"]]
+            element_rotation = el.get("rotation") or [0, 0, 0]
+            element_quat = _euler_zyx_to_quat(*element_rotation)
+            ex, ey, ez = [c / M for c in el.get("origin", [0, 0, 0])]
             for face, fd in el["faces"].items():
                 if fd.get("texture") is None or not fd.get("uv"):
                     continue
@@ -146,9 +176,21 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                 # Vertices are relative to this group's origin, so the node
                 # transform carries the pivot and animation rotates about it.
                 for (vx, vy, vz) in _face_verts(x0, y0, z0, x1, y1, z1, face):
-                    pos += [vx - gx, vy - gy, vz - gz]
-                    nrm += list(_NORMALS[face])
-                uvs += [u0, v1, u1, v1, u1, v0, u0, v0]
+                    rx, ry, rz = _quat_rotate(
+                        element_quat, (vx - ex, vy - ey, vz - ez))
+                    pos += [rx + ex - gx, ry + ey - gy, rz + ez - gz]
+                rotated_normal = _quat_rotate(element_quat, _NORMALS[face])
+                nrm += list(rotated_normal) * 4
+                face_uvs = [(u0, v1), (u1, v1), (u1, v0), (u0, v0)]
+                # Blockbench stores per-face texture rotation in clockwise
+                # quarter turns. The old exporter ignored it, leaving feet,
+                # sleeves and neck texels sideways even when geometry looked
+                # plausible from a distance.
+                quarter_turns = int(fd.get("rotation", 0) or 0) // 90
+                if quarter_turns:
+                    face_uvs = face_uvs[-quarter_turns:] + face_uvs[:-quarter_turns]
+                for uv in face_uvs:
+                    uvs += uv
                 idx += [base, base + 1, base + 2, base, base + 2, base + 3]
 
         # Child node translations are relative to their parent.
@@ -209,6 +251,7 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                     continue                       # animator for a bone we did not emit
                 g = groups[bone_uuid]
                 ox, oy, oz = [c / M for c in g.get("origin", [0, 0, 0])]
+                px, py, pz = parent_origin_for_group.get(bone_uuid, (0.0, 0.0, 0.0))
                 rest = g.get("rotation") or [0, 0, 0]
                 by_channel = {}
                 for kf in animator.get("keyframes", []):
@@ -232,8 +275,15 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                                 rest[0] + num("x"), rest[1] + num("y"),
                                 rest[2] + num("z")))
                         elif ch == "position":
-                            values += [ox + num("x") / M, oy + num("y") / M,
-                                       oz + num("z") / M]
+                            # A glTF child translation is local to its parent.
+                            # The old exporter wrote the group's absolute BB
+                            # origin here, so the first position key moved
+                            # feet to the knees and nested props away from the
+                            # body. Fold the animation delta into the same
+                            # parent-relative rest translation build() emits.
+                            values += [ox - px + num("x") / M,
+                                       oy - py + num("y") / M,
+                                       oz - pz + num("z") / M]
                         else:
                             values += [num("x", 1.0), num("y", 1.0), num("z", 1.0)]
                     if not times:
@@ -251,8 +301,29 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                             "scale": "scale"}[ch]
                     channels.append({"sampler": len(samplers) - 1,
                                      "target": {"node": node_idx, "path": path}})
+            source_animation_name = str(anim.get("name", "anim"))
+            if source_animation_name.lower() == "crouch" and channels:
+                duration = max(float(anim.get("length", 0.0) or 0.0), 0.001)
+                a_in = acc([0.0, duration], "f", 2, 5126, "SCALAR",
+                           None, ([0.0], [duration]))
+                a_out = acc([0.0, CROUCH_GROUND_LIFT, 0.0,
+                             0.0, CROUCH_GROUND_LIFT, 0.0],
+                            "f", 2, 5126, "VEC3")
+                samplers.append({"input": a_in, "output": a_out,
+                                 "interpolation": "LINEAR"})
+                channels.append({"sampler": len(samplers) - 1,
+                                 "target": {"node": root_idx,
+                                            "path": "translation"}})
             if channels:
-                gltf_anims.append({"name": anim.get("name", "anim"),
+                # glTF itself has no standard loop flag. Godot's importer
+                # recognizes the documented ``-loop`` suffix and strips it
+                # from the imported Animation name while setting loop_mode.
+                # Preserve Blockbench's loop setting through a clean import
+                # instead of relying on hand-edited .import metadata.
+                animation_name = source_animation_name
+                if anim.get("loop") == "loop":
+                    animation_name += "-loop"
+                gltf_anims.append({"name": animation_name,
                                    "channels": channels, "samplers": samplers})
 
     gltf = {
@@ -266,7 +337,10 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
             "pbrMetallicRoughness": {
                 "baseColorTexture": {"index": 0},
                 "metallicFactor": 0.0, "roughnessFactor": 1.0},
-            "alphaMode": "MASK", "alphaCutoff": 0.5, "doubleSided": False,
+            # Blockbench renders its pixel-art planes from either side. Wings,
+            # gills and hair cards commonly author only one textured face;
+            # single-sided glTF made Xivvy's wings disappear from the front.
+            "alphaMode": "MASK", "alphaCutoff": 0.5, "doubleSided": True,
         }],
         "textures": [{"sampler": 0, "source": 0}],
         # NEAREST both ways -- these are pixel-art atlases; linear filtering

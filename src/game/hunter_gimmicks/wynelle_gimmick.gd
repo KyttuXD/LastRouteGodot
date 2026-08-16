@@ -83,6 +83,18 @@ func has_frozen_player() -> bool:
 	return _froze_player
 
 
+## A freeze finishes one runner, not the whole co-op room. Once main_3d has
+## delivered that outcome, dematerialise and let the cold build her next
+## manifestation instead of returning `true` against every later target.
+func consume_frozen_player(brain: HunterBrain) -> void:
+	_froze_player = false
+	materialized = false
+	progress = GameConfig.WYNELLE_DEMATERIALIZE_RESET_PROGRESS
+	_death_timer = 0.0
+	brain.active = false
+	brain.state = HunterBrain.State.IDLE
+
+
 ## She wakes herself, so she must keep evaluating while inert.
 func runs_while_inactive() -> bool:
 	return true

@@ -1,6 +1,11 @@
 class_name OfficeSimulation
 extends RefCounted
 
+## Presentation hooks. The simulation names the same cues as the original,
+## while the scene decides whether/how to render them.
+signal audio_cue(cue: String, pan: float, intensity: float)
+signal jumpscare(threat_id: String)
+
 ## Office Mode's stationary-defense simulation, ported from LastRoute's
 ## src/game/office-survivor-system.js. Presentation-agnostic in the same way
 ## facility_generator.gd and hunter_brain.gd are: this owns the complete night
@@ -12,11 +17,10 @@ extends RefCounted
 ## movement, no collision, no hunter perception, and its ten "Void" signals are
 ## explicitly NOT the A-Z hunter roster (HunterRoster is untouched here).
 ##
-## Not ported (absent, not stubbed): audio cues (`queueOfficeCue` — no audio
-## system exists in this port yet; the on-screen `event` ticker carries the
-## same warnings, and every cue in the original was paired with one), the
-## developer/admin invulnerability shield (no dev mode), and co-op (Office is
-## host-only and single-player here).
+## Not ported (absent, not stubbed): the developer/admin invulnerability shield
+## (no dev mode), and co-op (Office is host-only and single-player here).
+## Audio stays decoupled through the signals above; main_office forwards those
+## to the procedural Sound autoload.
 
 enum Phase { ACTIVE, JUMPSCARE, LOST, WON }
 
@@ -402,6 +406,8 @@ func _update_crimson(delta: float) -> void:
 	if float(threat["progress"]) >= 1.0:
 		threat["door_active"] = true
 		threat["door_timer"] = 2.0
+		audio_cue.emit("presence", -.72 if threat["side"] == "left" else .72, 1.0)
+		audio_cue.emit("crimson_door", -.88 if threat["side"] == "left" else .88, 1.0)
 		_announce("CRIMSON AT %s DOOR // 2 SECONDS" % String(threat["side"]).to_upper(), 2.0)
 
 
@@ -421,6 +427,8 @@ func _update_azure(delta: float) -> void:
 
 	if float(threat["progress"]) >= 0.72 and not threat["warned"]:
 		threat["warned"] = true
+		audio_cue.emit("breath", -.18, 1.0)
+		audio_cue.emit("warning", 0.0, 1.0)
 		_announce("AZURE SHAPE IN OFFICE // FLASH DESK LIGHT")
 		threat["breath_timer"] = 1.7
 	# Once warned she keeps audibly breathing rather than cueing once — the
@@ -429,6 +437,7 @@ func _update_azure(delta: float) -> void:
 		threat["breath_timer"] = float(threat["breath_timer"]) - delta
 		if float(threat["breath_timer"]) <= 0.0:
 			threat["breath_timer"] = 1.7
+			audio_cue.emit("breath", -.18, 1.0)
 	if float(threat["progress"]) < 0.55:
 		threat["warned"] = false
 	if float(threat["progress"]) >= 1.0:
@@ -447,6 +456,7 @@ func _update_amber(delta: float) -> void:
 
 	if float(threat["progress"]) >= 0.75 and not threat["warned"]:
 		threat["warned"] = true
+		audio_cue.emit("warning", 0.0, 1.0)
 		_announce("AMBER AUDIO BUILDING // LOWER MONITOR")
 	if float(threat["progress"]) < 0.55:
 		threat["warned"] = false
@@ -464,6 +474,8 @@ func _update_emerald(delta: float) -> void:
 		_announce("EMERALD BLOCKED // VENT RETREATING")
 	elif float(threat["progress"]) >= 0.72 and not threat["warned"]:
 		threat["warned"] = true
+		audio_cue.emit("scrape", -.72, 1.0)
+		audio_cue.emit("warning", -.72, 1.0)
 		_announce("VENT SCRAPING // SEAL HATCH")
 	if float(threat["progress"]) < 0.55:
 		threat["warned"] = false
@@ -486,6 +498,11 @@ func _update_rose(delta: float) -> void:
 	]
 	threat["fake"] = fakes[_random_int(0, fakes.size() - 1)]
 	threat["fake_pan"] = -0.46 if _rng.next_float() < 0.5 else 0.46
+	match String(threat["fake"]):
+		"FAKE FOOTSTEPS // VERIFY SIGNAL": audio_cue.emit("footsteps", threat["fake_pan"], 1.0)
+		"CAMERA GHOST // ROSE PATTERN": audio_cue.emit("static", threat["fake_pan"], 1.0)
+		"FALSE BREATHING // HOLD POSITION": audio_cue.emit("breath", threat["fake_pan"], .8)
+		_: audio_cue.emit("presence", threat["fake_pan"], 1.0)
 	_announce(String(threat["fake"]))
 	threat["timer"] = maxf(7.0, 18.0 - float(threat["ai"]) * 0.35) + _rng.next_float() * 9.0
 
@@ -506,6 +523,8 @@ func _update_orange(delta: float) -> void:
 		gas_unmasked = 0.0
 		gas_mask_held = false
 		threat["gas_timer"] = maxf(24.0, 48.0 - float(threat["ai"]) * 0.7) + _rng.next_float() * 10.0
+		audio_cue.emit("drain", .18, 1.0)
+		audio_cue.emit("warning", .18, 1.0)
 		_announce("ORANGE GAS LEAK // HOLD MASK", 5.2)
 		return
 
@@ -528,6 +547,8 @@ func _update_orange(delta: float) -> void:
 			"cameras": monitor_open = false
 			"vent": vent_sealed = false
 			"radio": radio_frequency = 0
+		audio_cue.emit("drain", _system_pan(system), 1.0)
+		audio_cue.emit("warning", _system_pan(system), 1.0)
 		_announce("ORANGE FAULT // %s OFFLINE" % _system_label(system))
 	threat["timer"] = maxf(12.0, 28.0 - float(threat["ai"]) * 0.55) + _rng.next_float() * 8.0
 
@@ -544,7 +565,9 @@ func _update_violet(delta: float) -> void:
 		if not corrupted_cameras.has(camera):
 			available.append(camera)
 	if not available.is_empty():
-		corrupted_cameras.append(available[_random_int(0, available.size() - 1)])
+		var camera: String = available[_random_int(0, available.size() - 1)]
+		corrupted_cameras.append(camera)
+		audio_cue.emit("static", _camera_pan(camera), 1.0)
 	if corrupted_cameras.size() >= 3:
 		monitor_open = false
 		blackout_timer = maxf(blackout_timer, 4.0)
@@ -583,6 +606,7 @@ func _update_gray(delta: float) -> void:
 		"remaining": OfficeConfig.GRAY_CHALLENGE_DURATION,
 		"order": _shuffled_order(4),
 	}
+	audio_cue.emit("warning", 0.0, 1.0)
 	_announce("GRAY SIGNAL // COMPLETE THE PARKOUR IN ORDER", OfficeConfig.GRAY_CHALLENGE_DURATION)
 	threat["timer"] = maxf(18.0, 42.0 - float(threat["ai"]) * 1.1) + _rng.next_float() * 14.0
 
@@ -598,6 +622,8 @@ func _update_black(delta: float) -> void:
 	threat["timer"] = float(threat["timer"]) - delta
 	if float(threat["timer"]) <= 0.0:
 		rear_threat_timer = 1.0
+		audio_cue.emit("breath", .68, 1.75)
+		audio_cue.emit("warning", .68, 1.0)
 		_announce("BREATHING BEHIND YOU // TURN + FLASH", 1.0)
 
 #endregion
@@ -637,6 +663,7 @@ func toggle_control(control: String) -> bool:
 			result = vent_sealed
 			if vent_sealed:
 				vent_seal_remaining = OfficeConfig.VENT_SEAL_DURATION
+	audio_cue.emit("camera" if control == "cameras" else "control", 0.0, 1.0)
 
 	# Violet's forced blackout used to silently revert this with no feedback,
 	# which read as the monitor being broken rather than a timed lockout.
@@ -658,6 +685,7 @@ func select_camera(camera_id: String) -> bool:
 		_announce("CAMERA BUS DOWN // NO FEED TO SWITCH TO")
 		return false
 	current_camera = camera_id
+	audio_cue.emit("camera", _camera_pan(camera_id), 1.0)
 	return true
 
 
@@ -673,6 +701,7 @@ func cycle_radio() -> bool:
 		var target: Dictionary = threats[tuned_id]
 		if is_threat_enabled(target) and float(target["progress"]) < 0.75:
 			target["progress"] = maxf(0.0, float(target["progress"]) - 0.16)
+	audio_cue.emit("control", 0.0, 1.0)
 	return true
 
 
@@ -694,6 +723,7 @@ func reset_breaker() -> bool:
 		threats["orange"]["timer"] = 20.0 + _rng.next_float() * 10.0
 	_announce("BREAKER RESET // ORANGE CLEARED" if orange_confirmed
 		else "BREAKER RESET // SYSTEMS RESTORED // ORANGE UNCONFIRMED")
+	audio_cue.emit("control", 0.0, 1.0)
 	return true
 
 
@@ -706,6 +736,7 @@ func reboot_cameras() -> bool:
 	if is_threat_enabled(threats["violet"]):
 		threats["violet"]["timer"] = 16.0 + _rng.next_float() * 8.0
 	_announce("CAMERA REBOOT // BLIND FOR 3 SECONDS", 2.5)
+	audio_cue.emit("camera", 0.0, 1.0)
 	return true
 
 
@@ -723,6 +754,7 @@ func trigger_emergency_flash() -> bool:
 	if is_threat_enabled(threats["black"]):
 		threats["black"]["timer"] = 30.0 + _rng.next_float() * 20.0
 	_announce("EMERGENCY FLASH // ALL SIGNALS STUNNED 5 SECONDS", 5.0)
+	audio_cue.emit("warning", 0.0, 1.0)
 	return true
 
 
@@ -740,6 +772,7 @@ func answer_rear_threat() -> bool:
 	if is_threat_enabled(threats["black"]):
 		threats["black"]["timer"] = 30.0 + _rng.next_float() * 22.0
 	_announce("BLACK SIGNAL REPELLED // REAR FLASH CLEAR")
+	audio_cue.emit("control", .68, 1.0)
 	return true
 
 
@@ -811,6 +844,7 @@ func _fail(failure_cause: String, threat_id: String) -> void:
 		return
 	cause = failure_cause
 	caught_by = threat_id
+	jumpscare.emit(threat_id)
 	if not jumpscares_enabled:
 		phase = Phase.LOST
 		return
@@ -823,6 +857,7 @@ func _win() -> void:
 		return
 	phase = Phase.WON
 	cause = "SHIFT COMPLETE"
+	audio_cue.emit("shift", 0.0, 1.0)
 
 
 func _retreat(threat: Dictionary) -> void:
@@ -844,6 +879,17 @@ func _system_label(system: String) -> String:
 			spaced += " "
 		spaced += character
 	return spaced.to_upper()
+
+
+func _system_pan(system: String) -> float:
+	return float({"leftDoor": -.72, "rightDoor": .72, "deskLight": -.2,
+		"cameras": .1, "vent": -.72, "radio": .42}.get(system, 0.0))
+
+
+func _camera_pan(camera_id: String) -> float:
+	var index := OfficeConfig.CAMERAS.find(camera_id)
+	return 0.0 if index < 0 else lerpf(-.65, .65,
+		float(index) / maxf(1.0, OfficeConfig.CAMERAS.size() - 1.0))
 
 
 func _random_int(minimum: int, maximum: int) -> int:

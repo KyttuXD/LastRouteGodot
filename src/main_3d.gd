@@ -39,6 +39,10 @@ var _custom_map_fetching := false
 ## Rebuilt each frame on the host and sent as-is; empty on a client, which
 ## never fills it because it never runs a brain.
 var _hunter_report: Array = []
+## Local-only audio state. Hunter simulation remains host-authoritative, but
+## each peer hears danger relative to its own body and camera orientation.
+var _audio_hunter_active := {}
+var _haelith_step_elapsed := 0.0
 
 
 func _ready() -> void:
@@ -61,6 +65,11 @@ func _ready() -> void:
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
+	pause_menu.pauses_tree = not RoomState.online
+	if RoomState.online and not RoomState.is_host:
+		pause_menu.abandon_warning = "This leaves the room and returns you to staging. The host's route continues."
+	pause_menu.opened.connect(_on_pause_opened)
+	pause_menu.resumed.connect(_on_pause_resumed)
 	pause_menu.abandoned.connect(_on_abandoned)
 	add_child(pause_menu)
 	# Other players' bodies. Present offline too, doing nothing, so there is no
@@ -71,6 +80,8 @@ func _ready() -> void:
 	_remotes.hunters_received.connect(_apply_hunters)
 	_remotes.world_event.connect(_apply_world_event)
 	_remotes.world_snapshot.connect(_apply_world_snapshot)
+	_remotes.player_event.connect(_apply_player_event)
+	_remotes.hunter_event.connect(_apply_hunter_event)
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
 	facility_view.world_changed.connect(_on_world_changed)
@@ -82,7 +93,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if GameState.game_over:
 		_handle_game_over_tick(delta)
-		return
+		if not RoomState.online:
+			return
 
 	# Being held by a hunter is the one moment pausing would be an exploit, so
 	# the menu is locked out for the length of the struggle.
@@ -97,10 +109,16 @@ func _process(delta: float) -> void:
 
 	if GameState.escape_active:
 		_update_escape_struggle(delta)
+		# The host's own struggle is local state; the other runners and the
+		# authoritative hunters keep moving while it is on screen.
+		if RoomState.online and _remotes.simulates():
+			_update_gameplay(delta)
 	else:
 		_update_gameplay(delta)
 
 	if _remotes != null:
+		if _remotes.simulates():
+			_collect_hunter_report()
 		_remotes.broadcast_hunters(_hunter_report)
 	if GameState.depth != observed_depth:
 		observed_depth = GameState.depth
@@ -112,20 +130,124 @@ func _process(delta: float) -> void:
 		hud.update_map(facility_view.generator, player.grid_position(),
 			player.facing, _map_marks(_admin_reveal_hunters))
 	hud.set_interaction_prompt(player.get_interaction_prompt())
+	_update_local_audio(delta)
 	_update_hud()
 
 
 func _update_gameplay(delta: float) -> void:
 	var generator := facility_view.generator
+	var local_target := _local_hunter_target()
+
+	# Only the host thinks for the hunters. A client that ran the same brains
+	# would run them against ITS player, so each window would be chased by a
+	# hunter the others cannot see.
+	if not _remotes.simulates():
+		return
 
 	# Only the drawn route hunter follows the relay schedule; the specials
 	# below wake on their own rules instead.
 	if hunter_view and not hunter_view.brain.active:
 		var activation_relay: int = mini(GameConfig.HUNTER_ACTIVATION_SPACING, generator.relay_count)
 		if GameState.relays_collected >= activation_relay:
-			hunter_view.brain.activate_at(player.grid_position())
+			var activation_target := _remotes.best_target(
+				hunter_view.brain.position, local_target, GameState.depth)
+			if not activation_target.is_empty():
+				hunter_view.brain.activate_at(activation_target["position"])
 
-	var target := {
+	# Ferryn's scream, collected during the loop below and applied to every
+	# OTHER hunter only after every hunter has had her own update() this
+	# frame -- applying it inline would let whoever raised it stomp a
+	# not-yet-updated sibling, then have that sibling's own update() overwrite
+	# it right back a moment later.
+	var facility_alerts: Array = []
+	for view in hunter_views:
+		var selected := _remotes.best_target(view.brain.position,
+			local_target, GameState.depth)
+		if selected.is_empty():
+			continue
+		var target := _target_with_runtime(selected)
+		var captured: bool = view.brain.update(delta, generator, target,
+			GameState.depth, GameState.relays_collected)
+		view.sync_from_brain()
+		# Anything a gimmick did to the floor. Only the host reaches here, which
+		# is what makes it safe to broadcast without a second authority check.
+		for event in view.brain.world_events:
+			var what := String(event.get("what", ""))
+			if what == "facility_alert":
+				Sound.alert()
+				_remotes.broadcast_event({"what": "sound_alert"})
+				facility_alerts.append(event)
+				continue
+			if what == "stun":
+				_dispatch_player_event(target, {
+					"what": "stun",
+					"seconds": float(event.get("seconds", 0.0)),
+					"message": String(event.get("message", "")),
+				})
+				continue
+			facility_view.apply_event(event)
+			_play_world_audio(event)
+			_remotes.broadcast_event(event)
+			var note := String(event.get("message", ""))
+			if not note.is_empty():
+				hud.show_message(note)
+		view.brain.world_events.clear()
+		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
+		# because it moves the PLAYER, which the brain has no handle on.
+		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
+			_dispatch_player_event(target, {
+				"what": "eject",
+				"at": view.brain.gimmick.ejected_to,
+				"message": "JYVRA PULLED YOU OUT OF HIDING",
+			})
+		if view.brain.gimmick is LoxelleGimmick:
+			for toggle in view.brain.gimmick.toggles:
+				var cell: Vector2i = toggle["cell"]
+				if toggle.has("eject_to"):
+					_dispatch_player_event(target, {
+						"what": "eject",
+						"cell": cell,
+						"at": toggle["eject_to"],
+						"message": "LOXELLE BROKE YOUR COVER",
+					})
+				else:
+					var spot := facility_view.hiding_spot_at(cell)
+					if spot:
+						spot.set_disabled(bool(toggle["disabled"]))
+					if bool(toggle["disabled"]):
+						Sound.alert()
+					_remotes.broadcast_event({"what": "hiding_disabled",
+						"cell": cell, "disabled": bool(toggle["disabled"])})
+			view.brain.gimmick.toggles.clear()
+		# Wynelle's freeze grace is a second way to lose that isn't a grab:
+		# if it runs out you die where you stand, with no struggle.
+		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
+			_capture_target(view, target, true)
+			view.brain.gimmick.consume_frozen_player(view.brain)
+			view.sync_from_brain()
+			return
+		if captured:
+			_capture_target(view, target)
+			return
+
+	for alert in facility_alerts:
+		var at: Vector2 = alert["at"]
+		var except_id := String(alert.get("except", ""))
+		for view in hunter_views:
+			if not view.brain.active or view.brain.hunter_id == except_id:
+				continue
+			view.brain.state = HunterBrain.State.INVESTIGATE
+			view.brain.has_last_known = true
+			view.brain.last_known = at
+			view.sync_from_brain()
+		var note := String(alert.get("message", ""))
+		if not note.is_empty():
+			hud.show_message(note)
+
+
+func _local_hunter_target() -> Dictionary:
+	return {
+		"peer_id": multiplayer.get_unique_id() if RoomState.online else 1,
 		"position": player.grid_position(),
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
@@ -150,90 +272,51 @@ func _update_gameplay(delta: float) -> void:
 		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
+		"escape_active": GameState.escape_active,
+		"capture_immune": GameState.is_capture_immune(),
+		"game_over": GameState.game_over,
 	}
 
-	# Only the host thinks for the hunters. A client that ran the same brains
-	# would run them against ITS player, so each window would be chased by a
-	# hunter the others cannot see.
-	if not _remotes.simulates():
-		return
 
+## RPC dictionaries cannot contain RefCounted objects. Remote meter values are
+## reconstructed into the same shape hunter gimmicks expect. Mutations to this
+## copy are intentionally not authoritative for the guest yet, but every
+## read-only temperature/exposure rule remains safe and deterministic.
+func _target_with_runtime(source: Dictionary) -> Dictionary:
+	var target := source.duplicate(true)
+	if not target.has("meters"):
+		var meters := PlayerMeters.new()
+		meters.exposure = float(target.get("exposure", 0.0))
+		meters.noise_meter = float(target.get("noise_meter", 0.0))
+		meters.temperature = float(target.get("temperature", GameConfig.TEMPERATURE_START))
+		meters.ambient = float(target.get("ambient", GameConfig.TEMPERATURE_START))
+		meters.heat_locked = bool(target.get("heat_locked", false))
+		meters.overheating = meters.temperature >= GameConfig.TEMPERATURE_OVERHEAT
+		meters.freezing = meters.temperature <= GameConfig.TEMPERATURE_FREEZE
+		target["meters"] = meters
+	target["heater_unfrozen"] = _heater_state() != RouteInteractable3D.HeaterState.FROZEN
+	target["heater_powered"] = _heater_state() == RouteInteractable3D.HeaterState.POWERED
+	return target
+
+
+func _collect_hunter_report() -> void:
 	_hunter_report.clear()
-	# Ferryn's scream, collected during the loop below and applied to every
-	# OTHER hunter only after every hunter has had her own update() this
-	# frame -- applying it inline would let whoever raised it stomp a
-	# not-yet-updated sibling, then have that sibling's own update() overwrite
-	# it right back a moment later.
-	var facility_alerts: Array = []
 	for view in hunter_views:
-		var captured: bool = view.brain.update(delta, generator, target, GameState.depth, GameState.relays_collected)
-		view.sync_from_brain()
-		_hunter_report.append({"id": view.name, "at": view.global_position,
-			"facing": view.rotation.y, "active": view.brain.active})
-		# Anything a gimmick did to the floor. Only the host reaches here, which
-		# is what makes it safe to broadcast without a second authority check.
-		for event in view.brain.world_events:
-			var what := String(event.get("what", ""))
-			if what == "facility_alert":
-				facility_alerts.append(event)
-				continue
-			if what == "stun":
-				# Ilyra's pounce. Applied straight to the local player, same as
-				# the capture/escape struggle -- neither is synced to remote
-				# peers yet (see MIGRATION.md's "still per-client" note).
-				player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
-				var stun_note := String(event.get("message", ""))
-				if not stun_note.is_empty():
-					hud.show_message(stun_note)
-				continue
-			facility_view.apply_event(event)
-			_remotes.broadcast_event(event)
-			var note := String(event.get("message", ""))
-			if not note.is_empty():
-				hud.show_message(note)
-		view.brain.world_events.clear()
-		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
-		# because it moves the PLAYER, which the brain has no handle on.
-		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
-			player.leave_hiding(view.brain.gimmick.ejected_to, true)
-			hud.show_message("JYVRA PULLED YOU OUT OF HIDING")
-		if view.brain.gimmick is LoxelleGimmick:
-			for toggle in view.brain.gimmick.toggles:
-				var cell: Vector2i = toggle["cell"]
-				if toggle.has("eject_to"):
-					if player.hidden and player.hidden_spot == cell:
-						player.leave_hiding(toggle["eject_to"], true)
-						hud.show_message("LOXELLE BROKE YOUR COVER")
-				else:
-					var spot := facility_view.hiding_spot_at(cell)
-					if spot:
-						spot.set_disabled(bool(toggle["disabled"]))
-					_remotes.broadcast_event({"what": "hiding_disabled",
-						"cell": cell, "disabled": bool(toggle["disabled"])})
-			view.brain.gimmick.toggles.clear()
-		# Wynelle's freeze grace is a second way to lose that isn't a grab:
-		# if it runs out you die where you stand, with no struggle.
-		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
-			capturing_view = view
-			_resolve_capture_outcome()
-			return
-		if captured:
-			_trigger_capture(view)
-			return
-
-	for alert in facility_alerts:
-		var at: Vector2 = alert["at"]
-		var except_id := String(alert.get("except", ""))
-		for view in hunter_views:
-			if not view.brain.active or view.brain.hunter_id == except_id:
-				continue
-			view.brain.state = HunterBrain.State.INVESTIGATE
-			view.brain.has_last_known = true
-			view.brain.last_known = at
-			view.sync_from_brain()
-		var note := String(alert.get("message", ""))
-		if not note.is_empty():
-			hud.show_message(note)
+		var disguise := ""
+		var wake := 0
+		if view.brain.gimmick is UmbrielGimmick:
+			disguise = view.brain.gimmick.disguise_id
+		if view.brain.gimmick is NyxieGimmick:
+			wake = int(view.brain.gimmick.wake_mode)
+		_hunter_report.append({
+			"id": view.brain.hunter_id,
+			"position": view.brain.position,
+			"facing": view.brain.facing,
+			"active": view.brain.active,
+			"state": int(view.brain.state),
+			"disguise": disguise,
+			"wake": wake,
+		})
 
 
 ## Mirrors hunter-ai.js's guardianBlocking(), called from the same place its
@@ -349,14 +432,32 @@ func _heater_state() -> RouteInteractable3D.HeaterState:
 	return station.heater_state if station else RouteInteractable3D.HeaterState.FROZEN
 
 
-func _trigger_capture(view: HunterView3D) -> void:
+func _capture_target(view: HunterView3D, target: Dictionary,
+		force_inescapable: bool = false) -> void:
+	var peer_id := int(target.get("peer_id", 1))
+	_remotes.send_player_event(peer_id, {
+		"what": "capture",
+		"hunter_id": view.brain.hunter_id,
+		"inescapable": force_inescapable or (view.brain.gimmick != null
+			and view.brain.gimmick.capture_is_inescapable()),
+	})
+
+
+func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> void:
 	if GameState.is_capture_immune():
+		if RoomState.online and not RoomState.is_host:
+			_remotes.submit_hunter_event({
+				"what": "caught",
+				"hunter_id": view.brain.hunter_id,
+			})
 		return
 	capturing_view = view
+	Sound.capture()
 	# Some captures skip the struggle entirely — a cooldown-gated grab, or a
 	# hunter whose gimmick declares the grab inescapable (Nyxie's dead-lamp
 	# wake). Both go straight to the outcome, matching triggerGameOver().
-	if GameState.escape_on_cooldown() or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()):
+	if force_inescapable or GameState.escape_on_cooldown() \
+			or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()):
 		_resolve_capture_outcome()
 		return
 	player.input_frozen = true
@@ -366,6 +467,7 @@ func _trigger_capture(view: HunterView3D) -> void:
 func _update_escape_struggle(delta: float) -> void:
 	if Input.is_action_just_pressed("interact"):
 		GameState.register_escape_press()
+		Sound.struggle(GameState.escape_progress / maxf(1.0, GameState.escape_required))
 	GameState.escape_remaining = maxf(0.0, GameState.escape_remaining - delta)
 
 	if GameState.escape_progress >= GameState.escape_required:
@@ -376,6 +478,7 @@ func _update_escape_struggle(delta: float) -> void:
 
 func _resolve_escape_success() -> void:
 	GameState.resolve_escape_success()
+	Sound.escape()
 
 	var hunter_pos: Vector2 = capturing_view.brain.position if capturing_view else player.grid_position()
 	var player_pos := player.grid_position()
@@ -390,7 +493,13 @@ func _resolve_escape_success() -> void:
 	player.global_position = Vector3(new_pos.x, player.global_position.y, new_pos.y)
 	player.input_frozen = false
 
-	if capturing_view:
+	if capturing_view and RoomState.online and not RoomState.is_host:
+		_remotes.submit_hunter_event({
+			"what": "escaped",
+			"hunter_id": capturing_view.brain.hunter_id,
+			"at": new_pos,
+		})
+	elif capturing_view:
 		capturing_view.brain.enter_search_from(new_pos, 1.8)
 		capturing_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
 		capturing_view.sync_from_brain()
@@ -406,16 +515,25 @@ func _resolve_capture_outcome() -> void:
 	if continues:
 		_respawn_after_capture()
 	else:
+		if RoomState.online and not RoomState.is_host:
+			_remotes.submit_hunter_event({
+				"what": "caught",
+				"hunter_id": capturing_view.brain.hunter_id if capturing_view else "",
+			})
 		_enter_game_over()
 
 
-func _respawn_after_capture() -> void:
-	player.position = facility_view.start_world_position()
+func _respawn_after_capture(notify_host: bool = true) -> void:
+	player.position = _player_spawn_world_position()
 	player.velocity = Vector3.ZERO
 	player.input_frozen = false
-	for view in hunter_views:
-		view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
-		view.sync_from_brain()
+	if RoomState.online and not RoomState.is_host:
+		if notify_host:
+			_remotes.submit_hunter_event({"what": "respawned"})
+	else:
+		for view in hunter_views:
+			view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
+			view.sync_from_brain()
 	hud.show_message("Caught! Respawned at the start.")
 
 
@@ -431,9 +549,22 @@ func _handle_game_over_tick(delta: float) -> void:
 	_game_over_timer += delta
 	if _game_over_timer < 3.0:
 		return
-	GameState.start_new_run()
-	observed_depth = GameState.depth
-	_build_floor()
+	if RoomState.online:
+		# Lives are per runner. Restarting the whole autoload here used to put a
+		# caught peer back on depth one with a new random seed while everyone else
+		# stayed in the current building.
+		GameState.game_over = false
+		GameState.escape_active = false
+		GameState.lives_remaining = GameConfig.RESPAWN_LIVES_STANDARD
+		GameState.escape_cooldown = 0.0
+		GameState.escape_grace = GameConfig.ESCAPE_GRACE
+		_game_over_timer = 0.0
+		_respawn_after_capture(false)
+		hud.show_message("SIGNAL RESTORED // REJOINED THE ROUTE")
+	else:
+		GameState.start_new_run()
+		observed_depth = GameState.depth
+		_build_floor()
 	_update_hud()
 
 
@@ -478,20 +609,128 @@ func _build_admin() -> void:
 		])
 
 
-## Put the host's hunters where the host says they are.
-##
-## Position only. The brains, the capture and the gimmicks all stay on the
-## host -- this is the smallest thing that makes every window agree about where
-## a hunter is standing, which is what has to be true before anything about a
-## shared chase is worth writing.
+## Put the host's visual hunter copies into their authoritative state. Clients
+## do not update these brains; sync_from_brain only turns this packet into the
+## same position, visibility, model/disguise and animation the host sees.
 func _apply_hunters(data: Array) -> void:
 	for entry in data:
-		for view in hunter_views:
-			if String(view.name) != String(entry["id"]):
-				continue
-			view.global_position = entry["at"]
-			view.rotation.y = entry["facing"]
-			break
+		var view := _find_hunter(String(entry.get("id", "")))
+		if view == null:
+			continue
+		var position_value = entry.get("position")
+		var facing_value = entry.get("facing")
+		if position_value is Vector2:
+			view.brain.position = position_value
+		if facing_value is Vector2:
+			view.brain.facing = facing_value
+		view.brain.active = bool(entry.get("active", false))
+		view.brain.state = clampi(int(entry.get("state", HunterBrain.State.IDLE)),
+			HunterBrain.State.IDLE, HunterBrain.State.SEARCH)
+		if view.brain.gimmick is UmbrielGimmick:
+			view.brain.gimmick.disguise_id = String(entry.get("disguise", ""))
+		if view.brain.gimmick is NyxieGimmick:
+			view.brain.gimmick.wake_mode = clampi(int(entry.get("wake", 0)),
+				NyxieGimmick.Wake.NONE, NyxieGimmick.Wake.EMPTY)
+		view.sync_from_brain()
+
+
+func _update_local_audio(delta: float) -> void:
+	if player == null:
+		return
+	var nearest := INF
+	var haelith: HunterView3D
+	for view in hunter_views:
+		var id := view.brain.hunter_id
+		var was_active := bool(_audio_hunter_active.get(id, false))
+		if view.brain.active:
+			nearest = minf(nearest, view.brain.position.distance_to(player.grid_position()))
+			if id == "haelith":
+				haelith = view
+			if id == "nyxie" and not was_active and view.brain.gimmick is NyxieGimmick:
+				if view.brain.gimmick.wake_mode == NyxieGimmick.Wake.EMPTY:
+					Sound.nyxie_empty_wake()
+				else:
+					Sound.nyxie_timer_wake()
+		_audio_hunter_active[id] = view.brain.active
+		if id == "nyxie" and was_active and not view.brain.active:
+			Sound.alert()
+	var danger := 0.0 if nearest == INF else clampf(1.0 - (nearest - .5) / 9.0, 0.0, 1.0)
+	if player.is_in_safe_zone():
+		danger = 0.0
+	Sound.heartbeat(danger)
+	if haelith == null or player.hidden:
+		_haelith_step_elapsed = 0.0
+		return
+	_haelith_step_elapsed += delta
+	if _haelith_step_elapsed < .4:
+		return
+	_haelith_step_elapsed = 0.0
+	var offset := haelith.brain.position - player.grid_position()
+	var distance := offset.length()
+	if distance > 9.0:
+		return
+	var right := Vector2(-player.facing.y, player.facing.x)
+	var pan := clampf(offset.dot(right) / 4.5, -1.0, 1.0)
+	Sound.hunter_footstep(pan, .09 * (1.0 - distance / 9.0))
+
+
+func _find_hunter(hunter_id: String) -> HunterView3D:
+	for view in hunter_views:
+		if view.brain.hunter_id == hunter_id:
+			return view
+	return null
+
+
+func _dispatch_player_event(target: Dictionary, event: Dictionary) -> void:
+	_remotes.send_player_event(int(target.get("peer_id", 1)), event)
+
+
+func _apply_player_event(event: Dictionary) -> void:
+	match String(event.get("what", "")):
+		"capture":
+			var view := _find_hunter(String(event.get("hunter_id", "")))
+			if view:
+				_trigger_capture(view, bool(event.get("inescapable", false)))
+		"stun":
+			player.stun_timer = maxf(player.stun_timer,
+				float(event.get("seconds", 0.0)))
+			var stun_note := String(event.get("message", ""))
+			if not stun_note.is_empty():
+				hud.show_message(stun_note)
+		"eject":
+			if not player.hidden:
+				return
+			var expected = event.get("cell")
+			if expected is Vector2i and player.hidden_spot != expected:
+				return
+			var at = event.get("at", Vector2.ZERO)
+			player.leave_hiding(at if at is Vector2 else Vector2.ZERO, true)
+			var eject_note := String(event.get("message", ""))
+			if not eject_note.is_empty():
+				hud.show_message(eject_note)
+
+
+## Guest escape/respawn outcomes return to the host so its simulation can
+## release or reset the hunter which owns the grab.
+func _apply_hunter_event(event: Dictionary) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	match String(event.get("what", "")):
+		"escaped":
+			var view := _find_hunter(String(event.get("hunter_id", "")))
+			var at = event.get("at")
+			if view and at is Vector2:
+				view.brain.enter_search_from(at, 1.8)
+				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.sync_from_brain()
+		"respawned":
+			for view in hunter_views:
+				view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
+				view.sync_from_brain()
+		"caught":
+			# The remote state packet marks this runner game-over; no hunter reset
+			# is needed, but accepting the event releases the pending-capture gate.
+			pass
 
 
 ## Something the local player did that the room shares. Sent as-is; the effect
@@ -503,10 +742,11 @@ func _on_world_changed(event: Dictionary) -> void:
 
 ## The same thing, arriving from someone else.
 ##
-## Not gated on simulates(): a pickup is not a simulation, it is a fact, and the
-## peer that reports it is the authority on it. Gating this on the host would
-## mean a client's relay took a round trip to disappear.
+## Not gated on simulates(): a pickup is not a hunter-simulation step. Guests
+## apply their interaction immediately, then the host relays the idempotent fact
+## to every peer (including the sender).
 func _apply_world_event(event: Dictionary) -> void:
+	_play_world_audio(event)
 	match String(event.get("what", "")):
 		"descend":
 			# Let the depth change do the work -- _process already rebuilds the
@@ -523,6 +763,14 @@ func _apply_world_event(event: Dictionary) -> void:
 			player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
 		_:
 			facility_view.apply_event(event)
+
+
+func _play_world_audio(event: Dictionary) -> void:
+	var what := String(event.get("what", ""))
+	var note := String(event.get("message", ""))
+	if what in ["sabotage", "hiding_disabled", "sound_alert"] \
+			or (what == "pickup" and note.begins_with("YSOLDE")):
+		Sound.alert()
 
 
 ## What the host tells a peer that joined after the floor started.
@@ -552,7 +800,24 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 
 func _on_abandoned() -> void:
 	get_tree().paused = false
-	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	if RoomState.online and RoomState.is_host:
+		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
+	elif RoomState.online:
+		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
+		RoomState.leave_network()
+		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+
+func _on_pause_opened() -> void:
+	if RoomState.online:
+		player.input_frozen = true
+
+
+func _on_pause_resumed() -> void:
+	if RoomState.online:
+		player.input_frozen = GameState.escape_active or player.hidden or player.is_stunned()
 
 
 func _on_interaction_message(message: String) -> void:
@@ -569,10 +834,37 @@ func _build_floor() -> void:
 ## wherever they stood on the last floor), and give the hunters a fresh spawn.
 func _after_floor_built() -> void:
 	GameState.relay_target = facility_view.generator.relay_count
-	player.position = facility_view.start_world_position()
+	player.position = _player_spawn_world_position()
 	player.velocity = Vector3.ZERO
 	player.input_frozen = false
 	_spawn_hunter()
+
+
+## Keep connected mannequins from occupying the exact same body at the access
+## point. Every peer sorts the deterministic floor cells the same way and uses
+## its roster index, so no extra spawn RPC is needed.
+func _player_spawn_world_position(peer_id: int = -1) -> Vector3:
+	var ordinary := facility_view.start_world_position()
+	if not RoomState.online and peer_id < 0:
+		return ordinary
+	var id := peer_id if peer_id >= 0 else multiplayer.get_unique_id()
+	var ids: Array = RoomState.peers.keys()
+	ids.sort()
+	var roster_index := ids.find(id)
+	if roster_index < 0:
+		roster_index = maxi(0, id - 1)
+	var start := facility_view.generator.start
+	var cells: Array = facility_view.generator.floor_cells()
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var a_distance := a.distance_squared_to(start)
+		var b_distance := b.distance_squared_to(start)
+		if a_distance != b_distance:
+			return a_distance < b_distance
+		return a.y < b.y if a.y != b.y else a.x < b.x)
+	if cells.is_empty():
+		return ordinary
+	var cell: Vector2i = cells[roster_index % mini(cells.size(), RoomState.MAX_PLAYERS)]
+	return Vector3(cell.x + 0.5, ordinary.y, cell.y + 0.5)
 
 
 ## Admin-only: fetches a raw PNG by URL and rebuilds the current floor from it
@@ -644,6 +936,7 @@ func _spawn_hunter() -> void:
 
 func _add_hunter(hunter_id: String, spawn_pos: Vector2, seed_text: String) -> HunterView3D:
 	var view := HunterView3D.new()
+	view.name = "Hunter_%s" % hunter_id
 	view.brain = HunterBrain.new(spawn_pos, seed_text, hunter_id)
 	world.add_child(view)
 	view.sync_from_brain()

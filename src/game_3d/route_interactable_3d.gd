@@ -115,6 +115,7 @@ func activate(player: PlayerController3D) -> String:
 	match kind:
 		Kind.RELAY:
 			_take()
+			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Signal relay recovered."
 		Kind.BATTERY:
@@ -123,14 +124,17 @@ func activate(player: PlayerController3D) -> String:
 			# the floor for everyone, but it goes in the lamp of whoever walked
 			# to it.
 			player.restore_lamp(GameConfig.BATTERY_RECHARGE)
+			Sound.recharge(GameConfig.BATTERY_RECHARGE)
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Battery recovered: +%d%% lamp." % int(GameConfig.BATTERY_RECHARGE)
 		Kind.COIN:
 			_take()
+			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Coins recovered: +%d." % GameConfig.COIN_PICKUP_VALUE
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
+			Sound.recharge(20.0)
 			return "Safe zone: lamp and stamina restored."
 		Kind.HIDING_SPOT:
 			# A locker is a toggle, not a pickup: the same key gets you in and
@@ -144,6 +148,7 @@ func activate(player: PlayerController3D) -> String:
 			# (main_3d), the same indirection Ceryth's riddle uses, since a
 			# plain interactable has no business knowing what a hunter is.
 			if player.music_box_resolver.is_valid():
+				Sound.music_box()
 				return String(player.music_box_resolver.call())
 			return "Nothing happens."
 		Kind.VENT:

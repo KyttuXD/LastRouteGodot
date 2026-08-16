@@ -25,6 +25,8 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:1105",
+		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.code.length() == RoomState.CODE_LENGTH,
 		"room code is %d characters" % RoomState.code.length())
@@ -123,6 +125,8 @@ func run(host: Node) -> int:
 		# company.
 		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
 			"HIDE & SEEK opened up with one player in the room")
+		_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
+			"single-player Office Mode is offered inside a network room")
 		# Exactly one host, and it is peer 1. Every row used to claim both, so
 		# a guest's window showed itself hosting the room it had joined.
 		var rows: Array = RoomState.roster_rows()
@@ -141,6 +145,7 @@ func run(host: Node) -> int:
 			_fail("%d rows claim to be you" % mine)
 		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
 			RoomState.roster().size()])
+		print("  directory primary endpoint hidden in-game; custom direct hosts remain separate")
 
 	# Hosting twice must not leave the first port held.
 	error = RoomState.host_room()

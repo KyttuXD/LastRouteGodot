@@ -74,6 +74,10 @@ func _every_hunter_model(host: Node) -> void:
 		return
 	var checked := 0
 	var clipless: Array[String] = []
+	var shortest := INF
+	var tallest := 0.0
+	var lowest_floor := INF
+	var highest_floor := -INF
 	for file in dir.get_files():
 		if not file.ends_with(".tscn") or file.begins_with("character_scale"):
 			continue
@@ -89,6 +93,18 @@ func _every_hunter_model(host: Node) -> void:
 		if parts.is_empty():
 			_fail("%s has no meshes" % file)
 		else:
+			var rest_box := _whole(parts)
+			shortest = minf(shortest, rest_box.size.y)
+			tallest = maxf(tallest, rest_box.size.y)
+			lowest_floor = minf(lowest_floor, rest_box.position.y)
+			highest_floor = maxf(highest_floor, rest_box.position.y)
+			_expect(rest_box.size.y > 1.4 and rest_box.size.y < 2.8,
+				"%s is %.2f m tall at rest; expected a human-sized hunter" % [file, rest_box.size.y])
+			_expect(absf(rest_box.position.y) < 0.08,
+				"%s rests with its lowest point at y=%.2f instead of floor y=0"
+					% [file, rest_box.position.y])
+			_expect(rest_box.size.x < 2.5 and rest_box.size.z < 2.5,
+				"%s has exploded rest bounds %s" % [file, rest_box])
 			# The mannequin passed everything else this suite had and was still
 			# visibly broken in game -- limbs standing apart with daylight
 			# between them. That was never checked for anything but her; every
@@ -123,12 +139,52 @@ func _every_hunter_model(host: Node) -> void:
 			for clip in CLIPS:
 				if not player.has_animation(clip):
 					_fail("%s has no '%s' clip" % [file, clip])
+					continue
+				var animation := player.get_animation(clip)
+				_expect(animation.length >= 0.1,
+					"%s '%s' is too short to animate" % [file, clip])
+				_expect(animation.get_track_count() > 0,
+					"%s '%s' contains no tracks" % [file, clip])
+				_expect(animation.loop_mode != Animation.LOOP_NONE,
+					"%s '%s' does not loop" % [file, clip])
+				# Names alone did not catch the old exporter writing absolute
+				# positions into parent-relative glTF tracks: clips existed, but
+				# seeking idle put both shoes at knee height. Evaluate a real pose
+				# through Godot's imported AnimationPlayer and inspect its bounds.
+				player.play(clip)
+				player.seek(animation.length * 0.35, true)
+				await host.get_tree().process_frame
+				var posed := _parts(model)
+				if posed.is_empty():
+					_fail("%s vanished while playing '%s'" % [file, clip])
+					continue
+				var posed_box := _whole(posed)
+				_expect(_finite_box(posed_box),
+					"%s '%s' produced non-finite bounds" % [file, clip])
+				_expect(posed_box.size.x < 4.0 and posed_box.size.y < 4.0 and posed_box.size.z < 4.0,
+					"%s '%s' exploded to %s" % [file, clip, posed_box.size])
+				_expect(posed_box.position.y > -0.15,
+					"%s '%s' sinks %.3f m through the floor"
+						% [file, clip, -posed_box.position.y])
+				if clip == "idle":
+					var foot_floor := INF
+					var foot_count := 0
+					for part in posed:
+						if String(part["name"]).contains("Foot"):
+							foot_floor = minf(foot_floor, (part["box"] as AABB).position.y)
+							foot_count += 1
+					_expect(foot_count >= 2, "%s has no two foot meshes" % file)
+					_expect(foot_floor < 0.2,
+						"%s idle feet begin at y=%.2f (the old broken export put them at the knees)"
+							% [file, foot_floor])
+			player.stop()
 		for node in _walk(model):
 			if node is CollisionObject3D:
 				_fail("%s carries its own collider '%s'" % [file, node.name])
 		model.queue_free()
 	_expect(clipless.is_empty(), "no AnimationPlayer on: %s" % ", ".join(clipless))
-	print("  roster    %d character models, all with the five clips" % checked)
+	print("  roster    %d character models, %.2f-%.2f m tall, rest floors %.3f-%.3f m"
+		% [checked, shortest, tallest, lowest_floor, highest_floor])
 
 
 func _parts(body: Node3D) -> Array:
@@ -138,6 +194,18 @@ func _parts(body: Node3D) -> Array:
 		if mesh != null and mesh.mesh != null:
 			out.append({"name": mesh.name, "box": mesh.global_transform * mesh.get_aabb()})
 	return out
+
+
+func _whole(parts: Array) -> AABB:
+	var box: AABB = parts[0]["box"]
+	for part in parts:
+		box = box.merge(part["box"])
+	return box
+
+
+func _finite_box(box: AABB) -> bool:
+	return is_finite(box.position.x) and is_finite(box.position.y) and is_finite(box.position.z) \
+		and is_finite(box.size.x) and is_finite(box.size.y) and is_finite(box.size.z)
 
 
 func _walk(node: Node) -> Array:

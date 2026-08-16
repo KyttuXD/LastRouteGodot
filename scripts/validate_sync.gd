@@ -46,10 +46,18 @@ func run(host: Node) -> int:
 	print("  seed      two peers built the same %dx%d facility from ROOM %s"
 		% [alice.facility_view.generator.cols, alice.facility_view.generator.rows,
 			RoomState.code])
+	_spawn_points_separate(alice)
+	print("  spawns    roster slots use separate nearby open cells")
 	_pickups_travel(alice, bob)
 	print("  pickups   a relay collected on one peer leaves the floor on the other")
 	_heater_travels(alice, bob)
 	print("  heater    the station's three states hold across the room")
+	_hunter_state_travels(alice, bob)
+	print("  hunters   active/state/facing replicate from the host")
+	_target_selection(alice)
+	print("  targeting the closest available remote runner can be chased safely")
+	_targeted_outcomes(bob)
+	print("  outcomes  host-selected stun and capture resolve on the target peer")
 	await _snapshot_catches_up(host, alice)
 	print("  latecomer a peer joining mid-floor is told what it missed")
 
@@ -83,6 +91,17 @@ func _cells(entries: Array) -> Array:
 	for entry in entries:
 		out.append(Vector2i(entry["x"], entry["y"]))
 	return out
+
+
+func _spawn_points_separate(scene: Node) -> void:
+	var first: Vector3 = scene._player_spawn_world_position(1)
+	var second: Vector3 = scene._player_spawn_world_position(2)
+	_expect(not first.is_equal_approx(second),
+		"two connected runners spawn inside the same mannequin")
+	_expect(scene.facility_view.generator.is_floor(first.x, first.z),
+		"the first network spawn is not on an open floor cell")
+	_expect(scene.facility_view.generator.is_floor(second.x, second.z),
+		"the second network spawn is not on an open floor cell")
 
 
 ## A relay collected on one peer leaves the floor on the other, and counts once.
@@ -143,11 +162,17 @@ func _heater_travels(alice: Node, bob: Node) -> void:
 
 ## A peer that arrives after the floor started gets told what it missed.
 func _snapshot_catches_up(host: Node, alice: Node) -> void:
+	var hiding := _first(alice, RouteInteractable3D.Kind.HIDING_SPOT)
+	if hiding:
+		hiding.set_disabled(true)
 	var state: Dictionary = alice._build_snapshot()
 	_expect(not state.get("taken", []).is_empty(),
 		"the snapshot forgot the relay that was already collected")
 	_expect(int(state.get("heater", -1)) == int(RouteInteractable3D.HeaterState.POWERED),
 		"the snapshot forgot the heater station")
+	if hiding:
+		_expect(state.get("disabled_hiding", []).has(hiding.source_cell),
+			"the snapshot forgot a disabled hiding spot")
 
 	var latecomer: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(latecomer)
@@ -164,7 +189,87 @@ func _snapshot_catches_up(host: Node, alice: Node) -> void:
 	_expect(latecomer.facility_view.heater_station.heater_state
 			== RouteInteractable3D.HeaterState.POWERED,
 		"a joining peer thinks the heater station is untouched")
+	if hiding:
+		var late_hiding: RouteInteractable3D = latecomer.facility_view.hiding_spot_at(
+			hiding.source_cell)
+		_expect(late_hiding != null and late_hiding.disabled,
+			"a joining peer can use a hiding spot Loxelle already disabled")
 	latecomer.queue_free()
+
+
+func _hunter_state_travels(alice: Node, bob: Node) -> void:
+	var source: HunterView3D = alice.hunter_view
+	if source == null:
+		_fail("the host has no route hunter to replicate")
+		return
+	source.brain.active = true
+	source.brain.state = HunterBrain.State.CHASE
+	source.brain.position += Vector2(1.25, 0.75)
+	source.brain.facing = Vector2(1, 0)
+	alice._collect_hunter_report()
+	bob._apply_hunters(alice._hunter_report)
+	var copy: HunterView3D = bob._find_hunter(source.brain.hunter_id)
+	_expect(copy != null, "the other peer has no copy of the route hunter")
+	if copy == null:
+		return
+	_expect(copy.brain.active, "an active host hunter is invisible on the other peer")
+	_expect(copy.brain.state == HunterBrain.State.CHASE,
+		"the other peer animates a chasing hunter in the wrong state")
+	_expect(copy.brain.position.is_equal_approx(source.brain.position),
+		"the other peer put the hunter at %s instead of %s"
+			% [copy.brain.position, source.brain.position])
+	_expect(copy.brain.facing.is_equal_approx(source.brain.facing),
+		"the other peer lost the hunter's facing")
+
+
+func _target_selection(scene: Node) -> void:
+	var remotes := RemotePlayers.new()
+	var now := Time.get_ticks_usec()
+	remotes._states[2] = {
+		"peer_id": 2,
+		"position": Vector2(2, 1),
+		"depth": GameState.depth,
+		"received_usec": now,
+		"hidden": false,
+		"in_safe_zone": false,
+		"temperature": 42.0,
+	}
+	var local := {
+		"peer_id": 1,
+		"position": Vector2(20, 20),
+		"hidden": false,
+		"in_safe_zone": false,
+	}
+	var picked := remotes.best_target(Vector2.ZERO, local, GameState.depth)
+	_expect(int(picked.get("peer_id", -1)) == 2,
+		"the hunter ignored the closer remote runner")
+	var runtime: Dictionary = scene._target_with_runtime(picked)
+	_expect(runtime.get("meters") is PlayerMeters,
+		"a remote target did not reconstruct the meter object hunter gimmicks require")
+	_expect(is_equal_approx(runtime["meters"].temperature, 42.0),
+		"the reconstructed remote temperature changed value")
+	remotes.free()
+
+
+func _targeted_outcomes(scene: Node) -> void:
+	scene.player.stun_timer = 0.0
+	scene._apply_player_event({"what": "stun", "seconds": 1.5})
+	_expect(is_equal_approx(scene.player.stun_timer, 1.5),
+		"a targeted hunter stun did not reach the selected player")
+	GameState.escape_active = false
+	GameState.escape_cooldown = 0.0
+	GameState.escape_grace = 0.0
+	scene._apply_player_event({
+		"what": "capture",
+		"hunter_id": scene.hunter_view.brain.hunter_id,
+		"inescapable": false,
+	})
+	_expect(GameState.escape_active,
+		"a host-issued capture did not open the target player's escape struggle")
+	_expect(GameState.escape_hunter_id == scene.hunter_view.brain.hunter_id,
+		"the escape struggle names a different hunter than the host's capture")
+	GameState.escape_active = false
+	scene.player.input_frozen = false
 
 
 func _first(scene: Node, kind: RouteInteractable3D.Kind) -> RouteInteractable3D:

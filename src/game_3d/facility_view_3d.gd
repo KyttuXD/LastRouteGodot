@@ -402,6 +402,7 @@ func find_sabotaged_relay() -> RouteInteractable3D:
 func shared_state() -> Dictionary:
 	var taken := []
 	var sabotaged := []
+	var disabled_hiding := []
 	for node in _interactables:
 		var item := node as RouteInteractable3D
 		if item == null:
@@ -410,10 +411,13 @@ func shared_state() -> Dictionary:
 			taken.append({"cell": item.source_cell, "kind": int(item.kind)})
 		if item.kind == RouteInteractable3D.Kind.RELAY and item.sabotaged:
 			sabotaged.append(item.source_cell)
+		if item.kind == RouteInteractable3D.Kind.HIDING_SPOT and item.disabled:
+			disabled_hiding.append(item.source_cell)
 	return {
 		"taken": taken,
 		"heater": int(heater_station.heater_state) if heater_station else 0,
 		"sabotaged": sabotaged,
+		"disabled_hiding": disabled_hiding,
 	}
 
 
@@ -424,6 +428,8 @@ func adopt_state(state: Dictionary) -> void:
 		heater_station.adopt({"what": "heater", "state": state.get("heater", 0)})
 	for cell in state.get("sabotaged", []):
 		apply_event({"what": "sabotage", "cell": cell, "sabotaged": true})
+	for cell in state.get("disabled_hiding", []):
+		apply_event({"what": "hiding_disabled", "cell": cell, "disabled": true})
 
 
 ## Floor, wall and ceiling as plain boxes.

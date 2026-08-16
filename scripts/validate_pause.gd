@@ -54,6 +54,7 @@ func run(host: Node) -> int:
 	_host = host
 	await _check_lock()
 	await _check_maze()
+	await _check_online_maze()
 	await _check_office()
 	if _failures == 0:
 		print("pause and mouse lock OK")
@@ -189,3 +190,26 @@ func _check_office() -> void:
 	scene.queue_free()
 	await _frame()
 	print("  office    ignores a tap, pauses after a %.0f s hold" % PauseMenu.HOLD_SECONDS)
+
+
+func _check_online_maze() -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var error := RoomState.host_room()
+	if not error.is_empty():
+		_fail("could not open an online room for the pause check: %s" % error)
+		return
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	_root().add_child(scene)
+	await _frame()
+	await _frame()
+	var menu: PauseMenu = scene.pause_menu
+	_expect(not menu.pauses_tree, "a co-op pause menu still owns the whole SceneTree")
+	menu.open()
+	_expect(not _tree().paused, "the host froze every peer by opening a local menu")
+	_expect(scene.player.input_frozen, "the paused local runner can still move online")
+	menu.close()
+	_expect(not scene.player.input_frozen, "resuming left the online runner frozen")
+	scene.queue_free()
+	await _frame()
+	RoomState.leave_network()
+	print("  co-op     pause freezes one runner without freezing the host simulation")

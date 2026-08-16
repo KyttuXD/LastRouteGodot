@@ -75,6 +75,8 @@ func sync_from_brain() -> void:
 	if brain == null:
 		return
 	position = Vector3(brain.position.x, 0.0, brain.position.y)
+	if brain.facing.length_squared() > 0.0001:
+		rotation.y = atan2(brain.facing.x, brain.facing.y)
 	_apply_model(_desired_model_id())
 	_apply_visibility()
 	_update_animation()

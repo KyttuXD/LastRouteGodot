@@ -308,6 +308,8 @@ func _physics_process(delta: float) -> void:
 	velocity.z = move_direction.z * speed_mps
 	velocity.y = 0.0
 	move_and_slide()
+	if is_moving:
+		Sound.footstep(movement_mode)
 
 
 	_update_flashlight_flicker(delta)

@@ -33,11 +33,10 @@ static func load_gridmap_item(scene_path: String) -> Dictionary:
 		var material := mesh_instance.get_surface_override_material(0)
 		if material and mesh is PrimitiveMesh:
 			(mesh as PrimitiveMesh).material = material
-		# Same alpha-scissor fix instantiate() applies -- a real imported
-		# model dropped in for a GridMap item (none does today; a future one
-		# could) would otherwise be as invisible here as the hunters were.
-		# ArrayMesh only: a PrimitiveMesh's placeholder material is always a
-		# freshly-made StandardMaterial3D that never had this set.
+		# GridMap fabric is intentionally opaque. This is independent from the
+		# character path below, which must retain authored alpha for hair, wing,
+		# and clothing-overlay cards. ArrayMesh only: a PrimitiveMesh's
+		# placeholder material is always a freshly-made StandardMaterial3D.
 		if mesh is ArrayMesh:
 			for surface in mesh.get_surface_count():
 				var surface_material := mesh.surface_get_material(surface)
@@ -91,37 +90,13 @@ static func instantiate(scene_path: String) -> Node3D:
 	if scene == null:
 		push_warning("ModelSlot: could not load %s" % scene_path)
 		return null
-	var instance := scene.instantiate()
-	_disable_alpha_scissor(instance)
-	return instance
-
-
-## The Blockbench -> glTF export pipeline (tools/characters/*.py) writes
-## every material with alphaMode "MASK", which Godot's importer turns into
-## TRANSPARENCY_ALPHA_SCISSOR -- correct for an actual cutout (a hair strand,
-## a feather edge), wrong for the plain opaque skin/body materials that make
-## up most of a character or prop. Those textures carry a lot of unused
-## atlas padding at alpha=0, and alpha-scissor discards any fragment sampled
-## from it outright: for a body-part mesh whose UVs land anywhere near that
-## padding, the result is not a rough edge, it is the WHOLE mesh rendering
-## nothing at all -- which is what "hunters are invisible" turned out to be.
-## Forcing transparency off is the safe default here: a blockier hair
-## silhouette is a real cost, but nowhere near as bad as a hunter nobody can
-## see or a relay nobody can find.
-static func _disable_alpha_scissor(node: Node) -> void:
-	if node is MeshInstance3D:
-		var mesh_instance := node as MeshInstance3D
-		var mesh := mesh_instance.mesh
-		if mesh:
-			for surface in mesh.get_surface_count():
-				var material := mesh_instance.get_active_material(surface)
-				if material is StandardMaterial3D \
-						and (material as StandardMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
-					var fixed: StandardMaterial3D = (material as StandardMaterial3D).duplicate()
-					fixed.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-					mesh_instance.set_surface_override_material(surface, fixed)
-	for child in node.get_children():
-		_disable_alpha_scissor(child)
+	# Preserve the Blockbench atlas's authored alpha. The old exporter divided
+	# UVs by a stale 64x64 project grid instead of the embedded PNG's true atlas
+	# height, which made solid faces sample transparent padding and prompted a
+	# blanket opaque-material workaround. With atlas UVs fixed, that workaround
+	# turns legitimate transparent torso overlays (Eirys/Quirith) into black
+	# boxes and hair/wing cards into rectangles.
+	return scene.instantiate()
 
 
 ## Finds an AnimationPlayer anywhere under `root` by type — same reasoning as

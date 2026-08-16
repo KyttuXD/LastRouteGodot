@@ -62,6 +62,10 @@ var pause_menu: PauseMenu
 
 func _ready() -> void:
 	simulation = OfficeSimulation.new("OFFICE-%d" % randi())
+	simulation.audio_cue.connect(_on_audio_cue)
+	simulation.jumpscare.connect(func(threat_id: String) -> void:
+		Sound.office_jumpscare(threat_id))
+	Sound.queue_office_cue("shift")
 	monitor.simulation = simulation
 	# The view READS simulation state to show the doors, the desk lamp, the CRT
 	# and the camera console. It never writes to it.
@@ -115,6 +119,10 @@ func _toggle(control: String) -> void:
 	simulation.toggle_control(control)
 	if control == "cameras":
 		_sync_monitor_visibility()
+
+
+func _on_audio_cue(cue: String, pan: float, intensity: float) -> void:
+	Sound.queue_office_cue(cue, pan, intensity)
 
 
 ## The monitor being up is simulation state (`monitor_open`), not a separate

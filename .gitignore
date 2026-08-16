@@ -14,9 +14,12 @@ Thumbs.db
 # Local secrets and account data
 .env
 data/accounts.json
+backend/data/
+
+# Local visual-review renders
+.artifacts/
 
 
 # Python bytecode from tools/
 __pycache__/
 *.pyc
-

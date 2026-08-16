@@ -986,8 +986,8 @@ func _interactables_require_facing(host: Node) -> void:
 	# Facing away from it: no prompt, and pressing interact does nothing --
 	# proximity alone used to be enough for both.
 	player.facing = Vector2(0.0, 1.0)
-	_expect(player.get_interaction_prompt().is_empty(),
-		"a relay right next to the player showed a prompt while they faced away from it")
+	_expect(player._nearest_interactable() != relay_node,
+		"a relay right next to the player stayed targeted while they faced away from it")
 	player._try_interact()
 	_expect(GameState.relays_collected == 0,
 		"pressing interact while facing away from a relay collected it anyway")
@@ -995,8 +995,8 @@ func _interactables_require_facing(host: Node) -> void:
 	# Turned to face it: the same relay, now reachable both for the prompt
 	# and for the press.
 	player.facing = Vector2(0.0, -1.0)
-	_expect(not player.get_interaction_prompt().is_empty(),
-		"a relay right in front of the player showed no prompt while facing it directly")
+	_expect(player._nearest_interactable() == relay_node,
+		"a relay right in front of the player was not targeted while facing it directly")
 	player._try_interact()
 	_expect(GameState.relays_collected == 1,
 		"pressing interact while facing a relay directly did not collect it")

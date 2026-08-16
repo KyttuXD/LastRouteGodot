@@ -21,12 +21,17 @@ extends CanvasLayer
 
 signal resumed
 signal abandoned
+signal opened
 
 ## How long ESC must be held in hold-to-pause mode.
 const HOLD_SECONDS := 3.0
 
 ## Tap to pause, or hold. Office Mode sets this false.
 @export var tap_to_pause := true
+## Offline and Office Mode stop the SceneTree. In a live co-op room, opening a
+## local menu must not freeze the host's hunter simulation for every guest.
+## The mode freezes only that local controller instead.
+@export var pauses_tree := true
 ## What the abandon button says. "ROUTE" for the maze, "SHIFT" for the office.
 @export var abandon_label := "ABANDON ROUTE"
 ## What leaving actually costs, spelled out on the confirmation. Co-op ends the
@@ -239,6 +244,7 @@ func open() -> void:
 		return
 	_set_open(true)
 	_resume_button.grab_focus()
+	opened.emit()
 
 
 func close() -> void:
@@ -256,7 +262,8 @@ func _set_open(is_open: bool) -> void:
 	_panel.visible = is_open
 	_confirm.visible = false
 	_hold_box.visible = false
-	get_tree().paused = is_open
+	if pauses_tree:
+		get_tree().paused = is_open
 	# The cursor is a claim rather than a mode change, so the camera cannot
 	# take it back on its next frame while the menu is still up.
 	MouseLock.claim("pause", is_open)

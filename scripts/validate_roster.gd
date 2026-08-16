@@ -53,17 +53,16 @@ func _everyone_has_a_face() -> void:
 		% HunterRoster.PROFILES.size())
 
 
-## The Blockbench -> glTF export pipeline writes every material as alphaMode
-## "MASK", which Godot's importer turns into TRANSPARENCY_ALPHA_SCISSOR --
-## and most of a character texture sheet's unused atlas padding is alpha=0,
-## which alpha-scissor discards outright. Every hunter rendered as literally
-## nothing until ModelSlot._disable_alpha_scissor() forced transparency off
-## on load. This is the regression guard for that: load every hunter's real
-## model exactly the way the game does (through ModelSlot, not a raw
-## resource load) and confirm no mesh comes back alpha-scissored.
+## The Blockbench -> glTF export pipeline writes pixel-art materials as MASK,
+## which Godot imports as alpha scissor. This must remain authored: transparent
+## overlay texels reveal the base torso, and transparent wing/hair padding cuts
+## out the silhouette. The old runtime opacity override turned Eirys/Quirith's
+## overlay padding into solid black boxes. Load through ModelSlot exactly as the
+## game does and confirm the imported masking survives.
 func _everyone_actually_renders() -> void:
 	var broken: Array[String] = []
 	var empty: Array[String] = []
+	var masked_surfaces := 0
 	for id in HunterRoster.PROFILES:
 		var identity := HunterRoster.get_identity(id)
 		var model := ModelSlot.instantiate(String(identity["model_scene"]))
@@ -75,16 +74,30 @@ func _everyone_actually_renders() -> void:
 			empty.append(id)
 		for node in meshes:
 			var mesh_instance := node as MeshInstance3D
+			if mesh_instance.mesh == null:
+				continue
 			for surface in mesh_instance.mesh.get_surface_count() if mesh_instance.mesh else 0:
 				var material := mesh_instance.get_active_material(surface)
-				if material is StandardMaterial3D \
-						and (material as StandardMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+				if not material is StandardMaterial3D:
+					if not broken.has(id):
+						broken.append(id)
+					continue
+				var transparency := (material as StandardMaterial3D).transparency
+				if transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
+					masked_surfaces += 1
+				elif transparency != BaseMaterial3D.TRANSPARENCY_DISABLED and not broken.has(id):
 					broken.append(id)
-					break
-		model.queue_free()
+		# These inspection instances were never added to SceneTree. Free them
+		# synchronously: deferring 26 imported scenes until the next suite's
+		# render frame made the dummy renderer inspect already-released material
+		# state and print a misleading material-null engine error.
+		model.free()
 	_expect(empty.is_empty(), "no meshes at all for: %s" % ", ".join(empty))
 	_expect(broken.is_empty(),
-		"still alpha-scissored (would render as nothing) after ModelSlot's fix: %s" % ", ".join(broken))
+		"character meshes have missing/unexpected material modes: %s" % ", ".join(broken))
+	_expect(masked_surfaces > 0,
+		"no character surface retained authored alpha masking")
+	print("  materials %d surfaces retain authored alpha masks" % masked_surfaces)
 
 
 ## An id in the pool with no profile falls back to Dovelle's numbers and her

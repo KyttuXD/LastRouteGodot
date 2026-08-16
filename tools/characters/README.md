@@ -1,22 +1,16 @@
 # Character model pipeline
 
-Everything in `art/props-3d/characters/` is a build product. This directory is
-what builds it.
+The reviewed `.bbmodel` files committed in `art/props-3d/characters/` are the
+editable source of truth. Each embeds its texture, opens directly in
+Blockbench, and rebuilds without an uncommitted skin/template directory. The
+PNG beside it is deliberately extracted from that embedded texture: Godot can
+import it normally, and a reviewer can inspect the exact atlas the GLB uses.
 
-That is the point of it being here. An earlier version of this toolchain lived
-in a scratch directory outside the repository; the directory was cleared, and
-with it went the only way to rebuild any character model in the game. The
-scripts were recovered from a session transcript and now live in version
-control, where a build product's builder belongs. **Nothing here may import
-from a path outside `tools/`.**
-
-**The `.bbmodel` files are committed too**, next to each `.glb`, for the same
-reason the toolchain itself is: they're what opens directly in Blockbench for
-a hand look or a hand edit, texture (embedded as base64) included, with
-nothing to run first. Editing one by hand and rerunning the pipeline will
-overwrite it — the skin PNGs are still the actual source of truth — so treat a
-hand edit here as a preview of a change to make upstream (the skin, or the
-converter), not a permanent one.
+`import_blockbench_hunters.py` is the normal path from reviewed Blockbench
+source to the three committed runtime artifacts (`.bbmodel`, `_0.png`, `.glb`).
+The older skin-to-rig builders remain useful when creating a hunter from a raw
+Minecraft skin, but they are no longer the final authority over a reviewed
+Blockbench edit.
 
 ## One pipeline now
 
@@ -39,7 +33,40 @@ reads as visibly larger than the player without either model's own geometry
 changing. Import-time, not exporter code, so it survives a rebuild without
 needing to be re-applied.
 
-## Building
+## Rebuilding the reviewed models
+
+Re-export every committed hunter and the player from the repository itself:
+
+```bash
+python3 tools/characters/import_blockbench_hunters.py \
+  art/props-3d/characters --include-player
+```
+
+To bring in a newly reviewed external set (the path is an explicit input, not
+a hardcoded dependency):
+
+```bash
+python3 tools/characters/import_blockbench_hunters.py \
+  "/path/to/reviewed/Hunters"
+```
+
+The importer rejects a missing roster entry, invalid embedded PNG, or a model
+without all five gameplay clips. `--only Aki,Kathy` is available while
+iterating. Then make Godot import and pose the real generated scenes:
+
+```bash
+godot4 --headless --editor --quit --path .
+godot4 --headless --path . res://scenes/validate.tscn -- body
+```
+
+For visual review with Blender:
+
+```bash
+blender --background --python tools/characters/render_character_gallery.py \
+  -- --output /tmp/characters.png --animation idle --view threequarter
+```
+
+## Building from raw skins (legacy authoring path)
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install Pillow
@@ -57,13 +84,8 @@ The player mannequin:
 .venv/bin/python tools/characters/build_mannequin.py tools/characters/mannequin_skin.png art/props-3d/characters/mannequin.bbmodel art/props-3d/characters/mannequin.glb
 ```
 
-Then re-import so Godot picks the new mesh up (this is also where a fresh
-`.glb.import` gets `root_scale=1.0` again — reapply it, see above), and check:
-
-```bash
-godot4 --headless --path . --import
-godot4 --headless --path . res://scenes/validate.tscn -- body
-```
+After using this path, run the reviewed-model importer above so its embedded
+texture, PNG, GLB and validation all agree.
 
 ## The files
 
@@ -103,8 +125,15 @@ These are all mistakes this project has actually made:
   a 32-pixel figure stands 1.7 m — the height of the player's capsule.
 - **`autouv` must stay 0**, or Blockbench regenerates the UVs when the file is
   opened and the careful mapping is gone.
-- **Cube-level rotation is dropped.** Only *group* rotation survives as a glTF
-  node rotation. Anything that must be turned has to be turned as a group.
+- **Cube and face rotations are preserved.** Aki's four 5-degree skirt-panel
+  rotations are the regression case: dropping cube rotation made their faces
+  coplanar with the pelvis and caused z-fighting in Godot.
+- **Materials retain authored alpha and render both sides.** Quirith and Eirys
+  use transparent torso-overlay texels that become black boxes if the runtime
+  forces their material opaque. Xivvy's wings are deliberately thin,
+  single-face cards and disappear from the front when glTF backface culling is
+  enabled. The exporter emits double-sided alpha-scissor materials and
+  `ModelSlot.instantiate()` leaves those settings intact.
 - **`collision=False` for anything a player wears.** A character's only
   collider is its `CharacterBody3D`'s own shape; exporting `-colonly` meshes
   gave the first mannequin twenty-one static bodies and dropped it through the
@@ -112,3 +141,10 @@ These are all mistakes this project has actually made:
 - **Clip names are `idle`, `walk`, `sprint`, `chase`, `crouch`,** lowercase.
   `AnimationPlayer.has_animation` is case-sensitive, and a clip the game cannot
   find is a body that stands frozen while it slides around.
+- **Blockbench loop flags survive a clean Godot import.** The glTF exporter
+  uses Godot's recognized `-loop` source suffix; Godot strips the suffix back
+  to the gameplay clip name and sets the imported animation's loop mode.
+- **Every rest pose stands on y=0.** The shared crouch clip carries a small
+  root lift because its source pelvis translation otherwise pushes every sole
+  0.19-0.24 m through the floor. `validate_body.gd` checks rest and posed
+  bounds for every shipped character.
