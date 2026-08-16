@@ -291,36 +291,43 @@ func _actions() -> Control:
 				_rebuild())
 			directory_row.add_child(code_join)
 
-		stack.add_child(_label("CUSTOM DIRECT HOST // BYPASSES ROOM DIRECTORY",
-			Palette.MUTED, 6))
-		var custom_row := HBoxContainer.new()
-		custom_row.add_theme_constant_override("separation", 5)
-		stack.add_child(custom_row)
-		var address := LineEdit.new()
-		address.text = _join_address
-		address.placeholder_text = "HOST IP OR NAME"
-		address.custom_minimum_size = Vector2(118, 18)
-		address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		address.add_theme_font_size_override("font_size", 7)
-		address.text_changed.connect(func(value: String) -> void: _join_address = value)
-		custom_row.add_child(address)
-		var port := SpinBox.new()
-		port.min_value = 1
-		port.max_value = 65535
-		port.step = 1
-		port.value = _join_port
-		port.custom_minimum_size = Vector2(66, 18)
-		port.add_theme_font_size_override("font_size", 7)
-		port.value_changed.connect(func(value: float) -> void: _join_port = int(value))
-		custom_row.add_child(port)
-		var join := Button.new()
-		join.text = "JOIN CUSTOM HOST"
-		join.add_theme_font_size_override("font_size", 7)
-		join.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(join, false)
-		join.pressed.connect(func() -> void:
-			_network(RoomState.join_room(_join_address, _join_port)))
-		custom_row.add_child(join)
+		# Direct endpoints are a developer escape hatch, not a production choice.
+		# Release exports offer only the primary directory above; debug builds and
+		# explicit --tools tester builds retain this section for local ENet work.
+		if Build.allow_custom_hosts():
+			var custom_label := _label(
+				"CUSTOM DIRECT HOST // BYPASSES ROOM DIRECTORY", Palette.MUTED, 6)
+			custom_label.name = "DebugCustomHostLabel"
+			stack.add_child(custom_label)
+			var custom_row := HBoxContainer.new()
+			custom_row.name = "DebugCustomHostRow"
+			custom_row.add_theme_constant_override("separation", 5)
+			stack.add_child(custom_row)
+			var address := LineEdit.new()
+			address.text = _join_address
+			address.placeholder_text = "HOST IP OR NAME"
+			address.custom_minimum_size = Vector2(118, 18)
+			address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			address.add_theme_font_size_override("font_size", 7)
+			address.text_changed.connect(func(value: String) -> void: _join_address = value)
+			custom_row.add_child(address)
+			var port := SpinBox.new()
+			port.min_value = 1
+			port.max_value = 65535
+			port.step = 1
+			port.value = _join_port
+			port.custom_minimum_size = Vector2(66, 18)
+			port.add_theme_font_size_override("font_size", 7)
+			port.value_changed.connect(func(value: float) -> void: _join_port = int(value))
+			custom_row.add_child(port)
+			var join := Button.new()
+			join.text = "JOIN CUSTOM HOST"
+			join.add_theme_font_size_override("font_size", 7)
+			join.custom_minimum_size = Vector2(0, 18)
+			Palette.style_button(join, false)
+			join.pressed.connect(func() -> void:
+				_network(RoomState.join_room(_join_address, _join_port)))
+			custom_row.add_child(join)
 	else:
 		var network_row := HBoxContainer.new()
 		network_row.add_theme_constant_override("separation", 5)

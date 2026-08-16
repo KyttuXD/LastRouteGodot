@@ -105,6 +105,10 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
 	_expect(lobby.get_child_count() > 1, "the staging screen drew nothing")
+	_expect(Build.allow_custom_hosts() == Build.tools_enabled(),
+		"custom-host visibility is not tied to the debug tools gate")
+	_expect(lobby.find_child("DebugCustomHostRow", true, false) != null,
+		"a debug build lost the custom-host testing controls")
 	lobby.queue_free()
 	await host.get_tree().process_frame
 
@@ -145,7 +149,7 @@ func run(host: Node) -> int:
 			_fail("%d rows claim to be you" % mine)
 		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
 			RoomState.roster().size()])
-		print("  directory primary endpoint hidden in-game; custom direct hosts remain separate")
+		print("  directory primary endpoint hidden in-game; custom hosts are debug-only")
 
 	# Hosting twice must not leave the first port held.
 	error = RoomState.host_room()

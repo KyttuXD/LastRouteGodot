@@ -22,19 +22,20 @@ npm start
 curl http://127.0.0.1:1101/api/health
 ```
 
-Normal game builds already use the primary service at
-`http://lastroute.kyttuslab.org:1105`. Override it while testing a local or
-self-hosted backend with:
+Normal game builds use only the primary service at
+`http://lastroute.kyttuslab.org:1105`. Editor/debug builds can override it
+while testing a local or self-hosted backend with:
 
 ```sh
 LASTROUTE_BACKEND_URL=http://127.0.0.1:1101 \
   godot4 --path ..
 ```
 
-The equivalent game argument is
+The equivalent debug-tools argument is
 `--backend-url=http://127.0.0.1:1101`. Use `LASTROUTE_BACKEND_URL=off` (or
-`--backend-url=off`) to disable directory use. The lobby's custom-host address
-and UDP port are a separate direct ENet path and do not change this backend.
+`--backend-url=off`) to disable directory use while testing. The lobby's
+custom-host address and UDP port are a separate direct ENet path; those
+controls are also hidden unless debug tools are enabled.
 
 ## Pterodactyl deployment
 

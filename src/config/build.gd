@@ -37,3 +37,10 @@ static func show_diagnostics() -> bool:
 ## facility layout, threat timers -- may be opened at all.
 static func allow_spoiler_views() -> bool:
 	return tools_enabled()
+
+
+## Whether staging may expose an arbitrary ENet address and port. Production
+## players use the built-in room directory exclusively; editor/debug builds
+## keep direct-connect available for local and alternate-server testing.
+static func allow_custom_hosts() -> bool:
+	return tools_enabled()

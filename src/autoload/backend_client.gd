@@ -2,8 +2,8 @@ extends Node
 
 ## HTTP rendezvous client for ENet rooms. Real-time gameplay never passes
 ## through this service: it only publishes a host's UDP endpoint and resolves
-## a five-character room code. Normal builds use the official directory;
-## LASTROUTE_BACKEND_URL/--backend-url are explicit self-hosted overrides.
+## a five-character room code. Release builds use the official directory;
+## LASTROUTE_BACKEND_URL/--backend-url are debug-tools-only overrides.
 
 signal registration_changed(registered: bool, message: String)
 signal room_resolved(code: String, endpoint: Dictionary, error: String)
@@ -30,10 +30,12 @@ var _heartbeat: Timer
 
 
 func _ready() -> void:
-	var override := OS.get_environment("LASTROUTE_BACKEND_URL").strip_edges()
-	for argument in OS.get_cmdline_args():
-		if argument.begins_with("--backend-url="):
-			override = argument.trim_prefix("--backend-url=").strip_edges()
+	var override := ""
+	if Build.allow_custom_hosts():
+		override = OS.get_environment("LASTROUTE_BACKEND_URL").strip_edges()
+		for argument in OS.get_cmdline_args():
+			if argument.begins_with("--backend-url="):
+				override = argument.trim_prefix("--backend-url=").strip_edges()
 	if not override.is_empty():
 		base_url = _normalize_base_url(override)
 		custom_directory = not base_url.is_empty() and base_url != PRIMARY_BASE_URL
