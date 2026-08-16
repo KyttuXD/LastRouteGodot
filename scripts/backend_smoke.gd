@@ -1,9 +1,8 @@
 extends Node
 
-## Live Godot -> Node directory smoke. Start backend/index.js first, then:
+## Live Godot -> primary Node directory smoke:
 ##
-##   LASTROUTE_BACKEND_URL=http://127.0.0.1:1101 \
-##     godot4 --headless --path . res://scenes/backend_smoke.tscn
+##   godot4 --headless --path . res://scenes/backend_smoke.tscn
 ##
 ## This opens a real ENet host, exercises RoomState's automatic registration,
 ## resolves its room code back into an endpoint, and verifies leaving removes
@@ -23,7 +22,7 @@ func _ready() -> void:
 
 func _run() -> void:
 	if not Backend.configured():
-		_finish(false, "LASTROUTE_BACKEND_URL is not configured")
+		_finish(false, "primary room directory is not configured")
 		return
 	Backend.room_resolved.connect(_on_resolved)
 	RoomState.create_local(RoomState.Mode.DEFAULT)

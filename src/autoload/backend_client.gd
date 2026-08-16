@@ -2,20 +2,17 @@ extends Node
 
 ## HTTP rendezvous client for ENet rooms. Real-time gameplay never passes
 ## through this service: it only publishes a host's UDP endpoint and resolves
-## a five-character room code. Release builds use the official directory;
-## LASTROUTE_BACKEND_URL/--backend-url are debug-tools-only overrides.
+## a five-character room code. Every build uses the official service for room
+## discovery, accounts, and updates; there is deliberately no override.
 
 signal registration_changed(registered: bool, message: String)
 signal room_resolved(code: String, endpoint: Dictionary, error: String)
 signal health_checked(ok: bool, message: String)
 
 const HEARTBEAT_SECONDS := 20.0
-const PRIMARY_HOST := "lastroute.kyttuslab.org"
-const PRIMARY_PORT := 1105
-const PRIMARY_BASE_URL := "http://%s:%d" % [PRIMARY_HOST, PRIMARY_PORT]
+const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:1105"
+const base_url := PRIMARY_BASE_URL
 
-var base_url := PRIMARY_BASE_URL
-var custom_directory := false
 var registered := false
 var registered_code := ""
 var last_error := ""
@@ -27,22 +24,10 @@ var _session_active := false
 var _host_request: HTTPRequest
 var _host_operation := ""
 var _heartbeat: Timer
+var _requests_suppressed_for_tests := false
 
 
 func _ready() -> void:
-	var override := ""
-	if Build.allow_custom_hosts():
-		override = OS.get_environment("LASTROUTE_BACKEND_URL").strip_edges()
-		for argument in OS.get_cmdline_args():
-			if argument.begins_with("--backend-url="):
-				override = argument.trim_prefix("--backend-url=").strip_edges()
-	if not override.is_empty():
-		base_url = _normalize_base_url(override)
-		custom_directory = not base_url.is_empty() and base_url != PRIMARY_BASE_URL
-	elif DisplayServer.get_name() == "headless":
-		# Validation runs must never create rooms on the public service. The
-		# backend smoke supplies an explicit local override, so it still works.
-		base_url = ""
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
 	add_child(_host_request)
@@ -56,15 +41,21 @@ func _ready() -> void:
 
 
 func configured() -> bool:
-	return base_url.begins_with("http://") or base_url.begins_with("https://")
+	return not _requests_suppressed_for_tests
 
 
 func directory_label() -> String:
 	if not configured():
 		return "ROOM DIRECTORY DISABLED"
-	if custom_directory:
-		return "CUSTOM ROOM DIRECTORY"
 	return "PRIMARY ROOM DIRECTORY"
+
+
+## Validation opens a real local ENet socket and must not publish its throwaway
+## room to the live service. This changes no endpoint and is unavailable from
+## the UI and command line.
+func suppress_requests_for_tests() -> void:
+	assert(OS.is_debug_build())
+	_requests_suppressed_for_tests = true
 
 
 func register_room(code: String, port: int, player_count: int,
@@ -256,15 +247,6 @@ func _headers() -> PackedStringArray:
 
 func _url(path: String) -> String:
 	return "%s%s" % [base_url, path]
-
-
-func _normalize_base_url(value: String) -> String:
-	var normalized := value.strip_edges().trim_suffix("/")
-	if normalized.to_lower() in ["off", "none", "disabled"]:
-		return ""
-	if not normalized.begins_with("http://") and not normalized.begins_with("https://"):
-		normalized = "http://%s" % normalized
-	return normalized
 
 
 func _clear_registration() -> void:

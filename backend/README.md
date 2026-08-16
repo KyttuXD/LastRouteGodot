@@ -23,19 +23,10 @@ curl http://127.0.0.1:1101/api/health
 ```
 
 Normal game builds use only the primary service at
-`http://lastroute.kyttuslab.org:1105`. Editor/debug builds can override it
-while testing a local or self-hosted backend with:
-
-```sh
-LASTROUTE_BACKEND_URL=http://127.0.0.1:1101 \
-  godot4 --path ..
-```
-
-The equivalent debug-tools argument is
-`--backend-url=http://127.0.0.1:1101`. Use `LASTROUTE_BACKEND_URL=off` (or
-`--backend-url=off`) to disable directory use while testing. The lobby's
-custom-host address and UDP port are a separate direct ENet path; those
-controls are also hidden unless debug tools are enabled.
+`http://lastroute.kyttuslab.org:1105`. This endpoint is hardcoded for editor,
+debug, and release builds and is shared by accounts, room discovery, and
+updates. The game exposes no environment variable, command-line override,
+custom directory, or direct-address lobby option.
 
 ## Pterodactyl deployment
 
@@ -155,9 +146,8 @@ hosted Web build should eventually use their platform-native deployment
 systems; a future signed desktop launcher can consume the same manifest and
 verify the included SHA-256 before installation.
 
-Run the real Godot integration smoke test while the service is running:
+Run the real Godot integration smoke test against the deployed primary service:
 
 ```sh
-LASTROUTE_BACKEND_URL=http://127.0.0.1:1101 \
-  godot4 --headless --path .. res://scenes/backend_smoke.tscn
+godot4 --headless --path .. res://scenes/backend_smoke.tscn
 ```

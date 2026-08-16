@@ -111,16 +111,17 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
 	_expect(lobby.get_child_count() > 1, "the staging screen drew nothing")
-	_expect(Build.allow_custom_hosts() == Build.tools_enabled(),
-		"custom-host visibility is not tied to the debug tools gate")
-	_expect(lobby.find_child("DebugCustomHostRow", true, false) != null,
-		"a debug build lost the custom-host testing controls")
+	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
+		"the removed custom-host label is still visible")
+	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
+		"the removed custom-host controls are still visible")
 	lobby.queue_free()
 	await host.get_tree().process_frame
 
 	# Actually open a port. Everything above is bookkeeping; this is the part
 	# that either works on the machine or does not, and "COULD NOT OPEN PORT"
 	# is the single most likely outcome of testing with two windows.
+	Backend.suppress_requests_for_tests()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	var error := RoomState.host_room()
 	if not error.is_empty():
@@ -155,7 +156,7 @@ func run(host: Node) -> int:
 			_fail("%d rows claim to be you" % mine)
 		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
 			RoomState.roster().size()])
-		print("  directory primary endpoint hidden in-game; custom hosts are debug-only")
+		print("  directory fixed to the primary service; no custom-host controls")
 
 	# Hosting twice must not leave the first port held.
 	error = RoomState.host_room()

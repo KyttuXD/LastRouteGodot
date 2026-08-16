@@ -23,13 +23,12 @@ const VERSION := "0.0.1.0"
 ## those are gameplay.
 
 
-## True in the editor and in debug exports, false in a release export.
-##
-## `--tools` forces it on for a release build, so a tester can be handed one
-## without a separate build; there is deliberately no way to force it on from
-## inside the game.
+## True in the editor and debug exports, false in every release export.
+## Release builds deliberately have no command-line override: admin controls
+## and spoiler views must stay unavailable even if a player knows the flags
+## used during development.
 static func tools_enabled() -> bool:
-	return OS.is_debug_build() or OS.get_cmdline_user_args().has("--tools")
+	return OS.is_debug_build()
 
 
 ## Whether to draw the frame counter and other always-on readouts.
@@ -40,13 +39,6 @@ static func show_diagnostics() -> bool:
 ## Whether debug views that would spoil a run -- hunter positions, the full
 ## facility layout, threat timers -- may be opened at all.
 static func allow_spoiler_views() -> bool:
-	return tools_enabled()
-
-
-## Whether staging may expose an arbitrary ENet address and port. Production
-## players use the built-in room directory exclusively; editor/debug builds
-## keep direct-connect available for local and alternate-server testing.
-static func allow_custom_hosts() -> bool:
 	return tools_enabled()
 
 
