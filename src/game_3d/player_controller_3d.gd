@@ -97,6 +97,23 @@ var in_vent := false
 var vent_entry_id := ""
 var vent_time_in := 0.0
 
+## Zephyra's shop -- the same indirection as vent_resolver/music_box_resolver.
+## `shop_resolver.call("open")` opens or re-toasts the menu (the gimmick
+## itself checks range, so a far-away call is a harmless no-op the same way
+## _nearest_interactable() already handles distance for ordinary pickups);
+## `.call("1")`..`.call("4")` chooses an offer while a menu is open. The
+## original borrows its hotbar's digit keys for this; this port has no
+## hotbar, so raw digit-key presses (see _unhandled_input) are the one
+## deliberate exception to routing everything through a named input action.
+var shop_resolver: Callable
+var shop_prompt_provider: Callable
+
+## Zephyra's pesticide trade: a real timer, not a boolean, so it reads the
+## same way stun_timer/hiding_lock_timer do and main_3d can thread a plain
+## "time remaining" into the hunter target dict for Loxelle/Ysolde to skip
+## their own ability while it runs.
+var pesticide_timer := 0.0
+
 
 func is_stunned() -> bool:
 	return stun_timer > 0.0
@@ -197,6 +214,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
 		first_person_pivot.rotation.x = _pitch
+	elif event is InputEventKey and event.pressed and not event.echo and shop_resolver.is_valid():
+		var key := (event as InputEventKey).physical_keycode
+		if key >= KEY_1 and key <= KEY_4:
+			var message := String(shop_resolver.call(str(key - KEY_1 + 1)))
+			if not message.is_empty():
+				interaction_message.emit(message)
 
 
 func _physics_process(delta: float) -> void:
@@ -204,6 +227,8 @@ func _physics_process(delta: float) -> void:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
 	if stun_timer > 0.0:
 		stun_timer = maxf(0.0, stun_timer - delta)
+	if pesticide_timer > 0.0:
+		pesticide_timer = maxf(0.0, pesticide_timer - delta)
 	if in_vent:
 		vent_time_in += delta
 	if input_frozen or stun_timer > 0.0:
@@ -385,10 +410,15 @@ func get_interaction_prompt() -> String:
 	if percent >= 0:
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
-	if target == null:
-		return ""
-	var prompt: String = target.get_prompt()
-	return "[E] %s" % prompt if not prompt.is_empty() else ""
+	if target != null:
+		var prompt: String = target.get_prompt()
+		if not prompt.is_empty():
+			return "[E] %s" % prompt
+	if shop_prompt_provider.is_valid():
+		var shop_prompt: String = String(shop_prompt_provider.call())
+		if not shop_prompt.is_empty():
+			return "[E] %s" % shop_prompt
+	return ""
 
 
 ## Something on the floor may refuse an interaction outright -- Opalie standing
@@ -401,6 +431,11 @@ var interaction_veto: Callable
 func _try_interact() -> void:
 	var target := _nearest_interactable()
 	if target == null:
+		if shop_resolver.is_valid():
+			var message := String(shop_resolver.call("open"))
+			if not message.is_empty():
+				interaction_message.emit(message)
+				return
 		interaction_message.emit("Nothing is within reach.")
 		return
 	# A sabotaged relay is worked entirely through the hold in

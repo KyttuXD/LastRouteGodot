@@ -148,21 +148,19 @@ func _umbriel_can_wear_the_roster() -> void:
 		_expect(not pool.has(id), "Umbriel can wear %s, who is a special" % id)
 	for id in GameConfig.UMBRIEL_DISGUISE_EXCLUDED:
 		_expect(not pool.has(id), "Umbriel can wear %s, who is excluded" % id)
-	# The point of drawing from the roster rather than the implemented pool:
-	# with the roster nearly complete, the two pools' SIZES can coincidentally
-	# match (kathy and umbriel are implemented but excluded from her own
-	# disguise pool for reasons that have nothing to do with the roster being
-	# unfinished, which nets against verrine/zephyra still being missing) --
-	# a raw size comparison stopped meaning what it used to mean. What still
-	# has to be true is the actual claim: at least one face in her pool has no
-	# gimmick behind it at all, proving she draws from PROFILES and not from
-	# whoever happens to be finished.
-	var wears_an_unfinished_face := false
+	# The roster is complete now (26 of 26): every face in PROFILES has a
+	# gimmick, so "at least one unfinished face in her pool" -- the proof this
+	# check leaned on while the roster was still partial, to show she draws
+	# from PROFILES and not from whoever happened to be finished -- is no
+	# longer a claim that CAN be true, and asserting it would just be
+	# asserting the roster is incomplete. What still has to hold is the
+	# pool's actual composition: every profiled hunter, minus herself, the
+	# specials, and whatever GameConfig excludes, and nothing else.
+	var expected_size := HunterRoster.PROFILES.size() - 1 - HunterRoster.SPECIAL_IDS.size() \
+		- GameConfig.UMBRIEL_DISGUISE_EXCLUDED.size()
+	_expect(pool.size() == expected_size,
+		"Umbriel's disguise pool is %d faces, not the %d PROFILES-minus-herself/specials/exclusions implies"
+			% [pool.size(), expected_size])
 	for id in pool:
-		if not HunterRoster.IMPLEMENTED_IDS.has(id):
-			wears_an_unfinished_face = true
-			break
-	_expect(wears_an_unfinished_face,
-		"every face in Umbriel's disguise pool (%d) already has a gimmick -- she is a progress bar again"
-			% pool.size())
+		_expect(HunterRoster.PROFILES.has(id), "Umbriel's pool contains '%s', who has no profile at all" % id)
 	print("  disguise  %d faces Umbriel can wear" % pool.size())

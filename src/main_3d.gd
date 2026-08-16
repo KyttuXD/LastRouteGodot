@@ -52,6 +52,8 @@ func _ready() -> void:
 	player.hiding_trap_resolver = _ceryth_trap_check
 	player.music_box_resolver = _wind_music_box
 	player.vent_resolver = _use_vent
+	player.shop_resolver = _use_shop
+	player.shop_prompt_provider = _shop_prompt
 	player.trigger_static_effect = hud.trigger_static
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
@@ -140,6 +142,9 @@ func _update_gameplay(delta: float) -> void:
 		# network she lurks in -- see VerrineGimmick.after_perception.
 		"in_vent": player.in_vent,
 		"vent_time_in": player.vent_time_in,
+		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
+		# own passive ability for its duration.
+		"pesticide_active": player.pesticide_timer > 0.0,
 	}
 
 	# Only the host thinks for the hunters. A client that ran the same brains
@@ -297,6 +302,33 @@ func _use_vent(vent_id: String) -> String:
 		if view.brain.gimmick is VerrineGimmick:
 			return view.brain.gimmick.use_vent(vent_id, view.brain, player, facility_view.generator)
 	return "The grate won't budge."
+
+
+## Zephyra's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
+## key while her menu is open) -- see PlayerController3D.shop_resolver.
+func _use_shop(action: String) -> String:
+	for view in hunter_views:
+		if not view.brain.gimmick is ZephyraGimmick:
+			continue
+		var gimmick: ZephyraGimmick = view.brain.gimmick
+		if action == "open":
+			return gimmick.open_shop(player.grid_position(), view.brain.position)
+		return gimmick.choose_offer(int(action), player, facility_view)
+	return ""
+
+
+## What the interaction prompt shows near Zephyra -- checked after the
+## ordinary nearest-interactable prompt, since she is not one.
+func _shop_prompt() -> String:
+	for view in hunter_views:
+		if not view.brain.active or not view.brain.gimmick is ZephyraGimmick:
+			continue
+		var gimmick: ZephyraGimmick = view.brain.gimmick
+		if gimmick.shop_open:
+			return gimmick.offer_menu_text()
+		if gimmick.in_range(player.grid_position(), view.brain.position):
+			return "OPEN ZYTTU COIN EXCHANGE"
+	return ""
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:

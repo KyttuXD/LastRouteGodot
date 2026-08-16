@@ -185,6 +185,12 @@ func _spawn_interactables() -> void:
 		var node := _spawn_interactable(RouteInteractable3D.Kind.VENT,
 			Vector2i(vent["x"], vent["y"]), "ENTER VENT")
 		node.vent_id = String(vent["id"])
+	# Zephyra's economy. Placed last so it reads generator.vents (already
+	# built above) and avoids landing on a vent grate, the same collision
+	# avoidance relays/batteries/safe_zones/hiding_spots already get.
+	for coin in generator.place_coins(GameConfig.COIN_PICKUP_COUNT):
+		_spawn_interactable(RouteInteractable3D.Kind.COIN,
+			Vector2i(coin["x"], coin["y"]), "COLLECT COINS")
 
 
 ## An open cell within reach of the spawn, but not touching it: the spawn's
@@ -369,6 +375,19 @@ func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:
 	for node in _interactables:
 		var item := node as RouteInteractable3D
 		if item and item.source_cell == cell and int(item.kind) == kind:
+			return item
+	return null
+
+
+## Zephyra's repair offer: whichever relay is currently offline, or null if
+## none is. Scans the same _interactables list shared_state() already reads
+## sabotage off of, rather than generator.relays -- sabotage is presentation-
+## node state (see route_interactable_3d.gd's own note on why), not the
+## generator's.
+func find_sabotaged_relay() -> RouteInteractable3D:
+	for node in _interactables:
+		var item := node as RouteInteractable3D
+		if item and item.kind == RouteInteractable3D.Kind.RELAY and item.sabotaged:
 			return item
 	return null
 

@@ -50,6 +50,7 @@ func run(_host: Node) -> int:
 	_glyra_winds_down_and_back_up(generator)
 	_ilyra_tags_and_pounces(generator)
 	await _verrine_lurks_and_chases(_host)
+	await _zephyra_trades_and_repairs(_host)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -812,3 +813,134 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 
 	scene.queue_free()
 	print("  verrine   inert outside the network, chases and ramps speed inside it, resets on exit")
+
+
+func _zephyra_trades_and_repairs(host: Node) -> void:
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+
+	var coins: Array = generator.coins
+	if coins.size() < GameConfig.COIN_PICKUP_COUNT:
+		_fail("only %d coin pickups placed on a whole floor" % coins.size())
+		scene.queue_free()
+		return
+	for coin in coins:
+		var cell := Vector2i(coin["x"], coin["y"])
+		_expect(generator.grid[cell.y][cell.x] == 0, "coin %s is inside a wall" % cell)
+
+	# A real pickup, through the real interactable.
+	var coin_node: RouteInteractable3D = scene.facility_view._at(
+		Vector2i(coins[0]["x"], coins[0]["y"]), RouteInteractable3D.Kind.COIN)
+	if coin_node == null:
+		_fail("no interactable at the first coin's cell")
+		scene.queue_free()
+		return
+	var coins_before := GameState.coins
+	coin_node.activate(player)
+	_expect(GameState.coins == coins_before + GameConfig.COIN_PICKUP_VALUE,
+		"collecting a coin did not credit GameState.coins")
+	_expect(coin_node.completed, "a collected coin did not mark itself completed")
+
+	var brain := _brain("zephyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Zephyra has no gimmick")
+		scene.queue_free()
+		return
+
+	# First update settles her near the facility's center and she never moves
+	# again, even with the player right on top of her.
+	brain.update(STEP, generator, _target(brain.position + Vector2(40.0, 40.0)), 1, 0)
+	var settled_at := brain.position
+	for i in 10:
+		brain.update(STEP, generator, _target(settled_at), 1, 0)
+		_expect(brain.position == settled_at, "Zephyra moved -- she is supposed to hold position forever")
+	_expect(brain.state == HunterBrain.State.IDLE,
+		"Zephyra reacted to the player standing on top of her")
+
+	# Standing exactly where a capture would ordinarily trigger must never
+	# actually capture her.
+	var captured := brain.update(STEP, generator, _target(settled_at), 1, 0)
+	_expect(not captured, "Zephyra captured the player -- she is supposed to be immune")
+
+	# Out of range: no shop.
+	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at)
+	_expect(message.is_empty(), "the shop opened from far outside its range")
+
+	# In range: opens with a real offer menu.
+	GameState.coins = 20
+	message = brain.gimmick.open_shop(settled_at, settled_at)
+	_expect(not message.is_empty() and message.begins_with("ZYTTU SHOP"),
+		"opening the shop in range did not return a menu")
+	_expect(brain.gimmick.shop_open, "opening the shop did not mark it open")
+
+	# Choosing before it's open is a no-op (guarded separately below by
+	# closing it first).
+	brain.gimmick.shop_open = false
+	_expect(brain.gimmick.choose_offer(1, player, scene.facility_view).is_empty(),
+		"choosing an offer with the shop closed did something")
+	brain.gimmick.shop_open = true
+
+	# Cooling costs coins and actually cools the player.
+	player.meters.temperature = 80.0
+	var coins_before_trade := GameState.coins
+	message = brain.gimmick.choose_offer(1, player, scene.facility_view)
+	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
+	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZEPHYRA_TEMPERATURE_STEP),
+		"cooling did not actually lower temperature")
+	_expect(GameState.coins == coins_before_trade - GameConfig.ZEPHYRA_COOL_COST,
+		"cooling did not charge the right number of coins")
+	_expect(not brain.gimmick.shop_open, "a completed trade left the shop open")
+
+	# Not enough coins: refused, and nothing is charged.
+	GameState.coins = 0
+	brain.gimmick.shop_open = true
+	message = brain.gimmick.choose_offer(2, player, scene.facility_view)
+	_expect(message.contains("NOT ENOUGH COINS"), "an unaffordable trade was not refused: got '%s'" % message)
+	_expect(GameState.coins == 0, "a refused trade still charged coins")
+
+	# Repair, with a real sabotaged relay on the floor.
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test Zephyra's repair against")
+	else:
+		var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
+		var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+		relay_node.set_sabotaged(true)
+		GameState.coins = 20
+		brain.gimmick.shop_open = true
+		message = brain.gimmick.choose_offer(3, player, scene.facility_view)
+		_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real repair trade did not complete")
+		_expect(not relay_node.sabotaged, "repair did not bring the sabotaged relay back online")
+
+	# Pesticide arms the timer Loxelle/Ysolde read off the target dict.
+	GameState.coins = 20
+	brain.gimmick.shop_open = true
+	message = brain.gimmick.choose_offer(4, player, scene.facility_view)
+	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real pesticide trade did not complete")
+	_expect(player.pesticide_timer >= GameConfig.ZEPHYRA_PESTICIDE_SECONDS - 0.01,
+		"pesticide did not arm the player's timer")
+
+	# Far and hidden, so ordinary sight/hearing cannot itself put either brain
+	# into CHASE/INVESTIGATE -- isolates the assertion to each gimmick's OWN
+	# ability logic, which is what the pesticide guard actually gates.
+	var pesticide_target := _target(Vector2(500.0, 500.0))
+	pesticide_target["hidden"] = true
+	pesticide_target["pesticide_active"] = true
+	var loxelle_brain := _brain("loxelle", Vector2(0.5, 0.5))
+	loxelle_brain.gimmick._passive_timer = 999.0
+	loxelle_brain.update(STEP, generator, pesticide_target, 1, 0)
+	_expect(loxelle_brain.gimmick._passive_timer >= 999.0 - STEP - 0.001,
+		"Loxelle's passive timer kept advancing while pesticide was active")
+	# Her own logic sets last_known to a battery's position unconditionally
+	# once one exists, regardless of range -- state alone can't tell the
+	# difference here, since activate_at() already starts her in INVESTIGATE.
+	var ysolde_brain := _brain("ysolde", Vector2(0.5, 0.5))
+	var last_known_before := ysolde_brain.last_known
+	ysolde_brain.update(STEP, generator, pesticide_target, 1, 0)
+	_expect(ysolde_brain.last_known == last_known_before,
+		"Ysolde still targeted a battery while pesticide was active")
+
+	scene.queue_free()
+	print("  zephyra   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")

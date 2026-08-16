@@ -942,6 +942,39 @@ func hiding_exit_position(spot: Dictionary) -> Vector2:
 var vents: Array = []
 
 
+## Zephyra's economy. A generator-owned scatter, same reasoning as
+## place_vents(): the physical pickups (FacilityView3D._spawn_interactables)
+## and anything reading `generator.coins` (nothing does yet, but Ysolde's
+## `generator.batteries` precedent is the shape a future coin-aware gimmick
+## would want) have to agree on where every coin actually is.
+var coins: Array = []
+
+
+func place_coins(count: int = 5) -> Array:
+	coins = []
+	if rooms.is_empty():
+		return coins
+	var rng := SeededRandom.new("%s:COINS" % seed_text)
+	var taken := {start: true, exit_cell: true}
+	for group in [relays, batteries, safe_zones, hiding_spots, vents]:
+		for entry in group:
+			taken[Vector2i(entry["x"], entry["y"])] = true
+
+	var pool := rooms.duplicate()
+	while coins.size() < count and not pool.is_empty():
+		var index := rng.next_index(pool.size())
+		var room: Dictionary = pool[index]
+		pool.remove_at(index)
+		var center: Vector2i = room["center"]
+		var open := nearest_open_position(center.x + 0.5, center.y + 0.5, DEFAULT_AGENT_RADIUS, taken)
+		if open.is_empty():
+			continue
+		var cell := Vector2i(int(open["x"]), int(open["y"]))
+		taken[cell] = true
+		coins.append({"id": "coin-%d" % coins.size(), "x": cell.x, "y": cell.y})
+	return coins
+
+
 func place_vents(count: int = 4) -> Array:
 	vents = []
 	if rooms.is_empty():

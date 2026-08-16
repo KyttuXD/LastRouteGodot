@@ -32,6 +32,10 @@ var _regenerating := {}
 
 
 func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+	# Zephyra's pesticide trade pauses her passive routine entirely --
+	# regeneration included, matching the original's full early-return.
+	if bool(target.get("pesticide_active", false)):
+		return
 	_tick_regeneration(delta)
 
 	if brain.state == HunterBrain.State.CHASE or brain.state == HunterBrain.State.INVESTIGATE:

@@ -74,6 +74,16 @@ func runs_while_inactive() -> bool:
 	return false
 
 
+## True for a gimmick whose hunter can never trigger a capture at all --
+## Zephyra, who is a stationary shopkeeper the player stands right next to on
+## every single trade. The original's merchant prep short-circuits her whole
+## update before the shared capture-distance check ever runs; this is that
+## same short-circuit, since HunterBrain.update()'s own check is otherwise
+## unconditional.
+func immune_to_capture() -> bool:
+	return false
+
+
 ## The one place a hunter id maps to her gimmick instance. Returns null for
 ## any id with no behavior-changing gimmick (tuning-only hunters like
 ## Dovelle, and every not-yet-ported id) — HunterBrain treats null as "skip
@@ -126,5 +136,7 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return IlyraGimmick.new()
 		"verrine":
 			return VerrineGimmick.new()
+		"zephyra":
+			return ZephyraGimmick.new()
 		_:
 			return null

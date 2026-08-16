@@ -20,6 +20,10 @@ var relay_target: int = 1
 ## decreases), while the lift gate reads "collected AND not sabotaged".
 var relays_sabotaged: int = 0
 
+## Zephyra's economy. Per-RUN, not per-floor -- mirrors inventory.js's own
+## coins field, which survives a descent the same way score does.
+var coins: int = 0
+
 ## Capture/escape struggle, ported from hunter-ai.js's triggerGameOver/
 ## beginEscape/breakFree/finish. lives_remaining follows the Standard
 ## difficulty's respawn-life pool (RESPAWN_LIVES_BY_DIFFICULTY.standard = 2
@@ -42,6 +46,7 @@ func start_new_run(seed_value: int = 0) -> void:
 	run_seed = seed_value if seed_value != 0 else randi()
 	depth = 1
 	score = 0
+	coins = 0
 	lives_remaining = GameConfig.RESPAWN_LIVES_STANDARD
 	game_over = false
 	escape_active = false

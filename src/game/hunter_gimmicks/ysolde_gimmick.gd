@@ -15,11 +15,15 @@ extends HunterGimmick
 ## Her torch retaliation is NOT ported: it triggers on `player.torchUntil`, and
 ## the player has no torch. It summons a dormant hunter and teleports Ysolde
 ## away, so it is a real absence, not a cosmetic one -- she currently has no
-## answer to being confronted. The pesticide check above it belongs to
-## Zephyra's shop, which likewise does not exist.
+## answer to being confronted. The pesticide guard at the top of
+## after_perception IS ported -- Zephyra's shop now exists, and
+## `target["pesticide_active"]` is threaded in from main_3d the same way
+## heater_unfrozen/heater_powered already are.
 
 
-func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+	if bool(target.get("pesticide_active", false)):
+		return
 	var index := _nearest_uncollected(brain.position, generator.batteries)
 	if index < 0:
 		return

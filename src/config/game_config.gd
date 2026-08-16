@@ -334,3 +334,24 @@ const VERRINE_VENT_COUNT := 4
 const VERRINE_INITIAL_SPEED_SCALE := 0.4
 const VERRINE_SPEED_PER_SECOND := 0.025
 const VERRINE_MAX_SPEED_SCALE := 2.4
+
+## Zephyra — merchant (hunterAbilities.zephyra.merchant):
+## {nightmareDeathChance:.1, pesticideSeconds:60,
+## offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}.
+## Nightmare's instant-death roll is not ported -- no difficulty selection
+## exists, same reasoning as Ilyra's Nightmare-only zero pounce delay.
+const ZEPHYRA_SHOP_RANGE := 1.35
+const ZEPHYRA_PESTICIDE_SECONDS := 60.0
+const ZEPHYRA_COOL_COST := 2
+const ZEPHYRA_WARM_COST := 2
+const ZEPHYRA_REPAIR_COST := 3
+const ZEPHYRA_PESTICIDE_COST := 4
+const ZEPHYRA_TEMPERATURE_STEP := 15.0
+const ZEPHYRA_LAMP_REPAIR := 25.0
+
+## Coin pickups, scattered on the floor the same way relays/batteries are.
+## The original places a variable-value coin scatter (`maze.coins`); this
+## port simplifies to a fixed count worth a fixed amount each, the same
+## honest-simplification shape as the vent prompt's static text.
+const COIN_PICKUP_COUNT := 5
+const COIN_PICKUP_VALUE := 2

@@ -19,6 +19,7 @@ enum Kind {
 	HIDING_SPOT,
 	MUSIC_BOX,
 	VENT,
+	COIN,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -40,6 +41,7 @@ const MODEL_SCENES := {
 	Kind.HIDING_SPOT: "res://art/props-3d/interactables/hiding_spot.tscn",
 	Kind.MUSIC_BOX: "res://art/props-3d/interactables/music_box.tscn",
 	Kind.VENT: "res://art/props-3d/interactables/vent.tscn",
+	Kind.COIN: "res://art/props-3d/interactables/coin.tscn",
 }
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
@@ -50,6 +52,7 @@ const GLOW_COLORS := {
 	Kind.HIDING_SPOT: Color(0.45, 0.60, 0.70),
 	Kind.MUSIC_BOX: Color(0.85, 0.65, 0.35),
 	Kind.VENT: Color(0.30, 0.70, 0.55),
+	Kind.COIN: Color(0.95, 0.78, 0.20),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -122,6 +125,10 @@ func activate(player: PlayerController3D) -> String:
 			player.restore_lamp(GameConfig.BATTERY_RECHARGE)
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Battery recovered: +%d%% lamp." % int(GameConfig.BATTERY_RECHARGE)
+		Kind.COIN:
+			_take()
+			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
+			return "Coins recovered: +%d." % GameConfig.COIN_PICKUP_VALUE
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
 			return "Safe zone: lamp and stamina restored."
@@ -199,6 +206,8 @@ func _take() -> void:
 	if kind == Kind.RELAY:
 		GameState.relays_collected += 1
 		GameState.score += 100
+	elif kind == Kind.COIN:
+		GameState.coins += GameConfig.COIN_PICKUP_VALUE
 	_refresh_visual()
 
 
@@ -256,6 +265,8 @@ func _mark_collected_in_generator() -> void:
 			generator.mark_collected(generator.relays, source_cell)
 		Kind.BATTERY:
 			generator.mark_collected(generator.batteries, source_cell)
+		Kind.COIN:
+			generator.mark_collected(generator.coins, source_cell)
 
 
 func reset_for_floor() -> void:
@@ -271,7 +282,7 @@ func reset_for_floor() -> void:
 ## heater station are part of the building, and the heater in particular has to
 ## remain visible because its three states are the whole of Wynelle's
 ## counterplay.
-const PICKUPS := [Kind.RELAY, Kind.BATTERY]
+const PICKUPS := [Kind.RELAY, Kind.BATTERY, Kind.COIN]
 
 
 ## Loxelle's incinerator only, and distinct from `completed`: a broken hiding

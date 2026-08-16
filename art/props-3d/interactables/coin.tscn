@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_coin"]
+top_radius = 0.14
+bottom_radius = 0.14
+height = 0.03
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_coin"]
+albedo_color = Color(0.9, 0.72, 0.18, 1)
+metallic = 0.85
+roughness = 0.25
+
+; Placeholder coin -- Zephyra's economy. A real minted look is future art,
+; same honest-placeholder pattern as hiding_spot.tscn/music_box.tscn/
+; vent.tscn: the mechanic is real and the disc is a stand-in.
+[node name="Coin" type="Node3D"]
+
+[node name="Model" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0.4, 0)
+mesh = SubResource("CylinderMesh_coin")
+surface_material_override/0 = SubResource("StandardMaterial3D_coin")

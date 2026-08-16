@@ -133,7 +133,7 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 
-	if not target_hidden and not target_in_safe_zone:
+	if not target_hidden and not target_in_safe_zone and not (gimmick and gimmick.immune_to_capture()):
 		var reach := (GameConfig.PLAYER_RADIUS + radius) * GameConfig.CAPTURE_DISTANCE_SCALE
 		if position.distance_to(target_position) < reach:
 			return true
