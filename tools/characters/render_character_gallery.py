@@ -66,10 +66,21 @@ def select_action(objects: list[bpy.types.Object], actions: list[bpy.types.Actio
         action = next((item for item in actions if wanted in item.name.lower()), None)
     if action is None:
         return
+    slots = {slot.identifier: slot for slot in action.slots}
     for obj in objects:
-        if obj.type == "ARMATURE":
-            obj.animation_data_create()
-            obj.animation_data.action = action
+        # Character glTFs are rigid node hierarchies, not skinned Armatures.
+        # Blender imports each shared animation as a slot-based Action whose
+        # identifiers match the animated objects (OBL-Thigh, OBChest, ...).
+        # Assigning only an armature leaves the import's default idle action on
+        # every mesh and makes a requested walk/sprint gallery silently lie.
+        slot = slots.get(f"OB{obj.name}")
+        if slot is None:
+            if obj.animation_data is not None:
+                obj.animation_data.action = None
+            continue
+        obj.animation_data_create()
+        obj.animation_data.action = action
+        obj.animation_data.action_slot = slot
     start, end = action.frame_range
     bpy.context.scene.frame_set(round(start + (end - start) * 0.35))
 

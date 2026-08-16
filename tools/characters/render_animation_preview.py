@@ -47,7 +47,7 @@ CLIP_LABELS = {
 @dataclass
 class Character:
     title: str
-    armatures: list[bpy.types.Object]
+    objects: list[bpy.types.Object]
     actions: list[bpy.types.Action]
 
 
@@ -153,14 +153,11 @@ def import_character(title: str, x: float, ground: float, view: str) -> Characte
     bpy.ops.import_scene.gltf(filepath=model_path(title), import_shading="NORMALS")
     objects = [obj for obj in bpy.data.objects if obj not in old_objects]
     actions = [action for action in bpy.data.actions if action not in old_actions]
-    armatures = [obj for obj in objects if obj.type == "ARMATURE"]
-    character = Character(title, armatures, actions)
+    character = Character(title, objects, actions)
 
     # Give bounds evaluation a stable authored pose before positioning.
     idle = find_action(character, "idle")
-    for armature in armatures:
-        armature.animation_data_create()
-        armature.animation_data.action = idle
+    assign_action(character, idle)
     bpy.context.scene.frame_set(round(idle.frame_range[0]))
 
     pivot = bpy.data.objects.new(f"{title}PreviewPivot", None)
@@ -179,10 +176,30 @@ def import_character(title: str, x: float, ground: float, view: str) -> Characte
     return character
 
 
+def assign_action(character: Character, action: bpy.types.Action) -> None:
+    """Assign a glTF action's matching slot to every rigid animated node.
+
+    This exporter intentionally uses a hierarchy of rigid mesh nodes rather
+    than one skinned Armature. Blender 5 imports their shared glTF animation as
+    a slot-based Action (``OBL-Thigh``, ``OBChest``, ...). Assigning only an
+    armature silently leaves every object on the default idle action, which is
+    exactly how the first animation-review GIF mislabeled idle as every clip.
+    """
+    slots = {slot.identifier: slot for slot in action.slots}
+    for obj in character.objects:
+        slot = slots.get(f"OB{obj.name}")
+        if slot is None:
+            if obj.animation_data is not None:
+                obj.animation_data.action = None
+            continue
+        obj.animation_data_create()
+        obj.animation_data.action = action
+        obj.animation_data.action_slot = slot
+
+
 def pose(character: Character, clip: str, elapsed: float, source_fps: float) -> float:
     action = find_action(character, clip)
-    for armature in character.armatures:
-        armature.animation_data.action = action
+    assign_action(character, action)
     start, end = action.frame_range
     duration_frames = max(1.0, end - start)
     source_frame = start + (elapsed * source_fps) % duration_frames
