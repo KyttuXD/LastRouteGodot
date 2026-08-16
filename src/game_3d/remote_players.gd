@@ -89,6 +89,8 @@ func _local_state() -> Dictionary:
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
+		"no_target": controller.admin_no_target,
+		"god_mode": controller.admin_god_mode,
 		"escape_active": GameState.escape_active,
 		"capture_immune": GameState.is_capture_immune(),
 		"game_over": GameState.game_over,
@@ -189,7 +191,8 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 	var preferred: Array[Dictionary] = []
 	var fallback: Array[Dictionary] = []
 	for candidate in candidates:
-		if bool(candidate.get("game_over", false)) \
+		if (Build.tools_enabled() and bool(candidate.get("no_target", false))) \
+				or bool(candidate.get("game_over", false)) \
 				or bool(candidate.get("escape_active", false)) \
 				or bool(candidate.get("capture_immune", false)):
 			continue
@@ -316,7 +319,7 @@ func _submit_hunter_event(event: Dictionary) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
-	if sender <= 1 or not ["escaped", "respawned", "caught"].has(what):
+	if sender <= 1 or not ["escaped", "respawned", "caught", "capture_blocked"].has(what):
 		return
 	# Only a peer which the host actually captured may resolve that capture.
 	# This also turns the report into a one-shot message.

@@ -248,6 +248,13 @@ func _target_selection(scene: Node) -> void:
 		"a remote target did not reconstruct the meter object hunter gimmicks require")
 	_expect(is_equal_approx(runtime["meters"].temperature, 42.0),
 		"the reconstructed remote temperature changed value")
+	remotes._states[2]["no_target"] = true
+	picked = remotes.best_target(Vector2.ZERO, local, GameState.depth)
+	_expect(int(picked.get("peer_id", -1)) == 1,
+		"a remote runner's NO TARGET flag was ignored by the host")
+	local["no_target"] = true
+	_expect(remotes.best_target(Vector2.ZERO, local, GameState.depth).is_empty(),
+		"host targeting selected a runner when every peer had NO TARGET")
 	remotes.free()
 
 

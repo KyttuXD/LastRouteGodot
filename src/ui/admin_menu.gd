@@ -138,10 +138,13 @@ func _process(_delta: float) -> void:
 		_refresh()
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if not event is InputEventKey:
 		return
 	var key := event as InputEventKey
-	if key.pressed and not key.echo and key.physical_keycode == TOGGLE_KEY:
+	var is_toggle := key.physical_keycode == TOGGLE_KEY \
+		or key.keycode == TOGGLE_KEY \
+		or key.physical_keycode == KEY_KP_0 or key.keycode == KEY_KP_0
+	if key.pressed and not key.echo and is_toggle:
 		_set_open(not _open)
 		get_viewport().set_input_as_handled()

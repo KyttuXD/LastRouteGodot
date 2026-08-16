@@ -115,6 +115,57 @@ func run(host: Node) -> int:
 				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
 					(row["action"] as Callable).call()
 			_expect(not scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn back off")
+
+		# NO TARGET is an authoritative targeting rule, not just a hidden local
+		# model. With it enabled the host has no eligible solo target and an
+		# already-alert hunter drops the chase and resumes ordinary roaming.
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE NO TARGET":
+				(row["action"] as Callable).call()
+		_expect(scene.player.admin_no_target,
+			"TOGGLE NO TARGET did not enable the controller flag")
+		_expect(bool(scene._local_hunter_target().get("no_target", false)),
+			"NO TARGET was not included in the host targeting state")
+		_expect(scene._remotes.best_target(Vector2.ZERO,
+			scene._local_hunter_target(), GameState.depth).is_empty(),
+			"host targeting still selected a NO TARGET runner")
+		if scene.hunter_view:
+			scene.hunter_view.brain.active = true
+			scene.hunter_view.brain.state = HunterBrain.State.CHASE
+			scene._update_gameplay(0.05)
+			_expect(scene.hunter_view.brain.state != HunterBrain.State.CHASE,
+				"NO TARGET left an alerted hunter frozen in CHASE")
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE NO TARGET":
+				(row["action"] as Callable).call()
+		_expect(not scene.player.admin_no_target,
+			"TOGGLE NO TARGET did not turn back off")
+
+		# GOD MODE still permits targeting/chasing, but capture cannot start a
+		# struggle or spend a life. Enabling it during a struggle cancels that
+		# struggle cleanly as well.
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE GOD MODE":
+				(row["action"] as Callable).call()
+		_expect(scene.player.admin_god_mode,
+			"TOGGLE GOD MODE did not enable the controller flag")
+		_expect(bool(scene._local_hunter_target().get("god_mode", false)),
+			"GOD MODE was not included in the host targeting state")
+		var lives_before: int = GameState.lives_remaining
+		if scene.hunter_view:
+			scene._trigger_capture(scene.hunter_view, true)
+		_expect(GameState.lives_remaining == lives_before,
+			"GOD MODE allowed a capture to spend a life")
+		_expect(not GameState.escape_active,
+			"GOD MODE allowed a capture struggle to begin")
+		GameState.begin_escape("admin-test")
+		scene.player.admin_god_mode = false
+		scene._toggle_admin_god_mode()
+		_expect(not GameState.escape_active,
+			"enabling GOD MODE did not cancel an active struggle")
+		scene._toggle_admin_god_mode()
+		_expect(not scene.player.admin_god_mode,
+			"TOGGLE GOD MODE did not turn back off")
 	scene.queue_free()
 	await host.get_tree().process_frame
 

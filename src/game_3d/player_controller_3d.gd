@@ -47,6 +47,12 @@ var noise := 0.0
 ## interaction stop, but the scene keeps rendering/ticking around the player.
 var input_frozen := false
 
+## Debug-only protections driven by main_3d's tools-gated admin overlay. They
+## live on the controller so the same state can be published to the ENet host;
+## release builds never get the menu which changes either value.
+var admin_no_target := false
+var admin_god_mode := false
+
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
 var meters := PlayerMeters.new()

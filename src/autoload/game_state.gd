@@ -94,6 +94,17 @@ func begin_escape(hunter_id: String) -> void:
 	escape_required = GameConfig.ESCAPE_PRESSES
 
 
+## Abort an in-progress grab without spending a life or starting cooldowns.
+## Used when a developer enables god mode during the struggle.
+func cancel_escape() -> void:
+	escape_active = false
+	escape_hunter_id = ""
+	escape_remaining = 0.0
+	escape_duration = 0.0
+	escape_progress = 0
+	escape_required = 0
+
+
 func register_escape_press() -> void:
 	if escape_active:
 		escape_progress += 1

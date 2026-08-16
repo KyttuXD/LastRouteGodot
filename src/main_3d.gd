@@ -164,6 +164,9 @@ func _update_gameplay(delta: float) -> void:
 		var selected := _remotes.best_target(view.brain.position,
 			local_target, GameState.depth)
 		if selected.is_empty():
+			view.brain.update_without_target(delta, generator, GameState.depth,
+				GameState.relays_collected)
+			view.sync_from_brain()
 			continue
 		var target := _target_with_runtime(selected)
 		var captured: bool = view.brain.update(delta, generator, target,
@@ -272,6 +275,8 @@ func _local_hunter_target() -> Dictionary:
 		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
+		"no_target": player.admin_no_target,
+		"god_mode": player.admin_god_mode,
 		"escape_active": GameState.escape_active,
 		"capture_immune": GameState.is_capture_immune(),
 		"game_over": GameState.game_over,
@@ -434,6 +439,12 @@ func _heater_state() -> RouteInteractable3D.HeaterState:
 
 func _capture_target(view: HunterView3D, target: Dictionary,
 		force_inescapable: bool = false) -> void:
+	# Re-check at the authoritative capture boundary as well as inside the
+	# brain. This covers gimmick-driven captures and a toggle changed between
+	# target selection and the end of the simulation step.
+	if Build.tools_enabled() and (bool(target.get("no_target", false)) \
+			or bool(target.get("god_mode", false))):
+		return
 	var peer_id := int(target.get("peer_id", 1))
 	_remotes.send_player_event(peer_id, {
 		"what": "capture",
@@ -444,6 +455,12 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 
 
 func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> void:
+	# A reliable capture packet may already be in flight when a guest toggles a
+	# protection. Resolve it locally and release the host's pending-capture gate.
+	if Build.tools_enabled() and (player.admin_no_target or player.admin_god_mode):
+		if RoomState.online and not RoomState.is_host:
+			_remotes.submit_hunter_event({"what": "capture_blocked"})
+		return
 	if GameState.is_capture_immune():
 		if RoomState.online and not RoomState.is_host:
 			_remotes.submit_hunter_event({
@@ -582,12 +599,14 @@ func _update_hud() -> void:
 func _build_admin() -> void:
 	AdminMenu.attach(self,
 		func() -> String:
-			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s\nHUNTER REVEAL %s" % [
+			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s\nHUNTER REVEAL %s  NO TARGET %s  GOD MODE %s" % [
 				RoomState.code, RoomState.SCALE_LABELS[RoomState.map_scale],
 				GameState.depth, GameState.relays_collected,
 				GameState.relay_target, GameState.lives_remaining,
 				RoomState.seed_text,
-				"ON" if _admin_reveal_hunters else "OFF"],
+				"ON" if _admin_reveal_hunters else "OFF",
+				"ON" if player.admin_no_target else "OFF",
+				"ON" if player.admin_god_mode else "OFF"],
 		[
 			{"label": "GRANT RELAY", "action": func() -> void:
 				GameState.relays_collected = mini(GameState.relay_target,
@@ -602,11 +621,26 @@ func _build_admin() -> void:
 			# _process(), so flipping this needs nothing else to take effect.
 			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
 				_admin_reveal_hunters = not _admin_reveal_hunters},
+			{"label": "TOGGLE NO TARGET", "action": func() -> void:
+				player.admin_no_target = not player.admin_no_target},
+			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
 				"on_submit": _load_custom_map},
 		])
+
+
+func _toggle_admin_god_mode() -> void:
+	player.admin_god_mode = not player.admin_god_mode
+	if not player.admin_god_mode:
+		return
+	if GameState.escape_active:
+		GameState.cancel_escape()
+		capturing_view = null
+		player.input_frozen = pause_menu.is_open() or player.hidden or player.is_stunned()
+		if RoomState.online and not RoomState.is_host:
+			_remotes.submit_hunter_event({"what": "capture_blocked"})
 
 
 ## Put the host's visual hunter copies into their authoritative state. Clients

@@ -133,11 +133,36 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 
-	if not target_hidden and not target_in_safe_zone and not (gimmick and gimmick.immune_to_capture()):
+	if not target_hidden and not target_in_safe_zone \
+			and not (Build.tools_enabled() and bool(target.get("god_mode", false))) \
+			and not (gimmick and gimmick.immune_to_capture()):
 		var reach := (GameConfig.PLAYER_RADIUS + radius) * GameConfig.CAPTURE_DISTANCE_SCALE
 		if position.distance_to(target_position) < reach:
 			return true
 	return false
+
+
+## Keep an active hunter's ordinary idle/wander simulation alive when every
+## runner has opted out of targeting. Clearing chase memory is important: the
+## old no-target path skipped update() entirely and left hunters frozen in the
+## last pose/state they had before the target disappeared.
+func update_without_target(delta: float, generator: FacilityGenerator,
+		depth: int, relays_collected: int) -> void:
+	if not active:
+		return
+	if stun_timer > 0.0:
+		stun_timer = maxf(0.0, stun_timer - delta)
+		return
+	if state == State.CHASE or state == State.INVESTIGATE or state == State.SEARCH:
+		state = State.IDLE
+		has_last_known = false
+		has_search_target = false
+		lost_sight_timer = 0.0
+		idle_timer = 0.35 + _rng.next_float() * 0.65
+		_path.clear()
+		_has_path_target = false
+	_update_stamina(delta)
+	_update_movement(delta, generator, depth, relays_collected)
 
 
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
