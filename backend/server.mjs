@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { extname, join, relative, resolve, sep } from "node:path";
@@ -21,6 +21,7 @@ const MIME_TYPES = new Map([
   [".ogg", "audio/ogg"],
   [".png", "image/png"],
   [".svg", "image/svg+xml; charset=utf-8"],
+  [".wasm", "application/wasm"],
   [".wav", "audio/wav"],
   [".webm", "video/webm"],
 ]);
@@ -98,6 +99,46 @@ function publicEnetRoom(room, timestamp) {
   };
 }
 
+function publicUpdateManifest(updates, channel, platform) {
+  const entry = updates?.[channel]?.[platform];
+  if (!entry || typeof entry !== "object") return null;
+  const version = String(entry.version || "").trim().replace(/^v/i, "");
+  const url = String(entry.url || "").trim();
+  const file = String(entry.file || "").trim();
+  const sha256 = String(entry.sha256 || "").trim().toLowerCase();
+  const relativeUrl = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/.test(file)
+    ? `/api/updates/files/${encodeURIComponent(file)}`
+    : "";
+  if (!/^\d+\.\d+\.\d+$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
+  if (!/^[a-f0-9]{64}$/.test(sha256)) return null;
+  return {
+    version,
+    url: url.startsWith("https://") ? url : relativeUrl,
+    sha256,
+    notes: String(entry.notes || "").slice(0, 2000),
+    required: Boolean(entry.required),
+  };
+}
+
+function publishedUpdatePath(updates, encodedName) {
+  let name;
+  try {
+    name = decodeURIComponent(encodedName);
+  } catch {
+    return "";
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/.test(name)) return "";
+  for (const channel of ["debug", "release"]) {
+    for (const platform of ["linux", "windows", "macos", "web", "steamvr", "quest"]) {
+      const entry = updates?.[channel]?.[platform];
+      if (entry?.file === name && publicUpdateManifest(updates, channel, platform)) {
+        return `/${name}`;
+      }
+    }
+  }
+  return "";
+}
+
 function safeEqual(leftValue, rightValue) {
   const left = Buffer.from(String(leftValue || ""));
   const right = Buffer.from(String(rightValue || ""));
@@ -143,7 +184,9 @@ export function createLastRouteServer({
   playerTtlMs = 120_000,
   accountStorePath = null,
   publicDirectory = null,
+  updateDirectory = null,
   adminPassword = "",
+  updates = {},
   trustProxy = false,
   now = Date.now,
   logger = console,
@@ -187,6 +230,20 @@ export function createLastRouteServer({
         reloadId,
         now: new Date(now()).toISOString(),
       });
+    }
+
+    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|macos|web|steamvr|quest)$/);
+    if (request.method === "GET" && updateLookup) {
+      const update = publicUpdateManifest(updates, updateLookup[1], updateLookup[2]);
+      if (!update) return json(response, 404, { ok: false, error: "NO UPDATE PUBLISHED" });
+      return json(response, 200, { ok: true, channel: updateLookup[1], platform: updateLookup[2], update });
+    }
+
+    const updateFile = url.pathname.match(/^\/api\/updates\/files\/([^/]+)$/);
+    if (new Set(["GET", "HEAD"]).has(request.method) && updateFile) {
+      const assetPath = publishedUpdatePath(updates, updateFile[1]);
+      if (assetPath && tryStaticFile(request, response, updateDirectory, assetPath)) return;
+      return json(response, 404, { ok: false, error: "UPDATE FILE NOT FOUND" });
     }
 
     const enetResolve = url.pathname.match(/^\/api\/enet\/rooms\/([^/]+)$/);
@@ -321,15 +378,28 @@ export function startLastRouteServerFromEnvironment() {
   const dataDirectory = environmentPath("LASTROUTE_DATA_DIR") || environmentPath("KYTTU_DATA_DIR") || resolve(process.cwd(), "data");
   const accountStorePath = environmentPath("LASTROUTE_ACCOUNT_STORE") || environmentPath("KYTTU_ACCOUNT_STORE_PATH") || join(dataDirectory, "accounts.json");
   const publicDirectory = environmentPath("LASTROUTE_PUBLIC_DIR");
+  const updateManifestPath = environmentPath("LASTROUTE_UPDATE_MANIFEST");
+  const updateDirectory = environmentPath("LASTROUTE_UPDATE_DIR");
+  let updates = {};
+  if (updateManifestPath && existsSync(updateManifestPath)) {
+    try {
+      updates = JSON.parse(readFileSync(updateManifestPath, "utf8"));
+    } catch (error) {
+      console.error(`Could not read update manifest ${updateManifestPath}: ${error.message}`);
+    }
+  }
   const enetRoomTtlMs = Math.max(15, Number(process.env.ENET_ROOM_TTL_SECONDS) || 60) * 1000;
   const server = createLastRouteServer({
     enetRoomTtlMs,
     accountStorePath,
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
+    updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
+    updates,
     adminPassword: String(process.env.LASTROUTE_ADMIN_PASSWORD || process.env.KYTTU_DEV_PASSWORD || ""),
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
   });
-  server.listen(port, host, () => loggerStartup(host, port, accountStorePath, publicDirectory));
+  server.listen(port, host, () => loggerStartup(host, port, accountStorePath,
+    publicDirectory, updateManifestPath, updateDirectory));
   const shutdown = (signal) => {
     console.log(`${signal}: closing Last Route backend`);
     server.close(() => process.exit(0));
@@ -340,10 +410,12 @@ export function startLastRouteServerFromEnvironment() {
   return server;
 }
 
-function loggerStartup(host, port, accountStorePath, publicDirectory) {
+function loggerStartup(host, port, accountStorePath, publicDirectory, updateManifestPath, updateDirectory) {
   console.log(`Last Route backend listening on http://${host}:${port}`);
   console.log(`Account data: ${accountStorePath}`);
   if (publicDirectory) console.log(`Static files: ${publicDirectory}`);
+  if (updateManifestPath) console.log(`Update manifest: ${updateManifestPath}`);
+  if (updateDirectory) console.log(`Update files: ${updateDirectory}`);
 }
 
 const entry = process.argv[1] ? resolve(process.argv[1]) : "";

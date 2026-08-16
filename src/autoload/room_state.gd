@@ -129,6 +129,8 @@ func create_local(for_mode: Mode) -> void:
 ## configuration -- so hosting is not "start a multiplayer game", it is the
 ## singleplayer room you are already in becoming joinable.
 func host_room(port: int = DEFAULT_PORT) -> String:
+	if OS.has_feature("web"):
+		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
 	leave_network()
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_server(port, MAX_PLAYERS)
@@ -153,6 +155,8 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 ## the host owns the route, so a client that kept its own seed would generate a
 ## different building from the same room.
 func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> String:
+	if OS.has_feature("web"):
+		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
 	leave_network()
 	var trimmed := address.strip_edges()
 	if trimmed.is_empty():

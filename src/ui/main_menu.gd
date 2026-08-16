@@ -20,6 +20,8 @@ extends Control
 @onready var play_button: Button = %PlayButton
 @onready var settings_button: Button = %SettingsButton
 @onready var quit_button: Button = %QuitButton
+@onready var update_button: Button = %UpdateButton
+@onready var version_label: Label = %VersionLabel
 @onready var settings_overlay: SettingsPanel = %SettingsOverlay
 
 
@@ -31,6 +33,11 @@ func _ready() -> void:
 	play_button.pressed.connect(_on_play_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
+	update_button.pressed.connect(UpdateManager.open_download)
+	UpdateManager.update_available.connect(_on_update_available)
+	version_label.text = "VERSION %s // %s" % [Build.VERSION, Build.update_channel().to_upper()]
+	if not UpdateManager.available.is_empty():
+		_on_update_available(UpdateManager.available)
 
 
 ## Restyle from Palette at load rather than in the scene file.
@@ -56,6 +63,7 @@ func _apply_palette() -> void:
 		if button != null:
 			Palette.style_button(button, true)
 	for path in ["ButtonPanel/ButtonBox/SettingsButton",
+			"ButtonPanel/ButtonBox/UpdateButton",
 			"ButtonPanel/ButtonBox/QuitButton"]:
 		var button := get_node_or_null(path) as Button
 		if button != null:
@@ -80,3 +88,9 @@ func _on_settings_pressed() -> void:
 
 func _on_quit_pressed() -> void:
 	get_tree().quit()
+
+
+func _on_update_available(update: Dictionary) -> void:
+	update_button.text = "DOWNLOAD UPDATE %s" % String(update.get("version", ""))
+	update_button.tooltip_text = String(update.get("notes", ""))
+	update_button.visible = true

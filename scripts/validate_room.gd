@@ -27,6 +27,12 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:1105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
+	_expect(UpdateManager._newer("0.2.0", "0.1.9"),
+		"the updater did not recognize a newer semantic version")
+	_expect(not UpdateManager._newer("0.1.0", "0.1.0"),
+		"the updater treated the current version as newer")
+	_expect(not UpdateManager._newer("0.0.9", "0.1.0"),
+		"the updater treated an older version as newer")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.code.length() == RoomState.CODE_LENGTH,
 		"room code is %d characters" % RoomState.code.length())

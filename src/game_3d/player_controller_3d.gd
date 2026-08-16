@@ -26,6 +26,10 @@ const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
 @onready var first_person_camera: Camera3D = $FirstPersonPivot/FirstPersonCamera
 @onready var first_person_pivot: Node3D = $FirstPersonPivot
 @onready var flashlight: SpotLight3D = $FirstPersonPivot/Flashlight
+@onready var xr_origin: XROrigin3D = $XROrigin
+@onready var xr_camera: XRCamera3D = $XROrigin/XRCamera
+@onready var xr_left: XRController3D = $XROrigin/LeftController
+@onready var xr_right: XRController3D = $XROrigin/RightController
 ## Empty container — its child model comes from ModelSlot (see _ready), so
 ## replacing BODY_MODEL_SCENE's contents with a real model needs no changes
 ## here.
@@ -66,6 +70,11 @@ var _animation_player: AnimationPlayer
 ## The clip this body is playing, published so remote copies can play the same
 ## one. Set where the local body is told to play, so the two cannot disagree.
 var _clip := "idle"
+## OpenXR is opt-in for desktop exports (`--xr` or an `xr` export feature) and
+## automatic for the Quest preset. If initialization fails, the same binary
+## falls back to the ordinary first-person camera.
+var xr_active := false
+var _xr_turn_latched := false
 
 ## Out of sight, in a locker. Movement stops, the body is not drawn, and
 ## perception treats you as gone -- the shared brain's `hidden` gate has always
@@ -211,11 +220,13 @@ func _ready() -> void:
 	# The maze is lit almost entirely by this beam; starting dark reads as a
 	# broken build rather than as atmosphere.
 	_set_flashlight(true)
-	_enter_first_person()
+	_connect_xr_buttons()
+	if not _try_enter_xr():
+		_enter_first_person()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
+	if event is InputEventMouseMotion and not xr_active:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
@@ -254,6 +265,11 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if xr_active:
+		var stick := xr_left.get_vector2("primary")
+		if stick.length_squared() > input_vector.length_squared():
+			# OpenXR stick-up is positive; Input.get_vector's forward/W is -Y.
+			input_vector = Vector2(stick.x, -stick.y)
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
 	var is_moving := input_vector.length_squared() > 0.0
 	var wants_to_sprint := Input.is_action_pressed("sprint") and is_moving and not exhausted
@@ -287,15 +303,18 @@ func _physics_process(delta: float) -> void:
 
 	var move_direction: Vector3
 	# Movement is camera-relative: forward is where you are looking.
-	if true:
+	if xr_active:
+		var head_forward := -xr_camera.global_basis.z
+		head_forward.y = 0.0
+		head_forward = head_forward.normalized()
+		var head_right := xr_camera.global_basis.x
+		head_right.y = 0.0
+		head_right = head_right.normalized()
+		move_direction = (head_right * input_vector.x + head_forward * -input_vector.y
+			).normalized() if is_moving else Vector3.ZERO
+	else:
 		# Relative to facing: forward/back on move_up/move_down, strafe on move_left/move_right.
 		move_direction = (transform.basis * Vector3(input_vector.x, 0.0, input_vector.y)).normalized() if is_moving else Vector3.ZERO
-	else:
-		# Fixed world axes, matching the 2D top-down control scheme.
-		move_direction = Vector3(input_vector.x, 0.0, input_vector.y)
-		if is_moving:
-			rotation.y = atan2(input_vector.x, input_vector.y)
-			_yaw = rotation.y
 
 	# GameConfig's speed constants are px/s at TILE_SIZE=16px per 2D tile;
 	# the 3D world uses 1 tile = 1 meter (see art/props-3d/README.md), so
@@ -308,7 +327,13 @@ func _physics_process(delta: float) -> void:
 	# vector at yaw θ is (-sin θ, 0, -cos θ), not (sin θ, 0, cos θ). The old
 	# unnegated version pointed the minimap arrow, and every beam-aim check
 	# that reads this field, exactly backwards.
-	facing = Vector2(-sin(rotation.y), -cos(rotation.y))
+	if xr_active:
+		var look := -xr_camera.global_basis.z
+		facing = Vector2(look.x, look.z).normalized()
+		flashlight.global_transform = xr_camera.global_transform
+		_update_xr_snap_turn()
+	else:
+		facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
 	velocity.x = move_direction.x * speed_mps
 	velocity.z = move_direction.z * speed_mps
@@ -340,6 +365,98 @@ func _enter_first_person() -> void:
 	# Stated as a preference, not set directly: a menu on top has to be able to
 	# hand the cursor back without this taking it again next frame.
 	MouseLock.set_gameplay_capture(true)
+
+
+func _wants_xr() -> bool:
+	return OS.has_feature("xr") or OS.get_cmdline_user_args().has("--xr")
+
+
+func _try_enter_xr() -> bool:
+	if not _wants_xr():
+		return false
+	var interface := XRServer.find_interface("OpenXR")
+	if interface == null:
+		push_warning("OPENXR // interface unavailable; using desktop camera")
+		return false
+	if not interface.is_initialized() and not interface.initialize():
+		push_warning("OPENXR // runtime initialization failed; using desktop camera")
+		return false
+	xr_active = true
+	get_viewport().use_xr = true
+	first_person_camera.current = false
+	xr_camera.current = true
+	body_visual.visible = false
+	MouseLock.set_gameplay_capture(false)
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	return true
+
+
+func _connect_xr_buttons() -> void:
+	xr_right.button_pressed.connect(_on_xr_right_pressed)
+	xr_right.button_released.connect(_on_xr_right_released)
+	xr_left.button_pressed.connect(_on_xr_left_pressed)
+	xr_left.button_released.connect(_on_xr_left_released)
+
+
+func _on_xr_right_pressed(action: StringName) -> void:
+	match String(action):
+		"trigger_click":
+			Input.action_press("interact")
+		"ax_button":
+			Input.action_press("flashlight")
+		"grip_click":
+			Input.action_press("sprint")
+
+
+func _on_xr_right_released(action: StringName) -> void:
+	match String(action):
+		"trigger_click":
+			Input.action_release("interact")
+		"ax_button":
+			Input.action_release("flashlight")
+		"grip_click":
+			Input.action_release("sprint")
+
+
+func _on_xr_left_pressed(action: StringName) -> void:
+	match String(action):
+		"primary_click":
+			Input.action_press("crouch")
+		"by_button":
+			Input.action_press("toggle_map")
+		"menu_button":
+			_emit_xr_action_event("pause", true)
+
+
+func _on_xr_left_released(action: StringName) -> void:
+	match String(action):
+		"primary_click":
+			Input.action_release("crouch")
+		"by_button":
+			Input.action_release("toggle_map")
+		"menu_button":
+			_emit_xr_action_event("pause", false)
+
+
+func _emit_xr_action_event(action: StringName, pressed: bool) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	Input.parse_input_event(event)
+
+
+## Thirty-degree comfort turn with a latch, so holding the stick cannot spin
+## several steps per physics frame. Physical room-scale offset remains owned
+## by OpenXR beneath this body.
+func _update_xr_snap_turn() -> void:
+	var turn := xr_right.get_vector2("primary").x
+	if absf(turn) < 0.45:
+		_xr_turn_latched = false
+		return
+	if _xr_turn_latched:
+		return
+	_xr_turn_latched = true
+	rotate_y(deg_to_rad(-30.0 if turn > 0.0 else 30.0))
 
 
 func _update_stamina(delta: float, is_sprinting: bool) -> void:

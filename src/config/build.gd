@@ -1,6 +1,8 @@
 class_name Build
 extends RefCounted
 
+const VERSION := "0.1.0"
+
 ## What this build is allowed to show the player.
 ##
 ## The web version carries developer instrumentation -- an FPS readout, the
@@ -44,3 +46,7 @@ static func allow_spoiler_views() -> bool:
 ## keep direct-connect available for local and alternate-server testing.
 static func allow_custom_hosts() -> bool:
 	return tools_enabled()
+
+
+static func update_channel() -> String:
+	return "debug" if tools_enabled() else "release"

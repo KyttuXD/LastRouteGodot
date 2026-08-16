@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+    "start": "node ../index.js",
     "test": "node --test server.test.mjs"
   },
   "engines": {

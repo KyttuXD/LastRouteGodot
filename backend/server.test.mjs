@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDirectoryServer, createLastRouteServer } from "./server.mjs";
@@ -211,6 +211,56 @@ test("trusted proxy address is used only when explicitly enabled", async () => {
     assert.equal((await response.json()).room.address, "203.0.113.25");
   } finally {
     await app.close();
+  }
+});
+
+test("serves validated debug/release update manifests", async () => {
+  const sha256 = "a".repeat(64);
+  const updateDirectory = await mkdtemp(join(tmpdir(), "last-route-updates-"));
+  await writeFile(join(updateDirectory, "linux.zip"), "test-build");
+  await writeFile(join(updateDirectory, "private.txt"), "not-published");
+  const app = await fixtureWith(() => createLastRouteServer({
+    updateDirectory,
+    updates: {
+      debug: { linux: { version: "0.2.0", file: "linux.zip", sha256, notes: "Test route" } },
+      release: { windows: { version: "1.0.0", url: "http://insecure.invalid/game.zip" } },
+    },
+  }));
+  try {
+    let response = await fetch(`${app.url}/api/updates/debug/linux`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.update.version, "0.2.0");
+    assert.equal(payload.update.sha256, sha256);
+    assert.equal(payload.update.url, "/api/updates/files/linux.zip");
+    response = await fetch(`${app.url}${payload.update.url}`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "test-build");
+    response = await fetch(`${app.url}/api/updates/files/private.txt`);
+    assert.equal(response.status, 404);
+    response = await fetch(`${app.url}/api/updates/release/windows`);
+    assert.equal(response.status, 404);
+  } finally {
+    await app.close();
+    await rm(updateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("serves the Web export with browser-safe MIME types", async () => {
+  const publicDirectory = await mkdtemp(join(tmpdir(), "last-route-web-"));
+  await writeFile(join(publicDirectory, "index.html"), "<title>Last Route</title>");
+  await writeFile(join(publicDirectory, "index.wasm"), "wasm-test");
+  const app = await fixtureWith(() => createLastRouteServer({ publicDirectory }));
+  try {
+    let response = await fetch(`${app.url}/`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /^text\/html/);
+    response = await fetch(`${app.url}/index.wasm`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "application/wasm");
+  } finally {
+    await app.close();
+    await rm(publicDirectory, { recursive: true, force: true });
   }
 });
 

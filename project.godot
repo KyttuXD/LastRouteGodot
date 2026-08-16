@@ -21,6 +21,7 @@ Settings="*res://src/autoload/settings.gd"
 MouseLock="*res://src/autoload/mouse_lock.gd"
 Sound="*res://src/autoload/sound.gd"
 Backend="*res://src/autoload/backend_client.gd"
+UpdateManager="*res://src/autoload/update_manager.gd"
 RoomState="*res://src/autoload/room_state.gd"
 
 [display]
@@ -187,8 +188,17 @@ office_camera_8={
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0
+textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0.015, 0.02, 0.028, 1)
 2d/snap/snap_2d_transforms_to_pixel=true
 2d/snap/snap_2d_vertices_to_pixel=true
+
+[xr]
+
+openxr/enabled=false
+openxr/startup_alert=false
+openxr/foveation_level=3
+openxr/foveation_dynamic=true
+shaders/enabled=true

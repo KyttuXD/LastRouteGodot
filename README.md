@@ -121,6 +121,32 @@ the admin overlay and custom-host controls enabled:
 godot4 --headless --path . --export-debug "Linux Debug Tools"
 ```
 
+To generate all current native/Web test artifacts, keep the runnable files in
+the root `builds/` folder, create updater ZIPs, and unpack the macOS `.app`, run:
+
+```sh
+./scripts/export_test_builds.sh
+```
+
+Pass `--quest` once the Android SDK/JDK prerequisites in [`XR.md`](XR.md) are
+configured.
+
+Equivalent debug-tools presets are committed for Windows, macOS and a
+single-threaded Web build. Web is currently solo-only: browsers cannot use the
+native ENet/UDP transport, and the UI reports that boundary instead of trying
+to open an unsupported socket. A WebSocket/WebRTC peer is a separate transport
+port; the native builds retain ENet co-op.
+
+The optional SteamVR/Meta Quest OpenXR track, current controller bindings,
+export presets and hardware-test gaps are documented in [`XR.md`](XR.md).
+
+Debug and release builds also check the primary Node backend for a
+channel/platform update manifest. Pterodactyl can privately pull GitHub build
+artifacts with its own PAT and serve only the approved files from a local
+update directory; no GitHub credentials are shipped in the game. See
+[`backend/README.md`](backend/README.md#pterodactyl-hosted-updates) and
+[`backend/updates.example.json`](backend/updates.example.json).
+
 The optional directory has its own dependency-free Node checks:
 
 ```sh

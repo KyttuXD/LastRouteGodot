@@ -61,6 +61,16 @@ func run(host: Node) -> int:
 	elif bounds.size.y < 1.4 or bounds.size.y > 2.2:
 		_fail("the player stands %.2f m, which is not a person" % bounds.size.y)
 
+	# XR is an optional camera/input layer on the same body, not a second route
+	# scene. In a headless/no-runtime test it must exist but fall back silently
+	# to the ordinary first-person camera.
+	var route: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(route)
+	await host.get_tree().process_frame
+	_expect_xr(route)
+	route.queue_free()
+	await host.get_tree().process_frame
+
 	if _failures == 0:
 		print("  player    %.2f m tall, %d clips, %d meshes"
 			% [bounds.size.y, WANTED.size(),
@@ -69,3 +79,16 @@ func run(host: Node) -> int:
 	model.queue_free()
 	await host.get_tree().process_frame
 	return _failures
+
+
+func _expect_xr(route: Node) -> void:
+	var controller: PlayerController3D = route.player
+	if controller.xr_origin == null or controller.xr_camera == null \
+			or controller.xr_left == null or controller.xr_right == null:
+		_fail("the route player is missing its OpenXR origin/camera/controllers")
+		return
+	if controller.xr_active:
+		_fail("OpenXR activated without an XR export/runtime request")
+	if not controller.first_person_camera.current:
+		_fail("desktop fallback lost its first-person camera")
+	print("  openxr    tracked rig present; no-runtime desktop fallback stays active")
