@@ -50,6 +50,7 @@ func trigger_static(duration: float, intensity: float = 0.75) -> void:
 @onready var message_label: Label = %MessageLabel
 @onready var map_overlay: Control = %MapOverlay
 @onready var plan: FacilityMap = %Plan
+@onready var minimap: FacilityMap = %Minimap
 @onready var escape_overlay: Control = %EscapeOverlay
 @onready var escape_progress_bar: ProgressBar = %EscapeProgressBar
 @onready var escape_time_bar: ProgressBar = %EscapeTimeBar
@@ -161,11 +162,20 @@ func toggle_map_overlay() -> void:
 	map_overlay.visible = not map_overlay.visible
 
 
-## The map is only worth redrawing while somebody is looking at it, and the
-## original charges the same price for reading it: your view of the room.
+## The full map is only worth redrawing while somebody is looking at it, and
+## the original charges the same price for reading it: your view of the
+## room. The minimap has no such gate -- it is always up, which is exactly
+## why it never gets hunter marks the way the full map does (see
+## main_3d.gd's _minimap_marks): giving up peripheral vision for hunter
+## intel is the original's whole trade, and a permanent widget that showed
+## them for free would erase it.
 func map_is_open() -> bool:
 	return map_overlay.visible
 
 
 func update_map(generator: FacilityGenerator, at: Vector2, facing: Vector2, marks: Array) -> void:
 	plan.show_state(generator, at, facing, marks)
+
+
+func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2, marks: Array) -> void:
+	minimap.show_state(generator, at, facing, marks)

@@ -381,3 +381,23 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("2_crosshair")
+
+[node name="MinimapPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -168
+offset_top = 8
+offset_right = -8
+offset_bottom = 148
+grow_horizontal = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="Minimap" type="Control" parent="MinimapPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 136)
+layout_mode = 2
+script = ExtResource("5_map")

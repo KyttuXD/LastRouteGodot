@@ -18,6 +18,11 @@ func _fail(message: String) -> void:
 	_failures += 1
 
 
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		_fail(message)
+
+
 func run(host: Node) -> int:
 	# The gate itself. This suite only ever runs in a debug build, so what can
 	# be checked here is that the release path is a real branch and not a
@@ -87,6 +92,29 @@ func run(host: Node) -> int:
 		if GameState.relays_collected != GameState.relay_target:
 			_fail("ALL RELAYS left %d of %d collected"
 				% [GameState.relays_collected, GameState.relay_target])
+
+		# TOGGLE HUNTER REVEAL: the route hunter starts inactive (she wakes on
+		# the relay schedule), so she is the natural case for "the map won't
+		# show me a hunter who hasn't woken up yet, unless I'm looking with
+		# admin eyes."
+		if scene.hunter_view and scene.hunter_view.brain.active:
+			_fail("setup problem: the route hunter is already active, nothing to reveal")
+		else:
+			var hidden_by_default: Array = scene._map_marks()
+			var revealed: Array = scene._map_marks(true)
+			_expect(hidden_by_default.is_empty(),
+				"an inactive hunter showed up on the map without admin reveal")
+			_expect(revealed.size() == scene.hunter_views.size(),
+				"admin reveal did not surface every hunter, active or not")
+
+			for row in menu._actions:
+				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
+					(row["action"] as Callable).call()
+			_expect(scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn reveal on")
+			for row in menu._actions:
+				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
+					(row["action"] as Callable).call()
+			_expect(not scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn back off")
 	scene.queue_free()
 	await host.get_tree().process_frame
 

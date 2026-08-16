@@ -26,6 +26,9 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var _game_over_timer := 0.0
+## Admin-only: shows every hunter on both maps, active or not -- see
+## _map_marks()'s own note on why that distinction exists at all.
+var _admin_reveal_hunters := false
 var _remotes: RemotePlayers
 var _custom_map_request: HTTPRequest
 ## True while a fetch is in flight, so a second admin submission cannot start
@@ -103,9 +106,11 @@ func _process(delta: float) -> void:
 		observed_depth = GameState.depth
 		_build_floor()
 
+	hud.update_minimap(facility_view.generator, player.grid_position(),
+		player.facing, _map_marks(true) if _admin_reveal_hunters else [])
 	if hud.map_is_open():
 		hud.update_map(facility_view.generator, player.grid_position(),
-			player.facing, _map_marks())
+			player.facing, _map_marks(_admin_reveal_hunters))
 	hud.set_interaction_prompt(player.get_interaction_prompt())
 	_update_hud()
 
@@ -257,11 +262,19 @@ func _guardian_blocking(target: RouteInteractable3D) -> String:
 ## What the map shows. Every ACTIVE hunter, including the ones the room cannot
 ## see -- Porcelle is invisible in the world and appears only here, which is the
 ## whole reason this panel had to become a real map.
-func _map_marks() -> Array:
+##
+## `include_inactive`: the admin menu's "REVEAL HUNTERS" toggle -- a hunter
+## still waiting on the relay schedule (or a special still waiting on her own
+## wake condition) is otherwise invisible to this too, which is right for a
+## normal run and useless for debugging one.
+func _map_marks(include_inactive: bool = false) -> Array:
 	var marks: Array = []
 	for view in hunter_views:
-		if not view.brain.active:
+		if not view.brain.active and not include_inactive:
 			continue
+		# "active" here means "draw this mark" -- inclusion was already
+		# decided above, so every entry that made it into this array wants
+		# to be shown, whether or not the hunter herself is active yet.
 		marks.append({
 			"at": view.brain.position,
 			"name": String(HunterRoster.get_identity(view.brain.hunter_id)["display_name"]),
@@ -438,11 +451,12 @@ func _update_hud() -> void:
 func _build_admin() -> void:
 	AdminMenu.attach(self,
 		func() -> String:
-			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s" % [
+			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s\nHUNTER REVEAL %s" % [
 				RoomState.code, RoomState.SCALE_LABELS[RoomState.map_scale],
 				GameState.depth, GameState.relays_collected,
 				GameState.relay_target, GameState.lives_remaining,
-				RoomState.seed_text],
+				RoomState.seed_text,
+				"ON" if _admin_reveal_hunters else "OFF"],
 		[
 			{"label": "GRANT RELAY", "action": func() -> void:
 				GameState.relays_collected = mini(GameState.relay_target,
@@ -453,6 +467,10 @@ func _build_admin() -> void:
 				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
 			{"label": "REBUILD FLOOR", "action": _build_floor},
 			{"label": "DESCEND", "action": func() -> void: GameState.descend()},
+			# Both maps read _admin_reveal_hunters fresh every frame in
+			# _process(), so flipping this needs nothing else to take effect.
+			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
+				_admin_reveal_hunters = not _admin_reveal_hunters},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
