@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buildDirectory = join(projectDirectory, "builds");
 const buildSource = readFileSync(join(projectDirectory, "src/config/build.gd"), "utf8");
-const version = buildSource.match(/const VERSION := "(\d+\.\d+\.\d+)"/)?.[1];
+const version = buildSource.match(/const VERSION := "(\d+(?:\.\d+){2,3})"/)?.[1];
 if (!version) throw new Error("Could not read Build.VERSION");
 
 const artifacts = {

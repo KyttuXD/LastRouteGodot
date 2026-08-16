@@ -1,14 +1,14 @@
 {
   "debug": {
     "linux": {
-      "version": "0.1.1",
+      "version": "0.0.1.0",
       "file": "LastRoute-Linux-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "Debug multiplayer test build.",
       "required": false
     },
     "steamvr": {
-      "version": "0.1.1",
+      "version": "0.0.1.0",
       "file": "LastRoute-Windows-SteamVR-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "SteamVR OpenXR test build.",

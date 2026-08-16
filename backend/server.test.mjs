@@ -222,7 +222,7 @@ test("serves validated debug/release update manifests", async () => {
   const app = await fixtureWith(() => createLastRouteServer({
     updateDirectory,
     updates: {
-      debug: { linux: { version: "0.2.0", file: "linux.zip", sha256, notes: "Test route" } },
+      debug: { linux: { version: "0.0.1.0", file: "linux.zip", sha256, notes: "Test route" } },
       release: { windows: { version: "1.0.0", url: "http://insecure.invalid/game.zip" } },
     },
   }));
@@ -230,7 +230,7 @@ test("serves validated debug/release update manifests", async () => {
     let response = await fetch(`${app.url}/api/updates/debug/linux`);
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.update.version, "0.2.0");
+    assert.equal(payload.update.version, "0.0.1.0");
     assert.equal(payload.update.sha256, sha256);
     assert.equal(payload.update.url, "/api/updates/files/linux.zip");
     response = await fetch(`${app.url}${payload.update.url}`);

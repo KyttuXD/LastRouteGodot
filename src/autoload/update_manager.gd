@@ -85,7 +85,7 @@ func open_download() -> void:
 static func _newer(candidate: String, current: String) -> bool:
 	var a := candidate.trim_prefix("v").split(".")
 	var b := current.trim_prefix("v").split(".")
-	for index in 3:
+	for index in maxi(a.size(), b.size()):
 		var av := int(a[index]) if index < a.size() else 0
 		var bv := int(b[index]) if index < b.size() else 0
 		if av != bv:

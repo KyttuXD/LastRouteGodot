@@ -1,7 +1,9 @@
 class_name Build
 extends RefCounted
 
-const VERSION := "0.1.0"
+## Manually controlled release identifier. Keep this unchanged during unrelated
+## work; only change it when the user explicitly asks to change or bump it.
+const VERSION := "0.0.1.0"
 
 ## What this build is allowed to show the player.
 ##

@@ -217,7 +217,7 @@ offset_right = 120.0
 offset_bottom = -4.0
 grow_horizontal = 2
 grow_vertical = 0
-text = "VERSION 0.1.0"
+text = "VERSION 0.0.1.0"
 horizontal_alignment = 1
 
 [node name="SettingsOverlay" type="ColorRect" parent="."]

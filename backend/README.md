@@ -123,7 +123,7 @@ a GitHub token in the game:
 2. `./scripts/export_test_builds.sh` writes the test archives and a ready-made
    `builds/updates.debug.json` with their SHA-256 values. Point
    `LASTROUTE_UPDATE_MANIFEST` at that file, or copy
-   `backend/updates.example.json` and set each channel/platform's semantic
+   `backend/updates.example.json` and set each channel/platform's dotted numeric
    version, exact local `file`, SHA-256 checksum, notes and optional `required`
    flag. The platform keys are `linux`, `windows`, `macos`, `web`, `steamvr`
    and `quest`.
@@ -137,10 +137,14 @@ Release assets, not committed to the source tree. For example, after reviewing
 the generated manifest and archives:
 
 ```sh
-gh release create debug-v0.1.0 --prerelease \
-  --title "Last Route debug v0.1.0" \
+gh release create debug --prerelease \
+  --title "Last Route debug 0.0.1.0" \
   builds/LastRoute-*-Debug.zip builds/updates.debug.json
 ```
+
+Keep the GitHub tags channel-based: use `debug` for debug uploads and
+`release` for release uploads. The dotted game version belongs in the build,
+manifest, and release title rather than the tag name.
 
 The PAT belongs only in Pterodactyl's private variables or deployment script;
 never write it into `updates.json`, the Godot project, an export, or Git. Use

@@ -109,7 +109,7 @@ function publicUpdateManifest(updates, channel, platform) {
   const relativeUrl = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/.test(file)
     ? `/api/updates/files/${encodeURIComponent(file)}`
     : "";
-  if (!/^\d+\.\d+\.\d+$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
+  if (!/^\d+(?:\.\d+){2,3}$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
   if (!/^[a-f0-9]{64}$/.test(sha256)) return null;
   return {
     version,
