@@ -52,6 +52,7 @@ func run(_host: Node) -> int:
 	await _verrine_lurks_and_chases(_host)
 	await _zephyra_trades_and_repairs(_host)
 	await _interactables_require_facing(_host)
+	_hunter_paths_to_a_distant_target(generator)
 	if _failures == 0:
 		print("hunters OK")
 	return _failures
@@ -1002,3 +1003,40 @@ func _interactables_require_facing(host: Node) -> void:
 
 	scene.queue_free()
 	print("  facing    a nearby interactable is only reachable while actually faced")
+
+
+## Not hunter-specific -- pure A*/movement infrastructure, colocated here for
+## the same reason _interactables_require_facing is. Every other check in
+## this file drives state transitions (last_known, CHASE/SEARCH) without
+## ever asserting the thing a player actually SEES: that `position` keeps
+## advancing toward a real, far-off target over many real frames rather than
+## stalling. A tuning-only baseline (Dovelle, no gimmick) isolates that from
+## any gimmick's own movement override.
+func _hunter_paths_to_a_distant_target(generator: FacilityGenerator) -> void:
+	var start_pos := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var far_target := Vector2(generator.exit_cell) + Vector2(0.5, 0.5)
+	if start_pos.distance_to(far_target) < 8.0:
+		_fail("setup problem: start and exit are too close to prove real pathing")
+		return
+
+	var brain := HunterBrain.new(start_pos, "PATH-CHECK:dovelle", "dovelle")
+	# Mirrors activate_at() in the real game: aimed at wherever the player
+	# actually was the moment she woke.
+	brain.activate_at(far_target)
+
+	# The "player" stays permanently out of sight and hearing, so this
+	# isolates path-FOLLOWING toward the already-locked last_known, not
+	# perception re-acquiring her every frame.
+	var target := _target(Vector2(-999.0, -999.0))
+	target["hidden"] = true
+
+	var start_distance := start_pos.distance_to(far_target)
+	var closest := start_distance
+	for i in 1800:  # 30 real seconds -- generous; she should close most of it
+		brain.update(STEP, generator, target, 1, 0)
+		closest = minf(closest, brain.position.distance_to(far_target))
+
+	_expect(closest < start_distance * 0.5,
+		"a hunter aimed at a real target %.1f tiles away only closed to %.1f in 30s -- pathing looks stalled"
+			% [start_distance, closest])
+	print("  pathing   a hunter closes real distance to a far target over many frames, not just state")

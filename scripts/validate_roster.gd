@@ -27,6 +27,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(_host: Node) -> int:
 	_everyone_has_a_face()
+	_everyone_actually_renders()
 	_the_pool_is_real()
 	_the_draw_is_replayable()
 	_the_draw_reaches_everyone()
@@ -50,6 +51,40 @@ func _everyone_has_a_face() -> void:
 	_expect(missing.is_empty(), "no model for: %s" % ", ".join(missing))
 	print("  profiles  %d hunters, each with tuning and a model"
 		% HunterRoster.PROFILES.size())
+
+
+## The Blockbench -> glTF export pipeline writes every material as alphaMode
+## "MASK", which Godot's importer turns into TRANSPARENCY_ALPHA_SCISSOR --
+## and most of a character texture sheet's unused atlas padding is alpha=0,
+## which alpha-scissor discards outright. Every hunter rendered as literally
+## nothing until ModelSlot._disable_alpha_scissor() forced transparency off
+## on load. This is the regression guard for that: load every hunter's real
+## model exactly the way the game does (through ModelSlot, not a raw
+## resource load) and confirm no mesh comes back alpha-scissored.
+func _everyone_actually_renders() -> void:
+	var broken: Array[String] = []
+	var empty: Array[String] = []
+	for id in HunterRoster.PROFILES:
+		var identity := HunterRoster.get_identity(id)
+		var model := ModelSlot.instantiate(String(identity["model_scene"]))
+		if model == null:
+			empty.append(id)
+			continue
+		var meshes := model.find_children("*", "MeshInstance3D", true, false)
+		if meshes.is_empty():
+			empty.append(id)
+		for node in meshes:
+			var mesh_instance := node as MeshInstance3D
+			for surface in mesh_instance.mesh.get_surface_count() if mesh_instance.mesh else 0:
+				var material := mesh_instance.get_active_material(surface)
+				if material is StandardMaterial3D \
+						and (material as StandardMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+					broken.append(id)
+					break
+		model.queue_free()
+	_expect(empty.is_empty(), "no meshes at all for: %s" % ", ".join(empty))
+	_expect(broken.is_empty(),
+		"still alpha-scissored (would render as nothing) after ModelSlot's fix: %s" % ", ".join(broken))
 
 
 ## An id in the pool with no profile falls back to Dovelle's numbers and her

@@ -295,9 +295,14 @@ func _physics_process(delta: float) -> void:
 	# the 3D world uses 1 tile = 1 meter (see art/props-3d/README.md), so
 	# converting px/s -> tiles/s gives the equivalent m/s. Freezing slows you.
 	var speed_mps := movement_speed * meters.movement_scale() / GameConfig.TILE_SIZE
-	# Grid-space facing: the facility's (x, y) maps onto XZ, and body yaw is
-	# measured with atan2(x, z), so this is the same direction the beam points.
-	facing = Vector2(sin(rotation.y), cos(rotation.y))
+	# Grid-space facing: the facility's (x, y) maps onto XZ. A Node3D's own
+	# forward is -Z (Godot's camera-forward convention, and this body's
+	# camera is a plain child of it with no extra yaw of its own), which
+	# rotation.y turns exactly like everything else here -- so the forward
+	# vector at yaw θ is (-sin θ, 0, -cos θ), not (sin θ, 0, cos θ). The old
+	# unnegated version pointed the minimap arrow, and every beam-aim check
+	# that reads this field, exactly backwards.
+	facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
 	velocity.x = move_direction.x * speed_mps
 	velocity.z = move_direction.z * speed_mps
