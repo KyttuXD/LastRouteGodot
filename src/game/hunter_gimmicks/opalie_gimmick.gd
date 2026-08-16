@@ -58,3 +58,14 @@ func holds_position() -> bool:
 ## guardianBlocking(): only while she actually holds station.
 func blocks(point: Vector2) -> bool:
 	return on_station and station.distance_to(point) <= GameConfig.OPALIE_SUPPRESSION_RADIUS
+
+
+func network_state() -> Dictionary:
+	return {"station": station, "on_station": on_station}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	var value = state.get("station")
+	if value is Vector2:
+		station = value
+	on_station = bool(state.get("on_station", on_station))

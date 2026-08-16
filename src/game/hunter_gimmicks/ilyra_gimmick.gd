@@ -71,6 +71,16 @@ func hidden_from_view() -> bool:
 	return _hidden_remaining > 0.0
 
 
+func network_state() -> Dictionary:
+	return {"hidden": _hidden_remaining > 0.0}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	# Guests do not count the authoritative timer; they only need the current
+	# visibility result, refreshed in every hunter packet.
+	_hidden_remaining = 1.0 if bool(state.get("hidden", false)) else 0.0
+
+
 func _respawn_corner(brain: HunterBrain, generator: FacilityGenerator) -> void:
 	if generator.rooms.is_empty():
 		return

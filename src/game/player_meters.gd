@@ -66,6 +66,13 @@ func add_noise(amount: float) -> void:
 	_noise_input += amount
 
 
+## Host-side co-op adapters reconstruct a temporary meter object for a guest.
+## Hunter noise is banked rather than immediately visible, so the adapter needs
+## this read-only value to forward the same delta to the meter's real owner.
+func pending_noise_input() -> float:
+	return _noise_input
+
+
 func _update_exposure(delta: float, situation: Dictionary) -> void:
 	var target := 0.0
 	if not situation.get("hidden", false):

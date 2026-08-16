@@ -64,3 +64,15 @@ func resolve_entry(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 	dispersed = true
 	return {"trapped": false, "cleared": true,
 		"message": "CERYTH DISPERSED // HIDING SPOT CLEARED"}
+
+
+func network_state() -> Dictionary:
+	return {"trap_spot": trap_spot, "eyes_red": eyes_red, "dispersed": dispersed}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	var spot = state.get("trap_spot")
+	if spot is Vector2i:
+		trap_spot = spot
+	eyes_red = bool(state.get("eyes_red", eyes_red))
+	dispersed = bool(state.get("dispersed", dispersed))

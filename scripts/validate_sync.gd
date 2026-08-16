@@ -53,11 +53,14 @@ func run(host: Node) -> int:
 	_heater_travels(alice, bob)
 	print("  heater    the station's three states hold across the room")
 	_hunter_state_travels(alice, bob)
-	print("  hunters   active/state/facing replicate from the host")
+	_gimmick_state_travels()
+	print("  hunters   active/state/facing and interaction state replicate from the host")
 	_target_selection(alice)
 	print("  targeting the closest available remote runner can be chased safely")
 	_targeted_outcomes(bob)
 	print("  outcomes  host-selected stun and capture resolve on the target peer")
+	_authoritative_world_request(alice)
+	print("  authority guest world actions are validated and canonicalized by the host")
 	await _snapshot_catches_up(host, alice)
 	print("  latecomer a peer joining mid-floor is told what it missed")
 
@@ -165,11 +168,17 @@ func _snapshot_catches_up(host: Node, alice: Node) -> void:
 	var hiding := _first(alice, RouteInteractable3D.Kind.HIDING_SPOT)
 	if hiding:
 		hiding.set_disabled(true)
+	GameState.coins = 13
+	GameState.score = 725
 	var state: Dictionary = alice._build_snapshot()
 	_expect(not state.get("taken", []).is_empty(),
 		"the snapshot forgot the relay that was already collected")
 	_expect(int(state.get("heater", -1)) == int(RouteInteractable3D.HeaterState.POWERED),
 		"the snapshot forgot the heater station")
+	_expect(int(state.get("coins", -1)) == 13 and int(state.get("score", -1)) == 725,
+		"the snapshot forgot shared economy/progression totals")
+	_expect(not (state.get("hunters", []) as Array).is_empty(),
+		"the snapshot omitted the authoritative hunter state")
 	if hiding:
 		_expect(state.get("disabled_hiding", []).has(hiding.source_cell),
 			"the snapshot forgot a disabled hiding spot")
@@ -194,6 +203,8 @@ func _snapshot_catches_up(host: Node, alice: Node) -> void:
 			hiding.source_cell)
 		_expect(late_hiding != null and late_hiding.disabled,
 			"a joining peer can use a hiding spot Loxelle already disabled")
+	_expect(GameState.coins == 13 and GameState.score == 725,
+		"a joining peer did not adopt shared economy/progression totals")
 	latecomer.queue_free()
 
 
@@ -220,6 +231,35 @@ func _hunter_state_travels(alice: Node, bob: Node) -> void:
 			% [copy.brain.position, source.brain.position])
 	_expect(copy.brain.facing.is_equal_approx(source.brain.facing),
 		"the other peer lost the hunter's facing")
+
+
+func _gimmick_state_travels() -> void:
+	var ceryth_host := CerythGimmick.new()
+	ceryth_host.trap_spot = Vector2i(7, 9)
+	ceryth_host.eyes_red = false
+	ceryth_host.dispersed = true
+	var ceryth_guest := CerythGimmick.new()
+	ceryth_guest.apply_network_state(ceryth_host.network_state())
+	_expect(ceryth_guest.trap_spot == Vector2i(7, 9) and not ceryth_guest.eyes_red
+			and ceryth_guest.dispersed,
+		"Ceryth's remote riddle state disagrees with the host")
+
+	var opalie_host := OpalieGimmick.new()
+	opalie_host.station = Vector2(4.5, 6.5)
+	opalie_host.on_station = true
+	var opalie_guest := OpalieGimmick.new()
+	opalie_guest.apply_network_state(opalie_host.network_state())
+	_expect(opalie_guest.blocks(Vector2(4.5, 6.5)),
+		"Opalie's remote interaction guard is not active")
+
+	var verrine_guest := VerrineGimmick.new()
+	verrine_guest.apply_network_state({"active_in_vent": true, "speed_scale": 1.7})
+	_expect(not verrine_guest.hidden_from_view(),
+		"a remotely active Verrine is still hidden from the guest")
+	var ilyra_guest := IlyraGimmick.new()
+	ilyra_guest.apply_network_state({"hidden": true})
+	_expect(ilyra_guest.hidden_from_view(),
+		"Ilyra's remote banish visibility was not applied")
 
 
 func _target_selection(scene: Node) -> void:
@@ -277,6 +317,55 @@ func _targeted_outcomes(scene: Node) -> void:
 		"the escape struggle names a different hunter than the host's capture")
 	GameState.escape_active = false
 	scene.player.input_frozen = false
+
+	# Continuous and one-shot hunter meter mutations are targeted owner events,
+	# not writes to a temporary host-side reconstruction.
+	scene.player.meters.exposure = 10.0
+	scene.player.meters.noise_meter = 20.0
+	scene.player.meters.temperature = 60.0
+	scene._apply_player_event({
+		"what": "meter_effect",
+		"exposure_add": 25.0,
+		"noise_add": 8.0,
+		"noise_reclaim": 5.0,
+		"temperature_add": -10.0,
+	})
+	_expect(is_equal_approx(scene.player.meters.exposure, 35.0),
+		"a host-issued exposure effect did not reach the target owner")
+	_expect(is_equal_approx(scene.player.meters.noise_meter, 15.0)
+			and is_equal_approx(scene.player.meters.pending_noise_input(), 8.0),
+		"a host-issued noise add/reclaim did not reach the target owner")
+	_expect(is_equal_approx(scene.player.meters.temperature, 50.0),
+		"a host-issued temperature effect did not reach the target owner")
+
+	GameState.coins = 9
+	GameState.score = 400
+	var canonical: Dictionary = scene._remotes._canonical_world_event({"what": "coins"})
+	_expect(int(canonical.get("coins", -1)) == 9 and int(canonical.get("score", -1)) == 400,
+		"the host did not attach authoritative totals to a shared event")
+
+
+func _authoritative_world_request(scene: Node) -> void:
+	var coin := _first(scene, RouteInteractable3D.Kind.COIN)
+	if coin == null:
+		_fail("no coin exists for the host-authority interaction check")
+		return
+	GameState.coins = 0
+	scene._remotes._states[2] = {
+		"peer_id": 2,
+		"position": Vector2(coin.source_cell) + Vector2(0.5, 0.5),
+		"facing": Vector2(1, 0),
+		"depth": GameState.depth,
+		"received_usec": Time.get_ticks_usec(),
+	}
+	var request := {"what": "pickup", "cell": coin.source_cell,
+		"kind": int(RouteInteractable3D.Kind.COIN)}
+	scene._apply_world_request(2, request)
+	_expect(coin.completed and GameState.coins == GameConfig.COIN_PICKUP_VALUE,
+		"the host did not accept a valid guest coin pickup")
+	scene._apply_world_request(2, request)
+	_expect(GameState.coins == GameConfig.COIN_PICKUP_VALUE,
+		"the host awarded the same guest pickup twice")
 
 
 func _first(scene: Node, kind: RouteInteractable3D.Kind) -> RouteInteractable3D:

@@ -97,13 +97,42 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	if index < 1 or index > OFFERS.size():
 		return ""
 	var offer: Dictionary = OFFERS[index - 1]
-	var offer_id := String(offer["id"])
-	var cost := _cost(offer_id)
+	var offer_id := offer_key(index)
+	var cost := offer_cost(index)
 	if GameState.coins < cost:
 		return "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
 
 	GameState.coins -= cost
-	match offer_id:
+	if offer_id == "repair":
+		var relay := facility_view.find_sabotaged_relay()
+		if relay:
+			relay.set_sabotaged(false)
+		else:
+			apply_personal_offer(offer_id, player)
+	else:
+		apply_personal_offer(offer_id, player)
+	shop_open = false
+	return "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
+
+
+func offer_key(index: int) -> String:
+	if index < 1 or index > OFFERS.size():
+		return ""
+	return String(OFFERS[index - 1]["id"])
+
+
+func offer_label(index: int) -> String:
+	if index < 1 or index > OFFERS.size():
+		return ""
+	return String(OFFERS[index - 1]["label"])
+
+
+func offer_cost(index: int) -> int:
+	return _cost(offer_key(index))
+
+
+func apply_personal_offer(id: String, player: PlayerController3D) -> void:
+	match id:
 		"cool":
 			player.meters.temperature = clampf(
 				player.meters.temperature - GameConfig.ZEPHYRA_TEMPERATURE_STEP, 0.0, 100.0)
@@ -111,15 +140,10 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 			player.meters.temperature = clampf(
 				player.meters.temperature + GameConfig.ZEPHYRA_TEMPERATURE_STEP, 0.0, 100.0)
 		"repair":
-			var relay := facility_view.find_sabotaged_relay()
-			if relay:
-				relay.set_sabotaged(false)
-			else:
-				player.restore_lamp(GameConfig.ZEPHYRA_LAMP_REPAIR)
+			player.restore_lamp(GameConfig.ZEPHYRA_LAMP_REPAIR)
 		"pesticide":
-			player.pesticide_timer = maxf(player.pesticide_timer, GameConfig.ZEPHYRA_PESTICIDE_SECONDS)
-	shop_open = false
-	return "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
+			player.pesticide_timer = maxf(player.pesticide_timer,
+				GameConfig.ZEPHYRA_PESTICIDE_SECONDS)
 
 
 func _cost(offer_id: String) -> int:

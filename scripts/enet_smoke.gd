@@ -13,6 +13,8 @@ const TIMEOUT_SECONDS := 8.0
 
 var _client_waiting_for_start := false
 var _remotes: RemotePlayers
+var _host_received_interaction := false
+var _client_received_effect := false
 
 
 func _ready() -> void:
@@ -58,6 +60,19 @@ func _run_host() -> void:
 	print("ENET HOST OK // room %s // %d signals" % [RoomState.code,
 		RoomState.roster().size()])
 	print("ENET HOST BODY OK // remote transform RPC received")
+	var client_id := -1
+	for id in RoomState.peers:
+		if int(id) > 1:
+			client_id = int(id)
+			break
+	if client_id < 0:
+		_finish(false, "host could not identify the joined peer")
+		return
+	_remotes.send_player_event(client_id, {"what": "smoke_effect", "value": 37})
+	if not await _wait_for(func() -> bool: return _host_received_interaction):
+		_finish(false, "guest interaction request never reached host authority")
+		return
+	print("ENET HOST AUTHORITY OK // guest interaction request received")
 	# Exercise the same authority RPC RoomState.enter() uses without replacing
 	# this smoke-test scene on the host. The client's changed signal verifies the
 	# synchronized start before its deferred scene transition can remove it.
@@ -94,6 +109,11 @@ func _run_client() -> void:
 		return
 	print("ENET CLIENT OK // room %s // %d signals" % [RoomState.code,
 		RoomState.roster().size()])
+	_remotes.request_interaction({"what": "music_box"})
+	if not await _wait_for(func() -> bool: return _client_received_effect):
+		_finish(false, "host-targeted player effect never reached the guest")
+		return
+	print("ENET CLIENT AUTHORITY OK // targeted effect received")
 	# _on_client_room_changed quits on the host's start RPC. Staying alive here
 	# also gives the reliable callsign registration time to reach the host.
 	await get_tree().create_timer(TIMEOUT_SECONDS).timeout
@@ -130,6 +150,13 @@ func _install_replication(at: Vector3) -> void:
 	_remotes = RemotePlayers.new()
 	_remotes.name = "RemotePlayers"
 	_remotes.local_player = local
+	_remotes.interaction_requested.connect(func(peer_id: int, event: Dictionary) -> void:
+		if peer_id > 1 and String(event.get("what", "")) == "music_box":
+			_host_received_interaction = true)
+	_remotes.player_event.connect(func(event: Dictionary) -> void:
+		if String(event.get("what", "")) == "smoke_effect" \
+				and int(event.get("value", 0)) == 37:
+			_client_received_effect = true)
 	add_child(_remotes)
 
 

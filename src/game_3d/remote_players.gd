@@ -231,11 +231,27 @@ func simulates() -> bool:
 	return not RoomState.online or RoomState.is_host
 
 
+## Most recent targeting packet for one specific owner. Used only by the host
+## to validate an interaction request and apply its result to the same runner.
+func state_for_peer(peer_id: int, local_target: Dictionary, depth: int) -> Dictionary:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if peer_id == local_id:
+		return local_target
+	var state: Dictionary = _states.get(peer_id, {})
+	if state.is_empty() or int(state.get("depth", -1)) != depth:
+		return {}
+	if Time.get_ticks_usec() - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
+		return {}
+	return state.duplicate(true)
+
+
 ## Durable shared-world events are relayed by the host. A guest keeps the local
 ## interaction responsive, submits the fact to peer 1, and receives the same
 ## idempotent event back with every other guest.
 signal world_event(event: Dictionary)
+signal world_event_requested(peer_id: int, event: Dictionary)
 signal world_snapshot(state: Dictionary)
+signal interaction_requested(peer_id: int, event: Dictionary)
 var snapshot_source: Callable
 
 
@@ -243,7 +259,7 @@ func broadcast_event(event: Dictionary) -> void:
 	if not RoomState.online:
 		return
 	if RoomState.is_host:
-		_event.rpc(event)
+		relay_world_event(event)
 	else:
 		_submit_event.rpc_id(1, event)
 
@@ -252,13 +268,56 @@ func broadcast_event(event: Dictionary) -> void:
 func _submit_event(event: Dictionary) -> void:
 	if not RoomState.is_host:
 		return
-	world_event.emit(event)
-	_event.rpc(event)
+	var sender := multiplayer.get_remote_sender_id()
+	if sender > 1:
+		world_event_requested.emit(sender, event)
+
+
+func relay_world_event(event: Dictionary) -> void:
+	if RoomState.online and RoomState.is_host:
+		_event.rpc(_canonical_world_event(event))
 
 
 @rpc("authority", "call_remote", "reliable")
 func _event(event: Dictionary) -> void:
 	world_event.emit(event)
+
+
+## Attach authoritative counters after the host has applied an event. This
+## corrects simultaneous pickup prediction (especially shared coins) instead
+## of letting two guests permanently disagree about who won the same cell.
+func _canonical_world_event(event: Dictionary) -> Dictionary:
+	var canonical := event.duplicate(true)
+	canonical["relays"] = GameState.relays_collected
+	canonical["relays_sabotaged"] = GameState.relays_sabotaged
+	canonical["coins"] = GameState.coins
+	canonical["score"] = GameState.score
+	canonical["depth"] = GameState.depth
+	return canonical
+
+
+## Guest-owned input which needs host-owned hunter state. The request names an
+## intent only; main_3d validates range/state and decides the actual result.
+func request_interaction(event: Dictionary) -> void:
+	if not RoomState.online or RoomState.is_host:
+		interaction_requested.emit(multiplayer.get_unique_id() if RoomState.online else 1,
+			event)
+	else:
+		_request_interaction.rpc_id(1, event)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_interaction(event: Dictionary) -> void:
+	if not RoomState.is_host:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	var what := String(event.get("what", ""))
+	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
+			"vent_used", "zephyra_trade"].has(what):
+		return
+	var accepted := event.duplicate(true)
+	accepted["peer_id"] = sender
+	interaction_requested.emit(sender, accepted)
 
 
 func _greet(id: int) -> void:

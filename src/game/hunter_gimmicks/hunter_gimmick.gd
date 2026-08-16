@@ -84,6 +84,18 @@ func immune_to_capture() -> bool:
 	return false
 
 
+## Small presentation/interaction state which a non-authoritative peer needs
+## in addition to the shared HunterBrain fields. Timers and AI decisions stay
+## host-only; subclasses expose only values a guest must render or consult
+## while resolving its own input (Ceryth's riddle, Opalie's guard, etc.).
+func network_state() -> Dictionary:
+	return {}
+
+
+func apply_network_state(_state: Dictionary) -> void:
+	pass
+
+
 ## The one place a hunter id maps to her gimmick instance. Returns null for
 ## any id with no behavior-changing gimmick (tuning-only hunters like
 ## Dovelle, and every not-yet-ported id) — HunterBrain treats null as "skip

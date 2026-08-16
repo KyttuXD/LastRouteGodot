@@ -60,6 +60,27 @@ func hidden_from_view() -> bool:
 	return not _active_in_vent
 
 
+func network_state() -> Dictionary:
+	return {"active_in_vent": _active_in_vent, "speed_scale": _speed_scale}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	_active_in_vent = bool(state.get("active_in_vent", _active_in_vent))
+	_speed_scale = float(state.get("speed_scale", _speed_scale))
+
+
+## A guest owns its own vent traversal, but the host owns Verrine. This is the
+## one hunter-side consequence of a remote vent entry which cannot be inferred
+## from the next movement packet: she jumps two stops ahead immediately.
+func remote_vent_entered(vent_id: String, brain: HunterBrain,
+		generator: FacilityGenerator) -> void:
+	var index := _index_of(generator.vents, vent_id)
+	if index < 0 or generator.vents.is_empty():
+		return
+	var threat: Dictionary = generator.vents[(index + 2) % generator.vents.size()]
+	brain.position = Vector2(float(threat["x"]) + 0.5, float(threat["y"]) + 0.5)
+
+
 ## Entry/transit/exit through the network. `vent_id` is whichever grate the
 ## player just pressed [E] at -- not necessarily the one they entered
 ## through, since walking the network is a chain of hops through whichever

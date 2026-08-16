@@ -43,6 +43,9 @@ var _hunter_report: Array = []
 ## each peer hears danger relative to its own body and camera orientation.
 var _audio_hunter_active := {}
 var _haelith_step_elapsed := 0.0
+const REMOTE_METER_EFFECT_INTERVAL := 0.1
+var _remote_meter_effects := {}
+var _remote_meter_effect_elapsed := 0.0
 
 
 func _ready() -> void:
@@ -79,9 +82,11 @@ func _ready() -> void:
 	_remotes.local_player = player
 	_remotes.hunters_received.connect(_apply_hunters)
 	_remotes.world_event.connect(_apply_world_event)
+	_remotes.world_event_requested.connect(_apply_world_request)
 	_remotes.world_snapshot.connect(_apply_world_snapshot)
 	_remotes.player_event.connect(_apply_player_event)
 	_remotes.hunter_event.connect(_apply_hunter_event)
+	_remotes.interaction_requested.connect(_apply_interaction_request)
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
 	facility_view.world_changed.connect(_on_world_changed)
@@ -115,6 +120,7 @@ func _process(delta: float) -> void:
 			_update_gameplay(delta)
 	else:
 		_update_gameplay(delta)
+	_flush_remote_meter_effects(delta)
 
 	if _remotes != null:
 		if _remotes.simulates():
@@ -171,6 +177,7 @@ func _update_gameplay(delta: float) -> void:
 		var target := _target_with_runtime(selected)
 		var captured: bool = view.brain.update(delta, generator, target,
 			GameState.depth, GameState.relays_collected)
+		_collect_remote_meter_effects(target)
 		view.sync_from_brain()
 		# Anything a gimmick did to the floor. Only the host reaches here, which
 		# is what makes it safe to broadcast without a second authority check.
@@ -284,9 +291,8 @@ func _local_hunter_target() -> Dictionary:
 
 
 ## RPC dictionaries cannot contain RefCounted objects. Remote meter values are
-## reconstructed into the same shape hunter gimmicks expect. Mutations to this
-## copy are intentionally not authoritative for the guest yet, but every
-## read-only temperature/exposure rule remains safe and deterministic.
+## reconstructed into the same shape hunter gimmicks expect; a baseline lets
+## us turn host-side mutations of that copy into targeted owner events.
 func _target_with_runtime(source: Dictionary) -> Dictionary:
 	var target := source.duplicate(true)
 	if not target.has("meters"):
@@ -299,9 +305,69 @@ func _target_with_runtime(source: Dictionary) -> Dictionary:
 		meters.overheating = meters.temperature >= GameConfig.TEMPERATURE_OVERHEAT
 		meters.freezing = meters.temperature <= GameConfig.TEMPERATURE_FREEZE
 		target["meters"] = meters
+		target["_meter_baseline"] = {
+			"exposure": meters.exposure,
+			"noise_meter": meters.noise_meter,
+			"temperature": meters.temperature,
+			"heat_locked": meters.heat_locked,
+		}
 	target["heater_unfrozen"] = _heater_state() != RouteInteractable3D.HeaterState.FROZEN
 	target["heater_powered"] = _heater_state() == RouteInteractable3D.HeaterState.POWERED
 	return target
+
+
+## Collect changes a host-owned gimmick made to a remote runner's temporary
+## meter copy. Effects are accumulated and sent at 10 Hz so Glyra's continuous
+## noise does not become sixty reliable RPCs per second.
+func _collect_remote_meter_effects(target: Dictionary) -> void:
+	if not RoomState.online or not RoomState.is_host or not target.has("_meter_baseline"):
+		return
+	var peer_id := int(target.get("peer_id", -1))
+	if peer_id <= 1:
+		return
+	var meters := target.get("meters") as PlayerMeters
+	if meters == null:
+		return
+	var baseline: Dictionary = target["_meter_baseline"]
+	var exposure_add := meters.exposure - float(baseline.get("exposure", meters.exposure))
+	var noise_add := meters.pending_noise_input()
+	var noise_reclaim := maxf(0.0,
+		float(baseline.get("noise_meter", meters.noise_meter)) - meters.noise_meter)
+	var temperature_add := meters.temperature - float(
+		baseline.get("temperature", meters.temperature))
+	var heat_lock := meters.heat_locked and not bool(baseline.get("heat_locked", false))
+	if is_zero_approx(exposure_add) and is_zero_approx(noise_add) \
+			and is_zero_approx(noise_reclaim) and is_zero_approx(temperature_add) \
+			and not heat_lock:
+		return
+	var effect: Dictionary = _remote_meter_effects.get(peer_id, {
+		"exposure_add": 0.0,
+		"noise_add": 0.0,
+		"noise_reclaim": 0.0,
+		"temperature_add": 0.0,
+		"heat_lock": false,
+	})
+	effect["exposure_add"] += exposure_add
+	effect["noise_add"] += noise_add
+	effect["noise_reclaim"] += noise_reclaim
+	effect["temperature_add"] += temperature_add
+	effect["heat_lock"] = bool(effect["heat_lock"]) or heat_lock
+	_remote_meter_effects[peer_id] = effect
+
+
+func _flush_remote_meter_effects(delta: float, force: bool = false) -> void:
+	if _remote_meter_effects.is_empty():
+		_remote_meter_effect_elapsed = 0.0
+		return
+	_remote_meter_effect_elapsed += delta
+	if not force and _remote_meter_effect_elapsed < REMOTE_METER_EFFECT_INTERVAL:
+		return
+	_remote_meter_effect_elapsed = 0.0
+	for peer_id in _remote_meter_effects:
+		var effect: Dictionary = _remote_meter_effects[peer_id]
+		effect["what"] = "meter_effect"
+		_remotes.send_player_event(int(peer_id), effect)
+	_remote_meter_effects.clear()
 
 
 func _collect_hunter_report() -> void:
@@ -321,6 +387,8 @@ func _collect_hunter_report() -> void:
 			"state": int(view.brain.state),
 			"disguise": disguise,
 			"wake": wake,
+			"gimmick": view.brain.gimmick.network_state()
+				if view.brain.gimmick != null else {},
 		})
 
 
@@ -338,6 +406,9 @@ func _guardian_blocking(target: RouteInteractable3D) -> String:
 		if not gimmick.call("blocks", at):
 			continue
 		var name := String(HunterRoster.get_identity(view.brain.hunter_id)["display_name"])
+		if RoomState.online and not RoomState.is_host:
+			_remotes.request_interaction({"what": "guardian_ping",
+				"cell": target.source_cell})
 		for ally in hunter_views:
 			if not ally.brain.active:
 				continue
@@ -377,7 +448,10 @@ func _map_marks(include_inactive: bool = false) -> Array:
 func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 	for view in hunter_views:
 		if view.brain.gimmick is CerythGimmick:
-			return view.brain.gimmick.resolve_entry(cell, flashlight_active)
+			var result: Dictionary = view.brain.gimmick.resolve_entry(cell, flashlight_active)
+			if RoomState.online and not RoomState.is_host and bool(result.get("cleared", false)):
+				_remotes.request_interaction({"what": "ceryth_answer", "cell": cell})
+			return result
 	return {}
 
 
@@ -387,6 +461,10 @@ func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 ## sits inert as a special-like fixture; if there is no Glyra on this floor
 ## at all, there is nothing to wind.
 func _wind_music_box() -> String:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "music_box",
+			"cell": facility_view.music_box.source_cell if facility_view.music_box else Vector2i(-1, -1)})
+		return "MUSIC BOX // SIGNAL SENT"
 	for view in hunter_views:
 		if view.brain.gimmick is GlyraGimmick:
 			view.brain.gimmick.wind(player.meters)
@@ -401,7 +479,13 @@ func _wind_music_box() -> String:
 func _use_vent(vent_id: String) -> String:
 	for view in hunter_views:
 		if view.brain.gimmick is VerrineGimmick:
-			return view.brain.gimmick.use_vent(vent_id, view.brain, player, facility_view.generator)
+			var was_inside := player.in_vent
+			var message: String = String(view.brain.gimmick.use_vent(
+				vent_id, view.brain, player, facility_view.generator))
+			if RoomState.online and not RoomState.is_host:
+				_remotes.request_interaction({"what": "vent_used", "vent_id": vent_id,
+					"entered": not was_inside and player.in_vent})
+			return message
 	return "The grate won't budge."
 
 
@@ -414,7 +498,16 @@ func _use_shop(action: String) -> String:
 		var gimmick: ZephyraGimmick = view.brain.gimmick
 		if action == "open":
 			return gimmick.open_shop(player.grid_position(), view.brain.position, player.facing)
-		return gimmick.choose_offer(int(action), player, facility_view)
+		if not gimmick.shop_open:
+			return ""
+		gimmick.shop_open = false
+		var offer_index := int(action)
+		if RoomState.online and not RoomState.is_host:
+			_remotes.request_interaction({"what": "zephyra_trade", "offer": offer_index})
+			return "ZYTTU // VERIFYING TRADE..."
+		return _perform_zephyra_trade(
+			multiplayer.get_unique_id() if RoomState.online else 1,
+			offer_index, _local_hunter_target(), gimmick)
 	return ""
 
 
@@ -430,6 +523,126 @@ func _shop_prompt() -> String:
 		if gimmick.in_range(player.grid_position(), view.brain.position, player.facing):
 			return "OPEN ZYTTU COIN EXCHANGE"
 	return ""
+
+
+## Resolve guest-owned input against host-owned hunter state. Movement itself
+## remains owner-authoritative; every lasting hunter/economy consequence is
+## validated and committed here by the host.
+func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
+	if not _remotes.simulates():
+		return
+	var source := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
+	if source.is_empty():
+		return
+	match String(event.get("what", "")):
+		"music_box":
+			if facility_view.music_box == null \
+					or not _target_can_interact(source, facility_view.music_box.source_cell):
+				return
+			for view in hunter_views:
+				if not view.brain.gimmick is GlyraGimmick:
+					continue
+				var target := _target_with_runtime(source)
+				view.brain.gimmick.wind(target.get("meters"))
+				_collect_remote_meter_effects(target)
+				_flush_remote_meter_effects(0.0, true)
+				_remotes.send_player_event(peer_id, {"what": "message",
+					"message": "Music box wound. The room settles."})
+				return
+		"ceryth_answer":
+			var cell = event.get("cell")
+			if not cell is Vector2i or not _target_can_interact(source, cell):
+				return
+			for view in hunter_views:
+				if not view.brain.gimmick is CerythGimmick:
+					continue
+				var lit := bool(source.get("flashlight_on", false)) \
+					and float(source.get("lamp_charge", 0.0)) > 0.0
+				var result: Dictionary = view.brain.gimmick.resolve_entry(cell, lit)
+				if not result.is_empty():
+					_remotes.send_player_event(peer_id, {"what": "message",
+						"message": String(result.get("message", ""))})
+				return
+		"guardian_ping":
+			var cell = event.get("cell")
+			if not cell is Vector2i or not _target_can_interact(source, cell):
+				return
+			var at := Vector2(cell) + Vector2(0.5, 0.5)
+			for view in hunter_views:
+				if not view.brain.active or not view.brain.gimmick is OpalieGimmick \
+						or not view.brain.gimmick.blocks(at):
+					continue
+				for ally in hunter_views:
+					if ally.brain.active:
+						ally.brain.enter_search_from(source["position"], 1.8)
+				return
+		"vent_used":
+			if not bool(event.get("entered", false)):
+				return
+			var vent_id := String(event.get("vent_id", ""))
+			for view in hunter_views:
+				if view.brain.gimmick is VerrineGimmick:
+					view.brain.gimmick.remote_vent_entered(
+						vent_id, view.brain, facility_view.generator)
+					view.sync_from_brain()
+					return
+		"zephyra_trade":
+			for view in hunter_views:
+				if view.brain.active and view.brain.gimmick is ZephyraGimmick:
+					_perform_zephyra_trade(peer_id, int(event.get("offer", 0)),
+						source, view.brain.gimmick, view.brain.position)
+					return
+
+
+func _target_can_interact(target: Dictionary, cell: Vector2i) -> bool:
+	var position: Vector2 = target.get("position", Vector2(-9999, -9999))
+	var offset := Vector2(cell) + Vector2(0.5, 0.5) - position
+	if offset.length() > GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE:
+		return false
+	if offset.length() <= 0.001:
+		return true
+	var facing: Vector2 = target.get("facing", Vector2.ZERO)
+	return offset.normalized().dot(facing) >= cos(GameConfig.INTERACTION_FACING_HALF_ANGLE)
+
+
+func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
+		gimmick: ZephyraGimmick, merchant_position: Vector2 = Vector2.INF) -> String:
+	if merchant_position != Vector2.INF and not gimmick.in_range(
+			target.get("position", Vector2.ZERO), merchant_position,
+			target.get("facing", Vector2.ZERO)):
+		var rejected := "ZYTTU // TRADE REJECTED // MOVE CLOSER"
+		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
+			_remotes.send_player_event(peer_id, {"what": "message", "message": rejected})
+		return rejected
+	var offer_id := gimmick.offer_key(offer_index)
+	var label := gimmick.offer_label(offer_index)
+	var cost := gimmick.offer_cost(offer_index)
+	if offer_id.is_empty():
+		return ""
+	if GameState.coins < cost:
+		var refused := "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
+		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
+			_remotes.send_player_event(peer_id, {"what": "message", "message": refused})
+		return refused
+
+	GameState.coins -= cost
+	var personal_offer := offer_id
+	if offer_id == "repair":
+		var relay := facility_view.find_sabotaged_relay()
+		if relay:
+			relay.set_sabotaged(false)
+			personal_offer = ""
+	var message := "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [label, cost]
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if peer_id == local_id:
+		if not personal_offer.is_empty():
+			gimmick.apply_personal_offer(personal_offer, player)
+	else:
+		_remotes.send_player_event(peer_id, {"what": "zephyra_trade",
+			"offer": personal_offer, "coins": GameState.coins, "message": message})
+	if RoomState.online:
+		_remotes.broadcast_event({"what": "coins", "coins": GameState.coins})
+	return message
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:
@@ -665,6 +878,10 @@ func _apply_hunters(data: Array) -> void:
 		if view.brain.gimmick is NyxieGimmick:
 			view.brain.gimmick.wake_mode = clampi(int(entry.get("wake", 0)),
 				NyxieGimmick.Wake.NONE, NyxieGimmick.Wake.EMPTY)
+		if view.brain.gimmick != null:
+			var gimmick_state = entry.get("gimmick", {})
+			if gimmick_state is Dictionary:
+				view.brain.gimmick.apply_network_state(gimmick_state)
 		view.sync_from_brain()
 
 
@@ -742,6 +959,31 @@ func _apply_player_event(event: Dictionary) -> void:
 			var eject_note := String(event.get("message", ""))
 			if not eject_note.is_empty():
 				hud.show_message(eject_note)
+		"meter_effect":
+			player.meters.add_exposure(float(event.get("exposure_add", 0.0)))
+			player.meters.reclaim_noise(float(event.get("noise_reclaim", 0.0)))
+			player.meters.add_noise(float(event.get("noise_add", 0.0)))
+			player.meters.temperature = clampf(player.meters.temperature
+				+ float(event.get("temperature_add", 0.0)), 0.0, 100.0)
+			if bool(event.get("heat_lock", false)):
+				player.meters.heat_locked = true
+				player.meters.temperature = maxf(player.meters.temperature,
+					GameConfig.TEMPERATURE_OVERHEAT)
+		"zephyra_trade":
+			GameState.coins = int(event.get("coins", GameState.coins))
+			var offer_id := String(event.get("offer", ""))
+			if not offer_id.is_empty():
+				for view in hunter_views:
+					if view.brain.gimmick is ZephyraGimmick:
+						view.brain.gimmick.apply_personal_offer(offer_id, player)
+						break
+			var trade_note := String(event.get("message", ""))
+			if not trade_note.is_empty():
+				hud.show_message(trade_note)
+		"message":
+			var note := String(event.get("message", ""))
+			if not note.is_empty():
+				hud.show_message(note)
 
 
 ## Guest escape/respawn outcomes return to the host so its simulation can
@@ -774,6 +1016,55 @@ func _on_world_changed(event: Dictionary) -> void:
 		_remotes.broadcast_event(event)
 
 
+## Validate a guest's predicted world interaction before it becomes durable.
+## The sender id and last known position come from ENet/host state, never from
+## the request dictionary. Accepted events are applied once on the host and
+## then relayed with canonical counters to every guest.
+func _apply_world_request(peer_id: int, event: Dictionary) -> void:
+	if not _remotes.simulates():
+		return
+	var target := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
+	if target.is_empty():
+		return
+	var accepted := false
+	match String(event.get("what", "")):
+		"pickup":
+			var cell = event.get("cell")
+			var kind := int(event.get("kind", -1))
+			if cell is Vector2i and kind in [RouteInteractable3D.Kind.RELAY,
+					RouteInteractable3D.Kind.BATTERY, RouteInteractable3D.Kind.COIN] \
+					and _target_can_interact(target, cell):
+				var item := facility_view._at(cell, kind)
+				accepted = item != null and not item.completed
+		"heater":
+			if facility_view.heater_station != null and _target_can_interact(
+					target, facility_view.heater_station.source_cell):
+				var current := int(facility_view.heater_station.heater_state)
+				var expected := RouteInteractable3D.HeaterState.UNFROZEN \
+					if current == RouteInteractable3D.HeaterState.POWERED else current + 1
+				accepted = int(event.get("state", -1)) == expected
+		"sabotage":
+			var cell = event.get("cell")
+			if cell is Vector2i and not bool(event.get("sabotaged", true)) \
+					and _target_can_interact(target, cell):
+				var relay := facility_view._at(cell, RouteInteractable3D.Kind.RELAY)
+				accepted = relay != null and relay.sabotaged
+		"descend":
+			accepted = _target_can_interact(target, facility_view.generator.exit_cell) \
+				and GameState.relays_collected >= GameState.relay_target \
+				and GameState.relays_sabotaged == 0 \
+				and int(event.get("depth", -1)) == GameState.depth + 1
+	if not accepted:
+		# The next canonical snapshot/event corrects durable counters. Personal
+		# battery prediction is intentionally not rolled back; only one runner can
+		# win the shared cell, and the losing edge is a sub-frame race.
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "INTERACTION REJECTED // WORLD STATE CHANGED"})
+		return
+	_apply_world_event(event)
+	_remotes.relay_world_event(event)
+
+
 ## The same thing, arriving from someone else.
 ##
 ## Not gated on simulates(): a pickup is not a hunter-simulation step. Guests
@@ -795,8 +1086,20 @@ func _apply_world_event(event: Dictionary) -> void:
 			# One station, one building: the cold it holds off is held off for
 			# whoever is standing in it, not just whoever threw the switch.
 			player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
+		"coins":
+			pass
 		_:
 			facility_view.apply_event(event)
+	# Host-attached canonical counters correct optimistic guest interactions
+	# and make every durable total converge even when two peers race one cell.
+	if event.has("relays"):
+		GameState.relays_collected = int(event["relays"])
+	if event.has("relays_sabotaged"):
+		GameState.relays_sabotaged = int(event["relays_sabotaged"])
+	if event.has("coins"):
+		GameState.coins = int(event["coins"])
+	if event.has("score"):
+		GameState.score = int(event["score"])
 
 
 func _play_world_audio(event: Dictionary) -> void:
@@ -809,9 +1112,14 @@ func _play_world_audio(event: Dictionary) -> void:
 
 ## What the host tells a peer that joined after the floor started.
 func _build_snapshot() -> Dictionary:
+	_collect_hunter_report()
 	var state := facility_view.shared_state()
 	state["depth"] = GameState.depth
 	state["relays"] = GameState.relays_collected
+	state["relays_sabotaged"] = GameState.relays_sabotaged
+	state["coins"] = GameState.coins
+	state["score"] = GameState.score
+	state["hunters"] = _hunter_report.duplicate(true)
 	return state
 
 
@@ -828,6 +1136,13 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 	# adopt_state re-counts the relays it applies, so this is a correction for
 	# anything the count could still miss rather than the source of it.
 	GameState.relays_collected = maxi(GameState.relays_collected, int(state.get("relays", 0)))
+	GameState.relays_sabotaged = int(state.get("relays_sabotaged",
+		GameState.relays_sabotaged))
+	GameState.coins = int(state.get("coins", GameState.coins))
+	GameState.score = int(state.get("score", GameState.score))
+	var hunters = state.get("hunters", [])
+	if hunters is Array:
+		_apply_hunters(hunters)
 	player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
 	_update_hud()
 
