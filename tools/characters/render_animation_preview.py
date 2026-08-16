@@ -55,11 +55,15 @@ def arguments() -> argparse.Namespace:
     values = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--source-dir", default=CHARACTERS,
+                        help="directory containing mannequin.glb and hunter GLBs")
     parser.add_argument("--models", default="Player,Aki")
     parser.add_argument("--clips", default="idle,walk,sprint,chase,crouch")
     parser.add_argument("--view", choices=tuple(VIEW_ROTATIONS), default="threequarter")
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--seconds-per-clip", type=float, default=1.2)
+    parser.add_argument("--one-loop", action="store_true",
+                        help="render exactly one imported action duration per clip")
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=600)
     return parser.parse_args(values)
@@ -123,17 +127,25 @@ def make_text(text: str, name: str, x: float, z: float, size: float,
     return label
 
 
-def model_path(title: str) -> str:
+def model_path(title: str, source_dir: str) -> str:
     stem = "mannequin" if title.lower() == "player" else title.lower()
-    path = os.path.join(CHARACTERS, f"{stem}.glb")
+    path = os.path.join(os.path.abspath(source_dir), f"{stem}.glb")
     if not os.path.isfile(path):
         raise SystemExit(f"No shipped character named {title}")
     return path
 
 
 def normalized_action_name(name: str) -> str:
-    base, separator, suffix = name.rpartition(".")
-    return base.lower() if separator and suffix.isdigit() else name.lower()
+    normalized = name.lower()
+    base, separator, suffix = normalized.rpartition(".")
+    if separator and suffix.isdigit():
+        normalized = base
+    # Blender keeps the glTF ``-loop`` suffix that Godot recognizes and
+    # strips. Without normalizing it here, a request for ``walk`` falls back
+    # to substring matching and can select ``Catwalk-loop`` first.
+    if normalized.endswith("-loop"):
+        normalized = normalized[:-5]
+    return normalized
 
 
 def find_action(character: Character, clip: str) -> bpy.types.Action:
@@ -147,10 +159,11 @@ def find_action(character: Character, clip: str) -> bpy.types.Action:
     return action
 
 
-def import_character(title: str, x: float, ground: float, view: str) -> Character:
+def import_character(title: str, x: float, ground: float, view: str,
+                     source_dir: str) -> Character:
     old_objects = set(bpy.data.objects)
     old_actions = set(bpy.data.actions)
-    bpy.ops.import_scene.gltf(filepath=model_path(title), import_shading="NORMALS")
+    bpy.ops.import_scene.gltf(filepath=model_path(title, source_dir), import_shading="NORMALS")
     objects = [obj for obj in bpy.data.objects if obj not in old_objects]
     actions = [action for action in bpy.data.actions if action not in old_actions]
     character = Character(title, objects, actions)
@@ -246,7 +259,7 @@ def main() -> None:
     for index, title in enumerate(titles):
         x = (index + 0.5) * tile_width - total_width / 2
         make_card(x, tile_width - 0.06, card)
-        characters.append(import_character(title, x, ground, args.view))
+        characters.append(import_character(title, x, ground, args.view, args.source_dir))
         make_text(title, f"{title}Label", x, -1.28, 0.18, cyan)
     clip_label = make_text("", "CurrentClipLabel", 0, 1.28, 0.20, amber)
 
@@ -277,12 +290,14 @@ def main() -> None:
     for name in os.listdir(output_dir):
         if name.startswith("frame_") and name.endswith(".png"):
             os.remove(os.path.join(output_dir, name))
-    frames_per_clip = max(1, round(args.fps * args.seconds_per_clip))
+    default_frames_per_clip = max(1, round(args.fps * args.seconds_per_clip))
     source_fps = float(scene.render.fps)
     output_index = 0
     for clip in clips:
         action = find_action(characters[0], clip)
         duration = max(1.0, action.frame_range[1] - action.frame_range[0]) / source_fps
+        frames_per_clip = (max(1, round(args.fps * duration))
+                           if args.one_loop else default_frames_per_clip)
         label = CLIP_LABELS.get(clip, clip.upper())
         clip_label.data.body = f"{label}  //  {duration:.1f}s LOOP"
         for local_frame in range(frames_per_clip):

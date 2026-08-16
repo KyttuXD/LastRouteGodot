@@ -16,6 +16,13 @@ extends RefCounted
 const HEIGHT := 1.7
 const RADIUS := 0.25
 const CLIPS := ["idle", "walk", "sprint", "chase", "crouch"]
+const HUNTER_CLIP_LENGTHS := {
+	"idle": 2.4,
+	"walk": 1.0,
+	"sprint": 2.0 / 3.0,
+	"chase": 0.5,
+	"crouch": 1.0,
+}
 
 var _failures := 0
 
@@ -143,6 +150,10 @@ func _every_hunter_model(host: Node) -> void:
 				var animation := player.get_animation(clip)
 				_expect(animation.length >= 0.1,
 					"%s '%s' is too short to animate" % [file, clip])
+				if file != "player.tscn":
+					_expect(absf(animation.length - HUNTER_CLIP_LENGTHS[clip]) < 0.02,
+						"%s '%s' is %.3f s; expected %.3f s"
+							% [file, clip, animation.length, HUNTER_CLIP_LENGTHS[clip]])
 				_expect(animation.get_track_count() > 0,
 					"%s '%s' contains no tracks" % [file, clip])
 				_expect(animation.loop_mode != Animation.LOOP_NONE,

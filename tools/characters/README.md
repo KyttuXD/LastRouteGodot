@@ -54,6 +54,13 @@ The importer rejects a missing roster entry, invalid embedded PNG, or a model
 without all five gameplay clips. `--only Aki,Kathy` is available while
 iterating. Then make Godot import and pose the real generated scenes:
 
+Hunter locomotion is intentionally post-processed by
+`refine_hunter_animations.py`; the player mannequin is not. Hunters receive a
+2.4-second relaxed idle and a one-second walk. `sprint` and `chase` are exact
+normalized copies of that walk at 0.67 and 0.50 seconds, respectively, so
+faster gameplay never changes their gait or introduces a separate tilted run
+pose. Both reviewed-model and raw-skin rebuild paths apply the same rule.
+
 ```bash
 godot4 --headless --editor --quit --path .
 godot4 --headless --path . res://scenes/validate.tscn -- body
@@ -72,7 +79,8 @@ cadence:
 ```bash
 blender --background --python tools/characters/render_animation_preview.py \
   -- --output-dir /tmp/animation-frames --models Player,Aki \
-  --clips idle,walk,sprint,chase,crouch --view threequarter
+  --clips idle,walk,sprint,chase,crouch --view threequarter \
+  --fps 30 --one-loop
 ```
 
 The command produces labelled PNG frames suitable for a GIF or video encoder.
@@ -157,6 +165,9 @@ These are all mistakes this project has actually made:
 - **Blockbench loop flags survive a clean Godot import.** The glTF exporter
   uses Godot's recognized `-loop` source suffix; Godot strips the suffix back
   to the gameplay clip name and sets the imported animation's loop mode.
+- **A declared loop duration is preserved even when its last authored key is
+  earlier.** The exporter closes the un-keyed tail back to the opening pose;
+  otherwise Godot trims the clip and visibly snaps at the wrap point.
 - **Every rest pose stands on y=0.** The shared crouch clip carries a small
   root lift because its source pelvis translation otherwise pushes every sole
   0.19-0.24 m through the floor. `validate_body.gd` checks rest and posed

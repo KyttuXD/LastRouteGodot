@@ -92,7 +92,8 @@ def _euler_zyx_to_quat(dx, dy, dz):
     return _quat_mul(_quat_mul(qz, qy), qx)
 
 
-def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
+def convert(bb_path, glb_path, collision=True, animations=True, keep=None,
+            invert_animation_rotations=False):
     model = json.load(open(bb_path))
     tex = (model.get("textures") or [None])[0]
     if tex is None or not str(tex.get("source", "")).startswith("data:"):
@@ -244,6 +245,9 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
     gltf_anims = []
     if animations:
         for anim in model.get("animations", []):
+            source_animation_name = str(anim.get("name", "anim"))
+            source_duration = max(float(anim.get("length", 0.0) or 0.0), 0.001)
+            source_loops = anim.get("loop") == "loop"
             channels, samplers = [], []
             for bone_uuid, animator in (anim.get("animators") or {}).items():
                 node_idx = node_for_group.get(bone_uuid)
@@ -270,10 +274,22 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                                 return default
                         times.append(float(kf.get("time", 0.0)))
                         if ch == "rotation":
-                            # Blockbench keys are deltas from rest; glTF replaces.
-                            values += list(_euler_zyx_to_quat(
-                                rest[0] + num("x"), rest[1] + num("y"),
-                                rest[2] + num("z")))
+                            # Blockbench keys are deltas from rest; glTF
+                            # replaces the node rotation. Some imported rigs
+                            # express those deltas in the inverse local-bone
+                            # convention; conjugating only the delta corrects
+                            # their motion without mirroring the rest pose.
+                            if invert_animation_rotations:
+                                rest_quat = _euler_zyx_to_quat(*rest)
+                                delta_quat = _euler_zyx_to_quat(
+                                    num("x"), num("y"), num("z"))
+                                delta_quat = (-delta_quat[0], -delta_quat[1],
+                                              -delta_quat[2], delta_quat[3])
+                                values += list(_quat_mul(rest_quat, delta_quat))
+                            else:
+                                values += list(_euler_zyx_to_quat(
+                                    rest[0] + num("x"), rest[1] + num("y"),
+                                    rest[2] + num("z")))
                         elif ch == "position":
                             # A glTF child translation is local to its parent.
                             # The old exporter wrote the group's absolute BB
@@ -288,6 +304,17 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                             values += [num("x", 1.0), num("y", 1.0), num("z", 1.0)]
                     if not times:
                         continue
+                    # Blockbench loops interpolate through the un-keyed tail
+                    # back to the opening pose. glTF only knows the final key
+                    # time, so omitting that tail trims a nominal 1.0 s walk
+                    # to ~0.92 s (and 0.5 s sprint/chase to ~0.43 s), then
+                    # Godot snaps directly from the final pose to the first.
+                    # Add the opening sample at the declared duration so the
+                    # imported action retains the full, seamless loop.
+                    if source_loops and times[-1] < source_duration - 0.000001:
+                        stride = 4 if ch == "rotation" else 3
+                        times.append(source_duration)
+                        values += values[:stride]
                     a_in = acc(times, "f", len(times), 5126, "SCALAR",
                                None, ([min(times)], [max(times)]))
                     atype = "VEC4" if ch == "rotation" else "VEC3"
@@ -301,11 +328,9 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None):
                             "scale": "scale"}[ch]
                     channels.append({"sampler": len(samplers) - 1,
                                      "target": {"node": node_idx, "path": path}})
-            source_animation_name = str(anim.get("name", "anim"))
             if source_animation_name.lower() == "crouch" and channels:
-                duration = max(float(anim.get("length", 0.0) or 0.0), 0.001)
-                a_in = acc([0.0, duration], "f", 2, 5126, "SCALAR",
-                           None, ([0.0], [duration]))
+                a_in = acc([0.0, source_duration], "f", 2, 5126, "SCALAR",
+                           None, ([0.0], [source_duration]))
                 a_out = acc([0.0, CROUCH_GROUND_LIFT, 0.0,
                              0.0, CROUCH_GROUND_LIFT, 0.0],
                             "f", 2, 5126, "VEC3")

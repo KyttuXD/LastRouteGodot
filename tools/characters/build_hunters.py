@@ -60,6 +60,7 @@ def main() -> int:
     from mc_to_hytale import HUNTER_NAMES
     from hytale_anim import attach_animations
     from bbmodel_to_glb import convert as to_glb
+    from refine_hunter_animations import refine_hunter_animations
 
     pairs = clip_sources()
     if not pairs:
@@ -86,10 +87,12 @@ def main() -> int:
             rename=lambda n, p: by_path.get(p, n))
         for anim in model.get("animations", []):
             anim["name"] = CANONICAL.get(anim["name"], anim["name"])
+        refine_hunter_animations(model)
         json.dump(model, open(bb, "w"))
 
         glb = os.path.join(args.outdir, "%s.glb" % name.lower())
-        info = to_glb(bb, glb, collision=False)
+        info = to_glb(bb, glb, collision=False,
+                      invert_animation_rotations=True)
         print("  %-9s %d elements -> %d meshes, %d tris, %d clips"
               % (name, result.get("elements", len(model["elements"])),
                  info["meshes"], info["tris"], info["animations"]))
