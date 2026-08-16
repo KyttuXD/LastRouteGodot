@@ -66,6 +66,19 @@ blender --background --python tools/characters/render_character_gallery.py \
   -- --output /tmp/characters.png --animation idle --view threequarter
 ```
 
+For an animation review sequence, preserving each clip's real authored
+cadence:
+
+```bash
+blender --background --python tools/characters/render_animation_preview.py \
+  -- --output-dir /tmp/animation-frames --models Player,Aki \
+  --clips idle,walk,sprint,chase,crouch --view threequarter
+```
+
+The command produces labelled PNG frames suitable for a GIF or video encoder.
+It accepts any comma-separated roster names, so a character-specific movement
+review does not need a bespoke scene.
+
 ## Building from raw skins (legacy authoring path)
 
 ```bash
