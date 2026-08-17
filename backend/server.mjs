@@ -274,6 +274,21 @@ export function createLastRouteServer({
     }
   }
 
+  function promoteEnetRoomHost(code) {
+    const room = enetRooms.get(code);
+    if (!room) return null;
+    const oldToken = room.token;
+    room.token = randomBytes(24).toString("base64url");
+    room.players = Math.max(1, room.players - 1);
+    room.expiresAt = now() + enetRoomTtlMs;
+    for (const [ticket, proof] of adminTickets) {
+      if (proof.code === code && safeEqual(proof.hostToken, oldToken)) {
+        adminTickets.delete(ticket);
+      }
+    }
+    return { token: room.token };
+  }
+
   function developerRequest(body) {
     if (body?.devToken && devTokens.has(String(body.devToken))) return true;
     if (adminPassword && safeEqual(body?.adminProof, adminPassword)) return true;
@@ -427,6 +442,16 @@ export function createLastRouteServer({
       return json(response, 200, { ok: true, removed: true });
     }
 
+    if (url.pathname === "/api/enet/rooms/release-host") {
+      const code = normalizeEnetCode(body.code);
+      const room = enetRooms.get(code);
+      if (!room) return json(response, 200, { ok: true, migrating: false });
+      if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
+      const migrating = Boolean(enetRelay?.requestHostMigration(code));
+      if (!migrating) enetRooms.delete(code);
+      return json(response, 200, { ok: true, migrating });
+    }
+
     if (url.pathname === "/api/enet/admin-tickets/issue") {
       const code = normalizeEnetCode(body.code);
       const room = code ? enetRooms.get(code) : null;
@@ -528,6 +553,7 @@ export function createLastRouteServer({
         pruneEnetRooms();
         return enetRooms.get(code) || null;
       },
+      promoteRoomHost: promoteEnetRoomHost,
       now,
       logger,
     });

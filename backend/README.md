@@ -45,6 +45,13 @@ npm start
 node index.js
 ```
 
+The startup file automatically loads `backend/.env`, matching
+`/home/container/backend/.env` on Pterodactyl. It also accepts a root `.env`
+as a local fallback. Variables configured directly in the panel or process
+environment take precedence, and both `.env` locations are ignored by Git.
+Copy `backend/.env.example` to `backend/.env`, replace its placeholder secrets,
+and restart the Node process after making changes.
+
 Pterodactyl normally injects `SERVER_PORT`; common proxy setups inject `PORT`.
 The server accepts either, with `PORT` taking precedence. Set a persistent
 volume for `LASTROUTE_DATA_DIR` so account data survives reinstall/redeploy.

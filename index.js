@@ -1,15 +1,19 @@
-// Pterodactyl-friendly entry point. The backend remains implemented as ES
-// modules in server.mjs; package.json's "type": "module" lets a standard
-// Node.js egg launch this file directly with `node index.js`.
-import { startLastRouteServerFromEnvironment } from "./backend/server.mjs";
-import {
-  githubReleaseSyncEnabled,
-  syncGithubReleaseFromEnvironment,
-} from "./backend/github_release_sync.mjs";
-import {
-  checkGithubSourceFromEnvironment,
-  githubSourceWatchEnabled,
-} from "./backend/github_source_watch.mjs";
+// Pterodactyl-friendly entry point. Load the deployment's backend/.env before
+// importing modules that read process.env. A root .env remains a convenient
+// local fallback, while real process/Pterodactyl variables always win.
+import { loadEnvironmentFile } from "./backend/env_file.mjs";
+
+await loadEnvironmentFile(new URL("./backend/.env", import.meta.url));
+await loadEnvironmentFile(new URL("./.env", import.meta.url));
+
+const [serverModule, releaseSyncModule, sourceWatchModule] = await Promise.all([
+  import("./backend/server.mjs"),
+  import("./backend/github_release_sync.mjs"),
+  import("./backend/github_source_watch.mjs"),
+]);
+const { startLastRouteServerFromEnvironment } = serverModule;
+const { githubReleaseSyncEnabled, syncGithubReleaseFromEnvironment } = releaseSyncModule;
+const { checkGithubSourceFromEnvironment, githubSourceWatchEnabled } = sourceWatchModule;
 
 let syncRunning = false;
 async function syncUpdates() {

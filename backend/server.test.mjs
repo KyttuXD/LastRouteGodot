@@ -136,6 +136,36 @@ test("rooms expire without a heartbeat", async () => {
   }
 });
 
+test("a host can securely release a room for relay migration", async () => {
+  const app = await fixture();
+  try {
+    let response = await fetch(`${app.url}/api/enet/rooms/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "M2GRT", port: 8421, players: 2 }),
+    });
+    const registration = await response.json();
+    response = await fetch(`${app.url}/api/enet/rooms/release-host`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "M2GRT", token: "forged" }),
+    });
+    assert.equal(response.status, 403);
+    response = await fetch(`${app.url}/api/enet/rooms/release-host`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "M2GRT", token: registration.token }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).migrating, false,
+      "a server without a live relay cannot promise migration");
+    response = await fetch(`${app.url}/api/enet/rooms/M2GRT`);
+    assert.equal(response.status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
 async function post(url, path, body) {
   const response = await fetch(`${url}${path}`, {
     method: "POST",

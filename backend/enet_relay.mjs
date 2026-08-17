@@ -16,6 +16,8 @@ export const RelayFrame = Object.freeze({
   GUEST_DATA: 5,
   HOST_DATA: 6,
   ERROR: 7,
+  HOST_PROMOTE: 8,
+  HOST_MIGRATING: 9,
 });
 
 const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
@@ -71,6 +73,7 @@ function newSessionId(sessions) {
 
 export function createEnetRelay({
   roomByCode,
+  promoteRoomHost = null,
   now = Date.now,
   logger = console,
   hostTtlMs = 15_000,
@@ -87,6 +90,7 @@ export function createEnetRelay({
   const guestSessions = new Map();
   const guestEndpoints = new Map();
   const guestAllocationRates = new Map();
+  const migrations = new Map();
   let listening = false;
   let relayPort = 0;
   let lastError = "";
@@ -123,15 +127,64 @@ export function createEnetRelay({
 
   function removeHost(code) {
     hosts.delete(code);
+    migrations.delete(code);
     for (const [sessionId, session] of sessions) {
       if (session.code === code) removeSession(sessionId);
     }
   }
 
+  function migrationCandidates(code) {
+    const timestamp = now();
+    return [...sessions.entries()]
+      .filter(([, session]) => session.code === code
+        && timestamp - session.lastSeen <= sessionTtlMs)
+      .sort((left, right) => left[1].joinedAt - right[1].joinedAt
+        || left[0] - right[0]);
+  }
+
+  function announceMigration(code, migration) {
+    for (const [sessionId, session] of sessions) {
+      if (session.code !== code) continue;
+      if (sessionId === migration.sessionId) {
+        send(RelayFrame.HOST_PROMOTE, sessionId, code,
+          Buffer.from(migration.token), session.guest);
+      } else {
+        send(RelayFrame.HOST_MIGRATING, sessionId, code,
+          Buffer.alloc(0), session.guest);
+      }
+    }
+    migration.lastAnnounced = now();
+  }
+
+  function beginHostMigration(code) {
+    if (migrations.has(code)) {
+      announceMigration(code, migrations.get(code));
+      return true;
+    }
+    const candidates = migrationCandidates(code);
+    if (!candidates.length || typeof promoteRoomHost !== "function") {
+      removeHost(code);
+      return false;
+    }
+    const promoted = promoteRoomHost(code);
+    const token = String(promoted?.token || "");
+    if (!token) {
+      removeHost(code);
+      return false;
+    }
+    const [sessionId] = candidates[0];
+    const migration = { sessionId, token, startedAt: now(), lastAnnounced: 0 };
+    hosts.delete(code);
+    migrations.set(code, migration);
+    announceMigration(code, migration);
+    return true;
+  }
+
   function prune() {
     const timestamp = now();
     for (const [code, host] of hosts) {
-      if (!roomByCode(code) || timestamp - host.lastSeen > hostTtlMs) removeHost(code);
+      if (!roomByCode(code)) removeHost(code);
+      else if (timestamp - host.lastSeen > hostTtlMs) beginHostMigration(code);
     }
     for (const [sessionId, session] of sessions) {
       if (!roomByCode(session.code) || timestamp - session.lastSeen > sessionTtlMs) {
@@ -140,6 +193,20 @@ export function createEnetRelay({
     }
     for (const [key, rate] of guestAllocationRates) {
       if (timestamp >= rate.resetAt) guestAllocationRates.delete(key);
+    }
+    for (const [code, migration] of migrations) {
+      if (!roomByCode(code)) {
+        removeHost(code);
+        continue;
+      }
+      const candidate = sessions.get(migration.sessionId);
+      if (!candidate || candidate.code !== code
+          || timestamp - candidate.lastSeen > sessionTtlMs) {
+        migrations.delete(code);
+        beginHostMigration(code);
+      } else if (timestamp - migration.lastAnnounced >= 2_000) {
+        announceMigration(code, migration);
+      }
     }
   }
 
@@ -155,6 +222,17 @@ export function createEnetRelay({
         return;
       }
       hosts.set(frame.code, { ...endpoint, lastSeen: now() });
+      const migration = migrations.get(frame.code);
+      if (migration) {
+        removeSession(migration.sessionId);
+        migrations.delete(frame.code);
+        for (const session of sessions.values()) {
+          if (session.code === frame.code) {
+            send(RelayFrame.HOST_MIGRATING, 0, frame.code,
+              Buffer.alloc(0), session.guest);
+          }
+        }
+      }
       send(RelayFrame.HOST_ACK, 0, frame.code, Buffer.alloc(0), endpoint);
       return;
     }
@@ -196,6 +274,7 @@ export function createEnetRelay({
           guestKey,
           endpointKey: endpointSessionKey,
           lastSeen: now(),
+          joinedAt: now(),
         });
       } else {
         const session = sessions.get(sessionId);
@@ -244,6 +323,7 @@ export function createEnetRelay({
     guestSessions.clear();
     guestEndpoints.clear();
     guestAllocationRates.clear();
+    migrations.clear();
   });
 
   const pruneTimer = setInterval(prune, Math.max(1000, Math.min(hostTtlMs, sessionTtlMs) / 3));
@@ -258,5 +338,7 @@ export function createEnetRelay({
     sessions: sessions.size,
     error: lastError || undefined,
   });
+  socket.requestHostMigration = (code) => beginHostMigration(String(code || "").trim().toUpperCase());
+  socket.pruneNow = prune;
   return socket;
 }

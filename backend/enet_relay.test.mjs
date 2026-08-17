@@ -115,3 +115,72 @@ test("relay protocol rejects malformed and oversized frames", () => {
   oversized.write("ABCDE", 9, 5, "ascii");
   assert.equal(decodeRelayFrame(oversized), null);
 });
+
+test("oldest active guest is promoted and remaining relay sessions survive host loss", async () => {
+  let timestamp = 0;
+  const room = { code: "ABCDE", token: "host-secret" };
+  const relay = createEnetRelay({
+    roomByCode: (code) => code === room.code ? room : null,
+    promoteRoomHost: () => {
+      room.token = "migrated-host-secret";
+      return { token: room.token };
+    },
+    now: () => timestamp,
+    hostTtlMs: 100,
+    sessionTtlMs: 1000,
+    logger: { log() {}, error() {} },
+  });
+  relay.bind(0, "127.0.0.1");
+  await once(relay, "listening");
+  const relayPort = relay.address().port;
+  const host = await udpSocket();
+  const firstGuest = await udpSocket();
+  const secondGuest = await udpSocket();
+
+  try {
+    send(host, relayPort, encodeRelayFrame(
+      RelayFrame.HOST_REGISTER, 0, room.code, Buffer.from("host-secret")));
+    assert.equal((await receive(host)).frame.type, RelayFrame.HOST_ACK);
+    send(firstGuest, relayPort, encodeRelayFrame(
+      RelayFrame.GUEST_JOIN, 0, room.code, Buffer.from("first-guest")));
+    const firstSession = (await receive(firstGuest)).frame.sessionId;
+    timestamp += 1;
+    send(secondGuest, relayPort, encodeRelayFrame(
+      RelayFrame.GUEST_JOIN, 0, room.code, Buffer.from("second-guest")));
+    const secondSession = (await receive(secondGuest)).frame.sessionId;
+
+    timestamp = 200;
+    const promotionPromise = receive(firstGuest);
+    const migrationPromise = receive(secondGuest);
+    relay.pruneNow();
+    const promotion = (await promotionPromise).frame;
+    assert.equal(promotion.type, RelayFrame.HOST_PROMOTE);
+    assert.equal(promotion.sessionId, firstSession);
+    assert.equal(promotion.payload.toString("utf8"), "migrated-host-secret");
+    assert.equal((await migrationPromise).frame.type, RelayFrame.HOST_MIGRATING);
+
+    const acknowledgementPromise = receive(firstGuest);
+    const rejoinPromise = receive(secondGuest);
+    send(firstGuest, relayPort, encodeRelayFrame(
+      RelayFrame.HOST_REGISTER, 0, room.code, promotion.payload));
+    assert.equal((await acknowledgementPromise).frame.type, RelayFrame.HOST_ACK);
+    // The new host registration sends another migration notice. Consume it
+    // before proving that the old guest session now routes to the replacement.
+    assert.equal((await rejoinPromise).frame.type, RelayFrame.HOST_MIGRATING);
+    const request = Buffer.from("enet-reconnect-packet");
+    const replacementPacketPromise = receive(firstGuest);
+    send(secondGuest, relayPort, encodeRelayFrame(
+      RelayFrame.GUEST_DATA, secondSession, room.code, request));
+    const atReplacement = (await replacementPacketPromise).frame;
+    assert.equal(atReplacement.type, RelayFrame.GUEST_DATA);
+    assert.equal(atReplacement.sessionId, secondSession);
+    assert.deepEqual(atReplacement.payload, request);
+  } finally {
+    host.close();
+    firstGuest.close();
+    secondGuest.close();
+    relay.close();
+    await Promise.all([once(host, "close"), once(firstGuest, "close"),
+      once(secondGuest, "close"), once(relay, "close")]);
+  }
+});
