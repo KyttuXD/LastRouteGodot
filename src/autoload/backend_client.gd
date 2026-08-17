@@ -20,8 +20,8 @@ signal admin_ticket_verified(request_id: int, authorized: bool,
 
 const HEARTBEAT_SECONDS := 20.0
 ## The current Pterodactyl allocation exposes Node's plain HTTP listener
-## directly. Account/password requests remain disabled by
-## `_account_transport_is_protected()` until TLS is added in front of it.
+## directly. The user has explicitly enabled account/password requests for
+## this exact origin. The plaintext-transport risk is documented in the repo.
 const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:8105"
 const ACCOUNT_CONFIG_PATH := "user://last_route_account.cfg"
 var base_url := PRIMARY_BASE_URL
@@ -96,11 +96,14 @@ func directory_label() -> String:
 
 
 func accounts_available() -> bool:
-	return _account_transport_is_protected()
+	return _account_transport_is_protected() \
+		or base_url.trim_suffix("/").to_lower() == PRIMARY_BASE_URL.to_lower()
 
 
 func account_transport_warning() -> String:
-	return "" if accounts_available() else "ACCOUNT SIGN-IN REQUIRES HTTPS"
+	if accounts_available():
+		return ""
+	return "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
 
 
 func _account_transport_is_protected() -> bool:

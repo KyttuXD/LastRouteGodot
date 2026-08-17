@@ -30,10 +30,10 @@ func run(host: Node) -> int:
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
 	var backend_url_before := Backend.base_url
 	Backend.base_url = Backend.PRIMARY_BASE_URL
-	_expect(not Backend.accounts_available(),
-		"the temporary public HTTP deployment gained credential access")
-	_expect(not Backend.account_transport_warning().is_empty(),
-		"the temporary public HTTP origin hides its account transport warning")
+	_expect(Backend.accounts_available(),
+		"the explicitly enabled primary HTTP deployment rejects credentials")
+	_expect(Backend.account_transport_warning().is_empty(),
+		"the enabled primary HTTP origin shows an in-game transport warning")
 	Backend.base_url = "http://untrusted.invalid:1105"
 	_expect(not Backend.accounts_available(),
 		"an arbitrary public HTTP backend gained credential access")

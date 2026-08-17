@@ -341,15 +341,23 @@ func _check_main_menu_contract(scene: Node) -> int:
 	await _frame()
 	var login_button := scene.find_child("AccountLoginButton", true, false) as Button
 	var register_button := scene.find_child("AccountRegisterButton", true, false) as Button
-	if login_button == null or not login_button.disabled \
-			or register_button == null or not register_button.disabled:
-		failures += _fail("temporary public HTTP transport exposes account actions")
+	var username_input := scene.find_child("AccountUsernameInput", true, false) as LineEdit
+	var password_input := scene.find_child("AccountPasswordInput", true, false) as LineEdit
+	if username_input == null or password_input == null \
+			or username_input.get_index() >= password_input.get_index():
+		failures += _fail("account username/password fields are missing or reversed")
+	elif username_input.text_direction != Control.TEXT_DIRECTION_LTR \
+			or password_input.text_direction != Control.TEXT_DIRECTION_LTR:
+		failures += _fail("account username/password fields are not forced left-to-right")
+	if login_button == null or login_button.disabled \
+			or register_button == null or register_button.disabled:
+		failures += _fail("explicitly enabled primary HTTP account actions are disabled")
 	var transport_warning_visible := false
 	for label in scene.find_children("*", "Label", true, false):
 		transport_warning_visible = transport_warning_visible \
-			or "ACCOUNT SIGN-IN REQUIRES HTTPS" in String(label.text)
-	if not transport_warning_visible:
-		failures += _fail("temporary public HTTP account form hides its transport warning")
+			or "ACCOUNT SIGN-IN USES UNENCRYPTED HTTP" in String(label.text)
+	if transport_warning_visible:
+		failures += _fail("primary HTTP account form shows a disabled transport warning")
 	scene.call("_on_account_changed", false, "", false, "TEST LOGIN FAILURE")
 	await _frame()
 	var saw_failure := false

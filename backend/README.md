@@ -77,10 +77,13 @@ LASTROUTE_API_RATE_LIMIT=600
 LASTROUTE_ACCOUNT_RATE_LIMIT=30
 ```
 
-The debug client currently permits this exact hardcoded public HTTP origin for
-room discovery and update delivery, but refuses to send account credentials or
-sessions through it. Before enabling accounts or shipping a secure release,
-terminate TLS in a trusted reverse proxy and update the hardcoded client origin.
+The debug client permits this exact hardcoded public HTTP origin for room
+discovery, update delivery, and account requests. Credentials and sessions are
+therefore unencrypted; this risk is documented here rather than shown in the
+game UI. This exception applies only to the hardcoded primary origin (plus
+loopback development); arbitrary public HTTP origins remain blocked. Terminate
+TLS in a trusted reverse proxy and update the hardcoded client origin when
+possible.
 Set `TRUST_PROXY=true` only when that trusted proxy overwrites
 `X-Forwarded-For`; otherwise all proxied players share one rate-limit identity.
 Do not enable it on a service exposed directly to untrusted clients. The Node
@@ -168,9 +171,9 @@ merely contain the text (for example `KYTTU_FAN`) are ordinary users.
 
 Release admin tools unlock only after the running client receives a successful
 primary-server authentication for `KYTTU`. Cached local config never grants
-admin access. Public account requests require HTTPS, so they are unavailable on
-the current plain-HTTP deployment; plain HTTP credentials are accepted only for
-loopback integration tests.
+admin access. Account requests are explicitly enabled on the hardcoded primary
+HTTP deployment and loopback development origins. HTTP does not encrypt
+credentials or session tokens.
 
 An authenticated `KYTTU` guest requests an opaque admin ticket from
 `/api/enet/admin-tickets/issue`. The ticket is valid for at most five minutes
@@ -262,9 +265,9 @@ Keep the GitHub tags channel-based: use `debug` for debug uploads and
 manifest, and release title rather than the tag name.
 
 The PAT belongs only in Pterodactyl's private variables or deployment script;
-never write it into `updates.json`, the Godot project, an export, or Git. Keep
-TLS termination is still required before enabling public accounts or shipping
-a secure release. The current client opens the published archive/APK rather than attempting to
+never write it into `updates.json`, the Godot project, an export, or Git.
+TLS termination is still strongly recommended before shipping a secure release.
+The current client opens the published archive/APK rather than attempting to
 overwrite its own running executable. Steam, Meta Quest store builds and the
 hosted Web build should eventually use their platform-native deployment
 systems; a future signed desktop launcher can consume the same manifest and

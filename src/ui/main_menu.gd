@@ -267,15 +267,21 @@ func _on_account_pressed() -> void:
 		_account_status.text += "\n%s" % Backend.account_transport_warning()
 		_account_status.add_theme_color_override("font_color", Palette.ALERT)
 	_account_username = LineEdit.new()
-	_account_username.placeholder_text = "3-24 CHARS: A-Z 0-9 _"
+	_account_username.name = "AccountUsernameInput"
+	_account_username.placeholder_text = "USERNAME // 3-24 CHARS: A-Z 0-9 _"
 	_account_username.max_length = 24
+	_account_username.text_direction = Control.TEXT_DIRECTION_LTR
+	_account_username.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_account_username.custom_minimum_size = Vector2(0, 22)
 	Palette.style_line_edit(_account_username)
 	_account_username.text_changed.connect(_on_account_username_changed)
 	content.add_child(_account_username)
 	_account_password = LineEdit.new()
-	_account_password.placeholder_text = "6+ CHARACTERS"
+	_account_password.name = "AccountPasswordInput"
+	_account_password.placeholder_text = "PASSWORD // 6+ CHARACTERS"
 	_account_password.secret = true
+	_account_password.text_direction = Control.TEXT_DIRECTION_LTR
+	_account_password.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_account_password.custom_minimum_size = Vector2(0, 22)
 	Palette.style_line_edit(_account_password)
 	content.add_child(_account_password)
@@ -318,7 +324,12 @@ func _on_account_username_changed(value: String) -> void:
 		return
 	var canonical := value.strip_edges().to_upper()
 	if canonical != value:
-		_account_username.set_deferred("text", canonical)
+		# Preserve the insertion point while canonicalizing. Deferring only the
+		# text assignment reset the caret to column zero, so each newly typed
+		# character was inserted at the front and the username appeared reversed.
+		var caret := _account_username.caret_column
+		_account_username.text = canonical
+		_account_username.caret_column = mini(caret, canonical.length())
 	if _account_admin_proof != null:
 		_account_admin_proof.visible = canonical == "KYTTU"
 
