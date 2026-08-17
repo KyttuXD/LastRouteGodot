@@ -4,7 +4,7 @@ extends CanvasLayer
 ## The pause overlay, shared by both 3D modes.
 ##
 ## ESC used to drop you straight to the main menu with no confirmation, which
-## in a run with two lives left is a way to lose one by reaching for the wrong
+## in a live route is a way to lose it by reaching for the wrong
 ## key. Now it stops the game and asks.
 ##
 ## Two ways in, because the modes want different things:
@@ -94,8 +94,10 @@ func _build() -> void:
 	column.add_child(eyebrow)
 
 	var title := Label.new()
+	title.name = "PauseTitle"
 	title.text = "PAUSED"
 	Palette.style_label(title, Palette.INK, 30)
+	Palette.style_title(title)
 	column.add_child(title)
 
 	_resume_button = Button.new()
@@ -148,8 +150,10 @@ func _build_confirm() -> void:
 	column.add_child(eyebrow)
 
 	var title := Label.new()
+	title.name = "PauseConfirmTitle"
 	title.text = "%s?" % abandon_label
 	Palette.style_label(title, Palette.INK, 16)
+	Palette.style_title(title)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	column.add_child(title)
 

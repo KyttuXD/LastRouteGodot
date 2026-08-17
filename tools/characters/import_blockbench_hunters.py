@@ -23,7 +23,11 @@ ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir))
 DEFAULT_OUT = os.path.join(ROOT, "art", "props-3d", "characters")
 sys.path.insert(0, os.path.join(HERE, os.pardir, "office"))
 
-from bbmodel_to_glb import convert as export_glb  # noqa: E402
+from bbmodel_to_glb import CROUCH_GROUND_LIFT, convert as export_glb  # noqa: E402
+from character_floor_lifts import (  # noqa: E402
+    HUNTER_ANIMATION_GROUND_LIFTS,
+    PLAYER_ANIMATION_GROUND_LIFTS,
+)
 from refine_hunter_animations import refine_hunter_animations
 
 
@@ -48,6 +52,7 @@ def embedded_png(model: dict, source_path: str) -> bytes:
 
 
 def write_runtime_model(model: dict, slug: str, outdir: str, source_path: str,
+                        reverse_animation_facing: bool = False,
                         invert_animation_rotations: bool = False) -> dict:
     png = embedded_png(model, source_path)
     width, height = struct.unpack(">II", png[16:24])
@@ -63,8 +68,18 @@ def write_runtime_model(model: dict, slug: str, outdir: str, source_path: str,
         json.dump(model, destination, separators=(",", ":"))
     with open(png_path, "wb") as destination:
         destination.write(png)
+    # The reviewed hunters were turned from south to north in Blockbench after
+    # their motion was authored. Rotate those deltas into the new forward basis
+    # without applying the old all-axis inverse. The player was never turned
+    # and deliberately keeps the exporter default.
     info = export_glb(bb_path, glb_path, collision=False,
-                      invert_animation_rotations=invert_animation_rotations)
+                      invert_animation_rotations=invert_animation_rotations,
+                      reverse_animation_facing=reverse_animation_facing,
+                      crouch_ground_lift=0.0 if reverse_animation_facing
+                      else CROUCH_GROUND_LIFT,
+                      animation_ground_lifts=HUNTER_ANIMATION_GROUND_LIFTS
+                      if reverse_animation_facing
+                      else PLAYER_ANIMATION_GROUND_LIFTS)
     return {"width": width, "height": height, **info}
 
 
@@ -100,7 +115,7 @@ def main() -> int:
         if missing_clips:
             raise ValueError(f"{source_path}: missing canonical clips {sorted(missing_clips)}")
         info = write_runtime_model(model, slug, args.outdir, source_path,
-                                   invert_animation_rotations=True)
+                                   reverse_animation_facing=True)
         print(f"{slug:9s} {len(model.get('elements', [])):2d} elements  "
               f"{info['animations']:2d} clips  {info['width']}x{info['height']} PNG  {info['bytes']} B GLB")
     if args.include_player:
@@ -110,7 +125,8 @@ def main() -> int:
         missing_clips = CANONICAL_CLIPS - {str(animation.get("name", "")) for animation in player.get("animations", [])}
         if missing_clips:
             raise ValueError(f"{player_path}: missing canonical clips {sorted(missing_clips)}")
-        info = write_runtime_model(player, "mannequin", args.outdir, player_path)
+        info = write_runtime_model(player, "mannequin", args.outdir, player_path,
+                                   invert_animation_rotations=True)
         print(f"{'player':9s} {len(player.get('elements', [])):2d} elements  "
               f"{info['animations']:2d} clips  {info['width']}x{info['height']} PNG  {info['bytes']} B GLB")
     return 0

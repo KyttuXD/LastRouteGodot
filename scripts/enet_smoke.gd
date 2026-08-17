@@ -7,9 +7,12 @@ extends Node
 ## Run the host, then the client in a second shell:
 ##   godot4 --headless --path . res://scenes/enet_smoke.tscn -- host
 ##   godot4 --headless --path . res://scenes/enet_smoke.tscn -- client
+## Add `relay http://127.0.0.1:18105` after the role to exercise the complete
+## Pterodactyl-style HTTP directory + UDP relay path against a local backend.
 
 const PORT := 18421
 const TIMEOUT_SECONDS := 8.0
+const RELAY_ROOM_CODE := "ABCDE"
 
 var _client_waiting_for_start := false
 var _remotes: RemotePlayers
@@ -17,6 +20,10 @@ var _host_received_interaction := false
 var _host_received_admin := false
 var _client_received_effect := false
 var _client_received_snapshot := false
+var _relay_mode := false
+var _resolved := false
+var _resolved_endpoint := {}
+var _resolve_error := ""
 
 
 func _ready() -> void:
@@ -25,15 +32,20 @@ func _ready() -> void:
 
 func _run() -> void:
 	await get_tree().process_frame
-	# This validates local ENet/RPC behavior, not the production directory.
-	# Publishing its throwaway room used to leave live listings (and, when a
-	# test was interrupted, orphaned UDP listeners) that interfered with a real
-	# player-hosted room on the same workstation.
-	Backend.suppress_requests_for_tests()
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty() or not ["host", "client"].has(args[0]):
-		_finish(false, "usage: enet_smoke.tscn -- host|client")
+		_finish(false, "usage: enet_smoke.tscn -- host|client [relay BACKEND_URL]")
 		return
+	_relay_mode = args.size() >= 2 and args[1] == "relay"
+	if _relay_mode:
+		if args.size() < 3:
+			_finish(false, "relay smoke needs its local backend URL")
+			return
+		Backend.use_test_base_url(args[2])
+	else:
+		# The ordinary local handshake does not publish a production throwaway.
+		Backend.suppress_requests_for_tests()
+	RoomState.suppress_scene_transitions_for_tests()
 	if args[0] == "host":
 		await _run_host()
 	else:
@@ -42,6 +54,9 @@ func _run() -> void:
 
 func _run_host() -> void:
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+	if _relay_mode:
+		RoomState.code = RELAY_ROOM_CODE
+		RoomState.reroll_seed()
 	RoomState.set_map_scale(RoomState.Scale.LARGE)
 	var error := RoomState.host_room(PORT)
 	if not error.is_empty():
@@ -98,7 +113,21 @@ func _run_client() -> void:
 	var local_code := RoomState.code
 	_client_waiting_for_start = true
 	RoomState.changed.connect(_on_client_room_changed)
-	var error := RoomState.join_room(RoomState.DEFAULT_ADDRESS, PORT)
+	var error := ""
+	if _relay_mode:
+		Backend.room_resolved.connect(_on_relay_room_resolved)
+		Backend.resolve_room(RELAY_ROOM_CODE)
+		if not await _wait_for(func() -> bool: return _resolved):
+			_finish(false, "relay room lookup timed out")
+			return
+		if not _resolve_error.is_empty():
+			_finish(false, _resolve_error)
+			return
+		error = RoomState.join_room(String(_resolved_endpoint.get("address", "")),
+			int(_resolved_endpoint.get("port", 0)),
+			String(_resolved_endpoint.get("transport", "")), RELAY_ROOM_CODE)
+	else:
+		error = RoomState.join_room(RoomState.DEFAULT_ADDRESS, PORT)
 	if not error.is_empty():
 		_finish(false, error)
 		return
@@ -130,6 +159,12 @@ func _run_client() -> void:
 	await get_tree().create_timer(TIMEOUT_SECONDS).timeout
 	if _client_waiting_for_start:
 		_finish(false, "client never received the synchronized route start")
+
+
+func _on_relay_room_resolved(_code: String, endpoint: Dictionary, error: String) -> void:
+	_resolved_endpoint = endpoint
+	_resolve_error = error
+	_resolved = true
 
 
 func _on_client_room_changed() -> void:
@@ -169,9 +204,19 @@ func _install_replication(at: Vector3) -> void:
 			_client_received_effect = true)
 	_remotes.world_snapshot.connect(func(state: Dictionary) -> void:
 		var payload = state.get("custom_map_png", PackedByteArray())
-		if int(state.get("marker", 0)) == 91 and payload is PackedByteArray \
-				and payload.size() == 65536 and payload[0] == 0xA5 \
-				and payload[payload.size() - 1] == 0xA5:
+		var fragment_probe = state.get("fragment_probe", PackedByteArray())
+		var image := Image.new()
+		var decoded: bool = payload is PackedByteArray and not payload.is_empty() \
+			and image.load_png_from_buffer(payload) == OK
+		var parsed: Dictionary = CustomMapParser.parse(image) if decoded else {"ok": false}
+		if int(state.get("marker", 0)) == 91 \
+				and int(state.get("snapshot_protocol", 0)) == 2 \
+				and parsed.get("ok", false) and parsed.get("cols", 0) == 49 \
+				and parsed.get("rows", 0) == 49 \
+				and parsed.get("start", Vector2i(-1, -1)) == Vector2i(24, 24) \
+				and fragment_probe is PackedByteArray \
+				and fragment_probe.size() == 65536 and fragment_probe[0] == 0xA5 \
+				and fragment_probe[fragment_probe.size() - 1] == 0xA5:
 			_client_received_snapshot = true
 			_remotes.confirm_snapshot_applied())
 	add_child(_remotes)
@@ -188,10 +233,17 @@ func _on_smoke_interaction(peer_id: int, event: Dictionary) -> void:
 
 
 func _smoke_snapshot() -> Dictionary:
-	var payload := PackedByteArray()
-	payload.resize(65536)
-	payload.fill(0xA5)
-	return {"marker": 91, "floor_source": "custom", "custom_map_png": payload}
+	var fragment_probe := PackedByteArray()
+	fragment_probe.resize(65536)
+	fragment_probe.fill(0xA5)
+	return {
+		"marker": 91,
+		"snapshot_protocol": 2,
+		"floor_source": "custom",
+		"custom_map_png": FileAccess.get_file_as_bytes(
+			"res://art/custom-maps/test-map.png"),
+		"fragment_probe": fragment_probe,
+	}
 
 
 func _finish(ok: bool, message: String) -> void:

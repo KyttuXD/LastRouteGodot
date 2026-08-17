@@ -55,6 +55,7 @@ func run(host: Node) -> int:
 	_is_one_figure(parts)
 	_carries_its_clips(body)
 	_wears_no_colliders(body)
+	await _audit_clip_floors(host, body, "player")
 
 	var whole: AABB = parts[0]["box"]
 	for part in parts:
@@ -143,6 +144,8 @@ func _every_hunter_model(host: Node) -> void:
 		if player == null:
 			clipless.append(file)
 		else:
+			if file == "aki.tscn":
+				await _audit_clip_floors(host, model, "hunter")
 			for clip in CLIPS:
 				if not player.has_animation(clip):
 					_fail("%s has no '%s' clip" % [file, clip])
@@ -158,36 +161,59 @@ func _every_hunter_model(host: Node) -> void:
 					"%s '%s' contains no tracks" % [file, clip])
 				_expect(animation.loop_mode != Animation.LOOP_NONE,
 					"%s '%s' does not loop" % [file, clip])
-				# Names alone did not catch the old exporter writing absolute
-				# positions into parent-relative glTF tracks: clips existed, but
-				# seeking idle put both shoes at knee height. Evaluate a real pose
-				# through Godot's imported AnimationPlayer and inspect its bounds.
+				# One pose was not a locomotion audit: a broken knee can hide on the
+				# other half of the cycle, and a loop can snap only at its seam. Sample
+				# the whole clip, require each foot to make contact at least once, and
+				# compare every mesh at the two sides of the loop boundary.
 				player.play(clip)
-				player.seek(animation.length * 0.35, true)
-				await host.get_tree().process_frame
-				var posed := _parts(model)
-				if posed.is_empty():
-					_fail("%s vanished while playing '%s'" % [file, clip])
-					continue
-				var posed_box := _whole(posed)
-				_expect(_finite_box(posed_box),
-					"%s '%s' produced non-finite bounds" % [file, clip])
-				_expect(posed_box.size.x < 4.0 and posed_box.size.y < 4.0 and posed_box.size.z < 4.0,
-					"%s '%s' exploded to %s" % [file, clip, posed_box.size])
-				_expect(posed_box.position.y > -0.15,
-					"%s '%s' sinks %.3f m through the floor"
-						% [file, clip, -posed_box.position.y])
-				if clip == "idle":
-					var foot_floor := INF
+				var foot_contacts := {}
+				var loop_start := {}
+				for sample_index in 8:
+					player.seek(animation.length * float(sample_index) / 8.0, true)
+					await host.get_tree().process_frame
+					var posed := _parts(model)
+					if posed.is_empty():
+						_fail("%s vanished while playing '%s'" % [file, clip])
+						break
+					var posed_box := _whole(posed)
+					_expect(_finite_box(posed_box),
+						"%s '%s' produced non-finite bounds" % [file, clip])
+					_expect(posed_box.size.x < 4.0 and posed_box.size.y < 4.0 \
+							and posed_box.size.z < 4.0,
+						"%s '%s' exploded to %s" % [file, clip, posed_box.size])
+					_expect(posed_box.position.y > -0.15,
+						"%s '%s' sinks %.3f m through the floor at %.0f%%"
+							% [file, clip, -posed_box.position.y,
+								100.0 * sample_index / 8.0])
 					var foot_count := 0
 					for part in posed:
-						if String(part["name"]).contains("Foot"):
-							foot_floor = minf(foot_floor, (part["box"] as AABB).position.y)
+						var part_name := String(part["name"])
+						var box: AABB = part["box"]
+						if sample_index == 0:
+							loop_start[part_name] = box.get_center()
+						if part_name.contains("Foot"):
 							foot_count += 1
-					_expect(foot_count >= 2, "%s has no two foot meshes" % file)
-					_expect(foot_floor < 0.2,
-						"%s idle feet begin at y=%.2f (the old broken export put them at the knees)"
-							% [file, foot_floor])
+							foot_contacts[part_name] = minf(
+								float(foot_contacts.get(part_name, INF)), box.position.y)
+					_expect(foot_count >= 2,
+						"%s '%s' has fewer than two visible feet" % [file, clip])
+				for foot_name in foot_contacts:
+					_expect(float(foot_contacts[foot_name]) < 0.2,
+						"%s '%s' never plants %s (lowest point %.2f m)"
+							% [file, clip, foot_name, foot_contacts[foot_name]])
+				var seam_time := maxf(0.0, animation.length - 0.001)
+				player.seek(seam_time, true)
+				await host.get_tree().process_frame
+				var loop_end := _parts(model)
+				var worst_seam := 0.0
+				for part in loop_end:
+					var part_name := String(part["name"])
+					if loop_start.has(part_name):
+						worst_seam = maxf(worst_seam, (part["box"] as AABB).get_center() \
+							.distance_to(loop_start[part_name]))
+				_expect(worst_seam < 0.12,
+					"%s '%s' jumps %.3f m at the loop seam"
+						% [file, clip, worst_seam])
 			player.stop()
 		for node in _walk(model):
 			if node is CollisionObject3D:
@@ -196,6 +222,35 @@ func _every_hunter_model(host: Node) -> void:
 	_expect(clipless.is_empty(), "no AnimationPlayer on: %s" % ", ".join(clipless))
 	print("  roster    %d character models, %.2f-%.2f m tall, rest floors %.3f-%.3f m"
 		% [checked, shortest, tallest, lowest_floor, highest_floor])
+
+
+## Rest-pose alignment can pass while an animated foot still cuts through the
+## slab. Sample the actual player and one representative hunter across every
+## gameplay clip; all hunters share the same locomotion curves and dimensions.
+func _audit_clip_floors(host: Node, model: Node3D, label: String) -> void:
+	var player := ModelSlot.find_animation_player(model)
+	if player == null:
+		_fail("%s has no AnimationPlayer for floor audit" % label)
+		return
+	var readings: Array[String] = []
+	for clip in CLIPS:
+		if not player.has_animation(clip):
+			continue
+		var animation := player.get_animation(clip)
+		var lowest := INF
+		player.play(clip)
+		for sample_index in 16:
+			player.seek(animation.length * float(sample_index) / 16.0, true)
+			await host.get_tree().process_frame
+			var posed := _parts(model)
+			if posed.is_empty():
+				continue
+			lowest = minf(lowest, _whole(posed).position.y)
+		readings.append("%s %.3f" % [clip, lowest])
+		_expect(lowest >= -0.01,
+			"%s '%s' clips %.3f m through floor y=0" % [label, clip, -lowest])
+	player.stop()
+	print("  %-9s animated floor minima: %s" % [label, ", ".join(readings)])
 
 
 func _parts(body: Node3D) -> Array:

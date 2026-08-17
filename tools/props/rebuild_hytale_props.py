@@ -1,0 +1,3380 @@
+import bpy
+import math
+import os
+import sys
+from mathutils import Vector
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "interactables")
+SOURCE = os.path.join(ROOT, "source")
+TEXTURES = os.path.join(SOURCE, "textures")
+PREVIEWS = os.path.join(ROOT, "previews")
+MAZE_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "maze")
+MAZE_SOURCE = os.path.join(MAZE_ROOT, "source")
+MAZE_TEXTURES = os.path.join(MAZE_SOURCE, "textures")
+MAZE_PREVIEWS = os.path.join(MAZE_ROOT, "previews")
+MANSION_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "mansion")
+MANSION_SOURCE = os.path.join(MANSION_ROOT, "source")
+MANSION_TEXTURES = os.path.join(MANSION_SOURCE, "textures")
+MANSION_PREVIEWS = os.path.join(MANSION_ROOT, "previews")
+BEACH_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "beach")
+BEACH_SOURCE = os.path.join(BEACH_ROOT, "source")
+BEACH_TEXTURES = os.path.join(BEACH_SOURCE, "textures")
+BEACH_PREVIEWS = os.path.join(BEACH_ROOT, "previews")
+NETHER_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "nether")
+NETHER_SOURCE = os.path.join(NETHER_ROOT, "source")
+NETHER_TEXTURES = os.path.join(NETHER_SOURCE, "textures")
+NETHER_PREVIEWS = os.path.join(NETHER_ROOT, "previews")
+os.makedirs(TEXTURES, exist_ok=True)
+os.makedirs(PREVIEWS, exist_ok=True)
+os.makedirs(MAZE_TEXTURES, exist_ok=True)
+os.makedirs(MAZE_PREVIEWS, exist_ok=True)
+os.makedirs(MANSION_TEXTURES, exist_ok=True)
+os.makedirs(MANSION_PREVIEWS, exist_ok=True)
+os.makedirs(BEACH_TEXTURES, exist_ok=True)
+os.makedirs(BEACH_PREVIEWS, exist_ok=True)
+os.makedirs(NETHER_TEXTURES, exist_ok=True)
+os.makedirs(NETHER_PREVIEWS, exist_ok=True)
+
+
+def clear_scene():
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete(use_global=False)
+    for datablocks in (bpy.data.meshes, bpy.data.curves, bpy.data.materials,
+                       bpy.data.images, bpy.data.cameras, bpy.data.lights):
+        for datablock in list(datablocks):
+            if datablock.users == 0:
+                datablocks.remove(datablock)
+
+
+def rgba(hex_color):
+    value = hex_color.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) / 255.0 for i in (0, 2, 4)) + (1.0,)
+
+
+def mix(a, b, amount):
+    return tuple(a[i] * (1.0 - amount) + b[i] * amount for i in range(4))
+
+
+def make_pixel_atlas(name, colors, directory=None):
+    """Build one small, deliberately painted atlas per prop.
+
+    Each 16 px swatch has broad highlight/shadow blocks rather than random
+    noise.  At nearest-neighbour sampling this reads like authored Hytale-ish
+    pixel paint instead of a procedural material or a collection of coloured
+    toy parts.
+    """
+    swatch = 16
+    width = swatch * len(colors)
+    height = swatch
+    image = bpy.data.images.new(name, width=width, height=height, alpha=True)
+    pixels = [0.0] * (width * height * 4)
+    white = (1.0, 1.0, 1.0, 1.0)
+    black = (0.0, 0.0, 0.0, 1.0)
+    for region, source in enumerate(colors):
+        base = rgba(source)
+        light = mix(base, white, 0.16)
+        high = mix(base, white, 0.28)
+        dark = mix(base, black, 0.18)
+        low = mix(base, black, 0.30)
+        for y in range(swatch):
+            for x in range(swatch):
+                color = base
+                if y >= 14 or x <= 1:
+                    color = light
+                if y == 15 and x <= 8:
+                    color = high
+                if y <= 1 or x >= 14:
+                    color = dark
+                if y == 0 and x >= 6:
+                    color = low
+                # A few large, repeatable brush/pixel clusters.
+                if ((x // 3) + (y // 4) + region) % 7 == 0:
+                    color = mix(color, light, 0.42)
+                if ((x // 4) * 3 + (y // 3) + region * 2) % 11 == 0:
+                    color = mix(color, dark, 0.52)
+                px = ((y * width) + region * swatch + x) * 4
+                pixels[px:px + 4] = color
+    image.pixels[:] = pixels
+    image.file_format = "PNG"
+    image.filepath_raw = os.path.join(directory or TEXTURES, name + ".png")
+    image.save()
+    image.pack()
+    return image
+
+
+def make_material(name, image, roughness=0.78, metallic=0.0):
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    bsdf.inputs["Roughness"].default_value = roughness
+    bsdf.inputs["Metallic"].default_value = metallic
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = image
+    tex.interpolation = "Closest"
+    links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
+
+
+def apply_bevel(obj, width):
+    if width <= 0.0:
+        return
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    modifier = obj.modifiers.new("Single pixel chamfer", "BEVEL")
+    modifier.width = width
+    modifier.segments = 1
+    modifier.limit_method = "ANGLE"
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = False
+
+
+def ensure_uv(obj):
+    if obj.data.uv_layers:
+        return
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=1.15192, island_margin=0.02)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def map_region(obj, region, region_count):
+    ensure_uv(obj)
+    layer = obj.data.uv_layers.active.data
+    width = 1.0 / region_count
+    margin = width * 0.055
+    u0 = region * width + margin
+    usable = width - margin * 2.0
+    for loop in layer:
+        u = min(1.0, max(0.0, float(loop.uv.x)))
+        v = min(1.0, max(0.0, float(loop.uv.y)))
+        loop.uv = (u0 + u * usable, 0.055 + v * 0.89)
+
+
+def finish_object(obj, material, region, region_count, export_objects):
+    obj.data.materials.append(material)
+    map_region(obj, region, region_count)
+    export_objects.append(obj)
+    return obj
+
+
+def box(name, location, dimensions, material, region, region_count,
+        export_objects, bevel=0.0, rotation=(0.0, 0.0, 0.0)):
+    bpy.ops.mesh.primitive_cube_add(location=location, rotation=rotation)
+    obj = bpy.context.object
+    obj.name = name
+    obj.dimensions = dimensions
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    apply_bevel(obj, min(bevel, min(dimensions) * 0.22))
+    return finish_object(obj, material, region, region_count, export_objects)
+
+
+def cylinder(name, location, radius, depth, vertices, material, region,
+             region_count, export_objects, rotation=(0.0, 0.0, 0.0), bevel=0.0):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius,
+                                       depth=depth, location=location,
+                                       rotation=rotation)
+    obj = bpy.context.object
+    obj.name = name
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    apply_bevel(obj, bevel)
+    return finish_object(obj, material, region, region_count, export_objects)
+
+
+def cone(name, location, radius1, radius2, depth, vertices, material, region,
+         region_count, export_objects, rotation=(0.0, 0.0, 0.0), bevel=0.0):
+    bpy.ops.mesh.primitive_cone_add(vertices=vertices, radius1=radius1,
+                                    radius2=radius2, depth=depth,
+                                    location=location, rotation=rotation)
+    obj = bpy.context.object
+    obj.name = name
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    apply_bevel(obj, bevel)
+    return finish_object(obj, material, region, region_count, export_objects)
+
+
+def make_coin():
+    colors = ["#543116", "#9D651E", "#D99B32", "#FFD56B", "#71303A"]
+    image = make_pixel_atlas("coin_pixel_atlas", colors)
+    mat = make_material("Coin pixel paint", image, roughness=0.52, metallic=0.45)
+    count = len(colors)
+    objects = []
+    # A sharp eight-sided upright token: recognisably a coin but much closer
+    # to a clipped block than a smooth minted disc.
+    cylinder("CoinBody", (0.0, 0.0, 0.36), 0.17, 0.05, 8, mat, 2, count,
+             objects, rotation=(math.radians(90), 0.0, 0.0), bevel=0.0)
+    cylinder("CoinFrontInset", (0.0, -0.031, 0.36), 0.132, 0.018, 8, mat,
+             1, count, objects, rotation=(math.radians(90), 0.0, 0.0), bevel=0.0)
+    cylinder("CoinBackInset", (0.0, 0.031, 0.36), 0.132, 0.018, 8, mat,
+             1, count, objects, rotation=(math.radians(90), 0.0, 0.0), bevel=0.0)
+    # Block-built LR mint gives the pickup a readable game icon at a distance.
+    y = -0.044
+    box("Mint_L_Stem", (-0.072, y, 0.36), (0.026, 0.015, 0.105), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_L_Foot", (-0.045, y, 0.319), (0.075, 0.015, 0.025), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_R_Stem", (0.018, y, 0.36), (0.025, 0.015, 0.105), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_R_Top", (0.055, y, 0.399), (0.075, 0.015, 0.026), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_R_Mid", (0.052, y, 0.365), (0.066, 0.015, 0.022), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_R_Bowl", (0.084, y, 0.384), (0.021, 0.015, 0.055), mat, 4,
+        count, objects, bevel=0.0)
+    box("Mint_R_Leg", (0.066, y, 0.333), (0.024, 0.015, 0.058), mat, 4,
+        count, objects, bevel=0.0, rotation=(0.0, 0.0, math.radians(-22)))
+    return objects, (1.08, -2.45, 1.2), (0.0, 0.0, 0.36)
+
+
+def make_vent():
+    colors = ["#11181C", "#344147", "#536269", "#78858A", "#844735", "#B59255"]
+    image = make_pixel_atlas("vent_pixel_atlas", colors)
+    mat = make_material("Vent pixel paint", image, roughness=0.82, metallic=0.18)
+    count = len(colors)
+    objects = []
+    # Authored horizontally: Blender XY becomes Godot XZ, so the grate lands
+    # flat on the floor with no scene/script rotation.
+    box("VentVoid", (0.0, 0.0, 0.025), (0.74, 0.64, 0.055), mat, 0,
+        count, objects, bevel=0.006)
+    box("FrameFar", (0.0, 0.285, 0.06), (0.78, 0.09, 0.12), mat, 2,
+        count, objects, bevel=0.014)
+    box("FrameNear", (0.0, -0.285, 0.06), (0.78, 0.09, 0.12), mat, 1,
+        count, objects, bevel=0.014)
+    box("FrameLeft", (-0.345, 0.0, 0.06), (0.09, 0.50, 0.12), mat, 2,
+        count, objects, bevel=0.014)
+    box("FrameRight", (0.345, 0.0, 0.06), (0.09, 0.50, 0.12), mat, 1,
+        count, objects, bevel=0.014)
+    # Five broad slats replace the fussy realistic grate and stay legible in a dark maze.
+    for index, y in enumerate((-0.19, -0.095, 0.0, 0.095, 0.19)):
+        box("Slat_%d" % (index + 1), (0.0, y, 0.095),
+            (0.59, 0.055, 0.065), mat, 2 if index % 2 == 0 else 1,
+            count, objects, bevel=0.008,
+            rotation=(math.radians(-5), 0.0, 0.0))
+    for index, (x, y) in enumerate(((-0.34, -0.285), (0.34, -0.285),
+                                    (-0.34, 0.285), (0.34, 0.285))):
+        box("SquareBolt_%d" % (index + 1), (x, y, 0.126),
+            (0.045, 0.045, 0.025), mat, 5 if index < 2 else 4,
+            count, objects, bevel=0.004)
+    # Keep the lowest chamfer safely above the floor instead of letting it
+    # clip a couple of millimetres below the slot's zero-height contract.
+    for obj in objects:
+        obj.location.z += 0.004
+    return objects, (1.20, -1.80, 1.55), (0.0, 0.0, 0.05)
+
+
+def make_music_box():
+    colors = ["#2B1718", "#563023", "#7E4930", "#A96D3B", "#D0A34F", "#4C2038"]
+    image = make_pixel_atlas("music_box_pixel_atlas", colors)
+    mat = make_material("Music box pixel paint", image, roughness=0.72, metallic=0.06)
+    count = len(colors)
+    objects = []
+    for index, (x, y) in enumerate(((-0.205, -0.135), (-0.205, 0.135),
+                                    (0.205, -0.135), (0.205, 0.135))):
+        box("BlockFoot_%d" % (index + 1), (x, y, 0.03),
+            (0.075, 0.075, 0.06), mat, 0, count, objects, bevel=0.0)
+    box("BoxBody", (0.0, 0.0, 0.17), (0.52, 0.38, 0.28), mat, 2,
+        count, objects, bevel=0.004)
+    box("FrontInset", (0.0, -0.204, 0.18), (0.37, 0.025, 0.13), mat, 1,
+        count, objects, bevel=0.001)
+    box("FrontGoldLine", (0.0, -0.22, 0.18), (0.26, 0.014, 0.022), mat, 4,
+        count, objects, bevel=0.0)
+    box("VelvetWell", (0.0, -0.015, 0.325), (0.40, 0.25, 0.04), mat, 5,
+        count, objects, bevel=0.001)
+    # Chunky open lid with a broad inset rather than thin ornamental moulding.
+    box("OpenLid", (0.0, 0.085, 0.405), (0.53, 0.32, 0.085), mat, 3,
+        count, objects, bevel=0.003,
+        rotation=(math.radians(-17), 0.0, 0.0))
+    box("LidInset", (0.0, -0.079, 0.42), (0.34, 0.025, 0.16), mat, 1,
+        count, objects, bevel=0.0,
+        rotation=(math.radians(-17), 0.0, 0.0))
+    for x in (-0.18, 0.18):
+        box("LidHinge_%s" % ("L" if x < 0 else "R"),
+            (x, 0.165, 0.34), (0.075, 0.055, 0.055), mat, 0,
+            count, objects, bevel=0.001)
+    box("MusicDrum", (0.0, -0.025, 0.385), (0.26, 0.105, 0.105), mat,
+        4, count, objects, bevel=0.002)
+    for x in (-0.15, 0.15):
+        box("CylinderPost_%s" % ("L" if x < 0 else "R"),
+            (x, -0.025, 0.37), (0.04, 0.07, 0.11), mat, 1,
+            count, objects, bevel=0.001)
+    # Square-to-octagonal crank reads as hand-authored low-poly machinery.
+    box("CrankAxle", (0.295, 0.0, 0.205), (0.09, 0.045, 0.045), mat, 4,
+        count, objects, bevel=0.0)
+    box("CrankArm", (0.35, 0.0, 0.265), (0.035, 0.045, 0.13), mat, 4,
+        count, objects, bevel=0.0,
+        rotation=(0.0, math.radians(-18), 0.0))
+    box("CrankKnob", (0.385, 0.0, 0.325), (0.075, 0.07, 0.07), mat,
+        0, count, objects, bevel=0.001)
+    return objects, (1.28, -2.2, 1.25), (0.0, 0.0, 0.24)
+
+
+def make_locker():
+    colors = ["#10161B", "#293944", "#3C5260", "#587080", "#9E7741", "#71413B", "#B6AD91"]
+    image = make_pixel_atlas("locker_pixel_atlas", colors)
+    mat = make_material("Locker pixel paint", image, roughness=0.82, metallic=0.08)
+    dark_mat = make_material("Locker recess pixel paint", image, roughness=0.94, metallic=0.0)
+    trim_mat = make_material("Locker trim pixel paint", image, roughness=0.70, metallic=0.18)
+    hardware_mat = make_material("Locker hardware pixel paint", image, roughness=0.48, metallic=0.42)
+    count = len(colors)
+    objects = []
+    # One strong cabinet mass, with large stepped parts instead of sheet-metal minutiae.
+    box("LockerBody", (0.0, 0.0, 0.97), (0.70, 0.50, 1.84), mat, 1,
+        count, objects, bevel=0.025)
+    box("ChunkyTop", (0.0, 0.0, 1.91), (0.75, 0.56, 0.10), trim_mat, 3,
+        count, objects, bevel=0.022)
+    box("ChunkyBase", (0.0, 0.0, 0.09), (0.73, 0.54, 0.18), trim_mat, 1,
+        count, objects, bevel=0.018)
+    for index, x in enumerate((-0.265, 0.265)):
+        box("Foot_%d" % (index + 1), (x, -0.14, 0.035),
+            (0.13, 0.18, 0.07), dark_mat, 0, count, objects, bevel=0.012)
+    box("DoorShadow", (0.0, -0.265, 1.00), (0.61, 0.035, 1.67), dark_mat, 0,
+        count, objects, bevel=0.012)
+    box("LockerDoor", (0.0, -0.293, 1.00), (0.56, 0.04, 1.60), mat, 2,
+        count, objects, bevel=0.018)
+    # Two broad stamped panels give the face depth without realistic micro-detail.
+    box("UpperInset", (0.0, -0.322, 1.34), (0.42, 0.026, 0.43), dark_mat, 1,
+        count, objects, bevel=0.012)
+    box("UpperPanel", (0.0, -0.34, 1.34), (0.36, 0.018, 0.36), mat, 3,
+        count, objects, bevel=0.009)
+    box("LowerInset", (0.0, -0.322, 0.61), (0.42, 0.026, 0.55), dark_mat, 1,
+        count, objects, bevel=0.012)
+    box("LowerPanel", (0.0, -0.34, 0.61), (0.36, 0.018, 0.48), mat, 2,
+        count, objects, bevel=0.009)
+    for index, z in enumerate((1.69, 1.62, 1.55, 1.48)):
+        box("VentSlot_%d" % (index + 1), (0.0, -0.352, z),
+            (0.30, 0.024, 0.038), dark_mat, 0, count, objects, bevel=0.005)
+    box("NumberPlate", (0.0, -0.35, 1.80), (0.19, 0.025, 0.085), trim_mat, 6,
+        count, objects, bevel=0.008)
+    box("HandlePlate", (0.205, -0.35, 1.02), (0.10, 0.03, 0.27), dark_mat, 0,
+        count, objects, bevel=0.008)
+    box("Handle", (0.205, -0.385, 1.02), (0.055, 0.055, 0.19), hardware_mat, 4,
+        count, objects, bevel=0.009)
+    for index, z in enumerate((0.48, 1.48)):
+        box("BlockHinge_%d" % (index + 1), (-0.30, -0.342, z),
+            (0.055, 0.055, 0.16), hardware_mat, 5, count, objects, bevel=0.007)
+    # Broad trim modules keep the modular quality contract while strengthening
+    # the block-built silhouette instead of reintroducing realistic micro-parts.
+    for side, x in (("L", -0.275), ("R", 0.275)):
+        box("DoorRail_%s" % side, (x, -0.326, 1.00),
+            (0.035, 0.03, 1.48), trim_mat, 1, count, objects, bevel=0.006)
+        box("BaseBracket_%s" % side, (x, -0.335, 0.19),
+            (0.09, 0.045, 0.11), trim_mat, 5, count, objects, bevel=0.008)
+    box("BlockLatch", (0.205, -0.389, 0.89), (0.07, 0.055, 0.065),
+        hardware_mat, 4, count, objects, bevel=0.008)
+    return objects, (2.65, -4.3, 2.75), (0.0, 0.0, 0.98)
+
+
+def make_battery():
+    colors = ["#13191E", "#303C43", "#526169", "#C58B35", "#9D3D3D", "#5EC6A3", "#D7D7B0"]
+    image = make_pixel_atlas("battery_pixel_atlas", colors)
+    mat = make_material("Battery pixel paint", image, roughness=0.80, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("BatteryBody", (0.0, 0.0, 0.205), (0.34, 0.24, 0.33), mat, 1,
+        count, objects, bevel=0.004)
+    box("BottomCap", (0.0, 0.0, 0.04), (0.36, 0.26, 0.08), mat, 0,
+        count, objects, bevel=0.002)
+    box("TopCap", (0.0, 0.0, 0.385), (0.36, 0.26, 0.06), mat, 2,
+        count, objects, bevel=0.002)
+    box("ChargeRecess", (0.0, -0.117, 0.21), (0.20, 0.020, 0.20), mat, 0,
+        count, objects, bevel=0.001)
+    for index, z in enumerate((0.15, 0.21, 0.27)):
+        box("ChargeBar_%d" % (index + 1), (0.0, -0.129, z),
+            (0.14, 0.002, 0.035), mat, 5 if index < 2 else 3,
+            count, objects, bevel=0.0)
+    box("PositiveTerminal", (-0.09, 0.0, 0.435), (0.07, 0.08, 0.05), mat, 4,
+        count, objects, bevel=0.0)
+    box("NegativeTerminal", (0.09, 0.0, 0.435), (0.07, 0.08, 0.05), mat, 6,
+        count, objects, bevel=0.0)
+    return objects, (0.9, -1.8, 1.05), (0.0, 0.0, 0.23)
+
+
+def make_relay():
+    colors = ["#111820", "#273640", "#40545E", "#65747A", "#48B5B3", "#B64A43", "#C69B4A"]
+    image = make_pixel_atlas("relay_pixel_atlas", colors)
+    mat = make_material("Relay pixel paint", image, roughness=0.78, metallic=0.12)
+    count = len(colors)
+    objects = []
+    box("RelayBase", (0.0, 0.0, 0.09), (0.48, 0.48, 0.18), mat, 1,
+        count, objects, bevel=0.010)
+    box("RelayBaseStep", (0.0, 0.0, 0.225), (0.36, 0.36, 0.09), mat, 2,
+        count, objects, bevel=0.006)
+    box("RelayMast", (0.0, 0.0, 0.49), (0.12, 0.12, 0.46), mat, 1,
+        count, objects, bevel=0.002)
+    box("SignalHead", (0.0, 0.0, 0.79), (0.40, 0.18, 0.34), mat, 2,
+        count, objects, bevel=0.006)
+    box("SignalFace", (0.0, -0.102, 0.79), (0.32, 0.024, 0.26), mat, 0,
+        count, objects, bevel=0.002)
+    # Pixel broadcast glyph: broad at the bottom, narrowing upward.
+    for index, (z, width) in enumerate(((0.72, 0.24), (0.79, 0.16), (0.86, 0.08))):
+        box("SignalBar_%d" % (index + 1), (0.0, -0.119, z),
+            (width, 0.012, 0.034), mat, 4, count, objects, bevel=0.0)
+    box("SignalLamp", (0.0, 0.0, 0.97), (0.08, 0.08, 0.06), mat, 5,
+        count, objects, bevel=0.0)
+    box("SideAntennaL", (-0.195, 0.0, 0.84), (0.04, 0.08, 0.24), mat, 6,
+        count, objects, bevel=0.001,
+        rotation=(0.0, math.radians(-8), math.radians(-8)))
+    box("SideAntennaR", (0.195, 0.0, 0.84), (0.04, 0.08, 0.24), mat, 6,
+        count, objects, bevel=0.001,
+        rotation=(0.0, math.radians(8), math.radians(8)))
+    return objects, (1.35, -2.35, 1.55), (0.0, 0.0, 0.50)
+
+
+def make_safe_zone():
+    colors = ["#111820", "#27343D", "#3D505A", "#58717B", "#43C0B1", "#8BE4CF", "#C7A44C"]
+    image = make_pixel_atlas("safe_zone_pixel_atlas", colors)
+    mat = make_material("Safe zone pixel paint", image, roughness=0.82, metallic=0.06)
+    count = len(colors)
+    objects = []
+    box("SafePad", (0.0, 0.0, 0.03), (1.60, 1.60, 0.06), mat, 1,
+        count, objects, bevel=0.035)
+    box("SafePadInset", (0.0, 0.0, 0.072), (1.34, 1.34, 0.035), mat, 2,
+        count, objects, bevel=0.020)
+    # A segmented square circuit ring avoids a smooth torus and stays readable
+    # as authored pixel geometry from every corridor direction.
+    for index, (location, dimensions) in enumerate((
+            ((0.0, -0.61, 0.102), (1.14, 0.09, 0.035)),
+            ((0.0, 0.61, 0.102), (1.14, 0.09, 0.035)),
+            ((-0.61, 0.0, 0.102), (0.09, 1.14, 0.035)),
+            ((0.61, 0.0, 0.102), (0.09, 1.14, 0.035)))):
+        box("SafeRing_%d" % (index + 1), location, dimensions, mat,
+            4 if index % 2 == 0 else 5, count, objects, bevel=0.0)
+    for index, (x, y) in enumerate(((-0.62, -0.62), (0.62, -0.62),
+                                    (-0.62, 0.62), (0.62, 0.62))):
+        box("CornerBeacon_%d" % (index + 1), (x, y, 0.135),
+            (0.16, 0.16, 0.10), mat, 6 if index % 2 else 4,
+            count, objects, bevel=0.006)
+    box("SafePost", (0.0, 0.0, 0.46), (0.22, 0.22, 0.70), mat, 2,
+        count, objects, bevel=0.004)
+    box("PostBand", (0.0, 0.0, 0.58), (0.27, 0.27, 0.10), mat, 4,
+        count, objects, bevel=0.002)
+    box("SafeBeacon", (0.0, 0.0, 0.805), (0.30, 0.30, 0.07), mat, 5,
+        count, objects, bevel=0.004)
+    return objects, (2.50, -3.20, 2.30), (0.0, 0.0, 0.22)
+
+
+def make_lift():
+    colors = ["#11171D", "#293842", "#41535C", "#68777B", "#C99A3D", "#A33D3D", "#61B8B1"]
+    image = make_pixel_atlas("lift_pixel_atlas", colors)
+    mat = make_material("Lift pixel paint", image, roughness=0.80, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("LiftPlatform", (0.0, 0.0, 0.06), (2.00, 2.00, 0.12), mat, 0,
+        count, objects, bevel=0.015)
+    box("PlatformInset", (0.0, 0.0, 0.135), (1.72, 1.72, 0.05), mat, 2,
+        count, objects, bevel=0.008)
+    # Side cage modules retain the original open front/back footprint.
+    for side, x in (("L", -0.91), ("R", 0.91)):
+        box("LiftRail_%s" % side, (x, 0.0, 1.11), (0.14, 1.82, 1.98), mat, 1,
+            count, objects, bevel=0.008)
+        for index, z in enumerate((0.42, 0.86, 1.30, 1.74)):
+            box("RailBand_%s_%d" % (side, index + 1),
+                (x + (0.08 if x < 0 else -0.08), -0.55, z),
+                (0.06, 0.58, 0.10), mat, 3, count, objects, bevel=0.001)
+    box("LiftRoof", (0.0, 0.0, 2.20), (1.90, 1.90, 0.20), mat, 1,
+        count, objects, bevel=0.014)
+    box("FrontHeader", (0.0, -0.91, 2.08), (1.82, 0.14, 0.24), mat, 2,
+        count, objects, bevel=0.006)
+    # Four hard-edged hazard blocks along the entrance lip.
+    for index, x in enumerate((-0.66, -0.22, 0.22, 0.66)):
+        box("Hazard_%d" % (index + 1), (x, -0.91, 0.175),
+            (0.34, 0.08, 0.035), mat, 4 if index % 2 == 0 else 0,
+            count, objects, bevel=0.0,
+            rotation=(0.0, 0.0, math.radians(10 if index % 2 == 0 else -10)))
+    box("CallPanel", (0.90, -0.53, 1.30), (0.14, 0.25, 0.40), mat, 0,
+        count, objects, bevel=0.003)
+    box("CallScreen", (0.815, -0.58, 1.34), (0.025, 0.13, 0.18), mat, 6,
+        count, objects, bevel=0.0)
+    box("CallButton", (0.81, -0.58, 1.18), (0.03, 0.08, 0.07), mat, 5,
+        count, objects, bevel=0.0)
+    return objects, (3.55, -4.85, 3.25), (0.0, 0.0, 1.05)
+
+
+def make_heater_station():
+    colors = ["#11171D", "#29353D", "#46545A", "#6C7473", "#D05A32", "#F3A23B", "#74BFD0", "#B6A05F"]
+    image = make_pixel_atlas("heater_station_pixel_atlas", colors)
+    mat = make_material("Heater station pixel paint", image, roughness=0.80, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("HeaterBase", (0.0, 0.0, 0.06), (0.64, 0.64, 0.12), mat, 0,
+        count, objects, bevel=0.008)
+    box("HeaterBody", (0.0, 0.0, 0.58), (0.56, 0.54, 0.92), mat, 1,
+        count, objects, bevel=0.008)
+    box("HeaterTop", (0.0, 0.0, 1.075), (0.62, 0.60, 0.10), mat, 3,
+        count, objects, bevel=0.006)
+    box("HeatRecess", (0.0, -0.298, 0.61), (0.43, 0.025, 0.64), mat, 0,
+        count, objects, bevel=0.004)
+    for index, z in enumerate((0.38, 0.52, 0.66, 0.80)):
+        box("HeatBar_%d" % (index + 1), (0.0, -0.318, z),
+            (0.34, 0.004, 0.065), mat, 5 if index in (1, 2) else 4,
+            count, objects, bevel=0.0)
+    box("ControlPanel", (0.0, -0.306, 0.98), (0.32, 0.018, 0.14), mat, 2,
+        count, objects, bevel=0.002)
+    box("HeatGauge", (-0.07, -0.318, 0.98), (0.11, 0.004, 0.07), mat, 5,
+        count, objects, bevel=0.0)
+    box("HeatSwitch", (0.09, -0.318, 0.98), (0.07, 0.004, 0.07), mat, 7,
+        count, objects, bevel=0.0)
+    # Icy corner blocks preserve the old heater/frost contrast without a smooth shell.
+    for index, (x, y, z) in enumerate(((-0.275, -0.275, 0.18),
+                                        (0.275, 0.275, 0.28),
+                                        (-0.275, 0.275, 0.93),
+                                        (0.275, -0.275, 1.17))):
+        box("FrostBlock_%d" % (index + 1), (x, y, z),
+            (0.08, 0.08, 0.10), mat, 6, count, objects, bevel=0.0)
+    box("SidePipe", (0.29, 0.05, 0.66), (0.05, 0.10, 0.56), mat, 7,
+        count, objects, bevel=0.001)
+    return objects, (1.65, -2.65, 1.80), (0.0, 0.0, 0.60)
+
+
+def make_arcade_variant(model_name, colors, glyph=0):
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=0.76, metallic=0.08)
+    count = len(colors)
+    objects = []
+    box("CabinetBase", (0.0, 0.0, 0.36), (0.54, 0.60, 0.72), mat, 1,
+        count, objects, bevel=0.005)
+    box("CabinetUpper", (0.0, 0.04, 1.17), (0.54, 0.50, 0.92), mat, 1,
+        count, objects, bevel=0.005)
+    box("Marquee", (0.0, 0.00, 1.73), (0.60, 0.52, 0.18), mat, 2,
+        count, objects, bevel=0.004)
+    box("MarqueeFace", (0.0, -0.268, 1.73), (0.46, 0.012, 0.10), mat, 3,
+        count, objects, bevel=0.0)
+    box("ScreenRecess", (0.0, -0.218, 1.37), (0.42, 0.025, 0.40), mat, 0,
+        count, objects, bevel=0.002)
+    box("ScreenGlass", (0.0, -0.233, 1.37), (0.35, 0.006, 0.32), mat, 5,
+        count, objects, bevel=0.001)
+    box("ControlDeck", (0.0, -0.245, 0.88), (0.56, 0.36, 0.15), mat, 2,
+        count, objects, bevel=0.003,
+        rotation=(math.radians(10), 0.0, 0.0))
+    box("CoinDoor", (0.0, -0.305, 0.38), (0.32, 0.012, 0.34), mat, 0,
+        count, objects, bevel=0.001)
+    box("CoinSlot", (0.0, -0.313, 0.45), (0.055, 0.006, 0.09), mat, 6,
+        count, objects, bevel=0.0)
+    for side, x in (("L", -0.275), ("R", 0.275)):
+        box("EdgeTrim_%s" % side, (x, -0.005, 0.93),
+            (0.03, 0.59, 1.70), mat, 3, count, objects, bevel=0.0)
+    box("JoystickStem", (-0.12, -0.405, 0.94), (0.025, 0.025, 0.13), mat, 6,
+        count, objects, bevel=0.0,
+        rotation=(0.0, math.radians(-8), 0.0))
+    box("JoystickTop", (-0.13, -0.405, 1.01), (0.07, 0.07, 0.055), mat, 4,
+        count, objects, bevel=0.001)
+    for index, x in enumerate((0.02, 0.10, 0.18)):
+        box("ActionButton_%d" % (index + 1), (x, -0.408, 0.925 + (index % 2) * 0.018),
+            (0.055, 0.055, 0.025), mat, 4 if index != 1 else 3,
+            count, objects, bevel=0.0)
+    # Each cabinet family receives a distinct block glyph as well as a palette.
+    patterns = (
+        ((-0.075, 0.0, 0.11, 0.035), (0.025, 0.0, 0.035, 0.11), (0.08, 0.0, 0.035, 0.07)),
+        ((-0.07, 0.04, 0.12, 0.03), (-0.03, -0.025, 0.035, 0.10), (0.055, -0.025, 0.035, 0.10)),
+        ((-0.07, 0.03, 0.055, 0.035), (0.0, 0.0, 0.055, 0.035), (0.07, -0.03, 0.055, 0.035)),
+        ((-0.06, 0.0, 0.035, 0.12), (0.0, 0.0, 0.035, 0.075), (0.06, 0.0, 0.035, 0.12)),
+    )
+    for index, (x, zoff, width, height) in enumerate(patterns[glyph % len(patterns)]):
+        box("ScreenGlyph_%d" % (index + 1), (x, -0.239, 1.37 + zoff),
+            (width, 0.004, height), mat, 4 if index % 2 == 0 else 3,
+            count, objects, bevel=0.0)
+    return objects, (2.05, -3.15, 2.15), (0.0, 0.0, 0.85)
+
+
+def make_wooden_chair(model_name, cushioned=False):
+    colors = ["#20120D", "#513020", "#7C4B2A", "#AE7440", "#D3A15E", "#6B2637", "#A34A61", "#C19A4E"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=0.86, metallic=0.0)
+    count = len(colors)
+    objects = []
+    for index, (x, y) in enumerate(((-0.19, -0.19), (0.19, -0.19),
+                                    (-0.19, 0.19), (0.19, 0.19))):
+        box("ChairLeg_%d" % (index + 1), (x, y, 0.24),
+            (0.07, 0.07, 0.48), mat, 1 if index % 2 else 2,
+            count, objects, bevel=0.001)
+    box("ChairSeat", (0.0, 0.0, 0.51), (0.50, 0.50, 0.10), mat, 3,
+        count, objects, bevel=0.003)
+    for side, x in (("L", -0.21), ("R", 0.21)):
+        box("BackPost_%s" % side, (x, 0.20, 0.74),
+            (0.065, 0.065, 0.54), mat, 2, count, objects, bevel=0.001)
+    box("BackTop", (0.0, 0.20, 0.93), (0.48, 0.085, 0.15), mat, 3,
+        count, objects, bevel=0.003)
+    box("BackRail", (0.0, 0.20, 0.72), (0.38, 0.065, 0.09), mat, 2,
+        count, objects, bevel=0.001)
+    if cushioned:
+        box("SeatCushion", (0.0, -0.01, 0.585), (0.42, 0.42, 0.08), mat, 6,
+            count, objects, bevel=0.006)
+        box("BackCushion", (0.0, 0.155, 0.82), (0.34, 0.07, 0.25), mat, 5,
+            count, objects, bevel=0.005)
+        for x in (-0.13, 0.13):
+            box("CushionTack_%s" % ("L" if x < 0 else "R"),
+                (x, 0.114, 0.82), (0.025, 0.012, 0.025), mat, 7,
+                count, objects, bevel=0.0)
+    return objects, (1.45, -2.15, 1.55), (0.0, 0.0, 0.50)
+
+
+def make_wooden_table():
+    colors = ["#20120D", "#50301F", "#774628", "#A56938", "#C88F51", "#D4AE6B", "#A77B3C"]
+    image = make_pixel_atlas("wooden_table_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Wooden table pixel paint", image, roughness=0.87, metallic=0.0)
+    count = len(colors)
+    objects = []
+    for index, (x, y) in enumerate(((-0.52, -0.29), (0.52, -0.29),
+                                    (-0.52, 0.29), (0.52, 0.29))):
+        box("TableLeg_%d" % (index + 1), (x, y, 0.34),
+            (0.11, 0.11, 0.68), mat, 1 if index % 2 else 2,
+            count, objects, bevel=0.001)
+    box("TableTop", (0.0, 0.0, 0.73), (1.20, 0.76, 0.12), mat, 3,
+        count, objects, bevel=0.004)
+    box("FrontApron", (0.0, -0.32, 0.61), (1.00, 0.09, 0.18), mat, 2,
+        count, objects, bevel=0.001)
+    box("BackApron", (0.0, 0.32, 0.61), (1.00, 0.09, 0.18), mat, 1,
+        count, objects, bevel=0.001)
+    box("TableDrawer", (0.0, -0.375, 0.63), (0.44, 0.025, 0.15), mat, 4,
+        count, objects, bevel=0.001)
+    box("DrawerHandle", (0.0, -0.392, 0.63), (0.16, 0.012, 0.035), mat, 6,
+        count, objects, bevel=0.0)
+    return objects, (2.05, -2.85, 1.65), (0.0, 0.0, 0.38)
+
+
+def make_wooden_dresser():
+    colors = ["#1D110C", "#472A1D", "#704226", "#9B653A", "#C18A50", "#D5B06C", "#AA813F"]
+    image = make_pixel_atlas("wooden_dresser_sideboard_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Wooden dresser sideboard pixel paint", image,
+                        roughness=0.86, metallic=0.0)
+    count = len(colors)
+    objects = []
+    box("DresserBody", (0.0, 0.0, 0.44), (1.16, 0.56, 0.80), mat, 1,
+        count, objects, bevel=0.004)
+    box("DresserTop", (0.0, 0.0, 0.88), (1.24, 0.64, 0.10), mat, 4,
+        count, objects, bevel=0.004)
+    box("DresserPlinth", (0.0, 0.0, 0.07), (1.20, 0.60, 0.14), mat, 0,
+        count, objects, bevel=0.002)
+    for index, x in enumerate((-0.39, 0.0, 0.39)):
+        box("TopDrawer_%d" % (index + 1), (x, -0.293, 0.69),
+            (0.34, 0.025, 0.16), mat, 3, count, objects, bevel=0.001)
+        box("DrawerPull_%d" % (index + 1), (x, -0.311, 0.69),
+            (0.12, 0.012, 0.03), mat, 6, count, objects, bevel=0.0)
+        box("LowerDoor_%d" % (index + 1), (x, -0.293, 0.35),
+            (0.34, 0.025, 0.42), mat, 2, count, objects, bevel=0.002)
+        box("DoorInset_%d" % (index + 1), (x, -0.310, 0.35),
+            (0.26, 0.012, 0.32), mat, 1, count, objects, bevel=0.001)
+    return objects, (2.15, -3.15, 1.75), (0.0, 0.0, 0.45)
+
+
+def make_filing_cabinet():
+    colors = ["#14191B", "#343D40", "#596467", "#899092", "#A64B43", "#C4A35C"]
+    image = make_pixel_atlas("filing_cabinet_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Filing cabinet pixel paint", image, roughness=0.82, metallic=0.16)
+    count = len(colors)
+    objects = []
+    box("FileBody", (0.0, 0.0, 0.62), (0.58, 0.66, 1.20), mat, 1,
+        count, objects, bevel=0.006)
+    box("FileTop", (0.0, 0.0, 1.24), (0.60, 0.68, 0.08), mat, 3,
+        count, objects, bevel=0.003)
+    box("FileBase", (0.0, 0.0, 0.06), (0.60, 0.68, 0.12), mat, 0,
+        count, objects, bevel=0.002)
+    for index, z in enumerate((0.31, 0.66, 1.01)):
+        box("FileDrawer_%d" % (index + 1), (0.0, -0.337, z),
+            (0.48, 0.025, 0.28), mat, 2, count, objects, bevel=0.002)
+        box("FileHandle_%d" % (index + 1), (0.0, -0.355, z + 0.04),
+            (0.18, 0.012, 0.06), mat, 5, count, objects, bevel=0.0)
+        box("LabelSlot_%d" % (index + 1), (0.0, -0.362, z - 0.055),
+            (0.13, 0.004, 0.055), mat, 0, count, objects, bevel=0.0)
+    for index, x in enumerate((-0.26, 0.26)):
+        box("RustCorner_%d" % (index + 1), (x, -0.342, 1.23),
+            (0.06, 0.03, 0.06), mat, 4, count, objects, bevel=0.0)
+    return objects, (1.65, -2.55, 1.80), (0.0, 0.0, 0.62)
+
+
+def make_supply_crates():
+    colors = ["#111719", "#2B3436", "#455153", "#647174", "#8D6840", "#B28A52"]
+    image = make_pixel_atlas("supply_crates_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Supply crates pixel paint", image, roughness=0.84, metallic=0.10)
+    count = len(colors)
+    objects = []
+    specs = (("Large", (0.0, 0.0, 0.23), (0.74, 0.58, 0.46)),
+             ("Medium", (0.07, 0.02, 0.59), (0.56, 0.45, 0.28)),
+             ("Small", (-0.08, 0.01, 0.84), (0.40, 0.34, 0.22)))
+    for index, (label, location, dimensions) in enumerate(specs):
+        box("Crate%s" % label, location, dimensions, mat, 1 + index,
+            count, objects, bevel=0.004)
+        x, y, z = location
+        sx, sy, sz = dimensions
+        for band, bx in enumerate((x - sx * 0.42, x + sx * 0.42)):
+            band_z = max(z, (sz + 0.015) * 0.5)
+            box("%sBand_%d" % (label, band + 1), (bx, y, band_z),
+                (0.055, sy + 0.025, sz + 0.015), mat, 4,
+                count, objects, bevel=0.001)
+        box("%sHandle" % label, (x, y - sy * 0.515, z),
+            (sx * 0.30, 0.018, sz * 0.18), mat, 0,
+            count, objects, bevel=0.001)
+    return objects, (1.65, -2.45, 1.55), (0.0, 0.0, 0.43)
+
+
+def make_server_rack():
+    colors = ["#0B1014", "#202C33", "#3B4B52", "#68777C", "#45BCAE", "#D2553F", "#D3A64D"]
+    image = make_pixel_atlas("server_rack_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Server rack pixel paint", image, roughness=0.78, metallic=0.18)
+    count = len(colors)
+    objects = []
+    box("RackBody", (0.0, 0.0, 0.94), (0.64, 0.74, 1.84), mat, 1,
+        count, objects, bevel=0.005)
+    box("RackRecess", (0.0, -0.382, 0.98), (0.52, 0.025, 1.62), mat, 0,
+        count, objects, bevel=0.002)
+    for index, z in enumerate((0.29, 0.53, 0.77, 1.01, 1.25, 1.49, 1.68)):
+        box("ServerTray_%d" % (index + 1), (0.0, -0.400, z),
+            (0.45, 0.016, 0.15), mat, 2 if index % 2 else 3,
+            count, objects, bevel=0.001)
+        box("Status_%d" % (index + 1), (0.17, -0.412, z),
+            (0.035, 0.006, 0.035), mat, 4 if index % 3 else 5,
+            count, objects, bevel=0.0)
+    box("RackTop", (0.0, 0.0, 1.88), (0.68, 0.78, 0.08), mat, 2,
+        count, objects, bevel=0.003)
+    box("RackBase", (0.0, 0.0, 0.06), (0.68, 0.78, 0.12), mat, 0,
+        count, objects, bevel=0.002)
+    return objects, (1.85, -2.85, 2.15), (0.0, 0.0, 0.95)
+
+
+def make_vending_machine():
+    colors = ["#101316", "#3B2024", "#6C3033", "#9D4341", "#222D30", "#63B7AC", "#D39A42", "#D9D0A8"]
+    image = make_pixel_atlas("vending_machine_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Vending machine pixel paint", image, roughness=0.78, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("VendingBody", (0.0, 0.0, 0.91), (0.62, 0.74, 1.80), mat, 2,
+        count, objects, bevel=0.006)
+    box("DisplayRecess", (-0.07, -0.382, 1.15), (0.40, 0.025, 1.02), mat, 0,
+        count, objects, bevel=0.002)
+    box("DisplayGlass", (-0.07, -0.399, 1.15), (0.35, 0.008, 0.94), mat, 4,
+        count, objects, bevel=0.001)
+    for row, z in enumerate((0.84, 1.13, 1.42)):
+        for col, x in enumerate((-0.18, -0.07, 0.04)):
+            box("Drink_%d_%d" % (row + 1, col + 1), (x, -0.408, z),
+                (0.07, 0.008, 0.14), mat, (5 + row + col) % 3 + 5,
+                count, objects, bevel=0.0)
+    box("ControlPanel", (0.22, -0.392, 1.21), (0.11, 0.022, 0.52), mat, 0,
+        count, objects, bevel=0.001)
+    box("VendingScreen", (0.22, -0.408, 1.36), (0.07, 0.010, 0.10), mat, 5,
+        count, objects, bevel=0.0)
+    box("VendingKeys", (0.22, -0.408, 1.15), (0.07, 0.010, 0.20), mat, 7,
+        count, objects, bevel=0.0)
+    box("Dispenser", (-0.07, -0.397, 0.34), (0.34, 0.020, 0.20), mat, 0,
+        count, objects, bevel=0.002)
+    return objects, (1.85, -2.85, 2.10), (0.0, 0.0, 0.90)
+
+
+def make_floor_lamp():
+    colors = ["#17130F", "#40362B", "#6C5842", "#A08155", "#C9A86E", "#E0C994"]
+    image = make_pixel_atlas("floor_lamp_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Floor lamp pixel paint", image, roughness=0.82, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("LampBase", (0.0, 0.0, 0.055), (0.36, 0.36, 0.11), mat, 0,
+        count, objects, bevel=0.004)
+    box("LampPole", (0.0, 0.0, 0.77), (0.06, 0.06, 1.36), mat, 2,
+        count, objects, bevel=0.001)
+    box("ShadeBottom", (0.0, 0.0, 1.48), (0.44, 0.44, 0.18), mat, 3,
+        count, objects, bevel=0.004)
+    box("ShadeMiddle", (0.0, 0.0, 1.61), (0.34, 0.34, 0.12), mat, 4,
+        count, objects, bevel=0.003)
+    box("ShadeTop", (0.0, 0.0, 1.70), (0.22, 0.22, 0.08), mat, 5,
+        count, objects, bevel=0.002)
+    box("LampGlow", (0.0, -0.225, 1.54), (0.20, 0.010, 0.17), mat, 5,
+        count, objects, bevel=0.0)
+    return objects, (1.25, -2.05, 2.00), (0.0, 0.0, 0.85)
+
+
+def make_trash_bin():
+    colors = ["#171A1B", "#3A4142", "#646B6B", "#9A9990", "#7B3839", "#C6A052"]
+    image = make_pixel_atlas("trash_bin_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Trash bin pixel paint", image, roughness=0.84, metallic=0.12)
+    count = len(colors)
+    objects = []
+    cylinder("BinBody", (0.0, 0.0, 0.32), 0.25, 0.60, 8, mat, 3,
+             count, objects, bevel=0.0)
+    cylinder("BinBottom", (0.0, 0.0, 0.045), 0.26, 0.09, 8, mat, 0,
+             count, objects, bevel=0.0)
+    cylinder("BinLid", (0.0, 0.0, 0.65), 0.27, 0.08, 8, mat, 1,
+             count, objects, bevel=0.0)
+    box("BinBandFront", (0.0, -0.242, 0.38), (0.34, 0.012, 0.10), mat, 4,
+        count, objects, bevel=0.0)
+    box("FootPedal", (0.0, -0.275, 0.08), (0.18, 0.08, 0.08), mat, 5,
+        count, objects, bevel=0.001)
+    return objects, (1.20, -1.90, 1.30), (0.0, 0.0, 0.34)
+
+
+def make_privacy_curtain():
+    colors = ["#171016", "#4B1828", "#77243B", "#A33B55", "#C8677C", "#9B7B45", "#D1AF64"]
+    image = make_pixel_atlas("privacy_curtain_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Privacy curtain pixel paint", image, roughness=0.90, metallic=0.0)
+    count = len(colors)
+    objects = []
+    for side, x in (("L", -0.37), ("R", 0.37)):
+        box("CurtainPost_%s" % side, (x, 0.0, 1.20), (0.06, 0.06, 2.40), mat, 5,
+            count, objects, bevel=0.001)
+        box("CurtainFoot_%s" % side, (x, 0.0, 0.04), (0.20, 0.30, 0.08), mat, 0,
+            count, objects, bevel=0.002)
+    box("CurtainRail", (0.0, 0.0, 2.36), (0.80, 0.07, 0.07), mat, 6,
+        count, objects, bevel=0.001)
+    # Layered rigid pixel folds keep it readable as cloth without smooth simulation.
+    for index, x in enumerate((-0.285, -0.17, -0.055, 0.06, 0.175, 0.29)):
+        box("CurtainFold_%d" % (index + 1), (x, -0.005 if index % 2 else -0.025, 1.24),
+            (0.14, 0.055, 2.12), mat, 2 + index % 3,
+            count, objects, bevel=0.001)
+    box("CurtainTie", (0.24, -0.055, 1.10), (0.14, 0.045, 0.11), mat, 6,
+        count, objects, bevel=0.001)
+    return objects, (1.85, -2.75, 2.55), (0.0, 0.0, 1.20)
+
+
+def make_lounge_couch():
+    colors = ["#171014", "#4B2025", "#732D33", "#A04045", "#C45B5F", "#372126", "#B58A49"]
+    image = make_pixel_atlas("lounge_couch_red_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Lounge couch red pixel paint", image, roughness=0.90, metallic=0.0)
+    count = len(colors)
+    objects = []
+    box("CouchBase", (0.0, 0.0, 0.24), (0.92, 0.60, 0.42), mat, 1,
+        count, objects, bevel=0.006)
+    box("CouchBack", (0.0, 0.23, 0.62), (0.92, 0.18, 0.58), mat, 2,
+        count, objects, bevel=0.006)
+    for side, x in (("L", -0.43), ("R", 0.43)):
+        box("CouchArm_%s" % side, (x, -0.01, 0.46),
+            (0.16, 0.56, 0.46), mat, 3, count, objects, bevel=0.005)
+    for index, x in enumerate((-0.22, 0.22)):
+        box("SeatCushion_%d" % (index + 1), (x, -0.08, 0.49),
+            (0.40, 0.42, 0.16), mat, 4 if index == 0 else 3,
+            count, objects, bevel=0.004)
+        box("BackCushion_%d" % (index + 1), (x, 0.12, 0.70),
+            (0.40, 0.12, 0.34), mat, 3 if index == 0 else 4,
+            count, objects, bevel=0.004)
+    for x in (-0.34, 0.34):
+        box("CouchFoot_%s" % ("L" if x < 0 else "R"),
+            (x, -0.13, 0.045), (0.10, 0.10, 0.09), mat, 6,
+            count, objects, bevel=0.001)
+    return objects, (1.95, -2.75, 1.60), (0.0, 0.0, 0.45)
+
+
+def mansion_material(model_name, colors, roughness=0.84, metallic=0.0):
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MANSION_TEXTURES)
+    return make_material(model_name.replace("_", " ").title() + " pixel paint",
+                         image, roughness=roughness, metallic=metallic)
+
+
+def make_grand_dining_table():
+    colors = ["#151012", "#35201A", "#5B3424", "#845239", "#6A202A",
+              "#A23D48", "#D6C7A2", "#B88A46"]
+    mat = mansion_material("grand_dining_table", colors)
+    count = len(colors)
+    objects = []
+    box("DiningTop", (0.0, 0.0, 0.76), (2.20, 0.84, 0.15), mat, 2,
+        count, objects, bevel=0.008)
+    box("BurgundyRunner", (0.0, -0.005, 0.845), (1.72, 0.34, 0.035), mat, 5,
+        count, objects, bevel=0.002)
+    box("LongApronFront", (0.0, -0.355, 0.65), (1.92, 0.09, 0.20), mat, 1,
+        count, objects, bevel=0.003)
+    box("LongApronBack", (0.0, 0.355, 0.65), (1.92, 0.09, 0.20), mat, 1,
+        count, objects, bevel=0.003)
+    for x in (-0.94, 0.94):
+        for y in (-0.31, 0.31):
+            box("Leg_%s_%s" % ("L" if x < 0 else "R", "F" if y < 0 else "B"),
+                (x, y, 0.34), (0.16, 0.16, 0.68), mat, 1,
+                count, objects, bevel=0.004)
+    for index, x in enumerate((-0.68, 0.68)):
+        cylinder("Plate_%d" % (index + 1), (x, -0.13, 0.885), 0.14, 0.025, 8,
+                 mat, 6, count, objects)
+        cylinder("Goblet_%d" % (index + 1), (x, 0.17, 0.94), 0.045, 0.17, 8,
+                 mat, 7, count, objects)
+        box("GobletHighlight_%d" % (index + 1), (x - 0.018, 0.135, 0.97),
+            (0.018, 0.018, 0.06), mat, 6, count, objects, bevel=0.0)
+    return objects, (2.85, -3.65, 2.35), (0.0, 0.0, 0.48)
+
+
+def make_dining_chair(model_name, cushioned=False, colors=None):
+    colors = colors or ["#160F11", "#32201B", "#5C3728", "#7D4A33", "#651F2B",
+                        "#A53C4D", "#CB7A76", "#B8904C"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    for x in (-0.19, 0.19):
+        for y in (-0.18, 0.18):
+            box("ChairLeg_%s_%s" % ("L" if x < 0 else "R", "F" if y < 0 else "B"),
+                (x, y, 0.225), (0.065, 0.065, 0.45), mat, 1,
+                count, objects, bevel=0.002)
+    box("ChairSeat", (0.0, 0.0, 0.48), (0.50, 0.48, 0.13), mat, 2,
+        count, objects, bevel=0.005)
+    box("SeatCushion", (0.0, -0.015, 0.57), (0.43, 0.40, 0.12), mat,
+        5 if cushioned else 4, count, objects, bevel=0.007)
+    for x in (-0.21, 0.21):
+        box("BackPost_%s" % ("L" if x < 0 else "R"), (x, 0.205, 0.84),
+            (0.07, 0.07, 0.72), mat, 1, count, objects, bevel=0.002)
+    if cushioned:
+        box("SquareBack", (0.0, 0.20, 0.88), (0.37, 0.085, 0.43), mat, 5,
+            count, objects, bevel=0.008)
+        box("BackBand", (0.0, 0.15, 0.88), (0.31, 0.02, 0.055), mat, 6,
+            count, objects, bevel=0.001)
+    else:
+        cylinder("ArchedBack", (0.0, 0.20, 0.89), 0.22, 0.085, 8, mat, 5,
+                 count, objects, rotation=(math.radians(90), 0.0, 0.0))
+        box("ArchedBackLower", (0.0, 0.20, 0.78), (0.40, 0.085, 0.24), mat, 5,
+            count, objects, bevel=0.006)
+    return objects, (1.55, -2.15, 1.55), (0.0, 0.0, 0.56)
+
+
+def make_dining_chandelier():
+    colors = ["#120F0C", "#33291B", "#68502A", "#A87B32", "#D4A94F",
+              "#E8D49B", "#9A3A36"]
+    mat = mansion_material("dining_chandelier", colors, roughness=0.58, metallic=0.28)
+    count = len(colors)
+    objects = []
+    cylinder("CeilingMount", (0.0, 0.0, 1.55), 0.16, 0.08, 8, mat, 2,
+             count, objects)
+    for index, z in enumerate((1.40, 1.27, 1.14, 1.01)):
+        box("ChainLink_%d" % (index + 1), (0.0, 0.0, z),
+            (0.07 if index % 2 else 0.12, 0.12 if index % 2 else 0.07, 0.10),
+            mat, 3, count, objects, bevel=0.001)
+    cylinder("ChandelierHub", (0.0, 0.0, 0.77), 0.20, 0.22, 8, mat, 2,
+             count, objects)
+    cylinder("LowerFinial", (0.0, 0.0, 0.52), 0.10, 0.28, 8, mat, 3,
+             count, objects)
+    for index, (x, y) in enumerate(((-0.38, 0.0), (0.38, 0.0), (0.0, -0.38), (0.0, 0.38))):
+        box("Arm_%d" % (index + 1), (x * 0.5, y * 0.5, 0.76),
+            (abs(x) + 0.08 if x else 0.07, abs(y) + 0.08 if y else 0.07, 0.07),
+            mat, 3, count, objects, bevel=0.002)
+        cylinder("CandleCup_%d" % (index + 1), (x, y, 0.80), 0.09, 0.07, 8,
+                 mat, 4, count, objects)
+        box("Candle_%d" % (index + 1), (x, y, 0.94), (0.09, 0.09, 0.24),
+            mat, 5, count, objects, bevel=0.002)
+        box("Flame_%d" % (index + 1), (x, y, 1.095), (0.055, 0.055, 0.09),
+            mat, 6, count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (2.05, -2.75, 2.10), (0.0, 0.0, 0.95)
+
+
+def make_mansion_bookshelf():
+    colors = ["#130E0C", "#302018", "#533624", "#795239", "#A0744B",
+              "#6F2430", "#29464A", "#8A7331", "#C2AE7F"]
+    mat = mansion_material("mansion_bookshelf", colors)
+    count = len(colors)
+    objects = []
+    box("BookcaseBack", (0.0, 0.18, 0.96), (0.70, 0.10, 1.82), mat, 1,
+        count, objects, bevel=0.003)
+    for x in (-0.37, 0.37):
+        box("BookcasePost_%s" % ("L" if x < 0 else "R"), (x, 0.0, 0.96),
+            (0.09, 0.62, 1.92), mat, 2, count, objects, bevel=0.004)
+    box("BookcaseTop", (0.0, 0.0, 1.89), (0.82, 0.64, 0.12), mat, 4,
+        count, objects, bevel=0.005)
+    box("BookcaseBase", (0.0, 0.0, 0.07), (0.82, 0.64, 0.14), mat, 2,
+        count, objects, bevel=0.004)
+    for shelf_index, shelf_z in enumerate((0.46, 0.87, 1.28, 1.69)):
+        box("Shelf_%d" % (shelf_index + 1), (0.0, -0.03, shelf_z),
+            (0.70, 0.56, 0.075), mat, 3, count, objects, bevel=0.002)
+        for book_index, x in enumerate((-0.25, -0.13, -0.01, 0.11, 0.23)):
+            height = 0.25 + 0.035 * ((book_index + shelf_index) % 3)
+            box("Book_%d_%d" % (shelf_index + 1, book_index + 1),
+                (x, -0.275, shelf_z + 0.04 + height * 0.5),
+                (0.085, 0.09, height), mat, 5 + (book_index + shelf_index) % 4,
+                count, objects, bevel=0.001)
+    return objects, (1.85, -2.65, 2.25), (0.0, 0.0, 0.93)
+
+
+def make_magazine_rack():
+    colors = ["#111112", "#2A2421", "#4E3A2A", "#76563A", "#6B2330",
+              "#A4414C", "#C3A86D", "#DED1AA"]
+    mat = mansion_material("magazine_rack", colors, roughness=0.80, metallic=0.08)
+    count = len(colors)
+    objects = []
+    box("RackBase", (0.0, 0.0, 0.06), (0.60, 0.50, 0.12), mat, 1,
+        count, objects, bevel=0.003)
+    box("RackBack", (0.0, 0.20, 0.55), (0.50, 0.07, 0.96), mat, 2,
+        count, objects, bevel=0.003)
+    for x in (-0.27, 0.27):
+        box("RackPost_%s" % ("L" if x < 0 else "R"), (x, 0.0, 0.55),
+            (0.07, 0.50, 1.02), mat, 1, count, objects, bevel=0.002)
+    for index, z in enumerate((0.28, 0.52, 0.76)):
+        box("RackRail_%d" % (index + 1), (0.0, -0.23, z),
+            (0.55, 0.06, 0.07), mat, 3, count, objects, bevel=0.002)
+        box("Magazine_%d" % (index + 1), (0.0, -0.17, z + 0.12),
+            (0.40, 0.035, 0.30), mat, 4 + index, count, objects,
+            bevel=0.002, rotation=(math.radians(-6 + index * 4), 0.0, 0.0))
+        box("MagazineLabel_%d" % (index + 1), (-0.06, -0.195, z + 0.14),
+            (0.20, 0.012, 0.055), mat, 7, count, objects, bevel=0.0)
+    return objects, (1.55, -2.25, 1.55), (0.0, 0.0, 0.51)
+
+
+def make_mansion_fireplace():
+    colors = ["#100E0D", "#282320", "#4A4139", "#74685B", "#A49A80",
+              "#C6B891", "#752B21", "#E06A28", "#F0B34A"]
+    mat = mansion_material("mansion_fireplace", colors, roughness=0.90)
+    count = len(colors)
+    objects = []
+    box("Hearth", (0.0, -0.04, 0.09), (0.92, 0.64, 0.18), mat, 3,
+        count, objects, bevel=0.004)
+    box("FireplaceBody", (0.0, 0.08, 0.72), (0.84, 0.50, 1.28), mat, 4,
+        count, objects, bevel=0.006)
+    box("FireOpening", (0.0, -0.19, 0.55), (0.48, 0.035, 0.68), mat, 0,
+        count, objects, bevel=0.004)
+    box("FireboxBack", (0.0, -0.215, 0.54), (0.38, 0.025, 0.55), mat, 1,
+        count, objects, bevel=0.002)
+    for x in (-0.34, 0.34):
+        box("StoneColumn_%s" % ("L" if x < 0 else "R"), (x, -0.19, 0.68),
+            (0.20, 0.18, 1.08), mat, 3, count, objects, bevel=0.003)
+    box("Mantel", (0.0, 0.0, 1.40), (1.02, 0.62, 0.18), mat, 5,
+        count, objects, bevel=0.006)
+    box("MantelTrim", (0.0, -0.32, 1.30), (0.90, 0.07, 0.12), mat, 3,
+        count, objects, bevel=0.002)
+    for index, (x, z, region) in enumerate(((-0.12, 0.36, 6), (0.03, 0.39, 7),
+                                            (0.14, 0.35, 8))):
+        box("FireBlock_%d" % (index + 1), (x, -0.245, z),
+            (0.15, 0.04, 0.30 + index * 0.04), mat, region, count, objects,
+            bevel=0.002, rotation=(0.0, math.radians(-12 + index * 12), 0.0))
+    for x in (-0.22, 0.0, 0.22):
+        box("Grate_%s" % str(x), (x, -0.27, 0.49), (0.035, 0.035, 0.48),
+            mat, 2, count, objects, bevel=0.001)
+    box("GrateRail", (0.0, -0.285, 0.31), (0.52, 0.035, 0.05), mat, 2,
+        count, objects, bevel=0.001)
+    return objects, (2.15, -2.85, 2.10), (0.0, 0.0, 0.72)
+
+
+def make_bathroom_stall():
+    colors = ["#131719", "#343A3B", "#656B68", "#AAA697", "#D2C9B2",
+              "#87404A", "#4A737B", "#B8874C"]
+    mat = mansion_material("bathroom_stall", colors, roughness=0.86, metallic=0.10)
+    count = len(colors)
+    objects = []
+    for x in (-0.32, 0.32):
+        box("StallPost_%s" % ("L" if x < 0 else "R"), (x, 0.0, 0.96),
+            (0.075, 0.56, 1.92), mat, 1, count, objects, bevel=0.002)
+        box("StallFoot_%s" % ("L" if x < 0 else "R"), (x, 0.0, 0.06),
+            (0.12, 0.62, 0.12), mat, 0, count, objects, bevel=0.002)
+    box("StallBack", (0.0, 0.255, 1.02), (0.57, 0.05, 1.68), mat, 3,
+        count, objects, bevel=0.002)
+    box("StallDoor", (0.0, -0.275, 1.06), (0.55, 0.045, 1.58), mat, 4,
+        count, objects, bevel=0.002)
+    box("DoorRedBand", (0.0, -0.302, 1.12), (0.55, 0.012, 0.16), mat, 5,
+        count, objects, bevel=0.0)
+    box("DoorBlueBand", (0.0, -0.304, 0.93), (0.55, 0.012, 0.22), mat, 6,
+        count, objects, bevel=0.0)
+    box("DoorHandle", (0.20, -0.315, 1.04), (0.06, 0.025, 0.11), mat, 7,
+        count, objects, bevel=0.001)
+    box("TopRail", (0.0, 0.0, 1.90), (0.68, 0.62, 0.08), mat, 2,
+        count, objects, bevel=0.002)
+    return objects, (1.65, -2.45, 2.15), (0.0, 0.0, 0.95)
+
+
+def make_bathroom_sink():
+    colors = ["#121719", "#394447", "#778183", "#B6B5A8", "#DBD3BD",
+              "#8E3741", "#4A7777", "#C09A49"]
+    mat = mansion_material("bathroom_sink", colors, roughness=0.72, metallic=0.12)
+    count = len(colors)
+    objects = []
+    box("SinkBacksplash", (0.0, 0.17, 1.05), (0.80, 0.10, 0.38), mat, 4,
+        count, objects, bevel=0.005)
+    box("SinkDeck", (0.0, 0.0, 0.88), (0.80, 0.44, 0.14), mat, 4,
+        count, objects, bevel=0.008)
+    box("BasinInset", (0.0, -0.07, 0.96), (0.52, 0.26, 0.035), mat, 2,
+        count, objects, bevel=0.004)
+    cylinder("Drain", (0.0, -0.07, 0.985), 0.055, 0.018, 8, mat, 0,
+             count, objects)
+    for index, x in enumerate((-0.17, 0.17)):
+        cylinder("TapBase_%d" % (index + 1), (x, 0.11, 1.12), 0.055, 0.10, 8,
+                 mat, 7, count, objects)
+        box("TapCross_%d" % (index + 1), (x, 0.11, 1.20),
+            (0.16, 0.045, 0.045), mat, 7, count, objects, bevel=0.001)
+    box("FaucetStem", (0.0, 0.11, 1.17), (0.07, 0.07, 0.22), mat, 7,
+        count, objects, bevel=0.002)
+    box("FaucetSpout", (0.0, -0.01, 1.26), (0.07, 0.27, 0.07), mat, 7,
+        count, objects, bevel=0.002)
+    cylinder("DrainPipe", (0.0, 0.02, 0.44), 0.07, 0.76, 8, mat, 1,
+             count, objects)
+    box("WallTrap", (0.0, 0.14, 0.22), (0.28, 0.12, 0.16), mat, 1,
+        count, objects, bevel=0.003)
+    return objects, (1.75, -2.55, 1.75), (0.0, 0.0, 0.72)
+
+
+def make_bathroom_mirror():
+    colors = ["#111518", "#30393D", "#55656A", "#7D999B", "#A8C3C1",
+              "#742B33", "#B07D42"]
+    mat = mansion_material("bathroom_mirror", colors, roughness=0.42, metallic=0.18)
+    count = len(colors)
+    objects = []
+    box("MirrorBack", (0.0, 0.0, 1.20), (0.70, 0.14, 1.20), mat, 0,
+        count, objects, bevel=0.006)
+    box("MirrorGlass", (0.0, -0.081, 1.20), (0.56, 0.025, 1.02), mat, 4,
+        count, objects, bevel=0.004)
+    for side, x in (("L", -0.32), ("R", 0.32)):
+        box("MirrorFrame%s" % side, (x, -0.08, 1.20), (0.08, 0.07, 1.20),
+            mat, 1, count, objects, bevel=0.002)
+    for side, z in (("Top", 1.76), ("Bottom", 0.64)):
+        box("MirrorFrame%s" % side, (0.0, -0.08, z), (0.70, 0.07, 0.08),
+            mat, 6 if side == "Top" else 1, count, objects, bevel=0.002)
+    for index, (x, z, length, angle) in enumerate((
+            (0.12, 1.54, 0.30, 38), (0.22, 1.41, 0.26, -42),
+            (-0.18, 0.92, 0.24, 52))):
+        box("MirrorCrack_%d" % (index + 1), (x, -0.099, z),
+            (length, 0.009, 0.018), mat, 2, count, objects,
+            bevel=0.0, rotation=(0.0, math.radians(angle), 0.0))
+    return objects, (1.55, -2.15, 1.95), (0.0, 0.0, 1.18)
+
+
+def make_bathroom_vanity():
+    colors = ["#120F0E", "#302018", "#543523", "#7B5235", "#B5A98C",
+              "#D9CEB6", "#4F7B7C", "#B88842"]
+    mat = mansion_material("bathroom_vanity", colors, roughness=0.80, metallic=0.05)
+    count = len(colors)
+    objects = []
+    box("VanityBody", (0.0, 0.02, 0.42), (0.76, 0.44, 0.78), mat, 2,
+        count, objects, bevel=0.005)
+    box("VanityPlinth", (0.0, 0.02, 0.07), (0.80, 0.48, 0.14), mat, 0,
+        count, objects, bevel=0.003)
+    box("VanityTop", (0.0, 0.0, 0.86), (0.82, 0.50, 0.13), mat, 5,
+        count, objects, bevel=0.007)
+    box("VanityBasin", (0.0, -0.07, 0.935), (0.42, 0.24, 0.035), mat, 4,
+        count, objects, bevel=0.004)
+    for index, x in enumerate((-0.19, 0.19)):
+        box("VanityDoor_%d" % (index + 1), (x, -0.215, 0.44),
+            (0.32, 0.025, 0.57), mat, 1, count, objects, bevel=0.002)
+        box("VanityHandle_%d" % (index + 1), (x * 0.38, -0.235, 0.48),
+            (0.045, 0.018, 0.09), mat, 7, count, objects, bevel=0.001)
+    box("VanityMirrorFrame", (0.0, 0.16, 1.36), (0.50, 0.10, 0.67), mat, 3,
+        count, objects, bevel=0.006)
+    box("VanityMirrorGlass", (0.0, 0.10, 1.36), (0.40, 0.025, 0.55), mat, 6,
+        count, objects, bevel=0.004)
+    box("VanityFaucet", (0.0, 0.07, 1.00), (0.07, 0.08, 0.20), mat, 7,
+        count, objects, bevel=0.002)
+    return objects, (1.75, -2.45, 1.95), (0.0, 0.0, 0.82)
+
+
+def make_mansion_couch_variant(model_name, colors, wide=False):
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    width = 1.82 if wide else 0.92
+    arm_x = width * 0.5 - 0.08
+    cushion_centres = (-0.55, 0.0, 0.55) if wide else (-0.22, 0.22)
+    box("CouchBase", (0.0, 0.0, 0.24), (width, 0.60, 0.42), mat, 1,
+        count, objects, bevel=0.006)
+    box("CouchBack", (0.0, 0.23, 0.62), (width, 0.18, 0.58), mat, 2,
+        count, objects, bevel=0.006)
+    for side, x in (("L", -arm_x), ("R", arm_x)):
+        box("CouchArm_%s" % side, (x, -0.01, 0.46), (0.16, 0.56, 0.46),
+            mat, 3, count, objects, bevel=0.005)
+    for index, x in enumerate(cushion_centres):
+        box("SeatCushion_%d" % (index + 1), (x, -0.08, 0.49),
+            (0.50 if wide else 0.40, 0.42, 0.16), mat, 4 if index == 0 else 3,
+            count, objects, bevel=0.004)
+        box("BackCushion_%d" % (index + 1), (x, 0.12, 0.70),
+            (0.50 if wide else 0.40, 0.12, 0.34), mat, 3 if index == 0 else 4,
+            count, objects, bevel=0.004)
+    foot_x = width * 0.5 - 0.18
+    for x in (-foot_x, foot_x):
+        box("CouchFoot_%s" % ("L" if x < 0 else "R"), (x, -0.13, 0.045),
+            (0.10, 0.10, 0.09), mat, 6, count, objects, bevel=0.001)
+    eye = (2.45, -3.15, 1.70) if wide else (1.95, -2.75, 1.60)
+    return objects, eye, (0.0, 0.0, 0.45)
+
+
+def make_ornate_sideboard():
+    colors = ["#120D0B", "#2B1913", "#4F2B1C", "#77492E", "#9B6840",
+              "#C19459", "#D6B66B", "#EEE0BD"]
+    mat = mansion_material("ornate_sideboard", colors, roughness=0.76, metallic=0.04)
+    count = len(colors)
+    objects = []
+    box("SideboardBody", (0.0, 0.02, 0.57), (1.32, 0.58, 0.84), mat, 2,
+        count, objects, bevel=0.006)
+    box("SideboardTop", (0.0, 0.0, 1.04), (1.44, 0.66, 0.15), mat, 4,
+        count, objects, bevel=0.008)
+    box("SideboardPlinth", (0.0, 0.02, 0.12), (1.38, 0.62, 0.16), mat, 1,
+        count, objects, bevel=0.004)
+    for index, x in enumerate((-0.45, 0.0, 0.45)):
+        box("TopDrawer_%d" % (index + 1), (x, -0.292, 0.81),
+            (0.38, 0.025, 0.24), mat, 3, count, objects, bevel=0.002)
+        box("DrawerHandle_%d" % (index + 1), (x, -0.314, 0.82),
+            (0.12, 0.025, 0.045), mat, 6, count, objects, bevel=0.001)
+    for index, x in enumerate((-0.43, 0.43)):
+        box("CabinetDoor_%d" % (index + 1), (x, -0.294, 0.47),
+            (0.55, 0.025, 0.42), mat, 2, count, objects, bevel=0.002)
+        box("DoorInset_%d" % (index + 1), (x, -0.312, 0.47),
+            (0.43, 0.012, 0.31), mat, 1, count, objects, bevel=0.001)
+        box("DoorHandle_%d" % (index + 1), (x * 0.42, -0.326, 0.49),
+            (0.045, 0.018, 0.10), mat, 6, count, objects, bevel=0.001)
+    for x in (-0.63, 0.63):
+        box("CarvedPost_%s" % ("L" if x < 0 else "R"), (x, -0.31, 0.58),
+            (0.09, 0.08, 0.70), mat, 5, count, objects, bevel=0.002)
+    return objects, (2.35, -3.10, 1.85), (0.0, 0.0, 0.58)
+
+
+def make_table_candelabra():
+    colors = ["#110E0A", "#342718", "#715226", "#B88635", "#D9B257",
+              "#EFE0AC", "#9F382C", "#F0A738"]
+    mat = mansion_material("table_candelabra", colors, roughness=0.52, metallic=0.32)
+    count = len(colors)
+    objects = []
+    cylinder("CandelabraBase", (0.0, 0.0, 0.05), 0.16, 0.10, 8, mat, 2,
+             count, objects)
+    cylinder("CandelabraStem", (0.0, 0.0, 0.32), 0.055, 0.50, 8, mat, 3,
+             count, objects)
+    for index, x in enumerate((-0.24, 0.0, 0.24)):
+        if x:
+            box("CandleArm_%d" % (index + 1), (x * 0.5, 0.0, 0.44),
+                (abs(x) + 0.06, 0.055, 0.055), mat, 3, count, objects,
+                bevel=0.001, rotation=(0.0, math.radians(-10 if x < 0 else 10), 0.0))
+        cylinder("CandleCup_%d" % (index + 1), (x, 0.0, 0.49), 0.075, 0.06, 8,
+                 mat, 4, count, objects)
+        box("Candle_%d" % (index + 1), (x, 0.0, 0.63), (0.075, 0.075, 0.25),
+            mat, 5, count, objects, bevel=0.002)
+        box("Flame_%d" % (index + 1), (x, 0.0, 0.79), (0.05, 0.05, 0.08),
+            mat, 7, count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.35, -1.85, 1.20), (0.0, 0.0, 0.38)
+
+
+def make_flower_centerpiece():
+    colors = ["#15100F", "#4A2D24", "#7B4D38", "#C9B890", "#F0E5C7",
+              "#345437", "#6A8A4D", "#B9C786", "#8D3240", "#D2C5AA"]
+    mat = mansion_material("flower_centerpiece", colors, roughness=0.82)
+    count = len(colors)
+    objects = []
+    cylinder("VaseBase", (0.0, 0.0, 0.09), 0.17, 0.18, 8, mat, 2,
+             count, objects)
+    cylinder("VaseBody", (0.0, 0.0, 0.27), 0.20, 0.34, 8, mat, 3,
+             count, objects)
+    cylinder("VaseNeck", (0.0, 0.0, 0.48), 0.11, 0.16, 8, mat, 1,
+             count, objects)
+    for index, (x, y, z, flower_region) in enumerate((
+            (-0.16, 0.02, 0.78, 4), (0.0, -0.04, 0.88, 9),
+            (0.16, 0.03, 0.76, 8), (-0.07, 0.07, 0.68, 4),
+            (0.09, 0.08, 0.70, 9))):
+        box("Stem_%d" % (index + 1), (x * 0.45, y * 0.45, 0.60),
+            (0.028, 0.028, 0.34), mat, 5 + index % 2, count, objects,
+            bevel=0.0, rotation=(0.0, math.radians(x * 35), math.radians(-x * 30)))
+        box("Flower_%d" % (index + 1), (x, y, z), (0.18, 0.14, 0.15),
+            mat, flower_region, count, objects, bevel=0.004,
+            rotation=(0.0, 0.0, math.radians(45 if index % 2 else 0)))
+        box("FlowerCenter_%d" % (index + 1), (x, y - 0.075, z),
+            (0.055, 0.025, 0.055), mat, 7, count, objects, bevel=0.001)
+    return objects, (1.45, -1.95, 1.30), (0.0, 0.0, 0.44)
+
+
+def make_framed_wall_portrait():
+    colors = ["#100C0A", "#2A1811", "#57301B", "#8A582C", "#B78848",
+              "#324345", "#6C7E78", "#B8B394", "#702C31"]
+    mat = mansion_material("framed_wall_portrait", colors, roughness=0.70, metallic=0.05)
+    count = len(colors)
+    objects = []
+    box("PortraitBack", (0.0, 0.0, 1.28), (0.86, 0.12, 1.22), mat, 0,
+        count, objects, bevel=0.004)
+    box("PortraitCanvas", (0.0, -0.072, 1.28), (0.68, 0.025, 1.02), mat, 5,
+        count, objects, bevel=0.001)
+    for side, x in (("L", -0.39), ("R", 0.39)):
+        box("Frame%s" % side, (x, -0.075, 1.28), (0.10, 0.08, 1.22),
+            mat, 3, count, objects, bevel=0.003)
+    for side, z in (("Top", 1.84), ("Bottom", 0.72)):
+        box("Frame%s" % side, (0.0, -0.075, z), (0.86, 0.08, 0.10),
+            mat, 4, count, objects, bevel=0.003)
+    # Pixel-painted haunted landscape: sky, manor silhouette, moon and path.
+    box("PortraitGround", (0.0, -0.089, 1.03), (0.65, 0.008, 0.45), mat, 1,
+        count, objects, bevel=0.0)
+    box("PortraitManor", (0.04, -0.095, 1.25), (0.30, 0.008, 0.30), mat, 0,
+        count, objects, bevel=0.0)
+    box("PortraitRoof", (0.04, -0.099, 1.43), (0.40, 0.008, 0.10), mat, 8,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(9), 0.0))
+    box("PortraitMoon", (-0.20, -0.101, 1.56), (0.13, 0.008, 0.13), mat, 7,
+        count, objects, bevel=0.0)
+    box("PortraitPath", (0.04, -0.102, 0.93), (0.16, 0.008, 0.28), mat, 6,
+        count, objects, bevel=0.0)
+    return objects, (1.65, -2.15, 2.15), (0.0, 0.0, 1.28)
+
+
+def make_wall_sconce():
+    colors = ["#100D09", "#352817", "#745325", "#B88635", "#D9B257",
+              "#EFE0AC", "#9C372E", "#F0A73B"]
+    mat = mansion_material("wall_sconce", colors, roughness=0.50, metallic=0.30)
+    count = len(colors)
+    objects = []
+    box("SconcePlate", (0.0, 0.08, 1.45), (0.24, 0.10, 0.54), mat, 2,
+        count, objects, bevel=0.004)
+    box("SconceArm", (0.0, -0.10, 1.35), (0.07, 0.36, 0.07), mat, 3,
+        count, objects, bevel=0.002, rotation=(math.radians(-12), 0.0, 0.0))
+    cylinder("SconceCup", (0.0, -0.27, 1.44), 0.11, 0.08, 8, mat, 4,
+             count, objects)
+    box("SconceCandle", (0.0, -0.27, 1.62), (0.10, 0.10, 0.30), mat, 5,
+        count, objects, bevel=0.002)
+    box("SconceFlame", (0.0, -0.27, 1.82), (0.06, 0.06, 0.10), mat, 7,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.25, -1.75, 2.10), (0.0, 0.0, 1.42)
+
+
+def make_heavy_drapes():
+    colors = ["#120D0D", "#2B1716", "#4A2922", "#6B4232", "#8C6148",
+              "#B98961", "#C9A55C", "#E1C77E"]
+    mat = mansion_material("heavy_mansion_drapes", colors)
+    count = len(colors)
+    objects = []
+    box("DrapeRail", (0.0, 0.0, 2.14), (1.55, 0.10, 0.10), mat, 6,
+        count, objects, bevel=0.002)
+    for index, x in enumerate((-0.64, -0.50, -0.36, 0.36, 0.50, 0.64)):
+        box("DrapeFold_%d" % (index + 1), (x, -0.01 if index % 2 else 0.02, 1.14),
+            (0.22, 0.09, 2.00), mat, 2 + index % 4, count, objects,
+            bevel=0.002)
+    for side, x in (("L", -0.46), ("R", 0.46)):
+        box("Tieback%s" % side, (x, -0.07, 1.08), (0.24, 0.07, 0.13), mat, 7,
+            count, objects, bevel=0.002)
+        box("DrapeTail%s" % side, (x + (-0.08 if x < 0 else 0.08), -0.02, 0.63),
+            (0.25, 0.08, 0.78), mat, 3, count, objects, bevel=0.002,
+            rotation=(0.0, math.radians(-5 if x < 0 else 5), 0.0))
+    return objects, (2.20, -3.10, 2.55), (0.0, 0.0, 1.08)
+
+
+def make_mansion_area_rug():
+    colors = ["#171110", "#3A2220", "#6D3434", "#96504E", "#AA7B52",
+              "#C3A879", "#D4C49D", "#344143"]
+    mat = mansion_material("mansion_area_rug", colors)
+    count = len(colors)
+    objects = []
+    box("RugField", (0.0, 0.0, 0.018), (2.60, 1.60, 0.036), mat, 2,
+        count, objects, bevel=0.002)
+    for y in (-0.72, 0.72):
+        box("RugBorderY_%s" % str(y), (0.0, y, 0.039), (2.45, 0.12, 0.012),
+            mat, 5, count, objects, bevel=0.0)
+    for x in (-1.22, 1.22):
+        box("RugBorderX_%s" % str(x), (x, 0.0, 0.039), (0.12, 1.35, 0.012),
+            mat, 5, count, objects, bevel=0.0)
+    for row, y in enumerate((-0.42, 0.0, 0.42)):
+        for column, x in enumerate((-0.78, -0.26, 0.26, 0.78)):
+            box("RugMotif_%d_%d" % (row, column), (x, y, 0.047),
+                (0.22, 0.22, 0.012), mat, 4 if (row + column) % 2 else 6,
+                count, objects, bevel=0.0, rotation=(0.0, 0.0, math.radians(45)))
+    return objects, (2.90, -3.55, 2.70), (0.0, 0.0, 0.0)
+
+
+def beach_material(model_name, colors, roughness=0.84, metallic=0.0):
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, BEACH_TEXTURES)
+    return make_material(model_name.replace("_", " ").title() + " pixel paint",
+                         image, roughness=roughness, metallic=metallic)
+
+
+def nether_material(model_name, colors, roughness=0.84, metallic=0.0):
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, NETHER_TEXTURES)
+    return make_material(model_name.replace("_", " ").title() + " pixel paint",
+                         image, roughness=roughness, metallic=metallic)
+
+
+def make_sand_castle():
+    colors = ["#3B2B1B", "#79603B", "#A78955", "#C9AD70", "#E0C98E",
+              "#8AC2C4", "#9A3944"]
+    mat = beach_material("sand_castle", colors)
+    count = len(colors)
+    objects = []
+    # Knee-high beach dressing, not a hunter-sized fortress. Four corner
+    # towers and a stepped keep give it a stronger block-built silhouette.
+    cylinder("SandMound", (0.0, 0.0, 0.05), 0.38, 0.10, 8, mat, 2,
+             count, objects)
+    box("CentralKeep", (0.0, 0.02, 0.27), (0.32, 0.30, 0.42), mat, 3,
+        count, objects, bevel=0.003)
+    for index, (x, y) in enumerate(((-0.22, -0.18), (0.22, -0.18),
+                                     (-0.22, 0.18), (0.22, 0.18))):
+        cylinder("CornerTower_%d" % (index + 1), (x, y, 0.25), 0.11, 0.38,
+                 8, mat, 3 if index % 2 else 4, count, objects)
+        for notch, (ox, oy) in enumerate(((-0.055, 0.0), (0.055, 0.0),
+                                          (0.0, -0.055), (0.0, 0.055))):
+            box("TowerCrenel_%d_%d" % (index + 1, notch + 1),
+                (x + ox, y + oy, 0.48), (0.05, 0.05, 0.10), mat, 4,
+                count, objects, bevel=0.001)
+    for index, (x, y) in enumerate(((-0.11, -0.11), (0.0, -0.11),
+                                     (0.11, -0.11), (-0.11, 0.11),
+                                     (0.0, 0.11), (0.11, 0.11))):
+        box("KeepCrenel_%d" % (index + 1), (x, y, 0.53),
+            (0.055, 0.055, 0.10), mat, 4, count, objects, bevel=0.001)
+    box("CastleArch", (0.0, -0.138, 0.23), (0.11, 0.018, 0.18), mat, 0,
+        count, objects, bevel=0.003)
+    box("FrontStep", (0.0, -0.25, 0.10), (0.26, 0.16, 0.10), mat, 2,
+        count, objects, bevel=0.002)
+    box("FlagPole", (0.0, 0.03, 0.67), (0.025, 0.025, 0.38), mat, 1,
+        count, objects, bevel=0.0)
+    box("Flag", (0.09, 0.03, 0.79), (0.18, 0.025, 0.12), mat, 6,
+        count, objects, bevel=0.001)
+    box("LostBucket", (0.33, -0.16, 0.10), (0.12, 0.12, 0.15), mat, 5,
+        count, objects, bevel=0.002, rotation=(0.0, math.radians(18), 0.0))
+    return objects, (1.35, -1.85, 1.20), (0.0, 0.0, 0.34)
+
+
+def make_beach_umbrella():
+    colors = ["#192327", "#3E666B", "#65A4A8", "#9CC8C8", "#C8C7B5",
+              "#E7DDC7", "#76503A"]
+    mat = beach_material("beach_umbrella", colors)
+    count = len(colors)
+    objects = []
+    cylinder("UmbrellaBase", (0.0, 0.0, 0.07), 0.24, 0.14, 8, mat, 1,
+             count, objects)
+    cylinder("UmbrellaBaseInset", (0.0, 0.0, 0.15), 0.17, 0.06, 8, mat, 3,
+             count, objects)
+    # The complete umbrella is about one and a half 1.70 m hunter bodies tall.
+    # This keeps the canopy comfortably overhead without turning the prop into
+    # a pavilion.
+    cylinder("UmbrellaPole", (0.0, 0.0, 1.28), 0.035, 2.40, 8, mat, 6,
+             count, objects)
+    # A 2.30 m canopy covers two roughly 0.65 m-wide hunters side by side with
+    # room to spare instead of reading as a single-person parasol.
+    cone("UmbrellaCanopy", (0.0, 0.0, 2.40), 1.15, 0.10, 0.24, 8, mat, 2,
+         count, objects)
+    for index, angle in enumerate((0, 45, 90, 135)):
+        box("CreamCanopyStripe_%d" % (index + 1), (0.0, 0.0, 2.315),
+            (2.12, 0.10, 0.035), mat, 5, count, objects, bevel=0.0,
+            rotation=(0.0, 0.0, math.radians(angle)))
+    cylinder("CanopyCap", (0.0, 0.0, 2.56), 0.075, 0.08, 8, mat, 4,
+             count, objects)
+    return objects, (3.10, -4.35, 2.95), (0.0, 0.0, 1.30)
+
+
+def make_tiki_bar():
+    colors = ["#171310", "#33241B", "#5A3B26", "#7E5735", "#A77A48",
+              "#3F7779", "#7EBABC", "#D4DFD4", "#B83E3B", "#D3A14B"]
+    mat = beach_material("tiki_bar", colors)
+    count = len(colors)
+    objects = []
+    box("BarBody", (0.0, 0.0, 0.42), (1.34, 0.66, 0.76), mat, 2,
+        count, objects, bevel=0.005)
+    for index, x in enumerate((-0.52, -0.26, 0.0, 0.26, 0.52)):
+        box("BarPlank_%d" % (index + 1), (x, -0.342, 0.42),
+            (0.22, 0.025, 0.68), mat, 3 if index % 2 else 2,
+            count, objects, bevel=0.001)
+    box("BarCounter", (0.0, 0.0, 0.85), (1.48, 0.78, 0.14), mat, 4,
+        count, objects, bevel=0.006)
+    for side, x in (("L", -0.60), ("R", 0.60)):
+        box("CanopyPost%s" % side, (x, 0.13, 1.58), (0.10, 0.10, 1.48),
+            mat, 3, count, objects, bevel=0.003)
+    box("CanopyRoof", (0.0, 0.10, 2.28), (1.54, 0.84, 0.16), mat, 2,
+        count, objects, bevel=0.005)
+    box("FrozenSign", (0.0, 0.14, 1.86), (0.92, 0.08, 0.30), mat, 5,
+        count, objects, bevel=0.004)
+    box("SignInset", (0.0, 0.09, 1.86), (0.76, 0.025, 0.18), mat, 6,
+        count, objects, bevel=0.002)
+    box("BottleShelf", (0.0, -0.36, 1.12), (0.80, 0.10, 0.08), mat, 1,
+        count, objects, bevel=0.002)
+    for index, x in enumerate((-0.30, -0.20, -0.10, 0.0, 0.10, 0.20, 0.30)):
+        box("Bottle_%d" % (index + 1), (x, -0.38, 1.25),
+            (0.055, 0.055, 0.22 + 0.03 * (index % 2)), mat,
+            5 + index % 5, count, objects, bevel=0.002)
+    for index, x in enumerate((-0.42, -0.14, 0.14, 0.42)):
+        box("Icicle_%d" % (index + 1), (x, -0.34, 2.13),
+            (0.07, 0.05, 0.22 + 0.05 * (index % 2)), mat, 7,
+            count, objects, bevel=0.001)
+    box("RopeDiagonalA", (0.0, -0.365, 0.35), (0.90, 0.025, 0.045), mat, 9,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(26), 0.0))
+    box("RopeDiagonalB", (0.0, -0.368, 0.35), (0.90, 0.025, 0.045), mat, 9,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(-26), 0.0))
+    return objects, (2.85, -3.75, 2.70), (0.0, 0.0, 1.16)
+
+
+def make_beach_chair():
+    colors = ["#131719", "#29383B", "#4A686B", "#69A6AA", "#8EC6C7",
+              "#D7E3DC", "#704B34"]
+    mat = beach_material("beach_chair", colors)
+    count = len(colors)
+    objects = []
+    for side, x in (("L", -0.31), ("R", 0.31)):
+        box("FrontLeg%s" % side, (x, -0.15, 0.30), (0.07, 0.07, 0.52),
+            mat, 6, count, objects, bevel=0.002,
+            rotation=(math.radians(-10), 0.0, 0.0))
+        box("BackLeg%s" % side, (x, 0.15, 0.33), (0.07, 0.07, 0.58),
+            mat, 6, count, objects, bevel=0.002,
+            rotation=(math.radians(16), 0.0, 0.0))
+        box("BackPost%s" % side, (x, 0.10, 0.88), (0.07, 0.07, 0.92),
+            mat, 1, count, objects, bevel=0.002,
+            rotation=(math.radians(-13), 0.0, 0.0))
+    box("ChairSeatCanvas", (0.0, -0.04, 0.50), (0.58, 0.42, 0.08), mat, 3,
+        count, objects, bevel=0.003)
+    box("ChairBackCanvas", (0.0, 0.06, 0.91), (0.58, 0.08, 0.78), mat, 4,
+        count, objects, bevel=0.003,
+        rotation=(math.radians(-13), 0.0, 0.0))
+    for index, z in enumerate((0.63, 0.83, 1.03, 1.23)):
+        box("CanvasFrost_%d" % (index + 1), (0.0, -0.035, z),
+            (0.48, 0.014, 0.045), mat, 5, count, objects, bevel=0.0,
+            rotation=(math.radians(-13), 0.0, 0.0))
+    return objects, (1.70, -2.35, 1.75), (0.0, 0.0, 0.66)
+
+
+def make_surfboard_rack():
+    colors = ["#121719", "#284A4D", "#4C8C8B", "#6EB8B3", "#D9C58D",
+              "#E8DAB1", "#B74C3D", "#755237", "#D6E0D5"]
+    mat = beach_material("surfboard_rack", colors)
+    count = len(colors)
+    objects = []
+    box("RackBase", (0.0, 0.0, 0.09), (1.36, 0.60, 0.18), mat, 0,
+        count, objects, bevel=0.004)
+    for side, x in (("L", -0.62), ("R", 0.62)):
+        box("RackPost%s" % side, (x, 0.0, 0.78), (0.09, 0.56, 1.48), mat, 1,
+            count, objects, bevel=0.003)
+    board_specs = ((-0.40, 3), (0.0, 5), (0.40, 6))
+    for index, (x, region) in enumerate(board_specs):
+        box("BoardBody_%d" % (index + 1), (x, 0.04, 0.88),
+            (0.28, 0.11, 1.16), mat, region, count, objects, bevel=0.004)
+        box("BoardNose_%d" % (index + 1), (x, 0.04, 1.49),
+            (0.21, 0.11, 0.21), mat, region, count, objects, bevel=0.002,
+            rotation=(0.0, math.radians(45), 0.0))
+        box("BoardTail_%d" % (index + 1), (x, 0.04, 0.27),
+            (0.18, 0.11, 0.18), mat, region, count, objects, bevel=0.002,
+            rotation=(0.0, math.radians(45), 0.0))
+        box("BoardStripe_%d" % (index + 1), (x, -0.022, 0.93),
+            (0.06, 0.012, 0.84), mat, 8, count, objects, bevel=0.0)
+    for z in (0.45, 1.08):
+        box("RackRail_%s" % str(z), (0.0, -0.15, z), (1.26, 0.09, 0.10),
+            mat, 7, count, objects, bevel=0.002)
+    box("FrozenTidelineSign", (0.0, -0.18, 0.18), (1.18, 0.08, 0.26), mat, 2,
+        count, objects, bevel=0.003)
+    return objects, (2.35, -3.05, 2.15), (0.0, 0.0, 0.78)
+
+
+def make_palm_tree():
+    colors = ["#101719", "#293C3C", "#4F6E67", "#6F9690", "#9BC0B9",
+              "#4B3022", "#765034", "#A07145", "#D9E4D9", "#A63D49"]
+    mat = beach_material("palm_tree", colors)
+    count = len(colors)
+    objects = []
+    cylinder("PalmPlanter", (0.0, 0.0, 0.12), 0.50, 0.24, 8, mat, 0,
+             count, objects)
+    cylinder("PlanterRim", (0.0, 0.0, 0.25), 0.52, 0.10, 8, mat, 3,
+             count, objects)
+    # Eleven stacked trunk sections make the tree a little over two complete
+    # 1.70 m hunter bodies tall while preserving the connected leaf footprint.
+    for index in range(11):
+        z = 0.40 + index * 0.30
+        cone("TrunkSegment_%d" % (index + 1), (0.0, 0.0, z),
+             0.17 - index * 0.007, 0.15 - index * 0.007, 0.32, 8,
+             mat, 5 + index % 3, count, objects)
+    for index, angle in enumerate(range(0, 360, 45)):
+        radians = math.radians(angle)
+        inner_x, inner_y = math.cos(radians) * 0.25, math.sin(radians) * 0.25
+        middle_x, middle_y = math.cos(radians) * 0.65, math.sin(radians) * 0.65
+        tip_x, tip_y = math.cos(radians) * 0.98, math.sin(radians) * 0.98
+        box("FrondInner_%d" % (index + 1), (inner_x, inner_y, 3.63),
+            (0.60, 0.16, 0.11), mat, 2 + index % 3, count, objects,
+            bevel=0.002, rotation=(0.0, 0.0, radians))
+        box("FrondMiddle_%d" % (index + 1), (middle_x, middle_y, 3.58),
+            (0.54, 0.15, 0.10), mat, 3 + index % 2, count, objects,
+            bevel=0.002, rotation=(0.0, 0.0, radians))
+        box("FrondTip_%d" % (index + 1), (tip_x, tip_y, 3.48),
+            (0.38, 0.12, 0.10), mat, 4, count, objects,
+            bevel=0.002, rotation=(0.0, 0.0, radians))
+    # Small frozen bulbs sit against the front of the trunk rather than
+    # hovering off its corners as the old diagonal offsets did.
+    for index, (x, y, z) in enumerate(((-0.06, -0.13, 0.70), (0.06, -0.13, 1.00),
+                                       (-0.06, -0.13, 1.30), (0.06, -0.13, 1.60),
+                                       (-0.06, -0.13, 1.90), (0.06, -0.13, 2.20),
+                                       (-0.06, -0.12, 2.50), (0.06, -0.11, 2.80),
+                                       (-0.06, -0.10, 3.10))):
+        box("PalmLight_%d" % (index + 1), (x, y, z), (0.08, 0.06, 0.08),
+            mat, 9 if index % 2 else 8, count, objects, bevel=0.001)
+    return objects, (4.40, -5.60, 4.10), (0.0, 0.0, 1.85)
+
+
+def make_frozen_beach_hut():
+    colors = ["#101719", "#293A3C", "#4E7375", "#7FA9A8", "#BED2CC",
+              "#E4E4D6", "#36251D", "#65432D", "#91633E", "#B1433E"]
+    mat = beach_material("frozen_beach_hut", colors)
+    count = len(colors)
+    objects = []
+    box("HutDeck", (0.0, 0.0, 0.20), (2.10, 1.70, 0.22), mat, 7,
+        count, objects, bevel=0.006)
+    for index, (x, y) in enumerate(((-0.82, -0.62), (0.82, -0.62),
+                                     (-0.82, 0.62), (0.82, 0.62))):
+        box("HutStilt_%d" % (index + 1), (x, y, 0.10), (0.16, 0.16, 0.20),
+            mat, 6, count, objects, bevel=0.002)
+    box("HutBody", (0.0, 0.06, 1.30), (1.82, 1.38, 2.02), mat, 8,
+        count, objects, bevel=0.005)
+    for index, x in enumerate((-0.70, -0.42, -0.14, 0.14, 0.42, 0.70)):
+        box("FrontPlank_%d" % (index + 1), (x, -0.642, 1.31),
+            (0.22, 0.025, 1.85), mat, 7 if index % 2 else 8,
+            count, objects, bevel=0.001)
+    box("HutDoor", (0.43, -0.668, 1.22), (0.70, 0.04, 1.82), mat, 6,
+        count, objects, bevel=0.004)
+    box("DoorInset", (0.43, -0.695, 1.22), (0.57, 0.018, 1.65), mat, 1,
+        count, objects, bevel=0.002)
+    box("DoorHandle", (0.16, -0.715, 1.22), (0.06, 0.025, 0.10), mat, 9,
+        count, objects, bevel=0.001)
+    box("WindowFrame", (-0.47, -0.675, 1.55), (0.62, 0.05, 0.68), mat, 6,
+        count, objects, bevel=0.003)
+    box("FrozenWindow", (-0.47, -0.708, 1.55), (0.50, 0.018, 0.56), mat, 3,
+        count, objects, bevel=0.002)
+    box("WindowCrossV", (-0.47, -0.721, 1.55), (0.045, 0.014, 0.56), mat, 5,
+        count, objects, bevel=0.0)
+    box("WindowCrossH", (-0.47, -0.723, 1.55), (0.50, 0.014, 0.045), mat, 5,
+        count, objects, bevel=0.0)
+    box("RoofLeft", (-0.48, 0.02, 2.43), (1.25, 1.75, 0.18), mat, 6,
+        count, objects, bevel=0.004, rotation=(0.0, math.radians(-24), 0.0))
+    box("RoofRight", (0.48, 0.02, 2.43), (1.25, 1.75, 0.18), mat, 6,
+        count, objects, bevel=0.004, rotation=(0.0, math.radians(24), 0.0))
+    for side, x, angle in (("L", -0.50, -24), ("R", 0.50, 24)):
+        box("RoofFrost%s" % side, (x, -0.02, 2.53), (1.18, 1.64, 0.08), mat, 5,
+            count, objects, bevel=0.003, rotation=(0.0, math.radians(angle), 0.0))
+    for index, x in enumerate((-0.68, -0.30, 0.10, 0.52)):
+        box("HutIcicle_%d" % (index + 1), (x, -0.88, 2.19),
+            (0.07, 0.06, 0.28 + 0.06 * (index % 2)), mat, 4,
+            count, objects, bevel=0.001)
+    box("HutSign", (0.0, -0.73, 2.27), (0.58, 0.05, 0.20), mat, 2,
+        count, objects, bevel=0.003)
+    return objects, (3.75, -4.75, 3.45), (0.0, 0.0, 1.40)
+
+
+def make_lava_vent():
+    colors = ["#0B0C0D", "#1C1E21", "#343338", "#553234", "#7D2925",
+              "#C23A20", "#EF6B22", "#F5B33B"]
+    mat = nether_material("lava_vent", colors, roughness=0.70, metallic=0.22)
+    count = len(colors)
+    objects = []
+    cylinder("VentBase", (0.0, 0.0, 0.10), 0.34, 0.20, 8, mat, 1,
+             count, objects)
+    cylinder("VentBody", (0.0, 0.0, 0.31), 0.31, 0.32, 8, mat, 3,
+             count, objects)
+    cylinder("VentTopLip", (0.0, 0.0, 0.50), 0.34, 0.10, 8, mat, 4,
+             count, objects)
+    cylinder("LavaWell", (0.0, 0.0, 0.565), 0.25, 0.04, 8, mat, 6,
+             count, objects)
+    for index, y in enumerate((-0.20, -0.10, 0.0, 0.10, 0.20)):
+        box("VentGrille_%d" % (index + 1), (0.0, y, 0.60),
+            (0.50, 0.045, 0.055), mat, 0, count, objects, bevel=0.001)
+    for index, x in enumerate((-0.18, 0.0, 0.18)):
+        box("LavaGlow_%d" % (index + 1), (x, -0.315, 0.31),
+            (0.08, 0.018, 0.20), mat, 6 + index % 2, count, objects,
+            bevel=0.001)
+    return objects, (1.55, -2.15, 1.25), (0.0, 0.0, 0.28)
+
+
+def make_ember_brazier():
+    colors = ["#090A0C", "#1B1D21", "#33343A", "#4D3A3A", "#782B25",
+              "#BB3B22", "#EC6A20", "#F3AE35"]
+    mat = nether_material("ember_brazier", colors, roughness=0.72, metallic=0.18)
+    count = len(colors)
+    objects = []
+    for index, (x, y) in enumerate(((-0.20, -0.20), (0.20, -0.20),
+                                     (-0.20, 0.20), (0.20, 0.20))):
+        box("BrazierFoot_%d" % (index + 1), (x, y, 0.10),
+            (0.12, 0.12, 0.20), mat, 1, count, objects, bevel=0.002)
+    cone("BrazierBowl", (0.0, 0.0, 0.40), 0.22, 0.30, 0.34, 8, mat, 2,
+         count, objects)
+    cylinder("BrazierRim", (0.0, 0.0, 0.58), 0.31, 0.08, 8, mat, 3,
+             count, objects)
+    cylinder("CoalBed", (0.0, 0.0, 0.625), 0.24, 0.03, 8, mat, 0,
+             count, objects)
+    for index, (x, y, z, region) in enumerate(((-0.11, -0.05, 0.67, 5),
+                                                (0.08, 0.04, 0.69, 6),
+                                                (0.0, -0.07, 0.77, 7),
+                                                (0.13, -0.02, 0.71, 5))):
+        box("Ember_%d" % (index + 1), (x, y, z), (0.13, 0.10, 0.16),
+            mat, region, count, objects, bevel=0.002,
+            rotation=(0.0, math.radians(45 if index % 2 else 0), 0.0))
+    return objects, (1.50, -2.05, 1.30), (0.0, 0.0, 0.40)
+
+
+def make_basalt_pillar():
+    colors = ["#08090B", "#15171B", "#282A30", "#3B3C43", "#55545A",
+              "#762A22", "#C54424", "#EF7628"]
+    mat = nether_material("basalt_pillar", colors, roughness=0.90)
+    count = len(colors)
+    objects = []
+    cylinder("PillarBase", (0.0, 0.0, 0.10), 0.32, 0.20, 8, mat, 1,
+             count, objects)
+    cylinder("PillarBaseTrim", (0.0, 0.0, 0.23), 0.28, 0.10, 8, mat, 3,
+             count, objects)
+    for index, (z, radius, depth) in enumerate(((0.48, 0.23, 0.44),
+                                                 (0.84, 0.22, 0.34),
+                                                 (1.18, 0.23, 0.34),
+                                                 (1.52, 0.21, 0.34))):
+        cylinder("BasaltSegment_%d" % (index + 1), (0.0, 0.0, z), radius,
+                 depth, 8, mat, 2 + index % 3, count, objects,
+                 rotation=(0.0, 0.0, math.radians(11 * index)))
+    cylinder("PillarCap", (0.0, 0.0, 1.73), 0.28, 0.16, 8, mat, 4,
+             count, objects)
+    cylinder("PillarCrown", (0.0, 0.0, 1.84), 0.23, 0.08, 8, mat, 2,
+             count, objects)
+    for index, (x, z, height, region) in enumerate(((-0.13, 0.55, 0.26, 6),
+                                                     (0.12, 0.92, 0.34, 7),
+                                                     (-0.10, 1.31, 0.28, 6))):
+        box("MagmaCrack_%d" % (index + 1), (x, -0.225, z),
+            (0.045, 0.012, height), mat, region, count, objects,
+            bevel=0.0, rotation=(0.0, math.radians(-10 if index % 2 else 10), 0.0))
+    return objects, (1.55, -2.25, 2.10), (0.0, 0.0, 0.90)
+
+
+def make_magma_crystal_cluster():
+    colors = ["#08090B", "#17161A", "#312126", "#632124", "#A52E24",
+              "#DF4B22", "#F27928", "#F6B33D"]
+    mat = nether_material("magma_crystal_cluster", colors, roughness=0.68)
+    count = len(colors)
+    objects = []
+    cylinder("CrystalBed", (0.0, 0.0, 0.06), 0.34, 0.12, 8, mat, 1,
+             count, objects)
+    specs = ((-0.16, 0.02, 0.42, 0.62, -14, 5),
+             (0.02, 0.04, 0.55, 0.88, 4, 7),
+             (0.18, -0.02, 0.34, 0.50, 16, 6),
+             (-0.02, -0.15, 0.26, 0.38, -8, 4))
+    for index, (x, y, z, height, angle, region) in enumerate(specs):
+        box("MagmaCrystal_%d" % (index + 1), (x, y, z),
+            (0.16, 0.16, height), mat, region, count, objects, bevel=0.002,
+            rotation=(0.0, math.radians(angle), math.radians(45)))
+        box("CrystalTip_%d" % (index + 1), (x, y, z + height * 0.52),
+            (0.12, 0.12, 0.12), mat, 7, count, objects, bevel=0.001,
+            rotation=(0.0, math.radians(45), math.radians(45)))
+    return objects, (1.45, -2.00, 1.35), (0.0, 0.0, 0.36)
+
+
+def make_basalt_rubble():
+    colors = ["#08090A", "#15171A", "#282A2F", "#3C3D43", "#56555B",
+              "#872B22", "#D34A24"]
+    mat = nether_material("basalt_rubble", colors)
+    count = len(colors)
+    objects = []
+    specs = ((-0.28, -0.12, 0.14, 0.26), (-0.05, -0.15, 0.20, 0.34),
+             (0.22, -0.10, 0.13, 0.22), (-0.20, 0.14, 0.18, 0.30),
+             (0.08, 0.12, 0.15, 0.25), (0.30, 0.12, 0.10, 0.18))
+    for index, (x, y, z, size) in enumerate(specs):
+        cylinder("Rubble_%d" % (index + 1), (x, y, z + 0.06), size, size * 0.85, 6,
+                 mat, 2 + index % 3, count, objects,
+                 rotation=(math.radians(12 * (index % 2)),
+                           math.radians(8 * (index % 3)),
+                           math.radians(index * 17)))
+    for index, x in enumerate((-0.18, 0.16)):
+        box("RubbleGlow_%d" % (index + 1), (x, -0.30, 0.12),
+            (0.08, 0.018, 0.18), mat, 5 + index, count, objects,
+            bevel=0.001, rotation=(0.0, math.radians(20), 0.0))
+    return objects, (1.55, -2.15, 1.05), (0.0, 0.0, 0.18)
+
+
+def make_inferno_altar():
+    colors = ["#08090B", "#17191D", "#2A2C32", "#44434A", "#6B2926",
+              "#A93626", "#E15424", "#F19A31"]
+    mat = nether_material("inferno_altar", colors, roughness=0.78, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("AltarStepLower", (0.0, 0.0, 0.10), (1.20, 0.82, 0.20), mat, 1,
+        count, objects, bevel=0.004)
+    box("AltarStepUpper", (0.0, 0.0, 0.26), (0.98, 0.68, 0.16), mat, 2,
+        count, objects, bevel=0.004)
+    box("AltarBody", (0.0, 0.05, 0.58), (0.82, 0.56, 0.58), mat, 3,
+        count, objects, bevel=0.005)
+    box("AltarTop", (0.0, 0.0, 0.91), (1.02, 0.72, 0.16), mat, 4,
+        count, objects, bevel=0.005)
+    box("AltarInset", (0.0, -0.295, 0.60), (0.54, 0.025, 0.34), mat, 0,
+        count, objects, bevel=0.002)
+    box("RuneVertical", (0.0, -0.315, 0.60), (0.08, 0.014, 0.28), mat, 6,
+        count, objects, bevel=0.001)
+    box("RuneHorizontal", (0.0, -0.318, 0.60), (0.30, 0.014, 0.07), mat, 7,
+        count, objects, bevel=0.001)
+    for index, x in enumerate((-0.32, 0.32)):
+        box("AltarCandle_%d" % (index + 1), (x, -0.08, 1.08),
+            (0.10, 0.10, 0.28), mat, 5, count, objects, bevel=0.002)
+        box("AltarFlame_%d" % (index + 1), (x, -0.08, 1.27),
+            (0.06, 0.06, 0.10), mat, 7, count, objects, bevel=0.001,
+            rotation=(0.0, math.radians(45), 0.0))
+    return objects, (2.15, -2.85, 1.80), (0.0, 0.0, 0.55)
+
+
+def make_inferno_chain_lantern():
+    colors = ["#07080A", "#15171A", "#2A2D32", "#47474D", "#7A2924",
+              "#B73B22", "#EC6221", "#F3A735"]
+    mat = nether_material("inferno_chain_lantern", colors, roughness=0.66, metallic=0.22)
+    count = len(colors)
+    objects = []
+    cylinder("LanternMount", (0.0, 0.0, 1.55), 0.16, 0.08, 8, mat, 2,
+             count, objects)
+    for index, z in enumerate((1.40, 1.26, 1.12, 0.98)):
+        box("LanternChain_%d" % (index + 1), (0.0, 0.0, z),
+            (0.07 if index % 2 else 0.12, 0.12 if index % 2 else 0.07, 0.10),
+            mat, 3, count, objects, bevel=0.001)
+    box("LanternCageTop", (0.0, 0.0, 0.87), (0.42, 0.42, 0.10), mat, 2,
+        count, objects, bevel=0.003)
+    box("LanternCageBottom", (0.0, 0.0, 0.28), (0.42, 0.42, 0.10), mat, 2,
+        count, objects, bevel=0.003)
+    for index, (x, y) in enumerate(((-0.18, -0.18), (0.18, -0.18),
+                                     (-0.18, 0.18), (0.18, 0.18))):
+        box("LanternBar_%d" % (index + 1), (x, y, 0.58),
+            (0.055, 0.055, 0.62), mat, 1, count, objects, bevel=0.001)
+    box("LanternEmber", (0.0, 0.0, 0.57), (0.24, 0.24, 0.42), mat, 6,
+        count, objects, bevel=0.003)
+    box("LanternHotCore", (0.0, -0.13, 0.57), (0.10, 0.04, 0.24), mat, 7,
+        count, objects, bevel=0.001)
+    return objects, (1.55, -2.15, 1.95), (0.0, 0.0, 0.82)
+
+
+def make_lava_pipe_manifold():
+    colors = ["#090A0B", "#191B1E", "#303237", "#4B4548", "#742C29",
+              "#B23A24", "#E75A21", "#F19B31"]
+    mat = nether_material("lava_pipe_manifold", colors, roughness=0.70, metallic=0.24)
+    count = len(colors)
+    objects = []
+    box("PipeBase", (0.0, 0.0, 0.10), (1.20, 0.64, 0.20), mat, 1,
+        count, objects, bevel=0.004)
+    cylinder("MainPipe", (0.0, 0.0, 0.62), 0.16, 1.12, 8, mat, 2,
+             count, objects, rotation=(0.0, math.radians(90), 0.0))
+    for index, x in enumerate((-0.42, 0.0, 0.42)):
+        cylinder("PipeRiser_%d" % (index + 1), (x, 0.0, 0.48), 0.11,
+                 0.78 - 0.10 * (index % 2), 8, mat, 3, count, objects)
+        cylinder("PipeCollar_%d" % (index + 1), (x, 0.0, 0.75), 0.15,
+                 0.08, 8, mat, 4, count, objects)
+        box("HeatWindow_%d" % (index + 1), (x, -0.12, 0.48),
+            (0.08, 0.025, 0.24), mat, 6 + index % 2, count, objects,
+            bevel=0.001)
+    cylinder("ValveWheel", (0.0, -0.20, 0.94), 0.20, 0.07, 8, mat, 5,
+             count, objects, rotation=(math.radians(90), 0.0, 0.0))
+    box("ValveCrossH", (0.0, -0.245, 0.94), (0.34, 0.04, 0.055), mat, 1,
+        count, objects, bevel=0.001)
+    box("ValveCrossV", (0.0, -0.248, 0.94), (0.055, 0.04, 0.34), mat, 1,
+        count, objects, bevel=0.001)
+    return objects, (2.10, -2.80, 1.65), (0.0, 0.0, 0.50)
+
+
+def make_charred_supply_crate():
+    colors = ["#08090A", "#171719", "#2A2526", "#43302C", "#642B26",
+              "#A73524", "#DD5222", "#ED8D2D"]
+    mat = nether_material("charred_supply_crate", colors)
+    count = len(colors)
+    objects = []
+    box("CharredCrate", (0.0, 0.0, 0.31), (0.74, 0.60, 0.62), mat, 2,
+        count, objects, bevel=0.004)
+    for index, x in enumerate((-0.32, 0.32)):
+        box("CrateBand_%d" % (index + 1), (x, 0.0, 0.31),
+            (0.08, 0.63, 0.62), mat, 1, count, objects, bevel=0.002)
+    box("CrateTopBand", (0.0, 0.0, 0.57), (0.74, 0.63, 0.10), mat, 3,
+        count, objects, bevel=0.002)
+    box("CrateHandle", (0.0, -0.315, 0.35), (0.24, 0.025, 0.10), mat, 0,
+        count, objects, bevel=0.002)
+    for index, (x, z, height) in enumerate(((-0.16, 0.24, 0.26),
+                                             (0.08, 0.38, 0.22),
+                                             (0.23, 0.22, 0.18))):
+        box("CrateMagmaCrack_%d" % (index + 1), (x, -0.329, z),
+            (0.05, 0.012, height), mat, 6 + index % 2, count, objects,
+            bevel=0.0, rotation=(0.0, math.radians(-14 + index * 14), 0.0))
+    return objects, (1.55, -2.15, 1.25), (0.0, 0.0, 0.30)
+
+
+NORMAL_BEDROOM_PALETTES = {
+    "burgundy": ["#120E0E", "#392219", "#633A26", "#8A5738",
+                 "#7B2734", "#B74858", "#D8CBB0", "#EEE5CE", "#B28A48"],
+    "navy": ["#0C1015", "#202D3C", "#334A62", "#4C6A85",
+             "#273B62", "#3F5F91", "#D5CCB5", "#EEE6D3", "#B18A4A"],
+    "violet": ["#110C13", "#30203A", "#52315D", "#74467E",
+               "#71304F", "#A74C76", "#D5C9B3", "#EEE4CF", "#B18A4A"],
+    "olive": ["#0E100A", "#2D321D", "#4C5730", "#6E7943",
+              "#445328", "#73814A", "#D5CCB5", "#EEE6D3", "#B18A4A"],
+    "ivory": ["#1A1714", "#5D5245", "#867968", "#A99B85",
+              "#B9A98D", "#D7C8A9", "#E5DCCB", "#F5EEDD", "#B18A4A"],
+    "charcoal": ["#090A0B", "#1B1D20", "#30343A", "#4A5057",
+                 "#2A2F36", "#59636D", "#CACBC7", "#ECEAE1", "#B18A4A"],
+}
+
+GOTHIC_BEDROOM_PALETTES = {
+    # Indices stay structurally consistent: black iron, dark wood, carved wood,
+    # bright trim, deep textile, bright textile, linen, metal and candlelight.
+    "crimson": ["#080709", "#151117", "#29202B", "#54404D",
+                "#5A101D", "#B2293D", "#D8CFBF", "#8E7448", "#F2B75B"],
+    "violet": ["#080709", "#151117", "#29202B", "#54404D",
+               "#3F174E", "#873AA1", "#D8CFBF", "#8E7448", "#F2B75B"],
+    "midnight": ["#07080A", "#11151B", "#202935", "#455268",
+                 "#101F43", "#294D8B", "#D5D0C3", "#86744E", "#EFB65A"],
+    "forest": ["#070907", "#121813", "#233027", "#46584A",
+               "#17351F", "#347046", "#D5D0C3", "#887448", "#EFB65A"],
+    "ivory": ["#09090A", "#171719", "#2B292C", "#5D565A",
+              "#958B7D", "#D7CDBA", "#F1EBDD", "#92784A", "#F3BA5D"],
+}
+
+
+def make_bedroom_bed(model_name, double=False, colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    # 2.42 m of mattress length comfortably contains the 1.70 m shared body
+    # and the tallest 2.20 m hunter silhouettes without feet hanging over.
+    width = 1.82 if double else 1.08
+    mattress_width = width - 0.14
+    pillow_centres = (-0.43, 0.43) if double else (0.0,)
+    box("BedFrame", (0.0, 0.0, 0.28), (width, 2.62, 0.34), mat, 2,
+        count, objects, bevel=0.005)
+    box("Mattress", (0.0, -0.03, 0.51), (mattress_width, 2.42, 0.24), mat,
+        6, count, objects, bevel=0.006)
+    box("Blanket", (0.0, -0.42, 0.655), (mattress_width - 0.04, 1.48, 0.08),
+        mat, 5, count, objects, bevel=0.004)
+    for index, x in enumerate(pillow_centres):
+        box("Pillow_%d" % (index + 1), (x, 0.88, 0.67),
+            ((0.68 if double else 0.72), 0.46, 0.15), mat, 7,
+            count, objects, bevel=0.008)
+        box("PillowBand_%d" % (index + 1), (x, 0.665, 0.69),
+            ((0.50 if double else 0.54), 0.035, 0.055), mat, 6,
+            count, objects, bevel=0.001)
+    box("HeadboardPanel", (0.0, 1.26, 0.86), (width, 0.14, 0.82), mat, 3,
+        count, objects, bevel=0.005)
+    box("HeadboardInset", (0.0, 1.18, 0.88), (width - 0.22, 0.035, 0.52),
+        mat, 4, count, objects, bevel=0.003)
+    for side, x in (("L", -width * 0.5 + 0.06),
+                    ("R", width * 0.5 - 0.06)):
+        box("HeadPost%s" % side, (x, 1.26, 0.67), (0.12, 0.16, 1.34),
+            mat, 1, count, objects, bevel=0.003)
+        box("Foot%s" % side, (x, -1.21, 0.12), (0.12, 0.12, 0.24),
+            mat, 1, count, objects, bevel=0.002)
+    box("Footboard", (0.0, -1.26, 0.40), (width, 0.13, 0.48), mat, 2,
+        count, objects, bevel=0.004)
+    eye = (2.75, -3.55, 2.20) if double else (2.25, -3.10, 2.05)
+    return objects, eye, (0.0, 0.0, 0.56)
+
+
+def make_bedroom_nightstand(model_name="bedroom_nightstand", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("NightstandBody", (0.0, 0.0, 0.34), (0.52, 0.45, 0.58), mat, 2,
+        count, objects, bevel=0.004)
+    box("NightstandTop", (0.0, -0.01, 0.66), (0.58, 0.50, 0.10), mat, 4,
+        count, objects, bevel=0.005)
+    for index, z in enumerate((0.46, 0.24)):
+        box("NightstandDrawer_%d" % (index + 1), (0.0, -0.231, z),
+            (0.42, 0.025, 0.16), mat, 3, count, objects, bevel=0.002)
+        box("NightstandHandle_%d" % (index + 1), (0.0, -0.251, z),
+            (0.13, 0.024, 0.04), mat, 6, count, objects, bevel=0.001)
+    for x in (-0.21, 0.21):
+        box("NightstandFoot_%s" % ("L" if x < 0 else "R"),
+            (x, 0.0, 0.055), (0.08, 0.35, 0.11), mat, 1,
+            count, objects, bevel=0.002)
+    return objects, (1.45, -2.05, 1.30), (0.0, 0.0, 0.34)
+
+
+def make_bedroom_wardrobe(model_name="bedroom_wardrobe", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("WardrobeBody", (0.0, 0.04, 1.02), (1.08, 0.54, 1.94), mat, 2,
+        count, objects, bevel=0.006)
+    box("WardrobeCrown", (0.0, 0.02, 2.04), (1.20, 0.62, 0.14), mat, 5,
+        count, objects, bevel=0.006)
+    box("WardrobePlinth", (0.0, 0.02, 0.09), (1.16, 0.60, 0.18), mat, 1,
+        count, objects, bevel=0.004)
+    for index, x in enumerate((-0.27, 0.27)):
+        box("WardrobeDoor_%d" % (index + 1), (x, -0.244, 1.10),
+            (0.48, 0.025, 1.62), mat, 3, count, objects, bevel=0.003)
+        box("WardrobeInset_%d" % (index + 1), (x, -0.262, 1.13),
+            (0.36, 0.014, 1.34), mat, 1, count, objects, bevel=0.002)
+        box("WardrobeHandle_%d" % (index + 1),
+            (-0.07 if x < 0 else 0.07, -0.282, 1.08),
+            (0.045, 0.025, 0.22), mat, 6, count, objects, bevel=0.001)
+    box("WardrobeCarvedBand", (0.0, -0.274, 1.86), (0.92, 0.014, 0.12),
+        mat, 7, count, objects, bevel=0.001)
+    return objects, (2.30, -3.10, 2.40), (0.0, 0.0, 1.02)
+
+
+def make_bedroom_dresser(model_name="bedroom_dresser", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("DresserBody", (0.0, 0.02, 0.50), (1.16, 0.50, 0.88), mat, 2,
+        count, objects, bevel=0.005)
+    box("DresserTop", (0.0, 0.0, 0.98), (1.24, 0.56, 0.12), mat, 4,
+        count, objects, bevel=0.006)
+    box("DresserPlinth", (0.0, 0.02, 0.08), (1.20, 0.54, 0.16), mat, 1,
+        count, objects, bevel=0.003)
+    for row, z in enumerate((0.78, 0.52, 0.26)):
+        for column, x in enumerate((-0.28, 0.28)):
+            box("DresserDrawer_%d_%d" % (row + 1, column + 1),
+                (x, -0.244, z), (0.49, 0.025, 0.20), mat, 3,
+                count, objects, bevel=0.002)
+            box("DresserHandle_%d_%d" % (row + 1, column + 1),
+                (x, -0.266, z), (0.15, 0.022, 0.04), mat, 6,
+                count, objects, bevel=0.001)
+    return objects, (2.05, -2.70, 1.70), (0.0, 0.0, 0.49)
+
+
+def make_bedroom_vanity(model_name="bedroom_vanity", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors, roughness=0.76)
+    count = len(colors)
+    objects = []
+    box("VanityTop", (0.0, 0.0, 0.76), (1.02, 0.48, 0.12), mat, 4,
+        count, objects, bevel=0.006)
+    box("VanityDrawer", (0.0, -0.185, 0.64), (0.64, 0.10, 0.20), mat, 2,
+        count, objects, bevel=0.003)
+    box("VanityHandle", (0.0, -0.247, 0.64), (0.17, 0.025, 0.04), mat, 5,
+        count, objects, bevel=0.001)
+    for x in (-0.42, 0.42):
+        box("VanityLeg_%s" % ("L" if x < 0 else "R"), (x, 0.0, 0.36),
+            (0.10, 0.36, 0.72), mat, 1, count, objects, bevel=0.003)
+    box("VanityMirrorBack", (0.0, 0.15, 1.37), (0.66, 0.10, 0.88), mat, 2,
+        count, objects, bevel=0.006)
+    box("VanityMirrorGlass", (0.0, 0.092, 1.37), (0.52, 0.025, 0.72), mat, 7,
+        count, objects, bevel=0.004)
+    for x in (-0.36, 0.36):
+        box("MirrorPost_%s" % ("L" if x < 0 else "R"), (x, 0.15, 1.23),
+            (0.07, 0.09, 1.08), mat, 3, count, objects, bevel=0.002)
+    box("VanityAccent", (0.0, 0.08, 1.78), (0.36, 0.05, 0.07), mat, 8,
+        count, objects, bevel=0.001)
+    return objects, (2.05, -2.70, 2.05), (0.0, 0.0, 0.88)
+
+
+def make_vanity_stool(model_name="vanity_stool", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    for x in (-0.15, 0.15):
+        for y in (-0.13, 0.13):
+            box("StoolLeg_%s_%s" % ("L" if x < 0 else "R",
+                                     "F" if y < 0 else "B"),
+                (x, y, 0.22), (0.065, 0.065, 0.44), mat, 1,
+                count, objects, bevel=0.002)
+    box("StoolSeat", (0.0, 0.0, 0.47), (0.40, 0.36, 0.12), mat, 4,
+        count, objects, bevel=0.006)
+    box("StoolCushion", (0.0, -0.01, 0.55), (0.34, 0.30, 0.08), mat, 5,
+        count, objects, bevel=0.005)
+    return objects, (1.25, -1.75, 1.05), (0.0, 0.0, 0.28)
+
+
+def make_bedside_lamp(model_name="bedside_lamp", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors, roughness=0.62, metallic=0.18)
+    count = len(colors)
+    objects = []
+    box("LampBase", (0.0, 0.0, 0.055), (0.28, 0.24, 0.11), mat, 2,
+        count, objects, bevel=0.003)
+    box("LampStem", (0.0, 0.0, 0.28), (0.07, 0.07, 0.36), mat, 3,
+        count, objects, bevel=0.002)
+    box("LampShade", (0.0, 0.0, 0.52), (0.34, 0.30, 0.26), mat, 5,
+        count, objects, bevel=0.005)
+    box("ShadeBandTop", (0.0, 0.0, 0.64), (0.27, 0.23, 0.04), mat, 6,
+        count, objects, bevel=0.001)
+    box("ShadeBandBottom", (0.0, 0.0, 0.39), (0.36, 0.32, 0.04), mat, 6,
+        count, objects, bevel=0.001)
+    return objects, (1.15, -1.65, 1.10), (0.0, 0.0, 0.30)
+
+
+def make_toy_chest(model_name="toy_chest", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("ChestBody", (0.0, 0.0, 0.28), (0.78, 0.48, 0.48), mat, 2,
+        count, objects, bevel=0.004)
+    box("ChestLid", (0.0, 0.02, 0.56), (0.82, 0.52, 0.16), mat, 4,
+        count, objects, bevel=0.005)
+    for x in (-0.34, 0.34):
+        box("ChestBand_%s" % ("L" if x < 0 else "R"), (x, -0.255, 0.36),
+            (0.08, 0.025, 0.52), mat, 1, count, objects, bevel=0.001)
+    box("ChestLatch", (0.0, -0.274, 0.42), (0.18, 0.035, 0.20), mat, 6,
+        count, objects, bevel=0.002)
+    box("ChestHeart", (0.0, -0.296, 0.43), (0.09, 0.012, 0.08), mat, 7,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.55, -2.10, 1.25), (0.0, 0.0, 0.30)
+
+
+def make_laundry_hamper(model_name="laundry_hamper", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("HamperBody", (0.0, 0.0, 0.34), (0.48, 0.44, 0.64), mat, 4,
+        count, objects, bevel=0.004)
+    box("HamperInset", (0.0, -0.226, 0.35), (0.36, 0.025, 0.48), mat, 2,
+        count, objects, bevel=0.002)
+    for x in (-0.13, 0.0, 0.13):
+        box("HamperWeaveV_%s" % str(x), (x, -0.244, 0.35),
+            (0.035, 0.018, 0.50), mat, 5, count, objects, bevel=0.0)
+    for z in (0.20, 0.34, 0.48):
+        box("HamperWeaveH_%s" % str(z), (0.0, -0.247, z),
+            (0.38, 0.018, 0.035), mat, 3, count, objects, bevel=0.0)
+    box("HamperRim", (0.0, 0.0, 0.69), (0.54, 0.50, 0.09), mat, 6,
+        count, objects, bevel=0.004)
+    box("FoldedCloth", (0.10, -0.04, 0.76), (0.25, 0.30, 0.09), mat, 7,
+        count, objects, bevel=0.003)
+    return objects, (1.35, -1.90, 1.30), (0.0, 0.0, 0.38)
+
+
+def make_bedroom_rug(model_name="bedroom_rug", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors, roughness=0.96)
+    count = len(colors)
+    objects = []
+    box("RugBase", (0.0, 0.0, 0.025), (1.72, 1.18, 0.05), mat, 1,
+        count, objects, bevel=0.003)
+    box("RugBorderOuter", (0.0, -0.001, 0.052), (1.58, 1.04, 0.014), mat, 5,
+        count, objects, bevel=0.001)
+    box("RugField", (0.0, -0.002, 0.062), (1.38, 0.84, 0.014), mat, 3,
+        count, objects, bevel=0.001)
+    box("RugCenter", (0.0, -0.003, 0.072), (0.78, 0.40, 0.014), mat, 6,
+        count, objects, bevel=0.001)
+    for x, y in ((-0.52, -0.26), (0.52, -0.26), (-0.52, 0.26), (0.52, 0.26)):
+        box("RugDiamond_%s_%s" % (str(x), str(y)), (x, y, 0.082),
+            (0.20, 0.20, 0.014), mat, 7, count, objects, bevel=0.0,
+            rotation=(0.0, 0.0, math.radians(45)))
+    return objects, (2.25, -2.75, 2.10), (0.0, 0.0, 0.0)
+
+
+def make_bedroom_wall_clock(model_name="bedroom_wall_clock", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors, roughness=0.72,
+                           metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("ClockBack", (0.0, 0.0, 1.40), (0.52, 0.12, 0.62), mat, 1,
+        count, objects, bevel=0.006)
+    box("ClockFace", (0.0, -0.071, 1.45), (0.40, 0.025, 0.40), mat, 5,
+        count, objects, bevel=0.004)
+    for x, z, width, height in ((0.0, 1.65, 0.04, 0.07),
+                                (0.0, 1.25, 0.04, 0.07),
+                                (-0.20, 1.45, 0.07, 0.04),
+                                (0.20, 1.45, 0.07, 0.04)):
+        box("ClockMarker_%s_%s" % (str(x), str(z)), (x, -0.088, z),
+            (width, 0.012, height), mat, 7, count, objects, bevel=0.0)
+    box("ClockHandHour", (-0.055, -0.096, 1.49), (0.13, 0.012, 0.025), mat, 6,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(22), 0.0))
+    box("ClockHandMinute", (0.035, -0.099, 1.54), (0.025, 0.012, 0.19), mat, 6,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(-12), 0.0))
+    box("ClockPendulumCase", (0.0, 0.0, 1.02), (0.34, 0.11, 0.34), mat, 2,
+        count, objects, bevel=0.004)
+    box("ClockPendulum", (0.0, -0.068, 1.04), (0.08, 0.025, 0.24), mat, 7,
+        count, objects, bevel=0.002)
+    return objects, (1.45, -2.05, 1.70), (0.0, 0.0, 1.35)
+
+
+def make_bedroom_bench(model_name="bedroom_bench", colors=None):
+    colors = colors or NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    for x in (-0.42, 0.42):
+        for y in (-0.14, 0.14):
+            box("BenchLeg_%s_%s" % ("L" if x < 0 else "R",
+                                     "F" if y < 0 else "B"),
+                (x, y, 0.22), (0.08, 0.08, 0.44), mat, 1,
+                count, objects, bevel=0.002)
+    box("BenchFrame", (0.0, 0.0, 0.42), (1.02, 0.38, 0.18), mat, 2,
+        count, objects, bevel=0.004)
+    box("BenchCushion", (0.0, -0.01, 0.56), (0.94, 0.34, 0.18), mat, 5,
+        count, objects, bevel=0.006)
+    for x in (-0.30, 0.0, 0.30):
+        box("BenchTuft_%s" % str(x), (x, -0.185, 0.57),
+            (0.045, 0.018, 0.045), mat, 7, count, objects, bevel=0.001)
+    return objects, (1.75, -2.35, 1.25), (0.0, 0.0, 0.30)
+
+
+def gothic_arch(prefix, center, width, height, depth, thickness, mat, region,
+                count, objects):
+    """Two crisp diagonal beams form a low-poly pointed Gothic arch."""
+    x, y, z = center
+    half_width = width * 0.5
+    half_height = height * 0.5
+    length = math.sqrt(half_width * half_width + half_height * half_height)
+    angle = math.degrees(math.atan2(half_height, half_width))
+    box(prefix + "Left", (x - width * 0.25, y, z + height * 0.25),
+        (length, depth, thickness), mat, region, count, objects, bevel=0.001,
+        rotation=(0.0, math.radians(-angle), 0.0))
+    box(prefix + "Right", (x + width * 0.25, y, z + height * 0.25),
+        (length, depth, thickness), mat, region, count, objects, bevel=0.001,
+        rotation=(0.0, math.radians(angle), 0.0))
+
+
+def make_gothic_bed(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.80, metallic=0.08)
+    count = len(colors)
+    objects = []
+    width = 1.86
+    box("GothicBedFrame", (0.0, 0.0, 0.31), (width, 2.64, 0.38), mat, 2,
+        count, objects, bevel=0.003)
+    box("GothicMattress", (0.0, -0.03, 0.55), (1.68, 2.42, 0.24), mat, 6,
+        count, objects, bevel=0.004)
+    box("GothicBlanket", (0.0, -0.42, 0.69), (1.64, 1.50, 0.08), mat, 5,
+        count, objects, bevel=0.003)
+    for index, x in enumerate((-0.43, 0.43)):
+        box("GothicPillow_%d" % (index + 1), (x, 0.88, 0.71),
+            (0.68, 0.46, 0.15), mat, 5 if index == 0 else 4,
+            count, objects, bevel=0.005)
+        box("PillowTrim_%d" % (index + 1), (x, 0.665, 0.73),
+            (0.52, 0.026, 0.045), mat, 7, count, objects, bevel=0.0)
+    box("TallHeadboard", (0.0, 1.27, 1.18), (1.76, 0.16, 1.50), mat, 1,
+        count, objects, bevel=0.003)
+    box("HeadboardVelvet", (0.0, 1.175, 1.14), (1.40, 0.025, 0.88), mat, 4,
+        count, objects, bevel=0.002)
+    gothic_arch("HeadboardArch", (0.0, 1.15, 1.55), 1.40, 0.72, 0.05,
+                0.095, mat, 3, count, objects)
+    box("HeadboardSpire", (0.0, 1.15, 2.02), (0.13, 0.05, 0.28), mat, 7,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    for side, x in (("L", -0.87), ("R", 0.87)):
+        box("HeadPost%s" % side, (x, 1.26, 1.10), (0.13, 0.16, 2.20), mat, 0,
+            count, objects, bevel=0.002)
+        box("FootPost%s" % side, (x, -1.26, 1.10), (0.13, 0.16, 2.20), mat, 0,
+            count, objects, bevel=0.002)
+        for end, y in (("Head", 1.26), ("Foot", -1.26)):
+            box("%s%sFinial" % (end, side), (x, y, 2.27),
+                (0.18, 0.18, 0.18), mat, 7, count, objects, bevel=0.001,
+                rotation=(0.0, math.radians(45), 0.0))
+    box("CanopyHeadRail", (0.0, 1.26, 2.12), (1.86, 0.10, 0.10), mat, 1,
+        count, objects, bevel=0.001)
+    box("CanopyFootRail", (0.0, -1.26, 2.12), (1.86, 0.10, 0.10), mat, 1,
+        count, objects, bevel=0.001)
+    for side, x in (("L", -0.87), ("R", 0.87)):
+        box("CanopySide%s" % side, (x, 0.0, 2.12), (0.10, 2.52, 0.10), mat, 1,
+            count, objects, bevel=0.001)
+    box("GothicFootboard", (0.0, -1.28, 0.52), (1.76, 0.14, 0.62), mat, 1,
+        count, objects, bevel=0.003)
+    gothic_arch("FootboardArch", (0.0, -1.365, 0.53), 1.24, 0.46, 0.035,
+                0.075, mat, 3, count, objects)
+    return objects, (3.15, -4.10, 2.65), (0.0, 0.0, 1.05)
+
+
+def make_gothic_nightstand(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.82, metallic=0.06)
+    count = len(colors)
+    objects = []
+    box("NightstandBody", (0.0, 0.0, 0.37), (0.58, 0.47, 0.66), mat, 2,
+        count, objects, bevel=0.003)
+    box("NightstandTop", (0.0, -0.01, 0.74), (0.66, 0.54, 0.10), mat, 3,
+        count, objects, bevel=0.003)
+    box("PointedDoor", (0.0, -0.245, 0.37), (0.43, 0.025, 0.48), mat, 1,
+        count, objects, bevel=0.001)
+    gothic_arch("DoorArch", (0.0, -0.265, 0.47), 0.34, 0.25, 0.014,
+                0.045, mat, 7, count, objects)
+    box("DoorPull", (0.12, -0.28, 0.33), (0.045, 0.025, 0.08), mat, 7,
+        count, objects, bevel=0.001)
+    for x in (-0.24, 0.24):
+        box("ClawFoot%s" % str(x), (x, -0.02, 0.055), (0.10, 0.35, 0.11),
+            mat, 0, count, objects, bevel=0.001)
+    return objects, (1.50, -2.10, 1.38), (0.0, 0.0, 0.38)
+
+
+def make_gothic_wardrobe(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.82, metallic=0.07)
+    count = len(colors)
+    objects = []
+    box("WardrobeBody", (0.0, 0.04, 1.10), (1.18, 0.58, 2.10), mat, 2,
+        count, objects, bevel=0.004)
+    box("WardrobePlinth", (0.0, 0.02, 0.10), (1.28, 0.64, 0.20), mat, 0,
+        count, objects, bevel=0.002)
+    box("WardrobeCrown", (0.0, 0.02, 2.18), (1.32, 0.66, 0.16), mat, 3,
+        count, objects, bevel=0.003)
+    for index, x in enumerate((-0.30, 0.30)):
+        box("WardrobeDoor_%d" % (index + 1), (x, -0.267, 1.14),
+            (0.52, 0.025, 1.72), mat, 1, count, objects, bevel=0.002)
+        gothic_arch("WardrobeArch_%d" % (index + 1),
+                    (x, -0.286, 1.63), 0.39, 0.42, 0.012, 0.052,
+                    mat, 3, count, objects)
+        box("WardrobeHandle_%d" % (index + 1),
+            (-0.07 if x < 0 else 0.07, -0.292, 1.12),
+            (0.045, 0.025, 0.22), mat, 7, count, objects, bevel=0.001)
+    for x in (-0.52, 0.0, 0.52):
+        box("CrownSpire%s" % str(x), (x, 0.0, 2.36),
+            (0.14, 0.14, 0.25), mat, 0 if x else 7, count, objects,
+            bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (2.55, -3.40, 2.65), (0.0, 0.0, 1.14)
+
+
+def make_gothic_dresser(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.82, metallic=0.06)
+    count = len(colors)
+    objects = []
+    box("DresserBody", (0.0, 0.02, 0.52), (1.26, 0.54, 0.92), mat, 2,
+        count, objects, bevel=0.003)
+    box("DresserTop", (0.0, 0.0, 1.03), (1.36, 0.61, 0.13), mat, 3,
+        count, objects, bevel=0.003)
+    box("DresserPlinth", (0.0, 0.02, 0.09), (1.32, 0.58, 0.18), mat, 0,
+        count, objects, bevel=0.002)
+    for row, z in enumerate((0.80, 0.53, 0.26)):
+        for column, x in enumerate((-0.31, 0.31)):
+            box("Drawer_%d_%d" % (row, column), (x, -0.266, z),
+                (0.53, 0.025, 0.21), mat, 1, count, objects, bevel=0.001)
+            box("DrawerDiamond_%d_%d" % (row, column), (x, -0.285, z),
+                (0.11, 0.016, 0.11), mat, 4, count, objects, bevel=0.0,
+                rotation=(0.0, math.radians(45), 0.0))
+            box("DrawerPull_%d_%d" % (row, column), (x, -0.299, z),
+                (0.045, 0.018, 0.045), mat, 7, count, objects, bevel=0.001)
+    return objects, (2.20, -2.95, 1.82), (0.0, 0.0, 0.52)
+
+
+def make_gothic_vanity(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.76, metallic=0.08)
+    count = len(colors)
+    objects = []
+    box("VanityTop", (0.0, 0.0, 0.78), (1.10, 0.50, 0.13), mat, 3,
+        count, objects, bevel=0.003)
+    box("VanityDrawer", (0.0, -0.19, 0.65), (0.70, 0.10, 0.21), mat, 2,
+        count, objects, bevel=0.002)
+    box("VanityPull", (0.0, -0.252, 0.65), (0.18, 0.025, 0.045), mat, 7,
+        count, objects, bevel=0.001)
+    for x in (-0.46, 0.46):
+        box("VanityLeg%s" % str(x), (x, 0.0, 0.37), (0.10, 0.38, 0.74),
+            mat, 0, count, objects, bevel=0.002)
+    box("MirrorBack", (0.0, 0.17, 1.43), (0.72, 0.11, 0.92), mat, 1,
+        count, objects, bevel=0.003)
+    box("MirrorGlass", (0.0, 0.105, 1.39), (0.55, 0.025, 0.64), mat, 6,
+        count, objects, bevel=0.002)
+    gothic_arch("MirrorArch", (0.0, 0.09, 1.69), 0.55, 0.48, 0.025,
+                0.070, mat, 3, count, objects)
+    box("MirrorSpire", (0.0, 0.09, 1.99), (0.11, 0.05, 0.21), mat, 7,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (2.20, -2.90, 2.25), (0.0, 0.0, 0.96)
+
+
+def make_gothic_stool(model_name, colors):
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    for x in (-0.16, 0.16):
+        for y in (-0.14, 0.14):
+            box("StoolLeg%s%s" % (str(x), str(y)), (x, y, 0.23),
+                (0.07, 0.07, 0.46), mat, 0, count, objects, bevel=0.001)
+    box("StoolFrame", (0.0, 0.0, 0.46), (0.44, 0.38, 0.10), mat, 2,
+        count, objects, bevel=0.002)
+    box("VelvetCushion", (0.0, -0.01, 0.55), (0.38, 0.32, 0.10), mat, 5,
+        count, objects, bevel=0.004)
+    box("CushionTuft", (0.0, -0.18, 0.56), (0.05, 0.015, 0.05), mat, 7,
+        count, objects, bevel=0.001)
+    return objects, (1.30, -1.80, 1.08), (0.0, 0.0, 0.28)
+
+
+def make_gothic_bench(model_name, colors):
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    for x in (-0.45, 0.45):
+        for y in (-0.15, 0.15):
+            box("BenchLeg%s%s" % (str(x), str(y)), (x, y, 0.23),
+                (0.08, 0.08, 0.46), mat, 0, count, objects, bevel=0.001)
+    box("BenchFrame", (0.0, 0.0, 0.44), (1.10, 0.42, 0.18), mat, 2,
+        count, objects, bevel=0.002)
+    box("VelvetCushion", (0.0, -0.01, 0.58), (1.01, 0.37, 0.18), mat, 5,
+        count, objects, bevel=0.004)
+    for x in (-0.33, 0.0, 0.33):
+        box("BenchTuft%s" % str(x), (x, -0.202, 0.59),
+            (0.05, 0.016, 0.05), mat, 7, count, objects, bevel=0.001)
+    for x in (-0.51, 0.51):
+        box("BenchFinial%s" % str(x), (x, 0.0, 0.58),
+            (0.12, 0.12, 0.12), mat, 3, count, objects, bevel=0.001,
+            rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.85, -2.45, 1.30), (0.0, 0.0, 0.31)
+
+
+def make_gothic_rug(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.97)
+    count = len(colors)
+    objects = []
+    box("RugBase", (0.0, 0.0, 0.025), (2.20, 1.42, 0.05), mat, 0,
+        count, objects, bevel=0.002)
+    box("RugBorder", (0.0, -0.001, 0.052), (2.03, 1.25, 0.014), mat, 7,
+        count, objects, bevel=0.001)
+    box("RugField", (0.0, -0.002, 0.062), (1.82, 1.04, 0.014), mat, 4,
+        count, objects, bevel=0.001)
+    for x in (-0.65, 0.0, 0.65):
+        box("GothicDiamond%s" % str(x), (x, 0.0, 0.078),
+            (0.34, 0.34, 0.014), mat, 5 if x else 6, count, objects,
+            bevel=0.0, rotation=(0.0, 0.0, math.radians(45)))
+    for x in (-0.92, 0.92):
+        box("RugCrossV%s" % str(x), (x, 0.0, 0.080),
+            (0.07, 0.55, 0.014), mat, 3, count, objects, bevel=0.0)
+        box("RugCrossH%s" % str(x), (x, 0.0, 0.081),
+            (0.30, 0.07, 0.014), mat, 3, count, objects, bevel=0.0)
+    return objects, (2.65, -3.25, 2.45), (0.0, 0.0, 0.0)
+
+
+def make_gothic_bedside_candelabra(model_name, colors):
+    mat = mansion_material(model_name, colors, roughness=0.50, metallic=0.32)
+    count = len(colors)
+    objects = []
+    box("CandelabraBase", (0.0, 0.0, 0.045), (0.28, 0.22, 0.09), mat, 0,
+        count, objects, bevel=0.002)
+    box("CandelabraStem", (0.0, 0.0, 0.28), (0.06, 0.06, 0.42), mat, 7,
+        count, objects, bevel=0.001)
+    for index, x in enumerate((-0.18, 0.0, 0.18)):
+        if x:
+            box("CandleArm_%d" % index, (x * 0.5, 0.0, 0.41),
+                (abs(x) + 0.04, 0.045, 0.045), mat, 7, count, objects,
+                bevel=0.001, rotation=(0.0, math.radians(-12 if x < 0 else 12), 0.0))
+        box("Candle_%d" % index, (x, 0.0, 0.57), (0.07, 0.07, 0.28), mat, 6,
+            count, objects, bevel=0.001)
+        box("Flame_%d" % index, (x, 0.0, 0.76), (0.055, 0.055, 0.09), mat, 8,
+            count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.25, -1.75, 1.15), (0.0, 0.0, 0.36)
+
+
+def make_mansion_console_table():
+    colors = NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material("mansion_console_table", colors)
+    count = len(colors)
+    objects = []
+    box("ConsoleTop", (0.0, 0.0, 0.84), (1.22, 0.42, 0.13), mat, 3,
+        count, objects, bevel=0.004)
+    box("ConsoleApron", (0.0, 0.02, 0.70), (1.04, 0.30, 0.18), mat, 2,
+        count, objects, bevel=0.002)
+    for x in (-0.49, 0.49):
+        box("ConsoleLeg%s" % str(x), (x, 0.02, 0.38),
+            (0.10, 0.24, 0.76), mat, 1, count, objects, bevel=0.002)
+    box("ConsoleDrawer", (0.0, -0.202, 0.72), (0.48, 0.025, 0.13), mat, 4,
+        count, objects, bevel=0.001)
+    box("ConsolePull", (0.0, -0.222, 0.72), (0.14, 0.020, 0.04), mat, 8,
+        count, objects, bevel=0.001)
+    return objects, (2.05, -2.70, 1.55), (0.0, 0.0, 0.45)
+
+
+def make_mansion_grandfather_clock():
+    colors = NORMAL_BEDROOM_PALETTES["charcoal"]
+    mat = mansion_material("mansion_grandfather_clock", colors, metallic=0.10)
+    count = len(colors)
+    objects = []
+    box("ClockCase", (0.0, 0.02, 1.02), (0.58, 0.38, 1.92), mat, 2,
+        count, objects, bevel=0.004)
+    box("ClockCrown", (0.0, 0.0, 2.04), (0.70, 0.45, 0.18), mat, 3,
+        count, objects, bevel=0.004)
+    box("ClockFace", (0.0, -0.193, 1.65), (0.42, 0.025, 0.42), mat, 7,
+        count, objects, bevel=0.003)
+    box("HourHand", (-0.05, -0.213, 1.67), (0.14, 0.015, 0.025), mat, 0,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(18), 0.0))
+    box("MinuteHand", (0.03, -0.214, 1.72), (0.025, 0.015, 0.20), mat, 0,
+        count, objects, bevel=0.0, rotation=(0.0, math.radians(-10), 0.0))
+    box("PendulumWindow", (0.0, -0.194, 0.77), (0.34, 0.025, 0.66), mat, 6,
+        count, objects, bevel=0.002)
+    box("PendulumRod", (0.0, -0.213, 0.83), (0.04, 0.015, 0.43), mat, 8,
+        count, objects, bevel=0.0)
+    box("PendulumBob", (0.0, -0.216, 0.60), (0.16, 0.015, 0.16), mat, 8,
+        count, objects, bevel=0.002, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.70, -2.35, 2.35), (0.0, 0.0, 1.08)
+
+
+def make_mansion_coat_rack():
+    colors = NORMAL_BEDROOM_PALETTES["burgundy"]
+    mat = mansion_material("mansion_coat_rack", colors)
+    count = len(colors)
+    objects = []
+    box("RackBase", (0.0, 0.0, 0.06), (0.52, 0.52, 0.12), mat, 1,
+        count, objects, bevel=0.003)
+    box("RackPost", (0.0, 0.0, 0.91), (0.12, 0.12, 1.70), mat, 2,
+        count, objects, bevel=0.002)
+    box("RackCrown", (0.0, 0.0, 1.82), (0.20, 0.20, 0.20), mat, 8,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    for index, angle in enumerate((0, 90, 180, 270)):
+        radians = math.radians(angle)
+        x, y = math.cos(radians) * 0.20, math.sin(radians) * 0.20
+        box("CoatHook_%d" % index, (x * 0.5, y * 0.5, 1.60),
+            (0.42 if angle % 180 == 0 else 0.08,
+             0.42 if angle % 180 else 0.08, 0.07), mat, 3, count, objects,
+            bevel=0.001)
+    return objects, (1.45, -2.05, 2.05), (0.0, 0.0, 0.90)
+
+
+def make_mansion_tea_cart():
+    colors = NORMAL_BEDROOM_PALETTES["ivory"]
+    mat = mansion_material("mansion_tea_cart", colors, metallic=0.08)
+    count = len(colors)
+    objects = []
+    for z in (0.34, 0.76):
+        box("CartShelf%s" % str(z), (0.0, 0.0, z), (1.05, 0.48, 0.10), mat, 3,
+            count, objects, bevel=0.003)
+    for x in (-0.46, 0.46):
+        for y in (-0.19, 0.19):
+            box("CartPost%s%s" % (str(x), str(y)), (x, y, 0.50),
+                (0.07, 0.07, 0.86), mat, 1, count, objects, bevel=0.001)
+    box("CartHandle", (0.0, 0.25, 0.92), (1.05, 0.07, 0.07), mat, 8,
+        count, objects, bevel=0.001)
+    for x in (-0.44, 0.44):
+        box("CartWheel%s" % str(x), (x, 0.0, 0.13), (0.18, 0.10, 0.18), mat, 0,
+            count, objects, bevel=0.002, rotation=(0.0, math.radians(45), 0.0))
+    box("TeaPot", (0.15, -0.03, 0.89), (0.24, 0.20, 0.20), mat, 6,
+        count, objects, bevel=0.004)
+    box("TeaPotLid", (0.15, -0.03, 1.01), (0.12, 0.10, 0.05), mat, 8,
+        count, objects, bevel=0.001)
+    for x in (-0.22, -0.04):
+        box("TeaCup%s" % str(x), (x, -0.05, 0.86), (0.12, 0.12, 0.13), mat, 7,
+            count, objects, bevel=0.002)
+    return objects, (1.90, -2.55, 1.45), (0.0, 0.0, 0.50)
+
+
+def make_mansion_rocking_chair():
+    colors = NORMAL_BEDROOM_PALETTES["olive"]
+    mat = mansion_material("mansion_rocking_chair", colors)
+    count = len(colors)
+    objects = []
+    box("Seat", (0.0, -0.02, 0.52), (0.62, 0.58, 0.14), mat, 3,
+        count, objects, bevel=0.004)
+    box("SeatCushion", (0.0, -0.04, 0.62), (0.54, 0.49, 0.12), mat, 5,
+        count, objects, bevel=0.004)
+    box("ChairBack", (0.0, 0.25, 1.08), (0.60, 0.13, 0.94), mat, 2,
+        count, objects, bevel=0.003, rotation=(math.radians(-7), 0.0, 0.0))
+    for x in (-0.25, 0.25):
+        box("BackSlat%s" % str(x), (x, 0.17, 1.10), (0.07, 0.08, 0.78), mat, 6,
+            count, objects, bevel=0.001)
+        box("Arm%s" % str(x), (x, -0.03, 0.83), (0.09, 0.55, 0.09), mat, 3,
+            count, objects, bevel=0.002)
+        box("Leg%s" % str(x), (x, 0.0, 0.31), (0.08, 0.42, 0.55), mat, 1,
+            count, objects, bevel=0.001)
+        box("Rocker%s" % str(x), (x, 0.0, 0.07), (0.10, 0.94, 0.10), mat, 1,
+            count, objects, bevel=0.004)
+    return objects, (1.75, -2.35, 1.65), (0.0, 0.0, 0.72)
+
+
+def make_mansion_room_divider():
+    colors = NORMAL_BEDROOM_PALETTES["violet"]
+    mat = mansion_material("mansion_room_divider", colors)
+    count = len(colors)
+    objects = []
+    for index, x in enumerate((-0.72, -0.24, 0.24, 0.72)):
+        angle = math.radians(8 if index % 2 else -8)
+        box("DividerPanel_%d" % index, (x, 0.0, 1.02),
+            (0.44, 0.10, 1.92), mat, 2, count, objects, bevel=0.003,
+            rotation=(0.0, 0.0, angle))
+        box("DividerInset_%d" % index, (x, -0.061, 1.08),
+            (0.32, 0.025, 1.48), mat, 5, count, objects, bevel=0.002,
+            rotation=(0.0, 0.0, angle))
+        for z in (0.42, 1.72):
+            box("DividerBand_%d_%s" % (index, str(z)), (x, -0.078, z),
+                (0.34, 0.016, 0.07), mat, 7, count, objects, bevel=0.0,
+                rotation=(0.0, 0.0, angle))
+    return objects, (2.55, -3.35, 2.35), (0.0, 0.0, 1.04)
+
+
+def make_gothic_highback_chair(model_name, colors):
+    mat = mansion_material(model_name, colors)
+    count = len(colors)
+    objects = []
+    box("ChairSeat", (0.0, 0.0, 0.56), (0.66, 0.60, 0.16), mat, 2,
+        count, objects, bevel=0.003)
+    box("VelvetSeat", (0.0, -0.04, 0.67), (0.55, 0.49, 0.13), mat, 5,
+        count, objects, bevel=0.004)
+    box("TallBack", (0.0, 0.27, 1.22), (0.68, 0.16, 1.20), mat, 1,
+        count, objects, bevel=0.003)
+    box("VelvetBack", (0.0, 0.175, 1.23), (0.52, 0.025, 0.82), mat, 4,
+        count, objects, bevel=0.003)
+    gothic_arch("ChairArch", (0.0, 0.15, 1.66), 0.52, 0.38, 0.025,
+                0.065, mat, 3, count, objects)
+    for x in (-0.30, 0.30):
+        box("ChairArm%s" % str(x), (x, -0.02, 0.88),
+            (0.10, 0.56, 0.10), mat, 3, count, objects, bevel=0.002)
+        box("ChairLeg%s" % str(x), (x, 0.0, 0.29),
+            (0.09, 0.46, 0.58), mat, 0, count, objects, bevel=0.001)
+    box("ChairCrest", (0.0, 0.15, 1.98), (0.14, 0.08, 0.23), mat, 7,
+        count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.85, -2.50, 2.05), (0.0, 0.0, 0.95)
+
+
+def make_gothic_writing_desk():
+    colors = GOTHIC_BEDROOM_PALETTES["crimson"]
+    mat = mansion_material("gothic_writing_desk", colors)
+    count = len(colors)
+    objects = []
+    box("DeskTop", (0.0, 0.0, 0.80), (1.38, 0.62, 0.14), mat, 3,
+        count, objects, bevel=0.003)
+    box("DeskApron", (0.0, 0.10, 0.66), (1.22, 0.30, 0.18), mat, 2,
+        count, objects, bevel=0.002)
+    for x in (-0.58, 0.58):
+        box("DeskLeg%s" % str(x), (x, 0.10, 0.37),
+            (0.11, 0.40, 0.74), mat, 0, count, objects, bevel=0.001)
+    for x in (-0.38, 0.0, 0.38):
+        box("DeskDrawer%s" % str(x), (x, -0.316, 0.69),
+            (0.32, 0.025, 0.16), mat, 1, count, objects, bevel=0.001)
+        box("DeskPull%s" % str(x), (x, -0.335, 0.69),
+            (0.05, 0.016, 0.05), mat, 7, count, objects, bevel=0.001)
+    gothic_arch("DeskApronArch", (0.0, -0.20, 0.49), 0.72, 0.34, 0.04,
+                0.06, mat, 3, count, objects)
+    return objects, (2.30, -3.05, 1.55), (0.0, 0.0, 0.45)
+
+
+def make_gothic_bookcase():
+    colors = GOTHIC_BEDROOM_PALETTES["violet"]
+    mat = mansion_material("gothic_bookcase", colors)
+    count = len(colors)
+    objects = []
+    box("BookcaseBack", (0.0, 0.16, 1.08), (1.14, 0.18, 2.08), mat, 1,
+        count, objects, bevel=0.003)
+    for x in (-0.54, 0.54):
+        box("BookcasePost%s" % str(x), (x, 0.0, 1.10),
+            (0.12, 0.46, 2.20), mat, 0, count, objects, bevel=0.002)
+        box("BookcaseSpire%s" % str(x), (x, 0.0, 2.32),
+            (0.16, 0.16, 0.24), mat, 7, count, objects, bevel=0.001,
+            rotation=(0.0, math.radians(45), 0.0))
+    for index, z in enumerate((0.22, 0.68, 1.14, 1.60, 2.06)):
+        box("BookcaseShelf_%d" % index, (0.0, 0.0, z),
+            (1.10, 0.46, 0.10), mat, 3, count, objects, bevel=0.002)
+    book_colors = (4, 5, 6, 7)
+    for row, z in enumerate((0.43, 0.89, 1.35, 1.81)):
+        for column, x in enumerate((-0.38, -0.13, 0.12, 0.37)):
+            box("Book_%d_%d" % (row, column), (x, -0.08, z),
+                (0.18, 0.25, 0.32 + 0.03 * ((row + column) % 2)), mat,
+                book_colors[(row + column) % len(book_colors)], count, objects,
+                bevel=0.001)
+    gothic_arch("BookcaseCrownArch", (0.0, -0.11, 2.05), 0.76, 0.42, 0.05,
+                0.07, mat, 3, count, objects)
+    return objects, (2.45, -3.30, 2.65), (0.0, 0.0, 1.12)
+
+
+def make_gothic_pedestal_table():
+    colors = GOTHIC_BEDROOM_PALETTES["forest"]
+    mat = mansion_material("gothic_pedestal_table", colors)
+    count = len(colors)
+    objects = []
+    box("PedestalBase", (0.0, 0.0, 0.07), (0.58, 0.58, 0.14), mat, 0,
+        count, objects, bevel=0.002)
+    box("PedestalStem", (0.0, 0.0, 0.43), (0.18, 0.18, 0.68), mat, 2,
+        count, objects, bevel=0.002)
+    box("PedestalCollar", (0.0, 0.0, 0.72), (0.34, 0.34, 0.12), mat, 3,
+        count, objects, bevel=0.002, rotation=(0.0, 0.0, math.radians(45)))
+    box("PedestalTop", (0.0, 0.0, 0.83), (0.76, 0.76, 0.14), mat, 1,
+        count, objects, bevel=0.003)
+    box("TopInlay", (0.0, 0.0, 0.91), (0.46, 0.46, 0.025), mat, 5,
+        count, objects, bevel=0.001, rotation=(0.0, 0.0, math.radians(45)))
+    return objects, (1.55, -2.10, 1.45), (0.0, 0.0, 0.45)
+
+
+def make_gothic_floor_candelabra():
+    colors = GOTHIC_BEDROOM_PALETTES["ivory"]
+    mat = mansion_material("gothic_floor_candelabra", colors, metallic=0.34)
+    count = len(colors)
+    objects = []
+    box("CandelabraBase", (0.0, 0.0, 0.07), (0.52, 0.44, 0.14), mat, 0,
+        count, objects, bevel=0.002)
+    box("CandelabraStem", (0.0, 0.0, 0.82), (0.09, 0.09, 1.46), mat, 7,
+        count, objects, bevel=0.001)
+    for index, x in enumerate((-0.34, -0.17, 0.0, 0.17, 0.34)):
+        if x:
+            box("CandelabraArm_%d" % index, (x * 0.5, 0.0, 1.35 - abs(x) * 0.25),
+                (abs(x) + 0.05, 0.055, 0.055), mat, 7, count, objects,
+                bevel=0.001, rotation=(0.0, math.radians(-12 if x < 0 else 12), 0.0))
+        candle_z = 1.55 - abs(x) * 0.18
+        box("FloorCandle_%d" % index, (x, 0.0, candle_z),
+            (0.08, 0.08, 0.28), mat, 6, count, objects, bevel=0.001)
+        box("FloorFlame_%d" % index, (x, 0.0, candle_z + 0.19),
+            (0.055, 0.055, 0.09), mat, 8, count, objects, bevel=0.001,
+            rotation=(0.0, math.radians(45), 0.0))
+    return objects, (1.55, -2.15, 2.00), (0.0, 0.0, 0.86)
+
+
+def make_gothic_coffin_chest():
+    colors = GOTHIC_BEDROOM_PALETTES["crimson"]
+    mat = mansion_material("gothic_coffin_chest", colors)
+    count = len(colors)
+    objects = []
+    box("CoffinChestBody", (0.0, 0.0, 0.30), (0.98, 0.50, 0.52), mat, 2,
+        count, objects, bevel=0.002)
+    box("CoffinLid", (0.0, 0.0, 0.60), (1.03, 0.55, 0.14), mat, 1,
+        count, objects, bevel=0.002)
+    for x in (-0.39, 0.39):
+        box("CoffinCorner%s" % str(x), (x, -0.275, 0.35),
+            (0.10, 0.025, 0.52), mat, 0, count, objects, bevel=0.001)
+    box("CoffinCrossV", (0.0, -0.296, 0.39), (0.09, 0.014, 0.34), mat, 7,
+        count, objects, bevel=0.0)
+    box("CoffinCrossH", (0.0, -0.297, 0.43), (0.30, 0.014, 0.08), mat, 7,
+        count, objects, bevel=0.0)
+    box("CoffinLatch", (0.0, -0.30, 0.59), (0.20, 0.022, 0.12), mat, 5,
+        count, objects, bevel=0.001)
+    return objects, (1.75, -2.35, 1.30), (0.0, 0.0, 0.33)
+
+
+KITCHEN_PALETTES = {
+    # dark outline, wood/body, panel, cabinet, worktop, metal, recess,
+    # glass/accent, textile/accent, indicator/highlight
+    "normal": ["#141517", "#5A402E", "#826044", "#C7B99A", "#6E7475",
+               "#A9B0AE", "#242729", "#77A3A0", "#A95A43", "#E8C86B"],
+    "luxury": ["#100E0D", "#3B241A", "#68422A", "#E0D2B5", "#D9D2C2",
+               "#B88A43", "#252223", "#739195", "#7B2636", "#F0D083"],
+    "gothic": ["#08080A", "#171319", "#30252F", "#4C454D", "#676169",
+               "#93733F", "#121115", "#65415F", "#711A2A", "#E8AF59"],
+}
+
+
+def kitchen_material(model_name, style):
+    metallic = 0.12 if style == "luxury" else (0.08 if style == "gothic" else 0.03)
+    return mansion_material(model_name, KITCHEN_PALETTES[style],
+                            roughness=0.78, metallic=metallic)
+
+
+def add_kitchen_front_detail(objects, mat, count, style, width, center_z=0.45):
+    panel_region = 3 if style == "normal" else 2
+    for index, x in enumerate((-width * 0.24, width * 0.24)):
+        box("CabinetDoor_%d" % (index + 1), (x, -0.316, center_z),
+            (width * 0.43, 0.026, 0.53), mat, panel_region, count, objects,
+            bevel=0.003)
+        box("CabinetHandle_%d" % (index + 1),
+            (x + (-0.08 if x > 0 else 0.08), -0.334, center_z + 0.02),
+            (0.035, 0.025, 0.19), mat, 5, count, objects, bevel=0.001)
+    if style == "luxury":
+        box("GoldPlinthTrim", (0.0, -0.333, 0.13), (width - 0.12, 0.025, 0.045),
+            mat, 5, count, objects, bevel=0.001)
+    elif style == "gothic":
+        gothic_arch("GothicCabinetArch", (0.0, -0.339, 0.56), width * 0.82,
+                    0.28, 0.022, 0.045, mat, 5, count, objects)
+
+
+def make_kitchen_counter(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    box("CounterPlinth", (0.0, 0.0, 0.08), (1.28, 0.56, 0.16), mat, 0,
+        count, objects, bevel=0.002)
+    box("CounterBody", (0.0, 0.0, 0.46), (1.34, 0.60, 0.76), mat, 1,
+        count, objects, bevel=0.004)
+    box("Worktop", (0.0, -0.01, 0.89), (1.46, 0.66, 0.12), mat, 4,
+        count, objects, bevel=0.005)
+    box("TopBacksplash", (0.0, 0.30, 1.00), (1.42, 0.08, 0.20), mat,
+        4 if style != "gothic" else 2, count, objects, bevel=0.003)
+    add_kitchen_front_detail(objects, mat, count, style, 1.34)
+    return objects, (2.20, -3.00, 1.65), (0.0, 0.0, 0.48)
+
+
+def make_kitchen_sink(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    box("SinkPlinth", (0.0, 0.0, 0.08), (1.06, 0.56, 0.16), mat, 0,
+        count, objects, bevel=0.002)
+    box("SinkCabinet", (0.0, 0.0, 0.46), (1.12, 0.60, 0.76), mat, 1,
+        count, objects, bevel=0.004)
+    box("SinkWorktop", (0.0, -0.01, 0.89), (1.22, 0.66, 0.12), mat, 4,
+        count, objects, bevel=0.005)
+    box("SinkBasin", (0.0, -0.06, 0.965), (0.58, 0.40, 0.055), mat, 6,
+        count, objects, bevel=0.006)
+    box("SinkRim", (0.0, -0.06, 1.00), (0.68, 0.50, 0.035), mat, 5,
+        count, objects, bevel=0.004)
+    box("BasinOpening", (0.0, -0.06, 1.022), (0.54, 0.36, 0.015), mat, 7,
+        count, objects, bevel=0.003)
+    box("FaucetPost", (0.0, 0.19, 1.18), (0.07, 0.07, 0.38), mat, 5,
+        count, objects, bevel=0.002)
+    box("FaucetSpout", (0.0, 0.07, 1.35), (0.07, 0.28, 0.07), mat, 5,
+        count, objects, bevel=0.002)
+    box("FaucetDrop", (0.0, -0.055, 1.29), (0.07, 0.07, 0.15), mat, 5,
+        count, objects, bevel=0.002)
+    add_kitchen_front_detail(objects, mat, count, style, 1.12)
+    return objects, (2.10, -2.85, 1.80), (0.0, 0.0, 0.60)
+
+
+def make_kitchen_stove(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    box("RangeBody", (0.0, 0.0, 0.46), (0.78, 0.64, 0.92), mat,
+        3 if style == "normal" else 2, count, objects, bevel=0.004)
+    box("Cooktop", (0.0, -0.01, 0.94), (0.82, 0.66, 0.08), mat, 6,
+        count, objects, bevel=0.003)
+    for index, (x, y) in enumerate(((-0.22, -0.16), (0.22, -0.16),
+                                     (-0.22, 0.16), (0.22, 0.16))):
+        cylinder("Burner_%d" % (index + 1), (x, y, 0.995), 0.13, 0.035, 8,
+                 mat, 5, count, objects)
+    box("OvenDoor", (0.0, -0.326, 0.48), (0.63, 0.028, 0.50), mat, 6,
+        count, objects, bevel=0.003)
+    box("OvenWindow", (0.0, -0.345, 0.50), (0.48, 0.018, 0.31), mat, 7,
+        count, objects, bevel=0.002)
+    box("OvenHandle", (0.0, -0.37, 0.76), (0.54, 0.055, 0.055), mat, 5,
+        count, objects, bevel=0.002)
+    box("RangeControls", (0.0, -0.335, 0.86), (0.68, 0.035, 0.14), mat,
+        1 if style == "normal" else 2, count, objects, bevel=0.002)
+    for index, x in enumerate((-0.24, -0.08, 0.08, 0.24)):
+        cylinder("RangeKnob_%d" % (index + 1), (x, -0.365, 0.87), 0.035,
+                 0.035, 8, mat, 9 if index == 0 else 5, count, objects,
+                 rotation=(math.radians(90), 0.0, 0.0))
+    if style == "gothic":
+        gothic_arch("OvenArch", (0.0, -0.363, 0.63), 0.58, 0.36, 0.02,
+                    0.045, mat, 5, count, objects)
+    return objects, (1.80, -2.45, 1.55), (0.0, 0.0, 0.48)
+
+
+def make_kitchen_fridge(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    box("FridgeBody", (0.0, 0.0, 0.96), (0.82, 0.70, 1.92), mat,
+        3 if style == "normal" else 2, count, objects, bevel=0.006)
+    box("UpperDoor", (0.0, -0.362, 1.39), (0.74, 0.028, 0.78), mat,
+        4 if style == "normal" else 3, count, objects, bevel=0.003)
+    box("LowerDoor", (0.0, -0.362, 0.56), (0.74, 0.028, 0.76), mat,
+        4 if style == "normal" else 3, count, objects, bevel=0.003)
+    for z in (0.58, 1.40):
+        box("FridgeHandle_%s" % str(z), (0.29, -0.397, z),
+            (0.055, 0.055, 0.48), mat, 5, count, objects, bevel=0.002)
+    box("FridgeVent", (0.0, -0.386, 0.12), (0.46, 0.018, 0.09), mat, 6,
+        count, objects, bevel=0.001)
+    if style == "luxury":
+        box("FridgeGoldBand", (0.0, -0.386, 0.98), (0.76, 0.018, 0.045),
+            mat, 5, count, objects, bevel=0.001)
+    elif style == "gothic":
+        gothic_arch("FridgeCrown", (0.0, -0.37, 1.91), 0.76, 0.28, 0.025,
+                    0.055, mat, 5, count, objects)
+    return objects, (1.95, -2.70, 2.25), (0.0, 0.0, 0.95)
+
+
+def make_kitchen_wall_cabinet(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    # Geometry retains its authored wall height; its origin remains at floor
+    # level so Godot mounts every style consistently.
+    box("WallCabinetBody", (0.0, 0.0, 1.66), (1.12, 0.38, 0.82), mat, 1,
+        count, objects, bevel=0.004)
+    for index, x in enumerate((-0.28, 0.28)):
+        box("WallCabinetDoor_%d" % (index + 1), (x, -0.201, 1.66),
+            (0.50, 0.025, 0.68), mat, 3 if style == "normal" else 2,
+            count, objects, bevel=0.003)
+        box("WallCabinetKnob_%d" % (index + 1),
+            (x + (-0.19 if x > 0 else 0.19), -0.222, 1.65),
+            (0.045, 0.025, 0.07), mat, 5, count, objects, bevel=0.001)
+    box("CabinetCrown", (0.0, 0.0, 2.10), (1.20, 0.42, 0.10), mat,
+        5 if style == "luxury" else 2, count, objects, bevel=0.003)
+    if style == "gothic":
+        gothic_arch("WallCabinetArch", (0.0, -0.218, 1.92), 1.02, 0.34,
+                    0.02, 0.05, mat, 5, count, objects)
+    return objects, (2.10, -2.85, 2.45), (0.0, 0.0, 1.28)
+
+
+def make_kitchen_island(model_name, style):
+    mat = kitchen_material(model_name, style)
+    count = len(KITCHEN_PALETTES[style])
+    objects = []
+    box("IslandPlinth", (0.0, 0.0, 0.08), (1.34, 0.68, 0.16), mat, 0,
+        count, objects, bevel=0.002)
+    box("IslandBody", (0.0, 0.0, 0.46), (1.44, 0.72, 0.76), mat, 1,
+        count, objects, bevel=0.004)
+    box("IslandWorktop", (0.0, 0.0, 0.89), (1.62, 0.88, 0.12), mat, 4,
+        count, objects, bevel=0.005)
+    for x in (-0.45, 0.0, 0.45):
+        box("IslandPanel_%s" % str(x), (x, -0.372, 0.47),
+            (0.37, 0.025, 0.56), mat, 3 if style == "normal" else 2,
+            count, objects, bevel=0.003)
+    if style == "luxury":
+        box("MarbleIslandInlay", (0.0, -0.01, 0.962), (1.34, 0.62, 0.025),
+            mat, 3, count, objects, bevel=0.003)
+    elif style == "gothic":
+        gothic_arch("IslandGothicArch", (0.0, -0.391, 0.60), 1.30, 0.34,
+                    0.02, 0.05, mat, 5, count, objects)
+    return objects, (2.35, -3.15, 1.70), (0.0, 0.0, 0.47)
+
+
+def make_normal_bookcase():
+    colors = KITCHEN_PALETTES["normal"]
+    mat = mansion_material("normal_bookcase", colors)
+    count = len(colors)
+    objects = []
+    box("BookcaseBack", (0.0, 0.12, 0.91), (0.96, 0.12, 1.82), mat, 1,
+        count, objects, bevel=0.003)
+    for x in (-0.46, 0.46):
+        box("BookcaseSide%s" % str(x), (x, 0.0, 0.91), (0.10, 0.38, 1.82),
+            mat, 2, count, objects, bevel=0.002)
+    for index, z in enumerate((0.08, 0.50, 0.92, 1.34, 1.78)):
+        box("BookcaseShelf_%d" % index, (0.0, 0.0, z), (0.92, 0.38, 0.10),
+            mat, 2, count, objects, bevel=0.002)
+    for shelf, z in enumerate((0.30, 0.72, 1.14, 1.56)):
+        for index, x in enumerate((-0.32, -0.17, -0.01, 0.16, 0.32)):
+            height = 0.25 + ((shelf + index) % 3) * 0.035
+            box("Book_%d_%d" % (shelf, index), (x, -0.15, z),
+                (0.12, 0.12, height), mat, 7 + (shelf + index) % 3,
+                count, objects, bevel=0.001)
+    return objects, (2.05, -2.80, 2.15), (0.0, 0.0, 0.92)
+
+
+def make_normal_coffee_table():
+    colors = KITCHEN_PALETTES["normal"]
+    mat = mansion_material("normal_coffee_table", colors)
+    count = len(colors)
+    objects = []
+    box("CoffeeTableTop", (0.0, 0.0, 0.46), (1.22, 0.70, 0.14), mat, 2,
+        count, objects, bevel=0.006)
+    box("CoffeeTableShelf", (0.0, 0.0, 0.20), (1.04, 0.56, 0.09), mat, 1,
+        count, objects, bevel=0.003)
+    for x in (-0.49, 0.49):
+        for y in (-0.24, 0.24):
+            box("CoffeeLeg%s%s" % (x, y), (x, y, 0.23), (0.10, 0.10, 0.46),
+                mat, 1, count, objects, bevel=0.002)
+    return objects, (1.90, -2.55, 1.25), (0.0, 0.0, 0.24)
+
+
+def make_normal_tv_console():
+    colors = KITCHEN_PALETTES["normal"]
+    mat = mansion_material("normal_tv_console", colors)
+    count = len(colors)
+    objects = []
+    box("TVConsoleBody", (0.0, 0.0, 0.34), (1.32, 0.44, 0.62), mat, 1,
+        count, objects, bevel=0.004)
+    box("TVConsoleTop", (0.0, 0.0, 0.69), (1.40, 0.48, 0.10), mat, 2,
+        count, objects, bevel=0.004)
+    for x in (-0.38, 0.38):
+        box("ConsoleDoor%s" % str(x), (x, -0.228, 0.36), (0.50, 0.025, 0.43),
+            mat, 3, count, objects, bevel=0.003)
+        box("ConsoleKnob%s" % str(x), (x, -0.25, 0.38), (0.05, 0.025, 0.06),
+            mat, 5, count, objects, bevel=0.001)
+    box("TelevisionBody", (0.0, 0.02, 1.14), (0.92, 0.22, 0.72), mat, 6,
+        count, objects, bevel=0.008)
+    box("TelevisionScreen", (-0.07, -0.102, 1.17), (0.66, 0.025, 0.48), mat,
+        7, count, objects, bevel=0.006)
+    for z in (1.03, 1.17, 1.31):
+        box("TVControl%s" % str(z), (0.38, -0.115, z), (0.07, 0.025, 0.07),
+            mat, 9 if z == 1.31 else 5, count, objects, bevel=0.001)
+    return objects, (2.20, -3.00, 1.95), (0.0, 0.0, 0.72)
+
+
+def make_normal_entry_bench():
+    colors = KITCHEN_PALETTES["normal"]
+    mat = mansion_material("normal_entry_bench", colors)
+    count = len(colors)
+    objects = []
+    box("EntryBenchSeat", (0.0, 0.0, 0.52), (1.20, 0.42, 0.16), mat, 2,
+        count, objects, bevel=0.005)
+    box("EntryBenchBack", (0.0, 0.17, 1.02), (1.20, 0.10, 0.86), mat, 1,
+        count, objects, bevel=0.004)
+    box("EntryCushion", (0.0, -0.02, 0.63), (1.08, 0.36, 0.12), mat, 8,
+        count, objects, bevel=0.006)
+    for x in (-0.48, 0.48):
+        box("EntryBenchLeg%s" % str(x), (x, 0.0, 0.25), (0.10, 0.10, 0.50),
+            mat, 1, count, objects, bevel=0.002)
+    for x in (-0.36, 0.0, 0.36):
+        box("CoatHook%s" % str(x), (x, 0.10, 1.25), (0.07, 0.12, 0.12),
+            mat, 5, count, objects, bevel=0.002)
+    return objects, (2.05, -2.75, 1.75), (0.0, 0.0, 0.68)
+
+
+def make_mansion_display_cabinet():
+    colors = KITCHEN_PALETTES["luxury"]
+    mat = mansion_material("mansion_display_cabinet", colors, roughness=0.74,
+                           metallic=0.08)
+    count = len(colors)
+    objects = []
+    box("DisplayCabinetBody", (0.0, 0.08, 1.05), (1.10, 0.40, 2.10), mat, 1,
+        count, objects, bevel=0.005)
+    box("DisplayGlass", (0.0, -0.132, 1.28), (0.90, 0.025, 1.28), mat, 7,
+        count, objects, bevel=0.003)
+    for z in (0.68, 1.10, 1.52):
+        box("DisplayShelf%s" % str(z), (0.0, -0.02, z), (0.90, 0.32, 0.07),
+            mat, 5, count, objects, bevel=0.002)
+    for x in (-0.49, 0.49):
+        box("DisplayPillar%s" % str(x), (x, -0.13, 1.05), (0.10, 0.08, 2.02),
+            mat, 2, count, objects, bevel=0.002)
+    box("DisplayCrown", (0.0, 0.04, 2.14), (1.22, 0.46, 0.16), mat, 5,
+        count, objects, bevel=0.004)
+    for index, (x, z) in enumerate(((-0.28, 0.86), (0.25, 1.28), (-0.18, 1.70))):
+        cylinder("DisplayVase_%d" % (index + 1), (x, -0.12, z), 0.09, 0.20,
+                 8, mat, 8 + index % 2, count, objects)
+    return objects, (2.25, -3.10, 2.40), (0.0, 0.0, 1.08)
+
+
+def make_mansion_chaise_lounge():
+    colors = KITCHEN_PALETTES["luxury"]
+    mat = mansion_material("mansion_chaise_lounge", colors)
+    count = len(colors)
+    objects = []
+    box("ChaiseFrame", (0.0, 0.0, 0.34), (1.76, 0.70, 0.30), mat, 1,
+        count, objects, bevel=0.006)
+    box("ChaiseCushion", (0.08, -0.02, 0.55), (1.52, 0.62, 0.24), mat, 8,
+        count, objects, bevel=0.010)
+    box("ChaiseBack", (-0.70, 0.08, 0.82), (0.30, 0.62, 0.72), mat, 8,
+        count, objects, bevel=0.009, rotation=(0.0, math.radians(-9), 0.0))
+    box("ChaiseRoll", (-0.78, -0.01, 1.08), (0.24, 0.72, 0.20), mat, 5,
+        count, objects, bevel=0.008)
+    for x in (-0.70, 0.70):
+        for y in (-0.25, 0.25):
+            box("ChaiseFoot%s%s" % (x, y), (x, y, 0.12), (0.10, 0.10, 0.24),
+                mat, 5, count, objects, bevel=0.002)
+    return objects, (2.70, -3.65, 1.85), (0.0, 0.0, 0.48)
+
+
+def make_mansion_upright_piano():
+    colors = KITCHEN_PALETTES["luxury"]
+    mat = mansion_material("mansion_upright_piano", colors)
+    count = len(colors)
+    objects = []
+    box("PianoBody", (0.0, 0.10, 0.83), (1.44, 0.48, 1.38), mat, 1,
+        count, objects, bevel=0.005)
+    box("PianoCrown", (0.0, 0.09, 1.56), (1.54, 0.52, 0.12), mat, 5,
+        count, objects, bevel=0.004)
+    box("KeyboardBed", (0.0, -0.26, 0.86), (1.34, 0.34, 0.16), mat, 2,
+        count, objects, bevel=0.003)
+    for index, x in enumerate([(-0.58 + i * 0.097) for i in range(13)]):
+        box("IvoryKey_%02d" % index, (x, -0.445, 0.89),
+            (0.082, 0.24, 0.055), mat, 3, count, objects, bevel=0.001)
+    for index, x in enumerate((-0.52, -0.32, -0.13, 0.07, 0.26, 0.46)):
+        box("BlackKey_%02d" % index, (x, -0.40, 0.93),
+            (0.055, 0.14, 0.07), mat, 6, count, objects, bevel=0.001)
+    for x in (-0.58, 0.58):
+        box("PianoLeg%s" % str(x), (x, -0.08, 0.38), (0.14, 0.18, 0.76),
+            mat, 2, count, objects, bevel=0.003)
+    box("MusicRest", (0.0, -0.19, 1.25), (0.72, 0.08, 0.36), mat, 2,
+        count, objects, bevel=0.003, rotation=(math.radians(-8), 0.0, 0.0))
+    return objects, (2.45, -3.35, 2.20), (0.0, 0.0, 0.83)
+
+
+def make_mansion_bust_pedestal():
+    colors = KITCHEN_PALETTES["luxury"]
+    mat = mansion_material("mansion_bust_pedestal", colors)
+    count = len(colors)
+    objects = []
+    box("PedestalFoot", (0.0, 0.0, 0.08), (0.54, 0.54, 0.16), mat, 1,
+        count, objects, bevel=0.003)
+    box("PedestalColumn", (0.0, 0.0, 0.66), (0.34, 0.34, 1.02), mat, 3,
+        count, objects, bevel=0.003)
+    box("PedestalTop", (0.0, 0.0, 1.20), (0.50, 0.50, 0.14), mat, 5,
+        count, objects, bevel=0.003)
+    box("BustTorso", (0.0, 0.0, 1.40), (0.44, 0.26, 0.34), mat, 4,
+        count, objects, bevel=0.010)
+    box("BustNeck", (0.0, 0.0, 1.61), (0.15, 0.15, 0.18), mat, 4,
+        count, objects, bevel=0.006)
+    box("BustHead", (0.0, -0.01, 1.80), (0.29, 0.27, 0.32), mat, 4,
+        count, objects, bevel=0.012)
+    box("BustHair", (0.0, 0.03, 1.91), (0.31, 0.25, 0.14), mat, 1,
+        count, objects, bevel=0.008)
+    return objects, (1.55, -2.10, 2.20), (0.0, 0.0, 0.90)
+
+
+def save_and_export(name, objects, root=ROOT, source=SOURCE):
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    blend_path = os.path.join(source, name + ".blend")
+    glb_path = os.path.join(root, name + ".glb")
+    bpy.ops.wm.save_as_mainfile(filepath=blend_path, check_existing=False)
+    bpy.ops.export_scene.gltf(
+        filepath=glb_path,
+        export_format="GLB",
+        use_selection=True,
+        export_apply=True,
+        export_yup=True,
+        export_materials="EXPORT",
+        export_image_format="AUTO",
+        export_cameras=False,
+        export_lights=False,
+    )
+
+
+def point_camera(camera, target):
+    direction = Vector(target) - camera.location
+    camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+
+
+def render_preview(name, objects, eye, look, previews=PREVIEWS):
+    # Preview extras are created only after saving/exporting the clean model.
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    bpy.ops.mesh.primitive_plane_add(size=8.0, location=(0.0, 0.0, -0.008))
+    floor = bpy.context.object
+    floor.name = "PreviewFloor"
+    floor_mat = bpy.data.materials.new("Preview floor")
+    floor_mat.diffuse_color = rgba("#171D27")
+    floor.data.materials.append(floor_mat)
+
+    world = bpy.context.scene.world or bpy.data.worlds.new("World")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs["Color"].default_value = rgba("#0B1018")
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.36
+
+    bpy.ops.object.light_add(type="AREA", location=(-2.7, -3.2, 4.4))
+    key = bpy.context.object
+    key.data.energy = 720.0
+    key.data.shape = "DISK"
+    key.data.size = 3.2
+    point_camera(key, look)
+    bpy.ops.object.light_add(type="AREA", location=(2.7, -1.0, 2.4))
+    fill = bpy.context.object
+    fill.data.energy = 380.0
+    fill.data.color = (0.45, 0.60, 1.0)
+    fill.data.size = 2.3
+    point_camera(fill, look)
+    bpy.ops.object.light_add(type="AREA", location=(0.0, 2.4, 2.8))
+    rim = bpy.context.object
+    rim.data.energy = 520.0
+    rim.data.color = (1.0, 0.36, 0.28)
+    rim.data.size = 2.0
+    point_camera(rim, look)
+
+    bpy.ops.object.camera_add(location=eye)
+    camera = bpy.context.object
+    camera.data.lens = 58
+    point_camera(camera, look)
+    bpy.context.scene.camera = camera
+
+    scene = bpy.context.scene
+    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.resolution_x = 640
+    scene.render.resolution_y = 640
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.filepath = os.path.join(previews, name + "_hytale_preview.png")
+    scene.render.film_transparent = False
+    scene.render.image_settings.color_mode = "RGBA"
+    try:
+        scene.view_settings.look = "AgX - Medium High Contrast"
+    except Exception:
+        pass
+    bpy.ops.render.render(write_still=True)
+
+
+BUILDERS = {
+    "coin": make_coin,
+    "vent": make_vent,
+    "music_box": make_music_box,
+    "hiding_spot": make_locker,
+    "battery": make_battery,
+    "relay": make_relay,
+    "safe_zone": make_safe_zone,
+    "lift": make_lift,
+    "heater_station": make_heater_station,
+}
+
+MAZE_BUILDERS = {
+    "arcade_cabinet_default": lambda: make_arcade_variant(
+        "arcade_cabinet_default",
+        ["#090D13", "#202A33", "#364B5C", "#3E71B4", "#E05D70", "#101B26", "#B8A059"], 0),
+    "arcade_cabinet_burgundy": lambda: make_arcade_variant(
+        "arcade_cabinet_burgundy",
+        ["#0D090D", "#2C171D", "#51212B", "#B43C55", "#D06A75", "#130D14", "#B28A4A"], 1),
+    "arcade_cabinet_teal": lambda: make_arcade_variant(
+        "arcade_cabinet_teal",
+        ["#071011", "#123034", "#1F5558", "#32B8B3", "#78D3C8", "#071719", "#B79B51"], 2),
+    "arcade_cabinet_amber": lambda: make_arcade_variant(
+        "arcade_cabinet_amber",
+        ["#110D06", "#34240E", "#634319", "#D28A16", "#F1B648", "#181207", "#8E6A37"], 3),
+    "arcade_cabinet_ultraviolet": lambda: make_arcade_variant(
+        "arcade_cabinet_ultraviolet",
+        ["#0B0810", "#241333", "#492160", "#8C40C7", "#C16DE1", "#100B18", "#A77B45"], 0),
+    "arcade_cabinet_cyan_magenta": lambda: make_arcade_variant(
+        "arcade_cabinet_cyan_magenta",
+        ["#080D11", "#21343D", "#3C555D", "#45C4BF", "#D955A0", "#0B171C", "#B7914B"], 1),
+    "wooden_chair_oak": lambda: make_wooden_chair("wooden_chair_oak", False),
+    "wooden_chair_cushion": lambda: make_wooden_chair("wooden_chair_cushion", True),
+    "wooden_table": make_wooden_table,
+    "wooden_dresser_sideboard": make_wooden_dresser,
+    "filing_cabinet": make_filing_cabinet,
+    "supply_crates": make_supply_crates,
+    "server_rack": make_server_rack,
+    "vending_machine": make_vending_machine,
+    "floor_lamp": make_floor_lamp,
+    "trash_bin": make_trash_bin,
+    "privacy_curtain": make_privacy_curtain,
+    "lounge_couch_red": make_lounge_couch,
+}
+
+MANSION_BUILDERS = {
+    "grand_dining_table": make_grand_dining_table,
+    "dining_chair_burgundy": lambda: make_dining_chair(
+        "dining_chair_burgundy", False),
+    "dining_chair_cushion_burgundy": lambda: make_dining_chair(
+        "dining_chair_cushion_burgundy", True),
+    "dining_chair_ivory": lambda: make_dining_chair(
+        "dining_chair_ivory", True,
+        ["#160F0D", "#352119", "#5B3826", "#835738", "#9A856A",
+         "#C8B99A", "#E4D8BE", "#B88A45"]),
+    "dining_chandelier": make_dining_chandelier,
+    "mansion_bookshelf": make_mansion_bookshelf,
+    "magazine_rack": make_magazine_rack,
+    "mansion_fireplace": make_mansion_fireplace,
+    "bathroom_stall": make_bathroom_stall,
+    "bathroom_sink": make_bathroom_sink,
+    "bathroom_mirror": make_bathroom_mirror,
+    "bathroom_vanity": make_bathroom_vanity,
+    "ornate_sideboard": make_ornate_sideboard,
+    "table_candelabra": make_table_candelabra,
+    "flower_centerpiece": make_flower_centerpiece,
+    "framed_wall_portrait": make_framed_wall_portrait,
+    "wall_sconce": make_wall_sconce,
+    "heavy_mansion_drapes": make_heavy_drapes,
+    "mansion_area_rug": make_mansion_area_rug,
+    "single_bed_burgundy": lambda: make_bedroom_bed(
+        "single_bed_burgundy", False),
+    "single_bed_navy": lambda: make_bedroom_bed(
+        "single_bed_navy", False,
+        ["#0C1015", "#202D3C", "#334A62", "#4C6A85", "#273B62",
+         "#3F5F91", "#D5CCB5", "#EEE6D3", "#B18A4A"]),
+    "double_bed_burgundy": lambda: make_bedroom_bed(
+        "double_bed_burgundy", True),
+    "double_bed_violet": lambda: make_bedroom_bed(
+        "double_bed_violet", True,
+        ["#110C13", "#30203A", "#52315D", "#74467E", "#71304F",
+         "#A74C76", "#D5C9B3", "#EEE4CF", "#B18A4A"]),
+    "bedroom_nightstand": make_bedroom_nightstand,
+    "bedroom_wardrobe": make_bedroom_wardrobe,
+    "bedroom_dresser": make_bedroom_dresser,
+    "bedroom_vanity": make_bedroom_vanity,
+    "vanity_stool": make_vanity_stool,
+    "bedside_lamp": make_bedside_lamp,
+    "toy_chest": make_toy_chest,
+    "laundry_hamper": make_laundry_hamper,
+    "bedroom_rug": make_bedroom_rug,
+    "bedroom_wall_clock": make_bedroom_wall_clock,
+    "bedroom_bench": make_bedroom_bench,
+    "lounge_couch_brown": lambda: make_mansion_couch_variant(
+        "lounge_couch_brown", ["#120E0D", "#38251E", "#5A3A2C", "#7C5138", "#9A6C4B", "#2C1C19", "#AD8348"]),
+    "lounge_couch_black": lambda: make_mansion_couch_variant(
+        "lounge_couch_black", ["#090A0B", "#17191B", "#292D30", "#40464A", "#62696B", "#111315", "#A78045"]),
+    "lounge_couch_navy": lambda: make_mansion_couch_variant(
+        "lounge_couch_navy", ["#090D12", "#172536", "#243D57", "#36597A", "#4E7695", "#111B29", "#B08A48"]),
+    "lounge_couch_olive": lambda: make_mansion_couch_variant(
+        "lounge_couch_olive", ["#0E100A", "#262D18", "#3F4B27", "#5E6A39", "#7C8753", "#1B2112", "#AD8847"]),
+    "lounge_couch_violet": lambda: make_mansion_couch_variant(
+        "lounge_couch_violet", ["#100B12", "#2A1932", "#48264F", "#67386C", "#87538B", "#211326", "#B08A48"]),
+    "lounge_couch_ivory": lambda: make_mansion_couch_variant(
+        "lounge_couch_ivory", ["#211B17", "#6F6453", "#9A8D74", "#BDB095", "#DED2B6", "#4C4035", "#B18445"]),
+    "lounge_couch_red_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_red_wide", ["#171014", "#4B2025", "#732D33", "#A04045", "#C45B5F", "#372126", "#B58A49"], True),
+    "lounge_couch_brown_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_brown_wide", ["#120E0D", "#38251E", "#5A3A2C", "#7C5138", "#9A6C4B", "#2C1C19", "#AD8348"], True),
+    "lounge_couch_black_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_black_wide", ["#090A0B", "#17191B", "#292D30", "#40464A", "#62696B", "#111315", "#A78045"], True),
+    "lounge_couch_navy_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_navy_wide", ["#090D12", "#172536", "#243D57", "#36597A", "#4E7695", "#111B29", "#B08A48"], True),
+    "lounge_couch_olive_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_olive_wide", ["#0E100A", "#262D18", "#3F4B27", "#5E6A39", "#7C8753", "#1B2112", "#AD8847"], True),
+    "lounge_couch_violet_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_violet_wide", ["#100B12", "#2A1932", "#48264F", "#67386C", "#87538B", "#211326", "#B08A48"], True),
+    "lounge_couch_ivory_wide": lambda: make_mansion_couch_variant(
+        "lounge_couch_ivory_wide", ["#211B17", "#6F6453", "#9A8D74", "#BDB095", "#DED2B6", "#4C4035", "#B18445"], True),
+}
+
+# Keep every bedroom colorway reproducible from this retained source script.
+# The original unsuffixed household pieces are the burgundy colorway, which
+# preserves all pre-existing paths while the remaining themes use suffixes.
+NORMAL_BEDROOM_FACTORIES = {
+    "bedroom_nightstand": make_bedroom_nightstand,
+    "bedroom_wardrobe": make_bedroom_wardrobe,
+    "bedroom_dresser": make_bedroom_dresser,
+    "bedroom_vanity": make_bedroom_vanity,
+    "vanity_stool": make_vanity_stool,
+    "bedside_lamp": make_bedside_lamp,
+    "toy_chest": make_toy_chest,
+    "laundry_hamper": make_laundry_hamper,
+    "bedroom_rug": make_bedroom_rug,
+    "bedroom_wall_clock": make_bedroom_wall_clock,
+    "bedroom_bench": make_bedroom_bench,
+}
+for theme_name, theme_colors in NORMAL_BEDROOM_PALETTES.items():
+    for is_double in (False, True):
+        bed_name = "%s_bed_%s" % ("double" if is_double else "single", theme_name)
+        MANSION_BUILDERS[bed_name] = (
+            lambda name=bed_name, double=is_double, colors=theme_colors:
+                make_bedroom_bed(name, double, colors))
+    for base_name, factory in NORMAL_BEDROOM_FACTORIES.items():
+        variant_name = base_name if theme_name == "burgundy" \
+            else "%s_%s" % (base_name, theme_name)
+        MANSION_BUILDERS[variant_name] = (
+            lambda name=variant_name, colors=theme_colors, build=factory:
+                build(name, colors))
+
+GOTHIC_BEDROOM_FACTORIES = {
+    "gothic_double_bed": make_gothic_bed,
+    "gothic_nightstand": make_gothic_nightstand,
+    "gothic_wardrobe": make_gothic_wardrobe,
+    "gothic_dresser": make_gothic_dresser,
+    "gothic_vanity": make_gothic_vanity,
+    "gothic_vanity_stool": make_gothic_stool,
+    "gothic_bedroom_bench": make_gothic_bench,
+    "gothic_bedroom_rug": make_gothic_rug,
+    "gothic_bedside_candelabra": make_gothic_bedside_candelabra,
+}
+for theme_name, theme_colors in GOTHIC_BEDROOM_PALETTES.items():
+    for base_name, factory in GOTHIC_BEDROOM_FACTORIES.items():
+        variant_name = "%s_%s" % (base_name, theme_name)
+        MANSION_BUILDERS[variant_name] = (
+            lambda name=variant_name, colors=theme_colors, build=factory:
+                build(name, colors))
+
+MANSION_BUILDERS.update({
+    "mansion_console_table": make_mansion_console_table,
+    "mansion_grandfather_clock": make_mansion_grandfather_clock,
+    "mansion_coat_rack": make_mansion_coat_rack,
+    "mansion_tea_cart": make_mansion_tea_cart,
+    "mansion_rocking_chair": make_mansion_rocking_chair,
+    "mansion_room_divider": make_mansion_room_divider,
+    "gothic_writing_desk": make_gothic_writing_desk,
+    "gothic_bookcase": make_gothic_bookcase,
+    "gothic_pedestal_table": make_gothic_pedestal_table,
+    "gothic_floor_candelabra": make_gothic_floor_candelabra,
+    "gothic_coffin_chest": make_gothic_coffin_chest,
+    "normal_bookcase": make_normal_bookcase,
+    "normal_coffee_table": make_normal_coffee_table,
+    "normal_tv_console": make_normal_tv_console,
+    "normal_entry_bench": make_normal_entry_bench,
+    "mansion_display_cabinet": make_mansion_display_cabinet,
+    "mansion_chaise_lounge": make_mansion_chaise_lounge,
+    "mansion_upright_piano": make_mansion_upright_piano,
+    "mansion_bust_pedestal": make_mansion_bust_pedestal,
+})
+
+KITCHEN_FACTORIES = {
+    "counter": make_kitchen_counter,
+    "sink": make_kitchen_sink,
+    "stove": make_kitchen_stove,
+    "fridge": make_kitchen_fridge,
+    "wall_cabinet": make_kitchen_wall_cabinet,
+    "island": make_kitchen_island,
+}
+for kitchen_style in ("normal", "luxury", "gothic"):
+    for piece_name, piece_factory in KITCHEN_FACTORIES.items():
+        kitchen_name = "%s_kitchen_%s" % (kitchen_style, piece_name)
+        MANSION_BUILDERS[kitchen_name] = (
+            lambda name=kitchen_name, style=kitchen_style, build=piece_factory:
+                build(name, style))
+
+for theme_name, theme_colors in GOTHIC_BEDROOM_PALETTES.items():
+    chair_name = "gothic_highback_chair_%s" % theme_name
+    MANSION_BUILDERS[chair_name] = (
+        lambda name=chair_name, colors=theme_colors:
+            make_gothic_highback_chair(name, colors))
+
+BEACH_BUILDERS = {
+    "sand_castle": make_sand_castle,
+    "beach_umbrella": make_beach_umbrella,
+    "tiki_bar": make_tiki_bar,
+    "beach_chair": make_beach_chair,
+    "surfboard_rack": make_surfboard_rack,
+    "palm_tree": make_palm_tree,
+    "frozen_beach_hut": make_frozen_beach_hut,
+}
+
+NETHER_BUILDERS = {
+    "lava_vent": make_lava_vent,
+    "ember_brazier": make_ember_brazier,
+    "basalt_pillar": make_basalt_pillar,
+    "magma_crystal_cluster": make_magma_crystal_cluster,
+    "basalt_rubble": make_basalt_rubble,
+    "inferno_altar": make_inferno_altar,
+    "inferno_chain_lantern": make_inferno_chain_lantern,
+    "lava_pipe_manifold": make_lava_pipe_manifold,
+    "charred_supply_crate": make_charred_supply_crate,
+}
+
+
+requested = set(sys.argv[sys.argv.index("--") + 1:]) if "--" in sys.argv else set(BUILDERS)
+for model_name, builder in BUILDERS.items():
+    if model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects)
+    render_preview(model_name, export_objects, eye, look)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in MAZE_BUILDERS.items():
+    if "maze" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, MAZE_ROOT, MAZE_SOURCE)
+    render_preview(model_name, export_objects, eye, look, MAZE_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in MANSION_BUILDERS.items():
+    if "mansion" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, MANSION_ROOT, MANSION_SOURCE)
+    render_preview(model_name, export_objects, eye, look, MANSION_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in BEACH_BUILDERS.items():
+    if "beach" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, BEACH_ROOT, BEACH_SOURCE)
+    render_preview(model_name, export_objects, eye, look, BEACH_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in NETHER_BUILDERS.items():
+    if "nether" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, NETHER_ROOT, NETHER_SOURCE)
+    render_preview(model_name, export_objects, eye, look, NETHER_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))

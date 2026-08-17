@@ -35,10 +35,14 @@ func _frame() -> Signal:
 
 
 const SIZES := [
+	Vector2i(480, 270),     # exact 1x design-scale window
+	Vector2i(960, 540),     # exact 2x design-scale window
 	Vector2i(1920, 1080),   # 16:9, the design aspect
 	Vector2i(1920, 1200),   # 16:10
 	Vector2i(2560, 1080),   # 21:9 ultrawide
+	Vector2i(3440, 1440),   # 21:9 ultrawide at a different render scale
 	Vector2i(1024, 768),    # 4:3
+	Vector2i(800, 600),     # compact 4:3
 	Vector2i(1366, 768),    # a small laptop, below two design sizes
 ]
 
@@ -54,14 +58,25 @@ const ANCHORED := {
 		"EscapeOverlay": ["hcentre", "vcentre"],
 	},
 	"res://scenes/main_menu.tscn": {
+		"KickerLabel": ["hcentre", "vcentre"],
+		"BrandLabel": ["hcentre", "vcentre"],
 		"TitleLabel": ["hcentre", "vcentre"],
+		"LedeLabel": ["hcentre", "vcentre"],
+		"RouteNotice": ["hcentre", "vcentre"],
 		"ButtonPanel": ["hcentre", "vcentre"],
+		"VersionLabel": ["hcentre", "bottom"],
 		"SettingsOverlay": ["hcentre", "vcentre"],
 	},
 	# Staging is built in code and grows with the room, so it is exactly the
 	# screen most likely to push its own start button off the bottom.
 	"res://scenes/room_lobby.tscn": {
 		"StagingPanel": ["hcentre", "vcentre"],
+	},
+	"res://scenes/route_loading.tscn": {
+		"LoadingPanel": ["hcentre", "vcentre"],
+	},
+	"res://scenes/run_report.tscn": {
+		"ReportPanel": ["hcentre", "vcentre"],
 	},
 	"res://scenes/office_3d.tscn": {
 		"TopBar": ["left", "right", "top"],
@@ -102,7 +117,17 @@ func _check_scene(path: String) -> int:
 	if packed == null:
 		return _fail("could not load %s" % path)
 	var scene: Node = packed.instantiate()
+	# The real loading scene immediately requests the gameplay PackedScene. Keep
+	# it on this screen while its layout and state contract are inspected.
+	if path == "res://scenes/route_loading.tscn":
+		scene.set("auto_start", false)
 	_root().add_child(scene)
+	if path == "res://scenes/run_report.tscn":
+		scene.call("open", {
+			"online": false, "reason": "CAPTURED BY AKI", "depth": 8,
+			"score": 4200, "relays": 3, "relay_target": 6, "coins": 12,
+			"difficulty": "HARD", "seed": "ROOM-REPORT-1234567890",
+		})
 	await _frame()
 
 	var widest := 0.0
@@ -137,11 +162,257 @@ func _check_scene(path: String) -> int:
 				% [path.get_file(), key, drift]
 				+ "pinned to the design size, not to that edge")
 
+	if path == "res://scenes/main_menu.tscn":
+		failures += await _check_main_menu_contract(scene)
+	elif path == "res://scenes/room_lobby.tscn":
+		failures += await _check_room_lobby_contract(scene)
+	elif path == "res://scenes/route_loading.tscn":
+		failures += await _check_route_loading_contract(scene)
+	elif path == "res://scenes/run_report.tscn":
+		failures += await _check_run_report_contract(scene)
+
 	_root().size = Vector2i(960, 540)
 	scene.queue_free()
 	await _frame()
 	print("  %-28s %d nodes held across %d aspect ratios, up to %.0f design px wide"
 		% [path.get_file(), ANCHORED[path].size(), SIZES.size(), widest])
+	return failures
+
+
+func _check_route_loading_contract(scene: Node) -> int:
+	var failures := 0
+	for node_name in ["OuterFrame", "InnerFrame", "RouteSeedLabel", "RouteConfigurationLabel",
+			"RouteLoadProgress", "RouteTipLabel", "RouteLoadPhase"]:
+		if scene.find_child(node_name, true, false) == null:
+			failures += _fail("route loading screen is missing %s" % node_name)
+	for frame_name in ["OuterFrame", "InnerFrame"]:
+		var frame := scene.find_child(frame_name, true, false) as Control
+		if frame != null and (frame.anchor_left != 0.0 or frame.anchor_top != 0.0
+				or frame.anchor_right != 1.0 or frame.anchor_bottom != 1.0):
+			failures += _fail("route loading %s is not anchored as an edge frame" % frame_name)
+	var panel := scene.find_child("LoadingPanel", true, false) as Control
+	if panel == null or not _root().get_visible_rect().encloses(
+			Rect2(panel.global_position, panel.size)):
+		failures += _fail("route loading panel spills outside the viewport")
+
+	scene.call("show_waiting_for_snapshot")
+	await _frame()
+	var phase := scene.find_child("RouteLoadPhase", true, false) as Label
+	var progress := scene.find_child("RouteLoadProgress", true, false) as ProgressBar
+	if phase == null or "WAITING FOR HOST" not in phase.text:
+		failures += _fail("guest loading state does not say it is waiting for the host")
+	if progress == null or not progress.indeterminate:
+		failures += _fail("guest host-snapshot wait is not visibly indeterminate")
+	scene.call("show_snapshot_retry", "TEST SNAPSHOT FAILURE")
+	await _frame()
+	var status := scene.find_child("RouteLoadStatus", true, false) as Label
+	if status == null or status.text != "TEST SNAPSHOT FAILURE":
+		failures += _fail("snapshot retry failure is hidden behind the loading screen")
+	scene.call("dismiss")
+	if scene.visible:
+		failures += _fail("accepted route loading screen did not dismiss")
+	return failures
+
+
+func _check_run_report_contract(scene: Node) -> int:
+	var failures := 0
+	for node_name in ["OuterFrame", "InnerFrame", "ReportTitle", "EndReason",
+			"RunStats", "ReportPrimaryButton", "ReportSecondaryButton"]:
+		if scene.find_child(node_name, true, false) == null:
+			failures += _fail("run report is missing %s" % node_name)
+	var panel := scene.find_child("ReportPanel", true, false) as Control
+	if panel == null or not _root().get_visible_rect().encloses(
+			Rect2(panel.global_position, panel.size)):
+		failures += _fail("run report spills outside the viewport")
+	var primary := scene.find_child("ReportPrimaryButton", true, false) as Button
+	var secondary := scene.find_child("ReportSecondaryButton", true, false) as Button
+	if primary == null or primary.text != "RESTART ROUTE":
+		failures += _fail("solo run report has no explicit restart action")
+	if secondary == null or secondary.text != "MAIN MENU":
+		failures += _fail("solo run report has no main-menu action")
+	var depth := scene.find_child("DepthReachedValue", true, false) as Label
+	if depth == null or depth.text != "8":
+		failures += _fail("run report did not display the completed route statistics")
+	for value_name in ["DepthReachedValue", "ScoreValue", "FloorRelaysValue",
+			"CoinsValue", "DifficultyValue", "RouteSeedValue"]:
+		var value := scene.find_child(value_name, true, false) as Label
+		if value == null or value.size.x < 100.0:
+			failures += _fail("run report %s value column collapsed" % value_name)
+
+	scene.call("open", {
+		"online": true, "host": false, "reason": "CAPTURED BY AKI", "depth": 8,
+		"score": 4200, "relays": 3, "relay_target": 6, "coins": 12,
+		"difficulty": "HARD", "seed": "ROOM-REPORT-1234567890",
+	})
+	await _frame()
+	if primary == null or primary.text != "LEAVE ROOM":
+		failures += _fail("captured guest is offered a hidden respawn/rejoin")
+	if secondary == null or secondary.visible:
+		failures += _fail("co-op elimination report exposes a second life path")
+	scene.call("open", {
+		"online": true, "host": true, "reason": "CAPTURED BY AKI", "depth": 8,
+		"score": 4200, "relays": 3, "relay_target": 6, "coins": 12,
+		"difficulty": "HARD", "seed": "ROOM-REPORT-1234567890",
+	})
+	await _frame()
+	if primary == null or primary.text != "END ROUTE":
+		failures += _fail("captured host is not offered the explicit end-route action")
+	scene.call("close")
+	if scene.call("is_open"):
+		failures += _fail("run report did not close after its action")
+	return failures
+
+
+func _check_room_lobby_contract(scene: Node) -> int:
+	var failures := 0
+	var dossier_button := scene.find_child("DossierButton", true, false) as Button
+	if dossier_button == null or dossier_button.text != "HUNTER DOSSIER":
+		return _fail("room staging is missing the hunter dossier action")
+
+	# The dossier is dynamic, scrolls the complete roster, and must remain usable
+	# at the smallest design window as well as ultrawide/full-resolution screens.
+	scene.call("_on_dossier_pressed")
+	await _frame()
+	var dossier := scene.find_child("DossierRoster", true, false) as ItemList
+	if dossier == null or dossier.item_count != HunterRoster.PROFILES.size():
+		failures += _fail("hunter dossier does not list the complete 26-hunter roster")
+	for node_name in ["DossierName", "DossierBehavior", "DossierCounter", "DossierStats"]:
+		var label := scene.find_child(node_name, true, false) as Label
+		if label == null or label.text.is_empty():
+			failures += _fail("hunter dossier is missing populated %s" % node_name)
+	if dossier != null and dossier.item_count > 1:
+		dossier.select(dossier.item_count - 1)
+		dossier.item_selected.emit(dossier.item_count - 1)
+		await _frame()
+		var selected_name := scene.find_child("DossierName", true, false) as Label
+		if selected_name == null or selected_name.text.is_empty():
+			failures += _fail("hunter dossier selection did not update its detail card")
+	var close := scene.find_child("DossierCloseButton", true, false) as Button
+	if close == null or close.find_child("EscCloseContent", true, false) == null:
+		failures += _fail("room dossier does not use the ESC keycap close control")
+	for size in [Vector2i(480, 270), Vector2i(1024, 768), Vector2i(3440, 1440)]:
+		_root().size = size
+		await _frame()
+		await _frame()
+		var dossier_panel := scene.find_child("DossierPanel", true, false) as Control
+		if dossier_panel == null or not _root().get_visible_rect().encloses(
+				Rect2(dossier_panel.global_position, dossier_panel.size)):
+			failures += _fail("hunter dossier spills outside %s" % size)
+	scene.call("_close_modal")
+	await _frame()
+	return failures
+
+
+func _check_main_menu_contract(scene: Node) -> int:
+	var failures := 0
+	if not scene.has_method("_on_create_health_checked"):
+		failures += _fail("CREATE ROOM has no primary-server health/fallback flow")
+	var settings := scene.find_child("SettingsButton", true, false) as Button
+	if settings == null or settings.text != "SETTINGS":
+		failures += _fail("main menu does not label the categorized panel SETTINGS")
+	if scene.find_child("DossierButton", true, false) != null:
+		failures += _fail("hunter dossier is still exposed on the main menu")
+	for heading in ["AudioHeading", "DisplayHeading", "ControlsHeading"]:
+		if scene.find_child(heading, true, false) == null:
+			failures += _fail("Settings is missing its %s category" % heading)
+	if scene.find_child("PixelEffectSlider", true, false) == null \
+			or scene.find_child("PixelEffectValueLabel", true, false) == null:
+		failures += _fail("Settings is missing the 3D signal-filter intensity control")
+	var settings_close := scene.find_child("CloseButton", true, false) as Button
+	if settings_close == null or settings_close.find_child("EscCloseContent", true, false) == null:
+		failures += _fail("Settings close action does not use the ESC keycap control")
+	var fullscreen := scene.find_child("FullscreenButton", true, false) as Button
+	if fullscreen == null or fullscreen.find_child("StateChip", true, false) == null:
+		failures += _fail("Fullscreen does not expose a boxed ON/OFF state chip")
+
+	# Dynamic dialogs use the same control. Opening one here catches regressions
+	# that a static scene-file scan cannot see.
+	scene.call("_on_changelog_pressed")
+	await _frame()
+	var modal := scene.find_child("MenuModal", true, false)
+	if modal == null or modal.find_child("EscCloseContent", true, false) == null:
+		failures += _fail("menu dialogs do not use the ESC keycap close control")
+	scene.call("_close_modal")
+	await _frame()
+
+	# Failed account requests must remain readable. This used to rebuild the
+	# dialog on every account signal, erasing the server error one frame later.
+	scene.call("_on_account_pressed")
+	await _frame()
+	var login_button := scene.find_child("AccountLoginButton", true, false) as Button
+	var register_button := scene.find_child("AccountRegisterButton", true, false) as Button
+	if login_button == null or login_button.disabled \
+			or register_button == null or register_button.disabled:
+		failures += _fail("primary HTTPS account transport locks account actions")
+	var transport_warning_visible := false
+	for label in scene.find_children("*", "Label", true, false):
+		transport_warning_visible = transport_warning_visible \
+			or "UNENCRYPTED HTTP" in String(label.text)
+	if transport_warning_visible:
+		failures += _fail("primary HTTPS account form shows a stale transport warning")
+	scene.call("_on_account_changed", false, "", false, "TEST LOGIN FAILURE")
+	await _frame()
+	var saw_failure := false
+	for label in scene.find_children("*", "Label", true, false):
+		saw_failure = saw_failure or String(label.text) == "TEST LOGIN FAILURE"
+	if not saw_failure:
+		failures += _fail("account dialog erased a failed login response")
+	scene.call("_close_modal")
+	await _frame()
+
+	# The signed-in card gains three actions when a checkpoint exists; make
+	# sure that state both renders and remains inside the modal frame.
+	var account_before := {
+		"username": Backend.account_username,
+		"token": Backend.account_session_token,
+		"admin": Backend.account_admin,
+		"verified": Backend.account_session_verified,
+		"progress": Backend.account_progress.duplicate(true),
+		"saved_at": Backend.account_progress_saved_at,
+	}
+	Backend.account_username = "RUNNER_TEST"
+	Backend.account_session_token = "validation-token"
+	Backend.account_admin = false
+	Backend.account_session_verified = true
+	Backend.account_progress = {
+		"schema": 1, "kind": "last_route", "room_seed_text": "ROOM-TEST",
+		"run_seed": 1, "map_scale": 1, "difficulty": 1,
+		"difficulty_id": "standard", "depth": 4, "score": 900,
+		"coins": 2,
+	}
+	scene.call("_on_account_pressed")
+	await _frame()
+	var continue_route := scene.find_child("ContinueRouteButton", true, false)
+	var clear_route := scene.find_child("ClearRouteButton", true, false)
+	var account_settings := scene.find_child("AccountSettingsButton", true, false)
+	if continue_route == null or clear_route == null or account_settings == null:
+		failures += _fail("signed-in account card is missing Continue/Clear/Settings")
+	var modal_panel := scene.find_child("ModalPanel", true, false) as Control
+	if modal_panel == null or not _root().get_visible_rect().encloses(
+			Rect2(modal_panel.global_position, modal_panel.size)):
+		failures += _fail("signed-in checkpoint card spills outside the viewport")
+	scene.call("_on_account_manage_pressed")
+	await _frame()
+	for control_name in ["ManageUsernameInput", "RenameAccountButton",
+			"ManagePasswordInput", "ChangePasswordButton", "BackToAccountButton"]:
+		if scene.find_child(control_name, true, false) == null:
+			failures += _fail("account management is missing %s" % control_name)
+	for size in [Vector2i(480, 270), Vector2i(1024, 768), Vector2i(3440, 1440)]:
+		_root().size = size
+		await _frame()
+		await _frame()
+		modal_panel = scene.find_child("ModalPanel", true, false) as Control
+		if modal_panel == null or not _root().get_visible_rect().encloses(
+				Rect2(modal_panel.global_position, modal_panel.size)):
+			failures += _fail("account management spills outside %s" % size)
+	scene.call("_close_modal")
+	Backend.account_username = account_before["username"]
+	Backend.account_session_token = account_before["token"]
+	Backend.account_admin = account_before["admin"]
+	Backend.account_session_verified = account_before["verified"]
+	Backend.account_progress = account_before["progress"]
+	Backend.account_progress_saved_at = account_before["saved_at"]
+	await _frame()
 	return failures
 
 

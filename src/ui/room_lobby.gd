@@ -8,34 +8,48 @@ extends Control
 ## line, the room code, the route seed in an inset block with a crimson rule,
 ## then the host's configuration and the seats.
 ##
-## Offline this shows exactly what it shows online, minus the modes that need
-## other people. That is deliberate: the screen is not a singleplayer menu
-## wearing a room's clothes, it IS the room; ENet only changes who occupies it.
+## Offline this shows exactly what it shows online. That is deliberate: the
+## screen is not a singleplayer menu wearing a room's clothes, it IS the room;
+## ENet only changes who occupies it.
 
 const ROW_HEIGHT := 13
+const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
 ## Clear space left between the staging panel and the edge of the screen.
 const MARGIN_Y := 10
 
 var _notice := ""
-var _join_code := ""
+var _modal: Control
+var _dossier_name: Label
+var _dossier_status: Label
+var _dossier_behavior: Label
+var _dossier_counter: Label
+var _dossier_stats: Label
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and _modal != null:
+		_close_modal()
+		get_viewport().set_input_as_handled()
 
 
 func _ready() -> void:
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	RoomState.changed.connect(_rebuild)
-	Backend.room_resolved.connect(_on_room_resolved)
 	if not RoomState.status_message.is_empty():
 		_notice = RoomState.status_message
 	_rebuild()
 
 
 func _rebuild() -> void:
+	_modal = null
+	_clear_dossier_fields()
 	for child in get_children():
 		child.queue_free()
 
-	var background := ColorRect.new()
-	background.color = Palette.BACKDROP
+	var background := SIGNAL_BACKDROP_SCRIPT.new()
+	background.name = "SignalBackdrop"
+	background.pattern_strength = 0.7
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
@@ -81,10 +95,17 @@ func _rebuild() -> void:
 		RoomState.seats()], Palette.MUTED, 7))
 
 	var title := HBoxContainer.new()
+	title.name = "RoomTitle"
 	title.add_theme_constant_override("separation", 6)
 	column.add_child(title)
-	title.add_child(_label("ROOM", Palette.INK, 22))
-	title.add_child(_label(RoomState.code, Palette.CRIMSON, 22))
+	var room_heading := _label("ROOM", Palette.INK, 18)
+	room_heading.name = "RoomTitleLabel"
+	Palette.style_title(room_heading)
+	title.add_child(room_heading)
+	var room_code := _label(RoomState.code, Palette.CRIMSON, 18)
+	room_code.name = "RoomCodeLabel"
+	Palette.style_title(room_code, Palette.CRIMSON)
+	title.add_child(room_code)
 
 	column.add_child(_seed_block())
 	column.add_child(_config_block())
@@ -106,7 +127,7 @@ func _connection_summary() -> String:
 	if RoomState.online:
 		return "ROOM %s // PRIMARY SERVER // %d CONNECTED" % [RoomState.code,
 			RoomState.roster().size()]
-	return "SOLO ROOM %s // NOT LISTED ONLINE" % RoomState.code
+	return "SOLO ROOM %s // PRIMARY SERVER UNAVAILABLE" % RoomState.code
 
 
 func _seed_block() -> Control:
@@ -141,8 +162,10 @@ func _config_block() -> Control:
 	head.add_child(_label("HOST CONTROLS" if RoomState.is_host else "HOST DECIDES",
 		Palette.MUTED, 6))
 
-	stack.add_child(_label("MODE", Palette.MUTED, 6))
-	stack.add_child(_toggles(RoomState.MODE_LABELS, RoomState.mode,
+	var groups := HBoxContainer.new()
+	groups.add_theme_constant_override("separation", 5)
+	stack.add_child(groups)
+	groups.add_child(_config_group("MODE", RoomState.MODE_LABELS, RoomState.mode,
 			func(value: int) -> void: RoomState.set_mode(value),
 			func(value: int) -> bool:
 				return RoomState.is_host and RoomState.mode_available(value)))
@@ -150,26 +173,37 @@ func _config_block() -> Control:
 	# Office Mode is one person at a desk; scale and difficulty are the maze's
 	# dials and would be lying about doing something here.
 	if RoomState.mode != RoomState.Mode.OFFICE:
-		stack.add_child(_label("MAP SCALE", Palette.MUTED, 6))
-		stack.add_child(_toggles(RoomState.SCALE_LABELS, RoomState.map_scale,
+		groups.add_child(_config_group("MAP SCALE", RoomState.SCALE_LABELS,
+			RoomState.map_scale,
 			func(value: int) -> void: RoomState.set_map_scale(value),
 			func(_value: int) -> bool: return RoomState.is_host))
-		stack.add_child(_label("DIFFICULTY", Palette.MUTED, 6))
-		stack.add_child(_toggles(RoomState.DIFFICULTY_LABELS, RoomState.difficulty,
+		groups.add_child(_config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
+			RoomState.difficulty,
 			func(value: int) -> void: RoomState.set_difficulty(value),
-			func(_value: int) -> bool: return RoomState.is_host))
+			func(value: int) -> bool:
+				return RoomState.is_host and RoomState.difficulty_available(value)))
 
-	var note := RoomState.mode_unavailable_reason(RoomState.Mode.HIDE_SEEK)
-	stack.add_child(_label(note if not note.is_empty()
-		else "The host configures the shared route.", Palette.MUTED, 6))
+	stack.add_child(_label(
+		"OFFICE AND NIGHTMARE ARE RESERVED FOR A LATER GAMEPLAY PASS.",
+		Palette.MUTED, 6))
 	return box
+
+
+func _config_group(title: String, labels: Dictionary, selected: int,
+		on_pick: Callable, is_allowed: Callable) -> Control:
+	var group := VBoxContainer.new()
+	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	group.add_theme_constant_override("separation", 2)
+	group.add_child(_label(title, Palette.MUTED, 6))
+	group.add_child(_toggles(labels, selected, on_pick, is_allowed))
+	return group
 
 
 ## A row of mutually exclusive buttons, amber-filled when selected -- the web
 ## build's quick button groups.
 func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
 		is_allowed: Callable) -> Control:
-	var row := HBoxContainer.new()
+	var row := HFlowContainer.new()
 	row.add_theme_constant_override("separation", 3)
 	for value in labels:
 		var button := Button.new()
@@ -245,6 +279,15 @@ func _actions() -> Control:
 		reroll.pressed.connect(func() -> void: RoomState.reroll_seed())
 	row.add_child(reroll)
 
+	var dossier := Button.new()
+	dossier.name = "DossierButton"
+	dossier.text = "HUNTER DOSSIER"
+	dossier.add_theme_font_size_override("font_size", 7)
+	dossier.custom_minimum_size = Vector2(0, 18)
+	Palette.style_button(dossier, false)
+	dossier.pressed.connect(_on_dossier_pressed)
+	row.add_child(dossier)
+
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
 	leave.text = "BACK TO MAIN MENU"
@@ -256,109 +299,162 @@ func _actions() -> Control:
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
 	row.add_child(leave)
 
-	# The official directory is the only connection surface. It resolves room
-	# codes into ENet endpoints internally; raw addresses are never shown or
-	# accepted by the lobby.
-	if not RoomState.online and not RoomState.connecting:
-		stack.add_child(_label("PRIMARY CO-OP SERVER // ROOM CODES", Palette.MUTED, 6))
-		var directory_row := HBoxContainer.new()
-		directory_row.add_theme_constant_override("separation", 5)
-		stack.add_child(directory_row)
-		var host := Button.new()
-		host.name = "CreateOnlineRoomButton"
-		host.text = "CREATE ONLINE ROOM"
-		host.add_theme_font_size_override("font_size", 7)
-		host.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(host, false)
-		host.disabled = not Backend.configured() or OS.has_feature("web")
-		host.tooltip_text = "Native ENet co-op is unavailable in Web builds." \
-			if OS.has_feature("web") else "Create a room and list its code on the primary server."
-		if not host.disabled:
-			host.pressed.connect(_create_online_room)
-		directory_row.add_child(host)
-
-		var room_code := LineEdit.new()
-		room_code.name = "PrimaryRoomCodeInput"
-		room_code.text = _join_code
-		room_code.placeholder_text = "ROOM CODE"
-		room_code.max_length = RoomState.CODE_LENGTH
-		room_code.custom_minimum_size = Vector2(88, 18)
-		room_code.add_theme_font_size_override("font_size", 7)
-		directory_row.add_child(room_code)
-		var code_join := Button.new()
-		code_join.name = "JoinOnlineRoomButton"
-		code_join.text = "JOIN ONLINE ROOM"
-		code_join.add_theme_font_size_override("font_size", 7)
-		code_join.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(code_join, false)
-		code_join.disabled = not RoomState.valid_room_code(_join_code) \
-			or not Backend.configured() or OS.has_feature("web")
-		code_join.tooltip_text = "Enter the five-character room code from the host."
-		room_code.text_changed.connect(func(value: String) -> void:
-			_join_code = value.strip_edges().to_upper()
-			code_join.disabled = not RoomState.valid_room_code(_join_code) \
-				or not Backend.configured() or OS.has_feature("web"))
-		room_code.text_submitted.connect(func(_value: String) -> void:
-			if not code_join.disabled:
-				_resolve_online_room())
-		code_join.pressed.connect(_resolve_online_room)
-		directory_row.add_child(code_join)
-		if OS.has_feature("web"):
-			stack.add_child(_label("WEB BUILD IS SOLO // ONLINE CO-OP NEEDS WEBRTC",
-				Palette.ALERT, 6))
-
-	else:
-		var network_row := HBoxContainer.new()
-		network_row.add_theme_constant_override("separation", 5)
-		stack.add_child(network_row)
-		var close := Button.new()
-		close.name = "LeaveOnlineRoomButton"
-		close.text = "CANCEL JOIN" if RoomState.connecting else (
-			"CLOSE ONLINE ROOM" if RoomState.is_host else "LEAVE ONLINE ROOM")
-		close.add_theme_font_size_override("font_size", 7)
-		close.custom_minimum_size = Vector2(0, 18)
-		Palette.style_button(close, false)
-		close.pressed.connect(func() -> void:
-			_notice = "RETURNED TO SOLO ROOM"
-			RoomState.status_message = _notice
-			RoomState.leave_network())
-		network_row.add_child(close)
 	return stack
 
 
-## Show why creating or joining through the primary service failed rather than
-## silently doing nothing.
-func _network(error: String) -> void:
-	if error.is_empty():
+func _on_dossier_pressed() -> void:
+	_close_modal()
+	var content := _modal_content("ARCHIVED HUNTER SIGNALS", "HUNTER DOSSIER",
+		Vector2(420, 232))
+	var split := HBoxContainer.new()
+	split.name = "DossierSplit"
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_theme_constant_override("separation", 8)
+	content.add_child(split)
+
+	var roster := ItemList.new()
+	roster.name = "DossierRoster"
+	roster.custom_minimum_size = Vector2(108, 0)
+	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roster.allow_reselect = true
+	roster.add_theme_font_size_override("font_size", 7)
+	roster.add_theme_color_override("font_color", Palette.BODY)
+	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
+	roster.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
+		Palette.PANEL_EDGE, 3))
+	roster.add_theme_stylebox_override("selected", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	roster.add_theme_stylebox_override("selected_focus", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	split.add_child(roster)
+
+	var details := VBoxContainer.new()
+	details.name = "DossierDetails"
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 4)
+	split.add_child(details)
+
+	var identity := HBoxContainer.new()
+	identity.add_theme_constant_override("separation", 5)
+	details.add_child(identity)
+	_dossier_name = _label("", Palette.INK, 16)
+	_dossier_name.name = "DossierName"
+	_dossier_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_title(_dossier_name)
+	identity.add_child(_dossier_name)
+	_dossier_status = _label("", Palette.AMBER, 6)
+	_dossier_status.name = "DossierStatus"
+	_dossier_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	identity.add_child(_dossier_status)
+
+	_dossier_behavior = _dossier_copy("DossierBehavior")
+	details.add_child(_dossier_behavior)
+	details.add_child(_label(Palette.track("COUNTERPLAY"), Palette.AMBER, 6))
+	_dossier_counter = _dossier_copy("DossierCounter")
+	details.add_child(_dossier_counter)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_child(spacer)
+	_dossier_stats = _label("", Palette.MUTED, 6)
+	_dossier_stats.name = "DossierStats"
+	_dossier_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(_dossier_stats)
+
+	var ids := HunterDossier.sorted_ids()
+	for hunter_id in ids:
+		var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+		var index := roster.add_item(String(profile["name"]).to_upper())
+		roster.set_item_metadata(index, hunter_id)
+	roster.item_selected.connect(func(index: int) -> void:
+		_show_dossier_entry(String(roster.get_item_metadata(index))))
+	if not ids.is_empty():
+		roster.select(0)
+		_show_dossier_entry(String(ids[0]))
+
+
+func _dossier_copy(node_name: String) -> Label:
+	var label := _label("", Palette.BODY, 7)
+	label.name = node_name
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return label
+
+
+func _show_dossier_entry(hunter_id: String) -> void:
+	var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
+	var entry: Dictionary = HunterDossier.entry(hunter_id)
+	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
-	_notice = error
-	_rebuild()
+	_dossier_name.text = String(profile["name"]).to_upper()
+	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
+	_dossier_status.text = "RULE-SUMMONED // SPECIAL" if special else (
+		"ROUTE DRAW // %s" % String(profile["tier"]).to_upper())
+	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
+		String(entry["behavior"])]
+	_dossier_counter.text = String(entry["counter"])
+	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+		float(profile["hearing"])]
 
 
-func _create_online_room() -> void:
-	_notice = ""
-	_network(RoomState.host_room())
+func _modal_content(kicker: String, title: String, minimum: Vector2) -> VBoxContainer:
+	_modal = ColorRect.new()
+	_modal.name = "DossierModal"
+	_modal.color = Palette.SCRIM
+	_modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_modal.z_index = 80
+	add_child(_modal)
+	var panel := PanelContainer.new()
+	panel.name = "DossierPanel"
+	panel.add_theme_stylebox_override("panel", Palette.panel_box(Color("0c080e"),
+		Palette.PANEL_EDGE, 12))
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	panel.custom_minimum_size = minimum
+	panel.offset_left = -minimum.x * 0.5
+	panel.offset_top = -minimum.y * 0.5
+	panel.offset_right = minimum.x * 0.5
+	panel.offset_bottom = minimum.y * 0.5
+	_modal.add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 5)
+	panel.add_child(content)
+	var top := HBoxContainer.new()
+	content.add_child(top)
+	top.add_child(_label(Palette.track(kicker), Palette.AMBER, 6))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(spacer)
+	var close := Button.new()
+	close.name = "DossierCloseButton"
+	close.add_theme_font_size_override("font_size", 7)
+	Palette.style_escape_close(close)
+	close.pressed.connect(_close_modal)
+	top.add_child(close)
+	var heading := _label(title, Palette.INK, 15)
+	Palette.style_title(heading)
+	content.add_child(heading)
+	return content
 
 
-func _resolve_online_room() -> void:
-	if not RoomState.valid_room_code(_join_code):
-		_notice = "ENTER A VALID FIVE-CHARACTER ROOM CODE"
-		_rebuild()
-		return
-	_notice = "LOOKING UP ROOM %s ON PRIMARY SERVER..." % _join_code
-	Backend.resolve_room(_join_code)
-	_rebuild()
+func _close_modal() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	_modal = null
+	_clear_dossier_fields()
 
 
-func _on_room_resolved(_code: String, endpoint: Dictionary, error: String) -> void:
-	if not error.is_empty():
-		_notice = error
-		_rebuild()
-		return
-	var address := String(endpoint.get("address", ""))
-	var port := int(endpoint.get("port", RoomState.DEFAULT_PORT))
-	_notice = ""
-	_network(RoomState.join_room(address, port))
+func _clear_dossier_fields() -> void:
+	_dossier_name = null
+	_dossier_status = null
+	_dossier_behavior = null
+	_dossier_counter = null
+	_dossier_stats = null
+
+
 func _label(text: String, tint: Color, size: int) -> Label:
 	var label := Label.new()
 	label.text = text

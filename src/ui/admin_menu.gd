@@ -3,13 +3,13 @@ extends CanvasLayer
 
 ## Developer overlay, on the 0 key.
 ##
-## Gated behind Build.tools_enabled(), which is false in a release export
-## whatever anyone forgets to strip. This is the first real customer for that
-## policy: everything here either states what the game is currently thinking or
-## reaches in and changes it, and both are things a normal build must not offer.
+## Gated behind Build.tools_enabled(): debug builds always have it; release
+## builds require a live primary-server login as the canonical KYTTU account.
+## Everything here either states what the game is currently thinking or
+## reaches in and changes it, so a display name is never sufficient proof.
 ##
 ## Deliberately NOT a rebindable action. The key is read raw so it never
-## appears in the Controls list, because a player who rebinds their way into a
+## appears in the Settings controls list, because a player who rebinds into a
 ## dev menu has found a bug, not a feature.
 ##
 ## Actions are supplied by whoever builds it, so this file knows nothing about
@@ -24,6 +24,10 @@ var _open := false
 ## Ordered [{"label": String, "action": Callable}] and a Callable returning the
 ## status text, both handed in by the mode that built this.
 var _actions: Array = []
+## [{"button": Button, "state": Callable}] for actions that expose a live
+## ON/OFF chip. Kept separately so the normal every-frame status refresh also
+## updates the chips when state changes somewhere other than the button.
+var _state_buttons: Array = []
 ## Ordered [{"label": String, "placeholder": String, "on_submit": Callable(String)}]
 ## -- a LineEdit per entry, for the rare admin action that needs a value typed
 ## in (a URL, say) rather than just a press. Enter submits; the field is not
@@ -58,18 +62,36 @@ func _build() -> void:
 	_panel = PanelContainer.new()
 	_panel.add_theme_stylebox_override("panel",
 		Palette.panel_box(Palette.PANEL, Palette.AMBER, 8))
-	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_panel.anchor_left = 0.0
+	_panel.anchor_top = 0.0
+	_panel.anchor_right = 0.0
+	_panel.anchor_bottom = 1.0
 	_panel.offset_left = 8
 	_panel.offset_top = 8
-	_panel.custom_minimum_size = Vector2(150, 0)
+	_panel.offset_right = 178
+	_panel.offset_bottom = -8
+	_panel.custom_minimum_size = Vector2(170, 0)
 	add_child(_panel)
 
+	# The action list is deliberately taller than a 270p design viewport. A
+	# bounded ScrollContainer keeps the panel on screen and makes every action
+	# reachable instead of letting its minimum height push past the lower rail.
+	var scroll := ScrollContainer.new()
+	scroll.name = "AdminScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel.add_child(scroll)
+
 	var column := VBoxContainer.new()
+	column.name = "AdminActions"
+	column.custom_minimum_size = Vector2(148, 0)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 3)
-	_panel.add_child(column)
+	scroll.add_child(column)
 
 	var heading := Label.new()
-	heading.text = Palette.track("ADMIN // NOT IN RELEASE")
+	heading.text = Palette.track("ADMIN // AUTHORIZED")
 	heading.add_theme_color_override("font_color", Palette.AMBER)
 	heading.add_theme_font_size_override("font_size", 6)
 	column.add_child(heading)
@@ -77,6 +99,7 @@ func _build() -> void:
 	_readout = Label.new()
 	_readout.add_theme_color_override("font_color", Palette.BODY)
 	_readout.add_theme_font_size_override("font_size", 7)
+	_readout.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_readout)
 
 	for entry in _actions:
@@ -85,7 +108,14 @@ func _build() -> void:
 		button.add_theme_font_size_override("font_size", 7)
 		button.custom_minimum_size = Vector2(0, 13)
 		button.focus_mode = Control.FOCUS_NONE
-		Palette.style_button(button, false)
+		if entry.has("state"):
+			var state: Callable = entry["state"]
+			Palette.style_state_toggle(button,
+				String(entry["label"]).trim_prefix("TOGGLE "),
+				bool(state.call()), true)
+			_state_buttons.append({"button": button, "state": state})
+		else:
+			Palette.style_button(button, false, true)
 		var action: Callable = entry["action"]
 		button.pressed.connect(func() -> void:
 			action.call()
@@ -103,6 +133,7 @@ func _build() -> void:
 		field.placeholder_text = String(entry.get("placeholder", ""))
 		field.add_theme_font_size_override("font_size", 7)
 		field.custom_minimum_size = Vector2(0, 15)
+		Palette.style_line_edit(field)
 		var on_submit: Callable = entry["on_submit"]
 		field.text_submitted.connect(func(value: String) -> void:
 			on_submit.call(value)
@@ -131,6 +162,8 @@ func _set_open(shown: bool) -> void:
 func _refresh() -> void:
 	if _status.is_valid():
 		_readout.text = String(_status.call())
+	for entry in _state_buttons:
+		Palette.set_state_toggle(entry["button"], bool(entry["state"].call()))
 
 
 func _process(_delta: float) -> void:

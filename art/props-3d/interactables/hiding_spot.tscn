@@ -1,21 +1,10 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="BoxMesh" id="BoxMesh_locker"]
-size = Vector3(0.7, 1.9, 0.5)
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/hiding_spot.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_locker"]
-albedo_color = Color(0.22, 0.26, 0.29, 1)
-metallic = 0.3
-roughness = 0.7
-
-; Placeholder locker. In the original a hiding spot is a PROP -- a locker, a
-; privacy curtain, a supply crate -- placed by the room-content pass this port
-; has not ported. Until it is, the spot is real and the box is a stand-in, which
-; is the honest way round: the mechanic works and the art is obviously pending,
-; rather than the art implying a mechanic that is not there.
+; Full-height single-person locker with inset door panels, real louvres,
+; handle/lock hardware, hinges, ID plate and floor feet. The GLB origin is at
+; its base centre, matching every interactable slot's floor-pivot contract.
 [node name="HidingSpot" type="Node3D"]
 
-[node name="Model" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
-mesh = SubResource("BoxMesh_locker")
-surface_material_override/0 = SubResource("StandardMaterial3D_locker")
+[node name="Model" parent="." instance=ExtResource("1_model")]

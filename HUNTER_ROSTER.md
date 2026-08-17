@@ -35,11 +35,10 @@ buys is that adding a hunter is now one line plus her gimmick, that the draw
 can be weighted by real tiers, and that Umbriel can wear the whole cast's faces
 rather than only the finished ones.
 
-**Thessine is ported**, on tuning alone. Her entire gimmick is playing fake
-sound cues, which changes no state whatsoever — so without an audio system she
-is not a degraded Thessine, she is a complete one. She gains her cues later
-with no behaviour change. She is the only hunter this is true of; Jyvra and
-Porcelle look similar and are not (see the notes below).
+**Thessine is fully ported.** Her gameplay-neutral audio mimic now rolls on the
+authoritative hunter timer and broadcasts one false cue decision to every peer,
+replaying an active hunter's real synthesized sound when possible and falling
+back to her uncanny/rare cue pool otherwise.
 
 **The tier-weighted draw is restored.** `pick_for_floor()` does the original's
 difficulty-aware seeded pick rather than a uniform draw. Relaxed and Standard

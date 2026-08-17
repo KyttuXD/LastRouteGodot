@@ -27,6 +27,10 @@ var _states := {}
 ## packet. That prevents the same hunter from starting a second struggle while
 ## the reliable capture RPC and the guest's next unreliable state cross paths.
 var _pending_captures := {}
+## Host-side peer authority proven by the primary backend. Expiry uses the
+## monotonic game clock, matching Backend's expiresIn response without trusting
+## either player's wall clock.
+var _authorized_admin_peers := {}
 var _since_send := 0.0
 var _snapshot_elapsed := SNAPSHOT_RETRY_SECONDS
 var _snapshot_received := false
@@ -140,10 +144,13 @@ func _place(state: Dictionary) -> void:
 		body.rotation.y = float(state.get("facing_y", 0.0))
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
+		body.set_meta("fade_current", 0.0)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	body.visible = bool(state.get("visible", true))
-	ModelSlot.play_if_available(_players.get(id), String(state.get("clip", "idle")))
+	var clip := String(state.get("clip", "idle"))
+	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
+	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
 
 func _interpolate_bodies(delta: float) -> void:
@@ -154,6 +161,10 @@ func _interpolate_bodies(delta: float) -> void:
 			continue
 		body.global_position = body.global_position.lerp(_positions[id], weight)
 		body.rotation.y = lerp_angle(body.rotation.y, float(_facings.get(id, body.rotation.y)), weight)
+		var fade := move_toward(float(body.get_meta("fade_current", 0.0)),
+			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
+		body.set_meta("fade_current", fade)
+		ModelSlot.set_character_fade(body, fade)
 
 
 func _drop(id: int) -> void:
@@ -166,6 +177,23 @@ func _drop(id: int) -> void:
 	_facings.erase(id)
 	_states.erase(id)
 	_pending_captures.erase(id)
+	_authorized_admin_peers.erase(id)
+
+
+func authorize_admin_peer(peer_id: int, expires_in: int) -> void:
+	if peer_id <= 1 or expires_in <= 0:
+		return
+	_authorized_admin_peers[peer_id] = Time.get_ticks_msec() + expires_in * 1000
+
+
+func remote_admin_peer_allowed(peer_id: int) -> bool:
+	if Build.remote_guest_tools_allowed():
+		return true
+	var expires_at := int(_authorized_admin_peers.get(peer_id, 0))
+	if expires_at <= Time.get_ticks_msec():
+		_authorized_admin_peers.erase(peer_id)
+		return false
+	return true
 
 
 ## Choose the closest available runner for one hunter. A visible/vulnerable
@@ -190,8 +218,12 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 
 	var preferred: Array[Dictionary] = []
 	var fallback: Array[Dictionary] = []
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	for candidate in candidates:
-		if (Build.tools_enabled() and bool(candidate.get("no_target", false))) \
+		var candidate_id := int(candidate.get("peer_id", local_id))
+		var candidate_tools := Build.tools_enabled() if candidate_id == local_id \
+			else remote_admin_peer_allowed(candidate_id)
+		if (candidate_tools and bool(candidate.get("no_target", false))) \
 				or bool(candidate.get("game_over", false)) \
 				or bool(candidate.get("escape_active", false)) \
 				or bool(candidate.get("capture_immune", false)):
@@ -299,11 +331,15 @@ func _canonical_world_event(event: Dictionary) -> Dictionary:
 ## Guest-owned input which needs host-owned hunter state. The request names an
 ## intent only; main_3d validates range/state and decides the actual result.
 func request_interaction(event: Dictionary) -> void:
+	var request := event.duplicate(true)
+	var what := String(request.get("what", ""))
+	if what in ["admin_auth", "admin_custom_map", "admin_world"]:
+		request["admin_ticket"] = Backend.admin_ticket_for_room(RoomState.code)
 	if not RoomState.online or RoomState.is_host:
 		interaction_requested.emit(multiplayer.get_unique_id() if RoomState.online else 1,
-			event)
+			request)
 	else:
-		_request_interaction.rpc_id(1, event)
+		_request_interaction.rpc_id(1, request)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -313,11 +349,40 @@ func _request_interaction(event: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zephyra_trade", "admin_custom_map", "admin_world"].has(what):
+			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
+			"admin_world"].has(what):
 		return
-	var accepted := event.duplicate(true)
+	var accepted: Dictionary
+	if what == "admin_auth":
+		accepted = {"what": what,
+			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
+	elif what == "admin_custom_map":
+		var url := String(event.get("url", "")).strip_edges()
+		if url.is_empty() or url.length() > 2048 or not (url.begins_with("https://") \
+				or url.begins_with("http://")):
+			return
+		accepted = {"what": what, "url": url,
+			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
+	elif what == "admin_world":
+		var action := String(event.get("action", ""))
+		if not ["grant_relay", "all_relays", "rebuild", "descend"].has(action):
+			return
+		accepted = {"what": what, "action": action,
+			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
+	else:
+		accepted = event.duplicate(true)
 	accepted["peer_id"] = sender
 	interaction_requested.emit(sender, accepted)
+
+
+static func _clean_admin_ticket(value) -> String:
+	var ticket := String(value)
+	if ticket.length() != 43:
+		return ""
+	for character in ticket:
+		if not "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-".contains(character):
+			return ""
+	return ticket
 
 
 func _greet(id: int) -> void:
@@ -383,7 +448,7 @@ func _player_event(event: Dictionary) -> void:
 
 
 ## A guest reports the result of a local escape struggle so the host can stun
-## or reset the authoritative hunter instead of changing only its visual copy.
+## the authoritative hunter or release the capture gate when that runner dies.
 func submit_hunter_event(event: Dictionary) -> void:
 	if not RoomState.online or RoomState.is_host:
 		hunter_event.emit(event)
@@ -397,7 +462,7 @@ func _submit_hunter_event(event: Dictionary) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
-	if sender <= 1 or not ["escaped", "respawned", "caught", "capture_blocked"].has(what):
+	if sender <= 1 or not ["escaped", "caught", "capture_blocked"].has(what):
 		return
 	# Only a peer which the host actually captured may resolve that capture.
 	# This also turns the report into a one-shot message.

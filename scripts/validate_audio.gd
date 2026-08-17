@@ -23,7 +23,8 @@ func run(host: Node) -> int:
 	_expect(AudioServer.get_bus_index("UI") >= 0, "UI audio bus is missing")
 
 	var cues := ["collect", "recharge", "menu", "music_box", "alert",
-		"nyxie_timer", "nyxie_empty", "hunter_footstep", "heartbeat",
+		"nyxie_timer", "nyxie_empty", "hunter_footstep", "mimic",
+		"mimic_rare", "heartbeat",
 		"footstep_walk", "footstep_sprint", "footstep_crouch", "capture",
 		"struggle", "escape", "office_camera", "office_warning",
 		"office_crimson_door", "office_presence", "office_scrape",
@@ -67,6 +68,21 @@ func run(host: Node) -> int:
 	button.queue_free()
 	await host.get_tree().process_frame
 
+	# The authoritative Thessine event must resolve into the same rare cue on a
+	# gameplay peer. This exercises the event-to-audio bridge, not only waveform
+	# generation.
+	var route: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(route)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	Sound.reset_test_counters()
+	route.call("_play_world_audio", {"what": "thessine_mimic", "rare": true,
+		"choice": 0.0})
+	_expect(int(Sound.play_counts.get("mimic_rare", 0)) == 1,
+		"a synchronized Thessine mimic event played no rare false cue")
+	route.queue_free()
+	await host.get_tree().process_frame
+
 	var simulation := OfficeSimulation.new("audio-check", {
 		"default_ai": 0, "jumpscares": true,
 	})
@@ -83,7 +99,7 @@ func run(host: Node) -> int:
 	_expect(office_events.any(func(event: Dictionary) -> bool:
 		return event["cue"] == "crimson_door" and absf(float(event["pan"])) > .8),
 		"Crimson's door deadline emitted no directional cue")
-	print("  wiring     UI, movement debounce, and Office event hooks are live")
+	print("  wiring     UI, movement debounce, Thessine sync, and Office hooks are live")
 	Sound.stop_all()
 	await host.get_tree().process_frame
 

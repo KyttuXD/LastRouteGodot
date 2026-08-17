@@ -8,6 +8,7 @@ extends Node
 ## Emitted when the window mode changes, including from the F11 shortcut, so
 ## an open settings panel does not sit there showing the old state.
 signal display_changed
+signal visual_changed
 
 const SETTINGS_PATH := "user://settings.cfg"
 const DEFAULT_VOLUME_PERCENT := 100.0
@@ -22,6 +23,7 @@ const DEFAULT_MOUSE_SENSITIVITY := 0.0050
 const MIN_MOUSE_SENSITIVITY := 0.0005
 const MAX_MOUSE_SENSITIVITY := 0.0120
 const MIN_VOLUME_DB := -80.0
+const DEFAULT_PIXEL_EFFECT_PERCENT := 28.0
 
 ## The design size every 2D layout is authored against, and the project's
 ## stretch viewport. With stretch/aspect "expand" this is a MINIMUM, not a
@@ -40,7 +42,7 @@ const WINDOW_SCREEN_SHARE := 0.85
 ## rebindable — it's a fixed 1-8 hotbar, same as the original.
 const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
-	"sprint", "crouch", "flashlight", "interact",
+	"sprint", "crouch", "jump", "flashlight", "interact",
 	"toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
@@ -50,6 +52,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 var master_volume_percent := DEFAULT_VOLUME_PERCENT
 var mouse_sensitivity := DEFAULT_MOUSE_SENSITIVITY
 var fullscreen := false
+var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
 
 var _master_bus_index := -1
 
@@ -88,6 +91,12 @@ func set_master_volume(percent: float) -> void:
 func set_mouse_sensitivity(value: float) -> void:
 	mouse_sensitivity = clampf(value, MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
 	_save()
+
+
+func set_pixel_effect_percent(value: float) -> void:
+	pixel_effect_percent = clampf(value, 0.0, 100.0)
+	_save()
+	visual_changed.emit()
 
 
 func rebind_action(action: String, event: InputEventKey) -> void:
@@ -146,6 +155,8 @@ func _load() -> void:
 
 	master_volume_percent = config.get_value("audio", "master_volume_percent", DEFAULT_VOLUME_PERCENT)
 	fullscreen = config.get_value("display", "fullscreen", false)
+	pixel_effect_percent = clampf(config.get_value("display",
+		"pixel_effect_percent", DEFAULT_PIXEL_EFFECT_PERCENT), 0.0, 100.0)
 	mouse_sensitivity = clampf(
 		config.get_value("controls", "mouse_sensitivity", DEFAULT_MOUSE_SENSITIVITY),
 		MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
@@ -163,6 +174,7 @@ func _save() -> void:
 	var config := ConfigFile.new()
 	config.set_value("audio", "master_volume_percent", master_volume_percent)
 	config.set_value("display", "fullscreen", fullscreen)
+	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	for action in REBINDABLE_ACTIONS:
 		for event in InputMap.action_get_events(action):

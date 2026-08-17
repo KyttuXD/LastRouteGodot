@@ -126,3 +126,16 @@ static func play_if_available(player: AnimationPlayer, name: String) -> void:
 		return
 	if player.current_animation != name or not player.is_playing():
 		player.play(name)
+
+
+## Crouching currently adds a subdued body fade as a gameplay readability
+## choice. Godot's per-instance transparency leaves the shared imported
+## mesh/materials alone, including authored alpha-masked hair, overlays, and
+## wings; the corrected imported crouch clip remains available independently.
+static func set_character_fade(root: Node, amount: float) -> void:
+	if root == null:
+		return
+	if root is GeometryInstance3D:
+		(root as GeometryInstance3D).transparency = clampf(amount, 0.0, 0.85)
+	for child in root.get_children():
+		set_character_fade(child, amount)

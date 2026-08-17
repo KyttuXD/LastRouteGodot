@@ -27,12 +27,14 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(_host: Node) -> int:
 	_everyone_has_a_face()
+	_everyone_has_a_dossier_entry()
 	_everyone_actually_renders()
 	_the_pool_is_real()
 	_the_draw_is_replayable()
 	_the_draw_reaches_everyone()
 	_the_draw_respects_its_tiers()
 	_umbriel_can_wear_the_roster()
+	_thessine_emits_authoritative_mimics()
 	if _failures == 0:
 		print("roster OK")
 	return _failures
@@ -51,6 +53,24 @@ func _everyone_has_a_face() -> void:
 	_expect(missing.is_empty(), "no model for: %s" % ", ".join(missing))
 	print("  profiles  %d hunters, each with tuning and a model"
 		% HunterRoster.PROFILES.size())
+
+
+func _everyone_has_a_dossier_entry() -> void:
+	var missing: Array[String] = []
+	for id in HunterRoster.PROFILES:
+		var entry := HunterDossier.entry(id)
+		if entry.is_empty() or String(entry.get("ability", "")).is_empty() \
+				or String(entry.get("behavior", "")).is_empty() \
+				or String(entry.get("counter", "")).is_empty():
+			missing.append(id)
+	for id in HunterDossier.ENTRIES:
+		_expect(HunterRoster.PROFILES.has(id),
+			"dossier contains unknown hunter '%s'" % id)
+	_expect(missing.is_empty(), "no complete dossier entry for: %s" % ", ".join(missing))
+	_expect(HunterDossier.ENTRIES.size() == HunterRoster.PROFILES.size(),
+		"dossier covers %d entries for a %d-hunter roster" % [
+			HunterDossier.ENTRIES.size(), HunterRoster.PROFILES.size()])
+	print("  dossier  %d mechanics and counterplay entries" % HunterDossier.ENTRIES.size())
 
 
 ## The Blockbench -> glTF export pipeline writes pixel-art materials as MASK,
@@ -112,11 +132,11 @@ func _the_pool_is_real() -> void:
 		_expect(HunterGimmick.for_id(id) != null,
 			"%s is summoned by a rule but has no gimmick to decide it" % id)
 
-	# Every drawn hunter resolves a gimmick, except the two whose difference
+	# Every drawn hunter resolves a gimmick, except the baseline whose difference
 	# really is only tuning. Without this, a gimmick that fails to compile --
 	# a new class_name before an import pass registers it -- leaves for_id()
 	# returning null for everyone, and the whole roster quietly plays Dovelle.
-	const TUNING_ONLY := ["dovelle", "thessine"]
+	const TUNING_ONLY := ["dovelle"]
 	var missing: Array[String] = []
 	for id in HunterRoster.IMPLEMENTED_IDS:
 		var has_gimmick := HunterGimmick.for_id(id) != null
@@ -218,3 +238,25 @@ func _umbriel_can_wear_the_roster() -> void:
 	for id in pool:
 		_expect(HunterRoster.PROFILES.has(id), "Umbriel's pool contains '%s', who has no profile at all" % id)
 	print("  disguise  %d faces Umbriel can wear" % pool.size())
+
+
+func _thessine_emits_authoritative_mimics() -> void:
+	var brain := HunterBrain.new(Vector2.ZERO, "VALIDATE-THESSINE", "thessine")
+	var gimmick := brain.gimmick as ThessineGimmick
+	_expect(gimmick != null, "Thessine has no live audio-mimic gimmick")
+	if gimmick == null:
+		return
+	# Repeated exact intervals exercise the seeded 50% roll without waiting in
+	# real time. This seed and sequence are stable through SeededRandom.
+	for interval in 32:
+		gimmick.before_perception(brain, GameConfig.THESSINE_MIMIC_INTERVAL, {}, null)
+	_expect(not brain.world_events.is_empty(),
+		"Thessine completed 32 mimic checks without emitting a false cue")
+	for event in brain.world_events:
+		_expect(String(event.get("what", "")) == "thessine_mimic",
+			"Thessine emitted a non-mimic world event")
+		_expect(float(event.get("choice", -1.0)) >= 0.0 \
+			and float(event.get("choice", 2.0)) < 1.0,
+			"Thessine emitted an invalid synchronized cue choice")
+	print("  mimic     %d synchronized false cues across 32 checks"
+		% brain.world_events.size())

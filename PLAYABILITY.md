@@ -15,35 +15,72 @@ this file is the order in which unfinished work should be attacked.
   manifest reload; optional GitHub-source watcher requests a Pterodactyl
   restart when `main` advances.
 - [ ] Run a real two-machine Internet soak test: host, late join, guest admin
-  custom map, hunter capture/recovery, floor descent, disconnect, and rejoin.
-- [x] Add best-effort player-host reachability: automatic UPnP forwarding for
-  UDP 8421, same-public-IP LAN address selection, explicit timeout diagnostics,
-  and mapping cleanup when the room closes.
-- [ ] Decide the zero-configuration fallback transport. Room codes still
-  discover a player-hosted ENet endpoint rather than relay gameplay; routers
-  without UPnP need a manual UDP 8421 forward, and carrier-grade NAT needs a
-  relay or dedicated authoritative game server.
-- [ ] Add reconnect grace and host migration, or explicitly end a room with a
-  clear explanation when peer 1 leaves.
-- [ ] Connect the existing Node account/save endpoints to an in-game account
-  screen and checkpoint progression.
-- [ ] Put the public backend behind HTTPS and edge rate limits before a release
-  account rollout.
+  custom map, hunter capture/jumpscare, floor descent, disconnect, and leave.
+- [x] Route native ENet through the authenticated Pterodactyl UDP relay. Hosts
+  and guests make outbound connections only; no UPnP, player-router forward,
+  hairpin NAT, or carrier-grade-NAT exception remains. Deployment must allocate
+  UDP 1105 alongside the backend's TCP 1105.
+- [x] Explicitly end a guest's live session when peer 1 leaves and return to
+  staging with `HOST DISCONNECTED // RETURNED TO STAGING`. Reconnect grace and
+  host migration remain future reliability upgrades rather than silent stalls.
+- [x] Connect registration/login/session restore to the in-game account screen,
+  with uppercase case-insensitive identities, scrypt hashes, restart-safe
+  hashed 30-day sessions, ignored persistent `.data/`, and verified `KYTTU`
+  release-admin access.
+- [x] Connect account save/load to procedural solo route checkpoints. Floor
+  boundaries persist seed/configuration, depth, score and coins; the
+  account card exposes Continue/Clear, while co-op and authored-map state never
+  overwrite the slot.
+- [x] Make ordinary CREATE ROOM online-first: probe the primary service, open
+  and list the ENet room automatically, and fall back to a playable solo room
+  when the service or initial listing is unavailable. Staging no longer repeats
+  create/join/code/leave-network controls; JOIN ROOM lives on the main menu.
+- [x] Require the public backend over HTTPS and apply built-in per-address API
+  and account throttles. Pterodactyl must terminate TLS (directly or through a
+  trusted reverse proxy); plain public HTTP account origins are rejected.
+- [x] Issue short-lived, room-bound admin tickets from the primary backend so
+  an authenticated `KYTTU` release guest can use shared map/admin tools without
+  sending an account session token to the host. Tickets expire after five
+  minutes and are bound to the room plus current host token; release hosts
+  reject forged, expired or unproved remote admin claims.
 
 ## P1 — missing game content
 
-- [ ] Add an asynchronous route loading screen between staging and gameplay:
+- [x] Add an asynchronous route loading screen between staging and gameplay:
   threaded scene/resource progress, route seed/difficulty readout, rotating
   hunter or control tips, and a co-op "waiting for host snapshot" state that
   never exposes an unfrozen half-built floor.
-- [ ] Continue the UI pass after loading: real game-over/run-report screen,
-  account/checkpoint screen for the existing backend endpoints, hunter dossier,
-  and consistent title/header typography across lobby, pause, map and Office.
-- [ ] Replace the working hiding spot's placeholder locker box with the first
-  detailed modular prop; hiding interactions and hunter counters already work.
-- [ ] Port the original themed-room population and prop placement rules.
-- [ ] Finish the remaining hunter-specific gimmicks listed in
-  `HUNTER_ROSTER.md`, then do animation/foot-contact review on the full cast.
+- [x] Continue the UI pass after loading:
+  - [x] Replace the timed game-over auto-reset with a responsive run report,
+    final route statistics and explicit solo Restart/Main Menu actions. A
+    failed capture now plays the capturing hunter through a local camera-lunge
+    presentation and ends that runner's route; co-op exposes Leave/End Route
+    with no hidden lives or respawn/rejoin path.
+  - [x] Expose authenticated uppercase username rename and password replacement
+    from the signed-in account card, with the reserved `KYTTU` setup proof kept
+    server-controlled.
+  - [x] Add a responsive 26-hunter dossier to room staging, beside route and
+    difficulty selection, with live mechanics, counterplay, route/special
+    status, and tuning readouts; keep it off the main title screen.
+  - [x] Apply consistent title/header typography across lobby, pause, map and
+    Office.
+- [x] Replace the working hiding spot's placeholder locker box with the first
+  detailed modular prop: a floor-pivoted full-height locker with inset panels,
+  louvres, hardware and feet, verified through its live hide/burn/regenerate slot.
+- [x] Port the original themed-room identities, deterministic prop lists,
+  footprints, facing/placement rules, navigation occupancy and collision.
+  Current props are coloured mechanical silhouettes; bespoke GLB art remains
+  part of the maze visual remodel below.
+- [x] Finish the remaining hunter-specific gimmicks listed in
+  `HUNTER_ROSTER.md`, including Thessine's synchronized false audio cues.
+- [x] Do animation/foot-contact review on the full cast. All 27 models and all
+  five gameplay clips are sampled across full loops for finite bounds, floor
+  penetration, per-foot contact and loop seams.
+- [x] Add a restrained route post-process: two-pixel sampling, colour
+  quantization, ordered dither, scanlines and animated grain at a persisted
+  0-100 Settings intensity (28% default), beneath the crisp HUD.
+- [x] Add a restrained grounded player hop with gravity, midair input lockout,
+  settings rebinding, XR input and full vertical remote-body replication.
 - [ ] Replace placeholder Office Mode art while preserving its working
   simulation and physical controls.
 - [ ] Implement Hide & Seek after the core co-op route survives the soak test.

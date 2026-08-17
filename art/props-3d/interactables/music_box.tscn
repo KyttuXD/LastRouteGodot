@@ -1,19 +1,9 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
-[sub_resource type="BoxMesh" id="BoxMesh_musicbox"]
-size = Vector3(0.35, 0.3, 0.3)
+[ext_resource type="PackedScene" path="res://art/props-3d/interactables/music_box.glb" id="1_model"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_musicbox"]
-albedo_color = Color(0.42, 0.28, 0.16, 1)
-metallic = 0.1
-roughness = 0.6
-
-; Placeholder music box -- Glyra's whole counterplay. A real carved-wood
-; look is future art, same honest-placeholder pattern as hiding_spot.tscn:
-; the mechanic is real and the box is a stand-in, not the other way round.
+; Walnut and brass music box with raised lid, inlay, velvet well, pinned
+; cylinder, comb and side crank. Base-centred and floor-flush.
 [node name="MusicBox" type="Node3D"]
 
-[node name="Model" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
-mesh = SubResource("BoxMesh_musicbox")
-surface_material_override/0 = SubResource("StandardMaterial3D_musicbox")
+[node name="Model" parent="." instance=ExtResource("1_model")]

@@ -1,5 +1,7 @@
 extends Node
 
+const RELAY_TUNNEL_SCRIPT := preload("res://src/network/enet_relay_tunnel.gd")
+
 ## The room a session belongs to.
 ##
 ## Singleplayer is not a separate path here -- it is a room with one player in
@@ -9,10 +11,9 @@ extends Node
 ## room a transport rather than rewriting how runs start.
 ##
 ## Concretely, the things a run needs -- which mode, which seed, how big the
-## map, how hard -- live on the room, not on whoever pressed the button. When
-## PLAY and OFFICE MODE become CREATE ROOM and JOIN ROOM, nothing downstream of
-## this file has to change: a joined room fills these same fields from the host
-## instead of from `create_local`.
+## map, how hard -- live on the room, not on whoever pressed the button. CREATE
+## ROOM and JOIN ROOM fill the same fields; a joined room simply receives them
+## from the host instead of `create_local`.
 ##
 ## Mirrors the web build's staging screen, including its vocabulary (route
 ## seed, signals, staging) and its offline rule: without a backend you get the
@@ -32,9 +33,9 @@ enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
 ## renaming an existing tier just to free the word felt like a bigger change
 ## than "merge the two biggest" asked for.
 enum Scale { SMALL, STANDARD, LARGE, IMMENSE }
-## Nightmare is intentionally reserved but not selectable. Its eventual design
-## includes a larger active hunter lineup, which is not a safe thing to expose
-## as a label before the corresponding simulation and co-op rules exist.
+## Nightmare is intentionally visible but not selectable. Its eventual design
+## includes a larger active hunter lineup, so the disabled label can advertise
+## the plan without exposing an incomplete simulation/co-op ruleset.
 enum Difficulty { RELAXED, STANDARD, HARD, NIGHTMARE }
 
 ## The web build calls a slot a "signal" and seats sixteen of them.
@@ -46,7 +47,10 @@ const CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const CODE_LENGTH := 5
 
 const MODE_LABELS := {
-	Mode.DEFAULT: "DEFAULT", Mode.HIDE_SEEK: "HIDE & SEEK", Mode.OFFICE: "OFFICE",
+	# HIDE & SEEK remains a legacy enum for old room packets, but is removed
+	# from the selectable UI until its design returns. OFFICE stays visible as
+	# a disabled preview so players can see that it is planned.
+	Mode.DEFAULT: "DEFAULT", Mode.OFFICE: "OFFICE",
 }
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
@@ -54,12 +58,28 @@ const SCALE_LABELS := {
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
-	Difficulty.HARD: "HARD",
+	Difficulty.HARD: "HARD", Difficulty.NIGHTMARE: "NIGHTMARE",
 }
 const DIFFICULTY_IDS := {
 	Difficulty.RELAXED: "relaxed", Difficulty.STANDARD: "standard",
 	Difficulty.HARD: "hard", Difficulty.NIGHTMARE: "nightmare",
 }
+
+## Anonymous room guests use a two-word signal callsign. Keeping the words as
+## named pools makes FIRST/LAST coverage explicit and gives enough variety for
+## a full 16-player room without the roster looking repeated.
+const GUEST_FIRST_NAMES := [
+	"QUIET", "LOW", "DIM", "COLD", "LONG", "THIN", "FAINT", "LAST",
+	"PALE", "STILL", "DARK", "SOFT", "LOST", "HOLLOW", "SILENT", "DUSK",
+	"ASH", "IRON", "GLASS", "NARROW", "FAR", "LONE", "RED", "GREY",
+	"BROKEN", "HIDDEN", "EMPTY", "FROZEN", "WILD", "SLOW", "DEEP", "FINAL",
+]
+const GUEST_LAST_NAMES := [
+	"EYE", "STEP", "LAMP", "WIRE", "ROUTE", "DOOR", "SIGNAL", "WATCH",
+	"HALL", "BELL", "KEY", "THREAD", "WINDOW", "STATIC", "ECHO", "SHADOW",
+	"GATE", "ROOM", "LIGHT", "TOWER", "PATH", "ARCHIVE", "RELAY", "MARK",
+	"LOCK", "VAULT", "FRAME", "STAIR", "VOICE", "TRACK", "FIELD", "LINE",
+]
 
 ## Which scene each mode opens. OFFICE is its own self-contained shift and
 ## shares no state with a Last Route run.
@@ -68,6 +88,7 @@ const MODE_SCENES := {
 	Mode.HIDE_SEEK: "res://scenes/main_3d.tscn",
 	Mode.OFFICE: "res://scenes/office_3d.tscn",
 }
+const ROUTE_LOADING_SCENE := "res://scenes/route_loading.tscn"
 
 var code := ""
 ## The full route seed, shown on the staging screen and the in-run HUD so two
@@ -96,7 +117,7 @@ var status_message := ""
 var peers := {}
 
 const DEFAULT_PORT := 8421
-const CONNECTION_TIMEOUT_MSEC := 12_000
+const CONNECTION_TIMEOUT_MSEC := 15_000
 ## Loopback by default: this exists to test with two windows on one machine
 ## before there is anything to connect to.
 const DEFAULT_ADDRESS := "127.0.0.1"
@@ -104,15 +125,23 @@ const DEFAULT_ADDRESS := "127.0.0.1"
 var _peer: ENetMultiplayerPeer
 var _host_port := DEFAULT_PORT
 var _connect_started_msec := 0
-var _upnp_thread: Thread
-var _upnp: UPNP
-var _upnp_mapped_port := 0
-var _upnp_status := ""
+var _relay: Node
+var _relay_status := ""
 var _directory_status := ""
+## CREATE ROOM uses this only until its first successful directory listing.
+## If the primary service cannot accept the room, the staging screen remains
+## usable as solo instead of waiting forever behind an online-only button.
+var _primary_create_fallback_enabled := false
+var _scene_transitions_suppressed_for_tests := false
 
 
 func _ready() -> void:
 	Backend.registration_changed.connect(_on_directory_registration)
+	_relay = RELAY_TUNNEL_SCRIPT.new()
+	_relay.name = "GameplayRelayTunnel"
+	_relay.relay_ready.connect(_on_relay_ready)
+	_relay.relay_failed.connect(_on_relay_failed)
+	add_child(_relay)
 	# A room always exists, so nothing has to null-check it. Landing straight
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
@@ -120,18 +149,15 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _upnp_thread != null and not _upnp_thread.is_alive():
-		var outcome: Dictionary = _upnp_thread.wait_to_finish()
-		_upnp_thread = null
-		_finish_upnp_mapping(outcome)
 	if connecting and _connect_started_msec > 0 \
 			and Time.get_ticks_msec() - _connect_started_msec >= CONNECTION_TIMEOUT_MSEC:
 		_close_failed_connection(
-			"ROOM CONNECTION TIMED OUT // HOST MUST ALLOW UDP %d" % _host_port)
+			"ROOM CONNECTION TIMED OUT // GAMEPLAY RELAY UNREACHABLE")
 
 
 func _exit_tree() -> void:
-	_stop_upnp_mapping()
+	if _relay != null:
+		_relay.close()
 
 
 ## Open a room on this machine with one player in it.
@@ -139,8 +165,9 @@ func _exit_tree() -> void:
 ## This IS singleplayer. There is no second code path to keep in step, which is
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
+	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
-	mode = for_mode
+	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
 	map_scale = Scale.STANDARD
 	difficulty = Difficulty.STANDARD
 	leave_network()
@@ -151,20 +178,52 @@ func create_local(for_mode: Mode) -> void:
 	changed.emit()
 
 
+## Prepare a saved procedural solo route without entering it yet. Keeping the
+## validation here lets the account screen report a bad/stale save while the
+## current room remains untouched. The next Main3D consumes GameState's queued
+## values once; ordinary CREATE ROOM clears that queue above.
+func prepare_route_checkpoint(checkpoint: Dictionary) -> String:
+	if not GameState.route_checkpoint_valid(checkpoint):
+		return "THE SAVED ROUTE CHECKPOINT IS INVALID"
+	var saved_seed_text := String(checkpoint.get("room_seed_text", ""))
+	var expected_run_seed := maxi(1, abs(int(saved_seed_text.hash())))
+	if expected_run_seed != int(checkpoint.get("run_seed", 0)):
+		return "THE SAVED ROUTE SEED DOES NOT MATCH ITS CHECKPOINT"
+	var saved_scale := int(checkpoint.get("map_scale", -1))
+	var saved_difficulty := int(checkpoint.get("difficulty", -1))
+	if not SCALE_LABELS.has(saved_scale) or not difficulty_available(saved_difficulty):
+		return "THE SAVED ROUTE USES AN UNAVAILABLE CONFIGURATION"
+	if DIFFICULTY_IDS.get(saved_difficulty, "") != checkpoint.get("difficulty_id", ""):
+		return "THE SAVED ROUTE DIFFICULTY DOES NOT MATCH ITS CHECKPOINT"
+	create_local(Mode.DEFAULT)
+	seed_text = saved_seed_text
+	map_scale = saved_scale
+	difficulty = saved_difficulty
+	status_message = "CHECKPOINT READY // DEPTH %d" % int(checkpoint["depth"])
+	if not GameState.queue_route_checkpoint(checkpoint):
+		return "THE SAVED ROUTE CHECKPOINT COULD NOT BE PREPARED"
+	changed.emit()
+	return ""
+
+
 ## Open this room to the network.
 ##
 ## Everything above already describes a room; this only gives it a transport.
 ## The host keeps the room it already had -- same code, same seed, same
 ## configuration -- so hosting is not "start a multiplayer game", it is the
 ## singleplayer room you are already in becoming joinable.
-func host_room(port: int = DEFAULT_PORT) -> String:
+func host_room(port: int = DEFAULT_PORT,
+		fallback_to_solo_on_listing_failure: bool = false) -> String:
 	if OS.has_feature("web"):
 		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
+	GameState.clear_pending_route_checkpoint()
 	leave_network()
+	_primary_create_fallback_enabled = fallback_to_solo_on_listing_failure
 	_peer = ENetMultiplayerPeer.new()
 	var error := _peer.create_server(port, MAX_PLAYERS)
 	if error != OK:
 		_peer = null
+		_primary_create_fallback_enabled = false
 		return "COULD NOT CREATE ONLINE ROOM // NETWORK PORT UNAVAILABLE"
 	multiplayer.multiplayer_peer = _peer
 	_host_port = port
@@ -176,28 +235,47 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 	_directory_status = ""
 	peers = {1: _local_name()}
 	_bind_signals()
-	if Backend.configured():
-		_start_upnp_mapping(port)
-	Backend.register_room(code, port, peers.size(), session_active, host_addresses())
+	Backend.register_room(code, port, peers.size(), session_active)
 	changed.emit()
+	return ""
+
+
+## Main-menu CREATE ROOM path: make the ordinary room online automatically.
+## A failed initial listing falls back to the already-created solo room; once
+## listed, transient heartbeat trouble does not destroy a live co-op session.
+func host_primary_room(port: int = DEFAULT_PORT) -> String:
+	var error := host_room(port, true)
+	if not error.is_empty():
+		status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM // %s" % error
+		changed.emit()
+		return error
 	return ""
 
 
 ## Join someone else's room. Their configuration replaces ours wholesale --
 ## the host owns the route, so a client that kept its own seed would generate a
 ## different building from the same room.
-func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> String:
+func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
+		transport: String = "direct", room_code: String = "") -> String:
 	if OS.has_feature("web"):
 		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
+	GameState.clear_pending_route_checkpoint()
 	leave_network()
 	var trimmed := address.strip_edges()
 	if trimmed.is_empty():
 		return "ENTER A HOST ADDRESS"
+	var connect_address := trimmed
+	var connect_port := port
+	if transport == "relay":
+		connect_port = _relay.start_guest(room_code, trimmed, port)
+		if connect_port <= 0:
+			return "COULD NOT OPEN GAMEPLAY RELAY TUNNEL"
+		connect_address = DEFAULT_ADDRESS
 	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_client(trimmed, port)
+	var error := _peer.create_client(connect_address, connect_port)
 	if error != OK:
 		_peer = null
-		return "COULD NOT REACH %s:%d" % [trimmed, port]
+		return "COULD NOT REACH GAMEPLAY RELAY"
 	multiplayer.multiplayer_peer = _peer
 	online = false
 	connecting = true
@@ -205,7 +283,7 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> S
 	_host_port = port
 	is_host = false
 	session_active = false
-	status_message = "JOINING ROOM THROUGH PRIMARY SERVER"
+	status_message = "JOINING ROOM THROUGH PRIMARY GAMEPLAY RELAY"
 	peers = {}
 	_bind_signals()
 	changed.emit()
@@ -219,13 +297,17 @@ func leave_network() -> void:
 		_peer.close()
 		_peer = null
 	multiplayer.multiplayer_peer = null
-	_stop_upnp_mapping()
+	if _relay != null:
+		_relay.close()
 	online = false
 	connecting = false
 	_connect_started_msec = 0
 	is_host = true
 	session_active = false
 	peers = {}
+	_relay_status = ""
+	_directory_status = ""
+	_primary_create_fallback_enabled = false
 	changed.emit()
 
 
@@ -269,10 +351,56 @@ func _on_peer_disconnected(id: int) -> void:
 func _on_directory_registration(listed: bool, message: String) -> void:
 	if not online or not is_host:
 		return
+	if not listed and _primary_create_fallback_enabled:
+		var reason := message
+		leave_network()
+		status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM // %s" % reason
+		changed.emit()
+		return
+	if listed:
+		_primary_create_fallback_enabled = false
 	_directory_status = message if listed else "PRIMARY SERVER LISTING FAILED // %s" % message
 	status_message = _directory_status
-	if listed and not _upnp_status.is_empty():
-		status_message += " // %s" % _upnp_status
+	if listed:
+		var endpoint := Backend.host_endpoint()
+		var relay_address := String(endpoint.get("address", ""))
+		var relay_port := int(endpoint.get("port", 0))
+		if String(endpoint.get("transport", "")) != "relay" \
+				or relay_address.is_empty() or relay_port <= 0:
+			_on_relay_failed("PRIMARY SERVER RETURNED NO GAMEPLAY RELAY")
+			return
+		if _relay.mode == 1 and _relay.room_code == code:
+			_relay.update_host_token(Backend.host_token())
+		else:
+			var error: String = _relay.start_host(code, Backend.host_token(), _host_port,
+				relay_address, relay_port)
+			if not error.is_empty():
+				_on_relay_failed(error)
+				return
+		_relay_status = "CONNECTING GAMEPLAY RELAY"
+		status_message += " // %s" % _relay_status
+	changed.emit()
+
+
+func _on_relay_ready() -> void:
+	_relay_status = "GAMEPLAY RELAY READY // NO PORT FORWARDING REQUIRED"
+	if online and is_host:
+		status_message = _directory_status if not _directory_status.is_empty() \
+			else "ROOM LISTED IN DIRECTORY"
+		status_message += " // %s" % _relay_status
+	elif connecting:
+		status_message = "GAMEPLAY RELAY READY // CONNECTING TO HOST"
+	changed.emit()
+
+
+func _on_relay_failed(message: String) -> void:
+	_relay_status = "GAMEPLAY RELAY WAITING // %s" % message
+	if online and is_host:
+		status_message = _directory_status if not _directory_status.is_empty() \
+			else "ROOM LISTED IN DIRECTORY"
+		status_message += " // %s" % _relay_status
+	elif connecting:
+		status_message = _relay_status
 	changed.emit()
 
 
@@ -337,6 +465,10 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 	difficulty = _selectable_difficulty_or_standard(p_difficulty)
 	peers = p_peers
 	session_active = p_session_active
+	# A release admin guest mints her opaque room proof only after adopting the
+	# host's real code. Her account session never enters an ENet packet.
+	if not is_host and Backend.admin_authorized():
+		Backend.request_admin_ticket(code)
 	changed.emit()
 
 
@@ -374,11 +506,6 @@ func run_seed() -> int:
 	return maxi(1, abs(int(seed_text.hash())))
 
 
-## Whether a mode can be picked in this room's current state.
-##
-## HIDE & SEEK needs someone to hide from, so it is unavailable offline. That
-## is a property of the room rather than a disabled button in the menu, so the
-## rule holds wherever a mode gets chosen.
 ## Everyone in the room WITH who they are: their peer id, whether they host it
 ## and whether they are you.
 ##
@@ -413,22 +540,23 @@ func roster() -> PackedStringArray:
 	return out
 
 
+## Whether a mode can be picked in this room's current state. Disabled modes
+## are rejected here as well as in staging so stale clients and direct calls
+## cannot enter an unfinished ruleset.
 func mode_available(candidate: Mode) -> bool:
-	if candidate == Mode.HIDE_SEEK:
-		return online and roster().size() > 1
-	if candidate == Mode.OFFICE:
-		return not online
-	return true
+	return candidate == Mode.DEFAULT
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
-	if candidate == Mode.HIDE_SEEK and not online:
-		return "NEEDS A SECOND SIGNAL IN THE ROOM"
 	if candidate == Mode.HIDE_SEEK:
-		return "NEEDS A SECOND SIGNAL IN THE ROOM"
-	if candidate == Mode.OFFICE and online:
-		return "OFFICE MODE IS SOLO ONLY // CLOSE ONLINE ROOM FIRST"
+		return "HIDE & SEEK IS REMOVED WHILE ITS RULESET IS REBUILT"
+	if candidate == Mode.OFFICE:
+		return "OFFICE MODE IS TEMPORARILY UNAVAILABLE"
 	return ""
+
+
+func difficulty_available(candidate: Difficulty) -> bool:
+	return DIFFICULTY_LABELS.has(candidate) and candidate != Difficulty.NIGHTMARE
 
 
 ## What the button that leaves staging should say, in the web build's words.
@@ -523,10 +651,9 @@ func set_map_scale(value: Scale) -> void:
 func set_difficulty(value: Difficulty) -> void:
 	if online and not is_host:
 		return
-	# NIGHTMARE is a reservation, not a hidden back door. Rejecting it here as
-	# well as omitting its lobby button keeps scripts and stale clients from
-	# starting an only-partially-defined ruleset.
-	if not DIFFICULTY_LABELS.has(value) or difficulty == value:
+	# NIGHTMARE stays visible but disabled. Rejecting it here also keeps scripts
+	# and stale clients from starting the incomplete multi-hunter ruleset.
+	if not difficulty_available(value) or difficulty == value:
 		return
 	difficulty = value
 	broadcast()
@@ -542,7 +669,8 @@ func difficulty_profile() -> Dictionary:
 
 
 static func _selectable_difficulty_or_standard(value: int) -> int:
-	return value if DIFFICULTY_LABELS.has(value) else Difficulty.STANDARD
+	return value if value in [Difficulty.RELAXED, Difficulty.STANDARD,
+		Difficulty.HARD] else Difficulty.STANDARD
 
 
 ## Leave staging and start the run this room describes.
@@ -587,10 +715,27 @@ func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 
 
 func _enter_session_scene(tree: SceneTree) -> void:
-	var path := String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
-	if tree.current_scene != null and tree.current_scene.scene_file_path == path:
+	if _scene_transitions_suppressed_for_tests:
 		return
-	tree.change_scene_to_file(path)
+	var path := session_scene_path()
+	if tree.current_scene != null and tree.current_scene.scene_file_path in [
+			path, ROUTE_LOADING_SCENE]:
+		return
+	# Resource dependencies are loaded on the worker thread by the intermediate
+	# scene. Main3D then keeps the same visual over a joining guest until her
+	# authoritative host snapshot is installed.
+	tree.change_scene_to_file(ROUTE_LOADING_SCENE)
+
+
+## The two-process ENet harness verifies the start RPC while deliberately
+## remaining in its tiny transport scene. Debug-only and absent from all UI.
+func suppress_scene_transitions_for_tests() -> void:
+	assert(OS.is_debug_build())
+	_scene_transitions_suppressed_for_tests = true
+
+
+func session_scene_path() -> String:
+	return String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
 
 
 ## The host can end a run without destroying the room. Guests stay connected
@@ -624,83 +769,6 @@ func _return_to_staging() -> void:
 	tree.change_scene_to_file("res://scenes/room_lobby.tscn")
 
 
-## ENet is peer-to-peer UDP. The primary backend can publish the host's public
-## address, but a home router still has to forward that UDP port to the game.
-## UPnP handles the common case automatically on a worker thread because SSDP
-## discovery is synchronous. Routers without UPnP get an explicit lobby
-## warning and can use an ordinary manual UDP 8421 forwarding rule.
-func _start_upnp_mapping(port: int) -> void:
-	_stop_upnp_mapping()
-	_upnp_status = "CHECKING UDP %d AUTO-FORWARD" % port
-	_upnp_thread = Thread.new()
-	var error := _upnp_thread.start(_discover_upnp_mapping.bind(port))
-	if error != OK:
-		_upnp_thread = null
-		_upnp_status = "FORWARD UDP %d TO HOST // AUTO-FORWARD COULD NOT START" % port
-
-
-static func _discover_upnp_mapping(port: int) -> Dictionary:
-	var upnp := UPNP.new()
-	var result := upnp.discover(2000, 2, "InternetGatewayDevice")
-	var mapped := false
-	if result == UPNP.UPNP_RESULT_SUCCESS:
-		var gateway := upnp.get_gateway()
-		if gateway != null and gateway.is_valid_gateway():
-			result = upnp.add_port_mapping(port, port, "Last Route ENet", "UDP", 0)
-			mapped = result == UPNP.UPNP_RESULT_SUCCESS
-	return {"upnp": upnp, "port": port, "result": result, "mapped": mapped}
-
-
-func _finish_upnp_mapping(outcome: Dictionary) -> void:
-	var upnp = outcome.get("upnp") as UPNP
-	var port := int(outcome.get("port", 0))
-	var mapped := bool(outcome.get("mapped", false))
-	# The player may have left during discovery. Remove a mapping made for a
-	# room that no longer exists instead of leaking it on the router.
-	if not online or not is_host or port != _host_port:
-		if mapped and upnp != null:
-			upnp.delete_port_mapping(port, "UDP")
-		return
-	if mapped:
-		_upnp = upnp
-		_upnp_mapped_port = port
-		_upnp_status = "UDP %d OPENED AUTOMATICALLY" % port
-	else:
-		_upnp_status = "FORWARD UDP %d TO THIS HOST // AUTO-FORWARD UNAVAILABLE (%d)" \
-			% [port, int(outcome.get("result", -1))]
-	status_message = _directory_status if not _directory_status.is_empty() \
-		else "REGISTERING ROOM WITH PRIMARY SERVER"
-	status_message += " // %s" % _upnp_status
-	changed.emit()
-
-
-func _stop_upnp_mapping() -> void:
-	if _upnp_thread != null:
-		var outcome: Dictionary = _upnp_thread.wait_to_finish()
-		_upnp_thread = null
-		var pending_upnp = outcome.get("upnp") as UPNP
-		if bool(outcome.get("mapped", false)) and pending_upnp != null:
-			pending_upnp.delete_port_mapping(int(outcome.get("port", 0)), "UDP")
-	if _upnp != null and _upnp_mapped_port > 0:
-		_upnp.delete_port_mapping(_upnp_mapped_port, "UDP")
-	_upnp = null
-	_upnp_mapped_port = 0
-	_upnp_status = ""
-	_directory_status = ""
-
-
-## Addresses worth showing beside the host button. Loopback and IPv6 link-local
-## entries are omitted because another machine cannot use the former and the
-## latter needs a scope id the simple address field does not expose.
-func host_addresses() -> PackedStringArray:
-	var out := PackedStringArray()
-	for address in IP.get_local_addresses():
-		if address == "127.0.0.1" or address.contains(":"):
-			continue
-		out.append(address)
-	return out
-
-
 static func _make_code() -> String:
 	var out := ""
 	for i in CODE_LENGTH:
@@ -708,10 +776,11 @@ static func _make_code() -> String:
 	return out
 
 
-## A callsign in the web build's shape -- QUIET-EYE-307. Anonymous on purpose:
-## a room is joined by code, and nobody has an account yet.
+## A callsign in the web build's shape -- QUIET-EYE-307. Signed-in accounts
+## use their canonical uppercase username; guests draw from the larger FIRST
+## and LAST signal-name pools above.
 static func _make_callsign() -> String:
-	const FIRST := ["QUIET", "LOW", "DIM", "COLD", "LONG", "THIN", "FAINT", "LAST"]
-	const SECOND := ["EYE", "STEP", "LAMP", "WIRE", "ROUTE", "DOOR", "SIGNAL", "WATCH"]
-	return "%s-%s-%d" % [FIRST[randi() % FIRST.size()],
-		SECOND[randi() % SECOND.size()], 100 + randi() % 900]
+	if Backend.signed_in():
+		return Backend.account_username
+	return "%s-%s-%d" % [GUEST_FIRST_NAMES[randi() % GUEST_FIRST_NAMES.size()],
+		GUEST_LAST_NAMES[randi() % GUEST_LAST_NAMES.size()], 100 + randi() % 900]

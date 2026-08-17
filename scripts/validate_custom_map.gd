@@ -22,11 +22,15 @@ func _expect(condition: bool, message: String) -> void:
 func run(_host: Node) -> int:
 	_parses_a_real_map()
 	_parses_committed_sample()
-	_accepts_unbounded_dimensions()
+	_accepts_practical_dimensions_and_rejects_oversized()
 	_supports_authored_and_random_spawns()
+	_rejects_disconnected_floor()
+	_preserves_irregular_region_membership()
 	_flags_unrecognised_colour()
 	_requires_walkable_space()
 	_feeds_a_real_generator()
+	_themed_samples_populate_authored_props()
+	_bedroom_region_populates_bedroom_props()
 	if _failures == 0:
 		print("custom_map OK")
 	return _failures
@@ -103,9 +107,10 @@ func _parses_a_real_map() -> void:
 	print("  parse     start, exit and one flood-filled region all land correctly")
 
 
-func _accepts_unbounded_dimensions() -> void:
-	# Both images sit outside the old 35..121 bounds. Dimensions are content,
-	# not a parser policy; only valid palette/start authoring matters.
+func _accepts_practical_dimensions_and_rejects_oversized() -> void:
+	# Both valid images sit outside the old 35..121 procedural bounds. Custom
+	# dimensions remain flexible, with a decoded-cell ceiling for downloaded
+	# PNGs so compressed images cannot exhaust a client's memory.
 	var tiny := Image.create(3, 2, false, Image.FORMAT_RGBA8)
 	tiny.fill(Color(1, 1, 1, 1))
 	tiny.set_pixel(0, 0, Color8(0, 255, 0))
@@ -126,7 +131,52 @@ func _accepts_unbounded_dimensions() -> void:
 			"UNBOUNDED-CUSTOM-MAP", RoomState.generator_options(), large_result)
 		_expect(generator.cols == 173 and generator.rows == 129,
 			"the generator clamped the parsed custom-map dimensions")
-	print("  dimensions 3x2 and 173x129 maps both parse; no authored pixel bounds")
+
+	var oversized := Image.create(257, 257, false, Image.FORMAT_RGBA8)
+	oversized.fill(Color(1, 1, 1, 1))
+	var oversized_result := CustomMapParser.parse(oversized)
+	_expect(not oversized_result.get("ok", true),
+		"a 66,049-cell image bypassed the decoded custom-map safety ceiling")
+	print("  dimensions 3x2 and 173x129 parse; oversized decoded grids are rejected")
+
+
+func _rejects_disconnected_floor() -> void:
+	var image := Image.create(9, 9, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 1))
+	image.set_pixel(1, 1, Color8(0, 255, 0))
+	image.set_pixel(1, 2, Color(1, 1, 1, 1))
+	image.set_pixel(7, 7, Color8(255, 0, 0))
+	var result := CustomMapParser.parse(image)
+	_expect(not result.get("ok", true),
+		"a map whose exit island cannot be reached from spawn was accepted")
+	_expect("unreachable" in String(result.get("error", "")),
+		"a disconnected map did not explain its unreachable cells")
+	print("  connected every open island must be reachable from the authored spawn")
+
+
+func _preserves_irregular_region_membership() -> void:
+	var image := _make_test_image(TEST_SIZE)
+	var mansion := Color8(0x8e, 0x5f, 0xd9)
+	# Replace the original block with a connected ring whose bounding-box center
+	# remains ordinary corridor floor.
+	for y in range(5, 8):
+		for x in range(5, 8):
+			image.set_pixel(x, y, mansion if x in [5, 7] or y in [5, 7] \
+				else Color(1, 1, 1, 1))
+	var result := CustomMapParser.parse(image)
+	_expect(result.get("ok", false), "an irregular painted room failed to parse")
+	if not result.get("ok", false):
+		return
+	var generator := FacilityGenerator.new(
+		"IRREGULAR-CUSTOM-MAP", RoomState.generator_options(), result)
+	_expect(String(generator.room_at(5.5, 5.5).get("region", "")) == "mansion",
+		"a painted ring cell lost its region membership")
+	_expect(generator.room_at(6.5, 6.5).is_empty(),
+		"the unpainted hole inside a region bounding box became a fake room")
+	var room: Dictionary = result["rooms"][0]
+	_expect((room["cells"] as Dictionary).has(room["center"]),
+		"an irregular room center was placed outside its painted cells")
+	print("  regions   irregular shapes retain exact cells and an on-floor center")
 
 
 func _flags_unrecognised_colour() -> void:
@@ -213,3 +263,68 @@ func _feeds_a_real_generator() -> void:
 	# same promise a procedural floor makes, just fed a different layout.
 	_expect(not generator.relays.is_empty(), "no relays were placed on the painted floor at all")
 	print("  generator a parsed map produces relays/batteries through the same generic placement")
+
+
+func _themed_samples_populate_authored_props() -> void:
+	var samples := {
+		"sample-mansion-showcase.png": "diningTable",
+		"sample-frozen-tideline.png": "frozenBeachHut",
+		"sample-thermal-inferno.png": "infernoAltar",
+	}
+	for filename in samples:
+		var path := "res://art/custom-maps/%s" % filename
+		var texture := load(path) as Texture2D
+		var image: Image = texture.get_image() if texture != null else null
+		_expect(image != null and not image.is_empty(),
+			"%s could not be loaded" % filename)
+		if image == null or image.is_empty():
+			continue
+		var result := CustomMapParser.parse(image)
+		_expect(result.get("ok", false), "%s did not parse: %s" % [filename,
+			result.get("error", "")])
+		if not result.get("ok", false):
+			continue
+		var generator := FacilityGenerator.new(
+			"SAMPLE-PROPS:%s" % filename, RoomState.generator_options(), result)
+		var types: Array[String] = []
+		for prop in generator.props:
+			var type := String(prop.get("type", ""))
+			types.append(type)
+			if PropModelCatalog.has_model(type):
+				var model_path := PropModelCatalog.model_path(type,
+					String(prop.get("id", type)))
+				_expect(ResourceLoader.exists(model_path),
+					"%s maps %s to missing model %s" % [filename, type, model_path])
+		_expect(not generator.props.is_empty(),
+			"%s produced no themed props" % filename)
+		_expect(types.has(String(samples[filename])),
+			"%s did not place its expected %s" % [filename, samples[filename]])
+	print("  props     mansion, Frozen Tideline and Inferno samples place authored GLBs")
+
+
+func _bedroom_region_populates_bedroom_props() -> void:
+	var image := Image.create(27, 27, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 1))
+	for y in range(1, 26):
+		for x in range(1, 26):
+			image.set_pixel(x, y, Color(1, 1, 1, 1))
+	for y in range(4, 23):
+		for x in range(4, 23):
+			image.set_pixel(x, y, Color8(0xb0, 0x7c, 0xc6))
+	image.set_pixel(2, 2, Color8(0, 255, 0))
+	image.set_pixel(24, 24, Color8(255, 0, 0))
+	var result := CustomMapParser.parse(image)
+	_expect(result.get("ok", false), "the mansion-bedroom palette colour did not parse")
+	if not result.get("ok", false):
+		return
+	var generator := FacilityGenerator.new(
+		"BEDROOM-REGION-CHECK", RoomState.generator_options(), result)
+	var types: Array[String] = []
+	for prop in generator.props:
+		types.append(String(prop.get("type", "")))
+	_expect(types.has("singleBed"), "a bedroom-painted region placed no bed")
+	_expect(types.has("bedroomWardrobe"),
+		"a bedroom-painted region placed no wardrobe")
+	_expect(types.has("bedsideLamp"),
+		"a bedroom-painted region did not mount its bedside lamp")
+	print("  bedroom  #B07CC6 regions place beds, storage, vanity and bedside dressing")

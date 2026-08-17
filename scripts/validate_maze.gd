@@ -28,6 +28,15 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 
 	var view: FacilityView3D = scene.facility_view
+	var pixel_effect := scene.pixel_signal_effect as PixelSignalEffect
+	if pixel_effect == null or pixel_effect.find_child("PixelSignalSurface",
+			true, false) == null:
+		_fail("the route has no pixel/static post-process")
+	elif not is_equal_approx(pixel_effect.strength(),
+			Settings.pixel_effect_percent / 100.0):
+		_fail("the route post-process ignored the saved Settings intensity")
+	if pixel_effect != null and pixel_effect.layer >= scene.hud.layer:
+		_fail("the pixel/static post-process also degrades HUD text")
 	var grid: GridMap = view.get_child(0) as GridMap
 	# The ceiling lives on its own GridMap so the top-down view can hide it.
 	var lid: GridMap = view.get_child(1) as GridMap
@@ -42,9 +51,13 @@ func run(host: Node) -> int:
 	var walls := 0
 	var lids := 0
 	for cell in grid.get_used_cells():
-		match grid.get_cell_item(cell):
-			FacilityView3D.ITEM_FLOOR: floors += 1
-			FacilityView3D.ITEM_WALL: walls += 1
+		var item := grid.get_cell_item(cell)
+		if item == FacilityView3D.ITEM_WALL:
+			walls += 1
+		else:
+			# Region-tinted room tiles get their own MeshLibrary ids but are
+			# mechanically still floor and each requires one ceiling cell.
+			floors += 1
 	lids = lid.get_used_cells().size()
 	for id in [FacilityView3D.ITEM_FLOOR, FacilityView3D.ITEM_WALL,
 			FacilityView3D.ITEM_CEILING]:
@@ -78,14 +91,12 @@ func run(host: Node) -> int:
 		if std.uv1_offset != Vector3.ZERO:
 			_fail("grid item %d has a nonzero uv1_offset -- looks like a cropped atlas patch, not a whole dedicated texture" % id)
 
-	# The floor has to stop things. It did not, and nothing noticed because the
-	# player has no gravity -- a floor that only works because nothing pulls
-	# down is not a floor.
-	# The floor is deliberately collider-less until there is gravity: a slab
-	# whose top is flush with the capsule's base ejects the player upward every
-	# frame, half a metre at a time, with nothing to bring him back down.
-	if not grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_FLOOR).is_empty():
-		_fail("the floor has collision again, which makes the player climb")
+	# Gravity makes the floor a real physics contract. Y-centering must stay off
+	# or Godot shifts that collider up half a cell and embeds the player in it.
+	if grid.cell_center_y or lid.cell_center_y:
+		_fail("the GridMap Y origin is centred instead of floor-based")
+	if grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_FLOOR).is_empty():
+		_fail("the floor has no collision for player gravity")
 	if not grid.mesh_library.get_item_shapes(FacilityView3D.ITEM_CEILING).is_empty():
 		_fail("the ceiling has collision, so the player has a head to bump")
 
@@ -98,6 +109,67 @@ func run(host: Node) -> int:
 	var start: Vector2i = view.generator.start
 	if view.heater_station != null and view.heater_station.source_cell == start:
 		_fail("the heater station is still on the spawn cell")
+
+	# Room identities and their furniture are simulation data now, not merely
+	# painted labels. The standard nine-room route guarantees the first five
+	# authored landmark types and must remain exactly repeatable from its seed.
+	var generator := view.generator
+	if generator.props.is_empty():
+		_fail("the themed-room population placed no props")
+	var room_types: Array[String] = []
+	for room in generator.rooms:
+		var type := String(room.get("type", ""))
+		room_types.append(type)
+		if String(room.get("id", "")) != "room-lobby" and type in ["", "generic"]:
+			_fail("%s has no themed room identity" % String(room.get("id", "room")))
+	for required in ["stage", "arcade", "serviceBay", "prizeGallery",
+			"arcadeHallway"]:
+		if not room_types.has(required):
+			_fail("standard route omitted required themed room '%s'" % required)
+
+	var repeat := FacilityGenerator.new(generator.seed_text,
+		RoomState.generator_options())
+	if repeat.props != generator.props:
+		_fail("the same room seed produced different prop placement")
+	var reachable := generator.distance_map(start.x, start.y)
+	if not reachable.has(generator.exit_cell):
+		_fail("themed props cut the route off from its service lift")
+	for group_name in ["relays", "batteries", "safe zones"]:
+		var group: Array = generator.relays if group_name == "relays" else (
+			generator.batteries if group_name == "batteries" else generator.safe_zones)
+		for entry in group:
+			var at := Vector2i(int(entry["x"]), int(entry["y"]))
+			if not reachable.has(at):
+				_fail("themed props cut off %s at %s" % [group_name, at])
+	for prop in generator.props:
+		if not RoomCatalog.is_solid(String(prop.get("type", ""))):
+			continue
+		if generator.can_occupy(float(prop["x"]) + .5,
+				float(prop["y"]) + .5):
+			_fail("solid prop %s does not block navigation" % prop.get("id", "prop"))
+
+	# The renderer consumes every generated entry once. Solid entries need a
+	# real collision child; non-solid carpets/chandeliers remain visual-only.
+	var rendered_props := 0
+	for node in view.get_children():
+		if not node.has_meta("prop_type"):
+			continue
+		rendered_props += 1
+		var type := String(node.get_meta("prop_type"))
+		if RoomCatalog.is_solid(type) \
+				and node.find_child("Collision", false, false) == null:
+			_fail("rendered solid prop %s has no collision" % type)
+		if PropModelCatalog.has_model(type):
+			var model_path := String(node.get_meta("prop_model_path", ""))
+			if model_path.is_empty():
+				_fail("authored prop %s fell back to a coloured box" % type)
+			elif not ResourceLoader.exists(model_path):
+				_fail("authored prop %s points at missing %s" % [type, model_path])
+			if node.find_child("Visual", false, false) == null:
+				_fail("authored prop %s has no instanced visual" % type)
+	if rendered_props != generator.props.size():
+		_fail("rendered %d of %d generated room props" % [rendered_props,
+			generator.props.size()])
 
 	# Looking down at a sealed corridor shows a ceiling, which is why that view
 	# went black. It is the original game's primary perspective, so it has to
@@ -145,6 +217,8 @@ func run(host: Node) -> int:
 			% [floors, walls, lids])
 		print("  spawn     heater at %s, start at %s, lamp on"
 			% [view.heater_station.source_cell, start])
+		print("  rooms     %d themed rooms, %d deterministic props"
+			% [generator.rooms.size(), generator.props.size()])
 		print("maze OK")
 	scene.queue_free()
 	await host.get_tree().process_frame

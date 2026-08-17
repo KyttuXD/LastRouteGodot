@@ -59,6 +59,30 @@ func run(host: Node) -> int:
 		# dev tool, which is the worst place to find one.
 		if menu._readout.text.is_empty():
 			_fail("%s admin overlay reads out nothing" % entry[1])
+		var chips := menu._panel.find_children("StateChip", "Label", true, false)
+		if entry[1] == "maze":
+			_expect(chips.size() == 3,
+				"maze admin has %d ON/OFF chips instead of 3" % chips.size())
+			for chip in chips:
+				_expect(String(chip.text) == "OFF",
+					"an untouched admin toggle does not begin OFF")
+		# Exercise genuinely different physical sizes and aspect ratios. The
+		# design viewport expands rather than letterboxes, so containment at the
+		# default size alone does not prove the panel stays usable.
+		for size in [Vector2i(800, 600), Vector2i(1280, 720),
+				Vector2i(1920, 1080), Vector2i(3440, 1440)]:
+			host.get_tree().root.size = size
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			var view := host.get_tree().root.get_visible_rect()
+			var rect := Rect2(menu._panel.global_position, menu._panel.size)
+			_expect(rect.position.x >= 0.0 and rect.position.y >= 0.0
+				and rect.end.x <= view.size.x + 1.0
+				and rect.end.y <= view.size.y + 1.0,
+				"%s admin panel spills outside %dx%d (%s in %s)" % [
+					entry[1], size.x, size.y, rect, view.size])
+		host.get_tree().root.size = Vector2i(960, 540)
+		await host.get_tree().process_frame
 		menu._set_open(false)
 		if MouseLock.cursor_visible() and entry[1] == "maze":
 			# The maze captures the mouse for first person; closing must give
@@ -134,14 +158,20 @@ func run(host: Node) -> int:
 					scene.hunter_view.brain.hunter_id)["display_name"]),
 				"admin reveal did not identify the actual route hunter")
 
-			for row in menu._actions:
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE HUNTER REVEAL":
+				(row["action"] as Callable).call()
+		_expect(scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn reveal on")
+		menu._refresh()
+		_expect(_state_text(menu, "HUNTER REVEAL") == "ON",
+			"hunter reveal state chip did not update to ON")
+		for row in menu._actions:
 				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
 					(row["action"] as Callable).call()
-			_expect(scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn reveal on")
-			for row in menu._actions:
-				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
-					(row["action"] as Callable).call()
-			_expect(not scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn back off")
+		_expect(not scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn back off")
+		menu._refresh()
+		_expect(_state_text(menu, "HUNTER REVEAL") == "OFF",
+			"hunter reveal state chip did not update back to OFF")
 
 		# NO TARGET is an authoritative targeting rule, not just a hidden local
 		# model. With it enabled the host has no eligible solo target and an
@@ -169,7 +199,7 @@ func run(host: Node) -> int:
 			"TOGGLE NO TARGET did not turn back off")
 
 		# GOD MODE still permits targeting/chasing, but capture cannot start a
-		# struggle or spend a life. Enabling it during a struggle cancels that
+		# struggle or end the run. Enabling it during a struggle cancels that
 		# struggle cleanly as well.
 		for row in menu._actions:
 			if String(row["label"]) == "TOGGLE GOD MODE":
@@ -178,11 +208,11 @@ func run(host: Node) -> int:
 			"TOGGLE GOD MODE did not enable the controller flag")
 		_expect(bool(scene._local_hunter_target().get("god_mode", false)),
 			"GOD MODE was not included in the host targeting state")
-		var lives_before: int = GameState.lives_remaining
+		var game_over_before := GameState.game_over
 		if scene.hunter_view:
 			scene._trigger_capture(scene.hunter_view, true)
-		_expect(GameState.lives_remaining == lives_before,
-			"GOD MODE allowed a capture to spend a life")
+		_expect(GameState.game_over == game_over_before,
+			"GOD MODE allowed a capture to end the run")
 		_expect(not GameState.escape_active,
 			"GOD MODE allowed a capture struggle to begin")
 		GameState.begin_escape("admin-test")
@@ -210,3 +240,13 @@ func _relay_nodes(scene: Node) -> Array[RouteInteractable3D]:
 		if relay != null:
 			result.append(relay)
 	return result
+
+
+func _state_text(menu: AdminMenu, caption: String) -> String:
+	for entry in menu._state_buttons:
+		var button := entry["button"] as Button
+		var label := button.get_node_or_null("StateToggleContent/Caption") as Label
+		if label != null and label.text == caption:
+			var chip := button.get_node_or_null("StateToggleContent/StateChip") as Label
+			return chip.text if chip != null else ""
+	return ""

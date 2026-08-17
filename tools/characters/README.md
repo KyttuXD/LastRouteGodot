@@ -59,7 +59,10 @@ Hunter locomotion is intentionally post-processed by
 2.4-second relaxed idle and a one-second walk. `sprint` and `chase` are exact
 normalized copies of that walk at 0.67 and 0.50 seconds, respectively, so
 faster gameplay never changes their gait or introduces a separate tilted run
-pose. Both reviewed-model and raw-skin rebuild paths apply the same rule.
+pose. The reviewed hunter geometry faces north after its Blockbench turn, so
+both rebuild paths also rotate every hunter animation delta from the old
+south-facing basis; this is a front/back remap, not a left/right swap or an
+all-axis inverse. The player does not receive that remap.
 
 ```bash
 godot4 --headless --editor --quit --path .
@@ -168,7 +171,7 @@ These are all mistakes this project has actually made:
 - **A declared loop duration is preserved even when its last authored key is
   earlier.** The exporter closes the un-keyed tail back to the opening pose;
   otherwise Godot trims the clip and visibly snaps at the wrap point.
-- **Every rest pose stands on y=0.** The shared crouch clip carries a small
-  root lift because its source pelvis translation otherwise pushes every sole
-  0.19-0.24 m through the floor. `validate_body.gd` checks rest and posed
-  bounds for every shipped character.
+- **Every rest pose stands on y=0.** `character_floor_lifts.py` stores the
+  measured player and hunter root lifts needed by each clip so their soles do
+  not pass through the floor. `validate_body.gd` samples every animation and
+  checks both rest and posed bounds for the shipped player and hunter rigs.

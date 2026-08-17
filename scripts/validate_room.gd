@@ -26,8 +26,51 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
-	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:1105",
+	_expect(Backend.PRIMARY_BASE_URL == "https://lastroute.kyttuslab.org:1105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
+	var backend_url_before := Backend.base_url
+	Backend.base_url = Backend.PRIMARY_BASE_URL
+	_expect(Backend.accounts_available(),
+		"the hardcoded primary HTTPS deployment locks account access")
+	_expect(Backend.account_transport_warning().is_empty(),
+		"the protected primary origin shows an account transport warning")
+	Backend.base_url = "http://untrusted.invalid:1105"
+	_expect(not Backend.accounts_available(),
+		"an arbitrary public HTTP backend gained credential access")
+	Backend.base_url = "http://localhost.attacker.invalid:1105"
+	_expect(not Backend.accounts_available(),
+		"a hostname beginning with localhost bypassed account transport checks")
+	Backend.base_url = "https://accounts.example.invalid"
+	_expect(Backend.accounts_available() and Backend.account_transport_warning().is_empty(),
+		"an HTTPS account origin was rejected or warned as unencrypted")
+	Backend.base_url = backend_url_before
+	_expect(RoomState.ROUTE_LOADING_SCENE == "res://scenes/route_loading.tscn"
+		and ResourceLoader.exists(RoomState.ROUTE_LOADING_SCENE),
+		"room starts do not pass through the route loading scene")
+	_expect(RoomState.session_scene_path() == "res://scenes/main_3d.tscn",
+		"the default route loader targets the wrong gameplay scene")
+	var account_before := {
+		"username": Backend.account_username,
+		"token": Backend.account_session_token,
+		"admin": Backend.account_admin,
+		"verified": Backend.account_session_verified,
+	}
+	Backend.account_username = "Kyttu"
+	Backend.account_session_token = "validation-token"
+	Backend.account_admin = true
+	Backend.account_session_verified = true
+	_expect(not Backend.admin_authorized(),
+		"mixed-case local state bypasses canonical server identity")
+	Backend.account_username = "KYTTU"
+	_expect(Backend.admin_authorized(),
+		"verified canonical KYTTU is not authorized for release admin")
+	Backend.account_session_verified = false
+	_expect(not Backend.admin_authorized(),
+		"unverified cached account state authorizes release admin")
+	Backend.account_username = account_before["username"]
+	Backend.account_session_token = account_before["token"]
+	Backend.account_admin = account_before["admin"]
+	Backend.account_session_verified = account_before["verified"]
 	_expect(UpdateManager._newer("0.0.1.1", "0.0.1.0"),
 		"the updater did not recognize a newer four-part version")
 	_expect(not UpdateManager._newer("0.0.1.0", "0.0.1.0"),
@@ -151,7 +194,9 @@ func run(host: Node) -> int:
 	# Standard button.
 	_expect(RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.HARD),
 		"Hard is missing from the selectable difficulty row")
-	_expect(not RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.NIGHTMARE),
+	_expect(RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.NIGHTMARE),
+		"Nightmare is not visible as a planned difficulty")
+	_expect(not RoomState.difficulty_available(RoomState.Difficulty.NIGHTMARE),
 		"Nightmare is selectable before its multi-hunter rules exist")
 	RoomState.set_difficulty(RoomState.Difficulty.HARD)
 	_expect(RoomState.difficulty == RoomState.Difficulty.HARD,
@@ -173,9 +218,44 @@ func run(host: Node) -> int:
 				field, float(hard[field]), midpoint])
 	for difficulty_id in ["relaxed", "standard", "hard", "nightmare"]:
 		GameState.start_new_run(12345, difficulty_id)
-		_expect(GameState.lives_remaining == GameConfig.respawn_lives_for(difficulty_id),
-			"%s started with %d lives" % [difficulty_id, GameState.lives_remaining])
+		_expect(not GameState.game_over,
+			"%s started in a game-over state" % difficulty_id)
 	RoomState.set_difficulty(RoomState.Difficulty.STANDARD)
+
+	# Account checkpoints resume deterministic solo floor boundaries. The
+	# visible seed/config and GameState totals must round-trip together, while a
+	# tampered seed is rejected before it can replace the current room.
+	RoomState.map_scale = RoomState.Scale.LARGE
+	RoomState.difficulty = RoomState.Difficulty.HARD
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
+	GameState.depth = 7
+	GameState.score = 2400
+	GameState.coins = 13
+	var checkpoint := GameState.route_checkpoint(RoomState.seed_text,
+		RoomState.map_scale, RoomState.difficulty, RoomState.difficulty_id())
+	var checkpoint_seed := RoomState.seed_text
+	_expect(RoomState.prepare_route_checkpoint(checkpoint).is_empty(),
+		"a valid route checkpoint was rejected")
+	_expect(RoomState.seed_text == checkpoint_seed
+		and RoomState.map_scale == RoomState.Scale.LARGE
+		and RoomState.difficulty == RoomState.Difficulty.HARD,
+		"checkpoint room configuration did not restore")
+	_expect(GameState.restore_queued_route_checkpoint(),
+		"a prepared checkpoint was not consumed")
+	_expect(GameState.depth == 7 and GameState.score == 2400
+		and GameState.coins == 13,
+		"checkpoint run totals did not restore")
+	_expect(GameState.relays_collected == 0 and GameState.relays_sabotaged == 0,
+		"a floor-boundary checkpoint restored partial relay state")
+	var tampered := checkpoint.duplicate(true)
+	tampered["run_seed"] = int(tampered["run_seed"]) + 1
+	var seed_before_bad_checkpoint := RoomState.seed_text
+	_expect(not RoomState.prepare_route_checkpoint(tampered).is_empty(),
+		"a checkpoint with a mismatched seed was accepted")
+	_expect(RoomState.seed_text == seed_before_bad_checkpoint,
+		"a rejected checkpoint replaced the current room")
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	_expect(Palette.title_font().font_names[0] == "Arial Black",
 		"the title no longer requests the original Arial Black face first")
 
@@ -189,30 +269,38 @@ func run(host: Node) -> int:
 	_expect(RoomState.code == RoomState.code, "rerolling changed the room code")
 	_expect(RoomState.run_seed() != before, "a new route seed gave the same run seed")
 
-	# HIDE & SEEK needs someone to hide from. That is the room's rule, so it
-	# has to hold when set_mode is called directly and not only when a button
-	# happens to be disabled.
+	# Hide & Seek has been removed from the UI; Office is visible but disabled.
+	# Both rules also hold when called directly so stale clients cannot enter.
+	_expect(not RoomState.MODE_LABELS.has(RoomState.Mode.HIDE_SEEK),
+		"HIDE & SEEK remains in the selectable mode labels")
 	_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
-		"HIDE & SEEK is offered with nobody else in the room")
+		"HIDE & SEEK remains available through code")
 	RoomState.set_mode(RoomState.Mode.HIDE_SEEK)
 	_expect(RoomState.mode != RoomState.Mode.HIDE_SEEK,
 		"set_mode let an unavailable mode through")
 	_expect(not RoomState.mode_unavailable_reason(RoomState.Mode.HIDE_SEEK).is_empty(),
 		"an unavailable mode gives no reason")
-	for allowed in [RoomState.Mode.DEFAULT, RoomState.Mode.OFFICE]:
-		_expect(RoomState.mode_available(allowed),
-			"%s is unavailable solo" % RoomState.MODE_LABELS[allowed])
+	_expect(RoomState.mode_available(RoomState.Mode.DEFAULT),
+		"Default mode is unavailable")
+	_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
+		"Office mode is selectable before work resumes")
 
-	# Office Mode is singleplayer by design, however the room was opened.
+	# Even direct attempts to create the disabled Office mode fall back safely.
 	RoomState.create_local(RoomState.Mode.OFFICE)
-	_expect(RoomState.seats() == 1, "office mode seats %d" % RoomState.seats())
-	_expect(RoomState.start_label() == "START OFFICE SHIFT",
-		"office staging says '%s'" % RoomState.start_label())
+	_expect(RoomState.mode == RoomState.Mode.DEFAULT,
+		"create_local entered disabled Office mode")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.seats() == RoomState.MAX_PLAYERS,
 		"a route seats %d, not %d" % [RoomState.seats(), RoomState.MAX_PLAYERS])
 	_expect(RoomState.start_label() == "ENTER ROUTE",
 		"route staging says '%s'" % RoomState.start_label())
+	_expect(RoomState.GUEST_FIRST_NAMES.size() >= 24,
+		"guest FIRST-name pool is still too small")
+	_expect(RoomState.GUEST_LAST_NAMES.size() >= 24,
+		"guest LAST-name pool is still too small")
+	for word in RoomState.GUEST_FIRST_NAMES + RoomState.GUEST_LAST_NAMES:
+		_expect(String(word) == String(word).to_upper(),
+			"guest callsign word %s is not uppercase" % word)
 
 	# MAP SCALE was a button that did nothing: the generator has taken these
 	# options since it was ported, but neither view passed any, so every route
@@ -245,12 +333,22 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	_expect(lobby.get_child_count() > 1, "the staging screen drew nothing")
 	var saw_hard := false
-	var saw_nightmare := false
+	var nightmare_button: Button = null
+	var office_button: Button = null
+	var saw_hide_seek := false
 	for button in lobby.find_children("*", "Button", true, false):
 		saw_hard = saw_hard or String(button.text) == "HARD"
-		saw_nightmare = saw_nightmare or String(button.text) == "NIGHTMARE"
+		if String(button.text) == "NIGHTMARE":
+			nightmare_button = button
+		if String(button.text) == "OFFICE":
+			office_button = button
+		saw_hide_seek = saw_hide_seek or String(button.text) == "HIDE & SEEK"
 	_expect(saw_hard, "the staging screen did not render a Hard button")
-	_expect(not saw_nightmare, "the staging screen rendered a Nightmare button")
+	_expect(nightmare_button != null and nightmare_button.disabled,
+		"Nightmare is not visible and greyed out")
+	_expect(office_button != null and office_button.disabled,
+		"Office mode is not visible and greyed out")
+	_expect(not saw_hide_seek, "Hide & Seek still appears in staging")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
@@ -258,14 +356,15 @@ func run(host: Node) -> int:
 	var create_online := lobby.find_child("CreateOnlineRoomButton", true, false) as Button
 	var join_online := lobby.find_child("JoinOnlineRoomButton", true, false) as Button
 	var code_input := lobby.find_child("PrimaryRoomCodeInput", true, false) as LineEdit
-	_expect(create_online != null and create_online.text == "CREATE ONLINE ROOM",
-		"the primary create-room action is missing or mislabeled")
-	_expect(join_online != null and join_online.text == "JOIN ONLINE ROOM",
-		"the primary join-room action is missing or mislabeled")
-	_expect(code_input != null and code_input.placeholder_text == "ROOM CODE",
-		"the primary room-code input is missing or mislabeled")
-	if join_online != null:
-		_expect(join_online.disabled, "join is enabled without a valid room code")
+	var leave_online := lobby.find_child("LeaveOnlineRoomButton", true, false) as Button
+	_expect(create_online == null, "staging still has a separate online-room action")
+	_expect(join_online == null, "staging still has a second join-room action")
+	_expect(code_input == null, "staging still has a duplicate room-code input")
+	_expect(leave_online == null, "staging still has separate online-room controls")
+	_expect(lobby.find_child("EnterRouteButton", true, false) != null,
+		"staging lost its enter-route action")
+	_expect(lobby.find_child("BackToMenuButton", true, false) != null,
+		"staging lost its back-to-menu action")
 	var old_connection_copy := ["HOST + LIST ROOM", "JOIN ROOM CODE", "LOCAL SESSION",
 		"JOIN AT", "GO OFFLINE", "127.0.0.1", ":8421"]
 	for node in lobby.find_children("*", "Control", true, false):
@@ -293,9 +392,7 @@ func run(host: Node) -> int:
 		_expect(RoomState.is_host, "the host is not the host")
 		_expect(RoomState.roster().size() == 1,
 			"a freshly hosted room lists %d players" % RoomState.roster().size())
-		# Alone in a room, HIDE & SEEK still has nobody to hide from -- being
-		# online is not the same as having company, and the rule is about
-		# company.
+		# Removed/disabled modes stay unavailable online too.
 		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
 			"HIDE & SEEK opened up with one player in the room")
 		_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
@@ -329,11 +426,28 @@ func run(host: Node) -> int:
 	_expect(RoomState.roster().size() == 1,
 		"going offline left %d players in the room" % RoomState.roster().size())
 
+	# CREATE ROOM's online-first wrapper must degrade to the same playable solo
+	# room when its initial directory listing fails. Simulate that callback
+	# directly; validation suppresses all real primary-server traffic.
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	error = RoomState.host_primary_room(TEST_PORT)
+	if not error.is_empty():
+		_fail("online-first create could not open its local ENet room: %s" % error)
+	else:
+		RoomState._on_directory_registration(false, "TEST DIRECTORY OFFLINE")
+		_expect(not RoomState.online,
+			"failed initial listing left CREATE ROOM stuck online")
+		_expect("SOLO ROOM" in RoomState.status_message,
+			"failed initial listing did not explain its solo fallback")
+
 	if _failures == 0:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
-		print("  rules     HIDE & SEEK held back offline, office seats one")
-		print("  difficulty Relaxed / Standard / Hard live; Nightmare reserved")
+		print("  rules     Hide & Seek hidden; Office visible but disabled")
+		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
+		print("  guests    %d FIRST x %d LAST callsign words" % [
+			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])
 		print("  scales    %d map scales, each a distinct walkable facility" % sizes.size())
+		print("  create    primary server first; registration failure falls back to solo")
 		print("room OK")
 	return _failures

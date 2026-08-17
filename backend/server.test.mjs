@@ -22,7 +22,7 @@ async function fixture(options = {}) {
 }
 
 test("health, register, resolve, heartbeat and unregister", async () => {
-  const app = await fixture();
+  const app = await fixture({ relayAddress: "relay.test", relayPort: 1105 });
   try {
     let response = await fetch(`${app.url}/api/health`);
     assert.equal(response.status, 200);
@@ -37,19 +37,19 @@ test("health, register, resolve, heartbeat and unregister", async () => {
         code: "ABCDE",
         port: 8421,
         players: 2,
-        lanAddresses: ["192.168.1.25", "8.8.8.8", "192.168.1.25"],
       }),
     });
     assert.equal(response.status, 201);
     const registration = await response.json();
     assert.ok(registration.token);
-    assert.equal(registration.room.address, "127.0.0.1");
+    assert.equal(registration.room.address, "relay.test");
+    assert.equal(registration.room.transport, "relay");
 
     response = await fetch(`${app.url}/api/enet/rooms/ABCDE`);
     const resolved = await response.json();
     assert.deepEqual(
       { address: resolved.room.address, port: resolved.room.port, players: resolved.room.players },
-      { address: "192.168.1.25", port: 8421, players: 2 },
+      { address: "relay.test", port: 1105, players: 2 },
     );
     assert.equal("token" in resolved.room, false);
 
@@ -189,19 +189,196 @@ test("account API hashes and persists one save slot across restarts", async () =
     assert.equal(result.body.username, "RUNNER_ONE");
     const sessionToken = result.body.sessionToken;
 
+    result = await post(app.url, "/api/account/register", { username: "RuNnEr_OnE", password: "another password" });
+    assert.equal(result.response.status, 409, "case variants must resolve to one account");
+
+    result = await post(app.url, "/api/account/session", { sessionToken });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.username, "RUNNER_ONE");
+
     result = await post(app.url, "/api/account/save", { sessionToken, progress: { depth: 7, relays: 3 } });
     assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body.progress, { depth: 7, relays: 3 });
+
+    result = await post(app.url, "/api/account/session", { sessionToken });
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body.progress, { depth: 7, relays: 3 },
+      "session restore must include the account checkpoint");
     const stored = await readFile(accountStorePath, "utf8");
     assert.equal(stored.includes("correct horse"), false);
     assert.equal(JSON.parse(stored).accounts[0].username, "RUNNER_ONE");
     await app.close();
 
     app = await fixtureWith(() => createLastRouteServer({ accountStorePath }));
-    result = await post(app.url, "/api/account/login", { username: "runner_one", password: "correct horse" });
-    assert.equal(result.response.status, 200);
+    result = await post(app.url, "/api/account/session", { sessionToken });
+    assert.equal(result.response.status, 200,
+      "a 30-day account session must survive a backend restart");
     assert.deepEqual(result.body.progress, { depth: 7, relays: 3 });
+
+	result = await post(app.url, "/api/account/rename", {
+		sessionToken, username: "Runner_Two",
+	});
+	assert.equal(result.response.status, 200);
+	assert.equal(result.body.username, "RUNNER_TWO");
+	result = await post(app.url, "/api/account/session", { sessionToken });
+	assert.equal(result.response.status, 200);
+	assert.equal(result.body.username, "RUNNER_TWO",
+		"renaming must update every persisted session owner");
+	result = await post(app.url, "/api/account/login", {
+		username: "runner_two", password: "correct horse",
+	});
+	assert.equal(result.response.status, 200);
+	const otherSessionToken = result.body.sessionToken;
+
+	result = await post(app.url, "/api/account/password", {
+		sessionToken, password: "updated password",
+	});
+	assert.equal(result.response.status, 200);
+	result = await post(app.url, "/api/account/session", {
+		sessionToken: otherSessionToken,
+	});
+	assert.equal(result.response.status, 401,
+		"password replacement must revoke every other persistent session");
+	result = await post(app.url, "/api/account/session", { sessionToken });
+	assert.equal(result.response.status, 200,
+		"password replacement must preserve the session which authorized it");
+	result = await post(app.url, "/api/account/login", {
+		username: "runner_two", password: "correct horse",
+	});
+	assert.equal(result.response.status, 401, "old password still works after replacement");
+	result = await post(app.url, "/api/account/login", {
+		username: "RUNNER_TWO", password: "updated password",
+	});
+	assert.equal(result.response.status, 200);
+
+    result = await post(app.url, "/api/account/login", { username: "rUnNeR_oNe", password: "correct horse" });
+	assert.equal(result.response.status, 401);
+    const persisted = JSON.parse(await readFile(accountStorePath, "utf8"));
+    assert.equal(JSON.stringify(persisted).includes(sessionToken), false,
+      "raw bearer session tokens must not be written to disk");
+	assert.equal(JSON.stringify(persisted).includes("updated password"), false,
+		"replacement password must not be written to disk");
+    assert.equal(persisted.sessions.length >= 1, true);
   } finally {
     if (app?.server.listening) await app.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("only the exact canonical KYTTU account receives release-admin identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "last-route-admin-"));
+  const accountStorePath = join(directory, "accounts.json");
+  const app = await fixtureWith(() => createLastRouteServer({
+    accountStorePath,
+    adminPassword: "server setup proof",
+  }));
+  try {
+    let result = await post(app.url, "/api/account/register", {
+      username: "Kyttu", password: "account password",
+    });
+    assert.equal(result.response.status, 403, "reserved admin account needs server proof");
+
+    result = await post(app.url, "/api/account/register", {
+      username: "kyttu_fan", password: "fan password",
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.username, "KYTTU_FAN");
+    assert.equal(result.body.admin, false, "a username containing KYTTU is not an admin");
+
+    result = await post(app.url, "/api/account/register", {
+      username: "KytTU",
+      password: "account password",
+      adminProof: "server setup proof",
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.username, "KYTTU");
+    assert.equal(result.body.admin, true);
+	const adminSession = result.body.sessionToken;
+	result = await post(app.url, "/api/account/rename", {
+		sessionToken: adminSession, username: "Kyttu",
+	});
+	assert.equal(result.response.status, 200,
+		"the authenticated KYTTU account cannot retain its canonical name");
+	assert.equal(result.body.admin, true);
+
+    result = await post(app.url, "/api/account/login", {
+      username: "kYtTu", password: "account password",
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.username, "KYTTU");
+    assert.equal(result.body.admin, true);
+
+    result = await post(app.url, "/api/dev/reload", {
+      sessionToken: result.body.sessionToken,
+    });
+    assert.equal(result.response.status, 200, "authenticated KYTTU session is developer proof");
+  } finally {
+    await app.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("room-bound admin tickets prove KYTTU without exposing an account session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "last-route-admin-ticket-"));
+  const accountStorePath = join(directory, "accounts.json");
+  let current = 50_000;
+  const app = await fixtureWith(() => createLastRouteServer({
+    accountStorePath,
+    adminPassword: "server setup proof",
+    adminTicketTtlMs: 10_000,
+    now: () => current,
+  }));
+  try {
+    let result = await post(app.url, "/api/enet/rooms/register", {
+      code: "T3ST5", port: 8421,
+    });
+    assert.equal(result.response.status, 201);
+    const hostToken = result.body.token;
+
+    result = await post(app.url, "/api/account/register", {
+      username: "KYTTU", password: "account password", adminProof: "server setup proof",
+    });
+    assert.equal(result.response.status, 200);
+    const sessionToken = result.body.sessionToken;
+
+    result = await post(app.url, "/api/enet/admin-tickets/issue", {
+      code: "T3ST5", sessionToken,
+    });
+    assert.equal(result.response.status, 201);
+    assert.match(result.body.ticket, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal("sessionToken" in result.body, false,
+      "a room proof must never echo the account bearer token");
+    const ticket = result.body.ticket;
+
+    result = await post(app.url, "/api/enet/admin-tickets/verify", {
+      code: "T3ST5", ticket, hostToken: "forged",
+    });
+    assert.equal(result.response.status, 403,
+      "only the room host may ask the backend to verify a guest proof");
+
+    result = await post(app.url, "/api/enet/admin-tickets/verify", {
+      code: "T3ST5", ticket, hostToken,
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.authorized, true);
+
+    current += 10_001;
+    result = await post(app.url, "/api/enet/admin-tickets/verify", {
+      code: "T3ST5", ticket, hostToken,
+    });
+    assert.equal(result.response.status, 403,
+      "expired room proofs must not remain usable");
+
+    result = await post(app.url, "/api/account/register", {
+      username: "runner_two", password: "runner password",
+    });
+    result = await post(app.url, "/api/enet/admin-tickets/issue", {
+      code: "T3ST5", sessionToken: result.body.sessionToken,
+    });
+    assert.equal(result.response.status, 403,
+      "ordinary accounts may not mint release-admin authority");
+  } finally {
+    await app.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -216,6 +393,41 @@ test("trusted proxy address is used only when explicitly enabled", async () => {
     });
     assert.equal(response.status, 201);
     assert.equal((await response.json()).room.address, "203.0.113.25");
+  } finally {
+    await app.close();
+  }
+});
+
+test("rate limits sensitive account endpoints per requester", async () => {
+  let current = 10_000;
+  const app = await fixtureWith(() => createLastRouteServer({
+    now: () => current,
+    rateLimitWindowMs: 10_000,
+    accountRateLimitMax: 2,
+    apiRateLimitMax: 20,
+  }));
+  try {
+    let result = await post(app.url, "/api/account/login", {
+      username: "NOBODY", password: "not the password",
+    });
+    assert.equal(result.response.status, 401);
+    result = await post(app.url, "/api/account/login", {
+      username: "NOBODY", password: "not the password",
+    });
+    assert.equal(result.response.status, 401);
+    result = await post(app.url, "/api/account/login", {
+      username: "NOBODY", password: "not the password",
+    });
+    assert.equal(result.response.status, 429);
+    assert.equal(result.response.headers.get("retry-after"), "10");
+    assert.equal(result.body.code, "RATE_LIMITED");
+
+    current += 10_001;
+    result = await post(app.url, "/api/account/login", {
+      username: "NOBODY", password: "not the password",
+    });
+    assert.equal(result.response.status, 401,
+      "the requester stayed blocked after its rate window elapsed");
   } finally {
     await app.close();
   }

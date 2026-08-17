@@ -77,13 +77,6 @@ theme_override_colors/font_color = Color(0.85, 0.92, 0.9, 1)
 theme_override_font_sizes/font_size = 9
 text = "0/5 SIGNAL RELAYS"
 
-[node name="LivesLabel" type="Label" parent="ObjectivePanel/ObjectiveBox"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.85, 0.4, 0.42, 1)
-theme_override_font_sizes/font_size = 9
-text = "LIVES 2"
-
 [node name="MetersPanel" type="PanelContainer" parent="."]
 layout_mode = 1
 anchors_preset = 12
@@ -226,11 +219,11 @@ horizontal_alignment = 1
 unique_name_in_owner = true
 offset_left = 10.0
 offset_top = 29.0
-offset_right = 304.0
-offset_bottom = 46.0
+offset_right = 350.0
+offset_bottom = 57.0
 theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
 theme_override_font_sizes/font_size = 8
-text = "WASD MOVE  SHIFT RUN  C CROUCH  F LIGHT  E USE  M MAP   ESC PAUSE"
+text = "WASD MOVE  SPACE HOP  SHIFT RUN  C CROUCH\nF LIGHT  E USE  M MAP  ESC PAUSE"
 
 [node name="InteractionLabel" type="Label" parent="."]
 layout_mode = 1
@@ -289,7 +282,8 @@ unique_name_in_owner = true
 visible = false
 color = Color(0.02, 0.05, 0.065, 0.94)
 
-[node name="Title" type="Label" parent="MapOverlay"]
+[node name="MapTitle" type="Label" parent="MapOverlay"]
+unique_name_in_owner = true
 layout_mode = 0
 offset_top = 10.0
 offset_right = 368.0

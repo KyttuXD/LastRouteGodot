@@ -42,6 +42,7 @@ const ITEM_CEILING := 2
 ## entry rather than inventing a parallel one nothing places yet.
 const REGION_FLOOR_TINTS := {
 	"mansion": Color(0.55, 0.42, 0.30),
+	"bedroom": Color(0.58, 0.43, 0.58),
 	"beach": Color(0.68, 0.82, 0.90),
 	"office": Color(0.55, 0.62, 0.72),
 	"maintenance": Color(0.80, 0.62, 0.35),
@@ -61,6 +62,7 @@ var _grid_map: GridMap
 ## view is the original game's primary perspective, not a debug camera.
 var _ceiling_map: GridMap
 var _interactables: Array = []
+var _room_prop_nodes: Array = []
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
 ## Glyra's counterplay, read by GlyraGimmick each frame the same way Wynelle's
@@ -72,11 +74,17 @@ var _ceiling_decor: CeilingDecor
 func _ready() -> void:
 	_grid_map = GridMap.new()
 	_grid_map.cell_size = Vector3(CELL_SIZE, CELL_SIZE, CELL_SIZE)
+	# X/Z stay centred so cell (x,z) is at (x+.5,z+.5). Y is floor-based:
+	# authored mesh offsets already measure upward from y=0. Leaving Godot's
+	# default Y centring on shifts the entire floor/walls/ceiling up 0.5 m and
+	# embeds a correctly floor-pivoted player in the slab.
+	_grid_map.cell_center_y = false
 	var library := _build_mesh_library()
 	_grid_map.mesh_library = library
 	add_child(_grid_map)
 	_ceiling_map = GridMap.new()
 	_ceiling_map.cell_size = Vector3(CELL_SIZE, CELL_SIZE, CELL_SIZE)
+	_ceiling_map.cell_center_y = false
 	_ceiling_map.mesh_library = library
 	add_child(_ceiling_map)
 
@@ -86,6 +94,7 @@ func generate_floor(seed_text: String) -> void:
 	# RoomState.generator_options().
 	generator = FacilityGenerator.new(seed_text, RoomState.generator_options())
 	_paint_grid()
+	_spawn_room_props()
 	_spawn_interactables()
 	_hang_ceiling_lights(seed_text)
 
@@ -99,6 +108,7 @@ func generate_floor_from_custom_map(image: Image, seed_text: String) -> String:
 		return String(parsed.get("error", "custom map failed to parse"))
 	generator = FacilityGenerator.new(seed_text, RoomState.generator_options(), parsed)
 	_paint_grid()
+	_spawn_room_props()
 	_spawn_interactables()
 	_hang_ceiling_lights(seed_text)
 	for warning in parsed.get("warnings", []):
@@ -198,6 +208,73 @@ func _spawn_interactables() -> void:
 			Vector2i(coin["x"], coin["y"]), "COLLECT COINS")
 
 
+## Mechanical themed-room dressing. Placement, facing and collision remain
+## deterministic generator data; PropModelCatalog supplies authored GLB
+## presentation without letting visual variants affect co-op simulation.
+## Older room types without finished art retain the readable coloured-box
+## fallback instead of silently disappearing.
+func _spawn_room_props() -> void:
+	for node in _room_prop_nodes:
+		node.queue_free()
+	_room_prop_nodes.clear()
+	for entry in generator.props:
+		var type := String(entry.get("type", "prop"))
+		var solid := RoomCatalog.is_solid(type)
+		var root: Node3D = StaticBody3D.new() if solid else Node3D.new()
+		root.name = "RoomProp_%s" % String(entry.get("id", type)).validate_node_name()
+		root.set_meta("prop_type", type)
+		root.set_meta("room_id", String(entry.get("room_id", "")))
+		var base_footprint := RoomCatalog.footprint(type, 0)
+		var height := RoomCatalog.display_height(type)
+		root.position = cell_to_world(Vector2i(int(entry["x"]), int(entry["y"])))
+		root.rotation.y = int(entry.get("rotation", 0)) * PI * .5
+
+		var prop_id := String(entry.get("id", type))
+		var model_path := PropModelCatalog.model_path(type, prop_id)
+		var visual: Node3D = ModelSlot.instantiate(model_path) \
+			if not model_path.is_empty() else null
+		var mount_y := float(entry.get("mount_y", 0.0))
+		if visual != null:
+			visual.name = "Visual"
+			visual.position.y = PropModelCatalog.visual_y(type, WALL_HEIGHT, mount_y)
+			root.set_meta("prop_model_path", model_path)
+			root.add_child(visual)
+		else:
+			root.set_meta("prop_model_path", "")
+			root.add_child(_fallback_prop_visual(type, entry, base_footprint,
+				height, mount_y))
+
+		if solid:
+			var shape := CollisionShape3D.new()
+			shape.name = "Collision"
+			var collision := BoxShape3D.new()
+			collision.size = Vector3(base_footprint.x * 2.0, height,
+				base_footprint.y * 2.0)
+			shape.shape = collision
+			shape.position.y = height * .5
+			root.add_child(shape)
+		add_child(root)
+		_room_prop_nodes.append(root)
+
+
+func _fallback_prop_visual(type: String, entry: Dictionary,
+		base_footprint: Vector2, height: float, mount_y: float) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	mesh.name = "Visual"
+	var box := BoxMesh.new()
+	box.size = Vector3(base_footprint.x * 2.0, height,
+		base_footprint.y * 2.0)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = RoomCatalog.color_for_region(
+		String(entry.get("region", "")))
+	material.roughness = .78
+	box.material = material
+	mesh.mesh = box
+	mesh.position.y = PropModelCatalog.visual_y(type, WALL_HEIGHT, mount_y) \
+		+ height * .5
+	return mesh
+
+
 ## An open cell within reach of the spawn, but not touching it: the spawn's
 ## safe zone sits ON the start cell, and a heater one step away from that put
 ## its interaction prompt fighting the safe zone's the moment the player
@@ -227,6 +304,9 @@ func _taken_cells() -> Dictionary:
 		taken[Vector2i(battery["x"], battery["y"])] = true
 	for zone in generator.safe_zones:
 		taken[Vector2i(zone["x"], zone["y"])] = true
+	for prop in generator.props:
+		if RoomCatalog.is_solid(String(prop.get("type", ""))):
+			taken[Vector2i(prop["x"], prop["y"])] = true
 	for spot in generator.hiding_spots:
 		taken[Vector2i(spot["x"], spot["y"])] = true
 	taken[generator.exit_cell] = true
@@ -256,7 +336,7 @@ func _near_start(min_distance: int = HEATER_MIN_DISTANCE, max_distance: int = HE
 			var next: Vector2i = cell + step
 			if next.x < 0 or next.y < 0 or next.x >= generator.cols or next.y >= generator.rows:
 				continue
-			if generator.grid[next.y][next.x] != 0 or visited.has(next):
+			if not generator.can_occupy(next.x + .5, next.y + .5) or visited.has(next):
 				continue
 			visited[next] = true
 			distance_of[next] = distance + 1
@@ -424,14 +504,39 @@ func shared_state() -> Dictionary:
 
 
 func adopt_state(state: Dictionary) -> void:
+	# A snapshot is a canonical set, not a list of additional mutations. Exact
+	# reconciliation lets it undo an optimistic guest pickup or a stale sabotage
+	# without rebuilding/teleporting everyone on an unchanged custom floor.
+	var taken := {}
 	for entry in state.get("taken", []):
-		apply_event({"what": "pickup", "cell": entry["cell"], "kind": entry["kind"]})
+		var cell = entry.get("cell")
+		var kind := int(entry.get("kind", -1))
+		if cell is Vector2i and RouteInteractable3D.PICKUPS.has(kind):
+			taken[_snapshot_item_key(cell, kind)] = true
+	var sabotaged := {}
+	for cell in state.get("sabotaged", []):
+		if cell is Vector2i:
+			sabotaged[cell] = true
+	var disabled_hiding := {}
+	for cell in state.get("disabled_hiding", []):
+		if cell is Vector2i:
+			disabled_hiding[cell] = true
+	for node in _interactables:
+		var item := node as RouteInteractable3D
+		if item == null:
+			continue
+		if RouteInteractable3D.PICKUPS.has(item.kind):
+			item.set_completed(taken.has(_snapshot_item_key(item.source_cell, item.kind)))
+		if item.kind == RouteInteractable3D.Kind.RELAY:
+			item.adopt({"what": "sabotage", "sabotaged": sabotaged.has(item.source_cell)})
+		elif item.kind == RouteInteractable3D.Kind.HIDING_SPOT:
+			item.set_disabled(disabled_hiding.has(item.source_cell))
 	if heater_station:
 		heater_station.adopt({"what": "heater", "state": state.get("heater", 0)})
-	for cell in state.get("sabotaged", []):
-		apply_event({"what": "sabotage", "cell": cell, "sabotaged": true})
-	for cell in state.get("disabled_hiding", []):
-		apply_event({"what": "hiding_disabled", "cell": cell, "disabled": true})
+
+
+static func _snapshot_item_key(cell: Vector2i, kind: int) -> String:
+	return "%d:%d:%d" % [cell.x, cell.y, kind]
 
 
 ## Floor, wall and ceiling as plain boxes.
@@ -470,19 +575,13 @@ func _build_mesh_library() -> MeshLibrary:
 	# A cell's origin is centred in X and Z but sits at its FLOOR in Y, which
 	# is why every offset below is measured up from zero rather than from a
 	# centre.
-	# The floor carries NO collider, and that is deliberate.
-	#
-	# Giving it one looked like an obvious fix -- a floor should be solid --
-	# and it made the player climb: the capsule rests with its base exactly on
-	# y=0, the slab's top is exactly y=0, and depenetration pushed the body up
-	# half a metre in the first few frames and kept going, because velocity.y
-	# is pinned to zero so nothing ever brings it back down.
-	#
-	# Nothing falls through because nothing pulls down. When gravity arrives,
-	# the floor needs a collider AND the capsule needs to rest above it rather
-	# than flush with it; one without the other is worse than neither.
+	# Gravity requires a real floor. The slab top and capsule base both meet at
+	# y=0; cell_center_y=false above is the important half of that contract.
+	# With the default centred GridMap cell the slab top was y=.5, which caused
+	# the old depenetration/climbing bug that originally led to collision being
+	# removed instead of fixing the grid origin.
 	_add_box(library, ITEM_FLOOR, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
-		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, false)
+		Vector3(0.0, -SLAB * 0.5, 0.0), floor_material, true)
 	_add_box(library, ITEM_WALL, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
 		Vector3(0.0, WALL_HEIGHT * 0.5, 0.0), wall_material, true)
 	# Painted a layer up, so subtract that layer back out of the offset.
@@ -513,8 +612,8 @@ static func _add_box(library: MeshLibrary, id: int, size: Vector3,
 	library.set_item_mesh(id, mesh)
 	var placement := Transform3D(Basis.IDENTITY, offset)
 	library.set_item_mesh_transform(id, placement)
-	# Floors and ceilings are scenery; only walls need to stop anyone. Giving
-	# the lid a collider would also give the player a head to bump.
+	# Floors and walls are solid. The lid stays scenery so the small hop never
+	# adds a low-ceiling head-bump or traps the player against decorative trim.
 	if solid:
 		var shape := BoxShape3D.new()
 		shape.size = size

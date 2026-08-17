@@ -4,10 +4,22 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
+import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 
 const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 const MAX_BODY_BYTES = 64 * 1024;
+const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const ACCOUNT_RATE_LIMIT_PATHS = new Set([
+  "/api/account/register",
+  "/api/account/login",
+  "/api/account/session",
+  "/api/account/password",
+  "/api/account/rename",
+  "/api/dev/login",
+  "/api/enet/admin-tickets/issue",
+]);
 const UPDATE_CHANNELS = ["debug", "release"];
 const UPDATE_PLATFORMS = ["linux", "windows", "macos", "web", "steamvr", "quest"];
 const MIME_TYPES = new Map([
@@ -37,9 +49,9 @@ function responseHeaders() {
   };
 }
 
-function json(response, status, value) {
+function json(response, status, value, extraHeaders = {}) {
   if (status === 204) {
-    response.writeHead(status, responseHeaders());
+    response.writeHead(status, { ...responseHeaders(), ...extraHeaders });
     response.end();
     return;
   }
@@ -48,6 +60,7 @@ function json(response, status, value) {
     ...responseHeaders(),
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
+    ...extraHeaders,
   });
   response.end(body);
 }
@@ -90,29 +103,13 @@ function requesterAddress(request, trustProxy) {
   return cleanAddress(request.socket.remoteAddress);
 }
 
-function privateLanAddresses(value) {
-  if (!Array.isArray(value)) return [];
-  const addresses = [];
-  for (const candidate of value) {
-    const address = cleanAddress(candidate);
-    const parts = address.split(".").map(Number);
-    const privateV4 = parts.length === 4 && parts.every((part) => Number.isInteger(part)
-      && part >= 0 && part <= 255) && (parts[0] === 10
-      || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
-      || (parts[0] === 192 && parts[1] === 168));
-    if (privateV4 && !addresses.includes(address)) addresses.push(address);
-    if (addresses.length >= 8) break;
-  }
-  return addresses;
-}
-
-function publicEnetRoom(room, timestamp, preferLan = false) {
-  const address = preferLan && room.lanAddresses.length
-    ? room.lanAddresses[0] : room.address;
+function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
+  const relayed = Boolean(relayAddress && relayPort);
   return {
     code: room.code,
-    address,
-    port: room.port,
+    transport: relayed ? "relay" : "direct",
+    address: relayed ? relayAddress : room.address,
+    port: relayed ? relayPort : room.port,
     players: room.players,
     sessionActive: room.sessionActive,
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
@@ -225,6 +222,7 @@ function tryStaticFile(request, response, publicDirectory, pathname) {
 
 export function createLastRouteServer({
   enetRoomTtlMs = 60_000,
+  adminTicketTtlMs = DEFAULT_ADMIN_TICKET_TTL_MS,
   roomTtlMs = 300_000,
   playerTtlMs = 120_000,
   accountStorePath = null,
@@ -235,13 +233,26 @@ export function createLastRouteServer({
   updates = {},
   updatesProvider = null,
   trustProxy = false,
+  relayAddress = "",
+  relayPort = 0,
+  rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
+  apiRateLimitMax = 600,
+  accountRateLimitMax = 30,
   now = Date.now,
   logger = console,
 } = {}) {
   const enetRooms = new Map();
+  // Opaque proofs let a release guest demonstrate that the primary service
+  // authenticated KYTTU without ever handing her account session token to a
+  // player-hosted ENet room. The proof is bound to the room's secret host
+  // token as well as its public code, so unregistering/reusing a code cannot
+  // carry old authority into a new room.
+  const adminTickets = new Map();
   const roomService = createRoomService({ now, roomTtlMs, playerTtlMs });
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
   const devTokens = new Set();
+  const requestRates = new Map();
+  let enetRelay = null;
   let reloadId = 0;
 
   function currentUpdates() {
@@ -258,12 +269,15 @@ export function createLastRouteServer({
   function pruneEnetRooms() {
     const timestamp = now();
     for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
+    for (const [ticket, proof] of adminTickets) {
+      if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
+    }
   }
 
   function developerRequest(body) {
     if (body?.devToken && devTokens.has(String(body.devToken))) return true;
-    if (adminPassword && safeEqual(body?.password, adminPassword)) return true;
-    return /yttu/i.test(accountService.sessionUsername(body?.sessionToken) || "");
+    if (adminPassword && safeEqual(body?.adminProof, adminPassword)) return true;
+    return accountService.sessionUsername(body?.sessionToken) === "KYTTU";
   }
 
   function issueDevToken() {
@@ -272,10 +286,35 @@ export function createLastRouteServer({
     return token;
   }
 
+  function rateLimitRequest(request, pathname) {
+    const sensitive = ACCOUNT_RATE_LIMIT_PATHS.has(pathname);
+    const maximum = Math.max(1, Number(sensitive ? accountRateLimitMax : apiRateLimitMax) || 1);
+    const windowMs = Math.max(1000, Number(rateLimitWindowMs) || DEFAULT_RATE_LIMIT_WINDOW_MS);
+    const timestamp = now();
+    const address = requesterAddress(request, trustProxy) || "unknown";
+    const key = `${sensitive ? "account" : "api"}|${address}`;
+    let rate = requestRates.get(key);
+    if (!rate || timestamp >= rate.resetAt) {
+      rate = { count: 0, resetAt: timestamp + windowMs };
+    }
+    rate.count += 1;
+    requestRates.set(key, rate);
+    if (rate.count <= maximum) return 0;
+    return Math.max(1, Math.ceil((rate.resetAt - timestamp) / 1000));
+  }
+
   const server = createServer(async (request, response) => {
     if (request.method === "OPTIONS") return json(response, 204, {});
     pruneEnetRooms();
     const url = new URL(request.url || "/", "http://last-route.invalid");
+    const retryAfter = rateLimitRequest(request, url.pathname);
+    if (retryAfter > 0) {
+      return json(response, 429, {
+        ok: false,
+        code: "RATE_LIMITED",
+        error: "Too many requests; try again shortly",
+      }, { "retry-after": String(retryAfter) });
+    }
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       const updateStatus = publicUpdateStatus(currentUpdates());
@@ -285,6 +324,7 @@ export function createLastRouteServer({
         service: "last-route-backend",
         port: request.socket.localPort,
         rooms: enetRooms.size,
+        relay: enetRelay?.relayStatus() || { enabled: false },
         webRooms: roomService.rooms.size,
         reloadId,
         updates: updateStatus,
@@ -317,10 +357,9 @@ export function createLastRouteServer({
       const code = normalizeEnetCode(decodeURIComponent(enetResolve[1]));
       const room = code ? enetRooms.get(code) : null;
       if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
-      const samePublicAddress = requesterAddress(request, trustProxy) === room.address;
       return json(response, 200, {
         ok: true,
-        room: publicEnetRoom(room, now(), samePublicAddress),
+        room: publicEnetRoom(room, now(), relayAddress, relayPort),
       });
     }
 
@@ -350,14 +389,17 @@ export function createLastRouteServer({
         code,
         token,
         address: requesterAddress(request, trustProxy),
-        lanAddresses: privateLanAddresses(body.lanAddresses),
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
         expiresAt: now() + enetRoomTtlMs,
       };
       enetRooms.set(code, room);
-      return json(response, 201, { ok: true, token, room: publicEnetRoom(room, now()) });
+      return json(response, 201, {
+        ok: true,
+        token,
+        room: publicEnetRoom(room, now(), relayAddress, relayPort),
+      });
     }
 
     if (url.pathname === "/api/enet/rooms/heartbeat") {
@@ -367,7 +409,10 @@ export function createLastRouteServer({
       room.players = Math.trunc(finitePlayers(body.players, room.players));
       room.sessionActive = Boolean(body.sessionActive);
       room.expiresAt = now() + enetRoomTtlMs;
-      return json(response, 200, { ok: true, room: publicEnetRoom(room, now()) });
+      return json(response, 200, {
+        ok: true,
+        room: publicEnetRoom(room, now(), relayAddress, relayPort),
+      });
     }
 
     if (url.pathname === "/api/enet/rooms/unregister") {
@@ -376,7 +421,53 @@ export function createLastRouteServer({
       if (!room) return json(response, 200, { ok: true, removed: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       enetRooms.delete(code);
+      for (const [ticket, proof] of adminTickets) {
+        if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
+      }
       return json(response, 200, { ok: true, removed: true });
+    }
+
+    if (url.pathname === "/api/enet/admin-tickets/issue") {
+      const code = normalizeEnetCode(body.code);
+      const room = code ? enetRooms.get(code) : null;
+      if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
+      if (accountService.sessionUsername(body.sessionToken) !== "KYTTU") {
+        return json(response, 403, { ok: false, error: "ADMIN ACCOUNT REQUIRED" });
+      }
+      const ticket = randomBytes(32).toString("base64url");
+      const ttl = Math.max(5_000, Math.min(Number(adminTicketTtlMs) || DEFAULT_ADMIN_TICKET_TTL_MS,
+        DEFAULT_ADMIN_TICKET_TTL_MS));
+      const expiresAt = now() + ttl;
+      adminTickets.set(ticket, { code, hostToken: room.token, expiresAt });
+      return json(response, 201, {
+        ok: true,
+        ticket,
+        room: code,
+        expiresIn: Math.max(1, Math.ceil(ttl / 1000)),
+      });
+    }
+
+    if (url.pathname === "/api/enet/admin-tickets/verify") {
+      const code = normalizeEnetCode(body.code);
+      const room = code ? enetRooms.get(code) : null;
+      if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
+      if (!safeEqual(body.hostToken, room.token)) {
+        return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
+      }
+      const ticket = String(body.ticket || "");
+      const proof = adminTickets.get(ticket);
+      const authorized = Boolean(proof && proof.expiresAt > now() && proof.code === code
+        && safeEqual(proof.hostToken, room.token));
+      if (!authorized) {
+        adminTickets.delete(ticket);
+        return json(response, 403, { ok: false, authorized: false, error: "INVALID OR EXPIRED ADMIN TICKET" });
+      }
+      return json(response, 200, {
+        ok: true,
+        authorized: true,
+        room: code,
+        expiresIn: Math.max(1, Math.ceil((proof.expiresAt - now()) / 1000)),
+      });
     }
 
     if (url.pathname === "/api/dev/login") {
@@ -408,7 +499,8 @@ export function createLastRouteServer({
     } else if (url.pathname === "/api/account/login") {
       result = await accountService.login(body);
       if (result[1]?.ok && result[1].admin) result[1].devToken = issueDevToken();
-    } else if (url.pathname === "/api/account/password") result = await accountService.changePassword(body);
+    } else if (url.pathname === "/api/account/session") result = accountService.currentSession(body);
+    else if (url.pathname === "/api/account/password") result = await accountService.changePassword(body);
     else if (url.pathname === "/api/account/rename") result = accountService.rename(body, { allowDeveloperNames: developerRequest(body) });
     else if (url.pathname === "/api/account/save") result = accountService.save(body);
     else if (url.pathname === "/api/account/load") result = accountService.loadProgress(body);
@@ -422,9 +514,29 @@ export function createLastRouteServer({
   const timer = setInterval(() => {
     pruneEnetRooms();
     roomService.cleanup();
+    const timestamp = now();
+    for (const [key, rate] of requestRates) {
+      if (timestamp >= rate.resetAt) requestRates.delete(key);
+    }
   }, Math.max(1000, Math.min(enetRoomTtlMs, playerTtlMs, 15_000)));
   timer.unref();
   server.on("close", () => clearInterval(timer));
+  server.startEnetRelay = ({ host = "0.0.0.0", port = relayPort } = {}) => {
+    if (enetRelay) return enetRelay;
+    enetRelay = createEnetRelay({
+      roomByCode: (code) => {
+        pruneEnetRooms();
+        return enetRooms.get(code) || null;
+      },
+      now,
+      logger,
+    });
+    enetRelay.bind(port, host);
+    return enetRelay;
+  };
+  server.on("close", () => {
+    if (enetRelay) enetRelay.close();
+  });
   return server;
 }
 
@@ -446,7 +558,12 @@ function environmentPath(name) {
 export function startLastRouteServerFromEnvironment() {
   const port = Number(process.env.PORT || process.env.SERVER_PORT) || 1101;
   const host = process.env.HOST || "0.0.0.0";
-  const dataDirectory = environmentPath("LASTROUTE_DATA_DIR") || environmentPath("KYTTU_DATA_DIR") || resolve(process.cwd(), "data");
+  const relayEnabled = !/^(0|false|no|off)$/i.test(String(
+    process.env.LASTROUTE_RELAY_ENABLED || "true"));
+  const relayPort = Number(process.env.LASTROUTE_RELAY_PORT) || port;
+  const relayAddress = String(process.env.LASTROUTE_RELAY_HOST
+    || "lastroute.kyttuslab.org").trim();
+  const dataDirectory = environmentPath("LASTROUTE_DATA_DIR") || environmentPath("KYTTU_DATA_DIR") || resolve(process.cwd(), ".data");
   const accountStorePath = environmentPath("LASTROUTE_ACCOUNT_STORE") || environmentPath("KYTTU_ACCOUNT_STORE_PATH") || join(dataDirectory, "accounts.json");
   const publicDirectory = environmentPath("LASTROUTE_PUBLIC_DIR");
   const bundledCustomMapDirectory = resolve(process.cwd(), "art/custom-maps");
@@ -464,6 +581,12 @@ export function startLastRouteServerFromEnvironment() {
     }
   }
   const enetRoomTtlMs = Math.max(15, Number(process.env.ENET_ROOM_TTL_SECONDS) || 60) * 1000;
+  const rateLimitWindowMs = Math.max(1,
+    Number(process.env.LASTROUTE_RATE_LIMIT_WINDOW_SECONDS) || 60) * 1000;
+  const apiRateLimitMax = Math.max(1,
+    Number(process.env.LASTROUTE_API_RATE_LIMIT) || 600);
+  const accountRateLimitMax = Math.max(1,
+    Number(process.env.LASTROUTE_ACCOUNT_RATE_LIMIT) || 30);
   const server = createLastRouteServer({
     enetRoomTtlMs,
     accountStorePath,
@@ -477,7 +600,13 @@ export function startLastRouteServerFromEnvironment() {
     } : null,
     adminPassword: String(process.env.LASTROUTE_ADMIN_PASSWORD || process.env.KYTTU_DEV_PASSWORD || ""),
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
+    relayAddress: relayEnabled ? relayAddress : "",
+    relayPort: relayEnabled ? relayPort : 0,
+    rateLimitWindowMs,
+    apiRateLimitMax,
+    accountRateLimitMax,
   });
+  if (relayEnabled) server.startEnetRelay({ host, port: relayPort });
   server.listen(port, host, () => loggerStartup(host, port, accountStorePath,
     publicDirectory, customMapDirectory, updateManifestPath, updateDirectory, updates));
   const shutdown = (signal) => {

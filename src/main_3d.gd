@@ -3,7 +3,7 @@ extends Node
 ## 3D counterpart to src/main.gd — same GameState-driven floor lifecycle and
 ## HUD wiring, orchestrating the 3D presentation layer instead of the 2D one.
 ## Also owns the hunter lifecycle: spawn/activation/per-frame brain update
-## and the capture -> escape struggle -> success/respawn/game-over flow
+## and the capture -> escape struggle -> success/jumpscare/game-over flow
 ## (hunter_brain.gd is pure simulation; this is where its results turn into
 ## game state, matching how game.js's update() drives hunter-ai.js).
 
@@ -13,6 +13,8 @@ var pause_menu: PauseMenu
 @onready var facility_view: FacilityView3D = %FacilityView
 @onready var player: PlayerController3D = %Player
 @onready var hud: HUD = %HUD
+@onready var route_loading = %RouteLoadingOverlay
+@onready var run_report = %RunReport
 
 var observed_depth := 1
 ## Every hunter on the floor. Usually one drawn route hunter, plus any
@@ -25,7 +27,9 @@ var hunter_view: HunterView3D
 ## Whoever actually grabbed the player, so the escape struggle resolves
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
-var _game_over_timer := 0.0
+var jumpscare: HunterJumpscare
+var pixel_signal_effect: PixelSignalEffect
+var _capture_resolving := false
 ## Admin-only: shows every hunter on both maps, active or not -- see
 ## _map_marks()'s own note on why that distinction exists at all.
 var _admin_reveal_hunters := false
@@ -40,6 +44,7 @@ var _custom_map_fetching := false
 ## host retains a compact canonical PNG so a late joiner's first snapshot can
 ## rebuild the exact authored grid before applying collected/disabled state.
 const CUSTOM_MAP_MAX_BYTES := 2 * 1024 * 1024
+const SNAPSHOT_PROTOCOL := 2
 var _custom_map_png := PackedByteArray()
 var _custom_map_seed := ""
 ## Changes whenever the host replaces the base floor, even if depth/seed stay
@@ -60,6 +65,11 @@ var _haelith_step_elapsed := 0.0
 const REMOTE_METER_EFFECT_INTERVAL := 0.1
 var _remote_meter_effects := {}
 var _remote_meter_effect_elapsed := 0.0
+## Backend verification request id -> sanitized guest intent. Release guest
+## admin commands wait here until the primary service confirms the opaque,
+## room-bound proof; no account token ever reaches this player host.
+var _pending_admin_requests := {}
+var _admin_ticket_refresh_elapsed := 0.0
 
 
 func _ready() -> void:
@@ -70,7 +80,10 @@ func _ready() -> void:
 	# if both machines generated the same facility -- so this line is what makes
 	# the rest of the sync mean anything. Offline it is still a stable seed, so
 	# a solo run behaves the same way.
-	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
+	var restored_checkpoint := not RoomState.online \
+		and GameState.restore_queued_route_checkpoint()
+	if not restored_checkpoint:
+		GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
 	player.interaction_veto = _guardian_blocking
@@ -90,6 +103,14 @@ func _ready() -> void:
 	pause_menu.resumed.connect(_on_pause_resumed)
 	pause_menu.abandoned.connect(_on_abandoned)
 	add_child(pause_menu)
+	run_report.restart_requested.connect(_restart_solo_route)
+	run_report.leave_requested.connect(_leave_after_report)
+	jumpscare = HunterJumpscare.new()
+	jumpscare.name = "HunterJumpscare"
+	world.add_child(jumpscare)
+	pixel_signal_effect = PixelSignalEffect.new()
+	pixel_signal_effect.name = "PixelSignalEffect"
+	add_child(pixel_signal_effect)
 	# Other players' bodies. Present offline too, doing nothing, so there is no
 	# second code path for a solo run.
 	_remotes = RemotePlayers.new()
@@ -104,22 +125,41 @@ func _ready() -> void:
 	_remotes.interaction_requested.connect(_apply_interaction_request)
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
+	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
+		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
+	if not Backend.admin_ticket_changed.is_connected(_on_admin_ticket_changed):
+		Backend.admin_ticket_changed.connect(_on_admin_ticket_changed)
+	if RoomState.online and not RoomState.is_host \
+			and not Backend.admin_ticket_for_room(RoomState.code).is_empty():
+		_remotes.request_interaction({"what": "admin_auth"})
 	facility_view.world_changed.connect(_on_world_changed)
 	_build_admin()
 	_build_floor()
+	_checkpoint_solo_route()
 	if _awaiting_initial_snapshot:
 		player.input_frozen = true
 		hud.show_message("SYNCING CURRENT FLOOR...")
+		route_loading.show_waiting_for_snapshot()
+	else:
+		route_loading.dismiss()
 	_update_hud()
 
 
 func _process(delta: float) -> void:
+	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
+		_admin_ticket_refresh_elapsed += delta
+		if _admin_ticket_refresh_elapsed >= 5.0:
+			_admin_ticket_refresh_elapsed = 0.0
+			if Backend.admin_ticket_for_room(RoomState.code).is_empty():
+				Backend.request_admin_ticket(RoomState.code)
 	# Menu/stun callbacks may also write input_frozen. Snapshot readiness wins
 	# over all of them: a guest must never walk around the temporary floor.
 	if _awaiting_initial_snapshot:
 		player.input_frozen = true
 	if GameState.game_over:
-		_handle_game_over_tick(delta)
+		player.input_frozen = true
+		# A solo scene can stop here. In co-op the host must keep simulating
+		# hunters and remote runners while her own run-report is open.
 		if not RoomState.online:
 			return
 
@@ -151,6 +191,7 @@ func _process(delta: float) -> void:
 	if GameState.depth != observed_depth:
 		observed_depth = GameState.depth
 		_build_floor()
+		_checkpoint_solo_route()
 
 	hud.update_minimap(facility_view.generator, player.grid_position(),
 		player.facing, _map_marks(true) if _admin_reveal_hunters else [])
@@ -563,13 +604,23 @@ func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
 	# A debug-tools build treats access to its admin overlay as the admin role.
 	# Shared commands are still executed by peer 1, so a guest never mutates a
 	# private copy and assumes the host saw it.
-	if what == "admin_custom_map":
-		if Build.tools_enabled():
-			_load_custom_map(String(event.get("url", "")))
-		return
-	if what == "admin_world":
-		if Build.tools_enabled():
-			_apply_admin_world_action(String(event.get("action", "")))
+	if what in ["admin_auth", "admin_custom_map", "admin_world"]:
+		if Build.remote_guest_tools_allowed() \
+				or _remotes.remote_admin_peer_allowed(peer_id):
+			_apply_verified_admin_request(peer_id, event)
+			return
+		var ticket := String(event.get("admin_ticket", ""))
+		if ticket.is_empty():
+			_remotes.send_player_event(peer_id, {"what": "message",
+				"message": "ADMIN REQUEST REJECTED // ROOM PROOF REQUIRED"})
+			return
+		var request_id := Backend.verify_room_admin_ticket(RoomState.code, ticket)
+		_pending_admin_requests[request_id] = {
+			"peer_id": peer_id,
+			"event": event.duplicate(true),
+		}
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "ADMIN // VERIFYING ROOM PROOF"})
 		return
 	var source := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
 	if source.is_empty():
@@ -685,6 +736,46 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 	return message
 
 
+func _on_admin_ticket_changed(ready: bool, room_code: String,
+		message: String) -> void:
+	if not ready or room_code != RoomState.code or not RoomState.online \
+			or RoomState.is_host or _remotes == null:
+		return
+	# Verify as soon as the ticket arrives so personal no-target/god state is
+	# authoritative before the first hunter capture, even if the admin never
+	# presses a shared floor-edit button.
+	_remotes.request_interaction({"what": "admin_auth"})
+	hud.show_message(message)
+
+
+func _on_admin_ticket_verified(request_id: int, authorized: bool,
+		expires_in: int, message: String) -> void:
+	if not _pending_admin_requests.has(request_id):
+		return
+	var pending: Dictionary = _pending_admin_requests[request_id]
+	_pending_admin_requests.erase(request_id)
+	var peer_id := int(pending.get("peer_id", 0))
+	if not RoomState.is_host or peer_id <= 1 or not RoomState.peers.has(peer_id):
+		return
+	if not authorized:
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "ADMIN REQUEST REJECTED // %s" % message})
+		return
+	_remotes.authorize_admin_peer(peer_id, expires_in)
+	_apply_verified_admin_request(peer_id, pending.get("event", {}))
+
+
+func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
+	match String(event.get("what", "")):
+		"admin_auth":
+			_remotes.send_player_event(peer_id, {"what": "message",
+				"message": "ADMIN ROOM PROOF VERIFIED"})
+		"admin_custom_map":
+			_load_custom_map(String(event.get("url", "")))
+		"admin_world":
+			_apply_admin_world_action(String(event.get("action", "")), true)
+
+
 func _heater_state() -> RouteInteractable3D.HeaterState:
 	var station := facility_view.heater_station
 	return station.heater_state if station else RouteInteractable3D.HeaterState.FROZEN
@@ -695,7 +786,7 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 	# Re-check at the authoritative capture boundary as well as inside the
 	# brain. This covers gimmick-driven captures and a toggle changed between
 	# target selection and the end of the simulation step.
-	if Build.tools_enabled() and (bool(target.get("no_target", false)) \
+	if _target_tools_authorized(target) and (bool(target.get("no_target", false)) \
 			or bool(target.get("god_mode", false))):
 		return
 	var peer_id := int(target.get("peer_id", 1))
@@ -705,6 +796,12 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 		"inescapable": force_inescapable or (view.brain.gimmick != null
 			and view.brain.gimmick.capture_is_inescapable()),
 	})
+
+
+func _target_tools_authorized(target: Dictionary) -> bool:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	return Build.tools_enabled() if int(target.get("peer_id", local_id)) == local_id \
+		else _remotes.remote_admin_peer_allowed(int(target.get("peer_id", 0)))
 
 
 func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> void:
@@ -781,66 +878,91 @@ func _resolve_escape_success() -> void:
 ## (hunter-ai.js's triggerGameOver: Nyxie/cooldown captures go straight
 ## here, everyone else only arrives via a timed-out struggle).
 func _resolve_capture_outcome() -> void:
-	var continues := GameState.resolve_escape_failure()
-	if continues:
-		_respawn_after_capture()
-	else:
-		if RoomState.online and not RoomState.is_host:
-			_remotes.submit_hunter_event({
-				"what": "caught",
-				"hunter_id": capturing_view.brain.hunter_id if capturing_view else "",
-			})
-		_enter_game_over()
-
-
-func _respawn_after_capture(notify_host: bool = true) -> void:
-	player.position = _player_spawn_world_position()
-	player.velocity = Vector3.ZERO
-	player.input_frozen = false
+	if _capture_resolving:
+		return
+	_capture_resolving = true
+	GameState.resolve_escape_failure()
+	player.input_frozen = true
+	player.look_frozen = true
+	var hunter_id := capturing_view.brain.hunter_id if capturing_view else \
+		HunterRoster.DEFAULT_ID
 	if RoomState.online and not RoomState.is_host:
-		if notify_host:
-			_remotes.submit_hunter_event({"what": "respawned"})
-	else:
-		for view in hunter_views:
-			view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
-			view.sync_from_brain()
-	hud.show_message("Caught! Respawned at the start.")
+		_remotes.submit_hunter_event({
+			"what": "caught",
+			"hunter_id": hunter_id,
+		})
+	Sound.office_jumpscare(hunter_id)
+	await jumpscare.play(player.active_camera(), hunter_id)
+	_enter_game_over()
+	_capture_resolving = false
 
 
 func _enter_game_over() -> void:
 	player.input_frozen = true
-	hud.show_message("GAME OVER")
-	_game_over_timer = 0.0
+	if pause_menu.is_open():
+		pause_menu.close()
+	pause_menu.tap_to_pause = false
+	pause_menu.set_process(false)
+	pause_menu.set_process_unhandled_input(false)
+	var hunter_name := "UNKNOWN HUNTER"
+	if capturing_view != null and capturing_view.brain != null:
+		hunter_name = String(HunterRoster.get_identity(
+			capturing_view.brain.hunter_id).get("display_name", hunter_name)).to_upper()
+	# A completed solo run must not remain available as a Continue checkpoint.
+	if not RoomState.online and Backend.signed_in():
+		Backend.account_clear_progress()
+	run_report.open({
+		"online": RoomState.online,
+		"host": RoomState.is_host,
+		"reason": "CAPTURED BY %s" % hunter_name,
+		"depth": GameState.depth,
+		"score": GameState.score,
+		"relays": GameState.relays_collected,
+		"relay_target": GameState.relay_target,
+		"coins": GameState.coins,
+		"difficulty": String(RoomState.DIFFICULTY_LABELS.get(
+			RoomState.difficulty, "STANDARD")),
+		"seed": RoomState.seed_text,
+	})
 
 
-## No game-over screen yet (out of scope for this milestone) — auto-restarts
-## a fresh run after a short beat so the game doesn't just dead-end.
-func _handle_game_over_tick(delta: float) -> void:
-	_game_over_timer += delta
-	if _game_over_timer < 3.0:
-		return
+func _restore_gameplay_after_report() -> void:
+	run_report.close()
+	player.look_frozen = false
+	pause_menu.tap_to_pause = true
+	pause_menu.set_process(true)
+	pause_menu.set_process_unhandled_input(true)
+
+
+func _restart_solo_route() -> void:
 	if RoomState.online:
-		# Lives are per runner. Restarting the whole autoload here used to put a
-		# caught peer back on depth one with a new random seed while everyone else
-		# stayed in the current building.
-		GameState.game_over = false
-		GameState.escape_active = false
-		GameState.lives_remaining = GameConfig.respawn_lives_for(
-			RoomState.difficulty_id())
-		GameState.escape_cooldown = 0.0
-		GameState.escape_grace = GameConfig.ESCAPE_GRACE
-		_game_over_timer = 0.0
-		_respawn_after_capture(false)
-		hud.show_message("SIGNAL RESTORED // REJOINED THE ROUTE")
-	else:
-		GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
-		observed_depth = GameState.depth
-		_build_floor()
+		return
+	_restore_gameplay_after_report()
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
+	observed_depth = GameState.depth
+	_build_floor()
+	_checkpoint_solo_route()
+	player.input_frozen = false
+	hud.show_message("NEW ROUTE SIGNAL // DEPTH 1")
 	_update_hud()
 
 
+func _leave_after_report() -> void:
+	_restore_gameplay_after_report()
+	if RoomState.online and RoomState.is_host:
+		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
+	elif RoomState.online:
+		RoomState.status_message = "LEFT THE ROUTE"
+		RoomState.leave_network()
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	else:
+		RoomState.session_active = false
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+
 func _update_hud() -> void:
-	hud.update_objective(GameState.depth, GameState.relays_collected, GameState.relay_target, GameState.lives_remaining)
+	hud.update_objective(GameState.depth, GameState.relays_collected,
+		GameState.relay_target)
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
 	hud.update_meters(player.meters)
@@ -853,14 +975,10 @@ func _update_hud() -> void:
 func _build_admin() -> void:
 	AdminMenu.attach(self,
 		func() -> String:
-			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d  LIVES %d\nSEED %s\nHUNTER REVEAL %s  NO TARGET %s  GOD MODE %s" % [
+			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d\nSEED %s" % [
 				RoomState.code, RoomState.SCALE_LABELS[RoomState.map_scale],
 				GameState.depth, GameState.relays_collected,
-				GameState.relay_target, GameState.lives_remaining,
-				RoomState.seed_text,
-				"ON" if _admin_reveal_hunters else "OFF",
-				"ON" if player.admin_no_target else "OFF",
-				"ON" if player.admin_god_mode else "OFF"],
+				GameState.relay_target, RoomState.seed_text],
 		[
 			{"label": "GRANT RELAY", "action": func() -> void:
 				_admin_world_action("grant_relay")},
@@ -875,10 +993,13 @@ func _build_admin() -> void:
 			# Both maps read _admin_reveal_hunters fresh every frame in
 			# _process(), so flipping this needs nothing else to take effect.
 			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
-				_admin_reveal_hunters = not _admin_reveal_hunters},
+				_admin_reveal_hunters = not _admin_reveal_hunters,
+				"state": func() -> bool: return _admin_reveal_hunters},
 			{"label": "TOGGLE NO TARGET", "action": func() -> void:
-				player.admin_no_target = not player.admin_no_target},
-			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode},
+				player.admin_no_target = not player.admin_no_target,
+				"state": func() -> bool: return player.admin_no_target},
+			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode,
+				"state": func() -> bool: return player.admin_god_mode},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
@@ -893,14 +1014,17 @@ func _admin_world_action(action: String) -> void:
 	if not Build.tools_enabled():
 		return
 	if RoomState.online and not RoomState.is_host:
+		if not _guest_admin_proof_ready():
+			return
 		_remotes.request_interaction({"what": "admin_world", "action": action})
 		hud.show_message("ADMIN // %s SENT TO HOST" % action.replace("_", " ").to_upper())
 		return
 	_apply_admin_world_action(action)
 
 
-func _apply_admin_world_action(action: String) -> void:
-	if not Build.tools_enabled() or not ["grant_relay", "all_relays", "rebuild",
+func _apply_admin_world_action(action: String, authorized_remote: bool = false) -> void:
+	if (not authorized_remote and not Build.tools_enabled()) \
+			or not ["grant_relay", "all_relays", "rebuild",
 			"descend"].has(action):
 		return
 	match action:
@@ -918,6 +1042,7 @@ func _apply_admin_world_action(action: String) -> void:
 			GameState.descend()
 			observed_depth = GameState.depth
 			_build_floor()
+			_checkpoint_solo_route()
 	if _remotes != null:
 		_remotes.broadcast_snapshot()
 
@@ -1114,10 +1239,6 @@ func _apply_hunter_event(event: Dictionary) -> void:
 				view.brain.enter_search_from(at, 1.8)
 				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
 				view.sync_from_brain()
-		"respawned":
-			for view in hunter_views:
-				view.brain.calm_reset(GameConfig.RESPAWN_STUN_DURATION)
-				view.sync_from_brain()
 		"caught":
 			# The remote state packet marks this runner game-over; no hunter reset
 			# is needed, but accepting the event releases the pending-capture gate.
@@ -1129,6 +1250,18 @@ func _apply_hunter_event(event: Dictionary) -> void:
 func _on_world_changed(event: Dictionary) -> void:
 	if _remotes != null:
 		_remotes.broadcast_event(event)
+
+
+## Account checkpoints are floor-start recovery points, not live world dumps.
+## That keeps them small and deterministic: partial pickups/hunter positions
+## never need replay, co-op never forks host state, and authored PNG payloads
+## are left to their own map workflow.
+func _checkpoint_solo_route() -> void:
+	if RoomState.online or not Backend.signed_in() or not _custom_map_png.is_empty():
+		return
+	Backend.account_save_progress(GameState.route_checkpoint(
+		RoomState.seed_text, RoomState.map_scale, RoomState.difficulty,
+		RoomState.difficulty_id()))
 
 
 ## Validate a guest's predicted world interaction before it becomes durable.
@@ -1220,16 +1353,45 @@ func _apply_world_event(event: Dictionary) -> void:
 func _play_world_audio(event: Dictionary) -> void:
 	var what := String(event.get("what", ""))
 	var note := String(event.get("message", ""))
+	if what == "thessine_mimic":
+		_play_thessine_mimic(event)
+		return
 	if what in ["sabotage", "hiding_disabled", "sound_alert"] \
 			or (what == "pickup" and note.begins_with("YSOLDE")):
 		Sound.alert()
+
+
+func _play_thessine_mimic(event: Dictionary) -> void:
+	var rare := bool(event.get("rare", false))
+	var cueable: Array[String] = []
+	for view in hunter_views:
+		if not view.brain.active or view.brain.hunter_id == "thessine":
+			continue
+		if view.brain.hunter_id in ["nyxie", "glyra", "ferryn", "briselle",
+				"loxelle", "ravelle", "haelith"]:
+			cueable.append(view.brain.hunter_id)
+	cueable.sort()
+	if rare or cueable.is_empty():
+		Sound.mimic(rare)
+		return
+	var choice := clampf(float(event.get("choice", 0.0)), 0.0, 0.999999)
+	var source := cueable[int(choice * cueable.size())]
+	match source:
+		"nyxie":
+			Sound.nyxie_timer_wake()
+		"glyra":
+			Sound.music_box()
+		"haelith":
+			Sound.hunter_footstep(0.0, 0.09)
+		_:
+			Sound.alert()
 
 
 ## What the host tells a peer that joined after the floor started.
 func _build_snapshot() -> Dictionary:
 	_collect_hunter_report()
 	var state := facility_view.shared_state()
-	state["snapshot_protocol"] = 2
+	state["snapshot_protocol"] = SNAPSHOT_PROTOCOL
 	state["floor_revision"] = _floor_revision
 	state["floor_source"] = "custom" if not _custom_map_png.is_empty() else "procedural"
 	if not _custom_map_png.is_empty():
@@ -1245,6 +1407,11 @@ func _build_snapshot() -> Dictionary:
 
 
 func _apply_world_snapshot(state: Dictionary) -> void:
+	if int(state.get("snapshot_protocol", 0)) != SNAPSHOT_PROTOCOL:
+		var protocol_message := "SYNC FAILED // SNAPSHOT VERSION MISMATCH // RETRYING"
+		hud.show_message(protocol_message)
+		route_loading.show_snapshot_retry(protocol_message)
+		return
 	var depth := int(state.get("depth", GameState.depth))
 	var depth_changed := depth != GameState.depth
 	if depth != GameState.depth:
@@ -1258,25 +1425,36 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 	var floor_source := String(state.get("floor_source", "procedural"))
 	var host_floor_revision := int(state.get("floor_revision", 0))
 	if floor_source == "custom":
-		var payload = state.get("custom_map_png", PackedByteArray())
-		if not payload is PackedByteArray:
-			hud.show_message("SYNC FAILED // CUSTOM MAP PAYLOAD INVALID // RETRYING")
-			return
-		var custom_seed := String(state.get("custom_map_seed",
-			"%s:CUSTOM" % GameState.level_seed_text()))
-		var custom_error := _install_custom_map_png(payload, custom_seed)
-		if not custom_error.is_empty():
-			hud.show_message("SYNC FAILED // %s // RETRYING" % custom_error.to_upper())
-			return
+		# Ordinary state broadcasts for the same authored floor must not rebuild
+		# its GridMap: that respawns/teleports the guest and briefly replaces all
+		# interactables whenever an admin changes one relay. Install only when the
+		# authoritative base floor actually changed or is missing locally.
+		var needs_custom_base := depth_changed or _custom_map_png.is_empty() \
+			or host_floor_revision != _applied_host_floor_revision
+		if needs_custom_base:
+			var payload = state.get("custom_map_png", PackedByteArray())
+			if not payload is PackedByteArray:
+				var message := "SYNC FAILED // CUSTOM MAP PAYLOAD INVALID // RETRYING"
+				hud.show_message(message)
+				route_loading.show_snapshot_retry(message)
+				return
+			var custom_seed := String(state.get("custom_map_seed",
+				"%s:CUSTOM" % GameState.level_seed_text()))
+			var custom_error := _install_custom_map_png(payload, custom_seed)
+			if not custom_error.is_empty():
+				var message := "SYNC FAILED // %s // RETRYING" % custom_error.to_upper()
+				hud.show_message(message)
+				route_loading.show_snapshot_retry(message)
+				return
 	elif depth_changed or not _custom_map_png.is_empty() \
 			or host_floor_revision != _applied_host_floor_revision:
 		_build_floor()
 	# Built here rather than left to _process, because the state below has to
 	# land on the floor it describes and not on the one being replaced.
 	facility_view.adopt_state(state)
-	# adopt_state re-counts the relays it applies, so this is a correction for
-	# anything the count could still miss rather than the source of it.
-	GameState.relays_collected = maxi(GameState.relays_collected, int(state.get("relays", 0)))
+	# Snapshots are authoritative. Exact assignment also rolls back the count
+	# from an optimistic guest pickup which the host rejected.
+	GameState.relays_collected = int(state.get("relays", GameState.relays_collected))
 	GameState.relays_sabotaged = int(state.get("relays_sabotaged",
 		GameState.relays_sabotaged))
 	GameState.coins = int(state.get("coins", GameState.coins))
@@ -1290,6 +1468,7 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 	player.input_frozen = GameState.escape_active or player.hidden or player.is_stunned()
 	if _remotes != null:
 		_remotes.confirm_snapshot_applied()
+	route_loading.dismiss()
 	_update_hud()
 
 
@@ -1383,6 +1562,8 @@ func _load_custom_map(url: String) -> void:
 		hud.show_message("CUSTOM MAP // ENTER A VALID HTTP(S) PNG URL")
 		return
 	if RoomState.online and not RoomState.is_host:
+		if not _guest_admin_proof_ready():
+			return
 		_remotes.request_interaction({"what": "admin_custom_map", "url": trimmed})
 		hud.show_message("CUSTOM MAP // SENT TO HOST FOR INSTALL")
 		return
@@ -1400,6 +1581,17 @@ func _load_custom_map(url: String) -> void:
 		return
 	_custom_map_fetching = true
 	hud.show_message("CUSTOM MAP // FETCHING...")
+
+
+func _guest_admin_proof_ready() -> bool:
+	if not RoomState.online or RoomState.is_host \
+			or Build.remote_guest_tools_allowed():
+		return true
+	if not Backend.admin_ticket_for_room(RoomState.code).is_empty():
+		return true
+	Backend.request_admin_ticket(RoomState.code)
+	hud.show_message("ADMIN // REQUESTING ROOM PROOF // TRY AGAIN IN A MOMENT")
+	return false
 
 
 func _on_custom_map_response(result: int, code: int, _headers: PackedStringArray,
@@ -1426,6 +1618,12 @@ func _install_custom_map_png(body: PackedByteArray, seed_text: String) -> String
 		return "CUSTOM MAP PAYLOAD IS EMPTY"
 	if body.size() > CUSTOM_MAP_MAX_BYTES:
 		return "CUSTOM MAP EXCEEDS %d KB" % (CUSTOM_MAP_MAX_BYTES / 1024)
+	var dimensions := _png_dimensions(body)
+	if dimensions == Vector2i.ZERO:
+		return "NOT A READABLE PNG"
+	var dimension_error := CustomMapParser.dimension_error(dimensions.x, dimensions.y)
+	if not dimension_error.is_empty():
+		return dimension_error
 	var image := Image.new()
 	var decode_error := image.load_png_from_buffer(body)
 	if decode_error != OK:
@@ -1439,8 +1637,27 @@ func _install_custom_map_png(body: PackedByteArray, seed_text: String) -> String
 	_custom_map_png = body.duplicate()
 	_custom_map_seed = seed_text
 	_floor_revision += 1
+	# A new base floor owns a fresh objective set. Preserve run score/coins but
+	# never carry relay progress or sabotage from the floor it replaced.
+	GameState.start_floor()
 	_after_floor_built()
 	return ""
+
+
+## Read PNG's fixed IHDR dimensions before asking Image to inflate its pixel
+## buffer. This turns a compressed-image allocation bomb into a cheap reject.
+static func _png_dimensions(body: PackedByteArray) -> Vector2i:
+	if body.size() < 24:
+		return Vector2i.ZERO
+	var signature := [137, 80, 78, 71, 13, 10, 26, 10]
+	for index in signature.size():
+		if body[index] != signature[index]:
+			return Vector2i.ZERO
+	if body[12] != 73 or body[13] != 72 or body[14] != 68 or body[15] != 82:
+		return Vector2i.ZERO
+	var width := (body[16] << 24) | (body[17] << 16) | (body[18] << 8) | body[19]
+	var height := (body[20] << 24) | (body[21] << 16) | (body[22] << 8) | body[23]
+	return Vector2i(width, height) if width > 0 and height > 0 else Vector2i.ZERO
 
 
 func _spawn_hunter() -> void:

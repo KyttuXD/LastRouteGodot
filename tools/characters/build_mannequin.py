@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(HERE, os.pardir, "office"))
 from mc_to_hytale import convert          # noqa: E402
 from hytale_anim import attach_animations  # noqa: E402
 from bbmodel_to_glb import convert as to_glb  # noqa: E402
+from character_floor_lifts import PLAYER_ANIMATION_GROUND_LIFTS  # noqa: E402
 
 HYTALE = "/home/kyttu/Documents/HytaleAssets/Assets/Common"
 # Godot asks for these by name and AnimationPlayer.has_animation is
@@ -72,7 +73,12 @@ def main(skin, out_bb, out_glb):
     # collision=False: the player's own CollisionShape3D is the only collider
     # a character should carry. A "-colonly" mesh per element is what dropped
     # the very first mannequin export through the floor.
-    info = to_glb(out_bb, out_glb, collision=False)
+    # The Hytale source rig expresses limb deltas in the inverse local-bone
+    # convention from glTF. Conjugating every animation delta makes elbows,
+    # knees, walk, sprint, and idle all bend in their intended direction.
+    info = to_glb(out_bb, out_glb, collision=False,
+                  invert_animation_rotations=True,
+                  animation_ground_lifts=PLAYER_ANIMATION_GROUND_LIFTS)
     print("  %d elements  ->  %d meshes, %d tris, %d anims"
           % (result["elements"], info["meshes"], info["tris"], info["animations"]))
     print("  clips:", ", ".join(sorted(a["name"] for a in model.get("animations", []))))

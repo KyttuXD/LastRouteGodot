@@ -6,7 +6,7 @@ extends RefCounted
 ## player is already stuck. Three specific failures are worth a test:
 ##
 ##   1. ESC leaving the run. It used to change scene on the spot, which in a
-##      shift with two lives left is a way to lose one by reaching for the
+##      route after a capture is a way to lose it by reaching for the
 ##      wrong key.
 ##   2. The cursor being taken back. The camera sets its capture preference
 ##      every frame, so a menu that merely set Input.mouse_mode would be
@@ -38,6 +38,9 @@ func _frame() -> Signal:
 
 
 var _failures := 0
+## Keep validation off the real gameplay port so this suite can run while a
+## developer has an ordinary local room open in another window.
+const TEST_PORT := 28422
 
 
 func _fail(message: String) -> void:
@@ -194,7 +197,7 @@ func _check_office() -> void:
 
 func _check_online_maze() -> void:
 	RoomState.create_local(RoomState.Mode.DEFAULT)
-	var error := RoomState.host_room()
+	var error := RoomState.host_room(TEST_PORT)
 	if not error.is_empty():
 		_fail("could not open an online room for the pause check: %s" % error)
 		return

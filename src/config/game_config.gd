@@ -46,10 +46,6 @@ const DIFFICULTY_PROFILES := {
 	},
 }
 
-const RESPAWN_LIVES_BY_DIFFICULTY := {
-	"relaxed": 3, "standard": 2, "hard": 1, "nightmare": 0,
-}
-
 const SAFE_ZONE_LIMITS_BY_DIFFICULTY := {
 	"relaxed": 3, "standard": 2, "hard": 1, "nightmare": 0,
 }
@@ -60,16 +56,24 @@ const STAMINA_RECOVERY := 21.0
 const STAMINA_RECOVERY_DELAY := 0.65
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
 
+## A modest first-person hop rather than a platforming jump. These produce a
+## theoretical 0.375 m apex and roughly half a second of air time; enough to
+## clear a small lip without letting players vault the maze walls or props.
+const PLAYER_GRAVITY := 12.0
+const PLAYER_JUMP_VELOCITY := 3.0
+
 const MAX_LAMP_CHARGE := 100.0
 const LAMP_IDLE_DRAIN := 0.8
 const LAMP_SPRINT_DRAIN := 0.35
 const BATTERY_RECHARGE := 25.0
 
 const INTERACTION_RANGE := 26.0
-## How far off-center (radians) an interactable can sit from the player's
-## facing and still be reachable -- generous on purpose, an aim-assist cone
-## rather than a precise reticle, unlike the much narrower beam-aim cones
-## (KATHY_BEAM_HALF_ANGLE etc.) those exist to be hard to hold on target.
+## The local controller uses the narrower camera-relative angle for the
+## crosshair target and also checks line of sight. The wider planar angle is
+## retained as the host's inexpensive validation envelope for a remote guest:
+## it rejects behind-the-player requests without requiring clients to publish
+## camera pitch or asking the host to trust a claimed ray hit.
+const INTERACTION_AIM_HALF_ANGLE := 0.42
 const INTERACTION_FACING_HALF_ANGLE := 0.7
 
 ## TUNING.safeRadius (2.5 tiles) from the original's game-config.js, converted
@@ -179,6 +183,12 @@ const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
 const QUIRITH_MAX_SPEED_SCALE := 1.45
 const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
 
+## Thessine's original soundMimic plan: one authoritative check every ten
+## seconds, with a one-in-two false cue and a small rare-audio pool.
+const THESSINE_MIMIC_INTERVAL := 10.0
+const THESSINE_MIMIC_CHANCE := 0.5
+const THESSINE_MIMIC_RARE_CHANCE := 0.08
+
 ## Eirys — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
 ## actually sprinting outside a safe zone accumulates and NEVER decays; at
 ## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
@@ -284,8 +294,6 @@ const ESCAPE_PRESSES := 6
 const ESCAPE_COOLDOWN := 16.0
 const ESCAPE_GRACE := 1.5
 const ESCAPE_STUN_DURATION := 3.0
-const RESPAWN_STUN_DURATION := 4.0
-const RESPAWN_LIVES_STANDARD := 2
 
 ## Relay index at which the (single, seeded) ordinary hunter activates —
 ## ROUTE_HUNTER_ACTIVATION_SPACING from the original: activationRelay =
@@ -405,11 +413,6 @@ const COIN_PICKUP_VALUE := 2
 
 static func difficulty_profile(id: String) -> Dictionary:
 	return DIFFICULTY_PROFILES.get(id, DIFFICULTY_PROFILES["standard"])
-
-
-static func respawn_lives_for(id: String) -> int:
-	return int(RESPAWN_LIVES_BY_DIFFICULTY.get(id,
-		RESPAWN_LIVES_BY_DIFFICULTY["standard"]))
 
 
 static func safe_zone_limit_for(id: String) -> int:

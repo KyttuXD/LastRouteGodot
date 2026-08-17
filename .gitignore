@@ -13,6 +13,7 @@ Thumbs.db
 
 # Local secrets and account data
 .env
+.data/
 data/accounts.json
 backend/data/
 updates/
@@ -20,6 +21,12 @@ build_revision.json
 
 # Local visual-review renders
 .artifacts/
+meshy_output/
+art/props-3d/**/previews/
+
+# Blender's automatic previous-save copies are recoverable local backups, not
+# authored source. Keep the deliberate .blend files, runtime GLBs and atlases.
+*.blend1
 
 
 # Python bytecode from tools/

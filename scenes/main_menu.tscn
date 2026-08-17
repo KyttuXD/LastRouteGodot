@@ -1,7 +1,8 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://src/ui/main_menu.gd" id="1_menu"]
 [ext_resource type="Script" path="res://src/ui/settings_panel.gd" id="2_settings"]
+[ext_resource type="Script" path="res://src/ui/signal_backdrop.gd" id="3_backdrop"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
 bg_color = Color(0.04, 0.065, 0.075, 0.92)
@@ -106,6 +107,8 @@ corner_radius_top_right = 2
 corner_radius_bottom_right = 2
 corner_radius_bottom_left = 2
 
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_actions"]
+
 [sub_resource type="Theme" id="Theme_menu"]
 default_font_size = 10
 Button/colors/font_color = Color(0.78, 0.96, 0.91, 1)
@@ -134,12 +137,15 @@ grow_vertical = 2
 theme = SubResource("Theme_menu")
 script = ExtResource("1_menu")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="Control" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1
 anchor_bottom = 1
-color = Color(0.015, 0.02, 0.028, 1)
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_backdrop")
 
 [node name="TitleLabel" type="Label" parent="."]
 layout_mode = 1
@@ -148,16 +154,16 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -190
-offset_top = -120
-offset_right = 190
-offset_bottom = -90
+offset_left = -155
+offset_top = -30
+offset_right = 55
+offset_bottom = 24
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
-theme_override_font_sizes/font_size = 20
-text = "KYTTU: THE LAST ROUTE"
-horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.95, 0.93, 0.9, 1)
+theme_override_font_sizes/font_size = 28
+theme_override_constants/line_spacing = -8
+text = "THE LAST\nROUTE"
 
 [node name="ButtonPanel" type="PanelContainer" parent="."]
 layout_mode = 1
@@ -166,42 +172,130 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -85
-offset_top = -86
-offset_right = 85
-offset_bottom = 123
+offset_left = -155
+offset_top = 61
+offset_right = 155
+offset_bottom = 108
 grow_horizontal = 2
 grow_vertical = 1
-theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+theme_override_styles/panel = SubResource("StyleBoxEmpty_actions")
 
-[node name="ButtonBox" type="VBoxContainer" parent="ButtonPanel"]
+[node name="ButtonBox" type="HFlowContainer" parent="ButtonPanel"]
 layout_mode = 2
-theme_override_constants/separation = 2
+theme_override_constants/h_separation = 5
+theme_override_constants/v_separation = 4
 
 [node name="PlayButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true
 layout_mode = 2
-text = "PLAY"
+text = "CREATE ROOM"
+
+[node name="JoinButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+text = "JOIN ROOM"
 
 [node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true
 layout_mode = 2
 text = "SETTINGS"
 
+[node name="AccountButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 5
+unique_name_in_owner = true
+layout_mode = 2
+text = "REGISTER / SIGN IN"
+
+[node name="ChangelogButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 5
+unique_name_in_owner = true
+layout_mode = 2
+text = "CHANGELOG"
+
 [node name="UpdateButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true
 layout_mode = 2
 visible = false
 text = "DOWNLOAD UPDATE"
 
 [node name="QuitButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 5
 unique_name_in_owner = true
 layout_mode = 2
 text = "QUIT"
+
+[node name="KickerLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = -70.0
+offset_right = 185.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_font_sizes/font_size = 5
+text = "SIGNAL ARCHIVE // ROUTE UNSTABLE"
+
+[node name="BrandLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = -52.0
+offset_right = 85.0
+offset_bottom = -36.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.9, 0.27, 0.32, 1)
+theme_override_font_sizes/font_size = 15
+text = "K Y T T U :"
+
+[node name="LedeLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = 26.0
+offset_right = 180.0
+offset_bottom = 49.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.72, 0.68, 0.66, 1)
+theme_override_font_sizes/font_size = 7
+text = "The building rebuilds itself with every descent. Recover each signal relay, reach the service lift, and see how deep you can go."
+autowrap_mode = 2
+
+[node name="RouteNotice" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = 50.0
+offset_right = 180.0
+offset_bottom = 58.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.46, 0.42, 0.44, 1)
+theme_override_font_sizes/font_size = 6
+text = "Open a room to run solo or with others — every room rebuilds from a fresh signal."
 
 [node name="VersionLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -258,13 +352,33 @@ theme_override_font_sizes/font_size = 7
 text = "PRESS REBIND, THEN A KEY  //  ESC CANCELS A REBIND IN PROGRESS"
 horizontal_alignment = 1
 
+[node name="AudioHeading" type="Label" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 37.0
+offset_right = 420.0
+offset_bottom = 45.0
+theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_font_sizes/font_size = 6
+text = "AUDIO"
+
 [node name="VolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 40.0
+offset_top = 45.0
 offset_right = 420.0
-offset_bottom = 56.0
+offset_bottom = 61.0
 theme_override_constants/separation = 8
+
+[node name="DisplayHeading" type="Label" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 63.0
+offset_right = 420.0
+offset_bottom = 71.0
+theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_font_sizes/font_size = 6
+text = "DISPLAY"
 
 [node name="VolumeLabel" type="Label" parent="SettingsOverlay/VolumeRow"]
 layout_mode = 2
@@ -290,9 +404,9 @@ text = "100%"
 [node name="SensitivityRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 58.0
+offset_top = 115.0
 offset_right = 420.0
-offset_bottom = 74.0
+offset_bottom = 131.0
 theme_override_constants/separation = 8
 
 [node name="SensitivityLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
@@ -316,21 +430,62 @@ text = "50"
 [node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 76.0
+offset_top = 71.0
 offset_right = 420.0
-offset_bottom = 92.0
+offset_bottom = 87.0
 theme_override_constants/separation = 8
+
+[node name="PixelEffectRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 89.0
+offset_right = 420.0
+offset_bottom = 105.0
+theme_override_constants/separation = 8
+
+[node name="PixelEffectLabel" type="Label" parent="SettingsOverlay/PixelEffectRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "3D SIGNAL FILTER"
+
+[node name="PixelEffectSlider" type="HSlider" parent="SettingsOverlay/PixelEffectRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 28.0
+
+[node name="PixelEffectValueLabel" type="Label" parent="SettingsOverlay/PixelEffectRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "28%"
+
+[node name="ControlsHeading" type="Label" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 107.0
+offset_right = 420.0
+offset_bottom = 115.0
+theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_font_sizes/font_size = 6
+text = "CONTROLS"
 
 [node name="DisplayLabel" type="Label" parent="SettingsOverlay/DisplayRow"]
 layout_mode = 2
+visible = false
 vertical_alignment = 1
 text = "FULLSCREEN"
 
-[node name="FullscreenButton" type="CheckButton" parent="SettingsOverlay/DisplayRow"]
+[node name="FullscreenButton" type="Button" parent="SettingsOverlay/DisplayRow"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 16)
 layout_mode = 2
 size_flags_vertical = 4
-text = "OFF"
+toggle_mode = true
 
 [node name="FullscreenHint" type="Label" parent="SettingsOverlay/DisplayRow"]
 layout_mode = 2
@@ -342,7 +497,7 @@ text = "F11 ANYWHERE"
 [node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 98.0
+offset_top = 133.0
 offset_right = 420.0
 offset_bottom = 228.0
 horizontal_scroll_mode = 0
@@ -356,8 +511,8 @@ theme_override_constants/separation = 3
 [node name="CloseButton" type="Button" parent="SettingsOverlay"]
 unique_name_in_owner = true
 layout_mode = 0
-offset_left = 170.0
+offset_left = 193.0
 offset_top = 234.0
-offset_right = 270.0
+offset_right = 247.0
 offset_bottom = 250.0
 text = "BACK"

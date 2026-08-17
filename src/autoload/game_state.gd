@@ -8,6 +8,10 @@ enum GameMode {
 	OFFICE_SURVIVOR,
 }
 
+const ROUTE_CHECKPOINT_SCHEMA := 1
+const MAX_CHECKPOINT_DEPTH := 100_000
+const MAX_CHECKPOINT_TOTAL := 2_000_000_000
+
 var current_mode: GameMode = GameMode.LAST_ROUTE
 var depth: int = 1
 var run_seed: int = 0
@@ -24,10 +28,9 @@ var relays_sabotaged: int = 0
 ## coins field, which survives a descent the same way score does.
 var coins: int = 0
 
-## Capture/escape struggle, ported from hunter-ai.js's triggerGameOver/
-## beginEscape/breakFree/finish. The room supplies the run's difficulty when it
-## starts, so this whole-run pool does not refill on a floor descent.
-var lives_remaining: int = GameConfig.RESPAWN_LIVES_STANDARD
+## Capture/escape struggle. A successful struggle continues the run; a failed
+## or inescapable capture ends it. The old difficulty-sized life/respawn pool
+## was removed because it made captures and co-op runner state unreliable.
 var game_over := false
 
 var escape_active := false
@@ -40,13 +43,17 @@ var escape_cooldown := 0.0
 var escape_grace := 0.0
 var escape_cooldown_scale := 1.0
 
+## A checkpoint is queued from the account screen, then consumed exactly once
+## by the next solo Last Route scene. Merely signing in never changes the run
+## under a player, and co-op scenes never consume account progress.
+var _pending_route_checkpoint: Dictionary = {}
 
-func start_new_run(seed_value: int = 0, difficulty_id: String = "standard") -> void:
+
+func start_new_run(seed_value: int = 0, _difficulty_id: String = "standard") -> void:
 	run_seed = seed_value if seed_value != 0 else randi()
 	depth = 1
 	score = 0
 	coins = 0
-	lives_remaining = GameConfig.respawn_lives_for(difficulty_id)
 	game_over = false
 	escape_active = false
 	escape_cooldown = 0.0
@@ -63,6 +70,69 @@ func start_floor() -> void:
 func descend() -> void:
 	depth += 1
 	start_floor()
+
+
+func route_checkpoint(room_seed_text: String, map_scale: int,
+		difficulty: int, difficulty_id: String) -> Dictionary:
+	return {
+		"schema": ROUTE_CHECKPOINT_SCHEMA,
+		"kind": "last_route",
+		"room_seed_text": room_seed_text,
+		"run_seed": run_seed,
+		"map_scale": map_scale,
+		"difficulty": difficulty,
+		"difficulty_id": difficulty_id,
+		"depth": depth,
+		"score": score,
+		"coins": coins,
+	}
+
+
+func route_checkpoint_valid(value: Dictionary) -> bool:
+	var seed_text := String(value.get("room_seed_text", ""))
+	var difficulty_id := String(value.get("difficulty_id", ""))
+	var saved_depth := int(value.get("depth", 0))
+	var saved_score := int(value.get("score", -1))
+	var saved_coins := int(value.get("coins", -1))
+	return int(value.get("schema", 0)) == ROUTE_CHECKPOINT_SCHEMA \
+		and String(value.get("kind", "")) == "last_route" \
+		and not seed_text.is_empty() and seed_text.length() <= 128 \
+		and int(value.get("run_seed", 0)) > 0 \
+		and saved_depth >= 1 and saved_depth <= MAX_CHECKPOINT_DEPTH \
+		and saved_score >= 0 and saved_score <= MAX_CHECKPOINT_TOTAL \
+		and saved_coins >= 0 and saved_coins <= MAX_CHECKPOINT_TOTAL \
+		and difficulty_id in ["relaxed", "standard", "hard"]
+
+
+func queue_route_checkpoint(value: Dictionary) -> bool:
+	if not route_checkpoint_valid(value):
+		return false
+	_pending_route_checkpoint = value.duplicate(true)
+	return true
+
+
+func clear_pending_route_checkpoint() -> void:
+	_pending_route_checkpoint.clear()
+
+
+func restore_queued_route_checkpoint() -> bool:
+	if not route_checkpoint_valid(_pending_route_checkpoint):
+		_pending_route_checkpoint.clear()
+		return false
+	var value := _pending_route_checkpoint.duplicate(true)
+	_pending_route_checkpoint.clear()
+	current_mode = GameMode.LAST_ROUTE
+	run_seed = int(value["run_seed"])
+	depth = int(value["depth"])
+	score = int(value["score"])
+	coins = int(value["coins"])
+	game_over = false
+	cancel_escape()
+	escape_cooldown = 0.0
+	escape_grace = 0.0
+	escape_cooldown_scale = 1.0
+	start_floor()
+	return true
 
 
 ## Deterministic per-floor seed text, mirroring LastRoute's `${seed}-D${depth}`
@@ -114,22 +184,19 @@ func tick_escape_cooldowns(delta: float) -> void:
 	escape_grace = maxf(0.0, escape_grace - delta)
 
 
-## Mirrors breakFree(): a successful struggle still costs a life (it just
-## skips the respawn walk) and shortens the reuse cooldown by 5% each time.
+## A successful struggle knocks the hunter back and shortens the reuse
+## cooldown by 5% each time. There is no hidden life cost.
 func resolve_escape_success() -> void:
 	escape_active = false
-	lives_remaining = maxi(0, lives_remaining - 1)
 	escape_cooldown_scale *= 0.95
 	escape_cooldown = GameConfig.ESCAPE_COOLDOWN * escape_cooldown_scale
 	escape_grace = GameConfig.ESCAPE_GRACE
 
 
-## Mirrors finish(): with lives left, spend one and respawn; otherwise the
-## run is over. Returns true if the run continues.
+## A failed struggle ends this runner's route. Kept as a bool-returning method
+## so the orchestrator's old call boundary remains explicit; it now always
+## returns false.
 func resolve_escape_failure() -> bool:
 	escape_active = false
-	if lives_remaining > 0:
-		lives_remaining -= 1
-		return true
 	game_over = true
 	return false

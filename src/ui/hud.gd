@@ -18,6 +18,7 @@ var _static_overlay: StaticOverlay
 
 
 func _ready() -> void:
+	Palette.style_title(%MapTitle)
 	_static_overlay = StaticOverlay.new()
 	# Above every meter and label this scene already owns, below nothing --
 	# a screen effect that a HUD element could still peek through would not
@@ -35,7 +36,6 @@ func trigger_static(duration: float, intensity: float = 0.75) -> void:
 
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
-@onready var lives_label: Label = %LivesLabel
 @onready var battery_bar: ProgressBar = %BatteryMeter.get_node("Bar")
 @onready var battery_caption: Label = %BatteryMeter.get_node("Caption")
 @onready var stamina_bar: ProgressBar = %StaminaMeter.get_node("Bar")
@@ -63,10 +63,9 @@ func _process(delta: float) -> void:
 	message_label.visible = _message_time_left > 0.0
 
 
-func update_objective(depth: int, relays_collected: int, relay_target: int, lives_remaining: int) -> void:
+func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
 	depth_label.text = "DEPTH %02d" % depth
 	relay_label.text = "%d/%d SIGNAL RELAYS" % [relays_collected, relay_target]
-	lives_label.text = "LIVES %d" % lives_remaining
 
 
 func set_escape_active(active: bool) -> void:

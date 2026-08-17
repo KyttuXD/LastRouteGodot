@@ -76,6 +76,10 @@ var vent_id := ""
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
 var _visual: Node3D
+## Cached world-independent center of the authored mesh. Interactions aim at
+## the prop rather than its floor pivot, so the screen crosshair behaves like
+## a crosshair for tall lockers/lifts as well as low batteries and vents.
+var _interaction_focus_local := Vector3(0.0, 0.65, 0.0)
 
 
 func _ready() -> void:
@@ -84,6 +88,7 @@ func _ready() -> void:
 	_visual = ModelSlot.instantiate(MODEL_SCENES[kind])
 	if _visual:
 		add_child(_visual)
+		_cache_interaction_focus()
 
 	_light = OmniLight3D.new()
 	_light.position = Vector3(0, 0.5, 0)
@@ -93,6 +98,30 @@ func _ready() -> void:
 	add_child(_light)
 
 	_refresh_visual()
+
+
+func interaction_focus() -> Vector3:
+	return global_transform * _interaction_focus_local
+
+
+func _cache_interaction_focus() -> void:
+	var boxes: Array[AABB] = []
+	_collect_mesh_bounds(_visual, boxes)
+	if boxes.is_empty():
+		return
+	var combined := boxes[0]
+	for index in range(1, boxes.size()):
+		combined = combined.merge(boxes[index])
+	_interaction_focus_local = combined.get_center()
+
+
+func _collect_mesh_bounds(node: Node, boxes: Array[AABB]) -> void:
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mesh_node := node as MeshInstance3D
+		var local_from_mesh := global_transform.affine_inverse() * mesh_node.global_transform
+		boxes.append(local_from_mesh * mesh_node.get_aabb())
+	for child in node.get_children():
+		_collect_mesh_bounds(child, boxes)
 
 
 func get_prompt() -> String:
@@ -262,21 +291,31 @@ func adopt(event: Dictionary) -> void:
 
 ## Keeps the generator's own relay/battery data in step with what the player
 ## has actually picked up, so hunter gimmicks that read it see the truth.
-func _mark_collected_in_generator() -> void:
+func _mark_collected_in_generator(value: bool = true) -> void:
 	if generator == null:
 		return
 	match kind:
 		Kind.RELAY:
-			generator.mark_collected(generator.relays, source_cell)
+			generator.set_collected(generator.relays, source_cell, value)
 		Kind.BATTERY:
-			generator.mark_collected(generator.batteries, source_cell)
+			generator.set_collected(generator.batteries, source_cell, value)
 		Kind.COIN:
-			generator.mark_collected(generator.coins, source_cell)
+			generator.set_collected(generator.coins, source_cell, value)
+
+
+## Set canonical pickup state without awarding it again. Ordinary activation
+## still goes through _take(); this is for an authoritative snapshot correcting
+## a guest prediction in either direction.
+func set_completed(value: bool) -> void:
+	if not PICKUPS.has(kind) or completed == value:
+		return
+	completed = value
+	_mark_collected_in_generator(value)
+	_refresh_visual()
 
 
 func reset_for_floor() -> void:
-	completed = false
-	_refresh_visual()
+	set_completed(false)
 
 
 ## Things you PICK UP leave when picked up. Only the light was being hidden, so

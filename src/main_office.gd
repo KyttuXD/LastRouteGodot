@@ -61,6 +61,7 @@ var pause_menu: PauseMenu
 
 
 func _ready() -> void:
+	_apply_header_typography()
 	simulation = OfficeSimulation.new("OFFICE-%d" % randi())
 	simulation.audio_cue.connect(_on_audio_cue)
 	simulation.jumpscare.connect(func(threat_id: String) -> void:
@@ -113,6 +114,18 @@ func _ready() -> void:
 	_control_bar.visible = false
 	_end_panel.visible = false
 	_refresh()
+
+
+func _apply_header_typography() -> void:
+	# Office has a different physical interface, but its screen-level readouts
+	# still belong to the same archive system as staging, the route map and the
+	# pause surface. The heavy face is reserved for the clock/camera/end headings
+	# so dense status text remains legible at the 480x270 design resolution.
+	Palette.style_title(_clock_label)
+	Palette.style_title(_end_title)
+	var camera_heading := get_node_or_null("CameraMonitor/RoomLabel") as Label
+	if camera_heading != null:
+		Palette.style_title(camera_heading)
 
 
 func _toggle(control: String) -> void:

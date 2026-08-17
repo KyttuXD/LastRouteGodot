@@ -12,6 +12,7 @@ const ACTION_LABELS := {
 	"move_down": "MOVE DOWN",
 	"sprint": "SPRINT",
 	"crouch": "CROUCH",
+	"jump": "JUMP / HOP",
 	"flashlight": "FLASHLIGHT",
 	"interact": "INTERACT",
 	"toggle_map": "TOGGLE MAP",
@@ -40,7 +41,7 @@ const LISTENING_TEXT := "PRESS A KEY..."
 ## by their office role, which is otherwise baffling to read.
 const SECTIONS := [
 	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
-		"move_right", "sprint", "crouch"]},
+		"move_right", "sprint", "crouch", "jump"]},
 	{"title": "ACTIONS", "actions": ["interact", "flashlight", "toggle_map"]},
 	{"title": "SYSTEM", "actions": ["pause"]},
 	{"title": "OFFICE MODE", "actions": ["office_left_door", "office_right_door",
@@ -51,9 +52,11 @@ const SECTIONS := [
 
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var volume_value_label: Label = %VolumeValueLabel
-@onready var fullscreen_button: CheckButton = %FullscreenButton
+@onready var fullscreen_button: Button = %FullscreenButton
 @onready var sensitivity_slider: HSlider = %SensitivitySlider
 @onready var sensitivity_value_label: Label = %SensitivityValueLabel
+@onready var pixel_effect_slider: HSlider = %PixelEffectSlider
+@onready var pixel_effect_value_label: Label = %PixelEffectValueLabel
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
@@ -69,6 +72,7 @@ func _ready() -> void:
 	sensitivity_slider.max_value = Settings.MAX_MOUSE_SENSITIVITY
 	sensitivity_slider.step = 0.0001
 	sensitivity_slider.value_changed.connect(_on_sensitivity_changed)
+	pixel_effect_slider.value_changed.connect(_on_pixel_effect_changed)
 	# F11 works anywhere, so the toggle can be flipped from outside this panel
 	# while it is open.
 	Settings.display_changed.connect(_refresh_from_settings)
@@ -114,9 +118,11 @@ func _refresh_from_settings() -> void:
 	volume_slider.value = Settings.master_volume_percent
 	_update_volume_label(Settings.master_volume_percent)
 	fullscreen_button.set_pressed_no_signal(Settings.fullscreen)
-	fullscreen_button.text = "ON" if Settings.fullscreen else "OFF"
+	Palette.set_state_toggle(fullscreen_button, Settings.fullscreen)
 	sensitivity_slider.set_value_no_signal(Settings.mouse_sensitivity)
 	_update_sensitivity_label(Settings.mouse_sensitivity)
+	pixel_effect_slider.set_value_no_signal(Settings.pixel_effect_percent)
+	_update_pixel_effect_label(Settings.pixel_effect_percent)
 	for action in _key_labels:
 		_key_labels[action].text = Settings.get_action_key_label(action)
 
@@ -133,6 +139,15 @@ func _update_volume_label(value: float) -> void:
 func _on_sensitivity_changed(value: float) -> void:
 	Settings.set_mouse_sensitivity(value)
 	_update_sensitivity_label(value)
+
+
+func _on_pixel_effect_changed(value: float) -> void:
+	Settings.set_pixel_effect_percent(value)
+	_update_pixel_effect_label(value)
+
+
+func _update_pixel_effect_label(value: float) -> void:
+	pixel_effect_value_label.text = "%d%%" % int(round(value))
 
 
 ## Shown as a plain 1-100 dial rather than radians per pixel, which is the
@@ -152,12 +167,13 @@ func _apply_palette() -> void:
 	set("color", Palette.PANEL)
 	var title := get_node_or_null("Title") as Label
 	if title != null:
-		title.add_theme_color_override("font_color", Palette.INK)
+		Palette.style_title(title)
 	var hint := get_node_or_null("HintLabel") as Label
 	if hint != null:
 		hint.add_theme_color_override("font_color", Palette.MUTED)
 	for path in ["VolumeRow/VolumeLabel", "VolumeRow/VolumeValueLabel",
 			"SensitivityRow/SensitivityLabel", "SensitivityRow/SensitivityValueLabel",
+			"PixelEffectRow/PixelEffectLabel", "PixelEffectRow/PixelEffectValueLabel",
 			"DisplayRow/DisplayLabel"]:
 		var label := get_node_or_null(path) as Label
 		if label != null:
@@ -165,11 +181,10 @@ func _apply_palette() -> void:
 	var display_hint := get_node_or_null("DisplayRow/FullscreenHint") as Label
 	if display_hint != null:
 		display_hint.add_theme_color_override("font_color", Palette.MUTED)
-	Palette.style_button(close_button, true)
+	Palette.style_escape_close(close_button)
 	var fullscreen := get_node_or_null("DisplayRow/FullscreenButton") as Button
 	if fullscreen != null:
-		fullscreen.add_theme_color_override("font_color", Palette.BODY)
-		fullscreen.add_theme_color_override("font_pressed_color", Palette.AMBER)
+		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
 
 
 func _build_control_rows() -> void:

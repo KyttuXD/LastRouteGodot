@@ -36,6 +36,12 @@ func run(_host: Node) -> int:
 	# it, whether her fixed 40-interval budget was still enough to find a
 	# candidate. Pin it, the same way validate_sync.gd does.
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+	# create_local() deliberately rolls a fresh room seed. That is correct for
+	# gameplay but made this regression suite exercise a different facility on
+	# every invocation; rare layouts could leave Loxelle wandering between
+	# rooms whenever her passive roll fired. Keep the suite reproducible and
+	# make the live scenes below use the same seed as the shared fixture.
+	RoomState.seed_text = "HUNTERS-CHECK"
 	var generator := FacilityGenerator.new("HUNTERS-CHECK", RoomState.generator_options())
 	_difficulty_scales_shared_brain(generator)
 	_hunter_view_faces_its_travel_direction()
@@ -1004,8 +1010,8 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 ## here because this file already has the real-scene + real-relay harness
 ## (see _briselle_sabotages_and_resecures) that a facing check needs. Being
 ## in reach used to be the whole gate; now the player also has to be turned
-## toward the thing, which _nearest_interactable() enforces for every
-## interactable at once (see PlayerController3D._nearest_interactable).
+## through the camera crosshair, which _nearest_interactable() enforces for
+## every interactable at once (see PlayerController3D._nearest_interactable).
 func _interactables_require_facing(host: Node) -> void:
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
@@ -1016,19 +1022,41 @@ func _interactables_require_facing(host: Node) -> void:
 		_fail("no relays on the live floor to test facing-gated interaction against")
 		scene.queue_free()
 		return
-	var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
-	var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+	# Pick a relay/approach whose forward cone is unambiguous. Using the first
+	# random relay plus a hard-coded south approach made this fixture flaky when
+	# another interactable happened to be closer in the same cone.
+	var relay_node: RouteInteractable3D = null
+	var approach := Vector2.ZERO
+	for entry in generator.relays:
+		var relay_cell := Vector2i(entry["x"], entry["y"])
+		var candidate: RouteInteractable3D = scene.facility_view._at(
+			relay_cell, RouteInteractable3D.Kind.RELAY)
+		if candidate == null:
+			continue
+		for direction in [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]:
+			player.global_position = candidate.global_position \
+				+ Vector3(direction.x, 0.0, direction.y)
+			player.first_person_camera.look_at(candidate.interaction_focus(), Vector3.UP)
+			if player._nearest_interactable() == candidate:
+				relay_node = candidate
+				approach = direction
+				break
+		if relay_node != null:
+			break
 	if relay_node == null:
-		_fail("no interactable at the first relay's cell")
+		_fail("no relay has an unambiguous one-metre interaction approach")
 		scene.queue_free()
 		return
 
 	# Close enough to reach, one metre off the relay.
-	player.global_position = relay_node.global_position + Vector3(0.0, 0.0, 1.0)
+	player.global_position = relay_node.global_position \
+		+ Vector3(approach.x, 0.0, approach.y)
 
 	# Facing away from it: no prompt, and pressing interact does nothing --
 	# proximity alone used to be enough for both.
-	player.facing = Vector2(0.0, 1.0)
+	var away := player.first_person_camera.global_position \
+		+ Vector3(approach.x, 0.0, approach.y)
+	player.first_person_camera.look_at(away, Vector3.UP)
 	_expect(player._nearest_interactable() != relay_node,
 		"a relay right next to the player stayed targeted while they faced away from it")
 	player._try_interact()
@@ -1036,16 +1064,33 @@ func _interactables_require_facing(host: Node) -> void:
 		"pressing interact while facing away from a relay collected it anyway")
 
 	# Turned to face it: the same relay, now reachable both for the prompt
-	# and for the press.
-	player.facing = Vector2(0.0, -1.0)
+	# and for the press -- unless real facility collision blocks the ray.
+	player.first_person_camera.look_at(relay_node.interaction_focus(), Vector3.UP)
 	_expect(player._nearest_interactable() == relay_node,
 		"a relay right in front of the player was not targeted while facing it directly")
+	var blocker := StaticBody3D.new()
+	var blocker_shape := CollisionShape3D.new()
+	var blocker_box := BoxShape3D.new()
+	blocker_box.size = Vector3(0.45, 1.8, 0.45)
+	blocker_shape.shape = blocker_box
+	blocker.add_child(blocker_shape)
+	scene.get_node("World").add_child(blocker)
+	blocker.global_position = (player.first_person_camera.global_position \
+		+ relay_node.interaction_focus()) * 0.5
+	await host.get_tree().physics_frame
+	_expect(player._nearest_interactable() != relay_node,
+		"an interactable stayed targetable through a solid line-of-sight blocker")
+	blocker.queue_free()
+	await host.get_tree().physics_frame
+	player.first_person_camera.look_at(relay_node.interaction_focus(), Vector3.UP)
+	_expect(player._nearest_interactable() == relay_node,
+		"an interactable did not regain focus after its line-of-sight blocker left")
 	player._try_interact()
 	_expect(GameState.relays_collected == 1,
 		"pressing interact while facing a relay directly did not collect it")
 
 	scene.queue_free()
-	print("  facing    a nearby interactable is only reachable while actually faced")
+	print("  aiming    crosshair aim and line of sight choose the reachable interactable")
 
 
 ## Not hunter-specific -- pure A*/movement infrastructure, colocated here for

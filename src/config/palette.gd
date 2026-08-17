@@ -93,33 +93,142 @@ static func panel_box(fill: Color = PANEL, edge: Color = PANEL_EDGE,
 
 ## A button face. The web build's primary is a flat crimson slab with a
 ## brighter edge; its secondary is the panel colour with the same edge.
-static func button_box(fill: Color, edge: Color) -> StyleBoxFlat:
+static func button_box(fill: Color, edge: Color, horizontal_margin: int = 10,
+		vertical_margin: int = 4) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
 	box.border_color = edge
 	box.set_border_width_all(1)
-	box.content_margin_left = 10
-	box.content_margin_right = 10
-	box.content_margin_top = 4
-	box.content_margin_bottom = 4
+	box.content_margin_left = horizontal_margin
+	box.content_margin_right = horizontal_margin
+	box.content_margin_top = vertical_margin
+	box.content_margin_bottom = vertical_margin
 	return box
 
 
 ## Dress a Button in one of the two web-build styles.
-static func style_button(button: Button, primary: bool) -> void:
+static func style_button(button: Button, primary: bool, compact: bool = false) -> void:
 	var fill := CRIMSON if primary else PANEL
 	var edge := CRIMSON_EDGE if primary else PANEL_EDGE
-	button.add_theme_stylebox_override("normal", button_box(fill, edge))
+	var horizontal_margin := 5 if compact else 10
+	var vertical_margin := 3 if compact else 4
+	button.add_theme_stylebox_override("normal", button_box(fill, edge,
+		horizontal_margin, vertical_margin))
 	button.add_theme_stylebox_override("hover",
-		button_box(fill.lightened(0.12), edge.lightened(0.2)))
+		button_box(fill.lightened(0.12), edge.lightened(0.2), horizontal_margin,
+			vertical_margin))
 	button.add_theme_stylebox_override("pressed",
-		button_box(fill.darkened(0.2), edge))
-	button.add_theme_stylebox_override("focus", button_box(fill, edge.lightened(0.35)))
-	button.add_theme_stylebox_override("disabled", button_box(PANEL, PANEL_EDGE))
+		button_box(fill.darkened(0.2), edge, horizontal_margin, vertical_margin))
+	button.add_theme_stylebox_override("focus", button_box(fill,
+		edge.lightened(0.35), horizontal_margin, vertical_margin))
+	button.add_theme_stylebox_override("disabled", button_box(PANEL, PANEL_EDGE,
+		horizontal_margin, vertical_margin))
 	button.add_theme_color_override("font_color", INK if primary else BODY)
 	button.add_theme_color_override("font_hover_color", INK)
 	button.add_theme_color_override("font_pressed_color", INK)
 	button.add_theme_color_override("font_disabled_color", DIM)
+
+
+## Text fields in the join/account dialogs. Keeping this here prevents the
+## native platform theme from dropping a bright grey box into the dark frame.
+static func style_line_edit(field: LineEdit) -> void:
+	var normal := panel_box(INSET, Color("4b3948"), 6)
+	var focus := panel_box(INSET, AMBER, 6)
+	field.add_theme_stylebox_override("normal", normal)
+	field.add_theme_stylebox_override("focus", focus)
+	field.add_theme_color_override("font_color", INK)
+	field.add_theme_color_override("font_placeholder_color", MUTED)
+	field.add_theme_color_override("caret_color", AMBER)
+
+
+## Compact close control used by the original web panels: one thin outer
+## outline, a boxed ESC keycap, then the CLOSE label. Children ignore mouse so
+## the whole face remains one accessible Button.
+static func style_escape_close(button: Button) -> void:
+	button.text = ""
+	button.custom_minimum_size = Vector2(54, 16)
+	button.add_theme_stylebox_override("normal", button_box(PANEL, PANEL_EDGE, 2, 2))
+	button.add_theme_stylebox_override("hover",
+		button_box(PANEL.lightened(0.08), PANEL_EDGE.lightened(0.2), 2, 2))
+	button.add_theme_stylebox_override("pressed",
+		button_box(PANEL.darkened(0.12), PANEL_EDGE, 2, 2))
+	button.add_theme_stylebox_override("focus",
+		button_box(PANEL, PANEL_EDGE.lightened(0.35), 2, 2))
+	if button.get_node_or_null("EscCloseContent") != null:
+		return
+	var content := HBoxContainer.new()
+	content.name = "EscCloseContent"
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 3
+	content.offset_top = 2
+	content.offset_right = -3
+	content.offset_bottom = -2
+	content.add_theme_constant_override("separation", 4)
+	button.add_child(content)
+	var keycap := Label.new()
+	keycap.text = "ESC"
+	keycap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	keycap.add_theme_font_size_override("font_size", 6)
+	keycap.add_theme_color_override("font_color", INK)
+	keycap.add_theme_stylebox_override("normal", button_box(INSET,
+		Color("6a5264"), 3, 1))
+	content.add_child(keycap)
+	var caption := Label.new()
+	caption.text = "CLOSE"
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	caption.add_theme_font_size_override("font_size", 6)
+	caption.add_theme_color_override("font_color", BODY)
+	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	content.add_child(caption)
+
+
+## A toggle uses the same nested-keycap grammar as ESC CLOSE: the action name
+## stays readable on the left and a small boxed ON/OFF chip sits at the right.
+static func style_state_toggle(button: Button, caption_text: String,
+		enabled: bool, compact: bool = false) -> void:
+	button.text = ""
+	style_button(button, false, compact)
+	var content := button.get_node_or_null("StateToggleContent") as HBoxContainer
+	if content == null:
+		content = HBoxContainer.new()
+		content.name = "StateToggleContent"
+		content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		content.set_anchors_preset(Control.PRESET_FULL_RECT)
+		content.offset_left = 5
+		content.offset_top = 2
+		content.offset_right = -5
+		content.offset_bottom = -2
+		content.add_theme_constant_override("separation", 4)
+		button.add_child(content)
+		var caption := Label.new()
+		caption.name = "Caption"
+		caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		caption.add_theme_font_size_override("font_size", 6 if compact else 7)
+		caption.add_theme_color_override("font_color", BODY)
+		caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		content.add_child(caption)
+		var chip := Label.new()
+		chip.name = "StateChip"
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.custom_minimum_size = Vector2(20, 0)
+		chip.add_theme_font_size_override("font_size", 6)
+		chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		content.add_child(chip)
+	(content.get_node("Caption") as Label).text = caption_text
+	set_state_toggle(button, enabled)
+
+
+static func set_state_toggle(button: Button, enabled: bool) -> void:
+	var chip := button.get_node_or_null("StateToggleContent/StateChip") as Label
+	if chip == null:
+		return
+	chip.text = "ON" if enabled else "OFF"
+	chip.add_theme_color_override("font_color", STABLE if enabled else MUTED)
+	chip.add_theme_stylebox_override("normal", button_box(INSET,
+		STABLE if enabled else Color("6a5264"), 3, 1))
 
 
 ## An uppercase, letterspaced system label -- the amber "SIGNAL ARCHIVE //
@@ -146,7 +255,10 @@ static func style_title(label: Label, tint: Color = INK) -> void:
 ## labels are short and uppercase, so padding the string is the honest way to
 ## get the web build's spaced-out system captions.
 static func track(text: String, spaces: int = 1) -> String:
-	var gap := " ".repeat(spaces)
+	# A normal monospace space was several times wider than CSS `letter-spacing`
+	# and made short captions span half the 480px canvas. Thin spaces retain the
+	# tracked signal-terminal feel without turning a heading into a word ladder.
+	var gap := " ".repeat(spaces)
 	var out := PackedStringArray()
 	for i in text.length():
 		out.append(text[i])

@@ -1,13 +1,14 @@
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const USERNAME_PATTERN = /^[A-Z0-9_]{3,24}$/;
-const RESERVED_USERNAME_PATTERN = /yttu/i;
+const ADMIN_USERNAME = "KYTTU";
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_LENGTH = 200;
 const MAX_PROGRESS_BYTES = 32 * 1024;
 const SCRYPT_KEY_LENGTH = 64;
+const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function derive(password, salt) {
   return new Promise((resolve, reject) => {
@@ -33,7 +34,16 @@ function usernameOf(value) {
   return String(value || "").trim().toUpperCase().slice(0, 24);
 }
 
-export function createAccountService({ storePath = null, logger = console, now = Date.now } = {}) {
+function isAdminUsername(value) {
+  return usernameOf(value) === ADMIN_USERNAME;
+}
+
+function sessionHash(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+export function createAccountService({ storePath = null, logger = console, now = Date.now,
+  sessionTtlMs = DEFAULT_SESSION_TTL_MS } = {}) {
   const accounts = new Map();
   const sessions = new Map();
 
@@ -46,6 +56,15 @@ export function createAccountService({ storePath = null, logger = console, now =
           accounts.set(username, { ...value, username });
         }
       }
+      for (const value of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
+        const tokenHash = String(value?.tokenHash || "");
+        const username = usernameOf(value?.username);
+        const expiresAt = Number(value?.expiresAt) || 0;
+        if (/^[a-f0-9]{64}$/.test(tokenHash) && accounts.has(username)
+          && expiresAt > now()) {
+          sessions.set(tokenHash, { username, expiresAt });
+        }
+      }
     } catch (error) {
       if (error?.code !== "ENOENT") logger.warn?.(`Account store was not loaded: ${error?.message || error}`);
     }
@@ -56,7 +75,11 @@ export function createAccountService({ storePath = null, logger = console, now =
     try {
       mkdirSync(dirname(storePath), { recursive: true });
       const temporaryPath = `${storePath}.tmp`;
-      writeFileSync(temporaryPath, JSON.stringify({ version: 1, accounts: [...accounts.values()] }));
+      writeFileSync(temporaryPath, JSON.stringify({
+        version: 2,
+        accounts: [...accounts.values()],
+        sessions: [...sessions].map(([tokenHash, session]) => ({ tokenHash, ...session })),
+      }));
       renameSync(temporaryPath, storePath);
     } catch (error) {
       logger.error?.(`Account store write failed: ${error?.message || error}`);
@@ -65,7 +88,8 @@ export function createAccountService({ storePath = null, logger = console, now =
 
   function issueSession(username) {
     const token = randomBytes(24).toString("hex");
-    sessions.set(token, username);
+    sessions.set(sessionHash(token), { username, expiresAt: now() + sessionTtlMs });
+    persist();
     return token;
   }
 
@@ -78,7 +102,7 @@ export function createAccountService({ storePath = null, logger = console, now =
     if (!USERNAME_PATTERN.test(username)) {
       return [400, { ok: false, code: "INVALID_USERNAME", error: "Username must be 3-24 characters: letters, numbers, underscore" }];
     }
-    if (RESERVED_USERNAME_PATTERN.test(username) && !allowDeveloperNames) {
+    if (isAdminUsername(username) && !allowDeveloperNames) {
       return [403, { ok: false, code: "RESERVED_USERNAME", error: "That username is reserved" }];
     }
     if (!validPassword(body.password)) {
@@ -90,7 +114,7 @@ export function createAccountService({ storePath = null, logger = console, now =
     const credentials = await passwordRecord(body.password);
     accounts.set(username, { username, ...credentials, progress: null, savedAt: 0 });
     persist();
-    return [200, { ok: true, username, admin: RESERVED_USERNAME_PATTERN.test(username), sessionToken: issueSession(username) }];
+    return [200, { ok: true, username, admin: isAdminUsername(username), sessionToken: issueSession(username) }];
   }
 
   async function login(body = {}) {
@@ -103,7 +127,7 @@ export function createAccountService({ storePath = null, logger = console, now =
     return [200, {
       ok: true,
       username,
-      admin: RESERVED_USERNAME_PATTERN.test(username),
+      admin: isAdminUsername(username),
       sessionToken: issueSession(username),
       progress: account.progress,
       savedAt: account.savedAt,
@@ -111,7 +135,29 @@ export function createAccountService({ storePath = null, logger = console, now =
   }
 
   function sessionUsername(token) {
-    return sessions.get(String(token || "")) || null;
+    const key = sessionHash(token);
+    const session = sessions.get(key);
+    if (!session) return null;
+    if (session.expiresAt <= now()) {
+      sessions.delete(key);
+      persist();
+      return null;
+    }
+    return session.username;
+  }
+
+  function currentSession(body = {}) {
+    const username = sessionUsername(body.sessionToken);
+    if (!username) return [401, { ok: false, code: "NO_SESSION", error: "Session expired; sign in again" }];
+    const account = accounts.get(username);
+    return [200, {
+      ok: true,
+      username,
+      admin: isAdminUsername(username),
+      sessionToken: String(body.sessionToken),
+      progress: account.progress,
+      savedAt: account.savedAt,
+    }];
   }
 
   function save(body = {}) {
@@ -130,7 +176,7 @@ export function createAccountService({ storePath = null, logger = console, now =
     account.progress = body.progress ?? null;
     account.savedAt = now();
     persist();
-    return [200, { ok: true, savedAt: account.savedAt }];
+    return [200, { ok: true, progress: account.progress, savedAt: account.savedAt }];
   }
 
   function loadProgress(body = {}) {
@@ -141,17 +187,26 @@ export function createAccountService({ storePath = null, logger = console, now =
   }
 
   function logout(body = {}) {
-    sessions.delete(String(body.sessionToken || ""));
+    if (sessions.delete(sessionHash(body.sessionToken))) persist();
     return [200, { ok: true }];
   }
 
   async function changePassword(body = {}) {
+    const currentSessionHash = sessionHash(body.sessionToken);
     const username = sessionUsername(body.sessionToken);
     if (!username) return [401, { ok: false, code: "NO_SESSION", error: "Sign in to change your password" }];
     if (!validPassword(body.password)) {
       return [400, { ok: false, code: "WEAK_PASSWORD", error: "Password must be 6-200 characters" }];
     }
     Object.assign(accounts.get(username), await passwordRecord(body.password));
+    // Password replacement is also account recovery: any other device holding
+    // a bearer token must lose access. Keep the session which authorized this
+    // request so the player is not signed out of the client doing the change.
+    for (const [tokenHash, session] of sessions) {
+      if (session.username === username && tokenHash !== currentSessionHash) {
+        sessions.delete(tokenHash);
+      }
+    }
     persist();
     return [200, { ok: true, username }];
   }
@@ -163,7 +218,7 @@ export function createAccountService({ storePath = null, logger = console, now =
     if (!USERNAME_PATTERN.test(username)) {
       return [400, { ok: false, code: "INVALID_USERNAME", error: "Username must be 3-24 characters: letters, numbers, underscore" }];
     }
-    if (RESERVED_USERNAME_PATTERN.test(username) && !allowDeveloperNames) {
+    if (isAdminUsername(username) && username !== currentUsername && !allowDeveloperNames) {
       return [403, { ok: false, code: "RESERVED_USERNAME", error: "That username is reserved" }];
     }
     if (username !== currentUsername && accounts.has(username)) {
@@ -174,11 +229,14 @@ export function createAccountService({ storePath = null, logger = console, now =
       accounts.delete(currentUsername);
       account.username = username;
       accounts.set(username, account);
-      for (const [token, owner] of sessions) if (owner === currentUsername) sessions.set(token, username);
+      for (const session of sessions.values()) {
+        if (session.username === currentUsername) session.username = username;
+      }
       persist();
     }
-    return [200, { ok: true, username, admin: RESERVED_USERNAME_PATTERN.test(username), sessionToken: String(body.sessionToken) }];
+    return [200, { ok: true, username, admin: isAdminUsername(username), sessionToken: String(body.sessionToken) }];
   }
 
-  return { register, login, save, loadProgress, logout, changePassword, rename, sessionUsername };
+  return { register, login, currentSession, save, loadProgress, logout,
+    changePassword, rename, sessionUsername };
 }

@@ -93,7 +93,11 @@ def _euler_zyx_to_quat(dx, dy, dz):
 
 
 def convert(bb_path, glb_path, collision=True, animations=True, keep=None,
-            invert_animation_rotations=False):
+            invert_animation_rotations=False, reverse_animation_facing=False,
+            crouch_ground_lift=CROUCH_GROUND_LIFT,
+            animation_ground_lifts=None):
+    if invert_animation_rotations and reverse_animation_facing:
+        raise ValueError("animation rotations cannot be inverted and facing-remapped together")
     model = json.load(open(bb_path))
     tex = (model.get("textures") or [None])[0]
     if tex is None or not str(tex.get("source", "")).startswith("data:"):
@@ -279,7 +283,22 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None,
                             # express those deltas in the inverse local-bone
                             # convention; conjugating only the delta corrects
                             # their motion without mirroring the rest pose.
-                            if invert_animation_rotations:
+                            if reverse_animation_facing:
+                                # The reviewed hunter geometry was turned from
+                                # south-facing to north-facing in Blockbench,
+                                # while its animation deltas retained the old
+                                # basis. Conjugating a delta by a 180-degree Y
+                                # turn maps (x,y,z,w) to (-x,y,-z,w): forward
+                                # motion changes ends without swapping left and
+                                # right. A plain quaternion inverse negates Y as
+                                # well and is what made the gait moon-walk.
+                                rest_quat = _euler_zyx_to_quat(*rest)
+                                delta_quat = _euler_zyx_to_quat(
+                                    num("x"), num("y"), num("z"))
+                                delta_quat = (-delta_quat[0], delta_quat[1],
+                                              -delta_quat[2], delta_quat[3])
+                                values += list(_quat_mul(rest_quat, delta_quat))
+                            elif invert_animation_rotations:
                                 rest_quat = _euler_zyx_to_quat(*rest)
                                 delta_quat = _euler_zyx_to_quat(
                                     num("x"), num("y"), num("z"))
@@ -297,9 +316,12 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None,
                             # feet to the knees and nested props away from the
                             # body. Fold the animation delta into the same
                             # parent-relative rest translation build() emits.
-                            values += [ox - px + num("x") / M,
-                                       oy - py + num("y") / M,
-                                       oz - pz + num("z") / M]
+                            dx, dy, dz = num("x"), num("y"), num("z")
+                            if reverse_animation_facing:
+                                dx, dz = -dx, -dz
+                            values += [ox - px + dx / M,
+                                       oy - py + dy / M,
+                                       oz - pz + dz / M]
                         else:
                             values += [num("x", 1.0), num("y", 1.0), num("z", 1.0)]
                     if not times:
@@ -328,11 +350,16 @@ def convert(bb_path, glb_path, collision=True, animations=True, keep=None,
                             "scale": "scale"}[ch]
                     channels.append({"sampler": len(samplers) - 1,
                                      "target": {"node": node_idx, "path": path}})
-            if source_animation_name.lower() == "crouch" and channels:
+            ground_lifts = {"crouch": crouch_ground_lift}
+            if animation_ground_lifts:
+                ground_lifts.update(animation_ground_lifts)
+            ground_lift = float(ground_lifts.get(
+                source_animation_name.lower(), 0.0))
+            if channels and abs(ground_lift) > 0.000001:
                 a_in = acc([0.0, source_duration], "f", 2, 5126, "SCALAR",
                            None, ([0.0], [source_duration]))
-                a_out = acc([0.0, CROUCH_GROUND_LIFT, 0.0,
-                             0.0, CROUCH_GROUND_LIFT, 0.0],
+                a_out = acc([0.0, ground_lift, 0.0,
+                             0.0, ground_lift, 0.0],
                             "f", 2, 5126, "VEC3")
                 samplers.append({"input": a_in, "output": a_out,
                                  "interpolation": "LINEAR"})

@@ -60,6 +60,7 @@ def main() -> int:
     from mc_to_hytale import HUNTER_NAMES
     from hytale_anim import attach_animations
     from bbmodel_to_glb import convert as to_glb
+    from character_floor_lifts import HUNTER_ANIMATION_GROUND_LIFTS
     from refine_hunter_animations import refine_hunter_animations
 
     pairs = clip_sources()
@@ -91,8 +92,14 @@ def main() -> int:
         json.dump(model, open(bb, "w"))
 
         glb = os.path.join(args.outdir, "%s.glb" % name.lower())
+        # Hunter geometry was turned from south-facing to north-facing after
+        # these animation deltas were authored. Rotate the deltas into that
+        # basis without the legacy all-axis inverse.
         info = to_glb(bb, glb, collision=False,
-                      invert_animation_rotations=True)
+                      invert_animation_rotations=False,
+                      reverse_animation_facing=True,
+                      crouch_ground_lift=0.0,
+                      animation_ground_lifts=HUNTER_ANIMATION_GROUND_LIFTS)
         print("  %-9s %d elements -> %d meshes, %d tris, %d clips"
               % (name, result.get("elements", len(model["elements"])),
                  info["meshes"], info["tris"], info["animations"]))

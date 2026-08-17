@@ -10,9 +10,9 @@ claim that the whole game is already comfort-reviewed for VR.
   the existing `PlayerController3D`; there is no forked VR gameplay scene.
 - Left primary stick moves relative to head direction.
 - Right primary stick snap-turns in 30-degree steps.
-- Right trigger interacts, A/X toggles the flashlight, right grip sprints,
-  left stick click crouches, B/Y toggles the map, and the left menu button
-  pauses.
+- Right trigger interacts, A/X toggles the flashlight, the right B/Y button
+  hops, right grip sprints, left stick click crouches, the left B/Y button
+  toggles the map, and the left menu button pauses.
 - The flashlight follows head aim for now.
 - The same executable falls back to the desktop camera if OpenXR was not
   requested or no runtime is available.

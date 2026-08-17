@@ -27,11 +27,18 @@ static var _revision_cache := ""
 ## those are gameplay.
 
 
-## True in the editor and debug exports, false in every release export.
-## Release builds deliberately have no command-line override: admin controls
-## and spoiler views must stay unavailable even if a player knows the flags
-## used during development.
+## Debug exports always have tools. A release build gains them only after the
+## primary server authenticates the exact canonical KYTTU account during this
+## process; a display name or edited ConfigFile is never enough.
 static func tools_enabled() -> bool:
+	return OS.is_debug_build() or Backend.admin_authorized()
+
+
+## A release host cannot trust a boolean or display name supplied by another
+## ENet peer as proof of admin access. Debug rooms deliberately allow remote
+## tools for cooperative QA; release guest administration stays closed until
+## the primary backend can issue a short-lived, room-bound proof.
+static func remote_guest_tools_allowed() -> bool:
 	return OS.is_debug_build()
 
 
@@ -47,7 +54,8 @@ static func allow_spoiler_views() -> bool:
 
 
 static func update_channel() -> String:
-	return "debug" if tools_enabled() else "release"
+	# An authenticated release admin is still running a release build.
+	return "debug" if OS.is_debug_build() else "release"
 
 
 ## Git commit embedded by scripts/export_test_builds.sh. Editor/source runs do
@@ -77,7 +85,7 @@ static func short_revision() -> String:
 ## Only exported debug builds fail closed on an unavailable update service.
 ## Editor runs stay usable while the developer is changing the backend.
 static func requires_update_gate() -> bool:
-	return tools_enabled() and revision() != SOURCE_REVISION
+	return OS.is_debug_build() and revision() != SOURCE_REVISION
 
 
 static func _valid_revision(value: String) -> bool:

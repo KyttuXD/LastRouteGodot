@@ -229,11 +229,22 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 		for x in range(5, 8):
 			image.set_pixel(x, y, Color8(0x8e, 0x5f, 0xd9))
 
+	GameState.relays_collected = 2
+	GameState.relays_sabotaged = 1
 	var install_error: String = alice._install_custom_map_png(
 		image.save_png_to_buffer(), "SYNC:CUSTOM")
 	_expect(install_error.is_empty(), "host could not install the custom map: %s" % install_error)
 	if not install_error.is_empty():
 		return
+	_expect(GameState.relays_collected == 0 and GameState.relays_sabotaged == 0,
+		"installing a fresh custom floor inherited old relay progress")
+	var oversized := Image.create(CustomMapParser.MAX_DIMENSION + 1, 1,
+		false, Image.FORMAT_RGBA8)
+	oversized.fill(Color(1, 1, 1, 1))
+	var oversized_error: String = alice._install_custom_map_png(
+		oversized.save_png_to_buffer(), "SYNC:OVERSIZED")
+	_expect(not oversized_error.is_empty(),
+		"the transferable PNG path accepted an oversized decoded map")
 	var first_spawn: Vector3 = alice._player_spawn_world_position(1)
 	var second_spawn: Vector3 = alice._player_spawn_world_position(2)
 	_expect(first_spawn.is_equal_approx(Vector3(2.5, first_spawn.y, 2.5)),
@@ -260,7 +271,9 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 	latecomer._awaiting_initial_snapshot = true
 	latecomer.player.input_frozen = true
 	latecomer._remotes._snapshot_received = false
+	latecomer.route_loading.show_waiting_for_snapshot()
 	latecomer._apply_world_snapshot({
+		"snapshot_protocol": alice.SNAPSHOT_PROTOCOL,
 		"floor_source": "custom",
 		"custom_map_png": PackedByteArray(),
 		"depth": GameState.depth,
@@ -269,6 +282,8 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 		"an invalid custom-map packet unlocked the joining player")
 	_expect(not latecomer._remotes._snapshot_received,
 		"an invalid custom-map packet disabled snapshot retries")
+	_expect(latecomer.route_loading.visible,
+		"an invalid host snapshot exposed the temporary guest floor")
 
 	latecomer._apply_world_snapshot(state)
 	_expect(latecomer.facility_view.generator.cols == size
@@ -298,6 +313,51 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 		"valid snapshot did not release joining player control")
 	_expect(latecomer._remotes._snapshot_received,
 		"valid snapshot did not stop retry traffic")
+	_expect(not latecomer.route_loading.visible,
+		"valid host snapshot left the joining guest behind the loading screen")
+
+	# An admin change can broadcast another snapshot for this exact base floor.
+	# It must adopt mutation state without rebuilding the GridMap, moving the
+	# local runner, or respawning the hunters from their initial positions.
+	var generator_before: FacilityGenerator = latecomer.facility_view.generator
+	var optimistic_relay: RouteInteractable3D
+	for relay_entry in generator_before.relays:
+		var candidate: RouteInteractable3D = latecomer.facility_view._at(
+			Vector2i(int(relay_entry["x"]), int(relay_entry["y"])),
+			RouteInteractable3D.Kind.RELAY)
+		if candidate != null and not candidate.completed:
+			optimistic_relay = candidate
+			break
+	if optimistic_relay != null:
+		optimistic_relay.adopt({"what": "pickup"})
+	if relay != null:
+		var canonical_relay: RouteInteractable3D = latecomer.facility_view._at(
+			relay.source_cell, RouteInteractable3D.Kind.RELAY)
+		canonical_relay.adopt({"what": "sabotage", "sabotaged": true})
+	if hiding != null:
+		latecomer.facility_view.hiding_spot_at(hiding.source_cell).set_disabled(false)
+	var position_before := Vector3(10.5, latecomer.player.position.y, 10.5)
+	latecomer.player.position = position_before
+	latecomer._apply_world_snapshot(state)
+	_expect(latecomer.facility_view.generator == generator_before,
+		"a same-revision custom snapshot rebuilt the guest's base floor")
+	_expect(latecomer.player.position.is_equal_approx(position_before),
+		"a same-revision custom snapshot teleported the guest back to spawn")
+	if optimistic_relay != null:
+		_expect(not optimistic_relay.completed,
+			"canonical snapshot did not restore a host-rejected optimistic pickup")
+		_expect(not _marked(generator_before.relays, optimistic_relay.source_cell),
+			"rollback left the generator's relay entry marked collected")
+	if relay != null:
+		var canonical_relay: RouteInteractable3D = latecomer.facility_view._at(
+			relay.source_cell, RouteInteractable3D.Kind.RELAY)
+		_expect(not canonical_relay.sabotaged,
+			"canonical snapshot did not clear stale relay sabotage")
+	if hiding != null:
+		_expect(latecomer.facility_view.hiding_spot_at(hiding.source_cell).disabled,
+			"canonical snapshot did not restore the host's hiding-spot state")
+	_expect(GameState.relays_collected == int(state.get("relays", -1)),
+		"canonical snapshot kept an optimistic relay count instead of the host total")
 	latecomer.queue_free()
 
 

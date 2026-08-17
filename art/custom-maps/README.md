@@ -7,7 +7,8 @@ blending, colour profiles, and resampling disabled.
 ## File rules
 
 - PNG, RGB or RGBA, fully opaque
-- There is **no width, height, or total-pixel limit imposed by the game**
+- Width and height may each be up to **512 cells**, with at most **65,536
+  total cells** (for example, 256×256 or 512×128)
 - Use only the exact colours below
 - Paint zero or more green spawn cells; without one, the seeded generator
   chooses a random open cell
@@ -18,10 +19,12 @@ blending, colour profiles, and resampling disabled.
   reach the route objectives
 - The downloaded PNG must be no larger than 2 MiB
 
-The 2 MiB rule is a compressed-file transport guard for HTTP and multiplayer,
-not a pixel-dimension limit. Very large grids still consume proportionally
-more RAM, GridMap cells, collision data, and loading time, so test ambitious
-sizes on the lowest-spec machine you intend to support.
+The 2 MiB rule is a compressed-file transport guard for HTTP and multiplayer;
+the decoded limits separately prevent a very small compressed PNG from
+expanding into an unsafe GridMap allocation. Very large valid grids still
+consume proportionally more RAM, collision data, loading time and network
+snapshot time, so test ambitious sizes on the lowest-spec machine you intend
+to support.
 
 Do not resize a finished map with smooth/bilinear filtering. If it must be
 resized, use nearest-neighbour filtering and inspect the result for changed
@@ -42,13 +45,18 @@ colours.
 | `#B94A4A` | Nether floor region |
 | `#E8CBA0` | Beach floor region |
 | `#8E5FD9` | Mansion floor region |
+| `#B07CC6` | Mansion bedroom floor region |
 | `#6FBF73` | Garden floor region |
 
 [`last-route-map-palette.gpl`](last-route-map-palette.gpl) can be imported by
 GIMP, Krita, Aseprite, and other editors that support GIMP palettes. Region
 colours are walkable floor; contiguous pixels of the same region colour form
-one themed room. They currently tint the normal floor material. Unrecognised
-or transparent pixels become walls and produce a warning.
+one themed room. Exact cells are retained for irregular shapes, so an unpainted
+hole inside a region's bounding box stays ordinary floor. Regions tint the
+floor and populate the matching deterministic prop roster. For example, beach
+pixels place Frozen Tideline dressing and nether pixels place Thermal Inferno
+dressing. Unrecognised or transparent pixels become walls and produce a
+warning.
 
 Green spawn cells are read left-to-right, top-to-bottom. Co-op roster slots
 use them in that order; if there are more players than green cells, remaining
@@ -63,7 +71,7 @@ private, so a raw GitHub URL cannot be used by an unauthenticated game client.
 The Node backend safely exposes checked-in PNGs from this directory instead:
 
 ```text
-http://lastroute.kyttuslab.org:1105/api/custom-maps/test-map.png
+https://lastroute.kyttuslab.org:1105/api/custom-maps/test-map.png
 ```
 
 `art/custom-maps` is the backend's default map directory. An alternate folder
@@ -80,7 +88,21 @@ installs it. The host then sends the validated PNG to all current players and
 late joiners. The custom-map field is intentionally absent from release
 builds because it is an admin/debug tool.
 
-The current format places the route geometry, start, lift, and themed floor
-regions. Relays, batteries, safe zones, hiding spots, and other route items are
-placed by the game. Authored props and dialogue-trigger pixels are not
-supported yet.
+The current format places route geometry, spawns, lift, and themed floor
+regions. Relays, batteries, safe zones, hiding spots, and themed props are
+placed deterministically by the game. The PNG does not yet provide an exact
+per-pixel prop marker, so it chooses furniture positions inside each painted
+region rather than letting the map author place each chair manually.
+
+Three larger co-op-ready samples are included (each has four green spawns):
+
+- `sample-mansion-showcase.png`
+- `sample-frozen-tideline.png`
+- `sample-thermal-inferno.png`
+
+After the backend has pulled this repository, load them through the same
+endpoint, for example:
+
+```text
+https://lastroute.kyttuslab.org:1105/api/custom-maps/sample-frozen-tideline.png
+```

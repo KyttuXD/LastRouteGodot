@@ -4,12 +4,16 @@ One dependency-free Node.js service provides both backend contracts used by
 Last Route:
 
 - the original web-style room/account API (`/api/rooms/*`, `/api/account/*`);
-- the Godot ENet room-code directory (`/api/enet/rooms/*`).
+- the Godot ENet room-code directory (`/api/enet/rooms/*`);
+- an authenticated UDP gameplay relay on the same public numeric port.
 
-The room API stores live room/world state in memory. Accounts and their one
-JSON progress slot are persisted to disk with scrypt password hashes. ENet
-gameplay does **not** pass through this HTTP service: it publishes the host's
-observed address and UDP port so another Godot client can connect directly.
+The room API stores live room/world state in memory. Accounts, their one JSON
+progress slot, and SHA-256-hashed 30-day session tokens are persisted to disk;
+passwords use scrypt records. Sessions therefore survive an automatic
+Pterodactyl restart without writing a usable bearer token into `.data`.
+Native ENet packets are wrapped through the UDP relay, so hosts and guests
+make only outbound connections. Player routers do not need UPnP, a manual port
+forward, or a publicly reachable UDP socket.
 
 ## Local run
 
@@ -23,7 +27,7 @@ curl http://127.0.0.1:1101/api/health
 ```
 
 Normal game builds use only the primary service at
-`http://lastroute.kyttuslab.org:1105`. This endpoint is hardcoded for editor,
+`https://lastroute.kyttuslab.org:1105`. This endpoint is hardcoded for editor,
 debug, and release builds and is shared by accounts, room discovery, and
 updates. The game exposes no environment variable, command-line override,
 custom directory, or direct-address lobby option.
@@ -43,12 +47,16 @@ node index.js
 Pterodactyl normally injects `SERVER_PORT`; common proxy setups inject `PORT`.
 The server accepts either, with `PORT` taking precedence. Set a persistent
 volume for `LASTROUTE_DATA_DIR` so account data survives reinstall/redeploy.
-A practical configuration is:
+The repository default is the ignored `.data/` directory. A practical
+configuration is:
 
 ```text
 HOST=0.0.0.0
 SERVER_PORT=<the panel's TCP allocation>
-LASTROUTE_DATA_DIR=./data
+LASTROUTE_DATA_DIR=./.data
+LASTROUTE_RELAY_ENABLED=true
+LASTROUTE_RELAY_HOST=lastroute.kyttuslab.org
+LASTROUTE_RELAY_PORT=1105
 LASTROUTE_PUBLIC_DIR=./web
 LASTROUTE_AUTO_UPDATE=true
 LASTROUTE_GITHUB_REPO=KyttuXD/LastRouteGodot
@@ -62,26 +70,30 @@ LASTROUTE_UPDATE_MANIFEST=./updates/updates.debug.json
 LASTROUTE_UPDATE_DIR=./updates
 TRUST_PROXY=true
 LASTROUTE_ADMIN_PASSWORD=<a long random secret>
+LASTROUTE_RATE_LIMIT_WINDOW_SECONDS=60
+LASTROUTE_API_RATE_LIMIT=600
+LASTROUTE_ACCOUNT_RATE_LIMIT=30
 ```
 
-`TRUST_PROXY=true` is required only when a trusted reverse proxy supplies the
-real client IP through `X-Forwarded-For`; do not enable it on a service exposed
-directly to untrusted clients. Put HTTPS and request rate limits at the proxy
-or panel edge.
+The official client refuses plain public HTTP. Terminate TLS for
+`lastroute.kyttuslab.org:1105` in a trusted reverse proxy and forward it to the
+Node TCP allocation, or place an equivalent TLS terminator in front of the
+panel. Set `TRUST_PROXY=true` only when that trusted proxy overwrites
+`X-Forwarded-For`; otherwise all proxied players share one rate-limit identity.
+Do not enable it on a service exposed directly to untrusted clients. The Node
+service enforces its own limits, and proxy/firewall limits are useful defense
+in depth.
 
-The backend allocation is TCP. Public ENet play also needs reachable **UDP
-8421 on the player's hosting machine**. Native clients now ask a compatible
-home router to forward that port through UPnP and remove the mapping when the
-room closes. When host and guest share one public address, the directory gives
-the guest the host's validated private LAN address to avoid relying on router
-hairpinning. If UPnP is unavailable, the host must forward UDP 8421 manually;
-the lobby reports that condition. The directory remains discovery rather than
-a gameplay relay, so carrier-grade NAT still needs a future relay/dedicated
-transport.
+Allocate **both TCP and UDP 1105** to this Pterodactyl server and map both
+protocols through the firewall/container. TCP carries HTTP accounts, room
+codes and updates; UDP carries the authenticated gameplay relay. They can
+share the same number because TCP and UDP have separate socket namespaces.
+Only the Pterodactyl machine needs a public inbound UDP allocation. Player
+hosts never expose UDP 8421 and the client no longer contains a UPnP path.
 
 The official client uses `lastroute.kyttuslab.org:1105`, currently resolving
 to `195.62.47.178`. Point that DNS name at the panel's public address and expose
-the backend allocation as TCP 1105.
+the backend allocation as both TCP 1105 and UDP 1105.
 
 ## Environment
 
@@ -89,9 +101,12 @@ the backend allocation as TCP 1105.
 | --- | --- | --- |
 | `PORT` / `SERVER_PORT` | `1101` | HTTP listen port |
 | `HOST` | `0.0.0.0` | HTTP bind address |
-| `LASTROUTE_DATA_DIR` | `./data` | persistent data directory |
+| `LASTROUTE_DATA_DIR` | `./.data` | persistent data directory |
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
+| `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
+| `LASTROUTE_RELAY_HOST` | `lastroute.kyttuslab.org` | public relay address returned for room-code joins |
+| `LASTROUTE_RELAY_PORT` | HTTP port | UDP relay allocation; normally `1105` |
 | `LASTROUTE_PUBLIC_DIR` | empty/disabled | optional static web-client directory |
 | `LASTROUTE_CUSTOM_MAP_DIR` | `./art/custom-maps` when present | safe PNG-only custom-map directory exposed below `/api/custom-maps/` |
 | `LASTROUTE_UPDATE_MANIFEST` | empty/disabled | update metadata JSON reloaded for update requests |
@@ -107,6 +122,9 @@ the backend allocation as TCP 1105.
 | `LASTROUTE_DEPLOYED_REVISION` | local `git rev-parse HEAD` | exact deployed SHA when the server directory has no `.git` folder |
 | `TRUST_PROXY` | `false` | trust the first `X-Forwarded-For` address |
 | `ENET_ROOM_TTL_SECONDS` | `60` | remove hosts that stop heartbeating |
+| `LASTROUTE_RATE_LIMIT_WINDOW_SECONDS` | `60` | rolling API/account throttle window |
+| `LASTROUTE_API_RATE_LIMIT` | `600` | general requests permitted per address/window |
+| `LASTROUTE_ACCOUNT_RATE_LIMIT` | `30` | sensitive account/admin requests permitted per address/window |
 
 The `KYTTU_DATA_DIR`, `KYTTU_ACCOUNT_STORE_PATH`, and `KYTTU_DEV_PASSWORD`
 names from the original deployment remain accepted as compatibility aliases.
@@ -118,17 +136,49 @@ names from the original deployment remain accepted as compatibility aliases.
 - `GET`, `HEAD /api/updates/files/:published-file`
 - `POST /api/enet/rooms/register`, `heartbeat`, `unregister`
 - `GET /api/enet/rooms/:code`
+- `POST /api/enet/admin-tickets/issue`, `verify`
 - `POST /api/rooms/join`, `state`, `settings`, `start`, `default-start`,
   `office-start`, `abandon`, `custom-map`, `dialog-start`, `dialog-advance`,
   `leave`
-- `POST /api/account/register`, `login`, `password`, `rename`, `save`, `load`,
-  `logout`
+- `POST /api/account/register`, `login`, `session`, `password`, `rename`,
+  `save`, `load`, `logout`
 - `POST /api/dev/login`, `reload`
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
-and platform list. The same short commit is printed in the Pterodactyl console
-after every successful GitHub Release sync.
+and platform list, plus whether the UDP relay is bound. The same short commit
+is printed in the Pterodactyl console after every successful GitHub Release
+sync.
+
+## Accounts and release admin
+
+Usernames are trimmed and canonicalized to uppercase before lookup. `Kyttu`,
+`KytTU`, and `KYTTU` are therefore one account and cannot be registered as
+separate names. Passwords remain case-sensitive.
+
+The exact canonical username `KYTTU` is reserved. To create it for the first
+time, set `LASTROUTE_ADMIN_PASSWORD`, enter `KYTTU` in the in-game account
+panel, and enter that server secret in the additional **ADMIN SETUP KEY**
+field. The account password is independent from the setup key. Usernames that
+merely contain the text (for example `KYTTU_FAN`) are ordinary users.
+
+Release admin tools unlock only after the running client receives a successful
+primary-server authentication for `KYTTU`. Cached local config never grants
+admin access. Public account requests require the exact hardcoded HTTPS origin;
+plain HTTP is accepted only for loopback integration tests.
+
+An authenticated `KYTTU` guest requests an opaque admin ticket from
+`/api/enet/admin-tickets/issue`. The ticket is valid for at most five minutes
+and is bound to that room plus its current secret host token. Only that host
+can call `/api/enet/admin-tickets/verify`; neither endpoint sends the guest's
+account session to another player. Room removal, host replacement and expiry
+invalidate outstanding proofs.
+
+Signed-in procedural solo routes save at floor boundaries. The slot contains
+the route seed/configuration, depth, score and coins; the
+in-game account card can continue or clear it. Co-op state and authored custom
+map payloads are intentionally excluded because their canonical state belongs
+to the live host/map workflow rather than to one player's account.
 
 ## Pterodactyl-hosted updates
 
@@ -200,8 +250,8 @@ Keep the GitHub tags channel-based: use `debug` for debug uploads and
 manifest, and release title rather than the tag name.
 
 The PAT belongs only in Pterodactyl's private variables or deployment script;
-never write it into `updates.json`, the Godot project, an export, or Git. Use
-HTTPS in front of the public backend before distributing release builds. The
+never write it into `updates.json`, the Godot project, an export, or Git. Keep
+TLS termination active in front of the public backend. The
 current client opens the published archive/APK rather than attempting to
 overwrite its own running executable. Steam, Meta Quest store builds and the
 hosted Web build should eventually use their platform-native deployment

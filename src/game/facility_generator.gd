@@ -4,18 +4,15 @@ extends RefCounted
 ## Deterministic seeded facility generation, ported from LastRoute's
 ## src/game/maze.js (the `Maze` class).
 ##
-## Scope: this covers the STRUCTURAL algorithm faithfully — the odd sector
+## Scope: this covers the structural algorithm and mechanical room population
+## faithfully — the odd sector
 ## grid, the central lobby, authored-sized rooms dropped into sectors, the
 ## Kruskal-connected 3-wide corridor graph with a few short service loops,
 ## and seed-deterministic relay/battery/safe-zone/service-lift placement.
 ##
-## Out of scope (a later content milestone, not a structural one): themed
-## room types and their furniture (maze.js's ROOM_TYPES/populateRooms),
-## hiding spots, hunter spawns, coins, the heater station, and custom/
-## authored map layouts. Because those steps consume random draws in the
-## original before objective placement runs, a given seed will NOT produce
-## a pixel-identical layout to the JS game — only the same *kind* of layout,
-## deterministically, seed to seed, within this port.
+## Room identities, prop lists and footprints come from RoomCatalog, while
+## rendering stays presentation-owned. Hiding spots, hunter spawns, coins and
+## hunter stations are later Godot systems and intentionally remain separate.
 
 const MIN_ROUTE_SIZE := 35
 const MAX_ROUTE_SIZE := 121
@@ -36,6 +33,7 @@ const ROOM_SIZE_CLASS_RATIOS := {
 	"compact": [0.5, 0.64],
 	"medium": [0.64, 0.8],
 	"large": [0.78, 0.92],
+	"landmark": [0.84, 1.0],
 }
 
 var seed_text: String
@@ -55,6 +53,10 @@ var sectors: Array = []
 var relays: Array = []
 var batteries: Array = []
 var safe_zones: Array = []
+## Deterministic non-interactive room furniture. Each entry carries a cell,
+## type, rotation, room id and region; FacilityView3D renders the same list and
+## can_occupy uses its original web footprint for navigation/objective safety.
+var props: Array = []
 var start: Vector2i
 ## Every authored green cell on a custom map. `start` remains the primary
 ## anchor used for distances/objective placement; multiplayer consumes this
@@ -100,9 +102,12 @@ func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Diction
 		rows = custom_layout["rows"]
 		grid = custom_layout["grid"]
 		rooms = custom_layout["rooms"]
+		_prepare_custom_rooms()
 		_load_custom_spawn_points(custom_layout)
-		var from_start := distance_map(start.x, start.y)
 		var custom_exit: Vector2i = custom_layout.get("exit_cell", Vector2i(-1, -1))
+		exit_cell = custom_exit
+		populate_rooms()
+		var from_start := distance_map(start.x, start.y)
 		# A painted exit is used as-is; an unpainted one falls back to the same
 		# auto-pick a procedural floor gets rather than leaving the floor with
 		# no way down -- see CustomMapParser's note on why.
@@ -155,6 +160,7 @@ func generate() -> void:
 	spawn_points.clear()
 	spawn_points.append(start)
 	connect_facility_rooms(lobby)
+	populate_rooms()
 
 	var from_start := distance_map(start.x, start.y)
 	exit_cell = pick_service_lift(from_start)
@@ -192,11 +198,18 @@ func carve_facility_rooms() -> Dictionary:
 	sectors = cardinal_sectors + other_sectors
 
 	var outer_room_count: int = mini(sectors.size(), maxi(0, room_count - 1))
+	var room_types := _room_types_for_count(outer_room_count)
 	for index in outer_room_count:
 		var sector: Dictionary = sectors[index]
-		var dimensions := _authored_room_dimensions(sector)
-		var width_ceiling: int = maxi(mini(MIN_AUTHORED_ROOM_SIZE, sector["width"]), int(floor(sector["width"] * ROOM_SECTOR_FILL)))
-		var height_ceiling: int = maxi(mini(MIN_AUTHORED_ROOM_SIZE, sector["height"]), int(floor(sector["height"] * ROOM_SECTOR_FILL)))
+		var type_entry: Dictionary = room_types[index]
+		var dimensions := _authored_room_dimensions(sector, type_entry)
+		var landmark: bool = bool(type_entry.get("landmark", false))
+		var width_ceiling: int = int(sector["width"]) if landmark else maxi(
+			mini(MIN_AUTHORED_ROOM_SIZE, sector["width"]),
+			int(floor(sector["width"] * ROOM_SECTOR_FILL)))
+		var height_ceiling: int = int(sector["height"]) if landmark else maxi(
+			mini(MIN_AUTHORED_ROOM_SIZE, sector["height"]),
+			int(floor(sector["height"] * ROOM_SECTOR_FILL)))
 		var width: int = mini(width_ceiling, dimensions["width"])
 		var height: int = mini(height_ceiling, dimensions["height"])
 		var x_range: int = maxi(0, sector["width"] - width)
@@ -215,17 +228,23 @@ func carve_facility_rooms() -> Dictionary:
 			"height": height,
 			"size_class": dimensions["size_class"],
 			"center": center,
-			"type": "generic",
+			"type": String(type_entry["id"]),
+			"label": String(type_entry["label"]),
+			"region": String(type_entry["region"]),
+			"prop_types": (type_entry["props"] as Array).duplicate(),
 		}
 		rooms.append(room)
 		carve_rect(x, y, width, height)
 	return lobby
 
 
-func _authored_room_dimensions(sector: Dictionary) -> Dictionary:
+func _authored_room_dimensions(sector: Dictionary,
+		type_entry: Dictionary = {}) -> Dictionary:
 	var smallest_side: int = mini(sector["width"], sector["height"])
 	var size_class := "medium"
-	if smallest_side >= 16:
+	if bool(type_entry.get("landmark", false)):
+		size_class = "landmark"
+	elif smallest_side >= 16:
 		var roll := random.next_float()
 		size_class = "compact" if roll < 0.32 else ("medium" if roll < 0.82 else "large")
 	elif random.next_float() < 0.38:
@@ -247,6 +266,193 @@ func _room_size_range(sector_dimension: int, size_class: String) -> Dictionary:
 func _clamp_authored_room_dimension(value: int, sector_dimension: int, minimum: int = MIN_AUTHORED_ROOM_SIZE) -> int:
 	var maximum: int = mini(MAX_AUTHORED_ROOM_SIZE, sector_dimension)
 	return maxi(mini(minimum, maximum), mini(maximum, value))
+
+
+func _room_types_for_count(count: int) -> Array:
+	var chosen: Array = []
+	var ordinary: Array = []
+	for value in RoomCatalog.TYPES:
+		var entry: Dictionary = value
+		var special := int(entry.get("special", 0))
+		if special > 0:
+			if special <= count and (not bool(entry.get("large_only", false)) \
+					or cols >= 61):
+				chosen.append(entry)
+		else:
+			ordinary.append(entry)
+	_shuffle_array(ordinary)
+	var ordinary_index := 0
+	while chosen.size() < count:
+		chosen.append(ordinary[ordinary_index % ordinary.size()])
+		ordinary_index += 1
+	_shuffle_array(chosen)
+	return chosen
+
+
+func _prepare_custom_rooms() -> void:
+	for room in rooms:
+		var type_entry := RoomCatalog.type_for_region(String(room.get("region", "")))
+		if type_entry.is_empty():
+			room["type"] = String(room.get("type", "generic"))
+			room["prop_types"] = []
+			continue
+		room["type"] = String(type_entry["id"])
+		room["label"] = String(type_entry["label"])
+		room["prop_types"] = (type_entry["props"] as Array).duplicate()
+
+
+## Deterministic port of maze.js populateRooms. Large footprints are reserved
+## first, the ordinary room doorway cross remains clear, and every placement
+## uses the same footprint later consumed by navigation and 3D collision.
+func populate_rooms() -> void:
+	props.clear()
+	for room in rooms:
+		var prop_types: Array = (room.get("prop_types", []) as Array).duplicate()
+		if prop_types.is_empty() or int(room.get("width", 0)) < 4 \
+				or int(room.get("height", 0)) < 4:
+			continue
+		prop_types.sort_custom(func(a, b):
+			var first := RoomCatalog.footprint(String(a))
+			var second := RoomCatalog.footprint(String(b))
+			return first.x * first.y > second.x * second.y)
+		var candidates := _room_prop_candidates(room)
+		var used := {}
+		var used_surfaces := {}
+		for index in prop_types.size():
+			var type := String(prop_types[index])
+			if RoomCatalog.is_surface_prop(type):
+				var surface := _surface_mount_for_prop(room, type, used_surfaces)
+				if surface.is_empty():
+					continue
+				used_surfaces[String(surface["id"])] = true
+				props.append({
+					"id": "%s-prop-%d" % [room.get("id", "room"), index],
+					"x": surface["x"], "y": surface["y"], "type": type,
+					"room_id": String(room.get("id", "")),
+					"region": String(room.get("region", "")),
+					"rotation": int(surface.get("rotation", 0)),
+					"mount_y": RoomCatalog.surface_height(String(surface["type"])),
+					"surface_id": String(surface["id"]),
+				})
+				continue
+			var rotation_start := random.next_index(4)
+			var best_cell := Vector2i(-1, -1)
+			var best_rotation := 0
+			var best_score := INF
+			for cell_value in candidates:
+				var cell: Vector2i = cell_value
+				if used.has(cell):
+					continue
+				for offset in 4:
+					var rotation := (rotation_start + offset) % 4
+					if not _room_prop_fits(room, cell, type, rotation):
+						continue
+					var score := _room_prop_preference(room, cell, type, rotation)
+					if score < best_score:
+						best_score = score
+						best_cell = cell
+						best_rotation = rotation
+			if best_cell.x < 0:
+				continue
+			used[best_cell] = true
+			props.append({
+				"id": "%s-prop-%d" % [room.get("id", "room"), index],
+				"x": best_cell.x, "y": best_cell.y, "type": type,
+				"room_id": String(room.get("id", "")),
+				"region": String(room.get("region", "")),
+				"rotation": best_rotation,
+			})
+
+
+func _surface_mount_for_prop(room: Dictionary, type: String,
+		used_surfaces: Dictionary) -> Dictionary:
+	var parent_types := RoomCatalog.surface_parent_types(type)
+	for other in props:
+		if String(other.get("room_id", "")) != String(room.get("id", "")):
+			continue
+		if not parent_types.has(String(other.get("type", ""))):
+			continue
+		if used_surfaces.has(String(other.get("id", ""))):
+			continue
+		return other
+	return {}
+
+
+func _room_prop_candidates(room: Dictionary) -> Array:
+	var out: Array = []
+	var exact = room.get("cells", {})
+	if exact is Dictionary and not exact.is_empty():
+		for cell_value in exact:
+			var cell: Vector2i = cell_value
+			if cell.x > int(room["x"]) and cell.y > int(room["y"]) \
+					and cell.x < int(room["x"]) + int(room["width"]) - 1 \
+					and cell.y < int(room["y"]) + int(room["height"]) - 1:
+				out.append(cell)
+	else:
+		for y in range(int(room["y"]) + 1,
+				int(room["y"]) + int(room["height"]) - 1):
+			for x in range(int(room["x"]) + 1,
+					int(room["x"]) + int(room["width"]) - 1):
+				out.append(Vector2i(x, y))
+	if not RoomCatalog.CENTERPIECE_TYPES.has(String(room.get("type", ""))):
+		var center: Vector2i = room["center"]
+		out = out.filter(func(cell):
+			return absi(cell.x - center.x) > 1 and absi(cell.y - center.y) > 1)
+	_shuffle_array(out)
+	return out
+
+
+func _room_prop_fits(room: Dictionary, cell: Vector2i, type: String,
+		rotation: int) -> bool:
+	if not _valid_open_cell(cell) or spawn_points.has(cell) or cell == exit_cell:
+		return false
+	var footprint := RoomCatalog.footprint(type, rotation)
+	var center := Vector2(cell) + Vector2(.5, .5)
+	var clearance := .12
+	if center.x - footprint.x - clearance < float(room["x"]) + 1.0 \
+			or center.x + footprint.x + clearance > float(room["x"] + room["width"]) - 1.0 \
+			or center.y - footprint.y - clearance < float(room["y"]) + 1.0 \
+			or center.y + footprint.y + clearance > float(room["y"] + room["height"]) - 1.0:
+		return false
+	if center.distance_to(Vector2(start) + Vector2(.5, .5)) \
+			< maxf(1.2, maxf(footprint.x, footprint.y) + DEFAULT_AGENT_RADIUS + .5):
+		return false
+	for other in props:
+		if not RoomCatalog.is_solid(String(other["type"])):
+			continue
+		var other_footprint := RoomCatalog.footprint(String(other["type"]),
+			int(other.get("rotation", 0)))
+		var other_center := Vector2(float(other["x"]) + .5, float(other["y"]) + .5)
+		if absf(center.x - other_center.x) < footprint.x + other_footprint.x + clearance \
+				and absf(center.y - other_center.y) < footprint.y + other_footprint.y + clearance:
+			return false
+	return true
+
+
+func _room_prop_preference(room: Dictionary, cell: Vector2i, type: String,
+		rotation: int) -> float:
+	var center: Vector2i = room["center"]
+	if type in ["carnivalCarousel", "giantTree", "diningTable"] \
+			and RoomCatalog.CENTERPIECE_TYPES.has(String(room.get("type", ""))):
+		return Vector2(cell).distance_squared_to(Vector2(center))
+	var left := cell.x - (int(room["x"]) + 1)
+	var right := int(room["x"]) + int(room["width"]) - 2 - cell.x
+	var top := cell.y - (int(room["y"]) + 1)
+	var bottom := int(room["y"]) + int(room["height"]) - 2 - cell.y
+	var edge_distance := mini(mini(left, right), mini(top, bottom))
+	if not RoomCatalog.is_wall_backed(type):
+		return float(edge_distance) * 20.0
+	# Imported props face local +Z. Rotation 0 therefore faces inward from the
+	# top edge; quarter turns below do the same for the other three walls.
+	var desired_rotation := 0
+	if bottom == edge_distance:
+		desired_rotation = 2
+	elif left == edge_distance:
+		desired_rotation = 1
+	elif right == edge_distance:
+		desired_rotation = 3
+	return float(edge_distance) * 20.0 \
+		+ (0.0 if rotation == desired_rotation else 1000.0)
 
 
 func carve_rect(x: int, y: int, width: int, height: int) -> void:
@@ -484,6 +690,15 @@ func can_occupy(x: float, y: float, radius: float = DEFAULT_AGENT_RADIUS, blocke
 			return false
 		if blocked_cells != null and blocked_cells.has(Vector2i(int(floor(sample.x)), int(floor(sample.y)))):
 			return false
+	for prop in props:
+		var type := String(prop.get("type", ""))
+		if not RoomCatalog.is_solid(type):
+			continue
+		var footprint := RoomCatalog.footprint(type, int(prop.get("rotation", 0)))
+		var center := Vector2(float(prop["x"]) + .5, float(prop["y"]) + .5)
+		if absf(x - center.x) < footprint.x + radius \
+				and absf(y - center.y) < footprint.y + radius:
+			return false
 	return true
 
 
@@ -516,14 +731,15 @@ func _get_astar() -> AStarGrid2D:
 		_astar.update()
 		for y in rows:
 			for x in cols:
-				_astar.set_point_solid(Vector2i(x, y), grid[y][x] != 0)
+				_astar.set_point_solid(Vector2i(x, y),
+					not can_occupy(x + .5, y + .5))
 	return _astar
 
 
 ## Grid-raymarch line of sight, matching maze.js's hasLineOfSight(): samples
 ## the straight segment at ceil(distance*6) points and rejects on the first
-## sampled point that isn't floor. Walls only — no prop occlusion (matches
-## the original; props aren't ported yet, see MIGRATION.md).
+## sampled point that isn't floor. Walls only — furniture affects movement,
+## but does not become a full-height vision wall (matching the original).
 func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
 	var distance := from.distance_to(to)
 	var steps: int = maxi(1, int(ceil(distance * 6.0)))
@@ -555,7 +771,8 @@ func distance_map(start_x: int, start_y: int) -> Dictionary:
 		var distance: int = distances[current]
 		for dir in DIRECTIONS4:
 			var next_cell: Vector2i = current + dir
-			if distances.has(next_cell) or not is_floor(next_cell.x + 0.5, next_cell.y + 0.5):
+			if distances.has(next_cell) \
+					or not can_occupy(next_cell.x + 0.5, next_cell.y + 0.5):
 				continue
 			distances[next_cell] = distance + 1
 			queue.append(next_cell)
@@ -678,9 +895,16 @@ static func _make_safe_zones(rooms_subset: Array) -> Array:
 ## them, so the write side has to exist for those to mean anything.
 ## `entries` is the generator array to search; returns true if it found one.
 func mark_collected(entries: Array, cell: Vector2i) -> bool:
+	return set_collected(entries, cell, true)
+
+
+## Snapshot reconciliation also needs the inverse operation: an optimistic
+## guest pickup rejected by the host must become collectible again without
+## rebuilding the entire floor.
+func set_collected(entries: Array, cell: Vector2i, value: bool) -> bool:
 	for entry in entries:
 		if entry["x"] == cell.x and entry["y"] == cell.y:
-			entry["collected"] = true
+			entry["collected"] = value
 			return true
 	return false
 
@@ -905,7 +1129,15 @@ var hiding_spots: Array = []
 ## HUNTER_ROSTER.md's "trivial gap": a point -> room query nothing needed
 ## until Loxelle, whose passive only ever destroys spots in her OWN room.
 func room_at(x: float, y: float) -> Dictionary:
+	var cell := Vector2i(floori(x), floori(y))
 	for room in rooms:
+		if room.has("cells"):
+			var room_cells = room["cells"]
+			if room_cells is Dictionary and room_cells.has(cell):
+				return room
+			if room_cells is Array and room_cells.has(cell):
+				return room
+			continue
 		if x >= room["x"] and x < room["x"] + room["width"] \
 				and y >= room["y"] and y < room["y"] + room["height"]:
 			return room
@@ -933,7 +1165,7 @@ func place_hiding_spots(count: int = 6) -> Array:
 	for y in range(1, rows - 1):
 		for x in range(1, cols - 1):
 			var cell := Vector2i(x, y)
-			if grid[y][x] != 0 or taken.has(cell):
+			if not can_occupy(x + 0.5, y + 0.5) or taken.has(cell):
 				continue
 			# Backed onto a wall, and not in a doorway: a spot in the middle of a
 			# corridor is not somewhere you could hide, and a spot in a doorway

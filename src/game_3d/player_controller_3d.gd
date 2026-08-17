@@ -50,6 +50,10 @@ var noise := 0.0
 ## Frozen during the capture/escape struggle (main_3d.gd) — movement and
 ## interaction stop, but the scene keeps rendering/ticking around the player.
 var input_frozen := false
+## Capture presentation owns the view for its short lunge. This is separate
+## from input_frozen because hiding and the escape struggle still allow the
+## player to look around.
+var look_frozen := false
 
 ## Debug-only protections driven by main_3d's tools-gated admin overlay. They
 ## live on the controller so the same state can be published to the ENet host;
@@ -67,9 +71,14 @@ var facing := Vector2(0, 1)
 var _yaw := 0.0
 var _pitch := 0.0
 var _animation_player: AnimationPlayer
+var _body_model: Node3D
+var _body_fade := 0.0
 ## The clip this body is playing, published so remote copies can play the same
 ## one. Set where the local body is told to play, so the two cannot disagree.
 var _clip := "idle"
+## One-frame hop request used by XR and deterministic gameplay validation.
+## Keyboard/controller bindings still use Input's ordinary `jump` action.
+var _jump_requested := false
 ## OpenXR is opt-in for desktop exports (`--xr` or an `xr` export feature) and
 ## automatic for the Quest preset. If initialization fails, the same binary
 ## falls back to the ordinary first-person camera.
@@ -213,6 +222,7 @@ func flashlight_seized() -> bool:
 func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
+		_body_model = model
 		body_visual.add_child(model)
 		_animation_player = ModelSlot.find_animation_player(model)
 	# Explicitly through _set_flashlight rather than by poking `visible`, so the
@@ -226,7 +236,7 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and not xr_active:
+	if event is InputEventMouseMotion and not xr_active and not look_frozen:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
@@ -249,11 +259,14 @@ func _physics_process(delta: float) -> void:
 	if in_vent:
 		vent_time_in += delta
 	if input_frozen or stun_timer > 0.0:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_update_vertical_motion(delta, false)
 		move_and_slide()
 		noise = 0.0
 		_clip = "idle"
 		ModelSlot.play_if_available(_animation_player, _clip)
+		_update_crouch_fade(delta, false)
 		# Hiding freezes movement, and freezing movement used to swallow the key
 		# that gets you back out -- a locker you could enter and never leave. The
 		# struggle freeze is the other user of input_frozen and deliberately does
@@ -300,8 +313,14 @@ func _physics_process(delta: float) -> void:
 
 	_update_stamina(delta, is_sprinting)
 	_update_lamp(delta, is_sprinting)
-	_clip = movement_mode if is_moving else "idle"
-	ModelSlot.play_if_available(_animation_player, _clip)
+	# Keep "crouch" as network/gameplay state, but retire the imported pose:
+	# its knees and elbows fold backward. A smooth fade now communicates quiet
+	# movement while the stable idle pose keeps the body human-shaped.
+	_clip = "crouch" if movement_mode == "crouch" else (
+		movement_mode if is_moving else "idle")
+	ModelSlot.play_if_available(_animation_player,
+		"idle" if _clip == "crouch" else _clip)
+	_update_crouch_fade(delta, movement_mode == "crouch")
 
 	var move_direction: Vector3
 	# Movement is camera-relative: forward is where you are looking.
@@ -339,9 +358,9 @@ func _physics_process(delta: float) -> void:
 
 	velocity.x = move_direction.x * speed_mps
 	velocity.z = move_direction.z * speed_mps
-	velocity.y = 0.0
+	_update_vertical_motion(delta, movement_mode != "crouch")
 	move_and_slide()
-	if is_moving:
+	if is_moving and is_on_floor():
 		Sound.footstep(movement_mode)
 
 
@@ -356,9 +375,40 @@ func _physics_process(delta: float) -> void:
 
 ## First person is the only view. The body is hidden because you are inside it,
 ## and the mouse is captured because the camera is aimed with it.
+func _update_crouch_fade(delta: float, crouching: bool) -> void:
+	var target := 0.55 if crouching else 0.0
+	_body_fade = move_toward(_body_fade, target, delta * 2.8)
+	ModelSlot.set_character_fade(_body_model, _body_fade)
+
+
 ## What this body is playing, for RemotePlayers to send on.
 func current_clip() -> String:
 	return _clip
+
+
+func active_camera() -> Camera3D:
+	return xr_camera if xr_active else first_person_camera
+
+
+## Grounded, single-press hop. Gravity still runs while input is frozen so a
+## capture, stun, or pause cannot leave a player suspended in midair. Crouch
+## blocks takeoff, but releasing crouch before landing does not alter the arc.
+func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
+	var wants_to_jump := _jump_requested or Input.is_action_just_pressed("jump")
+	# Consume every request immediately, even in midair/frozen/crouching, so a
+	# rejected press cannot be banked into an automatic hop on landing.
+	_jump_requested = false
+	if is_on_floor():
+		if velocity.y < 0.0:
+			velocity.y = 0.0
+		if allow_jump and wants_to_jump:
+			velocity.y = GameConfig.PLAYER_JUMP_VELOCITY
+	else:
+		velocity.y -= GameConfig.PLAYER_GRAVITY * delta
+
+
+func request_jump() -> void:
+	_jump_requested = true
 
 
 func _enter_first_person() -> void:
@@ -406,6 +456,8 @@ func _on_xr_right_pressed(action: StringName) -> void:
 			Input.action_press("interact")
 		"ax_button":
 			Input.action_press("flashlight")
+		"by_button":
+			request_jump()
 		"grip_click":
 			Input.action_press("sprint")
 
@@ -623,25 +675,56 @@ func resecure_percent() -> int:
 	return clampi(roundi(_resecure_progress / GameConfig.RELAY_RESECURE_SECONDS * 100.0), 0, 100)
 
 
-## Nearest interactable in reach AND actually being looked at -- being close
-## to something used to be enough on its own, which let a player trigger
-## whatever was nearest behind or beside them without turning to face it.
-## Facing is checked on the grid plane only (same 2D convention `facing`
-## already uses for the hunters' own beam-aim checks), so looking up or down
-## at a target roughly at eye height still counts.
+## Best interactable under the camera crosshair: in reach, inside a modest aim
+## cone and not hidden behind facility collision. This used to select whichever
+## prop was nearest on the XZ plane, even when the camera was pitched toward a
+## different one. Scoring alignment before distance also makes two props in
+## reach deterministic without letting the nearer one steal focus from the
+## thing the player is actually looking at.
 func _nearest_interactable() -> RouteInteractable3D:
-	var nearest: RouteInteractable3D = null
-	var nearest_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
+	var chosen: RouteInteractable3D = null
+	var chosen_alignment := -1.0
+	var chosen_distance := INF
+	var camera := active_camera()
+	if camera == null:
+		return null
+	var origin := camera.global_position
+	var look := -camera.global_basis.z.normalized()
+	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
 			continue
-		var offset := Vector2(candidate.global_position.x - global_position.x,
+		var horizontal_offset := Vector2(candidate.global_position.x - global_position.x,
 			candidate.global_position.z - global_position.z)
-		var distance := offset.length()
-		if distance > nearest_distance or candidate.get_prompt().is_empty():
+		var horizontal_distance := horizontal_offset.length()
+		if horizontal_distance > maximum_distance or candidate.get_prompt().is_empty():
 			continue
-		if distance > 0.001 and offset.normalized().dot(facing) < cos(GameConfig.INTERACTION_FACING_HALF_ANGLE):
+		var focus: Vector3 = candidate.interaction_focus()
+		var to_focus := focus - origin
+		var ray_distance := to_focus.length()
+		if ray_distance <= 0.001:
 			continue
-		nearest = candidate
-		nearest_distance = distance
-	return nearest
+		var alignment := look.dot(to_focus / ray_distance)
+		if alignment < cos(GameConfig.INTERACTION_AIM_HALF_ANGLE):
+			continue
+		if not _interaction_has_line_of_sight(focus, candidate):
+			continue
+		if alignment > chosen_alignment + 0.0001 \
+				or (is_equal_approx(alignment, chosen_alignment) and horizontal_distance < chosen_distance):
+			chosen = candidate
+			chosen_alignment = alignment
+			chosen_distance = horizontal_distance
+	return chosen
+
+
+func _interaction_has_line_of_sight(focus: Vector3, candidate: RouteInteractable3D) -> bool:
+	var camera := active_camera()
+	var query := PhysicsRayQueryParameters3D.create(camera.global_position, focus)
+	query.exclude = [get_rid()]
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return true
+	var collider = hit.get("collider")
+	return collider == candidate or (collider is Node and candidate.is_ancestor_of(collider))
