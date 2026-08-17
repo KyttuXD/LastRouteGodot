@@ -58,6 +58,12 @@ jobs:
       - name: Run backend tests
         run: npm test
 
+      - name: Import Godot project
+        # A fresh runner has no `.godot/global_script_class_cache.cfg` yet.
+        # Opening the editor once registers every `class_name` and imports the
+        # GLBs before either validation or export tries to compile autoloads.
+        run: godot4 --headless --editor --quit --path .
+
       - name: Run complete Godot validation
         run: godot4 --headless --path . res://scenes/validate.tscn
 

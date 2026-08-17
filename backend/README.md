@@ -188,7 +188,8 @@ to the live host/map workflow rather than to one player's account.
 This supports the intended private-GitHub-to-Pterodactyl flow without putting
 a GitHub token in the game:
 
-1. Every push to `main` runs `.github/workflows/publish-debug.yml`: GitHub
+1. Every push to `main` runs `.github/workflows/publish-debug.yml`: a fresh
+   runner imports the Godot project to build its global-class/resource cache,
    validates the project, exports all five debug ZIPs, verifies them, and
    replaces the assets on the stable `debug` release. The manifest is uploaded
    last and contains the exact triggering commit. The workflow keeps version
