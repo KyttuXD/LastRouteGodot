@@ -25,9 +25,8 @@ var relays_sabotaged: int = 0
 var coins: int = 0
 
 ## Capture/escape struggle, ported from hunter-ai.js's triggerGameOver/
-## beginEscape/breakFree/finish. lives_remaining follows the Standard
-## difficulty's respawn-life pool (RESPAWN_LIVES_BY_DIFFICULTY.standard = 2
-## in the original) — no difficulty selection exists yet, so it's fixed.
+## beginEscape/breakFree/finish. The room supplies the run's difficulty when it
+## starts, so this whole-run pool does not refill on a floor descent.
 var lives_remaining: int = GameConfig.RESPAWN_LIVES_STANDARD
 var game_over := false
 
@@ -42,12 +41,12 @@ var escape_grace := 0.0
 var escape_cooldown_scale := 1.0
 
 
-func start_new_run(seed_value: int = 0) -> void:
+func start_new_run(seed_value: int = 0, difficulty_id: String = "standard") -> void:
 	run_seed = seed_value if seed_value != 0 else randi()
 	depth = 1
 	score = 0
 	coins = 0
-	lives_remaining = GameConfig.RESPAWN_LIVES_STANDARD
+	lives_remaining = GameConfig.respawn_lives_for(difficulty_id)
 	game_over = false
 	escape_active = false
 	escape_cooldown = 0.0

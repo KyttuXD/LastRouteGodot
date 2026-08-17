@@ -22,8 +22,8 @@ they're wired.
 **The roster is complete.** Every hunter that had a gimmick to port now has
 one; what remains beyond this point is polish (real art in place of the
 honest placeholders — hiding spots, the music box, vent grates, coin
-pickups — and, eventually, a difficulty selection for the Nightmare-only
-branches this file records as deliberately unported), not new hunters.
+pickups — and the reserved Nightmare-only branches this file records as
+deliberately unported), not new hunters.
 
 **All 26 have models and tuning.** `HunterRoster.PROFILES` carries every
 hunter's `HUNTER_PROFILES` row and `art/props-3d/characters/` has a model for
@@ -41,14 +41,13 @@ is not a degraded Thessine, she is a complete one. She gains her cues later
 with no behaviour change. She is the only hunter this is true of; Jyvra and
 Porcelle look similar and are not (see the notes below).
 
-**The tier-weighted draw is restored.** `pick_for_floor()` now does the
-original's tier-weighted seeded pick (Standard: easy .35 / intermediate .50 /
-difficult .15) rather than a uniform draw. A tier with nobody implemented in it
-drops out and the rest renormalise, so a partial roster cannot hand "difficult"
-a share far above its weight. Only Standard's weights are recorded here, so
-Relaxed and Nightmare use them too rather than have numbers invented for them.
-The `roster` check suite asserts the distribution, that every implemented
-hunter is actually reachable, and that the draw is replay-stable.
+**The tier-weighted draw is restored.** `pick_for_floor()` does the original's
+difficulty-aware seeded pick rather than a uniform draw. Relaxed and Standard
+use their source weights; Hard is the exact Standard/Nightmare midpoint; the
+original Nightmare row is retained but that mode is not selectable until its
+larger hunter lineup exists. A tier with nobody implemented drops out and the
+rest renormalise. The `roster` check suite asserts all three live distributions,
+that every implemented hunter is reachable, and that the draw is replay-stable.
 
 Nyxie and Solyth are **specials**: registered but never entered into the
 random draw, always present on a floor but inert, woken by their own rule
@@ -235,11 +234,15 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 
 ## Difficulty tiers and selection
 
-From `NORMAL_ROUTE_HUNTER_TIERS` (Standard: easy .35 / intermediate .50 /
-difficult .15). **Implemented** — `pick_for_floor()` draws by tier weight over
-whichever tiers have implemented hunters in them, renormalising so a partial
-roster does not distort the shares. Relaxed and Nightmare reuse Standard's
-weights; theirs are not recorded here and are not being guessed at.
+From `NORMAL_ROUTE_HUNTER_TIERS`. **Implemented** — `pick_for_floor()` draws by
+tier weight over whichever tiers have implemented hunters in them, renormalising
+so a partial roster does not distort the shares.
+
+- **Relaxed:** easy .70 / intermediate .25 / difficult .05 (original)
+- **Standard:** easy .35 / intermediate .50 / difficult .15 (original)
+- **Hard:** easy .2625 / intermediate .5125 / difficult .225 (exact midpoint)
+- **Nightmare:** easy .175 / intermediate .525 / difficult .30 (original,
+  reserved and not selectable)
 
 - **easy** — aki, briselle, dovelle, glyra, haelith, jyvra, loxelle, opalie, quirith, ysolde, zephyra
 - **intermediate** — ceryth, ferryn, ilyra, mavrine, porcelle, thessine, verrine, xivvy

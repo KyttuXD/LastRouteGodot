@@ -29,6 +29,13 @@ this file is the order in which unfinished work should be attacked.
 
 ## P1 — missing game content
 
+- [ ] Add an asynchronous route loading screen between staging and gameplay:
+  threaded scene/resource progress, route seed/difficulty readout, rotating
+  hunter or control tips, and a co-op "waiting for host snapshot" state that
+  never exposes an unfrozen half-built floor.
+- [ ] Continue the UI pass after loading: real game-over/run-report screen,
+  account/checkpoint screen for the existing backend endpoints, hunter dossier,
+  and consistent title/header typography across lobby, pause, map and Office.
 - [ ] Replace the working hiding spot's placeholder locker box with the first
   detailed modular prop; hiding interactions and hunter counters already work.
 - [ ] Port the original themed-room population and prop placement rules.

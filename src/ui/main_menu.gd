@@ -68,7 +68,7 @@ func _apply_palette() -> void:
 		background.color = Palette.BACKDROP
 	var title := get_node_or_null("TitleLabel") as Label
 	if title != null:
-		title.add_theme_color_override("font_color", Palette.INK)
+		Palette.style_title(title)
 	var panel := get_node_or_null("ButtonPanel") as PanelContainer
 	if panel != null:
 		panel.add_theme_stylebox_override("panel", Palette.panel_box())

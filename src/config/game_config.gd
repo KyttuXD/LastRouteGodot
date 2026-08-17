@@ -11,6 +11,49 @@ const PLAYER_WALK_SPEED := 64.0
 const PLAYER_SPRINT_SPEED := 100.0
 const PLAYER_CROUCH_SPEED := 36.0
 
+## Difficulty profiles are multipliers over the Standard baseline, matching
+## the original web build's difficulty/core.js contract. Hard is deliberately
+## the exact midpoint between Standard and the reserved Nightmare profile: it
+## is a real step up without quietly inheriting Nightmare's future multi-hunter
+## rules or its hunter-specific instant-kill branches.
+##
+## Nightmare stays defined so its eventual implementation has one canonical
+## target, but RoomState does not expose or accept it as a selectable mode yet.
+const DIFFICULTY_PROFILES := {
+	"relaxed": {
+		"player_speed": 1.08, "crouch_speed": 1.06, "sprint_speed": 1.08,
+		"lamp_drain": 0.70, "sprint_drain": 0.80,
+		"hunter_speed": 0.82, "hunter_sight": 0.86, "hunter_hearing": 0.86,
+		"capture_distance": 0.90,
+	},
+	"standard": {
+		"player_speed": 1.0, "crouch_speed": 1.0, "sprint_speed": 1.0,
+		"lamp_drain": 1.0, "sprint_drain": 1.0,
+		"hunter_speed": 1.0, "hunter_sight": 1.0, "hunter_hearing": 1.0,
+		"capture_distance": 1.0,
+	},
+	"hard": {
+		"player_speed": 0.97, "crouch_speed": 0.97, "sprint_speed": 0.98,
+		"lamp_drain": 1.175, "sprint_drain": 1.10,
+		"hunter_speed": 1.085, "hunter_sight": 1.09, "hunter_hearing": 1.10,
+		"capture_distance": 1.04,
+	},
+	"nightmare": {
+		"player_speed": 0.94, "crouch_speed": 0.94, "sprint_speed": 0.96,
+		"lamp_drain": 1.35, "sprint_drain": 1.20,
+		"hunter_speed": 1.17, "hunter_sight": 1.18, "hunter_hearing": 1.20,
+		"capture_distance": 1.08,
+	},
+}
+
+const RESPAWN_LIVES_BY_DIFFICULTY := {
+	"relaxed": 3, "standard": 2, "hard": 1, "nightmare": 0,
+}
+
+const SAFE_ZONE_LIMITS_BY_DIFFICULTY := {
+	"relaxed": 3, "standard": 2, "hard": 1, "nightmare": 0,
+}
+
 const MAX_STAMINA := 100.0
 const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
@@ -130,9 +173,8 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
 ## straight earns a permanent chase lock; every flashlight on/off flick after
 ## that ramps her chase speed further, capped at QUIRITH_MAX_SPEED_SCALE after
-## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Nightmare's shorter 5s threshold
-## isn't ported — no difficulty selection exists yet, matching every other
-## Standard-only tuning value in this file.
+## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
+## behaviour; Nightmare's shorter 5s threshold remains reserved with that mode.
 const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
 const QUIRITH_MAX_SPEED_SCALE := 1.45
 const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
@@ -186,10 +228,9 @@ const MAVRINE_PING_DURATION := 0.45
 const MAVRINE_MARK_TRIGGER_RADIUS := 0.62
 
 ## Umbriel — shapeshifter (hunterAbilities.umbriel.shapeshifter). Swaps her
-## apparent identity every UMBRIEL_DISGUISE_INTERVAL seconds. On Standard this
-## is purely cosmetic; attribute-copying is a Nightmare-only behaviour and no
-## difficulty selection exists, so only the disguise is ported. Kathy is
-## excluded from the pool, as in the original.
+## apparent identity every UMBRIEL_DISGUISE_INTERVAL seconds. On Standard and
+## Hard this is purely cosmetic; attribute-copying stays reserved for the
+## unselectable Nightmare mode. Kathy is excluded from the pool, as originally.
 const UMBRIEL_DISGUISE_INTERVAL := 30.0
 const UMBRIEL_DISGUISE_EXCLUDED := ["kathy"]
 
@@ -235,8 +276,8 @@ const HUNTER_DEPTH_SPEED_BONUS_PER_LEVEL := 0.055
 const HUNTER_DEPTH_SPEED_BONUS_MAX := 0.55
 
 ## Capture/escape struggle (hunter-ai.js's ESCAPE_* / triggerGameOver).
-## captureDistance is a difficulty multiplier (standard = 1.0; no difficulty
-## selection exists yet, so it's applied as a constant 1.0 here).
+## CAPTURE_DISTANCE_SCALE is the shared base; the selected profile multiplies
+## it inside HunterBrain.
 const CAPTURE_DISTANCE_SCALE := 1.0
 const ESCAPE_DURATION := 3.2
 const ESCAPE_PRESSES := 6
@@ -298,8 +339,8 @@ const JYVRA_EJECT_STALL := 2.2
 
 
 ## Loxelle — passive incinerator (hunterAbilities.loxelle.passiveIncinerator /
-## breaksHiding). Regen uses the Standard/easy rate (regenerateSeconds *
-## easyRegenerateScale) since there is no difficulty selection yet.
+## breaksHiding). Relaxed, Standard and Hard retain the Standard/easy regen
+## rate; Nightmare's slower branch stays reserved with Nightmare itself.
 const LOXELLE_INTERVAL := 5.0
 const LOXELLE_CHANCE := 0.25
 const LOXELLE_REGEN_SECONDS := 30.0
@@ -326,9 +367,9 @@ const FERRYN_FLASH_NOISE := 100.0
 const GLYRA_BAY_SECONDS := 20.0
 const GLYRA_NOISE_PER_SECOND := 1.0
 
-## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Standard's
-## values only -- Nightmare's zero-delay pounce needs a difficulty selection
-## this port does not have.
+## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Relaxed,
+## Standard and Hard use the counterable Standard values; Nightmare's
+## zero-delay pounce stays reserved with the unselectable mode.
 const ILYRA_POUNCE_DELAY := 0.75
 const ILYRA_STUN_SECONDS := 5.0
 const ILYRA_BANISH_SECONDS := 30.0
@@ -343,8 +384,8 @@ const VERRINE_MAX_SPEED_SCALE := 2.4
 ## Zephyra — merchant (hunterAbilities.zephyra.merchant):
 ## {nightmareDeathChance:.1, pesticideSeconds:60,
 ## offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}.
-## Nightmare's instant-death roll is not ported -- no difficulty selection
-## exists, same reasoning as Ilyra's Nightmare-only zero pounce delay.
+## Nightmare's instant-death roll stays reserved with the unselectable mode;
+## Hard never silently turns a shop interaction into an instant death.
 const ZEPHYRA_SHOP_RANGE := 1.35
 const ZEPHYRA_PESTICIDE_SECONDS := 60.0
 const ZEPHYRA_COOL_COST := 2
@@ -360,3 +401,17 @@ const ZEPHYRA_LAMP_REPAIR := 25.0
 ## honest-simplification shape as the vent prompt's static text.
 const COIN_PICKUP_COUNT := 5
 const COIN_PICKUP_VALUE := 2
+
+
+static func difficulty_profile(id: String) -> Dictionary:
+	return DIFFICULTY_PROFILES.get(id, DIFFICULTY_PROFILES["standard"])
+
+
+static func respawn_lives_for(id: String) -> int:
+	return int(RESPAWN_LIVES_BY_DIFFICULTY.get(id,
+		RESPAWN_LIVES_BY_DIFFICULTY["standard"]))
+
+
+static func safe_zone_limit_for(id: String) -> int:
+	return int(SAFE_ZONE_LIMITS_BY_DIFFICULTY.get(id,
+		SAFE_ZONE_LIMITS_BY_DIFFICULTY["standard"]))

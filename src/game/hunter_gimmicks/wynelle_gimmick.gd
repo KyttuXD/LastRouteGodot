@@ -29,6 +29,13 @@ var _froze_player := false
 
 
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+	# The original makes temperature summons non-lethal on Relaxed. Keep her
+	# present for deterministic roster/snapshot shape, but permanently dormant.
+	if brain.difficulty_id == "relaxed":
+		brain.active = false
+		brain.state = HunterBrain.State.IDLE
+		progress = 0.0
+		return
 	var meters: PlayerMeters = target.get("meters")
 	var heater_powered: bool = target.get("heater_powered", false)
 	var heater_unfrozen: bool = target.get("heater_unfrozen", false)

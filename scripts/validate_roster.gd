@@ -164,29 +164,35 @@ func _the_draw_respects_its_tiers() -> void:
 	var present := {}
 	for id in HunterRoster.IMPLEMENTED_IDS:
 		present[HunterRoster.PROFILES[id]["tier"]] = true
-	var total := 0.0
-	for tier in present:
-		total += float(HunterRoster.TIER_WEIGHTS.get(tier, 0.0))
-
-	var counted := {}
-	for i in SEEDS:
-		var tier: String = HunterRoster.PROFILES[
-			HunterRoster.pick_for_floor("TIER-%d" % i, 1)]["tier"]
-		counted[tier] = int(counted.get(tier, 0)) + 1
-
 	var report: Array[String] = []
-	for tier in present:
-		var want: float = float(HunterRoster.TIER_WEIGHTS.get(tier, 0.0)) / total
-		var got := float(counted.get(tier, 0)) / float(SEEDS)
-		report.append("%s %.0f%%" % [tier, got * 100.0])
-		# Wide, because this is a check on the weighting being APPLIED, not on
-		# the quality of the RNG. A tier landing at half or double its share is
-		# a bug in the draw; a few points either way is a sample.
-		_expect(absf(got - want) < 0.10,
-			"%s hunters are drawn %.0f%% of the time, not the %.0f%% their tier weight asks for"
-				% [tier, got * 100.0, want * 100.0])
+	for difficulty_id in ["relaxed", "standard", "hard"]:
+		var weights: Dictionary = HunterRoster.TIER_WEIGHTS_BY_DIFFICULTY[
+			difficulty_id]
+		var total := 0.0
+		for tier in present:
+			total += float(weights.get(tier, 0.0))
+
+		var counted := {}
+		for i in SEEDS:
+			var tier: String = HunterRoster.PROFILES[HunterRoster.pick_for_floor(
+				"TIER-%d" % i, 1, difficulty_id)]["tier"]
+			counted[tier] = int(counted.get(tier, 0)) + 1
+
+		var parts: Array[String] = []
+		for tier in present:
+			var want: float = float(weights.get(tier, 0.0)) / total
+			var got := float(counted.get(tier, 0)) / float(SEEDS)
+			parts.append("%s %.0f%%" % [tier, got * 100.0])
+			# Wide, because this is a check on the weighting being APPLIED, not on
+			# the quality of the RNG. A tier landing at half or double its share is
+			# a bug in the draw; a few points either way is a sample.
+			_expect(absf(got - want) < 0.10,
+				"%s/%s hunters draw at %.0f%%, not the %.0f%% tier weight"
+					% [difficulty_id, tier, got * 100.0, want * 100.0])
+		parts.sort()
+		report.append("%s: %s" % [difficulty_id, ", ".join(parts)])
 	report.sort()
-	print("  draw      %s across %d seeds" % [", ".join(report), SEEDS])
+	print("  draw      %s across %d seeds each" % [" | ".join(report), SEEDS])
 
 
 func _umbriel_can_wear_the_roster() -> void:

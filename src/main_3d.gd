@@ -70,7 +70,7 @@ func _ready() -> void:
 	# if both machines generated the same facility -- so this line is what makes
 	# the rest of the sync mean anything. Offline it is still a stable seed, so
 	# a solo run behaves the same way.
-	GameState.start_new_run(RoomState.run_seed())
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
 	player.interaction_veto = _guardian_blocking
@@ -819,14 +819,15 @@ func _handle_game_over_tick(delta: float) -> void:
 		# stayed in the current building.
 		GameState.game_over = false
 		GameState.escape_active = false
-		GameState.lives_remaining = GameConfig.RESPAWN_LIVES_STANDARD
+		GameState.lives_remaining = GameConfig.respawn_lives_for(
+			RoomState.difficulty_id())
 		GameState.escape_cooldown = 0.0
 		GameState.escape_grace = GameConfig.ESCAPE_GRACE
 		_game_over_timer = 0.0
 		_respawn_after_capture(false)
 		hud.show_message("SIGNAL RESTORED // REJOINED THE ROUTE")
 	else:
-		GameState.start_new_run()
+		GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 		observed_depth = GameState.depth
 		_build_floor()
 	_update_hud()
@@ -1410,7 +1411,9 @@ func _spawn_hunter() -> void:
 	var seed_text := GameState.level_seed_text()
 
 	# The drawn route hunter, on the relay activation schedule.
-	hunter_view = _add_hunter(HunterRoster.pick_for_floor(seed_text, GameState.depth), spawn_pos, "%s:HUNTER" % seed_text)
+	hunter_view = _add_hunter(HunterRoster.pick_for_floor(seed_text,
+		GameState.depth, RoomState.difficulty_id()), spawn_pos,
+		"%s:HUNTER" % seed_text)
 
 	# Rule-summoned specials are always PRESENT but inert, exactly as in the
 	# original — they wake on their own condition (darkness, heat) rather than
@@ -1423,7 +1426,8 @@ func _spawn_hunter() -> void:
 func _add_hunter(hunter_id: String, spawn_pos: Vector2, seed_text: String) -> HunterView3D:
 	var view := HunterView3D.new()
 	view.name = "Hunter_%s" % hunter_id
-	view.brain = HunterBrain.new(spawn_pos, seed_text, hunter_id)
+	view.brain = HunterBrain.new(spawn_pos, seed_text, hunter_id,
+		RoomState.difficulty_id())
 	world.add_child(view)
 	view.sync_from_brain()
 	hunter_views.append(view)

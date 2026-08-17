@@ -22,18 +22,20 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
+	var difficulty := RoomState.difficulty_profile()
 	var is_moving := input_vector.length_squared() > 0.0
 	var wants_to_sprint := Input.is_action_pressed("sprint") and is_moving and not exhausted
 	var is_sprinting := false
 
 	if Input.is_action_pressed("crouch"):
-		movement_speed = GameConfig.PLAYER_CROUCH_SPEED
+		movement_speed = GameConfig.PLAYER_CROUCH_SPEED * float(difficulty["crouch_speed"])
 		movement_mode = "crouch"
 	elif wants_to_sprint and stamina > 0.0:
-		movement_speed = GameConfig.PLAYER_SPRINT_SPEED
+		movement_speed = GameConfig.PLAYER_SPRINT_SPEED * float(difficulty["sprint_speed"])
 		is_sprinting = true
 		movement_mode = "sprint"
 	else:
+		movement_speed *= float(difficulty["player_speed"])
 		movement_mode = "walk"
 
 	_update_stamina(delta, is_sprinting)
@@ -70,9 +72,10 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	if not flashlight_enabled:
 		return
-	var drain := GameConfig.LAMP_IDLE_DRAIN
+	var difficulty := RoomState.difficulty_profile()
+	var drain := GameConfig.LAMP_IDLE_DRAIN * float(difficulty["lamp_drain"])
 	if is_sprinting:
-		drain += GameConfig.LAMP_SPRINT_DRAIN
+		drain += GameConfig.LAMP_SPRINT_DRAIN * float(difficulty["sprint_drain"])
 	lamp_charge = maxf(0.0, lamp_charge - drain * delta)
 	if lamp_charge <= 0.0:
 		_set_flashlight(false)

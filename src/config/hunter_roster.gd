@@ -77,10 +77,17 @@ const IMPLEMENTED_IDS := [
 ## collection of hunters rather than one.
 const SPECIAL_IDS := ["nyxie", "solyth"]
 
-## NORMAL_ROUTE_HUNTER_TIERS' Standard weights. The original varies these by
-## difficulty; only Standard's are recorded in HUNTER_ROSTER.md, so Relaxed and
-## Nightmare use them too rather than have numbers invented for them.
-const TIER_WEIGHTS := {"easy": 0.35, "intermediate": 0.50, "difficult": 0.15}
+## NORMAL_ROUTE_HUNTER_WEIGHTS from the original, plus Hard at the exact
+## Standard/Nightmare midpoint. Nightmare's row is retained for its future
+## implementation but cannot currently be selected in RoomState.
+const TIER_WEIGHTS_BY_DIFFICULTY := {
+	"relaxed": {"easy": 0.70, "intermediate": 0.25, "difficult": 0.05},
+	"standard": {"easy": 0.35, "intermediate": 0.50, "difficult": 0.15},
+	"hard": {"easy": 0.2625, "intermediate": 0.5125, "difficult": 0.225},
+	"nightmare": {"easy": 0.175, "intermediate": 0.525, "difficult": 0.30},
+}
+## Kept as the Standard shorthand for callers/tests which only need a baseline.
+const TIER_WEIGHTS := TIER_WEIGHTS_BY_DIFFICULTY["standard"]
 
 
 static func get_identity(id: String) -> Dictionary:
@@ -106,8 +113,11 @@ static func get_identity(id: String) -> Dictionary:
 ## the draw silently falling through to whoever happens to be first. That
 ## matters right now: the pool is a third of the roster, and unrenormalised
 ## weights would hand "difficult" a share of the draw far above its 0.15.
-static func pick_for_floor(seed_text: String, depth: int) -> String:
+static func pick_for_floor(seed_text: String, depth: int,
+		difficulty_id: String = "standard") -> String:
 	var rng := SeededRandom.new("%s:HUNTER-LINEUP:D%d" % [seed_text, maxi(1, depth)])
+	var weights: Dictionary = TIER_WEIGHTS_BY_DIFFICULTY.get(difficulty_id,
+		TIER_WEIGHTS_BY_DIFFICULTY["standard"])
 	var by_tier := {}
 	for id in IMPLEMENTED_IDS:
 		var tier: String = PROFILES[id]["tier"]
@@ -115,7 +125,7 @@ static func pick_for_floor(seed_text: String, depth: int) -> String:
 
 	var total := 0.0
 	for tier in by_tier:
-		total += float(TIER_WEIGHTS.get(tier, 0.0))
+		total += float(weights.get(tier, 0.0))
 	if total <= 0.0:
 		return IMPLEMENTED_IDS[rng.next_index(IMPLEMENTED_IDS.size())]
 
@@ -126,7 +136,7 @@ static func pick_for_floor(seed_text: String, depth: int) -> String:
 	tiers.sort()
 	var roll := rng.next_float() * total
 	for tier in tiers:
-		roll -= float(TIER_WEIGHTS.get(tier, 0.0))
+		roll -= float(weights.get(tier, 0.0))
 		if roll <= 0.0:
 			var pool: Array = by_tier[tier]
 			return pool[rng.next_index(pool.size())]

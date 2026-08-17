@@ -37,6 +37,7 @@ func run(_host: Node) -> int:
 	# candidate. Pin it, the same way validate_sync.gd does.
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	var generator := FacilityGenerator.new("HUNTERS-CHECK", RoomState.generator_options())
+	_difficulty_scales_shared_brain(generator)
 	_haelith_goes_where_the_relays_are(generator)
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
@@ -70,6 +71,29 @@ func _target(at: Vector2) -> Dictionary:
 		"flashlight_on": false, "sprinting": false, "facing": Vector2(0, 1),
 		"lamp_charge": 100.0, "meters": null,
 		"heater_unfrozen": false, "heater_powered": false}
+
+
+func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:
+	var at := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var relaxed := HunterBrain.new(at, "DIFFICULTY:RELAXED", "dovelle", "relaxed")
+	var standard := HunterBrain.new(at, "DIFFICULTY:STANDARD", "dovelle", "standard")
+	var hard := HunterBrain.new(at, "DIFFICULTY:HARD", "dovelle", "hard")
+	for brain in [relaxed, standard, hard]:
+		brain.activate_at(at)
+	var relaxed_speed: float = relaxed._current_speed(1, 0)
+	var standard_speed: float = standard._current_speed(1, 0)
+	var hard_speed: float = hard._current_speed(1, 0)
+	_expect(relaxed_speed < standard_speed and standard_speed < hard_speed,
+		"hunter speed does not increase Relaxed < Standard < Hard")
+
+	# At 0.43 cells Dovelle is outside Standard's 0.42 capture radius but
+	# inside Hard's 1.04-scaled radius. Delta zero keeps movement out of it.
+	var target := _target(at + Vector2(0.43, 0.0))
+	_expect(not standard.update(0.0, generator, target, 1, 0),
+		"Standard captured at Hard's extended-only distance")
+	_expect(hard.update(0.0, generator, target, 1, 0),
+		"Hard did not apply its capture-distance multiplier")
+	print("  difficulty hunter speed/perception profile and capture reach applied")
 
 
 ## She re-aims every frame, so collecting the one she is walking to has to send

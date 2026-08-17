@@ -25,6 +25,12 @@ var _burn_timer := 0.0
 
 
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+	# Relaxed disables the heat summon in the original. The brain remains in
+	# the floor roster for stable co-op snapshots, but can never wake there.
+	if brain.difficulty_id == "relaxed":
+		brain.active = false
+		brain.state = HunterBrain.State.IDLE
+		return
 	var meters: PlayerMeters = target.get("meters")
 	if meters == null:
 		return

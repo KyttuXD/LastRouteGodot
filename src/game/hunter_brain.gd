@@ -15,12 +15,9 @@ extends RefCounted
 ## presentation layers (src/game_3d/hunter_view_3d.gd) read `position` each
 ## frame and convert to their own world units.
 ##
-## Deferred (see MIGRATION.md): multi-hunter separation, lures, temperature/
-## power-state sight modifiers, most per-hunter gimmicks, difficulty scaling
-## (no difficulty selection exists yet, so it's fixed at the Standard 1.0
-## multiplier throughout) — all no-ops for the implemented hunters per the
-## banked research, so nothing here is a stub for them, they're simply
-## absent.
+## Deferred (see MIGRATION.md): multi-hunter separation, lures, and room-power
+## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
+## Nightmare and its larger active lineup remain intentionally unavailable.
 
 enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
 
@@ -32,6 +29,8 @@ var state: State = State.IDLE
 var active := false
 var hunter_id: String
 var gimmick: HunterGimmick
+var difficulty_id := "standard"
+var difficulty_profile: Dictionary = GameConfig.DIFFICULTY_PROFILES["standard"]
 
 ## Changes a gimmick made to the shared world, for the scene above to drain.
 ##
@@ -78,10 +77,14 @@ var _path_target_cell := Vector2i.ZERO
 var _rng: SeededRandom
 
 
-func _init(spawn_position: Vector2, rng_seed_text: String, id: String = HunterRoster.DEFAULT_ID) -> void:
+func _init(spawn_position: Vector2, rng_seed_text: String,
+		id: String = HunterRoster.DEFAULT_ID, route_difficulty: String = "standard") -> void:
 	position = spawn_position
 	_rng = SeededRandom.new(rng_seed_text)
 	hunter_id = id
+	difficulty_id = route_difficulty if GameConfig.DIFFICULTY_PROFILES.has(
+		route_difficulty) else "standard"
+	difficulty_profile = GameConfig.difficulty_profile(difficulty_id)
 	gimmick = HunterGimmick.for_id(id)
 	var identity := HunterRoster.get_identity(id)
 	base_speed = identity["base_speed"]
@@ -136,7 +139,9 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 	if not target_hidden and not target_in_safe_zone \
 			and not (Build.tools_enabled() and bool(target.get("god_mode", false))) \
 			and not (gimmick and gimmick.immune_to_capture()):
-		var reach := (GameConfig.PLAYER_RADIUS + radius) * GameConfig.CAPTURE_DISTANCE_SCALE
+		var reach := (GameConfig.PLAYER_RADIUS + radius) \
+			* GameConfig.CAPTURE_DISTANCE_SCALE \
+			* float(difficulty_profile["capture_distance"])
 		if position.distance_to(target_position) < reach:
 			return true
 	return false
@@ -204,16 +209,20 @@ func _update_perception(delta: float, generator: FacilityGenerator, target_posit
 	var sees_target := false
 	if can_sense:
 		var sight_scale := 1.0 if target_flashlight_on else GameConfig.UNLIT_SIGHT_SCALE
-		if direct_distance < sight_range * sight_scale:
+		if direct_distance < sight_range * sight_scale \
+				* float(difficulty_profile["hunter_sight"]):
 			sees_target = generator.has_line_of_sight(position, target_position)
 
 	var hears_target := false
 	sense_timer -= delta
 	if sense_timer <= 0.0:
 		sense_timer = GameConfig.HUNTER_SENSE_INTERVAL
-		if can_sense and direct_distance < target_noise * GameConfig.HEARING_OUTER_SCALE * hearing_scale:
+		var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
+		if can_sense and direct_distance < target_noise * GameConfig.HEARING_OUTER_SCALE \
+				* hearing_scale * difficulty_hearing:
 			var sound_path := generator.find_path(_cell_of(position), _cell_of(target_position))
-			hears_target = sound_path.size() > 0 and sound_path.size() <= int(ceil(target_noise * hearing_scale))
+			hears_target = sound_path.size() > 0 and sound_path.size() <= int(ceil(
+				target_noise * hearing_scale * difficulty_hearing))
 
 	if sees_target:
 		state = State.CHASE
@@ -318,7 +327,7 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed *= GameConfig.HUNTER_WINDED_SPEED_SCALE
 	if gimmick:
 		speed *= gimmick.speed_scale(self)
-	return speed
+	return speed * float(difficulty_profile["hunter_speed"])
 
 
 func _pursue(move_target: Vector2, speed: float, delta: float, generator: FacilityGenerator) -> void:

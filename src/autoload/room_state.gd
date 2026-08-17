@@ -32,7 +32,10 @@ enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
 ## renaming an existing tier just to free the word felt like a bigger change
 ## than "merge the two biggest" asked for.
 enum Scale { SMALL, STANDARD, LARGE, IMMENSE }
-enum Difficulty { RELAXED, STANDARD, NIGHTMARE }
+## Nightmare is intentionally reserved but not selectable. Its eventual design
+## includes a larger active hunter lineup, which is not a safe thing to expose
+## as a label before the corresponding simulation and co-op rules exist.
+enum Difficulty { RELAXED, STANDARD, HARD, NIGHTMARE }
 
 ## The web build calls a slot a "signal" and seats sixteen of them.
 const MAX_PLAYERS := 16
@@ -51,7 +54,11 @@ const SCALE_LABELS := {
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
-	Difficulty.NIGHTMARE: "NIGHTMARE",
+	Difficulty.HARD: "HARD",
+}
+const DIFFICULTY_IDS := {
+	Difficulty.RELAXED: "relaxed", Difficulty.STANDARD: "standard",
+	Difficulty.HARD: "hard", Difficulty.NIGHTMARE: "nightmare",
 }
 
 ## Which scene each mode opens. OFFICE is its own self-contained shift and
@@ -293,7 +300,7 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 	seed_text = p_seed
 	mode = p_mode
 	map_scale = p_scale
-	difficulty = p_difficulty
+	difficulty = _selectable_difficulty_or_standard(p_difficulty)
 	peers = p_peers
 	session_active = p_session_active
 	changed.emit()
@@ -445,7 +452,18 @@ const SCALE_OPTIONS := {
 ## about how big the route is -- and so a joined room builds the host's
 ## facility rather than its own.
 func generator_options() -> Dictionary:
-	return (SCALE_OPTIONS.get(map_scale, SCALE_OPTIONS[Scale.STANDARD]) as Dictionary).duplicate()
+	var options := (SCALE_OPTIONS.get(map_scale,
+		SCALE_OPTIONS[Scale.STANDARD]) as Dictionary).duplicate()
+	# A hider cannot be allowed to stand forever in a hunter-proof refuge.
+	# Every finite Last Route map currently has one spawn checkpoint at most;
+	# difficulty may lower that cap now and leaves room for larger maps to grow
+	# into the original multi-refuge budget later.
+	var safe_zone_count := 0 if mode == Mode.HIDE_SEEK else mini(
+		GameConfig.FACILITY_SAFE_ZONE_COUNT,
+		GameConfig.safe_zone_limit_for(difficulty_id()))
+	options["safe_zone_count"] = safe_zone_count
+	options["safe_zone_at_spawn"] = safe_zone_count > 0
+	return options
 
 
 func set_mode(value: Mode) -> void:
@@ -471,11 +489,26 @@ func set_map_scale(value: Scale) -> void:
 func set_difficulty(value: Difficulty) -> void:
 	if online and not is_host:
 		return
-	if difficulty == value:
+	# NIGHTMARE is a reservation, not a hidden back door. Rejecting it here as
+	# well as omitting its lobby button keeps scripts and stale clients from
+	# starting an only-partially-defined ruleset.
+	if not DIFFICULTY_LABELS.has(value) or difficulty == value:
 		return
 	difficulty = value
 	broadcast()
 	changed.emit()
+
+
+func difficulty_id() -> String:
+	return String(DIFFICULTY_IDS.get(difficulty, "standard"))
+
+
+func difficulty_profile() -> Dictionary:
+	return GameConfig.difficulty_profile(difficulty_id())
+
+
+static func _selectable_difficulty_or_standard(value: int) -> int:
+	return value if DIFFICULTY_LABELS.has(value) else Difficulty.STANDARD
 
 
 ## Leave staging and start the run this room describes.
@@ -512,7 +545,7 @@ func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 	seed_text = p_seed
 	mode = p_mode
 	map_scale = p_scale
-	difficulty = p_difficulty
+	difficulty = _selectable_difficulty_or_standard(p_difficulty)
 	session_active = true
 	status_message = "ROUTE IN PROGRESS"
 	changed.emit()

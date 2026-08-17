@@ -61,6 +61,21 @@ const PAD := 12
 const GAP := 8
 const LABEL_TRACKING := 2
 
+## The original title's CSS stack is `Arial Black, Impact, sans-serif`.
+## It never shipped a proprietary font file, so Godot asks each platform for
+## the same faces and falls back to a widely available heavy sans-serif.
+static var _title_font: SystemFont
+
+
+static func title_font() -> SystemFont:
+	if _title_font == null:
+		_title_font = SystemFont.new()
+		_title_font.font_names = PackedStringArray([
+			"Arial Black", "Impact", "Arial", "Liberation Sans", "DejaVu Sans",
+		])
+		_title_font.font_weight = 900
+	return _title_font
+
 
 ## A filled panel with a hairline edge, as every block in the web build has.
 static func panel_box(fill: Color = PANEL, edge: Color = PANEL_EDGE,
@@ -118,6 +133,13 @@ static func style_label(label: Label, tint: Color, size: int,
 		# Godot has no letterspacing constant on Label, so the web build's
 		# tracked labels are spaced in the string instead; see `track()`.
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+
+## Heavy display treatment for screen titles; body copy deliberately keeps the
+## compact fallback font that remains legible at the game's 480x270 canvas.
+static func style_title(label: Label, tint: Color = INK) -> void:
+	label.add_theme_font_override("font", title_font())
+	label.add_theme_color_override("font_color", tint)
 
 
 ## Letterspacing by hand. Godot's Label has no tracking property, and these

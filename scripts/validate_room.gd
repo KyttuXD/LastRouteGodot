@@ -143,6 +143,39 @@ func run(host: Node) -> int:
 	_expect(RoomState.seed_text.begins_with("ROOM-%s-" % RoomState.code),
 		"route seed %s does not name its own room" % RoomState.seed_text)
 
+	# Nightmare is deliberately reserved until its multi-hunter rules exist.
+	# Hard is a complete, selectable midpoint profile rather than a relabelled
+	# Standard button.
+	_expect(RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.HARD),
+		"Hard is missing from the selectable difficulty row")
+	_expect(not RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.NIGHTMARE),
+		"Nightmare is selectable before its multi-hunter rules exist")
+	RoomState.set_difficulty(RoomState.Difficulty.HARD)
+	_expect(RoomState.difficulty == RoomState.Difficulty.HARD,
+		"set_difficulty did not accept Hard")
+	_expect(RoomState.difficulty_id() == "hard", "Hard resolves to the wrong rules id")
+	RoomState.set_difficulty(RoomState.Difficulty.NIGHTMARE)
+	_expect(RoomState.difficulty == RoomState.Difficulty.HARD,
+		"set_difficulty accepted the reserved Nightmare mode")
+	_expect(RoomState._selectable_difficulty_or_standard(
+		RoomState.Difficulty.NIGHTMARE) == RoomState.Difficulty.STANDARD,
+		"a stale network Nightmare value is not sanitized to Standard")
+	var standard := GameConfig.difficulty_profile("standard")
+	var hard := GameConfig.difficulty_profile("hard")
+	var nightmare := GameConfig.difficulty_profile("nightmare")
+	for field in GameConfig.DIFFICULTY_PROFILES["standard"]:
+		var midpoint := (float(standard[field]) + float(nightmare[field])) * 0.5
+		_expect(is_equal_approx(float(hard[field]), midpoint),
+			"Hard %s is %.3f, not the Standard/Nightmare midpoint %.3f" % [
+				field, float(hard[field]), midpoint])
+	for difficulty_id in ["relaxed", "standard", "hard", "nightmare"]:
+		GameState.start_new_run(12345, difficulty_id)
+		_expect(GameState.lives_remaining == GameConfig.respawn_lives_for(difficulty_id),
+			"%s started with %d lives" % [difficulty_id, GameState.lives_remaining])
+	RoomState.set_difficulty(RoomState.Difficulty.STANDARD)
+	_expect(Palette.title_font().font_names[0] == "Arial Black",
+		"the title no longer requests the original Arial Black face first")
+
 	# The seed on screen and the facility on the floor must agree, which means
 	# the run seed is derived from the text rather than stored beside it.
 	var before := RoomState.run_seed()
@@ -208,6 +241,13 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
 	_expect(lobby.get_child_count() > 1, "the staging screen drew nothing")
+	var saw_hard := false
+	var saw_nightmare := false
+	for button in lobby.find_children("*", "Button", true, false):
+		saw_hard = saw_hard or String(button.text) == "HARD"
+		saw_nightmare = saw_nightmare or String(button.text) == "NIGHTMARE"
+	_expect(saw_hard, "the staging screen did not render a Hard button")
+	_expect(not saw_nightmare, "the staging screen rendered a Nightmare button")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
@@ -290,6 +330,7 @@ func run(host: Node) -> int:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
 		print("  rules     HIDE & SEEK held back offline, office seats one")
+		print("  difficulty Relaxed / Standard / Hard live; Nightmare reserved")
 		print("  scales    %d map scales, each a distinct walkable facility" % sizes.size())
 		print("room OK")
 	return _failures
