@@ -144,16 +144,21 @@ Debug and release builds also check the primary Node backend for a
 channel/platform update manifest. Exported debug builds must complete this
 check before PLAY unlocks. The manifest carries both the frozen game version
 and the build's Git revision, so a new `debug` release is detected without a
-version bump. Native desktop builds automatically download the matching ZIP
-and verify its SHA-256. Required/debug updates then stage outside the
-installation, stop, replace the build, and relaunch; optional release updates
-wait at an INSTALL & RESTART button after downloading. The prior files are
-retained in a hidden `.lastroute-backup-previous`
+version bump. While no update is pending, debug clients recheck every 10
+seconds and release clients every 60 seconds. The backend refreshes its GitHub
+Release mirror every 15 seconds by default. Native desktop builds automatically
+download the matching ZIP and verify its SHA-256. Required/debug updates then
+stage outside the installation, stop, replace the build, and relaunch; optional
+release updates wait at an INSTALL & RESTART button after downloading. The
+prior files are retained in a hidden `.lastroute-backup-previous`
 folder beside the game so a failed hand-off can restore them. Web builds
 refresh the hosted game with a revision cache-buster. Quest builds download
 and verify the APK, then open Android's package installer for the required
 player approval. Pterodactyl can privately mirror GitHub Release assets with
-its own PAT; no GitHub credentials are shipped in the game. See
+its own PAT; that PAT also enables source watching so a newer `main` commit
+closes the listener and exits with restart status 75. Pterodactyl crash restart
+then reruns the panel's startup pull and current server. No GitHub credentials
+are shipped in the game. See
 [`backend/README.md`](backend/README.md#pterodactyl-hosted-updates) and
 [`backend/updates.example.json`](backend/updates.example.json).
 

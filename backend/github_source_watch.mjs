@@ -10,13 +10,18 @@ function enabled(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ""));
 }
 
+function disabled(value) {
+  return /^(0|false|no|off)$/i.test(String(value || ""));
+}
+
 function githubToken(env) {
   return String(env.LASTROUTE_GITHUB_TOKEN || env.GITHUB_TOKEN
     || env.GH_TOKEN || env.ACCESS_TOKEN || "").trim();
 }
 
 export function githubSourceWatchEnabled(env = process.env) {
-  return enabled(env.LASTROUTE_RESTART_ON_GITHUB_UPDATE);
+  const setting = String(env.LASTROUTE_RESTART_ON_GITHUB_UPDATE || "").trim();
+  return !disabled(setting) && (enabled(setting) || Boolean(githubToken(env)));
 }
 
 export async function checkGithubSourceRevision({

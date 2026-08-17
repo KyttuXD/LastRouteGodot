@@ -31,7 +31,12 @@ const server = startLastRouteServerFromEnvironment();
 
 if (githubReleaseSyncEnabled()) {
   const requestedSeconds = Number(process.env.LASTROUTE_UPDATE_POLL_SECONDS);
-  const pollSeconds = Math.max(60, Number.isFinite(requestedSeconds) ? requestedSeconds : 300);
+  // Release assets are the client's update source. Five-minute freshness made
+  // an already-open game honestly report UP TO DATE after a new build was
+  // published, then stay wrong until the next manual check/restart. A PAT gets
+  // 5,000 GitHub API requests/hour; four lightweight checks/minute is well
+  // inside that budget while keeping debug iteration responsive.
+  const pollSeconds = Math.max(10, Number.isFinite(requestedSeconds) ? requestedSeconds : 15);
   const updateTimer = setInterval(syncUpdates, pollSeconds * 1000);
   updateTimer.unref();
   server.once("close", () => clearInterval(updateTimer));
@@ -40,7 +45,7 @@ if (githubReleaseSyncEnabled()) {
 
 if (githubSourceWatchEnabled()) {
   const requestedSeconds = Number(process.env.LASTROUTE_SOURCE_POLL_SECONDS);
-  const pollSeconds = Math.max(60, Number.isFinite(requestedSeconds) ? requestedSeconds : 120);
+  const pollSeconds = Math.max(15, Number.isFinite(requestedSeconds) ? requestedSeconds : 30);
   let sourceCheckRunning = false;
   let restartRequested = false;
   const checkSource = async () => {

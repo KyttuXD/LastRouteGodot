@@ -23,7 +23,12 @@ test("detects when GitHub main moved past the deployed commit", async () => {
   assert.deepEqual(result, { changed: true, local, remote });
 });
 
-test("source restart watching is explicit opt-in", () => {
-  assert.equal(githubSourceWatchEnabled({ ACCESS_TOKEN: "secret" }), false);
+test("source restart watching follows the server PAT unless explicitly disabled", () => {
+  assert.equal(githubSourceWatchEnabled({ ACCESS_TOKEN: "secret" }), true);
   assert.equal(githubSourceWatchEnabled({ LASTROUTE_RESTART_ON_GITHUB_UPDATE: "true" }), true);
+  assert.equal(githubSourceWatchEnabled({
+    ACCESS_TOKEN: "secret",
+    LASTROUTE_RESTART_ON_GITHUB_UPDATE: "false",
+  }), false);
+  assert.equal(githubSourceWatchEnabled({}), false);
 });

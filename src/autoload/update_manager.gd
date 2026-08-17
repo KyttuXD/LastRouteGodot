@@ -16,6 +16,8 @@ signal update_ready(path: String)
 
 const UPDATE_ROOT := "user://updates"
 const DOWNLOAD_PART := "pending-update.part"
+const DEBUG_RECHECK_SECONDS := 10.0
+const RELEASE_RECHECK_SECONDS := 60.0
 const UNIX_HELPER := """#!/bin/sh
 set -u
 stage=$1
@@ -117,6 +119,7 @@ var status_message := ""
 
 var _manifest_request: HTTPRequest
 var _download_request: HTTPRequest
+var _recheck_timer: Timer
 var _last_progress_percent := -1
 
 
@@ -132,7 +135,23 @@ func _ready() -> void:
 	_download_request.request_completed.connect(_on_download_response)
 	set_process(false)
 	if DisplayServer.get_name() != "headless":
+		_recheck_timer = Timer.new()
+		_recheck_timer.name = "UpdateRecheckTimer"
+		_recheck_timer.wait_time = DEBUG_RECHECK_SECONDS \
+				if Build.update_channel() == "debug" else RELEASE_RECHECK_SECONDS
+		_recheck_timer.timeout.connect(_on_recheck_timeout)
+		add_child(_recheck_timer)
+		_recheck_timer.start()
 		check.call_deferred()
+
+
+func _on_recheck_timeout() -> void:
+	# Preserve a discovered or staged package. The timer exists to refresh an
+	# UP TO DATE result (and recover transient check failures), not reset an
+	# update that is already downloading or waiting to install.
+	if checking or downloading or installing or not available.is_empty():
+		return
+	check()
 
 
 func _process(_delta: float) -> void:

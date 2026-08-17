@@ -94,10 +94,10 @@ the backend allocation as TCP 1105.
 | `LASTROUTE_GITHUB_REPO` | `KyttuXD/LastRouteGodot` | GitHub owner/repository used for release and source checks |
 | `LASTROUTE_GITHUB_TAG` | `debug` | stable `debug` or `release` asset channel to mirror |
 | `LASTROUTE_GITHUB_TOKEN` | `GITHUB_TOKEN`, `GH_TOKEN`, or `ACCESS_TOKEN` | private server-side PAT; the named variable takes priority |
-| `LASTROUTE_UPDATE_POLL_SECONDS` | `300` (minimum `60`) | poll interval for hot release-asset synchronization |
-| `LASTROUTE_RESTART_ON_GITHUB_UPDATE` | `false` | request a Pterodactyl restart when the watched source branch advances |
+| `LASTROUTE_UPDATE_POLL_SECONDS` | `15` (minimum `10`) | poll interval for hot release-asset synchronization |
+| `LASTROUTE_RESTART_ON_GITHUB_UPDATE` | auto when a token exists | request a Pterodactyl restart when the watched source branch advances; set `false` to disable |
 | `LASTROUTE_GITHUB_BRANCH` | `main` | branch watched for backend source changes |
-| `LASTROUTE_SOURCE_POLL_SECONDS` | `120` (minimum `60`) | source-commit check interval |
+| `LASTROUTE_SOURCE_POLL_SECONDS` | `30` (minimum `15`) | source-commit check interval |
 | `LASTROUTE_DEPLOYED_REVISION` | local `git rev-parse HEAD` | exact deployed SHA when the server directory has no `.git` folder |
 | `TRUST_PROXY` | `false` | trust the first `X-Forwarded-For` address |
 | `ENET_ROOM_TTL_SECONDS` | `60` | remove hosts that stop heartbeating |
@@ -165,13 +165,15 @@ version change or browser download.
 
 ## Pterodactyl source auto-restart
 
-Set `LASTROUTE_RESTART_ON_GITHUB_UPDATE=true` to watch GitHub `main`. When the
-remote SHA differs from the deployed repository's `git rev-parse HEAD`, the
-service closes its HTTP listener and exits with status 75. Enable
-Pterodactyl's automatic crash restart and keep the existing `git pull` in the
-startup command: the restart runs that pull, then launches the current
-`index.js`. The watcher never runs `git pull` itself and never rewrites source
-files while Node is executing them.
+With the server-side GitHub PAT configured, the backend watches GitHub `main`
+automatically. When the remote SHA differs from the deployed repository's
+`git rev-parse HEAD`, the service closes its HTTP listener and exits with
+status 75. Enable Pterodactyl's automatic crash restart and keep the existing
+`git pull` in the startup command: the restart runs that pull, then launches
+the current `index.js`. The watcher never runs `git pull` itself and never
+rewrites source files while Node is executing them. Set
+`LASTROUTE_RESTART_ON_GITHUB_UPDATE=false` only when a deployment must stay
+pinned.
 
 If the startup pull fails or Pterodactyl crash restart is disabled, this cannot
 self-heal; the logs will show the local and remote short SHAs. Leave the option
