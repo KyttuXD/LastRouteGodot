@@ -27,10 +27,11 @@ curl http://127.0.0.1:1101/api/health
 ```
 
 Normal game builds use only the primary service at
-`https://lastroute.kyttuslab.org:1105`. This endpoint is hardcoded for editor,
-debug, and release builds and is shared by accounts, room discovery, and
-updates. The game exposes no environment variable, command-line override,
-custom directory, or direct-address lobby option.
+`http://lastroute.kyttuslab.org:8105`. TCP `8105` is reserved for the plain
+HTTP Pterodactyl listener used by room discovery and updates, while UDP `1105`
+remains the gameplay relay. Account/password actions intentionally remain unavailable over
+this public HTTP origin. The game exposes no environment variable,
+command-line override, custom directory, or direct-address lobby option.
 
 ## Pterodactyl deployment
 
@@ -52,7 +53,7 @@ configuration is:
 
 ```text
 HOST=0.0.0.0
-SERVER_PORT=<the panel's TCP allocation>
+SERVER_PORT=8105
 LASTROUTE_DATA_DIR=./.data
 LASTROUTE_RELAY_ENABLED=true
 LASTROUTE_RELAY_HOST=lastroute.kyttuslab.org
@@ -75,25 +76,26 @@ LASTROUTE_API_RATE_LIMIT=600
 LASTROUTE_ACCOUNT_RATE_LIMIT=30
 ```
 
-The official client refuses plain public HTTP. Terminate TLS for
-`lastroute.kyttuslab.org:1105` in a trusted reverse proxy and forward it to the
-Node TCP allocation, or place an equivalent TLS terminator in front of the
-panel. Set `TRUST_PROXY=true` only when that trusted proxy overwrites
+The debug client currently permits this exact hardcoded public HTTP origin for
+room discovery and update delivery, but refuses to send account credentials or
+sessions through it. Before enabling accounts or shipping a secure release,
+terminate TLS in a trusted reverse proxy and update the hardcoded client origin.
+Set `TRUST_PROXY=true` only when that trusted proxy overwrites
 `X-Forwarded-For`; otherwise all proxied players share one rate-limit identity.
 Do not enable it on a service exposed directly to untrusted clients. The Node
 service enforces its own limits, and proxy/firewall limits are useful defense
 in depth.
 
-Allocate **both TCP and UDP 1105** to this Pterodactyl server and map both
-protocols through the firewall/container. TCP carries HTTP accounts, room
-codes and updates; UDP carries the authenticated gameplay relay. They can
-share the same number because TCP and UDP have separate socket namespaces.
-Only the Pterodactyl machine needs a public inbound UDP allocation. Player
-hosts never expose UDP 8421 and the client no longer contains a UPnP path.
+Allocate **TCP 8105** and **UDP 1105** to this Pterodactyl server and map both
+through the firewall/container. TCP 8105 carries HTTP room codes and updates;
+UDP 1105 carries the authenticated gameplay relay. Only the Pterodactyl
+machine needs a public inbound UDP allocation. Player hosts never expose UDP
+8421 and the client no longer contains a UPnP path.
 
-The official client uses `lastroute.kyttuslab.org:1105`, currently resolving
-to `195.62.47.178`. Point that DNS name at the panel's public address and expose
-the backend allocation as both TCP 1105 and UDP 1105.
+The official client uses HTTP at `lastroute.kyttuslab.org:8105` and the relay
+at `lastroute.kyttuslab.org:1105`, currently resolving to `195.62.47.178`.
+Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
+1105.
 
 ## Environment
 
@@ -164,8 +166,9 @@ merely contain the text (for example `KYTTU_FAN`) are ordinary users.
 
 Release admin tools unlock only after the running client receives a successful
 primary-server authentication for `KYTTU`. Cached local config never grants
-admin access. Public account requests require the exact hardcoded HTTPS origin;
-plain HTTP is accepted only for loopback integration tests.
+admin access. Public account requests require HTTPS, so they are unavailable on
+the current plain-HTTP deployment; plain HTTP credentials are accepted only for
+loopback integration tests.
 
 An authenticated `KYTTU` guest requests an opaque admin ticket from
 `/api/enet/admin-tickets/issue`. The ticket is valid for at most five minutes
@@ -251,8 +254,8 @@ manifest, and release title rather than the tag name.
 
 The PAT belongs only in Pterodactyl's private variables or deployment script;
 never write it into `updates.json`, the Godot project, an export, or Git. Keep
-TLS termination active in front of the public backend. The
-current client opens the published archive/APK rather than attempting to
+TLS termination is still required before enabling public accounts or shipping
+a secure release. The current client opens the published archive/APK rather than attempting to
 overwrite its own running executable. Steam, Meta Quest store builds and the
 hosted Web build should eventually use their platform-native deployment
 systems; a future signed desktop launcher can consume the same manifest and

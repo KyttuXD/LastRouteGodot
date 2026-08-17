@@ -26,14 +26,14 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
-	_expect(Backend.PRIMARY_BASE_URL == "https://lastroute.kyttuslab.org:1105",
+	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:8105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
 	var backend_url_before := Backend.base_url
 	Backend.base_url = Backend.PRIMARY_BASE_URL
-	_expect(Backend.accounts_available(),
-		"the hardcoded primary HTTPS deployment locks account access")
-	_expect(Backend.account_transport_warning().is_empty(),
-		"the protected primary origin shows an account transport warning")
+	_expect(not Backend.accounts_available(),
+		"the temporary public HTTP deployment gained credential access")
+	_expect(not Backend.account_transport_warning().is_empty(),
+		"the temporary public HTTP origin hides its account transport warning")
 	Backend.base_url = "http://untrusted.invalid:1105"
 	_expect(not Backend.accounts_available(),
 		"an arbitrary public HTTP backend gained credential access")

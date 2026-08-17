@@ -19,7 +19,10 @@ signal admin_ticket_verified(request_id: int, authorized: bool,
 	expires_in: int, message: String)
 
 const HEARTBEAT_SECONDS := 20.0
-const PRIMARY_BASE_URL := "https://lastroute.kyttuslab.org:1105"
+## The current Pterodactyl allocation exposes Node's plain HTTP listener
+## directly. Account/password requests remain disabled by
+## `_account_transport_is_protected()` until TLS is added in front of it.
+const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:8105"
 const ACCOUNT_CONFIG_PATH := "user://last_route_account.cfg"
 var base_url := PRIMARY_BASE_URL
 
@@ -97,7 +100,7 @@ func accounts_available() -> bool:
 
 
 func account_transport_warning() -> String:
-	return ""
+	return "" if accounts_available() else "ACCOUNT SIGN-IN REQUIRES HTTPS"
 
 
 func _account_transport_is_protected() -> bool:

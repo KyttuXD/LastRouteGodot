@@ -259,7 +259,10 @@ func _on_account_pressed() -> void:
 		return
 	_account_status.text = "NOT SIGNED IN // PLAY WITHOUT AN ACCOUNT OR SIGN IN TO SAVE ACROSS DEVICES"
 	if not Backend.accounts_available():
-		_account_status.text = "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
+		var warning := Backend.account_transport_warning()
+		_account_status.text = warning if not warning.is_empty() \
+			else "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
+		_account_status.add_theme_color_override("font_color", Palette.ALERT)
 	elif not Backend.account_transport_warning().is_empty():
 		_account_status.text += "\n%s" % Backend.account_transport_warning()
 		_account_status.add_theme_color_override("font_color", Palette.ALERT)
@@ -594,6 +597,9 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 		update_button.visible = true
 		return
 	play_button.text = "UPDATE CHECK REQUIRED"
-	update_button.text = "RETRY UPDATE CHECK"
+	# Keep the specific failure visible. The old generic retry label hid whether
+	# the request failed, the response was invalid, or the transport was rejected.
+	update_button.text = UpdateManager.status_message \
+		if not UpdateManager.status_message.is_empty() else "RETRY UPDATE CHECK"
 	update_button.disabled = false
 	update_button.visible = true

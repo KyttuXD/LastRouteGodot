@@ -19,7 +19,7 @@ this file is the order in which unfinished work should be attacked.
 - [x] Route native ENet through the authenticated Pterodactyl UDP relay. Hosts
   and guests make outbound connections only; no UPnP, player-router forward,
   hairpin NAT, or carrier-grade-NAT exception remains. Deployment must allocate
-  UDP 1105 alongside the backend's TCP 1105.
+  UDP 1105 alongside the backend's TCP 8105.
 - [x] Explicitly end a guest's live session when peer 1 leaves and return to
   staging with `HOST DISCONNECTED // RETURNED TO STAGING`. Reconnect grace and
   host migration remain future reliability upgrades rather than silent stalls.
@@ -35,9 +35,10 @@ this file is the order in which unfinished work should be attacked.
   and list the ENet room automatically, and fall back to a playable solo room
   when the service or initial listing is unavailable. Staging no longer repeats
   create/join/code/leave-network controls; JOIN ROOM lives on the main menu.
-- [x] Require the public backend over HTTPS and apply built-in per-address API
-  and account throttles. Pterodactyl must terminate TLS (directly or through a
-  trusted reverse proxy); plain public HTTP account origins are rejected.
+- [ ] Add TLS termination in front of the public backend. The current debug
+  deployment deliberately uses Pterodactyl's plain HTTP allocation so room
+  discovery and updates are testable; account/password actions remain disabled
+  until HTTPS is available. Built-in per-address API/account throttles remain.
 - [x] Issue short-lived, room-bound admin tickets from the primary backend so
   an authenticated `KYTTU` release guest can use shared map/admin tools without
   sending an account session token to the host. Tickets expire after five

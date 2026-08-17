@@ -341,15 +341,15 @@ func _check_main_menu_contract(scene: Node) -> int:
 	await _frame()
 	var login_button := scene.find_child("AccountLoginButton", true, false) as Button
 	var register_button := scene.find_child("AccountRegisterButton", true, false) as Button
-	if login_button == null or login_button.disabled \
-			or register_button == null or register_button.disabled:
-		failures += _fail("primary HTTPS account transport locks account actions")
+	if login_button == null or not login_button.disabled \
+			or register_button == null or not register_button.disabled:
+		failures += _fail("temporary public HTTP transport exposes account actions")
 	var transport_warning_visible := false
 	for label in scene.find_children("*", "Label", true, false):
 		transport_warning_visible = transport_warning_visible \
-			or "UNENCRYPTED HTTP" in String(label.text)
-	if transport_warning_visible:
-		failures += _fail("primary HTTPS account form shows a stale transport warning")
+			or "ACCOUNT SIGN-IN REQUIRES HTTPS" in String(label.text)
+	if not transport_warning_visible:
+		failures += _fail("temporary public HTTP account form hides its transport warning")
 	scene.call("_on_account_changed", false, "", false, "TEST LOGIN FAILURE")
 	await _frame()
 	var saw_failure := false

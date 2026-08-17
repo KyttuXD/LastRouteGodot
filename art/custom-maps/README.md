@@ -71,7 +71,7 @@ private, so a raw GitHub URL cannot be used by an unauthenticated game client.
 The Node backend safely exposes checked-in PNGs from this directory instead:
 
 ```text
-https://lastroute.kyttuslab.org:1105/api/custom-maps/test-map.png
+http://lastroute.kyttuslab.org:8105/api/custom-maps/test-map.png
 ```
 
 `art/custom-maps` is the backend's default map directory. An alternate folder
@@ -104,5 +104,5 @@ After the backend has pulled this repository, load them through the same
 endpoint, for example:
 
 ```text
-https://lastroute.kyttuslab.org:1105/api/custom-maps/sample-frozen-tideline.png
+http://lastroute.kyttuslab.org:8105/api/custom-maps/sample-frozen-tideline.png
 ```
