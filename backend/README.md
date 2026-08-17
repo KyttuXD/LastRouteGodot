@@ -79,6 +79,7 @@ the backend allocation as TCP 1105.
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
 | `LASTROUTE_PUBLIC_DIR` | empty/disabled | optional static web-client directory |
+| `LASTROUTE_CUSTOM_MAP_DIR` | `./art/custom-maps` when present | safe PNG-only custom-map directory exposed below `/api/custom-maps/` |
 | `LASTROUTE_UPDATE_MANIFEST` | empty/disabled | update metadata JSON loaded when the server starts |
 | `LASTROUTE_UPDATE_DIR` | empty/disabled | directory containing published update archives |
 | `TRUST_PROXY` | `false` | trust the first `X-Forwarded-For` address |

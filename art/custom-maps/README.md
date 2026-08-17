@@ -45,12 +45,17 @@ or transparent pixels become walls and produce a warning.
 
 ## Test the included map
 
-[`test-map.png`](test-map.png) is a known-good 49×49 example. Once it is on
-GitHub, its directly downloadable URL is:
+[`test-map.png`](test-map.png) is a known-good 49×49 example. The repository is
+private, so a raw GitHub URL cannot be used by an unauthenticated game client.
+The Node backend safely exposes checked-in PNGs from this directory instead:
 
 ```text
-https://raw.githubusercontent.com/KyttuXD/LastRouteGodot/main/art/custom-maps/test-map.png
+http://lastroute.kyttuslab.org:1105/api/custom-maps/test-map.png
 ```
+
+`art/custom-maps` is the backend's default map directory. An alternate folder
+can be selected with `LASTROUTE_CUSTOM_MAP_DIR`; the GitHub PAT stays on the
+server and is never sent to a player.
 
 1. Run a **debug** build and enter an offline or co-op route.
 2. Press `0` (or numpad `0`) to open the admin menu.

@@ -184,6 +184,7 @@ export function createLastRouteServer({
   playerTtlMs = 120_000,
   accountStorePath = null,
   publicDirectory = null,
+  customMapDirectory = null,
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -230,6 +231,12 @@ export function createLastRouteServer({
         reloadId,
         now: new Date(now()).toISOString(),
       });
+    }
+
+    const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
+    if (new Set(["GET", "HEAD"]).has(request.method) && customMapFile) {
+      if (tryStaticFile(request, response, customMapDirectory, `/${customMapFile[1]}`)) return;
+      return json(response, 404, { ok: false, error: "CUSTOM MAP NOT FOUND" });
     }
 
     const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|macos|web|steamvr|quest)$/);
@@ -378,6 +385,10 @@ export function startLastRouteServerFromEnvironment() {
   const dataDirectory = environmentPath("LASTROUTE_DATA_DIR") || environmentPath("KYTTU_DATA_DIR") || resolve(process.cwd(), "data");
   const accountStorePath = environmentPath("LASTROUTE_ACCOUNT_STORE") || environmentPath("KYTTU_ACCOUNT_STORE_PATH") || join(dataDirectory, "accounts.json");
   const publicDirectory = environmentPath("LASTROUTE_PUBLIC_DIR");
+  const bundledCustomMapDirectory = resolve(process.cwd(), "art/custom-maps");
+  const requestedCustomMapDirectory = environmentPath("LASTROUTE_CUSTOM_MAP_DIR");
+  const customMapDirectory = requestedCustomMapDirectory
+    || (existsSync(bundledCustomMapDirectory) ? bundledCustomMapDirectory : null);
   const updateManifestPath = environmentPath("LASTROUTE_UPDATE_MANIFEST");
   const updateDirectory = environmentPath("LASTROUTE_UPDATE_DIR");
   let updates = {};
@@ -393,13 +404,14 @@ export function startLastRouteServerFromEnvironment() {
     enetRoomTtlMs,
     accountStorePath,
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
+    customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
     updates,
     adminPassword: String(process.env.LASTROUTE_ADMIN_PASSWORD || process.env.KYTTU_DEV_PASSWORD || ""),
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
   });
   server.listen(port, host, () => loggerStartup(host, port, accountStorePath,
-    publicDirectory, updateManifestPath, updateDirectory));
+    publicDirectory, customMapDirectory, updateManifestPath, updateDirectory));
   const shutdown = (signal) => {
     console.log(`${signal}: closing Last Route backend`);
     server.close(() => process.exit(0));
@@ -410,10 +422,12 @@ export function startLastRouteServerFromEnvironment() {
   return server;
 }
 
-function loggerStartup(host, port, accountStorePath, publicDirectory, updateManifestPath, updateDirectory) {
+function loggerStartup(host, port, accountStorePath, publicDirectory, customMapDirectory,
+  updateManifestPath, updateDirectory) {
   console.log(`Last Route backend listening on http://${host}:${port}`);
   console.log(`Account data: ${accountStorePath}`);
   if (publicDirectory) console.log(`Static files: ${publicDirectory}`);
+  if (customMapDirectory) console.log(`Custom maps: ${customMapDirectory}`);
   if (updateManifestPath) console.log(`Update manifest: ${updateManifestPath}`);
   if (updateDirectory) console.log(`Update files: ${updateDirectory}`);
 }

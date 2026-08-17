@@ -264,6 +264,26 @@ test("serves the Web export with browser-safe MIME types", async () => {
   }
 });
 
+test("serves only safe PNG names from the custom-map directory", async () => {
+  const customMapDirectory = await mkdtemp(join(tmpdir(), "last-route-maps-"));
+  await writeFile(join(customMapDirectory, "test-map.png"), "png-test");
+  await writeFile(join(customMapDirectory, "notes.txt"), "not public");
+  const app = await fixtureWith(() => createLastRouteServer({ customMapDirectory }));
+  try {
+    let response = await fetch(`${app.url}/api/custom-maps/test-map.png`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.equal(await response.text(), "png-test");
+    response = await fetch(`${app.url}/api/custom-maps/notes.txt`);
+    assert.equal(response.status, 404);
+    response = await fetch(`${app.url}/api/custom-maps/..%2Fnotes.txt`);
+    assert.equal(response.status, 404);
+  } finally {
+    await app.close();
+    await rm(customMapDirectory, { recursive: true, force: true });
+  }
+});
+
 async function fixtureWith(factory) {
   const server = factory();
   server.listen(0, "127.0.0.1");
