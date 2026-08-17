@@ -216,7 +216,7 @@ func _snapshot_catches_up(host: Node, alice: Node) -> void:
 ## arrive before cell-addressed pickup/hiding state, and an invalid payload
 ## must leave the guest locked so RemotePlayers will request another snapshot.
 func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
-	var size := CustomMapParser.MIN_SIZE
+	var size := 35
 	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0, 0, 0, 1))
 	for y in range(1, size - 1):

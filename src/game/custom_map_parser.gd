@@ -38,11 +38,10 @@ const PALETTE := {
 	0x6fbf73: {"kind": "region", "region": "garden"},
 }
 
-## Mirrors FacilityGenerator's own MIN_ROUTE_SIZE/MAX_ROUTE_SIZE — a custom
-## map's grid becomes the maze's grid directly, so it must fit the same
-## bounds every procedural route respects.
-const MIN_SIZE := 35
-const MAX_SIZE := 121
+## Custom layouts do not inherit the procedural generator's 35..121 authoring
+## bounds. Their PNG dimensions become the grid dimensions directly. In other
+## words, there is no Last Route pixel-width, pixel-height, or total-cell cap;
+## practical memory/rendering cost is determined by the machine loading it.
 
 const FLOOD_NEIGHBORS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
@@ -60,12 +59,6 @@ static func parse(image: Image) -> Dictionary:
 		return {"ok": false, "error": "no image data"}
 	var width := image.get_width()
 	var height := image.get_height()
-	if width < MIN_SIZE or height < MIN_SIZE:
-		return {"ok": false, "error": "custom map too small: %dx%d (minimum %dx%d)"
-			% [width, height, MIN_SIZE, MIN_SIZE]}
-	if width > MAX_SIZE or height > MAX_SIZE:
-		return {"ok": false, "error": "custom map too large: %dx%d (maximum %dx%d)"
-			% [width, height, MAX_SIZE, MAX_SIZE]}
 
 	if image.is_compressed():
 		image = image.duplicate()

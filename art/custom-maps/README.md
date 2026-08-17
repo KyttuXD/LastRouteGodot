@@ -7,7 +7,7 @@ blending, colour profiles, and resampling disabled.
 ## File rules
 
 - PNG, RGB or RGBA, fully opaque
-- Width and height may each be **35 through 121 pixels**
+- There is **no width, height, or total-pixel limit imposed by the game**
 - Use only the exact colours below
 - Paint exactly one green start cell
 - A red exit cell is recommended; without one, the game chooses a lift cell
@@ -15,6 +15,11 @@ blending, colour profiles, and resampling disabled.
 - Make corridors and doors at least 3 pixels wide for comfortable movement
 - Every walkable area should be connected to the green start cell
 - The downloaded PNG must be no larger than 2 MiB
+
+The 2 MiB rule is a compressed-file transport guard for HTTP and multiplayer,
+not a pixel-dimension limit. Very large grids still consume proportionally
+more RAM, GridMap cells, collision data, and loading time, so test ambitious
+sizes on the lowest-spec machine you intend to support.
 
 Do not resize a finished map with smooth/bilinear filtering. If it must be
 resized, use nearest-neighbour filtering and inspect the result for changed

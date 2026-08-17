@@ -135,7 +135,7 @@ A design bug surfaced and was fixed during this: `HunterBrain.update()` returned
 
 ## Custom maps (admin-only, playable)
 
-A colour-coded PNG stands in for procedural generation, ported from the original's own developer format (`src/game/custom-map.js`) into `src/game/custom_map_parser.gd`: black wall, white floor, one green start pixel, an optional red exit, and region colours (office, maintenance, arcade, circus, nether, beach, mansion, garden) flood-filled into rooms by contiguous colour. Same palette, same 35..121 size bounds `FacilityGenerator` already enforces for procedural floors.
+A colour-coded PNG stands in for procedural generation, ported from the original's own developer format (`src/game/custom-map.js`) into `src/game/custom_map_parser.gd`: black wall, white floor, one green start pixel, an optional red exit, and region colours (office, maintenance, arcade, circus, nether, beach, mansion, garden) flood-filled into rooms by contiguous colour. It uses the same palette but intentionally has no authored width, height, or total-pixel cap; its dimensions become the grid directly rather than inheriting the procedural generator's 35..121 range.
 
 **Fed into the same generator, not a separate one.** `FacilityGenerator._init()` takes an optional `custom_layout` dict; given one, it skips procedural carving and loads the parsed grid/rooms/start/exit directly, then runs the exact same relay/battery/safe-zone/service-lift placement a procedural floor gets — those algorithms only ever read `self.grid`/`self.rooms`, so a hand-painted layout is populated by the same seeded, deterministic code a carved one is.
 
