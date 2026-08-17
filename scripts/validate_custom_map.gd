@@ -20,6 +20,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(_host: Node) -> int:
 	_parses_a_real_map()
+	_parses_committed_sample()
 	_rejects_out_of_bounds()
 	_flags_unrecognised_colour()
 	_requires_a_start()
@@ -27,6 +28,33 @@ func run(_host: Node) -> int:
 	if _failures == 0:
 		print("custom_map OK")
 	return _failures
+
+
+func _parses_committed_sample() -> void:
+	var image := Image.load_from_file("res://art/custom-maps/test-map.png")
+	_expect(image != null and not image.is_empty(), "the committed sample PNG could not be loaded")
+	if image == null or image.is_empty():
+		return
+	var result := CustomMapParser.parse(image)
+	var ok: bool = result.get("ok", false)
+	_expect(ok, "the committed sample PNG failed to parse: %s" % result.get("error", ""))
+	if not ok:
+		return
+	_expect(result["cols"] == 49 and result["rows"] == 49,
+		"the committed sample is %dx%d, not 49x49" % [result["cols"], result["rows"]])
+	_expect(result["start"] == Vector2i(24, 24),
+		"the committed sample start landed at %s" % result["start"])
+	_expect(result["exit_cell"] == Vector2i(44, 44),
+		"the committed sample exit landed at %s" % result["exit_cell"])
+	_expect((result["rooms"] as Array).size() == 4,
+		"the committed sample should contain 4 themed rooms")
+	_expect((result["warnings"] as Array).is_empty(),
+		"the committed sample contains unrecognised or transparent pixels")
+	var reachable: Dictionary = FacilityGenerator.new(
+		"COMMITTED-CUSTOM-MAP", RoomState.generator_options(), result).distance_map(24, 24)
+	_expect(reachable.has(Vector2i(44, 44)),
+		"the committed sample exit is not reachable from its start")
+	print("  sample    committed 49x49 PNG is exact-colour and fully connected")
 
 
 ## A minimal but real map: a walled square, a floor interior, a start, an

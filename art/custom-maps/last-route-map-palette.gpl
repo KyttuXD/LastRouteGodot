@@ -1,0 +1,16 @@
+GIMP Palette
+Name: Last Route Custom Maps
+Columns: 4
+# Exact RGB values used by src/game/custom_map_parser.gd
+  0   0   0 Wall
+255 255 255 Floor
+  0 255   0 Start
+255   0   0 Exit
+ 74 144 217 Office
+201 122  61 Maintenance
+217 185  74 Arcade
+217  74 160 Circus
+185  74  74 Nether
+232 203 160 Beach
+142  95 217 Mansion
+111 191 115 Garden
