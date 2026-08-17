@@ -148,13 +148,20 @@ a GitHub token in the game:
    filenames referenced by a valid manifest.
 4. Debug exports query the `debug` channel and release exports query `release`.
    Exported debug builds compare both version and Git revision, and keep PLAY
-   locked until the check succeeds. If the revision changed, the menu offers
-   the matching archive even while the version remains `0.0.1.0`.
+   locked until the check succeeds. If the revision changed, the client
+   automatically downloads and installs the matching archive even while the
+   version remains `0.0.1.0`.
 
-The updater opens the verified archive/APK; it does not overwrite a running
-executable. Existing clients from before commit-aware updates require one
-manual install of the bridge build. After that, every newly published commit
-is detected without changing the version.
+Desktop clients SHA-256-check and unpack the archive under their private user
+data folder. Required/debug updates then start an independent helper; optional
+release updates wait for INSTALL & RESTART. The helper waits for the game to
+exit, keeps a backup of the replaced files, installs the staged build, and
+relaunches it. Web refreshes the hosted page with a revision cache-buster.
+Quest downloads and verifies its APK, then opens Android's package installer;
+Android still requires the player to approve a sideloaded package replacement.
+Existing clients from before automatic installation require one final manual
+install of this bridge build. After that, newly published commits do not need a
+version change or browser download.
 
 ## Pterodactyl source auto-restart
 

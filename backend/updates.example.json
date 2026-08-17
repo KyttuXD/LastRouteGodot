@@ -19,7 +19,7 @@
   },
   "release": {
     "windows": {
-      "version": "1.0.0",
+      "version": "0.0.1.0",
       "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
       "file": "LastRoute-Windows.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",

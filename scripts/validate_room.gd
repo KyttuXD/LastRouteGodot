@@ -41,6 +41,90 @@ func run(host: Node) -> int:
 		"the updater offered its own build commit")
 	_expect(not UpdateManager._update_needed("0.0.1.0", "0.0.1.0", "", "source"),
 		"an editor/source run was treated as an exported revision")
+	_expect(UpdateManager._valid_sha256("a".repeat(64)),
+		"the updater rejected a valid SHA-256")
+	_expect(not UpdateManager._valid_sha256("a".repeat(63)),
+		"the updater accepted a short SHA-256")
+	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
+		_expect(UpdateManager._safe_archive_entry(safe_entry),
+			"the updater rejected safe archive entry %s" % safe_entry)
+	for unsafe_entry in ["../LastRoute.pck", "/tmp/LastRoute", "folder/../../escape",
+			"C:/Windows/System32/escape", "folder\\escape"]:
+		_expect(not UpdateManager._safe_archive_entry(unsafe_entry),
+			"the updater accepted unsafe archive entry %s" % unsafe_entry)
+	_expect(UpdateManager._mac_bundle_path(
+		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route") \
+		== "/Applications/KYTTU- The Last Route.app",
+		"the updater could not resolve a macOS app bundle")
+	var update_archive := "user://last-route-update-test.zip"
+	var update_stage := "user://last-route-update-test"
+	UpdateManager._remove_tree(update_stage)
+	var packer := ZIPPacker.new()
+	_expect(packer.open(update_archive) == OK, "could not create updater test ZIP")
+	_expect(packer.start_file("LastRoute-Test.x86_64") == OK,
+		"could not add the updater test executable")
+	packer.write_file("test executable".to_utf8_buffer())
+	packer.close_file()
+	_expect(packer.start_file("LastRoute-Test.pck") == OK,
+		"could not add the updater test PCK")
+	packer.write_file("test pck".to_utf8_buffer())
+	packer.close_file()
+	packer.close()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(update_stage))
+	_expect(UpdateManager._extract_archive(update_archive, update_stage).is_empty(),
+		"the updater could not unpack a valid platform archive")
+	var update_layout := UpdateManager._installation_layout("linux",
+		"/games/LastRoute-Old.x86_64", update_stage)
+	_expect(String(update_layout.get("launch", "")) == "LastRoute-Test.x86_64",
+		"the updater could not find the staged Linux executable")
+	_expect(FileAccess.get_file_as_string(
+		update_stage.path_join("LastRoute-Test.pck")) == "test pck",
+		"the updater changed the staged PCK")
+	var helper_path := "user://last-route-update-helper-test.sh"
+	_expect(UpdateManager._write_text(helper_path, UpdateManager.UNIX_HELPER),
+		"the updater could not write its desktop helper")
+	var helper_output := []
+	_expect(OS.execute("/bin/sh", PackedStringArray(["-n",
+		ProjectSettings.globalize_path(helper_path)]), helper_output, true) == 0,
+		"the Unix update helper has invalid shell syntax: %s" % helper_output)
+	var apply_root := "user://last-route-update-apply-test"
+	var apply_stage := apply_root.path_join("stage")
+	var apply_install := apply_root.path_join("install")
+	UpdateManager._remove_tree(apply_root)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(apply_stage))
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(apply_install))
+	var new_executable := FileAccess.open(
+		apply_stage.path_join("LastRoute-Test.x86_64"), FileAccess.WRITE)
+	new_executable.store_string("#!/bin/sh\nexit 0\n")
+	new_executable.close()
+	var new_pck := FileAccess.open(apply_stage.path_join("LastRoute-Test.pck"), FileAccess.WRITE)
+	new_pck.store_string("new pck")
+	new_pck.close()
+	var old_executable := FileAccess.open(
+		apply_install.path_join("LastRoute-Test.x86_64"), FileAccess.WRITE)
+	old_executable.store_string("old executable")
+	old_executable.close()
+	var old_pck := FileAccess.open(apply_install.path_join("LastRoute-Test.pck"), FileAccess.WRITE)
+	old_pck.store_string("old pck")
+	old_pck.close()
+	helper_output.clear()
+	_expect(OS.execute("/bin/sh", PackedStringArray([
+		ProjectSettings.globalize_path(helper_path),
+		ProjectSettings.globalize_path(apply_stage),
+		ProjectSettings.globalize_path(apply_install),
+		"LastRoute-Test.x86_64", "99999999", "abcdef1", "linux"]),
+		helper_output, true) == 0,
+		"the Unix update helper failed its disposable install: %s" % helper_output)
+	_expect(FileAccess.get_file_as_string(
+		apply_install.path_join("LastRoute-Test.pck")) == "new pck",
+		"the update helper did not install the new PCK")
+	_expect(FileAccess.get_file_as_string(apply_install.path_join(
+		".lastroute-backup-previous/LastRoute-Test.pck")) == "old pck",
+		"the update helper did not retain the previous PCK")
+	UpdateManager._remove_tree(update_stage)
+	UpdateManager._remove_tree(apply_root)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(update_archive))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(helper_path))
 	_expect(RoomState.valid_room_code("ABCDE"),
 		"a valid primary-server room code was rejected")
 	for invalid_code in ["ABCD", "ABCDEF", "AB0DE", "ABIDE", "ABODE"]:

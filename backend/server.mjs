@@ -119,6 +119,8 @@ function publicUpdateManifest(updates, channel, platform) {
     version,
     revision,
     url: url.startsWith("https://") ? url : relativeUrl,
+    file,
+    bytes: Number.isSafeInteger(entry.bytes) && entry.bytes > 0 ? entry.bytes : undefined,
     sha256,
     notes: String(entry.notes || "").slice(0, 2000),
     required: Boolean(entry.required),

@@ -52,6 +52,8 @@ func _ready() -> void:
 				not UpdateManager.available.is_empty())
 		elif not UpdateManager.checking:
 			UpdateManager.check()
+	if not UpdateManager.status_message.is_empty():
+		_on_update_status(UpdateManager.status_message)
 
 
 ## Restyle from Palette at load rather than in the scene file.
@@ -108,11 +110,11 @@ func _on_update_available(update: Dictionary) -> void:
 	var revision := String(update.get("revision", ""))
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
 		else String(update.get("version", ""))
-	update_button.text = "DOWNLOAD UPDATE %s" % identity
+	update_button.text = "PREPARING UPDATE %s" % identity
 	update_button.tooltip_text = String(update.get("notes", ""))
-	update_button.disabled = false
+	update_button.disabled = true
 	update_button.visible = true
-	if Build.requires_update_gate():
+	if Build.requires_update_gate() or UpdateManager.update_required:
 		play_button.disabled = true
 		play_button.text = "UPDATE REQUIRED"
 
@@ -122,14 +124,26 @@ func _on_update_pressed() -> void:
 		update_button.disabled = true
 		update_button.text = "CHECKING FOR UPDATES"
 		UpdateManager.check()
+	elif UpdateManager.ready_to_install:
+		update_button.disabled = true
+		UpdateManager.install_update()
+	elif not UpdateManager.downloading and not UpdateManager.installing:
+		update_button.disabled = true
+		UpdateManager.download_update(true)
 	else:
-		UpdateManager.open_download()
+		update_button.disabled = true
 
 
 func _on_update_status(message: String) -> void:
-	if Build.requires_update_gate() and UpdateManager.available.is_empty():
+	if Build.requires_update_gate() or not UpdateManager.available.is_empty():
 		update_button.visible = true
 		update_button.text = message
+		update_button.disabled = UpdateManager.downloading or UpdateManager.installing \
+			or message.contains("VERIFYING") or message.contains("UNPACKING") \
+			or message.contains("RESTARTING")
+		if message.contains("FAILED") or message.contains("RETRY") \
+				or message.contains("READ-ONLY") or UpdateManager.ready_to_install:
+			update_button.disabled = false
 
 
 func _on_update_check_finished(success: bool, needs_update: bool) -> void:
@@ -143,6 +157,7 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 	play_button.disabled = true
 	if needs_update:
 		play_button.text = "UPDATE REQUIRED"
+		update_button.visible = true
 		return
 	play_button.text = "UPDATE CHECK REQUIRED"
 	update_button.text = "RETRY UPDATE CHECK"

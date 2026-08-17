@@ -25,11 +25,13 @@ const debug = {};
 for (const [platform, file] of Object.entries(artifacts)) {
   const path = join(buildDirectory, file);
   if (!existsSync(path)) continue;
+  const bytes = readFileSync(path);
   debug[platform] = {
     version,
     revision,
     file,
-    sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
+    bytes: bytes.byteLength,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
     notes: "Debug multiplayer and platform test build.",
     required: true,
   };
