@@ -188,13 +188,19 @@ to the live host/map workflow rather than to one player's account.
 This supports the intended private-GitHub-to-Pterodactyl flow without putting
 a GitHub token in the game:
 
-1. Set `LASTROUTE_AUTO_UPDATE=true` and provide the server-side PAT as
+1. Every push to `main` runs `.github/workflows/publish-debug.yml`: GitHub
+   validates the project, exports all five debug ZIPs, verifies them, and
+   replaces the assets on the stable `debug` release. The manifest is uploaded
+   last and contains the exact triggering commit. The workflow keeps version
+   `0.0.1.0` and does not create per-version tags.
+2. Set `LASTROUTE_AUTO_UPDATE=true` and provide the server-side PAT as
    `LASTROUTE_GITHUB_TOKEN`; the common Pterodactyl `ACCESS_TOKEN` variable is
    also accepted. At startup and every `LASTROUTE_UPDATE_POLL_SECONDS`, Node
    reads the stable `debug` GitHub Release, downloads changed artifacts,
    verifies their manifest SHA-256 values, and atomically publishes the
    manifest last. Existing files remain usable if GitHub is unavailable.
-2. `./scripts/export_test_builds.sh` stamps the current Git commit into every
+3. `./scripts/export_test_builds.sh` remains the manual/local equivalent. It
+   stamps the current Git commit into every
    export and writes the test archives plus a ready-made
    `builds/updates.debug.json` with their SHA-256 values. Point
    `LASTROUTE_UPDATE_MANIFEST` at that file, or copy
@@ -202,10 +208,10 @@ a GitHub token in the game:
    version, Git `revision`, exact local `file`, SHA-256 checksum, notes and
    optional `required` flag. The platform keys are `linux`, `windows`, `macos`,
    `web`, `steamvr` and `quest`.
-3. The backend reloads the manifest on each update request, so a successful
+4. The backend reloads the manifest on each update request, so a successful
    asset poll becomes available without restarting Node. It only serves local
    filenames referenced by a valid manifest.
-4. Debug exports query the `debug` channel and release exports query `release`.
+5. Debug exports query the `debug` channel and release exports query `release`.
    Exported debug builds compare both version and Git revision, and keep PLAY
    locked until the check succeeds. If the revision changed, the client
    automatically downloads and installs the matching archive even while the
