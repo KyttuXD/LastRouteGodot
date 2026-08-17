@@ -305,6 +305,12 @@ func _check_room_lobby_contract(scene: Node) -> int:
 
 func _check_main_menu_contract(scene: Node) -> int:
 	var failures := 0
+	var generic_input := LineEdit.new()
+	Palette.style_line_edit(generic_input)
+	if generic_input.text_direction != Control.TEXT_DIRECTION_LTR \
+			or generic_input.alignment != HORIZONTAL_ALIGNMENT_LEFT:
+		failures += _fail("shared text inputs are not forced left-to-right")
+	generic_input.free()
 	if not scene.has_method("_on_create_health_checked"):
 		failures += _fail("CREATE ROOM has no primary-server health/fallback flow")
 	var settings := scene.find_child("SettingsButton", true, false) as Button
@@ -318,6 +324,36 @@ func _check_main_menu_contract(scene: Node) -> int:
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:
 		failures += _fail("Settings is missing the 3D signal-filter intensity control")
+	var play_button := scene.find_child("PlayButton", true, false) as Button
+	var join_button := scene.find_child("JoinButton", true, false) as Button
+	scene.call("_set_route_update_locked", "UPDATING")
+	if play_button == null or join_button == null or not play_button.disabled \
+			or not join_button.disabled or play_button.text != "UPDATING" \
+			or join_button.text != "UPDATING":
+		failures += _fail("mandatory updates do not lock and relabel both route buttons")
+	scene.call("_clear_route_update_lock")
+	if play_button == null or join_button == null or play_button.disabled \
+			or join_button.disabled or play_button.text != "CREATE ROOM" \
+			or join_button.text != "JOIN ROOM":
+		failures += _fail("route buttons do not recover after the update gate clears")
+	scene.call("_on_join_pressed")
+	await _frame()
+	var room_code_input := scene.find_child("RoomCodeInput", true, false) as LineEdit
+	if scene.find_child("MenuModal", true, false) == null or room_code_input == null:
+		failures += _fail("Join Room did not open before the periodic-update test")
+	else:
+		room_code_input.text = "a"
+		room_code_input.caret_column = 1
+		scene.call("_on_join_code_changed", "a")
+		room_code_input.insert_text_at_caret("b")
+		scene.call("_on_join_code_changed", room_code_input.text)
+		if room_code_input.text != "AB" or room_code_input.caret_column != 2:
+			failures += _fail("room-code normalization reverses typed characters")
+	scene.call("_set_route_update_locked", "UPDATING")
+	await _frame()
+	if scene.find_child("MenuModal", true, false) != null:
+		failures += _fail("a newly discovered update leaves an existing Join dialog open")
+	scene.call("_clear_route_update_lock")
 	var settings_close := scene.find_child("CloseButton", true, false) as Button
 	if settings_close == null or settings_close.find_child("EscCloseContent", true, false) == null:
 		failures += _fail("Settings close action does not use the ESC keycap control")
@@ -349,6 +385,14 @@ func _check_main_menu_contract(scene: Node) -> int:
 	elif username_input.text_direction != Control.TEXT_DIRECTION_LTR \
 			or password_input.text_direction != Control.TEXT_DIRECTION_LTR:
 		failures += _fail("account username/password fields are not forced left-to-right")
+	else:
+		username_input.text = "a"
+		username_input.caret_column = 1
+		scene.call("_on_account_username_changed", "a")
+		username_input.insert_text_at_caret("b")
+		scene.call("_on_account_username_changed", username_input.text)
+		if username_input.text != "AB" or username_input.caret_column != 2:
+			failures += _fail("account-name normalization reverses typed characters")
 	if login_button == null or login_button.disabled \
 			or register_button == null or register_button.disabled:
 		failures += _fail("explicitly enabled primary HTTP account actions are disabled")

@@ -134,6 +134,10 @@ static func style_button(button: Button, primary: bool, compact: bool = false) -
 static func style_line_edit(field: LineEdit) -> void:
 	var normal := panel_box(INSET, Color("4b3948"), 6)
 	var focus := panel_box(INSET, AMBER, 6)
+	# User-entered codes, names, passwords and URLs are all left-to-right even
+	# when the operating-system locale uses an RTL interface direction.
+	field.text_direction = Control.TEXT_DIRECTION_LTR
+	field.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	field.add_theme_stylebox_override("normal", normal)
 	field.add_theme_stylebox_override("focus", focus)
 	field.add_theme_color_override("font_color", INK)

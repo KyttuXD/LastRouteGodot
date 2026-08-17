@@ -29,6 +29,7 @@ var _manage_username: LineEdit
 var _manage_admin_proof: LineEdit
 var _manage_password: LineEdit
 var _creating_room := false
+var _routes_update_locked := false
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -67,8 +68,7 @@ func _ready() -> void:
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
 	if Build.requires_update_gate():
-		play_button.disabled = true
-		play_button.text = "CHECKING FOR UPDATES"
+		_set_route_update_locked("UPDATING")
 		update_button.visible = true
 		update_button.disabled = true
 		update_button.text = "CHECKING FOR UPDATES"
@@ -119,7 +119,7 @@ func _apply_palette() -> void:
 ## "registering" state; the directory registration itself has a second
 ## fallback in RoomState in case health succeeds but registration does not.
 func _on_play_pressed() -> void:
-	if _creating_room:
+	if _creating_room or _routes_update_locked:
 		return
 	if OS.has_feature("web"):
 		RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -146,6 +146,8 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 
 
 func _on_join_pressed() -> void:
+	if _routes_update_locked:
+		return
 	_close_modal()
 	var content := _modal_content("ROUTE SIGNAL // ROOM ACCESS", "ENTER ROOM CODE",
 		Vector2(220, 112))
@@ -155,11 +157,8 @@ func _on_join_pressed() -> void:
 	_join_input.max_length = RoomState.CODE_LENGTH
 	_join_input.add_theme_font_size_override("font_size", 12)
 	_join_input.custom_minimum_size = Vector2(0, 27)
-	_join_input.text_changed.connect(func(value: String) -> void:
-		var cleaned := value.strip_edges().to_upper()
-		if cleaned != value:
-			_join_input.set_deferred("text", cleaned)
-		_join_input.tooltip_text = "FIVE-CHARACTER PRIMARY ROOM CODE")
+	_join_input.tooltip_text = "FIVE-CHARACTER PRIMARY ROOM CODE"
+	_join_input.text_changed.connect(_on_join_code_changed)
 	_join_input.text_submitted.connect(func(_value: String) -> void: _submit_join())
 	Palette.style_line_edit(_join_input)
 	content.add_child(_join_input)
@@ -177,6 +176,10 @@ func _on_join_pressed() -> void:
 	submit.pressed.connect(_submit_join)
 	actions.add_child(submit)
 	_join_input.grab_focus.call_deferred()
+
+
+func _on_join_code_changed(value: String) -> void:
+	_replace_normalized_text(_join_input, value, value.strip_edges().to_upper())
 
 
 func _submit_join() -> void:
@@ -323,13 +326,7 @@ func _on_account_username_changed(value: String) -> void:
 	if _account_username == null:
 		return
 	var canonical := value.strip_edges().to_upper()
-	if canonical != value:
-		# Preserve the insertion point while canonicalizing. Deferring only the
-		# text assignment reset the caret to column zero, so each newly typed
-		# character was inserted at the front and the username appeared reversed.
-		var caret := _account_username.caret_column
-		_account_username.text = canonical
-		_account_username.caret_column = mini(caret, canonical.length())
+	_replace_normalized_text(_account_username, value, canonical)
 	if _account_admin_proof != null:
 		_account_admin_proof.visible = canonical == "KYTTU"
 
@@ -389,11 +386,21 @@ func _on_manage_username_changed(value: String) -> void:
 	if _manage_username == null:
 		return
 	var canonical := value.strip_edges().to_upper()
-	if canonical != value:
-		_manage_username.set_deferred("text", canonical)
+	_replace_normalized_text(_manage_username, value, canonical)
 	if _manage_admin_proof != null:
 		_manage_admin_proof.visible = canonical == "KYTTU" \
 			and Backend.account_username != "KYTTU"
+
+
+## Replacing LineEdit.text resets its caret. Preserve the insertion point so
+## uppercase normalization cannot turn normal typing into reversed typing.
+func _replace_normalized_text(field: LineEdit, value: String,
+		normalized: String) -> void:
+	if field == null or normalized == value:
+		return
+	var caret := field.caret_column
+	field.text = normalized
+	field.caret_column = mini(caret, normalized.length())
 
 
 func _submit_account_rename() -> void:
@@ -554,6 +561,30 @@ func _on_quit_pressed() -> void:
 	get_tree().quit()
 
 
+## CREATE and JOIN are one route-entry surface. A mandatory update must lock
+## both, including a Join dialog that was already open when a periodic check
+## discovered a newer revision.
+func _set_route_update_locked(title: String = "UPDATING") -> void:
+	_routes_update_locked = true
+	# Ignore a pending health response rather than letting a room transition
+	# race past an update discovered immediately after CREATE was pressed.
+	_creating_room = false
+	if _join_input != null:
+		_close_modal()
+	play_button.disabled = true
+	play_button.text = title
+	join_button.disabled = true
+	join_button.text = title
+
+
+func _clear_route_update_lock() -> void:
+	_routes_update_locked = false
+	play_button.disabled = false
+	play_button.text = "CREATE ROOM"
+	join_button.disabled = false
+	join_button.text = "JOIN ROOM"
+
+
 func _on_update_available(update: Dictionary) -> void:
 	var revision := String(update.get("revision", ""))
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
@@ -563,8 +594,7 @@ func _on_update_available(update: Dictionary) -> void:
 	update_button.disabled = true
 	update_button.visible = true
 	if Build.requires_update_gate() or UpdateManager.update_required:
-		play_button.disabled = true
-		play_button.text = "UPDATE REQUIRED"
+		_set_route_update_locked("UPDATING")
 
 
 func _on_update_pressed() -> void:
@@ -583,6 +613,9 @@ func _on_update_pressed() -> void:
 
 
 func _on_update_status(message: String) -> void:
+	if _routes_update_locked and (UpdateManager.downloading \
+			or UpdateManager.installing or not UpdateManager.available.is_empty()):
+		_set_route_update_locked("UPDATING")
 	if Build.requires_update_gate() or not UpdateManager.available.is_empty():
 		update_button.visible = true
 		update_button.text = message
@@ -598,16 +631,14 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 	if not Build.requires_update_gate():
 		return
 	if success and not needs_update:
-		play_button.disabled = false
-		play_button.text = "CREATE ROOM"
+		_clear_route_update_lock()
 		update_button.visible = false
 		return
-	play_button.disabled = true
 	if needs_update:
-		play_button.text = "UPDATE REQUIRED"
+		_set_route_update_locked("UPDATING")
 		update_button.visible = true
 		return
-	play_button.text = "UPDATE CHECK REQUIRED"
+	_set_route_update_locked("UPDATE CHECK REQUIRED")
 	# Keep the specific failure visible. The old generic retry label hid whether
 	# the request failed, the response was invalid, or the transport was rejected.
 	update_button.text = UpdateManager.status_message \
