@@ -50,7 +50,15 @@ HOST=0.0.0.0
 SERVER_PORT=<the panel's TCP allocation>
 LASTROUTE_DATA_DIR=./data
 LASTROUTE_PUBLIC_DIR=./web
-LASTROUTE_UPDATE_MANIFEST=./updates.json
+LASTROUTE_AUTO_UPDATE=true
+LASTROUTE_GITHUB_REPO=KyttuXD/LastRouteGodot
+LASTROUTE_GITHUB_TAG=debug
+LASTROUTE_GITHUB_TOKEN=<private GitHub PAT>
+LASTROUTE_UPDATE_POLL_SECONDS=300
+LASTROUTE_RESTART_ON_GITHUB_UPDATE=true
+LASTROUTE_GITHUB_BRANCH=main
+LASTROUTE_SOURCE_POLL_SECONDS=120
+LASTROUTE_UPDATE_MANIFEST=./updates/updates.debug.json
 LASTROUTE_UPDATE_DIR=./updates
 TRUST_PROXY=true
 LASTROUTE_ADMIN_PASSWORD=<a long random secret>
@@ -80,8 +88,17 @@ the backend allocation as TCP 1105.
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
 | `LASTROUTE_PUBLIC_DIR` | empty/disabled | optional static web-client directory |
 | `LASTROUTE_CUSTOM_MAP_DIR` | `./art/custom-maps` when present | safe PNG-only custom-map directory exposed below `/api/custom-maps/` |
-| `LASTROUTE_UPDATE_MANIFEST` | empty/disabled | update metadata JSON loaded when the server starts |
+| `LASTROUTE_UPDATE_MANIFEST` | empty/disabled | update metadata JSON reloaded for update requests |
 | `LASTROUTE_UPDATE_DIR` | empty/disabled | directory containing published update archives |
+| `LASTROUTE_AUTO_UPDATE` | auto when a token exists | mirror the stable GitHub Release tag into the local update directory |
+| `LASTROUTE_GITHUB_REPO` | `KyttuXD/LastRouteGodot` | GitHub owner/repository used for release and source checks |
+| `LASTROUTE_GITHUB_TAG` | `debug` | stable `debug` or `release` asset channel to mirror |
+| `LASTROUTE_GITHUB_TOKEN` | `GITHUB_TOKEN`, `GH_TOKEN`, or `ACCESS_TOKEN` | private server-side PAT; the named variable takes priority |
+| `LASTROUTE_UPDATE_POLL_SECONDS` | `300` (minimum `60`) | poll interval for hot release-asset synchronization |
+| `LASTROUTE_RESTART_ON_GITHUB_UPDATE` | `false` | request a Pterodactyl restart when the watched source branch advances |
+| `LASTROUTE_GITHUB_BRANCH` | `main` | branch watched for backend source changes |
+| `LASTROUTE_SOURCE_POLL_SECONDS` | `120` (minimum `60`) | source-commit check interval |
+| `LASTROUTE_DEPLOYED_REVISION` | local `git rev-parse HEAD` | exact deployed SHA when the server directory has no `.git` folder |
 | `TRUST_PROXY` | `false` | trust the first `X-Forwarded-For` address |
 | `ENET_ROOM_TTL_SECONDS` | `60` | remove hosts that stop heartbeating |
 
@@ -107,22 +124,46 @@ names from the original deployment remain accepted as compatibility aliases.
 This supports the intended private-GitHub-to-Pterodactyl flow without putting
 a GitHub token in the game:
 
-1. Your existing panel startup/deploy step uses its server-side PAT to pull the
-   GitHub Release archives into `LASTROUTE_UPDATE_DIR`, and the matching
-   manifest asset to `LASTROUTE_UPDATE_MANIFEST`. If the same Node process
-   should host the HTML build, extract its Web ZIP into
-   `LASTROUTE_PUBLIC_DIR`; the existing static-file route serves it at `/`.
-2. `./scripts/export_test_builds.sh` writes the test archives and a ready-made
+1. Set `LASTROUTE_AUTO_UPDATE=true` and provide the server-side PAT as
+   `LASTROUTE_GITHUB_TOKEN`; the common Pterodactyl `ACCESS_TOKEN` variable is
+   also accepted. At startup and every `LASTROUTE_UPDATE_POLL_SECONDS`, Node
+   reads the stable `debug` GitHub Release, downloads changed artifacts,
+   verifies their manifest SHA-256 values, and atomically publishes the
+   manifest last. Existing files remain usable if GitHub is unavailable.
+2. `./scripts/export_test_builds.sh` stamps the current Git commit into every
+   export and writes the test archives plus a ready-made
    `builds/updates.debug.json` with their SHA-256 values. Point
    `LASTROUTE_UPDATE_MANIFEST` at that file, or copy
    `backend/updates.example.json` and set each channel/platform's dotted numeric
-   version, exact local `file`, SHA-256 checksum, notes and optional `required`
-   flag. The platform keys are `linux`, `windows`, `macos`, `web`, `steamvr`
-   and `quest`.
-3. Restart the Node process after changing the manifest. The backend validates
-   every entry and only serves local filenames referenced by a valid manifest.
+   version, Git `revision`, exact local `file`, SHA-256 checksum, notes and
+   optional `required` flag. The platform keys are `linux`, `windows`, `macos`,
+   `web`, `steamvr` and `quest`.
+3. The backend reloads the manifest on each update request, so a successful
+   asset poll becomes available without restarting Node. It only serves local
+   filenames referenced by a valid manifest.
 4. Debug exports query the `debug` channel and release exports query `release`.
-   The menu reveals an update button when that platform has a newer version.
+   Exported debug builds compare both version and Git revision, and keep PLAY
+   locked until the check succeeds. If the revision changed, the menu offers
+   the matching archive even while the version remains `0.0.1.0`.
+
+The updater opens the verified archive/APK; it does not overwrite a running
+executable. Existing clients from before commit-aware updates require one
+manual install of the bridge build. After that, every newly published commit
+is detected without changing the version.
+
+## Pterodactyl source auto-restart
+
+Set `LASTROUTE_RESTART_ON_GITHUB_UPDATE=true` to watch GitHub `main`. When the
+remote SHA differs from the deployed repository's `git rev-parse HEAD`, the
+service closes its HTTP listener and exits with status 75. Enable
+Pterodactyl's automatic crash restart and keep the existing `git pull` in the
+startup command: the restart runs that pull, then launches the current
+`index.js`. The watcher never runs `git pull` itself and never rewrites source
+files while Node is executing them.
+
+If the startup pull fails or Pterodactyl crash restart is disabled, this cannot
+self-heal; the logs will show the local and remote short SHAs. Leave the option
+off on a manually managed production release branch.
 
 The generated files are ignored by Git and should be uploaded as GitHub
 Release assets, not committed to the source tree. For example, after reviewing

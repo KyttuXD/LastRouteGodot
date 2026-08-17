@@ -4,6 +4,10 @@ extends RefCounted
 ## Manually controlled release identifier. Keep this unchanged during unrelated
 ## work; only change it when the user explicitly asks to change or bump it.
 const VERSION := "0.0.1.0"
+const REVISION_PATH := "res://build_revision.json"
+const SOURCE_REVISION := "source"
+
+static var _revision_cache := ""
 
 ## What this build is allowed to show the player.
 ##
@@ -44,3 +48,42 @@ static func allow_spoiler_views() -> bool:
 
 static func update_channel() -> String:
 	return "debug" if tools_enabled() else "release"
+
+
+## Git commit embedded by scripts/export_test_builds.sh. Editor/source runs do
+## not have the generated file and deliberately identify as "source".
+static func revision() -> String:
+	if not _revision_cache.is_empty():
+		return _revision_cache
+	_revision_cache = SOURCE_REVISION
+	if not FileAccess.file_exists(REVISION_PATH):
+		return _revision_cache
+	var file := FileAccess.open(REVISION_PATH, FileAccess.READ)
+	if file == null:
+		return _revision_cache
+	var parsed = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		var candidate := String(parsed.get("revision", "")).strip_edges().to_lower()
+		if _valid_revision(candidate):
+			_revision_cache = candidate
+	return _revision_cache
+
+
+static func short_revision() -> String:
+	var value := revision()
+	return value.left(8) if value != SOURCE_REVISION else value
+
+
+## Only exported debug builds fail closed on an unavailable update service.
+## Editor runs stay usable while the developer is changing the backend.
+static func requires_update_gate() -> bool:
+	return tools_enabled() and revision() != SOURCE_REVISION
+
+
+static func _valid_revision(value: String) -> bool:
+	if value.length() < 7 or value.length() > 40:
+		return false
+	for character in value:
+		if not "0123456789abcdef".contains(character):
+			return false
+	return true

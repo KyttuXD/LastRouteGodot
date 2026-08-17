@@ -47,7 +47,7 @@ import.
 
 The game boots into a **main menu** (`scenes/main_menu.tscn`) with three buttons: **PLAY**, **SETTINGS** and **QUIT**.
 
-**PLAY** opens the **room lobby** (`scenes/room_lobby.tscn`), which is where a session is actually configured — mode (LAST ROUTE, HIDE & SEEK, OFFICE), map scale, difficulty and the route seed. Office Mode lives here rather than on the main menu, because it is a mode of a room like any other. The lobby also hosts and joins: **HOST ON 8421** opens the room to the network, the address field accepts `127.0.0.1` or another machine's LAN IP/hostname, and **GO OFFLINE** closes it again. A solo run is a room with one player in it, so there is no separate singleplayer path.
+**PLAY** opens the **room lobby** (`scenes/room_lobby.tscn`), which is where a session is actually configured — mode (LAST ROUTE, HIDE & SEEK, OFFICE), map scale, difficulty and the route seed. Office Mode lives here rather than on the main menu, because it is a mode of a room like any other. The lobby hosts and joins through the primary room directory: the host publishes a five-character room code and guests enter that code. There is no client-selectable server or direct-address field. **GO OFFLINE** closes networking again. A solo run is a room with one player in it, so there is no separate singleplayer path.
 
 In a run: move with **WASD**, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, **E** to interact (also used to mash your way out of a hunter's grip), **M** for the map and **Escape** to pause (Last Route taps it; Office Mode holds it for three seconds). The mouse looks, and is captured while you play — the pause menu, the camera tablet and the office chair each release it. **F11** toggles fullscreen anywhere. In a debug build only, **0** opens the admin overlay.
 
@@ -86,7 +86,7 @@ src/ui/                  Shared HUD, main menu, room lobby, settings panel, paus
 third_party/            Vendored third-party assets, each with its own license (see Credits)
 ```
 
-See [`MIGRATION.md`](MIGRATION.md) for the recommended port order and boundaries, and exactly what's done versus deferred. [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md) is the working plan for porting the remaining 24 hunters.
+See [`PLAYABILITY.md`](PLAYABILITY.md) for the current ship-order checklist and maze-prop remodel plan. [`MIGRATION.md`](MIGRATION.md) records the detailed port boundaries, and [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md) tracks the hunter roster.
 
 ## Checks
 
@@ -141,9 +141,12 @@ The optional SteamVR/Meta Quest OpenXR track, current controller bindings,
 export presets and hardware-test gaps are documented in [`XR.md`](XR.md).
 
 Debug and release builds also check the primary Node backend for a
-channel/platform update manifest. Pterodactyl can privately pull GitHub build
-artifacts with its own PAT and serve only the approved files from a local
-update directory; no GitHub credentials are shipped in the game. See
+channel/platform update manifest. Exported debug builds must complete this
+check before PLAY unlocks. The manifest carries both the frozen game version
+and the build's Git revision, so a new `debug` release is detected without a
+version bump. Pterodactyl can privately mirror GitHub Release assets with its
+own PAT and serve only SHA-256-verified files; no GitHub credentials are
+shipped in the game. See
 [`backend/README.md`](backend/README.md#pterodactyl-hosted-updates) and
 [`backend/updates.example.json`](backend/updates.example.json).
 

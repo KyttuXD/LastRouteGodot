@@ -33,11 +33,25 @@ func _ready() -> void:
 	play_button.pressed.connect(_on_play_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
-	update_button.pressed.connect(UpdateManager.open_download)
+	update_button.pressed.connect(_on_update_pressed)
 	UpdateManager.update_available.connect(_on_update_available)
-	version_label.text = "VERSION %s // %s" % [Build.VERSION, Build.update_channel().to_upper()]
+	UpdateManager.status_changed.connect(_on_update_status)
+	UpdateManager.check_finished.connect(_on_update_check_finished)
+	version_label.text = "VERSION %s // %s // %s" % [Build.VERSION,
+		Build.update_channel().to_upper(), Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
+	if Build.requires_update_gate():
+		play_button.disabled = true
+		play_button.text = "CHECKING FOR UPDATES"
+		update_button.visible = true
+		update_button.disabled = true
+		update_button.text = "CHECKING FOR UPDATES"
+		if UpdateManager.check_complete:
+			_on_update_check_finished(UpdateManager.check_succeeded,
+				not UpdateManager.available.is_empty())
+		elif not UpdateManager.checking:
+			UpdateManager.check()
 
 
 ## Restyle from Palette at load rather than in the scene file.
@@ -91,6 +105,46 @@ func _on_quit_pressed() -> void:
 
 
 func _on_update_available(update: Dictionary) -> void:
-	update_button.text = "DOWNLOAD UPDATE %s" % String(update.get("version", ""))
+	var revision := String(update.get("revision", ""))
+	var identity := revision.left(8).to_upper() if not revision.is_empty() \
+		else String(update.get("version", ""))
+	update_button.text = "DOWNLOAD UPDATE %s" % identity
 	update_button.tooltip_text = String(update.get("notes", ""))
+	update_button.disabled = false
+	update_button.visible = true
+	if Build.requires_update_gate():
+		play_button.disabled = true
+		play_button.text = "UPDATE REQUIRED"
+
+
+func _on_update_pressed() -> void:
+	if UpdateManager.available.is_empty():
+		update_button.disabled = true
+		update_button.text = "CHECKING FOR UPDATES"
+		UpdateManager.check()
+	else:
+		UpdateManager.open_download()
+
+
+func _on_update_status(message: String) -> void:
+	if Build.requires_update_gate() and UpdateManager.available.is_empty():
+		update_button.visible = true
+		update_button.text = message
+
+
+func _on_update_check_finished(success: bool, needs_update: bool) -> void:
+	if not Build.requires_update_gate():
+		return
+	if success and not needs_update:
+		play_button.disabled = false
+		play_button.text = "PLAY"
+		update_button.visible = false
+		return
+	play_button.disabled = true
+	if needs_update:
+		play_button.text = "UPDATE REQUIRED"
+		return
+	play_button.text = "UPDATE CHECK REQUIRED"
+	update_button.text = "RETRY UPDATE CHECK"
+	update_button.disabled = false
 	update_button.visible = true

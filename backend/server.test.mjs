@@ -222,7 +222,7 @@ test("serves validated debug/release update manifests", async () => {
   const app = await fixtureWith(() => createLastRouteServer({
     updateDirectory,
     updates: {
-      debug: { linux: { version: "0.0.1.0", file: "linux.zip", sha256, notes: "Test route" } },
+      debug: { linux: { version: "0.0.1.0", revision: "c".repeat(40), file: "linux.zip", sha256, notes: "Test route", required: true } },
       release: { windows: { version: "1.0.0", url: "http://insecure.invalid/game.zip" } },
     },
   }));
@@ -231,7 +231,9 @@ test("serves validated debug/release update manifests", async () => {
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.update.version, "0.0.1.0");
+    assert.equal(payload.update.revision, "c".repeat(40));
     assert.equal(payload.update.sha256, sha256);
+    assert.equal(payload.update.required, true);
     assert.equal(payload.update.url, "/api/updates/files/linux.zip");
     response = await fetch(`${app.url}${payload.update.url}`);
     assert.equal(response.status, 200);
@@ -243,6 +245,25 @@ test("serves validated debug/release update manifests", async () => {
   } finally {
     await app.close();
     await rm(updateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("reloads update metadata without restarting the backend", async () => {
+  const sha256 = "d".repeat(64);
+  let revision = "a".repeat(40);
+  const app = await fixtureWith(() => createLastRouteServer({
+    updatesProvider: () => ({
+      debug: { linux: { version: "0.0.1.0", revision, url: "https://example.test/linux.zip", sha256 } },
+    }),
+  }));
+  try {
+    let response = await fetch(`${app.url}/api/updates/debug/linux`);
+    assert.equal((await response.json()).update.revision, "a".repeat(40));
+    revision = "b".repeat(40);
+    response = await fetch(`${app.url}/api/updates/debug/linux`);
+    assert.equal((await response.json()).update.revision, "b".repeat(40));
+  } finally {
+    await app.close();
   }
 });
 

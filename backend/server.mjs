@@ -106,13 +106,16 @@ function publicUpdateManifest(updates, channel, platform) {
   const url = String(entry.url || "").trim();
   const file = String(entry.file || "").trim();
   const sha256 = String(entry.sha256 || "").trim().toLowerCase();
+  const revision = String(entry.revision || "").trim().toLowerCase();
   const relativeUrl = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/.test(file)
     ? `/api/updates/files/${encodeURIComponent(file)}`
     : "";
   if (!/^\d+(?:\.\d+){2,3}$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
   if (!/^[a-f0-9]{64}$/.test(sha256)) return null;
+  if (revision && !/^[a-f0-9]{7,40}$/.test(revision)) return null;
   return {
     version,
+    revision,
     url: url.startsWith("https://") ? url : relativeUrl,
     sha256,
     notes: String(entry.notes || "").slice(0, 2000),
@@ -188,6 +191,7 @@ export function createLastRouteServer({
   updateDirectory = null,
   adminPassword = "",
   updates = {},
+  updatesProvider = null,
   trustProxy = false,
   now = Date.now,
   logger = console,
@@ -197,6 +201,17 @@ export function createLastRouteServer({
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
   const devTokens = new Set();
   let reloadId = 0;
+
+  function currentUpdates() {
+    if (typeof updatesProvider !== "function") return updates;
+    try {
+      const current = updatesProvider();
+      return current && typeof current === "object" ? current : updates;
+    } catch (error) {
+      logger.error(`Could not reload update manifest: ${error.message}`);
+      return updates;
+    }
+  }
 
   function pruneEnetRooms() {
     const timestamp = now();
@@ -241,14 +256,14 @@ export function createLastRouteServer({
 
     const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|macos|web|steamvr|quest)$/);
     if (request.method === "GET" && updateLookup) {
-      const update = publicUpdateManifest(updates, updateLookup[1], updateLookup[2]);
+      const update = publicUpdateManifest(currentUpdates(), updateLookup[1], updateLookup[2]);
       if (!update) return json(response, 404, { ok: false, error: "NO UPDATE PUBLISHED" });
       return json(response, 200, { ok: true, channel: updateLookup[1], platform: updateLookup[2], update });
     }
 
     const updateFile = url.pathname.match(/^\/api\/updates\/files\/([^/]+)$/);
     if (new Set(["GET", "HEAD"]).has(request.method) && updateFile) {
-      const assetPath = publishedUpdatePath(updates, updateFile[1]);
+      const assetPath = publishedUpdatePath(currentUpdates(), updateFile[1]);
       if (assetPath && tryStaticFile(request, response, updateDirectory, assetPath)) return;
       return json(response, 404, { ok: false, error: "UPDATE FILE NOT FOUND" });
     }
@@ -407,6 +422,10 @@ export function startLastRouteServerFromEnvironment() {
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
     updates,
+    updatesProvider: updateManifestPath ? () => {
+      if (!existsSync(updateManifestPath)) return updates;
+      return JSON.parse(readFileSync(updateManifestPath, "utf8"));
+    } : null,
     adminPassword: String(process.env.LASTROUTE_ADMIN_PASSWORD || process.env.KYTTU_DEV_PASSWORD || ""),
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
   });

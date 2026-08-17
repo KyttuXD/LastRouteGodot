@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test backend/server.test.mjs",
+    "test": "node --test backend/*.test.mjs",
     "manifest": "node scripts/generate_update_manifest.mjs"
   },
   "engines": {

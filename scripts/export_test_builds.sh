@@ -3,6 +3,12 @@ set -eu
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${project_dir}/builds"
+revision_file="${project_dir}/build_revision.json"
+
+cleanup_revision() {
+	rm -f -- "${revision_file}"
+}
+trap cleanup_revision EXIT
 
 if command -v godot4 >/dev/null 2>&1; then
 	godot_command=(godot4)
@@ -16,6 +22,7 @@ else
 fi
 
 mkdir -p "${build_dir}/LastRoute-Web-Debug"
+node "${project_dir}/scripts/generate_build_revision.mjs"
 
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Linux Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows Debug Tools"

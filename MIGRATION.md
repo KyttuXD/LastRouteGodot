@@ -63,7 +63,7 @@ Sized apart from the hunters on purpose now too: the mannequin's `.glb.import` c
 
 - **Real 3D art.** The maze fabric is still flat-coloured boxes, and office art is placeholder — but the loading pipeline is real; see "Model import pipeline" above. The **player mannequin** is the first real model in the game, built from the owner's PNG skin by `tools/characters/build_mannequin.py` and worn by every player, local and remote.
 - **The rest of the hunter roster.** 12 of 26 — see "Hunter roster" below.
-- **Themed rooms/props, hiding spots, coins** — see "Deferred from milestone 4" below; none of this changed with the 3D move. (The heater station is no longer on this list: it ported with Wynelle.)
+- **Themed rooms/props** — see "Deferred from milestone 4" below. Hiding spots and coins now have working placement, interactions, co-op state and honest placeholder visuals; the room-content art pass is still deferred. (The heater station is no longer on this list: it ported with Wynelle.)
 - **A persistent minimap.** With the top-down camera gone, nothing reads the facility as a plan. This is the successor to that view and is the largest open presentation gap.
 - **A camera-relative HUD nuance:** interaction is still nearest-in-range rather than a raycast-from-camera "looking at" check. The crosshair (`src/ui/crosshair.gd`) implies otherwise, so this is now a visible inconsistency rather than a theoretical one. Office Mode *does* raycast — its desk controls are picked by a real ray from the camera — so the machinery exists.
 
@@ -220,7 +220,7 @@ Plus the systems they play against: a power budget that drains per active system
 2. **Asset intake** — copy canonical tiles/player art and define import presets. *(Superseded by the 3D milestone below — 2D art intake is not planned. See "Decided: rendering architecture is moving to 3D".)*
 3. **Static room slice** — collision, movement, camera, flashlight and HUD. *(Complete: collision, movement, stamina, lamp, HUD, and a scrolling camera are playable.)*
 4. **Procedural facility** — deterministic seed, rooms, corridors and A\* movement. *(Structural generation complete: `src/game/facility_generator.gd` faithfully ports maze.js's sector-grid carving, Kruskal-connected 3-wide corridor graph, and seeded relay/battery/safe-zone/service-lift placement, cross-checked bit-exact against the original's PRNG. Themed room types/furniture (maze.js's `ROOM_TYPES`/`populateRooms`, ~50+ prop types) are deliberately deferred — see "Deferred from milestone 4" below. `AStarGrid2D` pathfinding isn't wired up yet since nothing needs to path — that's part of milestone 6.)*
-5. **Last Route loop** — relays, batteries, hiding, safe zone, lift and depth. *(Mostly riding on milestone 4: relay/battery/safe-zone/lift placement and collection, and depth progression via the service lift, are playable. Hiding spots are not — they're props, deferred with the rest of milestone 4's room content.)*
+5. **Last Route loop** — relays, batteries, hiding, safe zone, lift and depth. *(Complete as a gameplay slice: placement, collection, hiding/exit, safe zones, relay gating and lift depth progression are playable. Hiding uses a placeholder locker until the prop-art milestone.)*
 6. **First hunter** — shared perception/chase state machine plus one identity. *(Done — Dovelle, plus a data-driven roster architecture (`HunterRoster`) built to keep adding more. See "Hunter roster: Dovelle + Quirith" above.)*
 7. **Roster** — migrate hunters individually with behavior fixtures. *(Started: Quirith (flashlight tracker) is the second of 26. **Full port plan for the remaining 24 lives in [`HUNTER_ROSTER.md`](HUNTER_ROSTER.md)** — per-hunter classification, tuning tables, and which shared systems unblock the most hunters. See "Hunter roster" above for why she was next and what's genuinely reusable vs. hunter-specific about the approach.)*
 8. **Persistence** — checkpoint and account-facing client calls. *(A slice exists early: Settings' `user://settings.cfg` persists volume/key-bindings. Run/score checkpoint persistence is still unstarted.)*
@@ -264,8 +264,8 @@ The first meaningful target was one deterministic floor containing:
 - one hunter — **done** (Dovelle + Quirith, on a data-driven roster: full perception/chase/capture/escape loop, see above)
 - relays — done, procedurally placed (5 on a Standard floor)
 - batteries — done, procedurally placed (7 on a Standard floor)
-- one hiding spot — **not started** (deferred prop content, see above)
+- one hiding spot — **done mechanically** (placeholder locker art; shared state and hunter counters work)
 - one safe zone — done, procedurally placed
 - one service lift — done, procedurally placed, gates depth progression
 
-Every piece here is now backed by the real seeded generator and a real hunter rather than a hardcoded test room. The remaining gap — hiding — is coupled to the deferred prop/room-content milestone (hiding spots are props), not a small standalone follow-up.
+Every piece here is now backed by the real seeded generator and a real hunter rather than a hardcoded test room. The remaining gaps are public-network reliability and content/art depth rather than a missing core route interaction.

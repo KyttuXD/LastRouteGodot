@@ -8,6 +8,9 @@ const buildDirectory = join(projectDirectory, "builds");
 const buildSource = readFileSync(join(projectDirectory, "src/config/build.gd"), "utf8");
 const version = buildSource.match(/const VERSION := "(\d+(?:\.\d+){2,3})"/)?.[1];
 if (!version) throw new Error("Could not read Build.VERSION");
+const revisionSource = JSON.parse(readFileSync(join(projectDirectory, "build_revision.json"), "utf8"));
+const revision = String(revisionSource.revision || "").trim().toLowerCase();
+if (!/^[a-f0-9]{7,40}$/.test(revision)) throw new Error("Could not read the stamped Git revision");
 
 const artifacts = {
   linux: "LastRoute-Linux-Debug.zip",
@@ -24,10 +27,11 @@ for (const [platform, file] of Object.entries(artifacts)) {
   if (!existsSync(path)) continue;
   debug[platform] = {
     version,
+    revision,
     file,
     sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
     notes: "Debug multiplayer and platform test build.",
-    required: false,
+    required: true,
   };
 }
 

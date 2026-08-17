@@ -2,22 +2,25 @@
   "debug": {
     "linux": {
       "version": "0.0.1.0",
+      "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
       "file": "LastRoute-Linux-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "Debug multiplayer test build.",
-      "required": false
+      "required": true
     },
     "steamvr": {
       "version": "0.0.1.0",
+      "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
       "file": "LastRoute-Windows-SteamVR-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "SteamVR OpenXR test build.",
-      "required": false
+      "required": true
     }
   },
   "release": {
     "windows": {
       "version": "1.0.0",
+      "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
       "file": "LastRoute-Windows.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "First public release.",

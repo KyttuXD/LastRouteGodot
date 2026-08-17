@@ -33,6 +33,14 @@ func run(host: Node) -> int:
 		"the updater treated the current version as newer")
 	_expect(not UpdateManager._newer("0.0.0.9", "0.0.1.0"),
 		"the updater treated an older version as newer")
+	_expect(UpdateManager._update_needed("0.0.1.0", "0.0.1.0",
+		"bbbbbbbbbbbb", "aaaaaaaaaaaa"),
+		"the updater ignored a newer build commit at the same frozen version")
+	_expect(not UpdateManager._update_needed("0.0.1.0", "0.0.1.0",
+		"aaaaaaaaaaaa", "aaaaaaaaaaaa"),
+		"the updater offered its own build commit")
+	_expect(not UpdateManager._update_needed("0.0.1.0", "0.0.1.0", "", "source"),
+		"an editor/source run was treated as an exported revision")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.code.length() == RoomState.CODE_LENGTH,
 		"room code is %d characters" % RoomState.code.length())
