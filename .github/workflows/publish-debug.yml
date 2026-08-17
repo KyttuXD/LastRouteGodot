@@ -82,6 +82,9 @@ jobs:
             builds/LastRoute-Web-Debug.zip; do
             unzip -tq "${archive}"
           done
+          test "$(unzip -Z1 builds/LastRoute-Linux-Debug.zip)" = "LastRoute-Linux-Debug.x86_64"
+          test "$(unzip -Z1 builds/LastRoute-Windows-Debug.zip)" = "LastRoute-Windows-Debug.exe"
+          test "$(unzip -Z1 builds/LastRoute-Windows-SteamVR-Debug.zip)" = "LastRoute-Windows-SteamVR-Debug.exe"
           node -e '
             const fs = require("node:fs");
             const manifest = JSON.parse(fs.readFileSync("builds/updates.debug.json", "utf8"));

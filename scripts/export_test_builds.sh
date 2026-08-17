@@ -22,6 +22,13 @@ else
 fi
 
 mkdir -p "${build_dir}/LastRoute-Web-Debug"
+# Desktop presets embed their PCK in the executable. Remove artifacts from
+# older split-PCK exports so local builds and updater archives cannot
+# accidentally keep shipping a stale companion file.
+rm -f -- \
+	"${build_dir}/LastRoute-Linux-Debug.pck" \
+	"${build_dir}/LastRoute-Windows-Debug.pck" \
+	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Linux Debug Tools"
@@ -32,9 +39,9 @@ node "${project_dir}/scripts/generate_build_revision.mjs"
 
 (
 	cd "${build_dir}"
-	zip -FS LastRoute-Linux-Debug.zip LastRoute-Linux-Debug.x86_64 LastRoute-Linux-Debug.pck
-	zip -FS LastRoute-Windows-Debug.zip LastRoute-Windows-Debug.exe LastRoute-Windows-Debug.pck
-	zip -FS LastRoute-Windows-SteamVR-Debug.zip LastRoute-Windows-SteamVR-Debug.exe LastRoute-Windows-SteamVR-Debug.pck
+	zip -FS LastRoute-Linux-Debug.zip LastRoute-Linux-Debug.x86_64
+	zip -FS LastRoute-Windows-Debug.zip LastRoute-Windows-Debug.exe
+	zip -FS LastRoute-Windows-SteamVR-Debug.zip LastRoute-Windows-SteamVR-Debug.exe
 	zip -FS -r LastRoute-Web-Debug.zip LastRoute-Web-Debug -x '*.import'
 	unzip -o LastRoute-macOS-Debug.zip -d .
 )
