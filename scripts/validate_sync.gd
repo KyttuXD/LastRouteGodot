@@ -223,6 +223,7 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 		for x in range(1, size - 1):
 			image.set_pixel(x, y, Color(1, 1, 1, 1))
 	image.set_pixel(2, 2, Color8(0, 255, 0))
+	image.set_pixel(size - 5, 2, Color8(0, 255, 0))
 	image.set_pixel(size - 3, size - 3, Color8(255, 0, 0))
 	for y in range(5, 8):
 		for x in range(5, 8):
@@ -233,6 +234,12 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 	_expect(install_error.is_empty(), "host could not install the custom map: %s" % install_error)
 	if not install_error.is_empty():
 		return
+	var first_spawn: Vector3 = alice._player_spawn_world_position(1)
+	var second_spawn: Vector3 = alice._player_spawn_world_position(2)
+	_expect(first_spawn.is_equal_approx(Vector3(2.5, first_spawn.y, 2.5)),
+		"first room slot did not use the first authored custom-map spawn")
+	_expect(second_spawn.is_equal_approx(Vector3(size - 4.5, second_spawn.y, 2.5)),
+		"second room slot did not use the second authored custom-map spawn")
 	var relay := _first(alice, RouteInteractable3D.Kind.RELAY)
 	if relay != null:
 		relay.activate(alice.player)
@@ -269,6 +276,9 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 		"joining peer did not rebuild the authored map dimensions")
 	_expect(latecomer.facility_view.generator.start == Vector2i(2, 2),
 		"joining peer did not rebuild the authored start cell")
+	_expect(latecomer.facility_view.generator.spawn_points \
+		== alice.facility_view.generator.spawn_points,
+		"joining peer did not rebuild every authored spawn cell")
 	_expect(latecomer.facility_view.generator.grid == alice.facility_view.generator.grid,
 		"joining peer rebuilt different custom-map walls")
 	if relay != null:

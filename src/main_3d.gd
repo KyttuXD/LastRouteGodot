@@ -1292,9 +1292,9 @@ func _after_floor_built() -> void:
 	_spawn_hunter()
 
 
-## Keep connected mannequins from occupying the exact same body at the access
-## point. Every peer sorts the deterministic floor cells the same way and uses
-## its roster index, so no extra spawn RPC is needed.
+## Use authored green spawn cells first, then nearby open cells if the room has
+## more players than authored spawns. Every peer builds the same ordered list
+## and uses its roster index, so no extra spawn RPC is needed.
 func _player_spawn_world_position(peer_id: int = -1) -> Vector3:
 	var ordinary := facility_view.start_world_position()
 	if not RoomState.online and peer_id < 0:
@@ -1306,13 +1306,17 @@ func _player_spawn_world_position(peer_id: int = -1) -> Vector3:
 	if roster_index < 0:
 		roster_index = maxi(0, id - 1)
 	var start := facility_view.generator.start
-	var cells: Array = facility_view.generator.floor_cells()
-	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+	var nearby_cells: Array = facility_view.generator.floor_cells()
+	nearby_cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		var a_distance := a.distance_squared_to(start)
 		var b_distance := b.distance_squared_to(start)
 		if a_distance != b_distance:
 			return a_distance < b_distance
 		return a.y < b.y if a.y != b.y else a.x < b.x)
+	var cells: Array = facility_view.generator.spawn_points.duplicate()
+	for nearby_cell in nearby_cells:
+		if not cells.has(nearby_cell):
+			cells.append(nearby_cell)
 	if cells.is_empty():
 		return ordinary
 	var cell: Vector2i = cells[roster_index % mini(cells.size(), RoomState.MAX_PLAYERS)]

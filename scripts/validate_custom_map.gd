@@ -23,8 +23,9 @@ func run(_host: Node) -> int:
 	_parses_a_real_map()
 	_parses_committed_sample()
 	_accepts_unbounded_dimensions()
+	_supports_authored_and_random_spawns()
 	_flags_unrecognised_colour()
-	_requires_a_start()
+	_requires_walkable_space()
 	_feeds_a_real_generator()
 	if _failures == 0:
 		print("custom_map OK")
@@ -46,6 +47,8 @@ func _parses_committed_sample() -> void:
 		"the committed sample is %dx%d, not 49x49" % [result["cols"], result["rows"]])
 	_expect(result["start"] == Vector2i(24, 24),
 		"the committed sample start landed at %s" % result["start"])
+	_expect((result["spawn_points"] as Array).size() == 1,
+		"the committed sample should contain one authored spawn")
 	_expect(result["exit_cell"] == Vector2i(44, 44),
 		"the committed sample exit landed at %s" % result["exit_cell"])
 	_expect((result["rooms"] as Array).size() == 4,
@@ -141,12 +144,51 @@ func _flags_unrecognised_colour() -> void:
 	print("  unknown   an unrecognised colour becomes a wall and a warning, not a silent hole")
 
 
-func _requires_a_start() -> void:
+func _supports_authored_and_random_spawns() -> void:
+	var authored := _make_test_image(TEST_SIZE)
+	var second_spawn := Vector2i(TEST_SIZE - 5, 2)
+	authored.set_pixel(second_spawn.x, second_spawn.y, Color8(0, 255, 0))
+	var authored_result := CustomMapParser.parse(authored)
+	_expect(authored_result.get("ok", false), "a map with two green spawns was rejected")
+	if authored_result.get("ok", false):
+		var expected: Array[Vector2i] = [Vector2i(2, 2), second_spawn]
+		_expect(authored_result["spawn_points"] == expected,
+			"the parser did not retain both authored spawn cells")
+		var authored_generator := FacilityGenerator.new(
+			"MULTI-SPAWN", RoomState.generator_options(), authored_result)
+		_expect(authored_generator.spawn_points == expected,
+			"the generator did not retain both authored spawn cells")
+
+	var automatic := Image.create(17, 13, false, Image.FORMAT_RGBA8)
+	automatic.fill(Color(0, 0, 0, 1))
+	for y in range(1, 12):
+		for x in range(1, 16):
+			automatic.set_pixel(x, y, Color(1, 1, 1, 1))
+	automatic.set_pixel(15, 11, Color8(255, 0, 0))
+	var automatic_result := CustomMapParser.parse(automatic)
+	_expect(automatic_result.get("ok", false), "a map without green spawns was rejected")
+	if automatic_result.get("ok", false):
+		_expect((automatic_result["spawn_points"] as Array).is_empty(),
+			"the parser invented an authored spawn")
+		var first := FacilityGenerator.new(
+			"AUTO-SPAWN", RoomState.generator_options(), automatic_result)
+		var second := FacilityGenerator.new(
+			"AUTO-SPAWN", RoomState.generator_options(), automatic_result)
+		_expect(first.start == second.start,
+			"automatic spawn selection was not deterministic for the route seed")
+		_expect(first.is_floor(first.start.x + 0.5, first.start.y + 0.5),
+			"automatic spawn selection chose a wall")
+		_expect(first.spawn_points == [first.start],
+			"automatic spawn was not exposed through generator.spawn_points")
+	print("  spawns    multiple green cells survive; no green picks seeded random floor")
+
+
+func _requires_walkable_space() -> void:
 	var image := Image.create(TEST_SIZE, TEST_SIZE, false, Image.FORMAT_RGBA8)
-	image.fill(Color(1, 1, 1, 1))  # all floor, no start
+	image.fill(Color(0, 0, 0, 1))
 	var result := CustomMapParser.parse(image)
-	_expect(not result.get("ok", true), "a map with no start marker was accepted")
-	print("  no-start  a map with no green pixel is refused, not defaulted somewhere")
+	_expect(not result.get("ok", true), "an all-wall map with nowhere to spawn was accepted")
+	print("  no-floor  an all-wall map is rejected because no random spawn is possible")
 
 
 ## The real integration point: does a parsed map actually produce a working
@@ -163,6 +205,8 @@ func _feeds_a_real_generator() -> void:
 	_expect(generator.cols == TEST_SIZE and generator.rows == TEST_SIZE,
 		"the generator's own size does not match the painted image")
 	_expect(generator.start == Vector2i(2, 2), "the generator's start does not match the painted one")
+	_expect(generator.spawn_points == [Vector2i(2, 2)],
+		"the generator's spawn list does not contain the painted start")
 	_expect(generator.exit_cell == Vector2i(TEST_SIZE - 3, TEST_SIZE - 3),
 		"the generator's exit does not match the painted one")
 	# The generic placement algorithms still ran on this hand-painted grid --

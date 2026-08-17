@@ -4,13 +4,15 @@ extends RefCounted
 ## Developer custom maps: a single colour-coded PNG stands in for procedural
 ## generation. One pixel = one grid cell, matched exactly against PALETTE
 ## below (no blending/anti-aliasing — that's what the original enforces too).
-## Ported from the original's src/game/custom-map.js, same palette, same
-## bounds, same flood-fill-by-colour room detection.
+## Ported from the original's src/game/custom-map.js, with the same palette
+## and flood-fill-by-colour room detection.
 ##
-## Required:
+## Geometry:
 ##   #000000 black  — wall
 ##   #ffffff white  — floor / corridor (no room)
-##   #00ff00 green  — start point (exactly one pixel)
+##   #00ff00 green  — authored player spawn point (zero or more). Every green
+##     cell is retained. With none, FacilityGenerator deterministically picks
+##     a random open floor cell from the route seed.
 ## Optional:
 ##   #ff0000 red    — exit point (one pixel). The original leaves a map with
 ##     none entirely without a service lift; this port has nowhere for a
@@ -47,7 +49,7 @@ const FLOOD_NEIGHBORS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vecto
 
 
 ## Returns {"ok": bool, "error": String} on failure, or on success:
-## {"ok": true, "cols", "rows", "grid", "rooms", "start", "exit_cell"
+## {"ok": true, "cols", "rows", "grid", "rooms", "start", "spawn_points", "exit_cell"
 ##  (Vector2i(-1,-1) if none painted), "warnings": Array[String]}.
 ##
 ## `grid` matches FacilityGenerator's own convention: 0 = open, 1 = wall.
@@ -75,8 +77,9 @@ static func parse(image: Image) -> Dictionary:
 		row.fill(1)
 		grid.append(row)
 	var cell_region := {}  # Vector2i -> String region, only for painted region cells
-	var start := Vector2i(-1, -1)
+	var spawn_points: Array[Vector2i] = []
 	var exits: Array[Vector2i] = []
+	var open_cell_count := 0
 
 	for y in height:
 		for x in width:
@@ -96,22 +99,24 @@ static func parse(image: Image) -> Dictionary:
 					continue
 				"floor":
 					grid[y][x] = 0
+					open_cell_count += 1
 				"start":
 					grid[y][x] = 0
-					if start.x >= 0:
-						warnings.append("extra start marker at (%d, %d) ignored — using %s"
-							% [x, y, start])
-					else:
-						start = Vector2i(x, y)
+					open_cell_count += 1
+					spawn_points.append(Vector2i(x, y))
 				"exit":
 					grid[y][x] = 0
+					open_cell_count += 1
 					exits.append(Vector2i(x, y))
 				"region":
 					grid[y][x] = 0
+					open_cell_count += 1
 					cell_region[Vector2i(x, y)] = String(entry["region"])
 
-	if start.x < 0:
-		return {"ok": false, "error": "custom map has no start marker — paint one pure green (#00ff00) pixel"}
+	if open_cell_count <= 0:
+		return {"ok": false, "error": "custom map has no walkable floor or spawn cells"}
+	if spawn_points.is_empty():
+		warnings.append("no green spawn markers — a seeded random open cell will be used")
 	if exits.size() > 1:
 		warnings.append("%d exit markers found — using %s, ignoring the rest" % [exits.size(), exits[0]])
 
@@ -119,7 +124,9 @@ static func parse(image: Image) -> Dictionary:
 
 	return {
 		"ok": true, "cols": width, "rows": height, "grid": grid, "rooms": rooms,
-		"start": start, "exit_cell": exits[0] if not exits.is_empty() else Vector2i(-1, -1),
+		"start": spawn_points[0] if not spawn_points.is_empty() else Vector2i(-1, -1),
+		"spawn_points": spawn_points,
+		"exit_cell": exits[0] if not exits.is_empty() else Vector2i(-1, -1),
 		"warnings": warnings,
 	}
 

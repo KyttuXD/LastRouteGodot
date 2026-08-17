@@ -9,11 +9,13 @@ blending, colour profiles, and resampling disabled.
 - PNG, RGB or RGBA, fully opaque
 - There is **no width, height, or total-pixel limit imposed by the game**
 - Use only the exact colours below
-- Paint exactly one green start cell
+- Paint zero or more green spawn cells; without one, the seeded generator
+  chooses a random open cell
 - A red exit cell is recommended; without one, the game chooses a lift cell
 - Keep the outermost pixels black so the route has a closed boundary
 - Make corridors and doors at least 3 pixels wide for comfortable movement
-- Every walkable area should be connected to the green start cell
+- Keep walkable space connected so every authored or automatic spawn can
+  reach the route objectives
 - The downloaded PNG must be no larger than 2 MiB
 
 The 2 MiB rule is a compressed-file transport guard for HTTP and multiplayer,
@@ -31,7 +33,7 @@ colours.
 | --- | --- |
 | `#000000` | Wall |
 | `#FFFFFF` | Ordinary floor/corridor |
-| `#00FF00` | Player start (required; exactly one recommended) |
+| `#00FF00` | Player spawn (optional; paint multiple for co-op slots) |
 | `#FF0000` | Service-lift exit (optional; exactly one recommended) |
 | `#4A90D9` | Office floor region |
 | `#C97A3D` | Maintenance floor region |
@@ -47,6 +49,12 @@ GIMP, Krita, Aseprite, and other editors that support GIMP palettes. Region
 colours are walkable floor; contiguous pixels of the same region colour form
 one themed room. They currently tint the normal floor material. Unrecognised
 or transparent pixels become walls and produce a warning.
+
+Green spawn cells are read left-to-right, top-to-bottom. Co-op roster slots
+use them in that order; if there are more players than green cells, remaining
+players use nearby distinct floor cells. When there are no green cells, the
+route seed chooses one random open cell deterministically, so host and guests
+still agree on where the route begins.
 
 ## Test the included map
 

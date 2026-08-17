@@ -219,6 +219,8 @@ const MUSIC_BOX_MAX_DISTANCE := 4
 ## since neither knows about the OTHER call's pick.
 func _taken_cells() -> Dictionary:
 	var taken := {}
+	for spawn_cell in generator.spawn_points:
+		taken[spawn_cell] = true
 	for relay in generator.relays:
 		taken[Vector2i(relay["x"], relay["y"])] = true
 	for battery in generator.batteries:

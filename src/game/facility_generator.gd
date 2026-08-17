@@ -56,6 +56,10 @@ var relays: Array = []
 var batteries: Array = []
 var safe_zones: Array = []
 var start: Vector2i
+## Every authored green cell on a custom map. `start` remains the primary
+## anchor used for distances/objective placement; multiplayer consumes this
+## whole ordered list before falling back to nearby open cells.
+var spawn_points: Array[Vector2i] = []
 var exit_cell: Vector2i
 
 var random: SeededRandom
@@ -96,7 +100,7 @@ func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Diction
 		rows = custom_layout["rows"]
 		grid = custom_layout["grid"]
 		rooms = custom_layout["rooms"]
-		start = custom_layout["start"]
+		_load_custom_spawn_points(custom_layout)
 		var from_start := distance_map(start.x, start.y)
 		var custom_exit: Vector2i = custom_layout.get("exit_cell", Vector2i(-1, -1))
 		# A painted exit is used as-is; an unpainted one falls back to the same
@@ -108,9 +112,48 @@ func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Diction
 		place_batteries(from_start)
 
 
+func _load_custom_spawn_points(custom_layout: Dictionary) -> void:
+	spawn_points.clear()
+	for value in custom_layout.get("spawn_points", []):
+		var cell: Vector2i = value
+		if _valid_open_cell(cell) and not spawn_points.has(cell):
+			spawn_points.append(cell)
+
+	# Backward compatibility for layouts produced before `spawn_points` was
+	# part of the parser result.
+	if spawn_points.is_empty():
+		var legacy_start: Vector2i = custom_layout.get("start", Vector2i(-1, -1))
+		if _valid_open_cell(legacy_start):
+			spawn_points.append(legacy_start)
+
+	if spawn_points.is_empty():
+		var candidates: Array = floor_cells()
+		if candidates.is_empty():
+			# Border cells are normally walls and floor_cells() intentionally omits
+			# them, but an unbounded custom format may author a tiny/border-only map.
+			for y in rows:
+				for x in cols:
+					if grid[y][x] == 0:
+						candidates.append(Vector2i(x, y))
+		if candidates.is_empty():
+			# CustomMapParser rejects this case; retain a total fallback for direct
+			# callers so construction cannot index an empty array.
+			spawn_points.append(Vector2i.ZERO)
+		else:
+			spawn_points.append(candidates[random.next_index(candidates.size())])
+	start = spawn_points[0]
+
+
+func _valid_open_cell(cell: Vector2i) -> bool:
+	return cell.x >= 0 and cell.y >= 0 and cell.x < cols and cell.y < rows \
+		and grid[cell.y][cell.x] == 0
+
+
 func generate() -> void:
 	var lobby := carve_facility_rooms()
 	start = lobby["center"]
+	spawn_points.clear()
+	spawn_points.append(start)
 	connect_facility_rooms(lobby)
 
 	var from_start := distance_map(start.x, start.y)
@@ -698,6 +741,8 @@ func _walk_combinations(source_rooms: Array, size: int, start_index: int, curren
 func place_relays(from_start: Dictionary) -> void:
 	var candidates: Array = []
 	for cell in floor_cells():
+		if spawn_points.has(cell):
+			continue
 		var start_distance: int = from_start.get(cell, 0)
 		if start_distance <= 14:
 			continue
@@ -721,6 +766,8 @@ func place_relays(from_start: Dictionary) -> void:
 func place_batteries(from_start: Dictionary) -> void:
 	var candidates: Array = []
 	for cell in floor_cells():
+		if spawn_points.has(cell):
+			continue
 		var distance: int = from_start.get(cell, -1)
 		if distance <= 5:
 			continue
@@ -753,6 +800,8 @@ func place_hunter_spawn(from_start: Dictionary) -> Vector2i:
 	var hunter_component := occupiable_component(start, 0.25, get_safe_zone_blocked_cells())
 	var candidates: Array = []
 	for cell in floor_cells():
+		if spawn_points.has(cell):
+			continue
 		var distance: int = from_start.get(cell, 0)
 		if distance <= 20:
 			continue
@@ -788,6 +837,8 @@ func pick_service_lift(from_start: Dictionary) -> Vector2i:
 	var lift_rng := SeededRandom.new("%s:SERVICE-LIFT" % seed_text)
 	var reachable: Array = []
 	for cell in floor_cells():
+		if spawn_points.has(cell):
+			continue
 		if from_start.has(cell) and can_occupy(cell.x + 0.5, cell.y + 0.5):
 			reachable.append(cell)
 	if reachable.is_empty():
@@ -864,7 +915,9 @@ func room_at(x: float, y: float) -> Dictionary:
 func place_hiding_spots(count: int = 6) -> Array:
 	hiding_spots = []
 	var rng := SeededRandom.new("%s:HIDING-SPOTS" % seed_text)
-	var taken := {start: true, exit_cell: true}
+	var taken := {exit_cell: true}
+	for spawn_cell in spawn_points:
+		taken[spawn_cell] = true
 	for group in [relays, batteries, safe_zones]:
 		for entry in group:
 			taken[Vector2i(entry["x"], entry["y"])] = true
@@ -955,7 +1008,9 @@ func place_coins(count: int = 5) -> Array:
 	if rooms.is_empty():
 		return coins
 	var rng := SeededRandom.new("%s:COINS" % seed_text)
-	var taken := {start: true, exit_cell: true}
+	var taken := {exit_cell: true}
+	for spawn_cell in spawn_points:
+		taken[spawn_cell] = true
 	for group in [relays, batteries, safe_zones, hiding_spots, vents]:
 		for entry in group:
 			taken[Vector2i(entry["x"], entry["y"])] = true
