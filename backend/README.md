@@ -53,6 +53,7 @@ configuration is:
 
 ```text
 HOST=0.0.0.0
+LASTROUTE_HTTP_PORT=8105
 SERVER_PORT=8105
 LASTROUTE_DATA_DIR=./.data
 LASTROUTE_RELAY_ENABLED=true
@@ -101,14 +102,15 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` / `SERVER_PORT` | `1101` | HTTP listen port |
+| `LASTROUTE_HTTP_PORT` | `8105` | preferred HTTP listen port; overrides panel variables |
+| `PORT` / `SERVER_PORT` | `8105` (`1105` is automatically separated) | fallback HTTP listen port injected by the panel |
 | `HOST` | `0.0.0.0` | HTTP bind address |
 | `LASTROUTE_DATA_DIR` | `./.data` | persistent data directory |
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
 | `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
 | `LASTROUTE_RELAY_HOST` | `lastroute.kyttuslab.org` | public relay address returned for room-code joins |
-| `LASTROUTE_RELAY_PORT` | HTTP port | UDP relay allocation; normally `1105` |
+| `LASTROUTE_RELAY_PORT` | `1105` | UDP relay allocation |
 | `LASTROUTE_PUBLIC_DIR` | empty/disabled | optional static web-client directory |
 | `LASTROUTE_CUSTOM_MAP_DIR` | `./art/custom-maps` when present | safe PNG-only custom-map directory exposed below `/api/custom-maps/` |
 | `LASTROUTE_UPDATE_MANIFEST` | empty/disabled | update metadata JSON reloaded for update requests |

@@ -18,6 +18,7 @@ const UPDATE_ROOT := "user://updates"
 const DOWNLOAD_PART := "pending-update.part"
 const DEBUG_RECHECK_SECONDS := 10.0
 const RELEASE_RECHECK_SECONDS := 60.0
+const MANIFEST_TIMEOUT_SECONDS := 8.0
 const UNIX_HELPER := """#!/bin/sh
 set -u
 stage=$1
@@ -126,6 +127,7 @@ var _last_progress_percent := -1
 func _ready() -> void:
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
+	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
 	add_child(_manifest_request)
 	_manifest_request.request_completed.connect(_on_manifest_response)
 	_download_request = HTTPRequest.new()

@@ -79,6 +79,9 @@ func run(host: Node) -> int:
 		"the updater treated an older version as newer")
 	_expect(UpdateManager.DEBUG_RECHECK_SECONDS <= 10.0,
 		"debug update checks are too slow for active test builds")
+	_expect(UpdateManager.MANIFEST_TIMEOUT_SECONDS > 0.0 \
+		and UpdateManager.MANIFEST_TIMEOUT_SECONDS <= 10.0,
+		"an unreachable update backend can leave the startup gate checking forever")
 	_expect(UpdateManager._update_needed("0.0.1.0", "0.0.1.0",
 		"bbbbbbbbbbbb", "aaaaaaaaaaaa"),
 		"the updater ignored a newer build commit at the same frozen version")

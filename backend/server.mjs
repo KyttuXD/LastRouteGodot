@@ -555,12 +555,28 @@ function environmentPath(name) {
   return value ? resolve(process.cwd(), value) : null;
 }
 
+function validPort(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 65_535 ? number : 0;
+}
+
+export function deploymentPorts(environment = process.env) {
+  const injectedPort = validPort(environment.PORT) || validPort(environment.SERVER_PORT);
+  // The original deployment used TCP and UDP 1105 together. The client now
+  // has a dedicated HTTP allocation, so automatically move a legacy injected
+  // TCP 1105 to 8105 while leaving explicit non-relay ports alone.
+  const httpPort = validPort(environment.LASTROUTE_HTTP_PORT)
+    || (injectedPort === 1105 ? 8105 : injectedPort)
+    || 8105;
+  const relayPort = validPort(environment.LASTROUTE_RELAY_PORT) || 1105;
+  return { httpPort, relayPort };
+}
+
 export function startLastRouteServerFromEnvironment() {
-  const port = Number(process.env.PORT || process.env.SERVER_PORT) || 1101;
+  const { httpPort: port, relayPort } = deploymentPorts();
   const host = process.env.HOST || "0.0.0.0";
   const relayEnabled = !/^(0|false|no|off)$/i.test(String(
     process.env.LASTROUTE_RELAY_ENABLED || "true"));
-  const relayPort = Number(process.env.LASTROUTE_RELAY_PORT) || port;
   const relayAddress = String(process.env.LASTROUTE_RELAY_HOST
     || "lastroute.kyttuslab.org").trim();
   const dataDirectory = environmentPath("LASTROUTE_DATA_DIR") || environmentPath("KYTTU_DATA_DIR") || resolve(process.cwd(), ".data");

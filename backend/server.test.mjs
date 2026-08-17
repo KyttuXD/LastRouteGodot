@@ -4,7 +4,23 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDirectoryServer, createLastRouteServer } from "./server.mjs";
+import { createDirectoryServer, createLastRouteServer, deploymentPorts } from "./server.mjs";
+
+test("deployment separates legacy Pterodactyl HTTP and ENet allocations", () => {
+  assert.deepEqual(deploymentPorts({ SERVER_PORT: "1105" }), {
+    httpPort: 8105,
+    relayPort: 1105,
+  });
+  assert.deepEqual(deploymentPorts({
+    PORT: "1105",
+    LASTROUTE_HTTP_PORT: "8105",
+    LASTROUTE_RELAY_PORT: "1105",
+  }), { httpPort: 8105, relayPort: 1105 });
+  assert.deepEqual(deploymentPorts({ PORT: "8787" }), {
+    httpPort: 8787,
+    relayPort: 1105,
+  });
+});
 
 async function fixture(options = {}) {
   const server = createDirectoryServer(options);
