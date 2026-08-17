@@ -12,6 +12,7 @@ extends RefCounted
 ##   godot4 --headless res://scenes/validate.tscn -- room
 
 var _failures := 0
+const TEST_PORT := 28421
 
 
 func _fail(message: String) -> void:
@@ -284,7 +285,7 @@ func run(host: Node) -> int:
 	# is the single most likely outcome of testing with two windows.
 	Backend.suppress_requests_for_tests()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
-	var error := RoomState.host_room()
+	var error := RoomState.host_room(TEST_PORT)
 	if not error.is_empty():
 		_fail("hosting failed: %s" % error)
 	else:
@@ -315,12 +316,12 @@ func run(host: Node) -> int:
 			_fail("%d rows claim to be the host" % hosts)
 		if mine != 1:
 			_fail("%d rows claim to be you" % mine)
-		print("  network   hosting on %d, %d seated" % [RoomState.DEFAULT_PORT,
+		print("  network   hosting on %d, %d seated" % [TEST_PORT,
 			RoomState.roster().size()])
 		print("  directory fixed to the primary service; no custom-host controls")
 
 	# Hosting twice must not leave the first port held.
-	error = RoomState.host_room()
+	error = RoomState.host_room(TEST_PORT)
 	if not error.is_empty():
 		_fail("re-hosting failed, so the previous socket was never released: %s" % error)
 	RoomState.leave_network()

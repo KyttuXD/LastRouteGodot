@@ -54,10 +54,10 @@ LASTROUTE_AUTO_UPDATE=true
 LASTROUTE_GITHUB_REPO=KyttuXD/LastRouteGodot
 LASTROUTE_GITHUB_TAG=debug
 LASTROUTE_GITHUB_TOKEN=<private GitHub PAT>
-LASTROUTE_UPDATE_POLL_SECONDS=300
-LASTROUTE_RESTART_ON_GITHUB_UPDATE=true
+LASTROUTE_UPDATE_POLL_SECONDS=15
+# Source watching is automatic while the PAT above is configured.
 LASTROUTE_GITHUB_BRANCH=main
-LASTROUTE_SOURCE_POLL_SECONDS=120
+LASTROUTE_SOURCE_POLL_SECONDS=30
 LASTROUTE_UPDATE_MANIFEST=./updates/updates.debug.json
 LASTROUTE_UPDATE_DIR=./updates
 TRUST_PROXY=true
@@ -69,9 +69,15 @@ real client IP through `X-Forwarded-For`; do not enable it on a service exposed
 directly to untrusted clients. Put HTTPS and request rate limits at the proxy
 or panel edge.
 
-The backend allocation is TCP. Public ENet play also needs a separate,
-reachable **UDP** allocation (8421 by default) on the machine hosting the
-Godot game. The directory is discovery, not NAT traversal or a relay.
+The backend allocation is TCP. Public ENet play also needs reachable **UDP
+8421 on the player's hosting machine**. Native clients now ask a compatible
+home router to forward that port through UPnP and remove the mapping when the
+room closes. When host and guest share one public address, the directory gives
+the guest the host's validated private LAN address to avoid relying on router
+hairpinning. If UPnP is unavailable, the host must forward UDP 8421 manually;
+the lobby reports that condition. The directory remains discovery rather than
+a gameplay relay, so carrier-grade NAT still needs a future relay/dedicated
+transport.
 
 The official client uses `lastroute.kyttuslab.org:1105`, currently resolving
 to `195.62.47.178`. Point that DNS name at the panel's public address and expose

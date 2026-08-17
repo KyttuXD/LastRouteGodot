@@ -96,12 +96,19 @@ var status_message := ""
 var peers := {}
 
 const DEFAULT_PORT := 8421
+const CONNECTION_TIMEOUT_MSEC := 12_000
 ## Loopback by default: this exists to test with two windows on one machine
 ## before there is anything to connect to.
 const DEFAULT_ADDRESS := "127.0.0.1"
 
 var _peer: ENetMultiplayerPeer
 var _host_port := DEFAULT_PORT
+var _connect_started_msec := 0
+var _upnp_thread: Thread
+var _upnp: UPNP
+var _upnp_mapped_port := 0
+var _upnp_status := ""
+var _directory_status := ""
 
 
 func _ready() -> void:
@@ -110,6 +117,21 @@ func _ready() -> void:
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
 		create_local(Mode.DEFAULT)
+
+
+func _process(_delta: float) -> void:
+	if _upnp_thread != null and not _upnp_thread.is_alive():
+		var outcome: Dictionary = _upnp_thread.wait_to_finish()
+		_upnp_thread = null
+		_finish_upnp_mapping(outcome)
+	if connecting and _connect_started_msec > 0 \
+			and Time.get_ticks_msec() - _connect_started_msec >= CONNECTION_TIMEOUT_MSEC:
+		_close_failed_connection(
+			"ROOM CONNECTION TIMED OUT // HOST MUST ALLOW UDP %d" % _host_port)
+
+
+func _exit_tree() -> void:
+	_stop_upnp_mapping()
 
 
 ## Open a room on this machine with one player in it.
@@ -151,9 +173,12 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 	is_host = true
 	session_active = false
 	status_message = "REGISTERING ROOM WITH PRIMARY SERVER"
+	_directory_status = ""
 	peers = {1: _local_name()}
 	_bind_signals()
-	Backend.register_room(code, port, peers.size(), session_active)
+	if Backend.configured():
+		_start_upnp_mapping(port)
+	Backend.register_room(code, port, peers.size(), session_active, host_addresses())
 	changed.emit()
 	return ""
 
@@ -176,6 +201,8 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> S
 	multiplayer.multiplayer_peer = _peer
 	online = false
 	connecting = true
+	_connect_started_msec = Time.get_ticks_msec()
+	_host_port = port
 	is_host = false
 	session_active = false
 	status_message = "JOINING ROOM THROUGH PRIMARY SERVER"
@@ -192,8 +219,10 @@ func leave_network() -> void:
 		_peer.close()
 		_peer = null
 	multiplayer.multiplayer_peer = null
+	_stop_upnp_mapping()
 	online = false
 	connecting = false
+	_connect_started_msec = 0
 	is_host = true
 	session_active = false
 	peers = {}
@@ -240,12 +269,16 @@ func _on_peer_disconnected(id: int) -> void:
 func _on_directory_registration(listed: bool, message: String) -> void:
 	if not online or not is_host:
 		return
-	status_message = message if listed else "PRIMARY SERVER LISTING FAILED // %s" % message
+	_directory_status = message if listed else "PRIMARY SERVER LISTING FAILED // %s" % message
+	status_message = _directory_status
+	if listed and not _upnp_status.is_empty():
+		status_message += " // %s" % _upnp_status
 	changed.emit()
 
 
 func _on_joined() -> void:
 	connecting = false
+	_connect_started_msec = 0
 	online = true
 	status_message = "CONNECTED // WAITING FOR HOST"
 	peers[multiplayer.get_unique_id()] = _local_name()
@@ -268,6 +301,7 @@ func _close_failed_connection(reason: String) -> void:
 	multiplayer.multiplayer_peer = null
 	online = false
 	connecting = false
+	_connect_started_msec = 0
 	is_host = true
 	session_active = false
 	peers = {}
@@ -588,6 +622,71 @@ func _return_to_staging() -> void:
 			and tree.current_scene.scene_file_path == "res://scenes/room_lobby.tscn":
 		return
 	tree.change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+## ENet is peer-to-peer UDP. The primary backend can publish the host's public
+## address, but a home router still has to forward that UDP port to the game.
+## UPnP handles the common case automatically on a worker thread because SSDP
+## discovery is synchronous. Routers without UPnP get an explicit lobby
+## warning and can use an ordinary manual UDP 8421 forwarding rule.
+func _start_upnp_mapping(port: int) -> void:
+	_stop_upnp_mapping()
+	_upnp_status = "CHECKING UDP %d AUTO-FORWARD" % port
+	_upnp_thread = Thread.new()
+	var error := _upnp_thread.start(_discover_upnp_mapping.bind(port))
+	if error != OK:
+		_upnp_thread = null
+		_upnp_status = "FORWARD UDP %d TO HOST // AUTO-FORWARD COULD NOT START" % port
+
+
+static func _discover_upnp_mapping(port: int) -> Dictionary:
+	var upnp := UPNP.new()
+	var result := upnp.discover(2000, 2, "InternetGatewayDevice")
+	var mapped := false
+	if result == UPNP.UPNP_RESULT_SUCCESS:
+		var gateway := upnp.get_gateway()
+		if gateway != null and gateway.is_valid_gateway():
+			result = upnp.add_port_mapping(port, port, "Last Route ENet", "UDP", 0)
+			mapped = result == UPNP.UPNP_RESULT_SUCCESS
+	return {"upnp": upnp, "port": port, "result": result, "mapped": mapped}
+
+
+func _finish_upnp_mapping(outcome: Dictionary) -> void:
+	var upnp = outcome.get("upnp") as UPNP
+	var port := int(outcome.get("port", 0))
+	var mapped := bool(outcome.get("mapped", false))
+	# The player may have left during discovery. Remove a mapping made for a
+	# room that no longer exists instead of leaking it on the router.
+	if not online or not is_host or port != _host_port:
+		if mapped and upnp != null:
+			upnp.delete_port_mapping(port, "UDP")
+		return
+	if mapped:
+		_upnp = upnp
+		_upnp_mapped_port = port
+		_upnp_status = "UDP %d OPENED AUTOMATICALLY" % port
+	else:
+		_upnp_status = "FORWARD UDP %d TO THIS HOST // AUTO-FORWARD UNAVAILABLE (%d)" \
+			% [port, int(outcome.get("result", -1))]
+	status_message = _directory_status if not _directory_status.is_empty() \
+		else "REGISTERING ROOM WITH PRIMARY SERVER"
+	status_message += " // %s" % _upnp_status
+	changed.emit()
+
+
+func _stop_upnp_mapping() -> void:
+	if _upnp_thread != null:
+		var outcome: Dictionary = _upnp_thread.wait_to_finish()
+		_upnp_thread = null
+		var pending_upnp = outcome.get("upnp") as UPNP
+		if bool(outcome.get("mapped", false)) and pending_upnp != null:
+			pending_upnp.delete_port_mapping(int(outcome.get("port", 0)), "UDP")
+	if _upnp != null and _upnp_mapped_port > 0:
+		_upnp.delete_port_mapping(_upnp_mapped_port, "UDP")
+	_upnp = null
+	_upnp_mapped_port = 0
+	_upnp_status = ""
+	_directory_status = ""
 
 
 ## Addresses worth showing beside the host button. Loopback and IPv6 link-local

@@ -90,10 +90,28 @@ function requesterAddress(request, trustProxy) {
   return cleanAddress(request.socket.remoteAddress);
 }
 
-function publicEnetRoom(room, timestamp) {
+function privateLanAddresses(value) {
+  if (!Array.isArray(value)) return [];
+  const addresses = [];
+  for (const candidate of value) {
+    const address = cleanAddress(candidate);
+    const parts = address.split(".").map(Number);
+    const privateV4 = parts.length === 4 && parts.every((part) => Number.isInteger(part)
+      && part >= 0 && part <= 255) && (parts[0] === 10
+      || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+      || (parts[0] === 192 && parts[1] === 168));
+    if (privateV4 && !addresses.includes(address)) addresses.push(address);
+    if (addresses.length >= 8) break;
+  }
+  return addresses;
+}
+
+function publicEnetRoom(room, timestamp, preferLan = false) {
+  const address = preferLan && room.lanAddresses.length
+    ? room.lanAddresses[0] : room.address;
   return {
     code: room.code,
-    address: room.address,
+    address,
     port: room.port,
     players: room.players,
     sessionActive: room.sessionActive,
@@ -299,7 +317,11 @@ export function createLastRouteServer({
       const code = normalizeEnetCode(decodeURIComponent(enetResolve[1]));
       const room = code ? enetRooms.get(code) : null;
       if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
-      return json(response, 200, { ok: true, room: publicEnetRoom(room, now()) });
+      const samePublicAddress = requesterAddress(request, trustProxy) === room.address;
+      return json(response, 200, {
+        ok: true,
+        room: publicEnetRoom(room, now(), samePublicAddress),
+      });
     }
 
     if (request.method !== "POST") {
@@ -328,6 +350,7 @@ export function createLastRouteServer({
         code,
         token,
         address: requesterAddress(request, trustProxy),
+        lanAddresses: privateLanAddresses(body.lanAddresses),
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),

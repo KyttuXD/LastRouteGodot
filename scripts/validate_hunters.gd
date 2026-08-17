@@ -38,6 +38,7 @@ func run(_host: Node) -> int:
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	var generator := FacilityGenerator.new("HUNTERS-CHECK", RoomState.generator_options())
 	_difficulty_scales_shared_brain(generator)
+	_hunter_view_faces_its_travel_direction()
 	_haelith_goes_where_the_relays_are(generator)
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
@@ -94,6 +95,24 @@ func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:
 	_expect(hard.update(0.0, generator, target, 1, 0),
 		"Hard did not apply its capture-distance multiplier")
 	print("  difficulty hunter speed/perception profile and capture reach applied")
+
+
+func _hunter_view_faces_its_travel_direction() -> void:
+	var brain := HunterBrain.new(Vector2(2.5, 3.5), "FACING-CHECK", "dovelle")
+	brain.facing = Vector2(1, 0)
+	var view := HunterView3D.new()
+	view.brain = brain
+	# Rotation is the unit under test; avoid loading a full GLB merely to check
+	# the wrapper basis in this headless suite.
+	view._shown_id = "dovelle"
+	view.sync_from_brain()
+	var forward_3d := -view.transform.basis.z
+	var drawn_forward := Vector2(forward_3d.x, forward_3d.z).normalized()
+	_expect(drawn_forward.dot(brain.facing) > 0.999,
+		"hunter model forward points %s while movement points %s"
+			% [drawn_forward, brain.facing])
+	view.free()
+	print("  facing    hunter models face the direction their brains move")
 
 
 ## She re-aims every frame, so collecting the one she is walking to has to send

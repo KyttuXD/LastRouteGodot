@@ -76,7 +76,10 @@ func sync_from_brain() -> void:
 		return
 	position = Vector3(brain.position.x, 0.0, brain.position.y)
 	if brain.facing.length_squared() > 0.0001:
-		rotation.y = atan2(brain.facing.x, brain.facing.y)
+		# Godot's forward direction is -Z. The old angle aligned +Z with the
+		# brain direction, so every hunter visually ran back-first even though
+		# her simulation and radar movement were correct.
+		rotation.y = atan2(-brain.facing.x, -brain.facing.y)
 	_apply_model(_desired_model_id())
 	_apply_visibility()
 	_update_animation()

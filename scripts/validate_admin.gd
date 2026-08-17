@@ -81,17 +81,40 @@ func run(host: Node) -> int:
 			menu = child
 	if menu != null:
 		GameState.relays_collected = 0
+		GameState.score = 0
 		for row in menu._actions:
 			var action: Callable = row["action"]
 			if not action.is_valid():
 				_fail("admin action '%s' is not callable" % row["label"])
-		# One with an observable effect, so this is not merely a null check.
+		# Relay grants must perform physical pickups, not merely alter the HUD
+		# counter. Grant one first, then collect the rest in a batch.
+		for row in menu._actions:
+			if String(row["label"]) == "GRANT RELAY":
+				(row["action"] as Callable).call()
+		var relays := _relay_nodes(scene)
+		var completed_after_grant := 0
+		for relay in relays:
+			if relay.completed:
+				completed_after_grant += 1
+		_expect(completed_after_grant == 1,
+			"GRANT RELAY did not complete exactly one relay object")
+		_expect(GameState.relays_collected == 1 and GameState.score == 100,
+			"GRANT RELAY did not use normal relay count/score pickup effects")
+
 		for row in menu._actions:
 			if String(row["label"]) == "ALL RELAYS":
 				(row["action"] as Callable).call()
 		if GameState.relays_collected != GameState.relay_target:
 			_fail("ALL RELAYS left %d of %d collected"
 				% [GameState.relays_collected, GameState.relay_target])
+		for relay in relays:
+			_expect(relay.completed and relay.get_prompt().is_empty(),
+				"ALL RELAYS left relay %s collectible" % relay.source_cell)
+		_expect(scene.facility_view.generator.uncollected(
+			scene.facility_view.generator.relays).is_empty(),
+			"ALL RELAYS left generator entries uncollected for hunter logic")
+		_expect(GameState.score == GameState.relay_target * 100,
+			"ALL RELAYS did not award the normal pickup score exactly once")
 
 		# TOGGLE HUNTER REVEAL: the route hunter starts inactive (she wakes on
 		# the relay schedule), so she is the natural case for "the map won't
@@ -104,8 +127,12 @@ func run(host: Node) -> int:
 			var revealed: Array = scene._map_marks(true)
 			_expect(hidden_by_default.is_empty(),
 				"an inactive hunter showed up on the map without admin reveal")
-			_expect(revealed.size() == scene.hunter_views.size(),
-				"admin reveal did not surface every hunter, active or not")
+			_expect(revealed.size() == 1,
+				"admin reveal left inert special-hunter spawn dots on the radar")
+			_expect(revealed.is_empty() or String(revealed[0].get("name", ""))
+				== String(HunterRoster.get_identity(
+					scene.hunter_view.brain.hunter_id)["display_name"]),
+				"admin reveal did not identify the actual route hunter")
 
 			for row in menu._actions:
 				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
@@ -172,3 +199,14 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("admin OK")
 	return _failures
+
+
+func _relay_nodes(scene: Node) -> Array[RouteInteractable3D]:
+	var result: Array[RouteInteractable3D] = []
+	for entry in scene.facility_view.generator.relays:
+		var relay: RouteInteractable3D = scene.facility_view._at(
+			Vector2i(int(entry["x"]), int(entry["y"])),
+			RouteInteractable3D.Kind.RELAY)
+		if relay != null:
+			result.append(relay)
+	return result

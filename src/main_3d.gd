@@ -451,7 +451,13 @@ func _guardian_blocking(target: RouteInteractable3D) -> String:
 func _map_marks(include_inactive: bool = false) -> Array:
 	var marks: Array = []
 	for view in hunter_views:
-		if not view.brain.active and not include_inactive:
+		# Rule-summoned specials exist as inert brains at the route hunter's
+		# initial spawn until their own mechanic actually summons them. Showing
+		# those placeholders under admin reveal left a second, motionless radar
+		# dot behind after the real route hunter started moving. Reveal may show
+		# the inactive route hunter for debugging; specials only exist on radar
+		# after they are genuinely active.
+		if not view.brain.active and (not include_inactive or view != hunter_view):
 			continue
 		# "active" here means "draw this mark" -- inclusion was already
 		# decided above, so every entry that made it into this array wants
@@ -899,11 +905,14 @@ func _apply_admin_world_action(action: String) -> void:
 		return
 	match action:
 		"grant_relay":
-			GameState.relays_collected = mini(GameState.relay_target,
-				GameState.relays_collected + 1)
+			_admin_collect_relays(1)
 		"all_relays":
-			GameState.relays_collected = GameState.relay_target
+			_admin_collect_relays(-1)
 		"rebuild":
+			# A rebuilt floor is a fresh copy of this depth. Reset its durable
+			# pickup state before spawning new interactables so the HUD cannot
+			# report a completed objective beside newly collectible relays.
+			GameState.start_floor()
 			_build_floor()
 		"descend":
 			GameState.descend()
@@ -911,6 +920,43 @@ func _apply_admin_world_action(action: String) -> void:
 			_build_floor()
 	if _remotes != null:
 		_remotes.broadcast_snapshot()
+
+
+## Admin relay grants are real shared-world pickups, not HUD counter edits.
+## Reusing the same event path as a player pickup completes/hides the relay,
+## disables its collision, marks generator state for hunter gimmicks, awards
+## score, and sends the exact cell to every connected guest.
+## `maximum < 0` means every relay still present on the floor.
+func _admin_collect_relays(maximum: int) -> void:
+	var remaining: Array[RouteInteractable3D] = []
+	var already_collected := 0
+	for entry in facility_view.generator.relays:
+		var cell := Vector2i(int(entry["x"]), int(entry["y"]))
+		var relay := facility_view._at(cell, RouteInteractable3D.Kind.RELAY)
+		if relay == null:
+			continue
+		if relay.completed:
+			already_collected += 1
+		else:
+			remaining.append(relay)
+	# Repair counter-only state left by older debug builds before applying any
+	# new pickups. Relay objects are the durable source of truth on this floor.
+	GameState.relays_collected = already_collected
+	var collected_now := 0
+	for relay in remaining:
+		if maximum >= 0 and collected_now >= maximum:
+			break
+		var event := {
+			"what": "pickup",
+			"cell": relay.source_cell,
+			"kind": int(RouteInteractable3D.Kind.RELAY),
+		}
+		_apply_world_event(event)
+		if _remotes != null:
+			_remotes.relay_world_event(event)
+		collected_now += 1
+	if collected_now > 0:
+		Sound.collect()
 
 
 func _toggle_admin_god_mode() -> void:

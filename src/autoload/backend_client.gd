@@ -21,6 +21,7 @@ var _token := ""
 var _port := 0
 var _player_count := 1
 var _session_active := false
+var _lan_addresses := PackedStringArray()
 var _host_request: HTTPRequest
 var _host_operation := ""
 var _heartbeat: Timer
@@ -59,7 +60,7 @@ func suppress_requests_for_tests() -> void:
 
 
 func register_room(code: String, port: int, player_count: int,
-		session_active: bool) -> void:
+		session_active: bool, lan_addresses := PackedStringArray()) -> void:
 	if not configured():
 		return
 	if not _host_operation.is_empty():
@@ -70,12 +71,15 @@ func register_room(code: String, port: int, player_count: int,
 	_port = port
 	_player_count = clampi(player_count, 1, 16)
 	_session_active = session_active
+	if not lan_addresses.is_empty():
+		_lan_addresses = lan_addresses
 	_token = ""
 	_send_host("register", "/api/enet/rooms/register", {
 		"code": registered_code,
 		"port": _port,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"lanAddresses": Array(_lan_addresses),
 	})
 	_heartbeat.start()
 
@@ -255,5 +259,6 @@ func _clear_registration() -> void:
 	registered_code = ""
 	_token = ""
 	_port = 0
+	_lan_addresses = PackedStringArray()
 	_host_operation = ""
 	_heartbeat.stop()

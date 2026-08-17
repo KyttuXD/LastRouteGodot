@@ -25,6 +25,11 @@ func _ready() -> void:
 
 func _run() -> void:
 	await get_tree().process_frame
+	# This validates local ENet/RPC behavior, not the production directory.
+	# Publishing its throwaway room used to leave live listings (and, when a
+	# test was interrupted, orphaned UDP listeners) that interfered with a real
+	# player-hosted room on the same workstation.
+	Backend.suppress_requests_for_tests()
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty() or not ["host", "client"].has(args[0]):
 		_finish(false, "usage: enet_smoke.tscn -- host|client")

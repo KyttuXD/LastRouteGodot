@@ -65,7 +65,7 @@ func run(host: Node) -> int:
 	print("  latecomer a peer joining mid-floor is told what it missed")
 	await _custom_map_snapshot_catches_up(host, alice)
 	print("  custom    authored floor and mutations bootstrap before guest control")
-	_admin_world_changes_persist(alice)
+	_admin_world_changes_persist(alice, bob)
 	print("  admin     shared debug edits commit on host and advance floor revision")
 
 	alice.queue_free()
@@ -301,11 +301,25 @@ func _custom_map_snapshot_catches_up(host: Node, alice: Node) -> void:
 	latecomer.queue_free()
 
 
-func _admin_world_changes_persist(scene: Node) -> void:
+func _admin_world_changes_persist(scene: Node, guest: Node) -> void:
 	var revision_before: int = scene._floor_revision
 	scene._apply_admin_world_action("all_relays")
 	_expect(GameState.relays_collected == GameState.relay_target,
 		"room-wide admin relay grant did not commit on host state")
+	_expect(scene.facility_view.generator.uncollected(
+		scene.facility_view.generator.relays).is_empty(),
+		"admin relay grant changed the count but left host pickups behind")
+	var collected_state: Dictionary = scene._build_snapshot()
+	var relay_pickups := 0
+	for entry in collected_state.get("taken", []):
+		if int(entry.get("kind", -1)) == RouteInteractable3D.Kind.RELAY:
+			relay_pickups += 1
+	_expect(relay_pickups == GameState.relay_target,
+		"admin relay snapshot omitted collected relay cells")
+	guest._apply_world_snapshot(collected_state)
+	_expect(guest.facility_view.generator.uncollected(
+		guest.facility_view.generator.relays).is_empty(),
+		"an existing guest kept relay pickups after the admin grant snapshot")
 	scene._apply_admin_world_action("rebuild")
 	var state: Dictionary = scene._build_snapshot()
 	_expect(scene._floor_revision > revision_before,
@@ -314,6 +328,8 @@ func _admin_world_changes_persist(scene: Node) -> void:
 		"admin rebuild did not replace the prior custom floor on host")
 	_expect(int(state.get("floor_revision", -1)) == scene._floor_revision,
 		"admin rebuild snapshot did not publish its new floor revision")
+	_expect(GameState.relays_collected == 0 and state.get("taken", []).is_empty(),
+		"admin rebuild spawned a fresh floor with stale collected relay state")
 
 
 func _hunter_state_travels(alice: Node, bob: Node) -> void:

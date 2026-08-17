@@ -16,10 +16,13 @@ this file is the order in which unfinished work should be attacked.
   restart when `main` advances.
 - [ ] Run a real two-machine Internet soak test: host, late join, guest admin
   custom map, hunter capture/recovery, floor descent, disconnect, and rejoin.
-- [ ] Decide the public gameplay transport. Room codes currently discover a
-  player-hosted ENet UDP endpoint; they do not provide NAT traversal or a relay.
-  A host therefore needs reachable/forwarded UDP 8421. A relay or dedicated
-  authoritative game server is required for zero-configuration Internet play.
+- [x] Add best-effort player-host reachability: automatic UPnP forwarding for
+  UDP 8421, same-public-IP LAN address selection, explicit timeout diagnostics,
+  and mapping cleanup when the room closes.
+- [ ] Decide the zero-configuration fallback transport. Room codes still
+  discover a player-hosted ENet endpoint rather than relay gameplay; routers
+  without UPnP need a manual UDP 8421 forward, and carrier-grade NAT needs a
+  relay or dedicated authoritative game server.
 - [ ] Add reconnect grace and host migration, or explicitly end a room with a
   clear explanation when peer 1 leaves.
 - [ ] Connect the existing Node account/save endpoints to an in-game account

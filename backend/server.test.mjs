@@ -33,7 +33,12 @@ test("health, register, resolve, heartbeat and unregister", async () => {
     response = await fetch(`${app.url}/api/enet/rooms/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code: "ABCDE", port: 8421, players: 2 }),
+      body: JSON.stringify({
+        code: "ABCDE",
+        port: 8421,
+        players: 2,
+        lanAddresses: ["192.168.1.25", "8.8.8.8", "192.168.1.25"],
+      }),
     });
     assert.equal(response.status, 201);
     const registration = await response.json();
@@ -44,7 +49,7 @@ test("health, register, resolve, heartbeat and unregister", async () => {
     const resolved = await response.json();
     assert.deepEqual(
       { address: resolved.room.address, port: resolved.room.port, players: resolved.room.players },
-      { address: "127.0.0.1", port: 8421, players: 2 },
+      { address: "192.168.1.25", port: 8421, players: 2 },
     );
     assert.equal("token" in resolved.room, false);
 
