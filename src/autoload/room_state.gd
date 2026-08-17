@@ -136,14 +136,14 @@ func host_room(port: int = DEFAULT_PORT) -> String:
 	var error := _peer.create_server(port, MAX_PLAYERS)
 	if error != OK:
 		_peer = null
-		return "COULD NOT OPEN PORT %d" % port
+		return "COULD NOT CREATE ONLINE ROOM // NETWORK PORT UNAVAILABLE"
 	multiplayer.multiplayer_peer = _peer
 	_host_port = port
 	online = true
 	connecting = false
 	is_host = true
 	session_active = false
-	status_message = "HOSTING ON PORT %d" % port
+	status_message = "REGISTERING ROOM WITH PRIMARY SERVER"
 	peers = {1: _local_name()}
 	_bind_signals()
 	Backend.register_room(code, port, peers.size(), session_active)
@@ -171,7 +171,7 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT) -> S
 	connecting = true
 	is_host = false
 	session_active = false
-	status_message = "CONNECTING TO %s:%d..." % [trimmed, port]
+	status_message = "JOINING ROOM THROUGH PRIMARY SERVER"
 	peers = {}
 	_bind_signals()
 	changed.emit()
@@ -233,7 +233,7 @@ func _on_peer_disconnected(id: int) -> void:
 func _on_directory_registration(listed: bool, message: String) -> void:
 	if not online or not is_host:
 		return
-	status_message = message if listed else "HOSTING ON PORT %d // %s" % [_host_port, message]
+	status_message = message if listed else "PRIMARY SERVER LISTING FAILED // %s" % message
 	changed.emit()
 
 
@@ -247,7 +247,7 @@ func _on_joined() -> void:
 
 
 func _on_connection_failed() -> void:
-	_close_failed_connection("CONNECTION FAILED // CHECK ADDRESS AND PORT")
+	_close_failed_connection("ROOM CONNECTION FAILED // TRY THE CODE AGAIN")
 
 
 func _on_server_disconnected() -> void:
@@ -386,7 +386,7 @@ func mode_unavailable_reason(candidate: Mode) -> String:
 	if candidate == Mode.HIDE_SEEK:
 		return "NEEDS A SECOND SIGNAL IN THE ROOM"
 	if candidate == Mode.OFFICE and online:
-		return "OFFICE MODE IS LOCAL ONLY // GO OFFLINE FIRST"
+		return "OFFICE MODE IS SOLO ONLY // CLOSE ONLINE ROOM FIRST"
 	return ""
 
 
@@ -397,6 +397,16 @@ func start_label() -> String:
 
 func mode_label() -> String:
 	return String(MODE_LABELS.get(mode, "?"))
+
+
+static func valid_room_code(value: String) -> bool:
+	var clean := value.strip_edges().to_upper()
+	if clean.length() != CODE_LENGTH:
+		return false
+	for glyph in clean:
+		if not CODE_ALPHABET.contains(glyph):
+			return false
+	return true
 
 
 ## Office Mode is singleplayer by design -- the mode is a lone night shift, and
@@ -475,6 +485,10 @@ func set_difficulty(value: Difficulty) -> void:
 ## that has to be true before any networking is worth writing.
 func enter(tree: SceneTree) -> void:
 	if connecting or (online and not is_host):
+		return
+	if online and is_host and Backend.configured() and not Backend.registered:
+		status_message = "WAITING FOR PRIMARY SERVER TO LIST THIS ROOM"
+		changed.emit()
 		return
 	if not mode_available(mode):
 		status_message = mode_unavailable_reason(mode)

@@ -188,6 +188,7 @@ func _on_host_response(result: int, response_code: int,
 		if operation == "heartbeat" and response_code in [403, 404]:
 			registered = false
 			_token = ""
+			registration_changed.emit(false, "PRIMARY SERVER RESTARTED // RELISTING ROOM")
 			call_deferred("register_room", registered_code, _port,
 				_player_count, _session_active)
 		return

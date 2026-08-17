@@ -94,18 +94,19 @@ func _rebuild() -> void:
 	var notice := _notice if not _notice.is_empty() else RoomState.status_message
 	if not notice.is_empty():
 		column.add_child(_label(notice, Palette.ALERT, 7))
-	column.add_child(_label(
-		"ROOM %s // ONLINE // %d CONNECTED"
-			% [RoomState.code, RoomState.roster().size()] if RoomState.online
-		else "CONNECTING TO HOST..." if RoomState.connecting
-		else "ROOM %s // LOCAL SESSION" % RoomState.code,
-		Palette.MUTED, 7))
-	if RoomState.online and RoomState.is_host:
-		var addresses := RoomState.host_addresses()
-		if not addresses.is_empty():
-			column.add_child(_label("JOIN AT %s:%d" % [", ".join(addresses),
-				RoomState.DEFAULT_PORT], Palette.MUTED, 7))
+	column.add_child(_label(_connection_summary(), Palette.MUTED, 7))
 	column.add_child(_actions())
+
+
+func _connection_summary() -> String:
+	if RoomState.connecting:
+		return "JOINING THROUGH PRIMARY SERVER..."
+	if RoomState.online and RoomState.is_host and not Backend.registered:
+		return "REGISTERING ROOM %s WITH PRIMARY SERVER..." % RoomState.code
+	if RoomState.online:
+		return "ROOM %s // PRIMARY SERVER // %d CONNECTED" % [RoomState.code,
+			RoomState.roster().size()]
+	return "SOLO ROOM %s // NOT LISTED ONLINE" % RoomState.code
 
 
 func _seed_block() -> Control:
@@ -219,13 +220,16 @@ func _actions() -> Control:
 	stack.add_child(row)
 
 	var enter := Button.new()
+	enter.name = "EnterRouteButton"
 	enter.text = "CONNECTING..." if RoomState.connecting else (
 		"WAITING FOR HOST" if RoomState.online and not RoomState.is_host
+		else "WAITING FOR PRIMARY SERVER" if RoomState.online and not Backend.registered
 		else RoomState.start_label())
 	enter.add_theme_font_size_override("font_size", 10)
 	enter.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(enter, true)
 	enter.disabled = RoomState.connecting or (RoomState.online and not RoomState.is_host) \
+		or (RoomState.online and RoomState.is_host and not Backend.registered) \
 		or not RoomState.mode_available(RoomState.mode)
 	if not enter.disabled:
 		enter.pressed.connect(func() -> void: RoomState.enter(get_tree()))
@@ -242,7 +246,8 @@ func _actions() -> Control:
 	row.add_child(reroll)
 
 	var leave := Button.new()
-	leave.text = "LEAVE ROOM"
+	leave.name = "BackToMenuButton"
+	leave.text = "BACK TO MAIN MENU"
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
@@ -255,63 +260,93 @@ func _actions() -> Control:
 	# codes into ENet endpoints internally; raw addresses are never shown or
 	# accepted by the lobby.
 	if not RoomState.online and not RoomState.connecting:
-		stack.add_child(_label(Backend.directory_label(), Palette.MUTED, 6))
+		stack.add_child(_label("PRIMARY CO-OP SERVER // ROOM CODES", Palette.MUTED, 6))
 		var directory_row := HBoxContainer.new()
 		directory_row.add_theme_constant_override("separation", 5)
 		stack.add_child(directory_row)
 		var host := Button.new()
-		host.text = "HOST + LIST ROOM" if Backend.configured() else "HOST ROOM"
+		host.name = "CreateOnlineRoomButton"
+		host.text = "CREATE ONLINE ROOM"
 		host.add_theme_font_size_override("font_size", 7)
 		host.custom_minimum_size = Vector2(0, 18)
 		Palette.style_button(host, false)
-		host.pressed.connect(func() -> void: _network(RoomState.host_room()))
+		host.disabled = not Backend.configured() or OS.has_feature("web")
+		host.tooltip_text = "Native ENet co-op is unavailable in Web builds." \
+			if OS.has_feature("web") else "Create a room and list its code on the primary server."
+		if not host.disabled:
+			host.pressed.connect(_create_online_room)
 		directory_row.add_child(host)
 
-		if Backend.configured():
-			var room_code := LineEdit.new()
-			room_code.text = _join_code
-			room_code.placeholder_text = "5-CHAR ROOM CODE"
-			room_code.max_length = RoomState.CODE_LENGTH
-			room_code.custom_minimum_size = Vector2(118, 18)
-			room_code.add_theme_font_size_override("font_size", 7)
-			room_code.text_changed.connect(func(value: String) -> void:
-				_join_code = value.to_upper())
-			directory_row.add_child(room_code)
-			var code_join := Button.new()
-			code_join.text = "JOIN ROOM CODE"
-			code_join.add_theme_font_size_override("font_size", 7)
-			code_join.custom_minimum_size = Vector2(0, 18)
-			Palette.style_button(code_join, false)
-			code_join.pressed.connect(func() -> void:
-				_notice = "LOOKING UP ROOM %s..." % _join_code
-				Backend.resolve_room(_join_code)
-				_rebuild())
-			directory_row.add_child(code_join)
+		var room_code := LineEdit.new()
+		room_code.name = "PrimaryRoomCodeInput"
+		room_code.text = _join_code
+		room_code.placeholder_text = "ROOM CODE"
+		room_code.max_length = RoomState.CODE_LENGTH
+		room_code.custom_minimum_size = Vector2(88, 18)
+		room_code.add_theme_font_size_override("font_size", 7)
+		directory_row.add_child(room_code)
+		var code_join := Button.new()
+		code_join.name = "JoinOnlineRoomButton"
+		code_join.text = "JOIN ONLINE ROOM"
+		code_join.add_theme_font_size_override("font_size", 7)
+		code_join.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(code_join, false)
+		code_join.disabled = not RoomState.valid_room_code(_join_code) \
+			or not Backend.configured() or OS.has_feature("web")
+		code_join.tooltip_text = "Enter the five-character room code from the host."
+		room_code.text_changed.connect(func(value: String) -> void:
+			_join_code = value.strip_edges().to_upper()
+			code_join.disabled = not RoomState.valid_room_code(_join_code) \
+				or not Backend.configured() or OS.has_feature("web"))
+		room_code.text_submitted.connect(func(_value: String) -> void:
+			if not code_join.disabled:
+				_resolve_online_room())
+		code_join.pressed.connect(_resolve_online_room)
+		directory_row.add_child(code_join)
+		if OS.has_feature("web"):
+			stack.add_child(_label("WEB BUILD IS SOLO // ONLINE CO-OP NEEDS WEBRTC",
+				Palette.ALERT, 6))
 
 	else:
 		var network_row := HBoxContainer.new()
 		network_row.add_theme_constant_override("separation", 5)
 		stack.add_child(network_row)
 		var close := Button.new()
-		close.text = "CANCEL CONNECTION" if RoomState.connecting else "GO OFFLINE"
+		close.name = "LeaveOnlineRoomButton"
+		close.text = "CANCEL JOIN" if RoomState.connecting else (
+			"CLOSE ONLINE ROOM" if RoomState.is_host else "LEAVE ONLINE ROOM")
 		close.add_theme_font_size_override("font_size", 7)
 		close.custom_minimum_size = Vector2(0, 18)
 		Palette.style_button(close, false)
 		close.pressed.connect(func() -> void:
-			_notice = "CONNECTION CLOSED"
+			_notice = "RETURNED TO SOLO ROOM"
 			RoomState.status_message = _notice
 			RoomState.leave_network())
 		network_row.add_child(close)
 	return stack
 
 
-## Show why a host or join failed rather than silently doing nothing -- a port
-## already in use is the single most likely outcome of testing this with two
-## windows, and it looks identical to a dead button.
+## Show why creating or joining through the primary service failed rather than
+## silently doing nothing.
 func _network(error: String) -> void:
 	if error.is_empty():
 		return
 	_notice = error
+	_rebuild()
+
+
+func _create_online_room() -> void:
+	_notice = ""
+	_network(RoomState.host_room())
+
+
+func _resolve_online_room() -> void:
+	if not RoomState.valid_room_code(_join_code):
+		_notice = "ENTER A VALID FIVE-CHARACTER ROOM CODE"
+		_rebuild()
+		return
+	_notice = "LOOKING UP ROOM %s ON PRIMARY SERVER..." % _join_code
+	Backend.resolve_room(_join_code)
 	_rebuild()
 
 
@@ -322,9 +357,8 @@ func _on_room_resolved(_code: String, endpoint: Dictionary, error: String) -> vo
 		return
 	var address := String(endpoint.get("address", ""))
 	var port := int(endpoint.get("port", RoomState.DEFAULT_PORT))
+	_notice = ""
 	_network(RoomState.join_room(address, port))
-
-
 func _label(text: String, tint: Color, size: int) -> Label:
 	var label := Label.new()
 	label.text = text

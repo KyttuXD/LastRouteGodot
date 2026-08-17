@@ -41,6 +41,11 @@ func run(host: Node) -> int:
 		"the updater offered its own build commit")
 	_expect(not UpdateManager._update_needed("0.0.1.0", "0.0.1.0", "", "source"),
 		"an editor/source run was treated as an exported revision")
+	_expect(RoomState.valid_room_code("ABCDE"),
+		"a valid primary-server room code was rejected")
+	for invalid_code in ["ABCD", "ABCDEF", "AB0DE", "ABIDE", "ABODE"]:
+		_expect(not RoomState.valid_room_code(invalid_code),
+			"invalid room code %s was accepted" % invalid_code)
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.code.length() == RoomState.CODE_LENGTH,
 		"room code is %d characters" % RoomState.code.length())
@@ -123,6 +128,28 @@ func run(host: Node) -> int:
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
 		"the removed custom-host controls are still visible")
+	var create_online := lobby.find_child("CreateOnlineRoomButton", true, false) as Button
+	var join_online := lobby.find_child("JoinOnlineRoomButton", true, false) as Button
+	var code_input := lobby.find_child("PrimaryRoomCodeInput", true, false) as LineEdit
+	_expect(create_online != null and create_online.text == "CREATE ONLINE ROOM",
+		"the primary create-room action is missing or mislabeled")
+	_expect(join_online != null and join_online.text == "JOIN ONLINE ROOM",
+		"the primary join-room action is missing or mislabeled")
+	_expect(code_input != null and code_input.placeholder_text == "ROOM CODE",
+		"the primary room-code input is missing or mislabeled")
+	if join_online != null:
+		_expect(join_online.disabled, "join is enabled without a valid room code")
+	var old_connection_copy := ["HOST + LIST ROOM", "JOIN ROOM CODE", "LOCAL SESSION",
+		"JOIN AT", "GO OFFLINE", "127.0.0.1", ":8421"]
+	for node in lobby.find_children("*", "Control", true, false):
+		var copy := ""
+		if node is Label or node is Button:
+			copy = String(node.text)
+		elif node is LineEdit:
+			copy = "%s %s" % [node.text, node.placeholder_text]
+		for retired in old_connection_copy:
+			_expect(not copy.contains(retired),
+				"staging still exposes retired connection copy '%s'" % retired)
 	lobby.queue_free()
 	await host.get_tree().process_frame
 
