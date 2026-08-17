@@ -43,15 +43,18 @@ test("mirrors and verifies a stable GitHub debug release", async () => {
     return response("missing", { status: 404 });
   };
   const manifestPath = join(directory, "updates.debug.json");
+  const messages = [];
   try {
     let result = await syncGithubRelease({
       repository: "KyttuXD/LastRouteGodot",
       updateDirectory: directory,
       manifestPath,
       fetchImpl,
-      logger: { log() {} },
+      logger: { log(message) { messages.push(message); } },
     });
     assert.deepEqual({ downloaded: result.downloaded, reused: result.reused }, { downloaded: 1, reused: 0 });
+    assert.equal(result.revision, "a".repeat(40));
+    assert.match(messages[0], /sync ready @ a{12}/);
     assert.deepEqual(await readFile(join(directory, "LastRoute-Linux-Debug.zip")), artifact);
     assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), manifest);
 
@@ -60,7 +63,7 @@ test("mirrors and verifies a stable GitHub debug release", async () => {
       updateDirectory: directory,
       manifestPath,
       fetchImpl,
-      logger: { log() {} },
+      logger: { log(message) { messages.push(message); } },
     });
     assert.deepEqual({ downloaded: result.downloaded, reused: result.reused }, { downloaded: 0, reused: 1 });
     assert.equal(artifactRequests, 1);

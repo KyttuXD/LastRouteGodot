@@ -26,7 +26,9 @@ test("health, register, resolve, heartbeat and unregister", async () => {
   try {
     let response = await fetch(`${app.url}/api/health`);
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).rooms, 0);
+    const health = await response.json();
+    assert.equal(health.rooms, 0);
+    assert.deepEqual(health.updates, {});
 
     response = await fetch(`${app.url}/api/enet/rooms/register`, {
       method: "POST",
@@ -235,6 +237,13 @@ test("serves validated debug/release update manifests", async () => {
     assert.equal(payload.update.sha256, sha256);
     assert.equal(payload.update.required, true);
     assert.equal(payload.update.url, "/api/updates/files/linux.zip");
+    response = await fetch(`${app.url}/api/health`);
+    const health = await response.json();
+    assert.deepEqual(health.updates.debug, {
+      version: "0.0.1.0",
+      revision: "c".repeat(40),
+      platforms: ["linux"],
+    });
     response = await fetch(`${app.url}${payload.update.url}`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "test-build");

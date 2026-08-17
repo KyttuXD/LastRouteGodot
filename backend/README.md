@@ -119,6 +119,11 @@ names from the original deployment remain accepted as compatibility aliases.
   `logout`
 - `POST /api/dev/login`, `reload`
 
+`GET /api/health` reports the exact Git commit currently published for each
+update channel under `updates.<channel>.revision`, together with its version
+and platform list. The same short commit is printed in the Pterodactyl console
+after every successful GitHub Release sync.
+
 ## Pterodactyl-hosted updates
 
 This supports the intended private-GitHub-to-Pterodactyl flow without putting

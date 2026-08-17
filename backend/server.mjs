@@ -8,6 +8,8 @@ import { createRoomService } from "./room_service.mjs";
 
 const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 const MAX_BODY_BYTES = 64 * 1024;
+const UPDATE_CHANNELS = ["debug", "release"];
+const UPDATE_PLATFORMS = ["linux", "windows", "macos", "web", "steamvr", "quest"];
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -123,6 +125,26 @@ function publicUpdateManifest(updates, channel, platform) {
   };
 }
 
+function publicUpdateStatus(updates) {
+  const status = {};
+  for (const channel of UPDATE_CHANNELS) {
+    const published = [];
+    for (const platform of UPDATE_PLATFORMS) {
+      const update = publicUpdateManifest(updates, channel, platform);
+      if (update) published.push({ platform, version: update.version, revision: update.revision });
+    }
+    if (!published.length) continue;
+    const versions = [...new Set(published.map((entry) => entry.version))];
+    const revisions = [...new Set(published.map((entry) => entry.revision).filter(Boolean))];
+    status[channel] = {
+      version: versions.length === 1 ? versions[0] : "mixed",
+      revision: revisions.length === 1 ? revisions[0] : (revisions.length ? "mixed" : "unreported"),
+      platforms: published.map((entry) => entry.platform),
+    };
+  }
+  return status;
+}
+
 function publishedUpdatePath(updates, encodedName) {
   let name;
   try {
@@ -131,8 +153,8 @@ function publishedUpdatePath(updates, encodedName) {
     return "";
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/.test(name)) return "";
-  for (const channel of ["debug", "release"]) {
-    for (const platform of ["linux", "windows", "macos", "web", "steamvr", "quest"]) {
+  for (const channel of UPDATE_CHANNELS) {
+    for (const platform of UPDATE_PLATFORMS) {
       const entry = updates?.[channel]?.[platform];
       if (entry?.file === name && publicUpdateManifest(updates, channel, platform)) {
         return `/${name}`;
@@ -236,6 +258,7 @@ export function createLastRouteServer({
     const url = new URL(request.url || "/", "http://last-route.invalid");
 
     if (request.method === "GET" && url.pathname === "/api/health") {
+      const updateStatus = publicUpdateStatus(currentUpdates());
       return json(response, 200, {
         ok: true,
         runtime: "node",
@@ -244,6 +267,7 @@ export function createLastRouteServer({
         rooms: enetRooms.size,
         webRooms: roomService.rooms.size,
         reloadId,
+        updates: updateStatus,
         now: new Date(now()).toISOString(),
       });
     }
@@ -430,7 +454,7 @@ export function startLastRouteServerFromEnvironment() {
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
   });
   server.listen(port, host, () => loggerStartup(host, port, accountStorePath,
-    publicDirectory, customMapDirectory, updateManifestPath, updateDirectory));
+    publicDirectory, customMapDirectory, updateManifestPath, updateDirectory, updates));
   const shutdown = (signal) => {
     console.log(`${signal}: closing Last Route backend`);
     server.close(() => process.exit(0));
@@ -442,13 +466,16 @@ export function startLastRouteServerFromEnvironment() {
 }
 
 function loggerStartup(host, port, accountStorePath, publicDirectory, customMapDirectory,
-  updateManifestPath, updateDirectory) {
+  updateManifestPath, updateDirectory, updates) {
   console.log(`Last Route backend listening on http://${host}:${port}`);
   console.log(`Account data: ${accountStorePath}`);
   if (publicDirectory) console.log(`Static files: ${publicDirectory}`);
   if (customMapDirectory) console.log(`Custom maps: ${customMapDirectory}`);
   if (updateManifestPath) console.log(`Update manifest: ${updateManifestPath}`);
   if (updateDirectory) console.log(`Update files: ${updateDirectory}`);
+  for (const [channel, status] of Object.entries(publicUpdateStatus(updates))) {
+    console.log(`Published ${channel} update: ${status.version} @ ${status.revision} (${status.platforms.join(", ")})`);
+  }
 }
 
 const entry = process.argv[1] ? resolve(process.argv[1]) : "";

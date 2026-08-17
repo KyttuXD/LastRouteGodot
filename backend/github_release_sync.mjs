@@ -62,6 +62,14 @@ function channelFiles(manifest, channel) {
   return files;
 }
 
+function channelRevision(manifest, channel) {
+  const revisions = new Set(Object.values(manifest?.[channel] || {})
+    .map((entry) => String(entry?.revision || "").trim().toLowerCase())
+    .filter((revision) => /^[a-f0-9]{7,40}$/.test(revision)));
+  if (revisions.size > 1) throw new Error(`${channel} update manifest mixes build revisions`);
+  return revisions.values().next().value || "";
+}
+
 export async function syncGithubRelease({
   repository,
   tag = "debug",
@@ -97,6 +105,7 @@ export async function syncGithubRelease({
   const manifestBytes = await responseBytes(manifestResponse, manifestName);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const wanted = channelFiles(manifest, tag);
+  const revision = channelRevision(manifest, tag);
   let downloaded = 0;
   let reused = 0;
 
@@ -122,8 +131,9 @@ export async function syncGithubRelease({
 
   // Publish the manifest only after every referenced artifact is verified.
   await atomicWrite(destinationManifest, manifestBytes);
-  logger.log(`GitHub ${tag} sync ready: ${downloaded} downloaded, ${reused} unchanged`);
-  return { downloaded, reused, manifestPath: destinationManifest, updateDirectory: directory };
+  const revisionLabel = revision ? revision.slice(0, 12) : "revision not reported";
+  logger.log(`GitHub ${tag} sync ready @ ${revisionLabel}: ${downloaded} downloaded, ${reused} unchanged`);
+  return { downloaded, reused, revision, manifestPath: destinationManifest, updateDirectory: directory };
 }
 
 export async function syncGithubReleaseFromEnvironment(env = process.env, options = {}) {
