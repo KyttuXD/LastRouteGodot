@@ -298,15 +298,27 @@ func _expect_tool_gates(view: FacilityView3D, scene: Node) -> void:
 		if not message.contains("SIGNAL RELAY RECOVERED"):
 			_fail("lockpicking returned an unclear result: %s" % message)
 	if barrier == null:
-		_fail("the route generated no boarded room threshold")
+		# A small board is optional when the generated floor has no true
+		# one-cell doorway. It must never be substituted into a wide threshold.
+		pass
 	else:
+		var outward: Vector3 = -barrier.global_transform.basis.z.normalized()
+		var across := Vector2i(0, 1) if absf(outward.x) > .5 else Vector2i(1, 0)
+		var outside := barrier.source_cell + Vector2i(roundi(outward.x), roundi(outward.z))
+		if view.generator._valid_open_cell(outside + across) \
+				or view.generator._valid_open_cell(outside - across):
+			_fail("the one-metre door barricade was placed in a wide passage")
 		if barrier.find_children("*", "MeshInstance3D", true, false).size() < 8:
 			_fail("the boarded path is not using its authored door model")
 		scene.player.grant_inventory_item("crowbar")
 		var durability: int = scene.player.item_durability("crowbar")
-		barrier.activate(scene.player)
-		if not barrier.opened or scene.player.item_durability("crowbar") != durability - 1:
-			_fail("breaching a boarded path did not open it and spend durability")
+		var pieces := barrier.board_pieces_remaining
+		for hit in pieces:
+			barrier.activate(scene.player)
+			if barrier.opened != (hit == pieces - 1):
+				_fail("boarded path opened before its individual planks were broken")
+		if scene.player.item_durability("crowbar") != durability - pieces:
+			_fail("piece-by-piece breaching did not spend one durability per board")
 		var body := barrier.find_child("ToolBarrier", false, false) as StaticBody3D
 		if body != null and body.process_mode != Node.PROCESS_MODE_DISABLED:
 			_fail("an opened boarded path still has active collision")

@@ -361,15 +361,27 @@ func _on_dossier_pressed() -> void:
 	_dossier_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details.add_child(_dossier_stats)
 
-	var ids := HunterDossier.sorted_ids()
-	for hunter_id in ids:
-		var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
-		var index := roster.add_item(String(profile["name"]).to_upper())
-		roster.set_item_metadata(index, hunter_id)
+	var ids: Array = []
+	for category in ["az", "void"]:
+		var header_text := "A-Z HUNTERS" if category == "az" else "VOID HUNTERS"
+		var header := roster.add_item("-- %s --" % header_text)
+		roster.set_item_disabled(header, true)
+		for hunter_id in HunterDossier.category_ids(category):
+			ids.append(hunter_id)
+			var discovered := Backend.hunter_discovered(hunter_id)
+			var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+			var label := String(profile["name"]).to_upper() if discovered \
+				else "???? // UNDISCOVERED"
+			var index := roster.add_item(label)
+			roster.set_item_metadata(index, hunter_id)
+	var secret_header := roster.add_item("-- SECRET CHARACTERS --")
+	roster.set_item_disabled(secret_header, true)
+	var secret_placeholder := roster.add_item("COMING SOON")
+	roster.set_item_disabled(secret_placeholder, true)
 	roster.item_selected.connect(func(index: int) -> void:
 		_show_dossier_entry(String(roster.get_item_metadata(index))))
 	if not ids.is_empty():
-		roster.select(0)
+		roster.select(1)
 		_show_dossier_entry(String(ids[0]))
 
 
@@ -386,10 +398,20 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	var entry: Dictionary = HunterDossier.entry(hunter_id)
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
+	if not Backend.hunter_discovered(hunter_id):
+		_dossier_name.text = "UNDISCOVERED SIGNAL"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
+			else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
+		_dossier_counter.text = "NO VERIFIED COUNTERPLAY DATA"
+		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		return
 	_dossier_name.text = String(profile["name"]).to_upper()
+	var category := String(profile.get("category", "az"))
 	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
-	_dossier_status.text = "RULE-SUMMONED // SPECIAL" if special else (
-		"ROUTE DRAW // %s" % String(profile["tier"]).to_upper())
+	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "RULE-SUMMONED // A-Z SPECIAL" if special \
+		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
 	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
 		String(entry["behavior"])]
 	_dossier_counter.text = String(entry["counter"])

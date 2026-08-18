@@ -92,7 +92,8 @@ func _every_hunter_model(host: Node) -> void:
 		# The player has a deliberately separate animation contract above. Do
 		# not let hunter-only clips (now, or later) leak into player validation.
 		if not file.ends_with(".tscn") or file == "player.tscn" \
-				or file.begins_with("character_scale"):
+				or file.begins_with("character_scale") \
+				or file.begins_with("admin_"):
 			continue
 		var path := "res://art/props-3d/characters/%s" % file
 		var model: Node3D = ModelSlot.instantiate(path)
@@ -149,6 +150,12 @@ func _every_hunter_model(host: Node) -> void:
 		if player == null:
 			clipless.append(file)
 		else:
+			if file == "xivvy.tscn":
+				_expect(player.has_animation("flight"),
+					"Xivvy has wings but no flight animation")
+			if file == "loxelle.tscn":
+				_expect(player.has_animation("charge"),
+					"Loxelle has no locker charge animation")
 			if file == "aki.tscn":
 				await _audit_clip_floors(host, model, "hunter")
 			for clip in HUNTER_CLIPS:

@@ -21,6 +21,7 @@ var target_peer_id := 0
 var _animation_player: AnimationPlayer
 var _model: Node3D
 var _shown_id := ""
+var _flight_height := 0.0
 
 
 func _ready() -> void:
@@ -80,6 +81,14 @@ func sync_from_brain() -> void:
 		return
 	var surface_y := float(surface_height_provider.call(brain.position)) \
 		if surface_height_provider.is_valid() else 0.0
+	var xivvy_flying := brain.gimmick is XivvyGimmick \
+		and (brain.gimmick as XivvyGimmick).flying
+	var flight_target := GameConfig.XIVVY_FLIGHT_HEIGHT if xivvy_flying else 0.0
+	_flight_height = move_toward(_flight_height, flight_target,
+		get_process_delta_time() * 1.7)
+	if _flight_height > 0.0:
+		_flight_height += sin(Time.get_ticks_msec() * 0.006) * 0.0015
+	surface_y += _flight_height
 	position = Vector3(brain.position.x, surface_y, brain.position.y)
 	if brain.facing.length_squared() > 0.0001:
 		# Godot's forward direction is -Z. The old angle aligned +Z with the
@@ -99,6 +108,12 @@ func _update_animation() -> void:
 	var clip_name := "idle"
 	if brain.stun_timer > 0.0:
 		clip_name = "stun"
+	elif brain.gimmick is XivvyGimmick \
+			and (brain.gimmick as XivvyGimmick).flying:
+		clip_name = "flight"
+	elif brain.gimmick is LoxelleGimmick \
+			and (brain.gimmick as LoxelleGimmick).charge_active():
+		clip_name = "charge"
 	else:
 		match brain.state:
 			HunterBrain.State.CHASE:

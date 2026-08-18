@@ -614,16 +614,20 @@ func _authoritative_world_request(scene: Node) -> void:
 		scene._remotes._states[2]["position"] = Vector2(barrier.source_cell) + Vector2(.5, .5)
 		scene._remotes._states[2]["selected_item"] = "lockpick"
 		var breach_request := {"what": "boarded_path", "cell": barrier.source_cell,
-			"opened": true, "tool": "crowbar"}
+			"opened": true, "pieces_remaining": 0, "tool": "crowbar"}
 		scene._apply_world_request(2, breach_request)
 		_expect(not barrier.opened,
 			"host accepted a boarded-path request with the wrong selected tool")
 		scene._remotes._states[2]["selected_item"] = "crowbar"
 		scene._remotes._states[2]["owned_items"] = {"crowbar": true}
 		scene._remotes._states[2]["item_durability"] = {"crowbar": 40}
-		scene._apply_world_request(2, breach_request)
+		while not barrier.opened:
+			var next_pieces := maxi(0, barrier.board_pieces_remaining - 1)
+			breach_request["pieces_remaining"] = next_pieces
+			breach_request["opened"] = next_pieces <= 0
+			scene._apply_world_request(2, breach_request)
 		_expect(barrier.opened,
-			"host rejected a valid crowbar request for a boarded path")
+			"host rejected valid piece-by-piece crowbar requests")
 
 
 func _first(scene: Node, kind: RouteInteractable3D.Kind) -> RouteInteractable3D:

@@ -39,6 +39,10 @@ var account_progress_saved_at := 0
 ## changing a cached boolean on disk.
 var account_session_verified := false
 var account_busy := false
+## Account progress is one server-side JSON document. Route checkpoints and
+## permanent dossier discoveries therefore share that document instead of
+## racing two independent saves against each other.
+var _pending_progress_save: Dictionary = {}
 var _admin_ticket := ""
 var _admin_ticket_room := ""
 var _admin_ticket_expires_msec := 0
@@ -198,6 +202,47 @@ func has_route_checkpoint() -> bool:
 		and int(account_progress.get("schema", 0)) == 1
 
 
+func discovered_hunters() -> Array[String]:
+	if not signed_in():
+		return []
+	var result: Array[String] = []
+	var raw = account_progress.get("hunter_discoveries", [])
+	if raw is Array:
+		for value in raw:
+			var hunter_id := String(value)
+			if HunterRoster.PROFILES.has(hunter_id) and not result.has(hunter_id):
+				result.append(hunter_id)
+	result.sort()
+	return result
+
+
+func hunter_discovered(hunter_id: String) -> bool:
+	return discovered_hunters().has(hunter_id)
+
+
+## Discovery is deliberately account-only. A guest can encounter a hunter in
+## the current room, but receives no permanent dossier unlock and cannot copy
+## another runner's progress through ENet.
+func account_discover_hunter(hunter_id: String) -> bool:
+	if not signed_in() or not HunterRoster.PROFILES.has(hunter_id):
+		return false
+	var discoveries := discovered_hunters()
+	if discoveries.has(hunter_id):
+		return false
+	discoveries.append(hunter_id)
+	discoveries.sort()
+	var progress := account_progress.duplicate(true)
+	if progress.is_empty():
+		progress = {"schema": 1, "kind": "profile"}
+	progress["hunter_discoveries"] = discoveries
+	account_progress = progress.duplicate(true)
+	account_progress_changed.emit(has_route_checkpoint(),
+		account_progress.duplicate(true), account_progress_saved_at,
+		"HUNTER DOSSIER ENTRY DISCOVERED")
+	_queue_progress_save(progress)
+	return true
+
+
 func account_register(username: String, password: String,
 		admin_proof: String = "") -> void:
 	_send_credentials("register", username, password, admin_proof)
@@ -248,19 +293,44 @@ func account_save_progress(progress: Dictionary) -> void:
 			account_progress.duplicate(true), account_progress_saved_at,
 			"SIGN IN TO SAVE ROUTE PROGRESS")
 		return
+	var merged := progress.duplicate(true)
+	merged["hunter_discoveries"] = discovered_hunters()
+	_queue_progress_save(merged)
+
+
+func account_clear_progress() -> void:
+	if not signed_in():
+		return
+	var discoveries := discovered_hunters()
+	if discoveries.is_empty():
+		_send_account("save", "/api/account/save", {
+			"sessionToken": account_session_token,
+			"progress": null,
+		})
+	else:
+		_queue_progress_save({
+			"schema": 1,
+			"kind": "profile",
+			"hunter_discoveries": discoveries,
+		})
+
+
+func _queue_progress_save(progress: Dictionary) -> void:
+	if account_busy:
+		_pending_progress_save = progress.duplicate(true)
+		return
 	_send_account("save", "/api/account/save", {
 		"sessionToken": account_session_token,
 		"progress": progress,
 	})
 
 
-func account_clear_progress() -> void:
-	if not signed_in():
+func _flush_pending_progress_save() -> void:
+	if account_busy or _pending_progress_save.is_empty() or not signed_in():
 		return
-	_send_account("save", "/api/account/save", {
-		"sessionToken": account_session_token,
-		"progress": null,
-	})
+	var progress := _pending_progress_save.duplicate(true)
+	_pending_progress_save.clear()
+	_queue_progress_save(progress)
 
 
 func account_load_progress() -> void:
@@ -352,6 +422,8 @@ func _on_account_response(result: int, response_code: int,
 	elif operation == "password":
 		account_changed.emit(signed_in(), account_username, account_admin,
 			"ACCOUNT PASSWORD UPDATED")
+	if not _pending_progress_save.is_empty():
+		call_deferred("_flush_pending_progress_save")
 
 
 func _on_admin_ticket_response(result: int, response_code: int,
@@ -431,6 +503,7 @@ func _clear_account_session() -> void:
 	account_session_verified = false
 	account_progress = {}
 	account_progress_saved_at = 0
+	_pending_progress_save.clear()
 	_clear_admin_ticket()
 	var config := ConfigFile.new()
 	config.set_value("account", "username", "")

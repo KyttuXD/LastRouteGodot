@@ -29,6 +29,10 @@ var toggles: Array = []
 
 var _passive_timer := 0.0
 var _regenerating := {}
+var _charge_phase := ""
+var _charge_cell := Vector2i(-1, -1)
+var _charge_timer := 0.0
+var _charge_candidate := {}
 
 
 func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
@@ -37,6 +41,9 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, gene
 	if bool(target.get("pesticide_active", false)):
 		return
 	_tick_regeneration(delta)
+	if not _charge_phase.is_empty():
+		_update_charge(brain, delta, target, generator)
+		return
 
 	if brain.state == HunterBrain.State.CHASE or brain.state == HunterBrain.State.INVESTIGATE:
 		_passive_timer = 0.0
@@ -55,16 +62,84 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, gene
 	if candidate.is_empty():
 		return
 	var cell := Vector2i(candidate["x"], candidate["y"])
+	# Mark the locker, approach it, visibly brace, then charge. The old immediate
+	# toggle made a locker disappear with no action from Loxelle at all.
+	_charge_cell = cell
+	_charge_candidate = candidate.duplicate(true)
+	_charge_phase = "approach"
+	brain.state = HunterBrain.State.INVESTIGATE
+	brain.has_last_known = true
+	brain.last_known = Vector2(cell) + Vector2(.5, .5)
 
-	if bool(target.get("hidden", false)) and Vector2i(target.get("hiding_spot", Vector2i(-1, -1))) == cell:
-		# Occupied: eject rather than burn. Mirrors Jyvra's ejection shape,
-		# stalling her briefly so the player she just exposed gets a beat.
-		toggles.append({"cell": cell, "eject_to": generator.hiding_exit_position(candidate)})
-		brain.apply_stun(GameConfig.LOXELLE_BREAK_STALL)
-		return
 
-	toggles.append({"cell": cell, "disabled": true})
-	_regenerating[cell] = GameConfig.LOXELLE_REGEN_SECONDS
+func _update_charge(brain: HunterBrain, delta: float, target: Dictionary,
+		generator: FacilityGenerator) -> void:
+	var impact := Vector2(_charge_cell) + Vector2(.5, .5)
+	brain.state = HunterBrain.State.INVESTIGATE
+	brain.has_last_known = true
+	brain.last_known = impact
+	match _charge_phase:
+		"approach":
+			if brain.position.distance_to(impact) <= GameConfig.LOXELLE_CHARGE_START_DISTANCE:
+				_charge_phase = "windup"
+				_charge_timer = GameConfig.LOXELLE_CHARGE_WINDUP
+		"windup":
+			_charge_timer -= delta
+			if _charge_timer <= 0.0:
+				_charge_phase = "charge"
+				_charge_timer = GameConfig.LOXELLE_CHARGE_SECONDS
+		"charge":
+			_charge_timer -= delta
+			var offset := impact - brain.position
+			if offset.length() > GameConfig.LOXELLE_CHARGE_IMPACT_DISTANCE:
+				var travel := minf(GameConfig.LOXELLE_CHARGE_SPEED * delta,
+					offset.length())
+				var direction := offset.normalized()
+				brain.facing = direction
+				var next := brain.position + direction * travel
+				if generator.can_occupy(next.x, next.y, brain.radius):
+					brain.position = next
+			if brain.position.distance_to(impact) <= GameConfig.LOXELLE_CHARGE_IMPACT_DISTANCE \
+					or _charge_timer <= 0.0:
+				_resolve_charge(brain, target, generator)
+
+
+func _resolve_charge(brain: HunterBrain, target: Dictionary,
+		generator: FacilityGenerator) -> void:
+	var occupied := bool(target.get("hidden", false)) \
+		and Vector2i(target.get("hiding_spot", Vector2i(-1, -1))) == _charge_cell
+	if occupied:
+		toggles.append({"cell": _charge_cell,
+			"eject_to": generator.hiding_exit_position(_charge_candidate),
+			"charge_impact": true})
+	else:
+		toggles.append({"cell": _charge_cell, "disabled": true,
+			"charge_impact": true})
+		_regenerating[_charge_cell] = GameConfig.LOXELLE_REGEN_SECONDS
+	_charge_phase = ""
+	_charge_cell = Vector2i(-1, -1)
+	_charge_timer = 0.0
+	_charge_candidate.clear()
+	brain.apply_stun(GameConfig.LOXELLE_BREAK_STALL)
+
+
+func charge_active() -> bool:
+	return _charge_phase in ["windup", "charge"]
+
+
+func holds_position() -> bool:
+	# Charge movement is applied explicitly above; ordinary path motion would
+	# otherwise stack a second movement step onto the impact lunge.
+	return charge_active()
+
+
+func network_state() -> Dictionary:
+	return {"charge_phase": _charge_phase, "charge_cell": _charge_cell}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	_charge_phase = String(state.get("charge_phase", ""))
+	_charge_cell = state.get("charge_cell", Vector2i(-1, -1))
 
 
 func _tick_regeneration(delta: float) -> void:

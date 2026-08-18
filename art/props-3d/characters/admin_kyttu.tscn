@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/admin_kyttu.glb" id="1_model"]
+
+; Main.png is reserved for the authenticated KYTTU admin player; it is never part of the Void hunter draw.
+[node name="KYTTU Admin" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+scale = Vector3(0.90, 0.90, 0.90)

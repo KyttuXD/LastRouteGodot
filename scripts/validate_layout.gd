@@ -303,20 +303,44 @@ func _check_room_lobby_contract(scene: Node) -> int:
 	if dossier_button == null or dossier_button.text != "HUNTER DOSSIER":
 		return _fail("room staging is missing the hunter dossier action")
 
+	# Discovery belongs to a verified account. Seed one known hunter and ensure
+	# the categorized roster keeps every other identity hidden.
+	var account_before := {
+		"username": Backend.account_username,
+		"token": Backend.account_session_token,
+		"verified": Backend.account_session_verified,
+		"progress": Backend.account_progress.duplicate(true),
+	}
+	Backend.account_username = "DOSSIER_TEST"
+	Backend.account_session_token = "validation-token"
+	Backend.account_session_verified = true
+	Backend.account_progress = {
+		"schema": 1,
+		"kind": "profile",
+		"hunter_discoveries": ["aki"],
+	}
 	# The dossier is dynamic, scrolls the complete roster, and must remain usable
 	# at the smallest design window as well as ultrawide/full-resolution screens.
 	scene.call("_on_dossier_pressed")
 	await _frame()
 	var dossier := scene.find_child("DossierRoster", true, false) as ItemList
-	if dossier == null or dossier.item_count != HunterRoster.PROFILES.size():
-		failures += _fail("hunter dossier does not list the complete 26-hunter roster")
+	if dossier == null or dossier.item_count != HunterRoster.PROFILES.size() + 4:
+		failures += _fail("hunter dossier does not list every categorized hunter and secret placeholder")
+	elif dossier.get_item_text(0) != "-- A-Z HUNTERS --" \
+			or dossier.get_item_text(27) != "-- VOID HUNTERS --" \
+			or dossier.get_item_text(dossier.item_count - 2) != "-- SECRET CHARACTERS --":
+		failures += _fail("hunter dossier category headers are missing or out of order")
+	elif dossier.get_item_text(1) != "AKI" \
+			or dossier.get_item_text(2) != "???? // UNDISCOVERED":
+		failures += _fail("hunter dossier does not reveal only account discoveries")
 	for node_name in ["DossierName", "DossierBehavior", "DossierCounter", "DossierStats"]:
 		var label := scene.find_child(node_name, true, false) as Label
 		if label == null or label.text.is_empty():
 			failures += _fail("hunter dossier is missing populated %s" % node_name)
-	if dossier != null and dossier.item_count > 1:
-		dossier.select(dossier.item_count - 1)
-		dossier.item_selected.emit(dossier.item_count - 1)
+	if dossier != null and dossier.item_count > 3:
+		var final_hunter := dossier.item_count - 3
+		dossier.select(final_hunter)
+		dossier.item_selected.emit(final_hunter)
 		await _frame()
 		var selected_name := scene.find_child("DossierName", true, false) as Label
 		if selected_name == null or selected_name.text.is_empty():
@@ -333,6 +357,10 @@ func _check_room_lobby_contract(scene: Node) -> int:
 				Rect2(dossier_panel.global_position, dossier_panel.size)):
 			failures += _fail("hunter dossier spills outside %s" % size)
 	scene.call("_close_modal")
+	Backend.account_username = account_before["username"]
+	Backend.account_session_token = account_before["token"]
+	Backend.account_session_verified = account_before["verified"]
+	Backend.account_progress = account_before["progress"]
 	await _frame()
 	return failures
 

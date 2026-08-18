@@ -417,11 +417,14 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 	# currently in when her timer fires," so that is what gets checked: the
 	# first burn she raises, wherever it lands, not one pinned in advance.
 	var burned_cell := Vector2i(-1, -1)
+	var saw_charge := false
 	# 40 rolls at a 25% chance each leaves under a 1-in-30000 chance of never
 	# firing -- long enough to test the mechanism without reaching in and
 	# forcing the dice, which would test the test rather than Loxelle.
 	for i in int((GameConfig.LOXELLE_INTERVAL * 40.0) / STEP):
 		brain.update(STEP, generator, target, 1, 0)
+		if not (brain.gimmick as LoxelleGimmick)._charge_phase.is_empty():
+			saw_charge = true
 		for toggle in brain.gimmick.toggles:
 			if toggle.get("disabled", false):
 				burned_cell = toggle["cell"]
@@ -432,6 +435,7 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 		_fail("Loxelle never burned any hiding spot while idle/wandering")
 		scene.queue_free()
 		return
+	_expect(saw_charge, "Loxelle broke a locker without approaching and charging it")
 
 	var live: RouteInteractable3D = scene.facility_view.hiding_spot_at(burned_cell)
 	if live == null:
@@ -445,7 +449,7 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 	_expect(live.disabled, "Loxelle burned a spot but its interactable is still usable")
 	_expect(live.get_prompt().is_empty(), "a burned hiding spot still offers to hide the player")
 
-	print("  loxelle   burns an empty hiding spot in whichever room she's in, disabling it live")
+	print("  loxelle   approaches and charges a locker before breaking/ejecting it")
 	scene.queue_free()
 
 

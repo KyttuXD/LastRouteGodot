@@ -228,6 +228,8 @@ const XIVVY_CLOSE_LOCK_RADIUS := 1.5
 const XIVVY_CLOSE_SCALE := 0.5
 const XIVVY_SPEED_PER_SECOND := 0.035
 const XIVVY_MAX_SPEED_SCALE := 1.8
+const XIVVY_TAKEOFF_SECONDS := 0.65
+const XIVVY_FLIGHT_HEIGHT := 0.48
 
 ## Kathy — search beam (hunterAbilities.kathy.beamDetection). A cone along her
 ## own facing that spots the player well past ordinary sight range. Her second
@@ -374,6 +376,11 @@ const LOXELLE_INTERVAL := 5.0
 const LOXELLE_CHANCE := 0.25
 const LOXELLE_REGEN_SECONDS := 30.0
 const LOXELLE_BREAK_STALL := 10.0
+const LOXELLE_CHARGE_WINDUP := 0.42
+const LOXELLE_CHARGE_SECONDS := 0.70
+const LOXELLE_CHARGE_SPEED := 6.8
+const LOXELLE_CHARGE_START_DISTANCE := 0.95
+const LOXELLE_CHARGE_IMPACT_DISTANCE := 0.20
 
 
 ## Ceryth — hiding trap (hunterAbilities.ceryth.hidingTrap). lockSeconds is her

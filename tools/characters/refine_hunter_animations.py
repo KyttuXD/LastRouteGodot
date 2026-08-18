@@ -243,6 +243,49 @@ def _stun(model: dict) -> None:
                     {"rotation": (duration, samples, sampler)})
 
 
+def _flight(model: dict) -> None:
+    """Xivvy-only wing flap with tucked legs and a forward chase posture."""
+    group_ids = {str(group.get("name", "")): str(group.get("uuid", ""))
+                 for group in model.get("groups", [])}
+    wing_names = ("L-Wing-Bone", "R-Wing-Bone")
+    if not all(group_ids.get(name) for name in wing_names):
+        return
+    clip = "flight"
+    duration = 0.8
+    samples = 8
+    animation = _animation(model, clip, duration, create=True)
+    bones = _animators(model, animation)
+    stored = animation.setdefault("animators", {})
+    for name in wing_names:
+        if name not in bones:
+            animator = {"name": name, "type": "bone", "keyframes": []}
+            stored[group_ids[name]] = animator
+            bones[name] = animator
+    curves = {
+        "L-Wing-Bone": lambda p: (5.0 * math.sin(p),
+                                    -14.0 - 24.0 * math.sin(p),
+                                    12.0 + 8.0 * math.cos(p)),
+        "R-Wing-Bone": lambda p: (-5.0 * math.sin(p),
+                                    14.0 + 24.0 * math.sin(p),
+                                    -12.0 - 8.0 * math.cos(p)),
+        "Chest": lambda p: (-10.0 + 2.0 * math.cos(p), 0.0, 0.0),
+        "Head": lambda p: (7.0 - 1.5 * math.cos(p), 0.0, 0.0),
+        "L-Arm": lambda p: (-18.0, -12.0, 16.0),
+        "R-Arm": lambda p: (-18.0, 12.0, -16.0),
+        "L-Forearm": lambda p: (-22.0, 0.0, 0.0),
+        "R-Forearm": lambda p: (-22.0, 0.0, 0.0),
+        "L-Thigh": lambda p: (23.0 + 2.0 * math.sin(p), 0.0, 3.0),
+        "R-Thigh": lambda p: (23.0 - 2.0 * math.sin(p), 0.0, -3.0),
+        "L-Calf": lambda p: (-38.0, 0.0, 0.0),
+        "R-Calf": lambda p: (-38.0, 0.0, 0.0),
+        "L-Foot": lambda p: (18.0, 0.0, 0.0),
+        "R-Foot": lambda p: (18.0, 0.0, 0.0),
+    }
+    for bone, sampler in curves.items():
+        _set_curves(clip, bones, bone,
+                    {"rotation": (duration, samples, sampler)})
+
+
 def refine_hunter_animations(model: dict) -> dict:
     """Mutate and return one hunter bbmodel dictionary."""
     _idle(model)
@@ -250,6 +293,7 @@ def refine_hunter_animations(model: dict) -> dict:
     _walk(model, "sprint", 2.0 / 3.0)
     _walk(model, "chase", 0.5)
     _stun(model)
+    _flight(model)
     return model
 
 

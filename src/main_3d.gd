@@ -74,6 +74,7 @@ var _remote_meter_effect_elapsed := 0.0
 ## room-bound proof; no account token ever reaches this player host.
 var _pending_admin_requests := {}
 var _admin_ticket_refresh_elapsed := 0.0
+const HUNTER_DISCOVERY_RANGE := 7.5
 
 
 func _ready() -> void:
@@ -204,8 +205,35 @@ func _process(delta: float) -> void:
 		hud.update_map(facility_view.generator, player.grid_position(),
 			player.facing, _map_marks(_admin_reveal_hunters))
 	hud.set_interaction_prompt(player.get_interaction_prompt())
+	_discover_visible_hunters()
 	_update_local_audio(delta)
 	_update_hud()
+
+
+## Dossier facts unlock from an actual local encounter, not from a room roll or
+## host snapshot. Ordinary hunters require nearby line of sight. Porcelle's
+## intended visible surface is the full map, while Umbriel reveals the face she
+## is wearing rather than silently exposing her real identity.
+func _discover_visible_hunters() -> void:
+	if not Backend.signed_in() or _awaiting_initial_snapshot:
+		return
+	var local_position := player.grid_position()
+	for view in hunter_views:
+		if view.brain == null or not view.brain.active:
+			continue
+		var hunter_id := view.brain.hunter_id
+		if hunter_id == "porcelle":
+			if hud.map_is_open():
+				Backend.account_discover_hunter(hunter_id)
+			continue
+		if local_position.distance_to(view.brain.position) > HUNTER_DISCOVERY_RANGE \
+				or not facility_view.generator.has_line_of_sight(
+					local_position, view.brain.position):
+			continue
+		if view.brain.gimmick is UmbrielGimmick \
+				and not view.brain.gimmick.disguise_id.is_empty():
+			hunter_id = view.brain.gimmick.disguise_id
+		Backend.account_discover_hunter(hunter_id)
 
 
 func _update_gameplay(delta: float) -> void:
@@ -227,6 +255,13 @@ func _update_gameplay(delta: float) -> void:
 				hunter_view.brain.position, local_target, GameState.depth)
 			if not activation_target.is_empty():
 				hunter_view.brain.activate_at(activation_target["position"])
+				# A seeded Void incursion is extra pressure in the same active
+				# lineup, not an inert model. Wake it with the route hunter while
+				# leaving rule-summoned A-Z specials on their own conditions.
+				for view in hunter_views:
+					if not view.brain.active and String(HunterRoster.get_identity(
+							view.brain.hunter_id).get("category", "az")) == "void":
+						view.brain.activate_at(activation_target["position"])
 
 	# Ferryn's scream, collected during the loop below and applied to every
 	# OTHER hunter only after every hunter has had her own update() this
@@ -1443,7 +1478,7 @@ func _apply_world_request(peer_id: int, event: Dictionary) -> void:
 		"boarded_path":
 			var cell = event.get("cell")
 			var tool := String(event.get("tool", ""))
-			if cell is Vector2i and bool(event.get("opened", false)) \
+			if cell is Vector2i \
 					and PlayerController3D.BREACH_TOOLS.has(tool) \
 					and String(target.get("selected_item", "")) == tool \
 					and bool((target.get("owned_items", {}) as Dictionary).get(tool, false)) \
@@ -1451,7 +1486,10 @@ func _apply_world_request(peer_id: int, event: Dictionary) -> void:
 					and _target_can_interact(target, cell):
 				var barrier := facility_view._at(cell,
 					RouteInteractable3D.Kind.BOARDED_PATH)
-				accepted = barrier != null and not barrier.opened
+				var next_pieces := int(event.get("pieces_remaining", -1))
+				accepted = barrier != null and not barrier.opened \
+					and next_pieces == maxi(0, barrier.board_pieces_remaining - 1) \
+					and bool(event.get("opened", false)) == (next_pieces <= 0)
 		"room_light":
 			var cell = event.get("cell")
 			if cell is Vector2i and _target_can_interact(target, cell):
@@ -1847,6 +1885,7 @@ func _spawn_hunter() -> void:
 	var from_start := generator.distance_map(generator.start.x, generator.start.y)
 	var spawn_cell := generator.place_hunter_spawn(from_start)
 	var spawn_pos := Vector2(spawn_cell) + Vector2(0.5, 0.5)
+	var blocked_spawn_cells := {spawn_cell: true}
 	var seed_text := GameState.level_seed_text()
 
 	# The drawn route hunter, on the relay activation schedule.
@@ -1858,8 +1897,34 @@ func _spawn_hunter() -> void:
 	# original — they wake on their own condition (darkness, heat) rather than
 	# the relay count, and hunt alongside the route hunter rather than
 	# replacing her.
+	var extra_index := 0
 	for special_id in HunterRoster.SPECIAL_IDS:
-		_add_hunter(special_id, spawn_pos, "%s:%s" % [seed_text, special_id.to_upper()])
+		var special_pos := _extra_hunter_spawn(generator, spawn_pos,
+			blocked_spawn_cells, extra_index)
+		extra_index += 1
+		_add_hunter(special_id, special_pos,
+			"%s:%s" % [seed_text, special_id.to_upper()])
+
+	# Void hunters are occasional EXTRA pressure, never replacements for the
+	# A-Z route identity. Their seeded decision is identical for host and guests.
+	if HunterRoster.has_void_incursion(seed_text, GameState.depth):
+		var void_id := HunterRoster.void_for_floor(seed_text, GameState.depth)
+		var void_pos := _extra_hunter_spawn(generator, spawn_pos,
+			blocked_spawn_cells, extra_index)
+		_add_hunter(void_id, void_pos, "%s:%s" % [seed_text, void_id.to_upper()])
+
+
+func _extra_hunter_spawn(generator: FacilityGenerator, origin: Vector2,
+		blocked: Dictionary, index: int) -> Vector2:
+	var angle := float(index) * 2.399963 + 0.8
+	var distance := 2.0 + float(index) * 0.75
+	var probe := origin + Vector2(cos(angle), sin(angle)) * distance
+	var found := generator.nearest_open_position(probe.x, probe.y,
+		GameConfig.HUNTER_RADIUS, blocked)
+	var position := Vector2(float(found.get("x", origin.x)),
+		float(found.get("y", origin.y)))
+	blocked[Vector2i(floori(position.x), floori(position.y))] = true
+	return position
 
 
 func _add_hunter(hunter_id: String, spawn_pos: Vector2, seed_text: String) -> HunterView3D:

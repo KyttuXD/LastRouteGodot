@@ -5,6 +5,10 @@ editable source of truth. Each embeds its texture, opens directly in
 Blockbench, and rebuilds without an uncommitted skin/template directory. The
 PNG beside it is deliberately extracted from that embedded texture: Godot can
 import it normally, and a reviewer can inspect the exact atlas the GLB uses.
+Godot externalizes the imported GLB material to that atlas path, so the
+`_0.png` files are runtime dependencies as well as review artifacts. The asset
+audit intentionally keeps them in every PCK; excluding them produced missing
+materials in a standalone-pack test.
 
 `import_blockbench_hunters.py` is the normal path from reviewed Blockbench
 source to the three committed runtime artifacts (`.bbmodel`, `_0.png`, `.glb`).
@@ -32,6 +36,24 @@ carries `nodes/root_scale=0.9`, every hunter's carries `1.1` — so a hunter
 reads as visibly larger than the player without either model's own geometry
 changing. Import-time, not exporter code, so it survives a rebuild without
 needing to be re-applied.
+
+## Void and KYTTU admin skins
+
+`build_void_hunters.py` converts the supplied `Skins Void` Minecraft skins
+through the same reviewed rig and export path. The twelve colour files become
+`void_<colour>` hunter sources/runtime scenes at a 1.22 display scale. `Main.png`
+is explicitly reserved and becomes `admin_kyttu`, a 0.90-scale player model;
+the builder never includes it in the Void hunter list. Rebuild them with:
+
+```bash
+.venv/bin/python tools/characters/build_void_hunters.py \
+  "/var/home/kyttu/Documents/Skins Void" art/props-3d/characters
+```
+
+Void models ship the six normal hunter clips. Xivvy additionally receives the
+winged `flight` loop from `refine_hunter_animations.py`; Loxelle's authored
+`charge` clip is maintained by `add_loxelle_charge_animation.py` before her
+reviewed model is re-exported.
 
 ## Rebuilding the reviewed models
 

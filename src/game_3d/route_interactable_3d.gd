@@ -100,6 +100,10 @@ var cache_style := "crate"
 ## Boarded paths are fixtures which disappear after a breach.
 var opened := false
 var boarded_variant := "door"
+## A barricade is breached plank by plank. This is durable shared world state,
+## not presentation-only health: guests and late joiners must see the same
+## remaining opening as the host.
+var board_pieces_remaining := -1
 ## Personal equipment carried by a shared floor pickup. The pickup disappears
 ## for the room; only the runner who activates it receives the item.
 var tool_item_id := ""
@@ -114,6 +118,7 @@ var _visual: Node3D
 ## the prop rather than its floor pivot, so the screen crosshair behaves like
 ## a crosshair for tall lockers/lifts as well as low batteries and vents.
 var _interaction_focus_local := Vector3(0.0, 0.65, 0.0)
+var _board_piece_nodes := {}
 
 
 func _ready() -> void:
@@ -126,6 +131,7 @@ func _ready() -> void:
 		_cache_interaction_focus()
 	if kind == Kind.BOARDED_PATH:
 		_add_blocking_box(Vector3(.96, 2.05, .12), Vector3(0, 1.025, 0))
+		_cache_board_pieces()
 
 	_light = OmniLight3D.new()
 	_light.position = Vector3(0, 0.5, 0)
@@ -310,11 +316,15 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		if not already_consumed and not player.consume_item_durability(item_id):
 			return "%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
 				item_id, item_id)).to_upper()
-		opened = true
+		board_pieces_remaining = maxi(0, board_pieces_remaining - 1)
+		opened = board_pieces_remaining <= 0
 		_refresh_visual()
 		changed.emit({"what": "boarded_path", "cell": source_cell,
-			"opened": true, "tool": item_id})
-		return "BOARDED PATH CLEARED // DURABILITY USED"
+			"opened": opened, "pieces_remaining": board_pieces_remaining,
+			"tool": item_id})
+		if opened:
+			return "BOARDED PATH CLEARED // DURABILITY USED"
+		return "BOARD BROKEN // %d REMAIN // DURABILITY USED" % board_pieces_remaining
 	return "That tool cannot be used here."
 
 
@@ -364,6 +374,8 @@ func configure_boarded_variant(variant: String) -> void:
 		_cache_interaction_focus()
 	else:
 		push_error("BOARDED HALLWAY MODEL MISSING // %s" % BOARDED_HALLWAY_MODEL)
+	board_pieces_remaining = -1
+	_cache_board_pieces()
 	var barrier := find_child("ToolBarrier", false, false) as StaticBody3D
 	if barrier:
 		var collision := barrier.get_child(0) as CollisionShape3D
@@ -405,6 +417,48 @@ func _add_blocking_box(size: Vector3, at: Vector3) -> void:
 	shape.position = at
 	body.add_child(shape)
 	add_child(body)
+
+
+func _cache_board_pieces() -> void:
+	_board_piece_nodes.clear()
+	if _visual == null:
+		board_pieces_remaining = 0
+		return
+	_collect_board_piece_nodes(_visual)
+	if board_pieces_remaining < 0:
+		board_pieces_remaining = _board_piece_nodes.size()
+	else:
+		board_pieces_remaining = mini(board_pieces_remaining,
+			_board_piece_nodes.size())
+	_refresh_board_pieces()
+
+
+func _collect_board_piece_nodes(node: Node) -> void:
+	if node is Node3D:
+		var index := _board_piece_index(node.name)
+		if index >= 0:
+			if not _board_piece_nodes.has(index):
+				_board_piece_nodes[index] = []
+			(_board_piece_nodes[index] as Array).append(node)
+	for child in node.get_children():
+		_collect_board_piece_nodes(child)
+
+
+static func _board_piece_index(node_name: String) -> int:
+	for prefix in ["Board_", "Nail_", "HallBoard_", "HallNail_"]:
+		if node_name.begins_with(prefix):
+			var suffix := node_name.trim_prefix(prefix)
+			return int(suffix.split("_")[0])
+	return -1
+
+
+func _refresh_board_pieces() -> void:
+	var indices: Array = _board_piece_nodes.keys()
+	indices.sort()
+	for order in indices.size():
+		for node in _board_piece_nodes[indices[order]]:
+			if is_instance_valid(node):
+				(node as Node3D).visible = order < board_pieces_remaining
 
 
 ## Briselle's counter (RELAY only). Sabotaged is not "uncollected" -- the
@@ -472,7 +526,10 @@ func adopt(event: Dictionary) -> void:
 			_apply_sabotage(bool(event.get("sabotaged", false)))
 		"boarded_path":
 			if kind == Kind.BOARDED_PATH:
-				opened = bool(event.get("opened", true))
+				if event.has("pieces_remaining"):
+					board_pieces_remaining = clampi(int(event["pieces_remaining"]),
+						0, _board_piece_nodes.size())
+				opened = bool(event.get("opened", board_pieces_remaining <= 0))
 				_refresh_visual()
 		"room_light":
 			if kind == Kind.LIGHT_SWITCH and String(event.get("light_id", "")) == light_id:
@@ -546,6 +603,8 @@ func _refresh_visual() -> void:
 		taken = opened
 	if _visual:
 		_visual.visible = not taken
+	if kind == Kind.BOARDED_PATH and not opened:
+		_refresh_board_pieces()
 	if _light:
 		_light.visible = not completed or sabotaged
 		if kind == Kind.RELAY:

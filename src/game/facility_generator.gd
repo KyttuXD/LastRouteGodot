@@ -208,6 +208,15 @@ func _maybe_boarded_doorway(output: Array, inside: Vector2i,
 	var corridor_next := outside + outward
 	if not _valid_open_cell(corridor_next):
 		return
+	# The one-metre prop is only valid in a one-cell throat. A room threshold
+	# opening onto a three-wide hall used to pass the looser test above, leaving
+	# a little door frame floating in a full corridor. Wide passages are owned by
+	# place_boarded_hallways() and its three-metre model.
+	var across := Vector2i(0, 1) if outward.x != 0 else Vector2i(1, 0)
+	for throat_cell in [outside, corridor_next]:
+		if _valid_open_cell(throat_cell + across) \
+				or _valid_open_cell(throat_cell - across):
+			return
 	output.append({"x": inside.x, "y": inside.y, "dir": outward})
 
 

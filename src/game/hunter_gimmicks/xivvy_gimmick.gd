@@ -8,13 +8,15 @@ extends HunterGimmick
 ## out of chase.
 ##
 ## The original's lock radius is `closeLockRadius * (.5 + exposure / 200)`.
-## No exposure meter exists in this port, so XIVVY_CLOSE_SCALE is that
-## formula's value at exposure 0 — the genuine rest value, not an
-## approximation. Her Nightmare-only branches (sense scaling, wing noise) are
-## absent: no difficulty selection exists, so they'd be dead code.
+## This pass retains the established resting scale for compatibility; wiring
+## the live exposure meter into this radius is a separate tuning change. Her
+## movement now visibly transitions from grounded locomotion to a winged
+## flight loop after a short chase takeoff, while AI remains on the same 2D
+## navigation plane as every other hunter.
 
 var _chase_elapsed := 0.0
 var _speed_scale := 1.0
+var flying := false
 
 
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
@@ -32,6 +34,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	# original's ordering: the lock above can start the chase, and the ramp
 	# begins accumulating from that same frame.
 	_chase_elapsed = _chase_elapsed + delta if brain.state == HunterBrain.State.CHASE else 0.0
+	flying = _chase_elapsed >= GameConfig.XIVVY_TAKEOFF_SECONDS
 	_speed_scale = minf(
 		GameConfig.XIVVY_MAX_SPEED_SCALE,
 		1.0 + _chase_elapsed * GameConfig.XIVVY_SPEED_PER_SECOND
@@ -40,3 +43,11 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 
 func speed_scale(_brain: HunterBrain) -> float:
 	return _speed_scale
+
+
+func network_state() -> Dictionary:
+	return {"flying": flying}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	flying = bool(state.get("flying", false))

@@ -5,7 +5,7 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 26 of 26 ported.** Dovelle (baseline), Quirith (flashlight
+**Status: 26 of 26 A-Z hunters ported, plus 12 Void incursion models.** Dovelle (baseline), Quirith (flashlight
 tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Wynelle (cold materializer), Thessine (see below), Haelith
@@ -18,6 +18,61 @@ pounce), **Verrine** (vent lurker) and **Zephyra** (coin exchange), plus the
 two rule-summoned specials Nyxie (darkness stalker) and Solyth
 (heat-summoned). See `MIGRATION.md`'s "Hunter roster" section for how
 they're wired.
+
+## Roster categories and discovery
+
+The dossier now has three explicit sections: **A-Z Hunters**, **Void
+Hunters**, and **Secret Characters** (currently marked coming soon). Names,
+abilities, counterplay, and tuning are hidden until the signed-in player
+personally discovers that hunter. Merely rolling a floor or receiving a host
+snapshot does not unlock anything. Ordinary hunters unlock from a nearby,
+clear encounter; Porcelle unlocks through her intended readable surface, the
+full facility map. Discoveries live in the account progress document alongside
+the optional route checkpoint, and clearing a route never clears the dossier.
+Guests receive no permanent discovery data.
+
+`Main.png` from the Void skin folder is deliberately excluded from every
+hunter pool. It is the **KYTTU ADMIN** player appearance and loads only for a
+primary-server-verified KYTTU admin account. The twelve colour skins are the
+Void roster. Their models are visibly larger than A-Z hunters, their baseline
+speed/perception is more aggressive, and a deterministic incursion can add one
+as an extra hunter from depth two onward.
+
+The first shipped Void pass gives them a shared, honest `VOID INCURSION`
+mechanic rather than inventing twelve half-implemented abilities. These are
+the intended colour identities for later focused passes:
+
+| Void | Candidate identity | Counterplay direction |
+| --- | --- | --- |
+| Black | Eats nearby light and creates moving dark pockets | carry reserve light and leave the drained region |
+| Blue | Leaves a cold trail which slows prolonged pursuit | take warmer biome routes and avoid retracing it |
+| Brown | Specializes in boards and damaged barriers | do not rely on a single barricaded choke point |
+| Cyan | Interferes with taser charge and powered tools | use mechanical tools or fire the taser early |
+| Gray | Moves while unobserved and holds still under scrutiny | coordinate sightlines instead of fleeing alone |
+| Green | Creates temporary toxic area denial | rotate objectives before safe paths close |
+| Orange | Telegraphs a short, violent burst charge | sidestep at the cue and force a wall impact |
+| Pink | Mimics safe-room light and comfort audio | verify a safe-room marker before committing |
+| Purple | Short-phases between connected dark cells | keep multiple exits and avoid isolated rooms |
+| Red | Berserks after taking tool damage | stun to escape, not to start a long fight |
+| White | Nearly blind but exceptionally sensitive to noise | walk, close interactions quietly, avoid impacts |
+| Yellow | Disrupts powered lights and nearby switches | carry a flashlight and restore circuits behind it |
+
+These rows are design commitments, not claims that the colour mechanics are
+already live. The roster and dossier currently label them as aggressive extra
+pursuers until each mechanic has its own authoritative co-op implementation
+and validation.
+
+## Current refinement pass
+
+- Xivvy now owns a real looping `flight` clip. After a short pursuit takeoff,
+  her presentation rises, floats, and flaps; she still uses grounded idle/walk
+  before takeoff and after reset.
+- Loxelle no longer deletes a locker on a timer from a distance. She approaches
+  the target, braces, plays a charge animation, crosses the final gap, then
+  breaks the locker and ejects its occupant on impact.
+- Boarded doors and three-cell hallway barricades lose one authored plank per
+  valid tool strike. Every strike still consumes durability, including the
+  final one; collision opens only after the last piece breaks.
 
 **The roster is complete.** Every hunter that had a gimmick to port now has
 one; what remains beyond this point is polish (real art in place of the

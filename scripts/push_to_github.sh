@@ -4,6 +4,7 @@ set -euo pipefail
 REMOTE="origin"
 SKIP_TESTS=false
 TRACKED_ONLY=false
+ASSUME_YES=false
 COMMIT_PARTS=()
 
 
@@ -16,14 +17,17 @@ Safely review, test, commit, and push the current branch to GitHub.
 Options:
   --skip-tests     Skip the Godot and Node test suites.
   --tracked-only   Stage modifications/deletions to tracked files only.
+  -y, --yes        Approve stage, commit, and push prompts on main.
   -h, --help       Show this help.
 
 Examples:
   ./scripts/push_to_github.sh "Finish co-op playability pass"
+  ./scripts/push_to_github.sh --yes "Publish validated agent changes"
   ./scripts/push_to_github.sh --tracked-only "Update gameplay code"
 
-Every staging, commit, and push step still requires confirmation. The script
-never creates a release, tag, or version bump.
+Prompts remain the default. --yes is an explicit automation mode for main and
+still performs review output, tests, diff checks, remote ancestry checks, and
+large-file checks. The script never creates a release, tag, or version bump.
 
 Full documentation: scripts/PUSHING.md
 EOF
@@ -31,6 +35,10 @@ EOF
 
 
 confirm() {
+	if [[ "$ASSUME_YES" == true ]]; then
+		printf '%s [auto-approved by --yes]\n' "$1"
+		return 0
+	fi
 	local answer
 	read -r -p "$1 [y/N] " answer
 	[[ "$answer" =~ ^[Yy]$ ]]
@@ -50,6 +58,9 @@ while (($#)); do
 			;;
 		--tracked-only)
 			TRACKED_ONLY=true
+			;;
+		-y|--yes)
+			ASSUME_YES=true
 			;;
 		-h|--help)
 			usage
@@ -86,6 +97,8 @@ printf 'Repository: %s\n' "$REPOSITORY_ROOT"
 printf 'Destination: %s/%s\n\n' "$REMOTE" "$BRANCH"
 
 if [[ "$BRANCH" != "main" ]]; then
+	[[ "$ASSUME_YES" == false ]] \
+		|| die "--yes is restricted to main; publish another branch interactively"
 	confirm "Current branch is '$BRANCH', not 'main'. Continue on this branch?" \
 		|| exit 0
 fi
@@ -155,6 +168,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
 
 	COMMIT_MESSAGE="${COMMIT_PARTS[*]:-}"
 	if [[ -z "$COMMIT_MESSAGE" ]]; then
+		[[ "$ASSUME_YES" == false ]] \
+			|| die "--yes requires an explicit commit message"
 		printf '\n'
 		read -r -p "Commit message: " COMMIT_MESSAGE
 	fi

@@ -17,6 +17,16 @@ repository root automatically and publishes the currently checked-out branch
 to the branch with the same name on `origin`. A non-`main` branch requires an
 extra confirmation.
 
+For an already-authorized agent run on `main`, `--yes` keeps all validation and
+safety checks but auto-approves the stage, commit, and push confirmations:
+
+```sh
+./scripts/push_to_github.sh --yes "Publish validated agent changes"
+```
+
+Automation mode requires an explicit commit message and refuses to run on a
+non-`main` branch.
+
 The normal sequence is:
 
 1. Display every tracked and untracked working-tree change.
@@ -40,6 +50,7 @@ force-pushes.
 ```sh
 ./scripts/push_to_github.sh --tracked-only "Commit message"
 ./scripts/push_to_github.sh --skip-tests "Commit message"
+./scripts/push_to_github.sh --yes "Commit message"
 ./scripts/push_to_github.sh --help
 ```
 
@@ -49,6 +60,9 @@ force-pushes.
 - `--skip-tests` bypasses both test suites. Use it only when the exact current
   revision has already passed them or the user explicitly accepts an untested
   commit.
+- `--yes` is the explicit non-interactive path for an already-authorized agent
+  publishing to `main`. Review the worktree before invoking it; the test, diff,
+  ancestry, and large-file protections remain active.
 
 Without `--tracked-only`, the script runs `git add -A`. Always read both status
 lists before answering yes. Generated Meshy tasks, prop preview renders and
@@ -69,8 +83,8 @@ Before approving the staging prompt:
 - preserve the user's chosen version unless they separately requested a bump;
 - use a commit message that describes the actual staged scope.
 
-Do not pipe automatic `yes` responses into the helper. Each prompt is a final
-scope boundary and should be evaluated independently.
+Do not pipe automatic `yes` responses into the helper. Use `--yes` only after
+evaluating the same scope boundaries and receiving explicit publish authority.
 
 ## Cancellation and recovery
 

@@ -444,6 +444,11 @@ func _on_account_progress_changed(available: bool, _progress: Dictionary,
 		_saved_at: int, message: String) -> void:
 	if _account_status == null or _modal == null:
 		return
+	# A delayed checkpoint/session response must not erase a credential error on
+	# the signed-out form. Progress is meaningful only after the same client has
+	# a currently verified account session.
+	if not Backend.signed_in():
+		return
 	var showing_checkpoint := _modal.find_child("ContinueRouteButton", true, false) != null
 	if Backend.signed_in() and available != showing_checkpoint:
 		_on_account_pressed()

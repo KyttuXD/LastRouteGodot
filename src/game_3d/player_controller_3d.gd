@@ -21,6 +21,7 @@ signal interaction_message(message: String)
 
 const CAMERA_HEIGHT := 1.6
 const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
+const ADMIN_BODY_MODEL_SCENE := "res://art/props-3d/characters/admin_kyttu.tscn"
 
 ## Sibling, not a child — the top-down camera must NOT inherit the player's
 ## facing rotation (it stays fixed, looking straight down, and only follows
@@ -272,7 +273,9 @@ func _ready() -> void:
 	# The snap is shorter than a real fall, so stepping off the mezzanine still
 	# becomes airborne and reaches the fall-stun path below.
 	floor_snap_length = 0.28
-	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
+	var body_scene := ADMIN_BODY_MODEL_SCENE if Backend.admin_authorized() \
+		else BODY_MODEL_SCENE
+	var model := ModelSlot.instantiate(body_scene)
 	if model:
 		_body_model = model
 		body_visual.add_child(model)

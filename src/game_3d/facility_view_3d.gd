@@ -830,6 +830,7 @@ func shared_state() -> Dictionary:
 	var sabotaged := []
 	var disabled_hiding := []
 	var opened_paths := []
+	var boarded_paths := []
 	var room_lights := {}
 	for node in _interactables:
 		var item := node as RouteInteractable3D
@@ -843,6 +844,10 @@ func shared_state() -> Dictionary:
 			disabled_hiding.append(item.source_cell)
 		if item.kind == RouteInteractable3D.Kind.BOARDED_PATH and item.opened:
 			opened_paths.append(item.source_cell)
+		if item.kind == RouteInteractable3D.Kind.BOARDED_PATH:
+			boarded_paths.append({"cell": item.source_cell,
+				"opened": item.opened,
+				"pieces_remaining": item.board_pieces_remaining})
 		if item.kind == RouteInteractable3D.Kind.LIGHT_SWITCH:
 			room_lights[item.light_id] = item.light_enabled
 	return {
@@ -851,6 +856,7 @@ func shared_state() -> Dictionary:
 		"sabotaged": sabotaged,
 		"disabled_hiding": disabled_hiding,
 		"opened_paths": opened_paths,
+		"boarded_paths": boarded_paths,
 		"room_lights": room_lights,
 	}
 
@@ -877,6 +883,11 @@ func adopt_state(state: Dictionary) -> void:
 	for cell in state.get("opened_paths", []):
 		if cell is Vector2i:
 			opened_paths[cell] = true
+	var boarded_paths := {}
+	for entry in state.get("boarded_paths", []):
+		var cell = entry.get("cell")
+		if cell is Vector2i:
+			boarded_paths[cell] = entry
 	var room_lights: Dictionary = state.get("room_lights", {})
 	for node in _interactables:
 		var item := node as RouteInteractable3D
@@ -889,8 +900,12 @@ func adopt_state(state: Dictionary) -> void:
 		elif item.kind == RouteInteractable3D.Kind.HIDING_SPOT:
 			item.set_disabled(disabled_hiding.has(item.source_cell))
 		elif item.kind == RouteInteractable3D.Kind.BOARDED_PATH:
+			var barrier_state: Dictionary = boarded_paths.get(item.source_cell, {})
 			item.adopt({"what": "boarded_path",
-				"opened": opened_paths.has(item.source_cell)})
+				"opened": bool(barrier_state.get("opened",
+					opened_paths.has(item.source_cell))),
+				"pieces_remaining": int(barrier_state.get("pieces_remaining",
+					0 if opened_paths.has(item.source_cell) else item._board_piece_nodes.size()))})
 		elif item.kind == RouteInteractable3D.Kind.LIGHT_SWITCH:
 			item.adopt({"what": "room_light", "light_id": item.light_id,
 				"enabled": bool(room_lights.get(item.light_id, true))})

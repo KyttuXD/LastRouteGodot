@@ -136,11 +136,11 @@ func _the_pool_is_real() -> void:
 	# really is only tuning. Without this, a gimmick that fails to compile --
 	# a new class_name before an import pass registers it -- leaves for_id()
 	# returning null for everyone, and the whole roster quietly plays Dovelle.
-	const TUNING_ONLY := ["dovelle"]
+	var tuning_only := ["dovelle"] + HunterRoster.VOID_IDS
 	var missing: Array[String] = []
 	for id in HunterRoster.IMPLEMENTED_IDS:
 		var has_gimmick := HunterGimmick.for_id(id) != null
-		if TUNING_ONLY.has(id):
+		if tuning_only.has(id):
 			_expect(not has_gimmick,
 				"%s is listed as tuning-only but resolves a gimmick" % id)
 		elif not has_gimmick:

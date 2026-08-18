@@ -55,6 +55,22 @@ const PROFILES := {
 	"xivvy":    {"name": "Xivvy",    "tier": "intermediate", "speed": 0.97, "chase": 4.35,  "prog": 0.12, "sight": 6.72, "hearing": 0.84, "spawn": 13},
 	"ysolde":   {"name": "Ysolde",   "tier": "easy",         "speed": 0.80, "chase": 3.54,  "prog": 0.18, "sight": 8.10, "hearing": 1.00, "spawn": 12},
 	"zephyra":  {"name": "Zephyra",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
+	# Void incursions are an extra category, not letters appended to the A-Z
+	# roster. Their source skins are deliberately larger in presentation and
+	# their baseline tuning is more aggressive even before colour-specific
+	# mechanics are promoted from the design notes into code.
+	"void_black":  {"name": "Black Void",  "tier": "void", "category": "void", "speed": 0.94, "chase": 4.55, "prog": 0.24, "sight": 9.4, "hearing": 1.22, "spawn": 15, "model": "res://art/props-3d/characters/void_black.tscn"},
+	"void_blue":   {"name": "Blue Void",   "tier": "void", "category": "void", "speed": 0.92, "chase": 4.48, "prog": 0.25, "sight": 9.6, "hearing": 1.18, "spawn": 15, "model": "res://art/props-3d/characters/void_blue.tscn"},
+	"void_brown":  {"name": "Brown Void",  "tier": "void", "category": "void", "speed": 0.96, "chase": 4.62, "prog": 0.23, "sight": 9.0, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_brown.tscn"},
+	"void_cyan":   {"name": "Cyan Void",   "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
+	"void_gray":   {"name": "Gray Void",   "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
+	"void_green":  {"name": "Green Void",  "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
+	"void_orange": {"name": "Orange Void", "tier": "void", "category": "void", "speed": 1.00, "chase": 4.82, "prog": 0.28, "sight": 9.2, "hearing": 1.24, "spawn": 14, "model": "res://art/props-3d/characters/void_orange.tscn"},
+	"void_pink":   {"name": "Pink Void",   "tier": "void", "category": "void", "speed": 0.93, "chase": 4.50, "prog": 0.26, "sight": 9.7, "hearing": 1.20, "spawn": 16, "model": "res://art/props-3d/characters/void_pink.tscn"},
+	"void_purple": {"name": "Purple Void", "tier": "void", "category": "void", "speed": 0.98, "chase": 4.75, "prog": 0.29, "sight": 9.5, "hearing": 1.15, "spawn": 16, "model": "res://art/props-3d/characters/void_purple.tscn"},
+	"void_red":    {"name": "Red Void",    "tier": "void", "category": "void", "speed": 1.02, "chase": 4.90, "prog": 0.30, "sight": 9.3, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_red.tscn"},
+	"void_white":  {"name": "White Void",  "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
+	"void_yellow": {"name": "Yellow Void", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
 }
 
 ## The hunters the game actually draws. Grows as gimmicks are ported; a hunter
@@ -76,6 +92,11 @@ const IMPLEMENTED_IDS := [
 ## whichever route hunter was drawn, which is why main_3d.gd keeps a
 ## collection of hunters rather than one.
 const SPECIAL_IDS := ["nyxie", "solyth"]
+const VOID_IDS := [
+	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray",
+	"void_green", "void_orange", "void_pink", "void_purple", "void_red",
+	"void_white", "void_yellow",
+]
 
 ## NORMAL_ROUTE_HUNTER_WEIGHTS from the original, plus Hard at the exact
 ## Standard/Nightmare midpoint. Nightmare's row is retained for its future
@@ -100,8 +121,26 @@ static func get_identity(id: String) -> Dictionary:
 		"chase_progression_scale": profile["prog"],
 		"sight_range": profile["sight"],
 		"hearing_scale": profile["hearing"],
-		"model_scene": "res://art/props-3d/characters/%s.tscn" % key,
+		"model_scene": String(profile.get("model",
+			"res://art/props-3d/characters/%s.tscn" % key)),
+		"category": String(profile.get("category", "az")),
 	}
+
+
+## A Void is an occasional additional pressure hunter, never a replacement for
+## the ordinary route draw. Incursion probability rises slowly with depth and
+## is capped so the mode remains a maze game rather than a permanent mob rush.
+static func void_for_floor(seed_text: String, depth: int) -> String:
+	var rng := SeededRandom.new("%s:VOID-IDENTITY:D%d" % [seed_text, maxi(1, depth)])
+	return VOID_IDS[rng.next_index(VOID_IDS.size())]
+
+
+static func has_void_incursion(seed_text: String, depth: int) -> bool:
+	if depth < 2:
+		return false
+	var chance := minf(0.40, 0.08 + float(depth - 2) * 0.025)
+	var rng := SeededRandom.new("%s:VOID-INCURSION:D%d" % [seed_text, depth])
+	return rng.next_float() < chance
 
 
 ## Mirrors selectRouteHunters(): a tier-weighted seeded draw, keyed by

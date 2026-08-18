@@ -32,3 +32,4 @@ art/props-3d/**/previews/
 # Python bytecode from tools/
 __pycache__/
 *.pyc
+.venv/
