@@ -185,7 +185,8 @@ the root `builds/` folder, create updater ZIPs, and unpack the macOS `.app`, run
 
 Linux, Windows, and Windows SteamVR embed the Godot PCK into their executable,
 so each desktop ZIP contains one portable runnable rather than a separate
-`.pck`. macOS remains a self-contained `.app` bundle. Saves and settings still
+`.pck`. macOS remains a self-contained `.app` bundle and does not ship a
+separate `.command` launcher. Saves and settings still
 use Godot's per-user data directory and are not stored beside the executable.
 
 Pass `--quest` once the Android SDK/JDK prerequisites in [`XR.md`](XR.md) are

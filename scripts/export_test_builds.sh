@@ -28,7 +28,8 @@ mkdir -p "${build_dir}/LastRoute-Web-Debug"
 rm -f -- \
 	"${build_dir}/LastRoute-Linux-Debug.pck" \
 	"${build_dir}/LastRoute-Windows-Debug.pck" \
-	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck"
+	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck" \
+	"${build_dir}/KYTTU- The Last Route.command"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Linux Debug Tools"
@@ -36,6 +37,11 @@ node "${project_dir}/scripts/generate_build_revision.mjs"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "macOS Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Web Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows SteamVR Debug"
+
+if unzip -Z1 "${build_dir}/LastRoute-macOS-Debug.zip" | grep -qE '\.command$'; then
+	printf 'The macOS export unexpectedly contains a .command launcher.\n' >&2
+	exit 1
+fi
 
 (
 	cd "${build_dir}"
