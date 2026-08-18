@@ -50,6 +50,7 @@ const REGION_WALL_COLORS := {
 var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
+var pickup_requester: Callable
 
 var _library: MeshLibrary
 var _floor_items := {}
@@ -210,6 +211,8 @@ func _load_chunk(coord: Vector3i) -> void:
 	_spawn_stairs(root, data)
 	if region == "prison":
 		_spawn_prison_props(root, data)
+	else:
+		_spawn_region_props(root, data)
 	if safe:
 		_spawn_safe_room_light(root)
 	_spawn_pickups(root, data)
@@ -331,8 +334,29 @@ func _spawn_prison_props(parent: Node3D, data: Dictionary) -> void:
 			Vector3(2.2, 2.3, 2.2))
 
 
+func _spawn_region_props(parent: Node3D, data: Dictionary) -> void:
+	for value in data.get("region_props", []):
+		var prop: Dictionary = value
+		var type := String(prop.get("type", ""))
+		if not PropModelCatalog.has_model(type):
+			continue
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		_spawn_authored_prop(parent, PropModelCatalog.model_path(type,
+			String(prop.get("id", ""))), Vector3(cell.x + .5, 0.0, cell.y + .5),
+			float(prop.get("yaw", 0.0)), prop.get("blocker_size", Vector3.ONE),
+			"streamed_region_prop")
+		if type in ["emberBrazier", "magmaCrystalCluster"]:
+			var light := OmniLight3D.new()
+			light.position = Vector3(cell.x + .5, 1.0, cell.y + .5)
+			light.light_color = Color("ff6b35")
+			light.light_energy = .72
+			light.omni_range = 4.5
+			parent.add_child(light)
+
+
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
-		yaw: float, blocker_size: Vector3) -> void:
+		yaw: float, blocker_size: Vector3,
+		group_name: String = "streamed_prison_prop") -> void:
 	var packed := load(path) as PackedScene
 	if packed == null:
 		return
@@ -341,7 +365,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		return
 	visual.position = at
 	visual.rotation.y = yaw
-	visual.add_to_group("streamed_prison_prop")
+	visual.add_to_group(group_name)
 	parent.add_child(visual)
 	var body := StaticBody3D.new()
 	var collision := CollisionShape3D.new()
@@ -378,12 +402,17 @@ func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:
 		pickup.source_cell = cell
 		pickup.position = Vector3(cell.x + .5, .04, cell.y + .5)
 		pickup.set_meta("streamed_entity_id", entity_id)
+		if pickup_requester.is_valid():
+			pickup.activation_override = pickup_requester.bind(entity_id,
+				String(pickup_data.get("item", "")))
 		parent.add_child(pickup)
 		pickup.configure_tool_pickup(String(pickup_data.get("item", "")))
 		_pickup_nodes[entity_id] = pickup
 
 
 func _collect_taken_pickups() -> void:
+	if pickup_requester.is_valid():
+		return
 	for entity_id_value in _pickup_nodes.keys().duplicate():
 		var entity_id := String(entity_id_value)
 		var pickup := _pickup_nodes.get(entity_id) as RouteInteractable3D
@@ -393,6 +422,29 @@ func _collect_taken_pickups() -> void:
 		if pickup.completed and world_state.claim_pickup(entity_id):
 			pickup_claimed.emit(entity_id)
 			_pickup_nodes.erase(entity_id)
+
+
+func apply_pickup_claim(entity_id: String) -> bool:
+	if not world_state.claim_pickup(entity_id):
+		return false
+	var pickup := _pickup_nodes.get(entity_id) as RouteInteractable3D
+	if pickup != null and is_instance_valid(pickup):
+		pickup.completed = true
+		pickup.queue_free()
+	_pickup_nodes.erase(entity_id)
+	pickup_claimed.emit(entity_id)
+	return true
+
+
+func refresh_mutations() -> void:
+	# Rebuild only the bounded local window after a late-join snapshot. The
+	# deterministic base stays identical; claimed entities are filtered through
+	# StreamedWorldState as chunks return.
+	for coord_value in _loaded.keys().duplicate():
+		var coord: Vector3i = coord_value
+		_unload_chunk(coord)
+	_last_player_chunk = Vector3i(999999, 999999, 999999)
+	_refresh_stream(true)
 
 
 func _build_mesh_library() -> MeshLibrary:

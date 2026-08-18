@@ -56,11 +56,10 @@ const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
 	Scale.IMMENSE: "IMMENSE", Scale.INFINITE: "INFINITE",
 }
-## Staging no longer exposes the old finite-size ladder. STANDARD remains the
-## shipping fixed route; INFINITE is visible as the replacement and becomes
-## selectable when its live chunk renderer is enabled.
+## Normal staging is Infinite-only. STANDARD remains a protocol/debug fallback
+## while streamed equivalents for every specialist hunter are completed.
 const SELECTABLE_SCALE_LABELS := {
-	Scale.STANDARD: "STANDARD", Scale.INFINITE: "INFINITE",
+	Scale.INFINITE: "INFINITE",
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
@@ -102,7 +101,7 @@ var code := ""
 ## players can confirm they are on the same route.
 var seed_text := ""
 var mode: Mode = Mode.DEFAULT
-var map_scale: Scale = Scale.STANDARD
+var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
@@ -175,7 +174,7 @@ func create_local(for_mode: Mode) -> void:
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
-	map_scale = Scale.STANDARD
+	map_scale = Scale.INFINITE
 	difficulty = Difficulty.STANDARD
 	leave_network()
 	session_active = false
@@ -664,11 +663,7 @@ func set_map_scale(value: Scale) -> void:
 
 
 func map_scale_available(value: int) -> bool:
-	# The streamed renderer is deliberately a solo debug test until hunter
-	# persistence and host-arbitrated pickup claims are connected. Release and
-	# co-op rooms therefore cannot accidentally advertise it as finished.
-	return value == Scale.STANDARD or (value == Scale.INFINITE \
-		and Build.tools_enabled() and not online)
+	return value == Scale.STANDARD or value == Scale.INFINITE
 
 
 func set_difficulty(value: Difficulty) -> void:
@@ -758,7 +753,9 @@ func suppress_scene_transitions_for_tests() -> void:
 
 
 func session_scene_path() -> String:
-	if map_scale == Scale.INFINITE and Build.tools_enabled():
+	if mode == Mode.OFFICE:
+		return String(MODE_SCENES[Mode.OFFICE])
+	if map_scale == Scale.INFINITE:
 		return "res://scenes/infinite_route_test.tscn"
 	return String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
 

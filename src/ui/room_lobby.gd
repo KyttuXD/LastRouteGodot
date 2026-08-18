@@ -185,7 +185,7 @@ func _config_block() -> Control:
 				return RoomState.is_host and RoomState.difficulty_available(value)))
 
 	stack.add_child(_label(
-		"INFINITE STREAMING IS SHOWN UNTIL READY // NIGHTMARE REMAINS RESERVED.",
+		"INFINITE ENDLESS SURVIVAL // NIGHTMARE REMAINS RESERVED.",
 		Palette.MUTED, 6))
 	return box
 

@@ -8,6 +8,7 @@ extends RefCounted
 
 const CHUNK_SIZE := 32
 const BIOME_REGION_SIZE := 4
+const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 	"prison", "inferno"]
 const EDGE_OFFSETS := [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29]
@@ -19,6 +20,44 @@ const ROOM_SIZES := [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
 	Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13),
 	Vector2i(13, 11), Vector2i(15, 15)]
 const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
+const REGION_PROP_SETS := {
+	"maze": [
+		{"type": "serverRack", "size": Vector3(.8, 2.0, .55)},
+		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
+		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
+	],
+	"mansion": [
+		{"type": "mansionBookshelf", "size": Vector3(1.5, 2.1, .45)},
+		{"type": "loungeCouch", "size": Vector3(1.8, 1.0, .8)},
+		{"type": "diningSideboard", "size": Vector3(1.4, 1.1, .5)},
+	],
+	"hotel": [
+		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
+		{"type": "bedroomWardrobe", "size": Vector3(1.2, 2.1, .55)},
+		{"type": "bedroomNightstand", "size": Vector3(.65, .8, .55)},
+	],
+	"apartment": [
+		{"type": "normalKitchenFridge", "size": Vector3(.85, 2.0, .75)},
+		{"type": "normalBookcase", "size": Vector3(1.25, 1.9, .45)},
+		{"type": "loungeCouch", "size": Vector3(1.8, 1.0, .8)},
+	],
+	"beach": [
+		{"type": "beachUmbrella", "size": Vector3(.45, 2.35, .45)},
+		{"type": "beachChair", "size": Vector3(.75, 1.0, 1.2)},
+		{"type": "surfboardRack", "size": Vector3(1.4, 1.7, .55)},
+	],
+	"gothic": [
+		{"type": "gothicBookcase", "size": Vector3(1.4, 2.1, .5)},
+		{"type": "gothicHighbackChair", "size": Vector3(.75, 1.6, .75)},
+		{"type": "gothicCoffinChest", "size": Vector3(.85, .65, 1.9)},
+	],
+	"inferno": [
+		{"type": "basaltPillar", "size": Vector3(.8, 2.4, .8)},
+		{"type": "emberBrazier", "size": Vector3(.8, 1.0, .8)},
+		{"type": "magmaCrystalCluster", "size": Vector3(1.0, 1.1, 1.0)},
+	],
+	"prison": [],
+}
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
 ## hiding-place hunters stay in the standard mode until those world entities
@@ -29,6 +68,8 @@ const STREAMED_HUNTER_IDS := [
 ]
 
 var world_seed := "ENDLESS-ROUTE"
+var _chunk_cache := {}
+var _chunk_cache_order: Array[Vector3i] = []
 
 
 func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
@@ -36,6 +77,23 @@ func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
+	if _chunk_cache.has(coord):
+		_chunk_cache_order.erase(coord)
+		_chunk_cache_order.append(coord)
+		return _chunk_cache[coord]
+	var data := _build_chunk(coord)
+	_chunk_cache[coord] = data
+	_chunk_cache_order.append(coord)
+	while _chunk_cache_order.size() > CHUNK_CACHE_LIMIT:
+		_chunk_cache.erase(_chunk_cache_order.pop_front())
+	return data
+
+
+func cached_chunk_count() -> int:
+	return _chunk_cache.size()
+
+
+func _build_chunk(coord: Vector3i) -> Dictionary:
 	var grid := _maze_grid(coord)
 	var region := biome_for(coord)
 	var layout := _region_layout(coord, region, grid)
@@ -52,8 +110,9 @@ func chunk(coord: Vector3i) -> Dictionary:
 	var safe := is_safe_room(coord)
 	if safe:
 		_carve_safe_room(grid)
-	var pickups := _pickups(coord, grid, stairs, safe)
-	var hunters := _hunter_spawns(coord, grid, stairs, safe)
+	var region_props := _region_props(coord, region, layout["rooms"], safe)
+	var pickups := _pickups(coord, grid, stairs, safe, region_props)
+	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
 		"schema": 2,
 		"coord": coord,
@@ -68,6 +127,7 @@ func chunk(coord: Vector3i) -> Dictionary:
 		"stairs": stairs,
 		"safe_room": safe,
 		"safe_room_data": safe_room_data(coord) if safe else {},
+		"region_props": region_props,
 		"pickups": pickups,
 		"hunter_spawns": hunters,
 	}
@@ -419,12 +479,42 @@ static func _carve_corridor_cell(grid: Array, cell: Vector2i, width: int) -> voi
 				grid[at.y][at.x] = 0
 
 
-func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool) -> Array:
+func _region_props(coord: Vector3i, region: String, rooms: Array,
+		safe: bool) -> Array:
+	if safe or region == "prison" or rooms.is_empty():
+		return []
+	var choices: Array = REGION_PROP_SETS.get(region, REGION_PROP_SETS["maze"])
+	if choices.is_empty():
+		return []
+	var rng := SeededRandom.new("%s:DRESSING:%s" % [world_seed, chunk_id(coord)])
+	var result := []
+	for index in mini(2, rooms.size()):
+		var room: Dictionary = rooms[index]
+		var rect: Rect2i = room.get("rect", Rect2i())
+		if rect.size.x < 3 or rect.size.y < 3:
+			continue
+		var choice: Dictionary = choices[rng.next_index(choices.size())]
+		var cell := rect.position + Vector2i(1, 1)
+		# Alternate corners so a long hotel hall reads as occupied rooms without
+		# filling the room centre or its door approach.
+		if index % 2 == 1:
+			cell = rect.end - Vector2i(2, 2)
+		result.append({"id": "%s:PROP:%d" % [chunk_id(coord), index],
+			"type": String(choice.get("type", "supplyCrates")), "cell": cell,
+			"yaw": float(rng.next_index(4)) * PI * .5,
+			"blocker_size": choice.get("size", Vector3.ONE)})
+	return result
+
+
+func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
+		region_props: Array = []) -> Array:
 	if safe:
 		return []
 	var excluded := {}
 	for stair in stairs:
 		excluded[stair["cell"]] = true
+	for prop in region_props:
+		excluded[prop.get("cell", Vector2i.ZERO)] = true
 	var candidates := []
 	for z in range(1, CHUNK_SIZE - 1):
 		for x in range(1, CHUNK_SIZE - 1):
@@ -449,7 +539,7 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool) -> Array:
 
 
 func _hunter_spawns(coord: Vector3i, grid: Array, stairs: Array,
-		safe: bool) -> Array:
+		safe: bool, region_props: Array = []) -> Array:
 	# The arrival floor gets a three-by-three grace region so a new run cannot
 	# load into a capture. Beyond it, pressure is sparse but unbounded: explored
 	# chunks deterministically own their hunter entity just like their pickups.
@@ -467,6 +557,11 @@ func _hunter_spawns(coord: Vector3i, grid: Array, stairs: Array,
 		for dz in range(-2, 3):
 			for dx in range(-2, 3):
 				excluded[stair_cell + Vector2i(dx, dz)] = true
+	for prop in region_props:
+		var prop_cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				excluded[prop_cell + Vector2i(dx, dz)] = true
 	var candidates: Array[Vector2i] = []
 	for z in range(3, CHUNK_SIZE - 3):
 		for x in range(3, CHUNK_SIZE - 3):

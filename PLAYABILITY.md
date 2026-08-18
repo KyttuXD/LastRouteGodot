@@ -90,7 +90,7 @@ this file is the order in which unfinished work should be attacked.
   release requirement; Web exports cannot use native ENet UDP.
 - [ ] Complete SteamVR and Quest controller/hardware testing (`XR.md`).
 
-## Maze visual remodel
+## Infinite visual expansion
 
 The current route shell is intentionally boxy prototype geometry. Remodel it
 as a modular kit rather than unique per-floor meshes so procedural generation,
@@ -113,14 +113,23 @@ one relay alcove, and one hiding spot. Once that kit survives generation and
 co-op, expand it across the route instead of remodeling every placeholder at
 once.
 
-## Future streamed route world
+## Infinite route world
 
-The planned replacement for fixed map sizes is a Minecraft/Hytale-style
-streamed route made from deterministic chunks. Each chunk seed will derive
-from the room seed plus integer chunk coordinates; room/corridor seams need a
-border contract so generation order cannot change the result. The host will
-own chunk activation and durable mutations, while guests and late joiners
-receive the active chunk set and per-chunk pickup/light/barrier state. Only
-after streaming, unload/reload persistence, hunter navigation across chunk
-boundaries, and co-op reconciliation validate cleanly should the room lobby's
-map-size options be removed.
+- [x] Replace normal fixed-map scale selection with Infinite-only staging.
+- [x] Generate canonical horizontal seams and paired vertical stairs from the
+  room seed plus integer chunk coordinates.
+- [x] Stream a bounded collidable renderer around each runner and persist
+  pickups, safe checkpoints, safe-room damage, and hunter state across unload.
+- [x] Add safer upper floors, harder lower floors, eight multi-chunk regions,
+  variable room sizes, long multi-room hotel/prison halls, and authored GLB
+  dressing for every region.
+- [x] Make peer 1 arbitrate contested pickups, checkpoint mutations, hunter
+  simulation, taser/capture decisions, split-party authority windows, and
+  late-join snapshots over ENet.
+- [x] Let hunters cross chunk seams and follow targets between vertical levels
+  through deterministic stair links.
+- [ ] Port streamed equivalents for the remaining finite-only specialist
+  dependencies (objective guardians, lockers, vents, coins, and sabotage).
+- [ ] Add client reconnect and relay host-promotion handoff; the backend relay
+  protocol already elects a replacement, but the Godot client still returns to
+  staging when peer 1 disappears.

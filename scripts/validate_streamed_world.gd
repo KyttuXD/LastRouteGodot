@@ -53,6 +53,7 @@ func run(host: Node) -> int:
 	var biomes := {}
 	var pickup_ids := {}
 	var hunter_ids := {}
+	var dressed_biomes := {}
 	var first_hunter_spawn: Dictionary = {}
 	var saw_hotel_layout := false
 	var saw_prison_layout := false
@@ -79,7 +80,15 @@ func run(host: Node) -> int:
 				if data["biome"] == "prison":
 					saw_prison_layout = data["rooms"].size() >= 6 \
 						and data["rooms"].all(func(room):
-							return room["room_type"] == "prison_cell")
+						return room["room_type"] == "prison_cell")
+				for prop_value in data.get("region_props", []):
+					var prop: Dictionary = prop_value
+					dressed_biomes[data["biome"]] = true
+					_expect(PropModelCatalog.has_model(String(prop.get("type", ""))),
+						"streamed region prop has no authored model: %s" % prop)
+					var prop_cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+					_expect(int(data["grid"][prop_cell.y][prop_cell.x]) == 0,
+						"streamed region prop landed off-floor at %s" % prop)
 				for pickup in data["pickups"]:
 					_expect(not pickup_ids.has(pickup["id"]),
 						"duplicate streamed pickup id %s" % pickup["id"])
@@ -102,6 +111,10 @@ func run(host: Node) -> int:
 		"hotel region did not create a long multi-room corridor floor")
 	_expect(saw_prison_layout,
 		"lower prison region did not create a multi-cell-block corridor")
+	for biome in StreamedRouteGenerator.BIOMES:
+		if biome != "prison":
+			_expect(dressed_biomes.has(biome),
+				"%s region produced no authored streamed dressing" % biome)
 	for expected_size in [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
 			Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9)]:
 		_expect(StreamedRouteGenerator.ROOM_SIZES.has(expected_size),
@@ -112,6 +125,8 @@ func run(host: Node) -> int:
 		"15x15 landmark rooms were clipped out of generated topology")
 	_expect(not pickup_ids.is_empty(), "streamed chunks produced no collectible ids")
 	_expect(not hunter_ids.is_empty(), "streamed chunks produced no persistent hunters")
+	_expect(world.cached_chunk_count() <= StreamedRouteGenerator.CHUNK_CACHE_LIMIT,
+		"deterministic chunk cache exceeded its bounded limit")
 	_expect(world.chunk(Vector3i.ZERO)["hunter_spawns"].is_empty(),
 		"central safe arrival chunk spawned a hunter")
 	_expect(float(world.difficulty_for_level(-8)["danger"]) \
@@ -126,6 +141,11 @@ func run(host: Node) -> int:
 	var repaired := mutations.repair_safe_room(safe_info, 40)
 	_expect(not bool(repaired["breached"]) and mutations.activate_checkpoint(lower),
 		"repaired safe room did not become a usable checkpoint")
+	_expect(mutations.apply_safe_room_status(safe_info["id"], 67, false) \
+		and int(mutations.safe_room_status(safe_info)["integrity"]) == 67,
+		"authoritative safe-room status could not be adopted")
+	_expect(mutations.apply_checkpoint(safe_info["checkpoint_id"]),
+		"authoritative checkpoint id could not be adopted")
 	_expect(mutations.claim_pickup("test:item") and not mutations.claim_pickup("test:item"),
 		"host mutation ledger allowed duplicate pickup ownership")
 	var restored = StreamedWorldStateScript.new()
@@ -174,8 +194,11 @@ func run(host: Node) -> int:
 	await host.get_tree().physics_frame
 	var facility := live_scene.get_node("World/StreamedFacility") as StreamedFacilityView3D
 	var player := live_scene.get_node("World/Player") as PlayerController3D
+	var remotes := live_scene.get_node("World/RemotePlayers") as RemotePlayers
 	_expect(facility != null and facility.loaded_chunk_count() == 11,
 		"live stream did not hold the 3x3 floor plus two vertical neighbours")
+	_expect(not facility.get_tree().get_nodes_in_group("streamed_region_prop").is_empty(),
+		"live streamed regions loaded no authored dressing models")
 	var structures := facility.find_children("Structure", "GridMap", true, false)
 	_expect(not structures.is_empty() and (structures[0] as GridMap).get_used_cells().size() \
 		>= 950,
@@ -183,6 +206,18 @@ func run(host: Node) -> int:
 	_expect(host.get_tree().get_nodes_in_group("streamed_stair").size() >= 2,
 		"central live chunks did not build the forced up/down physical stairs")
 	_expect(player.is_on_floor(), "streamed player did not settle on generated floor collision")
+	var snapshot: Dictionary = live_scene.call("_build_stream_snapshot")
+	_expect(int(snapshot.get("snapshot_protocol", 0)) == 1 \
+		and int(snapshot.get("seed", 0)) == RoomState.run_seed() \
+		and snapshot.get("world_state") is Dictionary \
+		and snapshot.get("hunters") is Array,
+		"Infinite late-join snapshot is incomplete")
+	var local_packet: Dictionary = remotes.call("_local_state")
+	_expect(int(local_packet.get("depth", 999999)) == -facility.current_level() \
+		and local_packet.has("in_safe_zone"),
+		"Infinite replication packet lacks streamed level/safe-room state")
+	_expect(facility.pickup_requester.is_valid(),
+		"streamed pickup interaction bypasses host arbitration")
 
 	var hunter_coord := Vector3i(999, 999, 999)
 	for level in range(-2, -8, -1):
@@ -292,6 +327,6 @@ func run(host: Node) -> int:
 		print("  rooms     %d sizes; hotel/prison corridors serve many rooms" % room_sizes.size())
 		print("  survival  checkpoints, pickups and hunter state persist across unload")
 		print("  hunters   deterministic spawns, seam navigation and live pursuit load")
-		print("  renderer  bounded collidable stream, vertical flights and prison art load")
+		print("  renderer  bounded collidable stream, vertical flights and regional art load")
 		print("streamed_world OK")
 	return _failures

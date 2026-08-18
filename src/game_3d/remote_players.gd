@@ -16,6 +16,10 @@ const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
 
 var local_player: Node3D
+## Scene-specific fields merged into the ordinary controller packet. The fixed
+## route needs no overrides; Infinite supplies its durable safe-room status and
+## streamed level without forking this transport.
+var state_overrides: Callable
 
 var _bodies := {}
 var _players := {}
@@ -70,14 +74,15 @@ func _process(delta: float) -> void:
 func _local_state() -> Dictionary:
 	var controller := local_player as PlayerController3D
 	if controller == null:
-		return {
+		var fallback := {
 			"at": local_player.global_position,
 			"facing_y": local_player.rotation.y,
 			"clip": _local_clip(),
 			"position": Vector2(local_player.global_position.x, local_player.global_position.z),
 			"depth": GameState.depth,
 		}
-	return {
+		return _merge_state_overrides(fallback)
+	var state := {
 		"at": controller.global_position,
 		"facing_y": controller.rotation.y,
 		"clip": controller.current_clip(),
@@ -116,6 +121,17 @@ func _local_state() -> Dictionary:
 		"ambient": controller.meters.ambient,
 		"heat_locked": controller.meters.heat_locked,
 	}
+	return _merge_state_overrides(state)
+
+
+func _merge_state_overrides(state: Dictionary) -> Dictionary:
+	if not state_overrides.is_valid():
+		return state
+	var additions = state_overrides.call()
+	if additions is Dictionary:
+		for key in additions:
+			state[key] = additions[key]
+	return state
 
 
 func _local_clip() -> String:
@@ -258,7 +274,9 @@ func remote_admin_peer_allowed(peer_id: int) -> bool:
 ## fallback so a gimmick which explicitly reacts to them still receives a
 ## coherent target when everyone is concealed.
 func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dictionary:
-	var candidates: Array[Dictionary] = [local_target]
+	var candidates: Array[Dictionary] = []
+	if int(local_target.get("depth", depth)) == depth:
+		candidates.append(local_target)
 	var now := Time.get_ticks_usec()
 	for id in _states:
 		var state: Dictionary = _states[id]
@@ -300,6 +318,39 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 			chosen = candidate
 			best_distance = distance
 	return chosen
+
+
+## Fresh player states across every streamed level. Host-owned endless-route
+## simulation uses this to keep authority windows around split-up runners and
+## to guide hunters toward a stair when their nearest target changed floors.
+func target_states(local_target: Dictionary) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if not local_target.is_empty():
+		result.append(local_target)
+	var now := Time.get_ticks_usec()
+	for id in _states:
+		var state: Dictionary = _states[id]
+		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
+			continue
+		result.append(state.duplicate(true))
+	return result
+
+
+func stream_centers() -> Array[Vector3i]:
+	var result: Array[Vector3i] = []
+	var now := Time.get_ticks_usec()
+	for id in _states:
+		var state: Dictionary = _states[id]
+		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
+			continue
+		var position = state.get("position")
+		if not position is Vector2:
+			continue
+		var level := -int(state.get("depth", 0))
+		result.append(Vector3i(
+			floori(position.x / StreamedRouteGenerator.CHUNK_SIZE), level,
+			floori(position.y / StreamedRouteGenerator.CHUNK_SIZE)))
+	return result
 
 
 ## Hunters, from the host only.
@@ -407,7 +458,8 @@ func _request_interaction(event: Dictionary) -> void:
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
 			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
-			"admin_world"].has(what):
+			"admin_world", "stream_pickup", "stream_safe_repair",
+			"stream_checkpoint"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":

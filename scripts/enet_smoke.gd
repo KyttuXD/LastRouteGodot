@@ -18,8 +18,11 @@ var _client_waiting_for_start := false
 var _remotes: RemotePlayers
 var _host_received_interaction := false
 var _host_received_admin := false
+var _host_received_stream := false
 var _client_received_effect := false
 var _client_received_snapshot := false
+var _client_received_hunters := false
+var _client_received_stream_event := false
 var _relay_mode := false
 var _resolved := false
 var _resolved_endpoint := {}
@@ -57,7 +60,7 @@ func _run_host() -> void:
 	if _relay_mode:
 		RoomState.code = RELAY_ROOM_CODE
 		RoomState.reroll_seed()
-	RoomState.set_map_scale(RoomState.Scale.LARGE)
+	RoomState.set_map_scale(RoomState.Scale.INFINITE)
 	var error := RoomState.host_room(PORT)
 	if not error.is_empty():
 		_finish(false, error)
@@ -91,11 +94,15 @@ func _run_host() -> void:
 		_finish(false, "host could not identify the joined peer")
 		return
 	_remotes.send_player_event(client_id, {"what": "smoke_effect", "value": 37})
+	_remotes.broadcast_hunters([{"entity_id": "SMOKE:HUNTER", "active": true}])
+	_remotes.relay_world_event({"what": "stream_safe", "room_id": "SMOKE:SAFE",
+		"integrity": 73, "breached": false})
 	if not await _wait_for(func() -> bool:
-		return _host_received_interaction and _host_received_admin):
-		_finish(false, "guest gameplay/admin requests never reached host authority")
+		return _host_received_interaction and _host_received_admin \
+			and _host_received_stream):
+		_finish(false, "guest fixed/streamed/admin requests never reached host authority")
 		return
-	print("ENET HOST AUTHORITY OK // guest gameplay/admin requests received")
+	print("ENET HOST AUTHORITY OK // fixed, streamed and admin requests received")
 	# Exercise the same authority RPC RoomState.enter() uses without replacing
 	# this smoke-test scene on the host. The client's changed signal verifies the
 	# synchronized start before its deferred scene transition can remove it.
@@ -134,7 +141,7 @@ func _run_client() -> void:
 	_install_replication(Vector3(3, 0, 3))
 	var synchronized := await _wait_for(func() -> bool:
 		return (RoomState.online and RoomState.roster().size() == 2
-			and RoomState.map_scale == RoomState.Scale.LARGE))
+			and RoomState.map_scale == RoomState.Scale.INFINITE))
 	if not synchronized:
 		_finish(false, "client never received the host room/configuration")
 		return
@@ -148,9 +155,12 @@ func _run_client() -> void:
 		RoomState.roster().size()])
 	_remotes.request_interaction({"what": "music_box"})
 	_remotes.request_interaction({"what": "admin_world", "action": "rebuild"})
+	_remotes.request_interaction({"what": "stream_pickup",
+		"entity_id": "0:0:0:PICKUP:0", "item": "flashlight"})
 	if not await _wait_for(func() -> bool:
-		return _client_received_effect and _client_received_snapshot):
-		_finish(false, "targeted effect or fragmented snapshot never reached the guest")
+		return _client_received_effect and _client_received_snapshot \
+			and _client_received_hunters and _client_received_stream_event):
+		_finish(false, "Infinite authority packets or snapshot never reached the guest")
 		return
 	print("ENET CLIENT AUTHORITY OK // targeted effect received")
 	print("ENET CLIENT SNAPSHOT OK // transferable floor payload received")
@@ -170,7 +180,7 @@ func _on_relay_room_resolved(_code: String, endpoint: Dictionary, error: String)
 func _on_client_room_changed() -> void:
 	if not _client_waiting_for_start or not RoomState.session_active:
 		return
-	if not RoomState.online or RoomState.map_scale != RoomState.Scale.LARGE:
+	if not RoomState.online or RoomState.map_scale != RoomState.Scale.INFINITE:
 		_finish(false, "route start arrived before the host room configuration")
 		return
 	_client_waiting_for_start = false
@@ -202,6 +212,14 @@ func _install_replication(at: Vector3) -> void:
 		if String(event.get("what", "")) == "smoke_effect" \
 				and int(event.get("value", 0)) == 37:
 			_client_received_effect = true)
+	_remotes.hunters_received.connect(func(data: Array) -> void:
+		if data.size() == 1 and String(data[0].get("entity_id", "")) \
+				== "SMOKE:HUNTER":
+			_client_received_hunters = true)
+	_remotes.world_event.connect(func(event: Dictionary) -> void:
+		if String(event.get("what", "")) == "stream_safe" \
+				and int(event.get("integrity", 0)) == 73:
+			_client_received_stream_event = true)
 	_remotes.world_snapshot.connect(func(state: Dictionary) -> void:
 		var payload = state.get("custom_map_png", PackedByteArray())
 		var fragment_probe = state.get("fragment_probe", PackedByteArray())
@@ -230,6 +248,9 @@ func _on_smoke_interaction(peer_id: int, event: Dictionary) -> void:
 			_host_received_interaction = true
 		"admin_world":
 			_host_received_admin = String(event.get("action", "")) == "rebuild"
+		"stream_pickup":
+			_host_received_stream = String(event.get("entity_id", "")) \
+				== "0:0:0:PICKUP:0"
 
 
 func _smoke_snapshot() -> Dictionary:

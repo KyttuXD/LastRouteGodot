@@ -47,8 +47,8 @@ func run(host: Node) -> int:
 	_expect(RoomState.ROUTE_LOADING_SCENE == "res://scenes/route_loading.tscn"
 		and ResourceLoader.exists(RoomState.ROUTE_LOADING_SCENE),
 		"room starts do not pass through the route loading scene")
-	_expect(RoomState.session_scene_path() == "res://scenes/main_3d.tscn",
-		"the default route loader targets the wrong gameplay scene")
+	_expect(RoomState.session_scene_path() == "res://scenes/infinite_route_test.tscn",
+		"the default route loader does not target Infinite")
 	var account_before := {
 		"username": Backend.account_username,
 		"token": Backend.account_session_token,
@@ -291,6 +291,8 @@ func run(host: Node) -> int:
 	RoomState.create_local(RoomState.Mode.OFFICE)
 	_expect(RoomState.mode == RoomState.Mode.OFFICE,
 		"create_local did not enter playable Office mode")
+	_expect(RoomState.session_scene_path() == "res://scenes/office_3d.tscn",
+		"Infinite default scale overrode the dedicated Office scene")
 	_expect(RoomState.seats() == 1 and RoomState.start_label() == "START OFFICE SHIFT",
 		"Office mode does not present its single-runner staging contract")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -306,15 +308,14 @@ func run(host: Node) -> int:
 		_expect(String(word) == String(word).to_upper(),
 			"guest callsign word %s is not uppercase" % word)
 
-	# Retire the four-way finite size ladder. STANDARD is the shipping fixed
-	# route; debug solo rooms may enter the live streamed test while release and
-	# online rooms keep INFINITE gated until the remaining authority work lands.
-	_expect(RoomState.SELECTABLE_SCALE_LABELS.size() == 2 \
-		and RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.STANDARD) \
-		and RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.INFINITE),
-		"staging map scales are not exactly Standard and Infinite")
+	# Normal route staging is Infinite-only. STANDARD remains loadable only as
+	# an internal regression/save fallback and is absent from the player UI.
+	_expect(RoomState.SELECTABLE_SCALE_LABELS.size() == 1 \
+		and RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.INFINITE) \
+		and not RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.STANDARD),
+		"staging is not Infinite-only")
 	RoomState.set_map_scale(RoomState.Scale.SMALL)
-	_expect(RoomState.map_scale == RoomState.Scale.STANDARD,
+	_expect(RoomState.map_scale == RoomState.Scale.INFINITE,
 		"retired Small scale remained selectable")
 	RoomState.set_map_scale(RoomState.Scale.INFINITE)
 	_expect(RoomState.map_scale == RoomState.Scale.INFINITE,
@@ -322,16 +323,18 @@ func run(host: Node) -> int:
 	_expect(RoomState.session_scene_path() == "res://scenes/infinite_route_test.tscn",
 		"Infinite scale did not route into its streamed playtest scene")
 	RoomState.online = true
-	_expect(not RoomState.map_scale_available(RoomState.Scale.INFINITE),
-		"unfinished co-op Infinite scale became selectable")
+	_expect(RoomState.map_scale_available(RoomState.Scale.INFINITE),
+		"co-op Infinite scale is not selectable")
+	_expect(RoomState.session_scene_path() == "res://scenes/infinite_route_test.tscn",
+		"online Infinite scale did not route into its streamed scene")
 	RoomState.online = false
-	RoomState.set_map_scale(RoomState.Scale.STANDARD)
+	RoomState.map_scale = RoomState.Scale.STANDARD
 	var options := RoomState.generator_options()
 	var built := FacilityGenerator.new("scale-check", options)
 	_expect(built.cols == options["cols"] and built.rows == options["rows"] \
 		and built.floor_cells().size() > 0,
 		"Standard map no longer builds a walkable facility")
-	RoomState.set_map_scale(RoomState.Scale.STANDARD)
+	RoomState.map_scale = RoomState.Scale.INFINITE
 
 	# Staging has to actually draw, since it is built entirely in code.
 	var lobby: Node = load("res://scenes/room_lobby.tscn").instantiate()
@@ -368,7 +371,7 @@ func run(host: Node) -> int:
 	_expect(not saw_small and not saw_large and not saw_immense,
 		"retired finite scale buttons still appear in staging")
 	_expect(infinite_button != null and not infinite_button.disabled,
-		"debug solo Infinite scale is not visible and selectable")
+		"Infinite scale is not visible and selectable")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
@@ -467,7 +470,7 @@ func run(host: Node) -> int:
 		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
 		print("  guests    %d FIRST x %d LAST callsign words" % [
 			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])
-		print("  scales    Standard live; Infinite playable in solo debug and co-op gated")
+		print("  scales    Infinite primary; Standard hidden as an internal fallback")
 		print("  create    primary server first; registration failure falls back to solo")
 		print("room OK")
 	return _failures

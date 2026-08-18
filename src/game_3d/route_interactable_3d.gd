@@ -110,6 +110,10 @@ var tool_item_id := ""
 var light_id := ""
 var light_enabled := true
 var light_resolver: Callable
+## Optional scene-owned authority boundary. Streamed personal pickups use it
+## so a guest cannot grant herself an item before the host awards the stable
+## entity id. Fixed-route interactables leave it invalid.
+var activation_override: Callable
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -192,6 +196,8 @@ func get_prompt() -> String:
 func activate(player: PlayerController3D) -> String:
 	if completed:
 		return "Already collected."
+	if activation_override.is_valid():
+		return String(activation_override.call(player))
 	if kind == Kind.RELAY and locked_cache:
 		return activate_with_tool(player, player.selected_inventory_item())
 	if kind == Kind.BOARDED_PATH:

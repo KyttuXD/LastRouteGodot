@@ -1,41 +1,58 @@
-# Infinite route foundation
+# Infinite endless route
 
-The first infinite-map phase is now implemented as a deterministic topology
-layer in `src/game/streamed_route_generator.gd`. It does not replace the
-current playable finite facility yet. That fallback remains intentional until
-chunk unload/reload, host migration, late joining, and persistent mutations can
-all be proven without deleting a room out from under connected players.
+Infinite is the primary player-facing route. New solo and ENet rooms default
+to it, and normal staging no longer shows a finite-map scale button. The old
+Standard route remains in code as an internal regression and legacy-save
+fallback; it is not the direction of new map work.
 
-## What exists in this phase
+## Implemented runtime
 
-- The world is divided into deterministic 16×16 chunks addressed by `(x, z,
-  level)` coordinates.
-- Adjacent chunks derive each shared doorway from one canonical boundary key,
-  so opposite sides cannot disagree about whether a seam is open.
-- Vertical links are also canonical pairs. An `up` stair in one level has the
-  matching `down` stair in the chunk above; the origin route is guaranteed to
-  begin with a usable stair link.
-- Four-chunk regions select biome-style room language: Maze, Mansion, Hotel,
-  and Apartment. Each biome already carries a distinct stair intent (service,
-  grand foyer, hotel stairwell, or apartment stairwell).
-- Temporary safe-room chunks are deterministic and the origin starts safe.
-- Prospective inventory pickups receive stable global ids containing their
-  chunk coordinate. This is the key required for host-authoritative, exactly
-  once collection after chunks begin unloading.
-- A configurable active radius returns the chunk coordinates which should be
-  loaded around a runner.
+- Deterministic 32×32 chunks use stable `(x, level, z)` ids, canonical doorway
+  seams, and paired vertical stair links. Level zero starts in the middle of
+  the world with guaranteed routes both upward and downward.
+- The renderer keeps a collidable 3×3 horizontal window plus the current
+  chunks immediately above and below. Old geometry, pickup nodes, hunter
+  views, navigation caches, and generator cache entries are bounded as the
+  runner travels.
+- Upper floors trend safer. Gothic begins below level zero, Prison begins at
+  level -2, and Inferno begins at level -3. Maze, Mansion, Hotel, Apartment,
+  Beach, Gothic, Prison, and Inferno all have deterministic room/corridor
+  layouts and authored regional GLB dressing. Hotel and prison chunks use long
+  halls serving multiple rooms; landmark rooms reach 15×15 cells.
+- Physical stair flights connect unlimited vertical floors. Hunters choose
+  targets across the whole room, path across chunk seams, walk to a canonical
+  stair, transfer levels, and resume pursuit on the destination floor.
+- Safe chunks are temporary checkpoints. Their integrity persists after
+  unloading, hunters can breach them, and crowbars/rescue axes can repair them.
+- Inventory pickups use stable entity ids. Exactly one runner receives a
+  contested item, and the claim remains spent after unload/reload.
+- Sparse A–Z and deeper-floor Void hunters have stable entity ids and durable
+  position/state/stun data. Capture returns the affected runner to the latest
+  intact shared checkpoint.
 
-The headless `streamed_world` validation regenerates chunks, verifies every
-seam from both sides, checks paired stairs between levels, reaches all four
-biomes, checks safe-room availability, rejects duplicate pickup ids, and
-checks the active radius.
+## ENet authority
 
-## Next integration gate
+Every peer renders the same deterministic base around its own runner. Peer 1
+alone owns contested pickup results, checkpoints, safe-room damage/repair,
+hunter simulation, target selection, taser hit tests, and capture decisions.
+Guests send intent-only interaction packets; the host validates the sender's
+fresh replicated level, position, inventory, range, and generated entity data.
+Late joiners remain input-frozen until the world mutation ledger and current
+hunter report are adopted. The host keeps authority windows around every fresh
+runner rather than only around its own camera.
 
-The next phase will render those active chunks and retire them outside the
-radius. Before the service lift and map-size settings are removed, the host
-must retain a compact mutation ledger for pickups, broken boards, doors,
-lights, and safe-room state. Late joiners and replacement hosts must receive
-that ledger plus the world seed, and a collected pickup id must remain spent
-even after its owning chunk unloads and rebuilds. Only then can the fixed-floor
-lift become unnecessary and the route operate as continuous endless survival.
+`scripts/validate_streamed_world.gd` covers topology, all regions, authored
+dressing, collisions, physical stairs, bounded long-distance streaming,
+persistent pickups/checkpoints/hunters, authority callbacks, and snapshot
+shape. `scripts/enet_smoke.gd` runs two processes and verifies Infinite room
+configuration plus streamed interaction, hunter, durable-event, targeted
+effect, and snapshot packets over real ENet.
+
+## Deliberately retained boundaries
+
+Standard remains available internally until streamed equivalents exist for
+every finite-only specialist dependency (for example objective guardians,
+lockers, and vent-network hunters). The public relay backend already supports
+host-promotion frames, but the Godot client still returns guests to staging if
+peer 1 disappears; client-side reconnect/authority handoff remains a separate
+room reliability task and is not presented as completed here.

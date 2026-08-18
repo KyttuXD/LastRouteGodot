@@ -62,6 +62,23 @@ func safe_room_status(info: Dictionary) -> Dictionary:
 	return _safe_room_state(info).duplicate(true)
 
 
+func apply_safe_room_status(room_id: String, integrity: int, breached: bool) -> bool:
+	if room_id.is_empty():
+		return false
+	safe_rooms[room_id] = {
+		"integrity": maxi(0, integrity),
+		"breached": breached or integrity <= 0,
+	}
+	return true
+
+
+func apply_checkpoint(checkpoint_id: String) -> bool:
+	if checkpoint_id.is_empty():
+		return false
+	active_checkpoint = checkpoint_id
+	return true
+
+
 func ensure_hunter(spawn: Dictionary) -> Dictionary:
 	var entity_id := String(spawn.get("id", ""))
 	if entity_id.is_empty():
