@@ -61,6 +61,10 @@ var _hunter_report: Array = []
 ## Local-only audio state. Hunter simulation remains host-authoritative, but
 ## each peer hears danger relative to its own body and camera orientation.
 var _audio_hunter_active := {}
+var _was_locally_pursued := false
+## Host-side rate gate for taser requests. Guests animate immediately, but a
+## modified client cannot make the authoritative hunter accept rapid shots.
+var _taser_ready_usec_by_peer := {}
 var _haelith_step_elapsed := 0.0
 const REMOTE_METER_EFFECT_INTERVAL := 0.1
 var _remote_meter_effects := {}
@@ -86,6 +90,7 @@ func _ready() -> void:
 		GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)
+	player.taser_requested.connect(_on_taser_requested)
 	player.interaction_veto = _guardian_blocking
 	player.hiding_trap_resolver = _ceryth_trap_check
 	player.music_box_resolver = _wind_music_box
@@ -233,11 +238,13 @@ func _update_gameplay(delta: float) -> void:
 		var selected := _remotes.best_target(view.brain.position,
 			local_target, GameState.depth)
 		if selected.is_empty():
+			view.target_peer_id = 0
 			view.brain.update_without_target(delta, generator, GameState.depth,
 				GameState.relays_collected)
 			view.sync_from_brain()
 			continue
 		var target := _target_with_runtime(selected)
+		view.target_peer_id = int(target.get("peer_id", 0))
 		var captured: bool = view.brain.update(delta, generator, target,
 			GameState.depth, GameState.relays_collected)
 		_collect_remote_meter_effects(target)
@@ -448,6 +455,8 @@ func _collect_hunter_report() -> void:
 			"facing": view.brain.facing,
 			"active": view.brain.active,
 			"state": int(view.brain.state),
+			"stun": view.brain.stun_timer,
+			"target_peer_id": view.target_peer_id,
 			"disguise": disguise,
 			"wake": wake,
 			"gimmick": view.brain.gimmick.network_state()
@@ -965,6 +974,8 @@ func _update_hud() -> void:
 		GameState.relay_target)
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
+	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
+		player.inventory_durability_snapshot(), player.inventory_owned_snapshot())
 	hud.update_meters(player.meters)
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
@@ -980,16 +991,54 @@ func _build_admin() -> void:
 				GameState.depth, GameState.relays_collected,
 				GameState.relay_target, RoomState.seed_text],
 		[
+			{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
+				"items": PlayerController3D.INVENTORY_ITEMS,
+				"labels": PlayerController3D.INVENTORY_LABELS,
+				"action": _admin_give_item},
+			{"heading": "PLAYER TOOLS", "label": "PLAYER TOOLS",
+				"action": func() -> void: pass},
 			{"label": "GRANT RELAY", "action": func() -> void:
 				_admin_world_action("grant_relay")},
 			{"label": "ALL RELAYS", "action": func() -> void:
 				_admin_world_action("all_relays")},
 			{"label": "FULL LAMP", "action": func() -> void:
 				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
+			{"label": "RESTORE PLAYER", "action": _admin_restore_player},
+			{"label": "CLEAR STUN + COOLDOWNS", "action": func() -> void:
+				player.stun_timer = 0.0
+				player.taser_cooldown = 0.0},
+			{"label": "TELEPORT TO START", "action": func() -> void:
+				player.global_position = facility_view.cell_to_world(
+					facility_view.generator.start)},
+			{"label": "TELEPORT TO EXIT", "action": func() -> void:
+				player.global_position = facility_view.cell_to_world(
+					facility_view.generator.exit_cell)},
+			{"heading": "ROOM TOOLS", "label": "ROOM TOOLS",
+				"action": func() -> void: pass},
 			{"label": "REBUILD FLOOR", "action": func() -> void:
 				_admin_world_action("rebuild")},
 			{"label": "DESCEND", "action": func() -> void:
 				_admin_world_action("descend")},
+			{"label": "STUN ALL HUNTERS", "action": func() -> void:
+				_admin_world_action("stun_hunters")},
+			{"label": "WAKE ALL HUNTERS", "action": func() -> void:
+				_admin_world_action("wake_hunters")},
+			{"label": "ALL ROOM LIGHTS ON", "action": func() -> void:
+				_admin_world_action("lights_on")},
+			{"label": "ALL ROOM LIGHTS OFF", "action": func() -> void:
+				_admin_world_action("lights_off")},
+			{"heading": "VISUAL TOOLS", "label": "VISUAL TOOLS",
+				"action": func() -> void: pass},
+			{"label": "TOGGLE PIXEL EFFECT", "action": func() -> void:
+				pixel_signal_effect.set_admin_enabled(
+					not pixel_signal_effect.admin_enabled()),
+				"state": func() -> bool: return pixel_signal_effect.admin_enabled()},
+			{"label": "PIXEL EFFECT +", "action": func() -> void:
+				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent + 10.0)},
+			{"label": "PIXEL EFFECT -", "action": func() -> void:
+				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent - 10.0)},
+			{"label": "TRIGGER STATIC", "action": func() -> void:
+				hud.trigger_static(1.5, .82)},
 			# Both maps read _admin_reveal_hunters fresh every frame in
 			# _process(), so flipping this needs nothing else to take effect.
 			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
@@ -1005,6 +1054,21 @@ func _build_admin() -> void:
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
 				"on_submit": _load_custom_map},
 		])
+
+
+func _admin_give_item(item_id: String) -> void:
+	if player.grant_inventory_item(item_id):
+		hud.show_message("ADMIN GIVE // %s" % String(
+			PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).to_upper())
+
+
+func _admin_restore_player() -> void:
+	player.restore_at_safe_zone()
+	player.stun_timer = 0.0
+	player.taser_cooldown = 0.0
+	player.meters.exposure = 0.0
+	player.meters.noise_meter = 0.0
+	player.meters.temperature = player.meters.ambient
 
 
 ## Route-wide debug commands use the same guest -> host intent path as hunter
@@ -1024,8 +1088,9 @@ func _admin_world_action(action: String) -> void:
 
 func _apply_admin_world_action(action: String, authorized_remote: bool = false) -> void:
 	if (not authorized_remote and not Build.tools_enabled()) \
-			or not ["grant_relay", "all_relays", "rebuild",
-			"descend"].has(action):
+		or not ["grant_relay", "all_relays", "rebuild",
+			"descend", "stun_hunters", "wake_hunters", "lights_on",
+			"lights_off"].has(action):
 		return
 	match action:
 		"grant_relay":
@@ -1043,6 +1108,19 @@ func _apply_admin_world_action(action: String, authorized_remote: bool = false) 
 			observed_depth = GameState.depth
 			_build_floor()
 			_checkpoint_solo_route()
+		"stun_hunters":
+			for view in hunter_views:
+				view.brain.apply_stun(10.0)
+				view.sync_from_brain()
+		"wake_hunters":
+			for view in hunter_views:
+				view.brain.active = true
+				view.brain.state = HunterBrain.State.SEARCH
+				view.sync_from_brain()
+		"lights_on":
+			facility_view.set_all_room_lights(true)
+		"lights_off":
+			facility_view.set_all_room_lights(false)
 	if _remotes != null:
 		_remotes.broadcast_snapshot()
 
@@ -1113,6 +1191,8 @@ func _apply_hunters(data: Array) -> void:
 		view.brain.active = bool(entry.get("active", false))
 		view.brain.state = clampi(int(entry.get("state", HunterBrain.State.IDLE)),
 			HunterBrain.State.IDLE, HunterBrain.State.SEARCH)
+		view.brain.stun_timer = maxf(0.0, float(entry.get("stun", 0.0)))
+		view.target_peer_id = maxi(0, int(entry.get("target_peer_id", 0)))
 		if view.brain.gimmick is UmbrielGimmick:
 			view.brain.gimmick.disguise_id = String(entry.get("disguise", ""))
 		if view.brain.gimmick is NyxieGimmick:
@@ -1130,11 +1210,17 @@ func _update_local_audio(delta: float) -> void:
 		return
 	var nearest := INF
 	var haelith: HunterView3D
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var locally_pursued := false
 	for view in hunter_views:
 		var id := view.brain.hunter_id
 		var was_active := bool(_audio_hunter_active.get(id, false))
 		if view.brain.active:
 			nearest = minf(nearest, view.brain.position.distance_to(player.grid_position()))
+			if view.brain.state == HunterBrain.State.CHASE \
+					and view.brain.stun_timer <= 0.0 \
+					and view.target_peer_id == local_id:
+				locally_pursued = true
 			if id == "haelith":
 				haelith = view
 			if id == "nyxie" and not was_active and view.brain.gimmick is NyxieGimmick:
@@ -1145,7 +1231,12 @@ func _update_local_audio(delta: float) -> void:
 		_audio_hunter_active[id] = view.brain.active
 		if id == "nyxie" and was_active and not view.brain.active:
 			Sound.alert()
+	if locally_pursued and not _was_locally_pursued:
+		Sound.chase_start()
+	_was_locally_pursued = locally_pursued
 	var danger := 0.0 if nearest == INF else clampf(1.0 - (nearest - .5) / 9.0, 0.0, 1.0)
+	if locally_pursued:
+		danger = maxf(danger, .48)
 	if player.is_in_safe_zone():
 		danger = 0.0
 	Sound.heartbeat(danger)
@@ -1232,6 +1323,9 @@ func _apply_hunter_event(event: Dictionary) -> void:
 	if RoomState.online and not RoomState.is_host:
 		return
 	match String(event.get("what", "")):
+		"taser":
+			var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+			_resolve_taser_request(int(event.get("peer_id", local_id)))
 		"escaped":
 			var view := _find_hunter(String(event.get("hunter_id", "")))
 			var at = event.get("at")
@@ -1243,6 +1337,58 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			# The remote state packet marks this runner game-over; no hunter reset
 			# is needed, but accepting the event releases the pending-capture gate.
 			pass
+
+
+func _on_taser_requested() -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.submit_hunter_event({"what": "taser"})
+		return
+	var peer_id := multiplayer.get_unique_id() if RoomState.online else 1
+	_resolve_taser_request(peer_id)
+
+
+## Host-authoritative cone hit. The request names no hunter and carries no
+## transform, so a co-op guest cannot forge either; the host uses its most
+## recent validated runner state and the same maze line-of-sight as hunter AI.
+func _resolve_taser_request(peer_id: int) -> void:
+	if not _remotes.simulates():
+		return
+	var now := Time.get_ticks_usec()
+	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
+		return
+	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+	var target := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
+	if target.is_empty() or bool(target.get("hidden", false)) \
+			or bool(target.get("game_over", false)):
+		return
+	var from = target.get("position")
+	var aim = target.get("facing")
+	if not from is Vector2 or not aim is Vector2:
+		return
+	var hit: HunterView3D
+	var nearest := INF
+	for view in hunter_views:
+		if view.brain == null or not view.brain.active:
+			continue
+		var distance: float = from.distance_to(view.brain.position)
+		if distance >= nearest:
+			continue
+		if view.brain.beam_reaches(from, aim, view.brain.position,
+				GameConfig.TASER_RANGE, GameConfig.TASER_HALF_ANGLE,
+				facility_view.generator):
+			hit = view
+			nearest = distance
+	if hit == null:
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "TASER // NO TARGET"})
+		return
+	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.sync_from_brain()
+	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
+	_remotes.send_player_event(peer_id, {"what": "message",
+		"message": "TASER HIT // %s STUNNED %.1fs" % [
+			String(identity.get("display_name", hit.brain.hunter_id)).to_upper(),
+			GameConfig.TASER_STUN_SECONDS]})
 
 
 ## Something the local player did that the room shares. Sent as-is; the effect
@@ -1284,6 +1430,36 @@ func _apply_world_request(peer_id: int, event: Dictionary) -> void:
 					and _target_can_interact(target, cell):
 				var item := facility_view._at(cell, kind)
 				accepted = item != null and not item.completed
+				if accepted and item.kind == RouteInteractable3D.Kind.RELAY \
+						and item.locked_cache:
+					var tool := String(event.get("tool", ""))
+					accepted = bool(event.get("locked_cache", false)) \
+						and PlayerController3D.LOCK_TOOLS.has(tool) \
+						and String(target.get("selected_item", "")) == tool \
+						and bool((target.get("owned_items", {}) as Dictionary).get(tool, false)) \
+						and int((target.get("item_durability", {}) as Dictionary).get(tool, 0)) > 0
+				elif accepted and bool(event.get("locked_cache", false)):
+					accepted = false
+		"boarded_path":
+			var cell = event.get("cell")
+			var tool := String(event.get("tool", ""))
+			if cell is Vector2i and bool(event.get("opened", false)) \
+					and PlayerController3D.BREACH_TOOLS.has(tool) \
+					and String(target.get("selected_item", "")) == tool \
+					and bool((target.get("owned_items", {}) as Dictionary).get(tool, false)) \
+					and int((target.get("item_durability", {}) as Dictionary).get(tool, 0)) > 0 \
+					and _target_can_interact(target, cell):
+				var barrier := facility_view._at(cell,
+					RouteInteractable3D.Kind.BOARDED_PATH)
+				accepted = barrier != null and not barrier.opened
+		"room_light":
+			var cell = event.get("cell")
+			if cell is Vector2i and _target_can_interact(target, cell):
+				var switch := facility_view._at(cell,
+					RouteInteractable3D.Kind.LIGHT_SWITCH)
+				accepted = switch != null \
+					and String(event.get("light_id", "")) == switch.light_id \
+					and bool(event.get("enabled", switch.light_enabled)) != switch.light_enabled
 		"heater":
 			if facility_view.heater_station != null and _target_can_interact(
 					target, facility_view.heater_station.source_cell):
@@ -1691,6 +1867,7 @@ func _add_hunter(hunter_id: String, spawn_pos: Vector2, seed_text: String) -> Hu
 	view.name = "Hunter_%s" % hunter_id
 	view.brain = HunterBrain.new(spawn_pos, seed_text, hunter_id,
 		RoomState.difficulty_id())
+	view.surface_height_provider = facility_view.surface_height_at
 	world.add_child(view)
 	view.sync_from_brain()
 	hunter_views.append(view)

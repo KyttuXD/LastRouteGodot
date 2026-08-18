@@ -459,7 +459,7 @@ offset_top = 148.0
 offset_right = 200.0
 offset_bottom = 162.0
 theme_override_colors/font_color = Color(0.5, 0.72, 0.72, 1)
-text = "[E] RETURN TO MENU"
+text = "RETURN TO MENU"
 horizontal_alignment = 1
 
 [node name="Crosshair" type="Control" parent="."]

@@ -52,26 +52,35 @@ shows a procedural solo checkpoint, with **CONTINUE ROUTE** and **CLEAR SAVE**
 when one exists, plus **ACCOUNT SETTINGS** for uppercase username changes and
 password replacement.
 
-Every staging/account start passes through the dual-framed **route loading**
-screen (`scenes/route_loading.tscn`). Godot loads the gameplay scene and its
-dependencies on a worker thread while the screen shows the route seed, scale,
-difficulty, progress, and rotating field notes. A joining co-op guest keeps the
+Application startup first passes through `scenes/boot_loading.tscn`, which
+performs the update check/download before revealing the main menu. Every
+staging/account start then uses the dual-framed **route loading** screen
+(`scenes/route_loading.tscn`). Godot loads gameplay and its dependencies on a
+worker thread while the screen shows route identity and progress. A joining co-op guest keeps the
 same opaque screen over the generated placeholder floor until a valid host
 snapshot has rebuilt and adopted the authoritative procedural or custom map.
 
 **CREATE ROOM** contacts the primary service, automatically opens and lists an
 ENet room when it is available, then opens the **room lobby**
 (`scenes/room_lobby.tscn`). If the primary service or initial registration is
-unavailable, the same room remains playable as solo. Default is playable; **OFFICE** remains visible but
-greyed out while that mode is revisited, and **HIDE & SEEK** is removed from
-the menu. The live difficulty choices are **RELAXED**, **STANDARD** and
+unavailable, the same room remains playable as solo. Default is playable;
+**OFFICE** starts its playable local, single-runner shift, and **HIDE & SEEK**
+is removed from the menu. The live difficulty choices are **RELAXED**, **STANDARD** and
 **HARD**; **NIGHTMARE** remains visible but greyed out until its planned
 multi-hunter rules exist. Main-menu **JOIN ROOM** accepts the five-character
 code; staging has no second create/join/code row. There is no client-selectable
 server, direct-address field, or raw network address in the menu. A solo run is
 a room with one player in it, so there is no separate singleplayer path.
 
-In a run: move with **WASD**, tap **Space** for a small grounded hop, hold **Shift** to sprint, hold **C** to crouch, press **F** for the flashlight, **E** to interact (also used to mash your way out of a hunter's grip), **M** for the map and **Escape** to pause (Last Route taps it; Office Mode holds it for three seconds). The mouse looks, and is captured while you play — the pause menu, the camera tablet and the office chair each release it. **F11** toggles fullscreen anywhere. In a debug build only, **0** opens the admin overlay.
+In a run: move with **WASD**, tap **Space** for a small grounded hop, hold
+**Shift** to sprint, and hold **C** to crouch. **Left click** uses or attacks
+with the selected item; **E** and **right click** both interact. Slots **1-5**
+select the flashlight, taser, lockpick set, crowbar and rescue axe after those
+items have been found in the seeded facility, and the wheel cycles owned
+items. **M** opens the map and **Escape** pauses (Last Route taps it; Office
+Mode holds it for three seconds). The mouse looks and is captured while you
+play. **F11** toggles fullscreen anywhere. In a debug build only, **0** opens
+the admin overlay.
 
 Failing a hunter escape struggle (or suffering an inescapable grab) plays a
 short hunter-model lunge through a temporary local capture camera, then opens a
@@ -92,10 +101,10 @@ Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, bre
 - **rooms** (`src/autoload/room_state.gd`, `scenes/room_lobby.tscn`) — one session's single source of truth: code, seed, mode, map scale, difficulty and roster. A solo run is a one-player room hosted locally with no transport, so singleplayer is not a second code path. **ENet room-code multiplayer works through the primary backend relay**: synchronized host launch/end, threaded route loading, a live named roster, interpolated remote mannequins, host-authoritative hunters which target every runner, targeted capture/stun/eject and meter effects, host-validated guest interactions and pickups, canonical shared economy/world state, and mid-run join snapshots including hunter gimmicks. A joining guest remains behind an input-blocking loading surface until that snapshot is accepted. Both peers make outbound UDP relay connections; player routers need no UPnP or forwarded port.
 - **procedural audio** (`src/autoload/sound.gd`) — the original ships no sound files; its Web Audio oscillator/noise cues are now cached stereo PCM in Godot. Pickups, charging, movement, heartbeat, capture/escape, Nyxie/Haelith tells, UI feedback, and the complete Office cue vocabulary play through separate SFX/UI buses under Master volume. As in the source, there is no continuous ambient drone.
 - **Node backend** (`backend/`, `src/autoload/backend_client.gd`) — one dependency-free service carries the original web room/account protocol, Godot room-code directory, update service, and authenticated UDP ENet relay. It persists scrypt-hashed accounts, SHA-256-hashed restart-safe sessions and save slots under ignored `.data/`; usernames are uppercase and case-insensitive, and signed-in players can rename or replace their password from Account Settings. Procedural solo routes checkpoint at floor boundaries and can be continued/cleared from the account card; co-op/custom-map state is never written into a personal slot. Test builds use the hardcoded plain-HTTP Pterodactyl allocation at `http://lastroute.kyttuslab.org:8105`, while the ENet relay remains on UDP `1105`; staging has no custom directory or direct-address option. Room discovery, relay setup, updates, and account requests work there once TCP `8105` is exposed. This explicitly enabled HTTP account transport is unencrypted; deploy TLS when possible. The Node service applies per-address API/account throttles in addition to any Pterodactyl proxy limits.
-- **3D (`scenes/main_3d.tscn`, the route opened through CREATE ROOM):** a `GridMap`-rendered facility with real physics collision, deterministic themed-room furniture silhouettes, a first-person `CharacterBody3D` player with a `SpotLight3D` flashlight and crosshair, a shared player mannequin, and reviewed Blockbench models for all 26 hunters. A restrained adjustable post-process gives only the world two-pixel sampling, dither, scanlines and moving signal grain while the HUD remains crisp. Failed captures use the correct hunter model in a local camera-takeover lunge. Each character's embedded PNG atlas is extracted beside its `.bbmodel` and exported into the animated GLB the game loads. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention.
+- **3D (`scenes/main_3d.tscn`, the route opened through CREATE ROOM):** a `GridMap`-rendered facility with real physics collision, region-specific floor/wall treatments, deterministic themed rooms, walkable single/twin stairs and climbable service ladders, toggleable room lights, a first-person `CharacterBody3D` player with authored held equipment, a shared player mannequin, and reviewed Blockbench models for all 26 hunters. The player begins empty-handed; flashlight, taser, lockpicks, crowbar and rescue axe exist as seeded per-runner pickups so one co-op runner cannot deny everyone else their equipment, and the compact Minecraft-style hotbar renders those same models. Deterministic relays can be locked inside authored supply crates or signal barrels; authored boarded doorways and full 3×3 hallway barricades gate paths. Lockpicks, crowbars and rescue axes spend durability, while tool swings never damage another co-op runner. A restrained adjustable post-process gives only the world two-pixel sampling, dither, scanlines and moving signal grain while the HUD remains crisp; debug admins can toggle and tune it. Each character's embedded PNG atlas is extracted beside its `.bbmodel` and exported into the animated GLB the game loads. 1 grid cell = 1 meter, matching `art/props-3d/`'s scale convention.
 - **2D (`scenes/main.tscn`, legacy):** the original 480×270 pixel-perfect `TileMapLayer` port. Left in the tree as reference; not maintained and not reachable from the menu.
-- shared across modes: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and real HUD meters/overlays (battery, stamina, escape struggle) with the original's exact color-state and label logic (`src/ui/hud.gd` + `scenes/hud.tscn`).
-- **Office Mode** (`scenes/office_3d.tscn`, chosen as a mode in the room lobby) — the original's separate FNAF-style stationary-defense shift: ten "Void" signals (its own cast, deliberately *not* the hunter roster) against a camera monitor, doors, vent, radio, breaker and a power budget, playable end to end. You walk the office and work it by clicking physical desk controls — nine keys with engraved glyphs and hover labels, plus a camera console with PREV/NEXT caps — rather than by pressing keybinds. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits). Office art is still placeholder. See `MIGRATION.md`.
+- shared across modes: stamina exhaustion/recovery and lamp battery drain, relay/battery/safe-zone/service-lift interactions placed procedurally each floor, relay-gated depth progression, and a compact model-icon hotbar/status HUD with an FPS counter plus focused interaction/escape overlays (`src/ui/hud.gd` + `scenes/hud.tscn`). Persistent key-tutorial text is intentionally absent.
+- **Office Mode** (`scenes/office_3d.tscn`, chosen locally as a mode in the room lobby) — the original's separate FNAF-style defense shift: ten "Void" signals against a camera monitor, doors, vent, radio, breaker and power budget, playable end to end. Route generation now also includes office wings and relay-control rooms, establishing the shared environment seam for a later in-route Office encounter. You walk the focused shift and click physical desk controls rather than pressing gameplay shortcuts. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits).
 - **an admin overlay** on the **0** key (`src/ui/admin_menu.gd`) for granting relays, refilling the lamp, rebuilding the floor, descending, and loading a hand-painted custom map from a raw PNG URL. Debug builds always expose it; release builds require a live primary-server login as the exact canonical `KYTTU` account. Cached display names cannot unlock it. In an online tools-enabled room, a guest admin's shared changes are submitted to the host, committed there, and snapshotted back to the whole room; lamp, reveal, no-target and god mode remain personal controls.
 - **custom maps** (`src/game/custom_map_parser.gd`) — a colour-coded PNG stands in for procedural generation, ported from the original's own developer format: black wall, white floor, zero or more green player spawns, an optional red exit, and region colours (office, mansion, beach, and more) flood-filled into rooms. Multiple green cells become ordered co-op spawn slots; with none, the route seed chooses a random open cell consistently for every peer. Fed into the same `FacilityGenerator` a procedural floor uses, so objective placement and region-derived themed furniture are seeded identically for every peer. Loaded by URL through the admin overlay, not hardcoded to a local path. The host retains a validated canonical PNG and transfers it with live-session snapshots, so existing guests and late joiners rebuild the authored base floor before applying its pickups and other mutations. The original format's explicit per-pixel prop and dialog-trigger authoring is not ported. The exact palette, editor rules, and a playable sample are in [`art/custom-maps/`](art/custom-maps/README.md).
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
@@ -103,9 +112,9 @@ Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, bre
 ## Project layout
 
 ```text
-art/props-3d/           3D prop scaffold — every model the game loads at runtime; drop real assets in to replace the placeholders (see its README)
+art/props-3d/           Retained character, interactable, environment and room-prop sources/runtime models (see its README)
 assets/                 Imported art, audio, fonts and data
-scenes/                 Godot scene files (main_menu.tscn = boot scene, room_lobby.tscn = session setup, main_3d.tscn = Last Route, office_3d.tscn = Office Mode, hud.tscn = shared HUD, validate.tscn = check harness, main.tscn = legacy 2D)
+scenes/                 Godot scene files (boot_loading.tscn = startup/update gate, main_menu.tscn = menu, room_lobby.tscn = session setup, main_3d.tscn = Last Route, office_3d.tscn = Office Mode, hud.tscn = shared HUD, validate.tscn = check harness, main.tscn = legacy 2D)
 scripts/                Headless check suites (validate_*.gd) and dev scripts
 backend/                Node room/account + ENet directory service, Pterodactyl guide, and tests
 tools/                  Model pipeline — Blockbench .bbmodel → glTF exporters and the office/character builders

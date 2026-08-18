@@ -13,6 +13,10 @@ extends Node3D
 ## the brain.
 
 var brain: HunterBrain
+var surface_height_provider: Callable
+## Host-selected runner this brain is currently evaluating. Replicated with
+## presentation state so only the pursued client receives chase audio.
+var target_peer_id := 0
 
 var _animation_player: AnimationPlayer
 var _model: Node3D
@@ -74,7 +78,9 @@ func _apply_visibility() -> void:
 func sync_from_brain() -> void:
 	if brain == null:
 		return
-	position = Vector3(brain.position.x, 0.0, brain.position.y)
+	var surface_y := float(surface_height_provider.call(brain.position)) \
+		if surface_height_provider.is_valid() else 0.0
+	position = Vector3(brain.position.x, surface_y, brain.position.y)
 	if brain.facing.length_squared() > 0.0001:
 		# Godot's forward direction is -Z. The old angle aligned +Z with the
 		# brain direction, so every hunter visually ran back-first even though
@@ -91,9 +97,12 @@ func sync_from_brain() -> void:
 ## chase gets the more urgent clip.
 func _update_animation() -> void:
 	var clip_name := "idle"
-	match brain.state:
-		HunterBrain.State.CHASE:
-			clip_name = "chase"
-		HunterBrain.State.WANDER, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
-			clip_name = "walk"
+	if brain.stun_timer > 0.0:
+		clip_name = "stun"
+	else:
+		match brain.state:
+			HunterBrain.State.CHASE:
+				clip_name = "chase"
+			HunterBrain.State.WANDER, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
+				clip_name = "walk"
 	ModelSlot.play_if_available(_animation_player, clip_name)

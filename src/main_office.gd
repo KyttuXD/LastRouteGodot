@@ -278,13 +278,13 @@ func _refresh_end_state() -> void:
 			_end_title.text = "SHIFT FAILED"
 			_end_title.modulate = Color(0.9, 0.25, 0.3)
 			_end_cause.text = simulation.cause
-			_end_hint.text = "[E] RETURN TO MENU"
+			_end_hint.text = "RETURN TO MENU"
 		OfficeSimulation.Phase.WON:
 			_end_panel.visible = true
 			_end_title.text = "6 AM"
 			_end_title.modulate = Color(0.4, 0.95, 0.6)
 			_end_cause.text = simulation.cause
-			_end_hint.text = "[E] RETURN TO MENU"
+			_end_hint.text = "RETURN TO MENU"
 
 
 func _power_color(value: float) -> Color:

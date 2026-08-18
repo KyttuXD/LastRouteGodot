@@ -3,7 +3,8 @@
 
 The reviewed Blockbench hunters all use the same animation data.  This tool
 keeps their geometry, textures, extra clips, and character-specific bones
-untouched while replacing only idle, walk, sprint, and chase.  It is intended
+untouched while replacing idle, walk, sprint, chase, and the shared dizzy
+stun reaction. It is intended
 for hunter sources; the player mannequin deliberately does not use it.
 
     python3 tools/characters/refine_hunter_animations.py aki.bbmodel output.bbmodel
@@ -39,9 +40,21 @@ def _key(clip: str, bone: str, channel: str, time: float, point: Point) -> dict:
     }
 
 
-def _animation(model: dict, name: str, duration: float) -> dict:
+def _animation(model: dict, name: str, duration: float,
+               create: bool = False) -> dict:
     animation = next((item for item in model.get("animations", [])
                       if str(item.get("name", "")).lower() == name), None)
+    if animation is None and create:
+        animation = {
+            "uuid": str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                   f"lastroute:hunter-animation:{name}")),
+            "name": name, "loop": "loop", "override": False,
+            "length": duration, "snapping": 30, "selected": False,
+            "saved": True, "path": "", "anim_time_update": "",
+            "blend_weight": "", "start_delay": "", "loop_delay": "",
+            "animators": {},
+        }
+        model.setdefault("animations", []).append(animation)
     if animation is None:
         raise ValueError(f"hunter is missing the {name!r} animation")
     animation["length"] = duration
@@ -189,12 +202,54 @@ def _walk(model: dict, clip: str = "walk", duration: float = 1.0) -> None:
     })
 
 
+def _stun(model: dict) -> None:
+    """Loose head-roll/body-sway loop for a failed hunter attack.
+
+    The reference reads as dizziness through a circular head path and delayed
+    torso counter-sway. Keeping the planted legs nearly neutral prevents the
+    reaction from turning into another locomotion clip or sinking through the
+    floor on hunters with different skirts, wings, and shoes.
+    """
+    clip = "stun"
+    duration = 1.2
+    samples = 12
+    animation = _animation(model, clip, duration, create=True)
+    bones = _animators(model, animation)
+    rotation = {
+        "Pelvis": lambda p: (-1.5, 2.5 * math.cos(p), 4.5 * math.sin(p)),
+        "Belly": lambda p: (2.0 * math.sin(p), -4.0 * math.cos(p),
+                              -5.5 * math.sin(p)),
+        "Chest": lambda p: (-4.5 * math.sin(p), 7.0 * math.cos(p),
+                              7.5 * math.sin(p)),
+        "Head": lambda p: (13.0 * math.sin(p), 19.0 * math.cos(p),
+                             12.0 * math.sin(p - math.pi * .35)),
+        "L-Arm": lambda p: (-5.0 + 3.0 * math.sin(p), -7.0,
+                              8.0 + 3.0 * math.cos(p)),
+        "R-Arm": lambda p: (-5.0 - 3.0 * math.sin(p), 7.0,
+                              -8.0 - 3.0 * math.cos(p)),
+        "L-Forearm": lambda p: (-12.0 + 2.0 * math.cos(p), 0.0, 0.0),
+        "R-Forearm": lambda p: (-12.0 - 2.0 * math.cos(p), 0.0, 0.0),
+        "L-Hand": lambda p: (2.0 * math.sin(p), -2.0, 2.0),
+        "R-Hand": lambda p: (-2.0 * math.sin(p), 2.0, -2.0),
+        "L-Thigh": lambda p: (-2.0, 0.0, 1.5),
+        "R-Thigh": lambda p: (-2.0, 0.0, -1.5),
+        "L-Calf": lambda p: (4.0, 0.0, 0.0),
+        "R-Calf": lambda p: (4.0, 0.0, 0.0),
+        "L-Foot": lambda p: (-1.0, 0.0, 0.0),
+        "R-Foot": lambda p: (-1.0, 0.0, 0.0),
+    }
+    for bone, sampler in rotation.items():
+        _set_curves(clip, bones, bone,
+                    {"rotation": (duration, samples, sampler)})
+
+
 def refine_hunter_animations(model: dict) -> dict:
     """Mutate and return one hunter bbmodel dictionary."""
     _idle(model)
     _walk(model, "walk", 1.0)
     _walk(model, "sprint", 2.0 / 3.0)
     _walk(model, "chase", 0.5)
+    _stun(model)
     return model
 
 

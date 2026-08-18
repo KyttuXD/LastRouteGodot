@@ -11,6 +11,7 @@ ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "interactables")
 SOURCE = os.path.join(ROOT, "source")
 TEXTURES = os.path.join(SOURCE, "textures")
 PREVIEWS = os.path.join(ROOT, "previews")
+INVENTORY_ICONS = os.path.join(PROJECT_ROOT, "assets", "ui", "inventory")
 MAZE_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "maze")
 MAZE_SOURCE = os.path.join(MAZE_ROOT, "source")
 MAZE_TEXTURES = os.path.join(MAZE_SOURCE, "textures")
@@ -29,6 +30,7 @@ NETHER_TEXTURES = os.path.join(NETHER_SOURCE, "textures")
 NETHER_PREVIEWS = os.path.join(NETHER_ROOT, "previews")
 os.makedirs(TEXTURES, exist_ok=True)
 os.makedirs(PREVIEWS, exist_ok=True)
+os.makedirs(INVENTORY_ICONS, exist_ok=True)
 os.makedirs(MAZE_TEXTURES, exist_ok=True)
 os.makedirs(MAZE_PREVIEWS, exist_ok=True)
 os.makedirs(MANSION_TEXTURES, exist_ok=True)
@@ -137,6 +139,10 @@ def apply_bevel(obj, width):
 def ensure_uv(obj):
     if obj.data.uv_layers:
         return
+    # Custom meshes may be created while the preceding primitive is still
+    # selected.  Isolate the target so smart-project cannot overwrite the UVs
+    # of an already painted prop part.
+    bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
@@ -197,6 +203,36 @@ def cone(name, location, radius1, radius2, depth, vertices, material, region,
     obj.name = name
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     apply_bevel(obj, bevel)
+    return finish_object(obj, material, region, region_count, export_objects)
+
+
+def triangular_prism(name, location, width, height, depth, material, region,
+                     region_count, export_objects):
+    """Make a flat, upright triangular pictogram piece in the X/Z plane."""
+    half_width = width * 0.5
+    half_height = height * 0.5
+    half_depth = depth * 0.5
+    vertices = [
+        (-half_width, -half_depth, -half_height),
+        (half_width, -half_depth, -half_height),
+        (0.0, -half_depth, half_height),
+        (-half_width, half_depth, -half_height),
+        (half_width, half_depth, -half_height),
+        (0.0, half_depth, half_height),
+    ]
+    faces = [
+        (0, 2, 1),
+        (3, 4, 5),
+        (0, 1, 4, 3),
+        (1, 2, 5, 4),
+        (2, 0, 3, 5),
+    ]
+    mesh = bpy.data.meshes.new(name + "Mesh")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.location = location
     return finish_object(obj, material, region, region_count, export_objects)
 
 
@@ -425,6 +461,259 @@ def make_relay():
         count, objects, bevel=0.001,
         rotation=(0.0, math.radians(8), math.radians(8)))
     return objects, (1.35, -2.35, 1.55), (0.0, 0.0, 0.50)
+
+
+def make_locked_relay_crate():
+    colors = ["#171719", "#382820", "#624532", "#896346", "#B1855D",
+              "#3A4147", "#76838B", "#42B7B4"]
+    image = make_pixel_atlas("locked_relay_crate_pixel_atlas", colors)
+    mat = make_material("Locked relay crate pixel paint", image,
+                        roughness=0.88, metallic=0.05)
+    count = len(colors)
+    objects = []
+    box("CrateBody", (0, 0, .35), (.72, .68, .70), mat, 2, count,
+        objects, bevel=.012)
+    for z in (.08, .62):
+        box("CrateBand_%s" % z, (0, 0, z), (.76, .72, .10), mat, 5,
+            count, objects, bevel=.006)
+    for x in (-.31, .31):
+        box("FrontBrace_%s" % x, (x, -.35, .35), (.08, .055, .56), mat,
+            3, count, objects, bevel=.003)
+    box("FrontCrossBrace", (0, -.382, .35), (.64, .06, .095), mat, 4,
+        count, objects, bevel=.003, rotation=(0, 0, math.radians(-24)))
+    box("LockPlate", (0, -.395, .43), (.20, .045, .19), mat, 5, count,
+        objects, bevel=.006)
+    box("Padlock", (0, -.43, .40), (.10, .07, .12), mat, 6, count,
+        objects, bevel=.008)
+    # A cyan aerial peeking through the lid communicates that this is an
+    # objective cache rather than an ordinary room-dressing crate.
+    box("RelayAntenna", (0, 0, .82), (.07, .07, .30), mat, 7, count,
+        objects, bevel=.002)
+    box("RelaySignalHead", (0, 0, .96), (.25, .12, .16), mat, 7, count,
+        objects, bevel=.004)
+    return objects, (1.45, -2.35, 1.55), (0, 0, .48)
+
+
+def make_locked_relay_barrel():
+    colors = ["#171719", "#2C211D", "#563B2B", "#80593B", "#A5784E",
+              "#333A40", "#727F87", "#42B7B4"]
+    image = make_pixel_atlas("locked_relay_barrel_pixel_atlas", colors)
+    mat = make_material("Locked relay barrel pixel paint", image,
+                        roughness=.87, metallic=.06)
+    count = len(colors)
+    objects = []
+    cylinder("BarrelBody", (0, 0, .40), .34, .80, 8, mat, 3, count,
+             objects, bevel=.008)
+    for z in (.09, .40, .71):
+        cylinder("IronBand_%s" % z, (0, 0, z), .365, .075, 8, mat, 5,
+                 count, objects, bevel=.003)
+    box("LockPlate", (0, -.347, .43), (.18, .045, .20), mat, 6, count,
+        objects, bevel=.006)
+    box("Padlock", (0, -.39, .39), (.095, .07, .13), mat, 5, count,
+        objects, bevel=.006)
+    box("RelayAntenna", (0, 0, .90), (.065, .065, .27), mat, 7, count,
+        objects, bevel=.002)
+    box("RelaySignalHead", (0, 0, 1.02), (.23, .11, .15), mat, 7, count,
+        objects, bevel=.004)
+    return objects, (1.45, -2.35, 1.55), (0, 0, .50)
+
+
+def make_boarded_door():
+    colors = ["#171719", "#38251C", "#5C3E2A", "#805A3A", "#A77B50",
+              "#343A3F", "#737E84", "#9B473B"]
+    image = make_pixel_atlas("boarded_door_pixel_atlas", colors)
+    mat = make_material("Boarded doorway pixel paint", image,
+                        roughness=.91, metallic=.03)
+    count = len(colors)
+    objects = []
+    # Full doorway frame gives the boards believable supports and fits the
+    # route's one-metre doorway/collision contract.
+    for x in (-.47, .47):
+        box("DoorFrame_%s" % x, (x, .025, 1.12), (.10, .15, 2.24), mat,
+            1, count, objects, bevel=.008)
+    box("DoorHeader", (0, .025, 2.22), (1.04, .15, .12), mat, 1, count,
+        objects, bevel=.008)
+    plank_data = [(.42, -7), (.84, 5), (1.27, -6), (1.70, 7)]
+    for index, (z, angle) in enumerate(plank_data):
+        box("Board_%02d" % index, (0, -.075, z), (.94, .115, .22), mat,
+            3 + index % 2, count, objects, bevel=.006,
+            rotation=(0, 0, math.radians(angle)))
+        for x in (-.34, .34):
+            box("Nail_%02d_%s" % (index, x), (x, -.139, z),
+                (.045, .025, .045), mat, 6, count, objects, bevel=.002)
+    box("WarningStripe", (0, -.145, 1.06), (.44, .028, .08), mat, 7,
+        count, objects, bevel=.002, rotation=(0, 0, math.radians(-6)))
+    return objects, (2.05, -3.25, 2.55), (0, 0, 1.10)
+
+
+def make_lockpick_set():
+    colors = ["#15171A", "#343A40", "#626C74", "#A7B1B8", "#753F4A"]
+    image = make_pixel_atlas("lockpick_set_pixel_atlas", colors)
+    mat = make_material("Lockpick set pixel paint", image,
+                        roughness=.48, metallic=.42)
+    count = len(colors)
+    objects = []
+    box("PickHandle", (-.045, 0, .13), (.075, .055, .26), mat, 4,
+        count, objects, bevel=.008)
+    box("PickShaft", (-.045, 0, .40), (.022, .022, .30), mat, 3,
+        count, objects, bevel=.002)
+    box("PickTip", (-.015, 0, .55), (.08, .022, .022), mat, 3,
+        count, objects, bevel=.002, rotation=(0, math.radians(-18), 0))
+    box("TensionHandle", (.075, .015, .10), (.07, .05, .20), mat, 1,
+        count, objects, bevel=.006)
+    box("TensionShaft", (.075, .015, .31), (.022, .022, .24), mat, 2,
+        count, objects, bevel=.002)
+    box("TensionFoot", (.105, .015, .43), (.08, .022, .022), mat, 2,
+        count, objects, bevel=.002)
+    return objects, (.8, -1.5, .9), (0, 0, .28)
+
+
+def make_crowbar():
+    colors = ["#171719", "#43232A", "#743441", "#A54A58", "#C66B70",
+              "#59636A", "#9AA5AA"]
+    image = make_pixel_atlas("crowbar_pixel_atlas", colors)
+    mat = make_material("Crowbar pixel paint", image, roughness=.50,
+                        metallic=.36)
+    count = len(colors)
+    objects = []
+    box("CrowbarShaft", (0, 0, .48), (.075, .075, .82), mat, 3, count,
+        objects, bevel=.012)
+    box("CrowbarHook", (.10, 0, .91), (.27, .075, .075), mat, 4, count,
+        objects, bevel=.012, rotation=(0, math.radians(-18), 0))
+    box("CrowbarClaw", (.22, 0, .86), (.075, .075, .18), mat, 6, count,
+        objects, bevel=.010, rotation=(0, math.radians(28), 0))
+    box("CrowbarFoot", (-.07, 0, .075), (.20, .075, .075), mat, 2,
+        count, objects, bevel=.010, rotation=(0, math.radians(20), 0))
+    return objects, (1.0, -2.0, 1.25), (0, 0, .48)
+
+
+def make_rescue_axe():
+    colors = ["#171719", "#35261F", "#6B4931", "#A66A3A", "#A33F36",
+              "#D35B43", "#666F75", "#B4BCC0"]
+    image = make_pixel_atlas("rescue_axe_pixel_atlas", colors)
+    mat = make_material("Rescue axe pixel paint", image, roughness=.58,
+                        metallic=.22)
+    count = len(colors)
+    objects = []
+    box("AxeHandle", (0, 0, .47), (.085, .085, .82), mat, 3, count,
+        objects, bevel=.012)
+    box("AxeGrip", (0, 0, .13), (.12, .12, .26), mat, 1, count,
+        objects, bevel=.012)
+    box("AxeHead", (.02, 0, .88), (.48, .12, .26), mat, 5, count,
+        objects, bevel=.012)
+    box("AxeBlade", (.25, 0, .85), (.18, .10, .35), mat, 7, count,
+        objects, bevel=.008, rotation=(0, math.radians(-8), 0))
+    box("AxePick", (-.26, 0, .91), (.17, .09, .10), mat, 6, count,
+        objects, bevel=.006)
+    return objects, (1.2, -2.2, 1.35), (0, 0, .50)
+
+
+def make_flashlight_item():
+    colors = ["#121518", "#2D3339", "#4B555D", "#79858C", "#D5C778",
+              "#FFF0A5"]
+    image = make_pixel_atlas("flashlight_item_pixel_atlas", colors)
+    mat = make_material("Flashlight item pixel paint", image,
+                        roughness=.54, metallic=.20)
+    count = len(colors)
+    objects = []
+    box("FlashlightGrip", (0, 0, .25), (.16, .16, .50), mat, 1, count,
+        objects, bevel=.018)
+    box("FlashlightNeck", (0, 0, .54), (.20, .20, .12), mat, 2, count,
+        objects, bevel=.016)
+    box("FlashlightHead", (0, 0, .68), (.31, .27, .20), mat, 3, count,
+        objects, bevel=.022)
+    box("FlashlightLens", (0, -.146, .68), (.23, .025, .14), mat, 5,
+        count, objects, bevel=.010)
+    box("FlashlightSwitch", (0, -.095, .39), (.08, .025, .11), mat, 4,
+        count, objects, bevel=.006)
+    return objects, (1.0, -1.9, 1.0), (0, 0, .37)
+
+
+def make_taser_item():
+    colors = ["#15141A", "#27252D", "#4B315E", "#70488C", "#9A67BC",
+              "#9EA8AF", "#D7E0E4", "#F0C95A"]
+    image = make_pixel_atlas("taser_item_pixel_atlas", colors)
+    mat = make_material("Taser item pixel paint", image,
+                        roughness=.55, metallic=.16)
+    count = len(colors)
+    objects = []
+    box("TaserBody", (0, 0, .44), (.28, .22, .42), mat, 3, count,
+        objects, bevel=.025)
+    box("TaserGrip", (0, .035, .16), (.18, .18, .30), mat, 1, count,
+        objects, bevel=.022, rotation=(0, math.radians(-8), 0))
+    box("TaserMuzzle", (0, -.13, .61), (.25, .10, .16), mat, 2, count,
+        objects, bevel=.015)
+    for x in (-.075, .075):
+        box("TaserProbe_%s" % x, (x, -.205, .63), (.035, .11, .035), mat,
+            6, count, objects, bevel=.003)
+    box("ChargeDisplay", (0, -.121, .45), (.13, .025, .07), mat, 7,
+        count, objects, bevel=.006)
+    return objects, (1.05, -1.9, 1.0), (0, 0, .34)
+
+
+def make_boarded_hallway():
+    colors = ["#151517", "#33231B", "#593D29", "#7D593A", "#A47A50",
+              "#343A3F", "#78838A", "#9B473B"]
+    image = make_pixel_atlas("boarded_hallway_pixel_atlas", colors)
+    mat = make_material("Boarded hallway pixel paint", image,
+                        roughness=.92, metallic=.03)
+    count = len(colors)
+    objects = []
+    for x in (-1.45, 0, 1.45):
+        box("HallPost_%s" % x, (x, .03, 1.48), (.12, .18, 2.96), mat,
+            1, count, objects, bevel=.008)
+    box("HallHeader", (0, .03, 2.92), (3.0, .18, .14), mat, 1, count,
+        objects, bevel=.008)
+    for index, (z, angle) in enumerate(((.40, -4), (.88, 5), (1.36, -5),
+                                         (1.84, 4), (2.32, -4))):
+        box("HallBoard_%02d" % index, (0, -.08, z), (2.90, .13, .26),
+            mat, 3 + index % 2, count, objects, bevel=.008,
+            rotation=(0, 0, math.radians(angle)))
+        for x in (-1.15, 0, 1.15):
+            box("HallNail_%02d_%s" % (index, x), (x, -.153, z),
+                (.055, .025, .055), mat, 6, count, objects, bevel=.002)
+    box("HallWarning", (0, -.16, 1.42), (.80, .03, .13), mat, 7, count,
+        objects, bevel=.003)
+    return objects, (4.6, -6.2, 3.8), (0, 0, 1.45)
+
+
+def make_service_ladder():
+    colors = ["#151719", "#30363B", "#59636A", "#889298", "#B16A3D",
+              "#D29454"]
+    image = make_pixel_atlas("service_ladder_pixel_atlas", colors)
+    mat = make_material("Service ladder pixel paint", image,
+                        roughness=.60, metallic=.30)
+    count = len(colors)
+    objects = []
+    for x in (-.27, .27):
+        box("LadderRail_%s" % x, (x, 0, .72), (.075, .09, 1.44), mat,
+            2, count, objects, bevel=.010)
+    for index in range(7):
+        z = .12 + index * .20
+        box("LadderRung_%02d" % index, (0, -.015, z), (.58, .10, .065),
+            mat, 3 if index % 2 else 4, count, objects, bevel=.008)
+    box("LadderTopMark", (0, -.065, 1.39), (.30, .035, .07), mat, 5,
+        count, objects, bevel=.005)
+    return objects, (1.35, -2.4, 1.8), (0, 0, .72)
+
+
+def make_wall_light_switch():
+    colors = ["#151719", "#30363B", "#59636A", "#8C969B", "#D7D1B7",
+              "#D89B46", "#65C0A6"]
+    image = make_pixel_atlas("wall_light_switch_pixel_atlas", colors)
+    mat = make_material("Wall light switch pixel paint", image,
+                        roughness=.62, metallic=.18)
+    count = len(colors)
+    objects = []
+    box("SwitchPlate", (0, 0, .20), (.30, .08, .40), mat, 2, count,
+        objects, bevel=.018)
+    box("SwitchInset", (0, -.052, .20), (.18, .035, .24), mat, 1, count,
+        objects, bevel=.010)
+    box("SwitchToggle", (0, -.09, .22), (.08, .06, .16), mat, 4, count,
+        objects, bevel=.012, rotation=(math.radians(-10), 0, 0))
+    box("SwitchLamp", (0, -.088, .34), (.07, .03, .04), mat, 6, count,
+        objects, bevel=.004)
+    return objects, (.8, -1.5, .9), (0, 0, .20)
 
 
 def make_safe_zone():
@@ -1145,6 +1434,458 @@ def make_bathroom_vanity():
     box("VanityFaucet", (0.0, 0.07, 1.00), (0.07, 0.08, 0.20), mat, 7,
         count, objects, bevel=0.002)
     return objects, (1.75, -2.45, 1.95), (0.0, 0.0, 0.82)
+
+
+PUBLIC_BATHROOM_PALETTE = [
+    "#111416", "#343B3D", "#687173", "#AAA99D", "#D8D2BF",
+    "#4B7779", "#8A3D49", "#B88A48", "#8CB2B1", "#E5D46E",
+]
+HOUSE_BATHROOM_PALETTE = [
+    "#141311", "#483326", "#76583E", "#B5A88C", "#E0D8C4",
+    "#659091", "#315B63", "#B88A48", "#A7C9C7", "#E8D77A",
+]
+
+
+def bathroom_expansion_material(model_name, house=False, metallic=0.06):
+    colors = HOUSE_BATHROOM_PALETTE if house else PUBLIC_BATHROOM_PALETTE
+    return mansion_material(model_name, colors, roughness=0.78,
+                            metallic=metallic), len(colors)
+
+
+def make_restroom_toilet(model_name, house=False):
+    mat, count = bathroom_expansion_material(model_name, house)
+    objects = []
+    body_region = 4
+    box("ToiletPedestal", (0.0, 0.02, 0.27), (0.34, 0.42, 0.54), mat,
+        body_region, count, objects, bevel=0.008)
+    box("ToiletBowl", (0.0, -0.08, 0.48), (0.48, 0.58, 0.27), mat,
+        body_region, count, objects, bevel=0.012)
+    box("ToiletSeat", (0.0, -0.09, 0.63), (0.48, 0.58, 0.08), mat,
+        3, count, objects, bevel=0.010)
+    box("ToiletOpening", (0.0, -0.12, 0.68), (0.30, 0.37, 0.025), mat,
+        6 if house else 1, count, objects, bevel=0.009)
+    box("ToiletTank", (0.0, 0.19, 0.83), (0.45, 0.24, 0.62), mat,
+        body_region, count, objects, bevel=0.008)
+    box("ToiletTankLid", (0.0, 0.19, 1.17), (0.49, 0.27, 0.08), mat,
+        3, count, objects, bevel=0.005)
+    box("FlushLever", (0.17, 0.045, 0.99), (0.10, 0.04, 0.05), mat,
+        7, count, objects, bevel=0.002)
+    return objects, (1.55, -2.15, 1.45), (0.0, 0.0, 0.55)
+
+
+def make_public_mens_urinal():
+    mat, count = bathroom_expansion_material("public_mens_urinal")
+    objects = []
+    box("UrinalBack", (0.0, 0.12, 0.75), (0.48, 0.15, 0.82), mat, 4,
+        count, objects, bevel=0.010)
+    box("UrinalBasin", (0.0, -0.04, 0.52), (0.46, 0.40, 0.42), mat, 4,
+        count, objects, bevel=0.014)
+    box("UrinalOpening", (0.0, -0.23, 0.59), (0.29, 0.05, 0.22), mat, 1,
+        count, objects, bevel=0.006)
+    cylinder("UrinalDrain", (0.0, -0.24, 0.49), 0.045, 0.025, 8, mat, 2,
+             count, objects, rotation=(math.radians(90), 0.0, 0.0))
+    box("FlushPipe", (0.0, 0.11, 1.16), (0.07, 0.07, 0.46), mat, 7,
+        count, objects, bevel=0.002)
+    box("FlushValve", (0.0, 0.10, 1.39), (0.15, 0.12, 0.12), mat, 7,
+        count, objects, bevel=0.004)
+    box("FlushButton", (0.0, 0.03, 1.40), (0.07, 0.025, 0.07), mat, 9,
+        count, objects, bevel=0.002)
+    return objects, (1.40, -1.95, 1.65), (0.0, 0.0, 0.72)
+
+
+def make_public_sink_bank():
+    mat, count = bathroom_expansion_material("public_sink_bank", metallic=0.10)
+    objects = []
+    box("SinkBankBacksplash", (0.0, 0.19, 1.04), (1.62, 0.10, 0.38), mat,
+        3, count, objects, bevel=0.005)
+    box("SinkBankDeck", (0.0, 0.0, 0.88), (1.66, 0.48, 0.14), mat, 4,
+        count, objects, bevel=0.007)
+    for index, x in enumerate((-0.52, 0.0, 0.52)):
+        box("PublicBasin_%d" % (index + 1), (x, -0.08, 0.96),
+            (0.40, 0.27, 0.035), mat, 2, count, objects, bevel=0.005)
+        box("PublicFaucetPost_%d" % (index + 1), (x, 0.12, 1.15),
+            (0.065, 0.065, 0.28), mat, 7, count, objects, bevel=0.002)
+        box("PublicFaucetSpout_%d" % (index + 1), (x, 0.02, 1.26),
+            (0.065, 0.22, 0.065), mat, 7, count, objects, bevel=0.002)
+    for x in (-0.69, 0.69):
+        box("SinkBankLeg%s" % str(x), (x, 0.08, 0.43),
+            (0.10, 0.12, 0.86), mat, 1, count, objects, bevel=0.002)
+    box("SinkBankPipeRail", (0.0, 0.14, 0.39), (1.38, 0.08, 0.09), mat, 1,
+        count, objects, bevel=0.002)
+    return objects, (2.45, -3.25, 1.75), (0.0, 0.0, 0.67)
+
+
+def make_public_wall_utility(model_name, kind):
+    mat, count = bathroom_expansion_material(model_name, metallic=0.09)
+    objects = []
+    if kind == "dryer":
+        box("HandDryerBody", (0.0, 0.0, 1.36), (0.40, 0.24, 0.42), mat, 3,
+            count, objects, bevel=0.010)
+        box("DryerSensor", (0.0, -0.133, 1.45), (0.12, 0.025, 0.08), mat, 6,
+            count, objects, bevel=0.002)
+        for index, x in enumerate((-0.12, 0.0, 0.12)):
+            box("DryerVent_%d" % index, (x, -0.134, 1.24),
+                (0.065, 0.025, 0.06), mat, 1, count, objects, bevel=0.001)
+        eye, look = (1.35, -1.85, 1.75), (0.0, 0.0, 1.36)
+    elif kind == "soap":
+        box("SoapDispenser", (0.0, 0.0, 1.22), (0.22, 0.17, 0.36), mat, 5,
+            count, objects, bevel=0.007)
+        box("SoapWindow", (0.0, -0.096, 1.27), (0.09, 0.025, 0.13), mat, 8,
+            count, objects, bevel=0.002)
+        box("SoapNozzle", (0.0, -0.13, 1.02), (0.11, 0.12, 0.07), mat, 7,
+            count, objects, bevel=0.002)
+        eye, look = (1.05, -1.45, 1.55), (0.0, 0.0, 1.20)
+    elif kind == "paper":
+        box("PaperTowelCabinet", (0.0, 0.0, 1.43), (0.40, 0.20, 0.50), mat,
+            3, count, objects, bevel=0.008)
+        box("PaperTowelWindow", (0.0, -0.112, 1.51), (0.20, 0.025, 0.13), mat,
+            6, count, objects, bevel=0.002)
+        box("PaperSheet", (0.0, -0.08, 1.10), (0.28, 0.035, 0.24), mat, 4,
+            count, objects, bevel=0.002)
+        eye, look = (1.30, -1.75, 1.80), (0.0, 0.0, 1.36)
+    elif kind == "change":
+        box("ChangingStationBack", (0.0, 0.02, 1.31), (0.92, 0.17, 0.58), mat,
+            3, count, objects, bevel=0.009)
+        box("ChangingTable", (0.0, -0.23, 1.04), (0.84, 0.54, 0.13), mat, 4,
+            count, objects, bevel=0.009, rotation=(math.radians(-4), 0.0, 0.0))
+        box("ChangingLip", (0.0, -0.50, 1.11), (0.84, 0.07, 0.18), mat, 5,
+            count, objects, bevel=0.004)
+        box("SafetyStrap", (0.0, -0.38, 1.11), (0.11, 0.28, 0.04), mat, 6,
+            count, objects, bevel=0.002)
+        eye, look = (1.75, -2.40, 1.80), (0.0, -0.10, 1.18)
+    return objects, eye, look
+
+
+def make_public_sanitary_bin():
+    mat, count = bathroom_expansion_material("public_sanitary_bin")
+    objects = []
+    box("SanitaryBinBody", (0.0, 0.0, 0.31), (0.32, 0.30, 0.62), mat, 3,
+        count, objects, bevel=0.008)
+    box("SanitaryBinLid", (0.0, 0.0, 0.65), (0.35, 0.33, 0.09), mat, 4,
+        count, objects, bevel=0.006)
+    box("SanitaryBinPedal", (0.0, -0.18, 0.08), (0.17, 0.10, 0.07), mat, 7,
+        count, objects, bevel=0.002)
+    box("SanitaryMark", (0.0, -0.158, 0.40), (0.10, 0.025, 0.14), mat, 6,
+        count, objects, bevel=0.002)
+    return objects, (1.20, -1.65, 1.10), (0.0, 0.0, 0.32)
+
+
+def make_restroom_sign(model_name, womens=False):
+    mat, count = bathroom_expansion_material(model_name)
+    objects = []
+    accent = 6 if womens else 5
+    box("RestroomSignBack", (0.0, 0.0, 1.63), (0.52, 0.10, 0.62), mat, 1,
+        count, objects, bevel=0.007)
+    box("SignHead", (0.0, -0.065, 1.78), (0.13, 0.04, 0.13), mat, accent,
+        count, objects, bevel=0.005)
+    if womens:
+        box("SignTorso", (0.0, -0.065, 1.63), (0.13, 0.04, 0.17), mat,
+            accent, count, objects, bevel=0.003)
+        triangular_prism("SignTriangularSkirt", (0.0, -0.065, 1.44),
+                         0.30, 0.25, 0.04, mat, accent, count, objects)
+        leg_x = 0.075
+        leg_z = 1.25
+        leg_height = 0.18
+    else:
+        box("SignTorso", (0.0, -0.065, 1.57), (0.14, 0.04, 0.29), mat,
+            accent, count, objects, bevel=0.003)
+        leg_x = 0.065
+        leg_z = 1.32
+        leg_height = 0.24
+    # Keep the arms as separate limbs rather than allowing the torso or skirt
+    # silhouette to swallow them at the small in-game sign scale.
+    for x in (-0.13, 0.13):
+        angle = math.radians(12 if x < 0.0 else -12)
+        box("SignArm%s" % str(x), (x, -0.066, 1.53),
+            (0.055, 0.04, 0.27), mat, accent, count, objects, bevel=0.002,
+            rotation=(0.0, angle, 0.0))
+    for x in (-leg_x, leg_x):
+        box("SignLeg%s" % str(x), (x, -0.065, leg_z),
+            (0.06, 0.04, leg_height), mat, accent, count, objects,
+            bevel=0.002)
+    return objects, (1.30, -1.80, 2.00), (0.0, 0.0, 1.60)
+
+
+def make_public_shower_stall(model_name, womens=False):
+    mat, count = bathroom_expansion_material(model_name, metallic=0.08)
+    objects = []
+    accent = 6 if womens else 5
+    box("ShowerPan", (0.0, 0.0, 0.07), (0.82, 0.82, 0.14), mat, 3,
+        count, objects, bevel=0.006)
+    box("ShowerDrain", (0.0, 0.0, 0.15), (0.18, 0.18, 0.025), mat, 1,
+        count, objects, bevel=0.002)
+    box("ShowerBack", (0.0, 0.37, 1.10), (0.82, 0.07, 2.06), mat, 2,
+        count, objects, bevel=0.004)
+    for x in (-0.39, 0.39):
+        box("ShowerPost%s" % str(x), (x, 0.0, 1.10), (0.07, 0.82, 2.12),
+            mat, 1, count, objects, bevel=0.002)
+    box("ShowerGlassDoor", (0.0, -0.39, 1.12), (0.70, 0.04, 1.94), mat, 8,
+        count, objects, bevel=0.004)
+    box("ShowerDoorBand", (0.0, -0.418, 1.20), (0.70, 0.018, 0.14), mat,
+        accent, count, objects, bevel=0.001)
+    box("ShowerDoorHandle", (0.24, -0.445, 1.18), (0.07, 0.06, 0.32), mat,
+        7, count, objects, bevel=0.002)
+    box("ShowerRiser", (0.0, 0.31, 1.35), (0.06, 0.06, 1.20), mat, 7,
+        count, objects, bevel=0.002)
+    box("ShowerHeadArm", (0.0, 0.19, 1.91), (0.06, 0.28, 0.06), mat, 7,
+        count, objects, bevel=0.002)
+    box("ShowerHead", (0.0, 0.04, 1.87), (0.20, 0.10, 0.12), mat, 7,
+        count, objects, bevel=0.004)
+    box("ShowerControl", (0.0, 0.31, 1.02), (0.18, 0.08, 0.18), mat, 9,
+        count, objects, bevel=0.004)
+    return objects, (2.15, -2.95, 2.35), (0.0, 0.0, 1.08)
+
+
+def make_public_shower_bench():
+    mat, count = bathroom_expansion_material("public_shower_bench")
+    objects = []
+    for index, y in enumerate((-0.15, 0.0, 0.15)):
+        box("ShowerBenchSlat_%d" % index, (0.0, y, 0.52),
+            (1.22, 0.12, 0.12), mat, 2 + index % 2, count, objects,
+            bevel=0.003)
+    for x in (-0.48, 0.48):
+        box("ShowerBenchLeg%s" % str(x), (x, 0.0, 0.25),
+            (0.12, 0.34, 0.50), mat, 1, count, objects, bevel=0.002)
+    box("ShowerBenchBrace", (0.0, 0.0, 0.24), (0.94, 0.10, 0.10), mat, 1,
+        count, objects, bevel=0.002)
+    return objects, (1.90, -2.55, 1.25), (0.0, 0.0, 0.28)
+
+
+def make_house_bathtub():
+    mat, count = bathroom_expansion_material("house_bathtub", True)
+    objects = []
+    box("BathtubBase", (0.0, 0.0, 0.18), (1.74, 0.78, 0.36), mat, 4,
+        count, objects, bevel=0.015)
+    for side, y in (("Front", -0.34), ("Back", 0.34)):
+        box("BathtubRim%s" % side, (0.0, y, 0.57), (1.78, 0.12, 0.46), mat,
+            4, count, objects, bevel=0.012)
+    for side, x in (("Left", -0.81), ("Right", 0.81)):
+        box("BathtubEnd%s" % side, (x, 0.0, 0.57), (0.16, 0.58, 0.46), mat,
+            4, count, objects, bevel=0.012)
+    box("BathtubInterior", (0.0, 0.0, 0.47), (1.44, 0.51, 0.05), mat, 8,
+        count, objects, bevel=0.014)
+    cylinder("TubFaucetBase", (0.58, 0.31, 0.88), 0.07, 0.22, 8, mat, 7,
+             count, objects)
+    box("TubFaucetSpout", (0.58, 0.17, 0.96), (0.07, 0.31, 0.07), mat, 7,
+        count, objects, bevel=0.002)
+    for x in (0.42, 0.74):
+        cylinder("TubTap%s" % str(x), (x, 0.30, 0.82), 0.055, 0.13, 8, mat,
+                 7, count, objects)
+    return objects, (2.75, -3.65, 1.65), (0.0, 0.0, 0.42)
+
+
+def make_house_shower_enclosure():
+    mat, count = bathroom_expansion_material("house_shower_enclosure", True,
+                                             metallic=0.08)
+    objects = []
+    box("HouseShowerPan", (0.0, 0.0, 0.07), (0.94, 0.94, 0.14), mat, 3,
+        count, objects, bevel=0.008)
+    box("HouseShowerBack", (0.0, 0.43, 1.10), (0.94, 0.07, 2.06), mat, 4,
+        count, objects, bevel=0.004)
+    box("HouseShowerSide", (-0.43, 0.0, 1.10), (0.07, 0.86, 2.06), mat, 8,
+        count, objects, bevel=0.004)
+    box("HouseShowerDoor", (0.18, -0.43, 1.11), (0.52, 0.04, 1.96), mat, 8,
+        count, objects, bevel=0.004)
+    for x in (-0.44, 0.44):
+        box("HouseShowerPost%s" % str(x), (x, -0.42, 1.10),
+            (0.06, 0.08, 2.12), mat, 7, count, objects, bevel=0.002)
+    box("HouseShowerHandle", (0.35, -0.46, 1.18), (0.06, 0.06, 0.34), mat,
+        7, count, objects, bevel=0.002)
+    box("HouseShowerRiser", (0.13, 0.38, 1.34), (0.06, 0.06, 1.20), mat,
+        7, count, objects, bevel=0.002)
+    box("HouseShowerHead", (0.13, 0.18, 1.91), (0.20, 0.35, 0.09), mat,
+        7, count, objects, bevel=0.003)
+    box("HouseShowerControl", (0.13, 0.37, 1.02), (0.18, 0.08, 0.18), mat,
+        9, count, objects, bevel=0.004)
+    return objects, (2.25, -3.10, 2.40), (0.0, 0.0, 1.08)
+
+
+def make_house_medicine_cabinet():
+    mat, count = bathroom_expansion_material("house_medicine_cabinet", True)
+    objects = []
+    box("MedicineCabinetBody", (0.0, 0.0, 1.48), (0.70, 0.20, 0.80), mat,
+        2, count, objects, bevel=0.006)
+    box("MedicineMirror", (0.0, -0.112, 1.48), (0.60, 0.025, 0.68), mat,
+        8, count, objects, bevel=0.004)
+    for z in (1.24, 1.48, 1.72):
+        box("MedicineShelf%s" % str(z), (0.0, 0.02, z),
+            (0.58, 0.15, 0.04), mat, 3, count, objects, bevel=0.001)
+    box("MedicineHandle", (0.27, -0.14, 1.47), (0.045, 0.035, 0.23), mat,
+        7, count, objects, bevel=0.002)
+    return objects, (1.50, -2.05, 2.00), (0.0, 0.0, 1.48)
+
+
+def make_house_towel_rack():
+    mat, count = bathroom_expansion_material("house_towel_rack", True)
+    objects = []
+    for x in (-0.37, 0.37):
+        box("TowelBracket%s" % str(x), (x, 0.0, 1.34), (0.09, 0.16, 0.12),
+            mat, 7, count, objects, bevel=0.003)
+    box("TowelRail", (0.0, -0.08, 1.34), (0.78, 0.07, 0.07), mat, 7,
+        count, objects, bevel=0.002)
+    box("BathTowel", (0.0, -0.10, 1.06), (0.63, 0.06, 0.55), mat, 5,
+        count, objects, bevel=0.005)
+    for x in (-0.20, 0.0, 0.20):
+        box("TowelStripe%s" % str(x), (x, -0.134, 0.90), (0.05, 0.018, 0.19),
+            mat, 8, count, objects, bevel=0.001)
+    return objects, (1.50, -2.05, 1.75), (0.0, 0.0, 1.18)
+
+
+def make_house_bath_mat():
+    mat, count = bathroom_expansion_material("house_bath_mat", True)
+    objects = []
+    box("BathMat", (0.0, 0.0, 0.035), (0.92, 0.58, 0.07), mat, 5,
+        count, objects, bevel=0.012)
+    for index, x in enumerate((-0.32, -0.16, 0.0, 0.16, 0.32)):
+        box("BathMatStripe_%d" % index, (x, 0.0, 0.077),
+            (0.07, 0.48, 0.018), mat, 8 if index % 2 else 6,
+            count, objects, bevel=0.003)
+    return objects, (1.45, -1.95, 0.95), (0.0, 0.0, 0.04)
+
+
+def make_house_bathroom_shelf():
+    mat, count = bathroom_expansion_material("house_bathroom_shelf", True)
+    objects = []
+    for index, z in enumerate((1.03, 1.42, 1.81)):
+        box("BathroomShelf_%d" % index, (0.0, 0.0, z),
+            (0.86, 0.26, 0.09), mat, 2, count, objects, bevel=0.003)
+    for x in (-0.39, 0.39):
+        box("BathroomShelfRail%s" % str(x), (x, 0.08, 1.42),
+            (0.08, 0.12, 0.86), mat, 1, count, objects, bevel=0.002)
+    for index, (x, z, region) in enumerate(((-0.24, 1.15, 5),
+                                             (0.02, 1.15, 8),
+                                             (0.26, 1.15, 4),
+                                             (-0.20, 1.56, 6),
+                                             (0.18, 1.56, 9))):
+        box("BathroomBottle_%d" % index, (x, -0.02, z),
+            (0.15, 0.15, 0.22), mat, region, count, objects, bevel=0.004)
+    box("FoldedTowel", (0.0, -0.01, 1.91), (0.58, 0.20, 0.16), mat, 5,
+        count, objects, bevel=0.005)
+    return objects, (1.70, -2.30, 2.15), (0.0, 0.0, 1.42)
+
+
+def make_grand_staircase():
+    """Visible steps and landing matching FacilityView3D's smooth ramp."""
+    colors = ["2a171d", "44252d", "6f3b43", "9a5960", "c28a78", "d8b99a"]
+    mat = mansion_material("grand_staircase", colors, roughness=0.84,
+                           metallic=0.03)
+    count = len(colors)
+    objects = []
+    steps = 8
+    tread_depth = 3.60 / steps
+    for index in range(steps):
+        top = (index + 1) / steps
+        # Blender -Y exports as Godot +Z: rise from +Y toward -Y here.
+        y = 1.80 - (index + 0.5) * tread_depth
+        box("GrandStairStep_%02d" % index, (0.0, y, top * 0.5),
+            (1.60, tread_depth + 0.015, top), mat,
+            4 if index % 2 == 0 else 5, count, objects, bevel=0.006)
+
+    box("GrandStairLanding", (0.0, -2.50, 0.95), (1.60, 1.40, 0.10),
+        mat, 4, count, objects, bevel=0.008)
+    slope_angle = math.atan(1.0 / 3.60)
+    slope_length = math.sqrt(3.60 ** 2 + 1.0 ** 2)
+    for side in (-0.84, 0.84):
+        # Keep the rotated stringer just above the authored floor plane.  At
+        # 0.52 its lower corner reached -0.047 m and failed source validation.
+        box("GrandStairStringer_%s" % str(side), (side, 0.0, 0.57),
+            (0.10, slope_length, 0.14), mat, 1, count, objects,
+            bevel=0.004, rotation=(-slope_angle, 0.0, 0.0))
+        for index, y in enumerate((1.65, 0.75, -0.15, -1.05, -1.70,
+                                   -2.45, -3.12)):
+            ramp_t = max(0.0, min(1.0, (1.80 - y) / 3.60))
+            rail_base = 0.18 + ramp_t if y >= -1.80 else 1.0
+            box("GrandStairPost_%s_%d" % (str(side), index),
+                (side, y, rail_base + 0.44), (0.09, 0.09, 0.88), mat,
+                2, count, objects, bevel=0.003)
+        box("GrandStairHandrail_%s" % str(side),
+            (side, 0.0, 1.18), (0.12, slope_length, 0.12), mat,
+            3, count, objects, bevel=0.006,
+            rotation=(-slope_angle, 0.0, 0.0))
+        box("GrandLandingRail_%s" % str(side), (side, -2.50, 1.88),
+            (0.12, 1.40, 0.12), mat, 3, count, objects, bevel=0.006)
+    return objects, (4.80, 5.80, 3.70), (0.0, -0.55, 0.90)
+
+
+def make_grand_foyer_staircase():
+    """Twin walkable flights, raised gallery, columns and foyer lighting.
+
+    The composition is inspired by monumental hotel/mansion foyers: two
+    symmetrical shallow flights converge on a central balcony. Godot supplies
+    two smooth diagonal ramps under these discrete visible treads.
+    """
+    colors = ["21151a", "43262d", "70414a", "a36a66", "d0a27f",
+              "ead7b5", "7a6337", "d4b96a"]
+    mat = mansion_material("grand_foyer_staircase", colors, roughness=0.78,
+                           metallic=0.06)
+    count = len(colors)
+    objects = []
+    steps = 10
+    for side in (-1, 1):
+        for index in range(steps):
+            t = (index + 1) / steps
+            top = 1.20 * t
+            godot_z = -2.0 + (index + 0.5) * (4.0 / steps)
+            x = side * (1.65 - t * 1.0)
+            box("Foyer%sStep_%02d" % ("Left" if side < 0 else "Right", index),
+                (x, -godot_z, top * 0.5), (1.25, 0.43, top), mat,
+                4 if index % 2 == 0 else 5, count, objects, bevel=0.007)
+        # Balusters follow both edges of each flight. Chunked rails retain the
+        # block-art language while the shifted segments suggest a gentle curve.
+        for index in range(6):
+            t = index / 5.0
+            godot_z = -2.0 + t * 4.0
+            branch_x = side * (1.65 - t * 1.0)
+            height = 0.12 + t * 1.20
+            for edge in (-0.67, 0.67):
+                x = branch_x + edge
+                box("Foyer%sPost_%d_%s" % (
+                    "L" if side < 0 else "R", index, str(edge)),
+                    (x, -godot_z, height + 0.39), (0.075, 0.075, 0.78),
+                    mat, 6, count, objects, bevel=0.003)
+                if index < 5:
+                    next_t = (index + 1) / 5.0
+                    next_z = -2.0 + next_t * 4.0
+                    next_x = side * (1.65 - next_t * 1.0) + edge
+                    box("Foyer%sRail_%d_%s" % (
+                        "L" if side < 0 else "R", index, str(edge)),
+                        ((x + next_x) * 0.5, -(godot_z + next_z) * 0.5,
+                         height + 0.80),
+                        (abs(next_x - x) + 0.13, abs(next_z - godot_z) + 0.08,
+                         0.10), mat, 7, count, objects, bevel=0.005)
+
+    box("FoyerRaisedGallery", (0.0, -2.70, 1.15), (4.50, 1.40, 0.10),
+        mat, 5, count, objects, bevel=0.009)
+    # Balcony rail across the open centre, with gaps where both stairs arrive.
+    for x in (-1.85, -1.45, -1.05, 1.05, 1.45, 1.85):
+        box("GalleryBaluster_%s" % str(x), (x, -2.03, 1.61),
+            (0.07, 0.07, 0.82), mat, 6, count, objects, bevel=0.003)
+    for x in (-1.48, 1.48):
+        box("GalleryRail_%s" % str(x), (x, -2.03, 2.02),
+            (1.18, 0.10, 0.10), mat, 7, count, objects, bevel=0.005)
+
+    # Tall paired columns and a shallow arch/header make the prop read as an
+    # architectural foyer rather than two freestanding staircases.
+    for x in (-2.12, 2.12):
+        box("FoyerColumnBase_%s" % str(x), (x, -2.85, 0.16),
+            (0.48, 0.48, 0.32), mat, 4, count, objects, bevel=0.006)
+        box("FoyerColumn_%s" % str(x), (x, -2.85, 1.42),
+            (0.30, 0.30, 2.36), mat, 5, count, objects, bevel=0.008)
+        box("FoyerColumnCapital_%s" % str(x), (x, -2.85, 2.66),
+            (0.56, 0.50, 0.18), mat, 7, count, objects, bevel=0.008)
+    box("FoyerArchHeader", (0.0, -2.85, 2.72), (4.55, 0.38, 0.20),
+        mat, 5, count, objects, bevel=0.010)
+
+    # Block chandelier beneath the header, safely under the 3 m room ceiling.
+    box("FoyerChandelierStem", (0.0, -1.45, 2.46), (0.08, 0.08, 0.50),
+        mat, 6, count, objects, bevel=0.002)
+    for x, y in ((-0.30, 0.0), (0.30, 0.0), (0.0, -0.30), (0.0, 0.30)):
+        box("FoyerChandelierArm_%s_%s" % (x, y), (x, -1.45 + y, 2.20),
+            (0.50 if x else 0.08, 0.50 if y else 0.08, 0.07),
+            mat, 6, count, objects, bevel=0.003)
+        box("FoyerChandelierLamp_%s_%s" % (x, y), (x, -1.45 + y, 2.10),
+            (0.12, 0.12, 0.18), mat, 7, count, objects, bevel=0.006)
+    return objects, (6.80, 7.40, 4.90), (0.0, -0.55, 1.25)
 
 
 def make_mansion_couch_variant(model_name, colors, wide=False):
@@ -3041,6 +3782,53 @@ def point_camera(camera, target):
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
+def render_inventory_icon(name, eye, look):
+    """Render the actual authored tool against transparency for the HUD.
+
+    The output is deliberately generated from the same clean Blender source
+    as the world pickup and first-person view, so the hotbar cannot drift into
+    a separate collection of hand-painted placeholder icons.
+    """
+    world = bpy.context.scene.world or bpy.data.worlds.new("World")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs["Color"].default_value = rgba("#111823")
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.18
+
+    bpy.ops.object.light_add(type="AREA", location=(-2.2, -3.0, 3.8))
+    key = bpy.context.object
+    key.data.energy = 620.0
+    key.data.size = 2.4
+    point_camera(key, look)
+    bpy.ops.object.light_add(type="AREA", location=(2.0, -0.8, 2.0))
+    fill = bpy.context.object
+    fill.data.energy = 280.0
+    fill.data.color = (0.46, 0.62, 1.0)
+    fill.data.size = 2.0
+    point_camera(fill, look)
+
+    bpy.ops.object.camera_add(location=eye)
+    camera = bpy.context.object
+    camera.data.lens = 62
+    point_camera(camera, look)
+    bpy.context.scene.camera = camera
+
+    scene = bpy.context.scene
+    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.resolution_x = 96
+    scene.render.resolution_y = 96
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    scene.render.film_transparent = True
+    scene.render.filepath = os.path.join(INVENTORY_ICONS, name + ".png")
+    try:
+        scene.view_settings.look = "AgX - Medium High Contrast"
+    except Exception:
+        pass
+    bpy.ops.render.render(write_still=True)
+
+
 def render_preview(name, objects, eye, look, previews=PREVIEWS):
     # Preview extras are created only after saving/exporting the clean model.
     for obj in bpy.context.selected_objects:
@@ -3109,6 +3897,17 @@ BUILDERS = {
     "safe_zone": make_safe_zone,
     "lift": make_lift,
     "heater_station": make_heater_station,
+    "locked_relay_crate": make_locked_relay_crate,
+    "locked_relay_barrel": make_locked_relay_barrel,
+    "boarded_door": make_boarded_door,
+    "lockpick_set": make_lockpick_set,
+    "crowbar": make_crowbar,
+    "rescue_axe": make_rescue_axe,
+    "flashlight_item": make_flashlight_item,
+    "taser_item": make_taser_item,
+    "boarded_hallway": make_boarded_hallway,
+    "service_ladder": make_service_ladder,
+    "wall_light_switch": make_wall_light_switch,
 }
 
 MAZE_BUILDERS = {
@@ -3162,6 +3961,37 @@ MANSION_BUILDERS = {
     "bathroom_sink": make_bathroom_sink,
     "bathroom_mirror": make_bathroom_mirror,
     "bathroom_vanity": make_bathroom_vanity,
+    "public_restroom_toilet": lambda: make_restroom_toilet(
+        "public_restroom_toilet", False),
+    "public_mens_urinal": make_public_mens_urinal,
+    "public_sink_bank": make_public_sink_bank,
+    "public_hand_dryer": lambda: make_public_wall_utility(
+        "public_hand_dryer", "dryer"),
+    "public_soap_dispenser": lambda: make_public_wall_utility(
+        "public_soap_dispenser", "soap"),
+    "public_paper_towel_dispenser": lambda: make_public_wall_utility(
+        "public_paper_towel_dispenser", "paper"),
+    "public_baby_change_station": lambda: make_public_wall_utility(
+        "public_baby_change_station", "change"),
+    "public_sanitary_bin": make_public_sanitary_bin,
+    "public_mens_room_sign": lambda: make_restroom_sign(
+        "public_mens_room_sign", False),
+    "public_womens_room_sign": lambda: make_restroom_sign(
+        "public_womens_room_sign", True),
+    "public_mens_shower_stall": lambda: make_public_shower_stall(
+        "public_mens_shower_stall", False),
+    "public_womens_shower_stall": lambda: make_public_shower_stall(
+        "public_womens_shower_stall", True),
+    "public_shower_bench": make_public_shower_bench,
+    "house_bathtub": make_house_bathtub,
+    "house_toilet": lambda: make_restroom_toilet("house_toilet", True),
+    "house_shower_enclosure": make_house_shower_enclosure,
+    "house_medicine_cabinet": make_house_medicine_cabinet,
+    "house_towel_rack": make_house_towel_rack,
+    "house_bath_mat": make_house_bath_mat,
+    "house_bathroom_shelf": make_house_bathroom_shelf,
+    "grand_staircase": make_grand_staircase,
+    "grand_foyer_staircase": make_grand_foyer_staircase,
     "ornate_sideboard": make_ornate_sideboard,
     "table_candelabra": make_table_candelabra,
     "flower_centerpiece": make_flower_centerpiece,
@@ -3340,6 +4170,9 @@ for model_name, builder in BUILDERS.items():
     clear_scene()
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects)
+    if model_name in {"flashlight_item", "taser_item", "lockpick_set",
+                      "crowbar", "rescue_axe"}:
+        render_inventory_icon(model_name, eye, look)
     render_preview(model_name, export_objects, eye, look)
     print("BUILT", model_name, len(export_objects))
 

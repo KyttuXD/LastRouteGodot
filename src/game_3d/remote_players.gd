@@ -90,6 +90,9 @@ func _local_state() -> Dictionary:
 		"sprinting": controller.movement_mode == "sprint" and controller.noise > 0.0,
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
+		"selected_item": controller.selected_inventory_item(),
+		"owned_items": controller.inventory_owned_snapshot(),
+		"item_durability": controller.inventory_durability_snapshot(),
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -462,7 +465,14 @@ func _submit_hunter_event(event: Dictionary) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
-	if sender <= 1 or not ["escaped", "caught", "capture_blocked"].has(what):
+	if sender <= 1:
+		return
+	# A taser packet is only an intent. Position, facing, target, cooldown and
+	# line of sight all come from host-owned state in main_3d.
+	if what == "taser":
+		hunter_event.emit({"what": "taser", "peer_id": sender})
+		return
+	if not ["escaped", "caught", "capture_blocked"].has(what):
 		return
 	# Only a peer which the host actually captured may resolve that capture.
 	# This also turns the report into a one-shot message.

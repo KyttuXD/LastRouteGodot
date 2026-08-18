@@ -49,9 +49,10 @@ const SIZES := [
 ## scene -> node -> which edges it must stay glued to.
 const ANCHORED := {
 	"res://scenes/hud.tscn": {
-		"ObjectivePanel": ["left", "bottom"],
+		"ObjectivePanel": ["right", "top"],
 		"MetersPanel": ["left", "right", "bottom"],
-		"ControlsLabel": ["left", "top"],
+		"FpsLabel": ["left", "top"],
+		"HotbarPanel": ["hcentre", "bottom"],
 		"InteractionLabel": ["hcentre", "bottom"],
 		"MessageLabel": ["hcentre", "top"],
 		"MapOverlay": ["hcentre", "vcentre"],
@@ -66,6 +67,9 @@ const ANCHORED := {
 		"ButtonPanel": ["hcentre", "vcentre"],
 		"VersionLabel": ["hcentre", "bottom"],
 		"SettingsOverlay": ["hcentre", "vcentre"],
+	},
+	"res://scenes/boot_loading.tscn": {
+		"BootLoadingPanel": ["hcentre", "vcentre"],
 	},
 	# Staging is built in code and grows with the room, so it is exactly the
 	# screen most likely to push its own start button off the bottom.
@@ -119,7 +123,7 @@ func _check_scene(path: String) -> int:
 	var scene: Node = packed.instantiate()
 	# The real loading scene immediately requests the gameplay PackedScene. Keep
 	# it on this screen while its layout and state contract are inspected.
-	if path == "res://scenes/route_loading.tscn":
+	if path in ["res://scenes/route_loading.tscn", "res://scenes/boot_loading.tscn"]:
 		scene.set("auto_start", false)
 	_root().add_child(scene)
 	if path == "res://scenes/run_report.tscn":
@@ -168,6 +172,8 @@ func _check_scene(path: String) -> int:
 		failures += await _check_room_lobby_contract(scene)
 	elif path == "res://scenes/route_loading.tscn":
 		failures += await _check_route_loading_contract(scene)
+	elif path == "res://scenes/boot_loading.tscn":
+		failures += await _check_boot_loading_contract(scene)
 	elif path == "res://scenes/run_report.tscn":
 		failures += await _check_run_report_contract(scene)
 
@@ -182,9 +188,12 @@ func _check_scene(path: String) -> int:
 func _check_route_loading_contract(scene: Node) -> int:
 	var failures := 0
 	for node_name in ["OuterFrame", "InnerFrame", "RouteSeedLabel", "RouteConfigurationLabel",
-			"RouteLoadProgress", "RouteTipLabel", "RouteLoadPhase"]:
+			"RouteLoadProgress", "RouteLoadPhase"]:
 		if scene.find_child(node_name, true, false) == null:
 			failures += _fail("route loading screen is missing %s" % node_name)
+	if scene.find_child("TipPanel", true, false) != null \
+			or scene.find_child("RouteTipLabel", true, false) != null:
+		failures += _fail("route loading screen still contains field notes")
 	for frame_name in ["OuterFrame", "InnerFrame"]:
 		var frame := scene.find_child(frame_name, true, false) as Control
 		if frame != null and (frame.anchor_left != 0.0 or frame.anchor_top != 0.0
@@ -211,6 +220,31 @@ func _check_route_loading_contract(scene: Node) -> int:
 	scene.call("dismiss")
 	if scene.visible:
 		failures += _fail("accepted route loading screen did not dismiss")
+	return failures
+
+
+func _check_boot_loading_contract(scene: Node) -> int:
+	var failures := 0
+	for node_name in ["OuterFrame", "InnerFrame", "BootTitle", "BootProgress",
+			"BootPhase", "BootStatus", "RetryUpdateButton", "ContinueOfflineButton"]:
+		if scene.find_child(node_name, true, false) == null:
+			failures += _fail("boot loading screen is missing %s" % node_name)
+	var panel := scene.find_child("BootLoadingPanel", true, false) as Control
+	if panel == null or not _root().get_visible_rect().encloses(
+			Rect2(panel.global_position, panel.size)):
+		failures += _fail("boot loading panel spills outside the viewport")
+	var retry := scene.find_child("RetryUpdateButton", true, false) as Button
+	var continue_button := scene.find_child("ContinueOfflineButton", true, false) as Button
+	scene.call("_show_retry", "UPDATE CHECK REQUIRED", false)
+	await _frame()
+	if retry == null or not retry.visible:
+		failures += _fail("mandatory startup update failure has no retry action")
+	if continue_button != null and continue_button.visible:
+		failures += _fail("mandatory startup update gate can be bypassed")
+	scene.call("_show_retry", "OPTIONAL UPDATE FAILED", true)
+	await _frame()
+	if continue_button == null or not continue_button.visible:
+		failures += _fail("ordinary startup update failure cannot continue offline")
 	return failures
 
 
@@ -373,6 +407,22 @@ func _check_main_menu_contract(scene: Node) -> int:
 
 	# Failed account requests must remain readable. This used to rebuild the
 	# dialog on every account signal, erasing the server error one frame later.
+	# Isolate this from a developer's persisted local login/custom-host state;
+	# validation must always exercise the signed-out primary-host form.
+	var account_before := {
+		"username": Backend.account_username,
+		"token": Backend.account_session_token,
+		"admin": Backend.account_admin,
+		"verified": Backend.account_session_verified,
+		"progress": Backend.account_progress.duplicate(true),
+		"saved_at": Backend.account_progress_saved_at,
+		"base_url": Backend.base_url,
+	}
+	Backend.account_username = ""
+	Backend.account_session_token = ""
+	Backend.account_admin = false
+	Backend.account_session_verified = false
+	Backend.base_url = Backend.PRIMARY_BASE_URL
 	scene.call("_on_account_pressed")
 	await _frame()
 	var login_button := scene.find_child("AccountLoginButton", true, false) as Button
@@ -414,14 +464,6 @@ func _check_main_menu_contract(scene: Node) -> int:
 
 	# The signed-in card gains three actions when a checkpoint exists; make
 	# sure that state both renders and remains inside the modal frame.
-	var account_before := {
-		"username": Backend.account_username,
-		"token": Backend.account_session_token,
-		"admin": Backend.account_admin,
-		"verified": Backend.account_session_verified,
-		"progress": Backend.account_progress.duplicate(true),
-		"saved_at": Backend.account_progress_saved_at,
-	}
 	Backend.account_username = "RUNNER_TEST"
 	Backend.account_session_token = "validation-token"
 	Backend.account_admin = false
@@ -464,6 +506,7 @@ func _check_main_menu_contract(scene: Node) -> int:
 	Backend.account_session_verified = account_before["verified"]
 	Backend.account_progress = account_before["progress"]
 	Backend.account_progress_saved_at = account_before["saved_at"]
+	Backend.base_url = account_before["base_url"]
 	await _frame()
 	return failures
 

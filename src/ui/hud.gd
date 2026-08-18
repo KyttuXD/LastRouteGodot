@@ -54,18 +54,81 @@ func trigger_static(duration: float, intensity: float = 0.75) -> void:
 @onready var escape_overlay: Control = %EscapeOverlay
 @onready var escape_progress_bar: ProgressBar = %EscapeProgressBar
 @onready var escape_time_bar: ProgressBar = %EscapeTimeBar
+@onready var flashlight_slot: PanelContainer = %FlashlightSlot
+@onready var taser_slot: PanelContainer = %TaserSlot
+@onready var lockpick_slot: PanelContainer = %LockpickSlot
+@onready var crowbar_slot: PanelContainer = %CrowbarSlot
+@onready var rescue_axe_slot: PanelContainer = %RescueAxeSlot
+@onready var flashlight_caption: Label = %FlashlightCaption
+@onready var taser_caption: Label = %TaserCaption
+@onready var lockpick_caption: Label = %LockpickCaption
+@onready var crowbar_caption: Label = %CrowbarCaption
+@onready var rescue_axe_caption: Label = %RescueAxeCaption
+@onready var compact_status_label: Label = %CompactStatusLabel
+@onready var fps_label: Label = %FpsLabel
 
 var _message_time_left := 0.0
+var _fps_update_left := 0.0
+var _lamp_percent := 100
+var _stamina_percent := 100
 
 
 func _process(delta: float) -> void:
 	_message_time_left = maxf(0.0, _message_time_left - delta)
 	message_label.visible = _message_time_left > 0.0
+	_fps_update_left -= delta
+	if _fps_update_left <= 0.0:
+		_fps_update_left = .25
+		fps_label.text = "FPS %d" % Engine.get_frames_per_second()
 
 
 func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
 	depth_label.text = "DEPTH %02d" % depth
 	relay_label.text = "%d/%d SIGNAL RELAYS" % [relays_collected, relay_target]
+
+
+func update_inventory(selected_item: String, taser_cooldown: float,
+		durability: Dictionary = {}, owned: Dictionary = {}) -> void:
+	var slots := {
+		"flashlight": flashlight_slot, "taser": taser_slot,
+		"lockpick": lockpick_slot, "crowbar": crowbar_slot,
+		"rescue_axe": rescue_axe_slot,
+	}
+	for item_id in slots:
+		var slot := slots[item_id] as PanelContainer
+		var has_item := bool(owned.get(item_id, false))
+		slot.add_theme_stylebox_override("panel", _hotbar_slot_style(
+			selected_item == item_id and has_item))
+		slot.modulate = Color.WHITE if has_item else Color(0.24, 0.27, 0.28, .42)
+	flashlight_caption.text = "1"
+	taser_caption.text = "2\n%.1f" % taser_cooldown if taser_cooldown > .05 else "2"
+	lockpick_caption.text = "3  %d" % int(durability.get("lockpick", 0))
+	crowbar_caption.text = "4  %d" % int(durability.get("crowbar", 0))
+	rescue_axe_caption.text = "5  %d" % int(durability.get("rescue_axe", 0))
+
+
+func _hotbar_slot_style(selected: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.065, 0.075, .94)
+	var width := 2 if selected else 1
+	style.set_border_width_all(width)
+	style.border_color = Palette.AMBER if selected else Color(0.28, 0.34, 0.35, .92)
+	style.corner_radius_top_left = 1
+	style.corner_radius_top_right = 1
+	style.corner_radius_bottom_left = 1
+	style.corner_radius_bottom_right = 1
+	return style
+
+
+func _refresh_compact_status() -> void:
+	compact_status_label.text = "LAMP %s %3d%%   STAMINA %s %3d%%" % [
+		_meter_ticks(_lamp_percent), _lamp_percent,
+		_meter_ticks(_stamina_percent), _stamina_percent]
+
+
+func _meter_ticks(value: int) -> String:
+	var filled := clampi(roundi(float(value) / 10.0), 0, 10)
+	return "[" + "#".repeat(filled) + "-".repeat(10 - filled) + "]"
 
 
 func set_escape_active(active: bool) -> void:
@@ -81,6 +144,8 @@ func update_escape(progress: int, required: int, remaining: float, duration: flo
 
 func update_battery(charge: float, flashlight_enabled: bool, in_safe_zone: bool, movement_mode: String) -> void:
 	var rounded := int(round(charge))
+	_lamp_percent = clampi(rounded, 0, 100)
+	_refresh_compact_status()
 	battery_bar.value = clampf(charge, 0.0, 100.0)
 	var fill := battery_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if rounded < 22:
@@ -100,6 +165,8 @@ func update_battery(charge: float, flashlight_enabled: bool, in_safe_zone: bool,
 
 func update_stamina(stamina: float, exhausted: bool) -> void:
 	var rounded := int(round(stamina))
+	_stamina_percent = clampi(rounded, 0, 100)
+	_refresh_compact_status()
 	stamina_bar.value = clampf(stamina, 0.0, 100.0)
 	var fill := stamina_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if exhausted:

@@ -113,7 +113,7 @@ func get_interaction_prompt() -> String:
 	if target == null:
 		return ""
 	var prompt: String = target.get_prompt()
-	return "[E] %s" % prompt if not prompt.is_empty() else ""
+	return prompt
 
 
 func _try_interact() -> void:

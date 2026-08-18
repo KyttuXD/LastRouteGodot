@@ -16,10 +16,11 @@ const DEFAULT_VOLUME_PERCENT := 100.0
 ## read this rather than each carrying a constant, so one slider moves the maze
 ## and the office together -- they were 0.0035 and 0.0022, which felt like two
 ## different games.
-## 0.0030 read as sluggish in play; 0.0050 is what felt right at the desk.
+## 0.0030-0.0050 still read as sluggish in play; 0.0075 is the fresh-install
+## baseline while preserving a broad accessibility range.
 ## The slider still spans 0.0005..0.0120, so this only moves where a fresh
 ## install starts.
-const DEFAULT_MOUSE_SENSITIVITY := 0.0050
+const DEFAULT_MOUSE_SENSITIVITY := 0.0075
 const MIN_MOUSE_SENSITIVITY := 0.0005
 const MAX_MOUSE_SENSITIVITY := 0.0120
 const MIN_VOLUME_DB := -80.0
@@ -42,7 +43,7 @@ const WINDOW_SCREEN_SHARE := 0.85
 ## rebindable — it's a fixed 1-8 hotbar, same as the original.
 const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
-	"sprint", "crouch", "jump", "flashlight", "interact",
+	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
 	"toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",

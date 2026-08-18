@@ -55,6 +55,8 @@ func run(host: Node) -> int:
 	_hunter_state_travels(alice, bob)
 	_gimmick_state_travels()
 	print("  hunters   active/state/facing and interaction state replicate from the host")
+	_taser_is_host_authoritative(alice)
+	print("  taser     host validates aim and applies the replicated hunter stun")
 	_target_selection(alice)
 	print("  targeting the closest available remote runner can be chased safely")
 	_targeted_outcomes(bob)
@@ -91,6 +93,8 @@ func _same_facility(alice: Node, bob: Node) -> void:
 		"two peers put their relays on different cells")
 	_expect(_cells(a.batteries) == _cells(b.batteries),
 		"two peers put their batteries on different cells")
+	_expect(a.place_boarded_paths() == b.place_boarded_paths(),
+		"two peers generated different boarded room thresholds")
 
 
 func _cells(entries: Array) -> Array:
@@ -109,6 +113,33 @@ func _spawn_points_separate(scene: Node) -> void:
 		"the first network spawn is not on an open floor cell")
 	_expect(scene.facility_view.generator.is_floor(second.x, second.z),
 		"the second network spawn is not on an open floor cell")
+
+
+func _taser_is_host_authoritative(scene: Node) -> void:
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var firing_cell := Vector2i(-1, -1)
+	for cell in generator.floor_cells():
+		if generator.is_floor(cell.x + 1.5, cell.y + .5):
+			firing_cell = cell
+			break
+	if firing_cell.x < 0:
+		_fail("no adjacent open cells exist for the taser line-of-sight check")
+		return
+	var hunter: HunterView3D = scene.hunter_view
+	scene.player.global_position = Vector3(firing_cell.x + .5,
+		scene.player.global_position.y, firing_cell.y + .5)
+	scene.player.facing = Vector2(1, 0)
+	hunter.brain.position = Vector2(firing_cell) + Vector2(1.5, .5)
+	hunter.brain.active = true
+	hunter.brain.stun_timer = 0.0
+	scene._taser_ready_usec_by_peer.clear()
+	scene._resolve_taser_request(1)
+	_expect(is_equal_approx(hunter.brain.stun_timer, GameConfig.TASER_STUN_SECONDS),
+		"an aimed in-range taser request did not stun the authoritative hunter")
+	var first_stun := hunter.brain.stun_timer
+	scene._resolve_taser_request(1)
+	_expect(is_equal_approx(hunter.brain.stun_timer, first_stun),
+		"the host accepted a second taser request during cooldown")
 
 
 ## A relay collected on one peer leaves the floor on the other, and counts once.
@@ -401,6 +432,8 @@ func _hunter_state_travels(alice: Node, bob: Node) -> void:
 	source.brain.state = HunterBrain.State.CHASE
 	source.brain.position += Vector2(1.25, 0.75)
 	source.brain.facing = Vector2(1, 0)
+	source.brain.stun_timer = 1.25
+	source.target_peer_id = 77
 	alice._collect_hunter_report()
 	bob._apply_hunters(alice._hunter_report)
 	var copy: HunterView3D = bob._find_hunter(source.brain.hunter_id)
@@ -415,6 +448,10 @@ func _hunter_state_travels(alice: Node, bob: Node) -> void:
 			% [copy.brain.position, source.brain.position])
 	_expect(copy.brain.facing.is_equal_approx(source.brain.facing),
 		"the other peer lost the hunter's facing")
+	_expect(is_equal_approx(copy.brain.stun_timer, source.brain.stun_timer),
+		"the other peer did not receive the hunter's stun reaction timer")
+	_expect(copy.target_peer_id == source.target_peer_id,
+		"the other peer did not receive the hunter's pursued-player id")
 
 
 func _gimmick_state_travels() -> void:
@@ -551,11 +588,57 @@ func _authoritative_world_request(scene: Node) -> void:
 	_expect(GameState.coins == GameConfig.COIN_PICKUP_VALUE,
 		"the host awarded the same guest pickup twice")
 
+	var locked := _first_locked(scene)
+	if locked == null:
+		_fail("no locked relay cache exists for host-authority validation")
+	else:
+		scene._remotes._states[2]["position"] = Vector2(locked.source_cell) + Vector2(.5, .5)
+		scene._remotes._states[2]["selected_item"] = "flashlight"
+		var locked_request := {"what": "pickup", "cell": locked.source_cell,
+			"kind": int(RouteInteractable3D.Kind.RELAY), "locked_cache": true,
+			"tool": "lockpick"}
+		scene._apply_world_request(2, locked_request)
+		_expect(not locked.completed,
+			"host accepted a locked-cache request without the tool selected")
+		scene._remotes._states[2]["selected_item"] = "lockpick"
+		scene._remotes._states[2]["owned_items"] = {"lockpick": true}
+		scene._remotes._states[2]["item_durability"] = {"lockpick": 12}
+		scene._apply_world_request(2, locked_request)
+		_expect(locked.completed,
+			"host rejected a valid lockpick request for a relay cache")
+
+	var barrier := _first(scene, RouteInteractable3D.Kind.BOARDED_PATH)
+	if barrier == null:
+		_fail("no boarded path exists for host-authority validation")
+	else:
+		scene._remotes._states[2]["position"] = Vector2(barrier.source_cell) + Vector2(.5, .5)
+		scene._remotes._states[2]["selected_item"] = "lockpick"
+		var breach_request := {"what": "boarded_path", "cell": barrier.source_cell,
+			"opened": true, "tool": "crowbar"}
+		scene._apply_world_request(2, breach_request)
+		_expect(not barrier.opened,
+			"host accepted a boarded-path request with the wrong selected tool")
+		scene._remotes._states[2]["selected_item"] = "crowbar"
+		scene._remotes._states[2]["owned_items"] = {"crowbar": true}
+		scene._remotes._states[2]["item_durability"] = {"crowbar": 40}
+		scene._apply_world_request(2, breach_request)
+		_expect(barrier.opened,
+			"host rejected a valid crowbar request for a boarded path")
+
 
 func _first(scene: Node, kind: RouteInteractable3D.Kind) -> RouteInteractable3D:
 	for child in scene.facility_view.get_children():
 		var item := child as RouteInteractable3D
 		if item and item.kind == kind and not item.completed:
+			return item
+	return null
+
+
+func _first_locked(scene: Node) -> RouteInteractable3D:
+	for child in scene.facility_view.get_children():
+		var item := child as RouteInteractable3D
+		if item and item.kind == RouteInteractable3D.Kind.RELAY \
+				and item.locked_cache and not item.completed:
 			return item
 	return null
 

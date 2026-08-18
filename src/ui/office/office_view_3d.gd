@@ -426,9 +426,9 @@ func _control_hint() -> String:
 		# that cannot be discovered may as well not exist, and this one gates
 		# the whole walkable half of the mode.
 		if _walker != null and _walker.seated:
-			return "[E] STAND  //  CLICK A CONTROL"
+			return "STAND  //  CLICK A CONTROL"
 		if _walker != null and _walker.can_sit():
-			return "[E] SIT AT THE DESK"
+			return "SIT AT THE DESK"
 		return ""
 	var name := _hovered.substr(5)
 	var label := String(CONTROL_LABELS.get(name, name.to_upper()))

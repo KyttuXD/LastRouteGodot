@@ -10,6 +10,7 @@ extends Node3D
 ## 1 grid cell = 1 meter, ground plane is XZ (Godot is Y-up).
 
 const CELL_SIZE := 1.0
+const LADDER_SCRIPT := preload("res://src/game_3d/climbable_ladder_3d.gd")
 ## Dedicated single-purpose block textures (Minecraft/Hytale block-format
 ## style: one small texture per block, no shared atlas to crop), cropped
 ## once from the wider environment kit sheet by
@@ -26,6 +27,30 @@ const SLAB := 0.1
 const ITEM_FLOOR := 0
 const ITEM_WALL := 1
 const ITEM_CEILING := 2
+
+## One-metre mezzanine reached over a shallow 3.6 m run. The visible GLB has
+## discrete steps; physics uses one continuous ramp so neither keyboard nor XR
+## players need to bunny-hop risers. Hunters read the same profile below.
+const STAIR_WIDTH := 1.60
+const STAIR_RUN := 3.60
+const STAIR_RISE := 1.0
+const STAIR_RAMP_CENTER_Z := 0.0
+const STAIR_LANDING_DEPTH := 1.40
+const STAIR_LANDING_CENTER_Z := STAIR_RUN * .5 + STAIR_LANDING_DEPTH * .5
+const STAIR_COLLISION_THICKNESS := .10
+
+## Symmetrical mansion foyer: two shallow diagonal flights converge on one
+## broad raised gallery. Visible treads/rails are authored in the GLB; these
+## dimensions are the smooth walkable surfaces used by players and hunters.
+const FOYER_STAIR_WIDTH := 1.25
+const FOYER_STAIR_RISE := 1.20
+const FOYER_LEFT_START := Vector2(-1.65, -2.0)
+const FOYER_LEFT_END := Vector2(-0.65, 2.0)
+const FOYER_RIGHT_START := Vector2(1.65, -2.0)
+const FOYER_RIGHT_END := Vector2(0.65, 2.0)
+const FOYER_GALLERY_WIDTH := 4.50
+const FOYER_GALLERY_DEPTH := 1.40
+const FOYER_GALLERY_CENTER_Z := 2.70
 
 ## Per-region floor tints, keyed by the same region names CustomMapParser's
 ## paint palette uses. Real, bespoke floor art per theme (a mansion's own
@@ -53,6 +78,21 @@ const REGION_FLOOR_TINTS := {
 }
 ## region name -> GridMap item id, filled in by _build_mesh_library().
 var _region_floor_items := {}
+var _region_wall_items := {}
+const REGION_FLOOR_REPEAT := {
+	"mansion": Vector3(2.0, 2.0, 2.0), "bedroom": Vector3(2.0, 2.0, 2.0),
+	"beach": Vector3(1.0, 1.0, 1.0), "office": Vector3(1.0, 1.0, 1.0),
+	"maintenance": Vector3(1.5, 1.5, 1.5), "arcade": Vector3(2.0, 2.0, 2.0),
+	"circus": Vector3(2.0, 2.0, 2.0), "nether": Vector3(1.0, 1.0, 1.0),
+	"garden": Vector3(1.5, 1.5, 1.5),
+}
+const REGION_WALL_TINTS := {
+	"mansion": Color("4c342d"), "bedroom": Color("493747"),
+	"beach": Color("61747b"), "office": Color("394958"),
+	"maintenance": Color("5a4930"), "arcade": Color("523956"),
+	"circus": Color("633b46"), "nether": Color("4f2626"),
+	"garden": Color("354b37"),
+}
 
 var generator: FacilityGenerator
 
@@ -63,6 +103,8 @@ var _grid_map: GridMap
 var _ceiling_map: GridMap
 var _interactables: Array = []
 var _room_prop_nodes: Array = []
+var _stair_nodes: Array[Node3D] = []
+var _room_lights := {}
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
 ## Glyra's counterplay, read by GlyraGimmick each frame the same way Wynelle's
@@ -141,19 +183,39 @@ func _paint_grid() -> void:
 		for x in generator.cols:
 			var open: bool = generator.grid[y][x] == 0
 			var floor_item := ITEM_FLOOR
+			var wall_item := ITEM_WALL
 			if open and has_regions:
 				var room := generator.room_at(x + 0.5, y + 0.5)
 				var region := String(room.get("region", ""))
 				if _region_floor_items.has(region):
 					floor_item = _region_floor_items[region]
+			elif not open and has_regions:
+				var wall_region := _region_next_to_wall(x, y)
+				if _region_wall_items.has(wall_region):
+					wall_item = _region_wall_items[wall_region]
 			_grid_map.set_cell_item(Vector3i(x, 0, y),
-				floor_item if open else ITEM_WALL)
+				floor_item if open else wall_item)
 			# The maze had no lid at all, so corridors opened onto the void and
 			# lost every bounce of light. Only open cells need one -- a wall
 			# already fills its cell to the ceiling. A GridMap cell holds one
 			# item, so the lid lives a layer up.
 			if open:
 				_ceiling_map.set_cell_item(Vector3i(x, 1, y), ITEM_CEILING)
+
+
+func _region_next_to_wall(x: int, y: int) -> String:
+	for step_value in FacilityGenerator.DIRECTIONS4:
+		var step: Vector2i = step_value
+		var cell: Vector2i = Vector2i(x, y) + step
+		if cell.x < 0 or cell.y < 0 or cell.x >= generator.cols or cell.y >= generator.rows:
+			continue
+		if generator.grid[cell.y][cell.x] != 0:
+			continue
+		var room := generator.room_at(cell.x + .5, cell.y + .5)
+		var region := String(room.get("region", ""))
+		if not region.is_empty():
+			return region
+	return ""
 
 
 ## Lift the lid for the top-down view.
@@ -171,9 +233,24 @@ func _spawn_interactables() -> void:
 	for node in _interactables:
 		node.queue_free()
 	_interactables.clear()
+	for light_data in _room_lights.values():
+		var old_light := light_data.get("light") as OmniLight3D
+		if old_light:
+			old_light.queue_free()
+	_room_lights.clear()
 
-	for relay in generator.relays:
-		_spawn_interactable(RouteInteractable3D.Kind.RELAY, Vector2i(relay["x"], relay["y"]), "RECOVER SIGNAL RELAY")
+	var cache_count := clampi(roundi(generator.relays.size() *
+		GameConfig.LOCKED_RELAY_CACHE_RATIO), 1, maxi(1, generator.relays.size() - 1))
+	for relay_index in generator.relays.size():
+		var relay: Dictionary = generator.relays[relay_index]
+		var relay_node := _spawn_interactable(RouteInteractable3D.Kind.RELAY,
+			Vector2i(relay["x"], relay["y"]), "RECOVER SIGNAL RELAY")
+		# Keep the earliest relay entries ordinary: hunter fixtures and legacy
+		# saved routes use the first relay as their stable reference point.
+		if relay_index >= generator.relays.size() - cache_count:
+			var style := "barrel" if abs((generator.seed_text + str(relay_index)).hash()) % 2 == 0 \
+				else "crate"
+			relay_node.configure_locked_cache(style)
 	for battery in generator.batteries:
 		_spawn_interactable(RouteInteractable3D.Kind.BATTERY, Vector2i(battery["x"], battery["y"]), "COLLECT BATTERY")
 	for zone in generator.safe_zones:
@@ -200,12 +277,142 @@ func _spawn_interactables() -> void:
 		var node := _spawn_interactable(RouteInteractable3D.Kind.VENT,
 			Vector2i(vent["x"], vent["y"]), "ENTER VENT")
 		node.vent_id = String(vent["id"])
+		if String(vent.get("mount", "floor")) == "wall":
+			var wall_direction: Vector2i = vent.get("wall_dir", Vector2i(0, -1))
+			# The authored grate lies on XZ. Tip it upright, move it close to the
+			# selected wall, and keep its bottom at knee height rather than the
+			# old centre-of-room floor position.
+			node.position += Vector3(wall_direction.x * .43, .42,
+				wall_direction.y * .43)
+			node.rotation = Vector3(PI * .5,
+				atan2(float(wall_direction.x), float(wall_direction.y)), 0.0)
+			node.set_meta("vent_mount", "low_wall")
+		else:
+			node.set_meta("vent_mount", "floor")
 	# Zephyra's economy. Placed last so it reads generator.vents (already
 	# built above) and avoids landing on a vent grate, the same collision
 	# avoidance relays/batteries/safe_zones/hiding_spots already get.
 	for coin in generator.place_coins(GameConfig.COIN_PICKUP_COUNT):
 		_spawn_interactable(RouteInteractable3D.Kind.COIN,
 			Vector2i(coin["x"], coin["y"]), "COLLECT COINS")
+	_spawn_tool_pickups()
+	_spawn_room_lights()
+	# Boarded room thresholds come last so their cells can be checked against
+	# every pickup and fixture placed above. A rejected candidate simply leaves
+	# that room open; route-critical objectives are never overlapped.
+	var taken := _taken_cells()
+	var boarded_spawned := 0
+	for barrier in generator.place_boarded_paths(GameConfig.BOARDED_PATH_COUNT * 3):
+		var cell := Vector2i(barrier["x"], barrier["y"])
+		if taken.has(cell):
+			continue
+		var node := _spawn_interactable(RouteInteractable3D.Kind.BOARDED_PATH,
+			cell, "BREACH BOARDED PATH")
+		var direction: Vector2i = barrier.get("dir", Vector2i(0, -1))
+		node.rotation.y = PI * .5 if direction.x != 0 else 0.0
+		node.set_meta("boarded_room", String(barrier.get("room_type", "")))
+		boarded_spawned += 1
+		if boarded_spawned >= GameConfig.BOARDED_PATH_COUNT:
+			break
+	# The hallway variant spans the full 3x3 corridor rather than reading as a
+	# one-metre door floating in the middle of a broad passage.
+	for barrier in generator.place_boarded_hallways(1):
+		var cell := Vector2i(int(barrier["x"]), int(barrier["y"]))
+		if _taken_cells().has(cell):
+			continue
+		var node := _spawn_interactable(RouteInteractable3D.Kind.BOARDED_PATH,
+			cell, "BREACH HALLWAY BARRICADE")
+		node.configure_boarded_variant("hallway")
+		if String(barrier.get("orientation", "vertical")) == "horizontal":
+			node.rotation.y = PI * .5
+		node.set_meta("boarded_hallway", true)
+
+
+## One authored pickup for every inventory slot, distributed deterministically
+## across reachable floor cells. A room therefore starts with empty hands but
+## every tool exists somewhere on the route. Equipment pickups are personal:
+## one runner cannot remove the only flashlight from every other runner's map.
+func _spawn_tool_pickups() -> void:
+	var available: Array = generator.floor_cells()
+	var taken := _taken_cells()
+	for index in range(available.size() - 1, -1, -1):
+		var cell: Vector2i = available[index]
+		if taken.has(cell) or cell.distance_to(generator.start) < 3.0 \
+				or not generator.can_occupy(cell.x + .5, cell.y + .5):
+			available.remove_at(index)
+	var rng := SeededRandom.new("%s:EQUIPMENT-PICKUPS" % generator.seed_text)
+	for item_id in PlayerController3D.INVENTORY_ITEMS:
+		if available.is_empty():
+			push_error("NO FREE CELL FOR EQUIPMENT PICKUP // %s" % item_id)
+			break
+		var chosen_index := rng.next_index(available.size())
+		var cell: Vector2i = available[chosen_index]
+		available.remove_at(chosen_index)
+		var pickup := _spawn_interactable(RouteInteractable3D.Kind.TOOL_PICKUP,
+			cell, "COLLECT EQUIPMENT")
+		pickup.configure_tool_pickup(item_id)
+
+
+func _spawn_room_lights() -> void:
+	var candidates: Array = []
+	for room in generator.rooms:
+		if String(room.get("id", "")) != "room-lobby" \
+				and int(room.get("width", 0)) >= 5 and int(room.get("height", 0)) >= 5:
+			candidates.append(room)
+	var rng := SeededRandom.new("%s:TOGGLEABLE-ROOM-LIGHTS" % generator.seed_text)
+	var count := mini(3, candidates.size())
+	for index in count:
+		var chosen := rng.next_index(candidates.size())
+		var room: Dictionary = candidates[chosen]
+		candidates.remove_at(chosen)
+		var id := "room-light-%s" % String(room.get("id", index))
+		var center: Vector2i = room.get("center", Vector2i(
+			int(room["x"]) + int(room["width"]) / 2,
+			int(room["y"]) + int(room["height"]) / 2))
+		var light := OmniLight3D.new()
+		light.name = id.to_pascal_case()
+		light.position = cell_to_world(center) + Vector3(0, WALL_HEIGHT - .34, 0)
+		light.light_color = _room_light_color(String(room.get("region", "")))
+		light.light_energy = 1.25
+		light.omni_range = clampf(mini(int(room["width"]), int(room["height"])) * .55,
+			3.5, 6.0)
+		add_child(light)
+		var switch_cell := Vector2i(int(room["x"]) + 1, int(room["y"]) + 1)
+		if _taken_cells().has(switch_cell):
+			switch_cell = center
+		var switch := _spawn_interactable(RouteInteractable3D.Kind.LIGHT_SWITCH,
+			switch_cell, "TOGGLE ROOM LIGHT")
+		switch.position += Vector3(0, .9, -.34)
+		switch.configure_room_light(id, true, _set_room_light.bind(id))
+		_room_lights[id] = {"light": light, "switch": switch, "enabled": true}
+
+
+func _room_light_color(region: String) -> Color:
+	match region:
+		"maintenance": return Color("f0a65a")
+		"arcade", "circus": return Color("ba83e8")
+		"garden": return Color("88d39a")
+		"nether": return Color("e16a52")
+		_: return Color("d9e3d4")
+
+
+func _set_room_light(enabled: bool, id: String) -> String:
+	var data: Dictionary = _room_lights.get(id, {})
+	var light := data.get("light") as OmniLight3D
+	if light:
+		light.visible = enabled
+	data["enabled"] = enabled
+	if not data.is_empty():
+		_room_lights[id] = data
+	return "ROOM LIGHT %s" % ("ON" if enabled else "OFF")
+
+
+func set_all_room_lights(enabled: bool) -> void:
+	for id in _room_lights:
+		var data: Dictionary = _room_lights[id]
+		var switch := data.get("switch") as RouteInteractable3D
+		if switch:
+			switch.adopt({"what": "room_light", "light_id": id, "enabled": enabled})
 
 
 ## Mechanical themed-room dressing. Placement, facing and collision remain
@@ -217,10 +424,13 @@ func _spawn_room_props() -> void:
 	for node in _room_prop_nodes:
 		node.queue_free()
 	_room_prop_nodes.clear()
+	_stair_nodes.clear()
 	for entry in generator.props:
 		var type := String(entry.get("type", "prop"))
 		var solid := RoomCatalog.is_solid(type)
-		var root: Node3D = StaticBody3D.new() if solid else Node3D.new()
+		var walkable_structure := RoomCatalog.is_walkable_structure(type)
+		var root: Node3D = StaticBody3D.new() if solid or walkable_structure \
+			else Node3D.new()
 		root.name = "RoomProp_%s" % String(entry.get("id", type)).validate_node_name()
 		root.set_meta("prop_type", type)
 		root.set_meta("room_id", String(entry.get("room_id", "")))
@@ -244,7 +454,11 @@ func _spawn_room_props() -> void:
 			root.add_child(_fallback_prop_visual(type, entry, base_footprint,
 				height, mount_y))
 
-		if solid:
+		if walkable_structure:
+			_add_stair_collision(root as StaticBody3D, type)
+			_add_structure_ladder(root, type)
+			_stair_nodes.append(root)
+		elif solid:
 			var shape := CollisionShape3D.new()
 			shape.name = "Collision"
 			var collision := BoxShape3D.new()
@@ -255,6 +469,128 @@ func _spawn_room_props() -> void:
 			root.add_child(shape)
 		add_child(root)
 		_room_prop_nodes.append(root)
+
+
+func _add_structure_ladder(root: Node3D, prop_type: String) -> void:
+	var ladder: Node3D = LADDER_SCRIPT.new()
+	ladder.name = "ServiceLadder"
+	if prop_type == "grandFoyerStaircase":
+		ladder.position = Vector3(0.0, 0.0, FOYER_GALLERY_CENTER_Z - .68)
+		ladder.climb_height = FOYER_STAIR_RISE + .08
+	else:
+		ladder.position = Vector3(STAIR_WIDTH * .5 - .22, 0.0,
+			STAIR_RAMP_CENTER_Z + STAIR_RUN * .5 + .22)
+		ladder.climb_height = STAIR_RISE + .08
+	root.add_child(ladder)
+
+
+func _add_stair_collision(root: StaticBody3D,
+		prop_type: String = "grandStaircase") -> void:
+	if prop_type == "grandFoyerStaircase":
+		_add_foyer_stair_collision(root)
+		return
+	var angle := atan(STAIR_RISE / STAIR_RUN)
+	var ramp := CollisionShape3D.new()
+	ramp.name = "WalkableRamp"
+	var ramp_shape := BoxShape3D.new()
+	ramp_shape.size = Vector3(STAIR_WIDTH, STAIR_COLLISION_THICKNESS,
+		sqrt(STAIR_RUN * STAIR_RUN + STAIR_RISE * STAIR_RISE))
+	ramp.shape = ramp_shape
+	ramp.rotation.x = -angle
+	ramp.position = Vector3(0.0,
+		STAIR_RISE * .5 - cos(angle) * STAIR_COLLISION_THICKNESS * .5,
+		STAIR_RAMP_CENTER_Z)
+	root.add_child(ramp)
+
+	var landing := CollisionShape3D.new()
+	landing.name = "RaisedLanding"
+	var landing_shape := BoxShape3D.new()
+	landing_shape.size = Vector3(STAIR_WIDTH, STAIR_COLLISION_THICKNESS,
+		STAIR_LANDING_DEPTH)
+	landing.shape = landing_shape
+	landing.position = Vector3(0.0,
+		STAIR_RISE - STAIR_COLLISION_THICKNESS * .5,
+		STAIR_LANDING_CENTER_Z)
+	root.add_child(landing)
+
+
+func _add_foyer_stair_collision(root: StaticBody3D) -> void:
+	_add_diagonal_ramp(root, "WalkableRampLeft", FOYER_LEFT_START,
+		FOYER_LEFT_END, FOYER_STAIR_WIDTH, FOYER_STAIR_RISE)
+	_add_diagonal_ramp(root, "WalkableRampRight", FOYER_RIGHT_START,
+		FOYER_RIGHT_END, FOYER_STAIR_WIDTH, FOYER_STAIR_RISE)
+	var gallery := CollisionShape3D.new()
+	gallery.name = "RaisedGallery"
+	var gallery_shape := BoxShape3D.new()
+	gallery_shape.size = Vector3(FOYER_GALLERY_WIDTH, STAIR_COLLISION_THICKNESS,
+		FOYER_GALLERY_DEPTH)
+	gallery.shape = gallery_shape
+	gallery.position = Vector3(0.0,
+		FOYER_STAIR_RISE - STAIR_COLLISION_THICKNESS * .5,
+		FOYER_GALLERY_CENTER_Z)
+	root.add_child(gallery)
+
+
+func _add_diagonal_ramp(root: StaticBody3D, shape_name: String,
+		start: Vector2, end: Vector2, width: float, rise: float) -> void:
+	var direction := end - start
+	var run := direction.length()
+	var angle := atan(rise / run)
+	var ramp := CollisionShape3D.new()
+	ramp.name = shape_name
+	var ramp_shape := BoxShape3D.new()
+	ramp_shape.size = Vector3(width, STAIR_COLLISION_THICKNESS,
+		sqrt(run * run + rise * rise))
+	ramp.shape = ramp_shape
+	ramp.rotation = Vector3(-angle, atan2(direction.x, direction.y), 0.0)
+	var center := (start + end) * .5
+	ramp.position = Vector3(center.x,
+		rise * .5 - cos(angle) * STAIR_COLLISION_THICKNESS * .5, center.y)
+	root.add_child(ramp)
+
+
+## Height used by collision-free hunter presentation. The authoritative brain
+## remains deterministic X/Z grid simulation, while its model follows the same
+## ramp/landing the physical player walks on.
+func surface_height_at(world_xz: Vector2) -> float:
+	for stair in _stair_nodes:
+		if not is_instance_valid(stair):
+			continue
+		var local := stair.to_local(Vector3(world_xz.x, 0.0, world_xz.y))
+		if String(stair.get_meta("prop_type", "")) == "grandFoyerStaircase":
+			var foyer_height := _foyer_surface_height(Vector2(local.x, local.z))
+			if foyer_height >= 0.0:
+				return foyer_height
+			continue
+		if absf(local.x) > STAIR_WIDTH * .5:
+			continue
+		var ramp_start := STAIR_RAMP_CENTER_Z - STAIR_RUN * .5
+		var ramp_end := STAIR_RAMP_CENTER_Z + STAIR_RUN * .5
+		if local.z >= ramp_start and local.z <= ramp_end:
+			return (local.z - ramp_start) / STAIR_RUN * STAIR_RISE
+		if local.z > ramp_end \
+				and local.z <= ramp_end + STAIR_LANDING_DEPTH:
+			return STAIR_RISE
+	return 0.0
+
+
+func _foyer_surface_height(local_xz: Vector2) -> float:
+	for branch in [[FOYER_LEFT_START, FOYER_LEFT_END],
+			[FOYER_RIGHT_START, FOYER_RIGHT_END]]:
+		var start: Vector2 = branch[0]
+		var direction: Vector2 = (branch[1] as Vector2) - start
+		var run := direction.length()
+		var forward := direction / run
+		var offset := local_xz - start
+		var along := offset.dot(forward)
+		var side := absf(offset.dot(Vector2(-forward.y, forward.x)))
+		if along >= 0.0 and along <= run and side <= FOYER_STAIR_WIDTH * .5:
+			return along / run * FOYER_STAIR_RISE
+	if absf(local_xz.x) <= FOYER_GALLERY_WIDTH * .5 \
+			and absf(local_xz.y - FOYER_GALLERY_CENTER_Z) \
+			<= FOYER_GALLERY_DEPTH * .5:
+		return FOYER_STAIR_RISE
+	return -1.0
 
 
 func _fallback_prop_visual(type: String, entry: Dictionary,
@@ -452,6 +788,14 @@ func apply_event(event: Dictionary) -> void:
 			var relay := _at(cell, RouteInteractable3D.Kind.RELAY)
 			if relay:
 				relay.adopt(event)
+		"boarded_path":
+			var barrier := _at(cell, RouteInteractable3D.Kind.BOARDED_PATH)
+			if barrier:
+				barrier.adopt(event)
+		"room_light":
+			var light_switch := _at(cell, RouteInteractable3D.Kind.LIGHT_SWITCH)
+			if light_switch:
+				light_switch.adopt(event)
 
 
 func hiding_spot_at(cell: Vector2i) -> RouteInteractable3D:
@@ -485,6 +829,8 @@ func shared_state() -> Dictionary:
 	var taken := []
 	var sabotaged := []
 	var disabled_hiding := []
+	var opened_paths := []
+	var room_lights := {}
 	for node in _interactables:
 		var item := node as RouteInteractable3D
 		if item == null:
@@ -495,11 +841,17 @@ func shared_state() -> Dictionary:
 			sabotaged.append(item.source_cell)
 		if item.kind == RouteInteractable3D.Kind.HIDING_SPOT and item.disabled:
 			disabled_hiding.append(item.source_cell)
+		if item.kind == RouteInteractable3D.Kind.BOARDED_PATH and item.opened:
+			opened_paths.append(item.source_cell)
+		if item.kind == RouteInteractable3D.Kind.LIGHT_SWITCH:
+			room_lights[item.light_id] = item.light_enabled
 	return {
 		"taken": taken,
 		"heater": int(heater_station.heater_state) if heater_station else 0,
 		"sabotaged": sabotaged,
 		"disabled_hiding": disabled_hiding,
+		"opened_paths": opened_paths,
+		"room_lights": room_lights,
 	}
 
 
@@ -521,6 +873,11 @@ func adopt_state(state: Dictionary) -> void:
 	for cell in state.get("disabled_hiding", []):
 		if cell is Vector2i:
 			disabled_hiding[cell] = true
+	var opened_paths := {}
+	for cell in state.get("opened_paths", []):
+		if cell is Vector2i:
+			opened_paths[cell] = true
+	var room_lights: Dictionary = state.get("room_lights", {})
 	for node in _interactables:
 		var item := node as RouteInteractable3D
 		if item == null:
@@ -531,6 +888,12 @@ func adopt_state(state: Dictionary) -> void:
 			item.adopt({"what": "sabotage", "sabotaged": sabotaged.has(item.source_cell)})
 		elif item.kind == RouteInteractable3D.Kind.HIDING_SPOT:
 			item.set_disabled(disabled_hiding.has(item.source_cell))
+		elif item.kind == RouteInteractable3D.Kind.BOARDED_PATH:
+			item.adopt({"what": "boarded_path",
+				"opened": opened_paths.has(item.source_cell)})
+		elif item.kind == RouteInteractable3D.Kind.LIGHT_SWITCH:
+			item.adopt({"what": "room_light", "light_id": item.light_id,
+				"enabled": bool(room_lights.get(item.light_id, true))})
 	if heater_station:
 		heater_station.adopt({"what": "heater", "state": state.get("heater", 0)})
 
@@ -590,14 +953,30 @@ func _build_mesh_library() -> MeshLibrary:
 		ceiling_material, false)
 
 	_region_floor_items.clear()
+	_region_wall_items.clear()
 	var next_id := ITEM_CEILING + 1
 	for region in REGION_FLOOR_TINTS:
 		var tinted: Material = floor_material.duplicate() if floor_material else null
 		if tinted is StandardMaterial3D:
-			(tinted as StandardMaterial3D).albedo_color = REGION_FLOOR_TINTS[region]
+			var floor_style := tinted as StandardMaterial3D
+			floor_style.albedo_color = REGION_FLOOR_TINTS[region]
+			floor_style.uv1_scale = REGION_FLOOR_REPEAT.get(region, Vector3.ONE)
+			floor_style.roughness = .72 if region in ["office", "arcade"] else .88
+			floor_style.metallic = .12 if region in ["office", "maintenance"] else 0.0
 		_add_box(library, next_id, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
-			Vector3(0.0, -SLAB * 0.5, 0.0), tinted, false)
+			Vector3(0.0, -SLAB * 0.5, 0.0), tinted, true)
 		_region_floor_items[region] = next_id
+		next_id += 1
+		var wall_tinted: Material = wall_material.duplicate() if wall_material else null
+		if wall_tinted is StandardMaterial3D:
+			var wall_style := wall_tinted as StandardMaterial3D
+			wall_style.albedo_color = REGION_WALL_TINTS.get(region, Color.WHITE)
+			wall_style.uv1_scale = Vector3(2.0 if region in ["mansion", "arcade"] else 1.0,
+				WALL_HEIGHT, 1.0)
+			wall_style.roughness = .78 if region in ["office", "maintenance"] else .92
+		_add_box(library, next_id, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_tinted, true)
+		_region_wall_items[region] = next_id
 		next_id += 1
 	return library
 

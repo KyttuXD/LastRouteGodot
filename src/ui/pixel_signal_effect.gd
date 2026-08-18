@@ -50,6 +50,7 @@ void fragment() {
 
 var _surface: ColorRect
 var _material: ShaderMaterial
+var _admin_enabled := true
 
 
 func _ready() -> void:
@@ -71,8 +72,17 @@ func _ready() -> void:
 func _refresh() -> void:
 	var strength := clampf(Settings.pixel_effect_percent / 100.0, 0.0, 1.0)
 	_material.set_shader_parameter("strength", strength)
-	_surface.visible = strength > 0.001
+	_surface.visible = _admin_enabled and strength > 0.001
 
 
 func strength() -> float:
 	return float(_material.get_shader_parameter("strength")) if _material else 0.0
+
+
+func set_admin_enabled(enabled: bool) -> void:
+	_admin_enabled = enabled
+	_refresh()
+
+
+func admin_enabled() -> bool:
+	return _admin_enabled

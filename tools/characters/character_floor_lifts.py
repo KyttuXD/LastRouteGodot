@@ -21,4 +21,8 @@ HUNTER_ANIMATION_GROUND_LIFTS = {
     "sprint": 0.059,
     "chase": 0.054,
     "crouch": 0.058,
+    # Planted-leg dizzy sway still lowers the skirt/foot bounds by one
+    # centimetre in Godot. Keep the authored clip grounded like every other
+    # hunter-only animation rather than weakening the floor audit.
+    "stun": 0.012,
 }

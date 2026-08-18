@@ -93,6 +93,14 @@ func alert() -> bool:
 	return _play_named("alert")
 
 
+func chase_start() -> bool:
+	return _play_named("chase_start")
+
+
+func taser() -> bool:
+	return _play_named("taser")
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -290,6 +298,15 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			var phrase := [1046.5, 1318.5, 1568.0, 1318.5, 1760.0, 1568.0]
 			for index in phrase.size(): c.append(_tone(phrase[index], .22, .07, index * .2, "triangle"))
 		"alert": c = [_tone(150, .12, .12, 0, "saw"), _tone(96, .2, .10, .06, "square")]
+		"chase_start": c = [_tone(92, .16, .16, 0, "saw"),
+			_tone(138, .19, .13, .07, "square"),
+			_tone(207, .24, .10, .15, "saw"),
+			_noise(.24, .045, 860, .04, 0.0, 1.12),
+			_thump(48, .30, .14, .19)]
+		"taser": c = [_noise(.12, .16, 4200, 0, pan, 1.35),
+			_tone(860, .07, .13, 0, "square", pan),
+			_tone(430, .11, .10, .055, "saw", pan),
+			_thump(76, .10, .06, .045, pan)]
 		"nyxie_timer": c = [_tone(72, .5, .09), _tone(108, .4, .07, .18, "triangle"), _tone(144, .3, .05, .34, "triangle")]
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]

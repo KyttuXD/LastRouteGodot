@@ -61,11 +61,21 @@ func run(host: Node) -> int:
 			_fail("%s admin overlay reads out nothing" % entry[1])
 		var chips := menu._panel.find_children("StateChip", "Label", true, false)
 		if entry[1] == "maze":
-			_expect(chips.size() == 3,
-				"maze admin has %d ON/OFF chips instead of 3" % chips.size())
+			_expect(chips.size() == 4,
+				"maze admin has %d ON/OFF chips instead of 4" % chips.size())
+			var on_count := 0
+			var off_count := 0
 			for chip in chips:
-				_expect(String(chip.text) == "OFF",
-					"an untouched admin toggle does not begin OFF")
+				on_count += 1 if String(chip.text) == "ON" else 0
+				off_count += 1 if String(chip.text) == "OFF" else 0
+			_expect(on_count == 1 and off_count == 3,
+				"admin defaults are not three safety toggles OFF plus pixel effect ON")
+			var item_buttons := menu._panel.find_children("*", "GridContainer", true, false)
+			if item_buttons.is_empty():
+				_fail("maze admin has no creative inventory grid")
+			else:
+				_expect(item_buttons[0].get_child_count() == PlayerController3D.INVENTORY_ITEMS.size(),
+					"creative inventory does not list every player item")
 		# Exercise genuinely different physical sizes and aspect ratios. The
 		# design viewport expands rather than letterboxes, so containment at the
 		# default size alone does not prove the panel stays usable.
@@ -110,6 +120,13 @@ func run(host: Node) -> int:
 			var action: Callable = row["action"]
 			if not action.is_valid():
 				_fail("admin action '%s' is not callable" % row["label"])
+		scene.player.taser_cooldown = 5.0
+		for row in menu._actions:
+			if String(row["label"]) == "CREATIVE INVENTORY":
+				(row["action"] as Callable).call("taser")
+		_expect(scene.player.selected_inventory_item() == "taser" \
+				and scene.player.taser_cooldown == 0.0,
+			"creative inventory did not give/restock and select the taser")
 		# Relay grants must perform physical pickups, not merely alter the HUD
 		# counter. Grant one first, then collect the rest in a batch.
 		for row in menu._actions:

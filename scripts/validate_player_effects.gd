@@ -35,6 +35,8 @@ func _flicker_seizes_and_releases(host: Node) -> void:
 	host.get_tree().root.add_child(scene)
 	await host.get_tree().process_frame
 	var player: PlayerController3D = scene.player
+	player.grant_inventory_item("flashlight")
+	player._set_flashlight(true)
 	var was_on := player.flashlight_enabled
 
 	player.force_flashlight_flicker(1.0, 0.02, 0.02)

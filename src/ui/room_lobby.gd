@@ -184,7 +184,7 @@ func _config_block() -> Control:
 				return RoomState.is_host and RoomState.difficulty_available(value)))
 
 	stack.add_child(_label(
-		"OFFICE AND NIGHTMARE ARE RESERVED FOR A LATER GAMEPLAY PASS.",
+		"OFFICE IS A LOCAL SINGLE-RUNNER SHIFT // NIGHTMARE REMAINS RESERVED.",
 		Palette.MUTED, 6))
 	return box
 

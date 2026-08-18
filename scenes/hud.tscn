@@ -1,8 +1,13 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://src/ui/crosshair.gd" id="2_crosshair"]
 [ext_resource type="Script" path="res://src/ui/facility_map.gd" id="5_map"]
+[ext_resource type="Texture2D" path="res://assets/ui/inventory/flashlight_item.png" id="6_flashlight"]
+[ext_resource type="Texture2D" path="res://assets/ui/inventory/taser_item.png" id="7_taser"]
+[ext_resource type="Texture2D" path="res://assets/ui/inventory/lockpick_set.png" id="8_lockpick"]
+[ext_resource type="Texture2D" path="res://assets/ui/inventory/crowbar.png" id="9_crowbar"]
+[ext_resource type="Texture2D" path="res://assets/ui/inventory/rescue_axe.png" id="10_axe"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
 bg_color = Color(0.015, 0.025, 0.035, 0.88)
@@ -49,14 +54,14 @@ script = ExtResource("1_hud")
 
 [node name="ObjectivePanel" type="PanelContainer" parent="."]
 layout_mode = 1
-anchors_preset = 2
-anchor_top = 1
-anchor_bottom = 1
-offset_left = 8
-offset_top = -74
-offset_right = 170
-offset_bottom = -36
-grow_vertical = 0
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -170
+offset_top = 8
+offset_right = -8
+offset_bottom = 46
+grow_horizontal = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
 [node name="ObjectiveBox" type="VBoxContainer" parent="ObjectivePanel"]
@@ -78,6 +83,7 @@ theme_override_font_sizes/font_size = 9
 text = "0/5 SIGNAL RELAYS"
 
 [node name="MetersPanel" type="PanelContainer" parent="."]
+visible = false
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1
@@ -89,6 +95,186 @@ offset_right = -8
 offset_bottom = -8
 grow_vertical = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="HotbarPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -116
+offset_top = -48
+offset_right = 116
+offset_bottom = -8
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="HotbarRow" type="HBoxContainer" parent="HotbarPanel"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 2
+
+[node name="FlashlightSlot" type="PanelContainer" parent="HotbarPanel/HotbarRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(42, 38)
+
+[node name="Stack" type="VBoxContainer" parent="HotbarPanel/HotbarRow/FlashlightSlot"]
+layout_mode = 2
+theme_override_constants/separation = -2
+
+[node name="Icon" type="TextureRect" parent="HotbarPanel/HotbarRow/FlashlightSlot/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 28)
+texture_filter = 1
+texture = ExtResource("6_flashlight")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="FlashlightCaption" type="Label" parent="HotbarPanel/HotbarRow/FlashlightSlot/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 6
+text = "1"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TaserSlot" type="PanelContainer" parent="HotbarPanel/HotbarRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(42, 38)
+
+[node name="Stack" type="VBoxContainer" parent="HotbarPanel/HotbarRow/TaserSlot"]
+layout_mode = 2
+theme_override_constants/separation = -2
+
+[node name="Icon" type="TextureRect" parent="HotbarPanel/HotbarRow/TaserSlot/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 28)
+texture_filter = 1
+texture = ExtResource("7_taser")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TaserCaption" type="Label" parent="HotbarPanel/HotbarRow/TaserSlot/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 6
+text = "2"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="LockpickSlot" type="PanelContainer" parent="HotbarPanel/HotbarRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(42, 38)
+
+[node name="Stack" type="VBoxContainer" parent="HotbarPanel/HotbarRow/LockpickSlot"]
+layout_mode = 2
+theme_override_constants/separation = -2
+
+[node name="Icon" type="TextureRect" parent="HotbarPanel/HotbarRow/LockpickSlot/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 28)
+texture_filter = 1
+texture = ExtResource("8_lockpick")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="LockpickCaption" type="Label" parent="HotbarPanel/HotbarRow/LockpickSlot/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 6
+text = "3"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CrowbarSlot" type="PanelContainer" parent="HotbarPanel/HotbarRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(42, 38)
+
+[node name="Stack" type="VBoxContainer" parent="HotbarPanel/HotbarRow/CrowbarSlot"]
+layout_mode = 2
+theme_override_constants/separation = -2
+
+[node name="Icon" type="TextureRect" parent="HotbarPanel/HotbarRow/CrowbarSlot/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 28)
+texture_filter = 1
+texture = ExtResource("9_crowbar")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="CrowbarCaption" type="Label" parent="HotbarPanel/HotbarRow/CrowbarSlot/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 6
+text = "4"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="RescueAxeSlot" type="PanelContainer" parent="HotbarPanel/HotbarRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(42, 38)
+
+[node name="Stack" type="VBoxContainer" parent="HotbarPanel/HotbarRow/RescueAxeSlot"]
+layout_mode = 2
+theme_override_constants/separation = -2
+
+[node name="Icon" type="TextureRect" parent="HotbarPanel/HotbarRow/RescueAxeSlot/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(30, 28)
+texture_filter = 1
+texture = ExtResource("10_axe")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="RescueAxeCaption" type="Label" parent="HotbarPanel/HotbarRow/RescueAxeSlot/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 6
+text = "5"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CompactStatusLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -175
+offset_top = -65
+offset_right = 175
+offset_bottom = -51
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.88, 0.91, 0.88, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 7
+text = "LAMP [##########]   STAMINA [##########]"
+horizontal_alignment = 1
+
+[node name="FpsLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 86.0
+offset_bottom = 22.0
+theme_override_colors/font_color = Color(0.74, 0.81, 0.78, 0.9)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 7
+text = "FPS 000"
 
 [node name="MetersRow" type="HBoxContainer" parent="MetersPanel"]
 layout_mode = 2
@@ -215,16 +401,6 @@ text = "TEMP 60F"
 clip_text = true
 horizontal_alignment = 1
 
-[node name="ControlsLabel" type="Label" parent="."]
-unique_name_in_owner = true
-offset_left = 10.0
-offset_top = 29.0
-offset_right = 350.0
-offset_bottom = 57.0
-theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
-theme_override_font_sizes/font_size = 8
-text = "WASD MOVE  SPACE HOP  SHIFT RUN  C CROUCH\nF LIGHT  E USE  M MAP  ESC PAUSE"
-
 [node name="InteractionLabel" type="Label" parent="."]
 layout_mode = 1
 anchors_preset = 7
@@ -316,7 +492,7 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.78, 1)
 theme_override_font_sizes/font_size = 9
-text = "AMBER relay   YELLOW battery   PURPLE lift   RED hunter   //   M to close"
+text = "AMBER relay   YELLOW battery   PURPLE lift   RED hunter"
 horizontal_alignment = 1
 
 [node name="EscapeOverlay" type="PanelContainer" parent="."]
@@ -349,7 +525,7 @@ theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 11
-text = "MASH [E] TO BREAK FREE!"
+text = "BREAK FREE!"
 horizontal_alignment = 1
 
 [node name="EscapeProgressBar" type="ProgressBar" parent="EscapeOverlay/EscapeBox"]
@@ -383,15 +559,15 @@ anchor_left = 1.0
 anchor_top = 0.0
 anchor_right = 1.0
 anchor_bottom = 0.0
-offset_left = -168
+offset_left = -124
 offset_top = 8
 offset_right = -8
-offset_bottom = 148
+offset_bottom = 108
 grow_horizontal = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
 [node name="Minimap" type="Control" parent="MinimapPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 136)
+custom_minimum_size = Vector2(0, 96)
 layout_mode = 2
 script = ExtResource("5_map")

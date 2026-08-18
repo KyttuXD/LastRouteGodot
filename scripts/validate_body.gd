@@ -15,13 +15,15 @@ extends RefCounted
 ## The capsule in main_3d.tscn: radius 0.25, height 1.7, centred at y=0.85.
 const HEIGHT := 1.7
 const RADIUS := 0.25
-const CLIPS := ["idle", "walk", "sprint", "chase", "crouch"]
+const PLAYER_CLIPS := ["idle", "walk", "sprint", "chase", "crouch"]
+const HUNTER_CLIPS := ["idle", "walk", "sprint", "chase", "crouch", "stun"]
 const HUNTER_CLIP_LENGTHS := {
 	"idle": 2.4,
 	"walk": 1.0,
 	"sprint": 2.0 / 3.0,
 	"chase": 0.5,
 	"crouch": 1.0,
+	"stun": 1.2,
 }
 
 var _failures := 0
@@ -53,7 +55,7 @@ func run(host: Node) -> int:
 
 	_fits_the_capsule(parts)
 	_is_one_figure(parts)
-	_carries_its_clips(body)
+	_carries_its_clips(body, PLAYER_CLIPS)
 	_wears_no_colliders(body)
 	await _audit_clip_floors(host, body, "player")
 
@@ -62,7 +64,7 @@ func run(host: Node) -> int:
 		whole = whole.merge(part["box"])
 	print("  figure    %d parts, %.2f m tall, %.2f m across, feet at %.3f"
 		% [parts.size(), whole.size.y, whole.size.x, whole.position.y])
-	print("  clips     %s" % ", ".join(CLIPS))
+	print("  player clips  %s" % ", ".join(PLAYER_CLIPS))
 	body.queue_free()
 
 	await _every_hunter_model(host)
@@ -87,7 +89,10 @@ func _every_hunter_model(host: Node) -> void:
 	var lowest_floor := INF
 	var highest_floor := -INF
 	for file in dir.get_files():
-		if not file.ends_with(".tscn") or file.begins_with("character_scale"):
+		# The player has a deliberately separate animation contract above. Do
+		# not let hunter-only clips (now, or later) leak into player validation.
+		if not file.ends_with(".tscn") or file == "player.tscn" \
+				or file.begins_with("character_scale"):
 			continue
 		var path := "res://art/props-3d/characters/%s" % file
 		var model: Node3D = ModelSlot.instantiate(path)
@@ -146,17 +151,16 @@ func _every_hunter_model(host: Node) -> void:
 		else:
 			if file == "aki.tscn":
 				await _audit_clip_floors(host, model, "hunter")
-			for clip in CLIPS:
+			for clip in HUNTER_CLIPS:
 				if not player.has_animation(clip):
 					_fail("%s has no '%s' clip" % [file, clip])
 					continue
 				var animation := player.get_animation(clip)
 				_expect(animation.length >= 0.1,
 					"%s '%s' is too short to animate" % [file, clip])
-				if file != "player.tscn":
-					_expect(absf(animation.length - HUNTER_CLIP_LENGTHS[clip]) < 0.02,
-						"%s '%s' is %.3f s; expected %.3f s"
-							% [file, clip, animation.length, HUNTER_CLIP_LENGTHS[clip]])
+				_expect(absf(animation.length - HUNTER_CLIP_LENGTHS[clip]) < 0.02,
+					"%s '%s' is %.3f s; expected %.3f s"
+						% [file, clip, animation.length, HUNTER_CLIP_LENGTHS[clip]])
 				_expect(animation.get_track_count() > 0,
 					"%s '%s' contains no tracks" % [file, clip])
 				_expect(animation.loop_mode != Animation.LOOP_NONE,
@@ -233,7 +237,8 @@ func _audit_clip_floors(host: Node, model: Node3D, label: String) -> void:
 		_fail("%s has no AnimationPlayer for floor audit" % label)
 		return
 	var readings: Array[String] = []
-	for clip in CLIPS:
+	var clips := HUNTER_CLIPS if label == "hunter" else PLAYER_CLIPS
+	for clip in clips:
 		if not player.has_animation(clip):
 			continue
 		var animation := player.get_animation(clip)
@@ -316,12 +321,12 @@ func _is_one_figure(parts: Array) -> void:
 
 ## ModelSlot asks for these by name, and AnimationPlayer.has_animation is
 ## case-sensitive, so a renamed clip is a silently frozen player.
-func _carries_its_clips(body: Node3D) -> void:
+func _carries_its_clips(body: Node3D, required_clips: Array) -> void:
 	var player := ModelSlot.find_animation_player(body)
 	if player == null:
 		_fail("the body has no AnimationPlayer, so remote players never move")
 		return
-	for clip in CLIPS:
+	for clip in required_clips:
 		if not player.has_animation(clip):
 			_fail("the body has no '%s' clip" % clip)
 			continue

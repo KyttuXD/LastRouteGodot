@@ -36,9 +36,10 @@ this file is the order in which unfinished work should be attacked.
   when the service or initial listing is unavailable. Staging no longer repeats
   create/join/code/leave-network controls; JOIN ROOM lives on the main menu.
 - [ ] Add TLS termination in front of the public backend. The current debug
-  deployment deliberately uses Pterodactyl's plain HTTP allocation so room
-  discovery and updates are testable; account/password actions remain disabled
-  until HTTPS is available. Built-in per-address API/account throttles remain.
+  deployment deliberately enables account/password actions on the hardcoded
+  Pterodactyl HTTP origin so testing is possible, and suppresses the in-game
+  warning there. This transport is unencrypted and remains documented as a
+  deployment risk; built-in per-address API/account throttles still apply.
 - [x] Issue short-lived, room-bound admin tickets from the primary backend so
   an authenticated `KYTTU` release guest can use shared map/admin tools without
   sending an account session token to the host. Tickets expire after five
@@ -111,3 +112,15 @@ The first art slice should cover one corridor, one generic room, one doorway,
 one relay alcove, and one hiding spot. Once that kit survives generation and
 co-op, expand it across the route instead of remodeling every placeholder at
 once.
+
+## Future streamed route world
+
+The planned replacement for fixed map sizes is a Minecraft/Hytale-style
+streamed route made from deterministic chunks. Each chunk seed will derive
+from the room seed plus integer chunk coordinates; room/corridor seams need a
+border contract so generation order cannot change the result. The host will
+own chunk activation and durable mutations, while guests and late joiners
+receive the active chunk set and per-chunk pickup/light/barrier state. Only
+after streaming, unload/reload persistence, hunter navigation across chunk
+boundaries, and co-op reconciliation validate cleanly should the room lobby's
+map-size options be removed.

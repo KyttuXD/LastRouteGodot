@@ -272,8 +272,8 @@ func run(host: Node) -> int:
 	_expect(RoomState.code == RoomState.code, "rerolling changed the room code")
 	_expect(RoomState.run_seed() != before, "a new route seed gave the same run seed")
 
-	# Hide & Seek has been removed from the UI; Office is visible but disabled.
-	# Both rules also hold when called directly so stale clients cannot enter.
+	# Hide & Seek remains removed. Office is a playable local single-runner
+	# shift, while network rooms stay on the shared route ruleset.
 	_expect(not RoomState.MODE_LABELS.has(RoomState.Mode.HIDE_SEEK),
 		"HIDE & SEEK remains in the selectable mode labels")
 	_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
@@ -285,13 +285,14 @@ func run(host: Node) -> int:
 		"an unavailable mode gives no reason")
 	_expect(RoomState.mode_available(RoomState.Mode.DEFAULT),
 		"Default mode is unavailable")
-	_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
-		"Office mode is selectable before work resumes")
+	_expect(RoomState.mode_available(RoomState.Mode.OFFICE),
+		"local Office mode is not selectable")
 
-	# Even direct attempts to create the disabled Office mode fall back safely.
 	RoomState.create_local(RoomState.Mode.OFFICE)
-	_expect(RoomState.mode == RoomState.Mode.DEFAULT,
-		"create_local entered disabled Office mode")
+	_expect(RoomState.mode == RoomState.Mode.OFFICE,
+		"create_local did not enter playable Office mode")
+	_expect(RoomState.seats() == 1 and RoomState.start_label() == "START OFFICE SHIFT",
+		"Office mode does not present its single-runner staging contract")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.seats() == RoomState.MAX_PLAYERS,
 		"a route seats %d, not %d" % [RoomState.seats(), RoomState.MAX_PLAYERS])
@@ -349,8 +350,8 @@ func run(host: Node) -> int:
 	_expect(saw_hard, "the staging screen did not render a Hard button")
 	_expect(nightmare_button != null and nightmare_button.disabled,
 		"Nightmare is not visible and greyed out")
-	_expect(office_button != null and office_button.disabled,
-		"Office mode is not visible and greyed out")
+	_expect(office_button != null and not office_button.disabled,
+		"playable local Office mode is not visible and selectable")
 	_expect(not saw_hide_seek, "Hide & Seek still appears in staging")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
@@ -399,7 +400,7 @@ func run(host: Node) -> int:
 		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
 			"HIDE & SEEK opened up with one player in the room")
 		_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
-			"single-player Office Mode is offered inside a network room")
+			"single-runner Office Mode is offered inside a network room")
 		# Exactly one host, and it is peer 1. Every row used to claim both, so
 		# a guest's window showed itself hosting the room it had joined.
 		var rows: Array = RoomState.roster_rows()
@@ -446,7 +447,7 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
-		print("  rules     Hide & Seek hidden; Office visible but disabled")
+		print("  rules     Hide & Seek hidden; local Office shift selectable")
 		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
 		print("  guests    %d FIRST x %d LAST callsign words" % [
 			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])

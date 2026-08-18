@@ -6,7 +6,12 @@ extends RefCounted
 ## the generator consumes only ids, half-cell footprints, regions and labels.
 
 const CENTERPIECE_TYPES := ["circusTent", "garden", "diningRoom",
-	"ballroom", "beachCove", "netherChamber"]
+	"ballroom", "beachCove", "netherChamber", "grandStairHall"]
+
+## These are traversable architecture rather than furniture. They reserve a
+## room from objectives/hiding spots but must not become solid to the 2D hunter
+## pathfinder; the 3D view supplies their ramp and landing collision instead.
+const WALKABLE_STRUCTURE_TYPES := ["grandStaircase", "grandFoyerStaircase"]
 
 const TYPES := [
 	{"id": "stage", "label": "ANIMATRONIC STAGE", "region": "arcade",
@@ -40,6 +45,9 @@ const TYPES := [
 		"props": ["serverRack", "serverRack", "breakerCabinet",
 			"breakerCabinet", "officeDesk", "officeChair",
 			"officeCrtSecurityConsole", "filingCabinet"]},
+	{"id": "grandStairHall", "label": "GRAND STAIR HALL", "region": "mansion",
+		"special": 9, "landmark": true,
+		"props": ["grandFoyerStaircase"]},
 	{"id": "diningRoom", "label": "GRAND DINING ROOM", "region": "mansion",
 		"special": 10, "landmark": true,
 		"props": ["diningTable", "diningChair", "diningChair",
@@ -67,12 +75,36 @@ const TYPES := [
 			"gothicCoffinChest"]},
 	{"id": "bathroomMale", "label": "MANSION BATHROOM // MEN",
 		"region": "mansion", "special": 11, "landmark": true,
-		"props": ["bathroomStall", "bathroomStall", "bathroomStall",
-			"bathroomSink", "bathroomMirror", "bathroomVanity", "trashBin"]},
+		"props": ["bathroomStall", "bathroomStall", "publicRestroomToilet",
+			"publicRestroomToilet", "publicMensUrinal", "publicMensUrinal",
+			"publicMensUrinal", "publicSinkBank", "bathroomMirror",
+			"publicHandDryer", "publicSoapDispenser",
+			"publicPaperTowelDispenser", "publicMensRoomSign", "trashBin"]},
 	{"id": "bathroomFemale", "label": "MANSION BATHROOM // WOMEN",
 		"region": "mansion", "special": 12, "landmark": true,
 		"props": ["bathroomStall", "bathroomStall", "bathroomStall",
-			"bathroomSink", "bathroomMirror", "bathroomVanity", "trashBin"]},
+			"publicRestroomToilet", "publicRestroomToilet",
+			"publicRestroomToilet", "publicSinkBank", "bathroomMirror",
+			"publicHandDryer", "publicSoapDispenser",
+			"publicPaperTowelDispenser", "publicSanitaryBin",
+			"publicSanitaryBin", "publicBabyChangeStation",
+			"publicWomensRoomSign", "trashBin"]},
+	{"id": "publicShowersMale", "label": "PUBLIC SHOWERS // MEN",
+		"region": "mansion",
+		"props": ["publicMensShowerStall", "publicMensShowerStall",
+			"publicMensShowerStall", "publicShowerBench", "publicSoapDispenser",
+			"publicSoapDispenser", "houseTowelRack", "publicMensRoomSign",
+			"houseBathMat"]},
+	{"id": "publicShowersFemale", "label": "PUBLIC SHOWERS // WOMEN",
+		"region": "mansion",
+		"props": ["publicWomensShowerStall", "publicWomensShowerStall",
+			"publicWomensShowerStall", "publicShowerBench", "publicSoapDispenser",
+			"publicSoapDispenser", "houseTowelRack", "publicWomensRoomSign",
+			"houseBathMat"]},
+	{"id": "houseBathroom", "label": "HOUSE BATHROOM", "region": "mansion",
+		"props": ["houseBathtub", "houseToilet", "houseShowerEnclosure",
+			"bathroomVanity", "houseMedicineCabinet", "houseTowelRack",
+			"houseBathMat", "houseBathroomShelf", "laundryHamper", "trashBin"]},
 	{"id": "netherChamber", "label": "THERMAL INFERNO", "region": "nether",
 		"special": 13, "large_only": true, "landmark": true,
 		"props": ["lavaVent", "lavaVent", "emberBrazier", "emberBrazier",
@@ -175,7 +207,13 @@ const WALL_BACKED_TYPES := [
 	"filingCabinet", "serverRack", "privacyCurtain", "loungeCouch",
 	"loungeCouchWide", "diningSideboard", "mansionBookshelf",
 	"mansionFireplace", "bathroomStall", "bathroomSink", "bathroomMirror",
-	"bathroomVanity", "surfboardRack", "heavyMansionDrapes",
+	"bathroomVanity", "grandStaircase", "surfboardRack", "heavyMansionDrapes",
+	"publicRestroomToilet", "publicMensUrinal", "publicSinkBank",
+	"publicHandDryer", "publicSoapDispenser", "publicPaperTowelDispenser",
+	"publicBabyChangeStation", "publicMensRoomSign", "publicWomensRoomSign",
+	"publicMensShowerStall", "publicWomensShowerStall",
+	"houseBathtub", "houseToilet", "houseShowerEnclosure",
+	"houseMedicineCabinet", "houseTowelRack", "houseBathroomShelf",
 	"framedWallPortrait", "wallSconce", "lavaPipeManifold",
 	"singleBed", "doubleBed", "bedroomNightstand", "bedroomWardrobe",
 	"bedroomDresser", "bedroomVanity", "bedroomWallClock",
@@ -249,6 +287,28 @@ const FOOTPRINTS := {
 	"flowerViolet": Vector2(.16, .16), "bathroomStall": Vector2(.34, .28),
 	"bathroomSink": Vector2(.40, .22), "bathroomMirror": Vector2(.35, .16),
 	"bathroomVanity": Vector2(.41, .25), "mansionFireplace": Vector2(.51, .36),
+	"publicRestroomToilet": Vector2(.25, .38),
+	"publicMensUrinal": Vector2(.25, .24),
+	"publicSinkBank": Vector2(.83, .24),
+	"publicHandDryer": Vector2(.20, .13),
+	"publicSoapDispenser": Vector2(.11, .13),
+	"publicPaperTowelDispenser": Vector2(.20, .13),
+	"publicBabyChangeStation": Vector2(.46, .52),
+	"publicSanitaryBin": Vector2(.18, .20),
+	"publicMensRoomSign": Vector2(.26, .06),
+	"publicWomensRoomSign": Vector2(.26, .06),
+	"publicMensShowerStall": Vector2(.43, .43),
+	"publicWomensShowerStall": Vector2(.43, .43),
+	"publicShowerBench": Vector2(.61, .18),
+	"houseBathtub": Vector2(.89, .40),
+	"houseToilet": Vector2(.25, .38),
+	"houseShowerEnclosure": Vector2(.47, .47),
+	"houseMedicineCabinet": Vector2(.35, .12),
+	"houseTowelRack": Vector2(.39, .13),
+	"houseBathMat": Vector2(.46, .29),
+	"houseBathroomShelf": Vector2(.43, .13),
+	"grandStaircase": Vector2(.90, 3.25),
+	"grandFoyerStaircase": Vector2(2.35, 3.35),
 	"lavaVent": Vector2(.34, .30), "emberBrazier": Vector2(.25, .25),
 	"basaltPillar": Vector2(.32, .32), "sandCastle": Vector2(.40, .34),
 	"basaltRubble": Vector2(.61, .58), "magmaCrystalCluster": Vector2(.34, .34),
@@ -361,6 +421,10 @@ static func display_height(type: String) -> float:
 		return .16
 	if type in ["bedroomRug", "gothicBedroomRug"]:
 		return .09
+	if type == "houseBathMat":
+		return .07
+	if type in ["grandStaircase", "grandFoyerStaircase"]:
+		return 2.80 if type == "grandFoyerStaircase" else 1.10
 	if type in ["flowerRose", "flowerSun", "flowerBlue", "flowerViolet",
 			"grassFern", "sandCastle", "lavaVent", "basaltRubble"]:
 		return .45
@@ -371,6 +435,11 @@ static func display_height(type: String) -> float:
 		return .78
 	if type in ["singleBed", "doubleBed", "gothicDoubleBed"]:
 		return 1.34
+	if type in ["publicMensShowerStall", "publicWomensShowerStall",
+			"houseShowerEnclosure"]:
+		return 2.16
+	if type in ["publicRestroomToilet", "houseToilet"]:
+		return 1.21
 	if type in ["bedroomWardrobe", "gothicWardrobe", "gothicBookcase"]:
 		return 2.11
 	if type in ["bedroomDresser", "bedroomNightstand", "gothicDresser",
@@ -393,4 +462,20 @@ static func is_solid(type: String) -> bool:
 		"mansionAreaRug", "framedWallPortrait", "wallSconce",
 		"heavyMansionDrapes", "flowerCenterpiece", "tableCandelabra",
 		"bedroomRug", "bedroomWallClock", "bedsideLamp", "gothicBedroomRug",
-		"gothicBedsideCandelabra"]
+		"gothicBedsideCandelabra", "publicHandDryer",
+		"publicSoapDispenser", "publicPaperTowelDispenser",
+		"publicMensRoomSign", "publicWomensRoomSign", "houseMedicineCabinet",
+		"houseTowelRack", "houseBathMat", "houseBathroomShelf",
+		"grandStaircase", "grandFoyerStaircase"]
+
+
+static func is_walkable_structure(type: String) -> bool:
+	return WALKABLE_STRUCTURE_TYPES.has(type)
+
+
+static func room_has_walkable_structure(type: String) -> bool:
+	var entry := type_by_id(type)
+	for prop_type in entry.get("props", []):
+		if is_walkable_structure(String(prop_type)):
+			return true
+	return false

@@ -53,6 +53,11 @@ var sectors: Array = []
 var relays: Array = []
 var batteries: Array = []
 var safe_zones: Array = []
+## Optional room thresholds which start boarded. They are generated from room
+## entrances, not scattered onto arbitrary corridor cells, so opening one
+## exposes a real room rather than merely removing decoration.
+var boarded_paths: Array = []
+var boarded_hallways: Array = []
 ## Deterministic non-interactive room furniture. Each entry carries a cell,
 ## type, rotation, room id and region; FacilityView3D renders the same list and
 ## can_occupy uses its original web footprint for navigation/objective safety.
@@ -152,6 +157,101 @@ func _load_custom_spawn_points(custom_layout: Dictionary) -> void:
 func _valid_open_cell(cell: Vector2i) -> bool:
 	return cell.x >= 0 and cell.y >= 0 and cell.x < cols and cell.y < rows \
 		and grid[cell.y][cell.x] == 0
+
+
+func place_boarded_paths(maximum: int = GameConfig.BOARDED_PATH_COUNT) -> Array:
+	if not boarded_paths.is_empty() or maximum <= 0:
+		return boarded_paths
+	var occupied := {}
+	for collection in [relays, batteries, safe_zones, props]:
+		for entry in collection:
+			occupied[Vector2i(int(entry.get("x", -1)), int(entry.get("y", -1)))] = true
+	occupied[start] = true
+	occupied[exit_cell] = true
+	var candidates: Array = []
+	for room in rooms:
+		if String(room.get("id", "")) == "room-lobby":
+			continue
+		var x0 := int(room["x"])
+		var y0 := int(room["y"])
+		var x1 := x0 + int(room["width"]) - 1
+		var y1 := y0 + int(room["height"]) - 1
+		var doorway_options: Array = []
+		for x in range(x0 + 1, x1):
+			_maybe_boarded_doorway(doorway_options, Vector2i(x, y0), Vector2i(0, -1), occupied)
+			_maybe_boarded_doorway(doorway_options, Vector2i(x, y1), Vector2i(0, 1), occupied)
+		for y in range(y0 + 1, y1):
+			_maybe_boarded_doorway(doorway_options, Vector2i(x0, y), Vector2i(-1, 0), occupied)
+			_maybe_boarded_doorway(doorway_options, Vector2i(x1, y), Vector2i(1, 0), occupied)
+		if not doorway_options.is_empty():
+			var rng := SeededRandom.new("%s:BOARDED:%s" % [seed_text, room.get("id", "")])
+			var picked: Dictionary = doorway_options[rng.next_index(doorway_options.size())]
+			picked["room_id"] = String(room.get("id", ""))
+			picked["room_type"] = String(room.get("type", ""))
+			candidates.append(picked)
+	var chooser := SeededRandom.new("%s:BOARDED-PATHS" % seed_text)
+	while boarded_paths.size() < maximum and not candidates.is_empty():
+		var index := chooser.next_index(candidates.size())
+		boarded_paths.append(candidates[index])
+		candidates.remove_at(index)
+	return boarded_paths
+
+
+func _maybe_boarded_doorway(output: Array, inside: Vector2i,
+		outward: Vector2i, occupied: Dictionary) -> void:
+	var outside := inside + outward
+	if not _valid_open_cell(inside) or not _valid_open_cell(outside) \
+			or occupied.has(inside):
+		return
+	# The next cell beyond the doorway must remain traversable corridor space;
+	# this excludes isolated wall pinholes and false room-boundary matches.
+	var corridor_next := outside + outward
+	if not _valid_open_cell(corridor_next):
+		return
+	output.append({"x": inside.x, "y": inside.y, "dir": outward})
+
+
+## Full 3 m barricades for the procedural three-cell corridors. Candidates
+## must have open space on both sides of the barrier and solid outer walls,
+## which prevents a decorative board from appearing inside a wide room.
+func place_boarded_hallways(maximum: int = 1) -> Array:
+	if not boarded_hallways.is_empty() or maximum <= 0:
+		return boarded_hallways
+	var occupied := {}
+	for collection in [relays, batteries, safe_zones, props]:
+		for entry in collection:
+			occupied[Vector2i(int(entry.get("x", -1)), int(entry.get("y", -1)))] = true
+	occupied[start] = true
+	occupied[exit_cell] = true
+	var candidates: Array = []
+	for hall in hallways:
+		var horizontal: bool = String(hall.get("orientation", "")) == "horizontal"
+		var length: int = int(hall.get("width" if horizontal else "height", 0))
+		if length < 7:
+			continue
+		for along in range(3, length - 3):
+			var cell: Vector2i = Vector2i(int(hall["x"]) + along, int(hall["y"]) + 1) \
+				if horizontal else Vector2i(int(hall["x"]) + 1, int(hall["y"]) + along)
+			if occupied.has(cell) or cell.distance_to(start) < 6.0:
+				continue
+			var forward: Vector2i = Vector2i(1, 0) if horizontal else Vector2i(0, 1)
+			var across: Vector2i = Vector2i(0, 1) if horizontal else Vector2i(1, 0)
+			var valid: bool = true
+			for offset in [-1, 0, 1]:
+				valid = valid and _valid_open_cell(cell + across * offset) \
+					and _valid_open_cell(cell + across * offset + forward) \
+					and _valid_open_cell(cell + across * offset - forward)
+			valid = valid and not _valid_open_cell(cell + across * 2) \
+				and not _valid_open_cell(cell - across * 2)
+			if valid:
+				candidates.append({"x": cell.x, "y": cell.y,
+					"orientation": "horizontal" if horizontal else "vertical"})
+	var rng := SeededRandom.new("%s:BOARDED-HALLWAYS" % seed_text)
+	while boarded_hallways.size() < maximum and not candidates.is_empty():
+		var index := rng.next_index(candidates.size())
+		boarded_hallways.append(candidates[index])
+		candidates.remove_at(index)
+	return boarded_hallways
 
 
 func generate() -> void:
@@ -434,6 +534,8 @@ func _room_prop_preference(room: Dictionary, cell: Vector2i, type: String,
 	var center: Vector2i = room["center"]
 	if type in ["carnivalCarousel", "giantTree", "diningTable"] \
 			and RoomCatalog.CENTERPIECE_TYPES.has(String(room.get("type", ""))):
+		return Vector2(cell).distance_squared_to(Vector2(center))
+	if RoomCatalog.is_walkable_structure(type):
 		return Vector2(cell).distance_squared_to(Vector2(center))
 	var left := cell.x - (int(room["x"]) + 1)
 	var right := int(room["x"]) + int(room["width"]) - 2 - cell.x
@@ -839,7 +941,9 @@ func place_safe_zones(from_start: Dictionary) -> void:
 		var bd: int = from_start.get(b["center"], 0)
 		return ad > bd
 	)
-	var alternatives: Array = room_candidates.filter(func(r): return r["id"] != "room-lobby")
+	var alternatives: Array = room_candidates.filter(func(r):
+		return r["id"] != "room-lobby" and not RoomCatalog.room_has_walkable_structure(
+			String(r.get("type", ""))))
 	var wanted: int = mini(safe_zone_count, alternatives.size())
 	if wanted <= 0:
 		return
@@ -967,6 +1071,8 @@ func place_relays(from_start: Dictionary) -> void:
 	for cell in floor_cells():
 		if spawn_points.has(cell):
 			continue
+		if _cell_in_walkable_structure_room(cell):
+			continue
 		var start_distance: int = from_start.get(cell, 0)
 		if start_distance <= 14:
 			continue
@@ -991,6 +1097,8 @@ func place_batteries(from_start: Dictionary) -> void:
 	var candidates: Array = []
 	for cell in floor_cells():
 		if spawn_points.has(cell):
+			continue
+		if _cell_in_walkable_structure_room(cell):
 			continue
 		var distance: int = from_start.get(cell, -1)
 		if distance <= 5:
@@ -1062,6 +1170,8 @@ func pick_service_lift(from_start: Dictionary) -> Vector2i:
 	var reachable: Array = []
 	for cell in floor_cells():
 		if spawn_points.has(cell):
+			continue
+		if _cell_in_walkable_structure_room(cell):
 			continue
 		if from_start.has(cell) and can_occupy(cell.x + 0.5, cell.y + 0.5):
 			reachable.append(cell)
@@ -1144,6 +1254,11 @@ func room_at(x: float, y: float) -> Dictionary:
 	return {}
 
 
+func _cell_in_walkable_structure_room(cell: Vector2i) -> bool:
+	var room := room_at(cell.x + 0.5, cell.y + 0.5)
+	return RoomCatalog.room_has_walkable_structure(String(room.get("type", "")))
+
+
 func place_hiding_spots(count: int = 6) -> Array:
 	hiding_spots = []
 	var rng := SeededRandom.new("%s:HIDING-SPOTS" % seed_text)
@@ -1166,6 +1281,8 @@ func place_hiding_spots(count: int = 6) -> Array:
 		for x in range(1, cols - 1):
 			var cell := Vector2i(x, y)
 			if not can_occupy(x + 0.5, y + 0.5) or taken.has(cell):
+				continue
+			if _cell_in_walkable_structure_room(cell):
 				continue
 			# Backed onto a wall, and not in a doorway: a spot in the middle of a
 			# corridor is not somewhere you could hide, and a spot in a doorway
@@ -1247,7 +1364,9 @@ func place_coins(count: int = 5) -> Array:
 		for entry in group:
 			taken[Vector2i(entry["x"], entry["y"])] = true
 
-	var pool := rooms.duplicate()
+	var pool: Array = rooms.filter(func(room):
+		return not RoomCatalog.room_has_walkable_structure(
+			String(room.get("type", ""))))
 	while coins.size() < count and not pool.is_empty():
 		var index := rng.next_index(pool.size())
 		var room: Dictionary = pool[index]
@@ -1267,14 +1386,54 @@ func place_vents(count: int = 4) -> Array:
 	if rooms.is_empty():
 		return vents
 	var rng := SeededRandom.new("%s:VENT-NETWORK" % seed_text)
-	var pool := rooms.duplicate()
+	var taken := {exit_cell: true}
+	for spawn_cell in spawn_points:
+		taken[spawn_cell] = true
+	for group in [relays, batteries, safe_zones, hiding_spots]:
+		for entry in group:
+			taken[Vector2i(entry["x"], entry["y"])] = true
+	for prop in props:
+		taken[Vector2i(prop["x"], prop["y"])] = true
+	var pool: Array = rooms.filter(func(room):
+		return not RoomCatalog.room_has_walkable_structure(
+			String(room.get("type", ""))))
 	while vents.size() < count and not pool.is_empty():
 		var index := rng.next_index(pool.size())
 		var room: Dictionary = pool[index]
 		pool.remove_at(index)
-		var center: Vector2i = room["center"]
-		var open := nearest_open_position(center.x + 0.5, center.y + 0.5, DEFAULT_AGENT_RADIUS)
-		var at := Vector2i(int(open["x"]), int(open["y"])) if not open.is_empty() else center
+		var candidates := _vent_candidates(room, taken)
+		if candidates.is_empty():
+			continue
+		var wall_candidates: Array = candidates.filter(func(entry):
+			return entry["mount"] == "wall")
+		var chosen_pool := wall_candidates if not wall_candidates.is_empty() \
+			and rng.next_float() < .58 else candidates.filter(func(entry):
+				return entry["mount"] == "floor")
+		if chosen_pool.is_empty():
+			chosen_pool = candidates
+		var chosen: Dictionary = chosen_pool[rng.next_index(chosen_pool.size())]
+		var at: Vector2i = chosen["cell"]
+		taken[at] = true
 		vents.append({"id": "vent-%d" % (vents.size() + 1), "x": at.x, "y": at.y,
-			"room_id": String(room.get("id", "")), "index": vents.size()})
+			"room_id": String(room.get("id", "")), "index": vents.size(),
+			"mount": chosen["mount"], "wall_dir": chosen.get("wall_dir", Vector2i.ZERO)})
 	return vents
+
+
+func _vent_candidates(room: Dictionary, taken: Dictionary) -> Array:
+	var out: Array = []
+	var directions: Array[Vector2i] = [Vector2i(0, -1), Vector2i(1, 0),
+		Vector2i(0, 1), Vector2i(-1, 0)]
+	for y in range(int(room["y"]), int(room["y"]) + int(room["height"])):
+		for x in range(int(room["x"]), int(room["x"]) + int(room["width"])):
+			var cell := Vector2i(x, y)
+			if taken.has(cell) or not _valid_open_cell(cell):
+				continue
+			out.append({"cell": cell, "mount": "floor"})
+			for direction: Vector2i in directions:
+				var adjacent: Vector2i = cell + direction
+				if adjacent.x < 0 or adjacent.y < 0 or adjacent.x >= cols \
+						or adjacent.y >= rows or grid[adjacent.y][adjacent.x] != 0:
+					out.append({"cell": cell, "mount": "wall",
+						"wall_dir": direction})
+	return out

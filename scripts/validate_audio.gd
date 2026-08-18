@@ -22,7 +22,7 @@ func run(host: Node) -> int:
 	_expect(AudioServer.get_bus_index("SFX") >= 0, "SFX audio bus is missing")
 	_expect(AudioServer.get_bus_index("UI") >= 0, "UI audio bus is missing")
 
-	var cues := ["collect", "recharge", "menu", "music_box", "alert",
+	var cues := ["collect", "recharge", "menu", "music_box", "alert", "chase_start", "taser",
 		"nyxie_timer", "nyxie_empty", "hunter_footstep", "mimic",
 		"mimic_rare", "heartbeat",
 		"footstep_walk", "footstep_sprint", "footstep_crouch", "capture",
@@ -80,6 +80,25 @@ func run(host: Node) -> int:
 		"choice": 0.0})
 	_expect(int(Sound.play_counts.get("mimic_rare", 0)) == 1,
 		"a synchronized Thessine mimic event played no rare false cue")
+	var chased: HunterView3D = route.hunter_view
+	var chase_cell: Vector2i = route.facility_view.generator.exit_cell
+	route.player.global_position = route.facility_view.cell_to_world(chase_cell)
+	chased.brain.position = Vector2(chase_cell) + Vector2(.5, .5)
+	chased.brain.active = true
+	chased.brain.state = HunterBrain.State.CHASE
+	chased.brain.stun_timer = 0.0
+	# This suite runs an offline route; peer 1 is the local runner contract.
+	chased.target_peer_id = 1
+	route._was_locally_pursued = false
+	Sound.reset_test_counters()
+	route._update_local_audio(.1)
+	_expect(int(Sound.play_counts.get("chase_start", 0)) == 1,
+		"a newly targeted runner heard no chase-start sting")
+	_expect(int(Sound.play_counts.get("heartbeat", 0)) == 1,
+		"an actively pursued runner heard no heartbeat ambience")
+	route._update_local_audio(.1)
+	_expect(int(Sound.play_counts.get("chase_start", 0)) == 1,
+		"the chase-start sting repeated every frame")
 	route.queue_free()
 	await host.get_tree().process_frame
 

@@ -33,6 +33,28 @@ HUNTER_SCALE_HEIGHTS = {
     "bathroom_sink": (1.10, 1.45),
     "bathroom_stall": (1.80, 2.10),
     "bathroom_vanity": (1.55, 1.90),
+    "public_restroom_toilet": (1.10, 1.35),
+    "public_mens_urinal": (1.00, 1.25),
+    "public_sink_bank": (1.20, 1.40),
+    "public_hand_dryer": (0.35, 0.55),
+    "public_soap_dispenser": (0.35, 0.50),
+    "public_paper_towel_dispenser": (0.60, 0.80),
+    "public_baby_change_station": (0.60, 1.00),
+    "public_sanitary_bin": (0.60, 0.80),
+    "public_mens_room_sign": (0.65, 0.85),
+    "public_womens_room_sign": (0.65, 0.85),
+    "public_mens_shower_stall": (2.00, 2.30),
+    "public_womens_shower_stall": (2.00, 2.30),
+    "public_shower_bench": (0.50, 0.70),
+    "house_bathtub": (0.85, 1.10),
+    "house_toilet": (1.10, 1.35),
+    "house_shower_enclosure": (2.00, 2.30),
+    "house_medicine_cabinet": (0.70, 0.90),
+    "house_towel_rack": (0.50, 0.75),
+    "house_bath_mat": (0.05, 0.12),
+    "house_bathroom_shelf": (0.90, 1.15),
+	"grand_staircase": (1.75, 2.05),
+	"grand_foyer_staircase": (2.65, 3.05),
     "bedroom_bench": (0.50, 0.80),
     "bedroom_dresser": (0.90, 1.20),
     "bedroom_nightstand": (0.60, 0.85),
@@ -124,6 +146,24 @@ def validate_hunter_scale(name, low, high):
             f"{name}: mounted bounds {low[2]:.3f}-{high[2]:.3f} m are not "
             "comfortable above a hunter-scale worktop"
         )
+
+    mounted_bathroom_ranges = {
+        "public_hand_dryer": (1.10, 1.50, 1.70),
+        "public_soap_dispenser": (0.95, 1.30, 1.50),
+        "public_paper_towel_dispenser": (0.90, 1.55, 1.80),
+        "public_mens_room_sign": (1.15, 1.85, 2.05),
+        "public_womens_room_sign": (1.15, 1.85, 2.05),
+        "house_medicine_cabinet": (1.00, 1.75, 2.00),
+        "house_towel_rack": (0.75, 1.30, 1.55),
+        "house_bathroom_shelf": (0.95, 1.85, 2.10),
+    }
+    if name in mounted_bathroom_ranges:
+        minimum_low, minimum_high, maximum_high = mounted_bathroom_ranges[name]
+        if low[2] < minimum_low or not minimum_high <= high[2] <= maximum_high:
+            raise RuntimeError(
+                f"{name}: mounted bounds {low[2]:.3f}-{high[2]:.3f} m "
+                "do not match hunter reach/eye height"
+            )
 
 
 def validate_blend(path):

@@ -61,6 +61,27 @@ const STAMINA_EXHAUSTED_RECOVERY := 25.0
 ## clear a small lip without letting players vault the maze walls or props.
 const PLAYER_GRAVITY := 12.0
 const PLAYER_JUMP_VELOCITY := 3.0
+const LADDER_CLIMB_SPEED := 2.15
+## Landing faster than an ordinary hop or a snapped stair descent briefly
+## incapacitates the runner. This is deliberately a stun, not health damage:
+## Last Route's route mode has no hit-point economy to quietly undermine.
+const PLAYER_FALL_STUN_SPEED := 4.0
+const PLAYER_FALL_STUN_MIN_SECONDS := 0.75
+const PLAYER_FALL_STUN_MAX_SECONDS := 2.5
+
+## Handheld taser. The firing player predicts only the first-person recoil;
+## the room host owns hit testing and the resulting hunter stun in co-op.
+const TASER_RANGE := 5.0
+const TASER_HALF_ANGLE := 0.35
+const TASER_STUN_SECONDS := 2.8
+const TASER_COOLDOWN_SECONDS := 8.0
+
+## Hand tools are deliberately shorter-ranged than the taser. A swing always
+## spends durability once it starts—even if it only clips another runner—but
+## co-op runners never receive damage or stun from it.
+const TOOL_USE_RANGE := 2.1
+const LOCKED_RELAY_CACHE_RATIO := 0.42
+const BOARDED_PATH_COUNT := 2
 
 const MAX_LAMP_CHARGE := 100.0
 const LAMP_IDLE_DRAIN := 0.8

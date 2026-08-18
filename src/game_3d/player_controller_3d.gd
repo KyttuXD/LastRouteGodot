@@ -15,6 +15,8 @@ extends CharacterBody3D
 ## reads a floor plan. So it is gone rather than carried as a broken option.
 
 signal flashlight_changed(enabled: bool)
+signal taser_requested
+signal tool_used(item_id: String)
 signal interaction_message(message: String)
 
 const CAMERA_HEIGHT := 1.6
@@ -35,7 +37,48 @@ const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
 ## here.
 @onready var body_visual: Node3D = $BodyVisual
 
-var flashlight_enabled := true
+var flashlight_enabled := false
+## First-person equipment is deliberately camera-local. The authoritative
+## taser hit is resolved by main_3d; this controller owns only input, cooldown
+## presentation, and the local recoil animation.
+var first_person_items: Node3D
+var flashlight_view: Node3D
+var taser_view: Node3D
+var tool_views := {}
+var taser_cooldown := 0.0
+var _flashlight_lens_material: StandardMaterial3D
+var _flashlight_item_tween: Tween
+var _taser_item_tween: Tween
+var _tool_item_tween: Tween
+const FLASHLIGHT_ITEM_POSITION := Vector3(0.27, -0.22, -0.52)
+const TASER_ITEM_POSITION := Vector3(-0.24, -0.22, -0.50)
+const UTILITY_ITEM_POSITION := Vector3(.25, -.24, -.58)
+const ITEM_MODEL_PATHS := {
+	"flashlight": "res://art/props-3d/interactables/flashlight_item.glb",
+	"taser": "res://art/props-3d/interactables/taser_item.glb",
+	"lockpick": "res://art/props-3d/interactables/lockpick_set.glb",
+	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
+	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
+}
+const INVENTORY_ITEMS := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
+const INVENTORY_LABELS := {
+	"flashlight": "FLASHLIGHT", "taser": "TASER", "lockpick": "LOCKPICK SET",
+	"crowbar": "CROWBAR", "rescue_axe": "RESCUE AXE",
+}
+const INVENTORY_MAX_DURABILITY := {
+	"lockpick": 12, "crowbar": 40, "rescue_axe": 24,
+}
+const BREACH_TOOLS := ["crowbar", "rescue_axe"]
+const LOCK_TOOLS := ["lockpick", "crowbar"]
+const FRIENDLY_FIRE_ENABLED := false
+var selected_inventory_slot := -1
+var owned_inventory_items := {
+	"flashlight": false, "taser": false, "lockpick": false,
+	"crowbar": false, "rescue_axe": false,
+}
+var inventory_durability := {
+	"lockpick": 0, "crowbar": 0, "rescue_axe": 0,
+}
 ## True while the facility's heater station is running — warms the ambient,
 ## and is Wynelle's counterplay (see heater_station in route_interactable_3d).
 var heater_on := false
@@ -110,6 +153,9 @@ var music_box_resolver: Callable
 ## THEY resolve -- exiting a locker while also stunned would have ended the
 ## stun early if it shared the flag. Independently ticked and checked.
 var stun_timer := 0.0
+## Fastest downward speed since leaving a floor. Sampling the landing frame's
+## velocity alone is unreliable because move_and_slide() zeroes it on impact.
+var _fall_speed := 0.0
 
 ## Verrine's vent network. Resolved the same indirection as
 ## music_box_resolver -- a plain interactable has no business knowing what a
@@ -166,7 +212,7 @@ func enter_hiding(cell: Vector2i) -> String:
 	input_frozen = true
 	if body_visual:
 		body_visual.visible = false
-	return cleared_message if not cleared_message.is_empty() else "Hidden. [E] to come out."
+	return cleared_message if not cleared_message.is_empty() else "Hidden. Interact to come out."
 
 
 ## `forced`: another hunter reaching in (Jyvra, Loxelle) rather than the player
@@ -206,6 +252,8 @@ var trigger_static_effect: Callable
 
 
 func force_flashlight_flicker(duration: float, min_period: float = 0.08, max_period: float = 0.35) -> void:
+	if not owns_inventory_item("flashlight"):
+		return
 	_flicker_remaining = maxf(_flicker_remaining, duration)
 	_flicker_min_period = min_period
 	_flicker_max_period = max_period
@@ -220,16 +268,19 @@ func flashlight_seized() -> bool:
 
 
 func _ready() -> void:
+	# Keeps a grounded body attached to the stair ramp while walking down it.
+	# The snap is shorter than a real fall, so stepping off the mezzanine still
+	# becomes airborne and reaches the fall-stun path below.
+	floor_snap_length = 0.28
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
 		body_visual.add_child(model)
 		_animation_player = ModelSlot.find_animation_player(model)
-	# Explicitly through _set_flashlight rather than by poking `visible`, so the
-	# lamp-charge gate applies at spawn exactly as it does on a manual toggle.
-	# The maze is lit almost entirely by this beam; starting dark reads as a
-	# broken build rather than as atmosphere.
-	_set_flashlight(true)
+	_build_first_person_items()
+	# Equipment is now found in the seeded facility. The beam must stay dark
+	# until a flashlight pickup has actually granted the item.
+	_set_flashlight(false)
 	_connect_xr_buttons()
 	if not _try_enter_xr():
 		_enter_first_person()
@@ -241,15 +292,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		rotation.y = _yaw
 		first_person_pivot.rotation.x = _pitch
-	elif event is InputEventKey and event.pressed and not event.echo and shop_resolver.is_valid():
+	elif event is InputEventKey and event.pressed and not event.echo:
 		var key := (event as InputEventKey).physical_keycode
-		if key >= KEY_1 and key <= KEY_4:
+		if key >= KEY_1 and key <= KEY_4 and shop_resolver.is_valid():
 			var message := String(shop_resolver.call(str(key - KEY_1 + 1)))
 			if not message.is_empty():
 				interaction_message.emit(message)
+				return
+		if key >= KEY_1 and key <= KEY_5:
+			select_inventory_slot(key - KEY_1)
+	elif event is InputEventMouseButton and event.pressed:
+		var button := (event as InputEventMouseButton).button_index
+		if button == MOUSE_BUTTON_WHEEL_UP:
+			select_inventory_slot(selected_inventory_slot - 1)
+		elif button == MOUSE_BUTTON_WHEEL_DOWN:
+			select_inventory_slot(selected_inventory_slot + 1)
 
 
 func _physics_process(delta: float) -> void:
+	taser_cooldown = maxf(0.0, taser_cooldown - delta)
+	_update_first_person_item_lights()
 	if hiding_lock_timer > 0.0:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
 	if stun_timer > 0.0:
@@ -262,7 +324,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0.0
 		velocity.z = 0.0
 		_update_vertical_motion(delta, false)
-		move_and_slide()
+		_move_and_resolve_landing()
 		noise = 0.0
 		_clip = "idle"
 		ModelSlot.play_if_available(_animation_player, _clip)
@@ -358,19 +420,48 @@ func _physics_process(delta: float) -> void:
 
 	velocity.x = move_direction.x * speed_mps
 	velocity.z = move_direction.z * speed_mps
-	_update_vertical_motion(delta, movement_mode != "crouch")
-	move_and_slide()
+	var ladder: Node3D = _nearby_ladder()
+	var climbing := ladder != null and (absf(input_vector.y) > .1 \
+		or Input.is_action_pressed("jump"))
+	if climbing:
+		floor_snap_length = 0.0
+		var climb_direction := -input_vector.y
+		if Input.is_action_pressed("jump"):
+			climb_direction = 1.0
+		velocity.y = climb_direction * GameConfig.LADDER_CLIMB_SPEED
+		var guide: Vector3 = ladder.call("guide_world_position", global_position.y)
+		velocity.x = (guide.x - global_position.x) * 5.0
+		velocity.z = (guide.z - global_position.z) * 5.0
+	else:
+		floor_snap_length = .28
+		_update_vertical_motion(delta, movement_mode != "crouch")
+	_move_and_resolve_landing()
 	if is_moving and is_on_floor():
 		Sound.footstep(movement_mode)
 
 
 	_update_flashlight_flicker(delta)
-	if Input.is_action_just_pressed("flashlight") and not flashlight_seized():
+	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
+			and not flashlight_seized():
+		select_inventory_slot(0)
 		_set_flashlight(not flashlight_enabled)
+	if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+		_fire_taser()
+	if Input.is_action_just_pressed("tool_use"):
+		_use_selected_item()
 
 	_update_resecure(delta)
 	if Input.is_action_just_pressed("interact"):
 		_try_interact()
+
+
+func _nearby_ladder() -> Node3D:
+	for candidate in get_tree().get_nodes_in_group("climbable_ladder"):
+		var ladder := candidate as Node3D
+		if ladder and ladder.has_method("can_climb") \
+				and bool(ladder.call("can_climb", global_position)):
+			return ladder
+	return null
 
 
 ## First person is the only view. The body is hidden because you are inside it,
@@ -407,6 +498,24 @@ func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
 		velocity.y -= GameConfig.PLAYER_GRAVITY * delta
 
 
+## Applies the route's fall consequence after CharacterBody resolves impact.
+## Normal jumping peaks at roughly 3 m/s and stair walking remains snapped to
+## the ramp, both below the 4 m/s safety threshold. A drop from the 1 m stair
+## landing crosses it and produces a short, severity-scaled stun.
+func _move_and_resolve_landing() -> void:
+	var was_grounded := is_on_floor()
+	_fall_speed = maxf(_fall_speed, maxf(0.0, -velocity.y))
+	move_and_slide()
+	if is_on_floor():
+		if not was_grounded and _fall_speed >= GameConfig.PLAYER_FALL_STUN_SPEED:
+			var severity := (_fall_speed - GameConfig.PLAYER_FALL_STUN_SPEED) / 4.0
+			var duration := lerpf(GameConfig.PLAYER_FALL_STUN_MIN_SECONDS,
+				GameConfig.PLAYER_FALL_STUN_MAX_SECONDS, clampf(severity, 0.0, 1.0))
+			stun_timer = maxf(stun_timer, duration)
+			interaction_message.emit("HARD LANDING // STUNNED %.1fs" % duration)
+		_fall_speed = 0.0
+
+
 func request_jump() -> void:
 	_jump_requested = true
 
@@ -414,6 +523,8 @@ func request_jump() -> void:
 func _enter_first_person() -> void:
 	first_person_camera.current = true
 	body_visual.visible = false
+	if first_person_items:
+		first_person_items.visible = true
 	# Stated as a preference, not set directly: a menu on top has to be able to
 	# hand the cursor back without this taking it again next frame.
 	MouseLock.set_gameplay_capture(true)
@@ -438,6 +549,10 @@ func _try_enter_xr() -> bool:
 	first_person_camera.current = false
 	xr_camera.current = true
 	body_visual.visible = false
+	# Desktop viewmodels are camera-framed props, not world-scale VR hands.
+	# Hide them in OpenXR until controller-held models get their own pass.
+	if first_person_items:
+		first_person_items.visible = false
 	MouseLock.set_gameplay_capture(false)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	return true
@@ -474,6 +589,8 @@ func _on_xr_right_released(action: StringName) -> void:
 
 func _on_xr_left_pressed(action: StringName) -> void:
 	match String(action):
+		"trigger_click":
+			Input.action_press("taser")
 		"primary_click":
 			Input.action_press("crouch")
 		"by_button":
@@ -484,6 +601,8 @@ func _on_xr_left_pressed(action: StringName) -> void:
 
 func _on_xr_left_released(action: StringName) -> void:
 	match String(action):
+		"trigger_click":
+			Input.action_release("taser")
 		"primary_click":
 			Input.action_release("crouch")
 		"by_button":
@@ -556,9 +675,261 @@ func _update_flashlight_flicker(delta: float) -> void:
 
 
 func _set_flashlight(enabled: bool) -> void:
-	flashlight_enabled = enabled and lamp_charge > 0.0
+	flashlight_enabled = enabled and owns_inventory_item("flashlight") \
+		and lamp_charge > 0.0
 	flashlight.visible = flashlight_enabled
+	_animate_flashlight_toggle()
+	_update_first_person_item_lights()
 	flashlight_changed.emit(flashlight_enabled)
+
+
+## Camera-local authored equipment keeps the held item readable without
+## leaking it into the player's world collider. The same GLBs are used for
+## floor pickups and HUD renders, so all three presentations stay consistent.
+func _build_first_person_items() -> void:
+	first_person_items = Node3D.new()
+	first_person_items.name = "FirstPersonItems"
+	first_person_camera.add_child(first_person_items)
+
+	flashlight_view = Node3D.new()
+	flashlight_view.name = "FlashlightView"
+	flashlight_view.position = FLASHLIGHT_ITEM_POSITION
+	first_person_items.add_child(flashlight_view)
+	_add_authored_item_model(flashlight_view, "flashlight", .50)
+
+	taser_view = Node3D.new()
+	taser_view.name = "TaserView"
+	taser_view.position = TASER_ITEM_POSITION
+	first_person_items.add_child(taser_view)
+	_add_authored_item_model(taser_view, "taser", .50)
+	taser_view.visible = false
+
+	_build_utility_view("lockpick")
+	_build_utility_view("crowbar")
+	_build_utility_view("rescue_axe")
+	_refresh_inventory_view()
+
+
+func _build_utility_view(item_id: String) -> void:
+	var view := Node3D.new()
+	view.name = "%sView" % item_id.to_pascal_case()
+	view.position = UTILITY_ITEM_POSITION
+	first_person_items.add_child(view)
+	_add_authored_item_model(view, item_id, .52 if item_id == "lockpick" else .43)
+	view.visible = false
+	tool_views[item_id] = view
+
+
+func _add_authored_item_model(view: Node3D, item_id: String, scale_amount: float) -> void:
+	var model_path := String(ITEM_MODEL_PATHS.get(item_id, ""))
+	var model := ModelSlot.instantiate(model_path)
+	if model:
+		model.name = "AuthoredToolModel"
+		model.scale = Vector3.ONE * scale_amount
+		model.rotation.x = deg_to_rad(-72.0)
+		model.position = Vector3(0, -.02, -.18)
+		view.add_child(model)
+	else:
+		push_error("FIRST-PERSON TOOL MODEL MISSING // %s" % model_path)
+
+
+func _add_item_part(parent: Node3D, part_name: String, size: Vector3,
+		at: Vector3, color: Color, override_material: Material = null) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	var mesh := MeshInstance3D.new()
+	mesh.name = part_name
+	mesh.mesh = box
+	mesh.position = at
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mesh.material_override = override_material if override_material else _item_material(color)
+	parent.add_child(mesh)
+
+
+func _item_material(color: Color, emission: Color = Color(0, 0, 0, 1)) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = .58
+	if emission.r > 0.0 or emission.g > 0.0 or emission.b > 0.0:
+		material.emission_enabled = true
+		material.emission = emission
+		material.emission_energy_multiplier = 1.8
+	return material
+
+
+func _update_first_person_item_lights() -> void:
+	if _flashlight_lens_material == null:
+		return
+	var lit := flashlight != null and flashlight.visible
+	_flashlight_lens_material.emission_enabled = lit
+	_flashlight_lens_material.albedo_color = Color("eee3ad") if lit else Color("3c3b35")
+
+
+func _animate_flashlight_toggle() -> void:
+	if flashlight_view == null:
+		return
+	if _flashlight_item_tween and _flashlight_item_tween.is_valid():
+		_flashlight_item_tween.kill()
+	flashlight_view.position = FLASHLIGHT_ITEM_POSITION
+	_flashlight_item_tween = create_tween().set_trans(Tween.TRANS_QUAD)
+	_flashlight_item_tween.tween_property(flashlight_view, "position",
+		FLASHLIGHT_ITEM_POSITION + Vector3(0, -.055, .035), .09)
+	_flashlight_item_tween.tween_property(flashlight_view, "position",
+		FLASHLIGHT_ITEM_POSITION, .14).set_ease(Tween.EASE_OUT)
+
+
+func _fire_taser() -> void:
+	if not owns_inventory_item("taser") or taser_cooldown > 0.0 \
+			or input_frozen or stun_timer > 0.0:
+		return
+	select_inventory_slot(1)
+	taser_cooldown = GameConfig.TASER_COOLDOWN_SECONDS
+	Sound.taser()
+	_animate_taser_fire()
+	taser_requested.emit()
+
+
+func _animate_taser_fire() -> void:
+	if taser_view == null:
+		return
+	if _taser_item_tween and _taser_item_tween.is_valid():
+		_taser_item_tween.kill()
+	taser_view.visible = true
+	taser_view.position = TASER_ITEM_POSITION
+	_taser_item_tween = create_tween().set_trans(Tween.TRANS_BACK)
+	_taser_item_tween.tween_property(taser_view, "position",
+		TASER_ITEM_POSITION + Vector3(0, .015, .09), .07)
+	_taser_item_tween.tween_property(taser_view, "position", TASER_ITEM_POSITION, .18)
+	_taser_item_tween.tween_interval(.28)
+	_taser_item_tween.tween_callback(_refresh_inventory_view)
+
+
+func select_inventory_slot(slot: int) -> void:
+	var candidate := wrapi(slot, 0, INVENTORY_ITEMS.size())
+	var found := -1
+	for offset in INVENTORY_ITEMS.size():
+		var checked := wrapi(candidate + offset, 0, INVENTORY_ITEMS.size())
+		if bool(owned_inventory_items.get(INVENTORY_ITEMS[checked], false)):
+			found = checked
+			break
+	selected_inventory_slot = found
+	_refresh_inventory_view()
+
+
+func selected_inventory_item() -> String:
+	if selected_inventory_slot < 0 or selected_inventory_slot >= INVENTORY_ITEMS.size():
+		return ""
+	if not owns_inventory_item(INVENTORY_ITEMS[selected_inventory_slot]):
+		return ""
+	return INVENTORY_ITEMS[selected_inventory_slot]
+
+
+func grant_inventory_item(item_id: String) -> bool:
+	if not INVENTORY_ITEMS.has(item_id):
+		return false
+	owned_inventory_items[item_id] = true
+	if item_id == "flashlight":
+		restore_lamp(GameConfig.MAX_LAMP_CHARGE)
+	elif item_id == "taser":
+		taser_cooldown = 0.0
+	elif INVENTORY_MAX_DURABILITY.has(item_id):
+		inventory_durability[item_id] = int(INVENTORY_MAX_DURABILITY[item_id])
+	select_inventory_slot(INVENTORY_ITEMS.find(item_id))
+	return true
+
+
+func owns_inventory_item(item_id: String) -> bool:
+	return bool(owned_inventory_items.get(item_id, false))
+
+
+func item_durability(item_id: String) -> int:
+	return int(inventory_durability.get(item_id, 0))
+
+
+func consume_item_durability(item_id: String, amount: int = 1) -> bool:
+	if not owns_inventory_item(item_id) or not INVENTORY_MAX_DURABILITY.has(item_id):
+		return false
+	var remaining := maxi(0, item_durability(item_id) - maxi(1, amount))
+	inventory_durability[item_id] = remaining
+	if remaining <= 0:
+		owned_inventory_items[item_id] = false
+		interaction_message.emit("%s BROKE // FIND OR ADMIN-GIVE A REPLACEMENT" %
+			String(INVENTORY_LABELS[item_id]))
+		select_inventory_slot(selected_inventory_slot + 1)
+	return true
+
+
+func inventory_durability_snapshot() -> Dictionary:
+	return inventory_durability.duplicate(true)
+
+
+func inventory_owned_snapshot() -> Dictionary:
+	return owned_inventory_items.duplicate(true)
+
+
+func _use_selected_item() -> void:
+	var item_id := selected_inventory_item()
+	if item_id.is_empty():
+		interaction_message.emit("EMPTY HANDS // FIND EQUIPMENT IN THE FACILITY")
+		return
+	match item_id:
+		"flashlight":
+			if not flashlight_seized():
+				_set_flashlight(not flashlight_enabled)
+		"taser":
+			_fire_taser()
+		_:
+			_use_selected_tool()
+
+
+func _use_selected_tool() -> void:
+	if input_frozen or stun_timer > 0.0:
+		return
+	var item_id := selected_inventory_item()
+	if not BREACH_TOOLS.has(item_id) and not LOCK_TOOLS.has(item_id):
+		interaction_message.emit("SELECT A HAND TOOL // SLOTS 3-5")
+		return
+	# A committed swing/use spends durability before any hit result. This makes
+	# ally hits cost the tool without ever creating friendly-fire damage.
+	if not consume_item_durability(item_id):
+		interaction_message.emit("%s IS BROKEN" % String(INVENTORY_LABELS[item_id]))
+		return
+	_animate_tool_use(item_id)
+	tool_used.emit(item_id)
+	var target := _nearest_interactable()
+	if target != null and (target.kind == RouteInteractable3D.Kind.BOARDED_PATH \
+			or (target.kind == RouteInteractable3D.Kind.RELAY and target.locked_cache)):
+		interaction_message.emit(target.activate_with_tool(self, item_id, true))
+	else:
+		interaction_message.emit("TOOL USED // TEAMMATES CANNOT TAKE DAMAGE")
+
+
+func _animate_tool_use(item_id: String) -> void:
+	var view := tool_views.get(item_id) as Node3D
+	if view == null:
+		return
+	if _tool_item_tween and _tool_item_tween.is_valid():
+		_tool_item_tween.kill()
+	view.position = UTILITY_ITEM_POSITION
+	view.rotation = Vector3.ZERO
+	_tool_item_tween = create_tween().set_trans(Tween.TRANS_QUAD)
+	_tool_item_tween.tween_property(view, "rotation:z", -.72, .09)
+	_tool_item_tween.parallel().tween_property(view, "position",
+		UTILITY_ITEM_POSITION + Vector3(-.10, .04, -.06), .09)
+	_tool_item_tween.tween_property(view, "rotation:z", 0.0, .16)
+	_tool_item_tween.parallel().tween_property(view, "position", UTILITY_ITEM_POSITION, .16)
+
+
+func _refresh_inventory_view() -> void:
+	var selected := selected_inventory_item()
+	if flashlight_view:
+		flashlight_view.visible = selected == "flashlight"
+	if taser_view:
+		taser_view.visible = selected == "taser"
+	for item_id in tool_views:
+		var view := tool_views[item_id] as Node3D
+		if view:
+			view.visible = selected == item_id
 
 
 func restore_lamp(amount: float) -> void:
@@ -598,11 +969,11 @@ func get_interaction_prompt() -> String:
 	if target != null:
 		var prompt: String = target.get_prompt()
 		if not prompt.is_empty():
-			return "[E] %s" % prompt
+			return prompt
 	if shop_prompt_provider.is_valid():
 		var shop_prompt: String = String(shop_prompt_provider.call())
 		if not shop_prompt.is_empty():
-			return "[E] %s" % shop_prompt
+			return shop_prompt
 	return ""
 
 

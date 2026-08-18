@@ -69,6 +69,7 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	_expect_xr(route)
 	await _expect_small_hop(route, host)
+	await _expect_hard_landing_stun(route, host)
 	route.queue_free()
 	await host.get_tree().process_frame
 
@@ -88,6 +89,85 @@ func _expect_xr(route: Node) -> void:
 			or controller.xr_left == null or controller.xr_right == null:
 		_fail("the route player is missing its OpenXR origin/camera/controllers")
 		return
+	if controller.first_person_items == null or controller.flashlight_view == null \
+			or controller.taser_view == null:
+		_fail("the desktop first-person camera is missing its held equipment view")
+	elif controller.first_person_items.get_parent() != controller.first_person_camera:
+		_fail("first-person items are not camera-local")
+	else:
+		var item_meshes := controller.first_person_items.find_children(
+			"*", "MeshInstance3D", true, false)
+		if item_meshes.size() < 20:
+			_fail("the authored equipment views contain only %d visible parts" % item_meshes.size())
+		for item_id in PlayerController3D.INVENTORY_ITEMS:
+			var view: Node3D = controller.flashlight_view if item_id == "flashlight" \
+				else (controller.taser_view if item_id == "taser" \
+				else controller.tool_views.get(item_id) as Node3D)
+			if view == null or view.find_child("AuthoredToolModel", true, false) == null:
+				_fail("%s has no authored first-person GLB" % item_id)
+		controller._animate_taser_fire()
+		if not controller.taser_view.visible:
+			_fail("the taser fire animation never presents the first-person item")
+	if not InputMap.has_action("taser") or not Settings.REBINDABLE_ACTIONS.has("taser"):
+		_fail("taser is missing from the input map or Settings rebinding")
+	if not InputMap.has_action("tool_use") or not Settings.REBINDABLE_ACTIONS.has("tool_use"):
+		_fail("held-tool use is missing from the input map or Settings rebinding")
+	if not controller.selected_inventory_item().is_empty() \
+			or controller.inventory_owned_snapshot().values().any(func(value): return bool(value)):
+		_fail("the route grants equipment before the player finds a pickup")
+	var tool_use_has_left := false
+	for event in (ProjectSettings.get_setting("input/tool_use", {}) as Dictionary).get("events", []):
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			tool_use_has_left = true
+	if not tool_use_has_left:
+		_fail("left click does not use/attack with the selected item")
+	var interact_has_right := false
+	for event in (ProjectSettings.get_setting("input/interact", {}) as Dictionary).get("events", []):
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
+			interact_has_right = true
+	if not interact_has_right:
+		_fail("right click does not share the interact action with E")
+	controller.taser_cooldown = 3.0
+	if not controller.grant_inventory_item("taser") \
+			or controller.selected_inventory_item() != "taser" \
+			or controller.taser_cooldown != 0.0:
+		_fail("granting the taser did not select and restock its inventory slot")
+	var shared_state: Dictionary = route._remotes._local_state()
+	if String(shared_state.get("selected_item", "")) != "taser":
+		_fail("co-op player state does not publish the selected inventory item")
+	controller.grant_inventory_item("crowbar")
+	var before := controller.item_durability("crowbar")
+	if not controller.consume_item_durability("crowbar") \
+			or controller.item_durability("crowbar") != before - 1:
+		_fail("a committed crowbar swing did not consume durability")
+	if PlayerController3D.FRIENDLY_FIRE_ENABLED:
+		_fail("co-op friendly fire is enabled for hand tools")
+
+
+func _expect_hard_landing_stun(route: Node, host: Node) -> void:
+	var controller: PlayerController3D = route.player
+	controller.stun_timer = 0.0
+	controller.input_frozen = false
+	controller.velocity = Vector3.ZERO
+	controller.global_position.y += 2.0
+	var landed := false
+	for _frame in 180:
+		await host.get_tree().physics_frame
+		await host.get_tree().process_frame
+		if controller.is_on_floor():
+			landed = true
+			break
+	if not landed:
+		_fail("the fall-stun check never landed")
+		return
+	if controller.stun_timer <= 0.0:
+		_fail("a 2 m hard landing did not stun the player")
+	elif controller.stun_timer > GameConfig.PLAYER_FALL_STUN_MAX_SECONDS:
+		_fail("fall stun exceeded its configured maximum")
+	else:
+		print("  fall      hard landing applies %.2fs stun; hop/stairs remain safe"
+			% controller.stun_timer)
+	controller.stun_timer = 0.0
 	if controller.xr_active:
 		_fail("OpenXR activated without an XR export/runtime request")
 	if not controller.first_person_camera.current:

@@ -81,8 +81,9 @@ const GUEST_LAST_NAMES := [
 	"LOCK", "VAULT", "FRAME", "STAIR", "VOICE", "TRACK", "FIELD", "LINE",
 ]
 
-## Which scene each mode opens. OFFICE is its own self-contained shift and
-## shares no state with a Last Route run.
+## Which scene each mode opens. The route now includes office-region rooms and
+## Office Mode is available as the focused single-runner shift; a future pass
+## can move the shared simulation into a route room without changing staging.
 const MODE_SCENES := {
 	Mode.DEFAULT: "res://scenes/main_3d.tscn",
 	Mode.HIDE_SEEK: "res://scenes/main_3d.tscn",
@@ -544,14 +545,14 @@ func roster() -> PackedStringArray:
 ## are rejected here as well as in staging so stale clients and direct calls
 ## cannot enter an unfinished ruleset.
 func mode_available(candidate: Mode) -> bool:
-	return candidate == Mode.DEFAULT
+	return candidate == Mode.DEFAULT or (candidate == Mode.OFFICE and not online)
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
 	if candidate == Mode.HIDE_SEEK:
 		return "HIDE & SEEK IS REMOVED WHILE ITS RULESET IS REBUILT"
 	if candidate == Mode.OFFICE:
-		return "OFFICE MODE IS TEMPORARILY UNAVAILABLE"
+		return "OFFICE MODE IS A SINGLE-RUNNER LOCAL SHIFT"
 	return ""
 
 

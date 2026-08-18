@@ -27,7 +27,11 @@ The mansion builder also retains the coordinated bedroom theme definitions:
 
 It also owns three complete hunter-scale kitchen families—normal, luxury, and
 Gothic—covering counters, sinks, stoves, refrigerators, wall cabinets, and
-islands, plus the normal-house and mansion furniture expansion.
+islands, plus the normal-house and mansion furniture expansion. Bathroom
+sources include public men's/women's utilities, public showers, and a warmer
+residential tub/shower collection. The grand stair hall retains visible
+pixel-art treads and rails while Godot supplies a smooth no-jump ramp beneath
+them for player and hunter traversal.
 
 Normal bedroom model names use the historical unsuffixed path for burgundy
 and a theme suffix for the other finishes. Gothic bedroom pieces always use a
@@ -58,6 +62,14 @@ source/runtime assets. Preview renders, Meshy task output, and Blender's
 automatic `.blend1` previous-save copies are reproducible local review files
 and are ignored by Git. This keeps a complete rebuild path without adding
 dozens of megabytes of gallery/cache output to every clone.
+
+The interactable pack also owns the gameplay-facing locked relay crate and
+barrel, one-metre doorway and full 3×3 hallway barricades, flashlight, taser,
+lockpick set, crowbar, rescue axe, service ladder and wall-light switch. These
+are real pixel-painted GLBs used across map pickups, first-person equipment
+and architecture; code supplies collision, interaction state and animation
+transforms. Rebuilding the five inventory items also renders transparent
+96×96 HUD icons into `assets/ui/inventory/` from those exact sources.
 
 No retained asset currently approaches GitHub's per-file limit. If a future
 single source or runtime model reaches 50 MiB, configure Git LFS on development

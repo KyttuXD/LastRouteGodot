@@ -172,3 +172,32 @@ sheet("mansion_house_and_luxury_expansion_gallery.png", [
     ("mansion_upright_piano_hytale_preview.png", "Upright piano"),
     ("mansion_bust_pedestal_hytale_preview.png", "Bust pedestal"),
 ], 4)
+
+sheet("public_bathroom_utilities_gallery.png", [
+    ("public_restroom_toilet_hytale_preview.png", "Public toilet"),
+    ("public_mens_urinal_hytale_preview.png", "Men's urinal"),
+    ("public_sink_bank_hytale_preview.png", "Three-basin sink bank"),
+    ("public_hand_dryer_hytale_preview.png", "Hand dryer"),
+    ("public_soap_dispenser_hytale_preview.png", "Soap dispenser"),
+    ("public_paper_towel_dispenser_hytale_preview.png", "Paper towel dispenser"),
+    ("public_sanitary_bin_hytale_preview.png", "Sanitary bin"),
+    ("public_baby_change_station_hytale_preview.png", "Baby changing station"),
+    ("public_mens_room_sign_hytale_preview.png", "Men's room sign"),
+    ("public_womens_room_sign_hytale_preview.png", "Women's room sign"),
+], 5)
+
+sheet("public_shower_props_gallery.png", [
+    ("public_mens_shower_stall_hytale_preview.png", "Men's shower stall"),
+    ("public_womens_shower_stall_hytale_preview.png", "Women's shower stall"),
+    ("public_shower_bench_hytale_preview.png", "Public shower bench"),
+], 3)
+
+sheet("house_bathroom_props_gallery.png", [
+    ("house_bathtub_hytale_preview.png", "House bathtub"),
+    ("house_toilet_hytale_preview.png", "House toilet"),
+    ("house_shower_enclosure_hytale_preview.png", "House shower enclosure"),
+    ("house_medicine_cabinet_hytale_preview.png", "Medicine cabinet"),
+    ("house_towel_rack_hytale_preview.png", "Towel rack"),
+    ("house_bath_mat_hytale_preview.png", "Bath mat"),
+    ("house_bathroom_shelf_hytale_preview.png", "Bathroom shelf"),
+], 4)

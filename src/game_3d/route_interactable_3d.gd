@@ -20,6 +20,9 @@ enum Kind {
 	MUSIC_BOX,
 	VENT,
 	COIN,
+	BOARDED_PATH,
+	TOOL_PICKUP,
+	LIGHT_SWITCH,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -42,7 +45,21 @@ const MODEL_SCENES := {
 	Kind.MUSIC_BOX: "res://art/props-3d/interactables/music_box.tscn",
 	Kind.VENT: "res://art/props-3d/interactables/vent.tscn",
 	Kind.COIN: "res://art/props-3d/interactables/coin.tscn",
+	Kind.BOARDED_PATH: "res://art/props-3d/interactables/boarded_door.glb",
+	Kind.LIGHT_SWITCH: "res://art/props-3d/interactables/wall_light_switch.glb",
 }
+const TOOL_PICKUP_MODELS := {
+	"flashlight": "res://art/props-3d/interactables/flashlight_item.glb",
+	"taser": "res://art/props-3d/interactables/taser_item.glb",
+	"lockpick": "res://art/props-3d/interactables/lockpick_set.glb",
+	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
+	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
+}
+const LOCKED_CACHE_MODELS := {
+	"crate": "res://art/props-3d/interactables/locked_relay_crate.glb",
+	"barrel": "res://art/props-3d/interactables/locked_relay_barrel.glb",
+}
+const BOARDED_HALLWAY_MODEL := "res://art/props-3d/interactables/boarded_hallway.glb"
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
 	Kind.BATTERY: Color(0.95, 0.82, 0.25),
@@ -53,6 +70,9 @@ const GLOW_COLORS := {
 	Kind.MUSIC_BOX: Color(0.85, 0.65, 0.35),
 	Kind.VENT: Color(0.30, 0.70, 0.55),
 	Kind.COIN: Color(0.95, 0.78, 0.20),
+	Kind.BOARDED_PATH: Color(0.94, 0.48, 0.22),
+	Kind.TOOL_PICKUP: Color(0.64, 0.84, 0.96),
+	Kind.LIGHT_SWITCH: Color(0.96, 0.72, 0.30),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -72,6 +92,20 @@ var generator: FacilityGenerator
 var heater_state: HeaterState = HeaterState.FROZEN
 ## Vent only -- which entry in FacilityGenerator.vents this node stands on.
 var vent_id := ""
+## Some deterministic relay spawns are concealed inside a locked crate or
+## barrel. They remain ordinary relays for objective counts and late-join
+## snapshots; this flag only adds the tool gate and container presentation.
+var locked_cache := false
+var cache_style := "crate"
+## Boarded paths are fixtures which disappear after a breach.
+var opened := false
+var boarded_variant := "door"
+## Personal equipment carried by a shared floor pickup. The pickup disappears
+## for the room; only the runner who activates it receives the item.
+var tool_item_id := ""
+var light_id := ""
+var light_enabled := true
+var light_resolver: Callable
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -85,10 +119,13 @@ var _interaction_focus_local := Vector3(0.0, 0.65, 0.0)
 func _ready() -> void:
 	add_to_group("interactable")
 
-	_visual = ModelSlot.instantiate(MODEL_SCENES[kind])
+	var model_path := String(MODEL_SCENES.get(kind, ""))
+	_visual = ModelSlot.instantiate(model_path) if not model_path.is_empty() else null
 	if _visual:
 		add_child(_visual)
 		_cache_interaction_focus()
+	if kind == Kind.BOARDED_PATH:
+		_add_blocking_box(Vector3(.96, 2.05, .12), Vector3(0, 1.025, 0))
 
 	_light = OmniLight3D.new()
 	_light.position = Vector3(0, 0.5, 0)
@@ -126,9 +163,18 @@ func _collect_mesh_bounds(node: Node, boxes: Array[AABB]) -> void:
 
 func get_prompt() -> String:
 	if kind == Kind.RELAY and sabotaged:
-		return "[ HOLD E ] RESTORE SABOTAGED RELAY"
+		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"
 	if completed or disabled:
 		return ""
+	if kind == Kind.RELAY and locked_cache:
+		return "PICK LOCK // LOCKPICK OR CROWBAR"
+	if kind == Kind.BOARDED_PATH and not opened:
+		return "BREACH BOARDS // CROWBAR OR RESCUE AXE"
+	if kind == Kind.TOOL_PICKUP:
+		return "COLLECT %s" % String(PlayerController3D.INVENTORY_LABELS.get(
+			tool_item_id, tool_item_id)).to_upper()
+	if kind == Kind.LIGHT_SWITCH:
+		return "TURN ROOM LIGHT %s" % ("OFF" if light_enabled else "ON")
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
 			return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
@@ -140,6 +186,10 @@ func get_prompt() -> String:
 func activate(player: PlayerController3D) -> String:
 	if completed:
 		return "Already collected."
+	if kind == Kind.RELAY and locked_cache:
+		return activate_with_tool(player, player.selected_inventory_item())
+	if kind == Kind.BOARDED_PATH:
+		return activate_with_tool(player, player.selected_inventory_item())
 
 	match kind:
 		Kind.RELAY:
@@ -161,6 +211,21 @@ func activate(player: PlayerController3D) -> String:
 			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
 			return "Coins recovered: +%d." % GameConfig.COIN_PICKUP_VALUE
+		Kind.TOOL_PICKUP:
+			if tool_item_id.is_empty() or not player.grant_inventory_item(tool_item_id):
+				return "EQUIPMENT PICKUP INVALID"
+			_take()
+			Sound.collect()
+			return "%s COLLECTED" % String(PlayerController3D.INVENTORY_LABELS.get(
+				tool_item_id, tool_item_id)).to_upper()
+		Kind.LIGHT_SWITCH:
+			light_enabled = not light_enabled
+			var message := "ROOM LIGHT %s" % ("ON" if light_enabled else "OFF")
+			if light_resolver.is_valid():
+				message = String(light_resolver.call(light_enabled))
+			changed.emit({"what": "room_light", "cell": source_cell,
+				"light_id": light_id, "enabled": light_enabled})
+			return message
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
 			Sound.recharge(20.0)
@@ -222,6 +287,124 @@ func activate(player: PlayerController3D) -> String:
 			return message
 
 	return "Nothing happens."
+
+
+func activate_with_tool(player: PlayerController3D, item_id: String,
+		already_consumed: bool = false) -> String:
+	if kind == Kind.RELAY and locked_cache:
+		if not PlayerController3D.LOCK_TOOLS.has(item_id):
+			return "LOCKED CACHE // EQUIP LOCKPICK OR CROWBAR"
+		if not already_consumed and not player.consume_item_durability(item_id):
+			return "%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
+				item_id, item_id)).to_upper()
+		_take()
+		Sound.collect()
+		changed.emit({"what": "pickup", "cell": source_cell, "kind": kind,
+			"locked_cache": true, "tool": item_id})
+		return "%s OPENED // SIGNAL RELAY RECOVERED" % cache_style.to_upper()
+	if kind == Kind.BOARDED_PATH:
+		if opened:
+			return "Path already cleared."
+		if not PlayerController3D.BREACH_TOOLS.has(item_id):
+			return "BOARDED PATH // EQUIP CROWBAR OR RESCUE AXE"
+		if not already_consumed and not player.consume_item_durability(item_id):
+			return "%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
+				item_id, item_id)).to_upper()
+		opened = true
+		_refresh_visual()
+		changed.emit({"what": "boarded_path", "cell": source_cell,
+			"opened": true, "tool": item_id})
+		return "BOARDED PATH CLEARED // DURABILITY USED"
+	return "That tool cannot be used here."
+
+
+func configure_locked_cache(style: String) -> void:
+	if kind != Kind.RELAY or completed:
+		return
+	locked_cache = true
+	cache_style = "barrel" if style == "barrel" else "crate"
+	if _visual:
+		_visual.visible = false
+	_visual = _build_locked_cache_visual(cache_style)
+	add_child(_visual)
+	_add_blocking_box(Vector3(.68, .78, .68), Vector3(0, .39, 0))
+	_cache_interaction_focus()
+	_refresh_visual()
+
+
+func configure_tool_pickup(item_id: String) -> void:
+	if kind != Kind.TOOL_PICKUP or not TOOL_PICKUP_MODELS.has(item_id):
+		return
+	tool_item_id = item_id
+	if _visual:
+		_visual.queue_free()
+	_visual = ModelSlot.instantiate(String(TOOL_PICKUP_MODELS[item_id]))
+	if _visual:
+		_visual.name = "AuthoredPickup_%s" % item_id
+		_visual.scale = Vector3.ONE * .72
+		_visual.position.y = .10
+		_visual.rotation = Vector3(deg_to_rad(-18.0), deg_to_rad(25.0), 0.0)
+		add_child(_visual)
+		_cache_interaction_focus()
+	else:
+		push_error("TOOL PICKUP MODEL MISSING // %s" % item_id)
+	_refresh_visual()
+
+
+func configure_boarded_variant(variant: String) -> void:
+	if kind != Kind.BOARDED_PATH or variant != "hallway":
+		return
+	boarded_variant = "hallway"
+	if _visual:
+		_visual.queue_free()
+	_visual = ModelSlot.instantiate(BOARDED_HALLWAY_MODEL)
+	if _visual:
+		_visual.name = "BoardedHallwayModel"
+		add_child(_visual)
+		_cache_interaction_focus()
+	else:
+		push_error("BOARDED HALLWAY MODEL MISSING // %s" % BOARDED_HALLWAY_MODEL)
+	var barrier := find_child("ToolBarrier", false, false) as StaticBody3D
+	if barrier:
+		var collision := barrier.get_child(0) as CollisionShape3D
+		if collision and collision.shape is BoxShape3D:
+			(collision.shape as BoxShape3D).size = Vector3(2.98, 2.96, .14)
+			collision.position = Vector3(0, 1.48, 0)
+	_refresh_visual()
+
+
+func configure_room_light(id: String, enabled: bool, resolver: Callable) -> void:
+	if kind != Kind.LIGHT_SWITCH:
+		return
+	light_id = id
+	light_enabled = enabled
+	light_resolver = resolver
+	_refresh_visual()
+
+
+func _build_locked_cache_visual(style: String) -> Node3D:
+	var model_path := String(LOCKED_CACHE_MODELS.get(style,
+		LOCKED_CACHE_MODELS["crate"]))
+	var root := ModelSlot.instantiate(model_path)
+	if root:
+		root.name = "LockedRelay%s" % style.to_pascal_case()
+		return root
+	# Missing shipped art is a hard error; an invisible Node keeps the scene
+	# loadable for validation while making the packaging failure unmistakable.
+	push_error("LOCKED CACHE MODEL MISSING // %s" % model_path)
+	return Node3D.new()
+
+
+func _add_blocking_box(size: Vector3, at: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.name = "ToolBarrier"
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	shape.position = at
+	body.add_child(shape)
+	add_child(body)
 
 
 ## Briselle's counter (RELAY only). Sabotaged is not "uncollected" -- the
@@ -287,6 +470,16 @@ func adopt(event: Dictionary) -> void:
 			# GameState.relays_sabotaged stays right on every peer, not just
 			# whichever one caused it.
 			_apply_sabotage(bool(event.get("sabotaged", false)))
+		"boarded_path":
+			if kind == Kind.BOARDED_PATH:
+				opened = bool(event.get("opened", true))
+				_refresh_visual()
+		"room_light":
+			if kind == Kind.LIGHT_SWITCH and String(event.get("light_id", "")) == light_id:
+				light_enabled = bool(event.get("enabled", true))
+				if light_resolver.is_valid():
+					light_resolver.call(light_enabled)
+				_refresh_visual()
 
 
 ## Keeps the generator's own relay/battery data in step with what the player
@@ -327,6 +520,7 @@ func reset_for_floor() -> void:
 ## remain visible because its three states are the whole of Wynelle's
 ## counterplay.
 const PICKUPS := [Kind.RELAY, Kind.BATTERY, Kind.COIN]
+const PERSONAL_PICKUPS := [Kind.TOOL_PICKUP]
 
 
 ## Loxelle's incinerator only, and distinct from `completed`: a broken hiding
@@ -345,8 +539,11 @@ func _refresh_visual() -> void:
 	# A sabotaged relay is completed (never un-collected) but goes back on
 	# display -- it is not a pickup waiting to be taken again, it is a fixture
 	# with a problem, the same reason the heater station stays visible.
-	var taken := (completed and PICKUPS.has(kind) and not sabotaged) \
+	var taken := (completed and (PICKUPS.has(kind) or PERSONAL_PICKUPS.has(kind)) \
+		and not sabotaged) \
 		or (kind == Kind.HIDING_SPOT and disabled)
+	if kind == Kind.BOARDED_PATH:
+		taken = opened
 	if _visual:
 		_visual.visible = not taken
 	if _light:
@@ -358,5 +555,7 @@ func _refresh_visual() -> void:
 	# there is something there to walk up to again.
 	for child in get_children():
 		if child is CollisionObject3D:
-			(child as CollisionObject3D).process_mode = \
+			var collision := child as CollisionObject3D
+			collision.process_mode = \
 				Node.PROCESS_MODE_DISABLED if taken else Node.PROCESS_MODE_INHERIT
+			collision.visible = not taken

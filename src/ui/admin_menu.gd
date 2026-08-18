@@ -103,6 +103,33 @@ func _build() -> void:
 	column.add_child(_readout)
 
 	for entry in _actions:
+		if entry.has("heading"):
+			var section := Label.new()
+			section.text = String(entry["heading"])
+			section.add_theme_color_override("font_color", Palette.AMBER)
+			section.add_theme_font_size_override("font_size", 6)
+			column.add_child(section)
+			if entry.has("items"):
+				var grid := GridContainer.new()
+				grid.columns = 2
+				grid.add_theme_constant_override("h_separation", 3)
+				grid.add_theme_constant_override("v_separation", 3)
+				column.add_child(grid)
+				var item_action: Callable = entry["action"]
+				var labels: Dictionary = entry.get("labels", {})
+				for item_value in entry["items"]:
+					var item_id := String(item_value)
+					var item_button := Button.new()
+					item_button.text = String(labels.get(item_id, item_id)).to_upper()
+					item_button.add_theme_font_size_override("font_size", 6)
+					item_button.custom_minimum_size = Vector2(70, 13)
+					item_button.focus_mode = Control.FOCUS_NONE
+					Palette.style_button(item_button, false, true)
+					item_button.pressed.connect(func() -> void:
+						item_action.call(item_id)
+						_refresh())
+					grid.add_child(item_button)
+			continue
 		var button := Button.new()
 		button.text = String(entry["label"])
 		button.add_theme_font_size_override("font_size", 7)

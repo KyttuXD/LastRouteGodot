@@ -11,24 +11,11 @@ extends Control
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
 const MIN_VISIBLE_SECONDS := 0.65
-const TIP_SECONDS := 4.5
-const TIPS := [
-	"SAFE ZONES STOP HUNTERS AND RECHARGE YOUR LAMP.",
-	"SPRINTING IS FAST, LOUD, AND DRAINS STAMINA. CROUCH TO MOVE QUIETLY.",
-	"A RELAY IS GONE FROM EVERY PEER AS SOON AS THE HOST ACCEPTS ITS PICKUP.",
-	"AKI // HOLD YOUR FLASHLIGHT BEAM ON HER TO FORCE HER QUIET.",
-	"HAELITH // EXPECT HER TO MOVE FROM ONE UNCLAIMED RELAY TO THE NEXT.",
-	"PORCELLE // SHE CAN VANISH FROM THE ROOM WITHOUT VANISHING FROM THE MAP.",
-	"VERRINE // LEAVE HER THREAD NETWORK BEFORE HER CHASE SPEED BUILDS.",
-	"LOXELLE // AN EMPTY HIDING PLACE MAY NOT STAY SAFE FOR LONG.",
-]
 
 @export var auto_start := false
 
 var _target_path := ""
 var _elapsed := 0.0
-var _tip_elapsed := 0.0
-var _tip_index := 0
 var _thread_loaded := false
 var _finishing := false
 
@@ -37,7 +24,6 @@ var _seed: Label
 var _configuration: Label
 var _progress: ProgressBar
 var _status: Label
-var _tip: Label
 var _return_button: Button
 
 
@@ -47,8 +33,6 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build_ui()
 	_set_room_readout()
-	_tip_index = posmod(RoomState.seed_text.hash(), TIPS.size())
-	_show_tip()
 	if auto_start:
 		_begin_threaded_load()
 	else:
@@ -56,11 +40,6 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_tip_elapsed += delta
-	if _tip_elapsed >= TIP_SECONDS:
-		_tip_elapsed = 0.0
-		_tip_index = (_tip_index + 1) % TIPS.size()
-		_show_tip()
 	if not auto_start or _finishing or _target_path.is_empty():
 		return
 	_elapsed += delta
@@ -175,10 +154,6 @@ func _set_room_readout() -> void:
 	_configuration.text = "%s // %s // %s" % [RoomState.mode_label(), scale, difficulty]
 
 
-func _show_tip() -> void:
-	_tip.text = "FIELD NOTE // %s" % TIPS[_tip_index]
-
-
 func _build_ui() -> void:
 	var background := SIGNAL_BACKDROP_SCRIPT.new()
 	background.name = "SignalBackdrop"
@@ -204,9 +179,9 @@ func _build_ui() -> void:
 	panel.name = "LoadingPanel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.offset_left = -170
-	panel.offset_top = -76
+	panel.offset_top = -64
 	panel.offset_right = 170
-	panel.offset_bottom = 76
+	panel.offset_bottom = 64
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	panel.add_theme_stylebox_override("panel",
@@ -252,16 +227,6 @@ func _build_ui() -> void:
 	_status = _label("0% // OPENING ROUTE SIGNAL", Palette.MUTED, 6,
 		"RouteLoadStatus")
 	column.add_child(_status)
-
-	var tip_box := PanelContainer.new()
-	tip_box.name = "TipPanel"
-	tip_box.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 5))
-	column.add_child(tip_box)
-	_tip = _label("FIELD NOTE // KEEP MOVING.", Palette.BODY, 6, "RouteTipLabel")
-	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tip.custom_minimum_size = Vector2(0, 18)
-	tip_box.add_child(_tip)
 
 	_return_button = Button.new()
 	_return_button.name = "ReturnToStagingButton"
