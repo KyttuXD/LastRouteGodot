@@ -11,9 +11,11 @@ extends RefCounted
 ## src/game/hunter_gimmicks/ — one script per hunter, mirroring the
 ## original's one-file-per-hunter layout); `gimmick` is null for every
 ## tuning-only hunter, so its hooks below are simply skipped. Operates
-## entirely in facility_generator.gd's grid-cell coordinate space;
-## presentation layers (src/game_3d/hunter_view_3d.gd) read `position` each
-## frame and convert to their own world units.
+## entirely in the shared grid-cell navigation contract. Fixed floors provide
+## it through FacilityGenerator; endless floors provide it through
+## StreamedHunterNavigation. Presentation layers
+## (src/game_3d/hunter_view_3d.gd) read `position` each frame and convert to
+## their own world units.
 ##
 ## Deferred (see MIGRATION.md): multi-hunter separation, lures, and room-power
 ## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
@@ -107,7 +109,7 @@ func activate_at(target_position: Vector2) -> void:
 ## target: {"position": Vector2, "hidden": bool, "in_safe_zone": bool,
 ## "noise": float, "flashlight_on": bool}. Returns true if this frame
 ## captured the target (pure proximity check, hidden/safe-zone exempt).
-func update(delta: float, generator: FacilityGenerator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
 	# it has to run before the inactive check that would otherwise stop it.
 	var self_summoning := gimmick != null and gimmick.runs_while_inactive()
@@ -151,7 +153,7 @@ func update(delta: float, generator: FacilityGenerator, target: Dictionary, dept
 ## runner has opted out of targeting. Clearing chase memory is important: the
 ## old no-target path skipped update() entirely and left hunters frozen in the
 ## last pose/state they had before the target disappeared.
-func update_without_target(delta: float, generator: FacilityGenerator,
+func update_without_target(delta: float, generator,
 		depth: int, relays_collected: int) -> void:
 	if not active:
 		return
@@ -202,7 +204,7 @@ func calm_reset(stun_duration: float) -> void:
 	apply_stun(stun_duration)
 
 
-func _update_perception(delta: float, generator: FacilityGenerator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
+func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
 	var direct_distance := position.distance_to(target_position)
 	var can_sense := not target_in_safe_zone and not target_hidden
 
@@ -220,7 +222,8 @@ func _update_perception(delta: float, generator: FacilityGenerator, target_posit
 		var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
 		if can_sense and direct_distance < target_noise * GameConfig.HEARING_OUTER_SCALE \
 				* hearing_scale * difficulty_hearing:
-			var sound_path := generator.find_path(_cell_of(position), _cell_of(target_position))
+			var sound_path: Array = generator.find_path(_cell_of(position),
+				_cell_of(target_position))
 			hears_target = sound_path.size() > 0 and sound_path.size() <= int(ceil(
 				target_noise * hearing_scale * difficulty_hearing))
 
@@ -250,7 +253,7 @@ func _update_stamina(delta: float) -> void:
 			winded = false
 
 
-func _update_movement(delta: float, generator: FacilityGenerator, depth: int, relays_collected: int) -> void:
+func _update_movement(delta: float, generator, depth: int, relays_collected: int) -> void:
 	match state:
 		State.IDLE:
 			idle_timer -= delta
@@ -296,7 +299,7 @@ func _current_move_target() -> Dictionary:
 			return {"has": false, "pos": Vector2.ZERO}
 
 
-func _handle_arrival(generator: FacilityGenerator) -> void:
+func _handle_arrival(generator) -> void:
 	match state:
 		State.WANDER:
 			state = State.IDLE
@@ -330,7 +333,7 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 	return speed * float(difficulty_profile["hunter_speed"])
 
 
-func _pursue(move_target: Vector2, speed: float, delta: float, generator: FacilityGenerator) -> void:
+func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> void:
 	var target_cell := _cell_of(move_target)
 	_path_timer -= delta
 	# Chase repaths fast to track a live target; every other moving state
@@ -360,7 +363,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator: Facili
 		_move_with_collision(direction.x * travel, direction.y * travel, generator)
 
 
-func _move_with_collision(dx: float, dy: float, generator: FacilityGenerator) -> void:
+func _move_with_collision(dx: float, dy: float, generator) -> void:
 	var total := Vector2(dx, dy).length()
 	if total <= 0.0:
 		return
@@ -376,7 +379,7 @@ func _move_with_collision(dx: float, dy: float, generator: FacilityGenerator) ->
 			position.y = next_y
 
 
-func _pick_wander_target(generator: FacilityGenerator) -> Vector2:
+func _pick_wander_target(generator) -> Vector2:
 	var safe_zone_room_ids := {}
 	for zone in generator.safe_zones:
 		safe_zone_room_ids[zone.get("room_id", "")] = true
@@ -386,7 +389,8 @@ func _pick_wander_target(generator: FacilityGenerator) -> Vector2:
 		if safe_zone_room_ids.has(room["id"]):
 			continue
 		var center: Vector2i = room["center"]
-		var open := generator.nearest_open_position(center.x + 0.5, center.y + 0.5, radius)
+		var open: Dictionary = generator.nearest_open_position(
+			center.x + 0.5, center.y + 0.5, radius)
 		if open.is_empty():
 			continue
 		var candidate_pos := Vector2(open["x"], open["y"])
@@ -398,7 +402,7 @@ func _pick_wander_target(generator: FacilityGenerator) -> Vector2:
 	return candidates[_rng.next_index(candidates.size())]
 
 
-func _pick_search_target(generator: FacilityGenerator) -> Vector2:
+func _pick_search_target(generator) -> Vector2:
 	var offsets: Array = [Vector2(3, 0), Vector2(-3, 0), Vector2(0, 3), Vector2(0, -3), Vector2(2, 2), Vector2(-2, 2), Vector2(2, -2), Vector2(-2, -2)]
 	for i in range(offsets.size() - 1, 0, -1):
 		var swap_index := _rng.next_index(i + 1)
@@ -407,7 +411,8 @@ func _pick_search_target(generator: FacilityGenerator) -> Vector2:
 		offsets[swap_index] = tmp
 
 	for offset in offsets:
-		var open := generator.nearest_open_position(last_known.x + offset.x, last_known.y + offset.y, radius)
+		var open: Dictionary = generator.nearest_open_position(
+			last_known.x + offset.x, last_known.y + offset.y, radius)
 		if not open.is_empty():
 			var candidate := Vector2(open["x"], open["y"])
 			if candidate.distance_to(position) > 0.5:
@@ -450,7 +455,7 @@ var beam_alerted := false
 var flash_triggered := false
 
 
-func _update_beam_attention(delta: float, generator: FacilityGenerator, target: Dictionary) -> void:
+func _update_beam_attention(delta: float, generator, target: Dictionary) -> void:
 	var facing: Vector2 = target.get("facing", Vector2.ZERO)
 	var lit := bool(target.get("flashlight_on", false)) and beam_reaches(
 		target["position"], facing, position,
@@ -465,7 +470,7 @@ func _update_beam_attention(delta: float, generator: FacilityGenerator, target: 
 	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME
 
 
-func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator: FacilityGenerator) -> bool:
+func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator) -> bool:
 	var offset := target - from
 	var distance := offset.length()
 	if distance <= 0.001 or distance > range_limit:

@@ -17,7 +17,7 @@ var progress := 0.0
 var locked := false
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	if not locked:
 		var sprinting: bool = target.get("sprinting", false)
 		var in_safe_zone: bool = target.get("in_safe_zone", false)

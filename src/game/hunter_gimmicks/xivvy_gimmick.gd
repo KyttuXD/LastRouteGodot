@@ -19,7 +19,7 @@ var _speed_scale := 1.0
 var flying := false
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	var hidden: bool = target.get("hidden", false)
 	var in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_position: Vector2 = target["position"]

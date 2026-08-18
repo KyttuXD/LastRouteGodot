@@ -12,7 +12,7 @@ var _timer := GameConfig.THESSINE_MIMIC_INTERVAL
 
 
 func before_perception(brain: HunterBrain, delta: float, _target: Dictionary,
-		_generator: FacilityGenerator) -> void:
+		_generator) -> void:
 	_timer -= delta
 	if _timer > 0.0:
 		return

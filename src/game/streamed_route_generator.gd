@@ -19,6 +19,14 @@ const ROOM_SIZES := [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
 	Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13),
 	Vector2i(13, 11), Vector2i(15, 15)]
 const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
+## Only hunters whose gimmicks depend on the shared navigation contract (or no
+## gimmick at all) enter the streamed route today. Finite-floor objective and
+## hiding-place hunters stay in the standard mode until those world entities
+## have streamed equivalents.
+const STREAMED_HUNTER_IDS := [
+	"dovelle", "quirith", "eirys", "xivvy", "thessine", "umbriel",
+	"aki", "porcelle", "glyra",
+]
 
 var world_seed := "ENDLESS-ROUTE"
 
@@ -45,6 +53,7 @@ func chunk(coord: Vector3i) -> Dictionary:
 	if safe:
 		_carve_safe_room(grid)
 	var pickups := _pickups(coord, grid, stairs, safe)
+	var hunters := _hunter_spawns(coord, grid, stairs, safe)
 	return {
 		"schema": 2,
 		"coord": coord,
@@ -60,6 +69,7 @@ func chunk(coord: Vector3i) -> Dictionary:
 		"safe_room": safe,
 		"safe_room_data": safe_room_data(coord) if safe else {},
 		"pickups": pickups,
+		"hunter_spawns": hunters,
 	}
 
 
@@ -203,6 +213,10 @@ func pickup_id(coord: Vector3i, index: int) -> String:
 	# The future host mutation store records these ids after collection; clients
 	# never infer ownership from whether a mesh is currently loaded.
 	return "%s:PICKUP:%d" % [chunk_id(coord), index]
+
+
+func hunter_id(coord: Vector3i, index: int) -> String:
+	return "%s:HUNTER:%d" % [chunk_id(coord), index]
 
 
 func _maze_grid(coord: Vector3i) -> Array:
@@ -432,6 +446,69 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool) -> Array:
 			"item": PICKUP_TYPES[rng.next_index(PICKUP_TYPES.size())],
 		})
 	return result
+
+
+func _hunter_spawns(coord: Vector3i, grid: Array, stairs: Array,
+		safe: bool) -> Array:
+	# The arrival floor gets a three-by-three grace region so a new run cannot
+	# load into a capture. Beyond it, pressure is sparse but unbounded: explored
+	# chunks deterministically own their hunter entity just like their pickups.
+	if safe or (coord.y == 0 and absi(coord.x) <= 1 and absi(coord.z) <= 1):
+		return []
+	var profile := difficulty_for_level(coord.y)
+	var danger := float(profile["danger"])
+	var rng := SeededRandom.new("%s:HUNTERS:%s" % [world_seed, chunk_id(coord)])
+	var spawn_chance := lerpf(0.08, 0.24, danger)
+	if rng.next_float() >= spawn_chance:
+		return []
+	var excluded := {}
+	for stair in stairs:
+		var stair_cell: Vector2i = stair["cell"]
+		for dz in range(-2, 3):
+			for dx in range(-2, 3):
+				excluded[stair_cell + Vector2i(dx, dz)] = true
+	var candidates: Array[Vector2i] = []
+	for z in range(3, CHUNK_SIZE - 3):
+		for x in range(3, CHUNK_SIZE - 3):
+			var cell := Vector2i(x, z)
+			if grid[z][x] == 0 and not excluded.has(cell) \
+					and _open_spawn_neighbourhood(grid, cell):
+				candidates.append(cell)
+	if candidates.is_empty():
+		return []
+	var count := 1
+	if coord.y <= -6 and rng.next_float() < minf(0.22, danger * 0.18):
+		count = 2
+	var result := []
+	for index in count:
+		if candidates.is_empty():
+			break
+		var picked := rng.next_index(candidates.size())
+		var cell: Vector2i = candidates.pop_at(picked)
+		var identity: String = STREAMED_HUNTER_IDS[rng.next_index(
+			STREAMED_HUNTER_IDS.size())]
+		# Deep floors can gain an additional aggressive Void identity, but the
+		# arrival and upper route never roll one.
+		if coord.y <= -2 and rng.next_float() < lerpf(0.04, 0.30, danger):
+			identity = HunterRoster.VOID_IDS[rng.next_index(HunterRoster.VOID_IDS.size())]
+		result.append({
+			"id": hunter_id(coord, index),
+			"hunter_id": identity,
+			"cell": cell,
+			"level": coord.y,
+			"origin_chunk": coord,
+		})
+	return result
+
+
+static func _open_spawn_neighbourhood(grid: Array, cell: Vector2i) -> bool:
+	for offset in [Vector2i.ZERO, Vector2i.LEFT, Vector2i.RIGHT,
+			Vector2i.UP, Vector2i.DOWN]:
+		var at: Vector2i = cell + (offset as Vector2i)
+		if at.x < 0 or at.y < 0 or at.x >= CHUNK_SIZE or at.y >= CHUNK_SIZE \
+				or int(grid[at.y][at.x]) != 0:
+			return false
+	return true
 
 
 static func _stair_style(biome: String) -> String:

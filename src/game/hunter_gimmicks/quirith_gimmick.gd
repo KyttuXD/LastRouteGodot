@@ -20,7 +20,7 @@ var _was_on := false
 var _speed_scale := 1.0
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	var target_position: Vector2 = target["position"]
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)

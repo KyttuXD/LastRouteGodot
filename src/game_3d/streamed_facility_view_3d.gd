@@ -118,6 +118,26 @@ func loaded_chunk_count() -> int:
 	return _loaded.size()
 
 
+func loaded_horizontal_coords() -> Array[Vector3i]:
+	var result: Array[Vector3i] = []
+	var level := current_level()
+	for value in _loaded.keys():
+		var coord: Vector3i = value
+		if coord.y == level:
+			result.append(coord)
+	result.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return a.z < b.z or (a.z == b.z and a.x < b.x))
+	return result
+
+
+func streamed_surface_height(_world_xz: Vector2, level: int) -> float:
+	# Hunter brains remain X/Z grid simulations. Their presentation is pinned
+	# to the owning streamed level; vertical transfer is handled as a discrete
+	# world-state transition rather than allowing unloaded CharacterBodies to
+	# fall through a missing floor.
+	return float(level) * LEVEL_HEIGHT
+
+
 func _process(_delta: float) -> void:
 	if generator == null or tracked_player == null:
 		return
@@ -154,6 +174,7 @@ func _load_chunk(coord: Vector3i) -> void:
 	var data := generator.chunk(coord)
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]
+	root.add_to_group("streamed_chunk")
 	root.position = Vector3(coord.x * StreamedRouteGenerator.CHUNK_SIZE,
 		coord.y * LEVEL_HEIGHT, coord.z * StreamedRouteGenerator.CHUNK_SIZE)
 	add_child(root)

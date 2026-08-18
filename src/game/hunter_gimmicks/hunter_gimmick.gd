@@ -21,8 +21,10 @@ extends RefCounted
 ## set brain.state/last_known/lost_sight_timer/etc. directly to override or
 ## pre-empt ordinary perception for this frame. `generator` is passed through
 ## because several gimmicks are spatial (line of sight, floor-cell searches,
-## pathfinding) — see KathyGimmick and MavrineGimmick.
-func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator: FacilityGenerator) -> void:
+## pathfinding) — see KathyGimmick and MavrineGimmick. It is intentionally a
+## duck-typed navigation surface: fixed routes pass FacilityGenerator, while
+## the explicitly stream-safe roster passes StreamedHunterNavigation.
+func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator) -> void:
 	pass
 
 
@@ -33,7 +35,7 @@ func before_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, 
 ## rather than where the player is. Haelith, Ysolde and Opalie all need this;
 ## running them earlier made every one of them an ordinary chaser the moment she
 ## laid eyes on anybody, which is exactly the bug the hunters suite caught.
-func after_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator: FacilityGenerator) -> void:
+func after_perception(_brain: HunterBrain, _delta: float, _target: Dictionary, _generator) -> void:
 	pass
 
 

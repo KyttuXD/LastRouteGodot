@@ -52,6 +52,8 @@ func run(host: Node) -> int:
 
 	var biomes := {}
 	var pickup_ids := {}
+	var hunter_ids := {}
+	var first_hunter_spawn: Dictionary = {}
 	var saw_hotel_layout := false
 	var saw_prison_layout := false
 	var room_sizes := {}
@@ -82,6 +84,18 @@ func run(host: Node) -> int:
 					_expect(not pickup_ids.has(pickup["id"]),
 						"duplicate streamed pickup id %s" % pickup["id"])
 					pickup_ids[pickup["id"]] = true
+				for spawn_value in data["hunter_spawns"]:
+					var spawn: Dictionary = spawn_value
+					_expect(not hunter_ids.has(spawn["id"]),
+						"duplicate streamed hunter id %s" % spawn["id"])
+					hunter_ids[spawn["id"]] = true
+					_expect(not bool(data["safe_room"]),
+						"hunter spawned inside safe room %s" % data["coord"])
+					_expect(StreamedRouteGenerator.STREAMED_HUNTER_IDS.has(
+						spawn["hunter_id"]) or HunterRoster.VOID_IDS.has(spawn["hunter_id"]),
+						"streamed route selected an unsupported hunter %s" % spawn["hunter_id"])
+					if first_hunter_spawn.is_empty():
+						first_hunter_spawn = spawn.duplicate(true)
 	_expect(biomes.size() == StreamedRouteGenerator.BIOMES.size(),
 		"seeded sample did not produce every biome: %s" % [biomes.keys()])
 	_expect(saw_hotel_layout,
@@ -97,6 +111,9 @@ func run(host: Node) -> int:
 	_expect(room_sizes.has("15x15"),
 		"15x15 landmark rooms were clipped out of generated topology")
 	_expect(not pickup_ids.is_empty(), "streamed chunks produced no collectible ids")
+	_expect(not hunter_ids.is_empty(), "streamed chunks produced no persistent hunters")
+	_expect(world.chunk(Vector3i.ZERO)["hunter_spawns"].is_empty(),
+		"central safe arrival chunk spawned a hunter")
 	_expect(float(world.difficulty_for_level(-8)["danger"]) \
 		> float(world.difficulty_for_level(5)["danger"]),
 		"lower floors are not more dangerous than upper floors")
@@ -114,9 +131,35 @@ func run(host: Node) -> int:
 	var restored = StreamedWorldStateScript.new()
 	_expect(restored.adopt(mutations.snapshot()) and not restored.pickup_available("test:item"),
 		"late-join mutation snapshot did not preserve claimed pickups")
+	if not first_hunter_spawn.is_empty():
+		var hunter_state := mutations.ensure_hunter(first_hunter_spawn)
+		var brain := HunterBrain.new(hunter_state["position"], "STREAM-STATE",
+			hunter_state["hunter_id"])
+		mutations.restore_hunter(brain, hunter_state)
+		brain.position += Vector2(.25, .5)
+		brain.apply_stun(2.0)
+		mutations.store_hunter(first_hunter_spawn["id"], brain,
+			int(hunter_state["level"]), hunter_state["origin_chunk"])
+		var hunter_restored = StreamedWorldStateScript.new()
+		_expect(hunter_restored.adopt(mutations.snapshot()),
+			"late-join mutation snapshot rejected hunter state")
+		var persisted := hunter_restored.hunter_state(first_hunter_spawn["id"])
+		_expect((persisted.get("position", Vector2.ZERO) as Vector2).is_equal_approx(
+			brain.position) and float(persisted.get("stun_timer", 0.0)) >= 2.0,
+			"streamed hunter position/stun did not survive a mutation snapshot")
 	var active := world.coordinates_around(Vector2(17.0, -1.0), 2, 2)
 	_expect(active.size() == 25 and active.has(Vector3i(1, 2, -1)),
 		"stream radius did not produce the expected 5x5 active set")
+	var seam_offset: int = world.edge_openings(Vector3i.ZERO, Vector2i.RIGHT)[0]
+	var navigation := StreamedHunterNavigation.new(world, 0)
+	navigation.refresh(0, [Vector3i.ZERO, Vector3i(1, 0, 0)])
+	var seam_path := navigation.find_path(Vector2i(31, seam_offset),
+		Vector2i(32, seam_offset))
+	_expect(seam_path.size() == 2,
+		"streamed hunter navigation did not cross a canonical chunk seam")
+	_expect(navigation.has_line_of_sight(Vector2(31.5, seam_offset + .5),
+		Vector2(32.5, seam_offset + .5)),
+		"streamed hunter line of sight stopped at a matching chunk seam")
 
 	# The data contract is only useful once a runner can stand on it. Instantiate
 	# the debug route and exercise its real GridMap collision window, forced
@@ -140,6 +183,75 @@ func run(host: Node) -> int:
 	_expect(host.get_tree().get_nodes_in_group("streamed_stair").size() >= 2,
 		"central live chunks did not build the forced up/down physical stairs")
 	_expect(player.is_on_floor(), "streamed player did not settle on generated floor collision")
+
+	var hunter_coord := Vector3i(999, 999, 999)
+	for level in range(-2, -8, -1):
+		if hunter_coord.x != 999:
+			break
+		for z in range(-8, 9):
+			if hunter_coord.x != 999:
+				break
+			for x in range(-8, 9):
+				var candidate := Vector3i(x, level, z)
+				if not facility.generator.chunk(candidate)["hunter_spawns"].is_empty():
+					hunter_coord = candidate
+					break
+	_expect(hunter_coord.x != 999, "validation seed produced no reachable hunter chunk")
+	if hunter_coord.x != 999:
+		player.set_admin_noclip(true)
+		player.admin_god_mode = true
+		player.global_position = Vector3(
+			(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
+			hunter_coord.y * StreamedFacilityView3D.LEVEL_HEIGHT + .2,
+			(hunter_coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE)
+		await host.get_tree().process_frame
+		await host.get_tree().process_frame
+		var live_hunters := host.get_tree().get_nodes_in_group("streamed_hunter")
+		_expect(not live_hunters.is_empty(),
+			"live endless route did not instantiate deterministic hunter state")
+		if not live_hunters.is_empty():
+			var live_hunter := live_hunters[0] as HunterView3D
+			var entity_id := String(live_hunter.get_meta("streamed_entity_id", ""))
+			live_hunter.brain.apply_stun(60.0)
+			var persisted_position := live_hunter.brain.position
+			await host.get_tree().process_frame
+			player.global_position += Vector3(
+				StreamedRouteGenerator.CHUNK_SIZE * 20, 0.0, 0.0)
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			_expect(facility.loaded_chunk_count() == 11,
+				"long-distance hunter unload leaked streamed chunks")
+			player.global_position = Vector3(
+				(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
+				hunter_coord.y * StreamedFacilityView3D.LEVEL_HEIGHT + .2,
+				(hunter_coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE)
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			var reloaded: HunterView3D
+			for candidate_view in host.get_tree().get_nodes_in_group("streamed_hunter"):
+				if String(candidate_view.get_meta("streamed_entity_id", "")) == entity_id:
+					reloaded = candidate_view
+					break
+			_expect(reloaded != null and reloaded.brain.position.is_equal_approx(
+				persisted_position) and reloaded.brain.stun_timer > 50.0,
+				"hunter movement/stun did not survive chunk unload and reload")
+		# Cross dozens of chunk boundaries rather than checking one teleport. The
+		# scene and navigation caches must stay proportional to the active window,
+		# never to total distance travelled.
+		for step in 12:
+			player.global_position = Vector3(
+				(hunter_coord.x + 4 + step * 3) * StreamedRouteGenerator.CHUNK_SIZE + 16,
+				hunter_coord.y * StreamedFacilityView3D.LEVEL_HEIGHT + .2,
+				(hunter_coord.z - 2 - step * 2) * StreamedRouteGenerator.CHUNK_SIZE + 16)
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			_expect(facility.loaded_chunk_count() == 11,
+				"long-session stream exceeded its eleven-chunk window at step %d" % step)
+			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 11,
+				"long-session scene retained an evicted chunk at step %d" % step)
+		var live_navigation := live_scene.get("_navigation") as StreamedHunterNavigation
+		_expect(live_navigation != null and live_navigation.cached_chunk_count() <= 25,
+			"streamed navigation cache grew with travel distance")
 
 	var prison_coord := Vector3i(999, 999, 999)
 	for level in range(-2, -8, -1):
@@ -167,6 +279,8 @@ func run(host: Node) -> int:
 			"live prison chunk contains no authored prison models")
 		_expect(facility.loaded_chunk_count() == 11,
 			"moving far away leaked old streamed chunks instead of evicting them")
+		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 11,
+			"streamed scene tree retained evicted chunk nodes")
 	live_scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -176,7 +290,8 @@ func run(host: Node) -> int:
 		print("  vertical  unbounded levels; central spawn links both up and down")
 		print("  regions   8 area identities; Gothic/Prison/Inferno constrained below")
 		print("  rooms     %d sizes; hotel/prison corridors serve many rooms" % room_sizes.size())
-		print("  survival  breachable/repairable checkpoints and pickup ledger persist")
-		print("  renderer  collidable 3x3 stream, vertical flights and prison art load")
+		print("  survival  checkpoints, pickups and hunter state persist across unload")
+		print("  hunters   deterministic spawns, seam navigation and live pursuit load")
+		print("  renderer  bounded collidable stream, vertical flights and prison art load")
 		print("streamed_world OK")
 	return _failures

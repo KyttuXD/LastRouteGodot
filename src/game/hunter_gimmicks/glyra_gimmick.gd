@@ -26,7 +26,7 @@ var _noise_gained := 0.0
 var _started := false
 
 
-func after_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	if not _started:
 		_remaining = GameConfig.GLYRA_BAY_SECONDS
 		_started = true

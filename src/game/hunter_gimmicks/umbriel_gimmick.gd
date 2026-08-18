@@ -24,7 +24,7 @@ var disguise_id := ""
 var _timer := GameConfig.UMBRIEL_DISGUISE_INTERVAL
 
 
-func before_perception(brain: HunterBrain, delta: float, _target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, _target: Dictionary, _generator) -> void:
 	_timer -= delta
 	if _timer > 0.0:
 		return

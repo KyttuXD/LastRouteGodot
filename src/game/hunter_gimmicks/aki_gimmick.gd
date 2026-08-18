@@ -25,7 +25,7 @@ var bursts_remaining := 0
 var _timer := 0.0
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	if phase == Phase.IDLE:
 		if not brain.flash_triggered:
 			return
