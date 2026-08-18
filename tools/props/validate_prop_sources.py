@@ -87,6 +87,10 @@ HUNTER_SCALE_HEIGHTS = {
     "mansion_chaise_lounge": (0.95, 1.30),
     "mansion_upright_piano": (1.45, 1.75),
     "mansion_bust_pedestal": (1.85, 2.15),
+    "prison_cell_gate": (2.65, 2.95),
+    "prison_bunk": (1.35, 1.75),
+    "dungeon_cage": (2.10, 2.55),
+    "restraint_chair": (1.75, 2.05),
 }
 for kitchen_style in ("normal", "luxury", "gothic"):
     HUNTER_SCALE_HEIGHTS.update({
@@ -223,6 +227,7 @@ roots = [
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "mansion"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "beach"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "nether"),
+    os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "prison"),
 ]
 for root in roots:
     for blend_path in sorted(glob.glob(os.path.join(root, "source", "*.blend"))):

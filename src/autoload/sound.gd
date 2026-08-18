@@ -113,6 +113,13 @@ func hunter_footstep(pan: float = 0.0, volume: float = 0.05) -> bool:
 	return _play_named("hunter_footstep", pan, clampf(volume / 0.05, 0.1, 2.0))
 
 
+func remote_player_footstep(mode := "walk", pan: float = 0.0,
+		volume: float = 0.04) -> bool:
+	var resolved := mode if mode in ["sprint", "crouch"] else "walk"
+	return _play_named("teammate_footstep_%s" % resolved, pan,
+		clampf(volume / 0.04, 0.08, 1.5))
+
+
 func mimic(rare := false) -> bool:
 	return _play_named("mimic_rare" if rare else "mimic")
 
@@ -310,6 +317,9 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"nyxie_timer": c = [_tone(72, .5, .09), _tone(108, .4, .07, .18, "triangle"), _tone(144, .3, .05, .34, "triangle")]
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
+		"teammate_footstep_sprint": c = [_noise(.07, .066 * intensity, 610, 0, pan, 1.15), _thump(92, .065, .045 * intensity, 0, pan)]
+		"teammate_footstep_crouch": c = [_noise(.045, .012 * intensity, 430, 0, pan, .92), _thump(68, .045, .009 * intensity, 0, pan)]
+		"teammate_footstep_walk": c = [_noise(.06, .035 * intensity, 525, 0, pan, 1.03), _thump(82, .06, .028 * intensity, 0, pan)]
 		"mimic": c = [_tone(132, .2, .24, 0, "saw"), _tone(82, .32, .21, .06, "square")]
 		"mimic_rare": c = [_tone(1046.5, .28, .2, 0, "triangle"), _tone(1568, .34, .18, .1, "triangle")]
 		"heartbeat":

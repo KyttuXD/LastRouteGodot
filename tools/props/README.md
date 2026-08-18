@@ -13,7 +13,7 @@ flatpak run --filesystem="$PWD" org.blender.Blender --background \
   --python "$PWD/tools/props/rebuild_hytale_props.py" -- bedroom_nightstand bedroom_wardrobe
 ```
 
-Use `mansion`, `maze`, `beach`, or `nether` to rebuild a complete pack. Each
+Use `mansion`, `maze`, `beach`, `nether`, or `prison` to rebuild a complete pack. Each
 build writes all three retained asset layers:
 
 - editable `.blend` source under the pack's `source/` directory;
@@ -70,6 +70,12 @@ are real pixel-painted GLBs used across map pickups, first-person equipment
 and architecture; code supplies collision, interaction state and animation
 transforms. Rebuilding the five inventory items also renders transparent
 96×96 HUD icons into `assets/ui/inventory/` from those exact sources.
+
+The prison pack supplies a three-metre cell gate, bunk, freestanding dungeon
+cage, and restraint chair for lower-level streamed prison regions. These are
+offline-authored, pixel-painted Blender/GLB assets built by this repository's
+normal source pipeline; no remote 3D-generation service is used. Prison rooms
+are marked streamed-only so their furniture cannot leak into Standard routes.
 
 No retained asset currently approaches GitHub's per-file limit. If a future
 single source or runtime model reaches 50 MiB, configure Git LFS on development

@@ -65,7 +65,7 @@ var _was_locally_pursued := false
 ## Host-side rate gate for taser requests. Guests animate immediately, but a
 ## modified client cannot make the authoritative hunter accept rapid shots.
 var _taser_ready_usec_by_peer := {}
-var _haelith_step_elapsed := 0.0
+var _hunter_step_elapsed := 0.0
 const REMOTE_METER_EFFECT_INTERVAL := 0.1
 var _remote_meter_effects := {}
 var _remote_meter_effect_elapsed := 0.0
@@ -99,6 +99,7 @@ func _ready() -> void:
 	player.shop_resolver = _use_shop
 	player.shop_prompt_provider = _shop_prompt
 	player.trigger_static_effect = hud.trigger_static
+	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -1010,7 +1011,8 @@ func _update_hud() -> void:
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, player.is_in_safe_zone(), player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
 	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
-		player.inventory_durability_snapshot(), player.inventory_owned_snapshot())
+		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
+		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot())
 	hud.update_meters(player.meters)
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
@@ -1084,6 +1086,9 @@ func _build_admin() -> void:
 				"state": func() -> bool: return player.admin_no_target},
 			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode,
 				"state": func() -> bool: return player.admin_god_mode},
+			{"label": "TOGGLE NOCLIP", "action": func() -> void:
+				player.set_admin_noclip(not player.admin_noclip),
+				"state": func() -> bool: return player.admin_noclip},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
@@ -1244,20 +1249,23 @@ func _update_local_audio(delta: float) -> void:
 	if player == null:
 		return
 	var nearest := INF
-	var haelith: HunterView3D
+	var stepping_hunter: HunterView3D
+	var stepping_distance := INF
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	var locally_pursued := false
 	for view in hunter_views:
 		var id := view.brain.hunter_id
 		var was_active := bool(_audio_hunter_active.get(id, false))
 		if view.brain.active:
-			nearest = minf(nearest, view.brain.position.distance_to(player.grid_position()))
+			var view_distance := view.brain.position.distance_to(player.grid_position())
+			nearest = minf(nearest, view_distance)
+			if view.brain.state != HunterBrain.State.IDLE and view_distance < stepping_distance:
+				stepping_hunter = view
+				stepping_distance = view_distance
 			if view.brain.state == HunterBrain.State.CHASE \
 					and view.brain.stun_timer <= 0.0 \
 					and view.target_peer_id == local_id:
 				locally_pursued = true
-			if id == "haelith":
-				haelith = view
 			if id == "nyxie" and not was_active and view.brain.gimmick is NyxieGimmick:
 				if view.brain.gimmick.wake_mode == NyxieGimmick.Wake.EMPTY:
 					Sound.nyxie_empty_wake()
@@ -1275,14 +1283,15 @@ func _update_local_audio(delta: float) -> void:
 	if player.is_in_safe_zone():
 		danger = 0.0
 	Sound.heartbeat(danger)
-	if haelith == null or player.hidden:
-		_haelith_step_elapsed = 0.0
+	if stepping_hunter == null or player.hidden:
+		_hunter_step_elapsed = 0.0
 		return
-	_haelith_step_elapsed += delta
-	if _haelith_step_elapsed < .4:
+	_hunter_step_elapsed += delta
+	var step_gap := .30 if stepping_hunter.brain.state == HunterBrain.State.CHASE else .43
+	if _hunter_step_elapsed < step_gap:
 		return
-	_haelith_step_elapsed = 0.0
-	var offset := haelith.brain.position - player.grid_position()
+	_hunter_step_elapsed = 0.0
+	var offset := stepping_hunter.brain.position - player.grid_position()
 	var distance := offset.length()
 	if distance > 9.0:
 		return

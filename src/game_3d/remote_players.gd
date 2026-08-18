@@ -21,6 +21,7 @@ var _bodies := {}
 var _players := {}
 var _positions := {}
 var _facings := {}
+var _step_distances := {}
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 ## A host-issued capture is kept here independently of the next movement
@@ -93,11 +94,15 @@ func _local_state() -> Dictionary:
 		"selected_item": controller.selected_inventory_item(),
 		"owned_items": controller.inventory_owned_snapshot(),
 		"item_durability": controller.inventory_durability_snapshot(),
+		"display_name": RoomState.local_display_name(),
+		"player_hue": Settings.player_hue_degrees,
+		"admin_skin": Backend.admin_authorized(),
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
 		"no_target": controller.admin_no_target,
 		"god_mode": controller.admin_god_mode,
+		"noclip": controller.admin_noclip,
 		"escape_active": GameState.escape_active,
 		"capture_immune": GameState.is_capture_immune(),
 		"game_over": GameState.game_over,
@@ -138,7 +143,9 @@ func _place(state: Dictionary) -> void:
 
 	var body: Node3D = _bodies.get(id)
 	if body == null:
-		body = ModelSlot.instantiate(MODEL)
+		var model_path := PlayerController3D.ADMIN_BODY_MODEL_SCENE \
+			if bool(state.get("admin_skin", false)) else MODEL
+		body = ModelSlot.instantiate(model_path)
 		if body == null:
 			return
 		body.name = "Peer%d" % id
@@ -147,11 +154,17 @@ func _place(state: Dictionary) -> void:
 		body.rotation.y = float(state.get("facing_y", 0.0))
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
+		if not bool(state.get("admin_skin", false)):
+			ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+		_add_name_tag(body, String(state.get("display_name",
+			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)
+		_step_distances[id] = 0.0
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	body.visible = bool(state.get("visible", true))
 	var clip := String(state.get("clip", "idle"))
+	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
@@ -162,12 +175,52 @@ func _interpolate_bodies(delta: float) -> void:
 		var body: Node3D = _bodies[id]
 		if body == null or not _positions.has(id):
 			continue
+		var previous := body.global_position
 		body.global_position = body.global_position.lerp(_positions[id], weight)
 		body.rotation.y = lerp_angle(body.rotation.y, float(_facings.get(id, body.rotation.y)), weight)
 		var fade := move_toward(float(body.get_meta("fade_current", 0.0)),
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
 		ModelSlot.set_character_fade(body, fade)
+		_update_remote_footstep(id, body, previous)
+
+
+func _add_name_tag(body: Node3D, display_name: String) -> void:
+	var label := Label3D.new()
+	label.name = "PlayerNameTag"
+	label.text = display_name.strip_edges().to_upper().substr(0, 32)
+	label.position = Vector3(0.0, 2.08, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.font_size = 24
+	label.outline_size = 5
+	label.modulate = Color(0.78, 0.92, 0.94, .94)
+	body.add_child(label)
+
+
+func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
+	if local_player == null or not body.visible:
+		return
+	var clip := String(body.get_meta("movement_clip", "idle"))
+	if clip == "idle":
+		_step_distances[id] = 0.0
+		return
+	_step_distances[id] = float(_step_distances.get(id, 0.0)) \
+		+ previous.distance_to(body.global_position)
+	var stride := .78 if clip == "sprint" else (1.0 if clip == "crouch" else .68)
+	if float(_step_distances[id]) < stride:
+		return
+	_step_distances[id] = fmod(float(_step_distances[id]), stride)
+	var offset := body.global_position - local_player.global_position
+	var distance := offset.length()
+	if distance > 12.0:
+		return
+	var local_facing := Vector2(0, 1)
+	if local_player is PlayerController3D:
+		local_facing = (local_player as PlayerController3D).facing
+	var right := Vector2(-local_facing.y, local_facing.x)
+	var pan := clampf(Vector2(offset.x, offset.z).dot(right) / 4.5, -1.0, 1.0)
+	Sound.remote_player_footstep(clip, pan, .045 * (1.0 - distance / 12.0))
 
 
 func _drop(id: int) -> void:
@@ -178,6 +231,7 @@ func _drop(id: int) -> void:
 	_players.erase(id)
 	_positions.erase(id)
 	_facings.erase(id)
+	_step_distances.erase(id)
 	_states.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)

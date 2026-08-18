@@ -386,6 +386,9 @@ func _check_main_menu_contract(scene: Node) -> int:
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:
 		failures += _fail("Settings is missing the 3D signal-filter intensity control")
+	if scene.find_child("PlayerHueSlider", true, false) == null \
+			or scene.find_child("PlayerHueValueLabel", true, false) == null:
+		failures += _fail("Settings is missing the player skin hue control")
 	var play_button := scene.find_child("PlayButton", true, false) as Button
 	var join_button := scene.find_child("JoinButton", true, false) as Button
 	scene.call("_set_route_update_locked", "UPDATING")

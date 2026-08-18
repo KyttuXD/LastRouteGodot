@@ -173,10 +173,11 @@ func _config_block() -> Control:
 	# Office Mode is one person at a desk; scale and difficulty are the maze's
 	# dials and would be lying about doing something here.
 	if RoomState.mode != RoomState.Mode.OFFICE:
-		groups.add_child(_config_group("MAP SCALE", RoomState.SCALE_LABELS,
+		groups.add_child(_config_group("MAP SCALE", RoomState.SELECTABLE_SCALE_LABELS,
 			RoomState.map_scale,
 			func(value: int) -> void: RoomState.set_map_scale(value),
-			func(_value: int) -> bool: return RoomState.is_host))
+			func(value: int) -> bool:
+				return RoomState.is_host and RoomState.map_scale_available(value)))
 		groups.add_child(_config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
 			RoomState.difficulty,
 			func(value: int) -> void: RoomState.set_difficulty(value),
@@ -184,7 +185,7 @@ func _config_block() -> Control:
 				return RoomState.is_host and RoomState.difficulty_available(value)))
 
 	stack.add_child(_label(
-		"OFFICE IS A LOCAL SINGLE-RUNNER SHIFT // NIGHTMARE REMAINS RESERVED.",
+		"INFINITE STREAMING IS SHOWN UNTIL READY // NIGHTMARE REMAINS RESERVED.",
 		Palette.MUTED, 6))
 	return box
 

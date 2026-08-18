@@ -404,9 +404,9 @@ text = "100%"
 [node name="SensitivityRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 115.0
+offset_top = 125.0
 offset_right = 420.0
-offset_bottom = 131.0
+offset_bottom = 141.0
 theme_override_constants/separation = 8
 
 [node name="SensitivityLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
@@ -464,12 +464,40 @@ layout_mode = 2
 vertical_alignment = 1
 text = "28%"
 
-[node name="ControlsHeading" type="Label" parent="SettingsOverlay"]
+[node name="PlayerHueRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
 offset_top = 107.0
 offset_right = 420.0
-offset_bottom = 115.0
+offset_bottom = 123.0
+theme_override_constants/separation = 8
+
+[node name="PlayerHueLabel" type="Label" parent="SettingsOverlay/PlayerHueRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "PLAYER SKIN HUE"
+
+[node name="PlayerHueSlider" type="HSlider" parent="SettingsOverlay/PlayerHueRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 360.0
+step = 1.0
+
+[node name="PlayerHueValueLabel" type="Label" parent="SettingsOverlay/PlayerHueRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "ORIGINAL"
+
+[node name="ControlsHeading" type="Label" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 143.0
+offset_right = 420.0
+offset_bottom = 151.0
 theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
 theme_override_font_sizes/font_size = 6
 text = "CONTROLS"
@@ -497,7 +525,7 @@ text = "F11 ANYWHERE"
 [node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 133.0
+offset_top = 153.0
 offset_right = 420.0
 offset_bottom = 228.0
 horizontal_scroll_mode = 0

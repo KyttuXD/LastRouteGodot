@@ -306,28 +306,31 @@ func run(host: Node) -> int:
 		_expect(String(word) == String(word).to_upper(),
 			"guest callsign word %s is not uppercase" % word)
 
-	# MAP SCALE was a button that did nothing: the generator has taken these
-	# options since it was ported, but neither view passed any, so every route
-	# came out the same 45x45 default whatever staging said.
-	var sizes := {}
-	for scale in RoomState.SCALE_LABELS:
-		RoomState.set_map_scale(scale)
-		var options := RoomState.generator_options()
-		var key := "%dx%d" % [options["cols"], options["rows"]]
-		if sizes.has(key):
-			_fail("%s builds the same %s as %s" % [RoomState.SCALE_LABELS[scale],
-				key, sizes[key]])
-		sizes[key] = RoomState.SCALE_LABELS[scale]
-		var built := FacilityGenerator.new("scale-check", options)
-		_expect(built.cols == options["cols"] and built.rows == options["rows"],
-			"%s asked for %s and got %dx%d" % [RoomState.SCALE_LABELS[scale], key,
-				built.cols, built.rows])
-		_expect(built.relays.size() == options["relay_count"],
-			"%s placed %d relays, not %d" % [RoomState.SCALE_LABELS[scale],
-				built.relays.size(), options["relay_count"]])
-		# A route nobody can walk is not a route.
-		_expect(built.floor_cells().size() > 0,
-			"%s generated no floor at all" % RoomState.SCALE_LABELS[scale])
+	# Retire the four-way finite size ladder. STANDARD is the shipping fixed
+	# route; debug solo rooms may enter the live streamed test while release and
+	# online rooms keep INFINITE gated until the remaining authority work lands.
+	_expect(RoomState.SELECTABLE_SCALE_LABELS.size() == 2 \
+		and RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.STANDARD) \
+		and RoomState.SELECTABLE_SCALE_LABELS.has(RoomState.Scale.INFINITE),
+		"staging map scales are not exactly Standard and Infinite")
+	RoomState.set_map_scale(RoomState.Scale.SMALL)
+	_expect(RoomState.map_scale == RoomState.Scale.STANDARD,
+		"retired Small scale remained selectable")
+	RoomState.set_map_scale(RoomState.Scale.INFINITE)
+	_expect(RoomState.map_scale == RoomState.Scale.INFINITE,
+		"debug solo Infinite scale did not become selectable")
+	_expect(RoomState.session_scene_path() == "res://scenes/infinite_route_test.tscn",
+		"Infinite scale did not route into its streamed playtest scene")
+	RoomState.online = true
+	_expect(not RoomState.map_scale_available(RoomState.Scale.INFINITE),
+		"unfinished co-op Infinite scale became selectable")
+	RoomState.online = false
+	RoomState.set_map_scale(RoomState.Scale.STANDARD)
+	var options := RoomState.generator_options()
+	var built := FacilityGenerator.new("scale-check", options)
+	_expect(built.cols == options["cols"] and built.rows == options["rows"] \
+		and built.floor_cells().size() > 0,
+		"Standard map no longer builds a walkable facility")
 	RoomState.set_map_scale(RoomState.Scale.STANDARD)
 
 	# Staging has to actually draw, since it is built entirely in code.
@@ -340,6 +343,10 @@ func run(host: Node) -> int:
 	var nightmare_button: Button = null
 	var office_button: Button = null
 	var saw_hide_seek := false
+	var saw_small := false
+	var saw_large := false
+	var saw_immense := false
+	var infinite_button: Button = null
 	for button in lobby.find_children("*", "Button", true, false):
 		saw_hard = saw_hard or String(button.text) == "HARD"
 		if String(button.text) == "NIGHTMARE":
@@ -347,12 +354,21 @@ func run(host: Node) -> int:
 		if String(button.text) == "OFFICE":
 			office_button = button
 		saw_hide_seek = saw_hide_seek or String(button.text) == "HIDE & SEEK"
+		saw_small = saw_small or String(button.text) == "SMALL"
+		saw_large = saw_large or String(button.text) == "LARGE"
+		saw_immense = saw_immense or String(button.text) == "IMMENSE"
+		if String(button.text) == "INFINITE":
+			infinite_button = button
 	_expect(saw_hard, "the staging screen did not render a Hard button")
 	_expect(nightmare_button != null and nightmare_button.disabled,
 		"Nightmare is not visible and greyed out")
 	_expect(office_button != null and not office_button.disabled,
 		"playable local Office mode is not visible and selectable")
 	_expect(not saw_hide_seek, "Hide & Seek still appears in staging")
+	_expect(not saw_small and not saw_large and not saw_immense,
+		"retired finite scale buttons still appear in staging")
+	_expect(infinite_button != null and not infinite_button.disabled,
+		"debug solo Infinite scale is not visible and selectable")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
@@ -451,7 +467,7 @@ func run(host: Node) -> int:
 		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
 		print("  guests    %d FIRST x %d LAST callsign words" % [
 			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])
-		print("  scales    %d map scales, each a distinct walkable facility" % sizes.size())
+		print("  scales    Standard live; Infinite playable in solo debug and co-op gated")
 		print("  create    primary server first; registration failure falls back to solo")
 		print("room OK")
 	return _failures

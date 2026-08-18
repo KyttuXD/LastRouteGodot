@@ -1,6 +1,8 @@
 class_name HUD
 extends CanvasLayer
 
+signal inventory_reorder_requested(from_slot: int, to_slot: int)
+
 ## Shared HUD overlay, usable from either the 2D or 3D presentation layer —
 ## it only touches Control nodes and never reads World/Player state directly,
 ## so the orchestrator (main.gd / main_3d.gd) drives it through this API.
@@ -13,12 +15,20 @@ const COLOR_METER_SAFE := Color(0.455, 0.722, 0.553) # #74b88d
 const COLOR_METER_STAMINA_NORMAL := Color(0.561, 0.816, 0.878) # #8fd0e0
 
 const MESSAGE_DURATION := 2.8
+const ITEM_TEXTURES := {
+	"flashlight": preload("res://assets/ui/inventory/flashlight_item.png"),
+	"taser": preload("res://assets/ui/inventory/taser_item.png"),
+	"lockpick": preload("res://assets/ui/inventory/lockpick_set.png"),
+	"crowbar": preload("res://assets/ui/inventory/crowbar.png"),
+	"rescue_axe": preload("res://assets/ui/inventory/rescue_axe.png"),
+}
 
 var _static_overlay: StaticOverlay
 
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	_prepare_inventory_slots()
 	_static_overlay = StaticOverlay.new()
 	# Above every meter and label this scene already owns, below nothing --
 	# a screen effect that a HUD element could still peek through would not
@@ -59,11 +69,6 @@ func trigger_static(duration: float, intensity: float = 0.75) -> void:
 @onready var lockpick_slot: PanelContainer = %LockpickSlot
 @onready var crowbar_slot: PanelContainer = %CrowbarSlot
 @onready var rescue_axe_slot: PanelContainer = %RescueAxeSlot
-@onready var flashlight_caption: Label = %FlashlightCaption
-@onready var taser_caption: Label = %TaserCaption
-@onready var lockpick_caption: Label = %LockpickCaption
-@onready var crowbar_caption: Label = %CrowbarCaption
-@onready var rescue_axe_caption: Label = %RescueAxeCaption
 @onready var compact_status_label: Label = %CompactStatusLabel
 @onready var fps_label: Label = %FpsLabel
 
@@ -71,6 +76,9 @@ var _message_time_left := 0.0
 var _fps_update_left := 0.0
 var _lamp_percent := 100
 var _stamina_percent := 100
+var _inventory_drag_from := -1
+var _inventory_slots: Array[PanelContainer] = []
+var _inventory_bars: Array[ProgressBar] = []
 
 
 func _process(delta: float) -> void:
@@ -88,23 +96,81 @@ func update_objective(depth: int, relays_collected: int, relay_target: int) -> v
 
 
 func update_inventory(selected_item: String, taser_cooldown: float,
-		durability: Dictionary = {}, owned: Dictionary = {}) -> void:
-	var slots := {
-		"flashlight": flashlight_slot, "taser": taser_slot,
-		"lockpick": lockpick_slot, "crowbar": crowbar_slot,
-		"rescue_axe": rescue_axe_slot,
-	}
-	for item_id in slots:
-		var slot := slots[item_id] as PanelContainer
+		durability: Dictionary = {}, owned: Dictionary = {}, order: Array = [],
+		maximums: Dictionary = {}) -> void:
+	var resolved_order := order if order.size() == _inventory_slots.size() \
+		else PlayerController3D.INVENTORY_ITEMS
+	for index in _inventory_slots.size():
+		var slot := _inventory_slots[index]
+		var item_id := String(resolved_order[index])
 		var has_item := bool(owned.get(item_id, false))
 		slot.add_theme_stylebox_override("panel", _hotbar_slot_style(
 			selected_item == item_id and has_item))
 		slot.modulate = Color.WHITE if has_item else Color(0.24, 0.27, 0.28, .42)
-	flashlight_caption.text = "1"
-	taser_caption.text = "2\n%.1f" % taser_cooldown if taser_cooldown > .05 else "2"
-	lockpick_caption.text = "3  %d" % int(durability.get("lockpick", 0))
-	crowbar_caption.text = "4  %d" % int(durability.get("crowbar", 0))
-	rescue_axe_caption.text = "5  %d" % int(durability.get("rescue_axe", 0))
+		var icon := slot.get_node("Stack/Icon") as TextureRect
+		icon.texture = ITEM_TEXTURES.get(item_id)
+		var caption := slot.get_node("Stack/Caption") as Label
+		caption.text = str(index + 1)
+		slot.tooltip_text = "%s // DRAG OR SHIFT+NUMBER TO MOVE" % String(
+			PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).to_upper()
+		var bar := _inventory_bars[index]
+		bar.visible = has_item
+		if item_id == "taser":
+			bar.value = clampf(1.0 - taser_cooldown / GameConfig.TASER_COOLDOWN_SECONDS,
+				0.0, 1.0) * 100.0
+		else:
+			var max_value := maxi(1, int(maximums.get(item_id, 1)))
+			bar.value = clampf(float(durability.get(item_id, 0)) / max_value,
+				0.0, 1.0) * 100.0
+
+
+func _prepare_inventory_slots() -> void:
+	_inventory_slots.assign([flashlight_slot, taser_slot, lockpick_slot,
+		crowbar_slot, rescue_axe_slot])
+	for index in _inventory_slots.size():
+		var slot := _inventory_slots[index]
+		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		slot.gui_input.connect(func(event: InputEvent) -> void:
+			_inventory_slot_input(event, index))
+		var stack := slot.get_node("Stack") as VBoxContainer
+		var bar := ProgressBar.new()
+		bar.name = "DurabilityBar"
+		bar.custom_minimum_size = Vector2(0, 3)
+		bar.max_value = 100.0
+		bar.value = 100.0
+		bar.show_percentage = false
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var background := StyleBoxFlat.new()
+		background.bg_color = Color(0.055, 0.07, 0.075, .96)
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = Color(0.43, 0.82, 0.58, 1.0)
+		bar.add_theme_stylebox_override("background", background)
+		bar.add_theme_stylebox_override("fill", fill)
+		stack.add_child(bar)
+		_inventory_bars.append(bar)
+
+
+func _inventory_slot_input(event: InputEvent, index: int) -> void:
+	if not event is InputEventMouseButton \
+			or (event as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
+		return
+	var mouse := event as InputEventMouseButton
+	if mouse.pressed:
+		_inventory_drag_from = index
+		get_viewport().set_input_as_handled()
+		return
+	if _inventory_drag_from < 0:
+		return
+	var destination := index
+	var pointer := get_viewport().get_mouse_position()
+	for slot_index in _inventory_slots.size():
+		if _inventory_slots[slot_index].get_global_rect().has_point(pointer):
+			destination = slot_index
+			break
+	if destination != _inventory_drag_from:
+		inventory_reorder_requested.emit(_inventory_drag_from, destination)
+	_inventory_drag_from = -1
+	get_viewport().set_input_as_handled()
 
 
 func _hotbar_slot_style(selected: bool) -> StyleBoxFlat:
@@ -121,9 +187,8 @@ func _hotbar_slot_style(selected: bool) -> StyleBoxFlat:
 
 
 func _refresh_compact_status() -> void:
-	compact_status_label.text = "LAMP %s %3d%%   STAMINA %s %3d%%" % [
-		_meter_ticks(_lamp_percent), _lamp_percent,
-		_meter_ticks(_stamina_percent), _stamina_percent]
+	compact_status_label.text = "LAMP %s   STAMINA %s" % [
+		_meter_ticks(_lamp_percent), _meter_ticks(_stamina_percent)]
 
 
 func _meter_ticks(value: int) -> String:

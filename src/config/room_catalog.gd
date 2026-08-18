@@ -111,6 +111,11 @@ const TYPES := [
 			"basaltPillar", "basaltPillar", "basaltPillar", "basaltRubble",
 			"magmaCrystalCluster", "infernoAltar", "infernoChainLantern",
 			"lavaPipeManifold", "charredSupplyCrate"]},
+	{"id": "prisonCellBlock", "label": "LOWER CELL BLOCK", "region": "prison",
+		"streamed_only": true, "landmark": true,
+		"props": ["prisonCellGate", "prisonCellGate", "prisonBunk",
+			"prisonBunk", "dungeonCage", "restraintChair", "supplyCrates",
+			"infernoChainLantern"]},
 	{"id": "beachCove", "label": "FROZEN TIDELINE", "region": "beach",
 		"special": 13, "large_only": true, "landmark": true,
 		"props": ["tikiBar", "beachUmbrella", "beachUmbrella", "sandCastle",
@@ -197,6 +202,7 @@ const REGION_DEFAULT_TYPE := {
 	"office": "office", "maintenance": "maintenance", "arcade": "arcade",
 	"circus": "circusTent", "nether": "netherChamber", "beach": "beachCove",
 	"mansion": "diningRoom", "bedroom": "bedroom", "garden": "garden",
+	"prison": "prisonCellBlock",
 }
 
 ## Pieces that need their back oriented toward the nearest room edge. The
@@ -228,6 +234,7 @@ const WALL_BACKED_TYPES := [
 	"gothicKitchenFridge", "gothicKitchenWallCabinet",
 	"normalBookcase", "normalTvConsole", "normalEntryBench",
 	"mansionDisplayCabinet", "mansionChaiseLounge", "mansionUprightPiano",
+	"prisonCellGate", "prisonBunk",
 ]
 
 ## Small dining dressing shares the cell of a real table and is lifted to its
@@ -369,6 +376,8 @@ const FOOTPRINTS := {
 	"mansionChaiseLounge": Vector2(.88, .35),
 	"mansionUprightPiano": Vector2(.77, .45),
 	"mansionBustPedestal": Vector2(.27, .27),
+	"prisonCellGate": Vector2(1.48, .18), "prisonBunk": Vector2(.55, .98),
+	"dungeonCage": Vector2(1.25, 1.25), "restraintChair": Vector2(.55, .55),
 }
 
 
@@ -394,6 +403,7 @@ static func color_for_region(region: String) -> Color:
 		"office": Color("586b86"), "mansion": Color("73503f"),
 		"bedroom": Color("77546f"),
 		"nether": Color("8d302d"), "beach": Color("87b8c8"),
+		"prison": Color("35424a"),
 		"garden": Color("527b4c"), "circus": Color("bd536e"),
 	}.get(region, Color("68616b"))
 
@@ -438,6 +448,12 @@ static func display_height(type: String) -> float:
 	if type in ["publicMensShowerStall", "publicWomensShowerStall",
 			"houseShowerEnclosure"]:
 		return 2.16
+	if type in ["prisonCellGate", "dungeonCage"]:
+		return 2.8
+	if type == "prisonBunk":
+		return 1.55
+	if type == "restraintChair":
+		return 1.95
 	if type in ["publicRestroomToilet", "houseToilet"]:
 		return 1.21
 	if type in ["bedroomWardrobe", "gothicWardrobe", "gothicBookcase"]:

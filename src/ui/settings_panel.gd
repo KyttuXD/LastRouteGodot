@@ -60,6 +60,8 @@ const SECTIONS := [
 @onready var sensitivity_value_label: Label = %SensitivityValueLabel
 @onready var pixel_effect_slider: HSlider = %PixelEffectSlider
 @onready var pixel_effect_value_label: Label = %PixelEffectValueLabel
+@onready var player_hue_slider: HSlider = %PlayerHueSlider
+@onready var player_hue_value_label: Label = %PlayerHueValueLabel
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
@@ -76,6 +78,7 @@ func _ready() -> void:
 	sensitivity_slider.step = 0.0001
 	sensitivity_slider.value_changed.connect(_on_sensitivity_changed)
 	pixel_effect_slider.value_changed.connect(_on_pixel_effect_changed)
+	player_hue_slider.value_changed.connect(_on_player_hue_changed)
 	# F11 works anywhere, so the toggle can be flipped from outside this panel
 	# while it is open.
 	Settings.display_changed.connect(_refresh_from_settings)
@@ -126,6 +129,8 @@ func _refresh_from_settings() -> void:
 	_update_sensitivity_label(Settings.mouse_sensitivity)
 	pixel_effect_slider.set_value_no_signal(Settings.pixel_effect_percent)
 	_update_pixel_effect_label(Settings.pixel_effect_percent)
+	player_hue_slider.set_value_no_signal(Settings.player_hue_degrees)
+	_update_player_hue_label(Settings.player_hue_degrees)
 	for action in _key_labels:
 		_key_labels[action].text = Settings.get_action_key_label(action)
 
@@ -153,6 +158,15 @@ func _update_pixel_effect_label(value: float) -> void:
 	pixel_effect_value_label.text = "%d%%" % int(round(value))
 
 
+func _on_player_hue_changed(value: float) -> void:
+	Settings.set_player_hue_degrees(value)
+	_update_player_hue_label(value)
+
+
+func _update_player_hue_label(value: float) -> void:
+	player_hue_value_label.text = "ORIGINAL" if value < .5 else "%d°" % roundi(value)
+
+
 ## Shown as a plain 1-100 dial rather than radians per pixel, which is the
 ## number the code needs and not one anyone can reason about.
 func _update_sensitivity_label(value: float) -> void:
@@ -177,6 +191,7 @@ func _apply_palette() -> void:
 	for path in ["VolumeRow/VolumeLabel", "VolumeRow/VolumeValueLabel",
 			"SensitivityRow/SensitivityLabel", "SensitivityRow/SensitivityValueLabel",
 			"PixelEffectRow/PixelEffectLabel", "PixelEffectRow/PixelEffectValueLabel",
+			"PlayerHueRow/PlayerHueLabel", "PlayerHueRow/PlayerHueValueLabel",
 			"DisplayRow/DisplayLabel"]:
 		var label := get_node_or_null(path) as Label
 		if label != null:

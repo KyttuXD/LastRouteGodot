@@ -26,6 +26,8 @@ func run(host: Node) -> int:
 		"nyxie_timer", "nyxie_empty", "hunter_footstep", "mimic",
 		"mimic_rare", "heartbeat",
 		"footstep_walk", "footstep_sprint", "footstep_crouch", "capture",
+		"teammate_footstep_walk", "teammate_footstep_sprint",
+		"teammate_footstep_crouch",
 		"struggle", "escape", "office_camera", "office_warning",
 		"office_crimson_door", "office_presence", "office_scrape",
 		"office_static", "office_drain", "office_footsteps", "office_breath",
@@ -57,6 +59,10 @@ func run(host: Node) -> int:
 	_expect(not Sound.footstep("walk"), "same-frame footsteps bypassed debounce")
 	_expect(int(Sound.play_counts.get("footstep_walk", 0)) == 1,
 		"footstep debounce recorded more than one cue")
+	_expect(Sound.remote_player_footstep("walk", .5, .04),
+		"nearby co-op footsteps did not use their distinct cue")
+	_expect(Sound.last_cue == "teammate_footstep_walk",
+		"co-op footsteps are indistinguishable from local/hunter footsteps")
 
 	var button := Button.new()
 	host.get_tree().root.add_child(button)
@@ -99,6 +105,11 @@ func run(host: Node) -> int:
 	route._update_local_audio(.1)
 	_expect(int(Sound.play_counts.get("chase_start", 0)) == 1,
 		"the chase-start sting repeated every frame")
+	route._hunter_step_elapsed = .30
+	Sound.reset_test_counters()
+	route._update_local_audio(.01)
+	_expect(int(Sound.play_counts.get("hunter_footstep", 0)) == 1,
+		"a moving non-special-cased route hunter produced no heavy footstep")
 	route.queue_free()
 	await host.get_tree().process_frame
 

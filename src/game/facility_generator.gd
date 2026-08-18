@@ -382,6 +382,8 @@ func _room_types_for_count(count: int) -> Array:
 	var ordinary: Array = []
 	for value in RoomCatalog.TYPES:
 		var entry: Dictionary = value
+		if bool(entry.get("streamed_only", false)):
+			continue
 		var special := int(entry.get("special", 0))
 		if special > 0:
 			if special <= count and (not bool(entry.get("large_only", false)) \

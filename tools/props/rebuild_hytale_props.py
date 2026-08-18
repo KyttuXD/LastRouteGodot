@@ -28,6 +28,10 @@ NETHER_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "nether")
 NETHER_SOURCE = os.path.join(NETHER_ROOT, "source")
 NETHER_TEXTURES = os.path.join(NETHER_SOURCE, "textures")
 NETHER_PREVIEWS = os.path.join(NETHER_ROOT, "previews")
+PRISON_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "prison")
+PRISON_SOURCE = os.path.join(PRISON_ROOT, "source")
+PRISON_TEXTURES = os.path.join(PRISON_SOURCE, "textures")
+PRISON_PREVIEWS = os.path.join(PRISON_ROOT, "previews")
 os.makedirs(TEXTURES, exist_ok=True)
 os.makedirs(PREVIEWS, exist_ok=True)
 os.makedirs(INVENTORY_ICONS, exist_ok=True)
@@ -39,6 +43,8 @@ os.makedirs(BEACH_TEXTURES, exist_ok=True)
 os.makedirs(BEACH_PREVIEWS, exist_ok=True)
 os.makedirs(NETHER_TEXTURES, exist_ok=True)
 os.makedirs(NETHER_PREVIEWS, exist_ok=True)
+os.makedirs(PRISON_TEXTURES, exist_ok=True)
+os.makedirs(PRISON_PREVIEWS, exist_ok=True)
 
 
 def clear_scene():
@@ -3755,6 +3761,109 @@ def make_mansion_bust_pedestal():
     return objects, (1.55, -2.10, 2.20), (0.0, 0.0, 0.90)
 
 
+def prison_materials(name):
+    colors = ["#090B0D", "#171C20", "#293238", "#465057", "#6D5943",
+              "#8B3B32", "#A77A49", "#B8B19D"]
+    image = make_pixel_atlas(name + "_pixel_atlas", colors, PRISON_TEXTURES)
+    iron = make_material(name + " iron", image, roughness=0.72, metallic=0.52)
+    stone = make_material(name + " stone", image, roughness=0.96, metallic=0.0)
+    cloth = make_material(name + " cloth", image, roughness=1.0, metallic=0.0)
+    return iron, stone, cloth, len(colors)
+
+
+def make_prison_cell_gate():
+    iron, stone, _, count = prison_materials("prison_cell_gate")
+    objects = []
+    box("StoneJambL", (-1.42, 0.0, 1.40), (0.16, 0.34, 2.80), stone, 2,
+        count, objects, bevel=0.018)
+    box("StoneJambR", (1.42, 0.0, 1.40), (0.16, 0.34, 2.80), stone, 2,
+        count, objects, bevel=0.018)
+    box("StoneLintel", (0.0, 0.0, 2.72), (2.75, 0.34, 0.18), stone, 3,
+        count, objects, bevel=0.018)
+    box("IronThreshold", (0.0, -0.02, 0.07), (2.75, 0.24, 0.14), iron, 1,
+        count, objects, bevel=0.008)
+    for index, x in enumerate((-1.18, -0.88, -0.58, -0.28, 0.02, 0.32,
+                               0.62, 0.92, 1.22)):
+        cylinder("GateBar_%02d" % index, (x, -0.04, 1.39), 0.045, 2.58, 8,
+                 iron, 3 if index % 2 else 2, count, objects, bevel=0.006)
+    for index, z in enumerate((0.54, 1.36, 2.18)):
+        box("CrossRail_%d" % index, (0.0, -0.04, z), (2.55, 0.10, 0.10),
+            iron, 1, count, objects, bevel=0.008)
+    box("LockHousing", (0.23, -0.12, 1.25), (0.25, 0.16, 0.34), iron, 6,
+        count, objects, bevel=0.014)
+    box("LockKeyway", (0.23, -0.215, 1.25), (0.045, 0.035, 0.11), iron, 0,
+        count, objects, bevel=0.003)
+    return objects, (4.2, -6.2, 3.4), (0.0, 0.0, 1.35)
+
+
+def make_prison_bunk():
+    iron, _, cloth, count = prison_materials("prison_bunk")
+    objects = []
+    for x in (-0.48, 0.48):
+        for y in (-0.92, 0.92):
+            cylinder("Post_%s_%s" % (x, y), (x, y, 0.73), 0.038, 1.46, 8,
+                     iron, 2, count, objects, bevel=0.004)
+    for level, z in enumerate((0.34, 1.10)):
+        box("Frame_%d" % level, (0.0, 0.0, z), (1.04, 1.92, 0.10), iron, 2,
+            count, objects, bevel=0.012)
+        box("Mattress_%d" % level, (0.0, 0.0, z + 0.105),
+            (0.92, 1.78, 0.11), cloth, 7 if level else 4, count, objects,
+            bevel=0.018)
+        box("Blanket_%d" % level, (0.0, 0.36, z + 0.17),
+            (0.84, 0.75, 0.045), cloth, 5, count, objects, bevel=0.010)
+    for rung, z in enumerate((0.32, 0.59, 0.86, 1.13)):
+        box("LadderRung_%d" % rung, (0.54, -0.86, z), (0.08, 0.34, 0.055),
+            iron, 3, count, objects, bevel=0.006)
+    return objects, (3.4, -4.8, 2.75), (0.0, 0.0, 0.78)
+
+
+def make_dungeon_cage():
+    iron, stone, _, count = prison_materials("dungeon_cage")
+    objects = []
+    box("CagePlinth", (0.0, 0.0, 0.10), (2.45, 2.45, 0.20), stone, 2,
+        count, objects, bevel=0.018)
+    box("CageRoof", (0.0, 0.0, 2.45), (2.35, 2.35, 0.14), iron, 1,
+        count, objects, bevel=0.012)
+    positions = []
+    for value in (-1.08, -0.72, -0.36, 0.0, 0.36, 0.72, 1.08):
+        positions.extend([(value, -1.08), (value, 1.08),
+                          (-1.08, value), (1.08, value)])
+    seen = set()
+    for index, (x, y) in enumerate(positions):
+        key = (round(x, 2), round(y, 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        cylinder("CageBar_%02d" % index, (x, y, 1.28), 0.04, 2.30, 8,
+                 iron, 3 if index % 3 else 2, count, objects, bevel=0.005)
+    box("CageDoorFrame", (0.0, -1.13, 1.28), (0.95, 0.11, 2.28), iron, 1,
+        count, objects, bevel=0.010)
+    box("CageLatch", (0.38, -1.22, 1.25), (0.18, 0.15, 0.30), iron, 6,
+        count, objects, bevel=0.010)
+    return objects, (4.4, -5.8, 3.6), (0.0, 0.0, 1.15)
+
+
+def make_restraint_chair():
+    iron, stone, cloth, count = prison_materials("restraint_chair")
+    objects = []
+    box("StoneBase", (0.0, 0.0, 0.08), (1.00, 1.00, 0.16), stone, 2,
+        count, objects, bevel=0.018)
+    box("Seat", (0.0, 0.0, 0.58), (0.68, 0.65, 0.15), cloth, 4,
+        count, objects, bevel=0.020)
+    box("Back", (0.0, 0.24, 1.28), (0.68, 0.14, 1.28), cloth, 4,
+        count, objects, bevel=0.020, rotation=(math.radians(-7), 0, 0))
+    for side, x in (("L", -0.43), ("R", 0.43)):
+        box("Arm_%s" % side, (x, -0.03, 0.83), (0.16, 0.70, 0.13), iron,
+            2, count, objects, bevel=0.012)
+        box("Leg_%s" % side, (x, 0.08, 0.33), (0.12, 0.12, 0.62), iron,
+            2, count, objects, bevel=0.008)
+        box("WristCuff_%s" % side, (x, -0.20, 0.90), (0.20, 0.18, 0.12),
+            iron, 5, count, objects, bevel=0.015)
+    box("ChestRestraint", (0.0, 0.12, 1.40), (0.77, 0.18, 0.16), iron, 5,
+        count, objects, bevel=0.012, rotation=(math.radians(-7), 0, 0))
+    return objects, (3.0, -4.2, 2.7), (0.0, 0.0, 0.90)
+
+
 def save_and_export(name, objects, root=ROOT, source=SOURCE):
     for obj in bpy.context.selected_objects:
         obj.select_set(False)
@@ -4162,6 +4271,13 @@ NETHER_BUILDERS = {
     "charred_supply_crate": make_charred_supply_crate,
 }
 
+PRISON_BUILDERS = {
+    "prison_cell_gate": make_prison_cell_gate,
+    "prison_bunk": make_prison_bunk,
+    "dungeon_cage": make_dungeon_cage,
+    "restraint_chair": make_restraint_chair,
+}
+
 
 requested = set(sys.argv[sys.argv.index("--") + 1:]) if "--" in sys.argv else set(BUILDERS)
 for model_name, builder in BUILDERS.items():
@@ -4210,4 +4326,13 @@ for model_name, builder in NETHER_BUILDERS.items():
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects, NETHER_ROOT, NETHER_SOURCE)
     render_preview(model_name, export_objects, eye, look, NETHER_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in PRISON_BUILDERS.items():
+    if "prison" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, PRISON_ROOT, PRISON_SOURCE)
+    render_preview(model_name, export_objects, eye, look, PRISON_PREVIEWS)
     print("BUILT", model_name, len(export_objects))

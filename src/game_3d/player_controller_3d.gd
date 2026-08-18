@@ -67,12 +67,13 @@ const INVENTORY_LABELS := {
 	"crowbar": "CROWBAR", "rescue_axe": "RESCUE AXE",
 }
 const INVENTORY_MAX_DURABILITY := {
-	"lockpick": 12, "crowbar": 40, "rescue_axe": 24,
+	"flashlight": 100, "lockpick": 12, "crowbar": 40, "rescue_axe": 24,
 }
 const BREACH_TOOLS := ["crowbar", "rescue_axe"]
 const LOCK_TOOLS := ["lockpick", "crowbar"]
 const FRIENDLY_FIRE_ENABLED := false
 var selected_inventory_slot := -1
+var inventory_order := INVENTORY_ITEMS.duplicate()
 var owned_inventory_items := {
 	"flashlight": false, "taser": false, "lockpick": false,
 	"crowbar": false, "rescue_axe": false,
@@ -104,6 +105,7 @@ var look_frozen := false
 ## release builds never get the menu which changes either value.
 var admin_no_target := false
 var admin_god_mode := false
+var admin_noclip := false
 
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
@@ -134,6 +136,9 @@ var _xr_turn_latched := false
 ## been there, wired to a literal false because nothing could hide.
 var hidden := false
 var hidden_spot := Vector2i(-1, -1)
+var _hiding_exit_position := Vector3.ZERO
+var _hiding_collision_layer := 1
+var _hiding_collision_mask := 1
 
 ## Ceryth's trap: a spot she has staked out answers the flashlight riddle wrong
 ## and locks you in rather than letting you hide. Set by the scene; called
@@ -190,7 +195,16 @@ func is_stunned() -> bool:
 	return stun_timer > 0.0
 
 
-func enter_hiding(cell: Vector2i) -> String:
+func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
+		exit_position: Vector3 = Vector3.ZERO) -> String:
+	_hiding_exit_position = exit_position if exit_position != Vector3.ZERO \
+		else global_position
+	_hiding_collision_layer = collision_layer
+	_hiding_collision_mask = collision_mask
+	collision_layer = 0
+	collision_mask = 0
+	if inside_position != Vector3.ZERO:
+		global_position = inside_position
 	var cleared_message := ""
 	if hiding_trap_resolver.is_valid():
 		var result: Dictionary = hiding_trap_resolver.call(cell, flashlight_enabled and lamp_charge > 0.0)
@@ -226,8 +240,13 @@ func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 	hidden_spot = Vector2i(-1, -1)
 	input_frozen = false
 	hiding_lock_timer = 0.0
+	collision_layer = _hiding_collision_layer
+	collision_mask = _hiding_collision_mask
 	if at != Vector2.ZERO:
 		global_position = Vector3(at.x, global_position.y, at.y)
+	elif _hiding_exit_position != Vector3.ZERO:
+		global_position = _hiding_exit_position
+	_hiding_exit_position = Vector3.ZERO
 	return "Out of hiding."
 
 
@@ -279,6 +298,8 @@ func _ready() -> void:
 	if model:
 		_body_model = model
 		body_visual.add_child(model)
+		if not Backend.admin_authorized():
+			ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
 		_animation_player = ModelSlot.find_animation_player(model)
 	_build_first_person_items()
 	# Equipment is now found in the seeded facility. The beam must stay dark
@@ -303,13 +324,51 @@ func _unhandled_input(event: InputEvent) -> void:
 				interaction_message.emit(message)
 				return
 		if key >= KEY_1 and key <= KEY_5:
-			select_inventory_slot(key - KEY_1)
+			var target_slot := key - KEY_1
+			if event.shift_pressed and selected_inventory_slot >= 0:
+				move_inventory_slot(selected_inventory_slot, target_slot)
+				interaction_message.emit("INVENTORY MOVED // SLOT %d" % (target_slot + 1))
+			else:
+				select_inventory_slot(target_slot)
 	elif event is InputEventMouseButton and event.pressed:
 		var button := (event as InputEventMouseButton).button_index
 		if button == MOUSE_BUTTON_WHEEL_UP:
 			select_inventory_slot(selected_inventory_slot - 1)
 		elif button == MOUSE_BUTTON_WHEEL_DOWN:
 			select_inventory_slot(selected_inventory_slot + 1)
+
+
+func set_admin_noclip(enabled: bool) -> void:
+	if admin_noclip == enabled:
+		return
+	if enabled and hidden:
+		leave_hiding(Vector2.ZERO, true)
+	admin_noclip = enabled
+	velocity = Vector3.ZERO
+	collision_layer = 0 if enabled else 1
+	collision_mask = 0 if enabled else 1
+
+
+func _update_admin_noclip(delta: float) -> void:
+	# Free-flight follows the view, including pitch, while vertical keys remain
+	# explicit so an admin can inspect stacked floors without aiming straight up.
+	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var basis := active_camera().global_basis
+	var direction := basis.x * input_vector.x + (-basis.z) * -input_vector.y
+	if Input.is_action_pressed("jump"):
+		direction += Vector3.UP
+	if Input.is_action_pressed("crouch"):
+		direction += Vector3.DOWN
+	var fast := Input.is_action_pressed("sprint")
+	var speed := 9.0 if fast else 4.5
+	if direction.length_squared() > 0.0:
+		global_position += direction.normalized() * speed * delta
+		_clip = "sprint" if fast else "walk"
+	else:
+		_clip = "idle"
+	velocity = Vector3.ZERO
+	noise = 0.0
+	ModelSlot.play_if_available(_animation_player, _clip)
 
 
 func _physics_process(delta: float) -> void:
@@ -323,11 +382,17 @@ func _physics_process(delta: float) -> void:
 		pesticide_timer = maxf(0.0, pesticide_timer - delta)
 	if in_vent:
 		vent_time_in += delta
+	if admin_noclip:
+		_update_admin_noclip(delta)
+		return
 	if input_frozen or stun_timer > 0.0:
 		velocity.x = 0.0
 		velocity.z = 0.0
-		_update_vertical_motion(delta, false)
-		_move_and_resolve_landing()
+		if hidden:
+			velocity.y = 0.0
+		else:
+			_update_vertical_motion(delta, false)
+			_move_and_resolve_landing()
 		noise = 0.0
 		_clip = "idle"
 		ModelSlot.play_if_available(_animation_player, _clip)
@@ -808,11 +873,11 @@ func _animate_taser_fire() -> void:
 
 
 func select_inventory_slot(slot: int) -> void:
-	var candidate := wrapi(slot, 0, INVENTORY_ITEMS.size())
+	var candidate := wrapi(slot, 0, inventory_order.size())
 	var found := -1
-	for offset in INVENTORY_ITEMS.size():
-		var checked := wrapi(candidate + offset, 0, INVENTORY_ITEMS.size())
-		if bool(owned_inventory_items.get(INVENTORY_ITEMS[checked], false)):
+	for offset in inventory_order.size():
+		var checked := wrapi(candidate + offset, 0, inventory_order.size())
+		if bool(owned_inventory_items.get(inventory_order[checked], false)):
 			found = checked
 			break
 	selected_inventory_slot = found
@@ -820,11 +885,22 @@ func select_inventory_slot(slot: int) -> void:
 
 
 func selected_inventory_item() -> String:
-	if selected_inventory_slot < 0 or selected_inventory_slot >= INVENTORY_ITEMS.size():
+	if selected_inventory_slot < 0 or selected_inventory_slot >= inventory_order.size():
 		return ""
-	if not owns_inventory_item(INVENTORY_ITEMS[selected_inventory_slot]):
+	if not owns_inventory_item(inventory_order[selected_inventory_slot]):
 		return ""
-	return INVENTORY_ITEMS[selected_inventory_slot]
+	return inventory_order[selected_inventory_slot]
+
+
+func move_inventory_slot(from_slot: int, to_slot: int) -> void:
+	if from_slot < 0 or to_slot < 0 or from_slot >= inventory_order.size() \
+			or to_slot >= inventory_order.size() or from_slot == to_slot:
+		return
+	var selected := selected_inventory_item()
+	var item = inventory_order.pop_at(from_slot)
+	inventory_order.insert(to_slot, item)
+	selected_inventory_slot = inventory_order.find(selected)
+	_refresh_inventory_view()
 
 
 func grant_inventory_item(item_id: String) -> bool:
@@ -837,7 +913,7 @@ func grant_inventory_item(item_id: String) -> bool:
 		taser_cooldown = 0.0
 	elif INVENTORY_MAX_DURABILITY.has(item_id):
 		inventory_durability[item_id] = int(INVENTORY_MAX_DURABILITY[item_id])
-	select_inventory_slot(INVENTORY_ITEMS.find(item_id))
+	select_inventory_slot(inventory_order.find(item_id))
 	return true
 
 
@@ -846,6 +922,8 @@ func owns_inventory_item(item_id: String) -> bool:
 
 
 func item_durability(item_id: String) -> int:
+	if item_id == "flashlight":
+		return roundi(lamp_charge)
 	return int(inventory_durability.get(item_id, 0))
 
 
@@ -863,7 +941,17 @@ func consume_item_durability(item_id: String, amount: int = 1) -> bool:
 
 
 func inventory_durability_snapshot() -> Dictionary:
-	return inventory_durability.duplicate(true)
+	var snapshot := inventory_durability.duplicate(true)
+	snapshot["flashlight"] = roundi(lamp_charge)
+	return snapshot
+
+
+func inventory_max_durability_snapshot() -> Dictionary:
+	return INVENTORY_MAX_DURABILITY.duplicate(true)
+
+
+func inventory_order_snapshot() -> Array:
+	return inventory_order.duplicate()
 
 
 func inventory_owned_snapshot() -> Dictionary:

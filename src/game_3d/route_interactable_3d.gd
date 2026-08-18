@@ -241,7 +241,11 @@ func activate(player: PlayerController3D) -> String:
 			# back out, and it never completes.
 			if player.hidden_spot == source_cell:
 				return player.leave_hiding()
-			return player.enter_hiding(source_cell)
+			# The locker mesh owns the hiding location. Cache the approach point as
+			# the exit before moving the authoritative body into the cabinet; its
+			# replicated transform then places co-op runners there too.
+			return player.enter_hiding(source_cell,
+				global_position + Vector3(0.0, 0.02, 0.0), player.global_position)
 		Kind.MUSIC_BOX:
 			# Never completes either -- winding it is a thing you keep doing,
 			# not a thing you finish. Resolved by whoever owns Glyra's gimmick

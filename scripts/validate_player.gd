@@ -136,12 +136,34 @@ func _expect_xr(route: Node) -> void:
 	if String(shared_state.get("selected_item", "")) != "taser":
 		_fail("co-op player state does not publish the selected inventory item")
 	controller.grant_inventory_item("crowbar")
+	controller.grant_inventory_item("flashlight")
+	if controller.item_durability("flashlight") != roundi(controller.lamp_charge) \
+			or int(controller.inventory_durability_snapshot().get("flashlight", -1)) \
+			!= roundi(controller.lamp_charge):
+		_fail("flashlight charge is not exposed as hotbar durability")
+	var selected_before_move := controller.selected_inventory_item()
+	controller.move_inventory_slot(controller.selected_inventory_slot, 0)
+	if controller.inventory_order_snapshot()[0] != selected_before_move \
+			or controller.selected_inventory_item() != selected_before_move:
+		_fail("reordering the hotbar moved selection to a different item")
 	var before := controller.item_durability("crowbar")
 	if not controller.consume_item_durability("crowbar") \
 			or controller.item_durability("crowbar") != before - 1:
 		_fail("a committed crowbar swing did not consume durability")
 	if PlayerController3D.FRIENDLY_FIRE_ENABLED:
 		_fail("co-op friendly fire is enabled for hand tools")
+	var outside := controller.global_position
+	var inside := outside + Vector3(2.0, 0.0, 1.0)
+	controller.enter_hiding(Vector2i(2, 3), inside, outside)
+	if not controller.hidden or not controller.global_position.is_equal_approx(inside):
+		_fail("entering a locker did not move the player body inside it")
+	controller.leave_hiding()
+	if controller.hidden or not controller.global_position.is_equal_approx(outside):
+		_fail("leaving a locker did not restore the outside position")
+	var shared_identity: Dictionary = route._remotes._local_state()
+	if String(shared_identity.get("display_name", "")).is_empty() \
+			or not shared_identity.has("player_hue"):
+		_fail("co-op state does not publish the player nametag/hue identity")
 
 
 func _expect_hard_landing_stun(route: Node, host: Node) -> void:

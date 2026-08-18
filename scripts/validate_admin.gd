@@ -61,15 +61,15 @@ func run(host: Node) -> int:
 			_fail("%s admin overlay reads out nothing" % entry[1])
 		var chips := menu._panel.find_children("StateChip", "Label", true, false)
 		if entry[1] == "maze":
-			_expect(chips.size() == 4,
-				"maze admin has %d ON/OFF chips instead of 4" % chips.size())
+			_expect(chips.size() == 5,
+				"maze admin has %d ON/OFF chips instead of 5" % chips.size())
 			var on_count := 0
 			var off_count := 0
 			for chip in chips:
 				on_count += 1 if String(chip.text) == "ON" else 0
 				off_count += 1 if String(chip.text) == "OFF" else 0
-			_expect(on_count == 1 and off_count == 3,
-				"admin defaults are not three safety toggles OFF plus pixel effect ON")
+			_expect(on_count == 1 and off_count == 4,
+				"admin defaults are not four safety toggles OFF plus pixel effect ON")
 			var item_buttons := menu._panel.find_children("*", "GridContainer", true, false)
 			if item_buttons.is_empty():
 				_fail("maze admin has no creative inventory grid")
@@ -214,6 +214,26 @@ func run(host: Node) -> int:
 				(row["action"] as Callable).call()
 		_expect(not scene.player.admin_no_target,
 			"TOGGLE NO TARGET did not turn back off")
+
+		# NOCLIP is a debug traversal mode, so it must remove both collision
+		# directions while active and restore the ordinary player body when off.
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE NOCLIP":
+				(row["action"] as Callable).call()
+		_expect(scene.player.admin_noclip,
+			"TOGGLE NOCLIP did not enable the controller flag")
+		_expect(scene.player.collision_layer == 0 and scene.player.collision_mask == 0,
+			"NOCLIP left the player colliding with route geometry")
+		menu._refresh()
+		_expect(_state_text(menu, "NOCLIP") == "ON",
+			"noclip state chip did not update to ON")
+		for row in menu._actions:
+			if String(row["label"]) == "TOGGLE NOCLIP":
+				(row["action"] as Callable).call()
+		_expect(not scene.player.admin_noclip,
+			"TOGGLE NOCLIP did not turn back off")
+		_expect(scene.player.collision_layer == 1 and scene.player.collision_mask == 1,
+			"disabling NOCLIP did not restore player collision")
 
 		# GOD MODE still permits targeting/chasing, but capture cannot start a
 		# struggle or end the run. Enabling it during a struggle cancels that

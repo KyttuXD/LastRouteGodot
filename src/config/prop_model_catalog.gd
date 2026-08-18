@@ -347,6 +347,10 @@ const MODEL_PATHS := {
 	"charredSupplyCrate": [
 		"res://art/props-3d/props/nether/charred_supply_crate.glb",
 	],
+	"prisonCellGate": ["res://art/props-3d/props/prison/prison_cell_gate.glb"],
+	"prisonBunk": ["res://art/props-3d/props/prison/prison_bunk.glb"],
+	"dungeonCage": ["res://art/props-3d/props/prison/dungeon_cage.glb"],
+	"restraintChair": ["res://art/props-3d/props/prison/restraint_chair.glb"],
 }
 
 ## Highest local point of ceiling-hung models. Their exported origins stay in

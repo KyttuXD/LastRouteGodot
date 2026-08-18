@@ -25,6 +25,7 @@ const MIN_MOUSE_SENSITIVITY := 0.0005
 const MAX_MOUSE_SENSITIVITY := 0.0120
 const MIN_VOLUME_DB := -80.0
 const DEFAULT_PIXEL_EFFECT_PERCENT := 28.0
+const DEFAULT_PLAYER_HUE_DEGREES := 0.0
 
 ## The design size every 2D layout is authored against, and the project's
 ## stretch viewport. With stretch/aspect "expand" this is a MINIMUM, not a
@@ -54,6 +55,8 @@ var master_volume_percent := DEFAULT_VOLUME_PERCENT
 var mouse_sensitivity := DEFAULT_MOUSE_SENSITIVITY
 var fullscreen := false
 var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
+## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
+var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 
 var _master_bus_index := -1
 
@@ -96,6 +99,12 @@ func set_mouse_sensitivity(value: float) -> void:
 
 func set_pixel_effect_percent(value: float) -> void:
 	pixel_effect_percent = clampf(value, 0.0, 100.0)
+	_save()
+	visual_changed.emit()
+
+
+func set_player_hue_degrees(value: float) -> void:
+	player_hue_degrees = clampf(value, 0.0, 360.0)
 	_save()
 	visual_changed.emit()
 
@@ -158,6 +167,8 @@ func _load() -> void:
 	fullscreen = config.get_value("display", "fullscreen", false)
 	pixel_effect_percent = clampf(config.get_value("display",
 		"pixel_effect_percent", DEFAULT_PIXEL_EFFECT_PERCENT), 0.0, 100.0)
+	player_hue_degrees = clampf(config.get_value("player",
+		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	mouse_sensitivity = clampf(
 		config.get_value("controls", "mouse_sensitivity", DEFAULT_MOUSE_SENSITIVITY),
 		MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
@@ -176,6 +187,7 @@ func _save() -> void:
 	config.set_value("audio", "master_volume_percent", master_volume_percent)
 	config.set_value("display", "fullscreen", fullscreen)
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
+	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	for action in REBINDABLE_ACTIONS:
 		for event in InputMap.action_get_events(action):

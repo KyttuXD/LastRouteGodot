@@ -32,7 +32,7 @@ enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
 ## Not named LARGE: that name was already taken by the tier below it, and
 ## renaming an existing tier just to free the word felt like a bigger change
 ## than "merge the two biggest" asked for.
-enum Scale { SMALL, STANDARD, LARGE, IMMENSE }
+enum Scale { SMALL, STANDARD, LARGE, IMMENSE, INFINITE }
 ## Nightmare is intentionally visible but not selectable. Its eventual design
 ## includes a larger active hunter lineup, so the disabled label can advertise
 ## the plan without exposing an incomplete simulation/co-op ruleset.
@@ -54,7 +54,13 @@ const MODE_LABELS := {
 }
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
-	Scale.IMMENSE: "IMMENSE",
+	Scale.IMMENSE: "IMMENSE", Scale.INFINITE: "INFINITE",
+}
+## Staging no longer exposes the old finite-size ladder. STANDARD remains the
+## shipping fixed route; INFINITE is visible as the replacement and becomes
+## selectable when its live chunk renderer is enabled.
+const SELECTABLE_SCALE_LABELS := {
+	Scale.STANDARD: "STANDARD", Scale.INFINITE: "INFINITE",
 }
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
@@ -485,6 +491,14 @@ func _local_name() -> String:
 	return String(players[0]) if not players.is_empty() else _make_callsign()
 
 
+func local_display_name() -> String:
+	return _local_name()
+
+
+func peer_display_name(peer_id: int) -> String:
+	return String(peers.get(peer_id, "SIGNAL-%d" % peer_id))
+
+
 ## A fresh route for the same room. The web build regenerates the facility from
 ## the seed, so changing it is how you get a different building without leaving
 ## staging.
@@ -642,11 +656,19 @@ func set_mode(value: Mode) -> void:
 func set_map_scale(value: Scale) -> void:
 	if online and not is_host:
 		return
-	if map_scale == value:
+	if map_scale == value or not map_scale_available(value):
 		return
 	map_scale = value
 	broadcast()
 	changed.emit()
+
+
+func map_scale_available(value: int) -> bool:
+	# The streamed renderer is deliberately a solo debug test until hunter
+	# persistence and host-arbitrated pickup claims are connected. Release and
+	# co-op rooms therefore cannot accidentally advertise it as finished.
+	return value == Scale.STANDARD or (value == Scale.INFINITE \
+		and Build.tools_enabled() and not online)
 
 
 func set_difficulty(value: Difficulty) -> void:
@@ -736,6 +758,8 @@ func suppress_scene_transitions_for_tests() -> void:
 
 
 func session_scene_path() -> String:
+	if map_scale == Scale.INFINITE and Build.tools_enabled():
+		return "res://scenes/infinite_route_test.tscn"
 	return String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
 
 

@@ -139,3 +139,32 @@ static func set_character_fade(root: Node, amount: float) -> void:
 		(root as GeometryInstance3D).transparency = clampf(amount, 0.0, 0.85)
 	for child in root.get_children():
 		set_character_fade(child, amount)
+
+
+## Optional per-player colour identity. Zero means the authored texture is
+## untouched; 1..360 lightly tints instance-local material duplicates. Admin
+## bodies deliberately never call this, preserving their hardcoded skin.
+static func apply_character_hue(root: Node, hue_degrees: float) -> void:
+	if root == null or hue_degrees <= 0.0:
+		return
+	var tint := Color.from_hsv(clampf((hue_degrees - 1.0) / 359.0, 0.0, 1.0),
+		0.24, 1.0, 1.0)
+	_apply_hue_recursive(root, tint)
+
+
+static func _apply_hue_recursive(node: Node, tint: Color) -> void:
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null:
+			for surface in mesh_node.mesh.get_surface_count():
+				var source := mesh_node.get_active_material(surface)
+				if source is StandardMaterial3D:
+					var material := (source as StandardMaterial3D).duplicate() as StandardMaterial3D
+					var base := material.albedo_color
+					material.albedo_color = Color(
+						lerpf(base.r, base.r * tint.r, .38),
+						lerpf(base.g, base.g * tint.g, .38),
+						lerpf(base.b, base.b * tint.b, .38), base.a)
+					mesh_node.set_surface_override_material(surface, material)
+	for child in node.get_children():
+		_apply_hue_recursive(child, tint)
