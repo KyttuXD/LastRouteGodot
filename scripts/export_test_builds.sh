@@ -28,12 +28,14 @@ mkdir -p "${build_dir}/LastRoute-Web-Debug"
 rm -f -- \
 	"${build_dir}/LastRoute-Linux-Debug.pck" \
 	"${build_dir}/LastRoute-Windows-Debug.pck" \
+	"${build_dir}/LastRoute-Windows-Legacy-Debug.pck" \
 	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck" \
 	"${build_dir}/KYTTU- The Last Route.command"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Linux Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows Debug Tools"
+"${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows Legacy Debug"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "macOS Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Web Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows SteamVR Debug"
@@ -47,6 +49,7 @@ fi
 	cd "${build_dir}"
 	zip -FS LastRoute-Linux-Debug.zip LastRoute-Linux-Debug.x86_64
 	zip -FS LastRoute-Windows-Debug.zip LastRoute-Windows-Debug.exe
+	zip -FS LastRoute-Windows-Legacy-Debug.zip LastRoute-Windows-Legacy-Debug.exe
 	zip -FS LastRoute-Windows-SteamVR-Debug.zip LastRoute-Windows-SteamVR-Debug.exe
 	zip -FS -r LastRoute-Web-Debug.zip LastRoute-Web-Debug -x '*.import'
 	unzip -o LastRoute-macOS-Debug.zip -d .

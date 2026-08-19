@@ -24,6 +24,10 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	# Admin toggles are real user preferences now. Keep this suite deterministic
+	# without leaving the developer's own settings changed after validation.
+	var original_admin_preferences := Settings.admin_preferences_snapshot()
+	Settings.set_admin_preferences(Settings.ADMIN_PREFERENCE_DEFAULTS)
 	# The gate itself. This suite only ever runs in a debug build, so what can
 	# be checked here is that the release path is a real branch and not a
 	# comment: attach returns null when tools are off.
@@ -55,6 +59,11 @@ func run(host: Node) -> int:
 			_fail("%s admin overlay would not open" % entry[1])
 		if not MouseLock.cursor_visible():
 			_fail("%s admin overlay is clickable without a cursor" % entry[1])
+		_expect(menu._panel.size.x >= 360.0 and menu._panel.size.y >= 220.0,
+			"%s admin overlay is still a narrow side strip" % entry[1])
+		if entry[1] == "maze":
+			_expect(scene.player.input_frozen,
+				"maze player remains mobile while the admin menu is open")
 		# The readout runs every frame while open; a throw here is a crash in a
 		# dev tool, which is the worst place to find one.
 		if menu._readout.text.is_empty():
@@ -74,8 +83,8 @@ func run(host: Node) -> int:
 			if item_buttons.is_empty():
 				_fail("maze admin has no creative inventory grid")
 			else:
-				_expect(item_buttons[0].get_child_count() == PlayerController3D.INVENTORY_ITEMS.size(),
-					"creative inventory does not list every player item")
+				_expect(item_buttons[0].get_child_count() == PlayerController3D.COLLECTIBLE_ITEMS.size(),
+					"creative inventory does not list every collectible or storage upgrade")
 		# Exercise genuinely different physical sizes and aspect ratios. The
 		# design viewport expands rather than letterboxes, so containment at the
 		# default size alone does not prove the panel stays usable.
@@ -117,12 +126,16 @@ func run(host: Node) -> int:
 		GameState.relays_collected = 0
 		GameState.score = 0
 		for row in menu._actions:
+			# Heading-only rows deliberately have no fake no-op action. Every row
+			# that renders a button must still expose a real callable.
+			if not row.has("action"):
+				continue
 			var action: Callable = row["action"]
 			if not action.is_valid():
 				_fail("admin action '%s' is not callable" % row["label"])
 		scene.player.taser_cooldown = 5.0
 		for row in menu._actions:
-			if String(row["label"]) == "CREATIVE INVENTORY":
+			if String(row.get("label", "")) == "CREATIVE INVENTORY":
 				(row["action"] as Callable).call("taser")
 		_expect(scene.player.selected_inventory_item() == "taser" \
 				and scene.player.taser_cooldown == 0.0,
@@ -130,7 +143,7 @@ func run(host: Node) -> int:
 		# Relay grants must perform physical pickups, not merely alter the HUD
 		# counter. Grant one first, then collect the rest in a batch.
 		for row in menu._actions:
-			if String(row["label"]) == "GRANT RELAY":
+			if String(row.get("label", "")) == "GRANT RELAY":
 				(row["action"] as Callable).call()
 		var relays := _relay_nodes(scene)
 		var completed_after_grant := 0
@@ -143,7 +156,7 @@ func run(host: Node) -> int:
 			"GRANT RELAY did not use normal relay count/score pickup effects")
 
 		for row in menu._actions:
-			if String(row["label"]) == "ALL RELAYS":
+			if String(row.get("label", "")) == "ALL RELAYS":
 				(row["action"] as Callable).call()
 		if GameState.relays_collected != GameState.relay_target:
 			_fail("ALL RELAYS left %d of %d collected"
@@ -176,14 +189,14 @@ func run(host: Node) -> int:
 				"admin reveal did not identify the actual route hunter")
 
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE HUNTER REVEAL":
+			if String(row.get("label", "")) == "TOGGLE HUNTER REVEAL":
 				(row["action"] as Callable).call()
 		_expect(scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn reveal on")
 		menu._refresh()
 		_expect(_state_text(menu, "HUNTER REVEAL") == "ON",
 			"hunter reveal state chip did not update to ON")
 		for row in menu._actions:
-				if String(row["label"]) == "TOGGLE HUNTER REVEAL":
+				if String(row.get("label", "")) == "TOGGLE HUNTER REVEAL":
 					(row["action"] as Callable).call()
 		_expect(not scene._admin_reveal_hunters, "TOGGLE HUNTER REVEAL did not turn back off")
 		menu._refresh()
@@ -194,7 +207,7 @@ func run(host: Node) -> int:
 		# model. With it enabled the host has no eligible solo target and an
 		# already-alert hunter drops the chase and resumes ordinary roaming.
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE NO TARGET":
+			if String(row.get("label", "")) == "TOGGLE NO TARGET":
 				(row["action"] as Callable).call()
 		_expect(scene.player.admin_no_target,
 			"TOGGLE NO TARGET did not enable the controller flag")
@@ -210,7 +223,7 @@ func run(host: Node) -> int:
 			_expect(scene.hunter_view.brain.state != HunterBrain.State.CHASE,
 				"NO TARGET left an alerted hunter frozen in CHASE")
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE NO TARGET":
+			if String(row.get("label", "")) == "TOGGLE NO TARGET":
 				(row["action"] as Callable).call()
 		_expect(not scene.player.admin_no_target,
 			"TOGGLE NO TARGET did not turn back off")
@@ -218,7 +231,7 @@ func run(host: Node) -> int:
 		# NOCLIP is a debug traversal mode, so it must remove both collision
 		# directions while active and restore the ordinary player body when off.
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE NOCLIP":
+			if String(row.get("label", "")) == "TOGGLE NOCLIP":
 				(row["action"] as Callable).call()
 		_expect(scene.player.admin_noclip,
 			"TOGGLE NOCLIP did not enable the controller flag")
@@ -228,7 +241,7 @@ func run(host: Node) -> int:
 		_expect(_state_text(menu, "NOCLIP") == "ON",
 			"noclip state chip did not update to ON")
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE NOCLIP":
+			if String(row.get("label", "")) == "TOGGLE NOCLIP":
 				(row["action"] as Callable).call()
 		_expect(not scene.player.admin_noclip,
 			"TOGGLE NOCLIP did not turn back off")
@@ -239,7 +252,7 @@ func run(host: Node) -> int:
 		# struggle or end the run. Enabling it during a struggle cancels that
 		# struggle cleanly as well.
 		for row in menu._actions:
-			if String(row["label"]) == "TOGGLE GOD MODE":
+			if String(row.get("label", "")) == "TOGGLE GOD MODE":
 				(row["action"] as Callable).call()
 		_expect(scene.player.admin_god_mode,
 			"TOGGLE GOD MODE did not enable the controller flag")
@@ -262,6 +275,48 @@ func run(host: Node) -> int:
 			"TOGGLE GOD MODE did not turn back off")
 	scene.queue_free()
 	await host.get_tree().process_frame
+
+	# Save every non-default personal toggle, then instantiate a fresh route.
+	# This exercises both ConfigFile persistence and the tools-gated scene
+	# restore path without pretending that room-wide mutations should survive.
+	var persisted_preferences := {
+		"no_target": true,
+		"god_mode": true,
+		"noclip": true,
+		"map_reveal": true,
+		"hunter_reveal": true,
+		"pixel_effect_enabled": false,
+	}
+	Settings.set_admin_preferences(persisted_preferences)
+	var saved_config := ConfigFile.new()
+	_expect(saved_config.load(Settings.SETTINGS_PATH) == OK,
+		"admin preferences were not written to settings.cfg")
+	for key_value in persisted_preferences:
+		var key := String(key_value)
+		_expect(bool(saved_config.get_value("admin", key, false)) \
+			== bool(persisted_preferences[key]),
+			"admin preference '%s' was not persisted" % key)
+	var restored_scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(restored_scene)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	_expect(restored_scene.admin_menu != null,
+		"persistence fixture did not pass the admin build gate")
+	_expect(restored_scene.player.admin_no_target,
+		"saved NO TARGET was not restored in a fresh route")
+	_expect(restored_scene.player.admin_god_mode,
+		"saved GOD MODE was not restored in a fresh route")
+	_expect(restored_scene.player.admin_noclip \
+		and restored_scene.player.collision_layer == 0 \
+		and restored_scene.player.collision_mask == 0,
+		"saved NOCLIP was not restored with its collision state")
+	_expect(restored_scene._admin_reveal_hunters,
+		"saved hunter reveal was not restored in a fresh route")
+	_expect(not restored_scene.pixel_signal_effect.admin_enabled(),
+		"saved pixel-effect override was not restored in a fresh route")
+	restored_scene.queue_free()
+	await host.get_tree().process_frame
+	Settings.set_admin_preferences(original_admin_preferences)
 
 	if _failures == 0:
 		print("admin OK")

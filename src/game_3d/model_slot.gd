@@ -1,6 +1,13 @@
 class_name ModelSlot
 extends RefCounted
 
+## Props imported from the same GLB share source materials. The visual contract
+## below is also identical for every instance, so retain one filtered duplicate
+## per source RID instead of allocating and compiling another material every
+## time streamed terrain brings a couch, locker or pickup into view.
+static var _pixel_material_cache := {}
+static var _blocky_prop_material_cache := {}
+
 ## Loads visuals from art/props-3d/ scene files so gameplay code never
 ## hardcodes placeholder geometry — swap a slot's .tscn contents for a real
 ## imported model and the game picks it up with no code changes. See
@@ -96,7 +103,138 @@ static func instantiate(scene_path: String) -> Node3D:
 	# blanket opaque-material workaround. With atlas UVs fixed, that workaround
 	# turns legitimate transparent torso overlays (Eirys/Quirith) into black
 	# boxes and hair/wing cards into rectangles.
-	return scene.instantiate()
+	var instance := scene.instantiate() as Node3D
+	if instance != null:
+		_enable_stable_texture_filtering(instance)
+		# Every imported gameplay model shares one pixel-material contract. This
+		# covers characters as before, plus relays, lockers, pickups, tools,
+		# furniture and future authored interactables without each spawning class
+		# needing to remember a second setup call.
+		apply_prop_pixel_filter(instance)
+	return instance
+
+
+## Prop-only companion to instantiate(). Character materials keep their
+## authored per-pixel lighting; furniture, pickups and interactables use
+## coarser vertex lighting and a matte response so their low-poly faces read
+## like the block characters and room fabric without rewriting every GLB.
+static func instantiate_prop(scene_path: String) -> Node3D:
+	var instance := instantiate(scene_path)
+	if instance != null:
+		apply_blocky_prop_style(instance)
+	return instance
+
+
+static func _enable_stable_texture_filtering(node: Node) -> void:
+	# Imported low-resolution atlases are still deliberately nearest-filtered
+	# close up, but need mipmaps/anisotropy to avoid crawling striped moire on
+	# props and characters as the first-person camera moves.
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null:
+			for surface in mesh_node.mesh.get_surface_count():
+				var material := mesh_node.get_active_material(surface)
+				if material is StandardMaterial3D:
+					(material as StandardMaterial3D).texture_filter = \
+						BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
+	for child in node.get_children():
+		_enable_stable_texture_filtering(child)
+
+
+## Streamed dressing gets the strongest pixel treatment at material level,
+## while walls/floors/stairs retain anisotropic filtering for stable motion.
+## Mipmaps remain enabled so a distant couch or rug does not recreate the
+## camera-motion moire that plain nearest sampling caused.
+static func apply_prop_pixel_filter(node: Node) -> void:
+	if node.has_meta("pixel_material_filter_applied"):
+		return
+	node.set_meta("pixel_material_filter_applied", true)
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null:
+			for surface in mesh_node.mesh.get_surface_count():
+				var source := mesh_node.get_active_material(surface)
+				if source is StandardMaterial3D:
+					var source_material := source as StandardMaterial3D
+					var key := source_material.get_rid()
+					var material := _pixel_material_cache.get(key) as StandardMaterial3D
+					if material == null:
+						material = source_material.duplicate() as StandardMaterial3D
+						material.texture_filter = \
+							BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+						material.roughness = maxf(material.roughness, .72)
+						_pixel_material_cache[key] = material
+					mesh_node.set_surface_override_material(surface, material)
+	for child in node.get_children():
+		apply_prop_pixel_filter(child)
+
+
+static func apply_blocky_prop_style(node: Node) -> void:
+	if node.has_meta("blocky_prop_style_applied"):
+		return
+	node.set_meta("blocky_prop_style_applied", true)
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null:
+			for surface in mesh_node.mesh.get_surface_count():
+				var source := mesh_node.get_active_material(surface)
+				if source is StandardMaterial3D:
+					var source_material := source as StandardMaterial3D
+					var key := source_material.get_rid()
+					var material := _blocky_prop_material_cache.get(key) \
+						as StandardMaterial3D
+					if material == null:
+						material = source_material.duplicate() as StandardMaterial3D
+						# Per-vertex lighting preserves the flashlight and regional
+						# colour while eliminating the smooth/plastic gradient which
+						# made authored props clash with block characters.
+						material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+						# Keep a little margin above the validation threshold because
+						# StandardMaterial stores this property at float precision.
+						material.roughness = maxf(material.roughness, .92)
+						_blocky_prop_material_cache[key] = material
+					mesh_node.set_surface_override_material(surface, material)
+	for child in node.get_children():
+		apply_blocky_prop_style(child)
+
+
+## Thin horizontal meshes can be reduced out of an imported mesh's generated
+## LOD, or rejected by conservative occlusion bounds, while the room around
+## them is still plainly visible. Rugs are sparse and never cast a useful
+## shadow, so preserve their full mesh through normal room/corridor distances.
+static func keep_floor_dressing_visible(node: Node) -> void:
+	if node is GeometryInstance3D:
+		var geometry := node as GeometryInstance3D
+		geometry.lod_bias = 4.0
+		geometry.extra_cull_margin = maxf(geometry.extra_cull_margin, 6.0)
+		geometry.ignore_occlusion_culling = true
+		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in node.get_children():
+		keep_floor_dressing_visible(child)
+
+
+## Combined bounds in a model root's local space. Walking local transforms
+## keeps this usable before a PackedScene is attached to the live tree.
+static func combined_local_bounds(root: Node3D) -> AABB:
+	var state := {"found": false, "bounds": AABB()}
+	_collect_local_bounds(root, Transform3D.IDENTITY, state)
+	return state["bounds"]
+
+
+static func _collect_local_bounds(node: Node, relative: Transform3D,
+		state: Dictionary) -> void:
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null:
+			var box := relative * mesh_node.get_aabb()
+			state["bounds"] = (state["bounds"] as AABB).merge(box) \
+				if bool(state["found"]) else box
+			state["found"] = true
+	for child in node.get_children():
+		var child_transform := relative
+		if child is Node3D:
+			child_transform = relative * (child as Node3D).transform
+		_collect_local_bounds(child, child_transform, state)
 
 
 ## Finds an AnimationPlayer anywhere under `root` by type — same reasoning as

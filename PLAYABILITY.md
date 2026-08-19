@@ -49,9 +49,10 @@ this file is the order in which unfinished work should be attacked.
 ## P1 — missing game content
 
 - [x] Add an asynchronous route loading screen between staging and gameplay:
-  threaded scene/resource progress, route seed/difficulty readout, rotating
-  hunter or control tips, and a co-op "waiting for host snapshot" state that
-  never exposes an unfrozen half-built floor.
+  threaded scene/resource progress, route seed/difficulty readout, and a co-op
+  "waiting for host snapshot" state that never exposes an unfrozen half-built
+  floor. Field notes and live-play tutorial prompts are removed; the main-menu
+  Tutorial owns that guidance.
 - [x] Continue the UI pass after loading:
   - [x] Replace the timed game-over auto-reset with a responsive run report,
     final route statistics and explicit solo Restart/Main Menu actions. A
@@ -78,11 +79,21 @@ this file is the order in which unfinished work should be attacked.
 - [x] Do animation/foot-contact review on the full cast. All 27 models and all
   five gameplay clips are sampled across full loops for finite bounds, floor
   penetration, per-foot contact and loop seams.
-- [x] Add a restrained route post-process: two-pixel sampling, colour
-  quantization, ordered dither, scanlines and animated grain at a persisted
-  0-100 Settings intensity (28% default), beneath the crisp HUD.
+- [x] Add a restrained route post-process: clean, detail-aware pixel sampling
+  weighted toward prop textures, with broad walls/floors/stairs/lights kept
+  clearer at a persisted 0-100 Settings intensity (42% default). Animated
+  static, grain and scanlines are intentionally absent; the HUD stays crisp.
+  F1 provides a Minecraft-style clean view by hiding the gameplay HUD while
+  preserving inventory, map, escape, pause, chat, and admin interfaces.
+- [x] Replace Infinite's numeric danger percentage/bar with a procedural,
+  pixel-block crimson edge vignette that pulses faster and stronger as a
+  same-floor hunter approaches, and spikes during an active chase.
 - [x] Add a restrained grounded player hop with gravity, midair input lockout,
   settings rebinding, XR input and full vertical remote-body replication.
+- [x] Add desktop gamepad movement/look and gameplay/menu controls while
+  preserving them through keyboard rebinding. Align first-person height to the
+  authored player eyes, add grounded movement bob, and make crouch lower both
+  the POV and a headroom-tested physical capsule.
 - [ ] Replace placeholder Office Mode art while preserving its working
   simulation and physical controls.
 - [ ] Implement Hide & Seek after the core co-op route survives the soak test.
@@ -116,6 +127,8 @@ once.
 ## Infinite route world
 
 - [x] Replace normal fixed-map scale selection with Infinite-only staging.
+- [x] Add explicit main-menu offline play, disabling backend/update traffic
+  while retaining the same local room and gameplay simulation.
 - [x] Generate canonical horizontal seams and paired vertical stairs from the
   room seed plus integer chunk coordinates.
 - [x] Stream a bounded collidable renderer around each runner and persist
@@ -127,9 +140,101 @@ once.
   simulation, taser/capture decisions, split-party authority windows, and
   late-join snapshots over ENet.
 - [x] Let hunters cross chunk seams and follow targets between vertical levels
-  through deterministic stair links.
-- [ ] Port streamed equivalents for the remaining finite-only specialist
-  dependencies (objective guardians, lockers, vents, coins, and sabotage).
+  by physically walking deterministic stair ramps under normal collision and
+  gravity, without a floor teleport.
+- [x] Restore finite-style room/corridor chunks, perimeter-first expansion,
+  textured stairs, sealed vertical joins, denser authored props/fixtures, a
+  starting checkpoint marker, and difficulty-specific hunter activation.
+- [x] Add a discovered-only current-floor minimap and full map with stair
+  markers (white directional stair icons on the full/admin map), room-based
+  relay/prop discovery, local player waypoints that clear inside a five-cell
+  arrival radius, a discovery-bounded teal GPS map line/ground trail, and
+  bounded debug reveal.
+- [x] Scale Infinite hunter population indefinitely from relay progress while
+  retaining bounded nearby presentation/navigation streaming; let grounded
+  hunters traverse authored stairs between floors.
+- [x] Add host-authoritative anti-AFK and stalled-relay pressure: difficulty-
+  scaled timers wake Gray Void when the party stops moving or avoids relay
+  progress, with relay recovery resetting both clocks.
+- [x] Add host-authoritative admin summon/remove grids for every A-Z and Void
+  hunter, including persistent removal across deterministic chunk refresh.
+- [x] Add animated regional room doors with host-authoritative open/broken
+  state, ordinary hunter use, and Loxelle chase-breach animation.
+- [x] Add a five-slot inventory opened with Tab. It supports true empty slots,
+  drag-to-swap, model icons and condition bars; Shift remains sprint-only and
+  the player starts with a switched-off flashlight.
+- [x] Add authored small/medium/large backpack pickups that expand the full
+  inventory by 5/10/15 slots while preserving the five-slot quick bar.
+- [x] Add host-authoritative equipment dropping and single-winner E/right-click
+  pickup with remaining durability retained in late-join snapshots. Q drops
+  the selected local item.
+- [x] Add persistent named Infinite saves with create, overwrite, rename, load
+  and delete controls in the pause menu and a startup load browser. Saves
+  retain the host player/inventory/meter state, shared mutations, hunters,
+  discovered map, waypoints, anti-idle pressure, and run statistics. Offline
+  and online-solo hosts can save/load; a populated co-op host can archive the
+  shared world but cannot replace it until guests leave, and guests have no
+  save/load authority.
+- [x] Show fresh co-op runner markers on the minimap and fullscreen map only
+  when those runners are on the local player's current floor.
+- [x] Add a pause-menu statistics view for time, distance, floors/rooms,
+  relays/items, hunter encounters, chases and checkpoints.
+- [x] Remove tools and flashlights from their inventory slot when durability
+  reaches zero, with dedicated break/failure audio instead of routine action
+  log text.
+- [x] Add room chat on T or `/`, and categorized settings controls that can
+  preserve multiple keyboard/mouse bindings per action.
+- [x] Bound the level-zero arrival area to a finite 3x3 chunk floor while every
+  upper/lower level remains horizontally unbounded.
+- [x] Port streamed equivalents for objective guardians, deterministic vent
+  networks, coins, and relay sabotage/resecuring. Objective-driven hunters now
+  read the streamed navigation adapter instead of being excluded from Infinite.
+  Vent exits validate player-sized clearance and move roomward before choosing
+  the nearest safe open cell, preventing wall/grate entrapment.
+- [x] Add `scripts/validate_all.sh` as the single import + backend + complete
+  Godot validation entry point.
+- [x] Add region-specific floor/wall textures, remove false region-transition
+  floor strips while retaining authored non-solid room rugs, enforce one
+  canonical threshold per room, three-cell corridors and wider stair
+  clearance, and cache native
+  `AStarGrid2D` navigation by authority window rather than rebuilding paths in
+  GDScript for each hunter decision.
+- [x] Separate hunter direct sight from retained pursuit: flashlight visibility
+  extends acquisition range, routed hearing keeps a chase alive around corners,
+  and interval-limited senses/replans avoid per-frame path rebuilds.
+- [x] Normalize imported prop front axes and floor seating, use full-width couch
+  variants for lounge placement, and validate that streamed furniture is
+  room-facing, grounded, and not substituted with the miniature couch model.
+- [x] Close stacked geometry deterministically: walls end below the next slab,
+  the ceiling fills the remaining inset exactly, and validators reject floor /
+  ceiling overlap. Add aligned 2x2 A-Z eye glows, Kathy's eye beam, independent
+  head look, the darker unlit profile, and rendered co-op flashlight syncing.
+- [x] Make authored beds, chairs, benches and couches usable with replicated
+  sit/lay clips; add a bounded one-at-a-time planar mirror renderer and allow
+  Office Void hunters to enter Infinite as rare late-roster spawns.
 - [ ] Add client reconnect and relay host-promotion handoff; the backend relay
   protocol already elects a replacement, but the Godot client still returns to
   staging when peer 1 disappears.
+
+## Port-parity audit
+
+The finite Godot route and the original Canvas game were rechecked while the
+Infinite pass was active. These are the remaining functional gaps rather than
+stale presentation notes:
+
+- [ ] Port the original custom-map sibling data for explicit per-pixel props,
+  dialog triggers and scripted map mechanics. PNG topology, regions, host
+  transfer and late joining already work.
+- [ ] Add reconnect/host-promotion adoption in the Godot client after the Node
+  relay elects a replacement host.
+- [ ] Port story dialogue/cutscene content and choose a maintained Godot data
+  format for the original YAML.
+- [x] Add authoritative named A-Z/Void hunter summon/remove controls to the
+  admin menu. Safe arbitrary teleport remains a separate future tool; existing
+  gameplay/admin controls are live rather than stubs.
+- [ ] Add spatial buckets/culling for dense interactable and prop queries after
+  profiling identifies a real remaining hot path. Hunter perception and path
+  generation are already interval-limited and native-grid cached.
+- [ ] Finish Office environment art, then decide whether Office encounters are
+  embedded specialist rooms or remain a separate full shift. Rare Void hunter
+  identities can already enter Infinite without starting an Office shift.

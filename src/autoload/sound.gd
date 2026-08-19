@@ -101,6 +101,22 @@ func taser() -> bool:
 	return _play_named("taser")
 
 
+func door(open: bool) -> bool:
+	return _play_named("door_open" if open else "door_close")
+
+
+func door_breach() -> bool:
+	return _play_named("door_breach")
+
+
+func interaction_fail() -> bool:
+	return _play_named("interaction_fail")
+
+
+func tool_break() -> bool:
+	return _play_named("tool_break")
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -314,6 +330,21 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_tone(860, .07, .13, 0, "square", pan),
 			_tone(430, .11, .10, .055, "saw", pan),
 			_thump(76, .10, .06, .045, pan)]
+		"door_open": c = [_noise(.24, .038, 310, 0, pan, .46),
+			_tone(118, .18, .032, .03, "triangle", pan),
+			_noise(.055, .055, 980, .19, pan, .82)]
+		"door_close": c = [_noise(.15, .042, 360, 0, pan, .56),
+			_thump(82, .12, .085, .11, pan),
+			_tone(145, .08, .038, .12, "square", pan)]
+		"door_breach": c = [_noise(.34, .18, 720, 0, pan, .88),
+			_thump(54, .42, .23, .015, pan),
+			_tone(96, .18, .13, .06, "saw", pan),
+			_noise(.20, .10, 1900, .16, pan, 1.18)]
+		"interaction_fail": c = [_tone(196, .075, .052, 0, "square", pan),
+			_tone(132, .12, .045, .065, "square", pan)]
+		"tool_break": c = [_noise(.16, .095, 1850, 0, pan, 1.22),
+			_tone(310, .08, .065, .025, "square", pan),
+			_tone(118, .18, .052, .09, "triangle", pan)]
 		"nyxie_timer": c = [_tone(72, .5, .09), _tone(108, .4, .07, .18, "triangle"), _tone(144, .3, .05, .34, "triangle")]
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
@@ -323,9 +354,16 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"mimic": c = [_tone(132, .2, .24, 0, "saw"), _tone(82, .32, .21, .06, "square")]
 		"mimic_rare": c = [_tone(1046.5, .28, .2, 0, "triangle"), _tone(1568, .34, .18, .1, "triangle")]
 		"heartbeat":
-			var pulse_volume := .075 + intensity * .095
-			c = [_thump(57 + intensity * 8, .095, pulse_volume),
-				_thump(49 + intensity * 6, .11, pulse_volume * .72, .125)]
+			# Keep the double-pulse shape, but center it above sub-bass and add a
+			# short midrange body. Laptop/TV speakers can now reproduce the cue,
+			# and the higher gain survives footsteps without becoming a rumble.
+			var pulse_volume := .11 + intensity * .14
+			c = [_thump(96 + intensity * 20, .085, pulse_volume),
+				_tone(182 + intensity * 28, .07, pulse_volume * .38,
+					.012, "triangle"),
+				_thump(82 + intensity * 14, .10, pulse_volume * .76, .12),
+				_tone(154 + intensity * 22, .075, pulse_volume * .28,
+					.135, "triangle")]
 		"footstep_sprint": c = [_noise(.085, .105, 470, 0, pan, 1.08), _thump(69, .085, .085, 0, pan)]
 		"footstep_crouch": c = [_noise(.055, .017, 285, 0, pan, .86), _thump(43, .055, .012, 0, pan)]
 		"footstep_walk": c = [_noise(.07, .052, 385, 0, pan, .96), _thump(55, .07, .042, 0, pan)]

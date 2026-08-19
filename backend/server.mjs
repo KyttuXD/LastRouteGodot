@@ -21,7 +21,7 @@ const ACCOUNT_RATE_LIMIT_PATHS = new Set([
   "/api/enet/admin-tickets/issue",
 ]);
 const UPDATE_CHANNELS = ["debug", "release"];
-const UPDATE_PLATFORMS = ["linux", "windows", "macos", "web", "steamvr", "quest"];
+const UPDATE_PLATFORMS = ["linux", "windows", "windows_legacy", "macos", "web", "steamvr", "quest"];
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -353,7 +353,7 @@ export function createLastRouteServer({
       return json(response, 404, { ok: false, error: "CUSTOM MAP NOT FOUND" });
     }
 
-    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|macos|web|steamvr|quest)$/);
+    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|windows_legacy|macos|web|steamvr|quest)$/);
     if (request.method === "GET" && updateLookup) {
       const update = publicUpdateManifest(currentUpdates(), updateLookup[1], updateLookup[2]);
       if (!update) return json(response, 404, { ok: false, error: "NO UPDATE PUBLISHED" });

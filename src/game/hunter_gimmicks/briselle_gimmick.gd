@@ -25,7 +25,7 @@ var _room_id := ""
 var _dwell := 0.0
 
 
-func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, generator) -> void:
 	# CHASE/INVESTIGATE alone cannot tell "ordinary perception just spotted the
 	# player" apart from "I set INVESTIGATE myself last frame to walk toward my
 	# own target, and perception -- sensing nothing -- left it unchanged"; both
@@ -49,7 +49,7 @@ func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, gen
 		return
 
 	if target_cell.x < 0:
-		var room := generator.room_at(brain.position.x, brain.position.y)
+		var room: Dictionary = generator.room_at(brain.position.x, brain.position.y)
 		var room_id := String(room.get("id", ""))
 		if room.is_empty() or room_id == _room_id:
 			return
@@ -97,18 +97,18 @@ func _abandon(_brain: HunterBrain) -> void:
 	_dwell = 0.0
 
 
-static func _eligible_relays(generator: FacilityGenerator, room_id: String) -> Array:
+static func _eligible_relays(generator, room_id: String) -> Array:
 	var out := []
 	for relay in generator.relays:
 		if not relay.get("collected", false) or relay.get("sabotaged", false):
 			continue
-		var room := generator.room_at(relay["x"] + 0.5, relay["y"] + 0.5)
+		var room: Dictionary = generator.room_at(relay["x"] + 0.5, relay["y"] + 0.5)
 		if String(room.get("id", "")) == room_id:
 			out.append(relay)
 	return out
 
 
-static func _find_relay(generator: FacilityGenerator, cell: Vector2i) -> Dictionary:
+static func _find_relay(generator, cell: Vector2i) -> Dictionary:
 	for relay in generator.relays:
 		if relay["x"] == cell.x and relay["y"] == cell.y:
 			return relay

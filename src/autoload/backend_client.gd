@@ -25,6 +25,7 @@ const HEARTBEAT_SECONDS := 20.0
 const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:8105"
 const ACCOUNT_CONFIG_PATH := "user://last_route_account.cfg"
 var base_url := PRIMARY_BASE_URL
+var offline_mode := false
 
 var registered := false
 var registered_code := ""
@@ -64,6 +65,7 @@ var _requests_suppressed_for_tests := false
 
 
 func _ready() -> void:
+	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
 	add_child(_host_request)
@@ -90,7 +92,7 @@ func _ready() -> void:
 
 
 func configured() -> bool:
-	return not _requests_suppressed_for_tests
+	return not _requests_suppressed_for_tests and not offline_mode
 
 
 func directory_label() -> String:
@@ -100,8 +102,25 @@ func directory_label() -> String:
 
 
 func accounts_available() -> bool:
-	return _account_transport_is_protected() \
+	return not offline_mode and (_account_transport_is_protected() \
 		or base_url.trim_suffix("/").to_lower() == PRIMARY_BASE_URL.to_lower()
+	)
+
+
+func enable_offline_mode() -> void:
+	offline_mode = true
+	_heartbeat.stop()
+	if _host_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_host_request.cancel_request()
+	if _account_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_account_request.cancel_request()
+	if _admin_ticket_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_admin_ticket_request.cancel_request()
+	_host_operation = ""
+	_account_operation = ""
+	_admin_ticket_operation = ""
+	account_busy = false
+	_clear_registration()
 
 
 func account_transport_warning() -> String:

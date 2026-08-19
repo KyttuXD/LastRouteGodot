@@ -26,6 +26,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
+	_character_sources_have_stable_layers()
 	_everyone_has_a_face()
 	_everyone_has_a_dossier_entry()
 	_everyone_actually_renders()
@@ -38,6 +39,93 @@ func run(_host: Node) -> int:
 	if _failures == 0:
 		print("roster OK")
 	return _failures
+
+
+func _character_sources_have_stable_layers() -> void:
+	var directory := DirAccess.open("res://art/props-3d/characters")
+	_expect(directory != null, "character source directory is unavailable")
+	if directory == null:
+		return
+	var broken_uvs := []
+	var duplicate_layers := []
+	var textured_caps := []
+	var broken_void_atlases := []
+	var checked_sources := 0
+	var checked_void_sources := 0
+	for filename in directory.get_files():
+		if not filename.ends_with(".bbmodel"):
+			continue
+		checked_sources += 1
+		if filename.begins_with("void_"):
+			checked_void_sources += 1
+		var path := "res://art/props-3d/characters/%s" % filename
+		var file := FileAccess.open(path, FileAccess.READ)
+		var parsed = JSON.parse_string(file.get_as_text()) if file != null else null
+		if not parsed is Dictionary:
+			broken_uvs.append(filename)
+			continue
+		var names := {}
+		if filename.begins_with("void_"):
+			var textures: Array = (parsed as Dictionary).get("textures", [])
+			var texture: Dictionary = textures[0] if not textures.is_empty() else {}
+			var atlas_path := path.trim_suffix(".bbmodel") + "_0.png"
+			var atlas_texture := load(atlas_path) as Texture2D
+			var atlas := atlas_texture.get_image() if atlas_texture != null else null
+			if atlas == null or atlas.is_empty() \
+					or atlas.get_width() != int(texture.get("uv_width", 0)) \
+					or atlas.get_height() != int(texture.get("uv_height", 0)):
+				broken_void_atlases.append("%s (%dx%d source, %sx%s UV)" % [
+					filename, atlas.get_width() if atlas != null else 0,
+					atlas.get_height() if atlas != null else 0,
+					texture.get("uv_width", 0), texture.get("uv_height", 0)])
+		for value in (parsed as Dictionary).get("elements", []):
+			var element: Dictionary = value
+			var name := String(element.get("name", ""))
+			names[name] = int(names.get(name, 0)) + 1
+			var faces: Dictionary = element.get("faces", {})
+			if name == "R-Arm" and not _uv_x_matches(faces, "south", 51.0, 54.0):
+				broken_uvs.append("%s:R-Arm.back" % filename)
+			if name == "L-Arm" and not _uv_x_matches(faces, "south", 43.0, 46.0):
+				broken_uvs.append("%s:L-Arm.back" % filename)
+			if name in ["Chest-Overlay", "Belly-Overlay", "Pelvis-Overlay",
+					"R-Arm-Overlay", "R-Forearm-Overlay", "R-Hand-Overlay",
+					"L-Arm-Overlay", "L-Forearm-Overlay", "L-Hand-Overlay",
+					"R-Thigh-Overlay", "R-Calf-Overlay",
+					"L-Thigh-Overlay", "L-Calf-Overlay"]:
+				for face in ["up", "down"]:
+					if faces.has(face) and faces[face].get("texture") != null:
+						textured_caps.append("%s:%s.%s" % [filename, name, face])
+		for name_value in names:
+			if int(names[name_value]) > 1:
+				duplicate_layers.append("%s:%s" % [filename, name_value])
+	_expect(broken_uvs.is_empty(),
+		"character arm-back UVs still sample the transparent slim-skin gutter: %s" \
+		% ", ".join(broken_uvs))
+	_expect(duplicate_layers.is_empty(),
+		"character sources contain duplicate/coplanar layers: %s" \
+		% ", ".join(duplicate_layers))
+	_expect(textured_caps.is_empty(),
+		"garment shells retain overlapping internal cap faces: %s" \
+		% ", ".join(textured_caps))
+	_expect(broken_void_atlases.is_empty(),
+		"Void editor atlases do not match their packed UV dimensions: %s" \
+		% ", ".join(broken_void_atlases))
+	_expect(checked_void_sources == HunterRoster.VOID_IDS.size(),
+		"Void UV/layer audit covered %d sources for %d hunters" % [
+			checked_void_sources, HunterRoster.VOID_IDS.size()])
+	if broken_uvs.is_empty() and duplicate_layers.is_empty() \
+			and textured_caps.is_empty() and broken_void_atlases.is_empty():
+		print("  source UVs %d Blockbench models stable, including %d Void hunters" % [
+			checked_sources, checked_void_sources])
+
+
+func _uv_x_matches(faces: Dictionary, face: String, expected_start: float,
+		expected_end: float) -> bool:
+	if not faces.has(face):
+		return false
+	var uv: Array = faces[face].get("uv", [])
+	return uv.size() == 4 and is_equal_approx(float(uv[0]), expected_start) \
+		and is_equal_approx(float(uv[2]), expected_end)
 
 
 func _everyone_has_a_face() -> void:
@@ -82,6 +170,7 @@ func _everyone_has_a_dossier_entry() -> void:
 func _everyone_actually_renders() -> void:
 	var broken: Array[String] = []
 	var empty: Array[String] = []
+	var broken_void_runtime_atlases: Array[String] = []
 	var masked_surfaces := 0
 	for id in HunterRoster.PROFILES:
 		var identity := HunterRoster.get_identity(id)
@@ -103,6 +192,11 @@ func _everyone_actually_renders() -> void:
 						broken.append(id)
 					continue
 				var transparency := (material as StandardMaterial3D).transparency
+				if HunterRoster.VOID_IDS.has(id):
+					var atlas := (material as StandardMaterial3D).albedo_texture
+					if atlas == null or atlas.get_width() != 64 or atlas.get_height() != 96:
+						if not broken_void_runtime_atlases.has(id):
+							broken_void_runtime_atlases.append(id)
 				if transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
 					masked_surfaces += 1
 				elif transparency != BaseMaterial3D.TRANSPARENCY_DISABLED and not broken.has(id):
@@ -115,6 +209,9 @@ func _everyone_actually_renders() -> void:
 	_expect(empty.is_empty(), "no meshes at all for: %s" % ", ".join(empty))
 	_expect(broken.is_empty(),
 		"character meshes have missing/unexpected material modes: %s" % ", ".join(broken))
+	_expect(broken_void_runtime_atlases.is_empty(),
+		"Void runtime materials do not use their packed 64x96 atlas: %s" \
+		% ", ".join(broken_void_runtime_atlases))
 	_expect(masked_surfaces > 0,
 		"no character surface retained authored alpha masking")
 	print("  materials %d surfaces retain authored alpha masks" % masked_surfaces)

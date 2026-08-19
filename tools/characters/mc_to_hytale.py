@@ -110,18 +110,24 @@ REGIONS = {
 FACE_TO_MC = {"north": "front", "south": "back", "east": "right", "west": "left", "up": "top", "down": "bottom"}
 
 def _slim_arm_region(region):
-    """Slim (Alex) arm sampling for source art authored wide (Steve).
+    """Return Minecraft's actual Alex/slim unwrap for an arm region.
 
-    A wide arm is 4px across the front/back/top/bottom; a slim arm is 3px,
-    with the side faces keeping their 4px depth. These skins are all drawn
-    wide, so the conversion drops the outermost column of the front-facing
-    faces -- the same column Minecraft's own wide-to-slim conversion sheds.
-    Sampling the full 4px onto 3px-wide geometry is what left the arms
-    looking squashed and mis-seamed."""
+    The previous version only shortened every wide front/back/top/bottom rect.
+    In the slim layout, however, bottom, left, and back also move one pixel
+    left because the top/front island before them is one pixel narrower. That
+    old offset sampled the unused transparent column behind every arm, which
+    appeared in Godot as a missing/black stripe down the back of every hunter.
+    """
     out = dict(REGIONS[region])
-    for face in ("front", "back", "top", "bottom"):
+    for face in ("front", "top"):
         x, y, w, h = out[face]
         out[face] = (x, y, w - 1, h)
+    for face in ("bottom", "back"):
+        x, y, w, h = out[face]
+        out[face] = (x - 1, y, w - 1, h)
+    for face in ("left",):
+        x, y, w, h = out[face]
+        out[face] = (x - 1, y, w, h)
     return out
 
 for _arm in ("r_arm_base", "r_arm_overlay", "l_arm_base", "l_arm_overlay"):
@@ -602,6 +608,65 @@ def build_uv_plan(im):
 
     return plan, overlay_present
 
+
+def repair_character_layers(data):
+    """Normalize shared arm UVs and garment shells on reviewed BBModels.
+
+    The committed A-Z sources are reviewed art rather than disposable build
+    products, so the importer calls this small deterministic repair instead of
+    regenerating their bespoke geometry. It also makes future Blockbench
+    re-exports inherit the corrected shared character contract.
+    """
+    arm_plan = {}
+    for side, base_region, overlay_region in (
+            ("R", "r_arm_base_slim", "r_arm_overlay_slim"),
+            ("L", "l_arm_base_slim", "l_arm_overlay_slim")):
+        for part, (start, length) in (
+                (f"{side}-Arm", (0, 5)),
+                (f"{side}-Forearm", (5, 4)),
+                (f"{side}-Hand", (9, 3))):
+            arm_plan[part] = {f: sliced_uv(base_region, f, 12, start, length)
+                              for f in ("north", "south", "east", "west")}
+            arm_plan[part + "-Overlay"] = {
+                f: sliced_uv(overlay_region, f, 12, start, length)
+                for f in ("north", "south", "east", "west")}
+        arm_plan[f"{side}-Arm"].update({
+            "up": uv_for(base_region, "up"),
+            "down": sliced_uv(base_region, "north", 12, 4, 1),
+        })
+        arm_plan[f"{side}-Forearm"].update({
+            "up": sliced_uv(base_region, "north", 12, 4, 1),
+            "down": sliced_uv(base_region, "north", 12, 8, 1),
+        })
+        arm_plan[f"{side}-Hand"].update({
+            "up": sliced_uv(base_region, "north", 12, 8, 1),
+            "down": uv_for(base_region, "down"),
+        })
+
+    garment_shells = {
+        "Chest-Overlay", "Belly-Overlay", "Pelvis-Overlay",
+        "R-Arm-Overlay", "R-Forearm-Overlay", "R-Hand-Overlay",
+        "L-Arm-Overlay", "L-Forearm-Overlay", "L-Hand-Overlay",
+        "R-Thigh-Overlay", "R-Calf-Overlay",
+        "L-Thigh-Overlay", "L-Calf-Overlay",
+    }
+    for element in data.get("elements", []):
+        name = element.get("name", "")
+        faces = element.get("faces") or {}
+        for face, uv in arm_plan.get(name, {}).items():
+            if face in faces:
+                faces[face]["uv"] = uv
+        # A segmented jacket/sleeve copied the base cube's cap textures. Those
+        # caps overlap at every chest, elbow, wrist, and knee join and become
+        # the bright horizontal shelves/z-fighting seen in-game. Minecraft's
+        # visible second layer is the outward shell; internal segment caps are
+        # neither authored nor useful.
+        if name in garment_shells:
+            for face in ("up", "down"):
+                if face in faces:
+                    faces[face]["texture"] = None
+    return data
+
 # ---------------------------------------------------------------------------
 # .bbmodel manipulation
 # ---------------------------------------------------------------------------
@@ -759,6 +824,11 @@ def add_overlay_cube(data, base_name, new_name, plan, inflate=2.0, tex_index=0, 
     new_el["uuid"] = f"{base['uuid'][:-8]}{abs(hash(new_name)) % 99999999:08x}"[:36]
     new_el["inflate"] = inflate
     new_el["autouv"] = 0
+    # The base cube's cap UVs belong to the skin underneath, not the garment
+    # overlay. Retaining them creates overlapping horizontal plates anywhere
+    # this articulated rig splits one Minecraft body part into several bones.
+    for face_data in new_el.get("faces", {}).values():
+        face_data["texture"] = None
     ox, oy = uv_offset
     for face, uv in plan.get(new_name, {}).items():
         if uv is not None:
@@ -1051,9 +1121,6 @@ def convert(skin_path, output_path, template_path=DEFAULT_TEMPLATE, extra_fn=Non
     # Jacket/sleeve/pant overlay pieces (if present) stay mapped directly to
     # the main skin texture below -- they're real, already-finished skin art
     # (not a redesign target like the hair pieces), so there's nothing to pack.
-
-    if overlay_present.get("head"):
-        add_hair_planes(data, plan, uv_offset=hair_overlay_uv_offset, inflate=2.0, tex_index=0)
 
     if body_hair_added:
         rx, ry, rw, rh = REGIONS["body_base"]["back"]

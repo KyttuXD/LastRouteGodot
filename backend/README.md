@@ -211,7 +211,11 @@ a GitHub token in the game:
    also accepted. At startup and every `LASTROUTE_UPDATE_POLL_SECONDS`, Node
    reads the stable `debug` GitHub Release, downloads changed artifacts,
    verifies their manifest SHA-256 values, and atomically publishes the
-   manifest last. Existing files remain usable if GitHub is unavailable.
+   manifest last. When `LASTROUTE_PUBLIC_DIR` is set (the example uses
+   `./web`), the verified Web ZIP is also safely unpacked there and becomes the
+   page served by this same process. A revision marker prevents unchanged
+   15-second polls from repeatedly decompressing or swapping the Web build.
+   Existing files remain usable if GitHub is unavailable.
 3. `./scripts/export_test_builds.sh` remains the manual/local equivalent. It
    stamps the current Git commit into every
    export and writes the test archives plus a ready-made
@@ -219,8 +223,10 @@ a GitHub token in the game:
    `LASTROUTE_UPDATE_MANIFEST` at that file, or copy
    `backend/updates.example.json` and set each channel/platform's dotted numeric
    version, Git `revision`, exact local `file`, SHA-256 checksum, notes and
-   optional `required` flag. The platform keys are `linux`, `windows`, `macos`,
-   `web`, `steamvr` and `quest`.
+   optional `required` flag. The platform keys are `linux`, `windows`,
+   `windows_legacy`, `macos`, `web`, `steamvr` and `quest`. The
+   `windows_legacy` artifact is the SSE2-compatible 32-bit build and must stay
+   separate so an older computer is never upgraded to the SSE4.2 build.
 4. The backend reloads the manifest on each update request, so a successful
    asset poll becomes available without restarting Node. It only serves local
    filenames referenced by a valid manifest.

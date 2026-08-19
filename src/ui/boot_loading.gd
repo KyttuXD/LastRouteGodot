@@ -42,6 +42,11 @@ func _ready() -> void:
 	UpdateManager.download_progress.connect(_on_download_progress)
 	UpdateManager.update_ready.connect(_on_update_ready)
 	_begin_menu_load()
+	if "--offline" in OS.get_cmdline_user_args():
+		Backend.enable_offline_mode()
+		UpdateManager.enable_offline_mode()
+		_allow_main_menu("OFFLINE MODE")
+		return
 	_sync_update_state()
 
 
@@ -187,6 +192,8 @@ func _retry_update() -> void:
 
 
 func _continue_offline() -> void:
+	Backend.enable_offline_mode()
+	UpdateManager.enable_offline_mode()
 	_allow_main_menu("UPDATE DEFERRED // STARTING OFFLINE")
 
 
@@ -204,7 +211,9 @@ func _show_retry(message: String, allow_continue: bool) -> void:
 	_status.add_theme_color_override("font_color", Palette.ALERT)
 	_set_progress(0.0, false)
 	_retry_button.visible = true
-	_continue_button.visible = allow_continue
+	# Even mandatory-update debug builds must retain a deliberate offline test
+	# path. It never opens a directory room and is visibly separate from online.
+	_continue_button.visible = true
 
 
 func _show_terminal_error(message: String) -> void:

@@ -122,6 +122,25 @@ func _check_maze() -> void:
 	scene._process(0.016)
 	_expect(menu.tap_to_pause, "ESC stayed locked out after the escape ended")
 
+	# ESC dismisses the top gameplay overlay and is consumed there. It must not
+	# replace the map/inventory/admin screen with the pause screen in one press.
+	var escape := InputEventAction.new()
+	escape.action = "pause"
+	escape.pressed = true
+	scene.hud.map_overlay.visible = true
+	menu._unhandled_input(escape)
+	_expect(not scene.hud.map_is_open() and not menu.is_open(),
+		"ESC closed the full map but opened pause underneath it")
+	scene.hud.set_inventory_open(true)
+	menu._unhandled_input(escape)
+	_expect(not scene.hud.inventory_is_open() and not menu.is_open(),
+		"ESC closed inventory but opened pause underneath it")
+	if scene.admin_menu != null:
+		scene.admin_menu._set_open(true)
+		menu._unhandled_input(escape)
+		_expect(not scene.admin_menu.is_open() and not menu.is_open(),
+			"ESC did not close the admin menu before pause")
+
 	_tree().paused = false
 	scene.queue_free()
 	await _frame()

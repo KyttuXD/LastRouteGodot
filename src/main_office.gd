@@ -61,6 +61,7 @@ var pause_menu: PauseMenu
 
 
 func _ready() -> void:
+	add_to_group("gameplay_session")
 	_apply_header_typography()
 	simulation = OfficeSimulation.new("OFFICE-%d" % randi())
 	simulation.audio_cue.connect(_on_audio_cue)

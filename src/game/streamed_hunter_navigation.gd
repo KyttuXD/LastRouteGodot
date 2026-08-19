@@ -8,10 +8,10 @@ extends RefCounted
 
 const DIRECTIONS4 := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
 const MAX_PATH_SPAN := StreamedRouteGenerator.CHUNK_SIZE * 3
-const MAX_PATH_VISITS := 14000
 const MAX_NEAREST_VISITS := 4096
 
 var generator: StreamedRouteGenerator
+var world_state: StreamedWorldState
 var level := 0
 var rooms: Array = []
 var safe_zones: Array = []
@@ -23,28 +23,54 @@ var start := Vector2i.ZERO
 var exit_cell := Vector2i.ZERO
 
 var _chunk_cache := {}
+## Static authored furniture is not part of the structural wall GridMap, but it
+## owns real player collision. Mirror that footprint into the A* surface so a
+## hunter cannot take a visual shortcut through a couch, bed or cabinet.
+var _solid_prop_cells := {}
 var _active_coords: Array[Vector3i] = []
+var _refresh_revision := -1
+var _refresh_generation := 0
+var _path_grid := AStarGrid2D.new()
+var _path_grid_coords: Array[Vector3i] = []
+var _path_grid_level := 0x7fffffff
 
 
-func _init(route_generator: StreamedRouteGenerator, route_level: int = 0) -> void:
+func _init(route_generator: StreamedRouteGenerator, route_level: int = 0,
+		mutation_state: StreamedWorldState = null) -> void:
 	generator = route_generator
 	level = route_level
+	world_state = mutation_state
 
 
 func refresh(route_level: int, coords: Array) -> void:
+	var canonical: Array[Vector3i] = []
+	for value in coords:
+		var coord: Vector3i = value
+		if coord.y == route_level and not canonical.has(coord):
+			canonical.append(coord)
+	canonical.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return a.x < b.x or (a.x == b.x and (a.z < b.z \
+			or (a.z == b.z and a.y < b.y))))
+	var revision := world_state.navigation_revision if world_state != null else 0
+	if level == route_level and _active_coords == canonical \
+			and _refresh_revision == revision:
+		return
 	level = route_level
 	# Decisions may query one margin chunk beyond the visible 3x3 window. Drop
 	# that cache whenever the window advances so navigation memory cannot grow
 	# with total distance travelled.
 	_chunk_cache.clear()
+	_solid_prop_cells.clear()
 	rooms.clear()
 	safe_zones.clear()
-	_active_coords.clear()
-	for value in coords:
-		var coord: Vector3i = value
-		if coord.y != level:
-			continue
-		_active_coords.append(coord)
+	relays.clear()
+	batteries.clear()
+	vents.clear()
+	hiding_spots.clear()
+	_active_coords = canonical
+	_refresh_revision = revision
+	_refresh_generation += 1
+	for coord in _active_coords:
 		var data := _chunk(coord)
 		if bool(data.get("safe_room", false)):
 			var safe_data: Dictionary = data.get("safe_room_data", {})
@@ -63,6 +89,44 @@ func refresh(route_level: int, coords: Array) -> void:
 				coord.x * StreamedRouteGenerator.CHUNK_SIZE,
 				coord.z * StreamedRouteGenerator.CHUNK_SIZE)
 			rooms.append(room)
+		for pickup_value in data.get("pickups", []):
+			var pickup: Dictionary = pickup_value
+			var kind := String(pickup.get("kind", ""))
+			if kind not in ["relay", "battery", "coin"]:
+				continue
+			var cell: Vector2i = pickup.get("cell", Vector2i.ZERO)
+			var pickup_entry := {"id": String(pickup.get("id", "")),
+				"x": coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+				"y": coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y,
+				"collected": world_state != null and not world_state.pickup_available(
+					String(pickup.get("id", ""))),
+				"sabotaged": world_state != null and world_state.relay_sabotaged(
+					String(pickup.get("id", ""))),
+				"source_chunk": coord}
+			if kind == "relay":
+				relays.append(pickup_entry)
+			elif kind == "battery":
+				batteries.append(pickup_entry)
+		for fixture_value in data.get("fixtures", []):
+			var fixture: Dictionary = fixture_value
+			var cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
+			var open_direction: Vector2i = fixture.get("open_direction", Vector2i.ZERO)
+			var fixture_entry := {"id": String(fixture.get("id", "")),
+				"x": coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+				"y": coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y,
+				# Vent travel must emerge on the clear room-facing side. Keeping
+				# this authored direction in the navigation snapshot prevents the
+				# gimmick from placing a player inside the destination grate/wall.
+				"open_direction": open_direction,
+				"source_chunk": coord}
+			if String(fixture.get("kind", "")) == "vent":
+				vents.append(fixture_entry)
+			else:
+				hiding_spots.append(fixture_entry)
+	vents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return String(a.get("id", "")) < String(b.get("id", "")))
+	for index in vents.size():
+		vents[index]["index"] = index
 	if not _active_coords.is_empty():
 		var center: Vector3i = _active_coords[_active_coords.size() / 2]
 		start = Vector2i(
@@ -71,10 +135,22 @@ func refresh(route_level: int, coords: Array) -> void:
 			center.z * StreamedRouteGenerator.CHUNK_SIZE \
 				+ StreamedRouteGenerator.CHUNK_SIZE / 2)
 		exit_cell = start
+	# Build A* lazily on the first path request. Adjacent vertical navigation
+	# surfaces are kept ready for floor transfers, but paying to bake all of them
+	# whenever a region boundary is crossed caused a visible frame spike.
 
 
 func cached_chunk_count() -> int:
 	return _chunk_cache.size()
+
+
+func refresh_generation() -> int:
+	return _refresh_generation
+
+
+func uncollected(entries: Array) -> Array:
+	return entries.filter(func(entry: Dictionary) -> bool:
+		return not bool(entry.get("collected", false)))
 
 
 func is_floor(x: float, y: float) -> bool:
@@ -85,7 +161,8 @@ func is_floor(x: float, y: float) -> bool:
 	var grid: Array = data.get("grid", [])
 	return local.y >= 0 and local.y < grid.size() \
 		and local.x >= 0 and local.x < (grid[local.y] as Array).size() \
-		and int(grid[local.y][local.x]) == 0
+		and int(grid[local.y][local.x]) == 0 \
+		and not _solid_prop_cells.has(cell)
 
 
 func can_occupy(x: float, y: float, radius: float = 0.23,
@@ -109,30 +186,50 @@ func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
 			or not can_occupy(from_cell.x + .5, from_cell.y + .5) \
 			or not can_occupy(to_cell.x + .5, to_cell.y + .5):
 		return []
-	var margin := 8
-	var min_cell := Vector2i(mini(from_cell.x, to_cell.x) - margin,
-		mini(from_cell.y, to_cell.y) - margin)
-	var max_cell := Vector2i(maxi(from_cell.x, to_cell.x) + margin,
-		maxi(from_cell.y, to_cell.y) + margin)
-	var frontier: Array[Vector2i] = [from_cell]
-	var came_from := {from_cell: from_cell}
-	var cursor := 0
-	while cursor < frontier.size() and came_from.size() < MAX_PATH_VISITS:
-		var current: Vector2i = frontier[cursor]
-		cursor += 1
-		for direction_value in DIRECTIONS4:
-			var direction: Vector2i = direction_value
-			var next: Vector2i = current + direction
-			if next.x < min_cell.x or next.y < min_cell.y \
-					or next.x > max_cell.x or next.y > max_cell.y \
-					or came_from.has(next) \
-					or not can_occupy(next.x + .5, next.y + .5):
-				continue
-			came_from[next] = current
-			if next == to_cell:
-				return _reconstruct_path(came_from, from_cell, to_cell)
-			frontier.append(next)
-	return []
+	# AStarGrid2D executes the hot search in engine code. The solid-cell grid is
+	# rebuilt only when the streamed 3x3 authority window moves; relay claims
+	# can refresh fixture lists without paying for another navigation bake.
+	_rebuild_path_grid_if_needed()
+	if not _path_grid.is_in_boundsv(from_cell) \
+			or not _path_grid.is_in_boundsv(to_cell):
+		return []
+	var packed := _path_grid.get_id_path(from_cell, to_cell)
+	var result := []
+	for cell in packed:
+		result.append(cell)
+	return result
+
+
+func _rebuild_path_grid_if_needed() -> void:
+	if _path_grid_level == level and _path_grid_coords == _active_coords:
+		return
+	_path_grid_level = level
+	_path_grid_coords = _active_coords.duplicate()
+	if _active_coords.is_empty():
+		_path_grid.region = Rect2i()
+		_path_grid.update()
+		return
+	var min_chunk := Vector2i(_active_coords[0].x, _active_coords[0].z)
+	var max_chunk := min_chunk
+	for coord in _active_coords:
+		min_chunk.x = mini(min_chunk.x, coord.x)
+		min_chunk.y = mini(min_chunk.y, coord.z)
+		max_chunk.x = maxi(max_chunk.x, coord.x)
+		max_chunk.y = maxi(max_chunk.y, coord.z)
+	var origin := min_chunk * StreamedRouteGenerator.CHUNK_SIZE
+	var size := (max_chunk - min_chunk + Vector2i.ONE) \
+		* StreamedRouteGenerator.CHUNK_SIZE
+	_path_grid.region = Rect2i(origin, size)
+	_path_grid.cell_size = Vector2.ONE
+	_path_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
+	_path_grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
+	_path_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
+	_path_grid.update()
+	for z in range(origin.y, origin.y + size.y):
+		for x in range(origin.x, origin.x + size.x):
+			var cell := Vector2i(x, z)
+			if not can_occupy(x + .5, z + .5):
+				_path_grid.set_point_solid(cell, true)
 
 
 func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
@@ -151,10 +248,11 @@ func floor_cells() -> Array:
 		var grid: Array = _chunk(coord).get("grid", [])
 		for z in grid.size():
 			for x in (grid[z] as Array).size():
-				if int(grid[z][x]) == 0:
-					result.append(Vector2i(
-						coord.x * StreamedRouteGenerator.CHUNK_SIZE + x,
-						coord.z * StreamedRouteGenerator.CHUNK_SIZE + z))
+				var cell := Vector2i(
+					coord.x * StreamedRouteGenerator.CHUNK_SIZE + x,
+					coord.z * StreamedRouteGenerator.CHUNK_SIZE + z)
+				if int(grid[z][x]) == 0 and not _solid_prop_cells.has(cell):
+					result.append(cell)
 	return result
 
 
@@ -205,15 +303,21 @@ static func local_cell(cell: Vector2i) -> Vector2i:
 
 func _chunk(coord: Vector3i) -> Dictionary:
 	if not _chunk_cache.has(coord):
-		_chunk_cache[coord] = generator.chunk(coord)
+		var data := generator.chunk(coord)
+		_chunk_cache[coord] = data
+		_cache_solid_prop_cells(coord, data)
 	return _chunk_cache[coord]
 
 
-static func _reconstruct_path(came_from: Dictionary, from_cell: Vector2i,
-		to_cell: Vector2i) -> Array:
-	var result := [to_cell]
-	var cursor := to_cell
-	while cursor != from_cell:
-		cursor = came_from[cursor]
-		result.push_front(cursor)
-	return result
+func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
+	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if not bool(prop.get("solid", true)) \
+				or bool(prop.get("room_door", false)):
+			continue
+		var occupied: Array = prop.get("occupied_cells", [])
+		if occupied.is_empty():
+			occupied = [prop.get("cell", Vector2i.ZERO)]
+		for local_value in occupied:
+			_solid_prop_cells[base + (local_value as Vector2i)] = true

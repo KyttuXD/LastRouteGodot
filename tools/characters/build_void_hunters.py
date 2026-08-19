@@ -12,10 +12,10 @@ at the ordinary player scale.
 from __future__ import annotations
 
 import argparse
+import base64
 import glob
 import json
 import os
-import shutil
 import sys
 
 
@@ -96,7 +96,16 @@ def build_one(skin: str, slug: str, hunter: bool,
     attach_gameplay_clips(model, pairs, hunter)
     with open(bbmodel, "w", encoding="utf8") as target:
         json.dump(model, target, separators=(",", ":"))
-    shutil.copyfile(skin, png)
+    # convert_skin packs hair swatches and Hytale-only neck/foot art beneath
+    # the original 64x64 skin. Export that final atlas beside the BBModel; the
+    # old source-skin copy left a 64x64 file next to a 64x96 BBModel/GLB and
+    # made editor reimports sample the wrong rows even though the GLB embed was
+    # correct.
+    texture_source = str(model["textures"][0].get("source", ""))
+    if not texture_source.startswith("data:image/png;base64,"):
+        raise ValueError(f"{bbmodel}: generated texture is not an embedded PNG")
+    with open(png, "wb") as target:
+        target.write(base64.b64decode(texture_source.split(",", 1)[1]))
     info = export_glb(
         bbmodel,
         glb,
@@ -128,19 +137,23 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source_dir")
     parser.add_argument("output_dir", nargs="?", default=OUT)
+    parser.add_argument("--void-only", action="store_true",
+                        help="rebuild the twelve Void hunters without touching the admin skin")
     args = parser.parse_args()
     OUT = os.path.abspath(args.output_dir)
     pairs = clip_sources()
     files = {os.path.splitext(name)[0].lower(): os.path.join(args.source_dir, name)
              for name in os.listdir(args.source_dir)
              if name.lower().endswith(".png")}
-    missing = (set(VOID_COLOURS) | {"main"}) - set(files)
+    required = set(VOID_COLOURS) | (set() if args.void_only else {"main"})
+    missing = required - set(files)
     if missing:
         raise SystemExit("missing Void skin(s): " + ", ".join(sorted(missing)))
     os.makedirs(OUT, exist_ok=True)
     for colour in VOID_COLOURS:
         build_one(files[colour], f"void_{colour}", True, pairs)
-    build_one(files["main"], "admin_kyttu", False, pairs)
+    if not args.void_only:
+        build_one(files["main"], "admin_kyttu", False, pairs)
     return 0
 
 

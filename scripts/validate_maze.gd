@@ -22,6 +22,11 @@ func _fail(message: String) -> void:
 
 func run(host: Node) -> int:
 	_host = host
+	# This suite verifies exact authored route guarantees (including a usable
+	# three-wide hallway barricade), so do not inherit whichever random room an
+	# earlier suite happened to leave in the RoomState autoload.
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "MAZE-CHECK"
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
 	await host.get_tree().process_frame
@@ -31,12 +36,16 @@ func run(host: Node) -> int:
 	var pixel_effect := scene.pixel_signal_effect as PixelSignalEffect
 	if pixel_effect == null or pixel_effect.find_child("PixelSignalSurface",
 			true, false) == null:
-		_fail("the route has no pixel/static post-process")
+		_fail("the route has no pixel-blur post-process")
 	elif not is_equal_approx(pixel_effect.strength(),
 			Settings.pixel_effect_percent / 100.0):
 		_fail("the route post-process ignored the saved Settings intensity")
 	if pixel_effect != null and pixel_effect.layer >= scene.hud.layer:
-		_fail("the pixel/static post-process also degrades HUD text")
+		_fail("the pixel-blur post-process also degrades HUD text")
+	if PixelSignalEffect.SHADER_CODE.contains("TIME") \
+			or PixelSignalEffect.SHADER_CODE.contains("scanline") \
+			or PixelSignalEffect.SHADER_CODE.contains("grain"):
+		_fail("the pixel effect still contains the removed static/scanline treatment")
 	var grid: GridMap = view.get_child(0) as GridMap
 	# The ceiling lives on its own GridMap so the top-down view can hide it.
 	var lid: GridMap = view.get_child(1) as GridMap
@@ -114,8 +123,9 @@ func run(host: Node) -> int:
 
 	_expect_walkable_stairs(view, scene)
 	_expect_ladders_and_lights(view, scene)
-	if scene.player.flashlight_enabled or scene.player.owns_inventory_item("flashlight"):
-		_fail("the player receives a flashlight before collecting its world pickup")
+	if scene.player.flashlight_enabled \
+			or not scene.player.owns_inventory_item("flashlight"):
+		_fail("the player does not begin with an owned but switched-off flashlight")
 	_expect_tool_gates(view, scene)
 
 	if lids == 0:
@@ -167,7 +177,7 @@ func run(host: Node) -> int:
 			_fail("solid prop %s does not block navigation" % prop.get("id", "prop"))
 
 	# The renderer consumes every generated entry once. Solid entries need a
-	# real collision child; non-solid carpets/chandeliers remain visual-only.
+	# real collision child; non-solid chandeliers and wall art remain visual-only.
 	var rendered_props := 0
 	for node in view.get_children():
 		if not node.has_meta("prop_type"):
@@ -231,7 +241,7 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  fabric    %d floors, %d walls, %d ceiling cells, all boxes"
 			% [floors, walls, lids])
-		print("  spawn     heater at %s, start at %s, empty-handed"
+		print("  spawn     heater at %s, start at %s, starter flashlight"
 			% [view.heater_station.source_cell, start])
 		print("  rooms     %d themed rooms, %d deterministic props"
 			% [generator.rooms.size(), generator.props.size()])

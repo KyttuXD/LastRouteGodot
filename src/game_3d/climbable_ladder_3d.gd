@@ -14,7 +14,7 @@ var climb_depth := .72
 
 func _ready() -> void:
 	add_to_group("climbable_ladder")
-	var model := ModelSlot.instantiate(MODEL_PATH)
+	var model := ModelSlot.instantiate_prop(MODEL_PATH)
 	if model:
 		model.name = "AuthoredLadderModel"
 		model.scale.y = climb_height / 1.44

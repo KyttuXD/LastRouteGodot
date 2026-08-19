@@ -1,5 +1,5 @@
 class_name HunterView3D
-extends Node3D
+extends CharacterBody3D
 
 ## Thin 3D presentation wrapper around a HunterBrain: reads its grid-space
 ## `position`/`state` each frame and converts to world space (1 cell = 1
@@ -17,15 +17,98 @@ var surface_height_provider: Callable
 ## Host-selected runner this brain is currently evaluating. Replicated with
 ## presentation state so only the pursued client receives chase audio.
 var target_peer_id := 0
+var has_look_target := false
+var look_target_position := Vector2.ZERO
 
 var _animation_player: AnimationPlayer
 var _model: Node3D
 var _shown_id := ""
 var _flight_height := 0.0
+var _desired_xz := Vector2.ZERO
+var _surface_target_y := 0.0
+var _streamed_height_override := 0.0
+var _streamed_height_override_active := false
+var _presentation_initialized := false
+var _head_node: Node3D
+var _head_base_y := 0.0
+var _head_look_yaw := 0.0
+var _head_scan_phase := 0.0
+var _kathy_beam: SpotLight3D
+
+const GRAVITY_ACCELERATION := 24.0
+const MAX_PRESENTATION_SPEED := 12.0
+const HUNTER_BODY_RADIUS := .28
+const HUNTER_BODY_HEIGHT := 1.72
+const HEAD_LOOK_LIMIT := deg_to_rad(52.0)
+const HEAD_SCAN_LIMIT := deg_to_rad(24.0)
+const HEAD_LOOK_SPEED := 5.5
+const EYE_GLOW_VERTICAL_PIXEL_OFFSET := -1.0
 
 
 func _ready() -> void:
+	# AnimationPlayer updates at the default process priority. Apply the
+	# presentation-only neck look afterward so clips keep their pitch/roll while
+	# the head can scan independently from the body.
+	process_priority = 50
+	collision_layer = 1
+	collision_mask = 1
+	floor_snap_length = .32
+	floor_max_angle = deg_to_rad(50.0)
+	safe_margin = .035
+	var collider := CollisionShape3D.new()
+	collider.name = "HunterCollision"
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = HUNTER_BODY_RADIUS
+	capsule.height = HUNTER_BODY_HEIGHT
+	collider.shape = capsule
+	collider.position.y = HUNTER_BODY_HEIGHT * .5
+	add_child(collider)
 	_apply_model(_desired_model_id())
+
+
+func _process(delta: float) -> void:
+	_update_head_look(delta)
+
+
+func _physics_process(delta: float) -> void:
+	if brain == null or not _presentation_initialized:
+		return
+	var planar := _desired_xz - Vector2(position.x, position.z)
+	var wanted_velocity := planar / maxf(delta, .001)
+	wanted_velocity = wanted_velocity.limit_length(MAX_PRESENTATION_SPEED)
+	velocity.x = wanted_velocity.x
+	velocity.z = wanted_velocity.y
+	if _streamed_height_override_active:
+		# Stair travel supplies the authored ramp height. Gravity resumes as soon
+		# as both feet reach the destination floor.
+		position.y = _streamed_height_override
+		velocity.y = 0.0
+	elif brain.gimmick is XivvyGimmick \
+			and (brain.gimmick as XivvyGimmick).flying:
+		position.y = move_toward(position.y, _surface_target_y, delta * 3.5)
+		velocity.y = 0.0
+	else:
+		if not is_on_floor():
+			velocity.y -= GRAVITY_ACCELERATION * delta
+		else:
+			velocity.y = -0.35
+	move_and_slide()
+	# Streamed chunks may finish between physics frames. Do not allow a hunter
+	# to fall forever while her destination floor is still being attached.
+	if not _streamed_height_override_active \
+			and position.y < _surface_target_y - StreamedFacilityView3D.LEVEL_HEIGHT:
+		position.y = _surface_target_y
+		velocity.y = 0.0
+
+
+func set_streamed_height_override(height: float) -> void:
+	_streamed_height_override = height
+	_streamed_height_override_active = true
+
+
+func clear_streamed_height_override() -> void:
+	_streamed_height_override_active = false
+	velocity.y = 0.0
 
 
 func _desired_model_id() -> String:
@@ -46,17 +129,111 @@ func _apply_model(model_id: String) -> void:
 		_model.queue_free()
 		_model = null
 		_animation_player = null
+		_head_node = null
+		_kathy_beam = null
 
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate(identity["model_scene"])
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
+		_configure_character_lights()
 		_apply_visibility()
 
 
-## Porcelle is hidden every frame she exists; Ceryth only becomes hidden
-## partway through the floor, the moment she disperses. Checked every sync
+func set_look_target(value: Variant) -> void:
+	has_look_target = value is Vector2
+	if has_look_target:
+		look_target_position = value
+
+
+func _configure_character_lights() -> void:
+	_head_node = _model.find_child("Head", true, false) as Node3D
+	if _head_node == null:
+		return
+	_head_base_y = _head_node.rotation.y
+	_head_scan_phase = float(abs(hash(brain.hunter_id if brain != null else _shown_id)) % 628) \
+		/ 100.0
+	# Glow eyes belong to the authored A-Z maze roster. Void/office hunters keep
+	# the eyes painted into their own skins; synthetic attachments both obscured
+	# those textures and made several dark Void faces look mis-mapped.
+	if not HunterRoster.A_Z_IDS.has(_shown_id):
+		return
+	var eye_color := HunterRoster.eye_glow_color(_shown_id)
+	var head_bounds := (_head_node as MeshInstance3D).get_aabb() \
+		if _head_node is MeshInstance3D else AABB(
+			Vector3(-.257812, .103125, -.275),
+			Vector3(.515625, .48125, .48125))
+	# The skin face is an 8x8 pixel plane. Each glow covers exactly a 2x2
+	# pixel block. The imported attachments predate the current checker-textured
+	# eyes and sit one skin row high, so lower presentation by exactly one pixel
+	# without altering the model skeleton or UV map.
+	var eye_size := Vector3(head_bounds.size.x * .25,
+		head_bounds.size.y * .25, .014)
+	var eye_y_offset := head_bounds.size.y / 8.0 * EYE_GLOW_VERTICAL_PIXEL_OFFSET
+	var corrected_eye_y := 0.0
+	var corrected_eye_count := 0
+	for attachment_name in ["L-Eye-Attachment", "R-Eye-Attachment"]:
+		var attachment := _head_node.find_child(attachment_name, true, false) as Node3D
+		if attachment == null:
+			continue
+		var glow := MeshInstance3D.new()
+		glow.name = "HunterEyeGlow"
+		var eye_mesh := BoxMesh.new()
+		eye_mesh.size = eye_size
+		glow.mesh = eye_mesh
+		glow.position = Vector3(0.0, eye_y_offset, -.012)
+		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var eye_material := StandardMaterial3D.new()
+		eye_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		eye_material.albedo_color = eye_color
+		eye_material.emission_enabled = true
+		eye_material.emission = eye_color
+		eye_material.emission_energy_multiplier = 3.2
+		glow.material_override = eye_material
+		attachment.add_child(glow)
+		corrected_eye_y += attachment.position.y + eye_y_offset
+		corrected_eye_count += 1
+	if brain != null and brain.hunter_id == "kathy":
+		_kathy_beam = SpotLight3D.new()
+		_kathy_beam.name = "KathyEyeBeam"
+		_kathy_beam.position = Vector3(0.0,
+			corrected_eye_y / float(corrected_eye_count) if corrected_eye_count > 0 \
+			else head_bounds.position.y + head_bounds.size.y * .31,
+			head_bounds.position.z - .015)
+		_kathy_beam.light_color = eye_color
+		_kathy_beam.light_energy = 5.0
+		_kathy_beam.spot_range = GameConfig.KATHY_BEAM_RANGE
+		_kathy_beam.spot_angle = rad_to_deg(GameConfig.KATHY_BEAM_HALF_ANGLE) + 3.0
+		_kathy_beam.spot_angle_attenuation = 1.35
+		_kathy_beam.shadow_enabled = true
+		_kathy_beam.shadow_bias = .25
+		_head_node.add_child(_kathy_beam)
+
+
+func _update_head_look(delta: float) -> void:
+	if _head_node == null or brain == null:
+		return
+	var desired_yaw := 0.0
+	if has_look_target and brain.active and brain.stun_timer <= 0.0:
+		var offset := look_target_position - brain.position
+		if offset.length_squared() > .001:
+			var target_yaw := atan2(-offset.x, -offset.y)
+			desired_yaw = clampf(wrapf(target_yaw - rotation.y, -PI, PI),
+				-HEAD_LOOK_LIMIT, HEAD_LOOK_LIMIT)
+	elif brain.active and brain.stun_timer <= 0.0 \
+			and brain.state != HunterBrain.State.CHASE:
+		desired_yaw = sin(Time.get_ticks_msec() * .00135 + _head_scan_phase) \
+			* HEAD_SCAN_LIMIT
+	_head_look_yaw = lerp_angle(_head_look_yaw, desired_yaw,
+		clampf(delta * HEAD_LOOK_SPEED, 0.0, 1.0))
+	var head_rotation := _head_node.rotation
+	head_rotation.y = _head_base_y + _head_look_yaw
+	_head_node.rotation = head_rotation
+
+
+## Porcelle keeps a faint ghost silhouette instead of disappearing completely;
+## Ceryth still becomes fully hidden when she disperses. Checked every sync
 ## rather than only when the model is (re)built, so a gimmick that changes its
 ## mind mid-floor is reflected without needing a model swap to trigger it.
 ##
@@ -73,7 +250,21 @@ func _apply_visibility() -> void:
 		return
 	var gimmick_hidden := brain != null and brain.gimmick != null and brain.gimmick.hidden_from_view()
 	var inactive := brain != null and not brain.active
-	_model.visible = not (gimmick_hidden or inactive)
+	var retired := brain != null and brain.gimmick is CerythGimmick \
+		and (brain.gimmick as CerythGimmick).dispersed
+	var porcelle_ghost := brain != null and brain.hunter_id == "porcelle" \
+		and gimmick_hidden
+	# Active stealth hunters must never become a completely missing render. Their
+	# gimmicks still make them extremely hard to see, but retain a trace silhouette
+	# for close-range readability (Porcelle is deliberately the clearer ghost).
+	_model.visible = not inactive and not retired
+	# These values leave 38% / 28% of the authored model visible. The earlier
+	# 28% / 16% silhouettes could still read as fully absent in the deliberately
+	# near-black unlit environment, especially on dark Void skins.
+	var fade := .62 if porcelle_ghost else (.72 if gimmick_hidden else 0.0)
+	ModelSlot.set_character_fade(_model, fade)
+	if _kathy_beam != null:
+		_kathy_beam.visible = _model.visible
 
 
 func sync_from_brain() -> void:
@@ -89,7 +280,13 @@ func sync_from_brain() -> void:
 	if _flight_height > 0.0:
 		_flight_height += sin(Time.get_ticks_msec() * 0.006) * 0.0015
 	surface_y += _flight_height
-	position = Vector3(brain.position.x, surface_y, brain.position.y)
+	_desired_xz = brain.position
+	_surface_target_y = surface_y
+	if _streamed_height_override_active:
+		_surface_target_y = _streamed_height_override
+	if not _presentation_initialized:
+		position = Vector3(brain.position.x, _surface_target_y, brain.position.y)
+		_presentation_initialized = true
 	if brain.facing.length_squared() > 0.0001:
 		# Godot's forward direction is -Z. The old angle aligned +Z with the
 		# brain direction, so every hunter visually ran back-first even though

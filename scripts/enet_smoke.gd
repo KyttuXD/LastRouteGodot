@@ -156,7 +156,8 @@ func _run_client() -> void:
 	_remotes.request_interaction({"what": "music_box"})
 	_remotes.request_interaction({"what": "admin_world", "action": "rebuild"})
 	_remotes.request_interaction({"what": "stream_pickup",
-		"entity_id": "0:0:0:PICKUP:0", "item": "flashlight"})
+		"entity_id": "0:0:0:PICKUP:TOOL:0", "kind": "tool",
+		"item": "flashlight"})
 	if not await _wait_for(func() -> bool:
 		return _client_received_effect and _client_received_snapshot \
 			and _client_received_hunters and _client_received_stream_event):
@@ -250,7 +251,7 @@ func _on_smoke_interaction(peer_id: int, event: Dictionary) -> void:
 			_host_received_admin = String(event.get("action", "")) == "rebuild"
 		"stream_pickup":
 			_host_received_stream = String(event.get("entity_id", "")) \
-				== "0:0:0:PICKUP:0"
+				== "0:0:0:PICKUP:TOOL:0"
 
 
 func _smoke_snapshot() -> Dictionary:

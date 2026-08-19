@@ -22,9 +22,10 @@ extends HunterGimmick
 
 var _active_in_vent := false
 var _speed_scale := 1.0
+const PLAYER_EXIT_RADIUS := 0.27
 
 
-func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, _generator) -> void:
 	_active_in_vent = bool(target.get("in_vent", false))
 	if not _active_in_vent:
 		# Overrides whatever ordinary perception just decided -- she is
@@ -73,7 +74,7 @@ func apply_network_state(state: Dictionary) -> void:
 ## one hunter-side consequence of a remote vent entry which cannot be inferred
 ## from the next movement packet: she jumps two stops ahead immediately.
 func remote_vent_entered(vent_id: String, brain: HunterBrain,
-		generator: FacilityGenerator) -> void:
+		generator) -> void:
 	var index := _index_of(generator.vents, vent_id)
 	if index < 0 or generator.vents.is_empty():
 		return
@@ -85,14 +86,14 @@ func remote_vent_entered(vent_id: String, brain: HunterBrain,
 ## player just pressed [E] at -- not necessarily the one they entered
 ## through, since walking the network is a chain of hops through whichever
 ## grates are reached next.
-func use_vent(vent_id: String, brain: HunterBrain, player: PlayerController3D, generator: FacilityGenerator) -> String:
-	var vents := generator.vents
+func use_vent(vent_id: String, brain: HunterBrain, player: PlayerController3D, generator) -> String:
+	var vents: Array = generator.vents
 	if vents.is_empty():
 		return "The grate won't budge."
 	var index := _index_of(vents, vent_id)
 	if index < 0:
 		return "The grate won't budge."
-	var count := vents.size()
+	var count: int = vents.size()
 
 	if not player.in_vent:
 		player.in_vent = true
@@ -109,9 +110,38 @@ func use_vent(vent_id: String, brain: HunterBrain, player: PlayerController3D, g
 		player.vent_entry_id = ""
 		return "VENT NETWORK EXITED"
 
-	var world := Vector2(float(next["x"]) + 0.5, float(next["y"]) + 0.5)
+	var world := _safe_vent_exit(next, generator)
 	player.global_position = Vector3(world.x, player.global_position.y, world.y)
+	player.velocity = Vector3.ZERO
 	return "VENT TRANSIT // %s" % String(next["id"]).to_upper()
+
+
+## A grate occupies its own source cell. Emerge one cell into the room and
+## validate the full player radius against structural walls/solid props. The
+## nearest-open fallback also makes old finite-map vent records (which predate
+## open_direction) safe without changing their saved format.
+func _safe_vent_exit(vent: Dictionary, generator) -> Vector2:
+	var vent_cell := Vector2i(int(vent.get("x", 0)), int(vent.get("y", 0)))
+	var open_direction: Vector2i = vent.get("open_direction", Vector2i.ZERO)
+	if open_direction == Vector2i.ZERO and vent.has("wall_dir"):
+		open_direction = -(vent.get("wall_dir", Vector2i.ZERO) as Vector2i)
+	var preferred := Vector2(vent_cell) + Vector2(.5, .5)
+	if open_direction != Vector2i.ZERO:
+		preferred += Vector2(open_direction)
+	var occupied_vents := {}
+	for entry_value in generator.vents:
+		var entry: Dictionary = entry_value
+		occupied_vents[Vector2i(int(entry.get("x", 0)),
+			int(entry.get("y", 0)))] = true
+	if generator.has_method("nearest_open_position"):
+		var clear: Dictionary = generator.nearest_open_position(
+			preferred.x, preferred.y, PLAYER_EXIT_RADIUS, occupied_vents)
+		if not clear.is_empty():
+			return Vector2(float(clear["x"]), float(clear["y"]))
+	# Defensive legacy fallback: even if a custom navigation provider lacks the
+	# clearance API, do not return the grate's occupied centre when its facing is
+	# known.
+	return preferred
 
 
 func _index_of(vents: Array, vent_id: String) -> int:

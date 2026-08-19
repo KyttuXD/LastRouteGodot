@@ -50,6 +50,7 @@ const SIZES := [
 const ANCHORED := {
 	"res://scenes/hud.tscn": {
 		"ObjectivePanel": ["right", "top"],
+		"MinimapPanel": ["right", "top"],
 		"MetersPanel": ["left", "right", "bottom"],
 		"FpsLabel": ["left", "top"],
 		"HotbarPanel": ["hcentre", "bottom"],
@@ -63,7 +64,6 @@ const ANCHORED := {
 		"BrandLabel": ["hcentre", "vcentre"],
 		"TitleLabel": ["hcentre", "vcentre"],
 		"LedeLabel": ["hcentre", "vcentre"],
-		"RouteNotice": ["hcentre", "vcentre"],
 		"ButtonPanel": ["hcentre", "vcentre"],
 		"VersionLabel": ["hcentre", "bottom"],
 		"SettingsOverlay": ["hcentre", "vcentre"],
@@ -168,6 +168,8 @@ func _check_scene(path: String) -> int:
 
 	if path == "res://scenes/main_menu.tscn":
 		failures += await _check_main_menu_contract(scene)
+	elif path == "res://scenes/hud.tscn":
+		failures += _check_hud_contract(scene)
 	elif path == "res://scenes/room_lobby.tscn":
 		failures += await _check_room_lobby_contract(scene)
 	elif path == "res://scenes/route_loading.tscn":
@@ -182,6 +184,66 @@ func _check_scene(path: String) -> int:
 	await _frame()
 	print("  %-28s %d nodes held across %d aspect ratios, up to %.0f design px wide"
 		% [path.get_file(), ANCHORED[path].size(), SIZES.size(), widest])
+	return failures
+
+
+func _check_hud_contract(scene: Node) -> int:
+	var failures := 0
+	if scene.find_child("CompactStatusLabel", true, false) != null:
+		failures += _fail("HUD still carries the obsolete lamp/stamina text row")
+	var stamina := scene.find_child("CompactStaminaBar", true, false) as ProgressBar
+	if stamina == null:
+		failures += _fail("HUD has no compact colored stamina bar")
+	elif stamina.size.x > 180.0 or stamina.size.y > 12.0:
+		failures += _fail("compact stamina bar is too large for the hotbar HUD")
+	var objective := scene.find_child("ObjectivePanel", true, false) as Control
+	var minimap := scene.find_child("MinimapPanel", true, false) as Control
+	if objective == null or minimap == null:
+		failures += _fail("HUD is missing the objective panel or minimap")
+	elif Rect2(objective.global_position, objective.size).intersects(
+			Rect2(minimap.global_position, minimap.size)):
+		failures += _fail("the compact minimap still covers the objective panel")
+	elif minimap.size.x > 100.0 or minimap.size.y > 82.0:
+		failures += _fail("minimap did not shrink to the compact HUD size")
+	scene.call("update_infinite_status", 4, 11, 73)
+	var danger_pulse := scene.find_child("DangerPulse", true, false) as ColorRect
+	if danger_pulse == null or not danger_pulse.visible \
+			or not is_equal_approx(float(scene.call("danger_pulse_strength")), .73):
+		failures += _fail("Infinite danger does not drive the pulsing pixel vignette")
+	if scene.find_child("DangerRow", true, false) != null:
+		failures += _fail("the obsolete danger percentage/bar still occupies the HUD")
+	if (scene.find_child("RelayLabel", true, false) as Label).text.contains("DANGER"):
+		failures += _fail("HUD displays a duplicate legacy danger percentage")
+	if scene.find_child("InventoryDragGhost", true, false) == null:
+		failures += _fail("inventory has no cursor-following drag visual")
+	var legend := scene.find_child("Legend", true, false) as Label
+	if legend == null or "TEAL-BLUE relay" not in legend.text \
+			or "YELLOW battery" not in legend.text:
+		failures += _fail("map legend does not distinguish teal relays from yellow batteries")
+	# F1 must hide the ordinary play HUD without blanking modal/critical UI.
+	# Calling the same input path catches regressions where a helper exists but
+	# the requested key was never actually wired to it.
+	var f1 := InputEventKey.new()
+	f1.keycode = KEY_F1
+	f1.physical_keycode = KEY_F1
+	f1.pressed = true
+	scene.call("_input", f1)
+	if not bool(scene.call("hud_is_hidden")):
+		failures += _fail("F1 does not hide the gameplay HUD")
+	for node_name in ["ObjectivePanel", "HotbarPanel", "CompactStaminaBar",
+			"FpsLabel", "InteractionLabel", "MessageLabel", "DangerPulse",
+			"Crosshair", "MinimapPanel"]:
+		var surface := scene.find_child(node_name, true, false) as CanvasItem
+		if surface == null or surface.modulate.a > .001:
+			failures += _fail("F1 leaves %s visible" % node_name)
+	for node_name in ["MapOverlay", "EscapeOverlay", "InventoryOverlay"]:
+		var modal := scene.find_child(node_name, true, false) as CanvasItem
+		if modal == null or modal.modulate.a < .999:
+			failures += _fail("F1 also hides the %s modal" % node_name)
+	scene.call("_input", f1)
+	if bool(scene.call("hud_is_hidden")) \
+			or (objective != null and objective.modulate.a < .999):
+		failures += _fail("a second F1 press does not restore the gameplay HUD")
 	return failures
 
 
@@ -239,8 +301,8 @@ func _check_boot_loading_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("mandatory startup update failure has no retry action")
-	if continue_button != null and continue_button.visible:
-		failures += _fail("mandatory startup update gate can be bypassed")
+	if continue_button == null or not continue_button.visible:
+		failures += _fail("mandatory startup failure has no explicit offline test path")
 	scene.call("_show_retry", "OPTIONAL UPDATE FAILED", true)
 	await _frame()
 	if continue_button == null or not continue_button.visible:
@@ -367,6 +429,8 @@ func _check_room_lobby_contract(scene: Node) -> int:
 
 func _check_main_menu_contract(scene: Node) -> int:
 	var failures := 0
+	if scene.find_child("RouteNotice", true, false) != null:
+		failures += _fail("main menu still carries the removed room-description line")
 	var generic_input := LineEdit.new()
 	Palette.style_line_edit(generic_input)
 	if generic_input.text_direction != Control.TEXT_DIRECTION_LTR \
@@ -383,19 +447,37 @@ func _check_main_menu_contract(scene: Node) -> int:
 	for heading in ["AudioHeading", "DisplayHeading", "ControlsHeading"]:
 		if scene.find_child(heading, true, false) == null:
 			failures += _fail("Settings is missing its %s category" % heading)
+	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
+	if settings_tabs == null or settings_tabs.tab_count != 3 \
+			or settings_tabs.get_tab_title(0) != "AUDIO" \
+			or settings_tabs.get_tab_title(1) != "DISPLAY" \
+			or settings_tabs.get_tab_title(2) != "CONTROLS":
+		failures += _fail("Settings categories do not use the shared tab treatment")
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:
 		failures += _fail("Settings is missing the 3D signal-filter intensity control")
 	if scene.find_child("PlayerHueSlider", true, false) == null \
 			or scene.find_child("PlayerHueValueLabel", true, false) == null:
 		failures += _fail("Settings is missing the player skin hue control")
+	for control_name in ["SfxVolumeSlider", "UiVolumeSlider", "VsyncButton",
+			"FpsLimitSlider", "FovSlider"]:
+		if scene.find_child(control_name, true, false) == null:
+			failures += _fail("Settings is missing %s" % control_name)
+	var fov := scene.find_child("FovSlider", true, false) as HSlider
+	if fov != null and (fov.min_value != Settings.MIN_FIELD_OF_VIEW \
+			or fov.max_value != Settings.MAX_FIELD_OF_VIEW):
+		failures += _fail("FOV slider does not use Settings' supported range")
 	var play_button := scene.find_child("PlayButton", true, false) as Button
 	var join_button := scene.find_child("JoinButton", true, false) as Button
+	var offline_button := scene.find_child("OfflineButton", true, false) as Button
 	scene.call("_set_route_update_locked", "UPDATING")
 	if play_button == null or join_button == null or not play_button.disabled \
 			or not join_button.disabled or play_button.text != "UPDATING" \
 			or join_button.text != "UPDATING":
 		failures += _fail("mandatory updates do not lock and relabel both route buttons")
+	if offline_button == null or offline_button.disabled \
+			or offline_button.text != "PLAY OFFLINE":
+		failures += _fail("main menu has no independent offline solo test path")
 	scene.call("_clear_route_update_lock")
 	if play_button == null or join_button == null or play_button.disabled \
 			or join_button.disabled or play_button.text != "CREATE ROOM" \
@@ -428,7 +510,7 @@ func _check_main_menu_contract(scene: Node) -> int:
 
 	# Dynamic dialogs use the same control. Opening one here catches regressions
 	# that a static scene-file scan cannot see.
-	scene.call("_on_changelog_pressed")
+	scene.call("_on_tutorial_pressed")
 	await _frame()
 	var modal := scene.find_child("MenuModal", true, false)
 	if modal == null or modal.find_child("EscCloseContent", true, false) == null:

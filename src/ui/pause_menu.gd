@@ -41,6 +41,19 @@ const HOLD_SECONDS := 3.0
 var _open := false
 var _confirming := false
 var _held := 0.0
+## Optional gameplay-owned close handler. It returns true when ESC closed a
+## higher-priority overlay, preventing the same keypress from opening pause.
+var dismiss_overlay: Callable
+## Gameplay supplies persistence/statistics boundaries. Keeping storage out of
+## this presentation class lets Office/legacy modes omit saves cleanly while
+## Infinite Route exposes the complete local archive.
+var save_slots_source: Callable
+var save_new_request: Callable
+var save_overwrite_request: Callable
+var save_load_request: Callable
+var save_rename_request: Callable
+var save_delete_request: Callable
+var statistics_source: Callable
 
 var _scrim: ColorRect
 var _panel: PanelContainer
@@ -49,6 +62,14 @@ var _hold_box: PanelContainer
 var _hold_fill: ColorRect
 var _resume_button: Button
 var _abandon_button: Button
+var _pause_view: VBoxContainer
+var _saves_view: VBoxContainer
+var _statistics_view: VBoxContainer
+var _save_list: VBoxContainer
+var _save_name: LineEdit
+var _save_status: Label
+var _statistics_grid: GridContainer
+var _selected_save_id := ""
 
 
 func _ready() -> void:
@@ -76,11 +97,11 @@ func _build() -> void:
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
 	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_panel.custom_minimum_size = Vector2(210, 0)
-	_panel.offset_left = -105
-	_panel.offset_right = 105
-	_panel.offset_top = -56
-	_panel.offset_bottom = 56
+	_panel.custom_minimum_size = Vector2(430, 300)
+	_panel.offset_left = -215
+	_panel.offset_right = 215
+	_panel.offset_top = -150
+	_panel.offset_bottom = 150
 	add_child(_panel)
 
 	var column := VBoxContainer.new()
@@ -100,6 +121,27 @@ func _build() -> void:
 	Palette.style_title(title)
 	column.add_child(title)
 
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 4)
+	column.add_child(tabs)
+	for entry in [["PAUSE", "pause"], ["SAVES", "saves"],
+			["STATISTICS", "statistics"]]:
+		var tab := Button.new()
+		tab.text = String(entry[0])
+		tab.focus_mode = Control.FOCUS_ALL
+		tab.custom_minimum_size = Vector2(92, 18)
+		tab.add_theme_font_size_override("font_size", 8)
+		Palette.style_button(tab, String(entry[1]) == "pause")
+		tab.pressed.connect(_set_section.bind(String(entry[1])))
+		tabs.add_child(tab)
+
+	_pause_view = VBoxContainer.new()
+	_pause_view.alignment = BoxContainer.ALIGNMENT_CENTER
+	_pause_view.add_theme_constant_override("separation", Palette.GAP)
+	_pause_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(_pause_view)
+
 	_resume_button = Button.new()
 	_resume_button.text = "RETURN"
 	_resume_button.focus_mode = Control.FOCUS_ALL
@@ -107,7 +149,7 @@ func _build() -> void:
 	_resume_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	Palette.style_button(_resume_button, true)
 	_resume_button.pressed.connect(close)
-	column.add_child(_resume_button)
+	_pause_view.add_child(_resume_button)
 
 	_abandon_button = Button.new()
 	_abandon_button.text = abandon_label
@@ -117,10 +159,248 @@ func _build() -> void:
 	_abandon_button.add_theme_font_size_override("font_size", 8)
 	Palette.style_button(_abandon_button, false)
 	_abandon_button.pressed.connect(_ask_abandon)
-	column.add_child(_abandon_button)
+	_pause_view.add_child(_abandon_button)
+
+	_build_saves_view(column)
+	_build_statistics_view(column)
 
 	_build_confirm()
 	_build_hold_prompt()
+	_set_section("pause")
+
+
+func _build_saves_view(parent: VBoxContainer) -> void:
+	_saves_view = VBoxContainer.new()
+	_saves_view.name = "PauseSaves"
+	_saves_view.add_theme_constant_override("separation", 5)
+	_saves_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(_saves_view)
+
+	var help := Label.new()
+	help.text = "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	Palette.style_label(help, Palette.MUTED, 7)
+	_saves_view.add_child(help)
+
+	_save_name = LineEdit.new()
+	_save_name.name = "SaveNameInput"
+	_save_name.placeholder_text = "SAVE NAME"
+	_save_name.max_length = 40
+	_save_name.custom_minimum_size = Vector2(0, 22)
+	_save_name.text_direction = Control.TEXT_DIRECTION_LTR
+	_save_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	Palette.style_line_edit(_save_name)
+	_saves_view.add_child(_save_name)
+
+	var primary_row := HBoxContainer.new()
+	primary_row.add_theme_constant_override("separation", 4)
+	_saves_view.add_child(primary_row)
+	primary_row.add_child(_save_action_button("SAVE NEW", _save_new, true))
+	primary_row.add_child(_save_action_button("OVERWRITE", _save_overwrite))
+	primary_row.add_child(_save_action_button("LOAD", _save_load, true))
+	primary_row.add_child(_save_action_button("RENAME", _save_rename))
+	primary_row.add_child(_save_action_button("DELETE", _save_delete))
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "SaveSlotScroll"
+	scroll.custom_minimum_size = Vector2(0, 112)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_saves_view.add_child(scroll)
+	_save_list = VBoxContainer.new()
+	_save_list.name = "SaveSlotList"
+	_save_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_save_list.add_theme_constant_override("separation", 3)
+	scroll.add_child(_save_list)
+
+	_save_status = Label.new()
+	_save_status.name = "SaveStatus"
+	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	Palette.style_label(_save_status, Palette.MUTED, 7)
+	_saves_view.add_child(_save_status)
+
+
+func _build_statistics_view(parent: VBoxContainer) -> void:
+	_statistics_view = VBoxContainer.new()
+	_statistics_view.name = "PauseStatistics"
+	_statistics_view.add_theme_constant_override("separation", 6)
+	_statistics_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(_statistics_view)
+	var heading := Label.new()
+	heading.text = Palette.track("CURRENT RUN")
+	Palette.style_label(heading, Palette.AMBER, 8)
+	_statistics_view.add_child(heading)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_statistics_view.add_child(scroll)
+	_statistics_grid = GridContainer.new()
+	_statistics_grid.name = "PauseStatisticsGrid"
+	_statistics_grid.columns = 2
+	_statistics_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_statistics_grid.add_theme_constant_override("h_separation", 18)
+	_statistics_grid.add_theme_constant_override("v_separation", 5)
+	scroll.add_child(_statistics_grid)
+
+
+func _save_action_button(caption: String, action: Callable,
+		primary: bool = false) -> Button:
+	var button := Button.new()
+	button.text = caption
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 7)
+	Palette.style_button(button, primary)
+	button.pressed.connect(action)
+	return button
+
+
+func _set_section(section: String) -> void:
+	if _pause_view == null:
+		return
+	_pause_view.visible = section == "pause"
+	_saves_view.visible = section == "saves"
+	_statistics_view.visible = section == "statistics"
+	if section == "saves":
+		_refresh_saves()
+		_save_name.grab_focus()
+	elif section == "statistics":
+		_refresh_statistics()
+
+
+func _refresh_saves() -> void:
+	if _save_list == null:
+		return
+	for child in _save_list.get_children():
+		child.queue_free()
+	var slots: Array = save_slots_source.call() if save_slots_source.is_valid() else []
+	if slots.is_empty():
+		var empty := Label.new()
+		empty.text = "NO LOCAL SAVES"
+		Palette.style_label(empty, Palette.MUTED, 8)
+		_save_list.add_child(empty)
+		_selected_save_id = ""
+		return
+	var selected_found := false
+	for value in slots:
+		var slot: Dictionary = value
+		var slot_id := String(slot.get("slot_id", ""))
+		var row := Button.new()
+		row.name = "SaveSlot_%s" % slot_id
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.text = "%s  //  LEVEL %+d  //  %s  //  %s" % [
+			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
+			String(slot.get("difficulty", "STANDARD")),
+			_format_duration(float(slot.get("elapsed_seconds", 0.0)))]
+		row.tooltip_text = "SAVED %s" % _format_save_time(int(slot.get("saved_at", 0)))
+		row.add_theme_font_size_override("font_size", 7)
+		Palette.style_button(row, slot_id == _selected_save_id)
+		row.pressed.connect(_select_save.bind(slot_id,
+			String(slot.get("name", "ROUTE"))))
+		_save_list.add_child(row)
+		selected_found = selected_found or slot_id == _selected_save_id
+	if not selected_found:
+		_selected_save_id = ""
+
+
+func _select_save(slot_id: String, display_name: String) -> void:
+	_selected_save_id = slot_id
+	_save_name.text = display_name
+	_save_name.caret_column = _save_name.text.length()
+	_refresh_saves()
+
+
+func _save_new() -> void:
+	_save_call(save_new_request, [_save_name.text])
+
+
+func _save_overwrite() -> void:
+	_save_call(save_overwrite_request, [_selected_save_id], true)
+
+
+func _save_load() -> void:
+	if _selected_save_id.is_empty():
+		_set_save_status("SELECT A SAVE SLOT", false)
+		return
+	if not save_load_request.is_valid():
+		_set_save_status("SAVES ARE UNAVAILABLE IN THIS MODE", false)
+		return
+	var result = save_load_request.call(_selected_save_id)
+	if result is Dictionary:
+		_set_save_status(String(result.get("message", "SAVE LOAD FAILED")),
+			bool(result.get("ok", false)))
+
+
+func _save_rename() -> void:
+	_save_call(save_rename_request, [_selected_save_id, _save_name.text], true)
+
+
+func _save_delete() -> void:
+	_save_call(save_delete_request, [_selected_save_id], true)
+
+
+func _save_call(action: Callable, arguments: Array,
+		requires_selection: bool = false) -> void:
+	if requires_selection and _selected_save_id.is_empty():
+		_set_save_status("SELECT A SAVE SLOT", false)
+		return
+	if not action.is_valid():
+		_set_save_status("SAVES ARE UNAVAILABLE IN THIS MODE", false)
+		return
+	var result = action.callv(arguments)
+	if not result is Dictionary:
+		_set_save_status("SAVE OPERATION FAILED", false)
+		return
+	var ok := bool(result.get("ok", false))
+	_set_save_status(String(result.get("message", "ROUTE SAVED" if ok else
+		"SAVE OPERATION FAILED")), ok)
+	if ok:
+		_selected_save_id = String(result.get("slot_id", _selected_save_id))
+		_refresh_saves()
+
+
+func _set_save_status(message: String, ok: bool) -> void:
+	_save_status.text = message
+	_save_status.add_theme_color_override("font_color",
+		Palette.STABLE if ok else Palette.ALERT)
+
+
+func _refresh_statistics() -> void:
+	if _statistics_grid == null:
+		return
+	for child in _statistics_grid.get_children():
+		child.queue_free()
+	var statistics: Dictionary = statistics_source.call() \
+		if statistics_source.is_valid() else {}
+	if statistics.is_empty():
+		_add_statistic("STATUS", "NO RUN STATISTICS AVAILABLE")
+		return
+	for caption in statistics:
+		_add_statistic(String(caption), String(statistics[caption]))
+
+
+func _add_statistic(caption: String, value: String) -> void:
+	var key := Label.new()
+	key.text = caption.to_upper()
+	Palette.style_label(key, Palette.MUTED, 8)
+	_statistics_grid.add_child(key)
+	var readout := Label.new()
+	readout.text = value
+	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_label(readout, Palette.INK, 8)
+	_statistics_grid.add_child(readout)
+
+
+func _format_duration(seconds: float) -> String:
+	var total := maxi(0, floori(seconds))
+	return "%02d:%02d:%02d" % [total / 3600, (total / 60) % 60, total % 60]
+
+
+func _format_save_time(unix_time: int) -> String:
+	if unix_time <= 0:
+		return "UNKNOWN"
+	var date := Time.get_datetime_dict_from_unix_time(unix_time)
+	return "%04d-%02d-%02d %02d:%02d" % [int(date.get("year", 0)),
+		int(date.get("month", 0)), int(date.get("day", 0)),
+		int(date.get("hour", 0)), int(date.get("minute", 0))]
 
 
 ## Leaving is a two-step question, not a button. Abandoning is irreversible and
@@ -194,6 +474,10 @@ func _ask_abandon() -> void:
 	_confirming = true
 	_panel.visible = false
 	_confirm.visible = true
+	# Focus the safe choice for keyboard/controller confirmation.
+	var buttons := _confirm.find_children("*", "Button", true, false)
+	if buttons.size() > 1:
+		(buttons[1] as Button).grab_focus()
 
 
 func _cancel_abandon() -> void:
@@ -247,6 +531,7 @@ func open() -> void:
 	if _open:
 		return
 	_set_open(true)
+	_set_section("pause")
 	_resume_button.grab_focus()
 	opened.emit()
 
@@ -305,6 +590,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif _open:
 		close()
+		get_viewport().set_input_as_handled()
+	elif dismiss_overlay.is_valid() and bool(dismiss_overlay.call()):
 		get_viewport().set_input_as_handled()
 	elif tap_to_pause:
 		open()

@@ -41,6 +41,12 @@ func run(host: Node) -> int:
 	host.get_tree().root.add_child(bob)
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
+	# Persisted debug preferences belong to the user and may legitimately be on
+	# during a local validation run. Co-op outcome tests require ordinary capture
+	# rules, so isolate them from that external state.
+	for scene in [alice, bob]:
+		scene.player.admin_god_mode = false
+		scene.player.admin_no_target = false
 
 	_same_facility(alice, bob)
 	print("  seed      two peers built the same %dx%d facility from ROOM %s"
@@ -59,6 +65,8 @@ func run(host: Node) -> int:
 	print("  taser     host validates aim and applies the replicated hunter stun")
 	_target_selection(alice)
 	print("  targeting the closest available remote runner can be chased safely")
+	_remote_flashlight_presentation(alice)
+	print("  flashlight local rendered state creates the same visible beam on peers")
 	_targeted_outcomes(bob)
 	print("  outcomes  host-selected stun and capture resolve on the target peer")
 	_authoritative_world_request(alice)
@@ -73,6 +81,34 @@ func run(host: Node) -> int:
 	alice.queue_free()
 	bob.queue_free()
 	return _failures
+
+
+func _remote_flashlight_presentation(scene: Node) -> void:
+	var remotes := scene._remotes as RemotePlayers
+	var player := scene.player as PlayerController3D
+	player.select_inventory_slot(0)
+	player._set_flashlight(true)
+	var local_state := remotes._local_state()
+	_expect(bool(local_state.get("flashlight_on", false)) \
+		and String(local_state.get("selected_item", "")) == "flashlight",
+		"local co-op state omitted the actually rendered flashlight beam")
+
+	var peer_body := Node3D.new()
+	remotes.add_child(peer_body)
+	peer_body.visible = true
+	var light := remotes._attach_remote_flashlight(919, peer_body)
+	remotes._sync_remote_flashlight(919, peer_body, local_state)
+	_expect(light.visible and light.shadow_enabled \
+		and light.spot_range >= PlayerController3D.FLASHLIGHT_MAX_RANGE,
+		"a remote held flashlight has no usable replicated world beam")
+	var put_away := local_state.duplicate(true)
+	put_away["selected_item"] = "taser"
+	remotes._sync_remote_flashlight(919, peer_body, put_away)
+	_expect(not light.visible,
+		"remote flashlight remains lit after its owner puts it away")
+	remotes._remote_flashlights.erase(919)
+	peer_body.queue_free()
+	player._set_flashlight(false)
 
 
 ## Both peers took the room's seed rather than one of their own.

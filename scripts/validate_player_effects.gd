@@ -1,8 +1,6 @@
 extends RefCounted
 
-## Headless check on the generic hunter-facing player effects: forced
-## flashlight flicker and the TV-static overlay. Neither is wired to a
-## specific hunter yet -- this is the infrastructure, checked on its own.
+## Headless check on the generic hunter-facing flashlight flicker.
 ##
 ## Run with:
 ##   godot4 --headless res://scenes/validate.tscn -- player_effects
@@ -24,7 +22,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(host: Node) -> int:
 	await _flicker_seizes_and_releases(host)
-	_static_overlay_fades()
+	await _thermal_warnings_replace_meter(host)
 	if _failures == 0:
 		print("player_effects OK")
 	return _failures
@@ -65,29 +63,26 @@ func _flicker_seizes_and_releases(host: Node) -> void:
 
 	print("  flicker   seizes the beam, forces it to change, releases back to the real state")
 	scene.queue_free()
+	await host.get_tree().process_frame
 
 
-func _static_overlay_fades() -> void:
-	var overlay := StaticOverlay.new()
-	# _ready() needs a tree to run in for @onready-style setup; StaticOverlay
-	# has none, so it works standalone -- confirmed by using it that way here
-	# rather than assuming.
-	overlay._ready()
-	_expect(overlay._material != null, "the overlay never built its shader material")
-	overlay.trigger(1.0, 0.8)
-	_expect(overlay.visible, "triggering static did not show the overlay")
-
-	# What headless CAN actually verify: the envelope's own bookkeeping
-	# (_remaining counting down, visibility clearing on schedule), not the
-	# shader uniform it drives -- a dummy renderer with no GPU behind it
-	# doesn't compile shaders, so reading the parameter back would be
-	# checking Godot's rendering server, not this code.
-	for i in 30:  # 0.5s -- comfortably mid-effect
-		overlay._process(STEP)
-	_expect(overlay.visible and overlay._remaining > 0.0,
-		"static cleared itself well before its 1s duration was up")
-	for i in 40:  # past the 1.0s duration
-		overlay._process(STEP)
-	_expect(not overlay.visible, "static stayed visible after its duration ran out")
-	print("  static    triggers, runs its full duration, and clears itself on schedule")
-	overlay.free()
+func _thermal_warnings_replace_meter(host: Node) -> void:
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var hud: HUD = scene.hud
+	var meters := PlayerMeters.new()
+	meters.temperature = 60.0
+	hud.update_meters(meters, .82, 0.0)
+	var strengths := hud.thermal_effect_strengths()
+	_expect(absf(strengths.x - .82) < .01 and strengths.y < .01,
+		"Solyth proximity did not render the orange heat warning")
+	hud.update_meters(meters, 0.0, .76)
+	strengths = hud.thermal_effect_strengths()
+	_expect(strengths.x < .01 and absf(strengths.y - .76) < .01,
+		"Wynelle proximity did not render the white frost warning")
+	_expect(hud.find_child("TemperatureMeter", true, false) == null,
+		"the obsolete temperature bar is still present beside the screen effects")
+	print("  thermal   Solyth heat and Wynelle frost replace the temperature bar")
+	scene.queue_free()
+	await host.get_tree().process_frame

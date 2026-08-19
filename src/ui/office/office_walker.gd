@@ -37,6 +37,7 @@ var _camera: Camera3D
 var _pivot: Node3D
 var _yaw := 0.0
 var _pitch := 0.0
+var _controller_look_active := false
 
 
 func _ready() -> void:
@@ -86,18 +87,26 @@ func stand() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and not seated:
+		_controller_look_active = false
 		var motion := event as InputEventMouseMotion
 		_yaw -= motion.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - motion.relative.y * Settings.mouse_sensitivity,
 			-PITCH_LIMIT, PITCH_LIMIT)
+	elif event is InputEventJoypadMotion and (event.axis == JOY_AXIS_RIGHT_X \
+			or event.axis == JOY_AXIS_RIGHT_Y) and absf(event.axis_value) > .18:
+		_controller_look_active = true
 
 
 func _physics_process(delta: float) -> void:
 	if seated:
-		aim_seated(get_viewport().get_mouse_position(),
-			get_viewport().get_visible_rect().size)
+		if _controller_look_active:
+			_update_controller_look(delta, true)
+		else:
+			aim_seated(get_viewport().get_mouse_position(),
+				get_viewport().get_visible_rect().size)
 		return
 
+	_update_controller_look(delta, false)
 	_apply_look()
 	# project.godot names the forward/back actions move_up / move_down.
 	var input := Vector2(
@@ -112,6 +121,20 @@ func _physics_process(delta: float) -> void:
 	velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
 	velocity.y = 0.0
 	move_and_slide()
+
+
+func _update_controller_look(delta: float, seated_limits: bool) -> void:
+	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if stick.length_squared() <= .0001:
+		return
+	var scale := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	_yaw -= stick.x * PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND * scale * delta
+	_pitch -= stick.y * PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND * scale * delta
+	_yaw = clampf(_yaw, -deg_to_rad(SEATED_YAW), deg_to_rad(SEATED_YAW)) \
+		if seated_limits else wrapf(_yaw, -PI, PI)
+	_pitch = clampf(_pitch, -deg_to_rad(SEATED_PITCH), deg_to_rad(SEATED_PITCH)) \
+		if seated_limits else clampf(_pitch, -PITCH_LIMIT, PITCH_LIMIT)
+	_apply_look()
 
 
 ## Point the seated head at a screen position, in a viewport of size `rect`.

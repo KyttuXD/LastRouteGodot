@@ -34,9 +34,11 @@ func is_open() -> bool:
 func open(report: Dictionary) -> void:
 	var online := bool(report.get("online", false))
 	var host := bool(report.get("host", false))
-	_kicker.text = "RUNNER SIGNAL // INTERRUPTED" if online \
-		else "ROUTE SIGNAL // ARCHIVED"
-	_title.text = "SIGNAL LOST" if online else "ROUTE ENDED"
+	var respawn := bool(report.get("respawn", false))
+	_kicker.text = String(report.get("kicker",
+		"RUNNER SIGNAL // INTERRUPTED" if online else "ROUTE SIGNAL // ARCHIVED"))
+	_title.text = String(report.get("title",
+		"SIGNAL LOST" if online else "ROUTE ENDED"))
 	_reason.text = String(report.get("reason", "THE ROUTE CAUGHT UP WITH YOU"))
 	_clear_stats()
 	_add_stat("DEPTH REACHED", str(maxi(1, int(report.get("depth", 1)))))
@@ -48,13 +50,20 @@ func open(report: Dictionary) -> void:
 	_add_stat("COINS", str(maxi(0, int(report.get("coins", 0)))))
 	_add_stat("DIFFICULTY", String(report.get("difficulty", "STANDARD")))
 	_add_stat("ROUTE SEED", String(report.get("seed", "UNKNOWN")))
-	_primary.text = ("END ROUTE" if host else "LEAVE ROOM") if online \
-		else "RESTART ROUTE"
-	_secondary.text = "MAIN MENU"
-	_set_button_action(_primary, leave_requested if online else restart_requested)
-	_secondary.visible = not online
-	if not online:
+	if respawn:
+		_primary.text = "RESPAWN AT CHECKPOINT"
+		_secondary.text = "LEAVE ROOM" if online else "MAIN MENU"
+		_set_button_action(_primary, restart_requested)
+		_secondary.visible = true
 		_set_button_action(_secondary, leave_requested)
+	else:
+		_primary.text = ("END ROUTE" if host else "LEAVE ROOM") if online \
+			else "RESTART ROUTE"
+		_secondary.text = "MAIN MENU"
+		_set_button_action(_primary, leave_requested if online else restart_requested)
+		_secondary.visible = not online
+		if not online:
+			_set_button_action(_secondary, leave_requested)
 	set_open(true)
 	_primary.grab_focus()
 

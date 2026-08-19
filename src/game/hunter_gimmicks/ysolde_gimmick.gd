@@ -21,7 +21,7 @@ extends HunterGimmick
 ## heater_unfrozen/heater_powered already are.
 
 
-func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator) -> void:
 	if bool(target.get("pesticide_active", false)):
 		return
 	var index := _nearest_uncollected(brain.position, generator.batteries)

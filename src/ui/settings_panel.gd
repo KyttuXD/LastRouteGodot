@@ -17,6 +17,9 @@ const ACTION_LABELS := {
 	"taser": "TASER",
 	"tool_use": "USE HELD TOOL",
 	"interact": "INTERACT",
+	"inventory": "INVENTORY",
+	"drop_item": "DROP HELD ITEM",
+	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
@@ -45,7 +48,7 @@ const SECTIONS := [
 	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
 		"move_right", "sprint", "crouch", "jump"]},
 	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser",
-		"tool_use", "toggle_map"]},
+		"tool_use", "inventory", "drop_item", "chat", "toggle_map"]},
 	{"title": "SYSTEM", "actions": ["pause"]},
 	{"title": "OFFICE MODE", "actions": ["office_left_door", "office_right_door",
 		"office_desk_light", "office_vent", "office_cameras", "office_radio",
@@ -55,7 +58,16 @@ const SECTIONS := [
 
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var volume_value_label: Label = %VolumeValueLabel
+@onready var sfx_volume_slider: HSlider = %SfxVolumeSlider
+@onready var sfx_volume_value_label: Label = %SfxVolumeValueLabel
+@onready var ui_volume_slider: HSlider = %UiVolumeSlider
+@onready var ui_volume_value_label: Label = %UiVolumeValueLabel
 @onready var fullscreen_button: Button = %FullscreenButton
+@onready var vsync_button: Button = %VsyncButton
+@onready var fps_limit_slider: HSlider = %FpsLimitSlider
+@onready var fps_limit_value_label: Label = %FpsLimitValueLabel
+@onready var fov_slider: HSlider = %FovSlider
+@onready var fov_value_label: Label = %FovValueLabel
 @onready var sensitivity_slider: HSlider = %SensitivitySlider
 @onready var sensitivity_value_label: Label = %SensitivityValueLabel
 @onready var pixel_effect_slider: HSlider = %PixelEffectSlider
@@ -67,12 +79,22 @@ const SECTIONS := [
 
 var _listening_action := ""
 var _listening_button: Button = null
+var _listening_append := false
 var _key_labels: Dictionary = {}
+var _section_tabs: TabBar
+var _active_section := 0
+var _settings_tabs: TabBar
+var _active_settings_category := 0
 
 
 func _ready() -> void:
 	volume_slider.value_changed.connect(_on_volume_changed)
+	sfx_volume_slider.value_changed.connect(_on_sfx_volume_changed)
+	ui_volume_slider.value_changed.connect(_on_ui_volume_changed)
 	fullscreen_button.toggled.connect(Settings.set_fullscreen)
+	vsync_button.toggled.connect(Settings.set_vsync)
+	fps_limit_slider.value_changed.connect(_on_fps_limit_changed)
+	fov_slider.value_changed.connect(_on_fov_changed)
 	sensitivity_slider.min_value = Settings.MIN_MOUSE_SENSITIVITY
 	sensitivity_slider.max_value = Settings.MAX_MOUSE_SENSITIVITY
 	sensitivity_slider.step = 0.0001
@@ -84,6 +106,7 @@ func _ready() -> void:
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_apply_palette()
+	_build_settings_tabs()
 	_build_control_rows()
 	_refresh_from_settings()
 
@@ -94,25 +117,36 @@ func _ready() -> void:
 func _input(event: InputEvent) -> void:
 	if _listening_action.is_empty():
 		return
-	if not (event is InputEventKey) or not event.pressed or event.echo:
+	if not (event is InputEventKey or event is InputEventMouseButton):
+		return
+	if event is InputEventKey and (not event.pressed or event.echo):
+		return
+	if event is InputEventMouseButton and not event.pressed:
 		return
 	get_viewport().set_input_as_handled()
 
-	if event.physical_keycode == KEY_ESCAPE:
+	if event is InputEventKey and (event as InputEventKey).physical_keycode == KEY_ESCAPE:
 		_stop_listening()
 		return
 
 	var action := _listening_action
+	var append := _listening_append
 	_stop_listening()
-	var new_event := InputEventKey.new()
-	new_event.physical_keycode = event.physical_keycode
-	Settings.rebind_action(action, new_event)
+	var new_event: InputEvent
+	if event is InputEventKey:
+		new_event = InputEventKey.new()
+		(new_event as InputEventKey).physical_keycode = (event as InputEventKey).physical_keycode
+	else:
+		new_event = InputEventMouseButton.new()
+		(new_event as InputEventMouseButton).button_index = (event as InputEventMouseButton).button_index
+	Settings.set_action_binding(action, new_event, append)
 	_key_labels[action].text = Settings.get_action_key_label(action)
 
 
 func open() -> void:
 	_refresh_from_settings()
 	visible = true
+	_settings_tabs.grab_focus.call_deferred()
 
 
 func close() -> void:
@@ -123,8 +157,18 @@ func close() -> void:
 func _refresh_from_settings() -> void:
 	volume_slider.value = Settings.master_volume_percent
 	_update_volume_label(Settings.master_volume_percent)
+	sfx_volume_slider.set_value_no_signal(Settings.sfx_volume_percent)
+	_update_sfx_volume_label(Settings.sfx_volume_percent)
+	ui_volume_slider.set_value_no_signal(Settings.ui_volume_percent)
+	_update_ui_volume_label(Settings.ui_volume_percent)
 	fullscreen_button.set_pressed_no_signal(Settings.fullscreen)
 	Palette.set_state_toggle(fullscreen_button, Settings.fullscreen)
+	vsync_button.set_pressed_no_signal(Settings.vsync_enabled)
+	Palette.set_state_toggle(vsync_button, Settings.vsync_enabled)
+	fps_limit_slider.set_value_no_signal(Settings.fps_limit)
+	_update_fps_limit_label(Settings.fps_limit)
+	fov_slider.set_value_no_signal(Settings.field_of_view)
+	_update_fov_label(Settings.field_of_view)
 	sensitivity_slider.set_value_no_signal(Settings.mouse_sensitivity)
 	_update_sensitivity_label(Settings.mouse_sensitivity)
 	pixel_effect_slider.set_value_no_signal(Settings.pixel_effect_percent)
@@ -142,6 +186,42 @@ func _on_volume_changed(value: float) -> void:
 
 func _update_volume_label(value: float) -> void:
 	volume_value_label.text = "%d%%" % int(round(value))
+
+
+func _on_sfx_volume_changed(value: float) -> void:
+	Settings.set_sfx_volume(value)
+	_update_sfx_volume_label(value)
+
+
+func _update_sfx_volume_label(value: float) -> void:
+	sfx_volume_value_label.text = "%d%%" % roundi(value)
+
+
+func _on_ui_volume_changed(value: float) -> void:
+	Settings.set_ui_volume(value)
+	_update_ui_volume_label(value)
+
+
+func _update_ui_volume_label(value: float) -> void:
+	ui_volume_value_label.text = "%d%%" % roundi(value)
+
+
+func _on_fps_limit_changed(value: float) -> void:
+	Settings.set_fps_limit(value)
+	_update_fps_limit_label(Settings.fps_limit)
+
+
+func _update_fps_limit_label(value: float) -> void:
+	fps_limit_value_label.text = "UNLIMITED" if value < 15.0 else "%d" % roundi(value)
+
+
+func _on_fov_changed(value: float) -> void:
+	Settings.set_field_of_view(value)
+	_update_fov_label(value)
+
+
+func _update_fov_label(value: float) -> void:
+	fov_value_label.text = "%d°" % roundi(value)
 
 
 func _on_sensitivity_changed(value: float) -> void:
@@ -189,10 +269,14 @@ func _apply_palette() -> void:
 	if hint != null:
 		hint.add_theme_color_override("font_color", Palette.MUTED)
 	for path in ["VolumeRow/VolumeLabel", "VolumeRow/VolumeValueLabel",
+			"SfxVolumeRow/SfxVolumeLabel", "SfxVolumeRow/SfxVolumeValueLabel",
+			"UiVolumeRow/UiVolumeLabel", "UiVolumeRow/UiVolumeValueLabel",
 			"SensitivityRow/SensitivityLabel", "SensitivityRow/SensitivityValueLabel",
 			"PixelEffectRow/PixelEffectLabel", "PixelEffectRow/PixelEffectValueLabel",
 			"PlayerHueRow/PlayerHueLabel", "PlayerHueRow/PlayerHueValueLabel",
-			"DisplayRow/DisplayLabel"]:
+			"DisplayRow/DisplayLabel", "VsyncRow/VsyncLabel",
+			"FpsLimitRow/FpsLimitLabel", "FpsLimitRow/FpsLimitValueLabel",
+			"FovRow/FovLabel", "FovRow/FovValueLabel"]:
 		var label := get_node_or_null(path) as Label
 		if label != null:
 			label.add_theme_color_override("font_color", Palette.BODY)
@@ -203,27 +287,62 @@ func _apply_palette() -> void:
 	var fullscreen := get_node_or_null("DisplayRow/FullscreenButton") as Button
 	if fullscreen != null:
 		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
+	Palette.style_state_toggle(vsync_button, "VSYNC", Settings.vsync_enabled)
 
 
 func _build_control_rows() -> void:
+	_section_tabs = TabBar.new()
+	_section_tabs.name = "ControlCategoryTabs"
+	_section_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
 	for section in SECTIONS:
-		var heading := Label.new()
-		heading.text = Palette.track(String(section["title"]))
-		heading.add_theme_color_override("font_color", Palette.AMBER)
-		heading.add_theme_font_size_override("font_size", 8)
-		controls_list.add_child(heading)
-		for action in section["actions"]:
-			if Settings.REBINDABLE_ACTIONS.has(action):
-				_build_control_row(action)
-	# Anything the sections forgot still gets a row, so adding an action to
-	# Settings can never silently make it unbindable.
+		_section_tabs.add_tab(String(section["title"]))
+	_section_tabs.tab_changed.connect(_show_control_section)
+	controls_list.add_child(_section_tabs)
+	_show_control_section(0)
+
+
+func _build_settings_tabs() -> void:
+	_settings_tabs = TabBar.new()
+	_settings_tabs.name = "SettingsCategoryTabs"
+	_settings_tabs.position = Vector2(20, 37)
+	_settings_tabs.size = Vector2(400, 22)
+	_settings_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
+	for title in ["AUDIO", "DISPLAY", "CONTROLS"]:
+		_settings_tabs.add_tab(title)
+	_settings_tabs.tab_changed.connect(_show_settings_category)
+	add_child(_settings_tabs)
+	_show_settings_category(0)
+
+
+func _show_settings_category(index: int) -> void:
+	_active_settings_category = clampi(index, 0, 2)
+	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
+		get_node(name).visible = _active_settings_category == 0
+	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
+			"PixelEffectRow", "PlayerHueRow", "SensitivityRow"]:
+		get_node(name).visible = _active_settings_category == 1
+	$ControlsScroll.visible = _active_settings_category == 2
+
+
+func _show_control_section(index: int) -> void:
+	_active_section = clampi(index, 0, SECTIONS.size() - 1)
+	for child in controls_list.get_children():
+		if child != _section_tabs:
+			child.queue_free()
+	_key_labels.clear()
+	var active: Dictionary = SECTIONS[_active_section]
+	for action in active["actions"]:
+		if Settings.REBINDABLE_ACTIONS.has(action):
+			_build_control_row(action)
+	# Anything omitted from the organized categories is still reachable from
+	# System instead of becoming an invisible binding.
 	var placed := {}
-	for section in SECTIONS:
-		for action in section["actions"]:
+	for section_value in SECTIONS:
+		for action in section_value["actions"]:
 			placed[action] = true
 	var orphans: Array = Settings.REBINDABLE_ACTIONS.filter(
 		func(a: String) -> bool: return not placed.has(a))
-	if not orphans.is_empty():
+	if _active_section == 2 and not orphans.is_empty():
 		var heading := Label.new()
 		heading.text = Palette.track("OTHER")
 		heading.add_theme_color_override("font_color", Palette.AMBER)
@@ -239,38 +358,57 @@ func _build_control_row(action: String) -> void:
 
 	var name_label := Label.new()
 	name_label.text = ACTION_LABELS.get(action, action.to_upper())
-	name_label.custom_minimum_size = Vector2(150, 0)
+	name_label.custom_minimum_size = Vector2(112, 0)
 	name_label.add_theme_color_override("font_color", Palette.BODY)
 	row.add_child(name_label)
 
 	var key_label := Label.new()
 	key_label.text = Settings.get_action_key_label(action)
-	key_label.custom_minimum_size = Vector2(56, 0)
+	key_label.custom_minimum_size = Vector2(92, 0)
 	key_label.add_theme_color_override("font_color", KEY_LABEL_COLOR)
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(key_label)
 	_key_labels[action] = key_label
 
 	var rebind_button := Button.new()
-	rebind_button.text = "REBIND"
-	rebind_button.custom_minimum_size = Vector2(90, 0)
+	rebind_button.text = "CHANGE"
+	rebind_button.custom_minimum_size = Vector2(60, 0)
 	Palette.style_button(rebind_button, false)
-	rebind_button.pressed.connect(_on_rebind_pressed.bind(action, rebind_button))
+	rebind_button.pressed.connect(_on_rebind_pressed.bind(action, rebind_button, false))
 	row.add_child(rebind_button)
+
+	var add_button := Button.new()
+	add_button.text = "+"
+	add_button.tooltip_text = "ADD A SECOND BINDING"
+	add_button.custom_minimum_size = Vector2(28, 0)
+	Palette.style_button(add_button, false)
+	add_button.pressed.connect(_on_rebind_pressed.bind(action, add_button, true))
+	row.add_child(add_button)
+
+	var reset_button := Button.new()
+	reset_button.text = "RESET"
+	reset_button.custom_minimum_size = Vector2(48, 0)
+	Palette.style_button(reset_button, false)
+	reset_button.pressed.connect(func() -> void:
+		Settings.reset_action_bindings(action)
+		_key_labels[action].text = Settings.get_action_key_label(action))
+	row.add_child(reset_button)
 
 	controls_list.add_child(row)
 
 
-func _on_rebind_pressed(action: String, button: Button) -> void:
+func _on_rebind_pressed(action: String, button: Button, append: bool) -> void:
 	if not _listening_action.is_empty():
 		_stop_listening()
 	_listening_action = action
 	_listening_button = button
+	_listening_append = append
 	button.text = LISTENING_TEXT
 
 
 func _stop_listening() -> void:
 	if _listening_button != null:
-		_listening_button.text = "REBIND"
+		_listening_button.text = "+" if _listening_append else "CHANGE"
 	_listening_action = ""
 	_listening_button = null
+	_listening_append = false

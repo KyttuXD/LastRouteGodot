@@ -38,9 +38,6 @@ bg_color = Color(0.561, 0.816, 0.878, 1)
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_noise"]
 bg_color = Color(0.561, 0.816, 0.878, 1)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_temperature"]
-bg_color = Color(0.561, 0.816, 0.878, 1)
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_stamina"]
 bg_color = Color(0.561, 0.816, 0.878, 1)
 
@@ -57,10 +54,10 @@ layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -170
 offset_top = 8
-offset_right = -8
-offset_bottom = 46
+offset_left = -232
+offset_right = -104
+offset_bottom = 50
 grow_horizontal = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
@@ -72,14 +69,14 @@ theme_override_constants/separation = 1
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.95, 0.75, 0.42, 1)
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 7
 text = "DEPTH 01"
 
 [node name="RelayLabel" type="Label" parent="ObjectivePanel/ObjectiveBox"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.92, 0.9, 1)
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 6
 text = "0/5 SIGNAL RELAYS"
 
 [node name="MetersPanel" type="PanelContainer" parent="."]
@@ -236,7 +233,7 @@ text = "5"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="CompactStatusLabel" type="Label" parent="."]
+[node name="CompactStaminaBar" type="ProgressBar" parent="."]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 7
@@ -244,19 +241,17 @@ anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -175
-offset_top = -59
-offset_right = 175
-offset_bottom = -45
+offset_left = -82
+offset_top = -61
+offset_right = 82
+offset_bottom = -56
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_colors/font_color = Color(0.88, 0.91, 0.88, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
-theme_override_constants/shadow_offset_x = 1
-theme_override_constants/shadow_offset_y = 1
-theme_override_font_sizes/font_size = 7
-text = "LAMP [##########]   STAMINA [##########]"
-horizontal_alignment = 1
+value = 100.0
+show_percentage = false
+tooltip_text = "STAMINA"
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_stamina")
 
 [node name="FpsLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -372,30 +367,6 @@ text = "NOISE 0%"
 clip_text = true
 horizontal_alignment = 1
 
-[node name="TemperatureMeter" type="VBoxContainer" parent="MetersPanel/MetersRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 1
-
-[node name="Bar" type="ProgressBar" parent="MetersPanel/MetersRow/TemperatureMeter"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 6)
-size_flags_horizontal = 3
-value = 60.0
-show_percentage = false
-theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
-theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_temperature")
-
-[node name="Caption" type="Label" parent="MetersPanel/MetersRow/TemperatureMeter"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.78, 0.86, 0.86, 1)
-theme_override_font_sizes/font_size = 8
-horizontal_alignment = 1
-text = "TEMP 60F"
-clip_text = true
-horizontal_alignment = 1
-
 [node name="InteractionLabel" type="Label" parent="."]
 layout_mode = 1
 anchors_preset = 7
@@ -438,15 +409,9 @@ horizontal_alignment = 1
 
 [node name="MapOverlay" type="ColorRect" parent="."]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -184
-offset_top = -87
-offset_right = 184
-offset_bottom = 87
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 unique_name_in_owner = true
@@ -456,9 +421,10 @@ color = Color(0.02, 0.05, 0.065, 0.94)
 [node name="MapTitle" type="Label" parent="MapOverlay"]
 unique_name_in_owner = true
 layout_mode = 0
-offset_top = 10.0
-offset_right = 368.0
-offset_bottom = 29.0
+offset_top = 8.0
+offset_right = 0.0
+offset_bottom = 27.0
+anchor_right = 1.0
 theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
 theme_override_font_sizes/font_size = 13
 text = "FACILITY MAP"
@@ -470,11 +436,15 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = 30.0
-offset_bottom = -22.0
+offset_left = 12.0
+offset_top = 31.0
+offset_right = -12.0
+offset_bottom = -25.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 0
 script = ExtResource("5_map")
+interactive = true
 
 [node name="Legend" type="Label" parent="MapOverlay"]
 layout_mode = 1
@@ -487,7 +457,7 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.78, 1)
 theme_override_font_sizes/font_size = 9
-text = "AMBER relay   YELLOW battery   PURPLE lift   RED hunter"
+text = "WHEEL ZOOM  •  LEFT-DRAG PAN  •  DOUBLE-CLICK / RIGHT-CLICK WAYPOINT  •  TEAL-BLUE relay  •  YELLOW battery  •  GRAY prop  •  WHITE stairs  •  RED hunter"
 horizontal_alignment = 1
 
 [node name="EscapeOverlay" type="PanelContainer" parent="."]
@@ -554,15 +524,15 @@ anchor_left = 1.0
 anchor_top = 0.0
 anchor_right = 1.0
 anchor_bottom = 0.0
-offset_left = -124
+offset_left = -96
 offset_top = 8
 offset_right = -8
-offset_bottom = 108
+offset_bottom = 80
 grow_horizontal = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
 [node name="Minimap" type="Control" parent="MinimapPanel"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 96)
+custom_minimum_size = Vector2(0, 68)
 layout_mode = 2
 script = ExtResource("5_map")

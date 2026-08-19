@@ -17,7 +17,7 @@ extends HunterGimmick
 ## permanently inert rather than skipped — see HUNTER_ROSTER.md.
 
 
-func before_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator) -> void:
 	if target.get("hidden", false) or target.get("in_safe_zone", false):
 		return
 	if not brain.beam_reaches(
@@ -30,3 +30,5 @@ func before_perception(brain: HunterBrain, _delta: float, target: Dictionary, ge
 	brain.has_last_known = true
 	brain.last_known = target["position"]
 	brain.lost_sight_timer = 0.0
+	brain.direct_chase_visible = true
+	brain._ability_direct_sight = true

@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { publishZipDirectory } from "./zip_archive.mjs";
 
 const SAFE_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const SAFE_TAG = /^(debug|release)$/;
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const WEB_REVISION_MARKER = ".last-route-web-release";
 
 function enabled(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ""));
@@ -76,6 +78,7 @@ export async function syncGithubRelease({
   token = "",
   updateDirectory,
   manifestPath,
+  publicDirectory = "",
   fetchImpl = globalThis.fetch,
   logger = console,
 } = {}) {
@@ -129,11 +132,34 @@ export async function syncGithubRelease({
     downloaded += 1;
   }
 
+  let webPublished = false;
+  const webFile = String(manifest?.[tag]?.web?.file || "");
+  if (publicDirectory && SAFE_FILE.test(webFile) && wanted.has(webFile)) {
+    const webIdentity = `${tag}:${revision}:${wanted.get(webFile)}`;
+    let publishedIdentity = "";
+    try {
+      publishedIdentity = (await readFile(
+        join(resolve(publicDirectory), WEB_REVISION_MARKER), "utf8",
+      )).trim();
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (publishedIdentity !== webIdentity) {
+      const published = await publishZipDirectory(
+        join(directory, webFile), publicDirectory,
+        { markerName: WEB_REVISION_MARKER, markerContents: `${webIdentity}\n` },
+      );
+      webPublished = true;
+      logger.log(`Web build ready: ${published.files} files in ${published.directory}`);
+    }
+  }
+
   // Publish the manifest only after every referenced artifact is verified.
   await atomicWrite(destinationManifest, manifestBytes);
   const revisionLabel = revision ? revision.slice(0, 12) : "revision not reported";
   logger.log(`GitHub ${tag} sync ready @ ${revisionLabel}: ${downloaded} downloaded, ${reused} unchanged`);
-  return { downloaded, reused, revision, manifestPath: destinationManifest, updateDirectory: directory };
+  return { downloaded, reused, revision, webPublished,
+    manifestPath: destinationManifest, updateDirectory: directory };
 }
 
 export async function syncGithubReleaseFromEnvironment(env = process.env, options = {}) {
@@ -145,12 +171,14 @@ export async function syncGithubReleaseFromEnvironment(env = process.env, option
   const tag = String(env.LASTROUTE_GITHUB_TAG || "debug").trim();
   const manifestPath = resolve(process.cwd(), env.LASTROUTE_UPDATE_MANIFEST
     || join(updateDirectory, `updates.${tag}.json`));
+  const publicDirectory = String(env.LASTROUTE_PUBLIC_DIR || "").trim();
   const result = await syncGithubRelease({
     repository: String(env.LASTROUTE_GITHUB_REPO || "KyttuXD/LastRouteGodot").trim(),
     tag,
     token,
     updateDirectory,
     manifestPath,
+    publicDirectory: publicDirectory ? resolve(process.cwd(), publicDirectory) : "",
     ...options,
   });
   env.LASTROUTE_UPDATE_DIR ||= updateDirectory;

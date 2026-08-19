@@ -43,11 +43,14 @@ needing to be re-applied.
 through the same reviewed rig and export path. The twelve colour files become
 `void_<colour>` hunter sources/runtime scenes at a 1.22 display scale. `Main.png`
 is explicitly reserved and becomes `admin_kyttu`, a 0.90-scale player model;
-the builder never includes it in the Void hunter list. Rebuild them with:
+the builder never includes it in the Void hunter list. The committed external
+PNG is the converter's final packed 64×96 atlas, not the original 64×64 skin,
+so Godot reimports and the embedded GLB sample identical UV rows. Rebuild only
+the Void roster (leaving the admin model untouched) with:
 
 ```bash
 .venv/bin/python tools/characters/build_void_hunters.py \
-  "/var/home/kyttu/Documents/Skins Void" art/props-3d/characters
+  "/var/home/kyttu/Documents/Skins Void" --void-only
 ```
 
 Void models ship the six normal hunter clips. Xivvy additionally receives the
@@ -61,7 +64,7 @@ Re-export every committed hunter and the player from the repository itself:
 
 ```bash
 python3 tools/characters/import_blockbench_hunters.py \
-  art/props-3d/characters --include-player
+  art/props-3d/characters --include-void --include-player
 ```
 
 To bring in a newly reviewed external set (the path is an explicit input, not

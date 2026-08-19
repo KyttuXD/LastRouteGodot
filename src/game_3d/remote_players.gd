@@ -14,6 +14,7 @@ const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
+const MAX_CHAT_LENGTH := 160
 
 var local_player: Node3D
 ## Scene-specific fields merged into the ordinary controller packet. The fixed
@@ -26,6 +27,7 @@ var _players := {}
 var _positions := {}
 var _facings := {}
 var _step_distances := {}
+var _remote_flashlights := {}
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 ## A host-issued capture is kept here independently of the next movement
@@ -40,6 +42,8 @@ var _since_send := 0.0
 var _snapshot_elapsed := SNAPSHOT_RETRY_SECONDS
 var _snapshot_received := false
 
+signal chat_received(peer_id: int, display_name: String, message: String)
+
 
 func _ready() -> void:
 	if not RoomState.online:
@@ -48,6 +52,49 @@ func _ready() -> void:
 		multiplayer.peer_disconnected.connect(_drop)
 	if not multiplayer.peer_connected.is_connected(_greet):
 		multiplayer.peer_connected.connect(_greet)
+
+
+func send_chat(text: String) -> void:
+	var message := _sanitize_chat(text)
+	if message.is_empty():
+		return
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if not RoomState.online:
+		chat_received.emit(local_id, RoomState.local_display_name(), message)
+	elif RoomState.is_host:
+		_deliver_chat(local_id, RoomState.local_display_name(), message)
+	else:
+		_submit_chat.rpc_id(1, message)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_chat(text: String) -> void:
+	if not RoomState.is_host:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	var message := _sanitize_chat(text)
+	if sender <= 1 or message.is_empty():
+		return
+	_deliver_chat(sender, RoomState.peer_display_name(sender), message)
+
+
+func _deliver_chat(peer_id: int, display_name: String, message: String) -> void:
+	chat_received.emit(peer_id, display_name, message)
+	if RoomState.online and RoomState.is_host:
+		_chat.rpc(peer_id, display_name, message)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _chat(peer_id: int, display_name: String, message: String) -> void:
+	var clean := _sanitize_chat(message)
+	if clean.is_empty():
+		return
+	chat_received.emit(peer_id, display_name.strip_edges().substr(0, 32), clean)
+
+
+static func _sanitize_chat(text: String) -> String:
+	return text.replace("\r", " ").replace("\n", " ").strip_edges().substr(
+		0, MAX_CHAT_LENGTH)
 
 
 func _process(delta: float) -> void:
@@ -92,13 +139,22 @@ func _local_state() -> Dictionary:
 		"hiding_spot": controller.hidden_spot,
 		"in_safe_zone": controller.is_in_safe_zone(),
 		"noise": controller.noise,
-		"flashlight_on": controller.flashlight_enabled,
+		# Publish the actual rendered beam, including held-slot, charge and
+		# hunter-induced flicker state. A raw toggle made peers glow even when the
+		# local flashlight had been put away or temporarily cut out.
+		"flashlight_on": controller.flashlight != null and controller.flashlight.visible,
 		"sprinting": controller.movement_mode == "sprint" and controller.noise > 0.0,
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
 		"selected_item": controller.selected_inventory_item(),
+		"selected_inventory_slot": controller.selected_inventory_slot,
 		"owned_items": controller.inventory_owned_snapshot(),
 		"item_durability": controller.inventory_durability_snapshot(),
+		"inventory_order": controller.inventory_order_snapshot(),
+		"inventory_slot_durability": controller.inventory_slot_durability_snapshot(),
+		"inventory_free_slots": controller.inventory_order_snapshot().count(""),
+		"inventory_capacity": controller.inventory_capacity(),
+		"equipped_backpack": controller.equipped_backpack,
 		"display_name": RoomState.local_display_name(),
 		"player_hue": Settings.player_hue_degrees,
 		"admin_skin": Backend.admin_authorized(),
@@ -176,9 +232,11 @@ func _place(state: Dictionary) -> void:
 			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
+		_attach_remote_flashlight(id, body)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	body.visible = bool(state.get("visible", true))
+	_sync_remote_flashlight(id, body, state)
 	var clip := String(state.get("clip", "idle"))
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
@@ -212,6 +270,33 @@ func _add_name_tag(body: Node3D, display_name: String) -> void:
 	label.outline_size = 5
 	label.modulate = Color(0.78, 0.92, 0.94, .94)
 	body.add_child(label)
+
+
+func _attach_remote_flashlight(id: int, body: Node3D) -> SpotLight3D:
+	var light := SpotLight3D.new()
+	light.name = "PeerFlashlight"
+	light.position = Vector3(.08, 1.55, -.15)
+	light.light_color = Color.WHITE
+	light.light_energy = 7.0
+	light.spot_range = PlayerController3D.FLASHLIGHT_MAX_RANGE
+	light.spot_angle = 30.0
+	light.spot_angle_attenuation = 1.4
+	light.shadow_enabled = true
+	light.shadow_bias = .3
+	light.shadow_normal_bias = 1.0
+	light.visible = false
+	body.add_child(light)
+	_remote_flashlights[id] = light
+	return light
+
+
+func _sync_remote_flashlight(id: int, body: Node3D, state: Dictionary) -> void:
+	var light := _remote_flashlights.get(id) as SpotLight3D
+	if light == null:
+		light = _attach_remote_flashlight(id, body)
+	light.visible = body.visible and bool(state.get("flashlight_on", false)) \
+		and String(state.get("selected_item", "")) == "flashlight" \
+		and float(state.get("lamp_charge", 0.0)) > 0.0
 
 
 func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
@@ -248,6 +333,7 @@ func _drop(id: int) -> void:
 	_positions.erase(id)
 	_facings.erase(id)
 	_step_distances.erase(id)
+	_remote_flashlights.erase(id)
 	_states.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)
@@ -333,6 +419,31 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
 			continue
 		result.append(state.duplicate(true))
+	return result
+
+
+## Map-safe view of fresh remote transforms. The caller supplies the same
+## depth value that is replicated in movement packets, preventing teammates on
+## upper/lower floors from leaking onto the current floor's map.
+func remote_player_marks(depth: int) -> Array:
+	var result := []
+	var now := Time.get_ticks_usec()
+	for id_value in _states:
+		var id := int(id_value)
+		var state: Dictionary = _states[id]
+		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC \
+				or int(state.get("depth", -999999)) != depth:
+			continue
+		var position = state.get("position")
+		if not position is Vector2:
+			continue
+		result.append({
+			"peer_id": id,
+			"at": position,
+			"facing": state.get("facing", Vector2.UP),
+			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
+			"level": -depth,
+		})
 	return result
 
 
@@ -459,7 +570,7 @@ func _request_interaction(event: Dictionary) -> void:
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
 			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
-			"stream_checkpoint"].has(what):
+			"stream_checkpoint", "stream_drop", "stream_sabotage"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":
@@ -474,10 +585,19 @@ func _request_interaction(event: Dictionary) -> void:
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
 	elif what == "admin_world":
 		var action := String(event.get("action", ""))
-		if not ["grant_relay", "all_relays", "rebuild", "descend"].has(action):
+		if not ["grant_relay", "all_relays", "rebuild", "descend",
+				"stun_hunters", "wake_hunters", "calm_hunters",
+				"damage_checkpoint", "repair_checkpoint", "lights_on",
+				"lights_off", "summon_hunter", "remove_hunter"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
+		if action in ["summon_hunter", "remove_hunter"]:
+			var hunter_id := String(event.get("hunter_id", ""))
+			if not HunterRoster.A_Z_IDS.has(hunter_id) \
+					and not HunterRoster.VOID_IDS.has(hunter_id):
+				return
+			accepted["hunter_id"] = hunter_id
 	else:
 		accepted = event.duplicate(true)
 	accepted["peer_id"] = sender

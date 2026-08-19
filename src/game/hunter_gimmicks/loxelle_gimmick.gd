@@ -33,9 +33,19 @@ var _charge_phase := ""
 var _charge_cell := Vector2i(-1, -1)
 var _charge_timer := 0.0
 var _charge_candidate := {}
+## Chase-only room-door breach. This is separate from the passive locker
+## charge so opening an ordinary door can never accidentally burn a hiding
+## spot or inherit its long post-impact stun.
+var _door_charge_phase := ""
+var _door_charge_id := ""
+var _door_charge_position := Vector2.ZERO
+var _door_charge_timer := 0.0
 
 
-func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
+	if not _door_charge_phase.is_empty():
+		_update_door_charge(brain, delta, generator)
+		return
 	# Zephyra's pesticide trade pauses her passive routine entirely --
 	# regeneration included, matching the original's full early-return.
 	if bool(target.get("pesticide_active", false)):
@@ -55,7 +65,7 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, gene
 	if brain.next_random_index(1000) >= int(GameConfig.LOXELLE_CHANCE * 1000.0):
 		return
 
-	var room := generator.room_at(brain.position.x, brain.position.y)
+	var room: Dictionary = generator.room_at(brain.position.x, brain.position.y)
 	if room.is_empty():
 		return
 	var candidate := _nearest_live_spot(brain.position, generator, String(room["id"]))
@@ -73,7 +83,7 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, gene
 
 
 func _update_charge(brain: HunterBrain, delta: float, target: Dictionary,
-		generator: FacilityGenerator) -> void:
+		generator) -> void:
 	var impact := Vector2(_charge_cell) + Vector2(.5, .5)
 	brain.state = HunterBrain.State.INVESTIGATE
 	brain.has_last_known = true
@@ -105,7 +115,7 @@ func _update_charge(brain: HunterBrain, delta: float, target: Dictionary,
 
 
 func _resolve_charge(brain: HunterBrain, target: Dictionary,
-		generator: FacilityGenerator) -> void:
+		generator) -> void:
 	var occupied := bool(target.get("hidden", false)) \
 		and Vector2i(target.get("hiding_spot", Vector2i(-1, -1))) == _charge_cell
 	if occupied:
@@ -123,8 +133,60 @@ func _resolve_charge(brain: HunterBrain, target: Dictionary,
 	brain.apply_stun(GameConfig.LOXELLE_BREAK_STALL)
 
 
+func start_door_breach(brain: HunterBrain, door_id: String,
+		door_position: Vector2) -> bool:
+	if door_id.is_empty() or brain.state != HunterBrain.State.CHASE \
+			or not _charge_phase.is_empty() or not _door_charge_phase.is_empty():
+		return false
+	_door_charge_id = door_id
+	_door_charge_position = door_position
+	_door_charge_phase = "windup"
+	_door_charge_timer = GameConfig.LOXELLE_CHARGE_WINDUP
+	var facing := door_position - brain.position
+	if facing.length_squared() > .0001:
+		brain.facing = facing.normalized()
+	return true
+
+
+func _update_door_charge(brain: HunterBrain, delta: float, generator) -> void:
+	brain.state = HunterBrain.State.CHASE
+	match _door_charge_phase:
+		"windup":
+			_door_charge_timer -= delta
+			var facing := _door_charge_position - brain.position
+			if facing.length_squared() > .0001:
+				brain.facing = facing.normalized()
+			if _door_charge_timer <= 0.0:
+				_door_charge_phase = "charge"
+				_door_charge_timer = minf(.42, GameConfig.LOXELLE_CHARGE_SECONDS)
+		"charge":
+			_door_charge_timer -= delta
+			var offset := _door_charge_position - brain.position
+			if offset.length() > GameConfig.LOXELLE_CHARGE_IMPACT_DISTANCE:
+				var travel := minf(GameConfig.LOXELLE_CHARGE_SPEED * delta,
+					offset.length())
+				var direction := offset.normalized()
+				brain.facing = direction
+				var next := brain.position + direction * travel
+				if generator.can_occupy(next.x, next.y, brain.radius):
+					brain.position = next
+			if brain.position.distance_to(_door_charge_position) \
+					<= GameConfig.LOXELLE_CHARGE_IMPACT_DISTANCE \
+					or _door_charge_timer <= 0.0:
+				brain.world_events.append({"what": "room_door",
+					"door_id": _door_charge_id, "open": true, "broken": true})
+				_door_charge_phase = ""
+				_door_charge_id = ""
+				_door_charge_timer = 0.0
+				brain.apply_stun(.65)
+
+
+func door_charge_active() -> bool:
+	return not _door_charge_phase.is_empty()
+
+
 func charge_active() -> bool:
-	return _charge_phase in ["windup", "charge"]
+	return _charge_phase in ["windup", "charge"] or door_charge_active()
 
 
 func holds_position() -> bool:
@@ -134,12 +196,18 @@ func holds_position() -> bool:
 
 
 func network_state() -> Dictionary:
-	return {"charge_phase": _charge_phase, "charge_cell": _charge_cell}
+	return {"charge_phase": _charge_phase, "charge_cell": _charge_cell,
+		"door_charge_phase": _door_charge_phase,
+		"door_charge_id": _door_charge_id,
+		"door_charge_position": _door_charge_position}
 
 
 func apply_network_state(state: Dictionary) -> void:
 	_charge_phase = String(state.get("charge_phase", ""))
 	_charge_cell = state.get("charge_cell", Vector2i(-1, -1))
+	_door_charge_phase = String(state.get("door_charge_phase", ""))
+	_door_charge_id = String(state.get("door_charge_id", ""))
+	_door_charge_position = state.get("door_charge_position", Vector2.ZERO)
 
 
 func _tick_regeneration(delta: float) -> void:
@@ -150,7 +218,7 @@ func _tick_regeneration(delta: float) -> void:
 			toggles.append({"cell": cell, "disabled": false})
 
 
-func _nearest_live_spot(from: Vector2, generator: FacilityGenerator, room_id: String) -> Dictionary:
+func _nearest_live_spot(from: Vector2, generator, room_id: String) -> Dictionary:
 	var best := {}
 	var best_distance := INF
 	for spot in generator.hiding_spots:

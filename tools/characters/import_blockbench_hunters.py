@@ -29,6 +29,7 @@ from character_floor_lifts import (  # noqa: E402
     PLAYER_ANIMATION_GROUND_LIFTS,
 )
 from refine_hunter_animations import refine_hunter_animations
+from mc_to_hytale import repair_character_layers
 
 
 EXPECTED = {
@@ -36,6 +37,11 @@ EXPECTED = {
     "haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie",
     "opalie", "porcelle", "quirith", "ravelle", "solyth", "thessine",
     "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+}
+VOID_HUNTERS = {
+    "void_black", "void_blue", "void_brown", "void_cyan", "void_gray",
+    "void_green", "void_orange", "void_pink", "void_purple", "void_red",
+    "void_white", "void_yellow",
 }
 CANONICAL_CLIPS = {"idle", "walk", "chase", "sprint", "crouch"}
 
@@ -88,12 +94,16 @@ def main() -> int:
     parser.add_argument("source_dir", help="directory containing the reviewed *.bbmodel files")
     parser.add_argument("--outdir", default=DEFAULT_OUT)
     parser.add_argument("--only", help="comma-separated model names, e.g. Aki,Kathy")
+    parser.add_argument("--include-void", action="store_true",
+                        help="also refine and re-export the committed Void hunter sources")
     parser.add_argument("--include-player", action="store_true",
                         help="also re-export the committed mannequin source with the fixed exporter")
     args = parser.parse_args()
 
-    requested = {value.strip().lower() for value in args.only.split(",")} if args.only else EXPECTED
-    unknown = requested - EXPECTED
+    allowed = EXPECTED | VOID_HUNTERS
+    requested = {value.strip().lower() for value in args.only.split(",")} \
+        if args.only else EXPECTED | (VOID_HUNTERS if args.include_void else set())
+    unknown = requested - allowed
     if unknown:
         raise SystemExit("unknown hunter name(s): " + ", ".join(sorted(unknown)))
     sources = {}
@@ -109,6 +119,7 @@ def main() -> int:
         source_path = sources[slug]
         with open(source_path, encoding="utf8") as source_file:
             model = json.load(source_file)
+        repair_character_layers(model)
         refine_hunter_animations(model)
         clip_names = {str(animation.get("name", "")) for animation in model.get("animations", [])}
         missing_clips = CANONICAL_CLIPS - clip_names
@@ -122,6 +133,7 @@ def main() -> int:
         player_path = os.path.join(args.outdir, "mannequin.bbmodel")
         with open(player_path, encoding="utf8") as source_file:
             player = json.load(source_file)
+        repair_character_layers(player)
         missing_clips = CANONICAL_CLIPS - {str(animation.get("name", "")) for animation in player.get("animations", [])}
         if missing_clips:
             raise ValueError(f"{player_path}: missing canonical clips {sorted(missing_clips)}")

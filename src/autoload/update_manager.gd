@@ -117,6 +117,7 @@ var installing := false
 var downloaded_path := ""
 var staged_path := ""
 var status_message := ""
+var offline_mode := false
 
 var _manifest_request: HTTPRequest
 var _download_request: HTTPRequest
@@ -125,6 +126,7 @@ var _last_progress_percent := -1
 
 
 func _ready() -> void:
+	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
 	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
@@ -136,7 +138,7 @@ func _ready() -> void:
 	add_child(_download_request)
 	_download_request.request_completed.connect(_on_download_response)
 	set_process(false)
-	if DisplayServer.get_name() != "headless":
+	if DisplayServer.get_name() != "headless" and not offline_mode:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
 		_recheck_timer.wait_time = DEBUG_RECHECK_SECONDS \
@@ -151,6 +153,9 @@ func _on_recheck_timeout() -> void:
 	# Preserve a discovered or staged package. The timer exists to refresh an
 	# UP TO DATE result (and recover transient check failures), not reset an
 	# update that is already downloading or waiting to install.
+	if ready_to_install and _should_install_automatically():
+		install_update()
+		return
 	if checking or downloading or installing or not available.is_empty():
 		return
 	check()
@@ -172,6 +177,9 @@ func _process(_delta: float) -> void:
 
 
 func check() -> void:
+	if offline_mode:
+		_finish_check(false, false, "OFFLINE MODE")
+		return
 	if checking or downloading \
 			or _manifest_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		return
@@ -194,6 +202,24 @@ func check() -> void:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
 
 
+func enable_offline_mode() -> void:
+	offline_mode = true
+	if _recheck_timer != null:
+		_recheck_timer.stop()
+	if _manifest_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_manifest_request.cancel_request()
+	if _download_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_download_request.cancel_request()
+	checking = false
+	downloading = false
+	installing = false
+	available = {}
+	ready_to_install = false
+	check_complete = true
+	check_succeeded = false
+	_set_status("OFFLINE MODE")
+
+
 func platform_key() -> String:
 	if OS.has_feature("web"):
 		return "web"
@@ -201,6 +227,8 @@ func platform_key() -> String:
 		return "quest"
 	if OS.has_feature("windows") and OS.has_feature("xr"):
 		return "steamvr"
+	if OS.has_feature("windows") and OS.has_feature("legacy"):
+		return "windows_legacy"
 	if OS.has_feature("macos"):
 		return "macos"
 	if OS.has_feature("windows"):
@@ -349,6 +377,8 @@ func _prepare_verified_download() -> void:
 	if _should_install_automatically():
 		_set_status("UPDATE READY // RESTARTING")
 		install_update.call_deferred()
+	elif _gameplay_active():
+		_set_status("UPDATE READY // APPLIES AFTER RUN")
 	else:
 		_set_status("UPDATE READY // INSTALL & RESTART")
 
@@ -380,7 +410,7 @@ func install_update() -> void:
 	_set_status("INSTALLING UPDATE // RESTARTING")
 	var helper_pid := -1
 	var revision := String(available.get("revision", "")).to_lower()
-	if platform_key() in ["windows", "steamvr"]:
+	if platform_key() in ["windows", "windows_legacy", "steamvr"]:
 		var helper := "%s/apply-update.ps1" % UPDATE_ROOT
 		if not _write_text(helper, WINDOWS_HELPER):
 			_install_launch_failed()
@@ -435,7 +465,17 @@ func _download_failed(message: String) -> void:
 
 
 func _should_install_automatically() -> bool:
-	return update_required or Build.requires_update_gate()
+	# Downloading and unpacking are safe in the background; replacing the live
+	# executable/PCK is not. A mandatory/debug update therefore waits until the
+	# player leaves active gameplay, preserving the run rather than terminating
+	# it as soon as the periodic checker finishes.
+	return (update_required or Build.requires_update_gate()) \
+		and not _gameplay_active()
+
+
+func _gameplay_active() -> bool:
+	return get_tree() != null \
+		and not get_tree().get_nodes_in_group("gameplay_session").is_empty()
 
 
 func _refresh_web_build(force: bool) -> void:
@@ -498,7 +538,7 @@ static func _installation_layout(platform: String, executable_path: String,
 	if directory == null:
 		return {}
 	var launch := ""
-	if platform in ["windows", "steamvr"]:
+	if platform in ["windows", "windows_legacy", "steamvr"]:
 		for file in directory.get_files():
 			if file.get_extension().to_lower() == "exe":
 				launch = file

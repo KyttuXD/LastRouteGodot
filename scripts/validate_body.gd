@@ -158,6 +158,7 @@ func _every_hunter_model(host: Node) -> void:
 					"Loxelle has no locker charge animation")
 			if file == "aki.tscn":
 				await _audit_clip_floors(host, model, "hunter")
+				_audit_hunter_walk_stability()
 			for clip in HUNTER_CLIPS:
 				if not player.has_animation(clip):
 					_fail("%s has no '%s' clip" % [file, clip])
@@ -233,6 +234,50 @@ func _every_hunter_model(host: Node) -> void:
 	_expect(clipless.is_empty(), "no AnimationPlayer on: %s" % ", ".join(clipless))
 	print("  roster    %d character models, %.2f-%.2f m tall, rest floors %.3f-%.3f m"
 		% [checked, shortest, tallest, lowest_floor, highest_floor])
+
+
+## The feminine walk still has deliberate hip motion, but the old curves
+## stacked a 4.5-degree pelvis roll with counter-roll through Belly/Chest and
+## a large lateral translation. That made the entire hunter visibly wobble.
+func _audit_hunter_walk_stability() -> void:
+	var source := FileAccess.get_file_as_string(
+		"res://art/props-3d/characters/aki.bbmodel")
+	var model = JSON.parse_string(source)
+	if not model is Dictionary:
+		_fail("Aki's editable hunter source is not valid JSON")
+		return
+	var walk_animation: Dictionary = {}
+	for candidate in model.get("animations", []):
+		if String(candidate.get("name", "")).to_lower() == "walk":
+			walk_animation = candidate
+			break
+	if walk_animation.is_empty():
+		_fail("Aki's editable source has no walk animation")
+		return
+	var maximum_pelvis_roll := 0.0
+	var maximum_pelvis_shift := 0.0
+	var maximum_chest_roll := 0.0
+	for animator_value in walk_animation.get("animators", {}).values():
+		var animator: Dictionary = animator_value
+		var bone := String(animator.get("name", ""))
+		if bone not in ["Pelvis", "Chest"]:
+			continue
+		for keyframe_value in animator.get("keyframes", []):
+			var keyframe: Dictionary = keyframe_value
+			var points: Array = keyframe.get("data_points", [])
+			if points.is_empty():
+				continue
+			var point: Dictionary = points[0]
+			if bone == "Pelvis" and String(keyframe.get("channel", "")) == "rotation":
+				maximum_pelvis_roll = maxf(maximum_pelvis_roll, absf(float(point.get("z", 0.0))))
+			elif bone == "Pelvis" and String(keyframe.get("channel", "")) == "position":
+				maximum_pelvis_shift = maxf(maximum_pelvis_shift, absf(float(point.get("x", 0.0))))
+			elif bone == "Chest" and String(keyframe.get("channel", "")) == "rotation":
+				maximum_chest_roll = maxf(maximum_chest_roll, absf(float(point.get("z", 0.0))))
+	_expect(maximum_pelvis_roll <= 1.5 and maximum_pelvis_shift <= .4 \
+			and maximum_chest_roll <= .7,
+		"hunter walk still wobbles (pelvis roll %.2f, shift %.2f, chest roll %.2f)"
+			% [maximum_pelvis_roll, maximum_pelvis_shift, maximum_chest_roll])
 
 
 ## Rest-pose alignment can pass while an animated foot still cuts through the

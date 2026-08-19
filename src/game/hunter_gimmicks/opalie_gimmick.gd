@@ -24,11 +24,11 @@ var station := Vector2.ZERO
 var on_station := false
 
 
-func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
 	if generator.relays.is_empty():
 		return
 	var relay: Dictionary = generator.relays[0]
-	var open := generator.nearest_open_position(
+	var open: Dictionary = generator.nearest_open_position(
 		relay["x"] + 0.5, relay["y"] + 0.5, brain.radius)
 	if open.is_empty():
 		return

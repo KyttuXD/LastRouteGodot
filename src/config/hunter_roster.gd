@@ -92,11 +92,53 @@ const IMPLEMENTED_IDS := [
 ## whichever route hunter was drawn, which is why main_3d.gd keeps a
 ## collection of hunters rather than one.
 const SPECIAL_IDS := ["nyxie", "solyth"]
+## Complete letter roster in display/alphabet order. Keeping this explicit
+## gives debug/admin tooling one canonical source rather than reconstructing
+## A-Z from the weighted random pool (which intentionally excludes specials).
+const A_Z_IDS := [
+	"aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra",
+	"haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie",
+	"opalie", "porcelle", "quirith", "ravelle", "solyth", "thessine",
+	"umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+]
 const VOID_IDS := [
 	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray",
 	"void_green", "void_orange", "void_pink", "void_purple", "void_red",
 	"void_white", "void_yellow",
 ]
+## Office Mode's ten named signals mapped onto their maze hunter models. They
+## join Infinite as rare incursions; after the route has durably admitted one
+## hunter for every A-Z slot, later admissions raise their chance rather than
+## replacing the ordinary roster wholesale.
+const OFFICE_VOID_IDS := [
+	"void_red", "void_blue", "void_yellow", "void_green", "void_pink",
+	"void_orange", "void_purple", "void_white", "void_gray", "void_black",
+]
+const A_Z_ROSTER_SIZE := 26
+
+## The glow attachment samples the same iris pixel displayed on the authored
+## 8x8 Minecraft face (front-face UV x=10, y=14). Keeping this derived from the
+## imported skin means palette edits in Blockbench automatically reach gameplay
+## and avoids maintaining a second, easily stale list of 26 eye colours.
+static var _eye_glow_color_cache := {}
+
+
+static func eye_glow_color(id: String) -> Color:
+	if not A_Z_IDS.has(id):
+		return Color.WHITE
+	if _eye_glow_color_cache.has(id):
+		return _eye_glow_color_cache[id]
+	var texture := load("res://art/props-3d/characters/%s_0.png" % id) as Texture2D
+	var color := Color("d9f7ff")
+	if texture != null:
+		var image := texture.get_image()
+		if image != null and image.get_width() > 10 and image.get_height() > 14:
+			if image.is_compressed():
+				image.decompress()
+			color = image.get_pixel(10, 14)
+			color.a = 1.0
+	_eye_glow_color_cache[id] = color
+	return color
 
 ## NORMAL_ROUTE_HUNTER_WEIGHTS from the original, plus Hard at the exact
 ## Standard/Nightmare midpoint. Nightmare's row is retained for its future
@@ -125,6 +167,11 @@ static func get_identity(id: String) -> Dictionary:
 			"res://art/props-3d/characters/%s.tscn" % key)),
 		"category": String(profile.get("category", "az")),
 	}
+
+
+static func office_void_for(seed_text: String) -> String:
+	var rng := SeededRandom.new("%s:OFFICE-VOID" % seed_text)
+	return OFFICE_VOID_IDS[rng.next_index(OFFICE_VOID_IDS.size())]
 
 
 ## A Void is an occasional additional pressure hunter, never a replacement for

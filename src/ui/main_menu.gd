@@ -11,9 +11,10 @@ extends Control
 
 @onready var play_button: Button = %PlayButton
 @onready var join_button: Button = %JoinButton
+@onready var offline_button: Button = %OfflineButton
 @onready var settings_button: Button = %SettingsButton
 @onready var account_button: Button = %AccountButton
-@onready var changelog_button: Button = %ChangelogButton
+@onready var tutorial_button: Button = %TutorialButton
 @onready var quit_button: Button = %QuitButton
 @onready var update_button: Button = %UpdateButton
 @onready var version_label: Label = %VersionLabel
@@ -48,11 +49,13 @@ func _ready() -> void:
 	# that can be sure the cursor should be free.
 	MouseLock.release_all()
 	_apply_palette()
+	_build_local_saves_button()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
+	offline_button.pressed.connect(_on_offline_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	account_button.pressed.connect(_on_account_pressed)
-	changelog_button.pressed.connect(_on_changelog_pressed)
+	tutorial_button.pressed.connect(_on_tutorial_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
 	update_button.pressed.connect(_on_update_pressed)
 	UpdateManager.update_available.connect(_on_update_available)
@@ -79,6 +82,97 @@ func _ready() -> void:
 			UpdateManager.check()
 	if not UpdateManager.status_message.is_empty():
 		_on_update_status(UpdateManager.status_message)
+	_focus_default_button.call_deferred()
+
+
+func _build_local_saves_button() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
+	if box == null or box.has_node("LocalSavesButton"):
+		return
+	var button := Button.new()
+	button.name = "LocalSavesButton"
+	button.text = "LOAD LOCAL SAVE"
+	button.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(button, false, true)
+	button.pressed.connect(_on_local_saves_pressed)
+	box.add_child(button)
+	box.move_child(button, mini(offline_button.get_index() + 1,
+		box.get_child_count() - 1))
+
+
+func _on_local_saves_pressed() -> void:
+	_close_modal()
+	var content := _modal_content("ROUTE ARCHIVE // LOCAL", "LOAD SAVED ROUTE",
+		Vector2(390, 242))
+	var note := _modal_label(
+		"TITLE-SCREEN LOAD RESUMES OFFLINE. ONLINE ROOM SAVES REMAIN HOST-AUTHORITATIVE.",
+		Palette.MUTED, 7)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(note)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.name = "LocalSaveList"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 4)
+	scroll.add_child(list)
+	var status := _modal_label("", Palette.ALERT, 7)
+	status.name = "LocalSaveStatus"
+	content.add_child(status)
+	var slots := RunSaves.list_slots()
+	if slots.is_empty():
+		list.add_child(_modal_label("NO LOCAL SAVES", Palette.MUTED, 8))
+		return
+	for value in slots:
+		var slot: Dictionary = value
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		list.add_child(row)
+		var details := _modal_label("%s\nLEVEL %+d // %s // %s" % [
+			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
+			String(slot.get("difficulty", "STANDARD")),
+			_format_save_duration(float(slot.get("elapsed_seconds", 0.0)))],
+			Palette.BODY, 7)
+		details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(details)
+		var load_button := _modal_button("LOAD", true)
+		load_button.pressed.connect(_load_local_save.bind(
+			String(slot.get("slot_id", ""))))
+		row.add_child(load_button)
+
+
+func _load_local_save(slot_id: String) -> void:
+	var result := RunSaves.queue_load(slot_id)
+	if not bool(result.get("ok", false)):
+		var status := _modal.find_child("LocalSaveStatus", true, false) as Label \
+			if _modal != null else null
+		if status != null:
+			status.text = String(result.get("message", "SAVE LOAD FAILED"))
+		return
+	var payload: Dictionary = result.get("payload", {})
+	Backend.enable_offline_mode()
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
+	RoomState.map_scale = RoomState.Scale.INFINITE
+	RoomState.difficulty = clampi(int(payload.get("difficulty",
+		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
+		RoomState.Difficulty.HARD)
+	RoomState.status_message = "LOCAL SAVE READY // %s" % String(
+		result.get("name", "ROUTE"))
+	_close_modal()
+	RoomState.enter(get_tree())
+
+
+func _format_save_duration(seconds: float) -> String:
+	var total := maxi(0, floori(seconds))
+	return "%02d:%02d:%02d" % [total / 3600, (total / 60) % 60, total % 60]
+
+
+func _focus_default_button() -> void:
+	var preferred := offline_button if play_button.disabled else play_button
+	if preferred != null and preferred.visible and not preferred.disabled:
+		preferred.grab_focus()
 
 
 ## Restyle from Palette at load rather than in the scene file.
@@ -105,8 +199,9 @@ func _apply_palette() -> void:
 		if button != null:
 			Palette.style_button(button, true, true)
 	for path in ["ButtonPanel/ButtonBox/SettingsButton",
+			"ButtonPanel/ButtonBox/OfflineButton",
 			"ButtonPanel/ButtonBox/AccountButton",
-			"ButtonPanel/ButtonBox/ChangelogButton",
+			"ButtonPanel/ButtonBox/TutorialButton",
 			"ButtonPanel/ButtonBox/UpdateButton",
 			"ButtonPanel/ButtonBox/QuitButton"]:
 		var button := get_node_or_null(path) as Button
@@ -142,6 +237,17 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 		RoomState.host_primary_room()
 	else:
 		RoomState.status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM"
+	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+func _on_offline_pressed() -> void:
+	# Explicitly bypasses health, directory, account, and periodic update traffic.
+	# It remains available when the online update gate is waiting so a local test
+	# does not depend on the Pterodactyl deployment matching the worktree.
+	Backend.enable_offline_mode()
+	UpdateManager.enable_offline_mode()
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.status_message = "OFFLINE SOLO ROOM"
 	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
 
 
@@ -471,22 +577,25 @@ func _refresh_account_button() -> void:
 		else "REGISTER / SIGN IN"
 
 
-func _on_changelog_pressed() -> void:
+func _on_tutorial_pressed() -> void:
 	_close_modal()
-	var content := _modal_content("ARCHIVED PLAYER PATCHES", "CHANGELOG", Vector2(360, 220))
+	var content := _modal_content("ROUTE TRAINING // REFERENCE", "HOW TO PLAY",
+		Vector2(380, 228))
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(scroll)
 	var notes := _modal_label(
-		"DEBUG 0.0.1.0\n\n• Primary-server gameplay relay removes router forwarding.\n"
-		+ "• Player and hunter animation rotation corrected.\n"
-		+ "• Crouching now fades the character instead of using the old pose.\n"
-		+ "• Original menu, staging, settings, account and dual-frame styling restored.\n"
-		+ "• Account login, restart-safe sessions and solo route Continue/Clear are live.\n"
-		+ "• Threaded route loading shows configuration/tips and covers guest snapshot sync.\n"
-		+ "• Run reports replace timed resets; Account Settings can rename/change passwords.\n"
-		+ "• Persistent account and checkpoint data stays under ignored .data storage.\n\n"
-		+ "Version numbers remain fixed until an explicit bump is requested.", Palette.BODY, 7)
+		"OBJECTIVE\n"
+		+ "Explore the route and recover signal relays. Relaxed wakes a hunter after relay 3, Standard after relay 1, and Hard begins with an active hunter. Deeper floors become more dangerous.\n\n"
+		+ "SURVIVAL\n"
+		+ "The green marker is your starting safe zone. Other safe rooms become checkpoints, but hunters can breach them. A pulsing pixel-crimson screen edge replaces the old danger bar and intensifies when a hunter closes in or begins a chase. Stairs and ladders connect floors; upper levels are generally safer.\n\n"
+		+ "MOVEMENT + VIEW\n"
+		+ "WASD move, Shift sprints, C crouches, Space jumps, and the mouse looks. F1 hides or restores the gameplay HUD for a clean view. On a controller, use the left stick to move, right stick to look, A to jump, B to crouch, and left-stick click to sprint. M or View opens the discovered map. Place a waypoint on discovered floor space to draw a teal GPS route on the map and ground. The minimap shows only your current discovered floor.\n\n"
+		+ "ITEMS + INVENTORY\n"
+		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item.\n\n"
+		+ "CO-OP\n"
+		+ "Create an online room for friends, join with its five-character code, or choose Play Offline for a server-free solo test. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
+		Palette.BODY, 7)
 	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notes.custom_minimum_size = Vector2(320, 0)
 	scroll.add_child(notes)
@@ -588,6 +697,7 @@ func _clear_route_update_lock() -> void:
 	play_button.text = "CREATE ROOM"
 	join_button.disabled = false
 	join_button.text = "JOIN ROOM"
+	_focus_default_button.call_deferred()
 
 
 func _on_update_available(update: Dictionary) -> void:

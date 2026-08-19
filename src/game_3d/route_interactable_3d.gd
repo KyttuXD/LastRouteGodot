@@ -23,6 +23,8 @@ enum Kind {
 	BOARDED_PATH,
 	TOOL_PICKUP,
 	LIGHT_SWITCH,
+	FURNITURE,
+	ROOM_DOOR,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -54,6 +56,10 @@ const TOOL_PICKUP_MODELS := {
 	"lockpick": "res://art/props-3d/interactables/lockpick_set.glb",
 	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
 	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
+	"battery": "res://art/props-3d/interactables/battery.glb",
+	"backpack_small": "res://art/props-3d/interactables/backpack_small.glb",
+	"backpack_medium": "res://art/props-3d/interactables/backpack_medium.glb",
+	"backpack_large": "res://art/props-3d/interactables/backpack_large.glb",
 }
 const LOCKED_CACHE_MODELS := {
 	"crate": "res://art/props-3d/interactables/locked_relay_crate.glb",
@@ -114,6 +120,18 @@ var light_resolver: Callable
 ## so a guest cannot grant herself an item before the host awards the stable
 ## entity id. Fixed-route interactables leave it invalid.
 var activation_override: Callable
+## Region dressing can expose a lightweight personal pose without becoming a
+## shared mutable world object. Valid actions are sit, lay and mirror.
+var furniture_action := ""
+## Lets the controller replace routine failure text with one consistent sound
+## without guessing from the wording returned by every interaction kind.
+var last_activation_failed := false
+## Streamed residential door only.  The deterministic id is the durable room
+## authority key; the generated model path selects normal/luxury/Gothic art.
+var room_door_id := ""
+var room_door_model_path := ""
+var room_door_open := false
+var room_door_broken := false
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -123,13 +141,27 @@ var _visual: Node3D
 ## a crosshair for tall lockers/lifts as well as low batteries and vents.
 var _interaction_focus_local := Vector3(0.0, 0.65, 0.0)
 var _board_piece_nodes := {}
+## The authored locker is hollow and its door has real eye-level sight cracks.
+## Keep this flag for local lighting/camera treatment, but no longer erase the
+## complete shell: the restricted crack view is now the point of hiding.
+var _local_hiding_view_open := false
+var _door_hinge: Node3D
+var _door_collision: CollisionShape3D
+var _door_target_y := 0.0
+var _door_target_x := 0.0
 
 
 func _ready() -> void:
 	add_to_group("interactable")
+	if kind == Kind.ROOM_DOOR:
+		_ready_room_door()
+		return
+	if kind == Kind.FURNITURE:
+		_interaction_focus_local = Vector3(0.0, .75, 0.0)
+		return
 
 	var model_path := String(MODEL_SCENES.get(kind, ""))
-	_visual = ModelSlot.instantiate(model_path) if not model_path.is_empty() else null
+	_visual = ModelSlot.instantiate_prop(model_path) if not model_path.is_empty() else null
 	if _visual:
 		add_child(_visual)
 		_cache_interaction_focus()
@@ -147,8 +179,48 @@ func _ready() -> void:
 	_refresh_visual()
 
 
+func _process(delta: float) -> void:
+	if kind != Kind.ROOM_DOOR or _door_hinge == null:
+		return
+	# A damped hinge avoids abrupt state pops when a reliable co-op event or a
+	# late-join snapshot arrives.  Broken doors pitch down from the floor-level
+	# authored hinge rather than simply disappearing.
+	var weight := 1.0 - exp(-delta * 9.0)
+	_door_hinge.rotation.y = lerp_angle(_door_hinge.rotation.y,
+		_door_target_y, weight)
+	_door_hinge.rotation.x = lerp_angle(_door_hinge.rotation.x,
+		_door_target_x, weight)
+
+
 func interaction_focus() -> Vector3:
 	return global_transform * _interaction_focus_local
+
+
+func hiding_inside_position() -> Vector3:
+	# The authored door faces local -Z after the wrapper's orientation fix. The
+	# fixture origin is centred in its depth, which left the first-person near
+	# plane intersecting the door panel. Sit toward the +Z/back wall instead: the
+	# player still looks through the real eye-level slats, but the door no longer
+	# fills or clips across the camera.
+	return global_transform * Vector3(0.0, 0.02, 0.18)
+
+
+func hiding_outward_yaw() -> float:
+	# The wrapper corrects the locker's authored +Z door to the fixture's -Z
+	# convention. Player forward is also -Z, so matching the fixture yaw starts
+	# the camera at the opening rather than staring through its back panel.
+	return global_rotation.y
+
+
+func set_local_hiding_view(open: bool) -> void:
+	if kind != Kind.HIDING_SPOT:
+		return
+	_local_hiding_view_open = open
+	_refresh_visual()
+
+
+func local_hiding_view_open() -> bool:
+	return _local_hiding_view_open
 
 
 func _cache_interaction_focus() -> void:
@@ -172,6 +244,10 @@ func _collect_mesh_bounds(node: Node, boxes: Array[AABB]) -> void:
 
 
 func get_prompt() -> String:
+	if kind == Kind.ROOM_DOOR:
+		if room_door_broken:
+			return ""
+		return "CLOSE DOOR" if room_door_open else "OPEN DOOR"
 	if kind == Kind.RELAY and sabotaged:
 		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"
 	if completed or disabled:
@@ -185,6 +261,12 @@ func get_prompt() -> String:
 			tool_item_id, tool_item_id)).to_upper()
 	if kind == Kind.LIGHT_SWITCH:
 		return "TURN ROOM LIGHT %s" % ("OFF" if light_enabled else "ON")
+	if kind == Kind.FURNITURE:
+		match furniture_action:
+			"lay": return "LIE DOWN"
+			"sit": return "SIT DOWN"
+			"mirror": return "LOOK INTO MIRROR"
+			_: return ""
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
 			return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
@@ -194,10 +276,19 @@ func get_prompt() -> String:
 
 
 func activate(player: PlayerController3D) -> String:
-	if completed:
-		return "Already collected."
+	last_activation_failed = false
 	if activation_override.is_valid():
 		return String(activation_override.call(player))
+	if kind == Kind.ROOM_DOOR:
+		if room_door_broken:
+			return _fail("The door has been torn from its frame.")
+		apply_room_door_state(not room_door_open, false)
+		changed.emit({"what": "room_door", "door_id": room_door_id,
+			"open": room_door_open, "broken": false})
+		Sound.door(room_door_open)
+		return ""
+	if completed:
+		return _fail("Already collected.")
 	if kind == Kind.RELAY and locked_cache:
 		return activate_with_tool(player, player.selected_inventory_item())
 	if kind == Kind.BOARDED_PATH:
@@ -208,28 +299,25 @@ func activate(player: PlayerController3D) -> String:
 			_take()
 			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
-			return "Signal relay recovered."
+			return ""
 		Kind.BATTERY:
+			if not player.grant_inventory_item("battery"):
+				return _fail("INVENTORY FULL")
 			_take()
-			# The charge is the one part that is NOT shared: the battery leaves
-			# the floor for everyone, but it goes in the lamp of whoever walked
-			# to it.
-			player.restore_lamp(GameConfig.BATTERY_RECHARGE)
-			Sound.recharge(GameConfig.BATTERY_RECHARGE)
+			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
-			return "Battery recovered: +%d%% lamp." % int(GameConfig.BATTERY_RECHARGE)
+			return ""
 		Kind.COIN:
 			_take()
 			Sound.collect()
 			changed.emit({"what": "pickup", "cell": source_cell, "kind": kind})
-			return "Coins recovered: +%d." % GameConfig.COIN_PICKUP_VALUE
+			return ""
 		Kind.TOOL_PICKUP:
 			if tool_item_id.is_empty() or not player.grant_inventory_item(tool_item_id):
-				return "EQUIPMENT PICKUP INVALID"
+				return _fail("EQUIPMENT PICKUP INVALID")
 			_take()
 			Sound.collect()
-			return "%s COLLECTED" % String(PlayerController3D.INVENTORY_LABELS.get(
-				tool_item_id, tool_item_id)).to_upper()
+			return ""
 		Kind.LIGHT_SWITCH:
 			light_enabled = not light_enabled
 			var message := "ROOM LIGHT %s" % ("ON" if light_enabled else "OFF")
@@ -238,6 +326,10 @@ func activate(player: PlayerController3D) -> String:
 			changed.emit({"what": "room_light", "cell": source_cell,
 				"light_id": light_id, "enabled": light_enabled})
 			return message
+		Kind.FURNITURE:
+			if furniture_action == "mirror":
+				return "MIRROR VIEW // MOVE AWAY TO CLOSE"
+			return player.use_furniture(self, furniture_action)
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
 			Sound.recharge(20.0)
@@ -250,8 +342,8 @@ func activate(player: PlayerController3D) -> String:
 			# The locker mesh owns the hiding location. Cache the approach point as
 			# the exit before moving the authoritative body into the cabinet; its
 			# replicated transform then places co-op runners there too.
-			return player.enter_hiding(source_cell,
-				global_position + Vector3(0.0, 0.02, 0.0), player.global_position)
+			return player.enter_hiding(source_cell, hiding_inside_position(),
+				player.global_position, self)
 		Kind.MUSIC_BOX:
 			# Never completes either -- winding it is a thing you keep doing,
 			# not a thing you finish. Resolved by whoever owns Glyra's gimmick
@@ -260,7 +352,7 @@ func activate(player: PlayerController3D) -> String:
 			if player.music_box_resolver.is_valid():
 				Sound.music_box()
 				return String(player.music_box_resolver.call())
-			return "Nothing happens."
+			return _fail("Nothing happens.")
 		Kind.VENT:
 			# Never completes, and the prompt stays the same coming or going --
 			# a simplification of the original's context-sensitive text, which
@@ -269,12 +361,12 @@ func activate(player: PlayerController3D) -> String:
 			# business knowing what a hunter is.
 			if player.vent_resolver.is_valid():
 				return String(player.vent_resolver.call(vent_id))
-			return "Nothing happens."
+			return _fail("Nothing happens.")
 		Kind.LIFT:
 			if GameState.relays_collected < GameState.relay_target:
-				return "The service lift has no route signal."
+				return _fail("The service lift has no route signal.")
 			if GameState.relays_sabotaged > 0:
-				return "The service lift has no route signal — a relay is offline."
+				return _fail("The service lift has no route signal — a relay is offline.")
 			GameState.descend()
 			# The lift takes the whole shift down, not just the person who
 			# pressed the button -- a floor half the room has left is not a
@@ -302,17 +394,70 @@ func activate(player: PlayerController3D) -> String:
 			changed.emit({"what": "heater", "state": heater_state})
 			return message
 
-	return "Nothing happens."
+	return _fail("Nothing happens.")
+
+
+func _fail(message: String) -> String:
+	last_activation_failed = true
+	return message
+
+
+func configure_furniture(action: String) -> void:
+	furniture_action = action if action in ["sit", "lay", "mirror"] else ""
+
+
+func configure_room_door(door_id: String, model_path: String,
+		open: bool, broken: bool, requester: Callable = Callable()) -> void:
+	kind = Kind.ROOM_DOOR
+	room_door_id = door_id
+	room_door_model_path = model_path
+	room_door_open = open or broken
+	room_door_broken = broken
+	activation_override = requester
+
+
+func apply_room_door_state(open: bool, broken: bool) -> void:
+	if kind != Kind.ROOM_DOOR:
+		return
+	room_door_broken = broken
+	room_door_open = open or broken
+	_door_target_y = 0.0 if room_door_open else deg_to_rad(-68.0)
+	_door_target_x = deg_to_rad(82.0) if room_door_broken else 0.0
+	if _door_collision != null:
+		_door_collision.set_deferred("disabled", room_door_open)
+
+
+func _ready_room_door() -> void:
+	add_to_group("room_door")
+	prompt_text = "OPEN DOOR"
+	_visual = ModelSlot.instantiate_prop(room_door_model_path)
+	if _visual != null:
+		_visual.name = "AuthoredRoomDoor"
+		add_child(_visual)
+		_door_hinge = _visual.find_child("DoorHinge", true, false) as Node3D
+		_cache_interaction_focus()
+	if _door_hinge == null:
+		push_error("ROOM DOOR MODEL HAS NO DoorHinge // %s" % room_door_model_path)
+	_add_blocking_box(Vector3(.86, 2.02, .10), Vector3(0.0, 1.01, 0.0))
+	var barrier := find_child("ToolBarrier", false, false) as StaticBody3D
+	if barrier != null and barrier.get_child_count() > 0:
+		_door_collision = barrier.get_child(0) as CollisionShape3D
+	apply_room_door_state(room_door_open, room_door_broken)
+	# Initial chunks and snapshots should begin in their canonical pose; only
+	# subsequent state changes animate between it and the other state.
+	if _door_hinge != null:
+		_door_hinge.rotation.y = _door_target_y
+		_door_hinge.rotation.x = _door_target_x
 
 
 func activate_with_tool(player: PlayerController3D, item_id: String,
 		already_consumed: bool = false) -> String:
 	if kind == Kind.RELAY and locked_cache:
 		if not PlayerController3D.LOCK_TOOLS.has(item_id):
-			return "LOCKED CACHE // EQUIP LOCKPICK OR CROWBAR"
+			return _fail("LOCKED CACHE // EQUIP LOCKPICK OR CROWBAR")
 		if not already_consumed and not player.consume_item_durability(item_id):
-			return "%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
-				item_id, item_id)).to_upper()
+			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
+				item_id, item_id)).to_upper())
 		_take()
 		Sound.collect()
 		changed.emit({"what": "pickup", "cell": source_cell, "kind": kind,
@@ -320,12 +465,12 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		return "%s OPENED // SIGNAL RELAY RECOVERED" % cache_style.to_upper()
 	if kind == Kind.BOARDED_PATH:
 		if opened:
-			return "Path already cleared."
+			return _fail("Path already cleared.")
 		if not PlayerController3D.BREACH_TOOLS.has(item_id):
-			return "BOARDED PATH // EQUIP CROWBAR OR RESCUE AXE"
+			return _fail("BOARDED PATH // EQUIP CROWBAR OR RESCUE AXE")
 		if not already_consumed and not player.consume_item_durability(item_id):
-			return "%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
-				item_id, item_id)).to_upper()
+			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
+				item_id, item_id)).to_upper())
 		board_pieces_remaining = maxi(0, board_pieces_remaining - 1)
 		opened = board_pieces_remaining <= 0
 		_refresh_visual()
@@ -335,7 +480,7 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		if opened:
 			return "BOARDED PATH CLEARED // DURABILITY USED"
 		return "BOARD BROKEN // %d REMAIN // DURABILITY USED" % board_pieces_remaining
-	return "That tool cannot be used here."
+	return _fail("That tool cannot be used here.")
 
 
 func configure_locked_cache(style: String) -> void:
@@ -358,7 +503,7 @@ func configure_tool_pickup(item_id: String) -> void:
 	tool_item_id = item_id
 	if _visual:
 		_visual.queue_free()
-	_visual = ModelSlot.instantiate(String(TOOL_PICKUP_MODELS[item_id]))
+	_visual = ModelSlot.instantiate_prop(String(TOOL_PICKUP_MODELS[item_id]))
 	if _visual:
 		_visual.name = "AuthoredPickup_%s" % item_id
 		_visual.scale = Vector3.ONE * .72
@@ -377,7 +522,7 @@ func configure_boarded_variant(variant: String) -> void:
 	boarded_variant = "hallway"
 	if _visual:
 		_visual.queue_free()
-	_visual = ModelSlot.instantiate(BOARDED_HALLWAY_MODEL)
+	_visual = ModelSlot.instantiate_prop(BOARDED_HALLWAY_MODEL)
 	if _visual:
 		_visual.name = "BoardedHallwayModel"
 		add_child(_visual)
@@ -407,7 +552,7 @@ func configure_room_light(id: String, enabled: bool, resolver: Callable) -> void
 func _build_locked_cache_visual(style: String) -> Node3D:
 	var model_path := String(LOCKED_CACHE_MODELS.get(style,
 		LOCKED_CACHE_MODELS["crate"]))
-	var root := ModelSlot.instantiate(model_path)
+	var root := ModelSlot.instantiate_prop(model_path)
 	if root:
 		root.name = "LockedRelay%s" % style.to_pascal_case()
 		return root
@@ -616,7 +761,7 @@ func _refresh_visual() -> void:
 	if kind == Kind.BOARDED_PATH and not opened:
 		_refresh_board_pieces()
 	if _light:
-		_light.visible = not completed or sabotaged
+		_light.visible = (not completed or sabotaged) and not _local_hiding_view_open
 		if kind == Kind.RELAY:
 			_light.light_color = Color(0.95, 0.25, 0.25) if sabotaged else GLOW_COLORS[kind]
 	# Collision goes with it, so a collected relay is not still something the

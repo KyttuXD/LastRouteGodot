@@ -62,12 +62,13 @@ const STAMINA_EXHAUSTED_RECOVERY := 25.0
 const PLAYER_GRAVITY := 12.0
 const PLAYER_JUMP_VELOCITY := 3.0
 const LADDER_CLIMB_SPEED := 2.15
-## Landing faster than an ordinary hop or a snapped stair descent briefly
-## incapacitates the runner. This is deliberately a stun, not health damage:
-## Last Route's route mode has no hit-point economy to quietly undermine.
-const PLAYER_FALL_STUN_SPEED := 4.0
-const PLAYER_FALL_STUN_MIN_SECONDS := 0.75
-const PLAYER_FALL_STUN_MAX_SECONDS := 2.5
+## Ordinary room-height drops and imperfect stair transitions remain playable.
+## Only a near-full-level fall crosses this threshold, and even severe falls
+## produce a short recovery rather than the old multi-second input lock.
+const PLAYER_FALL_STUN_SPEED := 8.25
+const PLAYER_FALL_STUN_FULL_SPEED := 14.0
+const PLAYER_FALL_STUN_MIN_SECONDS := 0.4
+const PLAYER_FALL_STUN_MAX_SECONDS := 1.4
 
 ## Handheld taser. The firing player predicts only the first-person recoil;
 ## the room host owns hit testing and the resulting hunter stun in co-op.
@@ -88,7 +89,10 @@ const LAMP_IDLE_DRAIN := 0.8
 const LAMP_SPRINT_DRAIN := 0.35
 const BATTERY_RECHARGE := 25.0
 
-const INTERACTION_RANGE := 26.0
+## World reach remains aim- and wall-checked by PlayerController3D. The old
+## 26px value was under one 3D cell, forcing runners to press against lockers
+## and pickup models before their focus point became usable.
+const INTERACTION_RANGE := 72.0
 ## The local controller uses the narrower camera-relative angle for the
 ## crosshair target and also checks line of sight. The wider planar angle is
 ## retained as the host's inexpensive validation envelope for a remote guest:
@@ -125,7 +129,7 @@ const HUNTER_RADIUS := 0.22
 const MOVEMENT_STEP := 0.11
 
 const HUNTER_SEARCH_TIME := 3.2
-const HUNTER_REPATH_CHASE := 0.3
+const HUNTER_REPATH_CHASE := 0.24
 const HUNTER_REPATH_WANDER := 1.6
 const HUNTER_STAMINA_MAX := 100.0
 const HUNTER_STAMINA_CHASE_DRAIN := 14.0
@@ -133,14 +137,23 @@ const HUNTER_STAMINA_REGEN := 11.0
 const HUNTER_STAMINA_RECOVER := 40.0
 const HUNTER_WINDED_SPEED_SCALE := 0.62
 const HUNTER_SPAWN_DISTANCE_MIN := 12.0
-const HUNTER_LOST_SIGHT_GRACE := 0.45
-const HUNTER_SENSE_INTERVAL := 0.14
+const HUNTER_LOST_SIGHT_GRACE := 3.0
+const HUNTER_SENSE_INTERVAL := 0.10
+## A hunter with an unobstructed live sighting steers directly at the current
+## runner sample and gains enough pressure to beat ordinary walking, while a
+## sprint can still create distance at the cost of finite stamina.
+const HUNTER_VISIBLE_CHASE_SPEED_SCALE := 1.20
 
 ## Reduces a hunter's effective sight range while the player's own flashlight
 ## is off — staying dark is a real stealth advantage (ui-controller.js/
 ## hunter-ai.js's unlitSightScale). Room-power (unpoweredSightScale) isn't
 ## ported — no breaker system exists yet.
 const UNLIT_SIGHT_SCALE := 0.5
+## A lit flashlight is an emission source, not merely an absence of darkness.
+## Hunters can acquire its owner down a long unobstructed hall, while the
+## normal per-hunter sight profile still differentiates the roster.
+const FLASHLIGHT_SIGHT_SCALE := 3.0
+const FLASHLIGHT_SIGHT_MIN := 24.0
 
 ## Player noise emitted per frame by movement mode, consumed by hunter hearing.
 const NOISE_CROUCH := 0.9
@@ -149,6 +162,10 @@ const NOISE_SPRINT := 10.5
 ## Outer straight-line reject distance is HEARING_OUTER_SCALE * noise; the
 ## inner (real) hearing radius is walking distance <= noise, via pathfind().
 const HEARING_OUTER_SCALE := 1.45
+## In an open line of sight, sound does not have to travel the longer A* route
+## around room edges. This small boost is evaluated by the same throttled
+## perception ray and avoids an extra path search when the runner is exposed.
+const HEARING_OPEN_AIR_SCALE := 1.25
 
 ## Exposure meter (0-100): how detectable the runner is right now, eased
 ## toward a target computed from flashlight, movement noise and cover. Pure
@@ -318,10 +335,43 @@ const ESCAPE_COOLDOWN := 16.0
 const ESCAPE_GRACE := 1.5
 const ESCAPE_STUN_DURATION := 3.0
 
-## Relay index at which the (single, seeded) ordinary hunter activates —
-## ROUTE_HUNTER_ACTIVATION_SPACING from the original: activationRelay =
-## min((index+1)*spacing, relayCount), index 0 for the first/only hunter.
-const HUNTER_ACTIVATION_SPACING := 3
+## Relay gate for the first ordinary hunter. Hard begins under pressure,
+## Standard wakes on the first recovered signal, and Relaxed gives the player
+## time to learn the floor before the third relay wakes her.
+const HUNTER_ACTIVATION_RELAYS := {
+	"relaxed": 3,
+	"standard": 1,
+	"hard": 0,
+	"nightmare": 0,
+}
+
+## Infinite survival adds pressure gradually instead of waking every generated
+## hunter at the first activation relay. One hunter arrives at the ordinary
+## activation threshold, then additional hunters join at a difficulty-specific
+## relay cadence. The desired population has no fixed ceiling: distant bodies
+## still stream out, but continued relay recovery can keep adding pursuers.
+const STREAMED_HUNTER_RELAY_STEP := {
+	"relaxed": 3,
+	"standard": 2,
+	"hard": 1,
+	"nightmare": 1,
+}
+
+## Infinite-route pressure handled by Gray Void. The longer relay timer catches
+## active parties that avoid the objective; the shorter AFK timer catches a
+## party which remains stationary. A successful pressure spawn restarts both.
+const ANTI_IDLE_HUNTER_SECONDS := {
+	"relaxed": 300.0,
+	"standard": 210.0,
+	"hard": 120.0,
+	"nightmare": 90.0,
+}
+const ANTI_AFK_HUNTER_SECONDS := {
+	"relaxed": 180.0,
+	"standard": 120.0,
+	"hard": 75.0,
+	"nightmare": 60.0,
+}
 
 
 ## Haelith — relay pursuer (hunterAbilities.haelith.relayPursuer). Her only
@@ -441,6 +491,30 @@ const COIN_PICKUP_VALUE := 2
 
 static func difficulty_profile(id: String) -> Dictionary:
 	return DIFFICULTY_PROFILES.get(id, DIFFICULTY_PROFILES["standard"])
+
+
+static func hunter_activation_relay_count(id: String) -> int:
+	return int(HUNTER_ACTIVATION_RELAYS.get(id,
+		HUNTER_ACTIVATION_RELAYS["standard"]))
+
+
+static func streamed_hunter_population(id: String, relays_collected: int) -> int:
+	var difficulty := id if STREAMED_HUNTER_RELAY_STEP.has(id) else "standard"
+	var activation := hunter_activation_relay_count(difficulty)
+	if relays_collected < activation:
+		return 0
+	var step := maxi(1, int(STREAMED_HUNTER_RELAY_STEP[difficulty]))
+	return 1 + (relays_collected - activation) / step
+
+
+static func anti_idle_hunter_seconds(id: String) -> float:
+	return float(ANTI_IDLE_HUNTER_SECONDS.get(id,
+		ANTI_IDLE_HUNTER_SECONDS["standard"]))
+
+
+static func anti_afk_hunter_seconds(id: String) -> float:
+	return float(ANTI_AFK_HUNTER_SECONDS.get(id,
+		ANTI_AFK_HUNTER_SECONDS["standard"]))
 
 
 static func safe_zone_limit_for(id: String) -> int:

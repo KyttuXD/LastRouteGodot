@@ -1,50 +1,51 @@
 class_name PixelSignalEffect
 extends CanvasLayer
 
-## Restrained route-only post-process. It samples the completed 3D frame at a
-## two-pixel cadence, then blends quantization, ordered dither, faint scanlines
-## and animated signal grain back over the original. The HUD is a higher
-## CanvasLayer, so text and controls remain crisp.
+## Persistent route-only pixel post-process. It samples the completed 3D frame
+## at a strength-scaled low resolution, softly gathers neighbouring blocks,
+## then blends colour quantization back over the original. Detailed authored
+## models receive the full treatment; broad structural walls receive one
+## quarter of that blend (75% less) so they remain stable but visually related.
+## It intentionally has
+## no grain, scanlines or animated noise: the pixel blur is the whole effect.
+## The HUD is a higher CanvasLayer, so text and controls remain crisp.
 
 const SHADER_CODE := """
 shader_type canvas_item;
 render_mode unshaded;
 
-uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_nearest;
+uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear;
 uniform float strength : hint_range(0.0, 1.0) = 0.28;
-
-float hash(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-float bayer4(vec2 pixel) {
-	vec2 p = mod(floor(pixel), 4.0);
-	float x = p.x;
-	float y = p.y;
-	float value = 0.0;
-	if (y < 1.0) value = (x < 1.0) ? 0.0 : ((x < 2.0) ? 8.0 : ((x < 3.0) ? 2.0 : 10.0));
-	else if (y < 2.0) value = (x < 1.0) ? 12.0 : ((x < 2.0) ? 4.0 : ((x < 3.0) ? 14.0 : 6.0));
-	else if (y < 3.0) value = (x < 1.0) ? 3.0 : ((x < 2.0) ? 11.0 : ((x < 3.0) ? 1.0 : 9.0));
-	else value = (x < 1.0) ? 15.0 : ((x < 2.0) ? 7.0 : ((x < 3.0) ? 13.0 : 5.0));
-	return (value + 0.5) / 16.0 - 0.5;
-}
 
 void fragment() {
 	vec2 pixel = SCREEN_UV / SCREEN_PIXEL_SIZE;
-	vec2 block = floor(pixel * 0.5) * 2.0 + vec2(1.0);
+	float block_size = mix(2.0, 4.0, strength);
+	vec2 block = floor(pixel / block_size) * block_size + vec2(block_size * 0.5);
 	vec2 sample_uv = clamp(block * SCREEN_PIXEL_SIZE,
 		SCREEN_PIXEL_SIZE, vec2(1.0) - SCREEN_PIXEL_SIZE);
 	vec3 original = textureLod(screen_texture, SCREEN_UV, 0.0).rgb;
-	vec3 sampled = textureLod(screen_texture, sample_uv, 0.0).rgb;
+	vec2 blur_step = SCREEN_PIXEL_SIZE * block_size * mix(0.65, 1.35, strength);
+	vec3 center = textureLod(screen_texture, sample_uv, 0.0).rgb;
+	vec3 right = textureLod(screen_texture, sample_uv + vec2(blur_step.x, 0.0), 0.0).rgb;
+	vec3 left = textureLod(screen_texture, sample_uv - vec2(blur_step.x, 0.0), 0.0).rgb;
+	vec3 down = textureLod(screen_texture, sample_uv + vec2(0.0, blur_step.y), 0.0).rgb;
+	vec3 up = textureLod(screen_texture, sample_uv - vec2(0.0, blur_step.y), 0.0).rgb;
+	vec3 sampled = center * 0.44 + (right + left + down + up) * 0.14;
 
-	float levels = mix(52.0, 28.0, strength);
-	float dither = bayer4(pixel) * mix(0.35, 0.85, strength);
-	vec3 treated = floor(sampled * levels + dither) / levels;
-	float grain = hash(floor(pixel * 0.5) + floor(TIME * vec2(19.0, 13.0))) - 0.5;
-	float scanline = mod(floor(pixel.y), 2.0) - 0.5;
-	treated += grain * 0.035 * strength + scanline * 0.018 * strength;
+	float levels = mix(48.0, 22.0, strength);
+	vec3 treated = floor(sampled * levels + 0.5) / levels;
 	treated = clamp(treated, vec3(0.0), vec3(1.0));
-	COLOR = vec4(mix(original, treated, strength), 1.0);
+	// Imported pixel props carry frequent neighbouring colour changes; broad
+	// structural planes do not. Concentrate the blur/quantization where that
+	// local detail exists, and suppress it on bright light sources.
+	float detail = (length(center - right) + length(center - left)
+		+ length(center - up) + length(center - down)) * 0.25;
+	float prop_priority = smoothstep(0.025, 0.19, detail);
+	float luminance = dot(center, vec3(0.2126, 0.7152, 0.0722));
+	float light_suppression = 1.0 - smoothstep(0.76, 0.98, luminance);
+	float full_blend = mix(strength, min(1.0, strength * 1.18), strength);
+	float blend = mix(strength * 0.25, full_blend, prop_priority) * light_suppression;
+	COLOR = vec4(mix(original, treated, blend), 1.0);
 }
 """
 

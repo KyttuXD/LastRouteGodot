@@ -15,6 +15,7 @@ if (!/^[a-f0-9]{7,40}$/.test(revision)) throw new Error("Could not read the stam
 const artifacts = {
   linux: "LastRoute-Linux-Debug.zip",
   windows: "LastRoute-Windows-Debug.zip",
+  windows_legacy: "LastRoute-Windows-Legacy-Debug.zip",
   macos: "LastRoute-macOS-Debug.zip",
   web: "LastRoute-Web-Debug.zip",
   steamvr: "LastRoute-Windows-SteamVR-Debug.zip",

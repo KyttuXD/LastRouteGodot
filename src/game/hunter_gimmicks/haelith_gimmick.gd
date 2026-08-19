@@ -17,7 +17,7 @@ extends HunterGimmick
 ## runner's directional cue through the host's speakers.
 
 
-func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
 	var relay := _nearest_uncollected(brain.position, generator.relays)
 	if relay == Vector2.ZERO and generator.uncollected(generator.relays).is_empty():
 		return

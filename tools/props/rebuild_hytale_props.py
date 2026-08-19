@@ -366,9 +366,16 @@ def make_locker():
     hardware_mat = make_material("Locker hardware pixel paint", image, roughness=0.48, metallic=0.42)
     count = len(colors)
     objects = []
-    # One strong cabinet mass, with large stepped parts instead of sheet-metal minutiae.
-    box("LockerBody", (0.0, 0.0, 0.97), (0.70, 0.50, 1.84), mat, 1,
-        count, objects, bevel=0.025)
+    # Build a genuinely hollow shell.  The older single solid cabinet cube sat
+    # immediately behind the decorative vent marks, so a camera placed inside
+    # the locker could never actually see through them.  A back and two side
+    # walls preserve the same exterior silhouette while leaving the front
+    # opening physically clear.
+    box("LockerBack", (0.0, 0.22, 0.97), (0.70, 0.06, 1.84), mat, 1,
+        count, objects, bevel=0.018)
+    for side, x in (("L", -0.32), ("R", 0.32)):
+        box("LockerSide_%s" % side, (x, 0.0, 0.97),
+            (0.06, 0.50, 1.84), mat, 1, count, objects, bevel=0.018)
     box("ChunkyTop", (0.0, 0.0, 1.91), (0.75, 0.56, 0.10), trim_mat, 3,
         count, objects, bevel=0.022)
     box("ChunkyBase", (0.0, 0.0, 0.09), (0.73, 0.54, 0.18), trim_mat, 1,
@@ -376,22 +383,27 @@ def make_locker():
     for index, x in enumerate((-0.265, 0.265)):
         box("Foot_%d" % (index + 1), (x, -0.14, 0.035),
             (0.13, 0.18, 0.07), dark_mat, 0, count, objects, bevel=0.012)
-    box("DoorShadow", (0.0, -0.265, 1.00), (0.61, 0.035, 1.67), dark_mat, 0,
+    # The door is assembled around three narrow, real sight cracks at the
+    # hidden player's eye line.  These are empty geometry gaps, not dark
+    # stickers, so both inside and outside views work naturally.
+    box("DoorLowerMass", (0.0, -0.293, 0.89), (0.56, 0.04, 1.38), mat, 2,
+        count, objects, bevel=0.014)
+    box("DoorTopMass", (0.0, -0.293, 1.80), (0.56, 0.04, 0.20), mat, 2,
         count, objects, bevel=0.012)
-    box("LockerDoor", (0.0, -0.293, 1.00), (0.56, 0.04, 1.60), mat, 2,
-        count, objects, bevel=0.018)
+    box("SightCrackLeftRail", (-0.245, -0.293, 1.565),
+        (0.07, 0.04, 0.27), mat, 2, count, objects, bevel=0.006)
+    box("SightCrackRightRail", (0.245, -0.293, 1.565),
+        (0.07, 0.04, 0.27), mat, 2, count, objects, bevel=0.006)
+    for index, z in enumerate((1.47, 1.565, 1.66)):
+        # Narrow slats leave 5.5 cm clear between them: enough for a readable
+        # first-person glimpse, still restrictive enough to feel concealed.
+        box("SightSlat_%d" % (index + 1), (0.0, -0.293, z),
+            (0.42, 0.04, 0.04), mat, 3, count, objects, bevel=0.004)
     # Two broad stamped panels give the face depth without realistic micro-detail.
-    box("UpperInset", (0.0, -0.322, 1.34), (0.42, 0.026, 0.43), dark_mat, 1,
-        count, objects, bevel=0.012)
-    box("UpperPanel", (0.0, -0.34, 1.34), (0.36, 0.018, 0.36), mat, 3,
-        count, objects, bevel=0.009)
     box("LowerInset", (0.0, -0.322, 0.61), (0.42, 0.026, 0.55), dark_mat, 1,
         count, objects, bevel=0.012)
     box("LowerPanel", (0.0, -0.34, 0.61), (0.36, 0.018, 0.48), mat, 2,
         count, objects, bevel=0.009)
-    for index, z in enumerate((1.69, 1.62, 1.55, 1.48)):
-        box("VentSlot_%d" % (index + 1), (0.0, -0.352, z),
-            (0.30, 0.024, 0.038), dark_mat, 0, count, objects, bevel=0.005)
     box("NumberPlate", (0.0, -0.35, 1.80), (0.19, 0.025, 0.085), trim_mat, 6,
         count, objects, bevel=0.008)
     box("HandlePlate", (0.205, -0.35, 1.02), (0.10, 0.03, 0.27), dark_mat, 0,
@@ -655,6 +667,65 @@ def make_taser_item():
     box("ChargeDisplay", (0, -.121, .45), (.13, .025, .07), mat, 7,
         count, objects, bevel=.006)
     return objects, (1.05, -1.9, 1.0), (0, 0, .34)
+
+
+def make_backpack(model_name, scale, accent):
+    """A real block-built wearable pack, not a pickup placeholder.
+
+    The three sizes share a recognizable family while gaining depth, side
+    pockets and bedroll capacity. Their back face stays flat enough to read as
+    wearable and their floor pivot lets the same GLB work as a world pickup.
+    """
+    colors = ["#15171A", "#2A2E31", "#4A382F", "#76523D", accent,
+              "#B18A5A", "#9AA2A6", "#D2B77A"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.74, metallic=.04)
+    count = len(colors)
+    objects = []
+    width = .48 + .11 * scale
+    depth = .20 + .055 * scale
+    height = .58 + .14 * scale
+    body_z = .12 + height * .5
+    box("PackBody", (0, 0, body_z), (width, depth, height), mat, 3,
+        count, objects, bevel=.025)
+    box("TopFlap", (0, -.018 - depth * .52, body_z + height * .25),
+        (width * .92, .045, height * .30), mat, 4, count, objects, bevel=.015)
+    box("FrontPocket", (0, -.045 - depth * .52, body_z - height * .13),
+        (width * .70, .085, height * .27), mat, 5, count, objects, bevel=.014)
+    box("Buckle", (0, -.095 - depth * .52, body_z + .02),
+        (.09, .025, .09), mat, 7, count, objects, bevel=.004)
+    # Visible shoulder straps and their lower anchors make the object read as
+    # a backpack from rear/three-quarter views, not a decorated supply crate.
+    for x in (-width * .29, width * .29):
+        box("ShoulderStrap_%s" % x, (x, depth * .52 + .026, body_z),
+            (.075, .042, height * .72), mat, 1, count, objects, bevel=.012)
+        box("StrapAnchor_%s" % x, (x, depth * .52 + .032, .13),
+            (.09, .045, .15), mat, 6, count, objects, bevel=.008)
+    if scale >= 2:
+        for x in (-width * .58, width * .58):
+            box("SidePocket_%s" % x, (x, 0, body_z - height * .16),
+                (.16, depth * .85, height * .30), mat, 4, count, objects,
+                bevel=.014)
+    if scale >= 3:
+        box("Bedroll", (0, 0, .10), (width * 1.06, depth * .82, .18), mat,
+            7, count, objects, bevel=.025)
+        for x in (-width * .28, width * .28):
+            box("BedrollTie_%s" % x, (x, -depth * .43, .10),
+                (.055, .035, .20), mat, 1, count, objects, bevel=.005)
+    return objects, (1.35, -2.35, 1.25), (0, 0, body_z)
+
+
+def make_backpack_small():
+    return make_backpack("backpack_small", 1, "#506A5A")
+
+
+def make_backpack_medium():
+    return make_backpack("backpack_medium", 2, "#5B668A")
+
+
+def make_backpack_large():
+    return make_backpack("backpack_large", 3, "#6F4E78")
 
 
 def make_boarded_hallway():
@@ -2032,6 +2103,166 @@ def make_framed_wall_portrait():
     box("PortraitPath", (0.04, -0.102, 0.93), (0.16, 0.008, 0.28), mat, 6,
         count, objects, bevel=0.0)
     return objects, (1.65, -2.15, 2.15), (0.0, 0.0, 1.28)
+
+
+def make_empty_wall_frame(model_name, style="normal", large=False):
+    """An authored frame with a genuinely empty centre.
+
+    These are intentionally not recolours of ``framed_wall_portrait``.  There
+    is no canvas, backing quad, photograph or painted insert in the opening,
+    so a room wall remains visible through it and future art can be supplied
+    without deleting a baked placeholder picture first.
+    """
+    palettes = {
+        "normal": ["#120D0A", "#332017", "#5A3825", "#82583A",
+                   "#AD8052", "#D1A970", "#211714"],
+        "luxury": ["#100B08", "#382216", "#6B4523", "#A8752F",
+                   "#D7AD55", "#F0D690", "#541E24", "#27130E"],
+        "gothic": ["#08080B", "#17141D", "#30283C", "#53385E",
+                   "#7B4667", "#A48BAA", "#5A1826", "#C7B7C8"],
+    }
+    colors = palettes[style]
+    mat = mansion_material(model_name, colors, roughness=0.76,
+                           metallic=0.18 if style == "luxury" else 0.06)
+    count = len(colors)
+    objects = []
+    width = 1.18 if large else 0.70
+    height = 1.44 if large else 0.84
+    centre_z = 1.42 if large else 1.38
+    rail = 0.12 if large else 0.095
+    depth = 0.11
+    base_region = 2 if style == "normal" else (3 if style == "luxury" else 1)
+    trim_region = 4 if style != "gothic" else 5
+
+    for side, x in (("L", -width * .5), ("R", width * .5)):
+        box("Frame%s" % side, (x, 0.0, centre_z),
+            (rail, depth, height), mat, base_region, count, objects,
+            bevel=0.003)
+    for side, z in (("Top", centre_z + height * .5),
+                    ("Bottom", centre_z - height * .5)):
+        box("Frame%s" % side, (0.0, 0.0, z),
+            (width + rail, depth, rail), mat, base_region, count, objects,
+            bevel=0.003)
+
+    # A second stepped rim makes the silhouette readable at gameplay distance
+    # while still leaving the complete centre open.
+    inner_w = width - rail * .95
+    inner_h = height - rail * .95
+    trim = rail * .28
+    for side, x in (("L", -inner_w * .5), ("R", inner_w * .5)):
+        box("InnerTrim%s" % side, (x, -depth * .55, centre_z),
+            (trim, depth * .22, inner_h), mat, trim_region, count, objects,
+            bevel=0.001)
+    for side, z in (("Top", centre_z + inner_h * .5),
+                    ("Bottom", centre_z - inner_h * .5)):
+        box("InnerTrim%s" % side, (0.0, -depth * .55, z),
+            (inner_w, depth * .22, trim), mat, trim_region, count, objects,
+            bevel=0.001)
+
+    if style == "luxury":
+        for index, (x, z) in enumerate(((-width * .54, centre_z - height * .54),
+                                        (width * .54, centre_z - height * .54),
+                                        (-width * .54, centre_z + height * .54),
+                                        (width * .54, centre_z + height * .54))):
+            box("GoldCorner_%d" % (index + 1), (x, -0.015, z),
+                (rail * 1.35, depth * 1.18, rail * 1.35), mat, 5,
+                count, objects, bevel=0.002,
+                rotation=(0.0, 0.0, math.radians(45)))
+        box("Crown", (0.0, 0.0, centre_z + height * .5 + rail * .85),
+            (width * .52, depth, rail * .55), mat, 4, count, objects,
+            bevel=0.002)
+    elif style == "gothic":
+        # Dark stepped shoulders and a small pointed crown distinguish this
+        # from the rectangular household frame without filling the opening.
+        for side, x in (("L", -width * .28), ("R", width * .28)):
+            box("GothicShoulder%s" % side,
+                (x, 0.0, centre_z + height * .57),
+                (width * .48, depth, rail), mat, 4, count, objects,
+                bevel=0.001,
+                rotation=(0.0, math.radians(-22 if x < 0 else 22), 0.0))
+        box("GothicCrown", (0.0, 0.0, centre_z + height * .68),
+            (rail * .72, depth, rail * 1.65), mat, 7, count, objects,
+            bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    eye = (1.65 if large else 1.25, -2.3 if large else -1.9, 2.1)
+    return objects, eye, (0.0, 0.0, centre_z)
+
+
+def make_room_door(model_name, style="normal"):
+    """Open residential doorway dressing for streamed room thresholds.
+
+    The leaf is authored partly open so it reads as a real door but cannot
+    silently block the deterministic navigation grid.  Interaction/networked
+    door state can later rotate this same leaf without replacing the model.
+    """
+    palettes = {
+        "normal": ["#100C09", "#302017", "#563825", "#7C5538",
+                   "#A67C50", "#C7A677", "#25272A", "#C6A04E"],
+        "luxury": ["#100B08", "#342016", "#65401F", "#96672B",
+                   "#C79B45", "#E3C671", "#5A1C24", "#22120D"],
+        "gothic": ["#07070A", "#17131C", "#30263A", "#4E345A",
+                   "#6F405D", "#98849E", "#641A2A", "#B5A6B8"],
+    }
+    colors = palettes[style]
+    mat = mansion_material(model_name, colors, roughness=0.79,
+                           metallic=0.20 if style != "normal" else 0.08)
+    count = len(colors)
+    objects = []
+    width = .88
+    height = 2.08
+    depth = .10
+    frame_region = 2 if style == "normal" else (3 if style == "luxury" else 1)
+    accent_region = 4 if style != "gothic" else 5
+    for side, x in (("L", -.51), ("R", .51)):
+        box("DoorFrame%s" % side, (x, 0.0, 1.10),
+            (.14, .18, 2.20), mat, frame_region, count, objects, bevel=.003)
+    box("DoorFrameTop", (0.0, 0.0, 2.18), (1.16, .18, .16),
+        mat, frame_region, count, objects, bevel=.003)
+    box("Threshold", (0.0, 0.0, .035), (1.12, .19, .07),
+        mat, accent_region, count, objects, bevel=.001)
+
+    # Rotate the leaf around its left hinge rather than its centre.
+    angle = math.radians(68.0)
+    hinge_x = -.43
+    half = width * .5
+    leaf_x = hinge_x + math.cos(angle) * half
+    leaf_y = math.sin(angle) * half
+    leaf_objects = []
+    box("OpenDoorLeaf", (leaf_x, leaf_y, 1.08),
+        (width, depth, height), mat, 2 if style == "normal" else 1,
+        count, leaf_objects, bevel=.004, rotation=(0.0, 0.0, angle))
+    normal_x = -math.sin(angle)
+    normal_y = math.cos(angle)
+    for panel_index, panel_z in enumerate((.63, 1.48)):
+        box("DoorPanel_%d" % (panel_index + 1),
+            (leaf_x + normal_x * -.061, leaf_y + normal_y * -.061, panel_z),
+            (width * .62, .025, .54), mat, accent_region, count, leaf_objects,
+            bevel=.002, rotation=(0.0, 0.0, angle))
+    handle_d = width - .13
+    handle_x = hinge_x + math.cos(angle) * handle_d + normal_x * -.078
+    handle_y = math.sin(angle) * handle_d + normal_y * -.078
+    box("DoorHandle", (handle_x, handle_y, 1.08), (.10, .055, .07),
+        mat, 7, count, leaf_objects, bevel=.002, rotation=(0.0, 0.0, angle))
+    # Export an explicit hinge pivot.  Godot rotates this one Node3D for the
+    # open/close animation instead of trying to infer a pivot from several
+    # independent mesh centres.  Preserve every child's world transform while
+    # parenting it so the authored 68-degree open pose stays unchanged.
+    bpy.ops.object.empty_add(type="PLAIN_AXES", location=(hinge_x, 0.0, 0.0))
+    hinge = bpy.context.object
+    hinge.name = "DoorHinge"
+    for part in leaf_objects:
+        world_matrix = part.matrix_world.copy()
+        part.parent = hinge
+        part.matrix_world = world_matrix
+    objects.extend(leaf_objects)
+    objects.append(hinge)
+    if style == "luxury":
+        box("DoorCrown", (0.0, 0.0, 2.31), (.62, .18, .12),
+            mat, 4, count, objects, bevel=.002)
+    elif style == "gothic":
+        box("DoorSpire", (0.0, 0.0, 2.34), (.15, .18, .28),
+            mat, 7, count, objects, bevel=.001,
+            rotation=(0.0, math.radians(45), 0.0))
+    return objects, (2.45, -3.45, 2.35), (0.0, 0.15, 1.1)
 
 
 def make_wall_sconce():
@@ -4017,6 +4248,9 @@ BUILDERS = {
     "boarded_hallway": make_boarded_hallway,
     "service_ladder": make_service_ladder,
     "wall_light_switch": make_wall_light_switch,
+    "backpack_small": make_backpack_small,
+    "backpack_medium": make_backpack_medium,
+    "backpack_large": make_backpack_large,
 }
 
 MAZE_BUILDERS = {
@@ -4105,6 +4339,21 @@ MANSION_BUILDERS = {
     "table_candelabra": make_table_candelabra,
     "flower_centerpiece": make_flower_centerpiece,
     "framed_wall_portrait": make_framed_wall_portrait,
+    "normal_picture_frame_empty": lambda: make_empty_wall_frame(
+        "normal_picture_frame_empty", "normal", False),
+    "normal_painting_frame_empty": lambda: make_empty_wall_frame(
+        "normal_painting_frame_empty", "normal", True),
+    "luxury_picture_frame_empty": lambda: make_empty_wall_frame(
+        "luxury_picture_frame_empty", "luxury", False),
+    "luxury_painting_frame_empty": lambda: make_empty_wall_frame(
+        "luxury_painting_frame_empty", "luxury", True),
+    "gothic_picture_frame_empty": lambda: make_empty_wall_frame(
+        "gothic_picture_frame_empty", "gothic", False),
+    "gothic_painting_frame_empty": lambda: make_empty_wall_frame(
+        "gothic_painting_frame_empty", "gothic", True),
+    "normal_room_door": lambda: make_room_door("normal_room_door", "normal"),
+    "luxury_room_door": lambda: make_room_door("luxury_room_door", "luxury"),
+    "gothic_room_door": lambda: make_room_door("gothic_room_door", "gothic"),
     "wall_sconce": make_wall_sconce,
     "heavy_mansion_drapes": make_heavy_drapes,
     "mansion_area_rug": make_mansion_area_rug,
@@ -4286,8 +4535,9 @@ for model_name, builder in BUILDERS.items():
     clear_scene()
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects)
-    if model_name in {"flashlight_item", "taser_item", "lockpick_set",
-                      "crowbar", "rescue_axe"}:
+    if model_name in {"battery", "flashlight_item", "taser_item", "lockpick_set",
+                      "crowbar", "rescue_axe", "backpack_small",
+                      "backpack_medium", "backpack_large"}:
         render_inventory_icon(model_name, eye, look)
     render_preview(model_name, export_objects, eye, look)
     print("BUILT", model_name, len(export_objects))

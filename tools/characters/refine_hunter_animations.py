@@ -173,11 +173,14 @@ def _walk(model: dict, clip: str = "walk", duration: float = 1.0) -> None:
         "R-Forearm": lambda p: (-14.0 + 4.0 * math.cos(p), 0.0, 0.0),
         "L-Hand": lambda p: (-3.0 * math.sin(p), 0.0, 2.0 * math.cos(p)),
         "R-Hand": lambda p: (3.0 * math.sin(p), 0.0, -2.0 * math.cos(p)),
-        "Belly": lambda p: (0.5 * math.cos(2.0 * p), 1.5 * math.cos(p),
-                             2.0 * math.sin(p)),
-        "Chest": lambda p: (-1.0, -2.5 * math.cos(p), -2.0 * math.sin(p)),
-        "Head": lambda p: (0.5, math.cos(p), 0.7 * math.sin(p)),
-        "Origin": lambda p: (0.0, 0.0, 0.35 * math.sin(p)),
+        # Keep the feminine hip-led gait, but do not pass the old large roll
+        # through every torso joint. Those stacked counter-rotations made the
+        # complete hunter rock from shoulder to shoulder while walking.
+        "Belly": lambda p: (0.35 * math.cos(2.0 * p), 0.55 * math.cos(p),
+                             0.65 * math.sin(p)),
+        "Chest": lambda p: (-0.6, -0.8 * math.cos(p), -0.55 * math.sin(p)),
+        "Head": lambda p: (0.3, 0.25 * math.cos(p), 0.2 * math.sin(p)),
+        "Origin": lambda p: (0.0, 0.0, 0.0),
     }
     for bone, sampler in rotation.items():
         if bone == "Origin" and bone not in bones:
@@ -194,11 +197,11 @@ def _walk(model: dict, clip: str = "walk", duration: float = 1.0) -> None:
         })
     _set_curves(clip, bones, "Pelvis", {
         "rotation": (duration, samples,
-                     lambda p: (-1.0 + math.cos(2.0 * p), 3.0 * math.cos(p),
-                                4.5 * math.sin(p))),
+                     lambda p: (-0.7 + 0.4 * math.cos(2.0 * p),
+                                1.1 * math.cos(p), 1.35 * math.sin(p))),
         "position": (duration, samples,
-                     lambda p: (1.15 * math.sin(p),
-                                -0.75 + 0.75 * math.cos(2.0 * p), 0.0)),
+                     lambda p: (0.32 * math.sin(p),
+                                -0.45 + 0.45 * math.cos(2.0 * p), 0.0)),
     })
 
 

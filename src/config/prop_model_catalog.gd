@@ -68,10 +68,59 @@ const MODEL_PATHS := {
 	"framedWallPortrait": [
 		"res://art/props-3d/props/mansion/framed_wall_portrait.glb",
 	],
+	# Empty residential frames deliberately contain no canvas/image mesh. The
+	# wall remains visible through their centre until authored artwork is added.
+	"normalPictureFrameEmpty": [
+		"res://art/props-3d/props/mansion/normal_picture_frame_empty.glb",
+	],
+	"normalPaintingFrameEmpty": [
+		"res://art/props-3d/props/mansion/normal_painting_frame_empty.glb",
+	],
+	"luxuryPictureFrameEmpty": [
+		"res://art/props-3d/props/mansion/luxury_picture_frame_empty.glb",
+	],
+	"luxuryPaintingFrameEmpty": [
+		"res://art/props-3d/props/mansion/luxury_painting_frame_empty.glb",
+	],
+	"gothicPictureFrameEmpty": [
+		"res://art/props-3d/props/mansion/gothic_picture_frame_empty.glb",
+	],
+	"gothicPaintingFrameEmpty": [
+		"res://art/props-3d/props/mansion/gothic_painting_frame_empty.glb",
+	],
+	"normalRoomDoor": [
+		"res://art/props-3d/props/mansion/normal_room_door.glb",
+	],
+	"luxuryRoomDoor": [
+		"res://art/props-3d/props/mansion/luxury_room_door.glb",
+	],
+	"gothicRoomDoor": [
+		"res://art/props-3d/props/mansion/gothic_room_door.glb",
+	],
 	"heavyMansionDrapes": [
 		"res://art/props-3d/props/mansion/heavy_mansion_drapes.glb",
 	],
 	"mansionAreaRug": ["res://art/props-3d/props/mansion/mansion_area_rug.glb"],
+	# Existing authored rug meshes become region-specific deterministic sets.
+	# They were shipped but largely unused by streamed rooms.
+	"corridorCarpet": [
+		"res://art/props-3d/props/mansion/bedroom_rug_charcoal.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_navy.glb",
+	],
+	"hotelCarpet": [
+		"res://art/props-3d/props/mansion/bedroom_rug.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_ivory.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_navy.glb",
+	],
+	"apartmentCarpet": [
+		"res://art/props-3d/props/mansion/bedroom_rug_olive.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_charcoal.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_violet.glb",
+	],
+	"beachMat": [
+		"res://art/props-3d/props/mansion/house_bath_mat.glb",
+		"res://art/props-3d/props/mansion/bedroom_rug_ivory.glb",
+	],
 	"mansionBookshelf": [
 		"res://art/props-3d/props/mansion/mansion_bookshelf.glb",
 	],
@@ -379,6 +428,53 @@ static func has_model(type: String) -> bool:
 	return MODEL_PATHS.has(type) and not (MODEL_PATHS[type] as Array).is_empty()
 
 
+## Thin rugs/mats are visual overlays rather than structural floor. Keeping
+## their visible plane one centimetre above the GridMap slab prevents depth
+## precision from alternating between both surfaces as the camera moves.
+const FLOOR_DRESSING_Y := 0.012
+const FLOOR_DRESSING_TYPES := [
+	"mansionAreaRug", "corridorCarpet", "hotelCarpet",
+	"apartmentCarpet", "beachMat", "bedroomRug", "gothicBedroomRug",
+	"houseBathMat", "arcadeCarpetCircle", "arcadeCarpetRunner",
+]
+const EMPTY_FRAME_TYPES := [
+	"normalPictureFrameEmpty", "normalPaintingFrameEmpty",
+	"luxuryPictureFrameEmpty", "luxuryPaintingFrameEmpty",
+	"gothicPictureFrameEmpty", "gothicPaintingFrameEmpty",
+]
+const ROOM_DOOR_TYPES := ["normalRoomDoor", "luxuryRoomDoor", "gothicRoomDoor"]
+const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
+	"bathroomMirror", "framedWallPortrait", "bedroomWallClock",
+]
+
+
+static func is_floor_dressing(type: String) -> bool:
+	return FLOOR_DRESSING_TYPES.has(type)
+
+
+static func is_empty_frame(type: String) -> bool:
+	return EMPTY_FRAME_TYPES.has(type)
+
+
+static func is_wall_mounted(type: String) -> bool:
+	return WALL_MOUNTED_TYPES.has(type)
+
+
+static func is_room_door(type: String) -> bool:
+	return ROOM_DOOR_TYPES.has(type)
+
+
+static func is_ceiling_mounted(type: String) -> bool:
+	return CEILING_MODEL_TOP.has(type)
+
+
+## Authored Blender props present their usable/front side along local +Z after
+## glTF conversion. Gameplay uses -Z as forward, so the visual root needs a
+## half turn to face into the room instead of back into its supporting wall.
+static func authored_visual_yaw(gameplay_yaw: float) -> float:
+	return gameplay_yaw + PI
+
+
 static func model_path(type: String, instance_id: String) -> String:
 	var paths: Array = MODEL_PATHS.get(type, [])
 	if paths.is_empty():
@@ -392,9 +488,27 @@ static func model_path(type: String, instance_id: String) -> String:
 static func visual_y(type: String, wall_height: float, mount_y: float = 0.0) -> float:
 	if mount_y > 0.0:
 		return mount_y
+	if is_floor_dressing(type):
+		return FLOOR_DRESSING_Y
+	if is_wall_mounted(type):
+		return wall_height * .42
 	if CEILING_MODEL_TOP.has(type):
 		return wall_height - float(CEILING_MODEL_TOP[type])
 	return 0.0
+
+
+## Turn decorative furniture into a gameplay surface without coupling the
+## generator to model filenames. An empty result remains ordinary dressing.
+static func interaction_for(type: String) -> String:
+	var lowered := type.to_lower()
+	if "mirror" in lowered:
+		return "mirror"
+	if "bed" in lowered or "bunk" in lowered:
+		return "lay"
+	for word in ["chair", "couch", "bench", "stool", "sofa"]:
+		if word in lowered:
+			return "sit"
+	return ""
 
 
 static func _stable_index(value: String, size: int) -> int:

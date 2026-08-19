@@ -1,6 +1,8 @@
 class_name AdminMenu
 extends CanvasLayer
 
+signal open_changed(shown: bool)
+
 ## Developer overlay, on the 0 key.
 ##
 ## Gated behind Build.tools_enabled(): debug builds always have it; release
@@ -19,6 +21,7 @@ extends CanvasLayer
 const TOGGLE_KEY := KEY_0
 
 var _panel: PanelContainer
+var _dimmer: ColorRect
 var _readout: Label
 var _open := false
 ## Ordered [{"label": String, "action": Callable}] and a Callable returning the
@@ -35,6 +38,7 @@ var _state_buttons: Array = []
 ## map) is a real thing to want.
 var _text_fields: Array = []
 var _status: Callable = Callable()
+var _first_action_button: Button
 
 
 static func attach(host: Node, status: Callable, actions: Array, text_fields: Array = []) -> AdminMenu:
@@ -58,19 +62,32 @@ func is_open() -> bool:
 	return _open
 
 
+func close() -> void:
+	if _open:
+		_set_open(false)
+
+
 func _build() -> void:
+	_dimmer = ColorRect.new()
+	_dimmer.name = "AdminModalDimmer"
+	_dimmer.color = Color(0.0, 0.0, 0.0, 0.76)
+	_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dimmer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_dimmer)
+
 	_panel = PanelContainer.new()
+	_panel.name = "AdminPanel"
 	_panel.add_theme_stylebox_override("panel",
 		Palette.panel_box(Palette.PANEL, Palette.AMBER, 8))
-	_panel.anchor_left = 0.0
-	_panel.anchor_top = 0.0
-	_panel.anchor_right = 0.0
-	_panel.anchor_bottom = 1.0
-	_panel.offset_left = 8
-	_panel.offset_top = 8
-	_panel.offset_right = 178
-	_panel.offset_bottom = -8
-	_panel.custom_minimum_size = Vector2(170, 0)
+	_panel.anchor_left = 0.08
+	_panel.anchor_top = 0.06
+	_panel.anchor_right = 0.92
+	_panel.anchor_bottom = 0.94
+	_panel.offset_left = 0
+	_panel.offset_top = 0
+	_panel.offset_right = 0
+	_panel.offset_bottom = 0
+	_panel.custom_minimum_size = Vector2(360, 220)
 	add_child(_panel)
 
 	# The action list is deliberately taller than a 270p design viewport. A
@@ -85,7 +102,7 @@ func _build() -> void:
 
 	var column := VBoxContainer.new()
 	column.name = "AdminActions"
-	column.custom_minimum_size = Vector2(148, 0)
+	column.custom_minimum_size = Vector2(330, 0)
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 3)
 	scroll.add_child(column)
@@ -111,7 +128,7 @@ func _build() -> void:
 			column.add_child(section)
 			if entry.has("items"):
 				var grid := GridContainer.new()
-				grid.columns = 2
+				grid.columns = 3
 				grid.add_theme_constant_override("h_separation", 3)
 				grid.add_theme_constant_override("v_separation", 3)
 				column.add_child(grid)
@@ -122,19 +139,21 @@ func _build() -> void:
 					var item_button := Button.new()
 					item_button.text = String(labels.get(item_id, item_id)).to_upper()
 					item_button.add_theme_font_size_override("font_size", 6)
-					item_button.custom_minimum_size = Vector2(70, 13)
-					item_button.focus_mode = Control.FOCUS_NONE
+					item_button.custom_minimum_size = Vector2(100, 16)
+					item_button.focus_mode = Control.FOCUS_ALL
 					Palette.style_button(item_button, false, true)
 					item_button.pressed.connect(func() -> void:
 						item_action.call(item_id)
 						_refresh())
 					grid.add_child(item_button)
+					if _first_action_button == null:
+						_first_action_button = item_button
 			continue
 		var button := Button.new()
 		button.text = String(entry["label"])
 		button.add_theme_font_size_override("font_size", 7)
-		button.custom_minimum_size = Vector2(0, 13)
-		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(0, 16)
+		button.focus_mode = Control.FOCUS_ALL
 		if entry.has("state"):
 			var state: Callable = entry["state"]
 			Palette.style_state_toggle(button,
@@ -148,6 +167,8 @@ func _build() -> void:
 			action.call()
 			_refresh())
 		column.add_child(button)
+		if _first_action_button == null:
+			_first_action_button = button
 
 	for entry in _text_fields:
 		var field_label := Label.new()
@@ -179,11 +200,17 @@ func _build() -> void:
 func _set_open(shown: bool) -> void:
 	_open = shown
 	_panel.visible = shown
+	_dimmer.visible = shown
 	# The overlay is clickable, so it needs the cursor -- and it must not take
 	# it from a mode that is running normally when it is closed.
 	MouseLock.claim("admin", shown)
 	if shown:
 		_refresh()
+		if _first_action_button != null:
+			_first_action_button.grab_focus.call_deferred()
+	else:
+		get_viewport().gui_release_focus()
+	open_changed.emit(shown)
 
 
 func _refresh() -> void:
@@ -199,12 +226,17 @@ func _process(_delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not event is InputEventKey:
-		return
-	var key := event as InputEventKey
-	var is_toggle := key.physical_keycode == TOGGLE_KEY \
-		or key.keycode == TOGGLE_KEY \
-		or key.physical_keycode == KEY_KP_0 or key.keycode == KEY_KP_0
-	if key.pressed and not key.echo and is_toggle:
+	var is_toggle := false
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		is_toggle = key.pressed and not key.echo and (key.physical_keycode == TOGGLE_KEY \
+			or key.keycode == TOGGLE_KEY \
+			or key.physical_keycode == KEY_KP_0 or key.keycode == KEY_KP_0)
+	elif event is InputEventJoypadButton:
+		var button := event as InputEventJoypadButton
+		# Right-stick click is debug-only because this menu does not exist for an
+		# ordinary release player.
+		is_toggle = button.pressed and button.button_index == JOY_BUTTON_RIGHT_STICK
+	if is_toggle:
 		_set_open(not _open)
 		get_viewport().set_input_as_handled()

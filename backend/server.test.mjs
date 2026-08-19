@@ -483,11 +483,15 @@ test("serves validated debug/release update manifests", async () => {
   const sha256 = "a".repeat(64);
   const updateDirectory = await mkdtemp(join(tmpdir(), "last-route-updates-"));
   await writeFile(join(updateDirectory, "linux.zip"), "test-build");
+  await writeFile(join(updateDirectory, "windows-legacy.zip"), "legacy-build");
   await writeFile(join(updateDirectory, "private.txt"), "not-published");
   const app = await fixtureWith(() => createLastRouteServer({
     updateDirectory,
     updates: {
-      debug: { linux: { version: "0.0.1.0", revision: "c".repeat(40), file: "linux.zip", bytes: 10, sha256, notes: "Test route", required: true } },
+      debug: {
+        linux: { version: "0.0.1.0", revision: "c".repeat(40), file: "linux.zip", bytes: 10, sha256, notes: "Test route", required: true },
+        windows_legacy: { version: "0.0.1.0", revision: "c".repeat(40), file: "windows-legacy.zip", sha256 },
+      },
       release: { windows: { version: "1.0.0", url: "http://insecure.invalid/game.zip" } },
     },
   }));
@@ -507,8 +511,11 @@ test("serves validated debug/release update manifests", async () => {
     assert.deepEqual(health.updates.debug, {
       version: "0.0.1.0",
       revision: "c".repeat(40),
-      platforms: ["linux"],
+      platforms: ["linux", "windows_legacy"],
     });
+    response = await fetch(`${app.url}/api/updates/debug/windows_legacy`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).update.file, "windows-legacy.zip");
     response = await fetch(`${app.url}${payload.update.url}`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "test-build");

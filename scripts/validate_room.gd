@@ -94,6 +94,16 @@ func run(host: Node) -> int:
 		"the updater rejected a valid SHA-256")
 	_expect(not UpdateManager._valid_sha256("a".repeat(63)),
 		"the updater accepted a short SHA-256")
+	var gameplay_marker := Node.new()
+	gameplay_marker.add_to_group("gameplay_session")
+	host.get_tree().root.add_child(gameplay_marker)
+	var old_update_required: bool = UpdateManager.update_required
+	UpdateManager.update_required = true
+	_expect(not UpdateManager._should_install_automatically(),
+		"the background updater would restart the executable during gameplay")
+	UpdateManager.update_required = old_update_required
+	gameplay_marker.queue_free()
+	await host.get_tree().process_frame
 	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
 		_expect(UpdateManager._safe_archive_entry(safe_entry),
 			"the updater rejected safe archive entry %s" % safe_entry)
@@ -126,6 +136,15 @@ func run(host: Node) -> int:
 		"/games/LastRoute-Old.x86_64", update_stage)
 	_expect(String(update_layout.get("launch", "")) == "LastRoute-Test.x86_64",
 		"the updater could not find the staged Linux executable")
+	var legacy_executable := FileAccess.open(
+		update_stage.path_join("LastRoute-Windows-Legacy-Debug.exe"), FileAccess.WRITE)
+	legacy_executable.store_string("test legacy executable")
+	legacy_executable.close()
+	var legacy_layout := UpdateManager._installation_layout("windows_legacy",
+		"C:/Games/LastRoute-Windows-Legacy-Debug.exe", update_stage)
+	_expect(String(legacy_layout.get("launch", "")) == \
+		"LastRoute-Windows-Legacy-Debug.exe",
+		"the updater could not find the staged legacy Windows executable")
 	_expect(FileAccess.get_file_as_string(
 		update_stage.path_join("LastRoute-Test.pck")) == "test pck",
 		"the updater changed the staged PCK")
@@ -350,6 +369,7 @@ func run(host: Node) -> int:
 	var saw_large := false
 	var saw_immense := false
 	var infinite_button: Button = null
+	var default_mode_button: Button = null
 	for button in lobby.find_children("*", "Button", true, false):
 		saw_hard = saw_hard or String(button.text) == "HARD"
 		if String(button.text) == "NIGHTMARE":
@@ -362,16 +382,20 @@ func run(host: Node) -> int:
 		saw_immense = saw_immense or String(button.text) == "IMMENSE"
 		if String(button.text) == "INFINITE":
 			infinite_button = button
+		if String(button.text) == "DEFAULT":
+			default_mode_button = button
 	_expect(saw_hard, "the staging screen did not render a Hard button")
 	_expect(nightmare_button != null and nightmare_button.disabled,
 		"Nightmare is not visible and greyed out")
-	_expect(office_button != null and not office_button.disabled,
-		"playable local Office mode is not visible and selectable")
+	_expect(office_button == null,
+		"Office mode still appears as a player-facing staging button")
 	_expect(not saw_hide_seek, "Hide & Seek still appears in staging")
 	_expect(not saw_small and not saw_large and not saw_immense,
 		"retired finite scale buttons still appear in staging")
-	_expect(infinite_button != null and not infinite_button.disabled,
-		"Infinite scale is not visible and selectable")
+	_expect(infinite_button == null and default_mode_button == null,
+		"redundant mode/scale controls still occupy the staging screen")
+	_expect(lobby.find_child("LobbyLoadSaveButton", true, false) != null,
+		"staging did not replace mode/scale controls with the local archive action")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,
@@ -466,7 +490,7 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
-		print("  rules     Hide & Seek hidden; local Office shift selectable")
+		print("  rules     Hide & Seek and Office buttons hidden; Infinite is player-facing")
 		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
 		print("  guests    %d FIRST x %d LAST callsign words" % [
 			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])

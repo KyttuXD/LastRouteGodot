@@ -70,6 +70,11 @@ var has_search_target := false
 var search_target := Vector2.ZERO
 var has_last_known := false
 var last_known := Vector2.ZERO
+## True only while the latest perception sample (or a hunter-specific visual
+## ability such as Kathy's cone) has an unobstructed live runner. Direct chase
+## steering uses this to avoid both A* latency and unnecessary path searches.
+var direct_chase_visible := false
+var _ability_direct_sight := false
 
 var _path: Array = []
 var _path_timer := 0.0
@@ -104,6 +109,7 @@ func activate_at(target_position: Vector2) -> void:
 	state = State.INVESTIGATE
 	has_last_known = true
 	last_known = target_position
+	direct_chase_visible = false
 
 
 ## target: {"position": Vector2, "hidden": bool, "in_safe_zone": bool,
@@ -127,6 +133,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
+	_ability_direct_sight = false
 
 	if gimmick and not self_summoning:
 		gimmick.before_perception(self, delta, target, generator)
@@ -168,6 +175,8 @@ func update_without_target(delta: float, generator,
 		idle_timer = 0.35 + _rng.next_float() * 0.65
 		_path.clear()
 		_has_path_target = false
+	direct_chase_visible = false
+	_ability_direct_sight = false
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 
@@ -179,6 +188,7 @@ func apply_stun(duration: float) -> void:
 	stun_timer = maxf(stun_timer, duration)
 	_path.clear()
 	_has_path_target = false
+	direct_chase_visible = false
 
 
 ## Mirrors breakFree()'s hunter-side effect: knocked into a short search at
@@ -191,6 +201,7 @@ func enter_search_from(position_hint: Vector2, duration: float) -> void:
 	search_visits = 0
 	_path.clear()
 	_has_path_target = false
+	direct_chase_visible = false
 
 
 ## Mirrors respawnAfterCapture()'s hunter reset: back to a calm, unalerted
@@ -201,45 +212,89 @@ func calm_reset(stun_duration: float) -> void:
 	idle_timer = 0.6 + _rng.next_float() * 1.4
 	_path.clear()
 	_has_path_target = false
+	direct_chase_visible = false
 	apply_stun(stun_duration)
 
 
 func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
 	var direct_distance := position.distance_to(target_position)
 	var can_sense := not target_in_safe_zone and not target_hidden
+	if not can_sense:
+		direct_chase_visible = false
+	sense_timer -= delta
+	if sense_timer > 0.0:
+		# Keep following the most recent runner sample between sensory probes.
+		# Collision/path movement still runs at the simulation tick; only the
+		# expensive LOS and sound-path evidence is sampled at its designed rate.
+		if state == State.CHASE and can_sense:
+			last_known = target_position
+		return
+	sense_timer = GameConfig.HUNTER_SENSE_INTERVAL
 
 	var sees_target := false
+	var perception_line_clear := false
+	var difficulty_sight := float(difficulty_profile["hunter_sight"])
+	var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
+	var sight_limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
+	if target_flashlight_on:
+		sight_limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
+			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
+	var hearing_limit := target_noise * hearing_scale * difficulty_hearing
 	if can_sense:
-		var sight_scale := 1.0 if target_flashlight_on else GameConfig.UNLIT_SIGHT_SCALE
-		if direct_distance < sight_range * sight_scale \
-				* float(difficulty_profile["hunter_sight"]):
-			sees_target = generator.has_line_of_sight(position, target_position)
+		# One throttled grid ray serves exposed sight and open-air hearing. Walls
+		# stop visual detection; obstructed sound falls back to path distance.
+		var ray_range := maxf(sight_limit,
+			hearing_limit * GameConfig.HEARING_OPEN_AIR_SCALE)
+		if direct_distance < ray_range:
+			perception_line_clear = generator.has_line_of_sight(position, target_position)
+		sees_target = direct_distance < sight_limit and perception_line_clear
 
 	var hears_target := false
-	sense_timer -= delta
-	if sense_timer <= 0.0:
-		sense_timer = GameConfig.HUNTER_SENSE_INTERVAL
-		var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
-		if can_sense and direct_distance < target_noise * GameConfig.HEARING_OUTER_SCALE \
-				* hearing_scale * difficulty_hearing:
+	# Sight already wins below. Avoid a second full navigation search merely
+	# to prove the hunter can also hear a runner she is currently looking at.
+	# With several active hunters this was the largest relay-on CPU spike.
+	if not sees_target and can_sense:
+		if perception_line_clear and direct_distance \
+				<= hearing_limit * GameConfig.HEARING_OPEN_AIR_SCALE:
+			hears_target = true
+		elif direct_distance < hearing_limit * GameConfig.HEARING_OUTER_SCALE:
 			var sound_path: Array = generator.find_path(_cell_of(position),
 				_cell_of(target_position))
-			hears_target = sound_path.size() > 0 and sound_path.size() <= int(ceil(
-				target_noise * hearing_scale * difficulty_hearing))
+			hears_target = sound_path.size() > 0 \
+				and sound_path.size() <= int(ceil(hearing_limit))
+			# Reuse the one hearing route as this frame's chase route. Without
+			# this, every hunter performed a second A* immediately after hearing
+			# the runner turn a corner.
+			if hears_target and state == State.CHASE:
+				_path = sound_path
+				_path_timer = GameConfig.HUNTER_REPATH_CHASE
+				_path_target_cell = _cell_of(target_position)
+				_has_path_target = true
 
 	if sees_target:
 		state = State.CHASE
 		has_last_known = true
 		last_known = target_position
 		lost_sight_timer = 0.0
+		direct_chase_visible = true
 	elif hears_target:
-		state = State.INVESTIGATE
 		has_last_known = true
 		last_known = target_position
+		direct_chase_visible = false
+		if state == State.CHASE:
+			# Breaking visual contact at a corner is not an escape. Movement noise
+			# maintains the chase and the sound path leads around the obstruction.
+			lost_sight_timer = 0.0
+		else:
+			state = State.INVESTIGATE
 	elif state == State.CHASE:
-		lost_sight_timer += delta
+		direct_chase_visible = _ability_direct_sight
+		lost_sight_timer += GameConfig.HUNTER_SENSE_INTERVAL
 		if lost_sight_timer > GameConfig.HUNTER_LOST_SIGHT_GRACE:
 			state = State.INVESTIGATE
+			direct_chase_visible = false
+	else:
+		direct_chase_visible = false
 
 
 func _update_stamina(delta: float) -> void:
@@ -336,15 +391,47 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> void:
 	var target_cell := _cell_of(move_target)
 	_path_timer -= delta
+	# A visible runner needs no route search: follow the fresh 30 Hz target
+	# sample immediately. Grid collision still rejects a wall that enters the
+	# line before the next throttled perception probe.
+	if state == State.CHASE and direct_chase_visible:
+		_path.clear()
+		_has_path_target = false
+		var direct_offset := move_target - position
+		var direct_distance := direct_offset.length()
+		if direct_distance > 0.001:
+			var direct_direction := direct_offset / direct_distance
+			var direct_travel := minf(speed \
+				* GameConfig.HUNTER_VISIBLE_CHASE_SPEED_SCALE * delta,
+				direct_distance)
+			facing = direct_direction
+			_move_with_collision(direct_direction.x * direct_travel,
+				direct_direction.y * direct_travel, generator)
+		return
 	# Chase repaths fast to track a live target; every other moving state
 	# (investigate/search/wander) is walking to a fixed point and repaths
 	# on the slower wander cadence.
 	var repath_interval := GameConfig.HUNTER_REPATH_CHASE if state == State.CHASE else GameConfig.HUNTER_REPATH_WANDER
-	if _path_timer <= 0.0 or _path.is_empty() or not _has_path_target or _path_target_cell != target_cell:
+	# A moving target commonly crosses 5-8 cells per second. Replanning on every
+	# crossed cell bypassed HUNTER_REPATH_CHASE entirely and multiplied the BFS
+	# cost by every active hunter. Follow the current path until the timer is due,
+	# then plan toward the newest target cell.
+	if _path_timer <= 0.0 or _path.is_empty() or not _has_path_target:
 		_path = generator.find_path(_cell_of(position), target_cell)
 		_path_timer = repath_interval
 		_path_target_cell = target_cell
 		_has_path_target = true
+	# An empty route used to fall through to a straight-line move_target below.
+	# That made a no-target patrol keep playing its walk into the wall separating
+	# it from an unreachable room. Stop and choose another patrol instead; chase
+	# and investigate also wait for a valid path rather than pushing into solids.
+	if _path.is_empty() and _cell_of(position) != target_cell:
+		if state == State.WANDER:
+			state = State.IDLE
+			has_wander_target = false
+			idle_timer = 0.25 + _rng.next_float() * 0.5
+			_has_path_target = false
+		return
 
 	var waypoint := move_target
 	if not _path.is_empty():

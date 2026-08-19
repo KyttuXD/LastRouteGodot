@@ -49,6 +49,8 @@ func run(_host: Node) -> int:
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
 	_aki_answers_a_flash(generator)
+	_chase_persists_around_corners()
+	await _hunter_face_lights_are_aligned(_host)
 	await _porcelle_is_only_on_the_map(_host)
 	await _hiding_spots_and_jyvra(_host)
 	await _loxelle_burns_and_regrows(_host)
@@ -78,6 +80,115 @@ func _target(at: Vector2) -> Dictionary:
 		"flashlight_on": false, "sprinting": false, "facing": Vector2(0, 1),
 		"lamp_charge": 100.0, "meters": null,
 		"heater_unfrozen": false, "heater_powered": false}
+
+
+class CornerNavigation:
+	var line_clear := true
+	var path_calls := 0
+	var safe_zones: Array = []
+	var rooms: Array = []
+
+	func has_line_of_sight(_from: Vector2, _to: Vector2) -> bool:
+		return line_clear
+
+	func can_occupy(_x: float, _y: float, _radius: float = .23,
+			_blocked_cells = null) -> bool:
+		return true
+
+	func find_path(from: Vector2i, to: Vector2i) -> Array:
+		path_calls += 1
+		var result := [from]
+		var cursor := from
+		while cursor.y != to.y:
+			cursor.y += 1 if to.y > cursor.y else -1
+			result.append(cursor)
+		while cursor.x != to.x:
+			cursor.x += 1 if to.x > cursor.x else -1
+			result.append(cursor)
+		return result
+
+
+func _chase_persists_around_corners() -> void:
+	var navigation := CornerNavigation.new()
+	var brain := _brain("dovelle", Vector2(.5, .5))
+	var target := _target(Vector2(6.5, .5))
+	target["flashlight_on"] = true
+	target["noise"] = 12.0
+	brain.sense_timer = 0.0
+	brain.update(GameConfig.HUNTER_SENSE_INTERVAL, navigation, target, 1, 1)
+	_expect(brain.state == HunterBrain.State.CHASE and brain.direct_chase_visible,
+		"a clearly visible lit runner did not start immediate direct pursuit")
+	_expect(navigation.path_calls == 0,
+		"direct visible chase performed an unnecessary path search")
+
+	# The runner turns the corner but remains loud. One sound route should both
+	# preserve CHASE and guide movement; losing the ray must not cancel pursuit.
+	navigation.line_clear = false
+	target["position"] = Vector2(6.5, 3.5)
+	brain.sense_timer = 0.0
+	brain.update(GameConfig.HUNTER_SENSE_INTERVAL, navigation, target, 1, 1)
+	_expect(brain.state == HunterBrain.State.CHASE and not brain.direct_chase_visible,
+		"turning one corner immediately cancelled the hunter chase")
+	_expect(brain.has_last_known and brain.last_known == target["position"] \
+		and navigation.path_calls == 1,
+		"corner pursuit did not reuse one hearing path toward the live runner")
+	print("  pursuit   direct sight is immediate; corner hearing preserves one routed chase")
+
+
+func _hunter_face_lights_are_aligned(host: Node) -> void:
+	# Every A-Z model must retain the same 8x8 face contract used by the runtime
+	# 2x2-pixel glow. Check source attachments across the full roster, then check
+	# one live view so this cannot pass while presentation forgets to create them.
+	for hunter_id in HunterRoster.A_Z_IDS:
+		var identity := HunterRoster.get_identity(hunter_id)
+		var model := ModelSlot.instantiate(String(identity.get("model_scene", "")))
+		_expect(model != null, "%s has no renderable model for eye validation" % hunter_id)
+		if model == null:
+			continue
+		var head := model.find_child("Head", true, false) as MeshInstance3D
+		var left := model.find_child("L-Eye-Attachment", true, false) as Node3D
+		var right := model.find_child("R-Eye-Attachment", true, false) as Node3D
+		_expect(head != null and left != null and right != null,
+			"%s is missing its head or authored eye centres" % hunter_id)
+		if head != null and left != null and right != null:
+			var bounds := head.get_aabb()
+			for eye in [left, right]:
+				var local_eye := head.to_local((eye as Node3D).global_position) \
+					if model.is_inside_tree() else (eye as Node3D).position
+				_expect(local_eye.x >= bounds.position.x \
+					and local_eye.x <= bounds.end.x \
+					and local_eye.y >= bounds.position.y \
+					and local_eye.y <= bounds.end.y,
+					"%s eye centre is outside its face" % hunter_id)
+		model.free()
+
+	var brain := _brain("kathy", Vector2.ZERO)
+	brain.active = true
+	var view := HunterView3D.new()
+	view.brain = brain
+	host.get_tree().root.add_child(view)
+	await host.get_tree().process_frame
+	var glows := view.find_children("HunterEyeGlow", "MeshInstance3D", true, false)
+	_expect(glows.size() == 2, "Kathy did not render two eye-glow blocks")
+	var authored_kathy_eye := HunterRoster.eye_glow_color("kathy")
+	for glow_value in glows:
+		var glow := glow_value as MeshInstance3D
+		var box := glow.mesh as BoxMesh
+		_expect(box != null and absf(box.size.x - .12890625) < .003 \
+			and absf(box.size.y - .1203125) < .003,
+			"A-Z eye glow is not aligned to a 2x2 block on the 8x8 face")
+		_expect(absf(glow.position.y + .06015625) < .003,
+			"A-Z eye glow was not lowered exactly one 8x8 skin row")
+		var glow_material := glow.material_override as StandardMaterial3D
+		_expect(glow_material != null \
+			and glow_material.emission.is_equal_approx(authored_kathy_eye),
+			"A-Z glow does not use the hunter's authored iris colour")
+	_expect(view._kathy_beam != null and view._kathy_beam.visible \
+		and view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye),
+		"Kathy's yellow eye beam is missing or hidden")
+	view.queue_free()
+	await host.get_tree().process_frame
+	print("  eyes      all A-Z eye centres valid; 2x2 glow and Kathy beam render on-face")
 
 
 func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:
@@ -266,9 +377,8 @@ func _aki_answers_a_flash(generator: FacilityGenerator) -> void:
 		% GameConfig.AKI_BURST_COUNT)
 
 
-## Porcelle is invisible in the room and visible ONLY on the map, so the two
-## halves have to be checked together: hiding her without the map drawing her
-## puts a hunter on the floor who cannot be found by any means. Driven through
+## Porcelle is a faint ghost in the room and clearer on the map, so the two
+## halves have to be checked together. Driven through
 ## the real scene, because "the gimmick returns true" is exactly the kind of
 ## check that passes while the model is still on screen.
 func _porcelle_is_only_on_the_map(host: Node) -> void:
@@ -291,19 +401,49 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	# still hanging in the tree and blames Porcelle for it.
 	await host.get_tree().process_frame
 
-	var drawn := false
-	for child in view.get_children():
-		if child is Node3D and (child as Node3D).visible:
-			drawn = true
-	_expect(not drawn, "Porcelle is drawn in the room; she is supposed to be invisible there")
+	# HunterView3D now owns a real CollisionShape3D so gravity and stairs can
+	# use CharacterBody3D physics. A collision node is a visible Node3D in the
+	# scene-tree sense, but it is not rendered in game; assert against the
+	# presentation model itself rather than treating physics as artwork.
+	var drawn := view._model != null and view._model.visible
+	_expect(drawn, "Porcelle has no faint world silhouette")
+	var ghost_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var faded := false
+	for mesh_value in ghost_meshes:
+		if absf((mesh_value as GeometryInstance3D).transparency - .62) < .01:
+			faded = true
+			break
+	_expect(faded, "Porcelle's world silhouette is not translucently ghosted")
 
 	var marks: Array = scene._map_marks()
 	var found := false
 	for mark in marks:
 		if String(mark.get("name", "")).to_lower() == "porcelle":
-			found = true
-	_expect(found, "Porcelle is invisible AND missing from the map, so nothing can find her")
-	print("  porcelle  invisible in the room, drawn on the map")
+			found = bool(mark.get("ghost", false)) \
+				and String(mark.get("hunter_id", "")) == "porcelle"
+	_expect(found,
+		"Porcelle lacks her faint ghost marker on the map")
+	_expect(FacilityMap.PORCELLE_GHOST.a > 0.0,
+		"Porcelle ghost map palette is fully invisible")
+	view.brain.hunter_id = "verrine"
+	view.brain.gimmick = HunterGimmick.for_id("verrine")
+	view._shown_id = ""
+	view._apply_model("verrine")
+	await host.get_tree().process_frame
+	var stealth_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var trace_visible := view._model.visible and stealth_meshes.any(
+		func(value: Node) -> bool:
+			return absf((value as GeometryInstance3D).transparency - .72) < .01)
+	_expect(trace_visible,
+		"an active stealth hunter becomes 100% invisible instead of leaving a trace")
+	view.brain.hunter_id = "void_gray"
+	view.brain.gimmick = HunterGimmick.for_id("void_gray")
+	view._shown_id = ""
+	view._apply_model("void_gray")
+	await host.get_tree().process_frame
+	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
+		"a Void hunter received A-Z glow-eye attachments")
+	print("  stealth   Porcelle and hidden active hunters retain faint world silhouettes")
 	scene.queue_free()
 
 
@@ -338,8 +478,23 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 		scene.queue_free()
 		return
 	var cell := Vector2i(real[0]["x"], real[0]["y"])
-	scene.player.enter_hiding(cell)
+	var fixture: RouteInteractable3D = scene.facility_view.hiding_spot_at(cell)
+	_expect(fixture != null, "the live hiding spot has no interactable locker")
+	if fixture == null:
+		scene.queue_free()
+		return
+	var inside := fixture.hiding_inside_position()
+	var inside_local := fixture.to_local(inside)
+	_expect(absf(inside_local.z - .18) < .01,
+		"the locker camera is not recessed behind its door sight slats")
+	var approach := fixture.global_position + Vector3(0.0, 0.0, -.65)
+	scene.player.global_position = approach
+	scene.player.enter_hiding(cell, inside, approach, fixture)
 	_expect(scene.player.hidden, "entering a locker did not hide the player")
+	_expect(fixture.local_hiding_view_open(),
+		"entering a locker did not enable its local inside view")
+	_expect(scene.player.get_interaction_prompt().is_empty(),
+		"the removed HIDE toast still appears while inside a locker")
 	scene.player.leave_hiding(Vector2(cell) + Vector2(0.5, 0.5))
 	_expect(not scene.player.hidden, "the player could not get back out of a locker")
 
@@ -449,7 +604,29 @@ func _loxelle_burns_and_regrows(host: Node) -> void:
 	_expect(live.disabled, "Loxelle burned a spot but its interactable is still usable")
 	_expect(live.get_prompt().is_empty(), "a burned hiding spot still offers to hide the player")
 
-	print("  loxelle   approaches and charges a locker before breaking/ejecting it")
+	# Her chase-only door attack uses the same visible charge clip, but emits a
+	# durable room-door breach rather than a locker toggle.
+	brain.stun_timer = 0.0
+	brain.state = HunterBrain.State.CHASE
+	brain.world_events.clear()
+	var door_position := brain.position + Vector2(.15, 0.0)
+	var door_started := (brain.gimmick as LoxelleGimmick).start_door_breach(
+		brain, "0:0:0:DOOR:0", door_position)
+	var saw_door_charge := false
+	for i in int(ceil((GameConfig.LOXELLE_CHARGE_WINDUP + .55) / STEP)):
+		saw_door_charge = saw_door_charge \
+			or (brain.gimmick as LoxelleGimmick).charge_active()
+		brain.update(STEP, generator, _target(door_position), 1, 0)
+	var breached_door := brain.world_events.any(func(event: Dictionary) -> bool:
+		return event.get("what") == "room_door" \
+			and event.get("door_id") == "0:0:0:DOOR:0" \
+			and bool(event.get("broken", false)))
+	_expect(door_started and saw_door_charge,
+		"Loxelle did not enter her charge animation before a chase door breach")
+	_expect(breached_door,
+		"Loxelle's chase charge emitted no authoritative broken-door event")
+
+	print("  loxelle   charges lockers and chase-blocking doors before impact")
 	scene.queue_free()
 
 
@@ -746,7 +923,10 @@ func _ilyra_tags_and_pounces(generator: FacilityGenerator) -> void:
 	# Close enough for real sight to land, torch off so it is sight and not
 	# a beam that puts her in the wrong branch.
 	var near := _target(corner + Vector2(1.0, 0.0))
-	for i in 5:
+	# Perception is deliberately sampled instead of ray-tested every physics
+	# tick. Give the real sensor one complete interval rather than assuming it
+	# still runs at 60 Hz.
+	for i in ceili(GameConfig.HUNTER_SENSE_INTERVAL / STEP) + 2:
 		brain.update(STEP, generator, near, 1, 0)
 	_expect(brain.state == HunterBrain.State.CHASE,
 		"setup problem: Ilyra never actually saw the player at this range")
@@ -829,6 +1009,13 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 	_expect(player.in_vent, "entering a vent did not mark the player in_vent")
 	_expect(message.begins_with("VENT TRANSIT"), "entering the network did not transit forward: got '%s'" % message)
 	_expect(brain.position != still_here, "Verrine did not teleport in when the player entered the network")
+	var destination_vent: Dictionary = vents[1]
+	var destination_center := Vector2(destination_vent["x"] + .5,
+		destination_vent["y"] + .5)
+	_expect(player.grid_position().distance_to(destination_center) >= .9 \
+		and generator.can_occupy(player.global_position.x,
+			player.global_position.z, VerrineGimmick.PLAYER_EXIT_RADIUS),
+		"vent transit placed the player inside its destination grate or wall")
 
 	# Driven frames with in_vent true: chase, and speed ramping over time.
 	var in_vent_target := _target(player.grid_position())

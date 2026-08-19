@@ -341,7 +341,7 @@ func _spawn_tool_pickups() -> void:
 				or not generator.can_occupy(cell.x + .5, cell.y + .5):
 			available.remove_at(index)
 	var rng := SeededRandom.new("%s:EQUIPMENT-PICKUPS" % generator.seed_text)
-	for item_id in PlayerController3D.INVENTORY_ITEMS:
+	for item_id in PlayerController3D.COLLECTIBLE_ITEMS:
 		if available.is_empty():
 			push_error("NO FREE CELL FOR EQUIPMENT PICKUP // %s" % item_id)
 			break
@@ -441,18 +441,30 @@ func _spawn_room_props() -> void:
 
 		var prop_id := String(entry.get("id", type))
 		var model_path := PropModelCatalog.model_path(type, prop_id)
-		var visual: Node3D = ModelSlot.instantiate(model_path) \
+		var visual: Node3D = ModelSlot.instantiate_prop(model_path) \
 			if not model_path.is_empty() else null
 		var mount_y := float(entry.get("mount_y", 0.0))
 		if visual != null:
 			visual.name = "Visual"
 			visual.position.y = PropModelCatalog.visual_y(type, WALL_HEIGHT, mount_y)
+			ModelSlot.apply_prop_pixel_filter(visual)
+			if PropModelCatalog.is_floor_dressing(type):
+				ModelSlot.keep_floor_dressing_visible(visual)
 			root.set_meta("prop_model_path", model_path)
 			root.add_child(visual)
 		else:
 			root.set_meta("prop_model_path", "")
 			root.add_child(_fallback_prop_visual(type, entry, base_footprint,
 				height, mount_y))
+
+		var furniture_action := PropModelCatalog.interaction_for(type)
+		if not furniture_action.is_empty():
+			var furniture := RouteInteractable3D.new()
+			furniture.name = "FurnitureInteraction"
+			furniture.kind = RouteInteractable3D.Kind.FURNITURE
+			furniture.configure_furniture(furniture_action)
+			furniture.position.y = .48 if furniture_action == "lay" else .03
+			root.add_child(furniture)
 
 		if walkable_structure:
 			_add_stair_collision(root as StaticBody3D, type)
@@ -1026,6 +1038,7 @@ static func _tile_material(texture_path: String, repeat: Vector3) -> StandardMat
 		return null
 	var material := StandardMaterial3D.new()
 	material.albedo_texture = texture
-	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	material.texture_filter = \
+		BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	material.uv1_scale = repeat
 	return material

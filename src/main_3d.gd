@@ -8,6 +8,7 @@ extends Node
 ## game state, matching how game.js's update() drives hunter-ai.js).
 
 var pause_menu: PauseMenu
+var admin_menu: AdminMenu
 
 @onready var world: Node3D = %World
 @onready var facility_view: FacilityView3D = %FacilityView
@@ -34,6 +35,7 @@ var _capture_resolving := false
 ## _map_marks()'s own note on why that distinction exists at all.
 var _admin_reveal_hunters := false
 var _remotes: RemotePlayers
+var _room_chat: RoomChat
 var _custom_map_request: HTTPRequest
 ## True while a fetch is in flight, so a second admin submission cannot start
 ## one on top of it. Tracked here rather than read off HTTPRequest itself --
@@ -66,6 +68,7 @@ var _was_locally_pursued := false
 ## modified client cannot make the authoritative hunter accept rapid shots.
 var _taser_ready_usec_by_peer := {}
 var _hunter_step_elapsed := 0.0
+const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
 const REMOTE_METER_EFFECT_INTERVAL := 0.1
 var _remote_meter_effects := {}
 var _remote_meter_effect_elapsed := 0.0
@@ -79,6 +82,8 @@ const HUNTER_DISCOVERY_RANGE := 7.5
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("gameplay_session")
+	UpdateManager.update_ready.connect(_on_background_update_ready)
 	_awaiting_initial_snapshot = RoomState.online and not RoomState.is_host
 	# The room's seed, not a fresh random one. Every shared thing below is
 	# addressed by grid cell, which only names the same object on two machines
@@ -98,12 +103,14 @@ func _ready() -> void:
 	player.vent_resolver = _use_vent
 	player.shop_resolver = _use_shop
 	player.shop_prompt_provider = _shop_prompt
-	player.trigger_static_effect = hud.trigger_static
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
+	hud.inventory_open_changed.connect(_on_inventory_open_changed)
+	hud.map_open_changed.connect(_on_map_open_changed)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
+	pause_menu.dismiss_overlay = _dismiss_gameplay_overlay
 	if RoomState.online and not RoomState.is_host:
 		pause_menu.abandon_warning = "This leaves the room and returns you to staging. The host's route continues."
 	pause_menu.opened.connect(_on_pause_opened)
@@ -132,6 +139,8 @@ func _ready() -> void:
 	_remotes.interaction_requested.connect(_apply_interaction_request)
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
+	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
 	if not Backend.admin_ticket_changed.is_connected(_on_admin_ticket_changed):
@@ -143,13 +152,17 @@ func _ready() -> void:
 	_build_admin()
 	_build_floor()
 	_checkpoint_solo_route()
-	if _awaiting_initial_snapshot:
+	if _awaiting_initial_snapshot or (admin_menu != null and admin_menu.is_open()):
 		player.input_frozen = true
 		hud.show_message("SYNCING CURRENT FLOOR...")
 		route_loading.show_waiting_for_snapshot()
 	else:
 		route_loading.dismiss()
 	_update_hud()
+
+
+func _on_background_update_ready(_path: String) -> void:
+	hud.show_message("UPDATE READY // WILL APPLY AFTER THIS RUN")
 
 
 func _process(delta: float) -> void:
@@ -173,7 +186,13 @@ func _process(delta: float) -> void:
 	# Being held by a hunter is the one moment pausing would be an exploit, so
 	# the menu is locked out for the length of the struggle.
 	pause_menu.tap_to_pause = not GameState.escape_active
-	if Input.is_action_just_pressed("toggle_map") and not GameState.escape_active:
+	if Input.is_action_just_pressed("inventory") and not GameState.escape_active \
+			and not GameState.game_over and not pause_menu.is_open() \
+			and (admin_menu == null or not admin_menu.is_open()):
+		hud.toggle_inventory()
+	if Input.is_action_just_pressed("toggle_map") and not GameState.escape_active \
+			and (admin_menu == null or not admin_menu.is_open()):
+		hud.set_inventory_open(false)
 		hud.toggle_map_overlay()
 
 	if get_tree().paused:
@@ -200,11 +219,14 @@ func _process(delta: float) -> void:
 		_build_floor()
 		_checkpoint_solo_route()
 
+	var remote_map_players := _remotes.remote_player_marks(GameState.depth) \
+		if _remotes != null else []
 	hud.update_minimap(facility_view.generator, player.grid_position(),
-		player.facing, _map_marks(true) if _admin_reveal_hunters else [])
+		player.facing, _map_marks(true) if _admin_reveal_hunters else [],
+		remote_map_players)
 	if hud.map_is_open():
 		hud.update_map(facility_view.generator, player.grid_position(),
-			player.facing, _map_marks(_admin_reveal_hunters))
+			player.facing, _map_marks(_admin_reveal_hunters), remote_map_players)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
 	_discover_visible_hunters()
 	_update_local_audio(delta)
@@ -250,7 +272,8 @@ func _update_gameplay(delta: float) -> void:
 	# Only the drawn route hunter follows the relay schedule; the specials
 	# below wake on their own rules instead.
 	if hunter_view and not hunter_view.brain.active:
-		var activation_relay: int = mini(GameConfig.HUNTER_ACTIVATION_SPACING, generator.relay_count)
+		var activation_relay: int = mini(GameConfig.hunter_activation_relay_count(
+			RoomState.difficulty_id()), generator.relay_count)
 		if GameState.relays_collected >= activation_relay:
 			var activation_target := _remotes.best_target(
 				hunter_view.brain.position, local_target, GameState.depth)
@@ -275,12 +298,14 @@ func _update_gameplay(delta: float) -> void:
 			local_target, GameState.depth)
 		if selected.is_empty():
 			view.target_peer_id = 0
+			view.set_look_target(null)
 			view.brain.update_without_target(delta, generator, GameState.depth,
 				GameState.relays_collected)
 			view.sync_from_brain()
 			continue
 		var target := _target_with_runtime(selected)
 		view.target_peer_id = int(target.get("peer_id", 0))
+		view.set_look_target(target.get("position"))
 		var captured: bool = view.brain.update(delta, generator, target,
 			GameState.depth, GameState.relays_collected)
 		_collect_remote_meter_effects(target)
@@ -493,6 +518,7 @@ func _collect_hunter_report() -> void:
 			"state": int(view.brain.state),
 			"stun": view.brain.stun_timer,
 			"target_peer_id": view.target_peer_id,
+			"look_target": view.look_target_position if view.has_look_target else null,
 			"disguise": disguise,
 			"wake": wake,
 			"gimmick": view.brain.gimmick.network_state()
@@ -551,6 +577,8 @@ func _map_marks(include_inactive: bool = false) -> Array:
 		marks.append({
 			"at": view.brain.position,
 			"name": String(HunterRoster.get_identity(view.brain.hunter_id)["display_name"]),
+			"hunter_id": view.brain.hunter_id,
+			"ghost": view.brain.hunter_id == "porcelle",
 			"active": true,
 		})
 	return marks
@@ -959,6 +987,7 @@ func _enter_game_over() -> void:
 	run_report.open({
 		"online": RoomState.online,
 		"host": RoomState.is_host,
+		"title": "YOU DIED",
 		"reason": "CAPTURED BY %s" % hunter_name,
 		"depth": GameState.depth,
 		"score": GameState.score,
@@ -1012,16 +1041,37 @@ func _update_hud() -> void:
 	hud.update_stamina(player.stamina, player.exhausted)
 	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
-		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot())
-	hud.update_meters(player.meters)
+		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
+		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
+	var thermal := _temperature_hunter_proximity()
+	hud.update_meters(player.meters, thermal.x, thermal.y)
 	hud.set_escape_active(GameState.escape_active)
 	if GameState.escape_active:
 		hud.update_escape(GameState.escape_progress, GameState.escape_required, GameState.escape_remaining, GameState.escape_duration)
 
 
+func _temperature_hunter_proximity() -> Vector2:
+	var strengths := Vector2.ZERO # x = heat, y = cold
+	var player_position := player.grid_position()
+	for view in hunter_views:
+		if view == null or view.brain == null or not view.brain.active:
+			continue
+		var hunter_id := String(view.brain.hunter_id)
+		if hunter_id not in ["solyth", "wynelle"]:
+			continue
+		var distance := view.brain.position.distance_to(player_position)
+		var strength := clampf(1.0 - maxf(0.0, distance - 2.0) \
+			/ (TEMPERATURE_HUNTER_EFFECT_RADIUS - 2.0), 0.0, 1.0)
+		if hunter_id == "solyth":
+			strengths.x = maxf(strengths.x, strength)
+		else:
+			strengths.y = maxf(strengths.y, strength)
+	return strengths
+
+
 ## Returns null outside a debug build, so nothing here exists in a release.
 func _build_admin() -> void:
-	AdminMenu.attach(self,
+	admin_menu = AdminMenu.attach(self,
 		func() -> String:
 			return "ROOM %s  %s\nDEPTH %d  RELAYS %d/%d\nSEED %s" % [
 				RoomState.code, RoomState.SCALE_LABELS[RoomState.map_scale],
@@ -1029,11 +1079,10 @@ func _build_admin() -> void:
 				GameState.relay_target, RoomState.seed_text],
 		[
 			{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
-				"items": PlayerController3D.INVENTORY_ITEMS,
+				"items": PlayerController3D.COLLECTIBLE_ITEMS,
 				"labels": PlayerController3D.INVENTORY_LABELS,
 				"action": _admin_give_item},
-			{"heading": "PLAYER TOOLS", "label": "PLAYER TOOLS",
-				"action": func() -> void: pass},
+			{"heading": "PLAYER TOOLS"},
 			{"label": "GRANT RELAY", "action": func() -> void:
 				_admin_world_action("grant_relay")},
 			{"label": "ALL RELAYS", "action": func() -> void:
@@ -1050,8 +1099,7 @@ func _build_admin() -> void:
 			{"label": "TELEPORT TO EXIT", "action": func() -> void:
 				player.global_position = facility_view.cell_to_world(
 					facility_view.generator.exit_cell)},
-			{"heading": "ROOM TOOLS", "label": "ROOM TOOLS",
-				"action": func() -> void: pass},
+			{"heading": "ROOM TOOLS"},
 			{"label": "REBUILD FLOOR", "action": func() -> void:
 				_admin_world_action("rebuild")},
 			{"label": "DESCEND", "action": func() -> void:
@@ -1064,42 +1112,95 @@ func _build_admin() -> void:
 				_admin_world_action("lights_on")},
 			{"label": "ALL ROOM LIGHTS OFF", "action": func() -> void:
 				_admin_world_action("lights_off")},
-			{"heading": "VISUAL TOOLS", "label": "VISUAL TOOLS",
-				"action": func() -> void: pass},
-			{"label": "TOGGLE PIXEL EFFECT", "action": func() -> void:
-				pixel_signal_effect.set_admin_enabled(
-					not pixel_signal_effect.admin_enabled()),
+			{"heading": "VISUAL TOOLS"},
+			{"label": "TOGGLE PIXEL EFFECT", "action": _toggle_admin_pixel_effect,
 				"state": func() -> bool: return pixel_signal_effect.admin_enabled()},
 			{"label": "PIXEL EFFECT +", "action": func() -> void:
 				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent + 10.0)},
 			{"label": "PIXEL EFFECT -", "action": func() -> void:
 				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent - 10.0)},
-			{"label": "TRIGGER STATIC", "action": func() -> void:
-				hud.trigger_static(1.5, .82)},
 			# Both maps read _admin_reveal_hunters fresh every frame in
 			# _process(), so flipping this needs nothing else to take effect.
-			{"label": "TOGGLE HUNTER REVEAL", "action": func() -> void:
-				_admin_reveal_hunters = not _admin_reveal_hunters,
+			{"label": "TOGGLE HUNTER REVEAL", "action": _toggle_admin_hunter_reveal,
 				"state": func() -> bool: return _admin_reveal_hunters},
-			{"label": "TOGGLE NO TARGET", "action": func() -> void:
-				player.admin_no_target = not player.admin_no_target,
+			{"label": "TOGGLE NO TARGET", "action": _toggle_admin_no_target,
 				"state": func() -> bool: return player.admin_no_target},
 			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode,
 				"state": func() -> bool: return player.admin_god_mode},
-			{"label": "TOGGLE NOCLIP", "action": func() -> void:
-				player.set_admin_noclip(not player.admin_noclip),
+			{"label": "TOGGLE NOCLIP", "action": _toggle_admin_noclip,
 				"state": func() -> bool: return player.admin_noclip},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
 				"on_submit": _load_custom_map},
 		])
+	if admin_menu != null:
+		_apply_persisted_admin_preferences()
+		admin_menu.open_changed.connect(_on_admin_menu_open_changed)
+
+
+func _on_admin_menu_open_changed(shown: bool) -> void:
+	if shown:
+		hud.set_inventory_open(false)
+		if _room_chat != null:
+			_room_chat.close()
+	player.velocity = Vector3.ZERO
+	player.input_frozen = shown or _player_controls_blocked()
+
+
+func _dismiss_gameplay_overlay() -> bool:
+	if admin_menu != null and admin_menu.is_open():
+		admin_menu.close()
+		return true
+	if hud.map_is_open():
+		hud.map_overlay.visible = false
+		return true
+	if hud.inventory_is_open():
+		hud.set_inventory_open(false)
+		return true
+	if _room_chat != null and _room_chat.is_open():
+		_room_chat.close()
+		return true
+	return false
+
+
+func _on_inventory_open_changed(_shown: bool) -> void:
+	if _shown and hud.map_is_open():
+		hud.map_overlay.visible = false
+	if _shown and _room_chat != null:
+		_room_chat.close()
+	player.velocity = Vector3.ZERO
+	player.input_frozen = _player_controls_blocked()
+
+
+func _player_controls_blocked() -> bool:
+	return _awaiting_initial_snapshot or GameState.game_over \
+		or GameState.escape_active or player.hidden or player.is_stunned() \
+		or (pause_menu != null and pause_menu.is_open()) \
+		or (hud != null and hud.inventory_is_open()) \
+		or (hud != null and hud.map_is_open()) \
+		or (_room_chat != null and _room_chat.is_open()) \
+		or (admin_menu != null and admin_menu.is_open())
+
+
+func _on_map_open_changed(_shown: bool) -> void:
+	player.velocity = Vector3.ZERO
+	player.input_frozen = _player_controls_blocked()
+
+
+func _on_chat_open_changed(_shown: bool) -> void:
+	if _shown:
+		hud.set_inventory_open(false)
+	player.velocity = Vector3.ZERO
+	player.input_frozen = _player_controls_blocked()
 
 
 func _admin_give_item(item_id: String) -> void:
 	if player.grant_inventory_item(item_id):
 		hud.show_message("ADMIN GIVE // %s" % String(
 			PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).to_upper())
+	else:
+		hud.show_message("ADMIN GIVE FAILED // INVENTORY FULL")
 
 
 func _admin_restore_player() -> void:
@@ -1204,14 +1305,45 @@ func _admin_collect_relays(maximum: int) -> void:
 
 func _toggle_admin_god_mode() -> void:
 	player.admin_god_mode = not player.admin_god_mode
+	Settings.set_admin_preference("god_mode", player.admin_god_mode)
 	if not player.admin_god_mode:
 		return
 	if GameState.escape_active:
 		GameState.cancel_escape()
 		capturing_view = null
-		player.input_frozen = pause_menu.is_open() or player.hidden or player.is_stunned()
+		player.input_frozen = _player_controls_blocked()
 		if RoomState.online and not RoomState.is_host:
 			_remotes.submit_hunter_event({"what": "capture_blocked"})
+
+
+func _apply_persisted_admin_preferences() -> void:
+	player.admin_no_target = Settings.admin_preference("no_target")
+	player.admin_god_mode = Settings.admin_preference("god_mode")
+	player.set_admin_noclip(Settings.admin_preference("noclip"))
+	_admin_reveal_hunters = Settings.admin_preference("hunter_reveal")
+	pixel_signal_effect.set_admin_enabled(
+		Settings.admin_preference("pixel_effect_enabled"))
+
+
+func _toggle_admin_no_target() -> void:
+	player.admin_no_target = not player.admin_no_target
+	Settings.set_admin_preference("no_target", player.admin_no_target)
+
+
+func _toggle_admin_noclip() -> void:
+	player.set_admin_noclip(not player.admin_noclip)
+	Settings.set_admin_preference("noclip", player.admin_noclip)
+
+
+func _toggle_admin_hunter_reveal() -> void:
+	_admin_reveal_hunters = not _admin_reveal_hunters
+	Settings.set_admin_preference("hunter_reveal", _admin_reveal_hunters)
+
+
+func _toggle_admin_pixel_effect() -> void:
+	pixel_signal_effect.set_admin_enabled(not pixel_signal_effect.admin_enabled())
+	Settings.set_admin_preference("pixel_effect_enabled",
+		pixel_signal_effect.admin_enabled())
 
 
 ## Put the host's visual hunter copies into their authoritative state. Clients
@@ -1233,6 +1365,7 @@ func _apply_hunters(data: Array) -> void:
 			HunterBrain.State.IDLE, HunterBrain.State.SEARCH)
 		view.brain.stun_timer = maxf(0.0, float(entry.get("stun", 0.0)))
 		view.target_peer_id = maxi(0, int(entry.get("target_peer_id", 0)))
+		view.set_look_target(entry.get("look_target"))
 		if view.brain.gimmick is UmbrielGimmick:
 			view.brain.gimmick.disguise_id = String(entry.get("disguise", ""))
 		if view.brain.gimmick is NyxieGimmick:
@@ -1474,6 +1607,9 @@ func _apply_world_request(peer_id: int, event: Dictionary) -> void:
 					and _target_can_interact(target, cell):
 				var item := facility_view._at(cell, kind)
 				accepted = item != null and not item.completed
+				if accepted and kind == RouteInteractable3D.Kind.BATTERY \
+						and int(target.get("inventory_free_slots", 0)) <= 0:
+					accepted = false
 				if accepted and item.kind == RouteInteractable3D.Kind.RELAY \
 						and item.locked_cache:
 					var tool := String(event.get("tool", ""))
@@ -1688,7 +1824,7 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 	player.heater_on = _heater_state() == RouteInteractable3D.HeaterState.POWERED
 	_awaiting_initial_snapshot = false
 	_applied_host_floor_revision = host_floor_revision
-	player.input_frozen = GameState.escape_active or player.hidden or player.is_stunned()
+	player.input_frozen = _player_controls_blocked()
 	if _remotes != null:
 		_remotes.confirm_snapshot_applied()
 	route_loading.dismiss()
@@ -1708,14 +1844,14 @@ func _on_abandoned() -> void:
 
 
 func _on_pause_opened() -> void:
+	hud.set_inventory_open(false)
 	if RoomState.online:
 		player.input_frozen = true
 
 
 func _on_pause_resumed() -> void:
 	if RoomState.online:
-		player.input_frozen = _awaiting_initial_snapshot or GameState.escape_active \
-			or player.hidden or player.is_stunned()
+		player.input_frozen = _player_controls_blocked()
 
 
 func _on_interaction_message(message: String) -> void:
@@ -1737,7 +1873,7 @@ func _after_floor_built() -> void:
 	GameState.relay_target = facility_view.generator.relay_count
 	player.position = _player_spawn_world_position()
 	player.velocity = Vector3.ZERO
-	player.input_frozen = _awaiting_initial_snapshot
+	player.input_frozen = _player_controls_blocked()
 	_spawn_hunter()
 
 

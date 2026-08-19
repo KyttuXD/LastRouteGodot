@@ -11,6 +11,7 @@ var observed_depth := 1
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("gameplay_session")
 	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	observed_depth = GameState.depth
 	player.interaction_message.connect(_on_interaction_message)

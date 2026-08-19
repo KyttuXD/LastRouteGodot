@@ -49,7 +49,8 @@ HYTALE = "/home/kyttu/Documents/HytaleAssets/Assets/Common"
 # case-sensitive, so the Hytale clip names are renamed on the way in --
 # identical to build_hunters.py's own CANONICAL map.
 CANONICAL = {"Idle": "idle", "Walk": "walk", "Run": "chase",
-             "Sprint": "sprint", "Crouch": "crouch"}
+             "Sprint": "sprint", "Crouch": "crouch", "Sit": "sit",
+             "Sleep": "lay"}
 
 
 def main(skin, out_bb, out_glb):

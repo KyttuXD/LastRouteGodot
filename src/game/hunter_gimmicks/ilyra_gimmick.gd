@@ -27,7 +27,7 @@ var _tagged := false
 var _pounce_remaining := 0.0
 
 
-func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, generator) -> void:
 	if not _has_corner:
 		_respawn_corner(brain, generator)
 		_has_corner = true
@@ -43,10 +43,10 @@ func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, gen
 		_pounce_remaining = 0.0
 		return
 
-	# She never chases on her own, so any CHASE here came from ordinary
-	# sight, not a gimmick-driven one -- unlike Briselle/Ferryn, nothing of
-	# hers ever sets this state, so there is no ambiguity to untangle.
-	var sees := brain.state == HunterBrain.State.CHASE
+	# CHASE intentionally persists around corners now. Use the current visual
+	# evidence rather than the retained state, otherwise looking away would no
+	# longer tag the player and her delayed pounce could never begin.
+	var sees := brain.direct_chase_visible
 	if sees:
 		_saw_player = true
 	elif _saw_player and not _tagged:
@@ -81,7 +81,7 @@ func apply_network_state(state: Dictionary) -> void:
 	_hidden_remaining = 1.0 if bool(state.get("hidden", false)) else 0.0
 
 
-func _respawn_corner(brain: HunterBrain, generator: FacilityGenerator) -> void:
+func _respawn_corner(brain: HunterBrain, generator) -> void:
 	if generator.rooms.is_empty():
 		return
 	var room: Dictionary = generator.rooms[brain.next_random_index(generator.rooms.size())]
@@ -92,5 +92,6 @@ func _respawn_corner(brain: HunterBrain, generator: FacilityGenerator) -> void:
 		Vector2(room["x"] + room["width"] - 1.5, room["y"] + room["height"] - 1.5),
 	]
 	var chosen: Vector2 = corners[brain.next_random_index(corners.size())]
-	var open := generator.nearest_open_position(chosen.x, chosen.y, brain.radius)
+	var open: Dictionary = generator.nearest_open_position(
+		chosen.x, chosen.y, brain.radius)
 	brain.position = Vector2(open["x"], open["y"]) if not open.is_empty() else chosen

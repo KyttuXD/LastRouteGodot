@@ -155,6 +155,34 @@ func drain_scale() -> float:
 	return GameConfig.TEMPERATURE_OVERHEAT_DRAIN if overheating else 1.0
 
 
+func snapshot() -> Dictionary:
+	return {
+		"exposure": exposure,
+		"noise_meter": noise_meter,
+		"temperature": temperature,
+		"ambient": ambient,
+		"heat_locked": heat_locked,
+		"ambient_rise_timer": _ambient_rise_timer,
+	}
+
+
+func adopt(state: Dictionary) -> bool:
+	if state.is_empty():
+		return false
+	exposure = clampf(float(state.get("exposure", 0.0)), 0.0, 100.0)
+	noise_meter = clampf(float(state.get("noise_meter", 0.0)), 0.0, 100.0)
+	temperature = clampf(float(state.get("temperature",
+		GameConfig.TEMPERATURE_START)), 0.0, 100.0)
+	ambient = clampf(float(state.get("ambient",
+		GameConfig.TEMPERATURE_START)), 0.0, 100.0)
+	heat_locked = bool(state.get("heat_locked", false))
+	_ambient_rise_timer = maxf(0.0, float(state.get("ambient_rise_timer", 0.0)))
+	_noise_input = 0.0
+	overheating = temperature >= GameConfig.TEMPERATURE_OVERHEAT
+	freezing = temperature <= GameConfig.TEMPERATURE_FREEZE
+	return true
+
+
 ## Reset between floors; the heat lock deliberately survives, matching the
 ## original's "permanent for the rest of the round" Solyth latch.
 func reset_for_floor() -> void:

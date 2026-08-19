@@ -77,6 +77,7 @@ jobs:
           for archive in \
             builds/LastRoute-Linux-Debug.zip \
             builds/LastRoute-Windows-Debug.zip \
+            builds/LastRoute-Windows-Legacy-Debug.zip \
             builds/LastRoute-Windows-SteamVR-Debug.zip \
             builds/LastRoute-macOS-Debug.zip \
             builds/LastRoute-Web-Debug.zip; do
@@ -84,6 +85,7 @@ jobs:
           done
           test "$(unzip -Z1 builds/LastRoute-Linux-Debug.zip)" = "LastRoute-Linux-Debug.x86_64"
           test "$(unzip -Z1 builds/LastRoute-Windows-Debug.zip)" = "LastRoute-Windows-Debug.exe"
+          test "$(unzip -Z1 builds/LastRoute-Windows-Legacy-Debug.zip)" = "LastRoute-Windows-Legacy-Debug.exe"
           test "$(unzip -Z1 builds/LastRoute-Windows-SteamVR-Debug.zip)" = "LastRoute-Windows-SteamVR-Debug.exe"
           test -z "$(unzip -Z1 builds/LastRoute-macOS-Debug.zip | grep -E '\.command$' || true)"
           test -z "$(unzip -Z1 builds/LastRoute-macOS-Debug.zip | awk '$0 !~ /^KYTTU- The Last Route\.app\// { print }')"
@@ -103,6 +105,7 @@ jobs:
           gh release upload debug --repo "${GITHUB_REPOSITORY}" --clobber \
             builds/LastRoute-Linux-Debug.zip \
             builds/LastRoute-Windows-Debug.zip \
+            builds/LastRoute-Windows-Legacy-Debug.zip \
             builds/LastRoute-Windows-SteamVR-Debug.zip \
             builds/LastRoute-macOS-Debug.zip \
             builds/LastRoute-Web-Debug.zip

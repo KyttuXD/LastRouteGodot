@@ -173,9 +173,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -155
-offset_top = 61
+offset_top = 50
 offset_right = 155
-offset_bottom = 108
+offset_bottom = 97
 grow_horizontal = 2
 grow_vertical = 1
 theme_override_styles/panel = SubResource("StyleBoxEmpty_actions")
@@ -197,6 +197,12 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "JOIN ROOM"
 
+[node name="OfflineButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+text = "PLAY OFFLINE"
+
 [node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
 theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true
@@ -209,11 +215,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "REGISTER / SIGN IN"
 
-[node name="ChangelogButton" type="Button" parent="ButtonPanel/ButtonBox"]
+[node name="TutorialButton" type="Button" parent="ButtonPanel/ButtonBox"]
 theme_override_font_sizes/font_size = 5
 unique_name_in_owner = true
 layout_mode = 2
-text = "CHANGELOG"
+text = "TUTORIAL"
 
 [node name="UpdateButton" type="Button" parent="ButtonPanel/ButtonBox"]
 theme_override_font_sizes/font_size = 6
@@ -277,25 +283,8 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_colors/font_color = Color(0.72, 0.68, 0.66, 1)
 theme_override_font_sizes/font_size = 7
-text = "The building rebuilds itself with every descent. Recover each signal relay, reach the service lift, and see how deep you can go."
+text = "Keep moving. Do not look back."
 autowrap_mode = 2
-
-[node name="RouteNotice" type="Label" parent="."]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -155.0
-offset_top = 50.0
-offset_right = 180.0
-offset_bottom = 58.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_colors/font_color = Color(0.46, 0.42, 0.44, 1)
-theme_override_font_sizes/font_size = 6
-text = "Open a room to run solo or with others — every room rebuilds from a fresh signal."
 
 [node name="VersionLabel" type="Label" parent="."]
 unique_name_in_owner = true
@@ -353,6 +342,7 @@ text = "PRESS REBIND, THEN A KEY  //  ESC CANCELS A REBIND IN PROGRESS"
 horizontal_alignment = 1
 
 [node name="AudioHeading" type="Label" parent="SettingsOverlay"]
+visible = false
 layout_mode = 0
 offset_left = 20.0
 offset_top = 37.0
@@ -365,12 +355,13 @@ text = "AUDIO"
 [node name="VolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 45.0
+offset_top = 70.0
 offset_right = 420.0
-offset_bottom = 61.0
+offset_bottom = 86.0
 theme_override_constants/separation = 8
 
 [node name="DisplayHeading" type="Label" parent="SettingsOverlay"]
+visible = false
 layout_mode = 0
 offset_left = 20.0
 offset_top = 63.0
@@ -401,12 +392,70 @@ layout_mode = 2
 vertical_alignment = 1
 text = "100%"
 
+[node name="SfxVolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 94.0
+offset_right = 420.0
+offset_bottom = 110.0
+theme_override_constants/separation = 8
+
+[node name="SfxVolumeLabel" type="Label" parent="SettingsOverlay/SfxVolumeRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "GAMEPLAY / HUNTERS"
+
+[node name="SfxVolumeSlider" type="HSlider" parent="SettingsOverlay/SfxVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 100.0
+
+[node name="SfxVolumeValueLabel" type="Label" parent="SettingsOverlay/SfxVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "100%"
+
+[node name="UiVolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 118.0
+offset_right = 420.0
+offset_bottom = 134.0
+theme_override_constants/separation = 8
+
+[node name="UiVolumeLabel" type="Label" parent="SettingsOverlay/UiVolumeRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "MENU / UI"
+
+[node name="UiVolumeSlider" type="HSlider" parent="SettingsOverlay/UiVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 100.0
+
+[node name="UiVolumeValueLabel" type="Label" parent="SettingsOverlay/UiVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "100%"
+
 [node name="SensitivityRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 125.0
+offset_top = 186.0
 offset_right = 420.0
-offset_bottom = 141.0
+offset_bottom = 202.0
 theme_override_constants/separation = 8
 
 [node name="SensitivityLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
@@ -430,17 +479,94 @@ text = "50"
 [node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 71.0
+offset_top = 66.0
 offset_right = 420.0
-offset_bottom = 87.0
+offset_bottom = 82.0
 theme_override_constants/separation = 8
+
+[node name="VsyncRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 86.0
+offset_right = 420.0
+offset_bottom = 102.0
+theme_override_constants/separation = 8
+
+[node name="VsyncLabel" type="Label" parent="SettingsOverlay/VsyncRow"]
+layout_mode = 2
+visible = false
+text = "VSYNC"
+
+[node name="VsyncButton" type="Button" parent="SettingsOverlay/VsyncRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 16)
+layout_mode = 2
+toggle_mode = true
+
+[node name="FpsLimitRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 106.0
+offset_right = 420.0
+offset_bottom = 122.0
+theme_override_constants/separation = 8
+
+[node name="FpsLimitLabel" type="Label" parent="SettingsOverlay/FpsLimitRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "FPS LIMIT"
+
+[node name="FpsLimitSlider" type="HSlider" parent="SettingsOverlay/FpsLimitRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 240.0
+step = 30.0
+
+[node name="FpsLimitValueLabel" type="Label" parent="SettingsOverlay/FpsLimitRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(58, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "UNLIMITED"
+
+[node name="FovRow" type="HBoxContainer" parent="SettingsOverlay"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 126.0
+offset_right = 420.0
+offset_bottom = 142.0
+theme_override_constants/separation = 8
+
+[node name="FovLabel" type="Label" parent="SettingsOverlay/FovRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "FIELD OF VIEW"
+
+[node name="FovSlider" type="HSlider" parent="SettingsOverlay/FovRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+min_value = 60.0
+max_value = 105.0
+step = 1.0
+value = 78.0
+
+[node name="FovValueLabel" type="Label" parent="SettingsOverlay/FovRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "78°"
 
 [node name="PixelEffectRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 89.0
+offset_top = 146.0
 offset_right = 420.0
-offset_bottom = 105.0
+offset_bottom = 162.0
 theme_override_constants/separation = 8
 
 [node name="PixelEffectLabel" type="Label" parent="SettingsOverlay/PixelEffectRow"]
@@ -467,9 +593,9 @@ text = "28%"
 [node name="PlayerHueRow" type="HBoxContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 107.0
+offset_top = 166.0
 offset_right = 420.0
-offset_bottom = 123.0
+offset_bottom = 182.0
 theme_override_constants/separation = 8
 
 [node name="PlayerHueLabel" type="Label" parent="SettingsOverlay/PlayerHueRow"]
@@ -493,6 +619,7 @@ vertical_alignment = 1
 text = "ORIGINAL"
 
 [node name="ControlsHeading" type="Label" parent="SettingsOverlay"]
+visible = false
 layout_mode = 0
 offset_left = 20.0
 offset_top = 143.0
@@ -525,7 +652,7 @@ text = "F11 ANYWHERE"
 [node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 153.0
+offset_top = 62.0
 offset_right = 420.0
 offset_bottom = 228.0
 horizontal_scroll_mode = 0
