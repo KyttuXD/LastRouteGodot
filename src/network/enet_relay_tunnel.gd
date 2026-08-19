@@ -118,6 +118,14 @@ func close() -> void:
 	_pending.clear()
 
 
+## ENet writes its final reliable RPC/disconnect datagram into this loopback
+## socket. Give the guest proxy one synchronous drain before its UDP socket is
+## closed, otherwise the host can retain a departed roster row until timeout.
+func flush_guest_outbound() -> void:
+	if mode == Mode.GUEST and _socket != null:
+		_poll_main_socket()
+
+
 func _open(code: String, address: String, port: int) -> String:
 	room_code = code.strip_edges().to_upper()
 	relay_address = address.strip_edges()

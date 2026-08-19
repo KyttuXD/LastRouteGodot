@@ -13,6 +13,7 @@ extends Node
 const PORT := 18421
 const TIMEOUT_SECONDS := 8.0
 const RELAY_ROOM_CODE := "ABCDE"
+const ACCOUNT_CLIENT_NAME := "ACCOUNT_CLIENT"
 
 var _client_waiting_for_start := false
 var _remotes: RemotePlayers
@@ -73,7 +74,7 @@ func _run_host() -> void:
 		return
 	var registered := await _wait_for(func() -> bool:
 		for id in RoomState.peers:
-			if int(id) > 1 and not String(RoomState.peers[id]).begins_with("SIGNAL-"):
+			if int(id) > 1 and String(RoomState.peers[id]) == ACCOUNT_CLIENT_NAME:
 				return true
 		return false)
 	if not registered:
@@ -110,7 +111,10 @@ func _run_host() -> void:
 	RoomState._receive_start.rpc(RoomState.code, RoomState.seed_text,
 		RoomState.mode, RoomState.map_scale, RoomState.difficulty)
 	print("ENET HOST START OK // synchronized route launch sent")
-	await get_tree().create_timer(0.5).timeout
+	if not await _wait_for(func() -> bool: return RoomState.roster().size() == 1):
+		_finish(false, "guest leave did not remove the host roster row immediately")
+		return
+	print("ENET HOST LEAVE OK // guest roster row removed immediately")
 	RoomState.leave_network()
 	get_tree().quit(0)
 
@@ -118,6 +122,12 @@ func _run_host() -> void:
 func _run_client() -> void:
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	var local_code := RoomState.code
+	# Reproduce account verification completing after the startup room already
+	# generated an anonymous callsign.
+	Backend.account_username = ACCOUNT_CLIENT_NAME
+	Backend.account_session_token = "smoke-account-session"
+	Backend.account_session_verified = true
+	RoomState._on_account_changed(true, ACCOUNT_CLIENT_NAME, false, "")
 	_client_waiting_for_start = true
 	RoomState.changed.connect(_on_client_room_changed)
 	var error := ""

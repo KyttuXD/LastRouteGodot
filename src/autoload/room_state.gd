@@ -143,6 +143,7 @@ var _scene_transitions_suppressed_for_tests := false
 
 func _ready() -> void:
 	Backend.registration_changed.connect(_on_directory_registration)
+	Backend.account_changed.connect(_on_account_changed)
 	_relay = RELAY_TUNNEL_SCRIPT.new()
 	_relay.name = "GameplayRelayTunnel"
 	_relay.relay_ready.connect(_on_relay_ready)
@@ -297,6 +298,14 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 
 
 func leave_network() -> void:
+	# Tell host authority which roster row is leaving before closing ENet. Relay
+	# guests must also drain the loopback proxy once, or the reliable RPC can be
+	# discarded when the relay socket is torn down immediately afterwards.
+	if online and not is_host and _peer != null:
+		_request_peer_leave.rpc_id(1)
+		_peer.poll()
+		if _relay != null:
+			_relay.flush_guest_outbound()
 	if online and is_host:
 		Backend.unregister_room()
 	if _peer != null:
@@ -346,12 +355,32 @@ func _on_peer_connected(id: int) -> void:
 
 
 func _on_peer_disconnected(id: int) -> void:
+	if not peers.has(id):
+		return
 	peers.erase(id)
 	if is_host:
 		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 			session_active)
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
+
+
+## A graceful guest exit reaches host authority before its relay tunnel closes.
+## The transport's later peer_disconnected signal is intentionally idempotent.
+@rpc("any_peer", "call_remote", "reliable")
+func _request_peer_leave() -> void:
+	if not is_host:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id <= 1 or not peers.has(id):
+		return
+	peers.erase(id)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
+		session_active)
+	Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.disconnect_peer(id)
 
 
 func _on_directory_registration(listed: bool, message: String) -> void:
@@ -487,7 +516,33 @@ func broadcast() -> void:
 
 
 func _local_name() -> String:
+	# Account verification completes asynchronously after RoomState creates its
+	# initial local room. Prefer the current verified identity over that stale
+	# startup callsign when hosting or registering with a remote host.
+	if Backend.signed_in():
+		return Backend.account_username
 	return String(players[0]) if not players.is_empty() else _make_callsign()
+
+
+func _on_account_changed(signed_in_now: bool, username: String,
+		_admin: bool, _message: String) -> void:
+	var updated_name := username.strip_edges().to_upper() if signed_in_now \
+		else _random_guest_callsign()
+	if updated_name.is_empty():
+		return
+	if players.is_empty():
+		players.append(updated_name)
+	else:
+		players[0] = updated_name
+	if online:
+		var local_id := multiplayer.get_unique_id()
+		peers[local_id] = updated_name
+		if is_host:
+			broadcast()
+			Backend.update_room(peers.size(), session_active)
+		else:
+			_register_peer.rpc_id(1, updated_name)
+	changed.emit()
 
 
 func local_display_name() -> String:
@@ -804,5 +859,9 @@ static func _make_code() -> String:
 static func _make_callsign() -> String:
 	if Backend.signed_in():
 		return Backend.account_username
+	return _random_guest_callsign()
+
+
+static func _random_guest_callsign() -> String:
 	return "%s-%s-%d" % [GUEST_FIRST_NAMES[randi() % GUEST_FIRST_NAMES.size()],
 		GUEST_LAST_NAMES[randi() % GUEST_LAST_NAMES.size()], 100 + randi() % 900]
