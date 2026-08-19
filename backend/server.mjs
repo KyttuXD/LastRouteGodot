@@ -17,6 +17,9 @@ const ACCOUNT_RATE_LIMIT_PATHS = new Set([
   "/api/account/session",
   "/api/account/password",
   "/api/account/rename",
+	"/api/admin/roster",
+	"/api/admin/roster/set",
+	"/api/admin/roster/remove",
   "/api/dev/login",
   "/api/enet/admin-tickets/issue",
 ]);
@@ -292,7 +295,7 @@ export function createLastRouteServer({
   function developerRequest(body) {
     if (body?.devToken && devTokens.has(String(body.devToken))) return true;
     if (adminPassword && safeEqual(body?.adminProof, adminPassword)) return true;
-    return accountService.sessionUsername(body?.sessionToken) === "KYTTU";
+    return Boolean(accountService.sessionAdminIdentity(body?.sessionToken)?.adminOwner);
   }
 
   function issueDevToken() {
@@ -456,18 +459,21 @@ export function createLastRouteServer({
       const code = normalizeEnetCode(body.code);
       const room = code ? enetRooms.get(code) : null;
       if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
-      if (accountService.sessionUsername(body.sessionToken) !== "KYTTU") {
+      const identity = accountService.sessionAdminIdentity(body.sessionToken);
+      if (!identity?.admin || !identity.adminPermissions.length) {
         return json(response, 403, { ok: false, error: "ADMIN ACCOUNT REQUIRED" });
       }
       const ticket = randomBytes(32).toString("base64url");
       const ttl = Math.max(5_000, Math.min(Number(adminTicketTtlMs) || DEFAULT_ADMIN_TICKET_TTL_MS,
         DEFAULT_ADMIN_TICKET_TTL_MS));
       const expiresAt = now() + ttl;
-      adminTickets.set(ticket, { code, hostToken: room.token, expiresAt });
+      adminTickets.set(ticket, { code, hostToken: room.token, expiresAt,
+        username: identity.username, permissions: [...identity.adminPermissions] });
       return json(response, 201, {
         ok: true,
         ticket,
         room: code,
+        permissions: [...identity.adminPermissions],
         expiresIn: Math.max(1, Math.ceil(ttl / 1000)),
       });
     }
@@ -491,6 +497,7 @@ export function createLastRouteServer({
         ok: true,
         authorized: true,
         room: code,
+        permissions: [...proof.permissions],
         expiresIn: Math.max(1, Math.ceil((proof.expiresAt - now()) / 1000)),
       });
     }
@@ -520,16 +527,32 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
     else if (url.pathname === "/api/account/register") {
       result = await accountService.register(body, { allowDeveloperNames: developerRequest(body) });
-      if (result[1]?.ok && result[1].admin) result[1].devToken = issueDevToken();
+      if (result[1]?.ok && result[1].adminOwner) result[1].devToken = issueDevToken();
     } else if (url.pathname === "/api/account/login") {
       result = await accountService.login(body);
-      if (result[1]?.ok && result[1].admin) result[1].devToken = issueDevToken();
+      if (result[1]?.ok && result[1].adminOwner) result[1].devToken = issueDevToken();
     } else if (url.pathname === "/api/account/session") result = accountService.currentSession(body);
     else if (url.pathname === "/api/account/password") result = await accountService.changePassword(body);
     else if (url.pathname === "/api/account/rename") result = accountService.rename(body, { allowDeveloperNames: developerRequest(body) });
     else if (url.pathname === "/api/account/save") result = accountService.save(body);
     else if (url.pathname === "/api/account/load") result = accountService.loadProgress(body);
     else if (url.pathname === "/api/account/logout") result = accountService.logout(body);
+    else if (url.pathname === "/api/admin/roster") result = accountService.listAdminRoster(body);
+    else if (url.pathname === "/api/admin/roster/set") {
+      result = accountService.setAdminRoster(body);
+      if (result[1]?.ok) {
+        for (const [ticket, proof] of adminTickets) {
+          if (proof.username === result[1].entry?.username) adminTickets.delete(ticket);
+        }
+      }
+    } else if (url.pathname === "/api/admin/roster/remove") {
+      result = accountService.removeAdminRoster(body);
+      if (result[1]?.ok) {
+        for (const [ticket, proof] of adminTickets) {
+          if (proof.username === result[1].username) adminTickets.delete(ticket);
+        }
+      }
+    }
     else result = [404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" }];
 
     if (result[1]?.room && !Object.hasOwn(result[1], "ok")) result[1].reloadId = reloadId;

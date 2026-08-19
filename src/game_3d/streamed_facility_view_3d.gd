@@ -140,6 +140,16 @@ func spawn_position() -> Vector3:
 	return Vector3(cell.x + .5, .04, cell.y + .5)
 
 
+## Admin teleports bypass CharacterBody movement, so the normal _process()
+## stream transition has not happened yet when the same button callback closes
+## its modal. Rebuild the collision/map window synchronously at the new runner
+## position so the next fullscreen-map draw cannot observe an empty old floor.
+func refresh_at_tracked_player() -> void:
+	if generator == null or tracked_player == null:
+		return
+	_refresh_stream(true)
+
+
 func current_level() -> int:
 	if tracked_player == null:
 		return 0

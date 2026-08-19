@@ -5,8 +5,8 @@ signal open_changed(shown: bool)
 
 ## Developer overlay, on the 0 key.
 ##
-## Gated behind Build.tools_enabled(): debug builds always have it; release
-## builds require a live primary-server login as the canonical KYTTU account.
+## Gated behind Build.tools_enabled(): player-facing debug and release builds
+## require a live primary-server owner/scoped-admin login.
 ## Everything here either states what the game is currently thinking or
 ## reaches in and changes it, so a display name is never sufficient proof.
 ##
@@ -120,6 +120,8 @@ func _build() -> void:
 	column.add_child(_readout)
 
 	for entry in _actions:
+		if not _entry_allowed(entry):
+			continue
 		if entry.has("heading"):
 			var section := Label.new()
 			section.text = String(entry["heading"])
@@ -171,6 +173,8 @@ func _build() -> void:
 			_first_action_button = button
 
 	for entry in _text_fields:
+		if not _entry_allowed(entry):
+			continue
 		var field_label := Label.new()
 		field_label.text = String(entry["label"])
 		field_label.add_theme_color_override("font_color", Palette.MUTED)
@@ -195,6 +199,17 @@ func _build() -> void:
 	column.add_child(hint)
 
 	_set_open(false)
+
+
+func _entry_allowed(entry: Dictionary) -> bool:
+	if bool(entry.get("owner_only", false)):
+		return Build.admin_owner_tools_enabled()
+	var permission := String(entry.get("permission", ""))
+	# Old/unclassified actions fail closed for delegated accounts. Owners retain
+	# them, which prevents a newly added button from silently escaping the
+	# permission model before its author assigns a scope.
+	return Build.admin_permission(permission) if not permission.is_empty() \
+		else Build.admin_owner_tools_enabled()
 
 
 func _set_open(shown: bool) -> void:

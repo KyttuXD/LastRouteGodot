@@ -20,6 +20,8 @@ func run(host: Node) -> int:
 		"username": Backend.account_username,
 		"token": Backend.account_session_token,
 		"admin": Backend.account_admin,
+		"admin_owner": Backend.account_admin_owner,
+		"admin_permissions": Backend.account_admin_permissions.duplicate(),
 		"verified": Backend.account_session_verified,
 	}
 	# Never let a validation run contact the real account save slot when it
@@ -27,6 +29,8 @@ func run(host: Node) -> int:
 	Backend.account_username = ""
 	Backend.account_session_token = ""
 	Backend.account_admin = false
+	Backend.account_admin_owner = false
+	Backend.account_admin_permissions = PackedStringArray()
 	Backend.account_session_verified = false
 
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -105,6 +109,8 @@ func run(host: Node) -> int:
 	Backend.account_username = account_before["username"]
 	Backend.account_session_token = account_before["token"]
 	Backend.account_admin = account_before["admin"]
+	Backend.account_admin_owner = account_before["admin_owner"]
+	Backend.account_admin_permissions = account_before["admin_permissions"]
 	Backend.account_session_verified = account_before["verified"]
 
 	if _failures == 0:

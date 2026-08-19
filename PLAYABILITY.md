@@ -41,7 +41,7 @@ this file is the order in which unfinished work should be attacked.
   warning there. This transport is unencrypted and remains documented as a
   deployment risk; built-in per-address API/account throttles still apply.
 - [x] Issue short-lived, room-bound admin tickets from the primary backend so
-  an authenticated `KYTTU` release guest can use shared map/admin tools without
+  an authenticated `KYTTU`/`AYTTU` owner or scoped roster admin can use permitted shared map/admin tools without
   sending an account session token to the host. Tickets expire after five
   minutes and are bound to the room plus current host token; release hosts
   reject forged, expired or unproved remote admin claims.

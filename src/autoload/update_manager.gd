@@ -255,7 +255,7 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 		candidate["url"] = url
 	var trusted_transport := url.begins_with("https://") \
 		or url.begins_with("%s/api/updates/files/" % Backend.base_url) \
-		or (Build.tools_enabled() and (url.begins_with("http://127.0.0.1") \
+		or (OS.is_debug_build() and (url.begins_with("http://127.0.0.1") \
 			or url.begins_with("http://localhost")))
 	if not trusted_transport or not _valid_sha256(sha256):
 		_finish_check(false, false, "UNTRUSTED UPDATE RESPONSE")

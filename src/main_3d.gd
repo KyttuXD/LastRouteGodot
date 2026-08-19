@@ -822,7 +822,7 @@ func _on_admin_ticket_changed(ready: bool, room_code: String,
 
 
 func _on_admin_ticket_verified(request_id: int, authorized: bool,
-		expires_in: int, message: String) -> void:
+		expires_in: int, permissions: PackedStringArray, message: String) -> void:
 	if not _pending_admin_requests.has(request_id):
 		return
 	var pending: Dictionary = _pending_admin_requests[request_id]
@@ -834,19 +834,36 @@ func _on_admin_ticket_verified(request_id: int, authorized: bool,
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "ADMIN REQUEST REJECTED // %s" % message})
 		return
-	_remotes.authorize_admin_peer(peer_id, expires_in)
+	_remotes.authorize_admin_peer(peer_id, expires_in, permissions)
 	_apply_verified_admin_request(peer_id, pending.get("event", {}))
 
 
 func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
-	match String(event.get("what", "")):
+	var what := String(event.get("what", ""))
+	var permission := _admin_event_permission(event)
+	if not permission.is_empty() \
+			and not _remotes.remote_admin_peer_allowed(peer_id, permission):
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "ADMIN REQUEST REJECTED // PERMISSION REQUIRED"})
+		return
+	match what:
 		"admin_auth":
 			_remotes.send_player_event(peer_id, {"what": "message",
 				"message": "ADMIN ROOM PROOF VERIFIED"})
 		"admin_custom_map":
-			_load_custom_map(String(event.get("url", "")))
+			_load_custom_map(String(event.get("url", "")), true)
 		"admin_world":
 			_apply_admin_world_action(String(event.get("action", "")), true)
+
+
+func _admin_event_permission(event: Dictionary) -> String:
+	var what := String(event.get("what", ""))
+	if what == "admin_custom_map":
+		return "world"
+	if what != "admin_world":
+		return ""
+	var action := String(event.get("action", ""))
+	return "hunters" if action in ["stun_hunters", "wake_hunters"] else "world"
 
 
 func _heater_state() -> RouteInteractable3D.HeaterState:
@@ -873,14 +890,16 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 
 func _target_tools_authorized(target: Dictionary) -> bool:
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
-	return Build.tools_enabled() if int(target.get("peer_id", local_id)) == local_id \
-		else _remotes.remote_admin_peer_allowed(int(target.get("peer_id", 0)))
+	return Build.admin_permission("player") \
+		if int(target.get("peer_id", local_id)) == local_id \
+		else _remotes.remote_admin_peer_allowed(int(target.get("peer_id", 0)), "player")
 
 
 func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> void:
 	# A reliable capture packet may already be in flight when a guest toggles a
 	# protection. Resolve it locally and release the host's pending-capture gate.
-	if Build.tools_enabled() and (player.admin_no_target or player.admin_god_mode):
+	if Build.admin_permission("player") \
+			and (player.admin_no_target or player.admin_god_mode):
 		if RoomState.online and not RoomState.is_host:
 			_remotes.submit_hunter_event({"what": "capture_blocked"})
 		return
@@ -1079,64 +1098,83 @@ func _build_admin() -> void:
 				GameState.relay_target, RoomState.seed_text],
 		[
 			{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
+				"permission": "inventory",
 				"items": PlayerController3D.COLLECTIBLE_ITEMS,
 				"labels": PlayerController3D.INVENTORY_LABELS,
 				"action": _admin_give_item},
-			{"heading": "PLAYER TOOLS"},
-			{"label": "GRANT RELAY", "action": func() -> void:
+			{"heading": "PLAYER TOOLS", "permission": "player"},
+			{"label": "GRANT RELAY", "permission": "world", "action": func() -> void:
 				_admin_world_action("grant_relay")},
-			{"label": "ALL RELAYS", "action": func() -> void:
+			{"label": "ALL RELAYS", "permission": "world", "action": func() -> void:
 				_admin_world_action("all_relays")},
-			{"label": "FULL LAMP", "action": func() -> void:
+			{"label": "FULL LAMP", "permission": "player", "action": func() -> void:
 				player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
-			{"label": "RESTORE PLAYER", "action": _admin_restore_player},
-			{"label": "CLEAR STUN + COOLDOWNS", "action": func() -> void:
+			{"label": "RESTORE PLAYER", "action": _admin_restore_player,
+				"permission": "player"},
+			{"label": "CLEAR STUN + COOLDOWNS", "permission": "player",
+				"action": func() -> void:
 				player.stun_timer = 0.0
 				player.taser_cooldown = 0.0},
-			{"label": "TELEPORT TO START", "action": func() -> void:
+			{"label": "TELEPORT TO START", "permission": "player", "action": func() -> void:
 				player.global_position = facility_view.cell_to_world(
 					facility_view.generator.start)},
-			{"label": "TELEPORT TO EXIT", "action": func() -> void:
+			{"label": "TELEPORT TO EXIT", "permission": "player", "action": func() -> void:
 				player.global_position = facility_view.cell_to_world(
 					facility_view.generator.exit_cell)},
-			{"heading": "ROOM TOOLS"},
-			{"label": "REBUILD FLOOR", "action": func() -> void:
+			{"heading": "ROOM TOOLS", "permission": "world"},
+			{"label": "REBUILD FLOOR", "permission": "world", "action": func() -> void:
 				_admin_world_action("rebuild")},
-			{"label": "DESCEND", "action": func() -> void:
+			{"label": "DESCEND", "permission": "world", "action": func() -> void:
 				_admin_world_action("descend")},
-			{"label": "STUN ALL HUNTERS", "action": func() -> void:
+			{"label": "STUN ALL HUNTERS", "permission": "hunters", "action": func() -> void:
 				_admin_world_action("stun_hunters")},
-			{"label": "WAKE ALL HUNTERS", "action": func() -> void:
+			{"label": "WAKE ALL HUNTERS", "permission": "hunters", "action": func() -> void:
 				_admin_world_action("wake_hunters")},
-			{"label": "ALL ROOM LIGHTS ON", "action": func() -> void:
+			{"label": "ALL ROOM LIGHTS ON", "permission": "world", "action": func() -> void:
 				_admin_world_action("lights_on")},
-			{"label": "ALL ROOM LIGHTS OFF", "action": func() -> void:
+			{"label": "ALL ROOM LIGHTS OFF", "permission": "world", "action": func() -> void:
 				_admin_world_action("lights_off")},
-			{"heading": "VISUAL TOOLS"},
+			{"heading": "VISUAL TOOLS", "permission": "visual"},
 			{"label": "TOGGLE PIXEL EFFECT", "action": _toggle_admin_pixel_effect,
+				"permission": "visual",
 				"state": func() -> bool: return pixel_signal_effect.admin_enabled()},
-			{"label": "PIXEL EFFECT +", "action": func() -> void:
+			{"label": "PIXEL EFFECT +", "permission": "visual", "action": func() -> void:
 				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent + 10.0)},
-			{"label": "PIXEL EFFECT -", "action": func() -> void:
+			{"label": "PIXEL EFFECT -", "permission": "visual", "action": func() -> void:
 				Settings.set_pixel_effect_percent(Settings.pixel_effect_percent - 10.0)},
 			# Both maps read _admin_reveal_hunters fresh every frame in
 			# _process(), so flipping this needs nothing else to take effect.
 			{"label": "TOGGLE HUNTER REVEAL", "action": _toggle_admin_hunter_reveal,
+				"permission": "visual",
 				"state": func() -> bool: return _admin_reveal_hunters},
 			{"label": "TOGGLE NO TARGET", "action": _toggle_admin_no_target,
+				"permission": "player",
 				"state": func() -> bool: return player.admin_no_target},
 			{"label": "TOGGLE GOD MODE", "action": _toggle_admin_god_mode,
+				"permission": "player",
 				"state": func() -> bool: return player.admin_god_mode},
 			{"label": "TOGGLE NOCLIP", "action": _toggle_admin_noclip,
+				"permission": "player",
 				"state": func() -> bool: return player.admin_noclip},
 		],
 		[
 			{"label": "CUSTOM MAP URL", "placeholder": "https://.../map.png",
-				"on_submit": _load_custom_map},
+				"on_submit": _load_custom_map, "permission": "world"},
+			{"label": "ADD / UPDATE LIMITED ADMIN",
+				"placeholder": "USERNAME:player,world,hunters,visual,inventory",
+				"on_submit": Backend.admin_roster_set_spec, "owner_only": true},
+			{"label": "REMOVE LIMITED ADMIN", "placeholder": "USERNAME",
+				"on_submit": Backend.admin_roster_remove, "owner_only": true},
 		])
 	if admin_menu != null:
 		_apply_persisted_admin_preferences()
 		admin_menu.open_changed.connect(_on_admin_menu_open_changed)
+		if not Backend.admin_roster_changed.is_connected(_on_admin_roster_changed):
+			Backend.admin_roster_changed.connect(_on_admin_roster_changed)
+
+
+func _on_admin_roster_changed(ok: bool, message: String, _roster: Array) -> void:
+	hud.show_message(("ADMIN ROSTER // " if ok else "ADMIN ROSTER FAILED // ") + message)
 
 
 func _on_admin_menu_open_changed(shown: bool) -> void:
@@ -1216,7 +1254,9 @@ func _admin_restore_player() -> void:
 ## interactions. Personal commands (lamp/no-target/god/reveal) deliberately
 ## stay on the admin who pressed them.
 func _admin_world_action(action: String) -> void:
-	if not Build.tools_enabled():
+	var permission := "hunters" if action in ["stun_hunters", "wake_hunters"] \
+		else "world"
+	if not Build.admin_permission(permission):
 		return
 	if RoomState.online and not RoomState.is_host:
 		if not _guest_admin_proof_ready():
@@ -1228,7 +1268,9 @@ func _admin_world_action(action: String) -> void:
 
 
 func _apply_admin_world_action(action: String, authorized_remote: bool = false) -> void:
-	if (not authorized_remote and not Build.tools_enabled()) \
+	var permission := "hunters" if action in ["stun_hunters", "wake_hunters"] \
+		else "world"
+	if (not authorized_remote and not Build.admin_permission(permission)) \
 		or not ["grant_relay", "all_relays", "rebuild",
 			"descend", "stun_hunters", "wake_hunters", "lights_on",
 			"lights_off"].has(action):
@@ -1317,12 +1359,14 @@ func _toggle_admin_god_mode() -> void:
 
 
 func _apply_persisted_admin_preferences() -> void:
-	player.admin_no_target = Settings.admin_preference("no_target")
-	player.admin_god_mode = Settings.admin_preference("god_mode")
-	player.set_admin_noclip(Settings.admin_preference("noclip"))
-	_admin_reveal_hunters = Settings.admin_preference("hunter_reveal")
+	var player_tools := Build.admin_permission("player")
+	var visual_tools := Build.admin_permission("visual")
+	player.admin_no_target = player_tools and Settings.admin_preference("no_target")
+	player.admin_god_mode = player_tools and Settings.admin_preference("god_mode")
+	player.set_admin_noclip(player_tools and Settings.admin_preference("noclip"))
+	_admin_reveal_hunters = visual_tools and Settings.admin_preference("hunter_reveal")
 	pixel_signal_effect.set_admin_enabled(
-		Settings.admin_preference("pixel_effect_enabled"))
+		visual_tools and Settings.admin_preference("pixel_effect_enabled"))
 
 
 func _toggle_admin_no_target() -> void:
@@ -1912,7 +1956,9 @@ func _player_spawn_world_position(peer_id: int = -1) -> Vector3:
 ## via CustomMapParser, instead of the next depth's procedural one. Async --
 ## HTTPRequest is signal-driven, so this kicks the fetch off and the actual
 ## rebuild happens in _on_custom_map_response() once it lands.
-func _load_custom_map(url: String) -> void:
+func _load_custom_map(url: String, authorized_remote: bool = false) -> void:
+	if not authorized_remote and not Build.admin_permission("world"):
+		return
 	var trimmed := url.strip_edges()
 	if trimmed.is_empty():
 		return

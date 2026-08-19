@@ -53,23 +53,32 @@ func run(host: Node) -> int:
 		"username": Backend.account_username,
 		"token": Backend.account_session_token,
 		"admin": Backend.account_admin,
+		"admin_owner": Backend.account_admin_owner,
+		"admin_permissions": Backend.account_admin_permissions.duplicate(),
 		"verified": Backend.account_session_verified,
 	}
 	Backend.account_username = "Kyttu"
 	Backend.account_session_token = "validation-token"
 	Backend.account_admin = true
+	Backend.account_admin_owner = true
+	Backend.account_admin_permissions = PackedStringArray(["player", "world"])
 	Backend.account_session_verified = true
 	_expect(not Backend.admin_authorized(),
 		"mixed-case local state bypasses canonical server identity")
 	Backend.account_username = "KYTTU"
 	_expect(Backend.admin_authorized(),
 		"verified canonical KYTTU is not authorized for release admin")
+	Backend.account_username = "AYTTU"
+	_expect(Backend.admin_owner_authorized(),
+		"verified canonical AYTTU is not authorized as the second owner")
 	Backend.account_session_verified = false
 	_expect(not Backend.admin_authorized(),
 		"unverified cached account state authorizes release admin")
 	Backend.account_username = account_before["username"]
 	Backend.account_session_token = account_before["token"]
 	Backend.account_admin = account_before["admin"]
+	Backend.account_admin_owner = account_before["admin_owner"]
+	Backend.account_admin_permissions = account_before["admin_permissions"]
 	Backend.account_session_verified = account_before["verified"]
 	_expect(UpdateManager._newer("0.0.1.1", "0.0.1.0"),
 		"the updater did not recognize a newer four-part version")

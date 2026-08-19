@@ -201,10 +201,13 @@ func _ready() -> void:
 	pause_menu.opened.connect(_on_pause_opened)
 	pause_menu.resumed.connect(_on_pause_resumed)
 	add_child(pause_menu)
-	_admin_menu = AdminMenu.attach(self, _admin_status, _infinite_admin_actions())
+	_admin_menu = AdminMenu.attach(self, _admin_status, _infinite_admin_actions(),
+		_admin_roster_fields())
 	if _admin_menu != null:
 		_apply_persisted_admin_preferences()
 		_admin_menu.open_changed.connect(_on_admin_menu_open_changed)
+		if not Backend.admin_roster_changed.is_connected(_on_admin_roster_changed):
+			Backend.admin_roster_changed.connect(_on_admin_roster_changed)
 	if _awaiting_snapshot:
 		player.input_frozen = true
 		hud.show_message("SYNCING ROUTE WITH HOST...")
@@ -230,7 +233,7 @@ func _on_admin_ticket_changed(ready: bool, room_code: String,
 
 
 func _on_admin_ticket_verified(request_id: int, authorized: bool,
-		expires_in: int, message: String) -> void:
+		expires_in: int, permissions: PackedStringArray, message: String) -> void:
 	if not _pending_admin_requests.has(request_id):
 		return
 	var pending: Dictionary = _pending_admin_requests[request_id]
@@ -242,7 +245,7 @@ func _on_admin_ticket_verified(request_id: int, authorized: bool,
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "ADMIN REQUEST REJECTED // %s" % message})
 		return
-	_remotes.authorize_admin_peer(peer_id, expires_in)
+	_remotes.authorize_admin_peer(peer_id, expires_in, permissions)
 	_apply_verified_admin_request(peer_id, pending.get("event", {}))
 
 
@@ -414,13 +417,16 @@ func _admin_status() -> String:
 	var afk_remaining := maxi(0, ceili(
 		GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id()) \
 		- _party_afk_seconds))
-	return "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
+	var result := "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
 		coord.x, coord.y, coord.z, String(data.get("region", "maze")).to_upper(),
 		facility.loaded_chunk_count(), _discovered_chunks.size(), _hunter_views.size(), safe_text,
 		world_state.active_checkpoint if not world_state.active_checkpoint.is_empty()
 		else "NONE", mini(pressure_remaining, afk_remaining),
 		_anti_idle_spawn_sequence,
 		"ON" if _admin_reveal_map else "OFF"]
+	if Backend.admin_owner_authorized():
+		result += "\nADMIN ROSTER %s" % Backend.admin_roster_summary()
+	return result
 
 
 func _hunter_admin_labels(ids: Array) -> Dictionary:
@@ -434,71 +440,103 @@ func _hunter_admin_labels(ids: Array) -> Dictionary:
 
 func _infinite_admin_actions() -> Array:
 	return [
+		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
+			"owner_only": true},
 		{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
+			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
 			"labels": PlayerController3D.INVENTORY_LABELS,
 			"action": _admin_give_item},
-		{"heading": "PLAYER TOOLS"},
-		{"label": "FULL LAMP", "action": func() -> void:
+		{"heading": "PLAYER TOOLS", "permission": "player"},
+		{"label": "FULL LAMP", "permission": "player", "action": func() -> void:
 			player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
-		{"label": "RESTORE PLAYER", "action": _admin_restore_player},
-		{"label": "CLEAR STUN + COOLDOWNS", "action": func() -> void:
+		{"label": "RESTORE PLAYER", "action": _admin_restore_player,
+			"permission": "player"},
+		{"label": "CLEAR STUN + COOLDOWNS", "permission": "player",
+			"action": func() -> void:
 			player.stun_timer = 0.0
 			player.taser_cooldown = 0.0},
-		{"label": "TELEPORT TO START", "action": func() -> void:
-			player.global_position = facility.spawn_position()},
-		{"label": "TELEPORT TO CHECKPOINT", "action": func() -> void:
-			player.global_position = _checkpoint_world_position()},
+		{"label": "TELEPORT TO START", "permission": "player",
+			"action": func() -> void:
+			_admin_teleport_to(facility.spawn_position())},
+		{"label": "TELEPORT TO CHECKPOINT", "permission": "player",
+			"action": func() -> void:
+			_admin_teleport_to(_checkpoint_world_position())},
 		{"label": "TOGGLE NO TARGET", "action": _admin_toggle_no_target,
+			"permission": "player",
 			"state": func() -> bool: return player.admin_no_target},
 		{"label": "TOGGLE GOD MODE", "action": _admin_toggle_god_mode,
+			"permission": "player",
 			"state": func() -> bool: return player.admin_god_mode},
 		{"label": "TOGGLE NOCLIP", "action": _admin_toggle_noclip,
+			"permission": "player",
 			"state": func() -> bool: return player.admin_noclip},
-		{"heading": "WORLD + HUNTERS"},
-		{"label": "GRANT RELAY", "action": func() -> void:
+		{"heading": "WORLD + HUNTERS", "permission": "world"},
+		{"label": "GRANT RELAY", "permission": "world", "action": func() -> void:
 			_admin_world_action("grant_relay")},
-		{"label": "ALL LOADED RELAYS", "action": func() -> void:
-			_admin_world_action("all_relays")},
-		{"label": "STUN ALL HUNTERS", "action": func() -> void:
-			_admin_world_action("stun_hunters")},
-		{"label": "WAKE ALL HUNTERS", "action": func() -> void:
-			_admin_world_action("wake_hunters")},
-		{"label": "CALM ALL HUNTERS", "action": func() -> void:
-			_admin_world_action("calm_hunters")},
+		{"label": "ALL LOADED RELAYS", "permission": "world",
+			"action": func() -> void: _admin_world_action("all_relays")},
+		{"label": "STUN ALL HUNTERS", "permission": "hunters",
+			"action": func() -> void: _admin_world_action("stun_hunters")},
+		{"label": "WAKE ALL HUNTERS", "permission": "hunters",
+			"action": func() -> void: _admin_world_action("wake_hunters")},
+		{"label": "CALM ALL HUNTERS", "permission": "hunters",
+			"action": func() -> void: _admin_world_action("calm_hunters")},
 		{"heading": "SUMMON A-Z HUNTER", "items": HunterRoster.A_Z_IDS,
+			"permission": "hunters",
 			"labels": _hunter_admin_labels(HunterRoster.A_Z_IDS),
 			"action": _admin_summon_hunter},
 		{"heading": "REMOVE A-Z HUNTER // ALL MATCHES",
+			"permission": "hunters",
 			"items": HunterRoster.A_Z_IDS,
 			"labels": _hunter_admin_labels(HunterRoster.A_Z_IDS),
 			"action": _admin_remove_hunter},
 		{"heading": "SUMMON VOID HUNTER", "items": HunterRoster.VOID_IDS,
+			"permission": "hunters",
 			"labels": _hunter_admin_labels(HunterRoster.VOID_IDS),
 			"action": _admin_summon_hunter},
 		{"heading": "REMOVE VOID HUNTER // ALL MATCHES",
+			"permission": "hunters",
 			"items": HunterRoster.VOID_IDS,
 			"labels": _hunter_admin_labels(HunterRoster.VOID_IDS),
 			"action": _admin_remove_hunter},
-		{"label": "DAMAGE CHECKPOINT", "action": func() -> void:
-			_admin_world_action("damage_checkpoint")},
-		{"label": "REPAIR CHECKPOINT", "action": func() -> void:
-			_admin_world_action("repair_checkpoint")},
-		{"label": "TOGGLE ALL REGION LIGHTS", "action": func() -> void:
+		{"label": "DAMAGE CHECKPOINT", "permission": "world",
+			"action": func() -> void: _admin_world_action("damage_checkpoint")},
+		{"label": "REPAIR CHECKPOINT", "permission": "world",
+			"action": func() -> void: _admin_world_action("repair_checkpoint")},
+		{"label": "TOGGLE ALL REGION LIGHTS", "permission": "world",
+			"action": func() -> void:
 			facility.set_all_lights(not facility.all_lights_enabled()),
 			"state": func() -> bool: return facility.all_lights_enabled()},
-		{"heading": "VISUAL TOOLS"},
+		{"heading": "VISUAL TOOLS", "permission": "visual"},
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
+			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_map},
 		{"label": "TOGGLE HUNTER REVEAL", "action": _admin_toggle_hunter_reveal,
+			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_hunters},
 		{"label": "TOGGLE PIXEL EFFECT", "action": _admin_toggle_pixel_effect,
+			"permission": "visual",
 			"state": func() -> bool: return pixel_signal_effect.admin_enabled()},
-		{"label": "PIXEL EFFECT +", "action": func() -> void:
+		{"label": "PIXEL EFFECT +", "permission": "visual", "action": func() -> void:
 			Settings.set_pixel_effect_percent(Settings.pixel_effect_percent + 10.0)},
-		{"label": "PIXEL EFFECT -", "action": func() -> void:
+		{"label": "PIXEL EFFECT -", "permission": "visual", "action": func() -> void:
 			Settings.set_pixel_effect_percent(Settings.pixel_effect_percent - 10.0)},
 	]
+
+
+func _admin_roster_fields() -> Array:
+	return [
+		{"label": "ADD / UPDATE LIMITED ADMIN",
+			"placeholder": "USERNAME:player,world,hunters,visual,inventory",
+			"on_submit": Backend.admin_roster_set_spec, "owner_only": true},
+		{"label": "REMOVE LIMITED ADMIN", "placeholder": "USERNAME",
+			"on_submit": Backend.admin_roster_remove, "owner_only": true},
+	]
+
+
+func _on_admin_roster_changed(ok: bool, message: String, _roster: Array) -> void:
+	hud.show_message(("ADMIN ROSTER // " if ok else "ADMIN ROSTER FAILED // ") + message)
 
 
 func _on_admin_menu_open_changed(shown: bool) -> void:
@@ -512,6 +550,33 @@ func _on_admin_menu_open_changed(shown: bool) -> void:
 		or (pause_menu != null and pause_menu.is_open()) \
 		or hud.inventory_is_open() \
 		or (_room_chat != null and _room_chat.is_open()) \
+		or player.hidden or player.is_stunned()
+
+
+func _admin_teleport_to(destination: Vector3) -> void:
+	# A teleport is also an exit from any modal/navigation state which was tied
+	# to the old floor. Leaving the admin layer open used to keep input frozen,
+	# while the fullscreen map still held the now-evicted floor and drew blank.
+	hud.set_inventory_open(false)
+	hud.set_map_open(false)
+	if _room_chat != null:
+		_room_chat.close()
+	if _admin_menu != null:
+		_admin_menu.close()
+	player.velocity = Vector3.ZERO
+	player.global_position = destination
+	facility.refresh_at_tracked_player()
+	_discover_loaded_chunks()
+	var data := facility.current_chunk_data()
+	_update_map_discovery(data)
+	if _admin_reveal_map:
+		_set_admin_map_reveal(true)
+	hud.plan.reset_view()
+	_waypoint_route_key = ""
+	_waypoint_grid_signature = ""
+	_update_streamed_maps()
+	player.input_frozen = _awaiting_snapshot or _death_screen_open \
+		or (pause_menu != null and pause_menu.is_open()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -806,13 +871,15 @@ func _set_admin_map_reveal(enabled: bool) -> void:
 
 
 func _apply_persisted_admin_preferences() -> void:
-	player.admin_no_target = Settings.admin_preference("no_target")
-	player.admin_god_mode = Settings.admin_preference("god_mode")
-	player.set_admin_noclip(Settings.admin_preference("noclip"))
-	_set_admin_map_reveal(Settings.admin_preference("map_reveal"))
-	_admin_reveal_hunters = Settings.admin_preference("hunter_reveal")
+	var player_tools := Build.admin_permission("player")
+	var visual_tools := Build.admin_permission("visual")
+	player.admin_no_target = player_tools and Settings.admin_preference("no_target")
+	player.admin_god_mode = player_tools and Settings.admin_preference("god_mode")
+	player.set_admin_noclip(player_tools and Settings.admin_preference("noclip"))
+	_set_admin_map_reveal(visual_tools and Settings.admin_preference("map_reveal"))
+	_admin_reveal_hunters = visual_tools and Settings.admin_preference("hunter_reveal")
 	pixel_signal_effect.set_admin_enabled(
-		Settings.admin_preference("pixel_effect_enabled"))
+		visual_tools and Settings.admin_preference("pixel_effect_enabled"))
 
 
 func _admin_toggle_no_target() -> void:
@@ -2060,8 +2127,8 @@ func _target_protected(target: Dictionary) -> bool:
 		return true
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	var peer_id := int(target.get("peer_id", local_id))
-	var tools_allowed := Build.tools_enabled() if peer_id == local_id \
-		else _remotes.remote_admin_peer_allowed(peer_id)
+	var tools_allowed := Build.admin_permission("player") if peer_id == local_id \
+		else _remotes.remote_admin_peer_allowed(peer_id, "player")
 	return tools_allowed and (bool(target.get("no_target", false)) \
 		or bool(target.get("god_mode", false)))
 
@@ -3040,9 +3107,14 @@ func _admin_world_action(action: String, payload: Dictionary = {}) -> void:
 
 func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
-	if peer_id != local_id and not _remotes.remote_admin_peer_allowed(peer_id):
+	var action := String(event.get("action", ""))
+	var permission := _admin_action_permission(action)
+	var allowed := Build.admin_permission(permission) if peer_id == local_id \
+		else _remotes.remote_admin_peer_allowed(peer_id, permission)
+	if permission.is_empty() or not allowed:
+		_admin_feedback(peer_id, "ADMIN REQUEST REJECTED // PERMISSION REQUIRED")
 		return
-	match String(event.get("action", "")):
+	match action:
 		"grant_relay":
 			_admin_collect_loaded_relays(false)
 		"all_relays":
@@ -3078,6 +3150,16 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 			_admin_edit_checkpoint(peer_id, -25)
 		"repair_checkpoint":
 			_admin_edit_checkpoint(peer_id, 25)
+
+
+func _admin_action_permission(action: String) -> String:
+	if action in ["grant_relay", "all_relays", "damage_checkpoint",
+			"repair_checkpoint"]:
+		return "world"
+	if action in ["stun_hunters", "wake_hunters", "calm_hunters",
+			"summon_hunter", "remove_hunter"]:
+		return "hunters"
+	return ""
 
 
 func _admin_hunter_id_allowed(hunter_id: String) -> bool:

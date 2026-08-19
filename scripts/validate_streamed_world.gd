@@ -998,6 +998,27 @@ func run(host: Node) -> int:
 		_expect(live_admin._panel.size.x >= 360.0 and live_admin._panel.size.y >= 220.0,
 			"Infinite admin menu does not occupy a usable modal area")
 		live_admin._set_open(false)
+		# A raw CharacterBody teleport used to leave the streamed window on the
+		# departed floor. Opening the fullscreen map immediately afterward then
+		# received no current-floor chunks and appeared blank.
+		player.global_position = Vector3(
+			StreamedRouteGenerator.CHUNK_SIZE * 2.5,
+			StreamedFacilityView3D.LEVEL_HEIGHT,
+			StreamedRouteGenerator.CHUNK_SIZE * 2.5)
+		facility.refresh_at_tracked_player()
+		live_admin._set_open(true)
+		var teleport_action := Callable()
+		for entry in live_admin._actions:
+			if String(entry.get("label", "")) == "TELEPORT TO START":
+				teleport_action = entry.get("action", Callable())
+		if teleport_action.is_valid():
+			teleport_action.call()
+		live_scene.hud.set_map_open(true)
+		live_scene.call("_update_streamed_maps")
+		_expect(not live_admin.is_open() and facility.current_chunk_coord() == Vector3i.ZERO \
+			and not live_scene.hud.plan.streamed_chunks.is_empty(),
+			"admin teleport left modal/stream state stale and blanked the fullscreen map")
+		live_scene.hud.set_map_open(false)
 	var discovered_before := discovered.size()
 	live_scene.call("_admin_toggle_map_reveal")
 	discovered = live_scene.get("_discovered_chunks")

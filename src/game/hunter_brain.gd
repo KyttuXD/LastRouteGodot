@@ -145,8 +145,12 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 
+	# Account/room-proof authorization belongs to the owning gameplay scene,
+	# not this presentation-agnostic brain. Trusting a replicated `god_mode`
+	# boolean here let an ordinary peer suppress capture whenever the host itself
+	# happened to be an admin. The authoritative capture boundary rechecks the
+	# signed player permission before applying any result.
 	if not target_hidden and not target_in_safe_zone \
-			and not (Build.tools_enabled() and bool(target.get("god_mode", false))) \
 			and not (gimmick and gimmick.immune_to_capture()):
 		var reach := (GameConfig.PLAYER_RADIUS + radius) \
 			* GameConfig.CAPTURE_DISTANCE_SCALE \

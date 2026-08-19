@@ -16,7 +16,8 @@ signal account_progress_changed(available: bool, progress: Dictionary,
 ## player-host asks the primary service to validate it with the host token.
 signal admin_ticket_changed(ready: bool, room_code: String, message: String)
 signal admin_ticket_verified(request_id: int, authorized: bool,
-	expires_in: int, message: String)
+	expires_in: int, permissions: PackedStringArray, message: String)
+signal admin_roster_changed(ok: bool, message: String, roster: Array)
 
 const HEARTBEAT_SECONDS := 20.0
 ## The current Pterodactyl allocation exposes Node's plain HTTP listener
@@ -33,8 +34,11 @@ var last_error := ""
 var account_username := ""
 var account_session_token := ""
 var account_admin := false
+var account_admin_owner := false
+var account_admin_permissions := PackedStringArray()
 var account_progress: Dictionary = {}
 var account_progress_saved_at := 0
+var admin_roster_cache: Array = []
 ## Live primary-server verification is never restored from the editable local
 ## config file. This prevents a player from granting herself release admin by
 ## changing a cached boolean on disk.
@@ -47,6 +51,11 @@ var _pending_progress_save: Dictionary = {}
 var _admin_ticket := ""
 var _admin_ticket_room := ""
 var _admin_ticket_expires_msec := 0
+var _admin_ticket_permissions := PackedStringArray()
+
+const ADMIN_PERMISSION_NAMES := [
+	"hunters", "inventory", "player", "visual", "world",
+]
 
 var _token := ""
 var _port := 0
@@ -146,7 +155,18 @@ func signed_in() -> bool:
 
 func admin_authorized() -> bool:
 	return signed_in() and account_session_verified and account_admin \
-		and account_username == "KYTTU"
+		and account_username == account_username.strip_edges().to_upper() \
+		and not account_admin_permissions.is_empty()
+
+
+func admin_owner_authorized() -> bool:
+	return admin_authorized() and account_admin_owner \
+		and account_username in ["KYTTU", "AYTTU"]
+
+
+func admin_has_permission(permission: String) -> bool:
+	return admin_authorized() and permission.strip_edges().to_lower() \
+		in account_admin_permissions
 
 
 func admin_ticket_for_room(room_code: String) -> String:
@@ -154,6 +174,11 @@ func admin_ticket_for_room(room_code: String) -> String:
 	if clean != _admin_ticket_room or Time.get_ticks_msec() >= _admin_ticket_expires_msec:
 		return ""
 	return _admin_ticket
+
+
+func admin_ticket_permissions_for_room(room_code: String) -> PackedStringArray:
+	return _admin_ticket_permissions.duplicate() \
+		if not admin_ticket_for_room(room_code).is_empty() else PackedStringArray()
 
 
 ## Mint a room-bound proof after a release admin adopts the host's real room
@@ -191,6 +216,7 @@ func verify_room_admin_ticket(room_code: String, ticket: String) -> int:
 	if not registered or clean != registered_code or _token.is_empty() \
 			or ticket.length() != 43:
 		call_deferred("_emit_admin_ticket_verification", request_id, false, 0,
+			PackedStringArray(),
 			"ROOM HOST CANNOT VERIFY THIS ADMIN PROOF")
 		return request_id
 	var request := HTTPRequest.new()
@@ -207,13 +233,15 @@ func verify_room_admin_ticket(room_code: String, ticket: String) -> int:
 	if error != OK:
 		request.queue_free()
 		call_deferred("_emit_admin_ticket_verification", request_id, false, 0,
+			PackedStringArray(),
 			"ADMIN PROOF VERIFICATION COULD NOT START (%d)" % error)
 	return request_id
 
 
 func _emit_admin_ticket_verification(request_id: int, authorized: bool,
-		expires_in: int, message: String) -> void:
-	admin_ticket_verified.emit(request_id, authorized, expires_in, message)
+		expires_in: int, permissions: PackedStringArray, message: String) -> void:
+	admin_ticket_verified.emit(request_id, authorized, expires_in, permissions,
+		message)
 
 
 func has_route_checkpoint() -> bool:
@@ -294,6 +322,70 @@ func account_change_password(password: String) -> void:
 		"sessionToken": account_session_token,
 		"password": password,
 	})
+
+
+func admin_roster_set_spec(specification: String) -> void:
+	if not admin_owner_authorized():
+		admin_roster_changed.emit(false, "FULL ADMIN ACCOUNT REQUIRED", [])
+		return
+	var parts := specification.split(":", false, 1)
+	if parts.size() != 2:
+		admin_roster_changed.emit(false,
+			"USE USERNAME:player,world,hunters,visual,inventory", [])
+		return
+	var username := String(parts[0]).strip_edges().to_upper()
+	var permissions := PackedStringArray()
+	for value in String(parts[1]).split(",", false):
+		var permission := value.strip_edges().to_lower()
+		if permission in ADMIN_PERMISSION_NAMES and permission not in permissions:
+			permissions.append(permission)
+	if username.length() < 3 or permissions.is_empty():
+		admin_roster_changed.emit(false,
+			"VALID USERNAME AND AT LEAST ONE PERMISSION REQUIRED", [])
+		return
+	_send_account("admin_roster_set", "/api/admin/roster/set", {
+		"sessionToken": account_session_token,
+		"username": username,
+		"permissions": Array(permissions),
+	})
+
+
+func admin_roster_remove(username_value: String) -> void:
+	if not admin_owner_authorized():
+		admin_roster_changed.emit(false, "FULL ADMIN ACCOUNT REQUIRED", [])
+		return
+	var username := username_value.strip_edges().to_upper()
+	if username.length() < 3:
+		admin_roster_changed.emit(false, "VALID USERNAME REQUIRED", [])
+		return
+	_send_account("admin_roster_remove", "/api/admin/roster/remove", {
+		"sessionToken": account_session_token,
+		"username": username,
+	})
+
+
+func admin_roster_refresh() -> void:
+	if not admin_owner_authorized():
+		admin_roster_changed.emit(false, "FULL ADMIN ACCOUNT REQUIRED", [])
+		return
+	_send_account("admin_roster_list", "/api/admin/roster", {
+		"sessionToken": account_session_token,
+	})
+
+
+func admin_roster_summary() -> String:
+	var parts := PackedStringArray()
+	for value in admin_roster_cache:
+		if not value is Dictionary:
+			continue
+		var entry: Dictionary = value
+		var username := String(entry.get("username", ""))
+		if username.is_empty():
+			continue
+		var access := "OWNER" if bool(entry.get("adminOwner", false)) else "+".join(
+			_clean_admin_permissions(entry.get("adminPermissions", [])))
+		parts.append("%s[%s]" % [username, access])
+	return ", ".join(parts) if not parts.is_empty() else "NOT LOADED"
 
 
 func account_logout() -> void:
@@ -405,13 +497,15 @@ func _on_account_response(result: int, response_code: int,
 		if operation in ["save", "load"]:
 			account_progress_changed.emit(has_route_checkpoint(),
 				account_progress.duplicate(true), account_progress_saved_at, message)
+		elif operation.begins_with("admin_roster_"):
+			admin_roster_changed.emit(false, message, [])
 		else:
 			account_changed.emit(signed_in(), account_username, account_admin, message)
 		return
 	if operation in ["register", "login", "session"]:
 		account_username = String(payload.get("username", "")).strip_edges().to_upper()
 		account_session_token = String(payload.get("sessionToken", account_session_token))
-		account_admin = bool(payload.get("admin", false)) and account_username == "KYTTU"
+		_adopt_admin_identity(payload)
 		if account_username.is_empty() or account_session_token.is_empty():
 			_clear_account_session()
 			account_changed.emit(false, "", false, "PRIMARY SERVER RETURNED AN INVALID ACCOUNT")
@@ -423,6 +517,8 @@ func _on_account_response(result: int, response_code: int,
 			else "NO ROUTE CHECKPOINT")
 		account_changed.emit(true, account_username, account_admin,
 			"SIGNED IN AS %s" % account_username)
+		if account_admin_owner:
+			call_deferred("admin_roster_refresh")
 	elif operation in ["save", "load"]:
 		_adopt_account_progress(payload,
 			"ROUTE CHECKPOINT SAVED" if operation == "save" \
@@ -432,7 +528,7 @@ func _on_account_response(result: int, response_code: int,
 	elif operation == "rename":
 		account_username = String(payload.get("username", account_username)) \
 			.strip_edges().to_upper()
-		account_admin = bool(payload.get("admin", false)) and account_username == "KYTTU"
+		_adopt_admin_identity(payload)
 		account_session_verified = not account_username.is_empty() \
 			and not account_session_token.is_empty()
 		_save_account_session()
@@ -441,6 +537,35 @@ func _on_account_response(result: int, response_code: int,
 	elif operation == "password":
 		account_changed.emit(signed_in(), account_username, account_admin,
 			"ACCOUNT PASSWORD UPDATED")
+	elif operation in ["admin_roster_set", "admin_roster_remove", "admin_roster_list"]:
+		if operation == "admin_roster_list":
+			admin_roster_cache = (payload.get("roster", []) as Array).duplicate(true) \
+				if payload.get("roster", []) is Array else []
+		elif operation == "admin_roster_set" and payload.get("entry", {}) is Dictionary:
+			var updated: Dictionary = (payload.get("entry", {}) as Dictionary).duplicate(true)
+			var updated_username := String(updated.get("username", ""))
+			admin_roster_cache = admin_roster_cache.filter(func(value) -> bool:
+				return value is Dictionary \
+					and String((value as Dictionary).get("username", "")) != updated_username)
+			admin_roster_cache.append(updated)
+		elif operation == "admin_roster_remove":
+			var removed_username := String(payload.get("username", ""))
+			admin_roster_cache = admin_roster_cache.filter(func(value) -> bool:
+				return value is Dictionary \
+					and String((value as Dictionary).get("username", "")) != removed_username)
+		admin_roster_cache.sort_custom(func(a, b) -> bool:
+			return String((a as Dictionary).get("username", "")) \
+				< String((b as Dictionary).get("username", "")))
+		var roster: Array = admin_roster_cache.duplicate(true)
+		var message := "ADMIN ROSTER UPDATED"
+		if operation == "admin_roster_list":
+			message = "ADMIN ROSTER LOADED"
+		elif operation == "admin_roster_remove":
+			message = "ADMIN ACCESS REMOVED // %s" % String(payload.get("username", ""))
+		elif payload.get("entry", {}) is Dictionary:
+			message = "ADMIN ACCESS UPDATED // %s" % String(
+				(payload.get("entry", {}) as Dictionary).get("username", ""))
+		admin_roster_changed.emit(true, message, roster)
 	if not _pending_progress_save.is_empty():
 		call_deferred("_flush_pending_progress_save")
 
@@ -472,6 +597,12 @@ func _on_admin_ticket_response(result: int, response_code: int,
 	_admin_ticket = ticket
 	_admin_ticket_room = room_code
 	_admin_ticket_expires_msec = Time.get_ticks_msec() + expires_in * 1000
+	_admin_ticket_permissions = _clean_admin_permissions(payload.get("permissions", []))
+	if _admin_ticket_permissions.is_empty():
+		_clear_admin_ticket()
+		admin_ticket_changed.emit(false, room_code,
+			"PRIMARY SERVER RETURNED AN EMPTY ADMIN PERMISSION SET")
+		return
 	admin_ticket_changed.emit(true, room_code, "ADMIN ROOM PROOF READY")
 
 
@@ -485,9 +616,31 @@ func _on_admin_verify_response(result: int, response_code: int,
 		and bool(payload.get("authorized", false))
 	var expires_in := clampi(int(payload.get("expiresIn", 0)), 0, 300) \
 		if authorized else 0
-	admin_ticket_verified.emit(request_id, authorized, expires_in,
+	var permissions := _clean_admin_permissions(payload.get("permissions", [])) \
+		if authorized else PackedStringArray()
+	authorized = authorized and not permissions.is_empty()
+	admin_ticket_verified.emit(request_id, authorized, expires_in, permissions,
 		"ADMIN ROOM PROOF VERIFIED" if authorized else String(payload.get("error",
 			"ADMIN ROOM PROOF REJECTED")))
+
+
+func _clean_admin_permissions(value) -> PackedStringArray:
+	var result := PackedStringArray()
+	if value is Array or value is PackedStringArray:
+		for entry in value:
+			var permission := String(entry).strip_edges().to_lower()
+			if permission in ADMIN_PERMISSION_NAMES and permission not in result:
+				result.append(permission)
+	return result
+
+
+func _adopt_admin_identity(payload: Dictionary) -> void:
+	account_admin_permissions = _clean_admin_permissions(
+		payload.get("adminPermissions", []))
+	account_admin_owner = bool(payload.get("adminOwner", false)) \
+		and account_username in ["KYTTU", "AYTTU"]
+	account_admin = bool(payload.get("admin", false)) \
+		and not account_admin_permissions.is_empty()
 
 
 func _adopt_account_progress(payload: Dictionary, message: String) -> void:
@@ -505,6 +658,8 @@ func _load_account_session() -> void:
 	account_username = String(config.get_value("account", "username", "")).strip_edges().to_upper()
 	account_session_token = String(config.get_value("account", "session_token", ""))
 	account_admin = false
+	account_admin_owner = false
+	account_admin_permissions = PackedStringArray()
 	account_session_verified = false
 
 
@@ -519,9 +674,12 @@ func _clear_account_session() -> void:
 	account_username = ""
 	account_session_token = ""
 	account_admin = false
+	account_admin_owner = false
+	account_admin_permissions = PackedStringArray()
 	account_session_verified = false
 	account_progress = {}
 	account_progress_saved_at = 0
+	admin_roster_cache.clear()
 	_pending_progress_save.clear()
 	_clear_admin_ticket()
 	var config := ConfigFile.new()
@@ -534,6 +692,7 @@ func _clear_admin_ticket() -> void:
 	_admin_ticket = ""
 	_admin_ticket_room = ""
 	_admin_ticket_expires_msec = 0
+	_admin_ticket_permissions = PackedStringArray()
 
 
 ## Validation opens a real local ENet socket and must not publish its throwaway

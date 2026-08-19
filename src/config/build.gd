@@ -27,19 +27,33 @@ static var _revision_cache := ""
 ## those are gameplay.
 
 
-## Debug exports always have tools. A release build gains them only after the
-## primary server authenticates the exact canonical KYTTU account during this
-## process; a display name or edited ConfigFile is never enough.
+## Player-facing builds never receive tools merely because they are debug
+## exports. The primary server must authenticate an owner (KYTTU/AYTTU) or a
+## scoped roster member during this process; a display name or edited
+## ConfigFile is never enough. Headless validation keeps a non-interactive
+## exception so CI can exercise the otherwise gated controls.
 static func tools_enabled() -> bool:
-	return OS.is_debug_build() or Backend.admin_authorized()
+	return Backend.admin_authorized() or _headless_validation()
+
+
+static func admin_permission(permission: String) -> bool:
+	return _headless_validation() or Backend.admin_has_permission(permission)
+
+
+static func admin_owner_tools_enabled() -> bool:
+	return _headless_validation() or Backend.admin_owner_authorized()
 
 
 ## A release host cannot trust a boolean or display name supplied by another
-## ENet peer as proof of admin access. Debug rooms deliberately allow remote
-## tools for cooperative QA; release guest administration stays closed until
-## the primary backend can issue a short-lived, room-bound proof.
+## ENet peer as proof of admin access. Player-facing debug and release rooms
+## both require a short-lived, room-bound proof from the primary backend.
+## Only non-interactive headless validation bypasses that network dependency.
 static func remote_guest_tools_allowed() -> bool:
-	return OS.is_debug_build()
+	return _headless_validation()
+
+
+static func _headless_validation() -> bool:
+	return OS.is_debug_build() and DisplayServer.get_name() == "headless"
 
 
 ## Whether to draw the frame counter and other always-on readouts.

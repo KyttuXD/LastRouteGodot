@@ -179,11 +179,11 @@ func _build_admin() -> void:
 				int(simulation.elapsed) / 60, int(simulation.elapsed) % 60,
 				simulation.away_timer, simulation.current_camera],
 		[
-			{"label": "REFILL POWER", "action": func() -> void:
+			{"label": "REFILL POWER", "permission": "world", "action": func() -> void:
 				simulation.power = 100.0},
-			{"label": "SKIP TO 5 AM", "action": func() -> void:
+			{"label": "SKIP TO 5 AM", "permission": "world", "action": func() -> void:
 				simulation.elapsed = simulation.shift_duration * (5.0 / 6.0)},
-			{"label": "CLEAR FAULTS", "action": func() -> void:
+			{"label": "CLEAR FAULTS", "permission": "world", "action": func() -> void:
 				simulation.disabled_systems.clear()
 				simulation.corrupted_cameras.clear()
 				simulation.blackout_timer = 0.0},

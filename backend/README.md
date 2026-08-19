@@ -170,24 +170,35 @@ Usernames are trimmed and canonicalized to uppercase before lookup. `Kyttu`,
 `KytTU`, and `KYTTU` are therefore one account and cannot be registered as
 separate names. Passwords remain case-sensitive.
 
-The exact canonical username `KYTTU` is reserved. To create it for the first
-time, set `LASTROUTE_ADMIN_PASSWORD`, enter `KYTTU` in the in-game account
-panel, and enter that server secret in the additional **ADMIN SETUP KEY**
-field. The account password is independent from the setup key. Usernames that
-merely contain the text (for example `KYTTU_FAN`) are ordinary users.
+The exact canonical usernames `KYTTU` and `AYTTU` are reserved full-owner
+accounts. To create either one for the first time, set
+`LASTROUTE_ADMIN_PASSWORD`, enter the owner name in the in-game account panel,
+and enter that server secret in the additional **ADMIN SETUP KEY** field. The
+account password is independent from the setup key. Similar names (for example
+`KYTTU_FAN`) are ordinary users unless an owner explicitly adds that existing
+account to the limited-admin roster.
 
-Release admin tools unlock only after the running client receives a successful
-primary-server authentication for `KYTTU`. Cached local config never grants
-admin access. Account requests are explicitly enabled on the hardcoded primary
-HTTP deployment and loopback development origins. HTTP does not encrypt
-credentials or session tokens.
+Admin tools unlock only after the running client receives successful
+primary-server authentication. Debug builds no longer grant the menu to every
+player. `KYTTU` and `AYTTU` always receive all five scopes: `player`, `world`,
+`hunters`, `visual`, and `inventory`. An owner can add or update an existing
+account from the in-game admin menu with
+`USERNAME:player,world,hunters,visual,inventory` (choose only the scopes that
+account needs), or remove it by username. Delegated admins cannot view or edit
+the roster, alter owner accounts, or exercise scopes absent from their room
+proof. Cached local config never grants admin access. Account requests are
+explicitly enabled on the hardcoded primary HTTP deployment and loopback
+development origins. HTTP does not encrypt credentials or session tokens.
 
-An authenticated `KYTTU` guest requests an opaque admin ticket from
+An authenticated admin guest requests an opaque admin ticket from
 `/api/enet/admin-tickets/issue`. The ticket is valid for at most five minutes
 and is bound to that room plus its current secret host token. Only that host
 can call `/api/enet/admin-tickets/verify`; neither endpoint sends the guest's
-account session to another player. Room removal, host replacement and expiry
-invalidate outstanding proofs.
+account session to another player. The signed permission list is returned to
+the host and is enforced again for every shared command. Room removal, host
+replacement and expiry invalidate outstanding proofs. Owners can manage the
+roster through `/api/admin/roster`, `/api/admin/roster/set`, and
+`/api/admin/roster/remove`; all three require an owner session.
 
 Signed-in procedural solo routes save at floor boundaries. The slot contains
 the route seed/configuration, depth, score and coins; the

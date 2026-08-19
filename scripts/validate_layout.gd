@@ -526,6 +526,8 @@ func _check_main_menu_contract(scene: Node) -> int:
 		"username": Backend.account_username,
 		"token": Backend.account_session_token,
 		"admin": Backend.account_admin,
+		"admin_owner": Backend.account_admin_owner,
+		"admin_permissions": Backend.account_admin_permissions.duplicate(),
 		"verified": Backend.account_session_verified,
 		"progress": Backend.account_progress.duplicate(true),
 		"saved_at": Backend.account_progress_saved_at,
@@ -534,6 +536,8 @@ func _check_main_menu_contract(scene: Node) -> int:
 	Backend.account_username = ""
 	Backend.account_session_token = ""
 	Backend.account_admin = false
+	Backend.account_admin_owner = false
+	Backend.account_admin_permissions = PackedStringArray()
 	Backend.account_session_verified = false
 	Backend.base_url = Backend.PRIMARY_BASE_URL
 	scene.call("_on_account_pressed")
@@ -616,6 +620,8 @@ func _check_main_menu_contract(scene: Node) -> int:
 	Backend.account_username = account_before["username"]
 	Backend.account_session_token = account_before["token"]
 	Backend.account_admin = account_before["admin"]
+	Backend.account_admin_owner = account_before["admin_owner"]
+	Backend.account_admin_permissions = account_before["admin_permissions"]
 	Backend.account_session_verified = account_before["verified"]
 	Backend.account_progress = account_before["progress"]
 	Backend.account_progress_saved_at = account_before["saved_at"]

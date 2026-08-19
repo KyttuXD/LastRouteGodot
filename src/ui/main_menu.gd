@@ -399,7 +399,7 @@ func _on_account_pressed() -> void:
 	_account_admin_proof.secret = true
 	_account_admin_proof.custom_minimum_size = Vector2(0, 22)
 	_account_admin_proof.visible = false
-	_account_admin_proof.tooltip_text = "ONLY REQUIRED TO CREATE THE RESERVED KYTTU ACCOUNT"
+	_account_admin_proof.tooltip_text = "ONLY REQUIRED TO CREATE A RESERVED OWNER ACCOUNT"
 	Palette.style_line_edit(_account_admin_proof)
 	content.add_child(_account_admin_proof)
 	var actions := HBoxContainer.new()
@@ -434,7 +434,7 @@ func _on_account_username_changed(value: String) -> void:
 	var canonical := value.strip_edges().to_upper()
 	_replace_normalized_text(_account_username, value, canonical)
 	if _account_admin_proof != null:
-		_account_admin_proof.visible = canonical == "KYTTU"
+		_account_admin_proof.visible = canonical in ["KYTTU", "AYTTU"]
 
 
 func _on_account_manage_pressed() -> void:

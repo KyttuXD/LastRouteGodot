@@ -3,7 +3,10 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const USERNAME_PATTERN = /^[A-Z0-9_]{3,24}$/;
-const ADMIN_USERNAME = "KYTTU";
+const ADMIN_OWNER_USERNAMES = new Set(["KYTTU", "AYTTU"]);
+export const ADMIN_PERMISSION_NAMES = Object.freeze([
+  "inventory", "player", "world", "hunters", "visual",
+]);
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_LENGTH = 200;
 const MAX_PROGRESS_BYTES = 32 * 1024;
@@ -34,8 +37,14 @@ function usernameOf(value) {
   return String(value || "").trim().toUpperCase().slice(0, 24);
 }
 
-function isAdminUsername(value) {
-  return usernameOf(value) === ADMIN_USERNAME;
+function isAdminOwnerUsername(value) {
+  return ADMIN_OWNER_USERNAMES.has(usernameOf(value));
+}
+
+function cleanAdminPermissions(value) {
+  const supplied = Array.isArray(value) ? value : [];
+  return [...new Set(supplied.map((entry) => String(entry || "").trim().toLowerCase())
+    .filter((entry) => ADMIN_PERMISSION_NAMES.includes(entry)))].sort();
 }
 
 function sessionHash(token) {
@@ -97,12 +106,29 @@ export function createAccountService({ storePath = null, logger = console, now =
     return typeof password === "string" && password.length >= MIN_PASSWORD_LENGTH && password.length <= MAX_PASSWORD_LENGTH;
   }
 
+  function adminIdentity(usernameValue) {
+    const username = usernameOf(usernameValue);
+    const owner = isAdminOwnerUsername(username);
+    const permissions = owner
+      ? cleanAdminPermissions(ADMIN_PERMISSION_NAMES)
+      : cleanAdminPermissions(accounts.get(username)?.adminPermissions);
+    return {
+      admin: owner || permissions.length > 0,
+      adminOwner: owner,
+      adminPermissions: permissions,
+    };
+  }
+
+  function accountResult(username, extra = {}) {
+    return { ok: true, username, ...adminIdentity(username), ...extra };
+  }
+
   async function register(body = {}, { allowDeveloperNames = false } = {}) {
     const username = usernameOf(body.username);
     if (!USERNAME_PATTERN.test(username)) {
       return [400, { ok: false, code: "INVALID_USERNAME", error: "Username must be 3-24 characters: letters, numbers, underscore" }];
     }
-    if (isAdminUsername(username) && !allowDeveloperNames) {
+    if (isAdminOwnerUsername(username) && !allowDeveloperNames) {
       return [403, { ok: false, code: "RESERVED_USERNAME", error: "That username is reserved" }];
     }
     if (!validPassword(body.password)) {
@@ -112,9 +138,10 @@ export function createAccountService({ storePath = null, logger = console, now =
       return [409, { ok: false, code: "USERNAME_TAKEN", error: "That username is already taken" }];
     }
     const credentials = await passwordRecord(body.password);
-    accounts.set(username, { username, ...credentials, progress: null, savedAt: 0 });
+    accounts.set(username, { username, ...credentials, progress: null, savedAt: 0,
+      adminPermissions: [] });
     persist();
-    return [200, { ok: true, username, admin: isAdminUsername(username), sessionToken: issueSession(username) }];
+    return [200, accountResult(username, { sessionToken: issueSession(username) })];
   }
 
   async function login(body = {}) {
@@ -124,14 +151,11 @@ export function createAccountService({ storePath = null, logger = console, now =
       ? await passwordMatches(body.password, account.salt, account.hash)
       : (await derive(body.password, "last-route-decoy-salt"), false);
     if (!valid) return [401, { ok: false, code: "INVALID_CREDENTIALS", error: "Incorrect username or password" }];
-    return [200, {
-      ok: true,
-      username,
-      admin: isAdminUsername(username),
+    return [200, accountResult(username, {
       sessionToken: issueSession(username),
       progress: account.progress,
       savedAt: account.savedAt,
-    }];
+    })];
   }
 
   function sessionUsername(token) {
@@ -150,14 +174,11 @@ export function createAccountService({ storePath = null, logger = console, now =
     const username = sessionUsername(body.sessionToken);
     if (!username) return [401, { ok: false, code: "NO_SESSION", error: "Session expired; sign in again" }];
     const account = accounts.get(username);
-    return [200, {
-      ok: true,
-      username,
-      admin: isAdminUsername(username),
+    return [200, accountResult(username, {
       sessionToken: String(body.sessionToken),
       progress: account.progress,
       savedAt: account.savedAt,
-    }];
+    })];
   }
 
   function save(body = {}) {
@@ -218,7 +239,11 @@ export function createAccountService({ storePath = null, logger = console, now =
     if (!USERNAME_PATTERN.test(username)) {
       return [400, { ok: false, code: "INVALID_USERNAME", error: "Username must be 3-24 characters: letters, numbers, underscore" }];
     }
-    if (isAdminUsername(username) && username !== currentUsername && !allowDeveloperNames) {
+    if (isAdminOwnerUsername(currentUsername) && username !== currentUsername) {
+      return [403, { ok: false, code: "OWNER_IMMUTABLE",
+        error: "Full admin account usernames cannot be changed" }];
+    }
+    if (isAdminOwnerUsername(username) && username !== currentUsername && !allowDeveloperNames) {
       return [403, { ok: false, code: "RESERVED_USERNAME", error: "That username is reserved" }];
     }
     if (username !== currentUsername && accounts.has(username)) {
@@ -234,9 +259,79 @@ export function createAccountService({ storePath = null, logger = console, now =
       }
       persist();
     }
-    return [200, { ok: true, username, admin: isAdminUsername(username), sessionToken: String(body.sessionToken) }];
+    return [200, accountResult(username, { sessionToken: String(body.sessionToken) })];
+  }
+
+  function sessionAdminIdentity(token) {
+    const username = sessionUsername(token);
+    return username ? { username, ...adminIdentity(username) } : null;
+  }
+
+  function listAdminRoster(body = {}) {
+    const requester = sessionUsername(body.sessionToken);
+    if (!isAdminOwnerUsername(requester)) {
+      return [403, { ok: false, code: "ADMIN_OWNER_REQUIRED",
+        error: "Full admin account required" }];
+    }
+    const roster = [...ADMIN_OWNER_USERNAMES].sort().map((username) => ({
+      username, ...adminIdentity(username),
+    }));
+    for (const [username, account] of accounts) {
+      if (isAdminOwnerUsername(username)) continue;
+      const permissions = cleanAdminPermissions(account.adminPermissions);
+      if (permissions.length > 0) roster.push({ username, ...adminIdentity(username) });
+    }
+    roster.sort((a, b) => a.username.localeCompare(b.username));
+    return [200, { ok: true, roster, availablePermissions: [...ADMIN_PERMISSION_NAMES] }];
+  }
+
+  function setAdminRoster(body = {}) {
+    const requester = sessionUsername(body.sessionToken);
+    if (!isAdminOwnerUsername(requester)) {
+      return [403, { ok: false, code: "ADMIN_OWNER_REQUIRED",
+        error: "Full admin account required" }];
+    }
+    const username = usernameOf(body.username);
+    if (!USERNAME_PATTERN.test(username) || !accounts.has(username)) {
+      return [404, { ok: false, code: "ACCOUNT_NOT_FOUND",
+        error: "Admin target account was not found" }];
+    }
+    if (isAdminOwnerUsername(username)) {
+      return [403, { ok: false, code: "OWNER_IMMUTABLE",
+        error: "Built-in owner permissions cannot be changed" }];
+    }
+    const permissions = cleanAdminPermissions(body.permissions);
+    if (permissions.length === 0) {
+      return [400, { ok: false, code: "NO_PERMISSIONS",
+        error: "Choose at least one valid admin permission" }];
+    }
+    accounts.get(username).adminPermissions = permissions;
+    persist();
+    return [200, { ok: true, entry: { username, ...adminIdentity(username) } }];
+  }
+
+  function removeAdminRoster(body = {}) {
+    const requester = sessionUsername(body.sessionToken);
+    if (!isAdminOwnerUsername(requester)) {
+      return [403, { ok: false, code: "ADMIN_OWNER_REQUIRED",
+        error: "Full admin account required" }];
+    }
+    const username = usernameOf(body.username);
+    if (isAdminOwnerUsername(username)) {
+      return [403, { ok: false, code: "OWNER_IMMUTABLE",
+        error: "Built-in owners cannot be removed" }];
+    }
+    const account = accounts.get(username);
+    if (!account) {
+      return [404, { ok: false, code: "ACCOUNT_NOT_FOUND",
+        error: "Admin target account was not found" }];
+    }
+    account.adminPermissions = [];
+    persist();
+    return [200, { ok: true, username, removed: true }];
   }
 
   return { register, login, currentSession, save, loadProgress, logout,
-    changePassword, rename, sessionUsername };
+    changePassword, rename, sessionUsername, sessionAdminIdentity,
+    listAdminRoster, setAdminRoster, removeAdminRoster };
 }

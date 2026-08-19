@@ -339,20 +339,26 @@ func _drop(id: int) -> void:
 	_authorized_admin_peers.erase(id)
 
 
-func authorize_admin_peer(peer_id: int, expires_in: int) -> void:
+func authorize_admin_peer(peer_id: int, expires_in: int,
+		permissions: PackedStringArray = PackedStringArray()) -> void:
 	if peer_id <= 1 or expires_in <= 0:
 		return
-	_authorized_admin_peers[peer_id] = Time.get_ticks_msec() + expires_in * 1000
+	_authorized_admin_peers[peer_id] = {
+		"expires_at": Time.get_ticks_msec() + expires_in * 1000,
+		"permissions": permissions.duplicate(),
+	}
 
 
-func remote_admin_peer_allowed(peer_id: int) -> bool:
+func remote_admin_peer_allowed(peer_id: int, permission: String = "") -> bool:
 	if Build.remote_guest_tools_allowed():
 		return true
-	var expires_at := int(_authorized_admin_peers.get(peer_id, 0))
+	var proof: Dictionary = _authorized_admin_peers.get(peer_id, {})
+	var expires_at := int(proof.get("expires_at", 0))
 	if expires_at <= Time.get_ticks_msec():
 		_authorized_admin_peers.erase(peer_id)
 		return false
-	return true
+	return permission.is_empty() or permission in PackedStringArray(
+		proof.get("permissions", PackedStringArray()))
 
 
 ## Choose the closest available runner for one hunter. A visible/vulnerable
@@ -382,8 +388,9 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	for candidate in candidates:
 		var candidate_id := int(candidate.get("peer_id", local_id))
-		var candidate_tools := Build.tools_enabled() if candidate_id == local_id \
-			else remote_admin_peer_allowed(candidate_id)
+		var candidate_tools := Build.admin_permission("player") \
+			if candidate_id == local_id \
+			else remote_admin_peer_allowed(candidate_id, "player")
 		if (candidate_tools and bool(candidate.get("no_target", false))) \
 				or bool(candidate.get("game_over", false)) \
 				or bool(candidate.get("escape_active", false)) \

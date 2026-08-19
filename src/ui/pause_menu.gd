@@ -182,6 +182,11 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	Palette.style_label(help, Palette.MUTED, 7)
 	_saves_view.add_child(help)
 
+	var create_row := HBoxContainer.new()
+	create_row.name = "SaveCreateRow"
+	create_row.add_theme_constant_override("separation", 4)
+	_saves_view.add_child(create_row)
+
 	_save_name = LineEdit.new()
 	_save_name.name = "SaveNameInput"
 	_save_name.placeholder_text = "SAVE NAME"
@@ -189,17 +194,13 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	_save_name.custom_minimum_size = Vector2(0, 22)
 	_save_name.text_direction = Control.TEXT_DIRECTION_LTR
 	_save_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_save_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	Palette.style_line_edit(_save_name)
-	_saves_view.add_child(_save_name)
-
-	var primary_row := HBoxContainer.new()
-	primary_row.add_theme_constant_override("separation", 4)
-	_saves_view.add_child(primary_row)
-	primary_row.add_child(_save_action_button("SAVE NEW", _save_new, true))
-	primary_row.add_child(_save_action_button("OVERWRITE", _save_overwrite))
-	primary_row.add_child(_save_action_button("LOAD", _save_load, true))
-	primary_row.add_child(_save_action_button("RENAME", _save_rename))
-	primary_row.add_child(_save_action_button("DELETE", _save_delete))
+	create_row.add_child(_save_name)
+	var save_new_button := _save_action_button("SAVE NEW", _save_new, true)
+	save_new_button.name = "SaveNew"
+	save_new_button.custom_minimum_size = Vector2(92, 22)
+	create_row.add_child(save_new_button)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "SaveSlotScroll"
@@ -282,6 +283,12 @@ func _refresh_saves() -> void:
 	for value in slots:
 		var slot: Dictionary = value
 		var slot_id := String(slot.get("slot_id", ""))
+		var selected := slot_id == _selected_save_id
+		var entry := VBoxContainer.new()
+		entry.name = "SaveEntry_%s" % slot_id
+		entry.add_theme_constant_override("separation", 2)
+		entry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_save_list.add_child(entry)
 		var row := Button.new()
 		row.name = "SaveSlot_%s" % slot_id
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -291,11 +298,26 @@ func _refresh_saves() -> void:
 			_format_duration(float(slot.get("elapsed_seconds", 0.0)))]
 		row.tooltip_text = "SAVED %s" % _format_save_time(int(slot.get("saved_at", 0)))
 		row.add_theme_font_size_override("font_size", 7)
-		Palette.style_button(row, slot_id == _selected_save_id)
+		Palette.style_button(row, selected)
 		row.pressed.connect(_select_save.bind(slot_id,
 			String(slot.get("name", "ROUTE"))))
-		_save_list.add_child(row)
-		selected_found = selected_found or slot_id == _selected_save_id
+		entry.add_child(row)
+		if selected:
+			var actions := HBoxContainer.new()
+			actions.name = "SaveSlotActions_%s" % slot_id
+			actions.add_theme_constant_override("separation", 3)
+			entry.add_child(actions)
+			for action_entry in [
+					["LOAD", _save_load, true],
+					["OVERWRITE", _save_overwrite, false],
+					["RENAME", _save_rename, false],
+					["DELETE", _save_delete, false]]:
+				var action_button := _save_action_button(String(action_entry[0]),
+					action_entry[1] as Callable, bool(action_entry[2]))
+				action_button.name = "SaveSlot%s_%s" % [
+					String(action_entry[0]).capitalize().replace(" ", ""), slot_id]
+				actions.add_child(action_button)
+		selected_found = selected_found or selected
 	if not selected_found:
 		_selected_save_id = ""
 

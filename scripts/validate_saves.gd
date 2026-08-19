@@ -89,11 +89,45 @@ func run(host: Node) -> int:
 	RoomState.peers = old_peers
 
 	var pause := PauseMenu.new()
-	pause.save_slots_source = func() -> Array: return []
+	var pause_operations := []
+	pause.save_slots_source = func() -> Array:
+		return [{"slot_id": "fixture", "name": "Fixture Route", "level": -1,
+			"difficulty": "HARD", "elapsed_seconds": 269.0, "saved_at": 1}]
+	pause.save_new_request = func(name: String) -> Dictionary:
+		pause_operations.append(["new", name])
+		return {"ok": true, "message": "NEW", "slot_id": "fixture"}
+	pause.save_overwrite_request = func(id: String) -> Dictionary:
+		pause_operations.append(["overwrite", id])
+		return {"ok": true, "message": "OVERWRITE", "slot_id": id}
+	pause.save_load_request = func(id: String) -> Dictionary:
+		pause_operations.append(["load", id])
+		return {"ok": true, "message": "LOAD", "slot_id": id}
+	pause.save_rename_request = func(id: String, name: String) -> Dictionary:
+		pause_operations.append(["rename", id, name])
+		return {"ok": true, "message": "RENAME", "slot_id": id}
+	pause.save_delete_request = func(id: String) -> Dictionary:
+		pause_operations.append(["delete", id])
+		return {"ok": true, "message": "DELETE", "slot_id": id}
 	pause.statistics_source = func() -> Dictionary:
 		return {"TIME SURVIVED": "01:02:03", "RELAYS COLLECTED": "4"}
 	host.add_child(pause)
 	pause.open()
+	pause.call("_set_section", "saves")
+	pause.call("_select_save", "fixture", "Fixture Route")
+	await host.get_tree().process_frame
+	var save_actions := pause.find_child("SaveSlotActions_fixture", true, false)
+	var load_button := pause.find_child("SaveSlotLoad_fixture", true, false) as Button
+	var delete_button := pause.find_child("SaveSlotDelete_fixture", true, false) as Button
+	_expect(save_actions != null and load_button != null and delete_button != null \
+		and load_button.get_parent() == save_actions \
+		and save_actions.get_parent().find_child("SaveSlot_fixture", false, false) != null,
+		"save actions remain detached from the selected save entry (%s)" % [
+			pause.find_children("SaveSlot*", "", true, false).map(
+				func(node: Node) -> String: return node.name)])
+	if load_button != null:
+		load_button.pressed.emit()
+	_expect(pause_operations.has(["load", "fixture"]),
+		"per-save LOAD did not target its owning archive")
 	pause.call("_set_section", "statistics")
 	_expect(pause.find_child("PauseSaves", true, false) != null \
 		and pause.find_child("PauseStatistics", true, false) != null \

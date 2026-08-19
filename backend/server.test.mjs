@@ -311,7 +311,7 @@ test("account API hashes and persists one save slot across restarts", async () =
   }
 });
 
-test("only the exact canonical KYTTU account receives release-admin identity", async () => {
+test("only canonical KYTTU and AYTTU accounts receive owner identity", async () => {
   const directory = await mkdtemp(join(tmpdir(), "last-route-admin-"));
   const accountStorePath = join(directory, "accounts.json");
   const app = await fixtureWith(() => createLastRouteServer({
@@ -339,6 +339,9 @@ test("only the exact canonical KYTTU account receives release-admin identity", a
     assert.equal(result.response.status, 200);
     assert.equal(result.body.username, "KYTTU");
     assert.equal(result.body.admin, true);
+	assert.equal(result.body.adminOwner, true);
+	assert.deepEqual(result.body.adminPermissions,
+		["hunters", "inventory", "player", "visual", "world"]);
 	const adminSession = result.body.sessionToken;
 	result = await post(app.url, "/api/account/rename", {
 		sessionToken: adminSession, username: "Kyttu",
@@ -354,10 +357,107 @@ test("only the exact canonical KYTTU account receives release-admin identity", a
     assert.equal(result.body.username, "KYTTU");
     assert.equal(result.body.admin, true);
 
+	result = await post(app.url, "/api/account/register", {
+		username: "AYTTU", password: "second owner password",
+		adminProof: "server setup proof",
+	});
+	assert.equal(result.response.status, 200);
+	assert.equal(result.body.username, "AYTTU");
+	assert.equal(result.body.adminOwner, true);
+	const ayttuSession = result.body.sessionToken;
+
+	result = await post(app.url, "/api/account/rename", {
+		sessionToken: ayttuSession, username: "AYTTU_RENAMED",
+	});
+	assert.equal(result.response.status, 403,
+		"a full owner could rename away the identity which grants owner access");
+	assert.equal(result.body.code, "OWNER_IMMUTABLE");
+
     result = await post(app.url, "/api/dev/reload", {
-      sessionToken: result.body.sessionToken,
+      sessionToken: ayttuSession,
     });
     assert.equal(result.response.status, 200, "authenticated KYTTU session is developer proof");
+  } finally {
+    await app.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("owners grant scoped admin access while delegated admins cannot edit the roster", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "last-route-admin-roster-"));
+  const accountStorePath = join(directory, "accounts.json");
+  const app = await fixtureWith(() => createLastRouteServer({
+    accountStorePath,
+    adminPassword: "server setup proof",
+  }));
+  try {
+    let result = await post(app.url, "/api/account/register", {
+      username: "KYTTU", password: "owner password", adminProof: "server setup proof",
+    });
+    const ownerSession = result.body.sessionToken;
+    result = await post(app.url, "/api/account/register", {
+      username: "HELPER", password: "helper password",
+    });
+    const helperSession = result.body.sessionToken;
+
+    result = await post(app.url, "/api/admin/roster/set", {
+      sessionToken: helperSession, username: "HELPER", permissions: ["visual"],
+    });
+    assert.equal(result.response.status, 403,
+      "an ordinary account edited its own admin record");
+
+    result = await post(app.url, "/api/admin/roster/set", {
+      sessionToken: ownerSession,
+      username: "HELPER",
+      permissions: ["visual", "hunters", "not-a-permission"],
+    });
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body.entry.adminPermissions, ["hunters", "visual"]);
+
+    result = await post(app.url, "/api/account/session", { sessionToken: helperSession });
+    assert.equal(result.body.admin, true);
+    assert.equal(result.body.adminOwner, false);
+    assert.deepEqual(result.body.adminPermissions, ["hunters", "visual"]);
+
+    result = await post(app.url, "/api/enet/rooms/register", {
+      code: "SC2P3", port: 8421,
+    });
+    const hostToken = result.body.token;
+    result = await post(app.url, "/api/enet/admin-tickets/issue", {
+      code: "SC2P3", sessionToken: helperSession,
+    });
+    assert.equal(result.response.status, 201);
+    assert.deepEqual(result.body.permissions, ["hunters", "visual"]);
+    const delegatedTicket = result.body.ticket;
+    result = await post(app.url, "/api/enet/admin-tickets/verify", {
+      code: "SC2P3", ticket: delegatedTicket, hostToken,
+    });
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body.permissions, ["hunters", "visual"],
+      "room proof widened delegated permissions");
+
+    result = await post(app.url, "/api/admin/roster", { sessionToken: helperSession });
+    assert.equal(result.response.status, 403,
+      "a delegated admin listed the owner-managed roster");
+    result = await post(app.url, "/api/admin/roster", { sessionToken: ownerSession });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.roster.some((entry) => entry.username === "AYTTU"
+      && entry.adminOwner), true);
+    assert.equal(result.body.roster.some((entry) => entry.username === "HELPER"
+      && entry.adminPermissions.join(",") === "hunters,visual"), true);
+
+    result = await post(app.url, "/api/admin/roster/remove", {
+      sessionToken: ownerSession, username: "HELPER",
+    });
+    assert.equal(result.response.status, 200);
+    result = await post(app.url, "/api/enet/admin-tickets/verify", {
+      code: "SC2P3", ticket: delegatedTicket, hostToken,
+    });
+    assert.equal(result.response.status, 403,
+      "a revoked delegated admin retained an outstanding room ticket");
+    result = await post(app.url, "/api/account/session", { sessionToken: helperSession });
+    assert.equal(result.body.admin, false);
+    assert.deepEqual(result.body.adminPermissions, []);
   } finally {
     await app.close();
     await rm(directory, { recursive: true, force: true });
@@ -407,6 +507,8 @@ test("room-bound admin tickets prove KYTTU without exposing an account session",
     });
     assert.equal(result.response.status, 200);
     assert.equal(result.body.authorized, true);
+	assert.deepEqual(result.body.permissions,
+		["hunters", "inventory", "player", "visual", "world"]);
 
     current += 10_001;
     result = await post(app.url, "/api/enet/admin-tickets/verify", {
