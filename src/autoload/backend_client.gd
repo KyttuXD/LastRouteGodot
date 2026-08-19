@@ -637,8 +637,18 @@ func _clean_admin_permissions(value) -> PackedStringArray:
 func _adopt_admin_identity(payload: Dictionary) -> void:
 	account_admin_permissions = _clean_admin_permissions(
 		payload.get("adminPermissions", []))
-	account_admin_owner = bool(payload.get("adminOwner", false)) \
-		and account_username in ["KYTTU", "AYTTU"]
+	var canonical_owner := account_username in ["KYTTU", "AYTTU"]
+	# Backward compatibility for an authenticated session served during a
+	# rolling backend deployment. Older account responses proved these same two
+	# reserved accounts with `admin: true`, but did not yet include the owner or
+	# scoped-permission fields. Never apply this migration to another username
+	# or to an unverified/local cached session.
+	var legacy_owner := canonical_owner and bool(payload.get("admin", false)) \
+		and not payload.has("adminOwner") and not payload.has("adminPermissions")
+	account_admin_owner = canonical_owner \
+		and (bool(payload.get("adminOwner", false)) or legacy_owner)
+	if account_admin_owner and account_admin_permissions.is_empty():
+		account_admin_permissions = PackedStringArray(ADMIN_PERMISSION_NAMES)
 	account_admin = bool(payload.get("admin", false)) \
 		and not account_admin_permissions.is_empty()
 

@@ -71,6 +71,17 @@ func run(host: Node) -> int:
 	Backend.account_username = "AYTTU"
 	_expect(Backend.admin_owner_authorized(),
 		"verified canonical AYTTU is not authorized as the second owner")
+	Backend.account_admin = false
+	Backend.account_admin_owner = false
+	Backend.account_admin_permissions = PackedStringArray()
+	Backend._adopt_admin_identity({"admin": true})
+	_expect(Backend.admin_owner_authorized() \
+		and Backend.account_admin_permissions.size() == Backend.ADMIN_PERMISSION_NAMES.size(),
+		"an authenticated existing AYTTU account from the legacy backend lost owner access")
+	Backend.account_username = "NOT_KYTTU"
+	Backend._adopt_admin_identity({"admin": true})
+	_expect(not Backend.admin_authorized(),
+		"legacy admin compatibility granted access to a non-owner username")
 	Backend.account_session_verified = false
 	_expect(not Backend.admin_authorized(),
 		"unverified cached account state authorizes release admin")
