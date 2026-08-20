@@ -19,7 +19,101 @@ const MODEL_PATHS := {
 		"res://art/props-3d/props/maze/arcade_cabinet_cyan_magenta.glb",
 	],
 	"filingCabinet": ["res://art/props-3d/props/maze/filing_cabinet.glb"],
-	"floorLamp": ["res://art/props-3d/props/maze/floor_lamp.glb"],
+	"officeDesk": [
+		"res://art/props-3d/props/maze/office_desk.glb",
+		"res://art/props-3d/props/maze/office_desk_charcoal.glb",
+		"res://art/props-3d/props/maze/office_desk_teal.glb",
+	],
+	"officeChair": [
+		"res://art/props-3d/props/maze/office_task_chair.glb",
+		"res://art/props-3d/props/maze/office_task_chair_charcoal.glb",
+		"res://art/props-3d/props/maze/office_task_chair_teal.glb",
+	],
+	"officeCrtSecurityConsole": [
+		"res://art/props-3d/props/maze/office_crt_security_console.glb",
+		"res://art/props-3d/props/maze/office_crt_security_console_charcoal.glb",
+		"res://art/props-3d/props/maze/office_crt_security_console_teal.glb",
+	],
+	"officeCubiclePartition": [
+		"res://art/props-3d/props/maze/office_cubicle_partition.glb",
+		"res://art/props-3d/props/maze/office_cubicle_partition_charcoal.glb",
+		"res://art/props-3d/props/maze/office_cubicle_partition_teal.glb",
+	],
+	"officePrinter": [
+		"res://art/props-3d/props/maze/office_printer.glb",
+		"res://art/props-3d/props/maze/office_printer_charcoal.glb",
+		"res://art/props-3d/props/maze/office_printer_teal.glb",
+	],
+	"officeWaterCooler": [
+		"res://art/props-3d/props/maze/office_water_cooler.glb",
+		"res://art/props-3d/props/maze/office_water_cooler_charcoal.glb",
+		"res://art/props-3d/props/maze/office_water_cooler_teal.glb",
+	],
+	"officePhotocopier": [
+		"res://art/props-3d/props/maze/office_photocopier.glb",
+		"res://art/props-3d/props/maze/office_photocopier_charcoal.glb",
+		"res://art/props-3d/props/maze/office_photocopier_teal.glb",
+	],
+	"officeShredder": [
+		"res://art/props-3d/props/maze/office_shredder.glb",
+		"res://art/props-3d/props/maze/office_shredder_charcoal.glb",
+		"res://art/props-3d/props/maze/office_shredder_teal.glb",
+	],
+	"officeFileBoxes": [
+		"res://art/props-3d/props/maze/office_file_boxes.glb",
+		"res://art/props-3d/props/maze/office_file_boxes_charcoal.glb",
+		"res://art/props-3d/props/maze/office_file_boxes_teal.glb",
+	],
+	"officeCornerWorkstation": [
+		"res://art/props-3d/props/maze/office_corner_workstation.glb",
+		"res://art/props-3d/props/maze/office_corner_workstation_charcoal.glb",
+		"res://art/props-3d/props/maze/office_corner_workstation_teal.glb",
+	],
+	"arcadeBasketballHoop": ["res://art/props-3d/props/maze/arcade_basketball_hoop.glb"],
+	"arcadeCarpetCircle": ["res://art/props-3d/props/maze/arcade_carpet_circle.glb"],
+	"arcadeCarpetRunner": ["res://art/props-3d/props/maze/arcade_carpet_runner.glb"],
+	"arcadeTokenChanger": ["res://art/props-3d/props/maze/arcade_token_changer.glb"],
+	"backstageRepairStand": ["res://art/props-3d/props/maze/backstage_repair_stand.glb"],
+	"breakerCabinet": ["res://art/props-3d/props/maze/breaker_cabinet.glb"],
+	"brokenAquarium": ["res://art/props-3d/props/maze/broken_aquarium.glb"],
+	"carnivalCarousel": ["res://art/props-3d/props/maze/carnival_carousel.glb"],
+	"flowerBlue": ["res://art/props-3d/props/maze/flower_blue.glb"],
+	"flowerRose": ["res://art/props-3d/props/maze/flower_rose.glb"],
+	"flowerSun": ["res://art/props-3d/props/maze/flower_sun.glb"],
+	"flowerViolet": ["res://art/props-3d/props/maze/flower_violet.glb"],
+	"gardenPlanterBench": ["res://art/props-3d/props/maze/garden_planter_bench.glb"],
+	"giantTree": ["res://art/props-3d/props/maze/giant_tree.glb"],
+	"grassFern": ["res://art/props-3d/props/maze/grass_fern.glb"],
+	"locker": ["res://art/props-3d/props/maze/locker.glb"],
+	"maintenanceCleaningCart": ["res://art/props-3d/props/maze/maintenance_cleaning_cart.glb"],
+	"maintenanceToolCabinet": ["res://art/props-3d/props/maze/maintenance_tool_cabinet.glb"],
+	"mascotStatue": ["res://art/props-3d/props/maze/mascot_statue.glb"],
+	"prizeClawMachine": ["res://art/props-3d/props/maze/prize_claw_machine.glb"],
+	"prizeCounter": ["res://art/props-3d/props/maze/prize_counter.glb"],
+	"snackKiosk": ["res://art/props-3d/props/maze/snack_kiosk.glb"],
+	"stagePlatform": ["res://art/props-3d/props/maze/stage_platform.glb"],
+	"stageSpeaker": ["res://art/props-3d/props/maze/stage_speaker.glb"],
+	"utilityCart": ["res://art/props-3d/props/maze/utility_cart.glb"],
+	"floorLamp": [
+		"res://art/props-3d/props/maze/floor_lamp.glb",
+		"res://art/props-3d/props/mansion/floor_lamp_teal.glb",
+		"res://art/props-3d/props/mansion/floor_lamp_ivory.glb",
+	],
+	"ceilingLight": [
+		"res://art/props-3d/props/mansion/ceiling_light_warm.glb",
+		"res://art/props-3d/props/mansion/ceiling_light_cool.glb",
+		"res://art/props-3d/props/mansion/ceiling_light_teal.glb",
+	],
+	"ceilingFan": [
+		"res://art/props-3d/props/mansion/ceiling_fan_walnut.glb",
+		"res://art/props-3d/props/mansion/ceiling_fan_ivory.glb",
+		"res://art/props-3d/props/mansion/ceiling_fan_charcoal.glb",
+	],
+	"tableLamp": [
+		"res://art/props-3d/props/mansion/table_lamp_burgundy.glb",
+		"res://art/props-3d/props/mansion/table_lamp_teal.glb",
+		"res://art/props-3d/props/mansion/table_lamp_ivory.glb",
+	],
 	"loungeCouch": [
 		"res://art/props-3d/props/maze/lounge_couch_red.glb",
 		"res://art/props-3d/props/mansion/lounge_couch_black.glb",
@@ -43,11 +137,56 @@ const MODEL_PATHS := {
 	"supplyCrates": ["res://art/props-3d/props/maze/supply_crates.glb"],
 	"trashBin": ["res://art/props-3d/props/maze/trash_bin.glb"],
 	"vendingMachine": ["res://art/props-3d/props/maze/vending_machine.glb"],
-	"woodenChair": ["res://art/props-3d/props/maze/wooden_chair_oak.glb"],
-	"woodenChairCushion": ["res://art/props-3d/props/maze/wooden_chair_cushion.glb"],
-	"woodenTable": ["res://art/props-3d/props/maze/wooden_table.glb"],
+	"woodenChair": [
+		"res://art/props-3d/props/maze/wooden_chair_oak.glb",
+		"res://art/props-3d/props/maze/wooden_chair_walnut.glb",
+		"res://art/props-3d/props/maze/wooden_chair_mahogany.glb",
+		"res://art/props-3d/props/maze/wooden_chair_ash.glb",
+	],
+	"woodenChairCushion": [
+		"res://art/props-3d/props/maze/wooden_chair_cushion.glb",
+		"res://art/props-3d/props/maze/wooden_chair_cushion_walnut.glb",
+		"res://art/props-3d/props/maze/wooden_chair_cushion_mahogany.glb",
+		"res://art/props-3d/props/maze/wooden_chair_cushion_ash.glb",
+	],
+	"woodenTable": [
+		"res://art/props-3d/props/maze/wooden_table.glb",
+		"res://art/props-3d/props/maze/wooden_table_walnut.glb",
+		"res://art/props-3d/props/maze/wooden_table_mahogany.glb",
+		"res://art/props-3d/props/maze/wooden_table_ash.glb",
+	],
+	"restaurantPartyTable": [
+		"res://art/props-3d/props/maze/restaurant_party_table.glb",
+	],
 	"woodenDresserSideboard": [
 		"res://art/props-3d/props/maze/wooden_dresser_sideboard.glb",
+		"res://art/props-3d/props/maze/wooden_dresser_sideboard_walnut.glb",
+		"res://art/props-3d/props/maze/wooden_dresser_sideboard_mahogany.glb",
+		"res://art/props-3d/props/maze/wooden_dresser_sideboard_ash.glb",
+	],
+	"retroComputerCompact": [
+		"res://art/props-3d/props/maze/retro_computer_compact_ivory.glb",
+		"res://art/props-3d/props/maze/retro_computer_compact_charcoal.glb",
+		"res://art/props-3d/props/maze/retro_computer_compact_teal.glb",
+		"res://art/props-3d/props/maze/retro_computer_compact_burgundy.glb",
+	],
+	"retroComputerTower": [
+		"res://art/props-3d/props/maze/retro_computer_tower_ivory.glb",
+		"res://art/props-3d/props/maze/retro_computer_tower_charcoal.glb",
+		"res://art/props-3d/props/maze/retro_computer_tower_teal.glb",
+		"res://art/props-3d/props/maze/retro_computer_tower_burgundy.glb",
+	],
+	"retroComputerDesktop": [
+		"res://art/props-3d/props/maze/retro_computer_desktop_ivory.glb",
+		"res://art/props-3d/props/maze/retro_computer_desktop_charcoal.glb",
+		"res://art/props-3d/props/maze/retro_computer_desktop_teal.glb",
+		"res://art/props-3d/props/maze/retro_computer_desktop_burgundy.glb",
+	],
+	"retroComputerTerminal": [
+		"res://art/props-3d/props/maze/retro_computer_terminal_ivory.glb",
+		"res://art/props-3d/props/maze/retro_computer_terminal_charcoal.glb",
+		"res://art/props-3d/props/maze/retro_computer_terminal_teal.glb",
+		"res://art/props-3d/props/maze/retro_computer_terminal_burgundy.glb",
 	],
 
 	"diningTable": ["res://art/props-3d/props/mansion/grand_dining_table.glb"],
@@ -60,6 +199,8 @@ const MODEL_PATHS := {
 	],
 	"diningChandelier": [
 		"res://art/props-3d/props/mansion/dining_chandelier.glb",
+		"res://art/props-3d/props/mansion/dining_chandelier_crystal.glb",
+		"res://art/props-3d/props/mansion/dining_chandelier_gothic.glb",
 	],
 	"diningSideboard": ["res://art/props-3d/props/mansion/ornate_sideboard.glb"],
 	"flowerCenterpiece": [
@@ -97,29 +238,36 @@ const MODEL_PATHS := {
 	"gothicRoomDoor": [
 		"res://art/props-3d/props/mansion/gothic_room_door.glb",
 	],
+	"normalDoubleRoomDoor": [
+		"res://art/props-3d/props/mansion/normal_double_room_door.glb",
+	],
+	"luxuryDoubleRoomDoor": [
+		"res://art/props-3d/props/mansion/luxury_double_room_door.glb",
+	],
+	"gothicDoubleRoomDoor": [
+		"res://art/props-3d/props/mansion/gothic_double_room_door.glb",
+	],
 	"heavyMansionDrapes": [
 		"res://art/props-3d/props/mansion/heavy_mansion_drapes.glb",
 	],
 	"mansionAreaRug": ["res://art/props-3d/props/mansion/mansion_area_rug.glb"],
-	# Existing authored rug meshes become region-specific deterministic sets.
-	# They were shipped but largely unused by streamed rooms.
 	"corridorCarpet": [
-		"res://art/props-3d/props/mansion/bedroom_rug_charcoal.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_navy.glb",
+		"res://art/props-3d/props/mansion/corridor_carpet_teal.glb",
+		"res://art/props-3d/props/mansion/corridor_carpet_burgundy.glb",
 	],
 	"hotelCarpet": [
-		"res://art/props-3d/props/mansion/bedroom_rug.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_ivory.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_navy.glb",
+		"res://art/props-3d/props/mansion/hotel_carpet_burgundy.glb",
+		"res://art/props-3d/props/mansion/hotel_carpet_navy.glb",
+		"res://art/props-3d/props/mansion/hotel_carpet_ivory.glb",
 	],
 	"apartmentCarpet": [
-		"res://art/props-3d/props/mansion/bedroom_rug_olive.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_charcoal.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_violet.glb",
+		"res://art/props-3d/props/mansion/apartment_carpet_olive.glb",
+		"res://art/props-3d/props/mansion/apartment_carpet_charcoal.glb",
+		"res://art/props-3d/props/mansion/apartment_carpet_rust.glb",
 	],
 	"beachMat": [
-		"res://art/props-3d/props/mansion/house_bath_mat.glb",
-		"res://art/props-3d/props/mansion/bedroom_rug_ivory.glb",
+		"res://art/props-3d/props/mansion/beach_mat_teal.glb",
+		"res://art/props-3d/props/mansion/beach_mat_sun.glb",
 	],
 	"mansionBookshelf": [
 		"res://art/props-3d/props/mansion/mansion_bookshelf.glb",
@@ -131,7 +279,11 @@ const MODEL_PATHS := {
 	"tableCandelabra": [
 		"res://art/props-3d/props/mansion/table_candelabra.glb",
 	],
-	"wallSconce": ["res://art/props-3d/props/mansion/wall_sconce.glb"],
+	"wallSconce": [
+		"res://art/props-3d/props/mansion/wall_sconce.glb",
+		"res://art/props-3d/props/mansion/wall_sconce_cool.glb",
+		"res://art/props-3d/props/mansion/wall_sconce_gothic.glb",
+	],
 	"bathroomStall": ["res://art/props-3d/props/mansion/bathroom_stall.glb"],
 	"bathroomSink": ["res://art/props-3d/props/mansion/bathroom_sink.glb"],
 	"bathroomMirror": ["res://art/props-3d/props/mansion/bathroom_mirror.glb"],
@@ -173,6 +325,11 @@ const MODEL_PATHS := {
 		"res://art/props-3d/props/mansion/double_bed_olive.glb",
 		"res://art/props-3d/props/mansion/double_bed_ivory.glb",
 		"res://art/props-3d/props/mansion/double_bed_charcoal.glb",
+	],
+	"bunkBed": [
+		"res://art/props-3d/props/prison/bunk_bed_metal.glb",
+		"res://art/props-3d/props/prison/bunk_bed_wood.glb",
+		"res://art/props-3d/props/prison/bunk_bed_loft.glb",
 	],
 	"bedroomNightstand": [
 		"res://art/props-3d/props/mansion/bedroom_nightstand.glb",
@@ -378,6 +535,20 @@ const MODEL_PATHS := {
 	"surfboardRack": ["res://art/props-3d/props/beach/surfboard_rack.glb"],
 	"palmTree": ["res://art/props-3d/props/beach/palm_tree.glb"],
 	"frozenBeachHut": ["res://art/props-3d/props/beach/frozen_beach_hut.glb"],
+	"frozenTidelinePool": [
+		"res://art/props-3d/props/beach/frozen_tideline_pool.glb",
+	],
+
+	"carnivalTicketBooth": [
+		"res://art/props-3d/props/carnival/carnival_ticket_booth.glb",
+	],
+	"popcornCart": ["res://art/props-3d/props/carnival/popcorn_cart.glb"],
+	"ringTossStall": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"strengthTester": ["res://art/props-3d/props/carnival/strength_tester.glb"],
+	"circusPedestal": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
+	"carouselCenterpiece": [
+		"res://art/props-3d/props/carnival/carousel_centerpiece.glb",
+	],
 
 	"lavaVent": ["res://art/props-3d/props/nether/lava_vent.glb"],
 	"emberBrazier": ["res://art/props-3d/props/nether/ember_brazier.glb"],
@@ -398,6 +569,18 @@ const MODEL_PATHS := {
 	],
 	"prisonCellGate": ["res://art/props-3d/props/prison/prison_cell_gate.glb"],
 	"prisonBunk": ["res://art/props-3d/props/prison/prison_bunk.glb"],
+	"prisonCafeteriaTable": [
+		"res://art/props-3d/props/prison/prison_cafeteria_table.glb",
+	],
+	"prisonServingCounter": [
+		"res://art/props-3d/props/prison/prison_serving_counter.glb",
+	],
+	"prisonTrayReturn": [
+		"res://art/props-3d/props/prison/prison_tray_return.glb",
+	],
+	"prisonKitchenRack": [
+		"res://art/props-3d/props/prison/prison_kitchen_rack.glb",
+	],
 	"dungeonCage": ["res://art/props-3d/props/prison/dungeon_cage.glb"],
 	"restraintChair": ["res://art/props-3d/props/prison/restraint_chair.glb"],
 }
@@ -406,14 +589,37 @@ const MODEL_PATHS := {
 ## the same floor-based convention as every other prop, so this offset seats
 ## that authored top exactly against the 3 m corridor ceiling.
 const CEILING_MODEL_TOP := {
-	"diningChandelier": 1.59,
+	"diningChandelier": .90,
+	"ceilingLight": .30,
+	"ceilingFan": .59,
 	"infernoChainLantern": 1.59,
 }
 
-## All members of a bedroom share the same room-id prefix. Hash that prefix
-## for coordinated sets, rather than hashing each prop index independently,
-## so the bed, storage, seating and dressing never receive mismatched themes.
+## Actual light emission stays runtime-authored so the shipping GLBs remain
+## lightweight and the same fixture variants can share performance limits.
+## Energy/range are intentionally modest: fixtures illuminate a room without
+## replacing the player's flashlight or creating one shadow map per prop.
+const LIGHT_PROFILES := {
+	"floorLamp": {"color": Color("ffe1a3"), "energy": .52, "range": 4.0, "height": 1.52},
+	"tableLamp": {"color": Color("ffd99a"), "energy": .38, "range": 3.0, "height": .54},
+	"bedsideLamp": {"color": Color("ffd5a0"), "energy": .32, "range": 2.6, "height": .54},
+	"ceilingLight": {"color": Color("dff8ff"), "energy": .62, "range": 4.8, "height": .12},
+	"ceilingFan": {"color": Color("fff0c2"), "energy": .54, "range": 4.4, "height": .16},
+	"diningChandelier": {"color": Color("ffd58c"), "energy": .66, "range": 5.2, "height": .55},
+	"wallSconce": {"color": Color("ffd292"), "energy": .36, "range": 3.2, "height": 1.62},
+}
+
+## Coordinated furniture families share the same room id. Hash that room id,
+## rather than each prop index independently, so wood furniture, computers,
+## and themed bedroom sets never receive mismatched finishes inside one room.
 const COORDINATED_SET_TYPES := [
+	"woodenChair", "woodenChairCushion", "woodenTable",
+	"woodenDresserSideboard", "retroComputerCompact",
+	"retroComputerTower", "retroComputerDesktop", "retroComputerTerminal",
+	"officeDesk", "officeChair", "officeCrtSecurityConsole",
+	"officeCubiclePartition", "officePrinter", "officeWaterCooler",
+	"officePhotocopier", "officeShredder", "officeFileBoxes",
+	"officeCornerWorkstation",
 	"singleBed", "doubleBed", "bedroomNightstand", "bedroomWardrobe",
 	"bedroomDresser", "bedroomVanity", "vanityStool", "bedsideLamp",
 	"toyChest", "laundryHamper", "bedroomRug", "bedroomWallClock",
@@ -422,6 +628,45 @@ const COORDINATED_SET_TYPES := [
 	"gothicVanityStool", "gothicBedroomBench", "gothicBedroomRug",
 	"gothicBedsideCandelabra", "gothicHighbackChair",
 ]
+
+## Variant labels are kept beside their ordered paths so validators and future
+## UI can reason about a room's actual finish instead of filename substrings.
+## Families with the same four/six labels deliberately share ordering: hashing
+## one room id therefore gives every member of a given four- or six-variant
+## family the same indexed finish even when their individual prop ids differ.
+const VARIANT_THEMES := {
+	"woodenChair": ["oak", "walnut", "mahogany", "ash"],
+	"woodenChairCushion": ["oak", "walnut", "mahogany", "ash"],
+	"woodenTable": ["oak", "walnut", "mahogany", "ash"],
+	"woodenDresserSideboard": ["oak", "walnut", "mahogany", "ash"],
+	"retroComputerCompact": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerTower": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerDesktop": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerTerminal": ["ivory", "charcoal", "teal", "burgundy"],
+	"officeDesk": ["neutral", "charcoal", "teal"],
+	"officeChair": ["neutral", "charcoal", "teal"],
+	"officeCrtSecurityConsole": ["neutral", "charcoal", "teal"],
+	"officeCubiclePartition": ["neutral", "charcoal", "teal"],
+	"officePrinter": ["neutral", "charcoal", "teal"],
+	"officeWaterCooler": ["neutral", "charcoal", "teal"],
+	"officePhotocopier": ["neutral", "charcoal", "teal"],
+	"officeShredder": ["neutral", "charcoal", "teal"],
+	"officeFileBoxes": ["neutral", "charcoal", "teal"],
+	"officeCornerWorkstation": ["neutral", "charcoal", "teal"],
+	"singleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"doubleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomNightstand": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomWardrobe": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomDresser": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomVanity": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"vanityStool": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedsideLamp": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"toyChest": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"laundryHamper": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomRug": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomWallClock": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomBench": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+}
 
 
 static func has_model(type: String) -> bool:
@@ -436,15 +681,22 @@ const FLOOR_DRESSING_TYPES := [
 	"mansionAreaRug", "corridorCarpet", "hotelCarpet",
 	"apartmentCarpet", "beachMat", "bedroomRug", "gothicBedroomRug",
 	"houseBathMat", "arcadeCarpetCircle", "arcadeCarpetRunner",
+	"frozenTidelinePool",
 ]
 const EMPTY_FRAME_TYPES := [
 	"normalPictureFrameEmpty", "normalPaintingFrameEmpty",
 	"luxuryPictureFrameEmpty", "luxuryPaintingFrameEmpty",
 	"gothicPictureFrameEmpty", "gothicPaintingFrameEmpty",
 ]
-const ROOM_DOOR_TYPES := ["normalRoomDoor", "luxuryRoomDoor", "gothicRoomDoor"]
+const ROOM_DOOR_TYPES := [
+	"normalRoomDoor", "luxuryRoomDoor", "gothicRoomDoor",
+	"normalDoubleRoomDoor", "luxuryDoubleRoomDoor", "gothicDoubleRoomDoor",
+]
 const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 	"bathroomMirror", "framedWallPortrait", "bedroomWallClock",
+	"publicHandDryer", "publicSoapDispenser", "publicPaperTowelDispenser",
+	"publicBabyChangeStation", "publicMensRoomSign", "publicWomensRoomSign",
+	"houseMedicineCabinet", "houseTowelRack", "houseBathroomShelf",
 ]
 
 
@@ -468,6 +720,10 @@ static func is_ceiling_mounted(type: String) -> bool:
 	return CEILING_MODEL_TOP.has(type)
 
 
+static func light_profile(type: String) -> Dictionary:
+	return (LIGHT_PROFILES.get(type, {}) as Dictionary).duplicate()
+
+
 ## Authored Blender props present their usable/front side along local +Z after
 ## glTF conversion. Gameplay uses -Z as forward, so the visual root needs a
 ## half turn to face into the room instead of back into its supporting wall.
@@ -475,14 +731,29 @@ static func authored_visual_yaw(gameplay_yaw: float) -> float:
 	return gameplay_yaw + PI
 
 
-static func model_path(type: String, instance_id: String) -> String:
+static func model_path(type: String, instance_id: String,
+		room_id: String = "") -> String:
 	var paths: Array = MODEL_PATHS.get(type, [])
 	if paths.is_empty():
 		return ""
-	var variant_key := instance_id
-	if COORDINATED_SET_TYPES.has(type) and instance_id.contains("-prop-"):
+	return String(paths[_variant_index(type, instance_id, room_id, paths.size())])
+
+
+static func variant_theme(type: String, instance_id: String,
+		room_id: String = "") -> String:
+	var labels: Array = VARIANT_THEMES.get(type, [])
+	if labels.is_empty():
+		return ""
+	return String(labels[_variant_index(type, instance_id, room_id, labels.size())])
+
+
+static func _variant_index(type: String, instance_id: String,
+		room_id: String, size: int) -> int:
+	var variant_key := room_id if not room_id.is_empty() else instance_id
+	if room_id.is_empty() and COORDINATED_SET_TYPES.has(type) \
+			and instance_id.contains("-prop-"):
 		variant_key = instance_id.get_slice("-prop-", 0)
-	return String(paths[_stable_index(variant_key, paths.size())])
+	return _stable_index(variant_key, size)
 
 
 static func visual_y(type: String, wall_height: float, mount_y: float = 0.0) -> float:
@@ -501,6 +772,12 @@ static func visual_y(type: String, wall_height: float, mount_y: float = 0.0) -> 
 ## generator to model filenames. An empty result remains ordinary dressing.
 static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
+	if type == "carouselCenterpiece":
+		return "ride"
+	if type in ["ringTossStall", "strengthTester"]:
+		return "play"
+	if type.begins_with("retroComputer"):
+		return "use"
 	if "mirror" in lowered:
 		return "mirror"
 	if "bed" in lowered or "bunk" in lowered:

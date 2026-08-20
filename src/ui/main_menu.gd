@@ -588,7 +588,7 @@ func _on_tutorial_pressed() -> void:
 		"OBJECTIVE\n"
 		+ "Explore the route and recover signal relays. Relaxed wakes a hunter after relay 3, Standard after relay 1, and Hard begins with an active hunter. Deeper floors become more dangerous.\n\n"
 		+ "SURVIVAL\n"
-		+ "The green marker is your starting safe zone. Other safe rooms become checkpoints, but hunters can breach them. A pulsing pixel-crimson screen edge replaces the old danger bar and intensifies when a hunter closes in or begins a chase. Stairs and ladders connect floors; upper levels are generally safer.\n\n"
+		+ "The green marker is your starting safe zone. Other safe rooms become checkpoints, but hunters can breach them. The route panel and heartbeat audio warn when danger closes in. Stairs and ladders connect floors; upper levels are generally safer.\n\n"
 		+ "MOVEMENT + VIEW\n"
 		+ "WASD move, Shift sprints, C crouches, Space jumps, and the mouse looks. F1 hides or restores the gameplay HUD for a clean view. On a controller, use the left stick to move, right stick to look, A to jump, B to crouch, and left-stick click to sprint. M or View opens the discovered map. Place a waypoint on discovered floor space to draw a teal GPS route on the map and ground. The minimap shows only your current discovered floor.\n\n"
 		+ "ITEMS + INVENTORY\n"

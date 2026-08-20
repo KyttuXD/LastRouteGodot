@@ -167,6 +167,10 @@ var look_frozen := false
 var admin_no_target := false
 var admin_god_mode := false
 var admin_noclip := false
+## A captured co-op guest remains in the room as a free-flying spectator rather
+## than respawning or being forced back to the menu. The host still treats this
+## state as game-over for targeting and replication purposes.
+var spectator_mode := false
 
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
@@ -268,7 +272,7 @@ func is_stunned() -> bool:
 
 
 func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
-	if furniture == null or pose not in ["sit", "lay"]:
+	if furniture == null or pose not in ["sit", "lay", "ride"]:
 		return "That furniture cannot be used."
 	if resting_furniture == furniture:
 		return leave_furniture()
@@ -290,8 +294,11 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	_yaw = rotation.y
 	first_person_pivot.position.y = .72 if pose == "lay" else 1.02
 	velocity = Vector3.ZERO
-	_clip = pose
-	ModelSlot.play_if_available(_animation_player, pose)
+	_clip = "sit" if pose == "ride" else pose
+	ModelSlot.play_if_available(_animation_player, _clip)
+	if pose == "ride":
+		Sound.menu_blip()
+		return ""
 	return "LYING DOWN // INTERACT TO GET UP" if pose == "lay" \
 		else "SEATED // INTERACT TO STAND"
 
@@ -413,13 +420,13 @@ func _ready() -> void:
 	floor_snap_length = 0.28
 	first_person_camera.fov = Settings.field_of_view
 	Settings.visual_changed.connect(_apply_visual_settings)
-	var body_scene := ADMIN_BODY_MODEL_SCENE if Backend.admin_authorized() \
+	var body_scene := ADMIN_BODY_MODEL_SCENE if Backend.uses_kyttu_player_skin() \
 		else BODY_MODEL_SCENE
 	var model := ModelSlot.instantiate(body_scene)
 	if model:
 		_body_model = model
 		body_visual.add_child(model)
-		if not Backend.admin_authorized():
+		if not Backend.uses_kyttu_player_skin():
 			ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
@@ -561,6 +568,48 @@ func set_admin_noclip(enabled: bool) -> void:
 	collision_mask = 0 if enabled else 1
 
 
+func enter_spectator() -> void:
+	spectator_mode = true
+	input_frozen = false
+	look_frozen = false
+	velocity = Vector3.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	if player_collision != null:
+		player_collision.disabled = true
+	if body_visual != null:
+		body_visual.visible = false
+
+
+func leave_spectator() -> void:
+	spectator_mode = false
+	velocity = Vector3.ZERO
+	collision_layer = 1
+	collision_mask = 1
+	if player_collision != null:
+		player_collision.disabled = false
+	if body_visual != null:
+		body_visual.visible = true
+
+
+func _update_spectator(delta: float) -> void:
+	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var basis := active_camera().global_basis
+	var direction := basis.x * input_vector.x + (-basis.z) * -input_vector.y
+	if Input.is_action_pressed("jump"):
+		direction += Vector3.UP
+	if Input.is_action_pressed("crouch"):
+		direction += Vector3.DOWN
+	var fast := Input.is_action_pressed("sprint")
+	var speed := 12.0 if fast else 6.0
+	if direction.length_squared() > 0.0:
+		global_position += direction.normalized() * speed * delta
+	velocity = Vector3.ZERO
+	noise = 0.0
+	_clip = "idle"
+	ModelSlot.play_if_available(_animation_player, _clip)
+
+
 func _update_admin_noclip(delta: float) -> void:
 	# Free-flight follows the view, including pitch, while vertical keys remain
 	# explicit so an admin can inspect stacked floors without aiming straight up.
@@ -588,6 +637,9 @@ func _physics_process(delta: float) -> void:
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
+	if spectator_mode:
+		_update_spectator(delta)
+		return
 	if hiding_lock_timer > 0.0:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
 	if stun_timer > 0.0:
@@ -1150,6 +1202,18 @@ func _update_first_person_item_lights() -> void:
 
 func _flashlight_beam_should_be_visible() -> bool:
 	return flashlight_enabled and selected_inventory_item() == "flashlight"
+
+
+## Network peers need the camera pitch as well as the controller body's yaw.
+## Publishing only rotation.y made another runner's light stay horizontal when
+## they looked up/down, and mounting the replicated SpotLight on their torso
+## then let the mannequin shadow its own beam.
+func equipment_aim_direction() -> Vector3:
+	var source_basis := xr_camera.global_basis if xr_active \
+		else first_person_camera.global_basis
+	var direction := -source_basis.z
+	return direction.normalized() if direction.length_squared() > .0001 \
+		else -global_basis.z.normalized()
 
 
 func _animate_flashlight_toggle() -> void:

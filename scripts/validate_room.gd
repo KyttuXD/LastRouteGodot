@@ -68,9 +68,13 @@ func run(host: Node) -> int:
 	Backend.account_username = "KYTTU"
 	_expect(Backend.admin_authorized(),
 		"verified canonical KYTTU is not authorized for release admin")
+	_expect(Backend.uses_kyttu_player_skin(),
+		"verified canonical KYTTU did not receive the reserved Main.png skin")
 	Backend.account_username = "AYTTU"
 	_expect(Backend.admin_owner_authorized(),
 		"verified canonical AYTTU is not authorized as the second owner")
+	_expect(not Backend.uses_kyttu_player_skin(),
+		"AYTTU incorrectly received KYTTU's reserved Main.png skin")
 	Backend.account_admin = false
 	Backend.account_admin_owner = false
 	Backend.account_admin_permissions = PackedStringArray()
@@ -82,6 +86,8 @@ func run(host: Node) -> int:
 	Backend._adopt_admin_identity({"admin": true})
 	_expect(not Backend.admin_authorized(),
 		"legacy admin compatibility granted access to a non-owner username")
+	_expect(not Backend.uses_kyttu_player_skin(),
+		"a non-KYTTU account received the reserved Main.png skin")
 	Backend.account_session_verified = false
 	_expect(not Backend.admin_authorized(),
 		"unverified cached account state authorizes release admin")
@@ -135,6 +141,14 @@ func run(host: Node) -> int:
 		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route") \
 		== "/Applications/KYTTU- The Last Route.app",
 		"the updater could not resolve a macOS app bundle")
+	_expect(UpdateManager._previous_install_backup_path("windows",
+		"C:/Games/LastRoute-Windows-Debug.exe") \
+		== "C:/Games/.lastroute-backup-previous",
+		"the updater could not resolve a Windows rollback folder")
+	_expect(UpdateManager._previous_install_backup_path("macos",
+		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route") \
+		== "/Applications/.lastroute-backup-previous",
+		"the updater could not resolve a macOS rollback folder")
 	var update_archive := "user://last-route-update-test.zip"
 	var update_stage := "user://last-route-update-test"
 	UpdateManager._remove_tree(update_stage)
@@ -175,6 +189,30 @@ func run(host: Node) -> int:
 	_expect(OS.execute("/bin/sh", PackedStringArray(["-n",
 		ProjectSettings.globalize_path(helper_path)]), helper_output, true) == 0,
 		"the Unix update helper has invalid shell syntax: %s" % helper_output)
+	var cache_keep := UpdateManager.UPDATE_ROOT.path_join("linux-current.zip")
+	var cache_old := UpdateManager.UPDATE_ROOT.path_join("linux-old.zip")
+	var cache_stage := UpdateManager.UPDATE_ROOT.path_join("staged-linux-old")
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(cache_stage))
+	_expect(UpdateManager._write_text(cache_keep, "current"),
+		"could not create the updater cleanup keep fixture")
+	_expect(UpdateManager._write_text(cache_old, "old"),
+		"could not create the updater cleanup stale fixture")
+	_expect(UpdateManager._write_text(
+		UpdateManager.UPDATE_ROOT.path_join(UpdateManager.DOWNLOAD_PART), "partial"),
+		"could not create the updater partial-download fixture")
+	_expect(UpdateManager._write_text(cache_stage.path_join("old-binary"), "old"),
+		"could not create the updater staging fixture")
+	UpdateManager._cleanup_update_cache([cache_keep])
+	_expect(FileAccess.file_exists(cache_keep),
+		"updater cleanup deleted the current revision archive")
+	_expect(not FileAccess.file_exists(cache_old),
+		"updater cleanup retained an obsolete revision archive")
+	_expect(not FileAccess.file_exists(
+		UpdateManager.UPDATE_ROOT.path_join(UpdateManager.DOWNLOAD_PART)),
+		"updater cleanup retained an abandoned partial download")
+	_expect(not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(cache_stage)),
+		"updater cleanup retained an obsolete staging directory")
+	UpdateManager._cleanup_update_cache()
 	var apply_root := "user://last-route-update-apply-test"
 	var apply_stage := apply_root.path_join("stage")
 	var apply_install := apply_root.path_join("install")

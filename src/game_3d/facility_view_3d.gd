@@ -105,6 +105,7 @@ var _interactables: Array = []
 var _room_prop_nodes: Array = []
 var _stair_nodes: Array[Node3D] = []
 var _room_lights := {}
+var _fixture_lights: Array[OmniLight3D] = []
 ## The floor's single heater station, read by Wynelle's gimmick each frame.
 var heater_station: RouteInteractable3D
 ## Glyra's counterplay, read by GlyraGimmick each frame the same way Wynelle's
@@ -413,6 +414,9 @@ func set_all_room_lights(enabled: bool) -> void:
 		var switch := data.get("switch") as RouteInteractable3D
 		if switch:
 			switch.adopt({"what": "room_light", "light_id": id, "enabled": enabled})
+	for light in _fixture_lights:
+		if is_instance_valid(light):
+			light.visible = enabled
 
 
 ## Mechanical themed-room dressing. Placement, facing and collision remain
@@ -424,7 +428,9 @@ func _spawn_room_props() -> void:
 	for node in _room_prop_nodes:
 		node.queue_free()
 	_room_prop_nodes.clear()
+	_fixture_lights.clear()
 	_stair_nodes.clear()
+	var fixture_light_budget := 10
 	for entry in generator.props:
 		var type := String(entry.get("type", "prop"))
 		var solid := RoomCatalog.is_solid(type)
@@ -440,7 +446,8 @@ func _spawn_room_props() -> void:
 		root.rotation.y = int(entry.get("rotation", 0)) * PI * .5
 
 		var prop_id := String(entry.get("id", type))
-		var model_path := PropModelCatalog.model_path(type, prop_id)
+		var model_path := PropModelCatalog.model_path(type, prop_id,
+			String(entry.get("room_id", "")))
 		var visual: Node3D = ModelSlot.instantiate_prop(model_path) \
 			if not model_path.is_empty() else null
 		var mount_y := float(entry.get("mount_y", 0.0))
@@ -452,6 +459,20 @@ func _spawn_room_props() -> void:
 				ModelSlot.keep_floor_dressing_visible(visual)
 			root.set_meta("prop_model_path", model_path)
 			root.add_child(visual)
+			var light_profile := PropModelCatalog.light_profile(type)
+			if not light_profile.is_empty() and fixture_light_budget > 0:
+				var fixture_light := OmniLight3D.new()
+				fixture_light.name = "FixtureLight"
+				fixture_light.position.y = PropModelCatalog.visual_y(
+					type, WALL_HEIGHT, mount_y) + float(
+					light_profile.get("height", .5))
+				fixture_light.light_color = light_profile.get("color", Color.WHITE)
+				fixture_light.light_energy = float(light_profile.get("energy", .4))
+				fixture_light.omni_range = float(light_profile.get("range", 3.5))
+				fixture_light.shadow_enabled = false
+				root.add_child(fixture_light)
+				_fixture_lights.append(fixture_light)
+				fixture_light_budget -= 1
 		else:
 			root.set_meta("prop_model_path", "")
 			root.add_child(_fallback_prop_visual(type, entry, base_footprint,

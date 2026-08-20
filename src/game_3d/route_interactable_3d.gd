@@ -120,8 +120,9 @@ var light_resolver: Callable
 ## so a guest cannot grant herself an item before the host awards the stable
 ## entity id. Fixed-route interactables leave it invalid.
 var activation_override: Callable
-## Region dressing can expose a lightweight personal pose without becoming a
-## shared mutable world object. Valid actions are sit, lay and mirror.
+## Region dressing can expose a lightweight personal pose/activity without
+## becoming a shared mutable world object. Carnival games remain personal and
+## deterministic; the carousel uses the same replicated resting pose as seats.
 var furniture_action := ""
 ## Lets the controller replace routine failure text with one consistent sound
 ## without guessing from the wording returned by every interaction kind.
@@ -132,6 +133,9 @@ var room_door_id := ""
 var room_door_model_path := ""
 var room_door_open := false
 var room_door_broken := false
+## Width in generated one-metre doorway cells. Double doors are one shared
+## interaction with a two-cell barrier, not two leaves squeezed into one cell.
+var room_door_span := 1
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -146,6 +150,7 @@ var _board_piece_nodes := {}
 ## complete shell: the restricted crack view is now the point of hiding.
 var _local_hiding_view_open := false
 var _door_hinge: Node3D
+var _door_hinge_right: Node3D
 var _door_collision: CollisionShape3D
 var _door_target_y := 0.0
 var _door_target_x := 0.0
@@ -190,6 +195,11 @@ func _process(delta: float) -> void:
 		_door_target_y, weight)
 	_door_hinge.rotation.x = lerp_angle(_door_hinge.rotation.x,
 		_door_target_x, weight)
+	if _door_hinge_right != null:
+		_door_hinge_right.rotation.y = lerp_angle(_door_hinge_right.rotation.y,
+			-_door_target_y, weight)
+		_door_hinge_right.rotation.x = lerp_angle(_door_hinge_right.rotation.x,
+			_door_target_x, weight)
 
 
 func interaction_focus() -> Vector3:
@@ -266,6 +276,8 @@ func get_prompt() -> String:
 			"lay": return "LIE DOWN"
 			"sit": return "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
+			"ride": return "RIDE CAROUSEL"
+			"play": return "PLAY CARNIVAL GAME"
 			_: return ""
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
@@ -329,6 +341,9 @@ func activate(player: PlayerController3D) -> String:
 		Kind.FURNITURE:
 			if furniture_action == "mirror":
 				return "MIRROR VIEW // MOVE AWAY TO CLOSE"
+			if furniture_action == "play":
+				Sound.menu_blip()
+				return ""
 			return player.use_furniture(self, furniture_action)
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
@@ -403,16 +418,18 @@ func _fail(message: String) -> String:
 
 
 func configure_furniture(action: String) -> void:
-	furniture_action = action if action in ["sit", "lay", "mirror"] else ""
+	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play"] else ""
 
 
 func configure_room_door(door_id: String, model_path: String,
-		open: bool, broken: bool, requester: Callable = Callable()) -> void:
+		open: bool, broken: bool, requester: Callable = Callable(),
+		span: int = 1) -> void:
 	kind = Kind.ROOM_DOOR
 	room_door_id = door_id
 	room_door_model_path = model_path
 	room_door_open = open or broken
 	room_door_broken = broken
+	room_door_span = clampi(span, 1, 2)
 	activation_override = requester
 
 
@@ -435,10 +452,14 @@ func _ready_room_door() -> void:
 		_visual.name = "AuthoredRoomDoor"
 		add_child(_visual)
 		_door_hinge = _visual.find_child("DoorHinge", true, false) as Node3D
+		_door_hinge_right = _visual.find_child(
+			"DoorHingeRight", true, false) as Node3D
 		_cache_interaction_focus()
 	if _door_hinge == null:
 		push_error("ROOM DOOR MODEL HAS NO DoorHinge // %s" % room_door_model_path)
-	_add_blocking_box(Vector3(.86, 2.02, .10), Vector3(0.0, 1.01, 0.0))
+	var barrier_width := 1.92 if room_door_span == 2 else .92
+	_add_blocking_box(Vector3(barrier_width, 2.34, .10),
+		Vector3(0.0, 1.17, 0.0))
 	var barrier := find_child("ToolBarrier", false, false) as StaticBody3D
 	if barrier != null and barrier.get_child_count() > 0:
 		_door_collision = barrier.get_child(0) as CollisionShape3D
@@ -448,6 +469,9 @@ func _ready_room_door() -> void:
 	if _door_hinge != null:
 		_door_hinge.rotation.y = _door_target_y
 		_door_hinge.rotation.x = _door_target_x
+	if _door_hinge_right != null:
+		_door_hinge_right.rotation.y = -_door_target_y
+		_door_hinge_right.rotation.x = _door_target_x
 
 
 func activate_with_tool(player: PlayerController3D, item_id: String,

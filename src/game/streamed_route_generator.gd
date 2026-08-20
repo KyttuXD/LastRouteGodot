@@ -18,7 +18,7 @@ const ARRIVAL_FLOOR_RADIUS := 1
 const BIOME_REGION_SIZE := 4
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-	"prison", "inferno"]
+	"prison", "inferno", "carnival"]
 const EDGE_OFFSETS := [5, 11, 17, 22, 27, 33, 39]
 ## Keep vertical links far enough from the chunk centre to fit the physical
 ## eight-metre flight used by StreamedFacilityView3D. Ordinary door seams may
@@ -51,6 +51,8 @@ const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 const REGION_PROP_SETS := {
 	"maze": [
+		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
+		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
 		{"type": "serverRack", "size": Vector3(.8, 2.0, .55)},
 		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
 		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
@@ -64,6 +66,7 @@ const REGION_PROP_SETS := {
 		{"type": "diningSideboard", "size": Vector3(1.4, 1.1, .5)},
 		{"type": "diningChair", "size": Vector3(.65, 1.2, .65)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
+		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
 		{"type": "mansionAreaRug", "size": Vector3(2.6, .03, 1.6), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
 		{"type": "luxuryPictureFrameEmpty", "size": Vector3(.75, 1.0, .12), "solid": false},
@@ -71,6 +74,7 @@ const REGION_PROP_SETS := {
 	],
 	"hotel": [
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
+		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
 		{"type": "bedroomWardrobe", "size": Vector3(1.2, 2.1, .55)},
 		{"type": "bedroomNightstand", "size": Vector3(.65, .8, .55)},
 		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
@@ -85,6 +89,7 @@ const REGION_PROP_SETS := {
 		{"type": "normalBookcase", "size": Vector3(1.25, 1.9, .45)},
 		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
+		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
 		{"type": "woodenChair", "size": Vector3(.65, 1.1, .65)},
 		{"type": "apartmentCarpet", "size": Vector3(2.0, .03, 1.35), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
@@ -96,6 +101,8 @@ const REGION_PROP_SETS := {
 		{"type": "beachChair", "size": Vector3(.75, 1.0, 1.2)},
 		{"type": "surfboardRack", "size": Vector3(1.4, 1.7, .55)},
 		{"type": "beachMat", "size": Vector3(1.4, .03, .85), "solid": false},
+		{"type": "frozenTidelinePool", "size": Vector3(6.2, .2, 5.2),
+			"solid": false},
 	],
 	"gothic": [
 		{"type": "gothicBookcase", "size": Vector3(1.4, 2.1, .5)},
@@ -112,13 +119,148 @@ const REGION_PROP_SETS := {
 		{"type": "emberBrazier", "size": Vector3(.8, 1.0, .8)},
 		{"type": "magmaCrystalCluster", "size": Vector3(1.0, 1.1, 1.0)},
 	],
-	"prison": [],
+	"prison": [
+		{"type": "prisonBunk", "size": Vector3(.55, .95, 1.75)},
+		{"type": "restaurantPartyTable", "size": Vector3(2.75, 2.2, .9)},
+		{"type": "woodenTable", "size": Vector3(1.25, .86, .8)},
+		{"type": "woodenChair", "size": Vector3(.65, 1.1, .65)},
+		{"type": "normalKitchenCounter", "size": Vector3(1.5, 1.05, .7)},
+		{"type": "normalKitchenSink", "size": Vector3(1.25, 1.05, .7)},
+		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
+		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .90, 1.62)},
+		{"type": "prisonServingCounter", "size": Vector3(2.46, 2.05, .88)},
+		{"type": "prisonTrayReturn", "size": Vector3(1.0, 1.45, .72)},
+		{"type": "prisonKitchenRack", "size": Vector3(1.35, 1.82, .62)},
+		{"type": "ceilingLight", "size": Vector3(.75, .3, .75)},
+	],
+	"carnival": [
+		{"type": "carnivalTicketBooth", "size": Vector3(1.75, 2.45, 1.25)},
+		{"type": "popcornCart", "size": Vector3(1.45, 1.9, .9)},
+		{"type": "ringTossStall", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "strengthTester", "size": Vector3(1.0, 2.95, .8)},
+		{"type": "circusPedestal", "size": Vector3(1.7, .8, 1.7)},
+		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
+		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
+		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
+		{"type": "privacyCurtain", "size": Vector3(.9, 2.4, .5)},
+		{"type": "floorLamp", "size": Vector3(.55, 1.9, .55)},
+	],
 }
 const REGION_ROOM_DOORS := {
+	"maze": "normalRoomDoor",
 	"apartment": "normalRoomDoor",
 	"hotel": "luxuryRoomDoor",
 	"mansion": "luxuryRoomDoor",
 	"gothic": "gothicRoomDoor",
+}
+const REGION_DOUBLE_ROOM_DOORS := {
+	"maze": "normalDoubleRoomDoor",
+	"apartment": "normalDoubleRoomDoor",
+	"hotel": "luxuryDoubleRoomDoor",
+	"mansion": "luxuryDoubleRoomDoor",
+	"gothic": "gothicDoubleRoomDoor",
+}
+## Collision envelopes for deterministic furnished-room recipes. These follow
+## the authored GLB footprints rather than the old one-cell placeholder rule.
+## Local X runs across a prop's front and local Z runs from its back into the
+## room; _template_prop_entry rotates both visual and collision together.
+const TEMPLATE_PROP_SIZES := {
+	"diningTable": Vector3(2.3, 1.05, .95),
+	"diningChair": Vector3(.65, 1.2, .65),
+	"diningChairCushion": Vector3(.65, 1.2, .65),
+	"diningSideboard": Vector3(1.5, 1.15, .55),
+	"singleBed": Vector3(1.1, .78, 2.7),
+	"doubleBed": Vector3(1.9, .92, 2.7),
+	"prisonBunk": Vector3(.55, .98, 1.75),
+	"bunkBed": Vector3(1.12, 1.78, 2.14),
+	"officeDesk": Vector3(1.65, .90, .72),
+	"officeChair": Vector3(.68, 1.42, .68),
+	"officeCrtSecurityConsole": Vector3(1.65, 1.45, .78),
+	"officeCubiclePartition": Vector3(1.82, 1.72, .20),
+	"officePrinter": Vector3(.72, .68, .58),
+	"officeWaterCooler": Vector3(.58, 1.82, .52),
+	"officePhotocopier": Vector3(.92, 1.25, .80),
+	"officeShredder": Vector3(.54, 1.45, .44),
+	"officeFileBoxes": Vector3(1.05, .92, .68),
+	"officeCornerWorkstation": Vector3(1.72, .90, 1.12),
+	"prisonCafeteriaTable": Vector3(2.65, .90, 1.62),
+	"prisonServingCounter": Vector3(2.46, 2.05, .88),
+	"prisonTrayReturn": Vector3(1.0, 1.45, .72),
+	"prisonKitchenRack": Vector3(1.35, 1.82, .62),
+	"bedroomNightstand": Vector3(.6, .82, .55),
+	"bedroomWardrobe": Vector3(1.25, 2.15, .65),
+	"bedroomDresser": Vector3(1.3, 1.1, .6),
+	"woodenTable": Vector3(1.25, .86, .8),
+	"woodenChair": Vector3(.65, 1.1, .65),
+	"woodenChairCushion": Vector3(.65, 1.1, .65),
+	"woodenDresserSideboard": Vector3(1.25, 1.0, .65),
+	# The authored cloth is 1.02 m deep, but its solid tabletop is narrower.
+	# Keeping the navigation envelope below one grid cell lets adjacent dining
+	# chairs own their cells without visually or physically entering the table.
+	"restaurantPartyTable": Vector3(2.75, 2.2, .9),
+	"diningChandelier": Vector3(.55, 1.5, .55),
+	"ceilingLight": Vector3(.75, .30, .75),
+	"ceilingFan": Vector3(1.65, .59, 1.65),
+	"tableLamp": Vector3(.50, .65, .36),
+	"retroComputerCompact": Vector3(1.15, .92, .72),
+	"retroComputerTower": Vector3(1.30, .92, .72),
+	"retroComputerDesktop": Vector3(1.15, .92, .72),
+	"retroComputerTerminal": Vector3(1.15, .92, .72),
+	"floorLamp": Vector3(.55, 1.75, .55),
+	"normalTvConsole": Vector3(1.45, 1.45, .55),
+	"normalKitchenCounter": Vector3(1.5, 1.05, .7),
+	"normalKitchenSink": Vector3(1.25, 1.05, .7),
+	"normalKitchenStove": Vector3(.85, 1.15, .7),
+	"normalKitchenFridge": Vector3(.85, 2.05, .75),
+	"normalKitchenWallCabinet": Vector3(1.05, 1.96, .45),
+	"normalKitchenIsland": Vector3(1.7, 1.05, .95),
+	"luxuryKitchenCounter": Vector3(1.5, 1.05, .7),
+	"luxuryKitchenSink": Vector3(1.25, 1.05, .7),
+	"luxuryKitchenStove": Vector3(.85, 1.15, .7),
+	"luxuryKitchenFridge": Vector3(.85, 2.05, .75),
+	"luxuryKitchenIsland": Vector3(1.7, 1.05, .95),
+	"gothicDoubleBed": Vector3(2.05, .95, 2.85),
+	"gothicNightstand": Vector3(.7, .85, .6),
+	"gothicWardrobe": Vector3(1.35, 2.2, .7),
+	"gothicHighbackChair": Vector3(.75, 1.65, .7),
+	"arcadeCabinet": Vector3(.75, 1.85, .7),
+	"arcadeCabinetCyanMagenta": Vector3(.75, 1.85, .7),
+	"vendingMachine": Vector3(.85, 1.95, .7),
+	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
+	"popcornCart": Vector3(1.45, 1.9, .9),
+	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"strengthTester": Vector3(1.0, 2.95, .8),
+	"circusPedestal": Vector3(1.7, .8, 1.7),
+	"frozenTidelinePool": Vector3(6.2, .2, 5.2),
+	"beachChair": Vector3(.75, 1.0, 1.2),
+	"beachUmbrella": Vector3(.55, 2.6, .55),
+	"surfboardRack": Vector3(1.4, 1.7, .65),
+	"tikiBar": Vector3(1.6, 2.5, 1.1),
+	"frozenBeachHut": Vector3(2.3, 2.8, 2.0),
+	"loungeCouchWide": Vector3(1.9, 1.05, .85),
+	"normalCoffeeTable": Vector3(1.25, .6, .75),
+	"filingCabinet": Vector3(.75, 1.45, .55),
+	"privacyCurtain": Vector3(.9, 2.4, .5),
+	"bathroomStall": Vector3(.72, 1.95, .65),
+	"bathroomSink": Vector3(.85, 1.35, .5),
+	"bathroomMirror": Vector3(.75, 1.25, .16),
+	"bathroomVanity": Vector3(.9, 1.65, .55),
+	"publicRestroomToilet": Vector3(.55, 1.25, .82),
+	"publicMensUrinal": Vector3(.48, 1.15, .42),
+	"publicSinkBank": Vector3(1.75, 1.25, .55),
+	"publicHandDryer": Vector3(.45, .55, .18),
+	"publicSoapDispenser": Vector3(.28, .42, .18),
+	"publicPaperTowelDispenser": Vector3(.45, .65, .18),
+	"publicMensShowerStall": Vector3(.95, 2.2, .95),
+	"publicWomensShowerStall": Vector3(.95, 2.2, .95),
+	"publicShowerBench": Vector3(1.25, .65, .5),
+	"houseBathtub": Vector3(1.85, .9, .85),
+	"houseToilet": Vector3(.55, 1.25, .82),
+	"houseShowerEnclosure": Vector3(1.0, 2.2, 1.0),
+	"houseMedicineCabinet": Vector3(.75, 1.1, .16),
+	"houseTowelRack": Vector3(.85, .65, .16),
+	"houseBathMat": Vector3(.95, .08, .65),
+	"houseBathroomShelf": Vector3(.9, .65, .16),
 }
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
@@ -156,14 +298,119 @@ func cached_chunk_count() -> int:
 	return _chunk_cache.size()
 
 
+func _dual_level_pair_active(coord: Vector3i) -> bool:
+	var lower_level := floori(float(coord.y) / 2.0) * 2
+	# Keep the compact arrival floor and its immediate ceiling conventional.
+	# Everywhere else, a stable minority of chunks can reserve a full vertical
+	# pair without turning every region into a tower.
+	if lower_level == 0:
+		return false
+	var rng := SeededRandom.new("%s:DUAL:%d:%d:%d" % [
+		world_seed, coord.x, lower_level, coord.z])
+	return rng.next_float() < .18
+
+
+func dual_level_room_spec(coord: Vector3i) -> Dictionary:
+	if not _dual_level_pair_active(coord):
+		return {}
+	var lower_level := floori(float(coord.y) / 2.0) * 2
+	var rng := SeededRandom.new("%s:DUAL-ROOM:%d:%d:%d" % [
+		world_seed, coord.x, lower_level, coord.z])
+	var sector := rng.next_index(4)
+	var sector_position := Vector2i(24 if sector % 2 == 1 else 4,
+		24 if sector >= 2 else 4)
+	var rect := Rect2i(sector_position + Vector2i.ONE, Vector2i(15, 15))
+	return {
+		"id": "DUAL:%d:%d:%d" % [coord.x, lower_level, coord.z],
+		"lower": Vector3i(coord.x, lower_level, coord.z),
+		"upper": Vector3i(coord.x, lower_level + 1, coord.z),
+		"role": "lower" if coord.y == lower_level else "upper",
+		"sector": sector,
+		"rect": rect,
+		"interior": Rect2i(rect.position + Vector2i.ONE,
+			rect.size - Vector2i(2, 2)),
+		"height_floors": 2,
+		"region": "carnival",
+	}
+
+
+func _apply_dual_level_room(coord: Vector3i, region: String, grid: Array,
+		layout: Dictionary, spec: Dictionary, floor_voids: Array[Vector2i],
+		ceiling_voids: Array[Vector2i],
+		structural_voids: Array[Vector2i]) -> void:
+	var rect: Rect2i = spec.get("rect", Rect2i())
+	var interior: Rect2i = spec.get("interior", Rect2i())
+	var sector := int(spec.get("sector", 0))
+	var rooms: Array = layout.get("rooms", [])
+	var removed_suite_ids := {}
+	for index in range(rooms.size() - 1, -1, -1):
+		var existing_room: Dictionary = rooms[index]
+		var existing: Rect2i = existing_room.get("rect", Rect2i())
+		if existing.intersects(rect):
+			var suite_id := String(existing_room.get("suite_id", ""))
+			if not suite_id.is_empty():
+				removed_suite_ids[suite_id] = true
+			rooms.remove_at(index)
+	var corridors: Array = layout.get("corridors", [])
+	for index in range(corridors.size() - 1, -1, -1):
+		var corridor: Dictionary = corridors[index]
+		var corridor_id := String(corridor.get("id", ""))
+		if corridor_id.ends_with(":HALL:%d" % sector) \
+				or removed_suite_ids.has(String(corridor.get("suite_id", ""))):
+			corridors.remove_at(index)
+	var suites: Array = layout.get("suites", [])
+	for index in range(suites.size() - 1, -1, -1):
+		if removed_suite_ids.has(String((suites[index] as Dictionary).get("id", ""))):
+			suites.remove_at(index)
+	if String(spec.get("role", "")) == "lower":
+		_carve_rect(grid, rect)
+		var rng := SeededRandom.new("%s:DUAL-CONNECTION" % String(spec.get("id", "")))
+		var circulation: Dictionary = layout.get("circulation", {})
+		var connection := _connect_room_to_main_hall(grid, circulation, rect,
+			sector, rng)
+		corridors.append({
+			"id": "%s:DUAL-HALL" % chunk_id(coord),
+			"axis": String(connection["axis"]),
+			"width": CORRIDOR_WIDTH,
+			"length": int(connection["length"]),
+			"branch": true,
+			"from_main_hall": true,
+			"serves_many_rooms": false,
+			"doorway": connection["doorway"],
+		})
+		var room := _room_entry(coord, rooms.size(), region, rect, "big_top")
+		room["doorway"] = connection["doorway"]
+		room["height_floors"] = 2
+		room["vertical_role"] = "lower"
+		room["vertical_pair_id"] = String(spec.get("id", ""))
+		rooms.append(room)
+		for z in range(interior.position.y, interior.end.y):
+			for x in range(interior.position.x, interior.end.x):
+				ceiling_voids.append(Vector2i(x, z))
+	else:
+		# The upper half is air, not a second walkable room and not a column of
+		# wall cubes. The renderer uses structural_voids to omit the GridMap cell
+		# while still placing the upper floor's ceiling as the room's final cap.
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				grid[z][x] = 1
+		for z in range(interior.position.y, interior.end.y):
+			for x in range(interior.position.x, interior.end.x):
+				var cell := Vector2i(x, z)
+				floor_voids.append(cell)
+				structural_voids.append(cell)
+
+
 func _build_chunk(coord: Vector3i) -> Dictionary:
 	if not is_chunk_allowed(coord):
 		return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord),
 			"biome": "sealed", "region": "sealed", "rooms": [], "corridors": [],
+			"suites": [],
 			"grid": _solid_grid(), "edges": {"west": [], "east": [],
 				"north": [], "south": []}, "stairs": [], "safe_room": false,
 			"safe_room_data": {}, "region_props": [], "fixtures": [],
-			"pickups": [], "hunter_spawns": [],
+			"pickups": [], "hunter_spawns": [], "dual_level_room": {},
+			"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 			"difficulty": difficulty_for_level(coord.y)}
 	var grid := _solid_grid()
 	var region := biome_for(coord)
@@ -171,6 +418,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	# rooms could be carved directly through the later stair footprint.
 	var stairs := stair_links(coord)
 	var layout := _region_layout(coord, region, grid, stairs)
+	var dual_level := dual_level_room_spec(coord)
+	var floor_voids: Array[Vector2i] = []
+	var ceiling_voids: Array[Vector2i] = []
+	var structural_voids: Array[Vector2i] = []
+	if not dual_level.is_empty():
+		_apply_dual_level_room(coord, region, grid, layout, dual_level,
+			floor_voids, ceiling_voids, structural_voids)
 	# This mask is presentation-independent circulation space: central halls,
 	# room connectors, chunk seams and stair approaches. Solid dressing must
 	# never consume it, even though all of those cells are ordinary floor in the
@@ -196,6 +450,16 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		_carve_safe_room(grid)
 	var region_props := _region_props(coord, region, layout["rooms"], grid, safe,
 		stairs, circulation)
+	# Safe-lobby carving and door-frame planning are the final topology-aware
+	# operations. Reassert every room threshold afterwards so a central safe
+	# square or overlapping suite perimeter cannot reopen a diagonal corner.
+	# Canonical doorway cells remain open, including the suite's shared entrance
+	# and each amenity room's own internal door.
+	_restore_single_room_thresholds(grid, layout["rooms"])
+	# Double doors deliberately widen a room's canonical one-cell threshold to
+	# two adjacent cells. The perimeter restoration above must run after room
+	# dressing, but it cannot be allowed to re-seal the second leaf's lane.
+	_restore_authored_room_door_thresholds(grid, region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
@@ -208,6 +472,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"region": region,
 		"rooms": layout["rooms"],
 		"corridors": layout["corridors"],
+		"suites": layout.get("suites", []),
 		"difficulty": difficulty_for_level(coord.y),
 		"grid": grid,
 		"edges": edges,
@@ -218,10 +483,19 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"fixtures": fixtures,
 		"pickups": pickups,
 		"hunter_spawns": hunters,
+		"dual_level_room": dual_level,
+		"floor_voids": floor_voids,
+		"ceiling_voids": ceiling_voids,
+		"structural_voids": structural_voids,
 	}
 
 
 func biome_for(coord: Vector3i) -> String:
+	# A two-storey room owns one visual identity on both participating floors.
+	# Resolve this before ordinary biome choice so walls, props and the upper cap
+	# never change theme halfway up a carousel or other tall landmark.
+	if _dual_level_pair_active(coord):
+		return "carnival"
 	# Four-by-four regions read as facility biomes rather than every doorway
 	# changing material language. Level participates so a stair can lead into a
 	# visibly different wing without destabilising horizontal neighbours.
@@ -302,7 +576,12 @@ func stair_links(coord: Vector3i) -> Array:
 		# stairwell sectors while retaining canonical agreement with the chunk
 		# above/below that describes the same physical flight.
 		var boundary_parity := posmod(int(lower_level), 2)
-		var allowed_bays: Array = STAIR_BAYS_BY_BOUNDARY_PARITY[boundary_parity]
+		var allowed_bays: Array = (STAIR_BAYS_BY_BOUNDARY_PARITY[boundary_parity] as Array).duplicate()
+		var dual_spec := dual_level_room_spec(coord)
+		if not dual_spec.is_empty():
+			allowed_bays.erase(int(dual_spec.get("sector", -1)))
+		if allowed_bays.is_empty():
+			continue
 		var bay_index: int = allowed_bays[rng.next_index(allowed_bays.size())]
 		var bay_anchors: Array = STAIR_BAY_ANCHORS[bay_index]
 		var cell: Vector2i = bay_anchors[rng.next_index(bay_anchors.size())]
@@ -573,6 +852,7 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		stairs: Array = []) -> Dictionary:
 	var rooms := []
 	var corridors := []
+	var suites := []
 	var circulation := {}
 	var center := CHUNK_SIZE / 2
 	var horizontal_hall := Rect2i(1, center - 1, CHUNK_SIZE - 2, 3)
@@ -618,8 +898,19 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 				"serves_many_rooms": false,
 				"doorway": connection["doorway"],
 			})
+			var linear_room_type := "prison_cell"
+			if region == "hotel":
+				# Every fourth hotel doorway becomes a compact bathroom; the
+				# remaining doors retain coordinated guest-room furnishing.
+				linear_room_type = "hotel_bathroom" \
+					if room_index % 4 == 3 else "guest_room"
+			elif region == "prison":
+				# Prison wings are linear but need occasional mess-like spaces
+				# to avoid repetitive cell-block generation.
+				linear_room_type = "prison_cafeteria" \
+					if room_index % 5 == 2 else "prison_cell"
 			var room_entry := _room_entry(coord, room_index, region, rect,
-				"guest_room" if region == "hotel" else "prison_cell")
+				linear_room_type)
 			room_entry["doorway"] = connection["doorway"]
 			rooms.append(room_entry)
 			room_index += 1
@@ -639,7 +930,7 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		stair_room["stair_ids"] = _stair_ids_in_bay(stairs, bay_index)
 		rooms.append(stair_room)
 		room_index += 1
-	return {"rooms": rooms, "corridors": corridors,
+	return {"rooms": rooms, "corridors": corridors, "suites": suites,
 		"circulation": circulation}
 
 
@@ -648,6 +939,7 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 	var rng := SeededRandom.new("%s:ROOMS:%s" % [world_seed, chunk_id(coord)])
 	var rooms := []
 	var corridors := []
+	var suites := []
 	var circulation := {}
 	var center := CHUNK_SIZE / 2
 	# A canonical three-wide cross divides four bounded room sectors. Earlier
@@ -670,10 +962,22 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 	]
 	var stair_bays := _stairwell_bays(stairs)
 	var size_pool := ROOM_SIZES
-	if region == "mansion":
+	if region in ["mansion", "carnival"]:
 		size_pool = [Vector2i(9, 9), Vector2i(11, 13), Vector2i(13, 11), Vector2i(15, 15)]
 	elif region == "beach":
 		size_pool = [Vector2i(9, 9), Vector2i(11, 13), Vector2i(15, 15)]
+	elif region == "maze":
+		# Maze sectors now own named restaurant, arcade and restroom recipes.
+		# An eleven-cell minimum leaves a sealed perimeter, two complete six-chair
+		# party tables, and the protected three-wide doorway shoulder. The former
+		# 9x9 option necessarily dropped the three seats nearest the exit.
+		size_pool = [Vector2i(11, 11),
+			Vector2i(11, 13), Vector2i(13, 11)]
+	elif region == "apartment":
+		# Furnished apartments need a real wall run and a clear aisle. Tiny 3x3
+		# utility closets remain available in maze chunks, not as fake bedrooms.
+		size_pool = [Vector2i(9, 9),
+			Vector2i(11, 13), Vector2i(13, 11)]
 	elif region in ["gothic", "inferno"]:
 		size_pool = [Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13)]
 	for sector_index in sectors.size():
@@ -698,7 +1002,22 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 			stair_room["stair_ids"] = _stair_ids_in_bay(stairs, sector_index)
 			rooms.append(stair_room)
 			continue
-		if sector_index == 0 and region in ["mansion", "beach"]:
+		var suite_kind := ""
+		# Two opposite apartment units open from the same main hallway. Each unit
+		# is one persisted suite containing its own bedroom, kitchen, dining room
+		# and bathroom rather than four unrelated maze rooms.
+		if region == "apartment" and sector_index in [0, 3]:
+			suite_kind = "apartment"
+		elif region == "maze" and sector_index == 3:
+			suite_kind = "office"
+		if not suite_kind.is_empty():
+			var suite := _carve_suite_cluster(coord, region, grid, circulation,
+				sector, sector_index, suite_kind, rng)
+			rooms.append_array(suite["rooms"])
+			corridors.append_array(suite["corridors"])
+			suites.append(suite["suite"])
+			continue
+		if sector_index == 0 and region in ["mansion", "beach", "carnival"]:
 			# Pull the landmark away from the central cross so its connector reads
 			# as a real secondary hall instead of dissolving into the room edge.
 			var landmark_rect := Rect2i(4, 4, 15, 15)
@@ -754,8 +1073,104 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 			_room_type_for(region, sector_index))
 		room_entry["doorway"] = connection["doorway"]
 		rooms.append(room_entry)
-	return {"rooms": rooms, "corridors": corridors,
+	return {"rooms": rooms, "corridors": corridors, "suites": suites,
 		"circulation": circulation}
+
+
+func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
+		circulation: Dictionary, rect: Rect2i, sector_index: int,
+		suite_kind: String, rng: SeededRandom) -> Dictionary:
+	# A suite occupies one complete 17x17 room sector. Its three-wide internal
+	# cross is a real shared hall, while four 7x7 rooms retain their own walls and
+	# thresholds. This lets one corridor-facing door own an apartment/office
+	# instead of treating every amenity as an unrelated maze room.
+	var suite_id := "%s:SUITE:%d:%s" % [chunk_id(coord), sector_index,
+		suite_kind.to_upper()]
+	_carve_rect(grid, rect)
+	var entrance := _connect_room_to_main_hall(grid, circulation, rect,
+		sector_index, rng)
+	var suite_rooms := []
+	var suite_corridors := [{
+		"id": "%s:ENTRY-HALL" % suite_id,
+		"axis": String(entrance["axis"]),
+		"width": CORRIDOR_WIDTH,
+		"length": int(entrance["length"]),
+		"branch": true,
+		"from_main_hall": true,
+		"serves_many_rooms": true,
+		"doorway": entrance["doorway"],
+		"suite_id": suite_id,
+	}]
+	var parent := _room_entry(coord, sector_index, region, rect,
+		"%s_suite" % suite_kind)
+	parent["id"] = "%s:ENTRY" % suite_id
+	parent["doorway"] = entrance["doorway"]
+	parent["suite_id"] = suite_id
+	parent["suite_kind"] = suite_kind
+	parent["suite_parent"] = true
+	parent["preset_room"] = true
+	suite_rooms.append(parent)
+
+	var hall_x := Rect2i(rect.position + Vector2i(7, 1), Vector2i(3, 15))
+	var hall_z := Rect2i(rect.position + Vector2i(1, 7), Vector2i(15, 3))
+	for hall in [hall_x, hall_z]:
+		_carve_rect(grid, hall)
+		_mark_rect_cells(circulation, hall)
+	var child_specs := [
+		{"rect": Rect2i(rect.position, Vector2i(7, 7)), "door_side": "right"},
+		{"rect": Rect2i(rect.position + Vector2i(10, 0), Vector2i(7, 7)),
+			"door_side": "left"},
+		{"rect": Rect2i(rect.position + Vector2i(0, 10), Vector2i(7, 7)),
+			"door_side": "right"},
+		{"rect": Rect2i(rect.position + Vector2i(10, 10), Vector2i(7, 7)),
+			"door_side": "left"},
+	]
+	var apartment_roles := ["bedroom", "kitchen", "family_dining",
+		"house_bathroom"]
+	var office_roles := ["office_reception", "cubicle_room", "meeting_room",
+		"private_office"]
+	var roles := apartment_roles if suite_kind == "apartment" else office_roles
+	var child_ids := []
+	for child_index in child_specs.size():
+		var child_spec: Dictionary = child_specs[child_index]
+		var child_rect: Rect2i = child_spec["rect"]
+		var doorway := Vector2i(child_rect.end.x - 1,
+			child_rect.position.y + child_rect.size.y / 2)
+		if String(child_spec["door_side"]) == "left":
+			doorway.x = child_rect.position.x
+		_seal_room_perimeter_except(grid, child_rect, doorway)
+		_mark_corridor_cell(circulation, doorway, 1)
+		var child := _room_entry(coord, child_index, region, child_rect,
+			String(roles[child_index]))
+		child["id"] = "%s:ROOM:%d:%s" % [suite_id, child_index,
+			String(roles[child_index]).to_upper()]
+		child["doorway"] = doorway
+		child["suite_id"] = suite_id
+		child["suite_kind"] = suite_kind
+		child["suite_role"] = String(roles[child_index])
+		child["preset_room"] = true
+		suite_rooms.append(child)
+		child_ids.append(child["id"])
+	for axis_data in [
+		{"rect": hall_x, "axis": "north_south"},
+		{"rect": hall_z, "axis": "east_west"},
+	]:
+		suite_corridors.append({
+			"id": "%s:INNER:%s" % [suite_id, String(axis_data["axis"])],
+			"rect": axis_data["rect"], "axis": axis_data["axis"],
+			"width": CORRIDOR_WIDTH, "branch": true,
+			"from_main_hall": false, "serves_many_rooms": true,
+			"suite_id": suite_id,
+		})
+	return {
+		"rooms": suite_rooms,
+		"corridors": suite_corridors,
+		"suite": {
+			"id": suite_id, "kind": suite_kind, "region": region,
+			"rect": rect, "entry_doorway": entrance["doorway"],
+			"parent_room_id": parent["id"], "room_ids": child_ids,
+		},
+	}
 
 
 static func _stairwell_bays(stairs: Array) -> Dictionary:
@@ -856,6 +1271,22 @@ static func _restore_single_room_thresholds(grid: Array, rooms: Array) -> void:
 		_seal_room_perimeter_except(grid, rect, doorway)
 
 
+static func _restore_authored_room_door_thresholds(grid: Array,
+		region_props: Array) -> void:
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		if not bool(prop.get("room_door", false)):
+			continue
+		for doorway_value in prop.get("doorway_cells",
+				[prop.get("cell", Vector2i.ZERO)]):
+			var doorway_cell: Vector2i = doorway_value
+			if doorway_cell.x < 0 or doorway_cell.y < 0 \
+					or doorway_cell.x >= CHUNK_SIZE \
+					or doorway_cell.y >= CHUNK_SIZE:
+				continue
+			grid[doorway_cell.y][doorway_cell.x] = 0
+
+
 func _room_entry(coord: Vector3i, index: int, region: String, rect: Rect2i,
 		room_type: String) -> Dictionary:
 	return {"id": "%s:ROOM:%d" % [chunk_id(coord), index], "region": region,
@@ -865,12 +1296,14 @@ func _room_entry(coord: Vector3i, index: int, region: String, rect: Rect2i,
 
 static func _room_type_for(region: String, index: int) -> String:
 	var types := {
-		"mansion": ["drawing_room", "bedroom", "dining_room", "gallery"],
+		"mansion": ["drawing_room", "bedroom", "dining_room", "luxury_bathroom"],
 		"beach": ["cove", "beach_hut", "tide_pool", "boardwalk_room"],
 		"inferno": ["thermal_chamber", "forge", "altar_room", "lava_gallery"],
 		"gothic": ["crypt", "chapel", "mourning_room", "archive"],
-		"apartment": ["apartment", "laundry", "lounge", "utility_room"],
-		"maze": ["maze_room", "relay_room", "storage", "junction"],
+		"apartment": ["bedroom", "kitchen", "family_dining", "house_bathroom"],
+		"carnival": ["big_top", "midway", "game_stall", "backstage"],
+		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
+		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
 	}
 	var choices: Array = types.get(region, ["room"])
 	return String(choices[index % choices.size()])
@@ -935,7 +1368,7 @@ static func _mark_rect_cells(marked: Dictionary, rect: Rect2i) -> void:
 
 func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 		safe: bool, stairs: Array = [], circulation: Dictionary = {}) -> Array:
-	if region == "prison" or rooms.is_empty():
+	if rooms.is_empty():
 		return []
 	var choices: Array = (REGION_PROP_SETS.get(region,
 		REGION_PROP_SETS["maze"]) as Array).duplicate()
@@ -947,6 +1380,35 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 	# and stair footprints are excluded so access carving cannot leave a door
 	# floating beside a stairwell.
 	var result := _room_door_props(coord, region, rooms, grid, stairs)
+	# A lower dual-level carnival room always receives the tall authored ride and
+	# two playable midway stations. They are not random dressing: they are the
+	# reason this room reserved its matching upper-floor volume.
+	for room_value in rooms:
+		var dual_room: Dictionary = room_value
+		if int(dual_room.get("height_floors", 1)) != 2 \
+				or String(dual_room.get("vertical_role", "")) != "lower":
+			continue
+		var dual_center: Vector2i = dual_room.get("center", Vector2i.ZERO)
+		var activity_specs := [
+			{"type": "carouselCenterpiece", "cell": dual_center,
+				"size": Vector3(.7, 6.45, .7), "offset": Vector2i.ZERO},
+			{"type": "ringTossStall", "cell": dual_center + Vector2i(-5, 4),
+				"size": Vector3(2.6, 2.65, 1.55), "offset": Vector2i(-5, 4)},
+			{"type": "strengthTester", "cell": dual_center + Vector2i(5, 4),
+				"size": Vector3(1.0, 2.95, .8), "offset": Vector2i(5, 4)},
+		]
+		for activity_index in activity_specs.size():
+			var activity: Dictionary = activity_specs[activity_index]
+			var activity_cell: Vector2i = activity["cell"]
+			result.append({
+				"id": "%s:DUAL-ACTIVITY:%d" % [chunk_id(coord), activity_index],
+				"type": String(activity["type"]), "cell": activity_cell,
+				"yaw": 0.0, "facing_target": dual_center,
+				"blocker_size": activity["size"], "solid": true,
+				"occupied_cells": [activity_cell], "corridor_clear": true,
+				"room_id": String(dual_room.get("id", "")),
+				"dual_level_activity": true,
+			})
 	var reserved := {}
 	for door in result:
 		reserved[door.get("cell", Vector2i.ZERO)] = true
@@ -965,10 +1427,29 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved_cell_value as Vector2i, 1)
 	for stair_cell_value in wall_mount_exclusion:
 		solid_exclusion[stair_cell_value] = true
+	# Furnish named rooms as one deterministic composition. Randomness chooses
+	# the mirrored arrangement and visual variants, never a pile of unrelated
+	# furniture. Rooms without a recipe retain the lightweight dressing path.
+	var templated_rooms := {}
+	for room_value in rooms:
+		var furnished_room: Dictionary = room_value
+		if String(furnished_room.get("room_type", "")) == "stairwell" \
+				or bool(furnished_room.get("suite_parent", false)) \
+				or int(furnished_room.get("height_floors", 1)) == 2:
+			continue
+		var furnishing := _furnished_room_props(coord, region, furnished_room,
+			grid, solid_exclusion, reserved)
+		if furnishing.is_empty():
+			continue
+		templated_rooms[String(furnished_room.get("id", ""))] = true
+		result.append_array(furnishing)
 	var prop_count := mini(5 if safe else 8, rooms.size())
 	for index in prop_count:
 		var room: Dictionary = rooms[index]
-		if String(room.get("room_type", "")) == "stairwell":
+		if String(room.get("room_type", "")) == "stairwell" \
+				or bool(room.get("suite_parent", false)) \
+				or int(room.get("height_floors", 1)) == 2 \
+				or templated_rooms.has(String(room.get("id", ""))):
 			continue
 		var rect: Rect2i = room.get("rect", Rect2i())
 		if rect.size.x < 3 or rect.size.y < 3:
@@ -1032,6 +1513,570 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved[occupied] = true
 			_exclude_neighbourhood(solid_exclusion, occupied, 1)
 	return result
+
+
+func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
+		grid: Array, excluded: Dictionary, reserved: Dictionary) -> Array:
+	var room_type := String(room.get("room_type", ""))
+	var rect: Rect2i = room.get("rect", Rect2i())
+	if rect.size.x < 5 or rect.size.y < 5:
+		return []
+	var basis := _room_template_basis(room)
+	if basis.is_empty():
+		return []
+	var side_span := int(basis["side_span"])
+	var depth_span := int(basis["depth_span"])
+	var template := ""
+	if room_type in ["bedroom", "guest_room"]:
+		template = "bedroom"
+	elif room_type == "kitchen":
+		template = "kitchen"
+	elif room_type == "dining_room":
+		template = "mansion_dining"
+	elif room_type == "family_dining":
+		template = "family_dining"
+	elif room_type == "restaurant_dining":
+		template = "restaurant_dining"
+	elif room_type == "house_bathroom":
+		template = "house_bathroom"
+	elif room_type == "hotel_bathroom":
+		template = "hotel_bathroom"
+	elif room_type == "luxury_bathroom":
+		template = "luxury_bathroom"
+	elif room_type == "public_restroom":
+		template = "public_restroom"
+	elif room_type == "arcade_room":
+		template = "arcade"
+	elif region == "carnival" and room_type in ["midway", "game_stall", "backstage"]:
+		template = "carnival_%s" % room_type
+	elif region == "beach" and room_type in ["cove", "tide_pool"]:
+		template = "frozen_tideline"
+	elif region == "beach" and room_type == "beach_hut":
+		template = "beach_hut"
+	elif region == "gothic" and room_type == "mourning_room":
+		template = "gothic_bedroom"
+	elif room_type in ["drawing_room", "lounge"]:
+		template = "lounge"
+	elif room_type == "office_reception":
+		template = "office_reception"
+	elif room_type == "cubicle_room":
+		template = "office_cubicles"
+	elif room_type == "office_job":
+		template = "office_job"
+	elif room_type == "meeting_room":
+		template = "office_meeting"
+	elif room_type == "private_office":
+		template = "private_office"
+	elif room_type == "prison_cafeteria":
+		template = "prison_cafeteria"
+	if template.is_empty():
+		return []
+	# Full furniture compositions require room around the entrance aisle. If a
+	# rare narrow room cannot hold one safely, leave it to generic dressing.
+	if template in ["mansion_dining", "family_dining", "restaurant_dining",
+			"kitchen", "arcade", "frozen_tideline", "luxury_bathroom",
+			"public_restroom"] \
+			and (side_span < 7 or depth_span < 7):
+		return []
+	var rng := SeededRandom.new("%s:TEMPLATE:%s:%s" % [world_seed,
+		chunk_id(coord), String(room.get("id", ""))])
+	var mirror := -1 if rng.next_float() < .5 else 1
+	var specs := _room_template_specs(template, side_span, depth_span, mirror, rng)
+	var result := []
+	for spec_index in specs.size():
+		var spec: Dictionary = specs[spec_index]
+		var entry := _template_prop_entry(coord, room, basis, template,
+			spec_index, spec, grid, excluded, reserved)
+		if entry.is_empty():
+			continue
+		result.append(entry)
+		for occupied_value in entry.get("occupied_cells", []):
+			reserved[occupied_value as Vector2i] = true
+	return result
+
+
+static func _room_template_specs(template: String, side_span: int,
+		depth_span: int, mirror: int, rng: SeededRandom) -> Array:
+	var mid_depth := depth_span / 2
+	var specs := []
+	match template:
+		"bedroom":
+			var bed_type := "doubleBed" if side_span >= 9 \
+					and rng.next_float() < .45 else "singleBed"
+			if side_span >= 11 and depth_span >= 9 and rng.next_float() < .25:
+				bed_type = "bunkBed"
+			specs.append({"type": bed_type, "side": -1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "bedroomNightstand", "side": 1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "tableLamp", "side": 1 * mirror,
+				"depth": 0, "facing": "open", "solid": false, "mount_y": .71})
+			specs.append({"type": "ceilingFan", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			if side_span >= 9:
+				specs.append({"type": "bedroomWardrobe", "side": 3 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+			if depth_span >= 9:
+				specs.append({"type": "woodenTable", "side": -3 * mirror,
+					"depth": mid_depth, "facing": "center"})
+				specs.append({"type": "woodenChairCushion", "side": -3 * mirror,
+					"depth": mid_depth + 1, "facing": "back"})
+				specs.append({"type": "normalTvConsole", "side": 2 * mirror,
+					"depth": mid_depth + 1, "facing": "center"})
+		"gothic_bedroom":
+			specs.append({"type": "gothicDoubleBed", "side": -1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "gothicNightstand", "side": 1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "tableLamp", "side": 1 * mirror,
+				"depth": 0, "facing": "open", "solid": false, "mount_y": .76})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			if side_span >= 9:
+				specs.append({"type": "gothicWardrobe", "side": 3 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "gothicHighbackChair", "side": -3 * mirror,
+					"depth": mid_depth, "facing": "center"})
+		"kitchen":
+			for kitchen_spec in [
+				{"type": "normalKitchenCounter", "side": -3, "depth": 0},
+				{"type": "normalKitchenSink", "side": -1, "depth": 0},
+				{"type": "normalKitchenStove", "side": 1, "depth": 0},
+				{"type": "normalKitchenFridge", "side": 3, "depth": 0},
+			]:
+				kitchen_spec["side"] = int(kitchen_spec["side"]) * mirror
+				kitchen_spec["wall_backed"] = true
+				kitchen_spec["facing"] = "open"
+				specs.append(kitchen_spec)
+			if side_span >= 9 and depth_span >= 9:
+				specs.append({"type": "normalKitchenIsland", "side": 0,
+					"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"mansion_dining":
+			specs.append({"type": "diningSideboard", "side": 0, "depth": 0,
+				"wall_backed": true, "facing": "open"})
+			specs.append({"type": "diningTable", "side": 0,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "diningChandelier", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			var mansion_seats := [
+				{"side": -2, "depth": mid_depth, "facing": "right"},
+				{"side": 2, "depth": mid_depth, "facing": "left"},
+			]
+			# Six side chairs plus two head chairs make the long formal table read
+			# as a mansion dining composition instead of a four-seat kitchen set.
+			for seat_side in [-1, 0, 1]:
+				mansion_seats.append({"side": seat_side,
+					"depth": mid_depth - 1, "facing": "open"})
+				mansion_seats.append({"side": seat_side,
+					"depth": mid_depth + 1, "facing": "back"})
+			for chair_spec in mansion_seats:
+				chair_spec["type"] = "diningChairCushion" \
+					if rng.next_float() < .5 else "diningChair"
+				specs.append(chair_spec)
+		"family_dining":
+			specs.append({"type": "woodenDresserSideboard", "side": 0,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "woodenTable", "side": 0,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			for chair_spec in [
+				{"side": -1, "depth": mid_depth, "facing": "right"},
+				{"side": 1, "depth": mid_depth, "facing": "left"},
+				{"side": 0, "depth": mid_depth - 1, "facing": "open"},
+				{"side": 0, "depth": mid_depth + 1, "facing": "back"},
+			]:
+				chair_spec["type"] = "woodenChairCushion" \
+					if rng.next_float() < .45 else "woodenChair"
+				specs.append(chair_spec)
+		"restaurant_dining":
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			# Repeated party tables read as one deliberate restaurant floor, with
+			# an aisle around each row instead of unrelated furniture scatter.
+			var table_depths := [1, 4]
+			if depth_span >= 12:
+				table_depths.append(7)
+			for row_index in table_depths.size():
+				var table_depth: int = table_depths[row_index]
+				specs.append({"type": "restaurantPartyTable", "side": 0,
+					"depth": table_depth, "facing": "open"})
+				for chair_side in [-1, 0, 1]:
+					specs.append({"type": "woodenChairCushion",
+						"side": chair_side, "depth": table_depth - 1,
+						"facing": "open"})
+					specs.append({"type": "woodenChairCushion",
+						"side": chair_side, "depth": table_depth + 1,
+						"facing": "back"})
+		"prison_cafeteria":
+			# Institutional serving line on the rear wall, with a clear queue
+			# aisle and repeated bolted tables rather than loose room scatter.
+			for counter_spec in [
+				{"type": "prisonServingCounter", "side": -2 * mirror},
+				{"type": "prisonKitchenRack", "side": 2 * mirror},
+			]:
+				counter_spec["depth"] = 0
+				counter_spec["wall_backed"] = true
+				counter_spec["facing"] = "open"
+				specs.append(counter_spec)
+			var table_depths := [mid_depth - 2, mid_depth + 2]
+			if depth_span >= 12:
+				table_depths.append(mid_depth + 6)
+			for table_depth in table_depths:
+				specs.append({"type": "prisonCafeteriaTable", "side": 0,
+					"depth": table_depth, "facing": "open"})
+			# The tray return sits at the side of the queue, not in the aisle.
+			specs.append({"type": "prisonTrayReturn", "side": 3 * mirror,
+				"depth": mid_depth - 1, "facing": "open"})
+			specs.append({"type": "ceilingLight", "side": -2,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			specs.append({"type": "ceilingLight", "side": 2,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"house_bathroom", "hotel_bathroom":
+			var compact := template == "hotel_bathroom" or side_span < 7
+			var wet_side := -1 if compact else -2
+			var toilet_side := 1 if compact else 2
+			specs.append({"type": "houseShowerEnclosure" if compact \
+				else ("houseBathtub" if rng.next_float() < .55 \
+				else "houseShowerEnclosure"), "side": wet_side,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "houseToilet", "side": toilet_side,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "bathroomVanity", "side": 0,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "bathroomMirror", "side": 0, "depth": 0,
+				"facing": "open", "wall_mount": true})
+			specs.append({"type": "houseBathMat", "side": wet_side,
+				"depth": 2, "facing": "open", "solid": false})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			if not compact:
+				specs.append({"type": "houseTowelRack", "side": 3,
+					"depth": 0, "facing": "open", "wall_mount": true})
+		"luxury_bathroom":
+			specs.append({"type": "houseBathtub", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "houseShowerEnclosure", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "bathroomVanity", "side": 0,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "houseToilet", "side": 3 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "bathroomMirror", "side": 0, "depth": 0,
+				"facing": "open", "wall_mount": true})
+			specs.append({"type": "houseTowelRack", "side": -3 * mirror,
+				"depth": 0, "facing": "open", "wall_mount": true})
+			specs.append({"type": "houseBathMat", "side": 0,
+				"depth": mid_depth + 1, "facing": "open", "solid": false})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"public_restroom":
+			for stall_side in [-2, 0]:
+				specs.append({"type": "bathroomStall", "side": stall_side,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "publicRestroomToilet", "side": 2,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "publicSinkBank", "side": 0,
+				"depth": mid_depth, "facing": "back"})
+			specs.append({"type": "bathroomMirror", "side": 0, "depth": 0,
+				"facing": "open", "wall_mount": true})
+			specs.append({"type": "publicHandDryer", "side": 3,
+				"depth": 0, "facing": "open", "wall_mount": true})
+			specs.append({"type": "publicSoapDispenser", "side": -3,
+				"depth": 0, "facing": "open", "wall_mount": true})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"arcade":
+			# Two opposing cabinet rows share their backs while both fronts retain
+			# a full playable aisle, matching a real arcade floor.
+			for side in [-2, 0, 2]:
+				var cabinet_type := "arcadeCabinetCyanMagenta" \
+					if rng.next_float() < .34 else "arcadeCabinet"
+				specs.append({"type": cabinet_type, "side": side,
+					"depth": mid_depth, "facing": "back"})
+				specs.append({"type": "arcadeCabinet", "side": side,
+					"depth": mid_depth + 1, "facing": "open"})
+			if side_span >= 9:
+				specs.append({"type": "vendingMachine", "side": 3 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+		"carnival_midway":
+			specs.append({"type": "carnivalTicketBooth", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "popcornCart", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -2 * mirror,
+				"depth": mid_depth + 2, "facing": "center"})
+		"carnival_game_stall":
+			specs.append({"type": "ringTossStall", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "strengthTester", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			if depth_span >= 9:
+				specs.append({"type": "popcornCart", "side": 0,
+					"depth": mid_depth + 2, "facing": "center"})
+		"carnival_backstage":
+			for side in [-2, 0, 2]:
+				specs.append({"type": "arcadeCabinet", "side": side,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+		"frozen_tideline":
+			specs.append({"type": "frozenTidelinePool", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			specs.append({"type": "beachChair", "side": -3 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "beachUmbrella", "side": 3 * mirror,
+				"depth": mid_depth + 2, "facing": "center"})
+			if side_span >= 11:
+				specs.append({"type": "tikiBar", "side": -4 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "surfboardRack", "side": 4 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+		"beach_hut":
+			specs.append({"type": "frozenBeachHut", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "beachChair", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+		"lounge":
+			specs.append({"type": "loungeCouchWide", "side": -1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "normalCoffeeTable", "side": -1 * mirror,
+				"depth": mid_depth, "facing": "back"})
+			specs.append({"type": "normalTvConsole", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "floorLamp", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "ceilingFan", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"office_reception":
+			specs.append({"type": "filingCabinet", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "filingCabinet", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "officeDesk", "side": 0,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "officeChair", "side": 0,
+				"depth": mid_depth + 1, "facing": "back"})
+			specs.append({"type": "officeChair", "side": 0,
+				"depth": mid_depth - 1, "facing": "open"})
+			specs.append({"type": "retroComputerCompact", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "retroComputerTerminal", "side": 1,
+				"depth": mid_depth + 2, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth - 1, "facing": "open", "solid": false})
+		"office_cubicles":
+			for side in [-2, 2]:
+				specs.append({"type": "officeDesk", "side": side,
+					"depth": 1, "facing": "open"})
+				specs.append({"type": "officeChair", "side": side,
+					"depth": 2, "facing": "back"})
+				specs.append({"type": "retroComputerTerminal" if side < 0 \
+					else "retroComputerTower", "side": side,
+					"depth": 1, "facing": "open", "solid": false,
+					"mount_y": .79})
+			specs.append({"type": "filingCabinet", "side": -3 * mirror,
+				"depth": 2, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "retroComputerDesktop", "side": 3 * mirror,
+				"depth": 2, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "officeCubiclePartition", "side": 0,
+				"depth": 1, "facing": "open"})
+			specs.append({"type": "officePrinter", "side": 3 * mirror,
+				"depth": 2, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "officePhotocopier", "side": -3 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "officeFileBoxes", "side": 3 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+		"office_meeting":
+			specs.append({"type": "woodenTable", "side": 0,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "woodenTable", "side": 0,
+				"depth": mid_depth + 2, "facing": "open"})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			for chair_spec in [
+				{"side": -1, "depth": mid_depth, "facing": "right"},
+				{"side": 1, "depth": mid_depth, "facing": "left"},
+				{"side": 0, "depth": mid_depth - 1, "facing": "open"},
+				{"side": 0, "depth": mid_depth + 1, "facing": "back"},
+			]:
+				chair_spec["type"] = "woodenChairCushion"
+				specs.append(chair_spec)
+			specs.append({"type": "filingCabinet", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "retroComputerTower", "side": 2 * mirror,
+				"depth": 1, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "normalTvConsole", "side": 0,
+				"depth": mid_depth + 3, "facing": "center"})
+		"office_job":
+			specs.append({"type": "officeDesk", "side": -2,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "officeDesk", "side": 2,
+				"depth": mid_depth + 1, "facing": "open"})
+			for chair_spec in [
+				{"type": "officeChair", "side": -1,
+					"depth": mid_depth - 1, "facing": "right"},
+				{"type": "officeChair", "side": 1,
+					"depth": mid_depth - 1, "facing": "left"},
+				{"type": "officeChair", "side": -1,
+					"depth": mid_depth + 1, "facing": "left"},
+				{"type": "officeChair", "side": 1,
+					"depth": mid_depth + 1, "facing": "right"},
+				{"type": "officeChair", "side": 0,
+					"depth": mid_depth - 2, "facing": "back"},
+			]:
+				specs.append(chair_spec)
+			specs.append({"type": "officePhotocopier", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "officeFileBoxes", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "retroComputerTerminal", "side": -2,
+				"depth": mid_depth + 2, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "retroComputerTower", "side": 2,
+				"depth": mid_depth + 2, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "retroComputerDesktop", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "normalTvConsole", "side": 0,
+				"depth": mid_depth + 3, "facing": "center"})
+			specs.append({"type": "officeWaterCooler", "side": 3 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "officeShredder", "side": -3 * mirror,
+				"depth": mid_depth + 3, "facing": "center"})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth - 1, "facing": "open", "solid": false})
+		"private_office":
+			specs.append({"type": "officePhotocopier", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "filingCabinet", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "officeCornerWorkstation", "side": 0,
+				"depth": mid_depth, "facing": "open"})
+			specs.append({"type": "officeChair", "side": 0,
+				"depth": mid_depth + 2, "facing": "back"})
+			specs.append({"type": "woodenChair", "side": -1 * mirror,
+				"depth": mid_depth, "facing": "right"})
+			specs.append({"type": "woodenChair", "side": 1 * mirror,
+				"depth": mid_depth, "facing": "left"})
+			specs.append({"type": "normalTvConsole", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "retroComputerDesktop", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false,
+				"mount_y": .79})
+			specs.append({"type": "ceilingLight", "side": 0,
+				"depth": mid_depth - 1, "facing": "open", "solid": false})
+	return specs
+
+
+static func _room_template_basis(room: Dictionary) -> Dictionary:
+	var rect: Rect2i = room.get("rect", Rect2i())
+	var center: Vector2i = room.get("center", rect.position + rect.size / 2)
+	var doorway_value = room.get("doorway")
+	if not doorway_value is Vector2i:
+		return {}
+	var doorway: Vector2i = doorway_value
+	var delta := doorway - center
+	var open_direction := Vector2i.ZERO
+	if absi(delta.x) >= absi(delta.y):
+		open_direction = Vector2i(1 if delta.x >= 0 else -1, 0)
+	else:
+		open_direction = Vector2i(0, 1 if delta.y >= 0 else -1)
+	var side_direction := Vector2i(-open_direction.y, open_direction.x)
+	var back_cell := center
+	if open_direction.x > 0:
+		back_cell.x = rect.position.x + 1
+	elif open_direction.x < 0:
+		back_cell.x = rect.end.x - 2
+	elif open_direction.y > 0:
+		back_cell.y = rect.position.y + 1
+	else:
+		back_cell.y = rect.end.y - 2
+	return {"open": open_direction, "side": side_direction,
+		"back_cell": back_cell,
+		"side_span": rect.size.y if open_direction.x != 0 else rect.size.x,
+		"depth_span": rect.size.x if open_direction.x != 0 else rect.size.y}
+
+
+func _template_prop_entry(coord: Vector3i, room: Dictionary,
+		basis: Dictionary, template: String, spec_index: int, spec: Dictionary,
+		grid: Array, excluded: Dictionary, reserved: Dictionary) -> Dictionary:
+	var prop_type := String(spec.get("type", ""))
+	if not TEMPLATE_PROP_SIZES.has(prop_type) or not PropModelCatalog.has_model(prop_type):
+		return {}
+	var open_direction: Vector2i = basis["open"]
+	var side_direction: Vector2i = basis["side"]
+	var cell: Vector2i = basis["back_cell"] \
+		+ side_direction * int(spec.get("side", 0)) \
+		+ open_direction * int(spec.get("depth", 0))
+	var rect: Rect2i = room.get("rect", Rect2i())
+	if not rect.has_point(cell) or not _grid_cell_open(grid, cell):
+		return {}
+	var facing := String(spec.get("facing", "open"))
+	var facing_direction := open_direction
+	match facing:
+		"back": facing_direction = -open_direction
+		"left": facing_direction = -side_direction
+		"right": facing_direction = side_direction
+		"center": facing_direction = _cardinal_toward(cell,
+			room.get("center", cell), open_direction)
+	var blocker_size: Vector3 = TEMPLATE_PROP_SIZES[prop_type]
+	var placement_offset := Vector2.ZERO
+	var wall_mounted := bool(spec.get("wall_mount", false))
+	if bool(spec.get("wall_backed", false)) and not wall_mounted:
+		var depth_shift := maxf(0.0, blocker_size.z * .5 - .45)
+		placement_offset = Vector2(open_direction) * depth_shift
+	var backing_wall := -open_direction if (bool(spec.get("wall_backed", false)) \
+		or wall_mounted) else Vector2i.ZERO
+	if wall_mounted:
+		var wall_cell := cell + backing_wall
+		var front_cell := cell + open_direction
+		if not rect.has_point(wall_cell) or not rect.has_point(front_cell) \
+				or _grid_cell_open(grid, wall_cell) \
+				or not _grid_cell_open(grid, front_cell):
+			return {}
+	var solid := bool(spec.get("solid", not wall_mounted))
+	var occupied := [] if not solid else _prop_occupied_cells(cell,
+		facing_direction, blocker_size, placement_offset)
+	for occupied_value in occupied:
+		var at: Vector2i = occupied_value
+		if not rect.has_point(at) or excluded.has(at) or reserved.has(at) \
+				or not _grid_cell_open(grid, at):
+			return {}
+	var room_token := String(room.get("id", "ROOM")).replace(":", "-")
+	return {
+		"id": "%s:TEMPLATE:%s:%s:%d" % [chunk_id(coord), room_token,
+			template, spec_index],
+		"type": prop_type, "cell": cell,
+		"yaw": _room_facing_yaw(cell, cell + facing_direction),
+		"facing_target": cell + facing_direction,
+		"placement_offset": placement_offset,
+		"mount_offset": Vector2(backing_wall) * .44 \
+			if wall_mounted else Vector2.ZERO,
+		"backing_wall": backing_wall,
+		"open_direction": facing_direction,
+		"blocker_size": blocker_size, "solid": solid,
+		"occupied_cells": occupied, "corridor_clear": true,
+		"wall_mounted": wall_mounted,
+		"mount_y": float(spec.get("mount_y", 0.0)),
+		"room_id": String(room.get("id", "")), "room_template": template,
+	}
+
+
+static func _cardinal_toward(from: Vector2i, to: Vector2i,
+		fallback: Vector2i) -> Vector2i:
+	var delta := to - from
+	if delta == Vector2i.ZERO:
+		return fallback
+	if absi(delta.x) >= absi(delta.y):
+		return Vector2i(1 if delta.x > 0 else -1, 0)
+	return Vector2i(0, 1 if delta.y > 0 else -1)
 
 
 static func _solid_prop_placement(rect: Rect2i, grid: Array,
@@ -1115,35 +2160,57 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 	var result := []
 	var stair_exclusion := _stair_door_exclusion(stairs)
 	for room_index in rooms.size():
-		if result.size() >= 6:
+		# One preset suite owns an exterior door plus four internal doors. Keep
+		# enough budget for the other corridor rooms in the same chunk as well.
+		if result.size() >= 12:
 			break
 		var room: Dictionary = rooms[room_index]
 		if String(room.get("room_type", "")) in ["lobby", "stairwell"]:
 			continue
 		var rect: Rect2i = room.get("rect", Rect2i())
+		var suite_child := room.has("suite_id") \
+			and not bool(room.get("suite_parent", false))
+		var use_double := bool(room.get("suite_parent", false)) \
+			or (not suite_child and (rect.size.x >= 7 or rect.size.y >= 7))
+		var door_span := 2 if use_double else 1
+		var resolved_door_type: String = String(REGION_DOUBLE_ROOM_DOORS.get(
+			region, door_type)) if use_double else door_type
 		var room_center: Vector2i = room.get("center", rect.position + rect.size / 2)
 		var threshold := _find_room_door_threshold(rect, room_center, grid,
-			stair_exclusion)
+			stair_exclusion, door_span)
 		if threshold.is_empty():
 			continue
 		var cell: Vector2i = threshold["cell"]
+		var doorway_cells: Array = threshold["doorway_cells"]
 		var wall_cells: Array = threshold["wall_cells"]
 		for shoulder_value in wall_cells:
 			var shoulder: Vector2i = shoulder_value
 			grid[shoulder.y][shoulder.x] = 1
+		for doorway_value in doorway_cells:
+			var doorway_cell: Vector2i = doorway_value
+			grid[doorway_cell.y][doorway_cell.x] = 0
+		var across: Vector2i = threshold["across"]
+		var placement_offset := Vector2(float(across.x), float(across.y)) \
+			* (float(door_span - 1) * .5)
 		result.append({
 			# Tie persistence to the room index rather than the number of earlier
 			# successful candidates. Omitting an invalid door no longer renumbers
 			# every later authoritative door in the chunk.
 			"id": "%s:DOOR:%d" % [chunk_id(coord), room_index],
-			"type": door_type, "cell": cell,
-			"yaw": _room_facing_yaw(cell, room_center),
-			"facing_target": room_center,
-			"blocker_size": Vector3(1.15, 2.3, .2), "solid": false,
+			"type": resolved_door_type, "cell": cell,
+			# Face perpendicular to the wall. A wide doorway centered between two
+			# cells must not inherit a diagonal yaw from an off-center room midpoint.
+			"yaw": _room_facing_yaw(cell, cell + threshold["inward"]),
+			"facing_target": cell + threshold["inward"],
+			"blocker_size": Vector3(2.15 if use_double else 1.15, 2.6, .2),
+			"solid": false, "door_span": door_span,
+			"placement_offset": placement_offset,
+			"occupied_cells": doorway_cells.duplicate(),
 			"room_id": String(room.get("id", "")), "room_door": true,
 			"inward": threshold["inward"],
 			"outward": threshold["outward"],
-			"across": threshold["across"],
+			"across": across,
+			"doorway_cells": doorway_cells,
 			"threshold_wall_cells": wall_cells,
 		})
 	return result
@@ -1163,8 +2230,9 @@ static func _stair_door_exclusion(stairs: Array) -> Dictionary:
 
 
 static func _find_room_door_threshold(rect: Rect2i, room_center: Vector2i,
-		grid: Array, excluded: Dictionary) -> Dictionary:
+		grid: Array, excluded: Dictionary, requested_span: int = 1) -> Dictionary:
 	var candidates := []
+	var span := clampi(requested_span, 1, 2)
 	# A threshold cell belongs to the room boundary. Inward remains in the room;
 	# outward must leave it and continue through at least two open corridor cells.
 	var sides := [
@@ -1195,35 +2263,55 @@ static func _find_room_door_threshold(rect: Rect2i, room_center: Vector2i,
 				cells.append(Vector2i(rect.end.x - 1, z))
 		for cell_value in cells:
 			var cell: Vector2i = cell_value
-			var inward_cell := cell + inward
-			var outside_cell := cell + outward
-			var corridor_cell := cell + outward * 2
-			if not rect.has_point(inward_cell) or rect.has_point(outside_cell):
+			var doorway_cells := []
+			for doorway_index in range(span):
+				doorway_cells.append(cell + across * doorway_index)
+			# At least one cell must be the route's existing canonical opening.
+			# The second double-door cell is allowed to still be wall here; it is
+			# cleared only after both lanes have proven traversable on each side.
+			var has_existing_open := doorway_cells.any(func(at):
+				return _grid_cell_open(grid, at))
+			if not has_existing_open:
 				continue
-			if not _grid_cell_open(grid, cell) \
-					or not _grid_cell_open(grid, inward_cell) \
-					or not _grid_cell_open(grid, outside_cell) \
-					or not _grid_cell_open(grid, corridor_cell):
+			var footprint := []
+			var lanes_clear := true
+			for doorway_value in doorway_cells:
+				var doorway_cell: Vector2i = doorway_value
+				var inward_cell := doorway_cell + inward
+				var outside_cell := doorway_cell + outward
+				var corridor_cell := doorway_cell + outward * 2
+				if not rect.has_point(doorway_cell) \
+						or not rect.has_point(inward_cell) \
+						or rect.has_point(outside_cell) \
+						or not _grid_cell_open(grid, inward_cell) \
+						or not _grid_cell_open(grid, outside_cell) \
+						or not _grid_cell_open(grid, corridor_cell):
+					lanes_clear = false
+					break
+				footprint.append_array([doorway_cell, inward_cell, outside_cell,
+					corridor_cell])
+			if not lanes_clear:
 				continue
-			var footprint := [cell, inward_cell, outside_cell, corridor_cell]
 			var wall_cells := []
 			for offset in range(1, 3):
-				for sign_value in [-1, 1]:
-					var shoulder := cell + across * offset * int(sign_value)
+				for shoulder in [cell - across * offset,
+						cell + across * (span - 1 + offset)]:
 					if rect.has_point(shoulder):
 						wall_cells.append(shoulder)
 						footprint.append(shoulder)
-			# A real doorway needs a frame on both sides. Five-cell-wide rooms get
-			# two wall cells per side; compact three-cell rooms retain one.
-			if not wall_cells.has(cell - across) or not wall_cells.has(cell + across):
+			# A real doorway needs a wall shoulder immediately outside both ends.
+			if not wall_cells.has(cell - across) \
+					or not wall_cells.has(cell + across * span):
 				continue
 			var blocked_by_stair := footprint.any(func(at): return excluded.has(at))
 			if blocked_by_stair:
 				continue
 			candidates.append({
 				"cell": cell, "inward": inward, "outward": outward,
-				"across": across, "wall_cells": wall_cells,
-				"score": cell.distance_squared_to(room_center),
+				"across": across, "doorway_cells": doorway_cells,
+				"wall_cells": wall_cells,
+				"score": (Vector2(cell) + Vector2(across) \
+					* (float(span - 1) * .5)).distance_squared_to(Vector2(room_center)),
 			})
 	if candidates.is_empty():
 		return {}
@@ -1251,9 +2339,10 @@ static func _room_facing_yaw(cell: Vector2i, target: Vector2i) -> float:
 
 func _fixtures(coord: Vector3i, grid: Array, rooms: Array, stairs: Array,
 		region_props: Array, safe: bool) -> Array:
-	var excluded := {}
-	for stair in stairs:
-		_exclude_neighbourhood(excluded, stair.get("cell", Vector2i.ZERO), 2)
+	# Exclude the complete flight, not only its anchor cell. A stair spans
+	# several grid cells and pickups/fixtures at the upper end otherwise appear
+	# to float on the treads or block the landing.
+	var excluded := _stair_door_exclusion(stairs)
 	for prop in region_props:
 		_exclude_neighbourhood(excluded, prop.get("cell", Vector2i.ZERO), 1)
 	if safe:
@@ -1263,6 +2352,8 @@ func _fixtures(coord: Vector3i, grid: Array, rooms: Array, stairs: Array,
 	var seen := {}
 	for room_value in rooms:
 		var room: Dictionary = room_value
+		if bool(room.get("suite_parent", false)):
+			continue
 		var rect: Rect2i = room.get("rect", Rect2i())
 		for z in range(rect.position.y, rect.end.y):
 			for x in range(rect.position.x, rect.end.x):
@@ -1305,9 +2396,9 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 		region_props: Array = [], fixtures: Array = []) -> Array:
 	if safe:
 		return []
-	var excluded := {}
-	for stair in stairs:
-		_exclude_neighbourhood(excluded, stair["cell"], 2)
+	# Use the full stair-path exclusion so collectables cannot be placed on a
+	# tread, at the top landing, or immediately beside the stair opening.
+	var excluded := _stair_door_exclusion(stairs)
 	for prop in region_props:
 		_exclude_neighbourhood(excluded, prop.get("cell", Vector2i.ZERO), 1)
 	for fixture in fixtures:

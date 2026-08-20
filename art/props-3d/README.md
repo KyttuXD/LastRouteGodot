@@ -4,8 +4,9 @@ Runtime models for LastRoute's 3D presentation layer (see `../../MIGRATION.md`).
 Characters and interactables load through `src/game_3d/model_slot.gd`.
 Generated room dressing uses `src/config/prop_model_catalog.gd`, which maps
 mechanical prop ids to the authored GLBs under `props/maze`, `props/mansion`,
-`props/beach`, and `props/nether`. Missing legacy models deliberately retain a
-coloured-box fallback so unfinished rooms remain readable during development.
+`props/beach`, `props/nether`, and `props/prison`. Runtime catalog validation
+rejects missing or mesh-less assets; `generic_prop.tscn` remains only as a
+legacy editor/reference-layout fallback.
 
 ## Scale convention
 
@@ -33,23 +34,11 @@ simpler shape than the visible mesh.
 
 ## Import format
 
-**Export to FBX (`.fbx`).** Godot (this project targets 4.7) has a native
-FBX importer built on the `ufbx` library — no external FBX2glTF conversion
-tool needed, `.fbx` files import directly like any other scene format.
-`ufbx` reads both binary and ASCII FBX (v3000+), which matters here because
-**Blockbench's FBX exporter only writes ASCII FBX** — that's fine, ufbx
-handles it. `ModelSlot` (`src/game_3d/model_slot.gd`) only ever looks at
-the imported result — a scene with a `MeshInstance3D`/`CollisionShape3D`
-somewhere in it — so it makes no difference which format produced that
-scene; nothing in this pipeline hardcodes `.fbx` vs `.glb` anywhere.
-
-glTF 2.0 (`.glb`) still works exactly the same way (Godot's own docs call
-it out as the reference format for 3D pipelines, and it's what Blender
-exports natively) — use it instead of FBX for any asset that isn't coming
-out of Blockbench, if that's ever more convenient. Forward/up axis for
-either format: Godot expects +Y up, -Z forward, which matches Blender's and
-Blockbench's own default export orientation — no axis-fixup step should be
-needed with default export settings from either tool.
+**Export to glTF 2.0 (`.glb`).** Retain the editable `.blend` or `.bbmodel`
+beside the generated asset source, but treat GLB as the shipping contract.
+Godot imports it natively, and the repository builders normalize transforms,
+floor pivots, materials, texture filtering, and preview renders consistently.
+Forward/up axes remain Godot +Y up and -Z forward after Blender export.
 
 ## What's here
 

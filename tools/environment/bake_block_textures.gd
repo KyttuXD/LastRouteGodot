@@ -23,6 +23,7 @@ func _init() -> void:
 		"gothic": [Color("6f5685"), Color("493b5e")],
 		"prison": [Color("697c86"), Color("46565f")],
 		"inferno": [Color("9c4b3c"), Color("522f32")],
+		"carnival": [Color("704667"), Color("6f3445")],
 	}
 	for region in palettes:
 		var colors: Array = palettes[region]
@@ -68,6 +69,14 @@ func _procedural_surface(region: String, base: Color, wall: bool) -> Image:
 				"inferno":
 					seam = posmod(x * 2 + y * 3 + seed, 17) == 0
 					accent = posmod(x * 5 - y * 2 + seed, 29) == 0
+				"carnival":
+					# Muted checker flooring and striped big-top wall panels keep
+					# carnival chunks readable without turning them neon-bright.
+					seam = (x % 8 == 0 or y % 8 == 0) if not wall \
+						else x % 6 == 0
+					accent = posmod(floori(float(x) / 4.0) \
+						+ floori(float(y) / 4.0), 2) == 0 if not wall \
+						else posmod(floori(float(x) / 6.0), 2) == 0
 			if seam:
 				color = color.darkened(.22)
 			elif accent:

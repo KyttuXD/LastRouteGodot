@@ -22,6 +22,17 @@ const COOP_PLAYER_BLUE := Color("63d9f1")
 const PORCELLE_GHOST := Color("c9b6e4")
 const MIN_MAP_ZOOM := 0.75
 const MAX_MAP_ZOOM := 8.0
+const REGION_COLORS := {
+	"maze": Color("bc786f"),
+	"mansion": Color("c28b68"),
+	"hotel": Color("d1aa68"),
+	"apartment": Color("6f9fc0"),
+	"beach": Color("4fb8c8"),
+	"gothic": Color("8a68ad"),
+	"prison": Color("778994"),
+	"inferno": Color("d45b3f"),
+	"carnival": Color("ce5d96"),
+}
 
 @export var interactive := false
 
@@ -41,6 +52,10 @@ var streamed_chunks: Dictionary = {}
 var streamed_level := 0
 var streamed_chunk_size := 0
 var streamed_show_stairs := false
+## Authenticated visual admins receive region-tinted floor cells and boundaries.
+## The flag is supplied by the scene controller so ordinary players cannot
+## enable this information by editing a UI node.
+var streamed_show_regions := false
 ## Local player-authored marks for the current streamed floor.
 var waypoints: Array = []
 ## Walkable, discovery-limited route from the runner through the active floor's
@@ -165,6 +180,7 @@ func show_state(from: FacilityGenerator, at: Vector2, facing: Vector2, marks: Ar
 	streamed_chunks.clear()
 	streamed_chunk_size = 0
 	streamed_show_stairs = false
+	streamed_show_regions = false
 	streamed_focus_radius_cells = 0
 	waypoint_path.clear()
 	player_at = at
@@ -177,7 +193,7 @@ func show_state(from: FacilityGenerator, at: Vector2, facing: Vector2, marks: Ar
 func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array,
 		show_stairs: bool = false, focus_radius_cells: int = 0,
-		player_marks: Array = []) -> void:
+		player_marks: Array = [], show_regions: bool = false) -> void:
 	generator = null
 	# Keep the widget's own data floor-pure. Drawing also checks the level as a
 	# defensive guard, but retaining other floors here allowed later bounds and
@@ -191,6 +207,7 @@ func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 	streamed_level = level
 	streamed_chunk_size = chunk_size
 	streamed_show_stairs = show_stairs
+	streamed_show_regions = show_regions
 	streamed_focus_radius_cells = maxi(0, focus_radius_cells)
 	player_at = at
 	player_facing = facing
@@ -300,6 +317,10 @@ func _draw_streamed() -> void:
 	var world_bounds := Rect2i(world_min_x, world_min_z, cols, rows)
 	for coord in visible_coords:
 		var chunk: Dictionary = streamed_chunks[coord]
+		var chunk_region := String(chunk.get("region", "maze"))
+		var floor_tint := Palette.PANEL
+		if streamed_show_regions:
+			floor_tint = Palette.PANEL.lerp(region_color(chunk_region), .52)
 		var chunk_world_origin := Vector2i(coord.x * streamed_chunk_size,
 			coord.z * streamed_chunk_size)
 		var chunk_bounds := Rect2i(chunk_world_origin,
@@ -320,7 +341,7 @@ func _draw_streamed() -> void:
 				if not world_bounds.has_point(chunk_world_origin + Vector2i(x, z)):
 					continue
 				draw_rect(Rect2(local_origin + Vector2(x, z) * cell,
-					Vector2.ONE * cell), Palette.PANEL)
+					Vector2.ONE * cell), floor_tint)
 		for pickup_value in chunk.get("pickups", []):
 			var pickup: Dictionary = pickup_value
 			var kind := String(pickup.get("kind", ""))
@@ -359,6 +380,10 @@ func _draw_streamed() -> void:
 				var stair_at := local_origin + (Vector2(stair_cell) + Vector2(.5, .5)) * cell
 				var up := String(stair.get("direction", "")) == "up"
 				_draw_stair_icon(stair_at, cell, up)
+	if streamed_show_regions:
+		_draw_streamed_region_boundaries(visible_coords, origin, world_origin,
+			world_bounds, cell)
+		_draw_streamed_region_key(visible_coords)
 	_draw_waypoint_route(origin, world_origin, world_bounds, cell)
 	for mark in hunters:
 		if not bool(mark.get("active", true)):
@@ -383,6 +408,89 @@ func _draw_streamed() -> void:
 		var waypoint_at := origin + (waypoint_world - world_origin) * cell
 		_draw_waypoint(waypoint_at, cell)
 	_draw_player(origin - world_origin * cell, cell)
+
+
+static func region_color(region: String) -> Color:
+	return REGION_COLORS.get(region, Color("87939b"))
+
+
+func _draw_streamed_region_boundaries(visible_coords: Array[Vector3i],
+		origin: Vector2, world_origin: Vector2, world_bounds: Rect2i,
+		cell: float) -> void:
+	var visible_lookup := {}
+	for coord in visible_coords:
+		visible_lookup[coord] = true
+	var directions := [
+		{"step": Vector3i(-1, 0, 0), "from": Vector2(0, 0),
+			"to": Vector2(0, streamed_chunk_size)},
+		{"step": Vector3i(1, 0, 0), "from": Vector2(streamed_chunk_size, 0),
+			"to": Vector2(streamed_chunk_size, streamed_chunk_size)},
+		{"step": Vector3i(0, 0, -1), "from": Vector2(0, 0),
+			"to": Vector2(streamed_chunk_size, 0)},
+		{"step": Vector3i(0, 0, 1), "from": Vector2(0, streamed_chunk_size),
+			"to": Vector2(streamed_chunk_size, streamed_chunk_size)},
+	]
+	for coord in visible_coords:
+		var chunk: Dictionary = streamed_chunks[coord]
+		var region := String(chunk.get("region", "maze"))
+		var chunk_origin := Vector2(coord.x * streamed_chunk_size,
+			coord.z * streamed_chunk_size)
+		for direction_value in directions:
+			var direction: Dictionary = direction_value
+			var neighbour: Vector3i = coord + (direction["step"] as Vector3i)
+			if visible_lookup.has(neighbour) and String((streamed_chunks[neighbour] \
+					as Dictionary).get("region", "maze")) == region:
+				continue
+			var from_world := chunk_origin + (direction["from"] as Vector2)
+			var to_world := chunk_origin + (direction["to"] as Vector2)
+			var edge_bounds := Rect2(Vector2(world_bounds.position),
+				Vector2(world_bounds.size)).grow(1.0)
+			if not edge_bounds.has_point(from_world) \
+					and not edge_bounds.has_point(to_world):
+				continue
+			draw_line(origin + (from_world - world_origin) * cell,
+				origin + (to_world - world_origin) * cell,
+				region_color(region).lightened(.22), maxf(1.5, cell * .22), true)
+
+
+func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
+	var regions := []
+	for coord in visible_coords:
+		var region := String((streamed_chunks[coord] as Dictionary).get(
+			"region", "maze"))
+		if not regions.has(region):
+			regions.append(region)
+	regions.sort()
+	if regions.is_empty():
+		return
+	var current_coord := Vector3i(floori(player_at.x / streamed_chunk_size),
+		streamed_level, floori(player_at.y / streamed_chunk_size))
+	var current_region := ""
+	if streamed_chunks.has(current_coord):
+		current_region = String((streamed_chunks[current_coord] as Dictionary).get(
+			"region", "maze"))
+	var font := ThemeDB.fallback_font
+	var font_size := 10 if interactive else 8
+	var labels := regions if interactive else ([current_region] \
+		if not current_region.is_empty() else [])
+	var key_width := 0.0
+	for region_value in labels:
+		key_width += font.get_string_size(String(region_value).to_upper(),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 22.0
+	if key_width <= 0.0:
+		return
+	var key_at := Vector2(7, size.y - font_size - 11)
+	draw_rect(Rect2(key_at - Vector2(4, 4),
+		Vector2(minf(key_width + 8.0, size.x - 6.0), font_size + 9.0)),
+		Color(Palette.BACKDROP, .86))
+	for region_value in labels:
+		var region := String(region_value)
+		draw_rect(Rect2(key_at, Vector2(9, 9)), region_color(region))
+		var label := region.to_upper()
+		draw_string(font, key_at + Vector2(13, 9), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Palette.INK)
+		key_at.x += font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, font_size).x + 22.0
 
 
 func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:

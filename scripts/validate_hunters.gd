@@ -45,6 +45,7 @@ func run(_host: Node) -> int:
 	var generator := FacilityGenerator.new("HUNTERS-CHECK", RoomState.generator_options())
 	_difficulty_scales_shared_brain(generator)
 	_hunter_view_faces_its_travel_direction()
+	_hunter_wander_does_not_track_unseen_runner()
 	_haelith_goes_where_the_relays_are(generator)
 	_ysolde_takes_it_off_the_floor(generator)
 	_opalie_holds_her_post(generator)
@@ -137,8 +138,10 @@ func _chase_persists_around_corners() -> void:
 
 func _hunter_face_lights_are_aligned(host: Node) -> void:
 	# Every A-Z model must retain the same 8x8 face contract used by the runtime
-	# 2x2-pixel glow. Check source attachments across the full roster, then check
-	# one live view so this cannot pass while presentation forgets to create them.
+	# Check the actual imported locator bones across the full roster, then check
+	# one live view so this cannot pass while presentation forgets to create the
+	# enlarged emissive faces. The checker irises occupy the lower quarter of the
+	# 8x8 face; a merely in-bounds attachment is not precise enough.
 	for hunter_id in HunterRoster.A_Z_IDS:
 		var identity := HunterRoster.get_identity(hunter_id)
 		var model := ModelSlot.instantiate(String(identity.get("model_scene", "")))
@@ -152,14 +155,17 @@ func _hunter_face_lights_are_aligned(host: Node) -> void:
 			"%s is missing its head or authored eye centres" % hunter_id)
 		if head != null and left != null and right != null:
 			var bounds := head.get_aabb()
+			var expected_y := bounds.position.y + bounds.size.y * .25
+			var expected_x := bounds.size.x * .25
 			for eye in [left, right]:
-				var local_eye := head.to_local((eye as Node3D).global_position) \
-					if model.is_inside_tree() else (eye as Node3D).position
-				_expect(local_eye.x >= bounds.position.x \
-					and local_eye.x <= bounds.end.x \
-					and local_eye.y >= bounds.position.y \
-					and local_eye.y <= bounds.end.y,
-					"%s eye centre is outside its face" % hunter_id)
+				var local_eye := (eye as Node3D).position
+				var signed_x := -expected_x if eye == left else expected_x
+				_expect(absf(local_eye.x - signed_x) < .003 \
+					and absf(local_eye.y - expected_y) < .003 \
+					and local_eye.z < bounds.position.z \
+					and local_eye.z > bounds.position.z - .01,
+					"%s eye attachment is not centred on its textured 2x2 iris" \
+						% hunter_id)
 		model.free()
 
 	var brain := _brain("kathy", Vector2.ZERO)
@@ -174,21 +180,25 @@ func _hunter_face_lights_are_aligned(host: Node) -> void:
 	for glow_value in glows:
 		var glow := glow_value as MeshInstance3D
 		var box := glow.mesh as BoxMesh
-		_expect(box != null and absf(box.size.x - .12890625) < .003 \
-			and absf(box.size.y - .1203125) < .003,
-			"A-Z eye glow is not aligned to a 2x2 block on the 8x8 face")
-		_expect(absf(glow.position.y + .06015625) < .003,
-			"A-Z eye glow was not lowered exactly one 8x8 skin row")
+		_expect(box != null and absf(box.size.x - .1611328125) < .003 \
+			and absf(box.size.y - .150390625) < .003,
+			"A-Z eye glow is not the readable 2.5-pixel face size")
+		_expect(absf(glow.position.x) < .001 and absf(glow.position.y) < .001,
+			"A-Z eye glow is offset from its corrected attachment bone")
+		var attachment := glow.get_parent() as Node3D
+		_expect(attachment != null and glow.position.z < 0.0,
+			"A-Z eye glow is not projected just in front of its textured iris")
 		var glow_material := glow.material_override as StandardMaterial3D
 		_expect(glow_material != null \
-			and glow_material.emission.is_equal_approx(authored_kathy_eye),
+			and glow_material.emission.is_equal_approx(authored_kathy_eye) \
+			and glow_material.emission_energy_multiplier <= 1.5,
 			"A-Z glow does not use the hunter's authored iris colour")
 	_expect(view._kathy_beam != null and view._kathy_beam.visible \
 		and view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye),
 		"Kathy's yellow eye beam is missing or hidden")
 	view.queue_free()
 	await host.get_tree().process_frame
-	print("  eyes      all A-Z eye centres valid; 2x2 glow and Kathy beam render on-face")
+	print("  eyes      all A-Z eye bones match the checker irises; readable glow and Kathy beam render on-face")
 
 
 func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:
@@ -228,8 +238,35 @@ func _hunter_view_faces_its_travel_direction() -> void:
 	_expect(drawn_forward.dot(brain.facing) > 0.999,
 		"hunter model forward points %s while movement points %s"
 			% [drawn_forward, brain.facing])
+	# A patrol turn is presented over time instead of snapping to a reverse
+	# waypoint. The first sync is allowed to establish the initial heading; the
+	# runtime wrapper caps subsequent heading changes.
+	var reverse := HunterBrain.new(Vector2(2.5, 3.5), "FACING-TURN-CHECK", "dovelle")
+	var reverse_view := HunterView3D.new()
+	reverse_view.brain = reverse
+	reverse_view._shown_id = "dovelle"
+	reverse_view._presentation_initialized = true
+	reverse_view._heading_initialized = true
+	reverse_view.rotation.y = 0.0
+	reverse.facing = Vector2(0, -1)
+	reverse_view.sync_from_brain()
+	_expect(absf(reverse_view.rotation.y) < PI - deg_to_rad(1.0),
+		"hunter body still snapped 180 degrees on a patrol turn")
+	reverse_view.free()
 	view.free()
-	print("  facing    hunter models face the direction their brains move")
+	print("  facing    hunter models face movement with bounded patrol turns")
+
+
+func _hunter_wander_does_not_track_unseen_runner() -> void:
+	var brain := HunterBrain.new(Vector2(2.5, 3.5), "LOOK-CHECK", "dovelle")
+	brain.activate_at(Vector2(12.5, 3.5))
+	brain.state = HunterBrain.State.WANDER
+	brain.has_wander_target = true
+	brain.wander_target = Vector2(4.5, 3.5)
+	brain.has_last_known = false
+	_expect(brain.presentation_look_target() == null,
+		"wandering hunter exposed a look target without a sensed runner")
+	print("  look     unseen runners do not steer a wandering hunter's head")
 
 
 ## She re-aims every frame, so collecting the one she is walking to has to send

@@ -132,7 +132,8 @@ Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, bre
 - shared across modes: stamina exhaustion/recovery and lamp battery drain, procedural relay/battery/safe-zone interactions, and a compact model-icon hotbar/status HUD with an FPS counter plus focused inventory, interaction and escape overlays (`src/ui/hud.gd` + `scenes/hud.tscn`). Infinite replaces its numeric danger bar with a transparent-centre, pixel-block crimson edge pulse whose strength and tempo rise with nearby/chasing hunters. F1 hides/restores only the ordinary gameplay HUD (including that pulse), leaving modal and escape UI usable; Q drops the selected item. The pause overlay includes local saves and a live statistics page. Persistent key-tutorial text is intentionally absent.
 - **Office Mode** (`scenes/office_3d.tscn`, chosen locally as a mode in the room lobby) — the original's separate FNAF-style defense shift: ten "Void" signals against a camera monitor, doors, vent, radio, breaker and power budget, playable end to end. Route generation now also includes office wings and relay-control rooms, establishing the shared environment seam for a later in-route Office encounter. You walk the focused shift and click physical desk controls rather than pressing gameplay shortcuts. Simulation in `src/game/office/office_simulation.gd`; UI partly adapted from the MIT-licensed Cupcakes Framework (see Credits).
 - **an admin overlay** on the **0** key (`src/ui/admin_menu.gd`) for granting relays/items, refilling the lamp, noclip, map/hunter reveal, rebuilding the floor, descending, loading a hand-painted custom map from a raw PNG URL, and summoning/removing any A–Z or Void hunter from Infinite. Hunter edits are host-authoritative and removals survive chunk refresh rather than being immediately replaced. It is a large mouse-owned modal and freezes movement/tools while open. Debug builds always expose it; release builds require a live primary-server login as the exact canonical `KYTTU` account. Cached display names cannot unlock it. In an online tools-enabled room, a guest admin's shared changes are submitted to the host, committed there, and snapshotted back to the whole room; lamp, reveal, no-target and god mode remain personal controls. God mode keeps stamina full and removes exhaustion while enabled.
-- **custom maps** (`src/game/custom_map_parser.gd`) — a colour-coded PNG stands in for procedural generation, ported from the original's own developer format: black wall, white floor, zero or more green player spawns, an optional red exit, and region colours (office, mansion, beach, and more) flood-filled into rooms. Multiple green cells become ordered co-op spawn slots; with none, the route seed chooses a random open cell consistently for every peer. Fed into the same `FacilityGenerator` a procedural floor uses, so objective placement and region-derived themed furniture are seeded identically for every peer. Loaded by URL through the admin overlay, not hardcoded to a local path. The host retains a validated canonical PNG and transfers it with live-session snapshots, so existing guests and late joiners rebuild the authored base floor before applying its pickups and other mutations. The original format's explicit per-pixel prop and dialog-trigger authoring is not ported. The exact palette, editor rules, and a playable sample are in [`art/custom-maps/`](art/custom-maps/README.md).
+- **custom maps** (`src/game/custom_map_parser.gd`) — a colour-coded PNG stands in for procedural generation, ported from the original's own developer format: black wall, white floor, zero or more green player spawns, an optional red exit, themed region colours, and the original curated exact-prop colors. Multiple green cells become ordered co-op spawn slots; with none, the route seed chooses a random open cell consistently for every peer. Fed into the same `FacilityGenerator` a procedural floor uses, so objective placement and prop collision remain deterministic. Loading stays behind the authenticated admin overlay; normal Infinite discovery and story triggers cannot load or swap a PNG. The host retains a validated canonical PNG and transfers it with live-session snapshots. Sibling scripted mechanics and map-specific dialog triggers remain to port. The palette, rules, and samples are in [`art/custom-maps/`](art/custom-maps/README.md).
+- **Infinite story presentation** (`src/story/infinite_story_director.gd`, `story/infinite_route_stories.json`) — validated branching dialog and ordered cutscene data, available only from the authenticated `0` admin menu. Normal Infinite Route discovery never starts a scene. The host owns choices and timing; guests render a read-only mirror, late joiners adopt the active node, and named saves preserve completed/active story state. This first pass runs wait/dialog steps and preserves camera/actor steps for the coming 3D choreography pass. Every playable scene is `admin_only`; any custom PNG stage remains behind verified admin controls.
 - global run-state autoload, LastRoute input actions, folders that mirror the browser game's modular architecture.
 
 ## Project layout
@@ -236,6 +237,12 @@ later automatic update from replacing it with the incompatible 64-bit build.
 Pass `--quest` once the Android SDK/JDK prerequisites in [`XR.md`](XR.md) are
 configured.
 
+An iPhone/iPad Xcode export preset and guarded macOS helper are also included.
+iOS must be exported and signed on a Mac with Xcode and an Apple Developer Team;
+it cannot be produced by the Linux debug-release runner. Setup, the current
+controller-only mobile input boundary, HTTP exception, and App Store update
+behavior are documented in [`IOS.md`](IOS.md).
+
 Equivalent debug-tools presets are committed for Windows, macOS and a
 single-threaded Web build. Web is currently solo-only: browsers cannot use the
 native ENet/UDP transport, and the UI reports that boundary instead of trying
@@ -266,6 +273,15 @@ then reruns the panel's startup pull and current server. No GitHub credentials
 are shipped in the game. See
 [`backend/README.md`](backend/README.md#pterodactyl-hosted-updates) and
 [`backend/updates.example.json`](backend/updates.example.json).
+
+Native updater scratch data is bounded as well: superseded archives, abandoned
+partial downloads, extracted staging trees, and old installer helpers under
+`user://updates` are removed on the next launch. Desktop ZIPs are deleted as
+soon as their verified staging tree is ready, while Quest keeps only the APK
+currently awaiting Android installer approval. This cleanup never enters the
+settings, account-session, or `route_saves` paths. The single rollback folder
+beside a desktop install is also removed after the replacement build launches
+successfully, so complete copies of old builds do not accumulate.
 
 The directory service has its own dependency-free Node checks:
 

@@ -15,7 +15,8 @@ extends Node
 
 const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
 	"run_report", "camera_console", "sync", "roster", "hunters", "office_monitor",
-	"custom_map", "streamed_world", "props", "player_effects", "audio", "saves"]
+	"custom_map", "streamed_world", "props", "player_effects", "audio", "saves",
+	"story"]
 
 
 func _ready() -> void:
@@ -50,6 +51,13 @@ func _run() -> void:
 			failures += 1
 			continue
 		failures += await suite.run(self)
+		# Most gameplay suites queue their temporary scenes for deletion. Starting
+		# the next suite in the same frame leaves those worlds, group members and
+		# input callbacks alive long enough to contaminate its physics assertions.
+		# Flush both deletion and one physics boundary between suites so a combined
+		# validation behaves exactly like running each selected suite by itself.
+		await get_tree().process_frame
+		await get_tree().physics_frame
 	if failures > 0:
 		push_error("%d check(s) failed" % failures)
 	else:

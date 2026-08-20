@@ -9,6 +9,19 @@ extends Node3D
 ## which runner a hunter should pursue.
 
 const MODEL := "res://art/props-3d/characters/player.tscn"
+const REMOTE_HELD_MODELS := {
+	"flashlight": "res://art/props-3d/interactables/flashlight_item.glb",
+	"taser": "res://art/props-3d/interactables/taser_item.glb",
+	"lockpick": "res://art/props-3d/interactables/lockpick_set.glb",
+	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
+	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
+	"battery": "res://art/props-3d/interactables/battery.glb",
+}
+const REMOTE_HELD_SCALES := {
+	"flashlight": .34, "taser": .32, "lockpick": .29,
+	"crowbar": .30, "rescue_axe": .29, "battery": .40,
+}
+const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
 const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
@@ -28,6 +41,9 @@ var _positions := {}
 var _facings := {}
 var _step_distances := {}
 var _remote_flashlights := {}
+var _remote_hand_anchors := {}
+var _remote_held_items := {}
+var _remote_held_item_ids := {}
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 ## A host-issued capture is kept here independently of the next movement
@@ -143,6 +159,7 @@ func _local_state() -> Dictionary:
 		# hunter-induced flicker state. A raw toggle made peers glow even when the
 		# local flashlight had been put away or temporarily cut out.
 		"flashlight_on": controller.flashlight != null and controller.flashlight.visible,
+		"aim_direction": controller.equipment_aim_direction(),
 		"sprinting": controller.movement_mode == "sprint" and controller.noise > 0.0,
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
@@ -157,7 +174,9 @@ func _local_state() -> Dictionary:
 		"equipped_backpack": controller.equipped_backpack,
 		"display_name": RoomState.local_display_name(),
 		"player_hue": Settings.player_hue_degrees,
-		"admin_skin": Backend.admin_authorized(),
+		# Main.png belongs only to the verified KYTTU account. This appearance
+		# identity is deliberately independent from admin permissions.
+		"player_skin": "kyttu" if Backend.uses_kyttu_player_skin() else "mannequin",
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -215,8 +234,12 @@ func _place(state: Dictionary) -> void:
 
 	var body: Node3D = _bodies.get(id)
 	if body == null:
+		# Do not trust a peer-authored admin/skin boolean. The room roster holds
+		# the canonical account identity adopted during connection.
+		var kyttu_skin := String(state.get("player_skin", "mannequin")) == "kyttu" \
+			and RoomState.peer_display_name(id).strip_edges().to_upper() == "KYTTU"
 		var model_path := PlayerController3D.ADMIN_BODY_MODEL_SCENE \
-			if bool(state.get("admin_skin", false)) else MODEL
+			if kyttu_skin else MODEL
 		body = ModelSlot.instantiate(model_path)
 		if body == null:
 			return
@@ -226,7 +249,7 @@ func _place(state: Dictionary) -> void:
 		body.rotation.y = float(state.get("facing_y", 0.0))
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
-		if not bool(state.get("admin_skin", false)):
+		if not kyttu_skin:
 			ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
 		_add_name_tag(body, String(state.get("display_name",
 			RoomState.peer_display_name(id))))
@@ -236,7 +259,7 @@ func _place(state: Dictionary) -> void:
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	body.visible = bool(state.get("visible", true))
-	_sync_remote_flashlight(id, body, state)
+	_sync_remote_equipment(id, body, state)
 	var clip := String(state.get("clip", "idle"))
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
@@ -256,6 +279,7 @@ func _interpolate_bodies(delta: float) -> void:
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
 		ModelSlot.set_character_fade(body, fade)
+		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
 
 
@@ -273,30 +297,110 @@ func _add_name_tag(body: Node3D, display_name: String) -> void:
 
 
 func _attach_remote_flashlight(id: int, body: Node3D) -> SpotLight3D:
+	# All authored equipment shares the animated right-hand anchor. The selected
+	# model is swapped only when the replicated slot changes, never every packet.
+	var hand := body.find_child("R-Attachment", true, false) as Node3D
+	if hand == null:
+		hand = body
+	var anchor := Node3D.new()
+	anchor.name = "PeerHeldItemAnchor"
+	# R-Attachment is already authored at -90 degrees around X: its local +Y
+	# points along the avatar's forward axis. Applying that conversion twice
+	# made long tools point at the floor and disappear inside the player.
+	anchor.rotation = Vector3(0.0, 0.0, deg_to_rad(-8.0))
+	anchor.position = Vector3(0.0, -.02, -.08)
+	hand.add_child(anchor)
+	_remote_hand_anchors[id] = anchor
+
 	var light := SpotLight3D.new()
 	light.name = "PeerFlashlight"
-	light.position = Vector3(.08, 1.55, -.15)
+	# Top-level keeps interpolation/animation from rotating the light a second
+	# time after its world-space aim pose is resolved below. It remains a child
+	# so deleting the peer body still deletes the light.
+	light.top_level = true
 	light.light_color = Color.WHITE
-	light.light_energy = 7.0
+	light.light_energy = 7.5
 	light.spot_range = PlayerController3D.FLASHLIGHT_MAX_RANGE
 	light.spot_angle = 30.0
 	light.spot_angle_attenuation = 1.4
 	light.shadow_enabled = true
 	light.shadow_bias = .3
 	light.shadow_normal_bias = 1.0
+	light.shadow_reverse_cull_face = true
 	light.visible = false
 	body.add_child(light)
 	_remote_flashlights[id] = light
 	return light
 
 
-func _sync_remote_flashlight(id: int, body: Node3D, state: Dictionary) -> void:
+func _sync_remote_equipment(id: int, body: Node3D, state: Dictionary) -> void:
 	var light := _remote_flashlights.get(id) as SpotLight3D
 	if light == null:
 		light = _attach_remote_flashlight(id, body)
-	light.visible = body.visible and bool(state.get("flashlight_on", false)) \
-		and String(state.get("selected_item", "")) == "flashlight" \
+	var selected := String(state.get("selected_item", ""))
+	if not REMOTE_HELD_MODELS.has(selected):
+		selected = ""
+	_sync_remote_held_item(id, body, selected)
+	var flashlight_held := selected == "flashlight" \
 		and float(state.get("lamp_charge", 0.0)) > 0.0
+	light.visible = body.visible and flashlight_held \
+		and bool(state.get("flashlight_on", false))
+	_update_remote_equipment_pose(id, body, state)
+
+
+## Backwards-compatible name retained for focused validators and any finite
+## scene helpers written before the generic held-item slot was introduced.
+func _sync_remote_flashlight(id: int, body: Node3D, state: Dictionary) -> void:
+	_sync_remote_equipment(id, body, state)
+
+
+func _sync_remote_held_item(id: int, body: Node3D, selected: String) -> void:
+	var current := String(_remote_held_item_ids.get(id, ""))
+	var item := _remote_held_items.get(id) as Node3D
+	if current == selected and item != null:
+		item.visible = body.visible and not selected.is_empty()
+		return
+	if item != null:
+		item.visible = false
+		item.queue_free()
+	_remote_held_items.erase(id)
+	_remote_held_item_ids[id] = selected
+	if selected.is_empty():
+		return
+	var anchor := _remote_hand_anchors.get(id) as Node3D
+	if anchor == null:
+		return
+	item = ModelSlot.instantiate_prop(String(REMOTE_HELD_MODELS[selected]))
+	if item == null:
+		return
+	item.name = "PeerHeld%s" % selected.to_pascal_case()
+	item.scale = Vector3.ONE * float(REMOTE_HELD_SCALES.get(selected, .32))
+	item.visible = body.visible
+	anchor.add_child(item)
+	_remote_held_items[id] = item
+
+
+func _update_remote_equipment_pose(id: int, body: Node3D,
+		state: Dictionary = {}) -> void:
+	var light := _remote_flashlights.get(id) as SpotLight3D
+	if light == null:
+		return
+	var source := state if not state.is_empty() else (_states.get(id, {}) as Dictionary)
+	var raw_direction = source.get("aim_direction", -body.global_basis.z)
+	var aim := raw_direction as Vector3 if raw_direction is Vector3 \
+		else -body.global_basis.z
+	if aim.length_squared() < .01 or absf(aim.x) > 1.01 \
+			or absf(aim.y) > 1.01 or absf(aim.z) > 1.01:
+		aim = -body.global_basis.z
+	aim = aim.normalized()
+	var anchor := _remote_hand_anchors.get(id) as Node3D
+	var origin := anchor.global_position if anchor != null \
+		else body.global_position + Vector3.UP * 1.1
+	# Start beyond the hand/mannequin silhouette so the remote body cannot cast
+	# a shadow across its own beam. The same aim still strikes nearby walls.
+	light.global_position = origin + aim * REMOTE_BEAM_HAND_OFFSET
+	var up := Vector3.FORWARD if absf(aim.dot(Vector3.UP)) > .98 else Vector3.UP
+	light.look_at(light.global_position + aim, up)
 
 
 func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
@@ -334,6 +438,9 @@ func _drop(id: int) -> void:
 	_facings.erase(id)
 	_step_distances.erase(id)
 	_remote_flashlights.erase(id)
+	_remote_hand_anchors.erase(id)
+	_remote_held_items.erase(id)
+	_remote_held_item_ids.erase(id)
 	_states.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)
@@ -595,7 +702,8 @@ func _request_interaction(event: Dictionary) -> void:
 		if not ["grant_relay", "all_relays", "rebuild", "descend",
 				"stun_hunters", "wake_hunters", "calm_hunters",
 				"damage_checkpoint", "repair_checkpoint", "lights_on",
-				"lights_off", "summon_hunter", "remove_hunter"].has(action):
+				"lights_off", "summon_hunter", "remove_hunter",
+				"story_start", "story_stop", "story_reset"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
@@ -605,6 +713,14 @@ func _request_interaction(event: Dictionary) -> void:
 					and not HunterRoster.VOID_IDS.has(hunter_id):
 				return
 			accepted["hunter_id"] = hunter_id
+		elif action == "story_start":
+			var scene_id := String(event.get("scene_id", ""))
+			if scene_id.is_empty() or scene_id.length() > 80:
+				return
+			for character in scene_id:
+				if not "abcdefghijklmnopqrstuvwxyz0123456789_-".contains(character):
+					return
+			accepted["scene_id"] = scene_id
 	else:
 		accepted = event.duplicate(true)
 	accepted["peer_id"] = sender

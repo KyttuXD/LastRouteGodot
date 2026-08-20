@@ -66,7 +66,7 @@ func run(host: Node) -> int:
 	_target_selection(alice)
 	print("  targeting the closest available remote runner can be chased safely")
 	_remote_flashlight_presentation(alice)
-	print("  flashlight local rendered state creates the same visible beam on peers")
+	print("  equipment held props and aimed flashlight beams reproduce on peers")
 	_targeted_outcomes(bob)
 	print("  outcomes  host-selected stun and capture resolve on the target peer")
 	_authoritative_world_request(alice)
@@ -90,23 +90,57 @@ func _remote_flashlight_presentation(scene: Node) -> void:
 	player._set_flashlight(true)
 	var local_state := remotes._local_state()
 	_expect(bool(local_state.get("flashlight_on", false)) \
-		and String(local_state.get("selected_item", "")) == "flashlight",
+		and String(local_state.get("selected_item", "")) == "flashlight" \
+		and local_state.get("aim_direction") is Vector3,
 		"local co-op state omitted the actually rendered flashlight beam")
 
-	var peer_body := Node3D.new()
+	var peer_body := ModelSlot.instantiate(RemotePlayers.MODEL)
+	_expect(peer_body != null, "could not instantiate a remote mannequin fixture")
+	if peer_body == null:
+		player._set_flashlight(false)
+		return
 	remotes.add_child(peer_body)
 	peer_body.visible = true
 	var light := remotes._attach_remote_flashlight(919, peer_body)
-	remotes._sync_remote_flashlight(919, peer_body, local_state)
+	remotes._states[919] = local_state.duplicate(true)
+	remotes._sync_remote_equipment(919, peer_body, local_state)
 	_expect(light.visible and light.shadow_enabled \
+		and light.top_level \
 		and light.spot_range >= PlayerController3D.FLASHLIGHT_MAX_RANGE,
 		"a remote held flashlight has no usable replicated world beam")
+	var held_item := remotes._remote_held_items.get(919) as Node3D
+	_expect(held_item != null and held_item.visible,
+		"a remote player does not visibly hold the authored flashlight model")
+	_expect(held_item != null and held_item.get_parent() != null \
+		and held_item.get_parent().name == "PeerHeldItemAnchor" \
+		and held_item.get_parent().get_parent().name == "R-Attachment",
+		"the remote flashlight model is not attached to the animated right hand")
+	var hand_anchor := remotes._remote_hand_anchors.get(919) as Node3D
+	_expect(hand_anchor != null and hand_anchor.global_basis.y.normalized().dot(
+		-peer_body.global_basis.z.normalized()) > .7,
+		"the remote hand attachment points held props into the floor/body")
+	_expect(hand_anchor != null and light.global_position.distance_to(
+		hand_anchor.global_position) >= RemotePlayers.REMOTE_BEAM_HAND_OFFSET - .01,
+		"the remote flashlight beam still begins inside the player body/hand")
+	for item_id in RemotePlayers.REMOTE_HELD_MODELS:
+		var held_state := local_state.duplicate(true)
+		held_state["selected_item"] = item_id
+		held_state["flashlight_on"] = item_id == "flashlight"
+		remotes._sync_remote_equipment(919, peer_body, held_state)
+		var authored := remotes._remote_held_items.get(919) as Node3D
+		_expect(authored != null and authored.visible \
+			and String(remotes._remote_held_item_ids.get(919, "")) == item_id,
+			"remote player does not visibly hold selected %s model" % item_id)
 	var put_away := local_state.duplicate(true)
-	put_away["selected_item"] = "taser"
-	remotes._sync_remote_flashlight(919, peer_body, put_away)
-	_expect(not light.visible,
-		"remote flashlight remains lit after its owner puts it away")
+	put_away["selected_item"] = ""
+	remotes._sync_remote_equipment(919, peer_body, put_away)
+	_expect(not light.visible and not remotes._remote_held_items.has(919),
+		"remote equipment remains visible after its owner empties the hand slot")
 	remotes._remote_flashlights.erase(919)
+	remotes._remote_hand_anchors.erase(919)
+	remotes._remote_held_items.erase(919)
+	remotes._remote_held_item_ids.erase(919)
+	remotes._states.erase(919)
 	peer_body.queue_free()
 	player._set_flashlight(false)
 

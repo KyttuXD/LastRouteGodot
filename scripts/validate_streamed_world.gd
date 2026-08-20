@@ -22,10 +22,17 @@ func run(host: Node) -> int:
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
 		"admin/fullscreen stair markers are not the requested white icon")
+	var map_region_colours := {}
 	for region in StreamedRouteGenerator.BIOMES:
 		_expect(ResourceLoader.exists("res://art/props-3d/environment/floor_%s.png" % region) \
 			and ResourceLoader.exists("res://art/props-3d/environment/wall_%s.png" % region),
 			"%s is missing its regional floor/wall texture pair" % region)
+		_expect(FacilityMap.REGION_COLORS.has(region),
+			"admin maps have no colour assigned for the %s region" % region)
+		var colour_key := FacilityMap.region_color(region).to_html(false)
+		_expect(not map_region_colours.has(colour_key),
+			"admin map region colour is duplicated for %s" % region)
+		map_region_colours[colour_key] = region
 	for office_void in HunterRoster.OFFICE_VOID_IDS:
 		_expect(HunterRoster.VOID_IDS.has(office_void) \
 			and String(HunterRoster.get_identity(office_void).get("category", "")) == "void",
@@ -47,6 +54,22 @@ func run(host: Node) -> int:
 
 	var lower := world.chunk(Vector3i.ZERO)
 	var upper := world.chunk(Vector3i(0, 1, 0))
+	var map_probe := FacilityMap.new()
+	map_probe.interactive = true
+	map_probe.size = Vector2(480, 320)
+	host.get_tree().root.add_child(map_probe)
+	map_probe.show_streamed_state({Vector3i.ZERO: lower}, 0,
+		StreamedRouteGenerator.CHUNK_SIZE, Vector2.ZERO, Vector2.DOWN, [],
+		true, 0, [], true)
+	await host.get_tree().process_frame
+	_expect(map_probe.streamed_show_regions,
+		"streamed facility map ignored an authenticated region-overlay request")
+	map_probe.show_streamed_state({Vector3i.ZERO: lower}, 0,
+		StreamedRouteGenerator.CHUNK_SIZE, Vector2.ZERO, Vector2.DOWN, [])
+	_expect(not map_probe.streamed_show_regions,
+		"region-overlay state leaked into a normal player map update")
+	map_probe.queue_free()
+	await host.get_tree().process_frame
 	_expect(lower["grid"] != upper["grid"],
 		"stacked floors reused the same room shape instead of varying by level")
 	var lower_link: Dictionary
@@ -164,6 +187,15 @@ func run(host: Node) -> int:
 	var furniture_actions := {}
 	var rug_types_seen := {}
 	var first_relay_id := ""
+	var room_templates_seen := {}
+	var suite_kinds_seen := {}
+	var suite_roles_seen := {}
+	var saw_multi_unit_apartment_hall := false
+	var restaurant_room_props := {}
+	var saw_dual_lower := false
+	var saw_dual_upper := false
+	var saw_dual_carousel := false
+	var saw_two_cell_double_door := false
 	for level in range(-7, 4):
 		for z in range(-5, 6):
 			for x in range(-5, 6):
@@ -172,6 +204,17 @@ func run(host: Node) -> int:
 					continue
 				var data := world.chunk(sampled_coord)
 				biomes[data["biome"]] = true
+				var dual_contract: Dictionary = data.get("dual_level_room", {})
+				if not dual_contract.is_empty():
+					if String(dual_contract.get("role", "")) == "lower":
+						saw_dual_lower = true
+						_expect(not (data.get("ceiling_voids", []) as Array).is_empty(),
+							"dual-level lower room retained a blocking middle ceiling")
+					else:
+						saw_dual_upper = true
+						_expect(not (data.get("floor_voids", []) as Array).is_empty() \
+							and not (data.get("structural_voids", []) as Array).is_empty(),
+							"dual-level upper volume retained a duplicate floor/wall stack")
 				_expect(not (data["biome"] == "inferno" and level > -3),
 					"inferno leaked above deep floors at %s" % data["coord"])
 				if level >= 0:
@@ -179,6 +222,57 @@ func run(host: Node) -> int:
 						"gothic biome leaked onto an upper floor at %s" % data["coord"])
 				_expect(not (data["biome"] == "prison" and level > -2),
 					"prison region leaked above lower floors at %s" % data["coord"])
+				for suite_value in data.get("suites", []):
+					var suite: Dictionary = suite_value
+					var suite_id := String(suite.get("id", ""))
+					var suite_kind := String(suite.get("kind", ""))
+					var suite_rect: Rect2i = suite.get("rect", Rect2i())
+					suite_kinds_seen[suite_kind] = true
+					var parent_count := 0
+					var child_ids := []
+					var child_roles := {}
+					for suite_room_value in data.get("rooms", []):
+						var suite_room: Dictionary = suite_room_value
+						if String(suite_room.get("suite_id", "")) != suite_id:
+							continue
+						if bool(suite_room.get("suite_parent", false)):
+							parent_count += 1
+							_expect(String(suite_room.get("id", "")) \
+								== String(suite.get("parent_room_id", "")) \
+								and suite_room.get("doorway", Vector2i(-1, -1)) \
+								== suite.get("entry_doorway", Vector2i(-2, -2)),
+								"%s suite entry room lost its shared exterior threshold" % suite_id)
+						else:
+							var child_id := String(suite_room.get("id", ""))
+							var child_role := String(suite_room.get("suite_role", ""))
+							child_ids.append(child_id)
+							child_roles[child_role] = true
+							suite_roles_seen[child_role] = true
+					_expect(suite_kind in ["apartment", "office"] \
+						and suite_rect.size == Vector2i(17, 17),
+						"unsupported or clipped generated suite: %s" % suite)
+					_expect(parent_count == 1 and child_ids.size() == 4,
+						"%s is not one shared entry plus four amenity rooms" % suite_id)
+					var recorded_children: Array = suite.get("room_ids", [])
+					_expect(recorded_children.size() == 4 \
+						and recorded_children.all(func(child_id: String) -> bool:
+							return child_ids.has(child_id)),
+						"%s suite metadata does not own its four generated rooms" % suite_id)
+					var expected_roles := ["bedroom", "kitchen", "family_dining",
+						"house_bathroom"] if suite_kind == "apartment" else [
+						"office_reception", "cubicle_room", "meeting_room",
+						"private_office"]
+					_expect(child_roles.size() == expected_roles.size() \
+						and expected_roles.all(func(role: String) -> bool:
+							return child_roles.has(role)),
+						"%s suite omitted a required amenity: %s" % [suite_id,
+							expected_roles])
+				if String(data.get("biome", "")) == "apartment":
+					var apartment_units := (data.get("suites", []) as Array).filter(
+						func(suite: Dictionary) -> bool:
+							return String(suite.get("kind", "")) == "apartment")
+					saw_multi_unit_apartment_hall = saw_multi_unit_apartment_hall \
+						or apartment_units.size() >= 2
 				for room in data["rooms"]:
 					var size: Vector2i = room["size"]
 					room_sizes["%dx%d" % [size.x, size.y]] = true
@@ -205,7 +299,8 @@ func run(host: Node) -> int:
 				if data["biome"] == "prison":
 					saw_prison_layout = saw_prison_layout or (data["rooms"].size() >= 6 \
 						and data["rooms"].all(func(room):
-							return room["room_type"] in ["prison_cell", "stairwell"]))
+							return room["room_type"] in ["prison_cell",
+								"prison_cafeteria", "stairwell"]))
 				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 				for axis_offset in range(-1, 2):
 					for axis_cell in range(1, StreamedRouteGenerator.CHUNK_SIZE - 1):
@@ -226,6 +321,16 @@ func run(host: Node) -> int:
 					if String(room.get("room_type", "")) != "stairwell":
 						var canonical_doorway: Vector2i = room.get("doorway",
 							Vector2i(-999, -999))
+						var expected_doorway_cells := [canonical_doorway]
+						for door_value in data.get("region_props", []):
+							var candidate_door: Dictionary = door_value
+							if bool(candidate_door.get("room_door", false)) \
+									and String(candidate_door.get("room_id", "")) \
+									== String(room.get("id", "")):
+								expected_doorway_cells = candidate_door.get(
+									"doorway_cells", [candidate_door.get("cell",
+										canonical_doorway)])
+								break
 						var open_boundary := []
 						for horizontal_x in range(stair_rect.position.x, stair_rect.end.x):
 							for horizontal_z in [stair_rect.position.y, stair_rect.end.y - 1]:
@@ -239,10 +344,11 @@ func run(host: Node) -> int:
 								if int(data["grid"][vertical_z][vertical_x]) == 0 \
 										and not open_boundary.has(vertical_boundary):
 									open_boundary.append(vertical_boundary)
-						_expect(open_boundary.size() == 1 \
-							and open_boundary[0] == canonical_doorway,
+						_expect(open_boundary.size() == expected_doorway_cells.size() \
+							and expected_doorway_cells.all(func(at):
+								return open_boundary.has(at)),
 							"room owns multiple hallway entrances: %s openings=%s doorway=%s" \
-							% [room.get("id", ""), open_boundary, canonical_doorway])
+							% [room.get("id", ""), open_boundary, expected_doorway_cells])
 						var corners := [stair_rect.position,
 							Vector2i(stair_rect.end.x - 1, stair_rect.position.y),
 							Vector2i(stair_rect.position.x, stair_rect.end.y - 1),
@@ -271,6 +377,23 @@ func run(host: Node) -> int:
 						snappedf(prop_yaw, PI * .25)) and prop.has("facing_target"),
 						"streamed prop is not room-facing on a 45-degree angle: %s" % prop)
 					var prop_type := String(prop.get("type", ""))
+					var room_template := String(prop.get("room_template", ""))
+					if not room_template.is_empty():
+						room_templates_seen[room_template] = true
+						var owning_room_id := String(prop.get("room_id", ""))
+						_expect((data.get("rooms", []) as Array).any(
+							func(room: Dictionary) -> bool:
+								return String(room.get("id", "")) == owning_room_id),
+							"furnished prop lost its owning generated room: %s" % prop)
+						if room_template == "restaurant_dining":
+							var restaurant_counts: Dictionary = restaurant_room_props.get(
+								owning_room_id, {})
+							restaurant_counts[prop_type] = int(restaurant_counts.get(
+								prop_type, 0)) + 1
+							restaurant_room_props[owning_room_id] = restaurant_counts
+					if bool(prop.get("dual_level_activity", false)) \
+							and prop_type == "carouselCenterpiece":
+						saw_dual_carousel = true
 					if PropModelCatalog.is_floor_dressing(prop_type):
 						rug_types_seen[prop_type] = true
 						_expect(not bool(prop.get("solid", true)),
@@ -278,7 +401,9 @@ func run(host: Node) -> int:
 					elif not bool(prop.get("solid", true)):
 						_expect(PropModelCatalog.is_empty_frame(prop_type) \
 							or PropModelCatalog.is_room_door(prop_type) \
-							or PropModelCatalog.is_wall_mounted(prop_type),
+							or PropModelCatalog.is_wall_mounted(prop_type) \
+							or PropModelCatalog.is_ceiling_mounted(prop_type) \
+							or RoomCatalog.is_surface_prop(prop_type),
 							"unknown non-solid streamed decoration: %s" % prop_type)
 					if PropModelCatalog.is_wall_mounted(prop_type):
 						var mount_wall: Vector2i = prop.get("backing_wall", Vector2i.ZERO)
@@ -309,27 +434,51 @@ func run(host: Node) -> int:
 						var inward: Vector2i = prop.get("inward", Vector2i.ZERO)
 						var outward: Vector2i = prop.get("outward", Vector2i.ZERO)
 						var across: Vector2i = prop.get("across", Vector2i.ZERO)
-						_expect(not door_room.is_empty() and door_rect.has_point(prop_cell) \
-							and door_rect.has_point(prop_cell + inward) \
-							and not door_rect.has_point(prop_cell + outward),
-							"room door is not placed across its room boundary: %s" % prop)
-						_expect(int(data["grid"][prop_cell.y][prop_cell.x]) == 0 \
-							and int(data["grid"][prop_cell.y + outward.y]
-								[prop_cell.x + outward.x]) == 0 \
-							and int(data["grid"][prop_cell.y + inward.y]
-								[prop_cell.x + inward.x]) == 0,
-							"room door does not connect two traversable sides: %s" % prop)
+						var door_span := int(prop.get("door_span", 1))
+						var doorway_cells: Array = prop.get("doorway_cells", [prop_cell])
+						var expects_double := prop_type.contains("Double")
+						var placement_offset: Vector2 = prop.get(
+							"placement_offset", Vector2.ZERO)
+						var blocker_size: Vector3 = prop.get("blocker_size", Vector3.ZERO)
+						_expect(door_span == (2 if expects_double else 1) \
+							and doorway_cells.size() == door_span,
+							"room door model/span mismatch: %s" % prop)
+						_expect(is_equal_approx(float(prop.get("yaw", 0.0)),
+							StreamedRouteGenerator._room_facing_yaw(prop_cell,
+								prop_cell + inward)),
+							"room door is not perpendicular to its wall: %s" % prop)
+						if expects_double and doorway_cells.size() == 2:
+							saw_two_cell_double_door = true
+							_expect(doorway_cells[1] == prop_cell + across \
+								and placement_offset.is_equal_approx(Vector2(across) * .5) \
+								and blocker_size.x >= 2.0,
+								"double door is not centered across two grid cells: %s" % prop)
+						for doorway_value in doorway_cells:
+							var doorway_cell: Vector2i = doorway_value
+							_expect(not door_room.is_empty() \
+								and door_rect.has_point(doorway_cell) \
+								and door_rect.has_point(doorway_cell + inward) \
+								and not door_rect.has_point(doorway_cell + outward),
+								"room door lane is not across its room boundary: %s" % prop)
+							_expect(int(data["grid"][doorway_cell.y][doorway_cell.x]) == 0 \
+								and int(data["grid"][doorway_cell.y + outward.y]
+									[doorway_cell.x + outward.x]) == 0 \
+								and int(data["grid"][doorway_cell.y + inward.y]
+									[doorway_cell.x + inward.x]) == 0,
+								"room door lane does not connect traversable sides: %s" % prop)
 						_expect(int(data["grid"][prop_cell.y - across.y]
 							[prop_cell.x - across.x]) != 0 \
-							and int(data["grid"][prop_cell.y + across.y]
-								[prop_cell.x + across.x]) != 0,
+							and int(data["grid"][prop_cell.y + across.y * door_span]
+								[prop_cell.x + across.x * door_span]) != 0,
 							"room door has no structural wall frame: %s" % prop)
 						for stair_value in data.get("stairs", []):
 							var stair: Dictionary = stair_value
 							for stair_cell in StreamedRouteGenerator.stair_path_cells(
 									stair.get("cell", Vector2i.ZERO)):
-								_expect(prop_cell.distance_to(stair_cell) > 3.0,
-									"room door intersects a stair/access footprint: %s" % prop)
+								for doorway_value in doorway_cells:
+									var doorway_cell: Vector2i = doorway_value
+									_expect(doorway_cell.distance_to(stair_cell) > 3.0,
+										"room door intersects a stair/access footprint: %s" % prop)
 					var furniture_action := PropModelCatalog.interaction_for(prop_type)
 					if not furniture_action.is_empty():
 						furniture_actions[furniture_action] = true
@@ -376,6 +525,14 @@ func run(host: Node) -> int:
 		"hotel region did not create a long multi-room corridor floor")
 	_expect(saw_prison_layout,
 		"lower prison region did not create a multi-cell-block corridor")
+	_expect(suite_kinds_seen.has("apartment") and suite_kinds_seen.has("office"),
+		"sampled world did not generate both apartment and office room suites")
+	_expect(saw_multi_unit_apartment_hall,
+		"apartment region never placed multiple complete units off one main hall")
+	for suite_role in ["bedroom", "kitchen", "family_dining", "house_bathroom",
+			"office_reception", "cubicle_room", "meeting_room", "private_office"]:
+		_expect(suite_roles_seen.has(suite_role),
+			"generated suites never exposed the %s amenity" % suite_role)
 	for biome in StreamedRouteGenerator.BIOMES:
 		if biome != "prison":
 			_expect(dressed_biomes.has(biome),
@@ -390,6 +547,28 @@ func run(host: Node) -> int:
 		"15x15 landmark rooms were clipped out of generated topology")
 	_expect(not rug_types_seen.is_empty(),
 		"restored authored rugs/mats never appeared in sampled Infinite rooms")
+	for expected_template in [
+			"bedroom", "kitchen", "mansion_dining", "family_dining",
+			"restaurant_dining", "arcade", "house_bathroom",
+			"hotel_bathroom", "luxury_bathroom", "public_restroom",
+			"carnival_midway", "carnival_game_stall", "carnival_backstage",
+			"frozen_tideline", "beach_hut", "lounge", "office_reception",
+			"office_cubicles", "office_meeting", "private_office",
+		]:
+		_expect(room_templates_seen.has(expected_template),
+			"streamed sample never furnished the %s room recipe" % expected_template)
+	_expect(not restaurant_room_props.is_empty(),
+		"streamed sample produced no auditable restaurant dining room")
+	for restaurant_room_id in restaurant_room_props:
+		var restaurant_counts: Dictionary = restaurant_room_props[restaurant_room_id]
+		_expect(int(restaurant_counts.get("restaurantPartyTable", 0)) >= 2 \
+			and int(restaurant_counts.get("woodenChairCushion", 0)) >= 12,
+			"restaurant room %s lacks two complete six-chair party rows: %s" \
+			% [restaurant_room_id, restaurant_counts])
+	_expect(saw_dual_lower and saw_dual_upper and saw_dual_carousel,
+		"sampled world never completed a matched two-floor carousel room contract")
+	_expect(saw_two_cell_double_door,
+		"sampled world never generated a true two-cell double doorway")
 	_expect(furniture_actions.has("sit") and furniture_actions.has("lay") \
 		and furniture_actions.has("mirror"),
 		"streamed dressing omitted sit, lay, or mirror interactions")
@@ -498,6 +677,40 @@ func run(host: Node) -> int:
 		Vector2i(seam_right, seam_offset))
 	_expect(seam_path.size() == 2,
 		"streamed hunter navigation did not cross a canonical chunk seam")
+	var floor_lookup := {}
+	for cell_value in navigation.floor_cells():
+		floor_lookup[cell_value] = true
+	var diagonal_start: Variant = null
+	var blocked_corner_start: Variant = null
+	for cell_value in floor_lookup:
+		var cell: Vector2i = cell_value
+		var diagonal := cell + Vector2i.ONE
+		if not floor_lookup.has(diagonal):
+			continue
+		var east_open := floor_lookup.has(cell + Vector2i.RIGHT)
+		var south_open := floor_lookup.has(cell + Vector2i.DOWN)
+		if east_open and south_open and diagonal_start == null:
+			diagonal_start = cell
+		elif (not east_open or not south_open) and blocked_corner_start == null:
+			blocked_corner_start = cell
+		if diagonal_start != null and blocked_corner_start != null:
+			break
+	_expect(diagonal_start != null,
+		"streamed navigation fixture has no open diagonal test square")
+	if diagonal_start != null:
+		var open_start: Vector2i = diagonal_start
+		var open_diagonal := navigation.find_path(open_start,
+			open_start + Vector2i.ONE)
+		_expect(open_diagonal.size() == 2,
+			"streamed hunter navigation did not take an open diagonal step")
+	_expect(blocked_corner_start != null,
+		"streamed navigation fixture has no blocked-corner diagonal test square")
+	if blocked_corner_start != null:
+		var corner_start: Vector2i = blocked_corner_start
+		var corner_path := navigation.find_path(corner_start,
+			corner_start + Vector2i.ONE)
+		_expect(corner_path.is_empty() or corner_path.size() > 2,
+			"streamed hunter navigation cut diagonally through a blocked corner")
 	_expect(navigation.has_line_of_sight(Vector2(seam_left + .5, seam_offset + .5),
 		Vector2(seam_right + .5, seam_offset + .5)),
 		"streamed hunter line of sight stopped at a matching chunk seam")
@@ -696,6 +909,18 @@ func run(host: Node) -> int:
 		map_hunter_levels[map_entity_id] = original_hunter_level
 		live_scene.set("_admin_reveal_hunters", original_reveal)
 	var pressure_world_state: StreamedWorldState = live_scene.get("world_state")
+	var saved_hunter_states := pressure_world_state.hunters.duplicate(true)
+	pressure_world_state.hunters.clear()
+	_expect(not bool(live_scene.call("_void_auto_spawn_allowed", "void_red")),
+		"a non-Gray Void hunter spawned before the A-Z roster was complete")
+	_expect(bool(live_scene.call("_void_auto_spawn_allowed", "void_gray")),
+		"Gray anti-idle hunter was incorrectly blocked before the A-Z roster")
+	for hunter_id in HunterRoster.A_Z_IDS:
+		pressure_world_state.hunters["ROSTER-CHECK:%s" % hunter_id] = {
+			"hunter_id": hunter_id}
+	_expect(bool(live_scene.call("_void_auto_spawn_allowed", "void_red")),
+		"Void hunters stayed blocked after all 26 A-Z hunters were present")
+	pressure_world_state.hunters = saved_hunter_states
 	var unique_identities := {}
 	for hunter_state_value in pressure_world_state.hunters.values():
 		var hunter_state: Dictionary = hunter_state_value
@@ -763,6 +988,7 @@ func run(host: Node) -> int:
 			"streamed hunter has no grounded gravity/collision body")
 		if lower_navigation != null and not up_route.is_empty():
 			test_hunter.brain.position = lower_endpoint
+			test_hunter.brain.state = HunterBrain.State.CHASE
 			hunter_levels[test_hunter_id] = 0
 			test_hunter.surface_height_provider = facility.streamed_surface_height.bind(0)
 			live_scene.call("_update_hunter_toward_stair", .01, test_hunter_id,
@@ -785,8 +1011,32 @@ func run(host: Node) -> int:
 				live_scene.call("_update_hunter_stair_transfer", .1,
 					test_hunter_id, test_hunter)
 			_expect(int(hunter_levels.get(test_hunter_id, 0)) == 1 \
-				and test_hunter.brain.position.is_equal_approx(upper_endpoint),
+					and test_hunter.brain.position.is_equal_approx(upper_endpoint),
 				"hunter did not finish walking up the stair onto the adjacent floor")
+			_expect(test_hunter.brain.state == HunterBrain.State.CHASE \
+					and test_hunter.brain.has_last_known \
+					and test_hunter.brain.last_known.is_equal_approx(upper_endpoint),
+				"walking a stair incorrectly cancelled the active hunter chase")
+			# The reverse path is a real descent too. This catches implementations
+			# which can raise the durable level number but leave gravity/pathing on
+			# the arrival floor, making a downward escape permanent.
+			if upper_navigation != null:
+				live_scene.call("_update_hunter_toward_stair", .01, test_hunter_id,
+					test_hunter, 1, {"peer_id": 1, "depth": 0,
+						"position": lower_endpoint, "hidden": false,
+						"in_safe_zone": false, "noise": 12.0,
+						"flashlight_on": true, "capture_immune": true},
+					upper_navigation)
+				transfers = live_scene.get("_hunter_stair_transfers")
+				_expect(transfers.has(test_hunter_id),
+					"hunter reached an upper landing but did not begin walking down")
+				for transfer_step in 50:
+					live_scene.call("_update_hunter_stair_transfer", .1,
+						test_hunter_id, test_hunter)
+				_expect(int(hunter_levels.get(test_hunter_id, 1)) == 0 \
+						and test_hunter.brain.position.is_equal_approx(lower_endpoint) \
+						and test_hunter.brain.state == HunterBrain.State.CHASE,
+					"hunter did not physically descend and resume the same chase")
 			# Restore the local-floor audio/map test fixture.
 			test_hunter.brain.position = player.grid_position() + Vector2(2.0, 0.0)
 			hunter_levels[test_hunter_id] = facility.current_level()
@@ -932,7 +1182,8 @@ func run(host: Node) -> int:
 					"Infinite admin button is a stub: %s" % entry.get("label", ""))
 		for required in ["TOGGLE NO TARGET", "TOGGLE GOD MODE", "TOGGLE NOCLIP",
 				"STUN ALL HUNTERS", "WAKE ALL HUNTERS", "CALM ALL HUNTERS",
-				"TOGGLE ALL REGION LIGHTS", "TOGGLE PIXEL EFFECT"]:
+				"TOGGLE ALL REGION LIGHTS", "TOGGLE PIXEL EFFECT",
+				"STOP STORY / CUTSCENE", "RESET STORY STATE"]:
 			_expect(admin_labels.has(required),
 				"Infinite admin menu is missing %s from the finite toolset" % required)
 		for heading in ["SUMMON A-Z HUNTER", "REMOVE A-Z HUNTER // ALL MATCHES"]:
@@ -948,6 +1199,13 @@ func run(host: Node) -> int:
 					== HunterRoster.VOID_IDS.size() \
 					and (entry.get("action", Callable()) as Callable).is_valid(),
 				"Infinite admin menu lacks a complete callable %s roster" % heading)
+		var story_picker: Dictionary = admin_headings.get(
+			"PLAY STORY / CUTSCENE", {})
+		_expect(not story_picker.is_empty() \
+				and not (story_picker.get("items", []) as Array).is_empty() \
+				and (story_picker.get("action", Callable()) as Callable).is_valid() \
+				and String(story_picker.get("permission", "")) == "world",
+			"Infinite admin menu lacks its authenticated story/cutscene picker")
 		var aki_before := 0
 		for state_value in map_world_state.hunters.values():
 			if String((state_value as Dictionary).get("hunter_id", "")) == "aki":
@@ -1028,10 +1286,11 @@ func run(host: Node) -> int:
 		"admin reveal escaped the finite arrival floor or lost its boundary chunks")
 	live_scene.call("_admin_toggle_map_reveal")
 	var snapshot: Dictionary = live_scene.call("_build_stream_snapshot")
-	_expect(int(snapshot.get("snapshot_protocol", 0)) == 1 \
+	_expect(int(snapshot.get("snapshot_protocol", 0)) == live_scene.SNAPSHOT_PROTOCOL \
 		and int(snapshot.get("seed", 0)) == RoomState.run_seed() \
 		and snapshot.get("world_state") is Dictionary \
-		and snapshot.get("hunters") is Array,
+		and snapshot.get("hunters") is Array \
+		and snapshot.get("story") is Dictionary,
 		"Infinite late-join snapshot is incomplete")
 	var local_packet: Dictionary = remotes.call("_local_state")
 	_expect(int(local_packet.get("depth", 999999)) == -facility.current_level() \
@@ -1166,7 +1425,8 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  chunks    deterministic topology, canonical seams and stable pickup ids")
 		print("  vertical  unbounded levels; central spawn links both up and down")
-		print("  regions   8 area identities; Gothic/Prison/Inferno constrained below")
+		print("  regions   %d area identities; Gothic/Prison/Inferno constrained below" \
+			% StreamedRouteGenerator.BIOMES.size())
 		print("  rooms     %d sizes; hotel/prison corridors serve many rooms" % room_sizes.size())
 		print("  survival  checkpoints, pickups and hunter state persist across unload")
 		print("  hunters   deterministic spawns, seam navigation and live pursuit load")

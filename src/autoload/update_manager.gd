@@ -127,6 +127,13 @@ var _last_progress_percent := -1
 
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
+	# A completed update leaves no useful player data behind in this directory.
+	# Clear archives, extracted staging trees, partial downloads and installer
+	# helpers from older revisions before beginning another check. Route saves,
+	# settings and account credentials live outside UPDATE_ROOT and are never
+	# considered by this cleanup.
+	_cleanup_update_cache()
+	_cleanup_previous_install_backup()
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
 	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
@@ -138,6 +145,12 @@ func _ready() -> void:
 	add_child(_download_request)
 	_download_request.request_completed.connect(_on_download_response)
 	set_process(false)
+	# Apple requires executable updates to be delivered through TestFlight or
+	# the App Store. Treat that channel as healthy instead of trapping an iOS
+	# build behind the native self-updater's startup gate.
+	if OS.has_feature("ios"):
+		_finish_check(true, false, "APP STORE UPDATES")
+		return
 	if DisplayServer.get_name() != "headless" and not offline_mode:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
@@ -177,6 +190,9 @@ func _process(_delta: float) -> void:
 
 
 func check() -> void:
+	if OS.has_feature("ios"):
+		_finish_check(true, false, "APP STORE UPDATES")
+		return
 	if offline_mode:
 		_finish_check(false, false, "OFFLINE MODE")
 		return
@@ -223,6 +239,8 @@ func enable_offline_mode() -> void:
 func platform_key() -> String:
 	if OS.has_feature("web"):
 		return "web"
+	if OS.has_feature("ios"):
+		return "ios"
 	if OS.has_feature("quest"):
 		return "quest"
 	if OS.has_feature("windows") and OS.has_feature("xr"):
@@ -296,6 +314,9 @@ func download_update(force_web_refresh := false) -> void:
 		safe_identity = "latest"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(UPDATE_ROOT))
 	downloaded_path = "%s/%s-%s.%s" % [UPDATE_ROOT, platform_key(), safe_identity, extension]
+	# Preserve an already verified package for this exact revision, but evict
+	# every older platform/revision archive and abandoned staging directory.
+	_cleanup_update_cache([downloaded_path])
 	var expected_sha := String(available.get("sha256", "")).to_lower()
 	if FileAccess.file_exists(downloaded_path) \
 			and FileAccess.get_sha256(downloaded_path).to_lower() == expected_sha:
@@ -367,6 +388,10 @@ func _prepare_verified_download() -> void:
 		_remove_tree(staged_path)
 		_set_status(extract_error)
 		return
+	# Desktop installation reads exclusively from the extracted staging tree.
+	# Keeping the source ZIP as well only doubles the disk usage.
+	_remove_file(downloaded_path)
+	downloaded_path = ""
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
 		_remove_tree(staged_path)
@@ -661,6 +686,47 @@ func _remove_tree(path: String) -> void:
 	for folder in directory.get_directories():
 		_remove_tree(global_path.path_join(folder))
 	DirAccess.remove_absolute(global_path)
+
+
+func _cleanup_update_cache(keep_paths: Array = []) -> void:
+	var global_root := ProjectSettings.globalize_path(UPDATE_ROOT).simplify_path()
+	if not DirAccess.dir_exists_absolute(global_root):
+		return
+	var keep := {}
+	for path in keep_paths:
+		var global_keep := ProjectSettings.globalize_path(String(path)).simplify_path()
+		if global_keep.get_base_dir() == global_root:
+			keep[global_keep] = true
+	var directory := DirAccess.open(global_root)
+	if directory == null:
+		return
+	directory.include_hidden = true
+	for file in directory.get_files():
+		var file_path := global_root.path_join(file).simplify_path()
+		if not keep.has(file_path):
+			DirAccess.remove_absolute(file_path)
+	for folder in directory.get_directories():
+		var folder_path := global_root.path_join(folder).simplify_path()
+		if not keep.has(folder_path):
+			_remove_tree(folder_path)
+
+
+func _cleanup_previous_install_backup() -> void:
+	if Build.revision() == Build.SOURCE_REVISION:
+		return
+	var backup := _previous_install_backup_path(platform_key(), OS.get_executable_path())
+	if not backup.is_empty():
+		_remove_tree(backup)
+
+
+static func _previous_install_backup_path(platform: String, executable_path: String) -> String:
+	if platform == "macos":
+		var app := _mac_bundle_path(executable_path)
+		return app.get_base_dir().path_join(".lastroute-backup-previous") \
+			if not app.is_empty() else ""
+	if platform in ["linux", "windows", "windows_legacy", "steamvr"]:
+		return executable_path.get_base_dir().path_join(".lastroute-backup-previous")
+	return ""
 
 
 func _set_status(message: String) -> void:

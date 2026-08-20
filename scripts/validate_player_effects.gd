@@ -76,13 +76,13 @@ func _thermal_warnings_replace_meter(host: Node) -> void:
 	hud.update_meters(meters, .82, 0.0)
 	var strengths := hud.thermal_effect_strengths()
 	_expect(absf(strengths.x - .82) < .01 and strengths.y < .01,
-		"Solyth proximity did not render the orange heat warning")
+		"Solyth proximity did not render the warm-yellow heat warning")
 	hud.update_meters(meters, 0.0, .76)
 	strengths = hud.thermal_effect_strengths()
 	_expect(strengths.x < .01 and absf(strengths.y - .76) < .01,
 		"Wynelle proximity did not render the white frost warning")
 	_expect(hud.find_child("TemperatureMeter", true, false) == null,
 		"the obsolete temperature bar is still present beside the screen effects")
-	print("  thermal   Solyth heat and Wynelle frost replace the temperature bar")
+	print("  thermal   restrained yellow heat and white frost replace the temperature bar")
 	scene.queue_free()
 	await host.get_tree().process_frame

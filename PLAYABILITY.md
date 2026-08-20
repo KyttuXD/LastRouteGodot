@@ -222,13 +222,18 @@ The finite Godot route and the original Canvas game were rechecked while the
 Infinite pass was active. These are the remaining functional gaps rather than
 stale presentation notes:
 
-- [ ] Port the original custom-map sibling data for explicit per-pixel props,
-  dialog triggers and scripted map mechanics. PNG topology, regions, host
-  transfer and late joining already work.
+- [~] Port the original custom-map sibling data. The original exact per-pixel
+  prop palette now reaches runtime prop placement, in addition to PNG topology,
+  regions, host transfer and late joining. Sibling authored mechanics and
+  walk-up dialog triggers remain; loading a custom PNG stays admin-only.
 - [ ] Add reconnect/host-promotion adoption in the Godot client after the Node
   relay elects a replacement host.
-- [ ] Port story dialogue/cutscene content and choose a maintained Godot data
-  format for the original YAML.
+- [~] Port story dialogue/cutscene content. A validated Godot JSON format now
+  carries branching dialogs plus ordered cutscene steps. Playback is admin-only
+  from the `0` menu—normal Infinite discovery never autoplays it. Host/guest
+  state, late joining and named saves preserve the active story. Wait/dialog
+  steps are playable; camera rails, actor choreography, portraits, and
+  additional original content remain to port.
 - [x] Add authoritative named A-Z/Void hunter summon/remove controls to the
   admin menu. Safe arbitrary teleport remains a separate future tool; existing
   gameplay/admin controls are live rather than stubs.

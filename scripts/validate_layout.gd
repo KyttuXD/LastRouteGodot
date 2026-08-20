@@ -206,12 +206,15 @@ func _check_hud_contract(scene: Node) -> int:
 	elif minimap.size.x > 100.0 or minimap.size.y > 82.0:
 		failures += _fail("minimap did not shrink to the compact HUD size")
 	scene.call("update_infinite_status", 4, 11, 73)
-	var danger_pulse := scene.find_child("DangerPulse", true, false) as ColorRect
-	if danger_pulse == null or not danger_pulse.visible \
-			or not is_equal_approx(float(scene.call("danger_pulse_strength")), .73):
-		failures += _fail("Infinite danger does not drive the pulsing pixel vignette")
-	if scene.find_child("DangerRow", true, false) != null:
-		failures += _fail("the obsolete danger percentage/bar still occupies the HUD")
+	var danger_row := scene.find_child("DangerRow", true, false) as HBoxContainer
+	var danger_label := scene.find_child("DangerLabel", true, false) as Label
+	var danger_bar := scene.find_child("DangerBar", true, false) as ProgressBar
+	if danger_row == null or not danger_row.visible or danger_label == null \
+			or danger_label.text != "DANGER 73%" or danger_bar == null \
+			or not is_equal_approx(danger_bar.value, 73.0):
+		failures += _fail("Infinite danger does not drive the compact route-panel meter")
+	if scene.find_child("DangerPulse", true, false) != null:
+		failures += _fail("the removed pain-style danger vignette still occupies the HUD")
 	if (scene.find_child("RelayLabel", true, false) as Label).text.contains("DANGER"):
 		failures += _fail("HUD displays a duplicate legacy danger percentage")
 	if scene.find_child("InventoryDragGhost", true, false) == null:
@@ -231,7 +234,7 @@ func _check_hud_contract(scene: Node) -> int:
 	if not bool(scene.call("hud_is_hidden")):
 		failures += _fail("F1 does not hide the gameplay HUD")
 	for node_name in ["ObjectivePanel", "HotbarPanel", "CompactStaminaBar",
-			"FpsLabel", "InteractionLabel", "MessageLabel", "DangerPulse",
+			"FpsLabel", "InteractionLabel", "MessageLabel",
 			"Crosshair", "MinimapPanel"]:
 		var surface := scene.find_child(node_name, true, false) as CanvasItem
 		if surface == null or surface.modulate.a > .001:

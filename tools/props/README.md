@@ -39,6 +39,33 @@ theme suffix. Keeping those rules in the builder is important because the
 Godot catalog relies on the same ordering to choose one coordinated colorway
 for every prop in a room.
 
+The maze builder also owns four complete retro-computer silhouettes: a compact
+all-in-one, tower workstation with speakers, horizontal desktop workstation,
+and wedge-terminal computer. Each is authored in ivory, charcoal, teal, and
+burgundy. Their screens use original Last Route signal glyphs rather than
+third-party operating-system artwork. Rebuild one family or the complete set
+with, for example:
+
+```bash
+flatpak run --filesystem="$PWD" org.blender.Blender --background \
+  --python "$PWD/tools/props/rebuild_hytale_props.py" -- \
+  retro_computer_compact_ivory retro_computer_tower_charcoal \
+  retro_computer_desktop_teal retro_computer_terminal_burgundy
+```
+
+The wooden chair, cushioned chair, table, and dresser/sideboard families are
+available in oak, walnut, mahogany, and ash. `PropModelCatalog` keeps every
+family in matching order and hashes the containing room id, so furniture in a
+room receives one stable wood finish and its computers receive one stable
+shell color in both finite and streamed routes. Adding a future variant means
+adding it to every coordinated silhouette at the same array index and updating
+the matching `VARIANT_THEMES` labels.
+
+Office desks, task chairs, CRT security consoles, partitions, printers, water
+coolers, photocopiers, shredders, file-box stacks, and corner workstations use
+the same rule. Each has neutral, charcoal, and teal authored exports, and every
+piece in one generated office resolves to the same finish from the room id.
+
 ## Hunter-scale contract
 
 Props use metres and are authored against the imported hunter roster: the

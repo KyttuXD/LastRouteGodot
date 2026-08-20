@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene load_steps=18 format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://src/ui/crosshair.gd" id="2_crosshair"]
@@ -41,6 +41,9 @@ bg_color = Color(0.561, 0.816, 0.878, 1)
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_stamina"]
 bg_color = Color(0.561, 0.816, 0.878, 1)
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_danger"]
+bg_color = Color(0.455, 0.722, 0.553, 1)
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_meter_fill_escape_progress"]
 bg_color = Color(0.95, 0.85, 0.48, 1)
 
@@ -57,7 +60,7 @@ anchor_right = 1.0
 offset_top = 8
 offset_left = -232
 offset_right = -104
-offset_bottom = 50
+offset_bottom = 62
 grow_horizontal = 0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
@@ -78,6 +81,27 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.92, 0.9, 1)
 theme_override_font_sizes/font_size = 6
 text = "0/5 SIGNAL RELAYS"
+
+[node name="DangerRow" type="HBoxContainer" parent="ObjectivePanel/ObjectiveBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="DangerLabel" type="Label" parent="ObjectivePanel/ObjectiveBox/DangerRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.455, 0.722, 0.553, 1)
+theme_override_font_sizes/font_size = 6
+text = "DANGER 0%"
+
+[node name="DangerBar" type="ProgressBar" parent="ObjectivePanel/ObjectiveBox/DangerRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 4)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/background = SubResource("StyleBoxFlat_meter_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_meter_fill_danger")
+show_percentage = false
 
 [node name="MetersPanel" type="PanelContainer" parent="."]
 visible = false

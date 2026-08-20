@@ -164,6 +164,13 @@ func admin_owner_authorized() -> bool:
 		and account_username in ["KYTTU", "AYTTU"]
 
 
+## Main.png is a personal player appearance, not an admin-role uniform. Keep
+## this separate from admin_authorized()/admin_owner_authorized() so AYTTU and
+## future delegated admins continue to render as the ordinary mannequin.
+func uses_kyttu_player_skin() -> bool:
+	return signed_in() and account_session_verified and account_username == "KYTTU"
+
+
 func admin_has_permission(permission: String) -> bool:
 	return admin_authorized() and permission.strip_edges().to_lower() \
 		in account_admin_permissions

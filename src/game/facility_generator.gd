@@ -112,6 +112,7 @@ func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Diction
 		var custom_exit: Vector2i = custom_layout.get("exit_cell", Vector2i(-1, -1))
 		exit_cell = custom_exit
 		populate_rooms()
+		_install_custom_authored_props(custom_layout.get("authored_props", []))
 		var from_start := distance_map(start.x, start.y)
 		# A painted exit is used as-is; an unpainted one falls back to the same
 		# auto-pick a procedural floor gets rather than leaving the floor with
@@ -120,6 +121,40 @@ func _init(p_seed_text: String, options: Dictionary = {}, custom_layout: Diction
 		place_safe_zones(from_start)
 		place_relays(from_start)
 		place_batteries(from_start)
+
+
+func _install_custom_authored_props(values: Array) -> void:
+	## Exact PNG prop pixels win over seeded room dressing at their cell. They
+	## are installed before objective placement so relays/batteries/safe zones
+	## use the same collision checks and cannot overlap them.
+	for value in values:
+		if not value is Dictionary:
+			continue
+		var authored: Dictionary = value
+		var cell := Vector2i(int(authored.get("x", -1)),
+			int(authored.get("y", -1)))
+		var type := String(authored.get("type", ""))
+		if type.is_empty() or not _valid_open_cell(cell) \
+				or spawn_points.has(cell) or cell == exit_cell:
+			continue
+		for index in range(props.size() - 1, -1, -1):
+			var existing: Dictionary = props[index]
+			if Vector2i(int(existing.get("x", -1)), int(existing.get("y", -1))) == cell:
+				props.remove_at(index)
+		var room := room_at(cell.x + .5, cell.y + .5)
+		var rotation := 0
+		if not room.is_empty():
+			var best_score := INF
+			for candidate in 4:
+				var score := _room_prop_preference(room, cell, type, candidate)
+				if score < best_score:
+					best_score = score
+					rotation = candidate
+		props.append({"id": "custom-authored-prop-%d" % props.size(),
+			"x": cell.x, "y": cell.y, "type": type,
+			"room_id": String(room.get("id", "")),
+			"region": String(room.get("region", "")), "rotation": rotation,
+			"authored": true})
 
 
 func _load_custom_spawn_points(custom_layout: Dictionary) -> void:

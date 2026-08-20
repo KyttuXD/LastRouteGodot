@@ -208,6 +208,38 @@ func enter_search_from(position_hint: Vector2, duration: float) -> void:
 	direct_chase_visible = false
 
 
+## A floor transition is part of an existing pursuit, not a loss-of-contact
+## event. Preserve the runner sample while the presentation walks the physical
+## stair ramp, then resume routed chase on the destination floor.
+func continue_chase_from(position_hint: Vector2) -> void:
+	state = State.CHASE
+	has_last_known = true
+	last_known = position_hint
+	lost_sight_timer = 0.0
+	search_timer = 0.0
+	has_search_target = false
+	_path.clear()
+	_has_path_target = false
+	direct_chase_visible = false
+
+
+## Presentation-only look direction. A hunter may receive a runner snapshot for
+## target selection, but the model must not stare at that runner unless the
+## brain is actually investigating, searching, or chasing. This keeps wander
+## behavior from looking omniscient (especially while an admin has NO TARGET
+## enabled) and gives the head scanner control during ordinary patrols.
+func presentation_look_target() -> Variant:
+	if not active or stun_timer > 0.0:
+		return null
+	match state:
+		State.CHASE, State.INVESTIGATE:
+			return last_known if has_last_known else null
+		State.SEARCH:
+			return search_target if has_search_target else (last_known if has_last_known else null)
+		_:
+			return null
+
+
 ## Mirrors respawnAfterCapture()'s hunter reset: back to a calm, unalerted
 ## idle instead of remembering anything about the run that just ended.
 func calm_reset(stun_duration: float) -> void:

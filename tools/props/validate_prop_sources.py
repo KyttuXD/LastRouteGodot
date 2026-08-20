@@ -20,6 +20,12 @@ HUNTER_SCALE_HEIGHTS = {
     "arcade_cabinet_": (1.75, 2.00),
     "filing_cabinet": (1.10, 1.50),
     "floor_lamp": (1.55, 2.00),
+    "table_lamp_": (0.55, 0.75),
+    "ceiling_light_": (0.20, 0.35),
+    "ceiling_fan_": (0.50, 0.65),
+    "dining_chandelier": (0.65, 0.95),
+    # Bevel expansion differs by a few millimetres between Blender releases.
+    "wall_sconce": (0.68, 0.90),
     "lounge_couch_": (0.80, 1.10),
     "privacy_curtain": (2.30, 2.55),
     "server_rack": (1.80, 2.20),
@@ -29,6 +35,17 @@ HUNTER_SCALE_HEIGHTS = {
     "wooden_chair_": (0.90, 1.25),
     "wooden_dresser_sideboard": (0.80, 1.15),
     "wooden_table": (0.72, 0.90),
+    "retro_computer_": (0.75, 0.98),
+    "office_desk": (0.80, 0.95),
+    "office_task_chair": (1.30, 1.50),
+    "office_crt_security_console": (1.35, 1.55),
+    "office_cubicle_partition": (1.60, 1.80),
+    "office_printer": (0.55, 0.75),
+    "office_water_cooler": (1.70, 1.85),
+    "office_photocopier": (1.15, 1.35),
+    "office_shredder": (1.15, 1.50),
+    "office_file_boxes": (0.85, 1.00),
+    "office_corner_workstation": (0.80, 0.95),
     "bathroom_mirror": (1.10, 1.35),
     "bathroom_sink": (1.10, 1.45),
     "bathroom_stall": (1.80, 2.10),
@@ -138,12 +155,38 @@ def validate_hunter_scale(name, low, high):
                 f"{name}: {size[0]:.3f} m is too narrow for two 0.65 m "
                 "hunter silhouettes plus arm clearance"
             )
+    elif name.startswith("retro_computer_"):
+        if size[0] < 1.0 or size[1] < .58:
+            raise RuntimeError(
+                f"{name}: {size[0]:.3f}x{size[1]:.3f} m workstation is "
+                "too small for hunter-scale keyboard and CRT use"
+            )
 
-    if name == "wall_sconce" and not (low[2] >= 1.10 and high[2] >= 1.80):
+    # Residential doors are aligned to the route's one-metre grid.  A double
+    # door must cover two adjacent doorway cells in the authored source/export,
+    # rather than merely drawing two narrow leaves inside a single-cell frame.
+    if name.endswith("_double_room_door") and size[0] < 2.05:
         raise RuntimeError(
-            f"wall_sconce: mounted bounds {low[2]:.3f}-{high[2]:.3f} m "
+            f"{name}: {size[0]:.3f} m frame is too narrow for a two-cell door"
+        )
+
+    if name.startswith("wall_sconce") and not (
+            low[2] >= 1.10 and high[2] >= 1.80):
+        raise RuntimeError(
+            f"{name}: mounted bounds {low[2]:.3f}-{high[2]:.3f} m "
             "sit below hunter chest/eye height"
         )
+    if name.startswith(("dining_chandelier", "ceiling_light_",
+                        "ceiling_fan_")):
+        # Ceiling fixtures are authored with their highest point as the mount.
+        # The shortest supported finite room is 3 m high; keep its lowest point
+        # above the tallest 2.20 m A-Z silhouette with a visible safety margin.
+        mounted_bottom = 3.0 - high[2] + low[2]
+        if mounted_bottom < 2.25:
+            raise RuntimeError(
+                f"{name}: mounted bottom {mounted_bottom:.3f} m clips the "
+                "2.20 m A-Z hunter usability envelope"
+            )
     if name.endswith("_kitchen_wall_cabinet") \
             and not (low[2] >= 1.20 and 2.00 <= high[2] <= 2.30):
         raise RuntimeError(
@@ -207,8 +250,10 @@ def validate_glb(path):
     if data.get("cameras") or "KHR_lights_punctual" in data.get("extensions", {}):
         raise RuntimeError(f"{path}: camera or light exported")
     images = data.get("images", [])
-    if len(images) != 1 or "bufferView" not in images[0]:
-        raise RuntimeError(f"{path}: expected one embedded pixel atlas")
+    if not images or any("bufferView" not in image for image in images):
+        raise RuntimeError(
+            f"{path}: expected one or more fully embedded pixel atlases"
+        )
     samplers = data.get("samplers", [])
     if not samplers or any(s.get("magFilter") != 9728 for s in samplers):
         raise RuntimeError(f"{path}: texture sampling is not nearest-neighbor")
@@ -226,6 +271,7 @@ roots = [
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "maze"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "mansion"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "beach"),
+    os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "carnival"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "nether"),
     os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "prison"),
 ]

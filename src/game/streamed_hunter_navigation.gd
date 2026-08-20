@@ -148,6 +148,10 @@ func refresh_generation() -> int:
 	return _refresh_generation
 
 
+func active_coordinates() -> Array[Vector3i]:
+	return _active_coords.duplicate()
+
+
 func uncollected(entries: Array) -> Array:
 	return entries.filter(func(entry: Dictionary) -> bool:
 		return not bool(entry.get("collected", false)))
@@ -221,9 +225,13 @@ func _rebuild_path_grid_if_needed() -> void:
 		* StreamedRouteGenerator.CHUNK_SIZE
 	_path_grid.region = Rect2i(origin, size)
 	_path_grid.cell_size = Vector2.ONE
-	_path_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
-	_path_grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
-	_path_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
+	# Match the finite/original pathfinder: open floor supports natural 8-way
+	# movement, but a diagonal is legal only when both orthogonal flank cells are
+	# clear. This keeps hunters fluid without letting their capsule cut wall or
+	# furniture corners.
+	_path_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	_path_grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	_path_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	_path_grid.update()
 	for z in range(origin.y, origin.y + size.y):
 		for x in range(origin.x, origin.x + size.x):

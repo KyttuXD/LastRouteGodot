@@ -38,6 +38,21 @@ const PALETTE := {
 	0x8e5fd9: {"kind": "region", "region": "mansion"},
 	0xb07cc6: {"kind": "region", "region": "bedroom"},
 	0x6fbf73: {"kind": "region", "region": "garden"},
+	# Exact authored props from the original PNG tool. The map remains an
+	# admin-only developer surface; these colors do not become procedural
+	# Infinite Route inputs.
+	0x00e5ff: {"kind": "prop", "prop_type": "locker"},
+	0xe91e63: {"kind": "prop", "prop_type": "privacyCurtain"},
+	0x8d6e63: {"kind": "prop", "prop_type": "supplyCrates"},
+	0x3f51b5: {"kind": "prop", "prop_type": "officeDesk"},
+	0x009688: {"kind": "prop", "prop_type": "officeChair"},
+	0x9e9e9e: {"kind": "prop", "prop_type": "filingCabinet"},
+	0xffc107: {"kind": "prop", "prop_type": "trashBin"},
+	0x795548: {"kind": "prop", "prop_type": "woodenChair"},
+	0x607d8b: {"kind": "prop", "prop_type": "woodenTable"},
+	0xff5722: {"kind": "prop", "prop_type": "vendingMachine"},
+	0x673ab7: {"kind": "prop", "prop_type": "magazineRack"},
+	0x03a9f4: {"kind": "prop", "prop_type": "floorLamp"},
 }
 
 ## Custom layouts do not inherit the procedural generator's 35..121 authoring
@@ -84,6 +99,7 @@ static func parse(image: Image) -> Dictionary:
 	var cell_region := {}  # Vector2i -> String region, only for painted region cells
 	var spawn_points: Array[Vector2i] = []
 	var exits: Array[Vector2i] = []
+	var authored_props: Array = []
 	var open_cell_count := 0
 
 	for y in height:
@@ -117,6 +133,11 @@ static func parse(image: Image) -> Dictionary:
 					grid[y][x] = 0
 					open_cell_count += 1
 					cell_region[Vector2i(x, y)] = String(entry["region"])
+				"prop":
+					grid[y][x] = 0
+					open_cell_count += 1
+					authored_props.append({"x": x, "y": y,
+						"type": String(entry["prop_type"])})
 
 	if open_cell_count <= 0:
 		return {"ok": false, "error": "custom map has no walkable floor or spawn cells"}
@@ -138,6 +159,7 @@ static func parse(image: Image) -> Dictionary:
 		"start": spawn_points[0] if not spawn_points.is_empty() else Vector2i(-1, -1),
 		"spawn_points": spawn_points,
 		"exit_cell": exits[0] if not exits.is_empty() else Vector2i(-1, -1),
+		"authored_props": authored_props,
 		"warnings": warnings,
 	}
 

@@ -30,6 +30,7 @@ rm -f -- \
 	"${build_dir}/LastRoute-Windows-Debug.pck" \
 	"${build_dir}/LastRoute-Windows-Legacy-Debug.pck" \
 	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck" \
+	"${build_dir}/LastRoute-iOS-Debug.pck" \
 	"${build_dir}/KYTTU- The Last Route.command"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 

@@ -33,6 +33,10 @@ const CEILING_INSET := 0.02
 ## stacked chunks, producing upper-floor stripes and solid columns across stair
 ## landings. The ceiling closes this small remainder without overlapping either.
 const WALL_HEIGHT := LEVEL_HEIGHT - SLAB - CEILING_INSET
+## Straight maze runs are structural slabs, not one-metre concrete cubes. Full
+## cells remain only at corners, junctions and chunk seams so thin runs stay
+## collision-tight without opening diagonal cracks.
+const WALL_THICKNESS := .28
 const STAIR_RUN := 8.0
 const STAIR_RISE := LEVEL_HEIGHT
 const STAIR_WIDTH := 3.0
@@ -57,6 +61,7 @@ const REGION_COLORS := {
 	"gothic": Color("82659a"),
 	"prison": Color("748895"),
 	"inferno": Color("c45b45"),
+	"carnival": Color("d58aa9"),
 }
 const REGION_WALL_COLORS := {
 	"maze": Color("b47d6e"),
@@ -67,6 +72,7 @@ const REGION_WALL_COLORS := {
 	"gothic": Color("674d79"),
 	"prison": Color("61717d"),
 	"inferno": Color("9f493d"),
+	"carnival": Color("8e3f61"),
 }
 
 var generator: StreamedRouteGenerator
@@ -97,6 +103,7 @@ var _mirror_viewport: SubViewport
 var _mirror_camera: Camera3D
 var _mirror_surfaces: Array[MeshInstance3D] = []
 var _mirror_refresh_elapsed := 0.0
+var _animated_activity_props: Array[Node3D] = []
 
 
 func _ready() -> void:
@@ -118,6 +125,7 @@ func clear() -> void:
 	# queueing those chunks so the 10 Hz mirror pass can never inspect a freed
 	# typed-object entry during a rebuild or scene shutdown.
 	_mirror_surfaces.clear()
+	_animated_activity_props.clear()
 	for node_value in _loaded.values():
 		var node := node_value as Node
 		if node != null:
@@ -222,6 +230,12 @@ func _process(_delta: float) -> void:
 	_drain_stream_queue()
 	_collect_taken_pickups()
 	_update_shared_mirror(_delta)
+	for index in range(_animated_activity_props.size() - 1, -1, -1):
+		var activity := _animated_activity_props[index]
+		if activity == null or not is_instance_valid(activity):
+			_animated_activity_props.remove_at(index)
+		else:
+			activity.rotate_y(_delta * .34)
 
 
 func _refresh_stream(force: bool) -> void:
@@ -329,6 +343,15 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	ceiling.name = "Ceiling"
 	_configure_grid(ceiling)
 	var region := String(data.get("region", "maze"))
+	var ceiling_voids := _stair_voids(data, "up")
+	var floor_voids := _stair_voids(data, "down")
+	var structural_voids := {}
+	for cell_value in data.get("ceiling_voids", []):
+		ceiling_voids[cell_value as Vector2i] = true
+	for cell_value in data.get("floor_voids", []):
+		floor_voids[cell_value as Vector2i] = true
+	for cell_value in data.get("structural_voids", []):
+		structural_voids[cell_value as Vector2i] = true
 	return {
 		"coord": coord,
 		"data": data,
@@ -337,9 +360,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"ceiling": ceiling,
 		"region": region,
 		"floor_item": int(_floor_items.get(region, _floor_items["maze"])),
-		"wall_item": int(_wall_items.get(region, _wall_items["maze"])),
-		"ceiling_voids": _stair_voids(data, "up"),
-		"floor_voids": _stair_voids(data, "down"),
+		"wall_items": _wall_items.get(region, _wall_items["maze"]),
+		"ceiling_voids": ceiling_voids,
+		"floor_voids": floor_voids,
+		"structural_voids": structural_voids,
 		"safe": bool(data.get("safe_room", false)),
 		"cell_index": 0,
 		"phase": 0,
@@ -383,6 +407,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_stairs(root, data)
+				_spawn_streamed_ceiling_lights(root, data)
 				build["phase"] = 4
 				if not immediate:
 					return false
@@ -450,6 +475,13 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var grid_data: Array = data["grid"]
 	var grid := build["grid"] as GridMap
 	var ceiling := build["ceiling"] as GridMap
+	if (build["structural_voids"] as Dictionary).has(cell):
+		# The upper half of a two-storey room is genuine air. It owns neither an
+		# upper floor slab nor wall collision, but it still receives this level's
+		# ceiling so the combined room closes at eight metres.
+		if not (build["ceiling_voids"] as Dictionary).has(cell):
+			ceiling.set_cell_item(Vector3i(x, 1, z), 1)
+		return
 	if int(grid_data[z][x]) == 0:
 		if not (build["floor_voids"] as Dictionary).has(cell):
 			var item := int(build["floor_item"])
@@ -461,7 +493,44 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		if not (build["ceiling_voids"] as Dictionary).has(cell):
 			ceiling.set_cell_item(Vector3i(x, 1, z), 1)
 	else:
-		grid.set_cell_item(Vector3i(x, 0, z), int(build["wall_item"]))
+		grid.set_cell_item(Vector3i(x, 0, z),
+			_wall_item_for(grid_data, x, z, build["wall_items"]))
+
+
+static func _wall_item_for(grid_data: Array, x: int, z: int,
+		items: Dictionary) -> int:
+	var width: int = grid_data[0].size() if not grid_data.is_empty() else 0
+	var height: int = grid_data.size()
+	# Boundary cells remain full-depth: their neighbor belongs to another chunk
+	# and may not be loaded yet, so a thin guess would expose a collision seam.
+	if x <= 0 or z <= 0 or x >= width - 1 or z >= height - 1:
+		return int(items["full"])
+	var horizontal := int(grid_data[z][x - 1]) != 0 \
+		or int(grid_data[z][x + 1]) != 0
+	var vertical := int(grid_data[z - 1][x]) != 0 \
+		or int(grid_data[z + 1][x]) != 0
+	if horizontal and not vertical:
+		var left_junction := _wall_cell_is_junction(grid_data, x - 1, z)
+		var right_junction := _wall_cell_is_junction(grid_data, x + 1, z)
+		return int(items["horizontal_transition"] \
+			if left_junction or right_junction else items["horizontal"])
+	if vertical and not horizontal:
+		var upper_junction := _wall_cell_is_junction(grid_data, x, z - 1)
+		var lower_junction := _wall_cell_is_junction(grid_data, x, z + 1)
+		return int(items["vertical_transition"] \
+			if upper_junction or lower_junction else items["vertical"])
+	return int(items["full"])
+
+
+static func _wall_cell_is_junction(grid_data: Array, x: int, z: int) -> bool:
+	if x <= 0 or z <= 0 or z >= grid_data.size() - 1 \
+			or x >= grid_data[0].size() - 1 or int(grid_data[z][x]) == 0:
+		return false
+	var horizontal := int(grid_data[z][x - 1]) != 0 \
+		or int(grid_data[z][x + 1]) != 0
+	var vertical := int(grid_data[z - 1][x]) != 0 \
+		or int(grid_data[z + 1][x]) != 0
+	return horizontal and vertical
 
 
 func _discard_active_build() -> void:
@@ -586,6 +655,45 @@ func _spawn_stairs(parent: Node3D, data: Dictionary) -> void:
 		stair_root.add_child(ramp)
 
 
+func _spawn_streamed_ceiling_lights(parent: Node3D, data: Dictionary) -> void:
+	var region := String(data.get("region", "maze"))
+	if region not in ["carnival", "maze"]:
+		return
+	var blocked := _stair_voids(data, "up")
+	for cell_value in data.get("ceiling_voids", []):
+		blocked[cell_value as Vector2i] = true
+	var candidates: Array[Vector2i] = []
+	var grid: Array = data.get("grid", [])
+	for z in range(2, grid.size() - 2):
+		for x in range(2, (grid[z] as Array).size() - 2):
+			var cell := Vector2i(x, z)
+			if int(grid[z][x]) == 0 and not blocked.has(cell):
+				candidates.append(cell)
+	if candidates.is_empty():
+		return
+	var rng := SeededRandom.new("%s:STREAMED-FAIRY-LIGHTS" % String(
+		data.get("chunk_id", "")))
+	var target := 5 if region == "carnival" else 2
+	var chosen: Array[Vector2i] = []
+	while chosen.size() < target and not candidates.is_empty():
+		var pick: Vector2i = candidates[rng.next_index(candidates.size())]
+		candidates.erase(pick)
+		if chosen.any(func(other: Vector2i) -> bool:
+			return pick.distance_to(other) < 7.0):
+			continue
+		chosen.append(pick)
+	if chosen.is_empty():
+		return
+	var anchors := []
+	for cell in chosen:
+		anchors.append(Vector3(cell.x + .5, WALL_HEIGHT - .12, cell.y + .5))
+	var decor := CeilingDecor.new()
+	decor.name = "FiniteFairyLights"
+	decor.add_to_group("streamed_ceiling_decor")
+	parent.add_child(decor)
+	decor.build(anchors, rng)
+
+
 func _spawn_prison_props(parent: Node3D, data: Dictionary) -> void:
 	for task_value in _prison_prop_tasks(data):
 		_spawn_prison_prop_task(parent, task_value)
@@ -594,8 +702,18 @@ func _spawn_prison_props(parent: Node3D, data: Dictionary) -> void:
 func _prison_prop_tasks(data: Dictionary) -> Array:
 	var tasks := []
 	var rooms: Array = data.get("rooms", [])
-	for room_index in mini(rooms.size(), 6):
-		var room: Dictionary = rooms[room_index]
+	# Dedicated cafeteria/stairwell templates own their full interior. The old
+	# cell-block dresser used to drop gates and bunks into every prison room,
+	# stacking them through cafeteria furniture and blocking its serving aisle.
+	var prison_cells := []
+	for room_value in rooms:
+		var candidate: Dictionary = room_value
+		if String(candidate.get("room_type", "")) == "prison_cell":
+			prison_cells.append(candidate)
+	var cage_room_index: int = mini(prison_cells.size() - 1, 2) \
+		if not prison_cells.is_empty() else -1
+	for room_index in mini(prison_cells.size(), 6):
+		var room: Dictionary = prison_cells[room_index]
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var above_hall := rect.position.y < StreamedRouteGenerator.CHUNK_SIZE / 2
 		var gate_at := Vector3(rect.position.x + rect.size.x * .5, 0.0,
@@ -604,6 +722,9 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 			"yaw": 0.0 if above_hall else PI,
 			"size": Vector3(rect.size.x, 2.4, .16),
 			"group": "streamed_prison_prop", "solid": true, "type": ""})
+		# The dedicated cage fills this cell; do not bury a bunk/chair through it.
+		if room_index == cage_room_index:
+			continue
 		var inside_z := rect.position.y + 1.0 if above_hall else rect.end.y - 1.0
 		tasks.append({"path": PRISON_MODELS["bunk"],
 			"at": Vector3(rect.position.x + 1.0, 0.0, inside_z),
@@ -616,8 +737,8 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 				"yaw": 0.0, "size": Vector3(.7, 1.2, .7),
 				"group": "streamed_prison_prop", "solid": true,
 				"type": "restraintChair"})
-	if not rooms.is_empty():
-		var room: Dictionary = rooms[min(rooms.size() - 1, 2)]
+	if not prison_cells.is_empty():
+		var room: Dictionary = prison_cells[cage_room_index]
 		var center: Vector2i = room.get("center", Vector2i(
 			StreamedRouteGenerator.CHUNK_SIZE / 2,
 			StreamedRouteGenerator.CHUNK_SIZE / 2))
@@ -650,14 +771,18 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 		_spawn_room_door(parent, coord, prop, type)
 		return
 	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
-	var prop_y := PropModelCatalog.visual_y(type, WALL_HEIGHT)
+	var prop_y := PropModelCatalog.visual_y(type, WALL_HEIGHT,
+		float(prop.get("mount_y", 0.0)))
 	var mount_offset: Vector2 = prop.get("mount_offset", Vector2.ZERO) \
 		+ prop.get("placement_offset", Vector2.ZERO)
 	_spawn_authored_prop(parent, PropModelCatalog.model_path(type,
-		String(prop.get("id", ""))), Vector3(cell.x + .5 + mount_offset.x,
+		String(prop.get("id", "")), String(prop.get("room_id", ""))),
+		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("blocker_size", Vector3.ONE),
 		"streamed_region_prop", bool(prop.get("solid", true)), type)
+	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
+		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
 		var light := OmniLight3D.new()
 		light.position = Vector3(cell.x + .5, 1.0, cell.y + .5)
@@ -667,16 +792,39 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 		parent.add_child(light)
 
 
+func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> void:
+	var profile := PropModelCatalog.light_profile(prop_type)
+	if profile.is_empty():
+		return
+	# Per-chunk cap prevents authored furnishing from multiplying shadowless
+	# point lights until streamed generation becomes a frame-time spike.
+	var count := int(parent.get_meta("fixture_light_count", 0))
+	if count >= 4:
+		return
+	parent.set_meta("fixture_light_count", count + 1)
+	var light := OmniLight3D.new()
+	light.name = "FixtureLight_%s_%d" % [prop_type, count]
+	light.position = at + Vector3.UP * float(profile.get("height", .5))
+	light.light_color = profile.get("color", Color.WHITE)
+	light.light_energy = float(profile.get("energy", .4))
+	light.omni_range = float(profile.get("range", 3.5))
+	light.shadow_enabled = false
+	light.visible = _all_lights_enabled
+	parent.add_child(light)
+
+
 func _spawn_room_door(parent: Node3D, coord: Vector3i,
 		prop: Dictionary, prop_type: String) -> void:
 	var door_id := String(prop.get("id", ""))
 	if door_id.is_empty():
 		return
 	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	var placement_offset: Vector2 = prop.get("placement_offset", Vector2.ZERO)
 	var status := world_state.room_door_status(door_id)
 	var door := RouteInteractable3D.new()
 	door.name = "RoomDoor_%s" % door_id.replace(":", "_")
-	door.position = Vector3(cell.x + .5, 0.0, cell.y + .5)
+	door.position = Vector3(cell.x + .5 + placement_offset.x, 0.0,
+		cell.y + .5 + placement_offset.y)
 	door.rotation.y = float(prop.get("yaw", 0.0))
 	door.source_cell = Vector2i(
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
@@ -685,7 +833,8 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 		else Callable()
 	door.configure_room_door(door_id, PropModelCatalog.model_path(prop_type,
 		door_id), bool(status.get("open", false)),
-		bool(status.get("broken", false)), requester)
+		bool(status.get("broken", false)), requester,
+		int(prop.get("door_span", 1)))
 	parent.add_child(door)
 	_door_nodes[door_id] = door
 
@@ -732,6 +881,10 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
 	visual.add_to_group(group_name)
 	parent.add_child(visual)
+	if PropModelCatalog.is_empty_frame(prop_type):
+		_add_blank_frame_canvas(visual, prop_type)
+	if prop_type == "carouselCenterpiece":
+		_animated_activity_props.append(visual)
 	ModelSlot.apply_prop_pixel_filter(visual)
 	ModelSlot.apply_blocky_prop_style(visual)
 	if PropModelCatalog.is_floor_dressing(prop_type):
@@ -758,6 +911,35 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	collision.rotation.y = yaw
 	body.add_child(collision)
 	parent.add_child(body)
+
+
+func _add_blank_frame_canvas(frame: Node3D, prop_type: String) -> void:
+	# The original "empty" frame meshes intentionally had no centre surface,
+	# which made them read as holes in the wall at runtime. Add a small, flat,
+	# double-sided white canvas without changing the authored frame geometry.
+	# Keeping it as a child also makes the result deterministic for every peer.
+	var canvas := MeshInstance3D.new()
+	canvas.name = "BlankWhiteCanvas"
+	var quad := QuadMesh.new()
+	match prop_type:
+		"normalPictureFrameEmpty":
+			quad.size = Vector2(.58, .70)
+		"normalPaintingFrameEmpty":
+			quad.size = Vector2(1.02, 1.28)
+		"luxuryPictureFrameEmpty", "gothicPictureFrameEmpty":
+			quad.size = Vector2(.62, .74)
+		_:
+			quad.size = Vector2(1.04, 1.30)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("f4f4f1")
+	material.roughness = .86
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	quad.material = material
+	canvas.mesh = quad
+	# Frame origins place the centre opening around this height. The small
+	# forward offset prevents depth fighting with the inner trim.
+	canvas.position = Vector3(0.0, 1.38, .066)
+	frame.add_child(canvas)
 
 
 func _build_shared_mirror() -> void:
@@ -1008,10 +1190,37 @@ func _build_mesh_library() -> MeshLibrary:
 			Vector3(0.0, -SLAB * .5, 0.0), floor_material, true)
 		_floor_items[region] = next_id
 		next_id += 1
-		_add_box(library, next_id, Vector3(1.0, WALL_HEIGHT, 1.0),
+		var full_wall_id := next_id
+		_add_box(library, full_wall_id, Vector3(1.0, WALL_HEIGHT, 1.0),
 			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
-		_wall_items[region] = next_id
 		next_id += 1
+		var horizontal_wall_id := next_id
+		_add_box(library, horizontal_wall_id,
+			Vector3(1.0, WALL_HEIGHT, WALL_THICKNESS),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		next_id += 1
+		var vertical_wall_id := next_id
+		_add_box(library, vertical_wall_id,
+			Vector3(WALL_THICKNESS, WALL_HEIGHT, 1.0),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		next_id += 1
+		var horizontal_transition_id := next_id
+		_add_box(library, horizontal_transition_id,
+			Vector3(1.0, WALL_HEIGHT, .64),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		next_id += 1
+		var vertical_transition_id := next_id
+		_add_box(library, vertical_transition_id,
+			Vector3(.64, WALL_HEIGHT, 1.0),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		next_id += 1
+		_wall_items[region] = {
+			"full": full_wall_id,
+			"horizontal": horizontal_wall_id,
+			"vertical": vertical_wall_id,
+			"horizontal_transition": horizontal_transition_id,
+			"vertical_transition": vertical_transition_id,
+		}
 	_safe_floor_item = next_id
 	_add_box(library, next_id, Vector3(1.0, SLAB, 1.0),
 		Vector3(0.0, -SLAB * .5, 0.0),

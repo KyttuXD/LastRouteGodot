@@ -4,7 +4,7 @@ extends Node
 ## own runner; the host alone owns contested pickups, safe-room integrity,
 ## checkpoints, hunter simulation and late-join snapshots.
 
-const SNAPSHOT_PROTOCOL := 1
+const SNAPSHOT_PROTOCOL := 2
 const AUTHORITY_REFRESH_SECONDS := .20
 const STREAM_INTERACT_DISTANCE := 3.25
 const CHECKPOINT_REQUEST_RETRY_USEC := 500_000
@@ -24,10 +24,13 @@ const HUNTER_RESIDENCY_CHUNK_RADIUS := 3
 ## CharacterBody applies gravity and climbs the same ramp collision as players.
 const HUNTER_STAIR_SPEED := 3.4
 const HUNTER_STAIR_WAYPOINT_EPSILON := .08
+const HUNTER_STAIR_PLAN_LIFETIME_MSEC := 4000
+const HUNTER_STAIR_RETRY_MSEC := 650
 const MAP_DISCOVERY_NEARBY_RADIUS := 4.5
 const WAYPOINT_ARRIVAL_RADIUS := 5.0
 const LOCAL_SAVE_SCHEMA := 1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
+const STORY_DIRECTOR_SCRIPT := preload("res://src/story/infinite_story_director.gd")
 
 @onready var world: Node3D = %World
 @onready var facility: StreamedFacilityView3D = %StreamedFacility
@@ -45,6 +48,10 @@ var _hunter_views := {}
 var _hunter_origins := {}
 var _hunter_levels := {}
 var _hunter_stair_transfers := {}
+## A selected stair is a route decision, not a per-frame query. Caching it
+## prevents every active cross-floor hunter from running several A* searches at
+## 30 Hz while still allowing a blocked/changed route to be reconsidered.
+var _hunter_stair_plans := {}
 var _safe_damage_accumulators := {}
 var _capture_cooldown := 0.0
 var _was_chased := false
@@ -77,6 +84,7 @@ var _admin_reveal_map := false
 var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
+var _story
 var _death_screen_open := false
 var _pending_admin_requests := {}
 var _admin_ticket_refresh_elapsed := 0.0
@@ -108,6 +116,14 @@ func _ready() -> void:
 	pixel_signal_effect = PixelSignalEffect.new()
 	pixel_signal_effect.name = "PixelSignalEffect"
 	add_child(pixel_signal_effect)
+	_story = STORY_DIRECTOR_SCRIPT.new()
+	_story.name = "InfiniteStoryDirector"
+	add_child(_story)
+	var story_error: String = _story.configure(not RoomState.online or RoomState.is_host)
+	if not story_error.is_empty():
+		push_error("Infinite story content: %s" % story_error)
+	_story.state_published.connect(_on_story_state_published)
+	_story.active_changed.connect(_on_story_active_changed)
 	_build_waypoint_ground_trail()
 	_awaiting_snapshot = RoomState.online and not RoomState.is_host
 	# An online host with no guests may resume a local archive without tearing
@@ -266,14 +282,15 @@ func _process(delta: float) -> void:
 			if Backend.admin_ticket_for_room(RoomState.code).is_empty():
 				Backend.request_admin_ticket(RoomState.code)
 	var admin_open := _admin_menu != null and _admin_menu.is_open()
+	var story_open: bool = _story != null and _story.is_active()
 	if _awaiting_snapshot or _death_screen_open or admin_open or hud.inventory_is_open() \
 			or hud.map_is_open() \
-			or (_room_chat != null and _room_chat.is_open()):
+			or (_room_chat != null and _room_chat.is_open()) or story_open:
 		player.input_frozen = true
-	if Input.is_action_just_pressed("inventory") and not admin_open \
+	if Input.is_action_just_pressed("inventory") and not admin_open and not story_open \
 			and not _awaiting_snapshot and not pause_menu.is_open():
 		hud.toggle_inventory()
-	if Input.is_action_just_pressed("toggle_map") and not admin_open \
+	if Input.is_action_just_pressed("toggle_map") and not admin_open and not story_open \
 			and not _awaiting_snapshot:
 		hud.set_inventory_open(false)
 		hud.toggle_map_overlay()
@@ -286,6 +303,13 @@ func _process(delta: float) -> void:
 	GameState.depth = -level
 	var data := facility.current_chunk_data()
 	_update_map_discovery(data)
+	# Story presentation freezes both input and host AI. This preserves the
+	# original dialog/cutscene contract instead of letting a hunter capture a
+	# player while every client's choices are on screen.
+	if _story != null and _story.is_active():
+		player.velocity = Vector3.ZERO
+		_update_hud()
+		return
 	_clear_reached_waypoints(level)
 	if not _awaiting_snapshot:
 		_update_checkpoint(data)
@@ -506,8 +530,17 @@ func _infinite_admin_actions() -> Array:
 			"action": func() -> void: _admin_world_action("repair_checkpoint")},
 		{"label": "TOGGLE ALL REGION LIGHTS", "permission": "world",
 			"action": func() -> void:
-			facility.set_all_lights(not facility.all_lights_enabled()),
+				facility.set_all_lights(not facility.all_lights_enabled()),
 			"state": func() -> bool: return facility.all_lights_enabled()},
+		{"heading": "STORY / CUTSCENES", "permission": "world"},
+		{"heading": "PLAY STORY / CUTSCENE", "permission": "world",
+			"items": _story.admin_scene_ids() if _story != null else [],
+			"labels": _story.admin_scene_labels() if _story != null else {},
+			"action": _admin_start_story},
+		{"label": "STOP STORY / CUTSCENE", "permission": "world",
+			"action": _admin_stop_story},
+		{"label": "RESET STORY STATE", "permission": "world",
+			"action": _admin_reset_story},
 		{"heading": "VISUAL TOOLS", "permission": "visual"},
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
 			"permission": "visual",
@@ -550,6 +583,7 @@ func _on_admin_menu_open_changed(shown: bool) -> void:
 		or (pause_menu != null and pause_menu.is_open()) \
 		or hud.inventory_is_open() \
 		or (_room_chat != null and _room_chat.is_open()) \
+		or (_story != null and _story.is_active()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -577,6 +611,7 @@ func _admin_teleport_to(destination: Vector3) -> void:
 	_update_streamed_maps()
 	player.input_frozen = _awaiting_snapshot or _death_screen_open \
 		or (pause_menu != null and pause_menu.is_open()) \
+		or (_story != null and _story.is_active()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -608,6 +643,7 @@ func _on_inventory_open_changed(_shown: bool) -> void:
 		or (_admin_menu != null and _admin_menu.is_open()) \
 		or (pause_menu != null and pause_menu.is_open()) \
 		or (_room_chat != null and _room_chat.is_open()) \
+		or (_story != null and _story.is_active()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -619,6 +655,7 @@ func _on_map_open_changed(_shown: bool) -> void:
 		or (_admin_menu != null and _admin_menu.is_open()) \
 		or (pause_menu != null and pause_menu.is_open()) \
 		or (_room_chat != null and _room_chat.is_open()) \
+		or (_story != null and _story.is_active()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -632,6 +669,7 @@ func _on_chat_open_changed(_shown: bool) -> void:
 		or hud.inventory_is_open() \
 		or (_admin_menu != null and _admin_menu.is_open()) \
 		or (pause_menu != null and pause_menu.is_open()) \
+		or (_story != null and _story.is_active()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -644,6 +682,30 @@ func _on_pause_resumed() -> void:
 	player.input_frozen = _awaiting_snapshot or hud.inventory_is_open() \
 		or _death_screen_open or hud.map_is_open() \
 		or (_admin_menu != null and _admin_menu.is_open()) \
+		or (_story != null and _story.is_active()) \
+		or player.hidden or player.is_stunned()
+
+
+func _on_story_state_published(state: Dictionary) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	_publish_stream_event({"what": "stream_story", "state": state})
+
+
+func _on_story_active_changed(active: bool) -> void:
+	if active:
+		hud.set_inventory_open(false)
+		hud.set_map_open(false)
+		if _room_chat != null:
+			_room_chat.close()
+		if _admin_menu != null:
+			_admin_menu.close()
+	player.velocity = Vector3.ZERO
+	player.input_frozen = active or _awaiting_snapshot or _death_screen_open \
+		or hud.inventory_is_open() or hud.map_is_open() \
+		or (_admin_menu != null and _admin_menu.is_open()) \
+		or (pause_menu != null and pause_menu.is_open()) \
+		or (_room_chat != null and _room_chat.is_open()) \
 		or player.hidden or player.is_stunned()
 
 
@@ -733,6 +795,7 @@ func _build_route_save_payload() -> Dictionary:
 			"markers": _discovered_map_markers.duplicate(true),
 			"waypoints": _map_waypoints.duplicate(true),
 		},
+		"story": _story.snapshot() if _story != null else {"active": false},
 		"anti_idle": {
 			"relay_seconds": _relay_inactivity_seconds,
 			"afk_seconds": _party_afk_seconds,
@@ -787,6 +850,9 @@ func _adopt_route_save_before_stream(payload: Dictionary) -> bool:
 			int(anti_idle.get("relay_count", GameState.relays_collected)))
 		_anti_idle_spawn_sequence = maxi(0,
 			int(anti_idle.get("spawn_sequence", 0)))
+	var story = payload.get("story", {})
+	if story is Dictionary and _story != null:
+		_story.adopt_snapshot(story)
 	var statistics = payload.get("statistics", {})
 	if statistics is Dictionary and not statistics.is_empty():
 		_run_statistics = statistics.duplicate(true)
@@ -1118,12 +1184,16 @@ func _streamed_map_marks(level: int, include_porcelle_counterplay: bool = true) 
 func _update_streamed_maps() -> void:
 	var at := Vector2(player.global_position.x, player.global_position.z)
 	var level := facility.current_level()
+	# Region boundaries expose generation information, so they follow the same
+	# authenticated visual-admin permission as hunter/map reveal controls.
+	var show_admin_regions := Build.admin_permission("visual")
 	var remote_map_players := _remotes.remote_player_marks(-level) \
 		if _remotes != null else []
 	_refresh_waypoint_route(level)
 	hud.update_streamed_minimap(_local_map_chunks(), level,
 		StreamedRouteGenerator.CHUNK_SIZE, at, player.facing,
-		_streamed_map_marks(level, false), remote_map_players)
+		_streamed_map_marks(level, false), remote_map_players,
+		show_admin_regions)
 	var floor_waypoints := _map_waypoints.filter(func(waypoint: Dictionary) -> bool:
 		return int(waypoint.get("level", level)) == level)
 	hud.minimap.set_waypoints(floor_waypoints)
@@ -1134,7 +1204,8 @@ func _update_streamed_maps() -> void:
 		hud.update_streamed_map(_map_chunks_with_available_pickups(
 			_discovered_chunks), level,
 			StreamedRouteGenerator.CHUNK_SIZE, at, player.facing,
-			_streamed_map_marks(level, true), remote_map_players)
+			_streamed_map_marks(level, true), remote_map_players,
+			show_admin_regions)
 
 
 func _refresh_waypoint_route(level: int) -> void:
@@ -1572,12 +1643,20 @@ func _refresh_hunter_stream() -> void:
 			break
 		var entity_id := String(spawn.get("id", ""))
 		var admitted_spawn := spawn.duplicate(true)
+		var proposed_id := String(admitted_spawn.get("hunter_id", ""))
+		# Void incursions are a late-route escalation. Gray is the anti-idle
+		# exception and may still be admitted on its own timer; every other Void
+		# identity waits until the complete 26-member A-Z roster is present.
+		if not _void_auto_spawn_allowed(proposed_id):
+			continue
 		var office_rng := SeededRandom.new("%s:OFFICE-ADMIT:%s" % [
 			facility.generator.world_seed, entity_id])
-		var az_milestone := world_state.hunters.size() >= HunterRoster.A_Z_ROSTER_SIZE
+		var az_milestone := _all_a_z_hunters_present()
 		var office_chance := .25 if az_milestone else .015
 		if office_rng.next_float() < office_chance:
-			admitted_spawn["hunter_id"] = HunterRoster.office_void_for(entity_id)
+			var office_id := HunterRoster.office_void_for(entity_id)
+			if _void_auto_spawn_allowed(office_id):
+				admitted_spawn["hunter_id"] = office_id
 		admitted_spawn["hunter_id"] = _unique_hunter_identity(
 			String(admitted_spawn.get("hunter_id", HunterRoster.DEFAULT_ID)), entity_id)
 		var state := world_state.ensure_hunter(admitted_spawn)
@@ -1591,6 +1670,21 @@ func _refresh_hunter_stream() -> void:
 		var entity_id := String(entity_id_value)
 		if not _hunter_views.has(entity_id):
 			_load_hunter(entity_id, desired[entity_id])
+
+
+func _all_a_z_hunters_present() -> bool:
+	var present := {}
+	for state_value in world_state.hunters.values():
+		var hunter_id := String((state_value as Dictionary).get("hunter_id", ""))
+		if HunterRoster.A_Z_IDS.has(hunter_id):
+			present[hunter_id] = true
+	return present.size() >= HunterRoster.A_Z_ROSTER_SIZE
+
+
+func _void_auto_spawn_allowed(hunter_id: String) -> bool:
+	if not hunter_id.begins_with("void_") or hunter_id == "void_gray":
+		return true
+	return _all_a_z_hunters_present()
 
 
 func _repair_duplicate_hunter_identities() -> void:
@@ -1715,6 +1809,7 @@ func _unload_hunter(entity_id: String, persist_state: bool = true) -> void:
 	_hunter_origins.erase(entity_id)
 	_hunter_levels.erase(entity_id)
 	_hunter_stair_transfers.erase(entity_id)
+	_hunter_stair_plans.erase(entity_id)
 
 
 func _store_hunter(entity_id: String, view: HunterView3D) -> void:
@@ -1762,14 +1857,16 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		_operate_hunter_room_door(view, level)
 		var captured := false
 		if not target.is_empty():
+			_hunter_stair_plans.erase(entity_id)
 			view.target_peer_id = int(target.get("peer_id", 1))
-			view.set_look_target(target.get("position"))
 			captured = view.brain.update(delta, navigation, target,
 				maxi(1, -level + 1), GameState.relays_collected)
+			view.set_look_target(view.brain.presentation_look_target())
 		else:
 			var cross_target := _cross_floor_target(view.brain.position, level,
 				all_targets)
 			if cross_target.is_empty():
+				_hunter_stair_plans.erase(entity_id)
 				view.target_peer_id = 0
 				view.set_look_target(null)
 				view.brain.update_without_target(delta, navigation,
@@ -1975,8 +2072,28 @@ func _update_hunter_toward_stair(delta: float, entity_id: String,
 		view: HunterView3D, level: int, target: Dictionary,
 		navigation: StreamedHunterNavigation) -> void:
 	var target_level := -int(target.get("depth", -level))
-	var stair := _nearest_stair(view.brain.position, level,
-		1 if target_level > level else -1, navigation)
+	var direction := 1 if target_level > level else -1
+	var target_peer_id := int(target.get("peer_id", 1))
+	var now := Time.get_ticks_msec()
+	var plan: Dictionary = _hunter_stair_plans.get(entity_id, {})
+	var stair: Dictionary = plan.get("stair", {})
+	var plan_matches := int(plan.get("level", 999999)) == level \
+		and int(plan.get("direction", 0)) == direction \
+		and int(plan.get("target_level", 999999)) == target_level \
+		and int(plan.get("target_peer_id", 0)) == target_peer_id \
+		and now < int(plan.get("expires_msec", 0))
+	if not plan_matches:
+		stair = _nearest_stair(view.brain.position, level, direction, navigation,
+			target.get("position"))
+		_hunter_stair_plans[entity_id] = {
+			"level": level,
+			"direction": direction,
+			"target_level": target_level,
+			"target_peer_id": target_peer_id,
+			"stair": stair,
+			"expires_msec": now + (HUNTER_STAIR_PLAN_LIFETIME_MSEC \
+				if not stair.is_empty() else HUNTER_STAIR_RETRY_MSEC),
+		}
 	if stair.is_empty():
 		view.brain.update_without_target(delta, navigation,
 			maxi(1, -level + 1), GameState.relays_collected)
@@ -2006,6 +2123,7 @@ func _update_hunter_toward_stair(delta: float, entity_id: String,
 		"path_index": 0,
 		"target": target.duplicate(true),
 	}
+	_hunter_stair_plans.erase(entity_id)
 	# An interrupted/replicated legacy transfer must not keep holding the body
 	# above the world. The physical ramp owns vertical motion from this point.
 	view.clear_streamed_height_override()
@@ -2019,6 +2137,7 @@ func _update_hunter_stair_transfer(delta: float, entity_id: String,
 	var path: Array = transfer.get("path", [])
 	if path.is_empty():
 		_hunter_stair_transfers.erase(entity_id)
+		_hunter_stair_plans.erase(entity_id)
 		return false
 	var path_index := clampi(int(transfer.get("path_index", 0)), 0,
 		path.size() - 1)
@@ -2050,12 +2169,16 @@ func _update_hunter_stair_transfer(delta: float, entity_id: String,
 	var from_level := int(transfer.get("from_level", 0))
 	var to_level := int(transfer.get("to_level", from_level))
 	_hunter_stair_transfers.erase(entity_id)
+	_hunter_stair_plans.erase(entity_id)
 	_hunter_levels[entity_id] = to_level
 	view.surface_height_provider = facility.streamed_surface_height.bind(to_level)
 	view.clear_streamed_height_override()
 	var target: Dictionary = transfer.get("target", {})
 	var landing: Vector2 = path[-1]
-	view.brain.enter_search_from(target.get("position", landing), 2.25)
+	# Reaching another floor must not be a free escape. The hunter still knows
+	# whom she followed onto the stairs and immediately continues the routed
+	# chase from the landing instead of falling back to a short search.
+	view.brain.continue_chase_from(target.get("position", landing))
 	_store_hunter(entity_id, view)
 	# Rebuild the bounded authority surface around the hunter's new floor now,
 	# not on the next periodic refresh.
@@ -2065,58 +2188,74 @@ func _update_hunter_stair_transfer(delta: float, entity_id: String,
 
 
 func _nearest_stair(origin: Vector2, level: int, direction: int,
-		navigation: StreamedHunterNavigation) -> Dictionary:
+		navigation: StreamedHunterNavigation, target_position: Variant = null) -> Dictionary:
 	var center := Vector3i(
 		floori(origin.x / StreamedRouteGenerator.CHUNK_SIZE), level,
 		floori(origin.y / StreamedRouteGenerator.CHUNK_SIZE))
 	var wanted := "up" if direction > 0 else "down"
 	var chosen := {}
-	var best_distance := INF
-	for z in range(center.z - 2, center.z + 3):
-		for x in range(center.x - 2, center.x + 3):
-			var coord := Vector3i(x, level, z)
-			if not facility.generator.is_chunk_allowed(coord):
+	var best_score := INF
+	var best_id := ""
+	var candidate_coords: Array[Vector3i] = navigation.active_coordinates()
+	if candidate_coords.is_empty():
+		for z in range(center.z - 2, center.z + 3):
+			for x in range(center.x - 2, center.x + 3):
+				candidate_coords.append(Vector3i(x, level, z))
+	candidate_coords.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return a.x < b.x or (a.x == b.x and a.z < b.z))
+	var from_cell := Vector2i(floori(origin.x), floori(origin.y))
+	for coord in candidate_coords:
+		if coord.y != level:
+			continue
+		if not facility.generator.is_chunk_allowed(coord):
+			continue
+		var data := facility.generator.chunk(coord)
+		for stair_value in data.get("stairs", []):
+			var stair: Dictionary = stair_value
+			if String(stair.get("direction", "")) != wanted:
 				continue
-			var data := facility.generator.chunk(coord)
-			for stair_value in data.get("stairs", []):
-				var stair: Dictionary = stair_value
-				if String(stair.get("direction", "")) != wanted:
-					continue
-				var stair_path := StreamedRouteGenerator.stair_path_cells(
-					stair.get("cell", Vector2i.ZERO))
-				if stair_path.is_empty():
-					continue
-				var entry_cell: Vector2i = stair_path[0] if wanted == "up" \
-					else stair_path[-1]
-				var destination_cell: Vector2i = stair_path[-1] if wanted == "up" \
-					else stair_path[0]
-				var position := Vector2(
-					coord.x * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.x + .5,
-					coord.z * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.y + .5)
-				var destination := Vector2(
-					coord.x * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.x + .5,
-					coord.z * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.y + .5)
-				var world_path: Array[Vector2] = []
-				for cell_value in stair_path:
-					var path_cell: Vector2i = cell_value
-					world_path.append(Vector2(
-						coord.x * StreamedRouteGenerator.CHUNK_SIZE + path_cell.x + .5,
-						coord.z * StreamedRouteGenerator.CHUNK_SIZE + path_cell.y + .5))
-				if wanted == "down":
-					world_path.reverse()
-				var distance := origin.distance_to(position)
-				if distance >= best_distance:
-					continue
-				var path := navigation.find_path(Vector2i(floori(origin.x),
-					floori(origin.y)), Vector2i(floori(position.x),
-					floori(position.y)))
-				if path.is_empty() and Vector2i(floori(origin.x),
-						floori(origin.y)) != Vector2i(floori(position.x),
-						floori(position.y)):
-					continue
-				best_distance = distance
-				chosen = {"position": position, "destination": destination,
-					"path": world_path, "stair": stair, "coord": coord}
+			var stair_path := StreamedRouteGenerator.stair_path_cells(
+				stair.get("cell", Vector2i.ZERO))
+			if stair_path.is_empty():
+				continue
+			var entry_cell: Vector2i = stair_path[0] if wanted == "up" \
+				else stair_path[-1]
+			var destination_cell: Vector2i = stair_path[-1] if wanted == "up" \
+				else stair_path[0]
+			var position := Vector2(
+				coord.x * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.x + .5,
+				coord.z * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.y + .5)
+			var destination := Vector2(
+				coord.x * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.x + .5,
+				coord.z * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.y + .5)
+			var path := navigation.find_path(from_cell, Vector2i(floori(position.x),
+				floori(position.y)))
+			if path.is_empty() and from_cell != Vector2i(floori(position.x),
+					floori(position.y)):
+				continue
+			# The actual navigable route wins, not straight-line distance through a
+			# wall. A tiny destination bias picks the landing that continues toward
+			# the runner when two reachable stairs cost the same.
+			var score := float(path.size())
+			if target_position is Vector2:
+				score += destination.distance_to(target_position as Vector2) * .025
+			var stair_id := String(stair.get("id", ""))
+			if score > best_score or (is_equal_approx(score, best_score) \
+					and not best_id.is_empty() and stair_id >= best_id):
+				continue
+			var world_path: Array[Vector2] = []
+			for cell_value in stair_path:
+				var path_cell: Vector2i = cell_value
+				world_path.append(Vector2(
+					coord.x * StreamedRouteGenerator.CHUNK_SIZE + path_cell.x + .5,
+					coord.z * StreamedRouteGenerator.CHUNK_SIZE + path_cell.y + .5))
+			if wanted == "down":
+				world_path.reverse()
+			best_score = score
+			best_id = stair_id
+			chosen = {"position": position, "destination": destination,
+				"path": world_path, "approach_path": path,
+				"stair": stair, "coord": coord}
 	return chosen
 
 
@@ -2777,6 +2916,10 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			# Audio replaces another explanatory HUD log: the sudden warning is the
 			# player's only announcement that Gray Void entered the route.
 			Sound.alert()
+		"stream_story":
+			var story_state = event.get("state", {})
+			if story_state is Dictionary and _story != null:
+				_story.adopt_snapshot(story_state)
 
 
 func _spawn_drop(record: Dictionary) -> void:
@@ -2822,6 +2965,7 @@ func _build_stream_snapshot() -> Dictionary:
 	return {"snapshot_protocol": SNAPSHOT_PROTOCOL,
 		"seed": RoomState.run_seed(), "world_state": world_state.snapshot(),
 		"hunters": _hunter_report.duplicate(true),
+		"story": _story.snapshot() if _story != null else {"active": false},
 		"anti_idle": {
 			"relay_seconds": _relay_inactivity_seconds,
 			"afk_seconds": _party_afk_seconds,
@@ -2850,13 +2994,17 @@ func _apply_stream_snapshot(state: Dictionary) -> void:
 			GameState.relays_collected))
 		_anti_idle_spawn_sequence = maxi(0,
 			int(anti_idle.get("spawn_sequence", 0)))
+	var story = state.get("story", {})
+	if story is Dictionary and _story != null:
+		_story.adopt_snapshot(story)
 	facility.refresh_mutations()
 	_sync_drop_nodes()
 	_apply_hunter_report(report)
 	_awaiting_snapshot = false
 	player.input_frozen = (pause_menu != null and pause_menu.is_open()) \
 		or hud.inventory_is_open() \
-		or (_admin_menu != null and _admin_menu.is_open())
+		or (_admin_menu != null and _admin_menu.is_open()) \
+		or (_story != null and _story.is_active())
 	_remotes.confirm_snapshot_applied()
 	hud.show_message("ROUTE SYNCED")
 
@@ -2954,6 +3102,10 @@ func _apply_player_event(event: Dictionary) -> void:
 			player.velocity = Vector3.ZERO
 			player.input_frozen = true
 			player.look_frozen = true
+			if RoomState.online and not RoomState.is_host:
+				player.enter_spectator()
+				player.input_frozen = false
+				player.look_frozen = false
 			hud.set_inventory_open(false)
 			hud.set_map_open(false)
 			if pause_menu.is_open():
@@ -2963,6 +3115,10 @@ func _apply_player_event(event: Dictionary) -> void:
 			var hunter_id := String(event.get("hunter_id", HunterRoster.DEFAULT_ID))
 			var identity := HunterRoster.get_identity(hunter_id)
 			var hunter_name := String(identity.get("display_name", hunter_id)).to_upper()
+			if RoomState.online and not RoomState.is_host:
+				_remotes.submit_hunter_event({"what": "caught"})
+				hud.show_message("YOU DIED // SPECTATOR MODE")
+				return
 			run_report.open({
 				"online": RoomState.online, "host": RoomState.is_host,
 				"respawn": true, "title": "YOU DIED",
@@ -3081,7 +3237,8 @@ func _respawn_after_death() -> void:
 	player.input_frozen = _awaiting_snapshot or hud.inventory_is_open() \
 		or hud.map_is_open() \
 		or (_admin_menu != null and _admin_menu.is_open()) \
-		or (_room_chat != null and _room_chat.is_open())
+		or (_room_chat != null and _room_chat.is_open()) \
+		or (_story != null and _story.is_active())
 	player.pesticide_timer = 0.0
 
 
@@ -3091,6 +3248,18 @@ func _admin_summon_hunter(hunter_id: String) -> void:
 
 func _admin_remove_hunter(hunter_id: String) -> void:
 	_admin_world_action("remove_hunter", {"hunter_id": hunter_id})
+
+
+func _admin_start_story(scene_id: String) -> void:
+	_admin_world_action("story_start", {"scene_id": scene_id})
+
+
+func _admin_stop_story() -> void:
+	_admin_world_action("story_stop")
+
+
+func _admin_reset_story() -> void:
+	_admin_world_action("story_reset")
 
 
 func _admin_world_action(action: String, payload: Dictionary = {}) -> void:
@@ -3150,11 +3319,24 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 			_admin_edit_checkpoint(peer_id, -25)
 		"repair_checkpoint":
 			_admin_edit_checkpoint(peer_id, 25)
+		"story_start":
+			var scene_id := String(event.get("scene_id", ""))
+			if _story == null or not _story.admin_scene_ids().has(scene_id) \
+					or not _story.start_admin_scene(scene_id, true):
+				_admin_feedback(peer_id, "ADMIN STORY FAILED // INVALID SCENE")
+			else:
+				_admin_feedback(peer_id, "ADMIN STORY STARTED // %s" % scene_id.to_upper())
+		"story_stop":
+			if _story == null or not _story.stop_admin_scene(true):
+				_admin_feedback(peer_id, "ADMIN STORY // NOTHING ACTIVE")
+		"story_reset":
+			if _story != null and _story.reset_admin_story(true):
+				_admin_feedback(peer_id, "ADMIN STORY STATE RESET")
 
 
 func _admin_action_permission(action: String) -> String:
 	if action in ["grant_relay", "all_relays", "damage_checkpoint",
-			"repair_checkpoint"]:
+			"repair_checkpoint", "story_start", "story_stop", "story_reset"]:
 		return "world"
 	if action in ["stun_hunters", "wake_hunters", "calm_hunters",
 			"summon_hunter", "remove_hunter"]:

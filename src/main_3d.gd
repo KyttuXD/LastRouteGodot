@@ -305,9 +305,9 @@ func _update_gameplay(delta: float) -> void:
 			continue
 		var target := _target_with_runtime(selected)
 		view.target_peer_id = int(target.get("peer_id", 0))
-		view.set_look_target(target.get("position"))
 		var captured: bool = view.brain.update(delta, generator, target,
 			GameState.depth, GameState.relays_collected)
+		view.set_look_target(view.brain.presentation_look_target())
 		_collect_remote_meter_effects(target)
 		view.sync_from_brain()
 		# Anything a gimmick did to the floor. Only the host reaches here, which

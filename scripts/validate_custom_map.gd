@@ -29,6 +29,7 @@ func run(_host: Node) -> int:
 	_flags_unrecognised_colour()
 	_requires_walkable_space()
 	_feeds_a_real_generator()
+	_ports_png_authored_props()
 	_themed_samples_populate_authored_props()
 	_bedroom_region_populates_bedroom_props()
 	if _failures == 0:
@@ -105,6 +106,29 @@ func _parses_a_real_map() -> void:
 		_expect(room["width"] == 3 and room["height"] == 3,
 			"the 3x3 painted room measured %dx%d" % [room["width"], room["height"]])
 	print("  parse     start, exit and one flood-filled region all land correctly")
+
+
+func _ports_png_authored_props() -> void:
+	var image := _make_test_image(TEST_SIZE)
+	image.set_pixel(12, 12, Color8(0x00, 0xe5, 0xff))
+	image.set_pixel(14, 12, Color8(0x00, 0x96, 0x88))
+	var parsed := CustomMapParser.parse(image)
+	_expect(parsed.get("ok", false), "a PNG with authored prop colors was rejected")
+	if not parsed.get("ok", false):
+		return
+	var authored: Array = parsed.get("authored_props", [])
+	_expect(authored.size() == 2, "the PNG prop palette did not retain both props")
+	var generator := FacilityGenerator.new(
+		"AUTHORED-PNG-PROPS", RoomState.generator_options(), parsed)
+	var locker := generator.props.filter(func(prop):
+		return String(prop.get("type", "")) == "locker" \
+			and int(prop.get("x", -1)) == 12 and int(prop.get("y", -1)) == 12)
+	var chair := generator.props.filter(func(prop):
+		return String(prop.get("type", "")) == "officeChair" \
+			and int(prop.get("x", -1)) == 14 and int(prop.get("y", -1)) == 12)
+	_expect(locker.size() == 1 and chair.size() == 1,
+		"parsed PNG props were not installed into the generated floor")
+	print("  palette   original exact-prop PNG colors reach the runtime prop catalog")
 
 
 func _accepts_practical_dimensions_and_rejects_oversized() -> void:

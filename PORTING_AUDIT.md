@@ -6,17 +6,20 @@ removed from this list instead of being left as historical “TODO” text.
 
 ## Highest-value remaining ports
 
-1. **Custom-map metadata:** load and validate the original sibling data for
-   explicit prop cells, dialogue triggers and authored mechanics. The PNG map,
-   region flood fill, room transfer, guest-admin edit and late-join base-state
-   path are already complete.
+1. **Custom-map metadata:** load and validate sibling dialogue triggers and
+   authored mechanics. Exact prop colors, PNG topology, region flood fill,
+   room transfer, guest-admin edit and late-join base-state are complete. PNG
+   map loading remains an authenticated admin tool and is not exposed through
+   ordinary Infinite discovery.
 2. **Reconnect and host promotion:** the backend can elect a replacement relay
    host, but the Godot room client still returns guests to staging when peer 1
    disappears. The replacement must adopt the canonical world snapshot and
    resume host-authoritative hunters/pickups before clients unfreeze.
-3. **Story presentation:** import the original YAML dialogue/cutscene data into
-   a validated Godot-facing format, then add host-owned trigger state so a late
-   joiner cannot replay or skip another runner's event.
+3. **Story presentation:** the first original branching scene is now converted
+   to validated JSON with host-owned state, save persistence and late-join
+   adoption. Playback is deliberately admin-only through the `0` menu; the
+   schema rejects automatic Infinite triggers. Port the remaining authored
+   scenes, portraits, camera rails and path-aware actor choreography.
 4. **Office presentation:** replace remaining Office placeholder environment
    art and decide whether a full shift remains a separate mode. Infinite can
    already choose Office Void identities as deterministic rare spawns.

@@ -19,6 +19,10 @@ blending, colour profiles, and resampling disabled.
   reach the route objectives
 - The downloaded PNG must be no larger than 2 MiB
 
+Custom maps are loadable only through verified admin controls. Infinite Route
+story discovery does not accept a URL or file path, and its content validator
+rejects any ordinary trigger that references a map-bearing scene.
+
 The 2 MiB rule is a compressed-file transport guard for HTTP and multiplayer;
 the decoded limits separately prevent a very small compressed PNG from
 expanding into an unsafe GridMap allocation. Very large valid grids still
@@ -47,6 +51,26 @@ colours.
 | `#8E5FD9` | Mansion floor region |
 | `#B07CC6` | Mansion bedroom floor region |
 | `#6FBF73` | Garden floor region |
+
+### Exact prop markers
+
+These original palette colors keep their cell open and place the named prop
+at that exact cell. Rotation is selected against the surrounding room/walls.
+
+| Hex | Runtime prop |
+| --- | --- |
+| `#00E5FF` | Locker |
+| `#E91E63` | Privacy curtain |
+| `#8D6E63` | Supply crates |
+| `#3F51B5` | Office desk |
+| `#009688` | Office chair |
+| `#9E9E9E` | Filing cabinet |
+| `#FFC107` | Trash bin |
+| `#795548` | Wooden chair |
+| `#607D8B` | Wooden table |
+| `#FF5722` | Vending machine |
+| `#673AB7` | Magazine rack |
+| `#03A9F4` | Floor lamp |
 
 [`last-route-map-palette.gpl`](last-route-map-palette.gpl) can be imported by
 GIMP, Krita, Aseprite, and other editors that support GIMP palettes. Region
@@ -88,11 +112,10 @@ installs it. The host then sends the validated PNG to all current players and
 late joiners. The custom-map field is intentionally absent from release
 builds because it is an admin/debug tool.
 
-The current format places route geometry, spawns, lift, and themed floor
-regions. Relays, batteries, safe zones, hiding spots, and themed props are
-placed deterministically by the game. The PNG does not yet provide an exact
-per-pixel prop marker, so it chooses furniture positions inside each painted
-region rather than letting the map author place each chair manually.
+The current format places route geometry, spawns, lift, themed floor regions,
+and the exact prop markers above. Relays, batteries, safe zones, other hiding
+spots, and additional themed props are placed deterministically by the game.
+Sibling settings for map-specific mechanics and dialog triggers remain to port.
 
 Three larger co-op-ready samples are included (each has four green spawns):
 

@@ -22,50 +22,6 @@ const MESSAGE_DURATION := 2.8
 ## full-floor overview. Keep only the nearby 36-cell square on the minimap;
 ## the full map still shows every discovered chunk.
 const STREAMED_MINIMAP_RADIUS_CELLS := 18
-const DANGER_PULSE_SHADER := """
-shader_type canvas_item;
-render_mode unshaded;
-
-uniform float danger : hint_range(0.0, 1.0) = 0.0;
-uniform float pulse_time = 0.0;
-
-float block_hash(vec2 cell) {
-	return fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-void fragment() {
-	// Work on a fixed low-resolution grid so the edge reads as authored pixel
-	// blocks at every window size instead of a smooth modern damage vignette.
-	vec2 grid = vec2(160.0, 90.0);
-	vec2 pixel = floor(UV * grid);
-	vec2 block = floor(pixel / 4.0);
-	vec2 uv = (pixel + vec2(0.5)) / grid;
-	float nearest_edge = min(min(uv.x, 1.0 - uv.x),
-		min(uv.y, 1.0 - uv.y));
-	float irregular = (block_hash(block) - 0.5) * 0.12;
-	float edge = 1.0 - smoothstep(0.035 + irregular,
-		0.30 + irregular, nearest_edge);
-
-	// Static blocky runs along the top/bottom suggest drips and pain without
-	// copying a photographic blood texture or animating distracting noise.
-	float column = block_hash(vec2(block.x, 19.0));
-	float drip_reach = mix(0.035, 0.18, column * column);
-	float top_drip = 1.0 - smoothstep(drip_reach * 0.45, drip_reach, uv.y);
-	float bottom_drip = 1.0 - smoothstep(drip_reach * 0.35, drip_reach,
-		1.0 - uv.y);
-	float shape = clamp(max(edge, max(top_drip, bottom_drip) * 0.72), 0.0, 1.0);
-
-	float visible_danger = smoothstep(0.10, 0.42, danger);
-	float beat_speed = mix(2.2, 6.8, danger);
-	float beat = 0.66 + 0.34 * sin(pulse_time * beat_speed);
-	beat = mix(beat, beat * beat, danger);
-	float alpha = shape * visible_danger * mix(0.07, 0.42, danger) * beat;
-	alpha = floor(alpha * 12.0 + 0.5) / 12.0;
-	vec3 pain = mix(vec3(0.26, 0.005, 0.018), vec3(0.78, 0.015, 0.045),
-		clamp(shape * 0.75 + danger * 0.25, 0.0, 1.0));
-	COLOR = vec4(pain, alpha);
-}
-"""
 const THERMAL_WARNING_SHADER := """
 shader_type canvas_item;
 render_mode unshaded;
@@ -86,13 +42,13 @@ void fragment() {
 		min(uv.y, 1.0 - uv.y));
 	float pulse = 0.72 + 0.28 * sin(pulse_time * 4.4);
 
-	// Heat is an orange, pixel-stepped edge haze with short upward tongues.
-	float heat_edge = 1.0 - smoothstep(0.02, 0.20, edge_distance);
+	// Heat is a restrained warm-yellow edge haze with short upward tongues.
+	float heat_edge = 1.0 - smoothstep(0.015, 0.11, edge_distance);
 	float heat_column = hash_column(floor(pixel.x / 5.0));
 	float heat_tongue = 1.0 - smoothstep(0.015,
-		mix(0.05, 0.18, heat_column * heat_column), 1.0 - uv.y);
-	float heat_shape = max(heat_edge * 0.78, heat_tongue * 0.55);
-	float heat_alpha = floor(heat_shape * heat * pulse * 8.0 + 0.5) / 8.0 * 0.36;
+		mix(0.035, 0.10, heat_column * heat_column), 1.0 - uv.y);
+	float heat_shape = max(heat_edge * 0.58, heat_tongue * 0.34);
+	float heat_alpha = floor(heat_shape * heat * pulse * 8.0 + 0.5) / 8.0 * 0.22;
 
 	// Cold grows irregular white/cyan icicles from the top and frosts all edges.
 	float cold_column = hash_column(floor(pixel.x / 4.0) + 31.0);
@@ -104,7 +60,7 @@ void fragment() {
 	float cold_shape = max(frost * 0.72, icicle);
 	float cold_alpha = floor(cold_shape * cold * pulse * 8.0 + 0.5) / 8.0 * 0.44;
 
-	vec3 heat_color = vec3(0.96, 0.26, 0.035);
+	vec3 heat_color = vec3(1.0, 0.74, 0.12);
 	vec3 cold_color = vec3(0.82, 0.96, 1.0);
 	float alpha = max(heat_alpha, cold_alpha);
 	vec3 color = mix(heat_color, cold_color,
@@ -123,7 +79,6 @@ const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("FpsLabel"),
 	NodePath("InteractionLabel"),
 	NodePath("MessageLabel"),
-	NodePath("DangerPulse"),
 	NodePath("ThermalWarning"),
 	NodePath("Crosshair"),
 	NodePath("MinimapPanel"),
@@ -139,7 +94,6 @@ const ITEM_TEXTURES := {
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
-	_build_danger_pulse()
 	_build_thermal_warning()
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()
@@ -151,6 +105,9 @@ func _ready() -> void:
 
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
+@onready var danger_row: HBoxContainer = %DangerRow
+@onready var danger_label: Label = %DangerLabel
+@onready var danger_bar: ProgressBar = %DangerBar
 @onready var battery_bar: ProgressBar = %BatteryMeter.get_node("Bar")
 @onready var battery_caption: Label = %BatteryMeter.get_node("Caption")
 @onready var stamina_bar: ProgressBar = %StaminaMeter.get_node("Bar")
@@ -191,9 +148,6 @@ var _inventory_overlay: ColorRect
 var _inventory_menu_grid: GridContainer
 var _inventory_title: Label
 var _selected_inventory_slot := 0
-var _danger_surface: ColorRect
-var _danger_material: ShaderMaterial
-var _danger_time := 0.0
 var _thermal_surface: ColorRect
 var _thermal_material: ShaderMaterial
 var _thermal_time := 0.0
@@ -203,9 +157,6 @@ var _gameplay_hud_modulates: Array[Color] = []
 
 
 func _process(delta: float) -> void:
-	_danger_time += delta
-	if _danger_material != null and _danger_surface.visible:
-		_danger_material.set_shader_parameter("pulse_time", _danger_time)
 	_thermal_time += delta
 	if _thermal_material != null and _thermal_surface.visible:
 		_thermal_material.set_shader_parameter("pulse_time", _thermal_time)
@@ -246,34 +197,6 @@ func _cache_gameplay_hud_surfaces() -> void:
 			continue
 		_gameplay_hud_surfaces.append(surface)
 		_gameplay_hud_modulates.append(surface.modulate)
-
-
-func _build_danger_pulse() -> void:
-	_danger_surface = ColorRect.new()
-	_danger_surface.name = "DangerPulse"
-	_danger_surface.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_danger_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_danger_surface.z_index = -10
-	var shader := Shader.new()
-	shader.code = DANGER_PULSE_SHADER
-	_danger_material = ShaderMaterial.new()
-	_danger_material.shader = shader
-	_danger_surface.material = _danger_material
-	_danger_surface.visible = false
-	add_child(_danger_surface)
-
-
-func _set_danger_pulse(danger: float) -> void:
-	if _danger_material == null:
-		return
-	var strength := clampf(danger, 0.0, 1.0)
-	_danger_material.set_shader_parameter("danger", strength)
-	_danger_surface.visible = strength > .001
-
-
-func danger_pulse_strength() -> float:
-	return float(_danger_material.get_shader_parameter("danger")) \
-		if _danger_material != null else 0.0
 
 
 func _build_thermal_warning() -> void:
@@ -335,14 +258,22 @@ func hud_is_hidden() -> bool:
 func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
 	depth_label.text = "DEPTH %02d" % depth
 	relay_label.text = "%d/%d SIGNAL RELAYS" % [relays_collected, relay_target]
-	_set_danger_pulse(0.0)
+	danger_row.visible = false
 
 
 func update_infinite_status(relays_collected: int, loaded_chunks: int,
 		danger_percent: int) -> void:
 	var danger := clampi(danger_percent, 0, 100)
 	relay_label.text = "RELAYS %d // CHUNKS %d" % [relays_collected, loaded_chunks]
-	_set_danger_pulse(float(danger) / 100.0)
+	danger_row.visible = true
+	danger_label.text = "DANGER %d%%" % danger
+	danger_bar.value = danger
+	var color := COLOR_METER_SAFE if danger < 40 else (
+		COLOR_METER_WARN if danger < 75 else COLOR_METER_LOW)
+	danger_label.add_theme_color_override("font_color", color)
+	var fill := danger_bar.get_theme_stylebox("fill") as StyleBoxFlat
+	if fill != null:
+		fill.bg_color = color
 
 
 func update_inventory(selected_item: String, taser_cooldown: float,
@@ -782,14 +713,14 @@ func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
 
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array,
-		player_marks: Array = []) -> void:
+		player_marks: Array = [], show_regions: bool = false) -> void:
 	map_title.text = "DISCOVERED ROUTE // FLOOR %+d" % level
 	plan.show_streamed_state(chunks, level, chunk_size, at, facing, marks, true,
-		0, player_marks)
+		0, player_marks, show_regions)
 
 
 func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array = [],
-		player_marks: Array = []) -> void:
+		player_marks: Array = [], show_regions: bool = false) -> void:
 	minimap.show_streamed_state(chunks, level, chunk_size, at, facing, marks,
-		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks)
+		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks, show_regions)

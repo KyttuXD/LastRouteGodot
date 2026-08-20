@@ -32,6 +32,10 @@ PRISON_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "prison")
 PRISON_SOURCE = os.path.join(PRISON_ROOT, "source")
 PRISON_TEXTURES = os.path.join(PRISON_SOURCE, "textures")
 PRISON_PREVIEWS = os.path.join(PRISON_ROOT, "previews")
+CARNIVAL_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "carnival")
+CARNIVAL_SOURCE = os.path.join(CARNIVAL_ROOT, "source")
+CARNIVAL_TEXTURES = os.path.join(CARNIVAL_SOURCE, "textures")
+CARNIVAL_PREVIEWS = os.path.join(CARNIVAL_ROOT, "previews")
 os.makedirs(TEXTURES, exist_ok=True)
 os.makedirs(PREVIEWS, exist_ok=True)
 os.makedirs(INVENTORY_ICONS, exist_ok=True)
@@ -45,6 +49,8 @@ os.makedirs(NETHER_TEXTURES, exist_ok=True)
 os.makedirs(NETHER_PREVIEWS, exist_ok=True)
 os.makedirs(PRISON_TEXTURES, exist_ok=True)
 os.makedirs(PRISON_PREVIEWS, exist_ok=True)
+os.makedirs(CARNIVAL_TEXTURES, exist_ok=True)
+os.makedirs(CARNIVAL_PREVIEWS, exist_ok=True)
 
 
 def clear_scene():
@@ -950,8 +956,39 @@ def make_arcade_variant(model_name, colors, glyph=0):
     return objects, (2.05, -3.15, 2.15), (0.0, 0.0, 0.85)
 
 
-def make_wooden_chair(model_name, cushioned=False):
-    colors = ["#20120D", "#513020", "#7C4B2A", "#AE7440", "#D3A15E", "#6B2637", "#A34A61", "#C19A4E"]
+WOOD_PALETTES = {
+    # Indices 0-4 are timber shadow-to-highlight; 5-6 are matching upholstery
+    # or painted accents, and 7 is hardware. Keeping this ordering identical
+    # lets one room seed select a named timber finish across every furniture
+    # silhouette without baking duplicate placement rules into gameplay code.
+    "oak": ["#20120D", "#513020", "#7C4B2A", "#AE7440", "#D3A15E",
+            "#6B2637", "#A34A61", "#C19A4E"],
+    "walnut": ["#120C09", "#2A1912", "#4A2C20", "#6B4633", "#96705A",
+               "#263848", "#49657B", "#B69A61"],
+    "mahogany": ["#180909", "#391417", "#65252A", "#913B42", "#B75B5F",
+                 "#45203D", "#744E78", "#C1A064"],
+    "ash": ["#252525", "#53504B", "#807B73", "#AAA398", "#D6CEC0",
+            "#6B776E", "#9DA89D", "#B9A56B"],
+}
+
+
+COMPUTER_PALETTES = {
+    # The four shells are intentionally aged rather than brand-identical.
+    # Screen/key/hardware positions remain fixed so palette changes cannot
+    # affect silhouettes, collision, or room usability.
+    "ivory": ["#111416", "#4A4B48", "#77756E", "#AAA69A", "#D8D1C0",
+              "#101B1D", "#376F72", "#A9D4C8", "#B8A55F", "#ECE5D5"],
+    "charcoal": ["#07090A", "#171C1F", "#2B3439", "#48565D", "#718086",
+                 "#0A1719", "#28656A", "#74C5C0", "#B69750", "#B9C4C4"],
+    "teal": ["#061011", "#123033", "#1D5155", "#337B7D", "#68AAA5",
+              "#091719", "#2D7277", "#83D4CD", "#C1A057", "#D2E8E1"],
+    "burgundy": ["#11090B", "#30151B", "#57232E", "#83384A", "#AD5D6E",
+                  "#10171A", "#34626D", "#82BEC2", "#C09B54", "#E6D3C9"],
+}
+
+
+def make_wooden_chair(model_name, cushioned=False, colors=None):
+    colors = colors or WOOD_PALETTES["oak"]
     image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
     mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
                         image, roughness=0.86, metallic=0.0)
@@ -983,10 +1020,11 @@ def make_wooden_chair(model_name, cushioned=False):
     return objects, (1.45, -2.15, 1.55), (0.0, 0.0, 0.50)
 
 
-def make_wooden_table():
-    colors = ["#20120D", "#50301F", "#774628", "#A56938", "#C88F51", "#D4AE6B", "#A77B3C"]
-    image = make_pixel_atlas("wooden_table_pixel_atlas", colors, MAZE_TEXTURES)
-    mat = make_material("Wooden table pixel paint", image, roughness=0.87, metallic=0.0)
+def make_wooden_table(model_name="wooden_table", colors=None):
+    colors = colors or WOOD_PALETTES["oak"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=0.87, metallic=0.0)
     count = len(colors)
     objects = []
     for index, (x, y) in enumerate(((-0.52, -0.29), (0.52, -0.29),
@@ -1007,10 +1045,81 @@ def make_wooden_table():
     return objects, (2.05, -2.85, 1.65), (0.0, 0.0, 0.38)
 
 
-def make_wooden_dresser():
-    colors = ["#1D110C", "#472A1D", "#704226", "#9B653A", "#C18A50", "#D5B06C", "#AA813F"]
-    image = make_pixel_atlas("wooden_dresser_sideboard_pixel_atlas", colors, MAZE_TEXTURES)
-    mat = make_material("Wooden dresser sideboard pixel paint", image,
+def make_restaurant_party_table():
+    """Original block-built family restaurant table with attached place settings.
+
+    The long cloth, party hats, plates, cups and balloon cluster ship as one
+    authored prop so streamed dining recipes stay coherent and inexpensive.
+    It evokes a festive arcade restaurant without copying a branded character,
+    logo or wall treatment from the visual reference.
+    """
+    colors = [
+        "#130D18", "#382044", "#672E68", "#9D3F78", "#D45B83",
+        "#F0C84B", "#42B9C7", "#D9E0D8", "#5C2C22", "#AD6940",
+    ]
+    image = make_pixel_atlas(
+        "restaurant_party_table_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material("Restaurant party table pixel paint", image,
+                        roughness=0.88, metallic=0.0)
+    count = len(colors)
+    objects = []
+
+    # A sturdy dark restaurant table under a burgundy-violet cloth.
+    for index, (x, y) in enumerate(((-1.05, -0.34), (1.05, -0.34),
+                                    (-1.05, 0.34), (1.05, 0.34))):
+        box("PartyTableLeg_%d" % (index + 1), (x, y, 0.34),
+            (0.12, 0.12, 0.68), mat, 8 if index % 2 else 9,
+            count, objects, bevel=0.002)
+    box("PartyTableTop", (0.0, 0.0, 0.73), (2.55, 0.90, 0.13), mat, 8,
+        count, objects, bevel=0.005)
+    box("PartyClothTop", (0.0, 0.0, 0.815), (2.62, 0.96, 0.05), mat, 2,
+        count, objects, bevel=0.003)
+    for y, name in ((-0.475, "Front"), (0.475, "Back")):
+        box("PartyCloth%s" % name, (0.0, y, 0.61), (2.62, 0.05, 0.42),
+            mat, 3, count, objects, bevel=0.001)
+
+    # Chunky moon/star-like cloth motifs made from original geometric glyphs.
+    for index, x in enumerate((-0.98, -0.32, 0.36, 1.00)):
+        box("ClothGlyph_%d_A" % index, (x, -0.505, 0.64),
+            (0.18, 0.012, 0.055), mat, 5 if index % 2 else 6,
+            count, objects)
+        box("ClothGlyph_%d_B" % index, (x, -0.511, 0.64),
+            (0.055, 0.012, 0.18), mat, 5 if index % 2 else 6,
+            count, objects)
+
+    # Four paired place settings are deliberately low-poly and pixel-painted.
+    for index, x in enumerate((-0.92, -0.31, 0.31, 0.92)):
+        for side, y in (("F", -0.27), ("B", 0.27)):
+            cylinder("Plate_%d_%s" % (index + 1, side),
+                     (x, y, 0.865), 0.13, 0.025, 8, mat, 7,
+                     count, objects)
+            cylinder("Cup_%d_%s" % (index + 1, side),
+                     (x + 0.16, y, 0.925), 0.045, 0.13, 8, mat,
+                     6 if index % 2 else 5, count, objects)
+            cone("PartyHat_%d_%s" % (index + 1, side),
+                 (x - 0.03, y, 0.995), 0.09, 0.012, 0.24, 8, mat,
+                 5 if (index + (0 if side == "F" else 1)) % 2 else 4,
+                 count, objects)
+
+    # A compact block-balloon centrepiece gives the room its festive silhouette.
+    cylinder("BalloonStem", (0.0, 0.0, 1.34), 0.035, 0.96, 8, mat, 7,
+             count, objects)
+    for index, (x, y, z, color) in enumerate((
+            (-0.16, 0.00, 1.77, 4), (0.14, -0.05, 1.91, 5),
+            (0.02, 0.12, 2.05, 6), (0.25, 0.08, 1.72, 3))):
+        box("BlockBalloon_%d" % (index + 1), (x, y, z),
+            (0.28, 0.24, 0.36), mat, color, count, objects, bevel=0.025,
+            rotation=(0.0, 0.0, math.radians(-8 + index * 6)))
+        box("BalloonTie_%d" % (index + 1), (x, y, z - 0.22),
+            (0.06, 0.06, 0.07), mat, color, count, objects)
+
+    return objects, (3.65, -4.75, 2.80), (0.0, 0.0, 0.95)
+
+
+def make_wooden_dresser(model_name="wooden_dresser_sideboard", colors=None):
+    colors = colors or WOOD_PALETTES["oak"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint", image,
                         roughness=0.86, metallic=0.0)
     count = len(colors)
     objects = []
@@ -1030,6 +1139,535 @@ def make_wooden_dresser():
         box("DoorInset_%d" % (index + 1), (x, -0.310, 0.35),
             (0.26, 0.012, 0.32), mat, 1, count, objects, bevel=0.001)
     return objects, (2.15, -3.15, 1.75), (0.0, 0.0, 0.45)
+
+
+def make_retro_computer(model_name, style="compact", colors=None):
+    """Block-authored desk computer families based on the supplied references.
+
+    All four silhouettes sit on an existing desk/table surface with a floor-
+    flush local pivot.  Their maximum height stays below 0.92 m so a mounted
+    workstation clears both the camera and the 2.20 m A-Z hunter envelope.
+    """
+    colors = colors or COMPUTER_PALETTES["ivory"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=0.88, metallic=0.03)
+    count = len(colors)
+    objects = []
+
+    def screen(x, y, z, width, height):
+        # Deep CRT bezel and inset phosphor glass keep the display readable
+        # from a dark corridor without copying an operating-system logo.
+        box("MonitorShell", (x, y, z), (width, .40, height), mat, 3,
+            count, objects, bevel=.012)
+        box("MonitorFace", (x, y - .208, z), (width * .79, .022, height * .68),
+            mat, 0, count, objects, bevel=.008)
+        box("MonitorGlow", (x, y - .222, z), (width * .68, .012, height * .54),
+            mat, 5, count, objects, bevel=.003)
+        # Original block glyph: a tiny route prompt, not branded UI artwork.
+        for index, (gx, gz, gw, gh) in enumerate((
+                (-.13, .08, .17, .025), (-.13, .01, .25, .025),
+                (-.13, -.06, .20, .025), (.14, -.07, .055, .16))):
+            box("ScreenGlyph_%d" % (index + 1),
+                (x + gx * width, y - .231, z + gz * height),
+                (gw * width, .008, gh * height), mat,
+                6 if index < 3 else 7, count, objects)
+
+    def keyboard(x=0.0, y=-.40, z=.075, width=.78, depth=.30):
+        box("KeyboardBody", (x, y, z), (width, depth, .105), mat, 4,
+            count, objects, bevel=.006, rotation=(math.radians(-4), 0.0, 0.0))
+        for row in range(4):
+            for column in range(10):
+                box("Key_%d_%d" % (row, column),
+                    (x - width * .39 + column * width * .086,
+                     y - depth * .10 + row * depth * .18,
+                     z + .065 + row * .004),
+                    (width * .06, depth * .11, .025), mat,
+                    9 if (row + column) % 5 else 8, count, objects,
+                    bevel=.001)
+        box("SpaceBar", (x, y + depth * .22, z + .072),
+            (width * .38, depth * .105, .025), mat, 9, count, objects,
+            bevel=.001)
+
+    def mouse(x=.48, y=-.43, z=.065):
+        box("Mouse", (x, y, z), (.15, .22, .10), mat, 4,
+            count, objects, bevel=.018)
+        box("MouseButton", (x, y - .045, z + .058), (.11, .09, .018), mat, 9,
+            count, objects, bevel=.002)
+
+    if style == "compact":
+        box("CompactBase", (0.0, .02, .13), (1.02, .55, .26), mat, 2,
+            count, objects, bevel=.009)
+        screen(.12, .04, .56, .78, .66)
+        box("SideExpansion", (-.49, .02, .43), (.23, .46, .72), mat, 3,
+            count, objects, bevel=.006)
+        for index, z in enumerate((.19, .28, .37, .46, .55)):
+            box("SideVent_%d" % index, (-.615, -.085, z), (.015, .20, .025),
+                mat, 1, count, objects)
+        keyboard(.08, -.43, .075, .78, .28)
+        mouse(.55, -.43, .065)
+    elif style == "tower":
+        box("Tower", (-.49, .06, .39), (.31, .48, .78), mat, 2,
+            count, objects, bevel=.007)
+        box("TowerFace", (-.49, -.188, .42), (.25, .018, .66), mat, 1,
+            count, objects, bevel=.002)
+        box("DriveBay", (-.49, -.201, .58), (.18, .012, .075), mat, 4,
+            count, objects)
+        box("PowerLight", (-.49, -.209, .18), (.045, .008, .045), mat, 7,
+            count, objects)
+        screen(.12, .06, .54, .68, .60)
+        for side, x in (("L", -.26), ("R", .52)):
+            box("Speaker_%s" % side, (x, -.10, .35), (.12, .20, .40), mat, 1,
+                count, objects, bevel=.004)
+            box("SpeakerCone_%s" % side, (x, -.207, .37), (.065, .012, .15),
+                mat, 0, count, objects, bevel=.006)
+        keyboard(.14, -.43, .075, .72, .28)
+        mouse(.55, -.43, .065)
+    elif style == "desktop":
+        box("DesktopCase", (0.0, .02, .14), (1.00, .54, .28), mat, 2,
+            count, objects, bevel=.008)
+        box("FloppySlot", (-.20, -.258, .16), (.29, .012, .045), mat, 0,
+            count, objects)
+        box("DriveButton", (.27, -.266, .16), (.055, .010, .055), mat, 8,
+            count, objects)
+        screen(.08, .05, .60, .73, .64)
+        box("MonitorFoot", (.08, .02, .31), (.30, .25, .10), mat, 1,
+            count, objects, bevel=.004)
+        keyboard(.02, -.43, .075, .80, .28)
+        mouse(.53, -.43, .065)
+    else:  # keyboard-terminal / wedge computer
+        # The shallow keyboard rake lowers the front lip by about 1.5 cm;
+        # lift the shell so its authored surface pivot remains exactly flush.
+        box("TerminalWedge", (0.0, -.03, .166), (1.02, .60, .30), mat, 2,
+            count, objects, bevel=.010, rotation=(math.radians(-3), 0.0, 0.0))
+        screen(.05, .10, .61, .68, .61)
+        keyboard(.0, -.29, .24, .80, .29)
+        box("CassetteSlot", (-.34, .02, .27), (.18, .012, .055), mat, 0,
+            count, objects)
+        box("TerminalBadge", (.34, -.32, .26), (.11, .018, .055), mat, 8,
+            count, objects)
+
+    return objects, (2.25, -3.15, 1.85), (0.0, -0.05, 0.42)
+
+
+OFFICE_PALETTES = {
+    "charcoal": ["#070A0D", "#151B20", "#29343C", "#46545D",
+                 "#657278", "#9AA5A5", "#24434A", "#4F8B8D"],
+    "teal": ["#071012", "#102A2E", "#1C4A4E", "#337176",
+              "#64A6A4", "#A5CBC4", "#D9E5DB", "#BE9B55"],
+}
+
+
+def make_office_desk(model_name="office_desk", colors=None):
+    colors = colors or ["#16191D", "#343B43", "#626C75", "#A9B0B5",
+                        "#6B452B", "#9A6841", "#D4B07A", "#3A8A8B"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.84, metallic=.05)
+    count = len(colors)
+    objects = []
+    box("DeskTop", (0, 0, .77), (1.65, .72, .12), mat, 5, count, objects, bevel=.008)
+    for x in (-.73, .73):
+        box("DeskLeg", (x, .0, .39), (.12, .60, .72), mat, 1, count, objects, bevel=.004)
+    box("ModestyPanel", (0, .27, .45), (1.42, .10, .55), mat, 2, count, objects, bevel=.004)
+    box("DrawerPedestal", (.52, -.12, .39), (.44, .48, .66), mat, 2, count, objects, bevel=.005)
+    for index, z in enumerate((.20, .40, .60)):
+        box("Drawer_%d" % index, (.52, -.366, z), (.36, .025, .15), mat, 3,
+            count, objects, bevel=.002)
+        box("Pull_%d" % index, (.52, -.386, z), (.13, .018, .025), mat, 7,
+            count, objects)
+    box("CableGrommet", (-.52, -.12, .845), (.16, .16, .025), mat, 0,
+        count, objects, bevel=.02)
+    return objects, (2.4, -3.4, 2.0), (0, 0, .42)
+
+
+def make_office_task_chair(model_name="office_task_chair", colors=None):
+    colors = colors or ["#111418", "#272D35", "#48515B", "#79838C",
+                        "#286A70", "#3F9A9C", "#A9D5D0", "#D8E3E0"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.82, metallic=.08)
+    count = len(colors)
+    objects = []
+    box("Seat", (0, 0, .56), (.62, .62, .14), mat, 4, count, objects, bevel=.025)
+    box("SeatCushion", (0, -.03, .655), (.54, .52, .08), mat, 5, count, objects, bevel=.025)
+    box("Back", (0, .27, 1.02), (.58, .13, .75), mat, 4, count, objects, bevel=.025)
+    box("BackInset", (0, .192, 1.03), (.48, .035, .61), mat, 5, count, objects, bevel=.018)
+    cylinder("Stem", (0, 0, .31), .055, .42, 8, mat, 2, count, objects, bevel=.004)
+    for index, angle in enumerate(range(0, 360, 72)):
+        rad = math.radians(angle)
+        x, y = math.cos(rad) * .27, math.sin(rad) * .27
+        box("CasterArm_%d" % index, (x * .55, y * .55, .15),
+            (.34, .07, .07), mat, 2, count, objects,
+            rotation=(0, 0, rad), bevel=.004)
+        cylinder("Caster_%d" % index, (x, y, .10), .055, .08, 8, mat, 0,
+                 count, objects, bevel=.002)
+    return objects, (2.5, -3.2, 1.85), (0, 0, .58)
+
+
+def make_office_security_console(model_name="office_crt_security_console",
+                                 colors=None):
+    colors = colors or ["#101318", "#2A313A", "#535F69", "#89949A",
+                        "#2B7679", "#58B6B0", "#A9F1DF", "#E9F8EF"]
+    objects, _, _ = make_office_desk(model_name, colors)
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.84, metallic=.08)
+    count = len(colors)
+    for index, x in enumerate((-.48, 0, .48)):
+        box("MonitorShell_%d" % index, (x, .08, 1.18), (.43, .35, .48), mat,
+            2, count, objects, bevel=.012)
+        box("MonitorScreen_%d" % index, (x, -.101, 1.19), (.34, .018, .34), mat,
+            5 if index == 1 else 4, count, objects, bevel=.006)
+        box("MonitorGlow_%d" % index, (x, -.113, 1.19), (.26, .009, .25), mat,
+            6, count, objects, bevel=.003)
+        box("MonitorStand_%d" % index, (x, .08, .88), (.12, .18, .18), mat,
+            1, count, objects, bevel=.004)
+    box("ConsoleKeyboard", (0, -.25, .86), (.88, .28, .09), mat, 3, count,
+        objects, bevel=.006, rotation=(math.radians(-4), 0, 0))
+    return objects, (2.8, -3.8, 2.3), (0, 0, .70)
+
+
+def make_office_cubicle_partition(model_name="office_cubicle_partition",
+                                  colors=None):
+    colors = colors or ["#171B20", "#39434B", "#687681", "#A5AFB3",
+                        "#305F68", "#4E8D91", "#A8C5C1", "#D7DDD8"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.93, metallic=.03)
+    count = len(colors)
+    objects = []
+    box("PartitionPanel", (0, 0, .85), (1.80, .12, 1.60), mat, 4, count,
+        objects, bevel=.006)
+    for x in (-.88, .88):
+        box("FramePost", (x, 0, .85), (.08, .18, 1.70), mat, 1, count,
+            objects, bevel=.003)
+        box("Foot", (x, 0, .06), (.36, .42, .10), mat, 2, count, objects,
+            bevel=.004)
+    box("TopRail", (0, 0, 1.68), (1.82, .18, .08), mat, 2, count, objects,
+        bevel=.003)
+    return objects, (2.7, -3.7, 2.2), (0, 0, .78)
+
+
+def make_office_printer(model_name="office_printer", colors=None):
+    colors = colors or ["#101419", "#303840", "#58636B", "#929B9E",
+                        "#D5D8D4", "#F1F0E8", "#43898B", "#83CFCA"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.86, metallic=.03)
+    count = len(colors)
+    objects = []
+    box("PrinterBody", (0, 0, .29), (.72, .58, .48), mat, 3, count, objects,
+        bevel=.016)
+    box("ScannerLid", (0, .02, .57), (.68, .54, .10), mat, 5, count, objects,
+        bevel=.010)
+    box("PaperTray", (0, -.33, .18), (.56, .22, .12), mat, 1, count, objects,
+        bevel=.006)
+    box("Paper", (0, -.41, .22), (.45, .28, .025), mat, 5, count, objects)
+    box("ControlPanel", (.23, -.30, .47), (.20, .11, .10), mat, 6, count,
+        objects, bevel=.004)
+    return objects, (2.2, -3.1, 1.55), (0, 0, .30)
+
+
+def make_office_water_cooler(model_name="office_water_cooler", colors=None):
+    colors = colors or ["#12161A", "#343D43", "#67737A", "#B7C0C0",
+                        "#DDE7E5", "#7BC5C7", "#BEEBED", "#3C7E83"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.82, metallic=.03)
+    count = len(colors)
+    objects = []
+    box("CoolerBody", (0, 0, .62), (.55, .48, 1.12), mat, 3, count, objects,
+        bevel=.014)
+    box("DispenserWell", (0, -.255, .78), (.38, .055, .32), mat, 0, count,
+        objects, bevel=.006)
+    for index, x in enumerate((-.10, .10)):
+        box("Tap_%d" % index, (x, -.32, .88), (.08, .12, .12), mat,
+            6 if index else 7, count, objects, bevel=.004)
+    cylinder("Bottle", (0, 0, 1.48), .25, .60, 12, mat, 6, count, objects,
+             bevel=.008)
+    cylinder("BottleNeck", (0, 0, 1.16), .10, .20, 10, mat, 7, count,
+             objects, bevel=.004)
+    return objects, (2.3, -3.3, 1.95), (0, 0, .82)
+
+
+def office_equipment_material(model_name, colors=None):
+    colors = colors or ["#101419", "#303840", "#59646C", "#919A9D",
+                        "#D7DAD5", "#F0EFE7", "#31777C", "#76C5C1"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    return (make_material(model_name.replace("_", " ").title() + " pixel paint",
+                          image, roughness=.86, metallic=.05), len(colors))
+
+
+def make_office_photocopier(model_name="office_photocopier", colors=None):
+    mat, count = office_equipment_material(model_name, colors)
+    o = []
+    box("CopierBase", (0, .03, .49), (.84, .72, .98), mat, 2, count, o,
+        bevel=.014)
+    for index, z in enumerate((.22, .43, .64)):
+        box("PaperDrawer_%d" % index, (0, -.342, z), (.70, .035, .16), mat,
+            3, count, o, bevel=.003)
+        box("DrawerHandle_%d" % index, (0, -.368, z), (.25, .018, .025), mat,
+            6, count, o)
+    box("ScannerBody", (0, 0, 1.03), (.92, .80, .22), mat, 3, count, o,
+        bevel=.012)
+    box("ScannerLid", (-.04, .03, 1.19), (.78, .70, .10), mat, 5, count, o,
+        bevel=.008)
+    box("ControlPanel", (.42, -.31, 1.08), (.28, .18, .12), mat, 6, count,
+        o, bevel=.006)
+    box("OutputTray", (0, -.42, .84), (.58, .28, .08), mat, 1, count, o,
+        bevel=.004)
+    return o, (2.5, -3.5, 2.0), (0, 0, .63)
+
+
+def make_office_shredder(model_name="office_shredder", colors=None):
+    mat, count = office_equipment_material(model_name, colors)
+    o = []
+    box("ShredderBin", (0, 0, .43), (.48, .40, .78), mat, 1, count, o,
+        bevel=.012)
+    box("ShredderHead", (0, 0, .87), (.54, .44, .18), mat, 2, count, o,
+        bevel=.010)
+    box("PaperSlot", (0, -.04, .972), (.34, .08, .025), mat, 0, count, o,
+        bevel=.004)
+    box("PowerButton", (.17, -.225, .89), (.07, .018, .07), mat, 7, count, o,
+        bevel=.005)
+    box("PaperStrip", (-.06, -.02, 1.19), (.28, .025, .50), mat, 5, count,
+        o, rotation=(math.radians(-7), 0, 0), bevel=.002)
+    return o, (1.9, -2.7, 1.6), (0, 0, .55)
+
+
+def make_office_file_boxes(model_name="office_file_boxes", colors=None):
+    mat, count = office_equipment_material(model_name, colors)
+    o = []
+    for index, (x, y, z, yaw) in enumerate(((-.28, 0, .22, 0),
+                                             (.27, .03, .23, 0),
+                                             (-.12, .01, .66, .08),
+                                             (.31, .02, .69, -.05))):
+        box("ArchiveBox_%d" % index, (x, y, z), (.48, .58, .42), mat,
+            4 if index % 2 else 3, count, o, rotation=(0, 0, yaw), bevel=.006)
+        box("Label_%d" % index, (x, y - .302, z + .03), (.22, .018, .11),
+            mat, 5, count, o)
+    return o, (2.1, -3.0, 1.7), (0, 0, .45)
+
+
+def make_office_corner_workstation(model_name="office_corner_workstation",
+                                   colors=None):
+    mat, count = office_equipment_material(model_name, colors)
+    o = []
+    box("MainTop", (-.25, 0, .78), (1.55, .70, .12), mat, 4, count, o,
+        bevel=.008)
+    box("ReturnTop", (.55, .48, .78), (.65, 1.18, .12), mat, 4, count, o,
+        bevel=.008)
+    for x, y in ((-.92, 0), (.42, -.26), (.77, .95)):
+        box("DeskLeg_%s_%s" % (x, y), (x, y, .39), (.11, .11, .72), mat,
+            2, count, o, bevel=.004)
+    box("DrawerPedestal", (-.62, .08, .40), (.44, .48, .68), mat, 2,
+        count, o, bevel=.006)
+    for index, z in enumerate((.23, .45, .66)):
+        box("Drawer_%d" % index, (-.62, -.171, z), (.36, .025, .15), mat,
+            3, count, o, bevel=.002)
+    return o, (3.1, -4.2, 2.3), (0, .15, .45)
+
+
+def make_catalog_furnishing(model_name):
+    """Authored low-poly models for catalog entries that previously had no GLB."""
+    colors = ["#101419", "#303840", "#5C6870", "#929B9E",
+              "#6B452B", "#B27A45", "#3F8F8C", "#D8C978",
+              "#8D3959", "#D97A9A", "#E5E0D1", "#7BA55B"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, MAZE_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.88, metallic=.06)
+    count = len(colors)
+    o = []
+    eye, look = (2.8, -4.0, 2.4), (0, 0, .8)
+
+    if model_name in {"arcade_carpet_circle", "arcade_carpet_runner"}:
+        dims = (1.9, 1.9, .035) if model_name.endswith("circle") else (1.1, 3.2, .035)
+        box("CarpetBase", (0, 0, .018), dims, mat, 8, count, o, bevel=.015)
+        for i in range(-3, 4):
+            box("PixelStripe_%d" % i, (i * .18, 0, .040), (.08, dims[1] * .84, .012),
+                mat, 6 if i % 2 else 7, count, o)
+        eye, look = (2.8, -3.8, 2.3), (0, 0, 0)
+    elif model_name in {"flower_blue", "flower_rose", "flower_sun", "flower_violet"}:
+        bloom = {"flower_blue": 6, "flower_rose": 8, "flower_sun": 7,
+                 "flower_violet": 9}[model_name]
+        cylinder("Stem", (0, 0, .38), .035, .72, 6, mat, 11, count, o)
+        for i in range(6):
+            a = math.radians(i * 60)
+            cylinder("Petal_%d" % i, (math.cos(a) * .13, math.sin(a) * .13, .78),
+                     .09, .08, 6, mat, bloom, count, o, bevel=.008)
+        cylinder("FlowerCenter", (0, 0, .80), .10, .10, 8, mat, 7, count, o)
+        box("LeafL", (-.12, 0, .39), (.22, .06, .10), mat, 11, count, o,
+            rotation=(0, math.radians(-25), 0), bevel=.006)
+        eye, look = (1.8, -2.5, 1.5), (0, 0, .42)
+    elif model_name in {"locker", "maintenance_tool_cabinet", "breaker_cabinet"}:
+        width = .68 if model_name == "locker" else .82
+        height = 2.02 if model_name == "locker" else 1.65
+        box("CabinetBody", (0, 0, height / 2), (width, .62, height), mat, 2,
+            count, o, bevel=.008)
+        box("FrontDoor", (0, -.321, height / 2), (width * .88, .025, height * .88),
+            mat, 3, count, o, bevel=.004)
+        for i in range(5):
+            box("Vent_%d" % i, (0, -.342, height - .28 - i * .07),
+                (width * .45, .012, .025), mat, 0, count, o)
+        box("Handle", (width * .28, -.355, height * .48), (.05, .03, .28),
+            mat, 7, count, o, bevel=.004)
+        if model_name == "breaker_cabinet":
+            for row in range(3):
+                for col in range(2):
+                    box("Breaker_%d_%d" % (row, col),
+                        ((col - .5) * .22, -.353, .62 + row * .22),
+                        (.12, .035, .13), mat, 8 if row == 2 else 1, count, o)
+    elif model_name in {"utility_cart", "maintenance_cleaning_cart",
+                        "backstage_repair_stand"}:
+        box("CartDeck", (0, 0, .38), (1.12, .62, .12), mat, 2, count, o,
+            bevel=.008)
+        for x in (-.48, .48):
+            for y in (-.24, .24):
+                cylinder("Wheel_%s_%s" % (x, y), (x, y, .15), .12, .09, 8,
+                         mat, 0, count, o, bevel=.004)
+        for z in (.78, 1.20):
+            box("Shelf_%s" % z, (0, .05, z), (1.02, .54, .10), mat, 3,
+                count, o, bevel=.006)
+        for x in (-.48, .48):
+            box("Post_%s" % x, (x, .25, .86), (.07, .07, 1.10), mat, 2,
+                count, o)
+        if model_name == "maintenance_cleaning_cart":
+            cylinder("Bucket", (-.23, -.05, .59), .22, .34, 10, mat, 7,
+                     count, o, bevel=.008)
+            box("MopHandle", (.23, .10, 1.10), (.06, .06, 1.65), mat, 5,
+                count, o, rotation=(0, math.radians(-10), 0))
+        else:
+            box("ToolChest", (0, .02, .65), (.82, .42, .42), mat, 8,
+                count, o, bevel=.008)
+    elif model_name in {"stage_platform", "stage_speaker"}:
+        if model_name == "stage_platform":
+            box("StageBase", (0, 0, .30), (2.7, 2.1, .60), mat, 1, count, o,
+                bevel=.012)
+            box("StageTop", (0, 0, .64), (2.82, 2.22, .10), mat, 4, count, o,
+                bevel=.008)
+            for x in (-.8, 0, .8):
+                box("Footlight_%s" % x, (x, -1.08, .72), (.36, .12, .12),
+                    mat, 7, count, o, bevel=.006)
+        else:
+            box("SpeakerCabinet", (0, 0, .78), (.82, .62, 1.56), mat, 0,
+                count, o, bevel=.012)
+            for z, radius in ((.52, .24), (1.10, .20)):
+                cylinder("SpeakerCone_%s" % z, (0, -.323, z), radius, .035,
+                         12, mat, 3, count, o, bevel=.006)
+            box("Handle", (0, .0, 1.45), (.34, .16, .08), mat, 6, count, o)
+    elif model_name in {"arcade_token_changer", "prize_claw_machine",
+                        "snack_kiosk", "prize_counter"}:
+        width = 1.15 if model_name in {"snack_kiosk", "prize_counter"} else .82
+        box("MachineBody", (0, 0, .92), (width, .72, 1.84), mat, 2, count, o,
+            bevel=.012)
+        box("Header", (0, 0, 1.78), (width * .92, .76, .18), mat, 8,
+            count, o, bevel=.008)
+        box("Display", (0, -.371, 1.28), (width * .68, .025, .48), mat, 6,
+            count, o, bevel=.006)
+        box("Control", (0, -.39, .76), (width * .58, .07, .20), mat, 7,
+            count, o, bevel=.004)
+        box("CollectionBin", (0, -.39, .30), (width * .58, .08, .30), mat,
+            0, count, o, bevel=.006)
+        if model_name == "prize_claw_machine":
+            for x in (-.28, .28):
+                box("GlassPost_%s" % x, (x, -.36, 1.34), (.05, .04, .70),
+                    mat, 10, count, o)
+            box("ClawRail", (0, -.39, 1.54), (.52, .04, .05), mat, 7,
+                count, o)
+    elif model_name in {"arcade_basketball_hoop", "garden_planter_bench"}:
+        if model_name == "arcade_basketball_hoop":
+            box("Backboard", (0, .36, 1.95), (1.18, .12, .78), mat, 10,
+                count, o, bevel=.008)
+            cylinder("Hoop", (0, -.08, 1.68), .30, .06, 16, mat, 8,
+                     count, o, bevel=.004)
+            box("BallRamp", (0, .25, .48), (1.12, 1.70, .16), mat, 2,
+                count, o, rotation=(math.radians(-12), 0, 0), bevel=.008)
+            for x in (-.5, .5):
+                box("RampRail_%s" % x, (x, .25, .78), (.07, 1.72, .60), mat,
+                    1, count, o)
+        else:
+            box("Planter", (0, .32, .42), (2.1, .72, .84), mat, 4, count, o,
+                bevel=.012)
+            box("Soil", (0, .32, .82), (1.88, .56, .08), mat, 0, count, o)
+            box("BenchSeat", (0, -.48, .54), (2.15, .62, .14), mat, 5,
+                count, o, bevel=.010)
+            for x in (-.82, .82):
+                box("BenchLeg_%s" % x, (x, -.48, .27), (.14, .48, .54), mat,
+                    4, count, o)
+    elif model_name in {"broken_aquarium", "mascot_statue", "giant_tree",
+                        "grass_fern"}:
+        if model_name == "broken_aquarium":
+            box("TankStand", (0, 0, .42), (1.35, .72, .84), mat, 4, count, o,
+                bevel=.008)
+            for x in (-.62, .62):
+                box("TankSide_%s" % x, (x, 0, 1.23), (.08, .68, .82), mat,
+                    6, count, o)
+            box("TankBack", (0, .31, 1.23), (1.22, .06, .82), mat, 6,
+                count, o)
+            box("CrackedBase", (0, 0, .84), (1.28, .68, .08), mat, 3,
+                count, o)
+        elif model_name == "mascot_statue":
+            cylinder("Plinth", (0, 0, .16), .52, .32, 8, mat, 3, count, o,
+                     bevel=.008)
+            box("Body", (0, 0, .90), (.62, .44, 1.10), mat, 8, count, o,
+                bevel=.08)
+            box("Head", (0, 0, 1.62), (.72, .62, .62), mat, 9, count, o,
+                bevel=.10)
+            for x in (-.20, .20):
+                box("Eye_%s" % x, (x, -.325, 1.70), (.10, .03, .12), mat,
+                    10, count, o)
+        elif model_name == "giant_tree":
+            cylinder("Trunk", (0, 0, 1.55), .48, 3.10, 10, mat, 4, count, o,
+                     bevel=.012)
+            for i, (x, y, z) in enumerate(((-.7, 0, 2.8), (.7, 0, 2.9),
+                                            (0, -.6, 3.25), (0, .6, 3.1))):
+                cone("LeafCrown_%d" % i, (x, y, z), .82, .30, 1.35, 8,
+                     mat, 11, count, o, bevel=.012)
+            eye, look = (6.0, -7.0, 4.8), (0, 0, 1.8)
+        else:
+            for i in range(9):
+                a = math.radians(i * 40)
+                box("FernLeaf_%d" % i, (math.cos(a) * .28, math.sin(a) * .28, .42),
+                    (.12, .65, .10), mat, 11, count, o,
+                    rotation=(math.radians(-28), 0, a), bevel=.010)
+            eye, look = (2.2, -2.8, 1.8), (0, 0, .35)
+    elif model_name == "carnival_carousel":
+        cylinder("CarouselBase", (0, 0, .22), 2.10, .44, 20, mat, 8,
+                 count, o, bevel=.012)
+        cylinder("CenterColumn", (0, 0, 1.80), .28, 3.10, 12, mat, 7,
+                 count, o, bevel=.008)
+        cone("Canopy", (0, 0, 3.15), 2.25, .35, .90, 20, mat, 9,
+             count, o, bevel=.010)
+        for i in range(8):
+            a = math.radians(i * 45)
+            x, y = math.cos(a) * 1.35, math.sin(a) * 1.35
+            cylinder("Pole_%d" % i, (x, y, 1.72), .035, 2.45, 8, mat,
+                     10, count, o)
+            box("HorseBody_%d" % i, (x, y, 1.25), (.72, .26, .42), mat,
+                5 if i % 2 else 6, count, o, rotation=(0, 0, a), bevel=.06)
+            box("HorseHead_%d" % i,
+                (x + math.cos(a) * .32, y + math.sin(a) * .32, 1.48),
+                (.28, .25, .38), mat, 9, count, o, bevel=.05)
+        eye, look = (6.5, -8.0, 5.2), (0, 0, 1.7)
+    else:
+        # Remaining special props receive a purpose-shaped carnival/arcade
+        # structure rather than a generic cube placeholder.
+        box("Base", (0, 0, .12), (1.25, .85, .24), mat, 2, count, o,
+            bevel=.010)
+        box("Body", (0, 0, .88), (.92, .62, 1.30), mat, 8, count, o,
+            bevel=.018)
+        box("Face", (0, -.326, 1.02), (.68, .025, .62), mat, 6, count, o,
+            bevel=.008)
+        box("Header", (0, 0, 1.62), (1.10, .70, .22), mat, 9, count, o,
+            bevel=.010)
+    return o, eye, look
 
 
 def make_filing_cabinet():
@@ -1134,23 +1772,38 @@ def make_vending_machine():
     return objects, (1.85, -2.85, 2.10), (0.0, 0.0, 0.90)
 
 
-def make_floor_lamp():
-    colors = ["#17130F", "#40362B", "#6C5842", "#A08155", "#C9A86E", "#E0C994"]
-    image = make_pixel_atlas("floor_lamp_pixel_atlas", colors, MAZE_TEXTURES)
-    mat = make_material("Floor lamp pixel paint", image, roughness=0.82, metallic=0.10)
+def make_floor_lamp(model_name="floor_lamp", colors=None, style="classic"):
+    colors = colors or ["#17130F", "#40362B", "#6C5842", "#A08155", "#C9A86E", "#E0C994"]
+    texture_dir = MAZE_TEXTURES if model_name == "floor_lamp" else MANSION_TEXTURES
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors, texture_dir)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=0.82, metallic=0.10)
     count = len(colors)
     objects = []
-    box("LampBase", (0.0, 0.0, 0.055), (0.36, 0.36, 0.11), mat, 0,
+    if style == "tripod":
+        for index, (x, y) in enumerate(((-.16, -.10), (.16, -.10), (0, .16))):
+            box("TripodLeg_%d" % index, (x, y, .72), (.055, .055, 1.38),
+                mat, 1, count, objects, bevel=.001,
+                rotation=(math.radians(7 if y < 0 else -7),
+                          math.radians(-7 if x < 0 else 7), 0))
+        box("TripodBrace", (0, 0, 1.23), (.28, .28, .08), mat, 2,
+            count, objects, bevel=.002)
+    else:
+        box("LampBase", (0.0, 0.0, 0.055), (0.36, 0.36, 0.11), mat, 0,
+            count, objects, bevel=0.004)
+        box("LampPole", (0.0, 0.0, 0.77), (0.06, 0.06, 1.36), mat, 2,
+            count, objects, bevel=0.001)
+        if style == "modern":
+            box("ArcArm", (.14, 0, 1.36), (.34, .06, .06), mat, 2,
+                count, objects, bevel=.002, rotation=(0, math.radians(-18), 0))
+    shade_x = .16 if style == "modern" else 0.0
+    box("ShadeBottom", (shade_x, 0.0, 1.48), (0.44, 0.44, 0.18), mat, 3,
         count, objects, bevel=0.004)
-    box("LampPole", (0.0, 0.0, 0.77), (0.06, 0.06, 1.36), mat, 2,
-        count, objects, bevel=0.001)
-    box("ShadeBottom", (0.0, 0.0, 1.48), (0.44, 0.44, 0.18), mat, 3,
-        count, objects, bevel=0.004)
-    box("ShadeMiddle", (0.0, 0.0, 1.61), (0.34, 0.34, 0.12), mat, 4,
+    box("ShadeMiddle", (shade_x, 0.0, 1.61), (0.34, 0.34, 0.12), mat, 4,
         count, objects, bevel=0.003)
-    box("ShadeTop", (0.0, 0.0, 1.70), (0.22, 0.22, 0.08), mat, 5,
+    box("ShadeTop", (shade_x, 0.0, 1.70), (0.22, 0.22, 0.08), mat, 5,
         count, objects, bevel=0.002)
-    box("LampGlow", (0.0, -0.225, 1.54), (0.20, 0.010, 0.17), mat, 5,
+    box("LampGlow", (shade_x, -0.225, 1.54), (0.20, 0.010, 0.17), mat, 5,
         count, objects, bevel=0.0)
     return objects, (1.25, -2.05, 2.00), (0.0, 0.0, 0.85)
 
@@ -1290,32 +1943,47 @@ def make_dining_chair(model_name, cushioned=False, colors=None):
     return objects, (1.55, -2.15, 1.55), (0.0, 0.0, 0.56)
 
 
-def make_dining_chandelier():
-    colors = ["#120F0C", "#33291B", "#68502A", "#A87B32", "#D4A94F",
-              "#E8D49B", "#9A3A36"]
-    mat = mansion_material("dining_chandelier", colors, roughness=0.58, metallic=0.28)
+def make_dining_chandelier(model_name="dining_chandelier", colors=None,
+                           style="classic"):
+    colors = colors or ["#120F0C", "#33291B", "#68502A", "#A87B32", "#D4A94F",
+                        "#E8D49B", "#9A3A36"]
+    mat = mansion_material(model_name, colors, roughness=0.58, metallic=0.28)
     count = len(colors)
     objects = []
-    cylinder("CeilingMount", (0.0, 0.0, 1.55), 0.16, 0.08, 8, mat, 2,
+    # Highest point .90 m, lowest .20 m. At the 3 m finite-route ceiling the
+    # fixture leaves 2.30 m clear for every 2.20 m A-Z hunter silhouette.
+    cylinder("CeilingMount", (0.0, 0.0, 0.86), 0.16, 0.08, 8, mat, 2,
              count, objects)
-    for index, z in enumerate((1.40, 1.27, 1.14, 1.01)):
+    for index, z in enumerate((0.76, 0.68, 0.60)):
         box("ChainLink_%d" % (index + 1), (0.0, 0.0, z),
-            (0.07 if index % 2 else 0.12, 0.12 if index % 2 else 0.07, 0.10),
+            (0.07 if index % 2 else 0.12, 0.12 if index % 2 else 0.07, 0.07),
             mat, 3, count, objects, bevel=0.001)
-    cylinder("ChandelierHub", (0.0, 0.0, 0.77), 0.20, 0.22, 8, mat, 2,
+    cylinder("ChandelierHub", (0.0, 0.0, 0.48), 0.20, 0.18, 8, mat, 2,
              count, objects)
-    cylinder("LowerFinial", (0.0, 0.0, 0.52), 0.10, 0.28, 8, mat, 3,
+    cylinder("LowerFinial", (0.0, 0.0, 0.29), 0.10, 0.18, 8, mat, 3,
              count, objects)
-    for index, (x, y) in enumerate(((-0.38, 0.0), (0.38, 0.0), (0.0, -0.38), (0.0, 0.38))):
-        box("Arm_%d" % (index + 1), (x * 0.5, y * 0.5, 0.76),
+    arm_points = ((-.38, 0), (.38, 0), (0, -.38), (0, .38))
+    if style == "crystal":
+        arm_points = ((-.32, -.32), (.32, -.32), (-.32, .32), (.32, .32))
+    for index, (x, y) in enumerate(arm_points):
+        box("Arm_%d" % (index + 1), (x * 0.5, y * 0.5, 0.47),
             (abs(x) + 0.08 if x else 0.07, abs(y) + 0.08 if y else 0.07, 0.07),
             mat, 3, count, objects, bevel=0.002)
-        cylinder("CandleCup_%d" % (index + 1), (x, y, 0.80), 0.09, 0.07, 8,
+        cylinder("CandleCup_%d" % (index + 1), (x, y, 0.50), 0.09, 0.07, 8,
                  mat, 4, count, objects)
-        box("Candle_%d" % (index + 1), (x, y, 0.94), (0.09, 0.09, 0.24),
+        box("Candle_%d" % (index + 1), (x, y, 0.62), (0.09, 0.09, 0.20),
             mat, 5, count, objects, bevel=0.002)
-        box("Flame_%d" % (index + 1), (x, y, 1.095), (0.055, 0.055, 0.09),
+        box("Flame_%d" % (index + 1), (x, y, 0.765), (0.055, 0.055, 0.09),
             mat, 6, count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+        if style == "crystal":
+            box("Crystal_%d" % (index + 1), (x * .72, y * .72, .27),
+                (.08, .08, .20), mat, 5, count, objects, bevel=.001,
+                rotation=(0, 0, math.radians(45)))
+    if style == "gothic":
+        for x in (-.16, .16):
+            box("GothicSpike_%s" % ("L" if x < 0 else "R"),
+                (x, 0, .30), (.10, .10, .20), mat, 6, count, objects,
+                bevel=.001, rotation=(0, 0, math.radians(45)))
     return objects, (2.05, -2.75, 2.10), (0.0, 0.0, 0.95)
 
 
@@ -2187,7 +2855,7 @@ def make_empty_wall_frame(model_name, style="normal", large=False):
     return objects, eye, (0.0, 0.0, centre_z)
 
 
-def make_room_door(model_name, style="normal"):
+def make_room_door(model_name, style="normal", double=False):
     """Open residential doorway dressing for streamed room thresholds.
 
     The leaf is authored partly open so it reads as a real door but cannot
@@ -2207,71 +2875,83 @@ def make_room_door(model_name, style="normal"):
                            metallic=0.20 if style != "normal" else 0.08)
     count = len(colors)
     objects = []
-    width = .88
-    height = 2.08
+    # Single doors occupy one one-metre route cell.  Double doors span two
+    # adjacent cells, so their opening and frame must genuinely be twice as
+    # wide instead of squeezing two half-width leaves into the single-door
+    # silhouette.
+    opening_width = 1.92 if double else .92
+    width = opening_width * .5 if double else .88
+    height = 2.36
     depth = .10
+    frame_rail = .14
+    frame_x = opening_width * .5 + frame_rail * .5
+    frame_width = opening_width + frame_rail * 2.0
     frame_region = 2 if style == "normal" else (3 if style == "luxury" else 1)
     accent_region = 4 if style != "gothic" else 5
-    for side, x in (("L", -.51), ("R", .51)):
-        box("DoorFrame%s" % side, (x, 0.0, 1.10),
-            (.14, .18, 2.20), mat, frame_region, count, objects, bevel=.003)
-    box("DoorFrameTop", (0.0, 0.0, 2.18), (1.16, .18, .16),
+    for side, x in (("L", -frame_x), ("R", frame_x)):
+        box("DoorFrame%s" % side, (x, 0.0, 1.25),
+            (frame_rail, .18, 2.50), mat, frame_region, count, objects, bevel=.003)
+    box("DoorFrameTop", (0.0, 0.0, 2.47), (frame_width, .18, .16),
         mat, frame_region, count, objects, bevel=.003)
-    box("Threshold", (0.0, 0.0, .035), (1.12, .19, .07),
+    box("Threshold", (0.0, 0.0, .035), (frame_width - .04, .19, .07),
         mat, accent_region, count, objects, bevel=.001)
 
-    # Rotate the leaf around its left hinge rather than its centre.
-    angle = math.radians(68.0)
-    hinge_x = -.43
-    half = width * .5
-    leaf_x = hinge_x + math.cos(angle) * half
-    leaf_y = math.sin(angle) * half
-    leaf_objects = []
-    box("OpenDoorLeaf", (leaf_x, leaf_y, 1.08),
-        (width, depth, height), mat, 2 if style == "normal" else 1,
-        count, leaf_objects, bevel=.004, rotation=(0.0, 0.0, angle))
-    normal_x = -math.sin(angle)
-    normal_y = math.cos(angle)
-    for panel_index, panel_z in enumerate((.63, 1.48)):
-        box("DoorPanel_%d" % (panel_index + 1),
-            (leaf_x + normal_x * -.061, leaf_y + normal_y * -.061, panel_z),
-            (width * .62, .025, .54), mat, accent_region, count, leaf_objects,
+    # Both double-door leaves are full single-door width and meet at the
+    # centre of the two-cell threshold.  Stable hinge names let the Godot
+    # interaction animate both halves independently.
+    leaf_specs = [("", -opening_width * .5, 1.0)] if not double else [
+        ("Left", -opening_width * .5, 1.0),
+        ("Right", opening_width * .5, -1.0)]
+    for suffix, hinge_x, direction in leaf_specs:
+        angle = math.radians(68.0) * direction
+        half = width * .5
+        leaf_x = hinge_x + math.cos(angle) * half * direction
+        leaf_y = math.sin(angle) * half * direction
+        leaf_objects = []
+        box("OpenDoorLeaf%s" % suffix, (leaf_x, leaf_y, 1.19),
+            (width, depth, height), mat, 2 if style == "normal" else 1,
+            count, leaf_objects, bevel=.004, rotation=(0.0, 0.0, angle))
+        normal_x = -math.sin(angle)
+        normal_y = math.cos(angle)
+        for panel_index, panel_z in enumerate((.66, 1.62)):
+            box("DoorPanel%s_%d" % (suffix, panel_index + 1),
+                (leaf_x + normal_x * -.061, leaf_y + normal_y * -.061, panel_z),
+                (width * .62, .025, .58), mat, accent_region, count, leaf_objects,
+                bevel=.002, rotation=(0.0, 0.0, angle))
+        handle_d = width - .10
+        handle_x = hinge_x + math.cos(angle) * handle_d * direction + normal_x * -.078
+        handle_y = math.sin(angle) * handle_d * direction + normal_y * -.078
+        box("DoorHandle%s" % suffix, (handle_x, handle_y, 1.18),
+            (.08, .055, .07), mat, 7, count, leaf_objects,
             bevel=.002, rotation=(0.0, 0.0, angle))
-    handle_d = width - .13
-    handle_x = hinge_x + math.cos(angle) * handle_d + normal_x * -.078
-    handle_y = math.sin(angle) * handle_d + normal_y * -.078
-    box("DoorHandle", (handle_x, handle_y, 1.08), (.10, .055, .07),
-        mat, 7, count, leaf_objects, bevel=.002, rotation=(0.0, 0.0, angle))
-    # Export an explicit hinge pivot.  Godot rotates this one Node3D for the
-    # open/close animation instead of trying to infer a pivot from several
-    # independent mesh centres.  Preserve every child's world transform while
-    # parenting it so the authored 68-degree open pose stays unchanged.
-    bpy.ops.object.empty_add(type="PLAIN_AXES", location=(hinge_x, 0.0, 0.0))
-    hinge = bpy.context.object
-    hinge.name = "DoorHinge"
-    for part in leaf_objects:
-        world_matrix = part.matrix_world.copy()
-        part.parent = hinge
-        part.matrix_world = world_matrix
-    objects.extend(leaf_objects)
-    objects.append(hinge)
+        bpy.ops.object.empty_add(type="PLAIN_AXES", location=(hinge_x, 0.0, 0.0))
+        hinge = bpy.context.object
+        hinge.name = "DoorHingeRight" if suffix == "Right" else "DoorHinge"
+        for part in leaf_objects:
+            world_matrix = part.matrix_world.copy()
+            part.parent = hinge
+            part.matrix_world = world_matrix
+        objects.extend(leaf_objects)
+        objects.append(hinge)
     if style == "luxury":
-        box("DoorCrown", (0.0, 0.0, 2.31), (.62, .18, .12),
+        box("DoorCrown", (0.0, 0.0, 2.61),
+            (frame_width * .54, .18, .12),
             mat, 4, count, objects, bevel=.002)
     elif style == "gothic":
-        box("DoorSpire", (0.0, 0.0, 2.34), (.15, .18, .28),
+        box("DoorSpire", (0.0, 0.0, 2.62), (.15, .18, .28),
             mat, 7, count, objects, bevel=.001,
             rotation=(0.0, math.radians(45), 0.0))
-    return objects, (2.45, -3.45, 2.35), (0.0, 0.15, 1.1)
+    return objects, (2.45, -3.45, 2.62), (0.0, 0.15, 1.25)
 
 
-def make_wall_sconce():
-    colors = ["#100D09", "#352817", "#745325", "#B88635", "#D9B257",
-              "#EFE0AC", "#9C372E", "#F0A73B"]
-    mat = mansion_material("wall_sconce", colors, roughness=0.50, metallic=0.30)
+def make_wall_sconce(model_name="wall_sconce", colors=None, style="classic"):
+    colors = colors or ["#100D09", "#352817", "#745325", "#B88635", "#D9B257",
+                        "#EFE0AC", "#9C372E", "#F0A73B"]
+    mat = mansion_material(model_name, colors, roughness=0.50, metallic=0.30)
     count = len(colors)
     objects = []
-    box("SconcePlate", (0.0, 0.08, 1.45), (0.24, 0.10, 0.54), mat, 2,
+    plate_width = .30 if style == "gothic" else .24
+    box("SconcePlate", (0.0, 0.08, 1.45), (plate_width, 0.10, 0.54), mat, 2,
         count, objects, bevel=0.004)
     box("SconceArm", (0.0, -0.10, 1.35), (0.07, 0.36, 0.07), mat, 3,
         count, objects, bevel=0.002, rotation=(math.radians(-12), 0.0, 0.0))
@@ -2281,7 +2961,81 @@ def make_wall_sconce():
         count, objects, bevel=0.002)
     box("SconceFlame", (0.0, -0.27, 1.82), (0.06, 0.06, 0.10), mat, 7,
         count, objects, bevel=0.001, rotation=(0.0, math.radians(45), 0.0))
+    if style == "gothic":
+        for x in (-.12, .12):
+            box("SconceSpike%s" % ("L" if x < 0 else "R"),
+                (x, .075, 1.45), (.08, .08, .68), mat, 6, count, objects,
+                bevel=.001, rotation=(0, 0, math.radians(45)))
     return objects, (1.25, -1.75, 2.10), (0.0, 0.0, 1.42)
+
+
+def make_ceiling_light(model_name, colors, style="round"):
+    mat = mansion_material(model_name, colors, roughness=.62, metallic=.18)
+    count = len(colors)
+    objects = []
+    if style == "square":
+        box("CeilingPlate", (0, 0, .25), (.74, .74, .10), mat, 1,
+            count, objects, bevel=.006)
+        box("LightPanel", (0, 0, .12), (.62, .62, .16), mat, 5,
+            count, objects, bevel=.008)
+    elif style == "cage":
+        cylinder("CeilingPlate", (0, 0, .27), .30, .08, 8, mat, 1,
+                 count, objects)
+        cylinder("LightCore", (0, 0, .12), .16, .18, 8, mat, 5,
+                 count, objects)
+        for index, (x, y) in enumerate(((-.22, 0), (.22, 0), (0, -.22), (0, .22))):
+            box("Cage_%d" % index, (x, y, .13), (.035, .035, .24),
+                mat, 2, count, objects, bevel=.001)
+    else:
+        cylinder("CeilingPlate", (0, 0, .24), .34, .10, 12, mat, 1,
+                 count, objects)
+        cylinder("LightDiffuser", (0, 0, .11), .28, .16, 12, mat, 5,
+                 count, objects)
+    return objects, (1.4, -1.9, 1.2), (0, 0, .15)
+
+
+def make_ceiling_fan(model_name, colors, blade_count=4):
+    mat = mansion_material(model_name, colors, roughness=.76, metallic=.14)
+    count = len(colors)
+    objects = []
+    cylinder("CeilingCanopy", (0, 0, .54), .20, .10, 10, mat, 1,
+             count, objects)
+    box("DownRod", (0, 0, .43), (.07, .07, .18), mat, 2,
+        count, objects, bevel=.001)
+    cylinder("FanMotor", (0, 0, .31), .25, .18, 10, mat, 2,
+             count, objects)
+    for index in range(blade_count):
+        angle = math.tau * index / blade_count
+        radius = .62
+        x, y = math.cos(angle) * radius, math.sin(angle) * radius
+        box("FanBlade_%d" % (index + 1), (x, y, .32), (.78, .20, .055),
+            mat, 3 + index % 2, count, objects, bevel=.004,
+            rotation=(0, 0, angle))
+    cylinder("FanLight", (0, 0, .16), .22, .18, 10, mat, 5,
+             count, objects)
+    return objects, (2.1, -2.5, 1.7), (0, 0, .3)
+
+
+def make_table_lamp(model_name, colors, style="shade"):
+    mat = mansion_material(model_name, colors, roughness=.70, metallic=.14)
+    count = len(colors)
+    objects = []
+    cylinder("TableLampBase", (0, 0, .055), .19, .11, 10, mat, 1,
+             count, objects)
+    box("TableLampStem", (0, 0, .27), (.055, .055, .38), mat, 2,
+        count, objects, bevel=.001)
+    if style == "banker":
+        box("BankerShade", (0, 0, .56), (.48, .25, .20), mat, 5,
+            count, objects, bevel=.008)
+        box("ShadeTrim", (0, -.13, .55), (.50, .03, .08), mat, 4,
+            count, objects, bevel=.002)
+    elif style == "orb":
+        cylinder("OrbLight", (0, 0, .53), .22, .30, 10, mat, 5,
+                 count, objects)
+    else:
+        cone("TableShade", (0, 0, .53), .25, .17, .28, 8, mat, 5,
+             count, objects)
+    return objects, (1.2, -1.7, 1.05), (0, 0, .3)
 
 
 def make_heavy_drapes():
@@ -2594,6 +3348,55 @@ def make_frozen_beach_hut():
     box("HutSign", (0.0, -0.73, 2.27), (0.58, 0.05, 0.20), mat, 2,
         count, objects, bevel=0.003)
     return objects, (3.75, -4.75, 3.45), (0.0, 0.0, 1.40)
+
+
+def make_frozen_tideline_pool():
+    """Contained indoor-ocean dressing for a frozen tideline room.
+
+    The route floor remains underneath this shallow model, so it reads as a
+    dark ocean inlet without becoming a hole or an accidental route exit.
+    Chunky ice banks keep the water edge legible in the game's block style.
+    """
+    water_colors = ["#07161B", "#0B2832", "#12414E", "#1B5D69",
+                    "#2D7880", "#65A8AA", "#A4D2CF", "#DDEAE3"]
+    ice_colors = ["#17262B", "#355158", "#58747A", "#82A2A4",
+                  "#ACC5C2", "#D3E0DA", "#EDF1E8", "#6C888B"]
+    water = beach_material("frozen_tideline_water", water_colors,
+                           roughness=0.28, metallic=0.08)
+    ice = beach_material("frozen_tideline_ice", ice_colors,
+                         roughness=0.70)
+    objects = []
+    box("ContainedOceanSurface", (0.0, 0.0, 0.055), (6.20, 5.20, 0.07),
+        water, 3, len(water_colors), objects, bevel=0.006)
+    # Staggered pixel shelves avoid a perfect rectangular bathtub outline.
+    edge_specs = (
+        (-2.65, -2.35, 1.00, .42, .16), (-1.35, -2.48, 1.20, .30, .12),
+        (0.15, -2.42, 1.35, .42, .18), (1.65, -2.48, .90, .32, .14),
+        (2.72, -2.28, .70, .52, .20), (-2.78, 2.30, .75, .48, .18),
+        (-1.70, 2.46, 1.05, .28, .12), (-.35, 2.38, 1.25, .44, .18),
+        (1.15, 2.48, 1.05, .28, .13), (2.55, 2.34, 1.15, .46, .18),
+    )
+    for index, (x, y, width, depth, height) in enumerate(edge_specs):
+        box("IceBankLong_%02d" % index, (x, y, .07 + height * .5),
+            (width, depth, height), ice, 3 + index % 4, len(ice_colors),
+            objects, bevel=.003)
+    side_specs = (
+        (-3.00, -1.55, .42, 1.10, .16), (-3.08, -.25, .30, 1.05, .13),
+        (-3.00, 1.15, .46, 1.25, .19), (3.02, -1.55, .38, 1.05, .14),
+        (3.08, -.20, .30, 1.20, .12), (3.00, 1.25, .44, 1.05, .18),
+    )
+    for index, (x, y, width, depth, height) in enumerate(side_specs):
+        box("IceBankSide_%02d" % index, (x, y, .07 + height * .5),
+            (width, depth, height), ice, 2 + index % 5, len(ice_colors),
+            objects, bevel=.003)
+    # Sparse floating plates add depth without blocking the playable floor.
+    for index, (x, y, sx, sy) in enumerate(((-1.55, -.65, .78, .48),
+                                             (.85, .65, .62, .42),
+                                             (1.90, -1.15, .46, .34))):
+        box("DriftIce_%02d" % index, (x, y, .115), (sx, sy, .08), ice,
+            4 + index, len(ice_colors), objects, bevel=.003,
+            rotation=(0.0, 0.0, math.radians((-12, 9, -7)[index])))
+    return objects, (7.8, -9.2, 5.9), (0.0, 0.0, 0.0)
 
 
 def make_lava_vent():
@@ -3085,6 +3888,101 @@ def make_bedroom_rug(model_name="bedroom_rug", colors=None):
             (0.20, 0.20, 0.014), mat, 7, count, objects, bevel=0.0,
             rotation=(0.0, 0.0, math.radians(45)))
     return objects, (2.25, -2.75, 2.10), (0.0, 0.0, 0.0)
+
+
+REGIONAL_FLOOR_PALETTES = {
+    "corridor_teal": ["#090D10", "#182329", "#2B3B42", "#42616A",
+                      "#317A7D", "#62B3AE", "#B7D7CE", "#DCE7DE"],
+    "corridor_burgundy": ["#0E0A0B", "#25171A", "#422329", "#66323D",
+                          "#8B3E50", "#C06A77", "#C7AE92", "#E4D6BF"],
+    "hotel_burgundy": ["#100B0D", "#2D171E", "#542331", "#81384B",
+                       "#AF536A", "#D08491", "#C9A96F", "#F0DEC1"],
+    "hotel_navy": ["#080D13", "#152638", "#243E59", "#365D7E",
+                    "#4F82A3", "#85B4C6", "#B99855", "#E8DFC9"],
+    "hotel_ivory": ["#171411", "#42382D", "#70604D", "#A08B70",
+                     "#C5B496", "#E2D8C4", "#8F7250", "#F4EFE4"],
+    "apartment_olive": ["#0C0F0A", "#27301D", "#445331", "#667849",
+                        "#8A9B64", "#B1BE8A", "#85664A", "#D8D0B8"],
+    "apartment_charcoal": ["#090A0C", "#20242A", "#373D45", "#555D66",
+                           "#78828A", "#A9B0B2", "#5A7777", "#DADBD3"],
+    "apartment_rust": ["#100C0A", "#342019", "#5C3324", "#884B32",
+                       "#B56B49", "#D79B70", "#5D7370", "#E2D5BD"],
+    "beach_teal": ["#081316", "#17404A", "#287383", "#3FA6AF",
+                   "#78D2CC", "#D7EEE2", "#BC8A4D", "#F0D47A"],
+    "beach_sun": ["#151008", "#4A2D18", "#82502A", "#C27B38",
+                  "#E7AF50", "#F2DB8A", "#3E8988", "#A9DDD0"],
+}
+
+
+def make_region_floor_dressing(model_name, style, colors):
+    """A dedicated thin regional textile, never a bedroom-rug alias."""
+    mat = mansion_material(model_name, colors, roughness=.97)
+    count = len(colors)
+    o = []
+    dims = {
+        "corridor": (2.40, 3.40),
+        "hotel": (2.20, 1.40),
+        "apartment": (2.00, 1.35),
+        "beach": (1.40, .85),
+    }[style]
+    width, depth = dims
+    box("TextileBase", (0, 0, .018), (width, depth, .036), mat, 1,
+        count, o, bevel=.010)
+
+    if style == "corridor":
+        box("RunnerField", (0, 0, .041), (width - .16, depth - .16, .018),
+            mat, 3, count, o, bevel=.006)
+        for x in (-width * .5 + .14, width * .5 - .14):
+            box("LongBorder_%s" % x, (x, 0, .055), (.12, depth - .22, .012),
+                mat, 5, count, o)
+        for index, y in enumerate((-1.18, -.59, 0, .59, 1.18)):
+            box("RunnerDiamond_%d" % index, (0, y, .059), (.42, .42, .014),
+                mat, 6 if index % 2 else 4, count, o,
+                rotation=(0, 0, math.radians(45)))
+        for y in (-depth * .5 + .14, depth * .5 - .14):
+            box("EndBand_%s" % y, (0, y, .057), (width - .24, .12, .012),
+                mat, 7, count, o)
+    elif style == "hotel":
+        box("HotelField", (0, 0, .041), (width - .14, depth - .14, .018),
+            mat, 4, count, o, bevel=.008)
+        for axis, offset, size in (
+                ("L", -width * .5 + .12, (.10, depth - .18, .012)),
+                ("R", width * .5 - .12, (.10, depth - .18, .012)),
+                ("F", -depth * .5 + .12, (width - .18, .10, .012)),
+                ("B", depth * .5 - .12, (width - .18, .10, .012))):
+            at = (offset, 0, .056) if axis in ("L", "R") else (0, offset, .056)
+            box("HotelBorder%s" % axis, at, size, mat, 6, count, o)
+        box("HotelMedallion", (0, 0, .061), (.58, .58, .014), mat, 2,
+            count, o, rotation=(0, 0, math.radians(45)))
+        for index, x in enumerate((-.68, .68)):
+            box("HotelCornerMark_%d" % index, (x, 0, .061), (.22, .22, .014),
+                mat, 7, count, o, rotation=(0, 0, math.radians(45)))
+    elif style == "apartment":
+        box("WovenField", (0, 0, .040), (width - .12, depth - .12, .016),
+            mat, 2, count, o, bevel=.006)
+        for index, y in enumerate((-.48, -.24, 0, .24, .48)):
+            box("WovenBand_%d" % index, (0, y, .054),
+                (width - .16, .13, .012), mat, 4 + index % 3, count, o)
+        for side, y in (("F", -depth * .5 - .035), ("B", depth * .5 + .035)):
+            for fringe in range(-5, 6):
+                box("Fringe%s_%d" % (side, fringe),
+                    (fringe * .15, y, .040), (.07, .12, .025), mat, 7,
+                    count, o, bevel=.002)
+    else:
+        # Woven beach mats read as portable slatted textiles rather than a
+        # resized bathroom mat. Alternating bands remain clear at mid-distance.
+        for index in range(8):
+            y = -depth * .5 + .075 + index * ((depth - .15) / 7.0)
+            box("BeachSlat_%d" % index, (0, y, .044),
+                (width - .08, .075, .018), mat, 3 + index % 3, count, o,
+                bevel=.005)
+        for x in (-width * .5 + .10, width * .5 - .10):
+            box("BeachEdge_%s" % x, (x, 0, .058), (.08, depth - .08, .014),
+                mat, 6, count, o, bevel=.003)
+        for y in (-depth * .5 + .10, depth * .5 - .10):
+            box("BeachTie_%s" % y, (0, y, .061), (width - .12, .055, .012),
+                mat, 7, count, o)
+    return o, (max(width, 2.0), -max(depth, 2.6), 2.0), (0, 0, 0)
 
 
 def make_bedroom_wall_clock(model_name="bedroom_wall_clock", colors=None):
@@ -4048,6 +4946,143 @@ def make_prison_bunk():
     return objects, (3.4, -4.8, 2.75), (0.0, 0.0, 0.78)
 
 
+def make_bunk_bed(model_name, style="metal"):
+    palettes = {
+        "metal": ["#111519", "#303940", "#5C686E", "#A1AAAB",
+                  "#263D50", "#527A96", "#B8C9D1", "#E6E3D7"],
+        "wood": ["#1A110C", "#49301F", "#765035", "#A8754B",
+                 "#D2A26D", "#315069", "#7493A6", "#E8E0CF"],
+        "loft": ["#15131A", "#3B3345", "#6D5B78", "#9A82A7",
+                 "#D2B7D8", "#374E64", "#7896AA", "#ECE4D7"],
+    }
+    colors = palettes[style]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             PRISON_TEXTURES)
+    mat = make_material(model_name.replace("_", " ").title() + " pixel paint",
+                        image, roughness=.88, metallic=.12 if style == "metal" else .02)
+    count = len(colors)
+    objects = []
+    frame_index = 2 if style == "metal" else 3
+    post_width = .09 if style == "metal" else .13
+    for x in (-.52, .52):
+        for y in (-1.03, 1.03):
+            box("Post_%s_%s" % (x, y), (x, y, .88),
+                (post_width, post_width, 1.76), mat, frame_index, count,
+                objects, bevel=.006)
+    for level, z in enumerate((.38, 1.22)):
+        box("BedFrame_%d" % level, (0, 0, z), (1.12, 2.14, .13), mat,
+            frame_index, count, objects, bevel=.010)
+        box("Mattress_%d" % level, (0, 0, z + .13), (1.00, 1.96, .16), mat,
+            7, count, objects, bevel=.025)
+        box("Pillow_%d" % level, (0, -.70, z + .25), (.72, .42, .15), mat,
+            6, count, objects, bevel=.035)
+        box("Blanket_%d" % level, (0, .36, z + .23), (.92, 1.02, .08), mat,
+            5, count, objects, bevel=.015)
+        # Guard rails make the upper bed silhouette unmistakably different
+        # from the old prison bunk alias.
+        if level == 1:
+            for x in (-.54, .54):
+                box("GuardRail_%s" % x, (x, .28, z + .36),
+                    (.07, 1.22, .09), mat, frame_index, count, objects,
+                    bevel=.004)
+    ladder_x = .60
+    for side_y in (-.62, -.18):
+        box("LadderRail_%s" % side_y, (ladder_x, side_y, .80),
+            (.08, .08, 1.30), mat, frame_index, count, objects, bevel=.004)
+    for rung, z in enumerate((.28, .52, .76, 1.0, 1.24)):
+        box("LadderRung_%d" % rung, (ladder_x, -.40, z),
+            (.08, .52, .06), mat, frame_index, count, objects, bevel=.004)
+    if style == "loft":
+        box("UnderBedDesk", (0, .20, .72), (.92, .75, .10), mat, 3,
+            count, objects, bevel=.008)
+        box("UnderBedShelf", (0, .74, .78), (.92, .14, .65), mat, 2,
+            count, objects, bevel=.006)
+    return objects, (3.7, -5.0, 3.0), (0.0, 0.0, .90)
+
+
+def prison_cafeteria_material(model_name):
+    colors = ["#0E1215", "#293136", "#4D595E", "#7B8587",
+              "#AAB0AD", "#D4D5CF", "#315F64", "#6FA4A1"]
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             PRISON_TEXTURES)
+    return (make_material(model_name.replace("_", " ").title() + " pixel paint",
+                          image, roughness=.84, metallic=.18), len(colors))
+
+
+def make_prison_cafeteria_table():
+    mat, count = prison_cafeteria_material("prison_cafeteria_table")
+    o = []
+    box("TableTop", (0, 0, .78), (2.65, .82, .12), mat, 3, count, o,
+        bevel=.008)
+    for x in (-1.12, 1.12):
+        box("TableLeg_%s" % x, (x, 0, .39), (.10, .58, .72), mat, 2,
+            count, o, bevel=.004)
+    for y in (-.72, .72):
+        box("BenchSeat_%s" % y, (0, y, .48), (2.55, .34, .12), mat, 4,
+            count, o, bevel=.008)
+        for x in (-1.05, 1.05):
+            box("BenchLeg_%s_%s" % (x, y), (x, y, .24), (.10, .22, .46),
+                mat, 2, count, o, bevel=.004)
+    for x in (-1.18, 1.18):
+        box("FloorBolt_%s" % x, (x, 0, .035), (.18, .18, .07), mat, 1,
+            count, o, bevel=.012)
+    return o, (3.8, -5.2, 2.8), (0, 0, .45)
+
+
+def make_prison_serving_counter():
+    mat, count = prison_cafeteria_material("prison_serving_counter")
+    o = []
+    box("CounterBase", (0, 0, .48), (2.35, .78, .96), mat, 2, count, o,
+        bevel=.008)
+    box("CounterTop", (0, -.02, 1.01), (2.46, .88, .12), mat, 4, count, o,
+        bevel=.008)
+    for index, x in enumerate((-.72, 0, .72)):
+        box("FoodWell_%d" % index, (x, -.03, 1.08), (.58, .52, .08), mat,
+            1, count, o, bevel=.018)
+    for x in (-1.03, 1.03):
+        box("GuardPost_%s" % x, (x, .17, 1.55), (.06, .06, .92), mat, 3,
+            count, o)
+    box("SneezeGuard", (0, .17, 1.72), (2.08, .045, .62), mat, 7, count, o,
+        bevel=.006)
+    box("TrayRail", (0, -.51, .78), (2.32, .16, .10), mat, 3, count, o,
+        bevel=.004)
+    return o, (3.7, -5.2, 3.1), (0, 0, .95)
+
+
+def make_prison_tray_return():
+    mat, count = prison_cafeteria_material("prison_tray_return")
+    o = []
+    box("ReturnBody", (0, 0, .68), (.92, .66, 1.36), mat, 2, count, o,
+        bevel=.008)
+    box("ReturnOpening", (0, -.342, .93), (.68, .035, .46), mat, 0,
+        count, o, bevel=.006)
+    box("Top", (0, 0, 1.40), (1.0, .72, .10), mat, 4, count, o,
+        bevel=.006)
+    for index, z in enumerate((.18, .26, .34)):
+        box("Tray_%d" % index, (0, -.40, z), (.70, .46, .035), mat,
+            5 if index == 2 else 3, count, o, bevel=.004)
+    box("WasteDoor", (.0, -.352, .50), (.58, .025, .26), mat, 1,
+        count, o, bevel=.004)
+    return o, (2.2, -3.2, 2.0), (0, 0, .72)
+
+
+def make_prison_kitchen_rack():
+    mat, count = prison_cafeteria_material("prison_kitchen_rack")
+    o = []
+    for x in (-.62, .62):
+        for y in (-.25, .25):
+            box("RackPost_%s_%s" % (x, y), (x, y, .90),
+                (.07, .07, 1.80), mat, 2, count, o, bevel=.003)
+    for index, z in enumerate((.20, .70, 1.20, 1.70)):
+        box("RackShelf_%d" % index, (0, 0, z), (1.35, .62, .08), mat,
+            3, count, o, bevel=.004)
+    for index, (x, z) in enumerate(((-.35, .30), (.32, .30),
+                                     (-.30, .80), (.28, .80))):
+        cylinder("StockPot_%d" % index, (x, 0, z), .18, .22, 10, mat,
+                 4 if index % 2 else 3, count, o, bevel=.005)
+    return o, (2.7, -3.8, 2.4), (0, 0, .90)
+
+
 def make_dungeon_cage():
     iron, stone, _, count = prison_materials("dungeon_cage")
     objects = []
@@ -4093,6 +5128,171 @@ def make_restraint_chair():
     box("ChestRestraint", (0.0, 0.12, 1.40), (0.77, 0.18, 0.16), iron, 5,
         count, objects, bevel=0.012, rotation=(math.radians(-7), 0, 0))
     return objects, (3.0, -4.2, 2.7), (0.0, 0.0, 0.90)
+
+
+def carnival_material(model_name, colors, roughness=0.88, metallic=0.0):
+    image = make_pixel_atlas(model_name + "_pixel_atlas", colors,
+                             CARNIVAL_TEXTURES)
+    return make_material(model_name.replace("_", " ").title() + " pixel paint",
+                         image, roughness=roughness, metallic=metallic)
+
+
+def make_carnival_ticket_booth():
+    colors = ["#17111D", "#5E1732", "#B82E4C", "#F1C24D", "#F4E4C1",
+              "#2C6772", "#9D6732"]
+    mat = carnival_material("carnival_ticket_booth", colors)
+    count = len(colors)
+    objects = []
+    box("BoothBase", (0, 0, .12), (1.65, 1.15, .24), mat, 6, count, objects)
+    box("BoothBack", (0, .48, 1.18), (1.65, .16, 2.12), mat, 1, count, objects)
+    for x in (-.74, .74):
+        box("FrontPost", (x, -.46, 1.2), (.17, .17, 2.15), mat, 2,
+            count, objects)
+    box("Counter", (0, -.48, .92), (1.55, .34, .18), mat, 6, count, objects)
+    box("Header", (0, -.45, 2.12), (1.72, .28, .42), mat, 2, count, objects)
+    for index, x in enumerate((-.55, -.33, -.11, .11, .33, .55)):
+        box("HeaderStripe_%d" % index, (x, -.602, 2.12), (.12, .025, .34),
+            mat, 3 if index % 2 == 0 else 4, count, objects)
+    box("TicketSlot", (0, -.66, 1.20), (.52, .06, .36), mat, 0, count, objects)
+    box("TicketLetter_T", (-.16, -.70, 2.13), (.08, .03, .20), mat, 4,
+        count, objects)
+    box("TicketLetter_I", (0, -.70, 2.13), (.06, .03, .20), mat, 4,
+        count, objects)
+    box("TicketLetter_X", (.16, -.70, 2.13), (.08, .03, .20), mat, 4,
+        count, objects, rotation=(0, math.radians(45), 0))
+    return objects, (3.2, -4.5, 3.0), (0, 0, 1.15)
+
+
+def make_popcorn_cart():
+    colors = ["#17131A", "#8A1E35", "#D73C4E", "#F2C84B", "#FFF0C7",
+              "#67A7AE", "#8B592E"]
+    mat = carnival_material("popcorn_cart", colors, roughness=.78, metallic=.08)
+    count = len(colors)
+    objects = []
+    box("CartBody", (0, 0, .73), (1.25, .72, .78), mat, 1, count, objects)
+    for x in (-.48, 0, .48):
+        box("BodyStripe", (x, -.371, .73), (.16, .025, .68), mat,
+            4 if x == 0 else 2, count, objects)
+    box("GlassCase", (0, 0, 1.38), (1.05, .62, .55), mat, 5, count, objects)
+    box("PopcornMass", (0, 0, 1.22), (.91, .51, .18), mat, 3, count, objects)
+    box("Canopy", (0, 0, 1.76), (1.36, .82, .20), mat, 2, count, objects)
+    for x in (-.42, .42):
+        box("CanopyPanel", (x, -.421, 1.77), (.26, .025, .14), mat, 4,
+            count, objects)
+    for x in (-.46, .46):
+        cylinder("Wheel", (x, .25, .34), .25, .12, 8, mat, 0, count,
+                 objects, rotation=(math.radians(90), 0, 0))
+    box("Handle", (.83, .18, .82), (.42, .08, .08), mat, 6, count, objects)
+    return objects, (2.7, -3.8, 2.35), (0, 0, .9)
+
+
+def make_ring_toss_stall():
+    colors = ["#15121B", "#283C66", "#357FA0", "#B82D4B", "#F0C34C",
+              "#F4E5C5", "#74411F"]
+    mat = carnival_material("ring_toss_stall", colors)
+    count = len(colors)
+    objects = []
+    box("StallDeck", (0, 0, .16), (2.45, 1.45, .32), mat, 6, count, objects)
+    box("StallBack", (0, .64, 1.25), (2.45, .16, 2.2), mat, 1, count, objects)
+    for x in (-1.1, 1.1):
+        box("StallPost", (x, -.59, 1.35), (.16, .16, 2.5), mat, 3,
+            count, objects)
+    box("StallHeader", (0, -.58, 2.38), (2.5, .25, .42), mat, 3, count, objects)
+    for index, x in enumerate((-1.0, -.6, -.2, .2, .6, 1.0)):
+        box("Awning_%d" % index, (x, -.72, 2.07), (.30, .36, .32), mat,
+            4 if index % 2 else 5, count, objects,
+            rotation=(math.radians(-18), 0, 0))
+    for row in range(2):
+        for col in range(5):
+            x = -.8 + col * .4
+            y = -.28 + row * .42
+            cylinder("Bottle_%d_%d" % (row, col), (x, y, .46), .07, .45,
+                     8, mat, 2 if col % 2 else 4, count, objects)
+            cylinder("Ring_%d_%d" % (row, col), (x, y, .72), .13, .035,
+                     8, mat, 5, count, objects)
+    return objects, (3.8, -5.2, 3.4), (0, 0, 1.2)
+
+
+def make_strength_tester():
+    colors = ["#141118", "#702039", "#C9364F", "#F0BF43", "#F5E6C5",
+              "#456D81", "#825126"]
+    mat = carnival_material("strength_tester", colors, roughness=.76,
+                            metallic=.12)
+    count = len(colors)
+    objects = []
+    box("TesterBase", (0, 0, .15), (.92, .72, .3), mat, 6, count, objects)
+    box("TesterTower", (0, .1, 1.42), (.30, .26, 2.55), mat, 2, count, objects)
+    for index in range(8):
+        box("Gauge_%d" % index, (0, -.055, .45 + index * .26),
+            (.16, .025, .11), mat, 3 if index > 5 else 4, count, objects)
+    cylinder("Bell", (0, .08, 2.78), .34, .18, 8, mat, 3, count, objects)
+    box("StrikePad", (0, -.18, .31), (.44, .38, .18), mat, 0, count, objects)
+    box("MalletHandle", (.56, -.18, .65), (.10, .10, .82), mat, 6,
+        count, objects, rotation=(0, math.radians(18), 0))
+    box("MalletHead", (.66, -.18, 1.03), (.42, .20, .20), mat, 1,
+        count, objects)
+    return objects, (2.8, -4.1, 3.3), (0, 0, 1.4)
+
+
+def make_circus_pedestal():
+    colors = ["#17131A", "#731D39", "#C52D4A", "#F0C345", "#F5E6C8",
+              "#2C6573"]
+    mat = carnival_material("circus_pedestal", colors)
+    count = len(colors)
+    objects = []
+    cylinder("PedestalBase", (0, 0, .12), .82, .24, 12, mat, 0, count,
+             objects)
+    cylinder("PedestalBody", (0, 0, .38), .70, .46, 12, mat, 2, count,
+             objects)
+    cylinder("PedestalTop", (0, 0, .66), .80, .16, 12, mat, 3, count,
+             objects)
+    for index in range(8):
+        angle = index * math.tau / 8.0
+        box("StarBlock_%d" % index,
+            (math.cos(angle) * .58, math.sin(angle) * .58, .42),
+            (.14, .08, .20), mat, 4, count, objects,
+            rotation=(0, 0, angle))
+    return objects, (2.4, -3.3, 1.8), (0, 0, .35)
+
+
+def make_carousel_centerpiece():
+    colors = ["#130F18", "#5A1838", "#B52A4C", "#E9B936", "#F4E4C0",
+              "#2C6A75", "#4D3C72", "#8A572B"]
+    mat = carnival_material("carousel_centerpiece", colors, roughness=.80,
+                            metallic=.06)
+    count = len(colors)
+    objects = []
+    cylinder("CarouselBase", (0, 0, .18), 2.65, .36, 16, mat, 1, count,
+             objects)
+    cylinder("CarouselDeck", (0, 0, .43), 2.50, .18, 16, mat, 3, count,
+             objects)
+    cylinder("CenterMast", (0, 0, 3.15), .24, 5.55, 12, mat, 3, count,
+             objects)
+    cylinder("CanopyBand", (0, 0, 5.18), 2.65, .28, 16, mat, 2, count,
+             objects)
+    cone("Canopy", (0, 0, 5.72), 2.72, .42, .92, 16, mat, 1, count,
+         objects)
+    cylinder("Crown", (0, 0, 6.28), .32, .32, 8, mat, 3, count, objects)
+    for index in range(8):
+        angle = index * math.tau / 8.0
+        radius = 1.75
+        x, y = math.cos(angle) * radius, math.sin(angle) * radius
+        cylinder("RidePole_%d" % index, (x, y, 2.72), .055, 4.45, 8,
+                 mat, 3 if index % 2 else 4, count, objects)
+        # Block-built carousel animal: a compact horse silhouette rather than a
+        # smooth sculpt, matching the existing hunters and room geometry.
+        box("HorseBody_%d" % index, (x, y, 1.36), (.72, .26, .38), mat,
+            4 if index % 2 else 5, count, objects,
+            rotation=(0, 0, angle))
+        box("HorseNeck_%d" % index,
+            (x + math.cos(angle) * .30, y + math.sin(angle) * .30, 1.64),
+            (.22, .22, .56), mat, 4 if index % 2 else 5, count, objects,
+            rotation=(0, 0, angle))
+        for leg in (-.22, .22):
+            box("HorseLeg_%d_%s" % (index, "A" if leg < 0 else "B"),
+                (x + math.cos(angle) * leg, y + math.sin(angle) * leg, 1.02),
+                (.12, .12, .55), mat, 6, count, objects)
+    return objects, (8.4, -10.5, 8.0), (0, 0, 3.0)
 
 
 def save_and_export(name, objects, root=ROOT, source=SOURCE):
@@ -4272,11 +5472,50 @@ MAZE_BUILDERS = {
     "arcade_cabinet_cyan_magenta": lambda: make_arcade_variant(
         "arcade_cabinet_cyan_magenta",
         ["#080D11", "#21343D", "#3C555D", "#45C4BF", "#D955A0", "#0B171C", "#B7914B"], 1),
-    "wooden_chair_oak": lambda: make_wooden_chair("wooden_chair_oak", False),
-    "wooden_chair_cushion": lambda: make_wooden_chair("wooden_chair_cushion", True),
-    "wooden_table": make_wooden_table,
-    "wooden_dresser_sideboard": make_wooden_dresser,
+    "wooden_chair_oak": lambda: make_wooden_chair(
+        "wooden_chair_oak", False, WOOD_PALETTES["oak"]),
+    "wooden_chair_walnut": lambda: make_wooden_chair(
+        "wooden_chair_walnut", False, WOOD_PALETTES["walnut"]),
+    "wooden_chair_mahogany": lambda: make_wooden_chair(
+        "wooden_chair_mahogany", False, WOOD_PALETTES["mahogany"]),
+    "wooden_chair_ash": lambda: make_wooden_chair(
+        "wooden_chair_ash", False, WOOD_PALETTES["ash"]),
+    "wooden_chair_cushion": lambda: make_wooden_chair(
+        "wooden_chair_cushion", True, WOOD_PALETTES["oak"]),
+    "wooden_chair_cushion_walnut": lambda: make_wooden_chair(
+        "wooden_chair_cushion_walnut", True, WOOD_PALETTES["walnut"]),
+    "wooden_chair_cushion_mahogany": lambda: make_wooden_chair(
+        "wooden_chair_cushion_mahogany", True, WOOD_PALETTES["mahogany"]),
+    "wooden_chair_cushion_ash": lambda: make_wooden_chair(
+        "wooden_chair_cushion_ash", True, WOOD_PALETTES["ash"]),
+    "wooden_table": lambda: make_wooden_table(
+        "wooden_table", WOOD_PALETTES["oak"]),
+    "wooden_table_walnut": lambda: make_wooden_table(
+        "wooden_table_walnut", WOOD_PALETTES["walnut"]),
+    "wooden_table_mahogany": lambda: make_wooden_table(
+        "wooden_table_mahogany", WOOD_PALETTES["mahogany"]),
+    "wooden_table_ash": lambda: make_wooden_table(
+        "wooden_table_ash", WOOD_PALETTES["ash"]),
+    "restaurant_party_table": make_restaurant_party_table,
+    "wooden_dresser_sideboard": lambda: make_wooden_dresser(
+        "wooden_dresser_sideboard", WOOD_PALETTES["oak"]),
+    "wooden_dresser_sideboard_walnut": lambda: make_wooden_dresser(
+        "wooden_dresser_sideboard_walnut", WOOD_PALETTES["walnut"]),
+    "wooden_dresser_sideboard_mahogany": lambda: make_wooden_dresser(
+        "wooden_dresser_sideboard_mahogany", WOOD_PALETTES["mahogany"]),
+    "wooden_dresser_sideboard_ash": lambda: make_wooden_dresser(
+        "wooden_dresser_sideboard_ash", WOOD_PALETTES["ash"]),
     "filing_cabinet": make_filing_cabinet,
+    "office_desk": make_office_desk,
+    "office_task_chair": make_office_task_chair,
+    "office_crt_security_console": make_office_security_console,
+    "office_cubicle_partition": make_office_cubicle_partition,
+    "office_printer": make_office_printer,
+    "office_water_cooler": make_office_water_cooler,
+    "office_photocopier": make_office_photocopier,
+    "office_shredder": make_office_shredder,
+    "office_file_boxes": make_office_file_boxes,
+    "office_corner_workstation": make_office_corner_workstation,
     "supply_crates": make_supply_crates,
     "server_rack": make_server_rack,
     "vending_machine": make_vending_machine,
@@ -4285,6 +5524,53 @@ MAZE_BUILDERS = {
     "privacy_curtain": make_privacy_curtain,
     "lounge_couch_red": make_lounge_couch,
 }
+
+# Every generated office chooses one stable shell/partition finish. The
+# historical unsuffixed exports remain the neutral option; charcoal and teal
+# are additional authored variants with the same usable silhouettes.
+OFFICE_VARIANT_BUILDERS = {
+    "office_desk": make_office_desk,
+    "office_task_chair": make_office_task_chair,
+    "office_crt_security_console": make_office_security_console,
+    "office_cubicle_partition": make_office_cubicle_partition,
+    "office_printer": make_office_printer,
+    "office_water_cooler": make_office_water_cooler,
+    "office_photocopier": make_office_photocopier,
+    "office_shredder": make_office_shredder,
+    "office_file_boxes": make_office_file_boxes,
+    "office_corner_workstation": make_office_corner_workstation,
+}
+for office_base_name, office_builder in OFFICE_VARIANT_BUILDERS.items():
+    for office_theme, office_colors in OFFICE_PALETTES.items():
+        office_variant_name = "%s_%s" % (office_base_name, office_theme)
+        MAZE_BUILDERS[office_variant_name] = (
+            lambda name=office_variant_name, colors=office_colors,
+                   builder=office_builder: builder(name, colors)
+        )
+
+# Four distinct reference-led computer families, each exported in the same
+# named shell themes.  Captured defaults in the lambdas are intentional: they
+# keep every builder stable after the loop finishes.
+for computer_style in ("compact", "tower", "desktop", "terminal"):
+    for computer_theme, computer_colors in COMPUTER_PALETTES.items():
+        computer_name = "retro_computer_%s_%s" % (computer_style, computer_theme)
+        MAZE_BUILDERS[computer_name] = (
+            lambda name=computer_name, style=computer_style, colors=computer_colors:
+            make_retro_computer(name, style, colors)
+        )
+
+for catalog_name in (
+        "arcade_basketball_hoop", "arcade_carpet_circle",
+        "arcade_carpet_runner", "arcade_token_changer",
+        "backstage_repair_stand", "breaker_cabinet", "broken_aquarium",
+        "carnival_carousel", "flower_blue", "flower_rose", "flower_sun",
+        "flower_violet", "garden_planter_bench", "giant_tree", "grass_fern",
+        "locker", "maintenance_cleaning_cart", "maintenance_tool_cabinet",
+        "mascot_statue", "prize_claw_machine", "prize_counter",
+        "snack_kiosk", "stage_platform", "stage_speaker", "utility_cart"):
+    MAZE_BUILDERS[catalog_name] = (
+        lambda name=catalog_name: make_catalog_furnishing(name)
+    )
 
 MANSION_BUILDERS = {
     "grand_dining_table": make_grand_dining_table,
@@ -4297,6 +5583,36 @@ MANSION_BUILDERS = {
         ["#160F0D", "#352119", "#5B3826", "#835738", "#9A856A",
          "#C8B99A", "#E4D8BE", "#B88A45"]),
     "dining_chandelier": make_dining_chandelier,
+    "dining_chandelier_crystal": lambda: make_dining_chandelier(
+        "dining_chandelier_crystal",
+        ["#101015", "#343947", "#68758A", "#A8B8C9", "#D7EAF3", "#F3FCFF", "#8ABED1"],
+        "crystal"),
+    "dining_chandelier_gothic": lambda: make_dining_chandelier(
+        "dining_chandelier_gothic",
+        ["#09080B", "#1D1722", "#37263E", "#5B385F", "#A14B62", "#E7C9A1", "#B72D3F"],
+        "gothic"),
+    "ceiling_light_warm": lambda: make_ceiling_light(
+        "ceiling_light_warm", ["#17130F", "#4A3828", "#8F6940", "#C99A5B", "#E6C98E", "#FFF0BF"], "round"),
+    "ceiling_light_cool": lambda: make_ceiling_light(
+        "ceiling_light_cool", ["#10151A", "#2C3C49", "#527286", "#79A9BD", "#ADD5DF", "#E8FCFF"], "square"),
+    "ceiling_light_teal": lambda: make_ceiling_light(
+        "ceiling_light_teal", ["#071415", "#18383A", "#286268", "#3F9696", "#75CBC1", "#D6FFF4"], "cage"),
+    "ceiling_fan_walnut": lambda: make_ceiling_fan(
+        "ceiling_fan_walnut", ["#11100F", "#33261E", "#604331", "#8D6646", "#B08A5C", "#F3DCA1"], 5),
+    "ceiling_fan_ivory": lambda: make_ceiling_fan(
+        "ceiling_fan_ivory", ["#1A1917", "#5A554A", "#8D887B", "#BDB7A8", "#E2DDCF", "#FFF5D4"], 4),
+    "ceiling_fan_charcoal": lambda: make_ceiling_fan(
+        "ceiling_fan_charcoal", ["#080A0B", "#1A2023", "#313C41", "#4E5B60", "#78888D", "#D7EFF2"], 3),
+    "table_lamp_burgundy": lambda: make_table_lamp(
+        "table_lamp_burgundy", ["#130C0F", "#3D1720", "#742A39", "#A84255", "#D06D78", "#F4D8B0"], "shade"),
+    "table_lamp_teal": lambda: make_table_lamp(
+        "table_lamp_teal", ["#071315", "#17383A", "#286064", "#3D9392", "#78C9BE", "#E0FFF4"], "banker"),
+    "table_lamp_ivory": lambda: make_table_lamp(
+        "table_lamp_ivory", ["#191714", "#514B40", "#817969", "#B5A994", "#DFD4BB", "#FFF3CF"], "orb"),
+    "floor_lamp_teal": lambda: make_floor_lamp(
+        "floor_lamp_teal", ["#071214", "#173438", "#285B61", "#3D8E91", "#73C6BB", "#E1FFF4"], "modern"),
+    "floor_lamp_ivory": lambda: make_floor_lamp(
+        "floor_lamp_ivory", ["#171512", "#50493D", "#847B68", "#B7AA91", "#DED2B7", "#FFF0C9"], "tripod"),
     "mansion_bookshelf": make_mansion_bookshelf,
     "magazine_rack": make_magazine_rack,
     "mansion_fireplace": make_mansion_fireplace,
@@ -4354,7 +5670,17 @@ MANSION_BUILDERS = {
     "normal_room_door": lambda: make_room_door("normal_room_door", "normal"),
     "luxury_room_door": lambda: make_room_door("luxury_room_door", "luxury"),
     "gothic_room_door": lambda: make_room_door("gothic_room_door", "gothic"),
+    "normal_double_room_door": lambda: make_room_door(
+        "normal_double_room_door", "normal", True),
+    "luxury_double_room_door": lambda: make_room_door(
+        "luxury_double_room_door", "luxury", True),
+    "gothic_double_room_door": lambda: make_room_door(
+        "gothic_double_room_door", "gothic", True),
     "wall_sconce": make_wall_sconce,
+    "wall_sconce_cool": lambda: make_wall_sconce(
+        "wall_sconce_cool", ["#0D1216", "#293844", "#506D80", "#79A4B7", "#A8D1DC", "#E5FAFF", "#487B8C", "#BDEEFF"], "classic"),
+    "wall_sconce_gothic": lambda: make_wall_sconce(
+        "wall_sconce_gothic", ["#08070A", "#1D1521", "#39243B", "#633B5F", "#A34A66", "#E9CCAD", "#B32A3E", "#F2A049"], "gothic"),
     "heavy_mansion_drapes": make_heavy_drapes,
     "mansion_area_rug": make_mansion_area_rug,
     "single_bed_burgundy": lambda: make_bedroom_bed(
@@ -4456,7 +5782,27 @@ for theme_name, theme_colors in GOTHIC_BEDROOM_PALETTES.items():
                 build(name, colors))
 
 MANSION_BUILDERS.update({
-    "mansion_console_table": make_mansion_console_table,
+	"corridor_carpet_teal": lambda: make_region_floor_dressing(
+		"corridor_carpet_teal", "corridor", REGIONAL_FLOOR_PALETTES["corridor_teal"]),
+	"corridor_carpet_burgundy": lambda: make_region_floor_dressing(
+		"corridor_carpet_burgundy", "corridor", REGIONAL_FLOOR_PALETTES["corridor_burgundy"]),
+	"hotel_carpet_burgundy": lambda: make_region_floor_dressing(
+		"hotel_carpet_burgundy", "hotel", REGIONAL_FLOOR_PALETTES["hotel_burgundy"]),
+	"hotel_carpet_navy": lambda: make_region_floor_dressing(
+		"hotel_carpet_navy", "hotel", REGIONAL_FLOOR_PALETTES["hotel_navy"]),
+	"hotel_carpet_ivory": lambda: make_region_floor_dressing(
+		"hotel_carpet_ivory", "hotel", REGIONAL_FLOOR_PALETTES["hotel_ivory"]),
+	"apartment_carpet_olive": lambda: make_region_floor_dressing(
+		"apartment_carpet_olive", "apartment", REGIONAL_FLOOR_PALETTES["apartment_olive"]),
+	"apartment_carpet_charcoal": lambda: make_region_floor_dressing(
+		"apartment_carpet_charcoal", "apartment", REGIONAL_FLOOR_PALETTES["apartment_charcoal"]),
+	"apartment_carpet_rust": lambda: make_region_floor_dressing(
+		"apartment_carpet_rust", "apartment", REGIONAL_FLOOR_PALETTES["apartment_rust"]),
+	"beach_mat_teal": lambda: make_region_floor_dressing(
+		"beach_mat_teal", "beach", REGIONAL_FLOOR_PALETTES["beach_teal"]),
+	"beach_mat_sun": lambda: make_region_floor_dressing(
+		"beach_mat_sun", "beach", REGIONAL_FLOOR_PALETTES["beach_sun"]),
+	"mansion_console_table": make_mansion_console_table,
     "mansion_grandfather_clock": make_mansion_grandfather_clock,
     "mansion_coat_rack": make_mansion_coat_rack,
     "mansion_tea_cart": make_mansion_tea_cart,
@@ -4506,6 +5852,7 @@ BEACH_BUILDERS = {
     "surfboard_rack": make_surfboard_rack,
     "palm_tree": make_palm_tree,
     "frozen_beach_hut": make_frozen_beach_hut,
+    "frozen_tideline_pool": make_frozen_tideline_pool,
 }
 
 NETHER_BUILDERS = {
@@ -4523,8 +5870,24 @@ NETHER_BUILDERS = {
 PRISON_BUILDERS = {
     "prison_cell_gate": make_prison_cell_gate,
     "prison_bunk": make_prison_bunk,
+    "bunk_bed_metal": lambda: make_bunk_bed("bunk_bed_metal", "metal"),
+    "bunk_bed_wood": lambda: make_bunk_bed("bunk_bed_wood", "wood"),
+    "bunk_bed_loft": lambda: make_bunk_bed("bunk_bed_loft", "loft"),
+    "prison_cafeteria_table": make_prison_cafeteria_table,
+    "prison_serving_counter": make_prison_serving_counter,
+    "prison_tray_return": make_prison_tray_return,
+    "prison_kitchen_rack": make_prison_kitchen_rack,
     "dungeon_cage": make_dungeon_cage,
     "restraint_chair": make_restraint_chair,
+}
+
+CARNIVAL_BUILDERS = {
+    "carnival_ticket_booth": make_carnival_ticket_booth,
+    "popcorn_cart": make_popcorn_cart,
+    "ring_toss_stall": make_ring_toss_stall,
+    "strength_tester": make_strength_tester,
+    "circus_pedestal": make_circus_pedestal,
+    "carousel_centerpiece": make_carousel_centerpiece,
 }
 
 
@@ -4585,4 +5948,13 @@ for model_name, builder in PRISON_BUILDERS.items():
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects, PRISON_ROOT, PRISON_SOURCE)
     render_preview(model_name, export_objects, eye, look, PRISON_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in CARNIVAL_BUILDERS.items():
+    if "carnival" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, CARNIVAL_ROOT, CARNIVAL_SOURCE)
+    render_preview(model_name, export_objects, eye, look, CARNIVAL_PREVIEWS)
     print("BUILT", model_name, len(export_objects))
