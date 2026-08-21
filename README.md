@@ -55,7 +55,9 @@ when one exists, plus **ACCOUNT SETTINGS** for uppercase username changes and
 password replacement.
 
 Application startup first passes through `scenes/boot_loading.tscn`, which
-performs the update check/download before revealing the main menu. Every
+performs the update check before revealing the main menu. Required/debug
+desktop updates then switch from that menu to `scenes/update_progress.tscn`
+so download, verify, and staging stay on a visible dual-framed screen. Every
 staging/account start then uses the dual-framed **route loading** screen
 (`scenes/route_loading.tscn`). Godot loads gameplay and its dependencies on a
 worker thread while the screen shows route identity and progress. A joining co-op guest keeps the
@@ -141,7 +143,7 @@ Office Mode has no gameplay keybinds at all: its doors, vent, lights, radio, bre
 ```text
 art/props-3d/           Retained character, interactable, environment and room-prop sources/runtime models (see its README)
 assets/                 Imported art, audio, fonts and data
-scenes/                 Godot scene files (boot_loading.tscn = startup/update gate, main_menu.tscn = menu, room_lobby.tscn = session setup, main_3d.tscn = Last Route, office_3d.tscn = Office Mode, hud.tscn = shared HUD, validate.tscn = check harness, main.tscn = legacy 2D)
+scenes/                 Godot scene files (boot_loading.tscn = startup/update gate, update_progress.tscn = desktop update-in-progress, main_menu.tscn = menu, room_lobby.tscn = session setup, main_3d.tscn = Last Route, office_3d.tscn = Office Mode, hud.tscn = shared HUD, validate.tscn = check harness, main.tscn = legacy 2D)
 scripts/                Headless check suites (validate_*.gd) and dev scripts
 backend/                Node room/account + ENet directory service, Pterodactyl guide, and tests
 tools/                  Model pipeline — Blockbench .bbmodel → glTF exporters and the office/character builders
@@ -259,9 +261,11 @@ and the build's Git revision, so a new `debug` release is detected without a
 version bump. While no update is pending, debug clients recheck every 10
 seconds and release clients every 60 seconds. The backend refreshes its GitHub
 Release mirror every 15 seconds by default. Native desktop builds automatically
-download the matching ZIP and verify its SHA-256. Required/debug updates then
-stage outside the installation, stop, replace the build, and relaunch; optional
-release updates wait at an INSTALL & RESTART button after downloading. The
+download the matching ZIP and verify its SHA-256. Required/debug desktop
+updates switch from the main menu to an in-progress screen for download,
+verify, and staging, then start the helper to replace the build and relaunch
+only after that staged tree is ready. Optional release updates wait at an
+INSTALL & RESTART button after downloading. The
 prior files are retained in a hidden `.lastroute-backup-previous`
 folder beside the game so a failed hand-off can restore them. Web builds
 refresh the hosted game with a revision cache-buster. Quest builds download

@@ -124,12 +124,26 @@ func run(host: Node) -> int:
 	gameplay_marker.add_to_group("gameplay_session")
 	host.get_tree().root.add_child(gameplay_marker)
 	var old_update_required: bool = UpdateManager.update_required
+	var old_available: Dictionary = UpdateManager.available.duplicate(true)
 	UpdateManager.update_required = true
 	_expect(not UpdateManager._should_install_automatically(),
 		"the background updater would restart the executable during gameplay")
-	UpdateManager.update_required = old_update_required
 	gameplay_marker.queue_free()
 	await host.get_tree().process_frame
+	_expect(UpdateManager.UPDATE_PROGRESS_SCENE == "res://scenes/update_progress.tscn"
+		and ResourceLoader.exists(UpdateManager.UPDATE_PROGRESS_SCENE),
+		"desktop required updates have no in-progress screen")
+	_expect(UpdateManager.uses_in_progress_screen() == (UpdateManager.platform_key()
+		in ["linux", "windows", "windows_legacy", "steamvr", "macos"]),
+		"in-progress screen eligibility does not match the desktop platforms")
+	_expect(not UpdateManager._should_install_automatically(),
+		"required desktop updates still quit before the in-progress screen")
+	UpdateManager.available = {"version": "0.0.1.1", "required": true}
+	_expect(UpdateManager.should_open_progress_screen()
+		== UpdateManager.uses_in_progress_screen(),
+		"a required desktop update did not ask the menu for the in-progress screen")
+	UpdateManager.available = old_available
+	UpdateManager.update_required = old_update_required
 	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
 		_expect(UpdateManager._safe_archive_entry(safe_entry),
 			"the updater rejected safe archive entry %s" % safe_entry)
@@ -186,9 +200,15 @@ func run(host: Node) -> int:
 	_expect(UpdateManager._write_text(helper_path, UpdateManager.UNIX_HELPER),
 		"the updater could not write its desktop helper")
 	var helper_output := []
-	_expect(OS.execute("/bin/sh", PackedStringArray(["-n",
-		ProjectSettings.globalize_path(helper_path)]), helper_output, true) == 0,
-		"the Unix update helper has invalid shell syntax: %s" % helper_output)
+	var has_unix_shell := FileAccess.file_exists("/bin/sh")
+	if has_unix_shell:
+		_expect(OS.execute("/bin/sh", PackedStringArray(["-n",
+			ProjectSettings.globalize_path(helper_path)]), helper_output, true) == 0,
+			"the Unix update helper has invalid shell syntax: %s" % helper_output)
+	else:
+		_expect(UpdateManager.UNIX_HELPER.begins_with("#!/bin/sh")
+			and UpdateManager.UNIX_HELPER.contains("while kill -0"),
+			"the Unix update helper is no longer a wait-then-replace shell script")
 	var cache_keep := UpdateManager.UPDATE_ROOT.path_join("linux-current.zip")
 	var cache_old := UpdateManager.UPDATE_ROOT.path_join("linux-old.zip")
 	var cache_stage := UpdateManager.UPDATE_ROOT.path_join("staged-linux-old")
@@ -233,20 +253,24 @@ func run(host: Node) -> int:
 	var old_pck := FileAccess.open(apply_install.path_join("LastRoute-Test.pck"), FileAccess.WRITE)
 	old_pck.store_string("old pck")
 	old_pck.close()
-	helper_output.clear()
-	_expect(OS.execute("/bin/sh", PackedStringArray([
-		ProjectSettings.globalize_path(helper_path),
-		ProjectSettings.globalize_path(apply_stage),
-		ProjectSettings.globalize_path(apply_install),
-		"LastRoute-Test.x86_64", "99999999", "abcdef1", "linux"]),
-		helper_output, true) == 0,
-		"the Unix update helper failed its disposable install: %s" % helper_output)
-	_expect(FileAccess.get_file_as_string(
-		apply_install.path_join("LastRoute-Test.pck")) == "new pck",
-		"the update helper did not install the new PCK")
-	_expect(FileAccess.get_file_as_string(apply_install.path_join(
-		".lastroute-backup-previous/LastRoute-Test.pck")) == "old pck",
-		"the update helper did not retain the previous PCK")
+	if has_unix_shell:
+		helper_output.clear()
+		_expect(OS.execute("/bin/sh", PackedStringArray([
+			ProjectSettings.globalize_path(helper_path),
+			ProjectSettings.globalize_path(apply_stage),
+			ProjectSettings.globalize_path(apply_install),
+			"LastRoute-Test.x86_64", "99999999", "abcdef1", "linux"]),
+			helper_output, true) == 0,
+			"the Unix update helper failed its disposable install: %s" % helper_output)
+		_expect(FileAccess.get_file_as_string(
+			apply_install.path_join("LastRoute-Test.pck")) == "new pck",
+			"the update helper did not install the new PCK")
+		_expect(FileAccess.get_file_as_string(apply_install.path_join(
+			".lastroute-backup-previous/LastRoute-Test.pck")) == "old pck",
+			"the update helper did not retain the previous PCK")
+	else:
+		_expect(FileAccess.file_exists(helper_path),
+			"the updater could not keep its written desktop helper")
 	UpdateManager._remove_tree(update_stage)
 	UpdateManager._remove_tree(apply_root)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(update_archive))
