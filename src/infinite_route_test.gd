@@ -1446,7 +1446,9 @@ func _party_moved_since_pressure_sample(targets: Array) -> bool:
 		var peer_id := int(target.get("peer_id", 1))
 		var position: Vector2 = position_value
 		var facing_value = target.get("facing")
-		var facing := facing_value if facing_value is Vector2 else Vector2.ZERO
+		var facing := Vector2.ZERO
+		if facing_value is Vector2:
+			facing = facing_value
 		present[peer_id] = true
 		var previous = _party_activity_anchors.get(peer_id)
 		var prev_position := position
@@ -1464,9 +1466,11 @@ func _party_moved_since_pressure_sample(targets: Array) -> bool:
 			had_anchor = true
 			prev_position = previous
 		var walked := had_anchor and prev_position.distance_to(position) >= .35
-		var looked := had_anchor and facing.length_squared() > .0001 \
+		var looked := false
+		if had_anchor and facing.length_squared() > .0001 \
 				and prev_facing.length_squared() > .0001 \
-				and prev_facing.distance_to(facing) >= .22
+				and prev_facing.distance_to(facing) >= .22:
+			looked = true
 		if not had_anchor or walked or looked:
 			_party_activity_anchors[peer_id] = {
 				"position": position, "facing": facing}

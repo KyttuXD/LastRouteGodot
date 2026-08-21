@@ -410,7 +410,7 @@ func _check_menus_ignore_unfocus() -> void:
 
 func _check_unfocus_afk() -> void:
 	var route_script := load("res://src/infinite_route_test.gd") as GDScript
-	if route_script == null:
+	if route_script == null or not route_script.can_instantiate():
 		_fail("Infinite route script did not compile")
 		return
 	var route: Node = route_script.new()
