@@ -126,6 +126,18 @@ func _validate_streamed_furniture_contract() -> void:
 		func(choice: Dictionary) -> bool:
 			return String(choice.get("type", "")) == "corridorCarpet"),
 		"maze corridors still spawn the floor-length purple overlay")
+	var prison_fallback := []
+	for choice_value in StreamedRouteGenerator.REGION_PROP_SETS["prison"]:
+		prison_fallback.append(String((choice_value as Dictionary).get("type", "")))
+	for forbidden in ["restaurantPartyTable", "woodenTable", "woodenChair",
+			"normalKitchenCounter", "normalKitchenSink"]:
+		_expect(not prison_fallback.has(forbidden),
+			"prison fallback still uses generic dining/kitchen silhouette %s" \
+			% forbidden)
+	for required in ["prisonCafeteriaTable", "prisonServingCounter",
+			"prisonTrayReturn", "prisonKitchenRack"]:
+		_expect(prison_fallback.has(required),
+			"prison fallback omitted dedicated cafeteria prop %s" % required)
 
 	var view := StreamedFacilityView3D.new()
 	var prop_root := Node3D.new()

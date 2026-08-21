@@ -412,14 +412,22 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			4:
-				var props: Array = build["prison_tasks"] if String(build["region"]) == "prison" \
-					else data.get("region_props", [])
+				# Prison still needs generated region_props: cafeteria templates,
+				# wall art, and any other authored dressing. The cell-block
+				# dresser is extra presentation for prison_cell rooms only and
+				# must not replace those props.
+				var region_props: Array = data.get("region_props", [])
+				var prison_tasks: Array = build["prison_tasks"]
 				var prop_index := int(build["prop_index"])
-				if prop_index < props.size():
-					if String(build["region"]) == "prison":
-						_spawn_prison_prop_task(root, props[prop_index])
-					else:
-						_spawn_region_prop(root, build["coord"], props[prop_index])
+				if prop_index < region_props.size():
+					_spawn_region_prop(root, build["coord"], region_props[prop_index])
+					build["prop_index"] = prop_index + 1
+					if not immediate:
+						return false
+					continue
+				var prison_index := prop_index - region_props.size()
+				if prison_index < prison_tasks.size():
+					_spawn_prison_prop_task(root, prison_tasks[prison_index])
 					build["prop_index"] = prop_index + 1
 					if not immediate:
 						return false
