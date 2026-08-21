@@ -1,12 +1,15 @@
 extends Node
 
 ## Mandatory debug updates are downloaded from the trusted primary backend,
-## checked against the published SHA-256, unpacked under user://, and applied
-## by a small helper after this process exits. A running Windows executable
-## cannot replace itself, and treating every desktop the same keeps the update
-## hand-off predictable. Web refreshes its hosted build; Android/Quest opens
-## the verified APK in the system installer because Android requires the
-## player to approve package replacement.
+## checked against the published SHA-256, and unpacked under user://. Native
+## desktop builds keep this process on an in-progress screen until that staged
+## tree is ready, then a small helper replaces the install after exit. A
+## running Windows executable cannot replace itself, and treating every
+## desktop the same keeps the update hand-off predictable. Web refreshes its
+## hosted build; Android/Quest opens the verified APK in the system installer
+## because Android requires the player to approve package replacement.
+
+const UPDATE_PROGRESS_SCENE := "res://scenes/update_progress.tscn"
 
 signal update_available(update: Dictionary)
 signal status_changed(message: String)
@@ -167,6 +170,8 @@ func _on_recheck_timeout() -> void:
 	# UP TO DATE result (and recover transient check failures), not reset an
 	# update that is already downloading or waiting to install.
 	if ready_to_install and _should_install_automatically():
+		# Quest still opens its system installer from the background timer.
+		# Desktop required/debug updates wait for the in-progress screen.
 		install_update()
 		return
 	if checking or downloading or installing or not available.is_empty():
@@ -404,12 +409,16 @@ func _prepare_verified_download() -> void:
 		install_update.call_deferred()
 	elif _gameplay_active():
 		_set_status("UPDATE READY // APPLIES AFTER RUN")
+	elif uses_in_progress_screen() and _required_or_debug_update():
+		_set_status("UPDATE STAGED // OPENING UPDATE SCREEN")
 	else:
 		_set_status("UPDATE READY // INSTALL & RESTART")
 
 
-## Starts an independent helper, then exits. The helper waits for this exact
-## process ID before touching the current executable/PCK or macOS app bundle.
+## Starts an independent helper, then exits. Desktop required/debug updates
+## only call this after the in-progress screen has staged the new build. The
+## helper waits for this exact process ID before touching the current
+## executable/PCK or macOS app bundle.
 func install_update() -> void:
 	if installing or not ready_to_install:
 		return
@@ -489,13 +498,34 @@ func _download_failed(message: String) -> void:
 	_set_status(message)
 
 
+func uses_in_progress_screen() -> bool:
+	# Native desktop is the path whose helper must stop this process. Web and
+	# Quest already stay inside an in-app installer or refresh.
+	return platform_key() in ["linux", "windows", "windows_legacy", "steamvr",
+		"macos"]
+
+
+func _required_or_debug_update() -> bool:
+	return update_required or Build.requires_update_gate()
+
+
+func should_open_progress_screen() -> bool:
+	if offline_mode or not uses_in_progress_screen() or not _required_or_debug_update():
+		return false
+	if _gameplay_active():
+		return false
+	return downloading or installing or ready_to_install \
+		or not available.is_empty()
+
+
 func _should_install_automatically() -> bool:
 	# Downloading and unpacking are safe in the background; replacing the live
-	# executable/PCK is not. A mandatory/debug update therefore waits until the
-	# player leaves active gameplay, preserving the run rather than terminating
-	# it as soon as the periodic checker finishes.
-	return (update_required or Build.requires_update_gate()) \
-		and not _gameplay_active()
+	# executable/PCK is not. Desktop required/debug updates stay on the
+	# in-progress screen until that screen hands off. Quest still opens its
+	# system installer once the player leaves a run.
+	if uses_in_progress_screen():
+		return false
+	return _required_or_debug_update() and not _gameplay_active()
 
 
 func _gameplay_active() -> bool:

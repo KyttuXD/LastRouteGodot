@@ -248,10 +248,12 @@ a GitHub token in the game:
    version remains `0.0.1.0`.
 
 Desktop clients SHA-256-check and unpack the archive under their private user
-data folder. Required/debug updates then start an independent helper; optional
-release updates wait for INSTALL & RESTART. The helper waits for the game to
-exit, keeps a backup of the replaced files, installs the staged build, and
-relaunches it. Web refreshes the hosted page with a revision cache-buster.
+data folder. Required/debug updates stay on an in-progress screen from the
+main menu through download, verify, and staging, then start an independent
+helper; optional release updates wait for INSTALL & RESTART. The helper waits
+for the game to exit, keeps a backup of the replaced files, installs the
+staged build, and relaunches it. Web refreshes the hosted page with a
+revision cache-buster.
 Quest downloads and verifies its APK, then opens Android's package installer;
 Android still requires the player to approve a sideloaded package replacement.
 Existing clients from before automatic installation require one final manual

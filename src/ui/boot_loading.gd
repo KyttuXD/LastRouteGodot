@@ -5,8 +5,9 @@ extends Control
 ##
 ## The menu is loaded on a worker thread while the updater checks the primary
 ## backend. Exported debug builds do not pass this screen until that check is
-## successful. A discovered update is downloaded, verified and installed here,
-## so players never enter a room while an update is pending.
+## successful. A discovered desktop required/debug update continues on the
+## dedicated in-progress screen after the menu, so the running window stays
+## visible through download, verify, and staging.
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
 const MAIN_MENU_PATH := "res://scenes/main_menu.tscn"
@@ -87,7 +88,17 @@ func _poll_menu_load() -> void:
 		_show_terminal_error("MAIN MENU RESOURCES COULD NOT BE LOADED")
 
 
+func _handoff_desktop_update() -> bool:
+	return UpdateManager.uses_in_progress_screen() \
+		and (UpdateManager.downloading or UpdateManager.installing \
+			or UpdateManager.ready_to_install or not UpdateManager.available.is_empty())
+
+
 func _sync_update_state() -> void:
+	if _handoff_desktop_update():
+		_update_discovered = true
+		_allow_main_menu("UPDATE FOUND // OPENING MENU")
+		return
 	if UpdateManager.installing:
 		_on_update_status(UpdateManager.status_message)
 		return
@@ -116,6 +127,8 @@ func _on_update_available(update: Dictionary) -> void:
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
 		else String(update.get("version", ""))
 	_set_state("UPDATE FOUND", "PREPARING UPDATE %s" % identity, 0.18, true)
+	if _handoff_desktop_update():
+		_allow_main_menu("UPDATE FOUND // OPENING MENU")
 
 
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
@@ -124,6 +137,8 @@ func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 		if not UpdateManager.downloading and not UpdateManager.installing \
 				and not UpdateManager.ready_to_install:
 			UpdateManager.download_update()
+		if _handoff_desktop_update():
+			_allow_main_menu("UPDATE FOUND // OPENING MENU")
 		return
 	if success:
 		_allow_main_menu("BUILD IS UP TO DATE")
@@ -175,8 +190,11 @@ func _on_download_progress(received_bytes: int, total_bytes: int) -> void:
 
 func _on_update_ready(_path: String) -> void:
 	_update_discovered = true
+	if _handoff_desktop_update():
+		_allow_main_menu("UPDATE STAGED // OPENING MENU")
+		return
 	_set_state("APPLYING UPDATE", "INSTALLING UPDATE // RESTARTING", 1.0, true)
-	if not UpdateManager.installing:
+	if not UpdateManager.installing and UpdateManager._should_install_automatically():
 		UpdateManager.install_update.call_deferred()
 
 

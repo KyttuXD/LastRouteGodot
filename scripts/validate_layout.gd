@@ -71,6 +71,9 @@ const ANCHORED := {
 	"res://scenes/boot_loading.tscn": {
 		"BootLoadingPanel": ["hcentre", "vcentre"],
 	},
+	"res://scenes/update_progress.tscn": {
+		"UpdateProgressPanel": ["hcentre", "vcentre"],
+	},
 	# Staging is built in code and grows with the room, so it is exactly the
 	# screen most likely to push its own start button off the bottom.
 	"res://scenes/room_lobby.tscn": {
@@ -123,7 +126,8 @@ func _check_scene(path: String) -> int:
 	var scene: Node = packed.instantiate()
 	# The real loading scene immediately requests the gameplay PackedScene. Keep
 	# it on this screen while its layout and state contract are inspected.
-	if path in ["res://scenes/route_loading.tscn", "res://scenes/boot_loading.tscn"]:
+	if path in ["res://scenes/route_loading.tscn", "res://scenes/boot_loading.tscn",
+			"res://scenes/update_progress.tscn"]:
 		scene.set("auto_start", false)
 	_root().add_child(scene)
 	if path == "res://scenes/run_report.tscn":
@@ -176,6 +180,8 @@ func _check_scene(path: String) -> int:
 		failures += await _check_route_loading_contract(scene)
 	elif path == "res://scenes/boot_loading.tscn":
 		failures += await _check_boot_loading_contract(scene)
+	elif path == "res://scenes/update_progress.tscn":
+		failures += await _check_update_progress_contract(scene)
 	elif path == "res://scenes/run_report.tscn":
 		failures += await _check_run_report_contract(scene)
 
@@ -288,6 +294,39 @@ func _check_route_loading_contract(scene: Node) -> int:
 	return failures
 
 
+func _check_update_progress_contract(scene: Node) -> int:
+	var failures := 0
+	for node_name in ["OuterFrame", "InnerFrame", "UpdateTitle", "UpdateProgress",
+			"UpdatePhase", "UpdateStatus", "RetryUpdateButton", "ContinueOfflineButton"]:
+		if scene.find_child(node_name, true, false) == null:
+			failures += _fail("update progress screen is missing %s" % node_name)
+	var panel := scene.find_child("UpdateProgressPanel", true, false) as Control
+	if panel == null or not _root().get_visible_rect().encloses(
+			Rect2(panel.global_position, panel.size)):
+		failures += _fail("update progress panel spills outside the viewport")
+	for frame_name in ["OuterFrame", "InnerFrame"]:
+		var frame := scene.find_child(frame_name, true, false) as Control
+		if frame != null and (frame.anchor_left != 0.0 or frame.anchor_top != 0.0
+				or frame.anchor_right != 1.0 or frame.anchor_bottom != 1.0):
+			failures += _fail("update progress %s is not anchored as an edge frame" % frame_name)
+	var retry := scene.find_child("RetryUpdateButton", true, false) as Button
+	var continue_button := scene.find_child("ContinueOfflineButton", true, false) as Button
+	scene.call("_show_retry", "UPDATE DOWNLOAD FAILED // RETRY")
+	await _frame()
+	if retry == null or not retry.visible:
+		failures += _fail("update progress failure has no retry action")
+	if continue_button == null or not continue_button.visible:
+		failures += _fail("update progress failure has no explicit offline test path")
+	if not scene.has_method("_start_install"):
+		failures += _fail("update progress screen cannot hand off a staged desktop install")
+	var was_installing: bool = UpdateManager.installing
+	scene.call("_start_install")
+	if UpdateManager.installing and not was_installing:
+		failures += _fail("update progress screen started the helper before a build was staged")
+		UpdateManager.installing = false
+	return failures
+
+
 func _check_boot_loading_contract(scene: Node) -> int:
 	var failures := 0
 	for node_name in ["OuterFrame", "InnerFrame", "BootTitle", "BootProgress",
@@ -310,6 +349,13 @@ func _check_boot_loading_contract(scene: Node) -> int:
 	await _frame()
 	if continue_button == null or not continue_button.visible:
 		failures += _fail("ordinary startup update failure cannot continue offline")
+	if not scene.has_method("_handoff_desktop_update"):
+		failures += _fail("boot loading cannot hand a desktop update to the main menu")
+	var was_installing: bool = UpdateManager.installing
+	scene.call("_on_update_ready", "user://updates/staged-layout-test")
+	if UpdateManager.installing and not was_installing:
+		failures += _fail("boot loading still quits immediately when a desktop update is ready")
+		UpdateManager.installing = false
 	return failures
 
 
@@ -486,6 +532,10 @@ func _check_main_menu_contract(scene: Node) -> int:
 			or join_button.disabled or play_button.text != "CREATE ROOM" \
 			or join_button.text != "JOIN ROOM":
 		failures += _fail("route buttons do not recover after the update gate clears")
+	if not scene.has_method("_open_update_progress_if_needed"):
+		failures += _fail("main menu cannot switch to the desktop update-in-progress screen")
+	elif bool(scene.call("_open_update_progress_if_needed")):
+		failures += _fail("main menu opened the update screen without a required desktop update")
 	scene.call("_on_join_pressed")
 	await _frame()
 	var room_code_input := scene.find_child("RoomCodeInput", true, false) as LineEdit

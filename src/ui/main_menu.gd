@@ -82,6 +82,8 @@ func _ready() -> void:
 			UpdateManager.check()
 	if not UpdateManager.status_message.is_empty():
 		_on_update_status(UpdateManager.status_message)
+	if _open_update_progress_if_needed():
+		return
 	_focus_default_button.call_deferred()
 
 
@@ -700,6 +702,18 @@ func _clear_route_update_lock() -> void:
 	_focus_default_button.call_deferred()
 
 
+func _open_update_progress_if_needed() -> bool:
+	if not UpdateManager.should_open_progress_screen():
+		return false
+	var error := get_tree().change_scene_to_file(UpdateManager.UPDATE_PROGRESS_SCENE)
+	if error != OK:
+		update_button.visible = true
+		update_button.disabled = false
+		update_button.text = "COULD NOT OPEN UPDATE SCREEN // RETRY"
+		return false
+	return true
+
+
 func _on_update_available(update: Dictionary) -> void:
 	var revision := String(update.get("revision", ""))
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
@@ -710,9 +724,17 @@ func _on_update_available(update: Dictionary) -> void:
 	update_button.visible = true
 	if Build.requires_update_gate() or UpdateManager.update_required:
 		_set_route_update_locked("UPDATING")
+		_open_update_progress_if_needed()
 
 
 func _on_update_pressed() -> void:
+	if UpdateManager.should_open_progress_screen() or (
+			UpdateManager.uses_in_progress_screen()
+			and (Build.requires_update_gate() or UpdateManager.update_required)
+			and (UpdateManager.downloading or UpdateManager.ready_to_install
+				or not UpdateManager.available.is_empty())):
+		if _open_update_progress_if_needed():
+			return
 	if UpdateManager.available.is_empty():
 		update_button.disabled = true
 		update_button.text = "CHECKING FOR UPDATES"
@@ -728,6 +750,8 @@ func _on_update_pressed() -> void:
 
 
 func _on_update_status(message: String) -> void:
+	if _open_update_progress_if_needed():
+		return
 	if _routes_update_locked and (UpdateManager.downloading \
 			or UpdateManager.installing or not UpdateManager.available.is_empty()):
 		_set_route_update_locked("UPDATING")
@@ -752,6 +776,7 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 	if needs_update:
 		_set_route_update_locked("UPDATING")
 		update_button.visible = true
+		_open_update_progress_if_needed()
 		return
 	_set_route_update_locked("UPDATE CHECK REQUIRED")
 	# Keep the specific failure visible. The old generic retry label hid whether
