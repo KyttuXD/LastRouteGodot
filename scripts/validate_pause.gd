@@ -3,7 +3,7 @@ extends RefCounted
 ## Headless check on pausing and the mouse lock.
 ##
 ## Both are the kind of thing that breaks silently and is only noticed when a
-## player is already stuck. Three specific failures are worth a test:
+## player is already stuck. Four specific failures are worth a test:
 ##
 ##   1. ESC leaving the run. It used to change scene on the spot, which in a
 ##      route after a capture is a way to lose it by reaching for the
@@ -15,6 +15,10 @@ extends RefCounted
 ##      headless has no real cursor to read.
 ##   3. Office Mode's hold-to-pause firing on a tap. The mode is built around
 ##      not being able to step away; a one-key exit would undercut it.
+##   4. Losing window/application focus mid-route. The route kept simulating
+##      and Gray Void still woke, because WASD never reached the game. Focus
+##      loss has to call the same open() ESC uses, and focus returning must
+##      not resume on its own.
 ##
 ## Run with:
 ##   godot4 --headless res://scenes/validate.tscn -- pause
@@ -60,9 +64,39 @@ func run(host: Node) -> int:
 	await _check_online_maze()
 	await _check_share_copy()
 	await _check_office()
+	await _check_menus_ignore_unfocus()
+	await _check_unfocus_afk()
 	if _failures == 0:
 		print("pause and mouse lock OK")
 	return _failures
+
+
+## Headless has no real OS focus change. Drive the same notifications the
+## PauseMenu watches so the suite proves unfocus enters open(), not a second
+## pause path.
+func _simulate_lost_focus(node: Node) -> void:
+	node.notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	node.notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+
+
+func _simulate_regained_focus(node: Node) -> void:
+	node.notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	node.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)
+
+
+func _broadcast_lost_focus(node: Node) -> void:
+	_simulate_lost_focus(node)
+	for child in node.get_children():
+		_broadcast_lost_focus(child)
+
+
+func _open_pause_count(root: Node) -> int:
+	var count := 0
+	if root is PauseMenu and (root as PauseMenu).is_open():
+		count += 1
+	for child in root.get_children():
+		count += _open_pause_count(child)
+	return count
 
 
 ## The arbitration itself, with no scene involved.
@@ -115,10 +149,34 @@ func _check_maze() -> void:
 	_expect(not _tree().paused, "closing the menu left the tree paused")
 	_expect(not abandoned[0], "closing the menu counted as abandoning the run")
 
+	# Losing OS focus must enter the same open() ESC uses. Getting it back
+	# must leave SIGNAL SUSPENDED up until RETURN / ESC.
+	var opened_from_focus := [0]
+	var opened_watch := func() -> void: opened_from_focus[0] += 1
+	menu.opened.connect(opened_watch)
+	_simulate_lost_focus(menu)
+	_expect(menu.is_open(), "losing application focus did not open pause")
+	_expect(_tree().paused, "focus-loss pause did not use the existing open() path")
+	_expect(opened_from_focus[0] == 1,
+		"focus-loss did not emit the same opened signal as Esc")
+	_simulate_regained_focus(menu)
+	_expect(menu.is_open() and _tree().paused,
+		"regaining focus closed pause without Resume/Esc")
+	menu.close()
+	_expect(not menu.is_open() and not _tree().paused,
+		"focus-loss pause could not resume through the normal close path")
+	_simulate_regained_focus(menu)
+	menu.get_window().focus_exited.emit()
+	_expect(menu.is_open(), "window focus_exited did not open pause")
+	menu.close()
+	menu.opened.disconnect(opened_watch)
+
 	# Being held by a hunter is the one moment pausing would be an exploit.
 	GameState.escape_active = true
 	scene._process(0.016)
 	_expect(not menu.tap_to_pause, "ESC still pauses mid-escape")
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "losing focus paused during an escape struggle")
 	GameState.escape_active = false
 	scene._process(0.016)
 	_expect(menu.tap_to_pause, "ESC stayed locked out after the escape ended")
@@ -145,7 +203,7 @@ func _check_maze() -> void:
 	_tree().paused = false
 	scene.queue_free()
 	await _frame()
-	print("  maze      taps to pause, locked out mid-escape, ESC never exits on its own")
+	print("  maze      taps to pause, locked out mid-escape, unfocus uses the same open()")
 
 
 func _check_office() -> void:
@@ -209,6 +267,10 @@ func _check_office() -> void:
 	menu.close()
 	_expect(not _tree().paused, "closing the office menu left the tree paused")
 
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(),
+		"office paused on unfocus instead of holding ESC")
+
 	_tree().paused = false
 	scene.queue_free()
 	await _frame()
@@ -232,6 +294,15 @@ func _check_online_maze() -> void:
 	_expect(scene.player.input_frozen, "the paused local runner can still move online")
 	menu.close()
 	_expect(not scene.player.input_frozen, "resuming left the online runner frozen")
+	_simulate_lost_focus(menu)
+	_expect(menu.is_open(), "losing focus online did not open the local pause")
+	_expect(not _tree().paused,
+		"focus-loss pause froze the host simulation for every peer")
+	_expect(scene.player.input_frozen,
+		"focus-loss pause left the online runner able to move")
+	menu.close()
+	_expect(not scene.player.input_frozen,
+		"resuming a focus-loss pause left the online runner frozen")
 	scene.queue_free()
 	await _frame()
 	RoomState.leave_network()
@@ -311,3 +382,57 @@ func _check_share_copy() -> void:
 	RoomState.is_host = old_host
 	RoomState.peers = old_peers
 	print("  share     pause copies room code and seed; guests stay read-only")
+
+
+func _check_menus_ignore_unfocus() -> void:
+	_tree().paused = false
+	var title: Node = load("res://scenes/main_menu.tscn").instantiate()
+	_root().add_child(title)
+	await _frame()
+	_broadcast_lost_focus(title)
+	_expect(not _tree().paused, "title paused the tree on lost focus")
+	_expect(_open_pause_count(title) == 0, "title opened SIGNAL SUSPENDED on lost focus")
+	title.queue_free()
+	await _frame()
+
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var staging: Node = load("res://scenes/room_lobby.tscn").instantiate()
+	_root().add_child(staging)
+	await _frame()
+	_broadcast_lost_focus(staging)
+	_expect(not _tree().paused, "staging paused the tree on lost focus")
+	_expect(_open_pause_count(staging) == 0,
+		"co-op staging opened SIGNAL SUSPENDED on lost focus")
+	staging.queue_free()
+	await _frame()
+	print("  menus     title and staging stay off pause when the window blurs")
+
+
+func _check_unfocus_afk() -> void:
+	var route_script := load("res://src/infinite_route_test.gd") as GDScript
+	if route_script == null:
+		_fail("Infinite route script did not compile")
+		return
+	var route: Node = route_script.new()
+	var menu := PauseMenu.new()
+	# Online rooms do not pause the SceneTree. The AFK guard has to stand
+	# on is_open() itself, so this fixture matches that contract.
+	menu.pauses_tree = false
+	_root().add_child(menu)
+	await _frame()
+	route.pause_menu = menu
+	route.set("_party_afk_seconds", 4.0)
+	route.set("_relay_inactivity_seconds", 4.0)
+	_simulate_lost_focus(menu)
+	_expect(menu.is_open(), "Infinite AFK fixture did not pause on lost focus")
+	route.call("_update_anti_idle_pressure", 8.0)
+	_expect(is_equal_approx(float(route.get("_party_afk_seconds")), 4.0),
+		"AFK clock advanced while SIGNAL SUSPENDED was up")
+	_expect(is_equal_approx(float(route.get("_relay_inactivity_seconds")), 4.0),
+		"relay-inactivity clock advanced while SIGNAL SUSPENDED was up")
+	menu.close()
+	_expect(not menu.is_open(), "AFK fixture could not resume after a focus-loss pause")
+	route.free()
+	menu.queue_free()
+	await _frame()
+	print("  unfocus   lost focus opens pause; AFK/void stays frozen until Resume")
