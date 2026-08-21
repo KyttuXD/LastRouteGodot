@@ -131,8 +131,10 @@ func run(host: Node) -> int:
 	pause.call("_set_section", "statistics")
 	_expect(pause.find_child("PauseSaves", true, false) != null \
 		and pause.find_child("PauseStatistics", true, false) != null \
+		and pause.find_child("PauseShare", true, false) != null \
+		and pause.find_child("PauseCopyRoute", true, false) != null \
 		and pause.find_child("PauseStatisticsGrid", true, false).get_child_count() == 4,
-		"pause menu is missing save/statistics views")
+		"pause menu is missing save/statistics views or the route-share copy")
 	pause.close()
 	pause.queue_free()
 	await host.get_tree().process_frame
