@@ -496,6 +496,22 @@ static func surface_parent_types(type: String) -> Array:
 	return SURFACE_PARENT_TYPES.get(type, [])
 
 
+## Surface dressing is seated when a legal parent owns the same generated cell,
+## either as its anchor or as part of its collision footprint. Comparing only
+## the parent's anchor misses a nightstand/desk that occupies the lamp/computer
+## cell without sharing that exact recorded cell.
+static func surface_parent_covers(parent: Dictionary, child: Dictionary) -> bool:
+	if String(parent.get("room_id", "")) != String(child.get("room_id", "")):
+		return false
+	if not surface_parent_types(String(child.get("type", ""))).has(
+			String(parent.get("type", ""))):
+		return false
+	var child_cell: Vector2i = child.get("cell", Vector2i(-1, -1))
+	if parent.get("cell", Vector2i(-2, -2)) == child_cell:
+		return true
+	return (parent.get("occupied_cells", []) as Array).has(child_cell)
+
+
 static func surface_height(parent_type: String) -> float:
 	return float(SURFACE_HEIGHTS.get(parent_type, 0.8))
 
