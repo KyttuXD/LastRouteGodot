@@ -1384,6 +1384,11 @@ func _live_danger_percent(data: Dictionary) -> int:
 func _update_anti_idle_pressure(delta: float) -> void:
 	if delta <= 0.0 or _awaiting_snapshot or _death_screen_open:
 		return
+	# Online rooms keep the SceneTree running during a local pause so guests
+	# still simulate. The AFK/void clocks must not, or an alt-tabbed host
+	# still gets CAUGHT BY GRAY VOID while SIGNAL SUSPENDED is up.
+	if pause_menu != null and pause_menu.is_open():
+		return
 	var relay_count := GameState.relays_collected
 	if relay_count != _anti_idle_last_relay_count:
 		_anti_idle_last_relay_count = relay_count

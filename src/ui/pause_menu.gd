@@ -14,6 +14,10 @@ extends CanvasLayer
 ##     is singleplayer by design, so nothing is waiting on you -- and the whole
 ##     mode is about not being able to step away, which a one-key escape hatch
 ##     would undercut.
+##   * A route window that loses OS focus opens the same overlay ESC does.
+##     Playtests kept dying to Gray Void while a terminal had the keyboard.
+##     Focus coming back does not resume -- RETURN or ESC still has to. Title,
+##     staging, Office hold-to-pause, and a locked-out escape struggle do not.
 ##
 ## Built in code rather than as a .tscn on purpose: every colour comes from
 ## Palette, so restyling the game is one file rather than a hunt through scene
@@ -74,6 +78,11 @@ var _share_seed: Label
 var _copy_button: Button
 var _copy_status: Label
 var _selected_save_id := ""
+## True after this menu has seen the window/application focused. Headless
+## validate never has a real focused game window; reacting to a startup
+## FOCUS_OUT there would open pause under every suite that instantiates a
+## route. Only a focused -> unfocused transition calls open().
+var _app_focused := false
 
 
 func _ready() -> void:
@@ -82,6 +91,11 @@ func _ready() -> void:
 	layer = 100
 	_build()
 	_set_open(false)
+	_watch_window_focus()
+
+
+func _exit_tree() -> void:
+	_unwatch_window_focus()
 
 
 func is_open() -> bool:
@@ -658,6 +672,63 @@ func open() -> void:
 	_set_section("pause")
 	_resume_button.grab_focus()
 	opened.emit()
+
+
+## Same overlay ESC opens once it decides to pause. Focus-loss calls this
+## instead of synthesizing a keypress, so an open map/inventory is not eaten
+## as a dismiss-only ESC. Focus returning must not call close().
+func open_for_lost_focus() -> void:
+	if _open:
+		return
+	if not tap_to_pause:
+		return
+	if not is_processing_unhandled_input():
+		return
+	open()
+
+
+func _watch_window_focus() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	if not window.focus_entered.is_connected(_on_window_focus_entered):
+		window.focus_entered.connect(_on_window_focus_entered)
+	if not window.focus_exited.is_connected(_on_window_focus_exited):
+		window.focus_exited.connect(_on_window_focus_exited)
+	_app_focused = window.has_focus()
+
+
+func _unwatch_window_focus() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	if window.focus_entered.is_connected(_on_window_focus_entered):
+		window.focus_entered.disconnect(_on_window_focus_entered)
+	if window.focus_exited.is_connected(_on_window_focus_exited):
+		window.focus_exited.disconnect(_on_window_focus_exited)
+
+
+func _on_window_focus_entered() -> void:
+	_app_focused = true
+
+
+func _on_window_focus_exited() -> void:
+	_handle_focus_lost()
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			_app_focused = true
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			_handle_focus_lost()
+
+
+func _handle_focus_lost() -> void:
+	if not _app_focused:
+		return
+	_app_focused = false
+	open_for_lost_focus()
 
 
 func close() -> void:
