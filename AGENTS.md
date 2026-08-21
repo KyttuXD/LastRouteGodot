@@ -17,61 +17,91 @@
   and release artifacts are separate operations requiring separate user
   authorization.
 
+## Owner standing rules
+
+- Never change version names and never convert debug branch/builds to release
+  unless KT XD explicitly says so in the current conversation.
+- Whenever LastRouteGodot changes on GitHub, also update the local checkout at
+  `C:\Users\Kyttu\Documents\Game Stuff\LastRouteGodot` so it stays current.
+  Pull or fetch from GitHub into that tree. Do not invent a local-edit
+  workflow that bypasses GitHub.
+
 ## Ongoing handoff notes
 
-- When changing generation-heavy systems, prefer extending existing deterministic
-  templates and catalog entries so multiplayer peers stay in sync.
-- The office-area direction is currently anchored in:
-  - `src/game/streamed_route_generator.gd` (`_room_template_specs` for
-    `office_reception`, `office_cubicles`, `office_job`, `office_meeting`,
-    `private_office`)
-  - `src/config/room_catalog.gd` (`office` room type props)
-- For the new office job-environment iteration:
-  - `office_roles` now includes `office_job` in the generated office suite
-    room assignment.
-  - `office_job` is mapped to `_room_template_specs` with dense desk/table/cabinet
-    furniture so co-op peers share identical layout from the same seed.
-- Next agent should verify the edited office templates visually in both
-  single-player and co-op host/client runs before touching validator scripts.
+These notes reflect current `main` after
+https://github.com/KyttuXD/LastRouteGodot/pull/1 (merged 2026-08-21, merge
+commit `9603a42`). Prefer extending existing deterministic templates and
+catalog entries so multiplayer peers stay in sync from the same seed.
 
-- Prison cafeteria generation is wired through `src/game/streamed_route_generator.gd`:
-  the prison region has a registered fallback prop set, and the
-  `prison_cafeteria` template builds a rear-wall serving counter and kitchen
-  rack, repeated bolted table/bench units, a side tray-return cabinet, and
-  ceiling lights.
-  Keep this deterministic/template-driven so host and guests agree from the
-  same seed; validate visually when Godot is available.
+### Office suites
 
-- Empty picture/painting frame GLBs are now given a deterministic white canvas
-  at runtime by `StreamedFacilityView3D._add_blank_frame_canvas()`. Keep the
+Anchors:
+
+- `src/game/streamed_route_generator.gd` (`office_roles` and
+  `_room_template_specs` for `office_reception`, `office_cubicles`,
+  `office_job`, `office_meeting`, `private_office`)
+- `src/config/room_catalog.gd` (`office` room type props, surface parents,
+  `officePrinter` not solid)
+
+Default four-room office suites assign `office_reception`, `cubicle_room`,
+`office_job`, and `private_office`. The `office_meeting` recipe and
+`meeting_room` → `office_meeting` mapping still exist in the generator, but
+meeting rooms are not a default suite amenity. Do not silently put
+`meeting_room` back into `office_roles`.
+
+`office_job` must keep a real center desk, a filing cabinet, and computers
+seated on desks/workstations. Surface `mount_y` matches catalog desk height
+`0.78` (`RoomCatalog.SURFACE_HEIGHTS` for `officeDesk` and
+`officeCornerWorkstation`). Surface computers and printers must share a cell
+with a legal parent from `SURFACE_PARENT_TYPES`. `officePrinter` is a surface
+prop (`RoomCatalog.is_solid` returns false), not a solid collider.
+
+Photocopier, shredder, file boxes, and the L-shaped corner workstation already
+have authored GLBs, `PropModelCatalog` variants, footprints, and template use
+(`officePhotocopier`, `officeShredder`, `officeFileBoxes`,
+`officeCornerWorkstation`). Do not stub or alias them.
+
+### Prison chunks
+
+Prison chunks spawn generated `region_props` first, then the cell-block
+dresser (`StreamedFacilityView3D` chunk build phase 4). The dresser is extra
+presentation for `prison_cell` rooms and must not replace cafeteria furniture
+or other authored dressing.
+
+`prison_cafeteria` templates must keep dedicated bolted table/bench units
+(`prisonCafeteriaTable`), a guarded serving counter, tray return, and kitchen
+rack. Do not restore restaurant/kitchen silhouettes in
+`REGION_PROP_SETS["prison"]`. Skip `prison_cell` rooms in fallback scatter so
+the view dresser owns those interiors.
+
+Residential `bunkBed` selects distinct metal, wood, and loft-bed GLBs;
+`prisonBunk` remains only the institutional prison-cell model.
+
+### Still-valid contracts
+
+- Empty picture/painting frame GLBs get a deterministic white canvas at
+  runtime via `StreamedFacilityView3D._add_blank_frame_canvas()`. Keep the
   authored frame mesh and canvas separate so future artwork can replace only
   the child surface without re-exporting every frame model.
-
-- The ten-piece office family has coordinated neutral, charcoal, and teal GLB
-  variants. Keep every office type in `COORDINATED_SET_TYPES`, keep the three
+- The office family has coordinated neutral, charcoal, and teal GLB variants.
+  Keep every office type in `COORDINATED_SET_TYPES`, keep the three
   `VARIANT_THEMES` arrays in identical order, and add any future office finish
   to every silhouette so one generated room cannot mix unrelated palettes.
-
 - Stair flights occupy the full `stair_path_cells()` span. `_fixtures()` and
-  `_pickups()` now use `_stair_door_exclusion(stairs)` rather than excluding
-  only each stair anchor, preventing props, relays, batteries, and tools from
+  `_pickups()` use `_stair_door_exclusion(stairs)` rather than excluding only
+  each stair anchor, preventing props, relays, batteries, and tools from
   spawning on treads or the upper landing.
-
 - Never add a room/custom-map prop type without a real authored asset. The
   required chain is builder in `tools/props/rebuild_hytale_props.py`, source
   `.blend`, exported `.glb`, Godot import, `PropModelCatalog` entry, footprint,
   and deterministic runtime placement. Do not substitute an unrelated GLB or
   leave a catalog-only placeholder.
-- The office set now has authored desk, task chair, three-CRT security console,
-  cubicle partition, printer, and water-cooler models. Residential `bunkBed`
-  selects distinct metal, wood, and loft-bed GLBs; `prisonBunk` remains only
-  the institutional prison-cell model.
-- The next authored equipment batch adds a photocopier, shredder, stacked file
-  boxes, and an L-shaped corner workstation to deterministic office templates.
-  Prison cafeterias use dedicated bolted table/bench units, a guarded serving
-  counter, tray return, and kitchen rack; do not replace these with generic
-  dining/kitchen silhouettes or run the legacy prison-cell dresser in them.
 - Regional floor dressing no longer aliases bedroom/bathroom meshes. Corridor,
-  hotel, apartment, and beach types own ten dedicated thin GLBs. Keep their
-  bottom pivots flush and rely on `FLOOR_DRESSING_Y` for the small runtime lift;
-  do not thicken them into collision or return them to random maze corridors.
+  hotel, apartment, and beach types own dedicated thin GLBs. Keep their bottom
+  pivots flush and rely on `FLOOR_DRESSING_Y` for the small runtime lift; do
+  not thicken them into collision or return them to random maze corridors.
+
+When Godot is available, verify office suites and prison cafeterias visually
+in single-player and co-op host/client runs. Streamed/prop validators already
+lock `office_job` generation, surface-parent sharing, and the prison dressing
+set; do not weaken those contracts.
