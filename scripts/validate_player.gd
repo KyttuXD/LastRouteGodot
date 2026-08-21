@@ -67,7 +67,7 @@ func run(host: Node) -> int:
 	var route: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(route)
 	await host.get_tree().process_frame
-	_expect_xr(route)
+	await _expect_xr(route)
 	await _expect_small_hop(route, host)
 	await _expect_hard_landing_stun(route, host)
 	route.queue_free()
@@ -159,7 +159,7 @@ func _expect_xr(route: Node) -> void:
 			or controller.flashlight_enabled \
 			or initial_order != ["flashlight", "", "", "", ""]:
 		_fail("the player does not start with an off flashlight and four blank slots")
-	_expect_flashlight_click_does_not_toggle(controller)
+	await _expect_flashlight_click_does_not_toggle(controller)
 	controller._set_flashlight(true)
 	if not controller.flashlight_enabled or not controller.flashlight.visible:
 		_fail("the starting flashlight cannot turn its beam on while held")
@@ -344,7 +344,9 @@ func _expect_xr(route: Node) -> void:
 func _expect_flashlight_click_does_not_toggle(controller: PlayerController3D) -> void:
 	# Drive the real input path used by a 3D-view focus click (tool_use / left
 	# mouse) versus the dedicated flashlight bind (F). A click must not flip
-	# the beam or request a floor drop.
+	# the beam or request a floor drop. Pause the node's own physics so only
+	# the presses below count, then wait a frame so just_pressed cannot leak
+	# from F into the following click.
 	if controller.selected_inventory_item() != "flashlight" \
 			or controller.flashlight_enabled:
 		_fail("flashlight click guard needs the starter lamp selected and off")
@@ -360,31 +362,34 @@ func _expect_flashlight_click_does_not_toggle(controller: PlayerController3D) ->
 	var drop_watch := func(_item_id: String, _durability: int, _slot: int) -> void:
 		drop_count[0] += 1
 	controller.item_drop_requested.connect(drop_watch)
-	Input.action_press("tool_use")
-	controller._physics_process(1.0 / 60.0)
-	Input.action_release("tool_use")
+	controller.set_physics_process(false)
+	await _simulate_held_action(controller, "tool_use")
 	if controller.flashlight_enabled or not controller.owns_inventory_item("flashlight") \
 			or controller.selected_inventory_item() != "flashlight" \
 			or drop_count[0] != 0:
 		_fail("left click toggled or dropped the flashlight")
-	Input.action_press("flashlight")
-	controller._physics_process(1.0 / 60.0)
-	Input.action_release("flashlight")
+	await _simulate_held_action(controller, "flashlight")
 	if not controller.flashlight_enabled:
 		_fail("the dedicated flashlight bind did not toggle the lamp on")
-	Input.action_press("tool_use")
-	controller._physics_process(1.0 / 60.0)
-	Input.action_release("tool_use")
+	await _simulate_held_action(controller, "tool_use")
 	if not controller.flashlight_enabled or drop_count[0] != 0 \
 			or not controller.owns_inventory_item("flashlight"):
 		_fail("left click toggled or dropped the flashlight while it was on")
-	Input.action_press("flashlight")
-	controller._physics_process(1.0 / 60.0)
-	Input.action_release("flashlight")
+	await _simulate_held_action(controller, "flashlight")
 	if controller.flashlight_enabled:
 		_fail("the dedicated flashlight bind did not toggle the lamp off")
 	controller.item_drop_requested.disconnect(drop_watch)
 	controller._set_flashlight(false)
+	controller.set_physics_process(true)
+
+
+func _simulate_held_action(controller: PlayerController3D, action: StringName) -> void:
+	Input.action_release(action)
+	await controller.get_tree().process_frame
+	Input.action_press(action)
+	controller._physics_process(1.0 / 60.0)
+	Input.action_release(action)
+	await controller.get_tree().process_frame
 
 
 func _expect_player_camera_and_crouch(controller: PlayerController3D) -> void:
