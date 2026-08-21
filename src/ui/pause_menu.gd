@@ -69,6 +69,10 @@ var _save_list: VBoxContainer
 var _save_name: LineEdit
 var _save_status: Label
 var _statistics_grid: GridContainer
+var _share_code: Label
+var _share_seed: Label
+var _copy_button: Button
+var _copy_status: Label
 var _selected_save_id := ""
 
 
@@ -97,11 +101,11 @@ func _build() -> void:
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
 	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_panel.custom_minimum_size = Vector2(430, 300)
+	_panel.custom_minimum_size = Vector2(430, 348)
 	_panel.offset_left = -215
 	_panel.offset_right = 215
-	_panel.offset_top = -150
-	_panel.offset_bottom = 150
+	_panel.offset_top = -174
+	_panel.offset_bottom = 174
 	add_child(_panel)
 
 	var column := VBoxContainer.new()
@@ -230,6 +234,7 @@ func _build_statistics_view(parent: VBoxContainer) -> void:
 	heading.text = Palette.track("CURRENT RUN")
 	Palette.style_label(heading, Palette.AMBER, 8)
 	_statistics_view.add_child(heading)
+	_statistics_view.add_child(_build_share_block())
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_statistics_view.add_child(scroll)
@@ -240,6 +245,100 @@ func _build_statistics_view(parent: VBoxContainer) -> void:
 	_statistics_grid.add_theme_constant_override("h_separation", 18)
 	_statistics_grid.add_theme_constant_override("v_separation", 5)
 	scroll.add_child(_statistics_grid)
+
+
+func _build_share_block() -> Control:
+	var box := PanelContainer.new()
+	box.name = "PauseShare"
+	box.add_theme_stylebox_override("panel",
+		Palette.panel_box(Palette.INSET, Palette.CRIMSON_DEEP, 6))
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 2)
+	box.add_child(stack)
+	var eyebrow := Label.new()
+	eyebrow.text = Palette.track("ROUTE SIGNAL")
+	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	Palette.style_label(eyebrow, Palette.AMBER, 6)
+	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	stack.add_child(eyebrow)
+	_share_code = Label.new()
+	_share_code.name = "PauseShareCode"
+	_share_code.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	Palette.style_label(_share_code, Palette.CRIMSON, 9)
+	_share_code.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	stack.add_child(_share_code)
+	_share_seed = Label.new()
+	_share_seed.name = "PauseShareSeed"
+	_share_seed.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_share_seed.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	Palette.style_label(_share_seed, Palette.INK, 8)
+	_share_seed.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	stack.add_child(_share_seed)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	stack.add_child(row)
+	_copy_button = Button.new()
+	_copy_button.name = "PauseCopyRoute"
+	_copy_button.text = "COPY ROUTE"
+	_copy_button.focus_mode = Control.FOCUS_ALL
+	_copy_button.custom_minimum_size = Vector2(88, 16)
+	_copy_button.add_theme_font_size_override("font_size", 7)
+	Palette.style_button(_copy_button, true)
+	_copy_button.pressed.connect(copy_route_share)
+	row.add_child(_copy_button)
+	_copy_status = Label.new()
+	_copy_status.name = "PauseCopyStatus"
+	_copy_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_copy_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	Palette.style_label(_copy_status, Palette.MUTED, 7)
+	_copy_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	row.add_child(_copy_status)
+	return box
+
+
+## What a host would actually paste: the joinable room code and the live
+## route seed, as one string. Missing halves are omitted rather than faked.
+static func route_share_text(code: String, seed: String) -> String:
+	var room := code.strip_edges()
+	var route := seed.strip_edges()
+	if not room.is_empty() and not route.is_empty():
+		return "ROOM %s // SEED %s" % [room, route]
+	if not route.is_empty():
+		return route
+	if not room.is_empty():
+		return "ROOM %s" % room
+	return ""
+
+
+func copy_route_share() -> String:
+	var text := route_share_text(RoomState.code, RoomState.seed_text)
+	if text.is_empty():
+		_set_copy_status("NO ROUTE SIGNAL TO COPY", false)
+		return ""
+	DisplayServer.clipboard_set(text)
+	_set_copy_status("COPIED TO CLIPBOARD", true)
+	return text
+
+
+func _set_copy_status(message: String, ok: bool) -> void:
+	if _copy_status == null:
+		return
+	_copy_status.text = message
+	_copy_status.add_theme_color_override("font_color",
+		Palette.STABLE if ok else Palette.ALERT)
+
+
+func _refresh_share() -> void:
+	var room := RoomState.code.strip_edges()
+	var route := RoomState.seed_text.strip_edges()
+	if _share_code != null:
+		_share_code.text = ("ROOM %s" % room) if not room.is_empty() \
+			else "ROOM UNASSIGNED"
+	if _share_seed != null:
+		_share_seed.text = route if not route.is_empty() \
+			else "ROUTE SIGNAL UNASSIGNED"
+	if _copy_button != null:
+		_copy_button.disabled = route_share_text(room, route).is_empty()
 
 
 func _save_action_button(caption: String, action: Callable,
@@ -263,6 +362,7 @@ func _set_section(section: String) -> void:
 		_refresh_saves()
 		_save_name.grab_focus()
 	elif section == "statistics":
+		_refresh_share()
 		_refresh_statistics()
 
 
@@ -553,6 +653,8 @@ func open() -> void:
 	if _open:
 		return
 	_set_open(true)
+	_set_copy_status("", true)
+	_refresh_share()
 	_set_section("pause")
 	_resume_button.grab_focus()
 	opened.emit()

@@ -905,6 +905,7 @@ func _pause_statistics() -> Dictionary:
 		"CHASES STARTED": str(int(_run_statistics.get("chases_started", 0))),
 		"CHECKPOINTS ACTIVATED": str(int(
 			_run_statistics.get("checkpoints_activated", 0))),
+		"ROOM CODE": RoomState.code,
 		"ROUTE SEED": RoomState.seed_text,
 		"DIFFICULTY": RoomState.difficulty_id().to_upper(),
 	}

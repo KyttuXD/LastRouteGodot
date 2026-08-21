@@ -58,6 +58,7 @@ func run(host: Node) -> int:
 	await _check_lock()
 	await _check_maze()
 	await _check_online_maze()
+	await _check_share_copy()
 	await _check_office()
 	if _failures == 0:
 		print("pause and mouse lock OK")
@@ -235,3 +236,78 @@ func _check_online_maze() -> void:
 	await _frame()
 	RoomState.leave_network()
 	print("  co-op     pause freezes one runner without freezing the host simulation")
+
+
+func _check_share_copy() -> void:
+	var old_code := RoomState.code
+	var old_seed := RoomState.seed_text
+	var old_online := RoomState.online
+	var old_host := RoomState.is_host
+	var old_peers := RoomState.peers.duplicate(true)
+	RoomState.code = "ABCDE"
+	RoomState.seed_text = "ROOM-ABCDE-VALIDATIONSEED01"
+	RoomState.online = true
+	RoomState.is_host = true
+	RoomState.peers = {1: "HOST"}
+	_expect(PauseMenu.route_share_text("ABCDE", "ROOM-ABCDE-VALIDATIONSEED01")
+			== "ROOM ABCDE // SEED ROOM-ABCDE-VALIDATIONSEED01",
+		"share text did not combine the live room code and route seed")
+	_expect(PauseMenu.route_share_text("", "SOLO-SEED") == "SOLO-SEED",
+		"a seed-only route did not copy the seed")
+	_expect(PauseMenu.route_share_text("FGHIJ", "") == "ROOM FGHIJ",
+		"a code-only room did not copy the room code")
+	_expect(PauseMenu.route_share_text("  ", "") == "",
+		"an empty room still produced a share string")
+
+	var menu := PauseMenu.new()
+	_root().add_child(menu)
+	await _frame()
+	menu.open()
+	menu.call("_set_section", "statistics")
+	var share := menu.find_child("PauseShare", true, false)
+	var copy_button := menu.find_child("PauseCopyRoute", true, false) as Button
+	var code_label := menu.find_child("PauseShareCode", true, false) as Label
+	var seed_label := menu.find_child("PauseShareSeed", true, false) as Label
+	var status := menu.find_child("PauseCopyStatus", true, false) as Label
+	_expect(share != null and copy_button != null and status != null,
+		"pause statistics is missing the route-share copy block")
+	if code_label != null:
+		_expect(code_label.text == "ROOM ABCDE",
+			"pause share block did not show the live room code")
+	if seed_label != null:
+		_expect(seed_label.text == "ROOM-ABCDE-VALIDATIONSEED01",
+			"pause share block did not show the live route seed")
+	if copy_button != null:
+		_expect(not copy_button.disabled, "copy route was disabled for the host")
+		copy_button.pressed.emit()
+	var copied := menu.copy_route_share()
+	_expect(copied == "ROOM ABCDE // SEED ROOM-ABCDE-VALIDATIONSEED01",
+		"copying the live route did not return the share string")
+	if status != null:
+		_expect(status.text == "COPIED TO CLIPBOARD",
+			"pause UI did not confirm the clipboard copy")
+	var clipboard := DisplayServer.clipboard_get()
+	if not clipboard.is_empty():
+		_expect(clipboard == copied,
+			"OS clipboard did not receive the live route share string")
+
+	RoomState.is_host = false
+	RoomState.peers = {1: "HOST", 2: "GUEST"}
+	menu.call("_set_section", "statistics")
+	_expect(menu.copy_route_share() == copied,
+		"a guest lost the read-only route-share copy")
+	_expect(menu.save_new_request.is_valid() == false
+			and menu.save_load_request.is_valid() == false,
+		"the share-copy path wired guest save/load authority")
+	var save_new := menu.find_child("SaveNew", true, false)
+	_expect(save_new != null,
+		"pause archives vanished after a guest opened the share block")
+	menu.close()
+	menu.queue_free()
+	await _frame()
+	RoomState.code = old_code
+	RoomState.seed_text = old_seed
+	RoomState.online = old_online
+	RoomState.is_host = old_host
+	RoomState.peers = old_peers
+	print("  share     pause copies room code and seed; guests stay read-only")
