@@ -134,6 +134,7 @@ func _ready() -> void:
 @onready var fps_label: Label = %FpsLabel
 
 var _message_time_left := 0.0
+var _hold_message := ""
 var _fps_update_left := 0.0
 var _stamina_percent := 100
 var _inventory_drag_from := -1
@@ -161,7 +162,17 @@ func _process(delta: float) -> void:
 	if _thermal_material != null and _thermal_surface.visible:
 		_thermal_material.set_shader_parameter("pulse_time", _thermal_time)
 	_message_time_left = maxf(0.0, _message_time_left - delta)
-	message_label.visible = _message_time_left > 0.0
+	if _message_time_left > 0.0:
+		message_label.visible = true
+	elif not _hold_message.is_empty():
+		message_label.text = _hold_message
+		message_label.visible = true
+		var pulse := 0.62 + 0.38 * sin(_thermal_time * 5.2)
+		message_label.add_theme_color_override("font_color",
+			Palette.ALERT.lerp(Palette.AMBER, pulse * 0.42))
+	else:
+		message_label.visible = false
+		message_label.remove_theme_color_override("font_color")
 	_fps_update_left -= delta
 	if _fps_update_left <= 0.0:
 		_fps_update_left = .25
@@ -667,9 +678,24 @@ func set_interaction_prompt(text: String) -> void:
 
 
 func show_message(text: String) -> void:
+	message_label.remove_theme_color_override("font_color")
 	message_label.text = text
 	message_label.visible = true
 	_message_time_left = MESSAGE_DURATION
+
+
+## Persistent HUD line for a live pressure rule. Toast messages still win
+## while they are up, then this text returns until cleared.
+func set_hold_message(text: String) -> void:
+	_hold_message = text
+	if text.is_empty():
+		if _message_time_left <= 0.0:
+			message_label.visible = false
+			message_label.remove_theme_color_override("font_color")
+		return
+	if _message_time_left <= 0.0:
+		message_label.text = text
+		message_label.visible = true
 
 
 func toggle_map_overlay() -> void:

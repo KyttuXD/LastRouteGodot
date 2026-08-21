@@ -163,6 +163,9 @@ func run(host: Node) -> int:
 			> GameConfig.anti_idle_hunter_seconds("hard") \
 			and GameConfig.anti_afk_hunter_seconds("standard") \
 			< GameConfig.anti_idle_hunter_seconds("standard") \
+			and GameConfig.anti_afk_warning_seconds() > 0.0 \
+			and GameConfig.anti_afk_warning_seconds() \
+				< GameConfig.anti_afk_hunter_seconds("nightmare") \
 			and HunterRoster.VOID_IDS.has("void_gray"),
 		"Gray Void anti-AFK/relay-inactivity pressure is not difficulty tuned")
 	var arrival_hunters: Array = world.chunk(Vector3i(1, 0, 0))["hunter_spawns"]
@@ -1007,6 +1010,23 @@ func run(host: Node) -> int:
 		"_party_moved_since_pressure_sample", [idle_target]))
 	_expect(first_idle_sample and not second_idle_sample,
 		"anti-AFK tracking does not distinguish movement from a stationary party")
+	var afk_delay := GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id())
+	var warning_window := GameConfig.anti_afk_warning_seconds()
+	live_scene.set("_party_afk_seconds", afk_delay - warning_window + 0.5)
+	_expect(float(live_scene.call("_afk_void_warning_remaining")) > 0.0,
+		"AFK Gray Void warning did not arm before the existing kill delay")
+	var facing_target := idle_target.duplicate()
+	facing_target["facing"] = Vector2(0, 1)
+	live_scene.call("_party_moved_since_pressure_sample", [facing_target])
+	var turned_target := facing_target.duplicate()
+	turned_target["facing"] = Vector2(1, 0)
+	_expect(bool(live_scene.call("_party_moved_since_pressure_sample",
+			[turned_target])),
+		"looking around did not break the AFK warning sample")
+	live_scene.set("_party_afk_seconds", 0.0)
+	_expect(is_equal_approx(float(live_scene.call("_afk_void_warning_remaining")),
+			0.0),
+		"AFK Gray Void warning stayed armed after idle broke")
 	if not runtime_hunters.is_empty():
 		var test_hunter_id := String(runtime_hunters.keys()[0])
 		var test_hunter := runtime_hunters[test_hunter_id] as HunterView3D

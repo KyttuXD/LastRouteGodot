@@ -430,8 +430,50 @@ func _check_unfocus_afk() -> void:
 		"AFK clock advanced while SIGNAL SUSPENDED was up")
 	_expect(is_equal_approx(float(route.get("_relay_inactivity_seconds")), 4.0),
 		"relay-inactivity clock advanced while SIGNAL SUSPENDED was up")
+	_expect(is_equal_approx(float(route.call("_afk_void_warning_remaining")), 0.0),
+		"AFK Gray Void warning armed from a short idle while paused")
 	menu.close()
 	_expect(not menu.is_open(), "AFK fixture could not resume after a focus-loss pause")
+
+	var delay := GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id())
+	var warning := GameConfig.anti_afk_warning_seconds()
+	_expect(warning > 0.0 and warning < delay \
+			and warning < GameConfig.anti_afk_hunter_seconds("nightmare"),
+		"AFK warning is not a short slice of the existing AFK window")
+	route.set("_party_afk_seconds", delay - warning - 1.0)
+	_expect(is_equal_approx(float(route.call("_afk_void_warning_remaining")), 0.0),
+		"AFK warning started before the existing telegraph window")
+	route.set("_party_afk_seconds", delay - warning + 1.0)
+	var remaining := float(route.call("_afk_void_warning_remaining"))
+	_expect(remaining > 0.0 and remaining <= warning,
+		"AFK warning did not arm inside the existing kill window")
+	_simulate_lost_focus(menu)
+	var frozen_warning := float(route.get("_party_afk_seconds"))
+	route.call("_update_anti_idle_pressure", warning)
+	_expect(is_equal_approx(float(route.get("_party_afk_seconds")), frozen_warning),
+		"AFK warning clock advanced while SIGNAL SUSPENDED was up")
+	_expect(float(route.call("_afk_void_warning_remaining")) > 0.0,
+		"paused AFK warning cleared itself without movement")
+	menu.close()
+
+	var still := {"peer_id": 1, "position": Vector2(4, 4),
+		"facing": Vector2(0, 1), "game_over": false}
+	route.set("_party_activity_anchors", {})
+	_expect(bool(route.call("_party_moved_since_pressure_sample", [still])),
+		"first AFK sample did not register the standing runner")
+	route.set("_party_afk_seconds", delay - 2.0)
+	_expect(not bool(route.call("_party_moved_since_pressure_sample", [still])),
+		"standing still cancelled the AFK warning clock")
+	var looking := still.duplicate()
+	looking["facing"] = Vector2(1, 0)
+	_expect(bool(route.call("_party_moved_since_pressure_sample", [looking])),
+		"looking around did not cancel the AFK warning the way idle already does")
+	var walking := still.duplicate()
+	walking["position"] = Vector2(5, 4)
+	walking["facing"] = Vector2(1, 0)
+	_expect(bool(route.call("_party_moved_since_pressure_sample", [walking])),
+		"moving did not cancel the AFK warning the way idle already does")
+
 	route.free()
 	menu.queue_free()
 	await _frame()
