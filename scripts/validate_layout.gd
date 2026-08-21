@@ -335,6 +335,19 @@ func _check_update_progress_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("update progress hides unpack failures instead of offering retry")
+	if retry != null:
+		retry.visible = false
+	if continue_button != null:
+		continue_button.visible = false
+	scene.call("_on_update_status", UpdateManager.PLATFORM_MISMATCH_STATUS)
+	await _frame()
+	var phase := scene.find_child("UpdatePhase", true, false) as Label
+	if retry == null or not retry.visible:
+		failures += _fail("update progress hides a platform-mismatch footer instead of offering retry")
+	if phase != null and phase.text == "APPLYING UPDATE":
+		failures += _fail("update progress headlines APPLYING UPDATE for a platform-mismatch failure")
+	if phase != null and phase.text != "UPDATE INTERRUPTED":
+		failures += _fail("update progress does not mark a platform-mismatch as interrupted")
 	if not scene.has_method("_start_install"):
 		failures += _fail("update progress screen cannot hand off a staged desktop install")
 	var was_installing: bool = UpdateManager.installing

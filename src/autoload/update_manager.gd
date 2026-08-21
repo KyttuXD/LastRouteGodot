@@ -22,6 +22,7 @@ const DOWNLOAD_PART := "pending-update.part"
 const DEBUG_RECHECK_SECONDS := 10.0
 const RELEASE_RECHECK_SECONDS := 60.0
 const MANIFEST_TIMEOUT_SECONDS := 8.0
+const PLATFORM_MISMATCH_STATUS := "UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM"
 const UNIX_HELPER := """#!/bin/sh
 set -u
 stage=$1
@@ -217,8 +218,7 @@ func check() -> void:
 		return
 	checking = true
 	_set_status("CHECKING FOR UPDATES")
-	var error := _manifest_request.request("%s/api/updates/%s/%s" % [
-		Backend.base_url, Build.update_channel(), platform_key()],
+	var error := _manifest_request.request(update_manifest_url(),
 		PackedStringArray(["Accept: application/json"]), HTTPClient.METHOD_GET)
 	if error != OK:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
@@ -259,6 +259,11 @@ func platform_key() -> String:
 	if OS.has_feature("windows"):
 		return "windows"
 	return "linux"
+
+
+func update_manifest_url() -> String:
+	return "%s/api/updates/%s/%s" % [
+		Backend.base_url.trim_suffix("/"), Build.update_channel(), platform_key()]
 
 
 func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
@@ -417,8 +422,9 @@ func _prepare_verified_download() -> void:
 	if layout.is_empty():
 		preparing = false
 		_remove_tree(staged_path)
-		_set_status("UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM // RETRY")
+		_set_status("%s // RETRY" % PLATFORM_MISMATCH_STATUS)
 		return
+	staged_path = String(layout.get("stage", staged_path))
 	preparing = false
 	ready_to_install = true
 	update_ready.emit(staged_path)
@@ -450,8 +456,9 @@ func install_update() -> void:
 		return
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
-		_set_status("UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM // RETRY")
+		_set_status("%s // RETRY" % PLATFORM_MISMATCH_STATUS)
 		return
+	staged_path = String(layout.get("stage", staged_path))
 	var install_dir := String(layout["install_dir"])
 	if not _directory_writable(install_dir):
 		_set_status("UPDATE STAGED // GAME FOLDER IS READ-ONLY")
@@ -631,32 +638,69 @@ func _extract_archive(archive_path: String, destination: String) -> String:
 
 static func _installation_layout(platform: String, executable_path: String,
 		staging: String) -> Dictionary:
-	var directory := DirAccess.open(staging)
+	# Godot desktop export zips often wrap the build in one folder. Descend
+	# into that single export root before deciding the package is the wrong
+	# platform, but never treat a Linux binary as a Windows launch target.
+	var root := _export_root(platform, staging)
+	var directory := DirAccess.open(root)
 	if directory == null:
 		return {}
-	var launch := ""
+	var launch := _launch_name(directory, platform)
+	if launch.is_empty():
+		return {}
+	if platform == "macos":
+		var current_app := _mac_bundle_path(executable_path)
+		if current_app.is_empty():
+			return {}
+		return {"install_dir": current_app.get_base_dir(), "launch": launch, "stage": root}
+	return {"install_dir": executable_path.get_base_dir(), "launch": launch, "stage": root}
+
+
+static func _export_root(platform: String, staging: String) -> String:
+	var directory := DirAccess.open(staging)
+	if directory == null:
+		return staging
+	directory.include_hidden = true
+	if not _launch_name(directory, platform).is_empty():
+		return staging
+	for file in directory.get_files():
+		if not _ignored_archive_name(file):
+			return staging
+	var wrappers: Array[String] = []
+	for folder in directory.get_directories():
+		if _ignored_archive_name(folder) or folder.to_lower().ends_with(".app"):
+			continue
+		wrappers.append(folder)
+	if wrappers.size() != 1:
+		return staging
+	var nested := staging.path_join(wrappers[0])
+	var nested_directory := DirAccess.open(nested)
+	if nested_directory != null and not _launch_name(nested_directory, platform).is_empty():
+		return nested
+	return staging
+
+
+static func _launch_name(directory: DirAccess, platform: String) -> String:
+	if directory == null:
+		return ""
 	if platform in ["windows", "windows_legacy", "steamvr"]:
 		for file in directory.get_files():
 			if file.get_extension().to_lower() == "exe":
-				launch = file
-				break
+				return file
 	elif platform == "linux":
 		for file in directory.get_files():
 			if file.get_extension().to_lower() in ["x86_64", "arm64"]:
-				launch = file
-				break
+				return file
 	elif platform == "macos":
 		for folder in directory.get_directories():
 			if folder.to_lower().ends_with(".app"):
-				launch = folder
-				break
-		var current_app := _mac_bundle_path(executable_path)
-		if launch.is_empty() or current_app.is_empty():
-			return {}
-		return {"install_dir": current_app.get_base_dir(), "launch": launch}
-	if launch.is_empty():
-		return {}
-	return {"install_dir": executable_path.get_base_dir(), "launch": launch}
+				return folder
+	return ""
+
+
+static func _ignored_archive_name(name: String) -> bool:
+	var lower := name.to_lower()
+	return name.begins_with(".") or lower == "__macosx" or lower == "thumbs.db"
 
 
 static func _mac_bundle_path(executable_path: String) -> String:
