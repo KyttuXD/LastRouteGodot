@@ -142,6 +142,38 @@ func run(host: Node) -> int:
 	_expect(UpdateManager.should_open_progress_screen()
 		== UpdateManager.uses_in_progress_screen(),
 		"a required desktop update did not ask the menu for the in-progress screen")
+	var old_preparing: bool = UpdateManager.preparing
+	var old_downloading: bool = UpdateManager.downloading
+	UpdateManager.available = {
+		"version": "0.0.1.1",
+		"required": true,
+		"url": "https://example.test/last-route-update.zip",
+		"sha256": "a".repeat(64),
+	}
+	UpdateManager.preparing = true
+	UpdateManager.downloading = false
+	_expect(UpdateManager.should_open_progress_screen()
+		== UpdateManager.uses_in_progress_screen(),
+		"verify/unpack no longer keeps the desktop update-in-progress screen open")
+	UpdateManager.download_update()
+	_expect(not UpdateManager.downloading,
+		"verify/unpack re-entered download and could wipe the staging tree")
+	UpdateManager.preparing = old_preparing
+	UpdateManager.downloading = old_downloading
+	_expect(UpdateManager.is_failure_status("COULD NOT START UPDATE INSTALLER // RETRY"),
+		"a helper-launch failure was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status("COULD NOT UNPACK UPDATE // RETRY"),
+		"an unpack failure was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status(
+		"UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM // RETRY"),
+		"a platform-mismatch failure was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status("UPDATE STAGED // GAME FOLDER IS READ-ONLY"),
+		"a read-only install folder was not treated as a retryable update error")
+	_expect(not UpdateManager.is_failure_status("INSTALLING UPDATE // RESTARTING"),
+		"the successful install hand-off was treated as a failure")
+	_expect(UpdateManager.WINDOWS_HELPER.contains("Wait-Process")
+		and UpdateManager.WINDOWS_HELPER.contains("Start-Process"),
+		"the Windows update helper no longer waits for exit before replacing and relaunching")
 	UpdateManager.available = old_available
 	UpdateManager.update_required = old_update_required
 	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
@@ -178,8 +210,14 @@ func run(host: Node) -> int:
 	packer.close_file()
 	packer.close()
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(update_stage))
-	_expect(UpdateManager._extract_archive(update_archive, update_stage).is_empty(),
+	var extract_error := UpdateManager._extract_archive(update_archive, update_stage)
+	_expect(extract_error.is_empty(),
 		"the updater could not unpack a valid platform archive")
+	_expect(not UpdateManager.is_failure_status(extract_error),
+		"a successful unpack reported a retryable update error")
+	_expect(UpdateManager._extract_archive(
+		"user://missing-last-route-update.zip", update_stage).contains("RETRY"),
+		"a missing update package no longer offers retry")
 	var update_layout := UpdateManager._installation_layout("linux",
 		"/games/LastRoute-Old.x86_64", update_stage)
 	_expect(String(update_layout.get("launch", "")) == "LastRoute-Test.x86_64",
@@ -233,6 +271,18 @@ func run(host: Node) -> int:
 	_expect(not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(cache_stage)),
 		"updater cleanup retained an obsolete staging directory")
 	UpdateManager._cleanup_update_cache()
+	var old_staged_path: String = UpdateManager.staged_path
+	var old_downloaded_path: String = UpdateManager.downloaded_path
+	UpdateManager.staged_path = cache_stage
+	UpdateManager.downloaded_path = ""
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(cache_stage))
+	_expect(UpdateManager._write_text(cache_stage.path_join("staged"), "staged"),
+		"could not create the updater reveal-path fixture")
+	_expect(UpdateManager._package_reveal_path() == cache_stage,
+		"a read-only install fallback did not reveal the staged tree after the ZIP was removed")
+	UpdateManager.staged_path = old_staged_path
+	UpdateManager.downloaded_path = old_downloaded_path
+	UpdateManager._remove_tree(cache_stage)
 	var apply_root := "user://last-route-update-apply-test"
 	var apply_stage := apply_root.path_join("stage")
 	var apply_install := apply_root.path_join("install")
