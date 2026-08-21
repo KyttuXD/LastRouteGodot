@@ -121,11 +121,6 @@ const REGION_PROP_SETS := {
 	],
 	"prison": [
 		{"type": "prisonBunk", "size": Vector3(.55, .95, 1.75)},
-		{"type": "restaurantPartyTable", "size": Vector3(2.75, 2.2, .9)},
-		{"type": "woodenTable", "size": Vector3(1.25, .86, .8)},
-		{"type": "woodenChair", "size": Vector3(.65, 1.1, .65)},
-		{"type": "normalKitchenCounter", "size": Vector3(1.5, 1.05, .7)},
-		{"type": "normalKitchenSink", "size": Vector3(1.25, 1.05, .7)},
 		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
 		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .90, 1.62)},
 		{"type": "prisonServingCounter", "size": Vector3(2.46, 2.05, .88)},
@@ -1127,7 +1122,7 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 	]
 	var apartment_roles := ["bedroom", "kitchen", "family_dining",
 		"house_bathroom"]
-	var office_roles := ["office_reception", "cubicle_room", "meeting_room",
+	var office_roles := ["office_reception", "cubicle_room", "office_job",
 		"private_office"]
 	var roles := apartment_roles if suite_kind == "apartment" else office_roles
 	var child_ids := []
@@ -1446,7 +1441,9 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 	var prop_count := mini(5 if safe else 8, rooms.size())
 	for index in prop_count:
 		var room: Dictionary = rooms[index]
-		if String(room.get("room_type", "")) == "stairwell" \
+		# prison_cell interiors are owned by the streamed cell-block dresser.
+		# Extra fallback scatter stacked restaurant tables through bunks.
+		if String(room.get("room_type", "")) in ["stairwell", "prison_cell"] \
 				or bool(room.get("suite_parent", false)) \
 				or int(room.get("height_floors", 1)) == 2 \
 				or templated_rooms.has(String(room.get("id", ""))):
@@ -1721,15 +1718,21 @@ static func _room_template_specs(template: String, side_span: int,
 				counter_spec["wall_backed"] = true
 				counter_spec["facing"] = "open"
 				specs.append(counter_spec)
-			var table_depths := [mid_depth - 2, mid_depth + 2]
+			# Linear prison wings are only five cells deep. A mid-room table
+			# keeps the serving line clear; wider halls can take a second row.
+			var table_depths := [mid_depth]
+			if depth_span >= 9:
+				table_depths = [mid_depth - 2, mid_depth + 2]
 			if depth_span >= 12:
 				table_depths.append(mid_depth + 6)
 			for table_depth in table_depths:
+				if table_depth <= 0:
+					continue
 				specs.append({"type": "prisonCafeteriaTable", "side": 0,
 					"depth": table_depth, "facing": "open"})
 			# The tray return sits at the side of the queue, not in the aisle.
 			specs.append({"type": "prisonTrayReturn", "side": 3 * mirror,
-				"depth": mid_depth - 1, "facing": "open"})
+				"depth": maxi(1, mid_depth - 1), "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": -2,
 				"depth": mid_depth, "facing": "open", "solid": false})
 			specs.append({"type": "ceilingLight", "side": 2,
@@ -1861,10 +1864,7 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": mid_depth - 1, "facing": "open"})
 			specs.append({"type": "retroComputerCompact", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false,
-				"mount_y": .79})
-			specs.append({"type": "retroComputerTerminal", "side": 1,
-				"depth": mid_depth + 2, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"mount_y": .78})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 		"office_cubicles":
@@ -1876,17 +1876,17 @@ static func _room_template_specs(template: String, side_span: int,
 				specs.append({"type": "retroComputerTerminal" if side < 0 \
 					else "retroComputerTower", "side": side,
 					"depth": 1, "facing": "open", "solid": false,
-					"mount_y": .79})
+					"mount_y": .78})
 			specs.append({"type": "filingCabinet", "side": -3 * mirror,
 				"depth": 2, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "retroComputerDesktop", "side": 3 * mirror,
-				"depth": 2, "facing": "open", "solid": false,
-				"mount_y": .79})
+			# Side equipment desk owns the printer so it is not desk-height air.
+			specs.append({"type": "officeDesk", "side": 3 * mirror,
+				"depth": 2, "facing": "open"})
 			specs.append({"type": "officeCubiclePartition", "side": 0,
 				"depth": 1, "facing": "open"})
 			specs.append({"type": "officePrinter", "side": 3 * mirror,
 				"depth": 2, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"mount_y": .78})
 			specs.append({"type": "officePhotocopier", "side": -3 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "officeFileBoxes", "side": 3 * mirror,
@@ -1908,9 +1908,9 @@ static func _room_template_specs(template: String, side_span: int,
 				specs.append(chair_spec)
 			specs.append({"type": "filingCabinet", "side": -2 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "retroComputerTower", "side": 2 * mirror,
-				"depth": 1, "facing": "open", "solid": false,
-				"mount_y": .79})
+			specs.append({"type": "retroComputerTower", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false,
+				"mount_y": .78})
 			specs.append({"type": "normalTvConsole", "side": 0,
 				"depth": mid_depth + 3, "facing": "center"})
 		"office_job":
@@ -1918,6 +1918,8 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": mid_depth, "facing": "open"})
 			specs.append({"type": "officeDesk", "side": 2,
 				"depth": mid_depth + 1, "facing": "open"})
+			specs.append({"type": "officeDesk", "side": 0,
+				"depth": mid_depth, "facing": "open"})
 			for chair_spec in [
 				{"type": "officeChair", "side": -1,
 					"depth": mid_depth - 1, "facing": "right"},
@@ -1935,15 +1937,17 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "officeFileBoxes", "side": 2 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "filingCabinet", "side": 0,
+				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "retroComputerTerminal", "side": -2,
-				"depth": mid_depth + 2, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"depth": mid_depth, "facing": "open", "solid": false,
+				"mount_y": .78})
 			specs.append({"type": "retroComputerTower", "side": 2,
-				"depth": mid_depth + 2, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"depth": mid_depth + 1, "facing": "open", "solid": false,
+				"mount_y": .78})
 			specs.append({"type": "retroComputerDesktop", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"mount_y": .78})
 			specs.append({"type": "normalTvConsole", "side": 0,
 				"depth": mid_depth + 3, "facing": "center"})
 			specs.append({"type": "officeWaterCooler", "side": 3 * mirror,
@@ -1969,7 +1973,7 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "retroComputerDesktop", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false,
-				"mount_y": .79})
+				"mount_y": .78})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	return specs

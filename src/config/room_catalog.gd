@@ -263,6 +263,9 @@ const WALL_BACKED_TYPES := [
 	"normalBookcase", "normalTvConsole", "normalEntryBench",
 	"mansionDisplayCabinet", "mansionChaiseLounge", "mansionUprightPiano",
 	"prisonCellGate", "prisonBunk",
+	"officePhotocopier", "officeShredder", "officeFileBoxes",
+	"officeWaterCooler", "prisonServingCounter", "prisonKitchenRack",
+	"prisonTrayReturn",
 ]
 
 ## Small dining dressing shares the cell of a real table and is lifted to its
@@ -272,7 +275,9 @@ const SURFACE_PARENT_TYPES := {
 	"tableCandelabra": ["diningTable", "woodenTable"],
 	"bedsideLamp": ["bedroomNightstand", "bedroomDresser"],
 	"tableLamp": ["bedroomNightstand", "bedroomDresser", "woodenTable",
-		"diningSideboard", "officeDesk", "normalCoffeeTable"],
+		"diningSideboard", "officeDesk", "officeCornerWorkstation",
+		"normalCoffeeTable", "gothicNightstand", "gothicDresser",
+		"gothicPedestalTable"],
 	"retroComputerCompact": ["officeDesk", "woodenTable",
 		"officeCornerWorkstation"],
 	"retroComputerTower": ["officeDesk", "woodenTable",
@@ -281,7 +286,8 @@ const SURFACE_PARENT_TYPES := {
 		"officeCornerWorkstation"],
 	"retroComputerTerminal": ["officeDesk", "woodenTable",
 		"officeCornerWorkstation"],
-	"officePrinter": ["officeDesk", "woodenTable"],
+	"officePrinter": ["officeDesk", "woodenTable",
+		"officeCornerWorkstation"],
 	"gothicBedsideCandelabra": ["gothicNightstand", "gothicDresser",
 		"gothicPedestalTable"],
 }
@@ -555,6 +561,7 @@ static func is_solid(type: String) -> bool:
 		"bedroomRug", "bedroomWallClock", "bedsideLamp", "tableLamp",
 		"retroComputerCompact", "retroComputerTower",
 		"retroComputerDesktop", "retroComputerTerminal",
+		"officePrinter",
 		"gothicBedroomRug",
 		"gothicBedsideCandelabra", "publicHandDryer",
 		"publicSoapDispenser", "publicPaperTowelDispenser",

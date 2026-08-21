@@ -192,6 +192,9 @@ func run(host: Node) -> int:
 	var suite_roles_seen := {}
 	var saw_multi_unit_apartment_hall := false
 	var restaurant_room_props := {}
+	var prison_cafeteria_props := {}
+	var saw_office_job_desk := false
+	var saw_prison_cell_generic := false
 	var saw_dual_lower := false
 	var saw_dual_upper := false
 	var saw_dual_carousel := false
@@ -260,7 +263,7 @@ func run(host: Node) -> int:
 						"%s suite metadata does not own its four generated rooms" % suite_id)
 					var expected_roles := ["bedroom", "kitchen", "family_dining",
 						"house_bathroom"] if suite_kind == "apartment" else [
-						"office_reception", "cubicle_room", "meeting_room",
+						"office_reception", "cubicle_room", "office_job",
 						"private_office"]
 					_expect(child_roles.size() == expected_roles.size() \
 						and expected_roles.all(func(role: String) -> bool:
@@ -391,6 +394,34 @@ func run(host: Node) -> int:
 							restaurant_counts[prop_type] = int(restaurant_counts.get(
 								prop_type, 0)) + 1
 							restaurant_room_props[owning_room_id] = restaurant_counts
+						if room_template == "prison_cafeteria":
+							var cafeteria_counts: Dictionary = prison_cafeteria_props.get(
+								owning_room_id, {})
+							cafeteria_counts[prop_type] = int(cafeteria_counts.get(
+								prop_type, 0)) + 1
+							prison_cafeteria_props[owning_room_id] = cafeteria_counts
+						if room_template == "office_job" \
+								and prop_type == "officeDesk":
+							saw_office_job_desk = true
+					if RoomCatalog.is_surface_prop(prop_type) \
+							and float(prop.get("mount_y", 0.0)) > 0.0:
+						var parents: Array = RoomCatalog.surface_parent_types(prop_type)
+						var seated := (data.get("region_props", []) as Array).any(
+							func(other_value) -> bool:
+								var other: Dictionary = other_value
+								return String(other.get("room_id", "")) \
+									== String(prop.get("room_id", "")) \
+									and other.get("cell", Vector2i(-1, -1)) \
+									== prop_cell \
+									and parents.has(String(other.get("type", ""))))
+						_expect(seated,
+							"surface prop %s is floating off its desk/table: %s" \
+							% [prop_type, prop.get("id", prop_type)])
+					if data["biome"] == "prison" \
+							and prop_type in ["restaurantPartyTable",
+								"woodenTable", "woodenChair",
+								"normalKitchenCounter", "normalKitchenSink"]:
+						saw_prison_cell_generic = true
 					if bool(prop.get("dual_level_activity", false)) \
 							and prop_type == "carouselCenterpiece":
 						saw_dual_carousel = true
@@ -530,7 +561,7 @@ func run(host: Node) -> int:
 	_expect(saw_multi_unit_apartment_hall,
 		"apartment region never placed multiple complete units off one main hall")
 	for suite_role in ["bedroom", "kitchen", "family_dining", "house_bathroom",
-			"office_reception", "cubicle_room", "meeting_room", "private_office"]:
+			"office_reception", "cubicle_room", "office_job", "private_office"]:
 		_expect(suite_roles_seen.has(suite_role),
 			"generated suites never exposed the %s amenity" % suite_role)
 	for biome in StreamedRouteGenerator.BIOMES:
@@ -553,10 +584,27 @@ func run(host: Node) -> int:
 			"hotel_bathroom", "luxury_bathroom", "public_restroom",
 			"carnival_midway", "carnival_game_stall", "carnival_backstage",
 			"frozen_tideline", "beach_hut", "lounge", "office_reception",
-			"office_cubicles", "office_meeting", "private_office",
+			"office_cubicles", "office_job", "private_office",
 		]:
 		_expect(room_templates_seen.has(expected_template),
 			"streamed sample never furnished the %s room recipe" % expected_template)
+	_expect(saw_office_job_desk,
+		"office suites never furnished the office_job desk layout")
+	_expect(not saw_prison_cell_generic,
+		"prison rooms still scatter generic dining/kitchen silhouettes")
+	_expect(not prison_cafeteria_props.is_empty(),
+		"streamed sample produced no auditable prison cafeteria")
+	var saw_complete_prison_cafeteria := false
+	for cafeteria_room_id in prison_cafeteria_props:
+		var cafeteria_counts: Dictionary = prison_cafeteria_props[cafeteria_room_id]
+		if int(cafeteria_counts.get("prisonServingCounter", 0)) >= 1 \
+				and int(cafeteria_counts.get("prisonCafeteriaTable", 0)) >= 1 \
+				and int(cafeteria_counts.get("prisonTrayReturn", 0)) >= 1 \
+				and int(cafeteria_counts.get("prisonKitchenRack", 0)) >= 1:
+			saw_complete_prison_cafeteria = true
+	_expect(saw_complete_prison_cafeteria,
+		"no prison cafeteria received the dedicated serving set: %s" \
+		% [prison_cafeteria_props])
 	_expect(not restaurant_room_props.is_empty(),
 		"streamed sample produced no auditable restaurant dining room")
 	for restaurant_room_id in restaurant_room_props:
