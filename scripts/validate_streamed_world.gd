@@ -405,15 +405,10 @@ func run(host: Node) -> int:
 							saw_office_job_desk = true
 					if RoomCatalog.is_surface_prop(prop_type) \
 							and float(prop.get("mount_y", 0.0)) > 0.0:
-						var parents: Array = RoomCatalog.surface_parent_types(prop_type)
 						var seated := (data.get("region_props", []) as Array).any(
 							func(other_value) -> bool:
-								var other: Dictionary = other_value
-								return String(other.get("room_id", "")) \
-									== String(prop.get("room_id", "")) \
-									and other.get("cell", Vector2i(-1, -1)) \
-									== prop_cell \
-									and parents.has(String(other.get("type", ""))))
+								return RoomCatalog.surface_parent_covers(
+									other_value, prop))
 						_expect(seated,
 							"surface prop %s is floating off its desk/table: %s" \
 							% [prop_type, prop.get("id", prop_type)])
