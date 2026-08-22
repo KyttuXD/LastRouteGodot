@@ -22,6 +22,7 @@ const DOWNLOAD_PART := "pending-update.part"
 const DEBUG_RECHECK_SECONDS := 10.0
 const RELEASE_RECHECK_SECONDS := 60.0
 const MANIFEST_TIMEOUT_SECONDS := 8.0
+const PLATFORM_MISMATCH_STATUS := "UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM"
 const UNIX_HELPER := """#!/bin/sh
 set -u
 stage=$1
@@ -115,6 +116,7 @@ var check_succeeded := false
 var update_required := false
 var checking := false
 var downloading := false
+var preparing := false
 var ready_to_install := false
 var installing := false
 var downloaded_path := ""
@@ -174,7 +176,7 @@ func _on_recheck_timeout() -> void:
 		# Desktop required/debug updates wait for the in-progress screen.
 		install_update()
 		return
-	if checking or downloading or installing or not available.is_empty():
+	if _update_in_flight() or not available.is_empty():
 		return
 	check()
 
@@ -201,7 +203,7 @@ func check() -> void:
 	if offline_mode:
 		_finish_check(false, false, "OFFLINE MODE")
 		return
-	if checking or downloading \
+	if _update_in_flight() \
 			or _manifest_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		return
 	check_complete = false
@@ -216,8 +218,7 @@ func check() -> void:
 		return
 	checking = true
 	_set_status("CHECKING FOR UPDATES")
-	var error := _manifest_request.request("%s/api/updates/%s/%s" % [
-		Backend.base_url, Build.update_channel(), platform_key()],
+	var error := _manifest_request.request(update_manifest_url(),
 		PackedStringArray(["Accept: application/json"]), HTTPClient.METHOD_GET)
 	if error != OK:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
@@ -233,6 +234,7 @@ func enable_offline_mode() -> void:
 		_download_request.cancel_request()
 	checking = false
 	downloading = false
+	preparing = false
 	installing = false
 	available = {}
 	ready_to_install = false
@@ -257,6 +259,11 @@ func platform_key() -> String:
 	if OS.has_feature("windows"):
 		return "windows"
 	return "linux"
+
+
+func update_manifest_url() -> String:
+	return "%s/api/updates/%s/%s" % [
+		Backend.base_url.trim_suffix("/"), Build.update_channel(), platform_key()]
 
 
 func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
@@ -302,7 +309,7 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 ## Downloads immediately after discovery. Calling this again is also the
 ## retry path used by the menu after a network, checksum, or permission error.
 func download_update(force_web_refresh := false) -> void:
-	if available.is_empty() or downloading or installing:
+	if available.is_empty() or downloading or preparing or installing:
 		return
 	if OS.has_feature("web"):
 		_refresh_web_build(force_web_refresh)
@@ -344,19 +351,27 @@ func download_update(force_web_refresh := false) -> void:
 
 func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 		_body: PackedByteArray) -> void:
-	downloading = false
 	set_process(false)
 	_download_request.download_file = ""
 	var partial_path := "%s/%s" % [UPDATE_ROOT, DOWNLOAD_PART]
 	if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300 \
 			or not FileAccess.file_exists(partial_path):
+		downloading = false
 		_remove_file(partial_path)
 		_set_status("UPDATE DOWNLOAD FAILED // RETRY")
 		return
+	# Keep the updater busy across verify/unpack so the progress screen cannot
+	# start a second download that deletes this staging tree mid-extract.
+	preparing = true
+	downloading = false
 	var expected_sha := String(available.get("sha256", "")).to_lower()
 	_set_status("VERIFYING UPDATE")
 	await get_tree().process_frame
+	if not preparing:
+		_remove_file(partial_path)
+		return
 	if FileAccess.get_sha256(partial_path).to_lower() != expected_sha:
+		preparing = false
 		_remove_file(partial_path)
 		_set_status("UPDATE VERIFICATION FAILED // RETRY")
 		return
@@ -365,6 +380,7 @@ func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 		ProjectSettings.globalize_path(partial_path),
 		ProjectSettings.globalize_path(downloaded_path))
 	if rename_error != OK:
+		preparing = false
 		_remove_file(partial_path)
 		_set_status("COULD NOT STORE UPDATE // RETRY")
 		return
@@ -372,7 +388,9 @@ func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 
 
 func _prepare_verified_download() -> void:
+	preparing = true
 	if platform_key() == "quest":
+		preparing = false
 		ready_to_install = true
 		update_ready.emit(downloaded_path)
 		if _should_install_automatically():
@@ -383,6 +401,8 @@ func _prepare_verified_download() -> void:
 		return
 	_set_status("UNPACKING UPDATE")
 	await get_tree().process_frame
+	if not preparing:
+		return
 	var revision := String(available.get("revision", "")).to_lower()
 	var identity := revision.left(12) if _valid_revision(revision) else "latest"
 	staged_path = "%s/staged-%s-%s" % [UPDATE_ROOT, platform_key(), identity]
@@ -390,6 +410,7 @@ func _prepare_verified_download() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(staged_path))
 	var extract_error := _extract_archive(downloaded_path, staged_path)
 	if not extract_error.is_empty():
+		preparing = false
 		_remove_tree(staged_path)
 		_set_status(extract_error)
 		return
@@ -399,9 +420,12 @@ func _prepare_verified_download() -> void:
 	downloaded_path = ""
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
+		preparing = false
 		_remove_tree(staged_path)
-		_set_status("UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM")
+		_set_status("%s // RETRY" % PLATFORM_MISMATCH_STATUS)
 		return
+	staged_path = String(layout.get("stage", staged_path))
+	preparing = false
 	ready_to_install = true
 	update_ready.emit(staged_path)
 	if _should_install_automatically():
@@ -432,12 +456,15 @@ func install_update() -> void:
 		return
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
-		_set_status("UPDATE PACKAGE DOES NOT MATCH THIS PLATFORM")
+		_set_status("%s // RETRY" % PLATFORM_MISMATCH_STATUS)
 		return
+	staged_path = String(layout.get("stage", staged_path))
 	var install_dir := String(layout["install_dir"])
 	if not _directory_writable(install_dir):
-		_set_status("UPDATE DOWNLOADED // GAME FOLDER IS READ-ONLY")
-		OS.shell_show_in_file_manager(ProjectSettings.globalize_path(downloaded_path))
+		_set_status("UPDATE STAGED // GAME FOLDER IS READ-ONLY")
+		var reveal := _package_reveal_path()
+		if not reveal.is_empty():
+			OS.shell_show_in_file_manager(ProjectSettings.globalize_path(reveal))
 		return
 	installing = true
 	ready_to_install = false
@@ -492,6 +519,7 @@ func _install_launch_failed() -> void:
 
 func _download_failed(message: String) -> void:
 	downloading = false
+	preparing = false
 	set_process(false)
 	_download_request.download_file = ""
 	_remove_file("%s/%s" % [UPDATE_ROOT, DOWNLOAD_PART])
@@ -514,8 +542,29 @@ func should_open_progress_screen() -> bool:
 		return false
 	if _gameplay_active():
 		return false
-	return downloading or installing or ready_to_install \
+	return downloading or preparing or installing or ready_to_install \
 		or not available.is_empty()
+
+
+func _update_in_flight() -> bool:
+	return checking or downloading or preparing or installing
+
+
+static func is_failure_status(message: String) -> bool:
+	var upper := message.to_upper()
+	return upper.contains("FAILED") or upper.contains("RETRY") \
+		or upper.contains("READ-ONLY") or upper.contains("UNAVAILABLE") \
+		or upper.contains("REJECTED") or upper.contains("COULD NOT") \
+		or upper.contains("DOES NOT MATCH")
+
+
+func _package_reveal_path() -> String:
+	if not staged_path.is_empty() and DirAccess.dir_exists_absolute(
+			ProjectSettings.globalize_path(staged_path)):
+		return staged_path
+	if not downloaded_path.is_empty() and FileAccess.file_exists(downloaded_path):
+		return downloaded_path
+	return ""
 
 
 func _should_install_automatically() -> bool:
@@ -562,7 +611,7 @@ func _extract_archive(archive_path: String, destination: String) -> String:
 	var reader := ZIPReader.new()
 	var open_error := reader.open(archive_path)
 	if open_error != OK:
-		return "COULD NOT OPEN UPDATE PACKAGE"
+		return "COULD NOT OPEN UPDATE PACKAGE // RETRY"
 	for entry in reader.get_files():
 		if not _safe_archive_entry(entry):
 			reader.close()
@@ -571,16 +620,16 @@ func _extract_archive(archive_path: String, destination: String) -> String:
 		if entry.ends_with("/"):
 			if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output)) != OK:
 				reader.close()
-				return "COULD NOT UNPACK UPDATE"
+				return "COULD NOT UNPACK UPDATE // RETRY"
 			continue
 		if DirAccess.make_dir_recursive_absolute(
 				ProjectSettings.globalize_path(output.get_base_dir())) != OK:
 			reader.close()
-			return "COULD NOT UNPACK UPDATE"
+			return "COULD NOT UNPACK UPDATE // RETRY"
 		var output_file := FileAccess.open(output, FileAccess.WRITE)
 		if output_file == null:
 			reader.close()
-			return "COULD NOT UNPACK UPDATE"
+			return "COULD NOT UNPACK UPDATE // RETRY"
 		output_file.store_buffer(reader.read_file(entry))
 		output_file.close()
 	reader.close()
@@ -589,32 +638,69 @@ func _extract_archive(archive_path: String, destination: String) -> String:
 
 static func _installation_layout(platform: String, executable_path: String,
 		staging: String) -> Dictionary:
-	var directory := DirAccess.open(staging)
+	# Godot desktop export zips often wrap the build in one folder. Descend
+	# into that single export root before deciding the package is the wrong
+	# platform, but never treat a Linux binary as a Windows launch target.
+	var root := _export_root(platform, staging)
+	var directory := DirAccess.open(root)
 	if directory == null:
 		return {}
-	var launch := ""
+	var launch := _launch_name(directory, platform)
+	if launch.is_empty():
+		return {}
+	if platform == "macos":
+		var current_app := _mac_bundle_path(executable_path)
+		if current_app.is_empty():
+			return {}
+		return {"install_dir": current_app.get_base_dir(), "launch": launch, "stage": root}
+	return {"install_dir": executable_path.get_base_dir(), "launch": launch, "stage": root}
+
+
+static func _export_root(platform: String, staging: String) -> String:
+	var directory := DirAccess.open(staging)
+	if directory == null:
+		return staging
+	directory.include_hidden = true
+	if not _launch_name(directory, platform).is_empty():
+		return staging
+	for file in directory.get_files():
+		if not _ignored_archive_name(file):
+			return staging
+	var wrappers: Array[String] = []
+	for folder in directory.get_directories():
+		if _ignored_archive_name(folder) or folder.to_lower().ends_with(".app"):
+			continue
+		wrappers.append(folder)
+	if wrappers.size() != 1:
+		return staging
+	var nested := staging.path_join(wrappers[0])
+	var nested_directory := DirAccess.open(nested)
+	if nested_directory != null and not _launch_name(nested_directory, platform).is_empty():
+		return nested
+	return staging
+
+
+static func _launch_name(directory: DirAccess, platform: String) -> String:
+	if directory == null:
+		return ""
 	if platform in ["windows", "windows_legacy", "steamvr"]:
 		for file in directory.get_files():
 			if file.get_extension().to_lower() == "exe":
-				launch = file
-				break
+				return file
 	elif platform == "linux":
 		for file in directory.get_files():
 			if file.get_extension().to_lower() in ["x86_64", "arm64"]:
-				launch = file
-				break
+				return file
 	elif platform == "macos":
 		for folder in directory.get_directories():
 			if folder.to_lower().ends_with(".app"):
-				launch = folder
-				break
-		var current_app := _mac_bundle_path(executable_path)
-		if launch.is_empty() or current_app.is_empty():
-			return {}
-		return {"install_dir": current_app.get_base_dir(), "launch": launch}
-	if launch.is_empty():
-		return {}
-	return {"install_dir": executable_path.get_base_dir(), "launch": launch}
+				return folder
+	return ""
+
+
+static func _ignored_archive_name(name: String) -> bool:
+	var lower := name.to_lower()
+	return name.begins_with(".") or lower == "__macosx" or lower == "thumbs.db"
 
 
 static func _mac_bundle_path(executable_path: String) -> String:

@@ -50,7 +50,7 @@ func _sync_update_state() -> void:
 	if UpdateManager.installing:
 		_on_update_status(UpdateManager.status_message)
 		return
-	if UpdateManager.downloading:
+	if UpdateManager.downloading or UpdateManager.preparing:
 		_on_update_status(UpdateManager.status_message)
 		return
 	if UpdateManager.ready_to_install:
@@ -58,7 +58,8 @@ func _sync_update_state() -> void:
 		return
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
-		if not UpdateManager.downloading and not UpdateManager.installing:
+		if not UpdateManager.downloading and not UpdateManager.preparing \
+				and not UpdateManager.installing:
 			UpdateManager.download_update()
 		return
 	if UpdateManager.checking:
@@ -81,8 +82,8 @@ func _on_update_available(update: Dictionary) -> void:
 
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if update_needed:
-		if not UpdateManager.downloading and not UpdateManager.installing \
-				and not UpdateManager.ready_to_install:
+		if not UpdateManager.downloading and not UpdateManager.preparing \
+				and not UpdateManager.installing and not UpdateManager.ready_to_install:
 			UpdateManager.download_update()
 		return
 	if success:
@@ -97,7 +98,9 @@ func _on_update_status(message: String) -> void:
 		return
 	var upper := message.to_upper()
 	_status.text = upper
-	if upper.contains("CHECKING"):
+	if UpdateManager.is_failure_status(upper):
+		_show_retry(upper)
+	elif upper.contains("CHECKING"):
 		_phase.text = "CHECKING FOR UPDATES"
 		_set_progress(0.12, true)
 	elif upper.contains("DOWNLOADING"):
@@ -112,10 +115,6 @@ func _on_update_status(message: String) -> void:
 			or upper.contains("REFRESHING"):
 		_phase.text = "APPLYING UPDATE"
 		_set_progress(1.0, true)
-	elif upper.contains("FAILED") or upper.contains("RETRY") \
-			or upper.contains("READ-ONLY") or upper.contains("UNAVAILABLE") \
-			or upper.contains("REJECTED"):
-		_show_retry(upper)
 
 
 func _on_download_progress(received_bytes: int, total_bytes: int) -> void:

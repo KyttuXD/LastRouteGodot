@@ -142,6 +142,47 @@ func run(host: Node) -> int:
 	_expect(UpdateManager.should_open_progress_screen()
 		== UpdateManager.uses_in_progress_screen(),
 		"a required desktop update did not ask the menu for the in-progress screen")
+	var old_preparing: bool = UpdateManager.preparing
+	var old_downloading: bool = UpdateManager.downloading
+	UpdateManager.available = {
+		"version": "0.0.1.1",
+		"required": true,
+		"url": "https://example.test/last-route-update.zip",
+		"sha256": "a".repeat(64),
+	}
+	UpdateManager.preparing = true
+	UpdateManager.downloading = false
+	_expect(UpdateManager.should_open_progress_screen()
+		== UpdateManager.uses_in_progress_screen(),
+		"verify/unpack no longer keeps the desktop update-in-progress screen open")
+	UpdateManager.download_update()
+	_expect(not UpdateManager.downloading,
+		"verify/unpack re-entered download and could wipe the staging tree")
+	UpdateManager.preparing = old_preparing
+	UpdateManager.downloading = old_downloading
+	_expect(UpdateManager.is_failure_status("COULD NOT START UPDATE INSTALLER // RETRY"),
+		"a helper-launch failure was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status("COULD NOT UNPACK UPDATE // RETRY"),
+		"an unpack failure was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status(
+		UpdateManager.PLATFORM_MISMATCH_STATUS),
+		"the live Windows mismatch footer was not treated as a retryable update error")
+	_expect(UpdateManager.is_failure_status(
+		"%s // RETRY" % UpdateManager.PLATFORM_MISMATCH_STATUS),
+		"a platform-mismatch failure was not treated as a retryable update error")
+	_expect(UpdateManager.update_manifest_url().ends_with("/api/updates/%s/%s" % [
+		Build.update_channel(), UpdateManager.platform_key()]),
+		"the updater does not request the channel/platform published for this build")
+	_expect(not UpdateManager.update_manifest_url().contains("/api/updates/release/")
+		or Build.update_channel() == "release",
+		"a debug client requested the release update channel")
+	_expect(UpdateManager.is_failure_status("UPDATE STAGED // GAME FOLDER IS READ-ONLY"),
+		"a read-only install folder was not treated as a retryable update error")
+	_expect(not UpdateManager.is_failure_status("INSTALLING UPDATE // RESTARTING"),
+		"the successful install hand-off was treated as a failure")
+	_expect(UpdateManager.WINDOWS_HELPER.contains("Wait-Process")
+		and UpdateManager.WINDOWS_HELPER.contains("Start-Process"),
+		"the Windows update helper no longer waits for exit before replacing and relaunching")
 	UpdateManager.available = old_available
 	UpdateManager.update_required = old_update_required
 	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
@@ -178,8 +219,14 @@ func run(host: Node) -> int:
 	packer.close_file()
 	packer.close()
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(update_stage))
-	_expect(UpdateManager._extract_archive(update_archive, update_stage).is_empty(),
+	var extract_error := UpdateManager._extract_archive(update_archive, update_stage)
+	_expect(extract_error.is_empty(),
 		"the updater could not unpack a valid platform archive")
+	_expect(not UpdateManager.is_failure_status(extract_error),
+		"a successful unpack reported a retryable update error")
+	_expect(UpdateManager._extract_archive(
+		"user://missing-last-route-update.zip", update_stage).contains("RETRY"),
+		"a missing update package no longer offers retry")
 	var update_layout := UpdateManager._installation_layout("linux",
 		"/games/LastRoute-Old.x86_64", update_stage)
 	_expect(String(update_layout.get("launch", "")) == "LastRoute-Test.x86_64",
@@ -193,6 +240,68 @@ func run(host: Node) -> int:
 	_expect(String(legacy_layout.get("launch", "")) == \
 		"LastRoute-Windows-Legacy-Debug.exe",
 		"the updater could not find the staged legacy Windows executable")
+	_expect(String(legacy_layout.get("stage", "")) == update_stage,
+		"a flat Windows archive was rewritten to a nested export folder")
+	var nested_archive := "user://last-route-nested-update-test.zip"
+	var nested_stage := "user://last-route-nested-update-test"
+	UpdateManager._remove_tree(nested_stage)
+	var nested_packer := ZIPPacker.new()
+	_expect(nested_packer.open(nested_archive) == OK,
+		"could not create the nested Windows updater test ZIP")
+	_expect(nested_packer.start_file("LastRoute-Windows-Debug/LastRoute-Windows-Debug.exe") == OK,
+		"could not add the nested Windows updater test executable")
+	nested_packer.write_file("nested windows executable".to_utf8_buffer())
+	nested_packer.close_file()
+	nested_packer.close()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(nested_stage))
+	_expect(UpdateManager._extract_archive(nested_archive, nested_stage).is_empty(),
+		"the updater could not unpack a Godot-style nested Windows archive")
+	_expect(UpdateManager._export_root("windows", nested_stage) \
+		== nested_stage.path_join("LastRoute-Windows-Debug"),
+		"the updater did not descend into the single Windows export folder")
+	var nested_windows := UpdateManager._installation_layout("windows",
+		"C:/Games/LastRoute-Windows-Debug.exe", nested_stage)
+	_expect(String(nested_windows.get("launch", "")) == "LastRoute-Windows-Debug.exe",
+		"the updater rejected a Windows zip whose exe sits in one export folder")
+	_expect(String(nested_windows.get("stage", "")) \
+		== nested_stage.path_join("LastRoute-Windows-Debug"),
+		"the updater did not stage from the nested Windows export folder")
+	var linux_only := "user://last-route-linux-only-update-test"
+	UpdateManager._remove_tree(linux_only)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(linux_only))
+	_expect(UpdateManager._extract_archive(update_archive, linux_only).is_empty(),
+		"the updater could not unpack a Linux-only archive for the mismatch check")
+	_expect(UpdateManager._installation_layout("windows",
+		"C:/Games/LastRoute-Windows-Debug.exe", linux_only).is_empty(),
+		"a Linux archive was accepted as a Windows update")
+	_expect(String(UpdateManager._installation_layout("linux",
+		"/games/LastRoute-Old.x86_64", linux_only).get("launch", "")) \
+		== "LastRoute-Test.x86_64",
+		"the Linux-only archive fixture lost its executable")
+	var nested_linux_stage := "user://last-route-nested-linux-update-test"
+	UpdateManager._remove_tree(nested_linux_stage)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(
+		nested_linux_stage.path_join("LastRoute-Linux-Debug")))
+	var nested_linux_exe := FileAccess.open(nested_linux_stage.path_join(
+		"LastRoute-Linux-Debug/LastRoute-Linux-Debug.x86_64"), FileAccess.WRITE)
+	nested_linux_exe.store_string("nested linux executable")
+	nested_linux_exe.close()
+	_expect(UpdateManager._installation_layout("windows",
+		"C:/Games/LastRoute-Windows-Debug.exe", nested_linux_stage).is_empty(),
+		"a nested Linux zip was accepted as a Windows update")
+	_expect(UpdateManager._installation_layout("linux",
+		"/games/LastRoute-Old.x86_64", nested_stage).is_empty(),
+		"a nested Windows zip was accepted as a Linux update")
+	var macos_stage := "user://last-route-macos-update-test"
+	UpdateManager._remove_tree(macos_stage)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(
+		macos_stage.path_join("KYTTU- The Last Route.app/Contents/MacOS")))
+	_expect(UpdateManager._export_root("macos", macos_stage) == macos_stage,
+		"the updater unwrapped a top-level macOS app bundle")
+	_expect(String(UpdateManager._installation_layout("macos",
+		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route",
+		macos_stage).get("launch", "")) == "KYTTU- The Last Route.app",
+		"the updater could not find a top-level macOS app bundle")
 	_expect(FileAccess.get_file_as_string(
 		update_stage.path_join("LastRoute-Test.pck")) == "test pck",
 		"the updater changed the staged PCK")
@@ -233,6 +342,18 @@ func run(host: Node) -> int:
 	_expect(not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(cache_stage)),
 		"updater cleanup retained an obsolete staging directory")
 	UpdateManager._cleanup_update_cache()
+	var old_staged_path: String = UpdateManager.staged_path
+	var old_downloaded_path: String = UpdateManager.downloaded_path
+	UpdateManager.staged_path = cache_stage
+	UpdateManager.downloaded_path = ""
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(cache_stage))
+	_expect(UpdateManager._write_text(cache_stage.path_join("staged"), "staged"),
+		"could not create the updater reveal-path fixture")
+	_expect(UpdateManager._package_reveal_path() == cache_stage,
+		"a read-only install fallback did not reveal the staged tree after the ZIP was removed")
+	UpdateManager.staged_path = old_staged_path
+	UpdateManager.downloaded_path = old_downloaded_path
+	UpdateManager._remove_tree(cache_stage)
 	var apply_root := "user://last-route-update-apply-test"
 	var apply_stage := apply_root.path_join("stage")
 	var apply_install := apply_root.path_join("install")
@@ -272,8 +393,13 @@ func run(host: Node) -> int:
 		_expect(FileAccess.file_exists(helper_path),
 			"the updater could not keep its written desktop helper")
 	UpdateManager._remove_tree(update_stage)
+	UpdateManager._remove_tree(nested_stage)
+	UpdateManager._remove_tree(nested_linux_stage)
+	UpdateManager._remove_tree(linux_only)
+	UpdateManager._remove_tree(macos_stage)
 	UpdateManager._remove_tree(apply_root)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(update_archive))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(nested_archive))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(helper_path))
 	_expect(RoomState.valid_room_code("ABCDE"),
 		"a valid primary-server room code was rejected")

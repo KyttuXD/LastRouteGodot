@@ -90,8 +90,9 @@ func _poll_menu_load() -> void:
 
 func _handoff_desktop_update() -> bool:
 	return UpdateManager.uses_in_progress_screen() \
-		and (UpdateManager.downloading or UpdateManager.installing \
-			or UpdateManager.ready_to_install or not UpdateManager.available.is_empty())
+		and (UpdateManager.downloading or UpdateManager.preparing \
+			or UpdateManager.installing or UpdateManager.ready_to_install \
+			or not UpdateManager.available.is_empty())
 
 
 func _sync_update_state() -> void:
@@ -134,8 +135,8 @@ func _on_update_available(update: Dictionary) -> void:
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if update_needed:
 		_update_discovered = true
-		if not UpdateManager.downloading and not UpdateManager.installing \
-				and not UpdateManager.ready_to_install:
+		if not UpdateManager.downloading and not UpdateManager.preparing \
+				and not UpdateManager.installing and not UpdateManager.ready_to_install:
 			UpdateManager.download_update()
 		if _handoff_desktop_update():
 			_allow_main_menu("UPDATE FOUND // OPENING MENU")
@@ -155,7 +156,9 @@ func _on_update_status(message: String) -> void:
 		return
 	var upper := message.to_upper()
 	_status.text = upper
-	if upper.contains("CHECKING"):
+	if UpdateManager.is_failure_status(upper):
+		_show_retry(upper, not Build.requires_update_gate())
+	elif upper.contains("CHECKING"):
 		_phase.text = "CHECKING FOR UPDATES"
 		_set_progress(0.12, true)
 	elif upper.contains("DOWNLOADING"):
@@ -170,10 +173,6 @@ func _on_update_status(message: String) -> void:
 			or upper.contains("REFRESHING"):
 		_phase.text = "APPLYING UPDATE"
 		_set_progress(1.0, true)
-	elif upper.contains("FAILED") or upper.contains("RETRY") \
-			or upper.contains("READ-ONLY") or upper.contains("UNAVAILABLE") \
-			or upper.contains("REJECTED"):
-		_show_retry(upper, not Build.requires_update_gate())
 
 
 func _on_download_progress(received_bytes: int, total_bytes: int) -> void:
