@@ -91,6 +91,7 @@ var _admin_ticket_refresh_elapsed := 0.0
 var _relay_inactivity_seconds := 0.0
 var _party_afk_seconds := 0.0
 var _party_activity_anchors := {}
+var _afk_void_warning_shown := false
 var _anti_idle_last_relay_count := 0
 var _anti_idle_spawn_sequence := 0
 var _run_statistics := {
@@ -401,6 +402,7 @@ func _update_hud() -> void:
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
 	_update_streamed_maps()
+	_present_afk_void_warning()
 
 
 func _temperature_hunter_proximity() -> Vector2:
@@ -1346,7 +1348,9 @@ func _update_waypoint_ground_trail(level: int) -> void:
 
 func _live_danger_percent(data: Dictionary) -> int:
 	if _player_in_intact_safe_room(data):
-		return 0
+		var safe_warning := _afk_void_warning_progress()
+		return clampi(roundi(lerpf(0.62, 1.0, safe_warning) * 100.0), 0, 100) \
+			if safe_warning > 0.0 else 0
 	var base := clampf(float((data.get("difficulty", {}) as Dictionary).get(
 		"danger", 0.0)), 0.0, 1.0)
 	var score := base * .34
@@ -1378,6 +1382,9 @@ func _live_danger_percent(data: Dictionary) -> int:
 		score += clampf(1.0 - nearest / 16.0, 0.0, 1.0) * .36
 	if chased:
 		score = maxf(score, .88)
+	var warning := _afk_void_warning_progress()
+	if warning > 0.0:
+		score = maxf(score, lerpf(0.62, 1.0, warning))
 	return clampi(roundi(score * 100.0), 0, 100)
 
 
@@ -1394,6 +1401,7 @@ func _update_anti_idle_pressure(delta: float) -> void:
 		_anti_idle_last_relay_count = relay_count
 		_relay_inactivity_seconds = 0.0
 		_party_afk_seconds = 0.0
+		_afk_void_warning_shown = false
 		return
 	_relay_inactivity_seconds += delta
 	var local_target := _hunter_target(
@@ -1401,6 +1409,7 @@ func _update_anti_idle_pressure(delta: float) -> void:
 	var targets := _remotes.target_states(local_target) if _remotes != null else []
 	if _party_moved_since_pressure_sample(targets):
 		_party_afk_seconds = 0.0
+		_afk_void_warning_shown = false
 	else:
 		_party_afk_seconds += delta
 	var relay_delay := GameConfig.anti_idle_hunter_seconds(
@@ -1416,6 +1425,7 @@ func _update_anti_idle_pressure(delta: float) -> void:
 	if _spawn_anti_idle_hunter():
 		_relay_inactivity_seconds = 0.0
 		_party_afk_seconds = 0.0
+		_afk_void_warning_shown = false
 	else:
 		# Generation may briefly have no eligible candidate while a new floor is
 		# streaming. Retry soon without firing once per frame.
@@ -1435,15 +1445,83 @@ func _party_moved_since_pressure_sample(targets: Array) -> bool:
 			continue
 		var peer_id := int(target.get("peer_id", 1))
 		var position: Vector2 = position_value
+		var facing_value = target.get("facing")
+		var facing := Vector2.ZERO
+		if facing_value is Vector2:
+			facing = facing_value
 		present[peer_id] = true
-		if not _party_activity_anchors.has(peer_id) \
-				or (_party_activity_anchors[peer_id] as Vector2).distance_to(position) >= .35:
-			_party_activity_anchors[peer_id] = position
+		var previous = _party_activity_anchors.get(peer_id)
+		var prev_position := position
+		var prev_facing := Vector2.ZERO
+		var had_anchor := false
+		if previous is Dictionary:
+			had_anchor = true
+			var stored_position = previous.get("position")
+			if stored_position is Vector2:
+				prev_position = stored_position
+			var stored_facing = previous.get("facing")
+			if stored_facing is Vector2:
+				prev_facing = stored_facing
+		elif previous is Vector2:
+			had_anchor = true
+			prev_position = previous
+		var walked := had_anchor and prev_position.distance_to(position) >= .35
+		var looked := false
+		if had_anchor and facing.length_squared() > .0001 \
+				and prev_facing.length_squared() > .0001 \
+				and prev_facing.distance_to(facing) >= .22:
+			looked = true
+		if not had_anchor or walked or looked:
+			_party_activity_anchors[peer_id] = {
+				"position": position, "facing": facing}
 			moved = true
+		elif facing.length_squared() > .0001 and prev_facing.length_squared() <= .0001:
+			_party_activity_anchors[peer_id] = {
+				"position": prev_position, "facing": facing}
 	for peer_id_value in _party_activity_anchors.keys().duplicate():
 		if not present.has(peer_id_value):
 			_party_activity_anchors.erase(peer_id_value)
 	return moved or present.is_empty()
+
+
+func _afk_void_warning_remaining() -> float:
+	var delay := GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id())
+	var window := GameConfig.anti_afk_warning_seconds()
+	if window <= 0.0 or _party_afk_seconds <= 0.0:
+		return 0.0
+	var remaining := delay - _party_afk_seconds
+	if remaining <= 0.0 or remaining > window:
+		return 0.0
+	return remaining
+
+
+func _afk_void_warning_progress() -> float:
+	var window := GameConfig.anti_afk_warning_seconds()
+	var remaining := _afk_void_warning_remaining()
+	if window <= 0.0 or remaining <= 0.0:
+		return 0.0
+	return clampf(1.0 - remaining / window, 0.0, 1.0)
+
+
+func _present_afk_void_warning() -> void:
+	if hud == null:
+		return
+	if _death_screen_open or _awaiting_snapshot:
+		_afk_void_warning_shown = false
+		hud.set_hold_message("")
+		return
+	var remaining := _afk_void_warning_remaining()
+	var active := remaining > 0.0
+	var paused := pause_menu != null and pause_menu.is_open()
+	if active:
+		hud.set_hold_message("STATIONARY // GRAY VOID %ds" % maxi(1, ceili(remaining)))
+		if not _afk_void_warning_shown and not paused:
+			_afk_void_warning_shown = true
+			Sound.alert()
+			hud.show_message("STATIONARY // GRAY VOID APPROACHING")
+	else:
+		hud.set_hold_message("")
+		_afk_void_warning_shown = false
 
 
 func _spawn_anti_idle_hunter() -> bool:
@@ -3031,6 +3109,7 @@ func _sync_stream_progress() -> void:
 		_anti_idle_last_relay_count = relay_count
 		_relay_inactivity_seconds = 0.0
 		_party_afk_seconds = 0.0
+		_afk_void_warning_shown = false
 	if relay_count != previous_relays and _remotes != null and _remotes.simulates():
 		# Population pressure changes on the authoritative pickup frame rather
 		# than waiting for the next periodic stream refresh.
@@ -3186,6 +3265,9 @@ func _update_hunter_audio(delta: float, data: Dictionary) -> void:
 		danger = maxf(danger, .48)
 	if _player_in_intact_safe_room(data):
 		danger = 0.0
+	var warning := _afk_void_warning_progress()
+	if warning > 0.0 and (pause_menu == null or not pause_menu.is_open()):
+		danger = maxf(danger, lerpf(0.38, 0.92, warning))
 	Sound.heartbeat(danger)
 	if stepping == null or player.hidden:
 		_hunter_step_elapsed = 0.0

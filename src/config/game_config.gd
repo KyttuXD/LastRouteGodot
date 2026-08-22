@@ -360,6 +360,8 @@ const STREAMED_HUNTER_RELAY_STEP := {
 ## Infinite-route pressure handled by Gray Void. The longer relay timer catches
 ## active parties that avoid the objective; the shorter AFK timer catches a
 ## party which remains stationary. A successful pressure spawn restarts both.
+## ANTI_AFK_WARNING_SECONDS is a readable slice of that same AFK window, not
+## extra delay: HUD/heartbeat telegraph before Gray Void still wakes on time.
 const ANTI_IDLE_HUNTER_SECONDS := {
 	"relaxed": 300.0,
 	"standard": 210.0,
@@ -372,6 +374,7 @@ const ANTI_AFK_HUNTER_SECONDS := {
 	"hard": 75.0,
 	"nightmare": 60.0,
 }
+const ANTI_AFK_WARNING_SECONDS := 8.0
 
 
 ## Haelith — relay pursuer (hunterAbilities.haelith.relayPursuer). Her only
@@ -515,6 +518,10 @@ static func anti_idle_hunter_seconds(id: String) -> float:
 static func anti_afk_hunter_seconds(id: String) -> float:
 	return float(ANTI_AFK_HUNTER_SECONDS.get(id,
 		ANTI_AFK_HUNTER_SECONDS["standard"]))
+
+
+static func anti_afk_warning_seconds() -> float:
+	return ANTI_AFK_WARNING_SECONDS
 
 
 static func safe_zone_limit_for(id: String) -> int:
