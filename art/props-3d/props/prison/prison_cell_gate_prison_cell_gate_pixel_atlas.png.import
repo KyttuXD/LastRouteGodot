@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ko64fu7qv6o7"
-path="res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.ctex"
+path.s3tc="res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.s3tc.ctex"
+path.etc2="res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "18f9716eb970c47113a4575cd7fd42d6"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/prison/prison_cell_gate_prison_cell_gate_pixel_atlas.png"
-dest_files=["res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.ctex"]
+dest_files=["res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.s3tc.ctex", "res://.godot/imported/prison_cell_gate_prison_cell_gate_pixel_atlas.png-99f731c2ab6b1f436cd9762030bb5004.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

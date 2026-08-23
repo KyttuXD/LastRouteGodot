@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cya4x6mkhjmcb"
-path="res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.ctex"
+path.s3tc="res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.s3tc.ctex"
+path.etc2="res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "b06cae4a3032ef5b406966b3f4d3baef"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png"
-dest_files=["res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.ctex"]
+dest_files=["res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.s3tc.ctex", "res://.godot/imported/floor_lamp_teal_floor_lamp_teal_pixel_atlas.png-4c7f2061da310bded628d0cc2ca56646.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

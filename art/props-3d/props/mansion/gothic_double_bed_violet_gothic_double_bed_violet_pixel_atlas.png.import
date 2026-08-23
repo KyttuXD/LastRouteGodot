@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ccxnbnw0uo66b"
-path="res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.ctex"
+path.s3tc="res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.s3tc.ctex"
+path.etc2="res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5270adf8d8acff31212fed3cc277857b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png"
-dest_files=["res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.ctex"]
+dest_files=["res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.s3tc.ctex", "res://.godot/imported/gothic_double_bed_violet_gothic_double_bed_violet_pixel_atlas.png-a9db6245c9fe3492dfc126b9864d603d.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

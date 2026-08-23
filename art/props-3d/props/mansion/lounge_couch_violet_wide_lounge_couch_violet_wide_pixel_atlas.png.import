@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dnqlau3vluu00"
-path="res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.ctex"
+path.s3tc="res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.s3tc.ctex"
+path.etc2="res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e27497e827c127cb49955ee9440de52b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png"
-dest_files=["res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.ctex"]
+dest_files=["res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.s3tc.ctex", "res://.godot/imported/lounge_couch_violet_wide_lounge_couch_violet_wide_pixel_atlas.png-f3c02362ea5a2622c114727f6637d8ba.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

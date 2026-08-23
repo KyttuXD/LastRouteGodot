@@ -731,7 +731,8 @@ func _on_update_pressed() -> void:
 	if UpdateManager.should_open_progress_screen() or (
 			UpdateManager.uses_in_progress_screen()
 			and (Build.requires_update_gate() or UpdateManager.update_required)
-			and (UpdateManager.downloading or UpdateManager.ready_to_install
+			and (UpdateManager.downloading or UpdateManager.preparing
+				or UpdateManager.ready_to_install
 				or not UpdateManager.available.is_empty())):
 		if _open_update_progress_if_needed():
 			return
@@ -742,7 +743,8 @@ func _on_update_pressed() -> void:
 	elif UpdateManager.ready_to_install:
 		update_button.disabled = true
 		UpdateManager.install_update()
-	elif not UpdateManager.downloading and not UpdateManager.installing:
+	elif not UpdateManager.downloading and not UpdateManager.preparing \
+			and not UpdateManager.installing:
 		update_button.disabled = true
 		UpdateManager.download_update(true)
 	else:
@@ -753,16 +755,17 @@ func _on_update_status(message: String) -> void:
 	if _open_update_progress_if_needed():
 		return
 	if _routes_update_locked and (UpdateManager.downloading \
-			or UpdateManager.installing or not UpdateManager.available.is_empty()):
+			or UpdateManager.preparing or UpdateManager.installing \
+			or not UpdateManager.available.is_empty()):
 		_set_route_update_locked("UPDATING")
 	if Build.requires_update_gate() or not UpdateManager.available.is_empty():
 		update_button.visible = true
 		update_button.text = message
-		update_button.disabled = UpdateManager.downloading or UpdateManager.installing \
+		update_button.disabled = UpdateManager.downloading or UpdateManager.preparing \
+			or UpdateManager.installing \
 			or message.contains("VERIFYING") or message.contains("UNPACKING") \
 			or message.contains("RESTARTING")
-		if message.contains("FAILED") or message.contains("RETRY") \
-				or message.contains("READ-ONLY") or UpdateManager.ready_to_install:
+		if UpdateManager.is_failure_status(message) or UpdateManager.ready_to_install:
 			update_button.disabled = false
 
 

@@ -27,7 +27,7 @@ var _darkness_elapsed := 0.0
 var _empty_elapsed := 0.0
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	var lamp_charge: float = target.get("lamp_charge", 100.0)
 	var flashlight_on: bool = target.get("flashlight_on", false)
 	var lamp_lit := flashlight_on and lamp_charge > 0.0
@@ -83,7 +83,7 @@ func capture_is_inescapable() -> bool:
 
 
 ## A live beam aimed at her, within range, breaks a timer wake.
-func _dispelled_by_beam(brain: HunterBrain, target: Dictionary, generator: FacilityGenerator) -> bool:
+func _dispelled_by_beam(brain: HunterBrain, target: Dictionary, generator) -> bool:
 	if not target.get("flashlight_on", false) or float(target.get("lamp_charge", 0.0)) <= 0.0:
 		return false
 	var facing: Vector2 = target.get("facing", Vector2.ZERO)
@@ -95,7 +95,7 @@ func _dispelled_by_beam(brain: HunterBrain, target: Dictionary, generator: Facil
 
 ## Mirrors pickSummonSpawn: a reachable spot roughly spawnDistance away, so she
 ## arrives from somewhere rather than appearing in your face.
-func _spawn_position(target_position: Vector2, generator: FacilityGenerator) -> Vector2:
+func _spawn_position(target_position: Vector2, generator) -> Vector2:
 	var best := target_position
 	var best_error := INF
 	for cell in generator.floor_cells():

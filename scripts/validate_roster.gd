@@ -171,6 +171,8 @@ func _everyone_actually_renders() -> void:
 	var broken: Array[String] = []
 	var empty: Array[String] = []
 	var broken_void_runtime_atlases: Array[String] = []
+	var mip_broken: Array[String] = []
+	var fade_broken: Array[String] = []
 	var masked_surfaces := 0
 	for id in HunterRoster.PROFILES:
 		var identity := HunterRoster.get_identity(id)
@@ -199,8 +201,24 @@ func _everyone_actually_renders() -> void:
 							broken_void_runtime_atlases.append(id)
 				if transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
 					masked_surfaces += 1
+					if (material as StandardMaterial3D).texture_filter \
+							!= BaseMaterial3D.TEXTURE_FILTER_NEAREST \
+							and not mip_broken.has(id):
+						mip_broken.append(id)
 				elif transparency != BaseMaterial3D.TRANSPARENCY_DISABLED and not broken.has(id):
 					broken.append(id)
+		# The stealth/crouch fade used to leave MASK materials in place. The
+		# remaining 0.38 alpha then failed the default 0.5 scissor and the
+		# hunter vanished. The helper must lift scissor for the fade and put
+		# authored MASK back when the hunter is fully visible again.
+		if not ModelSlot.fade_survives_alpha_test(model, 0.0) and not fade_broken.has(id):
+			fade_broken.append(id)
+		ModelSlot.set_character_fade(model, .62)
+		if not ModelSlot.fade_survives_alpha_test(model, .62) and not fade_broken.has(id):
+			fade_broken.append(id)
+		ModelSlot.set_character_fade(model, 0.0)
+		if not ModelSlot.fade_survives_alpha_test(model, 0.0) and not fade_broken.has(id):
+			fade_broken.append(id)
 		# These inspection instances were never added to SceneTree. Free them
 		# synchronously: deferring 26 imported scenes until the next suite's
 		# render frame made the dummy renderer inspect already-released material
@@ -209,6 +227,11 @@ func _everyone_actually_renders() -> void:
 	_expect(empty.is_empty(), "no meshes at all for: %s" % ", ".join(empty))
 	_expect(broken.is_empty(),
 		"character meshes have missing/unexpected material modes: %s" % ", ".join(broken))
+	_expect(mip_broken.is_empty(),
+		"alpha-scissor hunters still use mipmaps that discard atlas padding: %s" \
+		% ", ".join(mip_broken))
+	_expect(fade_broken.is_empty(),
+		"hunter fade is still discarded by ALPHA_SCISSOR: %s" % ", ".join(fade_broken))
 	_expect(broken_void_runtime_atlases.is_empty(),
 		"Void runtime materials do not use their packed 64x96 atlas: %s" \
 		% ", ".join(broken_void_runtime_atlases))

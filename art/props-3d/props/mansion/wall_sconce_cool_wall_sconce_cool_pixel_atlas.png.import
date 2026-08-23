@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c7it0685k4spb"
-path="res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.ctex"
+path.s3tc="res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.s3tc.ctex"
+path.etc2="res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "7628a1941ba4b584804d0c8771a3d3dc"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png"
-dest_files=["res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.ctex"]
+dest_files=["res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.s3tc.ctex", "res://.godot/imported/wall_sconce_cool_wall_sconce_cool_pixel_atlas.png-c1989eda98423487b3a6a0adea7af0fa.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

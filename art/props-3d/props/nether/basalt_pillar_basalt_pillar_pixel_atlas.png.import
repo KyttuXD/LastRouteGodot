@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cltqr87u6gg76"
-path="res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.ctex"
+path.s3tc="res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.s3tc.ctex"
+path.etc2="res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "bc421eca41a9506a7b3a5628913f6de9"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/nether/basalt_pillar_basalt_pillar_pixel_atlas.png"
-dest_files=["res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.ctex"]
+dest_files=["res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.s3tc.ctex", "res://.godot/imported/basalt_pillar_basalt_pillar_pixel_atlas.png-78c08277400bb8e4b48f2ead93ded079.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

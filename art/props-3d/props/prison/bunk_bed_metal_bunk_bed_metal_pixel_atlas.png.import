@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ccil36a27i8nu"
-path="res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.ctex"
+path.s3tc="res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.s3tc.ctex"
+path.etc2="res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "b4322aa81d2123d95ad155a96e78568a"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/prison/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png"
-dest_files=["res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.ctex"]
+dest_files=["res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.s3tc.ctex", "res://.godot/imported/bunk_bed_metal_bunk_bed_metal_pixel_atlas.png-554ffc79c20b52d54cc8523fa69f50ca.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -20,6 +20,7 @@ var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
 ## deterministic default and therefore does not need an entry until changed.
 var room_doors := {}
+var disabled_hiding := {}
 ## Monotonic local-only revision for data copied into hunter navigation.
 ## Hunter transforms deliberately do not touch it: only pickup/relay mutations
 ## can change the navigation-facing fixture lists. This lets the five-floor
@@ -72,6 +73,23 @@ func claim_pickup(entity_id: String) -> bool:
 
 func pickup_available(entity_id: String) -> bool:
 	return not entity_id.is_empty() and not claimed_pickups.has(entity_id)
+
+
+func set_hiding_disabled(entity_id: String, disabled: bool) -> bool:
+	if entity_id.is_empty():
+		return false
+	if disabled:
+		disabled_hiding[entity_id] = true
+		claimed_pickups[entity_id] = true
+	else:
+		disabled_hiding.erase(entity_id)
+		claimed_pickups.erase(entity_id)
+	navigation_revision += 1
+	return true
+
+
+func hiding_disabled(entity_id: String) -> bool:
+	return disabled_hiding.has(entity_id)
 
 
 func set_relay_sabotaged(entity_id: String, sabotaged: bool) -> bool:
@@ -274,6 +292,7 @@ func snapshot() -> Dictionary:
 		"dropped_items": dropped_items.duplicate(true),
 		"next_drop_sequence": next_drop_sequence,
 		"sabotaged_relays": sabotaged_relays.duplicate(true),
+		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
 	}
 
@@ -288,11 +307,12 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	var removed_hunter_data = snapshot_data.get("removed_hunters", {})
 	var drops = snapshot_data.get("dropped_items", {})
 	var sabotage = snapshot_data.get("sabotaged_relays", {})
+	var hiding = snapshot_data.get("disabled_hiding", {})
 	var doors = snapshot_data.get("room_doors", {})
 	if not pickups is Dictionary or not rooms is Dictionary \
 			or not hunter_data is Dictionary or not removed_hunter_data is Dictionary \
 			or not drops is Dictionary \
-			or not sabotage is Dictionary or not doors is Dictionary:
+			or not sabotage is Dictionary or not hiding is Dictionary or not doors is Dictionary:
 		return false
 	active_checkpoint = String(snapshot_data.get("active_checkpoint", ""))
 	claimed_pickups = (pickups as Dictionary).duplicate(true)
@@ -302,6 +322,7 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	dropped_items = (drops as Dictionary).duplicate(true)
 	next_drop_sequence = maxi(1, int(snapshot_data.get("next_drop_sequence", 1)))
 	sabotaged_relays = (sabotage as Dictionary).duplicate(true)
+	disabled_hiding = (hiding as Dictionary).duplicate(true)
 	room_doors = (doors as Dictionary).duplicate(true)
 	navigation_revision += 1
 	return true

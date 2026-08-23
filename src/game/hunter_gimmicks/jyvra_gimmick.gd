@@ -24,7 +24,7 @@ var ejecting := false
 var _held := 0.0
 
 
-func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	ejecting = false
 	if not bool(target.get("hidden", false)):
 		_held = 0.0

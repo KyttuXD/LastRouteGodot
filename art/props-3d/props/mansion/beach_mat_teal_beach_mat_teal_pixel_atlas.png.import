@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b8njk6oyb75aa"
-path="res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.ctex"
+path.s3tc="res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.s3tc.ctex"
+path.etc2="res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "a7e6977ad21ea4b2ac08b4f42c47eb4f"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/beach_mat_teal_beach_mat_teal_pixel_atlas.png"
-dest_files=["res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.ctex"]
+dest_files=["res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.s3tc.ctex", "res://.godot/imported/beach_mat_teal_beach_mat_teal_pixel_atlas.png-f288bb08dde8f6b52761ea48ae865a84.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

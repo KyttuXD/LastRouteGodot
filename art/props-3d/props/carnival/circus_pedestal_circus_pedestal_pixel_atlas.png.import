@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://3c17q8ie5175"
-path="res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.ctex"
+path.s3tc="res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.s3tc.ctex"
+path.etc2="res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "6e3ae265bf8bd60e1652a9a970250030"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/carnival/circus_pedestal_circus_pedestal_pixel_atlas.png"
-dest_files=["res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.ctex"]
+dest_files=["res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.s3tc.ctex", "res://.godot/imported/circus_pedestal_circus_pedestal_pixel_atlas.png-ed41e4506df63c4c228fc4eee29a6363.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

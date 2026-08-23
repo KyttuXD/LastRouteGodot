@@ -24,7 +24,7 @@ var stalker_origin := Vector2.ZERO
 var _has_origin := false
 
 
-func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator) -> void:
 	if not _has_origin:
 		stalker_origin = _pick_origin(brain, generator)
 		_has_origin = true
@@ -58,8 +58,9 @@ func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, gen
 	brain.lost_sight_timer = 0.0
 
 
-static func _pick_origin(brain: HunterBrain, generator: FacilityGenerator) -> Vector2:
-	var start_room := generator.room_at(generator.start.x + 0.5, generator.start.y + 0.5)
+static func _pick_origin(brain: HunterBrain, generator) -> Vector2:
+	var start_room: Dictionary = generator.room_at(
+		generator.start.x + 0.5, generator.start.y + 0.5)
 	var start_id := String(start_room.get("id", ""))
 	var candidates: Array = []
 	for room in generator.rooms:
@@ -68,6 +69,6 @@ static func _pick_origin(brain: HunterBrain, generator: FacilityGenerator) -> Ve
 	if candidates.is_empty():
 		return brain.position
 	var room: Dictionary = candidates[brain.next_random_index(candidates.size())]
-	var open := generator.nearest_open_position(
+	var open: Dictionary = generator.nearest_open_position(
 		room["x"] + room["width"] / 2.0, room["y"] + room["height"] / 2.0, brain.radius)
 	return Vector2(open["x"], open["y"]) if not open.is_empty() else brain.position

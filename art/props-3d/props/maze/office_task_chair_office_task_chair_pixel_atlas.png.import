@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bngg06p4tiwt"
-path="res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.ctex"
+path.s3tc="res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.s3tc.ctex"
+path.etc2="res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "beb6b62fed44fa688d944a3f1cfae48b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/office_task_chair_office_task_chair_pixel_atlas.png"
-dest_files=["res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.ctex"]
+dest_files=["res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.s3tc.ctex", "res://.godot/imported/office_task_chair_office_task_chair_pixel_atlas.png-e2d9d8853e02a0faa1e8ae3103343d38.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

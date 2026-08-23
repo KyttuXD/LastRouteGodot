@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://efsc5g3b8co1"
-path="res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.ctex"
+path.s3tc="res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.s3tc.ctex"
+path.etc2="res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5270adf8d8acff31212fed3cc277857b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png"
-dest_files=["res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.ctex"]
+dest_files=["res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.s3tc.ctex", "res://.godot/imported/gothic_vanity_stool_violet_gothic_vanity_stool_violet_pixel_atlas.png-efe017bad05a56893601a76c3c3a5683.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

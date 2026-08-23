@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dvtoaqyfjq0fv"
-path="res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.ctex"
+path.s3tc="res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.s3tc.ctex"
+path.etc2="res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "ae9aa7ca03185174281d04bd73e7d720"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png"
-dest_files=["res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.ctex"]
+dest_files=["res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.s3tc.ctex", "res://.godot/imported/arcade_cabinet_burgundy_arcade_cabinet_burgundy_pixel_atlas.png-d5c2fe11ebb3df6e3947e6ea14e123c3.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

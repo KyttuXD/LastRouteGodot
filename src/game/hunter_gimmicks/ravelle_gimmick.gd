@@ -24,7 +24,7 @@ var _refresh_timer := 0.0
 var _window_triggered := false
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	_refresh_timer -= delta
 	if not _has_wires or _refresh_timer <= 0.0:
 		if not _has_wires or not _window_triggered:
@@ -55,7 +55,7 @@ func speed_scale(_brain: HunterBrain) -> float:
 	return 1.0 + triggered_count * GameConfig.RAVELLE_SPEED_PER_TRIGGER
 
 
-func _place_wires(brain: HunterBrain, generator: FacilityGenerator) -> void:
+func _place_wires(brain: HunterBrain, generator) -> void:
 	var candidates := _doorway_cells(generator)
 	_wires.clear()
 	while not candidates.is_empty() and _wires.size() < GameConfig.RAVELLE_TRIPWIRE_COUNT:
@@ -73,15 +73,15 @@ func _place_wires(brain: HunterBrain, generator: FacilityGenerator) -> void:
 ## A doorway-shaped cell: open along one axis with at least one side of the
 ## other axis blocked — a pinch point rather than open floor. Direct port of
 ## ravelle.js's doorwayCandidates().
-static func _doorway_cells(generator: FacilityGenerator) -> Array:
+static func _doorway_cells(generator) -> Array:
 	var cells: Array = []
 	for cell in generator.floor_cells():
-		var open_left := generator.is_floor(cell.x - 1 + 0.5, cell.y + 0.5)
-		var open_right := generator.is_floor(cell.x + 1 + 0.5, cell.y + 0.5)
-		var open_up := generator.is_floor(cell.x + 0.5, cell.y - 1 + 0.5)
-		var open_down := generator.is_floor(cell.x + 0.5, cell.y + 1 + 0.5)
-		var horizontal := open_left and open_right and (not open_up or not open_down)
-		var vertical := open_up and open_down and (not open_left or not open_right)
+		var open_left: bool = generator.is_floor(cell.x - 1 + 0.5, cell.y + 0.5)
+		var open_right: bool = generator.is_floor(cell.x + 1 + 0.5, cell.y + 0.5)
+		var open_up: bool = generator.is_floor(cell.x + 0.5, cell.y - 1 + 0.5)
+		var open_down: bool = generator.is_floor(cell.x + 0.5, cell.y + 1 + 0.5)
+		var horizontal: bool = open_left and open_right and (not open_up or not open_down)
+		var vertical: bool = open_up and open_down and (not open_left or not open_right)
 		if horizontal or vertical:
 			cells.append(cell)
 	return cells

@@ -184,8 +184,9 @@ once.
   log text.
 - [x] Add room chat on T or `/`, and categorized settings controls that can
   preserve multiple keyboard/mouse bindings per action.
-- [x] Bound the level-zero arrival area to a finite 3x3 chunk floor while every
-  upper/lower level remains horizontally unbounded.
+- [x] Treat level zero as a normal unbounded Infinite floor on the map and
+  stream, matching every upper/lower level. Origin stairs still guarantee
+  routes up and down.
 - [x] Port streamed equivalents for objective guardians, deterministic vent
   networks, coins, and relay sabotage/resecuring. Objective-driven hunters now
   read the streamed navigation adapter instead of being excluded from Infinite.

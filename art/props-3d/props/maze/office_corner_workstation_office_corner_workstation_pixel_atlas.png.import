@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://drbgt4n3wgdjb"
-path="res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.ctex"
+path.s3tc="res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.s3tc.ctex"
+path.etc2="res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "a6ce14c1ccdf80190b7fbafb85770059"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/office_corner_workstation_office_corner_workstation_pixel_atlas.png"
-dest_files=["res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.ctex"]
+dest_files=["res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.s3tc.ctex", "res://.godot/imported/office_corner_workstation_office_corner_workstation_pixel_atlas.png-b50df56d4c9925ddd484120e1d73e015.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

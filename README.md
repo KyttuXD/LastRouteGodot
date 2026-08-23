@@ -93,7 +93,7 @@ or **/** opens room chat. Settings groups bindings by category and lets one
 action keep multiple keyboard or mouse bindings.
 **M** opens the discovered map and **Escape** pauses (Last Route taps it; Office
 Mode holds it for three seconds). The mouse looks and is captured while you
-play. **F1** hides/restores the in-run gameplay HUD, while **F11** toggles
+play; **IJKL** or the arrow keys also look if capture is off. **F1** hides/restores the in-run gameplay HUD, while **F11** toggles
 fullscreen anywhere. In a debug build only, **0** opens
 the admin overlay.
 

@@ -28,7 +28,7 @@ var _death_timer := 0.0
 var _froze_player := false
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	# The original makes temperature summons non-lethal on Relaxed. Keep her
 	# present for deterministic roster/snapshot shape, but permanently dormant.
 	if brain.difficulty_id == "relaxed":

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dwj86ftnsg0cs"
-path="res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.ctex"
+path.s3tc="res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.s3tc.ctex"
+path.etc2="res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "f403fbe431b0ba8905f91ba36c28dd67"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png"
-dest_files=["res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.ctex"]
+dest_files=["res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.s3tc.ctex", "res://.godot/imported/apartment_carpet_olive_apartment_carpet_olive_pixel_atlas.png-af014a774d11986190484367aafa8df9.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

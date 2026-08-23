@@ -269,7 +269,9 @@ func _apply_visibility() -> void:
 	_model.visible = not inactive and not retired
 	# These values leave 38% / 28% of the authored model visible. The earlier
 	# 28% / 16% silhouettes could still read as fully absent in the deliberately
-	# near-black unlit environment, especially on dark Void skins.
+	# near-black unlit environment, especially on dark Void skins. The fade
+	# helper also lifts ALPHA_SCISSOR while ghosted -- otherwise the remaining
+	# alpha falls under the default 0.5 MASK cutoff and the silhouette is gone.
 	var fade := .62 if porcelle_ghost else (.72 if gimmick_hidden else 0.0)
 	ModelSlot.set_character_fade(_model, fade)
 	if _kathy_beam != null:

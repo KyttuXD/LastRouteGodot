@@ -11,10 +11,9 @@ extends RefCounted
 ## for the familiar central lobby, bounded rooms and three-wide halls instead
 ## of stretching a tiny maze cell pattern into an open parking structure.
 const CHUNK_SIZE := 45
-## Level zero is a compact, finite 3x3 arrival floor. Each piece retains the
-## finite route's room-and-corridor grammar; stairs lead into the genuinely
-## unbounded upper and lower levels.
-const ARRIVAL_FLOOR_RADIUS := 1
+## Level zero is the spawn floor. It uses the same horizontally unbounded
+## stream as every other Infinite level; origin stairs still guarantee routes
+## both upward and downward.
 const BIOME_REGION_SIZE := 4
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
@@ -551,13 +550,22 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	else:
 		var boundary_z := coord.z + (1 if direction.y > 0 else 0)
 		key = "Z:%d:%d:%d" % [coord.x, coord.y, boundary_z]
+	# Use seeded randomness but prefer grouped openings: pick one primary
+	# offset then choose nearby secondary offsets with a bias toward
+	# clustering so adjacent openings on the same side land close together
+	# and regions read as contiguous areas rather than sparsely scattered
+	# single-cell seams (fixes carnival-like sparse placement).
 	var rng := SeededRandom.new("%s:SEAM:%s" % [world_seed, key])
-	var first: int = EDGE_OFFSETS[rng.next_index(EDGE_OFFSETS.size())]
+	var first_index := rng.next_index(EDGE_OFFSETS.size())
+	var first: int = EDGE_OFFSETS[first_index]
 	var result := [first]
-	# Occasional double connections create loops across chunks while the
-	# canonical boundary key guarantees both neighbours make the same choice.
-	if rng.next_float() < 0.22:
-		var second: int = EDGE_OFFSETS[rng.next_index(EDGE_OFFSETS.size())]
+	# With modest probability add a second opening close to the first;
+	# choose one of the neighbouring entries in EDGE_OFFSETS rather than a
+	# random distant one.
+	if rng.next_float() < 0.36:
+		var dir := -1 if rng.next_float() < 0.5 else 1
+		var second_index := clampi(first_index + dir, 0, EDGE_OFFSETS.size() - 1)
+		var second: int = EDGE_OFFSETS[second_index]
 		if second != first:
 			result.append(second)
 	result.sort()
@@ -631,8 +639,11 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	return coord.y != 0 or (absi(coord.x) <= ARRIVAL_FLOOR_RADIUS \
-		and absi(coord.z) <= ARRIVAL_FLOOR_RADIUS)
+	# Level 0 is the compact arrival floor (finite 3x3). All other levels are
+	# horizontally unbounded for the infinite route.
+	if coord.y == 0:
+		return abs(coord.x) <= 1 and abs(coord.z) <= 1
+	return true
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:

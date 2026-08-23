@@ -11,8 +11,8 @@ fallback; it is not the direction of new map work.
   seams, and paired vertical stair links. Their room-and-three-cell-corridor
   fabric follows the finite maze language; perimeter rooms own outward seams,
   avoiding centre-to-centre cuts that turn into extremely long garage lanes.
-  Level zero is a sealed finite 3×3 chunk arrival floor with guaranteed routes
-  both upward and downward; every other level remains horizontally unbounded.
+  Level zero is the spawn floor and stays horizontally unbounded like every
+  other Infinite level, with guaranteed origin routes both upward and downward.
 - The renderer keeps a collidable 3×3 horizontal window plus the current
   chunks immediately above and below. Old geometry, pickup nodes, hunter
   views, navigation caches, and generator cache entries are bounded as the

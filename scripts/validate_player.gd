@@ -110,6 +110,7 @@ func _expect_xr(route: Node) -> void:
 			_fail("the taser fire animation never presents the first-person item")
 	_expect_player_camera_and_crouch(controller)
 	_expect_controller_bindings()
+	_expect_keyboard_look(controller)
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:
@@ -437,6 +438,127 @@ func _expect_controller_bindings() -> void:
 		_fail("keyboard rebinding erased the controller binding")
 	InputMap.erase_action(action)
 	print("  gamepad   twin-stick look/move, face controls, shoulders, trigger and D-pad")
+
+
+func _action_has_physical_key(action: String, keycode: Key) -> bool:
+	if not InputMap.has_action(action):
+		return false
+	for event in InputMap.action_get_events(action):
+		if event is InputEventKey:
+			var key := event as InputEventKey
+			if key.physical_keycode == keycode or key.keycode == keycode:
+				return true
+	return false
+
+
+func _expect_keyboard_look(controller: PlayerController3D) -> void:
+	var wanted_keys := {
+		"look_left": [KEY_J, KEY_LEFT],
+		"look_right": [KEY_L, KEY_RIGHT],
+		"look_up": [KEY_I, KEY_UP],
+		"look_down": [KEY_K, KEY_DOWN],
+	}
+	for action in wanted_keys:
+		if not InputMap.has_action(action) \
+				or not Settings.REBINDABLE_ACTIONS.has(action):
+			_fail("keyboard look action '%s' is missing from the input map or Settings rebinding" % action)
+			continue
+		for keycode in wanted_keys[action]:
+			if not _action_has_physical_key(action, keycode):
+				_fail("look action '%s' is missing its default key" % action)
+	if not _action_has_physical_key("move_left", KEY_A) \
+			or not _action_has_physical_key("move_right", KEY_D) \
+			or not _action_has_physical_key("move_up", KEY_W) \
+			or not _action_has_physical_key("move_down", KEY_S):
+		_fail("WASD walk bindings were removed while adding keyboard look")
+	if _action_has_physical_key("move_left", KEY_J) \
+			or _action_has_physical_key("move_right", KEY_L) \
+			or _action_has_physical_key("move_up", KEY_I) \
+			or _action_has_physical_key("move_down", KEY_K):
+		_fail("keyboard look stole WASD walk")
+	if not InputMap.has_action("ui_left") \
+			or not _action_has_physical_key("ui_left", KEY_LEFT) \
+			or not _action_has_physical_key("ui_right", KEY_RIGHT) \
+			or not _action_has_physical_key("ui_up", KEY_UP) \
+			or not _action_has_physical_key("ui_down", KEY_DOWN):
+		_fail("arrow keys no longer navigate menus through ui_left/ui_right")
+
+	controller.input_frozen = false
+	controller.look_frozen = false
+	controller.xr_active = false
+	controller._yaw = 0.0
+	controller._pitch = 0.0
+	controller._apply_look_rotation()
+	for action in ["look_left", "look_right", "look_up", "look_down",
+			"move_left", "move_right", "move_up", "move_down"]:
+		Input.action_release(action)
+
+	var start_yaw := controller._yaw
+	Input.action_press("look_right")
+	if not controller.is_look_input_active():
+		_fail("held look keys do not count as look activity")
+	controller._physics_process(.25)
+	Input.action_release("look_right")
+	if controller._yaw >= start_yaw - 0.01:
+		_fail("holding look_right did not yaw first-person look")
+	if absf(controller.velocity.x) > .01 or absf(controller.velocity.z) > .01:
+		_fail("keyboard look translated the player instead of only turning")
+
+	var start_pitch := controller._pitch
+	Input.action_press("look_up")
+	controller._physics_process(.25)
+	Input.action_release("look_up")
+	if controller._pitch <= start_pitch + 0.01:
+		_fail("holding look_up did not pitch first-person look")
+
+	var facing_before_walk := controller.facing
+	Input.action_press("move_up")
+	controller._physics_process(.1)
+	Input.action_release("move_up")
+	var walk_speed := Vector2(controller.velocity.x, controller.velocity.z).length()
+	if walk_speed <= .01:
+		_fail("WASD walk did not move after keyboard look was added")
+	if facing_before_walk.dot(controller.facing) < .98:
+		_fail("WASD walk rotated look instead of walking")
+
+	MouseLock.release_all()
+	MouseLock.set_gameplay_capture(false)
+	var uncaptured_yaw := controller._yaw
+	var stray := InputEventMouseMotion.new()
+	stray.relative = Vector2(80, 0)
+	controller._unhandled_input(stray)
+	if not is_equal_approx(controller._yaw, uncaptured_yaw):
+		_fail("uncaptured mouse motion still aimed the camera")
+	Input.action_press("look_left")
+	controller._physics_process(.25)
+	Input.action_release("look_left")
+	# look_left is negative stick X, which increases yaw.
+	if controller._yaw <= uncaptured_yaw + 0.01:
+		_fail("keyboard look cannot turn when mouse capture is off")
+
+	MouseLock.set_gameplay_capture(true)
+	var captured_yaw := controller._yaw
+	var captured := InputEventMouseMotion.new()
+	captured.relative = Vector2(40, 0)
+	controller._unhandled_input(captured)
+	if controller._yaw >= captured_yaw:
+		_fail("captured mouse look no longer yaws the camera")
+
+	controller.input_frozen = true
+	var frozen_yaw := controller._yaw
+	Input.action_press("look_right")
+	controller._physics_process(.25)
+	Input.action_release("look_right")
+	if not is_equal_approx(controller._yaw, frozen_yaw):
+		_fail("keyboard look still turns while pause/menu input is frozen")
+	if controller.is_look_input_active():
+		_fail("frozen look input still counts as AFK activity")
+	controller.input_frozen = false
+	Input.action_release("look_left")
+	Input.action_release("look_right")
+	Input.action_release("look_up")
+	Input.action_release("look_down")
+	print("  look      IJKL/arrows turn; WASD still walks; capture-off stays playable")
 
 
 func _expect_hard_landing_stun(route: Node, host: Node) -> void:

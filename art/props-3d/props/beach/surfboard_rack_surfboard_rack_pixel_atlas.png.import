@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://do6sf4wqi8qrd"
-path="res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.ctex"
+path.s3tc="res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.s3tc.ctex"
+path.etc2="res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "ccc875ee171ff722c070592d590f0fea"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/beach/surfboard_rack_surfboard_rack_pixel_atlas.png"
-dest_files=["res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.ctex"]
+dest_files=["res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.s3tc.ctex", "res://.godot/imported/surfboard_rack_surfboard_rack_pixel_atlas.png-06348a6062267daf310e5c3f118f7666.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

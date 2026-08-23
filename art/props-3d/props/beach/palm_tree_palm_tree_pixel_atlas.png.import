@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ix2lt4odleh0"
-path="res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.ctex"
+path.s3tc="res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.s3tc.ctex"
+path.etc2="res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "fb5b43050f502c7e7a3417a0d2538ff2"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/beach/palm_tree_palm_tree_pixel_atlas.png"
-dest_files=["res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.ctex"]
+dest_files=["res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.s3tc.ctex", "res://.godot/imported/palm_tree_palm_tree_pixel_atlas.png-e1b63b8bc4a487969be4f3a83a7f1c64.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

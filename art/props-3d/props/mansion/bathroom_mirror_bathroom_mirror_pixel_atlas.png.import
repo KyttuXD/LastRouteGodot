@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bjgdiovv6x8y"
-path="res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.ctex"
+path.s3tc="res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.s3tc.ctex"
+path.etc2="res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "673ac9e787f91f50994d0717bad702e0"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/bathroom_mirror_bathroom_mirror_pixel_atlas.png"
-dest_files=["res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.ctex"]
+dest_files=["res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.s3tc.ctex", "res://.godot/imported/bathroom_mirror_bathroom_mirror_pixel_atlas.png-c99bdf30827d290bd204fdce97561601.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

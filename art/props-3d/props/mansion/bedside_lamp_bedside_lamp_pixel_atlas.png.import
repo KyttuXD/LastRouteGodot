@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b8j3d2hmhdlpa"
-path="res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.ctex"
+path.s3tc="res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.s3tc.ctex"
+path.etc2="res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "97ae5086b5064515092cd8509e446cdb"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/bedside_lamp_bedside_lamp_pixel_atlas.png"
-dest_files=["res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.ctex"]
+dest_files=["res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.s3tc.ctex", "res://.godot/imported/bedside_lamp_bedside_lamp_pixel_atlas.png-cc7923511e1190711343f4ec1549c988.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -170,6 +170,27 @@ func _ready() -> void:
 	if _visual:
 		add_child(_visual)
 		_cache_interaction_focus()
+	# Add a collision body for tall authored interactables that should block
+	# player movement (lockers, lifts). The authored models are hollow, so the
+	# simplest correct collider is the visual's combined AABB.
+	if kind == Kind.HIDING_SPOT and _visual != null:
+		var boxes: Array[AABB] = []
+		_collect_mesh_bounds(_visual, boxes)
+		if not boxes.is_empty():
+			var combined := boxes[0]
+			for i in range(1, boxes.size()):
+				combined = combined.merge(boxes[i])
+			# Build a StaticBody3D with a Box collision matching the visual bounds.
+			var body := StaticBody3D.new()
+			body.name = "HidingSpotBarrier"
+			var shape := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = combined.size
+			shape.shape = box
+			# Position the collision at the visual's local AABB centre.
+			shape.position = combined.get_center()
+			body.add_child(shape)
+			add_child(body)
 	if kind == Kind.BOARDED_PATH:
 		_add_blocking_box(Vector3(.96, 2.05, .12), Vector3(0, 1.025, 0))
 		_cache_board_pieces()

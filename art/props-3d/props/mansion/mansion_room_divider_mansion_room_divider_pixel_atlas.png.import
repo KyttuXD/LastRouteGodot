@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cuk0opy0vp6yk"
-path="res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.ctex"
+path.s3tc="res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.s3tc.ctex"
+path.etc2="res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "c19ec9b8bb117c1d6dbf12758365fade"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/mansion_room_divider_mansion_room_divider_pixel_atlas.png"
-dest_files=["res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.ctex"]
+dest_files=["res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.s3tc.ctex", "res://.godot/imported/mansion_room_divider_mansion_room_divider_pixel_atlas.png-0ec9f9500366965606882390dce004b6.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

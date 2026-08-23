@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dehw6dfhnjj5x"
-path="res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.ctex"
+path.s3tc="res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.s3tc.ctex"
+path.etc2="res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "a1fde5ce11ca1b088ae54b9cc38cba7c"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/interactables/hiding_spot_locker_pixel_atlas.png"
-dest_files=["res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.ctex"]
+dest_files=["res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.s3tc.ctex", "res://.godot/imported/hiding_spot_locker_pixel_atlas.png-2c03e96803084cda38bdb01f2c03310b.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

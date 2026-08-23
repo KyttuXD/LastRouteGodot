@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://7seffjwkl6bc"
-path="res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.ctex"
+path.s3tc="res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.s3tc.ctex"
+path.etc2="res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5a6a184ba65a7f0dc5b0a110b0e40042"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png"
-dest_files=["res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.ctex"]
+dest_files=["res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.s3tc.ctex", "res://.godot/imported/dining_chandelier_gothic_dining_chandelier_gothic_pixel_atlas.png-60af89851faa1df1f42798f12929dad9.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

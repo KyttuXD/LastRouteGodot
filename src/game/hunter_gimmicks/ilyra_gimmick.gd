@@ -85,11 +85,15 @@ func _respawn_corner(brain: HunterBrain, generator) -> void:
 	if generator.rooms.is_empty():
 		return
 	var room: Dictionary = generator.rooms[brain.next_random_index(generator.rooms.size())]
+	var room_x: float = float(room.get("x", 0.0))
+	var room_y: float = float(room.get("y", 0.0))
+	var room_width: float = float(room.get("width", 0.0))
+	var room_height: float = float(room.get("height", 0.0))
 	var corners := [
-		Vector2(room["x"] + 1.5, room["y"] + 1.5),
-		Vector2(room["x"] + room["width"] - 1.5, room["y"] + 1.5),
-		Vector2(room["x"] + 1.5, room["y"] + room["height"] - 1.5),
-		Vector2(room["x"] + room["width"] - 1.5, room["y"] + room["height"] - 1.5),
+		Vector2(room_x + 1.5, room_y + 1.5),
+		Vector2(room_x + room_width - 1.5, room_y + 1.5),
+		Vector2(room_x + 1.5, room_y + room_height - 1.5),
+		Vector2(room_x + room_width - 1.5, room_y + room_height - 1.5),
 	]
 	var chosen: Vector2 = corners[brain.next_random_index(corners.size())]
 	var open: Dictionary = generator.nearest_open_position(

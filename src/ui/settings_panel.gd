@@ -10,6 +10,10 @@ const ACTION_LABELS := {
 	"move_right": "MOVE RIGHT",
 	"move_up": "MOVE UP",
 	"move_down": "MOVE DOWN",
+	"look_left": "LOOK LEFT",
+	"look_right": "LOOK RIGHT",
+	"look_up": "LOOK UP",
+	"look_down": "LOOK DOWN",
 	"sprint": "SPRINT",
 	"crouch": "CROUCH",
 	"jump": "JUMP / HOP",
@@ -40,13 +44,14 @@ const KEY_LABEL_COLOR := Palette.AMBER
 const LISTENING_TEXT := "PRESS A KEY..."
 
 ## Bindings grouped the way the web build's Controls screen groups them, in
-## order. A flat alphabetical list of twenty-one actions is a wall of text; the
+## order. A flat alphabetical list of every action is a wall of text; the
 ## same list under four headings is a thing you can scan. OFFICE MODE is last
 ## and named as its own section because those are the SAME physical keys shown
 ## by their office role, which is otherwise baffling to read.
 const SECTIONS := [
 	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
-		"move_right", "sprint", "crouch", "jump"]},
+		"move_right", "look_up", "look_down", "look_left", "look_right",
+		"sprint", "crouch", "jump"]},
 	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser",
 		"tool_use", "inventory", "drop_item", "chat", "toggle_map"]},
 	{"title": "SYSTEM", "actions": ["pause"]},

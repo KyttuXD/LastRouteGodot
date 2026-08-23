@@ -26,7 +26,7 @@ var _timer := GameConfig.MAVRINE_COOLDOWN_DURATION
 var _last_mark_cell := Vector2i(-1, -1)
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	# An armed frame stays live, but a direct chase is never interrupted to
 	# replace it (hunter-gimmicks.js's first branch).
 	if brain.state == HunterBrain.State.CHASE and phase in [Phase.COOLDOWN, Phase.SURVEY]:
@@ -81,10 +81,10 @@ func _enter(next_phase: Phase) -> void:
 			_timer = GameConfig.MAVRINE_PING_DURATION
 
 
-func _place_mark(brain: HunterBrain, generator: FacilityGenerator) -> void:
+func _place_mark(brain: HunterBrain, generator) -> void:
 	var start_position := Vector2(generator.start) + Vector2(0.5, 0.5)
 	var lift_position := Vector2(generator.exit_cell) + Vector2(0.5, 0.5)
-	var blocked := generator.get_safe_zone_blocked_cells()
+	var blocked: Dictionary = generator.get_safe_zone_blocked_cells()
 
 	var candidates: Array = []
 	for cell in generator.floor_cells():
@@ -130,7 +130,7 @@ func _place_mark(brain: HunterBrain, generator: FacilityGenerator) -> void:
 		return
 
 
-static func _floor_neighbor_count(generator: FacilityGenerator, cell: Vector2i) -> int:
+static func _floor_neighbor_count(generator, cell: Vector2i) -> int:
 	var count := 0
 	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		if generator.is_floor(cell.x + offset.x + 0.5, cell.y + offset.y + 0.5):

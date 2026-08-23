@@ -1344,9 +1344,51 @@ func place_hiding_spots(count: int = 6) -> Array:
 
 	# Spread them out. Six lockers clustered in one room is one hiding place
 	# with six doors, not six hiding places.
+	# Increase spacing bias so hiding spots cluster by room and avoid sparse
+	# single-cell scatter across the chunk. Use room-aware grouping by preferring
+	# spots that share the same room_id until exhausted, falling back to the
+	# original spaced scatter algorithm. This reduces carnival-like sparse
+	# placement where individual props sit isolated across the chunk.
 	var spacing := maxf(4.0, float(mini(cols, rows)) / float(maxi(1, count)))
-	# Room candidates exhausted first, corridor cells only to fill what is left.
-	for candidates in [in_room, in_corridor]:
+	# Build room buckets to prefer multiple picks from the same room
+	var room_buckets: Dictionary = {}
+	for c: Vector2i in in_room:
+		var r: String = room_at(c.x, c.y).get("id", "")
+		if not room_buckets.has(r):
+			room_buckets[r] = []
+		room_buckets[r].append(c)
+	# Prefer selecting multiple spots within the same room to create bundled
+	# locker areas. Iterate room buckets first, drawing at most one per room in
+	# a pass to keep distribution fair, then fall back to corridor candidates.
+	var room_keys: Array = room_buckets.keys()
+	room_keys.shuffle()
+	while hiding_spots.size() < count and not room_keys.is_empty():
+		for rk: String in room_keys.duplicate():
+			if hiding_spots.size() >= count:
+				break
+			var bucket: Array = room_buckets.get(rk, [])
+			if bucket.is_empty():
+				room_keys.erase(rk)
+				continue
+			var pick: Vector2i = bucket[rng.next_index(bucket.size())]
+			# enforce spacing from already chosen spots
+			var clear := true
+			for spot in hiding_spots:
+				if Vector2(pick).distance_to(Vector2(spot["x"], spot["y"])) < spacing:
+					clear = false
+					break
+			if not clear:
+				# Remove this candidate to avoid infinite loop; try others in bucket
+				bucket.erase(pick)
+				continue
+			bucket.erase(pick)
+			var room := room_at(pick.x, pick.y)
+			hiding_spots.append({"id": "hide-%d" % hiding_spots.size(),
+				"x": pick.x, "y": pick.y,
+				"room_id": String(room.get("id", ""))})
+
+	# If still short, fall back to corridors using original spacing logic
+	for candidates in [in_corridor]:
 		while hiding_spots.size() < count and not candidates.is_empty():
 			var pick: Vector2i = candidates[rng.next_index(candidates.size())]
 			var clear := true

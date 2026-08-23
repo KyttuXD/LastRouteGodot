@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c7au6i35ooiho"
-path="res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.ctex"
+path.s3tc="res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.s3tc.ctex"
+path.etc2="res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "b58596cfa3d8b8fa03f78d2c9834c861"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png"
-dest_files=["res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.ctex"]
+dest_files=["res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.s3tc.ctex", "res://.godot/imported/bedroom_wardrobe_olive_bedroom_wardrobe_olive_pixel_atlas.png-e3baf5ab13a2e9391860421dc709560f.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

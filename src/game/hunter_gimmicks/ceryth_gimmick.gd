@@ -25,7 +25,7 @@ var eyes_red := true
 var dispersed := false
 
 
-func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
 	if dispersed:
 		return
 	if trap_spot.x < 0:
@@ -34,7 +34,7 @@ func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, ge
 		var spot: Dictionary = generator.hiding_spots[brain.next_random_index(generator.hiding_spots.size())]
 		trap_spot = Vector2i(spot["x"], spot["y"])
 		eyes_red = brain.next_random_index(2) == 0
-		var perch := generator.hiding_exit_position(spot)
+		var perch: Vector2 = generator.hiding_exit_position(spot)
 		brain.position = perch
 
 

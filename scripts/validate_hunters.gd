@@ -442,15 +442,10 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	# use CharacterBody3D physics. A collision node is a visible Node3D in the
 	# scene-tree sense, but it is not rendered in game; assert against the
 	# presentation model itself rather than treating physics as artwork.
-	var drawn := view._model != null and view._model.visible
-	_expect(drawn, "Porcelle has no faint world silhouette")
-	var ghost_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
-	var faded := false
-	for mesh_value in ghost_meshes:
-		if absf((mesh_value as GeometryInstance3D).transparency - .62) < .01:
-			faded = true
-			break
-	_expect(faded, "Porcelle's world silhouette is not translucently ghosted")
+	# Instance transparency alone is not enough: ALPHA_SCISSOR still discards
+	# a 0.62/0.72 fade, which is how Porcelle/Verrine could pass this suite
+	# while rendering as a completely missing hunter.
+	_expect_world_silhouette(view, .62, "Porcelle")
 
 	var marks: Array = scene._map_marks()
 	var found := false
@@ -467,17 +462,38 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	view._shown_id = ""
 	view._apply_model("verrine")
 	await host.get_tree().process_frame
-	var stealth_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
-	var trace_visible := view._model.visible and stealth_meshes.any(
-		func(value: Node) -> bool:
-			return absf((value as GeometryInstance3D).transparency - .72) < .01)
-	_expect(trace_visible,
-		"an active stealth hunter becomes 100% invisible instead of leaving a trace")
+	_expect_world_silhouette(view, .72, "an active stealth hunter")
+	# A locker hide must not erase other hunters. Jyvra standing at the door
+	# is the readable tell; making her (or anyone else) vanish with the player
+	# is the same fully-invisible failure as a broken stealth fade.
+	if not scene.facility_view.generator.hiding_spots.is_empty():
+		var locker_cell := Vector2i(scene.facility_view.generator.hiding_spots[0]["x"],
+			scene.facility_view.generator.hiding_spots[0]["y"])
+		var locker: RouteInteractable3D = scene.facility_view.hiding_spot_at(locker_cell)
+		if locker != null:
+			scene.player.enter_hiding(locker_cell, locker.hiding_inside_position(),
+				scene.player.global_position, locker)
+			view.sync_from_brain()
+			_expect_world_silhouette(view, .72, "a stealth hunter while the runner is hidden")
+			scene.player.force_flashlight_flicker(0.2, 0.02, 0.02)
+			scene.player._update_flashlight_flicker(1.0 / 60.0)
+			view.sync_from_brain()
+			_expect_world_silhouette(view, .72,
+				"a stealth hunter during flashlight flicker")
+			scene.player.leave_hiding(Vector2.ZERO, true)
+	view.brain.hunter_id = "dovelle"
+	view.brain.gimmick = HunterGimmick.for_id("dovelle")
+	view.brain.active = true
+	view._shown_id = ""
+	view._apply_model("dovelle")
+	await host.get_tree().process_frame
+	_expect_fully_visible_hunter(view, "an active non-stealth hunter")
 	view.brain.hunter_id = "void_gray"
 	view.brain.gimmick = HunterGimmick.for_id("void_gray")
 	view._shown_id = ""
 	view._apply_model("void_gray")
 	await host.get_tree().process_frame
+	_expect_fully_visible_hunter(view, "an active Void hunter")
 	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
 		"a Void hunter received A-Z glow-eye attachments")
 	print("  stealth   Porcelle and hidden active hunters retain faint world silhouettes")
@@ -492,16 +508,19 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 ## "chase" -- the shared brain drops her out of chase the moment you hide, so
 ## the ejection never fires and the locker is permanent safety.
 func _hiding_spots_and_jyvra(host: Node) -> void:
-	var generator := FacilityGenerator.new("HIDE-CHECK", RoomState.generator_options())
+	RoomState.seed_text = "HIDE-CHECK"
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
+	var generator := FacilityGenerator.new(GameState.level_seed_text(),
+		RoomState.generator_options())
 	var spots := generator.place_hiding_spots()
 	if spots.size() < 2:
 		_fail("only %d hiding spots placed on a whole floor" % spots.size())
 		return
 	for spot in spots:
-		var cell := Vector2i(spot["x"], spot["y"])
-		_expect(generator.grid[cell.y][cell.x] == 0,
-			"hiding spot %s is inside a wall" % cell)
-		_expect(cell != generator.start and cell != generator.exit_cell,
+		var spot_cell := Vector2i(spot["x"], spot["y"])
+		_expect(generator.grid[spot_cell.y][spot_cell.x] == 0,
+			"hiding spot %s is inside a wall" % spot_cell)
+		_expect(spot_cell != generator.start and spot_cell != generator.exit_cell,
 			"a hiding spot is on the spawn or the lift")
 	print("  hiding    %d spots, all on open cells backed onto a wall" % spots.size())
 
@@ -694,6 +713,8 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 		view.brain.update(STEP, generator, target, 1, 0)
 	var gimmick: CerythGimmick = view.brain.gimmick
 	_expect(gimmick.trap_spot.x >= 0, "Ceryth never staked out a hiding spot")
+	view.sync_from_brain()
+	_expect_fully_visible_hunter(view, "Ceryth posted at a locker")
 	var stood_at := view.brain.position
 	for i in 60:
 		view.brain.update(STEP, generator, target, 1, 0)
@@ -704,7 +725,7 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 	var wrong := gimmick.eyes_red  # red wants the light OFF; on is wrong for red
 	scene.player.flashlight_enabled = wrong
 	scene.player.lamp_charge = 100.0
-	var message: String = scene.player.enter_hiding(gimmick.trap_spot)
+	var _message: String = scene.player.enter_hiding(gimmick.trap_spot)
 	_expect(scene.player.hidden and scene.player.hiding_lock_timer > 0.0,
 		"answering Ceryth's riddle wrong did not lock the player in")
 	_expect(not scene.player.flashlight_enabled,
@@ -715,7 +736,7 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 
 	# Right answer: disperses her, for good.
 	scene.player.flashlight_enabled = not wrong
-	message = scene.player.enter_hiding(gimmick.trap_spot)
+	_message = scene.player.enter_hiding(gimmick.trap_spot)
 	_expect(gimmick.dispersed, "answering Ceryth's riddle right did not disperse her")
 	_expect(scene.player.hiding_lock_timer <= 0.0,
 		"a correct answer still locked the player in")
@@ -1356,3 +1377,35 @@ func _hunter_paths_to_a_distant_target(generator: FacilityGenerator) -> void:
 		"a hunter aimed at a real target %.1f tiles away only closed to %.1f in 30s -- pathing looks stalled"
 			% [start_distance, closest])
 	print("  pathing   a hunter closes real distance to a far target over many frames, not just state")
+
+
+func _expect_world_silhouette(view: HunterView3D, fade_amount: float, label: String) -> void:
+	_expect(view != null and view._model != null and view._model.visible,
+		"%s has no faint world silhouette" % label)
+	if view == null or view._model == null:
+		return
+	var ghost_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var faded := false
+	for mesh_value in ghost_meshes:
+		if absf((mesh_value as GeometryInstance3D).transparency - fade_amount) < .01:
+			faded = true
+			break
+	_expect(faded, "%s's world silhouette is not translucently ghosted" % label)
+	_expect(ModelSlot.fade_survives_alpha_test(view._model, fade_amount),
+		"%s's fade is discarded by ALPHA_SCISSOR instead of remaining a silhouette" % label)
+
+
+func _expect_fully_visible_hunter(view: HunterView3D, label: String) -> void:
+	_expect(view != null and view._model != null and view._model.visible,
+		"%s is not drawn" % label)
+	if view == null or view._model == null:
+		return
+	var meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var unfaded := not meshes.is_empty()
+	for mesh_value in meshes:
+		if (mesh_value as GeometryInstance3D).transparency > .01:
+			unfaded = false
+			break
+	_expect(unfaded, "%s is still faded instead of fully visible" % label)
+	_expect(ModelSlot.fade_survives_alpha_test(view._model, 0.0),
+		"%s's opaque materials cannot survive their own alpha test" % label)

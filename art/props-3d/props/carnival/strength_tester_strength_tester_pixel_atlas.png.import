@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b41mcvvqoydhy"
-path="res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.ctex"
+path.s3tc="res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.s3tc.ctex"
+path.etc2="res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "96a1212ef5a8bb5edf9b383b5b34756a"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/carnival/strength_tester_strength_tester_pixel_atlas.png"
-dest_files=["res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.ctex"]
+dest_files=["res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.s3tc.ctex", "res://.godot/imported/strength_tester_strength_tester_pixel_atlas.png-d1c704b7dcd3915426c0eac1868bf52a.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -520,6 +520,8 @@ func _update_camera_pose(delta: float, moving_on_floor: bool,
 func _update_controller_look(delta: float) -> void:
 	if xr_active or look_frozen or input_frozen:
 		return
+	# Digital IJKL / arrows share these actions with the right stick. WASD stays
+	# on move_* so keyboard look is additive and a run can turn without capture.
 	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
 	if stick.length_squared() <= 0.0001:
 		return
@@ -529,16 +531,32 @@ func _update_controller_look(delta: float) -> void:
 	_yaw -= stick.x * CONTROLLER_LOOK_RADIANS_PER_SECOND * sensitivity_scale * delta
 	_pitch = clampf(_pitch - stick.y * CONTROLLER_LOOK_RADIANS_PER_SECOND \
 		* sensitivity_scale * delta, -1.4, 1.4)
+	_apply_look_rotation()
+
+
+## True while look keys or the right stick are held. Gray Void AFK uses this so
+## turning in place counts as activity the same way mouse look does.
+func is_look_input_active() -> bool:
+	if xr_active or look_frozen or input_frozen:
+		return false
+	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	return stick.length_squared() > 0.0001
+
+
+func _apply_look_rotation() -> void:
 	rotation.y = _yaw
 	first_person_pivot.rotation.x = _pitch
+	facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and not xr_active and not look_frozen:
+	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
+	# desktops. Keyboard look covers that case; mouse look stays capture-only.
+	if event is InputEventMouseMotion and not xr_active and not look_frozen \
+			and MouseLock.is_captured():
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
-		rotation.y = _yaw
-		first_person_pivot.rotation.x = _pitch
+		_apply_look_rotation()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key := (event as InputEventKey).physical_keycode
 		if key >= KEY_1 and key <= KEY_4 and shop_resolver.is_valid():
@@ -569,6 +587,10 @@ func set_admin_noclip(enabled: bool) -> void:
 
 
 func enter_spectator() -> void:
+	# Capture/death spectator for guests: ensure no admin cheats remain active.
+	admin_no_target = false
+	admin_god_mode = false
+	set_admin_noclip(false)
 	spectator_mode = true
 	input_frozen = false
 	look_frozen = false

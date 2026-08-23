@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://jtigj55g7ycy"
-path="res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.ctex"
+path.s3tc="res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.s3tc.ctex"
+path.etc2="res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "921572ce6e810718b56fe6b312760973"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/mascot_statue_mascot_statue_pixel_atlas.png"
-dest_files=["res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.ctex"]
+dest_files=["res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.s3tc.ctex", "res://.godot/imported/mascot_statue_mascot_statue_pixel_atlas.png-e0ffd2004119ac111f25868ee4b420ff.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

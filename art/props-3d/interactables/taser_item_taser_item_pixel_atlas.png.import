@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://caagg50j1jjv4"
-path="res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.ctex"
+path.s3tc="res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.s3tc.ctex"
+path.etc2="res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "2d5f06effc6e50276d5cb4106fe7d9d1"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/interactables/taser_item_taser_item_pixel_atlas.png"
-dest_files=["res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.ctex"]
+dest_files=["res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.s3tc.ctex", "res://.godot/imported/taser_item_taser_item_pixel_atlas.png-4707c39e86467535b7f93330f0af800c.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://e0ylr5ykaxc"
-path="res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.ctex"
+path.s3tc="res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.s3tc.ctex"
+path.etc2="res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "97ae5086b5064515092cd8509e446cdb"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/mansion_console_table_mansion_console_table_pixel_atlas.png"
-dest_files=["res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.ctex"]
+dest_files=["res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.s3tc.ctex", "res://.godot/imported/mansion_console_table_mansion_console_table_pixel_atlas.png-d829a10b9a7326bc20f6d9e688086eac.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

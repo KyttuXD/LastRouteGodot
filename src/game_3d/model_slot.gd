@@ -127,16 +127,20 @@ static func instantiate_prop(scene_path: String) -> Node3D:
 
 static func _enable_stable_texture_filtering(node: Node) -> void:
 	# Imported low-resolution atlases are still deliberately nearest-filtered
-	# close up, but need mipmaps/anisotropy to avoid crawling striped moire on
-	# props and characters as the first-person camera moves.
+	# close up. Opaque surfaces keep mipmaps/anisotropy to avoid crawling
+	# striped moire. Alpha-scissor cutouts cannot: mipmaps average opaque
+	# pixels with atlas padding and the MASK test then discards whole faces.
 	if node is MeshInstance3D:
 		var mesh_node := node as MeshInstance3D
 		if mesh_node.mesh != null:
 			for surface in mesh_node.mesh.get_surface_count():
 				var material := mesh_node.get_active_material(surface)
 				if material is StandardMaterial3D:
-					(material as StandardMaterial3D).texture_filter = \
-						BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
+					var standard := material as StandardMaterial3D
+					standard.texture_filter = \
+						BaseMaterial3D.TEXTURE_FILTER_NEAREST \
+						if standard.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR \
+						else BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	for child in node.get_children():
 		_enable_stable_texture_filtering(child)
 
@@ -160,8 +164,14 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 					var material := _pixel_material_cache.get(key) as StandardMaterial3D
 					if material == null:
 						material = source_material.duplicate() as StandardMaterial3D
+						# MASK + mipmaps is what made hunters flicker out under the
+						# flashlight: a 64px atlas's unused padding dilutes alpha in
+						# every coarser mip, then the default 0.5 scissor drops the
+						# face. Cutouts stay nearest-only; opaque dressing keeps mips.
 						material.texture_filter = \
-							BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+							BaseMaterial3D.TEXTURE_FILTER_NEAREST \
+							if material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR \
+							else BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 						material.roughness = maxf(material.roughness, .72)
 						_pixel_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
@@ -266,17 +276,90 @@ static func play_if_available(player: AnimationPlayer, name: String) -> void:
 		player.play(name)
 
 
-## Crouching currently adds a subdued body fade as a gameplay readability
-## choice. Godot's per-instance transparency leaves the shared imported
-## mesh/materials alone, including authored alpha-masked hair, overlays, and
-## wings; the corrected imported crouch clip remains available independently.
+## Crouching and stealth silhouettes use per-instance transparency so the
+## shared imported mesh stays untouched. ALPHA_SCISSOR (the Blockbench MASK
+## import) still has to leave the scissor path while faded: Godot multiplies
+## instance transparency into fragment alpha *before* the cutoff, so a 0.62 /
+## 0.72 ghost (remaining 0.38 / 0.28) is discarded by the default 0.5
+## threshold and the hunter renders as nothing. Unique ALPHA overrides keep
+## the authored cutouts on the shared material and only exist while faded.
 static func set_character_fade(root: Node, amount: float) -> void:
 	if root == null:
 		return
+	var fade := clampf(amount, 0.0, 0.85)
 	if root is GeometryInstance3D:
-		(root as GeometryInstance3D).transparency = clampf(amount, 0.0, 0.85)
+		var geometry := root as GeometryInstance3D
+		geometry.transparency = fade
+		_apply_fade_material_mode(geometry, fade)
 	for child in root.get_children():
-		set_character_fade(child, amount)
+		set_character_fade(child, fade)
+
+
+## True when `amount` would still produce visible fragments on this model.
+## Used by validation so a GeometryInstance3D.transparency assignment cannot
+## pass while ALPHA_SCISSOR is still throwing every faded pixel away.
+static func fade_survives_alpha_test(root: Node, amount: float) -> bool:
+	if root == null:
+		return false
+	var remaining := 1.0 - clampf(amount, 0.0, 0.85)
+	if remaining <= 0.001:
+		return false
+	var found_material := false
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node is MeshInstance3D:
+			var mesh_node := node as MeshInstance3D
+			if mesh_node.mesh != null:
+				for surface in mesh_node.mesh.get_surface_count():
+					var material := mesh_node.get_active_material(surface)
+					if not material is StandardMaterial3D:
+						continue
+					found_material = true
+					var standard := material as StandardMaterial3D
+					if standard.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR \
+							and remaining + 0.001 < standard.alpha_scissor_threshold:
+						return false
+		for child in node.get_children():
+			stack.append(child)
+	return found_material
+
+
+static func _apply_fade_material_mode(geometry: GeometryInstance3D, fade: float) -> void:
+	if not geometry is MeshInstance3D:
+		return
+	var mesh_node := geometry as MeshInstance3D
+	if mesh_node.mesh == null:
+		return
+	if fade <= 0.001:
+		_restore_fade_materials(mesh_node)
+		return
+	if mesh_node.has_meta("character_fade_armed"):
+		return
+	var originals: Array = []
+	for surface in mesh_node.mesh.get_surface_count():
+		var previous := mesh_node.get_surface_override_material(surface)
+		originals.append(previous)
+		var source := mesh_node.get_active_material(surface)
+		if source is StandardMaterial3D \
+				and (source as StandardMaterial3D).transparency \
+					== BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
+			var faded := (source as StandardMaterial3D).duplicate() as StandardMaterial3D
+			faded.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mesh_node.set_surface_override_material(surface, faded)
+	mesh_node.set_meta("character_fade_armed", true)
+	mesh_node.set_meta("character_fade_originals", originals)
+
+
+static func _restore_fade_materials(mesh_node: MeshInstance3D) -> void:
+	if not mesh_node.has_meta("character_fade_armed"):
+		return
+	var originals: Array = mesh_node.get_meta("character_fade_originals", [])
+	var surface_count := mesh_node.mesh.get_surface_count() if mesh_node.mesh != null else 0
+	for surface in mini(originals.size(), surface_count):
+		mesh_node.set_surface_override_material(surface, originals[surface])
+	mesh_node.remove_meta("character_fade_armed")
+	mesh_node.remove_meta("character_fade_originals")
 
 
 ## Optional per-player colour identity. Zero means the authored texture is

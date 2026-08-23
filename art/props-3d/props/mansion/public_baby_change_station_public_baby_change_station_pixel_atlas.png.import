@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ccj6y75n4uc6o"
-path="res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.ctex"
+path.s3tc="res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.s3tc.ctex"
+path.etc2="res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "06a973a88335441f619e3af1c56e9e42"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/public_baby_change_station_public_baby_change_station_pixel_atlas.png"
-dest_files=["res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.ctex"]
+dest_files=["res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.s3tc.ctex", "res://.godot/imported/public_baby_change_station_public_baby_change_station_pixel_atlas.png-0e057c796e4821f821096fae3a054175.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

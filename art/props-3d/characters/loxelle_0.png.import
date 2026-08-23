@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cbah685ha1ttr"
-path="res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.ctex"
+path.s3tc="res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.s3tc.ctex"
+path.etc2="res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "3f44df4125ed9a9d00ea5e6e1f07d79c"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/characters/loxelle_0.png"
-dest_files=["res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.ctex"]
+dest_files=["res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.s3tc.ctex", "res://.godot/imported/loxelle_0.png-d620b79b223e33c22d09b8e3141d6fd5.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

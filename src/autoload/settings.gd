@@ -64,6 +64,7 @@ const WINDOW_SCREEN_SHARE := 0.85
 ## rebindable — it's a fixed 1-8 hotbar, same as the original.
 const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
+	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
 	"inventory", "drop_item", "chat", "toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",

@@ -134,6 +134,7 @@ func _ready() -> void:
 @onready var fps_label: Label = %FpsLabel
 
 var _message_time_left := 0.0
+var _hold_message := ""
 var _fps_update_left := 0.0
 var _stamina_percent := 100
 var _inventory_drag_from := -1
@@ -594,6 +595,20 @@ func _refresh_compact_status() -> void:
 
 func set_escape_active(active: bool) -> void:
 	escape_overlay.visible = active
+	# Minimal guidance content: show current grabber and the action to break
+	# free if the overlay is visible. The label nodes exist in the scene; if a
+	# themed design isn’t present this remains a no-op.
+	var title: Label = escape_overlay.get_node_or_null("TitleLabel")
+	var hint: Label = escape_overlay.get_node_or_null("HintLabel")
+	if title != null:
+		var id := GameState.escape_hunter_id
+		if id.is_empty():
+			title.text = "GRABBED"
+		else:
+			var name := String(HunterRoster.get_identity(id).get("display_name", id)).to_upper()
+			title.text = "%s GRIP" % name
+	if hint != null:
+		hint.text = "PRESS E TO BREAK FREE"
 
 
 func update_escape(progress: int, required: int, remaining: float, duration: float) -> void:
@@ -601,6 +616,11 @@ func update_escape(progress: int, required: int, remaining: float, duration: flo
 	escape_progress_bar.value = progress
 	escape_time_bar.max_value = duration
 	escape_time_bar.value = remaining
+	# Optional numeric footer if present: "1.3s // 3 / 6"
+	var footer: Label = escape_overlay.get_node_or_null("FooterLabel")
+	if footer != null:
+		var seconds := "%.1fs" % maxf(0.0, remaining)
+		footer.text = "%s // %d / %d" % [seconds, progress, required]
 
 
 func update_battery(charge: float, flashlight_enabled: bool, in_safe_zone: bool, movement_mode: String) -> void:
@@ -670,6 +690,21 @@ func show_message(text: String) -> void:
 	message_label.text = text
 	message_label.visible = true
 	_message_time_left = MESSAGE_DURATION
+
+
+func set_hold_message(text: String) -> void:
+	_hold_message = text
+	if not text.is_empty():
+		message_label.text = text
+		message_label.visible = true
+		# Hold messages persist until cleared; they do not consume the transient
+		# toast timer used by ordinary HUD messages.
+		_message_time_left = 0.0
+		return
+	# When cleared, only hide the label if no timed toast is still active.
+	if _message_time_left <= 0.0:
+		message_label.text = ""
+		message_label.visible = false
 
 
 func toggle_map_overlay() -> void:

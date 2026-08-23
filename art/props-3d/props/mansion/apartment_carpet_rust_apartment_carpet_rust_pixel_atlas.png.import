@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://du1hoymvvaijw"
-path="res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.ctex"
+path.s3tc="res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.s3tc.ctex"
+path.etc2="res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "03d60bc160fb5be664d5afa43a635d5d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png"
-dest_files=["res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.ctex"]
+dest_files=["res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.s3tc.ctex", "res://.godot/imported/apartment_carpet_rust_apartment_carpet_rust_pixel_atlas.png-ec5da4eb45152dfbdcad4bcfa1ec4618.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

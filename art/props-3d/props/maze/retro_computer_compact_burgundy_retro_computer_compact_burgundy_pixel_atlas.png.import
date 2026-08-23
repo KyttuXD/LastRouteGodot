@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d1r6l8d4c1pw4"
-path="res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.ctex"
+path.s3tc="res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.s3tc.ctex"
+path.etc2="res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5c52431412373430d139011a4a25266b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png"
-dest_files=["res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.ctex"]
+dest_files=["res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.s3tc.ctex", "res://.godot/imported/retro_computer_compact_burgundy_retro_computer_compact_burgundy_pixel_atlas.png-c1a1af52550dd3a833a6dc013a0cedba.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

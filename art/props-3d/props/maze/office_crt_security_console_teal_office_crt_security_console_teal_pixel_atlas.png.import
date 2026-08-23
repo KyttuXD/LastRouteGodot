@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c4o5lmc2okff8"
-path="res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.ctex"
+path.s3tc="res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.s3tc.ctex"
+path.etc2="res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "82d04de3b5683051910df8f2140b4fe5"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/maze/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png"
-dest_files=["res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.ctex"]
+dest_files=["res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.s3tc.ctex", "res://.godot/imported/office_crt_security_console_teal_office_crt_security_console_teal_pixel_atlas.png-eedff85a160cfc3d64ef2c9569771191.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

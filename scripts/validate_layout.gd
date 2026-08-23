@@ -212,6 +212,11 @@ func _check_hud_contract(scene: Node) -> int:
 	elif minimap.size.x > 100.0 or minimap.size.y > 82.0:
 		failures += _fail("minimap did not shrink to the compact HUD size")
 	scene.call("update_infinite_status", 4, 11, 73)
+	scene.call("set_hold_message", "STATIONARY // THREAT 8s")
+	var hold := scene.find_child("MessageLabel", true, false) as Label
+	if hold == null or not hold.visible or hold.text != "STATIONARY // THREAT 8s":
+		failures += _fail("AFK warning does not use the existing HUD message line")
+	scene.call("set_hold_message", "")
 	var danger_row := scene.find_child("DangerRow", true, false) as HBoxContainer
 	var danger_label := scene.find_child("DangerLabel", true, false) as Label
 	var danger_bar := scene.find_child("DangerBar", true, false) as ProgressBar
@@ -317,6 +322,37 @@ func _check_update_progress_contract(scene: Node) -> int:
 		failures += _fail("update progress failure has no retry action")
 	if continue_button == null or not continue_button.visible:
 		failures += _fail("update progress failure has no explicit offline test path")
+	if retry != null:
+		retry.visible = false
+	if continue_button != null:
+		continue_button.visible = false
+	scene.call("_on_update_status", "COULD NOT START UPDATE INSTALLER // RETRY")
+	await _frame()
+	if retry == null or not retry.visible:
+		failures += _fail("update progress treats a helper-launch failure as a successful apply")
+	if continue_button == null or not continue_button.visible:
+		failures += _fail("update progress helper-launch failure has no offline test path")
+	if retry != null:
+		retry.visible = false
+	if continue_button != null:
+		continue_button.visible = false
+	scene.call("_on_update_status", "COULD NOT UNPACK UPDATE // RETRY")
+	await _frame()
+	if retry == null or not retry.visible:
+		failures += _fail("update progress hides unpack failures instead of offering retry")
+	if retry != null:
+		retry.visible = false
+	if continue_button != null:
+		continue_button.visible = false
+	scene.call("_on_update_status", UpdateManager.PLATFORM_MISMATCH_STATUS)
+	await _frame()
+	var phase := scene.find_child("UpdatePhase", true, false) as Label
+	if retry == null or not retry.visible:
+		failures += _fail("update progress hides a platform-mismatch footer instead of offering retry")
+	if phase != null and phase.text == "APPLYING UPDATE":
+		failures += _fail("update progress headlines APPLYING UPDATE for a platform-mismatch failure")
+	if phase != null and phase.text != "UPDATE INTERRUPTED":
+		failures += _fail("update progress does not mark a platform-mismatch as interrupted")
 	if not scene.has_method("_start_install"):
 		failures += _fail("update progress screen cannot hand off a staged desktop install")
 	var was_installing: bool = UpdateManager.installing

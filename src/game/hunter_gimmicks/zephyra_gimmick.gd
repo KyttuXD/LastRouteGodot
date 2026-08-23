@@ -29,7 +29,7 @@ var shop_open := false
 var _settled := false
 
 
-func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator) -> void:
 	if not _settled:
 		_settle(brain, generator)
 		_settled = true
@@ -159,7 +159,7 @@ func _cost(offer_id: String) -> int:
 	return 0
 
 
-func _settle(brain: HunterBrain, generator: FacilityGenerator) -> void:
+func _settle(brain: HunterBrain, generator) -> void:
 	if generator.rooms.is_empty():
 		return
 	var facility_center := Vector2(generator.cols / 2.0, generator.rows / 2.0)
@@ -172,5 +172,6 @@ func _settle(brain: HunterBrain, generator: FacilityGenerator) -> void:
 			best_distance = distance
 			best = room
 	var center: Vector2i = best["center"]
-	var open := generator.nearest_open_position(center.x + 0.5, center.y + 0.5, brain.radius)
+	var open: Dictionary = generator.nearest_open_position(
+		center.x + 0.5, center.y + 0.5, brain.radius)
 	brain.position = Vector2(open["x"], open["y"]) if not open.is_empty() else Vector2(center) + Vector2(0.5, 0.5)

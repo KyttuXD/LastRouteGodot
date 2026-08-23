@@ -204,7 +204,7 @@ func _process(delta: float) -> void:
 		_update_escape_struggle(delta)
 		# The host's own struggle is local state; the other runners and the
 		# authoritative hunters keep moving while it is on screen.
-		if RoomState.online and _remotes.simulates():
+		if RoomState.online and _remotes != null and _remotes.simulates():
 			_update_gameplay(delta)
 	else:
 		_update_gameplay(delta)
@@ -266,7 +266,7 @@ func _update_gameplay(delta: float) -> void:
 	# Only the host thinks for the hunters. A client that ran the same brains
 	# would run them against ITS player, so each window would be chased by a
 	# hunter the others cannot see.
-	if not _remotes.simulates():
+	if _remotes == null or not _remotes.simulates():
 		return
 
 	# Only the drawn route hunter follows the relay schedule; the specials
@@ -912,11 +912,41 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 		return
 	capturing_view = view
 	Sound.capture()
-	# Some captures skip the struggle entirely — a cooldown-gated grab, or a
+	# Some captures skip the struggle entirely — a cooldown-gated grab, a
 	# hunter whose gimmick declares the grab inescapable (Nyxie's dead-lamp
-	# wake). Both go straight to the outcome, matching triggerGameOver().
-	if force_inescapable or GameState.escape_on_cooldown() \
-			or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()):
+	# wake), or any VOID hunter (original: void is instant game over). All go
+	# straight to the outcome, matching triggerGameOver().
+	var identity := HunterRoster.get_identity(view.brain.hunter_id)
+	# Prefer explicit roster membership for void ids, fall back to the
+	# identity.category field when available. Use the void-set rather than a
+	# loose string check so mis-typed categories do not accidentally trigger
+	# instant game over for ordinary A-Z hunters.
+	var is_void := HunterRoster.VOID_IDS.has(view.brain.hunter_id) \
+		or String(identity.get("category", "az")) == "void"
+	# Immediate resolution conditions: void hunters and gimmick-declared
+	# inescapable grabs (Nyxie's dead-lamp etc.), or an explicit forced
+	# inescapable trigger. Do NOT auto-skip when the escape cooldown is
+	# active; A-Z hunters should always get an escape chance before any
+	# jumpscare/game-over presentation unless they are truly inescapable.
+	if force_inescapable or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()) \
+			or is_void:
+		# Diagnostic: record why the capture skipped the escape struggle so
+		# inspection in editor/runtime can show whether it was void/cooldown/
+		# gimmick-forced. This helps when a session immediately ends without
+		# presenting the struggle/jumpscare.
+		var reason := []
+		if is_void:
+			reason.append("void")
+		if force_inescapable:
+			reason.append("forced")
+		if view.brain.gimmick and view.brain.gimmick.capture_is_inescapable():
+			reason.append("gimmick")
+		print("[capture] immediate-inescape: hunter=%s reasons=%s" % [view.brain.hunter_id, reason])
+		# Show the jumpscare presentation first (if available) so the player
+		# always sees an impact before the run ends. Await the director so the
+		# visual completes prior to resolving game-over.
+		if jumpscare != null:
+			await jumpscare.play(player.active_camera(), view.brain.hunter_id)
 		_resolve_capture_outcome()
 		return
 	player.input_frozen = true
@@ -973,7 +1003,6 @@ func _resolve_capture_outcome() -> void:
 	if _capture_resolving:
 		return
 	_capture_resolving = true
-	GameState.resolve_escape_failure()
 	player.input_frozen = true
 	player.look_frozen = true
 	var hunter_id := capturing_view.brain.hunter_id if capturing_view else \
@@ -985,11 +1014,17 @@ func _resolve_capture_outcome() -> void:
 		})
 	Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
+	# Keep the run non-terminal while the capture presentation owns the camera.
+	# Setting game_over before this await lets the main loop and co-op snapshot
+	# path observe the death before the player sees the hunter.
+	GameState.resolve_escape_failure()
 	_enter_game_over()
 	_capture_resolving = false
+	_force_disable_admin_cheats()
 
 
 func _enter_game_over() -> void:
+	_force_disable_admin_cheats()
 	player.input_frozen = true
 	if pause_menu.is_open():
 		pause_menu.close()
@@ -1030,6 +1065,7 @@ func _restore_gameplay_after_report() -> void:
 func _restart_solo_route() -> void:
 	if RoomState.online:
 		return
+	_force_disable_admin_cheats()
 	_restore_gameplay_after_report()
 	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	observed_depth = GameState.depth
@@ -1041,6 +1077,7 @@ func _restart_solo_route() -> void:
 
 
 func _leave_after_report() -> void:
+	_force_disable_admin_cheats()
 	_restore_gameplay_after_report()
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
@@ -1388,6 +1425,25 @@ func _toggle_admin_pixel_effect() -> void:
 	pixel_signal_effect.set_admin_enabled(not pixel_signal_effect.admin_enabled())
 	Settings.set_admin_preference("pixel_effect_enabled",
 		pixel_signal_effect.admin_enabled())
+
+
+## Force runtime admin cheat flags off on the current player/scene.
+## Called on run termination paths (death, abandon, leave, restart) so noclip/god
+## etc. do not remain active for the finished state or an immediate in-place restart.
+## Persisted preferences are left unchanged; a fresh scene load will re-apply them
+## via _apply_persisted_admin_preferences for authorized admins.
+func _force_disable_admin_cheats() -> void:
+	if player != null:
+		player.admin_no_target = false
+		player.admin_god_mode = false
+		player.set_admin_noclip(false)
+		if player.has_method("leave_spectator"):
+			player.leave_spectator()
+		player.spectator_mode = false
+	_admin_reveal_hunters = false
+	if pixel_signal_effect != null:
+		pixel_signal_effect.set_admin_enabled(false)
+	# Do not touch persisted prefs here; termination only clears the active session state.
 
 
 ## Put the host's visual hunter copies into their authoritative state. Clients
@@ -1876,6 +1932,7 @@ func _apply_world_snapshot(state: Dictionary) -> void:
 
 
 func _on_abandoned() -> void:
+	_force_disable_admin_cheats()
 	get_tree().paused = false
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")

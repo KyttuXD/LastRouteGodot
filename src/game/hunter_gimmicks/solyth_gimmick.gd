@@ -24,7 +24,7 @@ var summoned := false
 var _burn_timer := 0.0
 
 
-func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator: FacilityGenerator) -> void:
+func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	# Relaxed disables the heat summon in the original. The brain remains in
 	# the floor roster for stable co-op snapshots, but can never wake there.
 	if brain.difficulty_id == "relaxed":
@@ -56,19 +56,19 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 ## Removes an uncollected battery on an interval. Reads the generator's own
 ## collected flags, which only became meaningful once activate() started
 ## writing them (see FacilityGenerator.mark_collected).
-func _burn_batteries(delta: float, generator: FacilityGenerator) -> void:
+func _burn_batteries(delta: float, generator) -> void:
 	_burn_timer += delta
 	if _burn_timer < GameConfig.SOLYTH_BATTERY_BURN_INTERVAL:
 		return
 	_burn_timer -= GameConfig.SOLYTH_BATTERY_BURN_INTERVAL
-	var remaining := generator.uncollected(generator.batteries)
+	var remaining: Array = generator.uncollected(generator.batteries)
 	if remaining.is_empty():
 		return
 	# Burned, not collected — the supply is gone rather than picked up.
 	remaining[0]["collected"] = true
 
 
-func _spawn_position(target_position: Vector2, generator: FacilityGenerator) -> Vector2:
+func _spawn_position(target_position: Vector2, generator) -> Vector2:
 	var best := target_position
 	var best_error := INF
 	for cell in generator.floor_cells():

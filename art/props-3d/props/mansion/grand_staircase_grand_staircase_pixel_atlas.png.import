@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dq1lcm618nk7q"
-path="res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.ctex"
+path.s3tc="res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.s3tc.ctex"
+path.etc2="res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "8de251ea96496ca3946b586f1597a1b6"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/grand_staircase_grand_staircase_pixel_atlas.png"
-dest_files=["res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.ctex"]
+dest_files=["res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.s3tc.ctex", "res://.godot/imported/grand_staircase_grand_staircase_pixel_atlas.png-d9d04a75fbbd2c2901b209669a1689a2.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

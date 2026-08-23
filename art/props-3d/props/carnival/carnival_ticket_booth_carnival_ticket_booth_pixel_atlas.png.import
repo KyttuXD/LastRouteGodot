@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bh003wunap461"
-path="res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.ctex"
+path.s3tc="res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.s3tc.ctex"
+path.etc2="res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "93cd268b4c590afdde7151c4825978ee"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/carnival/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png"
-dest_files=["res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.ctex"]
+dest_files=["res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.s3tc.ctex", "res://.godot/imported/carnival_ticket_booth_carnival_ticket_booth_pixel_atlas.png-ea4f137c1f01021e82b1efc17bf0d518.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

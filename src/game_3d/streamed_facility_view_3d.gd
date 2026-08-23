@@ -33,10 +33,11 @@ const CEILING_INSET := 0.02
 ## stacked chunks, producing upper-floor stripes and solid columns across stair
 ## landings. The ceiling closes this small remainder without overlapping either.
 const WALL_HEIGHT := LEVEL_HEIGHT - SLAB - CEILING_INSET
-## Straight maze runs are structural slabs, not one-metre concrete cubes. Full
-## cells remain only at corners, junctions and chunk seams so thin runs stay
-## collision-tight without opening diagonal cracks.
-const WALL_THICKNESS := .28
+## Straight maze runs are structural slabs, not one-metre concrete cubes.
+## For collision, we want every wall cell to remain a full 1m grid block.
+## Thin walls were introduced to reduce visual/physics pinching with narrow
+## room dressing, but that also created edge-case collision gaps.
+const WALL_THICKNESS := 1.0
 const STAIR_RUN := 8.0
 const STAIR_RISE := LEVEL_HEIGHT
 const STAIR_WIDTH := 3.0
@@ -89,6 +90,7 @@ var _loaded := {}
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
+var _fixture_nodes := {}
 var _last_player_chunk := Vector3i(999999, 999999, 999999)
 var _pending_loads: Array[Vector3i] = []
 var _pending_unloads: Array[Vector3i] = []
@@ -134,6 +136,7 @@ func clear() -> void:
 	_chunk_data.clear()
 	_pickup_nodes.clear()
 	_door_nodes.clear()
+	_fixture_nodes.clear()
 	_pending_loads.clear()
 	_pending_unloads.clear()
 	_discard_active_build()
@@ -507,26 +510,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 
 static func _wall_item_for(grid_data: Array, x: int, z: int,
 		items: Dictionary) -> int:
-	var width: int = grid_data[0].size() if not grid_data.is_empty() else 0
-	var height: int = grid_data.size()
-	# Boundary cells remain full-depth: their neighbor belongs to another chunk
-	# and may not be loaded yet, so a thin guess would expose a collision seam.
-	if x <= 0 or z <= 0 or x >= width - 1 or z >= height - 1:
-		return int(items["full"])
-	var horizontal := int(grid_data[z][x - 1]) != 0 \
-		or int(grid_data[z][x + 1]) != 0
-	var vertical := int(grid_data[z - 1][x]) != 0 \
-		or int(grid_data[z + 1][x]) != 0
-	if horizontal and not vertical:
-		var left_junction := _wall_cell_is_junction(grid_data, x - 1, z)
-		var right_junction := _wall_cell_is_junction(grid_data, x + 1, z)
-		return int(items["horizontal_transition"] \
-			if left_junction or right_junction else items["horizontal"])
-	if vertical and not horizontal:
-		var upper_junction := _wall_cell_is_junction(grid_data, x, z - 1)
-		var lower_junction := _wall_cell_is_junction(grid_data, x, z + 1)
-		return int(items["vertical_transition"] \
-			if upper_junction or lower_junction else items["vertical"])
+	# Restore the original collision model expectation: every wall cell is a
+	# full 1m grid block. This avoids thin-wall collision gaps when adjacent
+	# cells across chunk boundaries or room connectors are streamed/unstreamed.
 	return int(items["full"])
 
 
@@ -1066,15 +1052,18 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	var fixture_kind := String(fixture.get("kind", ""))
 	if fixture_kind not in ["hiding_spot", "vent"]:
 		return
+	var entity_id := String(fixture.get("id", ""))
+	if fixture_kind == "hiding_spot" and not entity_id.is_empty() \
+			and not world_state.pickup_available(entity_id):
+		return
 	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
 	var cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
 	var spot := RouteInteractable3D.new()
-	spot.name = "%s_%s" % [fixture_kind.to_pascal_case(),
-		String(fixture.get("id", "")).replace(":", "_")]
+	spot.name = "%s_%s" % [fixture_kind.to_pascal_case(), entity_id.replace(":", "_")]
 	spot.kind = RouteInteractable3D.Kind.VENT if fixture_kind == "vent" \
 		else RouteInteractable3D.Kind.HIDING_SPOT
 	spot.prompt_text = "ENTER VENT" if fixture_kind == "vent" else "HIDE"
-	spot.vent_id = String(fixture.get("id", "")) if fixture_kind == "vent" else ""
+	spot.vent_id = entity_id if fixture_kind == "vent" else ""
 	spot.source_cell = Vector2i(
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
 		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
@@ -1082,7 +1071,17 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	spot.rotation.y = float(fixture.get("yaw", 0.0))
 	spot.add_to_group("streamed_vent" if fixture_kind == "vent" \
 		else "streamed_hiding_spot")
+	if fixture_kind == "hiding_spot":
+		spot.changed.connect(func(event: Dictionary) -> void:
+			if String(event.get("what", "")) == "hiding_disabled" and not entity_id.is_empty():
+				if bool(event.get("disabled", false)):
+					world_state.claim_pickup(entity_id)
+				else:
+					world_state.claimed_pickups.erase(entity_id)
+		)
 	parent.add_child(spot)
+	if not entity_id.is_empty():
+		_fixture_nodes[entity_id] = spot
 
 
 func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:

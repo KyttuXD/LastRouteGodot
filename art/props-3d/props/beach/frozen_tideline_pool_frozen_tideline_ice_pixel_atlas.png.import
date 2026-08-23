@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://diotbfhpsq8w7"
-path="res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.ctex"
+path.s3tc="res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.s3tc.ctex"
+path.etc2="res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "7141e7a62b7d85e0fbe2c27f2acce17d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/beach/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png"
-dest_files=["res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.ctex"]
+dest_files=["res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.s3tc.ctex", "res://.godot/imported/frozen_tideline_pool_frozen_tideline_ice_pixel_atlas.png-e4d19a489d3661c3fad7dc2ca1ecc9ae.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

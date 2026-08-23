@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b0fg632on8dqj"
-path="res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.ctex"
+path.s3tc="res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.s3tc.ctex"
+path.etc2="res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "9d28aaf32540f9b0408442dfacb4b6f1"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/props-3d/props/mansion/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png"
-dest_files=["res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.ctex"]
+dest_files=["res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.s3tc.ctex", "res://.godot/imported/gothic_highback_chair_crimson_gothic_highback_chair_crimson_pixel_atlas.png-cc93cfdca97ec9a92b33bcbaeaecc46a.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
