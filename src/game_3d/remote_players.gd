@@ -28,6 +28,7 @@ const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
 const MAX_CHAT_LENGTH := 160
+const FLOOR_EXIT_MARK_TIMEOUT_USEC := 20_000_000
 
 var local_player: Node3D
 ## Scene-specific fields merged into the ordinary controller packet. The fixed
@@ -46,6 +47,7 @@ var _remote_held_items := {}
 var _remote_held_item_ids := {}
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
+var _floor_exit_marks := {}
 ## A host-issued capture is kept here independently of the next movement
 ## packet. That prevents the same hunter from starting a second struggle while
 ## the reliable capture RPC and the guest's next unreliable state cross paths.
@@ -228,6 +230,22 @@ func _place(state: Dictionary) -> void:
 	var received := state.duplicate(true)
 	received["peer_id"] = id
 	received["received_usec"] = Time.get_ticks_usec()
+	var previous: Dictionary = _states.get(id, {})
+	var previous_depth := int(previous.get("depth", 0))
+	var next_depth := int(received.get("depth", previous_depth))
+	var previous_position = previous.get("position")
+	if not previous.is_empty() and previous_position is Vector2 \
+			and previous_depth != next_depth:
+		_floor_exit_marks[id] = {
+			"at": previous_position,
+			"depth": previous_depth,
+			"direction": "up" if next_depth > previous_depth else "down",
+			"name": String(received.get("display_name",
+				RoomState.peer_display_name(id))),
+			"received_usec": int(received["received_usec"]),
+		}
+	elif next_depth == previous_depth:
+		_floor_exit_marks.erase(id)
 	_states[id] = received
 
 	var body: Node3D = _bodies.get(id)
@@ -435,6 +453,7 @@ func _drop(id: int) -> void:
 	_states.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)
+	_floor_exit_marks.erase(id)
 
 
 func authorize_admin_peer(peer_id: int, expires_in: int,
@@ -539,15 +558,37 @@ func remote_player_marks(depth: int) -> Array:
 		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC \
 				or int(state.get("depth", -999999)) != depth:
 			continue
-		var position = state.get("position")
-		if not position is Vector2:
+		var marker_position = state.get("position")
+		if not marker_position is Vector2:
 			continue
 		result.append({
 			"peer_id": id,
-			"at": position,
+			"at": marker_position,
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
 			"level": -depth,
+		})
+	for id_value in _floor_exit_marks.keys().duplicate():
+		var id := int(id_value)
+		var exit_mark: Dictionary = _floor_exit_marks[id]
+		if now - int(exit_mark.get("received_usec", 0)) > FLOOR_EXIT_MARK_TIMEOUT_USEC:
+			_floor_exit_marks.erase(id)
+			continue
+		var state: Dictionary = _states.get(id, {})
+		if not state.is_empty() and int(state.get("depth", -999999)) == depth:
+			_floor_exit_marks.erase(id)
+			continue
+		if int(exit_mark.get("depth", -999999)) != depth:
+			continue
+		var exit_at = exit_mark.get("at")
+		if not exit_at is Vector2:
+			continue
+		result.append({
+			"peer_id": id,
+			"at": exit_at,
+			"name": String(exit_mark.get("name", RoomState.peer_display_name(id))),
+			"level": -depth,
+			"exit_direction": String(exit_mark.get("direction", "up")),
 		})
 	return result
 
@@ -559,13 +600,13 @@ func stream_centers() -> Array[Vector3i]:
 		var state: Dictionary = _states[id]
 		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
 			continue
-		var position = state.get("position")
-		if not position is Vector2:
+		var center_position = state.get("position")
+		if not center_position is Vector2:
 			continue
 		var level := -int(state.get("depth", 0))
 		result.append(Vector3i(
-			floori(position.x / StreamedRouteGenerator.CHUNK_SIZE), level,
-			floori(position.y / StreamedRouteGenerator.CHUNK_SIZE)))
+			floori(center_position.x / StreamedRouteGenerator.CHUNK_SIZE), level,
+			floori(center_position.y / StreamedRouteGenerator.CHUNK_SIZE)))
 	return result
 
 
@@ -675,7 +716,8 @@ func _request_interaction(event: Dictionary) -> void:
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
 			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
-			"stream_checkpoint", "stream_drop", "stream_sabotage"].has(what):
+			"stream_checkpoint", "stream_drop", "stream_sabotage",
+			"stream_waypoint"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":

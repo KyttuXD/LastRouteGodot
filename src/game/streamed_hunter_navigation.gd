@@ -9,6 +9,7 @@ extends RefCounted
 const DIRECTIONS4 := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
 const MAX_PATH_SPAN := StreamedRouteGenerator.CHUNK_SIZE * 3
 const MAX_NEAREST_VISITS := 4096
+const SAFE_ZONE_BLOCK_RADIUS := 3.15
 
 var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
@@ -295,6 +296,33 @@ func room_at(x: float, y: float) -> Dictionary:
 		if Rect2i(center - size / 2, size).has_point(point):
 			return room
 	return {}
+
+
+func get_safe_zone_blocked_cells() -> Dictionary:
+	var blocked := {}
+	for zone_value in safe_zones:
+		var zone: Dictionary = zone_value
+		var center_x := float(zone.get("x", 0.0)) + 0.5
+		var center_y := float(zone.get("y", 0.0)) + 0.5
+		var extent := int(ceil(SAFE_ZONE_BLOCK_RADIUS))
+		var zone_x := int(floor(center_x))
+		var zone_y := int(floor(center_y))
+		for y in range(zone_y - extent, zone_y + extent + 1):
+			for x in range(zone_x - extent, zone_x + extent + 1):
+				if not is_floor(x + 0.5, y + 0.5):
+					continue
+				if Vector2(x + 0.5 - center_x, y + 0.5 - center_y).length() \
+						< SAFE_ZONE_BLOCK_RADIUS:
+					blocked[Vector2i(x, y)] = true
+	return blocked
+
+
+func hiding_exit_position(spot: Dictionary) -> Vector2:
+	var open := nearest_open_position(float(spot.get("x", 0)) + 0.5,
+		float(spot.get("y", 0)) + 0.5, GameConfig.PLAYER_RADIUS)
+	if open.is_empty():
+		return Vector2(float(spot.get("x", 0)) + 0.5, float(spot.get("y", 0)) + 0.5)
+	return Vector2(float(open.get("x", 0.0)), float(open.get("y", 0.0)))
 
 
 func cell_chunk(cell: Vector2i, route_level: int = level) -> Vector3i:

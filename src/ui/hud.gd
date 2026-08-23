@@ -747,25 +747,30 @@ func map_is_open() -> bool:
 
 
 func update_map(generator: FacilityGenerator, at: Vector2, facing: Vector2,
-		marks: Array, player_marks: Array = []) -> void:
-	plan.show_state(generator, at, facing, marks, player_marks)
+		marks: Array, player_marks: Array = [], drop_marks: Array = [],
+		safe_room_marks: Array = []) -> void:
+	plan.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
 
 
 func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
-		marks: Array, player_marks: Array = []) -> void:
-	minimap.show_state(generator, at, facing, marks, player_marks)
+		marks: Array, player_marks: Array = [], drop_marks: Array = [],
+		safe_room_marks: Array = []) -> void:
+	minimap.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
 
 
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array,
-		player_marks: Array = [], show_regions: bool = false) -> void:
+		player_marks: Array = [], show_regions: bool = false,
+		drop_marks: Array = [], safe_room_marks: Array = []) -> void:
 	map_title.text = "DISCOVERED ROUTE // FLOOR %+d" % level
 	plan.show_streamed_state(chunks, level, chunk_size, at, facing, marks, true,
-		0, player_marks, show_regions)
+		0, player_marks, show_regions, drop_marks, safe_room_marks)
 
 
 func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array = [],
-		player_marks: Array = [], show_regions: bool = false) -> void:
+		player_marks: Array = [], show_regions: bool = false,
+		drop_marks: Array = [], safe_room_marks: Array = []) -> void:
 	minimap.show_streamed_state(chunks, level, chunk_size, at, facing, marks,
-		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks, show_regions)
+		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks, show_regions,
+		drop_marks, safe_room_marks)

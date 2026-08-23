@@ -166,7 +166,8 @@ func _ready() -> void:
 		return
 
 	var model_path := String(MODEL_SCENES.get(kind, ""))
-	_visual = ModelSlot.instantiate_prop(model_path) if not model_path.is_empty() else null
+	_visual = ModelSlot.instantiate_prop(model_path, _style_hint_for_kind(kind)) \
+		if not model_path.is_empty() else null
 	if _visual:
 		add_child(_visual)
 		_cache_interaction_focus()
@@ -468,7 +469,7 @@ func apply_room_door_state(open: bool, broken: bool) -> void:
 func _ready_room_door() -> void:
 	add_to_group("room_door")
 	prompt_text = "OPEN DOOR"
-	_visual = ModelSlot.instantiate_prop(room_door_model_path)
+	_visual = ModelSlot.instantiate_prop(room_door_model_path, "room_door")
 	if _visual != null:
 		_visual.name = "AuthoredRoomDoor"
 		add_child(_visual)
@@ -548,7 +549,7 @@ func configure_tool_pickup(item_id: String) -> void:
 	tool_item_id = item_id
 	if _visual:
 		_visual.queue_free()
-	_visual = ModelSlot.instantiate_prop(String(TOOL_PICKUP_MODELS[item_id]))
+	_visual = ModelSlot.instantiate_prop(String(TOOL_PICKUP_MODELS[item_id]), item_id)
 	if _visual:
 		_visual.name = "AuthoredPickup_%s" % item_id
 		_visual.scale = Vector3.ONE * .72
@@ -567,7 +568,7 @@ func configure_boarded_variant(variant: String) -> void:
 	boarded_variant = "hallway"
 	if _visual:
 		_visual.queue_free()
-	_visual = ModelSlot.instantiate_prop(BOARDED_HALLWAY_MODEL)
+	_visual = ModelSlot.instantiate_prop(BOARDED_HALLWAY_MODEL, "boarded_door")
 	if _visual:
 		_visual.name = "BoardedHallwayModel"
 		add_child(_visual)
@@ -597,7 +598,7 @@ func configure_room_light(id: String, enabled: bool, resolver: Callable) -> void
 func _build_locked_cache_visual(style: String) -> Node3D:
 	var model_path := String(LOCKED_CACHE_MODELS.get(style,
 		LOCKED_CACHE_MODELS["crate"]))
-	var root := ModelSlot.instantiate_prop(model_path)
+	var root := ModelSlot.instantiate_prop(model_path, "locked_relay_%s" % style)
 	if root:
 		root.name = "LockedRelay%s" % style.to_pascal_case()
 		return root
@@ -605,6 +606,24 @@ func _build_locked_cache_visual(style: String) -> Node3D:
 	# loadable for validation while making the packaging failure unmistakable.
 	push_error("LOCKED CACHE MODEL MISSING // %s" % model_path)
 	return Node3D.new()
+
+
+static func _style_hint_for_kind(interactable_kind: Kind) -> String:
+	match interactable_kind:
+		Kind.RELAY:
+			return "relay"
+		Kind.HIDING_SPOT:
+			return "locker"
+		Kind.LIFT:
+			return "lift"
+		Kind.LIGHT_SWITCH:
+			return "wall_switch"
+		Kind.BATTERY:
+			return "battery"
+		Kind.BOARDED_PATH:
+			return "boarded_door"
+		_:
+			return ""
 
 
 func _add_blocking_box(size: Vector3, at: Vector3) -> void:

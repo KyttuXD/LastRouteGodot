@@ -929,8 +929,8 @@ func run(host: Node) -> int:
 	_expect(one_relay_population == 1 and runtime_hunters.size() >= 2,
 		"collecting more relays did not materialize additional hunters")
 	# Infinite is the primary route now, so Porcelle's map counterplay must not
-	# exist only in the retained finite implementation. She is a faint ghost on
-	# the fullscreen floor map and remains absent from the always-on minimap.
+	# exist only in the retained finite implementation. She keeps the ghost-tagged
+	# fullscreen floor-map marker while remaining absent from the always-on minimap.
 	if not runtime_hunters.is_empty():
 		var map_entity_id := String(runtime_hunters.keys()[0])
 		var map_test_hunter := runtime_hunters[map_entity_id] as HunterView3D
@@ -1004,6 +1004,13 @@ func run(host: Node) -> int:
 	_expect(pressure_world_state.hunters.size() == after_first_gray \
 			and gray_after_repeat.size() == 1,
 		"repeated anti-idle pressure cloned the Gray Void hunter")
+	pressure_world_state.claimed_pickups["TEST:PICKUP:RELAY:RESET"] = true
+	live_scene.call("_sync_stream_progress")
+	var gray_after_relay := pressure_world_state.hunters.values().filter(
+		func(state_value) -> bool:
+			return String((state_value as Dictionary).get("hunter_id", "")) == "void_gray")
+	_expect(gray_after_relay.is_empty(),
+		"collecting a relay did not despawn Gray Void pressure immediately")
 	var idle_target := {"peer_id": 1, "position": player.grid_position(),
 		"game_over": false}
 	live_scene.set("_party_activity_anchors", {})

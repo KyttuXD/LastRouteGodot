@@ -118,10 +118,11 @@ static func instantiate(scene_path: String) -> Node3D:
 ## authored per-pixel lighting; furniture, pickups and interactables use
 ## coarser vertex lighting and a matte response so their low-poly faces read
 ## like the block characters and room fabric without rewriting every GLB.
-static func instantiate_prop(scene_path: String) -> Node3D:
+static func instantiate_prop(scene_path: String, style_hint: String = "") -> Node3D:
 	var instance := instantiate(scene_path)
 	if instance != null:
-		apply_blocky_prop_style(instance)
+		apply_blocky_prop_style(instance,
+			style_hint if not style_hint.is_empty() else scene_path)
 	return instance
 
 
@@ -179,10 +180,14 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 		apply_prop_pixel_filter(child)
 
 
-static func apply_blocky_prop_style(node: Node) -> void:
+static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void:
 	if node.has_meta("blocky_prop_style_applied"):
 		return
 	node.set_meta("blocky_prop_style_applied", true)
+	if style_hint.is_empty() and node.has_meta("blocky_prop_style_hint"):
+		style_hint = String(node.get_meta("blocky_prop_style_hint"))
+	elif not style_hint.is_empty():
+		node.set_meta("blocky_prop_style_hint", style_hint)
 	if node is MeshInstance3D:
 		var mesh_node := node as MeshInstance3D
 		if mesh_node.mesh != null:
@@ -190,7 +195,8 @@ static func apply_blocky_prop_style(node: Node) -> void:
 				var source := mesh_node.get_active_material(surface)
 				if source is StandardMaterial3D:
 					var source_material := source as StandardMaterial3D
-					var key := source_material.get_rid()
+					var profile_key := _blocky_style_key(style_hint)
+					var key := "%s|%s" % [str(source_material.get_rid()), profile_key]
 					var material := _blocky_prop_material_cache.get(key) \
 						as StandardMaterial3D
 					if material == null:
@@ -199,13 +205,73 @@ static func apply_blocky_prop_style(node: Node) -> void:
 						# colour while eliminating the smooth/plastic gradient which
 						# made authored props clash with block characters.
 						material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
-						# Keep a little margin above the validation threshold because
-						# StandardMaterial stores this property at float precision.
-						material.roughness = maxf(material.roughness, .92)
+						_apply_blocky_style_profile(material, profile_key)
 						_blocky_prop_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():
-		apply_blocky_prop_style(child)
+		apply_blocky_prop_style(child, style_hint)
+
+
+static func _blocky_style_key(style_hint: String) -> String:
+	var hint := style_hint.to_lower()
+	if _hint_has_any(hint, ["relay", "locked_relay", "signal_relay"]):
+		return "relay"
+	if _hint_has_any(hint, ["door", "boarded", "gate"]):
+		return "door"
+	if _hint_has_any(hint, ["locker", "filingcabinet", "photocopier", "shredder",
+			"watercooler", "serverrack", "vendingmachine", "computer", "printer",
+			"terminal", "switch", "manifold"]):
+		return "machine"
+	if _hint_has_any(hint, ["carpet", "rug", "mat", "pool", "tideline"]):
+		return "floor_dressing"
+	if _hint_has_any(hint, ["desk", "table", "nightstand", "wardrobe", "dresser",
+			"sideboard", "bookcase", "bench", "chair", "couch", "tvconsole",
+			"booth", "stall", "bar", "rack", "crate"]):
+		return "furniture"
+	if _hint_has_any(hint, ["inferno", "lava", "ember", "magma", "basalt",
+			"brazier", "crystal", "altar"]):
+		return "inferno"
+	return "default"
+
+
+static func _apply_blocky_style_profile(material: StandardMaterial3D,
+		profile_key: String) -> void:
+	match profile_key:
+		"relay":
+			material.roughness = maxf(material.roughness, .58)
+			material.metallic = maxf(material.metallic, .38)
+			if material.emission_enabled:
+				material.emission_energy_multiplier = maxf(
+					material.emission_energy_multiplier, 1.25)
+		"door":
+			material.roughness = maxf(material.roughness, .72)
+			material.metallic = maxf(material.metallic, .18)
+		"machine":
+			material.roughness = maxf(material.roughness, .74)
+			material.metallic = maxf(material.metallic, .24)
+		"floor_dressing":
+			material.roughness = maxf(material.roughness, .97)
+			material.metallic = 0.0
+		"furniture":
+			material.roughness = maxf(material.roughness, .88)
+			material.metallic = maxf(material.metallic, .04)
+		"inferno":
+			material.roughness = maxf(material.roughness, .82)
+			material.metallic = maxf(material.metallic, .14)
+			if material.emission_enabled:
+				material.emission_energy_multiplier = maxf(
+					material.emission_energy_multiplier, 1.18)
+		_:
+			# Keep a little margin above the validation threshold because
+			# StandardMaterial stores this property at float precision.
+			material.roughness = maxf(material.roughness, .92)
+
+
+static func _hint_has_any(hint: String, needles: Array) -> bool:
+	for value in needles:
+		if hint.contains(String(value)):
+			return true
+	return false
 
 
 ## Thin horizontal meshes can be reduced out of an imported mesh's generated

@@ -59,18 +59,18 @@ const PROFILES := {
 	# roster. Their source skins are deliberately larger in presentation and
 	# their baseline tuning is more aggressive even before colour-specific
 	# mechanics are promoted from the design notes into code.
-	"void_black":  {"name": "Black Void",  "tier": "void", "category": "void", "speed": 0.94, "chase": 4.55, "prog": 0.24, "sight": 9.4, "hearing": 1.22, "spawn": 15, "model": "res://art/props-3d/characters/void_black.tscn"},
-	"void_blue":   {"name": "Blue Void",   "tier": "void", "category": "void", "speed": 0.92, "chase": 4.48, "prog": 0.25, "sight": 9.6, "hearing": 1.18, "spawn": 15, "model": "res://art/props-3d/characters/void_blue.tscn"},
-	"void_brown":  {"name": "Brown Void",  "tier": "void", "category": "void", "speed": 0.96, "chase": 4.62, "prog": 0.23, "sight": 9.0, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_brown.tscn"},
-	"void_cyan":   {"name": "Cyan Void",   "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
-	"void_gray":   {"name": "Gray Void",   "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
-	"void_green":  {"name": "Green Void",  "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
-	"void_orange": {"name": "Orange Void", "tier": "void", "category": "void", "speed": 1.00, "chase": 4.82, "prog": 0.28, "sight": 9.2, "hearing": 1.24, "spawn": 14, "model": "res://art/props-3d/characters/void_orange.tscn"},
-	"void_pink":   {"name": "Pink Void",   "tier": "void", "category": "void", "speed": 0.93, "chase": 4.50, "prog": 0.26, "sight": 9.7, "hearing": 1.20, "spawn": 16, "model": "res://art/props-3d/characters/void_pink.tscn"},
-	"void_purple": {"name": "Purple Void", "tier": "void", "category": "void", "speed": 0.98, "chase": 4.75, "prog": 0.29, "sight": 9.5, "hearing": 1.15, "spawn": 16, "model": "res://art/props-3d/characters/void_purple.tscn"},
-	"void_red":    {"name": "Red Void",    "tier": "void", "category": "void", "speed": 1.02, "chase": 4.90, "prog": 0.30, "sight": 9.3, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_red.tscn"},
-	"void_white":  {"name": "White Void",  "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
-	"void_yellow": {"name": "Yellow Void", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
+	"void_black":  {"name": "Black",  "tier": "void", "category": "void", "speed": 0.94, "chase": 4.55, "prog": 0.24, "sight": 9.4, "hearing": 1.22, "spawn": 15, "model": "res://art/props-3d/characters/void_black.tscn"},
+	"void_blue":   {"name": "Blue",   "tier": "void", "category": "void", "speed": 0.92, "chase": 4.48, "prog": 0.25, "sight": 9.6, "hearing": 1.18, "spawn": 15, "model": "res://art/props-3d/characters/void_blue.tscn"},
+	"void_brown":  {"name": "Brown",  "tier": "void", "category": "void", "speed": 0.96, "chase": 4.62, "prog": 0.23, "sight": 9.0, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_brown.tscn"},
+	"void_cyan":   {"name": "Cyan",   "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
+	"void_gray":   {"name": "Gray",   "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
+	"void_green":  {"name": "Green",  "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
+	"void_orange": {"name": "Orange", "tier": "void", "category": "void", "speed": 1.00, "chase": 4.82, "prog": 0.28, "sight": 9.2, "hearing": 1.24, "spawn": 14, "model": "res://art/props-3d/characters/void_orange.tscn"},
+	"void_pink":   {"name": "Pink",   "tier": "void", "category": "void", "speed": 0.93, "chase": 4.50, "prog": 0.26, "sight": 9.7, "hearing": 1.20, "spawn": 16, "model": "res://art/props-3d/characters/void_pink.tscn"},
+	"void_purple": {"name": "Purple", "tier": "void", "category": "void", "speed": 0.98, "chase": 4.75, "prog": 0.29, "sight": 9.5, "hearing": 1.15, "spawn": 16, "model": "res://art/props-3d/characters/void_purple.tscn"},
+	"void_red":    {"name": "Red",    "tier": "void", "category": "void", "speed": 1.02, "chase": 4.90, "prog": 0.30, "sight": 9.3, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_red.tscn"},
+	"void_white":  {"name": "White",  "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
+	"void_yellow": {"name": "Yellow", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
 }
 
 ## The hunters the game actually draws. Grows as gimmicks are ported; a hunter

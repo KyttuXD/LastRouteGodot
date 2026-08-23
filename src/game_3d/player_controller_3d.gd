@@ -1502,7 +1502,7 @@ func run_save_snapshot() -> Dictionary:
 	_save_active_flashlight_charge()
 	return {
 		"position": global_position,
-		"level": roundi(global_position.y / StreamedFacilityView3D.LEVEL_HEIGHT),
+		"level": StreamedFacilityView3D.snapped_level_for_world_y(global_position.y),
 		"yaw": _yaw,
 		"pitch": _pitch,
 		"inventory_order": inventory_order.duplicate(),

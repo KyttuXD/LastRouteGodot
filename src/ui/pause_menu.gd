@@ -78,6 +78,14 @@ var _share_seed: Label
 var _copy_button: Button
 var _copy_status: Label
 var _selected_save_id := ""
+var _dossier_modal: ColorRect
+var _dossier_name: Label
+var _dossier_status: Label
+var _dossier_behavior: Label
+var _dossier_counter: Label
+var _dossier_gimmick_heading: Label
+var _dossier_gimmick: Label
+var _dossier_stats: Label
 ## True after this menu has seen the window/application focused. Headless
 ## validate never has a real focused game window; reacting to a startup
 ## FOCUS_OUT there would open pause under every suite that instantiates a
@@ -168,6 +176,16 @@ func _build() -> void:
 	Palette.style_button(_resume_button, true)
 	_resume_button.pressed.connect(close)
 	_pause_view.add_child(_resume_button)
+
+	var dossier_button := Button.new()
+	dossier_button.text = "HUNTER DOSSIER"
+	dossier_button.focus_mode = Control.FOCUS_ALL
+	dossier_button.custom_minimum_size = Vector2(112, 18)
+	dossier_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	dossier_button.add_theme_font_size_override("font_size", 8)
+	Palette.style_button(dossier_button, false)
+	dossier_button.pressed.connect(_open_dossier)
+	_pause_view.add_child(dossier_button)
 
 	_abandon_button = Button.new()
 	_abandon_button.text = abandon_label
@@ -498,6 +516,200 @@ func _set_save_status(message: String, ok: bool) -> void:
 		Palette.STABLE if ok else Palette.ALERT)
 
 
+func _open_dossier() -> void:
+	_close_dossier()
+	var content := _dossier_modal_content("ARCHIVED HUNTER SIGNALS",
+		"HUNTER DOSSIER", Vector2(420, 232))
+	var split := HBoxContainer.new()
+	split.name = "PauseDossierSplit"
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_theme_constant_override("separation", 8)
+	content.add_child(split)
+
+	var roster := ItemList.new()
+	roster.name = "PauseDossierRoster"
+	roster.custom_minimum_size = Vector2(108, 0)
+	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roster.allow_reselect = true
+	roster.add_theme_font_size_override("font_size", 7)
+	roster.add_theme_color_override("font_color", Palette.BODY)
+	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
+	roster.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
+		Palette.PANEL_EDGE, 3))
+	roster.add_theme_stylebox_override("selected", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	roster.add_theme_stylebox_override("selected_focus", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	split.add_child(roster)
+
+	var details := VBoxContainer.new()
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 4)
+	split.add_child(details)
+
+	var identity := HBoxContainer.new()
+	identity.add_theme_constant_override("separation", 5)
+	details.add_child(identity)
+	_dossier_name = _overlay_label("", Palette.INK, 16)
+	_dossier_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_title(_dossier_name)
+	identity.add_child(_dossier_name)
+	_dossier_status = _overlay_label("", Palette.AMBER, 6)
+	_dossier_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	identity.add_child(_dossier_status)
+
+	_dossier_behavior = _dossier_copy("PauseDossierBehavior")
+	details.add_child(_dossier_behavior)
+	_dossier_gimmick_heading = _overlay_label(Palette.track("VOID GIMMICK CHART"),
+		Palette.AMBER, 6)
+	_dossier_gimmick_heading.visible = false
+	details.add_child(_dossier_gimmick_heading)
+	_dossier_gimmick = _dossier_copy("PauseDossierGimmick")
+	_dossier_gimmick.visible = false
+	details.add_child(_dossier_gimmick)
+	details.add_child(_overlay_label(Palette.track("COUNTERPLAY"), Palette.AMBER, 6))
+	_dossier_counter = _dossier_copy("PauseDossierCounter")
+	details.add_child(_dossier_counter)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_child(spacer)
+	_dossier_stats = _overlay_label("", Palette.MUTED, 6)
+	_dossier_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(_dossier_stats)
+
+	var ids: Array = []
+	for category in ["az", "void"]:
+		var header := roster.add_item("-- %s --" % ("A-Z HUNTERS" if category == "az" else "VOID HUNTERS"))
+		roster.set_item_disabled(header, true)
+		for hunter_id in HunterDossier.category_ids(category):
+			ids.append(hunter_id)
+			var discovered := Backend.hunter_discovered(hunter_id)
+			var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+			var label := String(profile["name"]).to_upper() if discovered \
+				else "???? // UNDISCOVERED"
+			var index := roster.add_item(label)
+			roster.set_item_metadata(index, hunter_id)
+	var secret_header := roster.add_item("-- SECRET CHARACTERS --")
+	roster.set_item_disabled(secret_header, true)
+	var secret_placeholder := roster.add_item("COMING SOON")
+	roster.set_item_disabled(secret_placeholder, true)
+	roster.item_selected.connect(func(index: int) -> void:
+		_show_dossier_entry(String(roster.get_item_metadata(index))))
+	if not ids.is_empty():
+		roster.select(1)
+		_show_dossier_entry(String(ids[0]))
+		roster.grab_focus.call_deferred()
+
+
+func _dossier_copy(node_name: String) -> Label:
+	var label := _overlay_label("", Palette.BODY, 7)
+	label.name = node_name
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return label
+
+
+func _show_dossier_entry(hunter_id: String) -> void:
+	var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
+	var entry: Dictionary = HunterDossier.entry(hunter_id)
+	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
+		return
+	if not Backend.hunter_discovered(hunter_id):
+		_dossier_name.text = "UNDISCOVERED SIGNAL"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
+			else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
+		_dossier_gimmick_heading.visible = false
+		_dossier_gimmick.visible = false
+		_dossier_gimmick.text = ""
+		_dossier_counter.text = "NO VERIFIED COUNTERPLAY DATA"
+		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		return
+	_dossier_name.text = String(profile["name"]).to_upper()
+	var category := String(profile.get("category", "az"))
+	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
+	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "RULE-SUMMONED // A-Z SPECIAL" if special \
+		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
+	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
+		String(entry["behavior"])]
+	var has_chart := entry.has("gimmick_behavior")
+	_dossier_gimmick_heading.visible = has_chart
+	_dossier_gimmick.visible = has_chart
+	_dossier_gimmick.text = "%s // %s\nCOUNTERPLAY DIRECTION // %s" % [
+		String(entry.get("gimmick_title", "UNASSIGNED")),
+		String(entry.get("gimmick_behavior", "")),
+		String(entry.get("gimmick_counter", "")),
+	] if has_chart else ""
+	_dossier_counter.text = String(entry["counter"])
+	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+		float(profile["hearing"])]
+
+
+func _dossier_modal_content(kicker: String, title: String, minimum: Vector2) -> VBoxContainer:
+	_dossier_modal = ColorRect.new()
+	_dossier_modal.name = "PauseDossierModal"
+	_dossier_modal.color = Palette.SCRIM
+	_dossier_modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dossier_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dossier_modal.z_index = 120
+	add_child(_dossier_modal)
+	var panel := PanelContainer.new()
+	panel.name = "PauseDossierPanel"
+	panel.add_theme_stylebox_override("panel", Palette.panel_box(Color("0c080e"),
+		Palette.PANEL_EDGE, 12))
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	panel.custom_minimum_size = minimum
+	panel.offset_left = -minimum.x * 0.5
+	panel.offset_top = -minimum.y * 0.5
+	panel.offset_right = minimum.x * 0.5
+	panel.offset_bottom = minimum.y * 0.5
+	_dossier_modal.add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 5)
+	panel.add_child(content)
+	var top := HBoxContainer.new()
+	content.add_child(top)
+	top.add_child(_overlay_label(Palette.track(kicker), Palette.AMBER, 6))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(spacer)
+	var close_button := Button.new()
+	close_button.add_theme_font_size_override("font_size", 7)
+	Palette.style_escape_close(close_button)
+	close_button.pressed.connect(_close_dossier)
+	top.add_child(close_button)
+	var heading := _overlay_label(title, Palette.INK, 15)
+	Palette.style_title(heading)
+	content.add_child(heading)
+	return content
+
+
+func _close_dossier() -> void:
+	if _dossier_modal != null and is_instance_valid(_dossier_modal):
+		_dossier_modal.queue_free()
+	_dossier_modal = null
+	_dossier_name = null
+	_dossier_status = null
+	_dossier_behavior = null
+	_dossier_counter = null
+	_dossier_gimmick_heading = null
+	_dossier_gimmick = null
+	_dossier_stats = null
+
+
+func _overlay_label(text: String, tint: Color, font_size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", tint)
+	label.add_theme_font_size_override("font_size", font_size)
+	return label
+
+
 func _refresh_statistics() -> void:
 	if _statistics_grid == null:
 		return
@@ -746,6 +958,7 @@ func _set_open(is_open: bool) -> void:
 	_panel.visible = is_open
 	_confirm.visible = false
 	_hold_box.visible = false
+	_close_dossier()
 	if pauses_tree:
 		get_tree().paused = is_open
 	# The cursor is a claim rather than a mode change, so the camera cannot
@@ -782,6 +995,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _confirming:
 		# ESC backs out of the question rather than out of the run.
 		_cancel_abandon()
+		get_viewport().set_input_as_handled()
+	elif _dossier_modal != null and is_instance_valid(_dossier_modal):
+		_close_dossier()
 		get_viewport().set_input_as_handled()
 	elif _open:
 		close()

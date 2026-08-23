@@ -1,16 +1,14 @@
 class_name PorcelleGimmick
 extends HunterGimmick
 
-## Porcelle's radar-only visibility (hunterAbilities.porcelle.radarOnly). Ported
-## from porcelle.js's hunterVisibleOnlyOnRadar and renderer.js, which skips
-## drawing any hunter whose abilities carry radarOnly.
+## Porcelle keeps her full-map tracking mechanic, but no longer suppresses her
+## in-world model entirely. Players can still verify her route on the fullscreen
+## facility map without the presentation collapsing into a pure ghost-only tell.
 ##
 ## Her AI is completely ordinary — she is Dovelle's brain in an unlit room. The
-## full map remains her clearest counterplay, while HunterView3D interprets this
-## flag as a very faint ghost silhouette so close encounters remain readable.
+## full map remains her clearest counterplay.
 
 
-## Read by HunterView3D, which applies Porcelle's translucent presentation while
-## preserving the same stealth classification used by discovery and AI systems.
+## Porcelle now renders like an ordinary hunter; the map exposure is the gimmick.
 func hidden_from_view() -> bool:
-	return true
+	return false

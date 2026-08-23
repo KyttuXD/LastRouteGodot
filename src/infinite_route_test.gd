@@ -28,6 +28,7 @@ const HUNTER_STAIR_PLAN_LIFETIME_MSEC := 4000
 const HUNTER_STAIR_RETRY_MSEC := 650
 const MAP_DISCOVERY_NEARBY_RADIUS := 4.5
 const WAYPOINT_ARRIVAL_RADIUS := 5.0
+const DROPPED_TOOL_MARK_RADIUS := 14.0
 const LOCAL_SAVE_SCHEMA := 1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
 const STORY_DIRECTOR_SCRIPT := preload("res://src/story/infinite_story_director.gd")
@@ -101,6 +102,7 @@ var _party_activity_anchors := {}
 var _afk_void_warning_shown := false
 var _anti_idle_last_relay_count := 0
 var _anti_idle_spawn_sequence := 0
+var _reconnect_notice_shown := false
 var _run_statistics := {
 	"elapsed_seconds": 0.0,
 	"distance_m": 0.0,
@@ -295,10 +297,19 @@ func _process(delta: float) -> void:
 				Backend.request_admin_ticket(RoomState.code)
 	var admin_open := _admin_menu != null and _admin_menu.is_open()
 	var story_open: bool = _story != null and _story.is_active()
+	if RoomState.reconnect_active:
+		_awaiting_snapshot = true
+		if not _reconnect_notice_shown:
+			_reconnect_notice_shown = true
+			hud.show_message("HOST SIGNAL LOST // RECONNECTING...")
+	elif _reconnect_notice_shown:
+		_reconnect_notice_shown = false
+		hud.show_message("HOST SIGNAL RESTORED // SYNCING ROUTE...")
 	# Being held by a hunter is the one moment pausing would be an exploit, so
 	# the menu is locked out for the length of the struggle.
 	pause_menu.tap_to_pause = not GameState.escape_active
-	if _awaiting_snapshot or _death_screen_open or GameState.escape_active or admin_open \
+	if _awaiting_snapshot or RoomState.reconnect_active or _death_screen_open \
+			or GameState.escape_active or admin_open \
 			or hud.inventory_is_open() or hud.map_is_open() \
 			or (_room_chat != null and _room_chat.is_open()) or story_open:
 		player.input_frozen = true
@@ -813,7 +824,7 @@ func _build_route_save_payload() -> Dictionary:
 			"chunks": _discovered_chunks.duplicate(true),
 			"rooms": _discovered_rooms.duplicate(true),
 			"markers": _discovered_map_markers.duplicate(true),
-			"waypoints": _map_waypoints.duplicate(true),
+			"waypoints": _active_waypoints(),
 		},
 		"story": _story.snapshot() if _story != null else {"active": false},
 		"anti_idle": {
@@ -858,7 +869,7 @@ func _adopt_route_save_before_stream(payload: Dictionary) -> bool:
 			_discovered_rooms = rooms.duplicate(true)
 		if markers is Dictionary:
 			_discovered_map_markers = markers.duplicate(true)
-		if waypoints is Array:
+		if waypoints is Array and not RoomState.online:
 			_map_waypoints = waypoints.duplicate(true)
 	var anti_idle = payload.get("anti_idle", {})
 	if anti_idle is Dictionary:
@@ -1158,8 +1169,20 @@ func _update_map_discovery(data: Dictionary) -> void:
 
 
 func _on_map_waypoint_requested(world_position: Vector2, level: int) -> void:
-	var snapped := Vector2(floori(world_position.x) + .5,
+	var waypoint_at := Vector2(floori(world_position.x) + .5,
 		floori(world_position.y) + .5)
+	if RoomState.online:
+		var event := {"what": "stream_waypoint", "at": waypoint_at, "level": level}
+		if RoomState.is_host:
+			_accept_stream_waypoint(multiplayer.get_unique_id(), event)
+		else:
+			_remotes.request_interaction(event)
+			hud.show_message("WAYPOINT PROPOSED")
+		return
+	_toggle_local_waypoint(waypoint_at, level)
+
+
+func _toggle_local_waypoint(snapped: Vector2, level: int) -> void:
 	for index in range(_map_waypoints.size() - 1, -1, -1):
 		var waypoint: Dictionary = _map_waypoints[index]
 		if int(waypoint.get("level", level)) == level \
@@ -1173,8 +1196,32 @@ func _on_map_waypoint_requested(world_position: Vector2, level: int) -> void:
 	_update_streamed_maps()
 
 
+func _active_waypoints() -> Array:
+	return world_state.shared_waypoints.duplicate(true) if RoomState.online \
+		else _map_waypoints.duplicate(true)
+
+
+func _floor_waypoints(level: int) -> Array:
+	var source := _active_waypoints()
+	return source.filter(func(waypoint: Dictionary) -> bool:
+		return int(waypoint.get("level", level)) == level)
+
+
 func _clear_reached_waypoints(level: int) -> void:
 	var player_at := Vector2(player.global_position.x, player.global_position.z)
+	if RoomState.online:
+		for waypoint_value in _floor_waypoints(level):
+			var waypoint: Dictionary = waypoint_value
+			var waypoint_at: Vector2 = waypoint.get("at", Vector2.ZERO)
+			if player_at.distance_to(waypoint_at) > WAYPOINT_ARRIVAL_RADIUS:
+				continue
+			var event := {"what": "stream_waypoint", "at": waypoint_at, "level": level}
+			if RoomState.is_host:
+				_accept_stream_waypoint(multiplayer.get_unique_id(), event)
+			else:
+				_remotes.request_interaction(event)
+			return
+		return
 	var removed := false
 	for index in range(_map_waypoints.size() - 1, -1, -1):
 		var waypoint: Dictionary = _map_waypoints[index]
@@ -1225,28 +1272,28 @@ func _update_streamed_maps() -> void:
 	var show_admin_regions := Build.admin_permission("visual")
 	var remote_map_players := _remotes.remote_player_marks(-level) \
 		if _remotes != null else []
+	var dropped_tool_marks := _dropped_tool_marks(level)
+	var discovered_map_chunks := _map_chunks_with_available_pickups(_discovered_chunks)
+	var safe_room_marks := _safe_room_map_marks(level, discovered_map_chunks)
 	_refresh_waypoint_route(level)
 	hud.update_streamed_minimap(_local_map_chunks(), level,
 		StreamedRouteGenerator.CHUNK_SIZE, at, player.facing,
 		_streamed_map_marks(level, false), remote_map_players,
-		show_admin_regions)
-	var floor_waypoints := _map_waypoints.filter(func(waypoint: Dictionary) -> bool:
-		return int(waypoint.get("level", level)) == level)
+		show_admin_regions, dropped_tool_marks, safe_room_marks)
+	var floor_waypoints := _floor_waypoints(level)
 	hud.minimap.set_waypoints(floor_waypoints)
 	hud.plan.set_waypoints(floor_waypoints)
 	hud.minimap.set_waypoint_path(_waypoint_route)
 	hud.plan.set_waypoint_path(_waypoint_route)
 	if hud.map_is_open():
-		hud.update_streamed_map(_map_chunks_with_available_pickups(
-			_discovered_chunks), level,
+		hud.update_streamed_map(discovered_map_chunks, level,
 			StreamedRouteGenerator.CHUNK_SIZE, at, player.facing,
 			_streamed_map_marks(level, true), remote_map_players,
-			show_admin_regions)
+			show_admin_regions, dropped_tool_marks, safe_room_marks)
 
 
 func _refresh_waypoint_route(level: int) -> void:
-	var floor_waypoints := _map_waypoints.filter(func(waypoint: Dictionary) -> bool:
-		return int(waypoint.get("level", level)) == level)
+	var floor_waypoints := _floor_waypoints(level)
 	var player_cell := Vector2i(floori(player.global_position.x),
 		floori(player.global_position.z))
 	var destinations := []
@@ -1271,6 +1318,53 @@ func _refresh_waypoint_route(level: int) -> void:
 			_waypoint_route.append(Vector2(segment[index]) + Vector2(.5, .5))
 		cursor = destination
 	_update_waypoint_ground_trail(level)
+
+
+func _dropped_tool_marks(level: int) -> Array:
+	var result := []
+	var player_at := Vector2(player.global_position.x, player.global_position.z)
+	for record_value in world_state.dropped_items.values():
+		var record: Dictionary = record_value
+		if int(record.get("level", 999999)) != level:
+			continue
+		var position = record.get("position")
+		if not position is Vector3:
+			continue
+		var at := Vector2(position.x, position.z)
+		if player_at.distance_to(at) > DROPPED_TOOL_MARK_RADIUS:
+			continue
+		var item_id := String(record.get("item", ""))
+		result.append({
+			"at": at,
+			"level": level,
+			"label": String(PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).substr(0, 1),
+			"item_id": item_id,
+		})
+	return result
+
+
+func _safe_room_map_marks(level: int, chunks: Dictionary) -> Array:
+	var result := []
+	for coord_value in chunks.keys():
+		var coord: Vector3i = coord_value
+		if coord.y != level:
+			continue
+		var chunk: Dictionary = chunks[coord]
+		if not bool(chunk.get("safe_room", false)):
+			continue
+		var info: Dictionary = chunk.get("safe_room_data", {})
+		var room_id := String(info.get("id", ""))
+		if room_id.is_empty():
+			continue
+		var status := world_state.safe_room_status(info)
+		result.append({
+			"at": Vector2((coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
+				(coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE),
+			"level": level,
+			"breached": bool(status.get("breached", false)),
+			"active": String(info.get("checkpoint_id", "")) == world_state.active_checkpoint,
+		})
+	return result
 
 
 func _discovered_waypoint_path(from_cell: Vector2i, to_cell: Vector2i,
@@ -1426,7 +1520,7 @@ func _update_anti_idle_pressure(delta: float) -> void:
 		return
 	# Online rooms keep the SceneTree running during a local pause so guests
 	# still simulate. The AFK/void clocks must not, or an alt-tabbed host
-	# still gets CAUGHT BY GRAY VOID while SIGNAL SUSPENDED is up.
+	# still gets CAUGHT BY GRAY while SIGNAL SUSPENDED is up.
 	if pause_menu != null and pause_menu.is_open():
 		return
 	var relay_count := GameState.relays_collected
@@ -1466,6 +1560,30 @@ func _update_anti_idle_pressure(delta: float) -> void:
 			_relay_inactivity_seconds = maxf(0.0, relay_delay - 5.0)
 		if afk_pressure:
 			_party_afk_seconds = maxf(0.0, afk_delay - 5.0)
+
+
+func _reset_gray_void_pressure(despawn_gray: bool) -> bool:
+	_relay_inactivity_seconds = 0.0
+	_party_afk_seconds = 0.0
+	_afk_void_warning_shown = false
+	if not despawn_gray:
+		return false
+	var removed := false
+	for entity_id_value in world_state.hunters.keys().duplicate():
+		var entity_id := String(entity_id_value)
+		var state: Dictionary = world_state.hunters[entity_id]
+		if String(state.get("hunter_id", "")) != "void_gray":
+			continue
+		_unload_hunter(entity_id, false)
+		world_state.hunters.erase(entity_id)
+		removed = true
+	if removed and _remotes != null and _remotes.simulates():
+		_hunter_stream_signature = ""
+		_refresh_hunter_stream()
+		_collect_hunter_report()
+		_remotes.broadcast_hunters(_hunter_report)
+		_remotes.broadcast_snapshot()
+	return removed
 
 
 func _party_moved_since_pressure_sample(targets: Array) -> bool:
@@ -2669,6 +2787,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_waypoint":
+			_accept_stream_waypoint(peer_id, event)
 		"guardian_ping":
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":
@@ -2745,6 +2865,25 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 			world_state.claim_drop(drop_id)
 			_publish_stream_event({"what": "stream_drop_claim", "drop": record,
 				"winner_peer_id": peer_id})
+
+
+func _accept_stream_waypoint(peer_id: int, event: Dictionary) -> void:
+	var target := _target_state_for_peer(peer_id)
+	var at = event.get("at")
+	if target.is_empty() or not at is Vector2:
+		return
+	var level := int(event.get("level", 999999))
+	if level != -int(target.get("depth", 0)):
+		return
+	var result := world_state.toggle_shared_waypoint(
+		Vector2(floori(at.x) + .5, floori(at.y) + .5), level, peer_id)
+	if not bool(result.get("changed", false)):
+		return
+	var waypoint: Dictionary = result.get("waypoint", {})
+	_publish_stream_event({"what": "stream_waypoint",
+		"added": bool(result.get("added", false)),
+		"waypoint": waypoint,
+		"message_peer_id": peer_id})
 
 
 func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
@@ -3001,6 +3140,13 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 					hud.show_message("SIGNAL LOST // RELAY OFFLINE")
 				elif int(event.get("message_peer_id", 0)) == local_id:
 					hud.show_message("SIGNAL RELAY RESECURED")
+		"stream_waypoint":
+			var waypoint = event.get("waypoint", {})
+			if waypoint is Dictionary and world_state.apply_shared_waypoint(
+					waypoint, bool(event.get("added", false))):
+				_waypoint_route_key = ""
+				Sound.menu_blip()
+				_update_streamed_maps()
 		"stream_door":
 			var door_id := String(event.get("door_id", ""))
 			if _stream_room_door_data(door_id).is_empty():
@@ -3145,14 +3291,17 @@ func _sync_stream_progress() -> void:
 	GameState.relays_collected = relay_count
 	GameState.relays_sabotaged = world_state.sabotaged_relays.size()
 	GameState.coins = coin_count * GameConfig.COIN_PICKUP_VALUE
+	var gray_removed := false
 	if relay_count != previous_relays:
 		_anti_idle_last_relay_count = relay_count
-		_relay_inactivity_seconds = 0.0
-		_party_afk_seconds = 0.0
-		_afk_void_warning_shown = false
+		gray_removed = _reset_gray_void_pressure(
+			_remotes != null and _remotes.simulates())
 	if relay_count != previous_relays and _remotes != null and _remotes.simulates():
 		# Population pressure changes on the authoritative pickup frame rather
-		# than waiting for the next periodic stream refresh.
+		# than waiting for the next periodic stream refresh. Relay progress also
+		# cancels any currently spawned Gray Void pressure body immediately.
+		if gray_removed:
+			return
 		_refresh_hunter_stream()
 
 

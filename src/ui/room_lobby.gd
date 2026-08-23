@@ -23,6 +23,8 @@ var _dossier_name: Label
 var _dossier_status: Label
 var _dossier_behavior: Label
 var _dossier_counter: Label
+var _dossier_gimmick_heading: Label
+var _dossier_gimmick: Label
 var _dossier_stats: Label
 var _default_focus: Control
 
@@ -452,6 +454,14 @@ func _on_dossier_pressed() -> void:
 
 	_dossier_behavior = _dossier_copy("DossierBehavior")
 	details.add_child(_dossier_behavior)
+	_dossier_gimmick_heading = _label(Palette.track("VOID GIMMICK CHART"),
+		Palette.AMBER, 6)
+	_dossier_gimmick_heading.name = "DossierGimmickHeading"
+	_dossier_gimmick_heading.visible = false
+	details.add_child(_dossier_gimmick_heading)
+	_dossier_gimmick = _dossier_copy("DossierGimmick")
+	_dossier_gimmick.visible = false
+	details.add_child(_dossier_gimmick)
 	details.add_child(_label(Palette.track("COUNTERPLAY"), Palette.AMBER, 6))
 	_dossier_counter = _dossier_copy("DossierCounter")
 	details.add_child(_dossier_counter)
@@ -506,6 +516,9 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
 			else "SIGN IN TO RETAIN DISCOVERIES"
 		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
+		_dossier_gimmick_heading.visible = false
+		_dossier_gimmick.visible = false
+		_dossier_gimmick.text = ""
 		_dossier_counter.text = "NO VERIFIED COUNTERPLAY DATA"
 		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
 		return
@@ -517,6 +530,14 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
 	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
 		String(entry["behavior"])]
+	var has_chart := entry.has("gimmick_behavior")
+	_dossier_gimmick_heading.visible = has_chart
+	_dossier_gimmick.visible = has_chart
+	_dossier_gimmick.text = "%s // %s\nCOUNTERPLAY DIRECTION // %s" % [
+		String(entry.get("gimmick_title", "UNASSIGNED")),
+		String(entry.get("gimmick_behavior", "")),
+		String(entry.get("gimmick_counter", "")),
+	] if has_chart else ""
 	_dossier_counter.text = String(entry["counter"])
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
@@ -577,6 +598,8 @@ func _clear_dossier_fields() -> void:
 	_dossier_status = null
 	_dossier_behavior = null
 	_dossier_counter = null
+	_dossier_gimmick_heading = null
+	_dossier_gimmick = null
 	_dossier_stats = null
 
 

@@ -45,9 +45,8 @@ func speed_scale(_brain: HunterBrain) -> float:
 	return 1.0
 
 
-## True when this hunter is not drawn in the world at all — Porcelle, who
-## exists only on the map. Presentation-only, like Umbriel's disguise: the brain
-## never reads it, HunterView3D does.
+## True when this hunter should be hidden by presentation logic alone. The brain
+## never reads it; HunterView3D does.
 func hidden_from_view() -> bool:
 	return false
 

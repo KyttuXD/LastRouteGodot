@@ -363,16 +363,16 @@ const STREAMED_HUNTER_RELAY_STEP := {
 ## ANTI_AFK_WARNING_SECONDS is a readable slice of that same AFK window, not
 ## extra delay: HUD/heartbeat telegraph before Gray Void still wakes on time.
 const ANTI_IDLE_HUNTER_SECONDS := {
-	"relaxed": 300.0,
-	"standard": 210.0,
-	"hard": 120.0,
-	"nightmare": 90.0,
+	"relaxed": 360.0,
+	"standard": 270.0,
+	"hard": 150.0,
+	"nightmare": 120.0,
 }
 const ANTI_AFK_HUNTER_SECONDS := {
-	"relaxed": 180.0,
-	"standard": 120.0,
-	"hard": 75.0,
-	"nightmare": 60.0,
+	"relaxed": 240.0,
+	"standard": 150.0,
+	"hard": 90.0,
+	"nightmare": 75.0,
 }
 const ANTI_AFK_WARNING_SECONDS := 8.0
 

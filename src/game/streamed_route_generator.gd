@@ -244,6 +244,16 @@ const TEMPLATE_PROP_SIZES := {
 	"bathroomStall": Vector3(.72, 1.95, .65),
 	"bathroomSink": Vector3(.85, 1.35, .5),
 	"bathroomMirror": Vector3(.75, 1.25, .16),
+	"normalPictureFrameEmpty": Vector3(.72, .95, .12),
+	"normalPaintingFrameEmpty": Vector3(1.22, 1.52, .12),
+	"luxuryPictureFrameEmpty": Vector3(.78, 1.05, .12),
+	"luxuryPaintingFrameEmpty": Vector3(1.24, 1.58, .12),
+	"gothicPictureFrameEmpty": Vector3(.78, 1.05, .12),
+	"gothicPaintingFrameEmpty": Vector3(1.24, 1.58, .12),
+	"bedroomRug": Vector3(2.2, .03, 1.45),
+	"hotelCarpet": Vector3(2.2, .03, 1.4),
+	"apartmentCarpet": Vector3(2.0, .03, 1.35),
+	"gothicBedroomRug": Vector3(2.2, .03, 1.4),
 	"bathroomVanity": Vector3(.9, 1.65, .55),
 	"publicRestroomToilet": Vector3(.55, 1.25, .82),
 	"publicMensUrinal": Vector3(.48, 1.15, .42),
@@ -261,6 +271,12 @@ const TEMPLATE_PROP_SIZES := {
 	"houseTowelRack": Vector3(.85, .65, .16),
 	"houseBathMat": Vector3(.95, .08, .65),
 	"houseBathroomShelf": Vector3(.9, .65, .16),
+	"lavaVent": Vector3(.68, .6, .60),
+	"basaltRubble": Vector3(1.25, .62, 1.10),
+	"infernoAltar": Vector3(1.35, 1.3, .95),
+	"infernoChainLantern": Vector3(.42, 1.6, .42),
+	"lavaPipeManifold": Vector3(1.35, 1.45, .55),
+	"charredSupplyCrate": Vector3(.95, .92, .85),
 }
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
@@ -1455,9 +1471,15 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			continue
 		templated_rooms[String(furnished_room.get("id", ""))] = true
 		result.append_array(furnishing)
-	var prop_count := mini(5 if safe else 8, rooms.size())
+	var room_order := rooms.duplicate()
+	for shuffle_index in range(room_order.size() - 1, 0, -1):
+		var swap_index := rng.next_index(shuffle_index + 1)
+		var swap_value = room_order[shuffle_index]
+		room_order[shuffle_index] = room_order[swap_index]
+		room_order[swap_index] = swap_value
+	var prop_count := mini(6 if safe else 10, room_order.size())
 	for index in prop_count:
-		var room: Dictionary = rooms[index]
+		var room: Dictionary = room_order[index]
 		# prison_cell interiors are owned by the streamed cell-block dresser.
 		# Extra fallback scatter stacked restaurant tables through bunks.
 		if String(room.get("room_type", "")) in ["stairwell", "prison_cell"] \
@@ -1583,6 +1605,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = "private_office"
 	elif room_type == "prison_cafeteria":
 		template = "prison_cafeteria"
+	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
+		template = room_type
 	if template.is_empty():
 		return []
 	# Full furniture compositions require room around the entrance aisle. If a
@@ -1595,7 +1619,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	var rng := SeededRandom.new("%s:TEMPLATE:%s:%s" % [world_seed,
 		chunk_id(coord), String(room.get("id", ""))])
 	var mirror := -1 if rng.next_float() < .5 else 1
-	var specs := _room_template_specs(template, side_span, depth_span, mirror, rng)
+	var specs := _room_template_specs(template, region, side_span, depth_span,
+		mirror, rng)
 	var result := []
 	for spec_index in specs.size():
 		var spec: Dictionary = specs[spec_index]
@@ -1614,9 +1639,12 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	return result
 
 
-static func _room_template_specs(template: String, side_span: int,
-		depth_span: int, mirror: int, rng: SeededRandom) -> Array:
+static func _room_template_specs(template: String, region: String,
+		side_span: int, depth_span: int, mirror: int, rng: SeededRandom) -> Array:
 	var mid_depth := depth_span / 2
+	var frame_type := _frame_type_for_region(region, false)
+	var painting_type := _frame_type_for_region(region, true)
+	var rug_type := _rug_type_for_region(region)
 	var specs := []
 	match template:
 		"bedroom":
@@ -1632,9 +1660,18 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 0, "facing": "open", "solid": false, "mount_y": .71})
 			specs.append({"type": "ceilingFan", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false})
+			if not rug_type.is_empty():
+				specs.append({"type": rug_type, "side": 0,
+					"depth": mid_depth, "facing": "open", "solid": false})
 			if side_span >= 9:
 				specs.append({"type": "bedroomWardrobe", "side": 3 * mirror,
 					"depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "bedroomDresser", "side": -3 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+			if not frame_type.is_empty():
+				specs.append({"type": frame_type, "side": 2 * mirror,
+					"depth": 0, "facing": "open", "wall_mount": true,
+					"solid": false})
 			if depth_span >= 9:
 				specs.append({"type": "woodenTable", "side": -3 * mirror,
 					"depth": mid_depth, "facing": "center"})
@@ -1758,6 +1795,46 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": mid_depth, "facing": "open", "solid": false})
 			specs.append({"type": "ceilingLight", "side": 2,
 				"depth": mid_depth, "facing": "open", "solid": false})
+			specs.append({"type": "supplyCrates", "side": -1 * mirror,
+				"depth": depth_span - 1, "facing": "back"})
+		"thermal_chamber":
+			specs.append({"type": "lavaVent", "side": -2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "lavaVent", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "magmaCrystalCluster", "side": 0,
+				"depth": mid_depth + 1, "facing": "center"})
+			specs.append({"type": "infernoChainLantern", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"forge":
+			specs.append({"type": "lavaPipeManifold", "side": -2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "emberBrazier", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "charredSupplyCrate", "side": 0,
+				"depth": mid_depth + 1, "facing": "center"})
+			specs.append({"type": "infernoChainLantern", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
+		"altar_room":
+			specs.append({"type": "infernoAltar", "side": 0,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "emberBrazier", "side": -2 * mirror,
+				"depth": mid_depth + 1, "facing": "center"})
+			specs.append({"type": "emberBrazier", "side": 2 * mirror,
+				"depth": mid_depth + 1, "facing": "center"})
+			specs.append({"type": "infernoChainLantern", "side": 0,
+				"depth": mid_depth - 1, "facing": "open", "solid": false})
+		"lava_gallery":
+			specs.append({"type": "basaltPillar", "side": -2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "basaltPillar", "side": 2 * mirror,
+				"depth": mid_depth, "facing": "center"})
+			specs.append({"type": "basaltRubble", "side": -1 * mirror,
+				"depth": mid_depth + 2, "facing": "center"})
+			specs.append({"type": "magmaCrystalCluster", "side": 1 * mirror,
+				"depth": mid_depth + 2, "facing": "center"})
+			specs.append({"type": "infernoChainLantern", "side": 0,
+				"depth": mid_depth, "facing": "open", "solid": false})
 		"house_bathroom", "hotel_bathroom":
 			var compact := template == "hotel_bathroom" or side_span < 7
 			var wet_side := -1 if compact else -2
@@ -1872,6 +1949,13 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "ceilingFan", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false})
+			if not rug_type.is_empty():
+				specs.append({"type": rug_type, "side": -1 * mirror,
+					"depth": mid_depth, "facing": "open", "solid": false})
+			if not painting_type.is_empty():
+				specs.append({"type": painting_type, "side": 2 * mirror,
+					"depth": 0, "facing": "open", "wall_mount": true,
+					"solid": false})
 		"office_reception":
 			specs.append({"type": "filingCabinet", "side": -2 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
@@ -1886,6 +1970,11 @@ static func _room_template_specs(template: String, side_span: int,
 			specs.append({"type": "retroComputerCompact", "side": 0,
 				"depth": mid_depth, "facing": "open", "solid": false,
 				"mount_y": .78})
+			specs.append({"type": "officeWaterCooler", "side": 2 * mirror,
+				"depth": mid_depth + 1, "facing": "center"})
+			specs.append({"type": "normalPictureFrameEmpty", "side": -2 * mirror,
+				"depth": 0, "facing": "open", "wall_mount": true,
+				"solid": false})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 		"office_cubicles":
@@ -1917,6 +2006,13 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 4, "facing": "center"})
 			specs.append({"type": "officeFileBoxes", "side": 1 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "normalPictureFrameEmpty", "side": 1 * mirror,
+				"depth": 0, "facing": "open", "wall_mount": true,
+				"solid": false})
+			specs.append({"type": "ceilingLight", "side": -1,
+				"depth": mid_depth, "facing": "open", "solid": false})
+			specs.append({"type": "ceilingLight", "side": 1,
+				"depth": mid_depth, "facing": "open", "solid": false})
 		"office_meeting":
 			specs.append({"type": "woodenTable", "side": 0,
 				"depth": mid_depth, "facing": "open"})
@@ -1939,6 +2035,9 @@ static func _room_template_specs(template: String, side_span: int,
 				"mount_y": .78})
 			specs.append({"type": "normalTvConsole", "side": 0,
 				"depth": mid_depth + 3, "facing": "center"})
+			specs.append({"type": "normalPaintingFrameEmpty", "side": 2 * mirror,
+				"depth": 0, "facing": "open", "wall_mount": true,
+				"solid": false})
 		"office_job":
 			# Three 1.65 m desks cannot share one depth in a 5-cell interior.
 			# Stagger them so each computer sits on a desk that actually fits.
@@ -1982,6 +2081,9 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 4, "facing": "center"})
 			specs.append({"type": "officeShredder", "side": -1 * mirror,
 				"depth": 4, "facing": "center"})
+			specs.append({"type": "normalPaintingFrameEmpty", "side": 0,
+				"depth": 0, "facing": "open", "wall_mount": true,
+				"solid": false})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 		"private_office":
@@ -2005,9 +2107,36 @@ static func _room_template_specs(template: String, side_span: int,
 				"depth": 3, "facing": "left"})
 			specs.append({"type": "normalTvConsole", "side": 0,
 				"depth": 4, "facing": "center"})
+			specs.append({"type": "normalPaintingFrameEmpty", "side": 0,
+				"depth": 0, "facing": "open", "wall_mount": true,
+				"solid": false})
+			specs.append({"type": "officeWaterCooler", "side": 1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	return specs
+
+
+static func _frame_type_for_region(region: String, wide: bool) -> String:
+	match region:
+		"hotel":
+			return "luxuryPaintingFrameEmpty" if wide else "luxuryPictureFrameEmpty"
+		"gothic":
+			return "gothicPaintingFrameEmpty" if wide else "gothicPictureFrameEmpty"
+		_:
+			return "normalPaintingFrameEmpty" if wide else "normalPictureFrameEmpty"
+
+
+static func _rug_type_for_region(region: String) -> String:
+	match region:
+		"hotel":
+			return "hotelCarpet"
+		"apartment":
+			return "apartmentCarpet"
+		"gothic":
+			return "gothicBedroomRug"
+		_:
+			return "bedroomRug"
 
 
 static func _room_template_basis(room: Dictionary) -> Dictionary:

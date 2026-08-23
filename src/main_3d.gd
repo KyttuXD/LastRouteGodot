@@ -235,9 +235,9 @@ func _process(delta: float) -> void:
 
 
 ## Dossier facts unlock from an actual local encounter, not from a room roll or
-## host snapshot. Ordinary hunters require nearby line of sight. Porcelle's
-## intended visible surface is the full map, while Umbriel reveals the face she
-## is wearing rather than silently exposing her real identity.
+## host snapshot. Ordinary hunters require nearby line of sight. Porcelle also
+## exposes herself through the full map, while Umbriel reveals the face she is
+## wearing rather than silently exposing her real identity.
 func _discover_visible_hunters() -> void:
 	if not Backend.signed_in() or _awaiting_initial_snapshot:
 		return
@@ -246,10 +246,8 @@ func _discover_visible_hunters() -> void:
 		if view.brain == null or not view.brain.active:
 			continue
 		var hunter_id := view.brain.hunter_id
-		if hunter_id == "porcelle":
-			if hud.map_is_open():
-				Backend.account_discover_hunter(hunter_id)
-			continue
+		if hunter_id == "porcelle" and hud.map_is_open():
+			Backend.account_discover_hunter(hunter_id)
 		if local_position.distance_to(view.brain.position) > HUNTER_DISCOVERY_RANGE \
 				or not facility_view.generator.has_line_of_sight(
 					local_position, view.brain.position):
@@ -554,8 +552,8 @@ func _guardian_blocking(target: RouteInteractable3D) -> String:
 
 
 ## What the map shows. Every ACTIVE hunter, including the ones the room cannot
-## see -- Porcelle is invisible in the world and appears only here, which is the
-## whole reason this panel had to become a real map.
+## see. Porcelle's extra full-map marker remains part of her counterplay even
+## though she is now visible in the room as well.
 ##
 ## `include_inactive`: the admin menu's "REVEAL HUNTERS" toggle -- a hunter
 ## still waiting on the relay schedule (or a special still waiting on her own

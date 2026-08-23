@@ -13,7 +13,12 @@ config_version=5
 config/name="KYTTU: The Last Route"
 config/version="0.0.1.0"
 run/main_scene="res://scenes/boot_loading.tscn"
+run/print_header=false
 config/features=PackedStringArray("4.7")
+boot_splash/bg_color=Color(0, 0, 0, 0)
+boot_splash/show_image=false
+boot_splash/stretch_mode=0
+boot_splash/use_filter=false
 config/icon="res://assets/branding/last_route_icon.png"
 
 [autoload]
@@ -31,10 +36,14 @@ RoomState="*res://src/autoload/room_state.gd"
 
 window/size/viewport_width=480
 window/size/viewport_height=270
+window/size/resizable=false
+window/size/borderless=true
+window/size/transparent=true
 window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+window/per_pixel_transparency/allowed=true
 window/handheld/orientation=1
 
 [input]

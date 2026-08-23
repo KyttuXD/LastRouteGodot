@@ -414,8 +414,8 @@ func _aki_answers_a_flash(generator: FacilityGenerator) -> void:
 		% GameConfig.AKI_BURST_COUNT)
 
 
-## Porcelle is a faint ghost in the room and clearer on the map, so the two
-## halves have to be checked together. Driven through
+## Porcelle is now fully visible in the room while still exposing herself on the
+## full map, so the two halves have to be checked together. Driven through
 ## the real scene, because "the gimmick returns true" is exactly the kind of
 ## check that passes while the model is still on screen.
 func _porcelle_is_only_on_the_map(host: Node) -> void:
@@ -438,14 +438,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	# still hanging in the tree and blames Porcelle for it.
 	await host.get_tree().process_frame
 
-	# HunterView3D now owns a real CollisionShape3D so gravity and stairs can
-	# use CharacterBody3D physics. A collision node is a visible Node3D in the
-	# scene-tree sense, but it is not rendered in game; assert against the
-	# presentation model itself rather than treating physics as artwork.
-	# Instance transparency alone is not enough: ALPHA_SCISSOR still discards
-	# a 0.62/0.72 fade, which is how Porcelle/Verrine could pass this suite
-	# while rendering as a completely missing hunter.
-	_expect_world_silhouette(view, .62, "Porcelle")
+	_expect_fully_visible_hunter(view, "Porcelle")
 
 	var marks: Array = scene._map_marks()
 	var found := false
@@ -454,7 +447,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 			found = bool(mark.get("ghost", false)) \
 				and String(mark.get("hunter_id", "")) == "porcelle"
 	_expect(found,
-		"Porcelle lacks her faint ghost marker on the map")
+		"Porcelle lacks her ghost-tagged counterplay marker on the map")
 	_expect(FacilityMap.PORCELLE_GHOST.a > 0.0,
 		"Porcelle ghost map palette is fully invisible")
 	view.brain.hunter_id = "verrine"
@@ -496,7 +489,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	_expect_fully_visible_hunter(view, "an active Void hunter")
 	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
 		"a Void hunter received A-Z glow-eye attachments")
-	print("  stealth   Porcelle and hidden active hunters retain faint world silhouettes")
+	print("  stealth   Porcelle stays visible; hidden active hunters retain faint silhouettes")
 	scene.queue_free()
 
 

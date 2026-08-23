@@ -25,6 +25,7 @@ enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
 
 const ARRIVAL_DISTANCE := 0.65
 const WAYPOINT_DISTANCE := 0.18
+const PATH_LOOKAHEAD_NODES := 4
 
 var position: Vector2
 var state: State = State.IDLE
@@ -471,11 +472,16 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 
 	var waypoint := move_target
 	if not _path.is_empty():
-		waypoint = Vector2(_path[0]) + Vector2(0.5, 0.5)
-		if position.distance_to(waypoint) <= WAYPOINT_DISTANCE:
+		while not _path.is_empty() and position.distance_to(
+				Vector2(_path[0]) + Vector2(0.5, 0.5)) <= WAYPOINT_DISTANCE:
 			_path.pop_front()
-			if not _path.is_empty():
-				waypoint = Vector2(_path[0]) + Vector2(0.5, 0.5)
+		if not _path.is_empty():
+			var waypoint_info := _smoothed_path_waypoint(generator)
+			for _step in range(int(waypoint_info.get("consumed", 0))):
+				if _path.is_empty():
+					break
+				_path.pop_front()
+			waypoint = waypoint_info.get("point", Vector2(_path[0]) + Vector2(0.5, 0.5))
 
 	var to_waypoint := waypoint - position
 	var distance := to_waypoint.length()
@@ -483,13 +489,39 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 		var travel := minf(speed * delta, distance)
 		var direction := to_waypoint / distance
 		facing = direction
-		_move_with_collision(direction.x * travel, direction.y * travel, generator)
+		var moved := _move_with_collision(direction.x * travel,
+			direction.y * travel, generator)
+		if moved <= 0.001 and not _path.is_empty():
+			# Tight inside corners can leave the first waypoint just beyond the
+			# capsule's current diagonal reach. Force an immediate repath next
+			# frame instead of burning the whole chase interval pushing in place.
+			_path_timer = 0.0
+			if _path.size() > 1:
+				_path.pop_front()
 
 
-func _move_with_collision(dx: float, dy: float, generator) -> void:
+func _smoothed_path_waypoint(generator) -> Dictionary:
+	if _path.is_empty():
+		return {"point": position, "consumed": 0}
+	var furthest_index := 0
+	var furthest_point := Vector2(_path[0]) + Vector2(0.5, 0.5)
+	var lookahead := mini(PATH_LOOKAHEAD_NODES, _path.size())
+	for index in range(lookahead):
+		var candidate := Vector2(_path[index]) + Vector2(0.5, 0.5)
+		if not generator.can_occupy(candidate.x, candidate.y, radius):
+			break
+		if not generator.has_line_of_sight(position, candidate):
+			break
+		furthest_index = index
+		furthest_point = candidate
+	return {"point": furthest_point, "consumed": furthest_index}
+
+
+func _move_with_collision(dx: float, dy: float, generator) -> float:
 	var total := Vector2(dx, dy).length()
 	if total <= 0.0:
-		return
+		return 0.0
+	var start := position
 	var steps: int = maxi(1, int(ceil(total / GameConfig.MOVEMENT_STEP)))
 	var step_dx := dx / steps
 	var step_dy := dy / steps
@@ -500,6 +532,7 @@ func _move_with_collision(dx: float, dy: float, generator) -> void:
 		var next_y := position.y + step_dy
 		if generator.can_occupy(position.x, next_y, radius):
 			position.y = next_y
+	return position.distance_to(start)
 
 
 func _pick_wander_target(generator) -> Vector2:

@@ -1,6 +1,9 @@
 class_name HunterDossier
 extends RefCounted
 
+const VOID_GIMMICK_CHART := preload(
+	"res://src/config/void_hunter_gimmicks/void_hunter_gimmick_chart.gd")
+
 ## Player-facing descriptions of the mechanics which are live in this port.
 ## Keeping these separate from HunterRoster's tuning table makes the dossier a
 ## readable gameplay reference instead of turning simulation data into UI copy.
@@ -82,9 +85,9 @@ const ENTRIES := {
 		"counter": "Draw her away from the station before attempting the relay or nearby supplies. Do not repeatedly test the blocked interaction.",
 	},
 	"porcelle": {
-		"ability": "RADAR-ONLY",
-		"behavior": "Porcelle is invisible in the 3D route but remains fully active. Her moving position is visible as a hunter mark on the full facility map.",
-		"counter": "Open the map often enough to track her, then move using that information. The minimap deliberately does not reveal hunters.",
+		"ability": "RADAR TRACKED",
+		"behavior": "Porcelle remains visible in the route, and her moving position is also exposed as a hunter mark on the full facility map.",
+		"counter": "Open the map often enough to keep her route in view, then move using that information. The minimap deliberately does not reveal hunters.",
 	},
 	"quirith": {
 		"ability": "FLASHLIGHT TRACKER",
@@ -136,23 +139,14 @@ const ENTRIES := {
 		"behavior": "Zephyra settles near the facility centre as a harmless merchant. Coins can buy cooling, warmth, repairs or temporary pesticide.",
 		"counter": "She cannot capture you. Bank coins and use the numbered offers when a temperature or hunter problem justifies the cost.",
 	},
-	"void_black": {"ability": "VOID INCURSION", "behavior": "Black Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Treat the second chase signal as a separate hunter. Break sight early and do not assume losing one threat ended the pursuit."},
-	"void_blue": {"ability": "VOID INCURSION", "behavior": "Blue Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Preserve stamina for overlapping pursuit paths and use safe rooms to separate the hunters."},
-	"void_brown": {"ability": "VOID INCURSION", "behavior": "Brown Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Avoid narrow dead ends; its aggressive hearing makes noisy tool use especially dangerous."},
-	"void_cyan": {"ability": "VOID INCURSION", "behavior": "Cyan Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Move before the chase becomes a straight sprint; Void chase progression compounds quickly."},
-	"void_gray": {"ability": "VOID INCURSION", "behavior": "Gray Void can enter as an additional long-sighted pursuer alongside the route's A-Z hunter.", "counter": "Use hard corners and region transitions; distance alone is unreliable against its sight range."},
-	"void_green": {"ability": "VOID INCURSION", "behavior": "Green Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Keep a quiet alternate route ready before committing to an objective or locked cache."},
-	"void_orange": {"ability": "VOID INCURSION", "behavior": "Orange Void can enter as an additional extremely fast pursuer alongside the route's A-Z hunter.", "counter": "Do not race it down a straight hall. Turn, break sight and force a new path calculation."},
-	"void_pink": {"ability": "VOID INCURSION", "behavior": "Pink Void can enter as an additional high-speed pursuer alongside the route's A-Z hunter.", "counter": "Confirm which hunter owns each sound and map mark before choosing an escape route."},
-	"void_purple": {"ability": "VOID INCURSION", "behavior": "Purple Void can enter as an additional rapidly accelerating pursuer alongside the route's A-Z hunter.", "counter": "End pursuit quickly; a prolonged chase gives its progression scale the advantage."},
-	"void_red": {"ability": "VOID INCURSION", "behavior": "Red Void can enter as the most aggressive baseline Void pursuer alongside the route's A-Z hunter.", "counter": "Use the environment immediately. It is intentionally too fast for a long open-footrace."},
-	"void_white": {"ability": "VOID INCURSION", "behavior": "White Void can enter as an additional hearing-focused pursuer alongside the route's A-Z hunter.", "counter": "Walk and avoid unnecessary tool impacts until you know where the incursion spawned."},
-	"void_yellow": {"ability": "VOID INCURSION", "behavior": "Yellow Void can enter as an additional fast, far-sighted pursuer alongside the route's A-Z hunter.", "counter": "Limit exposed crossings and reach a safe room before spending time on inventory management."},
 }
 
 
 static func sorted_ids() -> Array:
-	var ids: Array = ENTRIES.keys()
+	var ids: Array = []
+	for hunter_id in HunterRoster.PROFILES:
+		if not entry(String(hunter_id)).is_empty():
+			ids.append(String(hunter_id))
 	ids.sort_custom(func(a: String, b: String) -> bool:
 		return String(HunterRoster.PROFILES[a]["name"]) < String(HunterRoster.PROFILES[b]["name"]))
 	return ids
@@ -160,7 +154,9 @@ static func sorted_ids() -> Array:
 
 static func category_ids(category: String) -> Array:
 	var ids: Array = []
-	for hunter_id in ENTRIES:
+	for hunter_id in HunterRoster.PROFILES:
+		if entry(String(hunter_id)).is_empty():
+			continue
 		var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
 		var actual := String(profile.get("category", "az"))
 		if actual == category:
@@ -172,4 +168,6 @@ static func category_ids(category: String) -> Array:
 
 
 static func entry(hunter_id: String) -> Dictionary:
+	if VOID_GIMMICK_CHART.has_entry(hunter_id):
+		return VOID_GIMMICK_CHART.entry(hunter_id)
 	return ENTRIES.get(hunter_id, {})

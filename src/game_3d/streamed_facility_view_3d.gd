@@ -42,11 +42,14 @@ const STAIR_RUN := 8.0
 const STAIR_RISE := LEVEL_HEIGHT
 const STAIR_WIDTH := 3.0
 const STAIR_STEPS := 16
+const LEVEL_TRANSITION_MARGIN := 0.35
 
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
 const WALL_TEXTURE := "res://art/props-3d/environment/wall_texture.png"
 const REGION_FLOOR_TEXTURE := "res://art/props-3d/environment/floor_%s.png"
 const REGION_WALL_TEXTURE := "res://art/props-3d/environment/wall_%s.png"
+const FLOOR_TILE_SCENE := "res://art/props-3d/environment/floor_tile.tscn"
+const WALL_BLOCK_SCENE := "res://art/props-3d/environment/wall_block.tscn"
 const PRISON_MODELS := {
 	"gate": "res://art/props-3d/props/prison/prison_cell_gate.glb",
 	"bunk": "res://art/props-3d/props/prison/prison_bunk.glb",
@@ -106,6 +109,7 @@ var _mirror_camera: Camera3D
 var _mirror_surfaces: Array[MeshInstance3D] = []
 var _mirror_refresh_elapsed := 0.0
 var _animated_activity_props: Array[Node3D] = []
+var _tracked_level := 0
 
 
 func _ready() -> void:
@@ -119,6 +123,8 @@ func begin(seed_text: String, player: PlayerController3D,
 	generator = StreamedRouteGenerator.new(seed_text)
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
+	_tracked_level = snapped_level_for_world_y(
+		tracked_player.global_position.y if tracked_player != null else 0.0)
 	_refresh_stream(true)
 
 
@@ -142,6 +148,7 @@ func clear() -> void:
 	_discard_active_build()
 	_stream_completion_pending = false
 	_last_player_chunk = Vector3i(999999, 999999, 999999)
+	_tracked_level = 0
 
 
 func spawn_position() -> Vector3:
@@ -158,13 +165,32 @@ func spawn_position() -> Vector3:
 func refresh_at_tracked_player() -> void:
 	if generator == null or tracked_player == null:
 		return
+	_tracked_level = snapped_level_for_world_y(tracked_player.global_position.y)
 	_refresh_stream(true)
 
 
 func current_level() -> int:
 	if tracked_player == null:
 		return 0
-	return roundi(tracked_player.global_position.y / LEVEL_HEIGHT)
+	_tracked_level = hysteresis_level_for_world_y(tracked_player.global_position.y,
+		_tracked_level)
+	return _tracked_level
+
+
+static func snapped_level_for_world_y(world_y: float) -> int:
+	return roundi(world_y / LEVEL_HEIGHT)
+
+
+static func hysteresis_level_for_world_y(world_y: float, current_level_hint: int) -> int:
+	var level := current_level_hint
+	var snapped_level := snapped_level_for_world_y(world_y)
+	if absi(snapped_level - level) > 1:
+		return snapped_level
+	while world_y >= float(level + 1) * LEVEL_HEIGHT - LEVEL_TRANSITION_MARGIN:
+		level += 1
+	while world_y <= float(level - 1) * LEVEL_HEIGHT + LEVEL_TRANSITION_MARGIN:
+		level -= 1
+	return level
 
 
 func current_chunk_coord() -> Vector3i:
@@ -846,7 +872,7 @@ func room_doors_on_level(level: int) -> Array[RouteInteractable3D]:
 	for door_value in _door_nodes.values():
 		var door := door_value as RouteInteractable3D
 		if door != null and is_instance_valid(door) \
-				and roundi(door.global_position.y / LEVEL_HEIGHT) == level:
+				and snapped_level_for_world_y(door.global_position.y) == level:
 			result.append(door)
 	return result
 
@@ -855,10 +881,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
 		prop_type: String = "") -> void:
-	var packed := load(path) as PackedScene
-	if packed == null:
-		return
-	var visual := packed.instantiate() as Node3D
+	var visual := ModelSlot.instantiate_prop(path, prop_type)
 	if visual == null:
 		return
 	var visual_at := at
@@ -879,8 +902,6 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		_add_blank_frame_canvas(visual, prop_type)
 	if prop_type == "carouselCenterpiece":
 		_animated_activity_props.append(visual)
-	ModelSlot.apply_prop_pixel_filter(visual)
-	ModelSlot.apply_blocky_prop_style(visual)
 	if PropModelCatalog.is_floor_dressing(prop_type):
 		ModelSlot.keep_floor_dressing_visible(visual)
 	var furniture_action := PropModelCatalog.interaction_for(prop_type)
@@ -1175,13 +1196,12 @@ func refresh_mutations() -> void:
 func _build_mesh_library() -> MeshLibrary:
 	var library := MeshLibrary.new()
 	var floor_texture := load(FLOOR_TEXTURE) as Texture2D
-	var ceiling_material := _material(floor_texture, Color("77756d"), Vector3.ONE)
-	_add_box(library, 1, Vector3(1.0, SLAB, 1.0),
+	_add_scene_item(library, 1, FLOOR_TILE_SCENE, floor_texture, Color("77756d"),
+		.88, false, Vector3.ONE,
 		# GridMap cell Y=1 contributes one metre. Place the ceiling below the
 		# next floor's downward slab instead of inside it:
 		# ceiling top = LEVEL_HEIGHT - SLAB - CEILING_INSET.
-		Vector3(0.0, LEVEL_HEIGHT - 1.0 - SLAB * 1.5 - CEILING_INSET, 0.0),
-		ceiling_material, false)
+		Vector3(0.0, LEVEL_HEIGHT - 1.0 - SLAB * 1.5 - CEILING_INSET, 0.0))
 	var next_id := 2
 	for region in REGION_COLORS:
 		var region_floor_texture := load(REGION_FLOOR_TEXTURE % region) as Texture2D
@@ -1190,36 +1210,34 @@ func _build_mesh_library() -> MeshLibrary:
 			region_floor_texture = floor_texture
 		if region_wall_texture == null:
 			region_wall_texture = load(WALL_TEXTURE) as Texture2D
-		var floor_material := _material(region_floor_texture, REGION_COLORS[region], Vector3.ONE)
-		var wall_material := _material(region_wall_texture, REGION_WALL_COLORS[region],
-			Vector3(1.0, WALL_HEIGHT, 1.0))
-		_add_box(library, next_id, Vector3(1.0, SLAB, 1.0),
-			Vector3(0.0, -SLAB * .5, 0.0), floor_material, true)
+		_add_scene_item(library, next_id, FLOOR_TILE_SCENE, region_floor_texture,
+			REGION_COLORS[region], .88, true, Vector3.ONE, Vector3(0.0, -SLAB * .5, 0.0))
 		_floor_items[region] = next_id
 		next_id += 1
 		var full_wall_id := next_id
-		_add_box(library, full_wall_id, Vector3(1.0, WALL_HEIGHT, 1.0),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		_add_scene_item(library, full_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
+			REGION_WALL_COLORS[region], .9, true, Vector3.ONE,
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
 		next_id += 1
 		var horizontal_wall_id := next_id
-		_add_box(library, horizontal_wall_id,
-			Vector3(1.0, WALL_HEIGHT, WALL_THICKNESS),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		_add_scene_item(library, horizontal_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
+			REGION_WALL_COLORS[region], .9, true, Vector3(1.0, 1.0, WALL_THICKNESS),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
 		next_id += 1
 		var vertical_wall_id := next_id
-		_add_box(library, vertical_wall_id,
-			Vector3(WALL_THICKNESS, WALL_HEIGHT, 1.0),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		_add_scene_item(library, vertical_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
+			REGION_WALL_COLORS[region], .9, true, Vector3(WALL_THICKNESS, 1.0, 1.0),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
 		next_id += 1
 		var horizontal_transition_id := next_id
-		_add_box(library, horizontal_transition_id,
-			Vector3(1.0, WALL_HEIGHT, .64),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		_add_scene_item(library, horizontal_transition_id, WALL_BLOCK_SCENE, region_wall_texture,
+			REGION_WALL_COLORS[region], .9, true, Vector3(1.0, 1.0, .64),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
 		next_id += 1
 		var vertical_transition_id := next_id
-		_add_box(library, vertical_transition_id,
-			Vector3(.64, WALL_HEIGHT, 1.0),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_material, true)
+		_add_scene_item(library, vertical_transition_id, WALL_BLOCK_SCENE, region_wall_texture,
+			REGION_WALL_COLORS[region], .9, true, Vector3(.64, 1.0, 1.0),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
 		next_id += 1
 		_wall_items[region] = {
 			"full": full_wall_id,
@@ -1229,9 +1247,8 @@ func _build_mesh_library() -> MeshLibrary:
 			"vertical_transition": vertical_transition_id,
 		}
 	_safe_floor_item = next_id
-	_add_box(library, next_id, Vector3(1.0, SLAB, 1.0),
-		Vector3(0.0, -SLAB * .5, 0.0),
-		_material(floor_texture, Color("5f9b78"), Vector3.ONE), true)
+	_add_scene_item(library, next_id, FLOOR_TILE_SCENE, floor_texture, Color("5f9b78"),
+		.88, true, Vector3.ONE, Vector3(0.0, -SLAB * .5, 0.0))
 	return library
 
 
@@ -1248,6 +1265,52 @@ static func _material(texture: Texture2D, color: Color,
 	material.uv1_scale = repeat
 	material.roughness = .88
 	return material
+
+
+static func _add_scene_item(library: MeshLibrary, id: int, scene_path: String,
+		texture: Texture2D, color: Color, roughness: float, solid: bool,
+		scale: Vector3, offset: Vector3) -> void:
+	var item := ModelSlot.load_gridmap_item(scene_path)
+	var mesh := item.get("mesh") as Mesh
+	if mesh == null:
+		push_warning("StreamedFacilityView3D: could not load structural item %s" % scene_path)
+		return
+	mesh = mesh.duplicate()
+	_apply_gridmap_style(mesh, texture, color, roughness)
+	library.create_item(id)
+	library.set_item_mesh(id, mesh)
+	var mesh_transform := (item.get("mesh_transform", Transform3D.IDENTITY) as Transform3D).scaled_local(scale)
+	mesh_transform.origin += offset
+	library.set_item_mesh_transform(id, mesh_transform)
+	if solid:
+		var shape := item.get("shape") as Shape3D
+		if shape == null:
+			shape = BoxShape3D.new()
+			(shape as BoxShape3D).size = Vector3(1.0, WALL_HEIGHT, 1.0) \
+				if scene_path == WALL_BLOCK_SCENE else Vector3(1.0, SLAB, 1.0)
+		else:
+			shape = shape.duplicate()
+		var shape_transform := (item.get("shape_transform",
+			Transform3D.IDENTITY) as Transform3D).scaled_local(scale)
+		shape_transform.origin += offset
+		library.set_item_shapes(id, [shape, shape_transform])
+
+
+static func _apply_gridmap_style(mesh: Mesh, texture: Texture2D, color: Color,
+		roughness: float) -> void:
+	if mesh == null:
+		return
+	for surface in mesh.get_surface_count():
+		var source := mesh.surface_get_material(surface)
+		var material := StandardMaterial3D.new()
+		if source is StandardMaterial3D:
+			material = (source as StandardMaterial3D).duplicate()
+		material.albedo_texture = texture
+		material.albedo_color = color
+		material.texture_filter = \
+			BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
+		material.roughness = roughness
+		mesh.surface_set_material(surface, material)
 
 
 static func _add_box(library: MeshLibrary, id: int, size: Vector3,

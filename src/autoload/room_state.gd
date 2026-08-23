@@ -119,6 +119,8 @@ var peers := {}
 
 const DEFAULT_PORT := 8421
 const CONNECTION_TIMEOUT_MSEC := 15_000
+const RECONNECT_GRACE_MSEC := 8_000
+const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000
 ## Loopback by default: this exists to test with two windows on one machine
 ## before there is anything to connect to.
 const DEFAULT_ADDRESS := "127.0.0.1"
@@ -129,6 +131,10 @@ var _connect_started_msec := 0
 var _relay: Node
 var _relay_status := ""
 var _directory_status := ""
+var reconnect_active := false
+var _reconnect_deadline_msec := 0
+var _reconnect_next_lookup_msec := 0
+var _reconnect_request_in_flight := false
 ## CREATE ROOM uses this only until its first successful directory listing.
 ## If the primary service cannot accept the room, the staging screen remains
 ## usable as solo instead of waiting forever behind an online-only button.
@@ -139,6 +145,7 @@ var _scene_transitions_suppressed_for_tests := false
 func _ready() -> void:
 	Backend.registration_changed.connect(_on_directory_registration)
 	Backend.account_changed.connect(_on_account_changed)
+	Backend.room_resolved.connect(_on_room_resolved)
 	_relay = RELAY_TUNNEL_SCRIPT.new()
 	_relay.name = "GameplayRelayTunnel"
 	_relay.relay_ready.connect(_on_relay_ready)
@@ -151,6 +158,9 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if reconnect_active:
+		_tick_reconnect()
+		return
 	if connecting and _connect_started_msec > 0 \
 			and Time.get_ticks_msec() - _connect_started_msec >= CONNECTION_TIMEOUT_MSEC:
 		_close_failed_connection(
@@ -178,6 +188,21 @@ func create_local(for_mode: Mode) -> void:
 	players = PackedStringArray([_make_callsign()])
 	reroll_seed()
 	changed.emit()
+
+
+func _on_room_resolved(resolved_code: String, endpoint: Dictionary,
+		error: String) -> void:
+	if not reconnect_active or resolved_code != code:
+		return
+	_reconnect_request_in_flight = false
+	if not error.is_empty() or not bool(endpoint.get("sessionActive", true)):
+		return
+	var join_error := join_room(String(endpoint.get("address", "")),
+		int(endpoint.get("port", DEFAULT_PORT)),
+		String(endpoint.get("transport", "relay")), resolved_code, true)
+	if not join_error.is_empty():
+		status_message = "HOST SIGNAL LOST // %s" % join_error
+		changed.emit()
 
 
 ## Prepare a saved procedural solo route without entering it yet. Keeping the
@@ -258,11 +283,15 @@ func host_primary_room(port: int = DEFAULT_PORT) -> String:
 ## the host owns the route, so a client that kept its own seed would generate a
 ## different building from the same room.
 func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
-		transport: String = "direct", room_code: String = "") -> String:
+		transport: String = "direct", room_code: String = "",
+		preserve_session: bool = false) -> String:
 	if OS.has_feature("web"):
 		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
-	GameState.clear_pending_route_checkpoint()
-	leave_network()
+	if preserve_session:
+		_close_transport_only(false)
+	else:
+		GameState.clear_pending_route_checkpoint()
+		leave_network()
 	var trimmed := address.strip_edges()
 	if trimmed.is_empty():
 		return "ENTER A HOST ADDRESS"
@@ -284,9 +313,13 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 	_connect_started_msec = Time.get_ticks_msec()
 	_host_port = port
 	is_host = false
-	session_active = false
-	status_message = "JOINING ROOM THROUGH PRIMARY GAMEPLAY RELAY"
-	peers = {}
+	if not preserve_session:
+		session_active = false
+		peers = {}
+	if preserve_session:
+		status_message = "RECONNECTING TO HOST"
+	else:
+		status_message = "JOINING ROOM THROUGH PRIMARY GAMEPLAY RELAY"
 	_bind_signals()
 	changed.emit()
 	return ""
@@ -303,6 +336,12 @@ func leave_network() -> void:
 			_relay.flush_guest_outbound()
 	if online and is_host:
 		Backend.unregister_room()
+	_close_transport_only(true)
+	_clear_reconnect_state()
+	changed.emit()
+
+
+func _close_transport_only(reset_room_identity: bool) -> void:
 	if _peer != null:
 		_peer.close()
 		_peer = null
@@ -312,13 +351,13 @@ func leave_network() -> void:
 	online = false
 	connecting = false
 	_connect_started_msec = 0
-	is_host = true
-	session_active = false
-	peers = {}
 	_relay_status = ""
 	_directory_status = ""
 	_primary_create_fallback_enabled = false
-	changed.emit()
+	if reset_room_identity:
+		is_host = true
+		session_active = false
+		peers = {}
 
 
 func _bind_signals() -> void:
@@ -438,35 +477,69 @@ func _on_joined() -> void:
 	connecting = false
 	_connect_started_msec = 0
 	online = true
-	status_message = "CONNECTED // WAITING FOR HOST"
+	if reconnect_active:
+		status_message = "RECONNECTED // WAITING FOR HOST SNAPSHOT"
+	else:
+		status_message = "CONNECTED // WAITING FOR HOST"
 	peers[multiplayer.get_unique_id()] = _local_name()
 	_register_peer.rpc_id(1, _local_name())
 	changed.emit()
 
 
 func _on_connection_failed() -> void:
+	if reconnect_active:
+		_close_transport_only(false)
+		_reconnect_request_in_flight = false
+		_reconnect_next_lookup_msec = Time.get_ticks_msec() + RECONNECT_LOOKUP_INTERVAL_MSEC
+		status_message = "HOST SIGNAL LOST // RETRYING ROOM"
+		changed.emit()
+		return
 	_close_failed_connection("ROOM CONNECTION FAILED // TRY THE CODE AGAIN")
 
 
 func _on_server_disconnected() -> void:
+	if session_active and not is_host and not reconnect_active:
+		_start_reconnect_grace()
+		return
 	_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
 
 
 func _close_failed_connection(reason: String) -> void:
-	if _peer != null:
-		_peer.close()
-		_peer = null
-	multiplayer.multiplayer_peer = null
-	online = false
-	connecting = false
-	_connect_started_msec = 0
-	is_host = true
-	session_active = false
-	peers = {}
+	_close_transport_only(true)
+	_clear_reconnect_state()
 	status_message = reason
 	changed.emit()
 	connection_lost.emit(reason)
 	call_deferred("_return_to_staging")
+
+
+func _start_reconnect_grace() -> void:
+	_close_transport_only(false)
+	reconnect_active = true
+	_reconnect_deadline_msec = Time.get_ticks_msec() + RECONNECT_GRACE_MSEC
+	_reconnect_next_lookup_msec = 0
+	_reconnect_request_in_flight = false
+	status_message = "HOST SIGNAL LOST // RECONNECTING ROOM"
+	changed.emit()
+
+
+func _tick_reconnect() -> void:
+	var now := Time.get_ticks_msec()
+	if now >= _reconnect_deadline_msec:
+		_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+		return
+	if connecting or _reconnect_request_in_flight or now < _reconnect_next_lookup_msec:
+		return
+	_reconnect_request_in_flight = true
+	_reconnect_next_lookup_msec = now + RECONNECT_LOOKUP_INTERVAL_MSEC
+	Backend.resolve_room(code)
+
+
+func _clear_reconnect_state() -> void:
+	reconnect_active = false
+	_reconnect_deadline_msec = 0
+	_reconnect_next_lookup_msec = 0
+	_reconnect_request_in_flight = false
 
 
 ## Replace the host's temporary SIGNAL-id label with the callsign the joining
@@ -499,6 +572,7 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 	# host's real code. Her account session never enters an ENet packet.
 	if not is_host and Backend.admin_authorized():
 		Backend.request_admin_ticket(code)
+	_clear_reconnect_state()
 	changed.emit()
 
 
@@ -771,6 +845,7 @@ func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 	difficulty = _selectable_difficulty_or_standard(p_difficulty)
 	session_active = true
 	status_message = "ROUTE IN PROGRESS"
+	_clear_reconnect_state()
 	changed.emit()
 	call_deferred("_enter_session_scene", get_tree())
 

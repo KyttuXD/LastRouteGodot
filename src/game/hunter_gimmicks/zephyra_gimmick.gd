@@ -79,7 +79,7 @@ func offer_menu_text() -> String:
 	for i in OFFERS.size():
 		var offer: Dictionary = OFFERS[i]
 		parts.append("[%d] %s -%d" % [i + 1, String(offer["label"]), _cost(String(offer["id"]))])
-	return "ZYTTU SHOP // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
+	return "ZEPHYRA SHOP // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
 
 
 ## Opens (or re-toasts) the menu. `brain_position` is Zephyra's own spot on
@@ -100,7 +100,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	var offer_id := offer_key(index)
 	var cost := offer_cost(index)
 	if GameState.coins < cost:
-		return "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
+		return "ZEPHYRA // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
 
 	GameState.coins -= cost
 	if offer_id == "repair":
@@ -112,7 +112,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	else:
 		apply_personal_offer(offer_id, player)
 	shop_open = false
-	return "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
+	return "ZEPHYRA TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
 
 
 func offer_key(index: int) -> String:
@@ -162,8 +162,17 @@ func _cost(offer_id: String) -> int:
 func _settle(brain: HunterBrain, generator) -> void:
 	if generator.rooms.is_empty():
 		return
-	var facility_center := Vector2(generator.cols / 2.0, generator.rows / 2.0)
 	var best: Dictionary = generator.rooms[0]
+	var bounds_min := Vector2(best["center"])
+	var bounds_max := bounds_min
+	for room_value in generator.rooms:
+		var room: Dictionary = room_value
+		var room_center: Vector2i = room["center"]
+		bounds_min.x = minf(bounds_min.x, room_center.x)
+		bounds_min.y = minf(bounds_min.y, room_center.y)
+		bounds_max.x = maxf(bounds_max.x, room_center.x)
+		bounds_max.y = maxf(bounds_max.y, room_center.y)
+	var facility_center := (bounds_min + bounds_max) * 0.5
 	var best_distance := INF
 	for room in generator.rooms:
 		var room_center: Vector2i = room["center"]

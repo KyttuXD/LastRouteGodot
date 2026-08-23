@@ -69,6 +69,9 @@ static func _pick_origin(brain: HunterBrain, generator) -> Vector2:
 	if candidates.is_empty():
 		return brain.position
 	var room: Dictionary = candidates[brain.next_random_index(candidates.size())]
+	var room_center: Vector2i = room.get("center", Vector2i(
+		int(room.get("x", 0)) + int(room.get("width", 1)) / 2,
+		int(room.get("y", 0)) + int(room.get("height", 1)) / 2))
 	var open: Dictionary = generator.nearest_open_position(
-		room["x"] + room["width"] / 2.0, room["y"] + room["height"] / 2.0, brain.radius)
+		room_center.x + 0.5, room_center.y + 0.5, brain.radius)
 	return Vector2(open["x"], open["y"]) if not open.is_empty() else brain.position

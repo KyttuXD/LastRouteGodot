@@ -20,6 +20,7 @@ var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
 ## deterministic default and therefore does not need an entry until changed.
 var room_doors := {}
+var shared_waypoints: Array = []
 var disabled_hiding := {}
 ## Monotonic local-only revision for data copied into hunter navigation.
 ## Hunter transforms deliberately do not touch it: only pickup/relay mutations
@@ -111,6 +112,56 @@ func room_door_status(door_id: String) -> Dictionary:
 	if door_id.is_empty() or not room_doors.has(door_id):
 		return {"open": false, "broken": false}
 	return (room_doors[door_id] as Dictionary).duplicate(true)
+
+
+func shared_waypoints_on_level(level: int) -> Array:
+	var result := []
+	for value in shared_waypoints:
+		if not value is Dictionary:
+			continue
+		var waypoint: Dictionary = value
+		if int(waypoint.get("level", 0)) == level:
+			result.append(waypoint.duplicate(true))
+	return result
+
+
+func toggle_shared_waypoint(at: Vector2, level: int,
+		source_peer_id: int = 0) -> Dictionary:
+	for index in range(shared_waypoints.size() - 1, -1, -1):
+		var existing: Dictionary = shared_waypoints[index]
+		if int(existing.get("level", level)) != level:
+			continue
+		var existing_at: Vector2 = existing.get("at", Vector2.ZERO)
+		if existing_at.distance_to(at) > 1.25:
+			continue
+		shared_waypoints.remove_at(index)
+		return {"changed": true, "added": false,
+			"waypoint": existing.duplicate(true)}
+	var waypoint := {"at": at, "level": level, "source_peer_id": source_peer_id}
+	shared_waypoints.append(waypoint)
+	return {"changed": true, "added": true, "waypoint": waypoint.duplicate(true)}
+
+
+func apply_shared_waypoint(waypoint: Dictionary, added: bool) -> bool:
+	var at = waypoint.get("at")
+	if not at is Vector2:
+		return false
+	var level := int(waypoint.get("level", 0))
+	for index in range(shared_waypoints.size() - 1, -1, -1):
+		var existing: Dictionary = shared_waypoints[index]
+		if int(existing.get("level", level)) != level:
+			continue
+		var existing_at: Vector2 = existing.get("at", Vector2.ZERO)
+		if existing_at.distance_to(at) <= 1.25:
+			if added:
+				shared_waypoints[index] = waypoint.duplicate(true)
+			else:
+				shared_waypoints.remove_at(index)
+			return true
+	if not added:
+		return false
+	shared_waypoints.append(waypoint.duplicate(true))
+	return true
 
 
 func apply_room_door_state(door_id: String, open: bool,
@@ -292,6 +343,7 @@ func snapshot() -> Dictionary:
 		"dropped_items": dropped_items.duplicate(true),
 		"next_drop_sequence": next_drop_sequence,
 		"sabotaged_relays": sabotaged_relays.duplicate(true),
+		"shared_waypoints": shared_waypoints.duplicate(true),
 		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
 	}
@@ -307,11 +359,12 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	var removed_hunter_data = snapshot_data.get("removed_hunters", {})
 	var drops = snapshot_data.get("dropped_items", {})
 	var sabotage = snapshot_data.get("sabotaged_relays", {})
+	var shared = snapshot_data.get("shared_waypoints", [])
 	var hiding = snapshot_data.get("disabled_hiding", {})
 	var doors = snapshot_data.get("room_doors", {})
 	if not pickups is Dictionary or not rooms is Dictionary \
 			or not hunter_data is Dictionary or not removed_hunter_data is Dictionary \
-			or not drops is Dictionary \
+			or not drops is Dictionary or not shared is Array \
 			or not sabotage is Dictionary or not hiding is Dictionary or not doors is Dictionary:
 		return false
 	active_checkpoint = String(snapshot_data.get("active_checkpoint", ""))
@@ -322,6 +375,7 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	dropped_items = (drops as Dictionary).duplicate(true)
 	next_drop_sequence = maxi(1, int(snapshot_data.get("next_drop_sequence", 1)))
 	sabotaged_relays = (sabotage as Dictionary).duplicate(true)
+	shared_waypoints = (shared as Array).duplicate(true)
 	disabled_hiding = (hiding as Dictionary).duplicate(true)
 	room_doors = (doors as Dictionary).duplicate(true)
 	navigation_revision += 1

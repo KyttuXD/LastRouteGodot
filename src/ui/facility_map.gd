@@ -45,6 +45,8 @@ var hunters: Array = []
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
 var players: Array = []
+var dropped_tools: Array = []
+var safe_rooms: Array = []
 ## Infinite mode supplies compact discovered chunks rather than a finite
 ## FacilityGenerator. Unknown chunks are intentionally absent and therefore
 ## remain blank on both map surfaces.
@@ -175,7 +177,8 @@ func _screen_to_streamed_world(screen_position: Vector2) -> Vector2:
 
 
 func show_state(from: FacilityGenerator, at: Vector2, facing: Vector2, marks: Array,
-		player_marks: Array = []) -> void:
+		player_marks: Array = [], drop_marks: Array = [],
+		safe_room_marks: Array = []) -> void:
 	generator = from
 	streamed_chunks.clear()
 	streamed_chunk_size = 0
@@ -187,13 +190,16 @@ func show_state(from: FacilityGenerator, at: Vector2, facing: Vector2, marks: Ar
 	player_facing = facing
 	hunters = marks
 	players = player_marks.duplicate(true)
+	dropped_tools = drop_marks.duplicate(true)
+	safe_rooms = safe_room_marks.duplicate(true)
 	queue_redraw()
 
 
 func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array,
 		show_stairs: bool = false, focus_radius_cells: int = 0,
-		player_marks: Array = [], show_regions: bool = false) -> void:
+		player_marks: Array = [], show_regions: bool = false,
+		drop_marks: Array = [], safe_room_marks: Array = []) -> void:
 	generator = null
 	# Keep the widget's own data floor-pure. Drawing also checks the level as a
 	# defensive guard, but retaining other floors here allowed later bounds and
@@ -221,6 +227,16 @@ func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 		var mark: Dictionary = mark_value
 		if not mark.has("level") or int(mark["level"]) == level:
 			players.append(mark)
+	dropped_tools = []
+	for mark_value in drop_marks:
+		var mark: Dictionary = mark_value
+		if not mark.has("level") or int(mark["level"]) == level:
+			dropped_tools.append(mark)
+	safe_rooms = []
+	for mark_value in safe_room_marks:
+		var mark: Dictionary = mark_value
+		if not mark.has("level") or int(mark["level"]) == level:
+			safe_rooms.append(mark)
 	queue_redraw()
 
 
@@ -260,6 +276,12 @@ func _draw() -> void:
 		_draw_hunter_marker(at, cell, mark)
 	for mark in players:
 		_draw_remote_player(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
+			cell, mark)
+	for mark in dropped_tools:
+		_draw_dropped_tool(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
+			cell, mark)
+	for mark in safe_rooms:
+		_draw_safe_room_status(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
 
 	_draw_player(origin, cell)
@@ -398,6 +420,16 @@ func _draw_streamed() -> void:
 		if not Rect2(world_bounds).has_point(mark_world):
 			continue
 		_draw_remote_player(origin + (mark_world - world_origin) * cell, cell, mark)
+	for mark in dropped_tools:
+		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
+		if not Rect2(world_bounds).has_point(mark_world):
+			continue
+		_draw_dropped_tool(origin + (mark_world - world_origin) * cell, cell, mark)
+	for mark in safe_rooms:
+		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
+		if not Rect2(world_bounds).has_point(mark_world):
+			continue
+		_draw_safe_room_status(origin + (mark_world - world_origin) * cell, cell, mark)
 	for waypoint_value in waypoints:
 		var waypoint: Dictionary = waypoint_value
 		if int(waypoint.get("level", streamed_level)) != streamed_level:
@@ -524,6 +556,10 @@ func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 
 
 func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
+	if mark.has("exit_direction"):
+		_draw_floor_exit_marker(at, cell, String(mark.get("exit_direction", "up")),
+			String(mark.get("name", "")))
+		return
 	var radius := maxf(2.0, cell * .48)
 	draw_circle(at, radius + maxf(1.0, cell * .12), Color(0.01, 0.04, 0.05, .95))
 	draw_circle(at, radius, COOP_PLAYER_BLUE)
@@ -537,6 +573,59 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .32), label,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
+
+
+func _draw_floor_exit_marker(at: Vector2, cell: float, direction: String,
+		display_name: String) -> void:
+	var up := direction != "down"
+	var radius := maxf(3.5, cell * .60)
+	var tint := Color("8fe7ff")
+	draw_circle(at, radius + maxf(1.0, cell * .12), Color(0.01, 0.04, 0.05, .95))
+	draw_circle(at, radius, Color(tint, .20))
+	_draw_stair_icon(at, cell, up)
+	var label := String(display_name).substr(0, 1).to_upper()
+	if label.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	var font_size := clampi(roundi(cell * .56), 6, 10)
+	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	draw_string(font, at + Vector2(-glyph.x * .5, radius + glyph.y + 1.0), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, tint)
+
+
+func _draw_dropped_tool(at: Vector2, cell: float, mark: Dictionary) -> void:
+	var radius := maxf(2.5, cell * .34)
+	var tint := Color("f2bb62")
+	draw_circle(at, radius + maxf(1.0, cell * .10), Color(0.01, 0.04, 0.05, .92))
+	draw_circle(at, radius, tint)
+	var label := String(mark.get("label", "T")).substr(0, 1).to_upper()
+	var font := ThemeDB.fallback_font
+	var font_size := clampi(roundi(cell * .56), 6, 10)
+	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .30), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
+
+
+func _draw_safe_room_status(at: Vector2, cell: float, mark: Dictionary) -> void:
+	var breached := bool(mark.get("breached", false))
+	var active := bool(mark.get("active", false))
+	var tint := Palette.ALERT if breached else Palette.STABLE
+	var radius := maxf(3.0, cell * .42)
+	draw_circle(at, radius + maxf(1.0, cell * .10), Color(0.01, 0.04, 0.05, .94))
+	draw_circle(at, radius, Color(tint, .26 if breached else .22))
+	draw_circle(at, radius * .58, tint)
+	if active and not breached:
+		draw_line(at - Vector2(radius * .42, 0.0), at + Vector2(radius * .42, 0.0),
+			Color(0.01, 0.04, 0.05), maxf(1.0, cell * .12), true)
+		draw_line(at - Vector2(0.0, radius * .42), at + Vector2(0.0, radius * .42),
+			Color(0.01, 0.04, 0.05), maxf(1.0, cell * .12), true)
+	else:
+		var font := ThemeDB.fallback_font
+		var label := "X" if breached else "S"
+		var font_size := clampi(roundi(cell * .58), 6, 10)
+		var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .30), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
 
 
 func _draw_waypoint_route(origin: Vector2, world_origin: Vector2,

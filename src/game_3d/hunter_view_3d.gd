@@ -241,10 +241,9 @@ func _update_head_look(delta: float) -> void:
 	_head_node.rotation = head_rotation
 
 
-## Porcelle keeps a faint ghost silhouette instead of disappearing completely;
-## Ceryth still becomes fully hidden when she disperses. Checked every sync
-## rather than only when the model is (re)built, so a gimmick that changes its
-## mind mid-floor is reflected without needing a model swap to trigger it.
+## Stealth presentation is checked every sync rather than only when the model is
+## (re)built, so a gimmick that changes its mind mid-floor is reflected without
+## needing a model swap to trigger it.
 ##
 ## Also hidden while `brain.active` is false -- matching the original's own
 ## renderer, which only ever draws `hunter.active` hunters. Rule-summoned
@@ -261,18 +260,14 @@ func _apply_visibility() -> void:
 	var inactive := brain != null and not brain.active
 	var retired := brain != null and brain.gimmick is CerythGimmick \
 		and (brain.gimmick as CerythGimmick).dispersed
-	var porcelle_ghost := brain != null and brain.hunter_id == "porcelle" \
-		and gimmick_hidden
 	# Active stealth hunters must never become a completely missing render. Their
 	# gimmicks still make them extremely hard to see, but retain a trace silhouette
-	# for close-range readability (Porcelle is deliberately the clearer ghost).
+	# for close-range readability.
 	_model.visible = not inactive and not retired
-	# These values leave 38% / 28% of the authored model visible. The earlier
-	# 28% / 16% silhouettes could still read as fully absent in the deliberately
-	# near-black unlit environment, especially on dark Void skins. The fade
-	# helper also lifts ALPHA_SCISSOR while ghosted -- otherwise the remaining
-	# alpha falls under the default 0.5 MASK cutoff and the silhouette is gone.
-	var fade := .62 if porcelle_ghost else (.72 if gimmick_hidden else 0.0)
+	# This leaves 28% of the authored model visible. The fade helper also lifts
+	# ALPHA_SCISSOR while ghosted -- otherwise the remaining alpha falls under the
+	# default 0.5 MASK cutoff and the silhouette is gone.
+	var fade := .72 if gimmick_hidden else 0.0
 	ModelSlot.set_character_fade(_model, fade)
 	if _kathy_beam != null:
 		_kathy_beam.visible = _model.visible
