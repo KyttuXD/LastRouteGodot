@@ -19,7 +19,7 @@ if "%GODOT_BIN%"=="" (
   exit /b 127
 )
 
-"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" -s scripts/validate_run_report.gd
+"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" res://scenes/validate.tscn -- run_report
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 endlocal

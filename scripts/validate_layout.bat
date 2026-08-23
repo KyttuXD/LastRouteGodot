@@ -19,7 +19,7 @@ if "%GODOT_BIN%"=="" (
   exit /b 127
 )
 
-"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" -s scripts/validate_layout.gd
+"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" res://scenes/validate.tscn -- layout
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 endlocal

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Build the Void hunter set.
 
-The source directory contains standard 64x64 Minecraft skins.  The twelve
-colour files become hunter-rig BBModels/GLBs at 1.22 display scale. Main.png
-is deliberately excluded from that roster and becomes an admin player model
-at the ordinary player scale.
+The source directory contains standard 64x64 Minecraft skins. The twelve
+colour files become hunter-rig BBModels/GLBs at 1.22 display scale.
 
     .venv/bin/python tools/characters/build_void_hunters.py \
         "/var/home/kyttu/Documents/Skins Void"

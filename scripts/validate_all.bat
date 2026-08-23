@@ -5,8 +5,8 @@ REM Windows wrapper for scripts/validate_all.sh
 REM Runs: Godot import, backend node tests, then Godot scene validation.
 
 set "PROJECT_ROOT=%~dp0.."
-set "GODOT_BIN=%GODOT_BIN%"
-set "NODE_BIN=%NODE_BIN%"
+if not defined GODOT_BIN set "GODOT_BIN="
+if not defined NODE_BIN set "NODE_BIN="
 
 if "%GODOT_BIN%"=="" (
   where godot4 >nul 2>nul
@@ -20,8 +20,13 @@ if "%GODOT_BIN%"=="" (
   )
 )
 
-if "%GODOT_BIN%"=="" (
+if not defined GODOT_BIN (
   echo Godot not found. Set GODOT_BIN to an absolute path to godot4.exe.
+  exit /b 127
+)
+
+if not exist "%GODOT_BIN%" (
+  echo GODOT_BIN does not point to an executable: "%GODOT_BIN%"
   exit /b 127
 )
 
@@ -53,22 +58,27 @@ if "%NODE_BIN%"=="" (
   )
 )
 
-if "%NODE_BIN%"=="" (
+if not defined NODE_BIN (
   echo Node not found. Set NODE_BIN to an absolute path to node.exe.
+  exit /b 127
+)
+
+if not exist "%NODE_BIN%" (
+  echo NODE_BIN does not point to an executable: "%NODE_BIN%"
   exit /b 127
 )
 
 echo == import
 "%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" --import
-if %errorlevel% neq 0 exit /b %errorlevel%
+if errorlevel 1 exit /b %errorlevel%
 
 echo == backend
 "%NODE_BIN%" --test "%PROJECT_ROOT%"/backend/*.test.mjs
-if %errorlevel% neq 0 exit /b %errorlevel%
+if errorlevel 1 exit /b %errorlevel%
 
 echo == game
 "%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" res://scenes/validate.tscn
-if %errorlevel% neq 0 exit /b %errorlevel%
+if errorlevel 1 exit /b %errorlevel%
 
 echo FULL GAME VALIDATION OK
 endlocal

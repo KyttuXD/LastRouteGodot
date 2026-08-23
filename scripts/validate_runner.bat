@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-REM Windows wrapper for scripts/validate_runner.gd
+REM Windows wrapper for the autoload-aware validation scene.
 set "PROJECT_ROOT=%~dp0.."
 
 set "GODOT_BIN=%GODOT_BIN%"
@@ -22,7 +22,7 @@ if "%GODOT_BIN%"=="" (
   exit /b 127
 )
 
-"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" -s scripts/validate_runner.gd
+"%GODOT_BIN%" --headless --path "%PROJECT_ROOT%" res://scenes/validate.tscn
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 endlocal

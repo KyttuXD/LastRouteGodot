@@ -31,6 +31,7 @@ const WAYPOINT_ARRIVAL_RADIUS := 5.0
 const LOCAL_SAVE_SCHEMA := 1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
 const STORY_DIRECTOR_SCRIPT := preload("res://src/story/infinite_story_director.gd")
+const HUNTER_JUMPSCARE_SCENE := preload("res://scenes/hunter_jumpscare.tscn")
 
 @onready var world: Node3D = %World
 @onready var facility: StreamedFacilityView3D = %StreamedFacility
@@ -84,8 +85,14 @@ var _admin_reveal_map := false
 var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
+var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
+var _capture_resolving := false
+## Streamed entity id / hunter id of whichever grab the local escape struggle
+## is currently against, so success/failure can act on the right hunter.
+var _escaping_entity_id := ""
+var _escaping_hunter_id := ""
 var _pending_admin_requests := {}
 var _admin_ticket_refresh_elapsed := 0.0
 var _relay_inactivity_seconds := 0.0
@@ -117,6 +124,8 @@ func _ready() -> void:
 	pixel_signal_effect = PixelSignalEffect.new()
 	pixel_signal_effect.name = "PixelSignalEffect"
 	add_child(pixel_signal_effect)
+	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
+	world.add_child(jumpscare)
 	_story = STORY_DIRECTOR_SCRIPT.new()
 	_story.name = "InfiniteStoryDirector"
 	add_child(_story)
@@ -286,17 +295,24 @@ func _process(delta: float) -> void:
 				Backend.request_admin_ticket(RoomState.code)
 	var admin_open := _admin_menu != null and _admin_menu.is_open()
 	var story_open: bool = _story != null and _story.is_active()
-	if _awaiting_snapshot or _death_screen_open or admin_open or hud.inventory_is_open() \
-			or hud.map_is_open() \
+	# Being held by a hunter is the one moment pausing would be an exploit, so
+	# the menu is locked out for the length of the struggle.
+	pause_menu.tap_to_pause = not GameState.escape_active
+	if _awaiting_snapshot or _death_screen_open or GameState.escape_active or admin_open \
+			or hud.inventory_is_open() or hud.map_is_open() \
 			or (_room_chat != null and _room_chat.is_open()) or story_open:
 		player.input_frozen = true
 	if Input.is_action_just_pressed("inventory") and not admin_open and not story_open \
-			and not _awaiting_snapshot and not pause_menu.is_open():
+			and not GameState.escape_active and not _awaiting_snapshot \
+			and not pause_menu.is_open():
 		hud.toggle_inventory()
 	if Input.is_action_just_pressed("toggle_map") and not admin_open and not story_open \
-			and not _awaiting_snapshot:
+			and not GameState.escape_active and not _awaiting_snapshot:
 		hud.set_inventory_open(false)
 		hud.toggle_map_overlay()
+	GameState.tick_escape_cooldowns(delta)
+	if GameState.escape_active:
+		_update_escape_struggle(delta)
 	if get_tree().paused:
 		return
 	_update_run_statistics(delta)
@@ -2399,8 +2415,8 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"meters": player.meters,
 		"no_target": player.admin_no_target,
 		"god_mode": player.admin_god_mode,
-		"escape_active": false,
-		"capture_immune": _capture_cooldown > 0.0,
+		"escape_active": GameState.escape_active,
+		"capture_immune": _capture_cooldown > 0.0 or GameState.is_capture_immune(),
 		"game_over": _death_screen_open,
 	}
 
@@ -2471,12 +2487,18 @@ func _update_safe_room_breaches(delta: float, breach_rooms: Dictionary) -> void:
 func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 	if view == null or target.is_empty() or _target_protected(target):
 		return
+	var hunter_id := view.brain.hunter_id
+	var identity := HunterRoster.get_identity(hunter_id)
+	var is_void := HunterRoster.VOID_IDS.has(hunter_id) \
+		or String(identity.get("category", "az")) == "void"
+	var inescapable := is_void or (view.brain.gimmick != null \
+		and view.brain.gimmick.capture_is_inescapable())
 	view.brain.calm_reset(GameConfig.ESCAPE_STUN_DURATION)
 	view.sync_from_brain()
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
 		"entity_id": String(view.get_meta("streamed_entity_id", "")),
-		"hunter_id": view.brain.hunter_id})
+		"hunter_id": hunter_id, "inescapable": inescapable})
 
 
 func _checkpoint_world_position() -> Vector3:
@@ -3197,58 +3219,150 @@ func _apply_player_event(event: Dictionary) -> void:
 		"capture":
 			if not bool(event.get("streamed", false)):
 				return
-			if _death_screen_open:
+			if _death_screen_open or GameState.escape_active:
 				return
-			_force_disable_admin_cheats()
-			_death_screen_open = true
-			_capture_cooldown = 60.0 * 60.0
-			Sound.capture()
-			player.velocity = Vector3.ZERO
-			player.input_frozen = true
-			player.look_frozen = true
-			if RoomState.online and not RoomState.is_host:
-				player.enter_spectator()
-				player.input_frozen = false
-				player.look_frozen = false
-			hud.set_inventory_open(false)
-			hud.set_map_open(false)
-			if pause_menu.is_open():
-				pause_menu.close()
-			pause_menu.set_process(false)
-			pause_menu.set_process_unhandled_input(false)
 			var hunter_id := String(event.get("hunter_id", HunterRoster.DEFAULT_ID))
-			var identity := HunterRoster.get_identity(hunter_id)
-			var hunter_name := String(identity.get("display_name", hunter_id)).to_upper()
-			if RoomState.online and not RoomState.is_host:
-				_remotes.submit_hunter_event({"what": "caught"})
-				hud.show_message("YOU DIED // SPECTATOR MODE")
+			if GameState.is_capture_immune():
+				# Purely a protocol acknowledgement: releases the host's pending-
+				# capture gate without actually ending or restarting the struggle.
+				if RoomState.online and not RoomState.is_host:
+					_remotes.submit_hunter_event({"what": "caught"})
 				return
-			run_report.open({
-				"online": RoomState.online, "host": RoomState.is_host,
-				"respawn": true, "title": "YOU DIED",
-				"kicker": "RUNNER SIGNAL // LOST",
-				"reason": "CAUGHT BY %s" % hunter_name,
-				"depth": -facility.current_level(), "score": GameState.score,
-				"relays": GameState.relays_collected,
-				"relay_target": GameState.relay_target,
-				"coins": GameState.coins,
-				"difficulty": RoomState.difficulty_id().to_upper(),
-				"seed": RoomState.seed_text,
-			})
-			if RoomState.online and not RoomState.is_host:
-				_remotes.submit_hunter_event({"what": "caught"})
+			if bool(event.get("inescapable", false)) or GameState.escape_on_cooldown():
+				await _resolve_capture_outcome(hunter_id)
+				return
+			_begin_escape_struggle(String(event.get("entity_id", "")), hunter_id)
 		"message":
 			var message := String(event.get("message", ""))
 			if not message.is_empty():
 				hud.show_message(message)
 
 
+## Starts the local mash-to-escape struggle. Ordinary A-Z hunters give the
+## player this chance; void/gimmick-forced grabs skip straight to
+## _resolve_capture_outcome().
+func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
+	_escaping_entity_id = entity_id
+	_escaping_hunter_id = hunter_id
+	Sound.capture()
+	player.velocity = Vector3.ZERO
+	player.input_frozen = true
+	player.look_frozen = true
+	hud.set_inventory_open(false)
+	hud.set_map_open(false)
+	if pause_menu.is_open():
+		pause_menu.close()
+	GameState.begin_escape(hunter_id)
+	hud.set_escape_active(true)
+	hud.update_escape(GameState.escape_progress, GameState.escape_required,
+		GameState.escape_remaining, GameState.escape_duration)
+	if jumpscare != null:
+		jumpscare.start_hold(player.active_camera(), hunter_id)
+
+
+func _update_escape_struggle(delta: float) -> void:
+	if Input.is_action_just_pressed("interact"):
+		GameState.register_escape_press()
+		Sound.struggle(GameState.escape_progress / maxf(1.0, GameState.escape_required))
+	GameState.escape_remaining = maxf(0.0, GameState.escape_remaining - delta)
+	hud.update_escape(GameState.escape_progress, GameState.escape_required,
+		GameState.escape_remaining, GameState.escape_duration)
+	if GameState.escape_progress >= GameState.escape_required:
+		_resolve_escape_success()
+	elif GameState.escape_remaining <= 0.0:
+		await _resolve_capture_outcome(_escaping_hunter_id)
+
+
+func _resolve_escape_success() -> void:
+	GameState.resolve_escape_success()
+	Sound.escape()
+	hud.set_escape_active(false)
+	if jumpscare != null:
+		jumpscare.stop_hold()
+	player.input_frozen = false
+	player.look_frozen = false
+	if _remotes.simulates():
+		var view := _hunter_views.get(_escaping_entity_id) as HunterView3D
+		if view != null:
+			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+			view.sync_from_brain()
+			_store_hunter(_escaping_entity_id, view)
+	else:
+		_remotes.submit_hunter_event({"what": "escaped",
+			"entity_id": _escaping_entity_id, "hunter_id": _escaping_hunter_id})
+	hud.show_message("You broke free!")
+	_escaping_entity_id = ""
+	_escaping_hunter_id = ""
+
+
+## Shared by a failed struggle and an inescapable grab (void hunters, or a
+## gimmick that declares the grab inescapable): the same local jumpscare and
+## death report either way.
+func _resolve_capture_outcome(hunter_id: String) -> void:
+	if _capture_resolving:
+		return
+	_capture_resolving = true
+	GameState.resolve_escape_failure()
+	hud.set_escape_active(false)
+	_escaping_entity_id = ""
+	_escaping_hunter_id = ""
+	_force_disable_admin_cheats()
+	_death_screen_open = true
+	_capture_cooldown = 60.0 * 60.0
+	player.velocity = Vector3.ZERO
+	player.input_frozen = true
+	player.look_frozen = true
+	hud.set_inventory_open(false)
+	hud.set_map_open(false)
+	if pause_menu.is_open():
+		pause_menu.close()
+	pause_menu.set_process(false)
+	pause_menu.set_process_unhandled_input(false)
+	var identity := HunterRoster.get_identity(hunter_id)
+	var hunter_name := String(identity.get("display_name", hunter_id)).to_upper()
+	# Same local capture presentation as main_3d.gd: play the lunge/camera
+	# takeover before the death screen or spectator handoff so the player
+	# actually sees the hunter that caught them.
+	Sound.office_jumpscare(hunter_id)
+	if jumpscare != null:
+		await jumpscare.play(player.active_camera(), hunter_id)
+	if RoomState.online and not RoomState.is_host:
+		player.enter_spectator()
+		player.input_frozen = false
+		player.look_frozen = false
+		_remotes.submit_hunter_event({"what": "caught"})
+		hud.show_message("YOU DIED // SPECTATOR MODE")
+		_capture_resolving = false
+		return
+	run_report.open({
+		"online": RoomState.online, "host": RoomState.is_host,
+		"respawn": true, "title": "YOU DIED",
+		"kicker": "RUNNER SIGNAL // LOST",
+		"reason": "CAUGHT BY %s" % hunter_name,
+		"depth": -facility.current_level(), "score": GameState.score,
+		"relays": GameState.relays_collected,
+		"relay_target": GameState.relay_target,
+		"coins": GameState.coins,
+		"difficulty": RoomState.difficulty_id().to_upper(),
+		"seed": RoomState.seed_text,
+	})
+	_capture_resolving = false
+
+
 func _apply_hunter_event(event: Dictionary) -> void:
 	if RoomState.online and not RoomState.is_host:
 		return
-	if String(event.get("what", "")) == "taser":
-		_resolve_taser(int(event.get("peer_id",
-			multiplayer.get_unique_id() if RoomState.online else 1)))
+	match String(event.get("what", "")):
+		"taser":
+			_resolve_taser(int(event.get("peer_id",
+				multiplayer.get_unique_id() if RoomState.online else 1)))
+		"escaped":
+			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
+				as HunterView3D
+			if view != null:
+				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.sync_from_brain()
+				_store_hunter(String(event.get("entity_id", "")), view)
 
 
 func _update_hunter_audio(delta: float, data: Dictionary) -> void:

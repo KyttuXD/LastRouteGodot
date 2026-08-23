@@ -102,6 +102,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if ! gh release view debug --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create debug --repo "${GITHUB_REPOSITORY}" \
+              --title "Debug builds" \
+              --notes "Automated debug builds for the current main branch." \
+              --prerelease
+          fi
           gh release upload debug --repo "${GITHUB_REPOSITORY}" --clobber \
             builds/LastRoute-Linux-Debug.zip \
             builds/LastRoute-Windows-Debug.zip \

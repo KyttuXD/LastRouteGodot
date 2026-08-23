@@ -15,11 +15,22 @@ if [[ -z "$godot_binary" ]]; then
 	fi
 fi
 
+if [[ ! -f "$godot_binary" || ! -x "$godot_binary" ]]; then
+	echo "GODOT_BIN does not point to an executable: $godot_binary" >&2
+	exit 127
+fi
+
+node_binary="${NODE_BIN:-node}"
+if ! command -v "$node_binary" >/dev/null 2>&1 && [[ ! -x "$node_binary" ]]; then
+	echo "NODE_BIN does not point to an executable: $node_binary" >&2
+	exit 127
+fi
+
 echo "== import"
 "$godot_binary" --headless --path "$project_root" --import
 
 echo "== backend"
-node --test "$project_root"/backend/*.test.mjs
+"$node_binary" --test "$project_root"/backend/*.test.mjs
 
 echo "== game"
 "$godot_binary" --headless --path "$project_root" \

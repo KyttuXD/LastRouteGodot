@@ -12,6 +12,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	Settings.set_admin_preferences(Settings.ADMIN_PREFERENCE_DEFAULTS)
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
@@ -770,8 +771,10 @@ func run(host: Node) -> int:
 		as PackedScene).instantiate()
 	host.get_tree().root.add_child(live_scene)
 	await host.get_tree().process_frame
-	await host.get_tree().physics_frame
-	await host.get_tree().physics_frame
+	# The streamed facility builds its initial collision window incrementally;
+	# wait through that registration before asserting grounded contact.
+	for _index in 8:
+		await host.get_tree().physics_frame
 	var facility := live_scene.get_node("World/StreamedFacility") as StreamedFacilityView3D
 	var player := live_scene.get_node("World/Player") as PlayerController3D
 	var remotes := live_scene.get_node("World/RemotePlayers") as RemotePlayers
@@ -1490,6 +1493,64 @@ func run(host: Node) -> int:
 			"moving far away leaked old streamed chunks instead of evicting them")
 		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 11,
 			"streamed scene tree retained evicted chunk nodes")
+
+	# The live Infinite route -- not the legacy main_3d.tscn -- is what a
+	# captured player actually sees, so the whole grab -> escape -> jumpscare
+	# -> death report handoff has to be proven here too.
+	_expect(live_scene.jumpscare != null,
+		"the live Infinite route has no capture jumpscare director")
+	if live_scene.jumpscare != null:
+		# An ordinary A-Z hunter gives a real escape chance: mashing past the
+		# requirement should free the runner without ever reaching a report.
+		await live_scene._apply_player_event({"what": "capture", "streamed": true,
+			"hunter_id": "kathy", "entity_id": "VALIDATION:KATHY"})
+		_expect(GameState.escape_active and live_scene.jumpscare.holding,
+			"an escapable capture did not start the grab hold/struggle")
+		GameState.escape_progress = GameState.escape_required
+		await live_scene._update_escape_struggle(0.0)
+		await host.get_tree().process_frame
+		_expect(not GameState.escape_active and not live_scene.jumpscare.holding,
+			"beating the struggle did not release the grab hold")
+		_expect(not player.input_frozen and not player.look_frozen,
+			"a successful escape left the runner unable to act")
+		_expect(not live_scene.run_report.is_open(),
+			"a successful escape opened the death report anyway")
+		# A successful escape starts its own re-grab cooldown; clear both so the
+		# next scenario exercises an ordinary escapable grab, not that cooldown.
+		GameState.escape_grace = 0.0
+		GameState.escape_cooldown = 0.0
+
+		# Running out of time on the same kind of grab has to fail into the
+		# same jumpscare -> death report path an inescapable grab uses.
+		await live_scene._apply_player_event({"what": "capture", "streamed": true,
+			"hunter_id": "kathy", "entity_id": "VALIDATION:KATHY"})
+		GameState.escape_remaining = 0.0
+		await live_scene._update_escape_struggle(0.0)
+		_expect(live_scene.jumpscare.last_hunter_id == "kathy",
+			"a failed struggle did not present a jumpscare for the catching hunter")
+		_expect(not live_scene.jumpscare.playing,
+			"the jumpscare camera did not release control after playing")
+		_expect(player.input_frozen,
+			"a captured Infinite runner can still move behind the death report")
+		_expect(live_scene.run_report.is_open(),
+			"a failed struggle never reached the death report")
+		live_scene.run_report.close()
+		live_scene._death_screen_open = false
+		GameState.game_over = false
+
+		# A void/gimmick-forced grab skips the struggle entirely.
+		await live_scene._apply_player_event({"what": "capture", "streamed": true,
+			"hunter_id": "void_red", "inescapable": true})
+		_expect(not GameState.escape_active,
+			"an inescapable capture still opened an escape struggle")
+		_expect(live_scene.jumpscare.last_hunter_id == "void_red",
+			"an inescapable capture did not present its own jumpscare")
+		_expect(live_scene.run_report.is_open(),
+			"an inescapable capture never reached the death report")
+		live_scene.run_report.close()
+		live_scene._death_screen_open = false
+		GameState.game_over = false
+
 	live_scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)

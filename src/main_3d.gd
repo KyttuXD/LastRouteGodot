@@ -1,5 +1,7 @@
 extends Node
 
+const HUNTER_JUMPSCARE_SCENE := preload("res://scenes/hunter_jumpscare.tscn")
+
 ## 3D counterpart to src/main.gd — same GameState-driven floor lifecycle and
 ## HUD wiring, orchestrating the 3D presentation layer instead of the 2D one.
 ## Also owns the hunter lifecycle: spawn/activation/per-frame brain update
@@ -119,8 +121,7 @@ func _ready() -> void:
 	add_child(pause_menu)
 	run_report.restart_requested.connect(_restart_solo_route)
 	run_report.leave_requested.connect(_leave_after_report)
-	jumpscare = HunterJumpscare.new()
-	jumpscare.name = "HunterJumpscare"
+	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
 	pixel_signal_effect = PixelSignalEffect.new()
 	pixel_signal_effect.name = "PixelSignalEffect"
@@ -923,13 +924,12 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 	# instant game over for ordinary A-Z hunters.
 	var is_void := HunterRoster.VOID_IDS.has(view.brain.hunter_id) \
 		or String(identity.get("category", "az")) == "void"
-	# Immediate resolution conditions: void hunters and gimmick-declared
-	# inescapable grabs (Nyxie's dead-lamp etc.), or an explicit forced
-	# inescapable trigger. Do NOT auto-skip when the escape cooldown is
-	# active; A-Z hunters should always get an escape chance before any
-	# jumpscare/game-over presentation unless they are truly inescapable.
+	# Immediate resolution conditions: void hunters, gimmick-declared
+	# inescapable grabs (Nyxie's dead-lamp etc.), an explicit forced
+	# inescapable trigger, or a re-grab still inside the post-escape cooldown
+	# (hunter-ai.js's triggerGameOver cooldown-skip branch).
 	if force_inescapable or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()) \
-			or is_void:
+			or is_void or GameState.escape_on_cooldown():
 		# Diagnostic: record why the capture skipped the escape struggle so
 		# inspection in editor/runtime can show whether it was void/cooldown/
 		# gimmick-forced. This helps when a session immediately ends without
@@ -941,6 +941,8 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 			reason.append("forced")
 		if view.brain.gimmick and view.brain.gimmick.capture_is_inescapable():
 			reason.append("gimmick")
+		if GameState.escape_on_cooldown():
+			reason.append("cooldown")
 		print("[capture] immediate-inescape: hunter=%s reasons=%s" % [view.brain.hunter_id, reason])
 		# Show the jumpscare presentation first (if available) so the player
 		# always sees an impact before the run ends. Await the director so the

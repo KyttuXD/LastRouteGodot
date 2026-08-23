@@ -3,11 +3,20 @@ extends Node3D
 
 ## Local capture presentation. Hunter simulation remains host-authoritative;
 ## this director clones only the capturing hunter's presentation model beneath
-## a temporary camera, so a guest's jumpscare cannot move the shared hunter or
-## leak into another runner's view.
+## a private, pitch-black backdrop rather than the real level, so a guest's
+## jumpscare cannot move the shared hunter, leak into another runner's view,
+## or read differently depending on where in the facility the grab happened.
+
+## Godot render layers are 1-indexed in the editor; this is that layer's bit
+## value. Only the presentation's own camera and model use it, so the camera
+## can sit inside the real level yet never render any of it.
+const PRESENTATION_LAYER := 1 << 18
 
 var duration := 1.15
 var playing := false
+## True for the sustained "grabbed" hold shown while an escape struggle is
+## running; play() continues the same presentation into its final hit.
+var holding := false
 var last_hunter_id := ""
 
 var _camera: Camera3D
@@ -16,6 +25,7 @@ var _owns_source_camera := false
 var _anchor: Node3D
 var _overlay_layer: CanvasLayer
 var _overlay: ColorRect
+var _hold_tween: Tween
 
 
 # Per-hunter/categorised camera and overlay tuning. A small default covers the
@@ -71,12 +81,9 @@ func _profile_for(id: String) -> Dictionary:
 	return (JUMPSCARE_PROFILES["_default"] as Dictionary)
 
 
-func play(source_camera: Camera3D, hunter_id: String) -> void:
-	# Capture events can arrive twice while a host and guest resolve the same
-	# grab. Do not let the second call turn the first presentation into an
-	# immediate game-over transition.
-	while playing:
-		await get_tree().process_frame
+## Builds the isolated camera, model, light and flash overlay shared by both
+## the sustained grab hold and the final jumpscare hit.
+func _build_presentation(source_camera: Camera3D, hunter_id: String) -> void:
 	if source_camera == null:
 		source_camera = get_viewport().get_camera_3d()
 	if source_camera == null:
@@ -85,20 +92,30 @@ func play(source_camera: Camera3D, hunter_id: String) -> void:
 		# presentation; the overlay and fallback silhouette still communicate
 		# the grab even when the source rig is unavailable.
 		source_camera = Camera3D.new()
-		source_camera.global_transform = GlobalTransform3D.IDENTITY
+		source_camera.global_transform = Transform3D.IDENTITY
 		source_camera.fov = 75.0
 		add_child(source_camera)
 		_owns_source_camera = true
-	playing = true
 	last_hunter_id = hunter_id if not hunter_id.is_empty() else HunterRoster.DEFAULT_ID
 	_source_camera = source_camera
 
-	# Freeze the exact view at the instant of capture. This is a real camera
-	# takeover rather than moving the player controller (which would publish a
-	# false transform to the host during co-op).
+	# Freeze the exact view direction/FOV at the instant of capture, but never
+	# the real level behind it: a private black backdrop plus a render layer
+	# only this presentation uses means nothing else in the world can show
+	# through, no matter where in the facility the grab happened.
 	_camera = Camera3D.new()
 	_camera.name = "JumpscareCamera"
 	_camera.fov = source_camera.fov
+	var backdrop := Environment.new()
+	backdrop.background_mode = Environment.BG_COLOR
+	backdrop.background_color = Color.BLACK
+	backdrop.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	backdrop.ambient_light_color = Color.BLACK
+	backdrop.ambient_light_energy = 0.0
+	backdrop.fog_enabled = false
+	backdrop.glow_enabled = false
+	_camera.environment = backdrop
+	_camera.cull_mask = PRESENTATION_LAYER
 	add_child(_camera)
 	_camera.global_transform = source_camera.global_transform
 	_camera.current = true
@@ -107,7 +124,8 @@ func play(source_camera: Camera3D, hunter_id: String) -> void:
 	_anchor.name = "HunterLunge"
 	# Per-hunter profile (duration, anchor motion, roll, scale, tint)
 	var profile := _profile_for(last_hunter_id)
-	duration = float(profile.get("duration", duration))
+	# Never so quick it reads as a flicker, even for the faster Void profiles.
+	duration = maxf(float(profile.get("duration", duration)), 1.0)
 	var side := 1.0 if abs(last_hunter_id.hash()) % 2 == 0 else -1.0
 	var start: Vector3 = profile.get("anchor_start", Vector3(0.14, -1.48, -1.85))
 	start.x *= side
@@ -145,6 +163,7 @@ func play(source_camera: Camera3D, hunter_id: String) -> void:
 		box.set_surface_override_material(0, mat)
 		box.rotation.y = PI
 		_anchor.add_child(box)
+	_apply_presentation_layer(_anchor)
 
 	var light := OmniLight3D.new()
 	light.name = "JumpscareLight"
@@ -164,6 +183,67 @@ func play(source_camera: Camera3D, hunter_id: String) -> void:
 	var tint: Color = profile.get("overlay_tint", Color(0.55, 0.01, 0.035))
 	_overlay.color = Color(tint.r, tint.g, tint.b, 0.0)
 	_overlay_layer.add_child(_overlay)
+
+
+## Only VisualInstance3D nodes carry a render layer; an imported multi-mesh
+## model needs every descendant tagged, not just its root.
+static func _apply_presentation_layer(node: Node) -> void:
+	if node is VisualInstance3D:
+		(node as VisualInstance3D).layers = PRESENTATION_LAYER
+	for child in node.get_children():
+		_apply_presentation_layer(child)
+
+
+## Sustained "grabbed" pose shown for as long as an escape struggle runs.
+## Follow with stop_hold() on a successful struggle, or play() to continue
+## straight into the final hit.
+func start_hold(source_camera: Camera3D, hunter_id: String) -> void:
+	while playing or holding:
+		await get_tree().process_frame
+	holding = true
+	_build_presentation(source_camera, hunter_id)
+	_hold_tween = create_tween().set_loops()
+	_hold_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var held_y := _anchor.position.y
+	_hold_tween.tween_property(_anchor, "position:y", held_y + 0.03, 0.6)
+	_hold_tween.tween_property(_anchor, "position:y", held_y, 0.6)
+	_overlay.color.a = 0.22
+
+
+## Releases a grab hold without playing the final hit (a successful escape).
+func stop_hold() -> void:
+	if not holding:
+		return
+	holding = false
+	if _hold_tween != null:
+		_hold_tween.kill()
+		_hold_tween = null
+	if _overlay != null:
+		var fade := create_tween()
+		fade.tween_property(_overlay, "color:a", 0.0, 0.25)
+		await fade.finished
+	_cleanup()
+
+
+func play(source_camera: Camera3D, hunter_id: String) -> void:
+	# Capture events can arrive twice while a host and guest resolve the same
+	# grab. Do not let the second call turn the first presentation into an
+	# immediate game-over transition.
+	while playing:
+		await get_tree().process_frame
+	if holding:
+		# Continue the hold already on screen into its final hit instead of
+		# tearing down and rebuilding the presentation.
+		if _hold_tween != null:
+			_hold_tween.kill()
+			_hold_tween = null
+		holding = false
+	else:
+		_build_presentation(source_camera, hunter_id)
+	playing = true
+
+	var profile := _profile_for(last_hunter_id)
+	var side := 1.0 if abs(last_hunter_id.hash()) % 2 == 0 else -1.0
 
 	# A fast approach, asymmetric tilt and a close final snap reads cleanly with
 	# every block-model silhouette. The id-derived side makes repeated hunters
@@ -213,3 +293,4 @@ func _cleanup() -> void:
 	_overlay_layer = null
 	_overlay = null
 	playing = false
+	holding = false

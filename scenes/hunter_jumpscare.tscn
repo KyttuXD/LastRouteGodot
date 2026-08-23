@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c3kmuq06xjnbs"]
+
+[ext_resource type="Script" uid="uid://ikp7fvvijbxf" path="res://src/game_3d/hunter_jumpscare.gd" id="1_jumpscare"]
+
+[node name="HunterJumpscare" type="Node3D" unique_id=6126428]
+script = ExtResource("1_jumpscare")
