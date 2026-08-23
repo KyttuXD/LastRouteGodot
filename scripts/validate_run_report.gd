@@ -43,6 +43,9 @@ func run(host: Node) -> int:
 	GameState.coins = 7
 	GameState.relays_collected = 2
 	GameState.relay_target = 5
+	# Keep observed_depth in sync so _process() does not detect a depth change
+	# during the jumpscare presentation and rebuild the floor under us.
+	scene.observed_depth = GameState.depth
 	scene.capturing_view = scene.hunter_view
 	scene.jumpscare.duration = 0.05
 	await scene._resolve_capture_outcome()
