@@ -1361,7 +1361,11 @@ func place_hiding_spots(count: int = 6) -> Array:
 	# locker areas. Iterate room buckets first, drawing at most one per room in
 	# a pass to keep distribution fair, then fall back to corridor candidates.
 	var room_keys: Array = room_buckets.keys()
-	room_keys.shuffle()
+	for i in range(room_keys.size() - 1, 0, -1):
+		var j := rng.next_index(i + 1)
+		var tmp = room_keys[i]
+		room_keys[i] = room_keys[j]
+		room_keys[j] = tmp
 	while hiding_spots.size() < count and not room_keys.is_empty():
 		for rk: String in room_keys.duplicate():
 			if hiding_spots.size() >= count:
