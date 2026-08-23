@@ -31,10 +31,8 @@ full facility map. Discoveries live in the account progress document alongside
 the optional route checkpoint, and clearing a route never clears the dossier.
 Guests receive no permanent discovery data.
 
-`Main.png` from the Void skin folder is deliberately excluded from every
-hunter pool. It is the **KYTTU ADMIN** player appearance and loads only for a
-primary-server-verified KYTTU admin account. The twelve colour skins are the
-Void roster. Their models are visibly larger than A-Z hunters, their baseline
+The twelve colour skins are the Void roster. Their models are visibly larger
+than A-Z hunters, their baseline
 speed/perception is more aggressive, and a deterministic incursion can add one
 as an extra hunter from depth two onward.
 

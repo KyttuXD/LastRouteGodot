@@ -37,20 +37,18 @@ reads as visibly larger than the player without either model's own geometry
 changing. Import-time, not exporter code, so it survives a rebuild without
 needing to be re-applied.
 
-## Void and KYTTU admin skins
+## Void hunter skins
 
 `build_void_hunters.py` converts the supplied `Skins Void` Minecraft skins
 through the same reviewed rig and export path. The twelve colour files become
-`void_<colour>` hunter sources/runtime scenes at a 1.22 display scale. `Main.png`
-is explicitly reserved and becomes `admin_kyttu`, a 0.90-scale player model;
-the builder never includes it in the Void hunter list. The committed external
+`void_<colour>` hunter sources/runtime scenes at a 1.22 display scale. The committed external
 PNG is the converter's final packed 64×96 atlas, not the original 64×64 skin,
-so Godot reimports and the embedded GLB sample identical UV rows. Rebuild only
-the Void roster (leaving the admin model untouched) with:
+so Godot reimports and the embedded GLB sample identical UV rows. Rebuild the
+Void roster with:
 
 ```bash
 .venv/bin/python tools/characters/build_void_hunters.py \
-  "/var/home/kyttu/Documents/Skins Void" --void-only
+  "/var/home/kyttu/Documents/Skins Void"
 ```
 
 Void models ship the six normal hunter clips. Xivvy additionally receives the

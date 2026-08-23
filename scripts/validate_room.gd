@@ -68,13 +68,9 @@ func run(host: Node) -> int:
 	Backend.account_username = "KYTTU"
 	_expect(Backend.admin_authorized(),
 		"verified canonical KYTTU is not authorized for release admin")
-	_expect(Backend.uses_kyttu_player_skin(),
-		"verified canonical KYTTU did not receive the reserved Main.png skin")
 	Backend.account_username = "AYTTU"
 	_expect(Backend.admin_owner_authorized(),
 		"verified canonical AYTTU is not authorized as the second owner")
-	_expect(not Backend.uses_kyttu_player_skin(),
-		"AYTTU incorrectly received KYTTU's reserved Main.png skin")
 	Backend.account_admin = false
 	Backend.account_admin_owner = false
 	Backend.account_admin_permissions = PackedStringArray()
@@ -86,8 +82,6 @@ func run(host: Node) -> int:
 	Backend._adopt_admin_identity({"admin": true})
 	_expect(not Backend.admin_authorized(),
 		"legacy admin compatibility granted access to a non-owner username")
-	_expect(not Backend.uses_kyttu_player_skin(),
-		"a non-KYTTU account received the reserved Main.png skin")
 	Backend.account_session_verified = false
 	_expect(not Backend.admin_authorized(),
 		"unverified cached account state authorizes release admin")

@@ -45,7 +45,6 @@ const FLASHLIGHT_MIN_RANGE := .8
 # front of the camera/capsule so it cannot cross into a nearby wall.
 const FLASHLIGHT_BEAM_LOCAL_POSITION := Vector3(.08, -.05, -.12)
 const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
-const ADMIN_BODY_MODEL_SCENE := "res://art/props-3d/characters/admin_kyttu.tscn"
 
 ## Sibling, not a child — the top-down camera must NOT inherit the player's
 ## facing rotation (it stays fixed, looking straight down, and only follows
@@ -419,14 +418,11 @@ func _ready() -> void:
 	floor_snap_length = 0.28
 	first_person_camera.fov = Settings.field_of_view
 	Settings.visual_changed.connect(_apply_visual_settings)
-	var body_scene := ADMIN_BODY_MODEL_SCENE if Backend.uses_kyttu_player_skin() \
-		else BODY_MODEL_SCENE
-	var model := ModelSlot.instantiate(body_scene)
+	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
 		body_visual.add_child(model)
-		if not Backend.uses_kyttu_player_skin():
-			ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
+		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
 	flashlight.position = FLASHLIGHT_BEAM_LOCAL_POSITION

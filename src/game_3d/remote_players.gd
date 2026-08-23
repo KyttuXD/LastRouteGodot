@@ -174,9 +174,7 @@ func _local_state() -> Dictionary:
 		"equipped_backpack": controller.equipped_backpack,
 		"display_name": RoomState.local_display_name(),
 		"player_hue": Settings.player_hue_degrees,
-		# Main.png belongs only to the verified KYTTU account. This appearance
-		# identity is deliberately independent from admin permissions.
-		"player_skin": "kyttu" if Backend.uses_kyttu_player_skin() else "mannequin",
+		"player_skin": "mannequin",
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -234,13 +232,7 @@ func _place(state: Dictionary) -> void:
 
 	var body: Node3D = _bodies.get(id)
 	if body == null:
-		# Do not trust a peer-authored admin/skin boolean. The room roster holds
-		# the canonical account identity adopted during connection.
-		var kyttu_skin := String(state.get("player_skin", "mannequin")) == "kyttu" \
-			and RoomState.peer_display_name(id).strip_edges().to_upper() == "KYTTU"
-		var model_path := PlayerController3D.ADMIN_BODY_MODEL_SCENE \
-			if kyttu_skin else MODEL
-		body = ModelSlot.instantiate(model_path)
+		body = ModelSlot.instantiate(MODEL)
 		if body == null:
 			return
 		body.name = "Peer%d" % id
@@ -249,8 +241,7 @@ func _place(state: Dictionary) -> void:
 		body.rotation.y = float(state.get("facing_y", 0.0))
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
-		if not kyttu_skin:
-			ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
 		_add_name_tag(body, String(state.get("display_name",
 			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Void hunter set and the reserved KYTTU admin player skin.
+"""Build the Void hunter set.
 
 The source directory contains standard 64x64 Minecraft skins.  The twelve
 colour files become hunter-rig BBModels/GLBs at 1.22 display scale. Main.png
@@ -117,16 +117,10 @@ def build_one(skin: str, slug: str, hunter: bool,
                                 else PLAYER_ANIMATION_GROUND_LIFTS),
     )
     display_name = slug.removeprefix("void_").replace("_", " ").title()
-    if hunter:
         display_name += " Void"
         note = ("Void hunter converted from the reviewed Minecraft skin. "
-                "The extra scene scale keeps this category taller than A-Z hunters.")
+            "The extra scene scale keeps this category taller than A-Z hunters.")
         scale = 1.22
-    else:
-        display_name = "KYTTU Admin"
-        note = ("Main.png is reserved for the authenticated KYTTU admin player; "
-                "it is never part of the Void hunter draw.")
-        scale = 0.90
     write_scene(os.path.join(OUT, f"{slug}.tscn"), display_name, slug, scale, note)
     print(f"{slug:18s} {result['elements']:2d} elements, "
           f"{info['animations']:2d} clips, {info['tris']:5d} tris")
@@ -137,23 +131,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source_dir")
     parser.add_argument("output_dir", nargs="?", default=OUT)
-    parser.add_argument("--void-only", action="store_true",
-                        help="rebuild the twelve Void hunters without touching the admin skin")
     args = parser.parse_args()
     OUT = os.path.abspath(args.output_dir)
     pairs = clip_sources()
     files = {os.path.splitext(name)[0].lower(): os.path.join(args.source_dir, name)
              for name in os.listdir(args.source_dir)
              if name.lower().endswith(".png")}
-    required = set(VOID_COLOURS) | (set() if args.void_only else {"main"})
+    required = set(VOID_COLOURS)
     missing = required - set(files)
     if missing:
         raise SystemExit("missing Void skin(s): " + ", ".join(sorted(missing)))
     os.makedirs(OUT, exist_ok=True)
     for colour in VOID_COLOURS:
         build_one(files[colour], f"void_{colour}", True, pairs)
-    if not args.void_only:
-        build_one(files["main"], "admin_kyttu", False, pairs)
     return 0
 
 
