@@ -1306,8 +1306,6 @@ func _cell_in_walkable_structure_room(cell: Vector2i) -> bool:
 
 
 func place_hiding_spots(count: int = 6) -> Array:
-	if not hiding_spots.is_empty() and hiding_spots.size() == count:
-		return hiding_spots
 	hiding_spots = []
 	var rng := SeededRandom.new("%s:HIDING-SPOTS" % seed_text)
 	var taken := {exit_cell: true}
