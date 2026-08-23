@@ -1306,6 +1306,8 @@ func _cell_in_walkable_structure_room(cell: Vector2i) -> bool:
 
 
 func place_hiding_spots(count: int = 6) -> Array:
+	if not hiding_spots.is_empty() and hiding_spots.size() == count:
+		return hiding_spots
 	hiding_spots = []
 	var rng := SeededRandom.new("%s:HIDING-SPOTS" % seed_text)
 	var taken := {exit_cell: true}
@@ -1361,6 +1363,7 @@ func place_hiding_spots(count: int = 6) -> Array:
 	# locker areas. Iterate room buckets first, drawing at most one per room in
 	# a pass to keep distribution fair, then fall back to corridor candidates.
 	var room_keys: Array = room_buckets.keys()
+	room_keys.sort()
 	for i in range(room_keys.size() - 1, 0, -1):
 		var j := rng.next_index(i + 1)
 		var tmp = room_keys[i]
