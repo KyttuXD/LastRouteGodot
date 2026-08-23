@@ -703,21 +703,6 @@ func show_message(text: String) -> void:
 	_message_time_left = MESSAGE_DURATION
 
 
-<<<<<<< HEAD
-func set_hold_message(text: String) -> void:
-	_hold_message = text
-	if not text.is_empty():
-		message_label.text = text
-		message_label.visible = true
-		# Hold messages persist until cleared; they do not consume the transient
-		# toast timer used by ordinary HUD messages.
-		_message_time_left = 0.0
-		return
-	# When cleared, only hide the label if no timed toast is still active.
-	if _message_time_left <= 0.0:
-		message_label.text = ""
-		message_label.visible = false
-=======
 ## Persistent HUD line for a live pressure rule. Toast messages still win
 ## while they are up, then this text returns until cleared.
 func set_hold_message(text: String) -> void:
@@ -730,7 +715,6 @@ func set_hold_message(text: String) -> void:
 	if _message_time_left <= 0.0:
 		message_label.text = text
 		message_label.visible = true
->>>>>>> cb7e2c21725e5389d410210684ca1049220411fa
 
 
 func toggle_map_overlay() -> void:
