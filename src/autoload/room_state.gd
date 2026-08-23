@@ -25,7 +25,7 @@ signal changed
 ## gameplay scene has been replaced.
 signal connection_lost(reason: String)
 
-enum Mode { DEFAULT, HIDE_SEEK, OFFICE }
+enum Mode { DEFAULT }
 ## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
 ## steps that only differed by how big, with nothing else changing between
 ## them, was a choice that cost more attention at the lobby than it earned.
@@ -47,10 +47,7 @@ const CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const CODE_LENGTH := 5
 
 const MODE_LABELS := {
-	# HIDE & SEEK remains a legacy enum for old room packets, but is removed
-	# from the selectable UI until its design returns. OFFICE stays visible as
-	# a disabled preview so players can see that it is planned.
-	Mode.DEFAULT: "DEFAULT", Mode.OFFICE: "OFFICE",
+	Mode.DEFAULT: "DEFAULT",
 }
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
@@ -91,8 +88,6 @@ const GUEST_LAST_NAMES := [
 ## can move the shared simulation into a route room without changing staging.
 const MODE_SCENES := {
 	Mode.DEFAULT: "res://scenes/main_3d.tscn",
-	Mode.HIDE_SEEK: "res://scenes/main_3d.tscn",
-	Mode.OFFICE: "res://scenes/office_3d.tscn",
 }
 const ROUTE_LOADING_SCENE := "res://scenes/route_loading.tscn"
 
@@ -613,15 +608,11 @@ func roster() -> PackedStringArray:
 ## are rejected here as well as in staging so stale clients and direct calls
 ## cannot enter an unfinished ruleset.
 func mode_available(candidate: Mode) -> bool:
-	return candidate == Mode.DEFAULT or (candidate == Mode.OFFICE and not online)
+	return candidate == Mode.DEFAULT
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
-	if candidate == Mode.HIDE_SEEK:
-		return "HIDE & SEEK IS REMOVED WHILE ITS RULESET IS REBUILT"
-	if candidate == Mode.OFFICE:
-		return "OFFICE MODE IS A SINGLE-RUNNER LOCAL SHIFT"
-	return ""
+	return "" if candidate == Mode.DEFAULT else "MODE IS UNAVAILABLE"
 
 
 func difficulty_available(candidate: Difficulty) -> bool:
@@ -630,7 +621,7 @@ func difficulty_available(candidate: Difficulty) -> bool:
 
 ## What the button that leaves staging should say, in the web build's words.
 func start_label() -> String:
-	return "START OFFICE SHIFT" if mode == Mode.OFFICE else "ENTER ROUTE"
+	return "ENTER ROUTE"
 
 
 func mode_label() -> String:
@@ -647,11 +638,8 @@ static func valid_room_code(value: String) -> bool:
 	return true
 
 
-## Office Mode is singleplayer by design -- the mode is a lone night shift, and
-## its whole premise is that there is nobody else to call. It seats one however
-## the room was opened.
 func seats() -> int:
-	return 1 if mode == Mode.OFFICE else MAX_PLAYERS
+	return MAX_PLAYERS
 
 
 ## What each map scale actually builds.
@@ -685,11 +673,11 @@ const SCALE_OPTIONS := {
 func generator_options() -> Dictionary:
 	var options := (SCALE_OPTIONS.get(map_scale,
 		SCALE_OPTIONS[Scale.STANDARD]) as Dictionary).duplicate()
-	# A hider cannot be allowed to stand forever in a hunter-proof refuge.
+	# A runner cannot be allowed to stand forever in a hunter-proof refuge.
 	# Every finite Last Route map currently has one spawn checkpoint at most;
 	# difficulty may lower that cap now and leaves room for larger maps to grow
 	# into the original multi-refuge budget later.
-	var safe_zone_count := 0 if mode == Mode.HIDE_SEEK else mini(
+	var safe_zone_count := mini(
 		GameConfig.FACILITY_SAFE_ZONE_COUNT,
 		GameConfig.safe_zone_limit_for(difficulty_id()))
 	options["safe_zone_count"] = safe_zone_count
@@ -808,11 +796,9 @@ func suppress_scene_transitions_for_tests() -> void:
 
 
 func session_scene_path() -> String:
-	if mode == Mode.OFFICE:
-		return String(MODE_SCENES[Mode.OFFICE])
 	if map_scale == Scale.INFINITE:
 		return "res://scenes/infinite_route_test.tscn"
-	return String(MODE_SCENES.get(mode, MODE_SCENES[Mode.DEFAULT]))
+	return "res://scenes/infinite_route_test.tscn"
 
 
 ## The host can end a run without destroying the room. Guests stay connected

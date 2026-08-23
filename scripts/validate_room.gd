@@ -499,29 +499,8 @@ func run(host: Node) -> int:
 	_expect(RoomState.code == RoomState.code, "rerolling changed the room code")
 	_expect(RoomState.run_seed() != before, "a new route seed gave the same run seed")
 
-	# Hide & Seek remains removed. Office is a playable local single-runner
-	# shift, while network rooms stay on the shared route ruleset.
-	_expect(not RoomState.MODE_LABELS.has(RoomState.Mode.HIDE_SEEK),
-		"HIDE & SEEK remains in the selectable mode labels")
-	_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
-		"HIDE & SEEK remains available through code")
-	RoomState.set_mode(RoomState.Mode.HIDE_SEEK)
-	_expect(RoomState.mode != RoomState.Mode.HIDE_SEEK,
-		"set_mode let an unavailable mode through")
-	_expect(not RoomState.mode_unavailable_reason(RoomState.Mode.HIDE_SEEK).is_empty(),
-		"an unavailable mode gives no reason")
 	_expect(RoomState.mode_available(RoomState.Mode.DEFAULT),
 		"Default mode is unavailable")
-	_expect(RoomState.mode_available(RoomState.Mode.OFFICE),
-		"local Office mode is not selectable")
-
-	RoomState.create_local(RoomState.Mode.OFFICE)
-	_expect(RoomState.mode == RoomState.Mode.OFFICE,
-		"create_local did not enter playable Office mode")
-	_expect(RoomState.session_scene_path() == "res://scenes/office_3d.tscn",
-		"Infinite default scale overrode the dedicated Office scene")
-	_expect(RoomState.seats() == 1 and RoomState.start_label() == "START OFFICE SHIFT",
-		"Office mode does not present its single-runner staging contract")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	_expect(RoomState.seats() == RoomState.MAX_PLAYERS,
 		"a route seats %d, not %d" % [RoomState.seats(), RoomState.MAX_PLAYERS])
@@ -647,11 +626,6 @@ func run(host: Node) -> int:
 		_expect(RoomState.is_host, "the host is not the host")
 		_expect(RoomState.roster().size() == 1,
 			"a freshly hosted room lists %d players" % RoomState.roster().size())
-		# Removed/disabled modes stay unavailable online too.
-		_expect(not RoomState.mode_available(RoomState.Mode.HIDE_SEEK),
-			"HIDE & SEEK opened up with one player in the room")
-		_expect(not RoomState.mode_available(RoomState.Mode.OFFICE),
-			"single-runner Office Mode is offered inside a network room")
 		# Exactly one host, and it is peer 1. Every row used to claim both, so
 		# a guest's window showed itself hosting the room it had joined.
 		var rows: Array = RoomState.roster_rows()

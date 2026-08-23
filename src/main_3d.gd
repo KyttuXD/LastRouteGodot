@@ -951,6 +951,14 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 		return
 	player.input_frozen = true
 	GameState.begin_escape(view.brain.hunter_id)
+	# Publish the grab overlay in the same call that starts the struggle. The
+	# regular frame HUD refresh is intentionally later, but capture must not
+	# look like an instant death during a slow or blocked frame.
+	hud.set_escape_active(true)
+	hud.update_escape(GameState.escape_progress, GameState.escape_required,
+		GameState.escape_remaining, GameState.escape_duration)
+	print("[capture] grab-start: hunter=%s duration=%.2f required=%d" % [
+		view.brain.hunter_id, GameState.escape_duration, GameState.escape_required])
 
 
 func _update_escape_struggle(delta: float) -> void:
@@ -1003,6 +1011,9 @@ func _resolve_capture_outcome() -> void:
 	if _capture_resolving:
 		return
 	_capture_resolving = true
+	print("[capture] outcome-start: hunter=%s escape_active=%s" % [
+		capturing_view.brain.hunter_id if capturing_view else "unknown",
+		GameState.escape_active])
 	player.input_frozen = true
 	player.look_frozen = true
 	var hunter_id := capturing_view.brain.hunter_id if capturing_view else \
@@ -1014,6 +1025,7 @@ func _resolve_capture_outcome() -> void:
 		})
 	Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
+	print("[capture] presentation-complete: hunter=%s" % hunter_id)
 	# Keep the run non-terminal while the capture presentation owns the camera.
 	# Setting game_over before this await lets the main loop and co-op snapshot
 	# path observe the death before the player sees the hunter.

@@ -63,7 +63,6 @@ func run(host: Node) -> int:
 	await _check_maze()
 	await _check_online_maze()
 	await _check_share_copy()
-	await _check_office()
 	await _check_menus_ignore_unfocus()
 	await _check_unfocus_afk()
 	if _failures == 0:
@@ -204,77 +203,6 @@ func _check_maze() -> void:
 	scene.queue_free()
 	await _frame()
 	print("  maze      taps to pause, locked out mid-escape, unfocus uses the same open()")
-
-
-func _check_office() -> void:
-	var scene: Node = load("res://scenes/office_3d.tscn").instantiate()
-	_root().add_child(scene)
-	await _frame()
-	await _frame()
-	var menu: PauseMenu = scene.pause_menu
-	if menu == null:
-		_fail("office has no pause menu")
-		scene.queue_free()
-		return
-
-	_expect(not menu.tap_to_pause, "office pauses on a tap instead of a hold")
-
-	# Standing up has to capture the mouse and show the reticle. Seated, the
-	# free cursor IS the pointer and a second mark in the middle of the screen
-	# would be clutter -- but the office is walkable now, and walking with a
-	# loose cursor and no crosshair is the complaint this checks for.
-	var view: OfficeView3D = scene.get_node("%OfficeView")
-	var walker: OfficeWalker = view._walker
-	var reticle: Crosshair = scene.find_child("Crosshair", true, false)
-	if walker == null or reticle == null:
-		_fail("the office has no walker or no crosshair")
-	else:
-		_expect(walker.seated, "the office did not start at the desk")
-		_expect(MouseLock.cursor_visible(), "the desk took the cursor away from its own UI")
-		# Standing must be reachable BY PLAYING, not only by calling stand().
-		# Pointing at the console used to make interact press a button instead,
-		# so the chair was effectively inescapable.
-		view._hovered = "ctrl:LeftDoor"
-		Input.action_press("interact")
-		view._update_seating()
-		Input.action_release("interact")
-		_expect(not walker.seated,
-			"interact worked a control instead of standing the player up")
-		view._hovered = ""
-		_expect(MouseLock.is_captured(), "standing up did not capture the mouse")
-		reticle._process(0.016)
-		_expect(reticle._shown, "standing up did not show the crosshair")
-		walker.sit()
-		_expect(MouseLock.cursor_visible(), "sitting back down did not free the cursor")
-		reticle._process(0.016)
-		_expect(not reticle._shown, "the crosshair stayed up at the desk")
-
-	# A tap, then a hold, driven by hand rather than in real time.
-	Input.action_press("pause")
-	menu._process(0.2)
-	_expect(not menu.is_open(), "a 0.2 s press paused a mode that asks for 3 s")
-	Input.action_release("pause")
-	menu._process(0.016)
-	_expect(not menu.is_open(), "releasing early still paused")
-
-	Input.action_press("pause")
-	for i in 4:
-		menu._process(PauseMenu.HOLD_SECONDS / 3.0)
-	Input.action_release("pause")
-	_expect(menu.is_open(), "holding ESC past %.0f s did not pause" % PauseMenu.HOLD_SECONDS)
-	_expect(MouseLock.cursor_visible(), "the office pause menu did not free the cursor")
-
-	menu.close()
-	_expect(not _tree().paused, "closing the office menu left the tree paused")
-
-	_simulate_lost_focus(menu)
-	_expect(not menu.is_open(),
-		"office paused on unfocus instead of holding ESC")
-
-	_tree().paused = false
-	scene.queue_free()
-	await _frame()
-	print("  office    ignores a tap, pauses after a %.0f s hold" % PauseMenu.HOLD_SECONDS)
 
 
 func _check_online_maze() -> void:

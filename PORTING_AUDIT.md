@@ -45,7 +45,7 @@ removed from this list instead of being left as historical “TODO” text.
 
 - The finite route remains as an internal regression/save fallback but is not
   exposed by normal staging.
-- The legacy 2D scene remains source reference and is not a second gameplay
+- The former 2D scene was removed; the 3D route is the sole gameplay runtime
   implementation.
 - Hide & Seek and XR hardware certification remain separate future milestones,
   not missing Infinite-mode ports.

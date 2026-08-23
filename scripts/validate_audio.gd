@@ -2,8 +2,8 @@ extends RefCounted
 
 ## Headless checks for the procedural SoundSystem port. A dummy audio driver
 ## cannot tell us what a cue sounds like, but it can prove every shipping cue
-## renders valid stereo PCM, direction changes channel energy, debounce gates
-## repeated footsteps, UI buttons are wired, and Office emits named events.
+## renders valid stereo PCM, direction changes channel energy, and debounce gates
+## repeated footsteps and UI buttons.
 
 var _failures := 0
 
@@ -114,23 +114,7 @@ func run(host: Node) -> int:
 	route.queue_free()
 	await host.get_tree().process_frame
 
-	var simulation := OfficeSimulation.new("audio-check", {
-		"default_ai": 0, "jumpscares": true,
-	})
-	var office_events: Array = []
-	simulation.audio_cue.connect(func(cue: String, pan: float, intensity: float) -> void:
-		office_events.append({"cue": cue, "pan": pan, "intensity": intensity}))
-	simulation.toggle_control("cameras")
-	_expect(not office_events.is_empty() and office_events[-1]["cue"] == "camera",
-		"raising the Office monitor emitted no camera cue")
-	office_events.clear()
-	simulation.threats["crimson"]["progress"] = 0.99
-	simulation.threats["crimson"]["timer"] = 0.0
-	simulation._update_crimson(0.1)
-	_expect(office_events.any(func(event: Dictionary) -> bool:
-		return event["cue"] == "crimson_door" and absf(float(event["pan"])) > .8),
-		"Crimson's door deadline emitted no directional cue")
-	print("  wiring     UI, movement debounce, Thessine sync, and Office hooks are live")
+	print("  wiring     UI, movement debounce, and Thessine sync are live")
 	Sound.stop_all()
 	await host.get_tree().process_frame
 

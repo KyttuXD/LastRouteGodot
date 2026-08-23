@@ -34,8 +34,7 @@ func run(host: Node) -> int:
 	if not Build.tools_enabled():
 		_fail("the check suite is running without tools enabled")
 
-	for entry in [["res://scenes/main_3d.tscn", "maze"],
-			["res://scenes/office_3d.tscn", "office"]]:
+	for entry in [["res://scenes/main_3d.tscn", "maze"]]:
 		var scene: Node = load(String(entry[0])).instantiate()
 		host.get_tree().root.add_child(scene)
 		await host.get_tree().process_frame

@@ -1,5 +1,9 @@
 # LastRoute migration plan
 
+The supported Godot runtime is now the first-person 3D Infinite route. The
+former 2D and Office gameplay prototypes have been removed; references below
+to those prototypes are historical migration notes only.
+
 The original game (`KyttuXD/LastRoute`) is a dependency-free JavaScript/Canvas project — roughly 15,500 lines across just `maze.js`, `game.js`, `hunter-ai.js`, `game-config.js`, `renderer.js` and the 26 per-hunter AI files, before UI, systems, and the three game modes. Its source is design and behavior reference material; Godot scenes and GDScript replace the browser runtime rather than wrapping it. This is a multi-milestone port, not a single-session rewrite — treat each milestone below as its own scoped unit of work.
 
 ## Engine version
@@ -16,7 +20,7 @@ The project targets **Godot 4.7** (`config/features` in `project.godot`); develo
 
 ## Rewrite in Godot
 
-- Canvas renderer → **now a first-person Node3D world** (`scenes/main_3d.tscn`); the earlier Node2D/TileMapLayer/Light2D port (`scenes/main.tscn`) still parses but is no longer built against — see below
+- Canvas renderer → **now a first-person Node3D world** (`scenes/main_3d.tscn`)
 - procedural maze/A* → generator service plus AStarGrid2D *(done — `facility_generator.gd`'s `find_path()`, used by hunter_brain.gd)*
 - player loop → CharacterBody2D controller and gameplay components *(3D: CharacterBody3D, see below)*
 - hunter prototype mixins → `hunter_brain.gd`, a presentation-agnostic shared brain, plus a thin per-scene view wrapper *(Dovelle done, see "First hunter" below)*
@@ -32,7 +36,8 @@ The original's real art (`last-route/assets/environment/*.png`, ~220×220px per 
 
 **The top-down camera has been removed.** It shipped briefly as a `V` toggle between an orthographic overhead rig and the first-person one, and it rendered black in play. Three attempts to fix it (adding a ceiling, changing the light type, stopping the player climbing) each fixed a real bug without fixing the view, and the project owner's read was the correct one: the overhead view is a leftover from the 2D map concept and has no job left now that the whole facility is 3D. It, the `toggle_view` action and the `V` binding are gone; `player_controller_3d.gd` is first-person only. A discovered-only persistent minimap now reads the Infinite facility as a plan without exposing ungenerated space or other floors.
 
-**`project.godot`'s `run/main_scene` points at `scenes/main_menu.tscn`.** `scenes/main.tscn` (the 2D port) is untouched and still parses, but nothing is built against it any more and it is not reachable from the menu.
+**`project.godot`'s `run/main_scene` points at `scenes/main_menu.tscn`.** The
+removed prototype scenes are no longer part of the project runtime.
 
 ### What's in the 3D slice today
 
@@ -183,15 +188,19 @@ Verified by the `sync` and `pause` suites plus `scenes/enet_smoke.tscn`, which l
 
 **Client updates install themselves.** The startup gate now downloads the platform artifact instead of opening a browser, verifies the backend manifest's SHA-256, rejects unsafe ZIP paths, unpacks into `user://updates`, and launches an independent helper which waits for the game process to stop before replacing and relaunching the desktop build. Web refreshes with a commit cache-buster; Quest hands the verified APK to Android's installer because sideloaded package replacement still requires OS/user approval. Read-only desktop installation folders fail closed with the verified package left staged for retry.
 
-## Office Mode (playable)
+## Retired prototypes
 
 **Office Mode does not use the A-Z hunter roster.** This is worth stating plainly because the name suggests otherwise: the original's own mode definition calls it "a fully self-contained FNAF-style stationary-defense simulation... Ten Void signals (never the A-Z roster)", and `office-survivor-system.js`'s startup explicitly clears `this.hunters = []` / `this.routeHunterIds = []` with the comment that its actor "never enters movement, collision, rendering, or hunter perception". It has its own separate cast of ten colour-named **Void signals** (Crimson, Azure, Amber, Emerald, Rose, Orange, Violet, White, Gray, Black), each with an independent 0-20 AI dial (Custom Night). Nothing in `src/game/office/` touches `HunterRoster`, `HunterBrain`, `FacilityGenerator`, or `GameConfig`.
 
-`src/game/office/office_simulation.gd` ports the whole night simulation; `src/config/office_config.gd` holds its static data (the 8-camera map, which doubles as the threat-navigation graph, plus power costs and per-threat definitions). Presentation-agnostic in the same way the facility generator and hunter brain are — it owns every timer and the complete state, and renders nothing.
+The former Office simulation and its presentation files have been removed from
+the Godot project. Office-themed authored props remain available to the active
+3D route where they are used as ordinary room dressing.
 
-**`scenes/office_3d.tscn` retains the complete playable implementation**, but its staging button is currently visible and disabled while the mode is prepared for another pass. `src/main_office.gd` owns the simulation, forwards input to its named controls, and reflects its state into the UI — the simulation stays authoritative for every outcome. Two UI pieces are adapted from the **Cupcakes Framework** (MIT, © Oplexitie — see `third_party/cupcakes-framework/`): its mouse-position office panning, which now lives on in `OfficeWalker.aim_seated` as the seated look, and `src/ui/office/camera_monitor.gd` (feed switching with a static burst, and the tablet lowering to re-enable panning). Its CRT shader drives the monitor feed. Its *AI* is deliberately not used — see that folder's README for why. The office itself is still placeholder `ColorRect` geometry; the equirectangular perspective shader (and the hitbox-offset trick that goes with it) waits on real office art.
+The former Office mode is no longer selectable or included in the runtime. Its
+dedicated scenes, simulation, UI, and build tooling were removed when the
+project consolidated on the Infinite 3D route.
 
-Office Mode's controls live in their own `office_*` input namespace, mirroring the original's deliberate split so rebinding a Last Route key can never collide with an Office one. All ten are rebindable in Settings; the 1-8 camera bank is a fixed hotbar, as in the original.
+The old Office-only input namespace is no longer part of the supported game.
 
 **What each Void signal does, and its counter** — all ported with the original's exact formulas:
 

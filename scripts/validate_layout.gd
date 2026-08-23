@@ -85,13 +85,6 @@ const ANCHORED := {
 	"res://scenes/run_report.tscn": {
 		"ReportPanel": ["hcentre", "vcentre"],
 	},
-	"res://scenes/office_3d.tscn": {
-		"TopBar": ["left", "right", "top"],
-		"SystemsLabel": ["left", "top"],
-		"ControlBar": ["hcentre", "bottom"],
-		"EventLabel": ["hcentre", "bottom"],
-		"OfficeView": ["left", "right", "top", "bottom"],
-	},
 }
 
 ## How much the distance from an anchored edge may vary between viewport

@@ -1,9 +1,8 @@
 class_name PlayerController3D
 extends CharacterBody3D
 
-## 3D counterpart to src/game/player_controller.gd. Same stamina/lamp/
-## interaction rules (GameConfig is shared, untouched), CharacterBody3D
-## movement on the XZ ground plane instead of CharacterBody2D on XY, and two
+## First-person CharacterBody3D controller. It owns the shared stamina/lamp/
+## interaction rules and movement on the XZ ground plane, with two
 ## camera rigs (orthographic top-down, perspective first-person) toggled by
 ## FIRST PERSON only.
 ##

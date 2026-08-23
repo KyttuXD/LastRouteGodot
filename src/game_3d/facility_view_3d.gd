@@ -1,9 +1,8 @@
 class_name FacilityView3D
 extends Node3D
 
-## 3D counterpart to src/game/facility_view.gd. Renders the SAME
-## facility_generator.gd grid data (unchanged, engine-agnostic) via a
-## GridMap — the 3D equivalent of the 2D renderer's TileMapLayer — with
+## Renders the facility_generator.gd grid data (unchanged, engine-agnostic) via
+## a GridMap with
 ## physics collision. Floor/wall visuals and collision come from
 ## art/props-3d/environment/ via ModelSlot, not hardcoded geometry — see
 ## art/props-3d/README.md for the scale/pivot convention this mirrors:

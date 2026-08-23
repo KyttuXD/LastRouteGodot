@@ -51,7 +51,7 @@ below).
 
 The framework's AI is classic FNAF: an `ai_level >= randi_range(1, 20)`
 movement roll with characters hopping between discrete rooms via a
-`match step:` route. LastRoute's Office Mode works differently — its ten
+`match step:` route. The former LastRoute Office prototype worked differently — its ten
 Void signals are progress-meter based with bespoke per-signal mechanics
 (a desk-light flash edge, monitor-open acceleration, system sabotage, a
 shuffled parkour challenge, camera corruption), only three of them traverse
