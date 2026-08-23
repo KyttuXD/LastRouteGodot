@@ -1628,8 +1628,10 @@ func _use_selected_item() -> void:
 		return
 	match item_id:
 		"flashlight":
-			if not flashlight_seized():
-				_set_flashlight(not flashlight_enabled)
+			# F / the dedicated flashlight bind is the only toggle. Left click
+			# is tool_use (focus, mouse capture, looking) and must not flip or
+			# drain the lamp, or a window-focus click can leave it on the floor.
+			return
 		"taser":
 			_fire_taser()
 		"battery":
