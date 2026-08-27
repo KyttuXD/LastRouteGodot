@@ -66,8 +66,7 @@ func _ready() -> void:
 	Backend.account_changed.connect(_on_account_changed)
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
 	_refresh_account_button()
-	version_label.text = "VERSION %s // %s // %s" % [Build.VERSION,
-		Build.update_channel().to_upper(), Build.short_revision().to_upper()]
+	# version_label.text = "VERSION %s // %s // %s" % [Build.VERSION, Build.update_channel().to_upper(), Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
 	if Build.requires_update_gate():
@@ -85,7 +84,6 @@ func _ready() -> void:
 	if _open_update_progress_if_needed():
 		return
 	_focus_default_button.call_deferred()
-
 
 func _build_local_saves_button() -> void:
 	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
@@ -674,6 +672,9 @@ func _close_modal() -> void:
 
 
 func _on_quit_pressed() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.location.assign('/kyttus-lab/');", true)
+		return
 	get_tree().quit()
 
 

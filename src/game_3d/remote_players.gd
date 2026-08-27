@@ -218,6 +218,25 @@ func _local_clip() -> String:
 ## Any peer may publish only its own state: sender id is taken from ENet, never
 ## from the packet. Invalid transform packets are ignored before they can move a
 ## body or become a hunter target.
+func _visible_from_state(state: Dictionary, fallback: bool = true) -> bool:
+	# `hidden` is the authoritative gameplay signal for the route. A stale/blank
+	# `visible: false` flag can silently hide admin and co-op peers forever, so
+	# treat a false visibility hint as stale unless the packet explicitly says the
+	# runner is hidden. This keeps remote bodies visible during sync races and
+	# backend propagation while still honoring real hide-state transitions.
+	var hidden = state.get("hidden")
+	if hidden is bool:
+		return not hidden
+	var raw = state.get("visible", fallback)
+	if raw is bool:
+		return raw if raw else fallback
+	if raw is int:
+		return raw > 0 if raw > 0 else fallback
+	if raw is float:
+		return raw > 0.0 if raw > 0.0 else fallback
+	return fallback
+
+
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _place(state: Dictionary) -> void:
 	var id := multiplayer.get_remote_sender_id()
@@ -267,7 +286,7 @@ func _place(state: Dictionary) -> void:
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
-	body.visible = bool(state.get("visible", true))
+	body.visible = _visible_from_state(state, true)
 	_sync_remote_equipment(id, body, state)
 	var clip := String(state.get("clip", "idle"))
 	body.set_meta("movement_clip", clip)

@@ -4,6 +4,8 @@
 # Exported builds
 builds/
 dist/
+android/*
+android/build/*
 
 # Local editor/OS files
 .DS_Store

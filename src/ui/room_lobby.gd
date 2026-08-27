@@ -462,8 +462,8 @@ func _on_dossier_pressed() -> void:
 	_dossier_gimmick = _dossier_copy("DossierGimmick")
 	_dossier_gimmick.visible = false
 	details.add_child(_dossier_gimmick)
-	details.add_child(_label(Palette.track("COUNTERPLAY"), Palette.AMBER, 6))
 	_dossier_counter = _dossier_copy("DossierCounter")
+	_dossier_counter.visible = false
 	details.add_child(_dossier_counter)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -519,7 +519,7 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		_dossier_gimmick_heading.visible = false
 		_dossier_gimmick.visible = false
 		_dossier_gimmick.text = ""
-		_dossier_counter.text = "NO VERIFIED COUNTERPLAY DATA"
+		_dossier_counter.text = ""
 		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
@@ -533,12 +533,11 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s\nCOUNTERPLAY DIRECTION // %s" % [
+	_dossier_gimmick.text = "%s // %s" % [
 		String(entry.get("gimmick_title", "UNASSIGNED")),
 		String(entry.get("gimmick_behavior", "")),
-		String(entry.get("gimmick_counter", "")),
 	] if has_chart else ""
-	_dossier_counter.text = String(entry["counter"])
+	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
 		float(profile["hearing"])]

@@ -211,12 +211,10 @@ to the live host/map workflow rather than to one player's account.
 This supports the intended private-GitHub-to-Pterodactyl flow without putting
 a GitHub token in the game:
 
-1. Every push to `main` runs `.github/workflows/publish-debug.yml`: a fresh
-   runner imports the Godot project to build its global-class/resource cache,
-   validates the project, exports all five debug ZIPs, verifies them, and
-   replaces the assets on the stable `debug` release. The manifest is uploaded
-   last and contains the exact triggering commit. The workflow keeps version
-   `0.0.1.0` and does not create per-version tags.
+1. Validation and exports are run locally before publishing. Use the complete
+   `res://scenes/validate.tscn` suite and `./scripts/export_test_builds.sh`, then
+   inspect the generated archives and manifest before uploading them. GitHub
+   Actions is intentionally not configured for this repository.
 2. Set `LASTROUTE_AUTO_UPDATE=true` and provide the server-side PAT as
    `LASTROUTE_GITHUB_TOKEN`; the common Pterodactyl `ACCESS_TOKEN` variable is
    also accepted. At startup and every `LASTROUTE_UPDATE_POLL_SECONDS`, Node

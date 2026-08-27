@@ -148,8 +148,7 @@ func _everyone_has_a_dossier_entry() -> void:
 	for id in HunterRoster.PROFILES:
 		var entry := HunterDossier.entry(id)
 		if entry.is_empty() or String(entry.get("ability", "")).is_empty() \
-				or String(entry.get("behavior", "")).is_empty() \
-				or String(entry.get("counter", "")).is_empty():
+				or String(entry.get("behavior", "")).is_empty():
 			missing.append(id)
 	for id in HunterDossier.ENTRIES:
 		_expect(HunterRoster.PROFILES.has(id),
@@ -158,7 +157,7 @@ func _everyone_has_a_dossier_entry() -> void:
 	_expect(HunterDossier.ENTRIES.size() == HunterRoster.PROFILES.size(),
 		"dossier covers %d entries for a %d-hunter roster" % [
 			HunterDossier.ENTRIES.size(), HunterRoster.PROFILES.size()])
-	print("  dossier  %d mechanics and counterplay entries" % HunterDossier.ENTRIES.size())
+	print("  dossier  %d ability entries" % HunterDossier.ENTRIES.size())
 
 
 ## The Blockbench -> glTF export pipeline writes pixel-art materials as MASK,

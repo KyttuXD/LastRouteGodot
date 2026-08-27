@@ -33,11 +33,8 @@ const CEILING_INSET := 0.02
 ## stacked chunks, producing upper-floor stripes and solid columns across stair
 ## landings. The ceiling closes this small remainder without overlapping either.
 const WALL_HEIGHT := LEVEL_HEIGHT - SLAB - CEILING_INSET
-## Straight maze runs are structural slabs, not one-metre concrete cubes.
-## For collision, we want every wall cell to remain a full 1m grid block.
-## Thin walls were introduced to reduce visual/physics pinching with narrow
-## room dressing, but that also created edge-case collision gaps.
-const WALL_THICKNESS := 1.0
+## Every wall cell remains a full 1m cube/block so streamed rooms do not
+## create slab-like collision gaps or elongated wall seams between chunks.
 const STAIR_RUN := 8.0
 const STAIR_RISE := LEVEL_HEIGHT
 const STAIR_WIDTH := 3.0
@@ -1215,37 +1212,13 @@ func _build_mesh_library() -> MeshLibrary:
 		_floor_items[region] = next_id
 		next_id += 1
 		var full_wall_id := next_id
-		_add_scene_item(library, full_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
-			REGION_WALL_COLORS[region], .9, true, Vector3.ONE,
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
+		_add_box_item(library, full_wall_id,
+			Vector3(1.0, WALL_HEIGHT, 1.0),
+			Vector3(0.0, WALL_HEIGHT * .5, 0.0),
+			_material(region_wall_texture, REGION_WALL_COLORS[region], Vector3(1.0, WALL_HEIGHT, 1.0)),
+			true)
 		next_id += 1
-		var horizontal_wall_id := next_id
-		_add_scene_item(library, horizontal_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
-			REGION_WALL_COLORS[region], .9, true, Vector3(1.0, 1.0, WALL_THICKNESS),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
-		next_id += 1
-		var vertical_wall_id := next_id
-		_add_scene_item(library, vertical_wall_id, WALL_BLOCK_SCENE, region_wall_texture,
-			REGION_WALL_COLORS[region], .9, true, Vector3(WALL_THICKNESS, 1.0, 1.0),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
-		next_id += 1
-		var horizontal_transition_id := next_id
-		_add_scene_item(library, horizontal_transition_id, WALL_BLOCK_SCENE, region_wall_texture,
-			REGION_WALL_COLORS[region], .9, true, Vector3(1.0, 1.0, .64),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
-		next_id += 1
-		var vertical_transition_id := next_id
-		_add_scene_item(library, vertical_transition_id, WALL_BLOCK_SCENE, region_wall_texture,
-			REGION_WALL_COLORS[region], .9, true, Vector3(.64, 1.0, 1.0),
-			Vector3(0.0, WALL_HEIGHT * .5, 0.0))
-		next_id += 1
-		_wall_items[region] = {
-			"full": full_wall_id,
-			"horizontal": horizontal_wall_id,
-			"vertical": vertical_wall_id,
-			"horizontal_transition": horizontal_transition_id,
-			"vertical_transition": vertical_transition_id,
-		}
+		_wall_items[region] = {"full": full_wall_id}
 	_safe_floor_item = next_id
 	_add_scene_item(library, next_id, FLOOR_TILE_SCENE, floor_texture, Color("5f9b78"),
 		.88, true, Vector3.ONE, Vector3(0.0, -SLAB * .5, 0.0))
@@ -1265,6 +1238,22 @@ static func _material(texture: Texture2D, color: Color,
 	material.uv1_scale = repeat
 	material.roughness = .88
 	return material
+
+
+static func _add_box_item(library: MeshLibrary, id: int, size: Vector3,
+		offset: Vector3, material: Material, solid: bool) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	if material != null:
+		mesh.material = material
+	library.create_item(id)
+	library.set_item_mesh(id, mesh)
+	var mesh_transform := Transform3D(Basis.IDENTITY, offset)
+	library.set_item_mesh_transform(id, mesh_transform)
+	if solid:
+		var shape := BoxShape3D.new()
+		shape.size = size
+		library.set_item_shapes(id, [shape, Transform3D(Basis.IDENTITY, offset)])
 
 
 static func _add_scene_item(library: MeshLibrary, id: int, scene_path: String,
