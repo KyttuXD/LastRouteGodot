@@ -25,6 +25,14 @@ HAIR_SWATCH, TIE_SWATCH = (46, 66, 2, 2), (48, 66, 2, 2)     # free atlas texels
 def _modify(canvas):
     hair = canvas.getpixel((12, 3))[:3]            # the flat hair colour of her head (top of the head box)
     tie = canvas.getpixel((24, 18))[:3] if False else (220, 90, 95)   # the red of the bow on her skin
+    # the hair that was painted down her back (body back + jacket back) is geometry now: shirt red / transparent
+    shirt = canvas.getpixel((32, 20))[:3]
+    for y0, clear in ((20, False), (36, True)):
+        for y in range(y0, y0 + 12):
+            for x in range(32, 40):
+                p = canvas.getpixel((x, y))
+                if p[3] and sum(abs(a - b) for a, b in zip(p[:3], hair)) < 25:
+                    canvas.putpixel((x, y), (0, 0, 0, 0) if clear else (*shirt, 255))
     for (x, y, w, h), c in ((HAIR_SWATCH, hair), (TIE_SWATCH, tie)):
         for j in range(h):
             for i in range(w):
