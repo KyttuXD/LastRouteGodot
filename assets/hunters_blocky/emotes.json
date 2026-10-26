@@ -1333,6 +1333,390 @@
    "shared": false
   }
  ],
+ "void_black": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_devour",
+   "label": "Devour",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_blue": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_shiver",
+   "label": "Shiver",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_brown": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_smash",
+   "label": "Smash",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_cyan": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_zap",
+   "label": "Zap",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_gray": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_freeze",
+   "label": "Freeze",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_green": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_exhale",
+   "label": "Exhale",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_orange": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_rev",
+   "label": "Rev up",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_pink": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_beckon",
+   "label": "Beckon",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_purple": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_flicker",
+   "label": "Flicker",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_red": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_rage",
+   "label": "Rage",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_white": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_listen",
+   "label": "Listen",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "void_yellow": [
+  {
+   "clip": "emote_stare",
+   "label": "Stare",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tilt",
+   "label": "Head tilt",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_twitch",
+   "label": "Twitch",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_loom",
+   "label": "Loom",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_flick",
+   "label": "Flick",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
  "wynelle": [
   {
    "clip": "emote_wave",

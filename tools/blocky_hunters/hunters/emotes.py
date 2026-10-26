@@ -98,6 +98,51 @@ TEMPLATES = {
     "fetch": ("Fetch!", "happy", [_rest(0), K(.3, RArm=(82, 0, 0))] + [K(.5 + .3 * i, -.5 if i % 2 else .4, RArm=(82, 0, 0)) for i in range(4)] + [_rest(2.2)]),
 }
 
+def _hold(t0, t1, **pose):
+    return [K(t0, **pose), K(t1, **pose)]
+
+
+# ---------------- Void: no waving or cheering; unsettling, still, predatory. Shared set + one per colour.
+TEMPLATES.update({
+    "stare": ("Stare", "neutral", [_rest(0), K(.8, Head=(-7, 0, 0), Chest=(-3, 0, 0))] + _hold(2.4, 2.4, Head=(-7, 0, 0), Chest=(-3, 0, 0)) + [_rest(3.2)]),
+    "tilt": ("Head tilt", "neutral", [_rest(0), K(1.0, Head=(2, 0, 30)), K(2.6, Head=(2, 0, 30)), _rest(3.4)]),
+    "twitch": ("Twitch", "neutral", [_rest(0)] + [K(.12 * (i + 1), 0, Head=(0, 0, 16 if i % 2 else -12), LArm=(0, 0, -8 * (i % 2)), RArm=(0, 0, 8 * (i % 2)),
+                                           Chest=(0, 0, 3 if i % 2 else -3)) for i in range(8)] + [_rest(1.6)]),
+    "loom": ("Loom", "neutral", [_rest(0), K(.7, Chest=(-12, 0, 0), Belly=(-8, 0, 0), Head=(14, 0, 0), LArm=(0, 0, -38), RArm=(0, 0, 38)),
+                              K(2.0, Chest=(-12, 0, 0), Belly=(-8, 0, 0), Head=(14, 0, 0), LArm=(0, 0, -38), RArm=(0, 0, 38)), _rest(2.8)]),
+    "devour": ("Devour", "neutral", [_rest(0), K(.4, LArm=(0, 0, -60), RArm=(0, 0, 60), Chest=(6, 0, 0)),
+                                    K(.9, LArm=(80, 0, 22), RArm=(80, 0, -22), LFore=(40, 0, 0), RFore=(40, 0, 0), Chest=(-14, 0, 0), Head=(8, 0, 0)),
+                                    K(1.8, LArm=(80, 0, 22), RArm=(80, 0, -22), LFore=(40, 0, 0), RFore=(40, 0, 0), Chest=(-14, 0, 0), Head=(8, 0, 0)), _rest(2.5)]),
+    "shiver": ("Shiver", "neutral", [_rest(0)] + [K(.09 * (i + 1), -.1 * (i % 2), Chest=(0, 0, 3 if i % 2 else -3), LArm=(18, 0, 8), RArm=(18, 0, -8),
+                                                LFore=(60, 0, 0), RFore=(60, 0, 0), Head=(-6, 0, 3 if i % 2 else -3)) for i in range(14)] + [_rest(2.0)]),
+    "smash": ("Smash", "neutral", [_rest(0), K(.5, LArm=(165, 0, 0), RArm=(165, 0, 0), Chest=(8, 0, 0)),
+                                 K(.62, -.8, LArm=(35, 0, 0), RArm=(35, 0, 0), Chest=(-26, 0, 0), Belly=(-12, 0, 0), Head=(-6, 0, 0)),
+                                 K(1.8, -.8, LArm=(35, 0, 0), RArm=(35, 0, 0), Chest=(-26, 0, 0), Belly=(-12, 0, 0), Head=(-6, 0, 0)), _rest(2.6)]),
+    "zap": ("Zap", "neutral", [_rest(0), K(.25, LArm=(0, 0, -75), RArm=(0, 0, 75))] + [K(.25 + .08 * (i + 1), 0, LArm=(0, 0, -75 + 14 * (i % 2)), RArm=(0, 0, 75 - 14 * (i % 2)),
+                                           Head=(0, 0, 10 if i % 2 else -10), Chest=(0, 0, 4 if i % 2 else -4)) for i in range(12)] + [_rest(1.9)]),
+    "freeze": ("Freeze", "neutral", [_rest(0), K(.12, LArm=(0, 0, -4), RArm=(0, 0, 4), Head=(2, 0, 0)), K(2.6, LArm=(0, 0, -4), RArm=(0, 0, 4), Head=(2, 0, 0)), _rest(2.8)]),
+    "exhale": ("Exhale", "neutral", [_rest(0), K(.7, Chest=(10, 0, 0), Belly=(6, 0, 0), Head=(16, 0, 0), LArm=(0, 0, -14), RArm=(0, 0, 14)),
+                                   K(1.6, Chest=(10, 0, 0), Belly=(6, 0, 0), Head=(16, 0, 0), LArm=(0, 0, -14), RArm=(0, 0, 14)),
+                                   K(2.3, Chest=(-8, 0, 0), Head=(-8, 0, 0)), _rest(3.0)]),
+    "rev": ("Rev up", "neutral", [_rest(0), K(.4, -1.2, Chest=(-20, 0, 0), Belly=(-10, 0, 0), LArm=(-40, 0, -6), RArm=(-40, 0, 6),
+                                          LThigh=(34, 0, 0), RThigh=(-8, 0, 0), LCalf=(-52, 0, 0), RCalf=(-20, 0, 0), Head=(14, 0, 0))]
+            + _osc(.7, .16, 7, dict(RThigh=(-14, 0, 0)), dict(RThigh=(-4, 0, 0)), Chest=(-20, 0, 0), Belly=(-10, 0, 0), LArm=(-40, 0, -6), RArm=(-40, 0, 6),
+                   LThigh=(34, 0, 0), LCalf=(-52, 0, 0), RCalf=(-20, 0, 0), Head=(14, 0, 0)) + [_rest(2.4)]),
+    "beckon": ("Beckon", "neutral", [_rest(0), K(.4, RArm=(88, 0, -8), RFore=(30, 0, 0), Head=(0, 0, 10))]
+              + _osc(.7, .3, 6, dict(RFore=(100, 0, 0)), dict(RFore=(30, 0, 0)), RArm=(88, 0, -8), Head=(0, 0, 10)) + [_rest(2.8)]),
+    "flicker": ("Flicker", "neutral", [_rest(0)] + [K(.14 * (i + 1), -.5 if i % 2 else 0, Pelvis=(0, (-1) ** i * (20 + 10 * (i % 3)), 0),
+                                                 Head=(0, 0, 8 if i % 2 else -8)) for i in range(10)] + [_rest(1.9)]),
+    "rage": ("Rage", "neutral", [_rest(0), K(.3, LArm=(30, 0, -10), RArm=(30, 0, 10), LFore=(95, 0, 0), RFore=(95, 0, 0), Chest=(-14, 0, 0), Head=(4, 0, 0))]
+            + _osc(.5, .08, 14, dict(Chest=(-16, 0, 4)), dict(Chest=(-12, 0, -4)), LArm=(30, 0, -10), RArm=(30, 0, 10), LFore=(95, 0, 0), RFore=(95, 0, 0), Head=(4, 0, 0)) + [_rest(2.3)]),
+    "listen": ("Listen", "neutral", [_rest(0), K(.8, Head=(8, 0, 18), Chest=(0, 0, 3)), K(1.8, Head=(8, 0, -18), Chest=(0, 0, -3)),
+                                   K(2.8, Head=(10, 0, 14), Chest=(0, 0, 2)), _rest(3.6)]),
+    "flick": ("Flick", "neutral", [_rest(0), K(.3, RArm=(60, 0, -4), RFore=(110, 0, 0)), K(.45, RArm=(88, 0, -4), RFore=(10, 0, 0), Head=(0, 0, 6)),
+                                   K(1.4, RArm=(88, 0, -4), RFore=(10, 0, 0), Head=(0, 0, 6)), _rest(2.0)]),
+})
+VOID_SHARED = ["stare", "tilt", "twitch", "loom"]
+PERSONAL_VOID = {"black": "devour", "blue": "shiver", "brown": "smash", "cyan": "zap", "gray": "freeze", "green": "exhale",
+                 "orange": "rev", "pink": "beckon", "purple": "flicker", "red": "rage", "white": "listen", "yellow": "flick"}
+
 SHARED = ["wave", "cheer", "bow", "shrug"]
 PERSONAL = {
     "aki": ["shy", "read", "peek"], "briselle": ["hold", "chin"], "ceryth": ["chin", "point", "salute"],
@@ -114,6 +159,8 @@ PERSONAL = {
 
 def names_for(hunter):
     base = hunter.replace("_tall", "")
+    if base.startswith("void_"):
+        return VOID_SHARED + [PERSONAL_VOID[base[5:]]]
     out = list(SHARED)
     out += [n for n in PERSONAL.get(base, []) if n not in out]
     return out
@@ -135,5 +182,5 @@ def compile_emotes(hunter, restq, pel, U, k, core_bones):
             tracks[bone] = {"rotation": (times, vals)}
         tracks["Pelvis"]["translation"] = (times, [(pel[0], pel[1] + dy * U * k, pel[2]) for _, dy, _ in keys])
         clips["emote_" + key] = {"length": times[-1], "tracks": tracks, "loop": False}
-        meta.append({"clip": "emote_" + key, "label": label, "face": face, "shared": key in SHARED})
+        meta.append({"clip": "emote_" + key, "label": label, "face": face, "shared": key in SHARED or key in VOID_SHARED})
     return clips, meta

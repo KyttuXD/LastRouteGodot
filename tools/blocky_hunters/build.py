@@ -59,10 +59,14 @@ def _record_emotes(name, meta):
 
 
 def build(name, tall=0.0):
-    try:
-        mod = importlib.import_module(f"hunters.{name}")
-    except ModuleNotFoundError:
-        mod = _generic(name)
+    if name.startswith("void_"):                      # the 12 Void hunters: hunters/void_set.py
+        from hunters import void_set
+        mod = void_set.module(name)
+    else:
+        try:
+            mod = importlib.import_module(f"hunters.{name}")
+        except ModuleNotFoundError:
+            mod = _generic(name)
     cubes, face = mod.build()
     sk, eyes, extras = mod.SK, mod.EYES, list(mod.EXTRAS)
     if tall:
@@ -80,6 +84,8 @@ def build(name, tall=0.0):
     from bb_skin import U as SKIN_U
     emote_clips, emote_meta = emote_lib.compile_emotes(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
                                                        sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
+    if hasattr(mod, "emissive"):                       # glowing texels (Void eyes): glTF emissiveTexture
+        model.emissive = mod.emissive(model.atlas.img)
     clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
     _record_emotes(name, emote_meta)
     hook = getattr(mod, "CLIP_HOOK", None)             # hunter-specific extra clips (Kathy's scythe set)
@@ -89,6 +95,8 @@ def build(name, tall=0.0):
     d.mkdir(parents=True, exist_ok=True)
     size = bb_gltf.write_glb(model, bones, clips, d / f"{name}.glb", scale=model.scale)
     model.atlas.img.save(d / f"{name}_atlas.png")
+    if getattr(model, "emissive", None) is not None:
+        model.emissive.save(d / f"{name}_emissive.png")
     bb_gltf.write_bbmodel(model, bones, d / f"{name}.bbmodel")
     print(f"{name}: {model.triangle_count()} tris, {len(cubes)} cubes, glb {size/1024:.1f} KB, scale {model.scale:.3f}")
     return model
@@ -103,6 +111,9 @@ if __name__ == "__main__":
             args.remove(a)
     if args == ["all"]:
         from hunters.roster import IDS
+        args = IDS
+    elif args == ["void"]:
+        from hunters.void_set import IDS
         args = IDS
     for n in args or ["kathy"]:
         build(n, tall)
