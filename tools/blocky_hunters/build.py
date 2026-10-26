@@ -26,7 +26,7 @@ def taller(cubes, sk, eyes, dy):
         return leg(y) if y <= 12 * U + 1e-9 else y + d
     for c in cubes:
         lo, hi = list(c.lo), list(c.hi)
-        lo[1], hi[1] = (f(lo[1]), f(hi[1])) if hi[1] <= 12 * U + 1e-9 or lo[1] >= 12 * U - 1e-9 else (lo[1], hi[1])
+        lo[1], hi[1] = f(lo[1]), f(hi[1])          # f is continuous at the hips, so seams and overlays follow
         c.lo, c.hi = tuple(lo), tuple(hi)
     sk = {k: (f(v) if k in ("knee_y", "ankle_y") else v + d) if k.endswith("_y") else v for k, v in sk.items()}
     eyes = {k: (v[0], v[1] + d, v[2]) for k, v in eyes.items()}

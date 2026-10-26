@@ -57,6 +57,19 @@ func run(host: Node) -> int:
 			_fail("%s is %.2f m tall, wanted 1.78" % [id, bounds.size.y])
 		if not BlockyFace.set_expression(node, "blink"):
 			_fail("%s has no swappable Face quad" % id)
+		if not BlockyFace.set_expression(node, "derp"):
+			_fail("%s cannot play the derp animation" % id)
+		# second skin layer (hat, jacket, sleeves, pants) must be present, not just the base boxes
+		var head_mesh := node.find_child("Head", true, false) as MeshInstance3D
+		if head_mesh == null or head_mesh.mesh == null \
+				or (head_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() < 48:
+			_fail("%s has no hat layer on the Head mesh" % id)
+		var vertices := 0
+		for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
+			var mi := mesh_node as MeshInstance3D
+			vertices += (mi.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		if vertices < 280 * 2:
+			_fail("%s has only %d vertices, the overlay layers are missing" % [id, vertices])
 		node.queue_free()
 	print("  %d blocky hunters checked" % HUNTERS.size())
 	return _failures

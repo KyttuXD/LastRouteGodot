@@ -38,9 +38,10 @@ class Part:
     def __init__(self, ou, ov, w, h, d, cx, ytop, zc=0.0):
         self.ou, self.ov, self.w, self.h, self.d, self.cx, self.ytop, self.zc = ou, ov, w, h, d, cx, ytop, zc
 
-    def seg(self, name, bone, r0, r1, grow=0.0, **kw):
+    def seg(self, name, bone, r0, r1, grow=0.0, ygrow=True, **kw):
         w, d = self.w + 2 * grow, self.d + 2 * grow
-        y1, y0 = self.ytop - r0 + (grow if r0 == 0 else 0), self.ytop - r1 - (grow if r1 == self.h else 0)
+        gy = grow if ygrow else 0.0
+        y1, y0 = self.ytop - r0 + (gy if r0 == 0 else 0), self.ytop - r1 - (gy if r1 == self.h else 0)
         rects = segment_rects(self.ou, self.ov, self.w, self.h, self.d, r0, r1)
         faces = "ENWS" + ("U" if r0 == 0 else "") + ("D" if r1 == self.h else "")
         lo = (m(self.cx - w / 2), m(y0), m(self.zc - d / 2))
@@ -48,8 +49,10 @@ class Part:
         return Cube(name, bone, lo, hi, faces=faces, uv={f: rects[f] for f in faces}, **kw)
 
 
-def vanilla_cubes(extra_head=True):
-    """Alex proportions: head 8^3, body 8x12x4, arms 3x12x4, legs 4x12x4 (skin px), rig-split."""
+def vanilla_cubes(overlays=True):
+    """Alex proportions: head 8^3, body 8x12x4, arms 3x12x4, legs 4x12x4 (skin px), rig-split.
+    overlays=True adds the skin's second layer (hat, jacket, sleeves, pants) as slightly larger cubes on the
+    same bones, exactly as Blockbench's skin model shows it; transparent texels are cut out (alpha mask)."""
     c = []
     head = Part(0, 0, 8, 8, 8, 0, 32)
     c.append(head.seg("head", "Head", 0, 8))
@@ -58,15 +61,22 @@ def vanilla_cubes(extra_head=True):
     # character's right = +X (MC right limbs at +X), left = -X
     arms = {"R": Part(40, 16, 3, 12, 4, 5.5, 24), "L": Part(32, 48, 3, 12, 4, -5.5, 24)}
     legs = {"R": Part(0, 16, 4, 12, 4, 2.0, 12), "L": Part(16, 48, 4, 12, 4, -2.0, 12)}
+    arm_rows = (("arm", "Arm", 0, 6), ("forearm", "Forearm", 6, 10), ("hand", "Hand", 10, 12))
+    leg_rows = (("thigh", "Thigh", 0, 6), ("calf", "Calf", 6, 10), ("foot", "Foot", 10, 12))
     for s, a in arms.items():
-        c += [a.seg(f"{s}-arm", f"{s}-Arm", 0, 6), a.seg(f"{s}-forearm", f"{s}-Forearm", 6, 10),
-              a.seg(f"{s}-hand", f"{s}-Hand", 10, 12)]
+        c += [a.seg(f"{s}-{n}", f"{s}-{b}", r0, r1) for n, b, r0, r1 in arm_rows]
     for s, l in legs.items():
-        c += [l.seg(f"{s}-thigh", f"{s}-Thigh", 0, 6), l.seg(f"{s}-calf", f"{s}-Calf", 6, 10),
-              l.seg(f"{s}-foot", f"{s}-Foot", 10, 12)]
-    if extra_head:   # hat layer: hair shell (32,0), 8.5 cube
-        hat = Part(32, 0, 8, 8, 8, 0, 32)
-        c.append(hat.seg("hat", "Head", 0, 8, grow=0.25))
+        c += [l.seg(f"{s}-{n}", f"{s}-{b}", r0, r1) for n, b, r0, r1 in leg_rows]
+    if overlays:
+        c.append(Part(32, 0, 8, 8, 8, 0, 32).seg("hat", "Head", 0, 8, grow=0.5))
+        jacket = Part(16, 32, 8, 12, 4, 0, 24)
+        c += [jacket.seg("jacket-chest", "Chest", 0, 6, grow=0.25), jacket.seg("jacket-belly", "Belly", 6, 12, grow=0.25)]
+        sleeves = {"R": Part(40, 32, 3, 12, 4, 5.5, 24), "L": Part(48, 48, 3, 12, 4, -5.5, 24)}
+        pants = {"R": Part(0, 32, 4, 12, 4, 2.0, 12), "L": Part(0, 48, 4, 12, 4, -2.0, 12)}
+        for s, a in sleeves.items():
+            c += [a.seg(f"{s}-{n}-sleeve", f"{s}-{b}", r0, r1, grow=0.25) for n, b, r0, r1 in arm_rows]
+        for s, l in pants.items():
+            c += [l.seg(f"{s}-{n}-pants", f"{s}-{b}", r0, r1, grow=0.25, ygrow=False) for n, b, r0, r1 in leg_rows]
     c.append(Cube("face", "Head", (m(-4), m(24), m(-4.02)), (m(4), m(32), m(-4.02)), faces="N", group="face"))
     return c
 
@@ -189,7 +199,7 @@ def load_source(name):
 
 
 def expressions_from_face(face):
-    """7 expression cells (neutral, blink, stun, chase, scream, happy, derp) edited from the skin's own 8x8
+    """10 expression cells (neutral, blink, stun, chase, scream, happy, derp x4 frames) edited from the skin's own 8x8
     face: same hair frame, skin, eye and blush colours; only the eye/mouth pixels change."""
     skin, hair = face.getpixel((3, 4)), face.getpixel((0, 0))
     col, dark, blush = face.getpixel((1, 5)), face.getpixel((2, 5)), face.getpixel((1, 7))
@@ -222,8 +232,15 @@ def expressions_from_face(face):
     happy = {(1, 5): dark, (6, 5): dark}                                                       # 5 happy: KT's ^ ^ arcs
     happy.update({(x, 6): dark for x in (0, 1, 2, 5, 6, 7)})                                    # (reach into the hair frame)
     cells.append(make(happy))
-    cells.append(make({(1, 5): dark, (2, 5): col, (1, 6): dark, (2, 6): dark,                  # 6 derp: KT's cross-eyed look,
-                       (5, 5): dark, (6, 5): dark, (5, 6): col, (6, 6): dark}))                # iris turned clockwise
+    # 6-9 derp: an animation. In each 2x2 eye the iris pixel steps clockwise (TL > TR > BR > BL); the two eyes
+    # start half a turn apart (KT's derp frame), the rest of the eye stays the dark background.
+    ring = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    for t in range(4):
+        pix = {}
+        for ex, off in ((1, 0), (5, 2)):
+            for j, (dx, dy) in enumerate(ring):
+                pix[(ex + dx, 5 + dy)] = col if j == (t + off) % 4 else dark
+        cells.append(make(pix))
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
@@ -234,4 +251,4 @@ def source_hunter(name, mod_globals):
     canvas = load_source(name)
     cells = expressions_from_face(canvas.crop((8, 8, 16, 16)))
     mod_globals["MODEL_KW"].update(vanilla_kw(canvas))
-    return vanilla_cubes(extra_head=False), (lambda k: cells[k] if k < len(cells) else None)
+    return vanilla_cubes(overlays=True), (lambda k: cells[k] if k < len(cells) else None)
