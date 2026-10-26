@@ -199,7 +199,7 @@ def load_source(name):
 
 
 def expressions_from_face(face):
-    """11 expression cells (neutral, blink, stun, chase, scream, happy, derp x4 frames, blank) edited from the skin's own 8x8
+    """13 expression cells (neutral, blink, stun, chase, scream, happy, derp x4 frames, blank, wink_right, wink_left) edited from the skin's own 8x8
     face: same hair frame, skin, eye and blush colours; only the eye/mouth pixels change."""
     skin, hair = face.getpixel((3, 4)), face.getpixel((0, 0))
     col, dark, blush = face.getpixel((1, 5)), face.getpixel((2, 5)), face.getpixel((1, 7))
@@ -243,6 +243,13 @@ def expressions_from_face(face):
                 pix[(ex + dx, 5 + dy)] = col if j == (t + off) % 4 else dark
         cells.append(make(pix))
     cells.append(blank)                                                                        # 10 blank: KT's dark band
+    # 11 wink_right (character's right eye = image-left eye shut), 12 wink_left (image-right eye shut)
+    closed_l = {(1, 6): dark, (2, 6): dark}
+    closed_r = {(5, 6): dark, (6, 6): dark}
+    open_l = {p: v for p, v in open_eyes.items() if p[0] < 4}
+    open_r = {p: v for p, v in open_eyes.items() if p[0] > 4}
+    cells.append(make({**closed_l, **open_r}))
+    cells.append(make({**open_l, **closed_r}))
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells

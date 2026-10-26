@@ -57,8 +57,9 @@ func run(host: Node) -> int:
 			_fail("%s is %.2f m tall, wanted 1.78" % [id, bounds.size.y])
 		if not BlockyFace.set_expression(node, "blink"):
 			_fail("%s has no swappable Face quad" % id)
-		if not BlockyFace.set_expression(node, "derp"):
-			_fail("%s cannot play the derp animation" % id)
+		for anim in ["derp", "wink_left", "wink_right", "blank", "stun"]:
+			if not BlockyFace.set_expression(node, anim):
+				_fail("%s cannot show the %s expression" % [id, anim])
 		# second skin layer (hat, jacket, sleeves, pants) must be present, not just the base boxes
 		var head_mesh := node.find_child("Head", true, false) as MeshInstance3D
 		if head_mesh == null or head_mesh.mesh == null \
