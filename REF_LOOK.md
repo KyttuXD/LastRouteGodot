@@ -85,7 +85,7 @@ switches back to the legacy Minecraft-skin body (`player_legacy.tscn`).
   runner and pilasters; roomy rooms open onto the hall through three-cell archways ("arch"
   room-door props, drawn by `RefDecor._arches`), a few keep doors.
 * Per-room seeded ceiling heights: corridors 3.0-3.6 m, rooms 3.2-4.4, halls 4.8-6.0, greenhouses
-  6.4-7.5 (`RefLook.room_height`). Fixture density is budgeted per room (2-4 lamps, 1-3 windows).
+  6.4-7.5 (`RefLook.room_height`). Fixture density is budgeted per room (2-4 lamps, 1-2 windows, only in a few room kinds; none in corridors or the greenhouse, the outside is a void).
 
 ## Branding and UI colours
 

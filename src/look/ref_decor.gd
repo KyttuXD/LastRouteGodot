@@ -287,7 +287,7 @@ func _take(room_id: String, what: String) -> bool:
 	if room_id == "":
 		return true
 	var used: Dictionary = _budget.get(room_id, {})
-	var cap := (2 + absi(hash(room_id)) % 3) if what == "lamp" else (1 + absi(hash(room_id + "w")) % 3)
+	var cap := (2 + absi(hash(room_id)) % 3) if what == "lamp" else (1 + absi(hash(room_id + "w")) % 2)
 	if int(used.get(what, 0)) >= cap:
 		return false
 	used[what] = int(used.get(what, 0)) + 1
@@ -380,9 +380,9 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var face_height := _hh(Vector2i(x + d.x, z + d.y))
 		var tiers := RefLook.wall_tiers(face_height)
 		var tier_height := face_height / tiers
-		# windows only in a few room kinds, 1-3 per room, never in corridors
+		# windows only in a few room kinds, 1-2 per room, never in corridors or the greenhouse (outside is a void)
 		if rid != "" and _wants_window(rt) and (along + line) % 4 == 1 \
-				and _h(x, z, 131 + d.x * 5 + d.y, 2) == 0 and _take(rid, "window"):
+				and _h(x, z, 131 + d.x * 5 + d.y, 4) == 0 and _take(rid, "window"):
 			var tall: bool = _region == "beach"
 			for tier in tiers:
 				_add("window_tall" if tall else "window", Transform3D(_facing_basis(n),
@@ -428,9 +428,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				_add("pipe_brass", Transform3D(axis, base + Vector3(0, pipe_top - 0.55, 0) + n * .08))
 
 
-const WINDOW_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room", "drawing_room",
-	"dining_room", "office_reception", "cubicle_room", "office_job", "private_office",
-	"office_suite", "lounge"]
+const WINDOW_ROOMS := ["drawing_room", "dining_room", "office_reception", "lounge"]
 
 
 ## True when the wall run on both sides of this wall cell is solid (so a pilaster
