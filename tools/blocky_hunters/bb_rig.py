@@ -142,7 +142,8 @@ def build_clips(bones, hip_y, hunter_extras=None):
         for b in bones:
             if not b["sway"]:
                 continue
-            ax, az, mult, phase = b["sway"]
+            ax, az, mult, phase = b["sway"][:4]
+            ay = b["sway"][4] if len(b["sway"]) > 4 else 0     # optional yaw (side-to-side wag)
             amp = {"idle": .5, "walk": 1.0, "chase": 1.5, "sprint": 1.8, "charge": 1.8, "crouch": .4,
                    "stun": 1.4, "flight": b.get("flight_amp", 1.0) if isinstance(b, dict) else 1.0,
                    "jumpscare": 1.6}[clip_name]
@@ -158,7 +159,7 @@ def build_clips(bones, hip_y, hunter_extras=None):
             vals = []
             for i in range(n + 1):
                 ph = 2 * math.pi * cyc2 * i / n + phase
-                e = (ax * amp * math.sin(ph), 0, az * amp * math.sin(ph + 1.1))
+                e = (ax * amp * math.sin(ph), ay * amp * math.sin(ph + .6), az * amp * math.sin(ph + 1.1))
                 if b["name"].endswith("Wing"):
                     e = (0, ax * amp * math.sin(ph), 0)
                 vals.append(quat_euler(e, b["rot"]))

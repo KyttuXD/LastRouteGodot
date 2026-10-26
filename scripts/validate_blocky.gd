@@ -47,6 +47,14 @@ func run(host: Node) -> int:
 			for fish_bone in ["L-Gill", "R-Gill", "Tail-1", "Tail-2", "Tail-3", "Tail-Fin"]:
 				if node.find_child(fish_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, fish_bone])
+		if id.begins_with("ilyra") or id.begins_with("eirys"):
+			for cat_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
+				if node.find_child(cat_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, cat_bone])
+		if id.begins_with("glyra") or id.begins_with("jyvra") or id.begins_with("umbriel"):
+			for horn_bone in ["L-Horn", "R-Horn"]:
+				if node.find_child(horn_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, horn_bone])
 		if id.begins_with("kathy"):
 			for pony in ["Pony-1", "Pony-2", "Pony-3"]:
 				if node.find_child(pony, true, false) == null:
@@ -96,6 +104,13 @@ func _bounds(node: Node3D) -> AABB:
 	var first := true
 	for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
 		var m := mesh_node as MeshInstance3D
+		# horns, ears, wings, tails and gills are extras: the 1.78 m body height is measured without them
+		var skip := false
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill"]:
+			if String(m.name).contains(extra):
+				skip = true
+		if skip:
+			continue
 		var local := node.global_transform.affine_inverse() * m.global_transform
 		var b := local * m.get_aabb()
 		box = b if first else box.merge(b)

@@ -56,7 +56,8 @@ def build(name, tall=0.0):
         cubes, sk, eyes, f = taller(cubes, sk, eyes, tall)
         extras = [(n, par, (pv[0], f(pv[1]), pv[2]), sw) for n, par, pv, sw in extras]
         name = f"{name}_tall"
-    top = max(c.hi[1] for c in cubes)
+    extra_bones = {e[0] for e in extras}          # horns, ears, tails, wings do not count towards the height
+    top = max(c.hi[1] for c in cubes if c.bone not in extra_bones)
     bones = bb_rig.skeleton(sk, extras)
     extra = getattr(mod, "MODEL_KW", {})
     model = Model(name, bones, cubes, scale=mod.HEIGHT / top, face_painter=face,
