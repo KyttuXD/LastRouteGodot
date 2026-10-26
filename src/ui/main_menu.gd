@@ -87,21 +87,8 @@ func _ready() -> void:
 		return
 	_focus_default_button.call_deferred()
 
-## Night Watch's grey keyboard hint under the menu.
+## Mutes the version label (the keyboard hint under the menu was removed).
 func _build_hint() -> void:
-	var hint := Label.new()
-	hint.name = "KeyboardHint"
-	hint.text = UiMenuList.HINT_TEXT
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint.add_theme_font_size_override("font_size", 6)
-	hint.add_theme_color_override("font_color", Palette.MUTED)
-	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	hint.offset_left = -140
-	hint.offset_right = 140
-	hint.offset_top = -30
-	hint.offset_bottom = -20
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(hint)
 	if version_label != null:
 		version_label.add_theme_color_override("font_color", Palette.MUTED)
 		version_label.add_theme_font_size_override("font_size", 6)
