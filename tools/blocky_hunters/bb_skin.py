@@ -38,12 +38,12 @@ class Part:
     def __init__(self, ou, ov, w, h, d, cx, ytop, zc=0.0):
         self.ou, self.ov, self.w, self.h, self.d, self.cx, self.ytop, self.zc = ou, ov, w, h, d, cx, ytop, zc
 
-    def seg(self, name, bone, r0, r1, grow=0.0, ygrow=True, **kw):
+    def seg(self, name, bone, r0, r1, grow=0.0, ygrow=True, caps=True, **kw):
         w, d = self.w + 2 * grow, self.d + 2 * grow
         gy = grow if ygrow else 0.0
         y1, y0 = self.ytop - r0 + (gy if r0 == 0 else 0), self.ytop - r1 - (gy if r1 == self.h else 0)
         rects = segment_rects(self.ou, self.ov, self.w, self.h, self.d, r0, r1)
-        faces = "ENWS" + ("U" if r0 == 0 else "") + ("D" if r1 == self.h else "")
+        faces = "ENWS" + (("U" if r0 == 0 else "") + ("D" if r1 == self.h else "") if caps else "")
         lo = (m(self.cx - w / 2), m(y0), m(self.zc - d / 2))
         hi = (m(self.cx + w / 2), m(y1), m(self.zc + d / 2))
         return Cube(name, bone, lo, hi, faces=faces, uv={f: rects[f] for f in faces}, **kw)
@@ -76,7 +76,7 @@ def vanilla_cubes(overlays=True):
         for s, a in sleeves.items():
             c += [a.seg(f"{s}-{n}-sleeve", f"{s}-{b}", r0, r1, grow=0.25) for n, b, r0, r1 in arm_rows]
         for s, l in pants.items():
-            c += [l.seg(f"{s}-{n}-pants", f"{s}-{b}", r0, r1, grow=0.25, ygrow=False) for n, b, r0, r1 in leg_rows]
+            c += [l.seg(f"{s}-{n}-pants", f"{s}-{b}", r0, r1, grow=0.25, ygrow=False, caps=False) for n, b, r0, r1 in leg_rows]
     c.append(Cube("face", "Head", (m(-4), m(24), m(-4.02)), (m(4), m(32), m(-4.02)), faces="N", group="face"))
     return c
 
@@ -255,9 +255,11 @@ def expressions_from_face(face):
     return cells
 
 
-def source_hunter(name, mod_globals):
-    """Fill a hunter module's constants and return (cubes, face painter) from the supplied skin."""
+def source_hunter(name, mod_globals, modify=None):
+    """Fill a hunter module's constants and return (cubes, face painter) from the supplied skin.
+    modify(canvas) may edit the skin (remove art that became geometry) and return extra cubes."""
     canvas = load_source(name)
+    extra = modify(canvas) if modify else []
     cells = expressions_from_face(canvas.crop((8, 8, 16, 16)))
     mod_globals["MODEL_KW"].update(vanilla_kw(canvas))
-    return vanilla_cubes(overlays=True), (lambda k: cells[k] if k < len(cells) else None)
+    return vanilla_cubes(overlays=True) + list(extra), (lambda k: cells[k] if k < len(cells) else None)

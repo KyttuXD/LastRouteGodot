@@ -36,6 +36,10 @@ func run(host: Node) -> int:
 		for bone in BONES:
 			if node.find_child(bone, true, false) == null:
 				_fail("%s is missing bone %s" % [id, bone])
+		if id.begins_with("xivvy"):
+			for wing in ["L-Wing", "R-Wing", "L-HindWing", "R-HindWing"]:
+				if node.find_child(wing, true, false) == null:
+					_fail("%s is missing wing bone %s" % [id, wing])
 		var player := ModelSlot.find_animation_player(node)
 		if player == null:
 			_fail("%s has no AnimationPlayer" % id)

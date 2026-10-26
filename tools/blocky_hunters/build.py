@@ -30,18 +30,19 @@ def taller(cubes, sk, eyes, dy):
         c.lo, c.hi = tuple(lo), tuple(hi)
     sk = {k: (f(v) if k in ("knee_y", "ankle_y") else v + d) if k.endswith("_y") else v for k, v in sk.items()}
     eyes = {k: (v[0], v[1] + d, v[2]) for k, v in eyes.items()}
-    return cubes, sk, eyes
+    return cubes, sk, eyes, f
 
 
 def build(name, tall=0.0):
     mod = importlib.import_module(f"hunters.{name}")
     cubes, face = mod.build()
-    sk, eyes = mod.SK, mod.EYES
+    sk, eyes, extras = mod.SK, mod.EYES, list(mod.EXTRAS)
     if tall:
-        cubes, sk, eyes = taller(cubes, sk, eyes, tall)
+        cubes, sk, eyes, f = taller(cubes, sk, eyes, tall)
+        extras = [(n, par, (pv[0], f(pv[1]), pv[2]), sw) for n, par, pv, sw in extras]
         name = f"{name}_tall"
     top = max(c.hi[1] for c in cubes)
-    bones = bb_rig.skeleton(sk, mod.EXTRAS)
+    bones = bb_rig.skeleton(sk, extras)
     extra = getattr(mod, "MODEL_KW", {})
     model = Model(name, bones, cubes, scale=mod.HEIGHT / top, face_painter=face,
                   extras={"eyes": eyes}, **extra)
