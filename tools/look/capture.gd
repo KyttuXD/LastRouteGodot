@@ -78,6 +78,20 @@ func _scan_level(gen: StreamedRouteGenerator, level: int, reach: int, cs: int,
 					cx * cs + rect.position.x + rect.size.x * .5,
 					level * StreamedFacilityView3D.LEVEL_HEIGHT + 0.05,
 					cz * cs + rect.position.y + rect.size.y * .5)})
+			for stair_value in data.get("stairs", []):
+				var stair: Dictionary = stair_value
+				if String(stair.get("direction", "")) != "up" or seen.has("stairs_" + String(data.get("region", ""))):
+					continue
+				var path := StreamedRouteGenerator.stair_path_cells(stair.get("cell", Vector2i.ZERO))
+				if path.size() < 2:
+					continue
+				var dir := path[1] - path[0]
+				seen["stairs_" + String(data.get("region", ""))] = true
+				picks.append({"name": "stairs_" + String(data.get("region", "")),
+					"pos": Vector3(cx * cs + path[0].x + .5 - dir.x * 4.0,
+						level * StreamedFacilityView3D.LEVEL_HEIGHT + 0.05,
+						cz * cs + path[0].y + .5 - dir.y * 4.0),
+					"yaw": rad_to_deg(atan2(-dir.x, -dir.y))})
 			# one long corridor stretch per region, looking down its axis
 			var region := String(data.get("region", ""))
 			if not seen.has("corridor_" + region):
@@ -148,8 +162,13 @@ func _run(scene: Node) -> void:
 	var yaws := PackedStringArray((OS.get_environment("CAP_YAWS") if OS.get_environment("CAP_YAWS") != "" else "0,90").split(","))
 	var n := 0
 	for p in picks:
-		if only != "" and not String(p["name"]).contains(only):
-			continue
+		if only != "":
+			var wanted := false
+			for part in only.split(","):
+				if String(p["name"]).contains(part):
+					wanted = true
+			if not wanted:
+				continue
 		if n >= max_n:
 			break
 		n += 1

@@ -137,9 +137,13 @@ func _expect_xr(route: Node) -> void:
 			_fail("held first-person item '%s' can block its own light" % geometry.name)
 			break
 	var world_environment := route.get_node_or_null("WorldEnvironment") as WorldEnvironment
-	if world_environment == null or world_environment.environment == null \
-			or world_environment.environment.ambient_light_energy > .30:
-		_fail("the route environment is not using the darker flashlight-first profile")
+	# The reference look (RefLook) replaces the old near-black flat ambient with a
+	# dim plum ambient, fog and glow; the lamps and flashlight do the lighting.
+	var environment := world_environment.environment if world_environment != null else null
+	if environment == null or environment.ambient_light_energy > 2.5 \
+			or environment.ambient_light_color.get_luminance() > .45 \
+			or not environment.fog_enabled or not environment.glow_enabled:
+		_fail("the route environment is not using the dark reference-look profile")
 	if not InputMap.has_action("taser") or not Settings.REBINDABLE_ACTIONS.has("taser"):
 		_fail("taser is missing from the input map or Settings rebinding")
 	if not InputMap.has_action("tool_use") or not Settings.REBINDABLE_ACTIONS.has("tool_use"):

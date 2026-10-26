@@ -633,7 +633,8 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
 	var kinds: Array = (RefLook.ROOM_STYLE.get(room_type, {}) as Dictionary).get(
 		"wall", style["wall"]) if room_type != "" else style["wall"]
-	return kinds[RefLook.pick(coord.x * size + x + nx * 3, coord.z * size + z + nz * 5, 2, kinds.size())]
+	# patches of four cells, so a wall changes paper in runs rather than striping
+	return kinds[RefLook.pick((coord.x * size + x) / 4, (coord.z * size + z) / 4, 2, kinds.size())]
 
 
 static func _wall_item_for(grid_data: Array, x: int, z: int,
@@ -725,6 +726,10 @@ func _stair_path(stair: Dictionary) -> Array[Vector2i]:
 
 func _spawn_stairs(parent: Node3D, data: Dictionary) -> void:
 	var region := String(data.get("region", "maze"))
+	var stair_style: Dictionary = RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"])
+	var stair_kind: String = (stair_style["room"] as Array)[0]
+	if bool(stair_style["runner"]):
+		stair_kind = "floral0"
 	var stair_texture := load(REGION_FLOOR_TEXTURE % region) as Texture2D
 	if stair_texture == null:
 		stair_texture = load(FLOOR_TEXTURE) as Texture2D
@@ -747,8 +752,7 @@ func _spawn_stairs(parent: Node3D, data: Dictionary) -> void:
 		var stair_tint := region_tint.lightened(.10)
 		if String(stair.get("style", "")) == "grand_foyer":
 			stair_tint = Color("80694e")
-		var material := _material(stair_texture, stair_tint,
-			Vector3(STAIR_WIDTH, 1.0, STAIR_RUN / STAIR_STEPS))
+		var material := RefTextures.material("floor", stair_kind)
 		var tread_depth := STAIR_RUN / STAIR_STEPS
 		# The upper floor itself is the final tread. Rendering a sixteenth box
 		# there both overlapped its collision and exposed a void behind it.
@@ -996,7 +1000,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		# Preview-friendly centre pivots buried half of couches, chairs and beds
 		# below the GridMap. Seat every ordinary prop on its lowest mesh point.
 		visual_at.y -= visual_bounds.position.y
-	RefLook.grade_prop(visual)
+	RefLook.grade_prop(visual, .6 if PropModelCatalog.is_floor_dressing(prop_type) else 1.0)
 	visual.position = visual_at
 	visual.rotation.y = PropModelCatalog.authored_visual_yaw(yaw)
 	visual.set_meta("streamed_prop_type", prop_type)

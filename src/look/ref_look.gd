@@ -173,26 +173,28 @@ static var _graded := {}
 ## Dims and warms an authored prop so Blockbench's bright palette sits in the
 ## dark world instead of glowing against it. Materials are graded once and
 ## shared; textures keep nearest filtering.
-static func grade_prop(root: Node) -> void:
+static func grade_prop(root: Node, strength: float = 1.0) -> void:
 	if root is MeshInstance3D:
 		var mi := root as MeshInstance3D
 		if mi.mesh != null:
 			for surface in mi.mesh.get_surface_count():
 				var source := mi.get_active_material(surface)
 				if source is StandardMaterial3D:
-					mi.set_surface_override_material(surface, _graded_material(source as StandardMaterial3D))
+					mi.set_surface_override_material(surface,
+						_graded_material(source as StandardMaterial3D, strength))
 	for child in root.get_children():
-		grade_prop(child)
+		grade_prop(child, strength)
 
 
-static func _graded_material(source: StandardMaterial3D) -> StandardMaterial3D:
+static func _graded_material(source: StandardMaterial3D, strength: float) -> StandardMaterial3D:
 	if source.emission_enabled:
 		return source
-	if _graded.has(source):
-		return _graded[source]
+	var cache_key := [source, strength]
+	if _graded.has(cache_key):
+		return _graded[cache_key]
 	var graded := source.duplicate() as StandardMaterial3D
-	graded.albedo_color = source.albedo_color * Color(.58, .46, .46)
+	graded.albedo_color = source.albedo_color * Color(.58, .46, .46) * strength
 	graded.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	graded.roughness = clampf(source.roughness, .55, 1.0)
-	_graded[source] = graded
+	_graded[cache_key] = graded
 	return graded

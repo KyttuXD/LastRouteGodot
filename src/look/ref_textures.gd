@@ -128,8 +128,8 @@ static func _paint_floral(variant: int) -> Image:
 	var img := _new_image(PX, PX)
 	var alt := variant == 1
 	_mosaic(img, Color("2a1526") if alt else Color("2e1729"), rng)
-	var petal := Color("8a7566")
-	var core := Color("b97a2a")
+	var petal := Color("6e5c52")
+	var core := Color("94601f")
 	_flower(img, 22 if alt else 9, 9, petal, core)
 	_flower(img, 9 if alt else 24, 24, _mul(petal, .85), core)
 	for i in 6:
@@ -154,8 +154,8 @@ static func _paint_star(variant: int) -> Image:
 	var img := _new_image(PX, PX)
 	var alt := variant == 1
 	_mosaic(img, Color("2b1220") if alt else Color("2f1424"), rng)
-	_star(img, 22 if alt else 9, 10, 5, Color("9a6e26"))
-	_star(img, 8 if alt else 23, 25, 3, Color("6b4a22"))
+	_star(img, 22 if alt else 9, 10, 5, Color("7a561e"))
+	_star(img, 8 if alt else 23, 25, 3, Color("55391a"))
 	for a in 40:
 		_dot(img, roundi((10 if alt else 24) + cos(a / 40.0 * TAU) * 5.0),
 			roundi((24 if alt else 8) + sin(a / 40.0 * TAU) * 5.0), Color("5a1d26"))

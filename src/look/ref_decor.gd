@@ -633,8 +633,8 @@ static func _build_floor_cable() -> Mesh:
 
 static func _build_teal() -> Mesh:
 	return _merge([
-		["iron", _box(Vector3(.26, .34, .05)), _t(0, 0, .025)],
-		["teal", _box(Vector3(.16, .2, .01)), _t(0, .03, .055)],
+		["iron", _box(Vector3(.36, .46, .05)), _t(0, 0, .025)],
+		["teal", _box(Vector3(.24, .3, .01)), _t(0, .03, .055)],
 		["brass", _box(Vector3(.05, .03, .02)), _t(0, -.12, .06)],
 	])
 
