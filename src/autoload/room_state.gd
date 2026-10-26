@@ -553,6 +553,15 @@ func _register_peer(requested_name: String) -> void:
 	if id <= 1 or not peers.has(id):
 		return
 	var clean := requested_name.strip_edges().to_upper().substr(0, 32)
+	# A guest that reconnects after a dropped link arrives as a NEW peer id while
+	# its old id lingers until ENet times it out. Same callsign = same runner:
+	# retire the stale row so the roster (and the party size) does not double count.
+	if not clean.is_empty():
+		for old_id in peers.keys().duplicate():
+			if int(old_id) != id and int(old_id) > 1 and String(peers[old_id]) == clean:
+				peers.erase(old_id)
+				if multiplayer.multiplayer_peer != null:
+					multiplayer.multiplayer_peer.disconnect_peer(int(old_id))
 	peers[id] = clean if not clean.is_empty() else "SIGNAL-%d" % id
 	broadcast()
 	changed.emit()

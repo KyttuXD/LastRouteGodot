@@ -46,7 +46,9 @@ func _run() -> void:
 	if not _resolve_error.is_empty():
 		_finish(false, _resolve_error)
 		return
-	if int(_endpoint.get("port", 0)) != TEST_PORT:
+	# A relay-enabled backend lists the relay's public port, not the host's own.
+	var relayed := String(_endpoint.get("transport", "")) == "relay"
+	if int(_endpoint.get("port", 0)) != TEST_PORT and not (relayed and int(_endpoint.get("port", 0)) > 0):
 		_finish(false, "directory returned port %s" % _endpoint.get("port"))
 		return
 	var listed_code := RoomState.code

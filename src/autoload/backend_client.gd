@@ -75,6 +75,7 @@ var _requests_suppressed_for_tests := false
 
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
+	_apply_loopback_override()
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
 	add_child(_host_request)
@@ -98,6 +99,21 @@ func _ready() -> void:
 		_send_account("session", "/api/account/session", {
 			"sessionToken": account_session_token,
 		})
+
+
+## Test/dev only: `-- --backend=http://127.0.0.1:18105` points the client at a
+## local backend. Only loopback origins are accepted, so a shipped build can never
+## be redirected to an arbitrary server this way.
+func _apply_loopback_override() -> void:
+	for argument in OS.get_cmdline_user_args():
+		if not String(argument).begins_with("--backend="):
+			continue
+		var candidate := String(argument).trim_prefix("--backend=").trim_suffix("/")
+		var lowered := candidate.to_lower()
+		if lowered.begins_with("http://127.0.0.1:") or lowered.begins_with("http://localhost:"):
+			base_url = candidate
+		else:
+			push_warning("ignored --backend override: only loopback origins are allowed")
 
 
 func configured() -> bool:

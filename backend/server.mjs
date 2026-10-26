@@ -6,8 +6,13 @@ import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
+import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
 
-const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
+// Five ordinary characters, or the one persistent server-owned room code.
+const ENET_CODE_PATTERN = /^(?:[A-HJ-NP-Z2-9]{5}|PUBLIC)$/;
+// The PUBLIC host posts to the server every second or so; if it vanishes, its
+// listing must lapse quickly so a guest can take over.
+const PUBLIC_ENET_TTL_MS = 15_000;
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -238,6 +243,9 @@ export function createLastRouteServer({
   trustProxy = false,
   relayAddress = "",
   relayPort = 0,
+  publicRouteStorePath = null,
+  publicRouteSeed = "PUBLIC-ROUTE",
+  publicItemRespawnMs,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
   apiRateLimitMax = 600,
   accountRateLimitMax = 30,
@@ -252,6 +260,11 @@ export function createLastRouteServer({
   // carry old authority into a new room.
   const adminTickets = new Map();
   const roomService = createRoomService({ now, roomTtlMs, playerTtlMs });
+  const publicRoute = createPublicRoute({
+    now, logger, storePath: publicRouteStorePath, initialSeed: publicRouteSeed,
+    ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
+  });
+  const publicRouteReady = publicRoute.load();
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
   const devTokens = new Set();
   const requestRates = new Map();
@@ -271,6 +284,10 @@ export function createLastRouteServer({
 
   function pruneEnetRooms() {
     const timestamp = now();
+    if (publicRoute.authorityStale()) {
+      enetRooms.delete(PUBLIC_CODE);
+      publicRoute.resetAuthority();
+    }
     for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
     for (const [ticket, proof] of adminTickets) {
       if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
@@ -381,6 +398,11 @@ export function createLastRouteServer({
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/api/public/status") {
+      await publicRouteReady;
+      return json(response, 200, publicRoute.status());
+    }
+
     if (request.method !== "POST") {
       if (tryStaticFile(request, response, publicDirectory, url.pathname)) return;
       if (request.method === "GET" && url.pathname === "/") {
@@ -394,6 +416,22 @@ export function createLastRouteServer({
       body = await readJson(request);
     } catch (error) {
       return json(response, error.status || 400, { ok: false, error: error.message });
+    }
+
+    if (url.pathname === "/api/public/join" || url.pathname === "/api/public/state"
+        || url.pathname === "/api/public/leave") {
+      await publicRouteReady;
+      const publicEnet = enetRooms.get(PUBLIC_CODE);
+      const hostTokenValid = Boolean(publicEnet && body.hostToken && safeEqual(body.hostToken, publicEnet.token));
+      if (hostTokenValid) publicEnet.expiresAt = now() + PUBLIC_ENET_TTL_MS;
+      const address = requesterAddress(request, trustProxy);
+      const result = url.pathname === "/api/public/join"
+        ? publicRoute.join(body, { address, hostTokenValid })
+        : url.pathname === "/api/public/state"
+          ? publicRoute.post(body, { hostTokenValid })
+          : publicRoute.leave(body);
+      if (result.error) return json(response, result.status || 400, { ok: false, error: result.error });
+      return json(response, result.status || 200, result.body);
     }
 
     if (url.pathname === "/api/enet/rooms/register") {
@@ -410,7 +448,7 @@ export function createLastRouteServer({
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
-        expiresAt: now() + enetRoomTtlMs,
+        expiresAt: now() + (code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
       };
       enetRooms.set(code, room);
       return json(response, 201, {
@@ -426,7 +464,7 @@ export function createLastRouteServer({
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       room.players = Math.trunc(finitePlayers(body.players, room.players));
       room.sessionActive = Boolean(body.sessionActive);
-      room.expiresAt = now() + enetRoomTtlMs;
+      room.expiresAt = now() + (room.code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
       return json(response, 200, {
         ok: true,
         room: publicEnetRoom(room, now(), relayAddress, relayPort),
@@ -667,6 +705,8 @@ export function startLastRouteServerFromEnvironment() {
     trustProxy: /^(1|true|yes|on)$/i.test(String(process.env.TRUST_PROXY || "")),
     relayAddress: relayEnabled ? relayAddress : "",
     relayPort: relayEnabled ? relayPort : 0,
+    publicRouteStorePath: environmentPath("LASTROUTE_PUBLIC_ROUTE_STORE") || join(dataDirectory, "lastroute", "godot_publicroom.json"),
+    publicRouteSeed: String(process.env.LASTROUTE_PUBLIC_ROUTE_SEED || "PUBLIC-ROUTE").slice(0, 64),
     rateLimitWindowMs,
     apiRateLimitMax,
     accountRateLimitMax,
