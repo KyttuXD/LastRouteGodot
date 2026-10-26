@@ -216,10 +216,8 @@ def expressions_from_face(face):
     band.update({(x, y): dark for y in (5, 6) for x in range(1, 7)})                           # eyes blacked out in
     cells.append(make(band))                                                                   # one dark band
     cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 3 chase: dark glare, inner iris
-                       (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark,
-                       (2, 4): dark, (5, 4): dark}))
-    wide = {(x, y): col for y in (5, 6) for x in (1, 2, 5, 6)}                                 # 4 scream: wide eyes,
-    wide.update({(2, 4): col, (5, 4): col})                                                    # eye colour only (no dark)
+                       (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark}))
+    wide = {(x, y): col for y in (5, 6) for x in (1, 2, 5, 6)}                                 # 4 scream: wide eyes (eye colour only, no brows),
     cells.append(make(wide))
     cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 5 happy: lower half iris
                        (1, 6): col, (2, 6): col, (5, 6): col, (6, 6): col}))
