@@ -43,6 +43,10 @@ func run(host: Node) -> int:
 			for wing in ["L-Wing", "R-Wing", "L-HindWing", "R-HindWing"]:
 				if node.find_child(wing, true, false) == null:
 					_fail("%s is missing wing bone %s" % [id, wing])
+		if id.begins_with("loxelle") or id.begins_with("opalie"):
+			for fish_bone in ["L-Gill", "R-Gill", "Tail-1", "Tail-2", "Tail-3", "Tail-Fin"]:
+				if node.find_child(fish_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, fish_bone])
 		if id.begins_with("kathy"):
 			for pony in ["Pony-1", "Pony-2", "Pony-3"]:
 				if node.find_child(pony, true, false) == null:
