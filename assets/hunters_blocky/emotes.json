@@ -1,0 +1,1556 @@
+{
+ "aki": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_read",
+   "label": "Read",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "aki_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_read",
+   "label": "Read",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "briselle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "ceryth": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_salute",
+   "label": "Salute",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "dovelle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_akimbo",
+   "label": "Hands on hips",
+   "face": "chase",
+   "shared": false
+  }
+ ],
+ "eirys": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_flex",
+   "label": "Flex",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "eirys_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_flex",
+   "label": "Flex",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "ferryn": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_panic",
+   "label": "Panic",
+   "face": "scream",
+   "shared": false
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "glyra": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_tantrum",
+   "label": "Tantrum",
+   "face": "chase",
+   "shared": false
+  }
+ ],
+ "glyra_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_tantrum",
+   "label": "Tantrum",
+   "face": "chase",
+   "shared": false
+  }
+ ],
+ "haelith": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_fetch",
+   "label": "Fetch!",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "ilyra": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  }
+ ],
+ "ilyra_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  }
+ ],
+ "jyvra": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_akimbo",
+   "label": "Hands on hips",
+   "face": "chase",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_tantrum",
+   "label": "Tantrum",
+   "face": "chase",
+   "shared": false
+  }
+ ],
+ "jyvra_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_akimbo",
+   "label": "Hands on hips",
+   "face": "chase",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_tantrum",
+   "label": "Tantrum",
+   "face": "chase",
+   "shared": false
+  }
+ ],
+ "kathy": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_hug",
+   "label": "Hug",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_pat",
+   "label": "Head pat",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "kathy_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_hug",
+   "label": "Hug",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_pat",
+   "label": "Head pat",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "loxelle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "loxelle_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "mavrine": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_salute",
+   "label": "Salute",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "nyxie": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_tease",
+   "label": "Tease",
+   "face": "wink_left",
+   "shared": false
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "opalie": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "opalie_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "porcelle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "quirith": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  },
+  {
+   "clip": "emote_hug",
+   "label": "Hug",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "ravelle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_tease",
+   "label": "Tease",
+   "face": "wink_left",
+   "shared": false
+  }
+ ],
+ "solyth": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_flex",
+   "label": "Flex",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_tantrum",
+   "label": "Tantrum",
+   "face": "chase",
+   "shared": false
+  },
+  {
+   "clip": "emote_stretch",
+   "label": "Stretch",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "thessine": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_facepalm",
+   "label": "Facepalm",
+   "face": "blank",
+   "shared": false
+  },
+  {
+   "clip": "emote_chin",
+   "label": "Think",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_point",
+   "label": "Point",
+   "face": "neutral",
+   "shared": false
+  }
+ ],
+ "umbriel": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  }
+ ],
+ "umbriel_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_shy",
+   "label": "Shy fidget",
+   "face": "blink",
+   "shared": false
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  }
+ ],
+ "verrine": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_sulk",
+   "label": "Sulk",
+   "face": "blank",
+   "shared": false
+  },
+  {
+   "clip": "emote_facepalm",
+   "label": "Facepalm",
+   "face": "blank",
+   "shared": false
+  },
+  {
+   "clip": "emote_peek",
+   "label": "Peek",
+   "face": "blink",
+   "shared": false
+  }
+ ],
+ "wynelle": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_sway",
+   "label": "Sway",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "xivvy": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "xivvy_tall": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_dance",
+   "label": "Dance",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "ysolde": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_hug",
+   "label": "Hug",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_pat",
+   "label": "Head pat",
+   "face": "happy",
+   "shared": false
+  }
+ ],
+ "zephyra": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  },
+  {
+   "clip": "emote_spin",
+   "label": "Spin",
+   "face": "happy",
+   "shared": false
+  },
+  {
+   "clip": "emote_hold",
+   "label": "Hold out",
+   "face": "neutral",
+   "shared": false
+  },
+  {
+   "clip": "emote_laugh",
+   "label": "Laugh",
+   "face": "happy",
+   "shared": false
+  }
+ ]
+}
