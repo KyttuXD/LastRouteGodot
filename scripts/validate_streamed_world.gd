@@ -769,13 +769,25 @@ func run(host: Node) -> int:
 		% [live_relays, live_batteries, live_tools])
 	# One level: the freed height goes to the rooms. Corridors stay low, ordinary
 	# rooms are one storey, halls two, greenhouses three.
-	_expect(is_equal_approx(StreamedFacilityView3D.WALL_HEIGHT, RefLook.STOREY) \
-		and RefLook.ceiling_height("maze", "") < RefLook.ceiling_height("maze", "office_job") \
-		and RefLook.ceiling_height("mansion", "dining_room") > RefLook.STOREY * 1.9 \
-		and RefLook.ceiling_height("beach", "cove") > RefLook.ceiling_height("mansion", "dining_room"),
-		"room heights are not corridor < room < hall < greenhouse")
-	_expect(RefLook.CORRIDOR_HEIGHT >= 3.4 and RefLook.MAX_HEIGHT <= 14.0,
-		"corridor or greenhouse height is outside the playable range")
+	# One level: the freed height goes to the rooms, each picking its own ceiling
+	# from the range for its kind (seeded by room id, so every peer agrees).
+	var height_ok := true
+	for room_id in ["a", "b", "c", "d", "e"]:
+		height_ok = height_ok \
+			and RefLook.room_height("maze", "", room_id) >= RefLook.CORRIDOR_RANGE.x \
+			and RefLook.room_height("maze", "", room_id) <= RefLook.CORRIDOR_RANGE.y \
+			and RefLook.room_height("maze", "office_job", room_id) >= RefLook.ROOM_RANGE.x \
+			and RefLook.room_height("maze", "office_job", room_id) <= RefLook.ROOM_RANGE.y \
+			and RefLook.room_height("mansion", "dining_room", room_id) >= RefLook.HALL_RANGE.x \
+			and RefLook.room_height("mansion", "dining_room", room_id) <= RefLook.HALL_RANGE.y \
+			and RefLook.room_height("beach", "cove", room_id) >= RefLook.GREENHOUSE_RANGE.x \
+			and RefLook.room_height("beach", "cove", room_id) <= RefLook.MAX_HEIGHT
+	_expect(height_ok and RefLook.room_height("maze", "office_job", "x") == RefLook.room_height("maze", "office_job", "x") \
+		and RefLook.CORRIDOR_RANGE.y <= RefLook.ROOM_RANGE.y and RefLook.ROOM_RANGE.y <= RefLook.HALL_RANGE.y \
+		and RefLook.HALL_RANGE.y <= RefLook.GREENHOUSE_RANGE.y,
+		"room heights leave their per-kind ranges or are not deterministic")
+	_expect(RefLook.MAX_HEIGHT <= 7.5 and RefLook.CORRIDOR_RANGE.x >= 3.0,
+		"ceiling heights are outside the playable range")
 	_expect(player.is_on_floor(), "streamed player did not settle on generated floor collision")
 	player.admin_god_mode = true
 	player.stamina = 7.0

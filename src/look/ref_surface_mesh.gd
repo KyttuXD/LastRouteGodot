@@ -63,11 +63,12 @@ func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
 	else:
 		a = Vector3(x, 0, z)
 		b = Vector3(x, 0, z + 1)
-	var storey := RefLook.STOREY
+	# The painted wall (skirting to cornice) is stretched over each repeat of the
+	# room's height, so the cornice always meets the ceiling.
 	var full := y1 if room_height < 0.0 else room_height
-	var v_floor := ceilf(full / storey - .001)
-	var v_top := v_floor - y1 / storey
-	var v_bottom := v_floor - y0 / storey
+	var repeats := float(RefLook.wall_tiers(full))
+	var v_top := repeats * (1.0 - y1 / full)
+	var v_bottom := repeats * (1.0 - y0 / full)
 	var base := _v[1].size()
 	var n := Vector3(dir.x, 0, dir.y)
 	_v[1].append_array(PackedVector3Array([a + Vector3(0, y1, 0), b + Vector3(0, y1, 0),

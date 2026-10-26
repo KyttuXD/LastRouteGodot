@@ -9,7 +9,7 @@ extends Node3D
 ## node moves POOL_SIZE real lights onto the closest ones, fading a light out
 ## before re-homing it so the swap never pops.
 
-const POOL_SIZE := 12
+const POOL_SIZE := 8
 const RANGE := 17.0
 const LIGHT_RANGE := 9.0
 const BASE_ENERGY := 3.0

@@ -32,7 +32,7 @@ const CEILING_INSET := 0.02
 ## A four-metre wall plus a floor which extends 10 cm downward overlapped in
 ## stacked chunks, producing upper-floor stripes and solid columns across stair
 ## landings. The ceiling closes this small remainder without overlapping either.
-const WALL_HEIGHT := RefLook.STOREY
+const WALL_HEIGHT := 4.0
 ## Every wall cell remains a full 1m cube/block so streamed rooms do not
 ## create slab-like collision gaps or elongated wall seams between chunks.
 const LEVEL_TRANSITION_MARGIN := 0.35
@@ -367,8 +367,11 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	_configure_grid(grid)
 	var region := String(data.get("region", "maze"))
 	var room_map := _room_type_map(data)
+	var heights := RefLook.chunk_heights(data)
+	var corridor_h := RefLook.corridor_height(region, coord)
 	root.set_meta("ref_region", region)
-	root.set_meta("ref_room_map", room_map)
+	root.set_meta("ref_heights", heights)
+	root.set_meta("ref_corridor_h", corridor_h)
 	var ceiling_voids := {}
 	var floor_voids := {}
 	var structural_voids := {}
@@ -393,6 +396,8 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
 		"room_map": room_map,
+		"heights": heights,
+		"corridor_h": corridor_h,
 		"decor": null,
 		"cell_index": 0,
 		"phase": 0,
@@ -441,7 +446,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
-				build["decor"] = RefDecor.new(root, data, build["room_map"])
+				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
 					return false
@@ -509,7 +514,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				var coord: Vector3i = build["coord"]
 				root.add_to_group("streamed_chunk")
 				if build["decor"] != null and _lamp_field != null:
-					_lamp_field.register(coord, (build["decor"] as RefDecor).lamps)
+					_lamp_field.register(coord, (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array))
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
@@ -549,9 +554,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
 			var nz: int = z + step.y
-			if nx < 0 or nz < 0 or nx >= size or nz >= size or int(grid_data[nz][nx]) != 0:
+			var outside := nx < 0 or nz < 0 or nx >= size or nz >= size
+			if not outside and int(grid_data[nz][nx]) != 0:
 				continue
-			var neighbour_height := _height_in(build, Vector2i(nx, nz))
+			var neighbour_height := _seam_height(build, nx, nz) if outside \
+				else _height_in(build, Vector2i(nx, nz))
+			if outside:
+				# only close the gap where the other chunk's cell is really open
+				var other := generator.chunk(Vector3i(
+					(build["coord"] as Vector3i).x + floori(float(nx) / size), 0,
+					(build["coord"] as Vector3i).z + floori(float(nz) / size)))
+				if int((other["grid"] as Array)[posmod(nz, size)][posmod(nx, size)]) != 0:
+					continue
 			if neighbour_height < height - .01:
 				var lintel_kind := _ref_wall_kind(build, nx, nz, x, z)
 				surface.add_wall(nx, nz, -step, RefTextures.layer("wall", lintel_kind),
@@ -564,7 +578,7 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var nz: int = z + step.y
 			# faces toward another chunk are emitted too; a hidden face is cheaper
 			# than a missing one
-			var face_height := RefLook.STOREY
+			var face_height := float(build["corridor_h"])
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
 				if int(grid_data[nz][nx]) != 0:
 					continue
@@ -589,14 +603,20 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 
 ## Ceiling height of a cell of the chunk under `root`.
 func _cell_height(root: Node, cell: Vector2i) -> float:
-	var room_map: Dictionary = root.get_meta("ref_room_map", {})
-	return RefLook.ceiling_height(String(root.get_meta("ref_region", "maze")),
-		String(room_map.get(cell, "")))
+	var heights: Dictionary = root.get_meta("ref_heights", {})
+	return float(heights.get(cell, float(root.get_meta("ref_corridor_h", 3.3))))
 
 
 static func _height_in(build: Dictionary, cell: Vector2i) -> float:
-	return RefLook.ceiling_height(String(build["region"]),
-		String((build["room_map"] as Dictionary).get(cell, "")))
+	return float((build["heights"] as Dictionary).get(cell, float(build["corridor_h"])))
+
+
+## Corridor ceiling of the chunk across a seam (the cell there is circulation).
+func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var coord: Vector3i = build["coord"]
+	var neighbour := Vector3i(coord.x + floori(float(nx) / size), 0, coord.z + floori(float(nz) / size))
+	return RefLook.corridor_height(generator.biome_for(neighbour), neighbour)
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
@@ -826,7 +846,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 	# person sees them, however tall the room is.
 	var room_height := _cell_height(parent, cell)
 	var prop_y := PropModelCatalog.visual_y(type,
-		room_height if PropModelCatalog.is_ceiling_mounted(type) else minf(room_height, RefLook.STOREY),
+		room_height if PropModelCatalog.is_ceiling_mounted(type) else minf(room_height, WALL_HEIGHT),
 		float(prop.get("mount_y", 0.0)))
 	var mount_offset: Vector2 = prop.get("mount_offset", Vector2.ZERO) \
 		+ prop.get("placement_offset", Vector2.ZERO)
@@ -851,21 +871,16 @@ func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> voi
 	var profile := PropModelCatalog.light_profile(prop_type)
 	if profile.is_empty():
 		return
-	# Per-chunk cap prevents authored furnishing from multiplying shadowless
-	# point lights until streamed generation becomes a frame-time spike.
-	var count := int(parent.get_meta("fixture_light_count", 0))
-	if count >= 4:
+	# Authored lamps no longer each get an OmniLight3D: they register with the
+	# shared LampField, which lends a handful of real lights to whichever fixtures
+	# are nearest the camera. At most four per chunk, like the old per-chunk cap.
+	var extras: Array = parent.get_meta("extra_lamps", [])
+	if extras.size() >= 4:
 		return
-	parent.set_meta("fixture_light_count", count + 1)
-	var light := OmniLight3D.new()
-	light.name = "FixtureLight_%s_%d" % [prop_type, count]
-	light.position = at + Vector3.UP * float(profile.get("height", .5))
-	light.light_color = profile.get("color", Color.WHITE)
-	light.light_energy = float(profile.get("energy", .4))
-	light.omni_range = float(profile.get("range", 3.5))
-	light.shadow_enabled = false
-	light.visible = _all_lights_enabled
-	parent.add_child(light)
+	extras.append([parent.position + at + Vector3.UP * float(profile.get("height", .5)),
+		profile.get("color", Color.WHITE), clampf(float(profile.get("energy", .4)), .3, 1.4), 0,
+		float(profile.get("range", 3.5)) + 1.5])
+	parent.set_meta("extra_lamps", extras)
 
 
 func _spawn_room_door(parent: Node3D, coord: Vector3i,

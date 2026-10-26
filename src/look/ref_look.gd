@@ -207,16 +207,19 @@ static func _graded_material(source: StandardMaterial3D, strength: float) -> Sta
 
 # -- heights -------------------------------------------------------------------
 #
-# The route is one level, so the space once used by upper floors is room height.
-# A storey is the height one painted wall texture covers; taller rooms repeat it
-# (balcony ledges), so every height is a whole number of storeys except corridors,
-# which are cut short from the top.
+# The route is one level, so every room picks its own ceiling height from a
+# range for its kind. The pick is a hash of the room id (corridors: of the chunk
+# coordinate), so every co-op peer builds the same ceilings.
 
-const STOREY := 4.6
-const CORRIDOR_HEIGHT := 3.7
-const HALL_HEIGHT := STOREY * 2.0
-const GREENHOUSE_HEIGHT := STOREY * 3.0
-const MAX_HEIGHT := GREENHOUSE_HEIGHT
+## Above this a room counts as "tall": pendants on chains, roof ribs, tiered walls.
+const TALL_ROOM := 4.6
+const CORRIDOR_RANGE := Vector2(3.0, 3.6)
+const ROOM_RANGE := Vector2(3.2, 4.4)
+const HALL_RANGE := Vector2(4.8, 6.0)
+const GREENHOUSE_RANGE := Vector2(6.4, 7.5)
+const MAX_HEIGHT := 7.5
+## Metres of wall one repeat of the painted wall texture covers.
+const WALL_TEXTURE_SPAN := 4.0
 
 const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
 const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",
@@ -224,12 +227,57 @@ const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel"
 	"altar_room", "prison_cafeteria", "midway", "restaurant_dining"]
 
 
-## Ceiling height of a cell: room_type "" means corridor / circulation.
-static func ceiling_height(region: String, room_type: String) -> float:
+static func _ranged(key: String, bounds: Vector2) -> float:
+	var unit := float(absi(hash(key)) % 10_000) / 10_000.0
+	return snappedf(lerpf(bounds.x, bounds.y, unit), .1)
+
+
+static func room_range(region: String, room_type: String) -> Vector2:
 	if room_type == "":
-		return STOREY if region == "beach" else CORRIDOR_HEIGHT
+		return ROOM_RANGE if region == "beach" else CORRIDOR_RANGE
 	if region == "beach" and GREENHOUSE_ROOMS.has(room_type):
-		return GREENHOUSE_HEIGHT
+		return GREENHOUSE_RANGE
 	if HALL_ROOMS.has(room_type):
-		return HALL_HEIGHT
-	return STOREY
+		return HALL_RANGE
+	return ROOM_RANGE
+
+
+## Ceiling height of one room (key = its id).
+static func room_height(region: String, room_type: String, key: String) -> float:
+	return _ranged("H:%s" % key, room_range(region, room_type))
+
+
+## Corridor ceiling of a chunk (all its circulation space).
+static func corridor_height(region: String, coord: Vector3i) -> float:
+	return _ranged("C:%d:%d" % [coord.x, coord.z], room_range(region, ""))
+
+
+## Cell -> ceiling height for every cell inside a room of this chunk.
+static func chunk_heights(data: Dictionary) -> Dictionary:
+	var region := String(data.get("region", "maze"))
+	var heights := {}
+	for room_value in data.get("rooms", []):
+		var room: Dictionary = room_value
+		var rect: Rect2i = room.get("rect", Rect2i())
+		var h := room_height(region, String(room.get("room_type", "")), String(room.get("id", "")))
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				heights[Vector2i(x, z)] = h
+	return heights
+
+
+## Cell -> room id, for budgets that count fixtures per room.
+static func chunk_room_ids(data: Dictionary) -> Dictionary:
+	var ids := {}
+	for room_value in data.get("rooms", []):
+		var room: Dictionary = room_value
+		var rect: Rect2i = room.get("rect", Rect2i())
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				ids[Vector2i(x, z)] = String(room.get("id", ""))
+	return ids
+
+
+## Number of wall-texture repeats a face of this height carries.
+static func wall_tiers(height: float) -> int:
+	return maxi(1, roundi(height / WALL_TEXTURE_SPAN))
