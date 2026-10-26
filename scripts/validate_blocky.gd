@@ -9,7 +9,10 @@ extends RefCounted
 ## Run with:
 ##   godot4 --headless res://scenes/validate.tscn -- blocky
 
-const HUNTERS := ["kathy", "aki", "xivvy", "kathy_tall", "aki_tall", "xivvy_tall"]
+const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra", "haelith", "ilyra",
+	"jyvra", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quirith", "ravelle", "solyth",
+	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+	"kathy_tall", "aki_tall", "xivvy_tall"]
 const BONES := ["Pelvis", "Belly", "Chest", "Head", "L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm",
 	"R-Hand", "L-Thigh", "L-Calf", "L-Foot", "R-Thigh", "R-Calf", "R-Foot"]
 const CLIPS := ["idle", "walk", "chase", "sprint", "crouch", "stun", "charge", "flight", "jumpscare"]

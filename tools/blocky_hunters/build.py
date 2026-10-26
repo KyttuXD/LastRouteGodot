@@ -35,8 +35,21 @@ def taller(cubes, sk, eyes, dy):
     return cubes, sk, eyes, f
 
 
+def _generic(name):
+    """A hunter with no module of her own: plain supplied skin on the standard cubes."""
+    import types
+    from bb_skin import U, vanilla_sk, eye_locators, source_hunter
+    ns = types.SimpleNamespace(NAME=name, HEIGHT=1.78, DESIGN_TOP=32 * U, SK=vanilla_sk(), EXTRAS=[],
+                               EYES=eye_locators(), MODEL_KW={})
+    ns.build = lambda: source_hunter(name, vars(ns))
+    return ns
+
+
 def build(name, tall=0.0):
-    mod = importlib.import_module(f"hunters.{name}")
+    try:
+        mod = importlib.import_module(f"hunters.{name}")
+    except ModuleNotFoundError:
+        mod = _generic(name)
     cubes, face = mod.build()
     sk, eyes, extras = mod.SK, mod.EYES, list(mod.EXTRAS)
     if tall:
@@ -65,5 +78,8 @@ if __name__ == "__main__":
         if a.startswith("--tall"):
             tall = float(a.split("=")[1]) if "=" in a else 5.0
             args.remove(a)
+    if args == ["all"]:
+        from hunters.roster import IDS
+        args = IDS
     for n in args or ["kathy"]:
         build(n, tall)
