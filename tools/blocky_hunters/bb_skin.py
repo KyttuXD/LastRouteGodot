@@ -218,8 +218,9 @@ def expressions_from_face(face):
     cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 3 chase: dark glare, inner iris
                        (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark,
                        (2, 4): dark, (5, 4): dark}))
-    cells.append(make({(1, 5): dark, (2, 5): col, (5, 5): col, (6, 5): dark,                   # 4 scream: big iris, small background
-                       (1, 6): col, (2, 6): col, (5, 6): col, (6, 6): col}))
+    wide = {(x, y): col for y in (5, 6) for x in (1, 2, 5, 6)}                                 # 4 scream: wide eyes,
+    wide.update({(2, 4): col, (5, 4): col})                                                    # eye colour only (no dark)
+    cells.append(make(wide))
     cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 5 happy: lower half iris
                        (1, 6): col, (2, 6): col, (5, 6): col, (6, 6): col}))
     for im in cells:                            # keep the blush row identical on every cell
