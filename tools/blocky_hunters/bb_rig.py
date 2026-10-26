@@ -60,7 +60,7 @@ def _lerp_key_times(length, n):
     return [length * i / n for i in range(n + 1)]
 
 
-def build_clips(bones, hip_y, hunter_extras=None):
+def build_clips(bones, hip_y, profile=None):
     """Return {clip: {"length": s, "tracks": {bone: {"rotation": (t, v), "translation": (t, v)}}}}.
     Core tracks come from the Hytale clips; charge/flight/jumpscare are authored here."""
     names = {b["name"] for b in bones}
@@ -134,6 +134,8 @@ def build_clips(bones, hip_y, hunter_extras=None):
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
+    _apply_profile(clips, restq, pel, profile or {})
+
     # procedural sway for extra bones (ponytail, hair, wings, ribbons ...)
     for clip_name, clip in clips.items():
         length = clip["length"]
@@ -169,3 +171,64 @@ def build_clips(bones, hip_y, hunter_extras=None):
 
 def quat_euler(e, base):
     return quat_mul(quat_from_euler(*e), base)
+
+
+LOCOMOTION = ("walk", "chase", "sprint", "charge", "crouch")
+LEG = ("L-Thigh", "R-Thigh", "L-Foot", "R-Foot")
+KNEE = ("L-Calf", "R-Calf")
+ARM = ("L-Arm", "R-Arm", "L-Forearm", "R-Forearm", "L-Hand", "R-Hand")
+DEFAULT_PROFILE = dict(tempo=1.0, stride=1.0, knee=1.0, arm_swing=1.0, bounce=1.0, lean=0.0, head_pitch=0.0,
+                       head_roll=0.0, shoulder_in=0.0, idle_amp=1.0, idle_tempo=1.0)
+
+
+def _scale_about(rest, q, k):
+    """Scale the rotation q away from `rest` by k (small-angle nlerp), keeping it a unit quaternion."""
+    d = sum(a * b for a, b in zip(rest, q))
+    q = tuple(-v for v in q) if d < 0 else q
+    r = tuple(rest[i] + (q[i] - rest[i]) * k for i in range(4))
+    n = math.sqrt(sum(v * v for v in r)) or 1.0
+    return tuple(v / n for v in r)
+
+
+def _apply_profile(clips, restq, pel, prof):
+    """Per-hunter motion: reshape the shared clips (tempo, stride, bounce, posture ...) without changing the
+    rig, so every hunter still plays the same clip names."""
+    p = dict(DEFAULT_PROFILE)
+    p.update(prof)
+    for name, clip in clips.items():
+        tempo = p["tempo"] if name in LOCOMOTION else p["idle_tempo"] if name == "idle" else 1.0
+        if tempo != 1.0:
+            clip["length"] = clip["length"] / tempo
+            for tr in clip["tracks"].values():
+                for chan, (t, v) in list(tr.items()):
+                    tr[chan] = ([x / tempo for x in t], v)
+        for bone, tr in clip["tracks"].items():
+            if "rotation" not in tr:
+                continue
+            t, v = tr["rotation"]
+            rest = restq[bone]
+            k = 1.0
+            if name in LOCOMOTION:
+                k = p["stride"] if bone in LEG else p["knee"] * p["stride"] if bone in KNEE else p["arm_swing"] if bone in ARM else 1.0
+            elif name == "idle":
+                k = p["idle_amp"]
+            if k != 1.0:
+                v = [_scale_about(rest, q, k) for q in v]
+            if name != "jumpscare":
+                off = (0.0, 0.0, 0.0)
+                if bone in ("Belly", "Chest"):
+                    off = (-p["lean"] / 2, 0.0, 0.0)
+                elif bone == "Head":
+                    off = (-p["head_pitch"] + p["lean"], 0.0, p["head_roll"])   # lean is cancelled so the head stays level
+                elif bone == "L-Arm":
+                    off = (0.0, 0.0, p["shoulder_in"])
+                elif bone == "R-Arm":
+                    off = (0.0, 0.0, -p["shoulder_in"])
+                if any(off):
+                    v = [quat_mul(quat_from_euler(*off), q) for q in v]
+            tr["rotation"] = (t, v)
+        pt = clip["tracks"].get("Pelvis", {}).get("translation")
+        if pt and p["bounce"] != 1.0 and name in LOCOMOTION + ("idle",):
+            t, v = pt
+            clip["tracks"]["Pelvis"]["translation"] = (t, [(pel[0] + (x - pel[0]) * p["bounce"], pel[1] + (y - pel[1]) * p["bounce"],
+                                                            pel[2] + (z - pel[2]) * p["bounce"]) for x, y, z in v])

@@ -63,7 +63,8 @@ def build(name, tall=0.0):
     extra = getattr(mod, "MODEL_KW", {})
     model = Model(name, bones, cubes, scale=mod.HEIGHT / top, face_painter=face,
                   extras={"eyes": eyes}, **extra)
-    clips = bb_rig.build_clips(bones, sk["hip_y"])
+    from hunters import motion
+    clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name))
     d = OUT / name
     d.mkdir(parents=True, exist_ok=True)
     size = bb_gltf.write_glb(model, bones, clips, d / f"{name}.glb", scale=model.scale)
