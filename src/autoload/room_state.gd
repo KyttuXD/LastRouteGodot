@@ -121,7 +121,7 @@ var peers := {}
 
 const DEFAULT_PORT := 8421
 ## The persistent server-owned route (see PublicRoute).
-const PUBLIC_CODE := "PUBLIC"
+const PUBLIC_CODE := "PUBLC"
 const CONNECTION_TIMEOUT_MSEC := 15_000
 const RECONNECT_GRACE_MSEC := 8_000
 const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000

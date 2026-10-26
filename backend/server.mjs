@@ -8,8 +8,7 @@ import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
 
-// Five ordinary characters, or the one persistent server-owned room code.
-const ENET_CODE_PATTERN = /^(?:[A-HJ-NP-Z2-9]{5}|PUBLIC)$/;
+const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 // The PUBLIC host posts to the server every second or so; if it vanishes, its
 // listing must lapse quickly so a guest can take over.
 const PUBLIC_ENET_TTL_MS = 15_000;

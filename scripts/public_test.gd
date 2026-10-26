@@ -36,16 +36,22 @@ func _say(message: String) -> void:
 
 
 func _fail(message: String) -> void:
-	print("PUBLIC %s FAIL %s" % [role.to_upper(), message])
+	print("PUBLIC %s FAIL %s [public: %s | room: %s | online=%s connecting=%s host=%s]" % [role.to_upper(), message,
+		PublicRoute.status, RoomState.status_message, RoomState.online, RoomState.connecting, RoomState.is_host])
 	push_error(message)
 	OS.kill(OS.get_process_id())
 
 
 func _wait_for(test: Callable, what: String, seconds: float = 45.0) -> bool:
 	var deadline := Time.get_ticks_msec() + int(seconds * 1000.0)
+	var next_note := Time.get_ticks_msec() + 5000
 	while Time.get_ticks_msec() < deadline:
 		if test.call():
 			return true
+		if Time.get_ticks_msec() > next_note:
+			next_note += 5000
+			print("PUBLIC %s .. waiting for %s [public: %s | room: %s | online=%s connecting=%s host=%s]" % [role.to_upper(), what,
+				PublicRoute.status, RoomState.status_message, RoomState.online, RoomState.connecting, RoomState.is_host])
 		await get_tree().process_frame
 	_fail("timed out waiting for " + what)
 	return false
@@ -119,7 +125,8 @@ func _run_a() -> void:
 	if not await _wait_for(func() -> bool: return GameState.relays_collected >= 1, "own relay", 20.0):
 		return
 	_say("collected relay %s; relays=%d" % [relay["id"], GameState.relays_collected])
-	if not await _wait_for(func() -> bool: return int(PublicRoute.server.get("relaysCollected", 0)) >= 1, "backend to count it", 20.0):
+	var counted := func() -> bool: return int(PublicRoute.server.get("relaysCollected", 0)) >= 1
+	if not await _wait_for(counted, "backend to count it", 20.0):
 		return
 	_write("a_relay.txt", relay["id"])
 	if not await _wait_for(func() -> bool: return int(PublicRoute.server.get("playersOnline", 0)) >= 2, "second player", 60.0):
@@ -127,8 +134,10 @@ func _run_a() -> void:
 	_say("sees %d players online; hud line: %s" % [PublicRoute.server.get("playersOnline"), PublicRoute.line()])
 	if not await _wait_for(func() -> bool: return _read("server_restarted.txt") != "", "server restart", 180.0):
 		return
-	if not await _wait_for(func() -> bool: return PublicRoute.session_id != "" and int(PublicRoute.server.get("relaysCollected", 0)) >= 1
-			and Backend.registered, "session and listing after the server restart", 60.0):
+	var restored := func() -> bool:
+		return PublicRoute.session_id != "" and Backend.registered \
+			and int(PublicRoute.server.get("relaysCollected", 0)) >= 1
+	if not await _wait_for(restored, "session and listing after the server restart", 60.0):
 		return
 	_say("survived the server restart: new session, PUBLIC listing back, relays=%d" % PublicRoute.server.get("relaysCollected"))
 	_write("a_after_restart.txt", "1")
@@ -148,8 +157,6 @@ func _run_b() -> void:
 	_say("guest in the shared route; relays=%d (server says %d)" % [GameState.relays_collected, PublicRoute.server.get("relaysCollected")])
 	if GameState.relays_collected < 1:
 		_fail("the relay collected by the first player is not counted for the guest")
-		return
-	if not await _wait_for(func() -> bool: return not PublicRoute.in_join_grace() or true, "grace", 1.0):
 		return
 	var target := Vector3(40.5, .05, 31.5)
 	scene.player.global_position = scene._nearest_valid_position(Vector2(target.x, target.z))
@@ -179,8 +186,9 @@ func _run_b2() -> void:
 	_say("resumed at %s with the battery after a crash" % here)
 	_write("b2_ok.txt", "1")
 	# the authority will be killed: this client must take over the route
-	if not await _wait_for(func() -> bool: return PublicRoute.is_authority and RoomState.is_host and _in_route(),
-			"to become the authority after the host vanished", 150.0):
+	var took_over := func() -> bool:
+		return PublicRoute.is_authority and RoomState.is_host and _in_route()
+	if not await _wait_for(took_over, "to become the authority after the host vanished", 150.0):
 		return
 	scene = get_tree().current_scene
 	if not await _wait_for(func() -> bool: return GameState.relays_collected >= 1, "restored relays", 20.0):

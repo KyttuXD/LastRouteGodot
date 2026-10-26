@@ -335,7 +335,8 @@ func _request(path: String, payload: Dictionary, done: Callable) -> void:
 	add_child(request)
 	request.request_completed.connect(func(result: int, code: int, _h: PackedStringArray, raw: PackedByteArray) -> void:
 		request.queue_free()
-		var parsed = JSON.parse_string(raw.get_string_from_utf8())
+		var text := raw.get_string_from_utf8()
+		var parsed = JSON.parse_string(text) if not text.is_empty() else null
 		var body: Dictionary = parsed if parsed is Dictionary else {}
 		done.call(result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300, body))
 	var error := request.request(Backend.base_url + path,

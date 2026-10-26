@@ -32,7 +32,7 @@ test("join returns the stable seed and a resume record after a crash, within the
   let clock = 1_000_000;
   const route = createPublicRoute({ now: () => clock });
   const first = route.join({ playerKey: KEY_A, name: "Aki" }, { address: "1.1.1.1" }).body;
-  assert.equal(first.code, "PUBLIC");
+  assert.equal(first.code, "PUBLC");
   assert.equal(first.resume, null);
   clock += 1_000;
   assert.equal(route.post({ sessionId: first.sessionId, position: { x: 12.5, z: -40 }, inventory: [{ id: "taser", durability: 3 }] }).status, 200);
@@ -134,9 +134,9 @@ test("HTTP: PUBLIC is a registered ENet code, its host token authorises the snap
   try {
     const first = await call("/api/public/join", { playerKey: KEY_A, name: "one" });
     assert.equal(first.authorityLive, false);
-    const registered = await call("/api/enet/rooms/register", { code: "PUBLIC", port: 8421, players: 1 });
+    const registered = await call("/api/enet/rooms/register", { code: "PUBLC", port: 8421, players: 1 });
     assert.equal(registered.ok, true);
-    assert.equal((await call("/api/enet/rooms/register", { code: "PUBLIC", port: 8422 })).ok, false, "second host is refused");
+    assert.equal((await call("/api/enet/rooms/register", { code: "PUBLC", port: 8422 })).ok, false, "second host is refused");
     const second = await call("/api/public/join", { playerKey: KEY_B, name: "two" });
     assert.equal(second.authorityLive, true);
     const forged = await call("/api/public/state", { sessionId: second.sessionId, hostToken: "wrong", claims: [{ id: "1:0:0:PICKUP:RELAY:0" }] });

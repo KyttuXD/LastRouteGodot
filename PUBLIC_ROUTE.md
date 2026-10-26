@@ -3,7 +3,7 @@
 ## What the PUBLIC route is
 
 An always-open shared route anyone joins from the title screen (**PUBLIC ROUTE**
-button): no lobby, no host choice, room code `PUBLIC`. The Node backend owns the
+button): no lobby, no host choice, relay room code `PUBLC` (shown to players as PUBLIC ROUTE). The Node backend owns the
 parts that must outlive any one player; gameplay is still the host-authoritative
 ENet session, relayed over UDP so nobody forwards a port.
 
@@ -17,7 +17,7 @@ ENet session, relayed over UDP so nobody forwards a port.
 
 How it works:
 
-* **Authority.** `PUBLIC` is the one persistent ENet code. The first client to register
+* **Authority.** `PUBLC` is the one persistent ENet code. The first client to register
   it (the backend answers 409 to everyone after) becomes the authority and simulates
   hunters exactly like a private host. Everyone else joins that room as a guest. If the
   authority disappears its listing lapses (15 s without a state post) and the next client

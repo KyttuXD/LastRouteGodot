@@ -12,7 +12,9 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export const PUBLIC_CODE = "PUBLIC";
+// Five characters from the room-code alphabet: the relay wire format carries exactly
+// five. Players see it as "PUBLIC ROUTE", never as a code to type.
+export const PUBLIC_CODE = "PUBLC";
 export const PUBLIC_RESUME_TTL_MS = 6 * 60 * 60 * 1000;
 export const PUBLIC_ITEM_RESPAWN_MS = 3 * 60 * 1000;
 export const PUBLIC_JOIN_GRACE_MS = 10_000;
