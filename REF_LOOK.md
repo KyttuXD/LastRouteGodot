@@ -74,3 +74,14 @@ meshes, ball-joint rings, one warm-grey material, 1.70 m, relaxed arms-down rest
 clips idle, walk, sprint, chase, crouch, sit, lay, tpose; `R-Attachment`/`L-Attachment`
 hand empties and eye empties. `PlayerModels.USE_WOODEN` (src/config/player_models.gd)
 switches back to the legacy Minecraft-skin body (`player_legacy.tscn`).
+
+## Blocky props, wide halls, archways
+
+* `tools/props/` rebuilds 63 key furniture/fixture types (86 models) as Minecraft-style box
+  models from one pixel atlas, same size/pivot as the originals; `PropModelCatalog.USE_BLOCKY_PROPS`
+  switches them on, the original models stay as the fallback (see tools/props/README.md).
+* Halls are five cells wide (`StreamedRouteGenerator.CORRIDOR_WIDTH`) with a three-strip carpet
+  runner and pilasters; roomy rooms open onto the hall through three-cell archways ("arch"
+  room-door props, drawn by `RefDecor._arches`), a few keep doors.
+* Per-room seeded ceiling heights: corridors 3.0-3.6 m, rooms 3.2-4.4, halls 4.8-6.0, greenhouses
+  6.4-7.5 (`RefLook.room_height`). Fixture density is budgeted per room (2-4 lamps, 1-3 windows).

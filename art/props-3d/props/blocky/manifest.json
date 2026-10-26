@@ -1,0 +1,214 @@
+{
+ "woodenChair": [
+  "woodenChair_0.glb",
+  "woodenChair_1.glb"
+ ],
+ "woodenChairCushion": [
+  "woodenChairCushion_0.glb",
+  "woodenChairCushion_1.glb",
+  "woodenChairCushion_2.glb"
+ ],
+ "diningChair": [
+  "diningChair_0.glb",
+  "diningChair_1.glb",
+  "diningChair_2.glb"
+ ],
+ "diningChairCushion": [
+  "diningChairCushion_0.glb",
+  "diningChairCushion_1.glb",
+  "diningChairCushion_2.glb"
+ ],
+ "woodenTable": [
+  "woodenTable_0.glb",
+  "woodenTable_1.glb"
+ ],
+ "diningTable": [
+  "diningTable_0.glb",
+  "diningTable_1.glb"
+ ],
+ "restaurantPartyTable": [
+  "restaurantPartyTable_0.glb",
+  "restaurantPartyTable_1.glb"
+ ],
+ "singleBed": [
+  "singleBed_0.glb",
+  "singleBed_1.glb",
+  "singleBed_2.glb"
+ ],
+ "doubleBed": [
+  "doubleBed_0.glb",
+  "doubleBed_1.glb",
+  "doubleBed_2.glb"
+ ],
+ "bedroomNightstand": [
+  "bedroomNightstand.glb"
+ ],
+ "bedroomDresser": [
+  "bedroomDresser.glb"
+ ],
+ "woodenDresserSideboard": [
+  "woodenDresserSideboard.glb"
+ ],
+ "gothicDresser": [
+  "gothicDresser.glb"
+ ],
+ "gothicNightstand": [
+  "gothicNightstand.glb"
+ ],
+ "diningSideboard": [
+  "diningSideboard.glb"
+ ],
+ "mansionConsoleTable": [
+  "mansionConsoleTable.glb"
+ ],
+ "normalTvConsole": [
+  "normalTvConsole.glb"
+ ],
+ "bedroomWardrobe": [
+  "bedroomWardrobe.glb"
+ ],
+ "gothicWardrobe": [
+  "gothicWardrobe.glb"
+ ],
+ "normalBookcase": [
+  "normalBookcase.glb"
+ ],
+ "mansionBookshelf": [
+  "mansionBookshelf.glb"
+ ],
+ "gothicBookcase": [
+  "gothicBookcase.glb"
+ ],
+ "loungeCouch": [
+  "loungeCouch_0.glb",
+  "loungeCouch_1.glb",
+  "loungeCouch_2.glb"
+ ],
+ "loungeCouchWide": [
+  "loungeCouchWide_0.glb",
+  "loungeCouchWide_1.glb",
+  "loungeCouchWide_2.glb"
+ ],
+ "officeDesk": [
+  "officeDesk.glb"
+ ],
+ "officeChair": [
+  "officeChair_0.glb",
+  "officeChair_1.glb"
+ ],
+ "retroComputerDesktop": [
+  "retroComputerDesktop.glb"
+ ],
+ "retroComputerCompact": [
+  "retroComputerCompact.glb"
+ ],
+ "retroComputerTower": [
+  "retroComputerTower.glb"
+ ],
+ "retroComputerTerminal": [
+  "retroComputerTerminal.glb"
+ ],
+ "officeCrtSecurityConsole": [
+  "officeCrtSecurityConsole.glb"
+ ],
+ "filingCabinet": [
+  "filingCabinet.glb"
+ ],
+ "locker": [
+  "locker.glb"
+ ],
+ "vendingMachine": [
+  "vendingMachine.glb"
+ ],
+ "arcadeCabinet": [
+  "arcadeCabinet_0.glb",
+  "arcadeCabinet_1.glb",
+  "arcadeCabinet_2.glb"
+ ],
+ "arcadeCabinetCyanMagenta": [
+  "arcadeCabinetCyanMagenta_0.glb",
+  "arcadeCabinetCyanMagenta_1.glb",
+  "arcadeCabinetCyanMagenta_2.glb"
+ ],
+ "serverRack": [
+  "serverRack.glb"
+ ],
+ "breakerCabinet": [
+  "breakerCabinet.glb"
+ ],
+ "tableLamp": [
+  "tableLamp.glb"
+ ],
+ "bedsideLamp": [
+  "bedsideLamp.glb"
+ ],
+ "floorLamp": [
+  "floorLamp.glb"
+ ],
+ "ceilingLight": [
+  "ceilingLight.glb"
+ ],
+ "wallSconce": [
+  "wallSconce.glb"
+ ],
+ "tableCandelabra": [
+  "tableCandelabra.glb"
+ ],
+ "supplyCrates": [
+  "supplyCrates.glb"
+ ],
+ "charredSupplyCrate": [
+  "charredSupplyCrate.glb"
+ ],
+ "trashBin": [
+  "trashBin.glb"
+ ],
+ "normalKitchenCounter": [
+  "normalKitchenCounter.glb"
+ ],
+ "luxuryKitchenCounter": [
+  "luxuryKitchenCounter.glb"
+ ],
+ "gothicKitchenCounter": [
+  "gothicKitchenCounter.glb"
+ ],
+ "normalKitchenIsland": [
+  "normalKitchenIsland.glb"
+ ],
+ "luxuryKitchenIsland": [
+  "luxuryKitchenIsland.glb"
+ ],
+ "gothicKitchenIsland": [
+  "gothicKitchenIsland.glb"
+ ],
+ "normalKitchenFridge": [
+  "normalKitchenFridge.glb"
+ ],
+ "luxuryKitchenFridge": [
+  "luxuryKitchenFridge.glb"
+ ],
+ "gothicKitchenFridge": [
+  "gothicKitchenFridge.glb"
+ ],
+ "normalKitchenStove": [
+  "normalKitchenStove.glb"
+ ],
+ "luxuryKitchenStove": [
+  "luxuryKitchenStove.glb"
+ ],
+ "gothicKitchenStove": [
+  "gothicKitchenStove.glb"
+ ],
+ "houseToilet": [
+  "houseToilet.glb"
+ ],
+ "publicRestroomToilet": [
+  "publicRestroomToilet.glb"
+ ],
+ "bathroomSink": [
+  "bathroomSink.glb"
+ ],
+ "houseBathtub": [
+  "houseBathtub.glb"
+ ]
+}

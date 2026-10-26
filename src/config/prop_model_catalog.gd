@@ -7,6 +7,9 @@ extends RefCounted
 ## Multiple paths are intentional visual variants and are selected from the
 ## stable generated prop id, so every peer sees the same couch/cabinet colour.
 
+## Use the Minecraft-style block rebuilds (BlockyPropModels) where they exist.
+const USE_BLOCKY_PROPS := true
+
 const MODEL_PATHS := {
 	"arcadeCabinet": [
 		"res://art/props-3d/props/maze/arcade_cabinet_default.glb",
@@ -736,6 +739,9 @@ static func model_path(type: String, instance_id: String,
 	var paths: Array = MODEL_PATHS.get(type, [])
 	if paths.is_empty():
 		return ""
+	if USE_BLOCKY_PROPS and BlockyPropModels.MODELS.has(type):
+		var blocky: Array = BlockyPropModels.MODELS[type]
+		return String(blocky[_variant_index(type, instance_id, room_id, blocky.size())])
 	return String(paths[_variant_index(type, instance_id, room_id, paths.size())])
 
 
