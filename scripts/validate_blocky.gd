@@ -63,7 +63,7 @@ func run(host: Node) -> int:
 			for glyph_bone in ["R-Glyph"]:
 				if node.find_child(glyph_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, glyph_bone])
-		if id.begins_with("porcelle") or id.begins_with("mavrine"):
+		if id.begins_with("porcelle") or id.begins_with("mavrine") or id.begins_with("solyth"):
 			if node.find_child("Halo", true, false) == null:
 				_fail("%s is missing its Halo" % id)
 		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:

@@ -5,7 +5,7 @@ clip. The halo ring that was painted on the skin's hat layer is removed (it is g
 from bb_core import Cube
 from bb_skin import m
 
-SWATCH = {"ring": (52, 66, 2, 2), "top": (54, 66, 2, 2)}
+SWATCH = {"ring": (54, 68, 2, 2), "top": (56, 68, 2, 2)}      # texels not shared with glyph/pony/chain swatches
 EXTRAS = [("Halo", "Head", (m(0.0), m(34.6), m(0.0)), (3, 3, 1, 0.0))]
 
 
