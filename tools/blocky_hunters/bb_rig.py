@@ -115,9 +115,9 @@ def build_clips(bones, hip_y, hunter_extras=None):
         return {
             "Belly": (-8, 0, 0), "Chest": (-10, 0, 3 * s), "Head": (14, 0, 0),
             "L-Arm": (-10, 0, -62 + 8 * s), "R-Arm": (-10, 0, 62 - 8 * s),
-            "L-Forearm": (-10, 0, -10), "R-Forearm": (-10, 0, 10),
+            "L-Forearm": (14, 0, -10), "R-Forearm": (14, 0, 10),      # elbows flex forward (+X), never back
             "L-Thigh": (-14 + 4 * s, 0, 0), "R-Thigh": (-8 - 4 * s, 0, 0),
-            "L-Calf": (30, 0, 0), "R-Calf": (36, 0, 0), "L-Foot": (22, 0, 0), "R-Foot": (22, 0, 0),
+            "L-Calf": (-30, 0, 0), "R-Calf": (-36, 0, 0), "L-Foot": (-22, 0, 0), "R-Foot": (-22, 0, 0),   # knees fold the foot BACK (-X)
         }.get(b)
     clips["flight"] = authored(1.2, 8, fly, lambda i: 0.10 + 0.05 * math.sin(2 * math.pi * i / 8))
 
@@ -130,7 +130,7 @@ def build_clips(bones, hip_y, hunter_extras=None):
             "L-Forearm": (30, 0, 0), "R-Forearm": (30, 0, 0),
             "L-Hand": (35, 0, 0), "R-Hand": (35, 0, 0),
             "L-Thigh": (18, 0, 0), "R-Thigh": (-12, 0, 0),
-            "L-Calf": (-8, 0, 0), "R-Calf": (22, 0, 0),
+            "L-Calf": (-8, 0, 0), "R-Calf": (-22, 0, 0),
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
