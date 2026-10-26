@@ -318,18 +318,6 @@ func _dual_level_pair_active(_coord: Vector3i) -> bool:
 	return false
 
 
-func _dual_level_pair_active_multi_level(coord: Vector3i) -> bool:
-	var lower_level := floori(float(coord.y) / 2.0) * 2
-	# Keep the compact arrival floor and its immediate ceiling conventional.
-	# Everywhere else, a stable minority of chunks can reserve a full vertical
-	# pair without turning every region into a tower.
-	if lower_level == 0:
-		return false
-	var rng := SeededRandom.new("%s:DUAL:%d:%d:%d" % [
-		world_seed, coord.x, lower_level, coord.z])
-	return rng.next_float() < .18
-
-
 func dual_level_room_spec(coord: Vector3i) -> Dictionary:
 	if not _dual_level_pair_active(coord):
 		return {}
@@ -599,43 +587,6 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 ## stairwell, floor void or ceiling void.
 func stair_links(_coord: Vector3i) -> Array:
 	return []
-
-
-func _stair_links_multi_level(coord: Vector3i) -> Array:
-	var links := []
-	for lower_level in [coord.y - 1, coord.y]:
-		var forced_origin: bool = coord.x == 0 and coord.z == 0 \
-			and int(lower_level) in [-1, 0]
-		var rng := SeededRandom.new("%s:STAIR:%d:%d:%d" % [
-			world_seed, coord.x, lower_level, coord.z])
-		if not forced_origin and rng.next_float() >= 0.24:
-			continue
-		# Consecutive boundaries meet inside this chunk. Put them in disjoint
-		# stairwell sectors while retaining canonical agreement with the chunk
-		# above/below that describes the same physical flight.
-		var boundary_parity := posmod(int(lower_level), 2)
-		var allowed_bays: Array = (STAIR_BAYS_BY_BOUNDARY_PARITY[boundary_parity] as Array).duplicate()
-		var dual_spec := dual_level_room_spec(coord)
-		if not dual_spec.is_empty():
-			allowed_bays.erase(int(dual_spec.get("sector", -1)))
-		if allowed_bays.is_empty():
-			continue
-		var bay_index: int = allowed_bays[rng.next_index(allowed_bays.size())]
-		var bay_anchors: Array = STAIR_BAY_ANCHORS[bay_index]
-		var cell: Vector2i = bay_anchors[rng.next_index(bay_anchors.size())]
-		var lower := Vector3i(coord.x, lower_level, coord.z)
-		var upper := Vector3i(coord.x, lower_level + 1, coord.z)
-		links.append({
-			"id": "STAIR:%d:%d:%d" % [coord.x, lower_level, coord.z],
-			"cell": cell,
-			"lower": lower,
-			"upper": upper,
-			"direction": "up" if coord.y == lower_level else "down",
-			# Resolve style from the shared lower chunk so both vertical sides
-			# describe the same physical staircase even across a biome boundary.
-			"style": _stair_style(biome_for(lower)),
-		})
-	return links
 
 
 func is_safe_room(coord: Vector3i) -> bool:

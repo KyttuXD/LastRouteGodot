@@ -7,31 +7,24 @@ fallback; it is not the direction of new map work.
 
 ## Implemented runtime
 
-- Deterministic 45×45 chunks use stable `(x, level, z)` ids, canonical doorway
-  seams, and paired vertical stair links. Their room-and-three-cell-corridor
-  fabric follows the finite maze language; perimeter rooms own outward seams,
-  avoiding centre-to-centre cuts that turn into extremely long garage lanes.
-  Level zero is the spawn floor and stays horizontally unbounded like every
-  other Infinite level, with guaranteed origin routes both upward and downward.
-- The renderer keeps a collidable 3×3 horizontal window plus the current
-  chunks immediately above and below. Old geometry, pickup nodes, hunter
-  views, navigation caches, and generator cache entries are bounded as the
-  runner travels.
-- Upper floors trend safer. Gothic begins below level zero, Prison begins at
-  level -2, and Inferno begins at level -3. Maze, Mansion, Hotel, Apartment,
-  Beach, Gothic, Prison, and Inferno all have deterministic room/corridor
-  layouts and authored regional GLB dressing. Hotel and prison chunks use long
-  halls serving multiple rooms; landmark rooms reach 15×15 cells.
-- Textured/tinted physical stair flights span the full four-metre level height.
-  Walls stop below the next floor slab, and the ceiling closes that exact
-  remaining space, so stacked floors no longer overlap or flicker through one
-  another. Consecutive up/down links reserve
-  opposite dedicated stairwell bays, so their flights, landings, and slab
-  openings cannot overlap inside one room. They connect unlimited vertical
-  floors. Hunters choose
-  targets across the whole room, path across chunk seams, and physically walk
-  the stair ramp under normal collision and gravity before resuming pursuit on
-  the destination floor; there is no hunter floor teleport.
+- The route is a single level. Deterministic 45×45 chunks use `(x, 0, z)` ids
+  (the level component stays for save/replication compatibility but only 0
+  exists), canonical doorway seams, and the room-and-three-cell-corridor fabric of
+  the finite maze language; perimeter rooms own outward seams. The floor is
+  horizontally unbounded. There are no stair links, stairwells, floor/ceiling
+  voids, ladders or hunter floor transfers.
+- The renderer keeps a collidable 3×3 horizontal window. Old geometry, pickup
+  nodes, hunter views, navigation caches, and generator cache entries are
+  bounded as the runner travels.
+- Every biome (Maze, Mansion, Hotel, Apartment, Beach, Gothic, Prison, Carnival,
+  Inferno) can appear on the one floor, with deterministic room/corridor layouts
+  and authored regional GLB dressing. Hotel and prison chunks use long halls
+  serving multiple rooms; landmark rooms reach 15×15 cells.
+- Room height varies (see `RefLook.ceiling_height`): corridors 3.7 m, ordinary
+  rooms 4.6 m (one wall-texture storey), halls/warehouses/chapels 9.2 m, and
+  greenhouse rooms (Beach cove / tide pool / hut / boardwalk) 13.8 m with a
+  glass-and-iron roof. Walls repeat the storey texture upward; lintel faces close
+  the gap above a low doorway entering a tall room.
 - Safe chunks are temporary checkpoints. The origin has a real safe-zone
   marker in the world and on the discovered map. Integrity persists after
   unloading, hunters can breach them, and crowbars/rescue axes can repair them.
