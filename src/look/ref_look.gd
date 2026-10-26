@@ -213,7 +213,7 @@ static func _graded_material(source: StandardMaterial3D, strength: float) -> Sta
 
 ## Above this a room counts as "tall": pendants on chains, roof ribs, tiered walls.
 const TALL_ROOM := 4.6
-const CORRIDOR_RANGE := Vector2(3.0, 3.6)
+const CORRIDOR_RANGE := Vector2(4.0, 4.6)   # taller than wide so a hall does not read as a low box
 const ROOM_RANGE := Vector2(3.2, 4.4)
 const HALL_RANGE := Vector2(4.8, 6.0)
 const GREENHOUSE_RANGE := Vector2(6.4, 7.5)

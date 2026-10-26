@@ -643,9 +643,9 @@ func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
 	return kinds[RefLook.pick(gx, gz, 1, kinds.size())]
 
 
-## Carpet runner down the middle three cells of a five-wide hall, oriented along
-## the hall: left/centre/right strips so the brass borders land on the outer edges.
-## Outside the chunk counts as wall; anything not exactly five wide gets no runner.
+## Carpet runner down the middle three cells of a hall, oriented along the hall:
+## left/centre/right strips so the brass borders land on the outer edges. Outside the
+## chunk counts as wall; anything not exactly CORRIDOR_WIDTH wide gets no runner.
 static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 	var size := grid_data.size()
 	var open := func(cx: int, cz: int) -> bool:
@@ -659,9 +659,10 @@ static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 		var after := 0
 		while after < 6 and open.call(x + step.x * (after + 1), z + step.y * (after + 1)):
 			after += 1
-		if before + after + 1 != 5:
+		var width := StreamedRouteGenerator.CORRIDOR_WIDTH
+		if before + after + 1 != width:
 			continue
-		var offset := before - 2     # -2..2 across the hall
+		var offset := before - width / 2     # across the hall, 0 = middle
 		if absi(offset) > 1:
 			return ""
 		var part := "l" if offset < 0 else ("r" if offset > 0 else "c")

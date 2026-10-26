@@ -14,7 +14,7 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	Settings.set_admin_preferences(Settings.ADMIN_PREFERENCE_DEFAULTS)
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
-	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 5,
+	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
 	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
 		and not world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
@@ -785,7 +785,7 @@ func run(host: Node) -> int:
 			and RefLook.room_height("beach", "cove", room_id) >= RefLook.GREENHOUSE_RANGE.x \
 			and RefLook.room_height("beach", "cove", room_id) <= RefLook.MAX_HEIGHT
 	_expect(height_ok and RefLook.room_height("maze", "office_job", "x") == RefLook.room_height("maze", "office_job", "x") \
-		and RefLook.CORRIDOR_RANGE.y <= RefLook.ROOM_RANGE.y and RefLook.ROOM_RANGE.y <= RefLook.HALL_RANGE.y \
+		and RefLook.CORRIDOR_RANGE.y <= RefLook.HALL_RANGE.y and RefLook.ROOM_RANGE.y <= RefLook.HALL_RANGE.y \
 		and RefLook.HALL_RANGE.y <= RefLook.GREENHOUSE_RANGE.y,
 		"room heights leave their per-kind ranges or are not deterministic")
 	_expect(RefLook.MAX_HEIGHT <= 7.5 and RefLook.CORRIDOR_RANGE.x >= 3.0,

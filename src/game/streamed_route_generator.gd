@@ -41,7 +41,7 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 	1: [1, 2],
 }
 const STAIR_RUN_CELLS := 8
-const CORRIDOR_WIDTH := 5
+const CORRIDOR_WIDTH := 3
 const STAIR_ACCESS_WIDTH := 5
 const ROOM_SIZES := [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
 	Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13),
