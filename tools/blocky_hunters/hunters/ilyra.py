@@ -20,7 +20,7 @@ def _modify(canvas):
             p = canvas.getpixel((x, y))
             if p[3] and p[:3] != base:
                 canvas.putpixel((x, y), (*base, 255))
-    return cat.modify(canvas, base, (219, 146, 193), (190, 190, 205))
+    return cat.modify(canvas, base, (219, 146, 193), (190, 190, 205), clear=[(32, 36, 8, 12), (40, 8, 8, 4)])
 
 
 def build():

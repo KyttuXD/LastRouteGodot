@@ -18,7 +18,12 @@ _B = [("L-Ear", "Head", (-2.8, 32.0, -0.4), (0, 10, 3, 0.0)),
 EXTRAS = [(n, par, (m(x), m(y), m(z)), sw) for n, par, (x, y, z), sw in _B]
 
 
-def modify(canvas, base, inner, tip):
+def modify(canvas, base, inner, tip, clear=()):
+    """clear: skin rects (x, y, w, h) holding the ear/tail art that is geometry now: made transparent."""
+    for (rx, ry, rw, rh) in clear:
+        for y in range(ry, ry + rh):
+            for x in range(rx, rx + rw):
+                canvas.putpixel((x, y), (0, 0, 0, 0))
     for key, c in (("base", base), ("inner", inner), ("tip", tip)):
         x, y, w, h = SWATCH[key]
         for j in range(h):

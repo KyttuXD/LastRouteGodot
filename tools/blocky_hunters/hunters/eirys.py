@@ -14,7 +14,7 @@ MODEL_KW = {}
 
 def _modify(canvas):
     base = canvas.getpixel((12, 3))[:3]
-    return cat.modify(canvas, base, (232, 160, 170), (150, 205, 185))
+    return cat.modify(canvas, base, (232, 160, 170), (150, 205, 185), clear=[(32, 36, 8, 12)])
 
 
 def build():
