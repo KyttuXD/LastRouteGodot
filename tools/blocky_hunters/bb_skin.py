@@ -208,15 +208,19 @@ def expressions_from_face(face):
         return im
     open_eyes = {(1, 5): col, (2, 5): dark, (5, 5): dark, (6, 5): col,
                  (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark}
-    cells.append(face.copy())                                                           # 0 neutral
-    cells.append(make({(1, 6): dark, (2, 6): dark, (5, 6): dark, (6, 6): dark}))        # 1 blink
-    cells.append(make({(1, 5): dark, (2, 6): dark, (2, 5): dark, (1, 6): dark,
-                       (5, 5): dark, (6, 6): dark, (5, 6): dark, (6, 5): dark}))        # 2 stun x_x
-    chase = dict(open_eyes)
-    chase.update({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark})              # heavy lids
-    cells.append(make(chase))                                                           # 3 chase
-    cells.append(make(open_eyes))                                                       # 4 scream (wide eyes)
-    cells.append(make({(1, 6): dark, (2, 5): dark, (5, 5): dark, (6, 6): dark}))        # 5 happy ^ ^
+    white = (255, 255, 255, 255)
+    cells.append(face.copy())                                                                  # 0 neutral (original)
+    cells.append(make({(1, 6): dark, (2, 6): dark, (5, 6): dark, (6, 6): dark}))               # 1 blink: flat lids
+    cells.append(make({(1, 5): col, (2, 5): dark, (5, 5): dark, (6, 5): col,                   # 2 stun: swirl eyes
+                       (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark,
+                       (2, 4): dark, (5, 4): dark}))
+    cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 3 chase: glare, brows down
+                       (1, 6): col, (2, 6): col, (5, 6): col, (6, 6): col,
+                       (2, 4): dark, (5, 4): dark}))
+    cells.append(make({(1, 5): white, (2, 5): col, (5, 5): col, (6, 5): white,                 # 4 scream: wide eyes, tiny pupils
+                       (1, 6): col, (2, 6): dark, (5, 6): dark, (6, 6): col}))
+    cells.append(make({(1, 6): dark, (2, 5): dark, (5, 5): dark, (6, 6): dark,                 # 5 happy ^ ^
+                       (1, 5): col, (6, 5): col}))
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
