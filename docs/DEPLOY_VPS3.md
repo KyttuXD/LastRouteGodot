@@ -43,14 +43,16 @@ collides with `last-route.service` (the website/web game), which is never touche
   ask KT; the ports are baked into the shipped client (`PRIMARY_BASE_URL` in
   `src/autoload/backend_client.gd`, relay port returned by the backend), so changing them means a client
   change too. `deploy.sh` aborts on a port conflict and never kills the other process.
-* Hosting note: `lastroute.kyttuslab.org` currently resolves to `195.62.47.178`, and the older backend
-  documentation describes a Pterodactyl panel at that address on the same ports. If that panel host *is*
-  VPS 3 and is still serving 8105/1105, this deploy would clash. See the questions at the end.
+* Hosting: the game must run on **VPS 3 = 194.156.90.219**. `195.62.47.178` is VPS 2 (the overflow
+  Minecraft host) and must **not** be used for Last Route. `lastroute.kyttuslab.org` does not resolve at
+  all today, so the DNS record below has to be created. Whether TCP 8105 / UDP 1105 are free on VPS 3 is
+  still to be checked read-only (pre-flight step 3).
 
 ### Cloudflare DNS (kyttuslab.org)
 
-* Record: **A** `lastroute` -> VPS 3's public IPv4, **DNS only (grey cloud)**. (AAAA only if IPv6 ports
-  are opened too.)
+* Record: **A** `lastroute` -> `194.156.90.219` (VPS 3), **DNS only (grey cloud)**. (AAAA only if IPv6
+  ports are opened too.) The website itself (`kyttuslab.org`, currently proxied through Cloudflare to VPS 3)
+  stays proxied and is not changed.
 * The orange-cloud proxy cannot carry UDP at all, and it only proxies a short list of HTTP ports (8105 is
   not on it), so the record **must** stay DNS-only. The relay host name the backend hands out
   (`LASTROUTE_RELAY_HOST`) must be this same name or the IP.
@@ -76,7 +78,8 @@ systemctl cat last-route.service | head -40
 sudo ufw status verbose 2>/dev/null; sudo iptables -S 2>/dev/null | head -40
 nginx -v 2>&1; ls /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null
 # 7. does the name already point here?
-dig +short lastroute.kyttuslab.org; curl -s ifconfig.me
+dig +short lastroute.kyttuslab.org   # expected: empty until the record exists, then 194.156.90.219
+curl -s ifconfig.me                  # expected: 194.156.90.219 (this must be VPS 3, not VPS 2)
 ```
 
 Back up first: `sudo tar czf ~/pre-godot2-$(date +%F).tgz /etc/systemd/system /etc/nginx` (small, config only).
@@ -141,16 +144,13 @@ The last 5 release directories are kept under `/opt/lastroute-godot2/releases`.
 
 ## Questions for KT before deploying
 
-1. Is `lastroute.kyttuslab.org` (195.62.47.178) VPS 3, and is anything (Pterodactyl, the old backend)
-   already using TCP 8105 / UDP 1105 there? Should the Godot 2 service replace it or live beside it on
-   other ports (needs a client change)?
-2. Subdomain: keep `lastroute.kyttuslab.org` for the game (matches the client) and add `godot.kyttuslab.org`
+1. Subdomain: keep `lastroute.kyttuslab.org` for the game (matches the client) and add `godot.kyttuslab.org`
    only if a TLS front is wanted, or something else?
-3. Plain systemd (prepared) or Docker? Plain systemd is what is prepared; Docker would only add a layer for a
+2. Plain systemd (prepared) or Docker? Plain systemd is what is prepared; Docker would only add a layer for a
    dependency-free Node service.
-4. Godot headless server: not needed with the current host-authoritative design. Confirm.
-5. Updates: enable GitHub release sync (needs a token and which repo: `KyttuXD/LastRouteGodot2` or the old
+3. Godot headless server: not needed with the current host-authoritative design. Confirm.
+4. Updates: enable GitHub release sync (needs a token and which repo: `KyttuXD/LastRouteGodot2` or the old
    `KyttuXD/LastRouteGodot`)? Default is off.
-6. Node on VPS 3: is a system Node >= 18 installed (not nvm under a home directory)?
-7. Is a cloud-provider firewall in front of the VPS (separate from ufw)? TCP 8105 and UDP 1105 must be allowed
+5. Node on VPS 3: is a system Node >= 18 installed (not nvm under a home directory)?
+6. Is a cloud-provider firewall in front of the VPS (separate from ufw)? TCP 8105 and UDP 1105 must be allowed
    there as well.
