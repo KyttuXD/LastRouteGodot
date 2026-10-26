@@ -123,10 +123,10 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
         from bb_skin import U as SKIN_U
         from bb_core import quat_from_euler
         for side, out in (("L", 1), ("R", -1)):
-            # tilted 25 degrees forward and 8 outward: a held shaft leans away from the hanging arm instead of
+            # not tilted (the wrist tilts the prop in the scythe clips): a held shaft leans away from the hanging arm instead of
             # lying along it (a shaft collinear with the arm looks like it is inside it)
             nodes.append({"name": f"{side}-HandProp", "translation": [0.0, -1.0 * SKIN_U * S, 0.0],
-                          "rotation": list(quat_from_euler(-25.0, 0.0, 8.0 * out))})
+                          "rotation": [0.0, 0.0, 0.0, 1.0]})
             nodes[index[f"{side}-Hand"]]["children"].append(len(nodes) - 1)
 
     # animations

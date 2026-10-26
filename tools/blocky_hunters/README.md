@@ -13,8 +13,8 @@ tails, halos), `hunters/motion.py` (personality motion profiles), `hunters/emote
 
 ## Holding a prop (Kathy's scythe)
 Every hunter has `L-HandProp` / `R-HandProp` empties at the palm centre (children of the hand bones, following all
-clips) and are tilted 25 degrees forward / 8 outward so a held shaft leans away from the arm. `assets/props_3d/kathy_scythe.glb` has its origin at the grip (`Grip` node), shaft along +Y, blade curving
-forward (-Z), so with an identity transform under `R-HandProp` the blade points up and forward (the mount's tilt does the rest):
+clips) and carry no tilt: the lean comes from the wrist bend in the `scythe_*` clips (`WRIST` in `hunters/scythe_clips.py`), so the shaft leans ~40 degrees forward away from the arm. `assets/props_3d/kathy_scythe.glb` has its origin at the grip (`Grip` node), shaft along +Y, blade curving
+forward (-Z), so with an identity transform under `R-HandProp` the blade points up and forward (the wrist bend in the scythe clips does the rest):
 
     var scythe := ModelSlot.instantiate("res://assets/props_3d/kathy_scythe.glb")
     hunter_model.find_child("R-HandProp", true, false).add_child(scythe)
