@@ -33,10 +33,6 @@ UpdateManager="*res://src/autoload/update_manager.gd"
 RoomState="*res://src/autoload/room_state.gd"
 PublicRoute="*res://src/autoload/public_route.gd"
 
-[gui]
-
-theme/custom="res://src/ui/ref_theme.tres"
-
 [display]
 
 window/size/viewport_width=480
@@ -48,6 +44,10 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/per_pixel_transparency/allowed=true
 window/handheld/orientation=1
+
+[gui]
+
+theme/custom="res://src/ui/ref_theme.tres"
 
 [input]
 

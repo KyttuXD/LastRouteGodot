@@ -292,24 +292,30 @@ PROPS["houseBathtub"] = ([(0, 0, 0, 1, .6, 1, "porcelain"), (.1, .5, .1, .9, .62
 PROPS["woodenDresserSideboard"] = PROPS["bedroomDresser"]
 
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_extra.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_variants.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
-for name, (boxes, subs) in PROPS.items():
+for name, (base_boxes, base_subs) in PROPS.items():
     if name not in BOUNDS:
         print("skip (no bounds):", name)
         continue
     info = BOUNDS[name]
-    variants = [{}]
-    if subs:
-        keys = list(subs)
-        count = max(len(v) for v in subs.values())
-        variants = [{k: subs[k][i % len(subs[k])] for k in keys} for i in range(count)]
     files = []
-    for i, subst in enumerate(variants):
+    shapes = [(base_boxes, base_subs)] + list(VARIANTS.get(name, []))
+    combos = []     # (boxes, substitution) for every shape x colour option
+    for boxes, subs in shapes:
+        options = [{}]
+        if subs:
+            keys = list(subs)
+            count = max(len(v) for v in subs.values())
+            options = [{k: subs[k][i % len(subs[k])] for k in keys} for i in range(count)]
+        for subst in options:
+            combos.append((boxes, subst))
+    for i, (boxes, subst) in enumerate(combos):
         obj = build(f"{name}_{i}", boxes, info["size"], info["center"], info["min_y"], subst)
-        filename = f"{name}_{i}.glb" if len(variants) > 1 else f"{name}.glb"
+        filename = f"{name}_{i}.glb" if len(combos) > 1 else f"{name}.glb"
         export(obj, filename)
         files.append(filename)
     manifest[name] = files

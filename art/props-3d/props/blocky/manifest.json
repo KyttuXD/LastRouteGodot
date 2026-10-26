@@ -1,53 +1,138 @@
 {
  "woodenChair": [
   "woodenChair_0.glb",
-  "woodenChair_1.glb"
+  "woodenChair_1.glb",
+  "woodenChair_2.glb",
+  "woodenChair_3.glb",
+  "woodenChair_4.glb",
+  "woodenChair_5.glb",
+  "woodenChair_6.glb",
+  "woodenChair_7.glb",
+  "woodenChair_8.glb",
+  "woodenChair_9.glb",
+  "woodenChair_10.glb"
  ],
  "woodenChairCushion": [
   "woodenChairCushion_0.glb",
   "woodenChairCushion_1.glb",
-  "woodenChairCushion_2.glb"
+  "woodenChairCushion_2.glb",
+  "woodenChairCushion_3.glb",
+  "woodenChairCushion_4.glb",
+  "woodenChairCushion_5.glb",
+  "woodenChairCushion_6.glb",
+  "woodenChairCushion_7.glb",
+  "woodenChairCushion_8.glb",
+  "woodenChairCushion_9.glb",
+  "woodenChairCushion_10.glb",
+  "woodenChairCushion_11.glb"
  ],
  "diningChair": [
   "diningChair_0.glb",
   "diningChair_1.glb",
-  "diningChair_2.glb"
+  "diningChair_2.glb",
+  "diningChair_3.glb",
+  "diningChair_4.glb",
+  "diningChair_5.glb",
+  "diningChair_6.glb",
+  "diningChair_7.glb",
+  "diningChair_8.glb",
+  "diningChair_9.glb",
+  "diningChair_10.glb",
+  "diningChair_11.glb"
  ],
  "diningChairCushion": [
   "diningChairCushion_0.glb",
   "diningChairCushion_1.glb",
-  "diningChairCushion_2.glb"
+  "diningChairCushion_2.glb",
+  "diningChairCushion_3.glb",
+  "diningChairCushion_4.glb",
+  "diningChairCushion_5.glb",
+  "diningChairCushion_6.glb",
+  "diningChairCushion_7.glb",
+  "diningChairCushion_8.glb",
+  "diningChairCushion_9.glb",
+  "diningChairCushion_10.glb",
+  "diningChairCushion_11.glb"
  ],
  "woodenTable": [
   "woodenTable_0.glb",
-  "woodenTable_1.glb"
+  "woodenTable_1.glb",
+  "woodenTable_2.glb",
+  "woodenTable_3.glb",
+  "woodenTable_4.glb",
+  "woodenTable_5.glb",
+  "woodenTable_6.glb",
+  "woodenTable_7.glb"
  ],
  "diningTable": [
   "diningTable_0.glb",
-  "diningTable_1.glb"
+  "diningTable_1.glb",
+  "diningTable_2.glb",
+  "diningTable_3.glb",
+  "diningTable_4.glb",
+  "diningTable_5.glb",
+  "diningTable_6.glb",
+  "diningTable_7.glb"
  ],
  "restaurantPartyTable": [
   "restaurantPartyTable_0.glb",
-  "restaurantPartyTable_1.glb"
+  "restaurantPartyTable_1.glb",
+  "restaurantPartyTable_2.glb",
+  "restaurantPartyTable_3.glb",
+  "restaurantPartyTable_4.glb",
+  "restaurantPartyTable_5.glb",
+  "restaurantPartyTable_6.glb",
+  "restaurantPartyTable_7.glb"
  ],
  "singleBed": [
   "singleBed_0.glb",
   "singleBed_1.glb",
-  "singleBed_2.glb"
+  "singleBed_2.glb",
+  "singleBed_3.glb",
+  "singleBed_4.glb",
+  "singleBed_5.glb",
+  "singleBed_6.glb",
+  "singleBed_7.glb",
+  "singleBed_8.glb",
+  "singleBed_9.glb",
+  "singleBed_10.glb",
+  "singleBed_11.glb",
+  "singleBed_12.glb",
+  "singleBed_13.glb",
+  "singleBed_14.glb"
  ],
  "doubleBed": [
   "doubleBed_0.glb",
   "doubleBed_1.glb",
-  "doubleBed_2.glb"
+  "doubleBed_2.glb",
+  "doubleBed_3.glb",
+  "doubleBed_4.glb",
+  "doubleBed_5.glb",
+  "doubleBed_6.glb",
+  "doubleBed_7.glb",
+  "doubleBed_8.glb",
+  "doubleBed_9.glb",
+  "doubleBed_10.glb",
+  "doubleBed_11.glb",
+  "doubleBed_12.glb",
+  "doubleBed_13.glb",
+  "doubleBed_14.glb"
  ],
  "bedroomNightstand": [
-  "bedroomNightstand.glb"
+  "bedroomNightstand_0.glb",
+  "bedroomNightstand_1.glb",
+  "bedroomNightstand_2.glb",
+  "bedroomNightstand_3.glb"
  ],
  "bedroomDresser": [
-  "bedroomDresser.glb"
+  "bedroomDresser_0.glb",
+  "bedroomDresser_1.glb",
+  "bedroomDresser_2.glb"
  ],
  "woodenDresserSideboard": [
-  "woodenDresserSideboard.glb"
+  "woodenDresserSideboard_0.glb",
+  "woodenDresserSideboard_1.glb",
+  "woodenDresserSideboard_2.glb"
  ],
  "gothicDresser": [
   "gothicDresser.glb"
@@ -56,45 +141,80 @@
   "gothicNightstand.glb"
  ],
  "diningSideboard": [
-  "diningSideboard.glb"
+  "diningSideboard_0.glb",
+  "diningSideboard_1.glb",
+  "diningSideboard_2.glb"
  ],
  "mansionConsoleTable": [
   "mansionConsoleTable.glb"
  ],
  "normalTvConsole": [
-  "normalTvConsole.glb"
+  "normalTvConsole_0.glb",
+  "normalTvConsole_1.glb",
+  "normalTvConsole_2.glb"
  ],
  "bedroomWardrobe": [
-  "bedroomWardrobe.glb"
+  "bedroomWardrobe_0.glb",
+  "bedroomWardrobe_1.glb",
+  "bedroomWardrobe_2.glb"
  ],
  "gothicWardrobe": [
   "gothicWardrobe.glb"
  ],
  "normalBookcase": [
-  "normalBookcase.glb"
+  "normalBookcase_0.glb",
+  "normalBookcase_1.glb",
+  "normalBookcase_2.glb"
  ],
  "mansionBookshelf": [
-  "mansionBookshelf.glb"
+  "mansionBookshelf_0.glb",
+  "mansionBookshelf_1.glb",
+  "mansionBookshelf_2.glb"
  ],
  "gothicBookcase": [
-  "gothicBookcase.glb"
+  "gothicBookcase_0.glb",
+  "gothicBookcase_1.glb",
+  "gothicBookcase_2.glb"
  ],
  "loungeCouch": [
   "loungeCouch_0.glb",
   "loungeCouch_1.glb",
-  "loungeCouch_2.glb"
+  "loungeCouch_2.glb",
+  "loungeCouch_3.glb",
+  "loungeCouch_4.glb",
+  "loungeCouch_5.glb",
+  "loungeCouch_6.glb",
+  "loungeCouch_7.glb",
+  "loungeCouch_8.glb",
+  "loungeCouch_9.glb",
+  "loungeCouch_10.glb",
+  "loungeCouch_11.glb"
  ],
  "loungeCouchWide": [
   "loungeCouchWide_0.glb",
   "loungeCouchWide_1.glb",
-  "loungeCouchWide_2.glb"
+  "loungeCouchWide_2.glb",
+  "loungeCouchWide_3.glb",
+  "loungeCouchWide_4.glb",
+  "loungeCouchWide_5.glb",
+  "loungeCouchWide_6.glb",
+  "loungeCouchWide_7.glb",
+  "loungeCouchWide_8.glb",
+  "loungeCouchWide_9.glb",
+  "loungeCouchWide_10.glb",
+  "loungeCouchWide_11.glb"
  ],
  "officeDesk": [
-  "officeDesk.glb"
+  "officeDesk_0.glb",
+  "officeDesk_1.glb",
+  "officeDesk_2.glb"
  ],
  "officeChair": [
   "officeChair_0.glb",
-  "officeChair_1.glb"
+  "officeChair_1.glb",
+  "officeChair_2.glb",
+  "officeChair_3.glb",
+  "officeChair_4.glb"
  ],
  "retroComputerDesktop": [
   "retroComputerDesktop.glb"
@@ -137,13 +257,19 @@
   "breakerCabinet.glb"
  ],
  "tableLamp": [
-  "tableLamp.glb"
+  "tableLamp_0.glb",
+  "tableLamp_1.glb",
+  "tableLamp_2.glb"
  ],
  "bedsideLamp": [
-  "bedsideLamp.glb"
+  "bedsideLamp_0.glb",
+  "bedsideLamp_1.glb",
+  "bedsideLamp_2.glb"
  ],
  "floorLamp": [
-  "floorLamp.glb"
+  "floorLamp_0.glb",
+  "floorLamp_1.glb",
+  "floorLamp_2.glb"
  ],
  "ceilingLight": [
   "ceilingLight.glb"
@@ -155,22 +281,30 @@
   "tableCandelabra.glb"
  ],
  "supplyCrates": [
-  "supplyCrates.glb"
+  "supplyCrates_0.glb",
+  "supplyCrates_1.glb"
  ],
  "charredSupplyCrate": [
   "charredSupplyCrate.glb"
  ],
  "trashBin": [
-  "trashBin.glb"
+  "trashBin_0.glb",
+  "trashBin_1.glb"
  ],
  "normalKitchenCounter": [
-  "normalKitchenCounter.glb"
+  "normalKitchenCounter_0.glb",
+  "normalKitchenCounter_1.glb",
+  "normalKitchenCounter_2.glb"
  ],
  "luxuryKitchenCounter": [
-  "luxuryKitchenCounter.glb"
+  "luxuryKitchenCounter_0.glb",
+  "luxuryKitchenCounter_1.glb",
+  "luxuryKitchenCounter_2.glb"
  ],
  "gothicKitchenCounter": [
-  "gothicKitchenCounter.glb"
+  "gothicKitchenCounter_0.glb",
+  "gothicKitchenCounter_1.glb",
+  "gothicKitchenCounter_2.glb"
  ],
  "normalKitchenIsland": [
   "normalKitchenIsland.glb"
@@ -200,16 +334,21 @@
   "gothicKitchenStove.glb"
  ],
  "houseToilet": [
-  "houseToilet.glb"
+  "houseToilet_0.glb",
+  "houseToilet_1.glb"
  ],
  "publicRestroomToilet": [
   "publicRestroomToilet.glb"
  ],
  "bathroomSink": [
-  "bathroomSink.glb"
+  "bathroomSink_0.glb",
+  "bathroomSink_1.glb",
+  "bathroomSink_2.glb",
+  "bathroomSink_3.glb"
  ],
  "houseBathtub": [
-  "houseBathtub.glb"
+  "houseBathtub_0.glb",
+  "houseBathtub_1.glb"
  ],
  "apartmentCarpet": [
   "apartmentCarpet_0.glb",
