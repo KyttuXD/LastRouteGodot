@@ -178,7 +178,7 @@ func _run(scene: Node) -> void:
 		for yaw_text in these_yaws:
 			player.global_position = p["pos"]
 			player._yaw = deg_to_rad(float(yaw_text))
-			player._pitch = -0.04
+			player._pitch = deg_to_rad(float(OS.get_environment("CAP_PITCH")) if OS.get_environment("CAP_PITCH") != "" else -2.0)
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))

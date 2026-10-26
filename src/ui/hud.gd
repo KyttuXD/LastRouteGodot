@@ -15,7 +15,7 @@ signal map_waypoint_requested(world_position: Vector2, level: int)
 const COLOR_METER_LOW := Color(0.902, 0.267, 0.318) # #e64451
 const COLOR_METER_WARN := Color(0.949, 0.733, 0.384) # #f2bb62
 const COLOR_METER_SAFE := Color(0.455, 0.722, 0.553) # #74b88d
-const COLOR_METER_STAMINA_NORMAL := Color(0.561, 0.816, 0.878) # #8fd0e0
+const COLOR_METER_STAMINA_NORMAL := Color(0.941, 0.761, 0.392) # #f0c264
 
 const MESSAGE_DURATION := 2.8
 ## A 3x3 streamed window spans 135 cells and made the small map read like a
@@ -363,9 +363,9 @@ func _prepare_inventory_slots() -> void:
 		bar.show_percentage = false
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var background := StyleBoxFlat.new()
-		background.bg_color = Color(0.055, 0.07, 0.075, .96)
+		background.bg_color = Color(0.106, 0.063, 0.086, .96)
 		var fill := StyleBoxFlat.new()
-		fill.bg_color = Color(0.43, 0.82, 0.58, 1.0)
+		fill.bg_color = Color(0.455, 0.722, 0.553, 1.0)
 		bar.add_theme_stylebox_override("background", background)
 		bar.add_theme_stylebox_override("fill", fill)
 		stack.add_child(bar)
@@ -478,9 +478,9 @@ func _ensure_inventory_menu_capacity(capacity: int) -> void:
 		bar.show_percentage = false
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var background := StyleBoxFlat.new()
-		background.bg_color = Color(0.055, 0.07, 0.075, .96)
+		background.bg_color = Color(0.106, 0.063, 0.086, .96)
 		var fill := StyleBoxFlat.new()
-		fill.bg_color = Color(0.43, 0.82, 0.58, 1.0)
+		fill.bg_color = Color(0.455, 0.722, 0.553, 1.0)
 		bar.add_theme_stylebox_override("background", background)
 		bar.add_theme_stylebox_override("fill", fill)
 		stack.add_child(bar)
@@ -581,10 +581,10 @@ func _finish_inventory_drag(clear_slot: bool = true) -> void:
 
 func _hotbar_slot_style(selected: bool) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.065, 0.075, .94)
+	style.bg_color = Color(0.078, 0.043, 0.063, .94)
 	var width := 2 if selected else 1
 	style.set_border_width_all(width)
-	style.border_color = Palette.AMBER if selected else Color(0.28, 0.34, 0.35, .92)
+	style.border_color = Palette.AMBER if selected else Color(0.3, 0.14, 0.18, .92)
 	style.corner_radius_top_left = 1
 	style.corner_radius_top_right = 1
 	style.corner_radius_bottom_left = 1
@@ -698,6 +698,9 @@ func set_interaction_prompt(text: String) -> void:
 
 func show_message(text: String) -> void:
 	message_label.remove_theme_color_override("font_color")
+	# toast treatment: letter-spaced amber line with a dark outline
+	message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
+	message_label.add_theme_constant_override("outline_size", 2)
 	message_label.text = text
 	message_label.visible = true
 	_message_time_left = MESSAGE_DURATION

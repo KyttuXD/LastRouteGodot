@@ -32,6 +32,10 @@ Backend="*res://src/autoload/backend_client.gd"
 UpdateManager="*res://src/autoload/update_manager.gd"
 RoomState="*res://src/autoload/room_state.gd"
 
+[gui]
+
+theme/custom="res://src/ui/ref_theme.tres"
+
 [display]
 
 window/size/viewport_width=480

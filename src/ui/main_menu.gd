@@ -49,6 +49,7 @@ func _ready() -> void:
 	# that can be sure the cursor should be free.
 	MouseLock.release_all()
 	_apply_palette()
+	_build_hint()
 	_build_local_saves_button()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
@@ -84,6 +85,26 @@ func _ready() -> void:
 	if _open_update_progress_if_needed():
 		return
 	_focus_default_button.call_deferred()
+
+## Night Watch's grey keyboard hint under the menu.
+func _build_hint() -> void:
+	var hint := Label.new()
+	hint.name = "KeyboardHint"
+	hint.text = UiMenuList.HINT_TEXT
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint.add_theme_font_size_override("font_size", 6)
+	hint.add_theme_color_override("font_color", Palette.MUTED)
+	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	hint.offset_left = -140
+	hint.offset_right = 140
+	hint.offset_top = -30
+	hint.offset_bottom = -20
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(hint)
+	if version_label != null:
+		version_label.add_theme_color_override("font_color", Palette.MUTED)
+		version_label.add_theme_font_size_override("font_size", 6)
+
 
 func _build_local_saves_button() -> void:
 	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
