@@ -75,12 +75,11 @@ def blue():     # COLD TRAIL: icicle crown + a trailing ice tail
         c += [_ctr(f"ice-{i}a", "Cue-Crown", x, 32, 0, 2.2, h * .6, 2.2, "light"),
               _ctr(f"ice-{i}b", "Cue-Crown", x, 32 + h * .6, 0, 1.2, h * .4, 1.2, "white")]
     c += [_ctr("trail-1", "Cue-Trail-1", 0, 10.6, 3.6, 2.0, 2.4, 3.0, "accent"),
-          _ctr("trail-2", "Cue-Trail-2", 0, 9.6, 6.2, 1.8, 2.2, 2.4, "light"),
-          _ctr("trail-3", "Cue-Trail-3", 0, 8.4, 8.4, 1.3, 1.6, 2.2, "white")]
+          _ctr("trail-2", "Cue-Trail-2", 0, 9.0, 6.4, 1.6, 2.0, 3.6, "light"),
+          _ctr("trail-3", "Cue-Trail-2", 0, 8.2, 10.0, 1.2, 1.6, 2.4, "white")]
     return c, [_x("Cue-Crown", "Head", (0, 32, 0)),
                _x("Cue-Trail-1", "Pelvis", (0, 11.4, 2.3), (7, 4, 1, 0.0)),
-               _x("Cue-Trail-2", "Cue-Trail-1", (0, 10.4, 5.0), (9, 6, 1, 0.7)),
-               _x("Cue-Trail-3", "Cue-Trail-2", (0, 9.2, 7.4), (10, 8, 1, 1.4))]
+               _x("Cue-Trail-2", "Cue-Trail-1", (0, 10.4, 5.0), (10, 7, 1, 0.9))]
 
 
 def brown():    # BARRIER BREAKER: a board strapped across the back, plank shoulder guards, nail heads
@@ -207,20 +206,104 @@ CUES = {n: f for n, f in (("black", black), ("blue", blue), ("brown", brown), ("
 IDS = [f"void_{c}" for c in CUES]
 
 
+GLOW_REGIONS = [(8, 8, 8, 8), (0, 64, 24, 16)]      # the face on the head box, and the 3x2 expression cells
+
+
+def _glow_colour(eye):
+    """Eyes glow in their own colour; dark accents (black, gray, brown) are lifted to a readable hue-true glow."""
+    top = max(eye)
+    if top >= 140:
+        return tuple(eye)
+    if top > 40:
+        return tuple(min(255, int(v * 200 / top)) for v in eye)
+    return (150, 150, 165)                              # near-black accent: cool grey glow
+
+
+def _eye_glow(atlas, eye):
+    """Emissive mask: only the giant eyes' inner pixels (the skin's inner_face_accent), in every expression cell."""
+    from PIL import Image
+    glow = _glow_colour(eye)
+    out = Image.new("RGBA", atlas.size, (0, 0, 0, 255))
+    for rx, ry, rw, rh in GLOW_REGIONS:
+        for y in range(ry, ry + rh):
+            for x in range(rx, rx + rw):
+                if atlas.getpixel((x, y))[:4] == (*eye, 255):
+                    out.putpixel((x, y), (*glow, 255))
+    return out
+
+
+def void_expressions(face, eye, body):
+    """13 cells (same order as bb_skin.expressions_from_face) from the composited 8x8 Void face. The face has two
+    2x2 eyes (cols 1-2 / 5-6, rows 4-5) in a grey frame (rows 3-6) and two white marks above (cols 1 / 6, rows 1-2).
+    No mouth, nose or snout is ever drawn: expressions are eyes and marks only."""
+    frame = face.getpixel((0, 3))
+    dim = tuple(int(v * .3) for v in body[:3]) + (255,)
+    wipe = {(x, y): dim for y in (4, 5) for x in (1, 2, 5, 6)}
+
+    def make(pix, marks=None):
+        im = face.copy()
+        for (x, y), c in {**wipe, **pix}.items():
+            im.putpixel((x, y), c)
+        for (x, y), c in (marks or {}).items():
+            im.putpixel((x, y), c)
+        return im
+    white, bodyc = face.getpixel((1, 1)), face.getpixel((2, 1))
+    E = (*eye, 255)
+    both = lambda pts: {p: c for p, c in pts}
+    open_all = {(x, y): E for y in (4, 5) for x in (1, 2, 5, 6)}
+    cells = [face.copy()]                                                              # 0 neutral
+    cells.append(make({(x, 5): frame for x in (1, 2, 5, 6)} | {(x, 4): dim for x in (1, 2, 5, 6)}))   # 1 blink: lids shut
+    cells.append(make({(1, 4): E, (2, 5): E, (5, 5): E, (6, 4): E}))                   # 2 stun: mismatched sparks
+    slant = {(1, 1): bodyc, (2, 1): white, (1, 2): white, (6, 1): bodyc, (5, 1): white, (6, 2): white}
+    cells.append(make({(x, 5): E for x in (1, 2, 5, 6)}, slant))                       # 3 chase: narrowed, brows slanted
+    wide = {(x, y): E for y in (3, 4, 5, 6) for x in (1, 2, 5, 6)}
+    cells.append(make(wide))                                                           # 4 scream: eyes wide open
+    cells.append(make({**{(x, 4): E for x in (1, 2, 5, 6)}, **{(x, 5): frame for x in (1, 2, 5, 6)}}))   # 5 happy: squint
+    ring = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    for t in range(4):                                                                 # 6-9 derp: iris circles the eye
+        pix = {}
+        for ex, off in ((1, 0), (5, 2)):
+            for j, (dx, dy) in enumerate(ring):
+                pix[(ex + dx, 4 + dy)] = E if j == (t + off) % 4 else dim
+        cells.append(make(pix))
+    cells.append(make({}))                                                             # 10 blank: eyes out
+    shut = {(x, y): (dim if y == 4 else frame) for y in (4, 5) for x in (1, 2)}
+    shut_r = {(x, y): (dim if y == 4 else frame) for y in (4, 5) for x in (5, 6)}
+    cells.append(make({**shut, **{(x, y): E for y in (4, 5) for x in (5, 6)}}))        # 11 wink_right
+    cells.append(make({**shut_r, **{(x, y): E for y in (4, 5) for x in (1, 2)}}))      # 12 wink_left
+    return cells
+
+
 def module(name):
     colour = name.split("_", 1)[1]
     cues, cue_extras = CUES[colour]()
     ns = types.SimpleNamespace(NAME=name, HEIGHT=VOID_HEIGHT, DESIGN_TOP=32 * U, SK=vanilla_sk(),
                                EXTRAS=cue_extras, EYES=eye_locators(), MODEL_KW={})
+    state = {}
 
-    def modify(canvas):
-        body = canvas.getpixel((22, 25))[:3]               # torso sample, as in the audit
+    def build():
+        from PIL import Image
+        from bb_skin import load_source, vanilla_cubes, vanilla_kw
+        canvas = load_source(name)
+        body = canvas.getpixel((22, 25))[:3]
         acc, dark, light = (_rgb(h) for h in PALETTE[colour][0:3])
         for key, rgb in (("body", body), ("accent", acc), ("dark", dark), ("light", light), ("white", (255, 255, 255))):
             x, y = SLOTS[key]
             for j in range(2):
                 for i in range(2):
                     canvas.putpixel((x + i, y + j), (*rgb, 255))
-        return cues
-    ns.build = lambda: source_hunter(name, vars(ns), modify)
+        # the face lives on two layers in the source (frames on the head box, eyes/marks on the overlay): flatten it
+        # onto the head box and drop the overlay face, so the expression quad and the box agree
+        face = canvas.crop((8, 8, 16, 16))
+        face.alpha_composite(canvas.crop((40, 8, 48, 16)))
+        canvas.paste(face, (8, 8))
+        for y in range(8, 16):
+            for x in range(40, 48):
+                canvas.putpixel((x, y), (0, 0, 0, 0))
+        state["eye"] = face.getpixel((1, 4))[:3]
+        cells = void_expressions(face, state["eye"], (*body, 255))
+        ns.MODEL_KW.update(vanilla_kw(canvas))
+        return vanilla_cubes(overlays=True) + list(cues), (lambda k: cells[k] if k < len(cells) else None)
+    ns.build = build
+    ns.emissive = lambda atlas: _eye_glow(atlas, state["eye"])
     return ns

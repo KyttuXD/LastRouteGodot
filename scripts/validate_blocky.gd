@@ -18,7 +18,7 @@ const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "gl
 ## Void hunters: presented larger than the A-Z hunters, each with one silhouette cue on a Cue-* bone
 const VOID_HEIGHT := 2.0
 const VOID_CUES := {
-	"void_black": ["Cue-Motes"], "void_blue": ["Cue-Crown", "Cue-Trail-1", "Cue-Trail-2", "Cue-Trail-3"],
+	"void_black": ["Cue-Motes"], "void_blue": ["Cue-Crown", "Cue-Trail-1", "Cue-Trail-2"],
 	"void_brown": [], "void_cyan": ["Cue-Antenna-L", "Cue-Antenna-R"], "void_gray": [],
 	"void_green": ["Cue-Spores"], "void_orange": ["Cue-Crest-L", "Cue-Crest-R"], "void_pink": ["Cue-Lure"],
 	"void_purple": ["Cue-Phase"], "void_red": [], "void_white": ["Cue-Ear-L", "Cue-Ear-R"], "void_yellow": ["Cue-Bolt"]}
@@ -75,6 +75,15 @@ func run(host: Node) -> int:
 			var void_file := FileAccess.open("res://assets/hunters_blocky/%s/%s.glb" % [id, id], FileAccess.READ)
 			if void_file == null or void_file.get_length() > 200 * 1024:
 				_fail("%s.glb is over the 200 KB budget" % id)
+			var glow_found := false
+			for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
+				var glow_mesh := (mesh_node as MeshInstance3D).mesh
+				for si in glow_mesh.get_surface_count():
+					var glow_mat := glow_mesh.surface_get_material(si) as StandardMaterial3D
+					if glow_mat != null and glow_mat.emission_enabled and glow_mat.emission_texture != null:
+						glow_found = true
+			if not glow_found:
+				_fail("%s has no emissive eye material" % id)
 			var void_atlas := Image.load_from_file(ProjectSettings.globalize_path("res://assets/hunters_blocky/%s/%s_atlas.png" % [id, id]))
 			if void_atlas == null or void_atlas.get_width() > 128 or void_atlas.get_height() > 256:
 				_fail("%s atlas is missing or larger than 128x256" % id)

@@ -150,6 +150,12 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
 
     png = model.texture_png()
     img_view = buf.view(png)
+    emissive = getattr(model, "emissive", None)       # optional PIL image, same layout as the atlas
+    if emissive is not None:
+        import io
+        eb = io.BytesIO()
+        emissive.save(eb, "PNG", optimize=True)
+        emissive_view = buf.view(eb.getvalue())
     gltf = {
         "asset": {"version": "2.0", "generator": "LastRoute blocky_hunters",
                   "extras": {"hunter": model.name, "style": "cube-blocky", "triangles": model.triangle_count()}},
@@ -165,6 +171,12 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
         "animations": animations, "accessors": buf.accs, "bufferViews": buf.views,
         "buffers": [{"byteLength": len(buf.data)}],
     }
+    if emissive is not None:
+        gltf["images"].append({"bufferView": emissive_view, "mimeType": "image/png", "name": model.name + "_emissive"})
+        gltf["textures"].append({"sampler": 0, "source": 1})
+        for mat in gltf["materials"]:
+            mat["emissiveTexture"] = {"index": 1}
+            mat["emissiveFactor"] = [1.0, 1.0, 1.0]
     js = _pad(json.dumps(gltf, separators=(",", ":")).encode(), b" ")
     binb = _pad(bytes(buf.data))
     out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(binb))
