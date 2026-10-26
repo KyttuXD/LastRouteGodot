@@ -132,6 +132,8 @@ FRAME = os.environ.get("FRAME_Y")
 y0f, y1f = (float(x) for x in FRAME.split(",")) if FRAME else (-0.02, 2.1)
 for v in VIEWS:
     az = {"front": 180, "threeq": 150, "back": 0, "side": 90, "head": 160}[v]
+    if os.environ.get("AZ"):
+        az = float(os.environ["AZ"])               # turntable: any camera angle
     if v == "head":
         shot(v, az, 1.0, 1.78 + 0.0) if not FRAME else shot(v, az, y0f, y1f)
     else:
