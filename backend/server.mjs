@@ -8,6 +8,8 @@ import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
 
+// Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
+const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
 const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 // The PUBLIC host posts to the server every second or so; if it vanishes, its
 // listing must lapse quickly so a guest can take over.
@@ -356,6 +358,7 @@ export function createLastRouteServer({
         ok: true,
         runtime: "node",
         service: "last-route-backend",
+        instance: instanceName,
         port: request.socket.localPort,
         rooms: enetRooms.size,
         relay: enetRelay?.relayStatus() || { enabled: false },

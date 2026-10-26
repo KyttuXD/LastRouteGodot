@@ -24,8 +24,14 @@ const HEARTBEAT_SECONDS := 20.0
 ## directly. The user has explicitly enabled account/password requests for
 ## this exact origin. The plaintext-transport risk is documented in the repo.
 const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:8105"
+## Dev/test only: the ONE extra origin a debug build may be pointed at with `--backend=`: the
+## separate TEST instance on the same VPS (its own data, ports and admin key). Exact match only;
+## release builds ignore it, so a shipped game can never be redirected.
+const TEST_BASE_URLS := ["http://lastroute.kyttuslab.org:8205"]
 const ACCOUNT_CONFIG_PATH := "user://last_route_account.cfg"
 var base_url := PRIMARY_BASE_URL
+## True while a debug run is talking to the TEST instance (menu and HUD show a TEST SERVER badge).
+var test_server_active := false
 var offline_mode := false
 
 var registered := false
@@ -102,7 +108,7 @@ func _ready() -> void:
 
 
 ## Test/dev only: `-- --backend=http://127.0.0.1:18105` points the client at a
-## local backend. Only loopback origins are accepted, so a shipped build can never
+## local backend (or, in a debug build, the TEST instance from TEST_BASE_URLS). Only those are accepted, so a shipped build can never
 ## be redirected to an arbitrary server this way.
 func _apply_loopback_override() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -112,8 +118,11 @@ func _apply_loopback_override() -> void:
 		var lowered := candidate.to_lower()
 		if lowered.begins_with("http://127.0.0.1:") or lowered.begins_with("http://localhost:"):
 			base_url = candidate
+		elif OS.is_debug_build() and TEST_BASE_URLS.has(lowered):
+			base_url = lowered
+			test_server_active = true
 		else:
-			push_warning("ignored --backend override: only loopback origins are allowed")
+			push_warning("ignored --backend override: only loopback origins (or the test instance in a debug build) are allowed")
 
 
 func configured() -> bool:

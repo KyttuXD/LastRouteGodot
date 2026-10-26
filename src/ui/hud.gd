@@ -94,6 +94,7 @@ const ITEM_TEXTURES := {
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	TestServerBadge.attach(self)
 	_build_thermal_warning()
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()

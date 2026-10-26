@@ -50,6 +50,7 @@ func _ready() -> void:
 	MouseLock.release_all()
 	_apply_palette()
 	_build_hint()
+	TestServerBadge.attach(self)
 	_build_public_button()
 	_build_local_saves_button()
 	play_button.pressed.connect(_on_play_pressed)
