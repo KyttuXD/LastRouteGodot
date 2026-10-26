@@ -44,7 +44,7 @@ const FLASHLIGHT_MIN_RANGE := .8
 # forward than its physical world position should. Keep the real light just in
 # front of the camera/capsule so it cannot cross into a nearby wall.
 const FLASHLIGHT_BEAM_LOCAL_POSITION := Vector3(.08, -.05, -.12)
-const BODY_MODEL_SCENE := "res://art/props-3d/characters/player.tscn"
+const BODY_MODEL_SCENE := PlayerModels.SCENE
 
 ## Sibling, not a child — the top-down camera must NOT inherit the player's
 ## facing rotation (it stays fixed, looking straight down, and only follows

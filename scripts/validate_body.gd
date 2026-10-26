@@ -91,7 +91,7 @@ func _every_hunter_model(host: Node) -> void:
 	for file in dir.get_files():
 		# The player has a deliberately separate animation contract above. Do
 		# not let hunter-only clips (now, or later) leak into player validation.
-		if not file.ends_with(".tscn") or file == "player.tscn" \
+		if not file.ends_with(".tscn") or file.begins_with("player") \
 				or file.begins_with("character_scale") \
 				or file.begins_with("admin_"):
 			continue

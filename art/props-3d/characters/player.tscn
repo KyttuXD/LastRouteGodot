@@ -1,15 +1,12 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="PackedScene" path="res://art/props-3d/characters/mannequin.glb" id="1_model"]
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/wooden_mannequin.glb" id="1_model"]
 
-; The body EVERY player wears. Not a character -- the roster is the hunters,
-; and a runner is anonymous, so this is one shared mannequin rather than a
-; per-player model. Built by the same skin pipeline the hunters use, with the
-; per-character extras off and no skin-tone normalisation: it is wood, and
-; normalising would drag it toward flesh.
-;
-; Carries locomotion plus furniture poses by name -- idle, walk, chase,
-; sprint, crouch, sit and lay.
+; The body EVERY player wears: a low-poly wooden artist's mannequin (faceted
+; segments, ball-joint rings, plain egg head), built by
+; tools/characters/build_wooden_mannequin.py. Clips: idle, walk, sprint, chase,
+; crouch, sit, lay, tpose. The previous Minecraft-skin mannequin is
+; player_legacy.tscn, selected with PlayerModels.USE_WOODEN.
 [node name="Player" type="Node3D"]
 
 [node name="Model" parent="." instance=ExtResource("1_model")]

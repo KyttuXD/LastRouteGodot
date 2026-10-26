@@ -8,7 +8,7 @@ extends Node3D
 ## toward the 20 Hz samples; the host also uses those samples when choosing
 ## which runner a hunter should pursue.
 
-const MODEL := "res://art/props-3d/characters/player.tscn"
+const MODEL := PlayerModels.SCENE
 const REMOTE_HELD_MODELS := {
 	"flashlight": "res://art/props-3d/interactables/flashlight_item.glb",
 	"taser": "res://art/props-3d/interactables/taser_item.glb",
