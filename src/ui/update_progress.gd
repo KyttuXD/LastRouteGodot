@@ -253,7 +253,7 @@ func _build_ui() -> void:
 	_progress.add_theme_stylebox_override("background",
 		Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 0))
 	_progress.add_theme_stylebox_override("fill",
-		Palette.panel_box(Palette.CRIMSON, Palette.CRIMSON_EDGE, 0))
+		Palette.panel_box(Palette.ACCENT, Palette.ACCENT_EDGE, 0))
 	column.add_child(_progress)
 
 	_phase = _label("CHECKING FOR UPDATES", Palette.BODY, 7, "UpdatePhase")

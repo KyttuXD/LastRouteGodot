@@ -200,7 +200,7 @@ func _build_ui() -> void:
 
 	var readout := PanelContainer.new()
 	readout.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.INSET, Palette.CRIMSON_DEEP, 6))
+		Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
 	column.add_child(readout)
 	var readout_stack := VBoxContainer.new()
 	readout_stack.add_theme_constant_override("separation", 1)
@@ -219,7 +219,7 @@ func _build_ui() -> void:
 	_progress.add_theme_stylebox_override("background",
 		Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 0))
 	_progress.add_theme_stylebox_override("fill",
-		Palette.panel_box(Palette.CRIMSON, Palette.CRIMSON_EDGE, 0))
+		Palette.panel_box(Palette.ACCENT, Palette.ACCENT_EDGE, 0))
 	column.add_child(_progress)
 
 	_phase = _label("OPENING ROUTE SIGNAL", Palette.BODY, 7, "RouteLoadPhase")

@@ -50,7 +50,7 @@ func add_item(id: StringName, text: String, sub: String = "", enabled: bool = tr
 	line.add_theme_constant_override("separation", 4)
 	var marker := Label.new()
 	marker.text = ">>"
-	marker.add_theme_color_override("font_color", Palette.CRIMSON_EDGE)
+	marker.add_theme_color_override("font_color", Palette.TEAL)
 	marker.modulate.a = 0.0
 	marker.custom_minimum_size = Vector2(14, 0)
 	line.add_child(marker)

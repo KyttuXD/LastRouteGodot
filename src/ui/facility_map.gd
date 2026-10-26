@@ -546,7 +546,7 @@ func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 			draw_circle(at + Vector2(radius * eye_x, -radius * .30),
 				maxf(.7, radius * .10), Color(PORCELLE_GHOST, .78))
 		return
-	draw_circle(at, maxf(1.5, cell * .55), Palette.CRIMSON)
+	draw_circle(at, maxf(1.5, cell * .55), Palette.ACCENT)
 	var label := String(mark.get("name", "?")).substr(0, 1).to_upper()
 	var font := ThemeDB.fallback_font
 	var font_size := clampi(roundi(cell * .66), 7, 10)

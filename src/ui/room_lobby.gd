@@ -106,9 +106,9 @@ func _rebuild() -> void:
 	room_heading.name = "RoomTitleLabel"
 	Palette.style_title(room_heading)
 	title.add_child(room_heading)
-	var room_code := _label(RoomState.code, Palette.CRIMSON, 18)
+	var room_code := _label(RoomState.code, Palette.ACCENT, 18)
 	room_code.name = "RoomCodeLabel"
-	Palette.style_title(room_code, Palette.CRIMSON)
+	Palette.style_title(room_code, Palette.ACCENT)
 	title.add_child(room_code)
 
 	column.add_child(_seed_block())
@@ -139,7 +139,7 @@ func _connection_summary() -> String:
 func _seed_block() -> Control:
 	var box := PanelContainer.new()
 	box.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.INSET, Palette.CRIMSON_DEEP, 6))
+		Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
 	var stack := VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 1)
 	box.add_child(stack)

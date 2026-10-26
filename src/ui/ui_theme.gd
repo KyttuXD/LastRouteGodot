@@ -57,9 +57,9 @@ static func build() -> Theme:
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		pass
 	t.set_stylebox("normal", "Button", _box(Palette.PANEL, Palette.PANEL_EDGE))
-	t.set_stylebox("hover", "Button", _box(Palette.PANEL.lightened(.1), Palette.CRIMSON_EDGE))
-	t.set_stylebox("pressed", "Button", _box(Palette.CRIMSON_DEEP, Palette.CRIMSON_EDGE))
-	t.set_stylebox("focus", "Button", _box(Palette.PANEL.lightened(.06), Palette.AMBER))
+	t.set_stylebox("hover", "Button", _box(Palette.PANEL.lightened(.1), Palette.ACCENT_EDGE))
+	t.set_stylebox("pressed", "Button", _box(Palette.ACCENT_DEEP, Palette.ACCENT_EDGE))
+	t.set_stylebox("focus", "Button", _box(Palette.PANEL.lightened(.06), Palette.TEAL))
 	t.set_stylebox("disabled", "Button", _box(Palette.PANEL, Palette.PANEL_EDGE))
 	t.set_color("font_color", "Button", Palette.BODY)
 	t.set_color("font_hover_color", "Button", Palette.INK)
@@ -69,11 +69,13 @@ static func build() -> Theme:
 
 	t.add_type("PrimaryButton")
 	t.set_type_variation("PrimaryButton", "Button")
-	t.set_stylebox("normal", "PrimaryButton", _box(Palette.CRIMSON, Palette.CRIMSON_EDGE, 10, 4))
-	t.set_stylebox("hover", "PrimaryButton", _box(Palette.CRIMSON.lightened(.12), Palette.CRIMSON_EDGE.lightened(.2), 10, 4))
-	t.set_stylebox("pressed", "PrimaryButton", _box(Palette.CRIMSON.darkened(.2), Palette.CRIMSON_EDGE, 10, 4))
-	t.set_stylebox("focus", "PrimaryButton", _box(Palette.CRIMSON, Palette.AMBER, 10, 4))
-	t.set_color("font_color", "PrimaryButton", Palette.INK)
+	t.set_stylebox("normal", "PrimaryButton", _box(Palette.ACCENT, Palette.ACCENT_EDGE, 10, 4))
+	t.set_stylebox("hover", "PrimaryButton", _box(Palette.ACCENT.lightened(.12), Palette.ACCENT_EDGE.lightened(.2), 10, 4))
+	t.set_stylebox("pressed", "PrimaryButton", _box(Palette.ACCENT.darkened(.2), Palette.ACCENT_EDGE, 10, 4))
+	t.set_stylebox("focus", "PrimaryButton", _box(Palette.ACCENT, Palette.TEAL, 10, 4))
+	for state in ["font_color", "font_hover_color", "font_focus_color"]:
+		t.set_color(state, "PrimaryButton", Palette.ON_AMBER)
+	t.set_color("font_pressed_color", "PrimaryButton", Palette.INK)
 
 	# Night Watch menu entry: no box, ">>" marker on the selected one (UiMenuList)
 	var flat := StyleBoxEmpty.new()
@@ -91,11 +93,11 @@ static func build() -> Theme:
 	t.set_color("font_disabled_color", "MenuItem", Color("4a463c"))
 
 	# Tab bars (settings categories): crimson slab for the selected tab
-	t.set_stylebox("tab_selected", "TabBar", _box(Palette.CRIMSON, Palette.CRIMSON_EDGE, 10, 4))
+	t.set_stylebox("tab_selected", "TabBar", _box(Palette.ACCENT, Palette.ACCENT_EDGE, 10, 4))
 	t.set_stylebox("tab_unselected", "TabBar", _box(Palette.PANEL, Palette.PANEL_EDGE, 10, 4))
-	t.set_stylebox("tab_hovered", "TabBar", _box(Palette.PANEL.lightened(.1), Palette.CRIMSON_EDGE, 10, 4))
-	t.set_stylebox("tab_focus", "TabBar", _box(Color(0, 0, 0, 0), Palette.AMBER, 10, 4))
-	t.set_color("font_selected_color", "TabBar", Palette.INK)
+	t.set_stylebox("tab_hovered", "TabBar", _box(Palette.PANEL.lightened(.1), Palette.ACCENT_EDGE, 10, 4))
+	t.set_stylebox("tab_focus", "TabBar", _box(Color(0, 0, 0, 0), Palette.TEAL, 10, 4))
+	t.set_color("font_selected_color", "TabBar", Palette.ON_AMBER)
 	t.set_color("font_unselected_color", "TabBar", Palette.BODY)
 	t.set_color("font_hovered_color", "TabBar", Palette.INK)
 
@@ -105,29 +107,29 @@ static func build() -> Theme:
 
 	# Text fields
 	t.set_stylebox("normal", "LineEdit", _box(Palette.INSET, Color("4b3948"), 6, 3))
-	t.set_stylebox("focus", "LineEdit", _box(Palette.INSET, Palette.AMBER, 6, 3))
+	t.set_stylebox("focus", "LineEdit", _box(Palette.INSET, Palette.TEAL, 6, 3))
 	t.set_color("font_color", "LineEdit", Palette.INK)
 	t.set_color("font_placeholder_color", "LineEdit", Palette.MUTED)
-	t.set_color("caret_color", "LineEdit", Palette.AMBER)
-	t.set_color("selection_color", "LineEdit", Color(Palette.CRIMSON, .45))
+	t.set_color("caret_color", "LineEdit", Palette.TEAL)
+	t.set_color("selection_color", "LineEdit", Color(Palette.ACCENT, .45))
 
 	# Bars
 	t.set_stylebox("background", "ProgressBar", _box(Palette.INSET, Palette.PANEL_EDGE, 0, 0))
-	t.set_stylebox("fill", "ProgressBar", _box(Palette.CRIMSON, Palette.CRIMSON, 0, 0, 0))
+	t.set_stylebox("fill", "ProgressBar", _box(Palette.ACCENT, Palette.ACCENT, 0, 0, 0))
 	t.set_color("font_color", "ProgressBar", Palette.INK)
 	for kind in [["HudBarWarn", Palette.AMBER_FILL], ["HudBarSafe", Palette.STABLE],
-			["HudBarLow", Palette.CRIMSON_EDGE]]:
+			["HudBarLow", Palette.ALERT]]:
 		t.add_type(kind[0])
 		t.set_type_variation(kind[0], "ProgressBar")
 		t.set_stylebox("fill", kind[0], _box(kind[1], kind[1], 0, 0, 0))
 
 	# Sliders, checks, scroll
 	t.set_stylebox("slider", "HSlider", _box(Palette.INSET, Palette.PANEL_EDGE, 0, 2))
-	t.set_stylebox("grabber_area", "HSlider", _box(Palette.CRIMSON, Palette.CRIMSON, 0, 2, 0))
-	t.set_stylebox("grabber_area_highlight", "HSlider", _box(Palette.CRIMSON_EDGE, Palette.CRIMSON_EDGE, 0, 2, 0))
+	t.set_stylebox("grabber_area", "HSlider", _box(Palette.ACCENT, Palette.ACCENT, 0, 2, 0))
+	t.set_stylebox("grabber_area_highlight", "HSlider", _box(Palette.ACCENT_EDGE, Palette.ACCENT_EDGE, 0, 2, 0))
 	t.set_color("font_color", "CheckBox", Palette.BODY)
 	t.set_color("font_hover_color", "CheckBox", Palette.INK)
-	t.set_stylebox("grabber", "VScrollBar", _box(Palette.CRIMSON_DEEP, Palette.CRIMSON_DEEP, 0, 0, 0))
+	t.set_stylebox("grabber", "VScrollBar", _box(Palette.ACCENT_DEEP, Palette.ACCENT_DEEP, 0, 0, 0))
 	t.set_stylebox("scroll", "VScrollBar", _box(Palette.INSET, Palette.INSET, 0, 0, 0))
 
 	# Tooltips

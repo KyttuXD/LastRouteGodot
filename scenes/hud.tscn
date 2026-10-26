@@ -71,7 +71,7 @@ theme_override_constants/separation = 1
 [node name="DepthLabel" type="Label" parent="ObjectivePanel/ObjectiveBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
 theme_override_font_sizes/font_size = 7
 text = "DEPTH 01"
 
@@ -424,7 +424,7 @@ offset_bottom = 69
 grow_horizontal = 2
 unique_name_in_owner = true
 visible = false
-theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
@@ -449,7 +449,7 @@ offset_top = 8.0
 offset_right = 0.0
 offset_bottom = 27.0
 anchor_right = 1.0
-theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
 theme_override_font_sizes/font_size = 13
 text = "FACILITY MAP"
 horizontal_alignment = 1
@@ -509,7 +509,7 @@ alignment = 1
 [node name="EscapePrompt" type="Label" parent="EscapeOverlay/EscapeBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.91, 0.72, 0.29, 1)
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1

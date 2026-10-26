@@ -12,9 +12,9 @@ static func attach(parent: Node) -> void:
 	badge.text = "TEST SERVER  //  %s" % Backend.base_url.trim_prefix("http://")
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge.add_theme_font_size_override("font_size", 6)
-	badge.add_theme_color_override("font_color", Palette.INK)
+	badge.add_theme_color_override("font_color", Palette.ON_AMBER)
 	var box := StyleBoxFlat.new()
-	box.bg_color = Palette.CRIMSON
+	box.bg_color = Palette.ACCENT
 	box.content_margin_left = 6
 	box.content_margin_right = 6
 	box.content_margin_top = 2

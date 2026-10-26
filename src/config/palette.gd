@@ -1,6 +1,16 @@
 class_name Palette
 extends RefCounted
 
+## THE colour scheme of the Godot 2 app, in one place (retune here and everything follows).
+##
+## Godot 2 palette: near-black plum ground, cream text, a PURPLE accent (Kathy's purple, sampled
+## from her sprite #9870a0 and lifted for contrast: primary actions, the route line of the logo)
+## and TEAL for secondary/active highlights (the terminal colour: selection marker, focus rings,
+## cool HUD bars). Red stays reserved for danger. NB: the constant names AMBER*/ON_AMBER predate
+## the purple (the first pass was amber #c98a2b/#e0a339/#e8b84b); they now hold the purple family. assets/branding/logo.svg uses the same values; tools/branding/build_logo.gd
+## re-renders the icons from it. Text/background pairs were checked for WCAG AA (>= 4.5:1).
+##
+## (Older note, kept for history:)
 ## The colours of the original web build, in one place.
 ##
 ## The Godot port had drifted to a teal-on-black scheme of its own while the
@@ -15,22 +25,22 @@ extends RefCounted
 
 # -- ground ------------------------------------------------------------------
 ## The page itself: black with a little warmth in it, never pure #000.
-const BACKDROP := Color("0a0608")
+const BACKDROP := Color("0d0810")
 ## A panel standing on that ground, and the hairline around it.
-const PANEL := Color("140b10")
-const PANEL_EDGE := Color("2b1a22")
+const PANEL := Color("170e19")
+const PANEL_EDGE := Color("2e1f33")
 ## Inset blocks inside a panel -- the seed readout, a player row.
-const INSET := Color("1b1016")
+const INSET := Color("1e1322")
 ## What the pause overlay lays over the running game.
-const SCRIM := Color(0.04, 0.024, 0.031, 0.82)
+const SCRIM := Color(0.05, 0.03, 0.07, 0.82)
 
 # -- type --------------------------------------------------------------------
 ## Headlines and anything the eye should land on first.
 const INK := Color("f2ede1")
 ## Body copy.
-const BODY := Color("bab2a8")
+const BODY := Color("bcb3a8")
 ## Captions, hints, and the small print under a control.
-const MUTED := Color("7d746e")
+const MUTED := Color("8c817e")
 ## Disabled controls and their labels.
 const DIM := Color("4c4449")
 
@@ -38,16 +48,21 @@ const DIM := Color("4c4449")
 ## Section labels, seed text, the selected state of a toggle. The web build
 ## uses amber for "this is a system readout" and crimson for "this does
 ## something", and keeping that split is most of why it reads correctly.
-const AMBER := Color("e8b84b")
-const AMBER_FILL := Color("f0c264")
+const AMBER := Color("c9a9d8")
+const AMBER_FILL := Color("b48ec0")
 ## Text printed ON an amber fill, which is the only place dark type appears.
 const ON_AMBER := Color("1a0f14")
 
-## Primary action.
-const CRIMSON := Color("c0303c")
-const CRIMSON_EDGE := Color("e2515d")
-## Secondary action sitting beside a primary one.
-const CRIMSON_DEEP := Color("8c2530")
+## Primary action: a purple slab with a brighter edge; text on it is ON_AMBER (dark).
+const ACCENT := Color("a67fb0")
+const ACCENT_EDGE := Color("c4a2d0")
+## Secondary action sitting beside a primary one, deep borders.
+const ACCENT_DEEP := Color("5a3f63")
+
+## Secondary / active highlight: the selection marker ">>", focus rings, cool meters.
+const TEAL := Color("37b9b0")
+const TEAL_BRIGHT := Color("bff5ec")
+const TEAL_DEEP := Color("1f6e6a")
 
 ## Danger and failure readouts.
 const ALERT := Color("e2515d")
@@ -91,7 +106,7 @@ static func panel_box(fill: Color = PANEL, edge: Color = PANEL_EDGE,
 	return box
 
 
-## A button face. The web build's primary is a flat crimson slab with a
+## A button face. The primary is a flat amber slab with a
 ## brighter edge; its secondary is the panel colour with the same edge.
 static func button_box(fill: Color, edge: Color, horizontal_margin: int = 10,
 		vertical_margin: int = 4) -> StyleBoxFlat:
@@ -108,8 +123,8 @@ static func button_box(fill: Color, edge: Color, horizontal_margin: int = 10,
 
 ## Dress a Button in one of the two web-build styles.
 static func style_button(button: Button, primary: bool, compact: bool = false) -> void:
-	var fill := CRIMSON if primary else PANEL
-	var edge := CRIMSON_EDGE if primary else PANEL_EDGE
+	var fill := ACCENT if primary else PANEL
+	var edge := ACCENT_EDGE if primary else PANEL_EDGE
 	var horizontal_margin := 5 if compact else 10
 	var vertical_margin := 3 if compact else 4
 	button.add_theme_stylebox_override("normal", button_box(fill, edge,
@@ -120,12 +135,13 @@ static func style_button(button: Button, primary: bool, compact: bool = false) -
 	button.add_theme_stylebox_override("pressed",
 		button_box(fill.darkened(0.2), edge, horizontal_margin, vertical_margin))
 	button.add_theme_stylebox_override("focus", button_box(fill,
-		edge.lightened(0.35), horizontal_margin, vertical_margin))
+		TEAL, horizontal_margin, vertical_margin))
 	button.add_theme_stylebox_override("disabled", button_box(PANEL, PANEL_EDGE,
 		horizontal_margin, vertical_margin))
-	button.add_theme_color_override("font_color", INK if primary else BODY)
-	button.add_theme_color_override("font_hover_color", INK)
+	button.add_theme_color_override("font_color", ON_AMBER if primary else BODY)
+	button.add_theme_color_override("font_hover_color", ON_AMBER if primary else INK)
 	button.add_theme_color_override("font_pressed_color", INK)
+	button.add_theme_color_override("font_focus_color", ON_AMBER if primary else INK)
 	button.add_theme_color_override("font_disabled_color", DIM)
 
 
@@ -133,7 +149,7 @@ static func style_button(button: Button, primary: bool, compact: bool = false) -
 ## native platform theme from dropping a bright grey box into the dark frame.
 static func style_line_edit(field: LineEdit) -> void:
 	var normal := panel_box(INSET, Color("4b3948"), 6)
-	var focus := panel_box(INSET, AMBER, 6)
+	var focus := panel_box(INSET, TEAL, 6)
 	# User-entered codes, names, passwords and URLs are all left-to-right even
 	# when the operating-system locale uses an RTL interface direction.
 	field.text_direction = Control.TEXT_DIRECTION_LTR
@@ -142,7 +158,7 @@ static func style_line_edit(field: LineEdit) -> void:
 	field.add_theme_stylebox_override("focus", focus)
 	field.add_theme_color_override("font_color", INK)
 	field.add_theme_color_override("font_placeholder_color", MUTED)
-	field.add_theme_color_override("caret_color", AMBER)
+	field.add_theme_color_override("caret_color", TEAL)
 
 
 ## Compact close control used by the original web panels: one thin outer

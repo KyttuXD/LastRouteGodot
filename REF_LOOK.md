@@ -86,3 +86,15 @@ switches back to the legacy Minecraft-skin body (`player_legacy.tscn`).
   room-door props, drawn by `RefDecor._arches`), a few keep doors.
 * Per-room seeded ceiling heights: corridors 3.0-3.6 m, rooms 3.2-4.4, halls 4.8-6.0, greenhouses
   6.4-7.5 (`RefLook.room_height`). Fixture density is budgeted per room (2-4 lamps, 1-3 windows).
+
+## Branding and UI colours
+
+`assets/branding/logo.svg` is the app icon (route line to a lit relay node, shape of the 2D game's icon).
+`godot --headless --path . -s tools/branding/build_logo.gd` renders `logo_<size>.png` (1024..16), the Android
+adaptive layers and the root `icon.svg`; `project.godot` and the export presets use them (the old art is in
+`assets/branding/archive_2d/`). UI colours live only in `src/config/palette.gd`: purple accent
+(Kathy's purple, `ACCENT` #a67fb0, `ACCENT_EDGE` #c4a2d0, `ACCENT_DEEP` #5a3f63, labels `AMBER` #c9a9d8,
+`AMBER_FILL` #b48ec0), teal secondary (`TEAL` #37b9b0, `TEAL_BRIGHT` #bff5ec, `TEAL_DEEP` #1f6e6a), plum
+ground (`BACKDROP` #0d0810, `PANEL` #170e19, `INSET` #1e1322), danger red unchanged. After editing it run
+`godot --headless --path . --script tools/ui/build_theme.gd` (regenerates `ref_theme.tres`) and, for the logo,
+the build_logo script (the SVG holds the same values).

@@ -283,7 +283,7 @@ func _build_share_block() -> Control:
 	var box := PanelContainer.new()
 	box.name = "PauseShare"
 	box.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.INSET, Palette.CRIMSON_DEEP, 6))
+		Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
 	var stack := VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 2)
 	box.add_child(stack)
@@ -296,7 +296,7 @@ func _build_share_block() -> Control:
 	_share_code = Label.new()
 	_share_code.name = "PauseShareCode"
 	_share_code.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	Palette.style_label(_share_code, Palette.CRIMSON, 9)
+	Palette.style_label(_share_code, Palette.ACCENT, 9)
 	_share_code.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	stack.add_child(_share_code)
 	_share_seed = Label.new()
@@ -756,7 +756,7 @@ func _format_save_time(unix_time: int) -> String:
 func _build_confirm() -> void:
 	_confirm = PanelContainer.new()
 	_confirm.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.PANEL, Palette.CRIMSON_DEEP, 14))
+		Palette.panel_box(Palette.PANEL, Palette.ACCENT_DEEP, 14))
 	_confirm.set_anchors_preset(Control.PRESET_CENTER)
 	_confirm.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_confirm.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -802,7 +802,7 @@ func _build_confirm() -> void:
 	yes.add_theme_font_size_override("font_size", 8)
 	Palette.style_button(yes, false)
 	yes.add_theme_stylebox_override("normal",
-		Palette.button_box(Palette.PANEL, Palette.CRIMSON_DEEP))
+		Palette.button_box(Palette.PANEL, Palette.ACCENT_DEEP))
 	yes.pressed.connect(_on_abandon)
 	row.add_child(yes)
 
@@ -866,7 +866,7 @@ func _build_hold_prompt() -> void:
 	stack.add_child(track)
 
 	_hold_fill = ColorRect.new()
-	_hold_fill.color = Palette.CRIMSON
+	_hold_fill.color = Palette.ACCENT
 	_hold_fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
 	_hold_fill.anchor_right = 0.0
 	track.add_child(_hold_fill)
