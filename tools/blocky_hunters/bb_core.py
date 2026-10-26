@@ -111,13 +111,13 @@ class Atlas:
 
 class Model:
     def __init__(self, name, rig, cubes, scale=1.0, face_painter=None, extras=None, skin=None, face_cell=None,
-                 face_at=None):
+                 face_at=None, atlas_size=None):
         self.name, self.rig, self.cubes, self.scale = name, rig, cubes, scale
         self.face_painter = face_painter
         self.extras = extras or {}
         self.face_cell = face_cell or FACE_CELL
         self.face_at = face_at
-        self.atlas = Atlas(*skin.size) if skin is not None else Atlas()
+        self.atlas = Atlas(*skin.size) if skin is not None else Atlas(*(atlas_size or (ATLAS_W, ATLAS_H)))
         if skin is not None:
             self.atlas.img = skin.copy()
             for y in range(skin.height):          # a vanilla skin is fully laid out: nothing to pack

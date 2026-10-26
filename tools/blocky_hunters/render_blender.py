@@ -50,6 +50,19 @@ for i, n in enumerate(NAMES):
             o.animation_data_create()
             o.animation_data.action = act
             o.animation_data.action_slot = slot
+ATTACH = os.environ.get("ATTACH")         # "<hunter>:<node>:<glb>": parent an extra GLB (a prop) under that node
+if ATTACH:
+    from mathutils import Matrix
+    who, node_name, glb = ATTACH.split(":", 2)
+    for n, root, new in objs:
+        if n == who:
+            holder = next(o for o in new if o.name == node_name or o.name.startswith(node_name + "."))
+            before = set(bpy.data.objects)
+            bpy.ops.import_scene.gltf(filepath=glb)
+            prop_root = [o for o in bpy.data.objects if o not in before and o.parent is None][0]
+            prop_root.parent = holder
+            prop_root.matrix_parent_inverse = Matrix()       # identity local transform, like a glTF child node
+
 def flat_alpha_clip(mat):
     """Unlit texture with a hard alpha cut-off, so cut-out texels (hair shell, wings) really are holes."""
     img = None
@@ -115,9 +128,11 @@ def shot(name, az, h0, h1, aspect=None):
     bpy.ops.render.render(write_still=True)
 
 
+FRAME = os.environ.get("FRAME_Y")
+y0f, y1f = (float(x) for x in FRAME.split(",")) if FRAME else (-0.02, 2.1)
 for v in VIEWS:
     az = {"front": 180, "threeq": 150, "back": 0, "side": 90, "head": 160}[v]
     if v == "head":
-        shot(v, az, 1.0, 1.78 + 0.0)
+        shot(v, az, 1.0, 1.78 + 0.0) if not FRAME else shot(v, az, y0f, y1f)
     else:
-        shot(v, az, -0.02, 2.1)
+        shot(v, az, y0f, y1f)

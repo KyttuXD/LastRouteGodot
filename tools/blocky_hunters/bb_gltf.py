@@ -110,10 +110,20 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
 
     # eye locators (HunterView3D hangs the eye glow and Kathy's beam off these)
     for side, s in (("L", -1), ("R", 1)):
+        if "eyes" not in model.extras:
+            break
         e = model.extras["eyes"][side]
         head = pivots["Head"]
         nodes.append({"name": f"{side}-Eye-Attachment", "translation": [(e[i] - head[i]) * S for i in range(3)]})
         nodes[index["Head"]]["children"].append(len(nodes) - 1)
+
+    # HandProp: an empty at the centre of each palm (child of the hand bone) where a held prop is attached,
+    # e.g. get_node("R-HandProp").add_child(scythe). It follows every clip and has no mesh.
+    if "R-Hand" in index and "L-Hand" in index:
+        from bb_skin import U as SKIN_U
+        for side in ("L", "R"):
+            nodes.append({"name": f"{side}-HandProp", "translation": [0.0, -1.0 * SKIN_U * S, 0.0]})
+            nodes[index[f"{side}-Hand"]]["children"].append(len(nodes) - 1)
 
     # animations
     animations = []

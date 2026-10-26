@@ -138,6 +138,7 @@ func run(host: Node) -> int:
 		if vertices < 280 * 2:
 			_fail("%s has only %d vertices, the overlay layers are missing" % [id, vertices])
 		node.queue_free()
+	_check_scythe(host)
 	print("  %d blocky hunters checked" % HUNTERS.size())
 	return _failures
 
@@ -163,6 +164,58 @@ func _check_seamless(id: String, clip: String, anim: Animation) -> void:
 		if absf(anim.track_get_key_time(t, keys - 1) - anim.length) > 0.002:
 			_fail("%s clip %s: track %s stops before the end of the clip" % [id, clip, anim.track_get_path(t)])
 			return
+
+
+## Kathy's scythe prop: loads, has a Grip at the origin, is 1.6-1.95 m long, stays inside the triangle/size budget, and
+## every hunter has an R-HandProp to hold it with; Kathy carries the optional scythe clips.
+func _check_scythe(host: Node) -> void:
+	var path := "res://assets/props_3d/kathy_scythe.glb"
+	if not ResourceLoader.exists(path):
+		_fail("%s is not imported" % path)
+		return
+	var prop := ModelSlot.instantiate(path)
+	if prop == null:
+		_fail("kathy_scythe did not instantiate")
+		return
+	host.add_child(prop)
+	var grip := prop.find_child("Grip", true, false) as Node3D
+	if grip == null:
+		_fail("kathy_scythe has no Grip node")
+	elif grip.global_position.length() > 0.001:
+		_fail("kathy_scythe Grip is not at the origin")
+	var box := _bounds(prop)
+	if box.size.y < 1.6 or box.size.y > 1.95:
+		_fail("kathy_scythe is %.2f m long, wanted 1.6-1.95" % box.size.y)
+	if box.position.y > -0.3 or box.end.y < 0.9:
+		_fail("kathy_scythe does not straddle its grip (y %.2f..%.2f)" % [box.position.y, box.end.y])
+	var tris := 0
+	for mesh_node in prop.find_children("*", "MeshInstance3D", true, false):
+		var mesh := (mesh_node as MeshInstance3D).mesh
+		for s in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(s)
+			tris += (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+	if tris > 600:
+		_fail("kathy_scythe has %d triangles (budget 600)" % tris)
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > 200 * 1024:
+		_fail("kathy_scythe.glb is over the 200 KB budget")
+	prop.queue_free()
+	for id in HUNTERS:
+		var model := ModelSlot.instantiate("res://assets/hunters_blocky/%s/%s.glb" % [id, id])
+		if model == null:
+			continue
+		host.add_child(model)
+		for hand in ["R-HandProp", "L-HandProp"]:
+			if model.find_child(hand, true, false) == null:
+				_fail("%s has no %s attach point" % [id, hand])
+		if id.begins_with("kathy"):
+			var player := ModelSlot.find_animation_player(model)
+			for clip in ["scythe_idle", "scythe_walk", "scythe_swing"]:
+				if player == null or not player.has_animation(clip):
+					_fail("%s is missing the %s clip" % [id, clip])
+			if player != null and player.has_animation("scythe_swing") and player.get_animation("scythe_swing").loop_mode != Animation.LOOP_NONE:
+				_fail("%s scythe_swing should be one-shot" % id)
+		model.queue_free()
 
 
 func _bounds(node: Node3D) -> AABB:

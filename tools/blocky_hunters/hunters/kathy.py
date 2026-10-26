@@ -49,5 +49,10 @@ def _modify(canvas):
     ]
 
 
+def CLIP_HOOK(clips, restq, pel, u):
+    from hunters import scythe_clips
+    scythe_clips.hook(clips, restq, pel, u)
+
+
 def build():
     return source_hunter(NAME, globals(), _modify)

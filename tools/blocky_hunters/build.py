@@ -82,6 +82,9 @@ def build(name, tall=0.0):
                                                        sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
     clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
     _record_emotes(name, emote_meta)
+    hook = getattr(mod, "CLIP_HOOK", None)             # hunter-specific extra clips (Kathy's scythe set)
+    if hook:
+        hook(clips, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U)
     d = OUT / name
     d.mkdir(parents=True, exist_ok=True)
     size = bb_gltf.write_glb(model, bones, clips, d / f"{name}.glb", scale=model.scale)
