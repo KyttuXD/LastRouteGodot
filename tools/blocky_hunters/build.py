@@ -28,6 +28,8 @@ def taller(cubes, sk, eyes, dy):
         lo, hi = list(c.lo), list(c.hi)
         lo[1], hi[1] = f(lo[1]), f(hi[1])          # f is continuous at the hips, so seams and overlays follow
         c.lo, c.hi = tuple(lo), tuple(hi)
+        if c.pivot is not None:
+            c.pivot = (c.pivot[0], f(c.pivot[1]), c.pivot[2])
     sk = {k: (f(v) if k in ("knee_y", "ankle_y") else v + d) if k.endswith("_y") else v for k, v in sk.items()}
     eyes = {k: (v[0], v[1] + d, v[2]) for k, v in eyes.items()}
     return cubes, sk, eyes, f
