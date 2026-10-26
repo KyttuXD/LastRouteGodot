@@ -2306,20 +2306,32 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var suite_child := room.has("suite_id") \
 			and not bool(room.get("suite_parent", false))
+		# Only major rooms (halls, lobbies, greenhouses, very large rooms) and a suite's own entrance
+		# get wide doors; small rooms always get a single door.
+		var major := _is_major_room(room, rect)
 		var use_double := bool(room.get("suite_parent", false)) \
-			or (not suite_child and (rect.size.x >= 7 or rect.size.y >= 7))
-		# Most roomy rooms open onto the hall through a three-cell archway instead of
+			or (not suite_child and major and (rect.size.x >= 7 or rect.size.y >= 7))
+		# Roomy major rooms open onto the hall through a three-cell archway instead of
 		# a door; a few keep a door for variety (see RefDecor for the arch itself).
-		var arch := not room.has("suite_id") and rect.size.x >= 7 and rect.size.y >= 7 \
+		var arch := major and not room.has("suite_id") and rect.size.x >= 7 and rect.size.y >= 7 \
 			and absi(String(room.get("id", "")).hash()) % 100 < 65
 		var door_span := 3 if arch else (2 if use_double else 1)
-		var resolved_door_type: String = "roomArch" if arch else (String(
-			REGION_DOUBLE_ROOM_DOORS.get(region, door_type)) if use_double else door_type)
 		var room_center: Vector2i = room.get("center", rect.position + rect.size / 2)
 		var threshold := _find_room_door_threshold(rect, room_center, grid,
 			stair_exclusion, door_span)
 		if threshold.is_empty():
 			continue
+		# A hallway is three wide; a room at the END of one gets a single door, whatever its size.
+		if door_span > 1 and _door_faces_hall_end(grid, threshold):
+			arch = false
+			use_double = false
+			door_span = 1
+			threshold = _find_room_door_threshold(rect, room_center, grid,
+				stair_exclusion, 1)
+			if threshold.is_empty():
+				continue
+		var resolved_door_type: String = "roomArch" if arch else (String(
+			REGION_DOUBLE_ROOM_DOORS.get(region, door_type)) if use_double else door_type)
 		var cell: Vector2i = threshold["cell"]
 		var doorway_cells: Array = threshold["doorway_cells"]
 		var wall_cells: Array = threshold["wall_cells"]
@@ -2354,6 +2366,39 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 			"threshold_wall_cells": wall_cells,
 		})
 	return result
+
+
+## Major rooms keep wide openings: the big named halls, greenhouses and anything very large.
+static func _is_major_room(room: Dictionary, rect: Rect2i) -> bool:
+	var room_type := String(room.get("room_type", ""))
+	return RefLook.HALL_ROOMS.has(room_type) or RefLook.GREENHOUSE_ROOMS.has(room_type) \
+		or (rect.size.x >= 13 and rect.size.y >= 13)
+
+
+## True when the door's outside cell is the END of a hallway: the hall arrives straight at the door
+## (open run perpendicular to the wall) and does not run along it.
+static func _door_faces_hall_end(grid: Array, threshold: Dictionary) -> bool:
+	var cell: Vector2i = threshold["cell"]
+	var outward: Vector2i = threshold["outward"]
+	var across: Vector2i = threshold["across"]
+	var first := cell + outward
+	var run_across := 1
+	for sign_value in [-1, 1]:
+		var k := 1
+		while k < 8 and _grid_open(grid, first + across * sign_value * k):
+			run_across += 1
+			k += 1
+	var run_out := 0
+	var j := 0
+	while j < 8 and _grid_open(grid, first + outward * j):
+		run_out += 1
+		j += 1
+	return run_across <= 3 and run_out >= 3
+
+
+static func _grid_open(grid: Array, cell: Vector2i) -> bool:
+	return cell.y >= 0 and cell.y < grid.size() and cell.x >= 0 \
+		and cell.x < (grid[cell.y] as Array).size() and int(grid[cell.y][cell.x]) == 0
 
 
 static func _stair_door_exclusion(stairs: Array) -> Dictionary:
