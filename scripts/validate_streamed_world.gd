@@ -16,9 +16,9 @@ func run(host: Node) -> int:
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
-	_expect(StreamedRouteGenerator.STAIR_ACCESS_WIDTH >= 5 \
-		and StreamedFacilityView3D.STAIR_WIDTH >= 3.0,
-		"Infinite stair access/mesh width regressed below the requested clearance")
+	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
+		and not world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
+		"the route is not a single unbounded level")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -38,7 +38,7 @@ func run(host: Node) -> int:
 		_expect(HunterRoster.VOID_IDS.has(office_void) \
 			and String(HunterRoster.get_identity(office_void).get("category", "")) == "void",
 			"Office rare-spawn mapping points at an unsupported Void: %s" % office_void)
-	var coords := [Vector3i.ZERO, Vector3i(1, 0, 0), Vector3i(-3, 1, 4)]
+	var coords := [Vector3i.ZERO, Vector3i(1, 0, 0), Vector3i(-3, 0, 4)]
 	for coord in coords:
 		_expect(world.chunk(coord) == world.chunk(coord),
 			"chunk %s does not regenerate identically" % coord)
@@ -54,7 +54,6 @@ func run(host: Node) -> int:
 				"north/south seam disagrees at %s" % at)
 
 	var lower := world.chunk(Vector3i.ZERO)
-	var upper := world.chunk(Vector3i(0, 1, 0))
 	var map_probe := FacilityMap.new()
 	map_probe.interactive = true
 	map_probe.size = Vector2(480, 320)
@@ -71,58 +70,6 @@ func run(host: Node) -> int:
 		"region-overlay state leaked into a normal player map update")
 	map_probe.queue_free()
 	await host.get_tree().process_frame
-	_expect(lower["grid"] != upper["grid"],
-		"stacked floors reused the same room shape instead of varying by level")
-	var lower_link: Dictionary
-	for link in lower["stairs"]:
-		if link["direction"] == "up":
-			lower_link = link
-			break
-	var matching := false
-	for link in upper["stairs"]:
-		if link["id"] == lower_link["id"] and link["cell"] == lower_link["cell"] \
-				and link["style"] == lower_link["style"]:
-			matching = true
-	_expect(matching, "the forced origin stair does not agree across vertical chunks")
-	_expect(lower_link["direction"] == "up", "lower vertical link is not an up stair")
-	var lower_stair_bays := {}
-	var lower_stair_access := {}
-	for stair_value in lower["stairs"]:
-		var stair: Dictionary = stair_value
-		var stair_bay := StreamedRouteGenerator.stair_bay_index(stair["cell"])
-		_expect(not lower_stair_bays.has(stair_bay),
-			"up/down flights share stairwell bay %d in the spawn chunk" % stair_bay)
-		lower_stair_bays[stair_bay] = stair["id"]
-		for access_cell in StreamedRouteGenerator.stair_access_cells(stair["cell"]):
-			_expect(not lower_stair_access.has(access_cell),
-				"up/down stair access overlaps at %s in the spawn chunk" % access_cell)
-			lower_stair_access[access_cell] = stair["id"]
-		var owning_stairwells := (lower["rooms"] as Array).filter(
-			func(room: Dictionary) -> bool:
-				return String(room.get("room_type", "")) == "stairwell" \
-					and (room.get("stair_ids", []) as Array).has(stair["id"]) \
-					and (room.get("rect", Rect2i()) as Rect2i).has_point(stair["cell"]))
-		_expect(owning_stairwells.size() == 1,
-			"stair %s does not own one dedicated stairwell room" % stair["id"])
-	for stair_cell in StreamedRouteGenerator.stair_path_cells(lower_link["cell"]):
-		_expect(int((lower["grid"] as Array)[stair_cell.y][stair_cell.x]) == 0,
-			"lower stair flight retains a blocking wall at %s" % stair_cell)
-		_expect(int((upper["grid"] as Array)[stair_cell.y][stair_cell.x]) == 0,
-			"upper stair opening retains a blocking wall at %s" % stair_cell)
-	var stair_path_cells := StreamedRouteGenerator.stair_path_cells(lower_link["cell"])
-	if stair_path_cells.size() > 1:
-		var stair_step: Vector2i = stair_path_cells[1] - stair_path_cells[0]
-		var stair_side := Vector2i(-stair_step.y, stair_step.x)
-		for stair_cell in stair_path_cells:
-			for offset in range(-2, 3):
-				var widened: Vector2i = stair_cell + stair_side * offset
-				_expect(int((lower["grid"] as Array)[widened.y][widened.x]) == 0 \
-					and int((upper["grid"] as Array)[widened.y][widened.x]) == 0,
-					"five-cell stair clearance retained a wall at %s" % widened)
-	var has_down := false
-	for link in lower["stairs"]:
-		has_down = has_down or link["direction"] == "down"
-	_expect(has_down, "central spawn chunk has no downward stair")
 	var map_peer_source := RemotePlayers.new()
 	map_peer_source.set("_states", {
 		2: {"position": Vector2(9.5, 10.5), "depth": 0,
@@ -203,9 +150,9 @@ func run(host: Node) -> int:
 	var saw_dual_upper := false
 	var saw_dual_carousel := false
 	var saw_two_cell_double_door := false
-	for level in range(-7, 4):
-		for z in range(-5, 6):
-			for x in range(-5, 6):
+	for level in [0]:
+		for z in range(-12, 13):
+			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
 				if not world.is_chunk_allowed(sampled_coord):
 					continue
@@ -222,13 +169,6 @@ func run(host: Node) -> int:
 						_expect(not (data.get("floor_voids", []) as Array).is_empty() \
 							and not (data.get("structural_voids", []) as Array).is_empty(),
 							"dual-level upper volume retained a duplicate floor/wall stack")
-				_expect(not (data["biome"] == "inferno" and level > -3),
-					"inferno leaked above deep floors at %s" % data["coord"])
-				if level >= 0:
-					_expect(data["biome"] != "gothic",
-						"gothic biome leaked onto an upper floor at %s" % data["coord"])
-				_expect(not (data["biome"] == "prison" and level > -2),
-					"prison region leaked above lower floors at %s" % data["coord"])
 				for suite_value in data.get("suites", []):
 					var suite: Dictionary = suite_value
 					var suite_id := String(suite.get("id", ""))
@@ -612,8 +552,6 @@ func run(host: Node) -> int:
 			and int(restaurant_counts.get("woodenChairCushion", 0)) >= 12,
 			"restaurant room %s lacks two complete six-chair party rows: %s" \
 			% [restaurant_room_id, restaurant_counts])
-	_expect(saw_dual_lower and saw_dual_upper and saw_dual_carousel,
-		"sampled world never completed a matched two-floor carousel room contract")
 	_expect(saw_two_cell_double_door,
 		"sampled world never generated a true two-cell double doorway")
 	_expect(furniture_actions.has("sit") and furniture_actions.has("lay") \
@@ -707,14 +645,13 @@ func run(host: Node) -> int:
 			brain.position) and float(persisted.get("stun_timer", 0.0)) >= 2.0,
 			"streamed hunter position/stun did not survive a mutation snapshot")
 	var active := world.coordinates_around(Vector2(
-		StreamedRouteGenerator.CHUNK_SIZE + 1.0, -1.0), 2, 2)
-	_expect(active.size() == 25 and active.has(Vector3i(1, 2, -1)),
+		StreamedRouteGenerator.CHUNK_SIZE + 1.0, -1.0), 0, 2)
+	_expect(active.size() == 25 and active.has(Vector3i(1, 0, -1)),
 		"stream radius did not produce the expected 5x5 active set")
 	var arrival := world.coordinates_around(Vector2.ZERO, 0, 4)
-	_expect(arrival.size() == 9 and arrival.has(Vector3i(-1, 0, -1)) \
-		and arrival.has(Vector3i(1, 0, 1)) \
-		and not world.is_chunk_allowed(Vector3i(2, 0, 0)),
-		"arrival floor is not the finite 3x3 chunk region")
+	_expect(arrival.size() == 81 and arrival.has(Vector3i(-4, 0, -4)) \
+		and arrival.has(Vector3i(4, 0, 4)) and world.is_chunk_allowed(Vector3i(2, 0, 0)),
+		"the single floor is not unbounded horizontally")
 	var seam_offset: int = world.edge_openings(Vector3i.ZERO, Vector2i.RIGHT)[0]
 	var navigation := StreamedHunterNavigation.new(world, 0)
 	navigation.refresh(0, [Vector3i.ZERO, Vector3i(1, 0, 0)])
@@ -791,8 +728,8 @@ func run(host: Node) -> int:
 			"zero pixel-effect strength still leaves a screen-space filter visible")
 		Settings.pixel_effect_percent = old_pixel_strength
 		pixel_effect.call("_refresh")
-	_expect(facility != null and facility.loaded_chunk_count() == 11,
-		"live stream did not hold the 3x3 floor plus two vertical neighbours")
+	_expect(facility != null and facility.loaded_chunk_count() == 9,
+		"live stream did not hold the 3x3 chunk window of the single floor")
 	_expect(not facility.get_tree().get_nodes_in_group("streamed_region_prop").is_empty(),
 		"live streamed regions loaded no authored dressing models")
 	var live_lower := facility.generator.chunk(Vector3i.ZERO)
@@ -802,73 +739,12 @@ func run(host: Node) -> int:
 		"streamed view still reserves a regional floor item for seam overlays")
 	var origin_structure := facility.get_node_or_null(
 		"Chunk_0_0_0/Structure") as GridMap
-	var legitimate_floor_voids: Dictionary = facility.call("_stair_voids",
-		live_lower, "down")
 	_expect(origin_structure != null and origin_structure.get_used_cells().size() \
-		>= StreamedRouteGenerator.CHUNK_SIZE * StreamedRouteGenerator.CHUNK_SIZE \
-			- legitimate_floor_voids.size(),
-		"live streamed chunk omitted structure outside its stairwell openings")
-	_expect(host.get_tree().get_nodes_in_group("streamed_stair").size() >= 2,
-		"central live chunks did not build the forced up/down physical stairs")
-	var live_up_link: Dictionary
-	for link_value in live_lower.get("stairs", []):
-		var link: Dictionary = link_value
-		if String(link.get("direction", "")) == "up":
-			live_up_link = link
-			break
-	var live_upper := facility.generator.chunk(Vector3i(0, 1, 0))
-	var stair_path := StreamedRouteGenerator.stair_path_cells(
-		live_up_link.get("cell", Vector2i.ZERO))
-	var upper_voids: Dictionary = facility.call("_stair_voids", live_upper, "down")
-	_expect(stair_path.size() > 1 and upper_voids.has(stair_path[-2]) \
-		and not upper_voids.has(stair_path[-1]),
-		"upper stair opening removes its solid landing tile")
-	var upper_root := facility.get_node_or_null("Chunk_0_1_0")
-	var upper_structure := upper_root.get_node_or_null("Structure") as GridMap \
-		if upper_root != null else null
-	if upper_structure != null and stair_path.size() > 1:
-		_expect(upper_structure.get_cell_item(Vector3i(
-			stair_path[-1].x, 0, stair_path[-1].y)) >= 0,
-			"rendered upper landing is a visible/collidable hole")
-		_expect(upper_structure.get_cell_item(Vector3i(
-			stair_path[-2].x, 0, stair_path[-2].y)) < 0,
-			"stairwell was closed beneath the final tread")
-	else:
-		_expect(false, "loaded upper stair Structure is missing")
+		>= StreamedRouteGenerator.CHUNK_SIZE * StreamedRouteGenerator.CHUNK_SIZE,
+		"live streamed chunk omitted structure")
+	_expect(host.get_tree().get_nodes_in_group("streamed_stair").is_empty(),
+		"the single-level route built a stair")
 	var navigations: Dictionary = live_scene.get("_navigations")
-	var lower_navigation := navigations.get(0) as StreamedHunterNavigation
-	var upper_navigation := navigations.get(1) as StreamedHunterNavigation
-	var up_route: Dictionary = {}
-	var lower_endpoint := Vector2.ZERO
-	var upper_endpoint := Vector2.ZERO
-	if lower_navigation != null and upper_navigation != null and stair_path.size() > 1:
-		lower_endpoint = Vector2(stair_path[0]) + Vector2(.5, .5)
-		upper_endpoint = Vector2(stair_path[-1]) + Vector2(.5, .5)
-		up_route = live_scene.call("_nearest_stair",
-			lower_endpoint, 0, 1, lower_navigation)
-		var down_route: Dictionary = live_scene.call("_nearest_stair",
-			upper_endpoint, 1, -1, upper_navigation)
-		_expect(not up_route.is_empty() and (up_route.get("position",
-			Vector2.ZERO) as Vector2).is_equal_approx(lower_endpoint) \
-			and (up_route.get("destination", Vector2.ZERO) as Vector2).is_equal_approx(
-				upper_endpoint),
-			"hunter up-stair navigation does not connect base to upper landing")
-		_expect(not down_route.is_empty() and (down_route.get("position",
-			Vector2.ZERO) as Vector2).is_equal_approx(upper_endpoint) \
-			and (down_route.get("destination", Vector2.ZERO) as Vector2).is_equal_approx(
-				lower_endpoint),
-			"hunter down-stair navigation does not connect landing to base")
-	else:
-		_expect(false, "adjacent-floor hunter navigation surfaces are missing")
-	var stair_nodes := host.get_tree().get_nodes_in_group("streamed_stair")
-	if not stair_nodes.is_empty():
-		var stair_mesh := stair_nodes[0].find_child("*", true, false) as MeshInstance3D
-		var stair_material: StandardMaterial3D = null
-		if stair_mesh != null and stair_mesh.mesh != null:
-			stair_material = stair_mesh.mesh.material as StandardMaterial3D
-		_expect(stair_material != null and stair_material.albedo_texture != null \
-			and stair_material.albedo_color != Color.WHITE,
-			"streamed stairs have no regional texture/tint and can render white")
 	_expect(not host.get_tree().get_nodes_in_group("streamed_hiding_spot").is_empty(),
 		"live streamed window contains no rendered hiding spots")
 	_expect(host.get_tree().get_nodes_in_group("streamed_spawn_marker").size() == 1,
@@ -1068,64 +944,6 @@ func run(host: Node) -> int:
 		_expect(test_hunter is CharacterBody3D \
 			and test_hunter.get_node_or_null("HunterCollision") is CollisionShape3D,
 			"streamed hunter has no grounded gravity/collision body")
-		if lower_navigation != null and not up_route.is_empty():
-			test_hunter.brain.position = lower_endpoint
-			test_hunter.brain.state = HunterBrain.State.CHASE
-			hunter_levels[test_hunter_id] = 0
-			test_hunter.surface_height_provider = facility.streamed_surface_height.bind(0)
-			live_scene.call("_update_hunter_toward_stair", .01, test_hunter_id,
-				test_hunter, 0, {"peer_id": 1, "depth": -1,
-					"position": upper_endpoint, "hidden": false,
-					"in_safe_zone": false, "noise": 12.0,
-					"flashlight_on": true, "capture_immune": true},
-				lower_navigation)
-			var transfers: Dictionary = live_scene.get("_hunter_stair_transfers")
-			_expect(transfers.has(test_hunter_id),
-				"hunter reached a stair but did not begin a physical floor transfer")
-			var transfers_before_walk: Dictionary = live_scene.get(
-				"_hunter_stair_transfers")
-			var transfer_path: Array = (transfers_before_walk.get(test_hunter_id, {}) \
-				as Dictionary).get("path", [])
-			_expect(transfer_path.size() > 2 \
-					and not bool(test_hunter.get("_streamed_height_override_active")),
-				"hunter stair handoff is not using a physical multi-step ramp path")
-			for transfer_step in 50:
-				live_scene.call("_update_hunter_stair_transfer", .1,
-					test_hunter_id, test_hunter)
-			_expect(int(hunter_levels.get(test_hunter_id, 0)) == 1 \
-					and test_hunter.brain.position.is_equal_approx(upper_endpoint),
-				"hunter did not finish walking up the stair onto the adjacent floor")
-			_expect(test_hunter.brain.state == HunterBrain.State.CHASE \
-					and test_hunter.brain.has_last_known \
-					and test_hunter.brain.last_known.is_equal_approx(upper_endpoint),
-				"walking a stair incorrectly cancelled the active hunter chase")
-			# The reverse path is a real descent too. This catches implementations
-			# which can raise the durable level number but leave gravity/pathing on
-			# the arrival floor, making a downward escape permanent.
-			if upper_navigation != null:
-				live_scene.call("_update_hunter_toward_stair", .01, test_hunter_id,
-					test_hunter, 1, {"peer_id": 1, "depth": 0,
-						"position": lower_endpoint, "hidden": false,
-						"in_safe_zone": false, "noise": 12.0,
-						"flashlight_on": true, "capture_immune": true},
-					upper_navigation)
-				transfers = live_scene.get("_hunter_stair_transfers")
-				_expect(transfers.has(test_hunter_id),
-					"hunter reached an upper landing but did not begin walking down")
-				for transfer_step in 50:
-					live_scene.call("_update_hunter_stair_transfer", .1,
-						test_hunter_id, test_hunter)
-				_expect(int(hunter_levels.get(test_hunter_id, 1)) == 0 \
-						and test_hunter.brain.position.is_equal_approx(lower_endpoint) \
-						and test_hunter.brain.state == HunterBrain.State.CHASE,
-					"hunter did not physically descend and resume the same chase")
-			# Restore the local-floor audio/map test fixture.
-			test_hunter.brain.position = player.grid_position() + Vector2(2.0, 0.0)
-			hunter_levels[test_hunter_id] = facility.current_level()
-			test_hunter.surface_height_provider = facility.streamed_surface_height.bind(
-				facility.current_level())
-			test_hunter.clear_streamed_height_override()
-			live_scene.call("_store_hunter", test_hunter_id, test_hunter)
 		var unsafe_data := facility.generator.chunk(Vector3i(1, 0, 0))
 		_expect(int(live_scene.call("_live_danger_percent", live_lower)) == 0 \
 			and int(live_scene.call("_live_danger_percent", unsafe_data)) > 0,
@@ -1363,9 +1181,9 @@ func run(host: Node) -> int:
 	live_scene.call("_admin_toggle_map_reveal")
 	discovered = live_scene.get("_discovered_chunks")
 	_expect(discovered.size() >= discovered_before \
-		and not discovered.has(Vector3i(4, 0, 4)) \
-		and discovered.has(Vector3i(1, 0, 1)),
-		"admin reveal escaped the finite arrival floor or lost its boundary chunks")
+		and not discovered.has(Vector3i(5, 0, 5)) \
+		and discovered.has(Vector3i(4, 0, 4)),
+		"admin reveal left its bounded local survey or lost its boundary chunks")
 	live_scene.call("_admin_toggle_map_reveal")
 	var snapshot: Dictionary = live_scene.call("_build_stream_snapshot")
 	_expect(int(snapshot.get("snapshot_protocol", 0)) == live_scene.SNAPSHOT_PROTOCOL \
@@ -1401,7 +1219,7 @@ func run(host: Node) -> int:
 			"E-style dropped-item claim lost ownership or remaining durability")
 
 	var hunter_coord := Vector3i(999, 999, 999)
-	for level in range(-2, -8, -1):
+	for level in [0]:
 		if hunter_coord.x != 999:
 			break
 		for z in range(-8, 9):
@@ -1435,7 +1253,7 @@ func run(host: Node) -> int:
 				StreamedRouteGenerator.CHUNK_SIZE * 20, 0.0, 0.0)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 11,
+			_expect(facility.loaded_chunk_count() == 9,
 				"long-distance hunter unload leaked streamed chunks")
 			player.global_position = Vector3(
 				(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
@@ -1461,9 +1279,9 @@ func run(host: Node) -> int:
 				(hunter_coord.z - 2 - step * 2) * StreamedRouteGenerator.CHUNK_SIZE + chunk_center)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 11,
-				"long-session stream exceeded its eleven-chunk window at step %d" % step)
-			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 11,
+			_expect(facility.loaded_chunk_count() == 9,
+				"long-session stream exceeded its nine-chunk window at step %d" % step)
+			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
 				"long-session scene retained an evicted chunk at step %d" % step)
 		var live_navigation := live_scene.get("_navigation") as StreamedHunterNavigation
 		# Stair selection samples a five-by-five ring, while an active hunter may
@@ -1473,7 +1291,7 @@ func run(host: Node) -> int:
 			"streamed navigation cache grew with travel distance")
 
 	var prison_coord := Vector3i(999, 999, 999)
-	for level in range(-2, -8, -1):
+	for level in [0]:
 		if prison_coord.x != 999:
 			break
 		for z in range(-6, 7):
@@ -1496,9 +1314,9 @@ func run(host: Node) -> int:
 			"live stream did not follow the runner into the lower prison region")
 		_expect(not host.get_tree().get_nodes_in_group("streamed_prison_prop").is_empty(),
 			"live prison chunk contains no authored prison models")
-		_expect(facility.loaded_chunk_count() == 11,
+		_expect(facility.loaded_chunk_count() == 9,
 			"moving far away leaked old streamed chunks instead of evicting them")
-		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 11,
+		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
 			"streamed scene tree retained evicted chunk nodes")
 
 	# The live Infinite route -- not the legacy main_3d.tscn -- is what a

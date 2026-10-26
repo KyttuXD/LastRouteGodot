@@ -314,7 +314,11 @@ func cached_chunk_count() -> int:
 	return _chunk_cache.size()
 
 
-func _dual_level_pair_active(coord: Vector3i) -> bool:
+func _dual_level_pair_active(_coord: Vector3i) -> bool:
+	return false
+
+
+func _dual_level_pair_active_multi_level(coord: Vector3i) -> bool:
 	var lower_level := floori(float(coord.y) / 2.0) * 2
 	# Keep the compact arrival floor and its immediate ceiling conventional.
 	# Everywhere else, a stable minority of chunks can reserve a full vertical
@@ -519,7 +523,10 @@ func biome_for(coord: Vector3i) -> String:
 	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
 	var rng := SeededRandom.new("%s:BIOME:%d:%d:%d" % [
 		world_seed, region_x, coord.y, region_z])
-	var choices := ["maze", "mansion", "hotel", "apartment"]
+	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
+		"prison", "carnival", "inferno", "mansion", "hotel", "maze"]
+	if coord.y == 0:
+		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
 	# the central floor; Inferno is a deep-only biome and can never leak upward.
 	if coord.y <= -1:
@@ -588,7 +595,13 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	return result
 
 
-func stair_links(coord: Vector3i) -> Array:
+## The route is a single level: no stair links exist, so no chunk has a
+## stairwell, floor void or ceiling void.
+func stair_links(_coord: Vector3i) -> Array:
+	return []
+
+
+func _stair_links_multi_level(coord: Vector3i) -> Array:
 	var links := []
 	for lower_level in [coord.y - 1, coord.y]:
 		var forced_origin: bool = coord.x == 0 and coord.z == 0 \
@@ -655,11 +668,8 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# Level 0 is the compact arrival floor (finite 3x3). All other levels are
-	# horizontally unbounded for the infinite route.
-	if coord.y == 0:
-		return abs(coord.x) <= 1 and abs(coord.z) <= 1
-	return true
+	# One level only (y == 0), unbounded horizontally.
+	return coord.y == 0
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
