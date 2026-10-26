@@ -120,4 +120,4 @@ for v in VIEWS:
     if v == "head":
         shot(v, az, 1.0, 1.78 + 0.0)
     else:
-        shot(v, az, -0.02, 1.85)
+        shot(v, az, -0.02, 2.1)

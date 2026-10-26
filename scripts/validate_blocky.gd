@@ -59,7 +59,10 @@ func run(host: Node) -> int:
 			for horn_bone in ["L-Horn", "R-Horn"]:
 				if node.find_child(horn_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, horn_bone])
-		if id.begins_with("porcelle") or id.begins_with("mavrine") or id.begins_with("solyth"):
+		if id.begins_with("nyxie") or id.begins_with("solyth"):
+			if node.find_child("Glyph", true, false) == null:
+				_fail("%s is missing its Glyph" % id)
+		if id.begins_with("porcelle") or id.begins_with("mavrine"):
 			if node.find_child("Halo", true, false) == null:
 				_fail("%s is missing its Halo" % id)
 		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:
@@ -115,7 +118,7 @@ func _bounds(node: Node3D) -> AABB:
 		var m := mesh_node as MeshInstance3D
 		# horns, ears, wings, tails, gills and halos are extras: the 1.78 m body height is measured without them
 		var skip := false
-		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo"]:
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph"]:
 			if String(m.name).contains(extra):
 				skip = true
 		if skip:
