@@ -15,7 +15,7 @@ uniform float vignette_soft = 0.9;
 uniform vec3 shadow_tint : source_color = vec3(0.050, 0.014, 0.034);
 uniform vec3 mid_tint : source_color = vec3(0.5, 0.42, 0.36);
 uniform float grade_amount = 0.42;
-uniform float saturation = 0.88;
+uniform float saturation = 0.74;
 
 float bayer4(vec2 p) {
 	int x = int(mod(p.x, 4.0));

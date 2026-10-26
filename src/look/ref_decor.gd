@@ -120,7 +120,7 @@ const STYLE := {
 	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 8, "cable": 40, "frame": 7, "lit_rooms": .9},
 	"hotel": {"lamp": "sconce", "wall_lamp": 5, "teal": 14, "pipe": 8, "cable": 40, "frame": 6, "lit_rooms": .9},
 	"apartment": {"lamp": "sconce", "wall_lamp": 7, "teal": 20, "pipe": 6, "cable": 30, "frame": 8, "lit_rooms": .85},
-	"beach": {"lamp": "lantern", "wall_lamp": 5, "teal": 28, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .9},
+	"beach": {"lamp": "lantern", "wall_lamp": 3, "teal": 28, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .9},
 	"gothic": {"lamp": "lantern", "wall_lamp": 6, "teal": 30, "pipe": 6, "cable": 30, "frame": 0, "lit_rooms": .8},
 	"carnival": {"lamp": "ceiling", "wall_lamp": 6, "teal": 20, "pipe": 6, "cable": 20, "frame": 0, "lit_rooms": .9},
 	"prison": {"lamp": "ceiling", "wall_lamp": 10, "teal": 9, "pipe": 2, "cable": 14, "frame": 0, "lit_rooms": .7},
@@ -204,6 +204,15 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				_add("floor_cable", Transform3D(Basis(Vector3.UP, PI * .5 if dd.x == 0 else 0.0),
 					world + Vector3(dd.x * .25, .03, dd.y * .25)))
 				break
+	# planters of dusky flowers against the walls of garden rooms
+	if _region == "beach" and rt in ["cove", "tide_pool", "beach_hut", "boardwalk_room"] \
+			and _h(x, z, 151, 7) == 0:
+		for d in DIRS:
+			var dw: Vector2i = d
+			if not _open(grid, x + dw.x, z + dw.y):
+				_add("planter", Transform3D(Basis(Vector3.UP, _h(x, z, 152, 4) * PI * .5),
+					world + Vector3(dw.x * .1, 0, dw.y * .1)))
+				break
 	# lantern pedestals in the corners of garden rooms
 	if _region == "beach" and rt in ["cove", "tide_pool", "beach_hut", "boardwalk_room"]:
 		var rect := _room_rect(rt, x, z)
@@ -251,7 +260,10 @@ func _is_corridor_mid(grid: Array, x: int, z: int) -> bool:
 func _wall_lamp(base: Vector3, n: Vector3, kind: String, x: int, z: int) -> void:
 	var pos := base + n * .02 + Vector3(0, SCONCE_Y, 0)
 	var key := "lantern" if kind == "lantern" else "sconce"
-	_add(key, Transform3D(_facing_basis(n), pos))
+	var lamp_basis := _facing_basis(n)
+	if key == "lantern":
+		lamp_basis = lamp_basis.scaled(Vector3.ONE * 1.7)
+	_add(key, Transform3D(lamp_basis, pos))
 	var flicker := _h(x, z, 41, 4)
 	var light_pos := pos + n * .45
 	lamps.append([_root.position + light_pos, RefLook.AMBER_SOFT if flicker != 0 else RefLook.AMBER, 1.0, flicker])
@@ -328,6 +340,7 @@ static func mesh_for(key: String) -> Mesh:
 		"window": mesh = _build_window(Vector2(.95, 1.25))
 		"window_tall": mesh = _build_window(Vector2(.8, 2.5))
 		"pedestal": mesh = _build_pedestal()
+		"planter": mesh = _build_planter()
 		"floor_cable": mesh = _build_floor_cable()
 		"frame0": mesh = _build_frame(Vector2(.62, .84))
 		"frame1": mesh = _build_frame(Vector2(.8, .56))
@@ -378,6 +391,26 @@ static func material(key: String) -> Material:
 			s.emission = Color(1.0, .52, .13)
 			s.emission_energy_multiplier = 1.15
 			s.roughness = .3
+			m = s
+		"stone":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("2e2826")
+			s.roughness = .8
+			m = s
+		"leaf":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("1f3a1c")
+			s.roughness = 1.0
+			m = s
+		"bloom":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("8a2e52")
+			s.roughness = .9
+			m = s
+		"bloom_pale":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("b09a88")
+			s.roughness = .9
 			m = s
 		"night":
 			var s := StandardMaterial3D.new()
@@ -546,7 +579,7 @@ static func _build_sconce() -> Mesh:
 
 
 static func _build_lantern() -> Mesh:
-	return _merge([
+	var m := _merge([
 		["iron", _box(Vector3(.1, .1, .04)), _t(0, .14, .02)],
 		["iron", _box(Vector3(.03, .03, .1)), _t(0, .14, .07)],
 		["amber", _box(Vector3(.16, .2, .16)), _t(0, 0, .15)],
@@ -557,6 +590,7 @@ static func _build_lantern() -> Mesh:
 		["iron", _box(Vector3(.02, .2, .02)), _t(-.09, 0, .23)],
 		["iron", _box(Vector3(.02, .2, .02)), _t(.09, 0, .23)],
 	])
+	return m
 
 
 static func _build_ceiling(size: Vector3) -> Mesh:
@@ -594,6 +628,24 @@ static func _build_window(size: Vector2) -> Mesh:
 		["iron", _box(Vector3(size.x, .04, .05)), _t(0, size.y * .15, .07)]]
 	if size.y > 2.0:
 		parts.append(["iron", _box(Vector3(size.x, .04, .05)), _t(0, -size.y * .25, .07)])
+	return _merge(parts)
+
+
+static func _build_planter() -> Mesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7731
+	var parts := [["stone", _box(Vector3(.8, .34, .8)), _t(0, .17, 0)],
+		["iron", _box(Vector3(.86, .05, .86)), _t(0, .355, 0)]]
+	for i in 16:
+		var x := rng.randf_range(-.34, .34)
+		var z := rng.randf_range(-.34, .34)
+		var h := rng.randf_range(.12, .5)
+		var key := "leaf"
+		var size := Vector3(.16, h, .16)
+		parts.append([key, _box(size), _t(x, .36 + h * .5, z)])
+		if i % 3 == 0:
+			parts.append(["bloom" if i % 2 == 0 else "bloom_pale", _box(Vector3(.12, .1, .12)),
+				_t(x, .36 + h + .04, z)])
 	return _merge(parts)
 
 

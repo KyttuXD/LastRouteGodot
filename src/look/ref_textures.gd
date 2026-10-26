@@ -330,7 +330,7 @@ static func _paint_wall_panel(variant: int) -> Image:
 	# industrial plating: riveted plates, a maroon lower half, vertical pipe
 	var rng := _rng("wpanel%d" % variant)
 	var img := _new_image(PX, WALL_H)
-	_wall_base(img, rng, Color("3a1a26"), RefLook.METAL)
+	_wall_base(img, rng, Color("32202a"), RefLook.METAL)
 	# plate seams every 32px vertically, one vertical seam
 	for y in range(0, WALL_H, 32):
 		_dot(img, 0, y, Color("0a0809"), PX, 1)
@@ -364,7 +364,7 @@ static func _paint_wall_wallpaper(variant: int) -> Image:
 	# damask paper over a dark panelled wainscot with brass trim
 	var rng := _rng("wpaper%d" % variant)
 	var img := _new_image(PX, WALL_H)
-	var paper := Color("361829") if variant == 0 else Color("3a1822")
+	var paper := Color("2c1a26") if variant == 0 else Color("2e1a22")
 	_noise(img, 0, 0, PX, RAIL_Y, paper, .1, rng)
 	# damask motif: stacked flowers + diamond lattice, repeated twice vertically
 	for row in range(0, RAIL_Y - 12, 28):
@@ -453,15 +453,15 @@ static func _paint_wall_hedge(variant: int) -> Image:
 	# ivy over an iron-banded masonry base: the conservatory / courtyard walls
 	var rng := _rng("whedge%d" % variant)
 	var img := _new_image(PX, WALL_H)
-	var base := Color("20281e")
+	var base := Color("26301f")
 	_noise(img, 0, 0, PX, WALL_H, base, .22, rng)
 	for i in 28:
 		_leaf_cluster(img, rng, rng.randi_range(0, 31), rng.randi_range(4, WALL_H - 6), rng.randi_range(2, 5), Color("2a3a26"))
 	# a few dusky flowers
-	for i in 6:
-		var fx := rng.randi_range(2, 29)
+	for i in 10:
+		var fx := rng.randi_range(2, 28)
 		var fy := rng.randi_range(14, WALL_H - 20)
-		_dot(img, fx, fy, Color("6a2a46") if i % 2 == 0 else Color("8a5a6a"), 2, 2)
+		_dot(img, fx, fy, Color("8a2e52") if i % 2 == 0 else Color("b09a88"), 3, 3)
 	# brass-banded masonry plinth
 	_dot(img, 0, WALL_H - 30, Color("3a3030"), PX, 30)
 	for by in range(WALL_H - 30, WALL_H, 10):
@@ -479,7 +479,7 @@ static func _paint_wall_office(variant: int) -> Image:
 	# two-tone plaster: maroon lower half, dull grey-green upper, cork/paper hints
 	var rng := _rng("woffice%d" % variant)
 	var img := _new_image(PX, WALL_H)
-	_wall_base(img, rng, Color("3c1a24"), Color("2c2a28"))
+	_wall_base(img, rng, Color("36202a"), Color("2c2a28"))
 	_rail(img)
 	_skirt(img, Color("1c1214"))
 	_cornice(img, Color("2a2828"))
@@ -723,6 +723,6 @@ static func array_material(group: String) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = ARRAY_SHADER
 	m.set_shader_parameter("tex", _array_textures[group])
-	m.set_shader_parameter("tint", Vector3(1.75, 1.7, 1.8))
+	m.set_shader_parameter("tint", Vector3(1.55, 1.5, 1.6))
 	_array_materials[group] = m
 	return m
