@@ -296,6 +296,8 @@ func hunter_discovered(hunter_id: String) -> bool:
 ## the current room, but receives no permanent dossier unlock and cannot copy
 ## another runner's progress through ENet.
 func account_discover_hunter(hunter_id: String) -> bool:
+	if GameState.debug_run:
+		return false
 	if not signed_in() or not HunterRoster.PROFILES.has(hunter_id):
 		return false
 	var discoveries := discovered_hunters()
@@ -424,6 +426,8 @@ func account_logout() -> void:
 
 
 func account_save_progress(progress: Dictionary) -> void:
+	if GameState.debug_run:
+		return   # a DEBUG RUN (admin tools used) is never recorded
 	if not signed_in():
 		account_progress_changed.emit(has_route_checkpoint(),
 			account_progress.duplicate(true), account_progress_saved_at,

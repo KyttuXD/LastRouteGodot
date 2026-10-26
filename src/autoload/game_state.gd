@@ -14,6 +14,9 @@ const MAX_CHECKPOINT_TOTAL := 2_000_000_000
 
 var current_mode: GameMode = GameMode.LAST_ROUTE
 var depth: int = 1
+## Set the moment any admin tool is used: the run is a DEBUG RUN and records nothing (account progress,
+## hunter discoveries). Cleared by a new run.
+var debug_run := false
 var run_seed: int = 0
 var score: int = 0
 var relays_collected: int = 0
@@ -50,6 +53,7 @@ var _pending_route_checkpoint: Dictionary = {}
 
 
 func start_new_run(seed_value: int = 0, _difficulty_id: String = "standard") -> void:
+	debug_run = false
 	run_seed = seed_value if seed_value != 0 else randi()
 	depth = 1
 	score = 0

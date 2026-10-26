@@ -165,6 +165,8 @@ var look_frozen := false
 var admin_no_target := false
 var admin_god_mode := false
 var admin_noclip := false
+## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
+var admin_speed_scale := 1.0
 ## A captured co-op guest remains in the room as a free-flying spectator rather
 ## than respawning or being forced back to the menu. The host still treats this
 ## state as game-over for targeting and replication purposes.
@@ -585,6 +587,7 @@ func enter_spectator() -> void:
 	# Capture/death spectator for guests: ensure no admin cheats remain active.
 	admin_no_target = false
 	admin_god_mode = false
+	admin_speed_scale = 1.0
 	set_admin_noclip(false)
 	spectator_mode = true
 	input_frozen = false
@@ -739,6 +742,8 @@ func _physics_process(delta: float) -> void:
 	else:
 		movement_speed *= float(difficulty["player_speed"])
 		movement_mode = "walk"
+
+	movement_speed *= admin_speed_scale
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 

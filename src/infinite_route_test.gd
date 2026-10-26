@@ -472,6 +472,23 @@ func _admin_status() -> String:
 		else "NONE", mini(pressure_remaining, afk_remaining),
 		_anti_idle_spawn_sequence,
 		"ON" if _admin_reveal_map else "OFF"]
+	# hunters nearest first: name, state, distance
+	var rows := []
+	for view_value in _hunter_views.values():
+		var hv := view_value as HunterView3D
+		if hv == null or hv.brain == null:
+			continue
+		var d := hv.brain.position.distance_to(player.grid_position())
+		rows.append([d, "%s %s %dm%s" % [String(HunterRoster.get_identity(hv.brain.hunter_id).get("display_name", hv.brain.hunter_id)).to_upper(),
+			HunterBrain.State.keys()[hv.brain.state], int(d), " FROZEN" if hv.brain.stun_timer > 999.0 else ("" if hv.brain.active else " ASLEEP")]])
+	rows.sort_custom(func(a, b) -> bool: return a[0] < b[0])
+	result += "\nHUNTERS (nearest)"
+	for i in mini(rows.size(), 6):
+		result += "\n  " + String(rows[i][1])
+	if RoomState.public_route:
+		result += "\nPUBLIC ROUTE: %s" % ("HOST" if RoomState.is_host else "GUEST")
+	if GameState.debug_run:
+		result += "\nDEBUG RUN // NOT RECORDED"
 	if Backend.admin_owner_authorized():
 		result += "\nADMIN ROSTER %s" % Backend.admin_roster_summary()
 	return result
@@ -489,7 +506,7 @@ func _hunter_admin_labels(ids: Array) -> Dictionary:
 func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
-			"owner_only": true},
+			"owner_only": true, "no_debug": true},
 		{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
@@ -548,6 +565,31 @@ func _infinite_admin_actions() -> Array:
 			"items": HunterRoster.VOID_IDS,
 			"labels": _hunter_admin_labels(HunterRoster.VOID_IDS),
 			"action": _admin_remove_hunter},
+		{"label": "FREEZE ALL HUNTERS", "permission": "hunters",
+			"action": func() -> void: _admin_world_action("freeze_hunters")},
+		{"label": "RELEASE ALL HUNTERS", "permission": "hunters",
+			"action": func() -> void: _admin_world_action("release_hunters")},
+		{"heading": "TELEPORT // CHUNKS AND SAFE ROOMS", "permission": "player",
+			"items": ["north", "south", "east", "west", "safe_room", "relay"],
+			"labels": {"north": "Chunk N", "south": "Chunk S", "east": "Chunk E", "west": "Chunk W",
+				"safe_room": "Safe room", "relay": "Nearest relay"},
+			"action": _admin_teleport_chunk},
+		{"heading": "RUN SPEED", "permission": "player",
+			"items": ["1", "1.5", "2", "3"],
+			"labels": {"1": "1x", "1.5": "1.5x", "2": "2x", "3": "3x"},
+			"action": func(id: String) -> void: player.admin_speed_scale = float(id)},
+		{"heading": "GAME SPEED // SOLO RUNS ONLY", "permission": "world",
+			"items": ["0", "0.25", "1", "2", "4", "step"],
+			"labels": {"0": "Pause", "0.25": "0.25x", "1": "1x", "2": "2x", "4": "4x", "step": "Step 1 frame"},
+			"action": _admin_game_speed},
+		{"label": "COPY SEED", "permission": "world", "no_debug": true,
+			"action": func() -> void:
+				DisplayServer.clipboard_set(str(facility.generator.world_seed))
+				hud.show_message("SEED COPIED")},
+		{"label": "COPY ROOM CODE", "permission": "world", "no_debug": true,
+			"action": func() -> void:
+				DisplayServer.clipboard_set(RoomState.code)
+				hud.show_message("ROOM CODE COPIED")},
 		{"label": "DAMAGE CHECKPOINT", "permission": "world",
 			"action": func() -> void: _admin_world_action("damage_checkpoint")},
 		{"label": "REPAIR CHECKPOINT", "permission": "world",
@@ -586,9 +628,9 @@ func _admin_roster_fields() -> Array:
 	return [
 		{"label": "ADD / UPDATE LIMITED ADMIN",
 			"placeholder": "USERNAME:player,world,hunters,visual,inventory",
-			"on_submit": Backend.admin_roster_set_spec, "owner_only": true},
+			"on_submit": Backend.admin_roster_set_spec, "owner_only": true, "no_debug": true},
 		{"label": "REMOVE LIMITED ADMIN", "placeholder": "USERNAME",
-			"on_submit": Backend.admin_roster_remove, "owner_only": true},
+			"on_submit": Backend.admin_roster_remove, "owner_only": true, "no_debug": true},
 	]
 
 
@@ -1006,6 +1048,9 @@ func _force_disable_admin_cheats() -> void:
 		player.admin_no_target = false
 		player.admin_god_mode = false
 		player.set_admin_noclip(false)
+	if player != null:
+		player.admin_speed_scale = 1.0
+	Engine.time_scale = 1.0
 	_admin_reveal_hunters = false
 	_admin_reveal_map = false
 	_set_admin_map_reveal(false)
@@ -3597,6 +3642,72 @@ func _admin_reset_story() -> void:
 	_admin_world_action("story_reset")
 
 
+## Chunk teleports land on the chunk's centre cell, where the main halls cross (always open floor).
+func _admin_teleport_chunk(id: String) -> void:
+	var here := facility.current_chunk_coord()
+	var target := here
+	match id:
+		"north": target = Vector3i(here.x, here.y, here.z - 1)
+		"south": target = Vector3i(here.x, here.y, here.z + 1)
+		"east": target = Vector3i(here.x + 1, here.y, here.z)
+		"west": target = Vector3i(here.x - 1, here.y, here.z)
+		"safe_room":
+			var best := 99999.0
+			for dz in range(-5, 6):
+				for dx in range(-5, 6):
+					var coord := Vector3i(here.x + dx, here.y, here.z + dz)
+					if not facility.generator.is_chunk_allowed(coord):
+						continue
+					if bool(facility.generator.chunk(coord).get("safe_room", false)):
+						var d := float(dx * dx + dz * dz)
+						if d < best and d > 0.0:
+							best = d
+							target = coord
+			if target == here:
+				hud.show_message("ADMIN // NO SAFE ROOM WITHIN 5 CHUNKS")
+				return
+		"relay":
+			var relay := _admin_nearest_relay_position()
+			if relay == Vector3.INF:
+				hud.show_message("ADMIN // NO LOADED RELAY")
+				return
+			_admin_teleport_to(relay)
+			return
+	if not facility.generator.is_chunk_allowed(target):
+		hud.show_message("ADMIN // THAT CHUNK DOES NOT EXIST")
+		return
+	var cs := StreamedRouteGenerator.CHUNK_SIZE
+	_admin_teleport_to(Vector3(target.x * cs + cs / 2 + .5, player.global_position.y,
+		target.z * cs + cs / 2 + .5))
+
+
+func _admin_nearest_relay_position() -> Vector3:
+	var best := INF
+	var found := Vector3.INF
+	for node in get_tree().get_nodes_in_group("interactable"):
+		var item := node as RouteInteractable3D
+		if item == null or item.kind != RouteInteractable3D.Kind.RELAY or item.completed:
+			continue
+		var d := item.global_position.distance_to(player.global_position)
+		if d < best:
+			best = d
+			found = item.global_position + Vector3(0, 0, 1.2)
+	return found
+
+
+## Solo only: speeding up or pausing the simulation would desync everyone else in the room.
+func _admin_game_speed(id: String) -> void:
+	if RoomState.online and (RoomState.public_route or RoomState.peers.size() > 1):
+		hud.show_message("ADMIN // OTHER PLAYERS ARE IN THIS ROOM")
+		return
+	if id == "step":
+		Engine.time_scale = 1.0
+		await get_tree().physics_frame
+		Engine.time_scale = 0.0
+		return
+	Engine.time_scale = float(id)
+
+
 func _admin_world_action(action: String, payload: Dictionary = {}) -> void:
 	var event := {"what": "admin_world", "action": action}
 	for key in payload:
@@ -3638,6 +3749,18 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 					view.brain.activate_at(target_position)
 					view.target_peer_id = peer_id
 					view.sync_from_brain()
+		"freeze_hunters":
+			for view_value in _hunter_views.values():
+				var view := view_value as HunterView3D
+				if view != null and view.brain != null:
+					view.brain.apply_stun(1.0e6)
+					view.sync_from_brain()
+		"release_hunters":
+			for view_value in _hunter_views.values():
+				var view := view_value as HunterView3D
+				if view != null and view.brain != null:
+					view.brain.stun_timer = 0.0
+					view.sync_from_brain()
 		"calm_hunters":
 			for view_value in _hunter_views.values():
 				var view := view_value as HunterView3D
@@ -3674,6 +3797,7 @@ func _admin_action_permission(action: String) -> String:
 			"repair_checkpoint", "story_start", "story_stop", "story_reset"]:
 		return "world"
 	if action in ["stun_hunters", "wake_hunters", "calm_hunters",
+			"freeze_hunters", "release_hunters",
 			"summon_hunter", "remove_hunter"]:
 		return "hunters"
 	return ""

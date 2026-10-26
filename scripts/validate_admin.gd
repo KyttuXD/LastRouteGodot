@@ -317,6 +317,63 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	Settings.set_admin_preferences(original_admin_preferences)
 
+	# ---- the streamed route's admin tools: new tools, ADMIN ACTIVE badge, DEBUG RUN flag
+	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(route)
+	await host.get_tree().process_frame
+	for _index in 8:
+		await host.get_tree().physics_frame
+	var route_menu: AdminMenu = null
+	for child in route.get_children():
+		if child is AdminMenu:
+			route_menu = child
+	if route_menu == null:
+		_fail("the streamed route has no admin overlay in a debug build")
+	else:
+		var labels := []
+		for entry in route_menu._actions:
+			labels.append(String(entry.get("label", entry.get("heading", ""))))
+		for wanted in ["FREEZE ALL HUNTERS", "RELEASE ALL HUNTERS", "TELEPORT // CHUNKS AND SAFE ROOMS",
+				"RUN SPEED", "GAME SPEED // SOLO RUNS ONLY", "COPY SEED", "SUMMON VOID HUNTER"]:
+			_expect(labels.has(wanted), "streamed route admin menu lacks %s" % wanted)
+		# everything the new tools add is permission-scoped (nothing falls through to ungated)
+		for entry in route_menu._actions:
+			var gated: bool = entry.has("permission") or bool(entry.get("owner_only", false))
+			_expect(gated, "admin entry %s has no permission scope" % entry.get("label", entry.get("heading", "?")))
+		var badge := route_menu.get_node_or_null("AdminActiveBadge") as Label
+		_expect(badge != null and badge.text.begins_with("ADMIN ACTIVE"),
+			"the ADMIN ACTIVE badge is missing")
+		GameState.debug_run = false
+		route_menu._mark_debug({"label": "x"})
+		_expect(GameState.debug_run and badge.text.contains("DEBUG RUN"),
+			"using a tool did not flag the run as a DEBUG RUN")
+		GameState.debug_run = false
+		route_menu._mark_debug({"no_debug": true})
+		_expect(not GameState.debug_run, "a roster/read-only entry must not flag a DEBUG RUN")
+		# a DEBUG RUN records nothing
+		GameState.debug_run = true
+		var saved_before := Backend.account_progress_saved_at
+		Backend.account_save_progress({"kind": "last_route", "schema": 1})
+		_expect(Backend.account_progress_saved_at == saved_before and not Backend.account_discover_hunter("aki"),
+			"a DEBUG RUN still recorded progress")
+		GameState.debug_run = false
+		# chunk teleport lands on the next chunk's centre; run speed and game speed apply and reset
+		var here: Vector3i = route.facility.current_chunk_coord()
+		route._admin_teleport_chunk("east")
+		var cs: int = StreamedRouteGenerator.CHUNK_SIZE
+		_expect(floori(route.player.global_position.x / cs) == here.x + 1,
+			"the chunk teleport did not move one chunk east")
+		route.player.admin_speed_scale = 2.0
+		route._admin_game_speed("2")
+		_expect(Engine.time_scale == 2.0, "the game-speed tool did not set the time scale")
+		route._force_disable_admin_cheats()
+		_expect(Engine.time_scale == 1.0 and route.player.admin_speed_scale == 1.0,
+			"disabling the admin cheats did not reset game speed and run speed")
+	Engine.time_scale = 1.0
+	GameState.debug_run = false
+	route.queue_free()
+	await host.get_tree().process_frame
+
 	if _failures == 0:
 		print("admin OK")
 	return _failures

@@ -39,6 +39,7 @@ var _state_buttons: Array = []
 var _text_fields: Array = []
 var _status: Callable = Callable()
 var _first_action_button: Button
+var _badge: Label
 
 
 static func attach(host: Node, status: Callable, actions: Array, text_fields: Array = []) -> AdminMenu:
@@ -56,6 +57,40 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 120
 	_build()
+	_build_badge()
+
+
+## "ADMIN ACTIVE" tag, top centre, also while the panel is closed, so an admin in a shared route or
+## room (and anyone watching their screen) can see the tools are on. Says where, and DEBUG RUN once used.
+func _build_badge() -> void:
+	_badge = Label.new()
+	_badge.name = "AdminActiveBadge"
+	_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_badge.add_theme_font_size_override("font_size", 6)
+	_badge.add_theme_color_override("font_color", Palette.ON_AMBER)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Palette.TEAL
+	box.content_margin_left = 6
+	box.content_margin_right = 6
+	box.content_margin_top = 2
+	box.content_margin_bottom = 2
+	_badge.add_theme_stylebox_override("normal", box)
+	_badge.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_badge.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_badge.offset_top = 16 if Backend.test_server_active else 4
+	add_child(_badge)
+	_refresh_badge()
+
+
+func _refresh_badge() -> void:
+	if _badge == null:
+		return
+	var where := "SOLO"
+	if RoomState.public_route:
+		where = "PUBLIC ROUTE"
+	elif RoomState.online:
+		where = "ROOM"
+	_badge.text = "ADMIN ACTIVE // %s%s" % [where, " // DEBUG RUN (NOT RECORDED)" if GameState.debug_run else ""]
 
 
 func is_open() -> bool:
@@ -146,6 +181,7 @@ func _build() -> void:
 					Palette.style_button(item_button, false, true)
 					item_button.pressed.connect(func() -> void:
 						item_action.call(item_id)
+						_mark_debug(entry)
 						_refresh())
 					grid.add_child(item_button)
 					if _first_action_button == null:
@@ -167,6 +203,7 @@ func _build() -> void:
 		var action: Callable = entry["action"]
 		button.pressed.connect(func() -> void:
 			action.call()
+			_mark_debug(entry)
 			_refresh())
 		column.add_child(button)
 		if _first_action_button == null:
@@ -189,6 +226,7 @@ func _build() -> void:
 		var on_submit: Callable = entry["on_submit"]
 		field.text_submitted.connect(func(value: String) -> void:
 			on_submit.call(value)
+			_mark_debug(entry)
 			_refresh())
 		column.add_child(field)
 
@@ -199,6 +237,15 @@ func _build() -> void:
 	column.add_child(hint)
 
 	_set_open(false)
+
+
+## Using a tool makes the run a DEBUG RUN: nothing from it is recorded (see GameState.debug_run).
+## Roster edits and read-only entries opt out with "no_debug".
+func _mark_debug(entry: Dictionary) -> void:
+	if bool(entry.get("no_debug", false)):
+		return
+	GameState.debug_run = true
+	_refresh_badge()
 
 
 func _entry_allowed(entry: Dictionary) -> bool:
@@ -236,6 +283,7 @@ func _refresh() -> void:
 
 
 func _process(_delta: float) -> void:
+	_refresh_badge()
 	if _open:
 		_refresh()
 
