@@ -47,6 +47,10 @@ func run(host: Node) -> int:
 			for fish_bone in ["L-Gill", "R-Gill", "Tail-1", "Tail-2", "Tail-3", "Tail-Fin"]:
 				if node.find_child(fish_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, fish_bone])
+		if id.begins_with("verrine") or id.begins_with("haelith") or id.begins_with("quirith"):
+			for wolf_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
+				if node.find_child(wolf_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, wolf_bone])
 		if id.begins_with("ilyra") or id.begins_with("eirys"):
 			for cat_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
 				if node.find_child(cat_bone, true, false) == null:
@@ -55,6 +59,11 @@ func run(host: Node) -> int:
 			for horn_bone in ["L-Horn", "R-Horn"]:
 				if node.find_child(horn_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, horn_bone])
+		if id.begins_with("porcelle") or id.begins_with("mavrine") or id.begins_with("solyth"):
+			if node.find_child("Halo", true, false) == null:
+				_fail("%s is missing its Halo" % id)
+		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:
+			_fail("porcelle is missing her horns")
 		if id.begins_with("kathy"):
 			for pony in ["Pony-1", "Pony-2", "Pony-3"]:
 				if node.find_child(pony, true, false) == null:
