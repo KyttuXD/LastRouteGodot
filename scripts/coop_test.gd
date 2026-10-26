@@ -34,6 +34,10 @@ func _ready() -> void:
 	if role.is_empty() or dir.is_empty():
 		_fail("usage: -- host|guest|late --backend=URL --dir=DIR")
 		return
+	var refused := TargetGuard.problem()
+	if not refused.is_empty():
+		_fail(refused)
+		return
 	# Stay in the tree when starting a route swaps the current scene: this node is
 	# not "the current scene" any more, so change_scene_to_file leaves it alone.
 	get_tree().current_scene = null

@@ -2,7 +2,9 @@ extends Node
 
 ## Live Godot -> primary Node directory smoke:
 ##
-##   godot4 --headless --path . res://scenes/backend_smoke.tscn
+##   godot4 --headless --path . res://scenes/backend_smoke.tscn -- --backend=URL
+##
+## Without --backend= it targets PRODUCTION and refuses unless --i-know-this-is-production is given.
 ##
 ## This opens a real ENet host, exercises RoomState's automatic registration,
 ## resolves its room code back into an endpoint, and verifies leaving removes
@@ -21,6 +23,10 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	var refused := TargetGuard.problem()
+	if not refused.is_empty():
+		_finish(false, refused)
+		return
 	if not Backend.configured():
 		_finish(false, "primary room directory is not configured")
 		return

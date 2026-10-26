@@ -10,17 +10,25 @@ GODOT="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TMP="$(mktemp -d)"
 HTTP=${COOP_HTTP_PORT:-18105}; RELAY=${COOP_RELAY_PORT:-11105}
 PIDS=()
-cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; rm -rf "$TMP"; }
+cleanup() { for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; rm -rf "$TMP"; }
 trap cleanup EXIT
 cd "$ROOT"
+# Remote mode (see scripts/_target.sh): REMOTE=1 BACKEND_URL=<test instance> scripts/coop_test.sh
+# runs host/guest/late against that server instead of starting a local one. Nothing in this test needs
+# a local server restart or local server files, so no check is skipped; only the server log is absent.
+. "$ROOT/scripts/_target.sh"
+if [ "$REMOTE" = 1 ]; then
+  echo "coop test against REMOTE $BACKEND_URL"
+else
 HOST=127.0.0.1 LASTROUTE_HTTP_PORT=$HTTP LASTROUTE_RELAY_HOST=127.0.0.1 LASTROUTE_RELAY_PORT=$RELAY \
   LASTROUTE_DATA_DIR="$TMP/data" LASTROUTE_AUTO_UPDATE=false LASTROUTE_RESTART_ON_GITHUB_UPDATE=false \
   node "${SERVER_ROOT:-.}/index.js" > "$TMP/server.log" 2>&1 &
 PIDS+=($!)
 sleep 2
-BACKEND="--backend=http://127.0.0.1:$HTTP"
+fi
+if [ "$REMOTE" = 1 ]; then BACKEND="--backend=$BACKEND_URL"; else BACKEND="--backend=http://127.0.0.1:$HTTP"; fi
 run() { # role, log
-  "$GODOT" --headless --path . res://scenes/coop_test.tscn -- "$1" "$BACKEND" "--dir=$TMP" > "$TMP/$1.log" 2>&1 &
+  "$GODOT" --headless --path . res://scenes/coop_test.tscn -- "$1" "$BACKEND" "--dir=$TMP" $GODOT_FLAGS > "$TMP/$1.log" 2>&1 &
   PIDS+=($!); echo $! > "$TMP/$1.pid"
 }
 run host; sleep 3; run guest

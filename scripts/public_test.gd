@@ -26,6 +26,10 @@ func _ready() -> void:
 	if role.is_empty() or dir.is_empty() or key.is_empty():
 		_fail("usage: -- a|b|b2 --backend=URL --dir=DIR --key=HEX")
 		return
+	var refused := TargetGuard.problem()
+	if not refused.is_empty():
+		_fail(refused)
+		return
 	PublicRoute.use_player_key(key)
 	get_tree().current_scene = null
 	_run.call_deferred()

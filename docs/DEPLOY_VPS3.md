@@ -32,7 +32,7 @@ collides with `last-route.service` (the website/web game), which is never touche
 | `deploy/lastroute-godot2.service` | hardened systemd unit (no new privileges, read-only OS, private /tmp, only its state dir writable, memory cap 512 MB, journald logs, `Restart=on-failure`) |
 | `deploy/lastroute-godot2.env.example` | environment template, no secrets |
 | `deploy/deploy.sh` | idempotent install/upgrade/rollback, **dry run by default** |
-| `deploy/firewall.sh` | opens only TCP 8105 and UDP 1105, **dry run by default** |
+| `deploy/firewall.sh` | opens only TCP 8105 and UDP 1105 (`--instance test`: 8205/1205), **dry run by default** |
 | `deploy/smoke.mjs` | network smoke test (health, room register/resolve/unregister, PUBLIC status) |
 | `deploy/nginx-godot.kyttuslab.org.conf.example` | optional HTTPS front for a future subdomain |
 
@@ -129,6 +129,70 @@ release; KT creates it in GitHub, it goes only into the env file on the server. 
 the process exits with code 75 when the watched branch advances and systemd restarts it
 (`Restart=on-failure`). A new backend release is otherwise shipped with `deploy.sh --apply`.
 
+## Test instance (a second copy on the same VPS)
+
+A separate instance for experiments and tests, so production data is never touched:
+
+| | production | test |
+| --- | --- | --- |
+| service | `lastroute-godot2` | `lastroute-godot2-test` |
+| user | `lastroute2` | `lastroute2test` |
+| code | `/opt/lastroute-godot2` | `/opt/lastroute-godot2-test` |
+| env (secrets) | `/etc/lastroute-godot2/` | `/etc/lastroute-godot2-test/` (own generated admin key) |
+| data | `/var/lib/lastroute-godot2` | `/var/lib/lastroute-godot2-test` |
+| ports | TCP 8105 / UDP 1105 | **TCP 8205 / UDP 1205** |
+| `/api/health` `instance` | `"production"` | `"test"` |
+
+`deploy.sh --instance test` never touches the production unit, files or ports, and refuses to run if its
+env file would use 8105/1105. Everything is a dry run until `--apply`. Each step marked **[KT OK]** needs
+approval (it is a change on VPS 3).
+
+```sh
+# on VPS 3, from the copied repo directory
+deploy/deploy.sh --instance test                       # dry run: prints the read-only pre-flight and every change
+sudo deploy/deploy.sh --instance test --apply --no-start   # [KT OK] user, dirs, release, env (generated admin key), unit
+sudo deploy/firewall.sh --instance test                # dry run; ufw is inactive on VPS 3 so no host rule is needed
+# (cloud firewall: allow TCP 8205 and UDP 1205 in the provider panel)  [KT]
+sudo deploy/deploy.sh --instance test --apply          # [KT OK] start, health + smoke (instance must say "test"), auto-rollback
+curl -s http://127.0.0.1:8205/api/health               # "instance":"test"
+```
+
+DNS: the same `lastroute.kyttuslab.org` name serves both instances (different ports), so no new record is
+needed. The test instance returns `lastroute.kyttuslab.org:1205` as its relay address (`LASTROUTE_RELAY_PORT`
+in its env file).
+
+* **Reset / wipe:** `sudo deploy/deploy.sh --instance test --wipe-data --apply` stops the test service,
+  empties `/var/lib/lastroute-godot2-test` (accounts, PUBLIC route state) and starts it again. It is refused
+  for production. Wiping before a PUBLIC route test is recommended because the PUBLIC route keeps its state for
+  the UTC day.
+* **Redeploy / roll back the test instance:** `sudo deploy/deploy.sh --instance test --apply` (new release dir),
+  `sudo deploy/deploy.sh --instance test --rollback --apply`.
+* **Promote a tested release to production:** the release directory is just a copy of the repo, so promote by
+  deploying the *same source* to production after the test instance passed: copy the tested release dir
+  (`/opt/lastroute-godot2-test/releases/<release>`) and run `sudo deploy/deploy.sh --src <that dir> --apply`
+  (production is the default instance). Production data is untouched except by its own code upgrade. The
+  production env file is never overwritten.
+* **Remove it:** `sudo systemctl disable --now lastroute-godot2-test`, delete the unit, `/opt/lastroute-godot2-test`,
+  `/etc/lastroute-godot2-test`, `/var/lib/lastroute-godot2-test` and the `lastroute2test` user (all test-only).
+
+### Pointing the game and the test scripts at the test instance
+
+* **Godot client (debug builds only):** run with `-- --backend=http://lastroute.kyttuslab.org:8205`. That one
+  origin (exact match) is accepted on top of the loopback override; any other host is ignored with a warning,
+  and release/exported-release builds ignore the flag entirely. While it is active the menu and HUD show a
+  red **TEST SERVER // lastroute.kyttuslab.org:8205** badge. There is no separate relay flag: the room
+  directory tells the client the relay address and port (from the server's env), so pointing the client at the
+  test HTTP origin is enough. Account sign-in stays disabled for that plain-HTTP origin.
+* **Test scripts:** `REMOTE=1 BACKEND_URL=http://lastroute.kyttuslab.org:8205 scripts/coop_test.sh` and
+  `scripts/public_test.sh` run the real clients against that server instead of starting a local one.
+  Skipped when remote: the local server log, and in `public_test.sh` the backend-restart step (the "authority
+  survives a restart" check only re-confirms the authority still holds). `scripts/remote_smoke.sh` runs the
+  node smoke test (with the instance check), `backend_smoke.tscn` and the co-op test (host + guest + late
+  joiner) against the test instance.
+* **Production is protected:** all of them refuse any target on port 8105, any host except loopback and the
+  test URL, and the Godot side refuses if the client silently fell back to the production origin. To really
+  target production you must pass `--i-know-this-is-production`; don't.
+
 ## Rollback
 
 ```sh
@@ -160,7 +224,11 @@ The last 5 release directories are kept under `/opt/lastroute-godot2/releases`.
 * The deployed copy started with the generated env file (ports overridden to free ones) passes
   `deploy/smoke.mjs`, and `scripts/coop_test.sh` / `scripts/public_test.sh` pass against that copy
   (`SERVER_ROOT=<release dir>`).
-* `npm test` backend tests pass.
+* `npm test` backend tests pass (35). Test instance: `deploy.sh --instance test` staged next to production (separate
+  unit/user/env/data/release dirs, ports 8205/1205, different generated admin key, `"instance":"test"` in health,
+  wipe and rollback work, wipe refused for production). `scripts/coop_test.sh` and `scripts/public_test.sh` pass in
+  default mode and with `REMOTE=1` against a loopback server; `scripts/remote_smoke.sh` passes; production and
+  unknown targets are refused. Not run: anything against the real VPS.
 * **Not** verifiable on a Mac: the systemd unit itself (`systemd-analyze verify`, the sandboxing options,
   `StateDirectory`) and `useradd`/`chown`/`ufw`. On the VPS run `systemd-analyze verify
   /etc/systemd/system/lastroute-godot2.service` after step 2; if a hardening option is rejected by an old
