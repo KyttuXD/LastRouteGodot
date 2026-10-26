@@ -36,5 +36,17 @@ PROFILES = {
 }
 
 
+# Void: the roster's "more aggressive" baseline (shared), plus a nudge per colour toward its gimmick. First pass.
+_VOID = dict(tempo=1.15, stride=1.1, arm_swing=0.8, lean=5, head_pitch=3, idle_amp=0.5)
+PROFILES.update({f"void_{c}": dict(_VOID, **o) for c, o in {
+    "black": dict(idle_amp=0.7), "blue": dict(tempo=1.0, stride=0.95, arm_swing=0.5, bounce=0.7),
+    "brown": dict(tempo=1.05, stride=1.2, arm_swing=1.2, lean=8), "cyan": dict(head_roll=5, idle_amp=1.2, idle_tempo=1.4),
+    "gray": dict(tempo=0.95, arm_swing=0.2, bounce=0.4, idle_amp=0.2, lean=2), "green": dict(arm_swing=0.9, bounce=1.1, head_roll=-4),
+    "orange": dict(tempo=1.3, stride=1.25, lean=10, arm_swing=1.3), "pink": dict(tempo=0.95, head_roll=6, bounce=1.2, idle_amp=1.0),
+    "purple": dict(tempo=1.2, bounce=0.6, idle_amp=1.0, idle_tempo=1.6), "red": dict(tempo=1.3, stride=1.25, arm_swing=1.4, lean=9, head_pitch=6),
+    "white": dict(tempo=0.95, head_roll=8, head_pitch=-2, idle_amp=1.3), "yellow": dict(tempo=1.2, stride=1.15, arm_swing=1.1, bounce=1.2),
+}.items()})
+
+
 def profile(name):
     return PROFILES.get(name.replace("_tall", ""), {})

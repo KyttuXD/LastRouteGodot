@@ -59,10 +59,14 @@ def _record_emotes(name, meta):
 
 
 def build(name, tall=0.0):
-    try:
-        mod = importlib.import_module(f"hunters.{name}")
-    except ModuleNotFoundError:
-        mod = _generic(name)
+    if name.startswith("void_"):                      # the 12 Void hunters: hunters/void_set.py
+        from hunters import void_set
+        mod = void_set.module(name)
+    else:
+        try:
+            mod = importlib.import_module(f"hunters.{name}")
+        except ModuleNotFoundError:
+            mod = _generic(name)
     cubes, face = mod.build()
     sk, eyes, extras = mod.SK, mod.EYES, list(mod.EXTRAS)
     if tall:
@@ -103,6 +107,9 @@ if __name__ == "__main__":
             args.remove(a)
     if args == ["all"]:
         from hunters.roster import IDS
+        args = IDS
+    elif args == ["void"]:
+        from hunters.void_set import IDS
         args = IDS
     for n in args or ["kathy"]:
         build(n, tall)

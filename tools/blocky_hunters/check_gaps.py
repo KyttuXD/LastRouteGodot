@@ -11,7 +11,9 @@ import math, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import bb_rig, bb_skin
 from hunters import motion
-from hunters.roster import IDS
+from hunters.roster import IDS as _AZ
+from hunters.void_set import IDS as _VOID
+IDS = _AZ + _VOID
 
 # child bone -> (width, depth) of the cube pair meeting at its joint, in skin px
 JOINTS = {"L-Thigh": (4, 4), "R-Thigh": (4, 4), "L-Calf": (4, 4), "R-Calf": (4, 4), "L-Foot": (4, 6), "R-Foot": (4, 6),

@@ -1333,6 +1333,318 @@
    "shared": false
   }
  ],
+ "void_black": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_blue": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_brown": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_cyan": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_gray": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_green": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_orange": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_pink": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_purple": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_red": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_white": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
+ "void_yellow": [
+  {
+   "clip": "emote_wave",
+   "label": "Wave",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_cheer",
+   "label": "Cheer",
+   "face": "happy",
+   "shared": true
+  },
+  {
+   "clip": "emote_bow",
+   "label": "Bow",
+   "face": "blink",
+   "shared": true
+  },
+  {
+   "clip": "emote_shrug",
+   "label": "Shrug",
+   "face": "neutral",
+   "shared": true
+  }
+ ],
  "wynelle": [
   {
    "clip": "emote_wave",

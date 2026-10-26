@@ -12,7 +12,16 @@ extends RefCounted
 const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra", "haelith", "ilyra",
 	"jyvra", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quirith", "ravelle", "solyth",
 	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
-	"kathy_tall", "aki_tall", "xivvy_tall"]
+	"kathy_tall", "aki_tall", "xivvy_tall",
+	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink",
+	"void_purple", "void_red", "void_white", "void_yellow"]
+## Void hunters: presented larger than the A-Z hunters, each with one silhouette cue on a Cue-* bone
+const VOID_HEIGHT := 2.0
+const VOID_CUES := {
+	"void_black": ["Cue-Motes"], "void_blue": ["Cue-Crown", "Cue-Trail-1", "Cue-Trail-2", "Cue-Trail-3"],
+	"void_brown": [], "void_cyan": ["Cue-Antenna-L", "Cue-Antenna-R"], "void_gray": [],
+	"void_green": ["Cue-Spores"], "void_orange": ["Cue-Crest-L", "Cue-Crest-R"], "void_pink": ["Cue-Lure"],
+	"void_purple": ["Cue-Phase"], "void_red": [], "void_white": ["Cue-Ear-L", "Cue-Ear-R"], "void_yellow": ["Cue-Bolt"]}
 const BONES := ["Pelvis", "Belly", "Chest", "Head", "L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm",
 	"R-Hand", "L-Thigh", "L-Calf", "L-Foot", "R-Thigh", "R-Calf", "R-Foot"]
 const CLIPS := ["idle", "walk", "chase", "sprint", "crouch", "stun", "charge", "flight", "jumpscare"]
@@ -47,7 +56,7 @@ func run(host: Node) -> int:
 				_fail("%s is missing bone %s" % [id, bone])
 		# emotes: the hunter's list must exist as one-shot clips and each must name a face BlockyFace knows
 		var listed: Array = table.get(id, [])
-		if listed.size() < 5:
+		if listed.size() < (4 if id.begins_with("void_") else 5):
 			_fail("%s has only %d emotes (4 shared + her own expected)" % [id, listed.size()])
 		for entry in listed:
 			var emote_player := ModelSlot.find_animation_player(node)
@@ -59,6 +68,16 @@ func run(host: Node) -> int:
 			var face_name := String(entry.get("face", ""))
 			if not BlockyFace.CELLS.has(face_name) and not BlockyFace.ANIMS.has(face_name):
 				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
+		if id.begins_with("void_"):
+			for cue in VOID_CUES.get(id, []):
+				if node.find_child(cue, true, false) == null:
+					_fail("%s is missing cue bone %s" % [id, cue])
+			var void_file := FileAccess.open("res://assets/hunters_blocky/%s/%s.glb" % [id, id], FileAccess.READ)
+			if void_file == null or void_file.get_length() > 200 * 1024:
+				_fail("%s.glb is over the 200 KB budget" % id)
+			var void_atlas := Image.load_from_file(ProjectSettings.globalize_path("res://assets/hunters_blocky/%s/%s_atlas.png" % [id, id]))
+			if void_atlas == null or void_atlas.get_width() > 128 or void_atlas.get_height() > 256:
+				_fail("%s atlas is missing or larger than 128x256" % id)
 		if id.begins_with("xivvy"):
 			for wing in ["L-Wing", "R-Wing", "L-HindWing", "R-HindWing"]:
 				if node.find_child(wing, true, false) == null:
@@ -119,8 +138,9 @@ func run(host: Node) -> int:
 		var bounds := _bounds(node)
 		if absf(bounds.position.y) > .03:
 			_fail("%s feet are not on the floor (min y %.3f)" % [id, bounds.position.y])
-		if absf(bounds.size.y - 1.78) > .08:
-			_fail("%s is %.2f m tall, wanted 1.78" % [id, bounds.size.y])
+		var want_height := VOID_HEIGHT if id.begins_with("void_") else 1.78
+		if absf(bounds.size.y - want_height) > .08:
+			_fail("%s is %.2f m tall, wanted %.2f" % [id, bounds.size.y, want_height])
 		if not BlockyFace.set_expression(node, "blink"):
 			_fail("%s has no swappable Face quad" % id)
 		for anim in ["derp", "wink_left", "wink_right", "blank", "stun"]:
@@ -225,7 +245,7 @@ func _bounds(node: Node3D) -> AABB:
 		var m := mesh_node as MeshInstance3D
 		# horns, ears, wings, tails, gills and halos are extras: the 1.78 m body height is measured without them
 		var skip := false
-		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph", "Pig", "Braid", "Lock"]:
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph", "Pig", "Braid", "Lock", "Cue"]:
 			if String(m.name).contains(extra):
 				skip = true
 		if skip:
