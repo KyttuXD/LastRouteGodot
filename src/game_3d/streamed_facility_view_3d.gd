@@ -87,9 +87,8 @@ var _floor_items := {}
 var _wall_items := {}
 var _safe_floor_item := -1
 ## RefLook surface items: kind -> MeshLibrary id.
-var _ref_floor_items := {}
-var _ref_wall_items := {}
-var _ref_ceiling_items := {}
+var _col_floor_item := -1
+var _col_wall_item := -1
 var _loaded := {}
 var _chunk_data := {}
 var _pickup_nodes := {}
@@ -376,9 +375,6 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	var grid := GridMap.new()
 	grid.name = "Structure"
 	_configure_grid(grid)
-	var ceiling := GridMap.new()
-	ceiling.name = "Ceiling"
-	_configure_grid(ceiling)
 	var region := String(data.get("region", "maze"))
 	var ceiling_voids := _stair_voids(data, "up")
 	var floor_voids := _stair_voids(data, "down")
@@ -394,7 +390,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"data": data,
 		"root": root,
 		"grid": grid,
-		"ceiling": ceiling,
+		"surface": RefSurfaceMesh.new(),
 		"region": region,
 		"floor_item": int(_floor_items.get(region, _floor_items["maze"])),
 		"wall_items": _wall_items.get(region, _wall_items["maze"]),
@@ -441,7 +437,12 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			2:
-				root.add_child(build["ceiling"] as GridMap)
+				var surface_node := MeshInstance3D.new()
+				surface_node.name = "Surface"
+				surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
+					RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+				surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				root.add_child(surface_node)
 				build["phase"] = 3
 				if not immediate:
 					return false
@@ -535,27 +536,43 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var data: Dictionary = build["data"]
 	var grid_data: Array = data["grid"]
 	var grid := build["grid"] as GridMap
-	var ceiling := build["ceiling"] as GridMap
+	var surface := build["surface"] as RefSurfaceMesh
+	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
 	if (build["structural_voids"] as Dictionary).has(cell):
 		# The upper half of a two-storey room is genuine air. It owns neither an
 		# upper floor slab nor wall collision, but it still receives this level's
 		# ceiling so the combined room closes at eight metres.
 		if not (build["ceiling_voids"] as Dictionary).has(cell):
-			ceiling.set_cell_item(Vector3i(x, 1, z), _ref_ceiling_item(build))
+			surface.add_ceiling(x, z, RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
 		return
 	if int(grid_data[z][x]) == 0:
 		if not (build["floor_voids"] as Dictionary).has(cell):
-			var item := _ref_floor_item(build, x, z)
+			var kind := _ref_floor_kind(build, x, z)
 			if bool(build["safe"]):
 				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 				if abs(x - center) <= 3 and abs(z - center) <= 3:
-					item = _safe_floor_item
-			grid.set_cell_item(Vector3i(x, 0, z), item)
+					kind = "safe"
+			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
+			surface.add_floor(x, z, RefTextures.layer("floor", kind),
+				RefTextures.params("floor", kind))
 		if not (build["ceiling_voids"] as Dictionary).has(cell):
-			ceiling.set_cell_item(Vector3i(x, 1, z), _ref_ceiling_item(build))
+			surface.add_ceiling(x, z, RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
 	else:
-		grid.set_cell_item(Vector3i(x, 0, z), _ref_wall_item(build, x, z))
-
+		grid.set_cell_item(Vector3i(x, 0, z), _col_wall_item)
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var nx: int = x + step.x
+			var nz: int = z + step.y
+			# faces toward another chunk are emitted too; a hidden face is cheaper
+			# than a missing one
+			if nx >= 0 and nz >= 0 and nx < size and nz < size \
+					and int(grid_data[nz][nx]) != 0:
+				continue
+			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
+			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
+				RefTextures.params("wall", wall_kind))
 
 
 ## Cell -> room_type for every cell inside a room rectangle of this chunk.
@@ -571,12 +588,7 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 	return map
 
 
-func _ref_ceiling_item(build: Dictionary) -> int:
-	var style: Dictionary = build["style"]
-	return int(_ref_ceiling_items.get(String(style["ceiling"]), 1))
-
-
-func _ref_floor_item(build: Dictionary, x: int, z: int) -> int:
+func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
 	var style: Dictionary = build["style"]
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
@@ -591,9 +603,8 @@ func _ref_floor_item(build: Dictionary, x: int, z: int) -> int:
 		if bool(style["runner"]):
 			var runner := _runner_kind(build["data"]["grid"], x, z)
 			if runner != "":
-				return int(_ref_floor_items.get(runner, build["floor_item"]))
-	var kind: String = kinds[RefLook.pick(gx, gz, 1, kinds.size())]
-	return int(_ref_floor_items.get(kind, build["floor_item"]))
+				return runner
+	return kinds[RefLook.pick(gx, gz, 1, kinds.size())]
 
 
 ## The middle cell of a three-wide corridor gets the carpet runner, oriented
@@ -612,29 +623,17 @@ static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 	return ""
 
 
-func _ref_wall_item(build: Dictionary, x: int, z: int) -> int:
+## Wall kind for the face of wall cell (x, z) that looks into (nx, nz): chosen
+## from the room on that side, so a corridor wall and the paper of the room
+## behind it can differ.
+func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> String:
 	var style: Dictionary = build["style"]
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var grid_data: Array = build["data"]["grid"]
-	var room_type := ""
-	var touches_open := false
-	for step_value in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
-		var step: Vector2i = step_value
-		var nx: int = x + step.x
-		var nz: int = z + step.y
-		if nx < 0 or nz < 0 or nx >= size or nz >= size:
-			continue
-		if int(grid_data[nz][nx]) == 0:
-			touches_open = true
-			var found: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-			if found != "":
-				room_type = found
-				break
+	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
 	var kinds: Array = (RefLook.ROOM_STYLE.get(room_type, {}) as Dictionary).get(
 		"wall", style["wall"]) if room_type != "" else style["wall"]
-	var kind: String = kinds[RefLook.pick(coord.x * size + x, coord.z * size + z, 2, kinds.size())]
-	return int(_ref_wall_items.get(kind, int((build["wall_items"] as Dictionary)["full"])))
+	return kinds[RefLook.pick(coord.x * size + x + nx * 3, coord.z * size + z + nz * 5, 2, kinds.size())]
 
 
 static func _wall_item_for(grid_data: Array, x: int, z: int,
@@ -1336,138 +1335,24 @@ func _build_mesh_library() -> MeshLibrary:
 	return library
 
 
-## RefLook surfaces: one library item per painted floor / wall / ceiling kind.
+## RefLook structure: the visuals are one merged mesh per chunk (RefSurfaceMesh);
+## the GridMap keeps only collision, so these two items carry shapes and no mesh.
 func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	var next_id := first_id
-	for kind in RefTextures.FLOOR_PAINTERS:
-		_add_slab_item(library, next_id, RefTextures.material("floor", kind), true,
-			Vector3(0.0, -SLAB * .5, 0.0))
-		_ref_floor_items[kind] = next_id
-		next_id += 1
-	for kind in RefTextures.CEILING_PAINTERS:
-		_add_slab_item(library, next_id, RefTextures.material("ceiling", kind), false,
-			Vector3(0.0, LEVEL_HEIGHT - 1.0 - SLAB * 1.5 - CEILING_INSET, 0.0))
-		_ref_ceiling_items[kind] = next_id
-		next_id += 1
-	var wall_mesh := _wall_mesh()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, WALL_HEIGHT, 1.0)
-	var offset := Vector3(0.0, WALL_HEIGHT * .5, 0.0)
-	for kind in RefTextures.WALL_PAINTERS:
-		var mesh := wall_mesh.duplicate() as ArrayMesh
-		mesh.surface_set_material(0, RefTextures.material("wall", kind))
-		library.create_item(next_id)
-		library.set_item_mesh(next_id, mesh)
-		library.set_item_mesh_transform(next_id, Transform3D(Basis.IDENTITY, offset))
-		library.set_item_shapes(next_id, [shape, Transform3D(Basis.IDENTITY, offset)])
-		_ref_wall_items[kind] = next_id
-		next_id += 1
-	return next_id
-
-
-## A wall block with a full 0..1 UV on every side face (BoxMesh splits one
-## texture across its six faces, which cannot carry a one-storey wall texture).
-static func _wall_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var h := WALL_HEIGHT
-	var corners := [Vector3(-.5, -h * .5, -.5), Vector3(.5, -h * .5, -.5),
-		Vector3(.5, -h * .5, .5), Vector3(-.5, -h * .5, .5)]
-	for side in 4:
-		var a: Vector3 = corners[side]
-		var b: Vector3 = corners[(side + 1) % 4]
-		var normal := (b - a).cross(Vector3.UP).normalized()
-		var quad := [[a + Vector3(0, h, 0), Vector2(0, 0)], [b + Vector3(0, h, 0), Vector2(1, 0)],
-			[b, Vector2(1, 1)], [a, Vector2(0, 1)]]
-		for index in [0, 1, 2, 0, 2, 3]:
-			st.set_normal(normal)
-			st.set_uv(quad[index][1])
-			st.add_vertex(quad[index][0])
-	var top_a := Vector3(-.5, h * .5, -.5)
-	for index in [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]]:
-		st.set_normal(Vector3.UP)
-		st.set_uv(Vector2(.0, .0))
-		st.add_vertex(top_a + Vector3(index[0], 0, index[1]))
-	return st.commit()
-
-
-## One-metre floor/ceiling slab with a full 0..1 UV on every face, so a painted
-## 32x32 texture lands exactly once per cell (the authored tile mesh's UVs are
-## an atlas region and smear a standalone texture into stripes).
-static func _add_slab_item(library: MeshLibrary, id: int, material: Material,
-		solid: bool, offset: Vector3) -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var half := Vector3(.5, SLAB * .5, .5)
-	# normal, u axis, v axis of each face of a box centred on the origin
-	var faces := [
-		[Vector3.UP, Vector3.RIGHT, Vector3.BACK],
-		[Vector3.DOWN, Vector3.RIGHT, Vector3.FORWARD],
-		[Vector3.BACK, Vector3.RIGHT, Vector3.DOWN],
-		[Vector3.FORWARD, Vector3.LEFT, Vector3.DOWN],
-		[Vector3.RIGHT, Vector3.FORWARD, Vector3.DOWN],
-		[Vector3.LEFT, Vector3.BACK, Vector3.DOWN],
-	]
-	for face in faces:
-		var n: Vector3 = face[0]
-		var u: Vector3 = face[1]
-		var v: Vector3 = face[2]
-		var center := n * (half * n.abs()).length()
-		var su := (half * u.abs()).length() * 2.0
-		var sv := (half * v.abs()).length() * 2.0
-		var verts := []
-		for c in [[0, 0], [1, 0], [1, 1], [0, 1]]:
-			verts.append([center + u * ((c[0] - .5) * su) + v * ((c[1] - .5) * sv),
-				Vector2(c[0], c[1])])
-		# wind so the face points along its normal
-		var order := [0, 1, 2, 0, 2, 3]
-		var a_pt: Vector3 = verts[0][0]
-		var b_pt: Vector3 = verts[1][0]
-		var c_pt: Vector3 = verts[2][0]
-		if (b_pt - a_pt).cross(c_pt - a_pt).dot(n) < 0.0:
-			order = [0, 2, 1, 0, 3, 2]
-		for index in order:
-			st.set_normal(n)
-			st.set_uv(verts[index][1])
-			st.add_vertex(verts[index][0])
-	var mesh := st.commit()
-	mesh.surface_set_material(0, material)
-	library.create_item(id)
-	library.set_item_mesh(id, mesh)
-	library.set_item_mesh_transform(id, Transform3D(Basis.IDENTITY, offset))
-	if solid:
-		var shape := BoxShape3D.new()
-		shape.size = Vector3(1.0, SLAB, 1.0)
-		library.set_item_shapes(id, [shape, Transform3D(Basis.IDENTITY, offset)])
-
-
-static func _add_scene_item_material(library: MeshLibrary, id: int,
-		scene_path: String, material: Material, solid: bool, scale: Vector3,
-		offset: Vector3) -> void:
-	var item := ModelSlot.load_gridmap_item(scene_path)
-	var mesh := item.get("mesh") as Mesh
-	if mesh == null:
-		push_warning("StreamedFacilityView3D: could not load structural item %s" % scene_path)
-		return
-	mesh = mesh.duplicate()
-	for surface in mesh.get_surface_count():
-		mesh.surface_set_material(surface, material)
-	library.create_item(id)
-	library.set_item_mesh(id, mesh)
-	var mesh_transform := (item.get("mesh_transform", Transform3D.IDENTITY) as Transform3D).scaled_local(scale)
-	mesh_transform.origin += offset
-	library.set_item_mesh_transform(id, mesh_transform)
-	if solid:
-		var shape := item.get("shape") as Shape3D
-		if shape == null:
-			shape = BoxShape3D.new()
-			(shape as BoxShape3D).size = Vector3(1.0, SLAB, 1.0)
-		else:
-			shape = shape.duplicate()
-		var shape_transform := (item.get("shape_transform",
-			Transform3D.IDENTITY) as Transform3D).scaled_local(scale)
-		shape_transform.origin += offset
-		library.set_item_shapes(id, [shape, shape_transform])
+	_col_floor_item = next_id
+	library.create_item(next_id)
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = Vector3(1.0, SLAB, 1.0)
+	library.set_item_shapes(next_id, [floor_shape,
+		Transform3D(Basis.IDENTITY, Vector3(0.0, -SLAB * .5, 0.0))])
+	next_id += 1
+	_col_wall_item = next_id
+	library.create_item(next_id)
+	var wall_shape := BoxShape3D.new()
+	wall_shape.size = Vector3(1.0, WALL_HEIGHT, 1.0)
+	library.set_item_shapes(next_id, [wall_shape,
+		Transform3D(Basis.IDENTITY, Vector3(0.0, WALL_HEIGHT * .5, 0.0))])
+	return next_id + 1
 
 
 static func _material(texture: Texture2D, color: Color,

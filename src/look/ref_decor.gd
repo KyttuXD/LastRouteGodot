@@ -11,6 +11,7 @@ extends RefCounted
 ## lends a small pool of lights to the lamps nearest the player.
 
 const WALL_H := 3.88
+const CEIL_Y := 3.78
 const SCONCE_Y := 2.05
 const SLICE_ROWS := 9
 
@@ -81,7 +82,7 @@ func _room_lamps() -> void:
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
 		if fancy:
-			var pos := world + Vector3(0, WALL_H - .95, 0)
+			var pos := world + Vector3(0, CEIL_Y - .95, 0)
 			_add("chandelier", Transform3D(Basis(Vector3.UP, _h(cx, cz, 112, 8) * PI / 4.0), pos))
 			lamps.append([_root.position + pos - Vector3(0, .35, 0), RefLook.AMBER_SOFT, 1.5, 1])
 			_halo.append(pos)
@@ -193,7 +194,7 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		_ceiling_lamp(world, x, z, true)
 	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"])) == 0 and lit_room:
 		var yaw := PI * .5 if _h(x, z, 72, 2) == 0 else 0.0
-		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, WALL_H - 0.04, 0)))
+		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, CEIL_Y - 0.01, 0)))
 	# cables snaking along the foot of the wall in the industrial regions
 	if _region in ["maze", "prison", "inferno", "carnival"] and _h(x, z, 141, 26) == 0:
 		for d in DIRS:
@@ -262,7 +263,7 @@ func _wall_lamp(base: Vector3, n: Vector3, kind: String, x: int, z: int) -> void
 
 
 func _ceiling_lamp(world: Vector3, x: int, z: int, small: bool = false) -> void:
-	var pos := world + Vector3(0, WALL_H - 0.05, 0)
+	var pos := world + Vector3(0, CEIL_Y - 0.0, 0)
 	var yaw := PI * .5 if _h(x, z, 51, 2) == 0 else 0.0
 	_add("ceiling_small" if small else "ceiling", Transform3D(Basis(Vector3.UP, yaw), pos))
 	var flicker := _h(x, z, 52, 5)

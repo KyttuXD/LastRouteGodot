@@ -81,7 +81,7 @@ static func _new_image(w: int, h: int) -> Image:
 static func _paint_metal(variant: int) -> Image:
 	var rng := _rng("metal%d" % variant)
 	var img := _new_image(PX, PX)
-	var base := RefLook.METAL
+	var base := _mul(RefLook.METAL, .86)
 	_noise(img, 0, 0, PX, PX, base, .14, rng)
 	for i in 3:
 		_dot(img, rng.randi_range(1, 28), rng.randi_range(1, 28), _mul(base, .78), rng.randi_range(2, 4), 1)
@@ -258,6 +258,20 @@ static func _paint_runner(variant: int) -> Image:
 static func _paint_runner_z(_variant: int) -> Image:
 	var img := _paint_runner(0)
 	img.rotate_90(COUNTERCLOCKWISE)
+	return img
+
+
+static func _paint_safe(_variant: int) -> Image:
+	# the safe-room pad: riveted plate with a teal inlay border
+	var img := _paint_metal(0)
+	for i in PX:
+		_dot(img, i, 1, Color("1c8a8c"))
+		_dot(img, i, PX - 3, Color("1c8a8c"))
+		_dot(img, 1, i, Color("1c8a8c"))
+		_dot(img, PX - 3, i, Color("1c8a8c"))
+	for d in range(12, 20):
+		_dot(img, d, 15, Color("5cf0e0"), 1, 2)
+		_dot(img, 15, d, Color("5cf0e0"), 2, 1)
 	return img
 
 
@@ -522,7 +536,7 @@ static func _paint_wall_inferno(variant: int) -> Image:
 static func _paint_ceiling(variant: int) -> Image:
 	var rng := _rng("ceil%d" % variant)
 	var img := _new_image(PX, PX)
-	var base := Color("1a1416") if variant == 0 else Color("1c1214")
+	var base := Color("100d0f") if variant == 0 else Color("120a0c")
 	_noise(img, 0, 0, PX, PX, base, .14, rng)
 	# coffered grid with raised beams
 	_dot(img, 0, 0, _mul(base, 2.2), PX, 2)
@@ -567,6 +581,7 @@ const FLOOR_PAINTERS := {
 	"check0": [&"_paint_check", 0], "check1": [&"_paint_check", 1],
 	"hazard": [&"_paint_hazard", 0], "runner": [&"_paint_runner", 0],
 	"grate": [&"_paint_grate", 0], "runnerz": [&"_paint_runner_z", 0],
+	"safe": [&"_paint_safe", 0],
 }
 const WALL_PAINTERS := {
 	"panel0": [&"_paint_wall_panel", 0], "panel1": [&"_paint_wall_panel", 1],
@@ -636,4 +651,78 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 			m.roughness = .38
 			m.metallic_specular = .6
 	_materials[key] = m
+	return m
+
+
+# -- texture arrays (one material per chunk surface) ----------------------------
+
+static var _array_textures := {}
+static var _array_layers := {}
+static var _array_materials := {}
+const ARRAY_SHADER := preload("res://src/look/ref_surface.gdshader")
+
+
+## Floors and ceilings share one 32x32 array ("floor"); walls have their own
+## 32x128 array ("wall"). Layer order is the painter tables' order.
+static func _array_kinds(group: String) -> Array:
+	if group == "wall":
+		return WALL_PAINTERS.keys()
+	return FLOOR_PAINTERS.keys() + CEILING_PAINTERS.keys()
+
+
+static func _build_array(group: String) -> void:
+	var kinds := _array_kinds(group)
+	var images: Array[Image] = []
+	var layers := {}
+	for i in kinds.size():
+		var kind: String = kinds[i]
+		layers[kind] = i
+		var table: Dictionary = WALL_PAINTERS if group == "wall" else (
+			FLOOR_PAINTERS if FLOOR_PAINTERS.has(kind) else CEILING_PAINTERS)
+		var entry: Array = table[kind]
+		var img: Image = Callable(RefTextures, entry[0]).call(entry[1])
+		img.generate_mipmaps()
+		images.append(img)
+	var arr := Texture2DArray.new()
+	arr.create_from_images(images)
+	_array_textures[group] = arr
+	_array_layers[group] = layers
+
+
+static func layer(group: String, kind: String) -> float:
+	if not _array_layers.has(group):
+		_build_array(group)
+	return float((_array_layers[group] as Dictionary).get(kind, 0))
+
+
+## Vertex-colour surface response: r = roughness, g = metallic, b = emission.
+static func params(group: String, kind: String) -> Color:
+	var rough := .9
+	var metal := 0.0
+	var emit := 0.0
+	if group == "floor":
+		if kind.begins_with("floral") or kind.begins_with("star") or kind.begins_with("runner"):
+			rough = .85
+		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate" or kind == "safe":
+			rough = .30
+			metal = .35
+		elif kind.begins_with("stone"):
+			rough = .22
+		elif kind.begins_with("parquet") or kind.begins_with("check"):
+			rough = .38
+	elif group == "ceiling" and kind == "glass":
+		emit = .55
+	return Color(rough, metal, emit)
+
+
+static func array_material(group: String) -> ShaderMaterial:
+	if _array_materials.has(group):
+		return _array_materials[group]
+	if not _array_textures.has(group):
+		_build_array(group)
+	var m := ShaderMaterial.new()
+	m.shader = ARRAY_SHADER
+	m.set_shader_parameter("tex", _array_textures[group])
+	m.set_shader_parameter("tint", Vector3(1.75, 1.7, 1.8))
+	_array_materials[group] = m
 	return m

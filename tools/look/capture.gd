@@ -18,6 +18,10 @@ func _ready() -> void:
 	_out_dir = args[0] if args.size() > 0 else "/tmp"
 	_tag = args[1] if args.size() > 1 else "x"
 	RoomState.seed_text = args[2] if args.size() > 2 else "REFLOOK"
+	if OS.get_environment("CAP_FPS") != "":
+		Settings.fps_limit = 0
+		Settings.vsync_enabled = false
+		Settings._apply_display_performance()
 	var scene: Node = load("res://scenes/infinite_route_test.tscn").instantiate()
 	add_child(scene)
 	_scene = scene
@@ -163,7 +167,10 @@ func _run(scene: Node) -> void:
 			if OS.get_environment("CAP_FPS") != "":
 				var t0 := Time.get_ticks_usec()
 				await _wait(60)
-				print("%s yaw %s: %.1f fps" % [p["name"], yaw_text, 60.0 / ((Time.get_ticks_usec() - t0) / 1e6)])
+				print("%s yaw %s: %.1f fps, %d draw calls, %d objects" % [p["name"], yaw_text,
+					60.0 / ((Time.get_ticks_usec() - t0) / 1e6),
+					Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+					Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)])
 				continue
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%s_%s.png" % [_out_dir, _tag, p["name"], yaw_text])
