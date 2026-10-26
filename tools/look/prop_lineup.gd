@@ -22,6 +22,8 @@ func _ready() -> void:
 	world.add_child(sun)
 	var types := ["woodenChair", "woodenTable", "singleBed", "bedroomNightstand", "loungeCouch", "officeDesk",
 		"retroComputerDesktop", "filingCabinet", "arcadeCabinet", "tableLamp", "supplyCrates", "normalBookcase", "vendingMachine"]
+	if OS.get_environment("LINE_TYPES") != "":
+		types = Array(OS.get_environment("LINE_TYPES").split(","))
 	var x := 0.0
 	for type in types:
 		for row in 2:
@@ -32,6 +34,8 @@ func _ready() -> void:
 			node.position = Vector3(x, 0, -row * 2.2)
 			node.rotation.y = PI
 		x += 1.9 if type not in ["singleBed", "officeDesk"] else 2.9
+		if OS.get_environment("LINE_TYPES") != "":
+			x += float(PropModelCatalog.MODEL_PATHS.has(type)) * 0.0
 	var cam := Camera3D.new()
 	world.add_child(cam)
 	cam.current = true

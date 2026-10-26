@@ -210,5 +210,484 @@
  ],
  "houseBathtub": [
   "houseBathtub.glb"
+ ],
+ "apartmentCarpet": [
+  "apartmentCarpet_0.glb",
+  "apartmentCarpet_1.glb",
+  "apartmentCarpet_2.glb"
+ ],
+ "bedroomRug": [
+  "bedroomRug_0.glb",
+  "bedroomRug_1.glb",
+  "bedroomRug_2.glb"
+ ],
+ "gothicBedroomRug": [
+  "gothicBedroomRug_0.glb",
+  "gothicBedroomRug_1.glb",
+  "gothicBedroomRug_2.glb"
+ ],
+ "hotelCarpet": [
+  "hotelCarpet_0.glb",
+  "hotelCarpet_1.glb",
+  "hotelCarpet_2.glb"
+ ],
+ "mansionAreaRug": [
+  "mansionAreaRug_0.glb",
+  "mansionAreaRug_1.glb",
+  "mansionAreaRug_2.glb"
+ ],
+ "corridorCarpet": [
+  "corridorCarpet_0.glb",
+  "corridorCarpet_1.glb",
+  "corridorCarpet_2.glb"
+ ],
+ "arcadeCarpetRunner": [
+  "arcadeCarpetRunner_0.glb",
+  "arcadeCarpetRunner_1.glb",
+  "arcadeCarpetRunner_2.glb"
+ ],
+ "arcadeCarpetCircle": [
+  "arcadeCarpetCircle_0.glb",
+  "arcadeCarpetCircle_1.glb",
+  "arcadeCarpetCircle_2.glb"
+ ],
+ "houseBathMat": [
+  "houseBathMat_0.glb",
+  "houseBathMat_1.glb"
+ ],
+ "beachMat": [
+  "beachMat.glb"
+ ],
+ "normalPaintingFrameEmpty": [
+  "normalPaintingFrameEmpty_0.glb",
+  "normalPaintingFrameEmpty_1.glb",
+  "normalPaintingFrameEmpty_2.glb"
+ ],
+ "normalPictureFrameEmpty": [
+  "normalPictureFrameEmpty_0.glb",
+  "normalPictureFrameEmpty_1.glb",
+  "normalPictureFrameEmpty_2.glb"
+ ],
+ "luxuryPaintingFrameEmpty": [
+  "luxuryPaintingFrameEmpty_0.glb",
+  "luxuryPaintingFrameEmpty_1.glb",
+  "luxuryPaintingFrameEmpty_2.glb"
+ ],
+ "luxuryPictureFrameEmpty": [
+  "luxuryPictureFrameEmpty_0.glb",
+  "luxuryPictureFrameEmpty_1.glb",
+  "luxuryPictureFrameEmpty_2.glb"
+ ],
+ "gothicPaintingFrameEmpty": [
+  "gothicPaintingFrameEmpty_0.glb",
+  "gothicPaintingFrameEmpty_1.glb",
+  "gothicPaintingFrameEmpty_2.glb"
+ ],
+ "gothicPictureFrameEmpty": [
+  "gothicPictureFrameEmpty_0.glb",
+  "gothicPictureFrameEmpty_1.glb",
+  "gothicPictureFrameEmpty_2.glb"
+ ],
+ "framedWallPortrait": [
+  "framedWallPortrait_0.glb",
+  "framedWallPortrait_1.glb"
+ ],
+ "bathroomMirror": [
+  "bathroomMirror.glb"
+ ],
+ "bedroomWallClock": [
+  "bedroomWallClock.glb"
+ ],
+ "heavyMansionDrapes": [
+  "heavyMansionDrapes_0.glb",
+  "heavyMansionDrapes_1.glb"
+ ],
+ "privacyCurtain": [
+  "privacyCurtain.glb"
+ ],
+ "publicMensRoomSign": [
+  "publicMensRoomSign.glb"
+ ],
+ "publicWomensRoomSign": [
+  "publicWomensRoomSign.glb"
+ ],
+ "bathroomStall": [
+  "bathroomStall.glb"
+ ],
+ "bathroomVanity": [
+  "bathroomVanity.glb"
+ ],
+ "houseBathroomShelf": [
+  "houseBathroomShelf.glb"
+ ],
+ "houseMedicineCabinet": [
+  "houseMedicineCabinet.glb"
+ ],
+ "houseTowelRack": [
+  "houseTowelRack_0.glb",
+  "houseTowelRack_1.glb",
+  "houseTowelRack_2.glb"
+ ],
+ "houseShowerEnclosure": [
+  "houseShowerEnclosure.glb"
+ ],
+ "publicMensShowerStall": [
+  "publicMensShowerStall.glb"
+ ],
+ "publicWomensShowerStall": [
+  "publicWomensShowerStall.glb"
+ ],
+ "publicMensUrinal": [
+  "publicMensUrinal.glb"
+ ],
+ "publicSinkBank": [
+  "publicSinkBank.glb"
+ ],
+ "publicBabyChangeStation": [
+  "publicBabyChangeStation_0.glb",
+  "publicBabyChangeStation_1.glb"
+ ],
+ "publicHandDryer": [
+  "publicHandDryer.glb"
+ ],
+ "publicPaperTowelDispenser": [
+  "publicPaperTowelDispenser.glb"
+ ],
+ "publicSanitaryBin": [
+  "publicSanitaryBin.glb"
+ ],
+ "publicSoapDispenser": [
+  "publicSoapDispenser.glb"
+ ],
+ "publicShowerBench": [
+  "publicShowerBench.glb"
+ ],
+ "laundryHamper": [
+  "laundryHamper_0.glb",
+  "laundryHamper_1.glb",
+  "laundryHamper_2.glb"
+ ],
+ "bedroomBench": [
+  "bedroomBench_0.glb",
+  "bedroomBench_1.glb",
+  "bedroomBench_2.glb"
+ ],
+ "gothicBedroomBench": [
+  "gothicBedroomBench_0.glb",
+  "gothicBedroomBench_1.glb",
+  "gothicBedroomBench_2.glb"
+ ],
+ "bedroomVanity": [
+  "bedroomVanity.glb"
+ ],
+ "gothicVanity": [
+  "gothicVanity.glb"
+ ],
+ "vanityStool": [
+  "vanityStool_0.glb",
+  "vanityStool_1.glb",
+  "vanityStool_2.glb"
+ ],
+ "gothicVanityStool": [
+  "gothicVanityStool_0.glb",
+  "gothicVanityStool_1.glb",
+  "gothicVanityStool_2.glb"
+ ],
+ "bunkBed": [
+  "bunkBed_0.glb",
+  "bunkBed_1.glb",
+  "bunkBed_2.glb"
+ ],
+ "prisonBunk": [
+  "prisonBunk.glb"
+ ],
+ "gothicDoubleBed": [
+  "gothicDoubleBed_0.glb",
+  "gothicDoubleBed_1.glb"
+ ],
+ "gothicCoffinChest": [
+  "gothicCoffinChest.glb"
+ ],
+ "toyChest": [
+  "toyChest_0.glb",
+  "toyChest_1.glb"
+ ],
+ "normalCoffeeTable": [
+  "normalCoffeeTable_0.glb",
+  "normalCoffeeTable_1.glb"
+ ],
+ "normalEntryBench": [
+  "normalEntryBench_0.glb",
+  "normalEntryBench_1.glb",
+  "normalEntryBench_2.glb"
+ ],
+ "magazineRack": [
+  "magazineRack.glb"
+ ],
+ "mansionChaiseLounge": [
+  "mansionChaiseLounge_0.glb",
+  "mansionChaiseLounge_1.glb",
+  "mansionChaiseLounge_2.glb"
+ ],
+ "mansionRockingChair": [
+  "mansionRockingChair_0.glb",
+  "mansionRockingChair_1.glb"
+ ],
+ "mansionTeaCart": [
+  "mansionTeaCart.glb"
+ ],
+ "mansionUprightPiano": [
+  "mansionUprightPiano.glb"
+ ],
+ "mansionGrandfatherClock": [
+  "mansionGrandfatherClock.glb"
+ ],
+ "mansionFireplace": [
+  "mansionFireplace.glb"
+ ],
+ "mansionDisplayCabinet": [
+  "mansionDisplayCabinet.glb"
+ ],
+ "mansionCoatRack": [
+  "mansionCoatRack_0.glb",
+  "mansionCoatRack_1.glb",
+  "mansionCoatRack_2.glb"
+ ],
+ "mansionBustPedestal": [
+  "mansionBustPedestal.glb"
+ ],
+ "mansionRoomDivider": [
+  "mansionRoomDivider_0.glb",
+  "mansionRoomDivider_1.glb"
+ ],
+ "gothicHighbackChair": [
+  "gothicHighbackChair_0.glb",
+  "gothicHighbackChair_1.glb"
+ ],
+ "gothicPedestalTable": [
+  "gothicPedestalTable_0.glb",
+  "gothicPedestalTable_1.glb"
+ ],
+ "gothicWritingDesk": [
+  "gothicWritingDesk.glb"
+ ],
+ "gothicBedsideCandelabra": [
+  "gothicBedsideCandelabra.glb"
+ ],
+ "gothicFloorCandelabra": [
+  "gothicFloorCandelabra.glb"
+ ],
+ "diningChandelier": [
+  "diningChandelier.glb"
+ ],
+ "ceilingFan": [
+  "ceilingFan.glb"
+ ],
+ "backstageRepairStand": [
+  "backstageRepairStand.glb"
+ ],
+ "utilityCart": [
+  "utilityCart.glb"
+ ],
+ "maintenanceCleaningCart": [
+  "maintenanceCleaningCart.glb"
+ ],
+ "maintenanceToolCabinet": [
+  "maintenanceToolCabinet.glb"
+ ],
+ "officeCornerWorkstation": [
+  "officeCornerWorkstation.glb"
+ ],
+ "officeCubiclePartition": [
+  "officeCubiclePartition_0.glb",
+  "officeCubiclePartition_1.glb",
+  "officeCubiclePartition_2.glb"
+ ],
+ "officeFileBoxes": [
+  "officeFileBoxes.glb"
+ ],
+ "officePhotocopier": [
+  "officePhotocopier.glb"
+ ],
+ "officePrinter": [
+  "officePrinter.glb"
+ ],
+ "officeShredder": [
+  "officeShredder.glb"
+ ],
+ "officeWaterCooler": [
+  "officeWaterCooler.glb"
+ ],
+ "normalKitchenSink": [
+  "normalKitchenSink.glb"
+ ],
+ "luxuryKitchenSink": [
+  "luxuryKitchenSink.glb"
+ ],
+ "gothicKitchenSink": [
+  "gothicKitchenSink.glb"
+ ],
+ "normalKitchenWallCabinet": [
+  "normalKitchenWallCabinet.glb"
+ ],
+ "luxuryKitchenWallCabinet": [
+  "luxuryKitchenWallCabinet.glb"
+ ],
+ "gothicKitchenWallCabinet": [
+  "gothicKitchenWallCabinet.glb"
+ ],
+ "prisonKitchenRack": [
+  "prisonKitchenRack.glb"
+ ],
+ "prisonServingCounter": [
+  "prisonServingCounter.glb"
+ ],
+ "prisonCafeteriaTable": [
+  "prisonCafeteriaTable.glb"
+ ],
+ "prisonTrayReturn": [
+  "prisonTrayReturn.glb"
+ ],
+ "prisonCellGate": [
+  "prisonCellGate.glb"
+ ],
+ "dungeonCage": [
+  "dungeonCage.glb"
+ ],
+ "restraintChair": [
+  "restraintChair.glb"
+ ],
+ "arcadeBasketballHoop": [
+  "arcadeBasketballHoop_0.glb",
+  "arcadeBasketballHoop_1.glb"
+ ],
+ "arcadeTokenChanger": [
+  "arcadeTokenChanger_0.glb",
+  "arcadeTokenChanger_1.glb"
+ ],
+ "prizeClawMachine": [
+  "prizeClawMachine_0.glb",
+  "prizeClawMachine_1.glb"
+ ],
+ "prizeCounter": [
+  "prizeCounter_0.glb",
+  "prizeCounter_1.glb"
+ ],
+ "snackKiosk": [
+  "snackKiosk_0.glb",
+  "snackKiosk_1.glb"
+ ],
+ "carnivalTicketBooth": [
+  "carnivalTicketBooth.glb"
+ ],
+ "ringTossStall": [
+  "ringTossStall_0.glb",
+  "ringTossStall_1.glb"
+ ],
+ "popcornCart": [
+  "popcornCart.glb"
+ ],
+ "strengthTester": [
+  "strengthTester.glb"
+ ],
+ "circusPedestal": [
+  "circusPedestal.glb"
+ ],
+ "stagePlatform": [
+  "stagePlatform.glb"
+ ],
+ "stageSpeaker": [
+  "stageSpeaker.glb"
+ ],
+ "mascotStatue": [
+  "mascotStatue_0.glb",
+  "mascotStatue_1.glb",
+  "mascotStatue_2.glb"
+ ],
+ "carnivalCarousel": [
+  "carnivalCarousel.glb"
+ ],
+ "carouselCenterpiece": [
+  "carouselCenterpiece.glb"
+ ],
+ "beachChair": [
+  "beachChair_0.glb",
+  "beachChair_1.glb",
+  "beachChair_2.glb"
+ ],
+ "beachUmbrella": [
+  "beachUmbrella_0.glb",
+  "beachUmbrella_1.glb",
+  "beachUmbrella_2.glb"
+ ],
+ "surfboardRack": [
+  "surfboardRack_0.glb",
+  "surfboardRack_1.glb"
+ ],
+ "sandCastle": [
+  "sandCastle.glb"
+ ],
+ "tikiBar": [
+  "tikiBar.glb"
+ ],
+ "frozenBeachHut": [
+  "frozenBeachHut.glb"
+ ],
+ "frozenTidelinePool": [
+  "frozenTidelinePool.glb"
+ ],
+ "gardenPlanterBench": [
+  "gardenPlanterBench.glb"
+ ],
+ "giantTree": [
+  "giantTree.glb"
+ ],
+ "palmTree": [
+  "palmTree.glb"
+ ],
+ "grassFern": [
+  "grassFern.glb"
+ ],
+ "flowerBlue": [
+  "flowerBlue.glb"
+ ],
+ "flowerRose": [
+  "flowerRose.glb"
+ ],
+ "flowerSun": [
+  "flowerSun.glb"
+ ],
+ "flowerViolet": [
+  "flowerViolet.glb"
+ ],
+ "flowerCenterpiece": [
+  "flowerCenterpiece.glb"
+ ],
+ "basaltPillar": [
+  "basaltPillar.glb"
+ ],
+ "basaltRubble": [
+  "basaltRubble.glb"
+ ],
+ "brokenAquarium": [
+  "brokenAquarium.glb"
+ ],
+ "emberBrazier": [
+  "emberBrazier.glb"
+ ],
+ "infernoAltar": [
+  "infernoAltar.glb"
+ ],
+ "infernoChainLantern": [
+  "infernoChainLantern.glb"
+ ],
+ "lavaPipeManifold": [
+  "lavaPipeManifold.glb"
+ ],
+ "lavaVent": [
+  "lavaVent.glb"
+ ],
+ "magmaCrystalCluster": [
+  "magmaCrystalCluster.glb"
  ]
 }

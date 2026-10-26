@@ -6,7 +6,7 @@
 PROP_BOUNDS.json comes from tools/props/measure.gd (the footprint of the model each
 prop type uses today), so every rebuilt prop keeps its old size, pivot and front
 (+Z in Godot). Each prop is a handful of axis-aligned boxes in fractions of that
-footprint, textured from one shared 64x64 pixel atlas (4x4 tiles of 16 px) with
+footprint, textured from one shared 128x64 pixel atlas (8x4 tiles of 16 px) with
 nearest sampling; colour variants swap the `@cloth` / `@wood` placeholders.
 """
 import json
@@ -24,20 +24,25 @@ os.makedirs(OUT, exist_ok=True)
 
 # ---- atlas ---------------------------------------------------------------------
 TILES = ["oak", "dark", "red", "plum", "steel", "brass", "screen", "paper",
-         "stone", "black", "green", "glass", "amber", "concrete", "porcelain", "rust"]
+         "stone", "black", "green", "glass", "amber", "concrete", "porcelain", "rust",
+         "sand", "water", "leaf", "bark", "white", "mirror", "yellow", "blue"]
+COLS = 8                 # atlas is 8 tiles wide, 4 tall (128 x 64)
+AW, AH = COLS * 16, 64
 BASE = {"oak": (150, 112, 62), "dark": (82, 54, 34), "red": (138, 34, 44), "plum": (86, 40, 84),
         "steel": (112, 118, 124), "brass": (176, 138, 52), "screen": (40, 214, 200), "paper": (214, 208, 190),
         "stone": (110, 108, 108), "black": (30, 28, 32), "green": (52, 104, 52), "glass": (70, 110, 160),
-        "amber": (255, 176, 64), "concrete": (126, 124, 120), "porcelain": (226, 224, 218), "rust": (128, 74, 44)}
+        "amber": (255, 176, 64), "concrete": (126, 124, 120), "porcelain": (226, 224, 218), "rust": (128, 74, 44),
+        "sand": (214, 190, 126), "water": (52, 140, 190), "leaf": (58, 138, 52), "bark": (92, 66, 40),
+        "white": (232, 232, 228), "mirror": (150, 190, 204), "yellow": (222, 190, 52), "blue": (44, 84, 160)}
 
 
 def paint_atlas():
-    size = 64
-    img = bpy.data.images.new("BlockyAtlas", size, size, alpha=False)
-    px = [0.0] * (size * size * 4)
+    size = AW
+    img = bpy.data.images.new("BlockyAtlas", AW, AH, alpha=False)
+    px = [0.0] * (AW * AH * 4)
     rng = random.Random(1234)
     for index, name in enumerate(TILES):
-        tx, ty = index % 4, index // 4
+        tx, ty = index % COLS, index // COLS
         base = BASE[name]
         for y in range(16):
             for x in range(16):
@@ -55,11 +60,21 @@ def paint_atlas():
                     shade *= .7
                 if name == "porcelain" and (x in (0, 15) or y in (0, 15)):
                     shade *= .88
+                if name == "leaf" and (x * 3 + y * 5) % 7 < 2:
+                    shade *= .78
+                if name == "bark" and x % 4 == 1:
+                    shade *= .78
+                if name == "water" and (x + y * 2) % 8 == 0:
+                    shade *= 1.25
+                if name == "sand" and (x * 7 + y * 3) % 9 == 0:
+                    shade *= .9
+                if name == "mirror" and (x + y) % 9 == 0:
+                    shade *= 1.12
                 if x in (0, 15) or y in (0, 15):
                     shade *= .86 if name not in ("screen", "amber") else 1.0
                 color = [min(255, max(0, c * shade)) / 255.0 for c in (r, g, b)]
                 py = ty * 16 + (15 - y)   # image origin is bottom-left
-                i = (py * size + tx * 16 + x) * 4
+                i = (py * AW + tx * 16 + x) * 4
                 px[i:i + 4] = color + [1.0]
     img.pixels = px
     img.pack()
@@ -91,7 +106,7 @@ def add_face(bm, uv_layer, quad, tile):
     """quad = 4 corners (bl, br, tr, tl); subdivided into <=0.5 m cells so the texel
     density is constant (a Minecraft block face repeats its 16 px texture, it never stretches)."""
     index = TILES.index(tile)
-    tx, ty = index % 4, index // 4
+    tx, ty = index % COLS, index // COLS
     p00, p10, p11, p01 = [__import__("mathutils").Vector(c) for c in quad]
     wu = (p10 - p00).length
     wv = (p01 - p00).length
@@ -106,10 +121,10 @@ def add_face(bm, uv_layer, quad, tile):
             # texture region covered by this cell: full tile for a 0.5 m cell, cropped below that
             cu = min(1.0, wu / nu / 0.5)
             cv = min(1.0, wv / nv / 0.5)
-            tu0 = (tx * 16 + .5) / 64.0
-            tv_top = 1.0 - (ty * 16 + .5) / 64.0
-            tu1 = tu0 + cu * (15.0 / 64.0)
-            tv1 = tv_top - cv * (15.0 / 64.0)
+            tu0 = (tx * 16 + .5) / float(AW)
+            tv_top = 1.0 - (ty * 16 + .5) / float(AH)
+            tu1 = tu0 + cu * (15.0 / AW)
+            tv1 = tv_top - cv * (15.0 / AH)
             corners = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)]
             uvs = [(tu0, tv1), (tu1, tv1), (tu1, tv_top), (tu0, tv_top)]
             verts = [bm.verts.new(c) for c in corners]
@@ -275,6 +290,8 @@ PROPS["publicRestroomToilet"] = PROPS["houseToilet"]
 PROPS["bathroomSink"] = ([(.3, 0, .35, .7, .6, .75, "porcelain"), (.1, .6, .1, .9, .78, .9, "porcelain"), (.45, .78, .12, .55, .94, .2, "brass")], {})
 PROPS["houseBathtub"] = ([(0, 0, 0, 1, .6, 1, "porcelain"), (.1, .5, .1, .9, .62, .9, "glass")], {})
 PROPS["woodenDresserSideboard"] = PROPS["bedroomDresser"]
+
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_extra.py")).read())
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}

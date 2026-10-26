@@ -166,6 +166,9 @@ func _run(scene: Node) -> void:
 	var reach := 3 if level_env != "" else 2
 	for level_text in (level_env if level_env != "" else "0").split(","):
 		_scan_level(gen, int(level_text), reach, cs, picks, seen)
+	if OS.get_environment("CAP_AT") == "start":
+		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
+		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]
 	if OS.get_environment("CAP_LIST") != "":
 		for p in picks:
 			print(p["name"], " ", p["pos"])

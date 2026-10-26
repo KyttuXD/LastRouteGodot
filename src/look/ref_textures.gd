@@ -293,16 +293,29 @@ static func _paint_runner_z(_variant: int) -> Image:
 
 
 static func _paint_safe(_variant: int) -> Image:
-	# the safe-room pad: riveted plate with a teal inlay border
+	# ring of the safe-room pad: plain plate, one thin teal inlay line near the edge
 	var img := _paint_metal(0)
 	for i in PX:
 		_dot(img, i, 1, Color("1c8a8c"))
 		_dot(img, i, PX - 3, Color("1c8a8c"))
 		_dot(img, 1, i, Color("1c8a8c"))
 		_dot(img, PX - 3, i, Color("1c8a8c"))
-	for d in range(12, 20):
-		_dot(img, d, 15, Color("5cf0e0"), 1, 2)
-		_dot(img, 15, d, Color("5cf0e0"), 2, 1)
+	return img
+
+
+static func _paint_safe_plain(_variant: int) -> Image:
+	# interior of the pad: undecorated dark plate, so the pad reads as one slab, not a grid of marked tiles
+	return _paint_metal(0)
+
+
+static func _paint_safe_mark(_variant: int) -> Image:
+	# the single centre tile carries the mark (a large cross)
+	var img := _paint_metal(0)
+	var c := PX / 2
+	_dot(img, c - 3, 4, Color("1c8a8c"), 6, PX - 8)
+	_dot(img, 4, c - 3, Color("1c8a8c"), PX - 8, 6)
+	_dot(img, c - 1, 6, Color("5cf0e0"), 2, PX - 12)
+	_dot(img, 6, c - 1, Color("5cf0e0"), PX - 12, 2)
 	return img
 
 
@@ -612,7 +625,7 @@ const FLOOR_PAINTERS := {
 	"check0": [&"_paint_check", 0], "check1": [&"_paint_check", 1],
 	"hazard": [&"_paint_hazard", 0], "runner": [&"_paint_runner", 0],
 	"grate": [&"_paint_grate", 0], "runnerz": [&"_paint_runner_z", 0],
-	"safe": [&"_paint_safe", 0],
+	"safe": [&"_paint_safe", 0], "safe_plain": [&"_paint_safe_plain", 0], "safe_mark": [&"_paint_safe_mark", 0],
 	"runner_l": [&"_paint_runner_l", 0], "runner_c": [&"_paint_runner_c", 0], "runner_r": [&"_paint_runner_r", 0],
 	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
 }
@@ -736,7 +749,7 @@ static func params(group: String, kind: String) -> Color:
 	if group == "floor":
 		if kind.begins_with("floral") or kind.begins_with("star") or kind.begins_with("runner"):
 			rough = .85
-		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate" or kind == "safe":
+		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate" or kind.begins_with("safe"):
 			rough = .30
 			metal = .35
 		elif kind.begins_with("stone"):

@@ -540,7 +540,12 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		var kind := _ref_floor_kind(build, x, z)
 		if bool(build["safe"]):
 			var center := StreamedRouteGenerator.CHUNK_SIZE / 2
-			if abs(x - center) <= 3 and abs(z - center) <= 3:
+			var edge: int = maxi(abs(x - center), abs(z - center))
+			if edge == 0:
+				kind = "safe_mark"
+			elif edge <= 2:
+				kind = "safe_plain"
+			elif edge == 3:
 				kind = "safe"
 		grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 		surface.add_floor(x, z, RefTextures.layer("floor", kind),
