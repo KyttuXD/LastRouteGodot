@@ -79,21 +79,71 @@ bsdf.inputs["Roughness"].default_value = 1.0
 
 
 # ---- geometry ------------------------------------------------------------------
-def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
-    """Blender coords; each face maps the kind's whole 16x16 tile."""
-    index = TILES.index(kind)
+PIXEL = 0.5 / 16.0       # one texel is 3 cm: a 16 px tile covers half a metre, like a block face
+SNAP = 0.0625            # geometry sits on a 6 cm voxel grid
+
+
+def snap(value):
+    return round(value / SNAP) * SNAP
+
+
+def add_face(bm, uv_layer, quad, tile):
+    """quad = 4 corners (bl, br, tr, tl); subdivided into <=0.5 m cells so the texel
+    density is constant (a Minecraft block face repeats its 16 px texture, it never stretches)."""
+    index = TILES.index(tile)
     tx, ty = index % 4, index // 4
-    u0, u1 = (tx * 16 + .5) / 64.0, ((tx + 1) * 16 - .5) / 64.0
-    v0, v1 = 1.0 - ((ty + 1) * 16 - .5) / 64.0, 1.0 - (ty * 16 + .5) / 64.0
-    c = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
-         (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
-    verts = [bm.verts.new(p) for p in c]
-    faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3)]
-    for f in faces:
-        face = bm.faces.new([verts[i] for i in f])
-        face.smooth = False
-        for loop, uv in zip(face.loops, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]):
-            loop[uv_layer].uv = uv
+    p00, p10, p11, p01 = [__import__("mathutils").Vector(c) for c in quad]
+    wu = (p10 - p00).length
+    wv = (p01 - p00).length
+    nu = max(1, math.ceil(wu / 0.5 - 1e-6))
+    nv = max(1, math.ceil(wv / 0.5 - 1e-6))
+    for i in range(nu):
+        for j in range(nv):
+            u0, u1 = i / nu, (i + 1) / nu
+            v0, v1 = j / nv, (j + 1) / nv
+            def at(u, v):
+                return p00 + (p10 - p00) * u + (p01 - p00) * v
+            # texture region covered by this cell: full tile for a 0.5 m cell, cropped below that
+            cu = min(1.0, wu / nu / 0.5)
+            cv = min(1.0, wv / nv / 0.5)
+            tu0 = (tx * 16 + .5) / 64.0
+            tv_top = 1.0 - (ty * 16 + .5) / 64.0
+            tu1 = tu0 + cu * (15.0 / 64.0)
+            tv1 = tv_top - cv * (15.0 / 64.0)
+            corners = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)]
+            uvs = [(tu0, tv1), (tu1, tv1), (tu1, tv_top), (tu0, tv_top)]
+            verts = [bm.verts.new(c) for c in corners]
+            face = bm.faces.new(verts)
+            face.smooth = False
+            for loop, uv in zip(face.loops, uvs):
+                loop[uv_layer].uv = uv
+
+
+def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
+    """Blender coords, snapped to the voxel grid (never thinner than one voxel)."""
+    def fix(lo, hi, keep_lo=False):
+        lo2 = lo if keep_lo else snap(lo)
+        hi2 = snap(hi)
+        if hi2 - lo2 < SNAP * .9:
+            hi2 = lo2 + SNAP
+        return lo2, hi2
+    x0, x1 = fix(x0, x1)
+    y0, y1 = fix(y0, y1)
+    z0, z1 = fix(z0, z1, keep_lo=(z0 == 0.0))
+    quads = [
+        [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)],   # +z top-facing order handled by winding fix below
+        [(x1, y0, z0), (x0, y0, z0), (x0, y1, z0), (x1, y1, z0)],
+        [(x1, y0, z1), (x1, y0, z0), (x1, y1, z0), (x1, y1, z1)],
+        [(x0, y0, z0), (x0, y0, z1), (x0, y1, z1), (x0, y1, z0)],
+        [(x0, y1, z1), (x1, y1, z1), (x1, y1, z0), (x0, y1, z0)],
+        [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1)],
+    ]
+    outward = [(0, 0, 1), (0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)]
+    for quad, out in zip(quads, outward):
+        a, b, c = [__import__("mathutils").Vector(q) for q in quad[:3]]
+        if (b - a).cross(c - a).dot(__import__("mathutils").Vector(out)) < 0:
+            quad = [quad[1], quad[0], quad[3], quad[2]]   # mirror: keep (bl, br, tr, tl) order, flip winding
+        add_face(bm, uv_layer, quad, kind)
 
 
 def build(name, boxes, size, center, min_y, subst):
