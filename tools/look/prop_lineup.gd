@@ -36,6 +36,20 @@ func _ready() -> void:
 		x += 1.9 if type not in ["singleBed", "officeDesk"] else 2.9
 		if OS.get_environment("LINE_TYPES") != "":
 			x += float(PropModelCatalog.MODEL_PATHS.has(type)) * 0.0
+	if OS.get_environment("LINE_PATHS") != "":
+		# one row of arbitrary scenes/models (e.g. the interactables), 2 m apart
+		for child in world.get_children():
+			if child is Node3D and not (child is DirectionalLight3D) and not (child is Camera3D):
+				child.queue_free()
+		x = 0.0
+		for path in OS.get_environment("LINE_PATHS").split(","):
+			var packed := load(path) as PackedScene
+			if packed == null:
+				continue
+			var inst := packed.instantiate() as Node3D
+			world.add_child(inst)
+			inst.position = Vector3(x, 0, 0)
+			x += 1.4
 	var cam := Camera3D.new()
 	world.add_child(cam)
 	cam.current = true

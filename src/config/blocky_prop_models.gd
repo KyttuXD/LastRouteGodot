@@ -204,4 +204,10 @@ const MODELS := {
 	"lavaPipeManifold": ["res://art/props-3d/props/blocky/lavaPipeManifold.glb"],
 	"lavaVent": ["res://art/props-3d/props/blocky/lavaVent.glb"],
 	"magmaCrystalCluster": ["res://art/props-3d/props/blocky/magmaCrystalCluster.glb"],
+	"normalRoomDoor": ["res://art/props-3d/props/blocky/normalRoomDoor.glb"],
+	"normalDoubleRoomDoor": ["res://art/props-3d/props/blocky/normalDoubleRoomDoor.glb"],
+	"luxuryRoomDoor": ["res://art/props-3d/props/blocky/luxuryRoomDoor.glb"],
+	"luxuryDoubleRoomDoor": ["res://art/props-3d/props/blocky/luxuryDoubleRoomDoor.glb"],
+	"gothicRoomDoor": ["res://art/props-3d/props/blocky/gothicRoomDoor.glb"],
+	"gothicDoubleRoomDoor": ["res://art/props-3d/props/blocky/gothicDoubleRoomDoor.glb"],
 }

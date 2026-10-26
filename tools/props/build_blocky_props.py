@@ -73,7 +73,7 @@ def paint_atlas():
                 if x in (0, 15) or y in (0, 15):
                     shade *= .86 if name not in ("screen", "amber") else 1.0
                 color = [min(255, max(0, c * shade)) / 255.0 for c in (r, g, b)]
-                py = ty * 16 + (15 - y)   # image origin is bottom-left
+                py = (AH // 16 - 1 - ty) * 16 + (15 - y)   # image origin is bottom-left; tile row 0 is the TOP row (matches the UVs)
                 i = (py * AW + tx * 16 + x) * 4
                 px[i:i + 4] = color + [1.0]
     img.pixels = px
@@ -292,6 +292,7 @@ PROPS["houseBathtub"] = ([(0, 0, 0, 1, .6, 1, "porcelain"), (.1, .5, .1, .9, .62
 PROPS["woodenDresserSideboard"] = PROPS["bedroomDresser"]
 
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_extra.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
@@ -312,6 +313,7 @@ for name, (boxes, subs) in PROPS.items():
         export(obj, filename)
         files.append(filename)
     manifest[name] = files
+manifest.update({k: v for k, v in EXTRA_MANIFEST.items() if not k.startswith("__")})
 json.dump(manifest, open(os.path.join(OUT, "manifest.json"), "w"), indent=1)
 # regenerate src/config/blocky_prop_models.gd:  python3 - < tools/props/emit_models.py (see README)
 print("BLOCKY PROPS OK", len(manifest), "types,", sum(len(v) for v in manifest.values()), "models")

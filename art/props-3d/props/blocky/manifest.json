@@ -689,5 +689,23 @@
  ],
  "magmaCrystalCluster": [
   "magmaCrystalCluster.glb"
+ ],
+ "normalRoomDoor": [
+  "normalRoomDoor.glb"
+ ],
+ "normalDoubleRoomDoor": [
+  "normalDoubleRoomDoor.glb"
+ ],
+ "luxuryRoomDoor": [
+  "luxuryRoomDoor.glb"
+ ],
+ "luxuryDoubleRoomDoor": [
+  "luxuryDoubleRoomDoor.glb"
+ ],
+ "gothicRoomDoor": [
+  "gothicRoomDoor.glb"
+ ],
+ "gothicDoubleRoomDoor": [
+  "gothicDoubleRoomDoor.glb"
  ]
 }

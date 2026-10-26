@@ -63,7 +63,7 @@ const TOOL_PICKUP_MODELS := {
 }
 const LOCKED_CACHE_MODELS := {
 	"crate": "res://art/props-3d/interactables/locked_relay_crate.glb",
-	"barrel": "res://art/props-3d/interactables/locked_relay_barrel.glb",
+	"barrel": "res://art/props-3d/props/blocky/locked_relay_barrel.glb",
 }
 const BOARDED_HALLWAY_MODEL := "res://art/props-3d/interactables/boarded_hallway.glb"
 const GLOW_COLORS := {
