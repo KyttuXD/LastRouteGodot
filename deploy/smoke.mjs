@@ -2,6 +2,8 @@
 //   node deploy/smoke.mjs http://127.0.0.1:8105
 // Checks health, the room directory (register -> resolve -> unregister) and the PUBLIC route status.
 const base = (process.argv[2] || "http://127.0.0.1:8105").replace(/\/$/, "");
+const expectIndex = process.argv.indexOf("--instance");
+const expectedInstance = expectIndex > 0 ? process.argv[expectIndex + 1] : null;
 let failed = 0;
 const ok = (message) => console.log(`SMOKE OK   ${message}`);
 const bad = (message) => { failed += 1; console.log(`SMOKE FAIL ${message}`); };
@@ -22,6 +24,10 @@ try {
   const health = await call("GET", "/api/health");
   if (health.status === 200 && health.json?.ok) ok(`health (${JSON.stringify(health.json).slice(0, 160)})`);
   else bad(`health: HTTP ${health.status}`);
+  if (expectedInstance) {
+    if (health.json?.instance === expectedInstance) ok(`instance is "${expectedInstance}"`);
+    else bad(`instance is "${health.json?.instance}", expected "${expectedInstance}" (wrong server?)`);
+  }
 
   // room codes are 5 characters from the server's alphabet (no I, O, 0 or 1)
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
