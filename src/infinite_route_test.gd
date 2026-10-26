@@ -228,6 +228,8 @@ func _ready() -> void:
 		_admin_menu.open_changed.connect(_on_admin_menu_open_changed)
 		if not Backend.admin_roster_changed.is_connected(_on_admin_roster_changed):
 			Backend.admin_roster_changed.connect(_on_admin_roster_changed)
+	if RoomState.public_route:
+		_public_start()
 	if _awaiting_snapshot:
 		player.input_frozen = true
 		hud.show_message("SYNCING ROUTE WITH HOST...")
@@ -399,6 +401,7 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
+	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")
 
 
 func _on_pickup_claimed(entity_id: String) -> void:
@@ -1861,6 +1864,10 @@ func _refresh_hunter_stream() -> void:
 			and String(a.get("id", "")) < String(b.get("id", ""))))
 	var population_limit := GameConfig.streamed_hunter_population(
 		RoomState.difficulty_id(), GameState.relays_collected)
+	if RoomState.public_route:
+		# Players online, not relays, size the PUBLIC population.
+		population_limit = maxi(PublicRoute.hunter_target_count(),
+			PublicRoster.target_count(RoomState.peers.size()))
 	for spawn in candidates:
 		# Admin removals consume the corresponding pressure slot until future
 		# relay progress raises the desired population again. Otherwise the same
@@ -1870,6 +1877,9 @@ func _refresh_hunter_stream() -> void:
 		var entity_id := String(spawn.get("id", ""))
 		var admitted_spawn := spawn.duplicate(true)
 		var proposed_id := String(admitted_spawn.get("hunter_id", ""))
+		if RoomState.public_route:
+			proposed_id = _public_next_identity(proposed_id)
+			admitted_spawn["hunter_id"] = proposed_id
 		# Void incursions are a late-route escalation. Gray is the anti-idle
 		# exception and may still be admitted on its own timer; every other Void
 		# identity waits until the complete 26-member A-Z roster is present.
@@ -2060,6 +2070,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		var target := _remotes.best_target(view.brain.position, local_target, -level)
 		var activation_relays := GameConfig.hunter_activation_relay_count(
 			RoomState.difficulty_id())
+		if RoomState.public_route:
+			activation_relays = 0   # the shared route is always hunted
 		if not view.brain.active and GameState.relays_collected >= activation_relays \
 				and not target.is_empty():
 			view.brain.activate_at(target["position"])
@@ -2083,6 +2095,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		else:
 			view.target_peer_id = 0
 			view.set_look_target(null)
+			if RoomState.public_route:
+				_assign_public_patrol(entity_id, view)
 			view.brain.update_without_target(delta, navigation,
 				maxi(1, -level + 1), GameState.relays_collected)
 		view.sync_from_brain()
@@ -2844,6 +2858,11 @@ func _publish_stream_event(event: Dictionary, _state_already_applied: bool = fal
 
 func _apply_stream_world_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
+		"stream_respawn":
+			for id_value in event.get("ids", []):
+				world_state.claimed_pickups.erase(String(id_value))
+			_sync_stream_progress()
+			facility.refresh_mutations()
 		"stream_pickup":
 			var entity_id := String(event.get("entity_id", ""))
 			if not facility.apply_pickup_claim(entity_id):
@@ -2995,6 +3014,180 @@ func _local_safe_room_id() -> String:
 	return String((data.get("safe_room_data", {}) as Dictionary).get("id", ""))
 
 
+# -- PUBLIC route -----------------------------------------------------------------------
+
+func _public_start() -> void:
+	PublicRoute.attach_scene(self)
+	if RoomState.is_host:
+		_public_restore_authority()
+		_apply_public_resume()
+
+
+## A new authority restores the route from the backend's copy: claimed relays and
+## items, then the last hunter snapshot (applied after the remotes exist).
+func _public_restore_authority() -> void:
+	for id_value in PublicRoute.claimed_ids:
+		world_state.claimed_pickups[String(id_value)] = true
+	var snapshot := PublicRoute.decode_snapshot()
+	if not snapshot.is_empty() and int(snapshot.get("seed", 0)) == RoomState.run_seed() \
+			and snapshot.get("world_state") is Dictionary and snapshot.get("hunters") is Array:
+		if world_state.adopt(snapshot["world_state"]):
+			for id_value in PublicRoute.claimed_ids:
+				world_state.claimed_pickups[String(id_value)] = true
+			_apply_hunter_report.call_deferred(snapshot["hunters"])
+	_sync_stream_progress()
+	facility.refresh_mutations()
+	hud.show_message("PUBLIC ROUTE RESTORED // %d RELAYS" % GameState.relays_collected)
+
+
+## Back to where the runner was, never the hub unless that spot is not valid.
+func _apply_public_resume() -> void:
+	var saved := PublicRoute.resume
+	if saved.is_empty():
+		return
+	PublicRoute.resume = {}
+	var position: Dictionary = saved.get("position", {}) if saved.get("position") is Dictionary else {}
+	if not position.is_empty():
+		var spot := _nearest_valid_position(Vector2(float(position.get("x", 0.0)),
+			float(position.get("z", 0.0))))
+		player.global_position = spot
+		player.velocity = Vector3.ZERO
+		facility.refresh_at_tracked_player()
+	var order: Array = player.inventory_order.duplicate()
+	var durability: Array = player.inventory_slot_durability.duplicate()
+	var restored := false
+	for entry_value in saved.get("inventory", []):
+		var entry: Dictionary = entry_value
+		var slot := int(entry.get("slot", -1))
+		var item_id := String(entry.get("id", ""))
+		if slot < 0 or slot >= order.size() or not PlayerController3D.INVENTORY_ITEMS.has(item_id):
+			continue
+		order[slot] = item_id
+		var maximum := int(PlayerController3D.INVENTORY_MAX_DURABILITY.get(item_id, 0))
+		durability[slot] = mini(int(entry.get("durability", 0)), maximum) if maximum > 0 \
+			else int(entry.get("durability", 0))
+		restored = true
+	if restored:
+		player.inventory_order = order
+		player.inventory_slot_durability = durability
+	hud.show_message("RESUMED YOUR PLACE ON THE PUBLIC ROUTE")
+
+
+## Nearest walkable cell to a saved world position, searched outward; the hub
+## (spawn) only if nothing within 12 cells is open.
+func _nearest_valid_position(world_xz: Vector2) -> Vector3:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for radius in 13:
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if maxi(absi(dx), absi(dz)) != radius:
+					continue
+				var cell_x := floori(world_xz.x) + dx
+				var cell_z := floori(world_xz.y) + dz
+				var coord := Vector3i(floori(float(cell_x) / size), 0, floori(float(cell_z) / size))
+				var data := facility.generator.chunk(coord)
+				var local_x := posmod(cell_x, size)
+				var local_z := posmod(cell_z, size)
+				if int((data["grid"] as Array)[local_z][local_x]) == 0 \
+						and facility.generator.is_chunk_allowed(coord):
+					return Vector3(cell_x + .5, .05, cell_z + .5)
+	return facility.spawn_position()
+
+
+func apply_public_respawns(ids: Array) -> void:
+	for id_value in ids:
+		world_state.claimed_pickups.erase(String(id_value))
+	_sync_stream_progress()
+	facility.refresh_mutations()
+	_remotes.relay_world_event({"what": "stream_respawn", "ids": ids})
+
+
+## Today's lineup: the featured pair first, then the day-mixed weighted draw. The
+## first identity of that lineup not already hunting takes the next slot.
+func _public_next_identity(fallback: String) -> String:
+	var day := String(PublicRoute.server.get("day", ""))
+	var used := {}
+	for state_value in world_state.hunters.values():
+		used[String((state_value as Dictionary).get("hunter_id", ""))] = true
+	for id in PublicRoster.lineup(RoomState.seed_text, day):
+		if not used.has(String(id)):
+			return String(id)
+	return fallback
+
+
+const PUBLIC_PATROL_DWELL_MSEC := 20_000
+var _public_patrol := {}
+
+
+## Idle hunters patrol around a real runner (the one fewest other hunters are on),
+## re-rolled every few seconds, so nobody is safe just by being far from the hub.
+func _assign_public_patrol(entity_id: String, view: HunterView3D) -> void:
+	var now := Time.get_ticks_msec()
+	var entry: Dictionary = _public_patrol.get(entity_id, {})
+	if entry.is_empty() or now >= int(entry.get("until", 0)):
+		var runners := _public_runner_positions()
+		if runners.is_empty():
+			view.brain.has_patrol_anchor = false
+			return
+		var load_by_peer := {}
+		for other_id in _public_patrol:
+			if other_id != entity_id:
+				var peer := int((_public_patrol[other_id] as Dictionary).get("peer", 0))
+				load_by_peer[peer] = int(load_by_peer.get(peer, 0)) + 1
+		var best_peer := -1
+		var best_load := 1 << 30
+		var keys: Array = runners.keys()
+		keys.sort()
+		for peer_value in keys:
+			var load := int(load_by_peer.get(peer_value, 0))
+			if load < best_load:
+				best_load = load
+				best_peer = int(peer_value)
+		entry = {"peer": best_peer, "until": now + PUBLIC_PATROL_DWELL_MSEC}
+		_public_patrol[entity_id] = entry
+	var runner_positions := _public_runner_positions()
+	var anchor = runner_positions.get(int(entry.get("peer", -1)))
+	if anchor is Vector2:
+		view.brain.has_patrol_anchor = true
+		view.brain.patrol_anchor = anchor
+	else:
+		view.brain.has_patrol_anchor = false
+
+
+## Hunt-able runners (not in a safe room): peer id -> grid position.
+func _public_runner_positions() -> Dictionary:
+	var result := {}
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if not _player_in_intact_safe_room(facility.current_chunk_data()):
+		result[local_id] = player.grid_position()
+	if _remotes != null:
+		for target_value in _remotes.target_states({}):
+			var target: Dictionary = target_value
+			if bool(target.get("in_safe_zone", false)) or not target.get("position") is Vector2:
+				continue
+			result[int(target.get("peer_id", 0))] = target["position"]
+	return result
+
+
+## Captured on the PUBLIC route: watch from a free camera, then come back on your
+## own after a few seconds (no run report, nobody has to press anything).
+func _public_spectate_then_rejoin(hunter_name: String) -> void:
+	player.enter_spectator()
+	player.input_frozen = false
+	player.look_frozen = false
+	if RoomState.online and not RoomState.is_host:
+		_remotes.submit_hunter_event({"what": "caught"})
+	hud.show_message("CAUGHT BY %s // SPECTATING // REJOINING SHORTLY" % hunter_name)
+	_capture_resolving = false
+	await get_tree().create_timer(8.0).timeout
+	if not is_inside_tree() or not RoomState.public_route:
+		return
+	player.leave_spectator()
+	_respawn_after_death()
+	PublicRoute.join_grace_until_msec = Time.get_ticks_msec() + 10_000
+	hud.show_message("BACK ON THE ROUTE // GRACE PERIOD")
+
+
 func _build_stream_snapshot() -> Dictionary:
 	_collect_hunter_report()
 	return {"snapshot_protocol": SNAPSHOT_PROTOCOL,
@@ -3042,6 +3235,8 @@ func _apply_stream_snapshot(state: Dictionary) -> void:
 		or (_story != null and _story.is_active())
 	_remotes.confirm_snapshot_applied()
 	hud.show_message("ROUTE SYNCED")
+	if RoomState.public_route:
+		_apply_public_resume()
 
 
 func _sync_stream_progress() -> void:
@@ -3240,6 +3435,9 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
 		await jumpscare.play(player.active_camera(), hunter_id)
+	if RoomState.public_route:
+		await _public_spectate_then_rejoin(hunter_name)
+		return
 	if RoomState.online and not RoomState.is_host:
 		player.enter_spectator()
 		player.input_frozen = false
@@ -3641,6 +3839,11 @@ func _state_chunk(state: Dictionary) -> Vector3i:
 func _leave_test() -> void:
 	_force_disable_admin_cheats()
 	get_tree().paused = false
+	if RoomState.public_route:
+		PublicRoute.leave()
+		RoomState.leave_network()
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		return
 	if RoomState.online and RoomState.is_host:
 		# Keep the ENet room alive and return every connected runner to the same
 		# staging screen. RoomState owns the authoritative reliable RPC.

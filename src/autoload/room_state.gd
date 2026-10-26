@@ -95,6 +95,8 @@ var code := ""
 ## The full route seed, shown on the staging screen and the in-run HUD so two
 ## players can confirm they are on the same route.
 var seed_text := ""
+## True while this room is the shared PUBLIC route: no lobby, server-owned state.
+var public_route := false
 var mode: Mode = Mode.DEFAULT
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
@@ -118,6 +120,8 @@ var status_message := ""
 var peers := {}
 
 const DEFAULT_PORT := 8421
+## The persistent server-owned route (see PublicRoute).
+const PUBLIC_CODE := "PUBLIC"
 const CONNECTION_TIMEOUT_MSEC := 15_000
 const RECONNECT_GRACE_MSEC := 8_000
 const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000
@@ -177,6 +181,7 @@ func _exit_tree() -> void:
 ## This IS singleplayer. There is no second code path to keep in step, which is
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
+	public_route = false
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -505,11 +510,18 @@ func _on_server_disconnected() -> void:
 
 
 func _close_failed_connection(reason: String) -> void:
+	var was_public := public_route
 	_close_transport_only(true)
 	_clear_reconnect_state()
 	status_message = reason
 	changed.emit()
 	connection_lost.emit(reason)
+	if was_public:
+		# The shared route has no staging to fall back to: join it again, which
+		# may make this client the new authority (see PublicRoute).
+		public_route = true
+		PublicRoute.on_connection_lost()
+		return
 	call_deferred("_return_to_staging")
 
 

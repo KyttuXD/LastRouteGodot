@@ -289,6 +289,8 @@ const STREAMED_HUNTER_IDS := [
 ]
 
 var world_seed := "ENDLESS-ROUTE"
+## PUBLIC route: safe rooms are spread through the map (see is_safe_room).
+var public_route := false
 var _chunk_cache := {}
 var _chunk_cache_order: Array[Vector3i] = []
 
@@ -595,7 +597,11 @@ func is_safe_room(coord: Vector3i) -> bool:
 	var rng := SeededRandom.new("%s:SAFE:%d:%d:%d" % [
 		world_seed, coord.x, coord.y, coord.z])
 	var profile := difficulty_for_level(coord.y)
-	return rng.next_float() < 0.055 * float(profile["safe_room_bias"])
+	# The shared PUBLIC route has no lobby to retreat to, so checkpoints are spread
+	# through the infinite map: each chunk rolls its own deterministic chance, the
+	# same on every client, and none of them is large enough to seal a wing off.
+	var chance := 0.22 if public_route else 0.055 * float(profile["safe_room_bias"])
+	return rng.next_float() < chance
 
 
 func safe_room_data(coord: Vector3i) -> Dictionary:

@@ -120,6 +120,7 @@ func begin(seed_text: String, player: PlayerController3D,
 		state: StreamedWorldState = null) -> void:
 	clear()
 	generator = StreamedRouteGenerator.new(seed_text)
+	generator.public_route = RoomState.public_route
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
 	_tracked_level = snapped_level_for_world_y(

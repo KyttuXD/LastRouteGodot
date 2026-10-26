@@ -145,7 +145,8 @@ func level_seed_text() -> String:
 ## struggle (the post-escape immunity window) — mirrors triggerGameOver's
 ## escapeState.grace check.
 func is_capture_immune() -> bool:
-	return escape_grace > 0.0
+	# PUBLIC route: a short grace period after joining or rejoining.
+	return escape_grace > 0.0 or PublicRoute.in_join_grace()
 
 
 ## True while a captured player has no struggle chance at all and is

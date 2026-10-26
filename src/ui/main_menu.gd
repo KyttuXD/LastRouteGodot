@@ -50,6 +50,7 @@ func _ready() -> void:
 	MouseLock.release_all()
 	_apply_palette()
 	_build_hint()
+	_build_public_button()
 	_build_local_saves_button()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
@@ -104,6 +105,31 @@ func _build_hint() -> void:
 	if version_label != null:
 		version_label.add_theme_color_override("font_color", Palette.MUTED)
 		version_label.add_theme_font_size_override("font_size", 6)
+
+
+## PUBLIC ROUTE: the always-open shared route. No lobby, no host choice; the
+## backend owns the room (see PublicRoute).
+func _build_public_button() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
+	if box == null or box.has_node("PublicButton"):
+		return
+	var button := Button.new()
+	button.name = "PublicButton"
+	button.text = "PUBLIC ROUTE"
+	button.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(button, true, true)
+	button.disabled = Backend.offline_mode or not Backend.configured()
+	button.tooltip_text = "Join the always-open shared route (needs the primary server)"
+	button.pressed.connect(func() -> void:
+		button.disabled = true
+		PublicRoute.join())
+	PublicRoute.status_changed.connect(func(message: String) -> void:
+		if is_instance_valid(button) and not message.is_empty():
+			button.text = message.substr(0, 38)
+			button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
+				and not message.begins_with("PUBLIC ROUTE NEEDS"))
+	box.add_child(button)
+	box.move_child(button, 0)
 
 
 func _build_local_saves_button() -> void:

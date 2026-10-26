@@ -561,7 +561,10 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 		var state: Dictionary = _states[id]
 		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
 			continue
-		result.append(state.duplicate(true))
+		var copy := state.duplicate(true)
+		if not copy.has("peer_id"):
+			copy["peer_id"] = int(id)
+		result.append(copy)
 	return result
 
 

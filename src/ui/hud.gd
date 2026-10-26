@@ -133,6 +133,7 @@ func _ready() -> void:
 @onready var compact_stamina_bar: ProgressBar = %CompactStaminaBar
 @onready var fps_label: Label = %FpsLabel
 
+var _public_label: Label
 var _message_time_left := 0.0
 var _hold_message := ""
 var _fps_update_left := 0.0
@@ -694,6 +695,28 @@ func update_meters(meters: PlayerMeters, hunter_heat: float = 0.0,
 
 func set_interaction_prompt(text: String) -> void:
 	interaction_label.text = text
+
+
+## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line,
+## top centre. Empty hides it (private rooms and solo).
+func set_public_line(text: String) -> void:
+	if _public_label == null:
+		_public_label = Label.new()
+		_public_label.name = "PublicLine"
+		_public_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_public_label.add_theme_font_size_override("font_size", 7)
+		_public_label.add_theme_color_override("font_color", Palette.AMBER)
+		_public_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
+		_public_label.add_theme_constant_override("outline_size", 2)
+		_public_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_public_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_public_label.offset_left = -140
+		_public_label.offset_right = 140
+		_public_label.offset_top = 4
+		_public_label.offset_bottom = 16
+		add_child(_public_label)
+	_public_label.text = text
+	_public_label.visible = not text.is_empty()
 
 
 func show_message(text: String) -> void:

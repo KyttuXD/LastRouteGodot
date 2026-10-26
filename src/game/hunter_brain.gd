@@ -67,6 +67,11 @@ var sense_timer := 0.0
 
 var has_wander_target := false
 var wander_target := Vector2.ZERO
+## PUBLIC route patrol: idle hunters wander around a real runner instead of only
+## the rooms nearest themselves, so no part of the map is safe from them.
+var has_patrol_anchor := false
+var patrol_anchor := Vector2.ZERO
+const PATROL_RADIUS := 30.0
 var has_search_target := false
 var search_target := Vector2.ZERO
 var has_last_known := false
@@ -552,6 +557,15 @@ func _pick_wander_target(generator) -> Vector2:
 		var candidate_pos := Vector2(open["x"], open["y"])
 		if position.distance_to(candidate_pos) > 5.0:
 			candidates.append(candidate_pos)
+
+	if has_patrol_anchor and not candidates.is_empty():
+		var near: Array = candidates.filter(func(c: Vector2) -> bool:
+			return c.distance_to(patrol_anchor) <= PATROL_RADIUS)
+		if near.is_empty():
+			near = candidates.filter(func(c: Vector2) -> bool:
+				return c.distance_to(patrol_anchor) <= PATROL_RADIUS * 2.0)
+		if not near.is_empty():
+			candidates = near
 
 	if candidates.is_empty():
 		return Vector2(generator.exit_cell) + Vector2(0.5, 0.5)
