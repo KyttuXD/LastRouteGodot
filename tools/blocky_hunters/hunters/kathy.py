@@ -1,5 +1,6 @@
 """kathy: the supplied Minecraft (Alex) skin skins/kathy_source.png on rig-split cubes at vanilla scale,
-plus a 3D ponytail: tie + four tapering segments on Pony-1..3 bones that swing in every clip.
+plus a 3D ponytail (tie + four tapering segments on Pony-1..3 bones that swing in every clip) and
+3D back hair (stacked slabs and side pieces on a Hair-Back bone).
 The ponytail is painted with the skin's own hair colour (flat, exactly as her head hair is), so it
 matches the hair on the skin; the tie uses the red of her bow."""
 from bb_core import Cube
@@ -16,6 +17,7 @@ MODEL_KW = {}
 _PONY = [("Pony-1", "Head", (0.0, 31.0, 4.6), (7, 3, 1, 0.0)),
          ("Pony-2", "Pony-1", (0.0, 27.0, 6.3), (9, 4, 1, 0.7)),
          ("Pony-3", "Pony-2", (0.0, 22.5, 6.6), (12, 5, 1, 1.4))]
+_PONY.append(("Hair-Back", "Head", (0.0, 31.0, 4.5), (3, 1, 1, 0.3)))     # back hair mass sways a little
 EXTRAS = [(n, par, (m(x), m(y), m(z)), sw) for n, par, (x, y, z), sw in _PONY]
 HAIR_SWATCH, TIE_SWATCH = (46, 66, 2, 2), (48, 66, 2, 2)     # free atlas texels, solid colours
 
@@ -32,7 +34,14 @@ def _modify(canvas):
         return Cube(name, bone, (m(x - w / 2), m(y0), m(zc - d / 2)), (m(x + w / 2), m(y1), m(zc + d / 2)),
                     uv={f: swatch for f in "ENWSUD"}, rot=rot,
                     pivot=(m(pivot[0]), m(pivot[1]), m(pivot[2])) if pivot else None)
-    return [
+    back = [   # the back of her hair as stacked slabs hugging the head, narrowing to the nape
+        box("hair-back-top", "Hair-Back", 28.0, 32.4, 9.4, 1.4, 5.2, HAIR_SWATCH),
+        box("hair-back-mid", "Hair-Back", 25.4, 28.2, 8.6, 1.2, 5.1, HAIR_SWATCH),
+        box("hair-back-nape", "Hair-Back", 23.4, 25.6, 6.0, 1.0, 4.9, HAIR_SWATCH),
+        box("hair-back-side-l", "Hair-Back", 25.6, 31.6, 1.2, 4.2, 2.6, HAIR_SWATCH, x=-4.9),
+        box("hair-back-side-r", "Hair-Back", 25.6, 31.6, 1.2, 4.2, 2.6, HAIR_SWATCH, x=4.9),
+    ]
+    return back + [
         box("pony-tie", "Pony-1", 29.8, 32.2, 3.2, 2.2, 5.0, TIE_SWATCH),
         box("pony-1", "Pony-1", 26.8, 30.6, 4.2, 3.2, 6.1, HAIR_SWATCH, rot=(-10, 0, 0), pivot=(0, 30.6, 4.8)),
         box("pony-2", "Pony-2", 22.4, 27.0, 4.4, 3.2, 6.7, HAIR_SWATCH),
