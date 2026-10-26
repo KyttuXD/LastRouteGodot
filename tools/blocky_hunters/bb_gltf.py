@@ -104,7 +104,7 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
             nodes[index[bone]]["mesh"] = mesh_for(body, bone, mat_main, bone)
         for i in face:
             fn = {"name": "Face", "mesh": mesh_for([i], bone, mat_face, "Face"),
-                  "extras": {"cell_w": model.face_cell[0], "cell_h": model.face_cell[1], "cols": 3, "rows": 2}}
+                  "extras": {"cell_w": model.face_cell[0], "cell_h": model.face_cell[1], "cols": 3, "rows": 3}}
             nodes.append(fn)
             nodes[index[bone]]["children"].append(len(nodes) - 1)
 

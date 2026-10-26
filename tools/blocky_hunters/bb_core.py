@@ -14,7 +14,7 @@ from PIL import Image
 PX = 1.0 / 32.0          # default texel size: 1 texel = 3.125 cm of design space
 ATLAS_W, ATLAS_H = 128, 256
 FACE_CELL = (16, 10)     # shared expression cell size (texels)
-FACE_COLS, FACE_ROWS = 3, 2
+FACE_COLS, FACE_ROWS = 3, 3
 
 # face -> (u axis, u sign, v axis, v sign, normal axis, normal sign); u x v = -normal
 FACES = {
@@ -137,6 +137,8 @@ class Model:
             self.face_origin = self.face_at or atlas.place(bw, bh)
             for k in range(FACE_COLS * FACE_ROWS):
                 cell = self.face_painter(k)
+                if cell is None:
+                    continue
                 ox = self.face_origin[0] + (k % FACE_COLS) * cw
                 oy = self.face_origin[1] + (k // FACE_COLS) * ch
                 atlas.img.paste(cell, (ox, oy))

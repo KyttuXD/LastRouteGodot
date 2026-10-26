@@ -189,7 +189,7 @@ def load_source(name):
 
 
 def expressions_from_face(face):
-    """6 expression cells (neutral, blink, stun, chase, scream, happy) edited from the skin's own 8x8
+    """7 expression cells (neutral, blink, stun, chase, scream, happy, derp) edited from the skin's own 8x8
     face: same hair frame, skin, eye and blush colours; only the eye/mouth pixels change."""
     skin, hair = face.getpixel((3, 4)), face.getpixel((0, 0))
     col, dark, blush = face.getpixel((1, 5)), face.getpixel((2, 5)), face.getpixel((1, 7))
@@ -219,8 +219,11 @@ def expressions_from_face(face):
                        (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark}))
     wide = {(x, y): col for y in (5, 6) for x in (1, 2, 5, 6)}                                 # 4 scream: wide eyes (eye colour only, no brows),
     cells.append(make(wide))
-    cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 5 happy: lower half iris
-                       (1, 6): col, (2, 6): col, (5, 6): col, (6, 6): col}))
+    happy = {(1, 5): dark, (6, 5): dark}                                                       # 5 happy: KT's ^ ^ arcs
+    happy.update({(x, 6): dark for x in (0, 1, 2, 5, 6, 7)})                                    # (reach into the hair frame)
+    cells.append(make(happy))
+    cells.append(make({(1, 5): dark, (2, 5): col, (1, 6): dark, (2, 6): dark,                  # 6 derp: KT's cross-eyed look,
+                       (5, 5): dark, (6, 5): dark, (5, 6): col, (6, 6): dark}))                # iris turned clockwise
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
@@ -231,4 +234,4 @@ def source_hunter(name, mod_globals):
     canvas = load_source(name)
     cells = expressions_from_face(canvas.crop((8, 8, 16, 16)))
     mod_globals["MODEL_KW"].update(vanilla_kw(canvas))
-    return vanilla_cubes(extra_head=False), (lambda k: cells[k])
+    return vanilla_cubes(extra_head=False), (lambda k: cells[k] if k < len(cells) else None)

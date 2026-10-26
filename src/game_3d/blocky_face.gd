@@ -4,10 +4,10 @@ extends RefCounted
 ## Expression swap for the cube ("blocky") hunters in assets/hunters_blocky/.
 ##
 ## Each GLB has a "Face" quad laid over the head's front face. Its UVs point at
-## cell 0 of a 3x2 grid of 8x8 expression cells under the skin (atlas 64x128),
+## cell 0 of a 3x3 grid of 8x8 expression cells (7 used) under the skin (atlas 64x128),
 ## so changing expression is a UV offset on the quad's own material.
 
-const CELLS := {"neutral": 0, "blink": 1, "stun": 2, "chase": 3, "scream": 4, "happy": 5}
+const CELLS := {"neutral": 0, "blink": 1, "stun": 2, "chase": 3, "scream": 4, "happy": 5, "derp": 6}
 const CELL_PX := Vector2(8, 8)
 const ATLAS_PX := Vector2(64, 128)
 const COLS := 3
