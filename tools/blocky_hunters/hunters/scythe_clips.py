@@ -1,7 +1,6 @@
 """Kathy-only scythe clips, added to her normal clip set (shared clip names untouched):
 
-  scythe_idle-loop  idle, but the right arm holds the shaft close in front of her side (forearm bent, hand keeps the
-                    shaft upright)
+  scythe_idle-loop  idle, but the right elbow is bent about 90 degrees: forearm forward, fist round an upright shaft
   scythe_walk-loop  walk, right arm held to the shaft instead of swinging
   scythe_swing      one-shot sweep: wind up back-right, whip across, recover
 
@@ -10,7 +9,9 @@ her hand (BoneAttach: add the prop under `R-HandProp`)."""
 import copy
 from bb_core import quat_from_euler, quat_mul
 
-HOLD = {"R-Arm": (24, 0, -6), "R-Forearm": (42, 0, 0), "R-Hand": (-66, 0, 6)}   # the hand cancels arm + forearm: the shaft stays upright
+# Elbow bent ~90 degrees so the forearm points forward and the fist closes round an UPRIGHT shaft at right angles to
+# it (a shaft along the arm line would sit inside the arm). The hand cancels arm + forearm so the shaft stays vertical.
+HOLD = {"R-Arm": (20, 0, 8), "R-Forearm": (74, 0, 0), "R-Hand": (-94, 0, -8)}
 
 
 def _hold_tracks(clip, restq):

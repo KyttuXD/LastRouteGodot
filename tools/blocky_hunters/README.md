@@ -19,5 +19,6 @@ forward (-Z), so with an identity transform under `R-HandProp` the blade points 
     var scythe := ModelSlot.instantiate("res://assets/props_3d/kathy_scythe.glb")
     hunter_model.find_child("R-HandProp", true, false).add_child(scythe)
 
-Kathy's glb also has optional clips: `scythe_idle` and `scythe_walk` (loops: right arm holds the shaft upright
-in front of her side) and `scythe_swing` (one-shot). Play them instead of idle/walk while she carries it.
+Kathy's glb also has clips for carrying it: `scythe_idle` and `scythe_walk` (loops: right elbow bent about 90 degrees,
+forearm forward, fist round an upright shaft) and `scythe_swing` (one-shot). Play these instead of idle/walk while
+she carries it: with the plain idle (arm hanging) the shaft would lie along her arm and look like it is inside it.
