@@ -132,7 +132,7 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
                 oacc = buf.acc(floats=flat, atype="VEC4" if chan == "rotation" else "VEC3")
                 samps.append({"input": tacc, "output": oacc, "interpolation": "LINEAR"})
                 chans.append({"sampler": len(samps) - 1, "target": {"node": index[bone], "path": chan}})
-        animations.append({"name": cname + ("-loop" if loop_suffix else ""), "channels": chans, "samplers": samps})
+        animations.append({"name": cname + ("-loop" if loop_suffix and clip.get("loop", True) else ""), "channels": chans, "samplers": samps})
 
     png = model.texture_png()
     img_view = buf.view(png)

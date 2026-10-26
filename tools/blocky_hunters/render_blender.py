@@ -41,7 +41,7 @@ for i, n in enumerate(NAMES):
     root = [o for o in new if o.parent is None][0]
     root.location.x += i * 1.5
     objs.append((n, root, new))
-    act = bpy.data.actions.get(CLIP + "-loop")
+    act = bpy.data.actions.get(CLIP + "-loop") or bpy.data.actions.get(CLIP)
     if act and CLIP != "none":
         for o in new:
             slot = next((s for s in act.slots if s.identifier == "OB" + o.name), None)

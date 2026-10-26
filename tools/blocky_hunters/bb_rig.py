@@ -60,7 +60,7 @@ def _lerp_key_times(length, n):
     return [length * i / n for i in range(n + 1)]
 
 
-def build_clips(bones, hip_y, profile=None):
+def build_clips(bones, hip_y, profile=None, emotes=None):
     """Return {clip: {"length": s, "tracks": {bone: {"rotation": (t, v), "translation": (t, v)}}}}.
     Core tracks come from the Hytale clips; charge/flight/jumpscare are authored here."""
     names = {b["name"] for b in bones}
@@ -135,12 +135,13 @@ def build_clips(bones, hip_y, profile=None):
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
     _apply_profile(clips, restq, pel, profile or {})
+    clips.update(emotes or {})            # one-shot emotes are added after the profile: they keep their own timing
 
     # procedural sway for extra bones (ponytail, hair, wings, ribbons ...)
     for clip_name, clip in clips.items():
         length = clip["length"]
         cyc = {"idle": 1, "walk": 2, "chase": 2, "sprint": 2, "charge": 2, "crouch": 1,
-               "stun": 2, "flight": 3, "jumpscare": 4}[clip_name]
+               "stun": 2, "flight": 3, "jumpscare": 4}.get(clip_name, max(1, round(length / 1.2)))   # emotes: one swing per ~1.2 s
         for b in bones:
             if not b["sway"]:
                 continue
@@ -148,12 +149,12 @@ def build_clips(bones, hip_y, profile=None):
             ay = b["sway"][4] if len(b["sway"]) > 4 else 0     # optional yaw (side-to-side wag)
             amp = {"idle": .5, "walk": 1.0, "chase": 1.5, "sprint": 1.8, "charge": 1.8, "crouch": .4,
                    "stun": 1.4, "flight": b.get("flight_amp", 1.0) if isinstance(b, dict) else 1.0,
-                   "jumpscare": 1.6}[clip_name]
+                   "jumpscare": 1.6}.get(clip_name, 1.0)
             if b["name"].endswith("Wing"):
                 amp = {"idle": .5, "walk": .8, "chase": 1.2, "sprint": 1.4, "charge": 1.4, "crouch": .35,
-                       "stun": 1.0, "flight": 3.2, "jumpscare": 2.0}[clip_name]
+                       "stun": 1.0, "flight": 3.2, "jumpscare": 2.0}.get(clip_name, 1.2)
                 cyc2 = {"idle": 2, "walk": 3, "chase": 5, "sprint": 6, "charge": 6, "crouch": 1,
-                        "stun": 4, "flight": 10, "jumpscare": 8}[clip_name]
+                        "stun": 4, "flight": 10, "jumpscare": 8}.get(clip_name, max(2, round(length * 3)))
             else:
                 cyc2 = cyc * mult
             n = 12 if cyc2 <= 3 else max(12, int(cyc2 * 4))

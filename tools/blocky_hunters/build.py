@@ -46,6 +46,18 @@ def _generic(name):
     return ns
 
 
+EMOTES_JSON = OUT / "emotes.json"
+
+
+def _record_emotes(name, meta):
+    """assets/hunters_blocky/emotes.json: hunter id -> its emote clips (label, face) for BlockyEmotes."""
+    import json
+    table = json.loads(EMOTES_JSON.read_text()) if EMOTES_JSON.exists() else {}
+    table[name] = meta
+    OUT.mkdir(parents=True, exist_ok=True)
+    EMOTES_JSON.write_text(json.dumps(dict(sorted(table.items())), indent=1))
+
+
 def build(name, tall=0.0):
     try:
         mod = importlib.import_module(f"hunters.{name}")
@@ -63,8 +75,13 @@ def build(name, tall=0.0):
     extra = getattr(mod, "MODEL_KW", {})
     model = Model(name, bones, cubes, scale=mod.HEIGHT / top, face_painter=face,
                   extras={"eyes": eyes}, **extra)
-    from hunters import motion
-    clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name))
+    from hunters import motion, emotes as emote_lib
+    pel = next(x for x in bones if x["name"] == "Pelvis")["pivot"]
+    from bb_skin import U as SKIN_U
+    emote_clips, emote_meta = emote_lib.compile_emotes(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
+                                                       sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
+    clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
+    _record_emotes(name, emote_meta)
     d = OUT / name
     d.mkdir(parents=True, exist_ok=True)
     size = bb_gltf.write_glb(model, bones, clips, d / f"{name}.glb", scale=model.scale)

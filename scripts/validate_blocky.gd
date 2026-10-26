@@ -26,6 +26,12 @@ func _fail(message: String) -> void:
 
 
 func run(host: Node) -> int:
+	var table := {}
+	var file := FileAccess.open("res://assets/hunters_blocky/emotes.json", FileAccess.READ)
+	if file == null:
+		_fail("emotes.json is missing")
+	else:
+		table = JSON.parse_string(file.get_as_text())
 	for id in HUNTERS:
 		var path := "res://assets/hunters_blocky/%s/%s.glb" % [id, id]
 		if not ResourceLoader.exists(path):
@@ -39,6 +45,20 @@ func run(host: Node) -> int:
 		for bone in BONES:
 			if node.find_child(bone, true, false) == null:
 				_fail("%s is missing bone %s" % [id, bone])
+		# emotes: the hunter's list must exist as one-shot clips and each must name a face BlockyFace knows
+		var listed: Array = table.get(id, [])
+		if listed.size() < 5:
+			_fail("%s has only %d emotes (4 shared + her own expected)" % [id, listed.size()])
+		for entry in listed:
+			var emote_player := ModelSlot.find_animation_player(node)
+			var emote_clip := String(entry.get("clip", ""))
+			if emote_player == null or not emote_player.has_animation(emote_clip):
+				_fail("%s lists emote %s but the model has no such clip" % [id, emote_clip])
+			elif emote_player.get_animation(emote_clip).loop_mode != Animation.LOOP_NONE:
+				_fail("%s emote %s loops (emotes are one-shot)" % [id, emote_clip])
+			var face_name := String(entry.get("face", ""))
+			if not BlockyFace.CELLS.has(face_name) and not BlockyFace.ANIMS.has(face_name):
+				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
 		if id.begins_with("xivvy"):
 			for wing in ["L-Wing", "R-Wing", "L-HindWing", "R-HindWing"]:
 				if node.find_child(wing, true, false) == null:
