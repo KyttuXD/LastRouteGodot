@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d1x8sm27peard"
-path="res://.godot/imported/last_route_icon.png-67439877982798e652fd4487eaef8caa.ctex"
+uid="uid://baci2u61c61rm"
+path="res://.godot/imported/logo_144.png-8c155000eefbe5532477fea3e6be045a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/branding/last_route_icon.png"
-dest_files=["res://.godot/imported/last_route_icon.png-67439877982798e652fd4487eaef8caa.ctex"]
+source_file="res://assets/branding/logo_144.png"
+dest_files=["res://.godot/imported/logo_144.png-8c155000eefbe5532477fea3e6be045a.ctex"]
 
 [params]
 
