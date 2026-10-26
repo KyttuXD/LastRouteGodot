@@ -195,7 +195,11 @@ func _everyone_actually_renders() -> void:
 				var transparency := (material as StandardMaterial3D).transparency
 				if HunterRoster.VOID_IDS.has(id):
 					var atlas := (material as StandardMaterial3D).albedo_texture
-					if atlas == null or atlas.get_width() != 64 or atlas.get_height() != 96:
+					# old Void models pack a 64x96 atlas; the blocky ones stay within 128x256 (see blocky suite)
+					var blocky_void := String(identity["model_scene"]).begins_with(HunterRoster.BLOCKY_DIR)
+					if atlas == null \
+							or (blocky_void and (atlas.get_width() > 128 or atlas.get_height() > 256)) \
+							or (not blocky_void and (atlas.get_width() != 64 or atlas.get_height() != 96)):
 						if not broken_void_runtime_atlases.has(id):
 							broken_void_runtime_atlases.append(id)
 				if transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
@@ -232,7 +236,7 @@ func _everyone_actually_renders() -> void:
 	_expect(fade_broken.is_empty(),
 		"hunter fade is still discarded by ALPHA_SCISSOR: %s" % ", ".join(fade_broken))
 	_expect(broken_void_runtime_atlases.is_empty(),
-		"Void runtime materials do not use their packed 64x96 atlas: %s" \
+		"Void runtime materials do not use their packed atlas (64x96, or within 128x256 for blocky): %s" \
 		% ", ".join(broken_void_runtime_atlases))
 	_expect(masked_surfaces > 0,
 		"no character surface retained authored alpha masking")

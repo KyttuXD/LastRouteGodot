@@ -21,11 +21,14 @@ func _fail(message: String) -> void:
 
 func run(host: Node) -> int:
 	for id in HunterRoster.A_Z_IDS:
-		var identity := HunterRoster.get_identity(id)
-		if String(identity["sprite_front"]).is_empty() or String(identity["sprite_back"]).is_empty():
-			_fail("%s has no sprite paths" % id)
+		# Sprites are the optional fallback (HunterRoster.USE_SPRITES): the cutout assets and the
+		# billboard builder must keep working even while the game shows the blocky models.
+		var front := "%s%s-front.png" % [HunterRoster.SPRITE_DIR, id]
+		var back := "%s%s-back.png" % [HunterRoster.SPRITE_DIR, id]
+		if not ResourceLoader.exists(front) or not ResourceLoader.exists(back):
+			_fail("%s has no sprite files" % id)
 			continue
-		var node := ModelSlot.instantiate_hunter(identity)
+		var node: Node3D = SpriteBillboard.create(front, back)
 		if not node is SpriteBillboard:
 			_fail("%s did not produce a SpriteBillboard" % id)
 			continue
@@ -49,10 +52,25 @@ func run(host: Node) -> int:
 			if body.position.y - height * .5 > .001 or body.position.y - height * .5 < -.001:
 				_fail("%s feet are not on the floor" % id)
 		node.queue_free()
-	var void_node := ModelSlot.instantiate_hunter(HunterRoster.get_identity("void_black"))
-	if void_node == null or void_node is SpriteBillboard:
-		_fail("void_black should keep its 3D model")
-	elif void_node != null:
-		void_node.queue_free()
+	# What the game actually shows: the blocky 3D model for every A-Z and Void hunter (no billboard),
+	# unless USE_SPRITES is switched on.
+	var shown := []
+	shown.append_array(HunterRoster.A_Z_IDS)
+	shown.append_array(HunterRoster.VOID_IDS)
+	for id in shown:
+		var identity := HunterRoster.get_identity(id)
+		var presented := ModelSlot.instantiate_hunter(identity)
+		if presented == null:
+			_fail("%s produced no presentation" % id)
+			continue
+		if HunterRoster.USE_SPRITES and HunterRoster.A_Z_IDS.has(id):
+			if not presented is SpriteBillboard:
+				_fail("%s should be a billboard while USE_SPRITES is on" % id)
+		else:
+			if presented is SpriteBillboard:
+				_fail("%s should show its 3D model" % id)
+			if HunterRoster.USE_BLOCKY and not String(identity["model_scene"]).begins_with(HunterRoster.BLOCKY_DIR):
+				_fail("%s does not use its blocky model: %s" % [id, identity["model_scene"]])
+		presented.queue_free()
 	print("  %d A-Z hunters checked" % HunterRoster.A_Z_IDS.size())
 	return _failures

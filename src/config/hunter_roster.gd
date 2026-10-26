@@ -153,10 +153,13 @@ const TIER_WEIGHTS_BY_DIFFICULTY := {
 const TIER_WEIGHTS := TIER_WEIGHTS_BY_DIFFICULTY["standard"]
 
 
-## Remaster: A-Z hunters are shown as flat 2D cutouts that face the camera
-## (Baldi's Basics style) instead of the rigged Blockbench models. Flip this to
-## fall back to the 3D models; Void hunters have no sprites and always use them.
-const USE_SPRITES := true
+## Hunter presentation. The cube ("blocky") models in assets/hunters_blocky/ (A-Z and Void, one
+## shared rig, clips idle/walk/chase/sprint/crouch/stun/charge/flight/jumpscare) are what the game
+## shows. Flip USE_BLOCKY to fall back to the older rigged models, and USE_SPRITES to show the flat
+## 2D cutouts (A-Z only) instead of any 3D model.
+const USE_BLOCKY := true
+const BLOCKY_DIR := "res://assets/hunters_blocky/"
+const USE_SPRITES := false
 const SPRITE_DIR := "res://assets/sprites/hunters/"
 
 
@@ -170,12 +173,20 @@ static func get_identity(id: String) -> Dictionary:
 		"chase_progression_scale": profile["prog"],
 		"sight_range": profile["sight"],
 		"hearing_scale": profile["hearing"],
-		"model_scene": String(profile.get("model",
-			"res://art/props-3d/characters/%s.tscn" % key)),
+		"model_scene": _model_path(key, profile),
 		"category": String(profile.get("category", "az")),
 		"sprite_front": _sprite_path(key, "front"),
 		"sprite_back": _sprite_path(key, "back"),
 	}
+
+
+## The blocky model when it exists for this hunter (and USE_BLOCKY is on), else the profile's own model.
+static func _model_path(key: String, profile: Dictionary) -> String:
+	if USE_BLOCKY:
+		var blocky := "%s%s/%s.glb" % [BLOCKY_DIR, key, key]
+		if ResourceLoader.exists(blocky):
+			return blocky
+	return String(profile.get("model", "res://art/props-3d/characters/%s.tscn" % key))
 
 
 ## "" when this hunter has no cutout (Void hunters) or sprites are switched off.

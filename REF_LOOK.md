@@ -109,3 +109,13 @@ the build_logo script (the SVG holds the same values).
   very large rooms); small rooms and the end of a hallway get a single door.
 * Props: `tools/props/` builds 434 blocky models (`blocky_props_extra.py` second batch, `blocky_props_variants.py` shape
   variants, `blocky_props_doors.py` doors and barrel). `capture.gd` has `CAP_AT=x,z` and `CAP_SUITE=apartment|office`.
+
+## Hunters
+
+A-Z and Void hunters use the blocky cube models in `assets/hunters_blocky/<id>/<id>.glb` (`HunterRoster.USE_BLOCKY`;
+set it false for the older models, `USE_SPRITES` true for the flat cutouts). `HunterView3D` plays idle/walk/chase/sprint
+(sprint while the runner is in direct sight and she has breath), stun, flight (Xivvy) and charge (Loxelle); Kathy (and
+Umbriel disguised as her) carries `assets/props_3d/kathy_scythe.glb` in `R-HandProp` and plays `scythe_idle` / `scythe_walk`
+(`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` plays the model's
+`jumpscare` clip under a faint red ambient so the dark cube textures read as a figure. Checks: `tools/look/hunter_check.tscn`
+(HUNTERS=..., HUNTER_STATE=idle|walk|chase) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).

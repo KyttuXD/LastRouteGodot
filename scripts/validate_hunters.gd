@@ -153,7 +153,20 @@ func _hunter_face_lights_are_aligned(host: Node) -> void:
 		var right := model.find_child("R-Eye-Attachment", true, false) as Node3D
 		_expect(head != null and left != null and right != null,
 			"%s is missing its head or authored eye centres" % hunter_id)
-		if head != null and left != null and right != null:
+		if head != null and left != null and right != null \
+				and String(identity.get("model_scene", "")).begins_with(HunterRoster.BLOCKY_DIR):
+			# Blocky models: the head mesh covers hair too, so check the locators sit symmetrically on the
+			# face half of the head, just inside its front plane (the glow is projected out of it).
+			var blocky_bounds := head.get_aabb()
+			_expect(absf(left.position.x + right.position.x) < .003 \
+				and left.position.x < 0.0 and right.position.x > 0.0 \
+				and absf(right.position.x) < blocky_bounds.size.x * .5 \
+				and left.position.y > blocky_bounds.position.y \
+				and left.position.y < blocky_bounds.end.y \
+				and left.position.z > blocky_bounds.position.z \
+				and left.position.z < blocky_bounds.position.z + blocky_bounds.size.z * .25,
+				"%s blocky eye locators are not on the face half of the head" % hunter_id)
+		elif head != null and left != null and right != null:
 			var bounds := head.get_aabb()
 			var expected_y := bounds.position.y + bounds.size.y * .25
 			var expected_x := bounds.size.x * .25
@@ -174,31 +187,16 @@ func _hunter_face_lights_are_aligned(host: Node) -> void:
 	view.brain = brain
 	host.get_tree().root.add_child(view)
 	await host.get_tree().process_frame
-	var glows := view.find_children("HunterEyeGlow", "MeshInstance3D", true, false)
-	_expect(glows.size() == 2, "Kathy did not render two eye-glow blocks")
 	var authored_kathy_eye := HunterRoster.eye_glow_color("kathy")
-	for glow_value in glows:
-		var glow := glow_value as MeshInstance3D
-		var box := glow.mesh as BoxMesh
-		_expect(box != null and absf(box.size.x - .1611328125) < .003 \
-			and absf(box.size.y - .150390625) < .003,
-			"A-Z eye glow is not the readable 2.5-pixel face size")
-		_expect(absf(glow.position.x) < .001 and absf(glow.position.y) < .001,
-			"A-Z eye glow is offset from its corrected attachment bone")
-		var attachment := glow.get_parent() as Node3D
-		_expect(attachment != null and glow.position.z < 0.0,
-			"A-Z eye glow is not projected just in front of its textured iris")
-		var glow_material := glow.material_override as StandardMaterial3D
-		_expect(glow_material != null \
-			and glow_material.emission.is_equal_approx(authored_kathy_eye) \
-			and glow_material.emission_energy_multiplier <= 1.5,
-			"A-Z glow does not use the hunter's authored iris colour")
+	# The old glowing eye quads are gone: faces carry their own eyes.
+	_expect(view.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
+		"hunters still render the old glowing eye quads")
 	_expect(view._kathy_beam != null and view._kathy_beam.visible \
 		and view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye),
 		"Kathy's yellow eye beam is missing or hidden")
 	view.queue_free()
 	await host.get_tree().process_frame
-	print("  eyes      all A-Z eye bones match the checker irises; readable glow and Kathy beam render on-face")
+	print("  eyes      A-Z eye locators are on the face; no glow quads; Kathy beam renders")
 
 
 func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:

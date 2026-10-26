@@ -35,7 +35,13 @@ var _head_base_y := 0.0
 var _head_look_yaw := 0.0
 var _head_scan_phase := 0.0
 var _kathy_beam: SpotLight3D
+var _carries_scythe := false
 
+## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
+## R-HandProp locator and scythe_idle / scythe_walk / scythe_swing clips for carrying it.
+const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
+## While she carries it, a chase uses the scythe walk played this much faster.
+const SCYTHE_CHASE_SPEED := 1.8
 const GRAVITY_ACCELERATION := 24.0
 const MAX_PRESENTATION_SPEED := 12.0
 const HUNTER_BODY_RADIUS := .28
@@ -47,11 +53,6 @@ const HEAD_LOOK_SPEED := 5.5
 ## corner. This also prevents a newly selected wander waypoint behind the
 ## hunter from producing an instant 180-degree visual snap.
 const BODY_TURN_SPEED := deg_to_rad(300.0)
-## The emissive face is deliberately a little larger than the underlying 2x2
-## checker iris. Correct placement comes from the authored attachment bone;
-## this extra quarter-pixel border makes the eyes readable down a dark hall
-## without moving the glow away from the texture it belongs to.
-const EYE_GLOW_SIZE_PIXELS := 2.5
 
 
 func _ready() -> void:
@@ -140,6 +141,7 @@ func _apply_model(model_id: String) -> void:
 		_animation_player = null
 		_head_node = null
 		_kathy_beam = null
+		_carries_scythe = false
 
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate_hunter(identity)
@@ -147,7 +149,24 @@ func _apply_model(model_id: String) -> void:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
 		_configure_character_lights()
+		_attach_scythe()
 		_apply_visibility()
+
+
+func _attach_scythe() -> void:
+	_carries_scythe = false
+	if _shown_id != "kathy" or _animation_player == null \
+			or not _animation_player.has_animation("scythe_idle"):
+		return
+	var hand := _model.find_child("R-HandProp", true, false) as Node3D
+	if hand == null:
+		return
+	var scythe := ModelSlot.instantiate(SCYTHE_PATH)
+	if scythe == null:
+		return
+	scythe.name = "KathyScythe"
+	hand.add_child(scythe)
+	_carries_scythe = true
 
 
 func set_look_target(value: Variant) -> void:
@@ -173,34 +192,14 @@ func _configure_character_lights() -> void:
 		if _head_node is MeshInstance3D else AABB(
 			Vector3(-.257812, .103125, -.275),
 			Vector3(.515625, .48125, .48125))
-	# The A-Z GLBs now carry corrected locator bones at the centres of their
-	# checker-textured irises. Do not compensate again here: doing so was why the
-	# glow appeared as tiny floating dashes above/between the actual eyes.
-	var eye_size := Vector3(head_bounds.size.x / 8.0 * EYE_GLOW_SIZE_PIXELS,
-		head_bounds.size.y / 8.0 * EYE_GLOW_SIZE_PIXELS, .014)
+	# No glowing eye quads any more: the faces carry their own eyes. The eye locators are only used to
+	# place Kathy's beam.
 	var corrected_eye_y := 0.0
 	var corrected_eye_count := 0
 	for attachment_name in ["L-Eye-Attachment", "R-Eye-Attachment"]:
 		var attachment := _head_node.find_child(attachment_name, true, false) as Node3D
 		if attachment == null:
 			continue
-		var glow := MeshInstance3D.new()
-		glow.name = "HunterEyeGlow"
-		var eye_mesh := BoxMesh.new()
-		eye_mesh.size = eye_size
-		glow.mesh = eye_mesh
-		glow.position = Vector3(0.0, 0.0, -.003)
-		glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var eye_material := StandardMaterial3D.new()
-		eye_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		eye_material.albedo_color = eye_color
-		eye_material.emission_enabled = true
-		eye_material.emission = eye_color
-		# Strong emission clipped pale/cyan authored irises to white under the
-		# flashlight. Keep enough energy to read in darkness without erasing hue.
-		eye_material.emission_energy_multiplier = 1.45
-		glow.material_override = eye_material
-		attachment.add_child(glow)
 		corrected_eye_y += attachment.position.y
 		corrected_eye_count += 1
 	if brain != null and brain.hunter_id == "kathy":
@@ -311,7 +310,8 @@ func sync_from_brain() -> void:
 	_update_animation()
 
 
-## idle/walk/chase — see art/props-3d/README.md's animation convention.
+## idle/walk/chase/sprint/stun/flight/charge (plus scythe_* for Kathy) — the blocky rig's clips; older models
+## without sprint fall back to chase through play_if_available.
 ## Investigate/search both read as "walk" (she's purposefully moving toward
 ## somewhere, just not at chase urgency yet); only an actual sighting-driven
 ## chase gets the more urgent clip.
@@ -328,7 +328,22 @@ func _update_animation() -> void:
 	else:
 		match brain.state:
 			HunterBrain.State.CHASE:
-				clip_name = "chase"
+				# a full-speed dash while she can see the runner and still has breath
+				clip_name = "sprint" if brain.direct_chase_visible and not brain.winded else "chase"
 			HunterBrain.State.WANDER, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 				clip_name = "walk"
+	if clip_name == "sprint" and _animation_player != null and not _animation_player.has_animation("sprint"):
+		clip_name = "chase"
+	var speed := 1.0
+	if _carries_scythe:
+		match clip_name:
+			"idle":
+				clip_name = "scythe_idle"
+			"walk":
+				clip_name = "scythe_walk"
+			"chase", "sprint":
+				clip_name = "scythe_walk"
+				speed = SCYTHE_CHASE_SPEED
 	ModelSlot.play_if_available(_animation_player, clip_name)
+	if _animation_player != null:
+		_animation_player.speed_scale = speed

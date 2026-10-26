@@ -39,7 +39,7 @@ const JUMPSCARE_PROFILES := {
 		"roll": 0.16,
 		"scale": 1.08,
 		"light_color": Color(0.95, 0.28, 0.35),
-		"light_energy": 4.5,
+		"light_energy": 9.0,
 		"light_range": 4.0,
 		"overlay_tint": Color(0.55, 0.01, 0.035),
 	},
@@ -51,7 +51,7 @@ const JUMPSCARE_PROFILES := {
 		"roll": 0.22,
 		"scale": 1.14,
 		"light_color": Color(0.98, 0.12, 0.18),
-		"light_energy": 6.0,
+		"light_energy": 11.0,
 		"light_range": 4.8,
 		"overlay_tint": Color(0.70, 0.02, 0.03),
 	},
@@ -110,8 +110,9 @@ func _build_presentation(source_camera: Camera3D, hunter_id: String) -> void:
 	backdrop.background_mode = Environment.BG_COLOR
 	backdrop.background_color = Color.BLACK
 	backdrop.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	backdrop.ambient_light_color = Color.BLACK
-	backdrop.ambient_light_energy = 0.0
+	# a faint red ambient so the dark cube textures still read as a figure, not just their eyes
+	backdrop.ambient_light_color = Color(.55, .12, .14)
+	backdrop.ambient_light_energy = .55
 	backdrop.fog_enabled = false
 	backdrop.glow_enabled = false
 	_camera.environment = backdrop
