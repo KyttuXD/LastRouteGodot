@@ -142,7 +142,12 @@ if [ "$APPLY" = 1 ]; then
   ( cd "$SRC" && tar cf - --exclude='.env' --exclude='.data' --exclude='._*' --exclude='.DS_Store' \
       index.js package.json backend deploy docs 2>/dev/null ) | tar xf - -C "$DEST"
   [ -f "$DEST/index.js" ] && [ -f "$DEST/backend/server.mjs" ] || { echo "release copy is incomplete" >&2; rm -rf "$DEST"; exit 1; }
+  # Files copied from a laptop can keep private modes (0700): the unprivileged service user could not
+  # read index.js (EACCES) and the first start failed. Normalise: root-owned, owner rwX, others rX.
+  chmod -R u=rwX,go=rX "$DEST"
   [ "$STAGING" = 1 ] || chown -R root:root "$DEST"
+  # the service user must be able to traverse every parent directory too
+  chmod u=rwx,go=rx "$APP" "$APP/releases"
 else
   say "  WOULD: copy index.js package.json backend/ deploy/ docs/ -> $DEST (no .env, .data, test data)"
 fi
@@ -188,6 +193,9 @@ if [ "$START" = 1 ]; then
     else
       echo "SMOKE FAILED: rolling back" >&2
       journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true
+      if journalctl -u "$SERVICE" -n 60 --no-pager 2>/dev/null | grep -qE 'EACCES|Permission denied'; then
+        echo "HINT: permission error. The service user $SVC_USER must be able to read $DEST (try: chmod -R u=rwX,go=rX $DEST; ls -ld $APP $APP/releases)." >&2
+      fi
       if [ -n "$PREV_TARGET" ]; then ln -sfn "$PREV_TARGET" "$APP/current"; systemctl restart "$SERVICE" || true; echo "rolled back to $PREV_TARGET" >&2
       else systemctl stop "$SERVICE" || true; echo "no previous release; service stopped" >&2; fi
       exit 5

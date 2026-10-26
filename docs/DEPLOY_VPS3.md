@@ -141,6 +141,18 @@ sudo deploy/firewall.sh   # prints the matching ufw/iptables rules; remove them 
 
 The last 5 release directories are kept under `/opt/lastroute-godot2/releases`.
 
+## Troubleshooting
+
+* **First start fails with `EACCES` on `/opt/lastroute-godot2/releases/<rel>/index.js`** (journal:
+  `Permission denied`): the release files kept private modes (0700) from the source machine, so the
+  unprivileged `lastroute2` user cannot read them. This happened on the first VPS 3 deploy and was fixed by
+  hand with `chmod -R u=rwX,go=rX <release dir>`. `deploy.sh` now normalises modes (`u=rwX,go=rX`, root
+  owned, parent directories traversable) right after copying and prints a hint if a start fails with a
+  permission error. A failed smoke test rolls back to the previous release, or stops the service when there
+  is none.
+* `journalctl -u lastroute-godot2 -n 50 --no-pager` is the first place to look; `systemctl status
+  lastroute-godot2` shows the exit code (75 = restart requested by the updater, normal).
+
 ## What was verified locally (no remote host was contacted)
 
 * `deploy.sh` dry run, `--apply --prefix <tmp>` (staging, no root, no systemd), a second run (idempotent:
