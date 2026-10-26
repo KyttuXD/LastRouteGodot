@@ -18,13 +18,26 @@ EXTRAS = [("Pony-1", "Head", (m(0.0), m(31.0), m(4.6)), (7, 3, 1, 0.0)),
 def measure(canvas):
     """Return (strand colour, top width px, length rows) of the hair strand painted on the body back, or None."""
     rect = [(x, y) for y in range(20, 32) for x in range(32, 40)]
-    body = Counter(canvas.getpixel(p)[:3] for p in rect if canvas.getpixel(p)[3]).most_common(1)[0][0]
-    far = [p for p in rect if canvas.getpixel(p)[3] and sum(abs(a - b) for a, b in zip(canvas.getpixel(p)[:3], body)) > 40
-           and sum(canvas.getpixel(p)[:3]) > 60]
-    if len(far) < 10:
-        return None
-    colour = Counter(canvas.getpixel(p)[:3] for p in far).most_common(1)[0][0]
-    strand = [p for p in far if sum(abs(a - b) for a, b in zip(canvas.getpixel(p)[:3], colour)) < 30]
+    px = {p: canvas.getpixel(p)[:3] for p in rect if canvas.getpixel(p)[3]}
+    near = lambda a, b, tol=30: sum(abs(i - j) for i, j in zip(a, b)) < tol
+    hair = canvas.getpixel((12, 3))[:3]
+    dark = lambda c: sum(c) < 100
+    if sum(1 for c in px.values() if near(c, hair)) >= 10:
+        # the strand is her own hair colour: the body is the commonest *other* colour (the shirt, not the strand)
+        colour = hair
+        rest = [c for c in px.values() if not near(c, hair) and not dark(c)]
+        if not rest:
+            return None
+        body = Counter(rest).most_common(1)[0][0]
+        strand = [p for p, c in px.items() if near(c, hair)]
+        far = strand
+    else:
+        body = Counter(px.values()).most_common(1)[0][0]
+        far = [p for p, c in px.items() if sum(abs(i - j) for i, j in zip(c, body)) > 40 and sum(c) > 60]
+        if len(far) < 10:
+            return None
+        colour = Counter(px[p] for p in far).most_common(1)[0][0]
+        strand = [p for p in far if near(px[p], colour)]
     rows = max(y for _, y in strand) - 20 + 1
     top = [p for p in strand if p[1] < 24]
     width = max(2.5, min(5.0, len(top) / 3.0 + 1.0)) if top else 3.2

@@ -89,6 +89,8 @@ func run(host: Node) -> int:
 					_fail("%s is missing clip %s" % [id, clip])
 				elif player.get_animation(clip).loop_mode == Animation.LOOP_NONE:
 					_fail("%s clip %s does not loop" % [id, clip])
+				else:
+					_check_seamless(id, clip, player.get_animation(clip))
 		if node.find_child("Head", true, false) == null:
 			_fail("%s has no Head node" % id)
 		for eye in ["L-Eye-Attachment", "R-Eye-Attachment"]:
@@ -118,6 +120,29 @@ func run(host: Node) -> int:
 		node.queue_free()
 	print("  %d blocky hunters checked" % HUNTERS.size())
 	return _failures
+
+
+## A looping clip must end exactly where it starts (and span the whole clip), or it pops at every wrap.
+func _check_seamless(id: String, clip: String, anim: Animation) -> void:
+	for t in anim.get_track_count():
+		var keys := anim.track_get_key_count(t)
+		if keys < 2:
+			continue
+		var first = anim.track_get_key_value(t, 0)
+		var last = anim.track_get_key_value(t, keys - 1)
+		var close := false
+		if first is Quaternion:
+			close = (first as Quaternion).angle_to(last as Quaternion) < 0.002
+		elif first is Vector3:
+			close = (first as Vector3).distance_to(last as Vector3) < 0.0005
+		else:
+			close = first == last
+		if not close:
+			_fail("%s clip %s does not loop seamlessly on %s" % [id, clip, anim.track_get_path(t)])
+			return
+		if absf(anim.track_get_key_time(t, keys - 1) - anim.length) > 0.002:
+			_fail("%s clip %s: track %s stops before the end of the clip" % [id, clip, anim.track_get_path(t)])
+			return
 
 
 func _bounds(node: Node3D) -> AABB:
