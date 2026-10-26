@@ -214,10 +214,9 @@ def expressions_from_face(face):
                        (5, 5): dark, (6, 6): dark, (5, 6): dark, (6, 5): dark}))        # 2 stun x_x
     chase = dict(open_eyes)
     chase.update({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark})              # heavy lids
-    cells.append(make(chase, {(3, 7): dark, (4, 7): dark}))                             # 3 chase
-    cells.append(make(open_eyes, {(3, 7): (96, 28, 40, 255), (4, 7): (96, 28, 40, 255)}))  # 4 scream
-    cells.append(make({(1, 6): dark, (2, 5): dark, (5, 5): dark, (6, 6): dark},
-                      {(3, 7): (200, 100, 110, 255), (4, 7): (200, 100, 110, 255)}))    # 5 happy
+    cells.append(make(chase))                                                           # 3 chase
+    cells.append(make(open_eyes))                                                       # 4 scream (wide eyes)
+    cells.append(make({(1, 6): dark, (2, 5): dark, (5, 5): dark, (6, 6): dark}))        # 5 happy ^ ^
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
