@@ -31,7 +31,7 @@ def measure(canvas):
     return colour, body, width, rows, strand
 
 
-def apply(canvas):
+def apply(canvas, build=True):
     """Remove the painted strand (body back -> body colour, jacket back -> transparent) and return the cubes."""
     got = measure(canvas)
     if got is None:
@@ -44,6 +44,8 @@ def apply(canvas):
             p = canvas.getpixel((x, y))
             if p[3] and sum(abs(a - b) for a, b in zip(p[:3], colour)) < 30:
                 canvas.putpixel((x, y), (0, 0, 0, 0))
+    if not build:
+        return []
     tie = tuple(int(v * .55) for v in colour)
     for key, c in (("hair", colour), ("tie", tie)):
         x, y, w, h = SWATCH[key]

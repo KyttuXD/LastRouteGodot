@@ -68,6 +68,19 @@ func run(host: Node) -> int:
 				_fail("%s is missing its Halo" % id)
 		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:
 			_fail("porcelle is missing her horns")
+		if id.begins_with("jyvra") or id.begins_with("porcelle"):
+			for pig in ["L-Pig-1", "R-Pig-1"]:
+				if node.find_child(pig, true, false) == null:
+					_fail("%s is missing %s" % [id, pig])
+		if id.begins_with("quirith") or id.begins_with("thessine") or id.begins_with("umbriel"):
+			if node.find_child("L-Braid-1", true, false) == null:
+				_fail("%s is missing her braid" % id)
+		if id.begins_with("solyth") and node.find_child("L-Lock-1", true, false) == null:
+			_fail("solyth is missing her hair lock")
+		if id.begins_with("wynelle"):
+			for pig in ["L-Pig-1", "L-Pig-4", "R-Pig-1", "R-Pig-4", "Pony-1"]:
+				if node.find_child(pig, true, false) == null:
+					_fail("%s is missing pigtail bone %s" % [id, pig])
 		if id.begins_with("kathy"):
 			for pony in ["Pony-1", "Pony-2", "Pony-3"]:
 				if node.find_child(pony, true, false) == null:
@@ -119,7 +132,7 @@ func _bounds(node: Node3D) -> AABB:
 		var m := mesh_node as MeshInstance3D
 		# horns, ears, wings, tails, gills and halos are extras: the 1.78 m body height is measured without them
 		var skip := false
-		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph"]:
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph", "Pig", "Braid", "Lock"]:
 			if String(m.name).contains(extra):
 				skip = true
 		if skip:
