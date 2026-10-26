@@ -233,45 +233,16 @@ def _eye_glow(atlas, eye):
 
 
 def void_expressions(face, eye, body):
-    """13 cells (same order as bb_skin.expressions_from_face) from the composited 8x8 Void face. The face has two
-    2x2 eyes (cols 1-2 / 5-6, rows 4-5) in a grey frame (rows 3-6) and two white marks above (cols 1 / 6, rows 1-2).
-    No mouth, nose or snout is ever drawn: expressions are eyes and marks only."""
+    """13 cells in the order of bb_skin.expressions_from_face, but a Void has no expressions: only the glowing eyes,
+    and a blink (cell 1). Every other cell is the neutral face, so any expression name just shows the eyes.
+    No mouth, nose or snout is ever drawn (lore rule)."""
     frame = face.getpixel((0, 3))
     dim = tuple(int(v * .3) for v in body[:3]) + (255,)
-    wipe = {(x, y): dim for y in (4, 5) for x in (1, 2, 5, 6)}
-
-    def make(pix, marks=None):
-        im = face.copy()
-        for (x, y), c in {**wipe, **pix}.items():
-            im.putpixel((x, y), c)
-        for (x, y), c in (marks or {}).items():
-            im.putpixel((x, y), c)
-        return im
-    white, bodyc = face.getpixel((1, 1)), face.getpixel((2, 1))
-    E = (*eye, 255)
-    both = lambda pts: {p: c for p, c in pts}
-    open_all = {(x, y): E for y in (4, 5) for x in (1, 2, 5, 6)}
-    cells = [face.copy()]                                                              # 0 neutral
-    cells.append(make({(x, 5): frame for x in (1, 2, 5, 6)} | {(x, 4): dim for x in (1, 2, 5, 6)}))   # 1 blink: lids shut
-    cells.append(make({(1, 4): E, (2, 5): E, (5, 5): E, (6, 4): E}))                   # 2 stun: mismatched sparks
-    slant = {(1, 1): bodyc, (2, 1): white, (1, 2): white, (6, 1): bodyc, (5, 1): white, (6, 2): white}
-    cells.append(make({(x, 5): E for x in (1, 2, 5, 6)}, slant))                       # 3 chase: narrowed, brows slanted
-    wide = {(x, y): E for y in (3, 4, 5, 6) for x in (1, 2, 5, 6)}
-    cells.append(make(wide))                                                           # 4 scream: eyes wide open
-    cells.append(make({**{(x, 4): E for x in (1, 2, 5, 6)}, **{(x, 5): frame for x in (1, 2, 5, 6)}}))   # 5 happy: squint
-    ring = [(0, 0), (1, 0), (1, 1), (0, 1)]
-    for t in range(4):                                                                 # 6-9 derp: iris circles the eye
-        pix = {}
-        for ex, off in ((1, 0), (5, 2)):
-            for j, (dx, dy) in enumerate(ring):
-                pix[(ex + dx, 4 + dy)] = E if j == (t + off) % 4 else dim
-        cells.append(make(pix))
-    cells.append(make({}))                                                             # 10 blank: eyes out
-    shut = {(x, y): (dim if y == 4 else frame) for y in (4, 5) for x in (1, 2)}
-    shut_r = {(x, y): (dim if y == 4 else frame) for y in (4, 5) for x in (5, 6)}
-    cells.append(make({**shut, **{(x, y): E for y in (4, 5) for x in (5, 6)}}))        # 11 wink_right
-    cells.append(make({**shut_r, **{(x, y): E for y in (4, 5) for x in (1, 2)}}))      # 12 wink_left
-    return cells
+    blink = face.copy()
+    for x in (1, 2, 5, 6):
+        blink.putpixel((x, 4), dim)
+        blink.putpixel((x, 5), frame)
+    return [face.copy(), blink] + [face.copy() for _ in range(11)]
 
 
 def module(name):

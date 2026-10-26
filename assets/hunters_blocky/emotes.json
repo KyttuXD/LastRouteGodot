@@ -1349,19 +1349,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_devour",
    "label": "Devour",
-   "face": "scream",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1381,19 +1381,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_shiver",
    "label": "Shiver",
-   "face": "blink",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1413,19 +1413,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_smash",
    "label": "Smash",
-   "face": "chase",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1445,19 +1445,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_zap",
    "label": "Zap",
-   "face": "stun",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1477,19 +1477,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_freeze",
    "label": "Freeze",
-   "face": "blank",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1509,19 +1509,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_exhale",
    "label": "Exhale",
-   "face": "blank",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1541,19 +1541,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_rev",
    "label": "Rev up",
-   "face": "chase",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1573,19 +1573,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_beckon",
    "label": "Beckon",
-   "face": "happy",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1605,19 +1605,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_flicker",
    "label": "Flicker",
-   "face": "stun",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1637,19 +1637,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_rage",
    "label": "Rage",
-   "face": "scream",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1669,19 +1669,19 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_listen",
    "label": "Listen",
-   "face": "blank",
+   "face": "neutral",
    "shared": false
   }
  ],
@@ -1701,13 +1701,13 @@
   {
    "clip": "emote_twitch",
    "label": "Twitch",
-   "face": "stun",
+   "face": "neutral",
    "shared": true
   },
   {
    "clip": "emote_loom",
    "label": "Loom",
-   "face": "chase",
+   "face": "neutral",
    "shared": true
   },
   {

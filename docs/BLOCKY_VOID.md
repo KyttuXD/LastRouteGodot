@@ -19,10 +19,10 @@ black motes drifting at the shoulders (light eater) | blue icicle crown + 3-segm
 
 ## Eyes and faces
 - **Emissive eyes:** each model carries a second texture, `void_<colour>_emissive.png`, written into the glb as `emissiveTexture`. Only the giant eyes' inner pixels (the skin's `inner_face_accent`) are lit, in every expression cell. Dark accents (black, gray, brown) glow as a lifted, hue-true colour (black = cool grey). Nothing else is emissive.
-- **Void expression cells:** the source face is split across the head box and its overlay, so the model flattens it onto the head box and drops the overlay face. The 13 expression cells are redrawn from that face: eyes and white marks only, never a mouth, nose or snout (lore rule).
+- **No expressions:** a Void only has glowing eyes and a blink. The source face is split across the head box and its overlay, so the model flattens it onto the head box (overlay face dropped); the expression cells are then the neutral face, with cell 1 (`blink`) as the only change. Any other expression name just shows the neutral glowing eyes. No mouth, nose or snout is ever drawn.
 
 ## Emotes
-Void do not wave or cheer. All 12 share `stare`, `tilt`, `twitch`, `loom` and each has one of its own: black devour, blue shiver, brown smash, cyan zap, gray freeze, green exhale, orange rev, pink beckon, purple flicker, red rage, white listen, yellow flick. They are one-shot clips on the same rig, listed in `emotes.json`.
+Void do not wave or cheer. All 12 share `stare`, `tilt`, `twitch`, `loom` and each has one of its own: black devour, blue shiver, brown smash, cyan zap, gray freeze, green exhale, orange rev, pink beckon, purple flicker, red rage, white listen, yellow flick. They are body-only one-shot clips on the same rig (face stays neutral), listed in `emotes.json`.
 
 ## Placeholder vs final
 - **Final-ish:** skins/face markings (exact supplied pixels), palette, rig, clips, expression cells, emissive eyes, height budget.
