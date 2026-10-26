@@ -203,6 +203,7 @@ func _ready() -> void:
 	_light.omni_range = 2.0
 	_light.light_color = GLOW_COLORS[kind]
 	add_child(_light)
+	LampField.make_budgeted(_light)
 
 	_refresh_visual()
 
@@ -861,7 +862,7 @@ func _refresh_visual() -> void:
 	if kind == Kind.BOARDED_PATH and not opened:
 		_refresh_board_pieces()
 	if _light:
-		_light.visible = (not completed or sabotaged) and not _local_hiding_view_open
+		LampField.set_wanted(_light, (not completed or sabotaged) and not _local_hiding_view_open)
 		if kind == Kind.RELAY:
 			_light.light_color = Color(0.95, 0.25, 0.25) if sabotaged else GLOW_COLORS[kind]
 	# Collision goes with it, so a collected relay is not still something the

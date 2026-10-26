@@ -14,6 +14,7 @@ var _tag := "x"
 
 
 func _ready() -> void:
+	LampField.optimise = OS.get_environment("CAP_LEGACY_LIGHTS") == ""
 	var args := OS.get_cmdline_user_args()
 	_out_dir = args[0] if args.size() > 0 else "/tmp"
 	_tag = args[1] if args.size() > 1 else "x"
@@ -231,6 +232,31 @@ func _run(scene: Node) -> void:
 					Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 					Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)])
 				continue
+			if OS.get_environment("CAP_LIGHTS") != "":
+				var omni := 0
+				var omni_visible := 0
+				var spot_shadow := 0
+				var omni_shadow := 0
+				for light in get_tree().root.find_children("*", "Light3D", true, false):
+					if light is OmniLight3D:
+						omni += 1
+						if (light as Light3D).is_visible_in_tree():
+							omni_visible += 1
+					if (light as Light3D).shadow_enabled and (light as Light3D).is_visible_in_tree():
+						if light is SpotLight3D:
+							spot_shadow += 1
+						else:
+							omni_shadow += 1
+				if OS.get_environment("CAP_LIGHTS") == "2":
+					var by_owner := {}
+					for light in get_tree().root.find_children("*", "OmniLight3D", true, false):
+						if (light as Light3D).is_visible_in_tree() and not (light as Node).is_in_group("budget_light") \
+								and not (light.get_parent() is LampField):
+							var gp := light.get_parent().get_parent()
+							var key := "%s|%s|r=%.1f e=%.2f" % [light.name, (gp.name if gp != null else "-"), (light as OmniLight3D).omni_range, (light as Light3D).light_energy]
+							by_owner[key] = int(by_owner.get(key, 0)) + 1
+					print("UNBUDGETED ", by_owner)
+				print("LIGHTS %s yaw %s: omni=%d visible=%d shadowed(omni=%d spot=%d)" % [p["name"], yaw_text, omni, omni_visible, omni_shadow, spot_shadow])
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%s_%s.png" % [_out_dir, _tag, p["name"], yaw_text])
 			for node in hunter_nodes:

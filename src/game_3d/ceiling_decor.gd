@@ -96,6 +96,7 @@ func _add_strand(anchor: Vector3, bulb_count: int, rng: SeededRandom) -> void:
 		light.light_energy = BULB_ENERGY
 		light.shadow_enabled = false
 		strand.add_child(light)
+		LampField.make_budgeted(light)
 
 		_bulbs.append(light)
 		_phases.append(rng.next_float() * TAU)

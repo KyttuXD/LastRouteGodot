@@ -882,6 +882,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 		light.light_energy = .72
 		light.omni_range = 4.5
 		parent.add_child(light)
+		LampField.make_budgeted(light)
 
 
 func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> void:
@@ -1118,6 +1119,7 @@ func _spawn_safe_room_light(parent: Node3D) -> void:
 	light.light_energy = .82
 	light.omni_range = 8.0
 	parent.add_child(light)
+	LampField.make_budgeted(light)
 
 
 func _spawn_start_marker(parent: Node3D) -> void:

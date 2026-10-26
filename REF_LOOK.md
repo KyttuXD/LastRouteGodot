@@ -120,3 +120,13 @@ Umbriel disguised as her) carries, on a rare seeded roll (`HunterRoster.SCYTHE_C
 (`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` is OFF (`HunterJumpscare.ENABLED = false`: a catch goes straight to game over, no lunge or sting); when enabled it plays the model's
 `jumpscare` clip under a faint red ambient so the dark cube textures read as a figure. Checks: `tools/look/hunter_check.tscn`
 (HUNTERS=..., HUNTER_STATE=idle|walk|chase) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).
+
+## Light budget
+
+A loaded scene had ~160 real `OmniLight3D` (interactable glows, ~60 fairy-light bulbs, checkpoint lights, braziers, plus the
+8-light lamp pool); the Compatibility renderer drops lights past its caps in arbitrary order, so lamps were lit from the wrong
+place or not at all. Now: `LampField` (1) only lends pool lights to lamps with a clear physics line to the camera (the pool
+casts no shadows and used to glow through walls; lamps within 3 m are exempt, characters never block), and (2) keeps only the
+6 nearest `LampField.make_budgeted()` lights within reach on (interactables, ceiling fairy-light bulbs, checkpoint light, braziers).
+Visible real lights dropped from 99-162 to 2-7 per view; the only shadow-casting light is the flashlight spot.
+`CAP_LIGHTS=1` / `CAP_LEGACY_LIGHTS=1` in `tools/look/capture.gd` print light counts and capture the old behaviour for comparison.
