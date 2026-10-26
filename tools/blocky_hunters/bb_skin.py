@@ -52,12 +52,12 @@ class Part:
 # Joint plugs. Rigid cubes open a wedge at the outer side of a bend (depth/2 * sin(bend) px). Each joint gets a
 # plug: a thin, inset box that rides on the child bone and reaches PLUG_EXT skin px across the joint plane into the
 # neighbouring segment, textured with that neighbour's nearest texel row. It is hidden when the limb is straight
-# and fills the wedge (in the neighbour's own colour) when bent. Sized for bends up to about 60 degrees; the deep
-# crouch clip can still open a sliver (check_gaps.py reports it).
-PLUG_EXT = {"L-Thigh": 1.8, "R-Thigh": 1.8, "L-Calf": 1.8, "R-Calf": 1.8, "L-Foot": 2.0, "R-Foot": 2.0,
-            "L-Forearm": 1.8, "R-Forearm": 1.8, "L-Hand": 1.3, "R-Hand": 1.3, "Belly": 0.6, "Chest": 0.7, "Head": 1.7}
+# and fills the wedge (in the neighbour's own colour) when bent. Sized for the deepest bend of the deep
+# crouch clip too (check_gaps.py verifies every clip). The plug is a CLOSED box, so a bend never shows its hollow inside.
+PLUG_EXT = {"L-Thigh": 2.2, "R-Thigh": 2.2, "L-Calf": 2.2, "R-Calf": 2.2, "L-Foot": 3.0, "R-Foot": 3.0,
+            "L-Forearm": 2.2, "R-Forearm": 2.2, "L-Hand": 1.3, "R-Hand": 1.3, "Belly": 0.6, "Chest": 0.7, "Head": 1.7}
 PLUG_BOTTOM = ("Belly", "Chest", "Head")        # the others hang below their joint plane (plane = top of the cube)
-PLUG_INSET = {"Head": 1.0}
+PLUG_INSET = {"Head": 1.0}       # default inset 0.12 px: sides stay clear of the cube faces (no z-fighting)
 PLUG_PARENT = {"L-Thigh": "belly", "R-Thigh": "belly", "L-Calf": "{S}-thigh", "R-Calf": "{S}-thigh",
                "L-Foot": "{S}-calf", "R-Foot": "{S}-calf", "L-Forearm": "{S}-arm", "R-Forearm": "{S}-arm",
                "L-Hand": "{S}-forearm", "R-Hand": "{S}-forearm", "Chest": "belly", "Head": "chest"}
@@ -73,9 +73,9 @@ def _layer(name):
 def joint_plug(c, by_name):
     """Plug for the joint at the start of cube c (None when its bone has no stacked joint)."""
     ext = PLUG_EXT.get(c.bone)
-    if ext is None or not c.uv or os.environ.get("BB_NO_PLUG"):
-        return None
-    inset = PLUG_INSET.get(c.bone, 0.03) * U
+    if ext is None or not c.uv or os.environ.get("BB_NO_PLUG") or _layer(c.name):
+        return None                 # (second-layer cubes get no plug: it z-fights with the base plug, and the base one already fills the wedge)
+    inset = PLUG_INSET.get(c.bone, 0.12) * U
     bottom = c.bone in PLUG_BOTTOM
     plane = c.lo[1] if bottom else c.hi[1]
     side = c.bone[0]
@@ -97,15 +97,16 @@ def joint_plug(c, by_name):
         parent = by_name.get(core)
     src, row_last = (parent, not bottom) if parent is not None and parent.uv else (c, bottom)
     if bottom:                                             # reaches down into the neighbour below, a hair into the child
-        y0, y1 = plane - ext * U, plane + 0.05 * U
+        y0, y1 = plane - ext * U, plane + 0.4 * U
     else:                                                  # reaches up into the neighbour above, a hair into the child
-        y0, y1 = plane - 0.05 * U, plane + ext * U
+        y0, y1 = plane - 0.4 * U, plane + ext * U
     uv = {}
     for f in "ENWS":
         x, y, w, h = src.uv[f]
         uv[f] = (x, y + h - 1, w, 1) if row_last else (x, y, w, 1)
+    uv["U"] = uv["D"] = (uv["N"][0], uv["N"][1], 1, 1)           # caps: one texel of the row, so the plug is closed
     return Cube(c.name + "-plug", c.bone, (c.lo[0] + inset, y0, c.lo[2] + inset), (c.hi[0] - inset, y1, c.hi[2] - inset),
-                faces="ENWS", uv=uv)
+                faces="ENWSUD", uv=uv)
 
 
 def vanilla_cubes(overlays=True):

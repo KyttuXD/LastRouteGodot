@@ -21,9 +21,9 @@ sh.light = "FLAT"; sh.color_type = "TEXTURE"
 sh.show_object_outline = False; sh.object_outline_color = (0.02, 0.02, 0.04)
 sc.display.render_aa = "OFF"
 sc.render.film_transparent = False
-sc.render.use_freestyle = True
+sc.render.use_freestyle = not os.environ.get("NO_OUTLINE")
 vl = bpy.context.view_layer
-vl.use_freestyle = True
+vl.use_freestyle = not os.environ.get("NO_OUTLINE")
 fs = vl.freestyle_settings
 ls = fs.linesets.new("outline") if len(fs.linesets) == 0 else fs.linesets[0]
 ls.linestyle = bpy.data.linestyles.new("o")
