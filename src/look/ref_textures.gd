@@ -474,8 +474,8 @@ static func _paint_wall_office(variant: int) -> Image:
 		for i in 3:
 			var x := rng.randi_range(3, 22)
 			var y := rng.randi_range(18, 52)
-			_dot(img, x, y, Color("6a6458"), 7, 9)
-			_dot(img, x + 3, y, Color("8a2a2a"))
+			_dot(img, x, y, Color("4c4842"), 5, 6)
+			_dot(img, x + 2, y, Color("7a2a2a"))
 	_grime(img, rng, 4)
 	return img
 
@@ -536,6 +536,24 @@ static func _paint_ceiling(variant: int) -> Image:
 	return img
 
 
+static func _paint_glass(_variant: int) -> Image:
+	# glass-and-iron conservatory roof: night panes in a black lattice
+	var rng := _rng("glass")
+	var img := _new_image(PX, PX)
+	for y in PX:
+		for x in PX:
+			var shade := 1.0 + rng.randf_range(-.15, .15)
+			_dot(img, x, y, _mul(Color("0c1426"), shade))
+	for i in 5:
+		_dot(img, rng.randi_range(2, 29), rng.randi_range(2, 29), Color("2a4a66"))
+	for k in [0, 16]:
+		_dot(img, k, 0, Color("07070a"), 2, PX)
+		_dot(img, 0, k, Color("07070a"), PX, 2)
+		_dot(img, k + 2, 0, Color("3a2e1c"), 1, PX)
+		_dot(img, 0, k + 2, Color("3a2e1c"), PX, 1)
+	return img
+
+
 # -- public API ----------------------------------------------------------------
 
 const FLOOR_PAINTERS := {
@@ -563,6 +581,7 @@ const WALL_PAINTERS := {
 }
 const CEILING_PAINTERS := {
 	"ceil0": [&"_paint_ceiling", 0], "ceil1": [&"_paint_ceiling", 1],
+	"glass": [&"_paint_glass", 0],
 }
 
 
@@ -592,7 +611,16 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 	m.roughness = .9
 	m.metallic_specular = .15
 	# painted values are deliberately dark; lift them so a lamp pool reads
-	m.albedo_color = Color(1.55, 1.5, 1.5)
+	m.albedo_color = Color(1.4, 1.4, 1.45)
+	if group == "ceiling":
+		m.albedo_color = Color(.8, .78, .85)
+		if kind == "glass":
+			m.emission_enabled = true
+			m.emission = Color("142848")
+			m.emission_energy_multiplier = .9
+			m.albedo_color = Color(1.2, 1.2, 1.3)
+	elif group == "floor" and (kind.begins_with("metal") or kind == "grate" or kind == "hazard"):
+		m.albedo_color = Color(1.2, 1.2, 1.25)
 	if group == "floor":
 		if kind.begins_with("floral") or kind.begins_with("star") or kind == "runner":
 			m.roughness = .85

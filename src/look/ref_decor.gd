@@ -159,6 +159,11 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			var frame_variant := _h(x, z, 35, 2)
 			_add("frame%d" % frame_variant, Transform3D(_facing_basis(n),
 				base + Vector3(0, 1.75, 0) + n * .03))
+		if _wants_window(rt) and _h(x, z, 131 + d.x * 5 + d.y, 9) == 0 \
+				and (along + line) % 3 == 0:
+			var tall: bool = _region == "beach"
+			_add("window_tall" if tall else "window", Transform3D(_facing_basis(n),
+				base + Vector3(0, 2.0 if tall else 1.95, 0) + n * .02))
 		# pipes run along the top of the wall in multi-cell stretches
 		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"])) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
@@ -166,6 +171,12 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			_add("pipe", Transform3D(axis, pipe_pos))
 			if _h(x, z, 62, 7) == 0:
 				_add("pipe_brass", Transform3D(axis, base + Vector3(0, WALL_H - 0.55, 0) + n * .08))
+
+
+func _wants_window(room_type: String) -> bool:
+	if _region == "beach":
+		return true
+	return room_type.begins_with("office") or room_type in ["cubicle_room", "private_office", "restaurant_dining"]
 
 
 func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
@@ -183,10 +194,44 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"])) == 0 and lit_room:
 		var yaw := PI * .5 if _h(x, z, 72, 2) == 0 else 0.0
 		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, WALL_H - 0.04, 0)))
+	# cables snaking along the foot of the wall in the industrial regions
+	if _region in ["maze", "prison", "inferno", "carnival"] and _h(x, z, 141, 26) == 0:
+		for d in DIRS:
+			var dd: Vector2i = d
+			if not _open(grid, x + dd.x, z + dd.y):
+				var yaw_c := atan2(float(dd.y), float(-dd.x)) if dd.x != 0 or dd.y != 0 else 0.0
+				_add("floor_cable", Transform3D(Basis(Vector3.UP, PI * .5 if dd.x == 0 else 0.0),
+					world + Vector3(dd.x * .25, .03, dd.y * .25)))
+				break
+	# lantern pedestals in the corners of garden rooms
+	if _region == "beach" and rt in ["cove", "tide_pool", "beach_hut", "boardwalk_room"]:
+		var rect := _room_rect(rt, x, z)
+		if rect.size != Vector2i.ZERO and ((x == rect.position.x and z == rect.position.y) \
+				or (x == rect.end.x - 1 and z == rect.position.y) \
+				or (x == rect.position.x and z == rect.end.y - 1) \
+				or (x == rect.end.x - 1 and z == rect.end.y - 1)):
+			_pedestal(world)
 	# petals / litter on garden and stone floors
 	if (_region == "beach" or _region == "gothic") and _h(x, z, 81, 5) == 0:
 		_add("petal", Transform3D(Basis(Vector3.UP, _h(x, z, 82, 360) * PI / 180.0),
 			world + Vector3(0, .012, 0)))
+
+
+func _room_rect(room_type: String, x: int, z: int) -> Rect2i:
+	for room_value in _data.get("rooms", []):
+		var room: Dictionary = room_value
+		var rect: Rect2i = room.get("rect", Rect2i())
+		if String(room.get("room_type", "")) == room_type and rect.has_point(Vector2i(x, z)):
+			return rect
+	return Rect2i()
+
+
+func _pedestal(world: Vector3) -> void:
+	_add("pedestal", Transform3D(Basis.IDENTITY, world))
+	var top := world + Vector3(0, 1.25, 0)
+	lamps.append([_root.position + top, RefLook.AMBER_SOFT, .9, 1])
+	_halo.append(top)
+	_decal_pool.append(Vector3(world.x, 0, world.z))
 
 
 func _lit_block(x: int, z: int, style: Dictionary) -> bool:
@@ -279,6 +324,10 @@ static func mesh_for(key: String) -> Mesh:
 		"ceiling": mesh = _build_ceiling(Vector3(.86, .07, .26))
 		"ceiling_small": mesh = _build_ceiling(Vector3(.6, .06, .18))
 		"teal": mesh = _build_teal()
+		"window": mesh = _build_window(Vector2(.95, 1.25))
+		"window_tall": mesh = _build_window(Vector2(.8, 2.5))
+		"pedestal": mesh = _build_pedestal()
+		"floor_cable": mesh = _build_floor_cable()
 		"frame0": mesh = _build_frame(Vector2(.62, .84))
 		"frame1": mesh = _build_frame(Vector2(.8, .56))
 		"pipe": mesh = _build_pipe(false)
@@ -328,6 +377,13 @@ static func material(key: String) -> Material:
 			s.emission = Color(1.0, .52, .13)
 			s.emission_energy_multiplier = 1.15
 			s.roughness = .3
+			m = s
+		"night":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("070b16")
+			s.emission_enabled = true
+			s.emission = Color("17294a")
+			s.emission_energy_multiplier = .8
 			m = s
 		"teal":
 			var s := StandardMaterial3D.new()
@@ -527,6 +583,50 @@ static func _build_chandelier() -> Mesh:
 			parts.append(["amber", _cyl(.022, .13, 5), _t(rx, .08, rz)])
 		parts.append(["brass", _box(Vector3(.05, .24, .02)), _t(rx * .5, .1, rz * .5)])
 	parts.append(["amber", _cyl(.03, .15, 5), _t(0, .2, 0)])
+	return _merge(parts)
+
+
+static func _build_window(size: Vector2) -> Mesh:
+	var parts := [["iron", _box(Vector3(size.x + .12, size.y + .12, .06)), _t(0, 0, .03)],
+		["night", _box(Vector3(size.x, size.y, .02)), _t(0, 0, .065)],
+		["iron", _box(Vector3(.04, size.y, .05)), _t(0, 0, .07)],
+		["iron", _box(Vector3(size.x, .04, .05)), _t(0, size.y * .15, .07)]]
+	if size.y > 2.0:
+		parts.append(["iron", _box(Vector3(size.x, .04, .05)), _t(0, -size.y * .25, .07)])
+	return _merge(parts)
+
+
+static func _build_pedestal() -> Mesh:
+	return _merge([
+		["rust", _box(Vector3(.42, .9, .42)), _t(0, .45, 0)],
+		["iron", _box(Vector3(.5, .08, .5)), _t(0, .92, 0)],
+		["iron", _box(Vector3(.5, .1, .5)), _t(0, .05, 0)],
+		["brass", _box(Vector3(.3, .5, .02)), _t(0, .5, .22)],
+		["amber", _box(Vector3(.18, .26, .18)), _t(0, 1.1, 0)],
+		["brass", _box(Vector3(.24, .03, .24)), _t(0, 1.25, 0)],
+		["brass", _box(Vector3(.24, .03, .24)), _t(0, .97, 0)],
+		["iron", _box(Vector3(.02, .26, .02)), _t(-.1, 1.1, -.1)],
+		["iron", _box(Vector3(.02, .26, .02)), _t(.1, 1.1, -.1)],
+		["iron", _box(Vector3(.02, .26, .02)), _t(-.1, 1.1, .1)],
+		["iron", _box(Vector3(.02, .26, .02)), _t(.1, 1.1, .1)],
+	])
+
+
+static func _build_floor_cable() -> Mesh:
+	var parts := []
+	var segs := 12
+	var prev := Vector3.ZERO
+	for i in segs + 1:
+		var a := float(i) / segs
+		var p := Vector3((a - .5) * 3.0, .0, sin(a * TAU * 1.1) * .35)
+		if i > 0:
+			var dir := p - prev
+			var len := dir.length()
+			var cyl := _cyl(.035, len, 5)
+			# lay the Y-axis cylinder along `dir` (XZ plane)
+			var basis := Basis(Vector3.UP, atan2(dir.x, dir.z)) * Basis(Vector3.RIGHT, PI * .5)
+			parts.append(["iron", cyl, Transform3D(basis, (p + prev) * .5)])
+		prev = p
 	return _merge(parts)
 
 

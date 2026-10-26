@@ -1340,14 +1340,12 @@ func _build_mesh_library() -> MeshLibrary:
 func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	var next_id := first_id
 	for kind in RefTextures.FLOOR_PAINTERS:
-		_add_scene_item_material(library, next_id, FLOOR_TILE_SCENE,
-			RefTextures.material("floor", kind), true, Vector3.ONE,
+		_add_slab_item(library, next_id, RefTextures.material("floor", kind), true,
 			Vector3(0.0, -SLAB * .5, 0.0))
 		_ref_floor_items[kind] = next_id
 		next_id += 1
 	for kind in RefTextures.CEILING_PAINTERS:
-		_add_scene_item_material(library, next_id, FLOOR_TILE_SCENE,
-			RefTextures.material("ceiling", kind), false, Vector3.ONE,
+		_add_slab_item(library, next_id, RefTextures.material("ceiling", kind), false,
 			Vector3(0.0, LEVEL_HEIGHT - 1.0 - SLAB * 1.5 - CEILING_INSET, 0.0))
 		_ref_ceiling_items[kind] = next_id
 		next_id += 1
@@ -1391,6 +1389,56 @@ static func _wall_mesh() -> ArrayMesh:
 		st.set_uv(Vector2(.0, .0))
 		st.add_vertex(top_a + Vector3(index[0], 0, index[1]))
 	return st.commit()
+
+
+## One-metre floor/ceiling slab with a full 0..1 UV on every face, so a painted
+## 32x32 texture lands exactly once per cell (the authored tile mesh's UVs are
+## an atlas region and smear a standalone texture into stripes).
+static func _add_slab_item(library: MeshLibrary, id: int, material: Material,
+		solid: bool, offset: Vector3) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var half := Vector3(.5, SLAB * .5, .5)
+	# normal, u axis, v axis of each face of a box centred on the origin
+	var faces := [
+		[Vector3.UP, Vector3.RIGHT, Vector3.BACK],
+		[Vector3.DOWN, Vector3.RIGHT, Vector3.FORWARD],
+		[Vector3.BACK, Vector3.RIGHT, Vector3.DOWN],
+		[Vector3.FORWARD, Vector3.LEFT, Vector3.DOWN],
+		[Vector3.RIGHT, Vector3.FORWARD, Vector3.DOWN],
+		[Vector3.LEFT, Vector3.BACK, Vector3.DOWN],
+	]
+	for face in faces:
+		var n: Vector3 = face[0]
+		var u: Vector3 = face[1]
+		var v: Vector3 = face[2]
+		var center := n * (half * n.abs()).length()
+		var su := (half * u.abs()).length() * 2.0
+		var sv := (half * v.abs()).length() * 2.0
+		var verts := []
+		for c in [[0, 0], [1, 0], [1, 1], [0, 1]]:
+			verts.append([center + u * ((c[0] - .5) * su) + v * ((c[1] - .5) * sv),
+				Vector2(c[0], c[1])])
+		# wind so the face points along its normal
+		var order := [0, 1, 2, 0, 2, 3]
+		var a_pt: Vector3 = verts[0][0]
+		var b_pt: Vector3 = verts[1][0]
+		var c_pt: Vector3 = verts[2][0]
+		if (b_pt - a_pt).cross(c_pt - a_pt).dot(n) < 0.0:
+			order = [0, 2, 1, 0, 3, 2]
+		for index in order:
+			st.set_normal(n)
+			st.set_uv(verts[index][1])
+			st.add_vertex(verts[index][0])
+	var mesh := st.commit()
+	mesh.surface_set_material(0, material)
+	library.create_item(id)
+	library.set_item_mesh(id, mesh)
+	library.set_item_mesh_transform(id, Transform3D(Basis.IDENTITY, offset))
+	if solid:
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(1.0, SLAB, 1.0)
+		library.set_item_shapes(id, [shape, Transform3D(Basis.IDENTITY, offset)])
 
 
 static func _add_scene_item_material(library: MeshLibrary, id: int,

@@ -87,6 +87,32 @@ func _scan_level(gen: StreamedRouteGenerator, level: int, reach: int, cs: int,
 						"yaw": 180.0 if spot["swap"] else -90.0})
 
 
+## CAP_HUNTERS="a,b,c": place sprite hunters 3.5, 6 and 9 m ahead of the runner.
+func _place_hunters(origin: Vector3, yaw_deg: float) -> Array:
+	var placed := []
+	var ids := OS.get_environment("CAP_HUNTERS")
+	if ids == "":
+		return placed
+	var forward := Vector3(-sin(deg_to_rad(yaw_deg)), 0, -cos(deg_to_rad(yaw_deg)))
+	var side := Vector3(forward.z, 0, -forward.x)
+	var distance := 3.5
+	var lateral := -.8
+	for id in ids.split(","):
+		var identity: Dictionary = HunterRoster.get_identity(id)
+		if identity.is_empty():
+			continue
+		var node: Node3D = ModelSlot.instantiate_hunter(identity)
+		if node == null:
+			continue
+		_scene.add_child(node)
+		node.global_position = origin + forward * distance + side * lateral
+		node.rotation.y = deg_to_rad(yaw_deg)
+		placed.append(node)
+		distance += 2.5
+		lateral = -lateral
+	return placed
+
+
 func _wait(n: int) -> void:
 	for i in n:
 		await get_tree().process_frame
@@ -132,6 +158,7 @@ func _run(scene: Node) -> void:
 			player._pitch = -0.04
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
+			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
 			await _wait(14)
 			if OS.get_environment("CAP_FPS") != "":
 				var t0 := Time.get_ticks_usec()
@@ -140,4 +167,6 @@ func _run(scene: Node) -> void:
 				continue
 			var img := get_viewport().get_texture().get_image()
 			img.save_png("%s/%s_%s_%s.png" % [_out_dir, _tag, p["name"], yaw_text])
+			for node in hunter_nodes:
+				node.queue_free()
 	get_tree().quit()

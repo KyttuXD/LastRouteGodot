@@ -12,7 +12,7 @@ extends Node3D
 const POOL_SIZE := 12
 const RANGE := 17.0
 const LIGHT_RANGE := 9.0
-const BASE_ENERGY := 2.5
+const BASE_ENERGY := 3.0
 const FADE_SPEED := 4.0
 const REFRESH_SECONDS := .2
 

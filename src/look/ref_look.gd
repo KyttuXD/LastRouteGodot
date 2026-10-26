@@ -11,7 +11,7 @@ extends RefCounted
 const PIXEL_SHADER := preload("res://src/look/ref_pixel.gdshader")
 
 ## Pixel grid height of the post-process. The width follows the window aspect.
-const PIXEL_GRID_HEIGHT := 240.0
+const PIXEL_GRID_HEIGHT := 270.0
 
 # -- palette -----------------------------------------------------------------
 const BLACK := Color("0a0509")
@@ -22,7 +22,7 @@ const MAROON_LIGHT := Color("6e2a30")
 const BRASS := Color("9a6e26")
 const BRASS_DARK := Color("5b3f1c")
 const AMBER := Color("ffa63a")
-const AMBER_SOFT := Color("e0802a")
+const AMBER_SOFT := Color("f0a050")
 const TEAL := Color("5cf0e0")
 const TEAL_DEEP := Color("1c8a8c")
 const METAL := Color("2a2627")
@@ -40,7 +40,7 @@ static func make_environment() -> Environment:
 	env.background_color = Color("070307")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("5a3550")
-	env.ambient_light_energy = 1.6
+	env.ambient_light_energy = 2.0
 	env.fog_enabled = true
 	env.fog_light_color = Color("140812")
 	env.fog_density = .03
@@ -115,7 +115,7 @@ const REGION_STYLE := {
 	"apartment": {"corridor": ["parquet0", "parquet1"], "room": ["parquet1", "floral1"],
 		"wall": ["paper0", "office1"], "ceiling": "ceil1", "runner": true},
 	"beach": {"corridor": ["stone0", "stone1", "stone2"], "room": ["stone0", "stone2"],
-		"wall": ["hedge0", "hedge1", "stone0"], "ceiling": "ceil1", "runner": false},
+		"wall": ["hedge0", "hedge1", "stone0"], "ceiling": "glass", "runner": false},
 	"gothic": {"corridor": ["stone0", "stone1"], "room": ["stone1", "stone0"],
 		"wall": ["brick0", "brick1", "stone1"], "ceiling": "ceil1", "runner": true},
 	"carnival": {"corridor": ["check0", "check1"], "room": ["star0", "star1"],
