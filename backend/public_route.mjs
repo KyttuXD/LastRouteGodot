@@ -188,7 +188,7 @@ export function createPublicRoute({
   function saveResume(player) {
     if (!player.position || !PLAYER_KEY_PATTERN.test(player.playerKey)) return;
     state.resumes.set(player.playerKey, {
-      position: player.position, inventory: player.inventory, savedAt: now(),
+      position: player.position, inventory: player.inventory, savedAt: player.lastSeen,
     });
     scheduleSave();
   }
@@ -231,7 +231,7 @@ export function createPublicRoute({
   }
 
   /** hostTokenValid: does the caller hold the ENet host token for PUBLIC right now? */
-  function join(body, { address = "", hostTokenValid = false } = {}) {
+  function join(body, { address = "", hostTokenValid = false, enetListed = false } = {}) {
     prune();
     if (rateLimited(address || "unknown")) return { status: 429, error: "TOO MANY JOIN REQUESTS" };
     const playerKey = String(body.playerKey || "");
@@ -253,7 +253,7 @@ export function createPublicRoute({
     };
     players.set(sessionId, player);
     respawnDue();
-    const authorityLive = hostTokenValid || (authority.sessionId && timestamp - authority.lastBeat < PUBLIC_AUTHORITY_STALE_MS);
+    const authorityLive = hostTokenValid || enetListed || (authority.sessionId && timestamp - authority.lastBeat < PUBLIC_AUTHORITY_STALE_MS);
     return {
       status: 200,
       body: publicStatus({

@@ -426,7 +426,7 @@ export function createLastRouteServer({
       if (hostTokenValid) publicEnet.expiresAt = now() + PUBLIC_ENET_TTL_MS;
       const address = requesterAddress(request, trustProxy);
       const result = url.pathname === "/api/public/join"
-        ? publicRoute.join(body, { address, hostTokenValid })
+        ? publicRoute.join(body, { address, hostTokenValid, enetListed: Boolean(publicEnet) })
         : url.pathname === "/api/public/state"
           ? publicRoute.post(body, { hostTokenValid })
           : publicRoute.leave(body);
