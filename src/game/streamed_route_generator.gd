@@ -43,9 +43,10 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
 const STAIR_ACCESS_WIDTH := 5
-const ROOM_SIZES := [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
-	Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13),
-	Vector2i(13, 11), Vector2i(15, 15)]
+## Rooms are big enough to furnish properly: no closets or 3x3 cells any more.
+const ROOM_SIZES := [Vector2i(7, 7), Vector2i(9, 7), Vector2i(7, 9), Vector2i(9, 9),
+	Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13),
+	Vector2i(15, 15)]
 const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 const REGION_PROP_SETS := {
@@ -56,12 +57,12 @@ const REGION_PROP_SETS := {
 		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
 		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
 		{"type": "woodenChair", "size": Vector3(.65, 1.1, .65)},
-		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
+		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "normalPictureFrameEmpty", "size": Vector3(.7, .9, .12), "solid": false},
 	],
 	"mansion": [
 		{"type": "mansionBookshelf", "size": Vector3(1.5, 2.1, .45)},
-		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
+		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "diningSideboard", "size": Vector3(1.4, 1.1, .5)},
 		{"type": "diningChair", "size": Vector3(.65, 1.2, .65)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
@@ -76,7 +77,7 @@ const REGION_PROP_SETS := {
 		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
 		{"type": "bedroomWardrobe", "size": Vector3(1.2, 2.1, .55)},
 		{"type": "bedroomNightstand", "size": Vector3(.65, .8, .55)},
-		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
+		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "woodenChairCushion", "size": Vector3(.65, 1.1, .65)},
 		{"type": "hotelCarpet", "size": Vector3(2.2, .03, 1.4), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
@@ -86,7 +87,7 @@ const REGION_PROP_SETS := {
 	"apartment": [
 		{"type": "normalKitchenFridge", "size": Vector3(.85, 2.0, .75)},
 		{"type": "normalBookcase", "size": Vector3(1.25, 1.9, .45)},
-		{"type": "loungeCouchWide", "size": Vector3(1.8, 1.0, .8)},
+		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
 		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
 		{"type": "woodenChair", "size": Vector3(.65, 1.1, .65)},
@@ -237,7 +238,8 @@ const TEMPLATE_PROP_SIZES := {
 	"surfboardRack": Vector3(1.4, 1.7, .65),
 	"tikiBar": Vector3(1.6, 2.5, 1.1),
 	"frozenBeachHut": Vector3(2.3, 2.8, 2.0),
-	"loungeCouchWide": Vector3(1.9, 1.05, .85),
+	"loungeCouchWide": Vector3(2.7, 1.05, 1.0),
+	"loungeCouch": Vector3(1.7, 1.0, .95),
 	"normalCoffeeTable": Vector3(1.25, .6, .75),
 	"filingCabinet": Vector3(.75, 1.45, .55),
 	"privacyCurtain": Vector3(.9, 2.4, .5),

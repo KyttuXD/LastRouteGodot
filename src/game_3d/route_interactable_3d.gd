@@ -175,6 +175,7 @@ func _ready() -> void:
 	# player movement (lockers, lifts). The authored models are hollow, so the
 	# simplest correct collider is the visual's combined AABB.
 	if kind == Kind.HIDING_SPOT and _visual != null:
+		_add_locker_seal()
 		var boxes: Array[AABB] = []
 		_collect_mesh_bounds(_visual, boxes)
 		if not boxes.is_empty():
@@ -624,6 +625,41 @@ static func _style_hint_for_kind(interactable_kind: Kind) -> String:
 			return "boarded_door"
 		_:
 			return ""
+
+
+## The locker is built from separate panels, so a few slits remain at its corners and edges (door
+## against side, top, base). From inside, those showed the world through the walls. A closed,
+## two-sided dark box just inside the panel thickness seals them; from outside it is hidden by the panels.
+func _add_locker_seal() -> void:
+	var seal := Node3D.new()
+	seal.name = "LockerSeal"
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(.07, .08, .1)
+	material.roughness = 1.0
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# [size, centre] in the locker's root space; each piece sits inside the thickness of a real panel.
+	# The front is left open over the door's sight slats (x +-0.21, y 1.43-1.70) so the hider can still look out.
+	var pieces := [
+		[Vector3(.64, 1.8, .02), Vector3(0, 1.04, .22)],      # back
+		[Vector3(.02, 1.8, .56), Vector3(-.315, 1.04, -.02)], # left
+		[Vector3(.02, 1.8, .56), Vector3(.315, 1.04, -.02)],  # right
+		[Vector3(.64, .02, .56), Vector3(0, 1.9, -.02)],      # top
+		[Vector3(.64, .02, .56), Vector3(0, .15, -.02)],      # bottom
+		[Vector3(.64, 1.28, .02), Vector3(0, .79, -.29)],     # front below the slats
+		[Vector3(.64, .23, .02), Vector3(0, 1.815, -.29)],    # front above the slats
+		[Vector3(.22, .27, .02), Vector3(-.21, 1.565, -.29)], # front beside the slats
+		[Vector3(.22, .27, .02), Vector3(.21, 1.565, -.29)],
+	]
+	for piece in pieces:
+		var mesh_node := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = piece[0]
+		mesh_node.mesh = box
+		mesh_node.material_override = material
+		mesh_node.position = piece[1]
+		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		seal.add_child(mesh_node)
+	_visual.add_child(seal)
 
 
 func _add_blocking_box(size: Vector3, at: Vector3) -> void:

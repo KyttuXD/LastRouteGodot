@@ -313,8 +313,8 @@ const SURFACE_HEIGHTS := {
 const FOOTPRINTS := {
 	"arcadeCabinet": Vector2(.27, .30), "arcadeCabinetCyanMagenta": Vector2(.27, .30),
 	"arcadeBasketballHoop": Vector2(.42, .50), "arcadeCarpetCircle": Vector2(.48, .48),
-	"arcadeCarpetRunner": Vector2(.42, .20), "loungeCouch": Vector2(.51, .30),
-	"loungeCouchWide": Vector2(.91, .30),
+	"arcadeCarpetRunner": Vector2(.42, .20), "loungeCouch": Vector2(.85, .48),
+	"loungeCouchWide": Vector2(1.35, .5),
 	"locker": Vector2(.30, .36), "officeDesk": Vector2(.42, .28),
 	"securityDesk": Vector2(.54, .34), "officeChair": Vector2(.21, .21),
 	"officeCameraConsole": Vector2(.40, .30), "officeSignalScanner": Vector2(.28, .32),

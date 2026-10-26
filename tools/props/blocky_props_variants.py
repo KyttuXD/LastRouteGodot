@@ -34,7 +34,7 @@ table_ped = [(.04, .84, .04, .96, .94, .96, "@wood"), (.4, .12, .4, .6, .84, .6,
 table_trestle = [(0, .86, 0, 1, 1, 1, "@wood"), (.08, 0, .1, .18, .86, .9, "dark"), (.82, 0, .1, .92, .86, .9, "dark"), (.18, .3, .46, .82, .38, .54, "dark")]
 table_drawer = [(0, .84, 0, 1, 1, 1, "@wood"), (.04, .66, .04, .96, .84, .96, "dark"), (.4, .72, .96, .6, .78, 1, "brass")] + legs(.66, .1, "dark", .03)
 table_slab = [(.02, .8, .02, .98, .92, .98, "@wood"), (.02, 0, .2, .14, .8, .8, "dark"), (.86, 0, .2, .98, .8, .8, "dark"), (.14, .5, .46, .86, .56, .54, "dark")]
-for n in ("woodenTable", "restaurantPartyTable"):
+for n in ("woodenTable",):
     for shape in (table_ped, table_trestle, table_drawer):
         v(n, shape, {"@wood": WD})
 for shape in (table_ped, table_trestle, table_slab):

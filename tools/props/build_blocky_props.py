@@ -295,13 +295,18 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_variants.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 
+# Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
+SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55)}
+
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
 for name, (base_boxes, base_subs) in PROPS.items():
     if name not in BOUNDS:
         print("skip (no bounds):", name)
         continue
-    info = BOUNDS[name]
+    info = dict(BOUNDS[name])
+    if name in SIZE_SCALE:
+        info["size"] = [c * f for c, f in zip(info["size"], SIZE_SCALE[name])]
     files = []
     shapes = [(base_boxes, base_subs)] + list(VARIANTS.get(name, []))
     combos = []     # (boxes, substitution) for every shape x colour option
