@@ -33,6 +33,11 @@ const LEAF := Color("22301f")
 
 const POST_NAME := "RefLookPost"
 
+## Single switch for every full-screen / screen-space effect (pixel grid, dither,
+## vignette, grade, glow, heavy fog). OFF by default: the look comes from the
+## world itself (textures, lamps, emissives). Turn on to compare.
+const POST_EFFECTS := false
+
 
 static func make_environment() -> Environment:
 	var env := Environment.new()
@@ -43,17 +48,17 @@ static func make_environment() -> Environment:
 	env.ambient_light_energy = 2.0
 	env.fog_enabled = true
 	env.fog_light_color = Color("140812")
-	env.fog_density = .03
+	env.fog_density = .03 if POST_EFFECTS else .006
 	env.fog_sky_affect = 1.0
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
-	env.glow_enabled = true
+	env.glow_enabled = POST_EFFECTS
 	env.glow_intensity = .9
 	env.glow_strength = 1.1
 	env.glow_bloom = .12
 	env.glow_hdr_threshold = .85
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	env.adjustment_enabled = true
+	env.adjustment_enabled = POST_EFFECTS
 	env.adjustment_contrast = 1.12
 	env.adjustment_saturation = .95
 	return env
@@ -64,7 +69,7 @@ static func make_environment() -> Environment:
 static func install(host: Node, world_env: WorldEnvironment) -> void:
 	if world_env != null:
 		world_env.environment = make_environment()
-	if host.has_node(POST_NAME):
+	if not POST_EFFECTS or host.has_node(POST_NAME):
 		return
 	var layer := CanvasLayer.new()
 	layer.name = POST_NAME

@@ -723,6 +723,6 @@ static func array_material(group: String) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = ARRAY_SHADER
 	m.set_shader_parameter("tex", _array_textures[group])
-	m.set_shader_parameter("tint", Vector3(1.55, 1.5, 1.6))
+	m.set_shader_parameter("tint", Vector3(1.25, 1.22, 1.3))
 	_array_materials[group] = m
 	return m

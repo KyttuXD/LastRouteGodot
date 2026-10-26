@@ -5,6 +5,10 @@ Restyle of the infinite route to match the Last Route 3D reference images
 chunky pixel art, lit by amber lamps with teal terminals as the only cool accent.
 Everything is procedural; there is no new imported art.
 
+**Post-processing is OFF by default.** `RefLook.POST_EFFECTS` (src/look/ref_look.gd) gates
+the pixel/dither/vignette/grade pass, glow, adjustments and heavy fog; set it to `true` to compare.
+With it off the look comes from textures, real lamps, emissives and a dark ambient with very light fog.
+
 ## Where it lives (`src/look/`)
 
 | File | Job |

@@ -142,7 +142,7 @@ func _expect_xr(route: Node) -> void:
 	var environment := world_environment.environment if world_environment != null else null
 	if environment == null or environment.ambient_light_energy > 2.5 \
 			or environment.ambient_light_color.get_luminance() > .45 \
-			or not environment.fog_enabled or not environment.glow_enabled:
+			or not environment.fog_enabled:
 		_fail("the route environment is not using the dark reference-look profile")
 	if not InputMap.has_action("taser") or not Settings.REBINDABLE_ACTIONS.has("taser"):
 		_fail("taser is missing from the input map or Settings rebinding")
