@@ -166,6 +166,31 @@ func _run(scene: Node) -> void:
 	var reach := 3 if level_env != "" else 2
 	for level_text in (level_env if level_env != "" else "0").split(","):
 		_scan_level(gen, int(level_text), reach, cs, picks, seen)
+	if OS.get_environment("CAP_SUITE") != "":
+		# CAP_SUITE=apartment|office: the rooms of the nearest generated suite of that kind
+		picks = []
+		var found := false
+		for cz in range(-12, 13):
+			if found:
+				break
+			for cx in range(-12, 13):
+				var data: Dictionary = gen.chunk(Vector3i(cx, 0, cz))
+				for suite in data.get("suites", []):
+					if String(suite["kind"]) != OS.get_environment("CAP_SUITE") or found:
+						continue
+					found = true
+					for room in data.get("rooms", []):
+						if String(room.get("suite_id", "")) == String(suite["id"]) and not bool(room.get("suite_parent", false)):
+							var rect: Rect2i = room["rect"]
+							picks.append({"name": "suite_%s" % room["room_type"], "pos": Vector3(
+								cx * cs + rect.position.x + rect.size.x * .5, .05,
+								cz * cs + rect.position.y + rect.size.y * .5)})
+	if OS.get_environment("CAP_AT") not in ["", "start"]:
+		# CAP_AT="x,z;x,z": world metres, one pick per pair
+		picks = []
+		for pair in OS.get_environment("CAP_AT").split(";"):
+			var xz := pair.split(",")
+			picks.append({"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))})
 	if OS.get_environment("CAP_AT") == "start":
 		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
 		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]

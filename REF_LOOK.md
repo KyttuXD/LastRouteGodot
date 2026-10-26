@@ -98,3 +98,14 @@ adaptive layers and the root `icon.svg`; `project.godot` and the export presets 
 ground (`BACKDROP` #0d0810, `PANEL` #170e19, `INSET` #1e1322), danger red unchanged. After editing it run
 `godot --headless --path . --script tools/ui/build_theme.gd` (regenerates `ref_theme.tres`) and, for the logo,
 the build_logo script (the SVG holds the same values).
+
+## Apartments, doors, props
+
+* An apartment suite (17x17 sector) is four rooms sharing walls, no cross hall: bedroom (NW), bathroom (NE, en suite
+  through the bedroom), living room (SW, entrance opens straight into it) and kitchen (SE), joined by single doors;
+  the plan mirrors for the east-entrance sector. Furniture comes from the per-room templates (`apartment_living`: TV wall,
+  couch facing it with coffee table and rug, armchair, dining set, clear entrance lane).
+* Rooms are never smaller than 7x7. Wide doors and arches are only for major rooms (halls, lobbies, greenhouses,
+  very large rooms); small rooms and the end of a hallway get a single door.
+* Props: `tools/props/` builds 434 blocky models (`blocky_props_extra.py` second batch, `blocky_props_variants.py` shape
+  variants, `blocky_props_doors.py` doors and barrel). `capture.gd` has `CAP_AT=x,z` and `CAP_SUITE=apartment|office`.

@@ -205,7 +205,7 @@ func run(host: Node) -> int:
 						and recorded_children.all(func(child_id: String) -> bool:
 							return child_ids.has(child_id)),
 						"%s suite metadata does not own its four generated rooms" % suite_id)
-					var expected_roles := ["bedroom", "kitchen", "family_dining",
+					var expected_roles := ["bedroom", "kitchen", "living_room",
 						"house_bathroom"] if suite_kind == "apartment" else [
 						"office_reception", "cubicle_room", "office_job",
 						"private_office"]
@@ -291,7 +291,27 @@ func run(host: Node) -> int:
 								if int(data["grid"][vertical_z][vertical_x]) == 0 \
 										and not open_boundary.has(vertical_boundary):
 									open_boundary.append(vertical_boundary)
-						_expect(open_boundary.size() == expected_doorway_cells.size() \
+						# Rooms of one apartment share walls: openings that are another room's door
+						# (or declared extra doorways) on this boundary are legitimate.
+						var allowed_openings: Array = expected_doorway_cells.duplicate()
+						if room.has("suite_id"):
+							for extra_value in room.get("extra_doorways", []):
+								allowed_openings.append(extra_value)
+							for door_value in data.get("region_props", []):
+								var shared_door: Dictionary = door_value
+								if bool(shared_door.get("room_door", false)):
+									for shared_cell in shared_door.get("doorway_cells", []):
+										allowed_openings.append(shared_cell)
+							for sibling_value in data.get("rooms", []):
+								var sibling: Dictionary = sibling_value
+								if String(sibling.get("suite_id", "")) == String(room.get("suite_id", "")):
+									if sibling.get("doorway") is Vector2i:
+										allowed_openings.append(sibling["doorway"])
+									for sibling_extra in sibling.get("extra_doorways", []):
+										allowed_openings.append(sibling_extra)
+						_expect((open_boundary.size() == expected_doorway_cells.size() \
+								or (room.has("suite_id") and open_boundary.all(func(at):
+									return allowed_openings.has(at)))) \
 							and expected_doorway_cells.all(func(at):
 								return open_boundary.has(at)),
 							"room owns multiple hallway entrances: %s openings=%s doorway=%s" \
@@ -501,7 +521,7 @@ func run(host: Node) -> int:
 		"sampled world did not generate both apartment and office room suites")
 	_expect(saw_multi_unit_apartment_hall,
 		"apartment region never placed multiple complete units off one main hall")
-	for suite_role in ["bedroom", "kitchen", "family_dining", "house_bathroom",
+	for suite_role in ["bedroom", "kitchen", "living_room", "house_bathroom",
 			"office_reception", "cubicle_room", "office_job", "private_office"]:
 		_expect(suite_roles_seen.has(suite_role),
 			"generated suites never exposed the %s amenity" % suite_role)
@@ -523,7 +543,7 @@ func run(host: Node) -> int:
 	_expect(not rug_types_seen.is_empty(),
 		"restored authored rugs/mats never appeared in sampled Infinite rooms")
 	for expected_template in [
-			"bedroom", "kitchen", "mansion_dining", "family_dining",
+			"bedroom", "kitchen", "mansion_dining", "apartment_living",
 			"restaurant_dining", "arcade", "house_bathroom",
 			"hotel_bathroom", "luxury_bathroom", "public_restroom",
 			"carnival_midway", "carnival_game_stall", "carnival_backstage",

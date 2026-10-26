@@ -150,6 +150,7 @@ const ROOM_STYLE := {
 	"drawing_room": {"floor": ["floral0", "floral1"], "wall": ["paper0", "paper1"]},
 	"dining_room": {"floor": ["floral1", "floral0"], "wall": ["paper1", "paper0"]},
 	"family_dining": {"floor": ["floral1", "parquet0"], "wall": ["paper0", "office1"]},
+	"living_room": {"floor": ["floral1", "parquet0"], "wall": ["paper0", "office1"]},
 	"bedroom": {"floor": ["floral0", "parquet1"], "wall": ["paper0", "paper1"]},
 	"guest_room": {"floor": ["floral0", "floral1"], "wall": ["paper1", "paper0"]},
 	"stairwell": {"floor": ["floral0"], "wall": ["paper0"]},

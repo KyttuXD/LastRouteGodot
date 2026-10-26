@@ -160,6 +160,7 @@ const REGION_DOUBLE_ROOM_DOORS := {
 ## Local X runs across a prop's front and local Z runs from its back into the
 ## room; _template_prop_entry rotates both visual and collision together.
 const TEMPLATE_PROP_SIZES := {
+	"normalBookcase": Vector3(1.3, 2.0, .45),
 	"diningTable": Vector3(2.3, 1.05, .95),
 	"diningChair": Vector3(.65, 1.2, .65),
 	"diningChairCushion": Vector3(.65, 1.2, .65),
@@ -1081,6 +1082,9 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 	# cross is a real shared hall, while four 7x7 rooms retain their own walls and
 	# thresholds. This lets one corridor-facing door own an apartment/office
 	# instead of treating every amenity as an unrelated maze room.
+	if suite_kind == "apartment":
+		return _carve_apartment_suite(coord, region, grid, circulation, rect,
+			sector_index)
 	var suite_id := "%s:SUITE:%d:%s" % [chunk_id(coord), sector_index,
 		suite_kind.to_upper()]
 	_carve_rect(grid, rect)
@@ -1165,6 +1169,91 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 		"suite": {
 			"id": suite_id, "kind": suite_kind, "region": region,
 			"rect": rect, "entry_doorway": entrance["doorway"],
+			"parent_room_id": parent["id"], "room_ids": child_ids,
+		},
+	}
+
+
+## A real apartment in one 17x17 sector: four rooms that share walls, joined by single doors
+## (no cross hall). Local plan, entrance on the west wall (mirrored for the east-entrance sector):
+##   bedroom  (0,0)  9x9   | bathroom (8,0)  9x9   (en suite: door between bedroom and bathroom)
+##   living   (0,8) 11x9   | kitchen  (10,8) 7x9
+## living <-> bedroom door at (4,8), bedroom <-> bathroom at (8,4), living <-> kitchen at (10,14);
+## the entrance (0,12) opens straight into the living room. The suite parent room owns the entrance door.
+func _carve_apartment_suite(coord: Vector3i, region: String, grid: Array,
+		circulation: Dictionary, rect: Rect2i, sector_index: int) -> Dictionary:
+	var suite_id := "%s:SUITE:%d:APARTMENT" % [chunk_id(coord), sector_index]
+	var flip := sector_index in [0, 2]    # these sectors enter from the east side
+	var size := rect.size.x
+	var to_world_cell := func(local: Vector2i) -> Vector2i:
+		var x: int = (size - 1 - local.x) if flip else local.x
+		return rect.position + Vector2i(x, local.y)
+	var to_world_rect := func(local: Rect2i) -> Rect2i:
+		var x: int = (size - local.end.x) if flip else local.position.x
+		return Rect2i(rect.position + Vector2i(x, local.position.y), local.size)
+	_carve_rect(grid, rect)
+	var entry_cell: Vector2i = to_world_cell.call(Vector2i(0, 12))
+	var junction := Vector2i(CHUNK_SIZE / 2, entry_cell.y)
+	_carve_corridor_segment(grid, circulation, entry_cell, junction)
+	var plan := [
+		{"role": "bedroom", "rect": Rect2i(0, 0, 9, 9), "door": Vector2i(4, 8)},
+		{"role": "house_bathroom", "rect": Rect2i(8, 0, 9, 9), "door": Vector2i(8, 4)},
+		{"role": "living_room", "rect": Rect2i(0, 8, 11, 9), "door": Vector2i(0, 12)},
+		{"role": "kitchen", "rect": Rect2i(10, 8, 7, 9), "door": Vector2i(10, 14)},
+	]
+	for entry in plan:
+		var world_rect: Rect2i = to_world_rect.call(entry["rect"])
+		_seal_room_perimeter_except(grid, world_rect, entry_cell)
+		grid[entry_cell.y][entry_cell.x] = 1
+	var door_cells := [Vector2i(4, 8), Vector2i(8, 4), Vector2i(10, 14), Vector2i(0, 12)]
+	for door_local in door_cells:
+		var world_door: Vector2i = to_world_cell.call(door_local)
+		grid[world_door.y][world_door.x] = 0
+		_mark_corridor_cell(circulation, world_door, 1)
+	var parent := _room_entry(coord, sector_index, region, rect, "apartment_suite")
+	parent["id"] = "%s:ENTRY" % suite_id
+	parent["doorway"] = entry_cell
+	parent["suite_id"] = suite_id
+	parent["suite_kind"] = "apartment"
+	parent["suite_parent"] = true
+	parent["preset_room"] = true
+	var suite_rooms := [parent]
+	var child_ids := []
+	for child_index in plan.size():
+		var entry: Dictionary = plan[child_index]
+		var role := String(entry["role"])
+		var world_rect: Rect2i = to_world_rect.call(entry["rect"])
+		var child := _room_entry(coord, child_index, region, world_rect, role)
+		child["id"] = "%s:ROOM:%d:%s" % [suite_id, child_index, role.to_upper()]
+		child["doorway"] = to_world_cell.call(entry["door"])
+		var extra := []
+		for door_local in door_cells:
+			var world_door: Vector2i = to_world_cell.call(door_local)
+			if world_rect.has_point(world_door) and world_door != child["doorway"]:
+				extra.append(world_door)
+		child["extra_doorways"] = extra
+		child["suite_id"] = suite_id
+		child["suite_kind"] = "apartment"
+		child["suite_role"] = role
+		child["preset_room"] = true
+		suite_rooms.append(child)
+		child_ids.append(child["id"])
+	return {
+		"rooms": suite_rooms,
+		"corridors": [{
+			"id": "%s:ENTRY-HALL" % suite_id,
+			"axis": "east_west",
+			"width": CORRIDOR_WIDTH,
+			"length": absi(entry_cell.x - junction.x),
+			"branch": true,
+			"from_main_hall": true,
+			"serves_many_rooms": true,
+			"doorway": entry_cell,
+			"suite_id": suite_id,
+		}],
+		"suite": {
+			"id": suite_id, "kind": "apartment", "region": region,
+			"rect": rect, "entry_doorway": entry_cell,
 			"parent_room_id": parent["id"], "room_ids": child_ids,
 		},
 	}
@@ -1266,6 +1355,15 @@ static func _restore_single_room_thresholds(grid: Array, rooms: Array) -> void:
 		if rect.size.x <= 0 or rect.size.y <= 0 or not doorway is Vector2i:
 			continue
 		_seal_room_perimeter_except(grid, rect, doorway)
+	# Rooms that share walls (apartments) re-sealed each other's doors: open every doorway again.
+	for room_value in rooms:
+		var room: Dictionary = room_value
+		var primary = room.get("doorway")
+		if primary is Vector2i and (room.get("rect", Rect2i()) as Rect2i).size.x > 0:
+			grid[(primary as Vector2i).y][(primary as Vector2i).x] = 0
+		for extra_value in room.get("extra_doorways", []):
+			var extra: Vector2i = extra_value
+			grid[extra.y][extra.x] = 0
 
 
 static func _restore_authored_room_door_thresholds(grid: Array,
@@ -1297,7 +1395,7 @@ static func _room_type_for(region: String, index: int) -> String:
 		"beach": ["cove", "beach_hut", "tide_pool", "boardwalk_room"],
 		"inferno": ["thermal_chamber", "forge", "altar_room", "lava_gallery"],
 		"gothic": ["crypt", "chapel", "mourning_room", "archive"],
-		"apartment": ["bedroom", "kitchen", "family_dining", "house_bathroom"],
+		"apartment": ["bedroom", "kitchen", "living_room", "house_bathroom"],
 		"carnival": ["big_top", "midway", "game_stall", "backstage"],
 		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
 		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
@@ -1540,6 +1638,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = "mansion_dining"
 	elif room_type == "family_dining":
 		template = "family_dining"
+	elif room_type == "living_room":
+		template = "apartment_living"
 	elif room_type == "restaurant_dining":
 		template = "restaurant_dining"
 	elif room_type == "house_bathroom":
@@ -1582,7 +1682,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	# rare narrow room cannot hold one safely, leave it to generic dressing.
 	if template in ["mansion_dining", "family_dining", "restaurant_dining",
 			"kitchen", "arcade", "frozen_tideline", "luxury_bathroom",
-			"public_restroom"] \
+			"public_restroom", "apartment_living"] \
 			and (side_span < 7 or depth_span < 7):
 		return []
 	var rng := SeededRandom.new("%s:TEMPLATE:%s:%s" % [world_seed,
@@ -1907,6 +2007,29 @@ static func _room_template_specs(template: String, region: String,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "beachChair", "side": 2 * mirror,
 				"depth": mid_depth, "facing": "center"})
+		"apartment_living":
+			# TV wall at the back, one big couch facing it with a coffee table and rug between, an armchair,
+			# a dining set nearer the entrance; the entrance lane (side 0, door side) stays clear.
+			specs.append({"type": "normalTvConsole", "side": 0, "depth": 0,
+				"wall_backed": true, "facing": "open"})
+			specs.append({"type": "normalBookcase", "side": -3 * mirror, "depth": 0,
+				"wall_backed": true, "facing": "open"})
+			specs.append({"type": "floorLamp", "side": -2 * mirror, "depth": 0,
+				"wall_backed": true, "facing": "open"})
+			specs.append({"type": "normalCoffeeTable", "side": 0, "depth": 3, "facing": "back"})
+			specs.append({"type": "loungeCouchWide", "side": 0, "depth": 5, "facing": "back"})
+			specs.append({"type": "loungeCouch", "side": 3 * mirror, "depth": 3, "facing": "center"})
+			specs.append({"type": "diningTable", "side": -2 * mirror, "depth": 7, "facing": "open"})
+			specs.append({"type": "woodenChairCushion", "side": -2 * mirror, "depth": 6, "facing": "center"})
+			specs.append({"type": "woodenChairCushion", "side": -2 * mirror, "depth": 8, "facing": "center"})
+			specs.append({"type": "ceilingLight", "side": 0, "depth": 4,
+				"facing": "open", "solid": false})
+			if not rug_type.is_empty():
+				specs.append({"type": rug_type, "side": 0, "depth": 3,
+					"facing": "open", "solid": false})
+			if not painting_type.is_empty():
+				specs.append({"type": painting_type, "side": 1 * mirror, "depth": 0,
+					"facing": "open", "wall_mount": true, "solid": false})
 		"lounge":
 			specs.append({"type": "loungeCouchWide", "side": -1 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
@@ -2297,6 +2420,8 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 		return []
 	var result := []
 	var stair_exclusion := _stair_door_exclusion(stairs)
+	# Rooms that share a wall see the same opening: only the first room claims it.
+	var claimed_doorways := {}
 	for room_index in rooms.size():
 		# One preset suite owns an exterior door plus four internal doors. Keep
 		# enough budget for the other corridor rooms in the same chunk as well.
@@ -2336,6 +2461,10 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 			REGION_DOUBLE_ROOM_DOORS.get(region, door_type)) if use_double else door_type)
 		var cell: Vector2i = threshold["cell"]
 		var doorway_cells: Array = threshold["doorway_cells"]
+		if doorway_cells.any(func(c) -> bool: return claimed_doorways.has(c)):
+			continue
+		for claimed_cell in doorway_cells:
+			claimed_doorways[claimed_cell] = true
 		var wall_cells: Array = threshold["wall_cells"]
 		for shoulder_value in wall_cells:
 			var shoulder: Vector2i = shoulder_value
