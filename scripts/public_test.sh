@@ -4,6 +4,7 @@
 #   scripts/public_test.sh        (from the project root)
 # Free high ports (HTTP 18205, relay UDP 11205), temp data dir, test-only values.
 set -u
+# SERVER_ROOT=/path/to/a/deployed/release runs the backend from that copy instead of this checkout.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TMP="$(mktemp -d)"
@@ -15,7 +16,7 @@ cd "$ROOT"
 start_server() {
   HOST=127.0.0.1 LASTROUTE_HTTP_PORT=$HTTP LASTROUTE_RELAY_HOST=127.0.0.1 LASTROUTE_RELAY_PORT=$RELAY \
     LASTROUTE_DATA_DIR="$TMP/data" LASTROUTE_AUTO_UPDATE=false LASTROUTE_RESTART_ON_GITHUB_UPDATE=false \
-    node index.js >> "$TMP/server.log" 2>&1 &
+    node "${SERVER_ROOT:-.}/index.js" >> "$TMP/server.log" 2>&1 &
   SERVER_PID=$!
 }
 client() { # role key

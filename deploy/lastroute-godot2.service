@@ -1,0 +1,61 @@
+# Last Route (Godot 2) backend: room directory, accounts, PUBLIC route and the UDP gameplay relay.
+# Installed by deploy/deploy.sh as /etc/systemd/system/lastroute-godot2.service.
+# Deliberately separate from last-route.service (website/web game): different name, user,
+# directories and ports. Never edit or restart that unit from here.
+[Unit]
+Description=Last Route Godot 2 backend (HTTP room directory + UDP relay + PUBLIC route)
+Documentation=file:///opt/lastroute-godot2/current/docs/DEPLOY_VPS3.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lastroute2
+Group=lastroute2
+WorkingDirectory=/opt/lastroute-godot2/current
+EnvironmentFile=/etc/lastroute-godot2/lastroute-godot2.env
+ExecStart=/usr/bin/node /opt/lastroute-godot2/current/index.js
+# Exit code 75 is the backend asking for a restart after a source update; any non-zero exit restarts.
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=120
+StartLimitBurst=8
+# journald is the only log sink (journalctl -u lastroute-godot2)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lastroute-godot2
+
+# State (accounts.json, lastroute/publicroom.json, updates) lives only here; systemd creates
+# /var/lib/lastroute-godot2 owned by the service user.
+StateDirectory=lastroute-godot2
+StateDirectoryMode=0750
+
+# Hardening: read-only OS, no new privileges, no home, private /tmp, only TCP/UDP over IPv4/IPv6.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+# Plain-Node service: modest ceilings so it can never starve the website on the same host.
+MemoryMax=512M
+TasksMax=256
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+# OPTIONAL reverse proxy: HTTPS front for the HTTP API only (room directory, updates, accounts).
+# The game's UDP relay (1105) can never go through nginx or Cloudflare's proxy.
+# The shipped client still talks to http://lastroute.kyttuslab.org:8105 directly, so this block is
+# only for a future TLS origin / browser tooling. Check first (read-only, on VPS 3):
+#   nginx -T 2>/dev/null | grep -nE 'server_name|listen|include'   # which server blocks / names exist
+#   ls /etc/nginx/sites-enabled /etc/nginx/conf.d
+#   certbot certificates   # or: ls /etc/letsencrypt/live   (or Cloudflare Origin cert in use?)
+# Do NOT edit the existing website server blocks. Add this file as its own site, then
+# `nginx -t` BEFORE any reload.
+#
+# If you use it, also set in lastroute-godot2.env:  HOST=127.0.0.1  TRUST_PROXY=true
+# (then 8105 is no longer reachable directly, so only do this once the client uses the https name).
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name godot.kyttuslab.org;
+
+    # Cloudflare Origin or Let's Encrypt certificate: use whatever the website already uses.
+    ssl_certificate     /etc/letsencrypt/live/godot.kyttuslab.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/godot.kyttuslab.org/privkey.pem;
+
+    client_max_body_size 256k;
+
+    location / {
+        proxy_pass http://127.0.0.1:8105;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;   # overwrite, never append client-supplied values
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+}

@@ -4,6 +4,7 @@
 # Uses free high ports (HTTP 18105, relay UDP 11105, host 18511), a temp data dir and
 # test-only env values. Every process it starts is killed by exact PID on exit.
 set -u
+# SERVER_ROOT=/path/to/a/deployed/release runs the backend from that copy instead of this checkout.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TMP="$(mktemp -d)"
@@ -14,7 +15,7 @@ trap cleanup EXIT
 cd "$ROOT"
 HOST=127.0.0.1 LASTROUTE_HTTP_PORT=$HTTP LASTROUTE_RELAY_HOST=127.0.0.1 LASTROUTE_RELAY_PORT=$RELAY \
   LASTROUTE_DATA_DIR="$TMP/data" LASTROUTE_AUTO_UPDATE=false LASTROUTE_RESTART_ON_GITHUB_UPDATE=false \
-  node index.js > "$TMP/server.log" 2>&1 &
+  node "${SERVER_ROOT:-.}/index.js" > "$TMP/server.log" 2>&1 &
 PIDS+=($!)
 sleep 2
 BACKEND="--backend=http://127.0.0.1:$HTTP"
