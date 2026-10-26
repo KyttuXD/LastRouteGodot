@@ -92,6 +92,18 @@ func _scan_level(gen: StreamedRouteGenerator, level: int, reach: int, cs: int,
 						level * StreamedFacilityView3D.LEVEL_HEIGHT + 0.05,
 						cz * cs + path[0].y + .5 - dir.y * 4.0),
 					"yaw": rad_to_deg(atan2(-dir.x, -dir.y))})
+			# an archway seen from the hall, looking into the room
+			if not seen.has("arch_" + String(data.get("region", ""))):
+				for prop_value in data.get("region_props", []):
+					var prop: Dictionary = prop_value
+					if bool(prop.get("arch", false)):
+						var cell: Vector2i = prop["cell"]
+						var out: Vector2i = prop["outward"]
+						seen["arch_" + String(data.get("region", ""))] = true
+						picks.append({"name": "arch_" + String(data.get("region", "")),
+							"pos": Vector3(cx * cs + cell.x + .5 + out.x * 5.0, 0.05, cz * cs + cell.y + .5 + out.y * 5.0),
+							"yaw": rad_to_deg(atan2(float(out.x), float(out.y)))})
+						break
 			# one long corridor stretch per region, looking down its axis
 			var region := String(data.get("region", ""))
 			if not seen.has("corridor_" + region):

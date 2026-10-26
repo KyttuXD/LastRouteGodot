@@ -638,19 +638,30 @@ func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
 	return kinds[RefLook.pick(gx, gz, 1, kinds.size())]
 
 
-## The middle cell of a three-wide corridor gets the carpet runner, oriented
-## along the corridor. Outside the chunk counts as wall.
+## Carpet runner down the middle three cells of a five-wide hall, oriented along
+## the hall: left/centre/right strips so the brass borders land on the outer edges.
+## Outside the chunk counts as wall; anything not exactly five wide gets no runner.
 static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 	var size := grid_data.size()
 	var open := func(cx: int, cz: int) -> bool:
 		return cx >= 0 and cz >= 0 and cx < size and cz < size \
 			and int(grid_data[cz][cx]) == 0
-	if open.call(x, z - 1) and open.call(x, z + 1) \
-			and not open.call(x, z - 2) and not open.call(x, z + 2):
-		return "runner"
-	if open.call(x - 1, z) and open.call(x + 1, z) \
-			and not open.call(x - 2, z) and not open.call(x + 2, z):
-		return "runnerz"
+	for axis in 2:
+		var step := Vector2i(0, 1) if axis == 0 else Vector2i(1, 0)
+		var before := 0
+		while before < 6 and open.call(x - step.x * (before + 1), z - step.y * (before + 1)):
+			before += 1
+		var after := 0
+		while after < 6 and open.call(x + step.x * (after + 1), z + step.y * (after + 1)):
+			after += 1
+		if before + after + 1 != 5:
+			continue
+		var offset := before - 2     # -2..2 across the hall
+		if absi(offset) > 1:
+			return ""
+		var part := "l" if offset < 0 else ("r" if offset > 0 else "c")
+		# axis 0: hall runs along x (the cells vary in z); axis 1: along z
+		return ("runner_%s" if axis == 0 else "runnerz_%s") % part
 	return ""
 
 

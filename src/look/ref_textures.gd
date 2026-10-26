@@ -255,6 +255,37 @@ static func _paint_runner(variant: int) -> Image:
 	return img
 
 
+## One strip of a three-cell-wide runner: brass borders only on the outer edge.
+static func _paint_runner_part(part: int, rotated: bool) -> Image:
+	var rng := _rng("runnerp%d" % part)
+	var img := _new_image(PX, PX)
+	_mosaic(img, Color("3a1522"), rng)
+	if part == 0:
+		_dot(img, 0, 3, Color("6e4e1c"), PX, 1)
+		_dot(img, 0, 5, Color("3e2a14"), PX, 1)
+	elif part == 2:
+		_dot(img, 0, PX - 4, Color("6e4e1c"), PX, 1)
+		_dot(img, 0, PX - 6, Color("3e2a14"), PX, 1)
+	if part == 1:
+		for d in range(0, 7):
+			_dot(img, 16 - d, 16 - (6 - d), Color("9a7a50"))
+			_dot(img, 16 + d, 16 - (6 - d), Color("9a7a50"))
+			_dot(img, 16 - d, 16 + (6 - d), Color("9a7a50"))
+			_dot(img, 16 + d, 16 + (6 - d), Color("9a7a50"))
+		_dot(img, 15, 15, Color("b97a2a"), 3, 3)
+	if rotated:
+		img.rotate_90(COUNTERCLOCKWISE)
+	return img
+
+
+static func _paint_runner_l(_v: int) -> Image: return _paint_runner_part(0, false)
+static func _paint_runner_c(_v: int) -> Image: return _paint_runner_part(1, false)
+static func _paint_runner_r(_v: int) -> Image: return _paint_runner_part(2, false)
+static func _paint_runnerz_l(_v: int) -> Image: return _paint_runner_part(0, true)
+static func _paint_runnerz_c(_v: int) -> Image: return _paint_runner_part(1, true)
+static func _paint_runnerz_r(_v: int) -> Image: return _paint_runner_part(2, true)
+
+
 static func _paint_runner_z(_variant: int) -> Image:
 	var img := _paint_runner(0)
 	img.rotate_90(COUNTERCLOCKWISE)
@@ -582,6 +613,8 @@ const FLOOR_PAINTERS := {
 	"hazard": [&"_paint_hazard", 0], "runner": [&"_paint_runner", 0],
 	"grate": [&"_paint_grate", 0], "runnerz": [&"_paint_runner_z", 0],
 	"safe": [&"_paint_safe", 0],
+	"runner_l": [&"_paint_runner_l", 0], "runner_c": [&"_paint_runner_c", 0], "runner_r": [&"_paint_runner_r", 0],
+	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
 }
 const WALL_PAINTERS := {
 	"panel0": [&"_paint_wall_panel", 0], "panel1": [&"_paint_wall_panel", 1],

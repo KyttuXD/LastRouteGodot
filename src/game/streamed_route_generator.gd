@@ -41,7 +41,7 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 	1: [1, 2],
 }
 const STAIR_RUN_CELLS := 8
-const CORRIDOR_WIDTH := 3
+const CORRIDOR_WIDTH := 5
 const STAIR_ACCESS_WIDTH := 5
 const ROOM_SIZES := [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5),
 	Vector2i(5, 7), Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13),
@@ -2308,9 +2308,13 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 			and not bool(room.get("suite_parent", false))
 		var use_double := bool(room.get("suite_parent", false)) \
 			or (not suite_child and (rect.size.x >= 7 or rect.size.y >= 7))
-		var door_span := 2 if use_double else 1
-		var resolved_door_type: String = String(REGION_DOUBLE_ROOM_DOORS.get(
-			region, door_type)) if use_double else door_type
+		# Most roomy rooms open onto the hall through a three-cell archway instead of
+		# a door; a few keep a door for variety (see RefDecor for the arch itself).
+		var arch := not room.has("suite_id") and rect.size.x >= 7 and rect.size.y >= 7 \
+			and absi(String(room.get("id", "")).hash()) % 100 < 65
+		var door_span := 3 if arch else (2 if use_double else 1)
+		var resolved_door_type: String = "roomArch" if arch else (String(
+			REGION_DOUBLE_ROOM_DOORS.get(region, door_type)) if use_double else door_type)
 		var room_center: Vector2i = room.get("center", rect.position + rect.size / 2)
 		var threshold := _find_room_door_threshold(rect, room_center, grid,
 			stair_exclusion, door_span)
@@ -2338,8 +2342,8 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 			# cells must not inherit a diagonal yaw from an off-center room midpoint.
 			"yaw": _room_facing_yaw(cell, cell + threshold["inward"]),
 			"facing_target": cell + threshold["inward"],
-			"blocker_size": Vector3(2.15 if use_double else 1.15, 2.6, .2),
-			"solid": false, "door_span": door_span,
+			"blocker_size": Vector3(3.15 if arch else (2.15 if use_double else 1.15), 2.6, .2),
+			"solid": false, "door_span": door_span, "arch": arch,
 			"placement_offset": placement_offset,
 			"occupied_cells": doorway_cells.duplicate(),
 			"room_id": String(room.get("id", "")), "room_door": true,
@@ -2368,7 +2372,7 @@ static func _stair_door_exclusion(stairs: Array) -> Dictionary:
 static func _find_room_door_threshold(rect: Rect2i, room_center: Vector2i,
 		grid: Array, excluded: Dictionary, requested_span: int = 1) -> Dictionary:
 	var candidates := []
-	var span := clampi(requested_span, 1, 2)
+	var span := clampi(requested_span, 1, 3)
 	# A threshold cell belongs to the room boundary. Inward remains in the room;
 	# outward must leave it and continue through at least two open corridor cells.
 	var sides := [

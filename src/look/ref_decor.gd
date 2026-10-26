@@ -61,6 +61,7 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 func step() -> bool:
 	if _row == 0:
 		_room_lamps()
+		_arches()
 	var grid: Array = _data["grid"]
 	var end_row := mini(_row + SLICE_ROWS, _size)
 	while _row < end_row:
@@ -71,6 +72,48 @@ func step() -> bool:
 		return false
 	_flush()
 	return true
+
+
+## Archways: the generator opens three-cell doorways ("arch" room-door props).
+## Each gets a header wall above the opening, stepped corner blocks and
+## pilasters with brass caps on both faces of both shoulders.
+func _arches() -> void:
+	for prop_value in _data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if not bool(prop.get("arch", false)):
+			continue
+		var cells: Array = prop.get("doorway_cells", [])
+		if cells.size() != 3:
+			continue
+		var across: Vector2i = prop.get("across", Vector2i.RIGHT)
+		var outward: Vector2i = prop.get("outward", Vector2i.UP)
+		var centre := Vector3(0, 0, 0)
+		for cell_value in cells:
+			var cell: Vector2i = cell_value
+			centre += Vector3(cell.x + .5, 0, cell.y + .5)
+		centre /= 3.0
+		var room_h := _hh((cells[1] as Vector2i) - outward)
+		var hall_h := _hh((cells[1] as Vector2i) + outward)
+		var top := maxf(room_h, hall_h)
+		var along_x := absi(across.x) > 0
+		_add("arch_header", _box_t(centre + Vector3(0, (3.0 + top) * .5, 0),
+			Vector3(3.0 if along_x else 1.0, top - 3.0, 1.0 if along_x else 3.0)))
+		for side in [-1.0, 1.0]:
+			var off: Vector3 = Vector3(across.x, 0, across.y) * side
+			_add("arch_header", _box_t(centre + off * 1.28 + Vector3(0, 2.8, 0),
+				Vector3(.44 if along_x else 1.0, .44, 1.0 if along_x else .44)))
+			for face in [-1.0, 1.0]:
+				var depth: Vector3 = Vector3(outward.x, 0, outward.y) * face * .62
+				var column: Vector3 = centre + off * 1.7 + depth
+				var size := Vector3(.42 if along_x else .34, 1.0, .34 if along_x else .42)
+				_add("arch_header", _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
+				for cap in [.06, top - .08]:
+					_add("arch_cap", _box_t(column + Vector3(0, cap, 0),
+						Vector3(.56 if along_x else .46, .12, .46 if along_x else .56)))
+
+
+static func _box_t(centre: Vector3, size: Vector3) -> Transform3D:
+	return Transform3D(Basis.IDENTITY.scaled(size), centre)
 
 
 ## One hanging light at the middle of each big enough room: a chandelier in the
@@ -253,6 +296,15 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				_add("lantern" if String(style["lamp"]) == "lantern" else "sconce",
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
+		# pilasters down both sides of halls, between the lamps
+		if rid == "" and along % 6 == 3 and _open_run(grid, x, z, d):
+			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
+			var across_x := d.y != 0
+			var column := base + n * .16 + Vector3(0, hall_top * .5, 0)
+			_add("arch_header", _box_t(column, Vector3(.42 if across_x else .32, hall_top, .32 if across_x else .42)))
+			for cap in [.06, hall_top - .06]:
+				_add("arch_cap", _box_t(base + n * .16 + Vector3(0, cap, 0),
+					Vector3(.54 if across_x else .42, .12, .42 if across_x else .54)))
 		# pipes run along the top of the wall in multi-cell stretches
 		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
@@ -266,6 +318,18 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 const WINDOW_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room", "drawing_room",
 	"dining_room", "office_reception", "cubicle_room", "office_job", "private_office",
 	"office_suite", "lounge"]
+
+
+## True when the wall run on both sides of this wall cell is solid (so a pilaster
+## here does not flank an opening).
+func _open_run(grid: Array, x: int, z: int, d: Vector2i) -> bool:
+	var along := Vector2i(1, 0) if d.y != 0 else Vector2i(0, 1)
+	for k in [-2, -1, 1, 2]:
+		var cx: int = x + along.x * k
+		var cz: int = z + along.y * k
+		if _open(grid, cx, cz) or not _open(grid, cx + d.x, cz + d.y):
+			return false
+	return true
 
 
 func _wants_window(room_type: String) -> bool:
@@ -442,6 +506,8 @@ static func mesh_for(key: String) -> Mesh:
 		"pipe": mesh = _build_pipe(false)
 		"pipe_brass": mesh = _build_pipe(true)
 		"swag": mesh = _build_swag()
+		"arch_header": mesh = _merge([["stone", _box(Vector3.ONE), Transform3D.IDENTITY]])
+		"arch_cap": mesh = _merge([["brass", _box(Vector3.ONE), Transform3D.IDENTITY]])
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
 		"chain": mesh = _merge([["iron", _cyl(.02, 1.0, 5), _t(0, 0, 0)]])

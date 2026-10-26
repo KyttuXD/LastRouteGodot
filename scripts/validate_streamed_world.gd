@@ -14,7 +14,7 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	Settings.set_admin_preferences(Settings.ADMIN_PREFERENCE_DEFAULTS)
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
-	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
+	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 5,
 		"Infinite corridors are no longer three cells wide")
 	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
 		and not world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
@@ -314,7 +314,8 @@ func run(host: Node) -> int:
 				for prop_value in data.get("region_props", []):
 					var prop: Dictionary = prop_value
 					dressed_biomes[data["biome"]] = true
-					_expect(PropModelCatalog.has_model(String(prop.get("type", ""))),
+					_expect(PropModelCatalog.has_model(String(prop.get("type", ""))) \
+							or bool(prop.get("arch", false)),
 						"streamed region prop has no authored model: %s" % prop)
 					var prop_cell: Vector2i = prop.get("cell", Vector2i.ZERO)
 					_expect(int(data["grid"][prop_cell.y][prop_cell.x]) == 0,
@@ -370,6 +371,7 @@ func run(host: Node) -> int:
 							"room rug unexpectedly blocks movement: %s" % prop)
 					elif not bool(prop.get("solid", true)):
 						_expect(PropModelCatalog.is_empty_frame(prop_type) \
+							or bool(prop.get("arch", false)) \
 							or PropModelCatalog.is_room_door(prop_type) \
 							or PropModelCatalog.is_wall_mounted(prop_type) \
 							or PropModelCatalog.is_ceiling_mounted(prop_type) \
@@ -391,7 +393,7 @@ func run(host: Node) -> int:
 							and mount_offset.normalized().is_equal_approx(Vector2(mount_wall)),
 							"mirror/frame was not moved flush toward its backing wall: %s" % prop)
 					if bool(prop.get("room_door", false)):
-						_expect(PropModelCatalog.is_room_door(prop_type) \
+						_expect((PropModelCatalog.is_room_door(prop_type) or bool(prop.get("arch", false))) \
 							and not bool(prop.get("solid", true)),
 							"room threshold does not use a passable authored door: %s" % prop)
 						var door_room: Dictionary = {}
@@ -410,7 +412,7 @@ func run(host: Node) -> int:
 						var placement_offset: Vector2 = prop.get(
 							"placement_offset", Vector2.ZERO)
 						var blocker_size: Vector3 = prop.get("blocker_size", Vector3.ZERO)
-						_expect(door_span == (2 if expects_double else 1) \
+						_expect(door_span == (3 if bool(prop.get("arch", false)) else (2 if expects_double else 1)) \
 							and doorway_cells.size() == door_span,
 							"room door model/span mismatch: %s" % prop)
 						_expect(is_equal_approx(float(prop.get("yaw", 0.0)),
