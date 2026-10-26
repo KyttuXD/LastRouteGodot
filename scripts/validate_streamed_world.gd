@@ -703,6 +703,7 @@ func run(host: Node) -> int:
 	# the debug route and exercise its real GridMap collision window, forced
 	# vertical flights, chunk eviction and authored prison dressing.
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "VALIDATE-ONE-LEVEL"
 	RoomState.map_scale = RoomState.Scale.INFINITE
 	var live_scene: Node = (load("res://scenes/infinite_route_test.tscn") \
 		as PackedScene).instantiate()
@@ -766,25 +767,15 @@ func run(host: Node) -> int:
 	_expect(live_relays >= 8 and live_batteries >= 4 and live_tools >= 1,
 		"live Infinite window is under-populated (relays %d, batteries %d, tools %d)" \
 		% [live_relays, live_batteries, live_tools])
-	_expect(is_equal_approx(StreamedFacilityView3D.WALL_HEIGHT,
-		StreamedFacilityView3D.LEVEL_HEIGHT - StreamedFacilityView3D.SLAB \
-			- StreamedFacilityView3D.CEILING_INSET),
-		"stacked Infinite walls overlap the upper floor or leave the ceiling open")
-	var live_library: MeshLibrary = facility.get("_library") as MeshLibrary
-	var live_floor_items: Dictionary = facility.get("_floor_items")
-	if live_library != null and live_floor_items.has("maze"):
-		var ceiling_center := 1.0 + live_library.get_item_mesh_transform(1).origin.y
-		var upper_floor_center := StreamedFacilityView3D.LEVEL_HEIGHT \
-			+ live_library.get_item_mesh_transform(int(live_floor_items["maze"])).origin.y
-		var ceiling_top := ceiling_center + StreamedFacilityView3D.SLAB * .5
-		var upper_floor_bottom := upper_floor_center - StreamedFacilityView3D.SLAB * .5
-		_expect(upper_floor_bottom - ceiling_top \
-			>= StreamedFacilityView3D.CEILING_INSET - .001,
-			"adjacent ceiling/floor solids overlap or remain coplanar")
-		_expect(absf(StreamedFacilityView3D.WALL_HEIGHT - ceiling_top) <= .001,
-			"wall top does not meet the lower ceiling cleanly")
-	else:
-		_expect(false, "streamed structural MeshLibrary is unavailable for slab validation")
+	# One level: the freed height goes to the rooms. Corridors stay low, ordinary
+	# rooms are one storey, halls two, greenhouses three.
+	_expect(is_equal_approx(StreamedFacilityView3D.WALL_HEIGHT, RefLook.STOREY) \
+		and RefLook.ceiling_height("maze", "") < RefLook.ceiling_height("maze", "office_job") \
+		and RefLook.ceiling_height("mansion", "dining_room") > RefLook.STOREY * 1.9 \
+		and RefLook.ceiling_height("beach", "cove") > RefLook.ceiling_height("mansion", "dining_room"),
+		"room heights are not corridor < room < hall < greenhouse")
+	_expect(RefLook.CORRIDOR_HEIGHT >= 3.4 and RefLook.MAX_HEIGHT <= 14.0,
+		"corridor or greenhouse height is outside the playable range")
 	_expect(player.is_on_floor(), "streamed player did not settle on generated floor collision")
 	player.admin_god_mode = true
 	player.stamina = 7.0

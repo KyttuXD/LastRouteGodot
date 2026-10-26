@@ -129,6 +129,7 @@ func _home(i: int) -> void:
 	var l := _lights[i]
 	l.global_position = (lamp as Array)[0]
 	l.light_color = (lamp as Array)[1]
+	l.omni_range = float((lamp as Array)[4]) if (lamp as Array).size() > 4 else LIGHT_RANGE
 
 
 func _assign(origin: Vector3) -> void:
@@ -138,9 +139,6 @@ func _assign(origin: Vector3) -> void:
 		for lamp_value in list_value:
 			var lamp: Array = lamp_value
 			var lamp_pos: Vector3 = lamp[0]
-			# a light must not leak through a slab onto the neighbouring floor
-			if absf(lamp_pos.y - origin.y) > 2.6:
-				continue
 			var d2 := origin.distance_squared_to(lamp_pos)
 			if d2 < max_d2:
 				near.append([d2, lamp])

@@ -5,8 +5,6 @@ extends RefCounted
 ## ArrayMesh (two surfaces: floor+ceiling, walls). Replaces per-tile GridMap
 ## visuals; the GridMap stays only as the collision structure.
 
-const WALL_H := 3.88
-const CEILING_Y := 3.78
 
 # surface 0: floors + ceilings; surface 1: walls
 var _v: Array[PackedVector3Array] = [PackedVector3Array(), PackedVector3Array()]
@@ -39,15 +37,18 @@ func add_floor(x: int, z: int, layer: float, params: Color) -> void:
 		Vector3(x, 0, z + 1), Vector3.UP, layer, params)
 
 
-func add_ceiling(x: int, z: int, layer: float, params: Color) -> void:
-	_quad(0, Vector3(x, CEILING_Y, z), Vector3(x + 1, CEILING_Y, z),
-		Vector3(x + 1, CEILING_Y, z + 1), Vector3(x, CEILING_Y, z + 1),
+func add_ceiling(x: int, z: int, height: float, layer: float, params: Color) -> void:
+	_quad(0, Vector3(x, height, z), Vector3(x + 1, height, z),
+		Vector3(x + 1, height, z + 1), Vector3(x, height, z + 1),
 		Vector3.DOWN, layer, params)
 
 
-## A wall face on the side of cell (x, z) toward `dir` (a unit step). Texture
-## v runs 0 at the top to 1 at the floor.
-func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color) -> void:
+## A wall face on the side of cell (x, z) toward `dir` (a unit step), spanning
+## y0..y1. `room_height` is the ceiling of the room the face looks into: the
+## texture repeats one storey at a time from the floor up, so v is measured
+## from the bottom of a whole number of storeys.
+func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
+		y1: float, y0: float = 0.0, room_height: float = -1.0) -> void:
 	var a: Vector3
 	var b: Vector3
 	if dir == Vector2i(0, 1):
@@ -62,9 +63,25 @@ func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color) -> voi
 	else:
 		a = Vector3(x, 0, z)
 		b = Vector3(x, 0, z + 1)
-	var up := Vector3(0, WALL_H, 0)
-	# corners: top-left, top-right, bottom-right, bottom-left as seen from the room
-	_quad(1, a + up, b + up, b, a, Vector3(dir.x, 0, dir.y), layer, params)
+	var storey := RefLook.STOREY
+	var full := y1 if room_height < 0.0 else room_height
+	var v_floor := ceilf(full / storey - .001)
+	var v_top := v_floor - y1 / storey
+	var v_bottom := v_floor - y0 / storey
+	var base := _v[1].size()
+	var n := Vector3(dir.x, 0, dir.y)
+	_v[1].append_array(PackedVector3Array([a + Vector3(0, y1, 0), b + Vector3(0, y1, 0),
+		b + Vector3(0, y0, 0), a + Vector3(0, y0, 0)]))
+	_n[1].append_array(PackedVector3Array([n, n, n, n]))
+	_uv[1].append_array(PackedVector2Array([Vector2(0, v_top), Vector2(1, v_top),
+		Vector2(1, v_bottom), Vector2(0, v_bottom)]))
+	var l := Vector2(layer, 0)
+	_uv2[1].append_array(PackedVector2Array([l, l, l, l]))
+	_col[1].append_array(PackedColorArray([params, params, params, params]))
+	if (b - a).cross((b - a) + Vector3(0, y0 - y1, 0)).dot(n) < 0.0:
+		_idx[1].append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	else:
+		_idx[1].append_array(PackedInt32Array([base, base + 2, base + 1, base, base + 3, base + 2]))
 
 
 func build(floor_material: Material, wall_material: Material) -> ArrayMesh:

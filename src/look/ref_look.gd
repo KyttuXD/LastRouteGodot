@@ -203,3 +203,33 @@ static func _graded_material(source: StandardMaterial3D, strength: float) -> Sta
 	graded.roughness = clampf(source.roughness, .55, 1.0)
 	_graded[cache_key] = graded
 	return graded
+
+
+# -- heights -------------------------------------------------------------------
+#
+# The route is one level, so the space once used by upper floors is room height.
+# A storey is the height one painted wall texture covers; taller rooms repeat it
+# (balcony ledges), so every height is a whole number of storeys except corridors,
+# which are cut short from the top.
+
+const STOREY := 4.6
+const CORRIDOR_HEIGHT := 3.7
+const HALL_HEIGHT := STOREY * 2.0
+const GREENHOUSE_HEIGHT := STOREY * 3.0
+const MAX_HEIGHT := GREENHOUSE_HEIGHT
+
+const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
+const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",
+	"crypt", "archive", "storage", "forge", "thermal_chamber", "lava_gallery",
+	"altar_room", "prison_cafeteria", "midway", "restaurant_dining"]
+
+
+## Ceiling height of a cell: room_type "" means corridor / circulation.
+static func ceiling_height(region: String, room_type: String) -> float:
+	if room_type == "":
+		return STOREY if region == "beach" else CORRIDOR_HEIGHT
+	if region == "beach" and GREENHOUSE_ROOMS.has(room_type):
+		return GREENHOUSE_HEIGHT
+	if HALL_ROOMS.has(room_type):
+		return HALL_HEIGHT
+	return STOREY

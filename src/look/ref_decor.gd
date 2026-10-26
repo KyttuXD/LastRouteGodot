@@ -10,8 +10,6 @@ extends RefCounted
 ## OmniLights are NOT created here: lamps are registered with LampField, which
 ## lends a small pool of lights to the lamps nearest the player.
 
-const WALL_H := 3.88
-const CEIL_Y := 3.78
 const SCONCE_Y := 2.05
 const SLICE_ROWS := 9
 
@@ -76,19 +74,54 @@ func _room_lamps() -> void:
 			continue
 		var cx := rect.position.x + rect.size.x / 2
 		var cz := rect.position.y + rect.size.y / 2
+		var height := _hh(Vector2i(cx, cz))
+		if height > RefLook.STOREY + .1:
+			_tall_room(rect, height)
 		if _h(cx, cz, 111, 100) >= int(float(style["lit_rooms"]) * 100.0):
 			continue
 		var world := Vector3(cx + .5, 0, cz + .5)
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
-		if fancy:
-			var pos := world + Vector3(0, CEIL_Y - .95, 0)
-			_add("chandelier", Transform3D(Basis(Vector3.UP, _h(cx, cz, 112, 8) * PI / 4.0), pos))
-			lamps.append([_root.position + pos - Vector3(0, .35, 0), RefLook.AMBER_SOFT, 1.5, 1])
-			_halo.append(pos)
+		if fancy or height > RefLook.STOREY + .1:
+			_pendant(world, height, cx, cz)
 		else:
-			_ceiling_lamp(world, cx, cz)
+			_ceiling_lamp(world, cx, cz, height)
 		_decal_pool.append(Vector3(world.x, 0, world.z))
+
+
+## Iron roof ribs across a tall room, and pendant lights on a lattice.
+func _tall_room(rect: Rect2i, height: float) -> void:
+	for z in range(rect.position.y + 2, rect.end.y - 1, 6):
+		var rib := Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
+			Vector3(rect.position.x + rect.size.x * .5, height - .22, z + .5))
+		_add("rib", rib)
+	for z in range(rect.position.y + 3, rect.end.y - 2, 7):
+		for x in range(rect.position.x + 3, rect.end.x - 2, 7):
+			if x == rect.position.x + rect.size.x / 2 and z == rect.position.y + rect.size.y / 2:
+				continue
+			if _h(x, z, 113, 3) != 0:
+				_pendant(Vector3(x + .5, 0, z + .5), height, x, z)
+
+
+## A chandelier hung on a chain. Short chain in ordinary rooms; in tall rooms it
+## hangs well below the roof so its light actually reaches the floor.
+func _pendant(world: Vector3, height: float, x: int, z: int) -> void:
+	var drop := .95 if height <= RefLook.STOREY + .1 else minf(height - 5.2, 3.4 + (height - RefLook.HALL_HEIGHT) * .3)
+	var pos := world + Vector3(0, height - maxf(drop, .95), 0)
+	_add("chandelier", Transform3D(Basis(Vector3.UP, _h(x, z, 112, 8) * PI / 4.0), pos))
+	var chain := height - pos.y - .1
+	if chain > 1.0:
+		_add("chain", Transform3D(Basis.IDENTITY.scaled(Vector3(1, chain, 1)),
+			Vector3(pos.x, pos.y + .2 + chain * .5, pos.z)))
+	var tall := height > RefLook.STOREY + .1
+	lamps.append([_root.position + pos - Vector3(0, .35, 0), RefLook.AMBER_SOFT,
+		2.4 if tall else 1.5, 1, 15.0 if tall else 9.0])
+	_halo.append(pos)
+
+
+## Ceiling height of a cell (see RefLook.ceiling_height).
+func _hh(cell: Vector2i) -> float:
+	return RefLook.ceiling_height(_region, String(_room_map.get(cell, "")))
 
 
 func _open(grid: Array, x: int, z: int) -> bool:
@@ -160,18 +193,32 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			var frame_variant := _h(x, z, 35, 2)
 			_add("frame%d" % frame_variant, Transform3D(_facing_basis(n),
 				base + Vector3(0, 1.75, 0) + n * .03))
+		var face_height := _hh(Vector2i(x + d.x, z + d.y))
+		var tiers := maxi(1, roundi(face_height / RefLook.STOREY))
 		if _wants_window(rt) and _h(x, z, 131 + d.x * 5 + d.y, 9) == 0 \
 				and (along + line) % 3 == 0:
 			var tall: bool = _region == "beach"
-			_add("window_tall" if tall else "window", Transform3D(_facing_basis(n),
-				base + Vector3(0, 2.0 if tall else 1.95, 0) + n * .02))
+			for tier in tiers:
+				_add("window_tall" if tall else "window", Transform3D(_facing_basis(n),
+					base + Vector3(0, (2.0 if tall else 1.95) + tier * RefLook.STOREY, 0) + n * .02))
+		# upper tiers of a tall room carry their own lamps (emissive only)
+		if tiers > 1 and lit_room and spacing < 90 and (along + line * 3) % (spacing * 2) == 0:
+			for tier in range(1, tiers):
+				var up := base + n * .02 + Vector3(0, SCONCE_Y + tier * RefLook.STOREY, 0)
+				var tier_basis := _facing_basis(n)
+				if String(style["lamp"]) == "lantern":
+					tier_basis = tier_basis.scaled(Vector3.ONE * 1.7)
+				_add("lantern" if String(style["lamp"]) == "lantern" else "sconce",
+					Transform3D(tier_basis, up))
+				_halo.append(up + n * .1)
 		# pipes run along the top of the wall in multi-cell stretches
 		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"])) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
-			var pipe_pos := base + Vector3(0, WALL_H - 0.30, 0) + n * .09
+			var pipe_top := minf(_hh(Vector2i(x + d.x, z + d.y)), RefLook.STOREY)
+			var pipe_pos := base + Vector3(0, pipe_top - 0.30, 0) + n * .09
 			_add("pipe", Transform3D(axis, pipe_pos))
 			if _h(x, z, 62, 7) == 0:
-				_add("pipe_brass", Transform3D(axis, base + Vector3(0, WALL_H - 0.55, 0) + n * .08))
+				_add("pipe_brass", Transform3D(axis, base + Vector3(0, pipe_top - 0.55, 0) + n * .08))
 
 
 func _wants_window(room_type: String) -> bool:
@@ -187,14 +234,16 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 	if String(style["lamp"]) == "ceiling":
 		var spacing := 5 if rt != "" else 6
 		# lamps sit on a lattice; rooms share one lit/unlit flag per room-ish block
-		if x % spacing == 2 and z % spacing == 2 and _lit_block(x, z, style):
-			_ceiling_lamp(world, x, z)
+		if x % spacing == 2 and z % spacing == 2 and _lit_block(x, z, style) \
+				and _hh(Vector2i(x, z)) <= RefLook.STOREY + .1:
+			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	elif _is_corridor_mid(grid, x, z) and (x + z) % 6 == 0:
 		# sconce regions still hang a small ceiling light down long corridors
-		_ceiling_lamp(world, x, z, true)
-	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"])) == 0 and lit_room:
+		_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)), true)
+	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"])) == 0 and lit_room \
+			and _hh(Vector2i(x, z)) <= RefLook.STOREY + .1:
 		var yaw := PI * .5 if _h(x, z, 72, 2) == 0 else 0.0
-		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, CEIL_Y - 0.01, 0)))
+		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, minf(_hh(Vector2i(x, z)), RefLook.STOREY * 1.5) - 0.01, 0)))
 	# cables snaking along the foot of the wall in the industrial regions
 	if _region in ["maze", "prison", "inferno", "carnival"] and _h(x, z, 141, 26) == 0:
 		for d in DIRS:
@@ -274,8 +323,8 @@ func _wall_lamp(base: Vector3, n: Vector3, kind: String, x: int, z: int) -> void
 	_decal_streak.append(Vector3(base.x, 0, base.z) + n * 1.0)
 
 
-func _ceiling_lamp(world: Vector3, x: int, z: int, small: bool = false) -> void:
-	var pos := world + Vector3(0, CEIL_Y - 0.0, 0)
+func _ceiling_lamp(world: Vector3, x: int, z: int, height: float, small: bool = false) -> void:
+	var pos := world + Vector3(0, height, 0)
 	var yaw := PI * .5 if _h(x, z, 51, 2) == 0 else 0.0
 	_add("ceiling_small" if small else "ceiling", Transform3D(Basis(Vector3.UP, yaw), pos))
 	var flicker := _h(x, z, 52, 5)
@@ -347,6 +396,9 @@ static func mesh_for(key: String) -> Mesh:
 		"pipe": mesh = _build_pipe(false)
 		"pipe_brass": mesh = _build_pipe(true)
 		"swag": mesh = _build_swag()
+		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
+			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
+		"chain": mesh = _merge([["iron", _cyl(.02, 1.0, 5), _t(0, 0, 0)]])
 		"pool": mesh = _build_decal(3.4, "pool")
 		"streak": mesh = _build_decal(2.0, "streak")
 		"halo": mesh = _build_halo(1.1)

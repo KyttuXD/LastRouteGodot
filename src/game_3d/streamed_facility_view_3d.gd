@@ -32,13 +32,9 @@ const CEILING_INSET := 0.02
 ## A four-metre wall plus a floor which extends 10 cm downward overlapped in
 ## stacked chunks, producing upper-floor stripes and solid columns across stair
 ## landings. The ceiling closes this small remainder without overlapping either.
-const WALL_HEIGHT := LEVEL_HEIGHT - SLAB - CEILING_INSET
+const WALL_HEIGHT := RefLook.STOREY
 ## Every wall cell remains a full 1m cube/block so streamed rooms do not
 ## create slab-like collision gaps or elongated wall seams between chunks.
-const STAIR_RUN := 8.0
-const STAIR_RISE := LEVEL_HEIGHT
-const STAIR_WIDTH := 3.0
-const STAIR_STEPS := 16
 const LEVEL_TRANSITION_MARGIN := 0.35
 
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -182,20 +178,13 @@ func current_level() -> int:
 	return _tracked_level
 
 
-static func snapped_level_for_world_y(world_y: float) -> int:
-	return roundi(world_y / LEVEL_HEIGHT)
+## The route has one level, so the level is always 0 whatever the runner's height.
+static func snapped_level_for_world_y(_world_y: float) -> int:
+	return 0
 
 
-static func hysteresis_level_for_world_y(world_y: float, current_level_hint: int) -> int:
-	var level := current_level_hint
-	var snapped_level := snapped_level_for_world_y(world_y)
-	if absi(snapped_level - level) > 1:
-		return snapped_level
-	while world_y >= float(level + 1) * LEVEL_HEIGHT - LEVEL_TRANSITION_MARGIN:
-		level += 1
-	while world_y <= float(level - 1) * LEVEL_HEIGHT + LEVEL_TRANSITION_MARGIN:
-		level -= 1
-	return level
+static func hysteresis_level_for_world_y(_world_y: float, _current_level_hint: int) -> int:
+	return 0
 
 
 func current_chunk_coord() -> Vector3i:
@@ -376,8 +365,11 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	grid.name = "Structure"
 	_configure_grid(grid)
 	var region := String(data.get("region", "maze"))
-	var ceiling_voids := _stair_voids(data, "up")
-	var floor_voids := _stair_voids(data, "down")
+	var room_map := _room_type_map(data)
+	root.set_meta("ref_region", region)
+	root.set_meta("ref_room_map", room_map)
+	var ceiling_voids := {}
+	var floor_voids := {}
 	var structural_voids := {}
 	for cell_value in data.get("ceiling_voids", []):
 		ceiling_voids[cell_value as Vector2i] = true
@@ -399,7 +391,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"structural_voids": structural_voids,
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
-		"room_map": _room_type_map(data),
+		"room_map": room_map,
 		"decor": null,
 		"cell_index": 0,
 		"phase": 0,
@@ -447,7 +439,6 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			3:
-				_spawn_stairs(root, data)
 				_spawn_streamed_ceiling_lights(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"])
 				build["phase"] = 31
@@ -538,27 +529,32 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var grid := build["grid"] as GridMap
 	var surface := build["surface"] as RefSurfaceMesh
 	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
-	if (build["structural_voids"] as Dictionary).has(cell):
-		# The upper half of a two-storey room is genuine air. It owns neither an
-		# upper floor slab nor wall collision, but it still receives this level's
-		# ceiling so the combined room closes at eight metres.
-		if not (build["ceiling_voids"] as Dictionary).has(cell):
-			surface.add_ceiling(x, z, RefTextures.layer("floor", ceiling_kind),
-				RefTextures.params("ceiling", ceiling_kind))
-		return
 	if int(grid_data[z][x]) == 0:
-		if not (build["floor_voids"] as Dictionary).has(cell):
-			var kind := _ref_floor_kind(build, x, z)
-			if bool(build["safe"]):
-				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
-				if abs(x - center) <= 3 and abs(z - center) <= 3:
-					kind = "safe"
-			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
-			surface.add_floor(x, z, RefTextures.layer("floor", kind),
-				RefTextures.params("floor", kind))
-		if not (build["ceiling_voids"] as Dictionary).has(cell):
-			surface.add_ceiling(x, z, RefTextures.layer("floor", ceiling_kind),
-				RefTextures.params("ceiling", ceiling_kind))
+		var height := _height_in(build, cell)
+		var kind := _ref_floor_kind(build, x, z)
+		if bool(build["safe"]):
+			var center := StreamedRouteGenerator.CHUNK_SIZE / 2
+			if abs(x - center) <= 3 and abs(z - center) <= 3:
+				kind = "safe"
+		grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
+		surface.add_floor(x, z, RefTextures.layer("floor", kind),
+			RefTextures.params("floor", kind))
+		surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
+			RefTextures.params("ceiling", ceiling_kind))
+		# Where a taller room meets a lower cell (a doorway or corridor mouth) the
+		# lower cell's ceiling stops short: close the gap above it with a lintel
+		# face on the taller side.
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var nx: int = x + step.x
+			var nz: int = z + step.y
+			if nx < 0 or nz < 0 or nx >= size or nz >= size or int(grid_data[nz][nx]) != 0:
+				continue
+			var neighbour_height := _height_in(build, Vector2i(nx, nz))
+			if neighbour_height < height - .01:
+				var lintel_kind := _ref_wall_kind(build, nx, nz, x, z)
+				surface.add_wall(nx, nz, -step, RefTextures.layer("wall", lintel_kind),
+					RefTextures.params("wall", lintel_kind), height, neighbour_height, height)
 	else:
 		grid.set_cell_item(Vector3i(x, 0, z), _col_wall_item)
 		for step_value in RefDecor.DIRS:
@@ -567,12 +563,14 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var nz: int = z + step.y
 			# faces toward another chunk are emitted too; a hidden face is cheaper
 			# than a missing one
-			if nx >= 0 and nz >= 0 and nx < size and nz < size \
-					and int(grid_data[nz][nx]) != 0:
-				continue
+			var face_height := RefLook.STOREY
+			if nx >= 0 and nz >= 0 and nx < size and nz < size:
+				if int(grid_data[nz][nx]) != 0:
+					continue
+				face_height = _height_in(build, Vector2i(nx, nz))
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
 			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
-				RefTextures.params("wall", wall_kind))
+				RefTextures.params("wall", wall_kind), face_height)
 
 
 ## Cell -> room_type for every cell inside a room rectangle of this chunk.
@@ -586,6 +584,18 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 			for x in range(rect.position.x, rect.end.x):
 				map[Vector2i(x, z)] = room_type
 	return map
+
+
+## Ceiling height of a cell of the chunk under `root`.
+func _cell_height(root: Node, cell: Vector2i) -> float:
+	var room_map: Dictionary = root.get_meta("ref_room_map", {})
+	return RefLook.ceiling_height(String(root.get_meta("ref_region", "maze")),
+		String(room_map.get(cell, "")))
+
+
+static func _height_in(build: Dictionary, cell: Vector2i) -> float:
+	return RefLook.ceiling_height(String(build["region"]),
+		String((build["room_map"] as Dictionary).get(cell, "")))
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
@@ -695,99 +705,11 @@ func _configure_grid(grid: GridMap) -> void:
 	grid.mesh_library = _library
 
 
-func _stair_voids(data: Dictionary, direction: String) -> Dictionary:
-	var result := {}
-	for stair_value in data.get("stairs", []):
-		var stair: Dictionary = stair_value
-		if String(stair.get("direction", "")) != direction:
-			continue
-		var path := _stair_path(stair)
-		# The last path cell is the upper landing. The old full-path cut removed
-		# that tile too, leaving a square pit immediately after the top tread.
-		# Keep the landing floor solid while the preceding cells remain the
-		# actual stairwell opening. The lower ceiling stays open for the complete
-		# flight, so this does not reintroduce head clipping from below.
-		if direction == "down" and path.size() > 1:
-			path.resize(path.size() - 1)
-		var travel := path[1] - path[0] if path.size() > 1 else Vector2i.RIGHT
-		var across := Vector2i(-travel.y, travel.x)
-		for cell in path:
-			# Match the three-metre physical tread. Cutting only the centre tile
-			# made both outer thirds intersect the floor/ceiling slab.
-			for offset in range(-1, 2):
-				result[cell + across * offset] = true
-	return result
-
-
-func _stair_path(stair: Dictionary) -> Array[Vector2i]:
-	var start: Vector2i = stair.get("cell", Vector2i.ZERO)
-	return StreamedRouteGenerator.stair_path_cells(start)
-
-
-func _spawn_stairs(parent: Node3D, data: Dictionary) -> void:
-	var region := String(data.get("region", "maze"))
-	var stair_style: Dictionary = RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"])
-	var stair_kind: String = (stair_style["room"] as Array)[0]
-	if bool(stair_style["runner"]):
-		stair_kind = "floral0"
-	var stair_texture := load(REGION_FLOOR_TEXTURE % region) as Texture2D
-	if stair_texture == null:
-		stair_texture = load(FLOOR_TEXTURE) as Texture2D
-	var region_tint: Color = REGION_COLORS.get(region, REGION_COLORS["maze"])
-	for stair_value in data.get("stairs", []):
-		var stair: Dictionary = stair_value
-		if String(stair.get("direction", "")) != "up":
-			continue
-		var path := _stair_path(stair)
-		if path.size() < 2:
-			continue
-		var start_cell := path[0]
-		var direction_2d := path[1] - path[0]
-		var direction := Vector3(direction_2d.x, 0.0, direction_2d.y)
-		var start := Vector3(start_cell.x + .5, 0.0, start_cell.y + .5)
-		var stair_root := Node3D.new()
-		stair_root.name = String(stair.get("id", "Stair")).replace(":", "_")
-		stair_root.add_to_group("streamed_stair")
-		parent.add_child(stair_root)
-		var stair_tint := region_tint.lightened(.10)
-		if String(stair.get("style", "")) == "grand_foyer":
-			stair_tint = Color("80694e")
-		var material := RefTextures.material("floor", stair_kind)
-		var tread_depth := STAIR_RUN / STAIR_STEPS
-		# The upper floor itself is the final tread. Rendering a sixteenth box
-		# there both overlapped its collision and exposed a void behind it.
-		for step_index in range(STAIR_STEPS - 1):
-			var progress := float(step_index + 1) / STAIR_STEPS
-			var step := MeshInstance3D.new()
-			var mesh := BoxMesh.new()
-			mesh.size = Vector3(STAIR_WIDTH, .12, tread_depth)
-			mesh.material = material
-			step.mesh = mesh
-			step.position = start + direction * ((step_index + .5) * tread_depth)
-			step.position.y = progress * STAIR_RISE - .06
-			step.rotation.y = atan2(direction.x, direction.z)
-			stair_root.add_child(step)
-		var ramp := StaticBody3D.new()
-		var collision := CollisionShape3D.new()
-		var shape := BoxShape3D.new()
-		var flight_run := STAIR_RUN - tread_depth
-		var slope_length := Vector2(flight_run, STAIR_RISE).length()
-		shape.size = Vector3(STAIR_WIDTH, .12, slope_length)
-		collision.shape = shape
-		var yaw := atan2(direction.x, direction.z)
-		var angle := atan2(STAIR_RISE, flight_run)
-		collision.basis = Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -angle)
-		collision.position = start + direction * (flight_run * .5) \
-			+ Vector3.UP * (STAIR_RISE * .5)
-		ramp.add_child(collision)
-		stair_root.add_child(ramp)
-
-
 func _spawn_streamed_ceiling_lights(parent: Node3D, data: Dictionary) -> void:
 	var region := String(data.get("region", "maze"))
 	if region not in ["carnival", "maze"]:
 		return
-	var blocked := _stair_voids(data, "up")
+	var blocked := {}
 	for cell_value in data.get("ceiling_voids", []):
 		blocked[cell_value as Vector2i] = true
 	var candidates: Array[Vector2i] = []
@@ -814,7 +736,7 @@ func _spawn_streamed_ceiling_lights(parent: Node3D, data: Dictionary) -> void:
 		return
 	var anchors := []
 	for cell in chosen:
-		anchors.append(Vector3(cell.x + .5, WALL_HEIGHT - .12, cell.y + .5))
+		anchors.append(Vector3(cell.x + .5, _cell_height(parent, cell) - .12, cell.y + .5))
 	var decor := CeilingDecor.new()
 	decor.name = "FiniteFairyLights"
 	decor.add_to_group("streamed_ceiling_decor")
@@ -899,7 +821,11 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 		_spawn_room_door(parent, coord, prop, type)
 		return
 	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
-	var prop_y := PropModelCatalog.visual_y(type, WALL_HEIGHT,
+	# Ceiling props hang from this room's ceiling; wall props sit at the height a
+	# person sees them, however tall the room is.
+	var room_height := _cell_height(parent, cell)
+	var prop_y := PropModelCatalog.visual_y(type,
+		room_height if PropModelCatalog.is_ceiling_mounted(type) else minf(room_height, RefLook.STOREY),
 		float(prop.get("mount_y", 0.0)))
 	var mount_offset: Vector2 = prop.get("mount_offset", Vector2.ZERO) \
 		+ prop.get("placement_offset", Vector2.ZERO)
@@ -1353,9 +1279,9 @@ func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	_col_wall_item = next_id
 	library.create_item(next_id)
 	var wall_shape := BoxShape3D.new()
-	wall_shape.size = Vector3(1.0, WALL_HEIGHT, 1.0)
+	wall_shape.size = Vector3(1.0, RefLook.MAX_HEIGHT, 1.0)
 	library.set_item_shapes(next_id, [wall_shape,
-		Transform3D(Basis.IDENTITY, Vector3(0.0, WALL_HEIGHT * .5, 0.0))])
+		Transform3D(Basis.IDENTITY, Vector3(0.0, RefLook.MAX_HEIGHT * .5, 0.0))])
 	return next_id + 1
 
 

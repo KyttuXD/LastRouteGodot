@@ -20,12 +20,6 @@ const HUNTER_SIMULATION_STEP := 1.0 / 30.0
 const HUNTER_MAX_CATCH_UP_STEPS := 2
 const HUNTER_BROADCAST_SECONDS := 1.0 / RemotePlayers.SEND_HZ
 const HUNTER_RESIDENCY_CHUNK_RADIUS := 3
-## Hunters steer across the authored stair path while HunterView3D's real
-## CharacterBody applies gravity and climbs the same ramp collision as players.
-const HUNTER_STAIR_SPEED := 3.4
-const HUNTER_STAIR_WAYPOINT_EPSILON := .08
-const HUNTER_STAIR_PLAN_LIFETIME_MSEC := 4000
-const HUNTER_STAIR_RETRY_MSEC := 650
 const MAP_DISCOVERY_NEARBY_RADIUS := 4.5
 const WAYPOINT_ARRIVAL_RADIUS := 5.0
 const DROPPED_TOOL_MARK_RADIUS := 14.0
@@ -49,11 +43,6 @@ var _navigations := {}
 var _hunter_views := {}
 var _hunter_origins := {}
 var _hunter_levels := {}
-var _hunter_stair_transfers := {}
-## A selected stair is a route decision, not a per-frame query. Caching it
-## prevents every active cross-floor hunter from running several A* searches at
-## 30 Hz while still allowing a blocked/changed route to be reconsidered.
-var _hunter_stair_plans := {}
 var _safe_damage_accumulators := {}
 var _capture_cooldown := 0.0
 var _was_chased := false
@@ -2045,8 +2034,6 @@ func _unload_hunter(entity_id: String, persist_state: bool = true) -> void:
 	_hunter_views.erase(entity_id)
 	_hunter_origins.erase(entity_id)
 	_hunter_levels.erase(entity_id)
-	_hunter_stair_transfers.erase(entity_id)
-	_hunter_stair_plans.erase(entity_id)
 
 
 func _store_hunter(entity_id: String, view: HunterView3D) -> void:
@@ -2060,7 +2047,6 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		return
 	var local_safe := _player_in_intact_safe_room(facility.current_chunk_data())
 	var local_target := _hunter_target(local_safe)
-	var all_targets := _remotes.target_states(local_target)
 	var breach_rooms := {}
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
@@ -2070,10 +2056,6 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		var level := int(_hunter_levels.get(entity_id, 0))
 		var navigation := _navigations.get(level) as StreamedHunterNavigation
 		if navigation == null:
-			continue
-		if _update_hunter_stair_transfer(delta, entity_id, view):
-			view.sync_from_brain()
-			_store_hunter(entity_id, view)
 			continue
 		var target := _remotes.best_target(view.brain.position, local_target, -level)
 		var activation_relays := GameConfig.hunter_activation_relay_count(
@@ -2094,24 +2076,15 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		_operate_hunter_room_door(view, level)
 		var captured := false
 		if not target.is_empty():
-			_hunter_stair_plans.erase(entity_id)
 			view.target_peer_id = int(target.get("peer_id", 1))
 			captured = view.brain.update(delta, navigation, target,
 				maxi(1, -level + 1), GameState.relays_collected)
 			view.set_look_target(view.brain.presentation_look_target())
 		else:
-			var cross_target := _cross_floor_target(view.brain.position, level,
-				all_targets)
-			if cross_target.is_empty():
-				_hunter_stair_plans.erase(entity_id)
-				view.target_peer_id = 0
-				view.set_look_target(null)
-				view.brain.update_without_target(delta, navigation,
-					maxi(1, -level + 1), GameState.relays_collected)
-			else:
-				view.target_peer_id = int(cross_target.get("peer_id", 1))
-				_update_hunter_toward_stair(delta, entity_id, view, level,
-					cross_target, navigation)
+			view.target_peer_id = 0
+			view.set_look_target(null)
+			view.brain.update_without_target(delta, navigation,
+				maxi(1, -level + 1), GameState.relays_collected)
 		view.sync_from_brain()
 		for hunter_event_value in view.brain.world_events:
 			_apply_streamed_hunter_world_event(hunter_event_value, level,
@@ -2158,24 +2131,6 @@ func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
 	# host-authoritative and reliable, so guests see the same hinge animation.
 	_publish_stream_event({"what": "stream_door",
 		"door_id": nearest.room_door_id, "open": true, "broken": false})
-
-
-func _cross_floor_target(origin: Vector2, level: int,
-		candidates: Array[Dictionary]) -> Dictionary:
-	var chosen := {}
-	var best_score := INF
-	for candidate in candidates:
-		if _target_protected(candidate):
-			continue
-		var target_level := -int(candidate.get("depth", -level))
-		var position = candidate.get("position")
-		if target_level == level or not position is Vector2:
-			continue
-		var score := origin.distance_to(position) + absf(target_level - level) * 12.0
-		if score < best_score:
-			best_score = score
-			chosen = candidate
-	return chosen
 
 
 func _apply_streamed_hunter_world_event(event: Dictionary, level: int,
@@ -2303,197 +2258,6 @@ func _accept_stream_vent(peer_id: int, event: Dictionary) -> void:
 		if view != null and view.brain.gimmick is VerrineGimmick:
 			(view.brain.gimmick as VerrineGimmick).remote_vent_entered(
 				vent_id, view.brain, navigation)
-
-
-func _update_hunter_toward_stair(delta: float, entity_id: String,
-		view: HunterView3D, level: int, target: Dictionary,
-		navigation: StreamedHunterNavigation) -> void:
-	var target_level := -int(target.get("depth", -level))
-	var direction := 1 if target_level > level else -1
-	var target_peer_id := int(target.get("peer_id", 1))
-	var now := Time.get_ticks_msec()
-	var plan: Dictionary = _hunter_stair_plans.get(entity_id, {})
-	var stair: Dictionary = plan.get("stair", {})
-	var plan_matches := int(plan.get("level", 999999)) == level \
-		and int(plan.get("direction", 0)) == direction \
-		and int(plan.get("target_level", 999999)) == target_level \
-		and int(plan.get("target_peer_id", 0)) == target_peer_id \
-		and now < int(plan.get("expires_msec", 0))
-	if not plan_matches:
-		stair = _nearest_stair(view.brain.position, level, direction, navigation,
-			target.get("position"))
-		_hunter_stair_plans[entity_id] = {
-			"level": level,
-			"direction": direction,
-			"target_level": target_level,
-			"target_peer_id": target_peer_id,
-			"stair": stair,
-			"expires_msec": now + (HUNTER_STAIR_PLAN_LIFETIME_MSEC \
-				if not stair.is_empty() else HUNTER_STAIR_RETRY_MSEC),
-		}
-	if stair.is_empty():
-		view.brain.update_without_target(delta, navigation,
-			maxi(1, -level + 1), GameState.relays_collected)
-		return
-	var stair_position: Vector2 = stair["position"]
-	view.set_look_target(stair_position)
-	var stair_target := target.duplicate(true)
-	stair_target["position"] = stair_position
-	stair_target["hidden"] = false
-	stair_target["in_safe_zone"] = false
-	stair_target["noise"] = 12.0
-	stair_target["flashlight_on"] = true
-	stair_target["capture_immune"] = true
-	view.brain.update(delta, navigation, stair_target,
-		maxi(1, -level + 1), GameState.relays_collected)
-	if view.brain.position.distance_to(stair_position) > .78:
-		return
-	var new_level := level + (1 if target_level > level else -1)
-	# Traverse the physical run over time. The former discrete level swap made
-	# hunters appear stuck on one floor and then pop onto another, with no
-	# grounded motion on the staircase itself.
-	_hunter_stair_transfers[entity_id] = {
-		"from_level": level,
-		"to_level": new_level,
-		"path": stair.get("path", [stair_position,
-			stair.get("destination", stair_position)]),
-		"path_index": 0,
-		"target": target.duplicate(true),
-	}
-	_hunter_stair_plans.erase(entity_id)
-	# An interrupted/replicated legacy transfer must not keep holding the body
-	# above the world. The physical ramp owns vertical motion from this point.
-	view.clear_streamed_height_override()
-
-
-func _update_hunter_stair_transfer(delta: float, entity_id: String,
-		view: HunterView3D) -> bool:
-	if not _hunter_stair_transfers.has(entity_id):
-		return false
-	var transfer: Dictionary = _hunter_stair_transfers[entity_id]
-	var path: Array = transfer.get("path", [])
-	if path.is_empty():
-		_hunter_stair_transfers.erase(entity_id)
-		_hunter_stair_plans.erase(entity_id)
-		return false
-	var path_index := clampi(int(transfer.get("path_index", 0)), 0,
-		path.size() - 1)
-	var travel_left := maxf(0.0, HUNTER_STAIR_SPEED * delta)
-	while travel_left > 0.0 and path_index < path.size():
-		var waypoint: Vector2 = path[path_index]
-		view.set_look_target(waypoint)
-		var offset := waypoint - view.brain.position
-		var distance := offset.length()
-		if distance <= HUNTER_STAIR_WAYPOINT_EPSILON:
-			view.brain.position = waypoint
-			path_index += 1
-			continue
-		var step := minf(travel_left, distance)
-		var direction := offset / distance
-		view.brain.facing = direction
-		view.brain.position += direction * step
-		travel_left -= step
-		if step + HUNTER_STAIR_WAYPOINT_EPSILON >= distance:
-			view.brain.position = waypoint
-			path_index += 1
-	transfer["path_index"] = path_index
-	_hunter_stair_transfers[entity_id] = transfer
-	# No Y override: sync_from_brain() changes only the XZ destination and the
-	# CharacterBody walks, snaps and falls on real collision.
-	view.clear_streamed_height_override()
-	if path_index < path.size():
-		return true
-	var from_level := int(transfer.get("from_level", 0))
-	var to_level := int(transfer.get("to_level", from_level))
-	_hunter_stair_transfers.erase(entity_id)
-	_hunter_stair_plans.erase(entity_id)
-	_hunter_levels[entity_id] = to_level
-	view.surface_height_provider = facility.streamed_surface_height.bind(to_level)
-	view.clear_streamed_height_override()
-	var target: Dictionary = transfer.get("target", {})
-	var landing: Vector2 = path[-1]
-	# Reaching another floor must not be a free escape. The hunter still knows
-	# whom she followed onto the stairs and immediately continues the routed
-	# chase from the landing instead of falling back to a short search.
-	view.brain.continue_chase_from(target.get("position", landing))
-	_store_hunter(entity_id, view)
-	# Rebuild the bounded authority surface around the hunter's new floor now,
-	# not on the next periodic refresh.
-	_hunter_stream_signature = ""
-	_refresh_hunter_stream()
-	return true
-
-
-func _nearest_stair(origin: Vector2, level: int, direction: int,
-		navigation: StreamedHunterNavigation, target_position: Variant = null) -> Dictionary:
-	var center := Vector3i(
-		floori(origin.x / StreamedRouteGenerator.CHUNK_SIZE), level,
-		floori(origin.y / StreamedRouteGenerator.CHUNK_SIZE))
-	var wanted := "up" if direction > 0 else "down"
-	var chosen := {}
-	var best_score := INF
-	var best_id := ""
-	var candidate_coords: Array[Vector3i] = navigation.active_coordinates()
-	if candidate_coords.is_empty():
-		for z in range(center.z - 2, center.z + 3):
-			for x in range(center.x - 2, center.x + 3):
-				candidate_coords.append(Vector3i(x, level, z))
-	candidate_coords.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		return a.x < b.x or (a.x == b.x and a.z < b.z))
-	var from_cell := Vector2i(floori(origin.x), floori(origin.y))
-	for coord in candidate_coords:
-		if coord.y != level:
-			continue
-		if not facility.generator.is_chunk_allowed(coord):
-			continue
-		var data := facility.generator.chunk(coord)
-		for stair_value in data.get("stairs", []):
-			var stair: Dictionary = stair_value
-			if String(stair.get("direction", "")) != wanted:
-				continue
-			var stair_path := StreamedRouteGenerator.stair_path_cells(
-				stair.get("cell", Vector2i.ZERO))
-			if stair_path.is_empty():
-				continue
-			var entry_cell: Vector2i = stair_path[0] if wanted == "up" \
-				else stair_path[-1]
-			var destination_cell: Vector2i = stair_path[-1] if wanted == "up" \
-				else stair_path[0]
-			var position := Vector2(
-				coord.x * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.x + .5,
-				coord.z * StreamedRouteGenerator.CHUNK_SIZE + entry_cell.y + .5)
-			var destination := Vector2(
-				coord.x * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.x + .5,
-				coord.z * StreamedRouteGenerator.CHUNK_SIZE + destination_cell.y + .5)
-			var path := navigation.find_path(from_cell, Vector2i(floori(position.x),
-				floori(position.y)))
-			if path.is_empty() and from_cell != Vector2i(floori(position.x),
-					floori(position.y)):
-				continue
-			# The actual navigable route wins, not straight-line distance through a
-			# wall. A tiny destination bias picks the landing that continues toward
-			# the runner when two reachable stairs cost the same.
-			var score := float(path.size())
-			if target_position is Vector2:
-				score += destination.distance_to(target_position as Vector2) * .025
-			var stair_id := String(stair.get("id", ""))
-			if score > best_score or (is_equal_approx(score, best_score) \
-					and not best_id.is_empty() and stair_id >= best_id):
-				continue
-			var world_path: Array[Vector2] = []
-			for cell_value in stair_path:
-				var path_cell: Vector2i = cell_value
-				world_path.append(Vector2(
-					coord.x * StreamedRouteGenerator.CHUNK_SIZE + path_cell.x + .5,
-					coord.z * StreamedRouteGenerator.CHUNK_SIZE + path_cell.y + .5))
-			if wanted == "down":
-				world_path.reverse()
-			best_score = score
-			best_id = stair_id
-			chosen = {"position": position, "destination": destination,
-				"path": world_path, "approach_path": path,
-				"stair": stair, "coord": coord}
-	return chosen
 
 
 func _target_protected(target: Dictionary) -> bool:
@@ -3319,7 +3083,7 @@ func _collect_hunter_report() -> void:
 		state["entity_id"] = entity_id
 		state["target_peer_id"] = view.target_peer_id
 		state["look_target"] = view.look_target_position if view.has_look_target else null
-		state["on_stairs"] = _hunter_stair_transfers.has(entity_id)
+		state["on_stairs"] = false
 		state["presentation_y"] = view.position.y
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
