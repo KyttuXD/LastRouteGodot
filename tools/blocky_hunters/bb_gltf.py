@@ -121,8 +121,12 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
     # e.g. get_node("R-HandProp").add_child(scythe). It follows every clip and has no mesh.
     if "R-Hand" in index and "L-Hand" in index:
         from bb_skin import U as SKIN_U
-        for side in ("L", "R"):
-            nodes.append({"name": f"{side}-HandProp", "translation": [0.0, -1.0 * SKIN_U * S, 0.0]})
+        from bb_core import quat_from_euler
+        for side, out in (("L", 1), ("R", -1)):
+            # tilted 25 degrees forward and 8 outward: a held shaft leans away from the hanging arm instead of
+            # lying along it (a shaft collinear with the arm looks like it is inside it)
+            nodes.append({"name": f"{side}-HandProp", "translation": [0.0, -1.0 * SKIN_U * S, 0.0],
+                          "rotation": list(quat_from_euler(-25.0, 0.0, 8.0 * out))})
             nodes[index[f"{side}-Hand"]]["children"].append(len(nodes) - 1)
 
     # animations

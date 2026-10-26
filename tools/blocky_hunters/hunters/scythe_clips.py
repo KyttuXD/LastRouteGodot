@@ -10,7 +10,7 @@ import copy
 from bb_core import quat_from_euler, quat_mul
 
 # Elbow bent ~90 degrees so the forearm points forward and the fist closes round an UPRIGHT shaft at right angles to
-# it (a shaft along the arm line would sit inside the arm). The hand cancels arm + forearm so the shaft stays vertical.
+# it (a shaft along the arm line would sit inside the arm). The hand cancels arm + forearm, so the shaft keeps the lean of the HandProp mount (25 degrees forward).
 HOLD = {"R-Arm": (20, 0, 8), "R-Forearm": (74, 0, 0), "R-Hand": (-94, 0, -8)}
 
 
