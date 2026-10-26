@@ -1,5 +1,6 @@
 """jyvra: the supplied Minecraft (Alex) skin skins/jyvra_source.png on rig-split cubes at vanilla scale,
 plus 3D curved horns (see hunters/horn.py)."""
+from hunters import pony
 from bb_skin import U, vanilla_sk, eye_locators, source_hunter
 from hunters import horn
 
@@ -8,7 +9,7 @@ HEIGHT = 1.78
 DESIGN_TOP = 32 * U
 SK = vanilla_sk()
 BASE = (3.0, 32.0, -1.0)
-EXTRAS = horn.extras(BASE)
+EXTRAS = horn.extras(BASE) + pony.EXTRAS
 EYES = eye_locators()
 MODEL_KW = {}
 
@@ -19,4 +20,4 @@ def _modify(canvas):
 
 
 def build():
-    return source_hunter(NAME, globals(), _modify)
+    return source_hunter(NAME, globals(), lambda canvas: _modify(canvas) + pony.apply(canvas))

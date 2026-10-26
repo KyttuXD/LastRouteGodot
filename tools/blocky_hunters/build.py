@@ -39,9 +39,10 @@ def _generic(name):
     """A hunter with no module of her own: plain supplied skin on the standard cubes."""
     import types
     from bb_skin import U, vanilla_sk, eye_locators, source_hunter
-    ns = types.SimpleNamespace(NAME=name, HEIGHT=1.78, DESIGN_TOP=32 * U, SK=vanilla_sk(), EXTRAS=[],
-                               EYES=eye_locators(), MODEL_KW={})
-    ns.build = lambda: source_hunter(name, vars(ns))
+    from hunters import pony
+    ns = types.SimpleNamespace(NAME=name, HEIGHT=1.78, DESIGN_TOP=32 * U, SK=vanilla_sk(),
+                               EXTRAS=pony.EXTRAS if name in pony.HAIRY else [], EYES=eye_locators(), MODEL_KW={})
+    ns.build = lambda: source_hunter(name, vars(ns), pony.apply if name in pony.HAIRY else None)
     return ns
 
 
