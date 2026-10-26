@@ -83,6 +83,7 @@ const HUNTER_DISCOVERY_RANGE := 7.5
 
 
 func _ready() -> void:
+	RefLook.install(self, get_node_or_null("WorldEnvironment") as WorldEnvironment)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("gameplay_session")
 	UpdateManager.update_ready.connect(_on_background_update_ready)
