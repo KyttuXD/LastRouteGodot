@@ -8,7 +8,7 @@ NAME = "solyth"
 HEIGHT = 1.78
 DESIGN_TOP = 32 * U
 SK = vanilla_sk()
-_LOCK = chain.chain("L", "Lock", 3.6, -3.3, 28.5, [(21.0, 28.5, 3.2, 2.4), (14.5, 21.2, 3.2, 2.4), (9.0, 14.7, 2.8, 2.2), (5.5, 9.2, 1.8, 2.0)], drift=0.1, tie=False)
+_LOCK = chain.chain("L", "Lock", 3.6, -3.3, 28.5, [(21.0, 28.5, 3.0, 2.4), (16.0, 21.2, 2.8, 2.4), (12.5, 16.2, 1.8, 2.0)], drift=0.1, tie=False)
 EXTRAS = glyph.EXTRAS + _LOCK[0]
 EYES = eye_locators()
 MODEL_KW = {}

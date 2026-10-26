@@ -7,7 +7,7 @@ NAME = "quirith"
 HEIGHT = 1.78
 DESIGN_TOP = 32 * U
 SK = vanilla_sk()
-_BRAID = chain.chain("L", "Braid", 3.4, -3.3, 28.5, [(21.0, 28.0, 2.6, 2.4), (16.0, 21.2, 2.4, 2.4), (11.5, 16.2, 2.4, 2.4), (7.5, 11.7, 2.0, 2.0)], zigzag=0.35, beads=True)
+_BRAID = chain.chain("L", "Braid", 3.4, -3.3, 28.5, [(21.0, 28.0, 2.6, 2.4), (16.8, 21.2, 2.4, 2.4), (13.0, 17.0, 2.0, 2.0)], zigzag=0.35, beads=True)
 EXTRAS = wolf.EXTRAS + _BRAID[0]
 EYES = eye_locators()
 MODEL_KW = {}
