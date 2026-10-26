@@ -113,9 +113,9 @@ func _bounds(node: Node3D) -> AABB:
 	var first := true
 	for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
 		var m := mesh_node as MeshInstance3D
-		# horns, ears, wings, tails and gills are extras: the 1.78 m body height is measured without them
+		# horns, ears, wings, tails, gills and halos are extras: the 1.78 m body height is measured without them
 		var skip := false
-		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill"]:
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo"]:
 			if String(m.name).contains(extra):
 				skip = true
 		if skip:
