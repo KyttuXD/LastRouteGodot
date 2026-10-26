@@ -222,9 +222,10 @@ def expressions_from_face(face):
     # the iris. Every open-eye cell below keeps that rule (no white, no colour outside the dark block).
     cells.append(face.copy())                                                                  # 0 neutral (original)
     cells.append(make({(1, 6): dark, (2, 6): dark, (5, 6): dark, (6, 6): dark}))               # 1 blink: dark lids
-    band = {(x, 4): dark for x in range(2, 6)}                                                 # 2 stun: KT's design,
-    band.update({(x, y): dark for y in (5, 6) for x in range(1, 7)})                           # eyes blacked out in
-    cells.append(make(band))                                                                   # one dark band
+    band = {(x, 4): dark for x in range(2, 6)}                                                 # (kept as "blank", cell 10)
+    band.update({(x, y): dark for y in (5, 6) for x in range(1, 7)})
+    blank = make(band)
+    cells.append(make({(x, y): dark for y in (5, 6) for x in (1, 2, 5, 6)}))                   # 2 stun: KT's two dark blocks
     cells.append(make({(1, 5): dark, (2, 5): dark, (5, 5): dark, (6, 5): dark,                 # 3 chase: dark glare, inner iris
                        (1, 6): dark, (2, 6): col, (5, 6): col, (6, 6): dark}))
     wide = {(x, y): col for y in (5, 6) for x in (1, 2, 5, 6)}                                 # 4 scream: wide eyes (eye colour only, no brows),
@@ -241,7 +242,7 @@ def expressions_from_face(face):
             for j, (dx, dy) in enumerate(ring):
                 pix[(ex + dx, 5 + dy)] = col if j == (t + off) % 4 else dark
         cells.append(make(pix))
-    cells.append(cells[2].copy())                                                              # 10 blank: KT's dark band
+    cells.append(blank)                                                                        # 10 blank: KT's dark band
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
