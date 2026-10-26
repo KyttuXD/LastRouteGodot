@@ -155,7 +155,9 @@ func _apply_model(model_id: String) -> void:
 
 func _attach_scythe() -> void:
 	_carries_scythe = false
-	if _shown_id != "kathy" or _animation_player == null \
+	# Rare: only some Kathys carry it (seeded per spawn, the same on every peer); the rest are unarmed.
+	if _shown_id != "kathy" or brain == null or not HunterRoster.carries_scythe(brain.spawn_seed_text) \
+			or _animation_player == null \
 			or not _animation_player.has_animation("scythe_idle"):
 		return
 	var hand := _model.find_child("R-HandProp", true, false) as Node3D

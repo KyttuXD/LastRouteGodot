@@ -115,7 +115,8 @@ the build_logo script (the SVG holds the same values).
 A-Z and Void hunters use the blocky cube models in `assets/hunters_blocky/<id>/<id>.glb` (`HunterRoster.USE_BLOCKY`;
 set it false for the older models, `USE_SPRITES` true for the flat cutouts). `HunterView3D` plays idle/walk/chase/sprint
 (sprint while the runner is in direct sight and she has breath), stun, flight (Xivvy) and charge (Loxelle); Kathy (and
-Umbriel disguised as her) carries `assets/props_3d/kathy_scythe.glb` in `R-HandProp` and plays `scythe_idle` / `scythe_walk`
-(`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` plays the model's
+Umbriel disguised as her) carries, on a rare seeded roll (`HunterRoster.SCYTHE_CARRY_CHANCE` = 1/8, same on every peer),
+`assets/props_3d/kathy_scythe.glb` in `R-HandProp` and plays `scythe_idle` / `scythe_walk`
+(`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` is OFF (`HunterJumpscare.ENABLED = false`: a catch goes straight to game over, no lunge or sting); when enabled it plays the model's
 `jumpscare` clip under a faint red ambient so the dark cube textures read as a figure. Checks: `tools/look/hunter_check.tscn`
 (HUNTERS=..., HUNTER_STATE=idle|walk|chase) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).

@@ -12,6 +12,10 @@ extends Node3D
 ## can sit inside the real level yet never render any of it.
 const PRESENTATION_LAYER := 1 << 18
 
+## Jumpscares are switched OFF: a catch goes straight to the game-over screen with no lunge, clip or
+## sting. Set true to bring the whole presentation (hold during the struggle, lunge, audio) back.
+const ENABLED := false
+
 var duration := 1.15
 var playing := false
 ## True for the sustained "grabbed" hold shown while an escape struggle is
@@ -199,6 +203,9 @@ static func _apply_presentation_layer(node: Node) -> void:
 ## Follow with stop_hold() on a successful struggle, or play() to continue
 ## straight into the final hit.
 func start_hold(source_camera: Camera3D, hunter_id: String) -> void:
+	last_hunter_id = hunter_id if not hunter_id.is_empty() else HunterRoster.DEFAULT_ID
+	if not ENABLED:
+		return
 	while playing or holding:
 		await get_tree().process_frame
 	holding = true
@@ -227,6 +234,9 @@ func stop_hold() -> void:
 
 
 func play(source_camera: Camera3D, hunter_id: String) -> void:
+	last_hunter_id = hunter_id if not hunter_id.is_empty() else HunterRoster.DEFAULT_ID
+	if not ENABLED:
+		return
 	# Capture events can arrive twice while a host and guest resolve the same
 	# grab. Do not let the second call turn the first presentation into an
 	# immediate game-over transition.

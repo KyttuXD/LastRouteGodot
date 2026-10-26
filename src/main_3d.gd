@@ -1024,7 +1024,8 @@ func _resolve_capture_outcome() -> void:
 			"what": "caught",
 			"hunter_id": hunter_id,
 		})
-	Sound.office_jumpscare(hunter_id)
+	if HunterJumpscare.ENABLED:
+		Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
 	print("[capture] presentation-complete: hunter=%s" % hunter_id)
 	# Keep the run non-terminal while the capture presentation owns the camera.

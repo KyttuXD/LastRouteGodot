@@ -31,6 +31,8 @@ var position: Vector2
 var state: State = State.IDLE
 var active := false
 var hunter_id: String
+## The seed text this hunter was spawned with (identical for every peer of a route).
+var spawn_seed_text := ""
 var gimmick: HunterGimmick
 var difficulty_id := "standard"
 var difficulty_profile: Dictionary = GameConfig.DIFFICULTY_PROFILES["standard"]
@@ -94,6 +96,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 		id: String = HunterRoster.DEFAULT_ID, route_difficulty: String = "standard") -> void:
 	position = spawn_position
 	_rng = SeededRandom.new(rng_seed_text)
+	spawn_seed_text = rng_seed_text
 	hunter_id = id
 	difficulty_id = route_difficulty if GameConfig.DIFFICULTY_PROFILES.has(
 		route_difficulty) else "standard"

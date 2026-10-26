@@ -72,5 +72,18 @@ func run(host: Node) -> int:
 			if HunterRoster.USE_BLOCKY and not String(identity["model_scene"]).begins_with(HunterRoster.BLOCKY_DIR):
 				_fail("%s does not use its blocky model: %s" % [id, identity["model_scene"]])
 		presented.queue_free()
-	print("  %d A-Z hunters checked" % HunterRoster.A_Z_IDS.size())
+	# Scythe carrying is a rare, deterministic roll per spawn seed (same answer on every peer).
+	var armed := 0
+	for i in 800:
+		var seed_text := "SCYTHE-CHECK:%d" % i
+		var first := HunterRoster.carries_scythe(seed_text)
+		if first != HunterRoster.carries_scythe(seed_text):
+			_fail("scythe roll for %s is not deterministic" % seed_text)
+		if first:
+			armed += 1
+	if armed < 60 or armed > 150:
+		_fail("%d of 800 Kathys carry the scythe; expected about %d" % [armed, int(800 * HunterRoster.SCYTHE_CARRY_CHANCE)])
+	if HunterRoster.carries_scythe(""):
+		_fail("an unseeded hunter should never carry the scythe")
+	print("  %d A-Z hunters checked; scythe on %d/800 seeds" % [HunterRoster.A_Z_IDS.size(), armed])
 	return _failures

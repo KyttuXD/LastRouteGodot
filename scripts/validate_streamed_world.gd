@@ -1357,7 +1357,8 @@ func run(host: Node) -> int:
 		# requirement should free the runner without ever reaching a report.
 		await live_scene._apply_player_event({"what": "capture", "streamed": true,
 			"hunter_id": "kathy", "entity_id": "VALIDATION:KATHY"})
-		_expect(GameState.escape_active and live_scene.jumpscare.holding,
+		_expect(GameState.escape_active \
+			and (live_scene.jumpscare.holding or not HunterJumpscare.ENABLED),
 			"an escapable capture did not start the grab hold/struggle")
 		GameState.escape_progress = GameState.escape_required
 		await live_scene._update_escape_struggle(0.0)

@@ -162,6 +162,17 @@ const BLOCKY_DIR := "res://assets/hunters_blocky/"
 const USE_SPRITES := false
 const SPRITE_DIR := "res://assets/sprites/hunters/"
 
+## Chance that a given Kathy (or Umbriel disguised as her) carries the scythe: a rare, per-spawn
+## roll, seeded by the hunter's own spawn seed so every peer of a route agrees. Otherwise she is
+## unarmed and uses the normal clips.
+const SCYTHE_CARRY_CHANCE := 0.125
+
+
+static func carries_scythe(spawn_seed_text: String) -> bool:
+	if spawn_seed_text.is_empty():
+		return false
+	return SeededRandom.new("%s:SCYTHE" % spawn_seed_text).next_float() < SCYTHE_CARRY_CHANCE
+
 
 static func get_identity(id: String) -> Dictionary:
 	var profile: Dictionary = PROFILES.get(id, PROFILES[DEFAULT_ID])

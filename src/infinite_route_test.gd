@@ -3432,7 +3432,8 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
-	Sound.office_jumpscare(hunter_id)
+	if HunterJumpscare.ENABLED:
+		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
 		await jumpscare.play(player.active_camera(), hunter_id)
 	if RoomState.public_route:
