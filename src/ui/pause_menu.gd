@@ -66,6 +66,7 @@ var _hold_box: PanelContainer
 var _hold_fill: ColorRect
 var _resume_button: Button
 var _abandon_button: Button
+var _pause_list: UiMenuList
 var _pause_view: VBoxContainer
 var _saves_view: VBoxContainer
 var _statistics_view: VBoxContainer
@@ -123,11 +124,11 @@ func _build() -> void:
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
 	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_panel.custom_minimum_size = Vector2(430, 348)
-	_panel.offset_left = -215
-	_panel.offset_right = 215
-	_panel.offset_top = -174
-	_panel.offset_bottom = 174
+	_panel.custom_minimum_size = Vector2(380, 236)
+	_panel.offset_left = -190
+	_panel.offset_right = 190
+	_panel.offset_top = -118
+	_panel.offset_bottom = 118
 	add_child(_panel)
 
 	var column := VBoxContainer.new()
@@ -143,7 +144,7 @@ func _build() -> void:
 	var title := Label.new()
 	title.name = "PauseTitle"
 	title.text = "PAUSED"
-	Palette.style_label(title, Palette.INK, 30)
+	Palette.style_label(title, Palette.INK, 22)
 	Palette.style_title(title)
 	column.add_child(title)
 
@@ -196,6 +197,24 @@ func _build() -> void:
 	Palette.style_button(_abandon_button, false)
 	_abandon_button.pressed.connect(_ask_abandon)
 	_pause_view.add_child(_abandon_button)
+
+	# Night Watch pause list: ">>" marker and grey sub-labels; the buttons above stay
+	# (hidden) as the handlers' single source of truth.
+	for hidden in [_resume_button, dossier_button, _abandon_button]:
+		hidden.visible = false
+	_pause_list = UiMenuList.new()
+	_pause_list.name = "PauseList"
+	_pause_list.add_item(&"return", "RETURN", "BACK TO THE ROUTE").add_theme_font_size_override("font_size", 9)
+	_pause_list.add_item(&"dossier", "HUNTER DOSSIER", "WHAT THE ROUTE HAS SHOWN YOU").add_theme_font_size_override("font_size", 9)
+	_pause_list.add_item(&"abandon", abandon_label).add_theme_font_size_override("font_size", 9)
+	_pause_list.chosen.connect(func(id: StringName) -> void:
+		if id == &"return":
+			close()
+		elif id == &"dossier":
+			_open_dossier()
+		else:
+			_ask_abandon())
+	_pause_view.add_child(_pause_list)
 
 	_build_saves_view(column)
 	_build_statistics_view(column)
@@ -831,7 +850,7 @@ func _cancel_abandon() -> void:
 	_confirming = false
 	_confirm.visible = false
 	_panel.visible = true
-	_resume_button.grab_focus()
+	_pause_list.select_index(0)
 
 
 ## The hold meter, shown only while ESC is actually down. Sitting above the
@@ -881,7 +900,7 @@ func open() -> void:
 	_set_copy_status("", true)
 	_refresh_share()
 	_set_section("pause")
-	_resume_button.grab_focus()
+	_pause_list.select_index(0)
 	opened.emit()
 
 

@@ -26,6 +26,22 @@ func _init() -> void:
 	alignment = BoxContainer.ALIGNMENT_CENTER
 
 
+## Update a proxied entry (text, enabled, shown) -- the title screen mirrors its real buttons.
+func sync_item(index: int, text: String, enabled: bool, shown: bool) -> void:
+	var entry := _items[index]
+	var button := entry["button"] as Button
+	if button.text != text:
+		button.text = text
+	button.disabled = not enabled
+	entry["enabled"] = enabled
+	(button.get_parent().get_parent() as Control).visible = shown
+	entry["shown"] = shown
+
+
+func item_count() -> int:
+	return _items.size()
+
+
 func add_item(id: StringName, text: String, sub: String = "", enabled: bool = true) -> Button:
 	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 0)
@@ -60,7 +76,7 @@ func add_item(id: StringName, text: String, sub: String = "", enabled: bool = tr
 		small.add_theme_color_override("font_color", Palette.MUTED)
 		row.add_child(small)
 	add_child(row)
-	_items.append({"id": id, "button": button, "marker": marker, "enabled": enabled})
+	_items.append({"id": id, "button": button, "marker": marker, "enabled": enabled, "shown": true})
 	if _items.size() == 1:
 		select_index(0)
 	return button
@@ -104,7 +120,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		var index := _selected
 		for _try in _items.size():
 			index = posmod(index + step, _items.size())
-			if bool(_items[index]["enabled"]):
+			if bool(_items[index]["enabled"]) and bool(_items[index].get("shown", true)):
 				select_index(index)
 				break
 		get_viewport().set_input_as_handled()

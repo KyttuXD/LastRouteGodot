@@ -52,6 +52,7 @@ func _ready() -> void:
 	_build_hint()
 	_build_public_button()
 	_build_local_saves_button()
+	_build_menu_list()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
 	offline_button.pressed.connect(_on_offline_pressed)
@@ -86,6 +87,67 @@ func _ready() -> void:
 	if _open_update_progress_if_needed():
 		return
 	_focus_default_button.call_deferred()
+
+const MENU_SUBS := {
+	"PublicButton": "ALWAYS-OPEN SHARED ROUTE",
+	"PlayButton": "HOST A ROOM // INVITE BY CODE",
+	"JoinButton": "ENTER A ROOM CODE",
+	"OfflineButton": "SOLO ROUTE // NO SERVER",
+	"LocalSavesButton": "RESUME AN OFFLINE ARCHIVE",
+	"TutorialButton": "LEARN THE ROUTE",
+}
+var _menu_list: UiMenuList
+var _menu_sources: Array[Button] = []
+
+
+## The Night Watch title menu: centred entries with a ">>" marker and grey sub-labels.
+## The scene's real buttons stay (hidden) as the single source of truth for text,
+## enabled state and pressed handlers; the list entries mirror and forward to them.
+func _build_menu_list() -> void:
+	var panel := get_node_or_null("ButtonPanel") as Control
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as Control
+	if panel == null or box == null:
+		return
+	_menu_list = UiMenuList.new()
+	_menu_list.name = "TitleMenu"
+	_menu_list.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_menu_list.anchor_left = .56
+	_menu_list.anchor_right = .96
+	_menu_list.anchor_top = .1
+	_menu_list.anchor_bottom = .84
+	_menu_list.offset_left = 0
+	_menu_list.offset_right = 0
+	_menu_list.offset_top = 0
+	_menu_list.offset_bottom = 0
+	add_child(_menu_list)
+	for child in box.get_children():
+		var source := child as Button
+		if source == null:
+			continue
+		_menu_sources.append(source)
+		var button := _menu_list.add_item(StringName(source.name), source.text,
+			String(MENU_SUBS.get(String(source.name), "")), not source.disabled)
+		button.add_theme_font_size_override("font_size", 8)
+	_menu_list.chosen.connect(func(id: StringName) -> void:
+		for source in _menu_sources:
+			if StringName(source.name) == id and not source.disabled:
+				source.pressed.emit())
+	panel.visible = false
+
+
+func _process(_delta: float) -> void:
+	if _menu_list == null:
+		return
+	# the settings overlay and modals sit on top: take the list (and its keys) out
+	_menu_list.visible = not settings_overlay.visible and _modal == null
+	var hint := get_node_or_null("KeyboardHint")
+	if hint != null:
+		hint.visible = _menu_list.visible
+	# buttons added later (update, public) keep their order in the hidden box
+	for i in _menu_sources.size():
+		var source := _menu_sources[i]
+		_menu_list.sync_item(i, source.text, not source.disabled, source.visible)
+
 
 ## Night Watch's grey keyboard hint under the menu.
 func _build_hint() -> void:

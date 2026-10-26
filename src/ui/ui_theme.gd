@@ -90,6 +90,15 @@ static func build() -> Theme:
 	t.set_color("font_focus_color", "MenuItem", Color.WHITE)
 	t.set_color("font_disabled_color", "MenuItem", Color("4a463c"))
 
+	# Tab bars (settings categories): crimson slab for the selected tab
+	t.set_stylebox("tab_selected", "TabBar", _box(Palette.CRIMSON, Palette.CRIMSON_EDGE, 10, 4))
+	t.set_stylebox("tab_unselected", "TabBar", _box(Palette.PANEL, Palette.PANEL_EDGE, 10, 4))
+	t.set_stylebox("tab_hovered", "TabBar", _box(Palette.PANEL.lightened(.1), Palette.CRIMSON_EDGE, 10, 4))
+	t.set_stylebox("tab_focus", "TabBar", _box(Color(0, 0, 0, 0), Palette.AMBER, 10, 4))
+	t.set_color("font_selected_color", "TabBar", Palette.INK)
+	t.set_color("font_unselected_color", "TabBar", Palette.BODY)
+	t.set_color("font_hovered_color", "TabBar", Palette.INK)
+
 	# Panels
 	t.set_stylebox("panel", "PanelContainer", _box(Palette.PANEL, Palette.PANEL_EDGE, 8, 8))
 	t.set_stylebox("panel", "Panel", _box(Palette.PANEL, Palette.PANEL_EDGE, 8, 8))
