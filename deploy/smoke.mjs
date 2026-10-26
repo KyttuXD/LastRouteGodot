@@ -23,7 +23,9 @@ try {
   if (health.status === 200 && health.json?.ok) ok(`health (${JSON.stringify(health.json).slice(0, 160)})`);
   else bad(`health: HTTP ${health.status}`);
 
-  const code = "S" + Math.random().toString(36).slice(2, 6).toUpperCase();
+  // room codes are 5 characters from the server's alphabet (no I, O, 0 or 1)
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const code = Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
   const registered = await call("POST", "/api/enet/rooms/register", { code, port: 8421, players: 1 });
   if (registered.status !== 201 || !registered.json?.token) {
     bad(`register: HTTP ${registered.status} ${JSON.stringify(registered.json)}`);
