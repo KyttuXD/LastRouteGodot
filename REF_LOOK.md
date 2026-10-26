@@ -64,7 +64,7 @@ buttons (`PrimaryButton`), Night Watch style `MenuItem` entries and `HudBarWarn/
 bar variations. Regenerate with
 `godot --headless --path . --script tools/ui/build_theme.gd`. Reusable components:
 `UiMenuList` (">>" marker, grey sub-labels, keyboard hint), `UiToast`, `UiHudBar`.
-The pause screen uses `UiMenuList`; the title menu keeps the 2D Last Route button row. Screenshots: `UI_OPEN=report|settings|pause UI_SCENES=... tools/look/ui_capture.tscn`.
+The title menu and pause screen keep the 2D Last Route button row. Screenshots: `UI_OPEN=report|settings|pause UI_SCENES=... tools/look/ui_capture.tscn`.
 Menu screenshots: `UI_SCENES=res://scenes/main_menu.tscn godot --path . res://tools/look/ui_capture.tscn -- OUTDIR TAG`.
 
 ## Player model
