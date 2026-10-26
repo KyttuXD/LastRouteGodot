@@ -8,7 +8,7 @@ extends RefCounted
 ## so changing expression is a UV offset on the quad's own material. "derp" is an
 ## animation: four cells (6-9) in which the iris steps clockwise round each eye.
 
-const CELLS := {"neutral": 0, "blink": 1, "stun": 2, "chase": 3, "scream": 4, "happy": 5, "derp": 6}
+const CELLS := {"neutral": 0, "blink": 1, "stun": 2, "chase": 3, "scream": 4, "happy": 5, "derp": 6, "blank": 10}
 const DERP_FRAMES := [6, 7, 8, 9]
 const DERP_FPS := 6.0
 const CELL_PX := Vector2(8, 8)

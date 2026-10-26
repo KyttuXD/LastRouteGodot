@@ -199,7 +199,7 @@ def load_source(name):
 
 
 def expressions_from_face(face):
-    """10 expression cells (neutral, blink, stun, chase, scream, happy, derp x4 frames) edited from the skin's own 8x8
+    """11 expression cells (neutral, blink, stun, chase, scream, happy, derp x4 frames, blank) edited from the skin's own 8x8
     face: same hair frame, skin, eye and blush colours; only the eye/mouth pixels change."""
     skin, hair = face.getpixel((3, 4)), face.getpixel((0, 0))
     col, dark, blush = face.getpixel((1, 5)), face.getpixel((2, 5)), face.getpixel((1, 7))
@@ -241,6 +241,7 @@ def expressions_from_face(face):
             for j, (dx, dy) in enumerate(ring):
                 pix[(ex + dx, 5 + dy)] = col if j == (t + off) % 4 else dark
         cells.append(make(pix))
+    cells.append(cells[2].copy())                                                              # 10 blank: KT's dark band
     for im in cells:                            # keep the blush row identical on every cell
         im.putpixel((1, 7), blush); im.putpixel((6, 7), blush)
     return cells
