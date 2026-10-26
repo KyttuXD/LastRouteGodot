@@ -1,3 +1,5 @@
+# NOTE: nginx is NOT installed on VPS 3 today (the website's Node listens on port 80 itself).
+# This file is a purely optional, later step. Skip it unless TLS for the API is wanted.
 # OPTIONAL reverse proxy: HTTPS front for the HTTP API only (room directory, updates, accounts).
 # The game's UDP relay (1105) can never go through nginx or Cloudflare's proxy.
 # The shipped client still talks to http://lastroute.kyttuslab.org:8105 directly, so this block is

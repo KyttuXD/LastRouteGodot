@@ -59,6 +59,18 @@ collides with `last-route.service` (the website/web game), which is never touche
 * Optional later: **A** `godot` -> same IP, orange cloud allowed (443 only) for the nginx snippet. The
   game port record stays grey.
 
+## Facts found on VPS 3 (read-only checks, 2026-10-26)
+
+Host `green-duck-34581` (194.156.90.219), Ubuntu 24.04.5, 3.8 GB RAM (~3.2 GB free), 25 GB root disk (12 GB
+free), Node v18.19.1 at `/usr/bin/node` (system package, fine), git 2.43. Running: `last-route.service`
+(root, `/root/web`, Node on 0.0.0.0:80, `Restart=always`) and `kyttu-discord-bot.service`. TCP 8105 and UDP
+1105 are **free**. ufw is inactive and iptables is all ACCEPT (a provider-side cloud firewall may exist).
+No nginx, Caddy or Docker, and no `lastroute2` user yet. Consequences: plain systemd, no Docker; no reverse
+proxy exists, so the game's HTTP API (TCP 8105) and relay (UDP 1105) bind directly; TLS for the API is an
+optional later step (a Cloudflare-proxied standard HTTPS port with a small proxy in front; Cloudflare never
+proxies 8105 or UDP). `deploy/firewall.sh` prints "no host firewall rule is needed" on such a host.
+`deploy/deploy.sh` (dry run) also prints the exact read-only pre-flight commands for the target.
+
 ## Pre-flight (all [read-only], run on VPS 3 via SSH once KT restored access)
 
 ```sh
@@ -144,13 +156,12 @@ The last 5 release directories are kept under `/opt/lastroute-godot2/releases`.
 
 ## Questions for KT before deploying
 
-1. Subdomain: keep `lastroute.kyttuslab.org` for the game (matches the client) and add `godot.kyttuslab.org`
-   only if a TLS front is wanted, or something else?
-2. Plain systemd (prepared) or Docker? Plain systemd is what is prepared; Docker would only add a layer for a
-   dependency-free Node service.
-3. Godot headless server: not needed with the current host-authoritative design. Confirm.
-4. Updates: enable GitHub release sync (needs a token and which repo: `KyttuXD/LastRouteGodot2` or the old
-   `KyttuXD/LastRouteGodot`)? Default is off.
-5. Node on VPS 3: is a system Node >= 18 installed (not nvm under a home directory)?
-6. Is a cloud-provider firewall in front of the VPS (separate from ufw)? TCP 8105 and UDP 1105 must be allowed
-   there as well.
+Answered: host/IP (VPS 3, 194.156.90.219), plain systemd (no Docker), no headless Godot server, Node 18
+present, host firewall off, ports 8105/1105 free. Still open:
+
+1. Cloud firewall: check in the provider panel that TCP 8105 and UDP 1105 are allowed (KT).
+2. Subdomain: create `lastroute.kyttuslab.org` as a DNS-only A record to 194.156.90.219 (matches the client);
+   a TLS front such as `godot.kyttuslab.org` is optional and later.
+3. Updates: enable GitHub release sync? It is off by default and needs a token and a repo choice
+   (`KyttuXD/LastRouteGodot2` or the old `KyttuXD/LastRouteGodot`).
+4. Explicit OK on the exact deploy commands (steps 2 to 5 above).

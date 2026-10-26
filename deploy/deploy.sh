@@ -49,6 +49,20 @@ sysctl_() { if [ "$STAGING" = 1 ]; then say "  (staging) skip: systemctl $*"; el
 say "== Last Route Godot 2 backend deploy ($([ "$APPLY" = 1 ] && echo APPLY || echo DRY-RUN))${PREFIX:+ [staging: $PREFIX]}"
 if [ "$APPLY" = 1 ] && [ "$STAGING" = 0 ] && [ "$(id -u)" != 0 ]; then echo "--apply must run as root" >&2; exit 1; fi
 
+if [ "$APPLY" = 0 ]; then
+cat <<PRE
+-- Read-only pre-flight for the target host (run these over SSH first; none of them changes anything):
+   hostnamectl; df -h /opt /var /etc; free -h
+   ss -tulpn | grep -E ':(8105|1105)\b' || echo "8105/1105 free"
+   command -v node; node --version            # must be a system path (/usr/bin/node), >= 18
+   systemctl list-units --type=service --state=running
+   systemctl status last-route.service --no-pager | head -5      # look only, never restart it
+   id $SVC_USER 2>/dev/null || echo "user $SVC_USER does not exist yet"
+   ls /opt/lastroute-godot2 /etc/lastroute-godot2 /var/lib/lastroute-godot2 2>&1 | head
+   ufw status 2>/dev/null; iptables -S 2>/dev/null | head -20
+PRE
+fi
+
 # ---- read-only pre-checks ----------------------------------------------------------------------
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
