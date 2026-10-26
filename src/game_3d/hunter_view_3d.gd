@@ -142,7 +142,7 @@ func _apply_model(model_id: String) -> void:
 		_kathy_beam = null
 
 	var identity := HunterRoster.get_identity(model_id)
-	_model = ModelSlot.instantiate(identity["model_scene"])
+	_model = ModelSlot.instantiate_hunter(identity)
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)

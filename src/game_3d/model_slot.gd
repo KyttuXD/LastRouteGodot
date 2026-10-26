@@ -114,6 +114,19 @@ static func instantiate(scene_path: String) -> Node3D:
 	return instance
 
 
+## Hunter visual: the 2D billboard cutout when the identity (HunterRoster.get_identity)
+## carries sprite paths, otherwise the rigged 3D model. Callers get a Node3D that
+## behaves the same either way: an AnimationPlayer with the usual clip names, and
+## a "Head" node when the model has one.
+static func instantiate_hunter(identity: Dictionary) -> Node3D:
+	var front := String(identity.get("sprite_front", ""))
+	if not front.is_empty():
+		var sprite := SpriteBillboard.create(front, String(identity.get("sprite_back", "")))
+		if sprite != null:
+			return sprite
+	return instantiate(String(identity.get("model_scene", "")))
+
+
 ## Prop-only companion to instantiate(). Character materials keep their
 ## authored per-pixel lighting; furniture, pickups and interactables use
 ## coarser vertex lighting and a matte response so their low-poly faces read

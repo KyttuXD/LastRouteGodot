@@ -153,6 +153,13 @@ const TIER_WEIGHTS_BY_DIFFICULTY := {
 const TIER_WEIGHTS := TIER_WEIGHTS_BY_DIFFICULTY["standard"]
 
 
+## Remaster: A-Z hunters are shown as flat 2D cutouts that face the camera
+## (Baldi's Basics style) instead of the rigged Blockbench models. Flip this to
+## fall back to the 3D models; Void hunters have no sprites and always use them.
+const USE_SPRITES := true
+const SPRITE_DIR := "res://assets/sprites/hunters/"
+
+
 static func get_identity(id: String) -> Dictionary:
 	var profile: Dictionary = PROFILES.get(id, PROFILES[DEFAULT_ID])
 	var key: String = id if PROFILES.has(id) else DEFAULT_ID
@@ -166,7 +173,17 @@ static func get_identity(id: String) -> Dictionary:
 		"model_scene": String(profile.get("model",
 			"res://art/props-3d/characters/%s.tscn" % key)),
 		"category": String(profile.get("category", "az")),
+		"sprite_front": _sprite_path(key, "front"),
+		"sprite_back": _sprite_path(key, "back"),
 	}
+
+
+## "" when this hunter has no cutout (Void hunters) or sprites are switched off.
+static func _sprite_path(key: String, side: String) -> String:
+	if not USE_SPRITES or not A_Z_IDS.has(key):
+		return ""
+	var path := "%s%s-%s.png" % [SPRITE_DIR, key, side]
+	return path if ResourceLoader.exists(path) else ""
 
 
 static func office_void_for(seed_text: String) -> String:

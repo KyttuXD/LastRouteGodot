@@ -133,7 +133,7 @@ func _build_presentation(source_camera: Camera3D, hunter_id: String) -> void:
 	_camera.add_child(_anchor)
 
 	var identity := HunterRoster.get_identity(last_hunter_id)
-	var model := ModelSlot.instantiate(String(identity.get("model_scene", "")))
+	var model := ModelSlot.instantiate_hunter(identity)
 	if model != null:
 		model.name = "JumpscareHunter"
 		model.rotation.y = PI
