@@ -289,6 +289,24 @@ func presentation_look_target() -> Variant:
 			return null
 
 
+## Point `distance` cells along her current A* route, for presentation-only head
+## look. Vector2.INF when she has no route (idle, direct chase, or a guest
+## whose brain is only fed replicated state).
+func path_look_ahead(distance: float) -> Vector2:
+	if _path.is_empty():
+		return Vector2.INF
+	var from := position
+	var left := distance
+	for cell in _path:
+		var point := Vector2(cell) + Vector2(.5, .5)
+		var segment := from.distance_to(point)
+		if segment >= left:
+			return from.lerp(point, left / maxf(segment, .001))
+		left -= segment
+		from = point
+	return from
+
+
 ## Mirrors respawnAfterCapture()'s hunter reset: back to a calm, unalerted
 ## idle instead of remembering anything about the run that just ended.
 func calm_reset(stun_duration: float) -> void:
