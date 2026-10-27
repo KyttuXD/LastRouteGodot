@@ -158,25 +158,6 @@ static func active_hunters(night: int) -> Array:
 	return out
 
 
-## Zellia's headset call for each night (from the 2D game's classic-data.js CALLS, nights 1-6; Night 7 is Kathy's and comes later).
-const CALLS := {
-	1: ["Zellia, on the headset. Can you hear me all right? Good.",
-		"Doors are A and D. Lights are Q and E, held. The cameras are on Space. Your power is limited, so spend it carefully.",
-		"Dovelle comes by the left door. A light on her holds her still. Keep it on her and she backs right off. Closing the door is quicker, but she won't go far.",
-		"If the power goes, the doors open and the lights fail. You won't be alone in the dark for long.",
-		"I'll check in again later. Try to stay calm. It makes the night shorter."],
-	2: ["Zellia again. Ravelle is on the floor tonight, at the right-hand door. If a shut door turns her away she'll try the other one.",
-		"If a camera loses its picture it's usually temporary. Check another room and come back."],
-	3: ["Aki has started moving. She only moves while you aren't looking at a camera, so keep your checks short.",
-		"Keep your hands steady. The building notices more than people think."],
-	4: ["Ilyra is up. She stays where she is while you're watching her room, which tells you something about her.",
-		"Footsteps carry. The louder they are, the closer they are. That's the whole rule."],
-	5: ["Everyone is active tonight, and they move faster than before. Two of them at their doors at once is worse than one.",
-		"Keep to a routine. It's easier to hold a pattern than to invent one at three in the morning."],
-	6: ["You've reached the sixth night. Not many people do.",
-		"There's nothing new to tell you. Be careful, and be patient."],
-}
-
-
+## Classic's call lines for a night (the table is NightWatchCallsData, copied from the 2D game).
 static func call_lines(night: int) -> Array:
-	return CALLS.get(clampi(night, 1, NIGHTS), [])
+	return NightWatchCallsData.for_level("classic", clampi(night, 1, 7)).get("lines", [])

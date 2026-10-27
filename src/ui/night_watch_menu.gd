@@ -311,7 +311,6 @@ func _build_title() -> void:
 		b.add_theme_color_override("font_color", INK)
 		b.add_theme_color_override("font_disabled_color", DIM)
 		b.pressed.connect(title_activate.bind(i))
-		b.mouse_entered.connect(func(): _title_select(i))
 		b.focus_entered.connect(func(): _title_select(i))
 		box.add_child(b)
 		title_buttons.append(b)
@@ -393,7 +392,6 @@ func _build_board() -> void:
 		stat.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.add_child(stat)
 		row.pressed.connect(select_mode.bind(i))
-		row.mouse_entered.connect(select_mode.bind(i))
 		list.add_child(row)
 		mode_buttons.append(row)
 	var detail := _panel(_screen_root, "Detail", Rect2(134, 26, 338, 196))
@@ -452,7 +450,6 @@ func _build_board() -> void:
 		if open and NightWatchSave.cleared_levels(String(m["id"])).has(i + 1) and i < _scored(m):
 			tile.text += "\n✔ CLEARED"
 		tile.pressed.connect(select_level.bind(i, true))
-		tile.mouse_entered.connect(func(): if not tile.disabled: select_level(i, false))
 		grid.add_child(tile)
 		tile_buttons.append(tile)
 	start_button = _button("▶ START SHIFT  ENTER", 8)
@@ -521,14 +518,29 @@ func _portrait(hunter_id: String) -> Control:
 	return frame
 
 
+## Selected = amber text and an amber frame; hover = a lighter background only (never the selected look); keyboard focus keeps the theme's ring.
 func _mark_board() -> void:
 	for i in mode_buttons.size():
-		var b := mode_buttons[i]
-		b.add_theme_color_override("font_color", AMBER if i == board_mode else INK)
-		b.add_theme_color_override("font_hover_color", AMBER)
+		_style_choice(mode_buttons[i], i == board_mode)
 	for t in tile_buttons:
-		var i := int(t.get_meta("level"))
-		t.add_theme_color_override("font_color", AMBER if i == board_level else INK)
+		_style_choice(t, int(t.get_meta("level")) == board_level)
+
+
+func _style_choice(b: Button, selected: bool) -> void:
+	var base := StyleBoxFlat.new()
+	base.bg_color = Color(0.024, 0.02, 0.016, 0.8)
+	base.border_color = AMBER if selected else Color(0.16, 0.15, 0.12)
+	base.set_border_width_all(2 if selected else 1)
+	base.set_content_margin_all(4)
+	var hover := base.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.13, 0.12, 0.10, 0.95)
+	if not selected:
+		hover.border_color = Color(0.42, 0.40, 0.33)
+	b.add_theme_stylebox_override("normal", base)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_color_override("font_color", AMBER if selected else INK)
+	b.add_theme_color_override("font_hover_color", AMBER if selected else INK)
 
 
 func select_mode(i: int) -> void:

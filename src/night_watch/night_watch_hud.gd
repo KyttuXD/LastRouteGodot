@@ -11,6 +11,8 @@ signal next_pressed
 signal menu_pressed
 signal resume_pressed
 signal subtitles_toggled(on: bool)
+signal pause_requested
+signal cameras_requested
 
 const AMBER := Color(0.96, 0.72, 0.28)
 const INK := Color(0.93, 0.89, 0.80)
@@ -26,6 +28,10 @@ var note_label: Label
 var _note_left := 0.0
 var call_panel: PanelContainer
 var call_label: Label
+var call_mute: Button
+var pause_button: Button
+var cameras_button: Button
+var call_script: NightWatchCallScript
 
 var monitor_root: Control
 var feed_viewport: SubViewport
@@ -44,10 +50,12 @@ var end_next: Button
 var _call_queue: Array = []
 var _call_timer := 0.0
 var _call_active := false
+var _script_shown := false
 var muted := false
 var subtitles := true
 var subtitles_button: Button
 var shown_call := ""
+var mode_text := ""   # "1. Classic · Night 1", set by the mode scene
 
 
 func _ready() -> void:
@@ -82,20 +90,50 @@ func _build_status(root: Control) -> void:
 	box.position = Vector2(8, 6)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(box)
-	clock_label = _label("12 AM", 16, AMBER)
+	# the 2D shift HUD: power and usage top left with the mode and night under them, the clock top right with a Pause button
+	clock_label = _label("12 AM", 12, INK)
 	clock_label.name = "ClockLabel"
-	night_label = _label("NIGHT 1", 8)
-	night_label.name = "NightLabel"
-	power_label = _label("POWER 100%", 9)
+	clock_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	clock_label.offset_left = -62
+	clock_label.offset_right = -8
+	clock_label.offset_top = 6
+	clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	root.add_child(clock_label)
+	pause_button = Button.new()
+	pause_button.name = "PauseButton"
+	pause_button.text = "Ⅱ Pause"
+	pause_button.focus_mode = Control.FOCUS_NONE
+	pause_button.add_theme_font_size_override("font_size", 6)
+	pause_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	pause_button.offset_left = -44
+	pause_button.offset_right = -8
+	pause_button.offset_top = 22
+	pause_button.pressed.connect(func(): pause_requested.emit())
+	root.add_child(pause_button)
+	power_label = _label("Power left: 100%", 9)
 	power_label.name = "PowerLabel"
-	usage_label = _label("USAGE", 7)
+	usage_label = _label("Usage: ▮", 9)
 	usage_label.name = "UsageLabel"
-	for l in [clock_label, night_label, power_label, usage_label]:
+	night_label = _label("1. Classic · Night 1", 7, Color(0.54, 0.52, 0.45))
+	night_label.name = "NightLabel"
+	for l in [power_label, usage_label, night_label]:
 		box.add_child(l)
-	hint_label = _label("WASD move   E use   hold E on LIGHT   Z / X doors   G / H lights   U monitor   Y lamp   R radio   P pause", 7, Color(0.7, 0.68, 0.62))
+	cameras_button = Button.new()
+	cameras_button.name = "CamerasButton"
+	cameras_button.text = "▲ CAMERAS  U"
+	cameras_button.focus_mode = Control.FOCUS_NONE
+	cameras_button.add_theme_font_size_override("font_size", 6)
+	cameras_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	cameras_button.offset_left = -45
+	cameras_button.offset_right = 45
+	cameras_button.offset_top = -17
+	cameras_button.offset_bottom = -5
+	cameras_button.pressed.connect(func(): cameras_requested.emit())
+	root.add_child(cameras_button)
+	hint_label = _label("WASD move · E use (hold on LIGHT) · Z / X doors · G / H lights · U cameras · Y lamp · R mute · P pause", 6, Color(0.54, 0.52, 0.45))
 	hint_label.name = "HintLabel"
 	hint_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint_label.position = Vector2(8, -14)
+	hint_label.position = Vector2(8, -22)
 	hint_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	root.add_child(hint_label)
 	# the shared crosshair (it follows MouseLock) and the shared interaction prompt (the route HUD's InteractionLabel, same style)
@@ -130,25 +168,46 @@ func _build_status(root: Control) -> void:
 	root.add_child(note_label)
 
 
+## Zellia's call box, as the 2D .ncall: centred, 60% of the width, bottom at 10% of the height, black 78% fill, a grey-brown border, the
+## amber letter-spaced name, the typed text growing to fill, and the Mute button at the right (the 2D key is N; here the shared radio key R).
 func _build_call(root: Control) -> void:
 	call_panel = PanelContainer.new()
 	call_panel.name = "CallPanel"
 	call_panel.visible = false
 	call_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
-	style.bg_color = PANEL
-	style.set_content_margin_all(5)
-	style.border_color = AMBER.darkened(0.3)
+	style.bg_color = Color(0, 0, 0, 0.78)
+	style.content_margin_left = 6
+	style.content_margin_right = 6
+	style.content_margin_top = 3
+	style.content_margin_bottom = 3
+	style.border_color = Color("5a5446")
 	style.set_border_width_all(1)
 	call_panel.add_theme_stylebox_override("panel", style)
-	call_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	call_panel.custom_minimum_size = Vector2(380, 0)
-	call_panel.position = Vector2(-190, -52)
+	call_panel.anchor_left = 0.2
+	call_panel.anchor_right = 0.8
+	call_panel.anchor_top = 0.9      # the bottom edge at 10% of the height, at any resolution
+	call_panel.anchor_bottom = 0.9
 	call_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	call_label = _label("", 8)
+	var row := HBoxContainer.new()
+	row.name = "CallRow"
+	row.add_theme_constant_override("separation", 6)
+	call_panel.add_child(row)
+	var who := _label("Z E L L I A", 6, AMBER)
+	who.name = "CallName"
+	row.add_child(who)
+	call_label = _label("", 7)
+	call_label.name = "CallText"
 	call_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	call_label.custom_minimum_size = Vector2(370, 0)
-	call_panel.add_child(call_label)
+	call_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(call_label)
+	call_mute = Button.new()
+	call_mute.name = "CallMute"
+	call_mute.text = "Mute  R"
+	call_mute.focus_mode = Control.FOCUS_NONE
+	call_mute.add_theme_font_size_override("font_size", 6)
+	call_mute.pressed.connect(toggle_mute)
+	row.add_child(call_mute)
 	root.add_child(call_panel)
 
 
@@ -324,9 +383,12 @@ func _card(root: Control, card_name: String, title: String, body: String) -> Con
 
 func update_status(hour: int, power: float, usage: int, night: int) -> void:
 	clock_label.text = NightWatchData.hour_label(hour)
-	night_label.text = "NIGHT %d" % night
-	power_label.text = "POWER %d%%" % int(ceil(power))
-	usage_label.text = "USAGE " + "|".repeat(clampi(usage, 0, 6)) + ".".repeat(maxi(0, 4 - usage))
+	if mode_text.is_empty():
+		night_label.text = "1. Classic · Night %d" % night
+	else:
+		night_label.text = mode_text
+	power_label.text = "Power left: %d%%" % int(ceil(power))
+	usage_label.text = "Usage: " + "▮".repeat(clampi(usage + 1, 1, 7))
 
 
 func set_prompt(text: String) -> void:
@@ -362,6 +424,7 @@ func show_call(text: String) -> void:
 	shown_call = text
 	call_label.text = text
 	call_panel.visible = not text.is_empty() and not muted and subtitles
+	hint_label.visible = not call_panel.visible   # the key line yields to the call box, which sits where it does
 
 
 func set_subtitles(on: bool) -> void:
@@ -371,10 +434,33 @@ func set_subtitles(on: bool) -> void:
 	call_panel.visible = not shown_call.is_empty() and not muted and subtitles
 
 
+## Zellia's script for this shift (NightWatchCallScript); the game feeds it the shift clock through update_call().
+func set_call_script(script: NightWatchCallScript) -> void:
+	call_script = script
+	_call_active = false
+	show_call("")
+
+
+func update_call(elapsed_ms: float, dt_ms: float) -> void:
+	if call_script == null:
+		return
+	for e in call_script.update(elapsed_ms, dt_ms):
+		match String(e):
+			"ring":
+				NightWatchSounds.call_ring()
+			"talk":
+				NightWatchSounds.call_line()
+	if call_script.open:
+		show_call(call_script.text)
+		_script_shown = true
+	elif _script_shown:
+		_script_shown = false
+		show_call("")
+
+
+## A call given as plain lines (the old interface): wraps them in a script that rings at once.
 func queue_call(lines: Array) -> void:
-	_call_queue = lines.duplicate()
-	_call_timer = 0.0
-	_call_active = not _call_queue.is_empty()
+	set_call_script(NightWatchCallScript.new(lines, 0.0))
 
 
 func _process(delta: float) -> void:
@@ -388,21 +474,16 @@ func _process(delta: float) -> void:
 	elif static_rect.color.a > 0.0:
 		static_rect.color.a = 0.0
 	rec_label.visible = monitor_root.visible and int(Time.get_ticks_msec() / 600) % 2 == 0
-	if not _call_active:
-		return
-	_call_timer -= delta
-	if _call_timer <= 0.0:
-		if _call_queue.is_empty():
-			_call_active = false
-			show_call("")
-		else:
-			show_call(String(_call_queue.pop_front()))
-			_call_timer = 5.5
 
 
+## Mute ends the call (2D `call.mute()`): the box closes and she does not ring again this shift.
 func toggle_mute() -> void:
-	muted = not muted
-	call_panel.visible = not muted and not shown_call.is_empty() and subtitles
+	if call_script != null and call_script.mute():
+		muted = true
+		show_call("")
+		return
+	muted = true
+	call_panel.visible = false
 
 
 func show_pause(on: bool) -> void:

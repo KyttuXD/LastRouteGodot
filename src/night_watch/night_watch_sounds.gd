@@ -58,6 +58,12 @@ static func hour_change() -> void:
 	office("shift")
 
 
+## The call's ring (2D sfx.ring), when "Incoming call..." comes up.
+static func call_ring() -> void:
+	office("control", 0.0, 1.0)
+
+
+## A talking blip on every second typed word (2D sfx.talk).
 static func call_line() -> void:
 	office("control", 0.0, 0.6)
 
