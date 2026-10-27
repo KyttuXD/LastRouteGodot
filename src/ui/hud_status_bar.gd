@@ -27,10 +27,10 @@ func _init() -> void:
 	clip_contents = true
 	add_to_group(GROUP)
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.078, 0.043, 0.063, 0.88)
-	box.border_color = Color(0.3, 0.14, 0.18, 0.95)
+	box.bg_color = Color(Palette.PANEL, 0.9)
+	box.border_color = Palette.PANEL_EDGE
 	box.set_border_width_all(1)
-	box.set_corner_radius_all(2)
+	box.set_corner_radius_all(maxi(2, Palette.CORNER))
 	box.content_margin_left = 2
 	box.content_margin_right = 2
 	box.content_margin_top = 1
