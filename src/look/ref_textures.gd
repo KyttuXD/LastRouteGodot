@@ -309,18 +309,6 @@ static func _paint_hazard(variant: int) -> Image:
 
 
 
-## Hospital sheet vinyl: pale sage with a dark speckle and welded seams.
-static func _paint_vinyl(variant: int) -> Image:
-	var rng := _rng("vinyl%d" % variant)
-	var img := _new_image(PX, PX)
-	var base := Color("3f4c47") if variant == 0 else Color("484a43")
-	_noise(img, 0, 0, PX, PX, base, .05, rng)
-	for i in 26:
-		_dot(img, rng.randi_range(0, PX - 1), rng.randi_range(0, PX - 1), _mul(base, .55 if i % 3 else 1.35))
-	_dot(img, 0, 0, _mul(base, .7), PX, 1)
-	return img
-
-
 ## Lab epoxy floor: light grey poured resin on a metre grid, cyan line markers at the joints.
 static func _paint_epoxy(variant: int) -> Image:
 	var rng := _rng("epoxy%d" % variant)
@@ -820,7 +808,6 @@ const FLOOR_PAINTERS := {
 	"vinyl0": [&"_paint_vinyl", 0], "vinyl1": [&"_paint_vinyl", 1], "concrete0": [&"_paint_concrete", 0],
 	"concrete1": [&"_paint_concrete", 1],
 	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
-	"vinyl0": [&"_paint_vinyl", 0], "vinyl1": [&"_paint_vinyl", 1],
 	"epoxy0": [&"_paint_epoxy", 0], "epoxy1": [&"_paint_epoxy", 1],
 	"terracotta0": [&"_paint_terracotta", 0], "terracotta1": [&"_paint_terracotta", 1],
 }
