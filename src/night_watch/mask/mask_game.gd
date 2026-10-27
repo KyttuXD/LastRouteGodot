@@ -12,6 +12,7 @@ extends NightWatchMode
 enum State { PLAYING, PAUSED, WON, LOST }
 
 const WIN_TEXT := "You held the wing until 6 AM."
+const HINT := "WASD move   E use   Z mask   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
 const HOLDS := [["lightL", "vent", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "doorR_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
 
 var night := 1
@@ -114,7 +115,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
-	hud.hint_label.text = "WASD move   E use   Z mask   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
+	hud.hint_label.text = HINT
 	_build_map_buttons()
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -254,12 +255,14 @@ func _on_control_event(e: Dictionary) -> void:
 		"up":
 			if panel == "monitor":
 				monitor_up = true
+				hud.hint_label.text = "%s / %s or 1-8 camera   %s or %s close   hold %s wind (CAM 1)   hold %s / %s vent light on CAM 6 / 7" % [NightWatchControls.key_text(NightWatchControls.CAM_PREV), NightWatchControls.key_text(NightWatchControls.CAM_NEXT), NightWatchControls.key_text(NightWatchControls.MONITOR), NightWatchControls.key_text(&"interact"), NightWatchControls.key_text(&"office_radio"), NightWatchControls.key_text(NightWatchControls.LIGHT_LEFT), NightWatchControls.key_text(NightWatchControls.LIGHT_RIGHT)]
 				hud.show_monitor(true)
 				_set_feed(controls.cam)
 				hud.flash_static()
 		"lower":
 			if panel == "monitor":
 				monitor_up = false
+				hud.hint_label.text = HINT
 				hud.show_monitor(false)
 				NightWatchSounds.monitor_toggle()
 		"lamp":
@@ -580,12 +583,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif monitor_up:
 		if event.is_action_pressed(&"interact"):
 			press("monitor")
-			return
-		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_LEFT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_LEFT):
+		elif event.is_action_pressed(NightWatchControls.CAM_PREV):
 			cycle_camera(-1)
-		elif (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_RIGHT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_RIGHT):
+		elif event.is_action_pressed(NightWatchControls.CAM_NEXT):
 			cycle_camera(1)
 		else:
 			for n in range(1, 9):
