@@ -118,31 +118,85 @@
   "bedroomNightstand_0.glb",
   "bedroomNightstand_1.glb",
   "bedroomNightstand_2.glb",
-  "bedroomNightstand_3.glb"
+  "bedroomNightstand_3.glb",
+  "bedroomNightstand_4.glb",
+  "bedroomNightstand_5.glb",
+  "bedroomNightstand_6.glb",
+  "bedroomNightstand_7.glb",
+  "bedroomNightstand_8.glb",
+  "bedroomNightstand_9.glb"
  ],
  "bedroomDresser": [
   "bedroomDresser_0.glb",
   "bedroomDresser_1.glb",
-  "bedroomDresser_2.glb"
+  "bedroomDresser_2.glb",
+  "bedroomDresser_3.glb",
+  "bedroomDresser_4.glb",
+  "bedroomDresser_5.glb",
+  "bedroomDresser_6.glb",
+  "bedroomDresser_7.glb",
+  "bedroomDresser_8.glb",
+  "bedroomDresser_9.glb"
  ],
  "woodenDresserSideboard": [
   "woodenDresserSideboard_0.glb",
   "woodenDresserSideboard_1.glb",
-  "woodenDresserSideboard_2.glb"
+  "woodenDresserSideboard_2.glb",
+  "woodenDresserSideboard_3.glb",
+  "woodenDresserSideboard_4.glb",
+  "woodenDresserSideboard_5.glb",
+  "woodenDresserSideboard_6.glb",
+  "woodenDresserSideboard_7.glb",
+  "woodenDresserSideboard_8.glb",
+  "woodenDresserSideboard_9.glb"
  ],
  "gothicDresser": [
-  "gothicDresser.glb"
+  "gothicDresser_0.glb",
+  "gothicDresser_1.glb",
+  "gothicDresser_2.glb",
+  "gothicDresser_3.glb",
+  "gothicDresser_4.glb",
+  "gothicDresser_5.glb",
+  "gothicDresser_6.glb",
+  "gothicDresser_7.glb",
+  "gothicDresser_8.glb",
+  "gothicDresser_9.glb"
  ],
  "gothicNightstand": [
-  "gothicNightstand.glb"
+  "gothicNightstand_0.glb",
+  "gothicNightstand_1.glb",
+  "gothicNightstand_2.glb",
+  "gothicNightstand_3.glb",
+  "gothicNightstand_4.glb",
+  "gothicNightstand_5.glb",
+  "gothicNightstand_6.glb",
+  "gothicNightstand_7.glb",
+  "gothicNightstand_8.glb",
+  "gothicNightstand_9.glb"
  ],
  "diningSideboard": [
   "diningSideboard_0.glb",
   "diningSideboard_1.glb",
-  "diningSideboard_2.glb"
+  "diningSideboard_2.glb",
+  "diningSideboard_3.glb",
+  "diningSideboard_4.glb",
+  "diningSideboard_5.glb",
+  "diningSideboard_6.glb",
+  "diningSideboard_7.glb",
+  "diningSideboard_8.glb",
+  "diningSideboard_9.glb"
  ],
  "mansionConsoleTable": [
-  "mansionConsoleTable.glb"
+  "mansionConsoleTable_0.glb",
+  "mansionConsoleTable_1.glb",
+  "mansionConsoleTable_2.glb",
+  "mansionConsoleTable_3.glb",
+  "mansionConsoleTable_4.glb",
+  "mansionConsoleTable_5.glb",
+  "mansionConsoleTable_6.glb",
+  "mansionConsoleTable_7.glb",
+  "mansionConsoleTable_8.glb",
+  "mansionConsoleTable_9.glb"
  ],
  "normalTvConsole": [
   "normalTvConsole_0.glb",
@@ -215,28 +269,44 @@
   "officeChair_4.glb"
  ],
  "retroComputerDesktop": [
-  "retroComputerDesktop.glb"
+  "retroComputerDesktop_0.glb",
+  "retroComputerDesktop_1.glb",
+  "retroComputerDesktop_2.glb"
  ],
  "retroComputerCompact": [
-  "retroComputerCompact.glb"
+  "retroComputerCompact_0.glb",
+  "retroComputerCompact_1.glb",
+  "retroComputerCompact_2.glb"
  ],
  "retroComputerTower": [
-  "retroComputerTower.glb"
+  "retroComputerTower_0.glb",
+  "retroComputerTower_1.glb",
+  "retroComputerTower_2.glb"
  ],
  "retroComputerTerminal": [
-  "retroComputerTerminal.glb"
+  "retroComputerTerminal_0.glb",
+  "retroComputerTerminal_1.glb",
+  "retroComputerTerminal_2.glb"
  ],
  "officeCrtSecurityConsole": [
-  "officeCrtSecurityConsole.glb"
+  "officeCrtSecurityConsole_0.glb",
+  "officeCrtSecurityConsole_1.glb",
+  "officeCrtSecurityConsole_2.glb"
  ],
  "filingCabinet": [
-  "filingCabinet.glb"
+  "filingCabinet_0.glb",
+  "filingCabinet_1.glb",
+  "filingCabinet_2.glb"
  ],
  "locker": [
-  "locker.glb"
+  "locker_0.glb",
+  "locker_1.glb",
+  "locker_2.glb"
  ],
  "vendingMachine": [
-  "vendingMachine.glb"
+  "vendingMachine_0.glb",
+  "vendingMachine_1.glb",
+  "vendingMachine_2.glb"
  ],
  "arcadeCabinet": [
   "arcadeCabinet_0.glb",
@@ -249,25 +319,38 @@
   "arcadeCabinetCyanMagenta_2.glb"
  ],
  "serverRack": [
-  "serverRack.glb"
+  "serverRack_0.glb",
+  "serverRack_1.glb",
+  "serverRack_2.glb"
  ],
  "breakerCabinet": [
-  "breakerCabinet.glb"
+  "breakerCabinet_0.glb",
+  "breakerCabinet_1.glb",
+  "breakerCabinet_2.glb"
  ],
  "tableLamp": [
   "tableLamp_0.glb",
   "tableLamp_1.glb",
-  "tableLamp_2.glb"
+  "tableLamp_2.glb",
+  "tableLamp_3.glb",
+  "tableLamp_4.glb",
+  "tableLamp_5.glb"
  ],
  "bedsideLamp": [
   "bedsideLamp_0.glb",
   "bedsideLamp_1.glb",
-  "bedsideLamp_2.glb"
+  "bedsideLamp_2.glb",
+  "bedsideLamp_3.glb",
+  "bedsideLamp_4.glb",
+  "bedsideLamp_5.glb"
  ],
  "floorLamp": [
   "floorLamp_0.glb",
   "floorLamp_1.glb",
-  "floorLamp_2.glb"
+  "floorLamp_2.glb",
+  "floorLamp_3.glb",
+  "floorLamp_4.glb",
+  "floorLamp_5.glb"
  ],
  "ceilingLight": [
   "ceilingLight.glb"
@@ -280,7 +363,8 @@
  ],
  "supplyCrates": [
   "supplyCrates_0.glb",
-  "supplyCrates_1.glb"
+  "supplyCrates_1.glb",
+  "supplyCrates_2.glb"
  ],
  "charredSupplyCrate": [
   "charredSupplyCrate.glb"
@@ -305,48 +389,69 @@
   "gothicKitchenCounter_2.glb"
  ],
  "normalKitchenIsland": [
-  "normalKitchenIsland.glb"
+  "normalKitchenIsland_0.glb",
+  "normalKitchenIsland_1.glb",
+  "normalKitchenIsland_2.glb"
  ],
  "luxuryKitchenIsland": [
-  "luxuryKitchenIsland.glb"
+  "luxuryKitchenIsland_0.glb",
+  "luxuryKitchenIsland_1.glb",
+  "luxuryKitchenIsland_2.glb"
  ],
  "gothicKitchenIsland": [
-  "gothicKitchenIsland.glb"
+  "gothicKitchenIsland_0.glb",
+  "gothicKitchenIsland_1.glb",
+  "gothicKitchenIsland_2.glb"
  ],
  "normalKitchenFridge": [
-  "normalKitchenFridge.glb"
+  "normalKitchenFridge_0.glb",
+  "normalKitchenFridge_1.glb",
+  "normalKitchenFridge_2.glb"
  ],
  "luxuryKitchenFridge": [
-  "luxuryKitchenFridge.glb"
+  "luxuryKitchenFridge_0.glb",
+  "luxuryKitchenFridge_1.glb",
+  "luxuryKitchenFridge_2.glb"
  ],
  "gothicKitchenFridge": [
-  "gothicKitchenFridge.glb"
+  "gothicKitchenFridge_0.glb",
+  "gothicKitchenFridge_1.glb",
+  "gothicKitchenFridge_2.glb"
  ],
  "normalKitchenStove": [
-  "normalKitchenStove.glb"
+  "normalKitchenStove_0.glb",
+  "normalKitchenStove_1.glb",
+  "normalKitchenStove_2.glb"
  ],
  "luxuryKitchenStove": [
-  "luxuryKitchenStove.glb"
+  "luxuryKitchenStove_0.glb",
+  "luxuryKitchenStove_1.glb",
+  "luxuryKitchenStove_2.glb"
  ],
  "gothicKitchenStove": [
-  "gothicKitchenStove.glb"
+  "gothicKitchenStove_0.glb",
+  "gothicKitchenStove_1.glb",
+  "gothicKitchenStove_2.glb"
  ],
  "houseToilet": [
   "houseToilet_0.glb",
-  "houseToilet_1.glb"
+  "houseToilet_1.glb",
+  "houseToilet_2.glb"
  ],
  "publicRestroomToilet": [
-  "publicRestroomToilet.glb"
+  "publicRestroomToilet_0.glb",
+  "publicRestroomToilet_1.glb",
+  "publicRestroomToilet_2.glb"
  ],
  "bathroomSink": [
   "bathroomSink_0.glb",
   "bathroomSink_1.glb",
-  "bathroomSink_2.glb",
-  "bathroomSink_3.glb"
+  "bathroomSink_2.glb"
  ],
  "houseBathtub": [
   "houseBathtub_0.glb",
-  "houseBathtub_1.glb"
+  "houseBathtub_1.glb",
+  "houseBathtub_2.glb"
  ],
  "apartmentCarpet": [
   "apartmentCarpet_0.glb",
@@ -449,16 +554,24 @@
   "publicWomensRoomSign.glb"
  ],
  "bathroomStall": [
-  "bathroomStall.glb"
+  "bathroomStall_0.glb",
+  "bathroomStall_1.glb",
+  "bathroomStall_2.glb"
  ],
  "bathroomVanity": [
-  "bathroomVanity.glb"
+  "bathroomVanity_0.glb",
+  "bathroomVanity_1.glb",
+  "bathroomVanity_2.glb"
  ],
  "houseBathroomShelf": [
-  "houseBathroomShelf.glb"
+  "houseBathroomShelf_0.glb",
+  "houseBathroomShelf_1.glb",
+  "houseBathroomShelf_2.glb"
  ],
  "houseMedicineCabinet": [
-  "houseMedicineCabinet.glb"
+  "houseMedicineCabinet_0.glb",
+  "houseMedicineCabinet_1.glb",
+  "houseMedicineCabinet_2.glb"
  ],
  "houseTowelRack": [
   "houseTowelRack_0.glb",
@@ -478,7 +591,9 @@
   "publicMensUrinal.glb"
  ],
  "publicSinkBank": [
-  "publicSinkBank.glb"
+  "publicSinkBank_0.glb",
+  "publicSinkBank_1.glb",
+  "publicSinkBank_2.glb"
  ],
  "publicBabyChangeStation": [
   "publicBabyChangeStation_0.glb",
@@ -497,7 +612,9 @@
   "publicSoapDispenser.glb"
  ],
  "publicShowerBench": [
-  "publicShowerBench.glb"
+  "publicShowerBench_0.glb",
+  "publicShowerBench_1.glb",
+  "publicShowerBench_2.glb"
  ],
  "laundryHamper": [
   "laundryHamper_0.glb",
@@ -514,10 +631,14 @@
   "gothicBedroomBench_1.glb"
  ],
  "bedroomVanity": [
-  "bedroomVanity.glb"
+  "bedroomVanity_0.glb",
+  "bedroomVanity_1.glb",
+  "bedroomVanity_2.glb"
  ],
  "gothicVanity": [
-  "gothicVanity.glb"
+  "gothicVanity_0.glb",
+  "gothicVanity_1.glb",
+  "gothicVanity_2.glb"
  ],
  "vanityStool": [
   "vanityStool_0.glb",
@@ -534,14 +655,18 @@
   "bunkBed_2.glb"
  ],
  "prisonBunk": [
-  "prisonBunk.glb"
+  "prisonBunk_0.glb",
+  "prisonBunk_1.glb",
+  "prisonBunk_2.glb"
  ],
  "gothicDoubleBed": [
   "gothicDoubleBed_0.glb",
   "gothicDoubleBed_1.glb"
  ],
  "gothicCoffinChest": [
-  "gothicCoffinChest.glb"
+  "gothicCoffinChest_0.glb",
+  "gothicCoffinChest_1.glb",
+  "gothicCoffinChest_2.glb"
  ],
  "toyChest": [
   "toyChest_0.glb",
@@ -557,7 +682,9 @@
   "normalEntryBench_2.glb"
  ],
  "magazineRack": [
-  "magazineRack.glb"
+  "magazineRack_0.glb",
+  "magazineRack_1.glb",
+  "magazineRack_2.glb"
  ],
  "mansionChaiseLounge": [
   "mansionChaiseLounge_0.glb",
@@ -570,19 +697,27 @@
   "mansionRockingChair_2.glb"
  ],
  "mansionTeaCart": [
-  "mansionTeaCart.glb"
+  "mansionTeaCart_0.glb",
+  "mansionTeaCart_1.glb",
+  "mansionTeaCart_2.glb"
  ],
  "mansionUprightPiano": [
-  "mansionUprightPiano.glb"
+  "mansionUprightPiano_0.glb",
+  "mansionUprightPiano_1.glb",
+  "mansionUprightPiano_2.glb"
  ],
  "mansionGrandfatherClock": [
-  "mansionGrandfatherClock.glb"
+  "mansionGrandfatherClock_0.glb",
+  "mansionGrandfatherClock_1.glb",
+  "mansionGrandfatherClock_2.glb"
  ],
  "mansionFireplace": [
   "mansionFireplace.glb"
  ],
  "mansionDisplayCabinet": [
-  "mansionDisplayCabinet.glb"
+  "mansionDisplayCabinet_0.glb",
+  "mansionDisplayCabinet_1.glb",
+  "mansionDisplayCabinet_2.glb"
  ],
  "mansionCoatRack": [
   "mansionCoatRack_0.glb",
@@ -606,7 +741,9 @@
   "gothicPedestalTable_1.glb"
  ],
  "gothicWritingDesk": [
-  "gothicWritingDesk.glb"
+  "gothicWritingDesk_0.glb",
+  "gothicWritingDesk_1.glb",
+  "gothicWritingDesk_2.glb"
  ],
  "gothicBedsideCandelabra": [
   "gothicBedsideCandelabra.glb"
@@ -624,16 +761,24 @@
   "backstageRepairStand.glb"
  ],
  "utilityCart": [
-  "utilityCart.glb"
+  "utilityCart_0.glb",
+  "utilityCart_1.glb",
+  "utilityCart_2.glb"
  ],
  "maintenanceCleaningCart": [
-  "maintenanceCleaningCart.glb"
+  "maintenanceCleaningCart_0.glb",
+  "maintenanceCleaningCart_1.glb",
+  "maintenanceCleaningCart_2.glb"
  ],
  "maintenanceToolCabinet": [
-  "maintenanceToolCabinet.glb"
+  "maintenanceToolCabinet_0.glb",
+  "maintenanceToolCabinet_1.glb",
+  "maintenanceToolCabinet_2.glb"
  ],
  "officeCornerWorkstation": [
-  "officeCornerWorkstation.glb"
+  "officeCornerWorkstation_0.glb",
+  "officeCornerWorkstation_1.glb",
+  "officeCornerWorkstation_2.glb"
  ],
  "officeCubiclePartition": [
   "officeCubiclePartition_0.glb",
@@ -641,49 +786,79 @@
   "officeCubiclePartition_2.glb"
  ],
  "officeFileBoxes": [
-  "officeFileBoxes.glb"
+  "officeFileBoxes_0.glb",
+  "officeFileBoxes_1.glb",
+  "officeFileBoxes_2.glb"
  ],
  "officePhotocopier": [
-  "officePhotocopier.glb"
+  "officePhotocopier_0.glb",
+  "officePhotocopier_1.glb",
+  "officePhotocopier_2.glb"
  ],
  "officePrinter": [
-  "officePrinter.glb"
+  "officePrinter_0.glb",
+  "officePrinter_1.glb",
+  "officePrinter_2.glb"
  ],
  "officeShredder": [
-  "officeShredder.glb"
+  "officeShredder_0.glb",
+  "officeShredder_1.glb",
+  "officeShredder_2.glb"
  ],
  "officeWaterCooler": [
-  "officeWaterCooler.glb"
+  "officeWaterCooler_0.glb",
+  "officeWaterCooler_1.glb",
+  "officeWaterCooler_2.glb"
  ],
  "normalKitchenSink": [
-  "normalKitchenSink.glb"
+  "normalKitchenSink_0.glb",
+  "normalKitchenSink_1.glb",
+  "normalKitchenSink_2.glb"
  ],
  "luxuryKitchenSink": [
-  "luxuryKitchenSink.glb"
+  "luxuryKitchenSink_0.glb",
+  "luxuryKitchenSink_1.glb",
+  "luxuryKitchenSink_2.glb"
  ],
  "gothicKitchenSink": [
-  "gothicKitchenSink.glb"
+  "gothicKitchenSink_0.glb",
+  "gothicKitchenSink_1.glb",
+  "gothicKitchenSink_2.glb"
  ],
  "normalKitchenWallCabinet": [
-  "normalKitchenWallCabinet.glb"
+  "normalKitchenWallCabinet_0.glb",
+  "normalKitchenWallCabinet_1.glb",
+  "normalKitchenWallCabinet_2.glb"
  ],
  "luxuryKitchenWallCabinet": [
-  "luxuryKitchenWallCabinet.glb"
+  "luxuryKitchenWallCabinet_0.glb",
+  "luxuryKitchenWallCabinet_1.glb",
+  "luxuryKitchenWallCabinet_2.glb"
  ],
  "gothicKitchenWallCabinet": [
-  "gothicKitchenWallCabinet.glb"
+  "gothicKitchenWallCabinet_0.glb",
+  "gothicKitchenWallCabinet_1.glb",
+  "gothicKitchenWallCabinet_2.glb"
  ],
  "prisonKitchenRack": [
-  "prisonKitchenRack.glb"
+  "prisonKitchenRack_0.glb",
+  "prisonKitchenRack_1.glb",
+  "prisonKitchenRack_2.glb"
  ],
  "prisonServingCounter": [
-  "prisonServingCounter.glb"
+  "prisonServingCounter_0.glb",
+  "prisonServingCounter_1.glb",
+  "prisonServingCounter_2.glb"
  ],
  "prisonCafeteriaTable": [
-  "prisonCafeteriaTable.glb"
+  "prisonCafeteriaTable_0.glb",
+  "prisonCafeteriaTable_1.glb",
+  "prisonCafeteriaTable_2.glb"
  ],
  "prisonTrayReturn": [
-  "prisonTrayReturn.glb"
+  "prisonTrayReturn_0.glb",
+  "prisonTrayReturn_1.glb",
+  "prisonTrayReturn_2.glb"
  ],
  "prisonCellGate": [
   "prisonCellGate.glb"
@@ -692,7 +867,9 @@
   "dungeonCage.glb"
  ],
  "restraintChair": [
-  "restraintChair.glb"
+  "restraintChair_0.glb",
+  "restraintChair_1.glb",
+  "restraintChair_2.glb"
  ],
  "arcadeBasketballHoop": [
   "arcadeBasketballHoop_0.glb",
@@ -774,7 +951,9 @@
   "frozenTidelinePool.glb"
  ],
  "gardenPlanterBench": [
-  "gardenPlanterBench.glb"
+  "gardenPlanterBench_0.glb",
+  "gardenPlanterBench_1.glb",
+  "gardenPlanterBench_2.glb"
  ],
  "giantTree": [
   "giantTree.glb"
@@ -807,7 +986,8 @@
   "basaltRubble.glb"
  ],
  "brokenAquarium": [
-  "brokenAquarium.glb"
+  "brokenAquarium_0.glb",
+  "brokenAquarium_1.glb"
  ],
  "emberBrazier": [
   "emberBrazier.glb"

@@ -13,13 +13,13 @@ const revision = String(revisionSource.revision || "").trim().toLowerCase();
 if (!/^[a-f0-9]{7,40}$/.test(revision)) throw new Error("Could not read the stamped Git revision");
 
 const artifacts = {
-  linux: "LastRoute-Linux-Debug.zip",
-  windows: "LastRoute-Windows-Debug.zip",
-  windows_legacy: "LastRoute-Windows-Legacy-Debug.zip",
-  macos: "LastRoute-macOS-Debug.zip",
-  web: "LastRoute-Web-Debug.zip",
-  steamvr: "LastRoute-Windows-SteamVR-Debug.zip",
-  quest: "LastRoute-Quest-Debug.apk",
+  linux: "KyttusLab-Linux-Debug.zip",
+  windows: "KyttusLab-Windows-Debug.zip",
+  windows_legacy: "KyttusLab-Windows-Legacy-Debug.zip",
+  macos: "KyttusLab-macOS-Debug.zip",
+  web: "KyttusLab-Web-Debug.zip",
+  steamvr: "KyttusLab-Windows-SteamVR-Debug.zip",
+  quest: "KyttusLab-Quest-Debug.apk",
 };
 
 const debug = {};

@@ -116,3 +116,42 @@ sinks/vanities/mirrors (bathroom), shower enclosures and tubs, floor and table l
 (screen/keyboard parts), display cabinets and the piano, arcade and carnival cabinets, supply crates and shelves, the old non-blocky
 families (maze, mansion, beach, carnival, nether, prison original models are only fallbacks), plants and flowers (no variants), and
 texture density/palette consistency across districts. Collision pass and set dressing belong to the world lane.
+
+# Props rework 3 (DONE14): materials, finishes and the remaining weak families
+
+Contact sheet: `docs/props_rework3_after.png` (rendered headless with `tools/props/render_sheet.py`). Designs live in
+`tools/props/blocky_props_rework3.py`; thuing/ was used read-only for proportions and part breakdowns, nothing copied.
+
+## Materials: eight new finishes in the shared atlas
+
+The shared 128x64 atlas had eight free tiles. They are now `walnut`, `pine` (with knots), `ash`, `mahogany`, `linen`, `teal`, `tile`
+(8 px grout lines) and `grey`, appended after the old 24 so no existing UV moved (every model is rebuilt because the atlas image is
+embedded in each GLB). The wood-style plank lines and the cloth dither apply to the new tiles too, so a pine dresser and an oak one
+share the same texel density. The validator now requires every builder model to sample that one 128x64 atlas (612 surfaces checked).
+
+## Rebuilt families
+
+| Family | Problem | Fix |
+| --- | --- | --- |
+| nightstands, dressers, sideboards, console (7 types) | flat slab with two brass dots | carcass with legs, full-footprint top slab, drawer or door fronts as a raised layer, pulls set into the fronts; per type three layouts (drawers, doors, one row fewer) in four wood finishes |
+| table, bedside and floor lamps | stacked boxes with a flat shade | base, pole, tapered shade of 4-6 layers in amber, paper, white, red or plum; a shorter second shape |
+| stoves, fridges, sinks (normal, luxury, gothic) | slabs; counter, stove and sink tops at 1.12 / 1.0 / 1.38 m | stove with hob, four burners, oven window, handle bar and knob row; two-door fridge with seam and handles; sink with a real basin hole, tap and two cabinet doors; styles differ in body, trim and top; two extra finishes each |
+| toilet, bathtub, pedestal sink | blocks | bowl, seat and lid, cistern with button; tub on brass feet with walls, rim, water and tap; pedestal sink with basin, water and tap; tile and linen finishes |
+| bins, crates | solid cubes | pedal bin with a lid hinged at the back (opened 10 degrees); two stacked plank crates with corner posts, the upper one turned 8 degrees, in oak, pine or ash |
+
+Layering rule for fronts: carcass ends 12.5 cm short of the front, the door or drawer layer is the next 6 cm, handles the last 6 cm,
+so nothing is coplanar and nothing leaves the footprint (the `coplanar` suite still reports no z-fighting).
+
+## Variety: 2-3 looks for every common family
+
+`recolor()` adds finish variants (wood, metal and cloth swaps that only apply where the model has those kinds) to 48 common
+single-model furniture and fixture types (office machines, cabinets, vanities, carts, prison furniture, ...), skipping doors, signs,
+lights, trees and set pieces. 43 common families are checked for at least two looks and seating, chests and lamps for at least four
+(`COMMON_FAMILIES` / `RICH_FAMILIES` in `scripts/validate_props_rework.gd`). Total: 618 models in 204 types (was 438); 62 types
+still have a single model on purpose (doors, signs, trees, flowers, carnival, beach and inferno set pieces).
+
+## Still weak
+
+Doors (six tall regional doors, one look each), flowers and plants (single cube bouquets), arcade and carnival cabinets, sconces and
+chandeliers, the piano, tea cart and display cabinet (finish variants only, shapes unchanged), curtains and drapes, signs. These are
+candidates for a later pass.

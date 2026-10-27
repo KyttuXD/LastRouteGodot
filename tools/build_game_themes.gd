@@ -12,7 +12,7 @@ const THEMES := {
 	},
 	"res://src/ui/theme_nightwatch.tres": {
 		"ground": "050403", "panel": "0f0d0a", "edge": "2a2620", "ink": "e8e2d0", "body": "b8b19c", "muted": "8a8472",
-		"accent": "c4302b", "accent_edge": "e0b04a", "kicker": "e0b04a", "on_accent": "0f0d0a", "alert": "c4302b",
+		"accent": "c4302b", "accent_edge": "e0b04a", "kicker": "e0b04a", "on_accent": "f6f0e2", "alert": "c4302b", "dark_hover": true,
 	},
 }
 
@@ -36,23 +36,30 @@ func _init() -> void:
 		theme.set_default_font_size(8)
 		theme.set_color("font_color", "Label", Color(c["body"]))
 		theme.set_stylebox("panel", "PanelContainer", _box(Color(c["panel"]), Color(c["edge"]), 8, 8))
-		for button_state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		for button_state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
 			var fill := Color(c["panel"])
 			var edge := Color(c["edge"])
 			match button_state:
 				"hover":
 					fill = fill.lightened(0.12)
 					edge = Color(c["accent_edge"])
-				"pressed":
+				"pressed", "hover_pressed":
 					fill = Color(c["accent"]).darkened(0.3)
-				"focus":
-					edge = Color(c["accent_edge"])
+				"disabled":
+					fill = Color(c["ground"])
 			theme.set_stylebox(button_state, "Button", _box(fill, edge, 8, 4))
+		# The focus box is drawn ON TOP of the state's own box, so it must not fill: an opaque focus fill hid the label
+		# (dark text on the dark fill) on a focused primary button.
+		var focus := _box(Color(0, 0, 0, 0), Color(c["accent_edge"]), 8, 4)
+		focus.draw_center = false
+		focus.set_border_width_all(2)
+		theme.set_stylebox("focus", "Button", focus)
 		theme.set_color("font_color", "Button", Color(c["body"]))
 		theme.set_color("font_hover_color", "Button", Color(c["ink"]))
 		theme.set_color("font_focus_color", "Button", Color(c["ink"]))
 		theme.set_color("font_pressed_color", "Button", Color(c["ink"]))
-		theme.set_color("font_disabled_color", "Button", Color(c["muted"]).darkened(0.4))
+		theme.set_color("font_hover_pressed_color", "Button", Color(c["ink"]))
+		theme.set_color("font_disabled_color", "Button", Color(c["muted"]))
 		# variations used by the hub card
 		theme.set_type_variation("GameCard", "PanelContainer")
 		theme.set_stylebox("panel", "GameCard", _box(Color(c["panel"]), Color(c["accent"]), 10, 10))
@@ -69,9 +76,14 @@ func _init() -> void:
 		theme.set_font_size("font_size", "MutedLabel", 6)
 		theme.set_type_variation("PrimaryButton", "Button")
 		theme.set_stylebox("normal", "PrimaryButton", _box(Color(c["accent"]), Color(c["accent_edge"]), 8, 4))
-		theme.set_stylebox("hover", "PrimaryButton", _box(Color(c["accent"]).lightened(0.12), Color(c["accent_edge"]), 8, 4))
-		theme.set_color("font_color", "PrimaryButton", Color(c["on_accent"]))
-		theme.set_color("font_hover_color", "PrimaryButton", Color(c["on_accent"]))
+		theme.set_stylebox("hover", "PrimaryButton", _box(Color(c["accent"]).darkened(0.12) if c.get("dark_hover", false) else Color(c["accent"]).lightened(0.12), Color(c["accent_edge"]), 8, 4))
+		theme.set_stylebox("pressed", "PrimaryButton", _box(Color(c["accent"]).darkened(0.1), Color(c["accent_edge"]), 8, 4))
+		theme.set_stylebox("hover_pressed", "PrimaryButton", _box(Color(c["accent"]).darkened(0.1), Color(c["accent_edge"]), 8, 4))
+		theme.set_stylebox("disabled", "PrimaryButton", _box(Color(c["ground"]), Color(c["edge"]), 8, 4))
+		theme.set_stylebox("focus", "PrimaryButton", focus)
+		for color_name in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			theme.set_color(color_name, "PrimaryButton", Color(c["on_accent"]))
+		theme.set_color("font_disabled_color", "PrimaryButton", Color(c["muted"]))
 		var err := ResourceSaver.save(theme, path)
 		print("%s %s" % [path, "saved" if err == OK else "ERROR %d" % err])
 	quit()

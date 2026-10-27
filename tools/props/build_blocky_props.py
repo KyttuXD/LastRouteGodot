@@ -29,7 +29,9 @@ os.makedirs(OUT, exist_ok=True)
 # ---- atlas ---------------------------------------------------------------------
 TILES = ["oak", "dark", "red", "plum", "steel", "brass", "screen", "paper",
          "stone", "black", "green", "glass", "amber", "concrete", "porcelain", "rust",
-         "sand", "water", "leaf", "bark", "white", "mirror", "yellow", "blue"]
+         "sand", "water", "leaf", "bark", "white", "mirror", "yellow", "blue",
+         # DONE14: eight more finishes in the free tiles (appended, so every older UV is unchanged)
+         "walnut", "pine", "ash", "mahogany", "linen", "teal", "tile", "grey"]
 COLS = 8                 # atlas is 8 tiles wide, 4 tall (128 x 64)
 AW, AH = COLS * 16, 64
 BASE = {"oak": (150, 112, 62), "dark": (82, 54, 34), "red": (138, 34, 44), "plum": (86, 40, 84),
@@ -37,7 +39,11 @@ BASE = {"oak": (150, 112, 62), "dark": (82, 54, 34), "red": (138, 34, 44), "plum
         "stone": (110, 108, 108), "black": (30, 28, 32), "green": (52, 104, 52), "glass": (70, 110, 160),
         "amber": (255, 176, 64), "concrete": (126, 124, 120), "porcelain": (226, 224, 218), "rust": (128, 74, 44),
         "sand": (214, 190, 126), "water": (52, 140, 190), "leaf": (58, 138, 52), "bark": (92, 66, 40),
-        "white": (232, 232, 228), "mirror": (150, 190, 204), "yellow": (222, 190, 52), "blue": (44, 84, 160)}
+        "white": (232, 232, 228), "mirror": (150, 190, 204), "yellow": (222, 190, 52), "blue": (44, 84, 160),
+        "walnut": (96, 62, 42), "pine": (200, 164, 106), "ash": (186, 172, 148), "mahogany": (112, 46, 36),
+        "linen": (208, 198, 172), "teal": (36, 100, 104), "tile": (212, 224, 226), "grey": (98, 102, 110)}
+WOODISH = ("oak", "dark", "walnut", "pine", "ash", "mahogany")
+CLOTHISH = ("red", "plum", "green", "teal", "linen", "grey")
 
 
 def paint_atlas():
@@ -52,16 +58,20 @@ def paint_atlas():
             for x in range(16):
                 shade = 1.0 + rng.choice([-1, 0, 0, 1]) * .09
                 r, g, b = base
-                if name in ("oak", "dark") and y % 5 == 4:
+                if name in WOODISH and y % 5 == 4:
                     shade *= .72
                 if name == "steel" and x % 4 == 0:
                     shade *= .9
                 if name == "screen":
                     shade *= .8 if y % 2 else 1.15
-                if name in ("red", "plum", "green") and (x + y) % 4 == 0:
+                if name in CLOTHISH and (x + y) % 4 == 0:
                     shade *= .82
                 if name == "stone" and (x % 8 == 0 or y % 8 == 0):
                     shade *= .7
+                if name == "tile" and (x % 8 == 0 or y % 8 == 0):
+                    shade *= .8                                  # grout lines, 8 px tiles
+                if name == "pine" and (x * 5 + y * 2) % 11 < 2:
+                    shade *= .86                                 # knots
                 if name == "porcelain" and (x in (0, 15) or y in (0, 15)):
                     shade *= .88
                 if name == "leaf" and (x * 3 + y * 5) % 7 < 2:
@@ -327,6 +337,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_seating.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
 SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),

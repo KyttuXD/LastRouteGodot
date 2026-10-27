@@ -38,8 +38,26 @@ func run(host: Node) -> int:
 		_expect(button != null, "no launch button for %s" % id)
 		if button != null:
 			_expect(button.disabled == bool(game["locked"]), "%s launch button state disagrees with the registry" % id)
-	for shared in ["AccountButton", "SettingsButton", "AdminButton", "QuitButton"]:
+	for shared in ["AccountButton", "SettingsButton", "AdminButton"]:
 		_expect(hub.find_child(shared, true, false) != null, "hub is missing the %s entry" % shared)
+	# QUIT lives only on the hub (hidden on web), behind a "QUIT TO DESKTOP?" question
+	var quit_button := hub.find_child("QuitButton", true, false) as Button
+	_expect(OS.has_feature("web") or quit_button != null, "hub has no QUIT button")
+	if quit_button != null:
+		quit_button.pressed.emit()
+		await host.get_tree().process_frame
+		_expect(hub.find_child("QuitDialog", true, false) != null and hub.find_child("QuitNoButton", true, false) != null,
+			"QUIT did not ask QUIT TO DESKTOP?")
+		(hub.find_child("QuitNoButton", true, false) as Button).pressed.emit()
+		await host.get_tree().process_frame
+		_expect(hub.find_child("QuitDialog", true, false) == null or (hub.find_child("QuitDialog", true, false) as Node).is_queued_for_deletion(),
+			"NO did not close the quit question")
+	# nothing but the hub (and the updater, after staging an update) quits the app
+	for path in ["res://src/ui/main_menu.gd", "res://src/ui/pause_menu.gd", "res://src/ui/room_lobby.gd", "res://src/ui/run_report.gd",
+			"res://src/main_3d.gd", "res://src/infinite_route_test.gd", "res://src/ui/admin_menu.gd"]:
+		_expect(not FileAccess.get_file_as_string(path).contains("get_tree().quit()"), "%s quits the app; only the hub may" % path)
+	_expect(FileAccess.get_file_as_string("res://src/ui/main_menu.gd").contains("GameRegistry.HUB_SCENE"), "the Last Route menu does not return to the hub")
+	_expect(FileAccess.get_file_as_string("res://scenes/main_menu.tscn").contains('text = "BACK TO GAMES"'), "the menu's last button is not BACK TO GAMES")
 	hub.queue_free()
 	_expect(FileAccess.get_file_as_string("res://src/ui/boot_loading.gd").contains("game_hub.tscn"),
 		"boot does not open the hub")

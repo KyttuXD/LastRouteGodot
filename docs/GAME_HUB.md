@@ -8,7 +8,7 @@ the games: one card per game, plus the entries that belong to no single game.
 | Game list | `src/config/game_registry.gd`: id, title, kicker, tagline, scene, theme, `locked`, `locked_note` |
 | Per-game themes | `src/ui/theme_lastroute.tres`, `src/ui/theme_nightwatch.tres` (regenerate with `tools/build_game_themes.gd`) |
 | Shared entries | ACCOUNT, SETTINGS, ADMIN, QUIT. Account and settings open the existing panels in the Last Route menu on arrival (`GameHub.pending_menu_action`) until they move out of that scene. ADMIN is enabled for admin accounts and says that the tools open inside a run |
-| Back to the hub | `ALL GAMES` in the Last Route menu |
+| Navigation | The hub is the main menu: boot lands on it and every game returns to it. The Last Route menu's last button is `BACK TO GAMES` (it no longer quits), leaving a route, the lobby's `BACK TO GAMES`, and a finished run all go to `GameRegistry.HUB_SCENE`. QUIT exists only on the hub, asks `QUIT TO DESKTOP?` (YES/NO), and is hidden on web builds. Esc on the hub does nothing (it only closes that question) |
 | Captures | `tools/look/hub_capture.tscn` at 1280x720, 1920x1080 and 3440x1440 (`docs/hub_1280x720.png`, `docs/hub_1920x1080.png`, `docs/hub_ultrawide3440x1440.png`) |
 
 The Last Route card plays; the Night Watch card is shown locked with its reason. Flipping `locked` to false and setting a
@@ -41,3 +41,16 @@ Plan, in order:
 7. **Launch.** Flip `locked` to false in `GameRegistry`, set `scene`, add the Night Watch theme to its own menus.
 
 Nothing of Night Watch is ported yet; this page is the plan only.
+
+## Navigation test
+
+`scenes/hub_nav_test.tscn` (`scripts/hub_nav_test.gd`) drives real scene changes from a node under the root:
+
+```sh
+godot --headless --path . res://scenes/hub_nav_test.tscn
+```
+
+Hub -> Last Route menu -> back, twice with the node count compared; Esc stays on the hub; then a real solo route is loaded, left
+(`_leave_test`, which returns to the lobby), and the lobby's back button returns to the hub; game state and orphan nodes are
+checked. It prints `hub_nav ...` and exits non-zero on failure. The `hub` validator also asserts that only the hub contains
+`get_tree().quit()` among the menu, pause, lobby, run report, route and admin scripts.

@@ -19,7 +19,7 @@ scripts/run_multi.sh 2 --local    # 2 windows against a throwaway local backend 
 1. Install the TEST instance once (see "VPS commands" below) and open **TCP 8205** and **UDP 1205** in the provider firewall.
 2. On the Mac: `scripts/export_test_multiplayer.sh` (needs the Godot **4.7.2 export templates**: Godot > Editor > Manage Export
    Templates > Download and Install; this machine does not have them yet). It writes
-   `build/test/LastRoute-TEST-<date>-<revision>-{macOS,Windows,Linux}.zip` (never committed). The builds point at the TEST
+   `build/test/KyttusLab-TEST-<date>-<revision>-{macOS,Windows,Linux}.zip` (never committed). The builds point at the TEST
    instance by default (custom feature `test_server`), show the TEST SERVER badge, and carry the git revision.
 3. Copy the zip to the other computer, unzip, run. macOS: right-click > Open the first time. Windows: SmartScreen > More info > Run.
 4. On both computers: one creates a room, the other joins with the code (or both press PUBLIC ROUTE).

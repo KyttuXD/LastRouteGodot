@@ -43,6 +43,8 @@ const BODY := Color("bcb3a8")
 const MUTED := Color("8c817e")
 ## Disabled controls and their labels.
 const DIM := Color("4c4449")
+## Label colour of a disabled control: dim, but still 3:1 against the panel (DIM is for decoration, not text).
+const DISABLED := Color("766e72")
 
 # -- accents -----------------------------------------------------------------
 ## Section labels, seed text, the selected state of a toggle. The web build
@@ -132,8 +134,9 @@ static func style_button(button: Button, primary: bool, compact: bool = false) -
 	button.add_theme_stylebox_override("hover",
 		button_box(fill.lightened(0.12), edge.lightened(0.2), horizontal_margin,
 			vertical_margin))
+	# pressed: a deeper fill so the light label keeps 4.5:1 (the darkened accent only reached 4.2:1)
 	button.add_theme_stylebox_override("pressed",
-		button_box(fill.darkened(0.2), edge, horizontal_margin, vertical_margin))
+		button_box(ACCENT_DEEP if primary else fill.darkened(0.2), edge, horizontal_margin, vertical_margin))
 	button.add_theme_stylebox_override("focus", button_box(fill,
 		TEAL, horizontal_margin, vertical_margin))
 	button.add_theme_stylebox_override("disabled", button_box(PANEL, PANEL_EDGE,
@@ -142,7 +145,7 @@ static func style_button(button: Button, primary: bool, compact: bool = false) -
 	button.add_theme_color_override("font_hover_color", ON_AMBER if primary else INK)
 	button.add_theme_color_override("font_pressed_color", INK)
 	button.add_theme_color_override("font_focus_color", ON_AMBER if primary else INK)
-	button.add_theme_color_override("font_disabled_color", DIM)
+	button.add_theme_color_override("font_disabled_color", DISABLED)
 
 
 ## Text fields in the join/account dialogs. Keeping this here prevents the

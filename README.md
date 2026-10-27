@@ -1,4 +1,4 @@
-# KYTTU: The Last Route — Godot 4
+# Kyttu's Lab — Godot 4 (home of KYTTU: The Last Route)
 
 Godot 4 migration workspace for [KYTTU: The Last Route](https://github.com/KyttuXD/LastRoute).
 
@@ -236,7 +236,7 @@ and later. This includes Monterey and every newer macOS release. The project
 uses Godot's Compatibility renderer so the Intel minimum is not silently raised
 to the newer Metal-renderer requirement.
 
-`LastRoute-Windows-Legacy-Debug.exe` is the 32-bit SSE2 compatibility build for
+`KyttusLab-Windows-Legacy-Debug.exe` is the 32-bit SSE2 compatibility build for
 older Windows computers whose CPUs cannot start Godot's standard 64-bit SSE4.2
 template. It uses the Compatibility renderer and has a smaller address space,
 so the normal 64-bit Windows build remains preferred whenever it can run. The

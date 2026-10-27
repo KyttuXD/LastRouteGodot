@@ -18,12 +18,25 @@ const TARGETS := {
 	"gothicVanityStool": Vector3(0.4, 0.46, 0.4), "officeDesk": Vector3(1.62, 0.75, 0.75),
 	"normalKitchenCounter": Vector3(1.5, 0.92, 0.69), "luxuryKitchenCounter": Vector3(1.5, 0.92, 0.69),
 	"gothicKitchenCounter": Vector3(1.5, 0.92, 0.69), "normalKitchenSink": Vector3(1.25, 1.12, 0.69),
-	"normalKitchenStove": Vector3(0.88, 0.92, 0.69),
+	"normalKitchenStove": Vector3(0.88, 0.92, 0.69), "normalKitchenFridge": Vector3(0.88, 1.94, 0.81),
+	"bedroomNightstand": Vector3(0.62, 0.69, 0.5), "bedroomDresser": Vector3(1.25, 1.06, 0.56), "gothicNightstand": Vector3(0.62, 0.81, 0.56),
+	"gothicDresser": Vector3(1.38, 1.12, 0.62), "woodenDresserSideboard": Vector3(1.25, 0.94, 0.62), "diningSideboard": Vector3(1.5, 1.06, 0.69),
+	"mansionConsoleTable": Vector3(1.25, 0.88, 0.44), "tableLamp": Vector3(0.38, 0.69, 0.38), "bedsideLamp": Vector3(0.25, 0.69, 0.25),
+	"floorLamp": Vector3(0.38, 1.75, 0.38), "houseToilet": Vector3(0.38, 0.8, 0.69), "houseBathtub": Vector3(1.75, 0.8, 0.75),
+	"bathroomSink": Vector3(0.62, 1.0, 0.38), "trashBin": Vector3(0.5, 0.75, 0.56), "supplyCrates": Vector3(0.75, 0.94, 0.62),
 }
 ## Seat or table-top height each reworked seat stands at (lowest horizontal surface above the floor is not measured; the
 ## overall height bands above catch the 2.1 m highback chair class of bug).
 const SEATS := ["gothicHighbackChair", "restraintChair", "mansionRockingChair", "beachChair", "vanityStool", "gothicVanityStool",
 	"bedroomBench", "gothicBedroomBench"]
+
+const COMMON_FAMILIES := ["woodenChair", "diningChair", "woodenTable", "diningTable", "singleBed", "doubleBed", "bunkBed", "loungeCouch",
+	"loungeCouchWide", "bedroomNightstand", "bedroomDresser", "gothicDresser", "diningSideboard", "normalBookcase", "mansionBookshelf",
+	"bedroomWardrobe", "gothicWardrobe", "tableLamp", "bedsideLamp", "floorLamp", "normalKitchenStove", "normalKitchenFridge",
+	"normalKitchenSink", "luxuryKitchenStove", "gothicKitchenFridge", "houseToilet", "houseBathtub", "bathroomSink", "trashBin",
+	"supplyCrates", "locker", "filingCabinet", "officeDesk", "officeChair", "vendingMachine", "serverRack", "retroComputerDesktop",
+	"bathroomVanity", "mansionDisplayCabinet", "utilityCart", "officePhotocopier", "prisonCafeteriaTable", "restraintChair"]
+const RICH_FAMILIES := ["woodenChair", "diningChair", "bedroomNightstand", "bedroomDresser", "diningSideboard", "tableLamp", "floorLamp"]
 
 var _failures := 0
 var metrics := {}
@@ -52,6 +65,17 @@ func _extent(node: Node, parent: Transform3D = Transform3D.IDENTITY) -> AABB:
 	return total
 
 
+func _textures(node: Node, into: Array) -> void:
+	if node is MeshInstance3D:
+		var mesh := (node as MeshInstance3D).mesh
+		if mesh != null:
+			for i in mesh.get_surface_count():
+				var mat := mesh.surface_get_material(i) as StandardMaterial3D
+				into.append(mat.albedo_texture.get_size() if mat != null and mat.albedo_texture != null else Vector2.ZERO)
+	for child in node.get_children():
+		_textures(child, into)
+
+
 func _variants(type: String) -> Array:
 	var out := []
 	for path in BlockyPropModels.MODELS.get(type, []):
@@ -60,7 +84,9 @@ func _variants(type: String) -> Array:
 			_expect(false, "%s variant %s does not load" % [type, path])
 			continue
 		var node := scene.instantiate()
-		out.append({"path": String(path), "box": _extent(node)})
+		var sizes := []
+		_textures(node, sizes)
+		out.append({"path": String(path), "box": _extent(node), "tex": sizes})
 		node.free()
 	return out
 
@@ -125,7 +151,23 @@ func run(_host: Node) -> int:
 			_expect(box.size.x > 0.04 and box.size.y > 0.04 and box.size.z > 0.04 or box.size.y > 0.01,
 				"%s collapsed to %s: %s" % [type, box.size, entry["path"]])
 			_expect(box.position.y > -0.03, "%s sinks %.2f m below the floor: %s" % [type, -box.position.y, entry["path"]])
-	metrics = {"reworked": checked, "swept": swept}
+	# texture consistency (DONE14): every builder model samples the one shared 128x64 pixel atlas
+	var textured := 0
+	for type in BlockyPropModels.MODELS:
+		if type.ends_with("RoomDoor") or type.ends_with("DoubleRoomDoor"):
+			continue
+		for entry in _variants(type):
+			for size in entry["tex"]:
+				textured += 1
+				_expect(size == Vector2(128, 64), "%s uses a %s texture instead of the shared 128x64 atlas: %s" % [type, size, entry["path"]])
+	# variety (DONE14): the common families have at least two looks, the chests and chairs more
+	for type in COMMON_FAMILIES:
+		var n: int = (BlockyPropModels.MODELS.get(type, []) as Array).size()
+		_expect(n >= 2, "%s has %d model(s); common families need at least 2 looks" % [type, n])
+	for type in RICH_FAMILIES:
+		var n2: int = (BlockyPropModels.MODELS.get(type, []) as Array).size()
+		_expect(n2 >= 4, "%s has %d model(s); seating, chests and lamps need at least 4 looks" % [type, n2])
+	metrics = {"reworked": checked, "swept": swept, "textured": textured}
 	if _failures == 0:
-		print("  props_rework  %d reworked variants at their designed sizes, %d blocky models swept (no floating, sunken or collapsed)" % [checked, swept])
+		print("  props_rework  %d reworked variants at their designed sizes, %d models swept (no floating/sunken/collapsed), %d surfaces on the shared atlas, %d common families with 2+ looks" % [checked, swept, textured, COMMON_FAMILIES.size()])
 	return _failures

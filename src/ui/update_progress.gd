@@ -240,9 +240,9 @@ func _build_ui() -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	panel.add_child(column)
-	column.add_child(_label("ROUTE SYSTEM // UPDATE", Palette.AMBER, 7,
+	column.add_child(_label("LAB SYSTEM // UPDATE", Palette.AMBER, 7,
 		"UpdateKicker"))
-	var title := _label("LAST ROUTE", Palette.INK, 18, "UpdateTitle")
+	var title := _label("KYTTU'S LAB", Palette.INK, 18, "UpdateTitle")
 	title.add_theme_font_override("font", Palette.title_font())
 	column.add_child(title)
 

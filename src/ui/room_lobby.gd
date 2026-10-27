@@ -394,13 +394,13 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO MAIN MENU"
+	leave.text = "BACK TO GAMES"
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
 		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
+		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE))
 	row.add_child(leave)
 
 	return stack

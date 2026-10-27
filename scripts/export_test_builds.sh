@@ -21,17 +21,17 @@ else
 	exit 1
 fi
 
-mkdir -p "${build_dir}/LastRoute-Web-Debug"
+mkdir -p "${build_dir}/KyttusLab-Web-Debug"
 # Desktop presets embed their PCK in the executable. Remove artifacts from
 # older split-PCK exports so local builds and updater archives cannot
 # accidentally keep shipping a stale companion file.
 rm -f -- \
-	"${build_dir}/LastRoute-Linux-Debug.pck" \
-	"${build_dir}/LastRoute-Windows-Debug.pck" \
-	"${build_dir}/LastRoute-Windows-Legacy-Debug.pck" \
-	"${build_dir}/LastRoute-Windows-SteamVR-Debug.pck" \
-	"${build_dir}/LastRoute-iOS-Debug.pck" \
-	"${build_dir}/KYTTU- The Last Route.command"
+	"${build_dir}/KyttusLab-Linux-Debug.pck" \
+	"${build_dir}/KyttusLab-Windows-Debug.pck" \
+	"${build_dir}/KyttusLab-Windows-Legacy-Debug.pck" \
+	"${build_dir}/KyttusLab-Windows-SteamVR-Debug.pck" \
+	"${build_dir}/KyttusLab-iOS-Debug.pck" \
+	"${build_dir}/Kyttu's Lab.command"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Linux Debug Tools"
@@ -41,19 +41,19 @@ node "${project_dir}/scripts/generate_build_revision.mjs"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Web Debug Tools"
 "${godot_command[@]}" --headless --path "${project_dir}" --export-debug "Windows SteamVR Debug"
 
-if unzip -Z1 "${build_dir}/LastRoute-macOS-Debug.zip" | grep -qE '\.command$'; then
+if unzip -Z1 "${build_dir}/KyttusLab-macOS-Debug.zip" | grep -qE '\.command$'; then
 	printf 'The macOS export unexpectedly contains a .command launcher.\n' >&2
 	exit 1
 fi
 
 (
 	cd "${build_dir}"
-	zip -FS LastRoute-Linux-Debug.zip LastRoute-Linux-Debug.x86_64
-	zip -FS LastRoute-Windows-Debug.zip LastRoute-Windows-Debug.exe
-	zip -FS LastRoute-Windows-Legacy-Debug.zip LastRoute-Windows-Legacy-Debug.exe
-	zip -FS LastRoute-Windows-SteamVR-Debug.zip LastRoute-Windows-SteamVR-Debug.exe
-	zip -FS -r LastRoute-Web-Debug.zip LastRoute-Web-Debug -x '*.import'
-	unzip -o LastRoute-macOS-Debug.zip -d .
+	zip -FS KyttusLab-Linux-Debug.zip KyttusLab-Linux-Debug.x86_64
+	zip -FS KyttusLab-Windows-Debug.zip KyttusLab-Windows-Debug.exe
+	zip -FS KyttusLab-Windows-Legacy-Debug.zip KyttusLab-Windows-Legacy-Debug.exe
+	zip -FS KyttusLab-Windows-SteamVR-Debug.zip KyttusLab-Windows-SteamVR-Debug.exe
+	zip -FS -r KyttusLab-Web-Debug.zip KyttusLab-Web-Debug -x '*.import'
+	unzip -o KyttusLab-macOS-Debug.zip -d .
 )
 
 if [[ "${1:-}" == "--quest" ]]; then

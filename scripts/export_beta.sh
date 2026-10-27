@@ -22,16 +22,24 @@ export_one() { # preset file zip-name
   "$GODOT" --headless --path "$ROOT" --export-debug "$1" "$OUT/$2"
 }
 if [ "$want" = all ] || [ "$want" = macos ]; then
-  export_one "macOS Beta" LastRoute-BETA-macOS.zip
-  mv "$OUT/LastRoute-BETA-macOS.zip" "$OUT/LastRoute-BETA-$STAMP-macOS.zip"
+  export_one "macOS Beta" KyttusLab-BETA-macOS.zip
+  # Split the universal export into two SEPARATE zips (about 85 MB less each): Apple Silicon (KyttusLab-BETA-macOS) and Intel (KyttusLab-BETA-macOS-Intel).
+  # Each binary is thinned with lipo and re-signed ad hoc; the Intel one is for testing only.
+  for ARCH in arm64 x86_64; do
+    SUFFIX=""; [ "$ARCH" = x86_64 ] && SUFFIX="-Intel"
+    ( T="$(mktemp -d)"; unzip -q "$OUT/KyttusLab-BETA-macOS.zip" -d "$T"; for B in "$T"/*.app/Contents/MacOS/*; do lipo -thin "$ARCH" "$B" -output "$B.thin" && mv "$B.thin" "$B"; done; codesign --force --deep --sign - "$T"/*.app >/dev/null 2>&1; rm -f "$OUT/KyttusLab-BETA-macOS$SUFFIX.thin.zip"; ( cd "$T" && zip -q -r -y "$OUT/KyttusLab-BETA-macOS$SUFFIX.thin.zip" . ); rm -rf "$T" )
+  done
+  rm -f "$OUT/KyttusLab-BETA-macOS.zip"
+  mv "$OUT/KyttusLab-BETA-macOS.thin.zip" "$OUT/KyttusLab-BETA-$STAMP-macOS.zip"
+  mv "$OUT/KyttusLab-BETA-macOS-Intel.thin.zip" "$OUT/KyttusLab-BETA-$STAMP-macOS-Intel.zip"
 fi
 if [ "$want" = all ] || [ "$want" = windows ]; then
-  export_one "Windows Beta" LastRoute-BETA-Windows.exe
-  (cd "$OUT" && zip -q -FS "LastRoute-BETA-$STAMP-Windows.zip" LastRoute-BETA-Windows.exe && rm -f LastRoute-BETA-Windows.exe)
+  export_one "Windows Beta" KyttusLab-BETA-Windows.exe
+  (cd "$OUT" && zip -q -FS "KyttusLab-BETA-$STAMP-Windows.zip" KyttusLab-BETA-Windows.exe && rm -f KyttusLab-BETA-Windows.exe)
 fi
 if [ "$want" = all ] || [ "$want" = linux ]; then
-  export_one "Linux Beta" LastRoute-BETA-Linux.x86_64
-  (cd "$OUT" && zip -q -FS "LastRoute-BETA-$STAMP-Linux.zip" LastRoute-BETA-Linux.x86_64 && rm -f LastRoute-BETA-Linux.x86_64)
+  export_one "Linux Beta" KyttusLab-BETA-Linux.x86_64
+  (cd "$OUT" && zip -q -FS "KyttusLab-BETA-$STAMP-Linux.zip" KyttusLab-BETA-Linux.x86_64 && rm -f KyttusLab-BETA-Linux.x86_64)
 fi
 rm -f "$ROOT/build_revision.json"
 echo "beta builds in $OUT:"; ls -la "$OUT"

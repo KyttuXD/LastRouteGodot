@@ -16,6 +16,7 @@ static var pending_menu_action := ""
 var _cards := {}
 var _launch_buttons := {}
 var _toast: Label
+var _quit_dialog: PanelContainer
 
 
 func _ready() -> void:
@@ -32,6 +33,13 @@ func _ready() -> void:
 	column.grow_vertical = Control.GROW_DIRECTION_BOTH
 	column.add_theme_constant_override("separation", 10)
 	add_child(column)
+	var brand := Label.new()
+	brand.name = "HubTitle"
+	Palette.style_title(brand, Palette.INK)
+	brand.add_theme_font_size_override("font_size", 22)
+	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	brand.text = "KYTTU'S LAB"
+	column.add_child(brand)
 	var kicker := Label.new()
 	kicker.name = "HubKicker"
 	Palette.style_label(kicker, Palette.AMBER, 6)
@@ -55,15 +63,21 @@ func _ready() -> void:
 	admin.disabled = not Backend.admin_owner_authorized()
 	admin.tooltip_text = "Admin tools open inside a run"
 	footer.add_child(admin)
-	footer.add_child(_shared_button("QuitButton", "QUIT", func() -> void: get_tree().quit()))
+	# Web builds have no desktop to quit to; the browser tab is the way out.
+	if not OS.has_feature("web"):
+		footer.add_child(_shared_button("QuitButton", "QUIT", _ask_quit))
 	_toast = Label.new()
 	_toast.name = "HubToast"
 	Palette.style_label(_toast, Palette.MUTED, 6)
 	_toast.custom_minimum_size = Vector2(0, 10)
 	column.add_child(_toast)
+	_focus_default.call_deferred()
+
+
+func _focus_default() -> void:
 	var first := _launch_buttons.get(GameRegistry.DEFAULT_ID) as Button
-	if first != null:
-		first.grab_focus.call_deferred()
+	if first != null and is_instance_valid(first) and first.is_inside_tree():
+		first.grab_focus()
 
 
 func _build_card(game: Dictionary) -> PanelContainer:
@@ -126,6 +140,52 @@ func _shared_button(button_name: String, label: String, handler: Callable) -> Bu
 	Palette.style_button(button, false, true)
 	button.pressed.connect(handler)
 	return button
+
+
+## "QUIT TO DESKTOP?" The only place that leaves the app. Esc or NO closes the question; Esc never quits.
+func _ask_quit() -> void:
+	if _quit_dialog != null and is_instance_valid(_quit_dialog):
+		return
+	_quit_dialog = PanelContainer.new()
+	_quit_dialog.name = "QuitDialog"
+	_quit_dialog.set_anchors_preset(Control.PRESET_CENTER)
+	_quit_dialog.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_quit_dialog.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_quit_dialog.add_theme_stylebox_override("panel", Palette.panel_box(Palette.PANEL, Palette.ACCENT_EDGE, 10))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_quit_dialog.add_child(box)
+	var question := Label.new()
+	question.text = "QUIT TO DESKTOP?"
+	Palette.style_label(question, Palette.INK, 8)
+	box.add_child(question)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	box.add_child(row)
+	var no := _shared_button("QuitNoButton", "NO", _close_quit_dialog)
+	var yes := _shared_button("QuitYesButton", "YES", func() -> void: get_tree().quit())
+	row.add_child(no)
+	row.add_child(yes)
+	add_child(_quit_dialog)
+	no.grab_focus()
+
+
+func _close_quit_dialog() -> void:
+	if _quit_dialog != null and is_instance_valid(_quit_dialog):
+		_quit_dialog.queue_free()
+	_quit_dialog = null
+	var quit_button := find_child("QuitButton", true, false) as Button
+	if quit_button != null:
+		quit_button.grab_focus()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Esc on the hub does nothing, except closing the quit question.
+	if event.is_action_pressed("ui_cancel"):
+		if _quit_dialog != null and is_instance_valid(_quit_dialog):
+			_close_quit_dialog()
+		get_viewport().set_input_as_handled()
 
 
 func _launch(id: String) -> void:
