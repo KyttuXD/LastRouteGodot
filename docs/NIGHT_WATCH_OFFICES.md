@@ -43,14 +43,37 @@ Rules for an office:
 | Mode (2D `office`) | Office id | Concept (from the 2D mode) | Entrances | Monitor | Lane |
 |---|---|---|---|---|---|
 | Classic (`classic`) | `classic_security` | the existing security room: two steel doors with panels and lights | doorL, doorR (slab) | yes | built (this lane); polish here |
-| Masked Hours (`mask`) | `front_office` | the day-shift front office / reception with a mask rack: no doors, hall hunters walk in | hall opening, vents | yes | B (nw-modes-b) |
+| Masked Hours (`mask`) | `front_office` | the day-shift front office / reception with a mask rack: no doors, hall hunters walk in | hall opening, vents | yes | B: **built** (`mask/mask_office.gd`) |
 | Dead Air (`lure`) | `broadcast_booth` | **built** (`src/night_watch/lure/lure_office.gd`): a radio / broadcast booth, foam-lined, a glass window onto a dark studio, a mixing console with the systems monitor, a boom mic, a patch rack, an ON AIR lamp; the two ventilation hatches have slatted covers (the DOOR buttons seal them) and service ducts behind. 2D: ![2D](night_watch_offices/broadcast_booth_2d.png) 3D: ![door](night_watch_offices/broadcast_booth_door.png) ![desk](night_watch_offices/broadcast_booth_desk.png) | vent L, vent R, studio window | yes (systems panel) | A (nw-modes-a) |
 | Bedtime (`bedroom`) | `child_bedroom` | **built** (`src/night_watch/bedroom/bedroom_office.gd`): a child's bedroom seen from the pillow, a closet in the west wall, a hall doorway with a long hall in the east wall, the foot of the bed; two flashlight spots, no monitor. 2D: ![2D](night_watch_offices/child_bedroom_2d.png) 3D: ![hall](night_watch_offices/child_bedroom_door.png) ![bed](night_watch_offices/child_bedroom_desk.png) | closet, hall, bed | no | A |
 | The Facility (`story`) | `control_room` | **built** (`src/night_watch/story/story_office.gd`): the control room: a wall of monitors either side of the lift door, a task board, the log-in terminal with its number note, the desk you hide under; doorways to the gallery and the workshop. 2D: ![2D](night_watch_offices/control_room_2d.png) 3D: ![lift door](night_watch_offices/control_room_door.png) ![terminal](night_watch_offices/control_room_desk.png) | door L, door R, lift | yes (monitor wall) | A |
 | The Descent (`descent`) | `lift_landing` | an elevator cabin / shaft landing: wires, signal panel, pipes, a window | window, hatch | no | C (nw-modes-c) |
-| Salvage Run (`dayshift`) | `cargo_bay` | a cargo bay / workshop: a rack to salvage from, a budget desk, doors and a window | two doors, window | yes | B |
+| Salvage Run (`dayshift`) | `cargo_bay` | a cargo bay / workshop: a rack to salvage from, a budget desk, doors and a window | two doors, window | no monitor (ledger instead) | B: **built** (`dayshift/cargo_bay.gd`) |
 | Open Air (`extra`) | `watch_post` | an outdoor guard booth / roof / bus stop / campfire (three watches): daylight and night outdoor | opening, edge, path | no | C |
-| Mixed Shift (`mixed`) | `hub_office` | rotates through the set (one office per hour, drawn by the pacing director) or the Classic building hub | per office | yes | this lane |
+| Mixed Shift (`mixed`) | `hub_office` | rotates through the set (one office per hour, drawn by the pacing director) or the Classic building hub | per office | yes | this lane / B: **built** as the hub (`mixed/mixed_office.gd`) |
 
 Each lane chooses and documents its own offices in this file (a row of its own, with the 2D screenshot next to the 3D concept) and implements them in its
 own folder. Mixed Shift's `rotation` lists the office ids it cycles.
+
+## Lane B offices (Masked Hours, Salvage Run)
+
+Both are subclasses of the Classic room (`NightWatchOffice`, so the desk, chair, lamp and door panels are the same reference mechanics) that override
+`_build_shell()` and `_build_wall_props()` and add their own stations; the games build them with `NightWatchOfficeRegistry.make(mode)`.
+
+| Office | 2D picture | 3D (from the door / from the desk) | What is its own |
+|---|---|---|---|
+| `front_office` (Masked Hours) | ![2D](night_watch_offices/front_office_2d.png) | ![door](night_watch_offices/front_office_door.png) ![desk](night_watch_offices/front_office_desk.png) | purple walls, orange stripe, checkerboard floor, striped curtain; no doors (the right doorway is the hall, the left is sealed), two dark vent grates on the back wall, a rack of masks, a reception counter; on the desk the monitor, the mask and the music box; stations `mask`, `musicbox`, `vent`, `ventR`, `doorR_light` (the hall light) |
+| `cargo_bay` (Salvage Run) | ![2D](night_watch_offices/cargo_bay_2d.png) | ![door](night_watch_offices/cargo_bay_door.png) ![desk](night_watch_offices/cargo_bay_desk.png) | warm wood panels, green checkerboard, a window in the front wall with a yard outside, pallet racking, crates, a workbench with the four-slot rack (`rack0`..`rack3`), a budget ledger on the desk (`ledger`), the two steel doors and panels; the monitor is off (the 2D mode has no cameras), so `has_monitor` is false |
+
+Lights: Masked Hours has the desk lamp only (vent beams and the hall light are off until held); Salvage Run has the desk lamp (the yard lamp is an emissive cube).
+
+### Mixed Shift: `hub_office`
+
+The Classic building's hub: the Classic security room (doors, panels, desk, monitor, chair, lamp) with the three permanent vents of the 2D Mixed office
+(`mixed/mixed_office.gd`, a subclass of `NightWatchOffice`): left and right low on the back wall and one in the ceiling above the desk, each with a shutter (shown while
+sealed) and a glowing opening for the vent light (an emissive cube, not a real light). The DOOR buttons stay; the LIGHT buttons are off (the doors' light pulses are the
+tell). Entrances: `doorL`, `doorR` (slab), `ventL`, `ventR`, `ventT`. Mixed Shift does not rotate through other offices yet (`rotation` is empty). Lights: the desk lamp.
+
+| Office | 2D picture | 3D (from the door / from the desk) |
+|---|---|---|
+| `hub_office` (Mixed Shift) | ![2D](night_watch_offices/hub_office_2d.png) | ![door](night_watch_offices/hub_office_door.png) ![desk](night_watch_offices/hub_office_desk.png) |

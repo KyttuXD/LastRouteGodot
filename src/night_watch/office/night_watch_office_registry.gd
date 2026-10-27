@@ -10,14 +10,14 @@ const CLASSIC_SCRIPT := "res://src/night_watch/night_watch_office.gd"
 
 const OFFICES := {
 	"classic":  {"id": "classic_security", "script": CLASSIC_SCRIPT},
-	"mask":     {"id": "front_office", "script": ""},
+	"mask":     {"id": "front_office", "script": "res://src/night_watch/mask/mask_office.gd"},
 	"lure":     {"id": "broadcast_booth", "script": "res://src/night_watch/lure/lure_office.gd"},
 	"bedroom":  {"id": "child_bedroom", "script": "res://src/night_watch/bedroom/bedroom_office.gd"},
 	"story":    {"id": "control_room", "script": "res://src/night_watch/story/story_office.gd"},
 	"descent":  {"id": "lift_landing", "script": ""},
-	"dayshift": {"id": "cargo_bay", "script": ""},
+	"dayshift": {"id": "cargo_bay", "script": "res://src/night_watch/dayshift/cargo_bay.gd"},
 	"extra":    {"id": "watch_post", "script": ""},
-	"mixed":    {"id": "hub_office", "script": ""},
+	"mixed":    {"id": "hub_office", "script": "res://src/night_watch/mixed/mixed_office.gd"},
 }
 
 
