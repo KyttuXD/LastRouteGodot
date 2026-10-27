@@ -86,6 +86,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
+	hud.set_monitor_available(office.spec.has_monitor)
 	hud.hint_label.text = "WASD move   hold E on a PIECE to salvage   E on DOOR buttons   hold E on LIGHT   Z / X doors   G / H lights   P pause"
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"

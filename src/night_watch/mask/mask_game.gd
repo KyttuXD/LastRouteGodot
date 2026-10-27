@@ -12,7 +12,7 @@ extends NightWatchMode
 enum State { PLAYING, PAUSED, WON, LOST }
 
 const WIN_TEXT := "You held the wing until 6 AM."
-const HINT := "WASD move   E use   Z mask   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
+const HINT := "WASD move   E use   Z mask (no doors here)   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
 const HOLDS := [["lightL", "vent", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "doorR_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
 
 var night := 1
@@ -31,7 +31,15 @@ var overlay: MaskOverlay
 var held_label: Label
 var map_buttons := {}
 var last_death := {}
-var monitor_up := false
+var monitor_shown := false   # the monitor's picture is on screen (fully up)
+## Whether the player is on the monitor: it is up, or on its way (the panel machine raises it in 250 ms). The camera keys and the shared handler read this.
+var monitor_up: bool:
+	get:
+		return controls != null and controls.want == "monitor"
+## The camera on the monitor.
+var monitor_room: String:
+	get:
+		return controls.cam if controls != null else "music"
 
 var _models := {}
 var _walkers := {}
@@ -213,17 +221,60 @@ func press(action: String, on := true) -> void:
 		if on and controls.is_up("monitor"):
 			_set_feed("music")
 	_refresh_lock()
+	_update_hint()
 
 
 func toggle_monitor() -> void:
 	press("monitor")
 
 
+# the camera API the shared key handler and the key-flow suite use (NightWatchControls.handle_monitor_event)
+func is_playing() -> bool:
+	return state == State.PLAYING
+
+
+func open_monitor() -> void:
+	if not monitor_up:
+		press("monitor")
+
+
+func close_monitor() -> void:
+	if monitor_up:
+		press("monitor")
+
+
+func camera_rooms() -> Array:
+	return MaskData.cam_rooms()
+
+
+func camera_room_for(n: int) -> String:
+	return MaskData.room_for_cam(n)
+
+
+func select_camera_number(n: int) -> void:
+	select_camera(MaskData.room_for_cam(n))
+
+
+## The raise / lower animation ends at once (the player waits for it); no shift time passes.
+func _settle() -> void:
+	for e in controls.step(500.0):
+		_on_control_event(e)
+
+
+func _update_hint() -> void:
+	if monitor_up:
+		hud.hint_label.text = "%s / %s or 1-8 camera   %s or %s close   hold %s wind (CAM 1)   hold %s / %s vent light on CAM 6 / 7" % [NightWatchControls.key_text(NightWatchControls.CAM_PREV), NightWatchControls.key_text(NightWatchControls.CAM_NEXT), NightWatchControls.key_text(NightWatchControls.MONITOR), NightWatchControls.key_text(&"interact"), NightWatchControls.key_text(&"office_radio"), NightWatchControls.key_text(NightWatchControls.LIGHT_LEFT), NightWatchControls.key_text(NightWatchControls.LIGHT_RIGHT)]
+	else:
+		hud.hint_label.text = HINT
+
+
 func select_camera(room: String) -> void:
 	if state != State.PLAYING or not MaskData.ROOMS.has(room) or int(MaskData.ROOMS[room]["cam"]) == 0:
 		return
-	if not controls.is_up("monitor"):
+	if not monitor_up:
 		return
+	if not controls.is_up("monitor"):
+		_settle()
 	press("cam:" + room)
 	hud.flash_static()
 	NightWatchSounds.camera_switch()
@@ -254,15 +305,13 @@ func _on_control_event(e: Dictionary) -> void:
 				NightWatchSounds.panel_button()
 		"up":
 			if panel == "monitor":
-				monitor_up = true
-				hud.hint_label.text = "%s / %s or 1-8 camera   %s or %s close   hold %s wind (CAM 1)   hold %s / %s vent light on CAM 6 / 7" % [NightWatchControls.key_text(NightWatchControls.CAM_PREV), NightWatchControls.key_text(NightWatchControls.CAM_NEXT), NightWatchControls.key_text(NightWatchControls.MONITOR), NightWatchControls.key_text(&"interact"), NightWatchControls.key_text(&"office_radio"), NightWatchControls.key_text(NightWatchControls.LIGHT_LEFT), NightWatchControls.key_text(NightWatchControls.LIGHT_RIGHT)]
+				monitor_shown = true
 				hud.show_monitor(true)
 				_set_feed(controls.cam)
 				hud.flash_static()
 		"lower":
 			if panel == "monitor":
-				monitor_up = false
-				hud.hint_label.text = HINT
+				monitor_shown = false
 				hud.show_monitor(false)
 				NightWatchSounds.monitor_toggle()
 		"lamp":
@@ -308,9 +357,9 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	var aimed: NightWatchStation = null
-	if not monitor_up:
+	if not monitor_shown:
 		aimed = player.call("_nearest_interactable") as NightWatchStation
-	hud.set_prompt(player.get_interaction_prompt() if not monitor_up else "")
+	hud.set_prompt(player.get_interaction_prompt() if not monitor_shown else "")
 	if manual_clock:
 		return
 	# the held controls: a quick key, or interact held on the matching station
@@ -381,7 +430,7 @@ func _on_event(e: Dictionary) -> void:
 			hud.show_call("The music box has stopped.")
 		"boxSaved":
 			NightWatchSounds.panel_button()
-	if monitor_up and e.has("room") and (String(e["room"]) == controls.cam):
+	if monitor_shown and e.has("room") and (String(e["room"]) == controls.cam):
 		hud.flash_static()
 
 
@@ -403,11 +452,11 @@ func _sync_visuals() -> void:
 	office.set_box(float(s["box"]))
 	overlay.cover = controls.cover("mask")
 	overlay.queue_redraw()
-	var devices := (1 if bool(lit["L"]) or bool(lit["R"]) else 0) + (1 if bool(lit["H"]) else 0) + (1 if bool(s["lamp"]) else 0) + (1 if monitor_up else 0)
+	var devices := (1 if bool(lit["L"]) or bool(lit["R"]) else 0) + (1 if bool(lit["H"]) else 0) + (1 if bool(s["lamp"]) else 0) + (1 if monitor_shown else 0)
 	hud.update_status(NightWatchData.hour_index(float(s["elapsed"])), float(s["battery"]), devices, night)
 	hud.power_label.text = "BATTERY %d%%" % int(ceil(float(s["battery"])))
 	hud.usage_label.text = "MUSIC BOX %d%%" % int(round(float(s["box"])))
-	if monitor_up:
+	if monitor_shown:
 		_update_cam_label(controls.cam)
 		held_label.visible = not (s["frozen"] as Array).is_empty()
 		var ducts: bool = MaskData.DUCT_SIDE.has(controls.cam)
@@ -574,31 +623,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if NightWatchControls.handle_monitor_event(self, event):
+		return
 	if event.is_action_pressed(NightWatchControls.DOOR_LEFT):
 		press("mask")
-	elif event.is_action_pressed(NightWatchControls.MONITOR):
-		press("monitor")
 	elif event.is_action_pressed(NightWatchControls.LAMP):
 		press("lamp")
-	elif monitor_up:
-		if event.is_action_pressed(&"interact"):
-			press("monitor")
-		elif event.is_action_pressed(NightWatchControls.CAM_PREV):
-			cycle_camera(-1)
-		elif event.is_action_pressed(NightWatchControls.CAM_NEXT):
-			cycle_camera(1)
-		else:
-			for n in range(1, 9):
-				if event.is_action_pressed(NightWatchControls.camera_action(n)):
-					select_camera(MaskData.room_for_cam(n))
-					return
 
 
 # --- the end of a shift ----------------------------------------------------------------------------------------------------
 
 func _freeze_player() -> void:
 	controls.cancel()
-	monitor_up = false
+	monitor_shown = false
 	hud.show_monitor(false)
 	overlay.cover = 0.0
 	overlay.queue_redraw()
