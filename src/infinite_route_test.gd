@@ -363,6 +363,7 @@ func _process(delta: float) -> void:
 		_update_hud()
 		return
 	_clear_reached_waypoints(level)
+	_update_floor_audio(level)
 	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	if not _awaiting_snapshot:
@@ -1330,6 +1331,23 @@ func _clear_reached_waypoints(level: int) -> void:
 	if world_state.waypoints.reached(_local_peer_id(), player_at, level):
 		_arrival_chime_pending = true
 		_clear_local_waypoint()
+
+
+## Footstep surface under the runner and the ambient bed for where they stand (district or room purpose), ducked in chases.
+func _update_floor_audio(level: int) -> void:
+	var at := Vector2(player.global_position.x, player.global_position.z)
+	var kind := facility.floor_kind_at(at, level)
+	player.footstep_surface = SurfaceSounds.for_floor(kind) if kind != "" else ""
+	var region := String(facility.current_chunk_data().get("region", ""))
+	Sound.set_ambience(AmbienceTable.key_for(region, facility.room_type_at(at, level)))
+	var chased := false
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view != null and view.brain != null and view.brain.state == HunterBrain.State.CHASE \
+				and view.brain.position.distance_to(at) < 18.0:
+			chased = true
+			break
+	Sound.set_ambience_duck(move_toward(Sound.ambience_duck, 1.0 if chased else 0.0, get_process_delta_time() * 1.5))
 
 
 ## A player who leaves takes their pin with them.
@@ -4063,7 +4081,8 @@ func _update_hunter_audio(delta: float, data: Dictionary) -> void:
 		return
 	var right := Vector2(-player.facing.y, player.facing.x)
 	var pan := clampf(offset.dot(right) / 4.5, -1.0, 1.0)
-	Sound.hunter_footstep(pan, .09 * (1.0 - distance / 9.0))
+	var hunter_floor := facility.floor_kind_at(stepping.brain.position, facility.current_level())
+	Sound.hunter_footstep(pan, .09 * (1.0 - distance / 9.0), SurfaceSounds.for_floor(hunter_floor) if hunter_floor != "" else "")
 
 
 func _hunter_audio_on_floor(entity_id: String, local_level: int) -> bool:
@@ -4616,6 +4635,10 @@ func _state_chunk(state: Dictionary) -> Vector3i:
 		floori(position.x / StreamedRouteGenerator.CHUNK_SIZE),
 		int(state.get("level", 0)),
 		floori(position.y / StreamedRouteGenerator.CHUNK_SIZE))
+
+
+func _exit_tree() -> void:
+	Sound.set_ambience("")   # the bed belongs to the run
 
 
 func _leave_test() -> void:
