@@ -48,6 +48,11 @@ var _was_stunned := false
 var _recover_left := 0.0
 var _expression := ""
 var _blink_timer := 2.0
+var _scream_latched := false
+var _face_node: MeshInstance3D
+var _gait_moving := false
+var _stride_scale := 1.0
+var _face_hold := 0.0
 var _blink_left := 0.0
 var _stars: Node3D
 var _creature: CreatureView   # set for creature-rig hunters (SecretCreatures); the humanoid logic is skipped
@@ -69,8 +74,9 @@ var _move_speed := 0.0
 var _still_time := 0.0
 const STILL_CLIP_AFTER := 0.35
 const STILL_SPEED := 0.15
-## Night Watch: the speed (m/s) each travel clip's stride was authored for; the clip speeds up or slows down with the real pace.
-const NW_STRIDE_REF := {"walk": 1.8, "chase": 3.8, "sprint": 5.0}
+## She starts walking above this ground speed (see the idle/walk hysteresis in _update_animation).
+const GAIT_ENTER_SPEED := .35
+const TRAVEL_BLEND := .15
 var _last_brain_position := Vector2.ZERO
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
@@ -100,6 +106,7 @@ const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
 const SCYTHE_CHASE_SPEED := 1.8
 ## Chasing hunters switch to the wide-eyed scream face this close to the runner (grid cells).
 const SCREAM_DISTANCE := 2.6
+const FACE_HOLD := .45
 const STAR_COUNT := 3
 const STAR_ORBIT_RADIUS := .34
 const GRAVITY_ACCELERATION := 24.0
@@ -561,6 +568,18 @@ func _emote_cue(radius: float) -> void:
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 
+## Switches between walk/chase/sprint with a short blend and keeps the stride phase, so the legs do not jump.
+func _play_travel(clip_name: String) -> void:
+	var player := _animation_player
+	if player.has_animation(clip_name) and (player.assigned_animation != clip_name or not player.is_playing()):
+		var phase := 0.0
+		if player.is_playing() and player.assigned_animation in ["walk", "chase", "sprint", "scythe_walk"]:
+			phase = player.current_animation_position / maxf(player.current_animation_length, .01)
+		player.play(clip_name, TRAVEL_BLEND)
+		if phase > 0.0:
+			player.seek(phase * player.get_animation(clip_name).length, false)
+
+
 func has_nw_pose() -> bool:
 	return _animation_player != null and not nw_pose.is_empty() \
 		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
@@ -632,8 +651,15 @@ func _update_animation() -> void:
 			HunterBrain.State.WANDER, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 				clip_name = "walk"
 	# A hunter pinned against geometry (or waiting on a route) stands instead of treading on the spot.
-	if _still_time > STILL_CLIP_AFTER and clip_name in ["walk", "chase", "sprint"]:
-		clip_name = "idle"
+	# Hysteresis: she starts walking above GAIT_ENTER_SPEED and only stands again after STILL_CLIP_AFTER of
+	# near-stillness, so a hunter creeping at the threshold does not flap between idle and walk.
+	if clip_name in ["walk", "chase", "sprint"]:
+		if _gait_moving and _still_time > STILL_CLIP_AFTER:
+			_gait_moving = false
+		elif not _gait_moving and _move_speed > GAIT_ENTER_SPEED:
+			_gait_moving = true
+		if not _gait_moving:
+			clip_name = "idle"
 	if clip_name == "sprint" and _animation_player != null and not _animation_player.has_animation("sprint"):
 		clip_name = "chase"
 	var speed := 1.0
@@ -649,9 +675,16 @@ func _update_animation() -> void:
 				clip_name = "scythe_walk"
 			"chase", "sprint":
 				clip_name = "scythe_walk"
-				speed = SCYTHE_CHASE_SPEED
-	if nw_layers and _move_speed > STILL_SPEED and NW_STRIDE_REF.has(clip_name):
-		speed = clampf(_move_speed / float(NW_STRIDE_REF[clip_name]), .6, 1.8)
+	# Travel clips play at real ground speed / the clip's measured stride speed (HunterStride), swapping to the
+	# neighbouring walk/chase/sprint clip when the pace is far outside one clip's range, so the planted foot stays put.
+	var travelling := clip_name in ["walk", "chase", "sprint", "scythe_walk"] and _animation_player != null
+	if travelling:
+		var pick := HunterStride.choose(_shown_id, clip_name, _move_speed,
+			["scythe_walk"] if clip_name == "scythe_walk" else HunterStride.TRAVEL_CLIPS)
+		if _animation_player.has_animation(String(pick["clip"])):
+			clip_name = String(pick["clip"])
+		_stride_scale = lerpf(_stride_scale, float(pick["scale"]), 1.0 - exp(-10.0 * delta))
+		speed = _stride_scale
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():
@@ -659,6 +692,8 @@ func _update_animation() -> void:
 			_emote_clip_started = true
 			_animation_player.play(_emote_clip)
 		speed = 1.0
+	elif travelling:
+		_play_travel(clip_name)
 	else:
 		ModelSlot.play_if_available(_animation_player, clip_name)
 	if _animation_player != null:
@@ -679,9 +714,11 @@ func _desired_expression() -> String:
 		return HunterEmoteCatalog.face(_emote_index)
 	match brain.state:
 		HunterBrain.State.CHASE:
-			if has_look_target and brain.position.distance_to(look_target_position) < SCREAM_DISTANCE:
-				return "scream"
-			return "chase"
+			# Latched: she screams inside SCREAM_DISTANCE and keeps screaming until the runner is clearly
+			# out of it, so a runner circling the edge of the range cannot flicker the face every frame.
+			var gap := brain.position.distance_to(look_target_position) if has_look_target else INF
+			_scream_latched = gap < SCREAM_DISTANCE or (_scream_latched and gap < SCREAM_DISTANCE * 1.4)
+			return "scream" if _scream_latched else "chase"
 		HunterBrain.State.SEARCH:
 			return "derp"
 	return "neutral"
@@ -699,8 +736,23 @@ func _update_expression(delta: float) -> void:
 			_blink_left = .13
 		if _blink_left > 0.0:
 			wanted = "blink"
+	_face_hold = maxf(0.0, _face_hold - delta)
 	if wanted == _expression:
+		if _face_node == null or not is_instance_valid(_face_node) or not _model.is_ancestor_of(_face_node):
+			_face_node = _model.find_child("Face", true, false) as MeshInstance3D
+		var face := _face_node
+		if face == null or BlockyFace.owns_material(face):
+			return
+		# something replaced the quad's material (fade / restore): wear the expression again
+		BlockyFace.set_expression(_model, wanted)
 		return
+	# A face holds for a moment before it may change again (blinks and the stun/wake faces are exempt), so a
+	# state that flips back and forth never reads as a flickering texture.
+	var quick := wanted == "blink" or _expression == "blink" or wanted == "stun" or wanted == "blank" \
+		or _expression == "stun" or _expression == "blank" or _expression.is_empty()
+	if not quick and _face_hold > 0.0:
+		return
+	_face_hold = FACE_HOLD
 	_expression = wanted
 	BlockyFace.set_expression(_model, wanted)
 
