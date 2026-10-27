@@ -74,3 +74,8 @@ rebinds had nowhere to live.
   presses cycle through all cameras and wrap, each of 1-8 and the number pad picks its camera, the d-pad cycles, camera keys do nothing with the monitor down or
   while paused, keys work after pause/resume and after leaving and re-entering the monitor, use closes it, three open/close rounds, the old `office_camera_n`
   actions are ignored, a rebound key shows in the hint line, persists, and works.
+
+## Call subtext size
+
+The call text (and the ZELLIA name and Mute button) are now 5 px on the 480x270 base (they were 7 / 6 / 6): the 2D box is `.ncall { font-size: .7em }` of the stage's `2.6cqh`, i.e. 1.8% of the screen height (4.9 px of 270), so 7 was 1.4x too big. The box scales with the viewport (canvas_items), so it is 13 px at 1280x720 and 20 px at 1920x1080; the text wraps inside the box and never meets the name or the Mute button (`night_watch_calls` checks the box and `hud_overlap` the HUD).
+![before and after](night_watch_ui/call_font_before_after.png)
