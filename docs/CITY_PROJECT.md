@@ -126,15 +126,39 @@ through streets, plazas and doors (the `hunter_real` machinery) and must never s
 `tools/look/city_map.gd` renders the top-down map; `tools/look/city_capture.gd` takes the street, plaza, sky and
 interior captures into `docs/`.
 
-## 8. Not in the first pass
+## 8. Status of the first pass (what exists)
 
-Public route for the City (needs its own server state key, section 6 keeps it out), the escape gate objective (relays
-open the south gate; the first pass keeps the route's relay/checkpoint loop), per-building interior variety beyond one
-room, traffic, rain particles, the ambient city soundscape.
+Built and passing (suites `city` and `city_nav`, `COOP_MODE=city scripts/coop_test.sh`):
 
-## 9. Stages
+* **Layout** (`city_layout.gd`): 225 x 135 oval, avenue, main street, five N-S and three E-W streets, fountain roundabout
+  with the spawn kiosk on its island, four shelter plazas on chunk centres, two formal gardens, the grand plaza with
+  statue and reflecting pool, about 25 enterable buildings (each a facade ring, a room, 2 to 4 doorway cells), alleys,
+  verge parkland, about 300 pieces of street furniture. `docs/city_map.png` is the top-down map
+  (`tools/look/city_map.gd`).
+* **Chunk provider** (`city_route_generator.gd`): 13 of the 15 chunks hold city, 5 shelters are the safe rooms (chunk
+  (0,0) is the spawn), relays, batteries, tools, hiding spots, vents and hunter spawns follow the route code's own rules.
+* **Renderer** (`city_facility_view_3d.gd`, `city_surface.gd`, `city_atlas.gd`, `tools/city/make_city_atlas.py`): the
+  pixel atlas (56 tiles + emission), tall facades with lit amber / cyan windows, shop fronts, civic arches, industrial
+  ports, 4 m interiors with ceilings, kiosks with a cyan sign, hedges, flower beds, water with a stone lip, wet cobbles,
+  crosswalks, fallen petals.
+* **Sky and dome** (`city_sky.gd`, `city_dome_frame.gd`): the pixel sky shader (gradient, stars, clouds, moon), dome
+  ribs and rings with cyan beacons, 16 rim pylons, a 96-tower skyline with lit windows and three viaduct spans.
+* **Lights**: lanterns and window panes are emissive; the 8-light `LampField` pool follows the player (lanterns, one
+  lamp per building, the shelter checkpoint light). No post effects; the flashlight is the only shadow caster.
+* **Menus and rooms**: hub card, `city_menu` (solo, host, join), room game id, "back" returns to the City menu.
+* **Performance** (M4 Mac mini, windowed, frame limiter off): 270 to 480 fps, 270 to 560 draw calls (street canyons
+  are the worst case); nine chunks resident.
+* **Captures**: `tools/look/city_capture.tscn -- OUTDIR TAG` saves the spawn kiosk, the avenue both ways, the main
+  street, the grand plaza, a garden, a shelter plaza, an alley, the sky, the rim gate, an interior and a facade;
+  `docs/city_street.png`, `city_garden.png`, `city_plaza.png`, `city_sky.png` are samples.
 
-1. docs, hub entry, theme, `Mode.CITY`, `game` field (this stage).
-2. layout and chunk generator with validators and the top-down map.
-3. renderer: surface mesh, facades, sky, lights, props.
-4. interiors, shelters, polish, captures, full suite.
+## 9. Not in the first pass
+
+* Public route for the City (needs its own server-side state key; rooms are already namespaced by game id).
+* The escape objective at the south gate (the first pass keeps the route's relay / checkpoint loop).
+* Run saves (the pause menu refuses saving and loading in the City; Last Route archives are never touched).
+* Interior variety beyond one room per building, door leaves, traffic, rain, the city soundscape, irregular building
+  footprints and courtyards, the south gate arch prop.
+* Prop rework: the interiors use the shared prop types as they exist today; the props lane's rewrites apply
+  automatically, a City-only prop set (`tools/props/city_props.py`) was not needed for this pass (street furniture is
+  drawn straight into the surface mesh).

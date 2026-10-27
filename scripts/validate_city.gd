@@ -25,6 +25,7 @@ func run(host: Node) -> int:
 	_check_buildings(layout)
 	_check_shelters(layout)
 	_check_chunks()
+	await _check_run_scene(host)
 	if _failures == 0:
 		print("  city  layout, connectivity, streets, buildings, shelters, chunks, registry, game id")
 	return _failures
@@ -265,3 +266,24 @@ func _check_chunks() -> void:
 	_expect(generator.is_safe_room(Vector3i.ZERO), "the spawn chunk is not a safe room")
 	_expect((generator.chunk(Vector3i(1, 0, 0))["hunter_spawns"] as Array).size() >= 1, "chunk (1,0) has no hunter spawn")
 	_expect(generator.spawn_chunk() == Vector3i.ZERO and generator.spawn_cell() == Vector2i(22, 22), "spawn chunk/cell changed")
+
+
+## The City run scene boots: the City generator and view, nine chunks around the spawn, the runner on the spawn.
+func _check_run_scene(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.CITY)
+	RoomState.seed_text = SEED
+	Backend.enable_offline_mode()
+	var scene: Node = (load(RoomState.CITY_ROUTE_SCENE) as PackedScene).instantiate()
+	host.add_child(scene)
+	for _frame in 6:
+		await host.get_tree().process_frame
+	var facility := scene.get_node("%StreamedFacility") as StreamedFacilityView3D
+	_expect(facility is CityFacilityView3D, "the City run scene does not use the City view")
+	_expect(facility.generator is CityRouteGenerator, "the City view does not use the City generator")
+	_expect(facility.loaded_chunk_count() == 9, "expected 9 resident chunks around the spawn, got %d" % facility.loaded_chunk_count())
+	var player := scene.get_node("%Player") as PlayerController3D
+	_expect(player.global_position.distance_to(Vector3(22.5, .04, 22.5)) < 2.0, "the runner did not start on the spawn")
+	_expect(facility.get_node_or_null("CitySky") != null, "the dome sky is missing")
+	scene.queue_free()
+	await host.get_tree().process_frame
+	RoomState.create_local(RoomState.Mode.DEFAULT)
