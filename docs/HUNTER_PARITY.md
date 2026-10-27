@@ -45,11 +45,11 @@ numbers), **Fixed** (gap closed in this pass), **Partial** (core present, named 
 | Blue | invisible; the beam shoves her 6 back and reveals her 3.5 s | Fixed (map exclusion while hidden still to do) |
 | Brown | jams 2 hiding spots within 9 every 18 s for 20 s | Fixed |
 | Cyan | 2.5 s of sight broadcasts the position to all hunters, 30 s cooldown | Fixed |
-| Gray | anti-idle: a key-mash route when the player idles | Different (the Godot pressure spawner stays; the key-mash route is still to do) |
+| Gray | anti-idle: a signal route (five E presses) when the runner idles after the relay grace | Done (`void_gray_gimmick.gd`: grace 180 s / 120 s Nightmare, idle 45 s / 30 s, 5 nodes at 2.5 s / 1.8 s, dormant = unseen + uncatchable; the route runs on the player's machine and reports back; the pressure spawner still decides when she can appear) |
 | Green | submerges and resurfaces 9 cells from the player every 22 s | Fixed |
-| Orange | system outages (flashlight / climate / radar offline for 9 s) | Missing (needs player-side forced-off hooks) |
+| Orange | system outages (flashlight / climate / radar offline for 9 s, every 26 s) | Done (`void_orange_gimmick.gd`; `PlayerController3D.begin_outage`, HUD radar overlay) |
 | Pink | never attacks; fake radar contacts | Fixed (part): never grabs, footstep cue; the fake radar contacts remain |
-| Purple | radar static / blackout | Missing (needs a radar state the map reads) |
+| Purple | radar static / blackout (every 21 s, 8 s static, 35% a 11 s blackout) | Done (`void_purple_gimmick.gd`; HUD radar overlay on the minimap and the map) |
 | Red | x1.55 in halls, x0.78 in rooms | Fixed |
 | White | frozen by a lit beam (10 cells, 0.42 rad), x1.35 in the dark | Fixed |
 | Yellow | speed grows while the map is open, up to x1.7 | Fixed |
@@ -68,6 +68,6 @@ numbers), **Fixed** (gap closed in this pass), **Partial** (core present, named 
 
 ## Still to do
 
-Orange and Purple (player systems), Gray's key route, Pink's radar ghosts, Kathy's summon, Ferryn's veil, Umbriel's
+Pink's radar ghosts, Kathy's summon, Ferryn's veil, Umbriel's
 player disguise, Solyth's burns, the coordination layer, Void grips. They need hooks outside the brain and are listed here
 rather than half-built.

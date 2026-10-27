@@ -176,10 +176,16 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return VoidBrownGimmick.new()
 		"void_cyan":
 			return VoidCyanGimmick.new()
+		"void_gray":
+			return VoidGrayGimmick.new()
 		"void_green":
 			return VoidGreenGimmick.new()
+		"void_orange":
+			return VoidOrangeGimmick.new()
 		"void_pink":
 			return VoidPinkGimmick.new()
+		"void_purple":
+			return VoidPurpleGimmick.new()
 		"void_red":
 			return VoidRedGimmick.new()
 		"void_white":

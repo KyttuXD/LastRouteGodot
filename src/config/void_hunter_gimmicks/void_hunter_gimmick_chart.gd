@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Player-facing text for the Void roster's powers, as the dossier / lobby / pause menu show it. Each entry describes what the
 ## matching `src/game/hunter_gimmicks/void_*_gimmick.gd` actually does (numbers copied from those files): the game's Void
-## abilities are canon, this chart follows them. Gray, Orange and Purple have no gimmick class yet and say so.
+## abilities are canon, this chart follows them. Every Void now has its power.
 const ENTRIES := {
 	"void_black": {
 		"ability": "VOID INCURSION",
@@ -32,8 +32,8 @@ const ENTRIES := {
 	"void_gray": {
 		"ability": "VOID INCURSION",
 		"behavior": "Gray can enter as an additional long-sighted pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "NO POWER YET",
-		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed with the longest sight of the Voids.",
+		"gimmick_title": "SIGNAL ROUTE",
+		"gimmick_behavior": "Dormant (unseen and uncatchable) while relays keep coming: her grace window is 180 seconds (120 on Nightmare) and restarts at every relay. After that, standing still in the open for 45 seconds (30 on Nightmare) opens a signal route: press E five times, 2.5 seconds per press (1.8 on Nightmare). Missing one shows her and starts a normal chase, light or no light, until the next relay resets her.",
 	},
 	"void_green": {
 		"ability": "VOID INCURSION",
@@ -44,8 +44,8 @@ const ENTRIES := {
 	"void_orange": {
 		"ability": "VOID INCURSION",
 		"behavior": "Orange can enter as an additional fast pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "NO POWER YET",
-		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed.",
+		"gimmick_title": "SYSTEM SABOTEUR",
+		"gimmick_behavior": "Every 26 seconds she takes one of your systems offline for 9 seconds, chosen at random: the flashlight (forced off), the climate control (the heater goes off) or the radar (the minimap and map go black). It comes back by itself.",
 	},
 	"void_pink": {
 		"ability": "VOID INCURSION",
@@ -56,8 +56,8 @@ const ENTRIES := {
 	"void_purple": {
 		"ability": "VOID INCURSION",
 		"behavior": "Purple can enter as an additional fast-ramping pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "NO POWER YET",
-		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed and ramps her chase quickly.",
+		"gimmick_title": "RADAR CORRUPTER",
+		"gimmick_behavior": "Every 21 seconds she dusts your radar with static for 8 seconds. Each corruption has a 35% chance to black the radar out completely for 11 seconds instead. Use the game view until it returns.",
 	},
 	"void_red": {
 		"ability": "VOID INCURSION",

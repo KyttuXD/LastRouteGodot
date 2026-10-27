@@ -37,7 +37,7 @@ speed/perception is more aggressive, and a deterministic incursion can add one
 as an extra hunter from depth two onward.
 
 The Void colours have the powers below (copied from `src/game/hunter_gimmicks/void_*_gimmick.gd`; the dossier text in
-`src/config/void_hunter_gimmicks/void_hunter_gimmick_chart.gd` follows them). Gray, Orange and Purple have no gimmick class yet.
+`src/config/void_hunter_gimmicks/void_hunter_gimmick_chart.gd` follows them). All twelve Voids have their powers.
 
 | Void | Power | Counterplay direction |
 | --- | --- | --- |
@@ -45,11 +45,11 @@ The Void colours have the powers below (copied from `src/game/hunter_gimmicks/vo
 | Blue | Silent Stalker: Invisible and off the maps unless revealed. Shining your torch on her (12 cells) shoves her back 6 cells and shows her for 3.5 seconds. | torch her to push her back and show her |
 | Brown | Spot Jammer: Every 18 seconds she jams up to two hiding spots within 9 cells of you shut for 20 seconds. The spot you are hiding in is never jammed. | hide in the spot she cannot jam (yours) and do not count on neighbours |
 | Cyan | Signal Ping: If she keeps you in sight for 2.5 seconds she broadcasts your exact position, so every other active hunter investigates it, then she waits 30 seconds. | break line of sight before 2.5 seconds |
-| Gray | No power yet: No special power is in the game yet: she simply hunts at Void speed with the longest sight of the Voids. | none special: she is a plain Void pursuer |
+| Gray | Signal Route: dormant (unseen, uncatchable) through a 180 s grace window (120 s Nightmare) that restarts at every relay; then 45 s (30 s) of standing still in the open opens a route of five E presses at 2.5 s each (1.8 s); a miss starts her chase until the next relay | keep moving, collect relays, or hide / use a safe room to wait |
 | Green | Vent Relocate: Every 22 seconds, if she is at least 14 cells away, she sinks out of sight for 2 seconds (still, unable to grab), then climbs out 9 cells from you and investigates. | move after the vent clatter: she surfaces 9 cells away |
-| Orange | No power yet: No special power is in the game yet: she simply hunts at Void speed. | none special: she is a plain Void pursuer |
+| Orange | System Saboteur: every 26 s one of flashlight / climate / radar goes offline for 9 s | wait it out somewhere safe; do not rely on one system |
 | Pink | False Signal: She never attacks and cannot catch you. Every 11 seconds she has a 60% chance to send a FOOTSTEPS // SOMEWHERE CLOSE cue. | ignore the footsteps cue: she cannot hurt you |
-| Purple | No power yet: No special power is in the game yet: she simply hunts at Void speed and ramps her chase quickly. | none special: she is a plain Void pursuer |
+| Purple | Radar Corrupter: every 21 s static for 8 s; 35% of the time a full radar blackout for 11 s instead | navigate from the game view until it reboots |
 | Red | Hall Runner: 1.55x faster in hallways and 0.78x slower inside rooms. | use rooms: she is slower there; avoid long hallways |
 | White | Light Frozen: Freezes while your lit torch is on her (within 10 cells) and moves 1.35x faster in the dark. Her hearing is the sharpest of the Voids. | keep the torch on her and stay quiet |
 | Yellow | Map Pressure: While your full-screen map is open her speed grows 0.06 per second up to 1.7x, and it stays for the rest of the route. | close the map: her speed grows while it is open |

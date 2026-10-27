@@ -493,10 +493,11 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	view._apply_model("dovelle")
 	await host.get_tree().process_frame
 	_expect_fully_visible_hunter(view, "an active non-stealth hunter")
-	view.brain.hunter_id = "void_gray"
-	view.brain.gimmick = HunterGimmick.for_id("void_gray")
+	# (Red, not Gray: a dormant Gray is deliberately unseen until her signal route fails)
+	view.brain.hunter_id = "void_red"
+	view.brain.gimmick = HunterGimmick.for_id("void_red")
 	view._shown_id = ""
-	view._apply_model("void_gray")
+	view._apply_model("void_red")
 	await host.get_tree().process_frame
 	_expect_fully_visible_hunter(view, "an active Void hunter")
 	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),

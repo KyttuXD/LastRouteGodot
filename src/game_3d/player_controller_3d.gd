@@ -168,6 +168,9 @@ var inventory_durability := {
 ## True while the facility's heater station is running — warms the ambient,
 ## and is Wynelle's counterplay (see heater_station in route_interactable_3d).
 var heater_on := false
+## Orange Void's sabotage: one system ("flashlight", "climate" or "radar") offline until outage_left runs out.
+var outage_system := ""
+var outage_left := 0.0
 var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
@@ -693,7 +696,22 @@ func _update_admin_noclip(delta: float) -> void:
 	ModelSlot.play_if_available(_animation_player, _clip)
 
 
+func begin_outage(system: String, seconds: float) -> void:
+	outage_system = system
+	outage_left = maxf(seconds, 0.0)
+	if system == "flashlight" and flashlight_enabled:
+		_set_flashlight(false)
+
+
+func system_offline(system: String) -> bool:
+	return outage_left > 0.0 and outage_system == system
+
+
 func _physics_process(delta: float) -> void:
+	if outage_left > 0.0:
+		outage_left = maxf(0.0, outage_left - delta)
+		if outage_left <= 0.0:
+			outage_system = ""
 	_update_controller_look(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
@@ -798,7 +816,7 @@ func _physics_process(delta: float) -> void:
 		"crouching": movement_mode == "crouch",
 		"hidden": hidden,
 		"in_safe_zone": is_in_safe_zone(),
-		"heater_on": heater_on,
+		"heater_on": heater_on and not system_offline("climate"),
 	})
 
 	_update_stamina(delta, is_sprinting)
@@ -1138,7 +1156,7 @@ func _update_flashlight_flicker(delta: float) -> void:
 
 func _set_flashlight(enabled: bool) -> void:
 	flashlight_enabled = enabled and owns_inventory_item("flashlight") \
-		and lamp_charge > 0.0
+		and lamp_charge > 0.0 and not system_offline("flashlight")
 	flashlight.visible = _flashlight_beam_should_be_visible()
 	if _flashlight_probe != null:
 		_flashlight_probe.enabled = flashlight.visible

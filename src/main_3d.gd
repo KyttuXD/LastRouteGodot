@@ -112,6 +112,7 @@ func _ready() -> void:
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
+	_void_fx = VoidPlayerEffects.new(player, hud, _report_void_route)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -173,6 +174,8 @@ func _on_background_update_ready(_path: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if _void_fx != null:
+		_void_fx.tick(delta)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
 		_admin_ticket_refresh_elapsed += delta
 		if _admin_ticket_refresh_elapsed >= 5.0:
@@ -330,6 +333,9 @@ func _update_gameplay(delta: float) -> void:
 					"seconds": float(event.get("seconds", 0.0)),
 					"message": String(event.get("message", "")),
 				})
+				continue
+			if what in ["signal_route", "system_outage", "radar_corrupt"]:
+				_dispatch_player_event(target, event)
 				continue
 			facility_view.apply_event(event)
 			_play_world_audio(event)
@@ -766,6 +772,8 @@ func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
 						vent_id, view.brain, facility_view.generator)
 					view.sync_from_brain()
 					return
+		"signal_route_result":
+			VoidPlayerEffects.host_route_result(hunter_views, peer_id, bool(event.get("ok", false)))
 		"zephyra_trade":
 			for view in hunter_views:
 				if view.brain.active and view.brain.gimmick is ZephyraGimmick:
@@ -1322,6 +1330,18 @@ func _player_controls_blocked() -> bool:
 		or (admin_menu != null and admin_menu.is_open())
 
 
+var _void_fx: VoidPlayerEffects
+
+
+## A signal route (Gray) ended on this player's machine: the host decides what it means.
+func _report_void_route(ok: bool) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "signal_route_result", "ok": ok})
+	else:
+		VoidPlayerEffects.host_route_result(hunter_views,
+			multiplayer.get_unique_id() if RoomState.online else 1, ok)
+
+
 func _on_map_open_changed(_shown: bool) -> void:
 	player.velocity = Vector3.ZERO
 	player.input_frozen = _player_controls_blocked()
@@ -1609,6 +1629,8 @@ func _dispatch_player_event(target: Dictionary, event: Dictionary) -> void:
 
 
 func _apply_player_event(event: Dictionary) -> void:
+	if _void_fx != null and _void_fx.apply(event):
+		return
 	match String(event.get("what", "")):
 		"capture":
 			if String(event.get("via", "")) != "":

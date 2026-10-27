@@ -51,6 +51,8 @@ var hunter_id: String
 var spawn_seed_text := ""
 var gimmick: HunterGimmick
 var difficulty_id := "standard"
+## The floor's relay count as of the last update (Gray's pressure resets when it rises).
+var relays_seen := 0
 var difficulty_profile: Dictionary = GameConfig.DIFFICULTY_PROFILES["standard"]
 
 ## Changes a gimmick made to the shared world, for the scene above to drain.
@@ -166,6 +168,7 @@ func _tick_emote(delta: float) -> void:
 
 
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	relays_seen = relays_collected
 	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
 	# it has to run before the inactive check that would otherwise stop it.
@@ -222,6 +225,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 ## last pose/state they had before the target disappeared.
 func update_without_target(delta: float, generator,
 		depth: int, relays_collected: int) -> void:
+	relays_seen = relays_collected
 	_tick_emote(delta)
 	if not active:
 		return
