@@ -153,16 +153,29 @@ func _closet() -> void:
 func _hall() -> void:
 	var hall := _prop("Hall")
 	var hx: float = HALF + 4.0
-	_c(hall, Vector3(8.2, 0.2, 1.8), Vector3(hx + 0.1, -0.1, -0.9), "HallFloor", {"solid": true, "tint": Color(0.7, 0.65, 0.7)})
-	_c(hall, Vector3(8.2, 0.2, 1.8), Vector3(hx + 0.1, HEIGHT + 0.1, -0.9), "HallCeiling", {"tint": Color(0.5, 0.5, 0.55)})
-	_c(hall, Vector3(8.2, HEIGHT, 0.2), Vector3(hx + 0.1, HEIGHT * 0.5, -1.9), "HallWallNorth", {"solid": true, "tint": Color(0.8, 0.75, 0.95)})
-	_c(hall, Vector3(8.2, HEIGHT, 0.2), Vector3(hx + 0.1, HEIGHT * 0.5, 0.1), "HallWallSouth", {"solid": true, "tint": Color(0.8, 0.75, 0.95)})
-	_c(hall, Vector3(0.2, HEIGHT, 1.8), Vector3(HALF + 8.3, HEIGHT * 0.5, -0.9), "HallEndWall", {"solid": true, "tint": Color(0.6, 0.6, 0.7)})
-	_c(hall, Vector3(0.1, 2.0, 0.9), Vector3(HALF + 8.18, 1.0, -0.9), "HallEndDoor", {"kind": "wood"})
+	_c(hall, Vector3(8.0, 0.2, 1.8), Vector3(hx + 0.2, -0.1, -0.9), "HallFloor", {"solid": true, "tint": Color(0.7, 0.65, 0.7)})
+	_c(hall, Vector3(8.0, 0.2, 1.8), Vector3(hx + 0.2, HEIGHT + 0.1, -0.9), "HallCeiling", {"tint": Color(0.5, 0.5, 0.55)})
+	# the hall's walls have doorways where the house wing's rooms open off it (BedroomMap): north the bathroom and the landing, south the kids' room; the east end is open to the living room
+	_hall_wall(hall, -1.9, [5.5, 9.3], "HallWallNorth")
+	_hall_wall(hall, 0.1, [6.0], "HallWallSouth")
 	_c(hall, Vector3(7.6, 0.03, 0.7), Vector3(hx, 0.02, -0.9), "HallRunner", {"kind": "fabric", "tint": Color(0.7, 0.5, 0.9), "ao": 1.0})
-	for i in 3:
-		_c(hall, Vector3(0.06, 0.8, 0.5), Vector3(HALF + 1.6 + i * 2.2, 1.7, -1.78), "HallFrame", {"tint": Color(0.9, 0.8, 0.7)})
+	for fx in [3.6, 7.5]:
+		_c(hall, Vector3(0.5, 0.8, 0.06), Vector3(fx, 1.7, -1.78), "HallFrame", {"tint": Color(0.9, 0.8, 0.7)})
 	_c(hall, Vector3(0.2, 0.2, 0.2), Vector3(HALF + 6.0, 0.1, -1.6), "HallBox", {})
+
+
+## One hall wall (x from 2.5 to 10.7) with a doorway of 1.6 m at each x in `gaps`.
+func _hall_wall(hall: Node3D, z: float, gaps: Array, wname: String) -> void:
+	var x0 := HALF
+	var x1 := HALF + 8.2
+	var cursor := x0
+	var lintel_h := HEIGHT - 2.2
+	for g in gaps:
+		var lo: float = float(g) - 0.8
+		_c(hall, Vector3(lo - cursor, HEIGHT, 0.2), Vector3((cursor + lo) * 0.5, HEIGHT * 0.5, z), wname, {"solid": true, "tint": Color(0.8, 0.75, 0.95)})
+		_c(hall, Vector3(1.6, lintel_h, 0.2), Vector3(float(g), 2.2 + lintel_h * 0.5, z), wname + "Lintel", {"tint": Color(0.75, 0.7, 0.9)})
+		cursor = float(g) + 0.8
+	_c(hall, Vector3(x1 - cursor, HEIGHT, 0.2), Vector3((cursor + x1) * 0.5, HEIGHT * 0.5, z), wname, {"solid": true, "tint": Color(0.8, 0.75, 0.95)})
 
 
 func _furniture() -> void:
@@ -170,7 +183,7 @@ func _furniture() -> void:
 	_c(table, Vector3(0.5, 0.55, 0.45), Vector3(0, 0.275, 0), "NightstandBox", {"solid": true})
 	_c(table, Vector3(0.18, 0.04, 0.18), Vector3(0, 0.57, 0), "LampBase", {})
 	_c(table, Vector3(0.22, 0.2, 0.22), Vector3(0, 0.7, 0), "NightLampHood", {"kind": "fabric", "tint": Color(1.1, 1.0, 0.8)})
-	var shelf := _prop("ToyShelf", Vector3(-1.2, 0.0, -HALF + 0.3))
+	var shelf := _prop("ToyShelf", Vector3(-1.2, 0.0, -HALF + 0.46))
 	_c(shelf, Vector3(1.4, 1.2, 0.35), Vector3(0, 0.6, 0), "ShelfBody", {"solid": true})
 	for i in 4:
 		_c(shelf, Vector3(0.25, 0.25, 0.25), Vector3(-0.5 + i * 0.33, 1.32, 0), "ToyCube", {"kind": ["red", "green", "light", "glass"][i], "tint": Color(0.8, 0.8, 0.9)})
@@ -190,7 +203,7 @@ func _decor() -> void:
 		_c(dresser, Vector3(0.04, 0.22, 1.0), Vector3(0.26, 0.2 + i * 0.28, 0), "DresserDrawer", {"tint": Color(1.1, 1.05, 1.0)})
 		_c(dresser, Vector3(0.05, 0.04, 0.2), Vector3(0.29, 0.22 + i * 0.28, 0), "DresserHandle", {"kind": "metal"})
 	_c(dresser, Vector3(0.3, 0.3, 0.3), Vector3(0, 1.05, 0.2), "DresserBox", {"tint": Color(0.9, 0.8, 1.1)})
-	var books := _prop("Bookcase", Vector3(0.9, 0.0, -HALF + 0.3))
+	var books := _prop("Bookcase", Vector3(0.9, 0.0, -HALF + 0.46))
 	_c(books, Vector3(0.9, 1.9, 0.35), Vector3(0, 0.95, 0), "BookcaseBody", {"solid": true})
 	for y in [0.35, 0.8, 1.25, 1.7]:
 		_c(books, Vector3(0.84, 0.04, 0.38), Vector3(0, y, 0.01), "BookcaseShelf", {})

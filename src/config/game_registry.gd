@@ -45,7 +45,10 @@ const GAMES := [
 const HUB_SCENE := "res://scenes/game_hub.tscn"
 const DEFAULT_ID := "last_route"
 ## The game whose menus are open (set when the hub launches one); settings and the controls tabs follow it.
-static var active_game_id := "last_route"
+static var active_game_id := "last_route":
+	set(value):
+		active_game_id = value
+		Palette.apply_scheme(value)
 ## Per-run choice of what the hub opens when the player has used it before.
 const SETTINGS_SECTION := "hub"
 

@@ -4,7 +4,7 @@ extends RefCounted
 ## every provided layout is connected (every room reachable from the entrances along its edges) with sensible sizes, and no mode's world scene extends NightWatchBuilding (Classic's
 ## shell). Modes whose map is not provided yet are listed (planned); set REQUIRE_ALL when every lane has delivered. A single-space mode (Bedtime, Salvage Run) is exempt.
 
-const REQUIRE_ALL := false
+const REQUIRE_ALL := true
 
 var _failures := 0
 

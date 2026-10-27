@@ -98,6 +98,8 @@ func run(host: Node) -> int:
 	_check_rules()
 	_check_controls()
 	await _check_scene(host)
+	await _check_call(host)
+	await _check_admin(host)
 	if _failures == 0:
 		print("  night_watch_mask  the 2D rules (golden shifts, hall walker, rusher, vent hunters, music box, battery, dark, controls) and the shift scene (nights, win, loss, saves, Custom Night, retry)")
 	return _failures
@@ -110,7 +112,7 @@ func _check_data() -> void:
 		for next in MaskData.GRAPH[room]:
 			_expect((MaskData.GRAPH[next] as Array).has(room), "%s -> %s is not mirrored" % [room, next])
 	_expect(MaskData.cam_rooms() == ["music", "costume", "gallery", "ballroom", "crawl", "ductL", "ductR", "hall"], "the eight cameras are not numbered as in the 2D game")
-	_expect(MaskData.cam_label("hall") == "CAM 8 · HALL" and MaskData.cam_label("ductL") == "CAM 6 · LEFT DUCT", "camera labels differ from the 2D game's")
+	_expect(MaskData.cam_label("hall") == "CAM 8 · MAIN HALL" and MaskData.cam_label("ductL") == "CAM 6 · LEFT AIR VENT" and MaskData.cam_label("music") == "CAM 1 · PRIZE CORNER", "camera labels are not the FNAF 2 floor plan's")
 	var dist := NightWatchData.distances_to("office", MaskData.GRAPH)
 	_expect(dist.size() == MaskData.GRAPH.size(), "a room cannot reach the office")
 	_expect(MaskLogic.next_toward("costume") == "ballroom" and MaskLogic.next_toward("ballroom") == "hall" and MaskLogic.next_toward("hall") == "office"
@@ -475,11 +477,11 @@ func _check_scene(host: Node) -> void:
 	await host.get_tree().process_frame
 	_expect(game.player != null and game.hud.find_children("*", "Crosshair", true, false).size() == 1, "the shared player or crosshair is missing")
 	_expect(game.office is MaskOffice and game.office.spec.id == "front_office", "Masked Hours is not in its own front office")
-	for id in ["monitor", "mask", "musicbox", "vent", "ventR", "doorR_light", "lamp", "chair"]:
+	for id in ["monitor", "mask", "musicbox", "ventL", "ventR", "hall_light", "lamp", "chair"]:
 		_expect(game.office.stations.has(id) and not (game.office.stations[id] as NightWatchStation).disabled, "station %s is missing or disabled" % id)
-	for id in ["doorL_door", "doorR_door", "doorL_light"]:
-		_expect((game.office.stations[id] as NightWatchStation).disabled, "%s still works in a wing with no doors" % id)
-	_expect(is_equal_approx(float(game.office.slab_progress["doorL"]), 1.0) and is_equal_approx(float(game.office.slab_progress["doorR"]), 0.0), "the left doorway is not sealed or the hall is not open")
+	_expect(game.office.find_children("Slab*", "Node3D", true, false).is_empty() and not game.office.stations.has("doorL_door") and not game.office.stations.has("doorR_door"), "the office has a door")
+	var mouth := game.office.global_position + Vector3(0.0, 1.0, MaskOffice.FRONT_Z)
+	_expect(game.office.stations.has("hall_light") and mouth.z < game.office.global_position.z, "the main hall does not open straight ahead of the desk")
 	_expect(game.find_children("*", "AudioStreamPlayer", true, false).is_empty() and game.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(), "Masked Hours has an audio player of its own")
 	for file in DirAccess.get_files_at("res://src/night_watch/mask"):
 		if file.ends_with(".gd"):
@@ -496,12 +498,12 @@ func _check_scene(host: Node) -> void:
 	game.advance_ms(300.0)
 	_expect(game.monitor_up and game.hud.monitor_root.visible and not bool(game._last_input["mask"]) and bool(game._last_input["monitor"]), "the monitor did not replace the mask")
 	await host.get_tree().process_frame
-	_expect(game.hud.cam_label.text.begins_with("CAM 1 · MUSIC ROOM") and game.hud.feed_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "the monitor did not open on CAM 1")
+	_expect(game.hud.cam_label.text.begins_with("CAM 1 · PRIZE CORNER") and game.hud.feed_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "the monitor did not open on CAM 1")
 	_expect(Sound.play_counts.has("office_camera"), "the monitor sound did not go through the shared Sound autoload")
 	game.select_camera("ductL")
-	_expect(game.hud.cam_label.text.begins_with("CAM 6 · LEFT DUCT") and game.hud.feed_camera.global_position.distance_to(game.world.feed_transform("ductL").origin) < 0.01, "the feed did not move to the left duct")
+	_expect(game.hud.cam_label.text.begins_with("CAM 6 · LEFT AIR VENT") and game.hud.feed_camera.global_position.distance_to(game.world.feed_transform("ductL").origin) < 0.01, "the feed did not move to the left duct")
 	game.select_camera("hall")
-	_expect(game.hud.feed_camera.global_position.distance_to(game.office.global_position + Vector3(NightWatchOffice.HALF_W + 0.1, 2.7, 0.0)) < 0.01, "CAM 8 is not over the office doorway")
+	_expect(game.hud.feed_camera.global_position.distance_to(game.office.global_position + Vector3(0.0, 2.6, -1.9)) < 0.01, "CAM 8 is not over the office opening looking down the main hall")
 	game.press("winPtr")
 	game.advance_ms(60.0)
 	_expect(game.controls.cam == "music" and bool(game._last_input["winding"]), "holding the music box did not jump to CAM 1 and wind")
@@ -516,7 +518,7 @@ func _check_scene(host: Node) -> void:
 	game.press("lightL", false)
 	game.press("lightH")
 	game.advance_ms(100.0)
-	_expect((game.office.door_lights["doorR"] as SpotLight3D).visible, "the hall light did not come on")
+	_expect((game.office.door_lights["hall"] as SpotLight3D).visible, "the hall light did not come on")
 	game.press("lightH", false)
 	game.advance_ms(100.0)
 	# the dark ducts and vents: a vent hunter is seen only in the light
@@ -548,7 +550,7 @@ func _check_scene(host: Node) -> void:
 	th.merge({"state": "hall", "room": "hall", "step": 3, "t": 0.0, "need": 99999.0}, true)
 	game.advance_ms(20.0)
 	var tm := game._models["thessine"] as Node3D
-	_expect(tm.visible and absf(tm.position.z - game.office.global_position.z) < 0.5 and tm.position.x > NightWatchOffice.HALF_W, "Thessine is not in the corridor on her last step")
+	_expect(tm.visible and absf(tm.position.x - game.office.global_position.x) < 0.5 and tm.position.z < game.office.global_position.z - 2.5 and tm.position.z > game.office.global_position.z - 8.0, "Thessine is not in the main hall on her last step")
 	th.merge({"state": "away", "room": "costume"}, true)
 	var rush := game.sim.s["rush"] as Dictionary
 	game.advance_ms(20.0)
@@ -590,6 +592,51 @@ func _check_scene(host: Node) -> void:
 						if (w["rect"] as Rect2).has_point(Vector2(pt.x, pt.z)):
 							bad_wall += 1
 	_expect(bad_wall == 0, "walking routes in the wing cross walls at %d points" % bad_wall)
+	# the FNAF 2 floor plan: four party rooms off the main hall, three performers on the show stage, the prize counter and the big music box, arcade cabinets, the side halls
+	for n in range(1, 5):
+		_expect(walk.world.find_child("PartyRoom%d" % n, true, false) != null, "party room %d is missing" % n)
+	var named := {}
+	for m in walk.world.find_children("*", "MeshInstance3D", true, false):
+		var nm := String(m.get_meta("nw_name", ""))
+		named[nm] = int(named.get(nm, 0)) + 1
+	_expect(int(named.get("HeadPerformer", 0)) == 3 and int(named.get("ArcadeBody", 0)) >= 4 and walk.world.find_child("MusicBoxBig", true, false) != null and walk.world.find_child("PrizeCorner", true, false) != null
+		and int(named.get("CounterPrize", 0)) == 1 and walk.world.find_child("SideHallL", true, false) != null and walk.world.find_child("SideHallR", true, false) != null,
+		"the show stage performers, prize counter, music box, arcade cabinets or side halls are missing (%s)" % str([named.get("HeadPerformer", 0), named.get("ArcadeBody", 0)]))
+	var to_office: Array = walk.world.route("C:ballroom", "H:in")
+	var straight := to_office.size() >= 6
+	for leg in to_office:
+		if String(leg["key"]).begins_with("H:") or String(leg["key"]) == "GA_S" or String(leg["key"]) == "C:ballroom":
+			straight = straight and absf((leg["p"] as Vector3).x) < 0.01
+	_expect(straight and (to_office[to_office.size() - 1]["p"] as Vector3).z > -2.0, "the way from the game area to the office is not one straight main hall")
+	var around: Array = walk.world.route("C:crawl", "C:ballroom")
+	var keys := []
+	for leg in around:
+		keys.append(String(leg["key"]))
+	_expect(keys.has("SL_2") or keys.has("SR_2"), "the vent hub is not connected to the show floor by a side hall")
+	for room in MaskData.cam_rooms():
+		if room != "hall":
+			_expect(walk.world.route("C:%s" % room if room != "hall" else "H:15", "H:in").size() >= 2, "%s has no walk to the office" % room)
+	# a hunter in a vent shaft takes the vent pose: Verrine drops in (one-shot), crawls (her own belly-low crawl), rises out; the others use the generic crawl
+	_expect(NightWatchPoses.pose_for_state("vent", "verrine") == "vent_crawl_verrine" and NightWatchPoses.pose_for_state("vent", "ilyra") == "vent_crawl"
+		and NightWatchPoses.pose_for_state("vent_enter", "verrine") == "vent_drop_verrine" and NightWatchPoses.pose_for_state("vent_enter", "ilyra") == "", "the vent poses are not mapped as the pose data says")
+	var pv := walk.sim.s["vent"] as Dictionary
+	pv.merge({"state": "duct", "room": "ductL", "side": "L", "t": 0.0, "need": 99999.0}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("verrine") == "vent_enter", "Verrine did not drop into the duct with the vent_enter pose")
+	for i in 60:
+		walk._animate_models(0.02)
+	_expect(walk._vent_pose.state_of("verrine") == "vent", "Verrine did not crawl the duct in her vent pose")
+	var ilyra := walk.sim.s["ilyra"] as Dictionary
+	ilyra.merge({"state": "duct", "room": "ductR", "side": "R", "t": 0.0, "need": 99999.0, "step": 1}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("ilyra") == "vent", "Ilyra did not take the generic vent crawl (no drop)")
+	pv.merge({"state": "away", "room": "crawl"}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("verrine") == "vent_exit", "Verrine did not rise out of the shaft with vent_exit")
+	for i in 60:
+		walk._animate_models(0.02)
+	_expect(walk._vent_pose.state_of("verrine") == "", "Verrine kept a vent pose after leaving the shaft")
+	_expect(MaskOffice.HEIGHT > 0.8 and 1.8 > 0.8, "the air vents are lower than 0.8 m")
 	walk.queue_free()
 	await host.get_tree().process_frame
 	# a loss: Thessine unmasked in the office ends the night with the CAUGHT card
@@ -635,6 +682,88 @@ func _check_scene(host: Node) -> void:
 	cn.queue_free()
 	await host.get_tree().process_frame
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the quick-key actions stayed registered after the shift closed")
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
+	NightWatchSession.start(1)
+
+
+# --- Zellia's call: rung at the night's `at` seconds on the shift clock (pauses and the admin freeze are honoured), typed line by line, skipped with mute ---------------------
+
+func _check_call(host: Node) -> void:
+	var game := _shift(host, 1, 650)
+	await host.get_tree().process_frame
+	var at_s := float(NightWatchCallsData.for_level("mask", 1)["at"])
+	_expect(game.hud.call_script != null and not game.hud.call_script.done and not game.hud.call_script.open, "night 1's call is not waiting for its ring")
+	game.advance_ms((at_s - 1.0) * 1000.0)
+	_expect(not game.hud.call_script.open and game.hud.shown_call.is_empty(), "the call rang before its time")
+	game.admin_set_frozen(true)
+	game.advance_ms(5000.0)
+	_expect(not game.hud.call_script.open, "a frozen shift still rang the call")
+	game.admin_set_frozen(false)
+	for i in 15:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.shown_call == NightWatchCallsData.INCOMING_TEXT, "the call did not ring at %.0f s of the shift clock (%s)" % [at_s, game.hud.shown_call])
+	for i in 40:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.call_script.line == 0 and game.hud.shown_call != NightWatchCallsData.INCOMING_TEXT, "the call did not go on to its first line")
+	game.admin_skip_call()
+	_expect(game.hud.shown_call.is_empty(), "skipping the call left it on screen")
+	game.queue_free()
+	await host.get_tree().process_frame
+
+
+# --- the admin menu: the gate, the sections, the layout at three sizes, and every entry really changes the shift ---------------------------------------------
+
+func _admin_snapshot(game: MaskGame) -> String:
+	return NightWatchAdminCheck.dump(game.sim.s) + NightWatchAdminCheck.dump(game.sim.levels) + "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [game.sim.infinite_battery, game.sim.hunter_speed, game._admin_frozen,
+		game._admin_god, game._admin_no_scare, game._admin_reveal, game._admin_noclip, game.controls.want, game.controls.lamp, str(game.controls.held), game.hud.shown_call, NightWatchSession.night] \
+		+ str(game.hud.cam_map.blips) + str(game.sim._decay)
+
+
+func _check_admin(host: Node) -> void:
+	NightWatchSave.path = "user://night_watch_mask_admin_test.cfg"
+	NightWatchSave.reset()
+	var game := _shift(host, 4, 600)
+	await host.get_tree().process_frame
+	for msg in NightWatchAdminCheck.sections(game, "MASKED HOURS SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	_expect(game.hud.hint_label.text.contains("0 admin"), "the hint line does not list the admin key for an admin")
+	for msg in await NightWatchAdminCheck.layout(host, game, "MASKED HOURS SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	game.advance_ms(3000.0)
+	for msg in NightWatchAdminCheck.exercise(game, func(g): return _admin_snapshot(g), ["WIN THE SHIFT", "LOSE THE SHIFT"]):
+		_expect(false, "[admin] " + msg)
+	game.queue_free()
+	await host.get_tree().process_frame
+	# specific effects the snapshot cannot say: the hooks do what they claim
+	var g2 := _shift(host, 4, 601)
+	await host.get_tree().process_frame
+	g2.admin_set_hour(3)
+	_expect(g2.sim.level("thessine") == int((MaskLogic.LEVELS["thessine"] as Array)[3]) + 1, "SET TIME 3 AM did not step the AI up")
+	g2.admin_set_box(0.0)
+	g2.admin_set_power(40.0)
+	_expect(is_equal_approx(float(g2.sim.s["box"]), 0.0) and is_equal_approx(float(g2.sim.s["battery"]), 40.0), "the box or the battery was not set")
+	g2.admin_set_frozen(true)
+	var before := float(g2.sim.s["elapsed"])
+	g2.advance_ms(2000.0)
+	_expect(float(g2.sim.s["elapsed"]) == before, "the frozen clock still ran")
+	g2.admin_set_frozen(false)
+	g2.admin_place_hunter("thessine", "office")
+	g2.admin_set_god(true)
+	g2.advance_ms(6000.0)
+	_expect(g2.state == MaskGame.State.PLAYING and String(g2.sim.s["over"]) == "", "god mode did not save the night from an unmasked Thessine")
+	g2.admin_set_god(false)
+	g2.admin_set_no_scare(true)
+	g2.admin_lose()
+	_expect(g2.state == MaskGame.State.LOST and not g2.death_moment.is_open(), "LOSE THE SHIFT with no jumpscare still played the scare")
+	g2.queue_free()
+	await host.get_tree().process_frame
+	var g3 := _shift(host, 2, 602)
+	await host.get_tree().process_frame
+	g3.admin_win()
+	_expect(g3.state == MaskGame.State.WON, "WIN THE SHIFT did not win")
+	g3.queue_free()
+	await host.get_tree().process_frame
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	NightWatchSession.start(1)

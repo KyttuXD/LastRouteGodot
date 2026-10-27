@@ -145,7 +145,7 @@ func _build_rooftop() -> void:
 	# the catwalk each hunter climbs: a gantry from the far end round the corner to the door
 	var walk := _prop("Catwalks")
 	for s in [-1.0, 1.0]:
-		_c(walk, Vector3(2.4, 0.2, 2.4), Vector3(s * (ROOF_X + 1.3), -0.1, 0), "CatwalkPlatform", {"kind": "metal"})
+		_c(walk, Vector3(2.3, 0.2, 2.4), Vector3(s * (ROOF_X + 1.35), -0.1, 0), "CatwalkPlatform", {"kind": "metal"})
 		_c(walk, Vector3(2.0, 0.2, 6.0), Vector3(s * (ROOF_X + 2.2), -0.1, -3.6), "CatwalkPlatform", {"kind": "metal"})
 		_c(walk, Vector3(2.0, 0.2, 7.0), Vector3(s * (ROOF_X + 2.2), -0.1, -9.0), "CatwalkPlatform", {"kind": "metal"})
 		_c(walk, Vector3(0.08, 0.9, 6.0), Vector3(s * (ROOF_X + 3.1), 0.45, -3.6), "CatwalkRail", {"kind": "metal"})

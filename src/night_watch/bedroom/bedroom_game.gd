@@ -18,6 +18,8 @@ var night := 1
 var state: State = State.PLAYING
 var sim: BedroomLogic
 var world: BedroomOffice
+var wing: BedroomWing
+var paths: BedroomPaths
 var camera: Camera3D
 var hud: NightWatchHud
 var hunters_root: Node3D
@@ -33,6 +35,11 @@ var _players := {}
 var _walkers := {}
 var _jav_state := "away"
 var _hour_seen := 0
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
 var _cue := {"loxelle": 0.0, "javelle": 0.0, "haelith": 0.0}
 
 
@@ -46,10 +53,13 @@ func _ready() -> void:
 		opts = {"night": 5, "rng": NightWatchStream.seeded(seed_value), "custom": true, "levels": custom}
 	_build_world()
 	sim = BedroomLogic.new(opts)
+	paths = BedroomPaths.new()
 	_spawn_hunters()
-	if not is_custom:
-		hud.queue_call(BedroomData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 6.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
 	_sync_visuals()
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	if admin_menu != null:
+		hud.hint_label.text += "   0 admin"
 	if not manual_clock:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -68,6 +78,9 @@ func _build_world() -> void:
 	world = NightWatchOfficeRegistry.make("bedroom") as BedroomOffice
 	world.name = "Bedroom"
 	add_child(world)
+	wing = BedroomWing.new()
+	wing.name = "Wing"
+	add_child(wing)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -83,6 +96,7 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_level)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
@@ -159,9 +173,10 @@ func _process(delta: float) -> void:
 
 
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	var events := sim.step(dt_ms, current_input())
+	hud.update_call(sim.elapsed, dt_ms)
 	var hour := NightWatchData.hour_index(sim.elapsed)
 	if hour != _hour_seen:
 		_hour_seen = hour
@@ -225,29 +240,29 @@ func base_awake(id: String) -> bool:
 
 func _place_hunters() -> void:
 	var eye := BedroomOffice.EYE
-	# Javelle: out of the dark end of the hall, up to the doorway and back, on foot
+	# Javelle: from the living room along the hall to the bedroom door and back, on foot (BedroomPaths)
 	var jv := _models["javelle"] as Node3D
 	var jw := _walkers.get("javelle") as NightWatchWalker
 	var jstate: String = sim.javelle["state"]
-	var target: Vector3 = BedroomOffice.HALL_FAR
+	var key := "C:living_room"
 	if jstate == "breath":
-		target = BedroomOffice.HALL_MID
+		key = "H:mid"
 	elif jstate == "near":
-		target = BedroomOffice.HALL_NEAR
+		key = "H:near"
+	var target: Vector3 = paths.points[key]
 	if jw == null:
+		var home: Vector3 = paths.points["C:living_room"]
 		jw = NightWatchWalker.new()
 		_walkers["javelle"] = jw
-		jw.place(BedroomOffice.HALL_FAR, BedroomOffice.HALL_FAR, eye, "away")
+		jw.place(home, home, eye, "away")
 	if manual_clock:
 		jw.place(target, target, eye, jstate)
 		_jav_state = jstate
 	elif jstate != _jav_state:
-		if _jav_state == "away":
-			jw.place(BedroomOffice.HALL_FAR, BedroomOffice.HALL_FAR, eye, "away")   # she comes out of the dark end of the hall
-		jw.go([{"p": jw.pos, "jump": false, "key": ""}, {"p": target, "jump": false, "key": ""}], jstate, target, 1.8)
+		jw.go(paths.legs_from(jw.pos, key), jstate, target, 2.4)
 		jw.look = eye
 		_jav_state = jstate
-	jv.visible = base_awake("javelle") and (jstate != "away" or jw.is_walking() or jw.pos.distance_to(BedroomOffice.HALL_FAR) > 0.5)
+	jv.visible = _admin_reveal or base_awake("javelle") and (jstate != "away" or jw.is_walking() or jw.pos.x < BedroomMap.rect("hall").end.x + 0.2)
 	jv.position = jw.pos
 	jv.rotation.y = jw.yaw
 	# Haelith: across the floor as her number rises, dim until the bed light finds her
@@ -264,7 +279,7 @@ func _place_hunters() -> void:
 	else:
 		hw.final = spot
 		hw.look = eye
-	hm.visible = base_awake("haelith") and hp >= 10.0
+	hm.visible = _admin_reveal or (base_awake("haelith") and hp >= 10.0)
 	hm.position = hw.pos
 	hm.rotation.y = hw.yaw
 
@@ -396,7 +411,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick({"hunter_id": who}, "nightwatch:bedroom:%d" % seed_value, night, name_text)
 	last_death = {"by": who, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -406,6 +421,155 @@ func _after_death_moment() -> void:
 	if state != State.LOST:
 		return
 	hud.show_end("CAUGHT", "%s got to you at %s." % [last_death.get("name", "Someone"), NightWatchData.hour_label(NightWatchData.hour_index(sim.elapsed))], false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	var lox: Dictionary = sim.loxelle
+	var jav: Dictionary = sim.javelle
+	return "BEDTIME  NIGHT %d  %s  BATTERY %d%%\nLOXELLE  %s  AI %d  stage %.1fs  answered %.1fs\nJAVELLE  %s  AI %d  stage %.1fs  answered %.1fs\nHAELITH  creep %d%%  AI %d\nHAND %s  LIGHT %s  IDLE %.0fs%s\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [night,
+		NightWatchData.hour_label(NightWatchData.hour_index(sim.elapsed)), int(round(sim.battery)), lox["state"], sim.level("loxelle"), float(lox["t"]) / 1000.0, float(lox["need"]) / 1000.0,
+		jav["state"], sim.level("javelle"), float(jav["t"]) / 1000.0, float(jav["need"]) / 1000.0, int(float(sim.haelith["p"])), sim.level("haelith"),
+		"closet" if sim.hold else "free", sim.light if sim.light != "" else "dark", sim.idle / 1000.0, "  RESTLESS" if sim.restless else "",
+		str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.elapsed = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, NightWatchData.NIGHT_MS - 1000.0)
+	_hour_seen = NightWatchData.hour_index(sim.elapsed)
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+## "Power" in Bedtime is the flashlight battery.
+func admin_set_power(percent: float) -> void:
+	sim.battery = clampf(percent, 0.0, 100.0)
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_battery = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_battery
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+## Reveal: all three show wherever they are and the room is lit, so you can see who stands where.
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	world_env.environment.ambient_light_energy = 2.4 if on else 0.55
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return BedroomData.CAST.duplicate()
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.levels[id] = level_value
+
+
+func admin_places() -> Array:
+	return ["away", "breath", "near"]
+
+
+## Loxelle and Javelle go to a stage; Haelith's creep goes to 0 / 50 / 90 percent for away / breath / near.
+func admin_place_hunter(id: String, place: String) -> void:
+	if id == "haelith":
+		sim.haelith["p"] = {"away": 0.0, "breath": 50.0, "near": 90.0}.get(place, 0.0)
+	elif id == "loxelle" or id == "javelle":
+		var th: Dictionary = sim.loxelle if id == "loxelle" else sim.javelle
+		th["state"] = place
+		th["t"] = 0.0
+		th["need"] = 0.0
+		th["jitter"] = 1.0
+		if place == "away":
+			th["cool"] = 1e9
+	_sync_visuals()
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, level)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = "loxelle"
+		_finish_caught()
+
+
+## Bedtime's own controls: which hand is down, the sleep meter (Haelith's creep), making the house restless, the closet door.
+func admin_set_hand(hand: String) -> void:
+	held["hold"] = false
+	held["hall"] = false
+	held["bed"] = false
+	if hand != "none":
+		held[hand] = true
+
+
+func admin_set_creep(percent: float) -> void:
+	sim.haelith["p"] = clampf(percent, 0.0, 99.0)
+	_sync_visuals()
+
+
+func admin_make_restless() -> void:
+	sim.idle = float(BedroomLogic.T["afkMs"])
+	advance_ms(1.0)
 
 
 func _exit_tree() -> void:

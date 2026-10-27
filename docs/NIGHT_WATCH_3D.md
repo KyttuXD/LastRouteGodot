@@ -243,3 +243,18 @@ changes when the state does: **walking** keeps the rig's own walk / sprint clips
 by door; the middle of the wait `door_grace`; the end of the wait `reaching`; standing in the room on the monitor `camera` (stares at it); a flinch from the light `light_flinch`; 1.4 s after a shut door or the
 light turned her away `retreat`; the hunter that caught you `attack`; idle in a room `idle` (Kathy `listening`). `night_watch` checks that every state has a pose and that live hunters take them.
 Not wired (no Night Watch state yet): `glass`, `vent` / `vent_crawl` (Dead Air, Mixed), `kneel`, `tired`, `point_office`, `greet`, `glitch`.
+
+
+## Mouse capture and the monitor (bug note)
+
+Closing the camera monitor must hand the cursor back to the view with no click, by every route (Space, U, E, the CLOSE CAMERAS button, pause and resume, the end of the night). It is
+`MouseLock` claims: `night_watch_monitor` while the monitor is up, `night_watch_pause`, `night_watch_end`. What was wrong:
+
+- Masked Hours released its `night_watch_monitor` claim only on a key press (`press()`), but the monitor lowers over a moment, so the claim outlived the animation and the cursor stayed free
+  (look dead) until another key was pressed. `_refresh_lock()` now also runs after every `advance_ms`/`_settle`.
+- Only Classic wired the HUD's Pause, CAMERAS and CLOSE CAMERAS buttons. In Lure, Masked Hours, Mixed and the monitor-less modes the buttons did nothing, so a free cursor with the monitor
+  open had no click that closed it. Every mode now connects `pause_requested` (and `cameras_requested` where there is a monitor).
+- CLOSE CAMERAS was focusable: once focused, Space (`ui_accept`) was taken by the button instead of the monitor key. It is `FOCUS_NONE` now.
+
+`night_watch_keys` (`_check_mouse_capture`) runs every route in every mode with a monitor through the viewport and asserts the cursor is captured again, a look motion turns the view, opening frees
+the cursor, and the Pause button pauses and resumes with the right cursor. Headless does not keep `Input.mouse_mode`, so the test follows `MouseLock.is_captured()`.

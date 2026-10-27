@@ -43,6 +43,8 @@ var cam_label: Label
 var rec_label: Label
 var static_rect: ColorRect
 var cam_buttons := {}
+var cam_map: NightWatchCamMap
+var cam_layout := {}
 var _static_left := 0.0
 
 var pause_root: Control
@@ -54,6 +56,8 @@ var _call_queue: Array = []
 var _call_timer := 0.0
 var _call_active := false
 var _script_shown := false
+var _external_call_clock := false
+var _auto_call_ms := 0.0
 var muted := false
 var subtitles := true
 var subtitles_button: Button
@@ -287,7 +291,7 @@ func _build_monitor(root: Control) -> void:
 	close_button = Button.new()
 	close_button.name = "CloseCamerasButton"
 	close_button.text = "CLOSE CAMERAS"
-	close_button.focus_mode = Control.FOCUS_ALL
+	close_button.focus_mode = Control.FOCUS_NONE   # a focused button would take the Space press (ui_accept) from the monitor key
 	close_button.add_theme_font_size_override("font_size", 6)
 	close_button.custom_minimum_size = Vector2(96, 16)
 	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -299,34 +303,21 @@ func _build_monitor(root: Control) -> void:
 	monitor_guide.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	monitor_guide.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	strip.add_child(monitor_guide)
-	# the camera map, bottom right
-	var map := Control.new()
-	map.name = "CamMap"
-	map.custom_minimum_size = Vector2(120, 92)
-	map.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	map.position = Vector2(-146, -112)
-	monitor_root.add_child(map)
-	var frame := ColorRect.new()
-	frame.color = Color(0.04, 0.08, 0.06, 0.8)
-	frame.size = Vector2(120, 92)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	map.add_child(frame)
-	for room in NightWatchData.cam_rooms():
-		var info: Dictionary = NightWatchData.ROOMS[room]
-		var b := Button.new()
-		b.name = "Cam_%s" % room
-		b.text = "CAM %d" % int(info["cam"])
-		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(30, 13)
-		b.add_theme_font_size_override("font_size", 6)
-		var p: Vector2 = info["map"]
-		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
-		b.pressed.connect(func(): camera_selected.emit(room))
-		map.add_child(b)
-		cam_buttons[room] = b
-	var you := _label("YOU", 7, AMBER)
-	you.position = Vector2(52, 82)
-	map.add_child(you)
+	# the camera map, bottom right: a NightWatchCamMap built from the mode's layout (Classic's until the mode sets its own with set_cam_layout)
+	cam_map = NightWatchCamMap.new()
+	cam_map.name = "CamMap"
+	cam_map.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	cam_map.position = Vector2(-146, -128)
+	monitor_root.add_child(cam_map)
+	cam_map.camera_selected.connect(func(room: String): camera_selected.emit(room))
+	set_cam_layout(NightWatchMapRegistry.classic_layout())
+
+
+## Give the camera screen this mode's map: the minimap, the CAM buttons and the room names all come from the layout (NightWatchMapRegistry.layout_for(mode)).
+func set_cam_layout(new_layout: Dictionary) -> void:
+	cam_layout = new_layout
+	cam_map.setup(new_layout)
+	cam_buttons = cam_map.buttons
 
 
 func _build_pause(root: Control) -> void:
@@ -450,11 +441,15 @@ func show_monitor(on: bool) -> void:
 
 
 func set_cam(room: String, mount: Transform3D) -> void:
-	var info: Dictionary = NightWatchData.ROOMS.get(room, {})
-	cam_label.text = "CAM %d  %s" % [int(info.get("cam", 0)), String(info.get("label", ""))]
+	var number := cam_map.number_for(room)
+	var label := cam_map.label_for(room)
+	if number == 0:   # a room outside the layout (a mode's extra camera): fall back to Classic's table
+		var info: Dictionary = NightWatchData.ROOMS.get(room, {})
+		number = int(info.get("cam", 0))
+		label = String(info.get("label", label))
+	cam_label.text = "CAM %d  %s" % [number, label]
 	feed_camera.transform = mount
-	for r in cam_buttons:
-		(cam_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
+	cam_map.set_active(room)
 
 
 func flash_static() -> void:
@@ -480,11 +475,18 @@ func set_subtitles(on: bool) -> void:
 ## Zellia's script for this shift (NightWatchCallScript); the game feeds it the shift clock through update_call().
 func set_call_script(script: NightWatchCallScript) -> void:
 	call_script = script
+	_auto_call_ms = 0.0
 	_call_active = false
 	show_call("")
 
 
 func update_call(elapsed_ms: float, dt_ms: float) -> void:
+	_external_call_clock = true   # a game that feeds the shift clock owns the call's time (manual clocks, pauses, the admin freeze)
+	_step_call(elapsed_ms, dt_ms)
+
+
+## A scene that only hands the HUD its lines (queue_call / set_call_script) and never feeds it the clock still gets its call: the HUD runs it on real time.
+func _step_call(elapsed_ms: float, dt_ms: float) -> void:
 	if call_script == null:
 		return
 	for e in call_script.update(elapsed_ms, dt_ms):
@@ -507,6 +509,9 @@ func queue_call(lines: Array) -> void:
 
 
 func _process(delta: float) -> void:
+	if call_script != null and not _external_call_clock and not call_script.done:
+		_auto_call_ms += delta * 1000.0
+		_step_call(_auto_call_ms, delta * 1000.0)
 	if _note_left > 0.0:
 		_note_left -= delta
 		if _note_left <= 0.0:

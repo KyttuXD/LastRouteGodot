@@ -13,7 +13,7 @@ enum State { PLAYING, PAUSED, WON, LOST }
 
 const WIN_TEXT := "You held the wing until 6 AM."
 const HINT := "WASD move   E use   Z mask (no doors here)   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
-const HOLDS := [["lightL", "vent", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "doorR_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
+const HOLDS := [["lightL", "ventL", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "hall_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
 
 var night := 1
 var state: State = State.PLAYING
@@ -29,7 +29,6 @@ var death_moment: DeathMoment
 var world_env: WorldEnvironment
 var overlay: MaskOverlay
 var held_label: Label
-var map_buttons := {}
 var last_death := {}
 var monitor_shown := false   # the monitor's picture is on screen (fully up)
 ## Whether the player is on the monitor: it is up, or on its way (the panel machine raises it in 250 ms). The camera keys and the shared handler read this.
@@ -48,6 +47,14 @@ var _driven := {}
 var _hour_seen := 0
 var _last_input := {}
 var _flinch := {}
+var _vent_pose := NightWatchVentPose.new()
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
+var _admin_noclip := false
+var _admin_god := false
 
 
 class MaskOverlay extends Control:
@@ -75,8 +82,9 @@ func _ready() -> void:
 	controls = MaskControls.new()
 	sim = MaskLogic.new(night, rng, {"levels": custom, "custom": is_custom})
 	_spawn_hunters()
-	if not is_custom:
-		hud.queue_call(MaskData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, night))   # Zellia rings at the night's `at`; fed the shift clock
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	hud.hint_label.text = _hint()
 	_set_feed("music")
 	_sync_visuals()
 
@@ -118,12 +126,15 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_night)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
-	hud.hint_label.text = HINT
+	hud.hint_label.text = _hint()
+	hud.mode_text = "2. Masked Hours · %s" % ("Custom Night" if is_custom else "Night %d" % night)
 	_build_map_buttons()
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -131,31 +142,16 @@ func _build_world() -> void:
 	death_moment.finished.connect(_after_death_moment)
 	player = (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
 	add_child(player)
-	player.global_position = office.global_position + NightWatchOffice.SPAWN
+	player.global_position = office.spawn_position()
 	face_player(0.0, -0.1)
 	player.interaction_message.connect(func(message: String): hud.show_note(message))
 	office.set_lamp(false)
 	_wire_stations()
 
 
-## The monitor's camera map for this wing (the HUD builds Classic's; those buttons are hidden).
+## The monitor's camera map comes from the mode's layout (NightWatchMapRegistry): the prize corner, parts room, show stage, game area, vent hub, the two air vents and the main hall.
 func _build_map_buttons() -> void:
-	var map := hud.monitor_root.find_child("CamMap", true, false) as Control
-	for b in hud.cam_buttons.values():
-		(b as Button).visible = false
-	for room in MaskData.cam_rooms():
-		var info: Dictionary = MaskData.ROOMS[room]
-		var b := Button.new()
-		b.name = "MaskCam_%s" % room
-		b.text = "CAM %d" % int(info["cam"])
-		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(30, 13)
-		b.add_theme_font_size_override("font_size", 6)
-		var p: Vector2 = info["map"]
-		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
-		b.pressed.connect(func(): select_camera(room))
-		map.add_child(b)
-		map_buttons[room] = b
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("mask"))
 	held_label = Label.new()
 	held_label.name = "HeldLabel"
 	held_label.text = "HELD STILL"
@@ -186,7 +182,7 @@ func _wire_stations() -> void:
 		return ""
 	(st["chair"] as NightWatchStation).on_activate = func(p) -> String:
 		return String(p.use_furniture(st["chair"], "sit"))
-	for id in ["vent", "ventR", "doorR_light", "musicbox", "doorL_door", "doorL_light", "doorR_door"]:
+	for id in ["ventL", "ventR", "hall_light", "musicbox"]:
 		(st[id] as NightWatchStation).on_activate = func(_p) -> String: return ""   # held, see _process
 
 
@@ -259,13 +255,14 @@ func select_camera_number(n: int) -> void:
 func _settle() -> void:
 	for e in controls.step(500.0):
 		_on_control_event(e)
+	_refresh_lock()
 
 
 func _update_hint() -> void:
 	if monitor_up:
 		hud.hint_label.text = "%s / %s or 1-8 camera   %s or %s close   hold %s wind (CAM 1)   hold %s / %s vent light on CAM 6 / 7" % [NightWatchControls.key_text(NightWatchControls.CAM_PREV), NightWatchControls.key_text(NightWatchControls.CAM_NEXT), NightWatchControls.key_text(NightWatchControls.MONITOR), NightWatchControls.key_text(&"interact"), NightWatchControls.key_text(&"office_radio"), NightWatchControls.key_text(NightWatchControls.LIGHT_LEFT), NightWatchControls.key_text(NightWatchControls.LIGHT_RIGHT)]
 	else:
-		hud.hint_label.text = HINT
+		hud.hint_label.text = _hint()
 
 
 func select_camera(room: String) -> void:
@@ -322,8 +319,6 @@ func _on_control_event(e: Dictionary) -> void:
 func _set_feed(room: String) -> void:
 	hud.set_cam(room, world.feed_transform(room))
 	_update_cam_label(room)
-	for r in map_buttons:
-		(map_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
 
 
 func _update_cam_label(room: String) -> void:
@@ -377,13 +372,18 @@ func _process(delta: float) -> void:
 
 ## Step the shift by dt_ms with the controls as they are, and show what happened.
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	for e in controls.step(dt_ms):
 		_on_control_event(e)
+	_refresh_lock()   # the monitor finishes lowering here, not on a key press: the cursor goes back to the view when it is down
 	var input := controls.control_input()
 	_last_input = input
 	var events := sim.step(dt_ms, input)
+	hud.update_call(float(sim.s["elapsed"]), dt_ms)
+	if _admin_god and String(sim.s["over"]) == "caught":
+		_god_rescue()
+		events = []
 	var hour := NightWatchData.hour_index(float(sim.s["elapsed"]))
 	if hour != _hour_seen:
 		_hour_seen = hour
@@ -437,10 +437,14 @@ func _on_event(e: Dictionary) -> void:
 # --- what you see ----------------------------------------------------------------------------------------------------------
 
 func _sync_visuals() -> void:
+	if _admin_reveal:
+		hud.cam_map.set_blips(_hunter_rooms())
+	elif hud.cam_map.blips.size() > 0:
+		hud.cam_map.set_blips([])
 	var s := sim.s
 	var lit: Dictionary = s["lit"]
-	office.set_light("doorR", bool(lit["H"]))
-	office.set_button("doorR_light", bool(lit["H"]))
+	office.set_light("hall", bool(lit["H"]))
+	office.set_button("hall_light", bool(lit["H"]))
 	office.set_lamp(controls.lamp and float(s["battery"]) > 0.0)
 	for side in ["L", "R"]:
 		(office.vent_beams[side] as SpotLight3D).visible = bool(lit[side])
@@ -450,6 +454,7 @@ func _sync_visuals() -> void:
 		(world.duct_lights[duct] as OmniLight3D).visible = bool(lit[side]) and controls.is_up("monitor") and controls.cam == duct
 		world.glints[duct].visible = sim.glint(duct)
 	office.set_box(float(s["box"]))
+	world.set_box(float(s["box"]))
 	overlay.cover = controls.cover("mask")
 	overlay.queue_redraw()
 	var devices := (1 if bool(lit["L"]) or bool(lit["R"]) else 0) + (1 if bool(lit["H"]) else 0) + (1 if bool(s["lamp"]) else 0) + (1 if monitor_shown else 0)
@@ -514,8 +519,8 @@ func _place_hunters() -> void:
 			model.visible = dark
 			if dark:
 				var t := clampf(float(s["dark"]) / MaskLogic.dark_grace_ms(sim.base_level("nyxie")), 0.0, 1.0)
-				var from := office.global_position + Vector3(MaskWorld.HALL_NEAR_X, 0.0, 0.0)
-				var to := office.global_position + Vector3(0.7, 0.0, -0.5)
+				var from := office.global_position + Vector3(0.0, 0.0, -MaskWorld.HALL_NEAR)
+				var to := office.global_position + Vector3(0.5, 0.0, -1.0)
 				_set_pose(model, from.lerp(to, t), player.global_position)
 			continue
 		var tgt := _target(id)
@@ -552,20 +557,8 @@ func _place_hunters() -> void:
 		model.rotation.y = walker.yaw
 
 
-## The walk to a new room: through the wing and its doorways, down the hall, or (leaving the hall / office) back out to the far end and on.
-func _legs_to(walker: NightWatchWalker, room_key: String, pos: Vector3) -> Array:
-	var in_office_area := walker.pos.z > -20.0
-	var to_office_area := room_key == "hall" or room_key == "office"
-	if in_office_area and to_office_area:
-		return [{"p": pos, "jump": false}]
-	if in_office_area:
-		var far: Vector3 = world.points.get("H:far", walker.pos)
-		var legs: Array = [{"p": far, "jump": false}]
-		var back: Array = world.route("S:ballroom", world.key_for(room_key))
-		if not back.is_empty():
-			back[0]["jump"] = true
-			legs.append_array(back)
-		return legs
+## The walk to a new place: along the wing's real waypoints (the show floor, the main hall, the side halls, the vent hub and the ducts); nothing jumps.
+func _legs_to(walker: NightWatchWalker, room_key: String, _pos: Vector3) -> Array:
 	return world.legs_from(walker.pos, room_key)
 
 
@@ -575,6 +568,12 @@ func _set_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
 	d.y = 0.0
 	if d.length() > 0.01:
 		model.rotation.y = atan2(d.x, d.z) + PI
+
+
+## A vent hunter is in a shaft while she crawls a duct or waits in an office vent.
+func _in_shaft(id: String) -> bool:
+	var st := String(sim.vent_state(id)["state"])
+	return st == "duct" or st == "vent"
 
 
 func _animate_models(delta: float) -> void:
@@ -588,6 +587,8 @@ func _animate_models(delta: float) -> void:
 	for id in _players:
 		var ap := _players[id] as AnimationPlayer
 		var walker2 := _walkers.get(id) as NightWatchWalker
+		if sim != null and MaskData.VENT_HUNTERS.has(id) and _vent_pose.update(id, _models[id] as Node3D, _in_shaft(id), walker2 != null and walker2.moving, delta):
+			continue
 		var clip := "idle"
 		if bool(_driven.get(id, false)):
 			clip = "sprint"
@@ -673,7 +674,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick(cause, "nightwatch:mask:%d" % seed_value, night, name_text)
 	last_death = {"by": by, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -684,6 +685,259 @@ func _after_death_moment() -> void:
 		return
 	var name_text := String(last_death.get("name", "A hunter"))
 	hud.show_end("CAUGHT", "%s reached you on night %d." % [name_text, night], false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func _hint() -> String:
+	return HINT + ("   0 admin" if admin_menu != null else "")
+
+
+## The camera rooms each hunter is in now (REVEAL puts a red dot on each).
+func _hunter_rooms() -> Array:
+	var rooms := []
+	for id in ["thessine", "umbriel", "verrine", "haelith", "ilyra"]:
+		var room := ""
+		if id == "thessine":
+			room = String(sim.s["hall"]["thessine"]["room"])
+		elif id == "umbriel":
+			room = String(sim.s["rush"]["room"])
+		else:
+			room = String(sim.vent_state(id)["room"])
+		if MaskData.ROOMS.has(room) and int(MaskData.ROOMS[room]["cam"]) > 0 and not rooms.has(room):
+			rooms.append(room)
+	return rooms
+
+
+## God mode: a hunter that would catch you is sent home, the box is wound, the flashlight keeps a little charge.
+func _god_rescue() -> void:
+	sim.s["over"] = ""
+	sim.s["by"] = ""
+	for id in MaskData.HALL_HUNTERS:
+		var h := sim.s["hall"][id] as Dictionary
+		h["state"] = "away"
+		h["room"] = MaskData.HOME[id]
+		h["cool"] = 4000.0
+	var r := sim.s["rush"] as Dictionary
+	r["state"] = "away"
+	r["room"] = MaskData.HOME[MaskData.RUSHER]
+	r["cool"] = 8000.0
+	for id in MaskData.VENT_HUNTERS:
+		var v := sim.vent_state(id)
+		v["state"] = "away"
+		v["room"] = MaskData.HOME[id]
+		v["step"] = 0
+	sim.s["vent"]["cool"] = 6000.0
+	sim.s["boxZero"] = 0.0
+	sim.s["box"] = maxf(float(sim.s["box"]), 50.0)
+	sim.s["dark"] = 0.0
+	sim.s["battery"] = maxf(float(sim.s["battery"]), 20.0)
+
+
+func admin_status() -> String:
+	return "MASKED HOURS  NIGHT %d  %s (SEED %d)\nBATTERY %d%%  MUSIC BOX %d%%  MASK %s\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [night, NightWatchData.hour_label(NightWatchData.hour_index(float(sim.s["elapsed"]))), seed_value,
+		int(ceil(float(sim.s["battery"]))), int(round(float(sim.s["box"]))), "ON" if controls.is_up("mask") else "OFF", str(_admin_frozen), str(_admin_god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_hunter_rows() -> Array:
+	var rows := []
+	var th := sim.s["hall"]["thessine"] as Dictionary
+	rows.append("THESSINE  %s  %s" % [String(th["state"]).to_upper(), th["room"]])
+	rows.append("UMBRIEL  %s  FLASHES %d/%d" % [String(sim.s["rush"]["state"]).to_upper(), int(sim.s["rush"]["flashes"]), int(sim.s["rush"]["goal"])])
+	for id in MaskData.VENT_HUNTERS:
+		rows.append("%s  %s  %s" % [id.to_upper(), String(sim.vent_state(id)["state"]).to_upper(), sim.vent_state(id)["room"]])
+	return rows
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.s["elapsed"] = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, NightWatchData.NIGHT_MS - 1000.0)
+	_hour_seen = hour_value
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+## "Power" here is the flashlight's battery.
+func admin_set_power(percent: float) -> void:
+	sim.s["battery"] = clampf(percent, 0.0, 100.0)
+	if float(sim.s["battery"]) > 0.0:
+		sim.s["dark"] = 0.0
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_battery = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_battery
+
+
+func admin_set_god(on: bool) -> void:
+	_admin_god = on
+
+
+func admin_is_god() -> bool:
+	return _admin_god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return ["thessine", "umbriel", "verrine", "haelith", "ilyra", "glyra", "nyxie"]
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.levels[id] = level_value
+	if id == "glyra":
+		sim._decay = MaskLogic.box_decay_for_level(level_value)
+
+
+func admin_places() -> Array:
+	return ["costume", "ballroom", "hall", "office", "gallery", "ductL", "ductR", "ventL", "ventR", "crawl"]
+
+
+## Put a hunter where she belongs in that place: Thessine on the floor, in the hall or in the office; Umbriel poised in the ballroom or running the hall; the vent hunters in a duct, at a
+## vent or home in the crawlspace (only one vent hunter is ever out, so the others go home first).
+func admin_place_hunter(id: String, place: String) -> void:
+	match id:
+		"thessine":
+			var h := sim.s["hall"]["thessine"] as Dictionary
+			if place == "office":
+				h.merge({"state": "office", "room": "office", "t": 0.0, "step": 0, "fooled": 0.0, "off": 0.0, "window": float(MaskLogic.T["windowMs"])}, true)
+			elif place == "hall":
+				h.merge({"state": "hall", "room": "hall", "t": 0.0, "step": 2, "need": 2300.0}, true)
+			elif place == "ballroom" or place == "gallery":
+				h.merge({"state": "room", "room": "ballroom", "t": 0.0, "need": 4000.0}, true)
+			else:
+				h.merge({"state": "away", "room": MaskData.HOME["thessine"], "cool": 4000.0}, true)
+		"umbriel":
+			var r := sim.s["rush"] as Dictionary
+			if place == "hall":
+				var lv := sim.level(MaskData.RUSHER)
+				r.merge({"state": "run", "room": "hall", "t": 0.0, "need": MaskLogic.rush_run_ms(lv), "flashes": 0, "goal": MaskLogic.rush_flashes(lv), "doorNeed": MaskLogic.rush_door_ms(lv)}, true)
+			elif place == "ballroom":
+				r.merge({"state": "poised", "room": "ballroom", "t": 0.0, "need": 4000.0}, true)
+			else:
+				r.merge({"state": "away", "room": MaskData.HOME[MaskData.RUSHER], "cool": 8000.0}, true)
+		"verrine", "haelith", "ilyra":
+			for other in MaskData.VENT_HUNTERS:
+				if other != id:
+					var o := sim.vent_state(other)
+					o["state"] = "away"
+					o["room"] = MaskData.HOME[other]
+			var v := sim.vent_state(id)
+			var side := "L" if place.ends_with("L") else "R"
+			if place == "ductL" or place == "ductR":
+				v.merge({"state": "duct", "room": place, "side": side, "t": 0.0, "need": 4000.0, "lit": 0.0, "step": 1}, true)
+			elif place == "ventL" or place == "ventR":
+				v.merge({"state": "vent", "room": place, "side": side, "t": 0.0, "lit": 0.0, "wait": 6000.0, "step": 0}, true)
+			else:
+				v.merge({"state": "away", "room": MaskData.HOME[id], "step": 0}, true)
+	_sync_visuals()
+
+
+func admin_all_home() -> void:
+	for id in admin_hunter_ids():
+		if id != "glyra" and id != "nyxie":
+			admin_place_hunter(id, "crawl" if MaskData.VENT_HUNTERS.has(id) else "gallery")
+
+
+func admin_set_mask(on: bool) -> void:
+	if controls.is_up("mask") != on or (controls.want == "mask") != on:
+		press("mask")
+	for e in controls.step(500.0):
+		_on_control_event(e)
+	_refresh_lock()
+	_sync_visuals()
+
+
+func admin_set_box(percent: float) -> void:
+	sim.s["box"] = clampf(percent, 0.0, 100.0)
+	_sync_visuals()
+
+
+func admin_set_mask_timer(ms: float) -> void:
+	var h := sim.s["hall"]["thessine"] as Dictionary
+	if String(h["state"]) != "office":
+		admin_place_hunter("thessine", "office")
+	h["fooled"] = ms
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, night)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+## One quick flash of the hall light (what answers Umbriel); a dead flashlight gets a little charge first.
+func admin_flash_hall() -> void:
+	if float(sim.s["battery"]) <= 0.0:
+		admin_set_power(5.0)
+	press("lightH", true)
+	advance_ms(100.0)
+	press("lightH", false)
+	advance_ms(100.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "caught"
+		sim.s["by"] = "thessine"
+		_finish_caught()
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
 
 
 func _exit_tree() -> void:

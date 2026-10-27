@@ -78,6 +78,8 @@ func run(host: Node) -> int:
 	_check_golden()
 	_check_rules()
 	await _check_scene(host)
+	await _check_call(host)
+	await _check_admin(host)
 	if _failures == 0:
 		print("  night_watch_dayshift  the 2D rules (golden shifts, shop, rack, noise, doors, window, power) and the shift scene (shop, weeks, win, short, loss, saves, Custom Night, carry-over, retry)")
 	return _failures
@@ -287,7 +289,7 @@ func _check_scene(host: Node) -> void:
 		shift.start_shift([])
 		_expect(shift.state == DayshiftGame.State.PLAYING and shift.sim != null and shift.sim.week_idx == n - 1, "week %d did not start its night" % n)
 		shift.advance_ms(1000.0)
-		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "WEEK %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
+		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "7. Salvage Run · Week %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
 		shift.queue_free()
 		await host.get_tree().process_frame
 	# the shop: buttons follow the budget, START SHIFT hands the basket to the rules
@@ -346,11 +348,62 @@ func _check_scene(host: Node) -> void:
 	game.manual_clock = true
 	game.sim.s["ysolde"]["state"] = "knock"
 	game._place_hunters()
-	_expect(not (game._models["ysolde"] as Node3D).visible, "Ysolde was seen before she was at the glass")
+	_expect((game._models["ysolde"] as Node3D).visible, "Ysolde is not on her way across the yard during the knock")
 	game.sim.s["ysolde"]["state"] = "here"
 	game._place_hunters()
 	_expect((game._models["ysolde"] as Node3D).visible and (game._models["ysolde"] as Node3D).position.z > NightWatchOffice.HALF_D, "Ysolde is not outside the window")
+	# the map: a ship and its scrap yard around the bay; every room is a walk from every other, no route crosses a wall, the hunters come in from their ends of the ship
+	var layout := DayshiftMap.map_layout()
+	var yard := game.yard
+	for id in (layout["rooms"] as Dictionary):
+		_expect(yard.points.has("C:%s" % id) or id == "gantryL" and yard.points.has("G:L") or id == "gantryR" and yard.points.has("G:R"), "the map room %s has no waypoint" % id)
+	var keys := ["C:airlock", "C:dockL", "C:engine", "C:bridge", "C:hold", "C:yard", "C:crane", "G:L", "G:R", "W:stand", "D:L3", "D:R3"]
+	var bad_wall := 0
+	for ka in keys:
+		for kb in keys:
+			if ka == kb:
+				continue
+			var legs: Array = yard.route(ka, kb)
+			_expect(legs.size() >= 2, "no walk from %s to %s" % [ka, kb])
+			for k in range(1, legs.size()):
+				var p0: Vector3 = legs[k - 1]["p"]
+				var p1: Vector3 = legs[k]["p"]
+				var n := int(ceil(p0.distance_to(p1) / 0.1))
+				for q in n:
+					var pt := p0.lerp(p1, float(q) / float(n))
+					for w in yard.wall_boxes:
+						if (w["rect"] as Rect2).has_point(Vector2(pt.x, pt.z)):
+							bad_wall += 1
+	_expect(bad_wall == 0, "walking routes in the ship cross walls at %d points" % bad_wall)
+	var named := {}
+	for m in yard.find_children("*", "MeshInstance3D", true, false):
+		var nm := String(m.get_meta("nw_name", ""))
+		named[nm] = int(named.get(nm, 0)) + 1
+	_expect(int(named.get("BlockEngine", 0)) == 1 and int(named.get("ConsoleBridge", 0)) == 1 and int(named.get("BodyForklift", 0)) == 1 and int(named.get("BoomCrane", 0)) == 1
+		and int(named.get("FrameAirlock", 0)) >= 3 and int(named.get("ScrapBlock", 0)) >= 20 and int(named.get("StackHold", 0)) >= 3, "the engine, bridge, dock, airlock, crane, hold or scrap yard is missing")
+	_expect(game.office.find_children("*", "MeshInstance3D", true, false).filter(func(m): return String(m.get_meta("nw_name", "")) == "HallLEnd").is_empty(), "the left hall still has its end wall")
+	var route_l: Array = yard.legs_to("ravelle", "D:L3")
+	_expect(route_l.size() >= 5 and String(route_l[0]["key"]) == "C:airlock" and String(route_l[route_l.size() - 1]["key"]) == "D:L3" and (route_l[0]["p"] as Vector3).x < -25.0, "Ravelle's walk does not start at the airlock and end at the left gantry")
 	game.queue_free()
+	await host.get_tree().process_frame
+	var live := _shift(host, 3, 21)
+	await host.get_tree().process_frame
+	live.manual_clock = false
+	live.start_shift([])
+	var rav := live._models["ravelle"] as Node3D
+	_expect(rav.position.x < -20.0, "Ravelle did not start her shift at the airlock (x %.1f)" % rav.position.x)
+	for i in 120:
+		live._animate_models(0.1)
+	_expect(rav.position.distance_to(live.office.global_position + CargoBay.hall_stand("doorL", int(live.sim.s["ravelle"]["dist"]))) < 0.5, "Ravelle did not walk in from the airlock to the end of her gantry")
+	live.sim.s["ysolde"]["state"] = "knock"
+	live._place_hunters()
+	var ysm := live._models["ysolde"] as Node3D
+	_expect(ysm.visible and ysm.position.z > 12.0, "Ysolde does not start her knock at the crane")
+	for i in 60:
+		live._animate_models(0.1)
+	_expect(ysm.position.distance_to(live.office.global_position + CargoBay.YARD_STAND) < 0.5, "Ysolde did not cross the yard to the window")
+	live.manual_clock = true
+	live.queue_free()
 	await host.get_tree().process_frame
 	# a loss: an unanswered door ends the night with the CAUGHT card
 	var lose := _shift(host, 1, 5)
@@ -424,4 +477,91 @@ func _check_scene(host: Node) -> void:
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	DayshiftGame.pending_carry = 0
+	NightWatchSession.start(1)
+
+
+# --- Zellia's call: rung at the week's `at` seconds on the shift clock (not during the shop), typed line by line, skipped with mute ----------------------------------------
+
+func _check_call(host: Node) -> void:
+	var game := _shift(host, 1, 750)
+	await host.get_tree().process_frame
+	game.advance_ms(60000.0)
+	_expect(game.state == DayshiftGame.State.SHOP and (game.hud.call_script == null or not game.hud.call_script.open), "the call rang during the shop")
+	game.start_shift([])
+	var at_s := float(NightWatchCallsData.for_level("dayshift", 1)["at"])
+	game.advance_ms((at_s - 1.0) * 1000.0)
+	_expect(not game.hud.call_script.open and game.hud.shown_call.is_empty(), "the call rang before its time")
+	game.admin_set_frozen(true)
+	game.advance_ms(5000.0)
+	_expect(not game.hud.call_script.open, "a frozen shift still rang the call")
+	game.admin_set_frozen(false)
+	for i in 15:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.shown_call == NightWatchCallsData.INCOMING_TEXT, "the call did not ring at %.0f s of the shift clock (%s)" % [at_s, game.hud.shown_call])
+	for i in 40:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.call_script.line == 0, "the call did not go on to its first line")
+	game.admin_skip_call()
+	_expect(game.hud.shown_call.is_empty(), "skipping the call left it on screen")
+	game.queue_free()
+	await host.get_tree().process_frame
+
+
+# --- the admin menu: the gate, the sections, the layout at three sizes, and every entry really changes the shift ---------------------------------------------
+
+func _admin_snapshot(game: DayshiftGame) -> String:
+	return NightWatchAdminCheck.dump(game.sim.s) + NightWatchAdminCheck.dump(game.sim.levels) + str(game.sim.upgrades) + "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [game.sim.infinite_power, game.sim.hunter_speed, game._admin_frozen,
+		game._admin_god, game._admin_no_scare, game._admin_noclip, game.sim.need, game.door_shut, game.light_held, game.hud.shown_call, NightWatchSession.night]
+
+
+func _check_admin(host: Node) -> void:
+	NightWatchSave.path = "user://night_watch_dayshift_admin_test.cfg"
+	NightWatchSave.reset()
+	var game := _shift(host, 4, 700)
+	await host.get_tree().process_frame
+	game.start_shift([])
+	for msg in NightWatchAdminCheck.sections(game, "SALVAGE RUN SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	_expect(game.hud.hint_label.text.contains("0 admin"), "the hint line does not list the admin key for an admin")
+	for msg in await NightWatchAdminCheck.layout(host, game, "SALVAGE RUN SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	game.advance_ms(3000.0)
+	for msg in NightWatchAdminCheck.exercise(game, func(g): return _admin_snapshot(g), ["WIN THE SHIFT", "LOSE THE SHIFT"]):
+		_expect(false, "[admin] " + msg)
+	game.queue_free()
+	await host.get_tree().process_frame
+	var g2 := _shift(host, 4, 701)
+	await host.get_tree().process_frame
+	g2.start_shift([])
+	g2.admin_set_hour(3)
+	_expect(g2.sim.level("ravelle") == int((DayshiftData.LEVELS["ravelle"] as Array)[3]) + 1, "SET TIME 3 AM did not step the AI up")
+	g2.admin_set_money(250)
+	g2.admin_set_quota(100)
+	_expect(int(g2.sim.s["money"]) == 250 and g2.sim.need == 100 and g2.hud.usage_label.text.begins_with("$250 / $100"), "the money or the quota was not set")
+	g2.admin_add_piece("prize")
+	_expect((g2.sim.s["items"] as Array).size() == 1 and String(g2.sim.s["items"][0]["kind"]) == "prize" and not (g2.office.stations["rack0"] as NightWatchStation).disabled, "ADD A PRIZE did not put a piece on the rack")
+	g2.admin_set_frozen(true)
+	var before := float(g2.sim.s["elapsed"])
+	g2.advance_ms(2000.0)
+	_expect(float(g2.sim.s["elapsed"]) == before, "the frozen clock still ran")
+	g2.admin_set_frozen(false)
+	g2.admin_place_hunter("ravelle", "door")
+	g2.admin_set_god(true)
+	g2.advance_ms(12000.0)
+	_expect(g2.state == DayshiftGame.State.PLAYING and String(g2.sim.s["over"]) == "", "god mode did not save the week from an unanswered door")
+	g2.admin_set_god(false)
+	g2.admin_set_no_scare(true)
+	g2.admin_lose()
+	_expect(g2.state == DayshiftGame.State.LOST and not g2.death_moment.is_open(), "LOSE THE SHIFT with no jumpscare still played the scare")
+	g2.queue_free()
+	await host.get_tree().process_frame
+	var g3 := _shift(host, 2, 702)
+	await host.get_tree().process_frame
+	g3.start_shift([])
+	g3.admin_win()
+	_expect(g3.state == DayshiftGame.State.WON, "WIN THE SHIFT did not win")
+	g3.queue_free()
+	await host.get_tree().process_frame
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	NightWatchSession.start(1)

@@ -224,13 +224,14 @@ func set_toast(text: String) -> void:
 	toast_label.text = text
 
 
-func _header(title_text: String, extra := "") -> Control:
+func _header(title_text: String, extra := "", parent: Control = null) -> Control:
 	var bar := HBoxContainer.new()
 	bar.name = "Header"
-	bar.position = Vector2(8, 6)
-	bar.custom_minimum_size = Vector2(size.x - 70, 14)
+	if parent == null:
+		bar.position = Vector2(8, 6)
+		bar.custom_minimum_size = Vector2(size.x - 70, 14)
 	bar.add_theme_constant_override("separation", 10)
-	_screen_root.add_child(bar)
+	(parent if parent != null else _screen_root).add_child(bar)
 	var back := _button("← BACK  ESC", 6)
 	back.name = "BackButton"
 	back.pressed.connect(go_back)
@@ -363,14 +364,32 @@ func _cleared_count(m: Dictionary) -> int:
 	return n
 
 
+## The Shift Board, laid out with containers so nothing can overlap or run off the screen at any size: a column (header, body, START row) in a margin; the body is the mode list and the
+## detail pane (a scrolling text area beside the portrait, the shift cards below it); START SHIFT has its own row under the pane; the key hint sits under everything.
 func _build_board() -> void:
-	_header("SHIFT BOARD")
+	var margin := MarginContainer.new()
+	margin.name = "BoardMargin"
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_bottom", 16)   # the key hint line lives in the bottom strip
+	_screen_root.add_child(margin)
+	var column := VBoxContainer.new()
+	column.name = "BoardColumn"
+	column.add_theme_constant_override("separation", 4)
+	margin.add_child(column)
+	_header("SHIFT BOARD", "", column)
+	var body := HBoxContainer.new()
+	body.name = "BoardBody"
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 6)
+	column.add_child(body)
 	var list := VBoxContainer.new()
 	list.name = "ModeList"
-	list.position = Vector2(8, 26)
 	list.custom_minimum_size = Vector2(120, 0)
 	list.add_theme_constant_override("separation", 1)
-	_screen_root.add_child(list)
+	body.add_child(list)
 	for i in NightWatchModesData.MODES.size():
 		var m: Dictionary = NightWatchModesData.MODES[i]
 		var row := Button.new()
@@ -394,57 +413,88 @@ func _build_board() -> void:
 		row.pressed.connect(select_mode.bind(i))
 		list.add_child(row)
 		mode_buttons.append(row)
-	var detail := _panel(_screen_root, "Detail", Rect2(134, 26, 338, 196))
+	var right := VBoxContainer.new()
+	right.name = "BoardRight"
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 4)
+	body.add_child(right)
+	var detail := PanelContainer.new()
+	detail.name = "Detail"
+	detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var dstyle := StyleBoxFlat.new()
+	dstyle.bg_color = PANEL
+	dstyle.border_color = Color(0.16, 0.15, 0.12)
+	dstyle.set_border_width_all(1)
+	dstyle.set_content_margin_all(5)
+	detail.add_theme_stylebox_override("panel", dstyle)
+	right.add_child(detail)
 	var col := VBoxContainer.new()
 	col.name = "DetailBox"
-	col.add_theme_constant_override("separation", 3)
+	col.add_theme_constant_override("separation", 4)
 	detail.add_child(col)
 	var m: Dictionary = mode_data(board_mode)
 	var top := HBoxContainer.new()
+	top.name = "DetailTop"
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	top.add_theme_constant_override("separation", 8)
 	col.add_child(top)
 	var shot := _portrait(String((m["art"] as Array)[0]) if not (m["art"] as Array).is_empty() else "")
+	shot.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	top.add_child(shot)
+	# the mode's text scrolls inside its own area: a long blurb or hint never runs into the cards
+	var scroll := ScrollContainer.new()
+	scroll.name = "InfoScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(60, 30)
+	top.add_child(scroll)
 	var info := VBoxContainer.new()
 	info.name = "Info"
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_theme_constant_override("separation", 2)
-	info.custom_minimum_size = Vector2(190, 0)
-	top.add_child(info)
+	scroll.add_child(info)
 	var t := _label(String(m["label"]), 11, INK)
 	t.name = "ModeTitle"
 	info.add_child(t)
 	var tag := _label(String(m["tag"]), 6, AMBER)
 	tag.name = "ModeTag"
+	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(tag)
 	var blurb := _label(String(m["blurb"]), 6, INK)
 	blurb.name = "ModeBlurb"
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	blurb.custom_minimum_size = Vector2(190, 0)
+	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(blurb)
 	if not String(m["hint"]).is_empty():
 		var hint := _label(String(m["hint"]), 6, DIM)
 		hint.name = "ModeHint"
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		hint.custom_minimum_size = Vector2(190, 0)
+		hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		info.add_child(hint)
 	var stat_line := _label(_stat_line(m), 5, DIM)
 	stat_line.name = "ModeStat"
+	stat_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stat_line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(stat_line)
+	var levels: Array = m["levels"]
 	var grid := GridContainer.new()
 	grid.name = "Tiles"
-	grid.columns = 3
+	grid.columns = 4 if levels.size() > 6 else 3
 	grid.add_theme_constant_override("h_separation", 4)
-	grid.add_theme_constant_override("v_separation", 4)
+	grid.add_theme_constant_override("v_separation", 3)
 	col.add_child(grid)
-	var levels: Array = m["levels"]
 	for i in levels.size():
 		var open := NightWatchSave.level_open(String(m["id"]), i + 1, bool(m["open"]))
 		var tile := Button.new()
 		tile.name = "Tile_%d" % (i + 1)
-		tile.custom_minimum_size = Vector2(104, 28)
+		tile.custom_minimum_size = Vector2(40, 24)
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tile.add_theme_font_size_override("font_size", 6)
 		tile.text = ("%02d  %s" % [i + 1, String(levels[i])]) if open else ("%02d  LOCKED\n?????" % (i + 1))
 		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.clip_text = true
 		tile.disabled = not open
 		tile.set_meta("level", i)
 		if open and NightWatchSave.cleared_levels(String(m["id"])).has(i + 1) and i < _scored(m):
@@ -452,9 +502,13 @@ func _build_board() -> void:
 		tile.pressed.connect(select_level.bind(i, true))
 		grid.add_child(tile)
 		tile_buttons.append(tile)
+	# START SHIFT has its own row below the pane
+	var start_row := HBoxContainer.new()
+	start_row.name = "StartRow"
+	start_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	right.add_child(start_row)
 	start_button = _button("▶ START SHIFT  ENTER", 8)
 	start_button.name = "StartButton"
-	start_button.position = Vector2(166, 224)
 	start_button.custom_minimum_size = Vector2(148, 16)
 	start_button.add_theme_color_override("font_color", INK)
 	var sb := StyleBoxFlat.new()
@@ -464,7 +518,7 @@ func _build_board() -> void:
 	sb.set_content_margin_all(3)
 	start_button.add_theme_stylebox_override("normal", sb)
 	start_button.pressed.connect(start_selected)
-	_screen_root.add_child(start_button)
+	start_row.add_child(start_button)
 	hint_label.text = "↑ ↓ mode · ← → shift · Enter start · Esc back"
 	_mark_board()
 	mode_buttons[board_mode].grab_focus()

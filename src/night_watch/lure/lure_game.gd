@@ -3,7 +3,7 @@ extends NightWatchMode
 
 ## Dead Air (mode `lure`), the shift scene: the broadcast booth (LureOffice, the shared player, prompt and
 ## crosshair), with the two DOOR buttons sealing the vent openings (the slabs are the vent covers), the left and right LIGHT buttons switching
-## the heater and the fan, and the monitor on the desk looking into the attraction hall (LureWorld). Rules: LureLogic. In the monitor: 1-8
+## the heater and the fan, and the monitor on the desk looking into the radio station (LureWorld, floor plan in LureMap). Rules: LureLogic. In the monitor: 1-8
 ## pick a camera, L lures Xivvy to the room on screen, Q / W / E / R / T reboot audio / cameras / vents / heater / fan (or click the buttons),
 ## N mutes Zellia. Quick keys outside it: Z / X seal the left / right vent, G / H heater / fan, U monitor, Y lamp, R mutes Zellia.
 ## Xivvy WALKS the hall (LurePaths, NightWatchWalker). `manual_clock` stops the real-time clock so the validators step the night with advance_ms().
@@ -32,6 +32,14 @@ var _models := {}
 var _walkers := {}
 var _players := {}
 var _hour_seen := 0
+var _pose_state := {}   # hunter id -> "" | "vent_enter" | "vent" | "vent_exit": the vent crawl (NightWatchPoses)
+var _vent_left := 0.0
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
+var _admin_noclip := false
 var _feed_container: Control
 
 
@@ -48,10 +56,11 @@ func _ready() -> void:
 	sim = LureLogic.new(opts)
 	_spawn_hunters()
 	paths = LurePaths.new(world, office)
-	if not is_custom:
-		hud.queue_call(LureData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 6.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
 	_sync_visuals()
 	_select_room(monitor_room, false)
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	_hint()
 
 
 func _build_world() -> void:
@@ -80,20 +89,19 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_level)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.hint_label.text = NightWatchControls.hint_line(false, LureOffice.make_spec().controls)
-	# the monitor: Classic's camera map goes, Dead Air's panel comes
-	for b in hud.cam_buttons.values():
-		(b as Control).get_parent().queue_free()
-		break
-	hud.cam_buttons.clear()
+	# the monitor: the camera map is the HUD's, from Dead Air's own layout (camera n = LureMap's cams[n - 1])
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("lure"))
+	hud.camera_selected.connect(func(map_id: String): select_camera(String(LureMap.ROOMS[map_id][0])))
 	panel = LurePanel.new()
 	hud.monitor_root.add_child(panel)
-	panel.room_selected.connect(select_camera)
 	panel.lure_pressed.connect(func(): do_lure())
 	panel.reboot_pressed.connect(func(system: String): do_reboot(system))
 	_feed_container = hud.feed_viewport.get_parent() as Control
@@ -258,8 +266,7 @@ func select_camera(room: String) -> void:
 
 func _select_room(room: String, flash: bool) -> void:
 	monitor_room = room
-	hud.feed_camera.transform = world.camera_transform(room)
-	hud.cam_label.text = "CAM %d  %s" % [LureData.ROOMS.find(room) + 1, LureData.INFO[room]["label"]]
+	hud.set_cam(LureMap.sim_to_map(room), world.camera_transform(room))
 	if flash:
 		hud.flash_static()
 		NightWatchSounds.camera_switch()
@@ -282,7 +289,10 @@ func camera_rooms() -> Array:
 
 
 func _hint() -> void:
-	hud.hint_label.text = NightWatchControls.hint_line(monitor_up, office.spec.controls) + (" · L lure · Q W E R T reboot" if monitor_up else "")
+	var actions := office.spec.controls.duplicate()
+	if admin_menu != null:
+		actions.append("admin")
+	hud.hint_label.text = NightWatchControls.hint_line(monitor_up, actions) + (" · L lure · Q W E R T reboot" if monitor_up else "")
 
 
 func cycle_camera(step: int) -> void:
@@ -322,9 +332,10 @@ func watching() -> String:
 
 
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	var events := sim.step(dt_ms, {"watch": watching()})
+	hud.update_call(sim.elapsed, dt_ms)
 	var hour := NightWatchData.hour_index(sim.elapsed)
 	if hour != _hour_seen:
 		_hour_seen = hour
@@ -382,6 +393,16 @@ func _sync_visuals() -> void:
 	_climate_light()
 	_feed_container.modulate = Color(1, 1, 1) if sim.online("cams") else Color(0.04, 0.04, 0.04)
 	panel.refresh(sim, monitor_room)
+	if _admin_reveal:
+		var rooms := []
+		var here := LureMap.sim_to_map(String(sim.killer["room"]))
+		if not here.is_empty():
+			rooms.append(here)
+		if not sim.phantom.is_empty():
+			rooms.append(LureMap.sim_to_map(String(sim.phantom["room"])))
+		hud.cam_map.set_blips(rooms)
+	elif hud.cam_map.blips.size() > 0:
+		hud.cam_map.set_blips([])
 	_place_hunters()
 
 
@@ -459,8 +480,11 @@ func _animate_models(delta: float) -> void:
 		var model := _models[id] as Node3D
 		model.position = walker.pos
 		model.rotation.y = walker.yaw
+	_vent_pose(delta)
 	for id in _players:
 		var anim := _players[id] as AnimationPlayer
+		if id == "xivvy" and String(_pose_state.get("xivvy", "")) != "":
+			continue   # the vent crawl owns her animation
 		var walker2 := _walkers.get(id) as NightWatchWalker
 		var clip := "idle"
 		if walker2 != null and walker2.moving:
@@ -469,6 +493,56 @@ func _animate_models(delta: float) -> void:
 			anim.play(clip)
 	if state == State.PLAYING and not manual_clock and sim != null:
 		office.animate({"doorL": bool(sim.seals["L"]), "doorR": bool(sim.seals["R"])}, delta)
+
+
+## Xivvy in a vent shaft or crawlspace crawls (NightWatchPoses): a drop in ("vent_enter", a one-shot only Verrine has), the crawl loop (the generic vent crawl, its speed
+## follows how fast she is moving), a rise out ("vent_exit"), then back to walking. The crawl is 0.67 m high, well under the crawlspaces' ceiling.
+const VENT_ROOMS := ["ventl", "ventr", "officeL", "officeR"]
+const VENT_ONE_SHOT := 0.8
+
+
+func _vent_pose(delta: float) -> void:
+	if sim == null or not _models.has("xivvy"):
+		return
+	var model := _models["xivvy"] as Node3D
+	var in_vent := VENT_ROOMS.has(String(sim.killer["room"])) and model.visible
+	var cur := String(_pose_state.get("xivvy", ""))
+	var next := cur
+	match cur:
+		"":
+			if in_vent:
+				next = "vent_enter"
+		"vent_enter":
+			_vent_left -= delta
+			if not in_vent and _vent_left <= 0.0:
+				next = "vent_exit"
+			elif _vent_left <= 0.0:
+				next = "vent"
+		"vent":
+			if not in_vent:
+				next = "vent_exit"
+		"vent_exit":
+			_vent_left -= delta
+			if in_vent:
+				next = "vent_enter"
+			elif _vent_left <= 0.0:
+				next = ""
+	var walker := _walkers.get("xivvy") as NightWatchWalker
+	if next != cur:
+		_pose_state["xivvy"] = next
+		_vent_left = VENT_ONE_SHOT
+		match next:
+			"":
+				NightWatchPoses.stop(model)
+			"vent_enter", "vent_exit":
+				NightWatchPoses.play_state(model, next, {"hunter_id": "xivvy"})
+			"vent":
+				NightWatchPoses.play_state(model, "vent", {"hunter_id": "xivvy"})
+	if String(_pose_state.get("xivvy", "")) == "vent" and _players.has("xivvy"):
+		var speed := 0.15
+		if walker != null and walker.moving:
+			speed = 2.0 if walker.running else 1.0
+		(_players["xivvy"] as AnimationPlayer).speed_scale = speed
 
 
 # --- input -----------------------------------------------------------------------------------------------------------
@@ -569,7 +643,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick(cause, "nightwatch:lure:%d" % seed_value, night, name_text)
 	last_death = {"by": sim.by, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -588,6 +662,199 @@ func _after_death_moment() -> void:
 		"solyth":
 			line = "The heat took the office at %s." % h
 	hud.show_end("CAUGHT", line, false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	var k: Dictionary = sim.killer
+	var rows := ["XIVVY  %s  side %s  AI %d%s" % [k["room"], k["side"], sim.level_of("xivvy"), "  LURED %ds" % int(float(k["lureLeft"]) / 1000.0) if float(k["lureLeft"]) > 0.0 else ""]]
+	for id in LureLogic.PHANTOM_IDS:
+		rows.append("%s  AI %d  %s" % [id.to_upper(), sim.level_of(id), "ready" if float(sim.phantom_ai[id]["cool"]) <= 0.0 else "cool %ds" % int(float(sim.phantom_ai[id]["cool"]) / 1000.0)])
+	var down := []
+	for name in sim.systems:
+		if sim.systems[name]["state"] != "ok":
+			down.append(name)
+	return "DEAD AIR  NIGHT %d  %s  AIR %d%%  %d F\nSEALS %s%s  DOWN: %s\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX\n%s" % [night, NightWatchData.hour_label(NightWatchData.hour_index(sim.elapsed)),
+		int(round(100.0 - sim.stress)), int(round(sim.temp)), "L" if sim.seals["L"] else "-", "R" if sim.seals["R"] else "-", ", ".join(PackedStringArray(down)) if not down.is_empty() else "none",
+		str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.hunter_speed, "\n".join(PackedStringArray(rows))]
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.elapsed = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, NightWatchData.NIGHT_MS - 1000.0)
+	_hour_seen = NightWatchData.hour_index(sim.elapsed)
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+## "Power" in Dead Air is the air: 100 = clear, 0 = the air gives out.
+func admin_set_power(percent: float) -> void:
+	sim.stress = clampf(100.0 - percent, 0.0, 100.0)
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_stress = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_stress
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return LureData.CAST.duplicate()
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.set_level(id, level_value)
+	_sync_visuals()
+
+
+func admin_places() -> Array:
+	var places := LureData.ROOMS.duplicate()
+	places.append("officeL")
+	places.append("officeR")
+	return places
+
+
+## Xivvy goes to a room (or a vent opening); a phantom shows in that room's camera.
+func admin_place_hunter(id: String, place: String) -> void:
+	if id == "xivvy":
+		sim.killer["room"] = place
+		sim.killer["atMs"] = 0.0
+		(sim.killer["pacer"] as NightWatchPacer).reset()
+	elif LureLogic.PHANTOM_IDS.has(id) and LureData.ROOMS.has(place):
+		sim.phantom = {"id": id, "room": place, "t": 0.0}
+	_sync_visuals()
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, level)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = "xivvy"
+		_finish_caught()
+
+
+## Dead Air's own controls: lure now (no cooldown, no audio needed), a system down or back, a seal, the temperature and the appliances, the air.
+func admin_force_lure(room: String) -> void:
+	if LureData.ROOMS.has(room) and not room.begins_with("vent"):
+		sim.killer["target"] = room
+		sim.killer["dist"] = {}
+		sim.killer["lureLeft"] = LureLogic.T["lureMs"]
+
+
+func admin_reset_lure_cooldown() -> void:
+	sim.lure_cool = 0.0
+
+
+func admin_set_system(system_name: String, broken: bool) -> void:
+	if not sim.systems.has(system_name):
+		return
+	sim.systems[system_name] = {"state": "broken" if broken else "ok", "t": 0.0}
+	if broken and system_name == "heater":
+		sim.heater_on = false
+	if broken and system_name == "fan":
+		sim.fan_on = false
+	_sync_visuals()
+
+
+func admin_set_seal(side: String, on: bool) -> void:
+	sim.seals[side] = on
+	_sync_visuals()
+
+
+func admin_set_temperature(degrees: float) -> void:
+	sim.temp = clampf(degrees, 20.0, 130.0)
+	_sync_visuals()
+
+
+func admin_set_appliance(appliance: String, on: bool) -> void:
+	if appliance == "heater":
+		sim.heater_on = on
+		if on:
+			sim.fan_on = false
+	elif appliance == "fan":
+		sim.fan_on = on
+		if on:
+			sim.heater_on = false
+	_sync_visuals()
+
+
+func admin_clear_climate() -> void:
+	sim.cold = 0.0
+	sim.heat = 0.0
+	sim.temp = 70.0
+	_sync_visuals()
 
 
 func _exit_tree() -> void:

@@ -41,6 +41,14 @@ static func make_spec() -> NightWatchOfficeSpec:
 
 func build() -> void:
 	super.build()
+	# the halls open into the arcades of the transit hub: their end walls are removed
+	for tag in ["L", "R"]:
+		var hall := props.get("Hall" + tag) as Node3D
+		if hall != null:
+			for child in hall.get_children():
+				var nm := String(child.get_meta("nw_name", ""))
+				if nm == "Hall%sEnd" % tag or nm == "HallEndDoor":
+					child.queue_free()
 	# no door lights in this mode (the pulsing light is the tell): the LIGHT buttons are gone
 	for door in ["doorL", "doorR"]:
 		var st := stations["%s_light" % door] as NightWatchStation

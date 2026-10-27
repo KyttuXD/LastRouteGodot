@@ -30,6 +30,9 @@ var _flight_yaw_last := 0.0
 var _flight_was_flying := false
 var _screech_cooldown := 0.0
 var _flight_shadow: MeshInstance3D
+var _wing_nodes: Array = []
+var _wings_searched := false
+var _wing_fold_applied := 0.0
 var _desired_xz := Vector2.ZERO
 var _surface_target_y := 0.0
 var _streamed_height_override := 0.0
@@ -80,10 +83,15 @@ var _move_speed := 0.0
 var _still_time := 0.0
 const STILL_CLIP_AFTER := 0.35
 const STILL_SPEED := 0.15
+const SURVEY_INTERVAL := .1
+## A frame-to-frame jump of her brain position beyond this is a teleport, not movement.
+const TELEPORT_DISTANCE := 4.0
+const SURVEY_DISTANCES := [0.0, 1.5, 3.0, 4.5, 6.0, 8.0, 10.0, 12.0]
 ## She starts walking above this ground speed (see the idle/walk hysteresis in _update_animation).
 const GAIT_ENTER_SPEED := .35
 const TRAVEL_BLEND := .15
 var _last_brain_position := Vector2.ZERO
+var _speed_primed := false
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
 ## R-HandProp locator and scythe_idle / scythe_walk / scythe_swing clips for carrying it.
@@ -119,6 +127,7 @@ const STAR_ORBIT_RADIUS := .34
 const SETTLE_SPEED := 14.0
 const FALL_RECOVERY_DEPTH := 1.0
 const MAX_PRESENTATION_SPEED := 12.0
+const PRESENTATION_DEAD_ZONE := .006
 const HUNTER_BODY_RADIUS := .28
 const HUNTER_BODY_HEIGHT := 1.72
 ## Body yaw / head look live in HunterFacing so other creature views share them.
@@ -158,6 +167,12 @@ func _physics_process(delta: float) -> void:
 	if brain == null or not _presentation_initialized:
 		return
 	var planar := _desired_xz - Vector2(position.x, position.z)
+	if planar.length() < PRESENTATION_DEAD_ZONE:
+		# Sub-centimetre corrections (network rounding, interpolation noise) are applied directly: feeding them to
+		# move_and_slide made the body creep within its safe margin and bob up and down while she stood.
+		position.x = _desired_xz.x
+		position.z = _desired_xz.y
+		planar = Vector2.ZERO
 	var wanted_velocity := planar / maxf(delta, .001)
 	wanted_velocity = wanted_velocity.limit_length(MAX_PRESENTATION_SPEED)
 	velocity.x = wanted_velocity.x
@@ -168,7 +183,7 @@ func _physics_process(delta: float) -> void:
 		position.y = _streamed_height_override
 		velocity.y = 0.0
 	elif brain.gimmick is XivvyGimmick \
-			and ((brain.gimmick as XivvyGimmick).flying or _flight.altitude > 0.0):
+			and ((brain.gimmick as XivvyGimmick).airborne() or _flight.altitude > 0.0):
 		# airborne: follow the flight altitude (also while she settles back down after the flag drops)
 		position.y = move_toward(position.y, _surface_target_y, delta * 6.0)
 		velocity.y = 0.0
@@ -224,6 +239,9 @@ func _apply_model(model_id: String) -> void:
 		_expression = ""
 		_stars = null
 		_creature = null
+		_wing_nodes.clear()
+		_wings_searched = false
+		_wing_fold_applied = 0.0
 
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate_hunter(identity)
@@ -419,7 +437,7 @@ func _head_mode() -> int:
 ## route) use the travel direction instead.
 func _head_ahead_point() -> Vector2:
 	var distance := _facing.look_ahead_distance()
-	var straight := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).flying
+	var straight := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne()
 	if brain.gimmick is LoxelleGimmick and (brain.gimmick as LoxelleGimmick).charge_active():
 		straight = true
 	if not straight:
@@ -491,39 +509,103 @@ func _update_body_yaw() -> void:
 func _update_flight(flying: bool, floor_y: float) -> void:
 	if not brain.gimmick is XivvyGimmick:
 		return
+	var gimmick := brain.gimmick as XivvyGimmick
 	var delta := get_process_delta_time()
 	var yaw_rate := wrapf(rotation.y - _flight_yaw_last, -PI, PI) / maxf(delta, .001)
 	_flight_yaw_last = rotation.y
 	var runner_distance := brain.position.distance_to(look_target_position) \
 		if has_look_target and brain.state == HunterBrain.State.CHASE else INF
-	_flight_probe -= delta
-	if _flight_probe <= 0.0 and (flying or _flight.altitude > 0.0):
-		_flight_probe = .15
-		_flight_headroom = _measure_headroom(floor_y)
-	_flight.update(delta, flying, _move_speed, yaw_rate, runner_distance, _flight_headroom)
+	var chasing := flying or brain.state == HunterBrain.State.CHASE
+	if gimmick.replicated_recently():
+		# a guest: the host decided the mode and the cruise altitude (it has the geometry and the route)
+		_flight.fly_ok = gimmick.fly_ok
+		_flight.override_cruise = gimmick.altitude_hint
+	else:
+		_flight.override_cruise = -1.0
+		_flight_probe -= delta
+		if _flight_probe <= 0.0 and (chasing or _flight.altitude > 0.0):
+			_flight_probe = SURVEY_INTERVAL
+			var survey := _survey_route(floor_y)
+			_flight_headroom = survey["near"]
+			_flight.update_mode(SURVEY_INTERVAL, float(survey["far"]), bool(survey["gap"]))
+			gimmick.fly_ok = _flight.fly_ok
+			gimmick.altitude_hint = _flight.cruise_altitude(_flight_headroom)
+		elif not chasing and _flight.altitude <= 0.0:
+			_flight.fly_ok = true
+			gimmick.fly_ok = true
+	_flight.update(delta, flying and _flight.fly_ok, _move_speed, yaw_rate, runner_distance, _flight_headroom)
 	if _model != null:
 		_model.rotation = Vector3(_flight.pitch, _model.rotation.y, _flight.bank)
+	_apply_wing_fold()
+	var airborne := flying and _flight.fly_ok
 	_screech_cooldown = maxf(0.0, _screech_cooldown - delta)
-	if flying and not _flight_was_flying:
+	if airborne and not _flight_was_flying:
 		_flight_cue(true)
 		_screech_cooldown = 4.0
-	elif flying and runner_distance < XivvyFlight.SWOOP_RANGE * .45 and _screech_cooldown <= 0.0:
+	elif airborne and runner_distance < XivvyFlight.SWOOP_RANGE * .45 and _screech_cooldown <= 0.0:
 		_flight_cue(true)
 		_screech_cooldown = 4.5
-	_flight_was_flying = flying
+	_flight_was_flying = airborne
 	if _flight.flapped:
 		_flight_cue(false)
 	_update_flight_shadow(floor_y)
 
 
-func _measure_headroom(floor_y: float) -> float:
+## The wings fold while she lands (and open again once she is on her feet).
+func _apply_wing_fold() -> void:
+	if _model == null:
+		return
+	if _wing_nodes.is_empty() and not _wings_searched:
+		_wings_searched = true
+		for node in _model.find_children("*Wing*", "Node3D", true, false):
+			_wing_nodes.append(node)
+	var fold := _flight.wing_fold
+	if fold <= 0.001 and _wing_fold_applied <= 0.001:
+		return
+	_wing_fold_applied = fold
+	for node in _wing_nodes:
+		(node as Node3D).scale = Vector3(1.0 - .6 * fold, 1.0 - .1 * fold, 1.0 - .35 * fold)
+
+
+## Samples the route ahead (host only): the lowest ceiling over the next stretch, the lowest near her (cruise altitude),
+## and whether a doorway-sized gap (walls close on both sides) is on the way.
+func _survey_route(floor_y: float) -> Dictionary:
+	var far := INF
+	var near := INF
+	var gap := false
 	if not is_inside_tree():
-		return INF
+		return {"far": far, "near": near, "gap": gap}
 	var space := get_world_3d().direct_space_state
-	var origin := Vector3(global_position.x, floor_y + .3, global_position.z)
-	var query := PhysicsRayQueryParameters3D.create(origin, origin + Vector3.UP * 8.0, 1, [get_rid()])
-	var hit := space.intersect_ray(query)
-	return hit["position"].y - floor_y if not hit.is_empty() else INF
+	var excluded := [get_rid()]
+	var heading := _facing.move_dir if _facing.moving() else brain.facing
+	if heading.length_squared() < .0001:
+		heading = Vector2(0, 1)
+	heading = heading.normalized()
+	for distance in SURVEY_DISTANCES:
+		var point := brain.position
+		if distance > 0.0:
+			point = brain.path_look_ahead(distance)
+			if point == Vector2.INF:
+				point = brain.position + heading * distance
+		var origin := Vector3(point.x, floor_y + .3, point.y)
+		var up := PhysicsRayQueryParameters3D.create(origin, origin + Vector3.UP * 12.0, 1, excluded)
+		var hit := space.intersect_ray(up)
+		var headroom: float = hit["position"].y - floor_y if not hit.is_empty() else INF
+		far = minf(far, headroom)
+		if distance <= 3.0:
+			near = minf(near, headroom)
+		# a doorway: walls within GAP_HALF_WIDTH on both sides at chest height
+		var along := (brain.path_look_ahead(distance + 1.0) - point) if distance > 0.0 and brain.path_look_ahead(distance + 1.0) != Vector2.INF else heading
+		if along.length_squared() < .0001:
+			along = heading
+		var side := Vector2(-along.y, along.x).normalized()
+		var chest := Vector3(point.x, floor_y + 1.0, point.y)
+		var side3 := Vector3(side.x, 0.0, side.y)
+		var left := PhysicsRayQueryParameters3D.create(chest, chest + side3 * XivvyFlight.GAP_HALF_WIDTH, 1, excluded)
+		var right := PhysicsRayQueryParameters3D.create(chest, chest - side3 * XivvyFlight.GAP_HALF_WIDTH, 1, excluded)
+		if not space.intersect_ray(left).is_empty() and not space.intersect_ray(right).is_empty():
+			gap = true
+	return {"far": far, "near": near, "gap": gap}
 
 
 func _flight_cue(screech: bool) -> void:
@@ -592,8 +674,15 @@ func sync_from_brain() -> void:
 		position = Vector3(brain.position.x, _surface_target_y, brain.position.y)
 		_presentation_initialized = true
 	var frame := maxf(get_process_delta_time(), 1.0 / 120.0)
-	_move_speed = lerpf(_move_speed, brain.position.distance_to(_last_brain_position) / frame, .3) \
-		if _presentation_initialized else 0.0
+	# The very first sample (the last position is still the zero default) or a jump of several metres (spawn, stairs, a streamed
+	# floor) is a teleport, not walking: reading it as speed made every hunter "walk" in place for a second after appearing.
+	var step := brain.position.distance_to(_last_brain_position)
+	if not _speed_primed or step > TELEPORT_DISTANCE:
+		_move_speed = 0.0
+		_still_time = STILL_CLIP_AFTER + .01 if not _speed_primed else _still_time
+	else:
+		_move_speed = lerpf(_move_speed, step / frame, .3)
+	_speed_primed = true
 	_last_brain_position = brain.position
 	_still_time = _still_time + frame if _move_speed < STILL_SPEED else 0.0
 	_facing.track(brain.position, get_process_delta_time())
@@ -643,7 +732,7 @@ func _end_emote() -> void:
 func _emote_plays_now() -> bool:
 	if _emote_index < 0 or brain.stun_timer > 0.0 or _recover_left > 0.0:
 		return false
-	if brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).flying:
+	if brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne():
 		return false
 	if brain.gimmick is LoxelleGimmick and (brain.gimmick as LoxelleGimmick).charge_active():
 		return false
@@ -753,7 +842,7 @@ func _update_animation() -> void:
 	elif brain.stun_timer > 0.0:
 		pass
 	elif brain.gimmick is XivvyGimmick \
-			and (brain.gimmick as XivvyGimmick).flying:
+			and (brain.gimmick as XivvyGimmick).airborne():
 		clip_name = "flight"
 	elif brain.gimmick is LoxelleGimmick \
 			and (brain.gimmick as LoxelleGimmick).charge_active():

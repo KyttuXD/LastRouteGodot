@@ -19,6 +19,7 @@ var sim: DayshiftLogic
 var rng: NightWatchMulberry
 var owned: Array = []
 var office: CargoBay
+var yard: DayshiftYard
 var shop: DayshiftShop
 var player: PlayerController3D
 var hud: NightWatchHud
@@ -35,6 +36,12 @@ var _models := {}
 var _walkers := {}
 var _players := {}
 var _hour_seen := 0
+## Admin (NightWatchAdmin): the menu (null for non-admins; attached when the night starts, once the sim exists) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_noclip := false
+var _admin_god := false
 
 
 func _ready() -> void:
@@ -54,7 +61,6 @@ func _ready() -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_shop", true)
 	hud.update_status(0, 100.0, 0, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.visible = false   # the shop has the screen
 
 
@@ -72,6 +78,10 @@ func _build_world() -> void:
 	office = NightWatchOfficeRegistry.make("dayshift") as CargoBay
 	office.name = "Office"
 	add_child(office)
+	yard = DayshiftYard.new()
+	yard.name = "Ship"
+	yard.office = office
+	add_child(yard)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -81,12 +91,14 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_night)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.set_monitor_available(office.spec.has_monitor)
+	hud.mode_text = "7. Salvage Run · %s" % ("Custom Night" if is_custom else "Week %d" % week)
 	hud.hint_label.text = "WASD move   hold E on a PIECE to salvage   E on DOOR buttons   hold E on LIGHT   Z / X doors   G / H lights   P pause"
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -158,11 +170,13 @@ func start_shift(basket: Array = []) -> void:
 	shop.queue_free()
 	shop = null
 	hud.visible = true
+	admin_menu = NightWatchAdmin.attach(self)
+	if admin_menu != null:
+		hud.hint_label.text += "   0 admin"
 	MouseLock.claim("night_watch_shop", false)
 	player.input_frozen = false
 	player.look_frozen = false
-	if not is_custom:
-		hud.queue_call(DayshiftData.call_lines(week))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, week))
 	_sync_visuals()
 
 
@@ -239,9 +253,13 @@ func _process(delta: float) -> void:
 
 ## Step the night by dt_ms with the doors, lights and rack as they are, and show what happened.
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	var events := sim.step(dt_ms, current_input())
+	hud.update_call(float(sim.s["elapsed"]), dt_ms)
+	if _admin_god and String(sim.s["over"]) != "":
+		_god_rescue()
+		events = []
 	var hour := NightWatchData.hour_index(float(sim.s["elapsed"]))
 	if hour != _hour_seen:
 		_hour_seen = hour
@@ -306,7 +324,6 @@ func _sync_visuals() -> void:
 		if bool(dev[k]):
 			devices += 1
 	hud.update_status(NightWatchData.hour_index(float(s["elapsed"])), float(s["power"]), devices, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.usage_label.text = "$%d / $%d   NOISE %s" % [int(s["money"]), sim.need, "|".repeat(clampi(int(float(s["noise"]) / 10.0), 0, 10))]
 	(office.stations["ledger"] as NightWatchStation).prompt_text = "BUDGET LEDGER // $%d OF $%d" % [int(s["money"]), sim.need]
 	var by_slot := {}
@@ -345,20 +362,40 @@ func _place_hunters() -> void:
 		else:
 			pos = o + CargoBay.hall_stand(door, dist)
 			key = "d%d" % dist
-		_move(id, key, pos, face)
+		var first_legs: Array = yard.legs_to(id, "D:L3" if id == "ravelle" else "D:R3") if dist > 0 else []
+		_move(id, key, pos, face, false, first_legs)
 	var u: Dictionary = s["ysolde"]
 	var ys := _models["ysolde"] as Node3D
-	ys.visible = String(u["state"]) == "here"
-	_move("ysolde", "yard", o + CargoBay.YARD_STAND, face, true)
+	var ust := String(u["state"])
+	ys.visible = ust == "knock" or ust == "here"
+	if ust == "away":
+		_walkers.erase("ysolde")   # she goes back to the crane: the next knock starts her walk again
+	elif ust == "knock" and _walkers.get("ysolde") == null and not manual_clock:
+		# the knock: she comes across the yard from the crane to the glass (the knock lasts 3 to 4.2 s)
+		var w := NightWatchWalker.new()
+		_walkers["ysolde"] = w
+		var legs: Array = yard.legs_to("ysolde", "W:stand")
+		w.place(yard.points["C:crane"], yard.points["C:crane"], face, "walk")
+		w.go(legs, "yard", o + CargoBay.YARD_STAND, 3.0)
+		ys.position = w.pos
+		ys.rotation.y = w.yaw
+	else:
+		_move("ysolde", "yard", o + CargoBay.YARD_STAND, face, manual_clock)
 
 
-func _move(id: String, key: String, pos: Vector3, face: Vector3, snap := false) -> void:
+func _move(id: String, key: String, pos: Vector3, face: Vector3, snap := false, first_legs := []) -> void:
 	var model := _models[id] as Node3D
 	var walker := _walkers.get(id) as NightWatchWalker
 	if walker == null:
 		walker = NightWatchWalker.new()
 		_walkers[id] = walker
-		walker.place(pos, pos, face, key)
+		if not first_legs.is_empty() and not manual_clock:
+			# the shift begins with her coming in from her end of the ship (the airlock, the hold) to the end of her gantry
+			var start: Vector3 = (first_legs[0] as Dictionary)["p"]
+			walker.place(start, start, face, "origin")
+			walker.go(first_legs, key, pos, 7.0)
+		else:
+			walker.place(pos, pos, face, key)
 	elif manual_clock or snap:
 		walker.place(pos, pos, face, key)
 	elif walker.room != key:
@@ -471,7 +508,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick({"hunter_id": by}, "nightwatch:dayshift:%d" % seed_value, week, name_text)
 	last_death = {"by": by, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -481,6 +518,207 @@ func _after_death_moment() -> void:
 	if state != State.LOST or String(sim.s["over"]) != "caught":
 		return
 	hud.show_end("CAUGHT", "%s reached you in week %d." % [String(last_death.get("name", "A hunter")), week], false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+## God mode: whoever would catch you (or a missed quota at 6 AM) is sent back, the power comes back.
+func _god_rescue() -> void:
+	sim.s["over"] = ""
+	sim.s["by"] = ""
+	for id in ["ravelle", "ceryth"]:
+		var h := sim.s[id] as Dictionary
+		h["dist"] = int(DayshiftLogic.T["startDist"])
+		h["atMs"] = 0.0
+		h["leave"] = 0.0
+	var u := sim.s["ysolde"] as Dictionary
+	u.merge({"state": "away", "t": 0.0, "expose": 0.0, "gap": -1.0}, true)
+	sim.s["out"] = false
+	sim.s["outMs"] = 0.0
+	sim.s["power"] = maxf(float(sim.s["power"]), 20.0)
+	if float(sim.s["elapsed"]) >= DayshiftLogic.NIGHT_MS:
+		sim.s["elapsed"] = DayshiftLogic.NIGHT_MS - 1000.0
+
+
+func admin_status() -> String:
+	return "SALVAGE RUN  WEEK %d  %s (SEED %d)\nPOWER %d%%  MONEY $%d OF $%d  NOISE %d\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [week, NightWatchData.hour_label(NightWatchData.hour_index(float(sim.s["elapsed"]))), seed_value,
+		int(ceil(float(sim.s["power"]))), int(sim.s["money"]), sim.need, int(float(sim.s["noise"])), str(_admin_frozen), str(_admin_god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_hunter_rows() -> Array:
+	var rows := []
+	for id in ["ravelle", "ceryth"]:
+		rows.append("%s  STEPS AWAY %d  AT DOOR %.1fs" % [id.to_upper(), int(sim.s[id]["dist"]), float(sim.s[id]["atMs"]) / 1000.0])
+	rows.append("YSOLDE  %s" % String(sim.s["ysolde"]["state"]).to_upper())
+	return rows
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.s["elapsed"] = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, DayshiftLogic.NIGHT_MS - 1000.0)
+	_hour_seen = hour_value
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+func admin_set_power(percent: float) -> void:
+	sim.s["power"] = clampf(percent, 0.0, 100.0)
+	if float(sim.s["power"]) > 0.0:
+		sim.s["out"] = false
+		sim.s["outMs"] = 0.0
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_power = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_power
+
+
+func admin_set_god(on: bool) -> void:
+	_admin_god = on
+
+
+func admin_is_god() -> bool:
+	return _admin_god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return ["ravelle", "ceryth", "ysolde"]
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.levels[id] = level_value
+
+
+func admin_places() -> Array:
+	return ["far", "near", "door", "window"]
+
+
+## The doors' visitors: far = three steps down the hall, near = one, door = at it; Ysolde: far = gone, near = knocking, door / window = at the glass.
+func admin_place_hunter(id: String, place: String) -> void:
+	if id == "ysolde":
+		var u := sim.s["ysolde"] as Dictionary
+		match place:
+			"far":
+				u.merge({"state": "away", "t": 0.0, "expose": 0.0, "clock": 0.0, "gap": -1.0}, true)
+			"near":
+				u.merge({"state": "knock", "t": 0.0, "expose": 0.0, "knock": 3000.0}, true)
+			_:
+				u.merge({"state": "here", "t": 0.0, "expose": 0.0, "stay": 6000.0}, true)
+	elif sim.s.has(id):
+		var h := sim.s[id] as Dictionary
+		h["dist"] = 3 if place == "far" else (1 if place == "near" else 0)
+		h["atMs"] = 0.0
+		h["leave"] = 0.0
+		(h["pacer"] as NightWatchMulberryPacer).reset()
+	_sync_visuals()
+
+
+func admin_all_to_doors() -> void:
+	for id in ["ravelle", "ceryth"]:
+		admin_place_hunter(id, "near")
+
+
+func admin_set_money(amount: int) -> void:
+	sim.s["money"] = maxi(0, amount)
+	_sync_visuals()
+
+
+func admin_set_quota(amount: int) -> void:
+	sim.need = maxi(0, amount)
+	sim.s["need"] = sim.need
+	_sync_visuals()
+
+
+func admin_set_noise(amount: float) -> void:
+	sim.s["noise"] = clampf(amount, 0.0, 100.0)
+
+
+## A piece on the first free rack slot (scrap, parts or prize), or an empty rack.
+func admin_add_piece(kind: String) -> void:
+	var taken := {}
+	for it in sim.s["items"]:
+		taken[int(it["slot"])] = true
+	for i in 4:
+		if not taken.has(i):
+			(sim.s["items"] as Array).append({"slot": i, "kind": kind, "value": int(DayshiftData.ITEMS[kind]["value"]), "need": float(DayshiftData.ITEMS[kind]["ms"]) * (0.7 if sim.has_upgrade("gloves") else 1.0), "progress": 0.0, "age": 0.0})
+			break
+	_sync_visuals()
+
+
+func admin_clear_rack() -> void:
+	(sim.s["items"] as Array).clear()
+	_sync_visuals()
+
+
+func admin_grant_upgrades(on: bool) -> void:
+	sim.upgrades = DayshiftData.UPGRADES.map(func(u): return String(u["id"])) if on else []
+
+
+func admin_set_door(door: String, shut: bool) -> void:
+	set_door(door, shut)
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, week)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "caught"
+		sim.s["by"] = "ravelle"
+		_finish_caught()
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
 
 
 func _exit_tree() -> void:
