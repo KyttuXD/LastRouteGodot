@@ -7,8 +7,9 @@ extends RefCounted
 ## as far as the rules go; the walker just takes the visible time to get there.
 
 const WALK_SPEED := 2.3
-const RUN_SPEED := 5.5
-const ARRIVE_SECONDS := 2.0   # a route is walked within about this long, as fast as RUN_SPEED allows
+const RUN_SPEED := 5.5   # a step never covers more than this (the validator's bound)
+const MIN_SPEED := 1.2        # the slowest pace a route is walked at (a short hop is not crawled)
+const MAX_SPEED := 6.0        # the fastest (a long route on a short window is run, never flown)
 
 var pos := Vector3.ZERO
 var yaw := 0.0
@@ -32,7 +33,17 @@ func place(p: Vector3, f: Vector3, l: Vector3, room_id: String) -> void:
 
 
 ## The sim moved her to `to_room`: take `legs` (from NightWatchPaths) to it.
-func go(legs: Array, to_room: String, f: Vector3) -> void:
+## The hop's time budget: a quarter of the 2D move window's lower bound (so she is on screen walking for a good part of every hop),
+## between 1.5 and 4 seconds. The pace is route length / budget, clamped to MIN_SPEED..MAX_SPEED (validator reports where the clamp bites).
+static func budget_for(level: int) -> float:
+	return clampf(NightWatchData.move_window(level).x / 1000.0 * 0.25, 1.5, 4.0)
+
+
+static func speed_for(length: float, budget: float) -> float:
+	return clampf(length / maxf(0.1, budget), MIN_SPEED, MAX_SPEED)
+
+
+func go(legs: Array, to_room: String, f: Vector3, budget := 2.0) -> void:
 	room = to_room
 	final = f
 	_queue.clear()
@@ -43,7 +54,7 @@ func go(legs: Array, to_room: String, f: Vector3) -> void:
 	for i in legs.size():
 		_queue.append(legs[i])
 	var length := NightWatchPaths.walked_length(legs) + pos.distance_to(legs[0]["p"] if not bool(legs[0]["jump"]) else pos)
-	_speed = clampf(length / ARRIVE_SECONDS, WALK_SPEED, RUN_SPEED)
+	_speed = speed_for(length, budget)
 	running = _speed > WALK_SPEED * 1.6
 
 

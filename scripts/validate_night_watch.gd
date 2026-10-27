@@ -490,7 +490,27 @@ func _check_walking(host: Node) -> void:
 		longest = maxf(longest, w.pos.distance_to(last))
 		last = w.pos
 	_expect(steps < 2000 and w.pos.distance_to(goal) <= 0.05, "the walker never reached her room")
-	_expect(longest <= NightWatchWalker.RUN_SPEED * 0.05 + 0.01, "the walker moved %.2f m in one 0.05 s step" % longest)
+	_expect(longest <= NightWatchWalker.MAX_SPEED * 0.05 + 0.01, "the walker moved %.2f m in one 0.05 s step" % longest)
+	# the speed rule: every hop of every hunter on every night stays inside the clamp; report how many hops the clamp bites on
+	var clamped := 0
+	var hops := 0
+	for night in range(1, NightWatchData.NIGHTS + 1):
+		for hid in NightWatchData.HUNTERS:
+			var level := NightWatchData.level_for(hid, night)
+			if level <= 0:
+				continue
+			var budget := NightWatchWalker.budget_for(level)
+			_expect(budget >= 1.5 and budget <= 4.0, "the hop budget for %s on night %d is out of range" % [hid, night])
+			for a in rooms:
+				for b in NightWatchData.GRAPH[a]:
+					var length := NightWatchPaths.walked_length(paths.legs_for(String(a), String(b)))
+					var raw := length / budget
+					var speed := NightWatchWalker.speed_for(length, budget)
+					hops += 1
+					if absf(raw - speed) > 0.001:
+						clamped += 1
+					_expect(speed >= NightWatchWalker.MIN_SPEED and speed <= NightWatchWalker.MAX_SPEED, "speed %.2f out of the clamp" % speed)
+	print("  walk speeds: %d of %d hops are clamped (min %.1f / max %.1f m/s)" % [clamped, hops, NightWatchWalker.MIN_SPEED, NightWatchWalker.MAX_SPEED])
 	# in the scene: the sim moves Dovelle two rooms away and her model walks, it is not placed
 	shift.manual_clock = false
 	var dovelle := shift.sim.hunters["dovelle"] as NightWatchStalker
