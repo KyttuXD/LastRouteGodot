@@ -101,6 +101,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
+	hud.set_monitor_available(office.spec.has_monitor)
 	hud.hint_label.text = [
 		"WASD move   E use   Z / X bar the stair door / hatch   hold G / H the torch   hold F relight   R radio   P pause",
 		"WASD move   E use (a canister, the lamp)   Y heat lamp   R radio   P pause",

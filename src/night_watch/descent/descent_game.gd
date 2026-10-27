@@ -87,6 +87,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
+	hud.set_monitor_available(office.spec.has_monitor)
 	hud.hint_label.text = "click the panel   1-6 press a button   hold SPACE to hold the door   R radio   P pause"
 	hud.end_next.text = "NEXT DESCENT  ENTER"
 	hud.prompt_label.text = ""
