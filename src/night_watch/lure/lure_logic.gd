@@ -108,6 +108,9 @@ var phantom := {}               # {id, room, t} while a phantom is drawn on a ca
 var phantom_ai := {}
 var has_climate := false
 var has_fan := false
+## Admin (NightWatchAdmin): god mode sends a killer back instead of ending the night; the hunters' wait clocks run at this multiple (1.0 = the 2D numbers).
+var god := false
+var hunter_speed := 1.0
 var _dist := {}
 
 
@@ -212,6 +215,19 @@ func _next_room() -> String:
 
 
 func _finish(ev: Array, who: String) -> Array:
+	if god:   # admin: whoever would have ended it is sent back
+		match who:
+			"xivvy":
+				killer["room"] = "storage"
+				killer["atMs"] = 0.0
+				(killer["pacer"] as NightWatchPacer).reset()
+			"mavrine":
+				stress = 40.0
+			"wynelle":
+				cold = 0.0
+			"solyth":
+				heat = 0.0
+		return ev
 	over = "caught"
 	by = who
 	ev.append({"type": "caught", "by": who})
@@ -263,7 +279,7 @@ func step(dt_ms: float, input := {}) -> Array:
 		for id in PHANTOM_IDS:
 			var ph: Dictionary = phantom_ai[id]
 			ph["cool"] = maxf(0.0, float(ph["cool"]) - dt_ms)
-			if float(ph["cool"]) <= 0.0 and (ph["pacer"] as NightWatchPacer).step(dt_ms * float(T["phantomPace"]) * float(ph["tempo"]), NightWatchData.effective_level(phantom_base(id), hour)):
+			if float(ph["cool"]) <= 0.0 and (ph["pacer"] as NightWatchPacer).step(dt_ms * float(T["phantomPace"]) * float(ph["tempo"]) * hunter_speed, NightWatchData.effective_level(phantom_base(id), hour)):
 				ph["cool"] = NightWatchStream.spread_ms(maxf(5000.0, float(T["phantomCoolMs"]) - n * 800.0), rng, VARIETY["phantomRestSpread"])
 				ph["tempo"] = NightWatchStream.tempo(vr, VARIETY["phantomTempo"])
 				var system: String = LureData.SYSTEM_OF[id]
@@ -330,7 +346,7 @@ func step(dt_ms: float, input := {}) -> Array:
 		elif float(k["atMs"]) >= float(T["officeWaitMs"]):
 			return _finish(ev, "xivvy")
 	else:
-		if String(input.get("watch", "")) != room and (k["pacer"] as NightWatchPacer).step(dt_ms * (float(T["lurePace"]) if float(k["lureLeft"]) > 0.0 else 1.0) * float(k["tempo"]), NightWatchData.effective_level(lvl, hour)):
+		if String(input.get("watch", "")) != room and (k["pacer"] as NightWatchPacer).step(dt_ms * (float(T["lurePace"]) if float(k["lureLeft"]) > 0.0 else 1.0) * float(k["tempo"]) * hunter_speed, NightWatchData.effective_level(lvl, hour)):
 			k["tempo"] = NightWatchStream.tempo(vr, VARIETY["xivvyTempo"])
 			var from: String = k["room"]
 			k["room"] = _next_room()
@@ -402,3 +418,17 @@ func level_of(id: String) -> int:
 	if climate.has(id):
 		return int(climate[id])
 	return NightWatchData.effective_level(phantom_base(id), hour)
+
+
+## Admin: set a hunter's AI level (Xivvy, a phantom, or one of the climate pair).
+func set_level(id: String, value: int) -> void:
+	if id == "xivvy":
+		lvl = value
+	elif climate.has(id):
+		climate[id] = value
+		has_climate = int(climate["solyth"]) > 0 or int(climate["wynelle"]) > 0
+		has_fan = int(climate["solyth"]) > 0
+	else:
+		if phantom_levels == null:
+			phantom_levels = {}
+		(phantom_levels as Dictionary)[id] = value

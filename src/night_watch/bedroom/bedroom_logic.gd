@@ -76,6 +76,9 @@ var javelle := {}
 var haelith := {}
 var idle := 0.0
 var restless := false
+## Admin (NightWatchAdmin): god mode sends whoever would have got in back; the hunters' wait clocks run at this multiple (1.0 = the 2D numbers).
+var god := false
+var hunter_speed := 1.0
 
 
 ## opts: night, rng, var_rng, levels (dict, optional), infinite_battery, custom.
@@ -116,6 +119,17 @@ func level(id: String) -> int:
 
 
 func _finish(ev: Array, who: String) -> Array:
+	if god:   # admin: she is sent away
+		if who == "haelith":
+			haelith["p"] = 0.0
+		else:
+			var th: Dictionary = loxelle if who == "loxelle" else javelle
+			th["state"] = "away"
+			th["t"] = 0.0
+			th["need"] = 0.0
+			th["cool"] = float(row["rest"][who])
+			(th["pacer"] as NightWatchPacer).reset()
+		return ev
 	over = "caught"
 	by = who
 	ev.append({"type": "caught", "by": who})
@@ -162,7 +176,7 @@ func step(dt_ms: float, input := {}) -> Array:
 			var keen := level(id)
 			if keen > 0 and restless:
 				keen = mini(20, keen + int(T["afkBonus"]))
-			if float(th["cool"]) <= 0.0 and (th["pacer"] as NightWatchPacer).step(dt_ms * float(th["tempo"]), keen):
+			if float(th["cool"]) <= 0.0 and (th["pacer"] as NightWatchPacer).step(dt_ms * float(th["tempo"]) * hunter_speed, keen):
 				th["state"] = "breath"
 				th["t"] = 0.0
 				th["need"] = 0.0
@@ -188,7 +202,7 @@ func step(dt_ms: float, input := {}) -> Array:
 			return _finish(ev, id)
 	# Haelith: she only creeps while the room is dark; light on the bed pushes her back
 	var b := haelith
-	if lit == "" and (b["pacer"] as NightWatchPacer).step(dt_ms * float(b["tempo"]), level("haelith")):
+	if lit == "" and (b["pacer"] as NightWatchPacer).step(dt_ms * float(b["tempo"]) * hunter_speed, level("haelith")):
 		b["p"] = minf(100.0, float(b["p"]) + float(T["bedGain"]) + float(T["bedGainPerLevel"]) * level("haelith"))
 		b["tempo"] = NightWatchStream.tempo(vr, VARIETY["haelithTempo"])
 		ev.append({"type": "stir", "id": "haelith", "p": b["p"]})
