@@ -9,6 +9,7 @@ const SCENES := {
 	"classic": "res://scenes/night_watch.tscn",
 	"lure": "res://scenes/night_watch_lure.tscn",
 	"bedroom": "res://scenes/night_watch_bedroom.tscn",
+	"story": "res://scenes/night_watch_story.tscn",
 }
 
 
