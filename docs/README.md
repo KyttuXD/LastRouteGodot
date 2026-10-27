@@ -52,6 +52,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [WALL_THEMES.md](WALL_THEMES.md) — per-face wall themes (no room bleed onto halls), floor sets per district and room purpose, validator
 - [AMBIENCE.md](AMBIENCE.md) — ambient beds per district and room purpose (AmbienceTable), footsteps by floor surface (SurfaceSounds), validator
 - [LIGHT_SIGHT.md](LIGHT_SIGHT.md) — mutual light sight: LightField exposure, lit hunters see the runner, validator
+- [YSOLDE.md](YSOLDE.md) — Ysolde avoids or runs from the runner (behaviour constant), validator
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.
 - KYTTU: The City (and its OpenStreetMap "real places" maps) is archived on branch `archive/city-20261027` (see its docs/CITY_ARCHIVE.md); it is no longer part of main.
