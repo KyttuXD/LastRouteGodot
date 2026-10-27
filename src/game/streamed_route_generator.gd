@@ -3655,7 +3655,7 @@ static func _room_facing_yaw(cell: Vector2i, target: Vector2i) -> float:
 
 
 ## Furniture you can hide in (docs/HIDING_PROPS.md): every bed and wardrobe a room recipe placed becomes an ordinary
-## hiding_spot fixture, so the same toggle, hunter gimmicks (Loxelle's break, Jyvra's reach), navigation and replication
+## hiding_spot fixture, so the same toggle, hunter gimmicks (Loxelle's break, Javelle's reach), navigation and replication
 ## apply. "style" tells the view how to hide (under the bed, inside the wardrobe); the prop itself is the visual.
 const HIDING_PROP_STYLES := {
 	"singleBed": "bed", "doubleBed": "bed", "gothicDoubleBed": "bed",   # hospitalBed (biomes lane) has a low base: not hideable

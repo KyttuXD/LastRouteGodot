@@ -37,7 +37,7 @@ Every bed and wardrobe that a room recipe places becomes an ordinary `hiding_spo
 Because they are ordinary fixtures, everything the lockers already have applies without new code:
 - the E toggle;
 - the hunter navigation snapshot;
-- Loxelle's break, Jyvra's reach and Void Brown;
+- Loxelle's break, Javelle's reach and Void Brown;
 - replication of the `hidden` and `hiding_spot` state to guests.
 
 The fixture carries a `style` and the prop's size. The prop itself is the visual, so the interactable has no model,
@@ -59,7 +59,7 @@ The move is presentation only: the body, collision and `hidden` change at once, 
 same state as before. Only the first-person pivot and the view yaw ease along the path, which goes to the opening at the
 current height first, so it passes over furniture rather than through it.
 
-A forced pull is immediate and cancels the move: a catch, a hunter's check, Loxelle or Jyvra.
+A forced pull is immediate and cancels the move: a catch, a hunter's check, Loxelle or Javelle.
 
 Guests see the runner's body slide into the spot (remote bodies already ease between replicated positions). It stays
 visible for the length of the move, crouched for a bed, and then disappears. The replicated state carries `hiding_style`.
@@ -97,7 +97,7 @@ When the check starts:
    guest's own machine), with "FOUND // RUN".
 3. The hunter goes straight to chase.
 
-A checked spot is left alone for 20 s. Hunter gimmicks that break hiding (Loxelle, Jyvra) keep their own rules.
+A checked spot is left alone for 20 s. Hunter gimmicks that break hiding (Loxelle, Javelle) keep their own rules.
 
 ## Checks
 
