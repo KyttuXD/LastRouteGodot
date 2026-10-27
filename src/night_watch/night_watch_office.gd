@@ -1,5 +1,5 @@
 class_name NightWatchOffice
-extends Node3D
+extends NightWatchOfficeBase
 
 ## The security room: a walkable blocky 6 x 5 m room with a desk, monitor, radio and lamp against the back wall, a chair, a shelf, a
 ## breaker box and a vent hatch, and a doorway on each side wall with a sliding slab, a control panel (DOOR and LIGHT buttons) on
@@ -32,13 +32,33 @@ var prompts := {}
 var button_meshes := {}  # "doorL_door", "doorL_light", ... -> MeshInstance3D
 ## 0 = open, 1 = shut, per door: the slab slides toward its target in the scene's _process.
 var slab_progress := {"doorL": 0.0, "doorR": 0.0}
-var props := {}          # prop name -> Node3D group (for the validator)
-var stations := {}       # station id -> NightWatchStation
 
 
 func _ready() -> void:
 	if slabs.is_empty():
 		build()
+
+
+func _make_spec() -> NightWatchOfficeSpec:
+	return make_spec()
+
+
+## The contract data of the Classic security room (docs/NIGHT_WATCH_OFFICES.md): two sliding steel doors with panels and lights, a desk with the monitor.
+static func make_spec() -> NightWatchOfficeSpec:
+	return NightWatchOfficeSpec.make({
+		"id": "classic_security", "title": "Security room", "mode_ids": ["classic"],
+		"footprint": Rect2(-HALF_W + 0.5, -HALF_D + 0.5, HALF_W * 2.0 - 1.0, HALF_D * 2.0 - 1.0),
+		"spawn": SPAWN,
+		"entrances": [
+			{"id": "doorL", "kind": "door_slab", "position": Vector3(-HALF_W, 0.0, 0.0), "outward": Vector3(-1, 0, 0), "sim_room": "doorL", "blockable": true},
+			{"id": "doorR", "kind": "door_slab", "position": Vector3(HALF_W, 0.0, 0.0), "outward": Vector3(1, 0, 0), "sim_room": "doorR", "blockable": true},
+		],
+		"required_stations": ["monitor", "doorL_door", "doorR_door", "doorL_light", "doorR_light", "lamp", "chair"],
+		"has_monitor": true,
+		"mood": {"kind": "warm_lamp", "ambient": Color(0.38, 0.40, 0.55), "lamp": Color(1.0, 0.82, 0.55), "accent": Color(0.96, 0.72, 0.28)},
+		"tone_cue": "presence",
+		"controls": ["nw_door_left", "nw_door_right", "nw_light_left", "nw_light_right", "nw_lamp", "nw_monitor"],
+	})
 
 
 func _c(parent: Node3D, size: Vector3, pos: Vector3, node_name: String, opts := {}) -> MeshInstance3D:
