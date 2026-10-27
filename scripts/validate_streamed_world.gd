@@ -529,11 +529,11 @@ func run(host: Node) -> int:
 		if biome != "prison":
 			_expect(dressed_biomes.has(biome),
 				"%s region produced no authored streamed dressing" % biome)
-	# Rooms are furnished properly now: nothing below 7x7 (no closets or 3x3 cells).
-	for expected_size in [Vector2i(7, 7), Vector2i(9, 7), Vector2i(7, 9), Vector2i(9, 9)]:
+	# Rooms are furnished properly now: nothing below 9x9 here (no closets or 3x3 cells).
+	for expected_size in [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 13)]:
 		_expect(StreamedRouteGenerator.ROOM_SIZES.has(expected_size),
 			"requested room size %s is missing from the streamed catalog" % expected_size)
-	for tiny_size in [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5), Vector2i(5, 7), Vector2i(7, 5)]:
+	for tiny_size in [Vector2i(3, 3), Vector2i(3, 5), Vector2i(5, 5), Vector2i(5, 7), Vector2i(7, 5), Vector2i(7, 7), Vector2i(7, 9), Vector2i(9, 7)]:
 		_expect(not StreamedRouteGenerator.ROOM_SIZES.has(tiny_size),
 			"room size %s is too small to furnish and should not be generated" % tiny_size)
 	_expect(room_sizes.size() >= 6,

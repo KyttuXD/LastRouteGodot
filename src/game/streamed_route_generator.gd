@@ -43,10 +43,9 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
 const STAIR_ACCESS_WIDTH := 5
-## Rooms are big enough to furnish properly: no closets or 3x3 cells any more.
-const ROOM_SIZES := [Vector2i(7, 7), Vector2i(9, 7), Vector2i(7, 9), Vector2i(9, 9),
-	Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13),
-	Vector2i(15, 15)]
+## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
+const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
+	Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13), Vector2i(15, 15)]
 const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 const REGION_PROP_SETS := {
@@ -867,15 +866,18 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 	# Two room banks on either side of the north/south hall. Keeping the
 	# three-wide centre reservation out of every room prevents a vertical seam
 	# or stair connector from slicing a guest room in half.
+	# Hotel rooms are 9x9 and the banks sit right on the E-W hall (a one-cell door, no connector hall).
 	var room_columns := [Vector2i(5, 5), Vector2i(11, 7),
 		Vector2i(25, 7), Vector2i(33, 5)]
+	if region == "hotel":
+		room_columns = [Vector2i(2, 9), Vector2i(11, 9), Vector2i(24, 9), Vector2i(33, 9)]
 	var stair_bays := _stairwell_bays(stairs)
 	var room_index := 0
 	for side in [-1, 1]:
 		for column in room_columns:
 			var cursor: int = column.x
 			var width: int = column.y
-			var depth := 7 if region == "hotel" else 5
+			var depth := 9 if region == "hotel" else 5
 			var z := center - 2 - depth if side < 0 else center + 3
 			var rect := Rect2i(cursor, z, width, depth)
 			if stair_bays.values().any(func(stair_rect: Rect2i) -> bool:
@@ -977,7 +979,7 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 		size_pool = [Vector2i(9, 9),
 			Vector2i(11, 13), Vector2i(13, 11)]
 	elif region in ["gothic", "inferno"]:
-		size_pool = [Vector2i(7, 5), Vector2i(9, 9), Vector2i(11, 13)]
+		size_pool = [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 13)]
 	for sector_index in sectors.size():
 		var sector: Rect2i = sectors[sector_index]
 		if stair_bays.has(sector_index):
@@ -1045,14 +1047,16 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 		var wanted: Vector2i = fitting[rng.next_index(fitting.size())]
 		var room_size := Vector2i(mini(wanted.x, sector.size.x - 2),
 			mini(wanted.y, sector.size.y - 2))
-		# Anchor rooms toward the outer corner of their sector. This guarantees
-		# visible secondary branches between the room and the central three-wide
-		# cross instead of letting a large room swallow its own connector.
+		# Anchor rooms toward the INNER corner of their sector (next to the central cross), leaving a
+		# one to three cell connector, so no long hallway leads to a room. Larger rooms simply leave
+		# the shorter gap.
+		var gap_x := clampi(1 + rng.next_index(3), 1, maxi(1, sector.size.x - room_size.x - 1))
+		var gap_y := clampi(1 + rng.next_index(3), 1, maxi(1, sector.size.y - room_size.y - 1))
 		var at := Vector2i(
-			sector.position.x + 1 if sector_index % 2 == 0 \
-				else sector.end.x - room_size.x - 1,
-			sector.position.y + 1 if sector_index < 2 \
-				else sector.end.y - room_size.y - 1)
+			sector.end.x - room_size.x - gap_x if sector_index % 2 == 0 \
+				else sector.position.x + gap_x,
+			sector.end.y - room_size.y - gap_y if sector_index < 2 \
+				else sector.position.y + gap_y)
 		var rect := Rect2i(at, room_size)
 		_carve_rect(grid, rect)
 		var connection := _connect_room_to_main_hall(grid, circulation,
