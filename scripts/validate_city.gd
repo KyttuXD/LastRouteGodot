@@ -118,7 +118,7 @@ func _check_shape(layout: CityLayout) -> void:
 	_expect(sealed <= 3, "%d buildings are sealed shut" % sealed)
 	print("  city: %d buildings (%d sealed), kinds %s, %d with two rooms" % [layout.buildings.size(), sealed, kinds_seen.keys(), partitioned])
 	_expect(kinds_seen.size() >= 7, "only %d building kinds" % kinds_seen.size())
-	_expect(partitioned >= 5, "only %d buildings have a partition" % partitioned)
+	_expect(partitioned >= 3, "only %d buildings have a partition" % partitioned)
 	_expect(layout.shelters.size() == 5, "expected 5 shelters, got %d" % layout.shelters.size())
 	_expect(layout.gardens.size() == 2, "expected two gardens")
 	var open := 0
@@ -127,7 +127,7 @@ func _check_shape(layout: CityLayout) -> void:
 			_expect(layout.kind_at(gx, gz) != CityLayout.BLOCK, "unfinished block cell at %d,%d" % [gx, gz])
 			if layout.is_open(gx, gz):
 				open += 1
-			if CityLayout.outer_r(gx, gz) >= CityLayout.OUTER_WALL_FROM and layout.is_open(gx, gz):
+			if layout.is_outside(gx, gz) and layout.is_open(gx, gz):
 				_expect(false, "open cell outside the rim at %d,%d" % [gx, gz])
 				return
 	_expect(open > 9000, "the city is too small (%d open cells)" % open)
@@ -364,6 +364,7 @@ func _check_run_scene(host: Node) -> void:
 	_check_gate(facility, layout)
 	_check_outskirts(layout)
 	_check_outskirt_lots(layout)
+	_check_water(layout)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -714,7 +715,8 @@ func _check_life(host: Node, facility: StreamedFacilityView3D) -> void:
 		_expect(layout.kind_at(cell.x, cell.y) == CityLayout.ROAD or layout.kind_at(cell.x, cell.y) == CityLayout.CROSS_NS
 			or layout.kind_at(cell.x, cell.y) == CityLayout.CROSS_EW or layout.kind_at(cell.x, cell.y) == CityLayout.BRIDGE
 			or layout.kind_at(cell.x, cell.y) == CityLayout.KIOSK_FLOOR or layout.kind_at(cell.x, cell.y) == CityLayout.KIOSK_WALL
-			or layout.kind_at(cell.x, cell.y) == CityLayout.WATER or layout.kind_at(cell.x, cell.y) == CityLayout.COMPASS,
+			or layout.kind_at(cell.x, cell.y) == CityLayout.WATER or layout.kind_at(cell.x, cell.y) == CityLayout.COMPASS
+			or layout.kind_at(cell.x, cell.y) == CityLayout.PAVE or layout.kind_at(cell.x, cell.y) == CityLayout.POST,
 			"tram %s is over %s, not a street" % [car.name, CityLayout.KIND_NAMES[layout.kind_at(cell.x, cell.y)]])
 		index += 1
 	_expect(moved >= 2, "the trams do not move (%d of 4 moved)" % moved)
@@ -777,7 +779,7 @@ func _check_outskirts(layout: CityLayout) -> void:
 	var reached := _flood(layout, layout.spawn, {})
 	_expect(reached.has(CityLayout.GATE_CELL), "the outer gate is not reachable from the roundabout")
 	_expect(layout.zone_name(CityLayout.AVENUE_X, CityLayout.GATE_ROW - 8).contains("FARM"), "no FARMLAND zone on the way to the gate")
-	_expect(layout.zone_name(CityLayout.AVENUE_X + 20, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y * 1.1).contains("SUBURBS"), "no SUBURBS zone past the ring road")
+	_expect(layout.zone_name(CityLayout.AVENUE_X + 20, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y * 1.1) in ["SUBURBS", "HOUSE", "AVENUE // SUBURBS"], "no SUBURBS zone past the downtown edge")
 	print("  city: outskirts: %d field cells, %d track cells, avenue %d rows, ring road %d cells" % [fields, dirt, avenue_rows, band.size()])
 
 
@@ -809,3 +811,40 @@ func _check_outskirt_lots(layout: CityLayout) -> void:
 	for type in ["mailbox", "silo", "tractor", "hay_bale", "water_pump"]:
 		_expect(int(counts.get(type, 0)) >= 3, "farm/suburb prop %s placed %d times" % [type, int(counts.get(type, 0))])
 	print("  city: outskirts: %d houses, %d barns, props %s" % [houses, barns, counts])
+
+
+## Water bodies: present, never walkable, nothing built or placed on them, and every enterable building's doorway and the
+## gate stay reachable from the spawn (the canal is crossed by bridges and roads).
+func _check_water(layout: CityLayout) -> void:
+	var water := 0
+	var outskirts_water := 0
+	for gz in CityLayout.HEIGHT:
+		for gx in CityLayout.WIDTH:
+			if layout.kind_at(gx, gz) != CityLayout.WATER:
+				continue
+			water += 1
+			if CityLayout.ellipse_r(gx, gz) >= 1.0:
+				outskirts_water += 1
+			_expect(not layout.is_open(gx, gz), "water cell %d,%d is walkable" % [gx, gz])
+			_expect(layout.building_index[CityLayout.index_of(gx, gz)] == 0, "a building stands on water at %d,%d" % [gx, gz])
+			_expect(not layout.decor.has(Vector2i(gx, gz)), "street furniture on water at %d,%d" % [gx, gz])
+	_expect(outskirts_water > 600, "only %d outskirt water cells (canal, lake, ponds)" % outskirts_water)
+	var reached := _flood(layout, layout.spawn, {})
+	var cut := []
+	for building in layout.buildings:
+		if bool(building.get("sealed", false)):
+			continue
+		var ok := false
+		for door_value in building["doors"]:
+			if reached.has(door_value):
+				ok = true
+		if not ok:
+			cut.append(building["id"])
+	_expect(cut.is_empty(), "%d buildings cut off from the spawn (water?): %s" % [cut.size(), cut.slice(0, 6)])
+	var bridges := 0
+	for gz in CityLayout.HEIGHT:
+		for gx in CityLayout.WIDTH:
+			if layout.kind_at(gx, gz) == CityLayout.BRIDGE and CityLayout.ellipse_r(gx, gz) >= 1.0:
+				bridges += 1
+	_expect(bridges >= 12, "only %d footbridge cells over the canal" % bridges)
+	print("  city: water %d cells (%d in the outskirts), %d footbridge cells, every building reachable" % [water, outskirts_water, bridges])

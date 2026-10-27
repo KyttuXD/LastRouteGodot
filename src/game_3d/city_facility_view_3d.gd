@@ -31,7 +31,12 @@ var _tram: CityTram
 func begin(seed_text: String, player: PlayerController3D,
 		state: StreamedWorldState = null) -> void:
 	clear()
-	city_generator = CityRouteGenerator.new(seed_text)
+	# Real places (OSM maps): a run on a real-world area injects its own layout; null for the generated City.
+	var prebuilt: CityLayout = null
+	var osm_run := "res://src/osm_city/osm_city_run.gd"
+	if ResourceLoader.exists(osm_run):
+		prebuilt = load(osm_run).layout_for(seed_text)
+	city_generator = CityRouteGenerator.new(seed_text, prebuilt)
 	generator = city_generator
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()

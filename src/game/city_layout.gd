@@ -273,6 +273,29 @@ static func chunk_in_range(coord: Vector3i) -> bool:
 		and coord.z >= CHUNK_MIN.y and coord.z <= CHUNK_MAX.y
 
 
+## Instance hooks so a different layout source (OSM maps) can define its own extent, rim and interiors.
+func in_chunk_range(coord: Vector3i) -> bool:
+	return chunk_in_range(coord)
+
+
+func chunk_min() -> Vector2i:
+	return CHUNK_MIN
+
+
+func chunk_max() -> Vector2i:
+	return CHUNK_MAX
+
+
+## True outside the playable area (the perimeter wall and beyond). The generated City is the outer ellipse.
+func is_outside(gx: int, gz: int) -> bool:
+	return not in_bounds(gx, gz) or outer_r(gx, gz) >= OUTER_WALL_FROM
+
+
+## Which INTERIOR_RECIPES entry furnishes a building; an OSM layout maps shop tags here.
+func interior_kind_for(building: Dictionary) -> String:
+	return String(building["kind"])
+
+
 ## 45 x 45 grid of the chunk, 0 = open floor, 1 = blocked, as the route code expects.
 func chunk_grid(coord: Vector3i) -> Array:
 	var origin := chunk_origin(coord)
@@ -344,7 +367,7 @@ func shelter_for_chunk(coord: Vector3i) -> Dictionary:
 func building_props(building: Dictionary) -> Array:
 	if bool(building.get("sealed", false)):
 		return []
-	var kind := String(building["kind"])
+	var kind := interior_kind_for(building)
 	var recipe: Array = INTERIOR_RECIPES.get(kind, [])
 	if recipe.is_empty():
 		return []
@@ -500,6 +523,7 @@ func _plan() -> void:
 	_lay_ground()
 	_lay_outskirts()
 	_lay_streets()
+	_lay_water_bodies()
 	_lay_arterials()
 	_lay_outskirt_lots()
 	_lay_roundabout()
@@ -603,6 +627,44 @@ func _lay_outskirts() -> void:
 					_set_kind(cell.x, cell.y, DIRT)
 
 
+## Water the runner and hunters cannot enter (WATER is solid on the nav grid and drawn with a bank lip): a 3-wide canal
+## arcing through the west suburbs with footbridges, a lake in the east farmland and two farm ponds. Roads laid after this
+## (the arterials) run straight over it; footbridges are BRIDGE cells. Generic: anything that marks cells WATER (an OSM
+## water polygon later) gets the same collision, nav and rendering.
+func _lay_water_bodies() -> void:
+	for gz in HEIGHT:
+		for gx in WIDTH:
+			if ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
+				continue
+			var t := band_t(gx, gz)
+			var angle := atan2(float(gz) + .5 - ELLIPSE_CENTER.y, float(gx) + .5 - ELLIPSE_CENTER.x)
+			# canal: along the inner edge of the west farmland (angle beyond +-100 degrees), band_t 0.57..0.63
+			if t >= 0.57 and t < 0.63 and absf(angle) > deg_to_rad(100.0):
+				_set_kind(gx, gz, WATER)
+	# footbridges over the canal every 40 degrees (3 wide)
+	for degrees in [120, 160, 200, 240]:
+		var angle := deg_to_rad(float(degrees))
+		var side := Vector2(-sin(angle), cos(angle))
+		for step in 30:
+			var at := Vector2(_band_point(angle, 0.53 + float(step) * 0.005))
+			for offset in [-1.0, 0.0, 1.0]:
+				var cell := Vector2i(roundi(at.x + side.x * offset), roundi(at.y + side.y * offset))
+				if kind_at(cell.x, cell.y) == WATER:
+					_set_kind(cell.x, cell.y, BRIDGE)
+	# a lake in the east farmland and two ponds
+	for pool in [[0.0, 0.72, 7.5, 5.0], [130.0, 0.74, 3.5, 3.0], [-60.0, 0.73, 3.0, 3.0]]:
+		var centre := _band_point(deg_to_rad(float(pool[0])), float(pool[1]))
+		var rx := float(pool[2])
+		var rz := float(pool[3])
+		for dz in range(-ceili(rz), ceili(rz) + 1):
+			for dx in range(-ceili(rx), ceili(rx) + 1):
+				if pow(dx / rx, 2) + pow(dz / rz, 2) > 1.0:
+					continue
+				var cell := centre + Vector2i(dx, dz)
+				if [FIELD, GRASS, DIRT].has(kind_at(cell.x, cell.y)):
+					_set_kind(cell.x, cell.y, WATER)
+
+
 ## Suburb houses and farm buildings. Houses (9 x 9 masses with a 7 x 7 interior, hedge-ringed yards with a gap for
 ## the path and a mailbox) stand in rows along the arterials and the suburb ring road; barns (11 x 9) with silos,
 ## tractors and hay stand in the fields with a water pump and an irrigation channel. Every lot keeps two clear cells from
@@ -619,9 +681,9 @@ func _lay_outskirt_lots() -> void:
 			_place_outskirt_building(lot, "house", "house", 5.5 + rng.next_float() * 1.5, rng)
 	for sample in 120:
 		var angle := TAU * float(sample) / 120.0
-		var centre := _band_point(angle, 0.70)
+		var centre := _band_point(angle, 0.73)
 		var lot := Rect2i(centre.x - 4, centre.y - 4, 9, 9)
-		if not _outskirt_lot_clear(lot, [FIELD, GRASS]) or rng.next_float() < .35:
+		if not _outskirt_lot_clear(lot, [FIELD, GRASS], 1) or rng.next_float() < .2:
 			continue
 		_place_outskirt_building(lot, "barn", "barn", 7.0, rng)
 		# a silo and a water pump beside the barn, hay and a tractor alongside
@@ -649,9 +711,9 @@ func _band_point(angle: float, t: float) -> Vector2i:
 	return Vector2i(floori(at.x), floori(at.y))
 
 
-func _outskirt_lot_clear(lot: Rect2i, ground: Array) -> bool:
-	for gz in range(lot.position.y - 2, lot.end.y + 2):
-		for gx in range(lot.position.x - 2, lot.end.x + 2):
+func _outskirt_lot_clear(lot: Rect2i, ground: Array, margin: int = 2) -> bool:
+	for gz in range(lot.position.y - margin, lot.end.y + margin):
+		for gx in range(lot.position.x - margin, lot.end.x + margin):
 			if not in_bounds(gx, gz) or not ground.has(kind_at(gx, gz)):
 				return false
 	return true
