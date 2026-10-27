@@ -286,4 +286,13 @@ Modern carriageways: asphalt with a dashed yellow centre line, dashed white lane
 by the kerb, kerb tiles where pavement meets road (`CityFacilityView3D._road_tile`, rotated `_x` tiles for east-west
 roads; curved ring roads are plain asphalt). The atlas is 8 x 16 tiles now (83 used). Streaming radius is 3 (all 35
 chunks resident from the spawn; the mini reads 150 fps on the avenue, 300 at the spawn). Houses, farms, shops and the
-rest of the modern furniture come in the next stages. Shots: `city_expansion_map.png`, `city_expansion_avenue.png`.
+rest of the modern furniture come in the next stages. Shots: `city_expansion_map.png`, `city_expansion_avenue.png`, `city_expansion_suburb_ring.png`, `city_expansion_gate.png`.
+
+## Expansion, stage B: houses and farms
+
+Outskirt bands are measured by `CityLayout.band_t` (0 at the downtown edge, 1 at the outer rim, along the ray from the
+centre), so suburbs (t < 0.37), the ring road (0.40-0.52) and farmland (t >= 0.55) keep their width all the way round.
+Lots are walked round each band: 19 suburb **houses** (9 x 9, clapboard walls, shingle roof, hedge yard with a path gap and a
+mailbox) and 4 **barns** (red planks) with a silo, a water pump, hay bales and a tractor; two irrigation channels (WATER) cross
+the fields. Every lot keeps 2 clear cells from roads, tracks and other masses. Validated: counts, bands, no lot touching a
+road; geometry_overlap stays at zero.

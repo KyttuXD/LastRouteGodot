@@ -124,7 +124,7 @@ func _spots(layout: CityLayout) -> Array:
 	spots.append({"name": "gate_far", "pos": _at(gate.x + .5, gate.y - 20.5), "yaw": 180.0, "pitch": 4.0})
 	spots.append({"name": "gate_close", "pos": _at(gate.x + .5, gate.y - 4.5), "yaw": 180.0, "pitch": 6.0})
 	# The outskirts: the suburb ring road, a farm track and the avenue running out through the fields.
-	var ring_z := CityLayout.ELLIPSE_CENTER.y - CityLayout.ELLIPSE_AXES.y * (CityLayout.SUBURB_TO - 0.02)
+	var ring_z := CityLayout.ELLIPSE_CENTER.y - (CityLayout.ELLIPSE_AXES.y + (CityLayout.OUTER_AXES.y - CityLayout.ELLIPSE_AXES.y) * 0.46)
 	spots.append({"name": "suburb_ring", "pos": _at(CityLayout.AVENUE_X + 12.5, ring_z), "yaw": 90.0, "pitch": 2.0})
 	spots.append({"name": "farmland", "pos": _at(CityLayout.AVENUE_X + 3.5, gate.y - 28.5), "yaw": 180.0, "pitch": 1.0})
 	spots.append({"name": "outskirts_avenue", "pos": _at(CityLayout.AVENUE_X + .5, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y + 6.0), "yaw": 180.0, "pitch": 2.0})

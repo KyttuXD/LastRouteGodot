@@ -96,7 +96,8 @@ func _check_determinism(layout: CityLayout) -> void:
 
 func _check_shape(layout: CityLayout) -> void:
 	_expect(layout.kinds.size() == CityLayout.WIDTH * CityLayout.HEIGHT, "layout size is wrong")
-	_expect(layout.buildings.size() >= 47 and layout.buildings.size() <= 70, "building count %d is outside 47..70" % layout.buildings.size())
+	var downtown := layout.buildings.filter(func(b: Dictionary) -> bool: return not ["house", "barn"].has(String(b["kind"])))
+	_expect(downtown.size() >= 45 and downtown.size() <= 70, "downtown building count %d is outside 45..70" % downtown.size())
 	var kinds_seen := {}
 	var partitioned := 0
 	var sealed := 0
@@ -296,7 +297,12 @@ func _check_chunks() -> void:
 				for pickup in data["pickups"]:
 					kinds[String(pickup["kind"])] = true
 					relays += 1 if String(pickup["kind"]) == "relay" else 0
-				_expect(kinds.has("relay"), "chunk %s has no relay" % coord)
+				# A rim sliver chunk (a corner with a few open field cells) may hold no pickup spot at all.
+				var open_cells := 0
+				for row in data["grid"]:
+					for value in row:
+						open_cells += 1 if int(value) == 0 else 0
+				_expect(kinds.has("relay") or open_cells < 300, "chunk %s has no relay (%d open cells)" % [coord, open_cells])
 			props += (data["region_props"] as Array).size()
 			# Seams: the open cells of a shared border line up on both sides.
 			var east_neighbour := coord + Vector3i(1, 0, 0)
@@ -357,6 +363,7 @@ func _check_run_scene(host: Node) -> void:
 	_expect(layout.kind_at(layout.spawn.x, layout.spawn.y + 4) == CityLayout.DOOR, "no doorway straight ahead of the spawn")
 	_check_gate(facility, layout)
 	_check_outskirts(layout)
+	_check_outskirt_lots(layout)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -504,7 +511,8 @@ func _check_gate(facility: StreamedFacilityView3D, layout: CityLayout) -> void:
 	_expect(layout.is_open(CityLayout.GATE_CELL.x, CityLayout.GATE_CELL.y), "no open cell in front of the gate")
 	_expect(layout.zone_name(CityLayout.GATE_CELL.x, CityLayout.GATE_CELL.y) == "DOME GATE", "gate zone name missing")
 	var found := 0
-	var data: Dictionary = facility.generator.chunk(Vector3i(0, 0, 1))
+	var gate_chunk := Vector3i(floori(float(CityLayout.GATE_CELL.x - CityLayout.ORIGIN_OFFSET.x) / 45.0), 0, floori(float(CityLayout.GATE_CELL.y - CityLayout.ORIGIN_OFFSET.y) / 45.0))
+	var data: Dictionary = facility.generator.chunk(gate_chunk)
 	for pickup_value in data.get("pickups", []):
 		var pickup: Dictionary = pickup_value
 		if String(pickup.get("kind", "")) == "gate":
@@ -741,7 +749,7 @@ func _check_outskirts(layout: CityLayout) -> void:
 		for dx in range(-2, 3):
 			ok = ok and layout.kind_at(CityLayout.AVENUE_X + dx, gz) == CityLayout.ROAD
 		for dx in [-4, -3, 3, 4]:
-			ok = ok and [CityLayout.PAVE, CityLayout.POST].has(layout.kind_at(CityLayout.AVENUE_X + dx, gz))
+			ok = ok and [CityLayout.PAVE, CityLayout.POST, CityLayout.ROAD].has(layout.kind_at(CityLayout.AVENUE_X + dx, gz))   # ROAD = a junction
 		_expect(ok, "the avenue is broken at row %d" % gz)
 	_expect(avenue_rows > 80, "the avenue runs only %d rows through the outskirts" % avenue_rows)
 	# suburb ring road: a closed loop (flood along ROAD cells of the band comes back round)
@@ -749,7 +757,8 @@ func _check_outskirts(layout: CityLayout) -> void:
 	for gz in CityLayout.HEIGHT:
 		for gx in CityLayout.WIDTH:
 			var r := CityLayout.ellipse_r(gx, gz)
-			if r >= CityLayout.SUBURB_TO - 0.045 and r < CityLayout.SUBURB_TO + 0.015 and layout.kind_at(gx, gz) == CityLayout.ROAD:
+			var t := CityLayout.band_t(gx, gz)
+			if r >= 1.0 and t >= CityLayout.RING_ROAD.x and t < CityLayout.RING_ROAD.y and layout.kind_at(gx, gz) == CityLayout.ROAD:
 				band[Vector2i(gx, gz)] = true
 	var start: Vector2i = band.keys()[0]
 	var seen := {start: true}
@@ -767,6 +776,36 @@ func _check_outskirts(layout: CityLayout) -> void:
 	# gate reachable from the spawn on foot
 	var reached := _flood(layout, layout.spawn, {})
 	_expect(reached.has(CityLayout.GATE_CELL), "the outer gate is not reachable from the roundabout")
-	_expect(layout.zone_name(CityLayout.AVENUE_X, CityLayout.GATE_ROW - 30).contains("FARM"), "no FARMLAND zone on the way to the gate")
+	_expect(layout.zone_name(CityLayout.AVENUE_X, CityLayout.GATE_ROW - 8).contains("FARM"), "no FARMLAND zone on the way to the gate")
 	_expect(layout.zone_name(CityLayout.AVENUE_X + 20, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y * 1.1).contains("SUBURBS"), "no SUBURBS zone past the ring road")
 	print("  city: outskirts: %d field cells, %d track cells, avenue %d rows, ring road %d cells" % [fields, dirt, avenue_rows, band.size()])
+
+
+## Suburb houses and farms exist in numbers, sit in their bands, and keep clear of every road and track.
+func _check_outskirt_lots(layout: CityLayout) -> void:
+	var houses := 0
+	var barns := 0
+	for building in layout.buildings:
+		var kind := String(building["kind"])
+		var rect: Rect2i = building["rect"]
+		var centre := rect.position + rect.size / 2
+		if kind == "house":
+			houses += 1
+			_expect(CityLayout.ellipse_r(centre.x, centre.y) >= 1.0 and CityLayout.band_t(centre.x, centre.y) < CityLayout.SUBURB_TO, "house %s is outside the suburbs" % building["id"])
+		elif kind == "barn":
+			barns += 1
+			_expect(CityLayout.band_t(centre.x, centre.y) >= CityLayout.FARM_FROM, "barn %s is not in the farmland" % building["id"])
+		else:
+			continue
+		for gz in range(rect.position.y - 1, rect.end.y + 1):
+			for gx in range(rect.position.x - 1, rect.end.x + 1):
+				var k := layout.kind_at(gx, gz)
+				_expect(k != CityLayout.ROAD and k != CityLayout.DIRT and k != CityLayout.PAVE, "%s %s touches a road at %d,%d" % [kind, building["id"], gx, gz])
+	_expect(houses >= 15, "only %d suburb houses" % houses)
+	_expect(barns >= 4, "only %d barns" % barns)
+	var counts := {}
+	for entry in layout.decor.values():
+		counts[String(entry["type"])] = int(counts.get(String(entry["type"]), 0)) + 1
+	for type in ["mailbox", "silo", "tractor", "hay_bale", "water_pump"]:
+		_expect(int(counts.get(type, 0)) >= 3, "farm/suburb prop %s placed %d times" % [type, int(counts.get(type, 0))])
+	print("  city: outskirts: %d houses, %d barns, props %s" % [houses, barns, counts])

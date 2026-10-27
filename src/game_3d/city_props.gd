@@ -5,7 +5,7 @@ extends RefCounted
 ## banners, market stalls, a newsstand, phone booths and hydrants. Blocky boxes from the City atlas, drawn into the chunk's
 ## CitySurface like the rest of the street furniture. CityLayout.DECOR_COLLIDERS / DECOR_VISIBLE carry their footprints.
 
-const TYPES := ["plaza_light", "banner", "market_stall", "newsstand", "phone_booth", "hydrant"]
+const TYPES := ["plaza_light", "banner", "market_stall", "newsstand", "phone_booth", "hydrant", "mailbox", "silo", "tractor", "hay_bale", "water_pump"]
 const PLAZA_COLOR := Color(0.34, 0.92, 0.9)
 
 
@@ -54,5 +54,27 @@ static func add(type: String, surface: CitySurface, root: Node3D, lamps: Array, 
 			surface.box(Vector3(cx - .13, 0, cz - .13), Vector3(.26, .5, .26), CityAtlas.tile("awning_red"))
 			surface.box(Vector3(cx - .17, .5, cz - .17), Vector3(.34, .12, .34), CityAtlas.tile("awning_red"))
 			surface.box(Vector3(cx - .2, .28, cz - .06), Vector3(.4, .1, .12), CityAtlas.tile("awning_red"))
+		"mailbox":
+			surface.box(Vector3(cx - .05, 0, cz - .05), Vector3(.1, .9, .1), pole)
+			surface.box(Vector3(cx - .2, .9, cz - .15), Vector3(.4, .3, .3), CityAtlas.tile("awning_red"), CityAtlas.tile("stone_dark"))
+		"silo":
+			surface.box(Vector3(cx - .47, 0, cz - .47), Vector3(.94, 7.0, .94), CityAtlas.tile("silo"), CityAtlas.tile("stone_dark"))
+			surface.box(Vector3(cx - .3, 7.0, cz - .3), Vector3(.6, .6, .6), CityAtlas.tile("silo"), CityAtlas.tile("stone_dark"))
+			surface.box(Vector3(cx - .1, 7.6, cz - .1), Vector3(.2, .6, .2), pole)
+		"tractor":
+			var red := CityAtlas.tile("barn_red")
+			surface.box(Vector3(cx - .45, .35, cz - .45), Vector3(.9, .5, .9), red, red)
+			surface.box(Vector3(cx - .3, .85, cz - .1), Vector3(.6, .7, .5), CityAtlas.tile("fire_escape"), red)
+			surface.box(Vector3(cx - .47, 0, cz - .47), Vector3(.2, .55, .2), pole)
+			surface.box(Vector3(cx + .27, 0, cz - .47), Vector3(.2, .55, .2), pole)
+			surface.box(Vector3(cx - .47, 0, cz + .22), Vector3(.25, .7, .25), pole)
+			surface.box(Vector3(cx + .22, 0, cz + .22), Vector3(.25, .7, .25), pole)
+			surface.box(Vector3(cx + .3, 1.55, cz - .3), Vector3(.08, .35, .08), pole)
+		"hay_bale":
+			surface.box(Vector3(cx - .45, 0, cz - .45), Vector3(.9, .9, .9), CityAtlas.tile("crop_b"), CityAtlas.tile("crop_b"))
+		"water_pump":
+			surface.box(Vector3(cx - .25, 0, cz - .25), Vector3(.5, .8, .5), CityAtlas.tile("stone_dark"))
+			surface.box(Vector3(cx - .08, .8, cz - .08), Vector3(.16, .5, .16), pole)
+			surface.box(Vector3(cx - .3, 1.2, cz - .05), Vector3(.6, .08, .1), pole)
 		_:
 			pass

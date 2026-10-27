@@ -69,8 +69,13 @@ static func add_roof(surface: CitySurface, building: Dictionary, salt: int) -> v
 	var rect: Rect2i = building["rect"]
 	var height := float(building.get("height", 12.0))
 	var brick := CityAtlas.tile("brick_dark")
+	var used := {}
 	for index in 2:
 		var cx := rect.position.x + 2 + ((salt >> (index * 3)) % maxi(1, rect.size.x - 5))
 		var cz := rect.position.y + 2 + ((salt >> (index * 3 + 5)) % maxi(1, rect.size.y - 5))
-		surface.box(Vector3(cx, height, cz), Vector3(.9, 2.2 + float((salt >> (index + 2)) % 3), .9), brick, CityAtlas.tile("stone_dark"))
+		if used.has(Vector2i(cx, cz)):
+			continue   # two chimneys on one cell would draw the same faces twice
+		used[Vector2i(cx, cz)] = true
+		# sunk 0.3 m into the roof so its underside never lies on the roof quad (z-fighting)
+		surface.box(Vector3(cx, height - .3, cz), Vector3(.9, 2.5 + float((salt >> (index + 2)) % 3), .9), brick, CityAtlas.tile("stone_dark"))
 		surface.box(Vector3(cx - .08, height + 2.2 + float((salt >> (index + 2)) % 3), cz - .08), Vector3(1.06, .16, 1.06), CityAtlas.tile("stone_dark"))

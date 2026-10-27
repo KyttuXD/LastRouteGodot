@@ -312,7 +312,7 @@ func _road_tile(gx: int, gz: int, h: int) -> int:
 	# not axis-aligned, so a dash tile would run the wrong way.
 	if r >= CityLayout.RING_PAVE_FROM and r < 1.0:
 		return CityAtlas.tile("asphalt")
-	if r >= CityLayout.SUBURB_TO - 0.07 and r < CityLayout.SUBURB_TO + 0.04:
+	if r >= 1.0 and CityLayout.band_t(gx, gz) >= CityLayout.SUBURB_TO - 0.02 and CityLayout.band_t(gx, gz) < CityLayout.FARM_FROM + 0.02:
 		return CityAtlas.tile("asphalt")
 	if Vector2(gx, gz).distance_to(Vector2(CityLayout.ROUNDABOUT_CENTER)) < 15.5:
 		return CityAtlas.tile("asphalt")
@@ -407,6 +407,17 @@ func _facade_tile(style: String, pier: int, y: int, top: int, salt: int) -> int:
 	var storey := (y - 1) % 4
 	var h := absi(hash(Vector3i(pier, (y - storey) / 4, salt))) % 100
 	match style:
+		"house":
+			if y == top - 1:
+				return CityAtlas.tile("house_roof")
+			var window := pier % 3 == 1 and storey <= 1 and y >= 1 and y <= 4
+			if window:
+				return CityAtlas.tile("win_lit_bot" if h < 50 else "win_dark_bot") if y % 2 == 1 else CityAtlas.tile("win_lit_top" if h < 50 else "win_dark_top")
+			return CityAtlas.tile("house_wall")
+		"barn":
+			if y == top - 1:
+				return CityAtlas.tile("stone_dark")
+			return CityAtlas.tile("barn_red")
 		"civic":
 			if pier % 4 == 1 and storey == 0:
 				return CityAtlas.tile("civic_arch_bot")
@@ -535,7 +546,7 @@ func _build_facade_cell(surface: CitySurface, layout: CityLayout, x: int, z: int
 		if style == "brick" and span.x == 0 and CityLayout.OUTDOOR_KINDS.has(neighbour):
 			CityFacadeDetails.add_face(surface, building, dir, x, z, pier, top, salt)
 	# a roof, so the tower is a closed box from above and from the open sky
-	surface.top_quad(x, z, float(top), CityAtlas.tile("kiosk_roof"))
+	surface.top_quad(x, z, float(top), CityAtlas.tile("house_roof" if style == "house" else ("stone_dark" if style == "barn" else "kiosk_roof")))
 
 
 ## Rows [from, to) of a facade face toward the neighbour at `dir`: empty when the neighbour is a solid mass at least as

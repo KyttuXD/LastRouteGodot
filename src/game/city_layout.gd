@@ -27,7 +27,11 @@ const BUILD_LIMIT := 0.88
 const DECOR_LIMIT := 0.86
 ## The outskirts: everything between the downtown ellipse (r 1) and the outer rim (outer_r 1) is suburbs, then farmland.
 const OUTER_AXES := Vector2(155.0, 110.0)
-const SUBURB_TO := 1.28      # downtown-ellipse radius where the suburbs give way to farmland
+## Outskirt bands by band_t (0 at the downtown edge, 1 at the outer rim, along the ray from the centre): suburbs, then the
+## ring road, then farmland. Measured this way the bands keep their width all round (the two ellipses differ in shape).
+const SUBURB_TO := 0.37      # band_t where the suburbs end (the ring road's inner pavement starts)
+const RING_ROAD := Vector2(0.40, 0.52)   # band_t span of the ring road's carriageway
+const FARM_FROM := 0.55
 const OUTER_WALL_FROM := 0.965   # outer_r from which the perimeter wall and its tree line stand
 
 # Tile kinds.
@@ -90,6 +94,8 @@ const DECOR_COLLIDERS := {
 	"statue": Vector3(3.0, 3.8, 3.0),
 	"plaza_light": Vector3(.25, 4.4, .25), "banner": Vector3(.2, 4.0, .2), "market_stall": Vector3(.9, 1.0, .9),
 	"newsstand": Vector3(.9, 1.1, .9), "phone_booth": Vector3(.78, 2.1, .78), "hydrant": Vector3(.26, .55, .26),
+	"mailbox": Vector3(.2, 1.2, .2), "silo": Vector3(.95, 7.5, .95), "tractor": Vector3(.95, 1.6, .95),
+	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.5, 1.3, .5),
 }
 ## The widest visible footprint of the same pieces (what the renderer draws), for the collider-vs-visual check.
 const DECOR_VISIBLE := {
@@ -98,6 +104,8 @@ const DECOR_VISIBLE := {
 	"statue": Vector3(3.0, 3.8, 3.0),
 	"plaza_light": Vector3(.9, 4.6, .9), "banner": Vector3(1.1, 4.2, 1.1), "market_stall": Vector3(1.9, 2.5, 1.9),
 	"newsstand": Vector3(1.0, 2.5, 1.0), "phone_booth": Vector3(.84, 2.26, .84), "hydrant": Vector3(.4, .62, .4),
+	"mailbox": Vector3(.4, 1.3, .3), "silo": Vector3(.95, 8.2, .95), "tractor": Vector3(.95, 1.9, .95),
+	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.6, 1.4, .6),
 }
 ## "hall" is last on purpose: it is only given to big civic lots, never drawn at random.
 const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "library", "chapel", "hall"]
@@ -127,6 +135,9 @@ const INTERIOR_RECIPES := {
 	"hall": [["diningTable", "row"], ["diningChair", "seat"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
 	"library": [["normalBookcase", "row"], ["normalBookcase", "wall"], ["woodenTable", "scatter"], ["woodenChair", "seat"], ["floorLamp", "wall"]],
 	"chapel": [["woodenChair", "row"], ["floorLamp", "wall"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
+	"house": [["singleBed", "wall"], ["bedroomWardrobe", "wall"], ["normalKitchenCounter", "wall"], ["normalKitchenFridge", "wall"],
+		["woodenTable", "scatter"], ["woodenChair", "seat"], ["floorLamp", "scatter"]],
+	"barn": [["supplyCrates", "row"], ["officeFileBoxes", "scatter"], ["trashBin", "scatter"], ["supplyCrates", "wall"]],
 }
 ## Interiors at least this wide get a partition wall with a two-wide doorway, so the building has two rooms.
 const PARTITION_MIN := 11
@@ -206,7 +217,10 @@ func zone_name(gx: int, gz: int) -> String:
 	if r >= 1.0:
 		if here == FIELD or here == DIRT:
 			return "FARMLAND"
-		if r >= SUBURB_TO:
+		var t := band_t(gx, gz)
+		if t >= RING_ROAD.x and t < RING_ROAD.y:
+			return "RING ROAD // SUBURBS"
+		if t >= FARM_FROM:
 			return "FARM ROAD" if here == ROAD or here == GRAVEL else "FARMLAND"
 		if gx >= AVENUE_X - 4 and gx <= AVENUE_X + 4:
 			return "AVENUE // SUBURBS"
@@ -239,6 +253,15 @@ static func outer_r(gx: int, gz: int) -> float:
 	var dx := (float(gx) + .5 - ELLIPSE_CENTER.x) / OUTER_AXES.x
 	var dz := (float(gz) + .5 - ELLIPSE_CENTER.y) / OUTER_AXES.y
 	return sqrt(dx * dx + dz * dz)
+
+
+## 0 on the downtown ellipse, 1 on the outer ellipse, linear along the ray from the shared centre (negative inside downtown).
+static func band_t(gx: int, gz: int) -> float:
+	var inner := ellipse_r(gx, gz)
+	var outer := outer_r(gx, gz)
+	if outer <= 0.0001:
+		return -1.0
+	return (inner - 1.0) / maxf(0.0001, inner / outer - 1.0)
 
 
 static func chunk_origin(coord: Vector3i) -> Vector2i:
@@ -478,6 +501,7 @@ func _plan() -> void:
 	_lay_outskirts()
 	_lay_streets()
 	_lay_arterials()
+	_lay_outskirt_lots()
 	_lay_roundabout()
 	for center in SHELTER_PLAZAS:
 		_lay_shelter_plaza(center)
@@ -552,37 +576,134 @@ func _lay_streets() -> void:
 func _lay_outskirts() -> void:
 	for gz in HEIGHT:
 		for gx in WIDTH:
-			var inner := ellipse_r(gx, gz)
-			if inner < 1.0:
-				continue
-			var outer := outer_r(gx, gz)
-			if outer >= OUTER_WALL_FROM:
-				continue   # stays RIM: the perimeter wall
-			if inner < SUBURB_TO:
+			if ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
+				continue   # downtown, or the RIM band of the perimeter wall
+			var t := band_t(gx, gz)
+			if t < FARM_FROM:
 				_set_kind(gx, gz, GRASS)
 			else:
-				# Farmland: strips of crops with soil between, broken by the farm tracks laid below.
+				# Farmland: strips of crops with grass headlands between, broken by the farm tracks laid below.
 				var band := int(floor((float(gx) + float(gz) * 0.35) / 7.0))
 				_set_kind(gx, gz, FIELD if band % 3 != 2 else GRASS)
-	# Suburb ring road: a 7-wide asphalt loop (2 kerb cells each side) along the suburb/farm boundary.
-	for gz in HEIGHT:
-		for gx in WIDTH:
-			var inner := ellipse_r(gx, gz)
-			if inner >= SUBURB_TO - 0.045 and inner < SUBURB_TO + 0.015:
+			# Suburb ring road: an asphalt loop with a pavement each side, the boundary between suburbs and farms.
+			if t >= RING_ROAD.x and t < RING_ROAD.y:
 				_set_kind(gx, gz, ROAD)
-			elif (inner >= SUBURB_TO - 0.06 and inner < SUBURB_TO - 0.045) or (inner >= SUBURB_TO + 0.015 and inner < SUBURB_TO + 0.03):
+			elif (t >= SUBURB_TO and t < RING_ROAD.x) or (t >= RING_ROAD.y and t < FARM_FROM):
 				_set_kind(gx, gz, PAVE)
-	# Farm tracks: dirt lanes radiating from the ring road to the rim at eight bearings, 3 wide.
+	# Farm tracks: 3-wide dirt lanes from the ring road out to the rim at eight bearings.
 	for bearing in 8:
 		var angle := TAU * float(bearing) / 8.0 + PI / 8.0
 		var direction := Vector2(cos(angle), sin(angle))
 		var side := Vector2(-direction.y, direction.x)
-		for step in 200:
-			var at := ELLIPSE_CENTER + Vector2(direction.x * ELLIPSE_AXES.x, direction.y * ELLIPSE_AXES.y) * (SUBURB_TO + float(step) * .004)
+		for step in 260:
+			var at := ELLIPSE_CENTER + direction * float(step) * .75
 			for offset in [-1.0, 0.0, 1.0]:
 				var cell := Vector2i(roundi(at.x + side.x * offset - .5), roundi(at.y + side.y * offset - .5))
-				if in_bounds(cell.x, cell.y) and [FIELD, GRASS].has(kind_at(cell.x, cell.y)):
+				if in_bounds(cell.x, cell.y) and band_t(cell.x, cell.y) >= FARM_FROM and [FIELD, GRASS].has(kind_at(cell.x, cell.y)):
 					_set_kind(cell.x, cell.y, DIRT)
+
+
+## Suburb houses and farm buildings. Houses (9 x 9 masses with a 7 x 7 interior, hedge-ringed yards with a gap for
+## the path and a mailbox) stand in rows along the arterials and the suburb ring road; barns (11 x 9) with silos,
+## tractors and hay stand in the fields with a water pump and an irrigation channel. Every lot keeps two clear cells from
+## any road, track or other mass, so nothing overlaps (GeometryAudit's City rules) and every doorway faces open ground.
+func _lay_outskirt_lots() -> void:
+	var rng := SeededRandom.new("%s:CITY-OUTSKIRTS" % seed_text)
+	# Lots are walked round the bands (centre at a fixed band_t, every few degrees) rather than on a grid: the bands are
+	# only ~16 cells deep, so a grid rarely lines a 9 x 9 lot plus its 2-cell margin up inside one.
+	for sample in 180:
+		var angle := TAU * float(sample) / 180.0
+		var centre := _band_point(angle, 0.19)
+		var lot := Rect2i(centre.x - 4, centre.y - 4, 9, 9)
+		if _outskirt_lot_clear(lot, [GRASS]) and rng.next_float() < .8:
+			_place_outskirt_building(lot, "house", "house", 5.5 + rng.next_float() * 1.5, rng)
+	for sample in 120:
+		var angle := TAU * float(sample) / 120.0
+		var centre := _band_point(angle, 0.70)
+		var lot := Rect2i(centre.x - 4, centre.y - 4, 9, 9)
+		if not _outskirt_lot_clear(lot, [FIELD, GRASS]) or rng.next_float() < .35:
+			continue
+		_place_outskirt_building(lot, "barn", "barn", 7.0, rng)
+		# a silo and a water pump beside the barn, hay and a tractor alongside
+		var out := Vector2(centre - Vector2i(ELLIPSE_CENTER)).normalized()
+		var along := Vector2i(roundi(-out.y), roundi(out.x))
+		_place_outskirt_decor(centre + along * 7, "silo", rng)
+		_place_outskirt_decor(centre + along * 7 + Vector2i(roundi(out.x * 3), roundi(out.y * 3)), "water_pump", rng)
+		for index in 3:
+			_place_outskirt_decor(centre - along * (7 + index * 2), "hay_bale", rng)
+		_place_outskirt_decor(centre - along * 7 + Vector2i(roundi(out.x * 3), roundi(out.y * 3)), "tractor", rng)
+	# irrigation: a 1-wide channel along the north and south farm bands, bridged where a track or arterial crosses
+	var reach := ELLIPSE_AXES.y + (OUTER_AXES.y - ELLIPSE_AXES.y) * 0.72
+	for gz in [int(ELLIPSE_CENTER.y - reach), int(ELLIPSE_CENTER.y + reach)]:
+		for gx in WIDTH:
+			if kind_at(gx, gz) == FIELD and outer_r(gx, gz) < OUTER_WALL_FROM - 0.06:
+				_set_kind(gx, gz, WATER)
+
+
+## The cell at band_t `t` along the ray at `angle` from the centre.
+func _band_point(angle: float, t: float) -> Vector2i:
+	var direction := Vector2(cos(angle), sin(angle))
+	var inner := 1.0 / sqrt(pow(direction.x / ELLIPSE_AXES.x, 2) + pow(direction.y / ELLIPSE_AXES.y, 2))
+	var outer := 1.0 / sqrt(pow(direction.x / OUTER_AXES.x, 2) + pow(direction.y / OUTER_AXES.y, 2))
+	var at := ELLIPSE_CENTER + direction * lerpf(inner, outer, t)
+	return Vector2i(floori(at.x), floori(at.y))
+
+
+func _outskirt_lot_clear(lot: Rect2i, ground: Array) -> bool:
+	for gz in range(lot.position.y - 2, lot.end.y + 2):
+		for gx in range(lot.position.x - 2, lot.end.x + 2):
+			if not in_bounds(gx, gz) or not ground.has(kind_at(gx, gz)):
+				return false
+	return true
+
+
+func _place_outskirt_building(lot: Rect2i, kind: String, style: String, height: float, rng: SeededRandom) -> void:
+	var doors := _choose_doors(lot)
+	if doors.is_empty():
+		return
+	var id := "B%d" % buildings.size()
+	for gz in range(lot.position.y, lot.end.y):
+		for gx in range(lot.position.x, lot.end.x):
+			var edge := gx == lot.position.x or gx == lot.end.x - 1 or gz == lot.position.y or gz == lot.end.y - 1
+			_set_kind(gx, gz, WALL if edge else FLOOR)
+			building_index[index_of(gx, gz)] = buildings.size() + 1
+	for door in doors:
+		_set_kind((door as Vector2i).x, (door as Vector2i).y, DOOR)
+		_door_cells[door] = true
+	var building := {"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
+		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors, "partition": []}
+	buildings.append(building)
+	if kind == "house":
+		# the yard: a hedge ring one cell out, open where the doorway's path leaves it, a mailbox by the gap
+		var front: Vector2i = doors[0]
+		var out := Vector2i.ZERO
+		if front.y == lot.position.y:
+			out = Vector2i(0, -1)
+		elif front.y == lot.end.y - 1:
+			out = Vector2i(0, 1)
+		elif front.x == lot.position.x:
+			out = Vector2i(-1, 0)
+		else:
+			out = Vector2i(1, 0)
+		var ring := lot.grow(2)
+		for gz in range(ring.position.y, ring.end.y):
+			for gx in range(ring.position.x, ring.end.x):
+				var on_ring := gx == ring.position.x or gx == ring.end.x - 1 or gz == ring.position.y or gz == ring.end.y - 1
+				if not on_ring or kind_at(gx, gz) != GRASS:
+					continue
+				var gap_centre := front + out * 2
+				if absi(gx - gap_centre.x) <= 1 and absi(gz - gap_centre.y) <= 1:
+					continue
+				_set_kind(gx, gz, HEDGE)
+		var path_cell := front + out
+		if kind_at(path_cell.x, path_cell.y) == GRASS:
+			_set_kind(path_cell.x, path_cell.y, PATH)
+		_place_outskirt_decor(front + out * 3 + Vector2i(out.y, out.x) * 2, "mailbox", rng)
+
+
+func _place_outskirt_decor(cell: Vector2i, type: String, rng: SeededRandom) -> void:
+	if in_bounds(cell.x, cell.y) and [GRASS, FIELD].has(kind_at(cell.x, cell.y)):
+		_place_decor(cell, type, float(rng.next_index(4)) * PI * .5)
 
 
 ## The avenue and the main street continue through the suburbs and the farmland to the outer rim as 9-wide arterials
@@ -724,30 +845,31 @@ func _lay_grand_plaza() -> void:
 			if current == BLOCK or current == ROAD or current == PAVE:
 				_set_kind(gx, gz, PLAZA)
 	var mid_x := ROUNDABOUT_CENTER.x
+	const PLAZA_Z := 45   # the plaza rows below are in the original (pre-shift) downtown coordinates
 	# Statue on a 3 x 3 plinth, a long reflecting pool south of it, benches facing the pool.
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
-			_set_kind(mid_x + dx, 14 + dz, POST)
-	decor[Vector2i(mid_x, 14)] = {"type": "statue", "yaw": 0.0}
-	for gz in range(18, 22):
+			_set_kind(mid_x + dx, PLAZA_Z + 14 + dz, POST)
+	decor[Vector2i(mid_x, PLAZA_Z + 14)] = {"type": "statue", "yaw": 0.0}
+	for gz in range(PLAZA_Z + 18, PLAZA_Z + 22):
 		for gx in range(mid_x - 7, mid_x + 8):
 			_set_kind(gx, gz, WATER)
 	for bench_x in [mid_x - 12, mid_x - 4, mid_x + 4, mid_x + 12]:
-		_place_decor(Vector2i(bench_x, 16), "bench", 0.0)
+		_place_decor(Vector2i(bench_x, PLAZA_Z + 16), "bench", 0.0)
 	for tree_x in [mid_x - 30, mid_x - 22, mid_x + 22, mid_x + 30]:
-		_place_decor(Vector2i(tree_x, 16), "cypress", 0.0)
-		_place_decor(Vector2i(tree_x, 23), "tree", 0.0)
+		_place_decor(Vector2i(tree_x, PLAZA_Z + 16), "cypress", 0.0)
+		_place_decor(Vector2i(tree_x, PLAZA_Z + 23), "tree", 0.0)
 	for bench_x in [mid_x - 10, mid_x + 10]:
-		_place_decor(Vector2i(bench_x, 23), "bench", PI)
+		_place_decor(Vector2i(bench_x, PLAZA_Z + 23), "bench", PI)
 	# The plaza is the lit heart of the city: cyan lights in two rows, banners, and a row of market stalls (the rows sit
 	# inside DECOR_LIMIT, which the dome edge makes tight at the plaza's far north).
 	for light_x in range(mid_x - 40, mid_x + 41, 8):
-		_place_decor(Vector2i(light_x, 12), "plaza_light", 0.0)
-		_place_decor(Vector2i(light_x + 4, 21), "plaza_light", 0.0)
+		_place_decor(Vector2i(light_x, PLAZA_Z + 12), "plaza_light", 0.0)
+		_place_decor(Vector2i(light_x + 4, PLAZA_Z + 21), "plaza_light", 0.0)
 	for banner_x in [mid_x - 34, mid_x - 26, mid_x - 14, mid_x + 14, mid_x + 26, mid_x + 34]:
-		_place_decor(Vector2i(banner_x, 17), "banner", 0.0)
+		_place_decor(Vector2i(banner_x, PLAZA_Z + 17), "banner", 0.0)
 	for stall_x in [mid_x - 24, mid_x - 20, mid_x - 16, mid_x + 16, mid_x + 20, mid_x + 24]:
-		_place_decor(Vector2i(stall_x, 14), "market_stall", 0.0)
+		_place_decor(Vector2i(stall_x, PLAZA_Z + 14), "market_stall", 0.0)
 
 
 # ---------------------------------------------------------------- blocks and buildings
@@ -1009,7 +1131,7 @@ func _place_decor(cell: Vector2i, type: String, yaw: float) -> bool:
 	if r > DECOR_LIMIT and (r < 1.0 or outer_r(cell.x, cell.y) > OUTER_WALL_FROM - .03):
 		return false
 	var current := kind_at(cell.x, cell.y)
-	if not [PAVE, PLAZA, GRASS, PATH, COMPASS].has(current):
+	if not [PAVE, PLAZA, GRASS, PATH, COMPASS, FIELD].has(current):
 		return false
 	if _decor_clips_solid(cell, type) or _decor_clips_decor(cell, type, yaw):
 		return false
