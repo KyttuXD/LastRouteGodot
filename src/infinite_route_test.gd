@@ -646,6 +646,9 @@ func _infinite_admin_actions() -> Array:
 		{"heading": "VISUAL", "permission": "visual"},
 		{"label": "TELEPORT TO WAYPOINT", "action": _admin_teleport_to_waypoint, "permission": "player"},
 		{"label": "CLEAR WAYPOINT", "action": _clear_local_waypoint, "permission": "player"},
+		{"label": "MUTUAL LIGHT SIGHT", "action": _admin_toggle_light_sight, "permission": "visual",
+			"state": func() -> bool: return LightField.enabled},
+		{"label": "LIGHT PROBE HERE", "action": _admin_light_probe, "permission": "visual"},
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_map},
@@ -1377,6 +1380,50 @@ func _update_floor_audio(level: int) -> void:
 			chased = true
 			break
 	Sound.set_ambience_duck(move_toward(Sound.ambience_duck, 1.0 if chased else 0.0, get_process_delta_time() * 1.5))
+
+
+var _light_cache := {}
+
+
+## Mutual light sight (docs/LIGHT_SIGHT.md): the host gives each hunter its own exposure and the exposure of the runner it
+## is after, from the resident lamps with wall occlusion, refreshed about 5 times a second per hunter.
+func _apply_light_sight(view: HunterView3D, target: Dictionary, navigation: StreamedHunterNavigation) -> void:
+	if not LightField.enabled or facility._lamp_field == null:
+		view.brain.self_exposure = -1.0
+		view.brain.target_exposure = -1.0
+		return
+	var now := Time.get_ticks_msec()
+	var key := view.get_instance_id()
+	var cached: Dictionary = _light_cache.get(key, {})
+	if not cached.is_empty() and now - int(cached["at"]) < 200:
+		view.brain.self_exposure = float(cached["self"])
+		view.brain.target_exposure = float(cached["target"])
+		return
+	var lamps: Dictionary = facility._lamp_field._chunks
+	var clear := navigation.has_line_of_sight
+	var level_y := facility.streamed_surface_height(Vector2.ZERO, facility.current_level())
+	var hunter_at := Vector3(view.brain.position.x, level_y + 1.4, view.brain.position.y)
+	var runner_xz: Vector2 = target.get("position", view.brain.position)
+	var runner_at := Vector3(runner_xz.x, level_y + 1.2, runner_xz.y)
+	var self_value := float(LightField.exposure_at(hunter_at, lamps, clear)["value"])
+	var target_value := float(LightField.exposure_at(runner_at, lamps, clear)["value"])
+	_light_cache[key] = {"at": now, "self": self_value, "target": target_value}
+	view.brain.self_exposure = self_value
+	view.brain.target_exposure = target_value
+
+
+func _admin_toggle_light_sight() -> void:
+	LightField.enabled = not LightField.enabled
+	hud.show_message("MUTUAL LIGHT SIGHT %s" % ("ON" if LightField.enabled else "OFF"))
+	if _admin_menu != null:
+		_admin_menu._refresh()
+
+
+func _admin_light_probe() -> void:
+	var lamps: Dictionary = facility._lamp_field._chunks if facility._lamp_field != null else {}
+	var at := player.global_position + Vector3(0, 1.2, 0)
+	var result := LightField.exposure_at(at, lamps, _navigation.has_line_of_sight if _navigation != null else Callable())
+	hud.show_message("LIGHT // HERE %.2f (VISIBLE AT %.2f)" % [float(result["value"]), LightField.VISIBLE_EXPOSURE])
 
 
 ## A player who leaves takes their pin with them.
@@ -2368,6 +2415,7 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		var captured := false
 		if not target.is_empty():
 			view.target_peer_id = int(target.get("peer_id", 1))
+			_apply_light_sight(view, target, navigation)
 			captured = view.brain.update(delta, navigation, target,
 				maxi(1, -level + 1), GameState.relays_collected)
 			view.set_look_target(view.brain.presentation_look_target())

@@ -15,10 +15,20 @@ const STREAM_RADIUS := 1
 ## time to assemble them incrementally. A 45x45 GridMap used to issue more than
 ## four thousand live cell updates and instantiate every prop in one frame.
 ## Keep each streaming frame to one registration job and a bounded cell batch.
-## Initial loads, teleports and level changes remain immediate because control
-## cannot begin until their collision window is complete.
+## Initial loads, teleports and level changes build the chunks around the runner
+## immediately (see IMMEDIATE_MARGIN); the far part of the window streams.
 const STREAM_JOBS_PER_FRAME := 1
 const STREAM_CELLS_PER_FRAME := 256
+## Streaming work per frame is bounded by time, not by a job count: build steps run until this budget is spent (at least
+## one step always runs, so the queue never stalls). Cell batches check the clock every few cells.
+const STREAM_BUDGET_MS := 4.0
+const STREAM_BUDGET_PER_QUEUED_MS := 1.0
+const STREAM_BUDGET_MAX_MS := 9.0
+const STREAM_MIN_CELLS := 32
+## Teleports, level changes and the first load build synchronously only the chunk under the runner and chunks closer
+## than this to it; the rest of the window streams in over the next frames instead of freezing the game.
+const IMMEDIATE_MARGIN := 12.0
+
 ## Larger GridMap octants turn each 45x45 chunk into nine structural batches
 ## instead of thirty-six. This substantially reduces renderer/physics server
 ## registration overhead while preserving useful room-scale culling.
@@ -103,6 +113,17 @@ var _pending_unloads: Array[Vector3i] = []
 var _active_build := {}
 var _stream_queue_center := Vector3i(999999, 999999, 999999)
 var _stream_completion_pending := false
+var _stream_deadline_usec := 0
+var _prefetching := {}
+## Prop scenes stay loaded once streamed (they are shared, small): unloading a chunk used to drop the last reference and
+## the next chunk re-read the GLB from disk on the main thread.
+static var _scene_keep := {}
+## Chunk generation (~30 ms a chunk) runs on a WorkerThreadPool task with a same-seed generator copy; the main thread
+## only adopts finished dictionaries. Builds wait for their chunk and its seam neighbours to be ready.
+var _gen_worker: StreamedRouteGenerator
+var _gen_task := -1
+var _gen_task_coords: Array[Vector3i] = []
+var _gen_task_results := {}
 var _all_lights_enabled := true
 ## One low-resolution planar camera is shared by every streamed mirror. Only
 ## the nearest mirror within interaction distance enables it, at 10 Hz, so a
@@ -128,6 +149,7 @@ func begin(seed_text: String, player: PlayerController3D,
 	clear()
 	generator = StreamedRouteGenerator.new(seed_text)
 	generator.public_route = RoomState.public_route
+	_gen_worker = generator.make_worker_copy()
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
 	_tracked_level = snapped_level_for_world_y(
@@ -135,7 +157,17 @@ func begin(seed_text: String, player: PlayerController3D,
 	_refresh_stream(true)
 
 
+func _exit_tree() -> void:
+	if _gen_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_gen_task)
+		_gen_task = -1
+
+
 func clear() -> void:
+	if _gen_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_gen_task)
+		_gen_task = -1
+	_gen_task_results = {}
 	if _lamp_field != null:
 		_lamp_field.clear()
 	# Mirror surfaces are children of streamed chunks. Drop the references before
@@ -221,6 +253,19 @@ func loaded_chunk_count() -> int:
 
 
 ## Every loaded chunk's generated data, for the admin collision overlay.
+## True while chunks are queued or being assembled over several frames (benchmarks tag these frames).
+func take_frame_stream_cost() -> Array:
+	var out := [frame_stream_ms, frame_stream_label]
+	frame_stream_ms = 0.0
+	frame_stream_label = ""
+	_frame_stream_peak = 0.0
+	return out
+
+
+func is_streaming() -> bool:
+	return not (_pending_loads.is_empty() and _pending_unloads.is_empty() and _active_build.is_empty())
+
+
 func loaded_chunk_data() -> Array:
 	var out := []
 	for coord_value in _loaded.keys():
@@ -286,12 +331,8 @@ func _process(_delta: float) -> void:
 			activity.rotate_y(_delta * .34)
 
 
-func _refresh_stream(force: bool) -> void:
-	var center := current_chunk_coord()
-	if not force and center == _last_player_chunk:
-		return
-	var previous := _last_player_chunk
-	_last_player_chunk = center
+## The chunks the stream window keeps around `center`. Subclasses (the City, OSM maps) override only this.
+func _wanted_chunks(center: Vector3i) -> Dictionary:
 	var wanted := {}
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
@@ -306,8 +347,30 @@ func _refresh_stream(force: bool) -> void:
 				Vector3i(center.x, center.y + 1, center.z)]:
 			if generator.is_chunk_allowed(vertical):
 				wanted[vertical] = true
-	var immediate := force or previous.x == 999999 or previous.y != center.y \
+	return wanted
+
+
+## Horizontal distance from the runner to a chunk's footprint (0 inside it).
+func _distance_to_chunk(coord: Vector3i) -> float:
+	if tracked_player == null:
+		return 0.0
+	var size := float(StreamedRouteGenerator.CHUNK_SIZE)
+	var local := tracked_player.global_position - global_position
+	var dx := maxf(maxf(coord.x * size - local.x, local.x - (coord.x + 1) * size), 0.0)
+	var dz := maxf(maxf(coord.z * size - local.z, local.z - (coord.z + 1) * size), 0.0)
+	return sqrt(dx * dx + dz * dz)
+
+
+func _refresh_stream(force: bool) -> void:
+	var center := current_chunk_coord()
+	if not force and center == _last_player_chunk:
+		return
+	var previous := _last_player_chunk
+	_last_player_chunk = center
+	var wanted := _wanted_chunks(center)
+	var jump := force or previous.x == 999999 or previous.y != center.y \
 		or absi(previous.x - center.x) > 1 or absi(previous.z - center.z) > 1
+	var t_refresh := Time.get_ticks_usec()
 	_pending_loads.clear()
 	_pending_unloads.clear()
 	if not _active_build.is_empty():
@@ -323,47 +386,227 @@ func _refresh_stream(force: bool) -> void:
 		var coord: Vector3i = coord_value
 		if not wanted.has(coord):
 			_pending_unloads.append(coord)
+	# Nearest first; ties go to the chunk ahead of the runner's travel direction.
+	var heading := Vector2(center.x - previous.x, center.z - previous.z) if previous.x != 999999 else Vector2.ZERO
 	_pending_loads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		return _chunk_distance(a, center) < _chunk_distance(b, center))
+		var da := _chunk_distance(a, center) * 4 - int(heading.dot(Vector2(a.x - center.x, a.z - center.z)))
+		var db := _chunk_distance(b, center) * 4 - int(heading.dot(Vector2(b.x - center.x, b.z - center.z)))
+		return da < db)
 	_pending_unloads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) > _chunk_distance(b, center))
 	_stream_queue_center = center
-	_stream_completion_pending = not immediate \
-		and (not _pending_loads.is_empty() or not _pending_unloads.is_empty())
-	if immediate:
-		_discard_active_build()
-		while not _pending_loads.is_empty():
-			_load_chunk(_pending_loads.pop_front())
+	if jump:
+		# Build synchronously only what the runner stands in or could reach/see in the next moments (closer than
+		# IMMEDIATE_MARGIN); the rest of the window streams in over the next frames instead of freezing the game.
+		var urgent: Array[Vector3i] = []
+		for coord in _pending_loads:
+			# the floor above/below the runner (a ladder's other end) counts as under them
+			if coord.x == center.x and coord.z == center.z or previous.x == 999999 and coord.y == center.y \
+					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
+				urgent.append(coord)
+		if not urgent.is_empty():
+			_discard_active_build()
+			_generate_parallel(urgent)
+			for coord in urgent:
+				_pending_loads.erase(coord)
+				_load_chunk(coord)
 		while not _pending_unloads.is_empty():
 			_unload_chunk(_pending_unloads.pop_front())
+	for coord in _pending_loads:
+		_prefetch_chunk(coord)
+	_stream_completion_pending = not _pending_loads.is_empty() or not _pending_unloads.is_empty()
+	_prof("refresh_immediate" if jump else "refresh", t_refresh)
+	t_refresh = Time.get_ticks_usec()
 	var data: Dictionary = _chunk_data.get(center,
 		generator.chunk(center) if generator != null else {})
 	chunk_changed.emit(center, data.duplicate(false))
+	_prof("chunk_changed", t_refresh)
+
+
+## Start background loads of the prop scenes a queued chunk will need, so its build never reads a GLB on the main thread.
+func _prefetch_chunk(coord: Vector3i) -> void:
+	if _gen_worker != null and not _chunk_generated(coord):
+		return   # its props are prefetched once the worker has generated it (_adopt_generated)
+	var data := generator.chunk(coord)
+	for prop in data.get("region_props", []):
+		var path := _region_prop_path(prop)
+		if path.is_empty() or _scene_keep.has(path) or _prefetching.has(path):
+			continue
+		if ResourceLoader.has_cached(path):
+			_scene_keep[path] = load(path)
+		elif ResourceLoader.load_threaded_request(path, "PackedScene", true) == OK:
+			_prefetching[path] = true
+
+
+## The chunk itself plus the neighbours its edge cells read for seams (they look at level 0; see _build_structure_cell).
+static func _generation_needs(coord: Vector3i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = [coord]
+	for step in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+		out.append(Vector3i(coord.x + step.x, 0, coord.z + step.y))
+	return out
+
+
+func _chunk_generated(coord: Vector3i) -> bool:
+	if _gen_worker == null:
+		return true
+	for need in _generation_needs(coord):
+		if not generator.has_chunk_cached(need):
+			return false
+	return true
+
+
+## Generate every chunk (and seam neighbour) `coords` need at once, one fresh same-seed generator per worker task.
+func _generate_parallel(coords: Array[Vector3i]) -> void:
+	if _gen_worker == null:
+		return
+	if _gen_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_gen_task)
+		_gen_task = -1
+		for coord in _gen_task_results:
+			generator.adopt_chunk(coord, _gen_task_results[coord])
+		_gen_task_results = {}
+	var needs: Array[Vector3i] = []
+	for coord in coords:
+		for need in _generation_needs(coord):
+			if not generator.has_chunk_cached(need) and not needs.has(need):
+				needs.append(need)
+	if needs.size() < 2:
+		return
+	var results := []
+	results.resize(needs.size())
+	var maker := generator
+	var group := WorkerThreadPool.add_group_task(func(index: int) -> void:
+		results[index] = maker.make_worker_copy().chunk(needs[index]), needs.size(), -1, true, "chunk generation (jump)")
+	WorkerThreadPool.wait_for_group_task_completion(group)
+	for index in needs.size():
+		generator.adopt_chunk(needs[index], results[index])
+
+
+func _queue_generation() -> void:
+	if _gen_worker == null:
+		return
+	if _gen_task != -1:
+		if not WorkerThreadPool.is_task_completed(_gen_task):
+			return
+		WorkerThreadPool.wait_for_task_completion(_gen_task)
+		_gen_task = -1
+		for coord in _gen_task_results:
+			generator.adopt_chunk(coord, _gen_task_results[coord])
+		for coord in _gen_task_coords:
+			if _pending_loads.has(coord):
+				_prefetch_chunk(coord)
+		_gen_task_results = {}
+	var coords: Array[Vector3i] = []
+	for coord in _pending_loads:
+		for need in _generation_needs(coord):
+			if not generator.has_chunk_cached(need) and not coords.has(need):
+				coords.append(need)
+	if coords.is_empty():
+		return
+	_gen_task_coords = coords
+	var worker := _gen_worker
+	var results := {}
+	_gen_task_results = results
+	_gen_task = WorkerThreadPool.add_task(func() -> void:
+		for coord in coords:
+			results[coord] = worker.chunk(coord), true, "chunk generation")
+
+
+func _poll_prefetch() -> void:
+	for path in _prefetching.keys():
+		var status := ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			continue
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			_scene_keep[path] = ResourceLoader.load_threaded_get(path)
+		_prefetching.erase(path)
+
+
+func _region_prop_path(prop: Dictionary) -> String:
+	var type := String(prop.get("type", ""))
+	if not PropModelCatalog.has_model(type):
+		return ""
+	return PropModelCatalog.model_path(type, String(prop.get("id", "")), String(prop.get("room_id", "")))
+
+
+## A queued chunk's next prop waits (a frame at a time) while its scene is still loading in the background.
+func _prop_waiting(prop: Dictionary) -> bool:
+	var path := _region_prop_path(prop)
+	if path.is_empty() or not _prefetching.has(path):
+		return false
+	_poll_prefetch()
+	return _prefetching.has(path)
+
+
+## End index of a structure cell batch: everything when immediate, else until the frame's stream budget is spent.
+func _cell_batch_done(index: int, started: int, immediate: bool) -> bool:
+	if immediate or index - started < STREAM_MIN_CELLS or index % 8 != 0:
+		return false
+	return Time.get_ticks_usec() >= _stream_deadline_usec
 
 
 func _drain_stream_queue() -> void:
+	if not _prefetching.is_empty():
+		_poll_prefetch()
+	if not _pending_loads.is_empty() or _gen_task != -1:
+		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty():
 		return
-	for _index in STREAM_JOBS_PER_FRAME:
+	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
+	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
+	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
+	while true:
 		# Never register new collision and retire an old physics island in the same
 		# frame. Freeing first keeps the live server load bounded before the staged
 		# replacement starts entering the tree.
 		if not _pending_unloads.is_empty() and _active_build.is_empty():
+			var tu := Time.get_ticks_usec()
 			_unload_chunk(_pending_unloads.pop_front())
-			continue
+			_prof("unload", tu)
+			break
+		var t0 := Time.get_ticks_usec()
 		if _active_build.is_empty() and not _pending_loads.is_empty():
+			if not _chunk_generated(_pending_loads[0]):
+				break   # the worker is still generating it
 			_active_build = _create_chunk_build(_pending_loads.pop_front())
-		if not _active_build.is_empty() \
-				and _advance_chunk_build(_active_build, false):
+			_prof("create", t0)
+			t0 = Time.get_ticks_usec()
+		if _active_build.is_empty():
+			break
+		var phase := int(_active_build["phase"])
+		var waiting := int(_active_build.get("prop_index", 0))
+		if _advance_chunk_build(_active_build, false):
 			_active_build = {}
+		_prof("phase%d" % phase, t0)
+		# Attaching the GridMap/surface registers whole meshes and colliders with the servers: one of those per frame.
+		if phase in [1, 2] or (phase == 4 and int(_active_build.get("prop_index", -1)) == waiting) \
+				or Time.get_ticks_usec() >= _stream_deadline_usec:
+			break
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty() \
 			and _stream_completion_pending:
 		_stream_completion_pending = false
+		var tc := Time.get_ticks_usec()
 		var data: Dictionary = _chunk_data.get(_stream_queue_center,
 			generator.chunk(_stream_queue_center) if generator != null else {})
 		chunk_changed.emit(_stream_queue_center, data.duplicate(false))
+		_prof("chunk_changed_done", tc)
+
+
+static var profile_stream := OS.get_environment("STREAM_PROFILE") != ""
+## Streaming CPU spent this frame and the step that took longest (read and reset by tools/look/stream_bench.gd).
+var frame_stream_ms := 0.0
+var frame_stream_label := ""
+var _frame_stream_peak := 0.0
+func _prof(label: String, t0: int) -> void:
+	var ms := (Time.get_ticks_usec() - t0) / 1000.0
+	frame_stream_ms += ms
+	if ms > _frame_stream_peak:
+		_frame_stream_peak = ms
+		frame_stream_label = label
+	if profile_stream and ms > 4.0:
+		print("PROF %s %.1f ms" % [label, ms])
 
 
 static func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
@@ -462,9 +705,9 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 			0:
 				var total := StreamedRouteGenerator.CHUNK_SIZE \
 					* StreamedRouteGenerator.CHUNK_SIZE
-				var finish := total if immediate else mini(total,
-					int(build["cell_index"]) + STREAM_CELLS_PER_FRAME)
-				while int(build["cell_index"]) < finish:
+				var started := int(build["cell_index"])
+				while int(build["cell_index"]) < total \
+						and not _cell_batch_done(int(build["cell_index"]), started, immediate):
 					_build_structure_cell(build, int(build["cell_index"]))
 					build["cell_index"] = int(build["cell_index"]) + 1
 				if int(build["cell_index"]) < total:
@@ -514,6 +757,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				var prison_tasks: Array = build["prison_tasks"]
 				var prop_index := int(build["prop_index"])
 				if prop_index < region_props.size():
+					if not immediate and _prop_waiting(region_props[prop_index]):
+						return false
 					_spawn_region_prop(root, build["coord"], region_props[prop_index],
 						PropModelCatalog.region_finish(String(data.get("region", ""))))
 					build["prop_index"] = prop_index + 1
@@ -1014,12 +1259,25 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 		var room: Dictionary = prison_cells[room_index]
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var above_hall := rect.position.y < StreamedRouteGenerator.CHUNK_SIZE / 2
-		var gate_at := Vector3(rect.position.x + rect.size.x * .5, 0.0,
-			rect.end.y - .15 if above_hall else rect.position.y + .15)
-		tasks.append({"path": PRISON_MODELS["gate"], "at": gate_at,
-			"yaw": 0.0 if above_hall else PI,
-			"size": Vector3(rect.size.x, 2.4, .16),
-			"group": "streamed_prison_prop", "solid": true, "type": ""})
+		# The bars run along the cell's hall wall but stop at its doorway: one solid gate across the whole front sealed the
+		# cell for the player while the nav grid still walked through the door (playtest GOLF / HOTEL: bots stuck in front
+		# of a relay inside a cell).
+		var gate_z := rect.end.y - .15 if above_hall else rect.position.y + .15
+		var wall_row := rect.end.y - 1 if above_hall else rect.position.y
+		var grid_rows: Array = data.get("grid", [])
+		var run_start := rect.position.x
+		for gx in range(rect.position.x, rect.end.x + 1):
+			var is_door := gx < rect.end.x and wall_row >= 0 and wall_row < grid_rows.size() \
+				and gx >= 0 and gx < (grid_rows[wall_row] as Array).size() and int(grid_rows[wall_row][gx]) == 0
+			if is_door or gx == rect.end.x:
+				var run_end := gx
+				if run_end - run_start >= 1:
+					tasks.append({"path": PRISON_MODELS["gate"],
+						"at": Vector3((run_start + run_end) * .5, 0.0, gate_z),
+						"yaw": 0.0 if above_hall else PI,
+						"size": Vector3(run_end - run_start, 2.4, .16),
+						"group": "streamed_prison_prop", "solid": true, "type": ""})
+				run_start = gx + 1
 		# The dedicated cage fills this cell; do not bury a bunk/chair through it.
 		if room_index == cage_room_index:
 			continue
