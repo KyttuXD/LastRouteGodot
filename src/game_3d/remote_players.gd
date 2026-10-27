@@ -722,6 +722,10 @@ func peer_is_live(peer_id: int) -> bool:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
 	if enet == null:
 		return true
+	# A guest's ENet link is to the host only; other guests are reached through the host's relay, so their ids have no
+	# ENet peer here (asking for one logged `!peers.has(p_id)` ~20 times a second on every guest).
+	if not RoomState.is_host and peer_id != 1:
+		return true
 	var packet_peer := enet.get_peer(peer_id)
 	return packet_peer == null or packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
 
@@ -739,7 +743,20 @@ signal hunters_received(data: Array)
 
 func broadcast_hunters(data: Array) -> void:
 	if RoomState.online and RoomState.is_host:
-		_send_to_live(_hunters, [data])
+		# Unreliable packets above the ~1,392 byte MTU fragment and fill the send buffer ("Buffer full, dropping packets"):
+		# a large hunter frame goes on the reliable channel instead.
+		if var_to_bytes(data).size() > HUNTERS_UNRELIABLE_MAX_BYTES:
+			_send_to_live(_hunters_large, [data])
+		else:
+			_send_to_live(_hunters, [data])
+
+
+const HUNTERS_UNRELIABLE_MAX_BYTES := 1100
+
+
+@rpc("authority", "call_remote", "reliable")
+func _hunters_large(data: Array) -> void:
+	_hunters(data)
 
 
 @rpc("authority", "call_remote", "unreliable_ordered")
