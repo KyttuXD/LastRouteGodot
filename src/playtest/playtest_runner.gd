@@ -151,6 +151,8 @@ func _out_dir(report: Dictionary) -> String:
 
 func _finish(report: Dictionary, code: int) -> void:
 	_finished = true
+	if _watchdog != null and _watchdog.is_started():
+		_watchdog.wait_to_finish()
 	var path := PlaytestReporter.write(_out_dir(report), report)
 	print("PLAYTEST %s: %s/%s seed=%s game_s=%.1f frames=%d  stuck=%d soft_locks=%d unreachable=%d errors=%d deaths=%d relays=%d depth=%d chunks=%d" % [
 		"PASS" if code == 0 else ("FAIL" if code == 1 else "SKIP"), report.get("game"), report.get("scenario"), report.get("seed"),

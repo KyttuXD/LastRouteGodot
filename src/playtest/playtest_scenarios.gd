@@ -109,13 +109,14 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 	var shared := String(opts["dir"])
 	if role not in ["host", "guest"] or shared.is_empty():
 		return {"scenario_failure": "coop_bot needs --role=host|guest and --dir=<shared folder>", "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	# network phases wait in WALL-CLOCK time: a fixed-fps headless run plays frames faster than real time, and ENet/relay need real time
 	var wait_for := func(condition: Callable, what: String, seconds: float) -> bool:
-		var waited := 0
-		while waited < int(seconds * 60.0):
+		var started_msec := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - started_msec < int(seconds * 1000.0):
 			if condition.call():
 				return true
 			await tree.physics_frame
-			waited += 1
+			OS.delay_msec(2)
 		report["scenario_failure"] = "timed out waiting for %s" % what
 		return false
 	var read := func(name: String) -> String:
@@ -133,8 +134,9 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		var code_file := FileAccess.open(shared.path_join("code.txt"), FileAccess.WRITE)
 		code_file.store_string(RoomState.code)
 		code_file.close()
+		bridge.status = "coop_bot host waiting for guests (room %s)" % RoomState.code
 		if not await wait_for.call(func(): return RoomState.roster().size() >= int(opts["guests"]) + 1, "%d guest(s) to join" % int(opts["guests"]), 60.0):
-			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": "%s; roster %s" % [report.get("scenario_failure", ""), RoomState.roster()]}
 		RoomState.enter(tree)
 	else:
 		if not await wait_for.call(func(): return read.call("code.txt") != "", "the host's room code", 90.0):
@@ -155,6 +157,10 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		var join_error := RoomState.join_room(String(resolved.get("address", "")), int(resolved.get("port", 0)), String(resolved.get("transport", "relay")), code)
 		if not join_error.is_empty():
 			return {"scenario_failure": "join failed: %s" % join_error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
+		bridge.status = "coop_bot guest waiting for the room roster (code %s)" % code
+		if not await wait_for.call(func(): return RoomState.online and RoomState.peers.size() >= 2, "joining the room (never connected to the host: relay/ENet)", 30.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": "%s; peers=%d online=%s" % [report.get("scenario_failure", ""), RoomState.peers.size(), RoomState.online]}
+	bridge.status = "coop_bot %s waiting for the route scene" % role
 	if not await wait_for.call(func(): return _scene(bridge) == "infinite_route_test.tscn", "the route scene", 90.0):
 		return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
 	if role == "guest":
@@ -337,6 +343,18 @@ static func death_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			problems.append("route scene lost before %s" % hunter_id)
 			break
 		var errors_before := bridge.log_sink.errors
+		# only the hunter under test may be around: remove whoever is still loaded from the last round
+		var leftovers: Array = []
+		var views: Dictionary = scene.get("_hunter_views")
+		for key in views:
+			var existing: HunterView3D = views[key]
+			if existing != null and is_instance_valid(existing) and existing.brain != null:
+				leftovers.append(String(existing.brain.hunter_id))
+		for old_id in leftovers:
+			scene.call("_admin_remove_hunter", old_id)
+		for _i in 30:
+			await tree.physics_frame
+			frames += 1
 		_status(bridge, "death_scene_tour waiting for %s to catch the bot" % hunter_id)
 		scene.call("_admin_summon_hunter", String(hunter_id))
 		var killed := false
@@ -355,6 +373,8 @@ static func death_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 				if line.is_empty() and not picked.is_empty():
 					line = JSON.stringify(picked).left(120)
 				rows.append({"hunter": hunter_id, "killed_by": cause.get("hunter_id", "?"), "seconds": snappedf(waited / 60.0, .1), "line": line})
+				if String(cause.get("hunter_id", "")) != String(hunter_id):
+					rows[-1]["note"] = "killed by %s, not the summoned hunter" % cause.get("hunter_id", "?")
 				if line.is_empty():
 					problems.append("%s: no death line" % hunter_id)
 				if bool(opts["screenshots"]):
