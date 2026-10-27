@@ -32,6 +32,14 @@ var _presentation_initialized := false
 var _heading_initialized := false
 var _head_node: Node3D
 var _facing := HunterFacing.new()
+## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
+## procedural breathing / sway / lean layers (off elsewhere).
+var nw_pose := ""
+var nw_pose_opts := {}
+var nw_layers := false
+var _nw_started := ""
+var _nw_layers := NightWatchPoseLayers.new()
+var _nw_last_yaw := 0.0
 var _head_rest_q := Quaternion.IDENTITY
 var _head_written_q := Quaternion.IDENTITY
 var _kathy_beam: SpotLight3D
@@ -60,6 +68,8 @@ var _move_speed := 0.0
 var _still_time := 0.0
 const STILL_CLIP_AFTER := 0.35
 const STILL_SPEED := 0.15
+## Night Watch: the speed (m/s) each travel clip's stride was authored for; the clip speeds up or slows down with the real pace.
+const NW_STRIDE_REF := {"walk": 1.8, "chase": 3.8, "sprint": 5.0}
 var _last_brain_position := Vector2.ZERO
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
@@ -122,6 +132,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_head_look(delta)
+	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
@@ -199,6 +210,9 @@ func _apply_model(model_id: String) -> void:
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
+		NightWatchPoses.install(_model, _animation_player, _shown_id)
+		_nw_layers.bind(_model)
+		_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
 		_attach_scythe()
 		_apply_visibility()
@@ -540,6 +554,43 @@ func _emote_cue(radius: float) -> void:
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 
+func has_nw_pose() -> bool:
+	return _animation_player != null and not nw_pose.is_empty() \
+		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
+
+
+func _update_nw_layers(delta: float) -> void:
+	if _model == null or brain == null:
+		return
+	var yaw_rate := wrapf(rotation.y - _nw_last_yaw, -PI, PI) / maxf(delta, .001)
+	_nw_last_yaw = rotation.y
+	var spec := NightWatchPoses.pose(nw_pose) if not nw_pose.is_empty() else {}
+	var on: bool = nw_layers and brain.active and brain.stun_timer <= 0.0 and bool(spec.get("layers", true))
+	_nw_layers.apply(delta, Time.get_ticks_msec() * .001, yaw_rate, _facing.moving(), on)
+
+
+## Holds the requested Night Watch pose; false when there is none (or she is stunned, which wins).
+func _play_nw_pose() -> bool:
+	if not has_nw_pose():
+		if nw_pose.is_empty():
+			_nw_started = ""
+		return false
+	if brain.stun_timer > 0.0:
+		return false
+	var clip := NightWatchPoses.clip_name(nw_pose)
+	var spec := NightWatchPoses.pose(nw_pose)
+	if not (_animation_player.is_playing() and _animation_player.current_animation == clip):
+		if _nw_started == nw_pose and _animation_player.assigned_animation == clip:
+			# the one-shot finished: back to the normal clips
+			nw_pose = ""
+			_nw_started = ""
+			return false
+		_nw_started = nw_pose
+		_animation_player.play(clip, float(nw_pose_opts.get("blend", spec.get("blend", .3))))
+	_animation_player.speed_scale = float(nw_pose_opts.get("speed", 1.0))
+	return true
+
+
 func _update_animation() -> void:
 	var clip_name := "idle"
 	var delta := get_process_delta_time()
@@ -589,6 +640,10 @@ func _update_animation() -> void:
 			"chase", "sprint":
 				clip_name = "scythe_walk"
 				speed = SCYTHE_CHASE_SPEED
+	if nw_layers and _move_speed > STILL_SPEED and NW_STRIDE_REF.has(clip_name):
+		speed = clampf(_move_speed / float(NW_STRIDE_REF[clip_name]), .6, 1.8)
+	if _play_nw_pose():
+		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():
 		if not _emote_clip_started:
 			_emote_clip_started = true
