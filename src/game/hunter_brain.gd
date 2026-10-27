@@ -61,6 +61,11 @@ var stamina := GameConfig.HUNTER_STAMINA_MAX
 var winded := false
 
 var stun_timer := 0.0
+## Emote presentation (HunterEmoteCatalog index, -1 none). Never affects movement or perception; it only rides along in
+## the replicated hunter state so every peer plays the same moment. `emote_seq` changes on every new emote.
+var emote_id := -1
+var emote_seq := 0
+var emote_left := 0.0
 var idle_timer := 0.0
 var search_timer := 0.0
 var search_visits := 0
@@ -124,7 +129,21 @@ func activate_at(target_position: Vector2) -> void:
 ## target: {"position": Vector2, "hidden": bool, "in_safe_zone": bool,
 ## "noise": float, "flashlight_on": bool}. Returns true if this frame
 ## captured the target (pure proximity check, hidden/safe-zone exempt).
+func start_emote(id: int, seconds: float) -> void:
+	emote_id = id
+	emote_left = seconds
+	emote_seq += 1
+
+
+func _tick_emote(delta: float) -> void:
+	if emote_left > 0.0:
+		emote_left = maxf(0.0, emote_left - delta)
+		if emote_left <= 0.0:
+			emote_id = -1
+
+
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
 	# it has to run before the inactive check that would otherwise stop it.
 	var self_summoning := gimmick != null and gimmick.runs_while_inactive()
@@ -175,6 +194,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 ## last pose/state they had before the target disappeared.
 func update_without_target(delta: float, generator,
 		depth: int, relays_collected: int) -> void:
+	_tick_emote(delta)
 	if not active:
 		return
 	if stun_timer > 0.0:

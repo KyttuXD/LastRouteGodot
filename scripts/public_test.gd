@@ -136,6 +136,7 @@ func _run_a() -> void:
 	if not await _wait_for(func() -> bool: return int(PublicRoute.server.get("playersOnline", 0)) >= 2, "second player", 60.0):
 		return
 	_say("sees %d players online; hud line: %s" % [PublicRoute.server.get("playersOnline"), PublicRoute.line()])
+	# Hunter emote: the authority's hunter plays one; the guest must see it through the replicated hunter state.
 	if not await _wait_for(func() -> bool: return _read("server_restarted.txt") != "", "server restart", 180.0):
 		return
 	var restored := func() -> bool:
@@ -145,6 +146,19 @@ func _run_a() -> void:
 		return
 	_say("survived the server restart: new session, PUBLIC listing back, relays=%d" % PublicRoute.server.get("relaysCollected"))
 	_write("a_after_restart.txt", "1")
+	var holder := [null]   # lambdas capture by value; a container carries the result out
+	var find_hunter := func() -> bool:
+		for view_value in scene._hunter_views.values():
+			holder[0] = view_value
+			return holder[0] != null
+		return false
+	if not await _wait_for(find_hunter, "a hunter on the route", 60.0):
+		return
+	(holder[0] as HunterView3D).brain.start_emote(HunterEmoteCatalog.SMUG, 12.0)
+	_write("a_hunter_emote.txt", "1")
+	if not await _wait_for(func() -> bool: return _read("b2_saw_hunter_emote.txt") != "", "guest to see the hunter emote", 40.0):
+		return
+	_say("hunter emote replicated to the guest")
 	# Spectator: the authority is caught while the guest still lives. It must watch
 	# without dropping the session or its hunter simulation, then rejoin on its own.
 	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
@@ -212,6 +226,19 @@ func _run_b2() -> void:
 		return
 	_say("resumed at %s with the battery after a crash" % here)
 	_write("b2_ok.txt", "1")
+	# hunter emote from the authority
+	if not await _wait_for(func() -> bool: return _read("a_hunter_emote.txt") != "", "authority's hunter emote", 150.0):
+		return
+	var hunter_emote_seen := func() -> bool:
+		for view_value in scene._hunter_views.values():
+			var view := view_value as HunterView3D
+			if view != null and view._emote_index == HunterEmoteCatalog.SMUG:
+				return true
+		return false
+	if not await _wait_for(hunter_emote_seen, "the hunter's emote on the guest", 30.0):
+		return
+	_write("b2_saw_hunter_emote.txt", "1")
+	_say("saw the hunter's emote")
 	# authority gets caught: this guest must keep playing and see it as a spectator
 	if not await _wait_for(func() -> bool: return _read("a_spectating.txt") != "", "authority to spectate", 120.0):
 		return

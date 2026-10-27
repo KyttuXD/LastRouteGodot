@@ -15,7 +15,7 @@ func _ready() -> void:
 	env.environment.background_color = Color(.05, .04, .06)
 	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.environment.ambient_light_color = Color(.55, .5, .55)
-	env.environment.ambient_light_energy = .7
+	env.environment.ambient_light_energy = .7 if OS.get_environment("DARK") == "" else .08
 	world.add_child(env)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-35, -25, 0)
@@ -36,6 +36,19 @@ func _ready() -> void:
 	floor_body.collision_layer = 1
 	floor_body.add_child(floor_shape)
 	floor_mesh.add_child(floor_body)
+	if OS.get_environment("DARK") != "":
+		# the window is transparent, so the environment colour does not show: a dark room box instead
+		var room := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(60, 30, 60)
+		var dark := StandardMaterial3D.new()
+		dark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		dark.albedo_color = Color(.02, .015, .03)
+		dark.cull_mode = BaseMaterial3D.CULL_FRONT
+		box.material = dark
+		room.mesh = box
+		room.position = Vector3(0, 10, 0)
+		world.add_child(room)
 	var x := 0.0
 	var state := OS.get_environment("HUNTER_STATE")
 	for id in ids:
@@ -68,9 +81,15 @@ func _ready() -> void:
 	var cam := Camera3D.new()
 	world.add_child(cam)
 	cam.current = true
+	cam.environment = env.environment   # the camera's own environment so the backdrop colour applies
 	cam.fov = 38.0
 	cam.position = Vector3(x * .5 - 1.0, 1.5, 7.5)
 	cam.look_at(Vector3(x * .5 - 1.0, 1.0, 0))
+	if OS.get_environment("CAM_SIDE") != "":
+		# from the side and a little behind, so a beam is seen along its length (Kathy's beam capture)
+		cam.position = Vector3(x * .5 - 1.0 + 6.5, 2.2, 6.0)
+		cam.fov = 55.0
+		cam.look_at(Vector3(x * .5 - 1.0, 1.0, 4.0))
 	for i in 30:
 		await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png(out)

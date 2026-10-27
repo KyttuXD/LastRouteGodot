@@ -42,9 +42,44 @@ var _expression := ""
 var _blink_timer := 2.0
 var _blink_left := 0.0
 var _stars: Node3D
+## Kathy's visible beam: an unshaded additive cone (soft core + wider outer shell) hanging from the eye beam light. It is
+## the light's colour while she patrols and turns RED (brighter, faster pulse) while she is chasing; no extra lights.
+var _beam_core: MeshInstance3D
+var _beam_shell: MeshInstance3D
+var _beam_color := Color.WHITE
+var _beam_neutral := Color.WHITE
+var _beam_chase_mix := 0.0
+## Emote presentation (see HunterEmoteCatalog). Driven by brain.emote_* so guests replay what the host decided.
+var _emote_seen_seq := -1
+var _emote_index := -1
+var _emote_until_msec := 0
+var _emote_clip := ""
+var _emote_clip_started := false
+var _move_speed := 0.0
+var _last_brain_position := Vector2.ZERO
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
 ## R-HandProp locator and scythe_idle / scythe_walk / scythe_swing clips for carrying it.
+const BEAM_CHASE_COLOR := Color(1.0, .10, .08)
+const BEAM_SHELL_RADIUS_CAP := 1.5
+const BEAM_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never;
+uniform vec4 beam_color : source_color = vec4(1.0);
+uniform float strength = 1.0;
+uniform float length_m = 11.5;
+uniform float pulse_speed = 3.0;
+varying float along;
+void vertex() {
+	along = clamp(0.5 - VERTEX.y / length_m, 0.0, 1.0);
+}
+void fragment() {
+	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 1.4);
+	float pulse = 1.0 + 0.14 * sin(TIME * pulse_speed);
+	ALBEDO = beam_color.rgb;
+	ALPHA = clamp(strength * pulse * rim * (1.0 - along * 0.8), 0.0, 1.0);
+}
+"""
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
 ## While she carries it, a chase uses the scythe walk played this much faster.
 const SCYTHE_CHASE_SPEED := 1.8
@@ -88,6 +123,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_head_look(delta)
+	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
 
@@ -153,6 +189,8 @@ func _apply_model(model_id: String) -> void:
 		_animation_player = null
 		_head_node = null
 		_kathy_beam = null
+		_beam_core = null
+		_beam_shell = null
 		_carries_scythe = false
 		_expression = ""
 		_stars = null
@@ -233,6 +271,64 @@ func _configure_character_lights() -> void:
 		_kathy_beam.shadow_enabled = true
 		_kathy_beam.shadow_bias = .25
 		_head_node.add_child(_kathy_beam)
+		_beam_neutral = eye_color
+		_beam_color = eye_color
+		_beam_chase_mix = 0.0
+		_build_beam_visual()
+
+
+func _build_beam_visual() -> void:
+	var length := GameConfig.KATHY_BEAM_RANGE
+	var shell_radius := minf(length * tan(GameConfig.KATHY_BEAM_HALF_ANGLE), BEAM_SHELL_RADIUS_CAP)
+	var shader := Shader.new()
+	shader.code = BEAM_SHADER
+	for part in ["Shell", "Core"]:
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = shell_radius if part == "Shell" else shell_radius * .28
+		cone.height = length
+		cone.radial_segments = 20
+		cone.rings = 1
+		var material := ShaderMaterial.new()
+		material.shader = shader
+		material.set_shader_parameter("length_m", length)
+		var instance := MeshInstance3D.new()
+		instance.name = "Beam" + part
+		instance.mesh = cone
+		instance.material_override = material
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# the cone's apex sits at the eye and it opens along the light's -Z
+		instance.rotation_degrees = Vector3(90, 0, 0)
+		instance.position = Vector3(0, 0, -length * .5)
+		_kathy_beam.add_child(instance)
+		if part == "Shell":
+			_beam_shell = instance
+		else:
+			_beam_core = instance
+	_update_beam_visual(0.0)
+
+
+## Neutral colour while patrolling, red while chasing; the light itself follows so the lit floor matches the beam.
+func _update_beam_visual(delta: float) -> void:
+	if _kathy_beam == null or brain == null:
+		return
+	var chasing := brain.active and brain.state == HunterBrain.State.CHASE and brain.stun_timer <= 0.0
+	_beam_chase_mix = move_toward(_beam_chase_mix, 1.0 if chasing else 0.0, delta * 4.0)
+	_beam_color = _beam_neutral.lerp(BEAM_CHASE_COLOR, _beam_chase_mix)
+	var dim := .25 if brain.stun_timer > 0.0 else 1.0
+	_kathy_beam.light_color = _beam_color
+	_kathy_beam.light_energy = lerpf(5.0, 7.5, _beam_chase_mix) * dim
+	var pulse_speed := lerpf(2.6, 7.5, _beam_chase_mix)
+	if _beam_shell != null:
+		var shell := _beam_shell.material_override as ShaderMaterial
+		shell.set_shader_parameter("beam_color", _beam_color)
+		shell.set_shader_parameter("strength", lerpf(.22, .34, _beam_chase_mix) * dim)
+		shell.set_shader_parameter("pulse_speed", pulse_speed)
+	if _beam_core != null:
+		var core := _beam_core.material_override as ShaderMaterial
+		core.set_shader_parameter("beam_color", _beam_color.lerp(Color.WHITE, .35))
+		core.set_shader_parameter("strength", lerpf(.5, .8, _beam_chase_mix) * dim)
+		core.set_shader_parameter("pulse_speed", pulse_speed)
 
 
 func _update_head_look(delta: float) -> void:
@@ -321,8 +417,13 @@ func sync_from_brain() -> void:
 				get_process_delta_time(), 1.0 / 60.0)
 			var yaw_delta := wrapf(target_yaw - rotation.y, -PI, PI)
 			rotation.y += clampf(yaw_delta, -turn_step, turn_step)
+	var frame := maxf(get_process_delta_time(), 1.0 / 120.0)
+	_move_speed = lerpf(_move_speed, brain.position.distance_to(_last_brain_position) / frame, .3) \
+		if _presentation_initialized else 0.0
+	_last_brain_position = brain.position
 	_apply_model(_desired_model_id())
 	_apply_visibility()
+	_update_emote_state()
 	_update_animation()
 
 
@@ -331,6 +432,59 @@ func sync_from_brain() -> void:
 ## Investigate/search both read as "walk" (she's purposefully moving toward
 ## somewhere, just not at chase urgency yet); only an actual sighting-driven
 ## chase gets the more urgent clip.
+func _update_emote_state() -> void:
+	var now := Time.get_ticks_msec()
+	if brain.emote_seq != _emote_seen_seq:
+		_emote_seen_seq = brain.emote_seq
+		_end_emote()
+		if HunterEmoteCatalog.valid(brain.emote_id) and brain.emote_left > 0.0:
+			_begin_emote(brain.emote_id, brain.emote_left)
+	elif _emote_index >= 0 and (brain.emote_id != _emote_index or now >= _emote_until_msec):
+		_end_emote()
+
+
+func _begin_emote(index: int, seconds: float) -> void:
+	_emote_index = index
+	_emote_until_msec = Time.get_ticks_msec() + int(seconds * 1000.0)
+	_emote_clip_started = false
+	# Kathy's scythe is held by the carry clips; she emotes with her face only.
+	_emote_clip = "" if _carries_scythe else HunterEmoteCatalog.resolve_clip(index,
+		_shown_id, _animation_player, HunterEmotePersonality.clip_override(_shown_id, index))
+	_emote_cue(HunterEmoteCatalog.noise(index))
+
+
+func _end_emote() -> void:
+	_emote_index = -1
+	_emote_clip = ""
+	_emote_clip_started = false
+
+
+## The clip only replaces the walk/idle clip when the hunter is not busy being stunned/flying/charging and either
+## stands still or this emote is meant to be played on the move; otherwise it is face-only for that moment.
+func _emote_plays_now() -> bool:
+	if _emote_index < 0 or brain.stun_timer > 0.0 or _recover_left > 0.0:
+		return false
+	if brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).flying:
+		return false
+	if brain.gimmick is LoxelleGimmick and (brain.gimmick as LoxelleGimmick).charge_active():
+		return false
+	return HunterEmoteCatalog.moving_ok(_emote_index) or _move_speed < .6
+
+
+## Small positional cue for noisy emotes (laugh, hum, dance): quieter with distance, silent beyond the radius.
+func _emote_cue(radius: float) -> void:
+	if radius <= 0.0 or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var distance := global_position.distance_to(camera.global_position)
+	if distance >= radius:
+		return
+	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
+
+
 func _update_animation() -> void:
 	var clip_name := "idle"
 	var delta := get_process_delta_time()
@@ -377,7 +531,13 @@ func _update_animation() -> void:
 			"chase", "sprint":
 				clip_name = "scythe_walk"
 				speed = SCYTHE_CHASE_SPEED
-	ModelSlot.play_if_available(_animation_player, clip_name)
+	if _emote_clip != "" and _animation_player != null and _emote_plays_now():
+		if not _emote_clip_started:
+			_emote_clip_started = true
+			_animation_player.play(_emote_clip)
+		speed = 1.0
+	else:
+		ModelSlot.play_if_available(_animation_player, clip_name)
 	if _animation_player != null:
 		_animation_player.speed_scale = speed
 
@@ -392,6 +552,8 @@ func _desired_expression() -> String:
 		return "stun"
 	if _recover_left > 0.0:
 		return "blank"
+	if _emote_index >= 0:
+		return HunterEmoteCatalog.face(_emote_index)
 	match brain.state:
 		HunterBrain.State.CHASE:
 			if has_look_target and brain.position.distance_to(look_target_position) < SCREAM_DISTANCE:

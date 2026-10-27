@@ -28,3 +28,6 @@ A stunned hunter has three stars circling its head. Void models only change eye 
 
 ## Checks
 `Godot --headless --path . res://scenes/validate.tscn -- blocky`, `tools/look/hunter_check.tscn`, `tools/blocky_hunters/filmstrip.py OUT.png HUNTER CLIP`.
+
+## Hunter emotes
+In-world personality moments (taunt, shrug, yawn, victory...) are decided by the host and replayed on every peer: see [HUNTER_EMOTES.md](HUNTER_EMOTES.md), which also lists the `emote_*` clips the rig should gain. Missing clips fall back to the face.

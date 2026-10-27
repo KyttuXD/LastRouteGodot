@@ -10,7 +10,7 @@ GODOT="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TMP="$(mktemp -d)"
 HTTP=${PUBLIC_HTTP_PORT:-18205}; RELAY=${PUBLIC_RELAY_PORT:-11205}
 declare -a PIDS=()
-cleanup() { for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null; rm -rf "$TMP"; }
+cleanup() { [ -n "${KEEP_LOGS:-}" ] && cp "$TMP"/*.log "$KEEP_LOGS"/ 2>/dev/null; for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null; rm -rf "$TMP"; }
 trap cleanup EXIT
 cd "$ROOT"
 # Remote mode (see scripts/_target.sh): REMOTE=1 BACKEND_URL=<test instance> scripts/public_test.sh

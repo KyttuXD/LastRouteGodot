@@ -52,6 +52,8 @@ var _room_chat: RoomChat
 var _awaiting_snapshot := false
 var _authority_refresh_elapsed := AUTHORITY_REFRESH_SECONDS
 var _hunter_report: Array = []
+## Decides when hunters emote (host only); see docs/HUNTER_EMOTES.md.
+var _hunter_emoter := HunterEmoter.new()
 var _taser_ready_usec_by_peer := {}
 var _last_checkpoint_request := ""
 var _last_checkpoint_request_usec := 0
@@ -552,6 +554,10 @@ func _infinite_admin_actions() -> Array:
 			"action": func() -> void: _admin_world_action("wake_hunters")},
 		{"label": "CALM ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("calm_hunters")},
+		{"heading": "PLAY HUNTER EMOTE // NEARBY", "permission": "hunters", "no_debug": true,
+			"items": _hunter_emote_ids(), "labels": _hunter_emote_labels(),
+			"action": func(emote_id: String) -> void:
+			_admin_world_action("hunter_emote", {"emote": emote_id})},
 		{"heading": "SUMMON A-Z HUNTER", "items": HunterRoster.A_Z_IDS,
 			"permission": "hunters",
 			"labels": _hunter_admin_labels(HunterRoster.A_Z_IDS),
@@ -2094,6 +2100,7 @@ func _unload_hunter(entity_id: String, persist_state: bool = true) -> void:
 	_hunter_views.erase(entity_id)
 	_hunter_origins.erase(entity_id)
 	_hunter_levels.erase(entity_id)
+	_hunter_emoter.forget(entity_id)
 
 
 func _store_hunter(entity_id: String, view: HunterView3D) -> void:
@@ -2149,6 +2156,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 				_assign_public_patrol(entity_id, view)
 			view.brain.update_without_target(delta, navigation,
 				maxi(1, -level + 1), GameState.relays_collected)
+		_hunter_emoter.tick(entity_id, view.brain, delta, {"target_distance": view.brain.position.distance_to(
+			target["position"]) if not target.is_empty() else INF})
 		view.sync_from_brain()
 		for hunter_event_value in view.brain.world_events:
 			_apply_streamed_hunter_world_event(hunter_event_value, level,
@@ -2430,6 +2439,43 @@ func _update_safe_room_breaches(delta: float, breach_rooms: Dictionary) -> void:
 		_publish_stream_event({"what": "stream_safe", "room_id": room_id,
 			"integrity": int(status.get("integrity", 0)),
 			"breached": bool(status.get("breached", false))}, false)
+
+
+## Runners other than `except_peer` who are still playing (not dead, not spectating).
+func _runners_alive_except(except_peer: int) -> int:
+	var count := 0
+	var local_target := _hunter_target(false)
+	for target_value in _remotes.target_states(local_target):
+		var target: Dictionary = target_value
+		if int(target.get("peer_id", 0)) == except_peer or bool(target.get("game_over", false)) \
+				or bool(target.get("spectating", false)):
+			continue
+		count += 1
+	return count
+
+
+## Host: a runner died. The hunter that got them gloats while others live (smug/dance/laugh), and everyone nearby
+## poses at a party wipe. `hunter_id` may be empty (a guest's report): the nearest hunter is used.
+func _hunters_gloat(peer_id: int, hunter_id: String) -> void:
+	if _remotes == null or not _remotes.simulates():
+		return
+	var victim := _target_state_for_peer(peer_id)
+	var at: Vector2 = victim.get("position", player.grid_position())
+	var others := _runners_alive_except(peer_id) > 0
+	var nearest: HunterView3D
+	var nearest_distance := INF
+	for entity_value in _hunter_views:
+		var view := _hunter_views[entity_value] as HunterView3D
+		if view == null or view.brain == null or not view.brain.active:
+			continue
+		var distance := view.brain.position.distance_to(at)
+		if not others and distance < 30.0:
+			_hunter_emoter.on_party_wipe(String(entity_value), view.brain)
+		if (hunter_id.is_empty() or view.brain.hunter_id == hunter_id) and distance < nearest_distance:
+			nearest = view
+			nearest_distance = distance
+	if others and nearest != null and nearest_distance < 12.0:
+		_hunter_emoter.on_catch(String(nearest.get_meta("streamed_entity_id", "")), nearest.brain, true)
 
 
 func _capture_target(view: HunterView3D, target: Dictionary) -> void:
@@ -3476,6 +3522,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	_escaping_hunter_id = ""
 	_force_disable_admin_cheats()
 	_death_screen_open = true
+	_hunters_gloat(multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
 	_capture_cooldown = 60.0 * 60.0
 	player.velocity = Vector3.ZERO
 	player.input_frozen = true
@@ -3537,6 +3584,8 @@ func _apply_hunter_event(event: Dictionary) -> void:
 		"taser":
 			_resolve_taser(int(event.get("peer_id",
 				multiplayer.get_unique_id() if RoomState.online else 1)))
+		"caught":
+			_hunters_gloat(int(event.get("peer_id", 0)), "")
 		"escaped":
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
@@ -3894,6 +3943,8 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 				if view != null and view.brain != null:
 					view.brain.calm_reset(2.0)
 					view.sync_from_brain()
+		"hunter_emote":
+			_admin_hunter_emote_authoritative(peer_id, String(event.get("emote", "")))
 		"summon_hunter":
 			_admin_summon_hunter_authoritative(peer_id,
 				String(event.get("hunter_id", "")))
@@ -3925,7 +3976,7 @@ func _admin_action_permission(action: String) -> String:
 		return "world"
 	if action in ["stun_hunters", "wake_hunters", "calm_hunters",
 			"freeze_hunters", "release_hunters",
-			"summon_hunter", "remove_hunter"]:
+			"summon_hunter", "remove_hunter", "hunter_emote"]:
 		return "hunters"
 	return ""
 
@@ -3941,6 +3992,40 @@ func _admin_feedback(peer_id: int, message: String) -> void:
 		hud.show_message(message)
 	else:
 		_remotes.send_player_event(peer_id, {"what": "message", "message": message})
+
+
+## Test row: every active hunter within 40 m of the requesting runner plays the emote now (ignores rules and cooldowns).
+func _hunter_emote_ids() -> Array:
+	var ids := []
+	for entry in HunterEmoteCatalog.ENTRIES:
+		ids.append(String(entry["id"]))
+	return ids
+
+
+func _hunter_emote_labels() -> Dictionary:
+	var labels := {}
+	for entry in HunterEmoteCatalog.ENTRIES:
+		labels[String(entry["id"])] = String(entry["label"])
+	return labels
+
+
+func _admin_hunter_emote_authoritative(peer_id: int, emote_id: String) -> void:
+	var index := HunterEmoteCatalog.index_of(emote_id)
+	var target := _target_state_for_peer(peer_id)
+	var at = target.get("position")
+	if index == HunterEmoteCatalog.NONE or not at is Vector2:
+		_admin_feedback(peer_id, "ADMIN HUNTER EMOTE FAILED")
+		return
+	var played := 0
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or view.brain == null or not view.brain.active \
+				or view.brain.position.distance_to(at) > 40.0:
+			continue
+		view.brain.start_emote(index, HunterEmoteCatalog.seconds(index))
+		view.sync_from_brain()
+		played += 1
+	_admin_feedback(peer_id, "HUNTER EMOTE // %s // %d HUNTERS" % [HunterEmoteCatalog.label(index).to_upper(), played])
 
 
 func _admin_summon_hunter_authoritative(peer_id: int, hunter_id: String) -> void:

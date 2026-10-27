@@ -297,6 +297,9 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"search_visits": brain.search_visits,
 		"has_search_target": brain.has_search_target,
 		"search_target": brain.search_target,
+		"emote": brain.emote_id,
+		"emote_seq": brain.emote_seq,
+		"emote_left": brain.emote_left,
 	}
 
 
@@ -320,6 +323,9 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.search_visits = int(state.get("search_visits", 0))
 	brain.has_search_target = bool(state.get("has_search_target", false))
 	brain.search_target = state.get("search_target", Vector2.ZERO)
+	brain.emote_id = int(state.get("emote", -1))
+	brain.emote_seq = int(state.get("emote_seq", 0))
+	brain.emote_left = float(state.get("emote_left", 0.0))
 
 
 func hunter_ids_on_level(level: int) -> Array:

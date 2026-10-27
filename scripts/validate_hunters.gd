@@ -194,6 +194,20 @@ func _hunter_face_lights_are_aligned(host: Node) -> void:
 	_expect(view._kathy_beam != null and view._kathy_beam.visible \
 		and view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye),
 		"Kathy's yellow eye beam is missing or hidden")
+	# the beam is visible (unshaded core + shell) and goes red while she chases, neutral otherwise
+	_expect(view._beam_core != null and view._beam_shell != null, "Kathy's visible beam cone is missing")
+	if view._beam_core != null:
+		var core_material := view._beam_core.material_override as ShaderMaterial
+		_expect(core_material != null and core_material.shader.code.contains("unshaded"), "the beam must be an unshaded material")
+	view.brain.state = HunterBrain.State.CHASE
+	for _i in 40:
+		view._update_beam_visual(.1)
+	_expect(view._beam_color.r > .9 and view._beam_color.g < .25 and view._kathy_beam.light_color.r > .9,
+		"Kathy's beam should turn red while she chases")
+	view.brain.state = HunterBrain.State.WANDER
+	for _i in 40:
+		view._update_beam_visual(.1)
+	_expect(view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye), "Kathy's beam should return to its neutral colour")
 	view.queue_free()
 	await host.get_tree().process_frame
 	print("  eyes      A-Z eye locators are on the face; no glow quads; Kathy beam renders")

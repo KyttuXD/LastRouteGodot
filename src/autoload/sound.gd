@@ -129,6 +129,11 @@ func hunter_footstep(pan: float = 0.0, volume: float = 0.05) -> bool:
 	return _play_named("hunter_footstep", pan, clampf(volume / 0.05, 0.1, 2.0))
 
 
+## A hunter's laugh/hum/dance (HunterEmoteCatalog noise > 0): a small, quiet cue scaled by distance.
+func hunter_laugh(pan: float = 0.0, volume: float = 0.05) -> bool:
+	return _play_named("hunter_laugh", pan, clampf(volume / 0.05, 0.1, 2.0))
+
+
 func remote_player_footstep(mode := "walk", pan: float = 0.0,
 		volume: float = 0.04) -> bool:
 	var resolved := mode if mode in ["sprint", "crouch"] else "walk"
@@ -347,6 +352,7 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_tone(118, .18, .052, .09, "triangle", pan)]
 		"nyxie_timer": c = [_tone(72, .5, .09), _tone(108, .4, .07, .18, "triangle"), _tone(144, .3, .05, .34, "triangle")]
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
+		"hunter_laugh": c = [_tone(392, .07, .05 * intensity, 0, "triangle", pan), _tone(349, .07, .045 * intensity, .10, "triangle", pan), _tone(311, .09, .04 * intensity, .20, "triangle", pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
 		"teammate_footstep_sprint": c = [_noise(.07, .066 * intensity, 610, 0, pan, 1.15), _thump(92, .065, .045 * intensity, 0, pan)]
 		"teammate_footstep_crouch": c = [_noise(.045, .012 * intensity, 430, 0, pan, .92), _thump(68, .045, .009 * intensity, 0, pan)]

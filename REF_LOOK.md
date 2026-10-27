@@ -117,7 +117,7 @@ set it false for the older models, `USE_SPRITES` true for the flat cutouts). `Hu
 (sprint while the runner is in direct sight and she has breath), stun, flight (Xivvy) and charge (Loxelle); Kathy (and
 Umbriel disguised as her) carries, on a rare seeded roll (`HunterRoster.SCYTHE_CARRY_CHANCE` = 1/8, same on every peer),
 `assets/props_3d/kathy_scythe.glb` in `R-HandProp` and plays `scythe_idle` / `scythe_walk`
-(`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` is OFF (`HunterJumpscare.ENABLED = false`: a catch goes straight to game over, no lunge or sting); when enabled it plays the model's
+(`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays: see below). `HunterJumpscare` is OFF (`HunterJumpscare.ENABLED = false`: a catch goes straight to game over, no lunge or sting); when enabled it plays the model's
 `jumpscare` clip under a faint red ambient so the dark cube textures read as a figure. Checks: `tools/look/hunter_check.tscn`
 (HUNTERS=..., HUNTER_STATE=idle|walk|chase|search|stun|scream) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).
 
@@ -133,3 +133,6 @@ Visible real lights dropped from 99-162 to 2-7 per view; the only shadow-casting
 
 ## More docs
 Index: [docs/README.md](docs/README.md). Spectators: [docs/SPECTATORS.md](docs/SPECTATORS.md). Tests and the 9-failure baseline: [docs/TESTING.md](docs/TESTING.md). Deploy: [docs/DEPLOY_VPS3.md](docs/DEPLOY_VPS3.md).
+
+## Kathy's beam
+Besides the real spot light (the only light involved; no new lights), `HunterView3D` hangs a visible beam on it: two unshaded additive cones (soft core + wider shell, `BEAM_SHADER`, a gentle pulse). It keeps the eye colour while she patrols and turns red, brighter and faster-pulsing while she chases (`brain.state`, so guests see the same colour); dimmed while she is stunned. Capture: `DARK=1 CAM_SIDE=1 HUNTERS=kathy HUNTER_STATE=walk|chase tools/look/hunter_check.tscn`.

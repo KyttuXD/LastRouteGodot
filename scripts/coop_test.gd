@@ -173,6 +173,21 @@ func _run_host() -> void:
 	if not await _wait_for(func() -> bool: return RoomState.roster().size() == 3, "stale peer row removal", 15.0):
 		return
 	_log("guest reconnected; roster %s (no ghost row)" % [RoomState.roster()])
+	# -- hunter emotes -----------------------------------------------------------
+	# the host's hunter plays a (long) smug emote; the guest must replay it from the replicated hunter state
+	var smug := HunterEmoteCatalog.SMUG
+	var emoting_view: HunterView3D
+	for view_value in scene._hunter_views.values():
+		emoting_view = view_value as HunterView3D
+		break
+	if emoting_view == null:
+		_fail("no hunter on the host to emote")
+		return
+	emoting_view.brain.start_emote(smug, 8.0)
+	_write("hunter_emote_id.txt", str(emoting_view.get_meta("streamed_entity_id", "")))
+	if not await _wait_for(func() -> bool: return _read("guest_saw_hunter_emote.txt") != "", "guest to see the hunter emote", 20.0):
+		return
+	_log("hunter emote replicated to the guest (%s)" % _read("guest_saw_hunter_emote.txt"))
 	# -- spectators --------------------------------------------------------------
 	# 1. guest dies while the host lives: host keeps playing and simulating
 	if not await _wait_for(func() -> bool: return _read("guest_spectating.txt") != "", "guest to spectate", 40.0):
@@ -301,6 +316,16 @@ func _run_guest(is_late: bool) -> void:
 			"snapshot after reconnect", 30.0):
 		return
 	scene = get_tree().current_scene
+	var hunter_emote_seen := func() -> bool:
+		for view_value in scene._hunter_views.values():
+			var view := view_value as HunterView3D
+			if view != null and view._emote_index == HunterEmoteCatalog.SMUG:
+				return true
+		return false
+	if not await _wait_for(hunter_emote_seen, "the host's hunter emote", 30.0):
+		return
+	_write("guest_saw_hunter_emote.txt", "smug")
+	_log("saw the host's hunter emote")
 	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
 	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate", 10.0):
 		return

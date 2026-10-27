@@ -18,6 +18,7 @@ that auth. Modelled on the 2D game's ADMIN debug section (`LastRoute/games/last-
   other players (it would desync them).
 * Hunters: stun / wake / calm / **freeze all / release all**, summon or remove any A-Z or Void hunter, and a status readout of
   the six nearest hunters with state, distance, FROZEN / ASLEEP.
+* **Hunter emotes**: play any hunter emote on every active hunter within 40 m ([HUNTER_EMOTES.md](HUNTER_EMOTES.md)).
 * World: grant / all relays, damage / repair checkpoint, all region lights, story scenes, map and hunter reveal.
 * Copy seed, copy room code (no run flag).
 * Owner only: admin roster add / remove.
