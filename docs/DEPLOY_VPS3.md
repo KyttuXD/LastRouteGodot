@@ -182,7 +182,7 @@ in its env file).
   and release/exported-release builds ignore the flag entirely. While it is active the menu and HUD show a
   red **TEST SERVER // lastroute.kyttuslab.org:8205** badge. There is no separate relay flag: the room
   directory tells the client the relay address and port (from the server's env), so pointing the client at the
-  test HTTP origin is enough. Account sign-in stays disabled for that plain-HTTP origin.
+  test HTTP origin is enough. Debug builds may sign in to that origin with a throwaway test account (the session is stored per server, so it never touches the main login); release builds still refuse accounts over plain HTTP.
 * **Test scripts:** `REMOTE=1 BACKEND_URL=http://lastroute.kyttuslab.org:8205 scripts/coop_test.sh` and
   `scripts/public_test.sh` run the real clients against that server instead of starting a local one.
   Skipped when remote: the local server log, and in `public_test.sh` the backend-restart step (the "authority

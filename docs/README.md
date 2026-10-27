@@ -25,6 +25,7 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 ## Shipping
 | Doc | Covers |
 | --- | --- |
+| [TEST_MULTIPLAYER.md](TEST_MULTIPLAYER.md) | Several instances on one Mac, test builds for another computer, ports, VPS commands |
 | [DEPLOY_VPS3.md](DEPLOY_VPS3.md) | Backend on VPS 3: production and test instance, remote test scripts, rollback |
 | [DISTRIBUTION.md](DISTRIBUTION.md) | Exports, updater, and the downloads page plan (kyttuslab.org) |
 | [../IOS.md](../IOS.md), [../XR.md](../XR.md) | iOS and XR tracks |
