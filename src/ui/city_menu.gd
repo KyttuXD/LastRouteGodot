@@ -10,6 +10,12 @@ const THEME_PATH := "res://src/ui/theme_city.tres"
 const HUB_SCENE := "res://scenes/game_hub.tscn"
 const LOBBY_SCENE := "res://scenes/room_lobby.tscn"
 
+const SETTINGS_OVERLAY_SCENE := preload("res://scenes/settings_overlay.tscn")
+
+var _settings_overlay: SettingsPanel
+var _continue_button: Button
+var _clear_button: Button
+var _save_summary: Label
 var _status: Label
 var _host_button: Button
 var _join_button: Button
@@ -17,8 +23,15 @@ var _join_input: LineEdit
 var _hosting := false
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and _settings_overlay != null and _settings_overlay.visible:
+		_settings_overlay.close()
+		get_viewport().set_input_as_handled()
+
+
 func _ready() -> void:
 	MouseLock.release_all()
+	GameRegistry.active_game_id = RoomState.GAME_CITY
 	theme = load(THEME_PATH) as Theme
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var backdrop := SIGNAL_BACKDROP_SCRIPT.new()
@@ -44,7 +57,18 @@ func _ready() -> void:
 	title.add_theme_font_override("font", Palette.title_font())
 	title.text = "KYTTU: THE CITY"
 	column.add_child(title)
-	var new_run := _button("NewRunButton", "NEW RUN // SOLO", true, _on_new_run)
+	_save_summary = Label.new()
+	_save_summary.name = "SavedRunSummary"
+	_save_summary.theme_type_variation = &"MutedLabel"
+	_save_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_save_summary.custom_minimum_size = Vector2(170, 10)
+	column.add_child(_save_summary)
+	_continue_button = _button("ContinueRunButton", "CONTINUE RUN", true, _on_continue_run)
+	column.add_child(_continue_button)
+	_clear_button = _button("ClearRunButton", "CLEAR SAVE", false, _on_clear_run)
+	column.add_child(_clear_button)
+	var new_run := _button("NewRunButton", "NEW RUN // SOLO", not Backend.game_has_save(RoomState.GAME_CITY), _on_new_run)
 	column.add_child(new_run)
 	var public_button := _button("PublicButton", "PUBLIC CITY", false, func() -> void: pass)
 	public_button.disabled = Backend.offline_mode or not Backend.configured()
@@ -73,6 +97,8 @@ func _ready() -> void:
 	column.add_child(_join_input)
 	_join_button = _button("JoinButton", "JOIN A ROOM", false, _on_join)
 	column.add_child(_join_button)
+	column.add_child(_button("AccountButton", Backend.account_username if Backend.signed_in() else "ACCOUNT", false, _on_account))
+	column.add_child(_button("SettingsButton", "SETTINGS", false, _on_settings))
 	column.add_child(_button("BackToGamesButton", "BACK TO GAMES", false, _on_back))
 	_status = Label.new()
 	_status.name = "CityStatus"
@@ -83,12 +109,22 @@ func _ready() -> void:
 	column.add_child(_status)
 	Backend.health_checked.connect(_on_health_checked)
 	Backend.room_resolved.connect(_on_room_resolved)
+	Backend.account_changed.connect(_on_account_changed)
+	Backend.account_progress_changed.connect(_on_account_progress_changed)
+	_settings_overlay = SETTINGS_OVERLAY_SCENE.instantiate() as SettingsPanel
+	_settings_overlay.visible = false
+	add_child(_settings_overlay)
+	_refresh_saved_run()
 	(func() -> void:
 		if is_instance_valid(new_run) and new_run.is_inside_tree():
 			new_run.grab_focus()).call_deferred()
 
 
 func _exit_tree() -> void:
+	if Backend.account_changed.is_connected(_on_account_changed):
+		Backend.account_changed.disconnect(_on_account_changed)
+	if Backend.account_progress_changed.is_connected(_on_account_progress_changed):
+		Backend.account_progress_changed.disconnect(_on_account_progress_changed)
 	if Backend.health_checked.is_connected(_on_health_checked):
 		Backend.health_checked.disconnect(_on_health_checked)
 	if Backend.room_resolved.is_connected(_on_room_resolved):
@@ -106,10 +142,59 @@ func _button(button_name: String, label: String, primary: bool, handler: Callabl
 	return button
 
 
+func _on_account() -> void:
+	AccountPanel.open(self)
+
+
+func _on_settings() -> void:
+	_settings_overlay.open()
+
+
+func _on_account_changed(_signed_in_now: bool, _username: String, _admin: bool, _message: String) -> void:
+	var account_button := find_child("AccountButton", true, false) as Button
+	if account_button != null:
+		account_button.text = Backend.account_username if Backend.signed_in() else "ACCOUNT"
+	_refresh_saved_run()
+
+
+func _on_account_progress_changed(_available: bool, _progress: Dictionary, _saved_at: int, _message: String) -> void:
+	_refresh_saved_run()
+
+
+## CONTINUE RUN / CLEAR SAVE appear when the signed-in account holds a City run (games.city, see CityRunSave).
+func _refresh_saved_run() -> void:
+	var has_save := Backend.signed_in() and Backend.game_has_save(RoomState.GAME_CITY)
+	_continue_button.visible = has_save
+	_clear_button.visible = has_save
+	_save_summary.visible = has_save
+	if has_save:
+		_save_summary.text = "SAVED RUN // %s" % String(Backend.game_progress(RoomState.GAME_CITY).get("summary", "")).to_upper()
+	(find_child("NewRunButton", true, false) as Button).theme_type_variation = &"" if has_save else &"PrimaryButton"
+	_clear_button.text = "CLEAR SAVE"
+
+
+func _on_continue_run() -> void:
+	var error := RoomState.prepare_city_run(Backend.game_progress(RoomState.GAME_CITY))
+	if not error.is_empty():
+		_status.text = error
+		return
+	RoomState.enter(get_tree())
+
+
+func _on_clear_run() -> void:
+	if _clear_button.text == "CLEAR SAVE":
+		_clear_button.text = "SURE? CLEAR SAVE"
+		return
+	_clear_button.text = "CLEAR SAVE"
+	Backend.account_clear_game_progress(RoomState.GAME_CITY)
+
+
 func _on_new_run() -> void:
-	# Solo is a room of one with no network traffic, like the Last Route "offline solo" path.
-	Backend.enable_offline_mode()
-	UpdateManager.enable_offline_mode()
+	# Solo is a room of one with no network traffic, like the Last Route "offline solo" path. A signed-in runner stays online
+	# so the run can save to the account.
+	if not Backend.signed_in():
+		Backend.enable_offline_mode()
+		UpdateManager.enable_offline_mode()
 	RoomState.create_local(RoomState.Mode.CITY)
 	RoomState.status_message = "CITY SOLO RUN"
 	RoomState.enter(get_tree())

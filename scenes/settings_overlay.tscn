@@ -1,0 +1,371 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/ui/settings_panel.gd" id="1_settings"]
+
+[node name="SettingsOverlay" type="ColorRect"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220
+offset_top = -127
+offset_right = 220
+offset_bottom = 127
+grow_horizontal = 2
+grow_vertical = 2
+visible = false
+script = ExtResource("1_settings")
+color = Color(0.02, 0.05, 0.065, 0.94)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 0
+offset_top = 6.0
+offset_right = 440.0
+offset_bottom = 24.0
+theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
+theme_override_font_sizes/font_size = 15
+text = "SETTINGS"
+horizontal_alignment = 1
+
+[node name="HintLabel" type="Label" parent="."]
+layout_mode = 0
+offset_top = 25.0
+offset_right = 440.0
+offset_bottom = 34.0
+theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
+theme_override_font_sizes/font_size = 7
+text = "PRESS REBIND, THEN A KEY  //  ESC CANCELS A REBIND IN PROGRESS"
+horizontal_alignment = 1
+
+[node name="AudioHeading" type="Label" parent="."]
+visible = false
+layout_mode = 0
+offset_left = 20.0
+offset_top = 37.0
+offset_right = 420.0
+offset_bottom = 45.0
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
+theme_override_font_sizes/font_size = 6
+text = "AUDIO"
+
+[node name="VolumeRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 70.0
+offset_right = 420.0
+offset_bottom = 86.0
+theme_override_constants/separation = 8
+
+[node name="DisplayHeading" type="Label" parent="."]
+visible = false
+layout_mode = 0
+offset_left = 20.0
+offset_top = 63.0
+offset_right = 420.0
+offset_bottom = 71.0
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
+theme_override_font_sizes/font_size = 6
+text = "DISPLAY"
+
+[node name="VolumeLabel" type="Label" parent="VolumeRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "MASTER VOLUME"
+
+[node name="VolumeSlider" type="HSlider" parent="VolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 100.0
+
+[node name="VolumeValueLabel" type="Label" parent="VolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "100%"
+
+[node name="SfxVolumeRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 94.0
+offset_right = 420.0
+offset_bottom = 110.0
+theme_override_constants/separation = 8
+
+[node name="SfxVolumeLabel" type="Label" parent="SfxVolumeRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "GAMEPLAY / HUNTERS"
+
+[node name="SfxVolumeSlider" type="HSlider" parent="SfxVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 100.0
+
+[node name="SfxVolumeValueLabel" type="Label" parent="SfxVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "100%"
+
+[node name="UiVolumeRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 118.0
+offset_right = 420.0
+offset_bottom = 134.0
+theme_override_constants/separation = 8
+
+[node name="UiVolumeLabel" type="Label" parent="UiVolumeRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "MENU / UI"
+
+[node name="UiVolumeSlider" type="HSlider" parent="UiVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 100.0
+
+[node name="UiVolumeValueLabel" type="Label" parent="UiVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "100%"
+
+[node name="SensitivityRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 186.0
+offset_right = 420.0
+offset_bottom = 202.0
+theme_override_constants/separation = 8
+
+[node name="SensitivityLabel" type="Label" parent="SensitivityRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "MOUSE SENSITIVITY"
+
+[node name="SensitivitySlider" type="HSlider" parent="SensitivityRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="SensitivityValueLabel" type="Label" parent="SensitivityRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "50"
+
+[node name="DisplayRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 66.0
+offset_right = 420.0
+offset_bottom = 82.0
+theme_override_constants/separation = 8
+
+[node name="VsyncRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 86.0
+offset_right = 420.0
+offset_bottom = 102.0
+theme_override_constants/separation = 8
+
+[node name="VsyncLabel" type="Label" parent="VsyncRow"]
+layout_mode = 2
+visible = false
+text = "VSYNC"
+
+[node name="VsyncButton" type="Button" parent="VsyncRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 16)
+layout_mode = 2
+toggle_mode = true
+
+[node name="FpsLimitRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 106.0
+offset_right = 420.0
+offset_bottom = 122.0
+theme_override_constants/separation = 8
+
+[node name="FpsLimitLabel" type="Label" parent="FpsLimitRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "FPS LIMIT"
+
+[node name="FpsLimitSlider" type="HSlider" parent="FpsLimitRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 240.0
+step = 30.0
+
+[node name="FpsLimitValueLabel" type="Label" parent="FpsLimitRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(58, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "UNLIMITED"
+
+[node name="FovRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 126.0
+offset_right = 420.0
+offset_bottom = 142.0
+theme_override_constants/separation = 8
+
+[node name="FovLabel" type="Label" parent="FovRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "FIELD OF VIEW"
+
+[node name="FovSlider" type="HSlider" parent="FovRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+min_value = 60.0
+max_value = 105.0
+step = 1.0
+value = 78.0
+
+[node name="FovValueLabel" type="Label" parent="FovRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "78°"
+
+[node name="PixelEffectRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 146.0
+offset_right = 420.0
+offset_bottom = 162.0
+theme_override_constants/separation = 8
+
+[node name="PixelEffectLabel" type="Label" parent="PixelEffectRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "3D SIGNAL FILTER"
+
+[node name="PixelEffectSlider" type="HSlider" parent="PixelEffectRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 100.0
+step = 1.0
+value = 28.0
+
+[node name="PixelEffectValueLabel" type="Label" parent="PixelEffectRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "28%"
+
+[node name="PlayerHueRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 166.0
+offset_right = 420.0
+offset_bottom = 182.0
+theme_override_constants/separation = 8
+
+[node name="PlayerHueLabel" type="Label" parent="PlayerHueRow"]
+layout_mode = 2
+vertical_alignment = 1
+text = "PLAYER SKIN HUE"
+
+[node name="PlayerHueSlider" type="HSlider" parent="PlayerHueRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_vertical = 4
+max_value = 360.0
+step = 1.0
+
+[node name="PlayerHueValueLabel" type="Label" parent="PlayerHueRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+vertical_alignment = 1
+text = "ORIGINAL"
+
+[node name="ControlsHeading" type="Label" parent="."]
+visible = false
+layout_mode = 0
+offset_left = 20.0
+offset_top = 143.0
+offset_right = 420.0
+offset_bottom = 151.0
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
+theme_override_font_sizes/font_size = 6
+text = "CONTROLS"
+
+[node name="DisplayLabel" type="Label" parent="DisplayRow"]
+layout_mode = 2
+visible = false
+vertical_alignment = 1
+text = "FULLSCREEN"
+
+[node name="FullscreenButton" type="Button" parent="DisplayRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 16)
+layout_mode = 2
+size_flags_vertical = 4
+toggle_mode = true
+
+[node name="FullscreenHint" type="Label" parent="DisplayRow"]
+layout_mode = 2
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
+theme_override_font_sizes/font_size = 7
+text = "F11 ANYWHERE"
+
+[node name="ControlsScroll" type="ScrollContainer" parent="."]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 62.0
+offset_right = 420.0
+offset_bottom = 228.0
+horizontal_scroll_mode = 0
+
+[node name="ControlsList" type="VBoxContainer" parent="ControlsScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="CloseButton" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 193.0
+offset_top = 234.0
+offset_right = 247.0
+offset_bottom = 250.0
+text = "BACK"

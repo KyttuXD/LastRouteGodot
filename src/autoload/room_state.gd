@@ -107,6 +107,8 @@ var seed_text := ""
 ## True while this room is the shared PUBLIC route: no lobby, server-owned state.
 var public_route := false
 var mode: Mode = Mode.DEFAULT
+## A City run save queued by the City menu's CONTINUE; the run scene consumes it once (see CityRunSave).
+var pending_city_save: Dictionary = {}
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -192,6 +194,7 @@ func _exit_tree() -> void:
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
 	public_route = false
+	pending_city_save = {}
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -244,6 +247,23 @@ func prepare_route_checkpoint(checkpoint: Dictionary) -> String:
 	status_message = "CHECKPOINT READY // DEPTH %d" % int(checkpoint["depth"])
 	if not GameState.queue_route_checkpoint(checkpoint):
 		return "THE SAVED ROUTE CHECKPOINT COULD NOT BE PREPARED"
+	changed.emit()
+	return ""
+
+
+## Prepare a saved City run (the account's `games.city` checkpoint) as a fresh solo City room; the run scene applies the
+## queued values once. Returns an error message, or "" when the room is ready.
+func prepare_city_run(save: Dictionary) -> String:
+	if not CityRunSave.valid(save):
+		return "THE SAVED CITY RUN IS INVALID"
+	var saved_difficulty := String(save.get("difficulty_id", "standard"))
+	create_local(Mode.CITY)
+	seed_text = String(save.get("seed_text", seed_text))
+	for key in DIFFICULTY_IDS:
+		if DIFFICULTY_IDS[key] == saved_difficulty and difficulty_available(key):
+			difficulty = key as Difficulty
+	pending_city_save = save.duplicate(true)
+	status_message = "SAVED RUN READY // %s" % String(save.get("summary", ""))
 	changed.emit()
 	return ""
 

@@ -25,6 +25,10 @@ const NIGHT_WATCH_TABS := [
 		"office_radio", "office_breaker", "office_reboot", "office_emergency_flash", "office_rear_flash"]},
 ]
 
+## Games that show another game's tabs (the City plays like Last Route and shares its controls); the validator counts an
+## action's owner once, so an alias is not a second owner.
+const ALIASES := {"city": "last_route"}
+
 static var _tabs := {}
 
 
@@ -42,7 +46,7 @@ static func register(game_id: String, tabs: Array) -> void:
 
 static func tabs_for(game_id: String) -> Array:
 	_ensure_defaults()
-	return (_tabs.get(game_id, _tabs["last_route"]) as Array).duplicate(true)
+	return (_tabs.get(ALIASES.get(game_id, game_id), _tabs["last_route"]) as Array).duplicate(true)
 
 
 static func game_ids() -> Array:

@@ -26,6 +26,7 @@ func run(host: Node) -> int:
 	_check_shelters(layout)
 	_check_chunks()
 	await _check_run_scene(host)
+	await _check_saved_run(host)
 	if _failures == 0:
 		print("  city  layout, connectivity, streets, buildings, shelters, chunks, registry, game id")
 	return _failures
@@ -43,9 +44,32 @@ func _check_registry(host: Node) -> void:
 	_expect(ResourceLoader.exists("res://scenes/city_menu.tscn"), "City menu scene is missing")
 	var menu: Control = (load("res://scenes/city_menu.tscn") as PackedScene).instantiate()
 	host.add_child(menu)
-	for node_name in ["NewRunButton", "HostButton", "JoinButton", "BackToGamesButton", "RoomCodeInput"]:
+	for node_name in ["NewRunButton", "HostButton", "JoinButton", "BackToGamesButton", "RoomCodeInput", "PublicButton",
+			"AccountButton", "SettingsButton", "ContinueRunButton", "ClearRunButton", "SettingsOverlay"]:
 		_expect(menu.find_child(node_name, true, false) != null, "City menu lacks %s" % node_name)
+	_expect(not (menu.find_child("ContinueRunButton", true, false) as Button).visible, "CONTINUE RUN shows without a saved run")
+	var overlay := menu.find_child("SettingsOverlay", true, false)
+	if overlay != null:
+		overlay.call("open")
+		await host.get_tree().process_frame
+		var tabs := overlay.get("_section_tabs") as TabBar
+		_expect(tabs != null and tabs.tab_count == 3, "the City's controls tabs are not MOVEMENT / ACTIONS / SYSTEM")
+	_expect(ControlsRegistry.tabs_for("city") == ControlsRegistry.tabs_for("last_route"), "the City does not share Last Route's controls")
 	menu.queue_free()
+	# run save: JSON-safe round trip, rejects junk
+	var save := CityRunSave.make("SEED-X", "standard", 40, 3, 7, 0, ["1:0:0:PICKUP:RELAY:0"], Vector3(4.5, 0.05, -12.0), 3.1)
+	var round_trip = JSON.parse_string(JSON.stringify(save))
+	_expect(round_trip is Dictionary and CityRunSave.valid(round_trip), "a City run save does not survive JSON")
+	_expect(not CityRunSave.valid({}), "an empty City run save was accepted")
+	var outside := save.duplicate(true)
+	outside["x"] = 5000.0
+	_expect(not CityRunSave.valid(outside), "a City run save outside the dome was accepted")
+	_expect(String(GameRegistry.save_summary("city").get("text", "")) != "", "the account SAVES row has no City text")
+	var prepared := RoomState.prepare_city_run(save)
+	_expect(prepared.is_empty() and RoomState.is_city() and RoomState.seed_text == "SEED-X" and not RoomState.pending_city_save.is_empty(),
+		"prepare_city_run did not queue the saved run: %s" % prepared)
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	_expect(RoomState.pending_city_save.is_empty(), "a new room kept a queued City save")
 	_expect(RoomState.Mode.CITY != RoomState.Mode.DEFAULT, "Mode.CITY collides with another mode")
 	_expect(RoomState.mode_available(RoomState.Mode.CITY), "Mode.CITY is not selectable")
 	_expect(String(RoomState.MODE_SCENES[RoomState.Mode.CITY]) == RoomState.CITY_ROUTE_SCENE, "City mode opens the wrong scene")
@@ -460,3 +484,28 @@ func _check_gate(facility: StreamedFacilityView3D, layout: CityLayout) -> void:
 	var normal := CityLayout.gate_relays_required("standard")
 	var hard := CityLayout.gate_relays_required("nightmare")
 	_expect(easy < normal and normal < hard, "gate relay requirement does not rise with difficulty")
+
+
+## A queued City run save is applied once on entry: progress, claimed pickups and the runner's spot come back.
+func _check_saved_run(host: Node) -> void:
+	var claimed_id := "0:0:0:PICKUP:RELAY:0"
+	var claims: Array = []
+	for index in 6:
+		claims.append("0:0:0:PICKUP:RELAY:%d" % index)
+	claims.append("0:0:0:PICKUP:COIN:0")
+	RoomState.create_local(RoomState.Mode.CITY)
+	var error := RoomState.prepare_city_run(CityRunSave.make("SAVED-SEED", "standard", 55, 4, 6, 0, claims,
+		Vector3(40.5, 0.05, 20.5), 1.25))
+	_expect(error.is_empty(), "could not queue the saved run: %s" % error)
+	Backend.enable_offline_mode()
+	var scene: Node = (load(RoomState.CITY_ROUTE_SCENE) as PackedScene).instantiate()
+	host.add_child(scene)
+	for _frame in 6:
+		await host.get_tree().process_frame
+	var player: Node3D = scene.get("player")
+	_expect(GameState.relays_collected == 6 and GameState.coins == GameConfig.COIN_PICKUP_VALUE and GameState.score == 55, "saved progress was not restored")
+	_expect(scene.get("world_state").claimed_pickups.has(claimed_id), "saved claimed pickups were not restored")
+	_expect(absf(player.global_position.x - 40.5) < .5 and absf(player.global_position.z - 20.5) < .5, "the runner was not put back at the saved spot")
+	_expect(RoomState.pending_city_save.is_empty(), "the queued City save was not consumed")
+	scene.queue_free()
+	await host.get_tree().process_frame

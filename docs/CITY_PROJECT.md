@@ -177,3 +177,17 @@ contain I, O, 0, 1). Each has its own seed, relay claims and store file (`godot_
 `game` field (`?game=` on status). The client's `PublicRoute.join(mode)` remembers the game, so rejoins and takeovers stay in
 the City. The City menu has a PUBLIC CITY button. `GAME=city scripts/public_test.sh` runs the host / guest / resume / restart
 scenario on the City route.
+
+## Run saves and the City menu
+
+The City writes a small JSON checkpoint (`CityRunSave`, schema 1) to the shared account under `games.city`
+(`Backend.account_save_game_progress`), so it shows up in the account panel's SAVES section (the panel reads
+`games.city.summary`) with its own CLEAR. It stores the seed, difficulty, score, claimed pickup ids (relays and coins are
+re-derived from those) and where the runner stood; hunters, doors and weather start fresh. Solo runs and a host with no
+guests write it (on every pickup, every 45 s, and when leaving); signed-in only. The City menu shows CONTINUE RUN / CLEAR
+SAVE when the account holds one (`RoomState.prepare_city_run` queues it, the run scene consumes it once). A new solo run
+stays online when signed in so it can save. The dome gate clears the save.
+
+The City menu also has ACCOUNT (the shared `AccountPanel`) and SETTINGS (the shared `scenes/settings_overlay.tscn`, now split
+out of `main_menu.tscn`). Controls tabs come from `ControlsRegistry`; the City is an alias of Last Route's (MOVEMENT / ACTIONS /
+SYSTEM). The pause menu's local save slots stay off in the City.
