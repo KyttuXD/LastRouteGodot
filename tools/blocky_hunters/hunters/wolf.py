@@ -1,4 +1,4 @@
-"""Wolf ears and a bushy wolf tail (Verrine, Haelith, Quirith).
+"""Wolf ears and a bushy wolf tail (Verrine, Haelith, Quenelle).
 
 Ears: tall pointed stepped ears (L-Ear/R-Ear bones, they twitch), lighter inside on the front.
 Tail: four fat segments hanging down behind (Tail-1..4), swinging in every clip, with a pale tip.

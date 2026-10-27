@@ -755,6 +755,52 @@ func set_hold_message(text: String) -> void:
 		message_label.visible = true
 
 
+## Radar sabotage (Purple's static / blackout, Orange's radar outage): an overlay over the minimap and the full map. Modes:
+## "" (clear), "static" (the map still reads, dusted with noise), "blackout" and "offline" (black, nothing leaks through).
+const RADAR_FX_SHADER := "shader_type canvas_item;\nuniform float amount = 0.5;\nuniform float black = 0.0;\nfloat h(vec2 p){return fract(sin(dot(p, vec2(12.9898, 78.233)) + TIME * 17.0) * 43758.5453);}\nvoid fragment(){\n\tfloat n = h(floor(UV * vec2(96.0, 64.0)));\n\tvec3 dust = vec3(0.75, 0.68, 0.87) * step(1.0 - amount, n);\n\tCOLOR = vec4(mix(dust, vec3(0.0), black), mix(step(1.0 - amount, n) * 0.8, 1.0, black));\n}\n"
+var radar_mode := ""
+var _radar_fx: Array = []
+var _radar_left := 0.0
+
+
+func set_radar_state(mode: String, seconds: float = 0.0) -> void:
+	radar_mode = mode
+	_radar_left = seconds if mode != "" else 0.0
+	_ensure_radar_fx()
+	for fx in _radar_fx:
+		var overlay := fx as ColorRect
+		overlay.visible = mode != ""
+		var material := overlay.material as ShaderMaterial
+		material.set_shader_parameter("black", 1.0 if mode == "blackout" or mode == "offline" else 0.0)
+		material.set_shader_parameter("amount", .18)
+
+
+func _ensure_radar_fx() -> void:
+	if not _radar_fx.is_empty():
+		return
+	for host_node in [minimap, plan]:
+		var overlay := ColorRect.new()
+		overlay.name = "RadarFx"
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		overlay.color = Color.WHITE
+		var shader := Shader.new()
+		shader.code = RADAR_FX_SHADER
+		var material := ShaderMaterial.new()
+		material.shader = shader
+		overlay.material = material
+		overlay.visible = false
+		(host_node as Control).add_child(overlay)
+		_radar_fx.append(overlay)
+
+
+func tick_radar_state(delta: float) -> void:
+	if _radar_left > 0.0:
+		_radar_left -= delta
+		if _radar_left <= 0.0:
+			set_radar_state("")
+
+
 func toggle_map_overlay() -> void:
 	map_overlay.visible = not map_overlay.visible
 

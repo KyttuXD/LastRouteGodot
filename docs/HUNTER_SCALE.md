@@ -4,7 +4,7 @@ KT: remove the tall hunter figures, keep the normal-sized ones and make them 1.5
 
 ## What was removed
 
-The ten `_tall` model variants (`aki`, `eirys`, `glyra`, `ilyra`, `jyvra`, `kathy`, `loxelle`, `opalie`, `umbriel`, `xivvy`)
+The ten `_tall` model variants (`aki`, `elise`, `glyra`, `ilyra`, `javelle`, `kathy`, `loxelle`, `opalie`, `umbriel`, `xivvy`)
 in `assets/hunters_blocky/`, their entries in `stride_table.json` and `emotes.json`, and the generator option that made them
 (`build.py --tall`). None of them was referenced by the game at runtime (`HunterRoster._model_path` only looks at the
 hunter's own folder), so no hunter changes body: they were unused assets and tests.

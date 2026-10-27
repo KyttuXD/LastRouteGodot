@@ -33,19 +33,19 @@ const PROFILES := {
 	"briselle": {"name": "Briselle", "tier": "easy",         "speed": 0.84, "chase": 3.62,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
 	"ceryth":   {"name": "Ceryth",   "tier": "intermediate", "speed": 0.78, "chase": 3.45,  "prog": 0.17, "sight": 8.60, "hearing": 0.88, "spawn": 12},
 	"dovelle":  {"name": "Dovelle",  "tier": "easy",         "speed": 0.80, "chase": 3.55,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},
-	"eirys":    {"name": "Eirys",    "tier": "difficult",    "speed": 0.82, "chase": 3.58,  "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
+	"elise":    {"name": "Elise",    "tier": "difficult",    "speed": 0.82, "chase": 3.58,  "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
 	"ferryn":   {"name": "Ferryn",   "tier": "intermediate", "speed": 0.80, "chase": 2.75,  "prog": 0.17, "sight": 8.30, "hearing": 0.92, "spawn": 12},
 	"glyra":    {"name": "Glyra",    "tier": "easy",         "speed": 0.81, "chase": 3.52,  "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 12},
 	"haelith":  {"name": "Haelith",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.18, "sight": 7.80, "hearing": 1.18, "spawn": 12},
 	"ilyra":    {"name": "Ilyra",    "tier": "intermediate", "speed": 0.77, "chase": 3.68,  "prog": 0.17, "sight": 8.70, "hearing": 0.80, "spawn": 12},
-	"jyvra":    {"name": "Jyvra",    "tier": "easy",         "speed": 0.80, "chase": 3.56,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},
+	"javelle":    {"name": "Javelle",    "tier": "easy",         "speed": 0.80, "chase": 3.56,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},
 	"kathy":    {"name": "Kathy",    "tier": "difficult",    "speed": 0.82, "chase": 4.15,  "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 16},
 	"loxelle":  {"name": "Loxelle",  "tier": "easy",         "speed": 0.80, "chase": 3.555, "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 13},
 	"mavrine":  {"name": "Mavrine",  "tier": "intermediate", "speed": 0.80, "chase": 3.50,  "prog": 0.17, "sight": 8.20, "hearing": 0.95, "spawn": 12},
 	"nyxie":    {"name": "Nyxie",    "tier": "special",      "speed": 0.90, "chase": 3.90,  "prog": 0.15, "sight": 8.40, "hearing": 0.00, "spawn": 10},
 	"opalie":   {"name": "Opalie",   "tier": "easy",         "speed": 0.83, "chase": 3.47,  "prog": 0.18, "sight": 7.70, "hearing": 1.10, "spawn": 13},
 	"porcelle": {"name": "Porcelle", "tier": "intermediate", "speed": 0.80, "chase": 3.55,  "prog": 0.17, "sight": 8.00, "hearing": 0.90, "spawn": 13},
-	"quirith":  {"name": "Quirith",  "tier": "easy",         "speed": 0.81, "chase": 3.50,  "prog": 0.17, "sight": 8.10, "hearing": 0.85, "spawn": 12},
+	"quenelle":  {"name": "Quenelle",  "tier": "easy",         "speed": 0.81, "chase": 3.50,  "prog": 0.17, "sight": 8.10, "hearing": 0.85, "spawn": 12},
 	"ravelle":  {"name": "Ravelle",  "tier": "difficult",    "speed": 0.81, "chase": 3.15,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
 	"solyth":   {"name": "Solyth",   "tier": "special",      "speed": 0.80, "chase": 3.00,  "prog": 0.17, "sight": 7.60, "hearing": 0.95, "spawn": 12},
 	"thessine": {"name": "Thessine", "tier": "intermediate", "speed": 0.78, "chase": 3.44,  "prog": 0.17, "sight": 8.40, "hearing": 0.90, "spawn": 13},
@@ -54,7 +54,7 @@ const PROFILES := {
 	"wynelle":  {"name": "Wynelle",  "tier": "difficult",    "speed": 0.81, "chase": 3.00,  "prog": 0.18, "sight": 7.80, "hearing": 1.15, "spawn": 12},
 	"xivvy":    {"name": "Xivvy",    "tier": "intermediate", "speed": 0.97, "chase": 4.35,  "prog": 0.12, "sight": 6.72, "hearing": 0.84, "spawn": 13},
 	"ysolde":   {"name": "Ysolde",   "tier": "easy",         "speed": 0.80, "chase": 3.54,  "prog": 0.18, "sight": 8.10, "hearing": 1.00, "spawn": 12},
-	"zephyra":  {"name": "Zephyra",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
+	"zellia":  {"name": "Zellia",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
 	# Void incursions are an extra category, not letters appended to the A-Z
 	# roster. Their source skins are deliberately larger in presentation and
 	# their baseline tuning is more aggressive even before colour-specific
@@ -82,8 +82,8 @@ const PROFILES := {
 ## is not a degraded Thessine, she is a complete one -- so she is in the pool
 ## on her own tuning, and gains her cues later without a behaviour change.
 const IMPLEMENTED_IDS := [
-	"dovelle", "quirith", "eirys", "xivvy", "kathy", "ravelle", "mavrine",
-	"umbriel", "wynelle", "thessine", "haelith", "ysolde", "opalie", "aki", "porcelle", "jyvra", "loxelle", "ceryth", "briselle", "ferryn", "glyra", "ilyra", "verrine", "zephyra",
+	"dovelle", "quenelle", "elise", "xivvy", "kathy", "ravelle", "mavrine",
+	"umbriel", "wynelle", "thessine", "haelith", "ysolde", "opalie", "aki", "porcelle", "javelle", "loxelle", "ceryth", "briselle", "ferryn", "glyra", "ilyra", "verrine", "zellia",
 ]
 
 ## Never entered into the random draw. These are always present on a floor but
@@ -96,10 +96,10 @@ const SPECIAL_IDS := ["nyxie", "solyth"]
 ## gives debug/admin tooling one canonical source rather than reconstructing
 ## A-Z from the weighted random pool (which intentionally excludes specials).
 const A_Z_IDS := [
-	"aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra",
-	"haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie",
-	"opalie", "porcelle", "quirith", "ravelle", "solyth", "thessine",
-	"umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+	"aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra",
+	"haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie",
+	"opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine",
+	"umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia",
 ]
 const VOID_IDS := [
 	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray",
@@ -199,7 +199,8 @@ static func carries_scythe(spawn_seed_text: String) -> bool:
 	return SeededRandom.new("%s:SCYTHE" % spawn_seed_text).next_float() < SCYTHE_CARRY_CHANCE
 
 
-static func get_identity(id: String) -> Dictionary:
+static func get_identity(requested_id: String) -> Dictionary:
+	var id := HunterIdAliases.canonical(requested_id)
 	if not PROFILES.has(id) and SecretCreatures.has(id):
 		return SecretCreatures.identity(id)
 	var profile: Dictionary = PROFILES.get(id, PROFILES[DEFAULT_ID])

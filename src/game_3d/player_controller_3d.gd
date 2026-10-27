@@ -172,6 +172,9 @@ var inventory_durability := {
 ## True while the facility's heater station is running — warms the ambient,
 ## and is Wynelle's counterplay (see heater_station in route_interactable_3d).
 var heater_on := false
+## Orange Void's sabotage: one system ("flashlight", "climate" or "radar") offline until outage_left runs out.
+var outage_system := ""
+var outage_left := 0.0
 var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
@@ -292,7 +295,7 @@ var in_vent := false
 var vent_entry_id := ""
 var vent_time_in := 0.0
 
-## Zephyra's shop -- the same indirection as vent_resolver/music_box_resolver.
+## Zellia's shop -- the same indirection as vent_resolver/music_box_resolver.
 ## `shop_resolver.call("open")` opens or re-toasts the menu (the gimmick
 ## itself checks range, so a far-away call is a harmless no-op the same way
 ## _nearest_interactable() already handles distance for ordinary pickups);
@@ -303,7 +306,7 @@ var vent_time_in := 0.0
 var shop_resolver: Callable
 var shop_prompt_provider: Callable
 
-## Zephyra's pesticide trade: a real timer, not a boolean, so it reads the
+## Zellia's pesticide trade: a real timer, not a boolean, so it reads the
 ## same way stun_timer/hiding_lock_timer do and main_3d can thread a plain
 ## "time remaining" into the hunter target dict for Loxelle/Ysolde to skip
 ## their own ability while it runs.
@@ -403,7 +406,7 @@ func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
 	return cleared_message if not cleared_message.is_empty() else "Hidden. Interact to come out."
 
 
-## `forced`: another hunter reaching in (Jyvra, Loxelle) rather than the player
+## `forced`: another hunter reaching in (Javelle, Loxelle) rather than the player
 ## working the exit key. A forced pull ignores Ceryth's lock on purpose --
 ## being physically dragged out is not the thing the lock exists to prevent.
 func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
@@ -810,7 +813,22 @@ func _update_admin_noclip(delta: float) -> void:
 	ModelSlot.play_if_available(_animation_player, _clip)
 
 
+func begin_outage(system: String, seconds: float) -> void:
+	outage_system = system
+	outage_left = maxf(seconds, 0.0)
+	if system == "flashlight" and flashlight_enabled:
+		_set_flashlight(false)
+
+
+func system_offline(system: String) -> bool:
+	return outage_left > 0.0 and outage_system == system
+
+
 func _physics_process(delta: float) -> void:
+	if outage_left > 0.0:
+		outage_left = maxf(0.0, outage_left - delta)
+		if outage_left <= 0.0:
+			outage_system = ""
 	_update_controller_look(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
@@ -922,7 +940,7 @@ func _physics_process(delta: float) -> void:
 		"crouching": movement_mode == "crouch",
 		"hidden": hidden,
 		"in_safe_zone": is_in_safe_zone(),
-		"heater_on": heater_on,
+		"heater_on": heater_on and not system_offline("climate"),
 	})
 
 	_update_stamina(delta, is_sprinting)
@@ -1262,7 +1280,7 @@ func _update_flashlight_flicker(delta: float) -> void:
 
 func _set_flashlight(enabled: bool) -> void:
 	flashlight_enabled = enabled and owns_inventory_item("flashlight") \
-		and lamp_charge > 0.0
+		and lamp_charge > 0.0 and not system_offline("flashlight")
 	flashlight.visible = _flashlight_beam_should_be_visible()
 	if _flashlight_probe != null:
 		_flashlight_probe.enabled = flashlight.visible

@@ -7,8 +7,8 @@ from collections import Counter
 from bb_core import Cube
 from bb_skin import m
 
-HAIRY = ("aki briselle ceryth ferryn glyra haelith jyvra loxelle mavrine nyxie opalie porcelle ravelle thessine "
-         "umbriel wynelle ysolde zephyra").split()
+HAIRY = ("aki briselle ceryth ferryn glyra haelith javelle loxelle mavrine nyxie opalie porcelle ravelle thessine "
+         "umbriel wynelle ysolde zellia").split()
 SWATCH = {"hair": (58, 66, 2, 2), "tie": (60, 66, 2, 2)}
 EXTRAS = [("Pony-1", "Head", (m(0.0), m(31.0), m(4.6)), (7, 3, 1, 0.0)),
           ("Pony-2", "Pony-1", (m(0.0), m(27.0), m(6.3)), (9, 4, 1, 0.7)),
