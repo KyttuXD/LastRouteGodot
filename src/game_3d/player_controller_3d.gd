@@ -62,6 +62,8 @@ const BODY_MODEL_SCENE := PlayerModels.SCENE
 @onready var body_visual: Node3D = $BodyVisual
 @onready var player_collision: CollisionShape3D = $CollisionShape3D
 
+## Floor surface under the runner (SurfaceSounds), set by the run scene each frame; "" = the generic step.
+var footstep_surface := ""
 var flashlight_enabled := false
 ## First-person equipment is deliberately camera-local. The authoritative
 ## taser hit is resolved by main_3d; this controller owns only input, cooldown
@@ -874,7 +876,7 @@ func _physics_process(delta: float) -> void:
 	_update_camera_pose(delta, is_moving and is_on_floor(), is_sprinting,
 		movement_mode == "crouch")
 	if is_moving and is_on_floor():
-		Sound.footstep(movement_mode)
+		Sound.footstep(movement_mode, footstep_surface)
 
 
 	_update_flashlight_flicker(delta)
