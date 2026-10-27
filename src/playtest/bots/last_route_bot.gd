@@ -265,7 +265,7 @@ func collision_report() -> Dictionary:
 		var direction: Vector3 = (player.global_transform.basis * (entry[1] as Vector3)).normalized() * .5
 		var collision := KinematicCollision3D.new()
 		if player.test_move(player.global_transform, direction, collision):
-			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p)
+			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p, collision.get_position() - collision.get_normal() * .1)
 			hit["normal"] = _v3(collision.get_normal())
 			hit["depth"] = snappedf(collision.get_depth(), .001)
 			hit["hit_at"] = _v3(collision.get_position())
@@ -288,6 +288,24 @@ func collision_report() -> Dictionary:
 	return out
 
 
+## The occupied cells of a GridMap around a world point: cell coords, the mesh library item name, the cell's world box, plus the GridMap's own origin/cell size.
+func _gridmap_cells(grid: GridMap, around: Vector3) -> Dictionary:
+	var centre := grid.local_to_map(grid.to_local(around))
+	var cells: Array = []
+	for dy in range(-2, 3):
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var cell := centre + Vector3i(dx, dy, dz)
+				var item := grid.get_cell_item(cell)
+				if item == GridMap.INVALID_CELL_ITEM:
+					continue
+				var item_name := grid.mesh_library.get_item_name(item) if grid.mesh_library != null else str(item)
+				var world := grid.to_global(grid.map_to_local(cell))
+				cells.append({"cell": [cell.x, cell.y, cell.z], "item": item_name, "world_centre": _v3(world)})
+	return {"origin": _v3(grid.global_position), "cell_size": [snappedf(grid.cell_size.x, .01), snappedf(grid.cell_size.y, .01), snappedf(grid.cell_size.z, .01)],
+		"centre_cell": [centre.x, centre.y, centre.z], "occupied_nearby": cells.slice(0, 40)}
+
+
 func _v3(v: Vector3) -> Array:
 	return [snappedf(v.x, .01), snappedf(v.y, .01), snappedf(v.z, .01)]
 
@@ -305,7 +323,7 @@ func _shape_text(shape: Shape3D) -> String:
 
 
 ## What a collider is: node path, class, the prop/owner it belongs to, shape text, a world AABB and its distance from the player.
-func _describe_collider(collider: Variant, shape_index: int, from: Vector3) -> Dictionary:
+func _describe_collider(collider: Variant, shape_index: int, from: Vector3, point: Vector3 = Vector3.INF) -> Dictionary:
 	var info := {"node": "?", "class": "?", "owner_chain": [], "shape": "?", "aabb": [], "distance": -1.0}
 	if not (collider is Node):
 		info["node"] = str(collider)
@@ -321,6 +339,8 @@ func _describe_collider(collider: Variant, shape_index: int, from: Vector3) -> D
 		chain.append("%s(%s)" % [walker.name, walker.get_class()])
 		walker = walker.get_parent()
 	info["owner_chain"] = chain
+	if node is GridMap:
+		info["gridmap"] = _gridmap_cells(node as GridMap, from if point == Vector3.INF else point)
 	if node is CollisionObject3D:
 		var body := node as CollisionObject3D
 		info["layer"] = body.collision_layer
