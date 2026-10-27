@@ -122,6 +122,8 @@ const FRIENDLY_FIRE_ENABLED := false
 ## the hand (toggle action, sound and spot light as ever) and never drains; the slot keys, the wheel, drop, tool use, the taser, pickups and backpacks do nothing.
 ## The default (true) is Last Route's and the City's.
 @export var inventory_enabled := true
+## Night Watch gives Space to the cameras (the 2D game's camera toggle): its player scene switches jumping off by configuration; the default (true) is Last Route's and the City's.
+@export var jump_enabled := true
 var selected_inventory_slot := 0
 ## Five physical inventory slots. Empty strings are real empty spaces rather
 ## than hidden catalog entries, so dragging into a blank slot behaves like an
@@ -911,7 +913,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := _jump_requested or Input.is_action_just_pressed("jump")
+	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false

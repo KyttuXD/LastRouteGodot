@@ -57,7 +57,7 @@ rebinds had nowhere to live.
 
 | Action | Default | Notes |
 |---|---|---|
-| `nw_monitor` | U | opens / closes the monitor (use closes it too) |
+| `nw_monitor` | **Space** (U kept as an alias) | opens / closes the monitor like the 2D game's Space (use closes it too); the shared jump is switched off in Night Watch (`jump_enabled = false` in `night_watch_player.tscn`), so Space never jumps; a rebind replaces both keys |
 | `nw_cam_prev` / `nw_cam_next` | Left / Right, gamepad d-pad left / right | cycle the eight cameras, wrapping |
 | `nw_cam_1` .. `nw_cam_8` | 1-8 and the number pad | pick a camera; only inside the monitor (they do nothing with it down) |
 | `nw_door_left` / `nw_door_right` | Z / X | quick keys (also by aiming and using the panels) |

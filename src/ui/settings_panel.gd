@@ -25,6 +25,8 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
+	"waypoint": "PLACE / REMOVE WAYPOINT",
+	"waypoint_clear": "CLEAR WAYPOINT",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -349,6 +351,8 @@ func _show_control_section(index: int) -> void:
 	for action in active["actions"]:
 		if Settings.REBINDABLE_ACTIONS.has(action):
 			_build_control_row(action)
+	if String(active["title"]) == "ACTIONS" and SECTIONS.size() == ControlsRegistry.LAST_ROUTE_TABS.size():
+		_build_waypoint_preferences()
 	# Anything omitted from the organized categories is still reachable from
 	# System instead of becoming an invisible binding.
 	var placed := ControlsRegistry.registered_actions()
@@ -362,6 +366,55 @@ func _show_control_section(index: int) -> void:
 		controls_list.add_child(heading)
 		for action in orphans:
 			_build_control_row(action)
+
+
+## WAYPOINT HUD preferences, under the waypoint keys (docs/WAYPOINTS.md).
+func _build_waypoint_preferences() -> void:
+	var heading := Label.new()
+	heading.name = "WaypointHeading"
+	heading.text = Palette.track("WAYPOINT")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	var guidance := Button.new()
+	guidance.name = "WaypointGuidanceButton"
+	guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper()
+	guidance.tooltip_text = "OFF: pin only // ARROW: pin and screen-edge arrow // PATH: also floor chevrons along the route"
+	guidance.pressed.connect(func() -> void:
+		var modes: Array = Settings.WAYPOINT_GUIDANCE_MODES
+		Settings.set_waypoint_guidance(modes[(modes.find(Settings.waypoint_guidance) + 1) % modes.size()])
+		guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper())
+	controls_list.add_child(guidance)
+	var distance := Button.new()
+	distance.name = "WaypointDistanceButton"
+	Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance)
+	distance.pressed.connect(func() -> void:
+		Settings.set_waypoint_show_distance(not Settings.waypoint_show_distance)
+		Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance))
+	controls_list.add_child(distance)
+	var chime := Button.new()
+	chime.name = "WaypointChimeButton"
+	Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime)
+	chime.pressed.connect(func() -> void:
+		Settings.set_waypoint_arrival_chime(not Settings.waypoint_arrival_chime)
+		Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime))
+	controls_list.add_child(chime)
+	var size_button := Button.new()
+	size_button.name = "WaypointSizeButton"
+	size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0)
+	size_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_scale + .2
+		Settings.set_waypoint_scale(next if next <= 1.61 else .6)
+		size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0))
+	controls_list.add_child(size_button)
+	var opacity_button := Button.new()
+	opacity_button.name = "WaypointOpacityButton"
+	opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0)
+	opacity_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_opacity - .2
+		Settings.set_waypoint_opacity(next if next >= .29 else 1.0)
+		opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0))
+	controls_list.add_child(opacity_button)
 
 
 func _build_control_row(action: String) -> void:
