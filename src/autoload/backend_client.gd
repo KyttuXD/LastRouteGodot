@@ -895,7 +895,9 @@ func check_health() -> void:
 	# CREATE ROOM waits on this probe before choosing online or solo. Keep a
 	# dead primary service from turning that click into a long frozen-looking
 	# menu state.
-	request.timeout = 5.0
+	# Web builds run this while the page is still busy loading scenes; a frame stall longer than 5 s would otherwise
+	# discard a response that already arrived.
+	request.timeout = 25.0 if OS.has_feature("web") else 5.0
 	add_child(request)
 	request.request_completed.connect(_on_health_response.bind(request))
 	var error := request.request(_url("/api/health"),

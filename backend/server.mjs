@@ -316,6 +316,9 @@ export function createLastRouteServer({
       publicRoute.resetAuthority();
     }
     for (const [code, room] of enetRooms) {
+      // A web room whose host still holds its relay socket is alive even if the browser tab stopped sending heartbeats
+      // (a hidden tab pauses the game loop); the WebSocket is answered by the browser itself.
+      if (room.transport === "ws" && wsRelay.hasHost(code)) room.expiresAt = Math.max(room.expiresAt, timestamp + enetRoomTtlMs);
       if (room.expiresAt > timestamp) continue;
       enetRooms.delete(code);
       wsRelay.closeRoom(code);

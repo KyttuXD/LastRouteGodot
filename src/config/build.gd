@@ -105,7 +105,7 @@ static func short_revision() -> String:
 ## Editor runs stay usable while the developer is changing the backend.
 static func requires_update_gate() -> bool:
 	# TEST SERVER builds (run_multi / export_test_multiplayer) are play-test builds: they never wait for an update.
-	if OS.has_feature("test_server"):
+	if OS.has_feature("test_server") or OS.has_feature("web"):
 		return false
 	return OS.is_debug_build() and revision() != SOURCE_REVISION
 

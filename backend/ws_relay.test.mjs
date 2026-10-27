@@ -254,3 +254,18 @@ test("the host can remove a guest", async () => {
     host.close();
   } finally { await app.close(); }
 });
+
+test("a web room stays listed while its host holds the relay socket, and expires after it leaves", async () => {
+  const app = await fixture({ roomTtlMs: 400 });
+  try {
+    const { token } = await registerWebRoom(app.url);
+    const host = await connect(app.url);
+    host.send({ t: "hello", code: "WSTST", role: "host", token });
+    await host.next((m) => m.text?.t === "welcome");
+    await new Promise((resolve) => setTimeout(resolve, 1000)); // well past the 400 ms listing TTL, no heartbeats sent
+    assert.equal((await fetch(`${app.url}/api/enet/rooms/WSTST`)).status, 200);
+    host.close();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal((await fetch(`${app.url}/api/enet/rooms/WSTST`)).status, 404);
+  } finally { await app.close(); }
+});

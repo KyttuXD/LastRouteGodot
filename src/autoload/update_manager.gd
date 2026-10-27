@@ -203,6 +203,10 @@ func check() -> void:
 	if offline_mode:
 		_finish_check(false, false, "OFFLINE MODE")
 		return
+	if OS.has_feature("web"):
+		# A web build is the live copy the page just loaded: there is nothing to install.
+		_finish_check(true, false, "WEB BUILD IS ALWAYS CURRENT")
+		return
 	if _update_in_flight() \
 			or _manifest_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		return
