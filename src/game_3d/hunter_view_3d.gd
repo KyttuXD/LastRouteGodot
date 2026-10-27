@@ -36,12 +36,22 @@ var _head_look_yaw := 0.0
 var _head_scan_phase := 0.0
 var _kathy_beam: SpotLight3D
 var _carries_scythe := false
+var _was_stunned := false
+var _recover_left := 0.0
+var _expression := ""
+var _blink_timer := 2.0
+var _blink_left := 0.0
+var _stars: Node3D
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
 ## R-HandProp locator and scythe_idle / scythe_walk / scythe_swing clips for carrying it.
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
 ## While she carries it, a chase uses the scythe walk played this much faster.
 const SCYTHE_CHASE_SPEED := 1.8
+## Chasing hunters switch to the wide-eyed scream face this close to the runner (grid cells).
+const SCREAM_DISTANCE := 2.6
+const STAR_COUNT := 3
+const STAR_ORBIT_RADIUS := .34
 const GRAVITY_ACCELERATION := 24.0
 const MAX_PRESENTATION_SPEED := 12.0
 const HUNTER_BODY_RADIUS := .28
@@ -78,6 +88,8 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_head_look(delta)
+	_update_expression(delta)
+	_update_stars(delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -142,6 +154,8 @@ func _apply_model(model_id: String) -> void:
 		_head_node = null
 		_kathy_beam = null
 		_carries_scythe = false
+		_expression = ""
+		_stars = null
 
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate_hunter(identity)
@@ -319,8 +333,21 @@ func sync_from_brain() -> void:
 ## chase gets the more urgent clip.
 func _update_animation() -> void:
 	var clip_name := "idle"
+	var delta := get_process_delta_time()
 	if brain.stun_timer > 0.0:
 		clip_name = "stun"
+		_was_stunned = true
+		_recover_left = 0.0
+	elif _was_stunned:
+		# stun just ended: play the wake-up once (it is a one-shot) before going back to normal
+		_was_stunned = false
+		if _animation_player != null and _animation_player.has_animation("stun_recover"):
+			_recover_left = _animation_player.get_animation("stun_recover").length - .03
+	if clip_name != "stun" and _recover_left > 0.0:
+		_recover_left -= delta
+		clip_name = "stun_recover"
+	elif brain.stun_timer > 0.0:
+		pass
 	elif brain.gimmick is XivvyGimmick \
 			and (brain.gimmick as XivvyGimmick).flying:
 		clip_name = "flight"
@@ -339,6 +366,10 @@ func _update_animation() -> void:
 	var speed := 1.0
 	if _carries_scythe:
 		match clip_name:
+			"stun":
+				clip_name = "scythe_stun"
+			"stun_recover":
+				clip_name = "scythe_stun_recover"
 			"idle":
 				clip_name = "scythe_idle"
 			"walk":
@@ -349,3 +380,73 @@ func _update_animation() -> void:
 	ModelSlot.play_if_available(_animation_player, clip_name)
 	if _animation_player != null:
 		_animation_player.speed_scale = speed
+
+
+## Which face the hunter shows right now (BlockyFace cells; models without a Face quad ignore it):
+## stunned -> stun, waking up -> blank, chasing -> chase (scream when the runner is close), searching a lost
+## target -> derp (the irises roll: she is confused), anything else -> neutral with an occasional blink.
+func _desired_expression() -> String:
+	if brain == null or not brain.active:
+		return "neutral"
+	if brain.stun_timer > 0.0:
+		return "stun"
+	if _recover_left > 0.0:
+		return "blank"
+	match brain.state:
+		HunterBrain.State.CHASE:
+			if has_look_target and brain.position.distance_to(look_target_position) < SCREAM_DISTANCE:
+				return "scream"
+			return "chase"
+		HunterBrain.State.SEARCH:
+			return "derp"
+	return "neutral"
+
+
+func _update_expression(delta: float) -> void:
+	if _model == null or brain == null:
+		return
+	var wanted := _desired_expression()
+	if wanted == "neutral":
+		_blink_left = maxf(0.0, _blink_left - delta)
+		_blink_timer -= delta
+		if _blink_timer <= 0.0:
+			_blink_timer = randf_range(2.2, 5.0)
+			_blink_left = .13
+		if _blink_left > 0.0:
+			wanted = "blink"
+	if wanted == _expression:
+		return
+	_expression = wanted
+	BlockyFace.set_expression(_model, wanted)
+
+
+## Three little stars circle the head while she is stunned: readable at gameplay distance when the face is not.
+func _update_stars(delta: float) -> void:
+	var stunned := brain != null and brain.active and brain.stun_timer > 0.0 and _model != null and _head_node != null
+	if not stunned:
+		if _stars != null:
+			_stars.visible = false
+		return
+	if _stars == null:
+		_stars = Node3D.new()
+		_stars.name = "StunStars"
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(.09, .09, .09)
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.albedo_color = Color(1.0, .86, .25)
+		mesh.material = material
+		for i in STAR_COUNT:
+			var star := MeshInstance3D.new()
+			star.mesh = mesh
+			star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_stars.add_child(star)
+		add_child(_stars)
+	_stars.visible = true
+	var top := _head_node.global_position.y - global_position.y + .5
+	_stars.position = Vector3(0.0, top, 0.0)
+	var phase := Time.get_ticks_msec() * .004
+	for i in _stars.get_child_count():
+		var angle := phase + TAU * float(i) / float(STAR_COUNT)
+		(_stars.get_child(i) as Node3D).position = Vector3(cos(angle), sin(angle * 2.0) * .04, sin(angle)) * STAR_ORBIT_RADIUS
+		(_stars.get_child(i) as Node3D).rotation = Vector3(angle, angle * 1.3, 0.0)

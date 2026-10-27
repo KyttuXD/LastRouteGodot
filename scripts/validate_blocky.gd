@@ -139,6 +139,11 @@ func run(host: Node) -> int:
 					_fail("%s clip %s does not loop" % [id, clip])
 				else:
 					_check_seamless(id, clip, player.get_animation(clip))
+			# stun_recover is the one-shot wake-up that follows the looping stun
+			if not player.has_animation("stun_recover"):
+				_fail("%s is missing clip stun_recover" % id)
+			elif player.get_animation("stun_recover").loop_mode != Animation.LOOP_NONE:
+				_fail("%s clip stun_recover should be one-shot" % id)
 		if node.find_child("Head", true, false) == null:
 			_fail("%s has no Head node" % id)
 		for eye in ["L-Eye-Attachment", "R-Eye-Attachment"]:
@@ -152,7 +157,7 @@ func run(host: Node) -> int:
 			_fail("%s is %.2f m tall, wanted %.2f" % [id, bounds.size.y, want_height])
 		if not BlockyFace.set_expression(node, "blink"):
 			_fail("%s has no swappable Face quad" % id)
-		for anim in ["derp", "wink_left", "wink_right", "blank", "stun"]:
+		for anim in ["derp", "wink_left", "wink_right", "blank", "stun", "chase", "scream", "happy", "neutral"]:
 			if not BlockyFace.set_expression(node, anim):
 				_fail("%s cannot show the %s expression" % [id, anim])
 		# second skin layer (hat, jacket, sleeves, pants) must be present, not just the base boxes
@@ -239,9 +244,13 @@ func _check_scythe(host: Node) -> void:
 				_fail("%s has no %s attach point" % [id, hand])
 		if id.begins_with("kathy"):
 			var player := ModelSlot.find_animation_player(model)
-			for clip in ["scythe_idle", "scythe_walk", "scythe_swing"]:
+			for clip in ["scythe_idle", "scythe_walk", "scythe_swing", "scythe_stun", "scythe_stun_recover"]:
 				if player == null or not player.has_animation(clip):
 					_fail("%s is missing the %s clip" % [id, clip])
+			if player != null and player.has_animation("scythe_stun") and player.get_animation("scythe_stun").loop_mode == Animation.LOOP_NONE:
+				_fail("%s scythe_stun should loop" % id)
+			if player != null and player.has_animation("scythe_stun_recover") and player.get_animation("scythe_stun_recover").loop_mode != Animation.LOOP_NONE:
+				_fail("%s scythe_stun_recover should be one-shot" % id)
 			if player != null and player.has_animation("scythe_swing") and player.get_animation("scythe_swing").loop_mode != Animation.LOOP_NONE:
 				_fail("%s scythe_swing should be one-shot" % id)
 		model.queue_free()

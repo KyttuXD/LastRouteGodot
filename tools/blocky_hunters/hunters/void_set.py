@@ -233,16 +233,44 @@ def _eye_glow(atlas, eye):
 
 
 def void_expressions(face, eye, body):
-    """13 cells in the order of bb_skin.expressions_from_face, but a Void has no expressions: only the glowing eyes,
-    and a blink (cell 1). Every other cell is the neutral face, so any expression name just shows the eyes.
-    No mouth, nose or snout is ever drawn (lore rule)."""
+    """13 cells in the order of bb_skin.expressions_from_face. A Void keeps its plain face (no mouth, nose or snout,
+    lore rule): only the glowing eye pixels move inside the face's grey frame, so every expression is told by the
+    SHAPE of the eyes alone (the emissive mask picks the eye-coloured pixels out of every cell).
+      stun: slanted dizzy slits   chase: low narrow glare   scream: tall wide eyes   happy: ^ ^
+      derp: one lit pixel rolling round each eye   blank/blink: eyes off / shut."""
     frame = face.getpixel((0, 3))
     dim = tuple(int(v * .3) for v in body[:3]) + (255,)
-    blink = face.copy()
-    for x in (1, 2, 5, 6):
-        blink.putpixel((x, 4), dim)
-        blink.putpixel((x, 5), frame)
-    return [face.copy(), blink] + [face.copy() for _ in range(11)]
+    lit = (*eye, 255)
+
+    def cell(on, off=()):
+        im = face.copy()
+        for y in range(3, 7):                         # clear the whole eye socket (3 x 4 frame block, both sides)
+            for x in (1, 2, 5, 6):
+                im.putpixel((x, y), frame)
+        for pt in off:
+            im.putpixel(pt, dim)
+        for pt in on:
+            im.putpixel(pt, lit)
+        return im
+    L, R = (1, 2), (5, 6)
+    full = [(x, y) for x in L + R for y in (4, 5)]
+    cells = [face.copy()]                                                   # 0 neutral
+    cells.append(cell([], [(x, 5) for x in L + R]))                         # 1 blink: dark lids
+    cells.append(cell([(1, 4), (2, 5), (6, 4), (5, 5)]))                    # 2 stun: slanted slits
+    cells.append(cell([(x, 5) for x in L + R]))                             # 3 chase: narrow low glare
+    cells.append(cell([(x, y) for x in L + R for y in (3, 4, 5)]))          # 4 scream: tall eyes
+    cells.append(cell([(1, 5), (2, 4), (5, 4), (6, 5)]))                    # 5 happy: ^ ^
+    ring = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    for t in range(4):                                                      # 6-9 derp: pixel rolling clockwise
+        on = []
+        for ex, off in ((1, 0), (5, 2)):
+            dx, dy = ring[(t + off) % 4]
+            on.append((ex + dx, 4 + dy))
+        cells.append(cell(on, [pt for pt in full]))
+    cells.append(cell([], full))                                            # 10 blank: eyes off
+    cells.append(cell([(x, y) for x in R for y in (4, 5)], [(1, 5), (2, 5)]))   # 11 wink_right: character's right eye shut
+    cells.append(cell([(x, y) for x in L for y in (4, 5)], [(5, 5), (6, 5)]))   # 12 wink_left
+    return cells
 
 
 def module(name):
