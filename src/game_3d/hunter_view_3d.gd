@@ -123,7 +123,9 @@ const SCREAM_DISTANCE := 2.6
 const FACE_HOLD := .45
 const STAR_COUNT := 3
 const STAR_ORBIT_RADIUS := .34
-const GRAVITY_ACCELERATION := 24.0
+## Presentation height follows the floor at this rate (m/s); deeper than FALL_RECOVERY_DEPTH below it counts as a recovery.
+const SETTLE_SPEED := 14.0
+const FALL_RECOVERY_DEPTH := 1.0
 const MAX_PRESENTATION_SPEED := 12.0
 const PRESENTATION_DEAD_ZONE := .006
 const HUNTER_BODY_RADIUS := .28
@@ -186,17 +188,17 @@ func _physics_process(delta: float) -> void:
 		position.y = move_toward(position.y, _surface_target_y, delta * 6.0)
 		velocity.y = 0.0
 	else:
-		if not is_on_floor():
-			velocity.y -= GRAVITY_ACCELERATION * delta
-		else:
-			velocity.y = -0.35
+		# Hunters are grid simulations on a flat level floor: their height is the floor height, never physics. A body
+		# that fell under gravity dropped through the map as soon as the chunk beneath it had no collider (far hunters,
+		# chunks still streaming, a chunk freed under her). Collision stays for the planar slide against loaded walls.
+		if position.y < _surface_target_y - FALL_RECOVERY_DEPTH:
+			brain.fall_recoveries += 1   # safety net: should never happen now, counted for the admin list and the tests
+		position.y = move_toward(position.y, _surface_target_y, delta * SETTLE_SPEED)
+		velocity.y = 0.0
 	# The floor snap would pull a flying hunter back to the floor every step.
 	floor_snap_length = 0.0 if _flight.altitude > .02 else .32
 	move_and_slide()
-	# Streamed chunks may finish between physics frames. Do not allow a hunter
-	# to fall forever while her destination floor is still being attached.
-	if not _streamed_height_override_active \
-			and position.y < _surface_target_y - StreamedFacilityView3D.LEVEL_HEIGHT:
+	if not _streamed_height_override_active and position.y < _surface_target_y - FALL_RECOVERY_DEPTH:
 		position.y = _surface_target_y
 		velocity.y = 0.0
 
