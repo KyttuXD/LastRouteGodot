@@ -172,6 +172,7 @@ func _ready() -> void:
 	player.interaction_message.connect(hud.show_message)
 	player.taser_requested.connect(_on_taser_requested)
 	player.tool_used.connect(_on_tool_used)
+	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
@@ -2776,9 +2777,57 @@ func _resolve_taser(peer_id: int) -> void:
 			"display_name", hit.brain.hunter_id)).to_upper()})
 
 
+## True when the scene has a use for the tool in hand right here: a safe room to repair, or (axe) a grabbed teammate to cut free. Without one a
+## swing is a free whoosh: no durability, no noise and no deny blip.
+func _tool_context_available(item_id: String) -> bool:
+	if item_id not in ["crowbar", "rescue_axe"]:
+		return false
+	if item_id == "rescue_axe" and not _grabbed_teammate_in_reach().is_empty():
+		return true
+	return _safe_room_repair_in_reach()
+
+
+func _safe_room_repair_in_reach() -> bool:
+	var data := facility.current_chunk_data()
+	if not bool(data.get("safe_room", false)):
+		return false
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var center := Vector2((coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
+		(coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE)
+	return player.grid_position().distance_to(center) <= 4.25
+
+
+const AXE_RESCUE_REACH := 3.4
+
+
+## The teammate (if any) caught in a hunter's hold within reach of the axe: {"peer_id": ...} or empty.
+func _grabbed_teammate_in_reach() -> Dictionary:
+	if not RoomState.online:
+		return {}
+	var local_id := multiplayer.get_unique_id()
+	for state in _remotes.target_states({}):
+		var peer := int(state.get("peer_id", 0))
+		var at = state.get("at")
+		if peer == local_id or peer <= 0 or not bool(state.get("escape_active", false)) \
+				or not at is Vector3 or bool(state.get("spectating", false)):
+			continue
+		if (at as Vector3).distance_to(player.global_position) <= AXE_RESCUE_REACH:
+			return {"peer_id": peer}
+	return {}
+
+
 func _on_tool_used(item_id: String) -> void:
 	if item_id not in ["crowbar", "rescue_axe"]:
 		return
+	if item_id == "rescue_axe":
+		var grabbed := _grabbed_teammate_in_reach()
+		if not grabbed.is_empty():
+			var request := {"what": "stream_axe_rescue", "target_peer": int(grabbed["peer_id"])}
+			if RoomState.is_host:
+				_accept_axe_rescue(multiplayer.get_unique_id(), request)
+			else:
+				_remotes.request_interaction(request)
+			return
 	var data := facility.current_chunk_data()
 	if not bool(data.get("safe_room", false)):
 		return
@@ -2864,6 +2913,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_streamed_pickup(peer_id, event)
 		"stream_safe_repair":
 			_accept_safe_repair(peer_id, event)
+		"stream_axe_rescue":
+			_accept_axe_rescue(peer_id, event)
 		"stream_checkpoint":
 			_accept_checkpoint(peer_id, event)
 		"stream_drop":
@@ -3067,6 +3118,34 @@ func _accept_stream_door(peer_id: int, event: Dictionary) -> void:
 		"message_peer_id": peer_id})
 
 
+## Host-authoritative: a teammate swinging the rescue axe frees a grabbed player in reach. The host checks that the swinger really holds the axe,
+## that the target is mid-struggle and within reach of the swinger, then tells the victim, whose own client resolves the struggle (and stuns the
+## hunter through the normal "escaped" report).
+func _accept_axe_rescue(peer_id: int, event: Dictionary) -> void:
+	var target_peer := int(event.get("target_peer", 0))
+	if target_peer <= 0 or target_peer == peer_id:
+		return
+	var swinger := _target_state_for_peer(peer_id)
+	var owned = swinger.get("owned_items", {})
+	if swinger.is_empty() or not owned is Dictionary or not bool(owned.get("rescue_axe", false)):
+		return
+	var victim := _target_state_for_peer(target_peer)
+	var victim_at = victim.get("at")
+	var swinger_at = swinger.get("at")
+	var victim_grabbed := bool(victim.get("escape_active", false))
+	if target_peer == _local_peer_id():
+		victim_grabbed = GameState.escape_active
+		victim_at = player.global_position
+	if not victim_grabbed or not victim_at is Vector3 or not swinger_at is Vector3 \
+			or (victim_at as Vector3).distance_to(swinger_at as Vector3) > AXE_RESCUE_REACH + .8:
+		return
+	_remotes.send_player_event(target_peer, {"what": "axe_rescue", "rescuer_peer_id": peer_id,
+		"message": "RESCUE AXE // A TEAMMATE CUT YOU FREE"})
+	if peer_id != _local_peer_id():
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "RESCUE AXE // TEAMMATE FREED"})
+
+
 func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
 	var room := _safe_room_for_peer(peer_id, String(event.get("room_id", "")), 4.25)
 	var item_id := String(event.get("item", ""))
@@ -3076,7 +3155,7 @@ func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
 			or not owned is Dictionary or not bool(owned.get(item_id, false)):
 		return
 	var info: Dictionary = room.get("safe_room_data", {})
-	var status := world_state.repair_safe_room(info, 12)
+	var status := world_state.repair_safe_room(info, 18 if item_id == "rescue_axe" else 12)
 	_publish_stream_event({"what": "stream_safe",
 		"room_id": String(info.get("id", "")),
 		"integrity": int(status.get("integrity", 0)),
@@ -3676,6 +3755,9 @@ func _apply_player_event(event: Dictionary) -> void:
 			var message := String(event.get("message", ""))
 			if not message.is_empty():
 				hud.show_message(message)
+		"axe_rescue":
+			if GameState.escape_active:
+				_resolve_escape_success(true, String(event.get("message", "")))
 		"stun":
 			player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
 			var stun_note := String(event.get("message", ""))
@@ -3707,11 +3789,20 @@ func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
 	hud.set_escape_active(true)
 	hud.update_escape(GameState.escape_progress, GameState.escape_required,
 		GameState.escape_remaining, GameState.escape_duration)
+	if player.owns_inventory_item("rescue_axe"):
+		hud.show_message("RESCUE AXE // CLICK TO CUT FREE")
 	if jumpscare != null:
 		jumpscare.start_hold(player.active_camera(), hunter_id)
 
 
 func _update_escape_struggle(delta: float) -> void:
+	# The rescue axe cuts the hold: one click, then the grab is gone and the hunter is staggered for twice as long. It costs a third of the axe.
+	if Input.is_action_just_pressed("tool_use") and MouseLock.is_captured() \
+			and player.owns_inventory_item("rescue_axe") \
+			and player.consume_item_durability("rescue_axe", PlayerController3D.AXE_BREAK_FREE_COST):
+		player.swing_axe_for_escape()
+		_resolve_escape_success(true, "RESCUE AXE // CUT FREE")
+		return
 	if Input.is_action_just_pressed("interact"):
 		GameState.register_escape_press()
 		Sound.struggle(GameState.escape_progress / maxf(1.0, GameState.escape_required))
@@ -3724,7 +3815,7 @@ func _update_escape_struggle(delta: float) -> void:
 		await _resolve_capture_outcome(_escaping_hunter_id)
 
 
-func _resolve_escape_success() -> void:
+func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	GameState.resolve_escape_success()
 	Sound.escape()
 	hud.set_escape_active(false)
@@ -3735,13 +3826,14 @@ func _resolve_escape_success() -> void:
 	if _remotes.simulates():
 		var view := _hunter_views.get(_escaping_entity_id) as HunterView3D
 		if view != null:
-			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION * (2.0 if with_axe else 1.0))
 			view.sync_from_brain()
 			_store_hunter(_escaping_entity_id, view)
 	else:
 		_remotes.submit_hunter_event({"what": "escaped",
-			"entity_id": _escaping_entity_id, "hunter_id": _escaping_hunter_id})
-	hud.show_message("You broke free!")
+			"entity_id": _escaping_entity_id, "hunter_id": _escaping_hunter_id,
+			"axe": with_axe})
+	hud.show_message(note if not note.is_empty() else "You broke free!")
 	_escaping_entity_id = ""
 	_escaping_hunter_id = ""
 
@@ -3860,7 +3952,8 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
 			if view != null:
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION \
+					* (2.0 if bool(event.get("axe", false)) else 1.0))
 				view.sync_from_brain()
 				_store_hunter(String(event.get("entity_id", "")), view)
 
