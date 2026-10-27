@@ -49,6 +49,14 @@ window/handheld/orientation=1
 
 theme/custom="res://src/ui/ref_theme.tres"
 
+[importer_defaults]
+
+; Generated mesh LODs decimate the few-hundred-triangle cube models once the 3D viewport LOD threshold is high
+; (hand/limb loss on hunters, merged cubes on props), so every scene import keeps full detail.
+scene={
+"meshes/generate_lods": false
+}
+
 [input]
 
 move_left={

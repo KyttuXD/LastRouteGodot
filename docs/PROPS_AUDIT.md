@@ -47,3 +47,12 @@ floor; every table variant 0.75 m; the restaurant table keeps its balloon cluste
   (1.3 m), officeChair (1.3 m, fine for a task chair), beds (bunk/canopy proportions), lounge couches (very wide),
   bookcases and wardrobes (flat fronts), lockers, the old non-blocky tables (prisonCafeteriaTable is a grey slab with
   attached benches), bedroomBench and vanityStool.
+
+## Mesh LODs
+
+Every model import now has `meshes/generate_lods=false` (about 3,400 import files) and `project.godot` sets it as the
+importer default, so new models follow. Godot's generated LODs decimate the few-hundred-triangle cube models once a
+viewport's LOD threshold is high (low-resolution or scaled 3D): hunter hands and forearms vanish. The `lods` validator
+checks every `.glb/.gltf` import. A chair, a table and a nightstand rendered at 3 m and 10 m with a threshold of 8, LODs on
+vs off (`tools/look/lod_check.tscn`), came out pixel-identical: props this small never get LODs generated, so the visible
+artifact was a hunter problem; the change is the safe default for everything.
