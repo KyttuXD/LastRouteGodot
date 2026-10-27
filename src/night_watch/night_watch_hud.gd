@@ -248,17 +248,12 @@ func _build_pause(root: Control) -> void:
 	var box := pause_root.find_child("CardButtons", true, false) as HBoxContainer
 	var resume := Button.new()
 	resume.name = "ResumeButton"
-	resume.text = "RESUME"
+	resume.text = "RESUME  ESC"
 	resume.pressed.connect(func(): resume_pressed.emit())
 	box.add_child(resume)
-	subtitles_button = Button.new()
-	subtitles_button.name = "SubtitlesButton"
-	subtitles_button.text = "SUBTITLES: ON"
-	subtitles_button.pressed.connect(func(): subtitles_toggled.emit(not subtitles))
-	box.add_child(subtitles_button)
 	var back := Button.new()
 	back.name = "PauseMenuButton"
-	back.text = "BACK TO GAMES"
+	back.text = "QUIT TO HUB  BACKSPACE"
 	back.pressed.connect(func(): menu_pressed.emit())
 	box.add_child(back)
 	pause_root.visible = false
@@ -271,17 +266,17 @@ func _build_end(root: Control) -> void:
 	var box := end_root.find_child("CardButtons", true, false) as HBoxContainer
 	end_next = Button.new()
 	end_next.name = "NextButton"
-	end_next.text = "NEXT NIGHT"
+	end_next.text = "NEXT NIGHT  ENTER"
 	end_next.pressed.connect(func(): next_pressed.emit())
 	box.add_child(end_next)
 	var retry := Button.new()
 	retry.name = "RetryButton"
-	retry.text = "RETRY"
+	retry.text = "RETRY  ENTER"
 	retry.pressed.connect(func(): retry_pressed.emit())
 	box.add_child(retry)
 	var back := Button.new()
 	back.name = "EndMenuButton"
-	back.text = "BACK TO GAMES"
+	back.text = "MENU  ESC"
 	back.pressed.connect(func(): menu_pressed.emit())
 	box.add_child(back)
 	end_root.visible = false

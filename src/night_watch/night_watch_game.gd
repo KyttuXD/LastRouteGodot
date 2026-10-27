@@ -240,10 +240,12 @@ func set_paused(on: bool) -> void:
 	MouseLock.claim("night_watch_pause", on)
 
 
+## QUIT TO HUB / MENU: back to the Shift Board (the 2D game's "hub"), where the 2D game puts you.
 func back_to_games() -> void:
 	get_tree().paused = false
 	MouseLock.release_all()
-	get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+	NightWatchSession.menu_screen = "board"
+	get_tree().change_scene_to_file("res://scenes/night_watch_menu.tscn")
 
 
 func retry() -> void:
@@ -388,6 +390,21 @@ func _animate_models(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and (event as InputEventKey).echo:
 		return
+	if event is InputEventKey and (event as InputEventKey).pressed:
+		var key := (event as InputEventKey).keycode
+		if state == State.PAUSED and key == KEY_BACKSPACE:
+			back_to_games()
+			return
+		if state == State.WON or state == State.LOST:
+			if key == KEY_ESCAPE:
+				back_to_games()
+				return
+			if key == KEY_ENTER or key == KEY_KP_ENTER:
+				if state == State.LOST:
+					retry()
+				elif hud.end_next.visible:
+					next_night()
+				return
 	if event.is_action_pressed(&"pause"):
 		if state == State.PLAYING or state == State.PAUSED:
 			set_paused(state == State.PLAYING)
@@ -451,7 +468,7 @@ func _finish_win() -> void:
 	NightWatchSounds.win()
 	NightWatchSave.record_clear(night)
 	var more := night < NightWatchData.NIGHTS
-	hud.show_end("6 AM", WIN_TEXT + ("\nNight %d is open." % (night + 1) if more else "\nYou cleared every night."), more)
+	hud.show_end("NIGHT %d COMPLETE" % night, "6:00 AM\n" + WIN_TEXT + ("\nNight %d is open." % (night + 1) if more else "\nYou cleared every night."), more)
 	finished.emit("win")
 
 

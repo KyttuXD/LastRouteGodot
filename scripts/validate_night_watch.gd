@@ -404,17 +404,18 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	for i in 271:
 		quiet.advance_ms(1000.0)
-	_expect(quiet.state == NightWatchGame.State.WON and quiet.hud.end_root.visible and quiet.hud.end_title.text == "6 AM", "a quiet night was not won at 6 AM")
+	_expect(quiet.state == NightWatchGame.State.WON and quiet.hud.end_root.visible and quiet.hud.end_title.text == "NIGHT 1 COMPLETE", "a quiet night was not won at 6 AM")
 	_expect(NightWatchSave.cleared() == [1] and NightWatchSave.unlocked_night() == 2, "winning night 1 did not save the clear and open night 2")
 	quiet.queue_free()
 	await host.get_tree().process_frame
-	# the menu: night 1 and 2 open, night 3 locked, BACK TO GAMES present
+	# the menu's shift board: night 1 and 2 open, night 3 locked, START SHIFT present
 	var menu := (load("res://scenes/night_watch_menu.tscn") as PackedScene).instantiate() as NightWatchMenu
 	host.add_child(menu)
 	await host.get_tree().process_frame
-	_expect(not (menu.night_buttons[1] as Button).disabled and not (menu.night_buttons[2] as Button).disabled and (menu.night_buttons[3] as Button).disabled,
-		"the night select does not follow the save")
-	_expect(menu.back_button != null and menu.back_button.text == "BACK TO GAMES", "the menu has no BACK TO GAMES")
+	menu.show_screen("board")
+	_expect(not (menu.tile_buttons[0] as Button).disabled and not (menu.tile_buttons[1] as Button).disabled and (menu.tile_buttons[2] as Button).disabled,
+		"the shift board does not follow the save")
+	_expect(menu.start_button != null and menu.start_button.text.begins_with("▶ START SHIFT"), "the board has no START SHIFT")
 	menu.queue_free()
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
 	NightWatchSession.start(1)
