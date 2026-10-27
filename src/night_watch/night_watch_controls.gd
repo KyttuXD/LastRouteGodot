@@ -6,7 +6,7 @@ extends RefCounted
 ##
 ## The player WALKS with the shared controller (PlayerController3D: WASD, mouse look, sprint, crouch, jump, E to use, the shared pause key, the same
 ## gamepad mapping): Night Watch changes none of it. Its stations are used with the same INTERACT action. The Night Watch actions are quick keys on
-## keys the shared input map leaves free, plus the camera keys of the monitor: `nw_monitor` (U) opens and closes it, `nw_cam_1..8` (1-8 and the number
+## keys the shared input map leaves free, plus the camera keys of the monitor: `nw_monitor` (Space, like the 2D game; U as an alias) opens and closes it, `nw_cam_1..8` (1-8 and the number
 ## pad) pick a camera, `nw_cam_prev` / `nw_cam_next` (Left / Right, gamepad d-pad left / right) cycle. R (office_radio, shared) mutes Zellia.
 ## Rebinds are saved in NightWatchSave (`key_overrides`) and applied on register(). Camera keys do nothing while the monitor is down.
 
@@ -28,7 +28,7 @@ const ACTIONS := [
 	{"action": &"nw_light_left", "label": "LEFT DOOR LIGHT (HOLD)", "key": KEY_G, "alt": 0, "joy": -1},
 	{"action": &"nw_light_right", "label": "RIGHT DOOR LIGHT (HOLD)", "key": KEY_H, "alt": 0, "joy": -1},
 	{"action": &"nw_lamp", "label": "DESK LAMP", "key": KEY_Y, "alt": 0, "joy": -1},
-	{"action": &"nw_monitor", "label": "CAMERAS (OPEN / CLOSE)", "key": KEY_U, "alt": 0, "joy": -1},
+	{"action": &"nw_monitor", "label": "CAMERAS (OPEN / CLOSE)", "key": KEY_SPACE, "alt": KEY_U, "joy": -1},   # Space as in the 2D game, U kept as an alias
 	{"action": &"nw_cam_prev", "label": "PREVIOUS CAMERA", "key": KEY_LEFT, "alt": 0, "joy": JOY_BUTTON_DPAD_LEFT},
 	{"action": &"nw_cam_next", "label": "NEXT CAMERA", "key": KEY_RIGHT, "alt": 0, "joy": JOY_BUTTON_DPAD_RIGHT},
 	{"action": &"nw_meet", "label": "MEET HER EYES (NIGHT 7)", "key": KEY_O, "alt": 0, "joy": -1},

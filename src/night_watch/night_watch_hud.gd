@@ -31,6 +31,9 @@ var call_label: Label
 var call_mute: Button
 var pause_button: Button
 var cameras_button: Button
+var close_button: Button
+var _monitor_available := true
+var monitor_guide: Label
 var call_script: NightWatchCallScript
 
 var monitor_root: Control
@@ -227,7 +230,7 @@ func _build_monitor(root: Control) -> void:
 	ratio.offset_left = 22
 	ratio.offset_right = -22
 	ratio.offset_top = 12
-	ratio.offset_bottom = -12
+	ratio.offset_bottom = -30   # the bottom strip below the picture holds CLOSE CAMERAS and the key guide
 	monitor_root.add_child(ratio)
 	var container := SubViewportContainer.new()
 	container.name = "FeedContainer"
@@ -269,8 +272,33 @@ func _build_monitor(root: Control) -> void:
 	static_rect.offset_left = 22
 	static_rect.offset_right = -22
 	static_rect.offset_top = 12
-	static_rect.offset_bottom = -12
+	static_rect.offset_bottom = -30
 	monitor_root.add_child(static_rect)
+	# the strip under the picture: a CLOSE CAMERAS button (mouse, keyboard or gamepad focus) and the live key guide
+	var strip := HBoxContainer.new()
+	strip.name = "MonitorStrip"
+	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	strip.offset_left = 22
+	strip.offset_right = -22
+	strip.offset_top = -26
+	strip.offset_bottom = -6
+	strip.add_theme_constant_override("separation", 8)
+	monitor_root.add_child(strip)
+	close_button = Button.new()
+	close_button.name = "CloseCamerasButton"
+	close_button.text = "CLOSE CAMERAS"
+	close_button.focus_mode = Control.FOCUS_ALL
+	close_button.add_theme_font_size_override("font_size", 6)
+	close_button.custom_minimum_size = Vector2(96, 16)
+	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	close_button.pressed.connect(func(): cameras_requested.emit())
+	strip.add_child(close_button)
+	monitor_guide = _label("", 5, Color(0.54, 0.52, 0.45))
+	monitor_guide.name = "MonitorGuide"
+	monitor_guide.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	monitor_guide.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	monitor_guide.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	strip.add_child(monitor_guide)
 	# the camera map, bottom right
 	var map := Control.new()
 	map.name = "CamMap"
@@ -400,15 +428,24 @@ func show_note(text: String, seconds := 2.5) -> void:
 	_note_left = seconds
 
 
+## The camera screen's guide: the CLOSE CAMERAS button names the live key (`close_key`), the line beside it lists the camera keys (NightWatchControls.hint_line(true, ...)).
+func set_monitor_guide(guide: String, close_key: String) -> void:
+	monitor_guide.text = guide
+	close_button.text = "CLOSE CAMERAS  %s" % close_key.to_upper()
+
+
 ## An office without a camera monitor (Bedtime, The Descent, Open Air) hides the CAMERAS button: call with `office.spec.has_monitor`.
 func set_monitor_available(on: bool) -> void:
+	_monitor_available = on
 	if cameras_button != null:
-		cameras_button.visible = on
+		cameras_button.visible = on and not monitor_root.visible
 
 
 func show_monitor(on: bool) -> void:
 	prompt_label.visible = not on
 	monitor_root.visible = on
+	hint_label.visible = not on and not call_panel.visible   # the camera screen has its own guide line
+	cameras_button.visible = _monitor_available and not on
 	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 
 

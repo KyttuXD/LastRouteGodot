@@ -38,7 +38,7 @@ func _player_block(text: String, is_main: bool) -> String:
 	var end := text.find('[node name="HUD"') if is_main else text.length()
 	var block := text.substr(start, end - start).strip_edges()
 	block = block.replace('parent="World/Player/', 'parent="').replace('parent="World/Player"', 'parent="."').replace(' parent="World"', "")
-	block = block.replace("unique_name_in_owner = true\n", "").replace("inventory_enabled = false\n", "")   # the one configured difference: Night Watch has no inventory
+	block = block.replace("unique_name_in_owner = true\n", "").replace("inventory_enabled = false\n", "").replace("jump_enabled = false\n", "")   # the one configured difference: Night Watch has no inventory
 	var cap_at := text.find("[sub_resource type=\"CapsuleShape3D\"")
 	return block + text.substr(cap_at, text.find("\n\n", cap_at) - cap_at)
 
@@ -230,14 +230,18 @@ func run(host: Node) -> int:
 		_expect((shift._models[id] as Node3D).visible and (shift._models[id] as Node3D).get_child_count() > 0, "%s is not on night 3's floor with a model" % id)
 	_expect(not (shift._models["ilyra"] as Node3D).visible, "Ilyra (level 0 on night 3) is shown")
 	# the controls: Night Watch's quick actions exist while a shift is open and no key of theirs is bound to ANY shared action
-	var nw_actions := ["nw_door_left", "nw_door_right", "nw_light_left", "nw_light_right", "nw_lamp", "nw_monitor"]
+	var nw_actions := ["nw_door_left", "nw_door_right", "nw_light_left", "nw_light_right", "nw_lamp"]   # nw_monitor is on Space: the shared jump is switched off in this scene
+	var jump_default := PlayerController3D.new()
+	_expect(not shift.player.jump_enabled and jump_default.jump_enabled, "Night Watch's player must not jump (Space is the cameras) and the controller's default must stay on")
+	jump_default.free()
 	for action in nw_actions:
 		_expect(InputMap.has_action(action), "%s is not registered" % action)
 		for ev in InputMap.action_get_events(action):
 			if ev is InputEventKey:
 				for other in InputMap.get_actions():
 					var other_name := String(other)
-					if other_name.begins_with("nw_") or other_name.begins_with("office_") or other_name.begins_with("ui_") or other_name.begins_with("spatial_editor"):
+					# waypoint / waypoint_clear are read only by Last Route's route scene (infinite_route_test.gd), never in a Night Watch shift
+					if other_name.begins_with("nw_") or other_name.begins_with("office_") or other_name.begins_with("ui_") or other_name.begins_with("spatial_editor") or other_name.begins_with("waypoint"):
 						continue
 					for oev in InputMap.action_get_events(other):
 						_expect(not (oev is InputEventKey and (oev as InputEventKey).physical_keycode == (ev as InputEventKey).physical_keycode),
