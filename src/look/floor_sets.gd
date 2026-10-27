@@ -20,6 +20,7 @@ const HALLS := {
 	"hospital": {"floor": ["vinyl0", "vinyl1"], "runner": false},      # clinic sheet vinyl
 	"lab": {"floor": ["epoxy0", "epoxy0", "epoxy1"], "runner": false}, # white epoxy, hatched keep-clear joints
 	"greenhouse": {"floor": ["terracotta0", "terracotta1", "stone2"], "runner": false},
+	"mall": {"floor": ["terrazzo0", "terrazzo1"], "runner": false},      # polished terrazzo arcade
 }
 
 ## District default for rooms whose purpose is not in ROOMS.
@@ -36,6 +37,7 @@ const ROOM_DEFAULT := {
 	"hospital": ["vinyl0", "vinyl1"],
 	"lab": ["epoxy0"],
 	"greenhouse": ["terracotta0", "terracotta1"],
+	"mall": ["terrazzo0"],
 }
 
 ## Room purpose -> floor kinds.
@@ -77,6 +79,11 @@ const ROOMS := {
 	"glasshouse": ["terracotta0", "terracotta1"], "palm_house": ["terracotta1", "stone2"], "cactus_room": ["stone2"],
 	"potting_shed": ["parquet1", "terracotta1"], "irrigation_room": ["grate", "terracotta0"],
 	"overgrown_room": ["stone2", "terracotta0"], "dome_atrium": ["terracotta0", "terracotta1"],
+	# shopping arcade
+	"donut_shop": ["check0", "check1"], "cinema": ["carpet_red"], "corner_store": ["vinyl1"], "food_court": ["terrazzo1", "check0"],
+	"bakery": ["check1", "parquet1"], "laundromat": ["vinyl0", "check1"], "electronics": ["carpet_tile1"],
+	"night_diner": ["check0"], "drugstore": ["vinyl0"], "florist": ["terracotta1", "parquet1"], "barber": ["check1"],
+	"pawn_shop": ["parquet0"], "stationery": ["carpet_green", "parquet1"],
 }
 
 

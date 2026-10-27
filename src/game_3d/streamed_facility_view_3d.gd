@@ -62,6 +62,7 @@ const REGION_COLORS := {
 	"hospital": Color("b9cfc6"),
 	"lab": Color("aebfc6"),
 	"greenhouse": Color("a8784e"),
+	"mall": Color("c9b8a2"),
 }
 const REGION_WALL_COLORS := {
 	"maze": Color("b47d6e"),
@@ -76,6 +77,7 @@ const REGION_WALL_COLORS := {
 	"hospital": Color("7fa39a"),
 	"lab": Color("8fa8b2"),
 	"greenhouse": Color("4f7a4a"),
+	"mall": Color("b08a6a"),
 }
 
 var generator: StreamedRouteGenerator
@@ -462,6 +464,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
+				_spawn_shop_signs(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -815,6 +818,37 @@ func _configure_grid(grid: GridMap) -> void:
 	grid.cell_center_y = false
 	grid.cell_octant_size = GRID_OCTANT_SIZE
 	grid.mesh_library = _library
+
+
+## Shopping arcade: each shop's name in lit letters over its door, on the hall side (the City's shop signs, ported).
+## Visual only (no collision), so hunters and the door keep-clear zone are unaffected.
+func _spawn_shop_signs(parent: Node3D, data: Dictionary) -> void:
+	if String(data.get("region", "")) != "mall":
+		return
+	for room_value in data.get("rooms", []):
+		var room: Dictionary = room_value
+		var shop_name := String(StreamedRouteGenerator.SHOP_NAMES.get(String(room.get("room_type", "")), ""))
+		var doorway_value = room.get("doorway")
+		if shop_name.is_empty() or not doorway_value is Vector2i:
+			continue
+		var doorway: Vector2i = doorway_value
+		var basis := StreamedRouteGenerator._room_template_basis(room)
+		if basis.is_empty():
+			continue
+		var outward: Vector2i = basis["open"]
+		var label := Label3D.new()
+		label.name = "ShopSign"
+		label.text = shop_name
+		label.pixel_size = 0.012
+		label.font_size = 48
+		label.outline_size = 8
+		label.modulate = Color(1.0, 0.55, 0.8) if String(room["room_type"]) == "donut_shop" else Color(0.55, 0.95, 0.95)
+		label.outline_modulate = Color(0.05, 0.03, 0.08)
+		label.shaded = false
+		label.double_sided = true
+		label.position = Vector3(doorway.x + .5 + outward.x * .56, 2.75, doorway.y + .5 + outward.y * .56)
+		label.rotation.y = atan2(float(outward.x), float(outward.y))
+		parent.add_child(label)
 
 
 func _spawn_streamed_ceiling_lights(parent: Node3D, data: Dictionary) -> void:

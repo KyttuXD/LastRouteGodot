@@ -1197,5 +1197,118 @@
  "compostBins": [
   "compostBins_0.glb",
   "compostBins_1.glb"
+ ],
+ "shopShelf": [
+  "shopShelf_0.glb",
+  "shopShelf_1.glb",
+  "shopShelf_2.glb"
+ ],
+ "shopFridge": [
+  "shopFridge_0.glb",
+  "shopFridge_1.glb"
+ ],
+ "checkoutCounter": [
+  "checkoutCounter_0.glb",
+  "checkoutCounter_1.glb",
+  "checkoutCounter_2.glb"
+ ],
+ "displayCase": [
+  "displayCase_0.glb",
+  "displayCase_1.glb",
+  "displayCase_2.glb"
+ ],
+ "coffeeStation": [
+  "coffeeStation_0.glb",
+  "coffeeStation_1.glb"
+ ],
+ "donutFryer": [
+  "donutFryer.glb"
+ ],
+ "bakeryRack": [
+  "bakeryRack_0.glb",
+  "bakeryRack_1.glb",
+  "bakeryRack_2.glb"
+ ],
+ "dinerStool": [
+  "dinerStool_0.glb",
+  "dinerStool_1.glb",
+  "dinerStool_2.glb"
+ ],
+ "dinerBooth": [
+  "dinerBooth_0.glb",
+  "dinerBooth_1.glb",
+  "dinerBooth_2.glb"
+ ],
+ "menuBoard": [
+  "menuBoard_0.glb",
+  "menuBoard_1.glb",
+  "menuBoard_2.glb"
+ ],
+ "donutSign": [
+  "donutSign_0.glb",
+  "donutSign_1.glb"
+ ],
+ "washingMachine": [
+  "washingMachine_0.glb",
+  "washingMachine_1.glb",
+  "washingMachine_2.glb"
+ ],
+ "dryerStack": [
+  "dryerStack_0.glb",
+  "dryerStack_1.glb"
+ ],
+ "flowerStand": [
+  "flowerStand_0.glb",
+  "flowerStand_1.glb"
+ ],
+ "barberChair": [
+  "barberChair_0.glb",
+  "barberChair_1.glb",
+  "barberChair_2.glb"
+ ],
+ "barberStation": [
+  "barberStation_0.glb",
+  "barberStation_1.glb"
+ ],
+ "clothesRack": [
+  "clothesRack_0.glb",
+  "clothesRack_1.glb",
+  "clothesRack_2.glb"
+ ],
+ "tvWall": [
+  "tvWall_0.glb",
+  "tvWall_1.glb",
+  "tvWall_2.glb"
+ ],
+ "cinemaSeats": [
+  "cinemaSeats_0.glb",
+  "cinemaSeats_1.glb"
+ ],
+ "cinemaScreen": [
+  "cinemaScreen_0.glb",
+  "cinemaScreen_1.glb"
+ ],
+ "ticketBooth": [
+  "ticketBooth_0.glb",
+  "ticketBooth_1.glb",
+  "ticketBooth_2.glb"
+ ],
+ "concessionCounter": [
+  "concessionCounter_0.glb",
+  "concessionCounter_1.glb"
+ ],
+ "foodCourtTable": [
+  "foodCourtTable_0.glb",
+  "foodCourtTable_1.glb",
+  "foodCourtTable_2.glb"
+ ],
+ "mallPlanter": [
+  "mallPlanter_0.glb",
+  "mallPlanter_1.glb",
+  "mallPlanter_2.glb"
+ ],
+ "mallBench": [
+  "mallBench_0.glb",
+  "mallBench_1.glb"
  ]
 }

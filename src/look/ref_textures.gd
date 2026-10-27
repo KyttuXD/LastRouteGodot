@@ -309,6 +309,20 @@ static func _paint_hazard(variant: int) -> Image:
 
 
 
+## Mall terrazzo: polished cream chips in a warm binder, a brass divider strip every metre.
+static func _paint_terrazzo(variant: int) -> Image:
+	var rng := _rng("terrazzo%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("5a5048") if variant == 0 else Color("4c4a50")
+	_noise(img, 0, 0, PX, PX, base, .04, rng, 2)
+	for i in 40:
+		var chip := [Color("8a8278"), Color("2e2a28"), Color("7a5a44"), Color("6a7470")][i % 4]
+		_dot(img, rng.randi_range(0, PX - 2), rng.randi_range(0, PX - 2), chip, 1 + i % 2, 1)
+	_dot(img, 0, 0, Color("7a5c2c"), PX, 1)
+	_dot(img, 0, 0, Color("7a5c2c"), 1, PX)
+	return img
+
+
 ## Lab epoxy floor: light grey poured resin on a metre grid, cyan line markers at the joints.
 static func _paint_epoxy(variant: int) -> Image:
 	var rng := _rng("epoxy%d" % variant)
@@ -714,6 +728,23 @@ static func _paint_wall_glasshouse(variant: int) -> Image:
 	_cornice(img, bar)
 	return img
 
+static func _paint_wall_mall(variant: int) -> Image:
+	# arcade wall: warm cream plaster over a dark tiled dado, a lit cove strip under the cornice
+	var rng := _rng("wmall%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	_wall_base(img, rng, Color("3a2c2a"), Color("5c524a"))
+	for y in range(RAIL_Y + 2, WALL_H - SKIRT_H, 8):
+		_dot(img, 0, y, Color("1e1614"), PX, 1)
+	for x in [0, 16]:
+		_dot(img, x, RAIL_Y, Color("1e1614"), 1, WALL_H - RAIL_Y - SKIRT_H)
+	_dot(img, 0, RAIL_Y - 2, Color("7a5c2c"), PX, 2)
+	_dot(img, 0, CORNICE_H + 2, Color("c89a5a") if variant == 0 else Color("5fb0b8"), PX, 2)
+	_skirt(img, Color("1e1614"))
+	_cornice(img, Color("4a423c"))
+	_grime(img, rng, 2)
+	return img
+
+
 static func _paint_wall_corridor(variant: int) -> Image:
 	# service corridor: bay of dark metal with hazard-striped foot and an amber conduit
 	var rng := _rng("wcorr%d" % variant)
@@ -808,6 +839,7 @@ const FLOOR_PAINTERS := {
 	"vinyl0": [&"_paint_vinyl", 0], "vinyl1": [&"_paint_vinyl", 1], "concrete0": [&"_paint_concrete", 0],
 	"concrete1": [&"_paint_concrete", 1],
 	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
+	"terrazzo0": [&"_paint_terrazzo", 0], "terrazzo1": [&"_paint_terrazzo", 1],
 	"epoxy0": [&"_paint_epoxy", 0], "epoxy1": [&"_paint_epoxy", 1],
 	"terracotta0": [&"_paint_terracotta", 0], "terracotta1": [&"_paint_terracotta", 1],
 }
@@ -823,6 +855,7 @@ const WALL_PAINTERS := {
 	"inferno0": [&"_paint_wall_inferno", 0],
 	"hospital0": [&"_paint_wall_hospital", 0], "hospital1": [&"_paint_wall_hospital", 1],
 	"lab0": [&"_paint_wall_lab", 0], "lab1": [&"_paint_wall_lab", 1],
+	"mall0": [&"_paint_wall_mall", 0], "mall1": [&"_paint_wall_mall", 1],
 	"glasshouse0": [&"_paint_wall_glasshouse", 0], "glasshouse1": [&"_paint_wall_glasshouse", 1],
 }
 const CEILING_PAINTERS := {

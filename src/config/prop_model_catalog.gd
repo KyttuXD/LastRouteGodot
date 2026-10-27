@@ -636,6 +636,32 @@ const MODEL_PATHS := {
 	"wateringCart": ["res://art/props-3d/props/blocky/wateringCart.glb"],
 	"greenhouseBench": ["res://art/props-3d/props/blocky/greenhouseBench_0.glb", "res://art/props-3d/props/blocky/greenhouseBench_1.glb", "res://art/props-3d/props/blocky/greenhouseBench_2.glb"],
 	"compostBins": ["res://art/props-3d/props/blocky/compostBins_0.glb", "res://art/props-3d/props/blocky/compostBins_1.glb"],
+	## Shopping arcade props (tools/props/blocky_props_mall.py), blocky-only like the biome props above.
+	"shopShelf": ["res://art/props-3d/props/blocky/shopShelf_0.glb", "res://art/props-3d/props/blocky/shopShelf_1.glb", "res://art/props-3d/props/blocky/shopShelf_2.glb"],
+	"shopFridge": ["res://art/props-3d/props/blocky/shopFridge_0.glb", "res://art/props-3d/props/blocky/shopFridge_1.glb"],
+	"checkoutCounter": ["res://art/props-3d/props/blocky/checkoutCounter_0.glb", "res://art/props-3d/props/blocky/checkoutCounter_1.glb", "res://art/props-3d/props/blocky/checkoutCounter_2.glb"],
+	"displayCase": ["res://art/props-3d/props/blocky/displayCase_0.glb", "res://art/props-3d/props/blocky/displayCase_1.glb", "res://art/props-3d/props/blocky/displayCase_2.glb"],
+	"coffeeStation": ["res://art/props-3d/props/blocky/coffeeStation_0.glb", "res://art/props-3d/props/blocky/coffeeStation_1.glb"],
+	"donutFryer": ["res://art/props-3d/props/blocky/donutFryer.glb"],
+	"bakeryRack": ["res://art/props-3d/props/blocky/bakeryRack_0.glb", "res://art/props-3d/props/blocky/bakeryRack_1.glb", "res://art/props-3d/props/blocky/bakeryRack_2.glb"],
+	"dinerStool": ["res://art/props-3d/props/blocky/dinerStool_0.glb", "res://art/props-3d/props/blocky/dinerStool_1.glb", "res://art/props-3d/props/blocky/dinerStool_2.glb"],
+	"dinerBooth": ["res://art/props-3d/props/blocky/dinerBooth_0.glb", "res://art/props-3d/props/blocky/dinerBooth_1.glb", "res://art/props-3d/props/blocky/dinerBooth_2.glb"],
+	"menuBoard": ["res://art/props-3d/props/blocky/menuBoard_0.glb", "res://art/props-3d/props/blocky/menuBoard_1.glb", "res://art/props-3d/props/blocky/menuBoard_2.glb"],
+	"donutSign": ["res://art/props-3d/props/blocky/donutSign_0.glb", "res://art/props-3d/props/blocky/donutSign_1.glb"],
+	"washingMachine": ["res://art/props-3d/props/blocky/washingMachine_0.glb", "res://art/props-3d/props/blocky/washingMachine_1.glb", "res://art/props-3d/props/blocky/washingMachine_2.glb"],
+	"dryerStack": ["res://art/props-3d/props/blocky/dryerStack_0.glb", "res://art/props-3d/props/blocky/dryerStack_1.glb"],
+	"flowerStand": ["res://art/props-3d/props/blocky/flowerStand_0.glb", "res://art/props-3d/props/blocky/flowerStand_1.glb"],
+	"barberChair": ["res://art/props-3d/props/blocky/barberChair_0.glb", "res://art/props-3d/props/blocky/barberChair_1.glb", "res://art/props-3d/props/blocky/barberChair_2.glb"],
+	"barberStation": ["res://art/props-3d/props/blocky/barberStation_0.glb", "res://art/props-3d/props/blocky/barberStation_1.glb"],
+	"clothesRack": ["res://art/props-3d/props/blocky/clothesRack_0.glb", "res://art/props-3d/props/blocky/clothesRack_1.glb", "res://art/props-3d/props/blocky/clothesRack_2.glb"],
+	"tvWall": ["res://art/props-3d/props/blocky/tvWall_0.glb", "res://art/props-3d/props/blocky/tvWall_1.glb", "res://art/props-3d/props/blocky/tvWall_2.glb"],
+	"cinemaSeats": ["res://art/props-3d/props/blocky/cinemaSeats_0.glb", "res://art/props-3d/props/blocky/cinemaSeats_1.glb"],
+	"cinemaScreen": ["res://art/props-3d/props/blocky/cinemaScreen_0.glb", "res://art/props-3d/props/blocky/cinemaScreen_1.glb"],
+	"ticketBooth": ["res://art/props-3d/props/blocky/ticketBooth_0.glb", "res://art/props-3d/props/blocky/ticketBooth_1.glb", "res://art/props-3d/props/blocky/ticketBooth_2.glb"],
+	"concessionCounter": ["res://art/props-3d/props/blocky/concessionCounter_0.glb", "res://art/props-3d/props/blocky/concessionCounter_1.glb"],
+	"foodCourtTable": ["res://art/props-3d/props/blocky/foodCourtTable_0.glb", "res://art/props-3d/props/blocky/foodCourtTable_1.glb", "res://art/props-3d/props/blocky/foodCourtTable_2.glb"],
+	"mallPlanter": ["res://art/props-3d/props/blocky/mallPlanter_0.glb", "res://art/props-3d/props/blocky/mallPlanter_1.glb", "res://art/props-3d/props/blocky/mallPlanter_2.glb"],
+	"mallBench": ["res://art/props-3d/props/blocky/mallBench_0.glb", "res://art/props-3d/props/blocky/mallBench_1.glb"],
 }
 
 ## Highest local point of ceiling-hung models. Their exported origins stay in
@@ -665,6 +691,8 @@ const LIGHT_PROFILES := {
 	"surgicalLight": {"color": Color("f4fbff"), "energy": .85, "range": 4.6, "height": .2},
 	"specimenTank": {"color": Color("5fe8d8"), "energy": .42, "range": 3.0, "height": 1.2},
 	"xrayLightbox": {"color": Color("e8f4ff"), "energy": .26, "range": 2.4, "height": 1.5},
+	"donutSign": {"color": Color("ff8fc8"), "energy": .38, "range": 3.0, "height": .7},
+	"menuBoard": {"color": Color("ffe0b0"), "energy": .24, "range": 2.4, "height": .45},
 }
 
 ## Coordinated furniture families share the same room id. Hash that room id,
@@ -756,7 +784,7 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 	"publicBabyChangeStation", "publicMensRoomSign", "publicWomensRoomSign",
 	"houseMedicineCabinet", "houseTowelRack", "houseBathroomShelf",
 	"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard",
-	"hazardSign",
+	"hazardSign", "menuBoard", "donutSign", "cinemaScreen",
 ]
 
 
@@ -843,7 +871,7 @@ static func interaction_for(type: String) -> String:
 		return "use"
 	if "mirror" in lowered:
 		return "mirror"
-	if type in ["labBench", "pottingBench"]:
+	if type in ["labBench", "pottingBench", "dinerBooth"]:
 		return ""   # work benches, not seats
 	if type in ["controlConsole", "nursesStation"]:
 		return "use"
