@@ -4,7 +4,8 @@ extends Node
 ## project ships no WAV/OGG assets: every cue is an oscillator, filtered noise
 ## or low thump. Rendering each named cue to a cached stereo AudioStreamWAV
 ## keeps that identity while giving Godot ordinary streams and audio buses.
-## Continuous ambience remains deliberately absent, matching the source.
+## Ambient beds per region / room purpose (AmbienceTable) are looped renders of the same primitives, crossfaded by
+## set_ambience() and ducked in chases; footsteps take the floor surface (SurfaceSounds).
 
 const SAMPLE_RATE := 44100
 const PLAYER_POOL_SIZE := 16
@@ -24,6 +25,15 @@ var _last_footstep_usec := -2000000
 var _last_struggle_usec := -2000000
 var _last_menu_usec := -2000000
 var _footstep_index := 0
+var last_footstep_surface := ""
+## Ambience: the bed now playing (AmbienceTable key) and its two crossfading players.
+var ambience_key := ""
+var ambience_duck := 0.0
+const AMBIENCE_FADE := 1.6
+const AMBIENCE_GAIN_DB := -6.0
+var _ambience_players: Array[AudioStreamPlayer] = []
+var _ambience_active := 0
+var _ambience_cache := {}
 
 
 func _ready() -> void:
@@ -34,6 +44,13 @@ func _ready() -> void:
 		player.bus = &"SFX"
 		add_child(player)
 		_players.append(player)
+	for index in 2:
+		var bed := AudioStreamPlayer.new()
+		bed.name = "Ambience%d" % index
+		bed.bus = &"SFX"
+		bed.volume_db = -80.0
+		add_child(bed)
+		_ambience_players.append(bed)
 	get_tree().node_added.connect(_on_node_added)
 	call_deferred("_wire_existing_buttons")
 
@@ -133,8 +150,11 @@ func nyxie_empty_wake() -> bool:
 	return _play_named("nyxie_empty")
 
 
-func hunter_footstep(pan: float = 0.0, volume: float = 0.05) -> bool:
-	return _play_named("hunter_footstep", pan, clampf(volume / 0.05, 0.1, 2.0))
+func hunter_footstep(pan: float = 0.0, volume: float = 0.05, surface := "") -> bool:
+	if surface == "":
+		return _play_named("hunter_footstep", pan, clampf(volume / 0.05, 0.1, 2.0))
+	_footstep_index += 1
+	return _play_named("step:hunter:%s:%d" % [surface, _footstep_index % 4], pan, clampf(volume / 0.05, 0.1, 2.0))
 
 
 ## A hunter's laugh/hum/dance (HunterEmoteCatalog noise > 0): a small, quiet cue scaled by distance.
@@ -160,25 +180,6 @@ func xivvy_wing(pan: float = 0.0, intensity: float = 1.0) -> bool:
 ## The black variant's tell: a long low hiss.
 func spider_hiss(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("spider_hiss", pan, clampf(intensity, 0.1, 2.0))
-
-
-## The sewer under the maze: one-shot cues the run scene scatters around the
-## runner (there is still no continuous ambience bed). `intensity` is distance.
-func sewer_drip(pan: float = 0.0, intensity: float = 1.0) -> bool:
-	return _play_named("sewer_drip", pan, clampf(intensity, 0.1, 2.0))
-
-
-func sewer_rat(pan: float = 0.0, intensity: float = 1.0) -> bool:
-	return _play_named("sewer_rat", pan, clampf(intensity, 0.1, 2.0))
-
-
-func sewer_gurgle(pan: float = 0.0, intensity: float = 1.0) -> bool:
-	return _play_named("sewer_gurgle", pan, clampf(intensity, 0.1, 2.0))
-
-
-## A wading footstep in the channel.
-func sewer_splash(pan: float = 0.0, intensity: float = 1.0) -> bool:
-	return _play_named("sewer_splash", pan, clampf(intensity, 0.1, 2.0))
 
 
 ## A hand or boot on an iron ladder rung.
@@ -209,7 +210,7 @@ func heartbeat(intensity: float) -> bool:
 	return _play_named("heartbeat", 0.0, danger)
 
 
-func footstep(mode := "walk") -> bool:
+func footstep(mode := "walk", surface := "") -> bool:
 	var resolved := mode if mode in ["sprint", "crouch"] else "walk"
 	var gaps := {"sprint": 205000, "walk": 335000, "crouch": 510000}
 	var now := Time.get_ticks_usec()
@@ -218,7 +219,11 @@ func footstep(mode := "walk") -> bool:
 	_last_footstep_usec = now
 	_footstep_index += 1
 	var side := 1.0 if _footstep_index % 2 else -1.0
-	return _play_named("footstep_%s" % resolved, side * 0.045)
+	last_footstep_surface = surface
+	if surface == "":
+		return _play_named("footstep_%s" % resolved, side * 0.045)
+	# slight random pitch per step: rendered variants are cached, four per surface and gait
+	return _play_named("step:%s:%s:%d" % [resolved, surface, _footstep_index % 4], side * 0.045)
 
 
 func capture() -> bool:
@@ -264,6 +269,74 @@ func office_jumpscare(hunter_id := "void") -> bool:
 	# avoids every signal ending on a byte-identical sting.
 	var tint: int = absi(hunter_id.hash()) % 90
 	return _play_named("office_jumpscare", 0.0, 1.0 + tint / 900.0)
+
+
+## Crossfades to the ambient bed `key` (AmbienceTable.key_for; "" fades out). Same key again does nothing.
+func set_ambience(key: String) -> bool:
+	if key == ambience_key:
+		return false
+	ambience_key = key
+	var old := _ambience_players[_ambience_active]
+	_ambience_active = 1 - _ambience_active
+	var new_player := _ambience_players[_ambience_active]
+	var fade := create_tween().set_parallel(true)
+	fade.tween_property(old, "volume_db", -80.0, AMBIENCE_FADE)
+	if key != "" and not muted:
+		new_player.stream = render_ambience(key)
+		new_player.volume_db = -80.0
+		if DisplayServer.get_name() != "headless":
+			new_player.play()
+		fade.tween_property(new_player, "volume_db", _ambience_level_db(), AMBIENCE_FADE)
+	return true
+
+
+## 0 = full bed, 1 = ducked (a chase is on): eased toward by the caller each frame.
+func set_ambience_duck(amount: float) -> void:
+	ambience_duck = clampf(amount, 0.0, 1.0)
+	var player := _ambience_players[_ambience_active]
+	if ambience_key != "" and player.volume_db > -60.0:
+		player.volume_db = _ambience_level_db()
+
+
+func _ambience_level_db() -> float:
+	return AMBIENCE_GAIN_DB - 14.0 * ambience_duck
+
+
+## A looping render of a bed's layers (cached per key).
+func render_ambience(key: String) -> AudioStreamWAV:
+	if _ambience_cache.has(key):
+		return _ambience_cache[key]
+	var seconds := AmbienceTable.LOOP_SECONDS
+	var components := []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(key)
+	for layer_value in AmbienceTable.layers(key):
+		var layer: Dictionary = layer_value
+		var hz := float(layer.get("hz", 200.0))
+		var vol := float(layer.get("vol", .005))
+		match String(layer.get("kind", "hum")):
+			"hum":
+				components.append({"kind": "tone", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "wave": "sine", "pan": 0.0, "flat": true})
+			"noise":
+				var swell := float(layer.get("swell", 0.0))
+				components.append({"kind": "noise", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "pan": 0.0, "rate": 1.0, "flat": true, "swell": swell})
+			"pulse":
+				var every := maxf(.1, float(layer.get("every", 1.0)))
+				var t := 0.0
+				while t < seconds - .05:
+					components.append(_tone(hz, float(layer.get("len", .1)), vol, t, String(layer.get("wave", "sine")), rng.randf_range(-.3, .3)))
+					t += every
+			"chirp":
+				for _i in int(layer.get("count", 3)):
+					var at := rng.randf_range(0.0, seconds - .3)
+					for k in 3:
+						components.append(_tone(hz * rng.randf_range(.9, 1.15), .05, vol, at + k * .07, "triangle", rng.randf_range(-.6, .6)))
+	var stream := _render_components(components, abs(key.hash()), seconds)
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = int(seconds * SAMPLE_RATE)
+	_ambience_cache[key] = stream
+	return stream
 
 
 ## Public for the headless audio check and future waveform previews. Callers
@@ -347,6 +420,26 @@ func _on_node_added(node: Node) -> void:
 		button.pressed.connect(callback)
 
 
+## "step:<walk|sprint|crouch|hunter>:<surface>:<variant>": the floor's step (SurfaceSounds.PROFILES), gait scales level and
+## length, the variant nudges pitch a little so a walk does not repeat one sample.
+func _surface_step(cue: String, pan: float, intensity: float) -> Array:
+	var parts := cue.split(":")
+	var gait := parts[1]
+	var profile: Dictionary = SurfaceSounds.PROFILES.get(parts[2], SurfaceSounds.PROFILES["concrete"])
+	var pitch := 1.0 + (int(parts[3]) - 1.5) * .035
+	var level: float = float({"walk": .05, "sprint": .095, "crouch": .017, "hunter": .045}.get(gait, .05)) * intensity
+	var length: float = float({"walk": .07, "sprint": .085, "crouch": .055, "hunter": .08}.get(gait, .07))
+	var c := [_noise(length, level * float(profile["noise"]), float(profile["noise_hz"]) * pitch, 0, pan, pitch),
+		_thump(float(profile["thump_hz"]) * pitch, length, level * .8 * float(profile["thump"]), 0, pan)]
+	if float(profile.get("click", 0.0)) > 0.0:
+		c.append(_tone(2400.0 * pitch, .012, level * .35 * float(profile["click"]), 0, "square", pan))
+	if float(profile.get("ring", 0.0)) > 0.0:
+		c.append(_tone(620.0 * pitch, .14, level * .22, .005, "triangle", pan))
+	if float(profile.get("splash", 0.0)) > 0.0:
+		c.append(_noise(.16, level * .6, 1800.0 * pitch, .02, pan, 1.3))
+	return c
+
+
 func _tone(frequency: float, duration: float, volume: float, delay := 0.0,
 		wave := "sine", pan := 0.0) -> Dictionary:
 	return {"kind": "tone", "frequency": frequency, "duration": duration,
@@ -367,6 +460,8 @@ func _noise(duration: float, volume: float, frequency: float, delay := 0.0,
 
 func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 	var c: Array = []
+	if cue.begins_with("step:"):
+		return _surface_step(cue, pan, intensity)
 	match cue:
 		"collect":
 			c = [_tone(220, .12, .13, 0, "square"), _tone(330, .16, .10, .09, "square"), _tone(660, .22, .07, .19)]
@@ -415,12 +510,6 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"xivvy_wing": c = [_noise(.13, .05 * intensity, 520, 0, pan, .9), _thump(120, .09, .03 * intensity, .02, pan)]
 		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
-		"sewer_drip": c = [_tone(1480, .05, .05 * intensity, 0, "sine", pan), _tone(990, .09, .035 * intensity, .03, "sine", pan)]
-		"sewer_rat": c = [_tone(3100, .05, .022 * intensity, 0, "triangle", pan), _tone(3500, .04, .018 * intensity, .07, "triangle", pan),
-			_noise(.32, .02 * intensity, 2400, .12, pan, 1.6)]
-		"sewer_gurgle": c = [_noise(.7, .05 * intensity, 180, 0, pan, .6), _thump(70, .25, .03 * intensity, .2, pan),
-			_noise(.4, .03 * intensity, 320, .35, pan, .8)]
-		"sewer_splash": c = [_noise(.16, .07 * intensity, 760, 0, pan, 1.2), _thump(96, .08, .03 * intensity, 0, pan)]
 		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
 			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
@@ -474,10 +563,12 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 	return c
 
 
-func _render_components(components: Array, seed_value: int) -> AudioStreamWAV:
+func _render_components(components: Array, seed_value: int, fixed_seconds: float = 0.0) -> AudioStreamWAV:
 	var total := 0.05
 	for component in components:
 		total = maxf(total, float(component["delay"]) + float(component["duration"]) + .025)
+	if fixed_seconds > 0.0:
+		total = fixed_seconds
 	var frame_count := maxi(1, ceili(total * SAMPLE_RATE))
 	var left := PackedFloat32Array()
 	var right := PackedFloat32Array()
@@ -501,6 +592,12 @@ func _render_components(components: Array, seed_value: int) -> AudioStreamWAV:
 			var progress := float(local_index) / maxf(1.0, count - 1.0)
 			var attack := minf(1.0, t / .009)
 			var envelope := attack * pow(1.0 - progress, 2.25)
+			if bool(component.get("flat", false)):
+				# a steady layer of a loop: no decay, and a slow swell (waves, wind) that returns to its start
+				envelope = 1.0
+				var swell := float(component.get("swell", 0.0))
+				if swell > 0.0:
+					envelope = .55 + .45 * sin(TAU * t / swell)
 			var sample := 0.0
 			if component["kind"] == "noise":
 				noise_state = int((noise_state * 1103515245 + 12345) & 0x7fffffff)

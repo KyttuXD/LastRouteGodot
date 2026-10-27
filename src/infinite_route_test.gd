@@ -58,9 +58,7 @@ var _hunter_report: Array = []
 var _ladders := LadderTraffic.new()
 var _ladder_plans := {}
 var _ladder_rearm_id := ""
-## Presentation-only sewer sound timers (seconds until the next cue).
-var _sewer_sound_timers := {"drip": 1.0, "rat": 12.0, "gurgle": 3.0, "splash": 0.0, "rung": 0.0}
-var _sewer_sound_rng := RandomNumberGenerator.new()
+var _ladder_rung_timer := 0.0
 var _ladder_hint_id := ""
 ## Decides when hunters emote (host only); see docs/HUNTER_EMOTES.md.
 var _hunter_emoter := HunterEmoter.new()
@@ -373,6 +371,7 @@ func _process(delta: float) -> void:
 		_update_hud()
 		return
 	_clear_reached_waypoints(level)
+	_update_floor_audio(level)
 	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
@@ -1358,6 +1357,23 @@ func _clear_reached_waypoints(level: int) -> void:
 	if world_state.waypoints.reached(_local_peer_id(), player_at, level):
 		_arrival_chime_pending = true
 		_clear_local_waypoint()
+
+
+## Footstep surface under the runner and the ambient bed for where they stand (district or room purpose), ducked in chases.
+func _update_floor_audio(level: int) -> void:
+	var at := Vector2(player.global_position.x, player.global_position.z)
+	var kind := facility.floor_kind_at(at, level)
+	player.footstep_surface = SurfaceSounds.for_floor(kind) if kind != "" else ""
+	var region := String(facility.current_chunk_data().get("region", ""))
+	Sound.set_ambience(AmbienceTable.key_for(region, facility.room_type_at(at, level)))
+	var chased := false
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view != null and view.brain != null and view.brain.state == HunterBrain.State.CHASE \
+				and view.brain.position.distance_to(at) < 18.0:
+			chased = true
+			break
+	Sound.set_ambience_duck(move_toward(Sound.ambience_duck, 1.0 if chased else 0.0, get_process_delta_time() * 1.5))
 
 
 ## A player who leaves takes their pin with them.
@@ -2492,35 +2508,15 @@ func _update_player_ladder(level: int) -> void:
 	_ladder_rearm_id = link_id
 
 
-## Drips, distant gurgling and the odd rat around a runner in the sewer, a
-## splash per wading stride and a clank per rung on any ladder climb. Local
-## presentation only: nothing here is simulated or replicated.
-func _update_sewer_ambience(delta: float, level: int) -> void:
-	if player == null:
+## A clank per rung on any ladder climb. The sewer's water, drips and rats are
+## its AmbienceTable bed and the wading splash is the "water" footstep surface.
+func _update_sewer_ambience(delta: float, _level: int) -> void:
+	if player == null or not player.is_climbing():
 		return
-	for key in _sewer_sound_timers:
-		_sewer_sound_timers[key] = float(_sewer_sound_timers[key]) - delta
-	var rng := _sewer_sound_rng
-	if player.is_climbing():
-		if float(_sewer_sound_timers["rung"]) <= 0.0:
-			_sewer_sound_timers["rung"] = .42
-			Sound.ladder_rung(rng.randf_range(-.2, .2), rng.randf_range(.7, 1.0))
-		return
-	if level != StreamedRouteGenerator.SEWER_LEVEL:
-		return
-	if float(_sewer_sound_timers["drip"]) <= 0.0:
-		_sewer_sound_timers["drip"] = rng.randf_range(.7, 2.6)
-		Sound.sewer_drip(rng.randf_range(-.9, .9), rng.randf_range(.25, 1.0))
-	if float(_sewer_sound_timers["gurgle"]) <= 0.0:
-		_sewer_sound_timers["gurgle"] = rng.randf_range(3.5, 8.0)
-		Sound.sewer_gurgle(rng.randf_range(-.6, .6), rng.randf_range(.4, 1.0))
-	if float(_sewer_sound_timers["rat"]) <= 0.0:
-		_sewer_sound_timers["rat"] = rng.randf_range(9.0, 22.0)
-		Sound.sewer_rat(rng.randf_range(-1.0, 1.0), rng.randf_range(.3, .8))
-	if player.wading and Vector2(player.velocity.x, player.velocity.z).length() > .3 \
-			and float(_sewer_sound_timers["splash"]) <= 0.0:
-		_sewer_sound_timers["splash"] = .48
-		Sound.sewer_splash(rng.randf_range(-.15, .15), 1.0)
+	_ladder_rung_timer -= delta
+	if _ladder_rung_timer <= 0.0:
+		_ladder_rung_timer = .42
+		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
 
 
 func _in_sewer_water(level: int, at: Vector2) -> bool:
@@ -4203,7 +4199,8 @@ func _update_hunter_audio(delta: float, data: Dictionary) -> void:
 		return
 	var right := Vector2(-player.facing.y, player.facing.x)
 	var pan := clampf(offset.dot(right) / 4.5, -1.0, 1.0)
-	Sound.hunter_footstep(pan, .09 * (1.0 - distance / 9.0))
+	var hunter_floor := facility.floor_kind_at(stepping.brain.position, facility.current_level())
+	Sound.hunter_footstep(pan, .09 * (1.0 - distance / 9.0), SurfaceSounds.for_floor(hunter_floor) if hunter_floor != "" else "")
 
 
 func _hunter_audio_on_floor(entity_id: String, local_level: int) -> bool:
@@ -4756,6 +4753,10 @@ func _state_chunk(state: Dictionary) -> Vector3i:
 		floori(position.x / StreamedRouteGenerator.CHUNK_SIZE),
 		int(state.get("level", 0)),
 		floori(position.y / StreamedRouteGenerator.CHUNK_SIZE))
+
+
+func _exit_tree() -> void:
+	Sound.set_ambience("")   # the bed belongs to the run
 
 
 func _leave_test() -> void:

@@ -18,6 +18,9 @@ const HALLS := {
 	"prison": {"floor": ["concrete0", "concrete1"], "runner": false},
 	"inferno": {"floor": ["hazard", "metal3"], "runner": false},
 	"sewer": {"floor": ["stone0", "stone1"], "runner": false},       # worn stone walkways
+	"hospital": {"floor": ["vinyl0", "vinyl1"], "runner": false},      # clinic sheet vinyl
+	"lab": {"floor": ["epoxy0", "epoxy0", "epoxy1"], "runner": false}, # white epoxy, hatched keep-clear joints
+	"greenhouse": {"floor": ["terracotta0", "terracotta1", "stone2"], "runner": false},
 }
 
 ## District default for rooms whose purpose is not in ROOMS.
@@ -32,6 +35,9 @@ const ROOM_DEFAULT := {
 	"prison": ["concrete0", "concrete1"],
 	"inferno": ["metal3", "stone1"],
 	"sewer": ["concrete0", "concrete1"],
+	"hospital": ["vinyl0", "vinyl1"],
+	"lab": ["epoxy0"],
+	"greenhouse": ["terracotta0", "terracotta1"],
 }
 
 ## Room purpose -> floor kinds.
@@ -63,6 +69,18 @@ const ROOMS := {
 	"lava_gallery": ["metal3", "hazard"],
 	# sewer waterworks
 	"pump_room": ["concrete0", "hazard"], "valve_room": ["concrete1", "concrete0"], "overflow_chamber": ["stone1", "concrete1"],
+	# hospital: vinyl wards, tiled theatre and morgue
+	"ward": ["vinyl0", "vinyl1"], "nurses_station": ["vinyl1"], "waiting_room": ["vinyl1", "carpet_tile0"],
+	"operating_theatre": ["check1", "vinyl0"], "icu": ["vinyl0"], "morgue": ["concrete1", "check1"],
+	"pharmacy": ["vinyl1"], "imaging": ["vinyl0"], "supply_closet": ["concrete1"],
+	# research lab (Kyttu's Lab)
+	"clean_room": ["epoxy0"], "containment": ["epoxy1", "hazard"], "server_hall": ["grate", "epoxy0"],
+	"control_room": ["carpet_tile1", "epoxy0"], "decon": ["grate", "epoxy1"], "chem_lab": ["epoxy0", "epoxy1"],
+	"bio_lab": ["epoxy0"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
+	# greenhouse
+	"glasshouse": ["terracotta0", "terracotta1"], "palm_house": ["terracotta1", "stone2"], "cactus_room": ["stone2"],
+	"potting_shed": ["parquet1", "terracotta1"], "irrigation_room": ["grate", "terracotta0"],
+	"overgrown_room": ["stone2", "terracotta0"], "dome_atrium": ["terracotta0", "terracotta1"],
 }
 
 

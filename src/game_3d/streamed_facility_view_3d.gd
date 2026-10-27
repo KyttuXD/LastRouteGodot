@@ -60,6 +60,9 @@ const REGION_COLORS := {
 	"prison": Color("748895"),
 	"inferno": Color("c45b45"),
 	"carnival": Color("d58aa9"),
+	"hospital": Color("b9cfc6"),
+	"lab": Color("aebfc6"),
+	"greenhouse": Color("a8784e"),
 }
 const REGION_WALL_COLORS := {
 	"maze": Color("b47d6e"),
@@ -71,6 +74,9 @@ const REGION_WALL_COLORS := {
 	"prison": Color("61717d"),
 	"inferno": Color("9f493d"),
 	"carnival": Color("8e3f61"),
+	"hospital": Color("7fa39a"),
+	"lab": Color("8fa8b2"),
+	"greenhouse": Color("4f7a4a"),
 }
 
 var generator: StreamedRouteGenerator
@@ -552,6 +558,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 			8:
 				var coord: Vector3i = build["coord"]
 				root.add_to_group("streamed_chunk")
+				root.set_meta("floor_kinds", build.get("floor_kinds", {}))
 				if build["decor"] != null and _lamp_field != null:
 					_lamp_field.register(coord, (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array))
 				if not _all_lights_enabled:
@@ -592,6 +599,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		elif sewer_code == SewerRouteGenerator.BRIDGE:
 			kind = "grate"
 		grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
+		if not build.has("floor_kinds"):
+			build["floor_kinds"] = {}
+		# footsteps: the channel splashes (SurfaceSounds "water") though its bed is painted concrete
+		(build["floor_kinds"] as Dictionary)[cell] = "sewer_water" if sewer_code == SewerRouteGenerator.WATER else kind
 		var link_here := (build["link_cells"] as Dictionary).has(cell)
 		var coord_y := (build["coord"] as Vector3i).y
 		# A ladder shaft: the maze keeps its walkable collider over the opening (the
@@ -701,6 +712,39 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
 
 
 ## Cell -> room_type for every cell inside a room rectangle of this chunk.
+## The painted floor kind under a world point ("" off the loaded chunks): footsteps pick their sound from it.
+func floor_kind_at(world_xz: Vector2, level: int = 0) -> String:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cell := Vector2i(floori(world_xz.x), floori(world_xz.y))
+	var coord := Vector3i(floori(float(cell.x) / size), level, floori(float(cell.y) / size))
+	var root := _loaded.get(coord) as Node
+	if root == null:
+		return ""
+	return String((root.get_meta("floor_kinds", {}) as Dictionary).get(Vector2i(posmod(cell.x, size), posmod(cell.y, size)), ""))
+
+
+## The room purpose under a world point ("" in halls): the ambience bed follows it.
+func room_type_at(world_xz: Vector2, level: int = 0) -> String:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cell := Vector2i(floori(world_xz.x), floori(world_xz.y))
+	var coord := Vector3i(floori(float(cell.x) / size), level, floori(float(cell.y) / size))
+	var data: Dictionary = _chunk_data.get(coord, {})
+	if data.is_empty():
+		return ""
+	return String(_room_type_map_cached(coord, data).get(Vector2i(posmod(cell.x, size), posmod(cell.y, size)), ""))
+
+
+var _room_map_cache := {}
+
+
+func _room_type_map_cached(coord: Vector3i, data: Dictionary) -> Dictionary:
+	if not _room_map_cache.has(coord):
+		if _room_map_cache.size() > 32:
+			_room_map_cache.clear()
+		_room_map_cache[coord] = _room_type_map(data)
+	return _room_map_cache[coord]
+
+
 static func _room_type_map(data: Dictionary) -> Dictionary:
 	var map := {}
 	for room_value in data.get("rooms", []):

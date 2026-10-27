@@ -221,13 +221,73 @@ const TYPES := [
 			"mansionTeaCart", "mansionConsoleTable", "normalBookcase",
 			"normalTvConsole", "normalCoffeeTable", "normalEntryBench",
 			"mansionChaiseLounge", "mansionUprightPiano", "ceilingFan", "tableLamp"]},
+	{"id": "hospitalWard", "label": "HOSPITAL WARD", "region": "hospital",
+		"streamed_only": true, "landmark": true,
+		"props": ["hospitalBed", "hospitalBed", "hospitalBed", "hospitalCurtain",
+			"hospitalCurtain", "ivDripStand", "vitalsMonitor", "nursesStation",
+			"wheelchair", "hospitalWardSign", "ceilingLight"]},
+	{"id": "operatingTheatre", "label": "OPERATING THEATRE", "region": "hospital",
+		"streamed_only": true, "landmark": true,
+		"props": ["operatingTable", "surgicalLight", "instrumentTrolley",
+			"vitalsMonitor", "ivDripStand", "medicalSupplyRack", "biohazardBin",
+			"xrayLightbox"]},
+	{"id": "hospitalMorgue", "label": "MORGUE", "region": "hospital",
+		"streamed_only": true, "landmark": true,
+		"props": ["morgueCabinet", "morgueCabinet", "autopsyTable",
+			"instrumentTrolley", "biohazardBin", "hazardSign", "ceilingLight"]},
+	{"id": "hospitalPharmacy", "label": "PHARMACY", "region": "hospital",
+		"streamed_only": true,
+		"props": ["pharmacyShelf", "pharmacyShelf", "pharmacyShelf",
+			"nursesStation", "medicalSupplyRack", "filingCabinet"]},
+	{"id": "hospitalImaging", "label": "X-RAY / IMAGING", "region": "hospital",
+		"streamed_only": true,
+		"props": ["xrayMachine", "xrayLightbox", "hazardSign", "officeDesk",
+			"retroComputerDesktop", "wheelchair"]},
+	{"id": "labContainment", "label": "CONTAINMENT WING", "region": "lab",
+		"streamed_only": true, "landmark": true,
+		"props": ["containmentCell", "containmentCell", "specimenTank",
+			"specimenTank", "controlConsole", "hazardSign", "biohazardBin"]},
+	{"id": "labServerHall", "label": "SERVER HALL", "region": "lab",
+		"streamed_only": true, "landmark": true,
+		"props": ["serverRack", "serverRack", "serverRack", "serverRack",
+			"labCoolingUnit", "labCoolingUnit", "hazardSign"]},
+	{"id": "labControlRoom", "label": "CONTROL ROOM", "region": "lab",
+		"streamed_only": true, "landmark": true,
+		"props": ["monitorWall", "controlConsole", "officeChair", "serverRack",
+			"labWhiteboard", "filingCabinet"]},
+	{"id": "labCleanRoom", "label": "CLEAN ROOM", "region": "lab",
+		"streamed_only": true,
+		"props": ["labGlassPartition", "labGlassPartition", "labBench",
+			"labBench", "labMicroscope", "labStool", "specimenTank", "deconShower"]},
+	{"id": "labChemistry", "label": "CHEMISTRY LAB", "region": "lab",
+		"streamed_only": true,
+		"props": ["fumeHood", "labBench", "labBench", "gasCylinderRack",
+			"labStool", "labMicroscope", "biohazardBin", "coldStorageUnit"]},
+	{"id": "domeAtrium", "label": "DOME ATRIUM", "region": "greenhouse",
+		"streamed_only": true, "large_only": true, "landmark": true,
+		"props": ["domeFountain", "pottedPalm", "pottedPalm", "greenhouseBench",
+			"greenhouseBench", "raisedPlanter", "mistingPost", "hangingVines",
+			"overgrowthPatch"]},
+	{"id": "palmHouse", "label": "PALM HOUSE", "region": "greenhouse",
+		"streamed_only": true, "landmark": true,
+		"props": ["pottedPalm", "pottedPalm", "bananaPlant", "mistingPost",
+			"greenhouseBench", "hangingVines", "overgrowthPatch"]},
+	{"id": "cactusHouse", "label": "DESERT HOUSE", "region": "greenhouse",
+		"streamed_only": true,
+		"props": ["saguaroCactus", "saguaroCactus", "cactusCluster",
+			"cactusCluster", "greenhouseBench"]},
+	{"id": "pottingShed", "label": "POTTING SHED", "region": "greenhouse",
+		"streamed_only": true,
+		"props": ["pottingBench", "pottingBench", "seedlingRack", "compostBins",
+			"wateringCart", "irrigationManifold"]},
 ]
 
 const REGION_DEFAULT_TYPE := {
 	"office": "office", "maintenance": "maintenance", "arcade": "arcade",
 	"circus": "circusTent", "nether": "netherChamber", "beach": "beachCove",
 	"mansion": "diningRoom", "bedroom": "bedroom", "garden": "garden",
-	"prison": "prisonCellBlock",
+	"prison": "prisonCellBlock", "hospital": "hospitalWard", "lab": "labContainment",
+	"greenhouse": "palmHouse",
 }
 
 ## Pieces that need their back oriented toward the nearest room edge. The
@@ -266,6 +326,12 @@ const WALL_BACKED_TYPES := [
 	"officePhotocopier", "officeShredder", "officeFileBoxes",
 	"officeWaterCooler", "prisonServingCounter", "prisonKitchenRack",
 	"prisonTrayReturn",
+	"hospitalBed", "nursesStation", "waitingChairs", "morgueCabinet",
+	"pharmacyShelf", "xrayLightbox", "medicalSupplyRack", "hospitalWardSign",
+	"labBench", "fumeHood", "containmentCell", "labCoolingUnit", "monitorWall",
+	"deconShower", "coldStorageUnit", "labWhiteboard", "hazardSign",
+	"gasCylinderRack", "raisedPlanter", "pottingBench", "seedlingRack",
+	"irrigationManifold",
 ]
 
 ## Small dining dressing shares the cell of a real table and is lifted to its
@@ -290,6 +356,7 @@ const SURFACE_PARENT_TYPES := {
 		"officeCornerWorkstation"],
 	"gothicBedsideCandelabra": ["gothicNightstand", "gothicDresser",
 		"gothicPedestalTable"],
+	"labMicroscope": ["labBench"],
 }
 
 const SURFACE_HEIGHTS := {
@@ -306,6 +373,7 @@ const SURFACE_HEIGHTS := {
 	"officeDesk": .75,
 	"officeCornerWorkstation": .78,
 	"normalCoffeeTable": .49,
+	"labBench": .92,
 }
 
 ## Half-width/half-depth in grid metres, matching the original collider table.
@@ -455,6 +523,26 @@ const FOOTPRINTS := {
 	"mansionBustPedestal": Vector2(.27, .27),
 	"prisonCellGate": Vector2(1.48, .18), "prisonBunk": Vector2(.55, .98),
 	"dungeonCage": Vector2(1.25, 1.25), "restraintChair": Vector2(.55, .55),
+	# hospital, research lab and greenhouse (tools/props/blocky_props_biomes.py)
+	"hospitalBed": Vector2(.45, 1.03), "hospitalCurtain": Vector2(.93, .08), "ivDripStand": Vector2(.21, .21),
+	"vitalsMonitor": Vector2(.28, .26), "nursesStation": Vector2(1.18, .45), "waitingChairs": Vector2(.98, .29),
+	"operatingTable": Vector2(.35, .98), "surgicalLight": Vector2(.73, .73),
+	"instrumentTrolley": Vector2(.43, .26), "morgueCabinet": Vector2(.98, .45),
+	"autopsyTable": Vector2(.40, .98), "pharmacyShelf": Vector2(.78, .21), "xrayMachine": Vector2(.78, .73),
+	"xrayLightbox": Vector2(.63, .04), "medicalSupplyRack": Vector2(.58, .23), "wheelchair": Vector2(.30, .45),
+	"hospitalWardSign": Vector2(.45, .03), "labBench": Vector2(.98, .38), "fumeHood": Vector2(.73, .43),
+	"specimenTank": Vector2(.45, .45), "containmentCell": Vector2(1.08, .83),
+	"labCoolingUnit": Vector2(.48, .40), "controlConsole": Vector2(1.18, .48),
+	"monitorWall": Vector2(1.18, .05), "deconShower": Vector2(.63, .63), "coldStorageUnit": Vector2(.68, .40),
+	"labWhiteboard": Vector2(.88, .04), "hazardSign": Vector2(.28, .03), "labGlassPartition": Vector2(.95, .07),
+	"labStool": Vector2(.19, .19), "labMicroscope": Vector2(.15, .16), "gasCylinderRack": Vector2(.45, .21),
+	"biohazardBin": Vector2(.23, .23), "raisedPlanter": Vector2(.98, .43), "pottingBench": Vector2(.78, .33),
+	"pottedPalm": Vector2(.73, .73), "bananaPlant": Vector2(.53, .53), "saguaroCactus": Vector2(.38, .28),
+	"cactusCluster": Vector2(.45, .45), "seedlingRack": Vector2(.58, .23),
+	"irrigationManifold": Vector2(.73, .28), "mistingPost": Vector2(.18, .18),
+	"overgrowthPatch": Vector2(.78, .63), "hangingVines": Vector2(.58, .58),
+	"domeFountain": Vector2(1.28, 1.28), "wateringCart": Vector2(.48, .28),
+	"greenhouseBench": Vector2(.78, .28), "compostBins": Vector2(.68, .35),
 }
 
 
@@ -482,6 +570,8 @@ static func color_for_region(region: String) -> Color:
 		"nether": Color("8d302d"), "beach": Color("87b8c8"),
 		"prison": Color("35424a"),
 		"garden": Color("527b4c"), "circus": Color("bd536e"),
+		"hospital": Color("8fb8ac"), "lab": Color("6ccbd8"),
+		"greenhouse": Color("7fae5a"),
 	}.get(region, Color("68616b"))
 
 
@@ -561,8 +651,12 @@ static func display_height(type: String) -> float:
 			"gardenPlanterBench", "loungeCouch", "loungeCouchWide",
 			"stagePlatform", "charredSupplyCrate"]:
 		return .9
-	if type in ["giantTree", "palmTree", "carnivalCarousel", "frozenBeachHut"]:
+	if type in ["giantTree", "palmTree", "carnivalCarousel", "frozenBeachHut",
+			"pottedPalm", "containmentCell", "specimenTank", "deconShower", "saguaroCactus"]:
 		return 2.45
+	if type in ["hospitalBed", "operatingTable", "autopsyTable", "raisedPlanter",
+			"greenhouseBench", "waitingChairs", "labBench", "domeFountain"]:
+		return 1.0
 	return 1.55
 
 
@@ -584,7 +678,10 @@ static func is_solid(type: String) -> bool:
 		"publicSoapDispenser", "publicPaperTowelDispenser",
 		"publicMensRoomSign", "publicWomensRoomSign", "houseMedicineCabinet",
 		"houseTowelRack", "houseBathMat", "houseBathroomShelf",
-		"grandStaircase", "grandFoyerStaircase"]
+		"grandStaircase", "grandFoyerStaircase",
+		"surgicalLight", "hangingVines", "overgrowthPatch", "labMicroscope",
+		"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard",
+		"hazardSign"]
 
 
 static func is_walkable_structure(type: String) -> bool:

@@ -20,8 +20,9 @@ coordinates from the same seed, so every peer builds the same tunnels, ladders a
 * **Look.** The `sewer` district in RefLook/FloorSets/RefDecor: brick walls, worn stone walkways, a fixed 3.2 m
   vault, dim caged amber lamps (`sewerLamp`) and pipe runs on the walls. The flowing water is
   `src/look/sewer_water.gdshader`.
-* **Sound.** One-shot `Sound.sewer_drip / sewer_gurgle / sewer_rat` cues around a runner in the sewer, a
-  `sewer_splash` per wading stride, and a `ladder_rung` clank per rung while climbing.
+* **Sound.** The shared `sewer` ambience bed (AmbienceTable: water swell, drips, rats). Channel cells record
+  the `sewer_water` floor kind, so footsteps there use SurfaceSounds' splashing `water` surface. While climbing,
+  `Sound.ladder_rung` clanks once per rung.
 
 ## Ladders (the only way between the levels)
 
