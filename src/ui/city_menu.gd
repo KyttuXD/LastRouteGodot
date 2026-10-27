@@ -12,6 +12,10 @@ const LOBBY_SCENE := "res://scenes/room_lobby.tscn"
 
 const SETTINGS_OVERLAY_SCENE := preload("res://scenes/settings_overlay.tscn")
 
+## The time-of-day choice made on this menu, kept across menus and applied to every room created here.
+static var daytime_choice := false
+
+var _time_button: Button
 var _settings_overlay: SettingsPanel
 var _continue_button: Button
 var _clear_button: Button
@@ -68,6 +72,9 @@ func _ready() -> void:
 	column.add_child(_continue_button)
 	_clear_button = _button("ClearRunButton", "CLEAR SAVE", false, _on_clear_run)
 	column.add_child(_clear_button)
+	_time_button = _button("TimeButton", _time_label(), false, _on_time_toggle)
+	_time_button.tooltip_text = "Daytime: bright open sky, lamps off, hunters see farther outdoors (the host decides for the room)"
+	column.add_child(_time_button)
 	var new_run := _button("NewRunButton", "NEW RUN // SOLO", not Backend.game_has_save(RoomState.GAME_CITY), _on_new_run)
 	column.add_child(new_run)
 	var public_button := _button("PublicButton", "PUBLIC CITY", false, func() -> void: pass)
@@ -142,6 +149,15 @@ func _button(button_name: String, label: String, primary: bool, handler: Callabl
 	return button
 
 
+func _time_label() -> String:
+	return "TIME: DAYTIME" if daytime_choice else "TIME: NIGHT"
+
+
+func _on_time_toggle() -> void:
+	daytime_choice = not daytime_choice
+	_time_button.text = _time_label()
+
+
 func _on_account() -> void:
 	AccountPanel.open(self)
 
@@ -196,6 +212,7 @@ func _on_new_run() -> void:
 		Backend.enable_offline_mode()
 		UpdateManager.enable_offline_mode()
 	RoomState.create_local(RoomState.Mode.CITY)
+	RoomState.daytime = daytime_choice
 	RoomState.status_message = "CITY SOLO RUN"
 	RoomState.enter(get_tree())
 
@@ -205,6 +222,7 @@ func _on_host() -> void:
 		return
 	if OS.has_feature("web"):
 		RoomState.create_local(RoomState.Mode.CITY)
+		RoomState.daytime = daytime_choice
 		RoomState.status_message = "WEB BUILD SOLO // CO-OP NEEDS THE NATIVE BUILD"
 		get_tree().change_scene_to_file(LOBBY_SCENE)
 		return
@@ -219,6 +237,7 @@ func _on_health_checked(ok: bool, _message: String) -> void:
 		return
 	_hosting = false
 	RoomState.create_local(RoomState.Mode.CITY)
+	RoomState.daytime = daytime_choice
 	if ok:
 		RoomState.host_primary_room()
 	else:

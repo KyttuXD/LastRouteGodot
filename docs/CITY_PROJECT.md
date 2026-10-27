@@ -219,3 +219,29 @@ booths and hydrants; the grand plaza now has 13 cyan lights, banners and a stall
 The dome shell is gone: `CityDomeFrame` now only builds the ring of far towers (a natural skyline behind the rim wall); the
 sky shader, fog and colours are unchanged. The rim wall is the only boundary. Shots: `city_dome_before_street.png` (ribs
 overhead), `city_open_sky_street.png`, `city_open_sky_up.png`. The "DOME SEALED" kicker and the DOME GATE name are left as copy.
+
+## Daytime
+
+`RoomState.daytime` (City only, `RoomState.is_day()`): a TIME button on the City menu and a TIME OF DAY choice in the lobby (host
+only online); synced to guests by `_receive_daytime`, listed in the directory (`daytime` on register/heartbeat/listing), saved in
+the City run save. The public City stays night-only. Look: blue sky with a sun and white clouds (`CitySky.set_day`), a warm
+shadow-casting sun and sky ambient (roofed interiors stay dim), street/plaza lamps off, window glow dimmed. Vision
+(`HunterBrain.sight_limit_for`): outdoors by day a hunter sees `sight x GameConfig.DAYLIGHT_SIGHT_SCALE (2.4) x difficulty x her day
+multiplier` whatever light the runner carries; indoors the night rules apply (x her night multiplier). Per-hunter data lives in
+`src/config/hunter_vision.gd` (`night`, `day`, `notice` seconds of clear sight before a chase starts). Hunter population is
+x`GameConfig.DAY_POPULATION_SCALE` (0.8) by day. Not done: a narrower view cone (perception is distance-based) and
+`LightField.exposure_at` (the world lane's light rules are not on this branch yet). Shots: `city_day_street.png`,
+`city_night_street.png`, `city_day_interior.png`, `city_day_sky.png`.
+
+| hunter | night | day | notice |
+|---|---|---|---|
+| nyxie | 1.2 | 0.45 | 1.6 s |
+| kathy | 0.95 | 1.25 | 0 |
+| solyth | 0.9 | 1.3 | 0 |
+| xivvy | 0.95 | 1.15 | 0 |
+| ilyra, thessine, ravelle | 1.0 | 1.1 | 0 |
+| ceryth | 1.05 | 0.9 | 0.5 s |
+| umbriel | 1.1 | 0.85 | 0.6 s |
+| mavrine | 1.0 | 0.95 | 0.3 s |
+| void_black/blue/brown/cyan | 1.15 | 0.7 | 0.8 s |
+| everyone else | 1.0 | 1.0 | 0 |

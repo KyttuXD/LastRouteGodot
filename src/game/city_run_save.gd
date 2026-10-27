@@ -12,7 +12,7 @@ const MAX_CLAIMS := 600
 
 
 static func make(seed_text: String, difficulty_id: String, score: int, coins: int, relays: int, sabotaged: int,
-		claimed: Array, position: Vector3, yaw: float) -> Dictionary:
+		claimed: Array, position: Vector3, yaw: float, daytime: bool = false) -> Dictionary:
 	var ids: Array = []
 	for value in claimed:
 		if ids.size() >= MAX_CLAIMS:
@@ -22,10 +22,10 @@ static func make(seed_text: String, difficulty_id: String, score: int, coins: in
 		"schema": SCHEMA, "kind": KIND,
 		"seed_text": seed_text, "difficulty_id": difficulty_id,
 		"score": score, "coins": coins, "relays": relays, "sabotaged": sabotaged,
-		"claimed": ids,
+		"claimed": ids, "daytime": daytime,
 		"x": snappedf(position.x, 0.01), "z": snappedf(position.z, 0.01), "yaw": snappedf(yaw, 0.001),
 		"saved_at": int(Time.get_unix_time_from_system()),
-		"summary": "%d RELAYS // %d COINS // %s" % [relays, coins, difficulty_id.to_upper()],
+		"summary": "%d RELAYS // %d COINS // %s%s" % [relays, coins, difficulty_id.to_upper(), " // DAY" if daytime else ""],
 	}
 
 

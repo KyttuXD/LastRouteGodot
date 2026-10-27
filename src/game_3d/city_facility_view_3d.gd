@@ -128,6 +128,8 @@ func _ensure_sky() -> void:
 		_sky = CitySky.new()
 		_sky.name = "CitySky"
 		add_child(_sky)
+		_sky.set_day(RoomState.is_day())
+		CitySurface.set_day(RoomState.is_day())
 	if _dome_frame == null:
 		_dome_frame = CityDomeFrame.new()
 		_dome_frame.name = "CityDomeFrame"
@@ -145,6 +147,19 @@ func _apply_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.20, 0.23, 0.42)
 	env.ambient_light_energy = 0.42
+	var sun := get_tree().root.find_child("RouteLight", true, false) as DirectionalLight3D
+	if RoomState.is_day():
+		# Daytime: a bright sky-coloured ambient and a warm sun with shadows, so building interiors (roofed) stay dim.
+		env.background_color = Color(0.55, 0.75, 0.95)
+		env.ambient_light_color = Color(0.62, 0.72, 0.90)
+		env.ambient_light_energy = 0.34
+		if sun != null:
+			sun.light_color = Color(1.0, 0.94, 0.8)
+			sun.light_energy = 1.35
+			sun.shadow_enabled = true
+			sun.directional_shadow_max_distance = 70.0
+	elif sun != null:
+		sun.light_energy = 0.10
 
 
 # ---------------------------------------------------------------- chunk build
@@ -505,7 +520,7 @@ func _add_decor(build_body: StaticBody3D, surface: CitySurface, root: Node3D, la
 			surface.box(Vector3(cx - .06 + arm.x * .5, 3.0, cz - .06 + arm.z * .5), Vector3(.12 + absf(arm.x), .1, .12 + absf(arm.z)), pole)
 			surface.box(Vector3(cx + arm.x - .14, 2.98, cz + arm.z - .14), Vector3(.28, .46, .28), CityAtlas.tile("lantern"))
 			surface.box(Vector3(cx + arm.x - .18, 3.44, cz + arm.z - .18), Vector3(.36, .07, .36), pole)
-			lamps.append([root.position + Vector3(cx + arm.x, 3.2, cz + arm.z), LAMP_COLOR, 1.0, 0, 7.5])
+			lamps.append([root.position + Vector3(cx + arm.x, 3.2, cz + arm.z), LAMP_COLOR, 0.0 if RoomState.is_day() else 1.0, 0, 7.5])
 		"tree":
 			surface.box(Vector3(cx - .14, 0, cz - .14), Vector3(.28, 2.7, .28), CityAtlas.tile("trunk"))
 			surface.box(Vector3(cx - .85, 2.5, cz - .85), Vector3(1.7, .9, 1.7), CityAtlas.tile("blossom"))

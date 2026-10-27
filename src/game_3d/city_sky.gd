@@ -13,6 +13,7 @@ render_mode unshaded, cull_front, depth_draw_never, fog_disabled;
 uniform vec3 top_color = vec3(0.02, 0.03, 0.10);
 uniform vec3 horizon_color = vec3(0.30, 0.13, 0.33);
 uniform vec3 moon_dir = vec3(0.35, 0.55, -0.75);
+uniform float day = 0.0;
 varying vec3 dir;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -42,6 +43,14 @@ void fragment() {
 	float m = dot(d, normalize(moon_dir));
 	col += vec3(0.04, 0.09, 0.14) * smoothstep(0.980, 0.9975, m);
 	col = mix(col, vec3(0.86, 0.95, 1.0), step(0.9975, m));
+	if (day > 0.5) {
+		// Daytime: the same planar sky, but a blue gradient, white pixel clouds and a sun in the moon's place.
+		vec3 day_col = mix(vec3(0.74, 0.86, 0.97), vec3(0.22, 0.46, 0.86), pow(up, 0.5));
+		day_col = mix(day_col, vec3(0.97, 0.98, 1.0), mask * 0.85);
+		day_col += vec3(1.0, 0.92, 0.6) * smoothstep(0.985, 0.9975, m) * 0.45;
+		day_col = mix(day_col, vec3(1.0, 0.97, 0.82), step(0.9975, m));
+		col = day_col;
+	}
 	ALBEDO = col;
 }
 """
@@ -66,6 +75,12 @@ func _ready() -> void:
 	_mesh_instance.extra_cull_margin = 16384.0
 	add_child(_mesh_instance)
 	top_level = true
+
+
+## Daytime swaps the shader's palette (no stars, a sun instead of the moon); the night look is untouched.
+func set_day(day: bool) -> void:
+	if _mesh_instance != null:
+		((_mesh_instance.mesh as SphereMesh).material as ShaderMaterial).set_shader_parameter("day", 1.0 if day else 0.0)
 
 
 func _process(_delta: float) -> void:

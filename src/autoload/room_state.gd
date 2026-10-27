@@ -109,6 +109,9 @@ var public_route := false
 var mode: Mode = Mode.DEFAULT
 ## A City run save queued by the City menu's CONTINUE; the run scene consumes it once (see CityRunSave).
 var pending_city_save: Dictionary = {}
+## City DAYTIME: the host's setting for the whole room (sky, lighting and how hunters see; see HunterVision). Only the
+## City reads it; other modes ignore it. Synced with the room (_receive_daytime) and saved with a City run.
+var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -195,6 +198,7 @@ func _exit_tree() -> void:
 func create_local(for_mode: Mode) -> void:
 	public_route = false
 	pending_city_save = {}
+	daytime = false
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -263,6 +267,7 @@ func prepare_city_run(save: Dictionary) -> String:
 		if DIFFICULTY_IDS[key] == saved_difficulty and difficulty_available(key):
 			difficulty = key as Difficulty
 	pending_city_save = save.duplicate(true)
+	daytime = bool(save.get("daytime", false))
 	status_message = "SAVED RUN READY // %s" % String(save.get("summary", ""))
 	changed.emit()
 	return ""
@@ -412,6 +417,7 @@ func _on_peer_connected(id: int) -> void:
 	# rather than asked about it.
 	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
+	_receive_daytime.rpc_id(id, daytime)
 	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
 	# A room remains joinable while a route is running. The new peer first gets
@@ -633,6 +639,30 @@ func broadcast() -> void:
 	if online and is_host:
 		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 			session_active)
+		_receive_daytime.rpc(daytime)
+
+
+## The host's City daytime flag (a separate small RPC so the room RPC's signature stays as it was).
+@rpc("authority", "call_remote", "reliable")
+func _receive_daytime(p_daytime: bool) -> void:
+	daytime = p_daytime
+	changed.emit()
+
+
+## City only: whether this room is in daytime. Last Route rooms are never day.
+func is_day() -> bool:
+	return mode == Mode.CITY and daytime
+
+
+## Host (or solo) toggles daytime before the run starts; guests see it through the room sync.
+func set_daytime(value: bool) -> void:
+	if online and not is_host:
+		return
+	if daytime == value:
+		return
+	daytime = value
+	broadcast()
+	changed.emit()
 
 
 func _local_name() -> String:
@@ -880,6 +910,7 @@ func enter(tree: SceneTree) -> void:
 	broadcast()
 	Backend.update_room(peers.size(), session_active)
 	if online:
+		_receive_daytime.rpc(daytime)
 		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
 	_enter_session_scene(tree)
 

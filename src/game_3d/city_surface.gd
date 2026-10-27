@@ -53,6 +53,13 @@ static func tile_arrays() -> Array:
 	return _tile_arrays
 
 
+## City daytime: lit windows and signs read dimmer against the sun.
+static func set_day(day: bool) -> void:
+	for material in materials():
+		if material is ShaderMaterial:
+			(material as ShaderMaterial).set_shader_parameter("glow_energy", 0.35 if day else 1.05)
+
+
 static func materials() -> Array:
 	if not _materials.is_empty():
 		return _materials

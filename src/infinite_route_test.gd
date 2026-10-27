@@ -1998,6 +1998,8 @@ func _refresh_hunter_stream() -> void:
 			and String(a.get("id", "")) < String(b.get("id", ""))))
 	var population_limit := GameConfig.streamed_hunter_population(
 		RoomState.difficulty_id(), GameState.relays_collected)
+	if RoomState.is_day() and population_limit > 1:
+		population_limit = maxi(1, int(floor(float(population_limit) * GameConfig.DAY_POPULATION_SCALE)))
 	if RoomState.public_route:
 		# Players online, not relays, size the PUBLIC population.
 		population_limit = maxi(PublicRoute.hunter_target_count(),
@@ -2158,6 +2160,7 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	view.brain = HunterBrain.new(spawn_position,
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
+	_configure_day_vision(view.brain)
 	world_state.restore_hunter(view.brain, state)
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
 	view.set_meta("streamed_entity_id", entity_id)
@@ -2167,6 +2170,14 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	_hunter_views[entity_id] = view
 	_hunter_origins[entity_id] = state.get("origin_chunk", Vector3i.ZERO)
 	_hunter_levels[entity_id] = level
+
+
+## City daytime: the brain sees by the sun outdoors and by the night rules indoors (see HunterBrain.sight_limit_for).
+func _configure_day_vision(brain: HunterBrain) -> void:
+	brain.day_mode = RoomState.is_day()
+	if brain.day_mode and facility.generator is CityRouteGenerator:
+		var city_generator := facility.generator as CityRouteGenerator
+		brain.indoor_check = city_generator.is_indoor_route_position
 
 
 func _unload_hunter(entity_id: String, persist_state: bool = true) -> void:
@@ -4012,7 +4023,7 @@ func _city_autosave(force: bool = false) -> void:
 	_city_autosave_msec = now
 	Backend.account_save_game_progress(RoomState.GAME_CITY, CityRunSave.make(RoomState.seed_text,
 		RoomState.difficulty_id(), GameState.score, GameState.coins, GameState.relays_collected,
-		GameState.relays_sabotaged, world_state.claimed_pickups.keys(), player.global_position, player._yaw))
+		GameState.relays_sabotaged, world_state.claimed_pickups.keys(), player.global_position, player._yaw, RoomState.is_day()))
 
 
 func _respawn_after_death() -> void:

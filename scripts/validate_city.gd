@@ -27,6 +27,7 @@ func run(host: Node) -> int:
 	_check_chunks()
 	await _check_run_scene(host)
 	await _check_saved_run(host)
+	_check_daytime()
 	if _failures == 0:
 		print("  city  layout, connectivity, streets, buildings, shelters, chunks, registry, game id")
 	return _failures
@@ -45,7 +46,7 @@ func _check_registry(host: Node) -> void:
 	var menu: Control = (load("res://scenes/city_menu.tscn") as PackedScene).instantiate()
 	host.add_child(menu)
 	for node_name in ["NewRunButton", "HostButton", "JoinButton", "BackToGamesButton", "RoomCodeInput", "PublicButton",
-			"AccountButton", "SettingsButton", "ContinueRunButton", "ClearRunButton", "SettingsOverlay"]:
+			"AccountButton", "SettingsButton", "TimeButton", "ContinueRunButton", "ClearRunButton", "SettingsOverlay"]:
 		_expect(menu.find_child(node_name, true, false) != null, "City menu lacks %s" % node_name)
 	_expect(not (menu.find_child("ContinueRunButton", true, false) as Button).visible, "CONTINUE RUN shows without a saved run")
 	var overlay := menu.find_child("SettingsOverlay", true, false)
@@ -532,3 +533,52 @@ func _check_saved_run(host: Node) -> void:
 	_expect(RoomState.pending_city_save.is_empty(), "the queued City save was not consumed")
 	scene.queue_free()
 	await host.get_tree().process_frame
+
+
+## City DAYTIME: the vision table covers every hunter, daylight lengthens sight outdoors only, Nyxie is weaker by day, the
+## flag lives on the room and in run saves, and the hunter population is thinned a little.
+func _check_daytime() -> void:
+	var ids: Array = HunterRoster.PROFILES.keys()
+	for id in ids:
+		var entry := HunterVision.entry(String(id))
+		_expect(float(entry["night"]) > 0.0 and float(entry["day"]) > 0.0 and float(entry["notice"]) >= 0.0, "bad vision entry for %s" % id)
+	_expect(HunterVision.day_multiplier("nyxie") < 0.6 and HunterVision.night_multiplier("nyxie") > 1.0, "Nyxie is not light-sensitive")
+	_expect(HunterVision.notice_seconds("nyxie") > 0.0, "Nyxie is not slower to notice by day")
+	_expect(HunterVision.day_multiplier("kathy") > 1.0, "no hunter sees better by day")
+	var outdoors := func(_p: Vector2) -> bool: return false
+	var indoors := func(_p: Vector2) -> bool: return true
+	var spot := Vector2(10, 10)
+	var aki := HunterBrain.new(spot, "DAY-TEST", "aki", "standard")
+	var nyxie := HunterBrain.new(spot, "DAY-TEST", "nyxie", "standard")
+	var hard := HunterBrain.new(spot, "DAY-TEST", "aki", "hard")
+	var relaxed := HunterBrain.new(spot, "DAY-TEST", "aki", "relaxed")
+	var night_unlit := aki.sight_limit_for(spot, false)
+	var night_lit := aki.sight_limit_for(spot, true)
+	for brain in [aki, nyxie, hard, relaxed]:
+		(brain as HunterBrain).day_mode = true
+		(brain as HunterBrain).indoor_check = outdoors
+	var day_unlit := aki.sight_limit_for(spot, false)
+	_expect(day_unlit > night_unlit * 3.0, "daylight does not lengthen sight outdoors (%.1f vs %.1f unlit)" % [day_unlit, night_unlit])
+	_expect(is_equal_approx(day_unlit, aki.sight_limit_for(spot, true)), "the flashlight still matters outdoors in daytime")
+	_expect(nyxie.sight_limit_for(spot, false) < day_unlit * 0.7, "Nyxie does not see worse than Aki by day")
+	_expect(hard.sight_limit_for(spot, false) > day_unlit and relaxed.sight_limit_for(spot, false) < day_unlit, "difficulty no longer scales daytime sight")
+	aki.indoor_check = indoors
+	_expect(is_equal_approx(aki.sight_limit_for(spot, true), night_lit) and is_equal_approx(aki.sight_limit_for(spot, false), night_unlit),
+		"indoors in daytime the night sight rules must still apply")
+	var night_brain := HunterBrain.new(spot, "DAY-TEST", "aki", "standard")
+	_expect(is_equal_approx(night_brain.sight_limit_for(spot, true), night_lit), "a night brain changed its sight")
+	# room flag
+	RoomState.create_local(RoomState.Mode.CITY)
+	_expect(not RoomState.is_day(), "a new City room starts in daytime")
+	RoomState.set_daytime(true)
+	_expect(RoomState.is_day(), "set_daytime did not stick")
+	var save := CityRunSave.make("DAY-SEED", "standard", 0, 0, 0, 0, [], Vector3(0, 0, 0), 0.0, true)
+	var round_trip = JSON.parse_string(JSON.stringify(save))
+	_expect(round_trip is Dictionary and bool(round_trip.get("daytime", false)), "daytime is not saved with a City run")
+	RoomState.create_local(RoomState.Mode.CITY)
+	_expect(RoomState.prepare_city_run(round_trip).is_empty() and RoomState.is_day(), "a saved daytime run did not restore daytime")
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.daytime = true
+	_expect(not RoomState.is_day(), "Last Route rooms must never be day")
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	print("  city: daytime vision table, sight ranges, room flag, run save")

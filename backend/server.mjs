@@ -133,6 +133,7 @@ function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
     port: relayed ? relayPort : room.port,
     players: room.players,
     sessionActive: room.sessionActive,
+    daytime: Boolean(room.daytime),
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
   };
 }
@@ -475,6 +476,7 @@ export function createLastRouteServer({
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
+        daytime: Boolean(body.daytime),
         game: publicCodes.has(code) ? Object.keys(PUBLIC_CODES).find((g) => PUBLIC_CODES[g] === code) : cleanGame(body.game),
         expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
       };
@@ -492,6 +494,7 @@ export function createLastRouteServer({
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       room.players = Math.trunc(finitePlayers(body.players, room.players));
       room.sessionActive = Boolean(body.sessionActive);
+      room.daytime = Boolean(body.daytime);
       room.expiresAt = now() + (publicCodes.has(room.code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
       return json(response, 200, {
         ok: true,

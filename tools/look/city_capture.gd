@@ -27,6 +27,7 @@ func _ready() -> void:
 	_out_dir = positional[0] if positional.size() > 0 else "/tmp"
 	_tag = positional[1] if positional.size() > 1 else "city"
 	RoomState.create_local(RoomState.Mode.CITY)
+	RoomState.daytime = OS.get_environment("CAP_DAY") != ""
 	RoomState.seed_text = positional[2] if positional.size() > 2 else "CITY-LOOK"
 	DirAccess.make_dir_recursive_absolute(_out_dir) if _out_dir.is_absolute_path() else DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://").path_join(_out_dir))
 	Backend.enable_offline_mode()

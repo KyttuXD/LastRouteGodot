@@ -23,7 +23,7 @@ static func add(type: String, surface: CitySurface, root: Node3D, lamps: Array, 
 			surface.box(Vector3(cx - .09, .35, cz - .09), Vector3(.18, 4.0, .18), pole)
 			surface.box(Vector3(cx - .24, 4.3, cz - .24), Vector3(.48, .3, .48), CityAtlas.tile("cyan_lamp"))
 			surface.box(Vector3(cx - .3, 4.6, cz - .3), Vector3(.6, .06, .6), pole)
-			lamps.append([root.position + Vector3(cx, 4.2, cz), PLAZA_COLOR, 1.3, 0, 10.0])
+			lamps.append([root.position + Vector3(cx, 4.2, cz), PLAZA_COLOR, 0.0 if RoomState.is_day() else 1.3, 0, 10.0])
 		"banner":
 			var cloth := CityAtlas.tile("awning_red" if int(cx + cz) % 2 == 0 else "awning_teal")
 			surface.box(Vector3(cx - .06, 0, cz - .06), Vector3(.12, 4.2, .12), pole)
@@ -49,7 +49,7 @@ static func add(type: String, surface: CitySurface, root: Node3D, lamps: Array, 
 			surface.box(Vector3(cx - .4, 0, cz - .4), Vector3(.8, 2.1, .8), CityAtlas.tile("fire_escape"), CityAtlas.tile("stone_dark"))
 			surface.box(Vector3(cx - .3, .9, cz - .41), Vector3(.6, .8, .02), CityAtlas.tile("win_cyan_top"))
 			surface.box(Vector3(cx - .42, 2.1, cz - .42), Vector3(.84, .16, .84), CityAtlas.tile("cyan_lamp"))
-			lamps.append([root.position + Vector3(cx, 2.4, cz), PLAZA_COLOR, .6, 0, 4.5])
+			lamps.append([root.position + Vector3(cx, 2.4, cz), PLAZA_COLOR, 0.0 if RoomState.is_day() else .6, 0, 4.5])
 		"hydrant":
 			surface.box(Vector3(cx - .13, 0, cz - .13), Vector3(.26, .5, .26), CityAtlas.tile("awning_red"))
 			surface.box(Vector3(cx - .17, .5, cz - .17), Vector3(.34, .12, .34), CityAtlas.tile("awning_red"))
