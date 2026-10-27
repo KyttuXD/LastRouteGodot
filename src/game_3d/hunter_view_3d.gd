@@ -23,7 +23,13 @@ var look_target_position := Vector2.ZERO
 var _animation_player: AnimationPlayer
 var _model: Node3D
 var _shown_id := ""
-var _flight_height := 0.0
+var _flight := XivvyFlight.new()
+var _flight_headroom := INF
+var _flight_probe := 0.0
+var _flight_yaw_last := 0.0
+var _flight_was_flying := false
+var _screech_cooldown := 0.0
+var _flight_shadow: MeshInstance3D
 var _desired_xz := Vector2.ZERO
 var _surface_target_y := 0.0
 var _streamed_height_override := 0.0
@@ -160,14 +166,17 @@ func _physics_process(delta: float) -> void:
 		position.y = _streamed_height_override
 		velocity.y = 0.0
 	elif brain.gimmick is XivvyGimmick \
-			and (brain.gimmick as XivvyGimmick).flying:
-		position.y = move_toward(position.y, _surface_target_y, delta * 3.5)
+			and ((brain.gimmick as XivvyGimmick).flying or _flight.altitude > 0.0):
+		# airborne: follow the flight altitude (also while she settles back down after the flag drops)
+		position.y = move_toward(position.y, _surface_target_y, delta * 6.0)
 		velocity.y = 0.0
 	else:
 		if not is_on_floor():
 			velocity.y -= GRAVITY_ACCELERATION * delta
 		else:
 			velocity.y = -0.35
+	# The floor snap would pull a flying hunter back to the floor every step.
+	floor_snap_length = 0.0 if _flight.altitude > .02 else .32
 	move_and_slide()
 	# Streamed chunks may finish between physics frames. Do not allow a hunter
 	# to fall forever while her destination floor is still being attached.
@@ -475,6 +484,95 @@ func _update_body_yaw() -> void:
 	rotation.y = _facing.steer(rotation.y, direction, running, get_process_delta_time())
 
 
+## Xivvy's flying chase: altitude / bank / pitch / wing cadence from XivvyFlight, a floor shadow, and the screech and
+## wing cues. Runs on every peer from replicated data only (the gimmick's flying flag, the motion and the look target).
+func _update_flight(flying: bool, floor_y: float) -> void:
+	if not brain.gimmick is XivvyGimmick:
+		return
+	var delta := get_process_delta_time()
+	var yaw_rate := wrapf(rotation.y - _flight_yaw_last, -PI, PI) / maxf(delta, .001)
+	_flight_yaw_last = rotation.y
+	var runner_distance := brain.position.distance_to(look_target_position) \
+		if has_look_target and brain.state == HunterBrain.State.CHASE else INF
+	_flight_probe -= delta
+	if _flight_probe <= 0.0 and (flying or _flight.altitude > 0.0):
+		_flight_probe = .15
+		_flight_headroom = _measure_headroom(floor_y)
+	_flight.update(delta, flying, _move_speed, yaw_rate, runner_distance, _flight_headroom)
+	if _model != null:
+		_model.rotation = Vector3(_flight.pitch, _model.rotation.y, _flight.bank)
+	_screech_cooldown = maxf(0.0, _screech_cooldown - delta)
+	if flying and not _flight_was_flying:
+		_flight_cue(true)
+		_screech_cooldown = 4.0
+	elif flying and runner_distance < XivvyFlight.SWOOP_RANGE * .45 and _screech_cooldown <= 0.0:
+		_flight_cue(true)
+		_screech_cooldown = 4.5
+	_flight_was_flying = flying
+	if _flight.flapped:
+		_flight_cue(false)
+	_update_flight_shadow(floor_y)
+
+
+func _measure_headroom(floor_y: float) -> float:
+	if not is_inside_tree():
+		return INF
+	var space := get_world_3d().direct_space_state
+	var origin := Vector3(global_position.x, floor_y + .3, global_position.z)
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + Vector3.UP * 8.0, 1, [get_rid()])
+	var hit := space.intersect_ray(query)
+	return hit["position"].y - floor_y if not hit.is_empty() else INF
+
+
+func _flight_cue(screech: bool) -> void:
+	if not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var distance := global_position.distance_to(camera.global_position)
+	if distance >= 40.0:
+		return
+	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	var pan := clampf(side / maxf(distance, 1.0), -1.0, 1.0)
+	var loudness := clampf(1.5 - distance / 30.0, .25, 1.4)
+	if screech:
+		Sound.xivvy_screech(pan, loudness)
+	else:
+		Sound.xivvy_wing(pan, loudness * .8)
+
+
+## A soft dark disc on the floor under her: smaller and fainter the higher she is.
+func _update_flight_shadow(floor_y: float) -> void:
+	if _flight.altitude <= .05:
+		if _flight_shadow != null:
+			_flight_shadow.visible = false
+		return
+	if _flight_shadow == null:
+		_flight_shadow = MeshInstance3D.new()
+		_flight_shadow.name = "FlightShadow"
+		var disc := CylinderMesh.new()
+		disc.top_radius = .55
+		disc.bottom_radius = .55
+		disc.height = .01
+		disc.radial_segments = 20
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.albedo_color = Color(0, 0, 0, .42)
+		material.no_depth_test = false
+		disc.material = material
+		_flight_shadow.mesh = disc
+		_flight_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_flight_shadow.top_level = true
+		add_child(_flight_shadow)
+	_flight_shadow.visible = true
+	var spread := clampf(1.0 - _flight.altitude / 3.4, .35, 1.0)
+	_flight_shadow.scale = Vector3(spread * 1.35, 1.0, spread * 1.35)
+	(_flight_shadow.mesh.material as StandardMaterial3D).albedo_color.a = lerpf(.12, .42, spread)
+	_flight_shadow.global_position = Vector3(global_position.x, floor_y + .025, global_position.z)
+
+
 func sync_from_brain() -> void:
 	if brain == null:
 		return
@@ -482,12 +580,8 @@ func sync_from_brain() -> void:
 		if surface_height_provider.is_valid() else 0.0
 	var xivvy_flying := brain.gimmick is XivvyGimmick \
 		and (brain.gimmick as XivvyGimmick).flying
-	var flight_target := GameConfig.XIVVY_FLIGHT_HEIGHT if xivvy_flying else 0.0
-	_flight_height = move_toward(_flight_height, flight_target,
-		get_process_delta_time() * 1.7)
-	if _flight_height > 0.0:
-		_flight_height += sin(Time.get_ticks_msec() * 0.006) * 0.0015
-	surface_y += _flight_height
+	_update_flight(xivvy_flying, surface_y)
+	surface_y += _flight.altitude
 	_desired_xz = brain.position
 	_surface_target_y = surface_y
 	if _streamed_height_override_active:
@@ -696,6 +790,8 @@ func _update_animation() -> void:
 				clip_name = "scythe_walk"
 	# Travel clips play at real ground speed / the clip's measured stride speed (HunterStride), swapping to the
 	# neighbouring walk/chase/sprint clip when the pace is far outside one clip's range, so the planted foot stays put.
+	if clip_name == "flight":
+		speed = _flight.flight_clip_speed(_move_speed)
 	var travelling := clip_name in ["walk", "chase", "sprint", "scythe_walk"] and _animation_player != null
 	if travelling:
 		var pick := HunterStride.choose(_shown_id, clip_name, _move_speed,

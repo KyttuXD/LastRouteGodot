@@ -13,7 +13,7 @@ the shared HUD (Last Route, the City, Night Watch where it applies) gets the sam
   route line (`public`). Sources call `set_segment(key, text, kind)`; empty segments vanish; the bar shrinks to the visible ones and
   hides when none are left. It yields width to the side columns (FPS left, minimap or zone right): the public line, then the server
   tag, then the admin tag are ellipsised, never clipped by the window edge. Menus keep the old standalone `TestServerBadge` label.
-- **Stack under the bar**: stats panel, then the message toast, all top centre. Minimap (or zone name) top right, FPS top left.
+- **Right column**: minimap (or zone name) with the content-sized stats panel under it; the message toast keeps its fixed top-centre line under the bar; FPS top left.
 - **Minimap only with data**: `FacilityMap.has_data()` hides the panel while there is no map. A scene without a map (the City) calls
   `hud.set_minimap_available(false)` and `hud.set_zone_text("OLD TOWN")`; the zone name takes the minimap's slot.
   The admin REGION MAP toggle is unchanged.
