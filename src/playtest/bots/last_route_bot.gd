@@ -44,6 +44,7 @@ var _soft_locks := 0
 var _last_pos := Vector2.ZERO
 var _last_obs := {}
 var _stuck_spots: Array = []
+var _unreachable_seen := {}
 var _safe_wait := 0.0
 var _door_tries := 0
 var _door_walk_time := 0.0
@@ -205,6 +206,7 @@ func _reset() -> void:
 	_soft_locks = 0
 	_has_last_pos = false
 	_stuck_spots.clear()
+	_unreachable_seen.clear()
 	_scan_frame = -1000
 
 
@@ -487,8 +489,16 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 			if start_cell != Vector2i(-99999, -99999) and start_cell != cell:
 				found = nav.find_path(start_cell, goal["cell"])
 		if found.is_empty():
-			stats["unreachable_goals"] = int(stats["unreachable_goals"]) + 1
-			add_event("unreachable_goal", {"goal_kind": goal["kind"], "from": [cell.x, cell.y], "to": [goal["cell"].x, goal["cell"].y]})
+			# one finding per distinct goal; retries after the blacklist expires only raise its count
+			var unreachable_key := "%s:%d,%d" % [goal["kind"], goal["cell"].x, goal["cell"].y]
+			if _unreachable_seen.has(unreachable_key):
+				_unreachable_seen[unreachable_key]["count"] = int(_unreachable_seen[unreachable_key]["count"]) + 1
+			else:
+				var entry := {"kind": "unreachable_goal", "frame": Engine.get_physics_frames(), "count": 1, "goal_kind": goal["kind"],
+					"from": [cell.x, cell.y], "to": [goal["cell"].x, goal["cell"].y]}
+				_unreachable_seen[unreachable_key] = entry
+				events.append(entry)
+				stats["unreachable_goals"] = int(stats["unreachable_goals"]) + 1
 			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
 			_goal = {}
 			_path = []
