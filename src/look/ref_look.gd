@@ -184,6 +184,14 @@ const ROOM_STYLE := {
 	"forge": {"floor": ["hazard", "metal3"], "wall": ["inferno0", "panel0"]},
 }
 
+## The wall kind of a face that looks into a space: the room purpose's paper if the space is a room interior, else the
+## district wall. Patches of four cells so a wall changes paper in runs. Walls, door jambs, lintels and archways all call this.
+static func wall_kind(region: String, room_type: String, gx: int, gz: int) -> String:
+	var style: Dictionary = REGION_STYLE.get(region, REGION_STYLE["maze"])
+	var kinds: Array = (ROOM_STYLE.get(room_type, {}) as Dictionary).get("wall", style["wall"]) if room_type != "" else style["wall"]
+	return kinds[pick(gx / 4, gz / 4, 2, kinds.size())]
+
+
 ## Deterministic 0..n-1 choice from a cell position and a salt, so every peer
 ## picks the same tile without sharing any state.
 static func pick(cell_x: int, cell_z: int, salt: int, count: int) -> int:
