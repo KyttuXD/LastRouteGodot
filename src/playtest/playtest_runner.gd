@@ -138,7 +138,7 @@ func _run() -> void:
 func _blank_report(game: String, scenario: String, error: String) -> Dictionary:
 	return {"game": game, "scenario": scenario, "seed": _opts["seed"], "difficulty": _opts["difficulty"],
 		"machine": "%s/%s" % [OS.get_name(), OS.get_model_name()], "protocol": PlaytestBridge.PROTOCOL,
-		"revision": Build.revision(), "scenario_failure": error, "pass": error.is_empty(), "failures": []}
+		"revision": Build.revision(), "args": Array(OS.get_cmdline_user_args()), "scenario_failure": error, "pass": error.is_empty(), "failures": []}
 
 
 func _out_dir(report: Dictionary) -> String:
