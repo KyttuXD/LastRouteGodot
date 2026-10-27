@@ -67,6 +67,9 @@ func _station(id: String, prompt: String, parent: Node3D, pos: Vector3, focus :=
 func build() -> void:
 	for i in ORDER.size():
 		var id: String = ORDER[i]
+		if id == "control":
+			_build_control_office()
+			continue
 		var room := Node3D.new()
 		room.name = "Room_%s" % id
 		room.position = Vector3((i - 2) * CELL, 0.0, 0.0)
@@ -79,7 +82,6 @@ func build() -> void:
 	add_child(lift)
 	rooms["lift"] = lift
 	_build_lift(lift)
-	_control_extras()
 	_gallery_extras()
 	_workshop_extras()
 	_auditorium_extras()
@@ -98,6 +100,20 @@ func has_door(id: String, dir: String) -> bool:
 	if dir == "R":
 		return i < ORDER.size() - 1
 	return id == "control" and dir == "C"
+
+
+## Control is the Facility's office (ControlRoomOffice, the OFFICE CONTRACT): its stations and props join the world's.
+func _build_control_office() -> void:
+	var office := NightWatchOfficeRegistry.make("story") as ControlRoomOffice
+	office.name = "Room_control"
+	add_child(office)
+	rooms["control"] = office
+	for sid in office.stations:
+		stations[sid] = office.stations[sid]
+	for pname in office.props:
+		props["control/%s" % pname] = office.props[pname]
+	note_label = office.note_label
+	lamps["control"] = office.room_light
 
 
 func _wall_x(id: String, room: Node3D, side: float, tint: Color) -> void:
@@ -184,37 +200,6 @@ func _build_lift(lift: Node3D) -> void:
 	for i in 3:
 		_c(lift_slab, Vector3(DOOR_GAP - 0.02, 0.08, 0.14), Vector3(0, -0.8 + i * 0.8, 0), "SlabStripe", {"kind": "label", "tint": Color(0.8, 0.8, 0.8)})
 	set_lift_open(false)
-
-
-func _control_extras() -> void:
-	var desk := _group("control", "Desk", Vector3(-1.2, 0, 1.9))
-	_c(desk, Vector3(2.0, 0.08, 0.9), Vector3(0, 0.76, 0), "DeskTop", {})
-	for x in [-0.9, 0.9]:
-		_c(desk, Vector3(0.1, 0.76, 0.8), Vector3(x, 0.38, 0), "DeskLeg", {})
-	_c(desk, Vector3(0.6, 0.45, 0.06), Vector3(0.0, 1.05, -0.1), "TerminalScreen", {})
-	_c(desk, Vector3(0.7, 0.04, 0.3), Vector3(0.0, 0.8, 0.2), "KeypadBase", {"kind": "plastic"})
-	for i in 3:
-		for j in 4:
-			_c(desk, Vector3(0.1, 0.03, 0.05), Vector3(-0.2 + i * 0.2, 0.83, 0.1 + j * 0.06), "KeypadKeys", {"kind": "metal", "tint": Color(1.1, 1.1, 1.15)})
-	var note := _group("control", "Note", Vector3(-0.2, 0.8, 1.9))
-	_c(note, Vector3(0.42, 0.012, 0.3), Vector3(0, 0.01, 0), "NotePaper", {"kind": "label", "tint": Color(1.2, 1.2, 1.1), "ao": 1.0})
-	note_label = Label3D.new()
-	note_label.name = "NoteCode"
-	note_label.text = ""
-	note_label.font_size = 36
-	note_label.pixel_size = 0.004
-	note_label.modulate = Color(0.1, 0.08, 0.05)
-	note_label.outline_size = 0
-	note_label.no_depth_test = false
-	note_label.rotation = Vector3(-PI * 0.5, 0, 0)
-	note_label.position = Vector3(0, 0.025, 0)
-	note.add_child(note_label)
-	_station("terminal", "TERMINAL // KEY IN THE CODE ON THE NOTE", rooms["control"], Vector3(-1.2, 1.0, 1.7), Vector3.ZERO)
-	var chair := _group("control", "DeskChair", Vector3(1.4, 0, 1.6))
-	_c(chair, Vector3(0.5, 0.08, 0.5), Vector3(0, 0.45, 0), "ChairSeat", {})
-	_c(chair, Vector3(0.5, 0.5, 0.08), Vector3(0, 0.75, 0.22), "ChairBack", {})
-	_c(chair, Vector3(0.08, 0.45, 0.08), Vector3(0, 0.22, 0), "ChairColumn", {"kind": "metal"})
-	_station("hide_spot", "HIDE UNDER THE DESK // HOLD H", rooms["control"], Vector3(1.4, 0.6, 1.8), Vector3.ZERO)
 
 
 func _gallery_extras() -> void:
@@ -309,6 +294,8 @@ func _breaker_extras() -> void:
 ## Lockers, crates, pipes and a cabinet so every room has something in it besides its station.
 func _decor() -> void:
 	for id in ORDER:
+		if id == "control":
+			continue
 		var clutter := _group(id, "Clutter", Vector3(-2.2, 0, 1.6))
 		_c(clutter, Vector3(0.7, 0.7, 0.7), Vector3(0, 0.35, 0), "CrateBox", {"tint": Color(0.9 + 0.1 * ORDER.find(id), 0.85, 0.8)})
 		_c(clutter, Vector3(0.74, 0.06, 0.74), Vector3(0, 0.5, 0), "CrateBand", {"kind": "metal", "tint": Color(0.8, 0.8, 0.85)})
@@ -325,6 +312,8 @@ func _decor() -> void:
 
 func _door_stations() -> void:
 	for id in ORDER:
+		if id == "control":
+			continue
 		for dir in ["L", "R"]:
 			if not has_door(id, dir):
 				continue
@@ -335,10 +324,6 @@ func _door_stations() -> void:
 			var plate := A.prop(rooms[id], "DoorPlate%s" % dir, Vector3(sgn * (ROOM_W * 0.5 - 0.1), 1.2, 1.15))
 			props["%s/DoorPlate%s" % [id, dir]] = plate
 			_c(plate, Vector3(0.06, 0.3, 0.3), Vector3.ZERO, "DoorButton", {"kind": "green"})
-	_station("door_control_C", "LIFT DOOR // GO IN", rooms["control"], Vector3(1.5, 1.2, -ROOM_D * 0.5 + 0.1), Vector3.ZERO)
-	var plate2 := A.prop(rooms["control"], "DoorPlateC", Vector3(1.5, 1.2, -ROOM_D * 0.5 + 0.1))
-	props["control/DoorPlateC"] = plate2
-	_c(plate2, Vector3(0.3, 0.3, 0.06), Vector3.ZERO, "DoorButton", {"kind": "green"})
 	_station("door_lift_C", "LIFT DOOR // GO OUT TO CONTROL", rooms["lift"], Vector3(-1.4, 1.2, 1.4), Vector3.ZERO)
 	var plate3 := A.prop(rooms["lift"], "DoorPlateC", Vector3(-1.4, 1.2, 1.4))
 	props["lift/DoorPlateC"] = plate3

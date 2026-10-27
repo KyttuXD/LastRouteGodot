@@ -141,6 +141,11 @@ func station_pressed(id: String) -> String:
 		return do_interact({"i": int(id.get_slice("_", 1))})
 	if id == "crank":
 		return do_interact({})
+	if id == "monitor":
+		if sim.task_idx >= sim.tasks.size():
+			return ""
+		var t: Dictionary = sim.tasks[sim.task_idx]
+		return "NEXT: %s (%s)" % [t["label"], String(StoryData.ROOMS[t["room"]]["label"]).capitalize()]
 	return ""
 
 
