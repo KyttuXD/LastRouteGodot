@@ -10,7 +10,9 @@ extends Node
 signal display_changed
 signal visual_changed
 
-const SETTINGS_PATH := "user://settings.cfg"
+const SETTINGS_PATH_DEFAULT := "user://settings.cfg"
+## `--profile=NAME` gives each launched instance its own settings file (scripts/run_multi.sh).
+var SETTINGS_PATH := RunProfile.path(SETTINGS_PATH_DEFAULT)
 const DEFAULT_VOLUME_PERCENT := 100.0
 const DEFAULT_SFX_VOLUME_PERCENT := 100.0
 const DEFAULT_UI_VOLUME_PERCENT := 100.0

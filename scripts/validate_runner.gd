@@ -16,7 +16,7 @@ extends Node
 const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
 	"run_report", "sync", "roster", "hunters", "sprites",
 	"blocky", "custom_map", "streamed_world", "props", "player_effects", "audio", "saves",
-	"story", "hunter_emotes", "player_model", "hallways", "hud_overlap", "coplanar", "hunter_nav", "density", "humps"]
+	"story", "hunter_emotes", "player_model", "hallways", "hud_overlap", "coplanar", "hunter_nav", "density", "humps", "account_session"]
 
 
 func _ready() -> void:

@@ -29,6 +29,11 @@ const PRIMARY_BASE_URL := "http://lastroute.kyttuslab.org:8105"
 ## release builds ignore it, so a shipped game can never be redirected.
 const TEST_BASE_URLS := ["http://lastroute.kyttuslab.org:8205"]
 const ACCOUNT_CONFIG_PATH := "user://last_route_account.cfg"
+## HTTP statuses that mean the server REJECTED the stored session (it is cleared); anything else (no network, a restart,
+## a 5xx) leaves the token alone so a login survives the server being down or a different server being selected.
+const SESSION_REJECTED_CODES := [400, 401, 403, 404]
+## The file the account session lives in: `--profile=NAME` (scripts/run_multi.sh) gives every instance its own file.
+var account_config_path := ACCOUNT_CONFIG_PATH
 var base_url := PRIMARY_BASE_URL
 ## True while a debug run is talking to the TEST instance (menu and HUD show a TEST SERVER badge).
 var test_server_active := false
@@ -82,6 +87,7 @@ var _requests_suppressed_for_tests := false
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	_apply_loopback_override()
+	account_config_path = RunProfile.path(ACCOUNT_CONFIG_PATH)
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
 	add_child(_host_request)
@@ -125,6 +131,16 @@ func _apply_loopback_override() -> void:
 			push_warning("ignored --backend override: only loopback origins (or the test instance in a debug build) are allowed")
 
 
+## Sessions are stored per server, so signing in to the test instance never clears (or is replaced by) the main login.
+func _session_section() -> String:
+	return "account:" + base_url.trim_suffix("/").to_lower()
+
+
+## Re-reads the stored session for the CURRENT base_url (call after changing server).
+func reload_account_session() -> void:
+	_load_account_session()
+
+
 func configured() -> bool:
 	return not _requests_suppressed_for_tests and not offline_mode
 
@@ -166,6 +182,9 @@ func account_transport_warning() -> String:
 func _account_transport_is_protected() -> bool:
 	var origin := base_url.trim_suffix("/").to_lower()
 	if origin.begins_with("https://"):
+		return true
+	# Debug builds may sign in to the TEST instance (plain HTTP, throwaway accounts) so a login can be tested there.
+	if test_server_active and OS.is_debug_build():
 		return true
 	# Development loopback is allowed, but require an exact host boundary so
 	# names such as `localhost.example` cannot masquerade as local transport.
@@ -520,7 +539,12 @@ func _on_account_response(result: int, response_code: int,
 	var payload := _parse_body(body)
 	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
 		if operation == "session":
-			_clear_account_session()
+			# Only a rejected session is forgotten. No network, a server restart or a 5xx keeps the stored token so
+			# the login survives (it is verified again the next time the server answers).
+			if result == HTTPRequest.RESULT_SUCCESS and response_code in SESSION_REJECTED_CODES:
+				_clear_account_session()
+			else:
+				account_session_verified = false
 		var message := String(payload.get("error", "ACCOUNT %s FAILED (HTTP %d)" % [
 			operation.to_upper(), response_code]))
 		if operation in ["save", "load"]:
@@ -692,10 +716,13 @@ func _adopt_account_progress(payload: Dictionary, message: String) -> void:
 
 func _load_account_session() -> void:
 	var config := ConfigFile.new()
-	if config.load(ACCOUNT_CONFIG_PATH) != OK:
+	if config.load(account_config_path) != OK:
 		return
-	account_username = String(config.get_value("account", "username", "")).strip_edges().to_upper()
-	account_session_token = String(config.get_value("account", "session_token", ""))
+	var section := _session_section()
+	if not config.has_section(section) and base_url.trim_suffix("/").to_lower() == PRIMARY_BASE_URL.to_lower():
+		section = "account"   # sessions saved before they were per server belong to the main server
+	account_username = String(config.get_value(section, "username", "")).strip_edges().to_upper()
+	account_session_token = String(config.get_value(section, "session_token", ""))
 	account_admin = false
 	account_admin_owner = false
 	account_admin_permissions = PackedStringArray()
@@ -704,9 +731,10 @@ func _load_account_session() -> void:
 
 func _save_account_session() -> void:
 	var config := ConfigFile.new()
-	config.set_value("account", "username", account_username)
-	config.set_value("account", "session_token", account_session_token)
-	config.save(ACCOUNT_CONFIG_PATH)
+	config.load(account_config_path)   # keep the other servers' sessions
+	config.set_value(_session_section(), "username", account_username)
+	config.set_value(_session_section(), "session_token", account_session_token)
+	config.save(account_config_path)
 
 
 func _clear_account_session() -> void:
@@ -722,9 +750,13 @@ func _clear_account_session() -> void:
 	_pending_progress_save.clear()
 	_clear_admin_ticket()
 	var config := ConfigFile.new()
-	config.set_value("account", "username", "")
-	config.set_value("account", "session_token", "")
-	config.save(ACCOUNT_CONFIG_PATH)
+	config.load(account_config_path)
+	config.set_value(_session_section(), "username", "")
+	config.set_value(_session_section(), "session_token", "")
+	if base_url.trim_suffix("/").to_lower() == PRIMARY_BASE_URL.to_lower() and config.has_section("account"):
+		config.set_value("account", "username", "")
+		config.set_value("account", "session_token", "")
+	config.save(account_config_path)
 
 
 func _clear_admin_ticket() -> void:
