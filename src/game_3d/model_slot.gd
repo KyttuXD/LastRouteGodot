@@ -183,8 +183,9 @@ static func material_content_key(source: StandardMaterial3D) -> String:
 			texture_key = "rid%d" % texture.get_rid().get_id()
 	else:
 		texture_key = "mat%d" % source.get_rid().get_id()
-	return "%s|%s|%.3f|%.3f|%d|%d|%d|%s" % [texture_key, source.albedo_color.to_html(true), source.roughness, source.metallic,
-		source.transparency, source.cull_mode, source.shading_mode, str(source.emission_enabled)]
+	# the name keeps trim / hardware / inset reads apart now that matte-ing makes their roughness and metallic identical
+	return "%s|%s|%.3f|%.3f|%d|%d|%d|%s|%s" % [texture_key, source.albedo_color.to_html(true), source.roughness, source.metallic,
+		source.transparency, source.cull_mode, source.shading_mode, str(source.emission_enabled), source.resource_name]
 
 
 static func apply_prop_pixel_filter(node: Node) -> void:
@@ -243,8 +244,7 @@ static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void
 						# made authored props clash with block characters.
 						material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 						_apply_blocky_style_profile(material, profile_key)
-						# machines, doors and relays keep a soft metal look; everything else is matte
-						MaterialLook.tame(material, profile_key in ["machine", "door", "relay"])
+						MaterialLook.tame(material)
 						_blocky_prop_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():

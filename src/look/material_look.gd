@@ -54,7 +54,7 @@ static func tame(material: BaseMaterial3D, metal: bool = false, floor_soft: bool
 		material.metallic = METALLIC_DEFAULT
 		material.metallic_specular = minf(material.metallic_specular, SPECULAR_DEFAULT)
 	else:
-		material.roughness = maxf(material.roughness, ROUGHNESS_MATTE * .9)
+		material.roughness = maxf(material.roughness, ROUGHNESS_MATTE)
 		material.metallic = minf(material.metallic, METALLIC_DEFAULT + .05)
 		material.metallic_specular = minf(material.metallic_specular, SPECULAR_DEFAULT)
 
