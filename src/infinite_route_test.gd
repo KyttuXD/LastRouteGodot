@@ -1480,7 +1480,7 @@ func _update_streamed_maps() -> void:
 	_refresh_waypoint_route(level)
 	hud.update_streamed_minimap(_local_map_chunks(), level,
 		StreamedRouteGenerator.CHUNK_SIZE, at, player.facing,
-		_streamed_map_marks(level, false), remote_map_players,
+		_streamed_map_marks(level, true), remote_map_players,
 		show_admin_regions, dropped_tool_marks, safe_room_marks)
 	var floor_waypoints := _floor_waypoints(level)
 	hud.minimap.set_waypoints(floor_waypoints)
