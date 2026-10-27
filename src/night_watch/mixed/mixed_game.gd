@@ -107,7 +107,8 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
-	hud.set_cam_layout(NightWatchMapRegistry.layout_for("mixed"))   # the transit hub's minimap: nine cameras (CAM 9 is the vent run)
+	hud.set_cam_layout(MixedSkin.layout_for(world.dress_set))   # the night's skin on the hub's minimap: nine cameras (CAM 9 is the vent run)
+	_apply_skin_light()
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
 	add_child(death_moment)
@@ -440,8 +441,13 @@ func _on_event(e: Dictionary) -> void:
 		"chaos":
 			if String(e.get("phase", "")) == "start":
 				NightWatchSounds.office("static", 0.0, 0.8)
-		"hour", "rotate":
+		"hour":
 			NightWatchSounds.hour_change()
+		"rotate":
+			NightWatchSounds.hour_change()
+			if sim.endless:   # ENDLESS keeps cycling: the roster re-draws and the map goes on to the next skin
+				admin_set_dressing(MixedSkin.pick(seed_value + int(e.get("gen", 0))))
+				hud.flash_static()
 
 
 # --- what you see ------------------------------------------------------------------------------------------------------------
@@ -803,7 +809,7 @@ func admin_set_door(side: String, shut: bool) -> void:
 	_sync_visuals()
 
 
-## ROTATION: the night's dressing (0 station, 1 party floor, 2 salvage yard), rebuilt on the same layout.
+## ROTATION: the shift's skin (MixedSkin: 0 transit hub ... 8 campsite), rebuilt on the same shape; the minimap labels, the light and the props follow.
 func admin_set_dressing(index: int) -> void:
 	var next := clampi(index, 0, MixedMap.SETS.size() - 1)
 	remove_child(world)
@@ -814,7 +820,17 @@ func admin_set_dressing(index: int) -> void:
 	world.office = office
 	add_child(world)
 	_walkers.clear()
+	hud.set_cam_layout(MixedSkin.layout_for(next))
+	hud.set_cam(MixedMap.map_for(monitor_room), feed_transform(monitor_room))
+	_apply_skin_light()
 	_sync_visuals()
+
+
+## The skin's ambient light and sky.
+func _apply_skin_light() -> void:
+	var skin := MixedSkin.skin(world.dress_set)
+	world_env.environment.ambient_light_color = skin["light"]
+	world_env.environment.background_color = skin["sky"]
 
 
 func admin_set_reveal(on: bool) -> void:
