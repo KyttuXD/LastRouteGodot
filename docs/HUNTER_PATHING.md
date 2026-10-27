@@ -26,3 +26,21 @@ Haelith is the one intended stand-still: she sits on the uncollected relay she r
 (props, every district, 2 seeds) for all 26 A-Z and 12 Void hunters at their real speeds, in a visible-chase mode
 (a runner walking a route in sight, Verrine with an active vent) and a no-target patrol mode. Any hunter standing
 still in a walking/chasing state for more than 1 s fails it. `hunter_nav` keeps the long abstract trips.
+
+## Hunters never fall (FALL FIX)
+
+Hunters are grid simulations; their presentation body (`HunterView3D`, a `CharacterBody3D`) used to fall under gravity and
+only caught itself 4 m below the floor. A hunter on a chunk with no loaded floor collider (far hunters, a chunk still
+streaming, a chunk freed under her, a guest that has not built the host's chunk) dropped through the map and snapped back
+to odd places. Now:
+
+* the body's height is the level floor height (or the authored stair ramp), approached at 14 m/s; there is no gravity.
+  Collision stays only for the planar slide against walls that are loaded;
+* if a body is ever more than 1 m below its floor it is put back and `HunterBrain.fall_recoveries` counts it; the admin
+  hunter list shows `RECOVERED xN`. The playtest bridge can read the counter from the brain;
+* other bodies: pickups, dropped items and props are not physics bodies (positions come from cells), players only exist
+  inside the loaded window, and remote hunters on guests use the same view, so they follow the host position on the floor.
+
+Validator `hunter_fall`: all 38 hunters walk 60 simulated seconds 60 chunks from any floor collision (min y stays above
+-0.2 m, no recoveries, they keep progressing), a hunter whose collider is freed mid-walk stays up, and a body pushed below the
+floor is recovered and counted. It fails on the old gravity code (hunters reached y = -3.9).

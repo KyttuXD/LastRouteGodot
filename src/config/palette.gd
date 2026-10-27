@@ -212,6 +212,7 @@ static func style_state_toggle(button: Button, caption_text: String,
 		enabled: bool, compact: bool = false) -> void:
 	button.text = ""
 	style_button(button, false, compact)
+	_hide_check_icons(button)
 	var content := button.get_node_or_null("StateToggleContent") as HBoxContainer
 	if content == null:
 		content = HBoxContainer.new()
@@ -242,6 +243,25 @@ static func style_state_toggle(button: Button, caption_text: String,
 		content.add_child(chip)
 	(content.get_node("Caption") as Label).text = caption_text
 	set_state_toggle(button, enabled)
+
+
+static var _blank_icon: Texture2D
+
+
+## A toggle row already shows its state in the ON/OFF chip. A CheckBox/CheckButton would also draw its own check icon at the
+## left, on top of the row's caption (the admin VISUAL tab read "..XEL EFFECT"), so the icons are blanked: the chip is the
+## one indicator and the whole row stays clickable and focusable.
+static func _hide_check_icons(button: Button) -> void:
+	if not (button is CheckBox or button is CheckButton):
+		return
+	if _blank_icon == null:
+		var image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		image.fill(Color(0, 0, 0, 0))
+		_blank_icon = ImageTexture.create_from_image(image)
+	for icon_name in ["checked", "unchecked", "checked_disabled", "unchecked_disabled",
+			"radio_checked", "radio_unchecked", "radio_checked_disabled", "radio_unchecked_disabled"]:
+		button.add_theme_icon_override(icon_name, _blank_icon)
+	button.add_theme_constant_override("h_separation", 0)
 
 
 static func set_state_toggle(button: Button, enabled: bool) -> void:

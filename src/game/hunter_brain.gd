@@ -39,6 +39,8 @@ const CENTER_STEER_SECONDS := 0.8
 const UNREACHABLE_GIVE_UP := 1.6
 ## Seconds the hunter has been trying to move without getting anywhere; read by the admin hunter list and the validators.
 var stuck_seconds := 0.0
+## Times the view had to put this hunter back on the floor (HunterView3D safety net; always 0 in a healthy run).
+var fall_recoveries := 0
 var _unreachable_time := 0.0
 
 var position: Vector2
