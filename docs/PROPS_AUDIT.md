@@ -155,3 +155,52 @@ still have a single model on purpose (doors, signs, trees, flowers, carnival, be
 Doors (six tall regional doors, one look each), flowers and plants (single cube bouquets), arcade and carnival cabinets, sconces and
 chandeliers, the piano, tea cart and display cabinet (finish variants only, shapes unchanged), curtains and drapes, signs. These are
 candidates for a later pass.
+
+# Props performance and final audit (DONE16)
+
+Final contact sheets of every prop family (first model of each of the 204 types): `docs/props_final_sheet_1.png` ... `_4.png`
+(rendered headless with `tools/props/render_sheet.py`).
+
+## What the renderer and the physics server carry
+
+Measured by the `prop_perf` suite (`scripts/validate_prop_perf.gd`, no GPU needed): it builds the streamed route twice, with the
+optimisations off and on, and counts what is there. The route around the origin has 1,030 props (1,322 prop meshes, 754 collision boxes).
+
+| Change | Before | After |
+| --- | --- | --- |
+| prop materials (distinct, bound per draw) | 242 | 92 (-62%) |
+| collision boxes | 754 boxes, one `BoxShape3D` each | 754 boxes on 190 shared shapes |
+| prop meshes that stop drawing at a distance | 0 | 521 of 1,322 (small props beyond 42 m, medium beyond 64 m, 6 m margin) |
+
+- **Shared materials.** All ~600 blocky prop GLBs carry their own extracted copy of the same 128x64 pixel atlas, so the caches in
+  `ModelSlot` (keyed by the source material's RID) gave every model its own materials, twice over (pixel filter and blocky style).
+  `ModelSlot.material_content_key()` keys the atlas by name (no pixel readback: `Texture2D.get_image()` on a GPU texture stalls the
+  renderer), so all of them share one material per style profile. The `props_rework` suite already guarantees that every builder
+  model uses the shared 128x64 atlas.
+- **Shared collision boxes.** `_spawn_authored_prop` creates one `BoxShape3D` per distinct blocker size instead of one per prop.
+- **Visibility ranges.** Small (bounding-box diagonal under 1 m) and medium (under 2 m) props get `visibility_range_end` on their
+  meshes: the renderer culls them, no script runs per frame. Floor dressing, big pieces and the animated carousel always draw.
+- **Imports.** All blocky `.import` files and extracted atlas PNGs were regenerated in one consistent pass (earlier incremental
+  imports left 45 "invalid UID" warnings at runtime; now 0).
+
+Each switch can be turned off for an A/B run: `ModelSlot.share_blocky_materials`, `StreamedFacilityView3D.limit_prop_visibility`
+(collision-box sharing is always on).
+
+## Frame times and draw calls
+
+`tools/look/prop_perf.tscn` (windowed, wraps `tools/look/capture.gd`): `mini-run.sh <dir> <lane> --scene res://tools/look/prop_perf.tscn --
+/tmp perf REFLOOK <picks> 8 - <base|share|range|both>`. Baseline on the mini before this pass (24 views over 8 room types, M4, machine
+otherwise idle): mean 172 fps, median 170, worst 128; draw calls mean 1,175, max 1,981. The after numbers were NOT recorded: the mini was
+saturated by other lanes' test runs (load 8-12), and a run under that load measured 90 fps for the same code, which says nothing about the
+code. Re-run the four modes back to back when the machine is quiet (check `uptime` first) before quoting any fps.
+
+Not done, on purpose: merging static props into one mesh per chunk (it would break per-prop interaction, hiding and flicker for lamps
+and doors) and MultiMesh instancing (the models are one-off variants; the shared materials already let the renderer sort by material).
+
+## Final audit
+
+Every prop validator on the final state: furniture, props_rework, prop_perf, lods, coplanar, colliders, collision, blocky, props, and
+the full suite (see the commit message for the result).
+
+Still weak (unchanged since DONE14): doors (one look each), flowers and plants, arcade and carnival cabinets, sconces and chandeliers,
+the piano, tea cart and display cabinet (finish variants only), curtains and drapes, signs.
