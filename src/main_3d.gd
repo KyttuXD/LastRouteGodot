@@ -32,7 +32,7 @@ var hunter_view: HunterView3D
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
 var _death_moment: DeathMoment
-## How the local runner is dying, for the death line pick: contact (default), deal (Zephyra), cold (Wynelle).
+## How the local runner is dying, for the death line pick: contact (default), deal (Zellia), cold (Wynelle).
 var _death_via := "contact"
 var pixel_signal_effect: PixelSignalEffect
 var _capture_resolving := false
@@ -112,6 +112,7 @@ func _ready() -> void:
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
+	_void_fx = VoidPlayerEffects.new(player, hud, _report_void_route)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -173,6 +174,8 @@ func _on_background_update_ready(_path: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if _void_fx != null:
+		_void_fx.tick(delta)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
 		_admin_ticket_refresh_elapsed += delta
 		if _admin_ticket_refresh_elapsed >= 5.0:
@@ -331,6 +334,9 @@ func _update_gameplay(delta: float) -> void:
 					"message": String(event.get("message", "")),
 				})
 				continue
+			if what in ["signal_route", "system_outage", "radar_corrupt"]:
+				_dispatch_player_event(target, event)
+				continue
 			facility_view.apply_event(event)
 			_play_world_audio(event)
 			_remotes.broadcast_event(event)
@@ -338,13 +344,13 @@ func _update_gameplay(delta: float) -> void:
 			if not note.is_empty():
 				hud.show_message(note)
 		view.brain.world_events.clear()
-		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
+		# Javelle reaching into a locker. Resolved here rather than in the gimmick
 		# because it moves the PLAYER, which the brain has no handle on.
-		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
+		if view.brain.gimmick is JavelleGimmick and view.brain.gimmick.ejecting:
 			_dispatch_player_event(target, {
 				"what": "eject",
 				"at": view.brain.gimmick.ejected_to,
-				"message": "JYVRA PULLED YOU OUT OF HIDING",
+				"message": "JAVELLE PULLED YOU OUT OF HIDING",
 			})
 		if view.brain.gimmick is LoxelleGimmick:
 			for toggle in view.brain.gimmick.toggles:
@@ -406,7 +412,7 @@ func _local_hunter_target() -> Dictionary:
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
 		# Actually moving under sprint, not merely holding the key — the
-		# original gates on `sprinting && travelSpeed > .1` (Eirys).
+		# original gates on `sprinting && travelSpeed > .1` (Elise).
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		# For beam-aim checks (Nyxie's dispel).
 		"facing": player.facing,
@@ -420,7 +426,7 @@ func _local_hunter_target() -> Dictionary:
 		# network she lurks in -- see VerrineGimmick.after_perception.
 		"in_vent": player.in_vent,
 		"vent_time_in": player.vent_time_in,
-		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
+		# Zellia's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
 		"map_open": hud.map_is_open(),
@@ -647,13 +653,13 @@ func _use_vent(vent_id: String) -> String:
 	return "The grate won't budge."
 
 
-## Zephyra's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
+## Zellia's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
 ## key while her menu is open) -- see PlayerController3D.shop_resolver.
 func _use_shop(action: String) -> String:
 	for view in hunter_views:
-		if not view.brain.gimmick is ZephyraGimmick:
+		if not view.brain.gimmick is ZelliaGimmick:
 			continue
-		var gimmick: ZephyraGimmick = view.brain.gimmick
+		var gimmick: ZelliaGimmick = view.brain.gimmick
 		if action == "open":
 			return gimmick.open_shop(player.grid_position(), view.brain.position, player.facing)
 		if not gimmick.shop_open:
@@ -661,25 +667,25 @@ func _use_shop(action: String) -> String:
 		gimmick.shop_open = false
 		var offer_index := int(action)
 		if RoomState.online and not RoomState.is_host:
-			_remotes.request_interaction({"what": "zephyra_trade", "offer": offer_index})
-			return "ZYTTU // VERIFYING TRADE..."
-		return _perform_zephyra_trade(
+			_remotes.request_interaction({"what": "zellia_trade", "offer": offer_index})
+			return "ZELLIA'S STORE // VERIFYING TRADE..."
+		return _perform_zellia_trade(
 			multiplayer.get_unique_id() if RoomState.online else 1,
 			offer_index, _local_hunter_target(), gimmick)
 	return ""
 
 
-## What the interaction prompt shows near Zephyra -- checked after the
+## What the interaction prompt shows near Zellia -- checked after the
 ## ordinary nearest-interactable prompt, since she is not one.
 func _shop_prompt() -> String:
 	for view in hunter_views:
-		if not view.brain.active or not view.brain.gimmick is ZephyraGimmick:
+		if not view.brain.active or not view.brain.gimmick is ZelliaGimmick:
 			continue
-		var gimmick: ZephyraGimmick = view.brain.gimmick
+		var gimmick: ZelliaGimmick = view.brain.gimmick
 		if gimmick.shop_open:
 			return gimmick.offer_menu_text()
 		if gimmick.in_range(player.grid_position(), view.brain.position, player.facing):
-			return "OPEN ZYTTU COIN EXCHANGE"
+			return "OPEN ZELLIA'S STORE"
 	return ""
 
 
@@ -766,10 +772,12 @@ func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
 						vent_id, view.brain, facility_view.generator)
 					view.sync_from_brain()
 					return
-		"zephyra_trade":
+		"signal_route_result":
+			VoidPlayerEffects.host_route_result(hunter_views, peer_id, bool(event.get("ok", false)))
+		"zellia_trade":
 			for view in hunter_views:
-				if view.brain.active and view.brain.gimmick is ZephyraGimmick:
-					_perform_zephyra_trade(peer_id, int(event.get("offer", 0)),
+				if view.brain.active and view.brain.gimmick is ZelliaGimmick:
+					_perform_zellia_trade(peer_id, int(event.get("offer", 0)),
 						source, view.brain.gimmick, view.brain.position)
 					return
 
@@ -785,12 +793,12 @@ func _target_can_interact(target: Dictionary, cell: Vector2i) -> bool:
 	return offset.normalized().dot(facing) >= cos(GameConfig.INTERACTION_FACING_HALF_ANGLE)
 
 
-func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
-		gimmick: ZephyraGimmick, merchant_position: Vector2 = Vector2.INF) -> String:
+func _perform_zellia_trade(peer_id: int, offer_index: int, target: Dictionary,
+		gimmick: ZelliaGimmick, merchant_position: Vector2 = Vector2.INF) -> String:
 	if merchant_position != Vector2.INF and not gimmick.in_range(
 			target.get("position", Vector2.ZERO), merchant_position,
 			target.get("facing", Vector2.ZERO)):
-		var rejected := "ZYTTU // TRADE REJECTED // MOVE CLOSER"
+		var rejected := "ZELLIA'S STORE // TRADE REJECTED // MOVE CLOSER"
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": rejected})
 		return rejected
@@ -800,7 +808,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 	if offer_id.is_empty():
 		return ""
 	if GameState.coins < cost:
-		var refused := "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
+		var refused := "ZELLIA'S STORE // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": refused})
 		return refused
@@ -812,30 +820,30 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 		if relay:
 			relay.set_sabotaged(false)
 			personal_offer = ""
-	var message := "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [label, cost]
+	var message := "ZELLIA'S STORE // TRADE COMPLETE // %s // -%d COINS" % [label, cost]
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	if peer_id == local_id:
 		if not personal_offer.is_empty():
 			gimmick.apply_personal_offer(personal_offer, player)
 	else:
-		_remotes.send_player_event(peer_id, {"what": "zephyra_trade",
+		_remotes.send_player_event(peer_id, {"what": "zellia_trade",
 			"offer": personal_offer, "coins": GameState.coins, "message": message})
 	if RoomState.online:
 		_remotes.broadcast_event({"what": "coins", "coins": GameState.coins})
 	# 2D: any deal can be fatal. She grabs through the normal capture path, the death line is drawn from the "deal" pool.
-	var zephyra_view: HunterView3D = null
+	var zellia_view: HunterView3D = null
 	for view in hunter_views:
 		if view.brain.gimmick == gimmick:
-			zephyra_view = view
-	if zephyra_view != null and zephyra_view.brain.next_random_float() < float(
-			GameConfig.ZEPHYRA_DEATH_CHANCE.get(RoomState.difficulty_id(), 0.05)):
+			zellia_view = view
+	if zellia_view != null and zellia_view.brain.next_random_float() < float(
+			GameConfig.ZELLIA_DEATH_CHANCE.get(RoomState.difficulty_id(), 0.05)):
 		if peer_id == local_id:
 			_death_via = "deal"
-			_trigger_capture(zephyra_view, true)
+			_trigger_capture(zellia_view, true)
 		else:
-			_remotes.send_player_event(peer_id, {"what": "capture", "hunter_id": "zephyra",
+			_remotes.send_player_event(peer_id, {"what": "capture", "hunter_id": "zellia",
 				"inescapable": true, "via": "deal"})
-		return "ZYTTU // THE DEAL COST MORE THAN COINS"
+		return "ZELLIA'S STORE // THE DEAL COST MORE THAN COINS"
 	return message
 
 
@@ -1322,6 +1330,18 @@ func _player_controls_blocked() -> bool:
 		or (admin_menu != null and admin_menu.is_open())
 
 
+var _void_fx: VoidPlayerEffects
+
+
+## A signal route (Gray) ended on this player's machine: the host decides what it means.
+func _report_void_route(ok: bool) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "signal_route_result", "ok": ok})
+	else:
+		VoidPlayerEffects.host_route_result(hunter_views,
+			multiplayer.get_unique_id() if RoomState.online else 1, ok)
+
+
 func _on_map_open_changed(_shown: bool) -> void:
 	player.velocity = Vector3.ZERO
 	player.input_frozen = _player_controls_blocked()
@@ -1609,6 +1629,8 @@ func _dispatch_player_event(target: Dictionary, event: Dictionary) -> void:
 
 
 func _apply_player_event(event: Dictionary) -> void:
+	if _void_fx != null and _void_fx.apply(event):
+		return
 	match String(event.get("what", "")):
 		"capture":
 			if String(event.get("via", "")) != "":
@@ -1643,12 +1665,12 @@ func _apply_player_event(event: Dictionary) -> void:
 				player.meters.heat_locked = true
 				player.meters.temperature = maxf(player.meters.temperature,
 					GameConfig.TEMPERATURE_OVERHEAT)
-		"zephyra_trade":
+		"zellia_trade":
 			GameState.coins = int(event.get("coins", GameState.coins))
 			var offer_id := String(event.get("offer", ""))
 			if not offer_id.is_empty():
 				for view in hunter_views:
-					if view.brain.gimmick is ZephyraGimmick:
+					if view.brain.gimmick is ZelliaGimmick:
 						view.brain.gimmick.apply_personal_offer(offer_id, player)
 						break
 			var trade_note := String(event.get("message", ""))

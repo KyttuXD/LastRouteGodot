@@ -41,7 +41,7 @@
       ],
       "loreLine": "Good game, guest.. nobody's winning tonight."
     },
-    "eirys": {
+    "elise": {
       "lines": [
         "You ran so much I couldn't lose you.",
         "Rematch any time, I'll be faster.",
@@ -85,7 +85,7 @@
       ],
       "loreLine": "I could see you better from up here."
     },
-    "jyvra": {
+    "javelle": {
       "lines": [
         "Told you, nobody ever listens when I say it.",
         "Eight seconds outside your locker is plenty, thank you.",
@@ -141,7 +141,7 @@
       ],
       "loreLine": "It's all right, most people don't see me the first time."
     },
-    "quirith": {
+    "quenelle": {
       "lines": [
         "Your light was on too long, so I locked on.",
         "Don't flatter yourself, I was going this way.",
@@ -328,7 +328,7 @@
       ],
       "loreLine": "You ran, so I'll put that on your tag."
     },
-    "zephyra": {
+    "zellia": {
       "lines": [
         "Every deal has a price, and you just paid it.",
         "No refunds, sorry, house rules.",

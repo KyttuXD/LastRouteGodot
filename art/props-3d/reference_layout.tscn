@@ -10,7 +10,7 @@
 [ext_resource type="PackedScene" path="res://art/props-3d/interactables/relay.tscn" id="8_relay"]
 [ext_resource type="PackedScene" path="res://art/props-3d/interactables/battery.tscn" id="9_battery"]
 [ext_resource type="PackedScene" path="res://art/props-3d/interactables/safe_zone.tscn" id="10_safe_zone"]
-[ext_resource type="PackedScene" path="res://art/props-3d/characters/quirith.tscn" id="11_quirith"]
+[ext_resource type="PackedScene" path="res://art/props-3d/characters/quenelle.tscn" id="11_quenelle"]
 
 [node name="ReferenceLayout" type="Node3D"]
 
@@ -97,10 +97,10 @@ position = Vector3(7, 0, 1)
 [node name="Dovelle" parent="CastRow" instance=ExtResource("7_dovelle")]
 position = Vector3(7, 0, 1)
 
-[node name="FloorQuirith" parent="CastRow" instance=ExtResource("1_floor")]
+[node name="FloorQuenelle" parent="CastRow" instance=ExtResource("1_floor")]
 position = Vector3(7, 0, 2)
 
-[node name="Quirith" parent="CastRow" instance=ExtResource("11_quirith")]
+[node name="Quenelle" parent="CastRow" instance=ExtResource("11_quenelle")]
 position = Vector3(7, 0, 2)
 
 [node name="InteractablesRow" type="Node3D" parent="."]

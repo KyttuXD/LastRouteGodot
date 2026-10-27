@@ -135,7 +135,7 @@ func _process(delta: float) -> void:
 	if _since_send < 1.0 / SEND_HZ:
 		return
 	_since_send = 0.0
-	_place.rpc(_local_state())
+	_send_to_live(_place, [_local_state()])
 
 
 func _local_state() -> Dictionary:
@@ -697,13 +697,35 @@ func stream_centers() -> Array[Vector3i]:
 	return result
 
 
+## A peer we may still send to: its ENet connection is up. Between a guest dropping and the host noticing (the ENet
+## timeout), the peer is still listed but every send fails with "Unable to send packet ... max channels: 0" (the playtest
+## party logged ~1,200 of them); skip it instead.
+func peer_is_live(peer_id: int) -> bool:
+	if not multiplayer.has_multiplayer_peer() or peer_id == multiplayer.get_unique_id():
+		return false
+	if not peer_id in multiplayer.get_peers():
+		return false
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null:
+		return true
+	var packet_peer := enet.get_peer(peer_id)
+	return packet_peer == null or packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+
+
+## Sends an RPC to every live peer (instead of .rpc(), which also targets peers that are already gone).
+func _send_to_live(method: Callable, args: Array) -> void:
+	for peer_id in multiplayer.get_peers():
+		if peer_is_live(peer_id):
+			method.rpc_id.callv([peer_id] + args)
+
+
 ## Hunters, from the host only.
 signal hunters_received(data: Array)
 
 
 func broadcast_hunters(data: Array) -> void:
 	if RoomState.online and RoomState.is_host:
-		_hunters.rpc(data)
+		_send_to_live(_hunters, [data])
 
 
 @rpc("authority", "call_remote", "unreliable_ordered")
@@ -759,7 +781,7 @@ func _submit_event(event: Dictionary) -> void:
 
 func relay_world_event(event: Dictionary) -> void:
 	if RoomState.online and RoomState.is_host:
-		_event.rpc(_canonical_world_event(event))
+		_send_to_live(_event, [_canonical_world_event(event)])
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -801,7 +823,7 @@ func _request_interaction(event: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
+			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
 			"stream_waypoint", "stream_axe_rescue"].has(what):
@@ -867,7 +889,7 @@ func _greet(id: int) -> void:
 ## rebuild already-connected guests too, not only peers which join afterward.
 func broadcast_snapshot() -> void:
 	if RoomState.online and RoomState.is_host and snapshot_source.is_valid():
-		_snapshot.rpc(snapshot_source.call())
+		_send_to_live(_snapshot, [snapshot_source.call()])
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -911,7 +933,8 @@ func send_player_event(peer_id: int, event: Dictionary) -> void:
 	else:
 		if String(event.get("what", "")) == "capture":
 			_pending_captures[peer_id] = Time.get_ticks_usec()
-		_player_event.rpc_id(peer_id, event)
+		if peer_is_live(peer_id):
+			_player_event.rpc_id(peer_id, event)
 
 
 @rpc("authority", "call_remote", "reliable")

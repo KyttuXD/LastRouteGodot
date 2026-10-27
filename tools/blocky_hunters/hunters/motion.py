@@ -14,16 +14,16 @@ PROFILES = {
     "briselle": dict(tempo=0.9, stride=0.9, arm_swing=0.8),
     "ceryth":   dict(tempo=1.0, stride=0.95, arm_swing=0.5, bounce=0.7, idle_amp=0.5),                    # blunt, analytical: stiff
     "dovelle":  dict(),                                                                                    # the steady normal one
-    "eirys":    dict(tempo=1.2, stride=1.1, lean=5, bounce=1.2),                                           # competitive: always racing
+    "elise":    dict(tempo=1.2, stride=1.1, lean=5, bounce=1.2),                                           # competitive: always racing
     "ferryn":   dict(tempo=1.1, stride=0.8, arm_swing=0.7, lean=5, head_pitch=6, shoulder_in=6, idle_amp=1.6, idle_tempo=1.4),  # shy, jumpy
     "glyra":    dict(tempo=0.85, stride=0.9, head_roll=7, idle_amp=1.4, idle_tempo=0.8),                   # dreamy, music-obsessed
     "haelith":  dict(tempo=1.1, stride=1.1, bounce=1.3, idle_amp=1.3, idle_tempo=1.2),                    # loyal, eager
     "ilyra":    dict(tempo=0.9, stride=0.9, arm_swing=0.6, bounce=0.7, head_roll=-4, idle_amp=0.5),       # aloof, catlike
-    "jyvra":    dict(tempo=1.1, stride=1.1, lean=5, arm_swing=1.2),                                        # pushy but means well
+    "javelle":    dict(tempo=1.1, stride=1.1, lean=5, arm_swing=1.2),                                        # pushy but means well
     "mavrine":  dict(tempo=1.0, stride=0.95, arm_swing=0.3, bounce=0.5, idle_amp=0.3),                    # formal rule-keeper: rigid
     "opalie":   dict(tempo=1.1, stride=1.0, bounce=1.5, arm_swing=1.3, idle_amp=1.3, idle_tempo=1.2),     # cheerful mascot
     "porcelle": dict(tempo=0.85, stride=0.8, arm_swing=0.7, shoulder_in=4, head_pitch=4, idle_amp=0.7),   # soft-spoken
-    "quirith":  dict(tempo=0.9, stride=0.9, arm_swing=0.5, bounce=0.7, idle_amp=0.5, head_roll=-3),       # cold, then clingy
+    "quenelle":  dict(tempo=0.9, stride=0.9, arm_swing=0.5, bounce=0.7, idle_amp=0.5, head_roll=-3),       # cold, then clingy
     "ravelle":  dict(tempo=1.1, stride=1.05, bounce=1.4, head_roll=-6, idle_amp=1.4),                     # prankster
     "solyth":   dict(tempo=1.1, stride=1.2, arm_swing=1.3, lean=4),                                        # hot-tempered, sunny
     "thessine": dict(tempo=1.0, stride=0.9, arm_swing=0.5, head_roll=6, idle_amp=0.7),                    # nitpicky auditor
@@ -32,7 +32,7 @@ PROFILES = {
     "wynelle":  dict(tempo=0.9, stride=0.95, arm_swing=0.8, bounce=0.8, idle_amp=0.8, idle_tempo=0.8),    # icy and gentle: smooth, slow
     "xivvy":    dict(tempo=1.25, stride=1.2, arm_swing=1.4, bounce=1.7, lean=-3, head_roll=6, idle_amp=1.8, idle_tempo=1.5),  # hyper, airy
     "ysolde":   dict(tempo=0.85, stride=0.85, head_roll=6, head_pitch=3, idle_amp=0.9),                   # sentimental
-    "zephyra":  dict(tempo=1.05, stride=1.0, bounce=1.35, arm_swing=1.1, idle_amp=1.2),                   # cheerful merchant
+    "zellia":  dict(tempo=1.05, stride=1.0, bounce=1.35, arm_swing=1.1, idle_amp=1.2),                   # cheerful merchant
 }
 
 
@@ -58,18 +58,18 @@ STYLE_OF = {
     "aki": "cover",         # shy bookworm: curls up, hands at the face
     "briselle": "base", "dovelle": "base",
     "ceryth": "stiff",      # blunt, analytical: rigid, barely wobbles
-    "eirys": "tumble",      # competitive cat: quick tumbling, tail whips
+    "elise": "tumble",      # competitive cat: quick tumbling, tail whips
     "ferryn": "shake",      # jumpy: trembles
     "glyra": "float",       # dreamy: drifts, horns and hair float
     "haelith": "curl",      # eager wolf: whimpers, ears down, tail tucked
     "ilyra": "curl",        # aloof cat: curls in, tail wrapped
-    "jyvra": "topple",      # pushy and big: goes over heavily, pigtails swing
+    "javelle": "topple",      # pushy and big: goes over heavily, pigtails swing
     "mavrine": "stiff",     # formal: stays rigid, halo wobbles
     "nyxie": "tumble",      # bold, unpredictable
     "loxelle": "float",     # calm: slow sink-and-sway, tail drifts
     "opalie": "tumble",     # cheerful mascot: bouncy flop, fins flutter
     "porcelle": "float",    # angel: drifts, halo wobbles
-    "quirith": "cover",     # cold, then clingy wolf: hugs herself
+    "quenelle": "cover",     # cold, then clingy wolf: hugs herself
     "ravelle": "tumble",    # prankster: theatrical spin
     "solyth": "topple",     # hot-tempered: big heavy fall, halo shakes
     "thessine": "stiff",    # nitpicky: stiff
@@ -78,7 +78,7 @@ STYLE_OF = {
     "wynelle": "float",     # icy and gentle: drifts, pigtails float
     "xivvy": "flop",        # hyper, winged: arms and wings flail
     "ysolde": "cover",      # sentimental: hugs herself
-    "zephyra": "tumble",    # cheerful merchant: bouncy wobble
+    "zellia": "tumble",    # cheerful merchant: bouncy wobble
     "void_black": "float", "void_blue": "stiff", "void_brown": "topple", "void_cyan": "shake", "void_gray": "stiff",
     "void_green": "topple", "void_orange": "tumble", "void_pink": "float", "void_purple": "float", "void_red": "shake",
     "void_white": "cover", "void_yellow": "shake",

@@ -175,7 +175,7 @@ These are all mistakes this project has actually made:
 - **Cube and face rotations are preserved.** Aki's four 5-degree skirt-panel
   rotations are the regression case: dropping cube rotation made their faces
   coplanar with the pelvis and caused z-fighting in Godot.
-- **Materials retain authored alpha and render both sides.** Quirith and Eirys
+- **Materials retain authored alpha and render both sides.** Quenelle and Elise
   use transparent torso-overlay texels that become black boxes if the runtime
   forces their material opaque. Xivvy's wings are deliberately thin,
   single-face cards and disappear from the front when glTF backface culling is

@@ -438,9 +438,11 @@ func _focus_current() -> void:
 		return
 	var button := _launch_buttons.get(focused_id()) as Button
 	if button != null and is_instance_valid(button) and not button.disabled and button.focus_mode == Control.FOCUS_ALL:
-		button.grab_focus()
+		if button.is_inside_tree():
+			button.grab_focus()   # a scene change can take it out of the tree first
 	else:
-		_stage.grab_focus()
+		if _stage.is_inside_tree():
+			_stage.grab_focus()   # a scene change can take it out of the tree first
 
 
 ## The header shows who is signed in (and ADMIN) so every menu and the hub agree; Backend is the one source.
@@ -599,7 +601,8 @@ func _ask_quit() -> void:
 	yes.focus_neighbor_left = yes.get_path_to(yes)
 	no.focus_neighbor_right = no.get_path_to(no)
 	add_child(_quit_dialog)
-	no.grab_focus()
+	if no.is_inside_tree():
+		no.grab_focus()   # a scene change can take it out of the tree first
 
 
 func _close_quit_dialog() -> void:
@@ -608,7 +611,8 @@ func _close_quit_dialog() -> void:
 	_quit_dialog = null
 	var quit_button := find_child("QuitButton", true, false) as Button
 	if quit_button != null:
-		quit_button.grab_focus()
+		if quit_button.is_inside_tree():
+			quit_button.grab_focus()   # a scene change can take it out of the tree first
 
 
 ## True while the focus is on the carousel (a card, the stage, an arrow) or nowhere: the shared buttons below keep their

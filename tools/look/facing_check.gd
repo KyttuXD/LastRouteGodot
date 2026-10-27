@@ -6,7 +6,7 @@ extends Node
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
-	var ids: PackedStringArray = args[0].split(",") if args.size() > 0 and args[0] != "" else PackedStringArray(["kathy", "aki", "verrine", "eirys", "xivvy", "void_red"])
+	var ids: PackedStringArray = args[0].split(",") if args.size() > 0 and args[0] != "" else PackedStringArray(["kathy", "aki", "verrine", "elise", "xivvy", "void_red"])
 	var world := Node3D.new()
 	add_child(world)
 	var floor_body := StaticBody3D.new()

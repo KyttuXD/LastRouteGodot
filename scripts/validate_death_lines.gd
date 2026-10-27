@@ -44,7 +44,7 @@ func run(host: Node) -> int:
 	_expect(varied.size() >= 3, "Aki's seeded pick never varies across depths (%d lines)" % varied.size())
 	# cause pools
 	for case in [["nyxie", "contact", "lamp", "nyxie"], ["nyxie", "contact", "darkness", "darkness"],
-			["zephyra", "deal", "", "deal"], ["wynelle", "cold", "", "cold"]]:
+			["zellia", "deal", "", "deal"], ["wynelle", "cold", "", "cold"]]:
 		var c := {"hunter_id": case[0], "via": case[1], "detail": case[2]}
 		_expect(DeathLines.cause_key(c) == String(case[3]), "cause key for %s is wrong" % [case])
 		var seen_cause := false

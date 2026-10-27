@@ -12,10 +12,10 @@ import {fileURLToPath} from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CHARACTER_DIR = path.join(ROOT, "art", "props-3d", "characters");
 const A_Z_IDS = [
-  "aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra",
-  "haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie",
-  "opalie", "porcelle", "quirith", "ravelle", "solyth", "thessine",
-  "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+  "aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra",
+  "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie",
+  "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine",
+  "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia",
 ];
 
 const BB_Y = 100.0;
