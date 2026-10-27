@@ -188,6 +188,7 @@ func open_monitor(room := "") -> void:
 	MouseLock.claim("night_watch_monitor", true)
 	hud.show_monitor(true)
 	hud.hint_label.text = NightWatchControls.hint_line(true, _hint_actions())
+	hud.set_monitor_guide(NightWatchControls.hint_line(true, _hint_actions()), NightWatchControls.key_text(NightWatchControls.MONITOR))
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.flash_static()
 	NightWatchSounds.monitor_toggle()

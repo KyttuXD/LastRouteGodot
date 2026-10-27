@@ -101,6 +101,7 @@ func run(host: Node) -> int:
 	probe.set_monitor_available(true)
 	_expect(probe.cameras_button.visible, "set_monitor_available(true) did not show the CAMERAS button")
 	probe.queue_free()
+	await _check_camera_screen(host)
 	_expect(tested.has("classic"), "the camera key flow did not run for Classic")
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
@@ -212,3 +213,57 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 	_expect(hud != null and String(hud.hint_label.text).contains("close"), tag + "the hint line does not switch to the monitor keys")
 	_send(game, _key(KEY_U))
 	_expect(hud != null and String(hud.hint_label.text).contains("doors"), tag + "the hint line did not come back")
+
+
+
+## The camera screen's CLOSE CAMERAS button and key guide: inside the viewport and clear of the picture, the camera map and the labels at the three test sizes, clickable
+## (it asks to close), focusable, and its text follows a rebound key.
+func _check_camera_screen(host: Node) -> void:
+	NightWatchControls.register()
+	for size in [Vector2i(480, 270), Vector2i(1280, 720), Vector2i(1920, 1080)]:
+		var vp := SubViewport.new()
+		vp.size = size
+		vp.disable_3d = true
+		host.add_child(vp)
+		var hud := NightWatchHud.new()
+		vp.add_child(hud)
+		await host.get_tree().process_frame
+		hud.set_monitor_guide(NightWatchControls.hint_line(true, ["nw_meet"]), NightWatchControls.key_text(NightWatchControls.MONITOR))
+		hud.show_monitor(true)
+		await host.get_tree().process_frame
+		await host.get_tree().process_frame
+		var screen := Rect2(Vector2.ZERO, Vector2(size))
+		var btn := hud.close_button.get_global_rect()
+		var guide := hud.monitor_guide.get_global_rect()
+		var feed := (hud.monitor_root.find_child("FeedContainer", true, false) as Control).get_global_rect()
+		var map := (hud.monitor_root.find_child("CamMap", true, false) as Control).get_global_rect()
+		var tag := "[%s] " % str(size)
+		_expect(screen.encloses(btn) and screen.encloses(guide), tag + "the CLOSE CAMERAS button or the guide leaves the screen")
+		_expect(not btn.intersects(feed) and not guide.intersects(feed), tag + "the close strip covers the camera picture")
+		_expect(not btn.intersects(map) and not guide.intersects(map), tag + "the close strip covers the camera map")
+		_expect(not btn.intersects(guide), tag + "the button and the guide overlap")
+		_expect(not guide.intersects(hud.cam_label.get_global_rect()) and not guide.intersects(hud.rec_label.get_global_rect()), tag + "the guide covers the camera labels")
+		_expect(hud.close_button.focus_mode == Control.FOCUS_ALL and hud.close_button.visible and not hud.close_button.disabled, tag + "the close button cannot be focused or clicked")
+		_expect(hud.close_button.text.begins_with("CLOSE CAMERAS") and hud.close_button.text.to_upper().contains("SPACE"), tag + "the close button does not name the key: %s" % hud.close_button.text)
+		_expect(hud.monitor_guide.text.contains("meet her eyes") and hud.monitor_guide.text.contains("1-8"), tag + "the guide lacks the camera keys or the Night 7 meet key: %s" % hud.monitor_guide.text)
+		var clicks := [0]
+		hud.cameras_requested.connect(func(): clicks[0] += 1)
+		hud.close_button.pressed.emit()
+		_expect(clicks[0] == 1, tag + "the close button did not ask to close the cameras")
+		vp.queue_free()
+		await host.get_tree().process_frame
+	# the text follows a rebind
+	NightWatchControls.rebind(NightWatchControls.MONITOR, KEY_O)
+	var vp2 := SubViewport.new()
+	vp2.size = Vector2i(480, 270)
+	vp2.disable_3d = true
+	host.add_child(vp2)
+	var hud2 := NightWatchHud.new()
+	vp2.add_child(hud2)
+	await host.get_tree().process_frame
+	hud2.set_monitor_guide(NightWatchControls.hint_line(true), NightWatchControls.key_text(NightWatchControls.MONITOR))
+	_expect(hud2.close_button.text.ends_with("O") and hud2.monitor_guide.text.contains("O or"), "the close button and guide do not follow the rebound key: %s / %s" % [hud2.close_button.text, hud2.monitor_guide.text])
+	vp2.queue_free()
+	NightWatchSave.clear_key_overrides()
+	NightWatchControls.unregister()
+	await host.get_tree().process_frame

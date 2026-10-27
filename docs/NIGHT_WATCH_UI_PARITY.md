@@ -79,3 +79,11 @@ rebinds had nowhere to live.
 
 The call text (and the ZELLIA name and Mute button) are now 5 px on the 480x270 base (they were 7 / 6 / 6): the 2D box is `.ncall { font-size: .7em }` of the stage's `2.6cqh`, i.e. 1.8% of the screen height (4.9 px of 270), so 7 was 1.4x too big. The box scales with the viewport (canvas_items), so it is 13 px at 1280x720 and 20 px at 1920x1080; the text wraps inside the box and never meets the name or the Mute button (`night_watch_calls` checks the box and `hud_overlap` the HUD).
 ![before and after](night_watch_ui/call_font_before_after.png)
+
+### The camera screen: CLOSE CAMERAS and the key guide
+
+While the monitor is up the picture sits above a strip with a **CLOSE CAMERAS  SPACE** button (mouse, keyboard or gamepad focus; it names the live key from `NightWatchControls`, so a rebind shows) and a guide line
+with the camera keys (`Left / Right or 1-8 camera · Space or E close · R mute`, plus `O meet her eyes` on Night 7). The strip is under the picture, the camera map and the labels are untouched, and the
+background hint line and CAMERAS button are hidden while the screen is up. `night_watch_keys` checks it at 480x270, 1280x720 and 1920x1080 (inside the screen, clear of the picture / map / labels, focusable,
+clickable, names the key, follows a rebind).
+![camera screen](night_watch_ui/camera_screen_close_guide.png)
