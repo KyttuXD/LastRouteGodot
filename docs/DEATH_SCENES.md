@@ -8,7 +8,7 @@ Route read the same lines.
 
 `DeathLines.pick(cause, seed, depth, name)` (`src/config/death_lines.gd`) returns `{text, source, style}`.
 
-- A cause is `{hunter_id, via, detail}`. `via` is `contact`, `deal` (Zephyra's fatal deal) or `cold` (Wynelle's freeze);
+- A cause is `{hunter_id, via, detail}`. `via` is `contact`, `deal` (Zellia's fatal deal) or `cold` (Wynelle's freeze);
   Nyxie is `darkness` (the timer woke her) or `nyxie` (dead lamp).
 - Deaths with their own cause pool draw from one union pool: the cause lines plus the hunter's own lines and `loreLine`.
   Every other death draws from the hunter's pool. Then the fallback, then the hard-coded copy.

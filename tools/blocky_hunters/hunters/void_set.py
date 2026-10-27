@@ -58,7 +58,7 @@ def _x(bone, parent, pv, sway=None):
     return (bone, parent, tuple(m(v) for v in pv), sway)
 
 
-def black():    # LIGHT EATER: dark pockets drifting round the shoulders
+def black():    # REAR STALKER cue: dark pockets drifting round the shoulders
     c = [_ctr("mote-1", "Cue-Motes", -9.4, 23.0, 0.5, 3.4, 3.4, 3.4, "accent"),
          _ctr("mote-1-core", "Cue-Motes", -9.4, 24.0, -1.4, 1.4, 1.4, 0.6, "dark"),
          _ctr("mote-2", "Cue-Motes", 9.2, 16.0, -1.0, 2.8, 2.8, 2.8, "accent"),
@@ -69,7 +69,7 @@ def black():    # LIGHT EATER: dark pockets drifting round the shoulders
     return c, [_x("Cue-Motes", "Chest", (0, 22, 0), (4, 6, 1, 0.0, 5))]
 
 
-def blue():     # COLD TRAIL: icicle crown + a trailing ice tail
+def blue():     # SILENT STALKER cue: icicle crown + a trailing ice tail
     c = []
     for i, (x, h) in enumerate(((0, 7.0), (-2.6, 4.6), (2.6, 4.6))):
         c += [_ctr(f"ice-{i}a", "Cue-Crown", x, 32, 0, 2.2, h * .6, 2.2, "light"),
@@ -82,7 +82,7 @@ def blue():     # COLD TRAIL: icicle crown + a trailing ice tail
                _x("Cue-Trail-2", "Cue-Trail-1", (0, 10.4, 5.0), (10, 7, 1, 0.9))]
 
 
-def brown():    # BARRIER BREAKER: a board strapped across the back, plank shoulder guards, nail heads
+def brown():    # SPOT JAMMER cue: a board strapped across the back, plank shoulder guards, nail heads
     c = [_box("board-a", "Chest", -4.6, 11.0, 2.2, 4.6, 28.0, 3.6, "accent"),
          _box("board-b", "Chest", -1.2, 9.0, 3.4, 1.2, 25.0, 4.4, "light", rot=(0, 0, 38), pivot=(0, 17, 3.9)),
          _ctr("nail-1", "Chest", -3.2, 20.5, 4.5, 0.9, 0.9, 0.9, "dark"), _ctr("nail-2", "Chest", 3.2, 20.5, 4.5, 0.9, 0.9, 0.9, "dark"),
@@ -94,7 +94,7 @@ def brown():    # BARRIER BREAKER: a board strapped across the back, plank shoul
     return c, []
 
 
-def cyan():     # POWER INTERFERENCE: twin antennae + a battery pack on the back
+def cyan():     # SIGNAL PING cue: twin antennae + a battery pack on the back
     c = []
     ex = []
     for side, s in (("L", -1), ("R", 1)):
@@ -109,7 +109,7 @@ def cyan():     # POWER INTERFERENCE: twin antennae + a battery pack on the back
     return c, ex
 
 
-def gray():     # UNOBSERVED PURSUIT: a second, closed face on the back of the head (it watches behind)
+def gray():     # SIGNAL ROUTE cue: a second, closed face on the back of the head (it watches behind)
     c = [_box("nape-frame", "Head", -6.0, 23.0, 4.1, 6.0, 33.5, 4.7, "dark"),
          _box("nape-plate", "Head", -3.2, 25.0, 4.7, 3.2, 31.0, 5.2, "accent"),
          _box("nape-mark-L", "Head", -2.4, 28.0, 5.2, -1.4, 30.6, 5.5, "white"),
@@ -120,7 +120,7 @@ def gray():     # UNOBSERVED PURSUIT: a second, closed face on the back of the h
     return c, []
 
 
-def green():    # TOXIC DENIAL: spore sacs on the shoulders and spores bobbing round her
+def green():    # VENT RELOCATE cue: spore sacs on the shoulders and spores bobbing round her
     c = [_ctr(f"spore-{i}", "Cue-Spores", x, y, z, s, s, s, k)
          for i, (x, y, z, s, k) in enumerate(((-8.4, 27.5, 1.0, 2.6, "light"), (8.6, 19.0, 0.5, 3.0, "accent"),
                                               (0.0, 35.0, 2.0, 2.2, "light"), (-7.0, 14.0, 3.0, 2.0, "accent"),
@@ -134,7 +134,7 @@ def green():    # TOXIC DENIAL: spore sacs on the shoulders and spores bobbing r
     return c, ex
 
 
-def orange():   # BURST CHARGE: swept-back crest blades and rear thruster vents
+def orange():   # SYSTEM SABOTEUR cue: swept-back crest blades and rear thruster vents
     c, ex = [], []
     for side, s in (("L", -1), ("R", 1)):
         b = f"Cue-Crest-{side}"
@@ -146,7 +146,7 @@ def orange():   # BURST CHARGE: swept-back crest blades and rear thruster vents
     return c, ex
 
 
-def pink():     # FALSE COMFORT: an anglerfish-style lure with a soft "safe light" bulb
+def pink():     # FALSE SIGNAL cue: an anglerfish-style lure with a soft "safe light" bulb
     c = [_ctr("stalk-1", "Cue-Lure", 0, 32, 0.0, 1.2, 5.6, 1.2, "accent"),
          _ctr("stalk-2", "Cue-Lure", 0, 37.0, -2.2, 1.2, 1.2, 5.2, "accent"),
          _ctr("bulb", "Cue-Lure", 0, 35.2, -6.4, 3.6, 3.6, 3.6, "white"),
@@ -154,7 +154,7 @@ def pink():     # FALSE COMFORT: an anglerfish-style lure with a soft "safe ligh
     return c, [_x("Cue-Lure", "Head", (0, 32, 0), (5, 3, 1, 0.0))]
 
 
-def purple():   # DARK PHASE: fading afterimage slabs trailing behind
+def purple():   # RADAR CORRUPTER cue: fading afterimage slabs trailing behind
     c = [_box("echo-1", "Cue-Phase", -4.8, 12.0, 2.6, 4.8, 24.0, 3.4, "accent"),
          _box("echo-2", "Cue-Phase", -1.2, 13.5, 5.0, 6.8, 22.5, 5.8, "dark"),
          _box("echo-3", "Cue-Phase", -6.6, 14.5, 7.2, 0.4, 21.5, 7.8, "accent"),
@@ -162,7 +162,7 @@ def purple():   # DARK PHASE: fading afterimage slabs trailing behind
     return c, [_x("Cue-Phase", "Chest", (0, 18, 2), (2, 7, 1, 0.0, 9))]
 
 
-def red():      # BERSERK RESPONSE: dorsal spines, shoulder spikes, knuckle-forearm blades
+def red():      # HALL RUNNER cue: dorsal spines, shoulder spikes, knuckle-forearm blades
     c = []
     for i, y in enumerate((14.0, 17.4, 20.8)):
         c += [_ctr(f"spine-{i}a", "Chest", 0, y, 2.9, 3.2 - .4 * i, 3.0, 2.4, "dark"),
@@ -174,7 +174,7 @@ def red():      # BERSERK RESPONSE: dorsal spines, shoulder spikes, knuckle-fore
     return c, []
 
 
-def white():    # SOUND HUNTER: oversized listening ears
+def white():    # LIGHT FROZEN cue: oversized listening ears
     c, ex = [], []
     for side, s in (("L", -1), ("R", 1)):
         b = f"Cue-Ear-{side}"
@@ -188,7 +188,7 @@ def white():    # SOUND HUNTER: oversized listening ears
     return c, ex
 
 
-def yellow():   # POWER CUT: a stepped lightning bolt crest + a fuse box with prongs
+def yellow():   # MAP PRESSURE cue: a stepped lightning bolt crest + a fuse box with prongs
     c = [_box("bolt-1", "Cue-Bolt", -2.2, 32.0, -1.1, 0.6, 35.0, 1.1, "dark"),
          _box("bolt-2", "Cue-Bolt", -0.8, 35.0, -1.1, 2.2, 37.2, 1.1, "accent"),
          _box("bolt-3", "Cue-Bolt", -2.0, 37.2, -1.1, 0.8, 39.8, 1.1, "dark"),

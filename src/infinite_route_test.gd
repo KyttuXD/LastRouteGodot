@@ -177,6 +177,7 @@ func _ready() -> void:
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
+	_void_fx = VoidPlayerEffects.new(player, hud, _report_void_route)
 	hud.map_waypoint_requested.connect(_on_map_waypoint_requested)
 	run_report.restart_requested.connect(_respawn_after_death)
 	_spectator_banner = SpectatorBanner.attach(hud)
@@ -308,6 +309,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if _void_fx != null:
+		_void_fx.tick(delta)
 	_update_spectating()
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
@@ -2406,6 +2409,9 @@ func _apply_gimmick_signal(event: Dictionary, source: HunterView3D, target: Dict
 				var spot := spot_value as RouteInteractable3D
 				if spot != null and spot.source_cell == cell:
 					spot.set_disabled(bool(event.get("disabled", false)))
+		"signal_route", "system_outage", "radar_corrupt":
+			if not target.is_empty():
+				_remotes.send_player_event(int(target.get("peer_id", 1)), event)
 		"stun":
 			if not target.is_empty():
 				_remotes.send_player_event(int(target.get("peer_id", 1)), {"what": "stun",
@@ -2941,6 +2947,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":
 			_accept_stream_vent(peer_id, event)
+		"signal_route_result":
+			VoidPlayerEffects.host_route_result(_hunter_views.values(), peer_id, bool(event.get("ok", false)))
 
 
 func _on_item_drop_requested(item_id: String, durability: int, slot: int) -> void:
@@ -3729,7 +3737,21 @@ func _apply_hunter_report(data: Array) -> void:
 			_unload_hunter(entity_id)
 
 
+var _void_fx: VoidPlayerEffects
+
+
+## A signal route (Gray) ended on this player's machine: the host decides what it means.
+func _report_void_route(ok: bool) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "signal_route_result", "ok": ok})
+	else:
+		VoidPlayerEffects.host_route_result(_hunter_views.values(),
+			multiplayer.get_unique_id() if RoomState.online else 1, ok)
+
+
 func _apply_player_event(event: Dictionary) -> void:
+	if _void_fx != null and _void_fx.apply(event):
+		return
 	match String(event.get("what", "")):
 		"capture":
 			if not bool(event.get("streamed", false)):

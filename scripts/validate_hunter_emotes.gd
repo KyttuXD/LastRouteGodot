@@ -94,6 +94,23 @@ func run(host: Node) -> int:
 	_expect(HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.TAUNT) == 0.0, "Ferryn never taunts")
 	_expect(HunterEmotePersonality.weight("glyra", HunterEmoteCatalog.HUM) > 1.0, "Glyra hums more")
 	_expect(HunterEmotePersonality.weight("void_red", HunterEmoteCatalog.LAUGH) == 0.0, "Void do not laugh")
+	# persona sheets: Kathy is a warm, calm, watchful big sister (no mocking), Ferryn is shy and jumpy (no gloating, a startled apology)
+	for mocking in [HunterEmoteCatalog.TAUNT, HunterEmoteCatalog.SMUG, HunterEmoteCatalog.DANCE]:
+		_expect(HunterEmotePersonality.weight("kathy", mocking) == 0.0, "Kathy never mocks, dances or smirks")
+		_expect(HunterEmotePersonality.weight("ferryn", mocking) == 0.0, "Ferryn never mocks, dances or smirks")
+	_expect(HunterEmotePersonality.weight("kathy", HunterEmoteCatalog.LOOK_AROUND) > 1.0 and HunterEmotePersonality.weight("kathy", HunterEmoteCatalog.WAVE) > 1.0 \
+		and HunterEmotePersonality.weight("kathy", HunterEmoteCatalog.BECKON) > 1.0, "Kathy watches, waves and calls people over")
+	_expect(HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.FLINCH) > 1.0 and HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.SHRUG) > 1.0 \
+		and HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.LOOK_AROUND) > 1.0, "Ferryn startles, shrugs an apology and glances around")
+	_expect(HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.POINT) < 1.0 and HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.BECKON) < 1.0, "Ferryn does not give orders")
+	# Javelle the well-meaning coach and Briselle the polite hostess never smirk; Elise never hums (that is Glyra's)
+	_expect(HunterEmotePersonality.weight("javelle", HunterEmoteCatalog.SMUG) == 0.0, "Javelle never smirks")
+	_expect(HunterEmotePersonality.weight("briselle", HunterEmoteCatalog.SMUG) == 0.0, "Briselle never smirks")
+	_expect(HunterEmotePersonality.weight("elise", HunterEmoteCatalog.HUM) == 0.0, "Elise never hums")
+	_expect(HunterEmotePersonality.weight("glyra", HunterEmoteCatalog.HUM) > 1.0, "humming stays Glyra's")
+	_expect(HunterEmotePersonality.weight("javelle", HunterEmoteCatalog.BECKON) > 1.0 and HunterEmotePersonality.weight("javelle", HunterEmoteCatalog.POINT) > 1.0, "Javelle coaches with orders")
+	_expect(HunterEmotePersonality.weight("briselle", HunterEmoteCatalog.WAVE) > 1.0 and HunterEmotePersonality.weight("briselle", HunterEmoteCatalog.SHRUG) > 1.0, "Briselle welcomes and apologises")
+	_expect(HunterDossier.entry("nyxie").get("behavior", "").find("can't miss") >= 0 and HunterDossier.entry("nyxie").get("behavior", "").find("inescapable") < 0, "Nyxie's dossier says a catch she can't miss")
 
 	# ---- HunterEmoter rules
 	# idle fidget: only while standing in IDLE, then never two at once

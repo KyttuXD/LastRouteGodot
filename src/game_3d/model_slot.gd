@@ -108,7 +108,7 @@ static func instantiate(scene_path: String) -> Node3D:
 	# UVs by a stale 64x64 project grid instead of the embedded PNG's true atlas
 	# height, which made solid faces sample transparent padding and prompted a
 	# blanket opaque-material workaround. With atlas UVs fixed, that workaround
-	# turns legitimate transparent torso overlays (Eirys/Quirith) into black
+	# turns legitimate transparent torso overlays (Elise/Quenelle) into black
 	# boxes and hair/wing cards into rectangles.
 	var instance := scene.instantiate() as Node3D
 	if instance != null:

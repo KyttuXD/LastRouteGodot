@@ -11,10 +11,10 @@ face from `BlockyFace` (stun / blank / chase / scream / derp / neutral+blink).
 
 ## Per-hunter stun (`stun.py`, `STYLE_OF` in `hunters/motion.py`)
 Each hunter has her own `stun` / `stun_recover` from a style (every model is its own .glb, so no extra clip names):
-topple (heavy, slow sideways fall: kathy jyvra solyth void_brown void_green), tumble (quick wobble/twist: eirys nyxie
-opalie ravelle zephyra void_orange), float (lifts off, arms drift up, head back: glyra loxelle porcelle wynelle void_black
+topple (heavy, slow sideways fall: kathy javelle solyth void_brown void_green), tumble (quick wobble/twist: elise nyxie
+opalie ravelle zellia void_orange), float (lifts off, arms drift up, head back: glyra loxelle porcelle wynelle void_black
 void_pink void_purple), stiff (rigid: ceryth mavrine thessine void_blue void_gray), cover (hugs herself, ears down: aki
-quirith ysolde void_white), curl (crouched low, tail wrapped/tucked: haelith ilyra umbriel verrine), flop (arms and wings
+quenelle ysolde void_white), curl (crouched low, tail wrapped/tucked: haelith ilyra umbriel verrine), flop (arms and wings
 flail: xivvy), shake (trembling: ferryn void_cyan void_red void_yellow), base (briselle dovelle). Styles also drive the
 extra bones during the stun (wings flap, tails curl/tuck, ears droop, halos and hair wobble).
 
@@ -36,8 +36,8 @@ floor: walk 1.5 cm, chase 3, sprint 5, charge 4), which fixed floating/sinking f
 |---|---|---|
 | stun was one shared mild wobble (basically invisible) | all | authored per-hunter stun + wake, stars + face in `HunterView3D` |
 | walk / chase / sprint were small shuffles, chase looked like walk | all | bigger stride, knees, arm pump, lean, torso counter-rotation |
-| feet floated 6-11 cm in walk/chase/sprint/charge | all Voids, xivvy, solyth, eirys, haelith, jyvra, nyxie, ravelle | `ground_fit` |
-| feet sank 6-26 cm in crouch and stun | most hunters (worst xivvy, opalie, zephyra, ravelle) | `ground_fit` |
+| feet floated 6-11 cm in walk/chase/sprint/charge | all Voids, xivvy, solyth, elise, haelith, javelle, nyxie, ravelle | `ground_fit` |
+| feet sank 6-26 cm in crouch and stun | most hunters (worst xivvy, opalie, zellia, ravelle) | `ground_fit` |
 | idle barely moved (idle looked frozen) | all (worst void_gray, mavrine, ceryth) | breathing/weight-shift overlay, Void idle_amp up |
 | `charge` was the sprint plus a slight lean | loxelle (the charger) and all | own bull-rush pose: lean, head up, arms swept back |
 | Void models overshot the 200 KB glb budget after the new clips | void_blue cyan orange white | glb writer shares key-time accessors (~25% smaller) |
@@ -62,8 +62,8 @@ personal ones; `emotes.json` lists them with the catalog face. Built in `hunters
   only head/chest/one arm are overridden, blended in and out so the clip starts and ends on the run. Kathy uses her LEFT hand (the
   scythe is in the right). Void: only void_pink's beckon (built the same way); the rest use their shared stand-ins.
 * Persona: `ENERGY` scales every gesture (Aki .65 ... Xivvy 1.4); variants: glyra waltz dance, xivvy hop dance, haelith/opalie/ravelle
-  the older bouncy dance, opalie/ravelle/xivvy/zephyra the older bouncy laugh; smug is arms-crossed for kathy mavrine ceryth thessine
-  jyvra briselle ilyra verrine and hands-behind-the-back for the rest; glyra hums bigger. Extra bones (ears, tails, wings, hair) sway
+  the older bouncy dance, opalie/ravelle/xivvy/zellia the older bouncy laugh; smug is arms-crossed for kathy mavrine ceryth thessine
+  javelle briselle ilyra verrine and hands-behind-the-back for the rest; glyra hums bigger. Extra bones (ears, tails, wings, hair) sway
   in every emote automatically.
 * `check_gaps.py` now also checks every emote (and `--all` lists each pose over the plug limit); a few existing emotes (bow, smash,
   tilt) were over it and were trimmed. Validator: `_check_catalog_emotes` (clips present, one-shot, catalog length/face, moving ones keep leg tracks).
