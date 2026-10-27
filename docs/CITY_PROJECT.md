@@ -316,3 +316,11 @@ button on the City menu shown only when `res://src/osm_city/osm_city_menu.gd` ex
 of the downtown crossings (16), street-name signs (11), parked cars in the outer lanes of the avenue and main street (two
 cells each, front/back halves, 38), bus stops on the suburb arterials, utility poles on the ring road's outer pavement (65),
 billboards in the suburbs. Not done: manholes/storm drains (floor decals need atlas room), overhead wires, road barriers.
+
+## Per-layout size and gate
+
+`CityLayout` instances carry `width`, `height`, `origin_offset`, `chunk_lo`, `chunk_hi`, `gate_row`, `gate_cell`, `gate_x`
+(defaults = the generated City's constants) with `idx()`, `inside_grid()`, `chunk_origin_of()`, `in_chunk_range()`; the
+generator, view, trams and the layout's own planning read those, so an OSM layout can be any multiple of 45 cells and put
+its exit anywhere. `is_outside()` stays overridable. The static constants remain only as the generated City's defaults
+(validators and look tools of the generated City still use them).

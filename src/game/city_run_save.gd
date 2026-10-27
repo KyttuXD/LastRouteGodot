@@ -34,6 +34,7 @@ static func valid(data: Dictionary) -> bool:
 		return false
 	if String(data.get("seed_text", "")).is_empty() or not data.get("claimed") is Array:
 		return false
+	# The generated City's extent (an OSM run save is checked against its own layout by the OSM lane).
 	var gx := float(data.get("x", 1e9)) + CityLayout.ORIGIN_OFFSET.x
 	var gz := float(data.get("z", 1e9)) + CityLayout.ORIGIN_OFFSET.y
 	return gx >= 0.0 and gz >= 0.0 and gx < CityLayout.WIDTH and gz < CityLayout.HEIGHT

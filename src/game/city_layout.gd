@@ -152,6 +152,17 @@ const PARTITION_MIN := 11
 const SOLID_MASS_KINDS := [WALL, KIOSK_WALL, GATE, RIM]
 
 var seed_text := ""
+## Grid size and placement of this layout. The generated City uses the constants; another source (OSM maps) sets its own
+## before filling the grid. Everything at runtime (generator, view, saves) reads these, never the constants.
+var width := WIDTH
+var height := HEIGHT
+var origin_offset := ORIGIN_OFFSET
+var chunk_lo := CHUNK_MIN
+var chunk_hi := CHUNK_MAX
+## The exit gate of this layout (the generated City: across the avenue on the outer rim).
+var gate_row := GATE_ROW
+var gate_cell := GATE_CELL
+var gate_x := GATE_X
 var kinds := PackedByteArray()
 var building_index := PackedInt32Array()   # city cell -> building number + 1 (0 = none)
 var _decor_floor := {}   # decor cell -> the tile kind it replaced (restored when the furniture is pruned)
@@ -183,20 +194,20 @@ static func in_bounds(gx: int, gz: int) -> bool:
 
 
 func kind_at(gx: int, gz: int) -> int:
-	return int(kinds[index_of(gx, gz)]) if in_bounds(gx, gz) else RIM
+	return int(kinds[idx(gx, gz)]) if inside_grid(gx, gz) else RIM
 
 
 ## The building a wall or floor cell belongs to ({} for none).
 func building_at(gx: int, gz: int) -> Dictionary:
-	if not in_bounds(gx, gz):
+	if not inside_grid(gx, gz):
 		return {}
-	var number := building_index[index_of(gx, gz)]
+	var number := building_index[idx(gx, gz)]
 	return buildings[number - 1] if number > 0 else {}
 
 
 ## The name the HUD shows for the place a cell belongs to.
 func zone_name(gx: int, gz: int) -> String:
-	if gz >= GATE_ROW - 3 and gz <= GATE_ROW + 3 and gx >= GATE_X.x and gx <= GATE_X.y:
+	if gz >= gate_row - 3 and gz <= gate_row + 3 and gx >= gate_x.x and gx <= gate_x.y:
 		return "DOME GATE"
 	var building := building_at(gx, gz)
 	if not building.is_empty():
@@ -279,22 +290,34 @@ static func chunk_in_range(coord: Vector3i) -> bool:
 		and coord.z >= CHUNK_MIN.y and coord.z <= CHUNK_MAX.y
 
 
+func idx(gx: int, gz: int) -> int:
+	return gz * width + gx
+
+
+func inside_grid(gx: int, gz: int) -> bool:
+	return gx >= 0 and gz >= 0 and gx < width and gz < height
+
+
+func chunk_origin_of(coord: Vector3i) -> Vector2i:
+	return Vector2i(coord.x * CHUNK, coord.z * CHUNK) + origin_offset
+
+
 ## Instance hooks so a different layout source (OSM maps) can define its own extent, rim and interiors.
 func in_chunk_range(coord: Vector3i) -> bool:
-	return chunk_in_range(coord)
+	return coord.y == 0 and coord.x >= chunk_lo.x and coord.x <= chunk_hi.x and coord.z >= chunk_lo.y and coord.z <= chunk_hi.y
 
 
 func chunk_min() -> Vector2i:
-	return CHUNK_MIN
+	return chunk_lo
 
 
 func chunk_max() -> Vector2i:
-	return CHUNK_MAX
+	return chunk_hi
 
 
 ## True outside the playable area (the perimeter wall and beyond). The generated City is the outer ellipse.
 func is_outside(gx: int, gz: int) -> bool:
-	return not in_bounds(gx, gz) or outer_r(gx, gz) >= OUTER_WALL_FROM
+	return not inside_grid(gx, gz) or outer_r(gx, gz) >= OUTER_WALL_FROM
 
 
 ## Which INTERIOR_RECIPES entry furnishes a building; an OSM layout maps shop tags here.
@@ -304,7 +327,7 @@ func interior_kind_for(building: Dictionary) -> String:
 
 ## 45 x 45 grid of the chunk, 0 = open floor, 1 = blocked, as the route code expects.
 func chunk_grid(coord: Vector3i) -> Array:
-	var origin := chunk_origin(coord)
+	var origin := chunk_origin_of(coord)
 	var grid := []
 	for z in CHUNK:
 		var row := []
@@ -316,7 +339,7 @@ func chunk_grid(coord: Vector3i) -> Array:
 
 
 func chunk_has_open_cells(coord: Vector3i) -> bool:
-	var origin := chunk_origin(coord)
+	var origin := chunk_origin_of(coord)
 	for z in CHUNK:
 		for x in CHUNK:
 			if is_open(origin.x + x, origin.y + z):
@@ -325,7 +348,7 @@ func chunk_has_open_cells(coord: Vector3i) -> bool:
 
 
 func chunk_kinds(coord: Vector3i) -> PackedByteArray:
-	var origin := chunk_origin(coord)
+	var origin := chunk_origin_of(coord)
 	var out := PackedByteArray()
 	out.resize(CHUNK * CHUNK)
 	for z in CHUNK:
@@ -336,7 +359,7 @@ func chunk_kinds(coord: Vector3i) -> PackedByteArray:
 
 ## Street furniture of the chunk as {type, cell (chunk local), yaw}.
 func chunk_decor(coord: Vector3i) -> Array:
-	var origin := chunk_origin(coord)
+	var origin := chunk_origin_of(coord)
 	var out := []
 	for cell_value in decor.keys():
 		var cell: Vector2i = cell_value
@@ -353,7 +376,7 @@ func chunk_decor(coord: Vector3i) -> Array:
 
 
 func buildings_in_chunk(coord: Vector3i) -> Array:
-	var origin := chunk_origin(coord)
+	var origin := chunk_origin_of(coord)
 	var rect := Rect2i(origin, Vector2i(CHUNK, CHUNK))
 	var out := []
 	for building in buildings:
@@ -522,9 +545,9 @@ func _wall_hugging_cells(interior: Rect2i) -> Array:
 
 func _plan() -> void:
 	_rng = SeededRandom.new("%s:CITY-LAYOUT" % seed_text)
-	kinds.resize(WIDTH * HEIGHT)
+	kinds.resize(width * height)
 	kinds.fill(RIM)
-	building_index.resize(WIDTH * HEIGHT)
+	building_index.resize(width * height)
 	building_index.fill(0)
 	_lay_ground()
 	_lay_outskirts()
@@ -553,13 +576,13 @@ func _plan() -> void:
 
 
 func _set_kind(gx: int, gz: int, kind: int) -> void:
-	if in_bounds(gx, gz):
-		kinds[index_of(gx, gz)] = kind
+	if inside_grid(gx, gz):
+		kinds[idx(gx, gz)] = kind
 
 
 func _lay_ground() -> void:
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			var r := ellipse_r(gx, gz)
 			if r >= 1.0:
 				continue
@@ -572,7 +595,7 @@ func _lay_ground() -> void:
 
 
 func _stamp_street_cell(gx: int, gz: int, kind: int) -> void:
-	if not in_bounds(gx, gz) or ellipse_r(gx, gz) >= 1.0:
+	if not inside_grid(gx, gz) or ellipse_r(gx, gz) >= 1.0:
 		return
 	var current := kind_at(gx, gz)
 	if kind == ROAD or current == BLOCK or current == PAVE:
@@ -582,22 +605,22 @@ func _stamp_street_cell(gx: int, gz: int, kind: int) -> void:
 
 func _lay_streets() -> void:
 	for street in NS_STREETS:
-		var width: int = street[1]
-		var x0: int = (street[0] as int) - width / 2
-		var edge := 2 if width == 9 else 1
-		for gx in range(x0, x0 + width):
+		var street_width: int = street[1]
+		var x0: int = (street[0] as int) - street_width / 2
+		var edge := 2 if street_width == 9 else 1
+		for gx in range(x0, x0 + street_width):
 			var off := gx - x0
-			var kind := PAVE if off < edge or off >= width - edge else ROAD
-			for gz in HEIGHT:
+			var kind := PAVE if off < edge or off >= street_width - edge else ROAD
+			for gz in height:
 				_stamp_street_cell(gx, gz, kind)
 	for street in EW_STREETS:
-		var width: int = street[1]
-		var z0: int = (street[0] as int) - width / 2
-		var edge := 2 if width == 9 else 1
-		for gz in range(z0, z0 + width):
+		var street_width: int = street[1]
+		var z0: int = (street[0] as int) - street_width / 2
+		var edge := 2 if street_width == 9 else 1
+		for gz in range(z0, z0 + street_width):
 			var off := gz - z0
-			var kind := PAVE if off < edge or off >= width - edge else ROAD
-			for gx in WIDTH:
+			var kind := PAVE if off < edge or off >= street_width - edge else ROAD
+			for gx in width:
 				_stamp_street_cell(gx, gz, kind)
 
 
@@ -605,8 +628,8 @@ func _lay_streets() -> void:
 ## perimeter wall band (RIM) with its tree line just inside it. Lots for houses and farms are planned by _lay_outskirt_lots
 ## (a later pass); the ground here is already walkable so the city is one connected space.
 func _lay_outskirts() -> void:
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			if ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
 				continue   # downtown, or the RIM band of the perimeter wall
 			var t := band_t(gx, gz)
@@ -630,7 +653,7 @@ func _lay_outskirts() -> void:
 			var at := ELLIPSE_CENTER + direction * float(step) * .75
 			for offset in [-1.0, 0.0, 1.0]:
 				var cell := Vector2i(roundi(at.x + side.x * offset - .5), roundi(at.y + side.y * offset - .5))
-				if in_bounds(cell.x, cell.y) and band_t(cell.x, cell.y) >= FARM_FROM and [FIELD, GRASS].has(kind_at(cell.x, cell.y)):
+				if inside_grid(cell.x, cell.y) and band_t(cell.x, cell.y) >= FARM_FROM and [FIELD, GRASS].has(kind_at(cell.x, cell.y)):
 					_set_kind(cell.x, cell.y, DIRT)
 
 
@@ -639,8 +662,8 @@ func _lay_outskirts() -> void:
 ## (the arterials) run straight over it; footbridges are BRIDGE cells. Generic: anything that marks cells WATER (an OSM
 ## water polygon later) gets the same collision, nav and rendering.
 func _lay_water_bodies() -> void:
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			if ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
 				continue
 			var t := band_t(gx, gz)
@@ -704,7 +727,7 @@ func _lay_outskirt_lots() -> void:
 	# irrigation: a 1-wide channel along the north and south farm bands, bridged where a track or arterial crosses
 	var reach := ELLIPSE_AXES.y + (OUTER_AXES.y - ELLIPSE_AXES.y) * 0.72
 	for gz in [int(ELLIPSE_CENTER.y - reach), int(ELLIPSE_CENTER.y + reach)]:
-		for gx in WIDTH:
+		for gx in width:
 			if kind_at(gx, gz) == FIELD and outer_r(gx, gz) < OUTER_WALL_FROM - 0.06:
 				_set_kind(gx, gz, WATER)
 
@@ -721,7 +744,7 @@ func _band_point(angle: float, t: float) -> Vector2i:
 func _outskirt_lot_clear(lot: Rect2i, ground: Array, margin: int = 2) -> bool:
 	for gz in range(lot.position.y - margin, lot.end.y + margin):
 		for gx in range(lot.position.x - margin, lot.end.x + margin):
-			if not in_bounds(gx, gz) or not ground.has(kind_at(gx, gz)):
+			if not inside_grid(gx, gz) or not ground.has(kind_at(gx, gz)):
 				return false
 	return true
 
@@ -735,7 +758,7 @@ func _place_outskirt_building(lot: Rect2i, kind: String, style: String, height: 
 		for gx in range(lot.position.x, lot.end.x):
 			var edge := gx == lot.position.x or gx == lot.end.x - 1 or gz == lot.position.y or gz == lot.end.y - 1
 			_set_kind(gx, gz, WALL if edge else FLOOR)
-			building_index[index_of(gx, gz)] = buildings.size() + 1
+			building_index[idx(gx, gz)] = buildings.size() + 1
 	for door in doors:
 		_set_kind((door as Vector2i).x, (door as Vector2i).y, DOOR)
 		_door_cells[door] = true
@@ -771,23 +794,23 @@ func _place_outskirt_building(lot: Rect2i, kind: String, style: String, height: 
 
 
 func _place_outskirt_decor(cell: Vector2i, type: String, rng: SeededRandom) -> void:
-	if in_bounds(cell.x, cell.y) and [GRASS, FIELD].has(kind_at(cell.x, cell.y)):
+	if inside_grid(cell.x, cell.y) and [GRASS, FIELD].has(kind_at(cell.x, cell.y)):
 		_place_decor(cell, type, float(rng.next_index(4)) * PI * .5)
 
 
 ## The avenue and the main street continue through the suburbs and the farmland to the outer rim as 9-wide arterials
 ## (asphalt with a 2-cell kerb/pavement each side), so the gate at the far south is reached by road.
 func _lay_arterials() -> void:
-	for gz in HEIGHT:
+	for gz in height:
 		for gx in range(AVENUE_X - 4, AVENUE_X + 5):
 			_stamp_outskirt_street(gx, gz, PAVE if absi(gx - AVENUE_X) >= 3 else ROAD)
-	for gx in WIDTH:
+	for gx in width:
 		for gz in range(MAIN_STREET_Z - 4, MAIN_STREET_Z + 5):
 			_stamp_outskirt_street(gx, gz, PAVE if absi(gz - MAIN_STREET_Z) >= 3 else ROAD)
 
 
 func _stamp_outskirt_street(gx: int, gz: int, kind: int) -> void:
-	if not in_bounds(gx, gz) or ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
+	if not inside_grid(gx, gz) or ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
 		return
 	var current := kind_at(gx, gz)
 	if current == RIM:
@@ -848,8 +871,8 @@ func _lay_shelter_plaza(c: Vector2i) -> void:
 
 
 func _register_shelter(center: Vector2i, _kind_index: int, facing: Vector2i) -> void:
-	var chunk := Vector3i(floori(float(center.x - ORIGIN_OFFSET.x) / CHUNK), 0,
-		floori(float(center.y - ORIGIN_OFFSET.y) / CHUNK))
+	var chunk := Vector3i(floori(float(center.x - origin_offset.x) / CHUNK), 0,
+		floori(float(center.y - origin_offset.y) / CHUNK))
 	var doors := []
 	for dx in range(-1, 2):
 		doors.append(center + Vector2i(dx, 4 * facing.y))
@@ -946,9 +969,9 @@ func _lay_grand_plaza() -> void:
 func _street_spans(streets: Array, limit: int) -> Array:
 	var spans := []
 	for street in streets:
-		var width: int = street[1]
-		var from: int = (street[0] as int) - width / 2
-		spans.append([from, from + width])
+		var street_width: int = street[1]
+		var from: int = (street[0] as int) - street_width / 2
+		spans.append([from, from + street_width])
 	var bands := []
 	var cursor := 0
 	for span in spans:
@@ -961,8 +984,8 @@ func _street_spans(streets: Array, limit: int) -> Array:
 
 
 func _lay_blocks() -> void:
-	var x_bands := _street_spans(NS_STREETS, WIDTH)
-	var z_bands := _street_spans(EW_STREETS, HEIGHT)
+	var x_bands := _street_spans(NS_STREETS, width)
+	var z_bands := _street_spans(EW_STREETS, height)
 	for zb in z_bands:
 		for xb in x_bands:
 			var rect := Rect2i(xb[0], zb[0], xb[1] - xb[0], zb[1] - zb[0])
@@ -1053,24 +1076,24 @@ func _try_building(lot: Rect2i) -> void:
 	var center_z := lot.position.y + lot.size.y / 2 - DOWNTOWN_SHIFT.y
 	var west_or_east := lot.position.x < 65 + DOWNTOWN_SHIFT.x or lot.position.x >= 160 + DOWNTOWN_SHIFT.x
 	var kind: String = BUILDING_KINDS[_rng.next_index(BUILDING_KINDS.size() - 1)]
-	var height := 12.0 + _rng.next_float() * 16.0
+	var mass_height := 12.0 + _rng.next_float() * 16.0
 	var style := "brick"
 	if kind == "chapel":
 		style = "civic"
-		height = 16.0 + _rng.next_float() * 6.0
+		mass_height = 16.0 + _rng.next_float() * 6.0
 	if area >= 260 and (center_z < 25 or center_z > 110):
 		kind = "hall"
-		height = 18.0 + _rng.next_float() * 6.0
+		mass_height = 18.0 + _rng.next_float() * 6.0
 		style = "civic"
 	elif west_or_east and _rng.next_float() < .5:
 		kind = "workshop"
-		height = 14.0 + _rng.next_float() * 6.0
+		mass_height = 14.0 + _rng.next_float() * 6.0
 		style = "industrial"
 	for gz in range(lot.position.y, lot.end.y):
 		for gx in range(lot.position.x, lot.end.x):
-			building_index[index_of(gx, gz)] = buildings.size() + 1
+			building_index[idx(gx, gz)] = buildings.size() + 1
 	var building := {"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
-		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors, "partition": []}
+		"kind": kind, "height": snappedf(mass_height, .5), "style": style, "doors": doors, "partition": []}
 	building["partition"] = _lay_partition(building)
 	buildings.append(building)
 
@@ -1156,8 +1179,8 @@ func _choose_doors(lot: Rect2i) -> Array:
 
 
 func _fill_verges() -> void:
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			if kind_at(gx, gz) == BLOCK:
 				_set_kind(gx, gz, GRASS)
 
@@ -1165,8 +1188,8 @@ func _fill_verges() -> void:
 ## Leftover ground between the buildings and the dome edge is parkland: scattered blossom trees, never in a doorway.
 func _scatter_verge_trees() -> void:
 	var rng := SeededRandom.new("%s:CITY-VERGE" % seed_text)
-	for gz in range(2, HEIGHT - 2):
-		for gx in range(2, WIDTH - 2):
+	for gz in range(2, height - 2):
+		for gx in range(2, width - 2):
 			if kind_at(gx, gz) != GRASS or rng.next_float() > (.035 if ellipse_r(gx, gz) < 1.0 else .012):
 				continue
 			var crowded := false
@@ -1194,7 +1217,7 @@ func _lay_crosswalks() -> void:
 # ---------------------------------------------------------------- street furniture
 
 func _place_decor(cell: Vector2i, type: String, yaw: float) -> bool:
-	if not in_bounds(cell.x, cell.y):
+	if not inside_grid(cell.x, cell.y):
 		return false
 	var r := ellipse_r(cell.x, cell.y)
 	if r > DECOR_LIMIT and (r < 1.0 or outer_r(cell.x, cell.y) > OUTER_WALL_FROM - .03):
@@ -1295,59 +1318,59 @@ func _prune_clipping_decor() -> void:
 ## orphan no building can reach becomes a low hedge.
 func _absorb_orphan_walls() -> void:
 	var queue: Array[Vector2i] = []
-	for gz in HEIGHT:
-		for gx in WIDTH:
-			if building_index[index_of(gx, gz)] > 0:
+	for gz in height:
+		for gx in width:
+			if building_index[idx(gx, gz)] > 0:
 				queue.append(Vector2i(gx, gz))
 	var cursor := 0
 	while cursor < queue.size():
 		var cell: Vector2i = queue[cursor]
 		cursor += 1
-		var owner := building_index[index_of(cell.x, cell.y)]
+		var owner := building_index[idx(cell.x, cell.y)]
 		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 			var next: Vector2i = cell + (step as Vector2i)
-			if in_bounds(next.x, next.y) and kind_at(next.x, next.y) == WALL and building_index[index_of(next.x, next.y)] == 0:
-				building_index[index_of(next.x, next.y)] = owner
+			if inside_grid(next.x, next.y) and kind_at(next.x, next.y) == WALL and building_index[idx(next.x, next.y)] == 0:
+				building_index[idx(next.x, next.y)] = owner
 				queue.append(next)
-	for gz in HEIGHT:
-		for gx in WIDTH:
-			if kind_at(gx, gz) == WALL and building_index[index_of(gx, gz)] == 0:
+	for gz in height:
+		for gx in width:
+			if kind_at(gx, gz) == WALL and building_index[idx(gx, gz)] == 0:
 				_set_kind(gx, gz, HEDGE)
 
 
 func _lay_street_furniture() -> void:
 	# Lamp posts along every street's pavement, staggered across the road; trees on the avenue between the lamps.
 	for street in NS_STREETS:
-		var width: int = street[1]
-		var x0: int = (street[0] as int) - width / 2
-		var inner := [x0 + (1 if width == 9 else 0), x0 + width - (2 if width == 9 else 1)]
-		var spacing := 8 if width == 9 else 10
+		var street_width: int = street[1]
+		var x0: int = (street[0] as int) - street_width / 2
+		var inner := [x0 + (1 if street_width == 9 else 0), x0 + street_width - (2 if street_width == 9 else 1)]
+		var spacing := 8 if street_width == 9 else 10
 		for side in 2:
-			for gz in range(4 + side * (spacing / 2), HEIGHT - 3, spacing):
+			for gz in range(4 + side * (spacing / 2), height - 3, spacing):
 				if not _place_decor(Vector2i(inner[side], gz), "lamp", 0.0 if side == 0 else PI):
 					continue
-			if width == 9:
-				for gz in range(8 + side * 4, HEIGHT - 3, 8):
+			if street_width == 9:
+				for gz in range(8 + side * 4, height - 3, 8):
 					_place_decor(Vector2i(inner[side], gz), "tree", 0.0)
 	for street in EW_STREETS:
-		var width: int = street[1]
-		var z0: int = (street[0] as int) - width / 2
-		var inner := [z0 + (1 if width == 9 else 0), z0 + width - (2 if width == 9 else 1)]
-		var spacing := 8 if width == 9 else 10
+		var street_width: int = street[1]
+		var z0: int = (street[0] as int) - street_width / 2
+		var inner := [z0 + (1 if street_width == 9 else 0), z0 + street_width - (2 if street_width == 9 else 1)]
+		var spacing := 8 if street_width == 9 else 10
 		for side in 2:
-			for gx in range(4 + side * (spacing / 2), WIDTH - 3, spacing):
+			for gx in range(4 + side * (spacing / 2), width - 3, spacing):
 				_place_decor(Vector2i(gx, inner[side]), "lamp", PI * .5 if side == 0 else -PI * .5)
-			if width == 9:
-				for gx in range(8 + side * 4, WIDTH - 3, 8):
+			if street_width == 9:
+				for gx in range(8 + side * 4, width - 3, 8):
 					_place_decor(Vector2i(gx, inner[side]), "tree", 0.0)
 	# Hydrants along the pavements, one every few blocks.
 	for street in NS_STREETS:
 		var hx: int = (street[0] as int) - (street[1] as int) / 2 + 1
-		for gz in range(14, HEIGHT - 6, 22):
+		for gz in range(14, height - 6, 22):
 			_place_decor(Vector2i(hx, gz), "hydrant", 0.0)
 	for street in EW_STREETS:
 		var hz: int = (street[0] as int) - (street[1] as int) / 2 + 1
-		for gx in range(20, WIDTH - 6, 26):
+		for gx in range(20, width - 6, 26):
 			_place_decor(Vector2i(gx, hz), "hydrant", 0.0)
 	# Bollards beside every doorway and planters on the shelter plazas' corners.
 	for shelter in shelters:
@@ -1404,29 +1427,29 @@ func _lay_modern_furniture() -> void:
 							signed = true
 							break
 	# parked cars: outer lane of the 9-wide avenue and main street, every 11 cells, pointing along the road
-	for gz in range(6, HEIGHT - 6, 11):
+	for gz in range(6, height - 6, 11):
 		for gx in [AVENUE_X - 2, AVENUE_X + 2]:
 			if ellipse_r(gx, gz) < 0.86 and kind_at(gx, gz) == ROAD and kind_at(gx, gz + 1) == ROAD:
 				if _place_decor(Vector2i(gx, gz), "car_a", 0.0) and not _place_decor(Vector2i(gx, gz + 1), "car_b", 0.0):
 					_unplace_decor(Vector2i(gx, gz))
-	for gx in range(6, WIDTH - 6, 11):
+	for gx in range(6, width - 6, 11):
 		for gz in [MAIN_STREET_Z - 2, MAIN_STREET_Z + 2]:
 			if ellipse_r(gx, gz) < 0.86 and kind_at(gx, gz) == ROAD and kind_at(gx + 1, gz) == ROAD:
 				if _place_decor(Vector2i(gx, gz), "car_a", PI * .5) and not _place_decor(Vector2i(gx + 1, gz), "car_b", PI * .5):
 					_unplace_decor(Vector2i(gx, gz))
 	# bus stops on the arterial pavements through the suburbs, both directions
-	for gz in range(4, HEIGHT - 4, 24):
+	for gz in range(4, height - 4, 24):
 		if ellipse_r(AVENUE_X, gz) >= 1.02 and not is_outside(AVENUE_X, gz):
 			_place_decor(Vector2i(AVENUE_X - 4, gz), "bus_stop", PI * .5)
 			_place_decor(Vector2i(AVENUE_X + 4, gz + 6), "bus_stop", -PI * .5)
-	for gx in range(4, WIDTH - 4, 24):
+	for gx in range(4, width - 4, 24):
 		if ellipse_r(gx, MAIN_STREET_Z) >= 1.02 and not is_outside(gx, MAIN_STREET_Z):
 			_place_decor(Vector2i(gx, MAIN_STREET_Z - 4), "bus_stop", 0.0)
 			_place_decor(Vector2i(gx + 6, MAIN_STREET_Z + 4), "bus_stop", PI)
 	# utility poles on the ring road's outer pavement and beside the farm tracks
 	var placed := 0
-	for gz in range(2, HEIGHT - 2):
-		for gx in range(2, WIDTH - 2):
+	for gz in range(2, height - 2):
+		for gx in range(2, width - 2):
 			if (gx * 7 + gz * 13) % 17 != 0:
 				continue
 			var t := band_t(gx, gz)
@@ -1434,7 +1457,7 @@ func _lay_modern_furniture() -> void:
 				if _place_decor(Vector2i(gx, gz), "utility_pole", 0.0):
 					placed += 1
 	# billboards facing the arterials in the suburbs (first free grass cell 6-10 out from the road)
-	for gz in range(6, HEIGHT - 6, 12):
+	for gz in range(6, height - 6, 12):
 		for side in [-1, 1]:
 			for out in range(6, 11):
 				var cell := Vector2i(AVENUE_X + side * out, gz)
@@ -1451,10 +1474,10 @@ func _unplace_decor(cell: Vector2i) -> void:
 
 ## The gate: a 9-wide closed barrier across the avenue (the escape objective, see CityRouteGenerator pickups).
 func _lay_gate() -> void:
-	for gx in range(GATE_X.x, GATE_X.y + 1):
-		_set_kind(gx, GATE_ROW, GATE)
+	for gx in range(gate_x.x, gate_x.y + 1):
+		_set_kind(gx, gate_row, GATE)
 		# A clear 2-cell apron of road in front of the gate so the pickup cell is never swallowed by the wall band.
-		for row in [GATE_ROW - 1, GATE_ROW - 2]:
+		for row in [gate_row - 1, gate_row - 2]:
 			if kind_at(gx, row) == RIM:
 				_set_kind(gx, row, ROAD)
 
@@ -1477,8 +1500,8 @@ func _remove_thin_alleys() -> void:
 
 func _remove_thin_alley_pass() -> bool:
 	var thin := []
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			if kind_at(gx, gz) != ALLEY:
 				continue
 			var across_x := 1
@@ -1510,18 +1533,18 @@ func _wall_over(gx: int, gz: int) -> void:
 ## masses it joins absorb it in _absorb_orphan_walls.
 func _fill_slivers() -> void:
 	var fill := {}
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	for gz in height:
+		for gx in width:
 			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
 				var start := Vector2i(gx, gz)
-				var a := building_index[index_of(gx, gz)]
+				var a := building_index[idx(gx, gz)]
 				if a == 0 or kind_at(gx, gz) != WALL:
 					continue
 				for gap in [1, 2]:
 					var far: Vector2i = start + (step as Vector2i) * (int(gap) + 1)
-					if not in_bounds(far.x, far.y):
+					if not inside_grid(far.x, far.y):
 						break
-					var b := building_index[index_of(far.x, far.y)]
+					var b := building_index[idx(far.x, far.y)]
 					if b == 0 or b == a or kind_at(far.x, far.y) != WALL:
 						continue
 					var cells := []
@@ -1545,23 +1568,23 @@ func _fill_slivers() -> void:
 ## Open cells that cannot be reached from the spawn become solid, so the city is one connected walkable space.
 func _seal_unreachable() -> void:
 	var reached := PackedByteArray()
-	reached.resize(WIDTH * HEIGHT)
+	reached.resize(width * height)
 	var queue: Array[Vector2i] = [spawn]
-	reached[index_of(spawn.x, spawn.y)] = 1
+	reached[idx(spawn.x, spawn.y)] = 1
 	var cursor := 0
 	while cursor < queue.size():
 		var cell: Vector2i = queue[cursor]
 		cursor += 1
 		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 			var next: Vector2i = cell + (step as Vector2i)
-			if not in_bounds(next.x, next.y) or reached[index_of(next.x, next.y)] == 1 \
+			if not inside_grid(next.x, next.y) or reached[idx(next.x, next.y)] == 1 \
 					or not is_open(next.x, next.y):
 				continue
-			reached[index_of(next.x, next.y)] = 1
+			reached[idx(next.x, next.y)] = 1
 			queue.append(next)
-	for gz in HEIGHT:
-		for gx in WIDTH:
-			if is_open(gx, gz) and reached[index_of(gx, gz)] == 0:
+	for gz in height:
+		for gx in width:
+			if is_open(gx, gz) and reached[idx(gx, gz)] == 0:
 				_set_kind(gx, gz, WALL)
 	# A building whose every doorway got sealed is now a solid mass: no rooms, props or lamp for it.
 	for building in buildings:
@@ -1586,9 +1609,9 @@ const MAP_COLORS := {
 
 
 func to_image(scale: int = 4) -> Image:
-	var image := Image.create(WIDTH * scale, HEIGHT * scale, false, Image.FORMAT_RGBA8)
-	for gz in HEIGHT:
-		for gx in WIDTH:
+	var image := Image.create(width * scale, height * scale, false, Image.FORMAT_RGBA8)
+	for gz in height:
+		for gx in width:
 			var color: Color = MAP_COLORS.get(kind_at(gx, gz), Color.MAGENTA)
 			image.fill_rect(Rect2i(gx * scale, gz * scale, scale, scale), color)
 	return image
