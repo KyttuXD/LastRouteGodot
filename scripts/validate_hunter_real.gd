@@ -11,7 +11,7 @@ extends RefCounted
 
 const STUCK_LIMIT := 1.0
 const STEP := 1.0 / 30.0
-const SEEDS := ["REAL-A"]
+const SEEDS := ["REAL-A", "REAL-B"]
 const SEARCH_RADIUS := 7
 const TRIAL_SECONDS := 14.0
 const PATROL_SECONDS := 20.0
@@ -163,7 +163,9 @@ func _simulate(navigation: StreamedHunterNavigation, setup: Dictionary, hunter_i
 		# every state that plays a walk/chase clip: standing still in one of these is "walking in place"
 		var moving_state: bool = brain.state != HunterBrain.State.IDLE
 		var held: bool = brain.stun_timer > 0.0 or (brain.gimmick != null and brain.gimmick.holds_position()) \
-			or not brain.active or brain.emote_left > 0.0
+			or not brain.active or brain.emote_left > 0.0 \
+			# Haelith guards the uncollected relay she reached: standing on it is her design
+			or (hunter_id == "haelith" and brain.position.distance_to(brain.last_known) < 1.0)
 		var moved := brain.position.distance_to(previous)
 		previous = brain.position
 		if moving_state and not held and (moved < 0.004 or brain.stuck_seconds > STUCK_LIMIT):
@@ -171,9 +173,7 @@ func _simulate(navigation: StreamedHunterNavigation, setup: Dictionary, hunter_i
 			if still > worst:
 				worst = still
 				where = brain.position
-				worst_state = "%s vis=%s lk=%s runner=%s path0=%s emote=%d occ=%s" % [brain.state, brain.direct_chase_visible,
-					brain.last_known, runner, (brain._path[0] if not brain._path.is_empty() else "-"),
-					brain.emote_id, navigation.can_occupy(brain.position.x, brain.position.y, brain.radius)]
+				worst_state = "%s search=%s chase_visible=%s last_known=%s" % [brain.state, brain.search_target, brain.direct_chase_visible, brain.last_known]
 		else:
 			still = 0.0
 	return {"still": worst, "where": where, "state": worst_state}

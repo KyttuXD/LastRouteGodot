@@ -711,9 +711,11 @@ func _pick_search_target(generator) -> Vector2:
 			last_known.x + offset.x, last_known.y + offset.y, radius)
 		if not open.is_empty():
 			var candidate := Vector2(open["x"], open["y"])
-			if candidate.distance_to(position) > 0.5:
+			# a point behind a wall is "open" too: only search where a route actually leads
+			if candidate.distance_to(position) > 0.5 \
+					and not generator.find_path(_cell_of(position), _cell_of(candidate)).is_empty():
 				return candidate
-	return last_known
+	return position
 
 
 ## Gimmicks draw from the brain's own seeded stream rather than a global RNG,

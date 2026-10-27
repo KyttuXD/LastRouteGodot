@@ -32,3 +32,4 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 | [../MIGRATION.md](../MIGRATION.md), [../PLAYABILITY.md](../PLAYABILITY.md), [../PORTING_AUDIT.md](../PORTING_AUDIT.md) | Port history and checklists |
 
 Never put secrets (admin setup key, tokens, passwords) in any of these files.
+- [HUNTER_PATHING.md](HUNTER_PATHING.md) — real-play hunter stuck causes, stuck telemetry, hunter_real validator
