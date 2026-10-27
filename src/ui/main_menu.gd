@@ -209,7 +209,8 @@ func _format_save_duration(seconds: float) -> String:
 func _focus_default_button() -> void:
 	var preferred := offline_button if play_button.disabled else play_button
 	if preferred != null and preferred.visible and not preferred.disabled:
-		preferred.grab_focus()
+		if preferred.is_inside_tree():
+			preferred.grab_focus()   # a scene change can take it out of the tree first
 
 
 ## Restyle from Palette at load rather than in the scene file.

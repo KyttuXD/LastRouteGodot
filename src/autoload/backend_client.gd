@@ -1047,9 +1047,16 @@ func _on_health_response(result: int, response_code: int,
 	health_checked.emit(ok, "DIRECTORY ONLINE" if ok else "DIRECTORY UNAVAILABLE")
 
 
+## An empty or non-JSON body (offline, a proxy error page) is just "no payload": JSON.parse_string would log
+## "Parse JSON failed" for it, so parse with a JSON object, which reports the error to us instead.
 func _parse_body(body: PackedByteArray) -> Dictionary:
-	var value = JSON.parse_string(body.get_string_from_utf8())
-	return value if value is Dictionary else {}
+	var text := body.get_string_from_utf8().strip_edges()
+	if text.is_empty() or not (text.begins_with("{") or text.begins_with("[")):
+		return {}
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return {}
+	return json.data if json.data is Dictionary else {}
 
 
 func _headers() -> PackedStringArray:

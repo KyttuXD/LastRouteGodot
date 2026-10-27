@@ -394,12 +394,68 @@ func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
 	world_seed = seed_text if not seed_text.is_empty() else "ENDLESS-ROUTE"
 
 
+## Guarantee (PLAYTEST BUGS b): every pickup and relay can be walked to. A flood from the chunk's halls and seam openings
+## over open cells that no solid prop occupies; a pickup the flood does not reach (sealed behind furniture or a partition,
+## as the lab decon room did) moves to the nearest reached cell. Deterministic, so every peer agrees.
+static func _ensure_pickups_reachable(data: Dictionary) -> void:
+	var pickups: Array = data.get("pickups", [])
+	if pickups.is_empty() or not data.has("grid"):
+		return
+	var grid: Array = data["grid"]
+	var size := grid.size()
+	var blocked := {}
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if not bool(prop.get("solid", true)) or bool(prop.get("room_door", false)):
+			continue
+		for cell in prop.get("occupied_cells", [prop.get("cell", Vector2i(-1, -1))]):
+			blocked[cell] = true
+	var open := func(c: Vector2i) -> bool:
+		return c.x >= 0 and c.y >= 0 and c.x < size and c.y < size and int(grid[c.y][c.x]) == 0 and not blocked.has(c)
+	var reached := {}
+	var frontier: Array = []
+	for i in size:
+		for c in [Vector2i(i, 0), Vector2i(i, size - 1), Vector2i(0, i), Vector2i(size - 1, i), Vector2i(i, size / 2)]:
+			if open.call(c) and not reached.has(c):
+				reached[c] = true
+				frontier.append(c)
+	while not frontier.is_empty():
+		var cur: Vector2i = frontier.pop_back()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = cur + d
+			if open.call(n) and not reached.has(n):
+				reached[n] = true
+				frontier.append(n)
+	if reached.is_empty():
+		return
+	for pickup_value in pickups:
+		var pickup: Dictionary = pickup_value
+		var cell: Vector2i = pickup.get("cell", Vector2i(-1, -1))
+		if reached.has(cell):
+			continue
+		var seen := {cell: true}
+		var queue: Array = [cell]
+		var head := 0
+		while head < queue.size():
+			var cur: Vector2i = queue[head]
+			head += 1
+			if reached.has(cur):
+				pickup["cell"] = cur
+				break
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var n: Vector2i = cur + d
+				if n.x >= 0 and n.y >= 0 and n.x < size and n.y < size and not seen.has(n):
+					seen[n] = true
+					queue.append(n)
+
+
 func chunk(coord: Vector3i) -> Dictionary:
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)
 		_chunk_cache_order.append(coord)
 		return _chunk_cache[coord]
 	var data := _build_chunk(coord)
+	_ensure_pickups_reachable(data)
 	_chunk_cache[coord] = data
 	_chunk_cache_order.append(coord)
 	while _chunk_cache_order.size() > CHUNK_CACHE_LIMIT:

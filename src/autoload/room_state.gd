@@ -167,7 +167,8 @@ func _ready() -> void:
 		create_local(Mode.DEFAULT)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_tick_start_heal(delta)
 	if reconnect_active:
 		_tick_reconnect()
 		return
@@ -401,6 +402,20 @@ func _on_peer_connected(id: int) -> void:
 	changed.emit()
 
 
+var _start_heal_elapsed := 0.0
+const START_HEAL_SECONDS := 4.0
+
+
+func _tick_start_heal(delta: float) -> void:
+	if not (online and is_host and session_active) or multiplayer.multiplayer_peer == null:
+		_start_heal_elapsed = 0.0
+		return
+	_start_heal_elapsed += delta
+	if _start_heal_elapsed >= START_HEAL_SECONDS:
+		_start_heal_elapsed = 0.0
+		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+
+
 func _on_peer_disconnected(id: int) -> void:
 	if not peers.has(id):
 		return
@@ -603,6 +618,11 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 		Backend.request_admin_ticket(code)
 	_clear_reconnect_state()
 	changed.emit()
+	# Self-heal for the join/start race: a guest that joined while the host was starting can miss the one start RPC
+	# (the playtest party saw one of two guests stay in the lobby). Every room update says whether the route is running,
+	# so a guest still outside it enters now.
+	if online and not is_host and p_session_active and not connecting:
+		call_deferred("_enter_session_scene", get_tree())
 
 
 ## Push the host's configuration to everyone. Called after any host-side change,
