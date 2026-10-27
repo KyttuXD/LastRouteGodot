@@ -109,9 +109,13 @@ const INTERIOR_RECIPES := {
 	"hall": [["diningTable", "row"], ["diningChair", "seat"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
 }
 
+## Kinds that draw as a tall solid mass: street furniture keeps its footprint clear of them.
+const SOLID_MASS_KINDS := [WALL, KIOSK_WALL, GATE, RIM]
+
 var seed_text := ""
 var kinds := PackedByteArray()
 var building_index := PackedInt32Array()   # city cell -> building number + 1 (0 = none)
+var _decor_floor := {}   # decor cell -> the tile kind it replaced (restored when the furniture is pruned)
 var decor := {}          # Vector2i -> {"type": String, "yaw": float}
 var buildings: Array = []
 var shelters: Array = []
@@ -344,6 +348,8 @@ func building_props(building: Dictionary) -> Array:
 					props.append(_prop(building, index, type, cell, rng.next_float() * TAU))
 					index += 1
 					placed += 1
+	# Cells sealed after the plan (unreachable pockets became wall) cannot hold furniture: it would stand inside the mass.
+	props = props.filter(func(prop: Dictionary) -> bool: return kind_at((prop["cell"] as Vector2i).x, (prop["cell"] as Vector2i).y) == FLOOR)
 	return _keep_floor_connected(building, props)
 
 
@@ -427,7 +433,10 @@ func _plan() -> void:
 	_scatter_verge_trees()
 	_lay_street_furniture()
 	_remove_thin_alleys()
+	_fill_slivers()
 	_seal_unreachable()
+	_absorb_orphan_walls()
+	_prune_clipping_decor()
 
 
 func _set_kind(gx: int, gz: int, kind: int) -> void:
@@ -839,15 +848,108 @@ func _place_decor(cell: Vector2i, type: String, yaw: float) -> bool:
 	if not in_bounds(cell.x, cell.y) or ellipse_r(cell.x, cell.y) > DECOR_LIMIT:
 		return false
 	var current := kind_at(cell.x, cell.y)
-	if not [PAVE, PLAZA, GRASS, PATH, COMPASS, ALLEY].has(current):
+	if not [PAVE, PLAZA, GRASS, PATH, COMPASS].has(current):
+		return false
+	if _decor_clips_solid(cell, type) or _decor_clips_decor(cell, type, yaw):
 		return false
 	for dz in range(-2, 3):
 		for dx in range(-2, 3):
 			if _door_cells.has(cell + Vector2i(dx, dz)):
 				return false
+	_decor_floor[cell] = current
 	_set_kind(cell.x, cell.y, POST)
 	decor[cell] = {"type": type, "yaw": yaw}
 	return true
+
+
+## Vertical parts of a piece of street furniture: [{half (footprint half extents, yaw applied), y0, y1}]. Mirrors what
+## CityFacilityView3D._add_decor draws (a tree is a thin trunk under a wide canopy, a lamp a pole under a lantern head).
+static func decor_parts(type: String, yaw: float) -> Array:
+	var along_x := absf(sin(yaw)) < .5
+	match type:
+		"tree":
+			return [_part(.28, .28, 0.0, 2.7), _part(2.2, 2.2, 2.5, 5.0)]
+		"lamp":
+			return [_part(.14, .14, 0.0, 3.1), _part(.84, .84, 2.98, 3.51)]
+		"bench":
+			return [_part(.9 if along_x else .4, .4 if along_x else .9, 0.0, .9)]
+		"statue":
+			return [_part(3.0, 3.0, 0.0, 1.2), _part(2.0, 2.0, 1.2, 1.55), _part(.9, .6, 1.55, 3.65)]
+	var vis: Vector3 = DECOR_VISIBLE.get(type, Vector3.ONE)
+	return [_part(vis.x, vis.z, 0.0, vis.y)]
+
+
+static func _part(w: float, d: float, y0: float, y1: float) -> Dictionary:
+	return {"half": Vector2(w, d) * .5, "y0": y0, "y1": y1}
+
+
+## True when the visible footprint of a piece of street furniture (a tree canopy is 2.2 m wide) would reach into a solid
+## mass (facade, kiosk, gate, rim) around its cell: a canopy through a facade is the clipping GeometryAudit flags.
+func _decor_clips_solid(cell: Vector2i, type: String) -> bool:
+	var widest := 0.0
+	for part in decor_parts(type, 0.0):
+		widest = maxf(widest, maxf((part["half"] as Vector2).x, (part["half"] as Vector2).y))
+	var reach := ceili(widest - .5 - .1)
+	for dz in range(-reach, reach + 1):
+		for dx in range(-reach, reach + 1):
+			if SOLID_MASS_KINDS.has(kind_at(cell.x + dx, cell.y + dz)):
+				return true
+	return false
+
+
+## True when a new piece would interpenetrate furniture already standing nearby (a lamp head inside a canopy). Parts
+## are compared with their height spans, so a bench under a tree is fine.
+func _decor_clips_decor(cell: Vector2i, type: String, yaw: float) -> bool:
+	for dz in range(-3, 4):
+		for dx in range(-3, 4):
+			var other_cell := cell + Vector2i(dx, dz)
+			if not decor.has(other_cell):
+				continue
+			var other: Dictionary = decor[other_cell]
+			var blend := .3 if type == String(other["type"]) and ["tree", "cypress"].has(type) else 0.0
+			for a in decor_parts(type, yaw):
+				for b in decor_parts(String(other["type"]), float(other["yaw"])):
+					if float(a["y1"]) <= float(b["y0"]) or float(b["y1"]) <= float(a["y0"]):
+						continue
+					var ox := (a["half"] as Vector2).x + (b["half"] as Vector2).x - absf(float(dx))
+					var oz := (a["half"] as Vector2).y + (b["half"] as Vector2).y - absf(float(dz))
+					if minf(ox, oz) > .1 + blend:
+						return true
+	return false
+
+
+## Furniture that ended up against a mass sealed or thinned after it was placed is taken away again (floor restored).
+func _prune_clipping_decor() -> void:
+	for cell_value in decor.keys():
+		var cell: Vector2i = cell_value
+		if _decor_clips_solid(cell, String(decor[cell]["type"])) and _decor_floor.has(cell):
+			_set_kind(cell.x, cell.y, int(_decor_floor[cell]))
+			decor.erase(cell)
+
+
+## Solid cells left without a building (thinned alleys, sealed pockets) used to draw as 6 m stubs between 12-28 m towers.
+## They join the building they touch (multi-source flood through the orphans), so a facade is one continuous mass; an
+## orphan no building can reach becomes a low hedge.
+func _absorb_orphan_walls() -> void:
+	var queue: Array[Vector2i] = []
+	for gz in HEIGHT:
+		for gx in WIDTH:
+			if building_index[index_of(gx, gz)] > 0:
+				queue.append(Vector2i(gx, gz))
+	var cursor := 0
+	while cursor < queue.size():
+		var cell: Vector2i = queue[cursor]
+		cursor += 1
+		var owner := building_index[index_of(cell.x, cell.y)]
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + (step as Vector2i)
+			if in_bounds(next.x, next.y) and kind_at(next.x, next.y) == WALL and building_index[index_of(next.x, next.y)] == 0:
+				building_index[index_of(next.x, next.y)] = owner
+				queue.append(next)
+	for gz in HEIGHT:
+		for gx in WIDTH:
+			if kind_at(gx, gz) == WALL and building_index[index_of(gx, gz)] == 0:
+				_set_kind(gx, gz, HEDGE)
 
 
 func _lay_street_furniture() -> void:
@@ -938,7 +1040,50 @@ func _remove_thin_alleys() -> void:
 			if mini(across_x, across_z) < 3:
 				thin.append(Vector2i(gx, gz))
 	for cell in thin:
-		_set_kind((cell as Vector2i).x, (cell as Vector2i).y, WALL)
+		_wall_over((cell as Vector2i).x, (cell as Vector2i).y)
+
+
+## Turns a cell into solid wall, taking any furniture standing on it away.
+func _wall_over(gx: int, gz: int) -> void:
+	decor.erase(Vector2i(gx, gz))
+	_set_kind(gx, gz, WALL)
+
+
+## A 1-2 cell open strip between two different building masses is a slot that shows nothing but a gap between facades
+## (and a mesh-thin dead end for anyone who walks in): it is closed into wall unless a doorway opens onto it. The
+## masses it joins absorb it in _absorb_orphan_walls.
+func _fill_slivers() -> void:
+	var fill := {}
+	for gz in HEIGHT:
+		for gx in WIDTH:
+			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var start := Vector2i(gx, gz)
+				var a := building_index[index_of(gx, gz)]
+				if a == 0 or kind_at(gx, gz) != WALL:
+					continue
+				for gap in [1, 2]:
+					var far: Vector2i = start + (step as Vector2i) * (int(gap) + 1)
+					if not in_bounds(far.x, far.y):
+						break
+					var b := building_index[index_of(far.x, far.y)]
+					if b == 0 or b == a or kind_at(far.x, far.y) != WALL:
+						continue
+					var cells := []
+					var closable := true
+					for k in range(1, int(gap) + 1):
+						var m: Vector2i = start + (step as Vector2i) * k
+						if [WALL, DOOR, FLOOR].has(kind_at(m.x, m.y)):
+							closable = false
+						for around in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i.ZERO]:
+							if kind_at(m.x + (around as Vector2i).x, m.y + (around as Vector2i).y) == DOOR:
+								closable = false
+						cells.append(m)
+					if closable:
+						for m in cells:
+							fill[m] = true
+					break
+	for cell in fill:
+		_wall_over((cell as Vector2i).x, (cell as Vector2i).y)
 
 
 ## Open cells that cannot be reached from the spawn become solid, so the city is one connected walkable space.
