@@ -66,3 +66,13 @@ The player mannequin is built by the same pipeline (`build.py player_mannequin`)
 - Head-follows-path (straight travel direction in flight), per-instance face material and the rest of the identity are untouched. The death/jumpscare line is a UI moment (`DeathMoment`, no 3D framing), so a catch while airborne needs no extra framing: the grab is the swoop ending at 0.3 m.
 - Checks: suite `xivvy_flight` (a real hall / 3 m doorway / room / 9 m atrium run with colliders: altitude within [floor, ceiling - margin] everywhere, grounded and walking at the door, landed before it, up again beyond, no flapping, wings fold, take-off/landing smooth and end on the floor, swoop dip, bank direction and limit, wing cadence rising with speed, shadow on the floor, cues counted, a guest rebuilt from the replicated flag lifts and banks, other hunters unaffected). Captures: `docs/xivvy_side.png`, `docs/xivvy_chase.png` (chase-cam), the hall-to-atrium side sequence, from `tools/look/xivvy_flight_capture.tscn`.
 - Night Watch: `NightWatchPoses` is unchanged; if she appears there, play her normal `flight` clip (the NW lane can set `hunter_view` flight through the gimmick the same way).
+
+## Standing still (idle_stability)
+
+KT: idling hunters wobbled. Three causes, found by logging a standing hunter frame by frame:
+
+1. **The head look swept +-42 deg** while she stood (the "slow left-right scan" of HUNTER HEADS, plus a nod and a sway while walking), a big slow head swing on top of the idle clip. A standing head is now a +-9 deg turn with a 14 s period (nod 2 deg; the walking path sway 5 deg; the search sweep 14 deg).
+2. **Spawn speed spike**: the first speed sample measured the jump from the zero default position to the real one (hundreds of m/s), so every hunter "walked in place" for about a second after appearing (and after any teleport: stairs, spawn, a streamed floor). The first sample and any jump over 4 m now count as zero speed.
+3. **Sub-centimetre position noise** (network rounding, interpolation) went to `move_and_slide`, which crept within its 3.5 cm safe margin and bobbed the body up and down (a guest with 2 mm of noise drifted 2.7 cm). Corrections under 6 mm are applied directly.
+
+Suite `idle_stability`: four hunters x idle / wander / chase / search for 5 s, every other hunter at a waypoint for 2 s, and a guest with replicated position noise. Root drift under 2 cm, yaw under 2 deg, no animation / gait / expression flips, every part inside the idle clip's own range (+3 cm), head swing within the clip's own plus +-9 deg. `docs/idle_stability_plot.png`: head yaw while standing, before (top-left idle, bottom-left wander; red = a clip change) and after.
