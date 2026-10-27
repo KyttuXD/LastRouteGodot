@@ -177,7 +177,7 @@ def prison_bunk():
 
 
 def gothic_canopy_bed():
-    w, h, d = 2.0, 2.38, 2.75
+    w, h, d = 2.0, 2.38, 2.31
     c = Part(w, h, d)
     p = 0.14
     # posts: low at the foot, tall carved posts at the head and canopy posts at the foot
@@ -191,18 +191,18 @@ def gothic_canopy_bed():
     c.add(w - p, 2.2, p, w, 2.3, d - p, "dark")
     c.add(p, 0.3, 0.0, w - p, 1.55, 0.12, "dark")                                           # tall headboard
     c.add(0.3, 1.2, 0.0, w - 0.3, 1.7, 0.12, "dark")
-    c.add(p, 0.3, d - 0.12, w - p, 0.8, d, "dark")                                          # footboard
-    c.add(p, 0.3, p, w - p, 0.5, d - p, "dark")                                             # frame
-    c.add(0.18, 0.5, 0.2, w - 0.18, 0.74, d - 0.2, "paper")                                 # mattress
-    c.add(0.18, 0.6, 0.9, w - 0.18, 0.78, d - 0.2, "@cloth")                                # coverlet
+    c.add(p, 0.42, d - 0.12, w - p, 0.85, d, "dark")                                          # footboard
+    c.add(p, 0.42, p, w - p, 0.58, d - p, "dark")                                            # frame: 0.42 m clear underneath
+    c.add(0.18, 0.58, 0.2, w - 0.18, 0.8, d - 0.2, "paper")                                 # mattress
+    c.add(0.18, 0.68, 0.9, w - 0.18, 0.84, d - 0.2, "@cloth")                                # coverlet
     for x in (0.3, 1.1):
-        c.add(x, 0.74, 0.2, x + 0.6, 0.86, 0.6, "white")                                    # pillows
+        c.add(x, 0.8, 0.2, x + 0.6, 0.92, 0.6, "white")                                    # pillows
     # hanging drapes: panels slightly out of line and turned a little so they read as cloth, not a wall
     for x0, x1, side in ((0.1, 0.16, 0), (w - 0.16, w - 0.1, 1)):
         for i in range(5):
-            z = 0.2 + i * 0.5
-            c.add(x0, 1.0, z, x1, 2.2, z + 0.5, "@cloth", (0, 0, (-3 if (i % 2) else 3) * (1 if side == 0 else -1)),
-                  (x0 + 0.03, 2.2, z + 0.25))
+            z = 0.2 + i * 0.38                                                                  # five panels along the 2.31 m bed
+            c.add(x0, 1.0, z, x1, 2.2, z + 0.38, "@cloth", (0, 0, (-3 if (i % 2) else 3) * (1 if side == 0 else -1)),
+                  (x0 + 0.03, 2.2, z + 0.19))
     return c.boxes
 
 
@@ -354,7 +354,7 @@ _reg("mansionRockingChair", rocking_chair(), (0.6, 1.05, 0.9), {"@wood": WOODS, 
 _reg("beachChair", beach_chair(), (0.6, 0.85, 1.0), {"@cloth": ["blue", "red", "yellow"]})
 _reg("bunkBed", bunk_bed(), (1.0, 1.85, 2.05), {"@cloth": CLOTH})
 _reg("prisonBunk", prison_bunk(), (0.9, 1.7, 1.9))
-_reg("gothicDoubleBed", gothic_canopy_bed(), (2.0, 2.38, 2.75), {"@cloth": ["plum", "red"]})
+_reg("gothicDoubleBed", gothic_canopy_bed(), (2.0, 2.38, 2.31), {"@cloth": ["plum", "red"]})
 _reg("loungeCouch", couch(2), (1.7, 0.9, 0.95), {"@cloth": CLOTH}, [(couch(2), {"@cloth": ["blue", "green", "plum"]}), (couch(2, 0.78), {"@cloth": CLOTH}), (couch(2, 0.66), {"@cloth": ["blue", "green", "plum"]})])
 _reg("loungeCouchWide", couch(3), (2.4, 0.9, 0.98), {"@cloth": CLOTH}, [(couch(3), {"@cloth": ["blue", "green", "plum"]}), (couch(3, 0.78), {"@cloth": CLOTH}), (couch(3, 0.66), {"@cloth": ["blue", "green", "plum"]})])
 _reg("normalBookcase", bookcase(1.0, 1.81, 0.42, 4, 11, "dark", False), (1.0, 1.81, 0.42), {},

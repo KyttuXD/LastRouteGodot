@@ -8,8 +8,6 @@ const CAST := ["loxelle", "javelle", "haelith"]
 const NAMES := {"loxelle": "Loxelle", "javelle": "Javelle", "haelith": "Haelith"}
 ## Where each one sounds from (-1 left to +1 right): the closet, the hall door, the bed.
 const PAN := {"loxelle": -0.85, "javelle": 0.85, "haelith": 0.0}
-## The 3D roster has no Javelle model yet: Jyvra stands in (docs/NIGHT_WATCH_MODES.md).
-const MODEL_STANDIN := {"javelle": "jyvra"}
 
 const CALLS := {
 	1: ["Zellia. This room is quiet and there are no cameras. You'll hear things before you see them.",
@@ -30,4 +28,4 @@ static func call_lines(night: int) -> Array:
 
 
 static func identity(id: String) -> Dictionary:
-	return HunterRoster.get_identity(String(MODEL_STANDIN.get(id, id)))
+	return HunterRoster.get_identity(id)

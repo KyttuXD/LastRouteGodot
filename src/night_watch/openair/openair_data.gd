@@ -12,8 +12,8 @@ const CAST := ["ysolde", "verrine", "wynelle", "quenelle"]
 const NAMES := {"verrine": "Verrine", "wynelle": "Wynelle", "ysolde": "Ysolde", "quenelle": "Quenelle"}
 const PAN := {"verrine": -0.6, "wynelle": -0.8, "ysolde": 0.3, "quenelle": 0.6}
 const SIDES := {"verrine": "L", "quenelle": "R"}   # the campfire: who comes out of which side of the trees
-## The 3D roster's models for the 2D names that have none of their own (Quenelle is Quirith).
-const MODELS := {"verrine": "verrine", "wynelle": "wynelle", "ysolde": "ysolde", "quenelle": "quirith"}
+## The 3D roster's model for each 2D name (they all have their own now).
+const MODELS := {"verrine": "verrine", "wynelle": "wynelle", "ysolde": "ysolde", "quenelle": "quenelle"}
 
 const WATCHES := [
 	{"id": "rooftop", "label": "ROOFTOP", "hunter": "verrine"},

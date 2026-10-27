@@ -1,4 +1,4 @@
-"""Curved cube horns for the horned hunters (Glyra, Jyvra, Umbriel).
+"""Curved cube horns for the horned hunters (Glyra, Javelle, Umbriel).
 
 Each horn is a chain of stacked, tapering, progressively tilted cubes (the cube-style way to curve something).
 Both horns hang off static L-Horn/R-Horn bones. Size and colour come from the hunter's module; any horn art

@@ -157,6 +157,7 @@ func _local_state() -> Dictionary:
 		"depth": GameState.depth,
 		"hidden": controller.hidden,
 		"hiding_spot": controller.hidden_spot,
+		"hiding_style": controller.hiding_style(),
 		"in_safe_zone": controller.is_in_safe_zone(),
 		"noise": controller.noise,
 		# Publish the actual rendered beam, including held-slot, charge and
@@ -292,9 +293,22 @@ func _place(state: Dictionary) -> void:
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
-	body.visible = _visible_from_state(state, true)
-	_sync_remote_equipment(id, body, state)
 	var clip := String(state.get("clip", "idle"))
+	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
+	# PlayerController3D.HIDE_MOVE_SECONDS), crouched for a bed, then disappears.
+	var shown := _visible_from_state(state, true)
+	if not shown:
+		var now := Time.get_ticks_usec()
+		if not body.has_meta("hide_started_usec"):
+			body.set_meta("hide_started_usec", now if body.visible else 0)
+		if now - int(body.get_meta("hide_started_usec")) < int(PlayerController3D.HIDE_MOVE_SECONDS * 1_000_000.0):
+			shown = true
+			if String(state.get("hiding_style", "")) == "bed":
+				clip = "crouch"
+	elif body.has_meta("hide_started_usec"):
+		body.remove_meta("hide_started_usec")
+	body.visible = shown
+	_sync_remote_equipment(id, body, state)
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
@@ -823,7 +837,7 @@ func _request_interaction(event: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
+			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
 			"stream_waypoint", "stream_axe_rescue"].has(what):

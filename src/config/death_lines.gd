@@ -34,7 +34,7 @@ static func set_data(value: Dictionary) -> void:
 
 ## File ids are the lowercased dossier ids: the Godot roster's void_red is voidred there.
 static func file_id(hunter_id: String) -> String:
-	return hunter_id.to_lower().replace("_", "")
+	return HunterIdAliases.canonical(hunter_id.to_lower()).replace("_", "")
 
 
 static func line_text(line) -> String:

@@ -144,14 +144,14 @@ PERSONAL_VOID = {"black": "devour", "blue": "shiver", "brown": "smash", "cyan": 
 SHARED = ["wave", "cheer", "bow", "shrug"]
 PERSONAL = {
     "aki": ["shy", "read", "peek"], "briselle": ["hold", "chin"], "ceryth": ["chin", "salute"],
-    "dovelle": ["akimbo"], "eirys": ["flex", "spin"], "ferryn": ["panic", "shy", "peek"],
+    "dovelle": ["akimbo"], "elise": ["flex", "spin"], "ferryn": ["panic", "shy", "peek"],
     "glyra": ["sway", "tantrum"], "haelith": ["fetch"], "ilyra": ["chin", "sulk"],
-    "jyvra": ["akimbo", "tantrum"], "kathy": ["hug", "pat"], "loxelle": ["sway", "hold"],
+    "javelle": ["akimbo", "tantrum"], "kathy": ["hug", "pat"], "loxelle": ["sway", "hold"],
     "mavrine": ["salute", "chin"], "nyxie": ["tease", "sway", "spin"], "opalie": ["spin"],
-    "porcelle": ["shy", "hold", "peek"], "quirith": ["sulk", "hug", "shy"], "ravelle": ["tease"],
+    "porcelle": ["shy", "hold", "peek"], "quenelle": ["sulk", "hug", "shy"], "ravelle": ["tease"],
     "solyth": ["flex", "tantrum"], "thessine": ["facepalm", "chin"], "umbriel": ["peek", "shy", "sulk"],
     "verrine": ["sulk", "facepalm", "peek"], "wynelle": ["sway", "hold", "spin"], "xivvy": ["spin"],
-    "ysolde": ["hold", "hug", "pat"], "zephyra": ["spin", "hold"],
+    "ysolde": ["hold", "hug", "pat"], "zellia": ["spin", "hold"],
 }
 
 
@@ -200,15 +200,15 @@ LABEL = {"taunt": "Taunt", "laugh": "Laugh", "point": "Point", "beckon": "Beckon
          "dance": "Dance", "flinch": "Flinch", "stretch": "Stretch", "yawn": "Yawn", "hum": "Hum", "victory": "Victory"}
 
 # how big her gestures are (persona): 1 = as authored
-ENERGY = {"aki": .65, "ferryn": .8, "mavrine": .6, "ceryth": .6, "ilyra": .7, "quirith": .7, "porcelle": .8, "verrine": .7,
-          "xivvy": 1.4, "opalie": 1.3, "zephyra": 1.25, "ravelle": 1.3, "nyxie": 1.2, "glyra": 1.1, "eirys": 1.2, "haelith": 1.2,
-          "solyth": 1.2, "jyvra": 1.1, "loxelle": .9, "wynelle": .8, "thessine": .6, "umbriel": .7, "ysolde": .9}
+ENERGY = {"aki": .65, "ferryn": .8, "mavrine": .6, "ceryth": .6, "ilyra": .7, "quenelle": .7, "porcelle": .8, "verrine": .7,
+          "xivvy": 1.4, "opalie": 1.3, "zellia": 1.25, "ravelle": 1.3, "nyxie": 1.2, "glyra": 1.1, "elise": 1.2, "haelith": 1.2,
+          "solyth": 1.2, "javelle": 1.1, "loxelle": .9, "wynelle": .8, "thessine": .6, "umbriel": .7, "ysolde": .9}
 EMOTE_ENERGY = {("glyra", "hum"): 1.6, ("kathy", "taunt"): 1.3, ("kathy", "smug"): 1.1, ("aki", "stretch"): 1.2}
 LEFTY = {"kathy"}              # the scythe is in her right hand: her pointing / beckoning / taunting hand is the left
-CROSSED_ARMS = {"kathy", "mavrine", "ceryth", "thessine", "jyvra", "briselle", "ilyra", "verrine"}   # smug: arms crossed
+CROSSED_ARMS = {"kathy", "mavrine", "ceryth", "thessine", "javelle", "briselle", "ilyra", "verrine"}   # smug: arms crossed
 VARIANT = {("glyra", "dance"): "dance_waltz", ("xivvy", "dance"): "dance_hop", ("haelith", "dance"): "dance_a",
            ("opalie", "dance"): "dance_a", ("ravelle", "dance"): "dance_a",
-           ("opalie", "laugh"): "laugh_a", ("ravelle", "laugh"): "laugh_a", ("xivvy", "laugh"): "laugh_a", ("zephyra", "laugh"): "laugh_a"}
+           ("opalie", "laugh"): "laugh_a", ("ravelle", "laugh"): "laugh_a", ("xivvy", "laugh"): "laugh_a", ("zellia", "laugh"): "laugh_a"}
 
 _ARMS_UP = dict(LArm=(0, 0, -170), RArm=(0, 0, 170))
 NEW_TEMPLATES = {

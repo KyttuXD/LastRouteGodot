@@ -172,6 +172,9 @@ var inventory_durability := {
 ## True while the facility's heater station is running — warms the ambient,
 ## and is Wynelle's counterplay (see heater_station in route_interactable_3d).
 var heater_on := false
+## Orange Void's sabotage: one system ("flashlight", "climate" or "radar") offline until outage_left runs out.
+var outage_system := ""
+var outage_left := 0.0
 var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
@@ -241,6 +244,11 @@ var _hiding_exit_position := Vector3.ZERO
 var _hiding_collision_layer := 1
 var _hiding_collision_mask := 1
 var _hiding_fixture: Node3D
+## Entering/leaving a hiding spot is a camera move, not a cut (docs/HIDING_PROPS.md). The body (gameplay position,
+## collision, `hidden`) changes at once; only the first-person pivot and the view yaw ease along a path through the
+## spot's entry point. A forced pull (a catch, a hunter's check) cancels it.
+const HIDE_MOVE_SECONDS := 0.6
+var _hide_move := {}
 
 ## Personal furniture pose. It is replicated through current_clip/transform,
 ## but does not mutate the shared prop, so two couch seats in co-op never need
@@ -282,7 +290,7 @@ var in_vent := false
 var vent_entry_id := ""
 var vent_time_in := 0.0
 
-## Zephyra's shop -- the same indirection as vent_resolver/music_box_resolver.
+## Zellia's shop -- the same indirection as vent_resolver/music_box_resolver.
 ## `shop_resolver.call("open")` opens or re-toasts the menu (the gimmick
 ## itself checks range, so a far-away call is a harmless no-op the same way
 ## _nearest_interactable() already handles distance for ordinary pickups);
@@ -293,7 +301,7 @@ var vent_time_in := 0.0
 var shop_resolver: Callable
 var shop_prompt_provider: Callable
 
-## Zephyra's pesticide trade: a real timer, not a boolean, so it reads the
+## Zellia's pesticide trade: a real timer, not a boolean, so it reads the
 ## same way stun_timer/hiding_lock_timer do and main_3d can thread a plain
 ## "time remaining" into the hunter target dict for Loxelle/Ysolde to skip
 ## their own ability while it runs.
@@ -353,6 +361,8 @@ func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
 		fixture: Node3D = null) -> String:
 	_hiding_exit_position = exit_position if exit_position != Vector3.ZERO \
 		else global_position
+	var start_camera := first_person_pivot.global_position
+	var start_yaw := _yaw
 	_hiding_fixture = fixture
 	if is_instance_valid(_hiding_fixture):
 		if _hiding_fixture.has_method("set_local_hiding_view"):
@@ -362,6 +372,11 @@ func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
 			rotation.y = _yaw
 			_pitch = 0.0
 			first_person_pivot.rotation.x = 0.0
+		# Under a bed the view drops to the floor (docs/HIDING_PROPS.md); lockers and wardrobes keep eye height.
+		if _hiding_fixture.has_method("hiding_eye_height"):
+			var eye := float(_hiding_fixture.call("hiding_eye_height"))
+			if eye >= 0.0:
+				first_person_pivot.position.y = eye
 	_hiding_collision_layer = collision_layer
 	_hiding_collision_mask = collision_mask
 	collision_layer = 0
@@ -390,15 +405,21 @@ func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
 	input_frozen = true
 	if body_visual:
 		body_visual.visible = false
+	_begin_hide_move(start_camera, start_yaw, true)
 	return cleared_message if not cleared_message.is_empty() else "Hidden. Interact to come out."
 
 
-## `forced`: another hunter reaching in (Jyvra, Loxelle) rather than the player
+## `forced`: another hunter reaching in (Javelle, Loxelle) rather than the player
 ## working the exit key. A forced pull ignores Ceryth's lock on purpose --
 ## being physically dragged out is not the thing the lock exists to prevent.
 func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 	if hiding_lock_timer > 0.0 and not forced:
 		return "Locked in hiding for %.0fs." % hiding_lock_timer
+	var start_camera := first_person_pivot.global_position
+	var start_yaw := _yaw
+	var entry := _hide_entry_point()
+	var animate := not forced and at == Vector2.ZERO and is_instance_valid(_hiding_fixture)
+	_hide_move = {}
 	hidden = false
 	hidden_spot = Vector2i(-1, -1)
 	input_frozen = false
@@ -407,6 +428,7 @@ func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 			and _hiding_fixture.has_method("set_local_hiding_view"):
 		_hiding_fixture.call("set_local_hiding_view", false)
 	_hiding_fixture = null
+	first_person_pivot.position = Vector3(0.0, _standing_camera_height, 0.0)
 	collision_layer = _hiding_collision_layer
 	collision_mask = _hiding_collision_mask
 	if at != Vector2.ZERO:
@@ -414,7 +436,75 @@ func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 	elif _hiding_exit_position != Vector3.ZERO:
 		global_position = _hiding_exit_position
 	_hiding_exit_position = Vector3.ZERO
+	if animate:
+		# reverse: back out at hiding height to the opening, then stand up where you went in
+		_hide_move = {"from": start_camera, "via": Vector3(entry.x, start_camera.y, entry.z),
+			"from_yaw": start_yaw, "to_yaw": _yaw, "t": 0.0, "entering": false}
+		input_frozen = true
+		_apply_hide_move(0.0)
 	return "Out of hiding."
+
+
+## World point just outside the spot's opening (in front of the bed's foot, the wardrobe or locker doors).
+func _hide_entry_point() -> Vector3:
+	if not is_instance_valid(_hiding_fixture):
+		return global_position
+	var depth := .45
+	var size = _hiding_fixture.get("hide_size")
+	if size is Vector3 and not String(_hiding_fixture.get("hide_style")).is_empty():
+		depth = (size as Vector3).z * .5 + .12
+	return _hiding_fixture.global_transform * Vector3(0.0, 0.0, -depth)
+
+
+func _begin_hide_move(start_camera: Vector3, start_yaw: float, entering: bool) -> void:
+	var entry := _hide_entry_point()
+	var eye := first_person_pivot.position.y
+	# Bed: drop to the floor at the foot, then slide under at that height. Wardrobe/locker: walk to the doors at eye height.
+	# to the opening at the current height (over furniture, never through it), down to the hiding height, then in
+	var via := Vector3(entry.x, global_position.y + eye, entry.z)
+	_hide_move = {"from": start_camera, "over": Vector3(entry.x, start_camera.y, entry.z), "via": via,
+		"from_yaw": start_yaw, "to_yaw": _yaw, "t": 0.0, "entering": entering, "eye": eye}
+	_apply_hide_move(0.0)
+
+
+func hiding_style() -> String:
+	if not hidden or not is_instance_valid(_hiding_fixture):
+		return ""
+	var style = _hiding_fixture.get("hide_style")
+	return String(style) if style != null and not String(style).is_empty() else "locker"
+
+
+func hide_move_active() -> bool:
+	return not _hide_move.is_empty()
+
+
+func _advance_hide_move(delta: float) -> void:
+	_hide_move["t"] = minf(1.0, float(_hide_move["t"]) + delta / HIDE_MOVE_SECONDS)
+	_apply_hide_move(float(_hide_move["t"]))
+	if float(_hide_move["t"]) >= 1.0:
+		var entering := bool(_hide_move["entering"])
+		_hide_move = {}
+		first_person_pivot.position.x = 0.0
+		first_person_pivot.position.z = 0.0
+		if not entering:
+			input_frozen = false
+
+
+func _apply_hide_move(t: float) -> void:
+	var from: Vector3 = _hide_move["from"]
+	var via: Vector3 = _hide_move["via"]
+	var target := global_position + Vector3.UP * (float(_hide_move.get("eye", _standing_camera_height)) \
+		if bool(_hide_move["entering"]) else _standing_camera_height)
+	var over: Vector3 = _hide_move.get("over", via)
+	var point: Vector3
+	if t < .35:
+		point = from.lerp(over, smoothstep(0.0, 1.0, t / .35))
+	elif t < .6:
+		point = over.lerp(via, smoothstep(0.0, 1.0, (t - .35) / .25))
+	else:
+		point = via.lerp(target, smoothstep(0.0, 1.0, (t - .6) / .4))
+	first_person_pivot.global_position = point
+	rotation.y = lerp_angle(float(_hide_move["from_yaw"]), float(_hide_move["to_yaw"]), smoothstep(0.0, 1.0, t))
 
 
 ## Forces the flashlight to strobe on/off at random short intervals for
@@ -697,7 +787,22 @@ func _update_admin_noclip(delta: float) -> void:
 	ModelSlot.play_if_available(_animation_player, _clip)
 
 
+func begin_outage(system: String, seconds: float) -> void:
+	outage_system = system
+	outage_left = maxf(seconds, 0.0)
+	if system == "flashlight" and flashlight_enabled:
+		_set_flashlight(false)
+
+
+func system_offline(system: String) -> bool:
+	return outage_left > 0.0 and outage_system == system
+
+
 func _physics_process(delta: float) -> void:
+	if outage_left > 0.0:
+		outage_left = maxf(0.0, outage_left - delta)
+		if outage_left <= 0.0:
+			outage_system = ""
 	_update_controller_look(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
@@ -760,6 +865,9 @@ func _physics_process(delta: float) -> void:
 		# NOT get this: mashing [E] there is the escape, handled in main_3d. A
 		# stun gets neither -- Ilyra's pounce is a real incapacitation, not a
 		# state with its own exit key.
+		if not _hide_move.is_empty():
+			_advance_hide_move(delta)
+			return
 		if input_frozen and hidden and Input.is_action_just_pressed("interact"):
 			# Leaving a locker is state-driven, not another ray-cast interaction.
 			# E therefore works without aiming back at a now-local-hidden fixture.
@@ -802,7 +910,7 @@ func _physics_process(delta: float) -> void:
 		"crouching": movement_mode == "crouch",
 		"hidden": hidden,
 		"in_safe_zone": is_in_safe_zone(),
-		"heater_on": heater_on,
+		"heater_on": heater_on and not system_offline("climate"),
 	})
 
 	_update_stamina(delta, is_sprinting)
@@ -1142,7 +1250,7 @@ func _update_flashlight_flicker(delta: float) -> void:
 
 func _set_flashlight(enabled: bool) -> void:
 	flashlight_enabled = enabled and owns_inventory_item("flashlight") \
-		and lamp_charge > 0.0
+		and lamp_charge > 0.0 and not system_offline("flashlight")
 	flashlight.visible = _flashlight_beam_should_be_visible()
 	if _flashlight_probe != null:
 		_flashlight_probe.enabled = flashlight.visible
@@ -1968,6 +2076,8 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if hidden:
+		return ""    # E only means "come out" while hidden
 	var percent := resecure_percent()
 	if percent >= 0:
 		return "RESTORING SIGNAL // %d%%" % percent

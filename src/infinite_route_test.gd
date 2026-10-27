@@ -177,6 +177,7 @@ func _ready() -> void:
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
+	_void_fx = VoidPlayerEffects.new(player, hud, _report_void_route)
 	hud.map_waypoint_requested.connect(_on_map_waypoint_requested)
 	run_report.restart_requested.connect(_respawn_after_death)
 	_spectator_banner = SpectatorBanner.attach(hud)
@@ -308,6 +309,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if _void_fx != null:
+		_void_fx.tick(delta)
 	_update_spectating()
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
@@ -2295,6 +2298,10 @@ func _store_hunter(entity_id: String, view: HunterView3D) -> void:
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
+	for cell_value in _hide_check_cooldowns.keys():
+		_hide_check_cooldowns[cell_value] = float(_hide_check_cooldowns[cell_value]) - delta
+		if float(_hide_check_cooldowns[cell_value]) <= 0.0:
+			_hide_check_cooldowns.erase(cell_value)
 	var local_safe := _player_in_intact_safe_room(facility.current_chunk_data())
 	var local_target := _hunter_target(local_safe)
 	var breach_rooms := {}
@@ -2356,9 +2363,64 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 				{"info": info, "breachers": 0})
 			entry["breachers"] = int(entry.get("breachers", 0)) + 1
 			breach_rooms[room_id] = entry
+		if not captured and not target.is_empty():
+			_update_hide_check(entity_id, view, target, navigation, delta)
 		if captured:
 			_capture_target(view, target)
 	_update_safe_room_breaches(delta, breach_rooms)
+
+
+## Hunters search hiding spots (docs/HIDING_PROPS.md). Fair by construction: only a spot the hunter tracked the runner
+## to, a fixed tell every peer sees and hears (the furniture rattles), and a cooldown per spot. Host-only, like all
+## hunter logic; the result reaches the hider as a player event and the tell as a stream event.
+var _hide_checks := {}
+var _hide_check_cooldowns := {}
+
+
+func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionary,
+		navigation: StreamedHunterNavigation, delta: float) -> void:
+	var brain := view.brain
+	if _hide_checks.has(entity_id):
+		var check: Dictionary = _hide_checks[entity_id]
+		check["left"] = float(check["left"]) - delta
+		if float(check["left"]) > 0.0:
+			return
+		_hide_checks.erase(entity_id)
+		var cell: Vector2i = check["cell"]
+		var hider := _target_state_for_peer(int(check["peer"]))
+		if hider.is_empty() or not bool(hider.get("hidden", false)) \
+				or Vector2i(hider.get("hiding_spot", Vector2i(-1, -1))) != cell:
+			return
+		var exit := hiding_check_exit(navigation, cell)
+		_remotes.send_player_event(int(check["peer"]), {"what": "hide_found", "at": exit,
+			"hunter_id": brain.hunter_id})
+		brain.state = HunterBrain.State.CHASE
+		brain.has_last_known = true
+		brain.last_known = exit
+		return
+	if not brain.active or not bool(target.get("hidden", false)):
+		return
+	var spot: Vector2i = Vector2i(target.get("hiding_spot", Vector2i(-1, -1)))
+	if spot.x < 0 or _hide_check_cooldowns.has(spot):
+		return
+	var centre := Vector2(spot) + Vector2(.5, .5)
+	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre):
+		return
+	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.HIDE_CHECK_TELL_SECONDS,
+		"peer": int(target.get("peer_id", 1))}
+	_hide_check_cooldowns[spot] = GameConfig.HIDE_CHECK_COOLDOWN_SECONDS
+	brain.apply_stun(GameConfig.HIDE_CHECK_TELL_SECONDS)
+	_publish_stream_event({"what": "stream_hide_check", "cell": spot,
+		"seconds": GameConfig.HIDE_CHECK_TELL_SECONDS})
+
+
+static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:
+	if navigation != null:
+		for spot_value in navigation.hiding_spots:
+			var spot: Dictionary = spot_value
+			if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) == cell:
+				return navigation.hiding_exit_position(spot)
+	return Vector2(cell) + Vector2(.5, .5)
 
 
 func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
@@ -2406,6 +2468,9 @@ func _apply_gimmick_signal(event: Dictionary, source: HunterView3D, target: Dict
 				var spot := spot_value as RouteInteractable3D
 				if spot != null and spot.source_cell == cell:
 					spot.set_disabled(bool(event.get("disabled", false)))
+		"signal_route", "system_outage", "radar_corrupt":
+			if not target.is_empty():
+				_remotes.send_player_event(int(target.get("peer_id", 1)), event)
 		"stun":
 			if not target.is_empty():
 				_remotes.send_player_event(int(target.get("peer_id", 1)), {"what": "stun",
@@ -2574,6 +2639,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"position": player.grid_position(),
 		"depth": -facility.current_level(),
 		"hidden": player.hidden,
+		"hiding_spot": player.hidden_spot,
 		"in_safe_zone": in_safe_room,
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
@@ -2941,6 +3007,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":
 			_accept_stream_vent(peer_id, event)
+		"signal_route_result":
+			VoidPlayerEffects.host_route_result(_hunter_views.values(), peer_id, bool(event.get("ok", false)))
 
 
 func _on_item_drop_requested(item_id: String, durability: int, slot: int) -> void:
@@ -3339,6 +3407,12 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_hide_check":
+			var check_cell: Vector2i = event.get("cell", Vector2i(-1, -1))
+			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
+				var spot := spot_value as RouteInteractable3D
+				if spot != null and spot.source_cell == check_cell:
+					spot.play_search_tell(float(event.get("seconds", GameConfig.HIDE_CHECK_TELL_SECONDS)))
 		"stream_door":
 			var door_id := String(event.get("door_id", ""))
 			if _stream_room_door_data(door_id).is_empty():
@@ -3729,7 +3803,21 @@ func _apply_hunter_report(data: Array) -> void:
 			_unload_hunter(entity_id)
 
 
+var _void_fx: VoidPlayerEffects
+
+
+## A signal route (Gray) ended on this player's machine: the host decides what it means.
+func _report_void_route(ok: bool) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "signal_route_result", "ok": ok})
+	else:
+		VoidPlayerEffects.host_route_result(_hunter_views.values(),
+			multiplayer.get_unique_id() if RoomState.online else 1, ok)
+
+
 func _apply_player_event(event: Dictionary) -> void:
+	if _void_fx != null and _void_fx.apply(event):
+		return
 	match String(event.get("what", "")):
 		"capture":
 			if not bool(event.get("streamed", false)):
@@ -3758,6 +3846,12 @@ func _apply_player_event(event: Dictionary) -> void:
 		"axe_rescue":
 			if GameState.escape_active:
 				_resolve_escape_success(true, String(event.get("message", "")))
+		"hide_found":
+			if player.hidden:
+				var at = event.get("at", Vector2.ZERO)
+				player.leave_hiding(at if at is Vector2 else Vector2.ZERO, true)
+				Sound.door_breach()
+				hud.show_message("FOUND // RUN")
 		"stun":
 			player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
 			var stun_note := String(event.get("message", ""))

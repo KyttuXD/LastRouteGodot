@@ -142,6 +142,11 @@ func axe_chop(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("axe_chop", pan, intensity)
 
 
+## A hunter checking a bed or wardrobe: wood creak and a rattle, the tell before it pulls the spot open.
+func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("hide_search", pan, intensity)
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -170,6 +175,21 @@ func spider_bark(pan: float = 0.0, intensity: float = 1.0) -> bool:
 ## Xivvy's take-off / closing-in screech: a rising shriek.
 func xivvy_screech(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("xivvy_screech", pan, clampf(intensity, 0.1, 2.0))
+
+
+## Purple's radar going to static / dead.
+func radar_static(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("radar_static", pan, clampf(intensity, 0.1, 2.0))
+
+
+## Orange taking a system offline.
+func system_offline(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("system_offline", pan, clampf(intensity, 0.1, 2.0))
+
+
+## One E press of Gray's signal route (rises with each node).
+func signal_node(progress: float = 0.0) -> bool:
+	return _play_named("signal_node", 0.0, clampf(.7 + progress, 0.5, 1.8))
 
 
 ## One wing beat of Xivvy in flight.
@@ -495,6 +515,10 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"hide_search": c = [_tone(92, .42, .09, 0, "sawtooth", pan),
+			_noise(.3, .07, 520, .05, pan, .8),
+			_thump(70, .16, .12, .18, pan),
+			_thump(64, .16, .10, .46, pan)]
 		"tool_break": c = [_noise(.16, .095, 1850, 0, pan, 1.22),
 			_tone(310, .08, .065, .025, "square", pan),
 			_tone(118, .18, .052, .09, "triangle", pan)]
@@ -502,6 +526,9 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
 		"hunter_laugh": c = [_tone(392, .07, .05 * intensity, 0, "triangle", pan), _tone(349, .07, .045 * intensity, .10, "triangle", pan), _tone(311, .09, .04 * intensity, .20, "triangle", pan)]
 		"xivvy_screech": c = [_tone(1250, .12, .07 * intensity, 0, "saw", pan), _tone(1760, .16, .08 * intensity, .07, "saw", pan), _tone(2350, .22, .075 * intensity, .16, "square", pan), _noise(.34, .05 * intensity, 3400, .06, pan, 1.3)]
+		"radar_static": c = [_noise(.55, .09 * intensity, 2600, 0, pan, 1.4), _noise(.35, .06 * intensity, 900, .12, pan, 1.1), _tone(980, .08, .03 * intensity, .4, "square", pan)]
+		"system_offline": c = [_tone(260, .12, .06 * intensity, 0, "square", pan), _tone(180, .16, .06 * intensity, .1, "square", pan), _tone(110, .3, .07 * intensity, .22, "saw", pan)]
+		"signal_node": c = [_tone(420.0 * intensity, .07, .07, 0, "square", pan), _tone(630.0 * intensity, .05, .04, .05, "triangle", pan)]
 		"xivvy_wing": c = [_noise(.13, .05 * intensity, 520, 0, pan, .9), _thump(120, .09, .03 * intensity, .02, pan)]
 		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
