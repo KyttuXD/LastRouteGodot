@@ -117,6 +117,14 @@ func tool_break() -> bool:
 	return _play_named("tool_break")
 
 
+func axe_swing(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("axe_swing", pan, intensity)
+
+
+func axe_chop(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("axe_chop", pan, intensity)
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -367,6 +375,12 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.20, .10, 1900, .16, pan, 1.18)]
 		"interaction_fail": c = [_tone(196, .075, .052, 0, "square", pan),
 			_tone(132, .12, .045, .065, "square", pan)]
+		"axe_swing": c = [_noise(.20, .05, 1250, 0, pan, .72),
+			_noise(.11, .035, 2300, .07, pan, .95)]
+		"axe_chop": c = [_thump(64, .24, .20, 0, pan),
+			_noise(.14, .11, 760, 0, pan, .9),
+			_tone(168, .09, .07, .02, "square", pan),
+			_noise(.09, .06, 2100, .08, pan, 1.1)]
 		"tool_break": c = [_noise(.16, .095, 1850, 0, pan, 1.22),
 			_tone(310, .08, .065, .025, "square", pan),
 			_tone(118, .18, .052, .09, "triangle", pan)]

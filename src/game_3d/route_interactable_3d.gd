@@ -519,7 +519,9 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		if not already_consumed and not player.consume_item_durability(item_id):
 			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
 				item_id, item_id)).to_upper())
-		board_pieces_remaining = maxi(0, board_pieces_remaining - 1)
+		# the axe splits two boards a chop, the crowbar pries one
+		board_pieces_remaining = maxi(0, board_pieces_remaining \
+			- (2 if item_id == "rescue_axe" else 1))
 		opened = board_pieces_remaining <= 0
 		_refresh_visual()
 		changed.emit({"what": "boarded_path", "cell": source_cell,
@@ -527,7 +529,7 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 			"tool": item_id})
 		if opened:
 			return "BOARDED PATH CLEARED // DURABILITY USED"
-		return "BOARD BROKEN // %d REMAIN // DURABILITY USED" % board_pieces_remaining
+		return "BOARDS BROKEN // %d REMAIN // DURABILITY USED" % board_pieces_remaining
 	return _fail("That tool cannot be used here.")
 
 
