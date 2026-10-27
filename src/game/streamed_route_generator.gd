@@ -455,7 +455,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"north": edge_openings(coord, Vector2i(0, -1)),
 		"south": edge_openings(coord, Vector2i(0, 1)),
 	}
-	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation)
+	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region))
 	(layout["corridors"] as Array).append_array(edge_corridors)
 	for stair in stairs:
 		_carve_stair_access(grid, stair, layout["rooms"], circulation)
@@ -567,38 +567,12 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	var neighbour := coord + Vector3i(direction.x, 0, direction.y)
 	if not is_chunk_allowed(coord) or not is_chunk_allowed(neighbour):
 		return []
-	var key := ""
-	if direction.x != 0:
-		var boundary_x := coord.x + (1 if direction.x > 0 else 0)
-		key = "X:%d:%d:%d" % [boundary_x, coord.y, coord.z]
-	else:
-		var boundary_z := coord.z + (1 if direction.y > 0 else 0)
-		key = "Z:%d:%d:%d" % [coord.x, coord.y, boundary_z]
-	# Use seeded randomness but prefer grouped openings: pick one primary
-	# offset then choose nearby secondary offsets with a bias toward
-	# clustering so adjacent openings on the same side land close together
-	# and regions read as contiguous areas rather than sparsely scattered
-	# single-cell seams (fixes carnival-like sparse placement).
-	# Hotel and prison chunks are built around a fixed three-wide cross with room banks right against it, so a seam
-	# must meet that cross: an off-centre seam would need a perimeter lane running through the room banks and leave
-	# one- and two-wide slivers beside them. Both sides of a boundary agree because the rule is symmetric.
-	if LINEAR_REGIONS.has(biome_for(coord)) or LINEAR_REGIONS.has(biome_for(neighbour)):
-		return [CHUNK_SIZE / 2]
-	var rng := SeededRandom.new("%s:SEAM:%s" % [world_seed, key])
-	var first_index := rng.next_index(EDGE_OFFSETS.size())
-	var first: int = EDGE_OFFSETS[first_index]
-	var result := [first]
-	# With modest probability add a second opening close to the first;
-	# choose one of the neighbouring entries in EDGE_OFFSETS rather than a
-	# random distant one.
-	if rng.next_float() < 0.36:
-		var dir := -1 if rng.next_float() < 0.5 else 1
-		var second_index := clampi(first_index + dir, 0, EDGE_OFFSETS.size() - 1)
-		var second: int = EDGE_OFFSETS[second_index]
-		if second != first:
-			result.append(second)
-	result.sort()
-	return result
+	# Every seam meets the centre cross of both chunks (an off-centre seam needs a perimeter lane, and the lanes of two
+	# neighbouring chunks run as a double line beside the border). Hotel/prison chunks side by side also pass their two
+	# extra halls through the seam.
+	if DENSE_DISTRICTS.has(biome_for(coord)) and DENSE_DISTRICTS.has(biome_for(neighbour)) and direction.x != 0:
+		return [10, CHUNK_SIZE / 2, 34]   # all three halls run on through the seam
+	return [CHUNK_SIZE / 2]
 
 
 ## The route is a single level: no stair links exist, so no chunk has a
@@ -683,7 +657,7 @@ func _solid_grid() -> Array:
 
 
 func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
-		circulation: Dictionary = {}) -> Array:
+		circulation: Dictionary = {}, dense: bool = false) -> Array:
 	var corridors := []
 	var center := CHUNK_SIZE / 2
 	for side in ["west", "east", "north", "south"]:
@@ -697,6 +671,11 @@ func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
 					start = Vector2i(offset, 1)
 				"south":
 					start = Vector2i(offset, CHUNK_SIZE - 2)
+			if dense and (side == "west" or side == "east") and offset != CHUNK_SIZE / 2:
+				# a dense chunk's side halls already reach the border: just open the seam, no lane
+				for spread in range(-1, 2):
+					grid[offset + spread][0 if side == "west" else CHUNK_SIZE - 1] = 0
+				continue
 			for spread in range(-1, 2):
 				if side == "west":
 					grid[offset + spread][0] = 0
@@ -951,16 +930,19 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		"circulation": circulation}
 
 
-## Dense districts (hotel, prison): three east-west halls (rows 1-3, 21-23 and 41-43) and the central north-south hall,
-## with 9x9 rooms in tight banks that share walls and open straight onto a hall (no connector, no dead block between
+## Dense districts (hotel, prison): three east-west halls (rows 9-11, 21-23 and 33-35) and the central north-south hall,
+## with 11x9 rooms (9x7 inside) in tight banks that share walls and open straight onto a hall (no connector, no dead block between
 ## rooms). Per chunk: four rows of four rooms. The centre hall is the one the chunk seams meet.
 func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dictionary:
 	var rooms := []
 	var corridors := []
 	var circulation := {}
 	var center := CHUNK_SIZE / 2
-	var halls := [Rect2i(1, 1, CHUNK_SIZE - 2, 3), Rect2i(1, center - 1, CHUNK_SIZE - 2, 3),
-		Rect2i(1, CHUNK_SIZE - 4, CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
+	# one hall between every pair of banks: rows 9-11 serves the two banks above/below it, 33-35 likewise, and the
+	# centre hall (21-23) is the through route the seams meet. The outer banks sit against the chunk border, so two
+	# chunks never put a hall beside a hall.
+	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3), Rect2i(1, center - 1, CHUNK_SIZE - 2, 3),
+		Rect2i(1, 33, CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
 	for hall_index in halls.size():
 		var hall: Rect2i = halls[hall_index]
 		_carve_rect(grid, hall)
@@ -968,16 +950,18 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append({"id": "%s:HALL:%d" % [chunk_id(coord), hall_index], "rect": hall, "width": CORRIDOR_WIDTH,
 			"axis": "north_south" if hall_index == 3 else "east_west", "serves_many_rooms": true})
 	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below)
-	var rows := [{"y": 4, "door_top": true}, {"y": 12, "door_top": false},
-		{"y": 24, "door_top": true}, {"y": 32, "door_top": false}]
-	var columns := [3, 11, 25, 33]
+	var rows := [{"y": 0, "door_top": false}, {"y": 12, "door_top": true},
+		{"y": 24, "door_top": false}, {"y": 36, "door_top": true}]
+	# 11-wide rooms (9 inside) from the chunk border to the centre hall on both sides: neighbours share one wall, the outer
+	# rooms use the chunk border as their wall, and each bank's last wall is the wall beside the centre hall: no void columns.
+	var columns := [0, 10, 24, 34]
 	var room_index := 0
 	for row in rows:
 		for column_x in columns:
-			var rect := Rect2i(column_x, int(row["y"]), 9, 9)
+			var rect := Rect2i(column_x, int(row["y"]), 11, 9)
 			_carve_rect(grid, rect)
 			var door_top: bool = row["door_top"]
-			var doorway := Vector2i(column_x + 4, rect.position.y if door_top else rect.end.y - 1)
+			var doorway := Vector2i(column_x + 5, rect.position.y if door_top else rect.end.y - 1)
 			_seal_room_perimeter_except(grid, rect, doorway)
 			_mark_corridor_cell(circulation, doorway, 1)
 			corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],

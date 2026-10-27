@@ -2,11 +2,11 @@ extends RefCounted
 
 ## District density: per district the share of "dead mass" (solid cells with no open cell within two cells: the big
 ## empty dark blocks between halls) and the mean distance from a room's door to the nearest hall cell. Dense districts
-## (StreamedRouteGenerator.DENSE_DISTRICTS: hotel, prison) must stay under DEAD_LIMIT dead mass and within 2 cells of a hall.
+## (StreamedRouteGenerator.DENSE_DISTRICTS: hotel, prison) must stay under DEAD_LIMIT (15%) dead mass and within 2 cells of a hall.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- density
 
-const DEAD_LIMIT := 0.35
+const DEAD_LIMIT := 0.15
 const DOOR_DISTANCE_LIMIT := 2.0
 const WINDOWS := [
 	{"seed": "MAP-CHECK", "from": Vector2i(0, 3), "to": Vector2i(6, 6)},

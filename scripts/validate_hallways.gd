@@ -27,6 +27,9 @@ func run(_host: Node) -> int:
 	var districts := {}
 	var narrow_total := 0
 	var narrow_samples := []
+	var doubled_total := 0
+	var doubled_samples := []
+	var doubled_districts := {}
 	var chunks_checked := 0
 	var covered := {}
 	for window in WINDOWS:
@@ -75,12 +78,29 @@ func run(_host: Node) -> int:
 				hall[cell] = true
 		for cell_value in hall:
 			var cell: Vector2i = cell_value
+			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var gap := 0
+				var cursor: Vector2i = cell + step
+				while gap < 5 and not hall.has(cursor):
+					gap += 1
+					cursor += step
+				# gap cells 1..5 then a hall cell; the cell right beside it (gap 0) is the same hall
+				if gap >= 1 and gap <= 3 and hall.has(cursor) and _hall_pair_is_parallel(hall, cell, cursor, step):
+					doubled_total += 1
+					var region_d := String(region_at.get(cell, "?"))
+					doubled_districts[region_d] = int(doubled_districts.get(region_d, 0)) + 1
+					if doubled_samples.size() < 6:
+						doubled_samples.append("%s %s->%s" % [seed_text, cell, cursor])
 			if minf(_run(hall, cell, Vector2i(1, 0)), _run(hall, cell, Vector2i(0, 1))) < 3:
 				narrow_total += 1
 				var region := String(region_at.get(cell, "?"))
 				districts[region] = int(districts.get(region, 0)) + 1
 				if narrow_samples.size() < 6:
 					narrow_samples.append("%s %s %s" % [seed_text, cell, region])
+	# no two hallways within a few cells of each other (a double line with a sliver between): from a hall cell, scanning
+	# straight along either axis, 1-3 non-hall cells and then another hall cell (both strips 6+ long) is a violation: a double line with a sliver between.
+	_expect(doubled_total == 0, "%d hall cells have another hallway within 3 cells across a thin wall (e.g. %s; by district %s)" % [
+		doubled_total, doubled_samples, doubled_districts])
 	_expect(covered.has("hotel") and covered.has("prison"), "the scanned windows must include a hotel and a prison (got %s)" % [covered.keys()])
 	_expect(narrow_total == 0, "%d hallway cells are narrower than three wide (e.g. %s; by district %s)" % [
 		narrow_total, narrow_samples, districts])
@@ -101,3 +121,11 @@ static func _run(hall: Dictionary, cell: Vector2i, step: Vector2i) -> int:
 		length += 1
 		cursor -= step
 	return length
+
+
+## The two hall cells face each other across a gap along `step`: both sit in a strip at least 6 long perpendicular to the
+## scan (two hallways running side by side), not a short stub, a corner or a doorway.
+static func _hall_pair_is_parallel(hall: Dictionary, a: Vector2i, b: Vector2i, step: Vector2i) -> bool:
+	var side := Vector2i(step.y, step.x)
+	# both strips run on for at least 6 cells along the scan's perpendicular: two real corridors, not a stub or a corner
+	return _run(hall, a, side) >= 6 and _run(hall, b, side) >= 6
