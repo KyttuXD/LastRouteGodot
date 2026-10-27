@@ -145,6 +145,29 @@ func _run_a() -> void:
 		return
 	_say("survived the server restart: new session, PUBLIC listing back, relays=%d" % PublicRoute.server.get("relaysCollected"))
 	_write("a_after_restart.txt", "1")
+	# Spectator: the authority is caught while the guest still lives. It must watch
+	# without dropping the session or its hunter simulation, then rejoin on its own.
+	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
+	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "authority to spectate", 10.0):
+		return
+	if not RoomState.is_host or not PublicRoute.is_authority or not scene._remotes.simulates():
+		_fail("authority lost its role or simulation while spectating")
+		return
+	_say("authority is spectating (still authority, still simulating)")
+	_write("a_spectating.txt", "1")
+	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "authority to rejoin", 20.0):
+		return
+	if not await _wait_for(func() -> bool: return _read("b2_spectating.txt") != "", "guest to spectate", 60.0):
+		return
+	var guest_down := func() -> bool:
+		for target in scene._remotes.target_states({}):
+			if bool(target.get("spectating", false)) or bool(target.get("game_over", false)):
+				return true
+		return false
+	if not await _wait_for(guest_down, "guest spectator state on the authority", 20.0):
+		return
+	_say("guest died and is a non-targetable spectator while the authority lives")
+	_write("a_spectate_done.txt", "1")
 	# wait to be killed by the test
 	while true:
 		await get_tree().create_timer(1.0).timeout
@@ -189,6 +212,28 @@ func _run_b2() -> void:
 		return
 	_say("resumed at %s with the battery after a crash" % here)
 	_write("b2_ok.txt", "1")
+	# authority gets caught: this guest must keep playing and see it as a spectator
+	if not await _wait_for(func() -> bool: return _read("a_spectating.txt") != "", "authority to spectate", 120.0):
+		return
+	var host_down := func() -> bool:
+		for target in scene._remotes.target_states({}):
+			if bool(target.get("spectating", false)):
+				return true
+		return false
+	if not await _wait_for(host_down, "authority spectator state on the guest", 20.0):
+		return
+	if scene.player.spectator_mode or scene._death_screen_open:
+		_fail("guest was dragged into spectating by the authority's death")
+		return
+	_say("authority is spectating; this guest is still alive")
+	await get_tree().create_timer(10.0).timeout
+	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
+	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate", 10.0):
+		return
+	_say("guest caught: spectating")
+	_write("b2_spectating.txt", "1")
+	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "guest to rejoin", 20.0):
+		return
 	# the authority will be killed: this client must take over the route
 	var took_over := func() -> bool:
 		return PublicRoute.is_authority and RoomState.is_host and _in_route()

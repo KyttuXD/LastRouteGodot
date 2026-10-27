@@ -173,6 +173,47 @@ func _run_host() -> void:
 	if not await _wait_for(func() -> bool: return RoomState.roster().size() == 3, "stale peer row removal", 15.0):
 		return
 	_log("guest reconnected; roster %s (no ghost row)" % [RoomState.roster()])
+	# -- spectators --------------------------------------------------------------
+	# 1. guest dies while the host lives: host keeps playing and simulating
+	if not await _wait_for(func() -> bool: return _read("guest_spectating.txt") != "", "guest to spectate", 40.0):
+		return
+	var guest_down := func() -> bool:
+		for target in scene._remotes.target_states({}):
+			if bool(target.get("spectating", false)):
+				return true
+		return false
+	if not await _wait_for(guest_down, "guest spectator state on the host", 15.0):
+		return
+	if scene.player.spectator_mode or scene._death_screen_open or not scene._remotes.simulates():
+		_fail("host was affected by the guest's death")
+		return
+	_log("guest died -> spectating; host still alive and simulating hunters")
+	# the host restarting the run revives the spectating guest
+	scene._death_screen_open = true
+	scene._respawn_after_death()
+	if not await _wait_for(func() -> bool: return _read("guest_revived.txt") != "", "guest revive", 15.0):
+		return
+	# 2. host dies while the guest lives: session and simulation continue
+	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
+	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "host to spectate", 10.0):
+		return
+	await get_tree().create_timer(1.0).timeout
+	if scene._death_screen_open or scene.run_report.is_open() or not scene._remotes.simulates() \
+			or not RoomState.is_host or RoomState.peers.size() < 2:
+		_fail("host death ended the session or its simulation")
+		return
+	var hunters_before: int = scene._hunter_views.size()
+	_log("host died -> spectating; guest alive, session and simulation continue (%d hunters)" % hunters_before)
+	_write("host_spectating.txt", "1")
+	# 3. the guest then dies too: the run ends (run report on the host)
+	if not await _wait_for(func() -> bool: return scene.run_report.is_open(), "party wipe run report", 30.0):
+		return
+	_log("everyone down -> run over screen")
+	for target in scene._remotes.target_states({}):
+		_log("  runner %s spectating=%s game_over=%s" % [target.get("peer_id"), target.get("spectating"), target.get("game_over")])
+	scene._respawn_after_death()
+	if not await _wait_for(func() -> bool: return _read("guest_revived2.txt") != "", "guest revive after wipe", 15.0):
+		return
 	_write("host_done.txt", "1")
 	print("COOP HOST DONE")
 	get_tree().quit(0)
@@ -256,6 +297,33 @@ func _run_guest(is_late: bool) -> void:
 		return
 	_write("guest_reconnected.txt", "1")
 	_log("reconnected to the same route")
+	if not await _wait_for(func() -> bool: return GameState.relays_collected >= 0 and not scene._awaiting_snapshot,
+			"snapshot after reconnect", 30.0):
+		return
+	scene = get_tree().current_scene
+	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
+	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate", 10.0):
+		return
+	_log("guest caught -> spectator")
+	_write("guest_spectating.txt", "1")
+	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "revive from host", 20.0):
+		return
+	_write("guest_revived.txt", "1")
+	_log("revived when the host restarted the run")
+	if not await _wait_for(func() -> bool: return _read("host_spectating.txt") != "", "host to spectate", 30.0):
+		return
+	if scene.player.spectator_mode or scene._death_screen_open:
+		_fail("guest dragged into spectating by host death")
+		return
+	_log("host is spectating; guest still alive")
+	await get_tree().create_timer(2.0).timeout
+	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
+	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate again", 10.0):
+		return
+	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "revive after wipe", 20.0):
+		return
+	_write("guest_revived2.txt", "1")
+	_log("party wipe ended the run; guest revived on restart")
 	if not await _wait_for(func() -> bool: return _read("host_done.txt") != "", "host finish", 40.0):
 		return
 	print("COOP GUEST DONE")

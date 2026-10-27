@@ -46,6 +46,7 @@ waitfile b2_ok.txt 150 || echo "FAIL: resume"
 if [ "$REMOTE" = 1 ]; then echo "(remote) skipping the backend restart"; else kill $SERVER_PID; wait $SERVER_PID 2>/dev/null; sleep 2; start_server; sleep 3; fi
 echo 1 > "$TMP/server_restarted.txt"
 waitfile a_after_restart.txt 90 || echo "FAIL: authority did not survive the restart"
+waitfile a_spectate_done.txt 150 || echo "FAIL: spectator scenario"
 # the authority dies; the remaining client takes over
 kill $PID_a 2>/dev/null
 waitfile b2_authority.txt 150 || echo "FAIL: no handoff"
@@ -53,5 +54,5 @@ STATUS=1
 grep -h "^PUBLIC" "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log
 STATE=$(curl -s "$TARGET/api/public/status")
 echo "status after: $STATE"
-if [ -f "$TMP/a_after_restart.txt" ] && [ -f "$TMP/b2_authority.txt" ] && [ -f "$TMP/b2_ok.txt" ] && ! grep -q "PUBLIC .* FAIL" "$TMP"/*.log; then echo "public route test OK"; STATUS=0; else echo "public route test FAILED"; tail -6 "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log; fi
+if [ -f "$TMP/a_after_restart.txt" ] && [ -f "$TMP/b2_authority.txt" ] && [ -f "$TMP/b2_ok.txt" ] && [ -f "$TMP/a_spectate_done.txt" ] && [ -f "$TMP/b2_spectating.txt" ] && ! grep -q "PUBLIC .* FAIL" "$TMP"/*.log; then echo "public route test OK"; STATUS=0; else echo "public route test FAILED"; tail -6 "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log; fi
 exit $STATUS
