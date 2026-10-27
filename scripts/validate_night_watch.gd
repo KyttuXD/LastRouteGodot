@@ -216,6 +216,7 @@ func run(host: Node) -> int:
 		_expect(groups >= 3, "the %s camera room has only %d prop groups" % [id, groups])
 	_expect(building_cubes >= 420, "the eight camera rooms have only %d cubes (420 or more expected)" % building_cubes)
 	print("  art: office %d cubes in %d props, camera rooms %d cubes" % [office_cubes, shift.office.props.size(), building_cubes])
+	_check_uvs(shift)
 	# shading is baked: a cube has vertex colours that differ between its top and bottom
 	var sample := shift.office.find_child("DeskTop", true, false) as MeshInstance3D
 	var colors: PackedColorArray = sample.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
@@ -352,7 +353,7 @@ func run(host: Node) -> int:
 		if file.ends_with(".gd"):
 			_expect(not FileAccess.get_file_as_string("res://src/night_watch/" + file).contains("AudioStreamPlayer"), "%s makes its own audio player" % file)
 	shift.advance_ms(1000.0)
-	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "POWER 100%", "the clock or power label is wrong at the start of the night")
+	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "Power left: 100%", "the clock or power label is wrong at the start of the night")
 	shift.toggle_door("doorL")
 	shift.set_light("doorR", true)
 	shift.advance_ms(100.0)
@@ -569,3 +570,90 @@ func _check_walking(host: Node) -> void:
 	_expect(model.position.distance_to(shift.building.stand_position("westhall", 0)) < 1.6, "Dovelle did not arrive in the west hall")
 	shift.queue_free()
 	await host.get_tree().process_frame
+
+
+
+## Texture mapping of every cube in the office and the camera rooms: the same texel density on every face (32 px per metre, hazard tape 64 px per
+## metre along its length and width), within 10%; hazard tape counts a whole number of stripe periods along its length, so it starts and ends
+## on the same phase; every UV is finite, non-negative and spans a real area. Tape faces use the stripe tile, every other face of a tape cube a
+## plain metal tile (nothing is a stretched copy of the front texture).
+func _check_uvs(shift: NightWatchGame) -> void:
+	var meshes := []
+	meshes.append_array(shift.office.find_children("*", "MeshInstance3D", true, false))
+	meshes.append_array(shift.building.find_children("*", "MeshInstance3D", true, false))
+	var faces := 0
+	var tape_faces := 0
+	var bad_density := []
+	var bad_phase := []
+	var bad_uv := 0
+	var edge_faces := 0
+	for m in meshes:
+		var mi := m as MeshInstance3D
+		if mi.mesh == null or mi.mesh.get_surface_count() == 0 or not mi.has_meta("nw_name"):
+			continue
+		var hazard := String(mi.get_meta("nw_hazard", ""))
+		for surface in mi.mesh.get_surface_count():
+			var arrays := mi.mesh.surface_get_arrays(surface)
+			var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var tape_surface := not hazard.is_empty()
+			var f := 0
+			while f + 5 < v.size():
+				faces += 1
+				# a face is drawn as triangles with corners 0,2,1 and 0,3,2 (clockwise for Godot): corner 0 = v[f], corner 1 = v[f+2], corner 2 = v[f+1]
+				var p0 := v[f]
+				var p1 := v[f + 2]
+				var p2 := v[f + 1]
+				var u0 := uv[f]
+				var u1 := uv[f + 2]
+				var u2 := uv[f + 1]
+				for i in 6:
+					var q := uv[f + i]
+					if not is_finite(q.x) or not is_finite(q.y) or q.x < -0.001 or q.y < -0.001:
+						bad_uv += 1
+				var len_u := p0.distance_to(p1)
+				var len_v := p1.distance_to(p2)
+				var span_u := absf(u1.x - u0.x)
+				var span_v := absf(u1.y - u2.y)
+				if tape_surface and span_u < 0.0001 and span_v < 0.0001:
+					f += 6       # an end or thickness face of tape: one dark texel, no stripes (checked below)
+					edge_faces += 1
+					continue
+				if len_u < 0.0001 or len_v < 0.0001 or span_u < 0.0001 or span_v < 0.0001:
+					bad_uv += 1
+					f += 6
+					continue
+				var want_v := 64.0 if tape_surface else 32.0
+				var du := span_u * float(NightWatchArt.TEX) / len_u
+				var dv := span_v * float(NightWatchArt.TEX) / len_v
+				if tape_surface:
+					tape_faces += 1
+					var periods := span_u * 2.0
+					if absf(periods - roundf(periods)) > 0.001:
+						bad_phase.append("%s %.3f periods" % [mi.get_meta("nw_name"), periods])
+					du = 64.0 * (roundf(periods) * NightWatchArt.HAZ_PERIOD_M) / len_u   # the density after the whole-period rounding
+				if absf(dv - want_v) / want_v > 0.1 or absf(du - want_v) / want_v > 0.1:
+					bad_density.append("%s %.0f/%.0f px/m (want %.0f)" % [mi.get_meta("nw_name"), du, dv, want_v])
+				f += 6
+	# every cube is drawn outside-out: the first triangle of each face is wound clockwise seen from the face's normal side
+	var inside_out := 0
+	for m in meshes:
+		var mi2 := m as MeshInstance3D
+		if mi2.mesh == null or mi2.mesh.get_surface_count() == 0 or not mi2.has_meta("nw_name"):
+			continue
+		var arr := mi2.mesh.surface_get_arrays(0)
+		var vv: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var nn: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		var k := 0
+		while k + 2 < vv.size():
+			var tri_normal := (vv[k + 1] - vv[k]).cross(vv[k + 2] - vv[k])   # counter-clockwise normal; Godot's front is the clockwise side, so it must point inward
+			if tri_normal.dot(nn[k]) > 0.0:
+				inside_out += 1
+			k += 6
+	_expect(inside_out == 0, "%d cube faces are wound inside out (their near side is culled)" % inside_out)
+	_expect(faces > 500, "the UV check saw only %d faces" % faces)
+	_expect(tape_faces >= 12, "the UV check saw only %d hazard tape faces" % tape_faces)
+	_expect(edge_faces >= 20, "hazard tape has only %d dedicated edge faces" % edge_faces)
+	_expect(bad_uv == 0, "%d faces have non-finite, negative or zero-area UVs" % bad_uv)
+	_expect(bad_phase.is_empty(), "hazard faces that do not hold a whole number of periods: %s" % str(bad_phase.slice(0, 5)))
+	_expect(bad_density.is_empty(), "%d faces are off the texel density: %s" % [bad_density.size(), str(bad_density.slice(0, 6))])

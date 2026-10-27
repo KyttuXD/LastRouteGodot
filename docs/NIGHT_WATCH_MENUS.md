@@ -44,3 +44,10 @@ Made on KT-Mini4-2 with `tools/look/night_watch_menu_capture.tscn`.
 
 Also: [board, Dead Air](night_watch_menus/1280x720_board_dead_air.png), [account](night_watch_menus/1280x720_account.png),
 [credits](night_watch_menus/1280x720_credits.png), [custom night](night_watch_menus/1280x720_custom.png).
+
+## Hover versus selection
+
+As in the 2D game, hovering only highlights: the mode list, the shift tiles and the title entries change their selection on CLICK or the
+arrow keys, never on mouse-over. A selected entry has amber text and an amber frame; a hovered one gets a lighter background and a lighter
+border only; keyboard focus keeps the theme's focus ring. `validate_night_watch_menus.gd` emits `mouse_entered` on every entry and asserts
+the selected mode, tile and the detail panel do not change, then checks that a click and the down arrow do.

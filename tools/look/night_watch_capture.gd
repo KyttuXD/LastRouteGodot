@@ -20,6 +20,21 @@ func _ready() -> void:
 	await get_tree().process_frame
 	game.advance_ms(2000.0)
 	await _shot(out + "/office.png")
+	# Zellia's call at the two test sizes: ringing, then a typed line (night 3's first line)
+	for size in [Vector2i(1280, 720), Vector2i(1920, 1080)]:
+		get_window().size = size
+		await get_tree().process_frame
+		game.advance_ms(3500.0)   # 5.5 s in: the ring ("Incoming call…")
+		await _shot("%s/call_ring_%dx%d.png" % [out, size.x, size.y], 4)
+		game.advance_ms(5000.0)
+		await _shot("%s/call_text_%dx%d.png" % [out, size.x, size.y], 4)
+		game.hud.set_call_script(NightWatchCallScript.for_level("classic", 3))
+		game.hud.show_call("")
+		game._elapsed_ms = 0.0
+		game.advance_ms(0.0)
+	get_window().size = Vector2i(1280, 720)
+	game.hud.set_call_script(NightWatchCallScript.new([], 0.0))
+	game.hud.show_call("")
 	# Dovelle at the left door, the light held on her, the player looking left
 	var dovelle := game.sim.hunters["dovelle"] as NightWatchStalker
 	dovelle.room = "doorL"
