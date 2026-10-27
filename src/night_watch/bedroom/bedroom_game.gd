@@ -18,6 +18,8 @@ var night := 1
 var state: State = State.PLAYING
 var sim: BedroomLogic
 var world: BedroomOffice
+var wing: BedroomWing
+var paths: BedroomPaths
 var camera: Camera3D
 var hud: NightWatchHud
 var hunters_root: Node3D
@@ -46,6 +48,7 @@ func _ready() -> void:
 		opts = {"night": 5, "rng": NightWatchStream.seeded(seed_value), "custom": true, "levels": custom}
 	_build_world()
 	sim = BedroomLogic.new(opts)
+	paths = BedroomPaths.new()
 	_spawn_hunters()
 	if not is_custom:
 		hud.queue_call(BedroomData.call_lines(night))
@@ -68,6 +71,9 @@ func _build_world() -> void:
 	world = NightWatchOfficeRegistry.make("bedroom") as BedroomOffice
 	world.name = "Bedroom"
 	add_child(world)
+	wing = BedroomWing.new()
+	wing.name = "Wing"
+	add_child(wing)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -225,29 +231,29 @@ func base_awake(id: String) -> bool:
 
 func _place_hunters() -> void:
 	var eye := BedroomOffice.EYE
-	# Javelle: out of the dark end of the hall, up to the doorway and back, on foot
+	# Javelle: from the living room along the hall to the bedroom door and back, on foot (BedroomPaths)
 	var jv := _models["javelle"] as Node3D
 	var jw := _walkers.get("javelle") as NightWatchWalker
 	var jstate: String = sim.javelle["state"]
-	var target: Vector3 = BedroomOffice.HALL_FAR
+	var key := "C:living_room"
 	if jstate == "breath":
-		target = BedroomOffice.HALL_MID
+		key = "H:mid"
 	elif jstate == "near":
-		target = BedroomOffice.HALL_NEAR
+		key = "H:near"
+	var target: Vector3 = paths.points[key]
 	if jw == null:
+		var home: Vector3 = paths.points["C:living_room"]
 		jw = NightWatchWalker.new()
 		_walkers["javelle"] = jw
-		jw.place(BedroomOffice.HALL_FAR, BedroomOffice.HALL_FAR, eye, "away")
+		jw.place(home, home, eye, "away")
 	if manual_clock:
 		jw.place(target, target, eye, jstate)
 		_jav_state = jstate
 	elif jstate != _jav_state:
-		if _jav_state == "away":
-			jw.place(BedroomOffice.HALL_FAR, BedroomOffice.HALL_FAR, eye, "away")   # she comes out of the dark end of the hall
-		jw.go([{"p": jw.pos, "jump": false, "key": ""}, {"p": target, "jump": false, "key": ""}], jstate, target, 1.8)
+		jw.go(paths.legs_from(jw.pos, key), jstate, target, 2.4)
 		jw.look = eye
 		_jav_state = jstate
-	jv.visible = base_awake("javelle") and (jstate != "away" or jw.is_walking() or jw.pos.distance_to(BedroomOffice.HALL_FAR) > 0.5)
+	jv.visible = base_awake("javelle") and (jstate != "away" or jw.is_walking() or jw.pos.x < BedroomMap.rect("hall").end.x + 0.2)
 	jv.position = jw.pos
 	jv.rotation.y = jw.yaw
 	# Haelith: across the floor as her number rises, dim until the bed light finds her
