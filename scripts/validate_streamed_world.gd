@@ -1114,19 +1114,14 @@ func run(host: Node) -> int:
 				"STOP STORY / CUTSCENE", "RESET STORY STATE"]:
 			_expect(admin_labels.has(required),
 				"Infinite admin menu is missing %s from the finite toolset" % required)
-		for heading in ["SUMMON A-Z HUNTER", "REMOVE A-Z HUNTER // ALL MATCHES"]:
-			var entry: Dictionary = admin_headings.get(heading, {})
-			_expect(not entry.is_empty() \
-					and (entry.get("items", []) as Array).size() == 26 \
-					and (entry.get("action", Callable()) as Callable).is_valid(),
-				"Infinite admin menu lacks a complete callable %s roster" % heading)
-		for heading in ["SUMMON VOID HUNTER", "REMOVE VOID HUNTER // ALL MATCHES"]:
-			var entry: Dictionary = admin_headings.get(heading, {})
-			_expect(not entry.is_empty() \
-					and (entry.get("items", []) as Array).size() \
-					== HunterRoster.VOID_IDS.size() \
-					and (entry.get("action", Callable()) as Callable).is_valid(),
-				"Infinite admin menu lacks a complete callable %s roster" % heading)
+		# one hunter picker: every A-Z and Void hunter, with callable summon / remove / emote actions
+		var hunter_tool: Dictionary = admin_headings.get("HUNTER", {})
+		_expect(not hunter_tool.is_empty() \
+				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() \
+				and (hunter_tool.get("hunter_tool", []) as Array).size() >= 3,
+			"Infinite admin menu lacks the complete hunter picker (A-Z + Void)")
+		for act in hunter_tool.get("hunter_tool", []):
+			_expect((act["call"] as Callable).is_valid(), "hunter picker action %s is a stub" % act.get("label", ""))
 		var story_picker: Dictionary = admin_headings.get(
 			"PLAY STORY / CUTSCENE", {})
 		_expect(not story_picker.is_empty() \
@@ -1181,7 +1176,7 @@ func run(host: Node) -> int:
 		await host.get_tree().physics_frame
 		_expect(player.input_frozen and player.velocity.is_zero_approx(),
 			"Infinite player/tools remain active behind the admin menu")
-		_expect(live_admin._panel.size.x >= 360.0 and live_admin._panel.size.y >= 220.0,
+		_expect(live_admin._panel.size.x * live_admin._panel.scale.x >= 360.0 and live_admin._panel.size.y * live_admin._panel.scale.y >= 220.0,
 			"Infinite admin menu does not occupy a usable modal area")
 		live_admin._set_open(false)
 		# A raw CharacterBody teleport used to leave the streamed window on the
@@ -1195,8 +1190,8 @@ func run(host: Node) -> int:
 		live_admin._set_open(true)
 		var teleport_action := Callable()
 		for entry in live_admin._actions:
-			if String(entry.get("label", "")) == "TELEPORT TO START":
-				teleport_action = entry.get("action", Callable())
+			if String(entry.get("heading", "")) == "TELEPORT" and entry.has("items"):
+				teleport_action = (entry["action"] as Callable).bind("start")
 		if teleport_action.is_valid():
 			teleport_action.call()
 		live_scene.hud.set_map_open(true)
