@@ -18,7 +18,7 @@ const INTERIOR_LAMP_COLOR := Color(1.0, 0.74, 0.42)
 
 ## The City is five chunks wide and three deep: with radius 2 every chunk of it is resident from the spawn (the maze
 ## streams only the 3 x 3 around the runner, which here left the far end of every long street empty).
-const CITY_STREAM_RADIUS := 2
+const CITY_STREAM_RADIUS := 3
 
 var city_generator: CityRouteGenerator
 var _sky: CitySky
@@ -298,15 +298,80 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 
 # ---------------------------------------------------------------- cells
 
+## Modern carriageway: asphalt with a dashed yellow centre line down the middle column of a road band, dashed white lane
+## lines on the other lane boundaries of a 5-wide carriageway, a solid edge line beside the kerb. The band is measured
+## from the cell's run of ROAD cells across each axis; the ring roads (curved) just get plain asphalt.
+func _road_tile(gx: int, gz: int, h: int) -> int:
+	var layout := city_generator.layout
+	var run_x := _road_run(layout, gx, gz, Vector2i(1, 0))
+	var run_z := _road_run(layout, gx, gz, Vector2i(0, 1))
+	# [first cell, length] of the shorter run = the road's cross-section
+	var r := layout.ellipse_r(gx, gz)
+	# The curved ring roads (downtown rim, suburb loop, roundabout circle) carry no markings: their cross-sections are
+	# not axis-aligned, so a dash tile would run the wrong way.
+	if r >= CityLayout.RING_PAVE_FROM and r < 1.0:
+		return CityAtlas.tile("asphalt")
+	if r >= CityLayout.SUBURB_TO - 0.07 and r < CityLayout.SUBURB_TO + 0.04:
+		return CityAtlas.tile("asphalt")
+	if Vector2(gx, gz).distance_to(Vector2(CityLayout.ROUNDABOUT_CENTER)) < 15.5:
+		return CityAtlas.tile("asphalt")
+	# A straight road is the axis whose run is shorter (the cross-section); markings run along the other axis.
+	var across: Array = run_x if run_x[1] <= run_z[1] else run_z
+	var along_x := across == run_z
+	var width: int = across[1]
+	var offset: int = (gz if along_x else gx) - int(across[0])
+	if width < 3 or width > 9 or run_x[1] == run_z[1]:
+		return CityAtlas.tile("asphalt")
+	if h < 3 and r < 1.0:
+		return CityAtlas.tile("petals")
+	var suffix := "_x" if along_x else ""
+	if offset == width / 2 and width % 2 == 1:
+		return CityAtlas.tile("asphalt_centre" + suffix)
+	if offset == 0 or offset == width - 1:
+		return CityAtlas.tile("asphalt_edge" + suffix)
+	if width >= 7 and (offset == 1 or offset == width - 2):
+		return CityAtlas.tile("asphalt_lane" + suffix)
+	return CityAtlas.tile("asphalt")
+
+
+## [start, length] of the contiguous ROAD run through (gx, gz) along `step` (at most 12 cells each way).
+static func _road_run(layout: CityLayout, gx: int, gz: int, step: Vector2i) -> Array:
+	var lo := Vector2i(gx, gz)
+	var hi := Vector2i(gx, gz)
+	for _i in 12:
+		var next := lo - step
+		if layout.kind_at(next.x, next.y) != CityLayout.ROAD:
+			break
+		lo = next
+	for _i in 12:
+		var next := hi + step
+		if layout.kind_at(next.x, next.y) != CityLayout.ROAD:
+			break
+		hi = next
+	var length := (hi.x - lo.x if step.x != 0 else hi.y - lo.y) + 1
+	return [lo.x if step.x != 0 else lo.y, length]
+
+
 func _floor_tile(kind: int, gx: int, gz: int) -> int:
 	var h := absi(hash(Vector2i(gx, gz))) % 100
 	match kind:
 		CityLayout.ROAD:
-			if h < 7:
-				return CityAtlas.tile("petals")
-			return CityAtlas.tile("cobble_wet") if h < 62 else CityAtlas.tile("cobble")
+			return _road_tile(gx, gz, h)
 		CityLayout.PAVE:
-			return CityAtlas.tile("petals") if h < 4 else CityAtlas.tile("sidewalk")
+			# A kerb where the pavement meets the carriageway, plain sidewalk otherwise.
+			var layout := city_generator.layout
+			for dir_value in CitySurface.FACE_DIRS:
+				var dir: Vector2i = dir_value
+				if layout.kind_at(gx + dir.x, gz + dir.y) == CityLayout.ROAD:
+					return CityAtlas.tile("kerb")
+			return CityAtlas.tile("petals") if h < 4 and layout.ellipse_r(gx, gz) < 1.0 else CityAtlas.tile("sidewalk")
+		CityLayout.FIELD:
+			var band := int(floor((float(gx) + float(gz) * 0.35) / 7.0))
+			return CityAtlas.tile("crop_a" if band % 2 == 0 else "crop_b") if (gx + gz) % 2 == 0 else CityAtlas.tile("soil")
+		CityLayout.DIRT:
+			return CityAtlas.tile("dirt")
+		CityLayout.GRAVEL:
+			return CityAtlas.tile("gravel")
 		CityLayout.PLAZA, CityLayout.POST:
 			return CityAtlas.tile("plaza") if kind == CityLayout.PLAZA else CityAtlas.tile("sidewalk")
 		CityLayout.GRASS:

@@ -126,8 +126,8 @@ func _check_shape(layout: CityLayout) -> void:
 			_expect(layout.kind_at(gx, gz) != CityLayout.BLOCK, "unfinished block cell at %d,%d" % [gx, gz])
 			if layout.is_open(gx, gz):
 				open += 1
-			if CityLayout.ellipse_r(gx, gz) >= 1.0 and layout.is_open(gx, gz):
-				_expect(false, "open cell outside the dome at %d,%d" % [gx, gz])
+			if CityLayout.outer_r(gx, gz) >= CityLayout.OUTER_WALL_FROM and layout.is_open(gx, gz):
+				_expect(false, "open cell outside the rim at %d,%d" % [gx, gz])
 				return
 	_expect(open > 9000, "the city is too small (%d open cells)" % open)
 	var centre := CityLayout.ROUNDABOUT_CENTER
@@ -333,7 +333,12 @@ func _check_run_scene(host: Node) -> void:
 		for cx in range(-CityFacilityView3D.CITY_STREAM_RADIUS, CityFacilityView3D.CITY_STREAM_RADIUS + 1):
 			if facility.generator.is_chunk_allowed(Vector3i(cx, 0, cz)):
 				expected_chunks += 1
-	_expect(expected_chunks == 15, "from the spawn the whole city (15 chunks) must be in range, got %d" % expected_chunks)
+	var allowed_total := 0
+	for cz in range(CityLayout.CHUNK_MIN.y, CityLayout.CHUNK_MAX.y + 1):
+		for cx in range(CityLayout.CHUNK_MIN.x, CityLayout.CHUNK_MAX.x + 1):
+			if facility.generator.is_chunk_allowed(Vector3i(cx, 0, cz)):
+				allowed_total += 1
+	_expect(expected_chunks == allowed_total and allowed_total >= 30, "from the spawn the whole city (%d chunks) must be in range, got %d" % [allowed_total, expected_chunks])
 	_expect(facility.loaded_chunk_count() == expected_chunks,
 		"expected every city chunk resident from the spawn (%d), got %d" % [expected_chunks, facility.loaded_chunk_count()])
 	var player := scene.get_node("%Player") as PlayerController3D
@@ -351,6 +356,7 @@ func _check_run_scene(host: Node) -> void:
 	var layout := (facility.generator as CityRouteGenerator).layout
 	_expect(layout.kind_at(layout.spawn.x, layout.spawn.y + 4) == CityLayout.DOOR, "no doorway straight ahead of the spawn")
 	_check_gate(facility, layout)
+	_check_outskirts(layout)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -375,7 +381,7 @@ func _check_far_rendering(facility: StreamedFacilityView3D) -> void:
 			"the tile shader must sample nearest with per-layer mipmaps")
 	_expect(CityAtlas.NAMES.size() <= CityAtlas.COLUMNS * CityAtlas.ROWS, "more tiles than the atlas sheet holds")
 	var sheet := (load(CityAtlas.ALBEDO_PATH) as Texture2D).get_image()
-	_expect(sheet.get_width() == CityAtlas.SHEET_PX and sheet.get_height() == CityAtlas.SHEET_PX, "atlas sheet size changed")
+	_expect(sheet.get_width() == CityAtlas.SHEET_PX and sheet.get_height() == CityAtlas.ROWS * CityAtlas.TILE_PX, "atlas sheet size changed")
 	var quads_checked := 0
 	for chunk_value in facility._loaded.values():
 		var chunk := chunk_value as Node3D
@@ -706,3 +712,61 @@ func _check_life(host: Node, facility: StreamedFacilityView3D) -> void:
 	_expect(moved >= 2, "the trams do not move (%d of 4 moved)" % moved)
 	_expect(CityTram.RAIL_Y >= 5.5, "the tram rail is low enough to hit a runner")
 	print("  city: sound bed, rain setting, %d trams moving" % moved)
+
+
+## The outskirts (pass 3): the avenue and the main street reach the outer rim as 9-wide asphalt arterials, the suburb ring
+## road is one closed loop, the farmland is there, the farm tracks join the ring road, the gate on the outer rim is reached
+## from the roundabout on foot, and the outer wall seals the whole thing.
+func _check_outskirts(layout: CityLayout) -> void:
+	var fields := 0
+	var dirt := 0
+	for gz in CityLayout.HEIGHT:
+		for gx in CityLayout.WIDTH:
+			var kind := layout.kind_at(gx, gz)
+			if kind == CityLayout.FIELD:
+				fields += 1
+			elif kind == CityLayout.DIRT:
+				dirt += 1
+	_expect(fields > 4000, "only %d field cells of farmland" % fields)
+	_expect(dirt > 200, "only %d farm-track cells" % dirt)
+	# arterials: every row/column between downtown and the rim holds a 5-wide ROAD run with 2 PAVE each side
+	var avenue_rows := 0
+	for gz in CityLayout.HEIGHT:
+		if CityLayout.ellipse_r(CityLayout.AVENUE_X, gz) < 1.0 or CityLayout.outer_r(CityLayout.AVENUE_X, gz) >= CityLayout.OUTER_WALL_FROM:
+			continue
+		if gz >= CityLayout.GATE_ROW - 2:
+			continue
+		avenue_rows += 1
+		var ok := true
+		for dx in range(-2, 3):
+			ok = ok and layout.kind_at(CityLayout.AVENUE_X + dx, gz) == CityLayout.ROAD
+		for dx in [-4, -3, 3, 4]:
+			ok = ok and [CityLayout.PAVE, CityLayout.POST].has(layout.kind_at(CityLayout.AVENUE_X + dx, gz))
+		_expect(ok, "the avenue is broken at row %d" % gz)
+	_expect(avenue_rows > 80, "the avenue runs only %d rows through the outskirts" % avenue_rows)
+	# suburb ring road: a closed loop (flood along ROAD cells of the band comes back round)
+	var band := {}
+	for gz in CityLayout.HEIGHT:
+		for gx in CityLayout.WIDTH:
+			var r := CityLayout.ellipse_r(gx, gz)
+			if r >= CityLayout.SUBURB_TO - 0.045 and r < CityLayout.SUBURB_TO + 0.015 and layout.kind_at(gx, gz) == CityLayout.ROAD:
+				band[Vector2i(gx, gz)] = true
+	var start: Vector2i = band.keys()[0]
+	var seen := {start: true}
+	var queue: Array[Vector2i] = [start]
+	var cursor := 0
+	while cursor < queue.size():
+		var cell: Vector2i = queue[cursor]
+		cursor += 1
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + (step as Vector2i)
+			if band.has(next) and not seen.has(next):
+				seen[next] = true
+				queue.append(next)
+	_expect(seen.size() == band.size(), "the suburb ring road is not one loop (%d of %d cells joined)" % [seen.size(), band.size()])
+	# gate reachable from the spawn on foot
+	var reached := _flood(layout, layout.spawn, {})
+	_expect(reached.has(CityLayout.GATE_CELL), "the outer gate is not reachable from the roundabout")
+	_expect(layout.zone_name(CityLayout.AVENUE_X, CityLayout.GATE_ROW - 30).contains("FARM"), "no FARMLAND zone on the way to the gate")
+	_expect(layout.zone_name(CityLayout.AVENUE_X + 20, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y * 1.1).contains("SUBURBS"), "no SUBURBS zone past the ring road")
+	print("  city: outskirts: %d field cells, %d track cells, avenue %d rows, ring road %d cells" % [fields, dirt, avenue_rows, band.size()])

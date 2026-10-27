@@ -269,3 +269,21 @@ through the opened doorway (+-2 m, the keep-clear lane) and that the closed leaf
   rain); levels drop indoors, brighten by day, and obey `Sound.muted` and the SFX volume. No audio files.
 * Validated in `city`: nodes present, levels follow indoors/mute/rain, rain toggles, trams move and stay over streets.
   Shots: `city_life_avenue.png`, `city_life_street.png`.
+
+## Expansion, stage A: the outskirts and modern roads
+
+The grid grew from 5 x 3 to 7 x 5 chunks (315 x 225 cells; `CityLayout.DOWNTOWN_SHIFT` = +45,+45 moved every downtown
+constant, chunk (0,0) is still the roundabout). Downtown keeps its plan inside the old ellipse; around it:
+
+* **suburbs** (downtown-ellipse r 1.0 to `SUBURB_TO` 1.28): grass, the avenue and the main street continuing as 9-wide
+  asphalt arterials, a 7-wide **suburb ring road** loop at the suburb/farm boundary;
+* **farmland** (beyond the ring road to the outer rim, `OUTER_AXES` 155 x 110): striped crop fields (`FIELD`, walkable),
+  eight 3-wide **dirt farm tracks** radiating to the rim;
+* the **perimeter wall** (RIM band from `outer_r` 0.965) and the **gate**, now on the outer rim at the south end of the
+  avenue (`GATE_ROW` 219), so the escape is a run from downtown through the suburbs and the fields.
+
+Modern carriageways: asphalt with a dashed yellow centre line, dashed white lane lines on 9-wide roads, a solid edge line
+by the kerb, kerb tiles where pavement meets road (`CityFacilityView3D._road_tile`, rotated `_x` tiles for east-west
+roads; curved ring roads are plain asphalt). The atlas is 8 x 16 tiles now (83 used). Streaming radius is 3 (all 35
+chunks resident from the spawn; the mini reads 150 fps on the avenue, 300 at the spawn). Houses, farms, shops and the
+rest of the modern furniture come in the next stages. Shots: `city_expansion_map.png`, `city_expansion_avenue.png`.

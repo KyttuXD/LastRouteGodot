@@ -6,7 +6,7 @@ extends Node3D
 ## Coordinates are route space: the city centre is cell (22.5, 22.5).
 
 const CENTER := Vector3(22.5, 0.0, 22.5)
-const AXES := Vector3(116.0, 64.0, 69.0)    # x radius and z radius of the ring the towers stand on (y unused)
+const AXES := Vector3(158.0, 64.0, 113.0)    # x radius and z radius of the ring the towers stand on (just outside the rim)
 const TOWERS := 96
 
 var _tower := StandardMaterial3D.new()
@@ -30,7 +30,7 @@ func _build_skyline() -> void:
 	var windows := _Beams.new()
 	for index in TOWERS:
 		var phi := TAU * (float(index) + rng.randf() * .8) / float(TOWERS)
-		var spread := 1.2 + rng.randf() * .9
+		var spread := 1.06 + rng.randf() * .7
 		var base := CENTER + Vector3(AXES.x * spread * cos(phi), 0, AXES.z * spread * sin(phi))
 		var width := 5.0 + rng.randf() * 9.0
 		var height := 26.0 + rng.randf() * 70.0
