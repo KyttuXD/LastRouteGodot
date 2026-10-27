@@ -78,6 +78,9 @@ var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
+## Spectator state: peer id of the followed runner (0 = free camera).
+var _spectate_peer := 0
+var _spectator_banner: SpectatorBanner
 var _capture_resolving := false
 ## Streamed entity id / hunter id of whichever grab the local escape struggle
 ## is currently against, so success/failure can act on the right hunter.
@@ -153,6 +156,7 @@ func _ready() -> void:
 	hud.map_open_changed.connect(_on_map_open_changed)
 	hud.map_waypoint_requested.connect(_on_map_waypoint_requested)
 	run_report.restart_requested.connect(_respawn_after_death)
+	_spectator_banner = SpectatorBanner.attach(hud)
 	run_report.leave_requested.connect(_leave_test)
 	hud.map_overlay.visible = false
 	# Strongly type the parent to avoid Godot's typed local inference error in
@@ -281,6 +285,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	_update_spectating()
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
 		_admin_ticket_refresh_elapsed += delta
 		if _admin_ticket_refresh_elapsed >= 5.0:
@@ -2359,7 +2364,8 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"god_mode": player.admin_god_mode,
 		"escape_active": GameState.escape_active,
 		"capture_immune": _capture_cooldown > 0.0 or GameState.is_capture_immune(),
-		"game_over": _death_screen_open,
+		"game_over": _death_screen_open or player.spectator_mode,
+		"spectating": player.spectator_mode,
 	}
 
 
@@ -3217,9 +3223,7 @@ func _public_runner_positions() -> Dictionary:
 ## Captured on the PUBLIC route: watch from a free camera, then come back on your
 ## own after a few seconds (no run report, nobody has to press anything).
 func _public_spectate_then_rejoin(hunter_name: String) -> void:
-	player.enter_spectator()
-	player.input_frozen = false
-	player.look_frozen = false
+	_begin_spectating()
 	if RoomState.online and not RoomState.is_host:
 		_remotes.submit_hunter_event({"what": "caught"})
 	hud.show_message("CAUGHT BY %s // SPECTATING // REJOINING SHORTLY" % hunter_name)
@@ -3227,7 +3231,7 @@ func _public_spectate_then_rejoin(hunter_name: String) -> void:
 	await get_tree().create_timer(8.0).timeout
 	if not is_inside_tree() or not RoomState.public_route:
 		return
-	player.leave_spectator()
+	_end_spectating()
 	_respawn_after_death()
 	PublicRoute.join_grace_until_msec = Time.get_ticks_msec() + 10_000
 	hud.show_message("BACK ON THE ROUTE // GRACE PERIOD")
@@ -3373,6 +3377,10 @@ func _apply_player_event(event: Dictionary) -> void:
 		"capture":
 			if not bool(event.get("streamed", false)):
 				return
+			if player.spectator_mode:
+				if RoomState.online and not RoomState.is_host:
+					_remotes.submit_hunter_event({"what": "caught"})
+				return
 			if _death_screen_open or GameState.escape_active:
 				return
 			var hunter_id := String(event.get("hunter_id", HunterRoster.DEFAULT_ID))
@@ -3390,6 +3398,12 @@ func _apply_player_event(event: Dictionary) -> void:
 			var message := String(event.get("message", ""))
 			if not message.is_empty():
 				hud.show_message(message)
+		"revive":
+			if player.spectator_mode and not RoomState.is_host:
+				_end_spectating()
+				_death_screen_open = true
+				_respawn_after_death()
+				hud.show_message("RUN RESTARTED // BACK ON THE ROUTE")
 
 
 ## Starts the local mash-to-escape struggle. Ordinary A-Z hunters give the
@@ -3485,10 +3499,19 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		await _public_spectate_then_rejoin(hunter_name)
 		return
 	if RoomState.online and not RoomState.is_host:
-		player.enter_spectator()
-		player.input_frozen = false
-		player.look_frozen = false
+		_begin_spectating()
 		_remotes.submit_hunter_event({"what": "caught"})
+		hud.show_message("YOU DIED // SPECTATOR MODE")
+		_capture_resolving = false
+		return
+	# Host caught while a guest still lives: keep the host-authoritative hunter
+	# simulation running and watch instead of ending the session.
+	if RoomState.online and RoomState.is_host and not _living_runners().is_empty():
+		_begin_spectating()
+		_death_screen_open = false
+		_capture_cooldown = 0.0
+		pause_menu.set_process(true)
+		pause_menu.set_process_unhandled_input(true)
 		hud.show_message("YOU DIED // SPECTATOR MODE")
 		_capture_resolving = false
 		return
@@ -3600,11 +3623,115 @@ func _admin_restore_player() -> void:
 	player.taser_cooldown = 0.0
 
 
+## Runners (excluding the local player) who are neither dead nor spectating.
+func _living_runners() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if _remotes == null:
+		return result
+	for target_value in _remotes.target_states({}):
+		var target: Dictionary = target_value
+		if not bool(target.get("game_over", false)) \
+				and not bool(target.get("spectating", false)):
+			result.append(target)
+	return result
+
+
+func _begin_spectating() -> void:
+	player.enter_spectator()
+	player.input_frozen = false
+	player.look_frozen = false
+	_spectate_peer = 0
+	_cycle_spectate_target(1)
+
+
+func _end_spectating() -> void:
+	if player.spectator_mode:
+		player.leave_spectator()
+	_spectate_peer = 0
+	if _spectator_banner != null:
+		_spectator_banner.clear()
+
+
+## dir: +1 / -1 steps through living runners; 0 selects the free camera.
+func _cycle_spectate_target(dir: int) -> void:
+	var living := _living_runners()
+	if dir == 0 or living.is_empty():
+		_spectate_peer = 0
+		return
+	var index := -1
+	for i in living.size():
+		if int(living[i].get("peer_id", 0)) == _spectate_peer:
+			index = i
+	index = 0 if index < 0 and dir > 0 else (living.size() - 1 if index < 0 \
+		else posmod(index + dir, living.size()))
+	_spectate_peer = int(living[index].get("peer_id", 0))
+
+
+func _update_spectating() -> void:
+	if not player.spectator_mode:
+		return
+	var watching := {}
+	if _spectate_peer != 0:
+		for target in _living_runners():
+			if int(target.get("peer_id", 0)) == _spectate_peer:
+				watching = target
+		if watching.is_empty():
+			_cycle_spectate_target(1)
+			for target in _living_runners():
+				if int(target.get("peer_id", 0)) == _spectate_peer:
+					watching = target
+	player.spectator_follow_valid = not watching.is_empty() \
+		and watching.get("at") is Vector3
+	if player.spectator_follow_valid:
+		player.spectator_follow_at = watching["at"]
+	var note := "REJOINING SHORTLY" if RoomState.public_route else ""
+	if _spectator_banner != null:
+		_spectator_banner.show_for(
+			RoomState.peer_display_name(int(watching.get("peer_id", 0))) \
+			if not watching.is_empty() else "", note)
+	# Party wipe: the host was already spectating and the last guest just fell.
+	if RoomState.online and RoomState.is_host and not RoomState.public_route \
+			and not _death_screen_open and not _capture_resolving \
+			and _living_runners().is_empty():
+		_end_spectating()
+		_death_screen_open = true
+		run_report.open({
+			"online": true, "host": true, "respawn": true,
+			"title": "RUN OVER", "kicker": "ALL RUNNERS // LOST",
+			"reason": "THE WHOLE PARTY WAS CAUGHT",
+			"depth": -facility.current_level(), "score": GameState.score,
+			"relays": GameState.relays_collected,
+			"relay_target": GameState.relay_target, "coins": GameState.coins,
+			"difficulty": RoomState.difficulty_id().to_upper(),
+			"seed": RoomState.seed_text,
+		})
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not player.spectator_mode or not (event is InputEventKey) \
+			or not event.pressed or event.echo:
+		return
+	match (event as InputEventKey).physical_keycode:
+		KEY_E:
+			_cycle_spectate_target(1)
+		KEY_Q:
+			_cycle_spectate_target(-1)
+		KEY_F:
+			_cycle_spectate_target(0)
+
+
 func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()
 	run_report.close()
+	GameState.game_over = false
+	_end_spectating()
+	if RoomState.online and RoomState.is_host and _remotes != null:
+		for target_value in _remotes.target_states({}):
+			var peer := int((target_value as Dictionary).get("peer_id", 0))
+			if peer != 0 and bool((target_value as Dictionary).get("spectating", false)):
+				_remotes.send_player_event(peer, {"what": "revive"})
 	_death_screen_open = false
 	_capture_cooldown = 3.5
 	player.global_position = _checkpoint_world_position()

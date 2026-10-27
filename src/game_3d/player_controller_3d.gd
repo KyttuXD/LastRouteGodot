@@ -171,6 +171,9 @@ var admin_speed_scale := 1.0
 ## than respawning or being forced back to the menu. The host still treats this
 ## state as game-over for targeting and replication purposes.
 var spectator_mode := false
+## Follow cam: while valid the spectator trails this world position instead of free-flying.
+var spectator_follow_valid := false
+var spectator_follow_at := Vector3.ZERO
 
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
@@ -603,6 +606,7 @@ func enter_spectator() -> void:
 
 func leave_spectator() -> void:
 	spectator_mode = false
+	spectator_follow_valid = false
 	velocity = Vector3.ZERO
 	collision_layer = 1
 	collision_mask = 1
@@ -613,6 +617,17 @@ func leave_spectator() -> void:
 
 
 func _update_spectator(delta: float) -> void:
+	if spectator_follow_valid:
+		var forward := -active_camera().global_basis.z
+		forward.y = 0.0
+		forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
+		var wanted := spectator_follow_at + Vector3.UP * 1.3 - forward * 3.0
+		global_position = global_position.lerp(wanted, clampf(delta * 8.0, 0.0, 1.0))
+		velocity = Vector3.ZERO
+		noise = 0.0
+		_clip = "idle"
+		ModelSlot.play_if_available(_animation_player, _clip)
+		return
 	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var basis := active_camera().global_basis
 	var direction := basis.x * input_vector.x + (-basis.z) * -input_vector.y

@@ -185,8 +185,9 @@ func _local_state() -> Dictionary:
 		"noclip": controller.admin_noclip,
 		"escape_active": GameState.escape_active,
 		"capture_immune": GameState.is_capture_immune(),
-		"game_over": GameState.game_over,
-		"visible": not controller.hidden,
+		"game_over": GameState.game_over or controller.spectator_mode,
+		"spectating": controller.spectator_mode,
+		"visible": not controller.hidden and not controller.spectator_mode,
 		# Read-only meter values let host-side targeting rules use the same inputs.
 		# The host diffs any hunter mutation against these values and returns the
 		# delta through a targeted reliable player event.
