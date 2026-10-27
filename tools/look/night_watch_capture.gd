@@ -69,4 +69,45 @@ func _ready() -> void:
 	game.advance_ms(100.0)
 	game.advance_ms(6000.0)
 	await _shot(out + "/power_out.png", 10)
+	# a top-down map of the facility: rooms, doorways, the waypoint routes and the camera mounts
+	var top := Camera3D.new()
+	top.projection = Camera3D.PROJECTION_ORTHOGONAL
+	top.size = 30.0
+	game.add_child(top)
+	top.global_position = NightWatchBuilding.ORIGIN + Vector3(8.0, 40.0, 8.0)
+	top.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+	top.make_current()
+	for room in game.building.rooms:
+		var cam_t := game.building.camera_transform(room)
+		var marker := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.5, 0.5, 0.5)
+		marker.mesh = box
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(1.0, 0.2, 0.2)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		marker.material_override = mat
+		game.add_child(marker)
+		marker.global_position = Vector3(cam_t.origin.x, 4.0, cam_t.origin.z)
+	var lines := ImmediateMesh.new()
+	var line_node := MeshInstance3D.new()
+	line_node.mesh = lines
+	var lmat := StandardMaterial3D.new()
+	lmat.albedo_color = Color(0.2, 1.0, 0.4)
+	lmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	line_node.material_override = lmat
+	game.add_child(line_node)
+	lines.surface_begin(Mesh.PRIMITIVE_LINES)
+	for a in NightWatchData.GRAPH:
+		for b in NightWatchData.GRAPH[a]:
+			if String(a) < String(b) and not String(a).begins_with("door") and not String(b).begins_with("door"):
+				var legs: Array = game.paths.legs_for(String(a), String(b))
+				for i in range(1, legs.size()):
+					var p0: Vector3 = legs[i - 1]["p"]
+					var p1: Vector3 = legs[i]["p"]
+					lines.surface_add_vertex(Vector3(p0.x, 4.5, p0.z))
+					lines.surface_add_vertex(Vector3(p1.x, 4.5, p1.z))
+	lines.surface_end()
+	await _shot(out + "/facility_map.png", 4)
+	top.queue_free()
 	get_tree().quit()
