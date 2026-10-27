@@ -42,13 +42,22 @@ for shape in (table_ped, table_trestle, table_slab):
 
 # ---- beds ----------------------------------------------------------------------------------
 def bed(head_h, foot_h, posts, frame="dark", sheets="@cloth"):
-    b = [(0, .12, 0, 1, .42, 1, frame), (.03, .42, .05, .97, .62, .95, "paper"), (.03, .42, .36, .97, .7, .95, sheets),
+    # Legs and a raised frame leave 0.40 m under the bed, enough for a lying runner (docs/HIDING_PROPS.md); the footboard
+    # stops above that gap so you can slide in from the foot.
+    b = [(0, .30, 0, 1, .42, 1, frame), (.03, .42, .05, .97, .62, .95, "paper"), (.03, .42, .36, .97, .7, .95, sheets),
          (.06, .62, .08, .46, .72, .3, "white"), (.54, .62, .08, .94, .72, .3, "white") if posts != "single" else (.5, .62, .08, .5, .62, .08, "white"),
-         (0, .12, 0, 1, head_h, .05, frame), (0, .12, .95, 1, foot_h, 1, frame)]
+         (0, .12, 0, 1, head_h, .05, frame), (0, .30, .95, 1, max(foot_h, .38), 1, frame)]
+    for x0 in (0, .94):
+        for z0 in (.05, .9):
+            if posts != "canopy":
+                b.append((x0, 0, z0, x0 + .06, .30, z0 + .05, frame))
+    if posts != "canopy":
+        b.append((0, 0, 0, .06, .12, .05, frame))
+        b.append((.94, 0, 0, 1, .12, .05, frame))
     if posts == "canopy":
         for x0 in (0, .94):
             for z0 in (0, .94):
-                b.append((x0, .12, z0, x0 + .06, 1.0, z0 + .06, frame))
+                b.append((x0, 0, z0, x0 + .06, 1.0, z0 + .06, frame))      # posts are the legs too
         b.append((0, .94, 0, 1, 1.0, .06, frame))
         b.append((0, .94, .94, 1, 1.0, 1, frame))
         b.append((0, .94, 0, .06, 1.0, 1, frame))
@@ -60,8 +69,9 @@ for n in ("singleBed", "doubleBed"):
     v(n, bed(.95, .24, "none"), {"@cloth": CL})
     v(n, bed(.72, .5, "single"), {"@cloth": CL})
     v(n, bed(.8, .3, "canopy"), {"@cloth": CL})
-    v(n, [(0, 0, 0, 1, .32, 1, "oak"), (.03, .32, .04, .97, .5, .96, "@cloth"), (.04, .5, .06, .96, .6, .3, "white"),
-          (0, .32, 0, 1, .9, .05, "oak"), (.04, .5, .5, .96, .56, .96, "paper"), (.9, .32, .9, 1, .42, 1, "oak"), (0, .32, .9, .1, .42, 1, "oak")], {"@cloth": CL})
+    v(n, [(0, .28, 0, 1, .36, 1, "oak"), (.03, .36, .04, .97, .52, .96, "@cloth"), (.04, .52, .06, .96, .62, .3, "white"),
+          (0, 0, 0, 1, .9, .05, "oak"), (.04, .52, .5, .96, .58, .96, "paper"), (.9, 0, .9, 1, .46, 1, "oak"), (0, 0, .9, .1, .46, 1, "oak")],
+      {"@cloth": CL})
 
 # ---- couches --------------------------------------------------------------------------------
 couch_rolled = [(0, .08, 0, 1, .4, 1, "@cloth"), (0, .4, 0, 1, 1, .24, "@cloth"), (0, .4, .0, .1, .62, 1, "@cloth"), (.9, .4, 0, 1, .62, 1, "@cloth"),

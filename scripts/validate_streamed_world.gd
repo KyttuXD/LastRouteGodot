@@ -247,7 +247,7 @@ func run(host: Node) -> int:
 					saw_prison_layout = saw_prison_layout or (data["rooms"].size() >= 6 \
 						and data["rooms"].all(func(room):
 							return room["room_type"] in ["prison_cell",
-								"prison_cafeteria", "stairwell"]))
+								"prison_cafeteria", "infirmary", "stairwell"]))
 				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 				# A great hall (docs/ROOM_SIZES.md) trims the middle east-west hall on its side and the neighbour's; the
 				# vertical hall and the untrimmed part of the middle hall must stay whole.
@@ -492,6 +492,8 @@ func run(host: Node) -> int:
 					var fixture_cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
 					_expect(int(data["grid"][fixture_cell.y][fixture_cell.x]) == 0,
 						"streamed hiding fixture landed off-floor at %s" % fixture)
+					if not String(fixture.get("style", "")).is_empty():
+						continue    # furniture hiding spots (beds, wardrobes): checked by the hiding_props suite
 					var backing_wall: Vector2i = fixture.get("backing_wall", Vector2i.ZERO)
 					var open_direction: Vector2i = fixture.get("open_direction", Vector2i.ZERO)
 					_expect(backing_wall == -open_direction \

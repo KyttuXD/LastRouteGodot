@@ -250,6 +250,16 @@ func update_without_target(delta: float, generator,
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
 ## `duration` seconds. Used after a broken grip (hunter-ai.js's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).
+## Pure rule, shared with the validator: a hunter that is hunting (not wandering), whose last sighting is within
+## HIDE_CHECK_TRAIL of the spot, and that has reached it.
+static func hide_check_triggers(state: int, has_last_known: bool, last_known: Vector2, hunter_at: Vector2,
+		spot_centre: Vector2) -> bool:
+	if state not in [State.CHASE, State.SEARCH, State.INVESTIGATE]:
+		return false
+	return has_last_known and last_known.distance_to(spot_centre) <= GameConfig.HIDE_CHECK_TRAIL \
+		and hunter_at.distance_to(spot_centre) <= GameConfig.HIDE_CHECK_REACH
+
+
 func apply_stun(duration: float) -> void:
 	stun_timer = maxf(stun_timer, duration)
 	_path.clear()
