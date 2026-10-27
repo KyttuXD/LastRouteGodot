@@ -85,7 +85,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
-	hud.hint_label.text = "WASD move   E use   Z / X seal vents   G / H heater / fan   U monitor   Y lamp   R radio   P pause"
+	hud.hint_label.text = NightWatchControls.hint_line(false, LureOffice.make_spec().controls)
 	# the monitor: Classic's camera map goes, Dead Air's panel comes
 	for b in hud.cam_buttons.values():
 		(b as Control).get_parent().queue_free()
@@ -227,6 +227,7 @@ func open_monitor(room := "") -> void:
 	_select_room(monitor_room, false)
 	hud.flash_static()
 	NightWatchSounds.monitor_toggle()
+	_hint()
 	_sync_visuals()
 
 
@@ -239,6 +240,7 @@ func close_monitor() -> void:
 	player.look_frozen = state != State.PLAYING
 	hud.show_monitor(false)
 	NightWatchSounds.monitor_toggle()
+	_hint()
 
 
 func toggle_monitor() -> void:
@@ -263,6 +265,24 @@ func _select_room(room: String, flash: bool) -> void:
 		NightWatchSounds.camera_switch()
 	if sim != null:
 		panel.refresh(sim, monitor_room)
+
+
+func is_playing() -> bool:
+	return state == State.PLAYING
+
+
+## Camera number 1-8 (the keys 1-8 and the number pad): the hall's cameras in LureData.ROOMS order.
+func select_camera_number(n: int) -> void:
+	if n >= 1 and n <= LureData.ROOMS.size():
+		select_camera(String(LureData.ROOMS[n - 1]))
+
+
+func camera_rooms() -> Array:
+	return LureData.ROOMS
+
+
+func _hint() -> void:
+	hud.hint_label.text = NightWatchControls.hint_line(monitor_up, office.spec.controls) + (" · L lure · Q W E R T reboot" if monitor_up else "")
 
 
 func cycle_camera(step: int) -> void:
@@ -477,10 +497,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if NightWatchControls.handle_monitor_event(self, event):
+		return
 	if monitor_up:
-		if event.is_action_pressed(NightWatchControls.MONITOR) or event.is_action_pressed(&"interact"):
-			close_monitor()
-			return
 		if event is InputEventKey and (event as InputEventKey).pressed:
 			var pk := (event as InputEventKey).physical_keycode
 			match pk:
@@ -491,13 +510,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_R: do_reboot("heater")
 				KEY_T: do_reboot("fan")
 				KEY_N: hud.toggle_mute()
-				KEY_LEFT: cycle_camera(-1)
-				KEY_RIGHT: cycle_camera(1)
-			if pk in [KEY_L, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_N, KEY_LEFT, KEY_RIGHT]:
-				return
-		for n in range(1, 9):
-			if event.is_action_pressed(NightWatchControls.camera_action(n)):
-				select_camera(String(LureData.ROOMS[n - 1]))
+			if pk in [KEY_L, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_N]:
 				return
 		return
 	if event.is_action_pressed(NightWatchControls.DOOR_LEFT):
@@ -508,8 +521,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_note(toggle_appliance("heater"))
 	elif event.is_action_pressed(NightWatchControls.LIGHT_RIGHT):
 		_note(toggle_appliance("fan"))
-	elif event.is_action_pressed(NightWatchControls.MONITOR):
-		open_monitor()
 	elif event.is_action_pressed(NightWatchControls.LAMP):
 		toggle_lamp()
 	elif event.is_action_pressed(&"office_radio"):
