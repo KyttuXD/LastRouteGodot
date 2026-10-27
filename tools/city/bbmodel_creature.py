@@ -114,7 +114,7 @@ def shrink_png(png, bb, tw, th):
     return bio.getvalue(), tw, h
 
 
-def build(src, out, scale, face_forward=True):
+def build(src, out, scale, clips_json=None):
     bb = json.load(open(src))
     tex = bb["textures"][0]
     tw, th = tex.get("uv_width", tex["width"]), tex.get("uv_height", tex["height"])
@@ -188,32 +188,54 @@ def build(src, out, scale, face_forward=True):
         add_group(g, g.get("origin", [0, 0, 0]), None)   # root sits at its own origin: feet centre of the model
 
     animations, report_clips = [], {}
-    for a in bb.get("animations", []):
+    node_of_name = {n["name"]: i for i, n in enumerate(nodes)}
+
+    def clip_sources():
+        """Yield {name, length, loop, tracks: {node index: {"rotation": {t: xyz}, "position": {t: xyz}}}} from the bbmodel's own
+        animations, or from a retargeted clips json (bone NAME keyed; see tools/city/spider_clip_map.py)."""
+        if clips_json:
+            for cname, c in json.load(open(clips_json))["clips"].items():
+                tracks = {}
+                for bname, chans_by_name in c["bones"].items():
+                    if bname not in node_of_name:
+                        raise SystemExit("clips json drives a bone the model does not have: %s" % bname)
+                    tr = {"rotation": {}, "position": {}}
+                    for chan in ("rotation", "position"):
+                        for key in chans_by_name.get(chan, []):
+                            tr[chan][round(key[0], 6)] = (key[1], key[2], key[3])
+                    tracks[node_of_name[bname]] = tr
+                yield {"name": cname, "length": c["length"], "loop": bool(c["loop"]), "tracks": tracks}
+        else:
+            for a in bb.get("animations", []):
+                tracks = {}
+                for auuid, an in a["animators"].items():
+                    if auuid not in node_of_uuid:
+                        continue
+                    tr = {"rotation": {}, "position": {}}
+                    for k in an.get("keyframes", []):
+                        if k["channel"] in tr and k.get("data_points"):
+                            dp = k["data_points"][0]
+                            tr[k["channel"]][round(k["time"], 6)] = (float(dp.get("x", 0) or 0), float(dp.get("y", 0) or 0), float(dp.get("z", 0) or 0))
+                    tracks[node_of_uuid[auuid]] = tr
+                yield {"name": a["name"], "length": a["length"], "loop": a.get("loop") == "loop", "tracks": tracks}
+
+    for a in clip_sources():
         chans, samps, closure = [], [], 0.0
-        for auuid, an in a["animators"].items():
-            if auuid not in node_of_uuid:
-                continue
-            ni = node_of_uuid[auuid]
-            g = group_by_uuid[auuid]
+        for ni, by_chan in a["tracks"].items():
             base_t = nodes[ni]["translation"]
             base_q = tuple(nodes[ni].get("rotation", [0, 0, 0, 1]))
-            by_chan = {"rotation": {}, "position": {}}
-            for k in an.get("keyframes", []):
-                if k["channel"] in by_chan and k.get("data_points"):
-                    dp = k["data_points"][0]
-                    by_chan[k["channel"]][round(k["time"], 6)] = (float(dp.get("x", 0) or 0), float(dp.get("y", 0) or 0), float(dp.get("z", 0) or 0))
             for chan, keys in by_chan.items():
                 if not keys:
                     continue
                 times = sorted(keys)
-                if a.get("loop") == "loop" and times[-1] < a["length"] - 1e-6:    # close the loop on the first key
+                if a["loop"] and times[-1] < a["length"] - 1e-6:    # close the loop on the first key
                     keys[round(a["length"], 6)] = keys[times[0]]
                     times = sorted(keys)
                 if times[0] > 1e-6:
                     keys[0.0] = keys[times[0]]
                     times = sorted(keys)
                 vals = [keys[t] for t in times]
-                if a.get("loop") == "loop":
+                if a["loop"]:
                     closure = max(closure, max(abs(vals[0][i] - vals[-1][i]) for i in range(3)))
                 if chan == "rotation":
                     qs, prev = [], None
@@ -230,7 +252,7 @@ def build(src, out, scale, face_forward=True):
                     path, atype = "translation", "VEC3"
                 samps.append({"input": buf.floats(times, "SCALAR", None, True), "output": buf.floats(outv, atype), "interpolation": "LINEAR"})
                 chans.append({"sampler": len(samps) - 1, "target": {"node": ni, "path": path}})
-        looped = a.get("loop") == "loop"
+        looped = a["loop"]
         name = a["name"] + ("-loop" if looped else "")
         animations.append({"name": name, "channels": chans, "samplers": samps})
         report_clips[a["name"]] = {"length": a["length"], "loop": looped, "tracks": len(chans), "loop_closure_error_deg_or_units": round(closure, 6)}
@@ -263,7 +285,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("out")
+    ap.add_argument("--clips", help="retargeted clips json (bone name keyed) used instead of the bbmodel's own animations")
     ap.add_argument("--scale", type=float, default=0.035, help="metres per Blockbench unit (default 0.035: head about 2 m)")
     a = ap.parse_args()
-    r = build(a.src, a.out, a.scale)
+    r = build(a.src, a.out, a.scale, a.clips)
     print(json.dumps({k: r[k] for k in ("bytes", "triangles", "nodes", "skipped_hidden_cubes")}), {k: (v["length"], v["loop"], v["tracks"]) for k, v in r["clips"].items()})

@@ -44,7 +44,7 @@ func _ready() -> void:
 		var animation := player.get_animation(clip)
 		print("  CLIP %s length=%.2f loop=%s tracks=%d" % [clip, animation.length, animation.loop_mode, animation.get_track_count()])
 	var head := model.find_child("head", true, false) as Node3D
-	var tail := model.find_child("abdomen", true, false) as Node3D
+	var tail := (model.find_child("abdomen", true, false) if model.find_child("abdomen", true, false) != null else model.find_child("body", true, false)) as Node3D
 	if head != null and tail != null:
 		print("FORWARD head.z=%.2f abdomen.z=%.2f -> the head is on the %s side (Godot forward is -Z)" % [
 			head.global_position.z, tail.global_position.z, "-Z (forward, correct)" if head.global_position.z < tail.global_position.z else "+Z (BACKWARD)"])
