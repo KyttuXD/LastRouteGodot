@@ -1,7 +1,7 @@
 class_name CitySky
 extends Node3D
 
-## The artificial night sky under the dome: an inverted sphere that follows the camera and is drawn by one unshaded
+## The open night sky: an inverted sphere that follows the camera and is drawn by one unshaded
 ## spatial shader (navy to purple gradient, pixel stars, quantised cloud blobs, a moon). No post effects and no real
 ## lights; the shader is the whole sky.
 
@@ -13,6 +13,7 @@ render_mode unshaded, cull_front, depth_draw_never, fog_disabled;
 uniform vec3 top_color = vec3(0.02, 0.03, 0.10);
 uniform vec3 horizon_color = vec3(0.30, 0.13, 0.33);
 uniform vec3 moon_dir = vec3(0.35, 0.55, -0.75);
+uniform float day = 0.0;
 varying vec3 dir;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -34,7 +35,9 @@ void fragment() {
 	vec2 star_cell = floor(plane * 38.0);
 	float star = step(0.986, hash(star_cell)) * step(0.06, d.y);
 	col += vec3(star) * (0.55 + 0.45 * sin(TIME * 1.6 + hash(star_cell + 3.1) * 6.2831));
-	vec2 cloud_uv = floor(plane * 7.0) / 3.0;
+	// Cloud pixels: the same noise frequency as before, three times finer cells. At floor(plane * 7) one cell near the
+	// zenith spanned ~10 degrees, so looking up the clouds read as big flat purple polygons hanging behind the towers.
+	vec2 cloud_uv = floor(plane * 21.0) / 9.0;
 	float cloud = noise(cloud_uv * 1.1 + vec2(TIME * 0.012, 0.0)) * 0.6 + noise(cloud_uv * 2.7) * 0.4;
 	float mask = smoothstep(0.50, 0.60, cloud) * smoothstep(0.03, 0.28, d.y);
 	vec3 cloud_col = mix(vec3(0.15, 0.09, 0.24), vec3(0.50, 0.26, 0.44), clamp(1.0 - d.y * 2.2, 0.0, 1.0));
@@ -42,6 +45,14 @@ void fragment() {
 	float m = dot(d, normalize(moon_dir));
 	col += vec3(0.04, 0.09, 0.14) * smoothstep(0.980, 0.9975, m);
 	col = mix(col, vec3(0.86, 0.95, 1.0), step(0.9975, m));
+	if (day > 0.5) {
+		// Daytime: the same planar sky, but a blue gradient, white pixel clouds and a sun in the moon's place.
+		vec3 day_col = mix(vec3(0.74, 0.86, 0.97), vec3(0.22, 0.46, 0.86), pow(up, 0.5));
+		day_col = mix(day_col, vec3(0.97, 0.98, 1.0), mask * 0.85);
+		day_col += vec3(1.0, 0.92, 0.6) * smoothstep(0.985, 0.9975, m) * 0.45;
+		day_col = mix(day_col, vec3(1.0, 0.97, 0.82), step(0.9975, m));
+		col = day_col;
+	}
 	ALBEDO = col;
 }
 """
@@ -66,6 +77,12 @@ func _ready() -> void:
 	_mesh_instance.extra_cull_margin = 16384.0
 	add_child(_mesh_instance)
 	top_level = true
+
+
+## Daytime swaps the shader's palette (no stars, a sun instead of the moon); the night look is untouched.
+func set_day(day: bool) -> void:
+	if _mesh_instance != null:
+		((_mesh_instance.mesh as SphereMesh).material as ShaderMaterial).set_shader_parameter("day", 1.0 if day else 0.0)
 
 
 func _process(_delta: float) -> void:

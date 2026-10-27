@@ -25,7 +25,7 @@ func run(host: Node) -> int:
 	_check_settings()
 	await _check_city_scene(host)
 	if _failures == 0:
-		print("  waypoints  one per player (place twice -> one, also in the City), replace/clear/arrival, snapshots and legacy saves, edge clamp at 3 sizes, B/X bindings, settings round trip")
+		print("  waypoints  one per player (place twice -> one, also in the City), replace/clear/arrival, snapshots and legacy saves, edge clamp at 3 sizes, B/V bindings, settings round trip")
 	return _failures
 
 

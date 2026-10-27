@@ -144,7 +144,8 @@ func _check(label: String, result: Dictionary, clip: Dictionary, allow_head_look
 		"%s: state flips (animation %d, gait %d, face %d, clips %s)" % [label, result["anim_changes"], result["gait_changes"], result["face_changes"], result["anims"]])
 	_expect(result["anims"].size() == 1 and (result["anims"][0] == "idle" or String(result["anims"][0]).begins_with("scythe_idle")), "%s: playing %s instead of the idle clip" % [label, result["anims"]])
 	for part in PARTS:
-		var seen: Vector3 = result["ranges"][part]
+		# the view draws the model at HunterRoster scale; the clip ranges are in authored model units
+		var seen: Vector3 = (result["ranges"][part] as Vector3) / HunterRoster.MODEL_SCALE
 		var allowed: Vector3 = (clip[part] as Vector3) + Vector3.ONE * POSITION_SLACK
 		if part == "Head" or part.ends_with("Hand"):
 			allowed += Vector3.ONE * allow_head_look * .6      # the head (and what hangs off the chest) may follow the quiet look

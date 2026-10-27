@@ -10,13 +10,15 @@ extends StreamedRouteGenerator
 var layout: CityLayout
 
 
-func _init(seed_text: String = "CITY") -> void:
+## `prebuilt` lets another layout source (an OsmCityLayout, src/osm_city/) stand in for the generated plan; it must offer the
+## same API (kinds, buildings, decor, chunk_*, in_chunk_range, is_outside, interior_kind_for).
+func _init(seed_text: String = "CITY", prebuilt: CityLayout = null) -> void:
 	super(seed_text)
-	layout = CityLayout.build(world_seed)
+	layout = prebuilt if prebuilt != null else CityLayout.build(world_seed)
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	return CityLayout.chunk_in_range(coord) and layout.chunk_has_open_cells(coord)
+	return layout.in_chunk_range(coord) and layout.chunk_has_open_cells(coord)
 
 
 func biome_for(_coord: Vector3i) -> String:
@@ -26,6 +28,13 @@ func biome_for(_coord: Vector3i) -> String:
 ## A shelter (the 9 x 9 kiosk on every chunk centre that has one) is the city's safe room; chunk (0,0) is the spawn one.
 func is_safe_room(coord: Vector3i) -> bool:
 	return not layout.shelter_for_chunk(coord).is_empty()
+
+
+## True when a route-space position (route cell units) is inside a building: used by hunters' daytime sight, which only
+## applies outdoors.
+func is_indoor_route_position(position: Vector2) -> bool:
+	var kind := layout.kind_at(floori(position.x) + CityLayout.ORIGIN_OFFSET.x, floori(position.y) + CityLayout.ORIGIN_OFFSET.y)
+	return kind == CityLayout.FLOOR or kind == CityLayout.DOOR or kind == CityLayout.KIOSK_FLOOR
 
 
 func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
@@ -62,6 +71,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var region_props := []
 	var buildings := []
 	for building in layout.buildings_in_chunk(coord):
+		if bool(building.get("sealed", false)):
+			continue
 		var rect: Rect2i = building["rect"]
 		var interior: Rect2i = building["interior"]
 		# One cell is kept off every chunk border: the route's fixture placement looks at the cell behind a wall.

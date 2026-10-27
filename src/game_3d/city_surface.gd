@@ -13,20 +13,45 @@ const TILE_SHADER_CODE := """
 shader_type spatial;
 // One layer per atlas tile: mipmaps are per layer, so a distant facade never blends in its neighbour tiles
 // (a 2D atlas with mipmaps smears windows, bricks and glow into each other with distance).
-uniform sampler2DArray tiles : source_color, filter_nearest_mipmap, repeat_disable;
-uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_disable;
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_enable;
 uniform float roughness_value = 0.9;
+uniform float specular_value = 0.18;
 uniform float glow_energy = 1.05;
+// Foliage and flower tiles carry random bright pixels (leaf glints, petals). Sampled per pixel they sparkle with distance and
+// movement, so those layers are pulled toward their own average colour and slightly desaturated: calm, matte greenery.
+uniform float calm_amount = 0.6;
+uniform float calm_desaturate = 0.2;
 varying flat float layer;
 
 void vertex() { layer = UV2.x; }
 
+bool is_calm(float l) {
+	return %CALM_TEST%;
+}
+
 void fragment() {
-	ALBEDO = texture(tiles, vec3(UV, layer)).rgb;
+	vec3 c = texture(tiles, vec3(UV, layer)).rgb;
+	if (is_calm(layer)) {
+		vec3 average = textureLod(tiles, vec3(UV, layer), 5.0).rgb;
+		c = mix(c, average, calm_amount);
+		c = mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), calm_desaturate);
+	}
+	ALBEDO = c;
 	ROUGHNESS = roughness_value;
+	SPECULAR = specular_value;
 	EMISSION = texture(glow, vec3(UV, layer)).rgb * glow_energy;
 }
 """
+
+## Tiles whose random pixel detail is calmed in the shader (see the shader comment).
+const CALM_TILES := ["grass", "flowers", "hedge", "hedge_top", "petals", "blossom", "cypress", "bed_edge"]
+
+static func shader_code() -> String:
+	var tests := []
+	for tile_name in CALM_TILES:
+		tests.append("l > %.1f && l < %.1f" % [float(CityAtlas.tile(tile_name)) - .5, float(CityAtlas.tile(tile_name)) + .5])
+	return TILE_SHADER_CODE.replace("%CALM_TEST%", " || ".join(tests))
 
 static var _materials: Array = []
 static var _tile_arrays: Array = []
@@ -53,23 +78,32 @@ static func tile_arrays() -> Array:
 	return _tile_arrays
 
 
+## City daytime: lit windows and signs read dimmer against the sun.
+static func set_day(day: bool) -> void:
+	for material in materials():
+		if material is ShaderMaterial:
+			(material as ShaderMaterial).set_shader_parameter("glow_energy", 0.35 if day else 1.05)
+
+
 static func materials() -> Array:
 	if not _materials.is_empty():
 		return _materials
 	var arrays := tile_arrays()
 	var shader := Shader.new()
-	shader.code = TILE_SHADER_CODE
-	for roughness in [0.42, 0.92]:
+	shader.code = shader_code()
+	for roughness in [MaterialLook.ROUGHNESS_CITY_GROUND, MaterialLook.ROUGHNESS_CITY_SOLID]:
 		var material := ShaderMaterial.new()
 		material.shader = shader
 		material.set_shader_parameter("tiles", arrays[0])
 		material.set_shader_parameter("glow", arrays[1])
 		material.set_shader_parameter("roughness_value", roughness)
+		material.set_shader_parameter("specular_value", MaterialLook.SPECULAR_DEFAULT)
 		_materials.append(material)
 	var rim := StandardMaterial3D.new()
 	rim.albedo_texture = load(CityAtlas.RIM_PATH) as Texture2D
 	rim.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-	rim.roughness = 0.95
+	rim.roughness = MaterialLook.ROUGHNESS_CITY_SOLID
+	rim.metallic_specular = MaterialLook.SPECULAR_DEFAULT
 	_materials.append(rim)
 	return _materials
 
@@ -88,7 +122,7 @@ func is_empty() -> bool:
 
 ## A quad p0..p3 (bottom-left, bottom-right, top-right, top-left seen from the front) facing `normal`.
 func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: Vector3, tile: int,
-		repeat_v: float = 1.0) -> void:
+		repeat_v: float = 1.0, repeat_u: float = 1.0) -> void:
 	var v: PackedVector3Array = _vertices[mat]
 	var layers: PackedVector2Array = _layers[mat]
 	var n: PackedVector3Array = _normals[mat]
@@ -101,7 +135,8 @@ func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: 
 	if mat == Mat.RIM:
 		t.append(Vector2(0, repeat_v)); t.append(Vector2(1, repeat_v)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
 	else:
-		t.append(Vector2(0, 1)); t.append(Vector2(1, 1)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
+		# One tile is one metre: a face larger (or smaller) than that repeats (or crops) the tile instead of stretching it.
+		t.append(Vector2(0, repeat_v)); t.append(Vector2(repeat_u, repeat_v)); t.append(Vector2(repeat_u, 0)); t.append(Vector2(0, 0))
 	for _i in 4:
 		layers.append(Vector2(float(tile), 0.0))
 	# Godot draws clockwise triangles as front faces.
@@ -136,21 +171,27 @@ func wall_face(x: int, z: int, dir: Vector2i, y0: float, y1: float, tile: int, m
 		center + right * .5 + Vector3(0, y1, 0), center - right * .5 + Vector3(0, y1, 0), normal, tile, repeat_v)
 
 
-## An axis-aligned box (no underside): sides use `side_tile`, the top `top_tile`.
+## An axis-aligned box: sides use `side_tile`, the top `top_tile`. A box standing on the ground has no underside; a
+## raised one (tree canopies, lamp heads, bench seats) closes its bottom with a side tile, or looking up from the street
+## shows only its near side faces, which read as thin slabs floating in the air.
 func box(origin: Vector3, size: Vector3, side_tile: int, top_tile: int = -1, mat: int = Mat.SOLID) -> void:
 	var lo := origin
 	var hi := origin + size
 	var top := side_tile if top_tile < 0 else top_tile
 	quad(mat, Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, hi.y, hi.z),
-		Vector3(lo.x, hi.y, hi.z), Vector3(0, 0, 1), side_tile)
+		Vector3(lo.x, hi.y, hi.z), Vector3(0, 0, 1), side_tile, size.y, size.x)
 	quad(mat, Vector3(hi.x, lo.y, lo.z), Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, hi.y, lo.z),
-		Vector3(hi.x, hi.y, lo.z), Vector3(0, 0, -1), side_tile)
+		Vector3(hi.x, hi.y, lo.z), Vector3(0, 0, -1), side_tile, size.y, size.x)
 	quad(mat, Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, hi.y, lo.z),
-		Vector3(hi.x, hi.y, hi.z), Vector3(1, 0, 0), side_tile)
+		Vector3(hi.x, hi.y, hi.z), Vector3(1, 0, 0), side_tile, size.y, size.z)
 	quad(mat, Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, lo.y, hi.z), Vector3(lo.x, hi.y, hi.z),
-		Vector3(lo.x, hi.y, lo.z), Vector3(-1, 0, 0), side_tile)
+		Vector3(lo.x, hi.y, lo.z), Vector3(-1, 0, 0), side_tile, size.y, size.z)
 	quad(mat, Vector3(lo.x, hi.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(hi.x, hi.y, lo.z),
-		Vector3(lo.x, hi.y, lo.z), Vector3.UP, top)
+		Vector3(lo.x, hi.y, lo.z), Vector3.UP, top, size.z, size.x)
+	if lo.y > .001:
+		# Anything off the ground (canopies, awnings, balconies) is seen from below: give it an underside.
+		quad(mat, Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, lo.y, hi.z),
+			Vector3(lo.x, lo.y, hi.z), Vector3.DOWN, side_tile, size.z, size.x)
 
 
 func build() -> ArrayMesh:

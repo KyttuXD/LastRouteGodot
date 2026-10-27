@@ -69,15 +69,16 @@ func run(host: Node) -> int:
 			_fail("%s admin overlay reads out nothing" % entry[1])
 		var chips := menu._panel.find_children("StateChip", "Label", true, false)
 		if entry[1] == "maze":
-			_expect(chips.size() == 5,
-				"maze admin has %d ON/OFF chips instead of 5" % chips.size())
+			# five game toggles plus the two DebugView toggles (FULLBRIGHT, WIREFRAME) every admin menu carries
+			_expect(chips.size() == 7,
+				"maze admin has %d ON/OFF chips instead of 7" % chips.size())
 			var on_count := 0
 			var off_count := 0
 			for chip in chips:
 				on_count += 1 if String(chip.text) == "ON" else 0
 				off_count += 1 if String(chip.text) == "OFF" else 0
-			_expect(on_count == 1 and off_count == 4,
-				"admin defaults are not four safety toggles OFF plus pixel effect ON")
+			_expect(on_count == 1 and off_count == 6,
+				"admin defaults are not four safety toggles and two debug views OFF plus pixel effect ON")
 			var inventory_ok := false
 			for dropdown in menu._dropdowns:
 				if (dropdown["ids"] as Array) == PlayerController3D.COLLECTIBLE_ITEMS \

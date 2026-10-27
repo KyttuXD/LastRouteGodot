@@ -1035,11 +1035,14 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	if not solid:
 		return
 	var body := StaticBody3D.new()
-	var collision := CollisionShape3D.new()
-	collision.shape = _shared_box_shape(blocker_size)
-	collision.position = at + Vector3.UP * (blocker_size.y * .5)
-	collision.rotation.y = yaw
-	body.add_child(collision)
+	for box in PropColliderBoxes.boxes(prop_type, blocker_size, PropColliderBoxes.variant_paths(prop_type).find(path)):
+		var local: Vector2 = box["c"]
+		var half: Vector2 = box["h"]
+		var collision := CollisionShape3D.new()
+		collision.shape = _shared_box_shape(Vector3(half.x * 2.0, blocker_size.y, half.y * 2.0))
+		collision.position = at + Vector3(local.x, 0.0, local.y).rotated(Vector3.UP, yaw) + Vector3.UP * (blocker_size.y * .5)
+		collision.rotation.y = yaw
+		body.add_child(collision)
 	parent.add_child(body)
 
 
@@ -1109,6 +1112,7 @@ func _add_blank_frame_canvas(frame: Node3D, prop_type: String) -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color("f4f4f1")
 	material.roughness = .86
+	MaterialLook.tame(material)
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	quad.material = material
 	canvas.mesh = quad
@@ -1424,6 +1428,7 @@ static func _material(texture: Texture2D, color: Color,
 		BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	material.uv1_scale = repeat
 	material.roughness = .88
+	MaterialLook.tame(material)
 	return material
 
 
@@ -1486,6 +1491,7 @@ static func _apply_gridmap_style(mesh: Mesh, texture: Texture2D, color: Color,
 		material.texture_filter = \
 			BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 		material.roughness = roughness
+		MaterialLook.tame(material)
 		mesh.surface_set_material(surface, material)
 
 

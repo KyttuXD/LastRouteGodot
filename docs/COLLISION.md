@@ -12,6 +12,17 @@ wall art, ceiling lights, anything wall/ceiling/floor-dressing or on a surface) 
   rerun it after changing a model). A few props are capped or kept authored where the model overhangs what you hit
   (restaurant table balloons, beach umbrella canopy). This removed the invisible walls (bookcase 1.5 m wide for an 0.88 m
   model, beach chair 1.2 m deep for 0.38) and the walk-into-the-model cases (beds, server racks, vending machines).
+- **Boxes follow the mesh, not just its size** (KT hitbox pass, 2026-10-27). `PropColliderBoxes.boxes()` is the one list
+  the 3D view, `CollisionWorld`, the placement clean-up, `GeometryAudit` and the HUD map read:
+  - a box is centred on the model's footprint (`PropColliderSizes.OFFSETS`), not on the pivot: the view turns models by
+    yaw + PI, so a model whose footprint sits off its pivot had its box on the wrong side (strength tester 0.22 m, file
+    boxes, office chairs);
+  - types whose variants differ in size get one box per variant (`VARIANT_BOXES`, picked with the same variant index as
+    `PropModelCatalog.model_path`), so a small dining chair is not walled in by the biggest variant's box;
+  - L-shaped pieces use several boxes (`EXTRA_BOXES`; the corner workstation is two, its open quadrant is walkable);
+  - padding is 4 cm in total, rounded to 1 cm (was rounded up to 5 cm, which added up to 9 cm of invisible wall).
+  `tools/look/collider_mesh_report.gd` lists disagreements, `tools/look/dump_occupancy.gd` prints a model's top-down
+  occupancy (used to author `MULTI_BOX` in the emitter).
 - Hunters path on the 2D grid from the authored footprint cells; they have no physical collider, so they cannot get stuck
   on the box difference (see `docs/HUNTER_PATHING.md`).
 
@@ -33,7 +44,7 @@ Switch: `StreamedRouteGenerator.CLEAR_WALKWAYS`.
 | Suite | What it checks |
 | --- | --- |
 | `collision` | `CollisionAudit` over real chunks of every district, 2 seeds: 0 keep-clear violations; every door walkable and every relay/battery/hiding spot reachable at radius 0.2 and 0.3; no cut-off floor pocket of 1.5 m2 or more at 0.3; the clean-up is deterministic |
-| `colliders` | the derived table matches the models (not stale), no decor has a collider, generated chunks carry the derived box, non-solid props occupy no cells |
+| `colliders` | the derived table matches the models (not stale), no decor has a collider, generated chunks carry the derived box, non-solid props occupy no cells; **every type, variant and yaw** agrees with the spawned mesh within 13 % (`ColliderAudit`: oversize, undersize against the mesh's occupied cells, offset, rotation); a **walk-test** on 75 real chunks (no standable point inside a visible solid, the capsule fits the visible gap beside every prop, no hall-cell centre or doorway blocked by a box where the mesh leaves room); the **minimap** draws exactly the view's boxes |
 | `furniture` | chair and table sizes and colliders (DONE11) |
 | `hunter_real` | hunters on the same real geometry (DONE7 follow-up) |
 
@@ -47,6 +58,16 @@ pockets (none of 1.5 m2).
 At a 1 m lane (radius 0.4) the audit still finds one relay reachable only through a narrower gap in 733 doors; it is
 reported, not enforced.
 
+## The map shows the colliders
+
+The HUD minimap and the full map (`FacilityMap`, fed by `infinite_route_test.gd`'s discovered chunks) used to draw every
+prop and fixture, solid or decor, as the same 0.4 m square at its cell centre. Discovered chunks now carry each solid
+prop's real boxes (`FacilityMap.collider_boxes()`, straight from `CollisionWorld`), drawn as rotated rectangles at their
+true size and offset; decor draws nothing, fixtures a small dot, and props the clean-up removed are not in the chunk.
+Discovery still gates what is shown. The City has no minimap (`hud.set_minimap_available(false)`).
+`CAP_MAP=1` in `tools/look/capture.gd` renders the map over a pick with the 3D scene's real prop collision shapes
+outlined in red (`docs/hitboxes/`).
+
 ## SHOW COLLISION (admin, VISUAL tab)
 
 Draws the solid props' colliders as red boxes and every door's keep-clear zone as a green rectangle, over the world with
@@ -55,6 +76,8 @@ Capture: `CAP_COLLISION=1 CAP_ONLY=restaurant godot --path . res://tools/look/ca
 (`docs/collision_overlay_restaurant.png`).
 
 ## Not done
+- The prison cell-block dresser's props (`_prison_prop_tasks`, `type` "") collide in the view but are not in
+  `CollisionWorld` or on the map; they live inside cells the walk audits do not enter.
 
 - Step-over rules for low props and crouching or hiding under tables: every solid prop is a full-height box, by design.
 - A player-controller slide/step audit (getting caught on box edges); the box padding is the only mitigation.

@@ -1951,7 +1951,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	var specs := _room_template_specs(template, region, side_span, depth_span,
 		mirror, rng)
 	var result := []
-	for spec_index in specs.size():
+	for spec_index in _claim_order(specs):
 		var spec: Dictionary = specs[spec_index]
 		var entry := _template_prop_entry(coord, room, basis, template,
 			spec_index, spec, grid, reserved)
@@ -1962,10 +1962,65 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 				and not result.any(func(other: Dictionary) -> bool:
 					return RoomCatalog.surface_parent_covers(other, entry)):
 			continue
+		if not _collider_clear(entry, result):
+			continue
+		entry["spec_index"] = spec_index
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
+	# back to recipe order, so everything downstream sees the same sequence as before the claim order
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
+	for entry in result:
+		entry.erase("spec_index")
 	return result
+
+
+## Big props claim their space first: solid specs by footprint (largest first), then the rest; ties keep recipe order, so
+## a bed or counter is never dropped because a chair or crate listed earlier took its cell. Surface props come after the
+## desks and tables that carry them. Deterministic (depends only on the recipe).
+static func _claim_order(specs: Array) -> Array:
+	var order := []
+	for i in specs.size():
+		var spec: Dictionary = specs[i]
+		var type := String(spec.get("type", ""))
+		var area := 0.0
+		if bool(spec.get("solid", not bool(spec.get("wall_mount", false)))) and not RoomCatalog.is_surface_prop(type):
+			var size: Vector3 = TEMPLATE_PROP_SIZES.get(type, PropColliderSizes.SIZES.get(type, Vector3.ZERO))
+			area = size.x * size.z
+		order.append([area, i])
+	order.sort_custom(func(a: Array, b: Array) -> bool:
+		return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	var out := []
+	for pair in order:
+		out.append(pair[1])
+	return out
+
+
+## Prop clearance as a placement rule: a solid prop's collision boxes may not interpenetrate an already placed solid's
+## beyond what GeometryAudit allows (a chair tucked under its table, a stool at a counter).
+static func _collider_clear(entry: Dictionary, placed: Array) -> bool:
+	if not bool(entry.get("solid", true)) or bool(entry.get("wall_mounted", false)):
+		return true
+	var mine := _collider_rects(entry)
+	for other in placed:
+		if not bool(other.get("solid", true)) or bool(other.get("wall_mounted", false)):
+			continue
+		var allowance := GeometryAudit.tol() + GeometryAudit.pair_allowance(String(entry["type"]), String(other["type"]))
+		for a in mine:
+			for b in _collider_rects(other):
+				if GeometryAudit.obb_depth(a["c"], a["h"], a["yaw"], b["c"], b["h"], b["yaw"]) > allowance:
+					return false
+	return true
+
+
+static func _collider_rects(prop: Dictionary) -> Array:
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	var at := Vector2(cell) + Vector2(.5, .5) + Vector2(prop.get("mount_offset", Vector2.ZERO)) + Vector2(prop.get("placement_offset", Vector2.ZERO))
+	var yaw := float(prop.get("yaw", 0.0))
+	var out := []
+	for box in PropColliderBoxes.for_prop(prop):
+		out.append({"c": PropColliderBoxes.world_centre(at, box["c"], yaw), "h": box["h"], "yaw": yaw})
+	return out
 
 
 ## A grid of long tables for a great hall. Each table sits at (column side, row depth) with `chair_span` chairs along both

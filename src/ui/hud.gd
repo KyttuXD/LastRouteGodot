@@ -106,6 +106,7 @@ const MAX_FLOOR_UNITS := 9
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	minimap.ghost_ping = true   # Porcelle pulses on the minimap; the full map keeps her steady mark
 	_apply_scheme_frames()
 	status_bar = HudStatusBar.new()
 	add_child(status_bar)

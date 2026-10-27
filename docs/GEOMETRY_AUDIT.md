@@ -61,7 +61,17 @@ or corner cell is crossed by a hall in both directions, matched neither test and
 tiles: the grey tile patch in the middle of the carpet at every junction. Junction cells next to a one-hall-wide cell now take
 the hall's centre strip (`runner_c`). Audit rules: `junction_floor` (that fallback), `hall_nub` (single wall cell jutting into a
 hall; 0 found, so the wall mass in KT's screenshot is not a grid stub and still needs a repro with its seed/position).
-Not yet verified by a capture: my junction captures landed in a wrong spot, so the visual before/after is still open.
+`docs/junction_before_after.png` (gothic, `CAP_JUNCTION=gothic` in tools/look/capture.gd): top before shows the grey stone tile patch cut into the red carpet at a hall junction, bottom after shows the carpet running through. The jutting wall mass is still not reproduced.
+
+## City see-through facades (KT: "smaller blocks can be seen through")
+
+Root cause: `_build_facade_cell` drew a facade face only toward OUTDOOR neighbours. A facade cell beside a lamp/tree/bollard
+(POST), hedge, bed or water cell had no face, a taller building beside a lower one had no face above its neighbour's roof,
+and towers had no roof: the tower was open there and its inside showed through (about 100 undrawn edges per seed). Fix:
+`CityFacilityView3D.facade_span` (draw from the neighbouring mass's top to this building's top for every non-interior
+neighbour) plus a roof quad. Audit rule `facade_hole` (0 now; was 67-132 per city, old OUTDOOR-only rule on the same layouts).
+`docs/city_facade_holes_before_after.png`: top before, bottom after (centre column: the lamp-side seam in the tower is gone).
+Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); not touched here.
 
 ## Not covered / left
 
@@ -72,3 +82,26 @@ Not yet verified by a capture: my junction captures landed in a wrong spot, so t
 * Fixtures, pickups and hunter props are not audited. Doors are checked only at the grid level (frame vs wall cells), not mesh vs mesh.
 * The City lane (`claude/city-lane`) rewrites facades/props/sky; its facade boxes, awnings, signs and windows need re-auditing once it lands (`geometry_overlap` runs on whatever `CityLayout` produces). Window quads glowing through overlapping masses came from the stub masses fixed here.
 * Z-fight of coplanar faces between different materials is only checked for Night Watch slabs; Last Route keeps using the `coplanar` suite.
+
+## City: looking up from the Ring Road
+
+`docs/city_ring_road_up_before_after.png` (top before, bottom after; cell 200:67, pitch 55, four headings;
+`tools/look/geometry_capture.tscn`, now with `CAP_PITCH` and `CAP_HIDE=NodeName,...` to isolate layers).
+
+- Thin dark arcs across the sky: the dome shell (ribs, rings, pylons, viaducts) in `CityDomeFrame`. Removed, matching
+  `claude/city-lane` 43f09e20.
+- Maroon slabs floating overhead: tree canopies (and other raised `CitySurface.box`es) had no underside, so from below
+  only the near side faces showed. Raised boxes now close their bottom.
+- Glowing window squares with no wall: skyline windows were offset along the radial direction from axis-aligned tower
+  boxes, so diagonal towers' windows hung beside or inside the box. They now sit on the box face that looks at the city.
+- Big flat purple polygons behind towers: the sky shader's cloud pixels were ~10 degrees wide near the zenith. Same
+  cloud shapes, three times finer cells.
+- Camera far (420) covers the sky sphere (380) and the skyline; no visibility_range is set on City geometry.
+
+`geometry_overlap` now checks: the dome frame builds only towers + windows, every skyline window is on a tower face,
+and a raised `CitySurface` box has an underside.
+
+Straight up from Central Avenue (`docs/city_central_avenue_zenith_before_after.png`, left before bb183674, right after):
+the ring, spokes and cyan bracket markers were the dome ribs, rings and beacons of `CityDomeFrame._build_frame`. Render
+check: `tools/look/zenith_check.tscn` (not headless) looks straight up from Central Avenue, Main Street and the Ring Road
+and fails if the dome frame darkens more than 0.2% of the zenith disc (old frame: 0.9 to 3.7%, now 0%).

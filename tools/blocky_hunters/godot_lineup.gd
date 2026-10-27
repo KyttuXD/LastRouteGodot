@@ -1,17 +1,14 @@
 extends SceneTree
 
 ## Windowed lineup screenshot of the cube hunters (idle, walk and a few expressions), one run, all models.
-##   godot4 --path . --script tools/blocky_hunters/godot_lineup.gd -- OUT_PNG [tall]
+##   godot4 --path . --script tools/blocky_hunters/godot_lineup.gd -- OUT_PNG
 ## Hunters stand in a row facing the camera; the second row plays "walk".
 
 func _initialize() -> void:
 	var out := "/tmp/blocky_lineup.png"
 	var suffix := ""
 	for a in OS.get_cmdline_user_args():
-		if a == "tall":
-			suffix = "_tall"
-		else:
-			out = a
+		out = a
 	var root := Node3D.new()
 	get_root().add_child(root)
 	var env := WorldEnvironment.new()
