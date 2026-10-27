@@ -98,6 +98,17 @@ Entry: the hub card NIGHT WATCH is unlocked (`GameRegistry`, status in progress)
 
 Everything is deterministic from a seed, uses no post effects and adds no version information. Audio is not in the slice (footsteps by room pan, door thumps, the blackout hum are the first thing to add).
 
+## 5b. The art pass (detail and baked shading)
+
+Everything Night Watch ships is built by `src/night_watch/night_watch_art.gd` from shaded cubes in named prop groups, in our blocky pixel style, with no post effects and in NEW files only (the shared prop families are untouched):
+
+- **Painted textures:** one 16 x 16 pixel tile per material kind (wood, metal, plastic, fabric, concrete, glass, wall, floor, screen, label, light, red, green), each a hand-picked 3-4 tone ramp with its own pattern (wood grain and plank gaps, brushed metal with rivets and edge highlights, woven fabric, speckled concrete, glass with a diagonal highlight, wall panel lines with bolts, tiled floor with grout and dirt, screen scanlines, hazard stripes), nearest filtering. A texture may be at most 32 x 32 with at most 8 colours (checked).
+- **Baked shading:** every cube is built face by face with vertex colours: the top face lighter, the bottom darker, the sides in between from one fixed light direction, and a darker band at the foot of the side faces as contact occlusion, so cubes read as volume under flat lighting.
+- **Detail:** panel lines, baseboards and crown trim, bolts and screws, conduit and pipe runs, vent grilles and louvers, handles, name plates, door seals and thresholds, hazard-striped headers, button guards, a keyboard with key rows, papers, a clipboard, a cup, Zellia's radio (dial, grille, antenna, LED), a lamp with arm and shade, a chair with arms, base and wheels, a breaker box with hinges, switches and LEDs, a shelf unit with boxes, a fire extinguisher, a notice board and a ceiling grille in the office; each of the eight camera rooms has its own set (curtains, stage lights and a microphone; tables with cloths, chairs and vases; crates, a costume rack and a mirror; lockers, a runner, signs and an emergency light; shelves, a mop bucket and paint; counters, a hood with hanging pans, a fridge and a stove; a pillar, a bench, a vending machine and a plant) plus shared trim, a pipe, a vent and clutter.
+- **Emissive** only where a name allows it (screens, lamp shade, LEDs, labels, buttons, signs, the clock face, ceiling panels): everything else is lit by the few real lights (desk lamp, two door lights while held, a dim light per hall) and the feed camera's brighter ambient.
+- **Checks** (suite `night_watch`): texture size and colour limits; the office has every named prop; no prop with untextured cubes, with emissive cubes that are not allowed to glow, a single material look, or fewer than three cubes (a plain slab); the office has at least 260 cubes (it has 272 in 30 props) and the eight camera rooms at least 420 (445) with at least three prop groups each; cubes carry baked vertex-colour shading.
+- **Captures:** ![office](night_watch_office.png) ![door light and panel](night_watch_door_light.png) ![dining feed](night_watch_feed.png) ![stage feed](night_watch_feed_stage.png)
+
 ## 6. Risks
 
 - **Scope.** Nine 2D games cannot be ported at once; the plan is Classic first (the spine and Mixed Shift's base), then one mode per milestone.

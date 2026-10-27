@@ -62,7 +62,7 @@ func _build_world() -> void:
 	env.background_color = Color(0.02, 0.02, 0.03)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.38, 0.40, 0.55)
-	env.ambient_light_energy = 0.5
+	env.ambient_light_energy = 1.0
 	world_env.environment = env
 	add_child(world_env)
 	office = NightWatchOffice.new()

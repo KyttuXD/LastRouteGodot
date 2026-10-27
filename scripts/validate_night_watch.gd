@@ -174,6 +174,46 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	_expect(shift.office != null and shift.office.slabs.size() == 2 and shift.office.door_lights.size() == 2 and shift.office.prompts.size() >= 8, "the office has no two doors, door lights and stations")
 	_expect(shift.building.rooms.size() == 8 and shift.hud.cam_buttons.size() == 8, "the building does not have eight camera rooms and buttons")
+	# --- the art pass: painted textures within limits, shaded cubes, no plain slabs, emissive only where intended
+	for kind in NightWatchArt.RAMPS:
+		var ts := NightWatchArt.texture_stats(kind)
+		_expect((ts["size"] as Vector2i).x <= 32 and (ts["size"] as Vector2i).y <= 32, "the %s texture is bigger than 32 x 32" % kind)
+		_expect(int(ts["colors"]) <= 8 and int(ts["colors"]) >= 3, "the %s texture has %d colours (3 to 8 allowed)" % [kind, int(ts["colors"])])
+	var must_have := ["Desk", "Monitor", "Keyboard", "Radio", "DeskLampProp", "Chair", "BreakerBox", "VentHatch", "ShelfUnit", "ControlPanelL",
+		"ControlPanelR", "DoorFrameL", "DoorFrameR", "SlabL", "SlabR", "WallClock", "Poster", "Shell", "HallL", "HallR", "Papers", "Cup"]
+	var office_cubes := 0
+	for prop_name in must_have:
+		_expect(shift.office.props.has(prop_name), "the office has no %s prop" % prop_name)
+	for prop_name in shift.office.props:
+		var st := NightWatchArt.prop_stats(shift.office.props[prop_name])
+		office_cubes += int(st["cubes"])
+		_expect(int(st["untextured"]) == 0, "%s has untextured cubes" % prop_name)
+		_expect((st["bad_emissive"] as Array).is_empty(), "%s has emissive cubes that are not allowed to glow: %s" % [prop_name, str(st["bad_emissive"])])
+		if prop_name not in ["Cup", "Bin"]:
+			_expect(int(st["cubes"]) >= 3, "%s is a plain slab (%d cubes)" % [prop_name, int(st["cubes"])])
+		_expect(int(st["looks"]) >= 2 or int(st["cubes"]) < 4, "%s has one material look only" % prop_name)
+	_expect(office_cubes >= 260, "the office has only %d cubes (260 or more expected from the art pass)" % office_cubes)
+	var building_cubes := 0
+	for id in shift.building.rooms:
+		var groups := 0
+		for key in shift.building.props:
+			if String(key).begins_with(String(id) + "/"):
+				groups += 1
+				var bs := NightWatchArt.prop_stats(shift.building.props[key])
+				building_cubes += int(bs["cubes"])
+				_expect(int(bs["untextured"]) == 0 and (bs["bad_emissive"] as Array).is_empty(), "%s has untextured or wrongly emissive cubes" % key)
+		_expect(groups >= 3, "the %s camera room has only %d prop groups" % [id, groups])
+	_expect(building_cubes >= 420, "the eight camera rooms have only %d cubes (420 or more expected)" % building_cubes)
+	print("  art: office %d cubes in %d props, camera rooms %d cubes" % [office_cubes, shift.office.props.size(), building_cubes])
+	# shading is baked: a cube has vertex colours that differ between its top and bottom
+	var sample := shift.office.find_child("DeskTop", true, false) as MeshInstance3D
+	var colors: PackedColorArray = sample.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+	var lo := 9.0
+	var hi := 0.0
+	for col in colors:
+		lo = minf(lo, col.r)
+		hi = maxf(hi, col.r)
+	_expect(colors.size() == 36 and hi - lo > 0.3, "cubes do not carry baked shading (range %.2f)" % (hi - lo))
 	for id in ["dovelle", "ravelle", "aki"]:
 		_expect((shift._models[id] as Node3D).visible and (shift._models[id] as Node3D).get_child_count() > 0, "%s is not on night 3's floor with a model" % id)
 	_expect(not (shift._models["ilyra"] as Node3D).visible, "Ilyra (level 0 on night 3) is shown")
