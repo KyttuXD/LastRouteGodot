@@ -28,6 +28,6 @@ blender --background --python tools/props/render_sheet.py -- OUT.png art/props-3
 ```
 Designs in metres live in `blocky_props_rework2.py` and `blocky_props_rework3.py` (`TARGET_SIZE`, rotated parts via `Part.add(..., rot=, pivot=)`); see docs/PROPS_AUDIT.md.
 
-Colliders: after any model change regenerate `src/config/prop_collider_sizes.gd` (`tools/props/emit_collider_sizes.gd`). Imports and
+Colliders: after any model change regenerate `src/config/prop_collider_sizes.gd` (`godot --headless --path . res://tools/props/emit_collider_sizes.tscn`). Imports and
 validators for testing run on the mini (`Claude-Setup/mini-run.sh`), then the generated `.import` files and the collider table are
 pulled back and committed.

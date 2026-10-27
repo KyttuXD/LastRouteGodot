@@ -142,6 +142,11 @@ func axe_chop(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("axe_chop", pan, intensity)
 
 
+## A hunter checking a bed or wardrobe: wood creak and a rattle, the tell before it pulls the spot open.
+func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("hide_search", pan, intensity)
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -515,6 +520,10 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"hide_search": c = [_tone(92, .42, .09, 0, "sawtooth", pan),
+			_noise(.3, .07, 520, .05, pan, .8),
+			_thump(70, .16, .12, .18, pan),
+			_thump(64, .16, .10, .46, pan)]
 		"tool_break": c = [_noise(.16, .095, 1850, 0, pan, 1.22),
 			_tone(310, .08, .065, .025, "square", pan),
 			_tone(118, .18, .052, .09, "triangle", pan)]

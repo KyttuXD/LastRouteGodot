@@ -135,7 +135,7 @@ func _process(delta: float) -> void:
 	if _since_send < 1.0 / SEND_HZ:
 		return
 	_since_send = 0.0
-	_place.rpc(_local_state())
+	_send_to_live(_place, [_local_state()])
 
 
 func _local_state() -> Dictionary:
@@ -157,6 +157,7 @@ func _local_state() -> Dictionary:
 		"depth": GameState.depth,
 		"hidden": controller.hidden,
 		"hiding_spot": controller.hidden_spot,
+		"hiding_style": controller.hiding_style(),
 		"in_safe_zone": controller.is_in_safe_zone(),
 		"noise": controller.noise,
 		# Publish the actual rendered beam, including held-slot, charge and
@@ -292,9 +293,22 @@ func _place(state: Dictionary) -> void:
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
-	body.visible = _visible_from_state(state, true)
-	_sync_remote_equipment(id, body, state)
 	var clip := String(state.get("clip", "idle"))
+	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
+	# PlayerController3D.HIDE_MOVE_SECONDS), crouched for a bed, then disappears.
+	var shown := _visible_from_state(state, true)
+	if not shown:
+		var now := Time.get_ticks_usec()
+		if not body.has_meta("hide_started_usec"):
+			body.set_meta("hide_started_usec", now if body.visible else 0)
+		if now - int(body.get_meta("hide_started_usec")) < int(PlayerController3D.HIDE_MOVE_SECONDS * 1_000_000.0):
+			shown = true
+			if String(state.get("hiding_style", "")) == "bed":
+				clip = "crouch"
+	elif body.has_meta("hide_started_usec"):
+		body.remove_meta("hide_started_usec")
+	body.visible = shown
+	_sync_remote_equipment(id, body, state)
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
@@ -697,13 +711,35 @@ func stream_centers() -> Array[Vector3i]:
 	return result
 
 
+## A peer we may still send to: its ENet connection is up. Between a guest dropping and the host noticing (the ENet
+## timeout), the peer is still listed but every send fails with "Unable to send packet ... max channels: 0" (the playtest
+## party logged ~1,200 of them); skip it instead.
+func peer_is_live(peer_id: int) -> bool:
+	if not multiplayer.has_multiplayer_peer() or peer_id == multiplayer.get_unique_id():
+		return false
+	if not peer_id in multiplayer.get_peers():
+		return false
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null:
+		return true
+	var packet_peer := enet.get_peer(peer_id)
+	return packet_peer == null or packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+
+
+## Sends an RPC to every live peer (instead of .rpc(), which also targets peers that are already gone).
+func _send_to_live(method: Callable, args: Array) -> void:
+	for peer_id in multiplayer.get_peers():
+		if peer_is_live(peer_id):
+			method.rpc_id.callv([peer_id] + args)
+
+
 ## Hunters, from the host only.
 signal hunters_received(data: Array)
 
 
 func broadcast_hunters(data: Array) -> void:
 	if RoomState.online and RoomState.is_host:
-		_hunters.rpc(data)
+		_send_to_live(_hunters, [data])
 
 
 @rpc("authority", "call_remote", "unreliable_ordered")
@@ -759,7 +795,7 @@ func _submit_event(event: Dictionary) -> void:
 
 func relay_world_event(event: Dictionary) -> void:
 	if RoomState.online and RoomState.is_host:
-		_event.rpc(_canonical_world_event(event))
+		_send_to_live(_event, [_canonical_world_event(event)])
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -867,7 +903,7 @@ func _greet(id: int) -> void:
 ## rebuild already-connected guests too, not only peers which join afterward.
 func broadcast_snapshot() -> void:
 	if RoomState.online and RoomState.is_host and snapshot_source.is_valid():
-		_snapshot.rpc(snapshot_source.call())
+		_send_to_live(_snapshot, [snapshot_source.call()])
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -911,7 +947,8 @@ func send_player_event(peer_id: int, event: Dictionary) -> void:
 	else:
 		if String(event.get("what", "")) == "capture":
 			_pending_captures[peer_id] = Time.get_ticks_usec()
-		_player_event.rpc_id(peer_id, event)
+		if peer_is_live(peer_id):
+			_player_event.rpc_id(peer_id, event)
 
 
 @rpc("authority", "call_remote", "reliable")
