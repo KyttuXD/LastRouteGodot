@@ -1,7 +1,7 @@
 class_name EirysGimmick
 extends HunterGimmick
 
-## Eirys' running-data ratchet (hunterAbilities.eirys.runningData). Ported
+## Elise' running-data ratchet (hunterAbilities.eirys.runningData). Ported
 ## from eirys.js's updateRunningData(): every second the target spends
 ## actually sprinting outside a safe zone accumulates, and — the whole point —
 ## NEVER decays. At 100% she locks into a permanent chase on the target's live

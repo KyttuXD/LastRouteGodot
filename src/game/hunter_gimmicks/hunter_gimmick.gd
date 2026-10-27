@@ -76,7 +76,7 @@ func runs_while_inactive() -> bool:
 
 
 ## True for a gimmick whose hunter can never trigger a capture at all --
-## Zephyra, who is a stationary shopkeeper the player stands right next to on
+## Zellia, who is a stationary shopkeeper the player stands right next to on
 ## every single trade. The original's merchant prep short-circuits her whole
 ## update before the shared capture-distance check ever runs; this is that
 ## same short-circuit, since HunterBrain.update()'s own check is otherwise
@@ -91,7 +91,7 @@ func sight_scale(_brain: HunterBrain) -> float:
 
 
 ## True for a hunter who can sense and grab a player hidden in a hiding spot (2D `breachesHiding`/`breaksHiding`:
-## Eirys, Loxelle). The brain then ignores the hidden flag while her last known point is within reach of it.
+## Elise, Loxelle). The brain then ignores the hidden flag while her last known point is within reach of it.
 func breaches_hiding() -> bool:
 	return false
 

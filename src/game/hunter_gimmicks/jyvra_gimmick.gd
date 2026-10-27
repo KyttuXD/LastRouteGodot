@@ -1,7 +1,7 @@
 class_name JyvraGimmick
 extends HunterGimmick
 
-## Jyvra's hiding timeout (hunterAbilities.jyvra.hidingTimeout). Ported from
+## Javelle's hiding timeout (hunterAbilities.jyvra.hidingTimeout). Ported from
 ## jyvra.js's updateHiddenHunterPressure: a locker is not safety from her. Stand
 ## still inside one while she is over it and after eight seconds she reaches in
 ## and pulls you out — alive, but standing in the open with her right there.

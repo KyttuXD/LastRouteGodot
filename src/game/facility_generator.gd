@@ -1437,7 +1437,7 @@ func hiding_exit_position(spot: Dictionary) -> Vector2:
 var vents: Array = []
 
 
-## Zephyra's economy. A generator-owned scatter, same reasoning as
+## Zellia's economy. A generator-owned scatter, same reasoning as
 ## place_vents(): the physical pickups (FacilityView3D._spawn_interactables)
 ## and anything reading `generator.coins` (nothing does yet, but Ysolde's
 ## `generator.batteries` precedent is the shape a future coin-aware gimmick

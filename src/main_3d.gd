@@ -32,7 +32,7 @@ var hunter_view: HunterView3D
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
 var _death_moment: DeathMoment
-## How the local runner is dying, for the death line pick: contact (default), deal (Zephyra), cold (Wynelle).
+## How the local runner is dying, for the death line pick: contact (default), deal (Zellia), cold (Wynelle).
 var _death_via := "contact"
 var pixel_signal_effect: PixelSignalEffect
 var _capture_resolving := false
@@ -338,13 +338,13 @@ func _update_gameplay(delta: float) -> void:
 			if not note.is_empty():
 				hud.show_message(note)
 		view.brain.world_events.clear()
-		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
+		# Javelle reaching into a locker. Resolved here rather than in the gimmick
 		# because it moves the PLAYER, which the brain has no handle on.
 		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
 			_dispatch_player_event(target, {
 				"what": "eject",
 				"at": view.brain.gimmick.ejected_to,
-				"message": "JYVRA PULLED YOU OUT OF HIDING",
+				"message": "JAVELLE PULLED YOU OUT OF HIDING",
 			})
 		if view.brain.gimmick is LoxelleGimmick:
 			for toggle in view.brain.gimmick.toggles:
@@ -406,7 +406,7 @@ func _local_hunter_target() -> Dictionary:
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
 		# Actually moving under sprint, not merely holding the key — the
-		# original gates on `sprinting && travelSpeed > .1` (Eirys).
+		# original gates on `sprinting && travelSpeed > .1` (Elise).
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		# For beam-aim checks (Nyxie's dispel).
 		"facing": player.facing,
@@ -420,7 +420,7 @@ func _local_hunter_target() -> Dictionary:
 		# network she lurks in -- see VerrineGimmick.after_perception.
 		"in_vent": player.in_vent,
 		"vent_time_in": player.vent_time_in,
-		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
+		# Zellia's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
 		"map_open": hud.map_is_open(),
@@ -647,7 +647,7 @@ func _use_vent(vent_id: String) -> String:
 	return "The grate won't budge."
 
 
-## Zephyra's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
+## Zellia's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
 ## key while her menu is open) -- see PlayerController3D.shop_resolver.
 func _use_shop(action: String) -> String:
 	for view in hunter_views:
@@ -669,7 +669,7 @@ func _use_shop(action: String) -> String:
 	return ""
 
 
-## What the interaction prompt shows near Zephyra -- checked after the
+## What the interaction prompt shows near Zellia -- checked after the
 ## ordinary nearest-interactable prompt, since she is not one.
 func _shop_prompt() -> String:
 	for view in hunter_views:

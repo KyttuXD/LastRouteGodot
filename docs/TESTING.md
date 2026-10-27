@@ -24,7 +24,7 @@ Always run it as a scene, never with `--script` (no autoloads there). `scripts/v
 | layout | `hunter dossier is missing populated DossierCounter` |
 | roster | `dossier covers 26 entries for a 38-hunter roster` |
 | hunters | `holding the beam on Aki counted as 3 flashes; a held torch is one` |
-| hunters | Zephyra shop: menu not returned, and the cool, repair and pesticide trades do not complete (4 failures) |
+| hunters | Zellia shop: menu not returned, and the cool, repair and pesticide trades do not complete (4 failures) |
 | props | `props are not using the shared matte per-vertex block style (4/26)` (locker parts) |
 
 A change is a regression only if it adds to this list.

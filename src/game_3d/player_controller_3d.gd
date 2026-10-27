@@ -278,7 +278,7 @@ var in_vent := false
 var vent_entry_id := ""
 var vent_time_in := 0.0
 
-## Zephyra's shop -- the same indirection as vent_resolver/music_box_resolver.
+## Zellia's shop -- the same indirection as vent_resolver/music_box_resolver.
 ## `shop_resolver.call("open")` opens or re-toasts the menu (the gimmick
 ## itself checks range, so a far-away call is a harmless no-op the same way
 ## _nearest_interactable() already handles distance for ordinary pickups);
@@ -289,7 +289,7 @@ var vent_time_in := 0.0
 var shop_resolver: Callable
 var shop_prompt_provider: Callable
 
-## Zephyra's pesticide trade: a real timer, not a boolean, so it reads the
+## Zellia's pesticide trade: a real timer, not a boolean, so it reads the
 ## same way stun_timer/hiding_lock_timer do and main_3d can thread a plain
 ## "time remaining" into the hunter target dict for Loxelle/Ysolde to skip
 ## their own ability while it runs.
@@ -389,7 +389,7 @@ func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
 	return cleared_message if not cleared_message.is_empty() else "Hidden. Interact to come out."
 
 
-## `forced`: another hunter reaching in (Jyvra, Loxelle) rather than the player
+## `forced`: another hunter reaching in (Javelle, Loxelle) rather than the player
 ## working the exit key. A forced pull ignores Ceryth's lock on purpose --
 ## being physically dragged out is not the thing the lock exists to prevent.
 func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:

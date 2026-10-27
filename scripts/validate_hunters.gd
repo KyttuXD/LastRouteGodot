@@ -468,7 +468,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	view._apply_model("verrine")
 	await host.get_tree().process_frame
 	_expect_world_silhouette(view, .72, "an active stealth hunter")
-	# A locker hide must not erase other hunters. Jyvra standing at the door
+	# A locker hide must not erase other hunters. Javelle standing at the door
 	# is the readable tell; making her (or anyone else) vanish with the player
 	# is the same fully-invisible failure as a broken stealth fade.
 	if not scene.facility_view.generator.hiding_spots.is_empty():
@@ -505,11 +505,11 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	scene.queue_free()
 
 
-## Hiding spots, and Jyvra reaching into one.
+## Hiding spots, and Javelle reaching into one.
 ##
 ## Two failure modes worth naming. A locker you can enter and not leave is the
 ## worse one, and it was real: hiding freezes input, and the freeze swallowed
-## the key that gets you out. The other is Jyvra's timer keying on her being in
+## the key that gets you out. The other is Javelle's timer keying on her being in
 ## "chase" -- the shared brain drops her out of chase the moment you hide, so
 ## the ejection never fires and the locker is permanent safety.
 func _hiding_spots_and_jyvra(host: Node) -> void:
@@ -559,10 +559,10 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 	scene.player.leave_hiding(Vector2(cell) + Vector2(0.5, 0.5))
 	_expect(not scene.player.hidden, "the player could not get back out of a locker")
 
-	# Jyvra standing over an occupied spot for her full count.
+	# Javelle standing over an occupied spot for her full count.
 	var brain := _brain("jyvra", Vector2(cell) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
-		_fail("Jyvra has no gimmick")
+		_fail("Javelle has no gimmick")
 		scene.queue_free()
 		return
 	var hiding := _target(Vector2(cell) + Vector2(0.5, 0.5))
@@ -574,10 +574,10 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 		if brain.gimmick.ejecting:
 			fired = true
 			break
-	_expect(fired, "Jyvra stood over an occupied locker for %.0fs and never reached in"
+	_expect(fired, "Javelle stood over an occupied locker for %.0fs and never reached in"
 		% GameConfig.JYVRA_HIDING_SECONDS)
 	_expect(brain.stun_timer > 0.0,
-		"Jyvra's ejection left her free to grab the player she just pulled out")
+		"Javelle's ejection left her free to grab the player she just pulled out")
 	print("  jyvra     pulls a hidden player out after %.0fs, then stalls"
 		% GameConfig.JYVRA_HIDING_SECONDS)
 	scene.queue_free()
@@ -1004,7 +1004,7 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 	# not exist on a bare .new()). The generator comes along with it, already
 	# carrying a real vent network from _spawn_interactables' own call to
 	# place_vents(). Verrine's own brain is still built by hand, same as
-	# Jyvra/Ceryth's checks -- the scene's own random draw has no reason to
+	# Javelle/Ceryth's checks -- the scene's own random draw has no reason to
 	# have actually drawn her.
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
@@ -1121,7 +1121,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 
 	var brain := _brain("zephyra", Vector2(generator.start) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
-		_fail("Zephyra has no gimmick")
+		_fail("Zellia has no gimmick")
 		scene.queue_free()
 		return
 
@@ -1131,14 +1131,14 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	var settled_at := brain.position
 	for i in 10:
 		brain.update(STEP, generator, _target(settled_at), 1, 0)
-		_expect(brain.position == settled_at, "Zephyra moved -- she is supposed to hold position forever")
+		_expect(brain.position == settled_at, "Zellia moved -- she is supposed to hold position forever")
 	_expect(brain.state == HunterBrain.State.IDLE,
-		"Zephyra reacted to the player standing on top of her")
+		"Zellia reacted to the player standing on top of her")
 
 	# Standing exactly where a capture would ordinarily trigger must never
 	# actually capture her.
 	var captured := brain.update(STEP, generator, _target(settled_at), 1, 0)
-	_expect(not captured, "Zephyra captured the player -- she is supposed to be immune")
+	_expect(not captured, "Zellia captured the player -- she is supposed to be immune")
 
 	# Out of range: no shop.
 	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at, Vector2(0, 1))
@@ -1187,7 +1187,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 
 	# Repair, with a real sabotaged relay on the floor.
 	if generator.relays.is_empty():
-		_fail("no relays on the live floor to test Zephyra's repair against")
+		_fail("no relays on the live floor to test Zellia's repair against")
 	else:
 		var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
 		var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)

@@ -5,16 +5,16 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 26 of 26 A-Z hunters ported, plus 12 Void incursion models.** Dovelle (baseline), Quirith (flashlight
-tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
+**Status: 26 of 26 A-Z hunters ported, plus 12 Void incursion models.** Dovelle (baseline), Quenelle (flashlight
+tracker), Elise (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Wynelle (cold materializer), Thessine (see below), Haelith
 (relay pursuer), Ysolde (battery thief), Opalie (relay guardian), Aki
-(phantom exposure), Porcelle (radar-only), Jyvra (locker ejection), Loxelle
+(phantom exposure), Porcelle (radar-only), Javelle (locker ejection), Loxelle
 (passive incinerator), Ceryth (hiding trap), **Briselle** (relay sabotage +
 resecure hold), **Ferryn** (permanent stalk + facility-wide scream),
 **Glyra** (spawn-room music box), **Ilyra** (corner observer + shadow
-pounce), **Verrine** (vent lurker) and **Zephyra** (coin exchange), plus the
+pounce), **Verrine** (vent lurker) and **Zellia** (coin exchange), plus the
 two rule-summoned specials Nyxie (darkness stalker) and Solyth
 (heat-summoned). See `MIGRATION.md`'s "Hunter roster" section for how
 they're wired.
@@ -140,8 +140,8 @@ once, and both are far cheaper than the big subsystems below.
 
 | Unlock | Hunters unblocked | What it takes |
 | --- | --- | --- |
-| **Relay/battery collected-state wiring** | up to 6 — Briselle, Haelith, Opalie, Ysolde outright; Solyth, Zephyra partially | `facility_generator.gd` already declares a `"collected": false` key on every relay and battery, but nothing ever writes `true` to it — `interactable.gd`/`route_interactable_3d.gd`'s `activate()` only flips a local `completed` flag on the presentation node and bumps `GameState.relays_collected`. Any hunter reading `generator.relays`/`generator.batteries` today sees everything as uncollected. Fix: have `activate()` also update the matching generator entry. |
-| **Directional flashlight beam-aim detection** — **BUILT** | Aki is **ported**; Ferryn and Ilyra still need a second system each | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quirith. |
+| **Relay/battery collected-state wiring** | up to 6 — Briselle, Haelith, Opalie, Ysolde outright; Solyth, Zellia partially | `facility_generator.gd` already declares a `"collected": false` key on every relay and battery, but nothing ever writes `true` to it — `interactable.gd`/`route_interactable_3d.gd`'s `activate()` only flips a local `completed` flag on the presentation node and bumps `GameState.relays_collected`. Any hunter reading `generator.relays`/`generator.batteries` today sees everything as uncollected. Fix: have `activate()` also update the matching generator entry. |
+| **Directional flashlight beam-aim detection** — **BUILT** | Aki is **ported**; Ferryn and Ilyra still need a second system each | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quenelle. |
 
 A third, trivial gap: **room-at(x, y) lookup**. Rooms carry bounding data but
 there's no point→room query. Never gates anything on its own.
@@ -159,7 +159,7 @@ in place as `HunterBrain.beam_reaches()`.
 
 | # | Hunter | Tier | Gimmick | Size |
 | --- | --- | --- | --- | --- |
-| 1 | **Eirys** *(ported)* | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
+| 1 | **Elise** *(ported)* | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
 | 2 | **Xivvy** *(ported)* | intermediate | Auto-locks to chase on pure proximity (no sight/hearing), then chase speed permanently ramps with chase duration. Caveat: her lock radius scales with player exposure, which doesn't exist — evaluating the same formula at exposure's rest value (0) gives a constant 0.5× radius, a legitimate default rather than a fabricated number. Full fidelity on that one knob wants the exposure meter later. | ~20-25 lines, 2 rules |
 | 3 | **Kathy** *(ported)* | difficult | A search-beam cone that spots the player past ordinary sight range. Needs new self-tracked facing bookkeeping (derived from her own movement) that no ported hunter has needed yet. Her second ability (`affectedSummon`) requires other already-active route hunters, which is structurally impossible at `ROUTE_HUNTER_COUNT = 1` in *both* codebases — permanently inert, not a blocker. | ~20-30 lines, 1 rule |
 | 4 | **Umbriel** *(ported)* | difficult | Every 30s, disguises as a random other roster hunter. On Standard this is purely cosmetic — attribute-copying is Nightmare-only. Just a timer, an exclusion-aware random pick, and telling `HunterView3D` to load a different model than `brain.hunter_id` implies. **Best deferred until more of the roster exists**, since her disguise pool is whatever's ported. Only self-contained hunter that touches the presentation layer. | ~40-50 lines |
@@ -172,14 +172,14 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 
 | Subsystem | Hunters | Count |
 | --- | --- | --- |
-| Hiding spots | Ceryth, Jyvra, Loxelle | 3 |
+| Hiding spots | Ceryth, Javelle, Loxelle | 3 |
 | Audio system (positional / mimicked cues) | Haelith (ported; her footstep tell is the missing half), Thessine (ported; her cues change no state) | 0 blocked |
-| Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zephyra (sec.) | 1 (+1 sec.) |
+| Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zellia (sec.) | 1 (+1 sec.) |
 | Accumulating noise/corruption meter — **BUILT** | Ferryn (also needs player beam-aim), Glyra (also needs a music-box prop) | 2 |
 | Concurrent multi-hunter activation — **BUILT** | Ysolde (sec.) | 1 (sec.) |
 | Exposure/sanity meter — **BUILT** | Aki (also needs player beam-aim) | 1 |
 | Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state) — Haelith, Opalie and Ysolde are **ported** | 1 |
-| ~~Currency/inventory + shop UI~~ — **BUILT**; Zephyra is **ported** | 0 |
+| ~~Currency/inventory + shop UI~~ — **BUILT**; Zellia is **ported** | 0 |
 | ~~Player radar/gadget item~~ — Porcelle is **ported**; her radar was always the map | 0 |
 | ~~Vent-travel network~~ — **BUILT**; Verrine is **ported** | 0 |
 | ~~Player stun/incapacitation state~~ — **BUILT**; Ilyra is **ported** | 0 |
@@ -190,7 +190,7 @@ Notes worth keeping:
 - **Thessine** is mechanically *identical to Dovelle* without audio — her
   gimmick only ever plays fake sound cues and changes no state. She isn't
   degraded without an audio system, she's indistinguishable.
-- **Jyvra** is an ordinary chaser whose entire identity is one hiding-spot
+- **Javelle** is an ordinary chaser whose entire identity is one hiding-spot
   twist. She'd be trivial to add today, but it would be a Dovelle reskin
   rather than a port of her.
 - **Porcelle**'s AI needs nothing new (~4 lines); she's blocked purely
@@ -371,9 +371,9 @@ map shows hunters.
 
 All ten are ported now: Ferryn, Briselle, Glyra, Verrine (a vent network: 4
 vents at room centres, player `in_vent` travel), Ilyra (a player
-stun/incapacitation state), Zephyra (coins: a per-run counter, a scatter of
+stun/incapacitation state), Zellia (coins: a per-run counter, a scatter of
 pickups, and a shop menu resolved through the same indirection
-music_box_resolver/vent_resolver already use), and Ceryth/Jyvra/Loxelle
+music_box_resolver/vent_resolver already use), and Ceryth/Javelle/Loxelle
 (hiding spots).
 
 Hiding spots are the biggest single unlock at three hunters, and are harder

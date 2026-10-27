@@ -1,7 +1,7 @@
 class_name ZephyraGimmick
 extends HunterGimmick
 
-## Zephyra's coin exchange (hunterAbilities.zephyra.merchant). Ported from
+## Zellia's coin exchange (hunterAbilities.zephyra.merchant). Ported from
 ## zephyra.js's prepareMerchant/useMerchant/chooseMerchantOffer.
 ##
 ## She is not a hunter in any real sense: on first activation she teleports
@@ -79,10 +79,10 @@ func offer_menu_text() -> String:
 	for i in OFFERS.size():
 		var offer: Dictionary = OFFERS[i]
 		parts.append("[%d] %s -%d" % [i + 1, String(offer["label"]), _cost(String(offer["id"]))])
-	return "ZEPHYRA SHOP // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
+	return "ZELLIA SHOP // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
 
 
-## Opens (or re-toasts) the menu. `brain_position` is Zephyra's own spot on
+## Opens (or re-toasts) the menu. `brain_position` is Zellia's own spot on
 ## the floor, since the gimmick has no HunterBrain reference of its own.
 func open_shop(player_position: Vector2, brain_position: Vector2, player_facing: Vector2) -> String:
 	if not in_range(player_position, brain_position, player_facing):
@@ -100,7 +100,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	var offer_id := offer_key(index)
 	var cost := offer_cost(index)
 	if GameState.coins < cost:
-		return "ZEPHYRA // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
+		return "ZELLIA // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
 
 	GameState.coins -= cost
 	if offer_id == "repair":
@@ -112,7 +112,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	else:
 		apply_personal_offer(offer_id, player)
 	shop_open = false
-	return "ZEPHYRA TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
+	return "ZELLIA TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
 
 
 func offer_key(index: int) -> String:

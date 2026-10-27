@@ -27,7 +27,7 @@ const ENTRIES := {
 	},
 	"eirys": {
 		"ability": "RUNNING DATA",
-		"behavior": "Every second spent moving at a sprint outside safe zones permanently fills Eirys' hidden tracker. When full, she knows your position forever.",
+		"behavior": "Every second spent moving at a sprint outside safe zones permanently fills Elise' hidden tracker. When full, she knows your position forever.",
 	},
 	"ferryn": {
 		"ability": "ROUND STALKER",
@@ -47,7 +47,7 @@ const ENTRIES := {
 	},
 	"jyvra": {
 		"ability": "HIDING EJECTION",
-		"behavior": "A hiding spot is not permanent safety from Jyvra. If she remains over your occupied spot long enough, she pulls you into the open.",
+		"behavior": "A hiding spot is not permanent safety from Javelle. If she remains over your occupied spot long enough, she pulls you into the open.",
 	},
 	"kathy": {
 		"ability": "SEARCH BEAM",
@@ -75,7 +75,7 @@ const ENTRIES := {
 	},
 	"quirith": {
 		"ability": "FLASHLIGHT TRACKER",
-		"behavior": "Keeping the flashlight on too long lets Quirith lock permanently onto you. Repeated light toggles also increase her chase speed.",
+		"behavior": "Keeping the flashlight on too long lets Quenelle lock permanently onto you. Repeated light toggles also increase her chase speed.",
 	},
 	"ravelle": {
 		"ability": "DOORWAY TRIPWIRES",
@@ -111,7 +111,7 @@ const ENTRIES := {
 	},
 	"zephyra": {
 		"ability": "COIN EXCHANGE",
-		"behavior": "Zephyra settles near the facility centre as a harmless merchant. Coins can buy cooling, warmth, repairs or temporary pesticide.",
+		"behavior": "Zellia settles near the facility centre as a harmless merchant. Coins can buy cooling, warmth, repairs or temporary pesticide.",
 	},
 }
 

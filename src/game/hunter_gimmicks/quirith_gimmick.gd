@@ -1,7 +1,7 @@
 class_name QuirithGimmick
 extends HunterGimmick
 
-## Quirith's flashlight tracker (hunterAbilities.quirith.flashlightTracker in
+## Quenelle's flashlight tracker (hunterAbilities.quirith.flashlightTracker in
 ## the original). Mirrors quirith.js's updateFlashlightTracker(): sustained
 ## flashlight-on time earns a permanent lock (never un-sets once true); once
 ## locked, every frame she re-affirms chase + last_known + a zeroed
@@ -35,7 +35,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 		_track_elapsed = _track_elapsed + delta if target_flashlight_on else 0.0
 		if _track_elapsed >= GameConfig.QUIRITH_FLASHLIGHT_LOCK_SECONDS:
 			_tracking = true
-			brain.world_events.append({"what": "message", "sound": "alert", "message": "QUIRITH LOCKED ON"})
+			brain.world_events.append({"what": "message", "sound": "alert", "message": "QUENELLE LOCKED ON"})
 
 	var activation_progress := minf(1.0, float(_activations) / GameConfig.QUIRITH_SPEED_RAMP_ACTIVATIONS)
 	_speed_scale = 1.0 + activation_progress * (GameConfig.QUIRITH_MAX_SPEED_SCALE - 1.0) \

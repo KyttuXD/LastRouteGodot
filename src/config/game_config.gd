@@ -219,7 +219,7 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## in the original). Consumed via HunterRoster, not referenced directly by
 ## hunter_brain.gd (see src/config/hunter_roster.gd).
 
-## Quirith — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
+## Quenelle — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
 ## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
 ## straight earns a permanent chase lock; every flashlight on/off flick after
 ## that ramps her chase speed further, capped at QUIRITH_MAX_SPEED_SCALE after
@@ -235,7 +235,7 @@ const THESSINE_MIMIC_INTERVAL := 10.0
 const THESSINE_MIMIC_CHANCE := 0.5
 const THESSINE_MIMIC_RARE_CHANCE := 0.08
 
-## Eirys — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
+## Elise — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
 ## actually sprinting outside a safe zone accumulates and NEVER decays; at
 ## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
 ## `breachesHiding` flag isn't ported — hiding spots don't exist yet, so it
@@ -326,7 +326,7 @@ const WYNELLE_DEEP_COLD_THRESHOLD := 30.0
 const WYNELLE_PER_DEGREE_RATE := 0.5
 const WYNELLE_DEEP_COLD_RATE := 1.0
 const WYNELLE_DEATH_GRACE_SECONDS := 10.0
-## 2D Zephyra deathChance per trade (relaxed .02, normal .05, hard .075, nightmare .12).
+## 2D Zellia deathChance per trade (relaxed .02, normal .05, hard .075, nightmare .12).
 const ZEPHYRA_DEATH_CHANCE := {"relaxed": 0.02, "standard": 0.05, "hard": 0.075, "nightmare": 0.12}
 const WYNELLE_DEMATERIALIZE_RESET_PROGRESS := 50.0
 
@@ -423,7 +423,7 @@ const AKI_BURST_COUNT := 3
 const AKI_BURST_EXPOSURE := 100.0
 
 
-## Jyvra — hiding timeout (hunterAbilities.jyvra.hidingTimeout). The reach is
+## Javelle — hiding timeout (hunterAbilities.jyvra.hidingTimeout). The reach is
 ## jyvra.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
 ## the ejection is non-lethal, so she is left briefly winded rather than
 ## capturing the player she just pulled into the open.
@@ -492,7 +492,7 @@ const VERRINE_INITIAL_SPEED_SCALE := 0.4
 const VERRINE_SPEED_PER_SECOND := 0.025
 const VERRINE_MAX_SPEED_SCALE := 2.4
 
-## Zephyra — merchant (hunterAbilities.zephyra.merchant):
+## Zellia — merchant (hunterAbilities.zephyra.merchant):
 ## {nightmareDeathChance:.1, pesticideSeconds:60,
 ## offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}.
 ## Nightmare's instant-death roll stays reserved with the unselectable mode;
