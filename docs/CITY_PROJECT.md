@@ -135,7 +135,7 @@ Built and passing (suites `city` and `city_nav`, `COOP_MODE=city scripts/coop_te
   statue and reflecting pool, about 25 enterable buildings (each a facade ring, a room, 2 to 4 doorway cells), alleys,
   verge parkland, about 300 pieces of street furniture. `docs/city_map.png` is the top-down map
   (`tools/look/city_map.gd`).
-* **Chunk provider** (`city_route_generator.gd`): 13 of the 15 chunks hold city, 5 shelters are the safe rooms (chunk
+* **Chunk provider** (`city_route_generator.gd`): all 15 chunks hold city (the four corner chunks only a sliver of ring road), 5 shelters are the safe rooms (chunk
   (0,0) is the spawn), relays, batteries, tools, hiding spots, vents and hunter spawns follow the route code's own rules.
 * **Renderer** (`city_facility_view_3d.gd`, `city_surface.gd`, `city_atlas.gd`, `tools/city/make_city_atlas.py`): the
   pixel atlas (56 tiles + emission), tall facades with lit amber / cyan windows, shop fronts, civic arches, industrial

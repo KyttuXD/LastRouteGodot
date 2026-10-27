@@ -81,28 +81,6 @@ var _layers := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array()
 var _indices := [PackedInt32Array(), PackedInt32Array(), PackedInt32Array()]
 
 
-static func materials() -> Array:
-	if not _materials.is_empty():
-		return _materials
-	var albedo := load(CityAtlas.ALBEDO_PATH) as Texture2D
-	var emission := load(CityAtlas.EMISSION_PATH) as Texture2D
-	for roughness in [0.42, 0.92]:
-		var material := StandardMaterial3D.new()
-		material.albedo_texture = albedo
-		material.emission_enabled = true
-		material.emission_texture = emission
-		material.emission_energy_multiplier = 1.05
-		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-		material.roughness = roughness
-		_materials.append(material)
-	var rim := StandardMaterial3D.new()
-	rim.albedo_texture = load(CityAtlas.RIM_PATH) as Texture2D
-	rim.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-	rim.roughness = 0.95
-	_materials.append(rim)
-	return _materials
-
-
 func is_empty() -> bool:
 	return (_vertices[0] as PackedVector3Array).is_empty() and (_vertices[1] as PackedVector3Array).is_empty() \
 		and (_vertices[2] as PackedVector3Array).is_empty()

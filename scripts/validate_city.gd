@@ -280,11 +280,26 @@ func _check_run_scene(host: Node) -> void:
 	var facility := scene.get_node("%StreamedFacility") as StreamedFacilityView3D
 	_expect(facility is CityFacilityView3D, "the City run scene does not use the City view")
 	_expect(facility.generator is CityRouteGenerator, "the City view does not use the City generator")
-	_expect(facility.loaded_chunk_count() == 9, "expected 9 resident chunks around the spawn, got %d" % facility.loaded_chunk_count())
+	var expected_chunks := 0
+	for cz in range(-CityFacilityView3D.CITY_STREAM_RADIUS, CityFacilityView3D.CITY_STREAM_RADIUS + 1):
+		for cx in range(-CityFacilityView3D.CITY_STREAM_RADIUS, CityFacilityView3D.CITY_STREAM_RADIUS + 1):
+			if facility.generator.is_chunk_allowed(Vector3i(cx, 0, cz)):
+				expected_chunks += 1
+	_expect(expected_chunks == 15, "from the spawn the whole city (15 chunks) must be in range, got %d" % expected_chunks)
+	_expect(facility.loaded_chunk_count() == expected_chunks,
+		"expected every city chunk resident from the spawn (%d), got %d" % [expected_chunks, facility.loaded_chunk_count()])
 	var player := scene.get_node("%Player") as PlayerController3D
 	_expect(player.global_position.distance_to(Vector3(22.5, .04, 22.5)) < 2.0, "the runner did not start on the spawn")
 	_expect(facility.get_node_or_null("CitySky") != null, "the dome sky is missing")
+	var started := Time.get_ticks_msec()
 	_check_far_rendering(facility)
+	print("  city: far-rendering check %d ms" % (Time.get_ticks_msec() - started))
+	started = Time.get_ticks_msec()
+	_check_invisible_walls(facility)
+	print("  city: invisible-wall check %d ms" % (Time.get_ticks_msec() - started))
+	_expect(absf(wrapf(player._yaw - PI, -PI, PI)) < .01, "the runner does not start facing the kiosk doorway (south)")
+	var layout := (facility.generator as CityRouteGenerator).layout
+	_expect(layout.kind_at(layout.spawn.x, layout.spawn.y + 4) == CityLayout.DOOR, "no doorway straight ahead of the spawn")
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -344,3 +359,82 @@ func _check_far_rendering(facility: StreamedFacilityView3D) -> void:
 				quad += 4
 				quads_checked += 1
 	_expect(quads_checked > 20000, "far-rendering check saw only %d quads" % quads_checked)
+
+
+## Collision and visuals agree. A blocked cell next to open ground must have something drawn on it (no invisible wall),
+## every plain wall cell has the full wall collider, floor-like cells have the floor slab, and street furniture
+## (which keeps its GridMap cell walkable) blocks only a box no wider than what is drawn. Zero mismatches in the spawn
+## area and in every resident chunk.
+func _check_invisible_walls(facility: StreamedFacilityView3D) -> void:
+	var layout := (facility.generator as CityRouteGenerator).layout
+	var cell_count := 0
+	var invisible: Array = []
+	var missing_collider: Array = []
+	var spawn_invisible := 0
+	for chunk_value in facility._loaded.values():
+		var chunk := chunk_value as Node3D
+		var coord := Vector3i(roundi(chunk.position.x / StreamedRouteGenerator.CHUNK_SIZE), 0,
+			roundi(chunk.position.z / StreamedRouteGenerator.CHUNK_SIZE))
+		var origin := CityLayout.chunk_origin(coord)
+		var surface := chunk.get_node_or_null("Surface") as MeshInstance3D
+		var grid_map := chunk.get_node_or_null("Structure") as GridMap
+		var bodies := chunk.get_node_or_null("StreetFurnitureColliders") as StaticBody3D
+		_expect(grid_map != null and bodies != null and surface != null, "chunk %s lacks structure, furniture colliders or surface" % chunk.name)
+		if grid_map == null or bodies == null or surface == null:
+			continue
+		var mesh := surface.mesh as ArrayMesh
+		var seen := {}
+		for surface_index in mesh.get_surface_count():
+			var vertices: PackedVector3Array = mesh.surface_get_arrays(surface_index)[Mesh.ARRAY_VERTEX]
+			for vertex in vertices:
+				if vertex.y < .15:
+					continue
+				for dz in [0, -1]:
+					for dx in [0, -1]:
+						var x: int = floori(vertex.x) + int(dx)
+						var z: int = floori(vertex.z) + int(dz)
+						if absf(vertex.x - roundf(vertex.x)) > .001 and int(dx) == -1:
+							continue
+						if absf(vertex.z - roundf(vertex.z)) > .001 and int(dz) == -1:
+							continue
+						seen[Vector2i(x, z)] = true
+		var posts := 0
+		for z in StreamedRouteGenerator.CHUNK_SIZE:
+			for x in StreamedRouteGenerator.CHUNK_SIZE:
+				var kind := layout.kind_at(origin.x + x, origin.y + z)
+				var item := grid_map.get_cell_item(Vector3i(x, 0, z))
+				var blocked := not CityLayout.OPEN_KINDS.has(kind)
+				cell_count += 1
+				if kind == CityLayout.POST:
+					posts += 1
+					if item != facility._col_floor_item:
+						missing_collider.append("%s,%s post cell is not walkable at the GridMap level" % [origin.x + x, origin.y + z])
+				elif blocked:
+					if item != facility._col_wall_item:
+						missing_collider.append("%d,%d wall cell has no wall collider" % [origin.x + x, origin.y + z])
+				elif item != facility._col_floor_item:
+					missing_collider.append("%d,%d open cell has no floor collider" % [origin.x + x, origin.y + z])
+				if not blocked or kind == CityLayout.POST:
+					continue
+				var next_to_open := false
+				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+					if layout.is_open(origin.x + x + (step as Vector2i).x, origin.y + z + (step as Vector2i).y):
+						next_to_open = true
+				if next_to_open and not seen.has(Vector2i(x, z)):
+					invisible.append("%d,%d (%s)" % [origin.x + x, origin.y + z, CityLayout.KIND_NAMES[kind]])
+					if maxi(absi(origin.x + x - layout.spawn.x), absi(origin.y + z - layout.spawn.y)) <= 14:
+						spawn_invisible += 1
+		_expect(bodies.get_child_count() == (layout.chunk_decor(coord) as Array).filter(
+			func(entry: Dictionary) -> bool: return CityLayout.DECOR_COLLIDERS.has(String(entry["type"]))).size(),
+			"chunk %s: furniture collider count differs from its street furniture" % chunk.name)
+	_expect(cell_count > 8000, "invisible-wall check saw only %d cells" % cell_count)
+	_expect(missing_collider.is_empty(), "%d cells with the wrong collider kind, e.g. %s" % [missing_collider.size(), missing_collider.slice(0, 5)])
+	_expect(invisible.is_empty(), "%d invisible-wall cells (blocked, next to open ground, nothing drawn), e.g. %s" % [invisible.size(), invisible.slice(0, 6)])
+	_expect(spawn_invisible == 0, "%d invisible-wall cells within 14 cells of the spawn" % spawn_invisible)
+	for entry in layout.decor.values():
+		var type := String(entry["type"])
+		var collider: Vector3 = CityLayout.DECOR_COLLIDERS.get(type, Vector3.ZERO)
+		var visible: Vector3 = CityLayout.DECOR_VISIBLE.get(type, Vector3.ZERO)
+		_expect(collider != Vector3.ZERO, "%s street furniture has no collider" % type)
+		_expect(maxf(collider.x, collider.z) <= maxf(visible.x, visible.z) + .06 and collider.y <= visible.y + .06,
+			"%s collider (%s) is bigger than what is drawn (%s)" % [type, collider, visible])

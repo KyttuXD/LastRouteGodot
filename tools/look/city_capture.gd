@@ -67,6 +67,18 @@ func _spots(layout: CityLayout) -> Array:
 		{"name": "sky", "pos": _at(112.5, 84.5), "yaw": 0.0, "pitch": 62.0},
 		{"name": "rim_gate", "pos": _at(112.5, 118.5), "yaw": 180.0, "pitch": 6.0},
 	]
+	# The spawn kiosk (the player starts at its centre): the start view, the four inside views, and outside at 3/8/20 m.
+	spots.append({"name": "spawn_start", "pos": _at(112.5, 67.5), "yaw": 0.0, "pitch": 0.0})
+	for yaw in [0, 90, 180, 270]:
+		spots.append({"name": "spawn_in_y%03d" % yaw, "pos": _at(112.5, 67.5), "yaw": float(yaw), "pitch": 0.0})
+	spots.append({"name": "spawn_in_up", "pos": _at(112.5, 67.5), "yaw": 0.0, "pitch": 70.0})
+	spots.append({"name": "spawn_in_floor", "pos": _at(112.5, 67.5), "yaw": 180.0, "pitch": -60.0})
+	spots.append({"name": "spawn_door", "pos": _at(112.5, 70.5), "yaw": 180.0, "pitch": 0.0})
+	for distance in [3, 8, 20]:
+		spots.append({"name": "spawn_out_s%02d" % distance, "pos": _at(112.5, 71.5 + distance), "yaw": 0.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_n%02d" % distance, "pos": _at(112.5, 63.5 - distance), "yaw": 180.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_e%02d" % distance, "pos": _at(116.5 + distance, 67.5), "yaw": 90.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_w%02d" % distance, "pos": _at(108.5 - distance, 67.5), "yaw": -90.0, "pitch": 4.0})
 	# Distance series: the main street looking east from d metres away from the end, the avenue looking north, the
 	# skyline and the dome frame from the roundabout.
 	for distance in [3, 15, 40, 100, 180]:

@@ -9,8 +9,15 @@ extends StreamedFacilityView3D
 const CITY_CEILING := 4.0
 const DOOR_HEIGHT := 3.0
 const RIM_HEIGHT := 11.0
+## A basin's lip and a flower bed are solid, readable obstacles at eye level, not a ground texture.
+const WATER_RIM := 0.9
+const BED_HEIGHT := 1.0
 const LAMP_COLOR := Color(1.0, 0.68, 0.32)
 const INTERIOR_LAMP_COLOR := Color(1.0, 0.74, 0.42)
+
+## The City is five chunks wide and three deep: with radius 2 every chunk of it is resident from the spawn (the maze
+## streams only the 3 x 3 around the runner, which here left the far end of every long street empty).
+const CITY_STREAM_RADIUS := 2
 
 var city_generator: CityRouteGenerator
 var _sky: CitySky
@@ -25,9 +32,62 @@ func begin(seed_text: String, player: PlayerController3D,
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
 	_tracked_level = 0
+	# The runner starts inside the spawn kiosk: face its doorway (south, toward the roundabout's bridge), not a wall.
+	if player != null:
+		player._yaw = PI
+		player._pitch = 0.0
+		player._apply_look_rotation()
 	_ensure_sky()
 	_apply_environment()
 	_refresh_stream(true)
+
+
+## The maze's stream with a wider window: every chunk within CITY_STREAM_RADIUS of the runner stays loaded.
+func _refresh_stream(force: bool) -> void:
+	var center := current_chunk_coord()
+	if not force and center == _last_player_chunk:
+		return
+	var previous := _last_player_chunk
+	_last_player_chunk = center
+	var wanted := {}
+	for z in range(center.z - CITY_STREAM_RADIUS, center.z + CITY_STREAM_RADIUS + 1):
+		for x in range(center.x - CITY_STREAM_RADIUS, center.x + CITY_STREAM_RADIUS + 1):
+			var coord := Vector3i(x, center.y, z)
+			if generator.is_chunk_allowed(coord):
+				wanted[coord] = true
+	var immediate := force or previous.x == 999999 or previous.y != center.y \
+		or absi(previous.x - center.x) > 1 or absi(previous.z - center.z) > 1
+	_pending_loads.clear()
+	_pending_unloads.clear()
+	if not _active_build.is_empty():
+		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
+		if not wanted.has(active_coord):
+			_discard_active_build()
+	for coord_value in wanted:
+		var coord: Vector3i = coord_value
+		if not _loaded.has(coord) and (_active_build.is_empty() \
+				or _active_build.get("coord", Vector3i.ZERO) != coord):
+			_pending_loads.append(coord)
+	for coord_value in _loaded.keys().duplicate():
+		var coord: Vector3i = coord_value
+		if not wanted.has(coord):
+			_pending_unloads.append(coord)
+	_pending_loads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	_pending_unloads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return _chunk_distance(a, center) > _chunk_distance(b, center))
+	_stream_queue_center = center
+	_stream_completion_pending = not immediate \
+		and (not _pending_loads.is_empty() or not _pending_unloads.is_empty())
+	if immediate:
+		_discard_active_build()
+		while not _pending_loads.is_empty():
+			_load_chunk(_pending_loads.pop_front())
+		while not _pending_unloads.is_empty():
+			_unload_chunk(_pending_unloads.pop_front())
+	var data: Dictionary = _chunk_data.get(center,
+		generator.chunk(center) if generator != null else {})
+	chunk_changed.emit(center, data.duplicate(false))
 
 
 func _ensure_sky() -> void:
@@ -73,7 +133,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	return {
 		"coord": coord, "data": data, "root": root, "grid": grid, "surface": CitySurface.new(),
 		"kinds": city.get("kinds", PackedByteArray()), "origin": CityLayout.chunk_origin(coord),
-		"safe": bool(data.get("safe_room", false)), "lamps": [],
+		"safe": bool(data.get("safe_room", false)), "lamps": [], "props_body": StaticBody3D.new(),
 		"cell_index": 0, "phase": 0, "prop_index": 0, "fixture_index": 0, "pickup_index": 0,
 	}
 
@@ -103,6 +163,9 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			2:
 				root.add_child(build["grid"] as GridMap)
+				var props_body := build["props_body"] as StaticBody3D
+				props_body.name = "StreetFurnitureColliders"
+				root.add_child(props_body)
 				var surface_node := MeshInstance3D.new()
 				surface_node.name = "Surface"
 				surface_node.mesh = (build["surface"] as CitySurface).build()
@@ -256,19 +319,22 @@ func _build_city_cell(build: Dictionary, index: int) -> void:
 	grid.set_cell_item(Vector3i(x, 0, z), _col_wall_item)
 	match kind:
 		CityLayout.POST:
+			# Street furniture blocks only what it draws (a pole, a trunk, a bench): the GridMap cell stays floor and a
+			# matching box is added by _add_decor. The A* grid still treats the whole cell as blocked.
+			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 			surface.floor_quad(x, z, _floor_tile(kind, gx, gz))
 		CityLayout.HEDGE:
 			surface.floor_quad(x, z, CityAtlas.tile("grass"))
 			surface.box(Vector3(x, 0, z), Vector3(1, 1.5, 1), CityAtlas.tile("hedge"), CityAtlas.tile("hedge_top"))
 		CityLayout.BED:
 			surface.floor_quad(x, z, CityAtlas.tile("grass"))
-			surface.box(Vector3(x, 0, z), Vector3(1, .45, 1), CityAtlas.tile("bed_edge"), CityAtlas.tile("flowers"))
+			surface.box(Vector3(x, 0, z), Vector3(1, BED_HEIGHT, 1), CityAtlas.tile("bed_edge"), CityAtlas.tile("flowers"))
 		CityLayout.WATER:
 			surface.floor_quad(x, z, CityAtlas.tile("water"), 0.12)
 			for dir_value in CitySurface.FACE_DIRS:
 				var dir: Vector2i = dir_value
 				if layout.is_open(gx + dir.x, gz + dir.y):
-					surface.wall_face(x, z, dir, 0.0, 0.5, CityAtlas.tile("water_edge"))
+					surface.wall_face(x, z, dir, 0.0, WATER_RIM, CityAtlas.tile("water_edge"))
 		CityLayout.RIM:
 			for dir_value in CitySurface.FACE_DIRS:
 				var dir: Vector2i = dir_value
@@ -347,7 +413,7 @@ func _build_city_decor(build: Dictionary) -> void:
 	for entry_value in city.get("decor", []):
 		var entry: Dictionary = entry_value
 		var cell: Vector2i = entry["cell"]
-		_add_decor(surface, root, lamps, String(entry["type"]), cell, float(entry["yaw"]))
+		_add_decor(build["props_body"] as StaticBody3D, surface, root, lamps, String(entry["type"]), cell, float(entry["yaw"]))
 	# One warm lamp inside every building whose middle lies in this chunk.
 	for building_value in city.get("buildings", []):
 		var building: Dictionary = building_value
@@ -358,11 +424,26 @@ func _build_city_decor(build: Dictionary) -> void:
 		lamps.append([root.position + Vector3(middle.x + .5, 3.3, middle.y + .5), INTERIOR_LAMP_COLOR, .9, 0, 6.5])
 
 
-func _add_decor(surface: CitySurface, root: Node3D, lamps: Array, type: String, cell: Vector2i, yaw: float) -> void:
+func _add_decor_collider(body: StaticBody3D, type: String, cell: Vector2i, yaw: float) -> void:
+	if body == null or not CityLayout.DECOR_COLLIDERS.has(type):
+		return
+	var size: Vector3 = CityLayout.DECOR_COLLIDERS[type]
+	if absf(sin(yaw)) > .5:
+		size = Vector3(size.z, size.y, size.x)
+	var shape := BoxShape3D.new()
+	shape.size = size
+	var owner_node := CollisionShape3D.new()
+	owner_node.shape = shape
+	owner_node.position = Vector3(cell.x + .5, size.y * .5, cell.y + .5)
+	body.add_child(owner_node)
+
+
+func _add_decor(build_body: StaticBody3D, surface: CitySurface, root: Node3D, lamps: Array, type: String, cell: Vector2i, yaw: float) -> void:
 	var cx := cell.x + .5
 	var cz := cell.y + .5
 	var pole := CityAtlas.tile("pole")
 	var wide_along_x := absf(sin(yaw)) < .5
+	_add_decor_collider(build_body, type, cell, yaw)
 	match type:
 		"lamp":
 			var arm := Vector3(roundf(sin(yaw)), 0, roundf(-cos(yaw))) * .28

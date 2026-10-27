@@ -63,6 +63,20 @@ const GARDENS := [Rect2i(70, 25, 38, 38), Rect2i(117, 25, 38, 38)]
 ## North end of the avenue; it runs over the first secondary street (rows 20..24), so the plaza is 85 x 22.
 const GRAND_PLAZA := Rect2i(70, 3, 85, 22)
 
+## Collider footprint and height (x, height, z; metres, centred in the cell, bench rotated by its yaw) of every piece of
+## street furniture. They match what is drawn: a lamp post blocks its pole, not the metre around it (the test in
+## validate_city compares them with the visible footprints). The statue is the whole 3 x 3 plinth.
+const DECOR_COLLIDERS := {
+	"lamp": Vector3(.3, 3.5, .3), "tree": Vector3(.4, 5.0, .4), "cypress": Vector3(1.1, 4.8, 1.1),
+	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.26, .8, .26),
+	"statue": Vector3(3.0, 3.8, 3.0),
+}
+## The widest visible footprint of the same pieces (what the renderer draws), for the collider-vs-visual check.
+const DECOR_VISIBLE := {
+	"lamp": Vector3(.84, 3.5, .84), "tree": Vector3(2.2, 5.0, 2.2), "cypress": Vector3(1.1, 4.8, 1.1),
+	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.24, .8, .24),
+	"statue": Vector3(3.0, 3.8, 3.0),
+}
 const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "hall"]
 
 ## Footprints (metres) of the interior props this plan places; all of them are shared prop types.
