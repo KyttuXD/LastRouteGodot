@@ -454,4 +454,5 @@ func set_light(key: String, on: bool) -> void:
 func door_stand(door: String, slot: int, progress := 0.0) -> Vector3:
 	var side := -1.0 if door == "doorL" else 1.0
 	var near := lerpf(HALF_W + 1.9, HALF_W + 0.55, clampf(progress, 0.0, 1.0))
-	return Vector3(side * (near + slot * 1.3), 0.0, -0.4 * slot)
+	# off-centre from the player's flashlight lane (the held light is on the right of the view at the door): 0.3 m toward the left of the view (further left she clips into the door frame)
+	return Vector3(side * (near + slot * 1.3), 0.0, -0.4 * slot - side * 0.3)
