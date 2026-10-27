@@ -15,6 +15,8 @@ const GAMES := [
 		"theme": "res://src/ui/theme_lastroute.tres",
 		"locked": false,
 		"locked_note": "",
+		# Playtest bot adapter (see docs/PLAYTEST.md); a game without the key falls back to PlaytestAdapters.BUILT_IN.
+		"playtest_bot": "res://src/playtest/bots/last_route_bot.gd",
 	},
 	{
 		"id": "city",

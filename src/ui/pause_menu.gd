@@ -935,6 +935,9 @@ func _notification(what: int) -> void:
 
 
 func _handle_focus_lost() -> void:
+	# A playtest window on a test machine is never focused by a person: it must not pause itself (docs/PLAYTEST.md).
+	if Playtest.enabled:
+		return
 	if not _app_focused:
 		return
 	_app_focused = false
