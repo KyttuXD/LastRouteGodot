@@ -40,5 +40,6 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
+- [WAYPOINTS.md](WAYPOINTS.md) — one waypoint per player, crosshair placement, HUD pin and edge arrow, guidance modes, City support, co-op, audit of the old system
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.
