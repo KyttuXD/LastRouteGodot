@@ -191,8 +191,13 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 		var centre := Vector2(cell) + Vector2(.5, .5) + offset
 		var half := Vector2(collider.x, collider.z) * .5
 		var yaw := float(prop.get("yaw", 0.0))
-		solids.append({"id": String(prop.get("id", "")), "type": type, "centre": centre, "half": half, "yaw": yaw,
-			"y0": 0.0, "y1": collider.y, "at": at, "wall_mounted": wall_mounted})
+		var base_centre := centre
+		var shapes := PropColliderBoxes.boxes(type, collider, PropColliderBoxes.variant_of(prop))
+		if shapes.size() == 1:
+			centre = PropColliderBoxes.world_centre(centre, shapes[0]["c"], yaw)
+		for box in shapes:
+			solids.append({"id": String(prop.get("id", "")), "type": type, "centre": PropColliderBoxes.world_centre(base_centre, box["c"], yaw),
+				"half": box["h"], "yaw": yaw, "y0": 0.0, "y1": collider.y, "at": at, "wall_mounted": wall_mounted})
 		# prop into wall: every closed cell around the box
 		if wall_mounted:
 			continue

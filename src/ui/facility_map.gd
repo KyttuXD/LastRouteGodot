@@ -18,6 +18,8 @@ signal waypoint_requested(world_position: Vector2, level: int)
 const WALL := 0
 const RELAY_TEAL_BLUE := Color("32c9d8")
 const STAIR_ICON_WHITE := Color("f4f7f6")
+## Solid props on the map: their real collision boxes (see _draw_collider_box).
+const PROP_BOX_TINT := Color("7899a1")
 const COOP_PLAYER_BLUE := Color("63d9f1")
 const PORCELLE_GHOST := Color("c9b6e4")
 const MIN_MAP_ZOOM := 0.75
@@ -370,6 +372,18 @@ func _draw_streamed() -> void:
 					continue
 				draw_rect(Rect2(local_origin + Vector2(x, z) * cell,
 					Vector2.ONE * cell), floor_tint)
+		for prop_value in chunk.get("props", []):
+			var prop: Dictionary = prop_value
+			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
+			if not world_bounds.has_point(chunk_world_origin + local):
+				continue
+			if String(prop.get("kind", "prop")) == "prop":
+				# solid props: their real collision boxes (decor has none and is not drawn)
+				for box in prop.get("boxes", []):
+					_draw_collider_box(local_origin, cell, box, PROP_BOX_TINT)
+				continue
+			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
+			draw_circle(prop_at, maxf(1.0, cell * .16), PROP_BOX_TINT)
 		for pickup_value in chunk.get("pickups", []):
 			var pickup: Dictionary = pickup_value
 			var kind := String(pickup.get("kind", ""))
@@ -382,15 +396,6 @@ func _draw_streamed() -> void:
 				else Color(0.95, 0.82, 0.25)
 			draw_circle(local_origin + (Vector2(local) + Vector2(.5, .5)) * cell,
 				maxf(1.0, cell * (.34 if kind == "relay" else .26)), tint)
-		for prop_value in chunk.get("props", []):
-			var prop: Dictionary = prop_value
-			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
-			if not world_bounds.has_point(chunk_world_origin + local):
-				continue
-			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
-			var radius := maxf(1.0, cell * .20)
-			draw_rect(Rect2(prop_at - Vector2.ONE * radius,
-				Vector2.ONE * radius * 2.0), Color("7899a1"))
 		var spawn_cell: Vector2i = chunk.get("spawn", Vector2i(-1, -1))
 		if spawn_cell.x >= 0 and world_bounds.has_point(chunk_world_origin + spawn_cell):
 			var spawn_at := local_origin + (Vector2(spawn_cell) + Vector2(.5, .5)) * cell
@@ -674,6 +679,40 @@ func _draw_waypoint(at: Vector2, cell: float) -> void:
 
 ## Fullscreen/admin maps show a direction-aware white stair symbol. The regular
 ## minimap never reaches this helper because it deliberately hides stair data.
+## The collision boxes of a generated chunk's solid props, by prop id: [PackedFloat32Array(centre x, centre z, half x,
+## half z, yaw)] in chunk-local metres, straight from CollisionWorld (the boxes the 3D view builds), so the map shows
+## exactly what blocks the player. Props the placement clean-up removed are not in the chunk and get nothing.
+static func collider_boxes(data: Dictionary) -> Dictionary:
+	var out := {}
+	for rect_value in CollisionWorld.from_chunk(data).rects:
+		var rect: Dictionary = rect_value
+		var centre: Vector2 = rect["center"]
+		var half: Vector2 = rect["half"]
+		var list: Array = out.get(String(rect["id"]), [])
+		list.append(PackedFloat32Array([centre.x, centre.y, half.x, half.y, float(rect["yaw"])]))
+		out[String(rect["id"])] = list
+	return out
+
+
+## One collision box [centre x, centre z, half x, half z, yaw] in chunk-local metres, as the rotated rectangle the player meets.
+static func collider_corners(box: PackedFloat32Array) -> PackedVector2Array:
+	var centre := Vector2(box[0], box[1])
+	var c := cos(box[4])
+	var s := sin(box[4])
+	var out := PackedVector2Array()
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var local := Vector2(box[2] * corner.x, box[3] * corner.y)
+		out.append(centre + Vector2(local.x * c + local.y * s, -local.x * s + local.y * c))
+	return out
+
+
+func _draw_collider_box(local_origin: Vector2, cell: float, box: PackedFloat32Array, tint: Color) -> void:
+	var points := collider_corners(box)
+	for i in points.size():
+		points[i] = local_origin + points[i] * cell
+	draw_colored_polygon(points, tint)
+
+
 func _draw_stair_icon(at: Vector2, cell: float, up: bool) -> void:
 	var tint := STAIR_ICON_WHITE
 	var shadow := Color(0.02, 0.04, 0.05, 0.9)

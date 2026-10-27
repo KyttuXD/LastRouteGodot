@@ -1187,6 +1187,8 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 				"discovery_id": pickup_id,
 				"cell": pickup.get("cell", Vector2i.ZERO),
 				"kind": String(pickup.get("kind", ""))})
+	# The map draws each prop's real collision boxes (the 3D view's boxes, offsets, yaw and variant). Decor carries none.
+	var boxes_by_id := FacilityMap.collider_boxes(data)
 	var visible_props := []
 	for value in data.get("region_props", []):
 		var prop: Dictionary = value
@@ -1197,7 +1199,8 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			continue
 		visible_props.append({"id": prop_id, "discovery_id": prop_id,
 			"cell": prop.get("cell", Vector2i.ZERO),
-			"kind": "prop", "type": String(prop.get("type", ""))})
+			"kind": "prop", "type": String(prop.get("type", "")),
+			"boxes": boxes_by_id.get(prop_id, [])})
 	for value in data.get("fixtures", []):
 		var fixture: Dictionary = value
 		var fixture_id := String(fixture.get("id", ""))

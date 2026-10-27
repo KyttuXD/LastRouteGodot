@@ -32,8 +32,8 @@ const PROFILES := {
 	"lava_gallery": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"altar_room": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	# small rooms: stay small, never under 9x9 where that rule applies
-	"guest_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 11), "tables": Vector2i(0, 1), "signature": ["singleBed"], "generated": true},
-	"bedroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": ["doubleBed"], "generated": true},
+	"guest_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 11), "tables": Vector2i(0, 1), "signature": ["singleBed", "doubleBed", "bunkBed", "gothicDoubleBed"], "generated": true},
+	"bedroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": ["doubleBed", "singleBed", "bunkBed", "gothicDoubleBed"], "generated": true},
 	"hotel_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 9), "tables": Vector2i(0, 0), "signature": ["houseToilet"], "generated": true},
 	"house_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(9, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["houseToilet"], "generated": true},
 	"luxury_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
