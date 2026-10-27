@@ -5,6 +5,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
+import { createWsRelay, WS_PATH } from "./ws_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
 
@@ -105,7 +106,10 @@ function cleanAddress(value) {
 }
 
 function requesterAddress(request, trustProxy) {
-  if (trustProxy) {
+  // A proxy running on this machine (the site's same-origin /godot2-api forwarder) is trusted for the real client
+  // address: only local processes can connect from loopback, so a remote caller cannot forge the header.
+  const direct = cleanAddress(request.socket.remoteAddress);
+  if (trustProxy || direct === "127.0.0.1") {
     const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim();
     if (forwarded) return cleanAddress(forwarded);
   }
@@ -113,6 +117,19 @@ function requesterAddress(request, trustProxy) {
 }
 
 function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
+  if (room.transport === "ws") {
+    // Browser-capable room: players connect to this server's WebSocket relay over the same origin they already use.
+    return {
+      code: room.code,
+      transport: "ws",
+      address: "",
+      port: 0,
+      wsPath: WS_PATH,
+      players: room.players,
+      sessionActive: room.sessionActive,
+      expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
+    };
+  }
   const relayed = Boolean(relayAddress && relayPort);
   return {
     code: room.code,
@@ -271,6 +288,14 @@ export function createLastRouteServer({
   const requestRates = new Map();
   let enetRelay = null;
   let reloadId = 0;
+  const wsRelay = createWsRelay({
+    roomByCode: (code) => {
+      pruneEnetRooms();
+      return enetRooms.get(code) || null;
+    },
+    now,
+    logger,
+  });
 
   function currentUpdates() {
     if (typeof updatesProvider !== "function") return updates;
@@ -287,9 +312,14 @@ export function createLastRouteServer({
     const timestamp = now();
     if (publicRoute.authorityStale()) {
       enetRooms.delete(PUBLIC_CODE);
+      wsRelay.closeRoom(PUBLIC_CODE);
       publicRoute.resetAuthority();
     }
-    for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
+    for (const [code, room] of enetRooms) {
+      if (room.expiresAt > timestamp) continue;
+      enetRooms.delete(code);
+      wsRelay.closeRoom(code);
+    }
     for (const [ticket, proof] of adminTickets) {
       if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
     }
@@ -362,6 +392,7 @@ export function createLastRouteServer({
         port: request.socket.localPort,
         rooms: enetRooms.size,
         relay: enetRelay?.relayStatus() || { enabled: false },
+        wsRelay: wsRelay.status(),
         webRooms: roomService.rooms.size,
         reloadId,
         updates: updateStatus,
@@ -438,9 +469,10 @@ export function createLastRouteServer({
 
     if (url.pathname === "/api/enet/rooms/register") {
       const code = normalizeEnetCode(body.code);
-      const port = Number(body.port);
+      const webRoom = body.transport === "ws";
+      const port = webRoom ? 0 : Number(body.port);
       if (!code) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
+      if (!webRoom && (!Number.isInteger(port) || port < 1 || port > 65_535)) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
       if (enetRooms.has(code)) return json(response, 409, { ok: false, error: "ROOM CODE ALREADY REGISTERED" });
       const token = randomBytes(24).toString("base64url");
       const room = {
@@ -448,6 +480,7 @@ export function createLastRouteServer({
         token,
         address: requesterAddress(request, trustProxy),
         port,
+        transport: webRoom ? "ws" : "enet",
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
         expiresAt: now() + (code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
@@ -479,6 +512,7 @@ export function createLastRouteServer({
       if (!room) return json(response, 200, { ok: true, removed: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       enetRooms.delete(code);
+      wsRelay.closeRoom(code);
       for (const [ticket, proof] of adminTickets) {
         if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
       }
@@ -490,8 +524,11 @@ export function createLastRouteServer({
       const room = enetRooms.get(code);
       if (!room) return json(response, 200, { ok: true, migrating: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
-      const migrating = Boolean(enetRelay?.requestHostMigration(code));
-      if (!migrating) enetRooms.delete(code);
+      const migrating = room.transport === "ws" ? false : Boolean(enetRelay?.requestHostMigration(code));
+      if (!migrating) {
+        enetRooms.delete(code);
+        wsRelay.closeRoom(code);
+      }
       return json(response, 200, { ok: true, migrating });
     }
 
@@ -623,8 +660,12 @@ export function createLastRouteServer({
     enetRelay.bind(port, host);
     return enetRelay;
   };
+  server.on("upgrade", (request, socket, head) => {
+    if (!wsRelay.handleUpgrade(request, socket, head)) socket.destroy();
+  });
   server.on("close", () => {
     if (enetRelay) enetRelay.close();
+    wsRelay.close();
   });
   return server;
 }
