@@ -344,7 +344,7 @@ func run(host: Node) -> int:
 		_expect(not route._admin_region_map, "the admin region/biome map must default to off")
 		var hunter_dropdown_ok := false
 		for dropdown in route_menu._dropdowns:
-			if (dropdown["ids"] as Array).size() == HunterRoster.A_Z_IDS.size() + HunterRoster.VOID_IDS.size() + SecretCreatures.IDS.size():
+			if (dropdown["ids"] as Array).size() == HunterRoster.A_Z_IDS.size() + HunterRoster.VOID_IDS.size() + SecretCreatures.admin_ids().size():
 				hunter_dropdown_ok = true
 		_expect(hunter_dropdown_ok, "the hunter dropdown must list every A-Z and Void hunter")
 		_expect(route_menu._tabs.tab_count >= 5, "the admin menu should be split into tabs (got %d)" % route_menu._tabs.tab_count)

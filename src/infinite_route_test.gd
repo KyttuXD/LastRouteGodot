@@ -4175,6 +4175,11 @@ func _admin_hunter_emote_authoritative(peer_id: int, emote_id: String) -> void:
 func _admin_summon_hunter_authoritative(peer_id: int, hunter_id: String) -> void:
 	if not _admin_hunter_id_allowed(hunter_id):
 		return
+	if SecretCreatures.is_pair(hunter_id):            # admin picker "pair" entry: both, linked, with the route difficulty's knobs
+		for member in SecretCreatures.pair_members():
+			_admin_summon_hunter_authoritative(peer_id, member)
+		CitySecrets.link_admin_pair(self, RoomState.difficulty_id())
+		return
 	var target := _target_state_for_peer(peer_id)
 	var target_position = target.get("position")
 	if target.is_empty() or not target_position is Vector2:
@@ -4250,6 +4255,10 @@ func _admin_summon_hunter_authoritative(peer_id: int, hunter_id: String) -> void
 
 func _admin_remove_hunter_authoritative(peer_id: int, hunter_id: String) -> void:
 	if not _admin_hunter_id_allowed(hunter_id):
+		return
+	if SecretCreatures.is_pair(hunter_id):
+		for member in SecretCreatures.pair_members():
+			_admin_remove_hunter_authoritative(peer_id, member)
 		return
 	var removed := 0
 	for entity_id_value in world_state.hunters.keys().duplicate():

@@ -98,11 +98,22 @@ Both trigger implementations stay behind the constant for later. **Question for 
 
 ### Relationship of the two (`SecretCreatures.RELATIONSHIP`, only matters once a trigger is armed)
 
-1. `black_follows_white` (**default**): the first trigger brings the white one; the black one only comes for a runner who has **met** the white one (line of sight within 14 cells), on a second trigger. Least intrusive and the most telegraphed: you learn the species first.
-2. `black_rare`: every trigger brings exactly one creature, the black one 1 time in 4 (seeded by the route seed, so every peer agrees). Simple; a first-time player can meet the dangerous one.
-3. `pair`: both at once (a few cells apart): the hardest, no learning curve.
+**Default `"difficulty"` (KT's decision): both creatures, as a SOLO or a PAIR depending on the game difficulty.** `SecretCreatures.DIFFICULTY` is a table keyed by the real difficulty ids; the plan for a trigger is `plan_for(difficulty_id, route_seed)`, pure and seeded, so every peer agrees and a restart repeats it.
 
-**Question for KT:** which relationship do you prefer? Default stays the first until you say.
+| difficulty | who comes | pair chance | notice | chase speed | rest | alert radius |
+|---|---|---|---|---|---|---|
+| `relaxed` | the white one, alone | 0 | x0.85 | x0.92 | x1.4 | x0.85 |
+| `standard` | usually the white one alone, the black one alone 1 time in 4, a pair about 1 time in 10 | 10% | x1.0 | x1.0 | x1.0 | x1.0 |
+| `hard` | a pair most of the time (the black one joins 3 s after the white one has noticed you), otherwise solo | 70% | x1.1 | x1.05 | x0.85 | x1.1 |
+| `nightmare` | always a pair, spawned together and coordinated: the black one flanks while the white one barks | 100% | x1.2 | x1.1 | x0.7 | x1.2 |
+
+(Knobs multiply the creature's own numbers: notice = sight/hearing, chase = chase speed, rest = the cooldown after a hunt, alert = how far the bark carries. Edit the table, nothing else.) The table has exactly the game's four difficulty ids (the suite fails if one is added or removed without a row); nightmare may not be selectable in the menu yet, its row is ready.
+
+Pair rules: the two are placed at least `PAIR_MIN_GAP` (10 cells) apart, neither on top of the runner (the normal spawn-distance rule), and a coordinated pair flanks (at least `PAIR_FLANK_DEGREES` apart as seen from the runner). Tells are staggered (the white bark first, the black hiss `stagger` seconds later) so it is always telegraphed. They share a rest (`SpiderPack`): when one gives up or is shut out, both go home and neither starts another hunt until the shared cooldown ends, so there is no endless chain-hunt. The host decides everything and replicates the creatures like any hunter; clients never run the plan.
+
+The admin hunter picker (the only listing) offers the white one, the black one and a `pair` entry that summons both, linked, with the current difficulty's knobs. The trigger stays **off** by default, so none of this happens by itself yet.
+
+The older fixed options still work behind the constant: `black_follows_white` (the black one only after the white one has been met, on a second trigger), `black_rare` (one creature per trigger, the black one 1 time in 4), `pair` (both, always).
 
 ## Not visible before it is met
 
@@ -141,7 +152,7 @@ lists in `pause_menu.gd` / `room_lobby.gd`, and the two admin-picker size assert
 
 ## Tests
 
-`godot --headless res://scenes/validate.tscn -- secret_creature` (run on the test machines): both models and clips, the shipped trigger is off and leaves no trace, the three relationship options, secrecy (roster, dossier, draw,
+`godot --headless res://scenes/validate.tscn -- secret_creature` (run on the test machines): both models and clips, the shipped trigger is off and leaves no trace, the difficulty table (complete, deterministic, pair spacing, shared rest, staggered tells, nothing spawns with the trigger off) and the three older options, secrecy (roster, dossier, draw,
 death lines in debug vs release), behaviour (lurk, bark head start, hunt, capture, shelter, cooldown, flashlight, hidden runner), determinism
 and network round trip, trigger (never in the maze, vigil build/drain, seeded lair), the real `HunterView3D`, a live streamed route
 (admin summon and the City spawn path), and the whole-project grep for hints.

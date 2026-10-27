@@ -13,8 +13,11 @@ extends RefCounted
 ## Triggers (SecretCreatures.TRIGGER, "off" for now: nothing ever spawns by itself): "garden_vigil" = stand still in a garden with
 ## the flashlight OFF for VIGIL_SECONDS (nothing in normal play looks like that); "fountains" = stand at all the fountains in one run.
 ## Only the local runner counts. A creature appears out of reach, already telegraphing (bark or hiss): the warning comes first.
-## SecretCreatures.RELATIONSHIP says which creature a trigger brings: "black_follows_white" (first the white one; the black one only
-## for a runner who has MET the white one, on a second trigger), "black_rare" (one creature per run, black 1 time in 4) or "pair".
+## SecretCreatures.RELATIONSHIP says which creature(s) a trigger brings. Default "difficulty" (KT): SOLO or PAIR by the game difficulty
+## (SecretCreatures.DIFFICULTY: relaxed = white solo; standard = solo, small chance of the pair; hard = pair likely, the black one joining
+## after the white one has noticed the runner; nightmare = pair always, spawned together and coordinated), with per-difficulty knobs.
+## Older fixed options stay selectable: "black_follows_white", "black_rare", "pair". A pair shares a rest timer (SpiderPack) so the two
+## never chain-hunt one runner, both start out of reach (never on top of the runner) and at least PAIR_MIN_GAP cells from each other.
 
 const ENTITY_ID := "SECRET:white_wolf_spider"   # the white one (kept for callers); see entity_id() for any creature
 const VIGIL_SECONDS := 45.0
@@ -26,15 +29,20 @@ const SPAWN_MAX_DISTANCE := 23.0
 const DISCOVER_RANGE := 14.0
 const DISCOVER_EVERY := 0.5
 
-## Test hooks: the validator arms a trigger / relationship without touching the shipped constants.
+## Test hooks: the validator arms a trigger / relationship / difficulty without touching the shipped constants.
 static var trigger_override := ""
 static var relationship_override := ""
+static var difficulty_override := ""
 
 var fired := false                  # at least one creature has been spawned this run
 var vigil := 0.0
 var fountains_seen := {}
 var spawned := {}                   # creature id -> true
 var met := {}                       # creature id -> true once the local runner has seen it (account-independent)
+
+var pack: SpiderPack = null
+var pending_join := {}              # {"id", "left", "knobs", "stagger", "flank"}: the black one joining a "hard" pair after the white one's bark
+var last_plan := {}
 
 var _last_position := Vector2.ZERO
 var _has_last := false
@@ -49,6 +57,10 @@ static func relationship() -> String:
 	return relationship_override if not relationship_override.is_empty() else SecretCreatures.RELATIONSHIP
 
 
+static func difficulty() -> String:
+	return difficulty_override if not difficulty_override.is_empty() else RoomState.difficulty_id()
+
+
 static func entity_id(creature_id: String) -> String:
 	return "SECRET:%s" % creature_id
 
@@ -57,6 +69,7 @@ func update(route, delta: float) -> void:
 	if not SecretCreatures.is_city_generator(route.facility.generator):
 		return
 	_discover(route, delta)
+	_update_join(route, delta)
 	if trigger() == "off" or _finished(route):
 		return
 	var player = route.player
@@ -158,44 +171,90 @@ func _planned_ids() -> Array:
 
 ## Which creatures the NEXT trigger brings (empty = nothing more to bring right now).
 func _plan(route) -> Array:
+	return _plan_info(route)["ids"]
+
+
+## {"ids", "knobs", "join": "now" | "after_bark", "join_delay", "stagger", "flank"}.
+func _plan_info(route) -> Dictionary:
 	var white := SecretCreatures.WHITE_WOLF_SPIDER
 	var black := SecretCreatures.BLACK_WOLF_SPIDER
+	var plain := {"ids": [], "knobs": {}, "join": "now", "join_delay": 0.0, "stagger": 0.0, "flank": false}
 	match relationship():
 		"pair":
-			return [] if spawned.has(white) or spawned.has(black) else [white, black]
+			plain["ids"] = [] if spawned.has(white) or spawned.has(black) else [white, black]
+			plain["stagger"] = 1.8
+			return plain
 		"black_rare":
 			if spawned.has(white) or spawned.has(black):
-				return []
+				return plain
 			var roll := SeededRandom.new("%s:SECRET-PICK" % route.facility.generator.world_seed).next_float()
-			return [black] if roll < SecretCreatures.BLACK_CHANCE else [white]
-		_:
+			plain["ids"] = [black] if roll < SecretCreatures.BLACK_CHANCE else [white]
+			return plain
+		"black_follows_white":
 			if not spawned.has(white):
-				return [white]
-			if not spawned.has(black) and met.has(white):
-				return [black]
-			return []
+				plain["ids"] = [white]
+			elif not spawned.has(black) and met.has(white):
+				plain["ids"] = [black]
+			return plain
+		_:
+			if spawned.has(white) or spawned.has(black):
+				return plain          # one plan per run: the difficulty decided solo or pair, and who, when the trigger first fired
+			last_plan = SecretCreatures.plan_for(difficulty(), String(route.facility.generator.world_seed))
+			return last_plan
 
 
 func _fire(route, layout, player_position: Vector2) -> void:
-	var plan := _plan(route)
-	if plan.is_empty():
+	var info := _plan_info(route)
+	var ids: Array = info["ids"]
+	if ids.is_empty():
 		vigil = 0.0                      # armed, but nothing is due yet (e.g. the black one waits until the white one has been met)
 		fountains_seen.clear()
 		return
-	var spawned_now := false
-	for id in plan:
-		var spawn_position = _pick_lair(route, layout, player_position, String(id))
-		if spawn_position != null and _spawn(route, String(id), spawn_position, player_position):
-			spawned_now = true
-	if spawned_now:
-		vigil = 0.0
-		fountains_seen.clear()
-	else:
+	var knobs: Dictionary = info["knobs"]
+	var first_id := String(ids[0])
+	var first_position = _pick_lair(route, layout, player_position, first_id)
+	if first_position == null:
 		vigil = VIGIL_SECONDS * .9       # nowhere open yet: try again on a later tick
+		return
+	if not _spawn(route, first_id, first_position, player_position, knobs, 0.0):
+		vigil = VIGIL_SECONDS * .9
+		return
+	if ids.size() > 1:
+		var second_id := String(ids[1])
+		if String(info["join"]) == "after_bark":
+			# the black one joins once the white one has noticed the runner (it barks the moment it appears): `join_delay` s later, from another side
+			pending_join = {"id": second_id, "left": float(info["join_delay"]), "knobs": knobs, "stagger": float(info["stagger"]),
+				"flank": bool(info["flank"]), "first_position": first_position}
+		else:
+			_spawn_second(route, layout, second_id, player_position, first_position, knobs, float(info["stagger"]), bool(info["flank"]))
+	vigil = 0.0
+	fountains_seen.clear()
+
+
+func _spawn_second(route, layout, second_id: String, player_position: Vector2, first_position: Vector2, knobs: Dictionary, stagger: float, flank: bool) -> bool:
+	var position = _pick_lair(route, layout, player_position, second_id, first_position, flank)
+	if position == null:
+		return false
+	return _spawn(route, second_id, position, player_position, knobs, stagger)
+
+
+func _update_join(route, delta: float) -> void:
+	if pending_join.is_empty():
+		return
+	pending_join["left"] = float(pending_join["left"]) - delta
+	if float(pending_join["left"]) > 0.0 or route.player == null:
+		return
+	var layout = route.facility.generator.get("layout")
+	var join := pending_join
+	pending_join = {}
+	if layout != null:
+		_spawn_second(route, layout, String(join["id"]), route.player.grid_position(), join["first_position"], join["knobs"], 0.0, bool(join["flank"]))
 
 
 ## A deterministic open garden / plaza / path cell SPAWN_MIN..MAX cells from the runner (seeded by the route seed and the creature).
-func _pick_lair(route, layout, player_position: Vector2, creature_id: String = SecretCreatures.WHITE_WOLF_SPIDER):
+## `avoid` (the first creature of a pair): keep at least PAIR_MIN_GAP cells from it, and when `flank` is set prefer the far side of the
+## runner (at least PAIR_FLANK_DEGREES between the two creatures as seen from the runner) when any such cell exists.
+func _pick_lair(route, layout, player_position: Vector2, creature_id: String = SecretCreatures.WHITE_WOLF_SPIDER, avoid = null, flank := false):
 	var rng := SeededRandom.new("%s:SECRET-LAIR:%s" % [route.facility.generator.world_seed, creature_id])
 	var preferred: Array = []
 	var fallback: Array = []
@@ -210,15 +269,25 @@ func _pick_lair(route, layout, player_position: Vector2, creature_id: String = S
 				continue
 			if not layout.is_open(cell.x, cell.y):
 				continue
+			if avoid != null:
+				var world := world_cell(layout, cell)
+				if world.distance_to(avoid as Vector2) < SecretCreatures.PAIR_MIN_GAP:
+					continue
+				if flank:
+					var first_dir := ((avoid as Vector2) - player_position).normalized()
+					if absf(rad_to_deg(first_dir.angle_to((world - player_position).normalized()))) < SecretCreatures.PAIR_FLANK_DEGREES:
+						continue
 			(preferred if kinds_wanted.has(layout.kind_at(cell.x, cell.y)) else fallback).append(cell)
 	var pool := preferred if not preferred.is_empty() else fallback
 	if pool.is_empty():
+		if avoid != null and flank:
+			return _pick_lair(route, layout, player_position, creature_id, avoid, false)   # no far side open: relax the flank
 		return null
 	var cell: Vector2i = pool[rng.next_index(pool.size())]
 	return world_cell(layout, cell)
 
 
-func _spawn(route, creature_id: String, spawn_position: Vector2, target_position: Vector2) -> bool:
+func _spawn(route, creature_id: String, spawn_position: Vector2, target_position: Vector2, knobs: Dictionary = {}, bark_delay: float = 0.0) -> bool:
 	var level: int = route.facility.current_level()
 	var navigation = route._navigations.get(level)
 	if navigation == null:
@@ -244,12 +313,55 @@ func _spawn(route, creature_id: String, spawn_position: Vector2, target_position
 		view.brain.activate_at(target_position)
 		var gimmick := view.brain.gimmick as WhiteWolfSpiderGimmick
 		if gimmick != null:
-			gimmick.start_with_bark()
+			gimmick.start_with_bark(bark_delay)
+			if not knobs.is_empty():
+				gimmick.apply_knobs(view.brain, knobs)
+			_link_pack(route, creature_id)         # links only once the other one of the pair exists
 		view.sync_from_brain()
 		route._store_hunter(entity, view)
 	spawned[creature_id] = true
 	fired = true
 	return true
+
+
+static func _other(creature_id: String) -> String:
+	return SecretCreatures.BLACK_WOLF_SPIDER if creature_id == SecretCreatures.WHITE_WOLF_SPIDER else SecretCreatures.WHITE_WOLF_SPIDER
+
+
+## Both of a pair on the route: one shared rest timer / recall (SpiderPack).
+func _link_pack(route, creature_id: String) -> void:
+	var mine = route._hunter_views.get(entity_id(creature_id))
+	var theirs = route._hunter_views.get(entity_id(_other(creature_id)))
+	if mine == null or theirs == null or mine.brain == null or theirs.brain == null:
+		return
+	var a := mine.brain.gimmick as WhiteWolfSpiderGimmick
+	var b := theirs.brain.gimmick as WhiteWolfSpiderGimmick
+	if a == null or b == null:
+		return
+	if pack == null:
+		pack = SpiderPack.new()
+		pack.join(b)
+	pack.join(a)
+
+
+## Admin picker "pair" entry (testing): after the route's own admin summon has created both, link them and apply a difficulty's knobs.
+static func link_admin_pair(route, difficulty_id: String) -> void:
+	var secrets := CitySecrets.new()
+	var row: Dictionary = SecretCreatures.DIFFICULTY.get(difficulty_id, SecretCreatures.DIFFICULTY["standard"])
+	var views := {}
+	for view_value in (route._hunter_views as Dictionary).values():
+		var view = view_value
+		if view != null and view.brain != null and SecretCreatures.IDS.has(view.brain.hunter_id):
+			views[view.brain.hunter_id] = view
+	if views.size() < 2:
+		return
+	var pack := SpiderPack.new()
+	for id in [SecretCreatures.WHITE_WOLF_SPIDER, SecretCreatures.BLACK_WOLF_SPIDER]:
+		var gimmick := views[id].brain.gimmick as WhiteWolfSpiderGimmick
+		if gimmick != null:
+			gimmick.apply_knobs(views[id].brain, row["knobs"])
+			pack.join(gimmick)
+	secrets.pack = pack
 
 
 ## "Met" = the local runner has line of sight to it within DISCOVER_RANGE (the black one's condition under black_follows_white).

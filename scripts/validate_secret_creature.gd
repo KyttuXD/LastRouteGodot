@@ -121,7 +121,7 @@ func _model_and_clips(host: Node, creature: String) -> void:
 func _secret_stays_secret() -> void:
 	_expect(not HunterRoster.PROFILES.has(ID) and not HunterRoster.PROFILES.has(BLACK_ID), "a secret creature is in HunterRoster.PROFILES")
 	_expect(SecretCreatures.TRIGGER == "off", "the shipped trigger must be off (KT: nothing spawns by itself for now)")
-	_expect(CitySecrets.trigger() == "off" and CitySecrets.relationship() == "black_follows_white", "the trigger/relationship defaults changed")
+	_expect(CitySecrets.trigger() == "off" and CitySecrets.relationship() == "difficulty", "the trigger/relationship defaults changed")
 	for creature in [ID, BLACK_ID]:
 		_expect(not HunterRoster.IMPLEMENTED_IDS.has(creature) and not HunterRoster.SPECIAL_IDS.has(creature) and not HunterRoster.A_Z_IDS.has(creature)
 			and not HunterRoster.VOID_IDS.has(creature) and not HunterRoster.OFFICE_VOID_IDS.has(creature), "%s is listed in a HunterRoster id list" % creature)
@@ -436,11 +436,58 @@ func _black_behaviour() -> void:
 	_expect(fresh_gimmick.cooldown_seconds > WhiteWolfSpiderGimmick.COOLDOWN_SECONDS and fresh_gimmick.hunt_seconds > WhiteWolfSpiderGimmick.HUNT_SECONDS, "the black one does not hunt longer and rest longer")
 
 
-## The relationship options (CitySecrets._plan): which creature a trigger brings.
+## The relationship options (CitySecrets._plan): which creature(s) a trigger brings.
 func _relationship() -> void:
 	var route := FakeRoute.new()
 	route.facility.generator = FakeCityGenerator.new()
-	# default black_follows_white: white first; black only after the white one has been met, on a later trigger
+	_expect(SecretCreatures.RELATIONSHIP == "difficulty", "the default relationship is not the difficulty table")
+	# --- the difficulty table: complete, deterministic, and each mode does what it says
+	for difficulty_id in GameConfig.DIFFICULTY_PROFILES:
+		_expect(SecretCreatures.DIFFICULTY.has(difficulty_id), "no secret-creature row for the difficulty %s" % difficulty_id)
+	for difficulty_id in SecretCreatures.DIFFICULTY:
+		var row: Dictionary = SecretCreatures.DIFFICULTY[difficulty_id]
+		_expect(GameConfig.DIFFICULTY_PROFILES.has(difficulty_id), "the table has a difficulty the game does not (%s)" % difficulty_id)
+		for knob in ["notice", "chase", "rest", "alert"]:
+			_expect(row["knobs"].has(knob) and float(row["knobs"][knob]) > 0.0, "%s lacks the %s knob" % [difficulty_id, knob])
+		for n in 40:
+			var a := SecretCreatures.plan_for(difficulty_id, "PLAN-%d" % n)
+			_expect(a == SecretCreatures.plan_for(difficulty_id, "PLAN-%d" % n), "plan_for is not deterministic (%s)" % difficulty_id)
+			_expect((a["ids"] as Array).size() in [1, 2], "a plan has %d creatures" % (a["ids"] as Array).size())
+	var counts := {}
+	for difficulty_id in SecretCreatures.DIFFICULTY:
+		counts[difficulty_id] = {"pair": 0, "black_solo": 0, "white_solo": 0, "after_bark": 0}
+		for n in 600:
+			var plan := SecretCreatures.plan_for(difficulty_id, "TABLE-%d" % n)
+			var ids: Array = plan["ids"]
+			if ids.size() == 2:
+				counts[difficulty_id]["pair"] += 1
+				_expect(ids == [ID, BLACK_ID], "a pair is not white then black")
+				if String(plan["join"]) == "after_bark":
+					counts[difficulty_id]["after_bark"] += 1
+			elif ids == [BLACK_ID]:
+				counts[difficulty_id]["black_solo"] += 1
+			else:
+				counts[difficulty_id]["white_solo"] += 1
+	_expect(counts["relaxed"]["pair"] == 0 and counts["relaxed"]["black_solo"] == 0, "relaxed is not always the white one alone")
+	_expect(counts["nightmare"]["pair"] == 600, "nightmare is not always a pair")
+	_expect(counts["standard"]["pair"] > 30 and counts["standard"]["pair"] < 95, "standard pairs %d / 600 (expected about 10%%)" % counts["standard"]["pair"])
+	_expect(counts["standard"]["black_solo"] > 80 and counts["standard"]["black_solo"] < 220, "standard black solos %d / 600 (expected about 22%%)" % counts["standard"]["black_solo"])
+	_expect(counts["hard"]["pair"] > 360 and counts["hard"]["pair"] < 480, "hard pairs %d / 600 (expected about 70%%)" % counts["hard"]["pair"])
+	_expect(counts["hard"]["after_bark"] == counts["hard"]["pair"], "a hard pair does not have the black one join after the white one's bark")
+	_expect(SecretCreatures.plan_for("nightmare", "X")["join"] == "now" and bool(SecretCreatures.plan_for("nightmare", "X")["flank"]), "a nightmare pair is not spawned together and coordinated")
+	var easy := SecretCreatures.DIFFICULTY["relaxed"]["knobs"]
+	var hard := SecretCreatures.DIFFICULTY["nightmare"]["knobs"]
+	_expect(float(easy["chase"]) < 1.0 and float(hard["chase"]) > 1.0 and float(easy["rest"]) > float(hard["rest"]), "the knobs do not scale with difficulty")
+	# CitySecrets plans per difficulty through its override (what the route reads from RoomState)
+	for difficulty_id in SecretCreatures.DIFFICULTY:
+		CitySecrets.difficulty_override = difficulty_id
+		route.facility.generator.world_seed = "SEED-%s" % difficulty_id
+		var from_secrets := CitySecrets.new()._plan_info(route)
+		_expect(from_secrets["ids"] == SecretCreatures.plan_for(difficulty_id, "SEED-%s" % difficulty_id)["ids"], "CitySecrets does not follow the difficulty table (%s)" % difficulty_id)
+	CitySecrets.difficulty_override = ""
+	route.facility.generator.world_seed = "FAKE-CITY"
+	# --- the older fixed options still work behind the constant
+	CitySecrets.relationship_override = "black_follows_white"
 	var secrets := CitySecrets.new()
 	_expect(secrets._plan(route) == [ID], "the first trigger must bring the white one")
 	secrets.spawned[ID] = true
@@ -449,13 +496,11 @@ func _relationship() -> void:
 	_expect(secrets._plan(route) == [BLACK_ID], "the black one did not follow once the white one was met")
 	secrets.spawned[BLACK_ID] = true
 	_expect(secrets._plan(route).is_empty(), "a third creature was planned")
-	# pair: both at once, only once
 	CitySecrets.relationship_override = "pair"
 	var pair := CitySecrets.new()
 	_expect(pair._plan(route) == [ID, BLACK_ID], "pair did not plan both")
 	pair.spawned[ID] = true
 	_expect(pair._plan(route).is_empty(), "pair planned again")
-	# black_rare: one creature per run, black about 1 time in 4 across seeds, deterministic per seed
 	CitySecrets.relationship_override = "black_rare"
 	var blacks := 0
 	for n in 400:
@@ -466,8 +511,81 @@ func _relationship() -> void:
 	_expect(blacks > 55 and blacks < 145, "black_rare picked the black one %d times in 400 seeds (expected about 100)" % blacks)
 	CitySecrets.relationship_override = ""
 	route.facility.generator.world_seed = "FAKE-CITY"
-	# nothing is ever planned or spawned with the default off trigger (update returns first)
-	_expect(CitySecrets.trigger() == "off", "the trigger override leaked out of the test")
+	_expect(CitySecrets.trigger() == "off" and CitySecrets.relationship() == "difficulty", "an override leaked out of the test")
+	_pair_spacing_and_pack()
+
+
+## Pair spacing (never on top of the runner, spaced and flanking) and the shared rest / recall / staggered tell of a linked pair.
+func _pair_spacing_and_pack() -> void:
+	var route := FakeRoute.new()
+	route.facility.generator = FakeCityGenerator.new()
+	var layout := FakeLayout.new()
+	var runner := Vector2(89 - 90, 44 - 45) + Vector2(.5, .5)
+	for n in 12:
+		route.facility.generator.world_seed = "SPACING-%d" % n
+		var secrets := CitySecrets.new()
+		var first = secrets._pick_lair(route, layout, runner, ID)
+		var second = secrets._pick_lair(route, layout, runner, BLACK_ID, first, true)
+		_expect(first != null and second != null, "a pair could not be placed (seed %d)" % n)
+		if first == null or second == null:
+			continue
+		var d1: float = (first as Vector2).distance_to(runner)
+		var d2: float = (second as Vector2).distance_to(runner)
+		_expect(d1 >= CitySecrets.SPAWN_MIN_DISTANCE - 1.5 and d2 >= CitySecrets.SPAWN_MIN_DISTANCE - 1.5, "a pair creature starts %.1f / %.1f cells from the runner (never on top of the runner)" % [d1, d2])
+		_expect((first as Vector2).distance_to(second as Vector2) >= SecretCreatures.PAIR_MIN_GAP - .01, "the pair starts only %.1f cells apart" % (first as Vector2).distance_to(second as Vector2))
+		var angle := absf(rad_to_deg(((first as Vector2) - runner).normalized().angle_to(((second as Vector2) - runner).normalized())))
+		_expect(angle >= SecretCreatures.PAIR_FLANK_DEGREES - .5, "a coordinated pair is not flanking (%.0f degrees)" % angle)
+	# the pack: staggered tells, shared rest, recall
+	var field := OpenField.new()
+	var lair_a := Vector2(50.5, 50.5)
+	var lair_b := Vector2(50.5, 20.5)
+	var white := HunterBrain.new(lair_a, "PACK-A", ID)
+	white.activate_at(lair_a)
+	var black := HunterBrain.new(lair_b, "PACK-B", BLACK_ID)
+	black.activate_at(lair_b)
+	var wg := white.gimmick as WhiteWolfSpiderGimmick
+	var bg := black.gimmick as WhiteWolfSpiderGimmick
+	var pack := SpiderPack.new()
+	pack.join(wg)
+	pack.join(bg)
+	wg.apply_knobs(white, SecretCreatures.DIFFICULTY["nightmare"]["knobs"])
+	_expect(white.chase_speed > HunterRoster.get_identity(ID)["chase_speed"] and wg.alert_radius > WhiteWolfSpiderGimmick.ALERT_RADIUS, "the difficulty knobs did not scale the creature")
+	wg.start_with_bark()
+	bg.start_with_bark(1.8)
+	var runner_at := Vector2(50.5, 35.5)
+	var t := 0.0
+	var white_bark_at := -1.0
+	var black_bark_at := -1.0
+	while t < 4.0:
+		white.update(STEP, field, _target(runner_at), 1, 0)
+		black.update(STEP, field, _target(runner_at), 1, 0)
+		if wg.bark_seq > 0 and white_bark_at < 0.0:
+			white_bark_at = t
+		if bg.bark_seq > 0 and black_bark_at < 0.0:
+			black_bark_at = t
+		t += STEP
+	_expect(white_bark_at >= 0.0 and black_bark_at >= white_bark_at + 1.5, "the pair's tells are not staggered (white %.2f s, black %.2f s)" % [white_bark_at, black_bark_at])
+	# one gives up (a shelter): both go home, and neither starts a new hunt during the shared rest
+	var safe := _target(runner_at)
+	safe["in_safe_zone"] = true
+	var recalled := false
+	for _i in 240:
+		white.update(STEP, field, safe, 1, 0)
+		black.update(STEP, field, safe, 1, 0)
+		if wg.phase == WhiteWolfSpiderGimmick.Phase.RETREAT or wg.phase == WhiteWolfSpiderGimmick.Phase.LURK:
+			if bg.phase == WhiteWolfSpiderGimmick.Phase.RETREAT or bg.phase == WhiteWolfSpiderGimmick.Phase.LURK:
+				recalled = true
+	_expect(recalled, "when one of the pair gave up the other did not go home with it")
+	_expect(pack.resting(), "the pair has no shared rest after giving up")
+	var seq_w := wg.bark_seq
+	var seq_b := bg.bark_seq
+	var open := _target(runner_at)
+	t = 0.0
+	while t < 10.0:
+		white.update(STEP, field, open, 1, 0)
+		black.update(STEP, field, open, 1, 0)
+		t += STEP
+	_expect(wg.bark_seq == seq_w and bg.bark_seq == seq_b, "the pair chain-hunted during their shared rest")
 
 
 ## ---------------------------------------------------------------- view

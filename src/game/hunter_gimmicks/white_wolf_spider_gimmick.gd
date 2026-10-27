@@ -37,6 +37,10 @@ var flash_hold := 0.0
 ## Which cue announces it ("bark" or "hiss"; the clip is always `bark`).
 var tell := "bark"
 
+## Set when the two are a pair (CitySecrets links them): shared rest and recall, see SpiderPack.
+var pack: SpiderPack = null
+var rest_scale := 1.0
+
 var phase: Phase = Phase.LURK
 var bark_seq := 0
 var lair := Vector2.ZERO
@@ -47,11 +51,25 @@ var _beam_time := 0.0
 var _cooldown := 0.0
 var _sense_left := 0.0
 var _spawn_barks := false
+var _spawn_bark_delay := 0.0
+var _delay_left := 0.0
+var _delay_target := Vector2.ZERO
+var _seen_recall := 0
 
 
-## City secrets spawn it already marking its runner (CitySecrets sets this right after creating the brain).
-func start_with_bark() -> void:
+## City secrets spawn it already marking its runner (CitySecrets sets this right after creating the brain). `delay` staggers the tell
+## of the second creature of a pair (the first barks at once, the other follows `delay` seconds later).
+func start_with_bark(delay: float = 0.0) -> void:
 	_spawn_barks = true
+	_spawn_bark_delay = delay
+
+
+## Per-difficulty multipliers (SecretCreatures.DIFFICULTY knobs): notice = sight range, chase = chase speed, rest = rest time, alert = alert radius.
+func apply_knobs(brain: HunterBrain, knobs: Dictionary) -> void:
+	brain.sight_range *= float(knobs.get("notice", 1.0))
+	brain.chase_speed *= float(knobs.get("chase", 1.0))
+	rest_scale = float(knobs.get("rest", 1.0))
+	alert_radius *= float(knobs.get("alert", 1.0))
 
 
 func runs_while_inactive() -> bool:
@@ -77,14 +95,25 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 		has_lair = true
 		if _spawn_barks:
 			_spawn_barks = false
-			_begin_bark(brain, target.get("position", brain.position))
+			if _spawn_bark_delay > 0.0:
+				_delay_left = _spawn_bark_delay
+				_delay_target = target.get("position", brain.position)
+			else:
+				_begin_bark(brain, target.get("position", brain.position))
+	if pack != null:
+		pack.tick(self, delta)
+	if _delay_left > 0.0 and phase == Phase.LURK:
+		_delay_left -= delta
+		if _delay_left <= 0.0:
+			_begin_bark(brain, _delay_target)
 	_cooldown = maxf(0.0, _cooldown - delta)
 	var target_position: Vector2 = target.get("position", brain.position)
 	var exposed: bool = not bool(target.get("hidden", false)) and not bool(target.get("in_safe_zone", false))
 	match phase:
 		Phase.LURK:
 			_sense_left -= delta
-			if _cooldown <= 0.0 and exposed and _sense_left <= 0.0:
+			var packed_rest := pack != null and pack.resting()
+			if _cooldown <= 0.0 and not packed_rest and _delay_left <= 0.0 and exposed and _sense_left <= 0.0:
 				_sense_left = SENSE_EVERY
 				if _notices(brain, target, target_position, generator):
 					_begin_bark(brain, target_position)
@@ -100,7 +129,10 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 		Phase.HUNT:
 			_timer -= delta
 			_beam_time = _beam_time + delta if brain.beam_alerted else 0.0
-			if not exposed or brain.winded or _timer <= 0.0 or (_beam_time > flash_hold and flash_hold != INF and brain.beam_alerted):
+			if pack != null and pack.recall_seq != _seen_recall:
+				_seen_recall = pack.recall_seq          # the other one gave up: both go home together
+				_begin_retreat(brain, false)
+			elif not exposed or brain.winded or _timer <= 0.0 or (_beam_time > flash_hold and flash_hold != INF and brain.beam_alerted):
 				_begin_retreat(brain)
 			else:
 				brain.state = HunterBrain.State.CHASE   # it does not lose a runner it has marked: it follows sound and light
@@ -110,7 +142,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 		Phase.RETREAT:
 			if brain.position.distance_to(lair) <= LAIR_RADIUS:
 				phase = Phase.LURK
-				_cooldown = cooldown_seconds
+				_cooldown = cooldown_seconds * rest_scale
 				brain.state = HunterBrain.State.IDLE
 				brain.has_wander_target = false
 			else:
@@ -150,7 +182,11 @@ func _begin_bark(brain: HunterBrain, target_position: Vector2) -> void:
 	_face(brain, target_position)
 
 
-func _begin_retreat(brain: HunterBrain) -> void:
+func _begin_retreat(brain: HunterBrain, call_pack: bool = true) -> void:
+	if pack != null and call_pack:
+		pack.start_rest(cooldown_seconds * rest_scale)
+		pack.recall()
+		_seen_recall = pack.recall_seq
 	phase = Phase.RETREAT
 	brain.state = HunterBrain.State.WANDER
 	brain.has_wander_target = true
