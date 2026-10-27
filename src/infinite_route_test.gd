@@ -834,12 +834,16 @@ func _pause_save_load(slot_id: String) -> Dictionary:
 
 
 func _save_write_denial() -> String:
+	if RoomState.mode == RoomState.Mode.CITY:
+		return "THE CITY HAS NO RUN SAVES YET"
 	if RoomState.online and not RoomState.is_host:
 		return "ONLY THE ROOM HOST CAN SAVE THE SHARED ROUTE"
 	return ""
 
 
 func _save_load_denial() -> String:
+	if RoomState.mode == RoomState.Mode.CITY:
+		return "THE CITY HAS NO RUN SAVES YET"
 	if RoomState.online and not RoomState.is_host:
 		return "ONLY THE ROOM HOST CAN LOAD A ROUTE"
 	if RoomState.online and RoomState.peers.size() > 1:

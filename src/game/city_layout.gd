@@ -92,6 +92,7 @@ const INTERIOR_RECIPES := {
 
 var seed_text := ""
 var kinds := PackedByteArray()
+var building_index := PackedInt32Array()   # city cell -> building number + 1 (0 = none)
 var decor := {}          # Vector2i -> {"type": String, "yaw": float}
 var buildings: Array = []
 var shelters: Array = []
@@ -121,6 +122,14 @@ static func in_bounds(gx: int, gz: int) -> bool:
 
 func kind_at(gx: int, gz: int) -> int:
 	return int(kinds[index_of(gx, gz)]) if in_bounds(gx, gz) else RIM
+
+
+## The building a wall or floor cell belongs to ({} for none).
+func building_at(gx: int, gz: int) -> Dictionary:
+	if not in_bounds(gx, gz):
+		return {}
+	var number := building_index[index_of(gx, gz)]
+	return buildings[number - 1] if number > 0 else {}
 
 
 func is_open(gx: int, gz: int) -> bool:
@@ -346,6 +355,8 @@ func _plan() -> void:
 	_rng = SeededRandom.new("%s:CITY-LAYOUT" % seed_text)
 	kinds.resize(WIDTH * HEIGHT)
 	kinds.fill(RIM)
+	building_index.resize(WIDTH * HEIGHT)
+	building_index.fill(0)
 	_lay_ground()
 	_lay_streets()
 	_lay_roundabout()
@@ -669,6 +680,9 @@ func _try_building(lot: Rect2i) -> void:
 		kind = "workshop"
 		height = 14.0 + _rng.next_float() * 6.0
 		style = "industrial"
+	for gz in range(lot.position.y, lot.end.y):
+		for gx in range(lot.position.x, lot.end.x):
+			building_index[index_of(gx, gz)] = buildings.size() + 1
 	buildings.append({"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
 		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors})
 
