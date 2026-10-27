@@ -46,6 +46,18 @@ func _ready() -> void:
 	column.add_child(title)
 	var new_run := _button("NewRunButton", "NEW RUN // SOLO", true, _on_new_run)
 	column.add_child(new_run)
+	var public_button := _button("PublicButton", "PUBLIC CITY", false, func() -> void: pass)
+	public_button.disabled = Backend.offline_mode or not Backend.configured()
+	public_button.tooltip_text = "Join the always-open shared City (needs the primary server)"
+	public_button.pressed.connect(func() -> void:
+		public_button.disabled = true
+		PublicRoute.join(RoomState.Mode.CITY))
+	PublicRoute.status_changed.connect(func(message: String) -> void:
+		if is_instance_valid(public_button) and not message.is_empty():
+			public_button.text = message.substr(0, 38)
+			public_button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
+				and not message.begins_with("PUBLIC ROUTE NEEDS"))
+	column.add_child(public_button)
 	_host_button = _button("HostButton", "HOST A ROOM", false, _on_host)
 	column.add_child(_host_button)
 	_join_input = LineEdit.new()

@@ -131,6 +131,7 @@ var peers := {}
 const DEFAULT_PORT := 8421
 ## The persistent server-owned route (see PublicRoute).
 const PUBLIC_CODE := "PUBLC"
+const PUBLIC_CODE_CITY := "CTYPR"
 const CONNECTION_TIMEOUT_MSEC := 15_000
 const RECONNECT_GRACE_MSEC := 8_000
 const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000
@@ -903,6 +904,11 @@ func suppress_scene_transitions_for_tests() -> void:
 ## The game this room belongs to; sent with the directory registration and checked when a code is resolved.
 func game_id() -> String:
 	return GAME_CITY if mode == Mode.CITY else GAME_LAST_ROUTE
+
+
+## The always-open shared route code of a game (the backend keeps one public route per game id).
+func public_code() -> String:
+	return PUBLIC_CODE_CITY if mode == Mode.CITY else PUBLIC_CODE
 
 
 func is_city() -> bool:

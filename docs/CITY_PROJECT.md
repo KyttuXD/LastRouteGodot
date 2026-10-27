@@ -112,7 +112,7 @@ box, vent/pipe runs. Where a piece is simple it is drawn straight into the surfa
   A client that resolves a code for another game refuses the join with a clear message. Old clients and old servers
   simply omit the field and are treated as `last_route`.
 * City run saves live under `user://city_runs/`, never in `user://route_saves/`; settings, account and per-server
-  sessions are shared with the other games. Public route: not in this pass (see section 8).
+  sessions are shared with the other games. Public route: see "Dome gate" and "Public City" below.
 * Everything is deterministic from the seed (the master layout is a pure function of the seed), so host and guests
   build identical chunks.
 
@@ -154,11 +154,26 @@ Built and passing (suites `city` and `city_nav`, `COOP_MODE=city scripts/coop_te
 
 ## 9. Not in the first pass
 
-* Public route for the City (needs its own server-side state key; rooms are already namespaced by game id).
-* The escape objective at the south gate (the first pass keeps the route's relay / checkpoint loop).
 * Run saves (the pause menu refuses saving and loading in the City; Last Route archives are never touched).
 * Interior variety beyond one room per building, door leaves, traffic, rain, the city soundscape, irregular building
   footprints and courtyards, the south gate arch prop.
 * Prop rework: the interiors use the shared prop types as they exist today; the props lane's rewrites apply
   automatically, a City-only prop set (`tools/props/city_props.py`) was not needed for this pass (street furniture is
   drawn straight into the surface mesh).
+
+
+## Dome gate (escape objective)
+
+The avenue ends in a closed 7 m gate (`CityLayout.GATE`, row 120, columns 108..116). Its interaction cell (112,119) holds one
+`gate` pickup entity (chunk 0,0,1, id `...:PICKUP:GATE:0`), built as a `RouteInteractable3D` LIFT. The host refuses it
+until the party has `CityLayout.gate_relays_required(difficulty)` relays (6 relaxed, 10 standard, 14 hard, 16 nightmare). The
+claim goes through the normal `stream_pickup` event, so every peer runs `_city_escape()`: a short gate sequence, then the
+ESCAPED run card. Restart on that card starts a new City run (solo) or leaves the room (online). Covered by `city` suite.
+
+## Public City
+
+The backend keeps one public route per game id (`PUBLIC_CODES`: `last_route` = `PUBLC`, `city` = `CTYPR`; room codes cannot
+contain I, O, 0, 1). Each has its own seed, relay claims and store file (`godot_publicroom_city.json`). `/api/public/*` take a
+`game` field (`?game=` on status). The client's `PublicRoute.join(mode)` remembers the game, so rejoins and takeovers stay in
+the City. The City menu has a PUBLIC CITY button. `GAME=city scripts/public_test.sh` runs the host / guest / resume / restart
+scenario on the City route.
