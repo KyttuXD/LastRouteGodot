@@ -16,9 +16,9 @@ const MAPS := {
 	"lure":     {"script": "", "single_space": false},
 	"bedroom":  {"script": "", "single_space": false},
 	"story":    {"script": "", "single_space": false},
-	"descent":  {"script": "", "single_space": false},
+	"descent":  {"script": "res://src/night_watch/descent/descent_map.gd", "single_space": false},
 	"dayshift": {"script": "", "single_space": false},
-	"extra":    {"script": "", "single_space": false},
+	"extra":    {"script": "res://src/night_watch/openair/openair_map.gd", "single_space": false},
 	"mixed":    {"script": "", "single_space": false, "rotates": true},
 }
 

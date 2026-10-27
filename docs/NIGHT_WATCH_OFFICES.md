@@ -90,3 +90,14 @@ Validator `night_watch_maps`: no two modes share a layout signature (sorted room
 and no mode's map script extends `NightWatchBuilding`. The layout must stay in step with the walking-hunter paths and the office spec entrances. Themes: Bedtime = a house wing (bedroom, hall, kids' room, bathroom, living room, kitchen, stairs / landing, closet), Salvage Run = a ship and yard (cargo bay office, gantry, docks, airlock, engine room, scrap yard, crane, hold, bridge), Masked Hours = a FNAF 2 style
 building (not derived from Classic), Dead Air = a radio station / studio floor, The Facility = an industrial complex, The Descent = stairwell / shaft levels, Open Air = open grounds,
 Mixed Shift = rotates between the other modes' maps, Classic stays as is.
+
+### Maps, lane C (The Descent, Open Air)
+
+| Mode | Map script | Rooms | Theme | Top-down |
+|---|---|---|---|---|
+| The Descent | `src/night_watch/descent/descent_map.gd` | `car`, `sill_l`, `sill_r`, `shaft`, `stair_1..4` (a stairwell of landings down the left), `pipe_gallery`, `fuse_closet`, `signal_hall` | service elevator shaft: the car hangs between two caged windows, a stairwell, pipe runs and fuse cabinets pass the windows as it drops (`NightWatchDescentWorld`) | [plan](night_watch_modes/1280x720_map_descent_top.png), [section](night_watch_modes/1280x720_map_descent_section.png) |
+| Open Air | `src/night_watch/openair/openair_map.gd` | one layout for the three watches: `roof`, `catwalk_w/e`, `back_catwalk`, `yard`, `service_road`, `road_stop`, `road_far`, `bus_shelter`, `pine_trail`, `clearing`, `trees_w/e`, `pines`, `log_pile` | open grounds, no building: a guard roof with gantries, a service road to a bus stop, a pine trail to the campfire clearing; each watch is one cluster, joined by paths | [rooftop](night_watch_modes/1280x720_map_openair_rooftop.png), [bus stop](night_watch_modes/1280x720_map_openair_busstop.png), [campfire](night_watch_modes/1280x720_map_openair_campfire.png) |
+
+In step with the walkers and the offices: Open Air's rooms are the places of `NightWatchOpenAirPaths` (L3..L0 / R3..R0 on the catwalks, W0..W4 on the road, V/Q/Y in the trees) and its three office
+entrances are the map's `roof`, `bus_shelter` and `clearing`. The Descent's two sills are its entrances (the office's window entrances); Elise walks the sill continuously by closeness rather than room to room.
+Captures: `tools/look/night_watch_maps_c_capture.tscn`.
