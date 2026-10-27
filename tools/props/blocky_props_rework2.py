@@ -191,12 +191,12 @@ def gothic_canopy_bed():
     c.add(w - p, 2.2, p, w, 2.3, d - p, "dark")
     c.add(p, 0.3, 0.0, w - p, 1.55, 0.12, "dark")                                           # tall headboard
     c.add(0.3, 1.2, 0.0, w - 0.3, 1.7, 0.12, "dark")
-    c.add(p, 0.3, d - 0.12, w - p, 0.8, d, "dark")                                          # footboard
-    c.add(p, 0.3, p, w - p, 0.5, d - p, "dark")                                             # frame
-    c.add(0.18, 0.5, 0.2, w - 0.18, 0.74, d - 0.2, "paper")                                 # mattress
-    c.add(0.18, 0.6, 0.9, w - 0.18, 0.78, d - 0.2, "@cloth")                                # coverlet
+    c.add(p, 0.42, d - 0.12, w - p, 0.85, d, "dark")                                          # footboard
+    c.add(p, 0.42, p, w - p, 0.58, d - p, "dark")                                            # frame: 0.42 m clear underneath
+    c.add(0.18, 0.58, 0.2, w - 0.18, 0.8, d - 0.2, "paper")                                 # mattress
+    c.add(0.18, 0.68, 0.9, w - 0.18, 0.84, d - 0.2, "@cloth")                                # coverlet
     for x in (0.3, 1.1):
-        c.add(x, 0.74, 0.2, x + 0.6, 0.86, 0.6, "white")                                    # pillows
+        c.add(x, 0.8, 0.2, x + 0.6, 0.92, 0.6, "white")                                    # pillows
     # hanging drapes: panels slightly out of line and turned a little so they read as cloth, not a wall
     for x0, x1, side in ((0.1, 0.16, 0), (w - 0.16, w - 0.1, 1)):
         for i in range(5):

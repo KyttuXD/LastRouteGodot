@@ -1255,6 +1255,14 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
 		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
 	spot.position = Vector3(cell.x + .5, .04, cell.y + .5)
+	var style := String(fixture.get("style", ""))
+	if fixture_kind == "hiding_spot" and not style.is_empty():
+		# Furniture hiding spot: the bed or wardrobe prop is already placed; sit on it (docs/HIDING_PROPS.md).
+		var local: Vector2 = fixture.get("local_position", Vector2(cell) + Vector2(.5, .5))
+		spot.hide_style = style
+		spot.hide_size = fixture.get("blocker_size", Vector3.ONE)
+		spot.prompt_text = "HIDE UNDER BED" if style == "bed" else "HIDE IN WARDROBE"
+		spot.position = Vector3(local.x, .0, local.y)
 	spot.rotation.y = float(fixture.get("yaw", 0.0))
 	spot.add_to_group("streamed_vent" if fixture_kind == "vent" \
 		else "streamed_hiding_spot")

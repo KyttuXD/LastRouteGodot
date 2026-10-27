@@ -38,6 +38,7 @@ const PROFILES := {
 	"house_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(9, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["houseToilet"], "generated": true},
 	"luxury_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"public_restroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"infirmary": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["hospitalBed"], "generated": true},
 	"prison_cell": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 9), "tables": Vector2i(0, 0), "signature": ["prisonBunk"], "generated": true},
 	"living_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(15, 15), "tables": Vector2i(0, 2), "signature": ["loungeCouch"], "generated": true},
 	"mourning_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},

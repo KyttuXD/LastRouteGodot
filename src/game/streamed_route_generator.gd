@@ -183,6 +183,11 @@ const REGION_DOUBLE_ROOM_DOORS := {
 ## Local X runs across a prop's front and local Z runs from its back into the
 ## room; _template_prop_entry rotates both visual and collision together.
 const TEMPLATE_PROP_SIZES := {
+	# Room-purpose catalog (tools/props/blocky_props_rework4.py); fitted boxes come from prop_collider_sizes.gd.
+	"hospitalBed": Vector3(1.0, 1.0, 2.12), "ivStand": Vector3(.5, 1.9, .5), "medicalCart": Vector3(.75, 1.0, .5),
+	"readingTable": Vector3(1.5, .75, .88), "libraryGlobe": Vector3(.62, 1.06, .62), "storageBarrel": Vector3(.62, .94, .62),
+	"storageShelving": Vector3(1.25, 1.94, .5), "receptionDesk": Vector3(2.0, 1.12, .88), "pottedPlant": Vector3(.5, 1.25, .5),
+	"standingMirror": Vector3(.62, 1.75, .44),
 	"arcadeCarpetCircle": Vector3(3.0, .03, 3.0), "beachMat": Vector3(1.4, .03, .85),
 	"gothicFloorCandelabra": Vector3(.5, 1.6, .5), "gothicPedestalTable": Vector3(.8, .75, .8),
 	"normalBookcase": Vector3(1.3, 2.0, .45),
@@ -507,6 +512,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		region_props = PlacementClearance.clear(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
+	fixtures.append_array(_prop_hiding_fixtures(coord, region_props, safe))
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
 	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
@@ -974,7 +980,7 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 				# Prison wings are linear but need occasional mess-like spaces
 				# to avoid repetitive cell-block generation.
 				linear_room_type = "prison_cafeteria" \
-					if room_index % 5 == 2 else "prison_cell"
+					if room_index % 5 == 2 else ("infirmary" if room_index % 5 == 4 else "prison_cell")
 			var room_entry := _room_entry(coord, room_index, region, rect,
 				linear_room_type)
 			room_entry["doorway"] = connection["doorway"]
@@ -1084,7 +1090,8 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 					if region == "hotel":
 						room_type = "hotel_bathroom" if room_index % 4 == 3 else "guest_room"
 					elif region == "prison":
-						room_type = "prison_cafeteria" if room_index % 5 == 2 else "prison_cell"
+						room_type = "prison_cafeteria" if room_index % 5 == 2 \
+							else ("infirmary" if room_index % 5 == 4 else "prison_cell")
 					else:
 						room_type = String(small_types[room_index % small_types.size()])
 				var entry := _room_entry(coord, room_index, region, rect, room_type)
@@ -1925,6 +1932,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = "private_office"
 	elif room_type == "prison_cafeteria":
 		template = "prison_cafeteria"
+	elif room_type == "infirmary":
+		template = "infirmary"
 	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		template = room_type
 	if template.is_empty():
@@ -2076,8 +2085,16 @@ static func _room_template_specs(template: String, region: String,
 					"depth": 0, "wall_backed": true, "facing": "open"})
 				specs.append({"type": "bedroomDresser", "side": -3 * mirror,
 					"depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "bedroomVanity", "side": 5 * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "vanityStool", "side": 5 * mirror,
+					"depth": 1, "facing": "back"})
+				specs.append({"type": "normalBookcase", "side": -5 * mirror,
+					"depth": 2, "wall_backed": false, "facing": "center"})
+			specs.append({"type": "standingMirror", "side": 2 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open"})
 			if not frame_type.is_empty():
-				specs.append({"type": frame_type, "side": 2 * mirror,
+				specs.append({"type": frame_type, "side": -3 * mirror,
 					"depth": 0, "facing": "open", "wall_mount": true,
 					"solid": false})
 			if depth_span >= 9:
@@ -2387,6 +2404,9 @@ static func _room_template_specs(template: String, region: String,
 				specs.append({"type": "gothicPedestalTable", "side": desk_side, "depth": mid_depth, "facing": "open"})
 				specs.append({"type": "gothicHighbackChair", "side": desk_side, "depth": mid_depth - 1, "facing": "open"})
 				specs.append({"type": "gothicHighbackChair", "side": desk_side, "depth": mid_depth + 1, "facing": "back"})
+			specs.append({"type": "libraryGlobe", "side": 3, "depth": 1, "facing": "center"})
+			specs.append({"type": "readingTable", "side": 0, "depth": mid_depth - 2, "facing": "open"})
+			specs.append({"type": "gothicHighbackChair", "side": 0, "depth": mid_depth - 3, "facing": "open"})
 			specs.append({"type": "gothicBedroomRug", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 			for light_side in [-6, 0, 6]:
 				specs.append({"type": "ceilingLight", "side": light_side, "depth": mid_depth, "facing": "open", "solid": false})
@@ -2407,9 +2427,22 @@ static func _room_template_specs(template: String, region: String,
 				specs.append({"type": "gothicCoffinChest", "side": coffin_side, "depth": 6, "facing": "open"})
 			for candle_side in [-9, 9]:
 				specs.append({"type": "gothicFloorCandelabra", "side": candle_side, "depth": 0, "wall_backed": true, "facing": "open"})
+		"infirmary":
+			for bed_side in [-4, -1, 2, 5]:
+				specs.append({"type": "hospitalBed", "side": bed_side, "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "ivStand", "side": bed_side + 1, "depth": 0, "facing": "open"})
+			for curtain_side in [-2, 1, 4]:
+				specs.append({"type": "privacyCurtain", "side": curtain_side, "depth": 1, "facing": "right"})
+			for cart_side in [-3, 3]:
+				specs.append({"type": "medicalCart", "side": cart_side, "depth": mid_depth + 1, "facing": "back"})
+			for light_side in [-3, 3]:
+				specs.append({"type": "ceilingLight", "side": light_side, "depth": mid_depth, "facing": "open", "solid": false})
 		"maze_storage":
 			for shelf_side in range(-8, 9, 2):
-				specs.append({"type": "normalBookcase", "side": shelf_side, "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "storageShelving" if shelf_side % 4 == 0 else "normalBookcase", "side": shelf_side,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+			for barrel_side in [-8, -7, 7, 8]:
+				specs.append({"type": "storageBarrel", "side": barrel_side, "depth": mid_depth + 2, "facing": "open"})
 			for crate_side in [-6, -2, 2, 6]:
 				specs.append({"type": "supplyCrates", "side": crate_side, "depth": mid_depth, "facing": "open"})
 			for box_side in [-4, 4]:
@@ -2471,6 +2504,11 @@ static func _room_template_specs(template: String, region: String,
 		"lounge":
 			specs.append({"type": "loungeCouchWide", "side": -1 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
+			for plant_side in [-4, 4]:
+				specs.append({"type": "pottedPlant", "side": plant_side,
+					"depth": 0, "wall_backed": true, "facing": "open"})
+			specs.append({"type": "libraryGlobe", "side": -3 * mirror,
+				"depth": mid_depth, "facing": "center"})
 			specs.append({"type": "normalCoffeeTable", "side": -1 * mirror,
 				"depth": mid_depth, "facing": "back"})
 			specs.append({"type": "normalTvConsole", "side": 2 * mirror,
@@ -2487,22 +2525,19 @@ static func _room_template_specs(template: String, region: String,
 					"depth": 0, "facing": "open", "wall_mount": true,
 					"solid": false})
 		"office_reception":
-			specs.append({"type": "filingCabinet", "side": -2 * mirror,
-				"depth": 0, "wall_backed": true, "facing": "open"})
+			# The desk sits to one side of the door aisle (PlacementClearance keeps the walk from the door open).
+			specs.append({"type": "receptionDesk", "side": -1 * mirror,
+				"depth": 1, "facing": "open"})
+			specs.append({"type": "officeChair", "side": -1 * mirror,
+				"depth": 0, "facing": "open"})
+			for plant_side in [-2, 1]:
+				specs.append({"type": "pottedPlant", "side": plant_side * mirror,
+					"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "filingCabinet", "side": 2 * mirror,
 				"depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "officeDesk", "side": 0,
-				"depth": mid_depth, "facing": "open"})
-			specs.append({"type": "officeChair", "side": 0,
-				"depth": mid_depth + 1, "facing": "back"})
-			specs.append({"type": "officeChair", "side": 0,
-				"depth": mid_depth - 1, "facing": "open"})
-			specs.append({"type": "retroComputerCompact", "side": 0,
-				"depth": mid_depth, "facing": "open", "solid": false,
-				"mount_y": .78})
 			specs.append({"type": "officeWaterCooler", "side": 2 * mirror,
 				"depth": mid_depth + 1, "facing": "center"})
-			specs.append({"type": "normalPictureFrameEmpty", "side": -2 * mirror,
+			specs.append({"type": "normalPictureFrameEmpty", "side": 0,
 				"depth": 0, "facing": "open", "wall_mount": true,
 				"solid": false})
 			specs.append({"type": "ceilingLight", "side": 0,
@@ -3123,6 +3158,45 @@ static func _room_facing_yaw(cell: Vector2i, target: Vector2i) -> float:
 		return 0.0
 	# Godot's visual forward is -Z; atan2(-x, -z) turns that axis toward target.
 	return snappedf(atan2(-direction.x, -direction.y), PI * .25)
+
+
+## Furniture you can hide in (docs/HIDING_PROPS.md): every bed and wardrobe a room recipe placed becomes an ordinary
+## hiding_spot fixture, so the same toggle, hunter gimmicks (Loxelle's break, Jyvra's reach), navigation and replication
+## apply. "style" tells the view how to hide (under the bed, inside the wardrobe); the prop itself is the visual.
+const HIDING_PROP_STYLES := {
+	"singleBed": "bed", "doubleBed": "bed", "gothicDoubleBed": "bed", "hospitalBed": "bed",
+	"bedroomWardrobe": "wardrobe", "gothicWardrobe": "wardrobe",
+}
+
+
+func _prop_hiding_fixtures(coord: Vector3i, region_props: Array, safe: bool) -> Array:
+	if safe:
+		return []
+	var result := []
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		var style := String(HIDING_PROP_STYLES.get(String(prop.get("type", "")), ""))
+		if style.is_empty() or not bool(prop.get("solid", true)) or String(prop.get("room_template", "")).is_empty():
+			continue
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		var offset: Vector2 = prop.get("placement_offset", Vector2.ZERO)
+		var open_direction: Vector2i = prop.get("open_direction", Vector2i(0, 1))
+		var size: Vector3 = prop.get("blocker_size", Vector3.ONE)
+		var local := Vector2(cell) + Vector2(.5, .5) + offset
+		# The fixture's cell is the open floor in front of the furniture (where you stand to use it, what reachability and
+		# hunters path to); local_position is the prop itself.
+		var front := local + Vector2(open_direction) * (size.z * .5 + .45)
+		var approach := Vector2i(floori(front.x), floori(front.y))
+		result.append({
+			"id": "%s:FIXTURE:HIDE_%s:%d" % [chunk_id(coord), style.to_upper(), result.size()],
+			"kind": "hiding_spot", "style": style, "prop_type": String(prop.get("type", "")),
+			"prop_id": String(prop.get("id", "")), "cell": approach, "prop_cell": cell,
+			"local_position": local,
+			"yaw": float(prop.get("yaw", 0.0)),
+			"blocker_size": prop.get("blocker_size", Vector3.ONE),
+			"backing_wall": -open_direction, "open_direction": open_direction,
+		})
+	return result
 
 
 func _fixtures(coord: Vector3i, grid: Array, rooms: Array, stairs: Array,

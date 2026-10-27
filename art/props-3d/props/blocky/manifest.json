@@ -1007,6 +1007,47 @@
  "magmaCrystalCluster": [
   "magmaCrystalCluster.glb"
  ],
+ "hospitalBed": [
+  "hospitalBed.glb"
+ ],
+ "ivStand": [
+  "ivStand.glb"
+ ],
+ "medicalCart": [
+  "medicalCart.glb"
+ ],
+ "readingTable": [
+  "readingTable_0.glb",
+  "readingTable_1.glb",
+  "readingTable_2.glb"
+ ],
+ "libraryGlobe": [
+  "libraryGlobe_0.glb",
+  "libraryGlobe_1.glb"
+ ],
+ "storageBarrel": [
+  "storageBarrel_0.glb",
+  "storageBarrel_1.glb",
+  "storageBarrel_2.glb"
+ ],
+ "storageShelving": [
+  "storageShelving.glb"
+ ],
+ "receptionDesk": [
+  "receptionDesk_0.glb",
+  "receptionDesk_1.glb",
+  "receptionDesk_2.glb"
+ ],
+ "pottedPlant": [
+  "pottedPlant_0.glb",
+  "pottedPlant_1.glb",
+  "pottedPlant_2.glb"
+ ],
+ "standingMirror": [
+  "standingMirror_0.glb",
+  "standingMirror_1.glb",
+  "standingMirror_2.glb"
+ ],
  "normalRoomDoor": [
   "normalRoomDoor.glb"
  ],

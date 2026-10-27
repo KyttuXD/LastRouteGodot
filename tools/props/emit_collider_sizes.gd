@@ -1,9 +1,10 @@
-extends SceneTree
+extends Node
 
 ## Derives every solid prop's collision box from its model, so the collider matches what the player sees (no invisible
 ## walls, no walking into a bed): the union of all its variants' bounding boxes, padded 4 cm, snapped up to 5 cm.
 ## Writes src/config/prop_collider_sizes.gd.
-##   godot --headless --path . -s tools/props/emit_collider_sizes.gd
+##   godot --headless --path . res://tools/props/emit_collider_sizes.tscn
+## (a scene, not -s: the generator it reads needs the autoloads)
 ## Props whose model overhangs the part you collide with keep their authored box (see KEEP_AUTHORED).
 
 const KEEP_AUTHORED := ["beachUmbrella"]
@@ -74,7 +75,7 @@ func _footprint(type: String) -> Rect2:
 	return total if have else Rect2()
 
 
-func _init() -> void:
+func _ready() -> void:
 	var solid_types := {}
 	for biome in StreamedRouteGenerator.REGION_PROP_SETS:
 		for entry in StreamedRouteGenerator.REGION_PROP_SETS[biome]:
@@ -153,4 +154,4 @@ func _init() -> void:
 	file.store_string(out)
 	file.close()
 	print("wrote %d collider sizes" % lines.size())
-	quit()
+	get_tree().quit()

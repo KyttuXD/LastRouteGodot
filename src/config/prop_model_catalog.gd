@@ -11,6 +11,18 @@ extends RefCounted
 const USE_BLOCKY_PROPS := true
 
 const MODEL_PATHS := {
+	## Room-purpose catalog (tools/props/blocky_props_rework4.py): designed blocky-only, so the blocky GLBs are also their
+	## catalogue models.
+	"hospitalBed": ["res://art/props-3d/props/blocky/hospitalBed.glb"],
+	"ivStand": ["res://art/props-3d/props/blocky/ivStand.glb"],
+	"medicalCart": ["res://art/props-3d/props/blocky/medicalCart.glb"],
+	"readingTable": ["res://art/props-3d/props/blocky/readingTable_0.glb", "res://art/props-3d/props/blocky/readingTable_1.glb", "res://art/props-3d/props/blocky/readingTable_2.glb"],
+	"libraryGlobe": ["res://art/props-3d/props/blocky/libraryGlobe_0.glb", "res://art/props-3d/props/blocky/libraryGlobe_1.glb"],
+	"storageBarrel": ["res://art/props-3d/props/blocky/storageBarrel_0.glb", "res://art/props-3d/props/blocky/storageBarrel_1.glb", "res://art/props-3d/props/blocky/storageBarrel_2.glb"],
+	"storageShelving": ["res://art/props-3d/props/blocky/storageShelving.glb"],
+	"receptionDesk": ["res://art/props-3d/props/blocky/receptionDesk_0.glb", "res://art/props-3d/props/blocky/receptionDesk_1.glb", "res://art/props-3d/props/blocky/receptionDesk_2.glb"],
+	"pottedPlant": ["res://art/props-3d/props/blocky/pottedPlant_0.glb", "res://art/props-3d/props/blocky/pottedPlant_1.glb", "res://art/props-3d/props/blocky/pottedPlant_2.glb"],
+	"standingMirror": ["res://art/props-3d/props/blocky/standingMirror_0.glb", "res://art/props-3d/props/blocky/standingMirror_1.glb", "res://art/props-3d/props/blocky/standingMirror_2.glb"],
 	"arcadeCabinet": [
 		"res://art/props-3d/props/maze/arcade_cabinet_default.glb",
 		"res://art/props-3d/props/maze/arcade_cabinet_amber.glb",
@@ -784,7 +796,7 @@ static func interaction_for(type: String) -> String:
 		return "play"
 	if type.begins_with("retroComputer"):
 		return "use"
-	if "mirror" in lowered:
+	if "mirror" in lowered and type != "standingMirror":   # the working-mirror surface is sized for wall mirrors
 		return "mirror"
 	if "bed" in lowered or "bunk" in lowered:
 		return "lay"

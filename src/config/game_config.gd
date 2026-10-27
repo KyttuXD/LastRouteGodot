@@ -444,6 +444,13 @@ const LOXELLE_BREAK_TEMPERATURE := 30.0
 const LOXELLE_BREAK_NOISE := 11.0
 const LOXELLE_CHARGE_WINDUP := 0.42
 const LOXELLE_CHARGE_SECONDS := 0.70
+## Any hunter checking a hiding spot (docs/HIDING_PROPS.md). It only checks a spot it tracked you to (its last sighting
+## within HIDE_CHECK_TRAIL cells of the spot), stands at it for HIDE_CHECK_TELL_SECONDS while the furniture rattles and
+## creaks (time to bolt), then pulls the spot open; a checked spot is left alone for HIDE_CHECK_COOLDOWN_SECONDS.
+const HIDE_CHECK_REACH := 1.8
+const HIDE_CHECK_TRAIL := 3.0
+const HIDE_CHECK_TELL_SECONDS := 1.6
+const HIDE_CHECK_COOLDOWN_SECONDS := 20.0
 const LOXELLE_CHARGE_SPEED := 6.8
 const LOXELLE_CHARGE_START_DISTANCE := 0.95
 const LOXELLE_CHARGE_IMPACT_DISTANCE := 0.20
