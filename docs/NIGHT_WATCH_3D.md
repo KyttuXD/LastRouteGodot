@@ -169,3 +169,9 @@ speed in a step, and a hunter the sim moves is not placed in the new room.
 * Exceptions, by design: the hall-to-office leg (out of sight, in the dark) is a jump; Nyxie's blackout approach is a timed walk from
   the left door to the desk over the blackout. Not yet done: vent shafts and vent crawlers (Dead Air / Mixed Shift lanes), doors that
   animate for a passing hunter, a top-down facility capture, a `hunter_nav`-style stuck test.
+
+Top-down map of the facility with the walking routes (green) and the camera mounts (red): ![facility map](night_watch_facility_map.png)
+(Taken with the HUD and the blackout up; the rooms are the nine cells, the lane runs along each row's south side.) The validator now also has a
+stuck test: four hunters walk every ordered room pair, never stall for a second, never stand inside a wall and arrive within their budget.
+Vent shafts, vent crawlers and doors that open for a passing hunter belong to the modes that have vents (Dead Air, Mixed Shift) and are
+built there on the same `NightWatchPaths` graph.

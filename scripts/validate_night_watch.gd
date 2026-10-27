@@ -461,8 +461,8 @@ func _check_walking(host: Node) -> void:
 				var n := int(ceil(p0.distance_to(p1) / 0.1))
 				for k in range(1, n):
 					var q := p0.lerp(p1, float(k) / float(n))
-					for w in walls:
-						if (w["rect"] as Rect2).has_point(Vector2(q.x, q.z)):
+					for wb in walls:
+						if (wb["rect"] as Rect2).has_point(Vector2(q.x, q.z)):
 							bad_wall += 1
 	_expect(missing == 0, "%d room pairs have no walking route" % missing)
 	_expect(bad_wall == 0, "walking routes cross walls at %d points" % bad_wall)
@@ -491,6 +491,48 @@ func _check_walking(host: Node) -> void:
 		last = w.pos
 	_expect(steps < 2000 and w.pos.distance_to(goal) <= 0.05, "the walker never reached her room")
 	_expect(longest <= NightWatchWalker.MAX_SPEED * 0.05 + 0.01, "the walker moved %.2f m in one 0.05 s step" % longest)
+	# the stuck test: every hunter walks every ordered room pair, arrives within her hop budget (plus slack), makes progress at every second and never stands in a wall
+	var stuck := 0
+	var late := 0
+	var in_wall := 0
+	for hid in ["dovelle", "ravelle", "aki", "ilyra"]:
+		var level := 12
+		var budget2 := NightWatchWalker.budget_for(level)
+		for a in rooms:
+			for b in rooms:
+				if a == b or String(a).begins_with("door") and String(b).begins_with("door"):
+					continue
+				var wk := NightWatchWalker.new()
+				var legs3: Array = paths.legs_for(String(a), String(b))
+				if legs3.is_empty():
+					continue
+				var goal2: Vector3 = legs3[legs3.size() - 1]["p"]
+				wk.place(legs3[0]["p"], goal2, goal2, String(a))
+				wk.go(legs3, String(b), goal2, budget2)
+				var t := 0.0
+				var last_pos := wk.pos
+				var idle_t := 0.0
+				while wk.is_walking() and t < 30.0:
+					wk.step(0.05)
+					t += 0.05
+					if wk.pos.distance_to(last_pos) < 0.001 and wk.is_walking():
+						idle_t += 0.05
+					else:
+						idle_t = 0.0
+					if idle_t > 1.0:
+						stuck += 1
+						break
+					last_pos = wk.pos
+					for wb in walls:
+						if (wb["rect"] as Rect2).has_point(Vector2(wk.pos.x, wk.pos.z)):
+							in_wall += 1
+				if wk.is_walking():
+					stuck += 1
+				elif t > budget2 * 1.5 + 1.0 + (0.0 if NightWatchPaths.walked_length(legs3) / budget2 <= NightWatchWalker.MAX_SPEED else NightWatchPaths.walked_length(legs3) / NightWatchWalker.MAX_SPEED):
+					late += 1
+	_expect(stuck == 0, "%d walks got stuck" % stuck)
+	_expect(in_wall == 0, "walkers stood in a wall %d times" % in_wall)
+	_expect(late == 0, "%d walks arrived later than their budget allows" % late)
 	# the speed rule: every hop of every hunter on every night stays inside the clamp; report how many hops the clamp bites on
 	var clamped := 0
 	var hops := 0
