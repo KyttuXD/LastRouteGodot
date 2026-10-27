@@ -4,6 +4,8 @@ extends RefCounted
 ## Each mode's MAP (the rooms the hunters walk and the feeds look into) is its own themed layout, never a reskin of Classic's building (docs/NIGHT_WATCH_OFFICES.md, "Maps").
 ## `MAPS` maps a 2D mode id to a script with `static func map_layout() -> Dictionary`:
 ##   {"rooms": {room id: Vector3 centre (metres, building space)}, "edges": [[room a, room b], ...], "entrances": [room ids the office is reached from], "theme": "text"}
+## Optional keys that drive the camera screen's minimap (NightWatchCamMap): "cams" (camera rooms in camera order), "labels" ({room: name}), "vents" (vent-shaft room ids, edges
+## touching them are dashed), "office" (Vector3 where YOU is drawn). A mode with a camera monitor MUST give "cams" and "labels".
 ## A mode with no multi-room map (Bedtime: one bedroom) sets `script` to "" and `single_space` to true. `signature()` hashes the layout (sorted room centres and edges), and
 ## the validator suite `night_watch_maps` fails if two modes share a signature, if a mode shares more than SHARED_ROOM_IDS_MAX room ids with Classic, or if a mode's world
 ## extends NightWatchBuilding (Classic's shell). Keep connected-map pathing (NightWatchPaths pattern) and the OfficeSpec entrances in step with `entrances`.
@@ -35,9 +37,13 @@ static func classic_layout() -> Dictionary:
 	var edges := []
 	for a in NightWatchData.GRAPH:
 		for b in NightWatchData.GRAPH[a]:
-			if String(a) < String(b):
+			if String(a) < String(b) and rooms.has(a) and rooms.has(b):   # the two door nodes belong to the office, not the map
 				edges.append([a, b])
-	return {"rooms": rooms, "edges": edges, "entrances": ["westhall", "easthall"], "theme": "FNAF 1 style pizzeria: eight rooms on a 3 x 3 grid, two halls to the office"}
+	var cams := NightWatchData.cam_rooms()
+	var labels := {}
+	for id in cams:
+		labels[id] = String(NightWatchData.ROOMS[id]["label"])
+	return {"rooms": rooms, "edges": edges, "entrances": ["westhall", "easthall"], "cams": cams, "labels": labels, "vents": [], "theme": "FNAF 1 style pizzeria: eight rooms on a 3 x 3 grid, two halls to the office"}
 
 
 static func layout_for(mode_id: String) -> Dictionary:
