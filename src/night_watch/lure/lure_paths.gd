@@ -17,10 +17,10 @@ var _ids := {}
 var _keys := {}
 var _jumps := {}
 var world: LureWorld
-var office: NightWatchOffice
+var office: LureOffice
 
 
-func _init(w: LureWorld, o: NightWatchOffice) -> void:
+func _init(w: LureWorld, o: LureOffice) -> void:
 	world = w
 	office = o
 	_build()

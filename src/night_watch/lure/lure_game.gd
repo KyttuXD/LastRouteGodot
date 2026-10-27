@@ -1,7 +1,7 @@
 class_name LureGame
 extends NightWatchMode
 
-## Dead Air (mode `lure`), the shift scene: the same walkable security room as Classic (NightWatchOffice, the shared player, prompt and
+## Dead Air (mode `lure`), the shift scene: the broadcast booth (LureOffice, the shared player, prompt and
 ## crosshair), with the two DOOR buttons sealing the vent openings (the slabs are the vent covers), the left and right LIGHT buttons switching
 ## the heater and the fan, and the monitor on the desk looking into the attraction hall (LureWorld). Rules: LureLogic. In the monitor: 1-8
 ## pick a camera, L lures Xivvy to the room on screen, Q / W / E / R / T reboot audio / cameras / vents / heater / fan (or click the buttons),
@@ -13,7 +13,7 @@ enum State { PLAYING, PAUSED, WON, LOST }
 var night := 1
 var state: State = State.PLAYING
 var sim: LureLogic
-var office: NightWatchOffice
+var office: LureOffice
 var world: LureWorld
 var player: PlayerController3D
 var hud: NightWatchHud
@@ -65,7 +65,7 @@ func _build_world() -> void:
 	env.ambient_light_energy = 1.0
 	world_env.environment = env
 	add_child(world_env)
-	office = NightWatchOffice.new()
+	office = NightWatchOfficeRegistry.make("lure") as LureOffice
 	office.name = "Office"
 	add_child(office)
 	world = LureWorld.new()
@@ -103,7 +103,7 @@ func _build_world() -> void:
 	death_moment.finished.connect(_after_death_moment)
 	player = (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
 	add_child(player)
-	player.global_position = office.global_position + NightWatchOffice.SPAWN
+	player.global_position = office.global_position + LureOffice.SPAWN
 	face_player(0.0, -0.1)
 	player.interaction_message.connect(func(message: String): hud.show_note(message))
 	_wire_stations()
@@ -143,8 +143,6 @@ func _wire_stations() -> void:
 		return ""
 	(st["chair"] as NightWatchStation).on_activate = func(p) -> String:
 		return String(p.use_furniture(st["chair"], "sit"))
-	for id in ["breaker", "vent"]:
-		(st[id] as NightWatchStation).on_activate = func(_p) -> String: return String(office.prompts.get(id, ""))
 
 
 func _prompt(id: String, text: String) -> void:
