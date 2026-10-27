@@ -857,7 +857,7 @@ func _request_interaction(event: Dictionary) -> void:
 			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint", "stream_axe_rescue"].has(what):
+			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":
