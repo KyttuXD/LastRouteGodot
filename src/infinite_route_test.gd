@@ -85,6 +85,7 @@ var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
+var _city_escaped := false
 var _death_moment: DeathMoment
 var _last_death_cause := {}
 ## Spectator state: peer id of the followed runner (0 = free camera).
@@ -215,7 +216,7 @@ func _ready() -> void:
 	_refresh_hunter_stream()
 
 	pause_menu = PauseMenu.new()
-	pause_menu.abandon_label = "LEAVE ROUTE"
+	pause_menu.abandon_label = "LEAVE THE CITY" if RoomState.is_city() else "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
 	pause_menu.dismiss_overlay = _dismiss_gameplay_overlay
 	if RoomState.online and RoomState.is_host:
@@ -224,6 +225,8 @@ func _ready() -> void:
 	elif RoomState.online:
 		pause_menu.abandon_warning = \
 			"This disconnects you and returns to staging. The host's route continues."
+	elif RoomState.is_city():
+		pause_menu.abandon_warning = "This ends the run and returns to the City menu. The City has no run saves yet."
 	else:
 		pause_menu.abandon_warning = \
 			"This returns to room staging. Save first if you want to resume later."
@@ -418,10 +421,17 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 	if _navigation != null and _remotes != null and _remotes.simulates():
 		_refresh_hunter_stream()
 	var region := String(data.get("region", "maze")).to_upper()
-	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
+	hud.depth_label.text = _city_zone_line() if RoomState.is_city() else "LEVEL %+d // %s" % [coord.y, region]
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
 	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")
+
+
+## The City HUD names the zone the runner stands in (Avenue, Grand Plaza, Garden, Shelter ...), not a maze level/district.
+func _city_zone_line() -> String:
+	if facility != null and facility.has_method("zone_name") and player != null:
+		return "THE CITY // %s" % String(facility.call("zone_name", player.global_position))
+	return "THE CITY"
 
 
 func _on_pickup_claimed(entity_id: String) -> void:
@@ -434,6 +444,8 @@ func _update_hud() -> void:
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
+	if RoomState.is_city():
+		hud.depth_label.text = _city_zone_line()
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, safe,
 		player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
@@ -841,12 +853,16 @@ func _pause_save_load(slot_id: String) -> Dictionary:
 
 
 func _save_write_denial() -> String:
+	if RoomState.mode == RoomState.Mode.CITY:
+		return "THE CITY HAS NO RUN SAVES YET"
 	if RoomState.online and not RoomState.is_host:
 		return "ONLY THE ROOM HOST CAN SAVE THE SHARED ROUTE"
 	return ""
 
 
 func _save_load_denial() -> String:
+	if RoomState.mode == RoomState.Mode.CITY:
+		return "THE CITY HAS NO RUN SAVES YET"
 	if RoomState.online and not RoomState.is_host:
 		return "ONLY THE ROOM HOST CAN LOAD A ROUTE"
 	if RoomState.online and RoomState.peers.size() > 1:
@@ -2865,6 +2881,15 @@ func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 		return
 	var item_id := String(pickup.get("item", ""))
 	var kind := String(pickup.get("kind", "tool"))
+	if kind == "gate" and GameState.relays_collected < CityLayout.gate_relays_required(RoomState.difficulty_id()):
+		var needed := CityLayout.gate_relays_required(RoomState.difficulty_id())
+		var denied := "THE GATE STAYS SHUT // %d / %d RELAYS" % [GameState.relays_collected, needed]
+		if not RoomState.online or peer_id == multiplayer.get_unique_id():
+			hud.show_message(denied)
+			Sound.interaction_fail()
+		else:
+			_remotes.send_player_event(peer_id, {"what": "message", "message": denied})
+		return
 	if kind != String(event.get("kind", "")) \
 			or (kind in ["tool", "backpack"] and (item_id.is_empty() \
 				or item_id != String(event.get("item", "")))):
@@ -3050,6 +3075,9 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			if not facility.apply_pickup_claim(entity_id):
 				return
 			_sync_stream_progress()
+			if String(event.get("kind", "")) == "gate":
+				_city_escape(int(event.get("winner_peer_id", 0)))
+				return
 			var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 			if int(event.get("winner_peer_id", 0)) == 0 \
 					and not String(event.get("message", "")).is_empty():
@@ -3904,7 +3932,50 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cycle_spectate_target(0)
 
 
+## The party opened the dome gate: everyone escapes together. A short gate sequence, then the escape card.
+func _city_escape(opener_peer_id: int) -> void:
+	if _city_escaped:
+		return
+	_city_escaped = true
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	hud.show_message("THE DOME GATE OPENS" if opener_peer_id != local_id else "YOU OPENED THE DOME GATE")
+	Sound.escape()
+	player.input_frozen = true
+	await get_tree().create_timer(2.4).timeout
+	_end_spectating()
+	_death_screen_open = true
+	GameState.game_over = true
+	run_report.open({
+		"online": RoomState.online, "host": RoomState.is_host,
+		"respawn": false, "title": "ESCAPED",
+		"kicker": "DOME GATE // OPEN",
+		"reason": "THE GATE OPENS. THE CITY LETS YOU GO.",
+		"depth": 1, "score": GameState.score,
+		"relays": GameState.relays_collected,
+		"relay_target": CityLayout.gate_relays_required(RoomState.difficulty_id()),
+		"coins": GameState.coins,
+		"difficulty": RoomState.difficulty_id().to_upper(),
+		"seed": RoomState.seed_text,
+	})
+
+
+func _new_city_run() -> void:
+	run_report.close()
+	GameState.game_over = false
+	_death_screen_open = false
+	_city_escaped = false
+	if RoomState.online:
+		_leave_test()
+		return
+	RoomState.reroll_seed()
+	RoomState.session_active = false
+	RoomState.enter(get_tree())
+
+
 func _respawn_after_death() -> void:
+	if _city_escaped:
+		_new_city_run()
+		return
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()
@@ -4320,7 +4391,7 @@ func _leave_test() -> void:
 	if RoomState.public_route:
 		PublicRoute.leave()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 		return
 	if RoomState.online and RoomState.is_host:
 		# Keep the ENet room alive and return every connected runner to the same
@@ -4332,6 +4403,11 @@ func _leave_test() -> void:
 		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
 		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	elif RoomState.is_city():
+		# A solo City run has no staging worth visiting: straight back to the City menu.
+		RoomState.session_active = false
+		RoomState.status_message = ""
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 	else:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"

@@ -63,7 +63,7 @@ func show_building_floor() -> void:
 	visible = true
 	set_process(true)
 	_set_room_readout()
-	_set_phase("BUILDING FACILITY FROM ROUTE SIGNAL", 0.96, false)
+	_set_phase(("RAISING THE DOME" if RoomState.is_city() else "BUILDING FACILITY FROM ROUTE SIGNAL"), 0.96, false)
 
 
 func show_waiting_for_snapshot() -> void:
@@ -101,7 +101,7 @@ func _begin_threaded_load() -> void:
 func _open_loaded_route() -> void:
 	if not _thread_loaded:
 		return
-	_set_phase("BUILDING FACILITY FROM ROUTE SIGNAL", 1.0, false)
+	_set_phase(("RAISING THE DOME" if RoomState.is_city() else "BUILDING FACILITY FROM ROUTE SIGNAL"), 1.0, false)
 	# Give the final phase one frame on screen. Instantiating Main3D then builds
 	# its procedural facility synchronously; this remains the last visible frame
 	# until that work is complete.
@@ -192,9 +192,9 @@ func _build_ui() -> void:
 	column.add_theme_constant_override("separation", 5)
 	panel.add_child(column)
 
-	column.add_child(_label("ROUTE SIGNAL // TRANSFER", Palette.AMBER, 7,
+	column.add_child(_label("DOME SIGNAL // TRANSFER" if RoomState.is_city() else "ROUTE SIGNAL // TRANSFER", Palette.AMBER, 7,
 		"LoadingKicker"))
-	var title := _label("BUILDING ROUTE", Palette.INK, 21, "LoadingTitle")
+	var title := _label("BUILDING THE CITY" if RoomState.is_city() else "BUILDING ROUTE", Palette.INK, 21, "LoadingTitle")
 	title.add_theme_font_override("font", Palette.title_font())
 	column.add_child(title)
 
