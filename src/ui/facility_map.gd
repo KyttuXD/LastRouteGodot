@@ -43,6 +43,13 @@ var player_at := Vector2.ZERO
 var player_facing := Vector2(0, 1)
 ## [{ "at": Vector2, "name": String, "active": bool }]
 var hunters: Array = []
+## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
+## the real clock (tests pin it).
+var ghost_ping := false
+var radar_time := -1.0:
+	set(value):
+		radar_time = value
+		queue_redraw()
 ## Other runners are deliberately separate from hunter intelligence: co-op
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
@@ -83,6 +90,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Porcelle's ping animates, so a minimap with her mark redraws every frame
+	if ghost_ping and is_visible_in_tree():
+		for mark in hunters:
+			if bool(mark.get("ghost", false)):
+				queue_redraw()
+				break
 	if not interactive or not visible or not has_focus() or streamed_chunk_size <= 0:
 		return
 	# Full-map controller controls: left stick pans, shoulders zoom, and X drops
@@ -422,9 +435,12 @@ func _draw_streamed() -> void:
 		if not bool(mark.get("active", true)):
 			continue
 		var mark_world: Vector2 = mark["at"]
+		var mark_at := origin + (mark_world - world_origin) * cell
+		if bool(mark.get("ghost", false)) and ghost_ping:
+			_draw_ghost_ping(mark_at, cell)   # clamps to the edge when she is out of range
+			continue
 		if not Rect2(world_bounds).has_point(mark_world):
 			continue
-		var mark_at := origin + (mark_world - world_origin) * cell
 		_draw_hunter_marker(mark_at, cell, mark)
 	for mark in players:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
@@ -536,7 +552,36 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 			-1, font_size).x + 22.0
 
 
+func _ping_clock() -> float:
+	return radar_time if radar_time >= 0.0 else Time.get_ticks_msec() / 1000.0
+
+
+## Porcelle's pulse: a dot with one expanding ring while a ping lasts, nothing in between; out of range it clamps to the
+## edge as a small arrow so the direction still reads. Reduced motion draws the steady dim dot instead.
+func _draw_ghost_ping(at: Vector2, cell: float) -> void:
+	var info := RadarPing.marker(at, Rect2(Vector2.ZERO, size), _ping_clock(), Settings.reduced_motion)
+	if not bool(info["visible"]):
+		return
+	var strength: float = info["strength"]
+	var pos: Vector2 = info["pos"]
+	var radius := maxf(RadarPing.MIN_RADIUS, cell * RadarPing.MARK_RADIUS_CELLS)
+	var colour := Palette.ALERT
+	if bool(info["clamped"]):
+		var dir: Vector2 = info["direction"]
+		var side := Vector2(-dir.y, dir.x)
+		draw_colored_polygon(PackedVector2Array([pos + dir * radius, pos - dir * radius * .6 + side * radius * .7,
+			pos - dir * radius * .6 - side * radius * .7]), Color(colour, strength))
+		return
+	draw_circle(pos, radius, Color(colour, strength))
+	if not Settings.reduced_motion:
+		var grown := radius * lerpf(1.0, RadarPing.RING_GROWTH, float(info["progress"]))
+		draw_arc(pos, grown, 0.0, TAU, 20, Color(colour, strength * (1.0 - float(info["progress"]))), maxf(1.0, cell * .10), true)
+
+
 func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
+	if bool(mark.get("ghost", false)) and ghost_ping:
+		_draw_ghost_ping(at, cell)
+		return
 	if bool(mark.get("ghost", false)):
 		# Porcelle is readable but deliberately uncertain: a translucent head and
 		# taper replace the solid danger dot used by visible hunters.

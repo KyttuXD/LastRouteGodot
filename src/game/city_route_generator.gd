@@ -28,6 +28,13 @@ func is_safe_room(coord: Vector3i) -> bool:
 	return not layout.shelter_for_chunk(coord).is_empty()
 
 
+## True when a route-space position (route cell units) is inside a building: used by hunters' daytime sight, which only
+## applies outdoors.
+func is_indoor_route_position(position: Vector2) -> bool:
+	var kind := layout.kind_at(floori(position.x) + CityLayout.ORIGIN_OFFSET.x, floori(position.y) + CityLayout.ORIGIN_OFFSET.y)
+	return kind == CityLayout.FLOOR or kind == CityLayout.DOOR or kind == CityLayout.KIOSK_FLOOR
+
+
 func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	var neighbour := coord + Vector3i(direction.x, 0, direction.y)
 	if not is_chunk_allowed(coord) or not is_chunk_allowed(neighbour):
@@ -62,6 +69,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var region_props := []
 	var buildings := []
 	for building in layout.buildings_in_chunk(coord):
+		if bool(building.get("sealed", false)):
+			continue
 		var rect: Rect2i = building["rect"]
 		var interior: Rect2i = building["interior"]
 		# One cell is kept off every chunk border: the route's fixture placement looks at the cell behind a wall.

@@ -4,9 +4,10 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
+import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
-import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
+import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
@@ -54,7 +55,7 @@ function responseHeaders() {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}`,
   };
 }
 
@@ -113,6 +114,11 @@ function requesterAddress(request, trustProxy) {
 }
 
 // Which game a room belongs to ("last_route" or "city"); servers and clients that predate the field mean "last_route".
+function publicGameId(value) {
+  const game = String(value ?? "").trim().toLowerCase();
+  return Object.hasOwn(PUBLIC_CODES, game) ? game : "last_route";
+}
+
 function cleanGame(value) {
   const text = String(value ?? "").trim().toLowerCase();
   return /^[a-z][a-z0-9_]{0,15}$/.test(text) ? text : "last_route";
@@ -128,6 +134,7 @@ function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
     port: relayed ? relayPort : room.port,
     players: room.players,
     sessionActive: room.sessionActive,
+    daytime: Boolean(room.daytime),
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
   };
 }
@@ -244,6 +251,7 @@ export function createLastRouteServer({
   accountStorePath = null,
   publicDirectory = null,
   customMapDirectory = null,
+  cityMaps: cityMapOptions = {},
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -268,12 +276,23 @@ export function createLastRouteServer({
   // carry old authority into a new room.
   const adminTickets = new Map();
   const roomService = createRoomService({ now, roomTtlMs, playerTtlMs });
-  const publicRoute = createPublicRoute({
-    now, logger, storePath: publicRouteStorePath, initialSeed: publicRouteSeed,
-    ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
-  });
-  const publicRouteReady = publicRoute.load();
+  // One public route per game (namespaced by game id); the Last Route one keeps its original code and store file.
+  const cityStorePath = publicRouteStorePath ? publicRouteStorePath.replace(/(\.[^./\\]+)?$/, "_city$1") : null;
+  const publicRoutes = {
+    last_route: createPublicRoute({
+      now, logger, storePath: publicRouteStorePath, initialSeed: publicRouteSeed, code: PUBLIC_CODES.last_route,
+      ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
+    }),
+    city: createPublicRoute({
+      now, logger, storePath: cityStorePath, initialSeed: `${publicRouteSeed}-CITY`, code: PUBLIC_CODES.city,
+      ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
+    }),
+  };
+  const publicCodes = new Set(Object.values(PUBLIC_CODES));
+  const publicRouteReady = Promise.all(Object.values(publicRoutes).map((route) => route.load()));
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
+  const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
+    roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
   const devTokens = new Set();
   const requestRates = new Map();
   let enetRelay = null;
@@ -292,9 +311,11 @@ export function createLastRouteServer({
 
   function pruneEnetRooms() {
     const timestamp = now();
-    if (publicRoute.authorityStale()) {
-      enetRooms.delete(PUBLIC_CODE);
-      publicRoute.resetAuthority();
+    for (const [game, route] of Object.entries(publicRoutes)) {
+      if (route.authorityStale()) {
+        enetRooms.delete(PUBLIC_CODES[game]);
+        route.resetAuthority();
+      }
     }
     for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
     for (const [ticket, proof] of adminTickets) {
@@ -376,6 +397,16 @@ export function createLastRouteServer({
       });
     }
 
+    if (new Set(["GET", "HEAD"]).has(request.method) && url.pathname.startsWith("/api/city-maps/files/")) {
+      const result = cityMaps.file(url.pathname, request.headers);
+      if (result && result[0] === 200) {
+        response.writeHead(200, { ...responseHeaders(), "cache-control": "private, max-age=600",
+          "content-type": "application/octet-stream", "content-length": result[1].length, etag: `"${result[2]}"` });
+        return response.end(request.method === "HEAD" ? undefined : result[1]);
+      }
+      if (result) return json(response, result[0], result[1]);
+    }
+
     const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
     if (new Set(["GET", "HEAD"]).has(request.method) && customMapFile) {
       if (tryStaticFile(request, response, customMapDirectory, `/${customMapFile[1]}`)) return;
@@ -409,7 +440,7 @@ export function createLastRouteServer({
 
     if (request.method === "GET" && url.pathname === "/api/public/status") {
       await publicRouteReady;
-      return json(response, 200, publicRoute.status());
+      return json(response, 200, publicRoutes[publicGameId(url.searchParams.get("game"))].status());
     }
 
     if (request.method !== "POST") {
@@ -430,7 +461,9 @@ export function createLastRouteServer({
     if (url.pathname === "/api/public/join" || url.pathname === "/api/public/state"
         || url.pathname === "/api/public/leave") {
       await publicRouteReady;
-      const publicEnet = enetRooms.get(PUBLIC_CODE);
+      const publicGame = publicGameId(body.game);
+      const publicRoute = publicRoutes[publicGame];
+      const publicEnet = enetRooms.get(PUBLIC_CODES[publicGame]);
       const hostTokenValid = Boolean(publicEnet && body.hostToken && safeEqual(body.hostToken, publicEnet.token));
       if (hostTokenValid) publicEnet.expiresAt = now() + PUBLIC_ENET_TTL_MS;
       const address = requesterAddress(request, trustProxy);
@@ -457,8 +490,9 @@ export function createLastRouteServer({
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
-        game: code === PUBLIC_CODE ? "last_route" : cleanGame(body.game),
-        expiresAt: now() + (code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
+        daytime: Boolean(body.daytime),
+        game: publicCodes.has(code) ? Object.keys(PUBLIC_CODES).find((g) => PUBLIC_CODES[g] === code) : cleanGame(body.game),
+        expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
       };
       enetRooms.set(code, room);
       return json(response, 201, {
@@ -474,7 +508,8 @@ export function createLastRouteServer({
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       room.players = Math.trunc(finitePlayers(body.players, room.players));
       room.sessionActive = Boolean(body.sessionActive);
-      room.expiresAt = now() + (room.code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
+      room.daytime = Boolean(body.daytime);
+      room.expiresAt = now() + (publicCodes.has(room.code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
       return json(response, 200, {
         ok: true,
         room: publicEnetRoom(room, now(), relayAddress, relayPort),
@@ -572,6 +607,8 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/rooms/custom-map") result = roomService.setCustomMap(body);
     else if (url.pathname === "/api/rooms/dialog-start") result = roomService.startDialog(body);
     else if (url.pathname === "/api/rooms/dialog-advance") result = roomService.advanceDialog(body);
+    else if (url.pathname === "/api/city-maps/list") result = cityMaps.list(body);
+    else if (url.pathname === "/api/city-maps/ticket") result = cityMaps.ticket(body);
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
     else if (url.pathname === "/api/account/register") {
       result = await accountService.register(body, { allowDeveloperNames: developerRequest(body) });
@@ -700,8 +737,15 @@ export function startLastRouteServerFromEnvironment() {
     Number(process.env.LASTROUTE_API_RATE_LIMIT) || 600);
   const accountRateLimitMax = Math.max(1,
     Number(process.env.LASTROUTE_ACCOUNT_RATE_LIMIT) || 30);
+  const cityMapDirectory = environmentPath("LASTROUTE_CITY_MAPS_DIR");
+  const cityMapKeyPath = cityMapDirectory ? join(cityMapDirectory, "maps_pub.pem") : "";
   const server = createLastRouteServer({
     enetRoomTtlMs,
+    cityMaps: {
+      directory: cityMapDirectory,
+      ticketSecret: String(process.env.LASTROUTE_CITY_MAP_TICKET_SECRET || ""),
+      publicKeyPem: cityMapKeyPath && existsSync(cityMapKeyPath) ? readFileSync(cityMapKeyPath, "utf8") : "",
+    },
     accountStorePath,
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,

@@ -12,7 +12,7 @@ reflecting pool, cypress and blossom trees) and `city-ref-topdown-map.webp` (the
 
 ## 1. What the City is
 
-A sealed city under a giant dome. A dark truss ring runs around the rim with cyan beacons; overhead is an artificial
+A walled city under an open night sky (the dome shell was removed: no ribs, rings or pylons; only the rim wall bounds it). A dark truss ring runs around the rim with cyan beacons; overhead is an artificial
 night sky (navy to purple gradient, pixel stars, cloud blobs, a moon) with lit dome struts; beyond the dome the skyline
 of spires and arched viaducts is visible. Orange gas lanterns, cyan accent panels, pink-purple blossom trees, wet
 cobbles with fallen petals. It is dark: the flashlight still matters.
@@ -112,7 +112,7 @@ box, vent/pipe runs. Where a piece is simple it is drawn straight into the surfa
   A client that resolves a code for another game refuses the join with a clear message. Old clients and old servers
   simply omit the field and are treated as `last_route`.
 * City run saves live under `user://city_runs/`, never in `user://route_saves/`; settings, account and per-server
-  sessions are shared with the other games. Public route: not in this pass (see section 8).
+  sessions are shared with the other games. Public route: see "Dome gate" and "Public City" below.
 * Everything is deterministic from the seed (the master layout is a pure function of the seed), so host and guests
   build identical chunks.
 
@@ -154,11 +154,145 @@ Built and passing (suites `city` and `city_nav`, `COOP_MODE=city scripts/coop_te
 
 ## 9. Not in the first pass
 
-* Public route for the City (needs its own server-side state key; rooms are already namespaced by game id).
-* The escape objective at the south gate (the first pass keeps the route's relay / checkpoint loop).
 * Run saves (the pause menu refuses saving and loading in the City; Last Route archives are never touched).
 * Interior variety beyond one room per building, door leaves, traffic, rain, the city soundscape, irregular building
   footprints and courtyards, the south gate arch prop.
 * Prop rework: the interiors use the shared prop types as they exist today; the props lane's rewrites apply
   automatically, a City-only prop set (`tools/props/city_props.py`) was not needed for this pass (street furniture is
   drawn straight into the surface mesh).
+
+
+## Dome gate (escape objective)
+
+The avenue ends in a closed 7 m gate (`CityLayout.GATE`, row 120, columns 108..116). Its interaction cell (112,119) holds one
+`gate` pickup entity (chunk 0,0,1, id `...:PICKUP:GATE:0`), built as a `RouteInteractable3D` LIFT. The host refuses it
+until the party has `CityLayout.gate_relays_required(difficulty)` relays (6 relaxed, 10 standard, 14 hard, 16 nightmare). The
+claim goes through the normal `stream_pickup` event, so every peer runs `_city_escape()`: a short gate sequence, then the
+ESCAPED run card. Restart on that card starts a new City run (solo) or leaves the room (online). Covered by `city` suite.
+
+## Public City
+
+The backend keeps one public route per game id (`PUBLIC_CODES`: `last_route` = `PUBLC`, `city` = `CTYPR`; room codes cannot
+contain I, O, 0, 1). Each has its own seed, relay claims and store file (`godot_publicroom_city.json`). `/api/public/*` take a
+`game` field (`?game=` on status). The client's `PublicRoute.join(mode)` remembers the game, so rejoins and takeovers stay in
+the City. The City menu has a PUBLIC CITY button. `GAME=city scripts/public_test.sh` runs the host / guest / resume / restart
+scenario on the City route.
+
+## Run saves and the City menu
+
+The City writes a small JSON checkpoint (`CityRunSave`, schema 1) to the shared account under `games.city`
+(`Backend.account_save_game_progress`), so it shows up in the account panel's SAVES section (the panel reads
+`games.city.summary`) with its own CLEAR. It stores the seed, difficulty, score, claimed pickup ids (relays and coins are
+re-derived from those) and where the runner stood; hunters, doors and weather start fresh. Solo runs and a host with no
+guests write it (on every pickup, every 45 s, and when leaving); signed-in only. The City menu shows CONTINUE RUN / CLEAR
+SAVE when the account holds one (`RoomState.prepare_city_run` queues it, the run scene consumes it once). A new solo run
+stays online when signed in so it can save. The dome gate clears the save.
+
+The City menu also has ACCOUNT (the shared `AccountPanel`) and SETTINGS (the shared `scenes/settings_overlay.tscn`, now split
+out of `main_menu.tscn`). Controls tabs come from `ControlsRegistry`; the City is an alias of Last Route's (MOVEMENT / ACTIONS /
+SYSTEM). The pause menu's local save slots stay off in the City.
+
+
+## World depth (pass 2)
+
+Blocks are now split into lots down to 9x9, giving about 51 buildings (3 end up sealed shut where an alley was removed and are
+solid masses with no rooms). Two new interior kinds, **library** (bookcase rows, tables) and **chapel** (benches, lamps; civic
+style, taller). Interiors 11+ wide get a **partition wall with a two-wide doorway**, so about a tenth of the buildings have
+two rooms (props keep the doorway clear, the validator floods both rooms). Relays, pickups and hunter spawns already pick any
+open cell, so they now also land inside buildings. Not done: two-floor buildings and subway interiors (the four shelter plazas
+stay the underground-style refuge).
+
+![the dome gate](city_gate.png) ![library](city_interior_library.png) ![two rooms](city_interior_two_rooms.png) ![chapel](city_interior_chapel.png)
+
+## Look pass (pass 2)
+
+Atlas now 64 tiles (brick_dark, stucco, ashlar, ivy, two awnings, fire_escape, neon_sign). `CityFacadeDetails` gives every brick
+building one of six wall materials (brick mix, dark brick, stucco, ashlar, ivy on the lower floors) plus, by building kind:
+striped awnings and neon signs on shops and cafes, balconies on apartments, fire escapes, drainpipes and rooftop chimneys,
+and a stone threshold in every doorway. All of it hangs above head height or is a thin pipe, so collision and nav are
+unchanged. `CityProps` (new file) holds City-only street furniture: plaza lights, banners, market stalls, newsstands, phone
+booths and hydrants; the grand plaza now has 13 cyan lights, banners and a stall row. Shots: `city_look_street.png`,
+`city_look_plaza.png`.
+
+## Open sky
+
+The dome shell is gone: `CityDomeFrame` now only builds the ring of far towers (a natural skyline behind the rim wall); the
+sky shader, fog and colours are unchanged. The rim wall is the only boundary. Shots: `city_dome_before_street.png` (ribs
+overhead), `city_open_sky_street.png`, `city_open_sky_up.png`. The "DOME SEALED" kicker and the DOME GATE name are left as copy.
+
+## Daytime
+
+`RoomState.daytime` (City only, `RoomState.is_day()`): a TIME button on the City menu and a TIME OF DAY choice in the lobby (host
+only online); synced to guests by `_receive_daytime`, listed in the directory (`daytime` on register/heartbeat/listing), saved in
+the City run save. The public City stays night-only. Look: blue sky with a sun and white clouds (`CitySky.set_day`), a warm
+shadow-casting sun and sky ambient (roofed interiors stay dim), street/plaza lamps off, window glow dimmed. Vision
+(`HunterBrain.sight_limit_for`): outdoors by day a hunter sees `sight x GameConfig.DAYLIGHT_SIGHT_SCALE (2.4) x difficulty x her day
+multiplier` whatever light the runner carries; indoors the night rules apply (x her night multiplier). Per-hunter data lives in
+`src/config/hunter_vision.gd` (`night`, `day`, `notice` seconds of clear sight before a chase starts). Hunter population is
+x`GameConfig.DAY_POPULATION_SCALE` (0.8) by day. Not done: a narrower view cone (perception is distance-based) and
+`LightField.exposure_at` (the world lane's light rules are not on this branch yet). Shots: `city_day_street.png`,
+`city_night_street.png`, `city_day_interior.png`, `city_day_sky.png`.
+
+| hunter | night | day | notice |
+|---|---|---|---|
+| nyxie | 1.2 | 0.45 | 1.6 s |
+| kathy | 0.95 | 1.25 | 0 |
+| solyth | 0.9 | 1.3 | 0 |
+| xivvy | 0.95 | 1.15 | 0 |
+| ilyra, thessine, ravelle | 1.0 | 1.1 | 0 |
+| ceryth | 1.05 | 0.9 | 0.5 s |
+| umbriel | 1.1 | 0.85 | 0.6 s |
+| mavrine | 1.0 | 0.95 | 0.3 s |
+| void_black/blue/brown/cyan | 1.15 | 0.7 | 0.8 s |
+| everyone else | 1.0 | 1.0 | 0 |
+
+## Entrances (doors)
+
+Every enterable building has a `CityDoor` (`src/game_3d/city_door.gd`): a 2 m x 3 m doorway with two sliding leaves (glass for
+shops/cafes/offices/lobbies, steel for workshops, wood for apartments/libraries, civic for halls/chapels). The leaves are never
+locked and slide into the wall whenever the runner or a hunter is within 3.6 m; only the leaves carry colliders, so the opening is
+clear when open. The street side has jamb posts, a lit cyan lintel strip and a sign plate; the doorway cell has a stone
+threshold. No Last Route door type is used anywhere in the City (the route's `fixtures` are only vents and hiding spots; City
+chunks carry no `doors`): the earlier entrances were bare unlit openings, which read as blocked slits. `validate_city` checks each
+building's doorway width, that every enterable building has a CityDoor, that a player-sized capsule can walk from the street
+through the opened doorway (+-2 m, the keep-clear lane) and that the closed leaf blocks only the doorway. Shots:
+`city_door_before_*.png`, `city_door_after_*.png`. Shops and towers must build their entrances with the same `CityDoor`.
+
+## Life and sound
+
+* **Doors**: see "Entrances": every doorway has sliding `CityDoor` leaves.
+* **Trams** (`city_tram.gd`): two elevated tram lines (avenue and main street, rail at 6 m, cars 6.3-8.5 m) with two cars
+  each gliding end to end; visual only, deterministic from the run clock, above every lamp, canopy and sign.
+* **Rain** (`city_rain.gd`): `Settings.city_rain` (RAIN button on the City menu; a device setting, not a room choice):
+  one camera-following GPUParticles3D of unlit streaks, paused while the runner is indoors.
+* **Sound bed** (`city_ambience.gd`): three rendered seamless noise loops on the SFX bus (city hum, distant traffic rumble,
+  rain); levels drop indoors, brighten by day, and obey `Sound.muted` and the SFX volume. No audio files.
+* Validated in `city`: nodes present, levels follow indoors/mute/rain, rain toggles, trams move and stay over streets.
+  Shots: `city_life_avenue.png`, `city_life_street.png`.
+
+## Expansion, stage A: the outskirts and modern roads
+
+The grid grew from 5 x 3 to 7 x 5 chunks (315 x 225 cells; `CityLayout.DOWNTOWN_SHIFT` = +45,+45 moved every downtown
+constant, chunk (0,0) is still the roundabout). Downtown keeps its plan inside the old ellipse; around it:
+
+* **suburbs** (downtown-ellipse r 1.0 to `SUBURB_TO` 1.28): grass, the avenue and the main street continuing as 9-wide
+  asphalt arterials, a 7-wide **suburb ring road** loop at the suburb/farm boundary;
+* **farmland** (beyond the ring road to the outer rim, `OUTER_AXES` 155 x 110): striped crop fields (`FIELD`, walkable),
+  eight 3-wide **dirt farm tracks** radiating to the rim;
+* the **perimeter wall** (RIM band from `outer_r` 0.965) and the **gate**, now on the outer rim at the south end of the
+  avenue (`GATE_ROW` 219), so the escape is a run from downtown through the suburbs and the fields.
+
+Modern carriageways: asphalt with a dashed yellow centre line, dashed white lane lines on 9-wide roads, a solid edge line
+by the kerb, kerb tiles where pavement meets road (`CityFacilityView3D._road_tile`, rotated `_x` tiles for east-west
+roads; curved ring roads are plain asphalt). The atlas is 8 x 16 tiles now (83 used). Streaming radius is 3 (all 35
+chunks resident from the spawn; the mini reads 150 fps on the avenue, 300 at the spawn). Houses, farms, shops and the
+rest of the modern furniture come in the next stages. Shots: `city_expansion_map.png`, `city_expansion_avenue.png`, `city_expansion_suburb_ring.png`, `city_expansion_gate.png`.
+
+## Expansion, stage B: houses and farms
+
+Outskirt bands are measured by `CityLayout.band_t` (0 at the downtown edge, 1 at the outer rim, along the ray from the
+centre), so suburbs (t < 0.37), the ring road (0.40-0.52) and farmland (t >= 0.55) keep their width all the way round.
+Lots are walked round each band: 19 suburb **houses** (9 x 9, clapboard walls, shingle roof, hedge yard with a path gap and a
+mailbox) and 4 **barns** (red planks) with a silo, a water pump, hay bales and a tractor; two irrigation channels (WATER) cross
+the fields. Every lot keeps 2 clear cells from roads, tracks and other masses. Validated: counts, bands, no lot touching a
+road; geometry_overlap stays at zero.

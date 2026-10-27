@@ -9,20 +9,30 @@ extends RefCounted
 ## Coordinates: city cell (gx, gz) with gx 0..224, gz 0..134. A route cell is X = gx - 90, Z = gz - 45, so chunk (0, 0)
 ## covers gx 90..134, gz 45..89 and its centre cell (the spawn, the roundabout) is gx 112, gz 67.
 
-const WIDTH := 225
-const HEIGHT := 135
+const WIDTH := 315
+const HEIGHT := 225
 const CHUNK := 45
-const CHUNK_MIN := Vector2i(-2, -1)
-const CHUNK_MAX := Vector2i(2, 1)
-const ORIGIN_OFFSET := Vector2i(90, 45)
+const CHUNK_MIN := Vector2i(-3, -2)
+const CHUNK_MAX := Vector2i(3, 2)
+const ORIGIN_OFFSET := Vector2i(135, 90)
+## Downtown (the original 225 x 135 plan) sits at this offset inside the grown grid; the outskirts ring it.
+const DOWNTOWN_SHIFT := Vector2i(45, 45)
 
 ## The dome ellipse (cell centres): outside it is solid rim, the outer ring road is the band just inside.
-const ELLIPSE_CENTER := Vector2(112.5, 67.5)
+const ELLIPSE_CENTER := Vector2(157.5, 112.5)
 const ELLIPSE_AXES := Vector2(111.0, 65.0)
 const RING_ROAD_FROM := 0.93
 const RING_PAVE_FROM := 0.89
 const BUILD_LIMIT := 0.88
 const DECOR_LIMIT := 0.86
+## The outskirts: everything between the downtown ellipse (r 1) and the outer rim (outer_r 1) is suburbs, then farmland.
+const OUTER_AXES := Vector2(155.0, 110.0)
+## Outskirt bands by band_t (0 at the downtown edge, 1 at the outer rim, along the ray from the centre): suburbs, then the
+## ring road, then farmland. Measured this way the bands keep their width all round (the two ellipses differ in shape).
+const SUBURB_TO := 0.37      # band_t where the suburbs end (the ring road's inner pavement starts)
+const RING_ROAD := Vector2(0.40, 0.52)   # band_t span of the ring road's carriageway
+const FARM_FROM := 0.55
+const OUTER_WALL_FROM := 0.965   # outer_r from which the perimeter wall and its tree line stand
 
 # Tile kinds.
 const RIM := 0
@@ -47,26 +57,33 @@ const BLOCK := 18
 const ALLEY := 19
 const COMPASS := 20
 const GATE := 21
-const KIND_COUNT := 22
+const FIELD := 22
+const DIRT := 23
+const GRAVEL := 24
+const KIND_COUNT := 25
 
 const KIND_NAMES := ["rim", "road", "pave", "plaza", "grass", "path", "water", "wall", "floor", "door", "hedge", "bed",
-	"post", "cross_ns", "cross_ew", "kiosk_floor", "kiosk_wall", "bridge", "block", "alley", "compass", "gate"]
-const OPEN_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, FLOOR, DOOR, CROSS_NS, CROSS_EW, KIOSK_FLOOR, BRIDGE, ALLEY, COMPASS]
+	"post", "cross_ns", "cross_ew", "kiosk_floor", "kiosk_wall", "bridge", "block", "alley", "compass", "gate", "field", "dirt", "gravel"]
+const OPEN_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, FLOOR, DOOR, CROSS_NS, CROSS_EW, KIOSK_FLOOR, BRIDGE, ALLEY, COMPASS, FIELD, DIRT, GRAVEL]
 ## Kinds a person can stand on outdoors (a door opens onto one of these).
-const OUTDOOR_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, ALLEY, COMPASS, CROSS_NS, CROSS_EW, BRIDGE]
+const OUTDOOR_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, ALLEY, COMPASS, CROSS_NS, CROSS_EW, BRIDGE, FIELD, DIRT, GRAVEL]
 
 ## [centre cell, width]: the central avenue and the main street are 9 wide, the others 5. Centres sit on chunk centres.
-const NS_STREETS := [[22, 5], [67, 5], [112, 9], [157, 5], [202, 5]]
-const EW_STREETS := [[22, 5], [67, 9], [112, 5]]
-const ROUNDABOUT_CENTER := Vector2i(112, 67)
+const NS_STREETS := [[67, 5], [112, 5], [157, 9], [202, 5], [247, 5]]
+const EW_STREETS := [[67, 5], [112, 9], [157, 5]]
+const ROUNDABOUT_CENTER := Vector2i(157, 112)
+## The two arterials (the avenue and the main street) run on past downtown to the outer rim.
+const AVENUE_X := 157
+const MAIN_STREET_Z := 112
 ## The dome gate across the south end of the avenue: nine blocked cells on row GATE_ROW, the interaction cell in front.
-const GATE_ROW := 120
-const GATE_CELL := Vector2i(112, 119)
-const GATE_X := Vector2i(108, 116)
-const SHELTER_PLAZAS := [Vector2i(67, 22), Vector2i(157, 22), Vector2i(67, 112), Vector2i(157, 112)]
-const GARDENS := [Rect2i(70, 25, 38, 38), Rect2i(117, 25, 38, 38)]
+## The gate now stands at the south end of the avenue on the OUTER rim (the escape leaves the whole city).
+const GATE_ROW := 219
+const GATE_CELL := Vector2i(157, 218)
+const GATE_X := Vector2i(153, 161)
+const SHELTER_PLAZAS := [Vector2i(112, 67), Vector2i(202, 67), Vector2i(112, 157), Vector2i(202, 157)]
+const GARDENS := [Rect2i(115, 70, 38, 38), Rect2i(162, 70, 38, 38)]
 ## North end of the avenue; it runs over the first secondary street (rows 20..24), so the plaza is 85 x 22.
-const GRAND_PLAZA := Rect2i(70, 3, 85, 22)
+const GRAND_PLAZA := Rect2i(115, 48, 85, 22)
 
 ## Collider footprint and height (x, height, z; metres, centred in the cell, bench rotated by its yaw) of every piece of
 ## street furniture. They match what is drawn: a lamp post blocks its pole, not the metre around it (the test in
@@ -75,14 +92,23 @@ const DECOR_COLLIDERS := {
 	"lamp": Vector3(.3, 3.5, .3), "tree": Vector3(.4, 5.0, .4), "cypress": Vector3(1.1, 4.8, 1.1),
 	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.26, .8, .26),
 	"statue": Vector3(3.0, 3.8, 3.0),
+	"plaza_light": Vector3(.25, 4.4, .25), "banner": Vector3(.2, 4.0, .2), "market_stall": Vector3(.9, 1.0, .9),
+	"newsstand": Vector3(.9, 1.1, .9), "phone_booth": Vector3(.78, 2.1, .78), "hydrant": Vector3(.26, .55, .26),
+	"mailbox": Vector3(.2, 1.2, .2), "silo": Vector3(.95, 7.5, .95), "tractor": Vector3(.95, 1.6, .95),
+	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.5, 1.3, .5),
 }
 ## The widest visible footprint of the same pieces (what the renderer draws), for the collider-vs-visual check.
 const DECOR_VISIBLE := {
 	"lamp": Vector3(.84, 3.5, .84), "tree": Vector3(2.2, 5.0, 2.2), "cypress": Vector3(1.1, 4.8, 1.1),
 	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.24, .8, .24),
 	"statue": Vector3(3.0, 3.8, 3.0),
+	"plaza_light": Vector3(.9, 4.6, .9), "banner": Vector3(1.1, 4.2, 1.1), "market_stall": Vector3(1.9, 2.5, 1.9),
+	"newsstand": Vector3(1.0, 2.5, 1.0), "phone_booth": Vector3(.84, 2.26, .84), "hydrant": Vector3(.4, .62, .4),
+	"mailbox": Vector3(.4, 1.3, .3), "silo": Vector3(.95, 8.2, .95), "tractor": Vector3(.95, 1.9, .95),
+	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.6, 1.4, .6),
 }
-const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "hall"]
+## "hall" is last on purpose: it is only given to big civic lots, never drawn at random.
+const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "library", "chapel", "hall"]
 
 ## Footprints (metres) of the interior props this plan places; all of them are shared prop types.
 const PROP_SIZES := {
@@ -107,7 +133,14 @@ const INTERIOR_RECIPES := {
 	"lobby": [["woodenChair", "row"], ["floorLamp", "wall"], ["vendingMachine", "wall"], ["normalBookcase", "wall"]],
 	"workshop": [["supplyCrates", "row"], ["serverRack", "wall"], ["officeFileBoxes", "scatter"], ["filingCabinet", "wall"], ["trashBin", "scatter"]],
 	"hall": [["diningTable", "row"], ["diningChair", "seat"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
+	"library": [["normalBookcase", "row"], ["normalBookcase", "wall"], ["woodenTable", "scatter"], ["woodenChair", "seat"], ["floorLamp", "wall"]],
+	"chapel": [["woodenChair", "row"], ["floorLamp", "wall"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
+	"house": [["singleBed", "wall"], ["bedroomWardrobe", "wall"], ["normalKitchenCounter", "wall"], ["normalKitchenFridge", "wall"],
+		["woodenTable", "scatter"], ["woodenChair", "seat"], ["floorLamp", "scatter"]],
+	"barn": [["supplyCrates", "row"], ["officeFileBoxes", "scatter"], ["trashBin", "scatter"], ["supplyCrates", "wall"]],
 }
+## Interiors at least this wide get a partition wall with a two-wide doorway, so the building has two rooms.
+const PARTITION_MIN := 11
 
 ## Kinds that draw as a tall solid mass: street furniture keeps its footprint clear of them.
 const SOLID_MASS_KINDS := [WALL, KIOSK_WALL, GATE, RIM]
@@ -121,7 +154,7 @@ var buildings: Array = []
 var shelters: Array = []
 var gardens: Array = []
 var plazas: Array = []
-var spawn := Vector2i(112, 67)
+var spawn := Vector2i(157, 112)
 var _rng: SeededRandom
 var _door_cells := {}
 
@@ -180,13 +213,27 @@ func zone_name(gx: int, gz: int) -> String:
 	var here := kind_at(gx, gz)
 	if here == ALLEY:
 		return "ALLEY"
-	if ellipse_r(gx, gz) >= RING_PAVE_FROM:
+	var r := ellipse_r(gx, gz)
+	if r >= 1.0:
+		if here == FIELD or here == DIRT:
+			return "FARMLAND"
+		var t := band_t(gx, gz)
+		if t >= RING_ROAD.x and t < RING_ROAD.y:
+			return "RING ROAD // SUBURBS"
+		if t >= FARM_FROM:
+			return "FARM ROAD" if here == ROAD or here == GRAVEL else "FARMLAND"
+		if gx >= AVENUE_X - 4 and gx <= AVENUE_X + 4:
+			return "AVENUE // SUBURBS"
+		if gz >= MAIN_STREET_Z - 4 and gz <= MAIN_STREET_Z + 4:
+			return "MAIN STREET // SUBURBS"
+		return "SUBURBS"
+	if r >= RING_PAVE_FROM:
 		return "RING ROAD"
 	if here == GRASS:
 		return "PARKLAND"
-	if gx >= 108 and gx <= 116:
+	if gx >= AVENUE_X - 4 and gx <= AVENUE_X + 4:
 		return "CENTRAL AVENUE"
-	if gz >= 63 and gz <= 71:
+	if gz >= MAIN_STREET_Z - 4 and gz <= MAIN_STREET_Z + 4:
 		return "MAIN STREET"
 	return "STREET"
 
@@ -199,6 +246,22 @@ static func ellipse_r(gx: int, gz: int) -> float:
 	var dx := (float(gx) + .5 - ELLIPSE_CENTER.x) / ELLIPSE_AXES.x
 	var dz := (float(gz) + .5 - ELLIPSE_CENTER.y) / ELLIPSE_AXES.y
 	return sqrt(dx * dx + dz * dz)
+
+
+## Radius in the OUTER ellipse (1.0 = the city's rim wall); the same centre as the downtown ellipse.
+static func outer_r(gx: int, gz: int) -> float:
+	var dx := (float(gx) + .5 - ELLIPSE_CENTER.x) / OUTER_AXES.x
+	var dz := (float(gz) + .5 - ELLIPSE_CENTER.y) / OUTER_AXES.y
+	return sqrt(dx * dx + dz * dz)
+
+
+## 0 on the downtown ellipse, 1 on the outer ellipse, linear along the ray from the shared centre (negative inside downtown).
+static func band_t(gx: int, gz: int) -> float:
+	var inner := ellipse_r(gx, gz)
+	var outer := outer_r(gx, gz)
+	if outer <= 0.0001:
+		return -1.0
+	return (inner - 1.0) / maxf(0.0001, inner / outer - 1.0)
 
 
 static func chunk_origin(coord: Vector3i) -> Vector2i:
@@ -279,6 +342,8 @@ func shelter_for_chunk(coord: Vector3i) -> Dictionary:
 
 ## Interior furniture entries of one building (city cells), deterministic from the seed and the building id.
 func building_props(building: Dictionary) -> Array:
+	if bool(building.get("sealed", false)):
+		return []
 	var kind := String(building["kind"])
 	var recipe: Array = INTERIOR_RECIPES.get(kind, [])
 	if recipe.is_empty():
@@ -292,6 +357,11 @@ func building_props(building: Dictionary) -> Array:
 		for dz in range(-2, 3):
 			for dx in range(-2, 3):
 				taken[door + Vector2i(dx, dz)] = true
+	for wall_value in building.get("partition", []):
+		var wall_cell: Vector2i = wall_value
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				taken[wall_cell + Vector2i(dx, dz)] = true
 	var props := []
 	var index := 0
 	var row_cells := []
@@ -336,16 +406,23 @@ func building_props(building: Dictionary) -> Array:
 					index += 1
 					count += 1
 			_:
+				# Loose pieces stand axis-aligned with a free cell all round, so a turned table cannot reach into a row
+				# piece or a bookcase beside it (the geometry audit's prop_in_prop rule).
 				var tries := 0
 				var placed := 0
 				while placed < 2 and tries < 12:
 					tries += 1
 					var cell := Vector2i(interior.position.x + 1 + rng.next_index(maxi(1, interior.size.x - 2)),
 						interior.position.y + 1 + rng.next_index(maxi(1, interior.size.y - 2)))
-					if taken.has(cell):
+					var crowded := false
+					for dz in range(-1, 2):
+						for dx in range(-1, 2):
+							if taken.has(cell + Vector2i(dx, dz)):
+								crowded = true
+					if crowded:
 						continue
 					taken[cell] = true
-					props.append(_prop(building, index, type, cell, rng.next_float() * TAU))
+					props.append(_prop(building, index, type, cell, float(rng.next_index(4)) * PI * .5))
 					index += 1
 					placed += 1
 	# Cells sealed after the plan (unreachable pockets became wall) cannot hold furniture: it would stand inside the mass.
@@ -360,6 +437,8 @@ func _keep_floor_connected(building: Dictionary, props: Array) -> Array:
 	var start: Vector2i = doors[0]
 	for _attempt in 16:
 		var blocked := {}
+		for wall_value in building.get("partition", []):
+			blocked[wall_value] = true
 		for prop in props:
 			blocked[prop["cell"]] = true
 		var seen := {}
@@ -419,7 +498,10 @@ func _plan() -> void:
 	building_index.resize(WIDTH * HEIGHT)
 	building_index.fill(0)
 	_lay_ground()
+	_lay_outskirts()
 	_lay_streets()
+	_lay_arterials()
+	_lay_outskirt_lots()
 	_lay_roundabout()
 	for center in SHELTER_PLAZAS:
 		_lay_shelter_plaza(center)
@@ -486,6 +568,163 @@ func _lay_streets() -> void:
 			var kind := PAVE if off < edge or off >= width - edge else ROAD
 			for gx in WIDTH:
 				_stamp_street_cell(gx, gz, kind)
+
+
+## Everything between the downtown ellipse and the outer rim: grass and fields, a suburb ring road, farm tracks, and the
+## perimeter wall band (RIM) with its tree line just inside it. Lots for houses and farms are planned by _lay_outskirt_lots
+## (a later pass); the ground here is already walkable so the city is one connected space.
+func _lay_outskirts() -> void:
+	for gz in HEIGHT:
+		for gx in WIDTH:
+			if ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
+				continue   # downtown, or the RIM band of the perimeter wall
+			var t := band_t(gx, gz)
+			if t < FARM_FROM:
+				_set_kind(gx, gz, GRASS)
+			else:
+				# Farmland: strips of crops with grass headlands between, broken by the farm tracks laid below.
+				var band := int(floor((float(gx) + float(gz) * 0.35) / 7.0))
+				_set_kind(gx, gz, FIELD if band % 3 != 2 else GRASS)
+			# Suburb ring road: an asphalt loop with a pavement each side, the boundary between suburbs and farms.
+			if t >= RING_ROAD.x and t < RING_ROAD.y:
+				_set_kind(gx, gz, ROAD)
+			elif (t >= SUBURB_TO and t < RING_ROAD.x) or (t >= RING_ROAD.y and t < FARM_FROM):
+				_set_kind(gx, gz, PAVE)
+	# Farm tracks: 3-wide dirt lanes from the ring road out to the rim at eight bearings.
+	for bearing in 8:
+		var angle := TAU * float(bearing) / 8.0 + PI / 8.0
+		var direction := Vector2(cos(angle), sin(angle))
+		var side := Vector2(-direction.y, direction.x)
+		for step in 260:
+			var at := ELLIPSE_CENTER + direction * float(step) * .75
+			for offset in [-1.0, 0.0, 1.0]:
+				var cell := Vector2i(roundi(at.x + side.x * offset - .5), roundi(at.y + side.y * offset - .5))
+				if in_bounds(cell.x, cell.y) and band_t(cell.x, cell.y) >= FARM_FROM and [FIELD, GRASS].has(kind_at(cell.x, cell.y)):
+					_set_kind(cell.x, cell.y, DIRT)
+
+
+## Suburb houses and farm buildings. Houses (9 x 9 masses with a 7 x 7 interior, hedge-ringed yards with a gap for
+## the path and a mailbox) stand in rows along the arterials and the suburb ring road; barns (11 x 9) with silos,
+## tractors and hay stand in the fields with a water pump and an irrigation channel. Every lot keeps two clear cells from
+## any road, track or other mass, so nothing overlaps (GeometryAudit's City rules) and every doorway faces open ground.
+func _lay_outskirt_lots() -> void:
+	var rng := SeededRandom.new("%s:CITY-OUTSKIRTS" % seed_text)
+	# Lots are walked round the bands (centre at a fixed band_t, every few degrees) rather than on a grid: the bands are
+	# only ~16 cells deep, so a grid rarely lines a 9 x 9 lot plus its 2-cell margin up inside one.
+	for sample in 180:
+		var angle := TAU * float(sample) / 180.0
+		var centre := _band_point(angle, 0.19)
+		var lot := Rect2i(centre.x - 4, centre.y - 4, 9, 9)
+		if _outskirt_lot_clear(lot, [GRASS]) and rng.next_float() < .8:
+			_place_outskirt_building(lot, "house", "house", 5.5 + rng.next_float() * 1.5, rng)
+	for sample in 120:
+		var angle := TAU * float(sample) / 120.0
+		var centre := _band_point(angle, 0.70)
+		var lot := Rect2i(centre.x - 4, centre.y - 4, 9, 9)
+		if not _outskirt_lot_clear(lot, [FIELD, GRASS]) or rng.next_float() < .35:
+			continue
+		_place_outskirt_building(lot, "barn", "barn", 7.0, rng)
+		# a silo and a water pump beside the barn, hay and a tractor alongside
+		var out := Vector2(centre - Vector2i(ELLIPSE_CENTER)).normalized()
+		var along := Vector2i(roundi(-out.y), roundi(out.x))
+		_place_outskirt_decor(centre + along * 7, "silo", rng)
+		_place_outskirt_decor(centre + along * 7 + Vector2i(roundi(out.x * 3), roundi(out.y * 3)), "water_pump", rng)
+		for index in 3:
+			_place_outskirt_decor(centre - along * (7 + index * 2), "hay_bale", rng)
+		_place_outskirt_decor(centre - along * 7 + Vector2i(roundi(out.x * 3), roundi(out.y * 3)), "tractor", rng)
+	# irrigation: a 1-wide channel along the north and south farm bands, bridged where a track or arterial crosses
+	var reach := ELLIPSE_AXES.y + (OUTER_AXES.y - ELLIPSE_AXES.y) * 0.72
+	for gz in [int(ELLIPSE_CENTER.y - reach), int(ELLIPSE_CENTER.y + reach)]:
+		for gx in WIDTH:
+			if kind_at(gx, gz) == FIELD and outer_r(gx, gz) < OUTER_WALL_FROM - 0.06:
+				_set_kind(gx, gz, WATER)
+
+
+## The cell at band_t `t` along the ray at `angle` from the centre.
+func _band_point(angle: float, t: float) -> Vector2i:
+	var direction := Vector2(cos(angle), sin(angle))
+	var inner := 1.0 / sqrt(pow(direction.x / ELLIPSE_AXES.x, 2) + pow(direction.y / ELLIPSE_AXES.y, 2))
+	var outer := 1.0 / sqrt(pow(direction.x / OUTER_AXES.x, 2) + pow(direction.y / OUTER_AXES.y, 2))
+	var at := ELLIPSE_CENTER + direction * lerpf(inner, outer, t)
+	return Vector2i(floori(at.x), floori(at.y))
+
+
+func _outskirt_lot_clear(lot: Rect2i, ground: Array) -> bool:
+	for gz in range(lot.position.y - 2, lot.end.y + 2):
+		for gx in range(lot.position.x - 2, lot.end.x + 2):
+			if not in_bounds(gx, gz) or not ground.has(kind_at(gx, gz)):
+				return false
+	return true
+
+
+func _place_outskirt_building(lot: Rect2i, kind: String, style: String, height: float, rng: SeededRandom) -> void:
+	var doors := _choose_doors(lot)
+	if doors.is_empty():
+		return
+	var id := "B%d" % buildings.size()
+	for gz in range(lot.position.y, lot.end.y):
+		for gx in range(lot.position.x, lot.end.x):
+			var edge := gx == lot.position.x or gx == lot.end.x - 1 or gz == lot.position.y or gz == lot.end.y - 1
+			_set_kind(gx, gz, WALL if edge else FLOOR)
+			building_index[index_of(gx, gz)] = buildings.size() + 1
+	for door in doors:
+		_set_kind((door as Vector2i).x, (door as Vector2i).y, DOOR)
+		_door_cells[door] = true
+	var building := {"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
+		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors, "partition": []}
+	buildings.append(building)
+	if kind == "house":
+		# the yard: a hedge ring one cell out, open where the doorway's path leaves it, a mailbox by the gap
+		var front: Vector2i = doors[0]
+		var out := Vector2i.ZERO
+		if front.y == lot.position.y:
+			out = Vector2i(0, -1)
+		elif front.y == lot.end.y - 1:
+			out = Vector2i(0, 1)
+		elif front.x == lot.position.x:
+			out = Vector2i(-1, 0)
+		else:
+			out = Vector2i(1, 0)
+		var ring := lot.grow(2)
+		for gz in range(ring.position.y, ring.end.y):
+			for gx in range(ring.position.x, ring.end.x):
+				var on_ring := gx == ring.position.x or gx == ring.end.x - 1 or gz == ring.position.y or gz == ring.end.y - 1
+				if not on_ring or kind_at(gx, gz) != GRASS:
+					continue
+				var gap_centre := front + out * 2
+				if absi(gx - gap_centre.x) <= 1 and absi(gz - gap_centre.y) <= 1:
+					continue
+				_set_kind(gx, gz, HEDGE)
+		var path_cell := front + out
+		if kind_at(path_cell.x, path_cell.y) == GRASS:
+			_set_kind(path_cell.x, path_cell.y, PATH)
+		_place_outskirt_decor(front + out * 3 + Vector2i(out.y, out.x) * 2, "mailbox", rng)
+
+
+func _place_outskirt_decor(cell: Vector2i, type: String, rng: SeededRandom) -> void:
+	if in_bounds(cell.x, cell.y) and [GRASS, FIELD].has(kind_at(cell.x, cell.y)):
+		_place_decor(cell, type, float(rng.next_index(4)) * PI * .5)
+
+
+## The avenue and the main street continue through the suburbs and the farmland to the outer rim as 9-wide arterials
+## (asphalt with a 2-cell kerb/pavement each side), so the gate at the far south is reached by road.
+func _lay_arterials() -> void:
+	for gz in HEIGHT:
+		for gx in range(AVENUE_X - 4, AVENUE_X + 5):
+			_stamp_outskirt_street(gx, gz, PAVE if absi(gx - AVENUE_X) >= 3 else ROAD)
+	for gx in WIDTH:
+		for gz in range(MAIN_STREET_Z - 4, MAIN_STREET_Z + 5):
+			_stamp_outskirt_street(gx, gz, PAVE if absi(gz - MAIN_STREET_Z) >= 3 else ROAD)
+
+
+func _stamp_outskirt_street(gx: int, gz: int, kind: int) -> void:
+	if not in_bounds(gx, gz) or ellipse_r(gx, gz) < 1.0 or outer_r(gx, gz) >= OUTER_WALL_FROM:
+		return
+	var current := kind_at(gx, gz)
+	if current == RIM:
+		return
+	if kind == ROAD or current != ROAD:
+		_set_kind(gx, gz, kind)
 
 
 ## Fountain roundabout: a 9 x 9 kiosk (the spawn shelter) on an island ringed by water with four 3-wide bridges, a
@@ -606,21 +845,31 @@ func _lay_grand_plaza() -> void:
 			if current == BLOCK or current == ROAD or current == PAVE:
 				_set_kind(gx, gz, PLAZA)
 	var mid_x := ROUNDABOUT_CENTER.x
+	const PLAZA_Z := 45   # the plaza rows below are in the original (pre-shift) downtown coordinates
 	# Statue on a 3 x 3 plinth, a long reflecting pool south of it, benches facing the pool.
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
-			_set_kind(mid_x + dx, 14 + dz, POST)
-	decor[Vector2i(mid_x, 14)] = {"type": "statue", "yaw": 0.0}
-	for gz in range(18, 22):
+			_set_kind(mid_x + dx, PLAZA_Z + 14 + dz, POST)
+	decor[Vector2i(mid_x, PLAZA_Z + 14)] = {"type": "statue", "yaw": 0.0}
+	for gz in range(PLAZA_Z + 18, PLAZA_Z + 22):
 		for gx in range(mid_x - 7, mid_x + 8):
 			_set_kind(gx, gz, WATER)
 	for bench_x in [mid_x - 12, mid_x - 4, mid_x + 4, mid_x + 12]:
-		_place_decor(Vector2i(bench_x, 16), "bench", 0.0)
+		_place_decor(Vector2i(bench_x, PLAZA_Z + 16), "bench", 0.0)
 	for tree_x in [mid_x - 30, mid_x - 22, mid_x + 22, mid_x + 30]:
-		_place_decor(Vector2i(tree_x, 16), "cypress", 0.0)
-		_place_decor(Vector2i(tree_x, 23), "tree", 0.0)
+		_place_decor(Vector2i(tree_x, PLAZA_Z + 16), "cypress", 0.0)
+		_place_decor(Vector2i(tree_x, PLAZA_Z + 23), "tree", 0.0)
 	for bench_x in [mid_x - 10, mid_x + 10]:
-		_place_decor(Vector2i(bench_x, 23), "bench", PI)
+		_place_decor(Vector2i(bench_x, PLAZA_Z + 23), "bench", PI)
+	# The plaza is the lit heart of the city: cyan lights in two rows, banners, and a row of market stalls (the rows sit
+	# inside DECOR_LIMIT, which the dome edge makes tight at the plaza's far north).
+	for light_x in range(mid_x - 40, mid_x + 41, 8):
+		_place_decor(Vector2i(light_x, PLAZA_Z + 12), "plaza_light", 0.0)
+		_place_decor(Vector2i(light_x + 4, PLAZA_Z + 21), "plaza_light", 0.0)
+	for banner_x in [mid_x - 34, mid_x - 26, mid_x - 14, mid_x + 14, mid_x + 26, mid_x + 34]:
+		_place_decor(Vector2i(banner_x, PLAZA_Z + 17), "banner", 0.0)
+	for stall_x in [mid_x - 24, mid_x - 20, mid_x - 16, mid_x + 16, mid_x + 20, mid_x + 24]:
+		_place_decor(Vector2i(stall_x, PLAZA_Z + 14), "market_stall", 0.0)
 
 
 # ---------------------------------------------------------------- blocks and buildings
@@ -690,16 +939,16 @@ func _split_with_alley(rect: Rect2i, horizontal: bool) -> Array:
 
 func _split_lots(rect: Rect2i) -> Array:
 	var longest := maxi(rect.size.x, rect.size.y)
-	if longest <= 22:
+	if longest <= 17:
 		return [rect]
 	var ratio := .4 + _rng.next_float() * .2
 	var out := []
 	if rect.size.x >= rect.size.y:
-		var cut := clampi(roundi(rect.size.x * ratio), 10, rect.size.x - 10)
+		var cut := clampi(roundi(rect.size.x * ratio), 9, rect.size.x - 9)
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y, cut, rect.size.y)))
 		out.append_array(_split_lots(Rect2i(rect.position.x + cut, rect.position.y, rect.size.x - cut, rect.size.y)))
 	else:
-		var cut := clampi(roundi(rect.size.y * ratio), 10, rect.size.y - 10)
+		var cut := clampi(roundi(rect.size.y * ratio), 9, rect.size.y - 9)
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y, rect.size.x, cut)))
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y + cut, rect.size.x, rect.size.y - cut)))
 	return out
@@ -732,11 +981,14 @@ func _try_building(lot: Rect2i) -> void:
 		_set_kind((door as Vector2i).x, (door as Vector2i).y, DOOR)
 		_door_cells[door] = true
 	var area := lot.size.x * lot.size.y
-	var center_z := lot.position.y + lot.size.y / 2
-	var west_or_east := lot.position.x < 65 or lot.position.x >= 160
+	var center_z := lot.position.y + lot.size.y / 2 - DOWNTOWN_SHIFT.y
+	var west_or_east := lot.position.x < 65 + DOWNTOWN_SHIFT.x or lot.position.x >= 160 + DOWNTOWN_SHIFT.x
 	var kind: String = BUILDING_KINDS[_rng.next_index(BUILDING_KINDS.size() - 1)]
 	var height := 12.0 + _rng.next_float() * 16.0
 	var style := "brick"
+	if kind == "chapel":
+		style = "civic"
+		height = 16.0 + _rng.next_float() * 6.0
 	if area >= 260 and (center_z < 25 or center_z > 110):
 		kind = "hall"
 		height = 18.0 + _rng.next_float() * 6.0
@@ -748,8 +1000,36 @@ func _try_building(lot: Rect2i) -> void:
 	for gz in range(lot.position.y, lot.end.y):
 		for gx in range(lot.position.x, lot.end.x):
 			building_index[index_of(gx, gz)] = buildings.size() + 1
-	buildings.append({"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
-		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors})
+	var building := {"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
+		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors, "partition": []}
+	building["partition"] = _lay_partition(building)
+	buildings.append(building)
+
+
+## A wall across the middle of a big interior with a two-wide doorway in it; empty when a door is too close to the line.
+## Returns the wall cells (the doorway cells stay floor).
+func _lay_partition(building: Dictionary) -> Array:
+	var interior: Rect2i = building["interior"]
+	if maxi(interior.size.x, interior.size.y) < PARTITION_MIN or mini(interior.size.x, interior.size.y) < 5:
+		return []
+	var vertical := interior.size.x >= interior.size.y
+	var length := interior.size.y if vertical else interior.size.x
+	var across := interior.size.x if vertical else interior.size.y
+	var line := (interior.position.x if vertical else interior.position.y) + across / 2 + _rng.next_index(3) - 1
+	for door_value in building["doors"]:
+		var door: Vector2i = door_value
+		if absi((door.x if vertical else door.y) - line) <= 3:
+			return []
+	var gap := (interior.position.y if vertical else interior.position.x) + 1 + _rng.next_index(maxi(1, length - 3))
+	var cells := []
+	for step in length:
+		var along := (interior.position.y if vertical else interior.position.x) + step
+		if along == gap or along == gap + 1:
+			continue
+		var cell := Vector2i(line, along) if vertical else Vector2i(along, line)
+		cells.append(cell)
+		_set_kind(cell.x, cell.y, WALL)
+	return cells
 
 
 func _lot_buildable(lot: Rect2i) -> bool:
@@ -818,7 +1098,7 @@ func _scatter_verge_trees() -> void:
 	var rng := SeededRandom.new("%s:CITY-VERGE" % seed_text)
 	for gz in range(2, HEIGHT - 2):
 		for gx in range(2, WIDTH - 2):
-			if kind_at(gx, gz) != GRASS or rng.next_float() > .035:
+			if kind_at(gx, gz) != GRASS or rng.next_float() > (.035 if ellipse_r(gx, gz) < 1.0 else .012):
 				continue
 			var crowded := false
 			for dz in range(-3, 4):
@@ -845,10 +1125,13 @@ func _lay_crosswalks() -> void:
 # ---------------------------------------------------------------- street furniture
 
 func _place_decor(cell: Vector2i, type: String, yaw: float) -> bool:
-	if not in_bounds(cell.x, cell.y) or ellipse_r(cell.x, cell.y) > DECOR_LIMIT:
+	if not in_bounds(cell.x, cell.y):
+		return false
+	var r := ellipse_r(cell.x, cell.y)
+	if r > DECOR_LIMIT and (r < 1.0 or outer_r(cell.x, cell.y) > OUTER_WALL_FROM - .03):
 		return false
 	var current := kind_at(cell.x, cell.y)
-	if not [PAVE, PLAZA, GRASS, PATH, COMPASS].has(current):
+	if not [PAVE, PLAZA, GRASS, PATH, COMPASS, FIELD].has(current):
 		return false
 	if _decor_clips_solid(cell, type) or _decor_clips_decor(cell, type, yaw):
 		return false
@@ -977,6 +1260,15 @@ func _lay_street_furniture() -> void:
 			if width == 9:
 				for gx in range(8 + side * 4, WIDTH - 3, 8):
 					_place_decor(Vector2i(gx, inner[side]), "tree", 0.0)
+	# Hydrants along the pavements, one every few blocks.
+	for street in NS_STREETS:
+		var hx: int = (street[0] as int) - (street[1] as int) / 2 + 1
+		for gz in range(14, HEIGHT - 6, 22):
+			_place_decor(Vector2i(hx, gz), "hydrant", 0.0)
+	for street in EW_STREETS:
+		var hz: int = (street[0] as int) - (street[1] as int) / 2 + 1
+		for gx in range(20, WIDTH - 6, 26):
+			_place_decor(Vector2i(gx, hz), "hydrant", 0.0)
 	# Bollards beside every doorway and planters on the shelter plazas' corners.
 	for shelter in shelters:
 		var center: Vector2i = shelter["center"]
@@ -984,6 +1276,9 @@ func _lay_street_furniture() -> void:
 			_place_decor(center + (corner as Vector2i), "planter", 0.0)
 		for bench in [Vector2i(-6, 0), Vector2i(6, 0)]:
 			_place_decor(center + (bench as Vector2i), "bench", PI * .5)
+		_place_decor(center + Vector2i(0, -7), "phone_booth", 0.0)
+		_place_decor(center + Vector2i(4, 7), "newsstand", PI)
+		_place_decor(center + Vector2i(-4, 7), "phone_booth", PI)
 	for building in buildings:
 		var doors: Array = building["doors"]
 		if doors.is_empty():
@@ -1008,6 +1303,10 @@ func _lay_street_furniture() -> void:
 func _lay_gate() -> void:
 	for gx in range(GATE_X.x, GATE_X.y + 1):
 		_set_kind(gx, GATE_ROW, GATE)
+		# A clear 2-cell apron of road in front of the gate so the pickup cell is never swallowed by the wall band.
+		for row in [GATE_ROW - 1, GATE_ROW - 2]:
+			if kind_at(gx, row) == RIM:
+				_set_kind(gx, row, ROAD)
 
 
 ## Relays the party must have recovered before the gate answers.
@@ -1021,6 +1320,12 @@ static func gate_relays_required(difficulty_id: String) -> int:
 
 ## An alley is 3 wide; leftover 1-2 cell slivers (clipped by the dome edge or the roundabout) become solid.
 func _remove_thin_alleys() -> void:
+	# Removing a thin strip can leave its neighbours thin, so repeat until the alleys that remain are all 3+ wide.
+	while _remove_thin_alley_pass():
+		pass
+
+
+func _remove_thin_alley_pass() -> bool:
 	var thin := []
 	for gz in HEIGHT:
 		for gx in WIDTH:
@@ -1041,6 +1346,7 @@ func _remove_thin_alleys() -> void:
 				thin.append(Vector2i(gx, gz))
 	for cell in thin:
 		_wall_over((cell as Vector2i).x, (cell as Vector2i).y)
+	return not thin.is_empty()
 
 
 ## Turns a cell into solid wall, taking any furniture standing on it away.
@@ -1107,6 +1413,14 @@ func _seal_unreachable() -> void:
 		for gx in WIDTH:
 			if is_open(gx, gz) and reached[index_of(gx, gz)] == 0:
 				_set_kind(gx, gz, WALL)
+	# A building whose every doorway got sealed is now a solid mass: no rooms, props or lamp for it.
+	for building in buildings:
+		var enterable := false
+		for door_value in building["doors"]:
+			var door: Vector2i = door_value
+			if kind_at(door.x, door.y) == DOOR:
+				enterable = true
+		building["sealed"] = not enterable
 
 
 # ---------------------------------------------------------------- map image
@@ -1117,6 +1431,7 @@ const MAP_COLORS := {
 	HEDGE: Color("1d4027"), BED: Color("b04a7a"), POST: Color("e8a33a"), CROSS_NS: Color("d8d8e0"),
 	CROSS_EW: Color("d8d8e0"), KIOSK_FLOOR: Color("39b6b0"), KIOSK_WALL: Color("14636a"), BRIDGE: Color("a58a5a"),
 	BLOCK: Color("ff00ff"), ALLEY: Color("55535f"), COMPASS: Color("c9b88a"), GATE: Color("39e6dc"),
+	FIELD: Color("6b8a3a"), DIRT: Color("5e4a36"), GRAVEL: Color("7d7466"),
 }
 
 

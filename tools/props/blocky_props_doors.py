@@ -21,8 +21,10 @@ def _mesh_object(name, boxes, subst=None):
     me = bpy.data.meshes.new(name)
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
-    for (x0, y0, z0, x1, y1, z1, kind) in boxes:
-        add_box(bm, uv, min(x0, x1), min(y0, y1), min(z0, z1), max(x0, x1), max(y0, y1), max(z0, z1), kind)
+    raw = [(min(b[0], b[3]), min(b[1], b[4]), min(b[2], b[5]), max(b[0], b[3]), max(b[1], b[4]), max(b[2], b[5]), b[6]) for b in boxes]
+    extents, _pairs = resolve_coplanar([snap_extent(*r[:6]) for r in raw], [{0, 1, 2}] * len(raw))   # layered faces: see build_blocky_props
+    for r, extent in zip(raw, extents):
+        add_box(bm, uv, *r[:6], r[6], extent=extent)
     bm.to_mesh(me)
     bm.free()
     me.materials.append(MAT)
@@ -124,7 +126,7 @@ def _frame_boxes(style, half_open):
 
 def build_door(name, style, double):
     half_open = .96 if double else .44
-    height = 2.36
+    height = 2.31 if style == "gothic" else 2.36      # the gothic chamfer blocks end at 2.375: a leaf top there would share their plane
     objs = []
     frame, thr = _frame_boxes(style, half_open)
     objs.append(_mesh_object("DoorFrame", frame))

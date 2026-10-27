@@ -27,6 +27,7 @@ func _ready() -> void:
 	_out_dir = positional[0] if positional.size() > 0 else "/tmp"
 	_tag = positional[1] if positional.size() > 1 else "city"
 	RoomState.create_local(RoomState.Mode.CITY)
+	RoomState.daytime = OS.get_environment("CAP_DAY") != ""
 	RoomState.seed_text = positional[2] if positional.size() > 2 else "CITY-LOOK"
 	DirAccess.make_dir_recursive_absolute(_out_dir) if _out_dir.is_absolute_path() else DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://").path_join(_out_dir))
 	Backend.enable_offline_mode()
@@ -55,38 +56,38 @@ static func _at(gx: float, gz: float) -> Vector3:
 
 func _spots(layout: CityLayout) -> Array:
 	var spots := [
-		{"name": "spawn_kiosk", "pos": _at(112.5, 80.5), "yaw": 0.0, "pitch": 0.0},
-		{"name": "roundabout_to_north", "pos": _at(112.5, 84.5), "yaw": 0.0, "pitch": 3.0},
-		{"name": "avenue_south_to_north", "pos": _at(112.5, 105.5), "yaw": 0.0, "pitch": 2.0},
-		{"name": "avenue_north_to_south", "pos": _at(112.5, 44.5), "yaw": 180.0, "pitch": 2.0},
-		{"name": "main_street_east", "pos": _at(60.5, 67.5), "yaw": -90.0, "pitch": 2.0},
-		{"name": "grand_plaza", "pos": _at(112.5, 24.5), "yaw": 0.0, "pitch": 4.0},
-		{"name": "garden", "pos": _at(82.5, 44.5), "yaw": 90.0, "pitch": -3.0},
-		{"name": "shelter_plaza", "pos": _at(67.5, 33.5), "yaw": 0.0, "pitch": 0.0},
-		{"name": "alley", "pos": _at(48.5, 43.5), "yaw": 90.0, "pitch": 0.0},
-		{"name": "sky", "pos": _at(112.5, 84.5), "yaw": 0.0, "pitch": 62.0},
-		{"name": "rim_gate", "pos": _at(112.5, 118.5), "yaw": 180.0, "pitch": 6.0},
+		{"name": "spawn_kiosk", "pos": _at(157.5, 125.5), "yaw": 0.0, "pitch": 0.0},
+		{"name": "roundabout_to_north", "pos": _at(157.5, 129.5), "yaw": 0.0, "pitch": 3.0},
+		{"name": "avenue_south_to_north", "pos": _at(157.5, 150.5), "yaw": 0.0, "pitch": 2.0},
+		{"name": "avenue_north_to_south", "pos": _at(157.5, 89.5), "yaw": 180.0, "pitch": 2.0},
+		{"name": "main_street_east", "pos": _at(105.5, 112.5), "yaw": -90.0, "pitch": 2.0},
+		{"name": "grand_plaza", "pos": _at(157.5, 69.5), "yaw": 0.0, "pitch": 4.0},
+		{"name": "garden", "pos": _at(127.5, 89.5), "yaw": 90.0, "pitch": -3.0},
+		{"name": "shelter_plaza", "pos": _at(112.5, 78.5), "yaw": 0.0, "pitch": 0.0},
+		{"name": "alley", "pos": _at(93.5, 88.5), "yaw": 90.0, "pitch": 0.0},
+		{"name": "sky", "pos": _at(157.5, 129.5), "yaw": 0.0, "pitch": 62.0},
+		{"name": "rim_gate", "pos": _at(157.5, 163.5), "yaw": 180.0, "pitch": 6.0},
 	]
 	# The spawn kiosk (the player starts at its centre): the start view, the four inside views, and outside at 3/8/20 m.
-	spots.append({"name": "spawn_start", "pos": _at(112.5, 67.5), "yaw": 0.0, "pitch": 0.0})
+	spots.append({"name": "spawn_start", "pos": _at(157.5, 112.5), "yaw": 0.0, "pitch": 0.0})
 	for yaw in [0, 90, 180, 270]:
-		spots.append({"name": "spawn_in_y%03d" % yaw, "pos": _at(112.5, 67.5), "yaw": float(yaw), "pitch": 0.0})
-	spots.append({"name": "spawn_in_up", "pos": _at(112.5, 67.5), "yaw": 0.0, "pitch": 70.0})
-	spots.append({"name": "spawn_in_floor", "pos": _at(112.5, 67.5), "yaw": 180.0, "pitch": -60.0})
-	spots.append({"name": "spawn_door", "pos": _at(112.5, 70.5), "yaw": 180.0, "pitch": 0.0})
+		spots.append({"name": "spawn_in_y%03d" % yaw, "pos": _at(157.5, 112.5), "yaw": float(yaw), "pitch": 0.0})
+	spots.append({"name": "spawn_in_up", "pos": _at(157.5, 112.5), "yaw": 0.0, "pitch": 70.0})
+	spots.append({"name": "spawn_in_floor", "pos": _at(157.5, 112.5), "yaw": 180.0, "pitch": -60.0})
+	spots.append({"name": "spawn_door", "pos": _at(157.5, 115.5), "yaw": 180.0, "pitch": 0.0})
 	for distance in [3, 8, 20]:
-		spots.append({"name": "spawn_out_s%02d" % distance, "pos": _at(112.5, 71.5 + distance), "yaw": 0.0, "pitch": 4.0})
-		spots.append({"name": "spawn_out_n%02d" % distance, "pos": _at(112.5, 63.5 - distance), "yaw": 180.0, "pitch": 4.0})
-		spots.append({"name": "spawn_out_e%02d" % distance, "pos": _at(116.5 + distance, 67.5), "yaw": 90.0, "pitch": 4.0})
-		spots.append({"name": "spawn_out_w%02d" % distance, "pos": _at(108.5 - distance, 67.5), "yaw": -90.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_s%02d" % distance, "pos": _at(157.5, 116.5 + distance), "yaw": 0.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_n%02d" % distance, "pos": _at(157.5, 108.5 - distance), "yaw": 180.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_e%02d" % distance, "pos": _at(161.5 + distance, 112.5), "yaw": 90.0, "pitch": 4.0})
+		spots.append({"name": "spawn_out_w%02d" % distance, "pos": _at(198.5 - distance, 157.5), "yaw": -90.0, "pitch": 4.0})
 	# Distance series: the main street looking east from d metres away from the end, the avenue looking north, the
 	# skyline and the dome frame from the roundabout.
 	for distance in [3, 15, 40, 100, 180]:
-		spots.append({"name": "far_main_d%03d" % distance, "pos": _at(200.5 - distance, 67.5), "yaw": -90.0, "pitch": 2.0})
-		spots.append({"name": "far_avenue_d%03d" % distance, "pos": _at(112.5, 120.5 - distance), "yaw": 0.0, "pitch": 2.0})
+		spots.append({"name": "far_main_d%03d" % distance, "pos": _at(290.5 - distance, 157.5), "yaw": -90.0, "pitch": 2.0})
+		spots.append({"name": "far_avenue_d%03d" % distance, "pos": _at(157.5, 165.5 - distance), "yaw": 0.0, "pitch": 2.0})
 	for yaw in [0, 90, 180, 270]:
-		spots.append({"name": "far_skyline_y%03d" % yaw, "pos": _at(112.5, 84.5), "yaw": float(yaw), "pitch": 9.0})
-	spots.append({"name": "far_dome", "pos": _at(112.5, 84.5), "yaw": 30.0, "pitch": 38.0})
+		spots.append({"name": "far_skyline_y%03d" % yaw, "pos": _at(157.5, 129.5), "yaw": float(yaw), "pitch": 9.0})
+	spots.append({"name": "far_dome", "pos": _at(157.5, 129.5), "yaw": 30.0, "pitch": 38.0})
 	if not layout.buildings.is_empty():
 		var building: Dictionary = layout.buildings[0]
 		var interior: Rect2i = building["interior"]
@@ -97,6 +98,57 @@ func _spots(layout: CityLayout) -> Array:
 			"yaw": rad_to_deg(atan2(-toward.x, -toward.y)), "pitch": 0.0})
 		spots.append({"name": "facade", "pos": _at(door.x + .5 + signf(toward.x) * 7.0, door.y + .5 + signf(toward.y) * 7.0),
 			"yaw": rad_to_deg(atan2(toward.x, toward.y)), "pitch": 12.0})
+	# Entrances: three enterable buildings seen from 6 m out on the street, and from just inside looking out.
+	var entrance_count := 0
+	for building_value in layout.buildings:
+		var entry: Dictionary = building_value
+		if bool(entry.get("sealed", false)) or entrance_count >= 3 or (entry["rect"] as Rect2i).position.y < 30:
+			continue
+		var entry_door: Vector2i = (entry["doors"] as Array)[0]
+		var rect: Rect2i = entry["rect"]
+		var out := Vector2i.ZERO
+		if entry_door.y == rect.position.y:
+			out = Vector2i(0, -1)
+		elif entry_door.y == rect.end.y - 1:
+			out = Vector2i(0, 1)
+		elif entry_door.x == rect.position.x:
+			out = Vector2i(-1, 0)
+		else:
+			out = Vector2i(1, 0)
+		spots.append({"name": "door%d_out" % entrance_count, "pos": _at(entry_door.x + 1.0 + out.x * 6.0, entry_door.y + .5 + out.y * 6.0),
+			"yaw": rad_to_deg(atan2(-float(-out.x), -float(-out.y))), "pitch": 2.0})
+		spots.append({"name": "door%d_in" % entrance_count, "pos": _at(entry_door.x + 1.0 - out.x * 3.0, entry_door.y + .5 - out.y * 3.0),
+			"yaw": rad_to_deg(atan2(-float(out.x), -float(out.y))), "pitch": 0.0})
+		entrance_count += 1
+	var gate := CityLayout.GATE_CELL
+	spots.append({"name": "gate_far", "pos": _at(gate.x + .5, gate.y - 20.5), "yaw": 180.0, "pitch": 4.0})
+	spots.append({"name": "gate_close", "pos": _at(gate.x + .5, gate.y - 4.5), "yaw": 180.0, "pitch": 6.0})
+	# The outskirts: the suburb ring road, a farm track and the avenue running out through the fields.
+	var ring_z := CityLayout.ELLIPSE_CENTER.y - (CityLayout.ELLIPSE_AXES.y + (CityLayout.OUTER_AXES.y - CityLayout.ELLIPSE_AXES.y) * 0.46)
+	spots.append({"name": "suburb_ring", "pos": _at(CityLayout.AVENUE_X + 12.5, ring_z), "yaw": 90.0, "pitch": 2.0})
+	spots.append({"name": "farmland", "pos": _at(CityLayout.AVENUE_X + 3.5, gate.y - 28.5), "yaw": 180.0, "pitch": 1.0})
+	spots.append({"name": "outskirts_avenue", "pos": _at(CityLayout.AVENUE_X + .5, CityLayout.ELLIPSE_CENTER.y + CityLayout.ELLIPSE_AXES.y + 6.0), "yaw": 180.0, "pitch": 2.0})
+	# One look inside a library, a chapel and a two-room building (from just inside the first doorway).
+	var shown := {}
+	for building_value in layout.buildings:
+		var entry: Dictionary = building_value
+		if bool(entry.get("sealed", false)):
+			continue
+		var tag := String(entry["kind"])
+		if not (entry["partition"] as Array).is_empty() and not shown.has("tworoom"):
+			tag = "tworoom"
+		elif tag != "library" and tag != "chapel":
+			continue
+		if shown.has(tag):
+			continue
+		shown[tag] = true
+		var room: Rect2i = entry["interior"]
+		var entry_door: Vector2i = (entry["doors"] as Array)[0]
+		var centre := room.position + room.size / 2
+		var inward := Vector2(centre - entry_door)
+		var start := Vector2(entry_door) + inward.normalized() * 2.0
+		spots.append({"name": "inside_%s" % tag, "pos": _at(start.x + .5, start.y + .5),
+			"yaw": rad_to_deg(atan2(-inward.x, -inward.y)), "pitch": 0.0})
 	return spots
 
 

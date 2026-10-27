@@ -179,10 +179,15 @@ func _config_block() -> Control:
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
 			return RoomState.is_host and RoomState.difficulty_available(value)))
-	if not RoomState.is_city():
+	if RoomState.is_city():
+		# City DAYTIME: the host's choice for the whole room (sky, lighting, how hunters see).
+		groups.add_child(_config_group("TIME OF DAY", {0: "NIGHT", 1: "DAYTIME"}, 1 if RoomState.daytime else 0,
+			func(value: int) -> void: RoomState.set_daytime(value == 1),
+			func(_value: int) -> bool: return RoomState.is_host or not RoomState.online))
+	else:
 		groups.add_child(_archive_group())
 
-	stack.add_child(_label("THE CITY HAS NO RUN SAVES YET" if RoomState.is_city()
+	stack.add_child(_label("SOLO RUNS SAVE TO YOUR ACCOUNT // %s" % ("DAYTIME" if RoomState.daytime else "NIGHT") if RoomState.is_city()
 		else "SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
 	return box
 

@@ -40,10 +40,12 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — props audits (DONE11 chairs and tables, DONE13 rotated parts and weak families, DONE14 materials and finishes, DONE16 performance), measured sizes, fixes, contact sheets
 - [RESCUE_AXE.md](RESCUE_AXE.md) — held-tool poses (grip table, wall push-back, remote hand), the rescue axe (cut free of a hold, chop boards, noise, durability), captures
+- [Z_FIGHTING_PROPS.md](Z_FIGHTING_PROPS.md) — coplanar faces inside prop models (beds, cabinets, couches, doors): builder fix, prop_coplanar suite, bed flicker before/after
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
 - [WAYPOINTS.md](WAYPOINTS.md) — one waypoint per player, crosshair placement, HUD pin and edge arrow, guidance modes, City support, co-op, audit of the old system
 - [MATERIAL_LOOK.md](MATERIAL_LOOK.md) — matte-by-default material and light look: audit, the shared MaterialLook constants, validator, before/after
+- [HUNTER_SCALE.md](HUNTER_SCALE.md) — tall hunter variants removed, one shared 1.5x hunter scale and what follows it, validator, before/after
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.

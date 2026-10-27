@@ -128,8 +128,9 @@ const SETTLE_SPEED := 14.0
 const FALL_RECOVERY_DEPTH := 1.0
 const MAX_PRESENTATION_SPEED := 12.0
 const PRESENTATION_DEAD_ZONE := .006
-const HUNTER_BODY_RADIUS := .28
-const HUNTER_BODY_HEIGHT := 1.72
+## View collider: slightly wider than the brain footprint (GameConfig.HUNTER_RADIUS) and as tall as the scaled model.
+const HUNTER_BODY_RADIUS := GameConfig.HUNTER_RADIUS + .05
+const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 ## Body yaw / head look live in HunterFacing so other creature views share them.
 
 
@@ -246,6 +247,7 @@ func _apply_model(model_id: String) -> void:
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate_hunter(identity)
 	if _model:
+		_model.scale = Vector3.ONE * HunterRoster.scale_for(model_id)   # feet stay on the origin, so the body grows upward
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
 		if SecretCreatures.uses_creature_rig(model_id):

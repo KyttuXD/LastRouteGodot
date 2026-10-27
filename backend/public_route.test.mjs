@@ -151,3 +151,35 @@ test("HTTP: PUBLIC is a registered ENet code, its host token authorises the snap
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("HTTP: each game has its own public route (CTYPR), state and ENet listing", async () => {
+  const server = createLastRouteServer({ relayAddress: "127.0.0.1", relayPort: 11998 });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = async (path, body) => (await fetch(`${base}${path}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  })).json();
+  try {
+    const city = await call("/api/public/join", { playerKey: KEY_A, name: "one", game: "city" });
+    assert.equal(city.code, "CTYPR");
+    const lastRoute = await call("/api/public/join", { playerKey: KEY_B, name: "two" });
+    assert.equal(lastRoute.code, "PUBLC");
+    assert.notEqual(city.seed, lastRoute.seed);
+    const registered = await call("/api/enet/rooms/register", { code: "CTYPR", port: 8421, players: 1 });
+    assert.equal(registered.ok, true);
+    assert.equal(registered.room.game, "city");
+    const cityAgain = await call("/api/public/join", { playerKey: KEY_B, name: "two", game: "city" });
+    assert.equal(cityAgain.authorityLive, true);
+    const lastRouteAgain = await call("/api/public/join", { playerKey: KEY_A, name: "one" });
+    assert.equal(lastRouteAgain.authorityLive, false, "the City listing must not make Last Route's route live");
+    const real = await call("/api/public/state", { sessionId: city.sessionId, game: "city", hostToken: registered.token, claims: [{ id: "0:0:0:PICKUP:RELAY:0" }], snapshot: "(c)" });
+    assert.equal(real.relaysCollected, 1);
+    const cityStatus = await (await fetch(`${base}/api/public/status?game=city`)).json();
+    const lastRouteStatus = await (await fetch(`${base}/api/public/status`)).json();
+    assert.equal(cityStatus.relaysCollected, 1);
+    assert.equal(lastRouteStatus.relaysCollected, 0);
+    assert.equal(lastRouteStatus.code, "PUBLC");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

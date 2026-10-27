@@ -12,7 +12,6 @@ extends RefCounted
 const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra", "haelith", "ilyra",
 	"jyvra", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quirith", "ravelle", "solyth",
 	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
-	"kathy_tall", "aki_tall", "xivvy_tall",
 	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink",
 	"void_purple", "void_red", "void_white", "void_yellow"]
 ## Void hunters: presented larger than the A-Z hunters, each with one silhouette cue on a Cue-* bone
