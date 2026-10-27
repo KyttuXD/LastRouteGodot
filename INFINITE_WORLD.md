@@ -115,3 +115,7 @@ streamed equivalents. The public relay backend already supports host-promotion
 frames, but the Godot client still returns guests to staging if peer 1
 disappears; client-side reconnect/authority handoff remains a separate room
 reliability task and is not presented as completed here.
+
+## Rooms and connectors (ref-look)
+
+Rooms are at least 9x9 (9x9, 9x11, 11x9, 11x13 and larger); each sits at the inner corner of its sector so the connector to the main hall is a few cells, not a long hallway. Hotel and prison corridors serve linear rows of 9-deep rooms, and apartment sectors are four-room suites. Checked by `validate_streamed_world`.

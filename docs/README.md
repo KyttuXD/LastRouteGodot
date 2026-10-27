@@ -1,0 +1,31 @@
+# Godot 2 documentation index
+
+Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is current as of this branch; root-level files predate the restyle and cover the port itself.
+
+## Start here
+| Doc | Covers |
+| --- | --- |
+| [../README.md](../README.md) | Opening the project, controls, menus, exports, updater |
+| [TESTING.md](TESTING.md) | Godot path, validator suites, **the 9 known failures**, co-op and public-route tests |
+| [../REF_LOOK.md](../REF_LOOK.md) | The restyle: textures, lighting, light budget, single level, taller rooms, halls and arches, apartments, props, UI theme and logo, capture rig |
+
+## Game systems
+| Doc | Covers |
+| --- | --- |
+| [../INFINITE_WORLD.md](../INFINITE_WORLD.md) | Streamed generator, chunks, regions, room sizes and connectors |
+| [BLOCKY_HUNTERS.md](BLOCKY_HUNTERS.md) | Blocky A-Z and Void hunters: pipeline, clips, expressions, scythe, toggles |
+| [BLOCKY_VOID.md](BLOCKY_VOID.md) | Void-specific notes (cues, emissive eyes, emotes) |
+| [../HUNTER_ROSTER.md](../HUNTER_ROSTER.md) | Roster data and gimmicks |
+| [SPECTATORS.md](SPECTATORS.md) | Dead/caught runners spectate; party wipe; revive |
+| [ADMIN_TOOLS.md](ADMIN_TOOLS.md) | In-game admin overlay (key 0) |
+| [../PUBLIC_ROUTE.md](../PUBLIC_ROUTE.md) | The always-open PUBLIC route and multiplayer testing |
+
+## Shipping
+| Doc | Covers |
+| --- | --- |
+| [DEPLOY_VPS3.md](DEPLOY_VPS3.md) | Backend on VPS 3: production and test instance, remote test scripts, rollback |
+| [DISTRIBUTION.md](DISTRIBUTION.md) | Exports, updater, and the downloads page plan (kyttuslab.org) |
+| [../IOS.md](../IOS.md), [../XR.md](../XR.md) | iOS and XR tracks |
+| [../MIGRATION.md](../MIGRATION.md), [../PLAYABILITY.md](../PLAYABILITY.md), [../PORTING_AUDIT.md](../PORTING_AUDIT.md) | Port history and checklists |
+
+Never put secrets (admin setup key, tokens, passwords) in any of these files.

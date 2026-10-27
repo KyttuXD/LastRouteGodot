@@ -22,7 +22,7 @@ cascade — the exact error set varies between launches.
 Fix it by forcing one import pass from the terminal:
 
 ```sh
-godot4 --headless --editor --quit --path .
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --import   # macOS; godot4 --headless --editor --quit --path . elsewhere
 # Flatpak:
 flatpak run org.godotengine.Godot --headless --editor --quit --path /path/to/LastRouteGodot
 ```
@@ -106,14 +106,23 @@ eye attachments, adds grounded walk/sprint/crouch bob, and lowers together
 with the physical capsule while crouching. Standing is refused when the new
 headroom is obstructed.
 
-Failing a hunter escape struggle (or suffering an inescapable grab) plays a
-short hunter-model lunge through a temporary local capture camera, then opens a
-dual-framed **run report** with the
-capturing hunter, depth, score, current-floor relays, coins, difficulty and
-route seed. Solo waits for an explicit Restart or Main Menu choice and clears
-the completed account checkpoint. In co-op, a captured guest can leave and a
-captured host explicitly ends the route. There is no lives counter, automatic
-respawn or hidden rejoin path; a successful struggle continues normally.
+Failing a hunter escape struggle (or suffering an inescapable grab) opens a
+dual-framed **run report** with the capturing hunter, depth, score, current-floor
+relays, coins, difficulty and route seed (the lunge/jumpscare presentation is off:
+`HunterJumpscare.ENABLED = false`). Solo waits for an explicit Restart or Main Menu
+choice. In co-op and the PUBLIC route a caught runner, host included, becomes a
+**spectator** (follow cam, E/Q to cycle, F free camera) and the run ends only when
+everyone is down; see [`docs/SPECTATORS.md`](docs/SPECTATORS.md). A successful
+struggle continues normally.
+
+## Documentation
+
+Index of everything on this branch: [`docs/README.md`](docs/README.md). Highlights:
+[`docs/TESTING.md`](docs/TESTING.md) (Godot path, validators, the 9 known failures,
+co-op and public-route tests), [`REF_LOOK.md`](REF_LOOK.md) (the restyle),
+[`docs/BLOCKY_HUNTERS.md`](docs/BLOCKY_HUNTERS.md) (cube hunters are the default),
+[`docs/ADMIN_TOOLS.md`](docs/ADMIN_TOOLS.md), [`docs/DEPLOY_VPS3.md`](docs/DEPLOY_VPS3.md),
+[`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md).
 
 
 ## Current foundation
@@ -166,6 +175,9 @@ pushing. Use `--tracked-only` to leave new files unstaged or `--skip-tests` only
 when the same revision has already been validated. The full workflow, agent
 safety rules, cancellation behavior, and authentication setup are documented in
 [`scripts/PUSHING.md`](scripts/PUSHING.md).
+
+On the dev Mac Godot lives at `/Applications/Godot.app/Contents/MacOS/Godot` (use it wherever `godot4` appears below); the known
+validator baseline (9 failures) and the multiplayer scripts are in [`docs/TESTING.md`](docs/TESTING.md).
 
 Run import, every Node backend test, and every Godot gameplay suite through one
 entry point (set `GODOT_BIN` when Godot is not on `PATH`):
