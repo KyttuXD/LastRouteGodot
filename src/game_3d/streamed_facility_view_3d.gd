@@ -1072,6 +1072,7 @@ func _add_blank_frame_canvas(frame: Node3D, prop_type: String) -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color("f4f4f1")
 	material.roughness = .86
+	MaterialLook.tame(material)
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	quad.material = material
 	canvas.mesh = quad
@@ -1387,6 +1388,7 @@ static func _material(texture: Texture2D, color: Color,
 		BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	material.uv1_scale = repeat
 	material.roughness = .88
+	MaterialLook.tame(material)
 	return material
 
 
@@ -1449,6 +1451,7 @@ static func _apply_gridmap_style(mesh: Mesh, texture: Texture2D, color: Color,
 		material.texture_filter = \
 			BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 		material.roughness = roughness
+		MaterialLook.tame(material)
 		mesh.surface_set_material(surface, material)
 
 

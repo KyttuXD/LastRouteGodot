@@ -636,6 +636,7 @@ func _fallback_prop_visual(type: String, entry: Dictionary,
 	material.albedo_color = RoomCatalog.color_for_region(
 		String(entry.get("region", "")))
 	material.roughness = .78
+	MaterialLook.tame(material)
 	box.material = material
 	mesh.mesh = box
 	mesh.position.y = PropModelCatalog.visual_y(type, WALL_HEIGHT, mount_y) \
@@ -1010,6 +1011,7 @@ func _build_mesh_library() -> MeshLibrary:
 			floor_style.uv1_scale = REGION_FLOOR_REPEAT.get(region, Vector3.ONE)
 			floor_style.roughness = .72 if region in ["office", "arcade"] else .88
 			floor_style.metallic = .12 if region in ["office", "maintenance"] else 0.0
+			MaterialLook.tame(floor_style, false, true)
 		_add_box(library, next_id, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
 			Vector3(0.0, -SLAB * 0.5, 0.0), tinted, true)
 		_region_floor_items[region] = next_id
@@ -1021,6 +1023,7 @@ func _build_mesh_library() -> MeshLibrary:
 			wall_style.uv1_scale = Vector3(2.0 if region in ["mansion", "arcade"] else 1.0,
 				WALL_HEIGHT, 1.0)
 			wall_style.roughness = .78 if region in ["office", "maintenance"] else .92
+			MaterialLook.tame(wall_style)
 		_add_box(library, next_id, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
 			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_tinted, true)
 		_region_wall_items[region] = next_id

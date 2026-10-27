@@ -61,6 +61,8 @@ static func make_environment() -> Environment:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("5a3550")
 	env.ambient_light_energy = AMBIENT_ENERGY
+	# No reflections of the flat background colour: that is what put pale sheen over dark surfaces.
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.fog_enabled = true
 	env.fog_light_color = Color("140812")
 	env.fog_density = .03 if POST_EFFECTS else .006
@@ -82,6 +84,7 @@ static func make_environment() -> Environment:
 ## Replaces the scene's flat environment and adds the pixel post-process.
 ## `host` is any node in the tree; `world_env` the scene's WorldEnvironment.
 static func install(host: Node, world_env: WorldEnvironment) -> void:
+	MaterialLook.install(host.get_tree())
 	if world_env != null:
 		world_env.environment = make_environment()
 	if not POST_EFFECTS or host.has_node(POST_NAME):

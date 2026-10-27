@@ -669,8 +669,8 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = texture(group, kind)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-	m.roughness = .9
-	m.metallic_specular = .15
+	m.roughness = MaterialLook.ROUGHNESS_MATTE
+	m.metallic_specular = MaterialLook.SPECULAR_DEFAULT
 	# painted values are deliberately dark; lift them so a lamp pool reads
 	m.albedo_color = Color(1.4, 1.4, 1.45)
 	if group == "ceiling":
@@ -683,19 +683,11 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 	elif group == "floor" and (kind.begins_with("metal") or kind == "grate" or kind == "hazard"):
 		m.albedo_color = Color(1.2, 1.2, 1.25)
 	if group == "floor":
-		if kind.begins_with("floral") or kind.begins_with("star") or kind == "runner":
-			m.roughness = .85
-			m.metallic_specular = .25
-		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate":
-			m.roughness = .30
-			m.metallic = .35
-			m.metallic_specular = .9
-		elif kind.begins_with("stone"):
-			m.roughness = .22
-			m.metallic_specular = .85
-		elif kind.begins_with("parquet") or kind.begins_with("check"):
-			m.roughness = .38
-			m.metallic_specular = .6
+		if not (kind.begins_with("floral") or kind.begins_with("star") or kind == "runner"):
+			var response := MaterialLook.floor_response(kind)
+			m.roughness = response.x
+			m.metallic = response.y
+			m.metallic_specular = response.z
 	_materials[key] = m
 	return m
 
@@ -743,19 +735,13 @@ static func layer(group: String, kind: String) -> float:
 
 ## Vertex-colour surface response: r = roughness, g = metallic, b = emission.
 static func params(group: String, kind: String) -> Color:
-	var rough := .9
-	var metal := 0.0
+	var rough := MaterialLook.ROUGHNESS_MATTE
+	var metal := MaterialLook.METALLIC_DEFAULT
 	var emit := 0.0
 	if group == "floor":
-		if kind.begins_with("floral") or kind.begins_with("star") or kind.begins_with("runner"):
-			rough = .85
-		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate" or kind.begins_with("safe"):
-			rough = .30
-			metal = .35
-		elif kind.begins_with("stone"):
-			rough = .22
-		elif kind.begins_with("parquet") or kind.begins_with("check"):
-			rough = .38
+		var response := MaterialLook.floor_response(kind)
+		rough = response.x
+		metal = response.y
 	elif group == "ceiling" and kind == "glass":
 		emit = .55
 	return Color(rough, metal, emit)
@@ -770,5 +756,7 @@ static func array_material(group: String) -> ShaderMaterial:
 	m.shader = ARRAY_SHADER
 	m.set_shader_parameter("tex", _array_textures[group])
 	m.set_shader_parameter("tint", Vector3(1.25, 1.22, 1.3))
+	m.set_shader_parameter("specular_base", MaterialLook.SPECULAR_DEFAULT)
+	m.set_shader_parameter("specular_metal", MaterialLook.SPECULAR_METAL)
 	_array_materials[group] = m
 	return m

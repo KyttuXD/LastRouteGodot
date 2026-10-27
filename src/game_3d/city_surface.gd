@@ -13,20 +13,45 @@ const TILE_SHADER_CODE := """
 shader_type spatial;
 // One layer per atlas tile: mipmaps are per layer, so a distant facade never blends in its neighbour tiles
 // (a 2D atlas with mipmaps smears windows, bricks and glow into each other with distance).
-uniform sampler2DArray tiles : source_color, filter_nearest_mipmap, repeat_disable;
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap_anisotropic, repeat_disable;
 uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_disable;
 uniform float roughness_value = 0.9;
+uniform float specular_value = 0.18;
 uniform float glow_energy = 1.05;
+// Foliage and flower tiles carry random bright pixels (leaf glints, petals). Sampled per pixel they sparkle with distance and
+// movement, so those layers are pulled toward their own average colour and slightly desaturated: calm, matte greenery.
+uniform float calm_amount = 0.6;
+uniform float calm_desaturate = 0.2;
 varying flat float layer;
 
 void vertex() { layer = UV2.x; }
 
+bool is_calm(float l) {
+	return %CALM_TEST%;
+}
+
 void fragment() {
-	ALBEDO = texture(tiles, vec3(UV, layer)).rgb;
+	vec3 c = texture(tiles, vec3(UV, layer)).rgb;
+	if (is_calm(layer)) {
+		vec3 average = textureLod(tiles, vec3(UV, layer), 5.0).rgb;
+		c = mix(c, average, calm_amount);
+		c = mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), calm_desaturate);
+	}
+	ALBEDO = c;
 	ROUGHNESS = roughness_value;
+	SPECULAR = specular_value;
 	EMISSION = texture(glow, vec3(UV, layer)).rgb * glow_energy;
 }
 """
+
+## Tiles whose random pixel detail is calmed in the shader (see the shader comment).
+const CALM_TILES := ["grass", "flowers", "hedge", "hedge_top", "petals", "blossom", "cypress", "bed_edge"]
+
+static func shader_code() -> String:
+	var tests := []
+	for tile_name in CALM_TILES:
+		tests.append("l > %.1f && l < %.1f" % [float(CityAtlas.tile(tile_name)) - .5, float(CityAtlas.tile(tile_name)) + .5])
+	return TILE_SHADER_CODE.replace("%CALM_TEST%", " || ".join(tests))
 
 static var _materials: Array = []
 static var _tile_arrays: Array = []
@@ -58,18 +83,20 @@ static func materials() -> Array:
 		return _materials
 	var arrays := tile_arrays()
 	var shader := Shader.new()
-	shader.code = TILE_SHADER_CODE
-	for roughness in [0.42, 0.92]:
+	shader.code = shader_code()
+	for roughness in [MaterialLook.ROUGHNESS_CITY_GROUND, MaterialLook.ROUGHNESS_CITY_SOLID]:
 		var material := ShaderMaterial.new()
 		material.shader = shader
 		material.set_shader_parameter("tiles", arrays[0])
 		material.set_shader_parameter("glow", arrays[1])
 		material.set_shader_parameter("roughness_value", roughness)
+		material.set_shader_parameter("specular_value", MaterialLook.SPECULAR_DEFAULT)
 		_materials.append(material)
 	var rim := StandardMaterial3D.new()
 	rim.albedo_texture = load(CityAtlas.RIM_PATH) as Texture2D
 	rim.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-	rim.roughness = 0.95
+	rim.roughness = MaterialLook.ROUGHNESS_CITY_SOLID
+	rim.metallic_specular = MaterialLook.SPECULAR_DEFAULT
 	_materials.append(rim)
 	return _materials
 

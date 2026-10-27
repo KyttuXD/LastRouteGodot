@@ -145,6 +145,7 @@ func _apply_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.20, 0.23, 0.42)
 	env.ambient_light_energy = 0.42
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 
 
 # ---------------------------------------------------------------- chunk build

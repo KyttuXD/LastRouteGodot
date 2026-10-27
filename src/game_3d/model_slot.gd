@@ -210,7 +210,7 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 							BaseMaterial3D.TEXTURE_FILTER_NEAREST \
 							if material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR \
 							else BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-						material.roughness = maxf(material.roughness, .72)
+						MaterialLook.tame(material)
 						_pixel_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():
@@ -243,6 +243,8 @@ static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void
 						# made authored props clash with block characters.
 						material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 						_apply_blocky_style_profile(material, profile_key)
+						# machines, doors and relays keep a soft metal look; everything else is matte
+						MaterialLook.tame(material, profile_key in ["machine", "door", "relay"])
 						_blocky_prop_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():
