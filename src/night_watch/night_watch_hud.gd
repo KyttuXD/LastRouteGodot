@@ -1,0 +1,374 @@
+class_name NightWatchHud
+extends CanvasLayer
+
+## Night Watch's screen furniture: the shift clock, the power meter, Zellia's call box, the monitor (a live SubViewport feed of
+## one camera room, the camera map, REC and the room's name), the pause card and the end card. All drawn in code so the scene
+## stays a single node; styled with the Night Watch theme (theme_nightwatch.tres) when it loads.
+
+signal camera_selected(room: String)
+signal retry_pressed
+signal next_pressed
+signal menu_pressed
+signal resume_pressed
+signal subtitles_toggled(on: bool)
+
+const AMBER := Color(0.96, 0.72, 0.28)
+const INK := Color(0.93, 0.89, 0.80)
+const PANEL := Color(0.05, 0.04, 0.07, 0.88)
+
+var clock_label: Label
+var night_label: Label
+var power_label: Label
+var usage_label: Label
+var hint_label: Label
+var call_panel: PanelContainer
+var call_label: Label
+
+var monitor_root: Control
+var feed_viewport: SubViewport
+var feed_camera: Camera3D
+var cam_label: Label
+var rec_label: Label
+var static_rect: ColorRect
+var cam_buttons := {}
+var _static_left := 0.0
+
+var pause_root: Control
+var end_root: Control
+var end_title: Label
+var end_body: Label
+var end_next: Button
+var _call_queue: Array = []
+var _call_timer := 0.0
+var _call_active := false
+var muted := false
+var subtitles := true
+var subtitles_button: Button
+var shown_call := ""
+
+
+func _ready() -> void:
+	layer = 20
+	var theme_path := "res://src/ui/theme_nightwatch.tres"
+	var root := Control.new()
+	root.name = "HudRoot"
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists(theme_path) and load(theme_path) is Theme:
+		root.theme = load(theme_path)
+	add_child(root)
+	_build_status(root)
+	_build_call(root)
+	_build_monitor(root)
+	_build_pause(root)
+	_build_end(root)
+
+
+func _label(text: String, size := 18, color := INK) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", color)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+func _build_status(root: Control) -> void:
+	var box := VBoxContainer.new()
+	box.name = "Status"
+	box.position = Vector2(8, 6)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(box)
+	clock_label = _label("12 AM", 16, AMBER)
+	clock_label.name = "ClockLabel"
+	night_label = _label("NIGHT 1", 8)
+	night_label.name = "NightLabel"
+	power_label = _label("POWER 100%", 9)
+	power_label.name = "PowerLabel"
+	usage_label = _label("USAGE", 7)
+	usage_label.name = "UsageLabel"
+	for l in [clock_label, night_label, power_label, usage_label]:
+		box.add_child(l)
+	hint_label = _label("A / D doors   hold Q / E lights   C monitor   1-8 cameras   L lamp   R radio   ESC pause", 7, Color(0.7, 0.68, 0.62))
+	hint_label.name = "HintLabel"
+	hint_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hint_label.position = Vector2(8, -14)
+	hint_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	root.add_child(hint_label)
+
+
+func _build_call(root: Control) -> void:
+	call_panel = PanelContainer.new()
+	call_panel.name = "CallPanel"
+	call_panel.visible = false
+	call_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = PANEL
+	style.set_content_margin_all(5)
+	style.border_color = AMBER.darkened(0.3)
+	style.set_border_width_all(1)
+	call_panel.add_theme_stylebox_override("panel", style)
+	call_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	call_panel.custom_minimum_size = Vector2(380, 0)
+	call_panel.position = Vector2(-190, -52)
+	call_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	call_label = _label("", 8)
+	call_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	call_label.custom_minimum_size = Vector2(370, 0)
+	call_panel.add_child(call_label)
+	root.add_child(call_panel)
+
+
+func _build_monitor(root: Control) -> void:
+	monitor_root = Control.new()
+	monitor_root.name = "Monitor"
+	monitor_root.visible = false
+	monitor_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(monitor_root)
+	var back := ColorRect.new()
+	back.color = Color(0.02, 0.03, 0.03, 0.96)
+	back.set_anchors_preset(Control.PRESET_FULL_RECT)
+	monitor_root.add_child(back)
+	var ratio := AspectRatioContainer.new()
+	ratio.ratio = 16.0 / 9.0
+	ratio.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ratio.offset_left = 22
+	ratio.offset_right = -22
+	ratio.offset_top = 12
+	ratio.offset_bottom = -12
+	monitor_root.add_child(ratio)
+	var container := SubViewportContainer.new()
+	container.name = "FeedContainer"
+	container.stretch = true
+	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	ratio.add_child(container)
+	feed_viewport = SubViewport.new()
+	feed_viewport.name = "Feed"
+	feed_viewport.size = Vector2i(480, 270)
+	feed_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	feed_viewport.msaa_3d = Viewport.MSAA_DISABLED
+	container.add_child(feed_viewport)
+	feed_camera = Camera3D.new()
+	feed_camera.name = "FeedCamera"
+	feed_camera.fov = 62.0
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.02, 0.03, 0.03)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.95, 0.9, 0.8)
+	env.ambient_light_energy = 1.15
+	feed_camera.environment = env
+	feed_viewport.add_child(feed_camera)
+	# feed furniture: room name, REC, static on a switch
+	cam_label = _label("CAM 1  SHOW STAGE", 11, Color(0.8, 1.0, 0.85))
+	cam_label.name = "CamLabel"
+	cam_label.position = Vector2(30, 18)
+	monitor_root.add_child(cam_label)
+	rec_label = _label("● REC", 10, Color(1.0, 0.3, 0.3))
+	rec_label.name = "RecLabel"
+	rec_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	rec_label.position = Vector2(-80, 18)
+	monitor_root.add_child(rec_label)
+	static_rect = ColorRect.new()
+	static_rect.name = "Static"
+	static_rect.color = Color(0.75, 0.78, 0.76, 0.0)
+	static_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	static_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	static_rect.offset_left = 22
+	static_rect.offset_right = -22
+	static_rect.offset_top = 12
+	static_rect.offset_bottom = -12
+	monitor_root.add_child(static_rect)
+	# the camera map, bottom right
+	var map := Control.new()
+	map.name = "CamMap"
+	map.custom_minimum_size = Vector2(120, 92)
+	map.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	map.position = Vector2(-146, -112)
+	monitor_root.add_child(map)
+	var frame := ColorRect.new()
+	frame.color = Color(0.04, 0.08, 0.06, 0.8)
+	frame.size = Vector2(120, 92)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map.add_child(frame)
+	for room in NightWatchData.cam_rooms():
+		var info: Dictionary = NightWatchData.ROOMS[room]
+		var b := Button.new()
+		b.name = "Cam_%s" % room
+		b.text = "CAM %d" % int(info["cam"])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size = Vector2(30, 13)
+		b.add_theme_font_size_override("font_size", 6)
+		var p: Vector2 = info["map"]
+		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
+		b.pressed.connect(func(): camera_selected.emit(room))
+		map.add_child(b)
+		cam_buttons[room] = b
+	var you := _label("YOU", 7, AMBER)
+	you.position = Vector2(52, 82)
+	map.add_child(you)
+
+
+func _build_pause(root: Control) -> void:
+	pause_root = _card(root, "Pause", "PAUSED", "")
+	pause_root.process_mode = Node.PROCESS_MODE_ALWAYS
+	var box := pause_root.find_child("CardButtons", true, false) as HBoxContainer
+	var resume := Button.new()
+	resume.name = "ResumeButton"
+	resume.text = "RESUME"
+	resume.pressed.connect(func(): resume_pressed.emit())
+	box.add_child(resume)
+	subtitles_button = Button.new()
+	subtitles_button.name = "SubtitlesButton"
+	subtitles_button.text = "SUBTITLES: ON"
+	subtitles_button.pressed.connect(func(): subtitles_toggled.emit(not subtitles))
+	box.add_child(subtitles_button)
+	var back := Button.new()
+	back.name = "PauseMenuButton"
+	back.text = "BACK TO GAMES"
+	back.pressed.connect(func(): menu_pressed.emit())
+	box.add_child(back)
+	pause_root.visible = false
+
+
+func _build_end(root: Control) -> void:
+	end_root = _card(root, "End", "", "")
+	end_title = end_root.find_child("CardTitle", true, false) as Label
+	end_body = end_root.find_child("CardBody", true, false) as Label
+	var box := end_root.find_child("CardButtons", true, false) as HBoxContainer
+	end_next = Button.new()
+	end_next.name = "NextButton"
+	end_next.text = "NEXT NIGHT"
+	end_next.pressed.connect(func(): next_pressed.emit())
+	box.add_child(end_next)
+	var retry := Button.new()
+	retry.name = "RetryButton"
+	retry.text = "RETRY"
+	retry.pressed.connect(func(): retry_pressed.emit())
+	box.add_child(retry)
+	var back := Button.new()
+	back.name = "EndMenuButton"
+	back.text = "BACK TO GAMES"
+	back.pressed.connect(func(): menu_pressed.emit())
+	box.add_child(back)
+	end_root.visible = false
+
+
+func _card(root: Control, card_name: String, title: String, body: String) -> Control:
+	var wrap := Control.new()
+	wrap.name = card_name + "Card"
+	wrap.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wrap.add_child(dim)
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = PANEL
+	style.set_content_margin_all(10)
+	style.border_color = AMBER
+	style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(280, 0)
+	panel.position = Vector2(-140, -60)
+	wrap.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	var t := _label(title, 22, AMBER)
+	t.name = "CardTitle"
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	var b := _label(body, 8)
+	b.name = "CardBody"
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(b)
+	var buttons := HBoxContainer.new()
+	buttons.name = "CardButtons"
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 6)
+	v.add_child(buttons)
+	root.add_child(wrap)
+	return wrap
+
+
+func update_status(hour: int, power: float, usage: int, night: int) -> void:
+	clock_label.text = NightWatchData.hour_label(hour)
+	night_label.text = "NIGHT %d" % night
+	power_label.text = "POWER %d%%" % int(ceil(power))
+	usage_label.text = "USAGE " + "|".repeat(clampi(usage, 0, 6)) + ".".repeat(maxi(0, 4 - usage))
+
+
+func show_monitor(on: bool) -> void:
+	monitor_root.visible = on
+	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
+
+
+func set_cam(room: String, mount: Transform3D) -> void:
+	var info: Dictionary = NightWatchData.ROOMS.get(room, {})
+	cam_label.text = "CAM %d  %s" % [int(info.get("cam", 0)), String(info.get("label", ""))]
+	feed_camera.transform = mount
+	for r in cam_buttons:
+		(cam_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
+
+
+func flash_static() -> void:
+	if "reduced_motion" in Settings and bool(Settings.reduced_motion):
+		return
+	_static_left = 0.14
+
+
+func show_call(text: String) -> void:
+	shown_call = text
+	call_label.text = text
+	call_panel.visible = not text.is_empty() and not muted and subtitles
+
+
+func set_subtitles(on: bool) -> void:
+	subtitles = on
+	if subtitles_button != null:
+		subtitles_button.text = "SUBTITLES: ON" if on else "SUBTITLES: OFF"
+	call_panel.visible = not shown_call.is_empty() and not muted and subtitles
+
+
+func queue_call(lines: Array) -> void:
+	_call_queue = lines.duplicate()
+	_call_timer = 0.0
+	_call_active = not _call_queue.is_empty()
+
+
+func _process(delta: float) -> void:
+	if _static_left > 0.0:
+		_static_left -= delta
+		static_rect.color = Color(0.7 + randf() * 0.2, 0.74 + randf() * 0.2, 0.72, clampf(_static_left / 0.14, 0.0, 1.0) * 0.9)
+	elif static_rect.color.a > 0.0:
+		static_rect.color.a = 0.0
+	rec_label.visible = monitor_root.visible and int(Time.get_ticks_msec() / 600) % 2 == 0
+	if not _call_active:
+		return
+	_call_timer -= delta
+	if _call_timer <= 0.0:
+		if _call_queue.is_empty():
+			_call_active = false
+			show_call("")
+		else:
+			show_call(String(_call_queue.pop_front()))
+			_call_timer = 5.5
+
+
+func toggle_mute() -> void:
+	muted = not muted
+	call_panel.visible = not muted and not shown_call.is_empty() and subtitles
+
+
+func show_pause(on: bool) -> void:
+	pause_root.visible = on
+
+
+func show_end(title: String, body: String, can_next: bool) -> void:
+	end_title.text = title
+	end_body.text = body
+	end_next.visible = can_next
+	end_root.visible = true

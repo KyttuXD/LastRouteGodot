@@ -26,7 +26,7 @@ func run(host: Node) -> int:
 		else:
 			_expect(ResourceLoader.exists(String(game["scene"])), "%s launches a missing scene" % id)
 	_expect(GameRegistry.is_launchable("last_route"), "Last Route is not launchable from the hub")
-	_expect(not GameRegistry.is_launchable("night_watch"), "Night Watch must stay locked until it is ported")
+	_expect(GameRegistry.is_launchable("night_watch"), "Night Watch (first playable slice) is not launchable from the hub")
 	_expect(GameRegistry.get_game(GameRegistry.DEFAULT_ID).size() > 0, "default game is missing")
 
 	var hub: Control = (load("res://scenes/game_hub.tscn") as PackedScene).instantiate()

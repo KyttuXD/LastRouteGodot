@@ -32,7 +32,7 @@ func _play(game: NightWatchClassic, step_ms: float, bot: String = "doors") -> Ar
 	return log
 
 
-func run(_host: Node) -> int:
+func run(host: Node) -> int:
 	# --- the table matches the 2D game (docs/ROADMAP.md, classic-logic.js, time.js)
 	_expect(is_equal_approx(NightWatchData.NIGHT_MS, 270000.0), "a night is not 270 s")
 	_expect(NightWatchData.move_window(1) == Vector2(12500, 15500), "level 1 wait is not 12.5-15.5 s")
@@ -162,6 +162,121 @@ func run(_host: Node) -> int:
 	var in_dark := dark.elapsed - blackout_start
 	_expect(absf(in_dark - NightWatchData.blackout_ms(10)) < 200.0, "the dark did not last Nyxie's blackout time (%.0f ms)" % in_dark)
 
+	# --- the shift scene: office, building, monitor, hunters, doors, lights, win, loss, saves, menu
+	_expect(NightWatchSave.SECTION == "night_watch" and NightWatchSave.DEFAULT_PATH.contains("night_watch"), "Night Watch saves are not namespaced")
+	NightWatchSave.path = "user://night_watch_validate.cfg"
+	NightWatchSave.reset()
+	_expect(NightWatchSave.unlocked_night() == 1 and NightWatchSave.cleared().is_empty(), "a fresh Night Watch save is not night 1 with nothing cleared")
+	NightWatchSession.start(3, 4242)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	shift.manual_clock = true
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	_expect(shift.office != null and shift.office.slabs.size() == 2 and shift.office.door_lights.size() == 2, "the office has no two doors and door lights")
+	_expect(shift.building.rooms.size() == 8 and shift.hud.cam_buttons.size() == 8, "the building does not have eight camera rooms and buttons")
+	for id in ["dovelle", "ravelle", "aki"]:
+		_expect((shift._models[id] as Node3D).visible and (shift._models[id] as Node3D).get_child_count() > 0, "%s is not on night 3's floor with a model" % id)
+	_expect(not (shift._models["ilyra"] as Node3D).visible, "Ilyra (level 0 on night 3) is shown")
+	# the controls: the OFFICE actions drive the office, Night Watch's own light actions exist while a shift is open and are gone after
+	_expect(InputMap.has_action(NightWatchControls.LIGHT_LEFT) and InputMap.has_action(NightWatchControls.LIGHT_RIGHT), "the door light actions are not registered")
+	for action in ["office_left_door", "office_right_door", "office_cameras"]:
+		var has_pad := false
+		for ev in InputMap.action_get_events(action):
+			has_pad = has_pad or ev is InputEventJoypadButton
+		_expect(has_pad, "%s has no gamepad default in Night Watch" % action)
+	_expect(NightWatchControls.controls_tab()["actions"].size() >= 8, "the OFFICE controls tab data is too short")
+	var press := func(action: String, pressed := true) -> void:
+		var ev := InputEventAction.new()
+		ev.action = action
+		ev.pressed = pressed
+		shift._unhandled_input(ev)
+	press.call("office_left_door")
+	_expect(bool(shift.door_shut["doorL"]), "the office_left_door action did not shut the left door")
+	press.call("office_left_door")
+	press.call(String(NightWatchControls.LIGHT_RIGHT))
+	_expect(bool(shift.light_held["doorR"]), "holding the right light action did not hold the light")
+	press.call(String(NightWatchControls.LIGHT_RIGHT), false)
+	_expect(not bool(shift.light_held["doorR"]), "releasing the right light action did not let it go")
+	press.call("office_camera_3")
+	_expect(shift.monitor_up and shift.monitor_room == "backstage", "the camera 3 action did not open the monitor on the backstage feed")
+	press.call("office_cameras")
+	_expect(not shift.monitor_up, "the monitor action did not close the monitor")
+	press.call("office_radio")
+	_expect(shift.hud.muted, "the radio action did not mute Zellia")
+	press.call("office_radio")
+	shift.hud.subtitles_toggled.emit(false)
+	_expect(not shift.hud.subtitles and not NightWatchSave.subtitles(), "the subtitles toggle did not save")
+	shift.hud.subtitles_toggled.emit(true)
+	shift.advance_ms(1000.0)
+	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "POWER 100%", "the clock or power label is wrong at the start of the night")
+	shift.toggle_door("doorL")
+	shift.set_light("doorR", true)
+	shift.advance_ms(100.0)
+	_expect(bool(shift.sim.door_shut["doorL"]) and is_equal_approx(float(shift.office.slab_progress["doorL"]), 1.0), "the left door did not shut")
+	_expect((shift.office.door_lights["doorR"] as Node3D).visible and not (shift.office.door_lights["doorL"] as Node3D).visible, "the right door light did not come on")
+	shift.set_light("doorR", false)
+	shift.toggle_door("doorL")
+	shift.open_monitor("westhall")
+	await host.get_tree().process_frame
+	_expect(shift.hud.monitor_root.visible and shift.hud.feed_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS
+		and shift.hud.cam_label.text.contains("WEST HALL"), "the monitor did not open on the west hall feed")
+	shift.select_camera("dining")
+	_expect(shift.hud.cam_label.text.contains("DINING") and shift.hud.feed_camera.global_position.distance_to(shift.building.camera_transform("dining").origin) < 0.01,
+		"the feed camera did not move to the dining area")
+	shift.close_monitor()
+	_expect(not shift.hud.monitor_root.visible and shift.hud.feed_viewport.render_target_update_mode == SubViewport.UPDATE_DISABLED, "the monitor feed kept rendering when closed")
+	# a hunter at the door stands in the doorway; a shut door turns her away
+	var dovelle := shift.sim.hunters["dovelle"] as NightWatchStalker
+	dovelle.room = "doorL"
+	dovelle.at_door_ms = 0.0
+	shift.advance_ms(10.0)
+	_expect(((shift._models["dovelle"] as Node3D).position - shift.office.door_stand("doorL", 0)).length() < 0.01, "Dovelle is not standing in the left doorway")
+	shift.set_door("doorL", true)
+	for i in 8:
+		shift.advance_ms(100.0)
+	_expect(dovelle.room == "dining", "shutting the door did not turn Dovelle away")
+	shift.set_door("doorL", false)
+	# an unanswered door ends the night with her line
+	dovelle.room = "doorL"
+	dovelle.at_door_ms = 0.0
+	for i in 30:
+		shift.advance_ms(500.0)
+	_expect(shift.state == NightWatchGame.State.LOST and String(shift.last_death.get("by", "")) == "dovelle", "an unanswered door did not lose the night to Dovelle")
+	_expect(shift.death_moment.is_open() or shift.hud.end_root.visible, "the loss showed neither the death moment nor the end card")
+	var closing := 0
+	while shift.death_moment.is_open() and closing < 40:
+		shift.death_moment.dismiss()
+		closing += 1
+	await host.get_tree().process_frame
+	_expect(shift.hud.end_root.visible and shift.hud.end_title.text == "CAUGHT" and not shift.hud.end_next.visible, "the end card after a death is not CAUGHT with Retry and BACK TO GAMES")
+	shift.queue_free()
+	await host.get_tree().process_frame
+	# a quiet night is won at 6 AM, saved under night_watch, and opens the next night
+	NightWatchSession.start(1, 5)
+	NightWatchSession.custom_levels = {"dovelle": 0, "ravelle": 0, "aki": 0, "ilyra": 0, "nyxie": 0}
+	var quiet := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	quiet.manual_clock = true
+	host.add_child(quiet)
+	await host.get_tree().process_frame
+	for i in 271:
+		quiet.advance_ms(1000.0)
+	_expect(quiet.state == NightWatchGame.State.WON and quiet.hud.end_root.visible and quiet.hud.end_title.text == "6 AM", "a quiet night was not won at 6 AM")
+	_expect(NightWatchSave.cleared() == [1] and NightWatchSave.unlocked_night() == 2, "winning night 1 did not save the clear and open night 2")
+	quiet.queue_free()
+	await host.get_tree().process_frame
+	# the menu: night 1 and 2 open, night 3 locked, BACK TO GAMES present
+	var menu := (load("res://scenes/night_watch_menu.tscn") as PackedScene).instantiate() as NightWatchMenu
+	host.add_child(menu)
+	await host.get_tree().process_frame
+	_expect(not (menu.night_buttons[1] as Button).disabled and not (menu.night_buttons[2] as Button).disabled and (menu.night_buttons[3] as Button).disabled,
+		"the night select does not follow the save")
+	_expect(menu.back_button != null and menu.back_button.text == "BACK TO GAMES", "the menu has no BACK TO GAMES")
+	menu.queue_free()
+	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
+	NightWatchSession.start(1)
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
+
 	if _failures == 0:
-		print("  night_watch  rules port: 2D numbers, deterministic nights, doors, lights, cameras, sharing, power, blackout")
+		print("  night_watch  rules port (2D numbers, determinism, doors, lights, cameras, power, blackout) and the shift scene (office, feeds, hunters, win, loss, saves, menu)")
 	return _failures

@@ -68,10 +68,10 @@ Progress is per level key `mode:index` (night, `beatFive`, `cleared`, stars, bes
 | # | Milestone | Contents | Status |
 |---|---|---|---|
 | M0 | Plan | this page, hub entry, registry flip, menu | in this slice |
-| M1 | Classic office and monitor | office room, desk, 4 camera rooms (slice) then all 8, monitor and map | slice has 4 rooms |
-| M2 | Classic rules | `NightWatchClassic` port: graph, pacer, door grace, shut door, light push, Dovelle/Ravelle/Aki/Ilyra, Nyxie blackout, power, clock | slice has Dovelle, Ravelle, Aki |
-| M3 | Win, death, saves | 6 AM win, DeathMoment, run-over card, night progress save, night select | slice (night select 1-3) |
-| M4 | Classic complete | nights 1-6, Custom Night sliders, Kathy night 7, Zellia calls, resume | planned |
+| M1 | Classic office and monitor | office room, desk, all 8 camera rooms, monitor and map | done in the slice |
+| M2 | Classic rules | `NightWatchClassic` port: graph, pacer, door grace, shut door, light push, Dovelle/Ravelle/Aki/Ilyra, Nyxie blackout, power, clock | done (variety levers later) |
+| M3 | Win, death, saves | 6 AM win, DeathMoment, end card, night progress save, night select | done (night select 1-6) |
+| M4 | Classic complete | Custom Night sliders, Kathy night 7, variety levers, audio, resume, account sync | planned |
 | M5 | Masked Hours + Bedtime | mask, flashlight, vents, music box; listen-only bedroom | planned |
 | M6 | Dead Air, Facility, Descent | reboots/climate, six stations, repair puzzles | planned |
 | M7 | Salvage Run + Open Air + Mixed Shift | shop, outdoor watches, director | planned |
@@ -79,17 +79,21 @@ Progress is per level key `mode:index` (night, `beatFive`, `cleared`, stars, bes
 
 ## 5. The first playable slice (this lane)
 
-Entry: hub card NIGHT WATCH is unlocked and opens `scenes/night_watch_menu.tscn` (night select 1-3, BACK TO GAMES). The shift loads `scenes/night_watch.tscn`:
+Entry: the hub card NIGHT WATCH is unlocked (`GameRegistry`, status in progress) and opens `scenes/night_watch_menu.tscn` (night select 1-6, a cleared night opens the next, BACK TO GAMES). The shift is `scenes/night_watch.tscn` (`src/night_watch/night_watch_game.gd`):
 
-- **Office:** a blocky 6x4 m room, desk with monitor, left and right doorways with sliding slabs, a desk lamp; first-person seat with limited look (yaw +/-70, pitch +/-35).
-- **Controls:** A / D toggle the left / right door, hold Q / E for the door light, Space opens/closes the monitor, 1-4 pick a camera, Esc pauses.
-- **Monitor:** four live `SubViewport` feeds (stage, dining, west hall, east hall), the map, noise on switch.
-- **Rules:** the pure `NightWatchClassic` port: Dovelle (left door), Ravelle (right door, alternates), Aki (only moves while the monitor is down); graph, pacer, grace, shut-door and light-push rules and the power meter exactly as in the 2D numbers; 270 s clock; win at 6 AM.
-- **Death:** attack at the door ends the night with the `DeathMoment` (hunter name and line) and the run-over card with Retry and BACK TO GAMES.
-- **Saves:** `night_watch` namespace (highest night cleared), account-synced when signed in.
-- **Tests:** suite `night_watch` (scripts/validate_night_watch.gd): the port reproduces the 2D pacing numbers, deterministic replay, win and loss paths, door/light rules, power, saves namespace, hub card, office and monitor load.
+- **Office** (`night_watch_office.gd`): a blocky 6 x 5 m room, desk with monitor, keyboard and cup, a clock and a poster, a doorway with a sliding slab on each side wall and a short dark hall behind each, one desk lamp, two door spot lights (on only while held) and a very dim glow in each hall. First-person seat, look limited to +/-72 degrees left and right (mouse, captured), no walking.
+- **Building** (`night_watch_building.gd`): the eight Classic rooms (stage, dining, backstage, west hall, supply closet, kitchen, east hall, east corner) as small cube rooms on a grid north of the office, each with a camera mount and two hunter spots.
+- **Monitor** (`night_watch_hud.gd`): Space opens a full-screen feed from ONE `SubViewport` (480 x 270, nearest filtering, only rendering while open) whose camera moves to the chosen room, with the room name, REC, a static flash on a switch and the clickable camera map. Keys 1-8 or the arrow keys pick a camera.
+- **Rules** (`night_watch_classic.gd`, `night_watch_stalker.gd`, `night_watch_data.gd`): the pure port of the 2D Classic: building graph, the sliding pacer, night levels with the 3 AM and 4 AM step-ups, door grace per night, shut door (0.45 s), light push and flinch, door sharing, Dovelle, Ravelle (alternates doors), Aki (only moves with the monitor down), Ilyra (freezes while her room is on the monitor), the combo patience, the power meter and Nyxie's blackout. Not ported yet: the variety levers (random wait spreads, pressure phases) and Kathy's night 7.
+- **Hunters in the world:** the blocky models and `idle`/`stun` clips from Godot 2; at a door they stand in the doorway facing the desk, a flinch plays the stun clip.
+- **Controls:** A / D shut and open the doors, hold Q / E for the door lights, Space the monitor, 1-8 / arrows cameras, N mutes Zellia, Esc pauses (RESUME or BACK TO GAMES).
+- **Zellia:** her night 1-6 calls from the 2D game as subtitles (5.5 s each).
+- **End:** 6 AM shows a card (NEXT NIGHT, RETRY, BACK TO GAMES) and saves the clear; a catch plays the existing `DeathMoment` line (hunter name and a seeded line from `death_lines.json`, no jumpscare) then the CAUGHT card with RETRY (same seed) and BACK TO GAMES. Nyxie ends the night in the dark with her "darkness" lines.
+- **Saves:** `user://night_watch.cfg`, section `night_watch` (highest night unlocked, nights cleared), separate from Last Route's files. Account sync is later.
+- **Tests:** suite `night_watch` (`scripts/validate_night_watch.gd`): the 2D numbers, deterministic replay, doors, lights, cameras, sharing, power, blackout, and the live scene (office, eight rooms, hunter models, door slabs, lights, the monitor feed, a hunter in the doorway, the shut door, the loss with the death moment and the CAUGHT card, a won night saved under `night_watch`, the menu following the save).
+- **Captures:** `tools/look/night_watch_capture.tscn` writes the screenshots in this folder: ![office](night_watch_office.png) ![door light](night_watch_door_light.png) ![monitor feed](night_watch_feed.png) ![power out](night_watch_power_out.png)
 
-Everything is deterministic from a seed, uses no post effects and adds no version information.
+Everything is deterministic from a seed, uses no post effects and adds no version information. Audio is not in the slice (footsteps by room pan, door thumps, the blackout hum are the first thing to add).
 
 ## 6. Risks
 
