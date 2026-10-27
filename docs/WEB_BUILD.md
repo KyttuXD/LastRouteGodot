@@ -61,3 +61,10 @@ hosting tab visible).
 * A hidden browser tab pauses the game; as host it freezes the room for its guests.
 * The viewport must be resized once after load in some embedded browsers (the page dispatches a `resize` itself).
 * Admin tools, accounts and the public route behave as on native; unsigned test builds are not involved.
+
+## Admin-only for now
+
+On kyttuslab.org the build is an "in progress, admins only" Lab project (`/last-route-godot/`): the server answers `403` for the
+page, `/godot2-api` and its WebSocket unless the request carries an admin ticket (site repo `docs/HOME.md`, "Admin-only
+projects"). The ticket cookie lasts ten minutes, so the page's head script asks for a fresh one every four minutes with the
+site account session in `localStorage` (`kyttu:account-session:v1`); without one the game's requests get `403`.
