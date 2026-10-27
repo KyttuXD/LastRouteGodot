@@ -126,5 +126,162 @@ static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary,
 		"probe": {"teleport": result, "player": obs.get("player", {}), "interactables_near": rows, "hunters": obs.get("hunters", []), "world": obs.get("world", {}), "screenshots": shots, "interact": interact_result}}
 
 
+const TOUR_SKIP := ["quit", "delete", "clear", "sign out", "abandon", "leave route", "reset", "remove", "kick", "wipe", "overwrite"]
+
+
+static func _frames(bridge: PlaytestBridge, count: int) -> void:
+	for _i in count:
+		await bridge.get_tree().physics_frame
+
+
+static func _scene(bridge: PlaytestBridge) -> String:
+	var scene := bridge.get_tree().current_scene
+	return scene.scene_file_path.get_file() if scene != null else ""
+
+
+## menu_tour: hub -> Last Route menu -> every safe button (modals closed with Esc) -> solo lobby -> every safe button -> a real route for a few
+## seconds -> leave -> lobby -> back to games -> hub. Fails when a press logs an error, a scene never loads, or the way back to the hub is lost.
 static func menu_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
-	return {"scenario_failure": "menu_tour is added in stage 3", "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var tree := bridge.get_tree()
+	var steps: Array = []
+	var problems: Array = []
+	var frames := 0
+	tree.change_scene_to_file(GameRegistry.HUB_SCENE)
+	await _frames(bridge, 30)
+	if _scene(bridge) != "game_hub.tscn":
+		problems.append("could not boot to the hub (%s)" % _scene(bridge))
+	var press := func(button: String, expect: String = "") -> bool:
+		var before_errors := bridge.log_sink.errors
+		var reply: Dictionary = await bridge.press(button)
+		await _frames(bridge, 20)
+		var scene := _scene(bridge)
+		steps.append({"press": button, "ok": bool(reply.get("ok", false)), "scene": scene, "new_errors": bridge.log_sink.errors - before_errors})
+		if not bool(reply.get("ok", false)):
+			problems.append("press '%s' failed: %s" % [button, reply.get("error", "?")])
+			return false
+		if bridge.log_sink.errors > before_errors:
+			problems.append("press '%s' logged %d engine error(s)" % [button, bridge.log_sink.errors - before_errors])
+		if expect != "" and scene != expect:
+			problems.append("after '%s' expected %s but on %s" % [button, expect, scene])
+			return false
+		return true
+	await press.call("Launch_last_route", "main_menu.tscn")
+	# every safe button of the Last Route menu, re-checked at press time (buttons enable/disable as the menu changes)
+	var names: Array = []
+	for entry in PlaytestObserver.ui(tree)["buttons"]:
+		var label := String(entry["text"]).to_lower()
+		var button_name := String(entry["name"])
+		if TOUR_SKIP.any(func(word): return label.contains(word) or button_name.to_lower().contains(word)):
+			continue
+		names.append(button_name)
+	for button_name in names:
+		if _scene(bridge) != "main_menu.tscn":
+			await _return_to_menu(bridge, press, problems)
+		var current := PlaytestObserver.ui(tree)["buttons"].filter(func(b): return String(b["name"]) == button_name)
+		if current.is_empty() or bool(current[0]["disabled"]):
+			steps.append({"press": button_name, "ok": true, "scene": _scene(bridge), "skipped": "not visible or disabled"})
+			continue
+		await press.call(button_name)
+		if _scene(bridge) == "main_menu.tscn":
+			for _k in 3:
+				bridge.input.pulse("ui_cancel")
+				await _frames(bridge, 6)
+		else:
+			await _return_to_menu(bridge, press, problems)
+	# solo route and back out
+	var started := await adapter.start_run({"seed": opts["seed"], "difficulty": opts["difficulty"], "debug": true})
+	if not bool(started.get("ok", false)):
+		problems.append("could not start a route: %s" % started.get("error", "?"))
+	else:
+		await _frames(bridge, 240)
+		adapter.leave_run()
+		await _frames(bridge, 40)
+		if _scene(bridge) != "room_lobby.tscn":
+			problems.append("leaving the route did not reach the lobby (%s)" % _scene(bridge))
+		else:
+			await press.call("BackToMenuButton", "game_hub.tscn")
+	if _scene(bridge) == "main_menu.tscn":
+		await press.call("QuitButton", "game_hub.tscn")
+	if _scene(bridge) != "game_hub.tscn":
+		problems.append("the tour did not end on the hub (%s)" % _scene(bridge))
+	report["menu_tour"] = steps
+	return {"outcome": "tour_done", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames, "scenario_failure": "; ".join(problems)}
+
+
+## Back to the Last Route menu from wherever a button left us (lobby -> hub -> Last Route card).
+static func _return_to_menu(bridge: PlaytestBridge, press: Callable, problems: Array) -> void:
+	for _attempt in 3:
+		var scene := _scene(bridge)
+		if scene == "main_menu.tscn":
+			return
+		if scene == "room_lobby.tscn":
+			await press.call("BackToMenuButton")
+		elif scene == "game_hub.tscn":
+			await press.call("Launch_last_route")
+		else:
+			bridge.get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+			await _frames(bridge, 30)
+	if _scene(bridge) != "main_menu.tscn":
+		problems.append("could not get back to the Last Route menu (%s)" % _scene(bridge))
+
+
+## death_scene_tour: for each hunter (--hunters=a,b or all A-Z and Void) summon it next to the standing, passive bot and wait for the catch:
+## records who killed, how long it took, the death line shown, and fails on a missing line or an engine error. Hunters that never kill
+## (non-lethal by design) are listed, not failed. Windowed runs also screenshot the death moment.
+static func death_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"], "debug": true})
+	if not bool(start.get("ok", false)):
+		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var ids: Array = String(opts["hunters"]).split(",", false) if String(opts["hunters"]) != "" else (HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS)
+	var rows: Array = []
+	var problems: Array = []
+	var frames := 0
+	for hunter_id in ids:
+		var scene := tree.current_scene
+		if scene == null or not scene.has_method("_admin_summon_hunter"):
+			problems.append("route scene lost before %s" % hunter_id)
+			break
+		var errors_before := bridge.log_sink.errors
+		scene.call("_admin_summon_hunter", String(hunter_id))
+		var killed := false
+		var waited := 0
+		var line := ""
+		while waited < 60 * 40:
+			await tree.physics_frame
+			frames += 1
+			waited += 1
+			var obs := bridge.observe()
+			if adapter.run_over(obs):
+				killed = true
+				var cause: Dictionary = obs["run"].get("death", {})
+				var picked: Dictionary = scene.call("_death_moment_for", String(cause.get("hunter_id", hunter_id)), cause) if scene.has_method("_death_moment_for") else {}
+				line = String(picked.get("text", picked.get("line", "")))
+				if line.is_empty() and not picked.is_empty():
+					line = JSON.stringify(picked).left(120)
+				rows.append({"hunter": hunter_id, "killed_by": cause.get("hunter_id", "?"), "seconds": snappedf(waited / 60.0, .1), "line": line})
+				if line.is_empty():
+					problems.append("%s: no death line" % hunter_id)
+				if bool(opts["screenshots"]):
+					for _i in 90:
+						await tree.physics_frame
+						frames += 1
+					bridge.screenshot(ProjectSettings.globalize_path("res://.playtest/death/%s.png" % hunter_id))
+				for _i in 120:
+					await tree.physics_frame
+					frames += 1
+				adapter.after_run_over(obs)
+				for _i in 90:
+					await tree.physics_frame
+					frames += 1
+				break
+		if not killed:
+			rows.append({"hunter": hunter_id, "killed_by": "", "seconds": -1, "line": "", "note": "did not catch the passive bot in 40 s"})
+			scene.call("_admin_remove_hunter", String(hunter_id)) if scene.has_method("_admin_remove_hunter") else null
+		if bridge.log_sink.errors > errors_before:
+			problems.append("%s: %d engine error(s) during the encounter" % [hunter_id, bridge.log_sink.errors - errors_before])
+	report["death_tour"] = rows
+	var no_kill := rows.filter(func(row): return String(row["killed_by"]) == "")
+	adapter.stats["deaths"] = rows.size() - no_kill.size()
+	return {"outcome": "death_tour_done", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames, "scenario_failure": "; ".join(problems),
+		"death_tour_summary": {"hunters": ids.size(), "killed": rows.size() - no_kill.size(), "no_kill": no_kill.map(func(row): return row["hunter"])}}

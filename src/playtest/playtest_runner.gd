@@ -7,7 +7,7 @@ extends Node
 ## Options: --game --scenario --seed --difficulty --minutes (GAME minutes) --bot-seed --out --name --max-stuck --max-soft-locks
 ##   --max-errors --max-unreachable --min-fps --target (scenario target number) --screenshots --keep-alive
 ## Scenarios: survive, explore_coverage (--target=chunks), collect_relays (--target=n), reach_depth (--target=n), menu_tour,
-##   death_scene_tour. Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
+##   death_scene_tour (--hunters=a,b). Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
 
 const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe"]
 
@@ -34,7 +34,7 @@ func _ready() -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "screenshots": false, "keep_alive": false}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -78,6 +78,8 @@ func _run() -> void:
 			result = await PlaytestScenarios.menu_tour(bridge, adapter, _opts, report)
 		"probe":
 			result = await PlaytestScenarios.probe(bridge, adapter, _opts, report)
+		"death_scene_tour":
+			result = await PlaytestScenarios.death_tour(bridge, adapter, _opts, report)
 		_:
 			result = await PlaytestScenarios.play(bridge, adapter, _opts, report)
 	report["log"] = {"errors": bridge.log_sink.errors, "warnings": bridge.log_sink.warnings}
