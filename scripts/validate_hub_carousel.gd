@@ -255,9 +255,14 @@ func _check_keyboard(host: Node) -> void:
 		var button := hub.find_child("Launch_%s" % id, true, false) as Button
 		var focus := button.get_theme_stylebox("focus") as StyleBoxFlat
 		_expect(focus != null and not focus.draw_center, "%s: the PLAY focus box fills the button" % id)
-		var base := button.get_theme_color("font_color")
-		for color_name in ["font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
-			_expect(button.get_theme_color(color_name) == base, "%s: PLAY %s differs from its normal label colour" % [id, color_name])
+		for pair in [["normal", "font_color"], ["hover", "font_hover_color"], ["pressed", "font_pressed_color"],
+				["hover_pressed", "font_hover_pressed_color"]]:
+			var fill := (button.get_theme_stylebox(pair[0]) as StyleBoxFlat).bg_color
+			var ratio := GameHub._ratio(button.get_theme_color(pair[1]), fill)
+			_expect(ratio >= 4.5, "%s: PLAY %s label is %.2f:1 on its fill" % [id, pair[0], ratio])
+		var focus_label := button.get_theme_color("font_focus_color")
+		var normal_fill := (button.get_theme_stylebox("normal") as StyleBoxFlat).bg_color
+		_expect(GameHub._ratio(focus_label, normal_fill) >= 4.5, "%s: PLAY focus label is unreadable" % id)
 	await _close_hub(host, holder)
 	Settings.reduced_motion = was_reduced
 
