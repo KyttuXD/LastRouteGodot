@@ -303,7 +303,7 @@ const SURFACE_HEIGHTS := {
 	"gothicDresser": 1.10,
 	"gothicPedestalTable": .75,
 	"diningSideboard": 1.02,
-	"officeDesk": .78,
+	"officeDesk": .75,
 	"officeCornerWorkstation": .78,
 	"normalCoffeeTable": .49,
 }
@@ -399,7 +399,7 @@ const FOOTPRINTS := {
 	"infernoAltar": Vector2(.60, .41), "infernoChainLantern": Vector2(.21, .21),
 	"lavaPipeManifold": Vector2(.60, .32), "charredSupplyCrate": Vector2(.37, .34),
 	"beachUmbrella": Vector2(1.15, 1.15), "tikiBar": Vector2(.77, .52),
-	"beachChair": Vector2(.36, .25), "surfboardRack": Vector2(.68, .30),
+	"beachChair": Vector2(.34, .54), "surfboardRack": Vector2(.68, .30),
 	"palmTree": Vector2(.52, .52), "frozenBeachHut": Vector2(1.10, .92),
 	"singleBed": Vector2(.54, 1.33), "doubleBed": Vector2(.91, 1.33),
 	"bedroomNightstand": Vector2(.29, .25),
