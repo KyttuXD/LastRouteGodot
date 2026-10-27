@@ -257,3 +257,15 @@ chunks carry no `doors`): the earlier entrances were bare unlit openings, which 
 building's doorway width, that every enterable building has a CityDoor, that a player-sized capsule can walk from the street
 through the opened doorway (+-2 m, the keep-clear lane) and that the closed leaf blocks only the doorway. Shots:
 `city_door_before_*.png`, `city_door_after_*.png`. Shops and towers must build their entrances with the same `CityDoor`.
+
+## Life and sound
+
+* **Doors**: see "Entrances": every doorway has sliding `CityDoor` leaves.
+* **Trams** (`city_tram.gd`): two elevated tram lines (avenue and main street, rail at 6 m, cars 6.3-8.5 m) with two cars
+  each gliding end to end; visual only, deterministic from the run clock, above every lamp, canopy and sign.
+* **Rain** (`city_rain.gd`): `Settings.city_rain` (RAIN button on the City menu; a device setting, not a room choice):
+  one camera-following GPUParticles3D of unlit streaks, paused while the runner is indoors.
+* **Sound bed** (`city_ambience.gd`): three rendered seamless noise loops on the SFX bus (city hum, distant traffic rumble,
+  rain); levels drop indoors, brighten by day, and obey `Sound.muted` and the SFX volume. No audio files.
+* Validated in `city`: nodes present, levels follow indoors/mute/rain, rain toggles, trams move and stay over streets.
+  Shots: `city_life_avenue.png`, `city_life_street.png`.

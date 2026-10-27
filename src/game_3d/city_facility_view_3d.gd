@@ -23,6 +23,9 @@ const CITY_STREAM_RADIUS := 2
 var city_generator: CityRouteGenerator
 var _sky: CitySky
 var _dome_frame: CityDomeFrame
+var _ambience: CityAmbience
+var _rain: CityRain
+var _tram: CityTram
 
 
 func begin(seed_text: String, player: PlayerController3D,
@@ -135,6 +138,23 @@ func _ensure_sky() -> void:
 		_dome_frame = CityDomeFrame.new()
 		_dome_frame.name = "CityDomeFrame"
 		add_child(_dome_frame)
+	# Life and sound: the sound bed, rain (a device setting) and the elevated trams. All visual/audio only.
+	if _ambience == null:
+		_ambience = CityAmbience.new()
+		_ambience.name = "CityAmbience"
+		_ambience.indoor_check = city_generator.is_indoor_route_position
+		_ambience.configure(tracked_player, Settings.city_rain, RoomState.is_day())
+		add_child(_ambience)
+	if _rain == null:
+		_rain = CityRain.new()
+		_rain.name = "CityRain"
+		_rain.indoor_check = city_generator.is_indoor_route_position
+		add_child(_rain)
+		_rain.set_raining(Settings.city_rain)
+	if _tram == null:
+		_tram = CityTram.new()
+		_tram.name = "CityTram"
+		add_child(_tram)
 
 
 ## A dark night: the dome sky supplies the picture, the environment only the faint moonlit ambient. No post effects.

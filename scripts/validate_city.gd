@@ -345,6 +345,7 @@ func _check_run_scene(host: Node) -> void:
 	started = Time.get_ticks_msec()
 	_check_invisible_walls(facility)
 	await _check_entrances(host, facility, scene)
+	await _check_life(host, facility)
 	print("  city: invisible-wall check %d ms" % (Time.get_ticks_msec() - started))
 	_expect(absf(wrapf(player._yaw - PI, -PI, PI)) < .01, "the runner does not start facing the kiosk doorway (south)")
 	var layout := (facility.generator as CityRouteGenerator).layout
@@ -649,3 +650,59 @@ func _check_entrances(host: Node, facility: StreamedFacilityView3D, scene: Node)
 	_expect(leaky.size() < doors_found.size(), "no door leaf collides when closed")
 	_expect(closed_free >= doors_found.size() * 9 / 10, "street in front of doors is blocked (%d of %d clear)" % [closed_free, doors_found.size()])
 	print("  city: %d entrances, all walkable when open" % doors_found.size())
+
+
+## Life and sound: the sound bed exists and its levels follow indoors/outdoors and the mute, rain follows the setting and
+## pauses indoors, the trams exist, move and stay above head height over the streets.
+func _check_life(host: Node, facility: StreamedFacilityView3D) -> void:
+	var ambience := facility.get_node_or_null("CityAmbience") as CityAmbience
+	var rain := facility.get_node_or_null("CityRain") as CityRain
+	var tram := facility.get_node_or_null("CityTram") as CityTram
+	_expect(ambience != null and rain != null and tram != null, "City life nodes missing (ambience %s, rain %s, tram %s)" % [ambience != null, rain != null, tram != null])
+	if ambience == null or rain == null or tram == null:
+		return
+	var outside := ambience.targets()
+	_expect(float(outside["hum"]) > 0.0 and float(outside["rumble"]) > 0.0, "the street sound bed is silent outdoors")
+	var was_muted := Sound.muted
+	Sound.muted = true
+	var muted := ambience.targets()
+	_expect(float(muted["hum"]) == 0.0 and float(muted["rain"]) == 0.0, "mute does not silence the City sound bed")
+	Sound.muted = was_muted
+	ambience.set_rain(true)
+	var raining := ambience.targets()
+	ambience.set_rain(false)
+	var dry := ambience.targets()
+	_expect(float(raining["rain"]) > 0.0 and float(dry["rain"]) == 0.0, "the rain loop does not follow the rain setting")
+	ambience.set_rain(Settings.city_rain)
+	var saved_rain := Settings.city_rain
+	rain.set_raining(true)
+	_expect(rain.is_raining() and rain.visible, "rain does not start")
+	rain.set_raining(false)
+	_expect(not rain.is_raining() and not rain.visible, "rain does not stop")
+	rain.set_raining(saved_rain)
+	_expect(tram.car_count() == 4, "expected 4 tram cars, got %d" % tram.car_count())
+	var before := []
+	for car in tram.get_children():
+		if car.name.begins_with("Tram_"):
+			before.append((car as Node3D).position)
+	for _frame in 20:
+		await host.get_tree().process_frame
+	var moved := 0
+	var index := 0
+	var layout := (facility.generator as CityRouteGenerator).layout
+	for car in tram.get_children():
+		if not car.name.begins_with("Tram_"):
+			continue
+		var now: Vector3 = (car as Node3D).position
+		if now.distance_to(before[index]) > .05:
+			moved += 1
+		var cell := Vector2i(floori(now.x), floori(now.z)) + CityLayout.ORIGIN_OFFSET
+		_expect(layout.kind_at(cell.x, cell.y) == CityLayout.ROAD or layout.kind_at(cell.x, cell.y) == CityLayout.CROSS_NS
+			or layout.kind_at(cell.x, cell.y) == CityLayout.CROSS_EW or layout.kind_at(cell.x, cell.y) == CityLayout.BRIDGE
+			or layout.kind_at(cell.x, cell.y) == CityLayout.KIOSK_FLOOR or layout.kind_at(cell.x, cell.y) == CityLayout.KIOSK_WALL
+			or layout.kind_at(cell.x, cell.y) == CityLayout.WATER or layout.kind_at(cell.x, cell.y) == CityLayout.COMPASS,
+			"tram %s is over %s, not a street" % [car.name, CityLayout.KIND_NAMES[layout.kind_at(cell.x, cell.y)]])
+		index += 1
+	_expect(moved >= 2, "the trams do not move (%d of 4 moved)" % moved)
+	_expect(CityTram.RAIL_Y >= 5.5, "the tram rail is low enough to hit a runner")
+	print("  city: sound bed, rain setting, %d trams moving" % moved)

@@ -75,6 +75,12 @@ func _ready() -> void:
 	_time_button = _button("TimeButton", _time_label(), false, _on_time_toggle)
 	_time_button.tooltip_text = "Daytime: bright open sky, lamps off, hunters see farther outdoors (the host decides for the room)"
 	column.add_child(_time_button)
+	var rain_button := _button("RainButton", _rain_label(), false, func() -> void: pass)
+	rain_button.tooltip_text = "Rain over the streets (a setting on this device, not a room choice)"
+	rain_button.pressed.connect(func() -> void:
+		Settings.set_city_rain(not Settings.city_rain)
+		rain_button.text = _rain_label())
+	column.add_child(rain_button)
 	var new_run := _button("NewRunButton", "NEW RUN // SOLO", not Backend.game_has_save(RoomState.GAME_CITY), _on_new_run)
 	column.add_child(new_run)
 	var public_button := _button("PublicButton", "PUBLIC CITY", false, func() -> void: pass)
@@ -151,6 +157,10 @@ func _button(button_name: String, label: String, primary: bool, handler: Callabl
 
 func _time_label() -> String:
 	return "TIME: DAYTIME" if daytime_choice else "TIME: NIGHT"
+
+
+func _rain_label() -> String:
+	return "RAIN: ON" if Settings.city_rain else "RAIN: OFF"
 
 
 func _on_time_toggle() -> void:
