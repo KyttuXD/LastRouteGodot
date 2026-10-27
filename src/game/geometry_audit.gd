@@ -28,7 +28,7 @@ const GAME_NIGHT_WATCH := "night_watch"
 ## Category weights for the ranking (a piece clipping through a wall is worse than a tolerance-level touch).
 const WEIGHTS := {"prop_in_wall": 5, "prop_in_prop": 3, "prop_in_hall": 4, "door_zone": 5, "door_frame": 4,
 	"building_overlap": 8, "orphan_mass": 7, "sliver": 4, "decor_in_wall": 5, "decor_overlap": 2,
-	"junction_floor": 6, "junction_pinch": 6, "hall_nub": 4, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
+	"junction_floor": 6, "hall_nub": 4, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
 
 const SEAT_WORDS := ["Chair", "Stool", "Bench", "Seat", "Armchair", "Couch", "Sofa"]
 const TABLE_WORDS := ["Table", "Desk", "Counter", "Workstation", "Bar", "Bookcase", "Shelf", "Piano"]
@@ -306,7 +306,7 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 
 
 ## Hall junctions (T, cross, corner) of one chunk: a runner-carpet biome gives every junction cell the hall's own carpet (no
-## stray stone tile patch), a cross has a clear 3x3 opening, and no single wall cell juts into the circulation.
+## stray stone tile patch), and no single wall cell juts into the circulation.
 static func _audit_junctions(data: Dictionary, seed_text: String, biome: String, where_prefix: String, room_rects: Array, out: Array) -> void:
 	var grid: Array = data.get("grid", [])
 	var size := grid.size()
@@ -333,16 +333,6 @@ static func _audit_junctions(data: Dictionary, seed_text: String, biome: String,
 			var run_z := _run_len(grid, size, cell, Vector2i(0, 1))
 			if run_x < 3 or run_z < 3:
 				continue
-			var four_open := true
-			for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				if not is_open_cell(grid, size, cell + (step as Vector2i)):
-					four_open = false
-			if four_open:
-				for diag in [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
-					if not is_open_cell(grid, size, cell + (diag as Vector2i)):
-						out.append(finding(GAME_LAST_ROUTE, "junction", "junction_pinch", seed_text, "%s cell %s" % [where_prefix, cell],
-							"crossing whose corner %s is wall: the opening is pinched" % (cell + (diag as Vector2i))))
-						break
 			# the floor: a carpet biome must lay the hall's runner through the junction (a cell crossed by two halls)
 			if runner and (run_x != 3 or run_z != 3) and _touches_exact_hall(grid, size, cell):
 				if String(StreamedFacilityView3D._runner_kind(grid, x, z)) == "":

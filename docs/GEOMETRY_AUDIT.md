@@ -38,7 +38,9 @@ ending inside a floor/ceiling slab, cable ends (6 cm), wall-mounted pieces touch
 | City | decor_overlap (lamp head inside canopy) | 38 | 0 |
 | City | prop_in_wall (interior furniture in cells sealed to wall) | 62 | 0 |
 | Night Watch | cube_overlap / slab_coplanar (yard, hall, catwalk, sill slabs over the shell; curtains behind shelves; sill rail) | 17 | 0 |
-| **Total** | | **571** | **0** |
+| Last Route | junction_floor (junction cells on stone tiles instead of the hall carpet, runner biomes) | 9792 | 0 |
+| Last Route | prop_in_wall at 2 cm strict tolerance | 1865 | 0 |
+| **Total (10 cm rules, excl. junction_floor)** | | **571** | **0** |
 
 Before = `main` at the start of this audit, measured with the same final rules. `docs/geometry_audit_before_after.png`:
 top row before, bottom row after (City, CITY-LOOK; the stub brick wall closing alley cell (170,44) is gone).
@@ -52,7 +54,20 @@ top row before, bottom row after (City, CITY-LOOK; the stub brick wall closing a
 * `GeometryResolve.push_out` (run in `_build_chunk` before PlacementClearance) – solid props slide clear of walls; the carnival strength testers now back onto the side walls.
 * Night Watch offices: slab overlaps trimmed (cargo yard, bedroom hall, open-air catwalk, descent sill), bedroom shelves moved clear of the curtains.
 
+## Hall junctions
+
+`StreamedFacilityView3D._runner_kind` only gave the carpet runner to cells exactly one hall wide across one axis. A T, cross
+or corner cell is crossed by a hall in both directions, matched neither test and fell through to the random stone corridor
+tiles: the grey tile patch in the middle of the carpet at every junction. Junction cells next to a one-hall-wide cell now take
+the hall's centre strip (`runner_c`). Audit rules: `junction_floor` (that fallback), `hall_nub` (single wall cell jutting into a
+hall; 0 found, so the wall mass in KT's screenshot is not a grid stub and still needs a repro with its seed/position).
+Not yet verified by a capture: my junction captures landed in a wrong spot, so the visual before/after is still open.
+
 ## Not covered / left
+
+* Prop hitbox vs mesh AABB comparison, walk-test through visible space and the minimap box check are not built yet (the
+  collider-level audit finds no prop_in_prop even at 2 cm in Last Route, so any visible clipping there is collider-vs-mesh).
+* Room capacity (`room_capacity`, solids over 45% of open floor) finds no squeezed rooms in the sampled chunks.
 
 * Fixtures, pickups and hunter props are not audited. Doors are checked only at the grid level (frame vs wall cells), not mesh vs mesh.
 * The City lane (`claude/city-lane`) rewrites facades/props/sky; its facade boxes, awnings, signs and windows need re-auditing once it lands (`geometry_overlap` runs on whatever `CityLayout` produces). Window quads glowing through overlapping masses came from the stub masses fixed here.
