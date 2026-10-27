@@ -89,6 +89,8 @@ var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
 var reduced_motion := false
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
+## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
+var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 var _admin_preferences: Dictionary = ADMIN_PREFERENCE_DEFAULTS.duplicate()
@@ -155,6 +157,12 @@ func set_vsync(enabled: bool) -> void:
 func set_reduced_motion(enabled: bool) -> void:
 	reduced_motion = enabled
 	_save()
+
+
+func set_hub_last_game(id: String) -> void:
+	if hub_last_game != id:
+		hub_last_game = id
+		_save()
 
 
 func set_short_death_scenes(enabled: bool) -> void:
@@ -366,6 +374,7 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
+	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -411,6 +420,7 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
+	config.set_value("hub", "last_game", hub_last_game)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))

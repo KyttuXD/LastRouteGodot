@@ -53,12 +53,16 @@ static func save_summary(id: String) -> Dictionary:
 	return {"has_save": true, "text": String(data.get("summary", "SAVED")).to_upper()}
 
 
+## Tests register a synthetic list (1..12 games) here; empty means the real GAMES.
+static var test_games: Array = []
+
+
 static func all() -> Array:
-	return GAMES
+	return test_games if not test_games.is_empty() else GAMES
 
 
 static func get_game(id: String) -> Dictionary:
-	for game in GAMES:
+	for game in all():
 		if String(game["id"]) == id:
 			return game
 	return {}
@@ -71,7 +75,7 @@ static func is_launchable(id: String) -> bool:
 
 static func launchable_ids() -> Array:
 	var out := []
-	for game in GAMES:
+	for game in all():
 		if is_launchable(String(game["id"])):
 			out.append(String(game["id"]))
 	return out
