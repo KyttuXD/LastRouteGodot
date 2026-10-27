@@ -4320,7 +4320,7 @@ func _leave_test() -> void:
 	if RoomState.public_route:
 		PublicRoute.leave()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
 		return
 	if RoomState.online and RoomState.is_host:
 		# Keep the ENet room alive and return every connected runner to the same

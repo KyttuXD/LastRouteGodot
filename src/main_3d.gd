@@ -1143,10 +1143,10 @@ func _leave_after_report() -> void:
 	elif RoomState.online:
 		RoomState.status_message = "LEFT THE ROUTE"
 		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
 	else:
 		RoomState.session_active = false
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
 
 
 func _update_hud() -> void:
@@ -2002,7 +2002,7 @@ func _on_abandoned() -> void:
 		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
 	else:
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
 
 
 func _on_pause_opened() -> void:
