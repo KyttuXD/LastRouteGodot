@@ -22,8 +22,6 @@ func _ready() -> void:
 			role = text
 		elif text.begins_with("--dir="):
 			dir = text.trim_prefix("--dir=")
-		elif text == "--game=city":
-			game_mode = RoomState.Mode.CITY
 		elif text.begins_with("--key="):
 			key = text.trim_prefix("--key=")
 	if role.is_empty() or dir.is_empty() or key.is_empty():
@@ -80,7 +78,7 @@ func _read(name: String) -> String:
 
 func _in_route() -> bool:
 	var current := get_tree().current_scene
-	var route_scene := RoomState.CITY_ROUTE_SCENE if game_mode == RoomState.Mode.CITY else "res://scenes/infinite_route_test.tscn"
+	var route_scene := "res://scenes/infinite_route_test.tscn"
 	return current != null and current.scene_file_path == route_scene \
 		and current.get("facility") != null and current.facility.generator != null
 

@@ -155,8 +155,6 @@ func _build() -> void:
 	column.add_child(tabs)
 	for entry in [["PAUSE", "pause"], ["SAVES", "saves"],
 			["STATISTICS", "statistics"]]:
-		if RoomState.is_city() and String(entry[1]) == "saves":
-			continue   # the City has no run saves yet
 		var tab := Button.new()
 		tab.text = String(entry[0])
 		tab.focus_mode = Control.FOCUS_ALL
@@ -217,7 +215,7 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	parent.add_child(_saves_view)
 
 	var help := Label.new()
-	help.text = "THE CITY HAS NO RUN SAVES YET" if RoomState.is_city() else "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
+	help.text = "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(help, Palette.MUTED, 7)
 	_saves_view.add_child(help)
@@ -292,7 +290,7 @@ func _build_share_block() -> Control:
 	stack.add_theme_constant_override("separation", 2)
 	box.add_child(stack)
 	var eyebrow := Label.new()
-	eyebrow.text = Palette.track("CITY SIGNAL" if RoomState.is_city() else "ROUTE SIGNAL")
+	eyebrow.text = Palette.track("ROUTE SIGNAL")
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	Palette.style_label(eyebrow, Palette.AMBER, 6)
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -315,7 +313,7 @@ func _build_share_block() -> Control:
 	stack.add_child(row)
 	_copy_button = Button.new()
 	_copy_button.name = "PauseCopyRoute"
-	_copy_button.text = "COPY CITY SEED" if RoomState.is_city() else "COPY ROUTE"
+	_copy_button.text = "COPY ROUTE"
 	_copy_button.focus_mode = Control.FOCUS_ALL
 	_copy_button.custom_minimum_size = Vector2(88, 16)
 	_copy_button.add_theme_font_size_override("font_size", 7)

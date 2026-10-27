@@ -23,7 +23,6 @@ func run(host: Node) -> int:
 	_check_edge_clamp()
 	_check_controls()
 	_check_settings()
-	await _check_city_scene(host)
 	if _failures == 0:
 		print("  waypoints  one per player (place twice -> one, also in the City), replace/clear/arrival, snapshots and legacy saves, edge clamp at 3 sizes, B/V bindings, settings round trip")
 	return _failures
@@ -167,56 +166,3 @@ func _check_settings() -> void:
 	Settings.set_waypoint_arrival_chime(before[4])
 
 
-## The City run scene: place A then B -> only B (one pin, one trail node, route over the street graph), arrival clears it.
-func _check_city_scene(host: Node) -> void:
-	RoomState.create_local(RoomState.Mode.CITY)
-	RoomState.seed_text = "WAYPOINT-CITY"
-	Backend.enable_offline_mode()
-	var scene: Node = (load(RoomState.CITY_ROUTE_SCENE) as PackedScene).instantiate()
-	host.add_child(scene)
-	for _frame in 6:
-		await host.get_tree().process_frame
-	var facility := scene.get_node("%StreamedFacility") as StreamedFacilityView3D
-	var player := scene.get_node("%Player") as PlayerController3D
-	var level := facility.current_level()
-	var guidance_before: String = Settings.waypoint_guidance
-	Settings.waypoint_guidance = "path"
-	scene.call("_place_waypoint_at", Vector2(22.5, 31.5), level)
-	scene.call("_place_waypoint_at", Vector2(22.5, 40.5), level)   # replaces the first
-	var waypoints: Array = scene.call("_active_waypoints")
-	_expect(waypoints.size() == 1 and (waypoints[0]["at"] as Vector2).is_equal_approx(Vector2(22.5, 40.5)),
-		"City: the second waypoint did not replace the first (%s)" % [waypoints])
-	_expect((scene.world_state.waypoints.by_peer as Dictionary).size() == 1, "City: more than one waypoint in the world state")
-	scene.call("_update_streamed_maps")
-	var route: Array = scene.get("_waypoint_route")
-	_expect(route.size() >= 10, "City: the waypoint produced no street route (%d cells)" % route.size())
-	var navigation: StreamedHunterNavigation = scene.get("_navigation")
-	var all_open := not route.is_empty()
-	for cell in route:
-		all_open = all_open and navigation.is_floor((cell as Vector2).x, (cell as Vector2).y)
-	_expect(all_open, "City: the route crosses a wall or a solid prop")
-	var trails := 0
-	for child in scene.world.get_children():
-		trails += 1 if child.name == "WaypointGroundTrail" else 0
-	_expect(trails == 1, "City: %d trail nodes (expected 1)" % trails)
-	var trail := scene.get("_waypoint_trail") as MeshInstance3D
-	_expect(trail != null and trail.mesh != null, "City: PATH guidance drew no chevrons")
-	scene.call("_update_waypoint_hud", level)
-	var overlay: WaypointOverlay = scene.get("_waypoint_overlay")
-	_expect(overlay != null and overlay.pin_count() == 1, "City: the HUD shows %d pins" % (overlay.pin_count() if overlay != null else -1))
-	# a teammate's pin appears next to ours without replacing it
-	scene.world_state.waypoints.apply(5, {"at": Vector2(30.5, 31.5), "level": level})
-	scene.call("_update_waypoint_hud", level)
-	_expect(overlay.pin_count() == 2 and (scene.call("_active_waypoints") as Array).size() == 1, "City: a teammate's pin replaced ours or was not drawn")
-	scene.world_state.waypoints.apply(5, {})
-	# leaving the City run: arrival clears
-	player.global_position = Vector3(22.5, player.global_position.y, 40.5 + 1.0)
-	scene.call("_clear_reached_waypoints", level)
-	_expect((scene.call("_active_waypoints") as Array).is_empty(), "City: arrival did not clear the waypoint")
-	# a legacy save with several waypoints keeps the newest only
-	scene.world_state.waypoints.adopt_legacy([{"at": Vector2(23.5, 23.5), "level": level}, {"at": Vector2(24.5, 26.5), "level": level}], 1)
-	_expect((scene.call("_active_waypoints") as Array).size() == 1, "City: legacy waypoints were not reduced to one")
-	Settings.waypoint_guidance = guidance_before
-	scene.queue_free()
-	await host.get_tree().process_frame
-	RoomState.create_local(RoomState.Mode.DEFAULT)

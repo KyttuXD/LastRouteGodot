@@ -66,11 +66,6 @@ func run(host: Node) -> int:
 			_expect(response.r >= MaterialLook.MIN_ROUGHNESS and response.g <= MaterialLook.MAX_METALLIC,
 				"RefTextures.params %s/%s roughness %.2f metallic %.2f" % [group, kind, response.r, response.g])
 		_check_shader(RefTextures.array_material(group), "RefTextures array %s" % group)
-	for material in CitySurface.materials():
-		if material is ShaderMaterial:
-			_check_shader(material, "CitySurface tiles")
-		elif material is BaseMaterial3D:
-			_check_standard(material, "CitySurface rim", true)
 	for key in ["brass", "iron", "rust", "canvas", "amber", "stone", "leaf", "vault_glass", "leaf_light", "bark", "soil", "bloom", "bloom_pale", "night", "teal"]:
 		var decor := RefDecor.material(key)
 		if decor is BaseMaterial3D:
@@ -78,9 +73,8 @@ func run(host: Node) -> int:
 	_expect(MaterialLook.LIGHT_SPECULAR <= MaterialLook.MAX_LIGHT_SPECULAR, "MaterialLook.LIGHT_SPECULAR is above its own limit")
 	# live scenes
 	await _scan_scene(host, RoomState.Mode.DEFAULT, "res://scenes/infinite_route_test.tscn", "Last Route")
-	await _scan_scene(host, RoomState.Mode.CITY, RoomState.CITY_ROUTE_SCENE, "City")
 	if _failures == 0:
-		print("  material_look  %d materials and %d lights in the shared tables, decor, Last Route and the City stay matte (roughness >= %.2f, metallic <= %.2f, light specular <= %.2f)" % [
+		print("  material_look  %d materials and %d lights in the shared tables, decor and Last Route stay matte (roughness >= %.2f, metallic <= %.2f, light specular <= %.2f)" % [
 			_checked, _lights, MaterialLook.MIN_ROUGHNESS, MaterialLook.MAX_METALLIC, MaterialLook.MAX_LIGHT_SPECULAR])
 	return _failures
 
