@@ -23,7 +23,7 @@ CORE = [
     ("R-Thigh", "Pelvis"), ("R-Calf", "R-Thigh"), ("R-Foot", "R-Calf"),
 ]
 CORE_NAMES = [b for b, _ in CORE]
-REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "stun_recover", "charge", "flight", "jumpscare"]
+REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "stun_recover", "charge", "flight", "jumpscare", "climb"]
 # the gameplay clips the roster/jumpscare code asks for by name (blink etc. are faces)
 
 
@@ -135,6 +135,21 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
             "L-Calf": (-8, 0, 0), "R-Calf": (-22, 0, 0),
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
+
+    # climb: on a sewer ladder facing the rungs, one hand reaching overhead while the opposite knee lifts to the next
+    # rung (contralateral, like a real ladder climb), torso tucked in to the ladder, a small lift each hand-over-hand
+    def climb(b, i):
+        s = math.sin(2 * math.pi * i / 8)
+        return {
+            "Belly": (5, 0, 0), "Chest": (6, 0, 2 * s), "Head": (-6, 0, 0),
+            "L-Arm": (150 + 22 * s, 0, -6), "R-Arm": (150 - 22 * s, 0, 6),
+            "L-Forearm": (28 - 18 * s, 0, 0), "R-Forearm": (28 + 18 * s, 0, 0),
+            "L-Hand": (10, 0, 0), "R-Hand": (10, 0, 0),
+            "L-Thigh": (48 - 26 * s, 0, 0), "R-Thigh": (48 + 26 * s, 0, 0),
+            "L-Calf": (-58 + 22 * s, 0, 0), "R-Calf": (-58 - 22 * s, 0, 0),
+            "L-Foot": (10, 0, 0), "R-Foot": (10, 0, 0),
+        }.get(b)
+    clips["climb"] = authored(1.0, 8, climb, lambda i: 0.04 * math.sin(4 * math.pi * i / 8))
 
     # stun: a per-hunter style (stun.py) of staggering / toppling / curling ..., and the wake-up that follows it
     import stun as stun_mod

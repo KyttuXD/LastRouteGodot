@@ -17,8 +17,8 @@ func run(host: Node) -> int:
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
 	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
-		and not world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not a single unbounded level")
+		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and not world.is_chunk_allowed(Vector3i(0, -2, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
+		"the route is not one unbounded maze level over the sewer layer")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -762,8 +762,8 @@ func run(host: Node) -> int:
 			"zero pixel-effect strength still leaves a screen-space filter visible")
 		Settings.pixel_effect_percent = old_pixel_strength
 		pixel_effect.call("_refresh")
-	_expect(facility != null and facility.loaded_chunk_count() == 9,
-		"live stream did not hold the 3x3 chunk window of the single floor")
+	_expect(facility != null and facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
+		"live stream did not hold the 3x3 chunk window of the maze floor (plus the sewer under a ladder)")
 	_expect(not facility.get_tree().get_nodes_in_group("streamed_region_prop").is_empty(),
 		"live streamed regions loaded no authored dressing models")
 	var live_lower := facility.generator.chunk(Vector3i.ZERO)
@@ -1307,7 +1307,7 @@ func run(host: Node) -> int:
 				StreamedRouteGenerator.CHUNK_SIZE * 20, 0.0, 0.0)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 9,
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 				"long-distance hunter unload leaked streamed chunks")
 			player.global_position = Vector3(
 				(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
@@ -1333,9 +1333,10 @@ func run(host: Node) -> int:
 				(hunter_coord.z - 2 - step * 2) * StreamedRouteGenerator.CHUNK_SIZE + chunk_center)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 9,
+			# nine on the runner's level, plus the sewer chunk below when it has a ladder
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 				"long-session stream exceeded its nine-chunk window at step %d" % step)
-			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
+			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 				"long-session scene retained an evicted chunk at step %d" % step)
 		var live_navigation := live_scene.get("_navigation") as StreamedHunterNavigation
 		# Stair selection samples a five-by-five ring, while an active hunter may
@@ -1368,9 +1369,9 @@ func run(host: Node) -> int:
 			"live stream did not follow the runner into the lower prison region")
 		_expect(not host.get_tree().get_nodes_in_group("streamed_prison_prop").is_empty(),
 			"live prison chunk contains no authored prison models")
-		_expect(facility.loaded_chunk_count() == 9,
+		_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 			"moving far away leaked old streamed chunks instead of evicting them")
-		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
+		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 			"streamed scene tree retained evicted chunk nodes")
 
 	# The live Infinite route -- not the legacy main_3d.tscn -- is what a

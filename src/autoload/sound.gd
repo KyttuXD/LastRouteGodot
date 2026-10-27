@@ -202,6 +202,11 @@ func spider_hiss(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("spider_hiss", pan, clampf(intensity, 0.1, 2.0))
 
 
+## A hand or boot on an iron ladder rung.
+func ladder_rung(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("ladder_rung", pan, clampf(intensity, 0.1, 2.0))
+
+
 func remote_player_footstep(mode := "walk", pan: float = 0.0,
 		volume: float = 0.04) -> bool:
 	var resolved := mode if mode in ["sprint", "crouch"] else "walk"
@@ -532,6 +537,8 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"xivvy_wing": c = [_noise(.13, .05 * intensity, 520, 0, pan, .9), _thump(120, .09, .03 * intensity, .02, pan)]
 		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
+		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
+			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
 		"teammate_footstep_sprint": c = [_noise(.07, .066 * intensity, 610, 0, pan, 1.15), _thump(92, .065, .045 * intensity, 0, pan)]
 		"teammate_footstep_crouch": c = [_noise(.045, .012 * intensity, 430, 0, pan, .92), _thump(68, .045, .009 * intensity, 0, pan)]

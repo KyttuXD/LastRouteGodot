@@ -51,6 +51,12 @@ os.makedirs(PRISON_TEXTURES, exist_ok=True)
 os.makedirs(PRISON_PREVIEWS, exist_ok=True)
 os.makedirs(CARNIVAL_TEXTURES, exist_ok=True)
 os.makedirs(CARNIVAL_PREVIEWS, exist_ok=True)
+SEWER_ROOT = os.path.join(PROJECT_ROOT, "art", "props-3d", "props", "sewer")
+SEWER_SOURCE = os.path.join(SEWER_ROOT, "source")
+SEWER_TEXTURES = os.path.join(SEWER_SOURCE, "textures")
+SEWER_PREVIEWS = os.path.join(SEWER_ROOT, "previews")
+os.makedirs(SEWER_TEXTURES, exist_ok=True)
+os.makedirs(SEWER_PREVIEWS, exist_ok=True)
 
 
 def clear_scene():
@@ -5891,6 +5897,202 @@ CARNIVAL_BUILDERS = {
 }
 
 
+def sewer_materials(name):
+    colors = ["#0C0E0F", "#1E2326", "#353C3F", "#56605F", "#6E4B32",
+              "#8E5B33", "#A9894E", "#FFB347"]
+    image = make_pixel_atlas(name + "_pixel_atlas", colors, SEWER_TEXTURES)
+    iron = make_material(name + " iron", image, roughness=0.74, metallic=0.45)
+    rust = make_material(name + " rust", image, roughness=0.95, metallic=0.1)
+    concrete = make_material(name + " concrete", image, roughness=0.97, metallic=0.0)
+    return iron, rust, concrete, image, len(colors)
+
+
+## Sewer ladders hang on the north wall of a 1 x 1 m shaft (Blender +Y, Godot -Z).
+## Origin: the ladder cell's centre on the floor of the level it stands in.
+LADDER_RAIL_Y = 0.40
+LADDER_RAIL_X = 0.22
+
+
+def _ladder_section(objects, iron, rust, count, z0, z1, rung_from, rung_step, prefix):
+    for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
+        box("%sRail%s" % (prefix, side), (x, LADDER_RAIL_Y, (z0 + z1) * .5), (0.05, 0.05, z1 - z0),
+            iron, 2, count, objects, bevel=0.006)
+    z = rung_from
+    index = 0
+    while z < z1 - 0.05:
+        cylinder("%sRung%02d" % (prefix, index), (0.0, LADDER_RAIL_Y, z), 0.018, LADDER_RAIL_X * 2.0, 6,
+                 rust if index % 3 == 1 else iron, 3, count, objects, rotation=(0.0, math.pi / 2.0, 0.0))
+        z += rung_step
+        index += 1
+
+
+def make_sewer_ladder():
+    """Iron rungs from the sewer floor to the vault (3.2 m); the shaft above carries sewer_ladder_top."""
+    iron, rust, _, _, count = sewer_materials("sewer_ladder")
+    objects = []
+    _ladder_section(objects, iron, rust, count, 0.0, 3.2, 0.28, 0.30, "")
+    for index, z in enumerate((0.55, 1.65, 2.75)):
+        for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
+            box("Bracket%d%s" % (index, side), (x, 0.47, z), (0.04, 0.10, 0.04), rust, 1, count, objects)
+    return objects, (2.4, -3.0, 2.2), (0.0, 0.3, 1.5)
+
+
+def make_sewer_ladder_top():
+    """The ladder's last 0.8 m in the shaft under the maze floor, and grab hoops above the opening."""
+    iron, rust, _, _, count = sewer_materials("sewer_ladder_top")
+    objects = []
+    _ladder_section(objects, iron, rust, count, -0.8, 0.0, -0.62, 0.30, "")
+    # hoops: the rails bend over the edge and back down, something to hold stepping on or off
+    for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
+        box("HoopUp%s" % side, (x, LADDER_RAIL_Y, 0.45), (0.05, 0.05, 0.90), iron, 2, count, objects, bevel=0.006)
+        box("HoopTop%s" % side, (x, LADDER_RAIL_Y + 0.07, 0.90), (0.05, 0.19, 0.05), iron, 2, count, objects, bevel=0.006)
+        box("HoopFoot%s" % side, (x, 0.49, 0.03), (0.07, 0.04, 0.06), rust, 1, count, objects)
+    return objects, (2.0, -2.6, 1.4), (0.0, 0.3, 0.1)
+
+
+def _shaft_collar(objects, iron, count, prefix):
+    # a cast iron frame flush on the floor around the 1 x 1 m opening
+    for name, loc, dim in (("N", (0.0, 0.46, 0.012), (1.0, 0.08, 0.024)),
+                           ("S", (0.0, -0.46, 0.012), (1.0, 0.08, 0.024)),
+                           ("E", (0.46, 0.0, 0.012), (0.08, 0.84, 0.024)),
+                           ("W", (-0.46, 0.0, 0.012), (0.08, 0.84, 0.024))):
+        box(prefix + name, loc, dim, iron, 2, count, objects, bevel=0.004)
+
+
+def make_manhole_frame():
+    """Open manhole: frame round the shaft and the heavy round lid dragged aside onto the hall floor."""
+    iron, rust, _, _, count = sewer_materials("manhole_frame")
+    objects = []
+    _shaft_collar(objects, iron, count, "Frame")
+    cylinder("Lid", (0.0, -0.98, 0.022), 0.38, 0.044, 20, iron, 2, count, objects, bevel=0.006)
+    for index, x in enumerate((-0.24, -0.12, 0.0, 0.12, 0.24)):
+        box("LidRib%d" % index, (x, -0.98, 0.048), (0.03, 0.56 - abs(x) * 1.1, 0.008), rust, 3, count, objects)
+    box("PryNotch", (0.30, -0.98, 0.046), (0.06, 0.03, 0.01), iron, 0, count, objects)
+    return objects, (1.6, -2.8, 1.8), (0.0, -0.4, 0.0)
+
+
+def make_sewer_floor_grate():
+    """Open floor grate: the barred grate swung up on its hinge against the shaft's north side."""
+    iron, rust, _, _, count = sewer_materials("sewer_floor_grate")
+    objects = []
+    _shaft_collar(objects, iron, count, "Frame")
+    tilt = math.radians(-14.0)
+    hinge_y = 0.46
+    for index, x in enumerate((-0.36, -0.24, -0.12, 0.0, 0.12, 0.24, 0.36)):
+        box("Bar%d" % index, (x, hinge_y + 0.10, 0.45), (0.035, 0.035, 0.86), iron, 2, count, objects,
+            rotation=(tilt, 0.0, 0.0))
+    for index, z in enumerate((0.08, 0.45, 0.82)):
+        box("Cross%d" % index, (0.0, hinge_y + 0.03 + z * 0.24, z), (0.80, 0.04, 0.04), rust, 3, count, objects,
+            rotation=(tilt, 0.0, 0.0))
+    for side, x in (("L", -0.42), ("R", 0.42)):
+        cylinder("Hinge%s" % side, (x, hinge_y, 0.04), 0.03, 0.08, 8, iron, 1, count, objects,
+                 rotation=(0.0, math.pi / 2.0, 0.0))
+    return objects, (1.8, -2.6, 1.6), (0.0, 0.2, 0.4)
+
+
+def make_sewer_valve_wheel():
+    """A gate valve on the wall: pipe stub out of the brick, bonnet, and the big hand wheel facing out."""
+    iron, rust, _, _, count = sewer_materials("sewer_valve_wheel")
+    objects = []
+    cylinder("Stub", (0.0, 0.32, 0.0), 0.09, 0.36, 12, iron, 2, count, objects, rotation=(math.pi / 2.0, 0.0, 0.0))
+    box("Flange", (0.0, 0.48, 0.0), (0.30, 0.04, 0.30), rust, 1, count, objects, bevel=0.006)
+    box("Bonnet", (0.0, 0.12, 0.0), (0.16, 0.14, 0.16), iron, 2, count, objects, bevel=0.01)
+    cylinder("Stem", (0.0, -0.02, 0.0), 0.02, 0.18, 8, iron, 3, count, objects, rotation=(math.pi / 2.0, 0.0, 0.0))
+    radius = 0.21
+    for index in range(10):
+        a = index * math.tau / 10.0
+        # each rim segment lies along the circle's tangent in the wheel's (x, z) plane
+        box("Rim%d" % index, (math.cos(a) * radius, -0.11, math.sin(a) * radius), (0.14, 0.035, 0.035),
+            rust if index % 2 else iron, 5, count, objects, rotation=(0.0, -(a + math.pi / 2.0), 0.0))
+    for index in range(4):
+        a = index * math.pi / 4.0 + math.pi / 8.0
+        box("Spoke%d" % index, (0.0, -0.11, 0.0), (radius * 2.0, 0.025, 0.025), iron, 3, count, objects,
+            rotation=(0.0, -a, 0.0))
+    box("Hub", (0.0, -0.11, 0.0), (0.07, 0.05, 0.07), iron, 2, count, objects)
+    return objects, (1.2, -1.6, 0.6), (0.0, 0.1, 0.0)
+
+
+def make_sewer_pump():
+    """A pump set on a concrete plinth: motor, volute casing, suction and discharge pipes into the wall."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_pump")
+    objects = []
+    box("Plinth", (0.0, 0.0, 0.08), (1.30, 0.90, 0.16), concrete, 4, count, objects, bevel=0.01)
+    cylinder("Motor", (-0.28, 0.0, 0.46), 0.24, 0.62, 14, iron, 2, count, objects, rotation=(0.0, math.pi / 2.0, 0.0))
+    for index, x in enumerate((-0.52, -0.40, -0.28, -0.16, -0.04)):
+        box("Fin%d" % index, (x, 0.0, 0.72), (0.03, 0.40, 0.04), iron, 3, count, objects)
+    box("MotorFoot", (-0.28, 0.0, 0.22), (0.56, 0.42, 0.10), rust, 1, count, objects)
+    cylinder("Volute", (0.30, 0.0, 0.48), 0.30, 0.30, 16, rust, 5, count, objects, rotation=(0.0, math.pi / 2.0, 0.0))
+    box("Coupling", (0.04, 0.0, 0.46), (0.14, 0.18, 0.18), iron, 6, count, objects)
+    cylinder("Discharge", (0.30, 0.0, 1.02), 0.09, 0.80, 10, iron, 2, count, objects)
+    cylinder("DischargeBend", (0.30, 0.22, 1.40), 0.09, 0.44, 10, iron, 2, count, objects,
+             rotation=(math.pi / 2.0, 0.0, 0.0))
+    cylinder("Suction", (0.30, 0.30, 0.40), 0.11, 0.30, 10, iron, 3, count, objects,
+             rotation=(math.pi / 2.0, 0.0, 0.0))
+    box("Gauge", (0.30, -0.16, 0.86), (0.10, 0.03, 0.10), iron, 7, count, objects)
+    return objects, (2.4, -2.6, 1.8), (0.0, 0.0, 0.6)
+
+
+def make_sewer_pipe_run():
+    """Two cast iron mains along a wall with clamp brackets, 2 m long."""
+    iron, rust, _, _, count = sewer_materials("sewer_pipe_run")
+    objects = []
+    for index, (z, r) in enumerate(((0.0, 0.11), (0.30, 0.07))):
+        cylinder("Main%d" % index, (0.0, 0.30, z), r, 2.0, 12, rust if index else iron, 2 + index, count, objects,
+                 rotation=(0.0, math.pi / 2.0, 0.0))
+        for j, x in enumerate((-0.8, 0.0, 0.8)):
+            box("Collar%d%d" % (index, j), (x, 0.30, z), (0.05, r * 2.3, r * 2.3), iron, 1, count, objects)
+    for j, x in enumerate((-0.8, 0.8)):
+        box("Bracket%d" % j, (x, 0.44, 0.15), (0.05, 0.12, 0.50), iron, 1, count, objects)
+    return objects, (1.8, -2.4, 1.0), (0.0, 0.3, 0.1)
+
+
+def make_sewer_overflow_grate():
+    """Barred weir across the overflow chamber's basin: a low iron screen standing in the water."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_overflow_grate")
+    objects = []
+    box("Sill", (0.0, 0.0, 0.06), (3.0, 0.22, 0.12), concrete, 4, count, objects, bevel=0.01)
+    for index in range(15):
+        x = -1.40 + index * 0.20
+        box("Bar%02d" % index, (x, 0.0, 0.44), (0.04, 0.04, 0.68), rust if index % 4 == 0 else iron, 2, count, objects)
+    box("TopRail", (0.0, 0.0, 0.80), (3.0, 0.07, 0.06), iron, 3, count, objects, bevel=0.006)
+    for side, x in (("L", -1.52), ("R", 1.52)):
+        box("Post%s" % side, (x, 0.0, 0.45), (0.10, 0.12, 0.90), iron, 1, count, objects)
+    return objects, (3.6, -3.4, 2.0), (0.0, 0.0, 0.4)
+
+
+def make_sewer_lamp():
+    """Caged bulkhead lamp on the brick: back plate, amber glass, iron cage."""
+    iron, rust, _, image, count = sewer_materials("sewer_lamp")
+    objects = []
+    glow = make_material("sewer_lamp glow", image, roughness=0.4, metallic=0.0)
+    bsdf = glow.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None and "Emission Color" in bsdf.inputs:
+        bsdf.inputs["Emission Color"].default_value = rgba("#FFB347")
+        bsdf.inputs["Emission Strength"].default_value = 2.2
+    box("BackPlate", (0.0, 0.46, 0.0), (0.24, 0.06, 0.30), rust, 1, count, objects, bevel=0.008)
+    cylinder("Glass", (0.0, 0.36, 0.0), 0.075, 0.16, 12, glow, 7, count, objects, rotation=(math.pi / 2.0, 0.0, 0.0))
+    for index, x in enumerate((-0.09, 0.0, 0.09)):
+        box("CageV%d" % index, (x, 0.27, 0.0), (0.016, 0.016, 0.22), iron, 2, count, objects)
+    for index, z in enumerate((-0.10, 0.10)):
+        box("CageH%d" % index, (0.0, 0.27, z), (0.20, 0.016, 0.016), iron, 2, count, objects)
+        for side, x in (("L", -0.10), ("R", 0.10)):
+            box("CageArm%d%s" % (index, side), (x, 0.36, z), (0.016, 0.18, 0.016), iron, 2, count, objects)
+    return objects, (0.9, -1.3, 0.5), (0.0, 0.3, 0.0)
+
+
+SEWER_BUILDERS = {
+    "sewer_ladder": make_sewer_ladder,
+    "sewer_ladder_top": make_sewer_ladder_top,
+    "manhole_frame": make_manhole_frame,
+    "sewer_floor_grate": make_sewer_floor_grate,
+    "sewer_valve_wheel": make_sewer_valve_wheel,
+    "sewer_pump": make_sewer_pump,
+    "sewer_pipe_run": make_sewer_pipe_run,
+    "sewer_overflow_grate": make_sewer_overflow_grate,
+    "sewer_lamp": make_sewer_lamp,
+}
+
+
 requested = set(sys.argv[sys.argv.index("--") + 1:]) if "--" in sys.argv else set(BUILDERS)
 for model_name, builder in BUILDERS.items():
     if model_name not in requested:
@@ -5957,4 +6159,13 @@ for model_name, builder in CARNIVAL_BUILDERS.items():
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects, CARNIVAL_ROOT, CARNIVAL_SOURCE)
     render_preview(model_name, export_objects, eye, look, CARNIVAL_PREVIEWS)
+    print("BUILT", model_name, len(export_objects))
+
+for model_name, builder in SEWER_BUILDERS.items():
+    if "sewer" not in requested and model_name not in requested:
+        continue
+    clear_scene()
+    export_objects, eye, look = builder()
+    save_and_export(model_name, export_objects, SEWER_ROOT, SEWER_SOURCE)
+    render_preview(model_name, export_objects, eye, look, SEWER_PREVIEWS)
     print("BUILT", model_name, len(export_objects))
