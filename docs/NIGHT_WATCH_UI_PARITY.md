@@ -47,3 +47,30 @@ not a synthesized blip; the key hint line is hidden while the call box is up (th
 
 Not yet matched pixel-for-pixel: the typewriter font, the 2D scanline/dither overlay, and the 2D HUD's exact proportions for the usage bars. These are
 cosmetic and listed so a later pass can take them one by one.
+
+## Camera keys and the key flow (NW CALL + UI PARITY, keys fix)
+
+One source of truth: `NightWatchControls.ACTIONS` (`src/night_watch/night_watch_controls.gd`). It defines the InputMap actions, default keys and gamepad
+buttons, the labels of the OFFICE controls tab, the live hint line and the handlers. What was wrong: the handlers read the old shared `office_camera_1..8`
+actions (digits that also are the shared hotbar), the hint line was a hard-coded string, the controls tab listed actions that were not the ones read, and
+rebinds had nowhere to live.
+
+| Action | Default | Notes |
+|---|---|---|
+| `nw_monitor` | U | opens / closes the monitor (use closes it too) |
+| `nw_cam_prev` / `nw_cam_next` | Left / Right, gamepad d-pad left / right | cycle the eight cameras, wrapping |
+| `nw_cam_1` .. `nw_cam_8` | 1-8 and the number pad | pick a camera; only inside the monitor (they do nothing with it down) |
+| `nw_door_left` / `nw_door_right` | Z / X | quick keys (also by aiming and using the panels) |
+| `nw_light_left` / `nw_light_right` | G / H (hold) | door lights |
+| `nw_lamp` | Y | desk lamp |
+| `office_radio` (shared) | R | mutes Zellia |
+
+* The hint line is built from the live InputMap (`NightWatchControls.hint_line`), so a rebind shows, and it switches to the monitor keys while the monitor is up.
+* Rebinds: `NightWatchControls.rebind(action, keycode)` saves into `night_watch.cfg` (`keys`) and `register()` applies them on the next start. The shared
+  settings screen can list the actions from `controls_tab()`.
+* Every mode's game calls `NightWatchControls.handle_monitor_event(self, event)` first in `_unhandled_input`; it needs `monitor_up`, `open_monitor()`,
+  `close_monitor()`, `cycle_camera(step)`, `select_camera_number(n)` and `is_playing()`. A mode without a monitor (Bedtime, ...) does not define them.
+* Suite `night_watch_keys`: the table, InputMap, hint line and controls tab agree; for every playable mode scene with a monitor: open by key, 8 Right and 8 Left
+  presses cycle through all cameras and wrap, each of 1-8 and the number pad picks its camera, the d-pad cycles, camera keys do nothing with the monitor down or
+  while paused, keys work after pause/resume and after leaving and re-entering the monitor, use closes it, three open/close rounds, the old `office_camera_n`
+  actions are ignored, a rebound key shows in the hint line, persists, and works.
