@@ -4,8 +4,8 @@ extends Control
 ## The shell above the games: boot lands here, each game is a card, and account / settings / admin / quit are shared
 ## entries that do not belong to any one game. Games come from GameRegistry; a locked game (Night Watch, until its 3D
 ## port exists) shows its card with the reason instead of a launch button.
-## Account and settings open the existing panels in the Last Route menu (GameRegistry.pending_menu_action) until they
-## move out of that scene.
+## Account opens the shared app-level AccountPanel (one login for every game); settings open the Last Route menu's overlay
+## (GameHub.pending_menu_action) until they move out of that scene.
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
 const MENU_SCENE := "res://scenes/main_menu.tscn"
@@ -16,10 +16,12 @@ static var pending_menu_action := ""
 var _cards := {}
 var _launch_buttons := {}
 var _toast: Label
-var _quit_dialog: PanelContainer
+var _signed_in: Label
+var _quit_dialog: Control
 
 
 func _ready() -> void:
+	GameRegistry.active_game_id = GameRegistry.DEFAULT_ID
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var backdrop := SIGNAL_BACKDROP_SCRIPT.new()
@@ -40,6 +42,12 @@ func _ready() -> void:
 	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	brand.text = "KYTTU'S LAB"
 	column.add_child(brand)
+	_signed_in = Label.new()
+	_signed_in.name = "HubSignedIn"
+	Palette.style_label(_signed_in, Palette.MUTED, 6)
+	column.add_child(_signed_in)
+	_refresh_signed_in()
+	Backend.account_changed.connect(_on_account_changed)
 	var kicker := Label.new()
 	kicker.name = "HubKicker"
 	Palette.style_label(kicker, Palette.AMBER, 6)
@@ -71,7 +79,36 @@ func _ready() -> void:
 	Palette.style_label(_toast, Palette.MUTED, 6)
 	_toast.custom_minimum_size = Vector2(0, 10)
 	column.add_child(_toast)
+	_refresh_signed_in()
 	_focus_default.call_deferred()
+
+
+## The header shows who is signed in (and ADMIN) so every menu and the hub agree; Backend is the one source.
+func _refresh_signed_in() -> void:
+	if _signed_in == null:
+		return
+	if Backend.signed_in():
+		_signed_in.text = "SIGNED IN // %s%s" % [Backend.account_username, "  [ADMIN]" if Backend.account_admin else ""]
+		_signed_in.add_theme_color_override("font_color", Palette.STABLE)
+	else:
+		_signed_in.text = "NOT SIGNED IN"
+		_signed_in.add_theme_color_override("font_color", Palette.MUTED)
+	var admin_button := find_child("AdminButton", true, false) as Button
+	if admin_button != null:
+		admin_button.disabled = not Backend.admin_owner_authorized()
+	var account_button := find_child("AccountButton", true, false) as Button
+	if account_button != null:
+		account_button.text = Backend.account_username if Backend.signed_in() else "ACCOUNT"
+
+
+func _on_account_changed(_signed_in_now: bool, _username: String, _admin: bool, _message: String) -> void:
+	if is_inside_tree():
+		_refresh_signed_in()
+
+
+func _exit_tree() -> void:
+	if Backend.account_changed.is_connected(_on_account_changed):
+		Backend.account_changed.disconnect(_on_account_changed)
 
 
 func _focus_default() -> void:
@@ -148,31 +185,52 @@ func _shared_button(button_name: String, label: String, handler: Callable) -> Bu
 	return button
 
 
-## "QUIT TO DESKTOP?" The only place that leaves the app. Esc or NO closes the question; Esc never quits.
+## "QUIT TO DESKTOP?" The only place that leaves the app. YES sits on the left, NO (the default, focused, safe answer) on
+## the right; Esc, NO or a click outside the box closes the question. Esc never quits.
 func _ask_quit() -> void:
 	if _quit_dialog != null and is_instance_valid(_quit_dialog):
 		return
-	_quit_dialog = PanelContainer.new()
+	_quit_dialog = Control.new()
 	_quit_dialog.name = "QuitDialog"
-	_quit_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_quit_dialog.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_quit_dialog.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_quit_dialog.add_theme_stylebox_override("panel", Palette.panel_box(Palette.PANEL, Palette.ACCENT_EDGE, 10))
+	_quit_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_quit_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
+	_quit_dialog.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			_close_quit_dialog())
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_quit_dialog.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.name = "QuitBox"
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.add_theme_stylebox_override("panel", Palette.panel_box(Palette.PANEL, Palette.ACCENT_EDGE, 10))
+	_quit_dialog.add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
-	_quit_dialog.add_child(box)
+	panel.add_child(box)
 	var question := Label.new()
 	question.text = "QUIT TO DESKTOP?"
 	Palette.style_label(question, Palette.INK, 8)
 	box.add_child(question)
 	var row := HBoxContainer.new()
+	row.name = "QuitChoices"
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
-	var no := _shared_button("QuitNoButton", "NO", _close_quit_dialog)
 	var yes := _shared_button("QuitYesButton", "YES", func() -> void: get_tree().quit())
-	row.add_child(no)
+	var no := _shared_button("QuitNoButton", "NO", _close_quit_dialog)
 	row.add_child(yes)
+	row.add_child(no)
+	# left/right keeps the visual order: YES | NO
+	yes.focus_neighbor_right = yes.get_path_to(no)
+	no.focus_neighbor_left = no.get_path_to(yes)
+	yes.focus_neighbor_left = yes.get_path_to(yes)
+	no.focus_neighbor_right = no.get_path_to(no)
 	add_child(_quit_dialog)
 	no.grab_focus()
 
@@ -197,12 +255,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _launch(id: String) -> void:
 	if not GameRegistry.is_launchable(id):
 		return
+	GameRegistry.active_game_id = id
 	get_tree().change_scene_to_file(String(GameRegistry.get_game(id)["scene"]))
 
 
 func _on_account() -> void:
-	pending_menu_action = "account"
-	_launch(GameRegistry.DEFAULT_ID)
+	AccountPanel.open(self)
 
 
 func _on_settings() -> void:

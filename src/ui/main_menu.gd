@@ -22,13 +22,6 @@ extends Control
 
 var _modal: Control
 var _join_input: LineEdit
-var _account_username: LineEdit
-var _account_password: LineEdit
-var _account_admin_proof: LineEdit
-var _account_status: Label
-var _manage_username: LineEdit
-var _manage_admin_proof: LineEdit
-var _manage_password: LineEdit
 var _creating_room := false
 var _routes_update_locked := false
 
@@ -53,6 +46,7 @@ func _ready() -> void:
 	TestServerBadge.attach(self)
 	_build_public_button()
 	_build_local_saves_button()
+	_build_saved_route_buttons()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
 	offline_button.pressed.connect(_on_offline_pressed)
@@ -368,251 +362,82 @@ func _on_settings_pressed() -> void:
 	settings_overlay.open()
 
 
+## The account panel is the app-wide one (AccountPanel, shared with the hub and every other game's menu); this menu only
+## shows the Last Route save (CONTINUE ROUTE / CLEAR SAVE below) and the signed-in name on the button.
 func _on_account_pressed() -> void:
 	_close_modal()
-	var content := _modal_content("ROUTE SIGNAL // ACCOUNT", "ACCOUNT", Vector2(240, 158))
-	_account_status = _modal_label("", Palette.MUTED, 6)
-	_account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(_account_status)
-	if Backend.signed_in():
-		_account_status.text = "SIGNED IN AS %s%s" % [Backend.account_username,
-			" // ADMIN" if Backend.account_admin else ""]
-		if not Backend.account_transport_warning().is_empty():
-			_account_status.text += "\n%s" % Backend.account_transport_warning()
-			_account_status.add_theme_color_override("font_color", Palette.ALERT)
-		if Backend.has_route_checkpoint():
-			var checkpoint := Backend.account_progress
-			content.add_child(_modal_label(
-				"SAVED ROUTE // DEPTH %d // SCORE %d // %s" % [
-					int(checkpoint.get("depth", 1)), int(checkpoint.get("score", 0)),
-					String(checkpoint.get("difficulty_id", "standard")).to_upper()],
-				Palette.BODY, 6))
-		else:
-			content.add_child(_modal_label("NO SAVED ROUTE CHECKPOINT", Palette.MUTED, 6))
-		if Backend.has_route_checkpoint():
-			var checkpoint_actions := HBoxContainer.new()
-			checkpoint_actions.add_theme_constant_override("separation", 5)
-			content.add_child(checkpoint_actions)
-			var continue_route := _modal_button("CONTINUE ROUTE", true)
-			continue_route.name = "ContinueRouteButton"
-			continue_route.pressed.connect(_continue_route_checkpoint)
-			checkpoint_actions.add_child(continue_route)
-			var clear_route := _modal_button("CLEAR SAVE", false)
-			clear_route.name = "ClearRouteButton"
-			clear_route.pressed.connect(Backend.account_clear_progress)
-			checkpoint_actions.add_child(clear_route)
-		var account_actions := HBoxContainer.new()
-		account_actions.add_theme_constant_override("separation", 5)
-		content.add_child(account_actions)
-		var manage := _modal_button("ACCOUNT SETTINGS", false)
-		manage.name = "AccountSettingsButton"
-		manage.pressed.connect(_on_account_manage_pressed)
-		account_actions.add_child(manage)
-		var logout := _modal_button("SIGN OUT", false)
-		logout.pressed.connect(Backend.account_logout)
-		account_actions.add_child(logout)
-		return
-	_account_status.text = "NOT SIGNED IN // PLAY WITHOUT AN ACCOUNT OR SIGN IN TO SAVE ACROSS DEVICES"
-	if not Backend.accounts_available():
-		var warning := Backend.account_transport_warning()
-		_account_status.text = warning if not warning.is_empty() \
-			else "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
-		_account_status.add_theme_color_override("font_color", Palette.ALERT)
-	elif not Backend.account_transport_warning().is_empty():
-		_account_status.text += "\n%s" % Backend.account_transport_warning()
-		_account_status.add_theme_color_override("font_color", Palette.ALERT)
-	_account_username = LineEdit.new()
-	_account_username.name = "AccountUsernameInput"
-	_account_username.placeholder_text = "USERNAME // 3-24 CHARS: A-Z 0-9 _"
-	_account_username.max_length = 24
-	_account_username.text_direction = Control.TEXT_DIRECTION_LTR
-	_account_username.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_account_username.custom_minimum_size = Vector2(0, 22)
-	Palette.style_line_edit(_account_username)
-	_account_username.text_changed.connect(_on_account_username_changed)
-	content.add_child(_account_username)
-	_account_password = LineEdit.new()
-	_account_password.name = "AccountPasswordInput"
-	_account_password.placeholder_text = "PASSWORD // 6+ CHARACTERS"
-	_account_password.secret = true
-	_account_password.text_direction = Control.TEXT_DIRECTION_LTR
-	_account_password.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_account_password.custom_minimum_size = Vector2(0, 22)
-	Palette.style_line_edit(_account_password)
-	content.add_child(_account_password)
-	_account_admin_proof = LineEdit.new()
-	_account_admin_proof.placeholder_text = "ADMIN SETUP KEY"
-	_account_admin_proof.secret = true
-	_account_admin_proof.custom_minimum_size = Vector2(0, 22)
-	_account_admin_proof.visible = false
-	_account_admin_proof.tooltip_text = "ONLY REQUIRED TO CREATE A RESERVED OWNER ACCOUNT"
-	Palette.style_line_edit(_account_admin_proof)
-	content.add_child(_account_admin_proof)
-	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 5)
-	content.add_child(actions)
-	var login := _modal_button("SIGN IN", true)
-	login.name = "AccountLoginButton"
-	login.disabled = not Backend.accounts_available()
-	login.pressed.connect(_submit_account.bind(false))
-	actions.add_child(login)
-	var register := _modal_button("CREATE ACCOUNT", false)
-	register.name = "AccountRegisterButton"
-	register.disabled = not Backend.accounts_available()
-	register.pressed.connect(_submit_account.bind(true))
-	actions.add_child(register)
+	AccountPanel.open(self)
 
 
-func _submit_account(register: bool) -> void:
-	if _account_username == null or _account_password == null:
-		return
-	_account_status.text = "CREATING ACCOUNT..." if register else "SIGNING IN..."
-	if register:
-		Backend.account_register(_account_username.text, _account_password.text,
-			_account_admin_proof.text if _account_admin_proof != null else "")
-	else:
-		Backend.account_login(_account_username.text, _account_password.text)
-
-
-func _on_account_username_changed(value: String) -> void:
-	if _account_username == null:
-		return
-	var canonical := value.strip_edges().to_upper()
-	_replace_normalized_text(_account_username, value, canonical)
-	if _account_admin_proof != null:
-		_account_admin_proof.visible = canonical in ["KYTTU", "AYTTU"]
-
-
-func _on_account_manage_pressed() -> void:
-	if not Backend.signed_in():
-		_on_account_pressed()
-		return
-	_close_modal()
-	var content := _modal_content("ROUTE SIGNAL // ACCOUNT", "ACCOUNT SETTINGS",
-		Vector2(280, 214))
-	_account_status = _modal_label("SIGNED IN AS %s" % Backend.account_username,
-		Palette.MUTED, 6)
-	_account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(_account_status)
-	content.add_child(_modal_label("USERNAME", Palette.AMBER, 6))
-	_manage_username = LineEdit.new()
-	_manage_username.name = "ManageUsernameInput"
-	_manage_username.text = Backend.account_username
-	_manage_username.max_length = 24
-	_manage_username.custom_minimum_size = Vector2(0, 20)
-	Palette.style_line_edit(_manage_username)
-	_manage_username.text_changed.connect(_on_manage_username_changed)
-	content.add_child(_manage_username)
-	_manage_admin_proof = LineEdit.new()
-	_manage_admin_proof.name = "ManageAdminProofInput"
-	_manage_admin_proof.placeholder_text = "ADMIN SETUP KEY"
-	_manage_admin_proof.secret = true
-	_manage_admin_proof.custom_minimum_size = Vector2(0, 20)
-	_manage_admin_proof.visible = false
-	Palette.style_line_edit(_manage_admin_proof)
-	content.add_child(_manage_admin_proof)
-	var rename := _modal_button("UPDATE USERNAME", false)
-	rename.name = "RenameAccountButton"
-	rename.pressed.connect(_submit_account_rename)
-	content.add_child(rename)
-
-	content.add_child(_modal_label("NEW PASSWORD", Palette.AMBER, 6))
-	_manage_password = LineEdit.new()
-	_manage_password.name = "ManagePasswordInput"
-	_manage_password.placeholder_text = "6-200 CHARACTERS"
-	_manage_password.secret = true
-	_manage_password.custom_minimum_size = Vector2(0, 20)
-	Palette.style_line_edit(_manage_password)
-	content.add_child(_manage_password)
-	var password := _modal_button("UPDATE PASSWORD", false)
-	password.name = "ChangePasswordButton"
-	password.pressed.connect(_submit_account_password)
-	content.add_child(password)
-	var back := _modal_button("BACK TO ACCOUNT", false)
-	back.name = "BackToAccountButton"
-	back.pressed.connect(_on_account_pressed)
-	content.add_child(back)
-
-
-func _on_manage_username_changed(value: String) -> void:
-	if _manage_username == null:
-		return
-	var canonical := value.strip_edges().to_upper()
-	_replace_normalized_text(_manage_username, value, canonical)
-	if _manage_admin_proof != null:
-		_manage_admin_proof.visible = canonical == "KYTTU" \
-			and Backend.account_username != "KYTTU"
-
-
-## Replacing LineEdit.text resets its caret. Preserve the insertion point so
-## uppercase normalization cannot turn normal typing into reversed typing.
-func _replace_normalized_text(field: LineEdit, value: String,
-		normalized: String) -> void:
-	if field == null or normalized == value:
-		return
-	var caret := field.caret_column
-	field.text = normalized
-	field.caret_column = mini(caret, normalized.length())
-
-
-func _submit_account_rename() -> void:
-	if _manage_username == null:
-		return
-	_account_status.text = "UPDATING USERNAME..."
-	Backend.account_rename(_manage_username.text,
-		_manage_admin_proof.text if _manage_admin_proof != null else "")
-
-
-func _submit_account_password() -> void:
-	if _manage_password == null:
-		return
-	_account_status.text = "UPDATING PASSWORD..."
-	Backend.account_change_password(_manage_password.text)
-	_manage_password.clear()
-
-
-func _on_account_changed(signed_in_now: bool, _username: String,
-		_admin: bool, message: String) -> void:
+func _on_account_changed(_signed_in_now: bool, _username: String, _admin: bool, _message: String) -> void:
 	_refresh_account_button()
-	if _account_status != null and is_instance_valid(_account_status):
-		_account_status.text = message
-	# Rebuild only when the account state changed sides: a successful sign-in
-	# replaces the form with the signed-in card, and sign-out restores the
-	# form. Rebuilding an already-signed-out form would immediately erase a
-	# failed login/registration message from the server.
-	var showing_sign_in_form := _account_username != null \
-		and is_instance_valid(_account_username)
-	var showing_management := _manage_username != null \
-		and is_instance_valid(_manage_username)
-	if _account_status != null and _modal != null \
-		and ((signed_in_now and showing_sign_in_form) \
-			or (not signed_in_now and not showing_sign_in_form)):
-		_on_account_pressed()
-	elif signed_in_now and showing_management and is_instance_valid(_manage_username):
-		_manage_username.text = Backend.account_username
+	_refresh_saved_route()
 
 
-func _on_account_progress_changed(available: bool, _progress: Dictionary,
-		_saved_at: int, message: String) -> void:
-	if _account_status == null or _modal == null:
+func _on_account_progress_changed(_available: bool, _progress: Dictionary, _saved_at: int, _message: String) -> void:
+	_refresh_saved_route()
+
+
+## The saved Last Route checkpoint lives here, not in the account panel: CONTINUE ROUTE and CLEAR SAVE appear when the
+## signed-in account has one.
+func _build_saved_route_buttons() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
+	if box == null or box.has_node("ContinueRouteButton"):
 		return
-	# A delayed checkpoint/session response must not erase a credential error on
-	# the signed-out form. Progress is meaningful only after the same client has
-	# a currently verified account session.
-	if not Backend.signed_in():
+	var summary := Label.new()
+	summary.name = "SavedRouteSummary"
+	summary.add_theme_color_override("font_color", Palette.BODY)
+	summary.add_theme_font_size_override("font_size", 6)
+	summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var continue_route := Button.new()
+	continue_route.name = "ContinueRouteButton"
+	continue_route.text = "CONTINUE ROUTE"
+	continue_route.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(continue_route, true, true)
+	continue_route.pressed.connect(_continue_route_checkpoint)
+	var clear_route := Button.new()
+	clear_route.name = "ClearRouteButton"
+	clear_route.text = "CLEAR SAVE"
+	clear_route.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(clear_route, false, true)
+	clear_route.pressed.connect(func() -> void:
+		if clear_route.text == "CLEAR SAVE":
+			clear_route.text = "SURE? CLEAR SAVE"
+			return
+		clear_route.text = "CLEAR SAVE"
+		Backend.account_clear_progress())
+	box.add_child(summary)
+	box.move_child(summary, 0)
+	box.add_child(continue_route)
+	box.move_child(continue_route, 1)
+	box.add_child(clear_route)
+	box.move_child(clear_route, 2)
+	_refresh_saved_route()
+
+
+func _refresh_saved_route() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
+	if box == null or not box.has_node("ContinueRouteButton"):
 		return
-	var showing_checkpoint := _modal.find_child("ContinueRouteButton", true, false) != null
-	if Backend.signed_in() and available != showing_checkpoint:
-		_on_account_pressed()
-	elif is_instance_valid(_account_status):
-		_account_status.text = message
+	var has_save := Backend.signed_in() and Backend.has_route_checkpoint()
+	var summary := box.get_node("SavedRouteSummary") as Label
+	summary.visible = has_save
+	if has_save:
+		summary.text = "SAVED ROUTE // %s" % String(GameRegistry.save_summary("last_route")["text"])
+	(box.get_node("ContinueRouteButton") as Button).visible = has_save
+	var clear := box.get_node("ClearRouteButton") as Button
+	clear.visible = has_save
+	if not has_save:
+		clear.text = "CLEAR SAVE"
 
 
 func _continue_route_checkpoint() -> void:
 	var error := RoomState.prepare_route_checkpoint(Backend.account_progress)
 	if not error.is_empty():
-		if _account_status != null:
-			_account_status.text = error
+		var summary := get_node_or_null("ButtonPanel/ButtonBox/SavedRouteSummary") as Label
+		if summary != null:
+			summary.visible = true
+			summary.text = error
 		return
 	_close_modal()
 	RoomState.enter(get_tree())
@@ -708,13 +533,6 @@ func _close_modal() -> void:
 		_modal.queue_free()
 	_modal = null
 	_join_input = null
-	_account_username = null
-	_account_password = null
-	_account_admin_proof = null
-	_account_status = null
-	_manage_username = null
-	_manage_admin_proof = null
-	_manage_password = null
 
 
 ## The menu's last button no longer quits the app: the hub is the main menu, quitting is its own button there.

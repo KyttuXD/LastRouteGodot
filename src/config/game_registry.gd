@@ -42,8 +42,26 @@ const GAMES := [
 ## The hub is the main menu: the first screen after boot and the one every game returns to.
 const HUB_SCENE := "res://scenes/game_hub.tscn"
 const DEFAULT_ID := "last_route"
+## The game whose menus are open (set when the hub launches one); settings and the controls tabs follow it.
+static var active_game_id := "last_route"
 ## Per-run choice of what the hub opens when the player has used it before.
 const SETTINGS_SECTION := "hub"
+
+
+## What the shared account panel lists under SAVES for a game: {has_save, text}. Last Route reads its route checkpoint; any
+## other game reads `games.<id>.summary` from the account document (the game writes it with
+## Backend.account_save_game_progress), so a new game appears with no change to the panel.
+static func save_summary(id: String) -> Dictionary:
+	if id == "last_route":
+		if Backend.has_route_checkpoint():
+			var checkpoint := Backend.account_progress
+			return {"has_save": true, "text": "DEPTH %d // SCORE %d // %s" % [int(checkpoint.get("depth", 1)),
+				int(checkpoint.get("score", 0)), String(checkpoint.get("difficulty_id", "standard")).to_upper()]}
+		return {"has_save": false, "text": "NONE"}
+	var data := Backend.game_progress(id)
+	if data.is_empty():
+		return {"has_save": false, "text": "NONE"}
+	return {"has_save": true, "text": String(data.get("summary", "SAVED")).to_upper()}
 
 
 static func all() -> Array:
