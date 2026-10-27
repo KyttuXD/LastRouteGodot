@@ -15,7 +15,7 @@ framework contract and the status table. The menus already list all nine (`docs/
 | 4 | Bedtime (`bedroom`) | Night 1-6 | `bedroom/bedroom-logic.js` 126 | `validate-bedroom`, `-variety-bedroom` | not built |
 | 5 | The Facility (`story`) | Night 1-6 | `story/story-logic.js` 278, `story-data.js` | `validate-story`, `-variety-facility` | not built |
 | 6 | The Descent (`descent`) | Descent 1-5 | `descent/descent-logic.js` 280 | `validate-descent`, `-variety-descent` | not built |
-| 7 | Salvage Run (`dayshift`) | Week 1-5 | `dayshift/dayshift-logic.js` 214 | `validate-dayshift`, `-variety-salvage` | not built |
+| 7 | Salvage Run (`dayshift`) | Week 1-5 | `dayshift/dayshift-logic.js` 214 | `validate-dayshift`, `-variety-salvage` | **Built** (`src/night_watch/dayshift/`, [capture](night_watch_modes/dayshift_rack.png)): the shop, all five weeks and Custom Night (plays week 4); bit-exact rules port, `validate_night_watch_dayshift` replays 20 whole 2D shifts event for event (`scripts/fixtures/night_watch_dayshift_golden.json`, regenerate with `node scripts/fixtures/gen_night_watch_dayshift_golden.mjs`); surplus carries over only via the end card's NEXT; resume left to the shared pass |
 | 8 | Open Air (`extra`, code `openair`) | Rooftop, Bus Stop, Campfire | `openair/openair-logic.js` 245 | `validate-openair`, `-variety-openair`, `-lure-air` | not built |
 | 9 | Mixed Shift (`mixed`) | Quiet, Steady, Restless, Chaos, Endless | `mixed/mixed-logic.js` 772, `mixed-data.js` | `validate-mixed`, `-mixed-art`, `-mixed-render` | not built |
 

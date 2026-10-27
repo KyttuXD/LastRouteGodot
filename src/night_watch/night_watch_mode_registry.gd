@@ -8,6 +8,7 @@ extends RefCounted
 const SCENES := {
 	"classic": "res://scenes/night_watch.tscn",
 	"mask": "res://scenes/night_watch_mask.tscn",
+	"dayshift": "res://scenes/night_watch_dayshift.tscn",
 }
 
 
