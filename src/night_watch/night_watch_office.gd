@@ -5,7 +5,7 @@ extends Node3D
 ## breaker box and a vent hatch, and a doorway on each side wall with a sliding slab, a control panel (DOOR and LIGHT buttons) on
 ## the wall beside it and a short dark hall behind it. Everything is built from shaded cubes (NightWatchArt: baked vertex-colour
 ## shading and painted pixel textures, no post effects) in named prop groups. Everything solid has a collision body on layer 1;
-## the things you can aim at (stations) have a small body on layer 2 with a "station_id" meta and a prompt. Real lights are only
+## the things you can aim at are NightWatchStation nodes (shared interactables: prompt and use through the shared player). Real lights are only
 ## the desk lamp and the two door lights (on only while held) plus a very dim light in each hall (docs/REF_LOOK.md budget).
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
@@ -33,6 +33,7 @@ var button_meshes := {}  # "doorL_door", "doorL_light", ... -> MeshInstance3D
 ## 0 = open, 1 = shut, per door: the slab slides toward its target in the scene's _process.
 var slab_progress := {"doorL": 0.0, "doorR": 0.0}
 var props := {}          # prop name -> Node3D group (for the validator)
+var stations := {}       # station id -> NightWatchStation
 
 
 func _ready() -> void:
@@ -52,7 +53,7 @@ func _prop(prop_name: String, pos := Vector3.ZERO) -> Node3D:
 	return node
 
 
-func _body(parent: Node3D, size: Vector3, pos: Vector3, layer: int, station_id := "") -> StaticBody3D:
+func _body(parent: Node3D, size: Vector3, pos: Vector3, layer: int) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.collision_layer = 1 << (layer - 1)
 	body.collision_mask = 0
@@ -62,16 +63,22 @@ func _body(parent: Node3D, size: Vector3, pos: Vector3, layer: int, station_id :
 	box.size = size
 	shape.shape = box
 	body.add_child(shape)
-	if station_id != "":
-		body.set_meta("station_id", station_id)
 	parent.add_child(body)
 	return body
 
 
-## A station: a small layer-2 body you can aim at, with its prompt.
-func _station(id: String, prompt: String, size: Vector3, pos: Vector3) -> void:
+## A station: a shared-style interactable the player aims at and uses with the interact action. `focus` is where the aim cone points.
+func _station(id: String, prompt: String, _size: Vector3, pos: Vector3, focus := Vector3.ZERO) -> NightWatchStation:
+	var st := NightWatchStation.new()
+	st.name = "Station_" + id
+	st.station_id = id
+	st.prompt_text = prompt
+	st.focus_local = focus
+	st.position = pos
+	add_child(st)
 	prompts[id] = prompt
-	_body(self, size, pos, 2, id)
+	stations[id] = st
+	return st
 
 
 func build() -> void:
@@ -269,7 +276,7 @@ func _build_desk() -> void:
 	lamp.omni_range = 5.0
 	lamp.position = Vector3(0.9, 1.35, -1.6)
 	add_child(lamp)
-	_station("monitor", "MONITOR // CAMERAS", Vector3(1.0, 0.7, 0.3), Vector3(0, 1.12, -2.0))
+	_station("monitor", "MONITOR // CAMERAS", Vector3.ZERO, Vector3(0, 1.12, -2.0))
 	_station("lamp", "DESK LAMP", Vector3(0.4, 0.6, 0.4), Vector3(0.9, 1.0, -1.7))
 
 
@@ -285,7 +292,7 @@ func _build_chair() -> void:
 	for x in [-0.22, 0.22]:
 		for z in [-0.22, 0.22]:
 			_c(chair, Vector3(0.07, 0.07, 0.07), Vector3(x, 0.035, z), "ChairWheel", {"kind": "plastic", "tint": Color(0.7, 0.7, 0.7)})
-	_station("chair", "SIT AT DESK", Vector3(0.6, 0.9, 0.6), Vector3(0.0, 0.55, -1.0))
+	_station("chair", "SIT AT DESK", Vector3.ZERO, Vector3(0.0, 0.0, -1.05), Vector3(0.0, 0.62, 0.0))
 
 
 # --- the breaker box, vent hatch, shelf, clock, poster, bin ----------------------------------------------------------------

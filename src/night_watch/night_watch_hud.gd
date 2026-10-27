@@ -22,7 +22,6 @@ var power_label: Label
 var usage_label: Label
 var hint_label: Label
 var prompt_label: Label
-var crosshair: ColorRect
 var note_label: Label
 var _note_left := 0.0
 var call_panel: PanelContainer
@@ -93,26 +92,34 @@ func _build_status(root: Control) -> void:
 	usage_label.name = "UsageLabel"
 	for l in [clock_label, night_label, power_label, usage_label]:
 		box.add_child(l)
-	hint_label = _label("WASD move   E use   hold E on LIGHT   1 / 2 doors   3 / 4 lights   TAB monitor   F lamp   R radio   ESC pause", 7, Color(0.7, 0.68, 0.62))
+	hint_label = _label("WASD move   E use   hold E on LIGHT   Z / X doors   G / H lights   U monitor   Y lamp   R radio   P pause", 7, Color(0.7, 0.68, 0.62))
 	hint_label.name = "HintLabel"
 	hint_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hint_label.position = Vector2(8, -14)
 	hint_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	root.add_child(hint_label)
-	crosshair = ColorRect.new()
-	crosshair.name = "Crosshair"
-	crosshair.color = Color(1, 1, 1, 0.55)
-	crosshair.size = Vector2(2, 2)
-	crosshair.set_anchors_preset(Control.PRESET_CENTER)
-	crosshair.position = Vector2(-1, -1)
-	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(crosshair)
-	prompt_label = _label("", 9, AMBER)
+	# the shared crosshair (it follows MouseLock) and the shared interaction prompt (the route HUD's InteractionLabel, same style)
+	var reticle := Crosshair.new()
+	reticle.name = "Crosshair"
+	reticle.set_anchors_preset(Control.PRESET_FULL_RECT)
+	reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(reticle)
+	prompt_label = Label.new()
 	prompt_label.name = "PromptLabel"
+	prompt_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prompt_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	prompt_label.offset_left = -150
+	prompt_label.offset_top = -98
+	prompt_label.offset_right = 150
+	prompt_label.offset_bottom = -79
+	prompt_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	prompt_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	prompt_label.add_theme_color_override("font_color", Color(0.949, 0.929, 0.882, 1))
+	prompt_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 1))
+	prompt_label.add_theme_constant_override("shadow_offset_x", 1)
+	prompt_label.add_theme_constant_override("shadow_offset_y", 1)
+	prompt_label.add_theme_font_size_override("font_size", 10)
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	prompt_label.set_anchors_preset(Control.PRESET_CENTER)
-	prompt_label.custom_minimum_size = Vector2(300, 0)
-	prompt_label.position = Vector2(-150, 12)
 	root.add_child(prompt_label)
 	note_label = _label("", 8, Color(0.85, 0.82, 0.75))
 	note_label.name = "NoteLabel"
@@ -337,7 +344,6 @@ func show_note(text: String, seconds := 2.5) -> void:
 
 
 func show_monitor(on: bool) -> void:
-	crosshair.visible = not on
 	prompt_label.visible = not on
 	monitor_root.visible = on
 	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
