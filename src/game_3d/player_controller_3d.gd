@@ -63,6 +63,8 @@ const BODY_MODEL_SCENE := PlayerModels.SCENE
 @onready var player_collision: CollisionShape3D = $CollisionShape3D
 
 ## Floor surface under the runner (SurfaceSounds), set by the run scene each frame; "" = the generic step.
+## How close to an interactable's focus point the view ray may stop and still count as reaching it (door leaf/frame).
+const INTERACTION_FOCUS_TOLERANCE := 0.55
 var footstep_surface := ""
 var flashlight_enabled := false
 ## First-person equipment is deliberately camera-local. The authoritative
@@ -2129,4 +2131,9 @@ func _interaction_has_line_of_sight(focus: Vector3, candidate: RouteInteractable
 	if hit.is_empty():
 		return true
 	var collider = hit.get("collider")
-	return collider == candidate or (collider is Node and candidate.is_ancestor_of(collider))
+	if collider == candidate or (collider is Node and candidate.is_ancestor_of(collider)):
+		return true
+	# A door's leaf, frame and keep-clear colliders are separate bodies (CollisionWorld / the chunk), so the ray toward
+	# its focus point stops on the door itself or its frame a few cm short. That still is the door: a hit at the focus
+	# counts. Only something well in front of it (a wall, a prop) blocks the interaction.
+	return (hit.get("position", camera.global_position) as Vector3).distance_to(focus) <= INTERACTION_FOCUS_TOLERANCE
