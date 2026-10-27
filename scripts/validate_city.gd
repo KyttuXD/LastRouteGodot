@@ -284,6 +284,63 @@ func _check_run_scene(host: Node) -> void:
 	var player := scene.get_node("%Player") as PlayerController3D
 	_expect(player.global_position.distance_to(Vector3(22.5, .04, 22.5)) < 2.0, "the runner did not start on the spawn")
 	_expect(facility.get_node_or_null("CitySky") != null, "the dome sky is missing")
+	_check_far_rendering(facility)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+
+
+## Distance rendering (the "buildings look wrong from far away" bug): tiles must be sampled per layer (no atlas mipmap
+## bleed), every chunk mesh must carry correct bounds, nothing may draw twice in the same place (z-fighting at range),
+## and no City mesh may carry mesh LODs.
+func _check_far_rendering(facility: StreamedFacilityView3D) -> void:
+	var materials := CitySurface.materials()
+	for index in 2:
+		var material := materials[index] as ShaderMaterial
+		_expect(material != null, "City ground/solid materials must be tile-array shaders, not a mipmapped atlas")
+		if material == null:
+			continue
+		var tiles := material.get_shader_parameter("tiles") as Texture2DArray
+		_expect(tiles != null and tiles.get_layers() == CityAtlas.NAMES.size(),
+			"the tile array does not hold one layer per atlas tile")
+		_expect(tiles != null and tiles.get_width() == CityAtlas.TILE_PX and tiles.get_height() == CityAtlas.TILE_PX,
+			"tile layers are not %d px" % CityAtlas.TILE_PX)
+		_expect((material.shader.code as String).contains("filter_nearest_mipmap"),
+			"the tile shader must sample nearest with per-layer mipmaps")
+	_expect(CityAtlas.NAMES.size() <= CityAtlas.COLUMNS * CityAtlas.ROWS, "more tiles than the atlas sheet holds")
+	var sheet := (load(CityAtlas.ALBEDO_PATH) as Texture2D).get_image()
+	_expect(sheet.get_width() == CityAtlas.SHEET_PX and sheet.get_height() == CityAtlas.SHEET_PX, "atlas sheet size changed")
+	var quads_checked := 0
+	for chunk_value in facility._loaded.values():
+		var chunk := chunk_value as Node3D
+		var surface := chunk.get_node_or_null("Surface") as MeshInstance3D
+		_expect(surface != null and surface.mesh is ArrayMesh, "chunk %s has no surface mesh" % chunk.name)
+		if surface == null:
+			continue
+		var mesh := surface.mesh as ArrayMesh
+		var seen := {}
+		var bounds := mesh.get_aabb()
+		for surface_index in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(surface_index)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			_expect(arrays[Mesh.ARRAY_TEX_UV2] != null and (arrays[Mesh.ARRAY_TEX_UV2] as PackedVector2Array).size() == vertices.size(),
+				"%s surface %d has no per-quad tile layer (UV2)" % [chunk.name, surface_index])
+			_expect(mesh.surface_get_lod_count(surface_index) == 0 if mesh.has_method("surface_get_lod_count") else true,
+				"%s surface %d carries mesh LODs" % [chunk.name, surface_index])
+			for vertex in vertices:
+				_expect(bounds.grow(0.01).has_point(vertex), "%s vertex outside the mesh bounds" % chunk.name)
+				break
+			var quad := 0
+			while quad + 3 < vertices.size():
+				var lo := vertices[quad]
+				var hi := vertices[quad]
+				for corner in 4:
+					lo = lo.min(vertices[quad + corner])
+					hi = hi.max(vertices[quad + corner])
+				var key := "%d|%s|%s|%s" % [surface_index, str(lo.snappedf(.001)), str(hi.snappedf(.001)), str(normals[quad].snappedf(.01))]
+				_expect(not seen.has(key), "%s draws the same quad twice (z-fighting) at %s" % [chunk.name, lo])
+				seen[key] = true
+				quad += 4
+				quads_checked += 1
+	_expect(quads_checked > 20000, "far-rendering check saw only %d quads" % quads_checked)

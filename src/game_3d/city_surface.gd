@@ -9,11 +9,75 @@ enum Mat { GROUND, SOLID, RIM }
 
 const FACE_DIRS := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
 
+const TILE_SHADER_CODE := """
+shader_type spatial;
+// One layer per atlas tile: mipmaps are per layer, so a distant facade never blends in its neighbour tiles
+// (a 2D atlas with mipmaps smears windows, bricks and glow into each other with distance).
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap, repeat_disable;
+uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_disable;
+uniform float roughness_value = 0.9;
+uniform float glow_energy = 1.05;
+varying flat float layer;
+
+void vertex() { layer = UV2.x; }
+
+void fragment() {
+	ALBEDO = texture(tiles, vec3(UV, layer)).rgb;
+	ROUGHNESS = roughness_value;
+	EMISSION = texture(glow, vec3(UV, layer)).rgb * glow_energy;
+}
+"""
+
 static var _materials: Array = []
+static var _tile_arrays: Array = []
+
+
+## The atlas cut into one image per tile (own mip chain each) as two Texture2DArrays: colour and emission.
+static func tile_arrays() -> Array:
+	if not _tile_arrays.is_empty():
+		return _tile_arrays
+	for path in [CityAtlas.ALBEDO_PATH, CityAtlas.EMISSION_PATH]:
+		var sheet := (load(path) as Texture2D).get_image()
+		if sheet.is_compressed():
+			sheet.decompress()
+		sheet.convert(Image.FORMAT_RGBA8)
+		var layers: Array[Image] = []
+		for index in CityAtlas.NAMES.size():
+			var tile := sheet.get_region(Rect2i((index % CityAtlas.COLUMNS) * CityAtlas.TILE_PX,
+				(index / CityAtlas.COLUMNS) * CityAtlas.TILE_PX, CityAtlas.TILE_PX, CityAtlas.TILE_PX))
+			tile.generate_mipmaps()
+			layers.append(tile)
+		var array := Texture2DArray.new()
+		array.create_from_images(layers)
+		_tile_arrays.append(array)
+	return _tile_arrays
+
+
+static func materials() -> Array:
+	if not _materials.is_empty():
+		return _materials
+	var arrays := tile_arrays()
+	var shader := Shader.new()
+	shader.code = TILE_SHADER_CODE
+	for roughness in [0.42, 0.92]:
+		var material := ShaderMaterial.new()
+		material.shader = shader
+		material.set_shader_parameter("tiles", arrays[0])
+		material.set_shader_parameter("glow", arrays[1])
+		material.set_shader_parameter("roughness_value", roughness)
+		_materials.append(material)
+	var rim := StandardMaterial3D.new()
+	rim.albedo_texture = load(CityAtlas.RIM_PATH) as Texture2D
+	rim.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
+	rim.roughness = 0.95
+	_materials.append(rim)
+	return _materials
+
 
 var _vertices := [PackedVector3Array(), PackedVector3Array(), PackedVector3Array()]
 var _normals := [PackedVector3Array(), PackedVector3Array(), PackedVector3Array()]
 var _uvs := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
+var _layers := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]   # UV2.x = atlas tile layer
 var _indices := [PackedInt32Array(), PackedInt32Array(), PackedInt32Array()]
 
 
@@ -47,8 +111,8 @@ func is_empty() -> bool:
 ## A quad p0..p3 (bottom-left, bottom-right, top-right, top-left seen from the front) facing `normal`.
 func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: Vector3, tile: int,
 		repeat_v: float = 1.0) -> void:
-	var uv := CityAtlas.uv_rect(tile)
 	var v: PackedVector3Array = _vertices[mat]
+	var layers: PackedVector2Array = _layers[mat]
 	var n: PackedVector3Array = _normals[mat]
 	var t: PackedVector2Array = _uvs[mat]
 	var idx: PackedInt32Array = _indices[mat]
@@ -59,8 +123,9 @@ func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: 
 	if mat == Mat.RIM:
 		t.append(Vector2(0, repeat_v)); t.append(Vector2(1, repeat_v)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
 	else:
-		t.append(Vector2(uv.position.x, uv.end.y)); t.append(Vector2(uv.end.x, uv.end.y))
-		t.append(Vector2(uv.end.x, uv.position.y)); t.append(Vector2(uv.position.x, uv.position.y))
+		t.append(Vector2(0, 1)); t.append(Vector2(1, 1)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
+	for _i in 4:
+		layers.append(Vector2(float(tile), 0.0))
 	# Godot draws clockwise triangles as front faces.
 	if (p1 - p0).cross(p2 - p0).dot(normal) > 0.0:
 		idx.append(base); idx.append(base + 2); idx.append(base + 1)
@@ -122,6 +187,7 @@ func build() -> ArrayMesh:
 		arrays[Mesh.ARRAY_VERTEX] = v
 		arrays[Mesh.ARRAY_NORMAL] = _normals[mat]
 		arrays[Mesh.ARRAY_TEX_UV] = _uvs[mat]
+		arrays[Mesh.ARRAY_TEX_UV2] = _layers[mat]
 		arrays[Mesh.ARRAY_INDEX] = _indices[mat]
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, mats[mat])

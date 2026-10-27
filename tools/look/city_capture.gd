@@ -10,16 +10,27 @@ extends Node
 var _out_dir := ""
 var _tag := "city"
 var _scene: Node
+var _only := OS.get_environment("CAP_ONLY")
+var _fps := OS.get_environment("CAP_FPS") != ""
 
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
-	_out_dir = args[0] if args.size() > 0 else "/tmp"
-	_tag = args[1] if args.size() > 1 else "city"
+	var positional := []
+	for argument in args:
+		if String(argument).begins_with("--only="):
+			_only = String(argument).trim_prefix("--only=")
+		elif String(argument) == "--fps":
+			_fps = true
+		else:
+			positional.append(argument)
+	_out_dir = positional[0] if positional.size() > 0 else "/tmp"
+	_tag = positional[1] if positional.size() > 1 else "city"
 	RoomState.create_local(RoomState.Mode.CITY)
-	RoomState.seed_text = args[2] if args.size() > 2 else "CITY-LOOK"
+	RoomState.seed_text = positional[2] if positional.size() > 2 else "CITY-LOOK"
+	DirAccess.make_dir_recursive_absolute(_out_dir) if _out_dir.is_absolute_path() else DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://").path_join(_out_dir))
 	Backend.enable_offline_mode()
-	if OS.get_environment("CAP_FPS") != "":
+	if _fps:
 		Settings.fps_limit = 0
 		Settings.vsync_enabled = false
 		Settings._apply_display_performance()
@@ -56,6 +67,14 @@ func _spots(layout: CityLayout) -> Array:
 		{"name": "sky", "pos": _at(112.5, 84.5), "yaw": 0.0, "pitch": 62.0},
 		{"name": "rim_gate", "pos": _at(112.5, 118.5), "yaw": 180.0, "pitch": 6.0},
 	]
+	# Distance series: the main street looking east from d metres away from the end, the avenue looking north, the
+	# skyline and the dome frame from the roundabout.
+	for distance in [3, 15, 40, 100, 180]:
+		spots.append({"name": "far_main_d%03d" % distance, "pos": _at(200.5 - distance, 67.5), "yaw": -90.0, "pitch": 2.0})
+		spots.append({"name": "far_avenue_d%03d" % distance, "pos": _at(112.5, 120.5 - distance), "yaw": 0.0, "pitch": 2.0})
+	for yaw in [0, 90, 180, 270]:
+		spots.append({"name": "far_skyline_y%03d" % yaw, "pos": _at(112.5, 84.5), "yaw": float(yaw), "pitch": 9.0})
+	spots.append({"name": "far_dome", "pos": _at(112.5, 84.5), "yaw": 30.0, "pitch": 38.0})
 	if not layout.buildings.is_empty():
 		var building: Dictionary = layout.buildings[0]
 		var interior: Rect2i = building["interior"]
@@ -80,7 +99,7 @@ func _run() -> void:
 	if OS.get_environment("CAP_LIST") != "":
 		for spot in spots:
 			print(spot["name"], " ", spot["pos"])
-	var only := OS.get_environment("CAP_ONLY")
+	var only := _only
 	for spot in spots:
 		if only != "":
 			var wanted := false
@@ -95,7 +114,7 @@ func _run() -> void:
 		player._apply_look_rotation()
 		facility.refresh_at_tracked_player()
 		await _wait(24)
-		if OS.get_environment("CAP_FPS") != "":
+		if _fps:
 			var t0 := Time.get_ticks_usec()
 			await _wait(60)
 			print("%s: %.1f fps, %d draw calls, %d objects" % [spot["name"],
