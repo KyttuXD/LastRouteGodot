@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Build, sign and push one curated City map on VPS 2 (runs as osmbuild; docs/CITY_OSM_MAPS.md section 2.1).
+#   build_map.sh <id> [version]     version defaults to the next free number under /srv/osm/out/<id>/
+#   NO_PUSH=1 build_map.sh <id>     build and sign only
+# Output /srv/osm/out/<id>/<version>/ is immutable once built; the push lands in VPS 3's incoming drop and is
+# only served after city_maps_promote.sh checks it there.
+set -euo pipefail
+OSM=/srv/osm
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ID="${1:?map id}"
+LINE="$(grep -E "^$ID\|" "$HERE/maps.conf" || true)"
+[ -n "$LINE" ] || { echo "unknown map id $ID (see maps.conf)" >&2; exit 2; }
+IFS='|' read -r _ NAME EXTRACT BBOX <<<"$LINE"
+IFS=',' read -r S W N E <<<"$BBOX"
+if [ -n "${2:-}" ]; then VER="$2"; else
+  VER=$(( $(ls "$OSM/out/$ID" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1 || echo 0) + 1 ))
+fi
+OUT="$OSM/out/$ID/$VER"
+[ ! -e "$OUT" ] || { echo "$OUT already exists (versions are immutable)" >&2; exit 3; }
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+# 300 m margin so ways crossing the map edge are complete
+M=0.003
+osmium extract -b "$(echo "$W - $M" | bc),$(echo "$S - $M" | bc),$(echo "$E + $M" | bc),$(echo "$N + $M" | bc)" \
+  --strategy=complete_ways -o "$WORK/clip.osm.pbf" "$OSM/extracts/$EXTRACT"
+osmium export --geometry-types=point,linestring,polygon -f geojsonseq -a type,id -o "$WORK/clip.geojsonseq" "$WORK/clip.osm.pbf"
+python3 -I "$HERE/osm_city_convert.py" "$WORK/clip.geojsonseq" "$WORK/out" --name "$NAME" --id "$ID" \
+  --bbox "$S,$W,$N,$E" --version "$VER"
+openssl pkeyutl -sign -rawin -inkey "$OSM/keys/maps.key" -in "$WORK/out/manifest.json" -out "$WORK/out/manifest.sig"
+openssl pkeyutl -verify -rawin -pubin -inkey "$OSM/keys/maps_pub.pem" -in "$WORK/out/manifest.json" -sigfile "$WORK/out/manifest.sig" >/dev/null
+mkdir -p "$(dirname "$OUT")"; mv "$WORK/out" "$OUT"; chmod -R a+rX "$OUT"
+echo "built $OUT"
+if [ -z "${NO_PUSH:-}" ]; then
+  rsync -a -e "ssh -i $OSM/keys/push_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes" "$OSM/out/$ID/$VER" "osmpush@194.156.90.219:$ID/"
+  echo "pushed $ID/$VER to VPS 3 incoming"
+fi

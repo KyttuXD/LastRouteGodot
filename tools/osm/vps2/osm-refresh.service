@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh OSM extracts and rebuild curated Last Route City maps
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=osmbuild
+ExecStart=/srv/osm/scripts/refresh_all.sh
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/osm
+PrivateTmp=yes
