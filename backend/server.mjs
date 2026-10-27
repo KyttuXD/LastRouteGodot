@@ -4,6 +4,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
+import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
@@ -54,7 +55,7 @@ function responseHeaders() {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}`,
   };
 }
 
@@ -244,6 +245,7 @@ export function createLastRouteServer({
   accountStorePath = null,
   publicDirectory = null,
   customMapDirectory = null,
+  cityMaps: cityMapOptions = {},
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -274,6 +276,8 @@ export function createLastRouteServer({
   });
   const publicRouteReady = publicRoute.load();
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
+  const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
+    roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
   const devTokens = new Set();
   const requestRates = new Map();
   let enetRelay = null;
@@ -374,6 +378,16 @@ export function createLastRouteServer({
         updates: updateStatus,
         now: new Date(now()).toISOString(),
       });
+    }
+
+    if (new Set(["GET", "HEAD"]).has(request.method) && url.pathname.startsWith("/api/city-maps/files/")) {
+      const result = cityMaps.file(url.pathname, request.headers);
+      if (result && result[0] === 200) {
+        response.writeHead(200, { ...responseHeaders(), "cache-control": "private, max-age=600",
+          "content-type": "application/octet-stream", "content-length": result[1].length, etag: `"${result[2]}"` });
+        return response.end(request.method === "HEAD" ? undefined : result[1]);
+      }
+      if (result) return json(response, result[0], result[1]);
     }
 
     const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
@@ -572,6 +586,8 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/rooms/custom-map") result = roomService.setCustomMap(body);
     else if (url.pathname === "/api/rooms/dialog-start") result = roomService.startDialog(body);
     else if (url.pathname === "/api/rooms/dialog-advance") result = roomService.advanceDialog(body);
+    else if (url.pathname === "/api/city-maps/list") result = cityMaps.list(body);
+    else if (url.pathname === "/api/city-maps/ticket") result = cityMaps.ticket(body);
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
     else if (url.pathname === "/api/account/register") {
       result = await accountService.register(body, { allowDeveloperNames: developerRequest(body) });
@@ -700,8 +716,15 @@ export function startLastRouteServerFromEnvironment() {
     Number(process.env.LASTROUTE_API_RATE_LIMIT) || 600);
   const accountRateLimitMax = Math.max(1,
     Number(process.env.LASTROUTE_ACCOUNT_RATE_LIMIT) || 30);
+  const cityMapDirectory = environmentPath("LASTROUTE_CITY_MAPS_DIR");
+  const cityMapKeyPath = cityMapDirectory ? join(cityMapDirectory, "maps_pub.pem") : "";
   const server = createLastRouteServer({
     enetRoomTtlMs,
+    cityMaps: {
+      directory: cityMapDirectory,
+      ticketSecret: String(process.env.LASTROUTE_CITY_MAP_TICKET_SECRET || ""),
+      publicKeyPem: cityMapKeyPath && existsSync(cityMapKeyPath) ? readFileSync(cityMapKeyPath, "utf8") : "",
+    },
     accountStorePath,
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,

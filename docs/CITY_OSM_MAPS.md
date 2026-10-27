@@ -1,7 +1,7 @@
 # KYTTU: The City — real-world OSM maps (online only)
 
-Status: **design + offline proof of concept**. Nothing here is deployed; every server step in section 9 is
-**[KT OK]** and waits for KT's approval. The City lane (`claude/city-lane`) owns City gameplay code; this work
+Status: **server side live on the TEST instance only** (approved by KT 2026-10-27, see section 11). Production
+(8105) is untouched until the City hooks land and the client is wired. The City lane (`claude/city-lane`) owns City gameplay code; this work
 lives only in new files (`tools/osm/`, `src/osm_city/`, `scenes/osm_city_preview.tscn`, this doc) and asks the
 City lane for the integration points listed in section 6.
 
@@ -173,7 +173,7 @@ Gameplay hooks:
 | id | area | bbox | size | extract |
 | --- | --- | --- | --- | --- |
 | `lower-manhattan` | Financial District: Wall St, Broadway, Trinity Church, Bowling Green | 40.7020, -74.0160, 40.7110, -74.0040 | 1.0 × 1.0 km (PoC done) | new-york |
-| `miami-beach-south` | South Beach: Ocean Dr / Collins Ave / Washington Ave, 5th–15th St, Lummus Park | 25.7700, -80.1420, 25.7860, -80.1290 | 1.3 × 1.8 km | florida |
+| `miami-beach-south` | South Beach: Ocean Dr / Collins Ave / Washington Ave, 5th–15th St, Lummus Park | 25.7730, -80.1400, 25.7860, -80.1290 | 1.1 × 1.45 km | florida |
 | `times-square` | Midtown: Times Sq, Bryant Park, 40th–48th St, 6th–8th Ave | 40.7520, -73.9910, 40.7610, -73.9810 | 0.85 × 1.0 km | new-york |
 
 ## 9. Install / deploy steps for KT to approve
@@ -220,3 +220,34 @@ Gameplay hooks:
 * Mini result: map built in 271 ms; 75 FPS engine rate (vsync cap) on 1 km² of unstreamed boxes.
 * Known gaps: coastline/river water fill, crosswalk orientation, building interiors/props (needs section 6 hook),
   shelters/spawn/gate per map, signing and the backend routes.
+
+## 11. What is set up (2026-10-27, approved by KT)
+
+**VPS 2** (`pink-eagle-01975`)
+* System user `osmbuild` (no login shell) owns `/srv/osm`; scripts in `/srv/osm/scripts` are root-owned copies of
+  `tools/osm/osm_city_convert.py` and `tools/osm/vps2/{build_map.sh,refresh_all.sh,maps.conf}`.
+* `/srv/osm/keys` (0700): `maps.key` Ed25519 signing key (0600, never leaves VPS 2), `maps_pub.pem` (also in the
+  repo as `src/osm_city/maps_pub.pem`), `push_ed25519` SSH key for the VPS 3 drop.
+* `osm-refresh.timer` (Sun 04:00 UTC, units in `tools/osm/vps2/`) runs `refresh_all.sh`: `curl -z` the Geofabrik
+  extracts, then build + sign + push a new version of every map in `maps.conf`. Promotion stays manual.
+* Rebuild one map by hand: `sudo -u osmbuild /srv/osm/scripts/build_map.sh <id>`.
+
+**VPS 3** (`green-duck-34581`)
+* User `osmpush` whose only key runs `rrsync -wo /srv/city-maps-incoming` (write-only; shell and reads refused,
+  verified). Incoming is outside the services' state dirs, so the hardened units are unchanged.
+* `/var/lib/lastroute-godot2-test/city-maps/{maps_pub.pem,live/index.json,live/<id>/<ver>/}` (root:lastroute2test,
+  0750/0640). Promote: `sudo deploy/city_maps_promote.sh --instance test <id> <ver> --apply` (signature + sha256
+  check, copy, index update; `--unlist <id>` removes a map). Dry run without `--apply`.
+* Test env file got `LASTROUTE_CITY_MAPS_DIR` and a generated `LASTROUTE_CITY_MAP_TICKET_SECRET` (backup of the
+  previous file in `/root/backups/city-maps-20261027-135701/`).
+* Backend release `20261027-135852-nogit` on the test instance via `deploy.sh --instance test` (dry run, apply,
+  built-in smoke passed). Roll back: `sudo deploy/deploy.sh --instance test --rollback --apply`.
+* Routes: `POST /api/city-maps/list`, `POST /api/city-maps/ticket`, `GET /api/city-maps/files/<id>/<ver>/<file>`
+  (header `x-city-map-ticket`), implemented in `backend/city_maps.mjs`, tests in `backend/city_maps.test.mjs`.
+  The backend verifies the manifest signature and every sha256 before listing a version.
+* Live on test: `lower-manhattan` v1 (532 buildings), `miami-beach-south` v1 (1031), `times-square` v1 (746).
+* Production: no file, env or release changed (`/api/city-maps/*` there still answers 404).
+
+**For production later**: create `/var/lib/lastroute-godot2/city-maps` the same way, add the two env vars to the
+production env file (backup first), promote with `--instance production`, deploy the tested release with
+`deploy.sh --src /opt/lastroute-godot2-test/releases/<release> --apply`.
