@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 export const CITY_MAP_TICKET_HEADER = "x-city-map-ticket";
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const FILE_PATTERN = /^(manifest\.json|manifest\.sig|features\.json\.gz|c_\d{1,3}_\d{1,3}\.bin)$/;
+const FILE_PATTERN = /^(manifest\.json|manifest\.sig|manifest\.rsa\.sig|features\.json\.gz|c_\d{1,3}_\d{1,3}\.bin)$/;
 const DEFAULT_TICKET_TTL_MS = 10 * 60 * 1000;
 const INDEX_RECHECK_MS = 10_000;
 
@@ -42,6 +42,9 @@ export function createCityMaps({ directory = null, ticketSecret = "", publicKeyP
       throw new Error("manifest does not match its folder");
     }
     const files = new Map([["manifest.json", manifestBytes], ["manifest.sig", signature]]);
+    // RSA-SHA256 signature of the same manifest for the Godot client (its Crypto API has no Ed25519)
+    const rsaPath = join(folder, "manifest.rsa.sig");
+    if (existsSync(rsaPath)) files.set("manifest.rsa.sig", readFileSync(rsaPath));
     for (const [name, sha] of Object.entries(manifest.files || {})) {
       if (!FILE_PATTERN.test(name)) throw new Error(`unexpected file ${name}`);
       const bytes = readFileSync(join(folder, name));
@@ -79,11 +82,14 @@ export function createCityMaps({ directory = null, ticketSecret = "", publicKeyP
         for (const data of files.values()) bytes += data.length;
         next.push({ id, version, name: manifest.name, bbox: manifest.bbox, chunksXZ: manifest.chunks_xz,
           stats: manifest.stats, attribution: manifest.attribution, licence: manifest.licence,
-          files: files.size, bytes });
+          files: files.size, bytes, meta: manifest.meta || {}, shape: manifest.shape || "bbox",
+          sizeCells: manifest.size_cells, preview: manifest.preview_png || "" });
       } catch (error) {
         logger.error(`city maps: skipping ${id}/${version}: ${error.message}`);
       }
     }
+    next.sort((a, b) => String(a.meta.region || "").localeCompare(String(b.meta.region || ""))
+      || String(a.meta.state || "").localeCompare(String(b.meta.state || "")) || a.name.localeCompare(b.name));
     listing = next;
   }
 

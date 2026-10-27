@@ -15,11 +15,13 @@ without a live, authenticated server session.
 
 * OSM data is © OpenStreetMap contributors under the **Open Database License 1.0**. Our converted map files are a
   *derived database* and stay ODbL. The game itself (code, art) is a *produced work* and keeps its own licence.
-* **Attribution in game** (required, "reasonably calculated to make any person aware"):
-  * map select card for every OSM map: "Map data © OpenStreetMap contributors" + link `openstreetmap.org/copyright`;
-  * a line in the run's pause menu / map overlay while an OSM map is loaded;
-  * the credits screen and `docs/CREDITS` get a "Map data" entry (OSM via Geofabrik).
-  * The manifest carries the attribution string (`attribution`, `licence`) so the client never hard-codes it.
+* **Attribution in game — KT's decision (2026-10-27): Settings > CREDITS only.** The credits tab of the shared
+  settings overlay (`src/ui/settings_panel.gd`, reachable from every menu and the pause menu) shows
+  "© OpenStreetMap contributors", the ODbL 1.0 notice and `openstreetmap.org/copyright`, plus Geofabrik and Godot.
+  There is no attribution on the map select, loading screens or during play. Note: the OSMF attribution guidelines
+  expect credit where the data is displayed, or reachable from it in one step for small screens; Settings is one
+  click away from the City menu and the pause menu, which is the reading KT chose. Revisit if OSMF asks.
+  * The manifest still carries the attribution string (`attribution`, `licence`) for every map, unchanged.
 * **Share-alike**: if we publicly use a derived database we must offer it under ODbL. Simplest compliant route:
   publish the converter (this repo's `tools/osm/`) and offer the exact converted files on request / on a plain
   download page (`/api/city-maps/<id>/<ver>/source` behind the same login is not enough for ODbL; an unauthenticated
@@ -251,3 +253,38 @@ Gameplay hooks:
 **For production later**: create `/var/lib/lastroute-godot2/city-maps` the same way, add the two env vars to the
 production env file (backup first), promote with `--instance production`, deploy the tested release with
 `deploy.sh --src /opt/lastroute-godot2-test/releases/<release> --apply`.
+
+## 12. US catalog and boundary-shaped places (2026-10-27)
+
+* The catalog is `tools/osm/vps2/maps.conf` (one line per place: id, name, city, state, region, Geofabrik state,
+  area, tags, blurb). `area` is either `bbox:s,w,n,e` or `osm:r<relation>` / `osm:w<way>`: the real outline of an
+  island, neighbourhood or small town. `build_map.sh` fetches the outline with `osmium getid`, clips with it, and
+  the converter marks every cell outside it `RIM`; the outline also goes into the manifest (`shape: boundary`,
+  `boundary_cells`) and onto the preview. Client side `OsmCityLayout.is_outside()` is true for those cells.
+* Every manifest carries menu metadata (`meta`: city, state, region, tags, blurb) and a 160 px minimap
+  (`preview_png`, base64 PNG, ~5 KB, boundary drawn in yellow). `/api/city-maps/list` returns both, sorted by
+  region, state, name, so the menu needs no extra request per entry.
+* Only the state extracts that `maps.conf` uses are downloaded and refreshed (`refresh_all.sh` derives the list).
+* Menu (`src/osm_city/osm_city_menu.gd`): search box (name, city, state, tag), tag filter, list grouped
+  Northeast / South / Midwest / West, preview with facts (outline or square, km², buildings, shops, a density
+  hint), blurb, PLAY SOLO, and the ODbL attribution line. Offline or signed out it lists nothing.
+* Limit: the City frame is 315 x 225 cells (CityLayout constants), so a run plays the 315 x 225 m window around
+  the best open spot of a bigger map. Playing a whole 1-2 km² map needs CityLayout's size to become per-instance
+  (asked of the City lane); the data format already holds the full area.
+
+## 13. Full counties (plan only; KT: pre-generate on VPS 2 later, not now)
+
+Counties are 100-5000 km² (Voxel Coast streamed Collier County, 34 x 56 km). What changes against small maps:
+
+| Topic | Small places (now) | Counties (plan) |
+| --- | --- | --- |
+| Build | one `build_map.sh` run, ~5-30 s | pre-generated on VPS 2 in tiles of 2 x 2 km (`osmium extract` per tile with a 300 m margin, converter per tile, parallel 4 cores), resumable, a manifest per tile plus a county index |
+| Data | 1-3 MB per map | measured ~2.2 MB per km² downtown, far less rural: estimate 0.3-0.8 MB/km² averaged, so a 600 km² county is ~0.2-0.5 GB, a 5000 km² one ~2-4 GB (fits VPS 3's 12 GB only for a few; keep counties on VPS 2 and let VPS 3 proxy or give VPS 3 more disk) |
+| Signing | one manifest | county index signed; each tile manifest signed and listed with its sha256 in the index |
+| Download | whole map at start | download-as-you-go: tickets per county, tiles fetched for the 3 x 3 tiles around the runner, kept in a RAM LRU (~64 MB), never on disk |
+| Client | fixed 315 x 225 frame | needs the streaming work of the stream-perf session (local_a6872e37) and a CityLayout whose kinds come from tiles on demand (chunk_kinds/chunk_grid per chunk instead of one array) |
+| Gameplay | one spawn kiosk, one gate | spawn per town centre, gates at county exits, hunters and relays spawned per streamed region with a density cap so rural areas stay sparse |
+| Build time | seconds | estimate ~30-60 s per 4 km² tile on VPS 2 -> a 600 km² county in ~1-2 h, Collier-size (~5000 km²) ~10-15 h single run |
+
+Pilot when approved: a small county (e.g. Bristol County RI, 65 km², or Falls Church VA, 5 km²) built as tiles,
+reporting real MB/km², build time and FPS before any larger county.

@@ -323,7 +323,8 @@ func _build_settings_tabs() -> void:
 	_settings_tabs.position = Vector2(20, 37)
 	_settings_tabs.size = Vector2(400, 22)
 	_settings_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	for title in ["AUDIO", "DISPLAY", "CONTROLS"]:
+	_build_credits_page()
+	for title in ["AUDIO", "DISPLAY", "CONTROLS", "CREDITS"]:
 		_settings_tabs.add_tab(title)
 	_settings_tabs.tab_changed.connect(_show_settings_category)
 	add_child(_settings_tabs)
@@ -331,13 +332,51 @@ func _build_settings_tabs() -> void:
 
 
 func _show_settings_category(index: int) -> void:
-	_active_settings_category = clampi(index, 0, 2)
+	_active_settings_category = clampi(index, 0, 3)
 	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
 			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
+	$CreditsScroll.visible = _active_settings_category == 3
+
+
+## Third-party credits. OpenStreetMap attribution lives here only (KT's decision, docs/CITY_OSM_MAPS.md section 1):
+## not on the map select, loading screens or in play.
+const CREDITS := [
+	["MAP DATA", "\u00a9 OpenStreetMap contributors. Real places use OpenStreetMap data, available under the Open Database License (ODbL 1.0).\nopenstreetmap.org/copyright"],
+	["MAP EXTRACTS", "OpenStreetMap extracts from Geofabrik GmbH, download.geofabrik.de"],
+	["ENGINE", "Made with Godot Engine (MIT licence), godotengine.org/license"],
+]
+
+
+func _build_credits_page() -> void:
+	var scroll := ScrollContainer.new()
+	scroll.name = "CreditsScroll"
+	scroll.position = Vector2(20, 62)
+	scroll.size = Vector2(400, 166)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.visible = false
+	var list := VBoxContainer.new()
+	list.name = "CreditsList"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 3)
+	scroll.add_child(list)
+	for entry in CREDITS:
+		var heading := Label.new()
+		heading.text = Palette.track(String(entry[0]))
+		heading.add_theme_color_override("font_color", Palette.AMBER)
+		heading.add_theme_font_size_override("font_size", 11)
+		list.add_child(heading)
+		var body := Label.new()
+		body.text = String(entry[1])
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(380, 0)
+		body.add_theme_color_override("font_color", Palette.BODY)
+		body.add_theme_font_size_override("font_size", 11)
+		list.add_child(body)
+	add_child(scroll)
 
 
 func _show_control_section(index: int) -> void:

@@ -11,7 +11,7 @@ Input is GeoJSON sequence written by osmium-tool (already installed on VPS 2, so
 
 Standard library only. Deterministic: the same input and arguments give byte-identical output.
 The output is OSM-derived (ODbL); it is never committed to the repo or bundled with the game."""
-import argparse, gzip, hashlib, json, math, os, struct, sys
+import argparse, base64, gzip, hashlib, json, math, os, struct, sys, zlib
 
 CHUNK = 45
 # Cell kinds = CityLayout constants (src/game/city_layout.gd), so the City renderer and route code read them unchanged.
@@ -115,6 +115,44 @@ def rings_of(geom, proj):
     return [[[proj.fwd(*c) for c in ring[:-1]] for ring in poly] for poly in polys]
 
 
+PREVIEW_COLORS = {RIM: (14, 14, 20), ROAD: (60, 60, 68), PAVE: (120, 118, 112), PLAZA: (150, 138, 120),
+                  GRASS: (70, 120, 60), PATH: (160, 150, 110), WATER: (40, 80, 130), BRIDGE: (120, 90, 70),
+                  ALLEY: (80, 78, 80)}
+
+
+def png_preview(r, buildings, boundary, size):
+    """Small top-down minimap (RGB PNG, stdlib only): ground colours, buildings shaded by height, boundary in yellow."""
+    by_id = {b["id"]: b for b in buildings}
+    scale = max(r.w, r.h) / size
+    w, h = max(1, int(r.w / scale)), max(1, int(r.h / scale))
+    rows = []
+    for py in range(h):
+        row = bytearray([0])
+        for px in range(w):
+            i = int(py * scale) * r.w + int(px * scale)
+            b = by_id.get(r.bid[i])
+            if b and r.kind[i] in (WALL, DOOR):
+                t = min(1.0, b["height"] / 120.0)
+                c = (int(150 + 90 * t), int(120 + 60 * t), int(110 + 30 * t))
+            else:
+                c = PREVIEW_COLORS.get(r.kind[i], (110, 108, 104))
+            row += bytes(c)
+        rows.append(row)
+    for rings in boundary:
+        ring = rings[0]
+        for (ax, az), (bx, bz) in zip(ring, ring[1:] + ring[:1]):
+            n = int(max(abs(bx - ax), abs(bz - az)) / scale) + 1
+            for k in range(n + 1):
+                x = int((ax + (bx - ax) * k / n) / scale); z = int((az + (bz - az) * k / n) / scale)
+                if 0 <= x < w and 0 <= z < h:
+                    rows[z][1 + 3 * x:4 + 3 * x] = bytes((250, 210, 60))
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    raw = b"".join(bytes(row) for row in rows)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("src"); ap.add_argument("out")
@@ -122,6 +160,8 @@ def main():
     ap.add_argument("--bbox", required=True, help="south,west,north,east")
     ap.add_argument("--version", type=int, default=1)
     ap.add_argument("--max-km2", type=float, default=2.0)
+    ap.add_argument("--boundary", help="GeoJSON file with the (Multi)Polygon outline; cells outside become RIM")
+    ap.add_argument("--meta", default="{}", help="JSON catalog metadata copied into the manifest (city, state, ...)")
     a = ap.parse_args()
     s, w, n, e = map(float, a.bbox.split(","))
     proj = Proj(s, w, n, e)
@@ -234,7 +274,24 @@ def main():
                             best = (d, x, z)
         if best:
             b["doors"].append([best[1], best[2]]); r.kind[best[2] * r.w + best[1]] = DOOR
+    boundary = []
+    if a.boundary:
+        gj = json.load(open(a.boundary))
+        geoms = [f["geometry"] for f in gj.get("features", [gj])] if gj.get("type") == "FeatureCollection" else [gj.get("geometry", gj)]
+        for g in geoms:
+            boundary += rings_of(g, proj)
+        mask = Raster(proj.width, proj.height)
+        mask.kind = bytearray(proj.width * proj.height)
+        for rings in boundary:
+            mask.polygon(rings, 1, 1)
+        for i in range(proj.width * proj.height):
+            if not mask.kind[i]:
+                r.kind[i] = RIM; r.bid[i] = 0
+        keep = {r.bid[i] for i in range(proj.width * proj.height)}
+        buildings[:] = [b for b in buildings if b["id"] in keep]
+        by_id = {b["id"]: b for b in buildings}
     os.makedirs(a.out, exist_ok=True)
+    preview = png_preview(r, buildings, boundary, 160)
     cw, ch = proj.width // CHUNK, proj.height // CHUNK
     chunks = {}
     for cz in range(ch):
@@ -260,7 +317,10 @@ def main():
         "bbox": {"south": s, "west": w, "north": n, "east": e},
         "size_cells": [proj.width, proj.height], "chunk": CHUNK, "chunks_xz": [cw, ch],
         "attribution": "Map data © OpenStreetMap contributors, ODbL 1.0 (openstreetmap.org/copyright)",
-        "licence": "ODbL-1.0", "source": os.path.basename(a.src),
+        "licence": "ODbL-1.0", "source": os.path.basename(a.src), "meta": json.loads(a.meta),
+        "shape": "boundary" if boundary else "bbox",
+        "boundary_cells": [[[round(x), round(z)] for x, z in ring] for rings in boundary for ring in rings[:1]][:8],
+        "preview_png": base64.b64encode(preview).decode(),
         "stats": {"buildings": len(buildings), "roads": len(roads), "shops": len(shops), "area_km2": round(area, 3)},
         "files": dict(sorted({**{"c_%s.bin" % k: v for k, v in chunks.items()},
                               "features.json.gz": hashlib.sha256(side_bytes).hexdigest()}.items())),
