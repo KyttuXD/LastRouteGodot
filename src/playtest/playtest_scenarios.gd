@@ -64,6 +64,10 @@ static func run_loop(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 					frames += 1
 				last_over = false
 				continue
+			if scenario == "coop_bot":
+				# online: the host restarts the run for everyone and a caught runner spectates; the bot just waits (no restart/leave press)
+				last_over = true
+				continue
 			outcome = "died"
 			break
 		last_over = over
