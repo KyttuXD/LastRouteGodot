@@ -127,6 +127,8 @@ static func sorted_ids() -> Array:
 
 
 static func category_ids(category: String) -> Array:
+	if category == "secret":
+		return SecretCreatures.discovered_ids()   # listed only once met
 	var ids: Array = []
 	for hunter_id in HunterRoster.PROFILES:
 		if entry(String(hunter_id)).is_empty():
@@ -141,7 +143,17 @@ static func category_ids(category: String) -> Array:
 	return ids
 
 
+static func category_title(category: String) -> String:
+	return "A-Z HUNTERS" if category == "az" else "VOID HUNTERS" if category == "void" else "FOUND"
+
+
+static func profile(hunter_id: String) -> Dictionary:
+	return HunterRoster.PROFILES.get(hunter_id, SecretCreatures.profile(hunter_id))
+
+
 static func entry(hunter_id: String) -> Dictionary:
+	if SecretCreatures.has(hunter_id):
+		return SecretCreatures.dossier_entry(hunter_id)
 	if VOID_GIMMICK_CHART.has_entry(hunter_id):
 		return VOID_GIMMICK_CHART.entry(hunter_id)
 	return ENTRIES.get(hunter_id, {})

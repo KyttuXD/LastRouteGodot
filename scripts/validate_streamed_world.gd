@@ -1118,7 +1118,7 @@ func run(host: Node) -> int:
 		# one hunter picker: every A-Z and Void hunter, with callable summon / remove / emote actions
 		var hunter_tool: Dictionary = admin_headings.get("HUNTER", {})
 		_expect(not hunter_tool.is_empty() \
-				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() \
+				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() + SecretCreatures.IDS.size() \
 				and (hunter_tool.get("hunter_tool", []) as Array).size() >= 3,
 			"Infinite admin menu lacks the complete hunter picker (A-Z + Void)")
 		for act in hunter_tool.get("hunter_tool", []):

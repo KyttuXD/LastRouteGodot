@@ -54,6 +54,7 @@ var _authority_refresh_elapsed := AUTHORITY_REFRESH_SECONDS
 var _hunter_report: Array = []
 ## Decides when hunters emote (host only); see docs/HUNTER_EMOTES.md.
 var _hunter_emoter := HunterEmoter.new()
+var _city_secrets := CitySecrets.new()   # City-only secret trigger (docs/SECRET_WOLF_SPIDER.md)
 var _taser_ready_usec_by_peer := {}
 var _last_checkpoint_request := ""
 var _last_checkpoint_request_usec := 0
@@ -528,6 +529,7 @@ func _infinite_admin_actions() -> Array:
 	var hunter_ids: Array = []
 	hunter_ids.append_array(HunterRoster.A_Z_IDS)
 	hunter_ids.append_array(HunterRoster.VOID_IDS)
+	hunter_ids.append_array(SecretCreatures.admin_ids())   # admin picker only
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
@@ -2040,7 +2042,7 @@ func _repair_duplicate_hunter_identities() -> void:
 		# An admin explicitly asking for two of the same character is intentional.
 		# Reserve that identity so ordinary route pressure will not quietly add a
 		# third copy, but do not rewrite the requested admin summon itself.
-		if entity_id.begins_with("ADMIN:"):
+		if entity_id.begins_with("ADMIN:") or entity_id.begins_with("SECRET:"):
 			used[hunter_id] = true
 			continue
 		if not used.has(hunter_id):
@@ -2158,6 +2160,7 @@ func _store_hunter(entity_id: String, view: HunterView3D) -> void:
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
+	_city_secrets.update(self, delta)
 	var local_safe := _player_in_intact_safe_room(facility.current_chunk_data())
 	var local_target := _hunter_target(local_safe)
 	var breach_rooms := {}
@@ -4124,7 +4127,7 @@ func _admin_action_permission(action: String) -> String:
 
 func _admin_hunter_id_allowed(hunter_id: String) -> bool:
 	return HunterRoster.A_Z_IDS.has(hunter_id) \
-		or HunterRoster.VOID_IDS.has(hunter_id)
+		or HunterRoster.VOID_IDS.has(hunter_id) or SecretCreatures.has(hunter_id)
 
 
 func _admin_feedback(peer_id: int, message: String) -> void:

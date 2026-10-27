@@ -4,7 +4,7 @@ extends HunterGimmick
 ## The City's secret creature (SecretCreatures.WHITE_WOLF_SPIDER): a fast ambusher. It lurks motionless at its lair,
 ## barks ONCE to mark a runner it has seen or heard (the telegraph), bursts after them for a limited time, then
 ## gives up and goes home. It is survivable on purpose: the bark gives a head start, the burst is limited by its own
-## stamina, a shelter ends the chase, and a flashlight beam held on it for a moment drives it off.
+## stamina, a shelter ends the chase, and a flashlight beam held on it for a moment (brain.beam_alerted) drives it off.
 ##
 ##   LURK -> BARK (1.25 s, holds, bark clip + cue) -> HUNT (<= HUNT_SECONDS) -> RETREAT (to the lair) -> LURK (cooldown)
 ##
@@ -85,7 +85,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 				brain.last_known = target_position
 		Phase.HUNT:
 			_timer -= delta
-			if not exposed or brain.winded or _timer <= 0.0 or brain.flash_triggered:
+			if not exposed or brain.winded or _timer <= 0.0 or brain.beam_alerted:
 				_begin_retreat(brain)
 			else:
 				brain.state = HunterBrain.State.CHASE   # it does not lose a runner it has marked: it follows sound and light
@@ -110,6 +110,7 @@ func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, _g
 	match phase:
 		Phase.LURK, Phase.BARK:
 			brain.state = HunterBrain.State.IDLE
+			brain.idle_timer = 5.0          # never tick over into WANDER (no wander-target search while it stands guard)
 			brain.direct_chase_visible = false
 		Phase.RETREAT:
 			brain.state = HunterBrain.State.WANDER
