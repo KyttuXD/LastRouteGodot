@@ -2315,13 +2315,11 @@ static func _room_template_specs(template: String, region: String,
 			specs.append({"type": "tikiBar", "side": -8, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "surfboardRack", "side": 8, "depth": 0, "wall_backed": true, "facing": "open"})
 		"prison_cell":
-			# a bunk on each side wall of the back, a toilet and sink between them, a small table by the door
+			# a bunk on each side wall of the back, a toilet and sink between them (no loose dining furniture in prison cells)
 			specs.append({"type": "prisonBunk", "side": -3, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "prisonBunk", "side": 3, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "houseToilet", "side": -1, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "bathroomSink", "side": 1, "depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "woodenTable", "side": 0, "depth": mid_depth + 1, "facing": "open"})
-			specs.append({"type": "woodenChair", "side": 0, "depth": mid_depth, "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 		"gothic_archive":
 			for shelf_side in range(-8, 9, 2):
@@ -2595,7 +2593,26 @@ static func _room_template_specs(template: String, region: String,
 				var copy: Dictionary = (original as Dictionary).duplicate()
 				copy["side"] = int(copy.get("side", 0)) + shift
 				specs.append(copy)
-	return specs
+	return _keep_entrance_clear(specs, side_span, depth_span)
+
+
+## The room entrance is the middle of the front interior row (depth_span - 3: the rect includes both walls and depth 0 is the
+## first interior row): a solid footprint (its collider, either way round) must
+## not cover that cell, or the door opens onto a prop and the room is sealed for hunters (found by hunter_real on REAL-B).
+static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int) -> Array:
+	var kept := []
+	for spec in specs:
+		var entry: Dictionary = spec
+		if bool(entry.get("wall_backed", false)) or entry.get("solid", true) == false:
+			kept.append(entry)
+			continue
+		var size: Vector3 = PropColliderSizes.SIZES.get(String(entry.get("type", "")), Vector3.ONE)
+		var half := maxf(size.x, size.z) * .5
+		var covers_door := absf(float(entry.get("side", 0))) - half < .5 \
+			and float(entry.get("depth", 0)) + half > float(depth_span) - 3.5
+		if not covers_door:
+			kept.append(entry)
+	return kept
 
 
 static func _frame_type_for_region(region: String, wide: bool) -> String:
