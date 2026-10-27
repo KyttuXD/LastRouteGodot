@@ -42,3 +42,13 @@ Captures (`tools/look/hud_capture.gd`, run windowed on the Mac mini with `mini-r
 | Last Route, phone landscape | `hud_layout_route_phone844x390.png` |
 | City, phone landscape | `hud_layout_city_phone844x390.png` |
 | Last Route, ultrawide | `hud_layout_route_ultrawide3440x1440.png` |
+
+## Porcelle's radar ping
+
+Porcelle (radar tracked) shows on the HUD minimap only as a short ping: a dot with one expanding ring for 0.7 s, roughly every
+8 s (+- 2 s, fixed per cycle), hidden in between, in the active scheme's alert colour. Out of the minimap's range she clamps to the
+edge as a small arrow pointing at her. Only she is shown (other hunters need admin reveal), only while active, and guests see the
+same thing from the replicated hunter marks (nothing extra is sent). Reduced motion draws a steady dim dot with a slow, small fade.
+The full facility map keeps her steady ghost mark. Tune cadence, duration, ring and alpha in `src/ui/radar_ping.gd`.
+Test: `minimap_radar`. Frame sequence (start, rising, peak, ring, fading, between, reduced motion): `radar_ping_sequence.png`
+(`tools/look/radar_capture.tscn`).
