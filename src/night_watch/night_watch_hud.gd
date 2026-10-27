@@ -400,6 +400,12 @@ func show_note(text: String, seconds := 2.5) -> void:
 	_note_left = seconds
 
 
+## An office without a camera monitor (Bedtime, The Descent, Open Air) hides the CAMERAS button: call with `office.spec.has_monitor`.
+func set_monitor_available(on: bool) -> void:
+	if cameras_button != null:
+		cameras_button.visible = on
+
+
 func show_monitor(on: bool) -> void:
 	prompt_label.visible = not on
 	monitor_root.visible = on
