@@ -136,6 +136,15 @@ var room_door_broken := false
 ## Width in generated one-metre doorway cells. Double doors are one shared
 ## interaction with a two-cell barrier, not two leaves squeezed into one cell.
 var room_door_span := 1
+## Furniture hiding spots (docs/HIDING_PROPS.md): "bed" (slide under) or "wardrobe" (step inside). The room prop that the
+## generator placed is the visual, so this interactable has no model, barrier or glow of its own; hide_size is that prop's
+## blocker size (x across, y up, z deep) so the hiding position and the view sit inside it.
+var hide_style := ""
+var hide_size := Vector3.ONE
+var _search_tell_left := 0.0
+var _search_prop: Node3D
+var _search_prop_rest := Vector3.ZERO
+var _hide_seal: Node3D
 
 var _light: OmniLight3D
 ## The model itself, kept so a collected pickup can actually leave.
@@ -163,6 +172,11 @@ func _ready() -> void:
 		return
 	if kind == Kind.FURNITURE:
 		_interaction_focus_local = Vector3(0.0, .75, 0.0)
+		return
+	if kind == Kind.HIDING_SPOT and not hide_style.is_empty():
+		# Aim at the gap under the bed's open side, or at the wardrobe doors.
+		_interaction_focus_local = Vector3(0.0, .22, -hide_size.z * .5 + .05) if hide_style == "bed" \
+			else Vector3(0.0, 1.0, -hide_size.z * .5)
 		return
 
 	var model_path := String(MODEL_SCENES.get(kind, ""))
@@ -209,6 +223,10 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if kind == Kind.HIDING_SPOT and (_search_tell_left > 0.0 or (_search_prop != null and is_instance_valid(_search_prop) \
+			and _search_prop.position != _search_prop_rest)):
+		_update_search_tell(delta)
+		return
 	if kind != Kind.ROOM_DOOR or _door_hinge == null:
 		return
 	# A damped hinge avoids abrupt state pops when a reliable co-op event or a
@@ -231,12 +249,64 @@ func interaction_focus() -> Vector3:
 
 
 func hiding_inside_position() -> Vector3:
+	if hide_style == "bed":
+		return global_transform * Vector3(0.0, 0.02, 0.0)
+	if hide_style == "wardrobe":
+		return global_transform * Vector3(0.0, 0.02, minf(.08, hide_size.z * .5 - .2))
 	# The authored door faces local -Z after the wrapper's orientation fix. The
 	# fixture origin is centred in its depth, which left the first-person near
 	# plane intersecting the door panel. Sit toward the +Z/back wall instead: the
 	# player still looks through the real eye-level slats, but the door no longer
 	# fills or clips across the camera.
 	return global_transform * Vector3(0.0, 0.02, 0.18)
+
+
+## Eye height while hidden: under a bed you lie flat and look out under the frame; a wardrobe and a locker keep standing
+## eye height (the player's own).
+func hiding_eye_height() -> float:
+	return .16 if hide_style == "bed" else -1.0
+
+
+## Hunter checking this spot (host decides, every peer plays it): the furniture rattles for `seconds` with a creak, the
+## warning that gives whoever is inside the chance to bolt before the hunter pulls it open.
+func play_search_tell(seconds: float) -> void:
+	_search_tell_left = maxf(seconds, .1)
+	if _search_prop == null or not is_instance_valid(_search_prop):
+		_search_prop = _find_hiding_prop()
+		if _search_prop != null:
+			_search_prop_rest = _search_prop.position
+	Sound.hide_search()
+	set_process(true)
+
+
+func search_tell_active() -> bool:
+	return _search_tell_left > 0.0
+
+
+func _find_hiding_prop() -> Node3D:
+	var parent := get_parent()
+	if parent == null:
+		return null
+	var best: Node3D = null
+	var best_distance := .75
+	for child in parent.get_children():
+		if child is Node3D and child != self and child.has_meta("streamed_prop_type"):
+			var distance := Vector2(child.position.x - position.x, child.position.z - position.z).length()
+			if distance < best_distance:
+				best = child
+				best_distance = distance
+	return best
+
+
+func _update_search_tell(delta: float) -> void:
+	_search_tell_left = maxf(0.0, _search_tell_left - delta)
+	if _search_prop == null or not is_instance_valid(_search_prop):
+		return
+	if _search_tell_left <= 0.0:
+		_search_prop.position = _search_prop_rest
+		return
+	var t := float(Time.get_ticks_msec()) * .001
+	_search_prop.position = _search_prop_rest + Vector3(sin(t * 47.0), 0.0, cos(t * 39.0)) * .025
 
 
 func hiding_outward_yaw() -> float:
@@ -250,7 +320,76 @@ func set_local_hiding_view(open: bool) -> void:
 	if kind != Kind.HIDING_SPOT:
 		return
 	_local_hiding_view_open = open
+	if not hide_style.is_empty():
+		if open and _hide_seal == null:
+			_hide_seal = _build_hide_seal()
+			add_child(_hide_seal)
+		if _hide_seal != null:
+			_hide_seal.visible = open
+		# The wardrobe's model doors are solid; for the hider only, the model goes and the shell (with its slats) is the
+		# wardrobe. Everyone else still sees the real prop.
+		if hide_style == "wardrobe":
+			if _search_prop == null or not is_instance_valid(_search_prop):
+				_search_prop = _find_hiding_prop()
+				if _search_prop != null:
+					_search_prop_rest = _search_prop.position
+			if _search_prop != null:
+				_search_prop.visible = not open
 	_refresh_visual()
+
+
+## The furniture props are solid blocks, so from inside them the camera would see straight out through back-facing
+## walls. A dark two-sided shell just inside the prop's bounds (only shown to the local hider) leaves one peek gap:
+## a low slit under the bed's foot, door slats at eye height in a wardrobe.
+func _build_hide_seal() -> Node3D:
+	var seal := Node3D.new()
+	seal.name = "HideSeal"
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(.06, .06, .07)
+	material.roughness = 1.0
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var w := maxf(.4, hide_size.x - .08)
+	var d := maxf(.4, hide_size.z - .08)
+	var pieces := []
+	if hide_style == "bed":
+		var top := .3
+		pieces = [
+			[Vector3(w, .02, d), Vector3(0, top, 0)],
+			[Vector3(w, top, .02), Vector3(0, top * .5, d * .5)],
+			[Vector3(.02, top, d), Vector3(-w * .5, top * .5, 0)],
+			[Vector3(.02, top, d), Vector3(w * .5, top * .5, 0)],
+			[Vector3(w, .1, .02), Vector3(0, top - .05, -d * .5)],    # front valance: the slit is 4-20 cm off the floor
+		]
+	else:
+		var h := maxf(1.8, hide_size.y - .08)
+		var slat_lo := 1.42
+		var slat_hi := 1.68
+		var slat_w := minf(.5, w - .1)
+		var side_w := (w - slat_w) * .5
+		pieces = [
+			[Vector3(w, h, .02), Vector3(0, h * .5, d * .5)],
+			[Vector3(.02, h, d), Vector3(-w * .5, h * .5, 0)],
+			[Vector3(.02, h, d), Vector3(w * .5, h * .5, 0)],
+			[Vector3(w, .02, d), Vector3(0, h, 0)],
+			[Vector3(w, slat_lo, .02), Vector3(0, slat_lo * .5, -d * .5)],
+			[Vector3(w, h - slat_hi, .02), Vector3(0, (h + slat_hi) * .5, -d * .5)],
+			[Vector3(side_w, slat_hi - slat_lo, .02), Vector3(-(slat_w + side_w) * .5, (slat_lo + slat_hi) * .5, -d * .5)],
+			[Vector3(side_w, slat_hi - slat_lo, .02), Vector3((slat_w + side_w) * .5, (slat_lo + slat_hi) * .5, -d * .5)],
+		]
+		# Horizontal slats across the gap: a peek, not a window.
+		for i in 3:
+			var y := slat_lo + (slat_hi - slat_lo) * (float(i) + .5) / 3.0
+			pieces.append([Vector3(slat_w, .035, .02), Vector3(0, y, -d * .5)])
+	for piece in pieces:
+		var mesh_node := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = piece[0]
+		mesh_node.mesh = box
+		mesh_node.material_override = material
+		mesh_node.position = piece[1]
+		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		seal.add_child(mesh_node)
+	return seal
 
 
 func local_hiding_view_open() -> bool:

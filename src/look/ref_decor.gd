@@ -364,6 +364,8 @@ const STYLE := {
 	"carnival": {"lamp": "ceiling", "wall_lamp": 6, "teal": 20, "pipe": 6, "cable": 20, "frame": 0, "lit_rooms": .9},
 	"prison": {"lamp": "ceiling", "wall_lamp": 10, "teal": 9, "pipe": 2, "cable": 14, "frame": 0, "lit_rooms": .7},
 	"inferno": {"lamp": "ceiling", "wall_lamp": 8, "teal": 99, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .7},
+	# dim caged lamps far apart, pipes everywhere along the brick
+	"sewer": {"lamp": "ceiling", "wall_lamp": 14, "teal": 99, "pipe": 2, "cable": 12, "frame": 0, "lit_rooms": .55},
 	# lighting mood: tint replaces the amber lamp colour; stutter is the share (1 in n) of lamps on the failing-tube flicker
 	"hospital": {"lamp": "ceiling", "wall_lamp": 9, "teal": 14, "pipe": 6, "cable": 40, "frame": 0, "lit_rooms": .8,
 		"tint": Color("e4f4ef"), "stutter": 3, "handrail": true},
@@ -509,7 +511,7 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var yaw := PI * .5 if _h(x, z, 72, 2) == 0 else 0.0
 		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, _hh(Vector2i(x, z)) - 0.01, 0)))
 	# cables snaking along the foot of the wall in the industrial regions
-	if _region in ["maze", "prison", "inferno", "carnival"] and _h(x, z, 141, 60) == 0:
+	if _region in ["maze", "prison", "inferno", "carnival", "sewer"] and _h(x, z, 141, 60) == 0:
 		for d in DIRS:
 			var dd: Vector2i = d
 			if not _open(grid, x + dd.x, z + dd.y):

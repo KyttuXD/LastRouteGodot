@@ -41,6 +41,8 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — props audits (DONE11 chairs and tables, DONE13 rotated parts and weak families, DONE14 materials and finishes, DONE16 performance), measured sizes, fixes, contact sheets
 - [RESCUE_AXE.md](RESCUE_AXE.md) — held-tool poses (grip table, wall push-back, remote hand), the rescue axe (cut free of a hold, chop boards, noise, durability), captures
 - [Z_FIGHTING_PROPS.md](Z_FIGHTING_PROPS.md) — coplanar faces inside prop models (beds, cabinets, couches, doors): builder fix, prop_coplanar suite, bed flicker before/after
+- [HIDING_PROPS.md](HIDING_PROPS.md) — room props by purpose (infirmary, storage, reception, archive, bedroom) and hiding under beds / in wardrobes, hunter checks with a tell
+- [MANSION_LUXURY.md](MANSION_LUXURY.md) — mansion finishes (lacquer, marble, velvet, gilt) for the ordinary furniture types, columns and vases, bed scale fix, before/after
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators

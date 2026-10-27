@@ -38,7 +38,7 @@ and thresholds `--max-stuck=3 --max-soft-locks=0 --max-errors=0 --max-unreachabl
 | `menu_tour` | hub -> Last Route menu -> every safe button -> solo lobby -> a real route -> leave -> back to games -> hub; fails on engine errors, a lost way back, a scene that never loads |
 | `death_scene_tour` | summons each hunter (`--hunters=a,b` or all A-Z + Void) next to a passive bot and records who killed, how fast, and the death line; fails on a missing line or an engine error; hunters that never kill (non-lethal by design) are listed, not failed |
 | `coop_bot` | one client of a bot party (`--role=host|guest --dir=<shared> --guests=N`), driven by `scripts/playtest_multi.sh`; reports peers/remote bodies seen |
-| `probe` | teleports to `--probe-x/--probe-z`, takes 4 screenshots turning 90 degrees (windowed), optionally presses interact on the nearest `--probe-interact=ROOM_DOOR`; for looking at a stuck spot a bot found |
+| `probe` | teleports to `--probe-x/--probe-z` (`--probe-y` for another level, e.g. `-3.96` in the sewer), takes 4 screenshots turning 90 degrees (windowed), optionally presses interact on the nearest `--probe-interact=ROOM_DOOR`; for looking at a stuck spot a bot found |
 
 ## Reports (`.playtest/<name>/`)
 `report.json`, `report.md`, `events.jsonl`: outcome, game time, deaths (hunter + cause), relays, depth, chunk coverage, **stuck spots** (one per

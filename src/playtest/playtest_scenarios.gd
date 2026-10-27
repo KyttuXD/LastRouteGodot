@@ -177,7 +177,114 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 	return await run_loop(bridge, adapter, opts, report)
 
 
-## probe: start a run, teleport to --probe-x/--probe-z, wait for the chunk to stream in, then take four screenshots turning 90 degrees
+## goto_check: verification of one place. Start a run (god mode, no hunters bothering), optionally teleport to --probe-x/--probe-z, ask the navigation for a
+## path to --goal-x/--goal-z, then let the bot walk there (--goal-kind=relay collects the relay at the goal, explore just arrives) for --minutes game minutes.
+## Reports path found / arrived / seconds / stuck spots / door failures, so "unreachable relay" and "stuck spot" reports can be re-checked after a fix.
+static func goto_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"], "bot_seed": opts["bot_seed"], "debug": true})
+	if not bool(start.get("ok", false)):
+		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	bridge.admin("god", {"on": true})
+	bridge.admin("no_target", {"on": true})
+	var frames := 0
+	if float(opts["probe_x"]) != 0.0 or float(opts["probe_z"]) != 0.0:
+		var obs0 := bridge.observe()
+		bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": float(obs0["player"]["pos"][1]), "z": float(opts["probe_z"])})
+		for _i in 150:
+			await tree.physics_frame
+			frames += 1
+	var goal := Vector2i(int(opts["goal_x"]), int(opts["goal_z"]))
+	var paths: Dictionary = adapter.path_report(goal)
+	var kind := String(opts["goal_kind"])
+	var note := ""
+	if kind == "relay" and not bool(paths.get("relay_at_goal", false)):
+		# the map changes between builds: a relay that is not at that cell any more is a place to ARRIVE at, not a relay to collect
+		kind = "explore"
+		note = "no relay at this cell in this build: checked arrival only"
+	adapter.forced_goal = goal
+	adapter.forced_kind = kind
+	var relays_before := GameState.relays_collected
+	var delta := 1.0 / float(Engine.physics_ticks_per_second)
+	var limit := int(float(opts["minutes"]) * 60.0 * 60.0)
+	var arrived := false
+	var arrived_at := -1.0
+	var run_frames := 0
+	var min_distance := 1e9
+	while run_frames < limit:
+		await tree.physics_frame
+		frames += 1
+		run_frames += 1
+		var obs := bridge.observe()
+		var pos: Array = obs["player"]["pos"]
+		var distance := Vector2(float(pos[0]), float(pos[2])).distance_to(Vector2(goal) + Vector2(.5, .5))
+		min_distance = minf(min_distance, distance)
+		if run_frames % 120 == 0:
+			bridge.status = "goto_check at %s, %.1f m from the goal" % [pos, distance]
+		if kind == "relay" and GameState.relays_collected > relays_before:
+			arrived = true
+		elif kind != "relay" and distance < 1.6:
+			arrived = true
+		if arrived:
+			arrived_at = snappedf(run_frames * delta, .1)
+			break
+		bridge.input.apply(adapter.decide(obs, delta))
+	bridge.input.release_all()
+	adapter.forced_goal = Vector2i(-99999, -99999)
+	report["goto_check"] = {"path": paths, "arrived": arrived, "seconds": arrived_at, "note": note, "checked_as": kind, "closest_m": snappedf(min_distance, .1), "start": [opts["probe_x"], opts["probe_z"]],
+		"goal": [goal.x, goal.y], "goal_kind": opts["goal_kind"], "stuck_spots": adapter.stats.get("stuck_events", 0), "door_failures": adapter.stats.get("door_failures", 0)}
+	return {"outcome": "arrived" if arrived else "not_arrived", "game_seconds": snappedf(frames * delta, .1), "frames": frames,
+		"scenario_failure": "" if arrived else "did not reach %s in %.1f game minutes (closest %.1f m, path from player %s)" % [goal, float(opts["minutes"]), min_distance, paths.get("direct_len", "?")]}
+
+
+## door_audit: tours chunks around the spawn (god mode), collects every closed ROOM_DOOR the streamed world shows, and for each one stands in front,
+## looks at it and presses interact like a player. Fails when a door cannot be focused or does not open (--target = max doors, default 40).
+static func door_audit(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"], "bot_seed": opts["bot_seed"], "debug": true})
+	if not bool(start.get("ok", false)):
+		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	bridge.admin("god", {"on": true})
+	bridge.admin("no_target", {"on": true})
+	var frames := 0
+	var limit := int(opts["target"]) if int(opts["target"]) > 0 else 40
+	var doors := {}
+	var obs0 := bridge.observe()
+	var y: float = float(obs0["player"]["pos"][1])
+	var origin := Vector2(float(obs0["player"]["pos"][0]), float(obs0["player"]["pos"][2]))
+	for step in [Vector2(0, 0), Vector2(45, 0), Vector2(-45, 0), Vector2(0, 45), Vector2(0, -45), Vector2(45, 45), Vector2(-45, -45), Vector2(45, -45), Vector2(-45, 45)]:
+		if doors.size() >= limit:
+			break
+		bridge.status = "door_audit collecting doors around %s" % [origin + step]
+		var spot := bridge.admin("teleport", {"x": origin.x + step.x, "y": y, "z": origin.y + step.y})
+		for _i in 150:
+			await tree.physics_frame
+			frames += 1
+		var obs := bridge.observe()
+		for item in obs.get("interactables", []):
+			if String(item["kind"]) == "ROOM_DOOR" and not bool(item["door_open"]):
+				var key := "%d,%d" % [roundi(float(item["pos"][0]) * 2.0), roundi(float(item["pos"][2]) * 2.0)]
+				if not doors.has(key) and doors.size() < limit:
+					doors[key] = item["pos"]
+	var rows: Array = []
+	var failures: Array = []
+	var index := 0
+	for key in doors:
+		index += 1
+		bridge.status = "door_audit door %d/%d at %s" % [index, doors.size(), doors[key]]
+		var result: Dictionary = await adapter.audit_door(doors[key])
+		rows.append(result)
+		frames += 170
+		if not bool(result.get("opened", false)):
+			failures.append("door at %s: %s" % [doors[key], "never focused" if not bool(result.get("focused", false)) else "focused but did not open"])
+	bridge.input.release_all()
+	report["door_audit"] = {"doors": rows.size(), "opened": rows.filter(func(r): return bool(r.get("opened", false))).size(),
+		"never_focused": rows.filter(func(r): return not bool(r.get("focused", false))).size(), "failures": failures, "rows": rows}
+	return {"outcome": "door_audit_done", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames,
+		"scenario_failure": "" if failures.is_empty() else "%d of %d doors could not be opened: %s" % [failures.size(), rows.size(), "; ".join(failures.slice(0, 4))]}
+
+
+## probe: start a run, teleport to --probe-x/--probe-z (and --probe-y for another level), wait for the chunk to stream in, then take four screenshots turning 90 degrees
 ## each time and list what is nearby. For looking at a stuck spot a bot found (needs a windowed run to get images).
 static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
 	var tree := bridge.get_tree()
@@ -186,6 +293,9 @@ static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary,
 		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
 	var obs := bridge.observe()
 	var y: float = float(obs["player"]["pos"][1])
+	# --probe-y picks another level (e.g. -3.96 for the sewer under the maze)
+	if float(opts.get("probe_y", -9999.0)) > -9000.0:
+		y = float(opts["probe_y"])
 	var result := bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": y, "z": float(opts["probe_z"])})
 	var frames := 0
 	for _i in 120:

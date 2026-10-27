@@ -47,6 +47,7 @@ const WALL_HEIGHT := 4.0
 ## create slab-like collision gaps or elongated wall seams between chunks.
 const LEVEL_TRANSITION_MARGIN := 0.35
 
+const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
 const WALL_TEXTURE := "res://art/props-3d/environment/wall_texture.png"
 const REGION_FLOOR_TEXTURE := "res://art/props-3d/environment/floor_%s.png"
@@ -217,13 +218,18 @@ func current_level() -> int:
 	return _tracked_level
 
 
-## The route has one level, so the level is always 0 whatever the runner's height.
-static func snapped_level_for_world_y(_world_y: float) -> int:
-	return 0
+## The route is one maze level (0) over the sewer layer (-1). The runner is in
+## the sewer once its feet are more than half a storey below the maze floor;
+## the hysteresis margin keeps a ladder climb from flickering between the two.
+static func snapped_level_for_world_y(world_y: float) -> int:
+	return StreamedRouteGenerator.SEWER_LEVEL if world_y < -LEVEL_HEIGHT * .5 else 0
 
 
-static func hysteresis_level_for_world_y(_world_y: float, _current_level_hint: int) -> int:
-	return 0
+static func hysteresis_level_for_world_y(world_y: float, current_level_hint: int) -> int:
+	var boundary := -LEVEL_HEIGHT * .5
+	if current_level_hint == StreamedRouteGenerator.SEWER_LEVEL:
+		return 0 if world_y > boundary + LEVEL_TRANSITION_MARGIN else StreamedRouteGenerator.SEWER_LEVEL
+	return StreamedRouteGenerator.SEWER_LEVEL if world_y < boundary - LEVEL_TRANSITION_MARGIN else 0
 
 
 func current_chunk_coord() -> Vector3i:
@@ -333,12 +339,14 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
-	# The current shaft remains present on both adjacent floors while walking a
-	# flight, preventing the ramp from unloading halfway through the crossing.
-	for vertical in [Vector3i(center.x, center.y - 1, center.z),
-			Vector3i(center.x, center.y + 1, center.z)]:
-		if generator.is_chunk_allowed(vertical):
-			wanted[vertical] = true
+	# A ladder's other end stays loaded while the runner is in a chunk with one,
+	# so the shaft never opens onto an unloaded floor halfway up the climb.
+	# Chunks with no ladder keep the plain nine-chunk window.
+	if not generator.sewer().links_for(center).is_empty():
+		for vertical in [Vector3i(center.x, center.y - 1, center.z),
+				Vector3i(center.x, center.y + 1, center.z)]:
+			if generator.is_chunk_allowed(vertical):
+				wanted[vertical] = true
 	return wanted
 
 
@@ -639,8 +647,27 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		floor_voids[cell_value as Vector2i] = true
 	for cell_value in data.get("structural_voids", []):
 		structural_voids[cell_value as Vector2i] = true
+	var link_cells := {}
+	for link_value in generator.sewer().links_for(coord):
+		link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
+	# The maze end of every ladder: its top section with grab hoops in the shaft,
+	# and the manhole lid dragged aside or the floor grate swung up.
+	var region_props: Array = data.get("region_props", [])
+	if coord.y == 0 and not link_cells.is_empty():
+		region_props = region_props.duplicate()
+		for cell_value in link_cells:
+			var link: Dictionary = link_cells[cell_value]
+			var yaw := SewerRouteGenerator.wall_yaw(link.get("wall", Vector2i.ZERO))
+			region_props.append({"id": "%s:TOP" % link["id"], "type": "sewerLadderTop", "cell": cell_value,
+				"yaw": yaw, "solid": false})
+			region_props.append({"id": "%s:COVER" % link["id"], "type": "sewerManhole" \
+				if String(link.get("cover", "manhole")) == "manhole" else "sewerFloorGrate",
+				"cell": cell_value, "yaw": yaw, "solid": false})
 	return {
 		"coord": coord,
+		"region_props": region_props,
+		"link_cells": link_cells,
+		"sewer_grid": data.get("sewer_grid", []),
 		"data": data,
 		"root": root,
 		"grid": grid,
@@ -704,6 +731,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
+				if not (build["sewer_grid"] as Array).is_empty():
+					_spawn_sewer_water(root, build["sewer_grid"])
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -723,13 +752,14 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				# wall art, and any other authored dressing. The cell-block
 				# dresser is extra presentation for prison_cell rooms only and
 				# must not replace those props.
-				var region_props: Array = data.get("region_props", [])
+				var region_props: Array = build["region_props"]
 				var prison_tasks: Array = build["prison_tasks"]
 				var prop_index := int(build["prop_index"])
 				if prop_index < region_props.size():
 					if not immediate and _prop_waiting(region_props[prop_index]):
 						return false
-					_spawn_region_prop(root, build["coord"], region_props[prop_index])
+					_spawn_region_prop(root, build["coord"], region_props[prop_index],
+						PropModelCatalog.region_finish(String(data.get("region", ""))))
 					build["prop_index"] = prop_index + 1
 					if not immediate:
 						return false
@@ -808,14 +838,29 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				kind = "safe_plain"
 			elif edge == 3:
 				kind = "safe"
+		var sewer_code := _sewer_code(build, x, z)
+		if sewer_code == SewerRouteGenerator.WATER:
+			kind = "concrete1"      # the channel bed under the flowing water
+		elif sewer_code == SewerRouteGenerator.BRIDGE:
+			kind = "grate"
 		grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 		if not build.has("floor_kinds"):
 			build["floor_kinds"] = {}
-		(build["floor_kinds"] as Dictionary)[cell] = kind
-		surface.add_floor(x, z, RefTextures.layer("floor", kind),
-			RefTextures.params("floor", kind))
-		surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
-			RefTextures.params("ceiling", ceiling_kind))
+		# footsteps: the channel splashes (SurfaceSounds "water") though its bed is painted concrete
+		(build["floor_kinds"] as Dictionary)[cell] = "sewer_water" if sewer_code == SewerRouteGenerator.WATER else kind
+		var link_here := (build["link_cells"] as Dictionary).has(cell)
+		var coord_y := (build["coord"] as Vector3i).y
+		# A ladder shaft: the maze keeps its walkable collider over the opening (the
+		# climb owns the crossing) but draws no floor, and lines the shaft down to
+		# the sewer ceiling; the sewer leaves its ceiling open under it.
+		if not (link_here and coord_y == 0):
+			surface.add_floor(x, z, RefTextures.layer("floor", kind),
+				RefTextures.params("floor", kind))
+		else:
+			_add_shaft_lining(build, cell)
+		if not (link_here and coord_y == StreamedRouteGenerator.SEWER_LEVEL):
+			surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
 		# Where a taller room meets a lower cell (a doorway or corridor mouth) the
 		# lower cell's ceiling stops short: close the gap above it with a lintel
 		# face on the taller side.
@@ -831,7 +876,7 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if outside:
 				# only close the gap where the other chunk's cell is really open
 				var other := generator.chunk(Vector3i(
-					(build["coord"] as Vector3i).x + floori(float(nx) / size), 0,
+					(build["coord"] as Vector3i).x + floori(float(nx) / size), (build["coord"] as Vector3i).y,
 					(build["coord"] as Vector3i).z + floori(float(nz) / size)))
 				if int((other["grid"] as Array)[posmod(nz, size)][posmod(nx, size)]) != 0:
 					continue
@@ -855,6 +900,60 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
 			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
 				RefTextures.params("wall", wall_kind), face_height)
+
+
+static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
+	var sewer_grid: Array = build["sewer_grid"]
+	return SewerRouteGenerator.DRY if sewer_grid.is_empty() else int(sewer_grid[z][x])
+
+
+## Brick lining of a ladder shaft under a maze link cell, from the maze floor
+## down to the sewer ceiling (SewerRouteGenerator.CEILING_HEIGHT below the next
+## storey), facing into the opening from all four sides.
+func _add_shaft_lining(build: Dictionary, cell: Vector2i) -> void:
+	var surface := build["surface"] as RefSurfaceMesh
+	var bottom := -(LEVEL_HEIGHT - SewerRouteGenerator.CEILING_HEIGHT)
+	var coord: Vector3i = build["coord"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for step_value in RefDecor.DIRS:
+		var step: Vector2i = step_value
+		var n := cell + step
+		var kind := RefLook.wall_kind("sewer", "", coord.x * size + n.x, coord.z * size + n.y)
+		surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", kind),
+			RefTextures.params("wall", kind), 0.0, bottom)
+
+
+## One mesh of flowing water over every channel cell of a sewer chunk. The
+## vertex colour's red/blue channels carry the flow direction for the shader:
+## the east-west channel flows along x, the north-south one along z.
+func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var y := SewerRouteGenerator.WATER_SURFACE
+	var center := SewerRouteGenerator.CENTER
+	var any := false
+	for z in sewer_grid.size():
+		for x in (sewer_grid[z] as Array).size():
+			if int(sewer_grid[z][x]) != SewerRouteGenerator.WATER:
+				continue
+			any = true
+			var along_x := absi(z - center) <= SewerRouteGenerator.CHANNEL_HALF
+			tool.set_color(Color(1, 0, 0) if along_x else Color(0, 0, 1))
+			tool.set_normal(Vector3.UP)
+			for corner in [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 0), Vector2(1, 1), Vector2(0, 1)]:
+				var c: Vector2 = corner
+				tool.set_uv(Vector2(x + c.x, z + c.y))
+				tool.add_vertex(Vector3(x + c.x, y, z + c.y))
+	if not any:
+		return
+	var water := MeshInstance3D.new()
+	water.name = "SewerWater"
+	water.mesh = tool.commit()
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var material := ShaderMaterial.new()
+	material.shader = SEWER_WATER_SHADER
+	water.material_override = material
+	root.add_child(water)
 
 
 ## Cell -> room_type for every cell inside a room rectangle of this chunk.
@@ -939,7 +1038,7 @@ static func _height_in(build: Dictionary, cell: Vector2i) -> float:
 func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord: Vector3i = build["coord"]
-	var neighbour := Vector3i(coord.x + floori(float(nx) / size), 0, coord.z + floori(float(nz) / size))
+	var neighbour := Vector3i(coord.x + floori(float(nx) / size), coord.y, coord.z + floori(float(nz) / size))
 	return RefLook.corridor_height(generator.biome_for(neighbour), neighbour)
 
 
@@ -1202,11 +1301,12 @@ func _spawn_prison_prop_task(parent: Node3D, task: Dictionary) -> void:
 
 func _spawn_region_props(parent: Node3D, data: Dictionary) -> void:
 	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var finish := PropModelCatalog.region_finish(String(data.get("region", "")))
 	for value in data.get("region_props", []):
-		_spawn_region_prop(parent, coord, value)
+		_spawn_region_prop(parent, coord, value, finish)
 
 
-func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> void:
+func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finish: String = "") -> void:
 	var type := String(prop.get("type", ""))
 	if not PropModelCatalog.has_model(type):
 		return
@@ -1223,7 +1323,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 	var mount_offset: Vector2 = prop.get("mount_offset", Vector2.ZERO) \
 		+ prop.get("placement_offset", Vector2.ZERO)
 	_spawn_authored_prop(parent, PropModelCatalog.model_path(type,
-		String(prop.get("id", "")), String(prop.get("room_id", ""))),
+		String(prop.get("id", "")), String(prop.get("room_id", "")), finish),
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
@@ -1563,6 +1663,14 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
 		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
 	spot.position = Vector3(cell.x + .5, .04, cell.y + .5)
+	var style := String(fixture.get("style", ""))
+	if fixture_kind == "hiding_spot" and not style.is_empty():
+		# Furniture hiding spot: the bed or wardrobe prop is already placed; sit on it (docs/HIDING_PROPS.md).
+		var local: Vector2 = fixture.get("local_position", Vector2(cell) + Vector2(.5, .5))
+		spot.hide_style = style
+		spot.hide_size = fixture.get("blocker_size", Vector3.ONE)
+		spot.prompt_text = "HIDE UNDER BED" if style == "bed" else "HIDE IN WARDROBE"
+		spot.position = Vector3(local.x, .0, local.y)
 	spot.rotation.y = float(fixture.get("yaw", 0.0))
 	spot.add_to_group("streamed_vent" if fixture_kind == "vent" \
 		else "streamed_hiding_spot")
