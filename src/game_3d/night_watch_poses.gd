@@ -51,7 +51,11 @@ static func clip_name(pose_id: String) -> String:
 
 
 ## The pose a Night Watch hunter state maps to ("" when the state has none).
-static func pose_for_state(state: String) -> String:
+## `hunter_id` picks a hunter-specific pose where the data has one (Verrine's vent crawl), else the shared pose.
+static func pose_for_state(state: String, hunter_id: String = "") -> String:
+	var own: Dictionary = data().get("hunter_states", {}).get(hunter_id, {})
+	if own.has(state):
+		return String(own[state])
 	return String(data().get("states", {}).get(state, ""))
 
 
@@ -160,7 +164,10 @@ static func play(target: Node, pose_id: String, opts: Dictionary = {}) -> bool:
 
 
 static func play_state(target: Node, state: String, opts: Dictionary = {}) -> bool:
-	var pose_id := pose_for_state(state)
+	var hunter_id := String(opts.get("hunter_id", ""))
+	if hunter_id.is_empty() and target is HunterView3D:
+		hunter_id = (target as HunterView3D).shown_id()
+	var pose_id := pose_for_state(state, hunter_id)
 	return not pose_id.is_empty() and play(target, pose_id, opts)
 
 
