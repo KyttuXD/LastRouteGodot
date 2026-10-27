@@ -125,8 +125,8 @@ func _build_shaft() -> void:
 		_c(shaft, Vector3(0.3, 12.0, 6.0), Vector3(x, 3.0, -3.6), "ShaftWallSide", {"kind": "concrete", "tint": Color(0.4, 0.42, 0.5)})
 	# a sill outside each window for Elise to walk along
 	for s in [-1.0, 1.0]:
-		_c(shaft, Vector3(1.2, 0.2, 4.6), Vector3(s * WINDOW_X, -0.1, -3.6), "SillPlatform", {"kind": "metal", "tint": Color(0.5, 0.5, 0.55)})
-		_c(shaft, Vector3(0.06, 0.9, 4.6), Vector3(s * (WINDOW_X + 0.6), 0.45, -3.6), "SillRail", {"kind": "metal", "tint": Color(0.6, 0.5, 0.2)})
+		_c(shaft, Vector3(1.2, 0.2, 4.3), Vector3(s * WINDOW_X, -0.1, -3.75), "SillPlatform", {"kind": "metal", "tint": Color(0.5, 0.5, 0.55)})
+		_c(shaft, Vector3(0.06, 0.9, 4.3), Vector3(s * (WINDOW_X + 0.6), 0.45, -3.75), "SillRail", {"kind": "metal", "tint": Color(0.6, 0.5, 0.2)})
 	# the beams and rails that slide past while the car drops a floor
 	dress = Node3D.new()
 	dress.name = "ShaftDress"

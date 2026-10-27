@@ -131,6 +131,7 @@ func run(host: Node) -> int:
 	_variety()
 	_calls()
 	_map()
+	await _admin(host)
 	await _office(host)
 	await _scene(host)
 	if _failures == 0:
@@ -541,6 +542,89 @@ func _calls() -> void:
 				_expect(ordinal.search(text) == null or kind == "hold" or d == 1, "descent %d: '%s' ranks the %s stage" % [d, text, kind])
 
 	_expect((NightWatchCallsData.for_level("descent", 3).get("lines", []) as Array).any(func(l): return String(l).contains("She slows down while you work the pipes, but she doesn't stop.")), "descent 3's call does not say she slows on the pipes")
+
+
+# --- the admin menu (docs/NIGHT_WATCH_ADMIN.md) -----------------------------------------------------------------------------------
+
+func _admin_game(host: Node) -> NightWatchDescentGame:
+	var game := await _make(host, 4, 9)
+	game.advance_ms(12000.0)   # past the ride and into Zellia's call
+	return game
+
+
+func _fingerprint(game: NightWatchDescentGame) -> String:
+	var s := game.sim
+	return "%s|%s|%d|%d|%d|%s|%s|%s|%d|%s|%s|%s|%s|%s|%s|%s|%s" % [game.admin_status(), str(s.puzzle), s.stage_idx, s.wrong, s.level, str(s.threat), str(s.over), str(game.hold_down), game.state,
+		str(game.elise.visible), str(game.hud.end_root.visible), str(NightWatchSession.night), str(s.speed_mult), str(game.admin_is_reveal()), game.hud.shown_call, str(game.hud.muted), str(game.hud.call_script.get_instance_id() if game.hud.call_script != null else 0)]
+
+
+func _admin(host: Node) -> void:
+	var game := await _admin_game(host)
+	_expect(NightWatchAdmin.attach(game, false) == null, "a non-admin got the admin menu")
+	_expect(game.admin_menu != null and game.admin_menu is AdminMenu, "an admin did not get the menu")
+	_expect(game.hud.hint_label.text.contains("0 admin"), "the hint line does not list the admin key for an admin")
+	_expect(NightWatchAdmin.PROVIDERS.get("descent", "") == "res://src/night_watch/descent/descent_admin.gd", "The Descent has no admin provider")
+	var sections := NwAdminCheck.sections(game)
+	for want in ["SHIFT // THE DESCENT", "ZELLIA AND THE NIGHT", "THE DESCENT SPECIFIC"]:
+		_expect(sections.has(want), "the admin menu has no %s section: %s" % [want, str(sections)])
+	for p in NwAdminCheck.entry_problems(game):
+		_expect(false, p)
+	for p in await NwAdminCheck.layout_problems(host, game, ["SHIFT", "THE DESCENT SPECIFIC"]):
+		_expect(false, p)
+	game.admin_menu.call("_set_open", true)
+	_expect(game.admin_menu.is_open(), "the admin menu did not open")
+	game.admin_menu.close()
+	# the hooks do what they say
+	game.admin_set_hunter_level("elise", 17)
+	_expect(game.sim.level == 17, "AI level did not change Elise")
+	game.admin_place_hunter("elise", "at the edge")
+	_expect(game.sim.threat > 90.0 and game.elise.visible, "SEND TO at the edge did not bring her to the glass")
+	game.admin_set_god(true)
+	game.advance_ms(60000.0)
+	_expect(game.state == NightWatchDescentGame.State.PLAYING and game.sim.threat <= 99.0 and game.sim.over == "", "god mode let her in")
+	game.admin_set_god(false)
+	game.admin_set_frozen(true)
+	var el := game.sim.elapsed
+	game.advance_ms(5000.0)
+	_expect(game.sim.elapsed == el, "the frozen clock still ran")
+	game.admin_set_frozen(false)
+	game.admin_set_hunter_speed(4.0)
+	game.admin_set_closeness(0.0)
+	game.sim.surge_mult = 1.0
+	game.sim.surge_left = 1e12
+	game.advance_ms(5000.0)
+	var fast := game.sim.threat
+	game.admin_set_hunter_speed(1.0)
+	game.admin_set_closeness(0.0)
+	game.advance_ms(5000.0)
+	_expect(fast > game.sim.threat * 3.0, "4X speed did not close in about four times as fast (%.1f vs %.1f)" % [fast, game.sim.threat])
+	game.admin_goto_stage(game.sim.stages.size())
+	_expect(game.sim.stage_idx == game.sim.stages.size() - 1 and game.sim.kind() == "hold", "the elevator depth did not jump to the last floor")
+	game.admin_solve_stage()
+	_expect(game.state == NightWatchDescentGame.State.WON, "solving the last stage did not win")
+	await _finish_admin(host, game)
+	var jump := await _admin_game(host)
+	jump.admin_jump_to(2)
+	_expect(NightWatchSession.mode_id == "descent" and NightWatchSession.night == 2, "JUMP TO SHIFT did not set the session to descent 2")
+	await _finish_admin(host, jump)
+	var lose := await _admin_game(host)
+	lose.admin_set_no_scare(true)
+	lose.admin_lose()
+	_expect(lose.state == NightWatchDescentGame.State.LOST and lose.hud.end_root.visible and lose.hud.end_title.text == "CAUGHT", "LOSE THE SHIFT did not lose it with no jumpscare")
+	await _finish_admin(host, lose)
+	# every entry of the menu, every item, changes state
+	var make := func() -> NightWatchDescentGame:
+		return await _admin_game(host)
+	var fp := func(g) -> String: return _fingerprint(g)
+	for p in await NwAdminCheck.exercise(make, fp, ["JUMP TO SHIFT"]):
+		_expect(false, p)
+	await _finish_admin(host, game)
+
+
+func _finish_admin(host: Node, game) -> void:
+	if is_instance_valid(game):
+		game.queue_free()
+	await host.get_tree().process_frame
 
 
 # --- the map (docs/NIGHT_WATCH_OFFICES.md, "Maps") --------------------------------------------------------------------------

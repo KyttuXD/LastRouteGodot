@@ -98,6 +98,8 @@ func run(host: Node) -> int:
 	_check_rules()
 	_check_controls()
 	await _check_scene(host)
+	await _check_call(host)
+	await _check_admin(host)
 	if _failures == 0:
 		print("  night_watch_mask  the 2D rules (golden shifts, hall walker, rusher, vent hunters, music box, battery, dark, controls) and the shift scene (nights, win, loss, saves, Custom Night, retry)")
 	return _failures
@@ -680,6 +682,88 @@ func _check_scene(host: Node) -> void:
 	cn.queue_free()
 	await host.get_tree().process_frame
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the quick-key actions stayed registered after the shift closed")
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
+	NightWatchSession.start(1)
+
+
+# --- Zellia's call: rung at the night's `at` seconds on the shift clock (pauses and the admin freeze are honoured), typed line by line, skipped with mute ---------------------
+
+func _check_call(host: Node) -> void:
+	var game := _shift(host, 1, 650)
+	await host.get_tree().process_frame
+	var at_s := float(NightWatchCallsData.for_level("mask", 1)["at"])
+	_expect(game.hud.call_script != null and not game.hud.call_script.done and not game.hud.call_script.open, "night 1's call is not waiting for its ring")
+	game.advance_ms((at_s - 1.0) * 1000.0)
+	_expect(not game.hud.call_script.open and game.hud.shown_call.is_empty(), "the call rang before its time")
+	game.admin_set_frozen(true)
+	game.advance_ms(5000.0)
+	_expect(not game.hud.call_script.open, "a frozen shift still rang the call")
+	game.admin_set_frozen(false)
+	for i in 15:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.shown_call == NightWatchCallsData.INCOMING_TEXT, "the call did not ring at %.0f s of the shift clock (%s)" % [at_s, game.hud.shown_call])
+	for i in 40:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.call_script.line == 0 and game.hud.shown_call != NightWatchCallsData.INCOMING_TEXT, "the call did not go on to its first line")
+	game.admin_skip_call()
+	_expect(game.hud.shown_call.is_empty(), "skipping the call left it on screen")
+	game.queue_free()
+	await host.get_tree().process_frame
+
+
+# --- the admin menu: the gate, the sections, the layout at three sizes, and every entry really changes the shift ---------------------------------------------
+
+func _admin_snapshot(game: MaskGame) -> String:
+	return NightWatchAdminCheck.dump(game.sim.s) + NightWatchAdminCheck.dump(game.sim.levels) + "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [game.sim.infinite_battery, game.sim.hunter_speed, game._admin_frozen,
+		game._admin_god, game._admin_no_scare, game._admin_reveal, game._admin_noclip, game.controls.want, game.controls.lamp, str(game.controls.held), game.hud.shown_call, NightWatchSession.night] \
+		+ str(game.hud.cam_map.blips) + str(game.sim._decay)
+
+
+func _check_admin(host: Node) -> void:
+	NightWatchSave.path = "user://night_watch_mask_admin_test.cfg"
+	NightWatchSave.reset()
+	var game := _shift(host, 4, 600)
+	await host.get_tree().process_frame
+	for msg in NightWatchAdminCheck.sections(game, "MASKED HOURS SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	_expect(game.hud.hint_label.text.contains("0 admin"), "the hint line does not list the admin key for an admin")
+	for msg in await NightWatchAdminCheck.layout(host, game, "MASKED HOURS SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	game.advance_ms(3000.0)
+	for msg in NightWatchAdminCheck.exercise(game, func(g): return _admin_snapshot(g), ["WIN THE SHIFT", "LOSE THE SHIFT"]):
+		_expect(false, "[admin] " + msg)
+	game.queue_free()
+	await host.get_tree().process_frame
+	# specific effects the snapshot cannot say: the hooks do what they claim
+	var g2 := _shift(host, 4, 601)
+	await host.get_tree().process_frame
+	g2.admin_set_hour(3)
+	_expect(g2.sim.level("thessine") == int((MaskLogic.LEVELS["thessine"] as Array)[3]) + 1, "SET TIME 3 AM did not step the AI up")
+	g2.admin_set_box(0.0)
+	g2.admin_set_power(40.0)
+	_expect(is_equal_approx(float(g2.sim.s["box"]), 0.0) and is_equal_approx(float(g2.sim.s["battery"]), 40.0), "the box or the battery was not set")
+	g2.admin_set_frozen(true)
+	var before := float(g2.sim.s["elapsed"])
+	g2.advance_ms(2000.0)
+	_expect(float(g2.sim.s["elapsed"]) == before, "the frozen clock still ran")
+	g2.admin_set_frozen(false)
+	g2.admin_place_hunter("thessine", "office")
+	g2.admin_set_god(true)
+	g2.advance_ms(6000.0)
+	_expect(g2.state == MaskGame.State.PLAYING and String(g2.sim.s["over"]) == "", "god mode did not save the night from an unmasked Thessine")
+	g2.admin_set_god(false)
+	g2.admin_set_no_scare(true)
+	g2.admin_lose()
+	_expect(g2.state == MaskGame.State.LOST and not g2.death_moment.is_open(), "LOSE THE SHIFT with no jumpscare still played the scare")
+	g2.queue_free()
+	await host.get_tree().process_frame
+	var g3 := _shift(host, 2, 602)
+	await host.get_tree().process_frame
+	g3.admin_win()
+	_expect(g3.state == MaskGame.State.WON, "WIN THE SHIFT did not win")
+	g3.queue_free()
+	await host.get_tree().process_frame
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	NightWatchSession.start(1)

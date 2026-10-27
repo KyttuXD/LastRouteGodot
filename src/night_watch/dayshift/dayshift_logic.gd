@@ -29,6 +29,8 @@ var custom := false
 var need := 0
 var door_ms := 0.0
 var s: Dictionary = {}
+## Admin: a multiplier on how fast the doors' visitors move (1.0 = the 2D game's numbers exactly).
+var hunter_speed := 1.0
 
 
 # --- the shop ---------------------------------------------------------------------------------------------------------------
@@ -216,7 +218,7 @@ func _visitor(id: String, shut: bool, lit: bool, ev: Array) -> bool:
 	var h: Dictionary = s[id]
 	var dt := float(s["dt"])
 	if int(h["dist"]) > 0:
-		if not lit and (h["pacer"] as NightWatchMulberryPacer).step(dt, level(id)):
+		if not lit and (h["pacer"] as NightWatchMulberryPacer).step(dt * hunter_speed, level(id)):
 			h["dist"] = int(h["dist"]) - 1
 			ev.append({"type": "close", "id": id, "dist": h["dist"]})
 		return false

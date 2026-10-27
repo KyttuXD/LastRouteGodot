@@ -121,6 +121,9 @@ var torch := 100.0
 var torch_side := ""
 var bus := 0.0
 var infinite_light := false
+## Admin (NightWatchAdmin): god mode sends whoever would catch you back instead; speed scales how often the hunters step.
+var god := false
+var speed := 1.0
 var weather := {}       # {on, t, next, lasts} for the bus stop and the campfire
 
 # rooftop
@@ -264,6 +267,10 @@ func _edge(id: String, lvl: int) -> Edge:
 
 
 func _finish(ev: Array, who: String, why: String) -> Array:
+	if god:
+		_god_save(who, why)
+		ev.append({"type": "godsave", "by": who, "cause": why})
+		return ev
 	over = "caught"
 	by = who
 	cause = why
@@ -271,10 +278,33 @@ func _finish(ev: Array, who: String, why: String) -> Array:
 	return ev
 
 
+## God mode: the catch is undone (she is sent back, the cold, the dark and the tent let go) and the watch goes on.
+func _god_save(who: String, why: String) -> void:
+	match why:
+		"cold":
+			chill = 40.0
+		"fire":
+			out = 0.0
+			fire = maxf(fire, 30.0)
+		"tent":
+			y.dist = 2
+			y.fwd.reset()
+		_:
+			if watch == 0:
+				v.dist = 2
+				v.at_ms = 0.0
+				v.leave = 0.0
+				v.pacer.reset()
+			else:
+				var h = v if who == "verrine" else q
+				if h != null and h.id == who:
+					_send_back(h, 2, [])
+
+
 ## A hunter who comes a step at a time toward a spot, held still by the torch on her side. True once she has waited out the time.
 func _approach(h: Climber, dt_ms: float, lvl: int, barred: bool, ev: Array, id: String) -> bool:
 	if h.dist > 0:
-		if torch_side != h.side and h.pacer.step(dt_ms, _keen(lvl)):
+		if torch_side != h.side and h.pacer.step(dt_ms * speed, _keen(lvl)):
 			h.dist -= 1
 			ev.append({"type": "close", "id": id, "dist": h.dist, "side": h.side})
 		return false
@@ -323,7 +353,7 @@ func _edge_step(h: Edge, dt_ms: float, ev: Array) -> bool:
 		var pace := 1.0
 		if h.id == "verrine" and mood_kind != "calm":
 			pace = MOOD_PACE if mood_kind == "bold" else 1.0 / MOOD_PACE
-		if not held and h.pacer.step(dt_ms * pace, lvl):
+		if not held and h.pacer.step(dt_ms * pace * speed, lvl):
 			h.dist -= 1
 			ev.append({"type": "close", "id": h.id, "dist": h.dist, "side": h.side})
 		return false
@@ -488,7 +518,7 @@ func step(dt_ms: float, input := {}) -> Array:
 			out = 0.0
 		# Ysolde works the tent: while you hide she creeps out (2 -> 1), takes a log from the pile (1 -> 0) and then looks in (0 -> caught).
 		if hidden:
-			if y.fwd.step(dt_ms * TENT_PACE, _keen(_base)):
+			if y.fwd.step(dt_ms * TENT_PACE * speed, _keen(_base)):
 				y.dist -= 1
 				if y.dist == 1:
 					ev.append({"type": "creep", "id": "ysolde"})
@@ -500,7 +530,7 @@ func step(dt_ms: float, input := {}) -> Array:
 					ev.append({"type": "stolen", "id": "ysolde"})
 				else:
 					return _finish(ev, "ysolde", "tent")
-		elif y.dist < 2 and y.back.step(dt_ms * BACK_PACE, _keen(_base)):
+		elif y.dist < 2 and y.back.step(dt_ms * BACK_PACE * speed, _keen(_base)):
 			y.dist += 1
 			ev.append({"type": "backoff", "id": "ysolde", "dist": y.dist})
 		for h in [v, q]:
@@ -528,4 +558,111 @@ func act(kind: String, a := {}) -> bool:
 		logs -= 1
 		fire = minf(100.0, fire + LOG_FUEL)
 		return true
+	return false
+
+
+# --- admin (NightWatchAdmin: the game's admin_* hooks call these) ------------------------------------------------------------------
+
+func hunter_ids() -> Array:
+	return D.active_hunters(watch)
+
+
+func admin_set_level(id: String, n: int) -> void:
+	n = clampi(n, 0, NightWatchModesData.MAX_AI)
+	if watch == 2 and id == "verrine":
+		_verrine_at = n
+		v.lvl = n
+		v.on = n > 0
+	elif watch == 2 and id == "quenelle":
+		_quenelle_at = n
+		q.lvl = n
+		q.on = n > 0
+	elif id == hunter or (watch == 2 and id == "ysolde"):
+		_base = n
+
+
+## Put a hunter at a step of her approach: "far" (3 steps out), "step 2", "step 1", "at the edge" (0). Ysolde: the trees (2), out of them (1), the log pile (0).
+## Wynelle's place is how far the cold has got (her chill).
+func admin_place(id: String, place: String) -> void:
+	var dist: int = int({"far": 3, "step 2": 2, "step 1": 1, "at the edge": 0}.get(place, 3))
+	if id == "wynelle" and watch == 1:
+		chill = [5.0, 40.0, 70.0, 95.0][3 - int(dist)]
+	elif id == "ysolde" and watch == 2:
+		y.dist = clampi(int(dist), 0, 2) if int(dist) < 3 else 2
+	elif watch == 0 and id == "verrine":
+		v.dist = int(dist)
+		v.at_ms = 0.0
+		v.leave = 0.0
+	elif watch == 2 and (id == "verrine" or id == "quenelle"):
+		var h = v if id == "verrine" else q
+		h.dist = int(dist)
+		h.at_ms = 0.0
+		h.push = 0.0
+		h.lost = 0.0
+
+
+## The rooftop's door she is at: "L" the stair door or "R" the hatch.
+func admin_set_side(side: String) -> void:
+	if watch == 0 and (side == "L" or side == "R"):
+		v.side = side
+		v.at_ms = 0.0
+		v.leave = 0.0
+
+
+## Set one of the watch's meters or switches: oil, lantern (bool as 0/1), warm, fuel, chill, fire, logs, mood, rain (force a squall / shower now: 1, end it: 0), can (a canister now),
+## bus (jump to the bus's start). Returns true when the key applies to this watch.
+func admin_set(key: String, value) -> bool:
+	match key:
+		"oil":
+			if watch == 0:
+				oil = clampf(float(value), 0.0, 100.0)
+				return true
+		"lantern":
+			if watch == 0:
+				lantern = bool(value)
+				relight = 0.0
+				if lantern:
+					gust = GUST_MS
+				return true
+		"warm":
+			if watch == 1:
+				warm = clampf(float(value), 0.0, 100.0)
+				return true
+		"fuel":
+			if watch == 1:
+				fuel = clampf(float(value), 0.0, 100.0)
+				return true
+		"chill":
+			if watch == 1:
+				chill = clampf(float(value), 0.0, 99.0)
+				return true
+		"fire":
+			if watch == 2:
+				fire = clampf(float(value), 0.0, 100.0)
+				out = 0.0
+				return true
+		"logs":
+			if watch == 2:
+				logs = maxi(0, int(value))
+				return true
+		"mood":
+			if watch == 2 and ["calm", "bold", "shy"].has(String(value)):
+				mood_kind = String(value)
+				mood_left = MOOD_EVERY_MS
+				return true
+		"rain":
+			if not weather.is_empty():
+				weather["on"] = bool(value)
+				weather["t"] = 0.0
+				return true
+		"can":
+			if watch == 1 and cans.size() < MAX_CANS:
+				for i in 3:
+					if not cans.has(i):
+						cans.append(i)
+						return true
+		"bus":
+			if watch == 1:
+				elapsed = maxf(elapsed, D.WATCH_MS - D.BUS_MS)
+				return true
 	return false

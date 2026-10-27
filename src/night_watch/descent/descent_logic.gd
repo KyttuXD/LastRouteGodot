@@ -51,6 +51,9 @@ var held := 0.0
 var side := "L"
 var surge_mult := 1.0
 var surge_left := 0.0
+## Admin (NightWatchAdmin): god mode keeps her out of the car, speed scales how fast she closes in.
+var god := false
+var speed_mult := 1.0
 
 var _rng: RandomNumberGenerator
 
@@ -390,7 +393,7 @@ func step(dt_ms: float, input := {}) -> Array:
 			surge_left = jitter(SURGE_EVERY_MS, SURGE_EVERY_SPREAD, _rng)
 	if level > 0:
 		var rate := HOLD_RATE if k == "hold" else (PIPE_RATE if k == "pipes" else 1.0) * surge_mult
-		threat = minf(100.0, threat + level * RATE_PER_LEVEL * dt * rate)
+		threat = minf(100.0, threat + level * RATE_PER_LEVEL * dt * rate * speed_mult)
 	if k == "hold":
 		if bool(input.get("hold", false)):
 			held += dt_ms
@@ -398,6 +401,8 @@ func step(dt_ms: float, input := {}) -> Array:
 			threat = minf(100.0, threat + HOLD_SLIP * dt)
 		if held >= HOLD_MS:
 			_finish_stage(ev)
+	if god:
+		threat = minf(threat, 99.0)
 	if threat >= 100.0 and over == "":
 		over = "caught"
 		by = "elise"
@@ -433,3 +438,39 @@ func act(act_kind: String, a := {}) -> Array:
 		if turn_pipe(puzzle, int(a["r"]), int(a["c"])):
 			_finish_stage(ev)
 	return ev
+
+
+# --- admin (NightWatchAdmin: the game's admin_* hooks call these) ------------------------------------------------------------------
+
+## Jump the elevator to stage `index` (1-based): that stage's puzzle, the car stopped.
+func admin_goto_stage(index: int) -> void:
+	if over != "":
+		return
+	stage_idx = clampi(index - 1, 0, stages.size() - 1)
+	puzzle = _build(stages[stage_idx])
+	ride = 0.0
+	held = 0.0
+
+
+## Finish the stage that is up (its events, as if it had been repaired).
+func admin_solve() -> Array:
+	var ev := []
+	if over == "" and not puzzle.is_empty():
+		ride = 0.0
+		_finish_stage(ev)
+	return ev
+
+
+## Deal the current stage's puzzle again.
+func admin_redeal() -> void:
+	if over == "" and stage_idx < stages.size():
+		puzzle = _build(stages[stage_idx])
+		held = 0.0
+
+
+func admin_set_threat(percent: float) -> void:
+	threat = clampf(percent, 0.0, 100.0 if not god else 99.0)
+
+
+func admin_set_level(n: int) -> void:
+	level = clampi(n, 0, NightWatchModesData.MAX_AI)

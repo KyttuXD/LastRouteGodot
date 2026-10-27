@@ -30,6 +30,12 @@ var hud: NightWatchHud
 var death_moment: DeathMoment
 var world_env: WorldEnvironment
 var last_death := {}
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
+var _admin_noclip := false
 ## What is held this step (the validators set these directly, as the 2D tests set `inp`).
 var inp := {"torchL": false, "torchR": false, "barL": false, "barR": false, "relight": false, "gather": false, "tent": false}
 
@@ -66,6 +72,9 @@ func _ready() -> void:
 	sim = NightWatchOpenAirLogic.new(watch, seed_value + step_index, own, verrine, quenelle)
 	_build_world()
 	_spawn_hunters()
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	if admin_menu != null:
+		hud.hint_label.text += " · 0 admin"
 	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level("extra", watch + 1))
 	_sync_visuals(0.0, true)
 
@@ -96,6 +105,7 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_watch)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
@@ -277,7 +287,7 @@ func _process(delta: float) -> void:
 
 ## Step the watch by dt_ms with what is held, and show what happened.
 func advance_ms(dt_ms: float, delta := -1.0) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	if watch == 2:
 		inp["tent"] = world.in_tent(player.global_position)
@@ -335,6 +345,8 @@ func hunter_key(id: String) -> String:
 
 
 func hunter_on(id: String) -> bool:
+	if _admin_reveal:
+		return true
 	match id:
 		"verrine":
 			return sim.level() > 0 if watch == 0 else sim.v.on
@@ -508,7 +520,7 @@ func _finish_caught() -> void:
 		what = "Ysolde looked in the tent"
 	last_death = {"by": who, "name": name_text, "picked": picked, "message": "%s at %s." % [what, NightWatchData.hour_label(NightWatchData.hour_index(sim.elapsed))]}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -526,3 +538,131 @@ func _exit_tree() -> void:
 	NightWatchOpenAirControls.unregister()
 	if get_tree() != null:
 		get_tree().paused = false
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	var rows := []
+	for id in sim.hunter_ids():
+		var walker := _walkers.get(id) as NightWatchWalker
+		var key := "road" if id == "wynelle" else hunter_key(id)
+		rows.append("%s  AI %d  AT %s%s" % [String(id).to_upper(), sim.level_of(id), key, "  WALKING" if walker != null and walker.moving else ""])
+	return "OPEN AIR  %s%s  %s (SEED %d)\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX\n%s" % [watch_label(), " (CUSTOM)" if is_custom else "", NightWatchData.hour_label(NightWatchData.hour_index(sim.elapsed)),
+		seed_value, str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.speed, "\n".join(PackedStringArray(rows))]
+
+
+## Jump to a watch (1 ROOFTOP, 2 BUS STOP, 3 CAMPFIRE).
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.elapsed = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, D.WATCH_MS - 1000.0)
+	_hour_seen = hour_value
+	_sync_visuals(0.0, manual_clock)
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.speed = mult
+
+
+func admin_hunter_ids() -> Array:
+	return sim.hunter_ids()
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.admin_set_level(id, level_value)
+	_sync_visuals(0.0, manual_clock)
+
+
+func admin_places() -> Array:
+	return ["far", "step 2", "step 1", "at the edge"]
+
+
+func admin_place_hunter(id: String, place: String) -> void:
+	sim.admin_place(id, place)
+	_sync_visuals(0.0, manual_clock)
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, watch + 1)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals(0.0, manual_clock)
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = String(sim.hunter_ids()[0])
+		sim.cause = "cold" if watch == 1 else "edge"
+		_finish_caught()
+
+
+## The watch's own section (descriptions in openair_admin.gd): a meter or switch of the watch, the rooftop's door.
+func admin_set(key: String, value) -> bool:
+	var applied := sim.admin_set(key, value)
+	_sync_visuals(0.0, manual_clock)
+	return applied
+
+
+func admin_set_side(side: String) -> void:
+	sim.admin_set_side(side)
+	_sync_visuals(0.0, manual_clock)

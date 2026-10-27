@@ -84,11 +84,14 @@ var _still_time := 0.0
 const STILL_CLIP_AFTER := 0.35
 const STILL_SPEED := 0.15
 const SURVEY_INTERVAL := .1
+## A frame-to-frame jump of her brain position beyond this is a teleport, not movement.
+const TELEPORT_DISTANCE := 4.0
 const SURVEY_DISTANCES := [0.0, 1.5, 3.0, 4.5, 6.0, 8.0, 10.0, 12.0]
 ## She starts walking above this ground speed (see the idle/walk hysteresis in _update_animation).
 const GAIT_ENTER_SPEED := .35
 const TRAVEL_BLEND := .15
 var _last_brain_position := Vector2.ZERO
+var _speed_primed := false
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
 ## R-HandProp locator and scythe_idle / scythe_walk / scythe_swing clips for carrying it.
@@ -120,8 +123,11 @@ const SCREAM_DISTANCE := 2.6
 const FACE_HOLD := .45
 const STAR_COUNT := 3
 const STAR_ORBIT_RADIUS := .34
-const GRAVITY_ACCELERATION := 24.0
+## Presentation height follows the floor at this rate (m/s); deeper than FALL_RECOVERY_DEPTH below it counts as a recovery.
+const SETTLE_SPEED := 14.0
+const FALL_RECOVERY_DEPTH := 1.0
 const MAX_PRESENTATION_SPEED := 12.0
+const PRESENTATION_DEAD_ZONE := .006
 const HUNTER_BODY_RADIUS := .28
 const HUNTER_BODY_HEIGHT := 1.72
 ## Body yaw / head look live in HunterFacing so other creature views share them.
@@ -161,6 +167,12 @@ func _physics_process(delta: float) -> void:
 	if brain == null or not _presentation_initialized:
 		return
 	var planar := _desired_xz - Vector2(position.x, position.z)
+	if planar.length() < PRESENTATION_DEAD_ZONE:
+		# Sub-centimetre corrections (network rounding, interpolation noise) are applied directly: feeding them to
+		# move_and_slide made the body creep within its safe margin and bob up and down while she stood.
+		position.x = _desired_xz.x
+		position.z = _desired_xz.y
+		planar = Vector2.ZERO
 	var wanted_velocity := planar / maxf(delta, .001)
 	wanted_velocity = wanted_velocity.limit_length(MAX_PRESENTATION_SPEED)
 	velocity.x = wanted_velocity.x
@@ -176,17 +188,17 @@ func _physics_process(delta: float) -> void:
 		position.y = move_toward(position.y, _surface_target_y, delta * 6.0)
 		velocity.y = 0.0
 	else:
-		if not is_on_floor():
-			velocity.y -= GRAVITY_ACCELERATION * delta
-		else:
-			velocity.y = -0.35
+		# Hunters are grid simulations on a flat level floor: their height is the floor height, never physics. A body
+		# that fell under gravity dropped through the map as soon as the chunk beneath it had no collider (far hunters,
+		# chunks still streaming, a chunk freed under her). Collision stays for the planar slide against loaded walls.
+		if position.y < _surface_target_y - FALL_RECOVERY_DEPTH:
+			brain.fall_recoveries += 1   # safety net: should never happen now, counted for the admin list and the tests
+		position.y = move_toward(position.y, _surface_target_y, delta * SETTLE_SPEED)
+		velocity.y = 0.0
 	# The floor snap would pull a flying hunter back to the floor every step.
 	floor_snap_length = 0.0 if _flight.altitude > .02 else .32
 	move_and_slide()
-	# Streamed chunks may finish between physics frames. Do not allow a hunter
-	# to fall forever while her destination floor is still being attached.
-	if not _streamed_height_override_active \
-			and position.y < _surface_target_y - StreamedFacilityView3D.LEVEL_HEIGHT:
+	if not _streamed_height_override_active and position.y < _surface_target_y - FALL_RECOVERY_DEPTH:
 		position.y = _surface_target_y
 		velocity.y = 0.0
 
@@ -662,8 +674,15 @@ func sync_from_brain() -> void:
 		position = Vector3(brain.position.x, _surface_target_y, brain.position.y)
 		_presentation_initialized = true
 	var frame := maxf(get_process_delta_time(), 1.0 / 120.0)
-	_move_speed = lerpf(_move_speed, brain.position.distance_to(_last_brain_position) / frame, .3) \
-		if _presentation_initialized else 0.0
+	# The very first sample (the last position is still the zero default) or a jump of several metres (spawn, stairs, a streamed
+	# floor) is a teleport, not walking: reading it as speed made every hunter "walk" in place for a second after appearing.
+	var step := brain.position.distance_to(_last_brain_position)
+	if not _speed_primed or step > TELEPORT_DISTANCE:
+		_move_speed = 0.0
+		_still_time = STILL_CLIP_AFTER + .01 if not _speed_primed else _still_time
+	else:
+		_move_speed = lerpf(_move_speed, step / frame, .3)
+	_speed_primed = true
 	_last_brain_position = brain.position
 	_still_time = _still_time + frame if _move_speed < STILL_SPEED else 0.0
 	_facing.track(brain.position, get_process_delta_time())

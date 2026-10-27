@@ -10,6 +10,7 @@ const SIZES := [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080), 
 	Vector2i(3440, 1440), Vector2i(390, 844), Vector2i(844, 390), Vector2i(1024, 768)]
 
 var _failures := 0
+var _toggle_rows := 0
 
 
 func _expect(condition: bool, message: String) -> void:
@@ -60,11 +61,35 @@ func run(host: Node) -> int:
 		var font_px := 8.0 * zoom * (float(pixels.x) / view.size.x)
 		_expect(font_px >= 12.0, "%s: admin text is %.1f px (needs >= 12)" % [pixels, font_px])
 		_expect(menu._panel.get_theme_stylebox("panel").bg_color.a >= 0.99, "the admin panel background must be opaque")
+		# every admin tab: no CheckBox icon may sit over its own label text
+		for tab_index in menu._tabs.tab_count:
+			menu._tabs.current_tab = tab_index
+			menu._show_page(tab_index)
+			await host.get_tree().process_frame
+			_check_toggle_rows(menu._panel, pixels, str(menu._tabs.get_tab_title(tab_index)))
 		menu._set_open(false)
 		holder.queue_free()
 		await host.get_tree().process_frame
 	route.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:
-		print("  adminui   panel fits, is opaque and readable (>= 12 px text) at %d window sizes" % SIZES.size())
+		print("  adminui   panel fits, is opaque and readable (>= 12 px text) at %d window sizes; %d toggle rows keep their icon off the label" % [SIZES.size(), _toggle_rows])
 	return _failures
+
+
+## CheckBox / CheckButton rows: the check icon (its theme icon, drawn at the left content margin) must not intersect the row's
+## own caption text. Rows that blank the icon (Palette.style_state_toggle) have a 1 px transparent one and pass.
+func _check_toggle_rows(root: Node, pixels: Vector2i, tab: String) -> void:
+	for node in root.find_children("*", "Button", true, false):
+		var box := node as Button
+		if not (box is CheckBox or box is CheckButton) or not box.is_visible_in_tree():
+			continue
+		_toggle_rows += 1
+		var icon := box.get_theme_icon("checked") if box.button_pressed else box.get_theme_icon("unchecked")
+		var margin := box.get_theme_stylebox("normal").get_margin(SIDE_LEFT)
+		var icon_right := margin + float(icon.get_width()) if icon.get_width() > 2 else 0.0
+		var caption := box.get_node_or_null("StateToggleContent/Caption") as Label
+		var text_left := (caption.global_position.x - box.global_position.x) / maxf(box.get_global_transform().get_scale().x, .001) if caption != null \
+			else float(box.get_theme_constant("h_separation")) + icon_right
+		_expect(icon_right <= text_left + .5, "%s / %s: check icon (to x=%.1f) covers the label of %s (starts x=%.1f)" % [
+			pixels, tab, icon_right, box.name, text_left])

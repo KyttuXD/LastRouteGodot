@@ -46,5 +46,15 @@ func _ready() -> void:
 		await _shot("%s/%s_pause.png" % [out, tag])
 		hud.queue_free()
 		NightWatchSave.reset()
+	# the Shift Board of all nine modes at 1480x860 (a typical laptop window)
+	get_window().size = Vector2i(1480, 860)
+	await get_tree().process_frame
+	var board_menu := (load("res://scenes/night_watch_menu.tscn") as PackedScene).instantiate() as NightWatchMenu
+	add_child(board_menu)
+	for mode in 9:
+		board_menu.board_mode = mode
+		board_menu.show_screen("board")
+		await _shot("%s/board_1480x860_mode%d_%s.png" % [out, mode + 1, String(NightWatchModesData.MODES[mode]["id"])], 6)
+	board_menu.queue_free()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	get_tree().quit()

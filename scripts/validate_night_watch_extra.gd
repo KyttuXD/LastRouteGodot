@@ -99,6 +99,7 @@ func run(host: Node) -> int:
 	_variety()
 	_paths(host)
 	_map()
+	await _admin(host)
 	await _offices(host)
 	await _scene(host)
 	if _failures == 0:
@@ -657,6 +658,85 @@ func _paths(host: Node) -> void:
 		steps += 1
 	_expect(walker.pos.distance_to(roof.point("R2")) < 0.1 and worst <= NightWatchWalker.RUN_SPEED / 30.0 + 0.2, "the walker does not arrive, or exceeds the run speed in a step (%.2f)" % worst)
 	roof.queue_free()
+
+
+# --- the admin menu (docs/NIGHT_WATCH_ADMIN.md) -----------------------------------------------------------------------------------
+
+func _fingerprint(game: NightWatchOpenAirGame) -> String:
+	var s := game.sim
+	var shown := []
+	for id in game._models:
+		shown.append((game._models[id] as Node3D).visible)
+	return "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d|%s|%s|%s|%s|%s|%s|%s" % [game.admin_status(), str(s.oil), str(s.lantern), str(s.warm), str(s.fuel), str(s.chill), str(s.fire), str(s.logs), s.mood_kind,
+		str(s.cans), str(s.weather), str(s.elapsed), str(s.bus), game.state, str(shown), str(NightWatchSession.night), str(game.admin_is_reveal()), game.hud.shown_call, str(game.hud.muted), str(game.hud.call_script.get_instance_id() if game.hud.call_script != null else 0), str(game.player.admin_noclip)]
+
+
+func _admin(host: Node) -> void:
+	for w in 3:
+		var label := "watch %d admin" % w
+		var game := await _make(host, w + 1, 40 + w)
+		_expect(NightWatchAdmin.attach(game, false) == null and game.admin_menu != null and game.hud.hint_label.text.contains("0 admin"), "%s: the gate or the hint line is wrong" % label)
+		_expect(NightWatchAdmin.PROVIDERS.get("extra", "") == "res://src/night_watch/openair/openair_admin.gd", "Open Air has no admin provider")
+		var sections := NwAdminCheck.sections(game)
+		for want in ["SHIFT // OPEN AIR", "ZELLIA AND THE NIGHT", "OPEN AIR SPECIFIC"]:
+			_expect(sections.has(want), "%s: no %s section: %s" % [label, want, str(sections)])
+		for p in NwAdminCheck.entry_problems(game):
+			_expect(false, "%s: %s" % [label, p])
+		if w == 0:
+			for p in await NwAdminCheck.layout_problems(host, game, ["SHIFT", "OPEN AIR SPECIFIC"]):
+				_expect(false, p)
+		var level := w + 1
+		var make := func() -> NightWatchOpenAirGame:
+			var gm := await _make(host, level, 40 + level - 1)
+			gm.advance_ms(12000.0)   # into Zellia's call
+			return gm
+		var fp := func(g) -> String: return _fingerprint(g)
+		for p in await NwAdminCheck.exercise(make, fp, ["JUMP TO SHIFT"]):
+			_expect(false, "%s: %s" % [label, p])
+		game.queue_free()
+		await host.get_tree().process_frame
+	# the hooks do what they say
+	var g := await _make(host, 3, 77)
+	g.admin_set_hunter_level("quenelle", 0)
+	_expect(not g.sim.q.on and not g.hunter_on("quenelle"), "AI level 0 did not take Quenelle off the floor")
+	g.admin_set_reveal(true)
+	_expect(g.hunter_on("quenelle"), "REVEAL did not show the hunter that is off")
+	g.admin_set_reveal(false)
+	g.admin_set_hunter_level("verrine", 12)
+	g.admin_place_hunter("verrine", "at the edge")
+	_expect(g.sim.v.dist == 0 and g.sim.v.on and g.sim.level_of("verrine") == 12, "SEND TO at the edge did not put Verrine at the edge")
+	g.admin_set_god(true)
+	g.advance_ms(L.CAMP_AT_MS + 500.0)
+	_expect(g.state == NightWatchOpenAirGame.State.PLAYING and g.sim.over == "" and g.sim.v.dist > 0, "god mode did not send Verrine back instead of being caught")
+	g.admin_set_god(false)
+	g.admin_set_hour(3)
+	_expect(NightWatchData.hour_index(g.sim.elapsed) == 3 and g.hud.clock_label.text == "3 AM", "SET TIME did not set 3 AM")
+	g.admin_set_frozen(true)
+	var el := g.sim.elapsed
+	g.advance_ms(3000.0)
+	_expect(g.sim.elapsed == el, "the frozen clock still ran")
+	g.admin_set_frozen(false)
+	g.admin_set_noclip(true)
+	_expect(g.admin_is_noclip() and g.player.admin_noclip, "NOCLIP did not switch the player to noclip")
+	g.admin_set_noclip(false)
+	g.admin_set("fire", 0.0)
+	_expect(g.sim.fire == 0.0 and g.admin_set("mood", "bold") and g.sim.mood_kind == "bold" and g.admin_set("logs", 9) and g.sim.logs == 9, "the campfire's own controls did not set fire, mood and logs")
+	_expect(not g.admin_set("oil", 10.0), "the rooftop's oil control applied at the campfire")
+	g.admin_win()
+	_expect(g.state == NightWatchOpenAirGame.State.WON and g.hud.end_root.visible, "WIN THE SHIFT did not win")
+	g.queue_free()
+	await host.get_tree().process_frame
+	var jump := await _make(host, 3, 78)
+	jump.admin_jump_to(2)
+	_expect(NightWatchSession.mode_id == "extra" and NightWatchSession.night == 2, "JUMP TO SHIFT did not set the session to the bus stop")
+	jump.queue_free()
+	await host.get_tree().process_frame
+	var lost := await _make(host, 2, 79)
+	lost.admin_set_no_scare(true)
+	lost.admin_lose()
+	_expect(lost.state == NightWatchOpenAirGame.State.LOST and lost.hud.end_root.visible and lost.hud.end_title.text == "CAUGHT", "LOSE THE SHIFT did not lose it with no jumpscare")
+	lost.queue_free()
+	await host.get_tree().process_frame
 
 
 # --- the map (docs/NIGHT_WATCH_OFFICES.md, "Maps"): open grounds, one layout for the three watches ----------------------------------

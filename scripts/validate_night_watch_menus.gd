@@ -167,8 +167,64 @@ func run(host: Node) -> int:
 	_same(pause_texts, PAUSE, "the pause card")
 	hud.queue_free()
 	menu.queue_free()
+	await _check_board_layout(host)
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	if _failures == 0:
 		print("  night_watch_menus  title, board (nine modes), settings, account, credits and pause match the 2D game's screens")
 	return _failures
+
+
+
+## The Shift Board at every size and aspect, for all nine modes: nothing outside the viewport and no two controls overlapping (header, mode rows, portrait, the mode's text area, shift cards, START SHIFT,
+## the key hint and the clock). The game's stretch keeps a 480x270 design and expands the longer side, so each window size is tested as that expanded design size.
+func _check_board_layout(host: Node) -> void:
+	var windows := [Vector2i(480, 270), Vector2i(1280, 720), Vector2i(1480, 860), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(1000, 400), Vector2i(800, 800), Vector2i(540, 960)]
+	var checked := 0
+	for win in windows:
+		var aspect := float(win.x) / float(win.y)
+		var design := Vector2i(int(round(270.0 * aspect)), 270) if aspect >= 16.0 / 9.0 else Vector2i(480, int(round(480.0 / aspect)))
+		for mode in 9:
+			var vp := SubViewport.new()
+			vp.size = design
+			vp.disable_3d = false
+			host.add_child(vp)
+			var menu := (load("res://scenes/night_watch_menu.tscn") as PackedScene).instantiate() as NightWatchMenu
+			vp.add_child(menu)
+			await host.get_tree().process_frame
+			menu.board_mode = mode
+			menu.show_screen("board")
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			var rects := {}
+			var back := menu._screen_root.find_child("BackButton", true, false) as Control
+			var stitle := menu._screen_root.find_child("ScreenTitle", true, false) as Control
+			rects["back"] = back.get_global_rect()
+			rects["screen title"] = stitle.get_global_rect()
+			for i in menu.mode_buttons.size():
+				rects["mode row %d" % i] = (menu.mode_buttons[i] as Control).get_global_rect()
+			rects["portrait"] = (menu._screen_root.find_child("Portrait", true, false) as Control).get_global_rect()
+			rects["text area"] = (menu._screen_root.find_child("InfoScroll", true, false) as Control).get_global_rect()
+			for i in menu.tile_buttons.size():
+				rects["card %d" % (i + 1)] = (menu.tile_buttons[i] as Control).get_global_rect()
+			rects["start"] = menu.start_button.get_global_rect()
+			rects["hint"] = menu.hint_label.get_global_rect()
+			rects["clock"] = menu.clock_label.get_global_rect()
+			var tag := "[%s mode %d] " % [str(win), mode + 1]
+			var screen := Rect2(Vector2.ZERO, Vector2(design))
+			var keys := rects.keys()
+			for k in keys:
+				_expect(screen.encloses((rects[k] as Rect2).grow(-0.01)), tag + "%s is outside the screen: %s" % [k, str(rects[k])])
+			for a in keys.size():
+				for b in range(a + 1, keys.size()):
+					if (rects[keys[a]] as Rect2).grow(-0.01).intersects((rects[keys[b]] as Rect2).grow(-0.01)):
+						_expect(false, tag + "%s overlaps %s: %s / %s" % [keys[a], keys[b], str(rects[keys[a]]), str(rects[keys[b]])])
+			# the mode's own text stays in its area (it scrolls rather than spilling over the cards)
+			var scroll := menu._screen_root.find_child("InfoScroll", true, false) as ScrollContainer
+			var inner := menu._screen_root.find_child("Info", true, false) as Control
+			_expect(inner.get_global_rect().size.x <= scroll.get_global_rect().size.x + 0.5, tag + "the mode text is wider than its area")
+			checked += 1
+			vp.queue_free()
+			await host.get_tree().process_frame
+	if _failures == 0:
+		print("  night_watch_menus  shift board: %d layouts (nine modes x eight window sizes and aspects), no overlap, nothing off screen" % checked)

@@ -40,6 +40,14 @@ var _light_down := {"L": false, "T": false, "R": false}
 var _wind_held := false
 var _shown_room := ""
 var _vent_pose := NightWatchVentPose.new()
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
+var _admin_noclip := false
+var _admin_god := false
+var _admin_infinite_seal := false
 
 var monitor_room: String:
 	get:
@@ -56,7 +64,8 @@ func _ready() -> void:
 	_spawn_hunters()
 	hud.set_call_script(NightWatchCallScript.new([], 0.0))
 	hud.mode_text = "9. Mixed Shift · %s" % String(sim.diff["name"])
-	hud.hint_label.text = MixedControls.hint(false)
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	hud.hint_label.text = MixedControls.hint(false) + _admin_hint()
 	_set_feed(MixedData.CAM_ROOMS[0])
 	_sync_visuals()
 
@@ -91,6 +100,8 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_night)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
@@ -243,7 +254,7 @@ func open_monitor(room := "") -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_monitor", true)
 	hud.show_monitor(true)
-	hud.hint_label.text = MixedControls.hint(true)
+	hud.hint_label.text = MixedControls.hint(true) + _admin_hint()
 	_set_feed(monitor_room)
 	hud.flash_static()
 	NightWatchSounds.monitor_toggle()
@@ -258,7 +269,7 @@ func close_monitor() -> void:
 	player.input_frozen = state != State.PLAYING
 	player.look_frozen = state != State.PLAYING
 	hud.show_monitor(false)
-	hud.hint_label.text = MixedControls.hint(false)
+	hud.hint_label.text = MixedControls.hint(false) + _admin_hint()
 	NightWatchSounds.monitor_toggle()
 
 
@@ -363,10 +374,16 @@ func _process(delta: float) -> void:
 ## Step the shift by dt_ms (in steps of at most 100 ms, as the 2D game's frames) and show what happened.
 func advance_ms(dt_ms: float) -> void:
 	var left := dt_ms
-	while left > 0.0 and state == State.PLAYING:
+	while left > 0.0 and state == State.PLAYING and not _admin_frozen:
 		var dt := minf(left, 100.0)
 		left -= dt
 		var events := sim.step(dt)
+		if _admin_infinite_seal:
+			sim.s["seal"] = sim.seal_max
+			sim.s["ventSeal"] = MixedData.VENT_SEAL_MAX
+		if _admin_god and String(sim.s["over"]) == "caught":
+			_god_rescue()
+			events = []
 		for e in events:
 			_on_event(e)
 		_post_step()
@@ -430,6 +447,15 @@ func _on_event(e: Dictionary) -> void:
 # --- what you see ------------------------------------------------------------------------------------------------------------
 
 func _sync_visuals() -> void:
+	if _admin_reveal:
+		var maps := []
+		var occ := sim.occupancy()
+		for room in occ:
+			if not (occ[room] as Array).is_empty():
+				maps.append(MixedMap.map_for(String(room)))
+		hud.cam_map.set_blips(maps)
+	elif hud.cam_map.blips.size() > 0:
+		hud.cam_map.set_blips([])
 	var s := sim.s
 	var doors: Dictionary = s["door"]
 	if manual_clock:
@@ -655,7 +681,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick({"hunter_id": by}, "nightwatch:mixed:%d" % seed_value, level, name_text)
 	last_death = {"by": by, "name": name_text, "picked": picked, "hours": hours, "advice": advice_for(by)}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -668,6 +694,158 @@ func _after_death_moment() -> void:
 	if sim.endless:
 		body += "\nYou lasted %s. Best: %s." % [MixedData.hours_text(int(last_death.get("hours", 0))), MixedData.hours_text(NightWatchSave.best_score(mode_id))]
 	hud.show_end("CAUGHT", body, false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func _admin_hint() -> String:
+	return "   0 admin" if admin_menu != null else ""
+
+
+## God mode: whoever would catch you is answered (sent home), the tells stop, the seals come back.
+func _god_rescue() -> void:
+	sim.s["over"] = ""
+	sim.s["by"] = ""
+	for th in sim.list():
+		sim.admin_send_home(String(th["id"]))
+	sim.s["lock"] = ""
+	sim.s["cool"] = MixedData.COOLDOWN_MS
+	sim.s["seal"] = maxf(float(sim.s["seal"]), 8000.0)
+	sim.s["ventSeal"] = maxf(float(sim.s["ventSeal"]), 4000.0)
+
+
+func admin_status() -> String:
+	var s := sim.s
+	return "MIXED SHIFT  %s  %s (SEED %d)  DRESSING %s\nROSTER %s\nSEAL %d%%  VENT SEAL %d%%  BEAT %s  TENSION %.2f\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [String(sim.diff["name"]),
+		MixedData.endless_clock(float(s["elapsed"])) if sim.endless else NightWatchData.hour_label(mini(5, sim.hour_of())), seed_value, String(MixedMap.SETS[world.dress_set]).to_upper(), ", ".join(PackedStringArray(sim.roster)).to_upper(),
+		int(round(100.0 * float(s["seal"]) / sim.seal_max)), int(round(100.0 * float(s["ventSeal"]) / MixedData.VENT_SEAL_MAX)), String(s["beat"]).to_upper(), float(s["tension"]),
+		str(_admin_frozen), str(_admin_god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_hunter_rows() -> Array:
+	var rows := []
+	for th in sim.list():
+		var where := String(th["route"][int(th["i"])]) if bool(th["active"]) and not (th["route"] as Array).is_empty() else "AWAY"
+		rows.append("%s  %s  %s  %s%s" % [String(th["id"]).to_upper(), String(th["type"]), String(th["mood"]), where, "  TELL %.1f/%.1fs" % [float(th["armedMs"]) / 1000.0, float(th["tellNeed"]) / 1000.0] if bool(th["armed"]) else ""])
+	return rows
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.admin_set_hour(hour_value if sim.endless else mini(hour_value, 5))
+	_hour_seen = hour_value
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+## "Power" is the doors' seal store.
+func admin_set_power(percent: float) -> void:
+	sim.s["seal"] = clampf(percent, 0.0, 100.0) / 100.0 * sim.seal_max
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	_admin_infinite_seal = on
+
+
+func admin_infinite_power() -> bool:
+	return _admin_infinite_seal
+
+
+func admin_set_god(on: bool) -> void:
+	_admin_god = on
+
+
+func admin_is_god() -> bool:
+	return _admin_god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return sim.roster.duplicate()
+
+
+func admin_places() -> Array:
+	return NightWatchData.cam_rooms() + ["doorL", "doorR", "ventL", "ventR", "ventT"]
+
+
+func admin_place_hunter(id: String, place: String) -> void:
+	sim.admin_place(id, place)
+	_sync_visuals()
+
+
+func admin_set_door(side: String, shut: bool) -> void:
+	sim.set_door(side, shut)
+	_sync_visuals()
+
+
+## ROTATION: the night's dressing (0 station, 1 party floor, 2 salvage yard), rebuilt on the same layout.
+func admin_set_dressing(index: int) -> void:
+	var next := clampi(index, 0, MixedMap.SETS.size() - 1)
+	remove_child(world)
+	world.free()
+	world = MixedWorld.new()
+	world.name = "Hub"
+	world.dress_set = next
+	world.office = office
+	add_child(world)
+	_walkers.clear()
+	_sync_visuals()
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.s["over"] = "caught"
+		sim.s["by"] = String(sim.roster[0])
+		_finish_caught()
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
 
 
 func _exit_tree() -> void:

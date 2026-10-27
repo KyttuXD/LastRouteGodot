@@ -51,7 +51,7 @@ func _ready() -> void:
 		light.light_energy = 0.0
 		light.shadow_enabled = false
 		light.visible = false
-		light.light_specular = 1.2
+		light.light_specular = MaterialLook.LIGHT_SPECULAR
 		add_child(light)
 		_lights.append(light)
 		_targets.append(null)
