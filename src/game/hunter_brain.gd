@@ -71,6 +71,11 @@ var base_speed: float
 var chase_speed: float
 var chase_progression_scale: float
 var sight_range: float
+## City DAYTIME: outdoors the sun lights the runner (see HunterVision for the per-hunter multipliers). `indoor_check` takes a
+## route-space position and says whether it is inside a building, where the night rules still apply.
+var day_mode := false
+var indoor_check: Callable = Callable()
+var _notice_progress := 0.0
 var hearing_scale: float
 
 var stamina := GameConfig.HUNTER_STAMINA_MAX
@@ -321,6 +326,29 @@ func calm_reset(stun_duration: float) -> void:
 	apply_stun(stun_duration)
 
 
+func _target_in_daylight(target_position: Vector2) -> bool:
+	return day_mode and not (indoor_check.is_valid() and bool(indoor_check.call(target_position)))
+
+
+## How far this hunter sees the runner now: the night rules (unlit / flashlight, per-hunter night multiplier) indoors or at
+## night; outdoors in City daytime the sun does the lighting, so her day range applies whatever the runner carries.
+func sight_limit_for(target_position: Vector2, target_flashlight_on: bool) -> float:
+	var difficulty_sight := float(difficulty_profile["hunter_sight"])
+	var limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
+	if target_flashlight_on:
+		limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
+			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
+	if day_mode:
+		if _target_in_daylight(target_position):
+			limit = sight_range * GameConfig.DAYLIGHT_SIGHT_SCALE * difficulty_sight \
+				* HunterVision.day_multiplier(hunter_id)
+		else:
+			limit *= HunterVision.night_multiplier(hunter_id)
+	if gimmick != null:
+		limit *= gimmick.sight_scale(self)
+	return limit
+
+
 func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
 	var direct_distance := position.distance_to(target_position)
 	var breaches: bool = gimmick != null and gimmick.breaches_hiding()
@@ -339,14 +367,8 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 
 	var sees_target := false
 	var perception_line_clear := false
-	var difficulty_sight := float(difficulty_profile["hunter_sight"])
 	var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
-	var sight_limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
-	if target_flashlight_on:
-		sight_limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
-			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
-	if gimmick != null:
-		sight_limit *= gimmick.sight_scale(self)
+	var sight_limit := sight_limit_for(target_position, target_flashlight_on)
 	var hearing_limit := target_noise * hearing_scale * difficulty_hearing
 	if can_sense:
 		# One throttled grid ray serves exposed sight and open-air hearing. Walls
@@ -379,6 +401,14 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 				_path_target_cell = _cell_of(target_position)
 				_has_path_target = true
 
+	var notice_needed := HunterVision.notice_seconds(hunter_id) if day_mode and _target_in_daylight(target_position) else 0.0
+	if sees_target and state != State.CHASE and notice_needed > 0.0:
+		# A glare-shy hunter needs a moment of clear sight in daylight before she commits.
+		_notice_progress += GameConfig.HUNTER_SENSE_INTERVAL
+		if _notice_progress < notice_needed:
+			sees_target = false
+	elif not sees_target:
+		_notice_progress = 0.0
 	if sees_target:
 		state = State.CHASE
 		has_last_known = true

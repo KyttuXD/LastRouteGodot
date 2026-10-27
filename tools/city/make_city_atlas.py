@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 T = 32
 SRC = (ROOT / "src/game_3d/city_atlas.gd").read_text()
 NAMES = re.findall(r'"([a-z_]+)"', SRC.split("const NAMES := [")[1].split("]")[0])
-assert len(NAMES) <= 64, len(NAMES)
+assert len(NAMES) <= 128, len(NAMES)
 
 
 def c(h, a=255):
@@ -322,14 +322,127 @@ def make(name, index):
         t.fill(c("#1d2b3a"), .08)
         for y in range(0, T, 4):
             t.rect(0, y, T, y + 1, c("#101a24"))
+    elif name == "brick_dark":
+        brick(t, c("#3d4252"), c("#1f222c"), c("#565c70"))
+    elif name == "stucco":
+        t.fill(c("#a6957f"), .09)
+        t.dots(22, c("#8a7b68"))
+        t.dots(10, c("#bfae96"))
+        t.rect(0, 0, T, 1, c("#8a7b68"))
+    elif name == "ashlar":
+        t.fill(c("#3b3945"), .06)
+        for row in range(4):
+            offset = 8 if row % 2 else 0
+            for col in range(3):
+                x0 = (col * 16 + offset) % T
+                y0 = row * 8
+                t.rect(x0 + 1, y0 + 1, min(T, x0 + 15), y0 + 7, shade(c("#6d6a7a"), .85 + t.rng.random() * .3), jitter=.05)
+    elif name == "ivy":
+        brick(t, c("#5a3328"), c("#2a1a14"), c("#7a4a3c"))
+        t.dots(70, c("#2f6a3a"), 3)
+        t.dots(45, c("#3f8a4c"), 2)
+        t.dots(18, c("#1c4026"), 3)
+    elif name == "awning_red":
+        t.fill(c("#9c2f3e"), .05)
+        for x in range(0, T, 8):
+            t.rect(x, 0, x + 4, T, c("#e9d9c8"))
+        t.rect(0, 28, T, T, c("#5c1a24"))
+    elif name == "awning_teal":
+        t.fill(c("#1f7f86"), .05)
+        for x in range(0, T, 8):
+            t.rect(x, 0, x + 4, T, c("#e9d9c8"))
+        t.rect(0, 28, T, T, c("#10484d"))
+    elif name == "fire_escape":
+        t.fill(c("#111118"))
+        for y in range(2, T, 6):
+            t.rect(0, y, T, y + 2, c("#2c2c38"))
+        for x in range(3, T, 8):
+            t.rect(x, 0, x + 2, T, c("#2c2c38"))
+    elif name == "neon_sign":
+        t.fill(c("#1a1020"))
+        t.rect(2, 8, T - 2, 24, c("#ff5fa8"), emit=c("#ff5fa8"))
+        t.rect(5, 12, T - 5, 20, c("#ffc2de"), emit=c("#ffc2de"))
+        t.rect(0, 0, T, 2, c("#39e6dc"), emit=cyan)
+    elif name == "asphalt":
+        t.fill(c("#2c2d33"), .10)
+        t.dots(26, c("#3a3b42")); t.dots(10, c("#232428"))
+    elif name == "asphalt_centre":
+        t.fill(c("#2c2d33"), .10)
+        t.dots(20, c("#3a3b42"))
+        t.rect(14, 0, 18, 20, c("#d9b43a"))          # dashed yellow centre line (runs along v)
+    elif name == "asphalt_lane":
+        t.fill(c("#2c2d33"), .10)
+        t.dots(20, c("#3a3b42"))
+        t.rect(14, 4, 17, 18, c("#e6e6e0"))          # dashed white lane line
+    elif name == "asphalt_edge":
+        t.fill(c("#2c2d33"), .10)
+        t.dots(20, c("#3a3b42"))
+        t.rect(0, 0, 3, T, c("#e6e6e0"))             # solid white edge line on the kerb side
+    elif name == "kerb":
+        t.fill(c("#6e6c7c"), .08)
+        t.rect(0, 0, 6, T, c("#8e8c9c"))
+        t.rect(6, 0, 8, T, c("#45434f"))
+        t.dots(8, c("#85838f"))
+    elif name == "gravel":
+        t.fill(c("#7d7466"), .14)
+        t.dots(40, c("#9a9082")); t.dots(22, c("#5e564b"))
+    elif name == "dirt":
+        t.fill(c("#5e4a36"), .12)
+        t.dots(24, c("#755d44")); t.dots(10, c("#3f3225"))
+        t.rect(6, 0, 9, T, c("#4a3a2a")); t.rect(23, 0, 26, T, c("#4a3a2a"))   # wheel ruts
+    elif name == "crop_a":
+        t.fill(c("#4f3b28"), .1)
+        for x in range(2, T, 8):
+            t.rect(x, 0, x + 3, T, c("#3f7a3a"), jitter=.15)
+        t.dots(16, c("#6fb05a"))
+    elif name == "crop_b":
+        t.fill(c("#53402c"), .1)
+        for x in range(2, T, 8):
+            t.rect(x, 0, x + 3, T, c("#c9a23a"), jitter=.15)
+        t.dots(14, c("#e8c45a"))
+    elif name == "soil":
+        t.fill(c("#4a3828"), .14)
+        t.dots(20, c("#5e4a36")); t.dots(10, c("#33261a"))
+    elif name == "fence":
+        t.fill(c("#000000", 0))
+        t.rect(0, 0, 4, T, c("#8a6a46")); t.rect(28, 0, T, T, c("#8a6a46"))
+        t.rect(0, 8, T, 12, c("#9c7a52")); t.rect(0, 20, T, 24, c("#9c7a52"))
+    elif name == "house_wall":
+        t.fill(c("#d9cbb0"), .06)
+        for y in range(0, T, 6):
+            t.rect(0, y, T, y + 1, c("#b7a98d"))      # clapboard
+        t.dots(6, c("#c6b89c"))
+    elif name == "house_roof":
+        t.fill(c("#5a3b33"), .08)
+        for y in range(0, T, 5):
+            t.rect(0, y, T, y + 1, c("#3d2621"))
+        for x in range(0, T, 6):
+            t.rect(x, 0, x + 1, T, c("#4a2f29"))
+    elif name == "barn_red":
+        t.fill(c("#9a2e2a"), .08)
+        for x in range(0, T, 5):
+            t.rect(x, 0, x + 1, T, c("#6e1f1c"))
+        t.dots(8, c("#b8433d"))
+    elif name == "silo":
+        t.fill(c("#aeb3bc"), .06)
+        for y in range(0, T, 8):
+            t.rect(0, y, T, y + 1, c("#7d838d"))
+    elif name == "field_edge":
+        t.fill(c("#2d5a3a"), .22)
+        t.dots(14, c("#3f7a4c"), 2); t.dots(8, c("#1f4129"))
+        t.rect(0, 0, T, 4, c("#4a3828"))
+    elif name in ("asphalt_centre_x", "asphalt_lane_x", "asphalt_edge_x"):
+        base = make(name[:-2], index)          # the along-z tile, turned to run along x
+        t.img = base.img.transpose(Image.Transpose.ROTATE_90)
+        t.emit = base.emit.transpose(Image.Transpose.ROTATE_90)
     else:
         t.fill(c("#ff00ff"))
     return t
 
 
 def main():
-    sheet = Image.new("RGBA", (256, 256), (0, 0, 0, 255))
-    emit = Image.new("RGBA", (256, 256), (0, 0, 0, 255))
+    sheet = Image.new("RGBA", (256, 512), (0, 0, 0, 255))
+    emit = Image.new("RGBA", (256, 512), (0, 0, 0, 255))
     for index, name in enumerate(NAMES):
         tile = make(name, index)
         x, y = (index % 8) * T, (index // 8) * T

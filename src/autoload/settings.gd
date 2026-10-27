@@ -87,6 +87,8 @@ var field_of_view := DEFAULT_FIELD_OF_VIEW
 var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
 ## Accessibility: no fades or typing animation; the death moment shows its whole line at once.
 var reduced_motion := false
+## City only: rain over the streets (visual streaks and the rain loop). Toggled from the City menu.
+var city_rain := true
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
@@ -179,6 +181,11 @@ func focus_loss_pauses() -> bool:
 	if not pause_on_focus_loss:
 		return false
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
+
+
+func set_city_rain(enabled: bool) -> void:
+	city_rain = enabled
+	_save()
 
 
 func set_reduced_motion(enabled: bool) -> void:
@@ -429,6 +436,7 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
+	city_rain = bool(config.get_value("city", "rain", true))
 	var guidance := String(config.get_value("waypoint", "guidance", "arrow"))
 	waypoint_guidance = guidance if WAYPOINT_GUIDANCE_MODES.has(guidance) else "arrow"
 	waypoint_show_distance = bool(config.get_value("waypoint", "show_distance", true))
@@ -484,6 +492,7 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
+	config.set_value("city", "rain", city_rain)
 	config.set_value("waypoint", "guidance", waypoint_guidance)
 	config.set_value("waypoint", "show_distance", waypoint_show_distance)
 	config.set_value("waypoint", "scale", waypoint_scale)
