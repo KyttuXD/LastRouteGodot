@@ -26,6 +26,14 @@ enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
 const ARRIVAL_DISTANCE := 0.65
 const WAYPOINT_DISTANCE := 0.18
 const PATH_LOOKAHEAD_NODES := 4
+## Corner cutting is only allowed when the whole capsule fits along the cut (swept every SWEEP_STEP metres).
+const SWEEP_STEP := 0.15
+## Stuck handling: no real progress for STUCK_CENTER_AFTER seconds -> steer to the cell centres of the path (no corner
+## cutting) for CENTER_STEER_SECONDS; still no progress after STUCK_REPATH_AFTER -> clear the path and, if the capsule
+## sits in a wall, snap it back to open floor. A hunter therefore never stays wedged for much more than a second.
+const STUCK_CENTER_AFTER := 0.25
+const STUCK_REPATH_AFTER := 0.7
+const CENTER_STEER_SECONDS := 0.8
 
 var position: Vector2
 var state: State = State.IDLE
@@ -93,6 +101,8 @@ var _path: Array = []
 var _path_timer := 0.0
 var _has_path_target := false
 var _path_target_cell := Vector2i.ZERO
+var _stuck_time := 0.0
+var _center_steer_left := 0.0
 
 var _rng: SeededRandom
 
@@ -498,8 +508,11 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 			_has_path_target = false
 		return
 
+	_center_steer_left = maxf(0.0, _center_steer_left - delta)
 	var waypoint := move_target
-	if not _path.is_empty():
+	if not _path.is_empty() and _center_steer_left > 0.0:
+		waypoint = Vector2(_path[0]) + Vector2(0.5, 0.5)
+	elif not _path.is_empty():
 		while not _path.is_empty() and position.distance_to(
 				Vector2(_path[0]) + Vector2(0.5, 0.5)) <= WAYPOINT_DISTANCE:
 			_path.pop_front()
@@ -519,6 +532,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 		facing = direction
 		var moved := _move_with_collision(direction.x * travel,
 			direction.y * travel, generator)
+		_track_progress(moved, travel, delta, generator)
 		if moved <= 0.001 and not _path.is_empty():
 			# Tight inside corners can leave the first waypoint just beyond the
 			# capsule's current diagonal reach. Force an immediate repath next
@@ -526,6 +540,37 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 			_path_timer = 0.0
 			if _path.size() > 1:
 				_path.pop_front()
+
+
+## Watches for a hunter that is trying to move but barely does (a capsule wedged on a corner) and escalates:
+## centre-steer, then repath, then snap out of the wall. Never changes the hunter's goal.
+func _track_progress(moved: float, wanted: float, delta: float, generator) -> void:
+	if wanted > 0.0001 and moved < wanted * 0.35:
+		_stuck_time += delta
+	else:
+		_stuck_time = 0.0
+		return
+	if _stuck_time >= STUCK_CENTER_AFTER and _center_steer_left <= 0.0:
+		_center_steer_left = CENTER_STEER_SECONDS
+	if _stuck_time >= STUCK_REPATH_AFTER:
+		_stuck_time = 0.0
+		_path_timer = 0.0
+		_path.clear()
+		_has_path_target = false
+		if generator.has_method("nearest_open_position") and not generator.can_occupy(position.x, position.y, radius):
+			var snapped = generator.nearest_open_position(position.x, position.y, radius)
+			if snapped is Dictionary and not (snapped as Dictionary).is_empty():
+				position = Vector2(float(snapped["x"]), float(snapped["y"]))
+
+
+func _clear_sweep(generator, from: Vector2, to: Vector2) -> bool:
+	var distance := from.distance_to(to)
+	var steps := maxi(1, ceili(distance / SWEEP_STEP))
+	for index in range(1, steps + 1):
+		var point := from.lerp(to, float(index) / float(steps))
+		if not generator.can_occupy(point.x, point.y, radius):
+			return false
+	return true
 
 
 func _smoothed_path_waypoint(generator) -> Dictionary:
@@ -538,7 +583,7 @@ func _smoothed_path_waypoint(generator) -> Dictionary:
 		var candidate := Vector2(_path[index]) + Vector2(0.5, 0.5)
 		if not generator.can_occupy(candidate.x, candidate.y, radius):
 			break
-		if not generator.has_line_of_sight(position, candidate):
+		if not _clear_sweep(generator, position, candidate):
 			break
 		furthest_index = index
 		furthest_point = candidate
