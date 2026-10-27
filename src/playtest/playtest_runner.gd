@@ -9,7 +9,7 @@ extends Node
 ## Scenarios: survive, explore_coverage (--target=chunks), collect_relays (--target=n), reach_depth (--target=n), menu_tour,
 ##   death_scene_tour. Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
 
-const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour"]
+const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe"]
 
 var _driver := false
 var _opts := {}
@@ -34,7 +34,7 @@ func _ready() -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "screenshots": false, "keep_alive": false}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -76,6 +76,8 @@ func _run() -> void:
 	match scenario:
 		"menu_tour":
 			result = await PlaytestScenarios.menu_tour(bridge, adapter, _opts, report)
+		"probe":
+			result = await PlaytestScenarios.probe(bridge, adapter, _opts, report)
 		_:
 			result = await PlaytestScenarios.play(bridge, adapter, _opts, report)
 	report["log"] = {"errors": bridge.log_sink.errors, "warnings": bridge.log_sink.warnings}

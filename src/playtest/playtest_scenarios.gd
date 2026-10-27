@@ -34,8 +34,9 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 		var over := adapter.run_over(obs)
 		if over and not last_over:
 			var death: Dictionary = obs.get("run", {}).get("death", {})
-			deaths.append({"t": snappedf(frames * delta, .1), "hunter": String(death.get("by", death.get("hunter", death.get("hunter_id", "?")))),
-				"cause": String(death.get("cause", death.get("kind", ""))), "depth": int(obs["run"].get("depth", 1))})
+			deaths.append({"t": snappedf(frames * delta, .1), "hunter": String(death.get("hunter_id", "?")),
+				"cause": "%s%s" % [death.get("via", ""), (" / " + String(death["detail"])) if not String(death.get("detail", "")).is_empty() else ""],
+				"depth": int(obs["run"].get("depth", 1))})
 			adapter.stats["deaths"] = int(adapter.stats["deaths"]) + 1
 			adapter.add_event("death", deaths[-1])
 			if scenario == "survive" or scenario == "death_scene_tour":
@@ -77,6 +78,52 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 	var summary: Dictionary = {"outcome": outcome, "game_seconds": snappedf(frames * delta, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": deaths, "scenario_failure": failure}
 	return summary
+
+
+## probe: start a run, teleport to --probe-x/--probe-z, wait for the chunk to stream in, then take four screenshots turning 90 degrees
+## each time and list what is nearby. For looking at a stuck spot a bot found (needs a windowed run to get images).
+static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"], "bot_seed": opts["bot_seed"], "debug": true})
+	if not bool(start.get("ok", false)):
+		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var obs := bridge.observe()
+	var y: float = float(obs["player"]["pos"][1])
+	var result := bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": y, "z": float(opts["probe_z"])})
+	var frames := 0
+	for _i in 120:
+		await tree.physics_frame
+		frames += 1
+	obs = bridge.observe()
+	var shots: Array = []
+	var dir := String(opts["out"]) if not String(opts["out"]).is_empty() else ".playtest/probe"
+	var shot_dir := ProjectSettings.globalize_path("res://").path_join(dir) if not dir.is_absolute_path() else dir
+	DirAccess.make_dir_recursive_absolute(shot_dir)
+	var interact_result := {}
+	if String(opts.get("probe_interact", "")) != "" and adapter.has_method("probe_interact"):
+		interact_result = await adapter.probe_interact(String(opts["probe_interact"]), 150)
+		for _j in 20:
+			await tree.physics_frame
+			frames += 1
+		shots.append(bridge.screenshot(shot_dir.path_join("probe_after_interact.png")))
+	for i in 4:
+		var shot := bridge.screenshot(shot_dir.path_join("probe_%d.png" % i))
+		shots.append(shot)
+		bridge.input.apply({"look": [1.0, 0.0]})
+		for _j in 34:
+			await tree.physics_frame
+			frames += 1
+		bridge.input.apply({"look": [0.0, 0.0]})
+		for _j in 6:
+			await tree.physics_frame
+			frames += 1
+	bridge.input.release_all()
+	var rows: Array = []
+	for item in obs.get("interactables", []):
+		if float(item["dist"]) < 8.0:
+			rows.append(item)
+	return {"outcome": "probed", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames,
+		"probe": {"teleport": result, "player": obs.get("player", {}), "interactables_near": rows, "hunters": obs.get("hunters", []), "world": obs.get("world", {}), "screenshots": shots, "interact": interact_result}}
 
 
 static func menu_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:

@@ -58,5 +58,5 @@ func admin(_name: String, _args: Dictionary) -> Dictionary:
 
 func add_event(kind: String, data: Dictionary = {}) -> void:
 	var entry := {"kind": kind, "frame": Engine.get_physics_frames()}
-	entry.merge(data, true)
+	entry.merge(data, false)
 	events.append(entry)

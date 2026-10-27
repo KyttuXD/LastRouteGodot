@@ -16,6 +16,7 @@ const STUCK_WINDOW := 1.5
 const STUCK_MIN_MOVE := 0.3
 const GOAL_BLACKLIST_SECONDS := 25.0
 const SCAN_INTERVAL := 30
+const WAIT_IN_SAFE_SECONDS := 25.0
 
 var _scan_cache: Array = []
 var _scan_frame := -1000
@@ -41,6 +42,10 @@ var _last_goal_kind := ""
 var _threat_seen := false
 var _soft_locks := 0
 var _last_pos := Vector2.ZERO
+var _last_obs := {}
+var _stuck_spots: Array = []
+var _safe_wait := 0.0
+var _door_tries := 0
 var _has_last_pos := false
 
 
@@ -132,6 +137,50 @@ func admin(name: String, args: Dictionary) -> Dictionary:
 	return {"ok": true}
 
 
+## Look at the nearest interactable of `kind` and press interact on it (probe scenario helper). Returns what happened.
+func probe_interact(kind: String, frames: int = 120) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var input: PlaytestInput = Playtest.input
+	var before := {}
+	var trace: Array = []
+	var pressed := 0
+	var delta := 1.0 / float(Engine.physics_ticks_per_second)
+	for _i in frames:
+		await tree.physics_frame
+		var obs := {}
+		observe(scene, obs)
+		var target := {}
+		for item in obs.get("interactables", []):
+			if String(item["kind"]) == kind and not bool(item.get("completed", false)):
+				target = item
+				break
+		if target.is_empty():
+			return {"ok": false, "error": "no %s nearby" % kind}
+		if before.is_empty():
+			before = target.duplicate()
+		var pos: Array = target["pos"]
+		var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "pulse": []}
+		var on_target := _aim_at(player, Vector3(float(pos[0]), float(pos[1]), float(pos[2])), act, delta)
+		if _i % 15 == 0:
+			trace.append({"i": _i, "on_target": on_target, "focus": obs.get("focus", {}), "yaw": obs["player"]["yaw"], "pitch": obs["player"]["pitch"]})
+		if on_target and str(obs.get("focus", {}).get("kind", "")) == kind and pressed < 3 and _i % 20 == 0:
+			act["pulse"].append("interact")
+			pressed += 1
+		input.apply(act)
+	input.release_all()
+	var obs_after := {}
+	observe(scene, obs_after)
+	var after := {}
+	for item in obs_after.get("interactables", []):
+		if String(item["kind"]) == kind:
+			after = item
+			break
+	return {"ok": true, "pressed": pressed, "before": before, "after": after, "trace": trace}
+
+
 func _reset() -> void:
 	stats = {"frames": 0, "distance_m": 0.0, "stuck_events": 0, "soft_locks": 0, "interact_failures": 0,
 		"unreachable_goals": 0, "chase_frames": 0, "relays": 0, "deaths": 0, "hidden_frames": 0,
@@ -148,6 +197,7 @@ func _reset() -> void:
 	_stuck_since = -1.0
 	_soft_locks = 0
 	_has_last_pos = false
+	_stuck_spots.clear()
 	_scan_frame = -1000
 
 
@@ -186,6 +236,10 @@ func observe(scene: Node, obs: Dictionary) -> void:
 		"flashlight": player.flashlight_enabled, "mode": player.movement_mode, "noise": snappedf(player.noise, .01),
 		"frozen": player.input_frozen, "spectator": player.spectator_mode, "item": player.selected_inventory_item(),
 		"in_safe_room": in_safe}
+	var focus: Variant = player.call("_nearest_interactable") if player.has_method("_nearest_interactable") else null
+	obs["focus"] = {}
+	if focus is RouteInteractable3D and is_instance_valid(focus):
+		obs["focus"] = {"kind": RouteInteractable3D.Kind.keys()[(focus as RouteInteractable3D).kind], "prompt": (focus as RouteInteractable3D).get_prompt()}
 	obs["world"] = {"chunk": [chunk.x, chunk.y, chunk.z], "level": facility.current_level(),
 		"loaded_chunks": facility.loaded_chunk_count(), "biome": String(data.get("biome", "")),
 		"relays": _nearest_entries(nav.relays, p, 8, true), "batteries": _nearest_entries(nav.batteries, p, 4, true),
@@ -257,6 +311,7 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 	if not _route_ready(scene) or not bool(obs.get("run", {}).get("active", false)):
 		return {}
 	_clock += delta
+	_last_obs = obs
 	stats["frames"] = int(stats["frames"]) + 1
 	var player: PlayerController3D = scene.get("player")
 	var nav: StreamedHunterNavigation = scene.get("_navigation")
@@ -307,7 +362,16 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 			_interact_cooldown = 0.8
 		return act
 	if _last_goal_kind == "safe" and distance <= SAFE_ARRIVAL:
-		return act   # stand in the safe room until the threat is gone
+		# stand in the safe room until the threat is gone, but never longer than WAIT_IN_SAFE_SECONDS
+		_safe_wait += delta
+		if _safe_wait < WAIT_IN_SAFE_SECONDS:
+			return act
+		_blacklist[String(goal["key"])] = _clock + 30.0
+		_safe_wait = 0.0
+		_goal = {}
+		return act
+	if _last_goal_kind != "safe":
+		_safe_wait = 0.0
 	if distance <= 1.2 and _last_goal_kind in ["explore", "flee"]:
 		_blacklist[String(goal["key"])] = _clock + 1.0
 		_goal = {}
@@ -407,8 +471,14 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 		_path_age = 0.0
 		var found: Array = nav.find_path(cell, goal["cell"])
 		if found.is_empty():
+			# the cell under us may be a cell the navigation does not allow standing on (door frame, prop corner): plan from
+			# the nearest open one instead of calling the goal unreachable
+			var start_cell := _open_cell_near(nav, Vector2(p.x, p.z))
+			if start_cell != Vector2i(-99999, -99999) and start_cell != cell:
+				found = nav.find_path(start_cell, goal["cell"])
+		if found.is_empty():
 			stats["unreachable_goals"] = int(stats["unreachable_goals"]) + 1
-			add_event("unreachable_goal", {"kind": goal["kind"], "from": [cell.x, cell.y], "to": [goal["cell"].x, goal["cell"].y]})
+			add_event("unreachable_goal", {"goal_kind": goal["kind"], "from": [cell.x, cell.y], "to": [goal["cell"].x, goal["cell"].y]})
 			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
 			_goal = {}
 			_path = []
@@ -423,6 +493,26 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	var to_aim := aim - Vector2(p.x, p.z)
 	if to_aim.length() < .05:
 		return
+	# a closed room door on the way: look at it and open it like a player would
+	var door := _closed_door_ahead(p, aim)
+	if not door.is_empty():
+		var door_pos: Array = door["pos"]
+		var door_target := Vector3(float(door_pos[0]), float(door_pos[1]), float(door_pos[2]))
+		var on_door := _aim_at(player, door_target, act, delta)
+		var door_distance := Vector2(door_target.x - p.x, door_target.z - p.z).length()
+		act["move"] = [0.0, .4 if door_distance > 1.5 else 0.0]
+		if on_door and door_distance <= 2.0 and _interact_cooldown <= 0.0:
+			act["pulse"].append("interact")
+			_interact_cooldown = .8
+			_door_tries += 1
+			if _door_tries > 4:
+				stats["door_failures"] = int(stats.get("door_failures", 0)) + 1
+				add_event("door_failed", {"at": [snappedf(p.x, .1), snappedf(p.z, .1)], "door": door_pos})
+				_door_tries = 0
+				_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
+				_goal = {}
+		return
+	_door_tries = 0
 	var yaw_target := atan2(-to_aim.x, -to_aim.y)
 	var error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
@@ -434,6 +524,19 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	# stuck recovery overrides
 	if _stuck_level > 0:
 		_recover(scene, player, p, act)
+
+
+func _closed_door_ahead(p: Vector3, aim: Vector2) -> Dictionary:
+	for item in _last_obs.get("interactables", []):
+		if String(item["kind"]) != "ROOM_DOOR" or bool(item["door_open"]) or float(item["dist"]) > 2.6:
+			continue
+		var pos: Array = item["pos"]
+		var at := Vector2(float(pos[0]), float(pos[2]))
+		var segment := aim - Vector2(p.x, p.z)
+		var t := clampf((at - Vector2(p.x, p.z)).dot(segment) / maxf(segment.length_squared(), .0001), 0.0, 1.0)
+		if (Vector2(p.x, p.z) + segment * t).distance_to(at) < 1.2:
+			return item
+	return {}
 
 
 func _cell_centre(cell: Variant) -> Vector2:
@@ -462,6 +565,15 @@ func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, go
 			found = true
 	if not found:
 		target = Vector3(goal_pos.x, p.y + 1.0, goal_pos.y)
+	var aimed := _aim_at(player, target, act, delta)
+	# keep nudging forward until within reach, never past the target
+	var flat := Vector2(target.x - p.x, target.z - p.z)
+	act["move"] = [0.0, .35 if flat.length() > INTERACT_RANGE * .6 else 0.0]
+	return aimed
+
+
+## Turn the view onto a world point with the look stick; true when the crosshair is on it.
+func _aim_at(player: PlayerController3D, target: Vector3, act: Dictionary, delta: float) -> bool:
 	var eye := player.first_person_pivot.global_position
 	var flat := Vector2(target.x - eye.x, target.z - eye.z)
 	var yaw_target := atan2(-flat.x, -flat.y)
@@ -471,8 +583,6 @@ func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, go
 	var yaw_error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var pitch_error := pitch_target - player.first_person_pivot.rotation.x
 	act["look"] = [-PlaytestInput.look_strength(yaw_error, rate, delta), -PlaytestInput.look_strength(pitch_error, rate, delta)]
-	# keep nudging forward until within reach, never past the target
-	act["move"] = [0.0, .35 if flat.length() > INTERACT_RANGE * .6 else 0.0]
 	return absf(yaw_error) < .1 and absf(pitch_error) < .14
 
 
@@ -488,7 +598,7 @@ func _interact(obs: Dictionary, scene: Node, player: PlayerController3D, p: Vect
 		_relays_at_interact = GameState.relays_collected
 		if _interact_tries > 5:
 			stats["interact_failures"] = int(stats["interact_failures"]) + 1
-			add_event("interact_failed", {"kind": goal["kind"], "at": [snappedf(p.x, .1), snappedf(p.z, .1)], "goal": [goal["cell"].x, goal["cell"].y]})
+			add_event("interact_failed", {"goal_kind": goal["kind"], "at": [snappedf(p.x, .1), snappedf(p.z, .1)], "goal": [goal["cell"].x, goal["cell"].y]})
 			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
 			_goal = {}
 
@@ -517,7 +627,7 @@ func _track_progress(obs: Dictionary, p: Vector3, delta: float) -> void:
 	# stuck: wanted to move but did not
 	if _samples.size() >= 4 and not _goal.is_empty() and _last_goal_kind in ["explore", "flee", "relay", "battery", "safe", "hide"]:
 		var moved := Vector2(float(_samples[0]["x"]), float(_samples[0]["z"])).distance_to(Vector2(p.x, p.z))
-		var near_goal := Vector2(p.x, p.z).distance_to(Vector2(float(_goal["cell"].x) + .5, float(_goal["cell"].y) + .5)) < 3.0
+		var near_goal := Vector2(p.x, p.z).distance_to(Vector2(float(_goal["cell"].x) + .5, float(_goal["cell"].y) + .5)) < (SAFE_ARRIVAL + .6 if _last_goal_kind == "safe" else 3.0)
 		if moved < STUCK_MIN_MOVE and not near_goal and float(_samples[-1]["t"]) - float(_samples[0]["t"]) >= STUCK_WINDOW - .3:
 			if _stuck_since < 0.0:
 				_stuck_since = _clock
@@ -526,10 +636,7 @@ func _track_progress(obs: Dictionary, p: Vector3, delta: float) -> void:
 				_stuck_level += 1
 				_stuck_next = _clock + 1.2
 				if _stuck_level == 2:
-					stats["stuck_events"] = int(stats["stuck_events"]) + 1
-					add_event("stuck", {"at": [snappedf(p.x, .1), snappedf(p.y, .1), snappedf(p.z, .1)],
-						"goal": [_goal["cell"].x, _goal["cell"].y], "kind": _last_goal_kind,
-						"chunk": [int(obs["world"]["chunk"][0]), int(obs["world"]["chunk"][2])]})
+					_record_stuck(obs, p)
 		else:
 			_stuck_level = 0
 			_stuck_since = -1.0
@@ -551,6 +658,22 @@ func _track_progress(obs: Dictionary, p: Vector3, delta: float) -> void:
 			var open := _open_cell_near(nav, Vector2(p.x, p.z) + Vector2(rng.randf_range(-6, 6), rng.randf_range(-6, 6)))
 			if open != Vector2i(-99999, -99999):
 				admin("teleport", {"x": open.x + .5, "y": p.y, "z": open.y + .5})
+
+
+## One event per stuck SPOT (within 3 m): repeat visits only raise its count, so a single bad spot is one finding, not fifty.
+func _record_stuck(obs: Dictionary, p: Vector3) -> void:
+	var here := Vector2(p.x, p.z)
+	for spot in _stuck_spots:
+		if Vector2(float(spot["at"][0]), float(spot["at"][2])).distance_to(here) < 3.0:
+			spot["count"] = int(spot["count"]) + 1
+			return
+	var entry := {"kind": "stuck", "frame": Engine.get_physics_frames(), "count": 1,
+		"at": [snappedf(p.x, .1), snappedf(p.y, .1), snappedf(p.z, .1)], "goal": [_goal["cell"].x, _goal["cell"].y],
+		"goal_kind": _last_goal_kind, "chunk": [int(obs["world"]["chunk"][0]), int(obs["world"]["chunk"][2])],
+		"focus": obs.get("focus", {}), "nearest": (obs.get("interactables", []) as Array).slice(0, 3)}
+	_stuck_spots.append(entry)
+	events.append(entry)
+	stats["stuck_events"] = int(stats["stuck_events"]) + 1
 
 
 func _recover(scene: Node, player: PlayerController3D, p: Vector3, act: Dictionary) -> void:
