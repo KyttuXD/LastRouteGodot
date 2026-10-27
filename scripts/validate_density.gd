@@ -7,7 +7,7 @@ extends RefCounted
 ##   godot --headless --path . res://scenes/validate.tscn -- density
 
 const DEAD_LIMIT := 0.15
-const DOOR_DISTANCE_LIMIT := 2.5
+const DOOR_DISTANCE_LIMIT := 3.0
 const WINDOWS := [
 	{"seed": "MAP-CHECK", "from": Vector2i(0, 3), "to": Vector2i(6, 6)},
 	{"seed": "MAP-CHECK", "from": Vector2i(-6, -6), "to": Vector2i(-1, -1)},

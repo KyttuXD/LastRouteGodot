@@ -75,6 +75,7 @@ static func chunk_report(data: Dictionary, biome: String, coord: Vector3i, radii
 					_sample(samples, "target_%.1f" % radius, "%s %s %s %s" % [biome, coord, door["room_id"], t["name"]])
 			# standable floor in the room that the door cannot reach
 			var cut := 0
+			var cut_points := {}
 			var x := float(rect.position.x) + 0.5
 			while x < rect.end.x - 0.5:
 				var y := float(rect.position.y) + 0.5
@@ -82,13 +83,37 @@ static func chunk_report(data: Dictionary, biome: String, coord: Vector3i, radii
 					var p := Vector2(x, y)
 					if world.can_stand(p, radius) and not world.reached_near(reached, area, p, 0.26):
 						cut += 1
+						cut_points[Vector2i(roundi(x * 2.0), roundi(y * 2.0))] = true
 					y += 0.5
 				x += 0.5
 			if cut > 0:
 				totals["pocket_m2_%.1f" % radius] += float(cut) * 0.25
-				if cut >= 6:
+				# isolated points (a gap between two chairs) are not pockets: a pocket is a connected patch of 1.5 m2 or more
+				var largest := _largest_patch(cut_points)
+				if largest >= 6:
 					totals["big_pockets_%.1f" % radius] += 1
-					_sample(samples, "pocket_%.1f" % radius, "%s %s room %s cut-off %.1f m2" % [biome, coord, rect, cut * 0.25])
+					_sample(samples, "pocket_%.1f" % radius, "%s %s room %s cut-off patch %.1f m2" % [biome, coord, rect, largest * 0.25])
+
+
+static func _largest_patch(points: Dictionary) -> int:
+	var seen := {}
+	var best := 0
+	for start in points:
+		if seen.has(start):
+			continue
+		var size := 0
+		var frontier := [start]
+		seen[start] = true
+		while not frontier.is_empty():
+			var current: Vector2i = frontier.pop_back()
+			size += 1
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var next: Vector2i = current + d
+				if points.has(next) and not seen.has(next):
+					seen[next] = true
+					frontier.append(next)
+		best = maxi(best, size)
+	return best
 
 
 static func _sample(samples: Dictionary, key: String, text: String) -> void:
