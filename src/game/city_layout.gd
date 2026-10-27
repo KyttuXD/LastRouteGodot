@@ -46,10 +46,11 @@ const BRIDGE := 17
 const BLOCK := 18
 const ALLEY := 19
 const COMPASS := 20
-const KIND_COUNT := 21
+const GATE := 21
+const KIND_COUNT := 22
 
 const KIND_NAMES := ["rim", "road", "pave", "plaza", "grass", "path", "water", "wall", "floor", "door", "hedge", "bed",
-	"post", "cross_ns", "cross_ew", "kiosk_floor", "kiosk_wall", "bridge", "block", "alley", "compass"]
+	"post", "cross_ns", "cross_ew", "kiosk_floor", "kiosk_wall", "bridge", "block", "alley", "compass", "gate"]
 const OPEN_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, FLOOR, DOOR, CROSS_NS, CROSS_EW, KIOSK_FLOOR, BRIDGE, ALLEY, COMPASS]
 ## Kinds a person can stand on outdoors (a door opens onto one of these).
 const OUTDOOR_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, ALLEY, COMPASS, CROSS_NS, CROSS_EW, BRIDGE]
@@ -58,6 +59,10 @@ const OUTDOOR_KINDS := [ROAD, PAVE, PLAZA, GRASS, PATH, ALLEY, COMPASS, CROSS_NS
 const NS_STREETS := [[22, 5], [67, 5], [112, 9], [157, 5], [202, 5]]
 const EW_STREETS := [[22, 5], [67, 9], [112, 5]]
 const ROUNDABOUT_CENTER := Vector2i(112, 67)
+## The dome gate across the south end of the avenue: nine blocked cells on row GATE_ROW, the interaction cell in front.
+const GATE_ROW := 120
+const GATE_CELL := Vector2i(112, 119)
+const GATE_X := Vector2i(108, 116)
 const SHELTER_PLAZAS := [Vector2i(67, 22), Vector2i(157, 22), Vector2i(67, 112), Vector2i(157, 112)]
 const GARDENS := [Rect2i(70, 25, 38, 38), Rect2i(117, 25, 38, 38)]
 ## North end of the avenue; it runs over the first secondary street (rows 20..24), so the plaza is 85 x 22.
@@ -148,6 +153,8 @@ func building_at(gx: int, gz: int) -> Dictionary:
 
 ## The name the HUD shows for the place a cell belongs to.
 func zone_name(gx: int, gz: int) -> String:
+	if gz >= GATE_ROW - 3 and gz <= GATE_ROW + 3 and gx >= GATE_X.x and gx <= GATE_X.y:
+		return "DOME GATE"
 	var building := building_at(gx, gz)
 	if not building.is_empty():
 		var kind := String(building["kind"])
@@ -414,6 +421,7 @@ func _plan() -> void:
 		_lay_garden(rect)
 	_lay_grand_plaza()
 	_lay_blocks()
+	_lay_gate()
 	_fill_verges()
 	_lay_crosswalks()
 	_scatter_verge_trees()
@@ -894,6 +902,21 @@ func _lay_street_furniture() -> void:
 		_place_decor(door + out * 2 - along * 3, "bollard", 0.0)
 
 
+## The gate: a 9-wide closed barrier across the avenue (the escape objective, see CityRouteGenerator pickups).
+func _lay_gate() -> void:
+	for gx in range(GATE_X.x, GATE_X.y + 1):
+		_set_kind(gx, GATE_ROW, GATE)
+
+
+## Relays the party must have recovered before the gate answers.
+static func gate_relays_required(difficulty_id: String) -> int:
+	match difficulty_id:
+		"relaxed": return 6
+		"hard": return 14
+		"nightmare": return 16
+		_: return 10
+
+
 ## An alley is 3 wide; leftover 1-2 cell slivers (clipped by the dome edge or the roundabout) become solid.
 func _remove_thin_alleys() -> void:
 	var thin := []
@@ -948,7 +971,7 @@ const MAP_COLORS := {
 	PATH: Color("a59b8a"), WATER: Color("2a5c8a"), WALL: Color("1a1822"), FLOOR: Color("5a4630"), DOOR: Color("f2c14e"),
 	HEDGE: Color("1d4027"), BED: Color("b04a7a"), POST: Color("e8a33a"), CROSS_NS: Color("d8d8e0"),
 	CROSS_EW: Color("d8d8e0"), KIOSK_FLOOR: Color("39b6b0"), KIOSK_WALL: Color("14636a"), BRIDGE: Color("a58a5a"),
-	BLOCK: Color("ff00ff"), ALLEY: Color("55535f"), COMPASS: Color("c9b88a"),
+	BLOCK: Color("ff00ff"), ALLEY: Color("55535f"), COMPASS: Color("c9b88a"), GATE: Color("39e6dc"),
 }
 
 

@@ -300,6 +300,7 @@ func _check_run_scene(host: Node) -> void:
 	_expect(absf(wrapf(player._yaw - PI, -PI, PI)) < .01, "the runner does not start facing the kiosk doorway (south)")
 	var layout := (facility.generator as CityRouteGenerator).layout
 	_expect(layout.kind_at(layout.spawn.x, layout.spawn.y + 4) == CityLayout.DOOR, "no doorway straight ahead of the spawn")
+	_check_gate(facility, layout)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	RoomState.create_local(RoomState.Mode.DEFAULT)
@@ -438,3 +439,24 @@ func _check_invisible_walls(facility: StreamedFacilityView3D) -> void:
 		_expect(collider != Vector3.ZERO, "%s street furniture has no collider" % type)
 		_expect(maxf(collider.x, collider.z) <= maxf(visible.x, visible.z) + .06 and collider.y <= visible.y + .06,
 			"%s collider (%s) is bigger than what is drawn (%s)" % [type, collider, visible])
+
+
+## The dome gate: nine blocked cells across the avenue, one gate pickup in the loaded chunks, relay requirement per difficulty.
+func _check_gate(facility: StreamedFacilityView3D, layout: CityLayout) -> void:
+	for gx in range(CityLayout.GATE_X.x, CityLayout.GATE_X.y + 1):
+		_expect(layout.kind_at(gx, CityLayout.GATE_ROW) == CityLayout.GATE, "gate cell %d is not blocked" % gx)
+	_expect(layout.is_open(CityLayout.GATE_CELL.x, CityLayout.GATE_CELL.y), "no open cell in front of the gate")
+	_expect(layout.zone_name(CityLayout.GATE_CELL.x, CityLayout.GATE_CELL.y) == "DOME GATE", "gate zone name missing")
+	var found := 0
+	var data: Dictionary = facility.generator.chunk(Vector3i(0, 0, 1))
+	for pickup_value in data.get("pickups", []):
+		var pickup: Dictionary = pickup_value
+		if String(pickup.get("kind", "")) == "gate":
+			found += 1
+	var gate_node: Node = facility.find_child("DomeGate", true, false)
+	_expect(gate_node != null, "the dome gate interactable was not built")
+	_expect(found == 1, "expected exactly one gate pickup, found %d" % found)
+	var easy := CityLayout.gate_relays_required("relaxed")
+	var normal := CityLayout.gate_relays_required("standard")
+	var hard := CityLayout.gate_relays_required("nightmare")
+	_expect(easy < normal and normal < hard, "gate relay requirement does not rise with difficulty")

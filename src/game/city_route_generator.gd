@@ -89,6 +89,10 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var fixtures := _fixtures(coord, grid, rooms, [], region_props, safe)
 	var pickups := _pickups(coord, grid, [], safe, region_props, fixtures)
 	var hunters := _hunter_spawns(coord, grid, [], safe, region_props)
+	# The dome gate (the escape objective) is one extra pickup entity in the chunk that holds its interaction cell.
+	var gate_local := CityLayout.GATE_CELL - origin
+	if gate_local.x >= 0 and gate_local.y >= 0 and gate_local.x < CHUNK_SIZE and gate_local.y < CHUNK_SIZE:
+		pickups.append({"id": "%s:PICKUP:GATE:0" % chunk_id(coord), "cell": gate_local, "kind": "gate", "item": ""})
 	var shelter := layout.shelter_for_chunk(coord)
 	var shelter_local := {}
 	if not shelter.is_empty():

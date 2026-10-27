@@ -85,6 +85,7 @@ var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
+var _city_escaped := false
 var _death_moment: DeathMoment
 var _last_death_cause := {}
 ## Spectator state: peer id of the followed runner (0 = free camera).
@@ -2880,6 +2881,15 @@ func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 		return
 	var item_id := String(pickup.get("item", ""))
 	var kind := String(pickup.get("kind", "tool"))
+	if kind == "gate" and GameState.relays_collected < CityLayout.gate_relays_required(RoomState.difficulty_id()):
+		var needed := CityLayout.gate_relays_required(RoomState.difficulty_id())
+		var denied := "THE GATE STAYS SHUT // %d / %d RELAYS" % [GameState.relays_collected, needed]
+		if not RoomState.online or peer_id == multiplayer.get_unique_id():
+			hud.show_message(denied)
+			Sound.interaction_fail()
+		else:
+			_remotes.send_player_event(peer_id, {"what": "message", "message": denied})
+		return
 	if kind != String(event.get("kind", "")) \
 			or (kind in ["tool", "backpack"] and (item_id.is_empty() \
 				or item_id != String(event.get("item", "")))):
@@ -3065,6 +3075,9 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			if not facility.apply_pickup_claim(entity_id):
 				return
 			_sync_stream_progress()
+			if String(event.get("kind", "")) == "gate":
+				_city_escape(int(event.get("winner_peer_id", 0)))
+				return
 			var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 			if int(event.get("winner_peer_id", 0)) == 0 \
 					and not String(event.get("message", "")).is_empty():
@@ -3919,7 +3932,50 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cycle_spectate_target(0)
 
 
+## The party opened the dome gate: everyone escapes together. A short gate sequence, then the escape card.
+func _city_escape(opener_peer_id: int) -> void:
+	if _city_escaped:
+		return
+	_city_escaped = true
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	hud.show_message("THE DOME GATE OPENS" if opener_peer_id != local_id else "YOU OPENED THE DOME GATE")
+	Sound.escape()
+	player.input_frozen = true
+	await get_tree().create_timer(2.4).timeout
+	_end_spectating()
+	_death_screen_open = true
+	GameState.game_over = true
+	run_report.open({
+		"online": RoomState.online, "host": RoomState.is_host,
+		"respawn": false, "title": "ESCAPED",
+		"kicker": "DOME GATE // OPEN",
+		"reason": "THE GATE OPENS. THE CITY LETS YOU GO.",
+		"depth": 1, "score": GameState.score,
+		"relays": GameState.relays_collected,
+		"relay_target": CityLayout.gate_relays_required(RoomState.difficulty_id()),
+		"coins": GameState.coins,
+		"difficulty": RoomState.difficulty_id().to_upper(),
+		"seed": RoomState.seed_text,
+	})
+
+
+func _new_city_run() -> void:
+	run_report.close()
+	GameState.game_over = false
+	_death_screen_open = false
+	_city_escaped = false
+	if RoomState.online:
+		_leave_test()
+		return
+	RoomState.reroll_seed()
+	RoomState.session_active = false
+	RoomState.enter(get_tree())
+
+
 func _respawn_after_death() -> void:
+	if _city_escaped:
+		_new_city_run()
+		return
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()

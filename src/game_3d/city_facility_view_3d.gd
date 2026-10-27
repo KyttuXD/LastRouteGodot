@@ -9,6 +9,7 @@ extends StreamedFacilityView3D
 const CITY_CEILING := 4.0
 const DOOR_HEIGHT := 3.0
 const RIM_HEIGHT := 11.0
+const GATE_HEIGHT := 7.0
 ## A basin's lip and a flower bed are solid, readable obstacles at eye level, not a ground texture.
 const WATER_RIM := 0.9
 const BED_HEIGHT := 1.0
@@ -96,6 +97,30 @@ func zone_name(world_position: Vector3) -> String:
 		return ""
 	return city_generator.layout.zone_name(floori(world_position.x) + CityLayout.ORIGIN_OFFSET.x,
 		floori(world_position.z) + CityLayout.ORIGIN_OFFSET.y)
+
+
+## The gate is an interactable (the lift kind) built from a "gate" pickup entity; every other pickup is the route's own.
+func _spawn_pickup(parent: Node3D, data: Dictionary, pickup_data: Dictionary) -> void:
+	if String(pickup_data.get("kind", "")) != "gate":
+		super(parent, data, pickup_data)
+		return
+	var entity_id := String(pickup_data.get("id", ""))
+	if not world_state.pickup_available(entity_id):
+		return
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var cell: Vector2i = pickup_data.get("cell", Vector2i.ZERO)
+	var gate := RouteInteractable3D.new()
+	gate.name = "DomeGate"
+	gate.kind = RouteInteractable3D.Kind.LIFT
+	gate.prompt_text = "OPEN THE DOME GATE // %d RELAYS" % CityLayout.gate_relays_required(RoomState.difficulty_id())
+	gate.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
+	gate.position = Vector3(cell.x + .5, .04, cell.y + .5)
+	gate.set_meta("streamed_entity_id", entity_id)
+	if pickup_requester.is_valid():
+		gate.activation_override = pickup_requester.bind(entity_id, "gate", "")
+	parent.add_child(gate)
+	_pickup_nodes[entity_id] = gate
 
 
 func _ensure_sky() -> void:
@@ -348,6 +373,20 @@ func _build_city_cell(build: Dictionary, index: int) -> void:
 				var dir: Vector2i = dir_value
 				if layout.is_open(gx + dir.x, gz + dir.y):
 					surface.wall_face(x, z, dir, 0.0, RIM_HEIGHT, 0, CitySurface.Mat.RIM, RIM_HEIGHT / 4.0)
+		CityLayout.GATE:
+			# A closed 7 m barrier across the avenue: panels, a glowing cyan port band, a cornice and a lit cap.
+			surface.top_quad(x, z, GATE_HEIGHT, CityAtlas.tile("kiosk_roof"))
+			for dir_value in CitySurface.FACE_DIRS:
+				var dir: Vector2i = dir_value
+				if not layout.is_open(gx + dir.x, gz + dir.y):
+					continue
+				for row in int(GATE_HEIGHT):
+					var tile_name := "ind_panel"
+					if row == 5:
+						tile_name = "ind_port"
+					elif row == int(GATE_HEIGHT) - 1:
+						tile_name = "cornice"
+					surface.wall_face(x, z, dir, row, row + 1, CityAtlas.tile(tile_name))
 		CityLayout.KIOSK_WALL:
 			surface.top_quad(x, z, CITY_CEILING, CityAtlas.tile("kiosk_roof"))
 			for dir_value in CitySurface.FACE_DIRS:
