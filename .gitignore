@@ -35,3 +35,4 @@ art/props-3d/**/previews/
 __pycache__/
 *.pyc
 .venv/
+build/

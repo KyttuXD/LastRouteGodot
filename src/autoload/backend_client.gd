@@ -117,6 +117,11 @@ func _ready() -> void:
 ## local backend (or, in a debug build, the TEST instance from TEST_BASE_URLS). Only those are accepted, so a shipped build can never
 ## be redirected to an arbitrary server this way.
 func _apply_loopback_override() -> void:
+	# Test-server builds (export presets "* Test Server", custom feature `test_server`) talk to the TEST instance by
+	# default; `--backend=` below still overrides it. Debug templates only.
+	if OS.is_debug_build() and OS.has_feature("test_server"):
+		base_url = TEST_BASE_URLS[0]
+		test_server_active = true
 	for argument in OS.get_cmdline_user_args():
 		if not String(argument).begins_with("--backend="):
 			continue
