@@ -474,6 +474,7 @@ func _check_scene(host: Node) -> void:
 	var game := _shift(host, 2, 4242)
 	await host.get_tree().process_frame
 	_expect(game.player != null and game.hud.find_children("*", "Crosshair", true, false).size() == 1, "the shared player or crosshair is missing")
+	_expect(game.office is MaskOffice and game.office.spec.id == "front_office", "Masked Hours is not in its own front office")
 	for id in ["monitor", "mask", "musicbox", "vent", "ventR", "doorR_light", "lamp", "chair"]:
 		_expect(game.office.stations.has(id) and not (game.office.stations[id] as NightWatchStation).disabled, "station %s is missing or disabled" % id)
 	for id in ["doorL_door", "doorR_door", "doorL_light"]:
@@ -511,7 +512,7 @@ func _check_scene(host: Node) -> void:
 	# the lights: the vent light on the left, the hall light on the right
 	game.press("lightL")
 	game.advance_ms(100.0)
-	_expect((game.world.vent_beams["L"] as SpotLight3D).visible and not (game.world.vent_beams["R"] as SpotLight3D).visible, "the left vent light did not come on")
+	_expect((game.office.vent_beams["L"] as SpotLight3D).visible and not (game.office.vent_beams["R"] as SpotLight3D).visible, "the left vent light did not come on")
 	game.press("lightL", false)
 	game.press("lightH")
 	game.advance_ms(100.0)
@@ -535,7 +536,7 @@ func _check_scene(host: Node) -> void:
 	game.advance_ms(600.0)
 	verrine.merge({"state": "vent", "room": "ventR", "side": "R", "t": 0.0, "lit": 0.0, "wait": 6000.0}, true)
 	game.advance_ms(20.0)
-	_expect(not (game._models["verrine"] as Node3D).visible and game.world.glints["ventR"].visible, "Verrine is visible in the dark vent")
+	_expect(not (game._models["verrine"] as Node3D).visible and game.office.glints["ventR"].visible, "Verrine is visible in the dark vent")
 	game.press("lightR")
 	game.advance_ms(20.0)
 	_expect((game._models["verrine"] as Node3D).visible and ((game._models["verrine"] as Node3D).position - (game.office.global_position + MaskWorld.VENT_STAND["R"])).length() < 0.1, "the vent light did not show Verrine at the right vent")

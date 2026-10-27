@@ -26,11 +26,8 @@ var _ids := {}
 var _keys := {}
 var _jumps := {}
 var office: NightWatchOffice
-var glints := {}        # duct room / "ventL" / "ventR" -> Node3D (eyeshine)
+var glints := {}        # duct room -> Node3D (eyeshine)
 var duct_lights := {}   # "ductL" / "ductR" -> OmniLight3D
-var vent_beams := {}    # "L" / "R" -> SpotLight3D
-var box_gauge: MeshInstance3D
-var mask_prop: Node3D
 
 
 func has_doorway(side: String, id: String) -> bool:
@@ -242,75 +239,3 @@ func legs_from(pos: Vector3, to_room: String) -> Array:
 	if start < 0:
 		return []
 	return route(String(_keys[start]), key_for(to_room))
-
-
-# --- the office, made Masked Hours' ----------------------------------------------------------------------------------------
-
-## Attach the Classic office as Masked Hours' office: the left doorway is sealed, the right one is the hall, the DOOR buttons are gone, the right LIGHT
-## button is the hall light; adds the mask, the music box and the right vent grate; the left grate is the existing vent hatch.
-func adapt_office(o: NightWatchOffice) -> void:
-	office = o
-	var A2 := NightWatchArt
-	o.snap_slabs({"doorL": true, "doorR": false})
-	for id in ["doorL_door", "doorL_light", "doorR_door"]:
-		var st := o.stations[id] as NightWatchStation
-		st.disabled = true
-		st.prompt_text = ""
-		var mesh := o.button_meshes.get(id) as MeshInstance3D
-		if mesh != null:
-			mesh.visible = false
-	(o.stations["doorR_light"] as NightWatchStation).prompt_text = "HALL LIGHT // HOLD"
-	if o.props.has("ControlPanelL"):
-		(o.props["ControlPanelL"] as Node3D).visible = false
-	(o.door_lights["doorL"] as SpotLight3D).visible = false
-	# the stations that changed their job
-	(o.stations["vent"] as NightWatchStation).prompt_text = "LEFT VENT // HOLD FOR LIGHT"
-	var breaker := o.stations["breaker"] as NightWatchStation
-	breaker.disabled = true
-	breaker.prompt_text = ""
-	# the right vent grate under the breaker box
-	var vent := A2.prop(o, "VentHatchR", Vector3(2.3, 0.45, -NightWatchOffice.HALF_D))
-	A2.box(vent, Vector3(0.84, 0.54, 0.1), Vector3(0, 0, 0.05), {"name": "VentFrame", "solid": true})
-	for i in 5:
-		A2.box(vent, Vector3(0.7, 0.035, 0.06), Vector3(0, -0.2 + i * 0.1, 0.12), {"name": "VentLouver", "kind": "metal", "tint": Color(0.7, 0.7, 0.75)})
-	o._station("ventR", "RIGHT VENT // HOLD FOR LIGHT", Vector3(0.9, 0.6, 0.3), Vector3(2.3, 0.45, -NightWatchOffice.HALF_D + 0.2))
-	# the vent lights (held) and the eyeshine in the dark vents
-	for side in ["L", "R"]:
-		var x := -2.3 if side == "L" else 2.3
-		var beam := SpotLight3D.new()
-		beam.name = "VentBeam" + side
-		beam.light_color = Color(1.0, 0.97, 0.85)
-		beam.light_energy = 6.0
-		beam.spot_range = 5.0
-		beam.spot_angle = 38.0
-		beam.position = Vector3(x * 0.55, 1.5, 1.2)
-		beam.look_at_from_position(beam.position, Vector3(x, 0.6, -NightWatchOffice.HALF_D + 0.3), Vector3.UP)
-		beam.visible = false
-		o.add_child(beam)
-		vent_beams[side] = beam
-		var glint := Node3D.new()
-		glint.name = "VentGlint" + side
-		glint.position = Vector3(x, 0.5, -NightWatchOffice.HALF_D + 0.2)
-		o.add_child(glint)
-		for gx in [-0.12, 0.12]:
-			A2.box(glint, Vector3(0.06, 0.04, 0.04), Vector3(gx, 0, 0), {"name": "GlowEye"})
-		glint.visible = false
-		glints["vent" + side] = glint
-	# the mask on the desk and the music box beside it
-	mask_prop = A2.prop(o, "MaskProp", Vector3(0.55, 0.8, -1.45))
-	A2.box(mask_prop, Vector3(0.22, 0.28, 0.05), Vector3(0, 0.16, 0), {"name": "MaskFace", "kind": "plastic", "tint": Color(1.8, 1.75, 1.6)})
-	A2.box(mask_prop, Vector3(0.14, 0.04, 0.03), Vector3(0, 0.2, 0.03), {"name": "MaskEyes", "kind": "plastic", "tint": Color(0.25, 0.25, 0.3)})
-	o._station("mask", "MASK // PUT ON / TAKE OFF", Vector3(0.3, 0.3, 0.2), Vector3(0.55, 0.95, -1.45))
-	var box := A2.prop(o, "MusicBoxProp", Vector3(-1.3, 0.8, -2.0))
-	A2.box(box, Vector3(0.42, 0.22, 0.3), Vector3(0, 0.11, 0), {"name": "BoxMusicBody", "kind": "wood", "tint": Color(1.2, 0.9, 1.1)})
-	A2.box(box, Vector3(0.44, 0.05, 0.32), Vector3(0, 0.24, 0), {"name": "BoxMusicLid", "kind": "wood", "tint": Color(1.3, 1.0, 1.2)})
-	A2.box(box, Vector3(0.05, 0.16, 0.05), Vector3(0.27, 0.16, 0), {"name": "HandleCrank", "kind": "metal"})
-	box_gauge = A2.box(box, Vector3(0.3, 0.03, 0.03), Vector3(0, 0.3, 0.14), {"name": "GlowGauge"})
-	o._station("musicbox", "MUSIC BOX // HOLD TO WIND", Vector3(0.5, 0.3, 0.4), Vector3(-1.3, 0.95, -2.0))
-
-
-## The gauge bar on the music box: its length is the winding left.
-func set_box(percent: float) -> void:
-	if box_gauge != null:
-		box_gauge.scale.x = clampf(percent / 100.0, 0.02, 1.0)
-		box_gauge.position.x = -0.15 * (1.0 - box_gauge.scale.x)

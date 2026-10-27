@@ -18,8 +18,7 @@ var state: State = State.SHOP
 var sim: DayshiftLogic
 var rng: NightWatchMulberry
 var owned: Array = []
-var office: NightWatchOffice
-var world: DayshiftWorld
+var office: CargoBay
 var shop: DayshiftShop
 var player: PlayerController3D
 var hud: NightWatchHud
@@ -70,13 +69,9 @@ func _build_world() -> void:
 	env.ambient_light_energy = 0.9
 	world_env.environment = env
 	add_child(world_env)
-	office = NightWatchOffice.new()
+	office = NightWatchOfficeRegistry.make("dayshift") as CargoBay
 	office.name = "Office"
 	add_child(office)
-	world = DayshiftWorld.new()
-	world.name = "Salvage"
-	add_child(world)
-	world.adapt_office(office)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -128,7 +123,7 @@ func _wire_stations() -> void:
 		return ""
 	(st["chair"] as NightWatchStation).on_activate = func(p) -> String:
 		return String(p.use_furniture(st["chair"], "sit"))
-	for id in ["breaker", "vent", "monitor"]:
+	for id in ["breaker", "monitor", "ledger"]:
 		(st[id] as NightWatchStation).on_activate = func(_p) -> String: return String(office.prompts.get(id, ""))
 	for i in 4:
 		(st["rack%d" % i] as NightWatchStation).on_activate = func(_p) -> String: return ""   # held, see _process
@@ -312,6 +307,7 @@ func _sync_visuals() -> void:
 	hud.update_status(NightWatchData.hour_index(float(s["elapsed"])), float(s["power"]), devices, week)
 	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.usage_label.text = "$%d / $%d   NOISE %s" % [int(s["money"]), sim.need, "|".repeat(clampi(int(float(s["noise"]) / 10.0), 0, 10))]
+	(office.stations["ledger"] as NightWatchStation).prompt_text = "BUDGET LEDGER // $%d OF $%d" % [int(s["money"]), sim.need]
 	var by_slot := {}
 	for it in s["items"]:
 		by_slot[int(it["slot"])] = it
@@ -322,11 +318,11 @@ func _sync_visuals() -> void:
 			var label := String(DayshiftData.ITEMS[it["kind"]]["label"]).to_upper()
 			st.disabled = false
 			st.prompt_text = "%s $%d // HOLD TO SALVAGE" % [label, int(it["value"])]
-			world.set_slot(i, String(it["kind"]), float(it["progress"]) / float(it["need"]), true)
+			office.set_slot(i, String(it["kind"]), float(it["progress"]) / float(it["need"]), true)
 		else:
 			st.disabled = true
 			st.prompt_text = ""
-			world.set_slot(i, "scrap", 0.0, false)
+			office.set_slot(i, "scrap", 0.0, false)
 	_place_hunters()
 
 
@@ -346,13 +342,13 @@ func _place_hunters() -> void:
 			pos = o + office.door_stand(door, 0, progress)
 			key = "door"
 		else:
-			pos = o + DayshiftWorld.hall_stand(door, dist)
+			pos = o + CargoBay.hall_stand(door, dist)
 			key = "d%d" % dist
 		_move(id, key, pos, face)
 	var u: Dictionary = s["ysolde"]
 	var ys := _models["ysolde"] as Node3D
 	ys.visible = String(u["state"]) == "here"
-	_move("ysolde", "yard", o + DayshiftWorld.YARD_STAND, face, true)
+	_move("ysolde", "yard", o + CargoBay.YARD_STAND, face, true)
 
 
 func _move(id: String, key: String, pos: Vector3, face: Vector3, snap := false) -> void:

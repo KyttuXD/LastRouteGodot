@@ -43,14 +43,26 @@ Rules for an office:
 | Mode (2D `office`) | Office id | Concept (from the 2D mode) | Entrances | Monitor | Lane |
 |---|---|---|---|---|---|
 | Classic (`classic`) | `classic_security` | the existing security room: two steel doors with panels and lights | doorL, doorR (slab) | yes | built (this lane); polish here |
-| Masked Hours (`mask`) | `front_office` | the day-shift front office / reception with a mask rack: no doors, hall hunters walk in | hall opening, vents | yes | B (nw-modes-b) |
+| Masked Hours (`mask`) | `front_office` | the day-shift front office / reception with a mask rack: no doors, hall hunters walk in | hall opening, vents | yes | B: **built** (`mask/mask_office.gd`) |
 | Dead Air (`lure`) | `broadcast_booth` | a radio / broadcast booth: reboot panels, vent and a climate dial, glass window | vent, window, door | yes (systems panel) | A (nw-modes-a) |
 | Bedtime (`bedroom`) | `child_bedroom` | a child's bedroom with a closet, a bed and a hall door: listen, no cameras | closet, hall door, bed | no | A |
 | The Facility (`story`) | `control_room` | a control room: a wall of monitors and task panels, six rooms of tasks | door, lift, vent | yes (wall) | A |
 | The Descent (`descent`) | `lift_landing` | an elevator cabin / shaft landing: wires, signal panel, pipes, a window | window, hatch | no | C (nw-modes-c) |
-| Salvage Run (`dayshift`) | `cargo_bay` | a cargo bay / workshop: a rack to salvage from, a budget desk, doors and a window | two doors, window | yes | B |
+| Salvage Run (`dayshift`) | `cargo_bay` | a cargo bay / workshop: a rack to salvage from, a budget desk, doors and a window | two doors, window | no monitor (ledger instead) | B: **built** (`dayshift/cargo_bay.gd`) |
 | Open Air (`extra`) | `watch_post` | an outdoor guard booth / roof / bus stop / campfire (three watches): daylight and night outdoor | opening, edge, path | no | C |
 | Mixed Shift (`mixed`) | `hub_office` | rotates through the set (one office per hour, drawn by the pacing director) or the Classic building hub | per office | yes | this lane |
 
 Each lane chooses and documents its own offices in this file (a row of its own, with the 2D screenshot next to the 3D concept) and implements them in its
 own folder. Mixed Shift's `rotation` lists the office ids it cycles.
+
+## Lane B offices (Masked Hours, Salvage Run)
+
+Both are subclasses of the Classic room (`NightWatchOffice`, so the desk, chair, lamp and door panels are the same reference mechanics) that override
+`_build_shell()` and `_build_wall_props()` and add their own stations; the games build them with `NightWatchOfficeRegistry.make(mode)`.
+
+| Office | 2D picture | 3D (from the door / from the desk) | What is its own |
+|---|---|---|---|
+| `front_office` (Masked Hours) | ![2D](night_watch_offices/front_office_2d.png) | ![door](night_watch_offices/front_office_door.png) ![desk](night_watch_offices/front_office_desk.png) | purple walls, orange stripe, checkerboard floor, striped curtain; no doors (the right doorway is the hall, the left is sealed), two dark vent grates on the back wall, a rack of masks, a reception counter; on the desk the monitor, the mask and the music box; stations `mask`, `musicbox`, `vent`, `ventR`, `doorR_light` (the hall light) |
+| `cargo_bay` (Salvage Run) | ![2D](night_watch_offices/cargo_bay_2d.png) | ![door](night_watch_offices/cargo_bay_door.png) ![desk](night_watch_offices/cargo_bay_desk.png) | warm wood panels, green checkerboard, a window in the front wall with a yard outside, pallet racking, crates, a workbench with the four-slot rack (`rack0`..`rack3`), a budget ledger on the desk (`ledger`), the two steel doors and panels; the monitor is off (the 2D mode has no cameras), so `has_monitor` is false |
+
+Lights: Masked Hours has the desk lamp only (vent beams and the hall light are off until held); Salvage Run has the desk lamp (the yard lamp is an emissive cube).

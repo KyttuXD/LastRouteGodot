@@ -303,6 +303,7 @@ func _check_scene(host: Node) -> void:
 	_expect(game.state == DayshiftGame.State.PLAYING and game.sim.has_upgrade("cell") and game.sim.has_upgrade("bench") and not game.sim.has_upgrade("hinges"), "the bought upgrades did not reach the rules")
 	# the room: shared player and crosshair, rack stations, window, no audio players
 	_expect(game.hud.find_children("*", "Crosshair", true, false).size() == 1 and game.find_children("*", "AudioStreamPlayer", true, false).is_empty(), "the shared crosshair is missing or there is an audio player of its own")
+	_expect(game.office is CargoBay and game.office.spec.id == "cargo_bay", "Salvage Run is not in its own cargo bay")
 	for i in 4:
 		_expect(game.office.stations.has("rack%d" % i), "rack slot %d has no station" % i)
 	_expect(game.office.find_child("Window", false, false) != null and game.office.find_child("Workbench", false, false) != null, "the window or the workbench is missing")
@@ -314,11 +315,11 @@ func _check_scene(host: Node) -> void:
 	game.sim.s["spawnAt"] = 1e12
 	game.advance_ms(50.0)
 	var st1 := game.office.stations["rack1"] as NightWatchStation
-	_expect(not st1.disabled and st1.prompt_text.contains("SCRAP") and (game.world.pieces[1] as Node3D).visible and (game.office.stations["rack0"] as NightWatchStation).disabled, "the piece does not show on its slot")
+	_expect(not st1.disabled and st1.prompt_text.contains("SCRAP") and (game.office.pieces[1] as Node3D).visible and (game.office.stations["rack0"] as NightWatchStation).disabled, "the piece does not show on its slot")
 	game.set_work(1)
 	for i in 45:
 		game.advance_ms(50.0)
-	_expect(int(game.sim.s["money"]) == 10 and not (game.world.pieces[1] as Node3D).visible and game.hud.usage_label.text.begins_with("$10 / $140"), "holding on the piece did not take it")
+	_expect(int(game.sim.s["money"]) == 10 and not (game.office.pieces[1] as Node3D).visible and game.hud.usage_label.text.begins_with("$10 / $140"), "holding on the piece did not take it")
 	game.set_work(-1)
 	# doors and lights as Classic
 	game.toggle_door("doorL")
@@ -338,10 +339,10 @@ func _check_scene(host: Node) -> void:
 	game.sim.s["ravelle"]["dist"] = 2
 	game._place_hunters()
 	game._animate_models(0.2)
-	_expect(far.distance_to(rm.position) > 0.1 and rm.position.distance_to(game.office.global_position + DayshiftWorld.hall_stand("doorL", 2)) > 0.3, "Ravelle was placed at her next step instead of walking")
+	_expect(far.distance_to(rm.position) > 0.1 and rm.position.distance_to(game.office.global_position + CargoBay.hall_stand("doorL", 2)) > 0.3, "Ravelle was placed at her next step instead of walking")
 	for i in 80:
 		game._animate_models(0.1)
-	_expect(rm.position.distance_to(game.office.global_position + DayshiftWorld.hall_stand("doorL", 2)) < 0.3, "Ravelle never walked to her next step")
+	_expect(rm.position.distance_to(game.office.global_position + CargoBay.hall_stand("doorL", 2)) < 0.3, "Ravelle never walked to her next step")
 	game.manual_clock = true
 	game.sim.s["ysolde"]["state"] = "knock"
 	game._place_hunters()

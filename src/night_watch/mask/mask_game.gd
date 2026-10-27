@@ -19,7 +19,7 @@ var state: State = State.PLAYING
 var sim: MaskLogic
 var controls: MaskControls
 var rng: NightWatchMulberry
-var office: NightWatchOffice
+var office: MaskOffice
 var world: MaskWorld
 var player: PlayerController3D
 var hud: NightWatchHud
@@ -83,14 +83,13 @@ func _build_world() -> void:
 	env.ambient_light_energy = 0.5
 	world_env.environment = env
 	add_child(world_env)
-	office = NightWatchOffice.new()
+	office = NightWatchOfficeRegistry.make("mask") as MaskOffice
 	office.name = "Office"
 	add_child(office)
 	world = MaskWorld.new()
 	world.name = "Wing"
 	world.office = office
 	add_child(world)
-	world.adapt_office(office)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -178,7 +177,7 @@ func _wire_stations() -> void:
 		return ""
 	(st["chair"] as NightWatchStation).on_activate = func(p) -> String:
 		return String(p.use_furniture(st["chair"], "sit"))
-	for id in ["vent", "ventR", "doorR_light", "musicbox", "doorL_door", "doorL_light", "doorR_door", "breaker"]:
+	for id in ["vent", "ventR", "doorR_light", "musicbox", "doorL_door", "doorL_light", "doorR_door"]:
 		(st[id] as NightWatchStation).on_activate = func(_p) -> String: return ""   # held, see _process
 
 
@@ -392,13 +391,13 @@ func _sync_visuals() -> void:
 	office.set_button("doorR_light", bool(lit["H"]))
 	office.set_lamp(controls.lamp and float(s["battery"]) > 0.0)
 	for side in ["L", "R"]:
-		(world.vent_beams[side] as SpotLight3D).visible = bool(lit[side])
-		world.glints["vent" + side].visible = sim.vent_glint(side)
+		(office.vent_beams[side] as SpotLight3D).visible = bool(lit[side])
+		office.glints["vent" + side].visible = sim.vent_glint(side)
 	for duct in MaskData.DUCTS:
 		var side: String = MaskData.DUCT_SIDE[duct]
 		(world.duct_lights[duct] as OmniLight3D).visible = bool(lit[side]) and controls.is_up("monitor") and controls.cam == duct
 		world.glints[duct].visible = sim.glint(duct)
-	world.set_box(float(s["box"]))
+	office.set_box(float(s["box"]))
 	overlay.cover = controls.cover("mask")
 	overlay.queue_redraw()
 	var devices := (1 if bool(lit["L"]) or bool(lit["R"]) else 0) + (1 if bool(lit["H"]) else 0) + (1 if bool(s["lamp"]) else 0) + (1 if monitor_up else 0)
