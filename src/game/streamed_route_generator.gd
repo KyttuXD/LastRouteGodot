@@ -57,6 +57,8 @@ const BANK_BIG_TYPES := {
 }
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
+## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through.
+const CLEAR_WALKWAYS := true
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -489,6 +491,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	_restore_authored_room_door_thresholds(grid, region_props)
 	if REMOVE_HUMPS:
 		_remove_wall_humps(grid, layout["rooms"], region_props)
+	# Keep-clear zones at every door and a margin-wide walk from each door into its room (docs/COLLISION.md).
+	if CLEAR_WALKWAYS:
+		region_props = PlacementClearance.clear(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
@@ -1762,6 +1767,8 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			"backing_wall": -open_direction,
 			"open_direction": open_direction,
 			"blocker_size": blocker_size, "solid": true,
+			# blocker_size sizes the placement (cells reserved); collider_size is the box the player walks into, from the model
+			"collider_size": _collider_size(prop_type, blocker_size),
 			"occupied_cells": placement["occupied_cells"],
 			"corridor_clear": true})
 		for occupied_value in placement["occupied_cells"]:
@@ -2476,6 +2483,7 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 		"backing_wall": backing_wall,
 		"open_direction": facing_direction,
 		"blocker_size": blocker_size, "solid": solid,
+		"collider_size": _collider_size(prop_type, blocker_size),
 		"occupied_cells": occupied, "corridor_clear": true,
 		"wall_mounted": wall_mounted,
 		"mount_y": float(spec.get("mount_y", 0.0)),
@@ -2528,6 +2536,11 @@ static func _solid_prop_placement(rect: Rect2i, grid: Array,
 	if candidates.is_empty():
 		return {}
 	return candidates[rng.next_index(candidates.size())]
+
+
+## The collision box of a solid prop: derived from its model (PropColliderSizes) when it has one, else the authored size.
+static func _collider_size(prop_type: String, authored: Vector3) -> Vector3:
+	return PropColliderSizes.SIZES.get(prop_type, authored)
 
 
 static func _prop_occupied_cells(cell: Vector2i, open_direction: Vector2i,

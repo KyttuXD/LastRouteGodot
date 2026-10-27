@@ -208,6 +208,16 @@ func loaded_chunk_count() -> int:
 	return _loaded.size()
 
 
+## Every loaded chunk's generated data, for the admin collision overlay.
+func loaded_chunk_data() -> Array:
+	var out := []
+	for coord_value in _loaded.keys():
+		var coord: Vector3i = coord_value
+		if _chunk_data.has(coord):
+			out.append({"coord": coord, "data": _chunk_data[coord]})
+	return out
+
+
 func set_all_lights(enabled: bool) -> void:
 	_all_lights_enabled = enabled
 	if _lamp_field != null:
@@ -871,7 +881,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 		String(prop.get("id", "")), String(prop.get("room_id", ""))),
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
-		float(prop.get("yaw", 0.0)), prop.get("blocker_size", Vector3.ONE),
+		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
 		"streamed_region_prop", bool(prop.get("solid", true)), type)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))

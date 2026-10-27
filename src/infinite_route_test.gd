@@ -76,6 +76,8 @@ var _waypoint_trail: MeshInstance3D
 var _admin_reveal_map := false
 ## Region/biome overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
 var _admin_region_map := false
+var _admin_show_collision := false
+var _collision_overlay: CollisionOverlay
 const REGION_MAP_KEY := KEY_F8
 var _admin_reveal_hunters := false
 var _drop_nodes := {}
@@ -297,6 +299,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 func _process(delta: float) -> void:
 	_update_spectating()
+	if _admin_show_collision and _collision_overlay != null:
+		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
 		_admin_ticket_refresh_elapsed += delta
 		if _admin_ticket_refresh_elapsed >= 5.0:
@@ -618,6 +622,9 @@ func _infinite_admin_actions() -> Array:
 		{"label": "TOGGLE REGION MAP (F8)", "action": _admin_toggle_region_map,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_region_map},
+		{"label": "SHOW COLLISION", "action": _admin_toggle_show_collision,
+			"permission": "visual",
+			"state": func() -> bool: return _admin_show_collision},
 		{"label": "TOGGLE HUNTER REVEAL", "action": _admin_toggle_hunter_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_hunters},
@@ -1032,6 +1039,7 @@ func _apply_persisted_admin_preferences() -> void:
 	_set_admin_map_reveal(visual_tools and Settings.admin_preference("map_reveal"))
 	_admin_reveal_hunters = visual_tools and Settings.admin_preference("hunter_reveal")
 	_admin_region_map = visual_tools and Settings.admin_preference("region_map")
+	_set_show_collision(visual_tools and Settings.admin_preference("show_collision"))
 	pixel_signal_effect.set_admin_enabled(
 		visual_tools and Settings.admin_preference("pixel_effect_enabled"))
 
@@ -1058,6 +1066,24 @@ func _admin_toggle_region_map() -> void:
 		_admin_menu._refresh()
 
 
+func _admin_toggle_show_collision() -> void:
+	_set_show_collision(not _admin_show_collision and Build.admin_permission("visual"))
+	Settings.set_admin_preference("show_collision", _admin_show_collision)
+	if _admin_menu != null:
+		_admin_menu._refresh()
+
+
+func _set_show_collision(enabled: bool) -> void:
+	_admin_show_collision = enabled
+	if _collision_overlay == null:
+		_collision_overlay = CollisionOverlay.new()
+		_collision_overlay.name = "CollisionOverlay"
+		world.add_child(_collision_overlay)
+	_collision_overlay.set_enabled(enabled)
+	if enabled:
+		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
+
+
 func _admin_toggle_hunter_reveal() -> void:
 	_admin_reveal_hunters = not _admin_reveal_hunters
 	Settings.set_admin_preference("hunter_reveal", _admin_reveal_hunters)
@@ -1082,6 +1108,8 @@ func _force_disable_admin_cheats() -> void:
 	_admin_reveal_hunters = false
 	_admin_region_map = false
 	_admin_reveal_map = false
+	if _collision_overlay != null:
+		_set_show_collision(false)
 	_set_admin_map_reveal(false)
 	if pixel_signal_effect != null:
 		pixel_signal_effect.set_admin_enabled(false)

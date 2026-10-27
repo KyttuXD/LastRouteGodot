@@ -46,6 +46,7 @@ const ADMIN_PREFERENCE_DEFAULTS := {
 	"noclip": false,
 	"map_reveal": false,
 	"region_map": false,
+	"show_collision": false,
 	"hunter_reveal": false,
 	"pixel_effect_enabled": true,
 }
