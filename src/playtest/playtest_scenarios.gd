@@ -188,12 +188,38 @@ static func goto_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	bridge.admin("god", {"on": true})
 	bridge.admin("no_target", {"on": true})
 	var frames := 0
-	if float(opts["probe_x"]) != 0.0 or float(opts["probe_z"]) != 0.0:
+	# SELF-CHECK 1: an option that was passed on the command line must have reached the scenario (a silently ignored --goal-x once made a run test nothing)
+	var raw_args: PackedStringArray = OS.get_cmdline_user_args()
+	var joined := " ".join(raw_args)
+	var given := func(prefix: String) -> bool:
+		for arg in raw_args:
+			if String(arg).begins_with(prefix + "="):
+				return true
+		return false
+	var lost: Array = []
+	if given.call("--goal-x") and int(opts["goal_x"]) == 0 and joined.find("--goal-x=0") < 0:
+		lost.append("--goal-x")
+	if given.call("--goal-z") and int(opts["goal_z"]) == 0 and joined.find("--goal-z=0") < 0:
+		lost.append("--goal-z")
+	if (given.call("--probe-x") or given.call("--probe-z")) and float(opts["probe_x"]) == 0.0 and float(opts["probe_z"]) == 0.0 and joined.find("--probe-x=0") < 0 and joined.find("--probe-z=0") < 0:
+		lost.append("--probe-x/--probe-z")
+	if not lost.is_empty():
+		return {"scenario_failure": "options were passed but not applied: %s (args seen: %s)" % [", ".join(lost), raw_args], "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var requested := Vector2(float(opts["probe_x"]), float(opts["probe_z"]))
+	if requested != Vector2.ZERO:
 		var obs0 := bridge.observe()
-		bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": float(obs0["player"]["pos"][1]), "z": float(opts["probe_z"])})
+		bridge.admin("teleport", {"x": requested.x, "y": float(obs0["player"]["pos"][1]), "z": requested.y})
 		for _i in 150:
 			await tree.physics_frame
 			frames += 1
+		# SELF-CHECK 2: the player must really be where the check asked (a teleport that is refused or snapped elsewhere invalidates the whole run)
+		var after := bridge.observe()
+		var at := Vector2(float(after["player"]["pos"][0]), float(after["player"]["pos"][2]))
+		report["goto_requested_start"] = [requested.x, requested.y]
+		report["goto_actual_start"] = [snappedf(at.x, .1), snappedf(at.y, .1)]
+		if at.distance_to(requested) > 4.0:
+			return {"scenario_failure": "teleport not applied: asked for (%.1f, %.1f) but the player is at (%.1f, %.1f)" % [requested.x, requested.y, at.x, at.y],
+				"outcome": "error", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames}
 	var goal := Vector2i(int(opts["goal_x"]), int(opts["goal_z"]))
 	var paths: Dictionary = adapter.path_report(goal)
 	var kind := String(opts["goal_kind"])
