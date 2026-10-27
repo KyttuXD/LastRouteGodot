@@ -44,6 +44,9 @@ const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
 ## Regions laid out as banks of rooms along a central three-wide cross (see _linear_room_layout).
 const LINEAR_REGIONS := ["hotel", "prison"]
+## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
+## their spacious sector layout (_mixed_room_layout). Apartments are already dense suites.
+const DENSE_DISTRICTS := ["hotel", "prison"]
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -474,6 +477,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	# two adjacent cells. The perimeter restoration above must run after room
 	# dressing, but it cannot be allowed to re-seal the second leaf's lane.
 	_restore_authored_room_door_thresholds(grid, region_props)
+	_remove_wall_humps(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
@@ -854,6 +858,8 @@ func _region_layout(coord: Vector3i, region: String, grid: Array,
 
 func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		stairs: Array = []) -> Dictionary:
+	if stairs.is_empty() and DENSE_DISTRICTS.has(region):
+		return _dense_linear_layout(coord, region, grid)
 	var rooms := []
 	var corridors := []
 	var suites := []
@@ -940,6 +946,50 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		room_index += 1
 	return {"rooms": rooms, "corridors": corridors, "suites": suites,
 		"circulation": circulation}
+
+
+## Dense districts (hotel, prison): three east-west halls (rows 1-3, 21-23 and 41-43) and the central north-south hall,
+## with 9x9 rooms in tight banks that share walls and open straight onto a hall (no connector, no dead block between
+## rooms). Per chunk: four rows of four rooms. The centre hall is the one the chunk seams meet.
+func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dictionary:
+	var rooms := []
+	var corridors := []
+	var circulation := {}
+	var center := CHUNK_SIZE / 2
+	var halls := [Rect2i(1, 1, CHUNK_SIZE - 2, 3), Rect2i(1, center - 1, CHUNK_SIZE - 2, 3),
+		Rect2i(1, CHUNK_SIZE - 4, CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
+	for hall_index in halls.size():
+		var hall: Rect2i = halls[hall_index]
+		_carve_rect(grid, hall)
+		_mark_rect_cells(circulation, hall)
+		corridors.append({"id": "%s:HALL:%d" % [chunk_id(coord), hall_index], "rect": hall, "width": CORRIDOR_WIDTH,
+			"axis": "north_south" if hall_index == 3 else "east_west", "serves_many_rooms": true})
+	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below)
+	var rows := [{"y": 4, "door_top": true}, {"y": 12, "door_top": false},
+		{"y": 24, "door_top": true}, {"y": 32, "door_top": false}]
+	var columns := [3, 11, 25, 33]
+	var room_index := 0
+	for row in rows:
+		for column_x in columns:
+			var rect := Rect2i(column_x, int(row["y"]), 9, 9)
+			_carve_rect(grid, rect)
+			var door_top: bool = row["door_top"]
+			var doorway := Vector2i(column_x + 4, rect.position.y if door_top else rect.end.y - 1)
+			_seal_room_perimeter_except(grid, rect, doorway)
+			_mark_corridor_cell(circulation, doorway, 1)
+			corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
+				"axis": "north_south", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
+				"from_main_hall": true, "serves_many_rooms": false, "doorway": doorway})
+			var room_type := "prison_cell"
+			if region == "hotel":
+				room_type = "hotel_bathroom" if room_index % 4 == 3 else "guest_room"
+			elif room_index % 5 == 2:
+				room_type = "prison_cafeteria"
+			var entry := _room_entry(coord, room_index, region, rect, room_type)
+			entry["doorway"] = doorway
+			rooms.append(entry)
+			room_index += 1
+	return {"rooms": rooms, "corridors": corridors, "suites": [], "circulation": circulation}
 
 
 func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
@@ -1376,6 +1426,61 @@ static func _restore_single_room_thresholds(grid: Array, rooms: Array) -> void:
 		for extra_value in room.get("extra_doorways", []):
 			var extra: Vector2i = extra_value
 			grid[extra.y][extra.x] = 0
+
+
+## Straightens walls: deletes one-cell stubs (a wall cell attached to a wall run by one side, open on the other three)
+## and opens one wall cell of every diagonal pinch (two walls touching only at a corner). Room perimeters, doorways and
+## the chunk border are never touched, so rooms stay sealed and connectivity can only improve.
+static func _remove_wall_humps(grid: Array, rooms: Array, region_props: Array) -> void:
+	var protected_cells := {}
+	for room_value in rooms:
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		for x in range(rect.position.x, rect.end.x):
+			protected_cells[Vector2i(x, rect.position.y)] = true
+			protected_cells[Vector2i(x, rect.end.y - 1)] = true
+		for z in range(rect.position.y, rect.end.y):
+			protected_cells[Vector2i(rect.position.x, z)] = true
+			protected_cells[Vector2i(rect.end.x - 1, z)] = true
+	for prop_value in region_props:
+		for cell_value in (prop_value as Dictionary).get("doorway_cells", []):
+			protected_cells[cell_value] = true
+	var size := CHUNK_SIZE
+	var solid := func(x: int, z: int) -> bool:
+		return x < 0 or z < 0 or x >= size or z >= size or int(grid[z][x]) != 0
+	for _pass in 3:
+		var changed := false
+		for z in range(2, size - 2):
+			for x in range(2, size - 2):
+				var here: bool = solid.call(x, z)
+				if here and not protected_cells.has(Vector2i(x, z)):
+					var attached := []
+					for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+						if solid.call(x + d.x, z + d.y):
+							attached.append(d)
+					if attached.size() == 1:
+						var d: Vector2i = attached[0]
+						var n := Vector2i(x, z) + d
+						var side := Vector2i(d.y, d.x)
+						if solid.call(n.x + side.x, n.y + side.y) and solid.call(n.x - side.x, n.y - side.y):
+							grid[z][x] = 0
+							changed = true
+							continue
+				if here and solid.call(x + 1, z + 1) and not solid.call(x + 1, z) and not solid.call(x, z + 1):
+					if not protected_cells.has(Vector2i(x, z)):
+						grid[z][x] = 0
+						changed = true
+					elif not protected_cells.has(Vector2i(x + 1, z + 1)):
+						grid[z + 1][x + 1] = 0
+						changed = true
+				elif here and solid.call(x - 1, z + 1) and not solid.call(x - 1, z) and not solid.call(x, z + 1):
+					if not protected_cells.has(Vector2i(x, z)):
+						grid[z][x] = 0
+						changed = true
+					elif not protected_cells.has(Vector2i(x - 1, z + 1)):
+						grid[z + 1][x - 1] = 0
+						changed = true
+		if not changed:
+			break
 
 
 static func _restore_authored_room_door_thresholds(grid: Array,
@@ -2437,7 +2542,7 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 	for room_index in rooms.size():
 		# One preset suite owns an exterior door plus four internal doors. Keep
 		# enough budget for the other corridor rooms in the same chunk as well.
-		if result.size() >= 12:
+		if result.size() >= 20:   # dense districts have 16 rooms per chunk
 			break
 		var room: Dictionary = rooms[room_index]
 		if String(room.get("room_type", "")) in ["lobby", "stairwell"]:
