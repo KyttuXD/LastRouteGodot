@@ -8,9 +8,12 @@ extends Control
 ## QUIT goes back to the games hub, as the 2D QUIT goes back to the lab.
 
 const INK := Color("e8e2d0")
-const DIM := Color("8a8472")
+const DIM := Color("9b947f")
 const RED := Color("c4302b")
+## the red for TEXT on the dark panels: RED is 3.5:1 there, this is 5:1
+const RED_TEXT := Color("e0504a")
 const AMBER := Color("e0b04a")
+const BODY := Color("c9c3b0")   # secondary text straight on the scene (DIM is for text on a panel)
 const PANEL := Color(0.024, 0.02, 0.016, 0.72)
 const THEME_PATH := "res://src/ui/theme_nightwatch.tres"
 
@@ -46,8 +49,9 @@ var _screen_root: Control
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	if ResourceLoader.exists(THEME_PATH) and load(THEME_PATH) is Theme:
-		theme = load(THEME_PATH)
+	MouseLock.release_all()   # a menu always has the cursor, whatever held it before
+	theme = NightWatchTheme.get_theme()
+	GameRegistry.active_game_id = "night_watch"   # the shared screens that open from here (admin, account) wear Night Watch's colours
 	_build_backdrop()
 	layer_root = Control.new()
 	layer_root.name = "Screens"
@@ -68,7 +72,7 @@ func _ready() -> void:
 	toast_label.offset_bottom = -15
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(toast_label)
-	hint_label = _label("", 6, DIM)
+	hint_label = _label("", 6, BODY)
 	hint_label.name = "Hint"
 	hint_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	hint_label.offset_top = -13
@@ -174,7 +178,7 @@ func _build_backdrop() -> void:
 	cam.rotation = Vector3(-0.16, 0.0, 0.0)
 	var dim := ColorRect.new()
 	dim.name = "Tint"
-	dim.color = Color(0.0, 0.03, 0.04, 0.28)
+	dim.color = Color(0.0, 0.03, 0.04, 0.6)   # dark enough that the light text on the scene reads (4.5:1)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dim)
@@ -294,7 +298,7 @@ func _build_title() -> void:
 	var night := _label("NIGHT", 22, INK)
 	night.name = "LogoNight"
 	logo.add_child(night)
-	var watch := _label("WATCH", 22, RED)
+	var watch := _label("WATCH", 22, RED_TEXT)
 	watch.name = "LogoWatch"
 	logo.add_child(watch)
 	var spacer := Control.new()
@@ -316,7 +320,7 @@ func _build_title() -> void:
 		box.add_child(b)
 		title_buttons.append(b)
 		if not String(item["sub"]).is_empty():
-			var sub := _label(String(item["sub"]), 5, DIM)
+			var sub := _label(String(item["sub"]), 5, BODY)
 			sub.name = "Sub_%s" % String(item["action"])
 			sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			box.add_child(sub)
@@ -565,7 +569,7 @@ func _portrait(hunter_id: String) -> Control:
 		cam.fov = 28.0
 		vp.add_child(cam)
 		cam.look_at_from_position(Vector3(0, 1.5, -2.6), Vector3(0, 1.3, 0), Vector3.UP)
-	var rec := _label("● REC", 5, RED)
+	var rec := _label("● REC", 5, RED_TEXT)
 	rec.name = "Rec"
 	rec.position = Vector2(4, 3)
 	frame.add_child(rec)
@@ -677,7 +681,7 @@ func _build_custom() -> void:
 	var m := custom_current()
 	if m.is_empty():
 		_header("CUSTOM NIGHT")
-		var note := _label("CLEAR NIGHT 5 OF A MODE TO OPEN ITS CUSTOM NIGHT.", 7, DIM)
+		var note := _label("CLEAR NIGHT 5 OF A MODE TO OPEN ITS CUSTOM NIGHT.", 7, BODY)
 		note.position = Vector2(12, 34)
 		_screen_root.add_child(note)
 		hint_label.text = "Esc back"
@@ -807,7 +811,7 @@ func _build_account() -> void:
 	col.add_theme_constant_override("separation", 4)
 	panel.add_child(col)
 	var signed_in := bool(Backend.signed_in())
-	var intro := _label("", 6, DIM)
+	var intro := _label("", 6, BODY)
 	intro.name = "Intro"
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.custom_minimum_size = Vector2(450, 0)
@@ -836,7 +840,7 @@ func _build_account() -> void:
 	password_edit.custom_minimum_size = Vector2(150, 12)
 	password_edit.add_theme_font_size_override("font_size", 6)
 	p.add_child(password_edit)
-	var note := _label("Usernames are CAPS only and shared with Last Route and KT: Systems.", 6, DIM)
+	var note := _label("Usernames are CAPS only and shared with Last Route and KT: Systems.", 6, BODY)
 	note.name = "Note"
 	col.add_child(note)
 	var row := HBoxContainer.new()

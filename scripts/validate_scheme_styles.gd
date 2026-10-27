@@ -82,8 +82,15 @@ func _check_tokens() -> void:
 	if city_theme != null:
 		_expect(city_theme.get_stylebox("grabber_area", "HSlider") != null and city_theme.has_stylebox("tab_selected", "TabBar"),
 			"the City theme does not restyle sliders and tabs")
-	# Night Watch keeps its own menus: it maps to Last Route's tokens here
-	_expect(Palette.scheme_for("night_watch") == "last_route", "night_watch must not get a City scheme")
+	# Night Watch has its own scheme for the shared screens that run inside it: readable pairs, and not Last Route's purple
+	Palette.apply_scheme("night_watch")
+	var nw := Palette.tokens()
+	_expect(Palette.scheme_for("night_watch") == "night_watch" and Palette.theme_for("night_watch") != null, "night_watch lost its scheme or window theme")
+	for pair in PAIRS:
+		var ratio := _contrast(nw[pair[0]], nw[pair[1]])
+		_expect(ratio >= float(pair[2]), "night_watch: %s on %s is %.2f:1 (< %.1f)" % [pair[0], pair[1], ratio, float(pair[2])])
+	_expect(nw["PANEL"] != seen["last_route"]["PANEL"] and nw["ACCENT"] != seen["last_route"]["ACCENT"], "the night_watch scheme is Last Route's")
+	Palette.apply_scheme("last_route")
 
 
 ## Build one shared screen under a scheme and return the colours it draws with.

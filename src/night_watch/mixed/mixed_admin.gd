@@ -1,7 +1,7 @@
 class_name MixedAdmin
 extends RefCounted
 
-## Mixed Shift's admin section (NightWatchAdmin PROVIDERS): the ROTATION (pick tonight's dressing; the next shift is the common JUMP TO SHIFT), ENDLESS's hour and roster re-draw, the director (force a spike),
+## Mixed Shift's admin section (NightWatchAdmin PROVIDERS): the ROTATION (play any of the nine maps, or the next one of the rotation; the next shift is the common JUMP TO SHIFT), ENDLESS's hour and roster re-draw, the director (force a spike),
 ## CHAOS events on demand, the doors and vents (shut, seal), the vent crawler's run, and threats on demand. The generic controls come from the hooks MixedGame offers. Every entry carries a permission scope.
 
 static func status(game: Node) -> String:
@@ -10,8 +10,14 @@ static func status(game: Node) -> String:
 
 static func entries(game: Node) -> Array:
 	var out := []
-	out.append({"heading": "ROTATION: TONIGHT'S DRESSING", "permission": "visual", "items": ["0", "1", "2"], "labels": {"0": "THE STATION", "1": "PARTY FLOOR", "2": "SALVAGE YARD"},
-		"action": func(id: String) -> void: game.call("admin_set_dressing", int(id))})
+	var skin_ids := []
+	var skin_labels := {}
+	for sk in MixedSkin.SKINS:
+		skin_ids.append(String(sk["id"]))
+		skin_labels[String(sk["id"])] = "%s (%s)" % [String(sk["name"]), String(sk["mode"]).to_upper()]
+	out.append({"heading": "ROTATION: PLAY THIS MAP", "permission": "visual", "items": skin_ids, "labels": skin_labels,
+		"action": func(id: String) -> void: game.call("admin_set_dressing", MixedSkin.index_of(id))})
+	out.append({"label": "ROTATION: NEXT MAP IN THE ROTATION", "permission": "visual", "action": func() -> void: game.call("admin_set_dressing", MixedSkin.pick(int(game.get("seed_value")) + Time.get_ticks_msec()))})
 	out.append({"heading": "ENDLESS: SET THE HOUR (NO DAWN)", "permission": "world", "items": ["3", "6", "9", "12"], "labels": {"3": "HOUR 3", "6": "HOUR 6", "9": "HOUR 9", "12": "HOUR 12"},
 		"action": func(id: String) -> void: game.call("admin_set_hour", int(id))})
 	out.append({"label": "ENDLESS: RE-DRAW THE ROSTER NOW", "permission": "world", "action": func() -> void: game.get("sim").admin_redraw_roster()})

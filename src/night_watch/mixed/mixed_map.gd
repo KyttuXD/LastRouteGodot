@@ -10,7 +10,8 @@ extends RefCounted
 
 const SIM_TO_MAP := {"stage": "platform", "dining": "concourse", "backstage": "ticket_hall", "westhall": "west_arcade", "closet": "lost_property", "kitchen": "cafe",
 	"easthall": "east_arcade", "corner": "newsstand", "vent": "duct"}
-const SETS := ["transit", "party", "yard"]
+## the rotation: one skin per mode's map (MixedSkin); the index is `MixedWorld.dress_set`
+const SETS := ["transit", "pizzeria", "station", "party", "house", "facility", "yard", "shaft", "camp"]
 const CAMS := ["platform", "concourse", "ticket_hall", "west_arcade", "lost_property", "cafe", "east_arcade", "newsstand", "duct"]
 const LABELS := {"platform": "PLATFORM", "concourse": "CONCOURSE", "ticket_hall": "TICKET HALL", "west_arcade": "WEST ARCADE", "lost_property": "LOST PROPERTY", "cafe": "CAFE",
 	"east_arcade": "EAST ARCADE", "newsstand": "NEWSSTAND", "duct": "VENT RUN"}
@@ -27,9 +28,9 @@ static func sim_for(map_room: String) -> String:
 	return map_room
 
 
-## The dressing a night uses (drawn from its seed).
+## The skin the next night is played on (MixedSkin.pick: the rotation).
 static func set_for_seed(seed_number: int) -> int:
-	return absi(seed_number) % SETS.size()
+	return MixedSkin.pick(seed_number)
 
 
 static func map_layout() -> Dictionary:
