@@ -158,3 +158,14 @@ pair of rooms is connected, no walked segment crosses a wall, the only jumps are
 speed in a step, and a hunter the sim moves is not placed in the new room.
 
 ![Dovelle walking through the dining area on camera 2](night_watch_walk.png)
+
+### Speed rule and exceptions (NW WORLD)
+
+* A hop's visible walk takes a quarter of the 2D move window's lower bound (`NightWatchWalker.budget_for(level)`, 1.5 to 4 s); the pace is
+  route length / budget clamped to 1.2..6.0 m/s (`speed_for`). The validator walks every graph edge for every hunter and night and
+  prints how many hops the clamp bites on (28 of 360 today).
+* The rules still decide the hop at its start (the sim room changes at once, so sightings, door blocking, light and combos work on the
+  sim room, as in 2D); the walk is the visible time to get there.
+* Exceptions, by design: the hall-to-office leg (out of sight, in the dark) is a jump; Nyxie's blackout approach is a timed walk from
+  the left door to the desk over the blackout. Not yet done: vent shafts and vent crawlers (Dead Air / Mixed Shift lanes), doors that
+  animate for a passing hunter, a top-down facility capture, a `hunter_nav`-style stuck test.

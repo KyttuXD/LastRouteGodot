@@ -351,7 +351,7 @@ func _place_hunters() -> void:
 		elif manual_clock:
 			walker.place(pos, pos, face, hunter.room)
 		elif walker.room != hunter.room:
-			walker.go(paths.legs_from(walker.pos, hunter.room), hunter.room, pos)
+			walker.go(paths.legs_from(walker.pos, hunter.room), hunter.room, pos, NightWatchWalker.budget_for(hunter.level))
 			walker.look = face
 		else:
 			walker.final = pos
