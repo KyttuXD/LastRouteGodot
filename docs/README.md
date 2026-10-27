@@ -35,6 +35,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [HUNTER_PATHING.md](HUNTER_PATHING.md) — real-play hunter stuck causes, stuck telemetry, hunter_real validator
 - [HUNTER_PARITY.md](HUNTER_PARITY.md) — 2D vs 3D hunter mechanics audit and what was ported
 - [DEATH_SCENES.md](DEATH_SCENES.md) — death lines catalog, the death moment, wipe variant
+- [GAME_SCHEMES.md](GAME_SCHEMES.md) — per-game colour/style schemes for the shared menus (Last Route vs the City)
 - [HUD_LAYOUT.md](HUD_LAYOUT.md) — in-game HUD: status bar, content-sized panels, safe margins, chat collapse, hud_overlap suite
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — props audits (DONE11 chairs and tables, DONE13 rotated parts and weak families, DONE14 materials and finishes, DONE16 performance), measured sizes, fixes, contact sheets

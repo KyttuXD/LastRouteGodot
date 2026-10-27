@@ -114,6 +114,18 @@ func _check_theme(path: String, host: Node) -> void:
 func run(host: Node) -> int:
 	for path in THEMES:
 		_check_theme(path, host)
+	# the shared screens under each game's colour scheme (Last Route's purple, the City's navy and neon)
+	for scheme in ["last_route", "city"]:
+		GameRegistry.active_game_id = scheme
+		await _check_scenes(host, "%s/" % scheme if scheme != "last_route" else "")
+	GameRegistry.active_game_id = "last_route"
+	_expect(_checked > 100, "only %d button states were checked" % _checked)
+	if _failures == 0:
+		print("  button_contrast  %d button states readable (>= %.1f:1) across the hub, menus, settings, admin and all themes, in both game schemes" % [_checked, MIN_RATIO])
+	return _failures
+
+
+func _check_scenes(host: Node, prefix: String) -> void:
 	# the real scenes
 	var scenes := {
 		"game_hub": "res://scenes/game_hub.tscn", "main_menu": "res://scenes/main_menu.tscn",
@@ -131,7 +143,7 @@ func run(host: Node) -> int:
 		if scene is RunReport:
 			(scene as RunReport).open({"online": false, "respawn": true, "title": "YOU DIED", "reason": "CAUGHT BY AKI"})
 			await host.get_tree().process_frame
-		_check_scene_buttons(scene, name)
+		_check_scene_buttons(scene, prefix + name)
 		scene.queue_free()
 		await host.get_tree().process_frame
 	# the settings overlay and the admin menu are built into the menu / the run: check their buttons too
@@ -141,15 +153,21 @@ func run(host: Node) -> int:
 	var settings := menu.find_child("SettingsOverlay", true, false)
 	if settings != null:
 		(settings as Control).visible = true
-		_check_scene_buttons(settings, "settings")
+		_check_scene_buttons(settings, prefix + "settings")
 	menu.queue_free()
 	var admin := AdminMenu.attach(host, func() -> String: return "ROUTE DEBUG", [], [])
 	if admin != null:
 		admin._set_open(true)
 		await host.get_tree().process_frame
-		_check_scene_buttons(admin, "admin_menu")
+		_check_scene_buttons(admin, prefix + "admin_menu")
 		admin._set_open(false)
-	_expect(_checked > 100, "only %d button states were checked" % _checked)
-	if _failures == 0:
-		print("  button_contrast  %d button states readable (>= %.1f:1) across the hub, menus, settings, admin and all themes" % [_checked, MIN_RATIO])
-	return _failures
+	# the pause menu and the account panel
+	var pause := PauseMenu.new()
+	host.add_child(pause)
+	await host.get_tree().process_frame
+	pause.open()
+	await host.get_tree().process_frame
+	_check_scene_buttons(pause, prefix + "pause_menu")
+	pause.close()
+	pause.queue_free()
+	await host.get_tree().process_frame
