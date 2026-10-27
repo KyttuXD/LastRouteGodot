@@ -82,6 +82,8 @@ const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ThermalWarning"),
 	NodePath("Crosshair"),
 	NodePath("MinimapPanel"),
+	NodePath("ZonePanel"),
+	NodePath("HudStatusBar"),
 ]
 const ITEM_TEXTURES := {
 	"flashlight": preload("res://assets/ui/inventory/flashlight_item.png"),
@@ -92,8 +94,20 @@ const ITEM_TEXTURES := {
 	"battery": preload("res://assets/ui/inventory/battery.png"),
 }
 
+## Margin every HUD panel keeps from the window edge, and the gap between neighbouring panels (HUD units).
+const SAFE_MARGIN := 8.0
+const PANEL_GAP := 4.0
+const MINIMAP_SIZE := Vector2(88, 72)
+const FPS_WIDTH := 78.0
+const MIN_TEXT_PIXELS := 12.0
+## The floor never pushes text past this many HUD units, so a 480x270 pixel window (1 pixel per unit) stays usable.
+const MAX_FLOOR_UNITS := 9
+
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	status_bar = HudStatusBar.new()
+	add_child(status_bar)
+	_build_zone_panel()
 	TestServerBadge.attach(self)
 	_build_thermal_warning()
 	_cache_gameplay_hud_surfaces()
@@ -103,6 +117,10 @@ func _ready() -> void:
 	plan.waypoint_requested.connect(func(world_position: Vector2, level: int) -> void:
 		map_waypoint_requested.emit(world_position, level))
 	_on_map_overlay_visibility_changed()
+	interaction_label.visible = false
+	message_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	get_viewport().size_changed.connect(_layout_hud)
+	_layout_hud()
 
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
@@ -134,7 +152,11 @@ func _ready() -> void:
 @onready var compact_stamina_bar: ProgressBar = %CompactStaminaBar
 @onready var fps_label: Label = %FpsLabel
 
-var _public_label: Label
+var status_bar: HudStatusBar
+var _zone_panel: PanelContainer
+var _zone_label: Label
+var _minimap_available := true
+var _layout_signature := []
 var _message_time_left := 0.0
 var _hold_message := ""
 var _fps_update_left := 0.0
@@ -160,6 +182,7 @@ var _gameplay_hud_modulates: Array[Color] = []
 
 
 func _process(delta: float) -> void:
+	_relayout_if_changed()
 	_thermal_time += delta
 	if _thermal_material != null and _thermal_surface.visible:
 		_thermal_material.set_shader_parameter("pulse_time", _thermal_time)
@@ -696,28 +719,13 @@ func update_meters(meters: PlayerMeters, hunter_heat: float = 0.0,
 
 func set_interaction_prompt(text: String) -> void:
 	interaction_label.text = text
+	interaction_label.visible = not text.is_empty()
 
 
-## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line,
-## top centre. Empty hides it (private rooms and solo).
+## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line, in the top-centre status bar.
+## Empty hides it (private rooms and solo).
 func set_public_line(text: String) -> void:
-	if _public_label == null:
-		_public_label = Label.new()
-		_public_label.name = "PublicLine"
-		_public_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_public_label.add_theme_font_size_override("font_size", 7)
-		_public_label.add_theme_color_override("font_color", Palette.AMBER)
-		_public_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
-		_public_label.add_theme_constant_override("outline_size", 2)
-		_public_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_public_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		_public_label.offset_left = -140
-		_public_label.offset_right = 140
-		_public_label.offset_top = 4
-		_public_label.offset_bottom = 16
-		add_child(_public_label)
-	_public_label.text = text
-	_public_label.visible = not text.is_empty()
+	status_bar.set_segment("public", text, "line")
 
 
 func show_message(text: String) -> void:
@@ -801,3 +809,93 @@ func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 	minimap.show_streamed_state(chunks, level, chunk_size, at, facing, marks,
 		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks, show_regions,
 		drop_marks, safe_room_marks)
+
+
+## Name of the area the player stands in. Shown in the minimap's slot while the minimap has no map to draw
+## (the City has zones, not a facility plan). Empty clears it.
+func set_zone_text(text: String) -> void:
+	_zone_label.text = text
+
+
+## A scene with no map to show (the City) turns the minimap off so only the zone name takes its slot.
+func set_minimap_available(available: bool) -> void:
+	_minimap_available = available
+
+
+func _build_zone_panel() -> void:
+	_zone_panel = PanelContainer.new()
+	_zone_panel.name = "ZonePanel"
+	_zone_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_panel.visible = false
+	_zone_panel.add_theme_stylebox_override("panel", ($ObjectivePanel as Control).get_theme_stylebox("panel"))
+	_zone_label = Label.new()
+	_zone_label.name = "ZoneLabel"
+	_zone_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_label.add_theme_font_size_override("font_size", 7)
+	_zone_label.add_theme_color_override("font_color", Palette.AMBER)
+	_zone_panel.add_child(_zone_label)
+	add_child(_zone_panel)
+
+
+func _relayout_if_changed() -> void:
+	var view := get_viewport().get_visible_rect().size
+	var signature := [view, get_viewport().get_final_transform().get_scale().x, _minimap_available and minimap.has_data(), _zone_label.text,
+		($ObjectivePanel as Control).get_combined_minimum_size(), status_bar.visible,
+		status_bar.get_combined_minimum_size(), _zone_panel.get_combined_minimum_size(),
+		message_label.visible]
+	if signature != _layout_signature:
+		_layout_signature = signature
+		_layout_hud()
+
+
+func _text_bases() -> Array:
+	return [[depth_label, 7], [relay_label, 6], [danger_label, 6], [fps_label, 7], [_zone_label, 7],
+		[message_label, 10]]
+
+
+static func _put(control: Control, position: Vector2, size: Vector2) -> void:
+	control.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	control.offset_left = position.x
+	control.offset_top = position.y
+	control.offset_right = position.x + size.x
+	control.offset_bottom = position.y + size.y
+
+
+## Content-sized, margin-safe placement of the top panels. Every panel is sized from its own minimum size
+## (never a fixed height with dead space) and the stack runs: status bar, stats panel, message toast, all top
+## centre; minimap (or zone name) top right; FPS top left. The bar yields width to the side columns.
+func _layout_hud() -> void:
+	var view := get_viewport().get_visible_rect().size
+	# text stays at least MIN_TEXT_PIXELS tall on screen: window pixels per HUD unit decides the unit size
+	var pixels_per_unit := get_viewport().get_final_transform().get_scale().x
+	var floor_units := mini(MAX_FLOOR_UNITS, ceili(MIN_TEXT_PIXELS / maxf(0.1, pixels_per_unit)))
+	for entry in _text_bases():
+		(entry[0] as Label).add_theme_font_size_override("font_size", maxi(int(entry[1]), floor_units))
+	var minimap_panel := get_node("MinimapPanel") as Control
+	var has_map := _minimap_available and minimap.has_data()
+	minimap_panel.visible = has_map
+	_zone_panel.visible = not has_map and not _zone_label.text.is_empty()
+	var right_w := 0.0
+	if has_map:
+		_put(minimap_panel, Vector2(view.x - SAFE_MARGIN - MINIMAP_SIZE.x, SAFE_MARGIN), MINIMAP_SIZE)
+		right_w = MINIMAP_SIZE.x
+	elif _zone_panel.visible:
+		var zone_size := _zone_panel.get_combined_minimum_size()
+		_put(_zone_panel, Vector2(view.x - SAFE_MARGIN - zone_size.x, SAFE_MARGIN), zone_size)
+		right_w = zone_size.x
+	var fps_size := Vector2(maxf(FPS_WIDTH, fps_label.get_minimum_size().x), fps_label.get_minimum_size().y)
+	_put(fps_label, Vector2(SAFE_MARGIN, SAFE_MARGIN), fps_size)
+	var side := SAFE_MARGIN + maxf(fps_size.x, right_w) + PANEL_GAP
+	var available := maxf(60.0, view.x - 2.0 * side)
+	var y := SAFE_MARGIN
+	if status_bar.visible:
+		status_bar.fit(available, maxi(7, floor_units))
+		var bar_size := status_bar.get_combined_minimum_size()
+		_put(status_bar, Vector2((view.x - bar_size.x) * .5, y), bar_size)
+		y += bar_size.y + PANEL_GAP
+	var objective := get_node("ObjectivePanel") as Control
+	var stats := objective.get_combined_minimum_size()
+	_put(objective, Vector2((view.x - stats.x) * .5, y), stats)
+	y += stats.y + PANEL_GAP
+	var toast_w := minf(340.0, available)
+	_put(message_label, Vector2((view.x - toast_w) * .5, y), Vector2(toast_w, message_label.get_minimum_size().y))

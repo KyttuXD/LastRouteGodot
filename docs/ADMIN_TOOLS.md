@@ -25,7 +25,8 @@ that auth. Modelled on the 2D game's ADMIN debug section (`LastRoute/games/last-
 
 ## ADMIN ACTIVE badge and DEBUG RUN
 
-While the overlay exists a badge shows "ADMIN ACTIVE // SOLO | ROOM | PUBLIC ROUTE" at the top centre, also while the panel is
+While the overlay exists a badge shows "ADMIN ACTIVE // SOLO | ROOM | PUBLIC ROUTE" at the top centre (a segment of the HUD status bar, see
+[HUD_LAYOUT.md](HUD_LAYOUT.md)), also while the panel is
 closed. Using any tool marks the run a **DEBUG RUN** (`GameState.debug_run`, shown on the badge and in the readout): it records
 nothing (`Backend.account_save_progress` and `account_discover_hunter` return early) until a new run starts. Roster edits and
 read-only rows opt out with `"no_debug": true`.

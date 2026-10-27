@@ -154,6 +154,12 @@ func pan_screen(screen_delta: Vector2) -> void:
 	queue_redraw()
 
 
+## True once there is a map to draw (a generated facility or discovered streamed chunks). The HUD hides the
+## minimap panel while this is false rather than showing an empty dark box.
+func has_data() -> bool:
+	return generator != null or not streamed_chunks.is_empty()
+
+
 func reset_view() -> void:
 	map_zoom = 1.0
 	_pan_world = Vector2.ZERO

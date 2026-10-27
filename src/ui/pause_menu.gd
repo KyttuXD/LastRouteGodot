@@ -14,7 +14,9 @@ extends CanvasLayer
 ##     is singleplayer by design, so nothing is waiting on you -- and the whole
 ##     mode is about not being able to step away, which a one-key escape hatch
 ##     would undercut.
-##   * A route window that loses OS focus opens the same overlay ESC does.
+##   * A solo route window that loses OS focus opens the same overlay ESC does, when Settings.pause_on_focus_loss is
+##     on (release builds by default). Never in a room, public route or with other players, never while a text field
+##     or admin overlay has the keyboard; held keys are released either way.
 ##     Playtests kept dying to Gray Void while a terminal had the keyboard.
 ##     Focus coming back does not resume -- RETURN or ESC still has to. Title,
 ##     staging, Office hold-to-pause, and a locked-out escape struggle do not.
@@ -935,7 +937,25 @@ func _handle_focus_lost() -> void:
 	if not _app_focused:
 		return
 	_app_focused = false
-	open_for_lost_focus()
+	# Held keys never arrive as releases once the window is away: let go of them so nobody keeps walking.
+	_release_held_actions()
+	if _focus_loss_may_pause():
+		open_for_lost_focus()
+
+
+func _release_held_actions() -> void:
+	for action in InputMap.get_actions():
+		if Input.is_action_pressed(action):
+			Input.action_release(action)
+
+
+## Losing the window never pauses unless the setting is on and the run is solo, and never while a text field has
+## the keyboard (chat, admin fields, any LineEdit/TextEdit) or an admin overlay is open.
+func _focus_loss_may_pause() -> bool:
+	if not Settings.focus_loss_pauses() or AdminMenu.overlay_open:
+		return false
+	var focused := get_viewport().gui_get_focus_owner() if get_viewport() != null else null
+	return not (focused is LineEdit or focused is TextEdit)
 
 
 func close() -> void:

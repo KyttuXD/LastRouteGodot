@@ -89,6 +89,9 @@ var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
 var reduced_motion := false
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
+## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
+## TEST SERVER builds so two windows can be played side by side. focus_loss_pauses() also refuses with other players.
+var pause_on_focus_loss := false
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
@@ -152,6 +155,23 @@ func set_vsync(enabled: bool) -> void:
 	_apply_display_performance()
 	_save()
 	display_changed.emit()
+
+
+static func default_pause_on_focus_loss() -> bool:
+	return not (OS.is_debug_build() or Build.is_beta() or OS.has_feature("test_server"))
+
+
+func set_pause_on_focus_loss(enabled: bool) -> void:
+	pause_on_focus_loss = enabled
+	_save()
+
+
+## True when losing window focus may open the pause menu: the setting is on and the run is purely solo (no room,
+## public route or other players). Text focus and open overlays are checked by PauseMenu.
+func focus_loss_pauses() -> bool:
+	if not pause_on_focus_loss:
+		return false
+	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
 
 
 func set_reduced_motion(enabled: bool) -> void:
@@ -375,6 +395,7 @@ func _load() -> void:
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
+	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -421,6 +442,7 @@ func _save() -> void:
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
+	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))
