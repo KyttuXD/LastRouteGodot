@@ -9,7 +9,7 @@ from PIL import Image
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BLENDER = os.environ.get("BLENDER", "/Applications/Blender.app/Contents/MacOS/Blender")
-ONE_SHOT = ("stun_recover", "scythe_swing", "scythe_stun_recover")
+ONE_SHOT = ("stun_recover", "scythe_swing", "scythe_stun_recover", "jump")
 
 
 def lengths(glb):

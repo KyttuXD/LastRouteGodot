@@ -36,6 +36,10 @@ PROFILES = {
 }
 
 
+# the player's wooden mannequin: even, slightly stiff (wood), nothing exaggerated
+PROFILES["player_mannequin"] = dict(tempo=1.0, stride=1.0, arm_swing=0.9, bounce=0.9, idle_amp=0.8)
+
+
 # Void: the roster's "more aggressive" baseline (shared), plus a nudge per colour toward its gimmick. First pass.
 _VOID = dict(tempo=1.15, stride=1.1, arm_swing=0.8, lean=5, head_pitch=3, idle_amp=0.9)
 PROFILES.update({f"void_{c}": dict(_VOID, **o) for c, o in {

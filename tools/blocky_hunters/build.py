@@ -82,12 +82,16 @@ def build(name, tall=0.0):
     from hunters import motion, emotes as emote_lib
     pel = next(x for x in bones if x["name"] == "Pelvis")["pivot"]
     from bb_skin import U as SKIN_U
-    emote_clips, emote_meta = emote_lib.compile_emotes(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
-                                                       sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
     if hasattr(mod, "emissive"):                       # glowing texels (Void eyes): glTF emissiveTexture
         model.emissive = mod.emissive(model.atlas.img)
-    clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
-    _record_emotes(name, emote_meta)
+    if getattr(mod, "PLAYER", False):                  # the player mannequin: its own clip set, no emotes
+        import player_clips
+        clips = player_clips.build(bones, sk["hip_y"], motion.profile(name))
+    else:
+        emote_clips, emote_meta = emote_lib.compile_emotes(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
+                                                           sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
+        clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
+        _record_emotes(name, emote_meta)
     hook = getattr(mod, "CLIP_HOOK", None)             # hunter-specific extra clips (Kathy's scythe set)
     if hook:
         hook(clips, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U)
@@ -98,6 +102,12 @@ def build(name, tall=0.0):
     if getattr(model, "emissive", None) is not None:
         model.emissive.save(d / f"{name}_emissive.png")
     bb_gltf.write_bbmodel(model, bones, d / f"{name}.bbmodel")
+    if getattr(mod, "PLAYER", False):                  # a ready-to-instance scene like art/props-3d/characters/player.tscn
+        (d / f"{name}.tscn").write_text(
+            '[gd_scene load_steps=2 format=3]\n\n[ext_resource type="PackedScene" path="res://assets/hunters_blocky/%s/%s.glb" id="1_model"]\n\n'
+            '; The player body on the blocky hunter rig (tools/blocky_hunters, hunters/player_mannequin.py). Clips: idle walk chase\n'
+            '; sprint crouch stun stun_recover sit lay tpose jump fall climb. Not wired into PlayerModels yet.\n'
+            '[node name="Player" type="Node3D"]\n\n[node name="Model" parent="." instance=ExtResource("1_model")]\n' % (name, name))
     print(f"{name}: {model.triangle_count()} tris, {len(cubes)} cubes, glb {size/1024:.1f} KB, scale {model.scale:.3f}")
     return model
 

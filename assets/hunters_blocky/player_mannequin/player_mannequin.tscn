@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/hunters_blocky/player_mannequin/player_mannequin.glb" id="1_model"]
+
+; The player body on the blocky hunter rig (tools/blocky_hunters, hunters/player_mannequin.py). Clips: idle walk chase
+; sprint crouch stun stun_recover sit lay tpose jump fall climb. Not wired into PlayerModels yet.
+[node name="Player" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

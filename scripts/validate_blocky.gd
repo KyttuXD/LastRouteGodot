@@ -173,8 +173,60 @@ func run(host: Node) -> int:
 			_fail("%s has only %d vertices, the overlay layers are missing" % [id, vertices])
 		node.queue_free()
 	_check_scythe(host)
+	_check_player_mannequin(host)
 	print("  %d blocky hunters checked" % HUNTERS.size())
 	return _failures
+
+
+## The player body on the hunter rig (assets/hunters_blocky/player_mannequin): same bones, the player clip set (loops seamless,
+## jump / stun_recover one-shot), 1.78 m, both skin layers, a 64x64 atlas and a tiny file.
+const PLAYER_PATH := "res://assets/hunters_blocky/player_mannequin/player_mannequin.glb"
+const PLAYER_LOOPS := ["idle", "walk", "chase", "sprint", "crouch", "stun", "sit", "lay", "tpose", "fall", "climb"]
+const PLAYER_ONE_SHOTS := ["stun_recover", "jump"]
+
+
+func _check_player_mannequin(host: Node) -> void:
+	if not ResourceLoader.exists(PLAYER_PATH):
+		_fail("%s is not imported" % PLAYER_PATH)
+		return
+	var file := FileAccess.open(PLAYER_PATH, FileAccess.READ)
+	if file == null or file.get_length() > 150 * 1024:
+		_fail("player_mannequin.glb is over the 150 KB budget")
+	var node := ModelSlot.instantiate(PLAYER_PATH)
+	if node == null:
+		_fail("player_mannequin did not instantiate")
+		return
+	host.add_child(node)
+	for bone in BONES:
+		if node.find_child(bone, true, false) == null:
+			_fail("player_mannequin is missing bone %s" % bone)
+	var player := ModelSlot.find_animation_player(node)
+	if player == null:
+		_fail("player_mannequin has no AnimationPlayer")
+	else:
+		for clip in PLAYER_LOOPS:
+			if not player.has_animation(clip):
+				_fail("player_mannequin is missing clip %s" % clip)
+			elif player.get_animation(clip).loop_mode == Animation.LOOP_NONE:
+				_fail("player_mannequin clip %s does not loop" % clip)
+			else:
+				_check_seamless("player_mannequin", clip, player.get_animation(clip))
+		for clip in PLAYER_ONE_SHOTS:
+			if not player.has_animation(clip):
+				_fail("player_mannequin is missing clip %s" % clip)
+			elif player.get_animation(clip).loop_mode != Animation.LOOP_NONE:
+				_fail("player_mannequin clip %s should be one-shot" % clip)
+	var bounds := _bounds(node)
+	if absf(bounds.size.y - 1.78) > .08:
+		_fail("player_mannequin is %.2f m tall, wanted 1.78" % bounds.size.y)
+	var head_mesh := node.find_child("Head", true, false) as MeshInstance3D
+	if head_mesh == null or head_mesh.mesh == null \
+			or (head_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() < 48:
+		_fail("player_mannequin has no hat layer on the Head mesh")
+	var atlas := Image.load_from_file(ProjectSettings.globalize_path("res://assets/hunters_blocky/player_mannequin/player_mannequin_atlas.png"))
+	if atlas == null or atlas.get_width() != 64 or atlas.get_height() != 64:
+		_fail("player_mannequin atlas is missing or not the standard 64x64 skin")
+	node.queue_free()
 
 
 ## A looping clip must end exactly where it starts (and span the whole clip), or it pops at every wrap.

@@ -44,3 +44,12 @@ floor: walk 1.5 cm, chase 3, sprint 5, charge 4), which fixed floating/sinking f
 | arm/hand inside torso | none found (fk_audit) | - |
 | extras not following the body (hair, tails, ears, wings, halos) | none stuck; they sway in every clip, stun styles drive them harder | - |
 | Remaining limits | flight is a Xivvy-only pose (arms out, wings flap, bob); Void expressions are eye-shape only (lore: no mouth) | - |
+
+## Player mannequin (not a hunter)
+`python3 tools/blocky_hunters/build.py player_mannequin` -> `assets/hunters_blocky/player_mannequin/player_mannequin.glb`
+(+ `.tscn`, atlas, `.bbmodel`). The wooden mannequin skin (`skins/player_mannequin_source.png`, a standard 64x64 skin, copy of
+`LastRoute-3D-refs/mannequin-skin-player.png`) on classic 4 px-arm proportions (`bb_skin.vanilla_cubes(arm_w=4)`), same bone
+names / hierarchy / rest pose as the hunters, 1.78 m, both skin layers, 64x64 atlas, no expression cells. Clips (`player_clips.py`):
+idle walk chase sprint crouch stun (loops), stun_recover jump (one-shot), sit lay tpose fall climb (loops). `lay` is face-up with the
+head toward +Z. Validator: `_check_player_mannequin`; `check_gaps.py` covers it too. Views: `docs/player_mannequin_views.png`,
+clips: `docs/player_mannequin_clips.png` (rows idle walk chase sprint crouch stun sit lay tpose jump fall climb).

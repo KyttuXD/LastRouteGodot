@@ -126,7 +126,7 @@ def main():
         res, twins = audit(h)
         flags = []
         for c, r in res.items():
-            if c.startswith("emote") or c in ("flight", "jumpscare"):
+            if c.startswith("emote") or c in ("flight", "jumpscare", "lay", "sit", "tpose", "jump", "fall", "climb"):
                 continue
             ground = c not in ("stun", "stun_recover", "scythe_stun", "scythe_stun_recover", "crouch")
             if ground and r["top"] > (0.08 if c in ("sprint", "charge") else 0.06):
