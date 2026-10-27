@@ -668,7 +668,7 @@ func _use_shop(action: String) -> String:
 		var offer_index := int(action)
 		if RoomState.online and not RoomState.is_host:
 			_remotes.request_interaction({"what": "zephyra_trade", "offer": offer_index})
-			return "ZYTTU // VERIFYING TRADE..."
+			return "ZELLIA'S STORE // VERIFYING TRADE..."
 		return _perform_zephyra_trade(
 			multiplayer.get_unique_id() if RoomState.online else 1,
 			offer_index, _local_hunter_target(), gimmick)
@@ -685,7 +685,7 @@ func _shop_prompt() -> String:
 		if gimmick.shop_open:
 			return gimmick.offer_menu_text()
 		if gimmick.in_range(player.grid_position(), view.brain.position, player.facing):
-			return "OPEN ZYTTU COIN EXCHANGE"
+			return "OPEN ZELLIA'S STORE"
 	return ""
 
 
@@ -798,7 +798,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 	if merchant_position != Vector2.INF and not gimmick.in_range(
 			target.get("position", Vector2.ZERO), merchant_position,
 			target.get("facing", Vector2.ZERO)):
-		var rejected := "ZYTTU // TRADE REJECTED // MOVE CLOSER"
+		var rejected := "ZELLIA'S STORE // TRADE REJECTED // MOVE CLOSER"
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": rejected})
 		return rejected
@@ -808,7 +808,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 	if offer_id.is_empty():
 		return ""
 	if GameState.coins < cost:
-		var refused := "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
+		var refused := "ZELLIA'S STORE // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": refused})
 		return refused
@@ -820,7 +820,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 		if relay:
 			relay.set_sabotaged(false)
 			personal_offer = ""
-	var message := "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [label, cost]
+	var message := "ZELLIA'S STORE // TRADE COMPLETE // %s // -%d COINS" % [label, cost]
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	if peer_id == local_id:
 		if not personal_offer.is_empty():
@@ -843,7 +843,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 		else:
 			_remotes.send_player_event(peer_id, {"what": "capture", "hunter_id": "zephyra",
 				"inescapable": true, "via": "deal"})
-		return "ZYTTU // THE DEAL COST MORE THAN COINS"
+		return "ZELLIA'S STORE // THE DEAL COST MORE THAN COINS"
 	return message
 
 

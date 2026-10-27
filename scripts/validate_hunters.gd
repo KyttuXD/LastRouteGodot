@@ -1150,7 +1150,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	# opens with a real offer menu.
 	GameState.coins = 20
 	message = brain.gimmick.open_shop(settled_at, settled_at, Vector2(0, 1))
-	_expect(not message.is_empty() and message.begins_with("ZYTTU SHOP"),
+	_expect(not message.is_empty() and message.begins_with("ZELLIA'S STORE"),
 		"opening the shop in range and facing her did not return a menu")
 	_expect(brain.gimmick.shop_open, "opening the shop did not mark it open")
 
@@ -1172,7 +1172,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	player.meters.temperature = 80.0
 	var coins_before_trade := GameState.coins
 	message = brain.gimmick.choose_offer(1, player, scene.facility_view)
-	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
 	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZEPHYRA_TEMPERATURE_STEP),
 		"cooling did not actually lower temperature")
 	_expect(GameState.coins == coins_before_trade - GameConfig.ZEPHYRA_COOL_COST,
@@ -1196,14 +1196,14 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		GameState.coins = 20
 		brain.gimmick.shop_open = true
 		message = brain.gimmick.choose_offer(3, player, scene.facility_view)
-		_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real repair trade did not complete")
+		_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real repair trade did not complete")
 		_expect(not relay_node.sabotaged, "repair did not bring the sabotaged relay back online")
 
 	# Pesticide arms the timer Loxelle/Ysolde read off the target dict.
 	GameState.coins = 20
 	brain.gimmick.shop_open = true
 	message = brain.gimmick.choose_offer(4, player, scene.facility_view)
-	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real pesticide trade did not complete")
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real pesticide trade did not complete")
 	_expect(player.pesticide_timer >= GameConfig.ZEPHYRA_PESTICIDE_SECONDS - 0.01,
 		"pesticide did not arm the player's timer")
 

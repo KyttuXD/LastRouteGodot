@@ -111,7 +111,7 @@ const ENTRIES := {
 	},
 	"zephyra": {
 		"ability": "COIN EXCHANGE",
-		"behavior": "Zellia settles near the facility centre as a harmless merchant. Coins can buy cooling, warmth, repairs or temporary pesticide.",
+		"behavior": "Zellia settles near the facility centre as a trader. Her deals are usually fair: coins buy cooling, warmth, repairs or temporary pesticide. But a deal can go badly: each trade has a small chance of ending the run (2% on Relaxed up to 12% on Nightmare).",
 	},
 }
 

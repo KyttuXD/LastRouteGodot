@@ -7,9 +7,15 @@ extends RefCounted
 ## `clip_overrides` lets a hunter play one of its personal emote clips (assets/hunters_blocky/emotes.json) for an emote.
 
 const WEIGHTS := {
-	"kathy": {"taunt": 1.6, "smug": 2.0, "laugh": .5, "dance": .2, "stretch": .5, "wave": 0.0},   # SEARCH BEAM: a predator
+	# Kathy (persona sheet): a warm, protective big sister who watches everyone and speaks in short, calm, final lines. No mocking
+	# (taunt/smug/dance 0), a rare quiet laugh, she watches (look around) and calls people to her (beckon), a warm wave.
+	"kathy": {"taunt": 0.0, "smug": 0.0, "dance": 0.0, "laugh": .3, "stretch": .3, "yawn": .2, "hum": .4, "wave": 1.5,
+		"beckon": 1.8, "point": 1.2, "look_around": 2.0, "shrug": .5, "victory": .3},
 	"aki": {"stretch": 1.5, "wave": 1.5, "taunt": .2, "laugh": .3, "smug": .3},                    # shy
-	"ferryn": {"taunt": 0.0, "laugh": 0.0, "hum": 0.0, "point": 2.0, "beckon": 2.0},               # ROUND STALKER: silent, certain
+	# Ferryn (persona sheet): shy and jumpy, screams then apologises, stammers, never commanding or gloating. Startles hard (flinch),
+	# shrugs apologetically, glances round nervously, a timid little wave; no taunt/laugh/smug/dance/hum, hardly points or beckons.
+	"ferryn": {"taunt": 0.0, "laugh": 0.0, "hum": 0.0, "smug": 0.0, "dance": 0.0, "victory": 0.0, "stretch": .2, "yawn": .3,
+		"point": .4, "beckon": .3, "look_around": 2.0, "shrug": 2.5, "wave": 1.0, "flinch": 2.5},
 	"glyra": {"hum": 3.0, "dance": 2.0, "wave": .5},                                               # MUSIC-BOX PRESSURE
 	"xivvy": {"dance": 2.0, "laugh": 2.0, "wave": 1.5, "shrug": .5},                               # playful flyer
 	"loxelle": {"taunt": 1.5, "laugh": 1.5, "yawn": .5},                                           # PASSIVE INCINERATOR

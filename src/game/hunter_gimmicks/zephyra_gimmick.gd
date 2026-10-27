@@ -79,7 +79,7 @@ func offer_menu_text() -> String:
 	for i in OFFERS.size():
 		var offer: Dictionary = OFFERS[i]
 		parts.append("[%d] %s -%d" % [i + 1, String(offer["label"]), _cost(String(offer["id"]))])
-	return "ZELLIA SHOP // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
+	return "ZELLIA'S STORE // %s // WALK AWAY TO LEAVE" % " // ".join(parts)
 
 
 ## Opens (or re-toasts) the menu. `brain_position` is Zellia's own spot on
@@ -100,7 +100,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	var offer_id := offer_key(index)
 	var cost := offer_cost(index)
 	if GameState.coins < cost:
-		return "ZELLIA // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
+		return "ZELLIA'S STORE // NOT ENOUGH COINS FOR %s (%d)" % [String(offer["label"]), cost]
 
 	GameState.coins -= cost
 	if offer_id == "repair":
@@ -112,7 +112,7 @@ func choose_offer(index: int, player: PlayerController3D, facility_view: Facilit
 	else:
 		apply_personal_offer(offer_id, player)
 	shop_open = false
-	return "ZELLIA TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
+	return "ZELLIA'S STORE // TRADE COMPLETE // %s // -%d COINS" % [String(offer["label"]), cost]
 
 
 func offer_key(index: int) -> String:
