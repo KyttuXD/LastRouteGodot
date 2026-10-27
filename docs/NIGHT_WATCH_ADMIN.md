@@ -60,3 +60,20 @@ state comparing the game's state before and after (an items group is run last it
 ![Bedtime specific](night_watch_admin/admin_bedroom_1280x720_3_BEDTIME_SPECIFIC.png)
 ![Facility specific](night_watch_admin/admin_story_1280x720_3_THE_FACILITY_SPECIFIC.png)
 (every tab of each mode is in `docs/night_watch_admin/`)
+## The Descent and Open Air (lane C, done)
+
+Providers `src/night_watch/descent/descent_admin.gd` and `src/night_watch/openair/openair_admin.gd`; hooks in `descent_game.gd` / `openair_game.gd`; shared checks in `scripts/nw_admin_check.gd`
+(gate, sections, a permission on every control, the layout at 480x270 / 1280x720 / 1920x1080, and every entry, every dropdown item and every hunter-tool action run on a fresh game and must change its state),
+used by the suites `night_watch_descent` and `night_watch_extra`.
+
+**The Descent** (no clock, not walkable: no `admin_set_hour`, no noclip): common: jump to descent 1-5, freeze, god (she never gets in), no jumpscare, speed (scales her closeness rate), Elise's AI level and
+SEND TO (far / step 2 / step 1 / at the edge = her closeness), reveal (shows her whatever the bar says), play / skip Zellia's call, win / lose. Specific: ELEVATOR DEPTH (jump to any floor / stage of the run), SOLVE THIS STAGE,
+DEAL THIS PUZZLE AGAIN, WRONG ATTEMPTS (add one / clear), ELISE'S CLOSENESS (0 to 90%), HOLD THE DOOR latch.
+
+**Open Air** (a clock and a walkable player): common: jump to a watch, set the hour, freeze, god (whoever would catch you is sent back, the cold and the dark let go), no jumpscare, speed (scales every hunter's steps), each hunter's AI level
+(0 takes her off the floor) and SEND TO a step of her approach (Ysolde: trees / out of them / log pile; Wynelle: how far the cold has got), reveal (shows the hunters who are off), noclip, call, win / lose. Specific, by watch:
+ROOFTOP lantern on / out, oil, which door she is at; BUS STOP warmth, fuel, chill, drop a canister, call the bus; CAMPFIRE fire, logs, Verrine's mood; and the weather now (bus stop, campfire).
+
+![Descent specific](night_watch_admin/admin_descent_3_THE_DESCENT_SPECIFIC.png)
+![Open Air rooftop specific](night_watch_admin/admin_openair_rooftop_3_OPEN_AIR_SPECIFIC.png)
+![Open Air campfire specific](night_watch_admin/admin_openair_campfire_3_OPEN_AIR_SPECIFIC.png)

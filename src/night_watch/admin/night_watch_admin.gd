@@ -22,6 +22,8 @@ const PROVIDERS := {
 	"lure": "res://src/night_watch/lure/lure_admin.gd",
 	"bedroom": "res://src/night_watch/bedroom/bedroom_admin.gd",
 	"story": "res://src/night_watch/story/story_admin.gd",
+	"descent": "res://src/night_watch/descent/descent_admin.gd",
+	"extra": "res://src/night_watch/openair/openair_admin.gd",
 }
 const LEVEL_ITEMS := [0, 5, 10, 15, 20]
 
