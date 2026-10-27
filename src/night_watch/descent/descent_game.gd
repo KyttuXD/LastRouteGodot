@@ -23,6 +23,11 @@ var death_moment: DeathMoment
 var elise: Node3D
 var hold_down := false
 var last_death := {}
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
 
 var _panel_layer: CanvasLayer
 var _elise_anim: AnimationPlayer
@@ -44,6 +49,9 @@ func _ready() -> void:
 		elise_level = clampi(int(custom.get("elise", 0)), 0, NightWatchModesData.MAX_AI)
 	_build_world()
 	sim = NightWatchDescentLogic.new(descent, seed_value, elise_level)
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	if admin_menu != null:
+		hud.hint_label.text += " · 0 admin"
 	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level("descent", descent))
 	_ride_seen = true
 	_sync_visuals()
@@ -175,7 +183,7 @@ func _process(delta: float) -> void:
 
 ## Step the descent by dt_ms with the door button as it is, and show what happened.
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	_handle(sim.step(dt_ms, {"hold": hold_down}))
 	hud.update_call(sim.elapsed, dt_ms)
@@ -224,7 +232,7 @@ func _sync_visuals() -> void:
 
 
 func _place_elise(riding: bool) -> void:
-	elise.visible = sim.level > 0 and not riding and sim.over != "win"
+	elise.visible = (sim.level > 0 and not riding and sim.over != "win") or (_admin_reveal and sim.level > 0)
 	if not elise.visible:
 		_side_shown = ""
 		return
@@ -329,7 +337,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick({"hunter_id": "elise", "detail": "shaft"}, "nightwatch:descent:%d" % seed_value, descent, name_text)
 	last_death = {"by": "elise", "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -345,3 +353,132 @@ func _exit_tree() -> void:
 	MouseLock.release_all()
 	if get_tree() != null:
 		get_tree().paused = false
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	return "THE DESCENT  DESCENT %d%s  FLOOR %d / %d (%s)\nELISE  AI %d  CLOSENESS %d%%  WINDOW %s  WRONG %d\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX  HOLD %s" % [descent, " (CUSTOM)" if is_custom else "",
+		mini(sim.stage_idx + 1, sim.stages.size()), sim.stages.size(), sim.kind() if sim.over == "" else sim.over, sim.level, int(round(sim.threat)), sim.side, sim.wrong,
+		str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.speed_mult, str(hold_down)]
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+	if on:
+		sim.threat = minf(sim.threat, 99.0)
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.speed_mult = mult
+
+
+func admin_hunter_ids() -> Array:
+	return ["elise"]
+
+
+func admin_set_hunter_level(_id: String, level_value: int) -> void:
+	sim.admin_set_level(level_value)
+	_sync_visuals()
+
+
+func admin_places() -> Array:
+	return ["far", "step 2", "step 1", "at the edge"]
+
+
+## Elise's place is how close she is: far down the sill, two steps, one step, at the glass.
+func admin_place_hunter(_id: String, place: String) -> void:
+	sim.admin_set_threat({"far": 0.0, "step 2": 40.0, "step 1": 70.0, "at the edge": 97.0}.get(place, 0.0))
+	_sync_visuals()
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, descent)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = "elise"
+		_finish_caught()
+
+
+## The Descent's own section: the stage (the elevator's depth), solving, dealing again, wrong attempts, her closeness, the door hold.
+func admin_goto_stage(index: int) -> void:
+	sim.admin_goto_stage(index)
+	_sync_visuals()
+
+
+func admin_solve_stage() -> void:
+	_handle(sim.admin_solve())
+	_sync_visuals()
+	_check_end()
+
+
+func admin_redeal() -> void:
+	sim.admin_redeal()
+	_sync_visuals()
+
+
+func admin_add_wrong(n: int) -> void:
+	sim.wrong = maxi(0, sim.wrong + n)
+	_sync_visuals()
+
+
+func admin_set_closeness(percent: float) -> void:
+	sim.admin_set_threat(percent)
+	_sync_visuals()
+
+
+func admin_set_hold(on: bool) -> void:
+	hold_down = on and state == State.PLAYING

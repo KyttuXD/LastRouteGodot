@@ -26,6 +26,7 @@ var buttons := {}          # room id -> Button
 var points := {}           # node id -> Vector2 (centre, map pixels)
 var office_point := Vector2.ZERO
 var active := ""
+var blips: Array = []   # room ids with a hunter in them (the admin's REVEAL HUNTERS), drawn as red dots
 
 
 func _init() -> void:
@@ -176,6 +177,11 @@ func set_active(room: String) -> void:
 		(buttons[r] as Button).modulate = AMBER if r == room else Color(1, 1, 1)
 
 
+func set_blips(rooms: Array) -> void:
+	blips = rooms.duplicate()
+	queue_redraw()
+
+
 func label_for(room: String) -> String:
 	return String((layout.get("labels", {}) as Dictionary).get(room, ""))
 
@@ -204,5 +210,8 @@ func _draw() -> void:
 	for v in vents:
 		if points.has(v) and not buttons.has(v):
 			draw_circle(points[v], 1.6, Color(0.55, 0.8, 0.9))
+	for r in blips:
+		if points.has(r):
+			draw_circle(points[r] + Vector2(BTN.x * 0.5 - 2.0, -BTN.y * 0.5 + 2.0) if buttons.has(r) else points[r], 2.2, Color(1.0, 0.25, 0.2))
 	var font := ThemeDB.fallback_font
 	draw_string(font, office_point + Vector2(-8, 3), "YOU", HORIZONTAL_ALIGNMENT_CENTER, 16, 6, AMBER)

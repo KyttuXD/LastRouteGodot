@@ -38,6 +38,12 @@ var _flinch_left := {}
 var _retreat_left := {}   # hunter id -> seconds left of the retreat pose after a shut door or a light turned her away
 var _pose_state := {}     # hunter id -> the Night Watch pose state playing ("" = the rig's own walk / idle clips)
 var _attacker := ""
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_reveal := false
+var _admin_noclip := false
 var lamp_on := true
 var _hour_seen := 0
 var _elapsed_ms := 0.0
@@ -52,6 +58,7 @@ func _ready() -> void:
 	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels, is_custom)
 	_spawn_hunters()
 	paths = NightWatchPaths.new(building, office)
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists: the Night 7 entries depend on it
 	hud.mode_text = "%d. %s · %s" % [int(mode_data().get("num", 1)), String(mode_data().get("title", "CLASSIC")).capitalize(), level_name().capitalize()]
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
@@ -225,6 +232,8 @@ func _hint_actions() -> Array:
 	var list := office.spec.controls.duplicate()
 	if sim != null and sim.kathy_night:
 		list.append("nw_meet")
+	if admin_menu != null:
+		list.append("admin")
 	return list
 
 
@@ -324,7 +333,7 @@ func current_input() -> Dictionary:
 
 ## Step the night by dt_ms with the doors, lights and monitor as they are, and show what happened.
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	_elapsed_ms += dt_ms
 	hud.update_call(_elapsed_ms, dt_ms)
@@ -367,6 +376,13 @@ func _on_event(e: Dictionary) -> void:
 # --- what you see ----------------------------------------------------------------------------------------------------
 
 func _sync_visuals() -> void:
+	if _admin_reveal and sim != null:
+		var rooms := []
+		for id in sim.hunters:
+			rooms.append((sim.hunters[id] as NightWatchStalker).room)
+		hud.cam_map.set_blips(rooms)
+	elif hud.cam_map.blips.size() > 0:
+		hud.cam_map.set_blips([])
 	for door in ["doorL", "doorR"]:
 		office.set_light(door, bool(sim.light_on[door]) and not sim.light_dip(door))   # Night 7: her light dips (the only tell the light gives)
 	if manual_clock:
@@ -583,7 +599,7 @@ func _finish_caught() -> void:
 	_attacker = sim.by
 	last_death = {"by": sim.by, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -601,3 +617,168 @@ func _exit_tree() -> void:
 	NightWatchControls.unregister()
 	if get_tree() != null:
 		get_tree().paused = false
+
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	var kind := "KATHY" if sim.kathy_night else "CLASSIC"
+	return "%s  LEVEL %d  %s%s\nPOWER %d%%  OUT %s\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [kind, night, NightWatchData.hour_label(sim.hour()), " (SEED %d)" % seed_value,
+		int(ceil(sim.power)), str(sim.out), str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_hunter_rows() -> Array:
+	var rows := []
+	for id in sim.hunters:
+		var h := sim.hunters[id] as NightWatchStalker
+		var walker := _walkers.get(id) as NightWatchWalker
+		rows.append("%s  %s  AI %d%s%s" % [String(id).to_upper(), h.room, h.level, "  AT DOOR %.1fs" % (h.at_door_ms / 1000.0) if h.is_at_door() else "", "  WALKING" if walker != null and walker.moving else ""])
+	return rows
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_hour(hour_value: int) -> void:
+	sim.elapsed = clampf(float(hour_value) * NightWatchData.HOUR_MS, 0.0, NightWatchData.NIGHT_MS - 1000.0)
+	_hour_seen = sim.hour()
+	_elapsed_ms = sim.elapsed
+	_sync_visuals()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+func admin_set_power(percent: float) -> void:
+	sim.power = clampf(percent, 0.0, 100.0)
+	sim.out = sim.power <= 0.0
+	sim.out_ms = 0.0
+	if sim.out:
+		_on_event({"type": "out"})
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_power = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_power
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return sim.hunters.keys()
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	if sim.hunters.has(id):
+		(sim.hunters[id] as NightWatchStalker).base = level_value
+		(sim.hunters[id] as NightWatchStalker).level = NightWatchData.effective_level(level_value, sim.hour())
+
+
+func admin_places() -> Array:
+	var places := NightWatchData.cam_rooms()
+	places.append("doorL")
+	places.append("doorR")
+	return places
+
+
+func admin_place_hunter(id: String, place: String) -> void:
+	if sim.hunters.has(id):
+		(sim.hunters[id] as NightWatchStalker).admin_send(place)
+		_sync_visuals()
+
+
+func admin_all_to_doors() -> void:
+	for id in sim.hunters:
+		var h := sim.hunters[id] as NightWatchStalker
+		h.admin_send(h.door())
+	_sync_visuals()
+
+
+func admin_set_door(door: String, shut: bool) -> void:
+	if bool(door_shut[door]) != shut:
+		toggle_door(door)
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, level)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	_elapsed_ms = 0.0
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_set_reveal(on: bool) -> void:
+	_admin_reveal = on
+	_sync_visuals()
+
+
+func admin_is_reveal() -> bool:
+	return _admin_reveal
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = String(sim.hunters.keys()[0])
+		_finish_caught()
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
+
+
+## Night 7: put Kathy in a hall, open the monitor on it and meet her eyes (the real meet rules run).
+func admin_force_meet() -> String:
+	if not sim.kathy_night:
+		return "none"
+	var kathy := sim.hunters["kathy"] as NightWatchStalker
+	kathy.admin_send("westhall")
+	open_monitor("westhall")
+	return meet_her_eyes()

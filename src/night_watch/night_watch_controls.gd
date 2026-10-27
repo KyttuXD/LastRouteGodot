@@ -134,6 +134,8 @@ static func hint_line(monitor_up := false, active: Array = []) -> String:
 		out.append("%s lamp" % key_text(LAMP))
 	out.append("%s mute" % key_text(MUTE))
 	out.append("%s pause" % key_text(&"pause"))
+	if active.has("admin"):
+		out.append("0 admin")   # only listed for an admin (the game adds "admin" to the active list)
 	return " · ".join(out)
 
 

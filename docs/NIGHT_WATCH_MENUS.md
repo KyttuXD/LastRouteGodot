@@ -51,3 +51,11 @@ As in the 2D game, hovering only highlights: the mode list, the shift tiles and 
 arrow keys, never on mouse-over. A selected entry has amber text and an amber frame; a hovered one gets a lighter background and a lighter
 border only; keyboard focus keeps the theme's focus ring. `validate_night_watch_menus.gd` emits `mouse_entered` on every entry and asserts
 the selected mode, tile and the detail panel do not change, then checks that a click and the down arrow do.
+
+## Shift Board layout (container-based)
+
+The right pane is laid out with containers, not fixed positions, so nothing can overlap or leave the screen: a margin around a column (header, body, START row); the body is the mode list and the detail pane;
+the detail pane is the portrait beside a **scrolling text area** (title, tagline, blurb, the mode's hint, the stat line: a long mode text such as Mixed Shift's scrolls inside its own area instead of running into the
+cards) with the shift cards in a grid below it (4 columns for more than 6 shifts); **START SHIFT has its own row** under the pane; the key hint line sits in the strip under everything. The 2D-style rules stay: hovering
+does not select, keyboard focus stays visible. `night_watch_menus` checks every control's rect for all nine modes at eight window sizes and aspects (480x270, 1280x720, 1480x860, 1920x1080, 2560x1440, 1000x400, 800x800,
+540x960): all inside the viewport, no two overlapping. Captures of all nine modes at 1480x860: `night_watch_menus/board_1480x860_mode<n>_<id>.png` (e.g. Mixed Shift: ![mixed](night_watch_menus/board_1480x860_mode9_mixed.png)).

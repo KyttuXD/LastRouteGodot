@@ -20,6 +20,8 @@ var fx_rng: NightWatchMulberry
 var roster: Array = []
 var s: Dictionary = {}
 var seal_max := 0.0
+## Admin: a multiplier on how fast the threats act (1.0 = the 2D game's numbers exactly).
+var hunter_speed := 1.0
 
 
 # --- the seeded draws (module level in 2D) -------------------------------------------------------------------------------------
@@ -246,7 +248,7 @@ func _time_runs(th: Dictionary) -> bool:
 
 
 func _speed_of(th: Dictionary) -> float:
-	return float(MixedData.BEAT_RATE[s["beat"]]) * (0.8 + 0.5 * float(s["tension"])) * float(MixedData.MOOD_SPEED[th["mood"]]) * float(live()["speed"])
+	return float(MixedData.BEAT_RATE[s["beat"]]) * (0.8 + 0.5 * float(s["tension"])) * float(MixedData.MOOD_SPEED[th["mood"]]) * float(live()["speed"]) * hunter_speed
 
 
 func _grace_ok() -> bool:
@@ -1157,3 +1159,125 @@ func hour_reached() -> int:
 func next_spike() -> Dictionary:
 	var plan: Array = s["plan"]
 	return plan[_next_idx()] if _next_idx() < plan.size() else {}
+
+
+# --- admin (NightWatchAdmin): public, deterministic given the seed; none of it runs in a normal shift ----------------------------------------------
+
+func admin_clear_tells() -> void:
+	for th in list():
+		if bool(th["armed"]):
+			admin_send_home(String(th["id"]))
+	s["lock"] = ""
+
+
+## Send a threat home (as an answer does, without the cooldown).
+func admin_send_home(id: String) -> void:
+	var th := threat(id)
+	if th.is_empty():
+		return
+	if bool(th["armed"]) and String(s["lock"]) == String(th["id"]):
+		s["lock"] = ""
+	th.merge({"armed": false, "tellOn": false, "armedMs": 0.0, "giveMs": 0.0, "pulse": 0.0, "active": false, "present": false, "steps": 0, "pend": 0, "i": 0, "seen": 0.0, "dwell": 0.0,
+		"side": "", "flinch": false, "rewound": false, "wait": 1500.0}, true)
+	if String(th["type"]) == "counter":
+		th["active"] = true
+		th["c"] = 0.0
+
+
+## Put a threat in a place: a camera room (a walker on her route there), a door or a vent opening (at it, her tell begins).
+func admin_place(id: String, place: String) -> bool:
+	var th := threat(id)
+	if th.is_empty():
+		return false
+	var type := String(th["type"])
+	admin_clear_tells()
+	var gate := MixedData.gate_side(place)
+	if type == "vent":
+		var table := MixedData.VENT_ROUTES
+		var want_side := gate if gate != "" and place.begins_with("vent") else "L"
+		for r in table:
+			if String(r["side"]) == want_side:
+				th.merge({"routeId": r["id"], "route": (r["rooms"] as Array).duplicate(), "start": 0, "active": true, "seen": 0.0, "dwell": 0.0, "flinch": false, "wait": jitter(float(MixedData.TIMING["vent"]["stepMs"]), th_rng)}, true)
+				th["i"] = (r["rooms"] as Array).size() - 2 if place.begins_with("vent") else 1
+		if place.begins_with("vent") and gate != "":
+			th["i"] = int(th["i"]) + 1
+			_arm(th, gate)
+		return true
+	if type == "counter":
+		return false
+	if type == "monitor":
+		var side := MixedData.door_side(place) if place.begins_with("door") else "L"
+		th.merge({"present": true, "active": true, "side": side, "steps": 0, "pend": 0, "idle": 0.0, "decay": 0.0, "giveMs": 0.0}, true)
+		if place.begins_with("door"):
+			_arm(th, side)
+		return true
+	var routes := MixedData.ROUTES
+	for r in routes:
+		var rooms_r: Array = r["rooms"]
+		if rooms_r.has(place) and (type != "winder" or rooms_r.has(th["boxRoom"])):
+			th.merge({"routeId": r["id"], "route": rooms_r.duplicate(), "start": 0, "active": true, "seen": 0.0, "dwell": 0.0, "flinch": false, "wait": jitter(float(MixedData.TIMING[type]["stepMs"]), th_rng)}, true)
+			th["i"] = rooms_r.find(place)
+			if gate != "":
+				_arm(th, gate)
+			else:
+				th["dwell"] = 0.0
+			return true
+	return false
+
+
+## Add a threat of the pool to tonight's roster (the roster keeps pool order).
+func admin_add_threat(id: String) -> bool:
+	if roster.has(id) or MixedData.pool_entry(id).is_empty():
+		return false
+	var fresh := new_threat(MixedData.pool_entry(id), th_rng, live(), int(s["mon"]["toggles"]), roster.size())
+	var old: Dictionary = (s["threats"] as Dictionary).duplicate()
+	old[id] = fresh
+	roster.append(id)
+	var ordered := []
+	for p in MixedData.POOL:
+		if roster.has(p["id"]):
+			ordered.append(p["id"])
+	roster.clear()
+	roster.append_array(ordered)
+	(s["threats"] as Dictionary).clear()
+	for rid in roster:
+		s["threats"][rid] = old[rid]
+	return true
+
+
+## Force a chaos event now (CHAOS and ENDLESS run the director's; in any other shift the state is made on the spot).
+func admin_force_chaos(kind: String) -> bool:
+	if not MixedData.CHAOS_EVENTS.has(kind):
+		return false
+	if not s.has("chaos"):
+		s["chaos"] = {"hr": hour_of(), "at": -1.0, "kind": "", "until": 0.0, "strain": 0.0, "flicker": 0.0, "boxfast": 0.0, "room": "", "n": 0}
+	var ev := []
+	_fire_event(kind, ev)
+	return not ev.is_empty()
+
+
+## The next spike starts at the next step (the director's own rules still apply: never while a deadly tell runs).
+func admin_force_spike() -> bool:
+	var plan: Array = s["plan"]
+	if _next_idx() >= plan.size():
+		plan.append({"at": float(s["elapsed"]), "len": 11000.0})
+		return true
+	plan[_next_idx()]["at"] = float(s["elapsed"])
+	return true
+
+
+func admin_set_hour(hour_value: int) -> void:
+	s["elapsed"] = float(hour_value) * MixedData.HOUR_MS
+	if s.has("chaos"):
+		s["chaos"]["hr"] = hour_value
+	if endless:
+		s["run"]["budget"] = MixedData.endless_budget(hour_value)
+		s["run"]["rotateAt"] = (floor(float(s["elapsed"]) / float(MixedData.ENDLESS_RAMP["rotateMs"])) + 1.0) * float(MixedData.ENDLESS_RAMP["rotateMs"])
+
+
+## Endless: draw the roster again at the next step (when no deadly tell is running).
+func admin_redraw_roster() -> bool:
+	if not endless:
+		return false
+	s["run"]["rotateAt"] = float(s["elapsed"])
+	return true
