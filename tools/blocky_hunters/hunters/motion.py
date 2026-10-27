@@ -36,17 +36,55 @@ PROFILES = {
 }
 
 
+# the player's wooden mannequin: even, slightly stiff (wood), nothing exaggerated
+PROFILES["player_mannequin"] = dict(tempo=1.0, stride=1.0, arm_swing=0.9, bounce=0.9, idle_amp=0.8)
+
+
 # Void: the roster's "more aggressive" baseline (shared), plus a nudge per colour toward its gimmick. First pass.
-_VOID = dict(tempo=1.15, stride=1.1, arm_swing=0.8, lean=5, head_pitch=3, idle_amp=0.5)
+_VOID = dict(tempo=1.15, stride=1.1, arm_swing=0.8, lean=5, head_pitch=3, idle_amp=0.9)
 PROFILES.update({f"void_{c}": dict(_VOID, **o) for c, o in {
     "black": dict(idle_amp=0.7), "blue": dict(tempo=1.0, stride=0.95, arm_swing=0.5, bounce=0.7),
     "brown": dict(tempo=1.05, stride=1.2, arm_swing=1.2, lean=8), "cyan": dict(head_roll=5, idle_amp=1.2, idle_tempo=1.4),
-    "gray": dict(tempo=0.95, arm_swing=0.2, bounce=0.4, idle_amp=0.2, lean=2), "green": dict(arm_swing=0.9, bounce=1.1, head_roll=-4),
+    "gray": dict(tempo=0.95, arm_swing=0.2, bounce=0.4, idle_amp=0.5, lean=2), "green": dict(arm_swing=0.9, bounce=1.1, head_roll=-4),
     "orange": dict(tempo=1.3, stride=1.25, lean=10, arm_swing=1.3), "pink": dict(tempo=0.95, head_roll=6, bounce=1.2, idle_amp=1.0),
     "purple": dict(tempo=1.2, bounce=0.6, idle_amp=1.0, idle_tempo=1.6), "red": dict(tempo=1.3, stride=1.25, arm_swing=1.4, lean=9, head_pitch=6),
     "white": dict(tempo=0.95, head_roll=8, head_pitch=-2, idle_amp=1.3), "yellow": dict(tempo=1.2, stride=1.15, arm_swing=1.1, bounce=1.2),
 }.items()})
 
 
+# Stun / wake style per hunter (stun.py): how she reacts to being stunned, from her persona, species and build.
+STYLE_OF = {
+    "kathy": "topple",      # warm and sturdy: goes over slowly, scythe-sized swing
+    "aki": "cover",         # shy bookworm: curls up, hands at the face
+    "briselle": "base", "dovelle": "base",
+    "ceryth": "stiff",      # blunt, analytical: rigid, barely wobbles
+    "eirys": "tumble",      # competitive cat: quick tumbling, tail whips
+    "ferryn": "shake",      # jumpy: trembles
+    "glyra": "float",       # dreamy: drifts, horns and hair float
+    "haelith": "curl",      # eager wolf: whimpers, ears down, tail tucked
+    "ilyra": "curl",        # aloof cat: curls in, tail wrapped
+    "jyvra": "topple",      # pushy and big: goes over heavily, pigtails swing
+    "mavrine": "stiff",     # formal: stays rigid, halo wobbles
+    "nyxie": "tumble",      # bold, unpredictable
+    "loxelle": "float",     # calm: slow sink-and-sway, tail drifts
+    "opalie": "tumble",     # cheerful mascot: bouncy flop, fins flutter
+    "porcelle": "float",    # angel: drifts, halo wobbles
+    "quirith": "cover",     # cold, then clingy wolf: hugs herself
+    "ravelle": "tumble",    # prankster: theatrical spin
+    "solyth": "topple",     # hot-tempered: big heavy fall, halo shakes
+    "thessine": "stiff",    # nitpicky: stiff
+    "umbriel": "curl",      # introvert: curls into a ball
+    "verrine": "curl",      # sulky wolf: slumps, tail tucked
+    "wynelle": "float",     # icy and gentle: drifts, pigtails float
+    "xivvy": "flop",        # hyper, winged: arms and wings flail
+    "ysolde": "cover",      # sentimental: hugs herself
+    "zephyra": "tumble",    # cheerful merchant: bouncy wobble
+    "void_black": "float", "void_blue": "stiff", "void_brown": "topple", "void_cyan": "shake", "void_gray": "stiff",
+    "void_green": "topple", "void_orange": "tumble", "void_pink": "float", "void_purple": "float", "void_red": "shake",
+    "void_white": "cover", "void_yellow": "shake",
+}
+
+
 def profile(name):
-    return PROFILES.get(name.replace("_tall", ""), {})
+    base = name.replace("_tall", "")
+    return dict(PROFILES.get(base, {}), stun_style=STYLE_OF.get(base, "base"))

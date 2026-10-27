@@ -109,7 +109,7 @@ def joint_plug(c, by_name):
                 faces="ENWSUD", uv=uv)
 
 
-def vanilla_cubes(overlays=True):
+def vanilla_cubes(overlays=True, arm_w=3, face=True):
     """Alex proportions: head 8^3, body 8x12x4, arms 3x12x4, legs 4x12x4 (skin px), rig-split.
     overlays=True adds the skin's second layer (hat, jacket, sleeves, pants) as slightly larger cubes on the
     same bones, exactly as Blockbench's skin model shows it; transparent texels are cut out (alpha mask)."""
@@ -119,7 +119,8 @@ def vanilla_cubes(overlays=True):
     body = Part(16, 16, 8, 12, 4, 0, 24)
     c += [body.seg("chest", "Chest", 0, 6), body.seg("belly", "Belly", 6, 12)]
     # character's right = +X (MC right limbs at +X), left = -X
-    arms = {"R": Part(40, 16, 3, 12, 4, 5.5, 24), "L": Part(32, 48, 3, 12, 4, -5.5, 24)}
+    ax = 4 + arm_w / 2.0                         # arm centre: half the body (4) + half the arm (3 Alex / 4 classic)
+    arms = {"R": Part(40, 16, arm_w, 12, 4, ax, 24), "L": Part(32, 48, arm_w, 12, 4, -ax, 24)}
     legs = {"R": Part(0, 16, 4, 12, 4, 2.0, 12), "L": Part(16, 48, 4, 12, 4, -2.0, 12)}
     arm_rows = (("arm", "Arm", 0, 6), ("forearm", "Forearm", 6, 10), ("hand", "Hand", 10, 12))
     leg_rows = (("thigh", "Thigh", 0, 6), ("calf", "Calf", 6, 10), ("foot", "Foot", 10, 12))
@@ -131,7 +132,7 @@ def vanilla_cubes(overlays=True):
         c.append(Part(32, 0, 8, 8, 8, 0, 32).seg("hat", "Head", 0, 8, grow=0.5))
         jacket = Part(16, 32, 8, 12, 4, 0, 24)
         c += [jacket.seg("jacket-chest", "Chest", 0, 6, grow=0.25), jacket.seg("jacket-belly", "Belly", 6, 12, grow=0.25)]
-        sleeves = {"R": Part(40, 32, 3, 12, 4, 5.5, 24), "L": Part(48, 48, 3, 12, 4, -5.5, 24)}
+        sleeves = {"R": Part(40, 32, arm_w, 12, 4, ax, 24), "L": Part(48, 48, arm_w, 12, 4, -ax, 24)}
         pants = {"R": Part(0, 32, 4, 12, 4, 2.0, 12), "L": Part(0, 48, 4, 12, 4, -2.0, 12)}
         for s, a in sleeves.items():
             c += [a.seg(f"{s}-{n}-sleeve", f"{s}-{b}", r0, r1, grow=0.25) for n, b, r0, r1 in arm_rows]
@@ -139,7 +140,8 @@ def vanilla_cubes(overlays=True):
             c += [l.seg(f"{s}-{n}-pants", f"{s}-{b}", r0, r1, grow=0.25, ygrow=False, caps=False) for n, b, r0, r1 in leg_rows]
     by_name = {x.name: x for x in c}
     c += [pl for pl in (joint_plug(x, by_name) for x in list(c)) if pl is not None]
-    c.append(Cube("face", "Head", (m(-4), m(24), m(-4.02)), (m(4), m(32), m(-4.02)), faces="N", group="face"))
+    if face:
+        c.append(Cube("face", "Head", (m(-4), m(24), m(-4.02)), (m(4), m(32), m(-4.02)), faces="N", group="face"))
     return c
 
 

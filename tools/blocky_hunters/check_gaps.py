@@ -13,7 +13,7 @@ import bb_rig, bb_skin
 from hunters import motion
 from hunters.roster import IDS as _AZ
 from hunters.void_set import IDS as _VOID
-IDS = _AZ + _VOID
+IDS = _AZ + _VOID + ["player_mannequin"]
 
 # child bone -> (width, depth) of the cube pair meeting at its joint, in skin px
 JOINTS = {"L-Thigh": (4, 4), "R-Thigh": (4, 4), "L-Calf": (4, 4), "R-Calf": (4, 4), "L-Foot": (4, 6), "R-Foot": (4, 6),
@@ -33,6 +33,11 @@ def conj(q):
 
 
 def hunter_clips(name):
+    if name == "player_mannequin":                    # classic 4 px arms, its own clip set
+        import player_clips
+        sk = bb_skin.vanilla_sk(sh_x=6.0)
+        bones = bb_rig.skeleton(sk, [])
+        return player_clips.build(bones, sk["hip_y"], motion.profile(name)), {b["name"]: b["rot"] for b in bones}
     sk = bb_skin.vanilla_sk()
     bones = bb_rig.skeleton(sk, [])
     return bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name)), {b["name"]: b["rot"] for b in bones}
@@ -59,6 +64,8 @@ def main():
                         loops_bad.append((name, cname, bone, chan))
                 if bone in JOINTS and "rotation" in tr:
                     w, d = JOINTS[bone]
+                    if name == "player_mannequin" and bone.endswith(("Forearm", "Hand")):
+                        w = 4                         # classic arms are 4 px wide
                     g = max(wedge(q, rest[bone], w, d) for q in tr["rotation"][1])
                     book = extreme if cname == "crouch" else worst
                     if g > book.get(bone, (0,))[0]:
