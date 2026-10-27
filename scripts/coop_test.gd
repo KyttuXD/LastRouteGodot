@@ -66,7 +66,9 @@ func _wait_for(test: Callable, what: String, seconds: float = 30.0) -> bool:
 
 func _in_route() -> bool:
 	var current := get_tree().current_scene
-	return current != null and current.scene_file_path == "res://scenes/infinite_route_test.tscn" \
+	var route_scene := RoomState.CITY_ROUTE_SCENE if OS.get_environment("COOP_MODE") == "city" \
+		else "res://scenes/infinite_route_test.tscn"
+	return current != null and current.scene_file_path == route_scene \
 		and current.get("facility") != null and current.facility.generator != null
 
 
@@ -125,8 +127,13 @@ func _first_relay() -> Dictionary:
 
 # -- roles -------------------------------------------------------------------------
 
+## COOP_MODE=city runs the same checks on KYTTU: The City (host and guest must end up in the City scene).
+static func _test_mode() -> RoomState.Mode:
+	return RoomState.Mode.CITY if OS.get_environment("COOP_MODE") == "city" else RoomState.Mode.DEFAULT
+
+
 func _run_host() -> void:
-	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.create_local(_test_mode())
 	RoomState.seed_text = "COOP-TEST-SEED"
 	RoomState.set_map_scale(RoomState.Scale.INFINITE)
 	var error := RoomState.host_primary_room(port)
@@ -253,7 +260,7 @@ func _run_guest(is_late: bool) -> void:
 	if resolved.has("error"):
 		_fail(String(resolved["error"]))
 		return
-	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.create_local(_test_mode())
 	var join_error := RoomState.join_room(String(resolved.get("address", "")),
 		int(resolved.get("port", 0)), String(resolved.get("transport", "relay")), code)
 	if not join_error.is_empty():

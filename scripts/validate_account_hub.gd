@@ -53,7 +53,7 @@ func run(host: Node) -> int:
 		var texts := []
 		_texts(panel, "SaveRow_", texts)
 		var kicker := panel.find_child("AccountKicker", true, false) as Label
-		_expect(kicker != null and kicker.text.replace(" ", "") == "KYTTU'SLAB//ACCOUNT", "the account panel is not titled KYTTU'S LAB // ACCOUNT")
+		_expect(kicker != null and kicker.text.replace(" ", "").replace("\u2009", "") == "KYTTU'SLAB//ACCOUNT", "the account panel is not titled KYTTU'S LAB // ACCOUNT")
 		for text in texts:
 			var upper: String = String(text).to_upper()
 			_expect(not upper.contains("LAST ROUTE") and not upper.contains("CHECKPOINT") and not upper.contains("SAVED ROUTE") and not upper.contains("CONTINUE ROUTE"),

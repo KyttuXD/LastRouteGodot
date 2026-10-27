@@ -36,6 +36,9 @@ var _path_grid_coords: Array[Vector3i] = []
 var _path_grid_level := 0x7fffffff
 
 
+const INVALID_CELL := -2147483648
+
+
 func _init(route_generator: StreamedRouteGenerator, route_level: int = 0,
 		mutation_state: StreamedWorldState = null) -> void:
 	generator = route_generator
@@ -187,10 +190,16 @@ func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
 	if from_cell == to_cell:
 		return [from_cell] if can_occupy(from_cell.x + .5, from_cell.y + .5) else []
 	if absi(to_cell.x - from_cell.x) > MAX_PATH_SPAN \
-			or absi(to_cell.y - from_cell.y) > MAX_PATH_SPAN \
-			or not can_occupy(from_cell.x + .5, from_cell.y + .5) \
-			or not can_occupy(to_cell.x + .5, to_cell.y + .5):
+			or absi(to_cell.y - from_cell.y) > MAX_PATH_SPAN:
 		return []
+	# A hunter pressed against a prop or wall (or a goal on a prop's edge) stands in a cell whose capsule samples
+	# fail can_occupy although it is open floor: path from the nearest roomy neighbour instead of giving up.
+	from_cell = _roomy_cell(from_cell)
+	to_cell = _roomy_cell(to_cell)
+	if from_cell.x == INVALID_CELL or to_cell.x == INVALID_CELL:
+		return []
+	if from_cell == to_cell:
+		return [from_cell]
 	# AStarGrid2D executes the hot search in engine code. The solid-cell grid is
 	# rebuilt only when the streamed 3x3 authority window moves; relay claims
 	# can refresh fixture lists without paying for another navigation bake.
@@ -203,6 +212,27 @@ func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
 	for cell in packed:
 		result.append(cell)
 	return result
+
+
+## The cell itself when a hunter capsule fits, else the nearest of its 8 neighbours (then ring two) that does.
+func _roomy_cell(cell: Vector2i) -> Vector2i:
+	if can_occupy(cell.x + .5, cell.y + .5):
+		return cell
+	for ring in [1, 2]:
+		var best := Vector2i(INVALID_CELL, 0)
+		var best_distance := 1.0e9
+		for dz in range(-ring, ring + 1):
+			for dx in range(-ring, ring + 1):
+				if maxi(absi(dx), absi(dz)) != ring:
+					continue
+				var candidate := cell + Vector2i(dx, dz)
+				var distance := float(dx * dx + dz * dz)
+				if distance < best_distance and can_occupy(candidate.x + .5, candidate.y + .5):
+					best = candidate
+					best_distance = distance
+		if best.x != INVALID_CELL:
+			return best
+	return Vector2i(INVALID_CELL, 0)
 
 
 func _rebuild_path_grid_if_needed() -> void:

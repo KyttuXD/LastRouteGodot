@@ -857,10 +857,14 @@ func _physics_process(delta: float) -> void:
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
 		_set_flashlight(not flashlight_enabled)
+	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
+	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
+	var click_ready := _cursor_was_captured and MouseLock.is_captured()
+	_cursor_was_captured = MouseLock.is_captured()
 	if inventory_enabled:
 		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
-		if Input.is_action_just_pressed("tool_use"):
+		if Input.is_action_just_pressed("tool_use") and click_ready:
 			_use_selected_item()
 		if Input.is_action_just_pressed("drop_item"):
 			request_drop_selected_item()
@@ -872,6 +876,9 @@ func _physics_process(delta: float) -> void:
 	_update_resecure(delta)
 	if Input.is_action_just_pressed("interact"):
 		_try_interact()
+
+
+var _cursor_was_captured := false
 
 
 func _nearby_ladder() -> Node3D:
@@ -1462,8 +1469,7 @@ func request_drop_selected_item() -> bool:
 		return false
 	var item_id := selected_inventory_item()
 	if item_id.is_empty():
-		Sound.interaction_fail()
-		return false
+		return false   # nothing in hand: dropping is silent
 	item_drop_requested.emit(item_id, item_durability(item_id),
 		selected_inventory_slot)
 	return true
@@ -1657,8 +1663,7 @@ func _sync_owned_inventory_items() -> void:
 func _use_selected_item() -> void:
 	var item_id := selected_inventory_item()
 	if item_id.is_empty():
-		Sound.interaction_fail()
-		return
+		return   # empty hand: a click with nothing to use is silent
 	match item_id:
 		"flashlight":
 			# F / the dedicated flashlight bind is the only toggle. Left click
@@ -1675,12 +1680,10 @@ func _use_selected_item() -> void:
 
 func _use_battery() -> void:
 	if lamp_charge >= GameConfig.MAX_LAMP_CHARGE - .01:
-		Sound.interaction_fail()
-		return
+		return   # lamp already full: nothing to do, no blip
 	var used_slot := selected_inventory_slot
 	if used_slot < 0 or used_slot >= inventory_order.size() \
 			or String(inventory_order[used_slot]) != "battery":
-		Sound.interaction_fail()
 		return
 	remove_inventory_item("battery", used_slot)
 	restore_lamp(GameConfig.BATTERY_RECHARGE)
@@ -1692,8 +1695,7 @@ func _use_selected_tool() -> void:
 		return
 	var item_id := selected_inventory_item()
 	if not BREACH_TOOLS.has(item_id) and not LOCK_TOOLS.has(item_id):
-		Sound.interaction_fail()
-		return
+		return   # not a tool: a click with it is silent
 	# A committed swing/use spends durability before any hit result. This makes
 	# ally hits cost the tool without ever creating friendly-fire damage.
 	if not consume_item_durability(item_id):
@@ -1805,8 +1807,7 @@ func _try_interact() -> void:
 			if not message.is_empty():
 				interaction_message.emit(message)
 				return
-		Sound.interaction_fail()
-		return
+		return   # E with nothing in reach is silent (the cue is only for a visible interactable that refuses)
 	# A sabotaged relay is worked entirely through the hold in
 	# _update_resecure() -- a single press would just bounce off activate()'s
 	# "already collected" case, which is technically true but not what a

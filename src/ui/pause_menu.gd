@@ -14,7 +14,9 @@ extends CanvasLayer
 ##     is singleplayer by design, so nothing is waiting on you -- and the whole
 ##     mode is about not being able to step away, which a one-key escape hatch
 ##     would undercut.
-##   * A route window that loses OS focus opens the same overlay ESC does.
+##   * A solo route window that loses OS focus opens the same overlay ESC does, when Settings.pause_on_focus_loss is
+##     on (release builds by default). Never in a room, public route or with other players, never while a text field
+##     or admin overlay has the keyboard; held keys are released either way.
 ##     Playtests kept dying to Gray Void while a terminal had the keyboard.
 ##     Focus coming back does not resume -- RETURN or ESC still has to. Title,
 ##     staging, Office hold-to-pause, and a locked-out escape struggle do not.
@@ -153,6 +155,8 @@ func _build() -> void:
 	column.add_child(tabs)
 	for entry in [["PAUSE", "pause"], ["SAVES", "saves"],
 			["STATISTICS", "statistics"]]:
+		if RoomState.is_city() and String(entry[1]) == "saves":
+			continue   # the City has no run saves yet
 		var tab := Button.new()
 		tab.text = String(entry[0])
 		tab.focus_mode = Control.FOCUS_ALL
@@ -213,7 +217,7 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	parent.add_child(_saves_view)
 
 	var help := Label.new()
-	help.text = "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
+	help.text = "THE CITY HAS NO RUN SAVES YET" if RoomState.is_city() else "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(help, Palette.MUTED, 7)
 	_saves_view.add_child(help)
@@ -288,7 +292,7 @@ func _build_share_block() -> Control:
 	stack.add_theme_constant_override("separation", 2)
 	box.add_child(stack)
 	var eyebrow := Label.new()
-	eyebrow.text = Palette.track("ROUTE SIGNAL")
+	eyebrow.text = Palette.track("CITY SIGNAL" if RoomState.is_city() else "ROUTE SIGNAL")
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	Palette.style_label(eyebrow, Palette.AMBER, 6)
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -311,7 +315,7 @@ func _build_share_block() -> Control:
 	stack.add_child(row)
 	_copy_button = Button.new()
 	_copy_button.name = "PauseCopyRoute"
-	_copy_button.text = "COPY ROUTE"
+	_copy_button.text = "COPY CITY SEED" if RoomState.is_city() else "COPY ROUTE"
 	_copy_button.focus_mode = Control.FOCUS_ALL
 	_copy_button.custom_minimum_size = Vector2(88, 16)
 	_copy_button.add_theme_font_size_override("font_size", 7)
@@ -579,13 +583,13 @@ func _open_dossier() -> void:
 	details.add_child(_dossier_stats)
 
 	var ids: Array = []
-	for category in ["az", "void"]:
-		var header := roster.add_item("-- %s --" % ("A-Z HUNTERS" if category == "az" else "VOID HUNTERS"))
+	for category in ["az", "void"] + SecretCreatures.dossier_categories():
+		var header := roster.add_item("-- %s --" % HunterDossier.category_title(category))
 		roster.set_item_disabled(header, true)
 		for hunter_id in HunterDossier.category_ids(category):
 			ids.append(hunter_id)
 			var discovered := Backend.hunter_discovered(hunter_id)
-			var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+			var profile: Dictionary = HunterDossier.profile(hunter_id)
 			var label := String(profile["name"]).to_upper() if discovered \
 				else "???? // UNDISCOVERED"
 			var index := roster.add_item(label)
@@ -607,7 +611,7 @@ func _dossier_copy(node_name: String) -> Label:
 
 
 func _show_dossier_entry(hunter_id: String) -> void:
-	var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
+	var profile: Dictionary = HunterDossier.profile(hunter_id)
 	var entry: Dictionary = HunterDossier.entry(hunter_id)
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
@@ -626,6 +630,7 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	var category := String(profile.get("category", "az"))
 	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
 	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
 	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
@@ -932,10 +937,31 @@ func _notification(what: int) -> void:
 
 
 func _handle_focus_lost() -> void:
+	# A playtest window on a test machine is never focused by a person: it must not pause itself (docs/PLAYTEST.md).
+	if Playtest.enabled:
+		return
 	if not _app_focused:
 		return
 	_app_focused = false
-	open_for_lost_focus()
+	# Held keys never arrive as releases once the window is away: let go of them so nobody keeps walking.
+	_release_held_actions()
+	if _focus_loss_may_pause():
+		open_for_lost_focus()
+
+
+func _release_held_actions() -> void:
+	for action in InputMap.get_actions():
+		if Input.is_action_pressed(action):
+			Input.action_release(action)
+
+
+## Losing the window never pauses unless the setting is on and the run is solo, and never while a text field has
+## the keyboard (chat, admin fields, any LineEdit/TextEdit) or an admin overlay is open.
+func _focus_loss_may_pause() -> bool:
+	if not Settings.focus_loss_pauses() or AdminMenu.overlay_open:
+		return false
+	var focused := get_viewport().gui_get_focus_owner() if get_viewport() != null else null
+	return not (focused is LineEdit or focused is TextEdit)
 
 
 func close() -> void:

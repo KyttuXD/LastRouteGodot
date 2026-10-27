@@ -15,6 +15,19 @@ const GAMES := [
 		"theme": "res://src/ui/theme_lastroute.tres",
 		"locked": false,
 		"locked_note": "",
+		# Playtest bot adapter (see docs/PLAYTEST.md); a game without the key falls back to PlaytestAdapters.BUILT_IN.
+		"playtest_bot": "res://src/playtest/bots/last_route_bot.gd",
+	},
+	{
+		"id": "city",
+		"title": "KYTTU: THE CITY",
+		"kicker": "DOME SEALED // NIGHT CITY",
+		"tagline": "A walled city under an artificial sky. Cross the streets, enter the buildings, outlast what hunts them.",
+		"scene": "res://scenes/city_menu.tscn",
+		"theme": "res://src/ui/theme_city.tres",
+		"locked": false,
+		"locked_note": "",
+		"in_progress": true,
 	},
 	{
 		"id": "night_watch",
@@ -53,12 +66,16 @@ static func save_summary(id: String) -> Dictionary:
 	return {"has_save": true, "text": String(data.get("summary", "SAVED")).to_upper()}
 
 
+## Tests register a synthetic list (1..12 games) here; empty means the real GAMES.
+static var test_games: Array = []
+
+
 static func all() -> Array:
-	return GAMES
+	return test_games if not test_games.is_empty() else GAMES
 
 
 static func get_game(id: String) -> Dictionary:
-	for game in GAMES:
+	for game in all():
 		if String(game["id"]) == id:
 			return game
 	return {}
@@ -71,7 +88,7 @@ static func is_launchable(id: String) -> bool:
 
 static func launchable_ids() -> Array:
 	var out := []
-	for game in GAMES:
+	for game in all():
 		if is_launchable(String(game["id"])):
 			out.append(String(game["id"]))
 	return out

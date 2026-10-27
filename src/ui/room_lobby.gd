@@ -143,7 +143,7 @@ func _seed_block() -> Control:
 	var stack := VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 1)
 	box.add_child(stack)
-	stack.add_child(_label(Palette.track("ROUTE SEED"), Palette.AMBER, 6))
+	stack.add_child(_label(Palette.track("CITY SEED" if RoomState.is_city() else "ROUTE SEED"), Palette.AMBER, 6))
 	stack.add_child(_label(RoomState.seed_text, Palette.INK, 9))
 	stack.add_child(_label(
 		"Players enter from separate nearby access points. The route is shared.",
@@ -161,7 +161,7 @@ func _config_block() -> Control:
 
 	var head := HBoxContainer.new()
 	stack.add_child(head)
-	head.add_child(_label(Palette.track("ROUTE SETUP"), Palette.AMBER, 7))
+	head.add_child(_label(Palette.track("CITY SETUP" if RoomState.is_city() else "ROUTE SETUP"), Palette.AMBER, 7))
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(spacer)
@@ -179,10 +179,11 @@ func _config_block() -> Control:
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
 			return RoomState.is_host and RoomState.difficulty_available(value)))
-	groups.add_child(_archive_group())
+	if not RoomState.is_city():
+		groups.add_child(_archive_group())
 
-	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING",
-		Palette.MUTED, 6))
+	stack.add_child(_label("THE CITY HAS NO RUN SAVES YET" if RoomState.is_city()
+		else "SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
 	return box
 
 
@@ -373,7 +374,7 @@ func _actions() -> Control:
 	row.add_child(enter)
 
 	var reroll := Button.new()
-	reroll.text = "REROLL ROUTE"
+	reroll.text = "REROLL CITY" if RoomState.is_city() else "REROLL ROUTE"
 	reroll.add_theme_font_size_override("font_size", 7)
 	reroll.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(reroll, false)
@@ -394,13 +395,14 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO GAMES"
+	leave.text = "BACK TO CITY MENU" if RoomState.is_city() else "BACK TO GAMES"
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
+		var menu_scene := RoomState.menu_scene_path()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE))
+		get_tree().change_scene_to_file(menu_scene))
 	row.add_child(leave)
 
 	return stack
@@ -474,14 +476,14 @@ func _on_dossier_pressed() -> void:
 	details.add_child(_dossier_stats)
 
 	var ids: Array = []
-	for category in ["az", "void"]:
-		var header_text := "A-Z HUNTERS" if category == "az" else "VOID HUNTERS"
+	for category in ["az", "void"] + SecretCreatures.dossier_categories():
+		var header_text := HunterDossier.category_title(category)
 		var header := roster.add_item("-- %s --" % header_text)
 		roster.set_item_disabled(header, true)
 		for hunter_id in HunterDossier.category_ids(category):
 			ids.append(hunter_id)
 			var discovered := Backend.hunter_discovered(hunter_id)
-			var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+			var profile: Dictionary = HunterDossier.profile(hunter_id)
 			var label := String(profile["name"]).to_upper() if discovered \
 				else "???? // UNDISCOVERED"
 			var index := roster.add_item(label)
@@ -503,7 +505,7 @@ func _dossier_copy(node_name: String) -> Label:
 
 
 func _show_dossier_entry(hunter_id: String) -> void:
-	var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
+	var profile: Dictionary = HunterDossier.profile(hunter_id)
 	var entry: Dictionary = HunterDossier.entry(hunter_id)
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
@@ -522,6 +524,7 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	var category := String(profile.get("category", "az"))
 	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
 	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
 	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
