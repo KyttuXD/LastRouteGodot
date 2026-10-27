@@ -20,5 +20,9 @@ static func map_layout() -> Dictionary:
 			["crawl", "ductL"], ["crawl", "ductR"],
 		],
 		"entrances": ["hall", "ductL", "ductR"],
+		"cams": MaskData.cam_rooms(),
+		"labels": {"music": "PRIZE CORNER", "costume": "PARTS / SERVICE", "gallery": "SHOW STAGE", "ballroom": "GAME AREA", "crawl": "VENT HUB", "ductL": "LEFT AIR VENT", "ductR": "RIGHT AIR VENT", "hall": "MAIN HALL"},
+		"vents": ["ductL", "ductR", "crawl"],
+		"office": Vector3(0, 0, 2.0),
 		"theme": "FNAF 2 style show floor: a door-less office at the end of a 15 m main hall, open-plan game area / show stage / prize corner / parts room, four party rooms off the hall, side halls to a vent hub and two air vents",
 	}

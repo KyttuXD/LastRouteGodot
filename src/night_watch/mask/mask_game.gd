@@ -29,7 +29,6 @@ var death_moment: DeathMoment
 var world_env: WorldEnvironment
 var overlay: MaskOverlay
 var held_label: Label
-var map_buttons := {}
 var last_death := {}
 var monitor_shown := false   # the monitor's picture is on screen (fully up)
 ## Whether the player is on the monitor: it is up, or on its way (the panel machine raises it in 250 ms). The camera keys and the shared handler read this.
@@ -140,24 +139,9 @@ func _build_world() -> void:
 	_wire_stations()
 
 
-## The monitor's camera map for this wing (the HUD builds Classic's; those buttons are hidden).
+## The monitor's camera map comes from the mode's layout (NightWatchMapRegistry): the prize corner, parts room, show stage, game area, vent hub, the two air vents and the main hall.
 func _build_map_buttons() -> void:
-	var map := hud.monitor_root.find_child("CamMap", true, false) as Control
-	for b in hud.cam_buttons.values():
-		(b as Button).visible = false
-	for room in MaskData.cam_rooms():
-		var info: Dictionary = MaskData.ROOMS[room]
-		var b := Button.new()
-		b.name = "MaskCam_%s" % room
-		b.text = "CAM %d" % int(info["cam"])
-		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(30, 13)
-		b.add_theme_font_size_override("font_size", 6)
-		var p: Vector2 = info["map"]
-		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
-		b.pressed.connect(func(): select_camera(room))
-		map.add_child(b)
-		map_buttons[room] = b
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("mask"))
 	held_label = Label.new()
 	held_label.name = "HeldLabel"
 	held_label.text = "HELD STILL"
@@ -324,8 +308,6 @@ func _on_control_event(e: Dictionary) -> void:
 func _set_feed(room: String) -> void:
 	hud.set_cam(room, world.feed_transform(room))
 	_update_cam_label(room)
-	for r in map_buttons:
-		(map_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
 
 
 func _update_cam_label(room: String) -> void:
