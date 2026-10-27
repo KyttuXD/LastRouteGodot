@@ -523,9 +523,10 @@ func _admin_status() -> String:
 		if hv == null or hv.brain == null:
 			continue
 		var d := hv.brain.position.distance_to(player.grid_position())
-		rows.append([d, "%s %s %dm%s%s" % [String(HunterRoster.get_identity(hv.brain.hunter_id).get("display_name", hv.brain.hunter_id)).to_upper(),
+		rows.append([d, "%s %s %dm%s%s%s" % [String(HunterRoster.get_identity(hv.brain.hunter_id).get("display_name", hv.brain.hunter_id)).to_upper(),
 			HunterBrain.State.keys()[hv.brain.state], int(d), " FROZEN" if hv.brain.stun_timer > 999.0 else ("" if hv.brain.active else " ASLEEP"),
-			" STUCK %.1fs" % hv.brain.stuck_seconds if hv.brain.active and hv.brain.stuck_seconds >= 1.0 else ""]])
+			" STUCK %.1fs" % hv.brain.stuck_seconds if hv.brain.active and hv.brain.stuck_seconds >= 1.0 else "",
+			" RECOVERED x%d" % hv.brain.fall_recoveries if hv.brain.fall_recoveries > 0 else ""]])
 	rows.sort_custom(func(a, b) -> bool: return a[0] < b[0])
 	result += "\nHUNTERS (nearest)"
 	for i in mini(rows.size(), 6):
@@ -1396,7 +1397,7 @@ func _crosshair_waypoint_target() -> Dictionary:
 	return {} if last_open == Vector2.INF else {"at": last_open, "level": level}
 
 
-## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. B2 clears outright.
+## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. the clear key removes it outright.
 func _handle_waypoint_input(level: int) -> void:
 	if Input.is_action_just_pressed("waypoint_clear"):
 		_clear_local_waypoint()
