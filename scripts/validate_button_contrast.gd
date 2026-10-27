@@ -17,7 +17,7 @@ const STATES := [
 	["focus", "font_focus_color", MIN_RATIO],
 	["disabled", "font_disabled_color", MIN_RATIO_DISABLED],
 ]
-const THEMES := ["res://src/ui/theme_lastroute.tres", "res://src/ui/theme_nightwatch.tres", "res://src/ui/theme_city.tres",
+const THEMES := ["res://src/ui/theme_lastroute.tres", "res://src/ui/theme_nightwatch.tres",
 	"res://src/ui/ref_theme.tres"]
 const THEME_BUTTON_TYPES := ["Button", "PrimaryButton", "OptionButton", "CheckBox", "CheckButton"]
 
@@ -130,7 +130,6 @@ func _check_scenes(host: Node, prefix: String) -> void:
 	var scenes := {
 		"game_hub": "res://scenes/game_hub.tscn", "main_menu": "res://scenes/main_menu.tscn",
 		"room_lobby": "res://scenes/room_lobby.tscn", "run_report": "res://scenes/run_report.tscn",
-		"city_menu": "res://scenes/city_menu.tscn",
 	}
 	for name in scenes:
 		var path: String = scenes[name]

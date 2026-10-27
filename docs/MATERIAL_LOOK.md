@@ -43,7 +43,7 @@ Same spot, same seed, same flashlight (captured on the Mac mini):
 
 | | before | after |
 | --- | --- | --- |
-| City, fountain roundabout | ![](material_look_city_before.png) | ![](material_look_city_after.png) |
+| City, fountain roundabout | (City archived: see branch archive/city-20261027) | |
 | City, garden district | ![](material_look_garden_before.png) | ![](material_look_garden_after.png) |
 | Last Route, prison cafeteria | ![](material_look_prison_before.png) | ![](material_look_prison_after.png) |
 
