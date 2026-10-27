@@ -45,5 +45,6 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
 - [WAYPOINTS.md](WAYPOINTS.md) — one waypoint per player, crosshair placement, HUD pin and edge arrow, guidance modes, City support, co-op, audit of the old system
 - [MATERIAL_LOOK.md](MATERIAL_LOOK.md) — matte-by-default material and light look: audit, the shared MaterialLook constants, validator, before/after
+- [HUNTER_SCALE.md](HUNTER_SCALE.md) — tall hunter variants removed, one shared 1.5x hunter scale and what follows it, validator, before/after
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.

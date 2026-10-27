@@ -125,7 +125,10 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
 ## meters directly; each presentation layer converts at its own boundary.
 const PLAYER_RADIUS := 0.2
-const HUNTER_RADIUS := 0.22
+## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
+const HUNTER_RADIUS := 0.33
+## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.
+const HUNTER_CATCH_RADIUS := 0.22
 const MOVEMENT_STEP := 0.11
 
 const HUNTER_SEARCH_TIME := 3.2
