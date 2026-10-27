@@ -13,6 +13,10 @@ extends RefCounted
 const TEX := 16
 ## metres of cube face covered by one texture tile
 const TILE := 0.5
+## Hazard tape is drawn at twice the density (16 px per 0.25 m = 64 px/m), its 45 degree period is 8 px = 0.125 m: a band 0.09 m tall shows
+## a stripe and a half. Every hazard face counts a whole number of periods along its length, so it starts and ends on the same phase.
+const HAZ_TILE := 0.25
+const HAZ_PERIOD_M := HAZ_TILE * 0.5
 ## Names (substring match) that may be emissive.
 const EMISSIVE_NAMES := ["Screen", "LampShade", "Led", "Label", "Button", "CeilingPanel", "ClockFace", "Glow", "Sign", "Feed", "Rec"]
 
@@ -28,6 +32,8 @@ const RAMPS := {
 	"floor": [Color("5f5a62"), Color("4b4650"), Color("39353f"), Color("29262f")],
 	"screen": [Color("bff0d8"), Color("7fd1b0"), Color("4a9c86"), Color("2c6b60")],
 	"label": [Color("f2c230"), Color("d9a21f"), Color("2b2416"), Color("14110a")],
+	"paper": [Color("e8e2d0"), Color("c9c2ae"), Color("6b6455"), Color("3a352c")],
+	"hazard": [Color("f2c230"), Color("d9a21f"), Color("2b2416"), Color("14110a")],
 	"light": [Color("fff3c8"), Color("ffe08f"), Color("f0b954"), Color("c98a35")],
 	"red": [Color("e86a5a"), Color("c44a3c"), Color("8e2f28"), Color("5a1d1a")],
 	"green": [Color("8be89a"), Color("55c46a"), Color("379248"), Color("1f5a2c")],
@@ -122,10 +128,21 @@ static func texture(kind: String) -> ImageTexture:
 						tone = 0
 					elif y > TEX - 3:
 						tone = 3
-				"label":
-					tone = 0 if ((x + y) / 4) % 2 == 0 else 2
-					if y == 0 or y == TEX - 1:
-						tone = 3
+				"label", "paper":
+					# a plain plate: a dark border, two rows of "text"; no diagonal pattern (only hazard tape has stripes)
+					tone = 0
+					if (y == 5 or y == 6 or y == 9 or y == 10) and x >= 2 and x <= 13:
+						tone = 2
+					if y == 0 or y == TEX - 1 or x == 0 or x == TEX - 1:
+						tone = 1
+				"hazard":
+					# 45 degree tape: stripes 4 px wide, period 8 px along u and along v, so the tile repeats seamlessly
+					var d := (x + y) % 8
+					tone = 0 if d < 4 else 2
+					if d == 0:
+						tone = 1      # the lit edge of a yellow stripe
+					elif d == 4:
+						tone = 3      # the dark edge of a black stripe
 				"light":
 					tone = clampi(int(float(maxi(absi(x - 8), absi(y - 8))) / 3.0), 0, 3)
 				_:
@@ -157,7 +174,7 @@ static func material(kind: String, tint := Color.WHITE, emissive := false) -> St
 ## Which material kind a node name asks for (the builders name every cube).
 static func kind_for(node_name: String) -> String:
 	var n := node_name.to_lower()
-	for pair in [["screen", "screen"], ["led", "green"], ["label", "label"], ["sign", "label"], ["lampshade", "light"],
+	for pair in [["screen", "screen"], ["led", "green"], ["label", "label"], ["sign", "label"], ["hazard", "hazard"], ["lampshade", "light"],
 			["ceilingpanel", "light"], ["clockface", "light"], ["glow", "light"], ["feed", "screen"],
 			["desk", "wood"], ["frame", "wood"], ["shelf", "wood"], ["crate", "wood"], ["table", "wood"], ["platform", "wood"],
 			["box", "wood"], ["bench", "wood"], ["counter", "metal"], ["fridge", "metal"], ["locker", "metal"], ["slab", "metal"],
@@ -165,7 +182,7 @@ static func kind_for(node_name: String) -> String:
 			["bolt", "metal"], ["handle", "metal"], ["rail", "metal"], ["hatch", "metal"], ["door", "metal"],
 			["chair", "fabric"], ["poster", "fabric"], ["curtain", "fabric"], ["mat", "fabric"], ["cushion", "fabric"],
 			["floor", "floor"], ["runner", "floor"], ["stripe", "floor"], ["ceiling", "concrete"], ["pillar", "concrete"],
-			["monitor", "plastic"], ["keyboard", "plastic"], ["cup", "plastic"], ["bin", "plastic"], ["paper", "label"],
+			["monitor", "plastic"], ["keyboard", "plastic"], ["cup", "plastic"], ["bin", "plastic"], ["paper", "paper"],
 			["glass", "glass"], ["wall", "wall"], ["trim", "wall"], ["baseboard", "wall"], ["hall", "wall"]]:
 		if n.contains(pair[0]):
 			return pair[1]
@@ -181,37 +198,52 @@ static func is_emissive_name(node_name: String) -> bool:
 
 ## A shaded cube mesh: 24 vertices with per-face UVs (one texture tile per TILE metres) and baked vertex colours.
 ## `ao` darkens the bottom edge of the side faces (contact shadow), `shade` is the overall level.
-static func box_mesh(size: Vector3, ao := 0.72, shade := 1.0) -> ArrayMesh:
+static func box_mesh(size: Vector3, ao := 0.72, shade := 1.0, hazard := "") -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var h := size * 0.5
 	# face: normal, face brightness, corner positions (counter-clockwise seen from outside), size along u, v
 	var faces := [
-		[Vector3(0, 1, 0), 1.20, [Vector3(-h.x, h.y, h.z), Vector3(h.x, h.y, h.z), Vector3(h.x, h.y, -h.z), Vector3(-h.x, h.y, -h.z)], size.x, size.z],
-		[Vector3(0, -1, 0), 0.50, [Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, -h.y, h.z), Vector3(-h.x, -h.y, h.z)], size.x, size.z],
-		[Vector3(0, 0, 1), 1.00, [Vector3(-h.x, -h.y, h.z), Vector3(h.x, -h.y, h.z), Vector3(h.x, h.y, h.z), Vector3(-h.x, h.y, h.z)], size.x, size.y],
-		[Vector3(0, 0, -1), 0.70, [Vector3(h.x, -h.y, -h.z), Vector3(-h.x, -h.y, -h.z), Vector3(-h.x, h.y, -h.z), Vector3(h.x, h.y, -h.z)], size.x, size.y],
-		[Vector3(1, 0, 0), 0.88, [Vector3(h.x, -h.y, h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, h.y, -h.z), Vector3(h.x, h.y, h.z)], size.z, size.y],
-		[Vector3(-1, 0, 0), 0.80, [Vector3(-h.x, -h.y, -h.z), Vector3(-h.x, -h.y, h.z), Vector3(-h.x, h.y, h.z), Vector3(-h.x, h.y, -h.z)], size.z, size.y],
+		[Vector3(0, 1, 0), 1.20, [Vector3(-h.x, h.y, h.z), Vector3(h.x, h.y, h.z), Vector3(h.x, h.y, -h.z), Vector3(-h.x, h.y, -h.z)], size.x, size.z, "y"],
+		[Vector3(0, -1, 0), 0.50, [Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, -h.y, h.z), Vector3(-h.x, -h.y, h.z)], size.x, size.z, "y"],
+		[Vector3(0, 0, 1), 1.00, [Vector3(-h.x, -h.y, h.z), Vector3(h.x, -h.y, h.z), Vector3(h.x, h.y, h.z), Vector3(-h.x, h.y, h.z)], size.x, size.y, "z"],
+		[Vector3(0, 0, -1), 0.70, [Vector3(h.x, -h.y, -h.z), Vector3(-h.x, -h.y, -h.z), Vector3(-h.x, h.y, -h.z), Vector3(h.x, h.y, -h.z)], size.x, size.y, "z"],
+		[Vector3(1, 0, 0), 0.88, [Vector3(h.x, -h.y, h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, h.y, -h.z), Vector3(h.x, h.y, h.z)], size.z, size.y, "x"],
+		[Vector3(-1, 0, 0), 0.80, [Vector3(-h.x, -h.y, -h.z), Vector3(-h.x, -h.y, h.z), Vector3(-h.x, h.y, h.z), Vector3(-h.x, h.y, -h.z)], size.z, size.y, "x"],
 	]
 	for f in faces:
 		var normal: Vector3 = f[0]
 		var level: float = float(f[1]) * shade
 		var corners: Array = f[2]
-		var su: float = maxf(0.25, float(f[3]) / TILE)
-		var sv: float = maxf(0.25, float(f[4]) / TILE)
+		var striped: bool = hazard.contains(String(f[5]))
+		var su: float
+		var sv: float
+		if striped:
+			# tape face: a whole number of stripe periods along u (never fewer than one), the same density along v; no clamping
+			su = float(maxi(1, int(round(float(f[3]) / HAZ_PERIOD_M)))) * 0.5
+			sv = float(f[4]) / HAZ_TILE
+		else:
+			su = float(f[3]) / TILE
+			sv = float(f[4]) / TILE
 		var uvs := [Vector2(0, sv), Vector2(su, sv), Vector2(su, 0), Vector2(0, 0)]
-		var order := [0, 1, 2, 0, 2, 3]
+		if not hazard.is_empty() and not striped:
+			# an end or thickness face of a tape piece: its own tile, one dark texel of the stripe texture (never a stretched copy of the stripes)
+			var dark := Vector2(0.5 / float(TEX), 5.5 / float(TEX))
+			uvs = [dark, dark, dark, dark]
+		# Godot's front faces are wound clockwise: the corners are listed counter-clockwise seen from outside, so the triangles run 0,2,1 / 0,3,2
+		# (the other way round the box was drawn inside out: the near faces were culled and the far faces' insides showed, mirrored)
+		var order := [0, 2, 1, 0, 3, 2]
+		var target: SurfaceTool = st
 		for i in order:
 			var p: Vector3 = corners[i]
 			var c := level
 			# a darker band at the bottom of the side faces and a slight lift at the top edge
 			if absf(normal.y) < 0.5:
 				c *= lerpf(ao, 1.0, clampf((p.y + h.y) / maxf(0.001, size.y) * 2.2, 0.0, 1.0))
-			st.set_normal(normal)
-			st.set_uv(uvs[i])
-			st.set_color(Color(c, c, c, 1.0))
-			st.add_vertex(p)
+			target.set_normal(normal)
+			target.set_uv(uvs[i])
+			target.set_color(Color(c, c, c, 1.0))
+			target.add_vertex(p)
 	return st.commit()
 
 
@@ -224,8 +256,14 @@ static func box(parent: Node3D, size: Vector3, pos: Vector3, opts := {}) -> Mesh
 	var mesh := MeshInstance3D.new()
 	mesh.name = node_name
 	mesh.set_meta("nw_name", node_name)   # Godot renames duplicate siblings, the validator reads this
-	mesh.mesh = box_mesh(size, float(opts.get("ao", 0.72)), 1.0 if emissive else float(opts.get("shade", 1.0)))
-	mesh.material_override = material(kind, opts.get("tint", Color.WHITE), emissive)
+	var hazard := String(opts.get("hazard", ""))
+	mesh.mesh = box_mesh(size, float(opts.get("ao", 0.72)), 1.0 if emissive else float(opts.get("shade", 1.0)), hazard)
+	if hazard.is_empty():
+		mesh.material_override = material(kind, opts.get("tint", Color.WHITE), emissive)
+	else:
+		# hazard tape: one material; the tape faces carry the stripes, every other face (ends, thickness) is one dark texel of the same texture
+		mesh.set_meta("nw_hazard", hazard)
+		mesh.material_override = material("hazard", opts.get("tint", Color.WHITE), false)
 	mesh.position = pos
 	if opts.has("rotation"):
 		mesh.rotation = opts["rotation"]

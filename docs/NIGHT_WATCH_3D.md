@@ -175,3 +175,44 @@ Top-down map of the facility with the walking routes (green) and the camera moun
 stuck test: four hunters walk every ordered room pair, never stall for a second, never stand inside a wall and arrive within their budget.
 Vent shafts, vent crawlers and doors that open for a passing hunter belong to the modes that have vents (Dead Air, Mixed Shift) and are
 built there on the same `NightWatchPaths` graph.
+
+## 5e. Door stripes and prop mapping (texture-stripe bug)
+
+**Cause.** `NightWatchArt.box_mesh` wound every triangle counter-clockwise seen from outside, but Godot's front faces are clockwise: every cube was
+drawn **inside out**. The near faces were culled and the far faces' insides showed through, mirrored, so the hazard stripes on the door frame, the header
+and the leaf bands looked skewed and broken (the stripe sense flipped between faces, thin bands showed a sliver of a tile). On top of that the UV scale was
+clamped to at least a quarter tile (`maxf(0.25, ...)`), which squashed the texture on anything thinner than 12 cm, hazard tape started mid-stripe at
+its ends, and the same diagonal-stripe texture was used for *every* "label" (paper sheets, notes, name plates, signs, the poster title).
+
+**Fix (at the source, `src/night_watch/night_watch_art.gd`).**
+* Triangles are wound `0,2,1 / 0,3,2` (clockwise), so each face is drawn from the outside with its UVs the right way round. A validator checks every cube.
+* Every face maps at the same texel density: 32 px per metre (`TILE` = 0.5 m per 16 px tile); no clamping.
+* Hazard tape is its own kind (`hazard`, option `"hazard": "x"` naming the tape faces): 64 px per metre (`HAZ_TILE` = 0.25 m), 45 degree stripes 4 px wide with a
+  lit and a dark edge pixel, and each tape face counts a **whole number of stripe periods along its length**, so it starts and ends on the same phase; the
+  ends and thickness faces of a tape piece map to one dark texel of the same texture (a dedicated tile, never a stretched copy of the stripes).
+* "label" is now a plain plate with text rows (no stripes) and "paper" an off-white sheet; only real tape is striped.
+* The door leaf's four bands are two hazard tapes (top, bottom) and two stepped metal ribs (geometry, 3 cm proud), not thin texture lines; the leaf is a rigid
+  mesh, the animation only moves it.
+* Tape users: door frame header, leaf top/bottom, floor stripe in front of the desk, the hall floor stripe, the extinguisher band, the room floor stripes and
+  runner trims in the camera rooms.
+
+**Checks.** `night_watch` now asserts, for every cube in the office and the camera rooms: clockwise winding; texel density within 10% on every face (32 px/m,
+tape 64 px/m); tape faces hold a whole number of periods; every UV finite, non-negative and with area; at least 20 dedicated edge faces of tape.
+
+**Captures.** `tools/look/night_watch_door_capture.tscn` (both doors closed / half / open from the office, and from the hall at 1.5 m and 4 m) and
+`tools/look/night_watch_prop_sheet.tscn` (every office prop and every camera-room prop group alone, 8 views: four sides, two three-quarter views, top and
+underneath, joined into one sheet). Before (left) and after (right):
+
+| | |
+|---|---|
+| left door closed, from the office | ![](night_watch_doors/cmp_doorL_closed_office.png) |
+| left door half open | ![](night_watch_doors/cmp_doorL_half_office.png) |
+| right door closed | ![](night_watch_doors/cmp_doorR_closed_office.png) |
+| left door from the hall, 1.5 m | ![](night_watch_doors/cmp_doorL_closed_hall15.png) |
+| left door from the hall, 4 m | ![](night_watch_doors/cmp_doorL_closed_hall40.png) |
+| right door from the hall, 1.5 m | ![](night_watch_doors/cmp_doorR_closed_hall15.png) |
+| desk, floor stripe, panels | ![](night_watch_doors/cmp_desk.png) |
+
+Prop sheets from all sides (the full set renders on demand; these are samples): ![](night_watch_props/office_Desk.png) ![](night_watch_props/office_SlabL.png)
+![](night_watch_props/office_DoorFrameL.png) ![](night_watch_props/office_ControlPanelL.png) ![](night_watch_props/office_Chair.png)
+![](night_watch_props/building_kitchen_Fridge.png)
