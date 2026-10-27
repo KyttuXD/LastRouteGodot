@@ -153,7 +153,7 @@ func _room_lamps() -> void:
 			_tall_room(rect, height, garden)
 		if garden:
 			_greenery(rect, height, String(room.get("id", "")))
-		if _h(cx, cz, 111, 100) >= int(float(style["lit_rooms"]) * 100.0):
+		if _h(cx, cz, 111, 100) >= _lit_percent(style):
 			continue
 		if not _take(String(room.get("id", "")), "lamp"):
 			continue
@@ -357,14 +357,15 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var along: int = x if d.y != 0 else z
 		var line: int = z if d.y != 0 else x
 		var rt: String = _room_map.get(Vector2i(x + d.x, z + d.y), "")
-		var lit_room := rt == "" or _h(x + d.x, z + d.y, 91, 100) < int(float(style["lit_rooms"]) * 100.0)
+		var lit_room := rt == "" or _h(x + d.x, z + d.y, 91, 100) < _lit_percent(style)
 		var spacing: int = maxi(int(style["wall_lamp"]), 6)
 		var rid := _room_id_at(Vector2i(x + d.x, z + d.y))
 		var wants_lamp := false
 		if lit_room and int(style["wall_lamp"]) < 90:
 			if rid == "":
 				# corridors: one lamp about every ten metres, sides alternating
-				wants_lamp = (along + _h(0, line, 5, 12)) % 12 == 0 and (along / 12 + line) % 2 == 0
+				wants_lamp = (along + _h(0, line, 5, 12)) % 12 == 0 and (along / 12 + line) % 2 == 0 \
+					and _corridor_lit(x + d.x, z + d.y)
 			else:
 				wants_lamp = (along + line * 3 + _h(0, line, 5, spacing)) % spacing == 0 \
 					and _take(rid, "lamp")
@@ -449,7 +450,7 @@ func _wants_window(room_type: String) -> bool:
 
 func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 	var rt: String = _room_map.get(Vector2i(x, z), "")
-	var lit_room := _h(x, z, 77, 100) < int(float(style["lit_rooms"]) * 100.0)
+	var lit_room := _h(x, z, 77, 100) < _lit_percent(style)
 	var world := Vector3(x + .5, 0, z + .5)
 	if String(style["lamp"]) == "ceiling":
 		var rid := _room_id_at(Vector2i(x, z))
@@ -458,7 +459,7 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			if x % 5 == 2 and z % 5 == 2 and _lit_block(x, z, style) \
 					and _hh(Vector2i(x, z)) <= RefLook.TALL_ROOM and _take(rid, "lamp"):
 				_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
-		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0:
+		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z):
 			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	# (sconce regions light their corridors from the walls only)
 	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"]) * 2) == 0 and lit_room \
@@ -514,8 +515,19 @@ func _pedestal(world: Vector3) -> void:
 	_decal_pool.append(Vector3(world.x, 0, world.z))
 
 
+## Share (percent) of rooms/blocks whose lamps are on: the district's own value scaled down, except in a safe room.
+func _lit_percent(style: Dictionary) -> int:
+	var scale := 1.0 if bool(_data.get("safe_room", false)) else RefLook.LIT_ROOMS_SCALE
+	return int(float(style["lit_rooms"]) * 100.0 * scale)
+
+
+## Long stretches of corridor are dark: only some 14x14 blocks of hall carry lamps (a safe room lights its own).
+func _corridor_lit(x: int, z: int) -> bool:
+	return bool(_data.get("safe_room", false)) or _h(x / 14, z / 14, 123, 100) < RefLook.CORRIDOR_LIT_PERCENT
+
+
 func _lit_block(x: int, z: int, style: Dictionary) -> bool:
-	return _h(x / 8, z / 8, 99, 100) < int(float(style["lit_rooms"]) * 100.0)
+	return _h(x / 8, z / 8, 99, 100) < _lit_percent(style)
 
 
 func _is_corridor_mid(grid: Array, x: int, z: int) -> bool:
@@ -683,7 +695,7 @@ static func material(key: String) -> Material:
 			s.albedo_color = Color("2a1406")
 			s.emission_enabled = true
 			s.emission = Color(1.0, .52, .13)
-			s.emission_energy_multiplier = 1.15
+			s.emission_energy_multiplier = 1.15 * RefLook.BULB_EMISSION_SCALE
 			s.roughness = .3
 			m = s
 		"stone":

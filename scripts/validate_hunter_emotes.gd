@@ -81,6 +81,9 @@ func run(host: Node) -> int:
 				HunterEmotePersonality.clip_override(hunter_id, emote))
 			_expect(resolved == "" or (real_player != null and real_player.has_animation(resolved)),
 				"%s resolved %s to a clip it does not have" % [hunter_id, HunterEmoteCatalog.entry(emote)["id"]])
+			if resolved == "" and not hunter_id.begins_with("void_"):
+				_expect(false, "A-Z hunter %s has no clip for %s (the blocky emote clips cover every catalog emote)" % [
+					hunter_id, HunterEmoteCatalog.entry(emote)["id"]])
 			if resolved == "":
 				face_only[String(HunterEmoteCatalog.entry(emote)["id"])] = true
 		model.queue_free()

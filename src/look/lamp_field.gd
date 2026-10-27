@@ -19,8 +19,8 @@ extends Node3D
 
 const POOL_SIZE := 8
 const RANGE := 17.0
-const LIGHT_RANGE := 9.0
-const BASE_ENERGY := 3.0
+const LIGHT_RANGE := 9.0 * RefLook.LAMP_RANGE_SCALE
+const BASE_ENERGY := 3.0 * RefLook.LAMP_ENERGY_SCALE
 const FADE_SPEED := 4.0
 const REFRESH_SECONDS := .2
 ## Lamps nearer than this skip the line-of-sight test (a lamp you stand under is never "behind" a wall).

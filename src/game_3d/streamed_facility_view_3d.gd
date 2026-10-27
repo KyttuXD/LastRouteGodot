@@ -1116,8 +1116,8 @@ func _spawn_safe_room_light(parent: Node3D) -> void:
 	light.light_color = Color("85d6ad")
 	# Bright enough to identify a checkpoint, dim enough that the player's
 	# white flashlight remains readable inside the spawn/safe-room wash.
-	light.light_energy = .82
-	light.omni_range = 8.0
+	light.light_energy = RefLook.SAFE_ROOM_LIGHT_ENERGY
+	light.omni_range = RefLook.SAFE_ROOM_LIGHT_RANGE
 	parent.add_child(light)
 	LampField.make_budgeted(light)
 

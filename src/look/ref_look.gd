@@ -33,6 +33,21 @@ const LEAF := Color("22301f")
 
 const POST_NAME := "RefLookPost"
 
+## Lighting balance, in one place: the flashlight is the main tool in most spaces. Ambient is a dim plum wash; lamps are
+## fewer, softer and shorter; many rooms and long hall stretches are dark. Safe rooms/checkpoints ignore the lit-room
+## scale and keep a stronger checkpoint light so they stay comfortably lit.
+const AMBIENT_ENERGY := 0.8
+const LAMP_ENERGY_SCALE := 0.7
+const LAMP_RANGE_SCALE := 0.8
+## Multiplies each district's own share of lit rooms (RefDecor.STYLE lit_rooms) outside safe rooms.
+const LIT_ROOMS_SCALE := 0.55
+## Percent of 14x14-cell corridor blocks that carry lamps at all.
+const CORRIDOR_LIT_PERCENT := 40
+## Emissive bulb/lamp meshes are dimmer than before so they do not read as light sources the pool is not lending light to.
+const BULB_EMISSION_SCALE := 0.6
+const SAFE_ROOM_LIGHT_ENERGY := 1.7
+const SAFE_ROOM_LIGHT_RANGE := 11.0
+
 ## Single switch for every full-screen / screen-space effect (pixel grid, dither,
 ## vignette, grade, glow, heavy fog). OFF by default: the look comes from the
 ## world itself (textures, lamps, emissives). Turn on to compare.
@@ -45,7 +60,7 @@ static func make_environment() -> Environment:
 	env.background_color = Color("070307")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("5a3550")
-	env.ambient_light_energy = 2.0
+	env.ambient_light_energy = AMBIENT_ENERGY
 	env.fog_enabled = true
 	env.fog_light_color = Color("140812")
 	env.fog_density = .03 if POST_EFFECTS else .006

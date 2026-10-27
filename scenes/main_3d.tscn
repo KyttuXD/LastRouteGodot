@@ -47,6 +47,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
 [node name="FirstPersonCamera" type="Camera3D" parent="World/Player/FirstPersonPivot"]
 current = false
 fov = 78.0
+near = 0.06
+far = 160.0
 
 [node name="Flashlight" type="SpotLight3D" parent="World/Player/FirstPersonPivot"]
 position = Vector3(0.08, -0.05, -0.12)

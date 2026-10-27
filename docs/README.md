@@ -17,6 +17,7 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 | [BLOCKY_VOID.md](BLOCKY_VOID.md) | Void-specific notes (cues, emissive eyes, emotes) |
 | [../HUNTER_ROSTER.md](../HUNTER_ROSTER.md) | Roster data and gimmicks |
 | [HUNTER_EMOTES.md](HUNTER_EMOTES.md) | Hunter emotes: triggers, personality, fallbacks, replication, the clip spec for the animation session |
+| [Z_FIGHTING.md](Z_FIGHTING.md) | Coplanar-face detector, camera depth range, findings |
 | [SPECTATORS.md](SPECTATORS.md) | Dead/caught runners spectate; party wipe; revive |
 | [ADMIN_TOOLS.md](ADMIN_TOOLS.md) | In-game admin overlay (key 0) |
 | [../PUBLIC_ROUTE.md](../PUBLIC_ROUTE.md) | The always-open PUBLIC route and multiplayer testing |

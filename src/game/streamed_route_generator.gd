@@ -42,6 +42,8 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 }
 const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
+## Regions laid out as banks of rooms along a central three-wide cross (see _linear_room_layout).
+const LINEAR_REGIONS := ["hotel", "prison"]
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -570,6 +572,11 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	# clustering so adjacent openings on the same side land close together
 	# and regions read as contiguous areas rather than sparsely scattered
 	# single-cell seams (fixes carnival-like sparse placement).
+	# Hotel and prison chunks are built around a fixed three-wide cross with room banks right against it, so a seam
+	# must meet that cross: an off-centre seam would need a perimeter lane running through the room banks and leave
+	# one- and two-wide slivers beside them. Both sides of a boundary agree because the rule is symmetric.
+	if LINEAR_REGIONS.has(biome_for(coord)) or LINEAR_REGIONS.has(biome_for(neighbour)):
+		return [CHUNK_SIZE / 2]
 	var rng := SeededRandom.new("%s:SEAM:%s" % [world_seed, key])
 	var first_index := rng.next_index(EDGE_OFFSETS.size())
 	var first: int = EDGE_OFFSETS[first_index]
@@ -869,7 +876,8 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 	# Hotel rooms are 9x9 and the banks sit right on the E-W hall (a one-cell door, no connector hall).
 	var room_columns := [Vector2i(5, 5), Vector2i(11, 7),
 		Vector2i(25, 7), Vector2i(33, 5)]
-	if region == "hotel":
+	if LINEAR_REGIONS.has(region):
+		# Hotel rooms and prison cells are both 9x9 (a cell needs space for the bunk, toilet and a walking aisle).
 		room_columns = [Vector2i(2, 9), Vector2i(11, 9), Vector2i(24, 9), Vector2i(33, 9)]
 	var stair_bays := _stairwell_bays(stairs)
 	var room_index := 0
@@ -877,7 +885,7 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 		for column in room_columns:
 			var cursor: int = column.x
 			var width: int = column.y
-			var depth := 9 if region == "hotel" else 5
+			var depth := 9 if LINEAR_REGIONS.has(region) else 5
 			var z := center - 2 - depth if side < 0 else center + 3
 			var rect := Rect2i(cursor, z, width, depth)
 			if stair_bays.values().any(func(stair_rect: Rect2i) -> bool:
