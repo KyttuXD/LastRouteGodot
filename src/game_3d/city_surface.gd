@@ -163,7 +163,9 @@ func wall_face(x: int, z: int, dir: Vector2i, y0: float, y1: float, tile: int, m
 		center + right * .5 + Vector3(0, y1, 0), center - right * .5 + Vector3(0, y1, 0), normal, tile, repeat_v)
 
 
-## An axis-aligned box (no underside): sides use `side_tile`, the top `top_tile`.
+## An axis-aligned box: sides use `side_tile`, the top `top_tile`. A box standing on the ground has no underside; a
+## raised one (tree canopies, lamp heads, bench seats) closes its bottom with a side tile, or looking up from the street
+## shows only its near side faces, which read as thin slabs floating in the air.
 func box(origin: Vector3, size: Vector3, side_tile: int, top_tile: int = -1, mat: int = Mat.SOLID) -> void:
 	var lo := origin
 	var hi := origin + size
@@ -178,6 +180,9 @@ func box(origin: Vector3, size: Vector3, side_tile: int, top_tile: int = -1, mat
 		Vector3(lo.x, hi.y, lo.z), Vector3(-1, 0, 0), side_tile)
 	quad(mat, Vector3(lo.x, hi.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(hi.x, hi.y, lo.z),
 		Vector3(lo.x, hi.y, lo.z), Vector3.UP, top)
+	if lo.y > .001:
+		quad(mat, Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, lo.y, hi.z),
+			Vector3(lo.x, lo.y, hi.z), Vector3.DOWN, side_tile)
 
 
 func build() -> ArrayMesh:

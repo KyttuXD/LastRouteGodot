@@ -82,3 +82,21 @@ Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); no
 * Fixtures, pickups and hunter props are not audited. Doors are checked only at the grid level (frame vs wall cells), not mesh vs mesh.
 * The City lane (`claude/city-lane`) rewrites facades/props/sky; its facade boxes, awnings, signs and windows need re-auditing once it lands (`geometry_overlap` runs on whatever `CityLayout` produces). Window quads glowing through overlapping masses came from the stub masses fixed here.
 * Z-fight of coplanar faces between different materials is only checked for Night Watch slabs; Last Route keeps using the `coplanar` suite.
+
+## City: looking up from the Ring Road
+
+`docs/city_ring_road_up_before_after.png` (top before, bottom after; cell 200:67, pitch 55, four headings;
+`tools/look/geometry_capture.tscn`, now with `CAP_PITCH` and `CAP_HIDE=NodeName,...` to isolate layers).
+
+- Thin dark arcs across the sky: the dome shell (ribs, rings, pylons, viaducts) in `CityDomeFrame`. Removed, matching
+  `claude/city-lane` 43f09e20.
+- Maroon slabs floating overhead: tree canopies (and other raised `CitySurface.box`es) had no underside, so from below
+  only the near side faces showed. Raised boxes now close their bottom.
+- Glowing window squares with no wall: skyline windows were offset along the radial direction from axis-aligned tower
+  boxes, so diagonal towers' windows hung beside or inside the box. They now sit on the box face that looks at the city.
+- Big flat purple polygons behind towers: the sky shader's cloud pixels were ~10 degrees wide near the zenith. Same
+  cloud shapes, three times finer cells.
+- Camera far (420) covers the sky sphere (380) and the skyline; no visibility_range is set on City geometry.
+
+`geometry_overlap` now checks: the dome frame builds only towers + windows, every skyline window is on a tower face,
+and a raised `CitySurface` box has an underside.
