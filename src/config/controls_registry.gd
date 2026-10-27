@@ -27,7 +27,7 @@ const NIGHT_WATCH_TABS := [
 
 ## Games that show another game's tabs (the City plays like Last Route and shares its controls); the validator counts an
 ## action's owner once, so an alias is not a second owner.
-const ALIASES := {"city": "last_route"}
+const ALIASES := {}
 
 static var _tabs := {}
 

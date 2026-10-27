@@ -70,7 +70,7 @@ Root cause: `_build_facade_cell` drew a facade face only toward OUTDOOR neighbou
 and towers had no roof: the tower was open there and its inside showed through (about 100 undrawn edges per seed). Fix:
 `CityFacilityView3D.facade_span` (draw from the neighbouring mass's top to this building's top for every non-interior
 neighbour) plus a roof quad. Audit rule `facade_hole` (0 now; was 67-132 per city, old OUTDOOR-only rule on the same layouts).
-`docs/city_facade_holes_before_after.png`: top before, bottom after (centre column: the lamp-side seam in the tower is gone).
+`city_facade_holes_before_after.png` (on branch archive/city-20261027): top before, bottom after (centre column: the lamp-side seam in the tower is gone).
 Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); not touched here.
 
 ## Not covered / left
@@ -85,7 +85,7 @@ Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); no
 
 ## City: looking up from the Ring Road
 
-`docs/city_ring_road_up_before_after.png` (top before, bottom after; cell 200:67, pitch 55, four headings;
+`city_ring_road_up_before_after.png` (on branch archive/city-20261027) (top before, bottom after; cell 200:67, pitch 55, four headings;
 `tools/look/geometry_capture.tscn`, now with `CAP_PITCH` and `CAP_HIDE=NodeName,...` to isolate layers).
 
 - Thin dark arcs across the sky: the dome shell (ribs, rings, pylons, viaducts) in `CityDomeFrame`. Removed, matching
@@ -101,7 +101,7 @@ Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); no
 `geometry_overlap` now checks: the dome frame builds only towers + windows, every skyline window is on a tower face,
 and a raised `CitySurface` box has an underside.
 
-Straight up from Central Avenue (`docs/city_central_avenue_zenith_before_after.png`, left before bb183674, right after):
+Straight up from Central Avenue (`city_central_avenue_zenith_before_after.png` (on branch archive/city-20261027), left before bb183674, right after):
 the ring, spokes and cyan bracket markers were the dome ribs, rings and beacons of `CityDomeFrame._build_frame`. Render
 check: `tools/look/zenith_check.tscn` (not headless) looks straight up from Central Avenue, Main Street and the Ring Road
 and fails if the dome frame darkens more than 0.2% of the zenith disc (old frame: 0.9 to 3.7%, now 0%).

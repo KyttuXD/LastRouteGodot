@@ -143,7 +143,7 @@ func _seed_block() -> Control:
 	var stack := VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 1)
 	box.add_child(stack)
-	stack.add_child(_label(Palette.track("CITY SEED" if RoomState.is_city() else "ROUTE SEED"), Palette.AMBER, 6))
+	stack.add_child(_label(Palette.track("ROUTE SEED"), Palette.AMBER, 6))
 	stack.add_child(_label(RoomState.seed_text, Palette.INK, 9))
 	stack.add_child(_label(
 		"Players enter from separate nearby access points. The route is shared.",
@@ -161,7 +161,7 @@ func _config_block() -> Control:
 
 	var head := HBoxContainer.new()
 	stack.add_child(head)
-	head.add_child(_label(Palette.track("CITY SETUP" if RoomState.is_city() else "ROUTE SETUP"), Palette.AMBER, 7))
+	head.add_child(_label(Palette.track("ROUTE SETUP"), Palette.AMBER, 7))
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(spacer)
@@ -179,16 +179,9 @@ func _config_block() -> Control:
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
 			return RoomState.is_host and RoomState.difficulty_available(value)))
-	if RoomState.is_city():
-		# City DAYTIME: the host's choice for the whole room (sky, lighting, how hunters see).
-		groups.add_child(_config_group("TIME OF DAY", {0: "NIGHT", 1: "DAYTIME"}, 1 if RoomState.daytime else 0,
-			func(value: int) -> void: RoomState.set_daytime(value == 1),
-			func(_value: int) -> bool: return RoomState.is_host or not RoomState.online))
-	else:
-		groups.add_child(_archive_group())
+	groups.add_child(_archive_group())
 
-	stack.add_child(_label("SOLO RUNS SAVE TO YOUR ACCOUNT // %s" % ("DAYTIME" if RoomState.daytime else "NIGHT") if RoomState.is_city()
-		else "SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
+	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
 	return box
 
 
@@ -379,7 +372,7 @@ func _actions() -> Control:
 	row.add_child(enter)
 
 	var reroll := Button.new()
-	reroll.text = "REROLL CITY" if RoomState.is_city() else "REROLL ROUTE"
+	reroll.text = "REROLL ROUTE"
 	reroll.add_theme_font_size_override("font_size", 7)
 	reroll.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(reroll, false)
@@ -400,7 +393,7 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO CITY MENU" if RoomState.is_city() else "BACK TO GAMES"
+	leave.text = "BACK TO GAMES"
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)

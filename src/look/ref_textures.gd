@@ -218,6 +218,83 @@ static func _paint_check(variant: int) -> Image:
 	return img
 
 
+## Patterned carpet (FLOOR_SETS): 0 gothic red with a gold diamond lattice, 1 hotel teal with gold medallions,
+## 2 library green with a fine border, 3 plum lounge.
+static func _paint_carpet(variant: int) -> Image:
+	var rng := _rng("carpet%d" % variant)
+	var img := _new_image(PX, PX)
+	var bases := [Color("3a1014"), Color("0f2a2c"), Color("132a17"), Color("2a1430")]
+	var accents := [Color("6e4a1c"), Color("6a5420"), Color("2e4a24"), Color("5a3a52")]
+	var base: Color = bases[variant]
+	var accent: Color = accents[variant]
+	_noise(img, 0, 0, PX, PX, base, .1, rng, 2)
+	match variant:
+		0:
+			for i in PX:
+				_dot(img, i, (i + 16) % PX, accent)
+				_dot(img, i, (PX - i + 15) % PX, accent)
+			_dot(img, 15, 15, _mul(accent, 1.3), 2, 2)
+		1:
+			for a in 32:
+				_dot(img, roundi(16 + cos(a / 32.0 * TAU) * 7.0), roundi(16 + sin(a / 32.0 * TAU) * 7.0), accent)
+			_dot(img, 15, 15, _mul(accent, 1.2), 2, 2)
+			_dot(img, 0, 0, _mul(accent, .8), 2, 2)
+		2:
+			_dot(img, 1, 1, accent, PX - 2, 1)
+			_dot(img, 1, PX - 2, accent, PX - 2, 1)
+			_dot(img, 1, 1, accent, 1, PX - 2)
+			_dot(img, PX - 2, 1, accent, 1, PX - 2)
+		3:
+			for y in range(4, PX, 8):
+				for x in range(4, PX, 8):
+					_dot(img, x, y, accent, 2, 2)
+	return img
+
+
+## Office carpet tiles: 16 px squares with alternating pile direction (two greys), thin seams.
+static func _paint_carpet_tile(variant: int) -> Image:
+	var rng := _rng("carpet_tile%d" % variant)
+	var img := _new_image(PX, PX)
+	var a := Color("2a2b30") if variant == 0 else Color("23262e")
+	var b := _mul(a, 1.12)
+	for cy in 2:
+		for cx in 2:
+			_noise(img, cx * 16, cy * 16, 16, 16, a if (cx + cy) % 2 == 0 else b, .08, rng)
+	_dot(img, 0, 0, _mul(a, .6), PX, 1)
+	_dot(img, 0, 0, _mul(a, .6), 1, PX)
+	_dot(img, 16, 0, _mul(a, .7), 1, PX)
+	_dot(img, 0, 16, _mul(a, .7), PX, 1)
+	return img
+
+
+## Lab / clinic vinyl: pale sheet with fine flecks and a welded seam.
+static func _paint_vinyl(variant: int) -> Image:
+	var rng := _rng("vinyl%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("3c4240") if variant == 0 else Color("3a3c44")
+	_noise(img, 0, 0, PX, PX, base, .05, rng, 2)
+	for i in 18:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), _mul(base, .75 if i % 2 == 0 else 1.15))
+	_dot(img, 0, 0, _mul(base, .7), PX, 1)
+	return img
+
+
+## Bare concrete (prison, service corridors): mottled grey, a saw-cut joint, a few stains.
+static func _paint_concrete(variant: int) -> Image:
+	var rng := _rng("concrete%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("2c2a2a") if variant == 0 else Color("272828")
+	_noise(img, 0, 0, PX, PX, base, .08, rng, 2)
+	_noise(img, 0, 0, PX, PX, base, .05, rng, 4)
+	_dot(img, 0, 0, _mul(base, .55), PX, 1)
+	if variant == 1:
+		_dot(img, 0, 16, _mul(base, .6), PX, 1)
+	for i in 3:
+		_dot(img, rng.randi_range(2, 26), rng.randi_range(2, 26), _mul(base, .8), rng.randi_range(2, 4), rng.randi_range(1, 3))
+	_crack(img, rng, rng.randi_range(4, 26), rng.randi_range(4, 26), rng.randi_range(4, 8), _mul(base, .5))
+	return img
+
+
 static func _paint_hazard(variant: int) -> Image:
 	var rng := _rng("hazard%d" % variant)
 	var img := _paint_metal(0)
@@ -627,6 +704,10 @@ const FLOOR_PAINTERS := {
 	"grate": [&"_paint_grate", 0], "runnerz": [&"_paint_runner_z", 0],
 	"safe": [&"_paint_safe", 0], "safe_plain": [&"_paint_safe_plain", 0], "safe_mark": [&"_paint_safe_mark", 0],
 	"runner_l": [&"_paint_runner_l", 0], "runner_c": [&"_paint_runner_c", 0], "runner_r": [&"_paint_runner_r", 0],
+	"carpet_red": [&"_paint_carpet", 0], "carpet_teal": [&"_paint_carpet", 1], "carpet_green": [&"_paint_carpet", 2],
+	"carpet_plum": [&"_paint_carpet", 3], "carpet_tile0": [&"_paint_carpet_tile", 0], "carpet_tile1": [&"_paint_carpet_tile", 1],
+	"vinyl0": [&"_paint_vinyl", 0], "vinyl1": [&"_paint_vinyl", 1], "concrete0": [&"_paint_concrete", 0],
+	"concrete1": [&"_paint_concrete", 1],
 	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
 }
 const WALL_PAINTERS := {
