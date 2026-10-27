@@ -976,6 +976,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.set_meta("streamed_prop_type", prop_type)
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
 	visual.add_to_group(group_name)
+	_limit_prop_visibility(visual, visual_bounds, prop_type)
 	parent.add_child(visual)
 	if PropModelCatalog.is_empty_frame(prop_type):
 		_add_blank_frame_canvas(visual, prop_type)
@@ -998,13 +999,57 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		return
 	var body := StaticBody3D.new()
 	var collision := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = blocker_size
-	collision.shape = shape
+	collision.shape = _shared_box_shape(blocker_size)
 	collision.position = at + Vector3.UP * (blocker_size.y * .5)
 	collision.rotation.y = yaw
 	body.add_child(collision)
 	parent.add_child(body)
+
+
+## Small and medium props stop drawing beyond a distance where they are a few pixels (visibility ranges: the renderer culls them,
+## no per-frame script). Big pieces, floor dressing and animated set pieces always draw.
+const PROP_RANGE_SMALL := 42.0     # bounding-box diagonal under 1.0 m
+const PROP_RANGE_MEDIUM := 64.0    # under 2.0 m
+const PROP_RANGE_MARGIN := 6.0
+## Switch for A/B measurements (tools/look/prop_perf.gd).
+static var limit_prop_visibility := true
+
+
+static func prop_visibility_range(bounds: AABB, prop_type: String) -> float:
+	if PropModelCatalog.is_floor_dressing(prop_type) or prop_type == "carouselCenterpiece":
+		return 0.0
+	var diagonal := bounds.size.length()
+	if diagonal <= 0.0:
+		return 0.0
+	if diagonal < 1.0:
+		return PROP_RANGE_SMALL
+	if diagonal < 2.0:
+		return PROP_RANGE_MEDIUM
+	return 0.0
+
+
+func _limit_prop_visibility(visual: Node3D, bounds: AABB, prop_type: String) -> void:
+	var range_end := prop_visibility_range(bounds, prop_type) if limit_prop_visibility else 0.0
+	if range_end <= 0.0:
+		return
+	for node in visual.find_children("*", "GeometryInstance3D", true, false):
+		var geometry := node as GeometryInstance3D
+		geometry.visibility_range_end = range_end
+		geometry.visibility_range_end_margin = PROP_RANGE_MARGIN
+
+
+static var _box_shapes := {}
+
+
+## One BoxShape3D per distinct blocker size: hundreds of chairs and tables share a handful of shapes.
+static func _shared_box_shape(size: Vector3) -> BoxShape3D:
+	var key := Vector3i(roundi(size.x * 100.0), roundi(size.y * 100.0), roundi(size.z * 100.0))
+	var shape := _box_shapes.get(key) as BoxShape3D
+	if shape == null:
+		shape = BoxShape3D.new()
+		shape.size = size
+		_box_shapes[key] = shape
+	return shape
 
 
 func _add_blank_frame_canvas(frame: Node3D, prop_type: String) -> void:
