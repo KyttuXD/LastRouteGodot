@@ -1303,10 +1303,17 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 		var center: Vector2i = room.get("center", Vector2i(
 			StreamedRouteGenerator.CHUNK_SIZE / 2,
 			StreamedRouteGenerator.CHUNK_SIZE / 2))
-		tasks.append({"path": PRISON_MODELS["cage"],
-			"at": Vector3(center.x + .5, 0.0, center.y + .5),
-			"yaw": 0.0, "size": Vector3(2.2, 2.3, 2.2),
-			"group": "streamed_prison_prop", "solid": true, "type": ""})
+		# The cage is presentation the nav grid does not know about: a relay or pickup under it was unreachable for the
+		# player while bots and hunters walked to it (playtest GOLF). No cage in a cell that holds one.
+		var holds_pickup := false
+		for pickup_value in data.get("pickups", []):
+			if Vector2((pickup_value as Dictionary).get("cell", Vector2i(-99, -99))).distance_to(Vector2(center)) < 2.0:
+				holds_pickup = true
+		if not holds_pickup:
+			tasks.append({"path": PRISON_MODELS["cage"],
+				"at": Vector3(center.x + .5, 0.0, center.y + .5),
+				"yaw": 0.0, "size": Vector3(2.2, 2.3, 2.2),
+				"group": "streamed_prison_prop", "solid": true, "type": ""})
 	return tasks
 
 
