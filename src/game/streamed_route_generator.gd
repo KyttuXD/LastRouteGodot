@@ -500,6 +500,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	_restore_authored_room_door_thresholds(grid, region_props)
 	if REMOVE_HUMPS:
 		_remove_wall_humps(grid, layout["rooms"], region_props)
+	# Props a few centimetres inside a wall slide clear of it first (GeometryAudit prop_in_wall), then the walkway checks run.
+	region_props = GeometryResolve.push_out(grid, region_props)
 	# Keep-clear zones at every door and a margin-wide walk from each door into its room (docs/COLLISION.md).
 	if CLEAR_WALKWAYS:
 		region_props = PlacementClearance.clear(grid, layout["rooms"], region_props)
@@ -2282,8 +2284,10 @@ static func _room_template_specs(template: String, region: String,
 					specs.append({"type": "ringTossStall", "side": stall_side, "depth": 0, "wall_backed": true, "facing": "open"})
 				for booth_side in [-4, 4]:
 					specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
-				specs.append({"type": "strengthTester", "side": -9, "depth": 0, "wall_backed": true, "facing": "open"})
-				specs.append({"type": "strengthTester", "side": 9, "depth": 0, "wall_backed": true, "facing": "open"})
+				# Backed against the SIDE walls and facing the middle: with the back wall as its backing a 1.4 m wide tester
+				# stood 0.2 m into the side wall (GeometryAudit prop_in_wall) and pushing it clear hit the end stall.
+				specs.append({"type": "strengthTester", "side": -9, "depth": 1, "facing": "center"})
+				specs.append({"type": "strengthTester", "side": 9, "depth": 1, "facing": "center"})
 				for cart_side in [-6, 6]:
 					specs.append({"type": "popcornCart", "side": cart_side, "depth": mid_depth + 1, "facing": "center"})
 				specs.append({"type": "circusPedestal", "side": 0, "depth": mid_depth + 1, "facing": "center"})
