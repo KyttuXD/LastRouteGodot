@@ -702,3 +702,23 @@ async function fixtureWith(factory) {
     },
   };
 }
+
+test("rooms carry the game they belong to (missing or invalid means last_route)", async () => {
+  const app = await fixture();
+  try {
+    const register = (code, game) => fetch(`${app.url}/api/enet/rooms/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(game === undefined ? { code, port: 8421 } : { code, port: 8421, game }),
+    });
+    assert.equal((await register("CTY22", "city")).status, 201);
+    assert.equal((await register("LEGCY")).status, 201);
+    assert.equal((await register("WERD2", "Bad Game!")).status, 201);
+    const gameOf = async (code) => (await (await fetch(`${app.url}/api/enet/rooms/${code}`)).json()).room.game;
+    assert.equal(await gameOf("CTY22"), "city");
+    assert.equal(await gameOf("LEGCY"), "last_route");
+    assert.equal(await gameOf("WERD2"), "last_route");
+  } finally {
+    await app.close();
+  }
+});

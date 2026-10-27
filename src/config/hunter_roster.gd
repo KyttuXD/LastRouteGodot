@@ -175,6 +175,8 @@ static func carries_scythe(spawn_seed_text: String) -> bool:
 
 
 static func get_identity(id: String) -> Dictionary:
+	if not PROFILES.has(id) and SecretCreatures.has(id):
+		return SecretCreatures.identity(id)
 	var profile: Dictionary = PROFILES.get(id, PROFILES[DEFAULT_ID])
 	var key: String = id if PROFILES.has(id) else DEFAULT_ID
 	return {

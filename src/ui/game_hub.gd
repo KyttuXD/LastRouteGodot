@@ -503,6 +503,12 @@ func _build_card(game: Dictionary) -> PanelContainer:
 	tagline.custom_minimum_size = Vector2(CARD_W - 20.0, 0)
 	tagline.text = String(game["tagline"])
 	box.add_child(tagline)
+	if bool(game.get("in_progress", false)):
+		var progress := Label.new()
+		progress.name = "InProgress"
+		progress.theme_type_variation = &"KickerLabel"
+		progress.text = "IN PROGRESS"
+		box.add_child(progress)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(spacer)

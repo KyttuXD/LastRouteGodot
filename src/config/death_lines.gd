@@ -135,6 +135,8 @@ static func pick(cause: Dictionary, seed_text: String, depth: int, display_name:
 	var d := data()
 	var hunter_id := file_id(String(cause.get("hunter_id", "")))
 	var hunter: Dictionary = (d.get("hunters", {}) as Dictionary).get(hunter_id, {})
+	if hunter.is_empty():
+		hunter = SecretCreatures.death_entry(hunter_id)
 	var key := cause_key(cause)
 	var pool: Array = []
 	if key != "":

@@ -14,9 +14,13 @@ Rules the parts follow (all own designs; proportions are the usual ones for a be
 VOX = 0.0625
 
 
-def _frac(box_m, w, h, d, kind):
+def _frac(box_m, w, h, d, kind, rot=None, pivot_m=None):
     x0, y0, z0, x1, y1, z1 = box_m
-    return (x0 / w, y0 / h, z0 / d, x1 / w, y1 / h, z1 / d, kind)
+    out = (x0 / w, y0 / h, z0 / d, x1 / w, y1 / h, z1 / d, kind)
+    if rot is not None:
+        px, py, pz = pivot_m if pivot_m is not None else ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        out += (tuple(rot), (px / w, py / h, pz / d))
+    return out
 
 
 class Part:
@@ -26,8 +30,9 @@ class Part:
         self.w, self.h, self.d = w, h, d
         self.boxes = []
 
-    def add(self, x0, y0, z0, x1, y1, z1, kind):
-        self.boxes.append(_frac((x0, y0, z0, x1, y1, z1), self.w, self.h, self.d, kind))
+    def add(self, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None):
+        """rot = (rx, ry, rz) degrees about the prop axes, pivot in metres (default the box centre); see build_blocky_props.py."""
+        self.boxes.append(_frac((x0, y0, z0, x1, y1, z1), self.w, self.h, self.d, kind, rot, pivot))
         return self
 
 

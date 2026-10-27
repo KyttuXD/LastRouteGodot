@@ -36,36 +36,39 @@ func open(report: Dictionary) -> void:
 	var online := bool(report.get("online", false))
 	var host := bool(report.get("host", false))
 	var respawn := bool(report.get("respawn", false))
+	var city := RoomState.is_city()
 	_kicker.text = String(report.get("kicker",
-		"RUNNER SIGNAL // INTERRUPTED" if online else "ROUTE SIGNAL // ARCHIVED"))
+		"RUNNER SIGNAL // INTERRUPTED" if online else ("CITY RUN // ENDED" if city else "ROUTE SIGNAL // ARCHIVED")))
 	_title.text = String(report.get("title",
-		"SIGNAL LOST" if online else "ROUTE ENDED"))
-	_reason.text = String(report.get("reason", "THE ROUTE CAUGHT UP WITH YOU"))
+		"SIGNAL LOST" if online else ("RUN ENDED" if city else "ROUTE ENDED")))
+	_reason.text = String(report.get("reason",
+		"THE CITY CAUGHT UP WITH YOU" if city else "THE ROUTE CAUGHT UP WITH YOU"))
 	var line := String(report.get("line", ""))
 	_line.text = "\u201c%s\u201d" % line if not line.is_empty() else ""
 	_line.visible = not line.is_empty()
 	var caption := String(report.get("line_style", "")) == "caption"
 	_line.add_theme_color_override("font_color", Palette.MUTED if caption else Palette.BODY)
 	_clear_stats()
-	_add_stat("DEPTH REACHED", str(maxi(1, int(report.get("depth", 1)))))
+	if not city:
+		_add_stat("DEPTH REACHED", str(maxi(1, int(report.get("depth", 1)))))
 	_add_stat("SCORE", str(maxi(0, int(report.get("score", 0)))))
-	_add_stat("FLOOR RELAYS", "%d / %d" % [
+	_add_stat("RELAYS" if city else "FLOOR RELAYS", "%d / %d" % [
 		maxi(0, int(report.get("relays", 0))),
 		maxi(0, int(report.get("relay_target", 0))),
 	])
 	_add_stat("COINS", str(maxi(0, int(report.get("coins", 0)))))
 	_add_stat("DIFFICULTY", String(report.get("difficulty", "STANDARD")))
-	_add_stat("ROUTE SEED", String(report.get("seed", "UNKNOWN")))
+	_add_stat("CITY SEED" if city else "ROUTE SEED", String(report.get("seed", "UNKNOWN")))
 	if respawn:
 		_primary.text = "RESPAWN AT CHECKPOINT"
-		_secondary.text = "LEAVE ROOM" if online else "MAIN MENU"
+		_secondary.text = "LEAVE ROOM" if online else ("CITY MENU" if city else "MAIN MENU")
 		_set_button_action(_primary, restart_requested)
 		_secondary.visible = true
 		_set_button_action(_secondary, leave_requested)
 	else:
-		_primary.text = ("END ROUTE" if host else "LEAVE ROOM") if online \
-			else "RESTART ROUTE"
-		_secondary.text = "MAIN MENU"
+		_primary.text = ("END RUN" if city else "END ROUTE") if (online and host) \
+			else ("LEAVE ROOM" if online else ("NEW RUN" if city else "RESTART ROUTE"))
+		_secondary.text = "CITY MENU" if city else "MAIN MENU"
 		_set_button_action(_primary, leave_requested if online else restart_requested)
 		_secondary.visible = not online
 		if not online:

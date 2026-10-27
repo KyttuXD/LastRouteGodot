@@ -35,6 +35,7 @@ Backend="*res://src/autoload/backend_client.gd"
 UpdateManager="*res://src/autoload/update_manager.gd"
 RoomState="*res://src/autoload/room_state.gd"
 PublicRoute="*res://src/autoload/public_route.gd"
+Playtest="*res://src/playtest/playtest_bridge.gd"
 
 [display]
 

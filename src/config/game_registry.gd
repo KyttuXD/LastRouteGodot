@@ -15,16 +15,29 @@ const GAMES := [
 		"theme": "res://src/ui/theme_lastroute.tres",
 		"locked": false,
 		"locked_note": "",
+		# Playtest bot adapter (see docs/PLAYTEST.md); a game without the key falls back to PlaytestAdapters.BUILT_IN.
+		"playtest_bot": "res://src/playtest/bots/last_route_bot.gd",
+	},
+	{
+		"id": "city",
+		"title": "KYTTU: THE CITY",
+		"kicker": "DOME SEALED // NIGHT CITY",
+		"tagline": "A walled city under an artificial sky. Cross the streets, enter the buildings, outlast what hunts them.",
+		"scene": "res://scenes/city_menu.tscn",
+		"theme": "res://src/ui/theme_city.tres",
+		"locked": false,
+		"locked_note": "",
+		"in_progress": true,
 	},
 	{
 		"id": "night_watch",
 		"title": "NIGHT WATCH",
 		"kicker": "CAMERA FEED // OVERNIGHT SHIFT",
 		"tagline": "Hold the desk through the night. Watch the feeds, keep them out.",
-		"scene": "",
+		"scene": "res://scenes/night_watch_menu.tscn",
 		"theme": "res://src/ui/theme_nightwatch.tres",
-		"locked": true,
-		"locked_note": "3D PORT IN PLANNING // SEE docs/GAME_HUB.md",
+		"locked": false,
+		"locked_note": "",
 	},
 ]
 

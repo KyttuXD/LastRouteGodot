@@ -306,7 +306,7 @@ func discovered_hunters() -> Array[String]:
 	if raw is Array:
 		for value in raw:
 			var hunter_id := String(value)
-			if HunterRoster.PROFILES.has(hunter_id) and not result.has(hunter_id):
+			if (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)) and not result.has(hunter_id):
 				result.append(hunter_id)
 	result.sort()
 	return result
@@ -322,7 +322,7 @@ func hunter_discovered(hunter_id: String) -> bool:
 func account_discover_hunter(hunter_id: String) -> bool:
 	if GameState.debug_run:
 		return false
-	if not signed_in() or not HunterRoster.PROFILES.has(hunter_id):
+	if not signed_in() or not (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)):
 		return false
 	var discoveries := discovered_hunters()
 	if discoveries.has(hunter_id):
@@ -870,6 +870,7 @@ func register_room(code: String, port: int, player_count: int,
 		"port": _port,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"game": RoomState.game_id(),
 	})
 	_heartbeat.start()
 

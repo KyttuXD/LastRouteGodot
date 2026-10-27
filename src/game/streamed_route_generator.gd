@@ -89,7 +89,7 @@ const REGION_PROP_SETS := {
 		{"type": "diningSideboard", "size": Vector3(1.4, 1.1, .5)},
 		{"type": "diningChair", "size": Vector3(.65, 1.0, .65)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "mansionAreaRug", "size": Vector3(2.6, .03, 1.6), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
 		{"type": "luxuryPictureFrameEmpty", "size": Vector3(.75, 1.0, .12), "solid": false},
@@ -97,7 +97,7 @@ const REGION_PROP_SETS := {
 	],
 	"hotel": [
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "bedroomWardrobe", "size": Vector3(1.2, 2.1, .55)},
 		{"type": "bedroomNightstand", "size": Vector3(.65, .8, .55)},
 		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
@@ -112,7 +112,7 @@ const REGION_PROP_SETS := {
 		{"type": "normalBookcase", "size": Vector3(1.25, 1.9, .45)},
 		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "woodenChair", "size": Vector3(.65, 1.0, .65)},
 		{"type": "apartmentCarpet", "size": Vector3(2.0, .03, 1.35), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
@@ -129,7 +129,7 @@ const REGION_PROP_SETS := {
 	],
 	"gothic": [
 		{"type": "gothicBookcase", "size": Vector3(1.4, 2.1, .5)},
-		{"type": "gothicHighbackChair", "size": Vector3(.75, 1.6, .75)},
+		{"type": "gothicHighbackChair", "size": Vector3(.7, 1.35, .7)},
 		{"type": "gothicCoffinChest", "size": Vector3(.85, .65, 1.9)},
 		{"type": "gothicDoubleBed", "size": Vector3(1.8, .9, 2.2)},
 		{"type": "gothicBedroomBench", "size": Vector3(1.4, .7, .55)},
@@ -145,7 +145,7 @@ const REGION_PROP_SETS := {
 	"prison": [
 		{"type": "prisonBunk", "size": Vector3(.55, .95, 1.75)},
 		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
-		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .90, 1.62)},
+		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .78, 1.62)},
 		{"type": "prisonServingCounter", "size": Vector3(2.46, 2.05, .88)},
 		{"type": "prisonTrayReturn", "size": Vector3(1.0, 1.45, .72)},
 		{"type": "prisonKitchenRack", "size": Vector3(1.35, 1.82, .62)},
@@ -193,8 +193,8 @@ const TEMPLATE_PROP_SIZES := {
 	"singleBed": Vector3(1.1, .78, 2.7),
 	"doubleBed": Vector3(1.9, .92, 2.7),
 	"prisonBunk": Vector3(.55, .98, 1.75),
-	"bunkBed": Vector3(1.12, 1.78, 2.14),
-	"officeDesk": Vector3(1.65, .90, .72),
+	"bunkBed": Vector3(1.06, 1.88, 2.1),
+	"officeDesk": Vector3(1.65, .78, .72),
 	"officeChair": Vector3(.68, 1.42, .68),
 	"officeCrtSecurityConsole": Vector3(1.65, 1.45, .78),
 	"officeCubiclePartition": Vector3(1.82, 1.72, .20),
@@ -208,7 +208,7 @@ const TEMPLATE_PROP_SIZES := {
 	# table's navigation envelope to one cell so it can sit in the middle row
 	# without claiming the serving line or the doorway, matching the restaurant
 	# party-table treatment of a wide visual and a compact collider.
-	"prisonCafeteriaTable": Vector3(2.65, .90, .95),
+	"prisonCafeteriaTable": Vector3(2.65, .78, .95),
 	"prisonServingCounter": Vector3(2.46, 2.05, .88),
 	"prisonTrayReturn": Vector3(1.0, 1.45, .72),
 	# Corner placement in a 5-wide wing needs a one-cell width. The authored
@@ -2315,13 +2315,11 @@ static func _room_template_specs(template: String, region: String,
 			specs.append({"type": "tikiBar", "side": -8, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "surfboardRack", "side": 8, "depth": 0, "wall_backed": true, "facing": "open"})
 		"prison_cell":
-			# a bunk on each side wall of the back, a toilet and sink between them, a small table by the door
+			# a bunk on each side wall of the back, a toilet and sink between them (no loose dining furniture in prison cells)
 			specs.append({"type": "prisonBunk", "side": -3, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "prisonBunk", "side": 3, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "houseToilet", "side": -1, "depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "bathroomSink", "side": 1, "depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "woodenTable", "side": 0, "depth": mid_depth + 1, "facing": "open"})
-			specs.append({"type": "woodenChair", "side": 0, "depth": mid_depth, "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 		"gothic_archive":
 			for shelf_side in range(-8, 9, 2):
@@ -2595,7 +2593,26 @@ static func _room_template_specs(template: String, region: String,
 				var copy: Dictionary = (original as Dictionary).duplicate()
 				copy["side"] = int(copy.get("side", 0)) + shift
 				specs.append(copy)
-	return specs
+	return _keep_entrance_clear(specs, side_span, depth_span)
+
+
+## The room entrance is the middle of the front interior row (depth_span - 3: the rect includes both walls and depth 0 is the
+## first interior row): a solid footprint (its collider, either way round) must
+## not cover that cell, or the door opens onto a prop and the room is sealed for hunters (found by hunter_real on REAL-B).
+static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int) -> Array:
+	var kept := []
+	for spec in specs:
+		var entry: Dictionary = spec
+		if bool(entry.get("wall_backed", false)) or entry.get("solid", true) == false:
+			kept.append(entry)
+			continue
+		var size: Vector3 = PropColliderSizes.SIZES.get(String(entry.get("type", "")), Vector3.ONE)
+		var half := maxf(size.x, size.z) * .5
+		var covers_door := absf(float(entry.get("side", 0))) - half < .5 \
+			and float(entry.get("depth", 0)) + half > float(depth_span) - 3.5
+		if not covers_door:
+			kept.append(entry)
+	return kept
 
 
 static func _frame_type_for_region(region: String, wide: bool) -> String:
