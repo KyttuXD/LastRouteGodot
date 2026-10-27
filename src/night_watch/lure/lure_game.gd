@@ -32,6 +32,8 @@ var _models := {}
 var _walkers := {}
 var _players := {}
 var _hour_seen := 0
+var _pose_state := {}   # hunter id -> "" | "vent_enter" | "vent" | "vent_exit": the vent crawl (NightWatchPoses)
+var _vent_left := 0.0
 var _feed_container: Control
 
 
@@ -459,8 +461,11 @@ func _animate_models(delta: float) -> void:
 		var model := _models[id] as Node3D
 		model.position = walker.pos
 		model.rotation.y = walker.yaw
+	_vent_pose(delta)
 	for id in _players:
 		var anim := _players[id] as AnimationPlayer
+		if id == "xivvy" and String(_pose_state.get("xivvy", "")) != "":
+			continue   # the vent crawl owns her animation
 		var walker2 := _walkers.get(id) as NightWatchWalker
 		var clip := "idle"
 		if walker2 != null and walker2.moving:
@@ -469,6 +474,56 @@ func _animate_models(delta: float) -> void:
 			anim.play(clip)
 	if state == State.PLAYING and not manual_clock and sim != null:
 		office.animate({"doorL": bool(sim.seals["L"]), "doorR": bool(sim.seals["R"])}, delta)
+
+
+## Xivvy in a vent shaft or crawlspace crawls (NightWatchPoses): a drop in ("vent_enter", a one-shot only Verrine has), the crawl loop (the generic vent crawl, its speed
+## follows how fast she is moving), a rise out ("vent_exit"), then back to walking. The crawl is 0.67 m high, well under the crawlspaces' ceiling.
+const VENT_ROOMS := ["ventl", "ventr", "officeL", "officeR"]
+const VENT_ONE_SHOT := 0.8
+
+
+func _vent_pose(delta: float) -> void:
+	if sim == null or not _models.has("xivvy"):
+		return
+	var model := _models["xivvy"] as Node3D
+	var in_vent := VENT_ROOMS.has(String(sim.killer["room"])) and model.visible
+	var cur := String(_pose_state.get("xivvy", ""))
+	var next := cur
+	match cur:
+		"":
+			if in_vent:
+				next = "vent_enter"
+		"vent_enter":
+			_vent_left -= delta
+			if not in_vent and _vent_left <= 0.0:
+				next = "vent_exit"
+			elif _vent_left <= 0.0:
+				next = "vent"
+		"vent":
+			if not in_vent:
+				next = "vent_exit"
+		"vent_exit":
+			_vent_left -= delta
+			if in_vent:
+				next = "vent_enter"
+			elif _vent_left <= 0.0:
+				next = ""
+	var walker := _walkers.get("xivvy") as NightWatchWalker
+	if next != cur:
+		_pose_state["xivvy"] = next
+		_vent_left = VENT_ONE_SHOT
+		match next:
+			"":
+				NightWatchPoses.stop(model)
+			"vent_enter", "vent_exit":
+				NightWatchPoses.play_state(model, next, {"hunter_id": "xivvy"})
+			"vent":
+				NightWatchPoses.play_state(model, "vent", {"hunter_id": "xivvy"})
+	if String(_pose_state.get("xivvy", "")) == "vent" and _players.has("xivvy"):
+		var speed := 0.15
+		if walker != null and walker.moving:
+			speed = 2.0 if walker.running else 1.0
+		(_players["xivvy"] as AnimationPlayer).speed_scale = speed
 
 
 # --- input -----------------------------------------------------------------------------------------------------------

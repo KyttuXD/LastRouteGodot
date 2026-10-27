@@ -733,6 +733,23 @@ func _scene(host: Node) -> void:
 			if a != b and game.paths.legs_for(String(a), String(b)).size() < 2:
 				bad_pairs += 1
 	_expect(bad_pairs == 0, "%d room pairs have no route" % bad_pairs)
+	# in a vent she crawls: the pose follows her into the crawlspace and out again (the drop and the rise are one-shots, the crawl loops)
+	game.sim.killer["room"] = "ventl"
+	game._place_hunters()
+	game._animate_models(0.05)
+	_expect(game._pose_state.get("xivvy", "") == "vent_enter", "Xivvy dropped into the crawlspace without the vent_enter pose (%s)" % str(game._pose_state.get("xivvy", "")))
+	for i in 12:
+		game._animate_models(0.1)
+	_expect(game._pose_state.get("xivvy", "") == "vent", "Xivvy in the crawlspace is not crawling (%s)" % str(game._pose_state.get("xivvy", "")))
+	if game._players.has("xivvy"):
+		_expect((game._players["xivvy"] as AnimationPlayer).current_animation == NightWatchPoses.clip_name("vent_crawl"), "the vent crawl clip is not playing")
+	game.sim.killer["room"] = "storage"
+	game._place_hunters()
+	game._animate_models(0.05)
+	_expect(game._pose_state.get("xivvy", "") == "vent_exit", "Xivvy climbing out of the crawlspace has no vent_exit")
+	for i in 12:
+		game._animate_models(0.1)
+	_expect(game._pose_state.get("xivvy", "") == "", "Xivvy kept the vent pose after leaving the crawlspace")
 	game.manual_clock = true
 	game.queue_free()
 	await host.get_tree().process_frame
