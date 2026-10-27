@@ -32,3 +32,5 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 | [../MIGRATION.md](../MIGRATION.md), [../PLAYABILITY.md](../PLAYABILITY.md), [../PORTING_AUDIT.md](../PORTING_AUDIT.md) | Port history and checklists |
 
 Never put secrets (admin setup key, tokens, passwords) in any of these files.
+
+- [Web build](WEB_BUILD.md): export, hosting on kyttuslab.org, the WebSocket room relay and its limits.
