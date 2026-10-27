@@ -50,6 +50,7 @@ var _expression := ""
 var _blink_timer := 2.0
 var _blink_left := 0.0
 var _stars: Node3D
+var _creature: CreatureView   # set for creature-rig hunters (SecretCreatures); the humanoid logic is skipped
 ## Kathy's visible beam: an unshaded additive cone (soft core + wider outer shell) hanging from the eye beam light. It is
 ## the light's colour while she patrols and turns RED (brighter, faster pulse) while she is chasing; no extra lights.
 var _beam_core: MeshInstance3D
@@ -204,15 +205,19 @@ func _apply_model(model_id: String) -> void:
 		_carries_scythe = false
 		_expression = ""
 		_stars = null
+		_creature = null
 
 	var identity := HunterRoster.get_identity(model_id)
 	_model = ModelSlot.instantiate_hunter(identity)
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
-		NightWatchPoses.install(_model, _animation_player, _shown_id)
-		_nw_layers.bind(_model)
-		_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
+		if SecretCreatures.uses_creature_rig(model_id):
+			_creature = CreatureView.new(self, _model)
+		else:
+			NightWatchPoses.install(_model, _animation_player, _shown_id)
+			_nw_layers.bind(_model)
+			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
 		_attach_scythe()
 		_apply_visibility()
@@ -502,6 +507,8 @@ func sync_from_brain() -> void:
 ## somewhere, just not at chase urgency yet); only an actual sighting-driven
 ## chase gets the more urgent clip.
 func _update_emote_state() -> void:
+	if _creature != null:
+		return
 	var now := Time.get_ticks_msec()
 	if brain.emote_seq != _emote_seen_seq:
 		_emote_seen_seq = brain.emote_seq
@@ -592,6 +599,9 @@ func _play_nw_pose() -> bool:
 
 
 func _update_animation() -> void:
+	if _creature != null:
+		_creature.tick(get_process_delta_time())
+		return
 	var clip_name := "idle"
 	var delta := get_process_delta_time()
 	if brain.stun_timer > 0.0:

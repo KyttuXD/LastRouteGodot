@@ -114,6 +114,10 @@ func apply_network_state(_state: Dictionary) -> void:
 ## every hook", so adding a hunter here is opt-in, never a stub to fill in.
 static func for_id(hunter_id: String) -> HunterGimmick:
 	match hunter_id:
+		"white_wolf_spider":
+			return WhiteWolfSpiderGimmick.new()
+		"black_wolf_spider":
+			return BlackWolfSpiderGimmick.new()
 		"quirith":
 			return QuirithGimmick.new()
 		"eirys":

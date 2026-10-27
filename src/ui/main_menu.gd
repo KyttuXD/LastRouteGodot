@@ -344,6 +344,9 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 	if not error.is_empty():
 		status.text = error
 		return
+	if not RoomState.game_matches(String(endpoint.get("game", "")), RoomState.GAME_LAST_ROUTE):
+		status.text = "THAT ROOM IS FOR ANOTHER GAME // JOIN IT FROM ITS OWN MENU"
+		return
 	var join_error := RoomState.join_room(String(endpoint.get("address", "")),
 		int(endpoint.get("port", RoomState.DEFAULT_PORT)),
 		String(endpoint.get("transport", "relay")), code)
@@ -648,3 +651,14 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 		if not UpdateManager.status_message.is_empty() else "RETRY UPDATE CHECK"
 	update_button.disabled = false
 	update_button.visible = true
+
+
+## Replacing LineEdit.text resets its caret. Preserve the insertion point so
+## uppercase normalization cannot turn normal typing into reversed typing.
+func _replace_normalized_text(field: LineEdit, value: String,
+		normalized: String) -> void:
+	if field == null or normalized == value:
+		return
+	var caret := field.caret_column
+	field.text = normalized
+	field.caret_column = mini(caret, normalized.length())

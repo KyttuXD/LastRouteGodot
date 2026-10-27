@@ -112,10 +112,17 @@ function requesterAddress(request, trustProxy) {
   return cleanAddress(request.socket.remoteAddress);
 }
 
+// Which game a room belongs to ("last_route" or "city"); servers and clients that predate the field mean "last_route".
+function cleanGame(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[a-z][a-z0-9_]{0,15}$/.test(text) ? text : "last_route";
+}
+
 function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
   const relayed = Boolean(relayAddress && relayPort);
   return {
     code: room.code,
+    game: room.game || "last_route",
     transport: relayed ? "relay" : "direct",
     address: relayed ? relayAddress : room.address,
     port: relayed ? relayPort : room.port,
@@ -450,6 +457,7 @@ export function createLastRouteServer({
         port,
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
+        game: code === PUBLIC_CODE ? "last_route" : cleanGame(body.game),
         expiresAt: now() + (code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
       };
       enetRooms.set(code, room);
