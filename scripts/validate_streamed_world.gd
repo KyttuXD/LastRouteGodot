@@ -538,8 +538,9 @@ func run(host: Node) -> int:
 			"room size %s is too small to furnish and should not be generated" % tiny_size)
 	_expect(room_sizes.size() >= 6,
 		"streamed rooms did not vary enough in size: %s" % [room_sizes.keys()])
-	_expect(room_sizes.has("15x15"),
-		"15x15 landmark rooms were clipped out of generated topology")
+	# Bank layout: landmark rooms are the 21x9 hall rooms spanning a whole bank.
+	_expect(room_sizes.has("21x9"),
+		"21x9 hall rooms were clipped out of generated topology")
 	_expect(not rug_types_seen.is_empty(),
 		"restored authored rugs/mats never appeared in sampled Infinite rooms")
 	for expected_template in [

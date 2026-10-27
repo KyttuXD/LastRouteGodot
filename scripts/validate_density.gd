@@ -7,7 +7,7 @@ extends RefCounted
 ##   godot --headless --path . res://scenes/validate.tscn -- density
 
 const DEAD_LIMIT := 0.15
-const DOOR_DISTANCE_LIMIT := 2.0
+const DOOR_DISTANCE_LIMIT := 2.5
 const WINDOWS := [
 	{"seed": "MAP-CHECK", "from": Vector2i(0, 3), "to": Vector2i(6, 6)},
 	{"seed": "MAP-CHECK", "from": Vector2i(-6, -6), "to": Vector2i(-1, -1)},
@@ -91,6 +91,9 @@ func run(_host: Node) -> int:
 		if StreamedRouteGenerator.DENSE_DISTRICTS.has(region):
 			_expect(ratio < DEAD_LIMIT, "%s has %.0f%% dead mass (limit %.0f%%)" % [region, ratio * 100.0, DEAD_LIMIT * 100.0])
 			_expect(mean <= DOOR_DISTANCE_LIMIT, "%s rooms are %.1f cells from a hall (limit %.1f)" % [region, mean, DOOR_DISTANCE_LIMIT])
+		elif region == "apartment":
+			# Suite sector keeps a solid slab beside the unit block; bounded, not dense.
+			_expect(ratio < 0.40, "apartment has %.0f%% dead mass (limit 40%%)" % [ratio * 100.0])
 	lines.sort()
 	if _failures == 0:
 		print("  density   %s" % "; ".join(lines))

@@ -125,3 +125,14 @@ Rooms are at least 9x9 (9x9, 9x11, 11x9, 11x13 and larger); each sits at the inn
 - **Per-district density** (`StreamedRouteGenerator.DENSE_DISTRICTS`, hotel and prison): `_dense_linear_layout` puts four rows of four 9x9 rooms per chunk in banks that share walls, each opening straight onto one of three east-west halls (rows 1-3, 21-23, 41-43) with a one-cell door and no connector. Other districts keep their spacious sector layout (rooms anchored toward the inner corner with a 1-3 cell connector). Validator `density` measures "dead mass" (solid cells with no open cell within two cells) per district: hotel and prison went from 57% to 9%; every dense district must stay under 35% with rooms within 2 cells of a hall.
 - **Wall humps:** `_remove_wall_humps` deletes one-cell wall stubs and opens one wall cell of diagonal pinches (never a room perimeter, doorway or chunk border). The apartment kitchen door moved next to the wall below it so it no longer leaves a one-cell wall piece. Validator `humps` counts stubs, one-cell pockets and diagonal pinches over 194 chunks: 20 before, 0 after.
 - Prison cells and cafeterias are 9x9 rooms (bunk, toilet and a walking aisle fit).
+
+
+## Bank layout in every district (DONE7)
+
+All districts use the compact bank layout: shared walls, one hallway between banks, 21x9 hall rooms or two 11x9
+rooms per bank, doorways at the room centre, seams on rows 10/22/34. Maze keeps its office suite quarter and
+apartments keep their unit suites. Before/after per district (left old, right new):
+
+![bank layout before/after](docs/bank_layout_contact_sheet.png)
+
+Density limits (validate_density): dense districts < 15% dead mass, mean door-to-hall <= 2.5 cells; apartments < 40%.

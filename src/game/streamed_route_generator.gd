@@ -46,7 +46,15 @@ const CORRIDOR_WIDTH := 3
 const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
 ## their spacious sector layout (_mixed_room_layout). Apartments are already dense suites.
-const DENSE_DISTRICTS := ["hotel", "prison"]
+const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic", "carnival", "inferno"]
+## Share of bank sides that become ONE big room (21x9, a hall/ballroom/greenhouse/big top) instead of two 11x9 rooms, and the
+## hall-type rooms to pick from. Hotel and prison stay all small rooms; apartments are all suites (_mixed_room_layout).
+const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2}
+const BANK_BIG_TYPES := {
+	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway"],
+	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
+	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage"],
+}
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
 const STAIR_ACCESS_WIDTH := 5
@@ -833,6 +841,8 @@ func _region_layout(coord: Vector3i, region: String, grid: Array,
 	# A region is the multi-chunk visual/gameplay identity. Rooms are the small
 	# bounded spaces inside one chunk; corridors serve many rooms and stairs
 	# bridge the same circulation network vertically.
+	if DENSE_DISTRICTS.has(region) and stairs.is_empty():
+		return _dense_linear_layout(coord, region, grid)
 	if region in ["hotel", "prison"]:
 		return _linear_room_layout(coord, region, grid, stairs)
 	return _mixed_room_layout(coord, region, grid, stairs)
@@ -936,47 +946,86 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dictionary:
 	var rooms := []
 	var corridors := []
+	var suites := []
 	var circulation := {}
+	var rng := SeededRandom.new("%s:BANKS:%s" % [world_seed, chunk_id(coord)])
 	var center := CHUNK_SIZE / 2
-	# one hall between every pair of banks: rows 9-11 serves the two banks above/below it, 33-35 likewise, and the
-	# centre hall (21-23) is the through route the seams meet. The outer banks sit against the chunk border, so two
-	# chunks never put a hall beside a hall.
+	# Maze keeps its signature office suite in the south-east quarter: the banks leave that quarter alone.
+	var office_quarter := region == "maze"
 	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3), Rect2i(1, center - 1, CHUNK_SIZE - 2, 3),
-		Rect2i(1, 33, CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
+		Rect2i(1, 33, 19 if office_quarter else CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
 	for hall_index in halls.size():
 		var hall: Rect2i = halls[hall_index]
 		_carve_rect(grid, hall)
 		_mark_rect_cells(circulation, hall)
 		corridors.append({"id": "%s:HALL:%d" % [chunk_id(coord), hall_index], "rect": hall, "width": CORRIDOR_WIDTH,
 			"axis": "north_south" if hall_index == 3 else "east_west", "serves_many_rooms": true})
-	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below)
+	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below); each
+	# side is either two 11x9 rooms sharing a wall or one 21x9 hall room, from the chunk border to the centre hall.
 	var rows := [{"y": 0, "door_top": false}, {"y": 12, "door_top": true},
 		{"y": 24, "door_top": false}, {"y": 36, "door_top": true}]
-	# 11-wide rooms (9 inside) from the chunk border to the centre hall on both sides: neighbours share one wall, the outer
-	# rooms use the chunk border as their wall, and each bank's last wall is the wall beside the centre hall: no void columns.
-	var columns := [0, 10, 24, 34]
+	var side_x := [0, 24]
+	var big_types: Array = BANK_BIG_TYPES.get(region, [])
+	var small_types := []
+	for type_name in (_room_type_choices(region) as Array):
+		if not big_types.has(type_name):
+			small_types.append(type_name)
+	if small_types.is_empty():
+		small_types = _room_type_choices(region)
 	var room_index := 0
 	for row in rows:
-		for column_x in columns:
-			var rect := Rect2i(column_x, int(row["y"]), 11, 9)
-			_carve_rect(grid, rect)
-			var door_top: bool = row["door_top"]
-			var doorway := Vector2i(column_x + 5, rect.position.y if door_top else rect.end.y - 1)
-			_seal_room_perimeter_except(grid, rect, doorway)
-			_mark_corridor_cell(circulation, doorway, 1)
-			corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
-				"axis": "north_south", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
-				"from_main_hall": true, "serves_many_rooms": false, "doorway": doorway})
-			var room_type := "prison_cell"
-			if region == "hotel":
-				room_type = "hotel_bathroom" if room_index % 4 == 3 else "guest_room"
-			elif room_index % 5 == 2:
-				room_type = "prison_cafeteria"
-			var entry := _room_entry(coord, room_index, region, rect, room_type)
-			entry["doorway"] = doorway
-			rooms.append(entry)
-			room_index += 1
-	return {"rooms": rooms, "corridors": corridors, "suites": [], "circulation": circulation}
+		for side in 2:
+			if office_quarter and side == 1 and int(row["y"]) >= 24:
+				continue
+			var specs := []
+			if not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
+				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
+			else:
+				specs.append({"x": side_x[side], "w": 11, "type": ""})
+				specs.append({"x": side_x[side] + 10, "w": 11, "type": ""})
+			for spec in specs:
+				var rect := Rect2i(int(spec["x"]), int(row["y"]), int(spec["w"]), 9)
+				_carve_rect(grid, rect)
+				var door_top: bool = row["door_top"]
+				var doorway := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y if door_top else rect.end.y - 1)
+				_seal_room_perimeter_except(grid, rect, doorway)
+				_mark_corridor_cell(circulation, doorway, 1)
+				corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
+					"axis": "north_south", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
+					"from_main_hall": true, "serves_many_rooms": false, "doorway": doorway})
+				var room_type := String(spec["type"])
+				if room_type.is_empty():
+					if region == "hotel":
+						room_type = "hotel_bathroom" if room_index % 4 == 3 else "guest_room"
+					elif region == "prison":
+						room_type = "prison_cafeteria" if room_index % 5 == 2 else "prison_cell"
+					else:
+						room_type = String(small_types[room_index % small_types.size()])
+				var entry := _room_entry(coord, room_index, region, rect, room_type)
+				entry["doorway"] = doorway
+				rooms.append(entry)
+				room_index += 1
+	if office_quarter:
+		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(24, 24, 17, 17), 3, "office", rng)
+		rooms.append_array(suite["rooms"])
+		corridors.append_array(suite["corridors"])
+		suites.append(suite["suite"])
+	return {"rooms": rooms, "corridors": corridors, "suites": suites, "circulation": circulation}
+
+
+## The room-type names of a district (the table _room_type_for cycles through).
+static func _room_type_choices(region: String) -> Array:
+	var types := {
+		"mansion": ["drawing_room", "bedroom", "dining_room", "luxury_bathroom"],
+		"beach": ["cove", "beach_hut", "tide_pool", "boardwalk_room"],
+		"inferno": ["thermal_chamber", "forge", "altar_room", "lava_gallery"],
+		"gothic": ["crypt", "chapel", "mourning_room", "archive"],
+		"apartment": ["bedroom", "kitchen", "living_room", "house_bathroom"],
+		"carnival": ["big_top", "midway", "game_stall", "backstage"],
+		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
+		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
+	}
+	return types.get(region, ["room"])
 
 
 func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
@@ -1051,7 +1100,7 @@ func _mixed_room_layout(coord: Vector3i, region: String, grid: Array,
 		# Two opposite apartment units open from the same main hallway. Each unit
 		# is one persisted suite containing its own bedroom, kitchen, dining room
 		# and bathroom rather than four unrelated maze rooms.
-		if region == "apartment" and sector_index in [0, 3]:
+		if region == "apartment":
 			suite_kind = "apartment"
 		elif region == "maze" and sector_index == 3:
 			suite_kind = "office"
