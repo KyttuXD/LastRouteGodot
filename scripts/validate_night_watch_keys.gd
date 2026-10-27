@@ -89,6 +89,14 @@ func run(host: Node) -> int:
 		tested.append(String(mode_id))
 		game.queue_free()
 		await host.get_tree().process_frame
+	var probe := NightWatchHud.new()
+	host.add_child(probe)
+	await host.get_tree().process_frame
+	probe.set_monitor_available(false)
+	_expect(not probe.cameras_button.visible, "set_monitor_available(false) did not hide the CAMERAS button")
+	probe.set_monitor_available(true)
+	_expect(probe.cameras_button.visible, "set_monitor_available(true) did not show the CAMERAS button")
+	probe.queue_free()
 	_expect(tested.has("classic"), "the camera key flow did not run for Classic")
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH

@@ -53,6 +53,7 @@ func _ready() -> void:
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
+	hud.set_monitor_available(office.spec.has_monitor)
 	hud.hint_label.text = NightWatchControls.hint_line(false, office.spec.controls)
 	_sync_visuals()
 
