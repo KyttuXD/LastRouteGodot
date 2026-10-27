@@ -404,7 +404,7 @@ func _check_scene(host: Node) -> void:
 		_expect(shift.sim != null and shift.sim.diff["name"] == levels[n - 1] and shift.sim.endless == (n == 5) and shift.sim.chaos == (n == 4), "shift %d did not start as %s" % [n, levels[n - 1]])
 		_expect(shift.office is MixedOffice and shift.office.spec.id == "hub_office", "Mixed Shift is not in its hub office")
 		shift.advance_ms(1000.0)
-		_expect(shift.hud.night_label.text == levels[n - 1] and shift.hud.power_label.text.begins_with("DOOR SEAL") and shift.hud.usage_label.text.begins_with("VENT SEAL"), "the labels are wrong in shift %d" % n)
+		_expect(shift.hud.night_label.text == "9. Mixed Shift · %s" % levels[n - 1] and shift.hud.power_label.text.begins_with("DOOR SEAL") and shift.hud.usage_label.text.begins_with("VENT SEAL"), "the labels are wrong in shift %d" % n)
 		shift.queue_free()
 		await host.get_tree().process_frame
 	# the room, the shared pieces, no captions, no audio players of its own
@@ -462,11 +462,50 @@ func _check_scene(host: Node) -> void:
 		th["i"] = 1
 		walk._place_hunters()
 		walk._animate_models(0.2)
-		var goal := walk.building.stand_position("backstage", 0)
+		var goal := walk.world.stand_position("backstage", 0)
 		_expect(first.distance_to(model.position) > 0.1 and model.position.distance_to(goal) > 0.5, "a walker was placed in her next room instead of walking")
 		for i in 400:
 			walk._animate_models(0.1)
 		_expect(model.position.distance_to(goal) < 0.5, "a walker never reached her next room")
+	# the transit hub: every sim room is a walk from every other and from both doors, no route crosses a wall, the map names and the nine cameras are MixedMap's, the dressing follows the seed
+	var layout := MixedMap.map_layout()
+	_expect((layout["cams"] as Array).size() == 9 and MixedMap.map_for("stage") == "platform" and MixedMap.sim_for("duct") == "vent" and MixedMap.set_for_seed(3) == 0 and MixedMap.set_for_seed(4) == 1 and MixedMap.set_for_seed(5) == 2,
+		"the transit hub's cameras, names or dressing draw are wrong")
+	_expect(walk.world.dress_set == MixedMap.set_for_seed(8), "the night's dressing does not follow its seed")
+	var hub_keys := ["C:stage", "C:backstage", "C:dining", "C:westhall", "C:easthall", "C:kitchen", "C:closet", "C:corner", "D:doorL", "D:doorR"]
+	var bad_wall := 0
+	for ka in hub_keys:
+		for kb in hub_keys:
+			if ka == kb:
+				continue
+			var legs: Array = walk.world.route(ka, kb)
+			_expect(legs.size() >= 2, "no walk from %s to %s in the hub" % [ka, kb])
+			for k in range(1, legs.size()):
+				var p0: Vector3 = legs[k - 1]["p"]
+				var p1: Vector3 = legs[k]["p"]
+				var n := int(ceil(p0.distance_to(p1) / 0.1))
+				for q in n:
+					var pt := p0.lerp(p1, float(q) / float(n))
+					for w in walk.world.wall_boxes:
+						if (w["rect"] as Rect2).has_point(Vector2(pt.x, pt.z)):
+							bad_wall += 1
+	_expect(bad_wall == 0, "walking routes in the transit hub cross walls at %d points" % bad_wall)
+	for route_def in MixedData.ROUTES:
+		var rooms_r: Array = route_def["rooms"]
+		for i in range(rooms_r.size() - 1):
+			_expect(walk.world.route(walk.world.key_for(String(rooms_r[i])), walk.world.key_for(String(rooms_r[i + 1]))).size() >= 2, "route %s has no walk from %s to %s" % [route_def["id"], rooms_r[i], rooms_r[i + 1]])
+	for s_idx in 3:
+		var dressed := MixedWorld.new()
+		dressed.dress_set = s_idx
+		dressed.office = walk.office
+		host.add_child(dressed)
+		await host.get_tree().process_frame
+		var seen_kind := {}
+		for m in dressed.find_children("*", "MeshInstance3D", true, false):
+			seen_kind[String(m.get_meta("nw_name", ""))] = true
+		_expect((s_idx == 0 and seen_kind.has("SeatBench")) or (s_idx == 1 and seen_kind.has("BalloonCube")) or (s_idx == 2 and seen_kind.has("BodyContainer")), "dressing %d has none of its own props" % s_idx)
+		dressed.queue_free()
+		await host.get_tree().process_frame
 	walk.manual_clock = true
 	var vt := walk.sim.threat("verrine")
 	if not vt.is_empty():
@@ -484,6 +523,18 @@ func _check_scene(host: Node) -> void:
 		walk.sim.s["vent"]["L"]["shut"] = true
 		walk._place_hunters()
 		_expect(not (walk._models["verrine"] as Node3D).visible, "the crawler shows in a sealed vent")
+	if not vt.is_empty():
+		vt["active"] = true
+		vt["i"] = 1
+		walk._animate_models(0.016)
+		_expect(walk._vent_pose.state_of("verrine") == "vent_enter", "the vent crawler did not drop into the vent run")
+		for i in 60:
+			walk._animate_models(0.02)
+		_expect(walk._vent_pose.state_of("verrine") == "vent", "the vent crawler did not take her crawl pose in the vent run")
+		vt["active"] = false
+		vt["armed"] = false
+		walk._animate_models(0.016)
+		_expect(walk._vent_pose.state_of("verrine") == "vent_exit", "the vent crawler did not rise out of the run")
 	walk.queue_free()
 	await host.get_tree().process_frame
 	# a loss: an unanswered deadly tell kills, the CAUGHT card says what would have stopped it, Retry replays the seed

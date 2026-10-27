@@ -130,6 +130,7 @@ func run(host: Node) -> int:
 	_dynamics()
 	_variety()
 	_calls()
+	_map()
 	await _office(host)
 	await _scene(host)
 	if _failures == 0:
@@ -540,6 +541,33 @@ func _calls() -> void:
 				_expect(ordinal.search(text) == null or kind == "hold" or d == 1, "descent %d: '%s' ranks the %s stage" % [d, text, kind])
 
 	_expect((NightWatchCallsData.for_level("descent", 3).get("lines", []) as Array).any(func(l): return String(l).contains("She slows down while you work the pipes, but she doesn't stop.")), "descent 3's call does not say she slows on the pipes")
+
+
+# --- the map (docs/NIGHT_WATCH_OFFICES.md, "Maps") --------------------------------------------------------------------------
+
+func _map() -> void:
+	_expect(NightWatchMapRegistry.MAPS["descent"]["script"] == "res://src/night_watch/descent/descent_map.gd", "the registry has no map for The Descent")
+	var layout := NightWatchMapRegistry.layout_for("descent")
+	var rooms: Dictionary = layout["rooms"]
+	for e in layout["edges"]:
+		_expect(rooms.has(e[0]) and rooms.has(e[1]), "map edge %s has an unknown room" % str(e))
+	for r in layout["entrances"]:
+		_expect(rooms.has(r), "map entrance %s is not a room" % r)
+	_expect(rooms.size() >= 8 and layout["entrances"] == ["sill_l", "sill_r"], "the stairwell map is thin or its entrances are not the two sills")
+	# in step with the office: the two window entrances are the two sills, Elise's ends
+	var spec := NightWatchDescentOffice.make_spec()
+	_expect(spec.entrances.size() == (layout["entrances"] as Array).size(), "the office's entrances and the map's differ in number")
+	for e in spec.entrances:
+		_expect(layout["entrances"].has("sill_" + String(e["sim_room"]).to_lower()), "office entrance %s has no sill room on the map" % e["id"])
+	# the 3D set has the stairwell levels, the pipe runs and the fuse cabinets (not just a bare car)
+	var world := NightWatchDescentWorld.new()
+	world.build()
+	var names := {}
+	for n in world.dress.get_children():
+		names[String(n.get_meta("nw_name", n.name))] = true
+	for want in ["StairLanding", "StairStep", "PipeRun", "PipeValve", "FuseCabinet", "BeamCross"]:
+		_expect(names.has(want), "the shaft has no %s" % want)
+	world.free()
 
 
 # --- the office (docs/NIGHT_WATCH_OFFICES.md): lift_landing --------------------------------------------------------------------

@@ -328,7 +328,11 @@ func _scene(host: Node) -> void:
 	game.sim.javelle["state"] = "breath"
 	game._place_hunters()
 	game._animate_models(0.1)
-	_expect(jv.visible and jv.position.distance_to(BedroomOffice.HALL_FAR) < 1.0, "Javelle was not seen coming out of the far end of the hall")
+	_expect(jv.visible and jv.position.distance_to(game.paths.points["C:living_room"]) < 1.5, "Javelle did not set off from the living room")
+	var hall_x := jv.position.x
+	for i in 10:
+		game._animate_models(0.1)
+	_expect(jv.position.x < hall_x - 1.0 and jv.position.x > BedroomMap.rect("hall").end.x - 1.0, "Javelle was not walking down toward the hall")
 	game.sim.javelle["state"] = "near"
 	game._place_hunters()
 	var longest := 0.0

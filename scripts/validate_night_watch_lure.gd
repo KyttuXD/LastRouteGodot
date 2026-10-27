@@ -660,7 +660,7 @@ func _scene(host: Node) -> void:
 	var game := _make(host, 4, 4242)
 	await host.get_tree().process_frame
 	_expect(game is NightWatchMode and game.mode_id == "lure" and game.level == 4 and game.seed_value == 4242 and game.level_name() == "NIGHT 4", "the shift scene did not read its session")
-	_expect(game.office.slabs.size() == 2 and game.world.rooms.size() == 8 and game.panel.room_buttons.size() == 8 and game.hud.cam_buttons.is_empty(), "the office, the hall or the monitor panel is missing")
+	_expect(game.office.slabs.size() == 2 and game.world.rooms.size() == 8 and game.hud.cam_buttons.size() == 8, "the office, the hall or the monitor panel is missing")
 	for prop_name in ["Shell", "Details"]:
 		for id in LureData.ROOMS:
 			_expect(game.world.props.has("%s/%s" % [id, prop_name]), "%s has no %s" % [id, prop_name])
@@ -685,9 +685,9 @@ func _scene(host: Node) -> void:
 	_expect(not game.sim.fan_on and msg.contains("NOTHING TO COOL"), "the fan did something on night 4")
 	# the monitor and its panel
 	game.open_monitor("lobby")
-	_expect(game.monitor_up and game.hud.monitor_root.visible and game.hud.cam_label.text.contains("LOBBY") and game.hud.feed_camera.transform == game.world.camera_transform("lobby"), "the monitor did not show the lobby camera")
+	_expect(game.monitor_up and game.hud.monitor_root.visible and game.hud.cam_label.text.contains("RECEPTION") and game.hud.feed_camera.transform == game.world.camera_transform("lobby"), "the monitor did not show the lobby camera")
 	game.select_camera("ballpit")
-	_expect(game.hud.cam_label.text == "CAM 4  BALL PIT", "the camera label is wrong: %s" % game.hud.cam_label.text)
+	_expect(game.hud.cam_label.text == "CAM 4  LIVE ROOM", "the camera label is wrong: %s" % game.hud.cam_label.text)
 	_expect(game.do_lure() and game.sim.lure_cool > 0.0 and game.sim.killer["target"] == "ballpit", "LURE did not call Xivvy to the room on screen")
 	game.sim.systems["cams"] = {"state": "broken", "t": 0.0}
 	game.advance_ms(10.0)
@@ -733,6 +733,23 @@ func _scene(host: Node) -> void:
 			if a != b and game.paths.legs_for(String(a), String(b)).size() < 2:
 				bad_pairs += 1
 	_expect(bad_pairs == 0, "%d room pairs have no route" % bad_pairs)
+	# in a vent she crawls: the pose follows her into the crawlspace and out again (the drop and the rise are one-shots, the crawl loops)
+	game.sim.killer["room"] = "ventl"
+	game._place_hunters()
+	game._animate_models(0.05)
+	_expect(game._pose_state.get("xivvy", "") == "vent_enter", "Xivvy dropped into the crawlspace without the vent_enter pose (%s)" % str(game._pose_state.get("xivvy", "")))
+	for i in 12:
+		game._animate_models(0.1)
+	_expect(game._pose_state.get("xivvy", "") == "vent", "Xivvy in the crawlspace is not crawling (%s)" % str(game._pose_state.get("xivvy", "")))
+	if game._players.has("xivvy"):
+		_expect((game._players["xivvy"] as AnimationPlayer).current_animation == NightWatchPoses.clip_name("vent_crawl"), "the vent crawl clip is not playing")
+	game.sim.killer["room"] = "storage"
+	game._place_hunters()
+	game._animate_models(0.05)
+	_expect(game._pose_state.get("xivvy", "") == "vent_exit", "Xivvy climbing out of the crawlspace has no vent_exit")
+	for i in 12:
+		game._animate_models(0.1)
+	_expect(game._pose_state.get("xivvy", "") == "", "Xivvy kept the vent pose after leaving the crawlspace")
 	game.manual_clock = true
 	game.queue_free()
 	await host.get_tree().process_frame
