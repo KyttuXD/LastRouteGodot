@@ -73,3 +73,20 @@ hunter_view.nw_layers = true                                    # once, when the
 
 - Suite `nw_poses` (`scripts/validate_nw_poses.gd`): every pose is a clip on every one of the 49 models on the rig (38 hunters, tall variants, the mannequin), every track resolves to a rig bone, key rotations stay inside the per-bone limits, no joint turns faster than 1100 deg/s between keys (twitch/flinch excepted), loops close, blend times sane, forward kinematics on each model's real rest pose keeps both feet above the floor (and at least one on it for grounded poses) and keeps hands out of the torso, the `HunterView3D` hook plays, ends one-shots, yields to stun and returns to idle on `stop`, and the layers do not drift.
 - Gallery: `tools/look/pose_gallery.tscn` (windowed, on the mini) writes one sheet per pose with all hunters plus `overview.png`; the committed overview is ![poses](nw_poses_gallery.png) (rows: Kathy, Dovelle, Aki, Void Red; columns in the table's order).
+
+## Verrine's vent crawl
+
+`vent_crawl_verrine` is a low belly crawl on hands and knees for Night Watch vent shafts: hips dropped to knee height, torso pitched far forward, head low and cocked, elbows bent, arms and knees alternating in a shuffle, the whole body under 0.67 m (the shaft is about 0.8 m). `vent_drop_verrine` (stand -> crawl, 0.8 s) and `vent_rise_verrine` (crawl -> stand) are the one-shot transitions and start/end exactly on the crawl's first frame. Other hunters keep the generic `vent_crawl`; the choice is per hunter through the `hunter_states` table in the data, so nothing else changes.
+
+The crawl is a travelling pose (`travel` lists the nodes that touch the floor): its playback speed is the real ground speed divided by the reference speed in the generated stride table (`nw/vent_crawl_verrine`, about 0.44 m/s at 1.0), and it holds still when she does, so hands and knees do not slide. Pass `{"speed": x}` to force a speed.
+
+```gdscript
+NightWatchPoses.play_state(hunter_view, "vent_enter")   # drop to the crawl (one-shot; Verrine only, others have no vent_enter)
+NightWatchPoses.play_state(hunter_view, "vent")         # loop the crawl; speed follows how fast the view actually moves
+NightWatchPoses.play_state(hunter_view, "vent_exit")    # rise to standing
+NightWatchPoses.stop(hunter_view)
+```
+
+`play_state` reads the hunter from the view (`HunterView3D.shown_id()`) or from `opts["hunter_id"]`. Captures: `docs/crawl_side.png` and `docs/crawl_front.png` (top row the drop, bottom row the crawl loop); `tools/look/crawl_views.tscn` makes them and `tools/look/pose_probe.tscn` prints the heights. Suite `nw_poses` checks the crawl stays under 0.8 m, nothing goes through the floor, the transitions meet the crawl, the stride table has a forward-stepping entry, and the state mapping is Verrine-only.
+
+Note on head angles: positive x on the Head tips it BACK (looks up); bows are negative (the first version had several bows with the wrong sign: door_lurk, peek, creep_walk, kneel and slump are fixed).

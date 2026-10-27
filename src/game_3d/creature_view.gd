@@ -80,11 +80,16 @@ func tick(delta: float) -> String:
 					clip = CLIP_ATTACK
 			WhiteWolfSpiderGimmick.Phase.RETREAT:
 				clip = CLIP_WALK if moving else CLIP_IDLE
-				speed = 2.2
 			WhiteWolfSpiderGimmick.Phase.BARK:
 				clip = CLIP_IDLE
 			_:
 				clip = CLIP_WALK if moving else CLIP_IDLE
+	if (clip == CLIP_WALK or clip == CLIP_SPRINT) and _oneshot_left <= 0.0 and not _dead:
+		# legs play at real ground speed / the clip's measured stride speed (HunterStride), so they do not skate
+		var pick := HunterStride.choose(view._shown_id, clip, view._move_speed, [CLIP_WALK, CLIP_SPRINT])
+		if animation_player.has_animation(String(pick["clip"])):
+			clip = String(pick["clip"])
+		speed = float(pick["scale"])
 	if _oneshot_left > 0.0 or _dead:
 		if animation_player.current_animation != clip or not animation_player.is_playing():
 			if not (_dead and animation_player.current_animation == CLIP_DEATH):
