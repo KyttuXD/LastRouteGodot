@@ -63,3 +63,8 @@ static func _nearest_uncollected(from: Vector2, entries: Array) -> int:
 			best_distance = distance
 			best = i
 	return best
+
+
+## 2D batteryThief never targets or attacks the player.
+func immune_to_capture() -> bool:
+	return true

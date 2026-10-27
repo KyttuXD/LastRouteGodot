@@ -27,7 +27,12 @@ var on_station := false
 func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
 	if generator.relays.is_empty():
 		return
+	# She keeps guarding the first relay still out; once it is taken she moves on to the next one.
 	var relay: Dictionary = generator.relays[0]
+	for entry in generator.relays:
+		if not entry.get("collected", false):
+			relay = entry
+			break
 	var open: Dictionary = generator.nearest_open_position(
 		relay["x"] + 0.5, relay["y"] + 0.5, brain.radius)
 	if open.is_empty():
@@ -69,3 +74,8 @@ func apply_network_state(state: Dictionary) -> void:
 	if value is Vector2:
 		station = value
 	on_station = bool(state.get("on_station", on_station))
+
+
+## 2D: a stationed guardian returns before the capture check; she never grabs anyone.
+func immune_to_capture() -> bool:
+	return on_station

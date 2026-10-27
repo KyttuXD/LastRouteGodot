@@ -23,7 +23,9 @@ var _speed_scale := 1.0
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
 	var target_position: Vector2 = target["position"]
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
-	var target_flashlight_on: bool = target.get("flashlight_on", true)
+	# 2D: counts only while the torch is on AND charged AND the runner is not hidden.
+	var target_flashlight_on: bool = bool(target.get("flashlight_on", true)) \
+		and float(target.get("lamp_charge", 1.0)) > 0.0 and not bool(target.get("hidden", false))
 
 	if target_flashlight_on and not _was_on:
 		_activations += 1
@@ -33,6 +35,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 		_track_elapsed = _track_elapsed + delta if target_flashlight_on else 0.0
 		if _track_elapsed >= GameConfig.QUIRITH_FLASHLIGHT_LOCK_SECONDS:
 			_tracking = true
+			brain.world_events.append({"what": "message", "sound": "alert", "message": "QUIRITH LOCKED ON"})
 
 	var activation_progress := minf(1.0, float(_activations) / GameConfig.QUIRITH_SPEED_RAMP_ACTIVATIONS)
 	_speed_scale = 1.0 + activation_progress * (GameConfig.QUIRITH_MAX_SPEED_SCALE - 1.0) \

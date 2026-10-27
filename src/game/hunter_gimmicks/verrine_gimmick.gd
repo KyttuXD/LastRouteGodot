@@ -149,3 +149,8 @@ func _index_of(vents: Array, vent_id: String) -> int:
 		if String(entry.get("id", "")) == vent_id:
 			return int(entry["index"])
 	return -1
+
+
+## 2D: she can only attack a player who is inside the vent network; an idle, invisible Verrine grabs nobody.
+func immune_to_capture() -> bool:
+	return not _active_in_vent

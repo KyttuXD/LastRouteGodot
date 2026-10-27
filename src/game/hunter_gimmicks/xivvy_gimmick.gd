@@ -24,7 +24,10 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	var in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_position: Vector2 = target["position"]
 
-	var lock_radius := GameConfig.XIVVY_CLOSE_LOCK_RADIUS * GameConfig.XIVVY_CLOSE_SCALE
+	# 2D: closeLockRadius * (.5 + exposure / 200)
+	var meters = target.get("meters")
+	var exposure_scale := GameConfig.XIVVY_CLOSE_SCALE + (float(meters.exposure) / 200.0 if meters != null else 0.0)
+	var lock_radius := GameConfig.XIVVY_CLOSE_LOCK_RADIUS * exposure_scale
 	if not hidden and not in_safe_zone and brain.position.distance_to(target_position) <= lock_radius:
 		brain.state = HunterBrain.State.CHASE
 		brain.has_last_known = true

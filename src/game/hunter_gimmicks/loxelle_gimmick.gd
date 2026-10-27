@@ -121,7 +121,8 @@ func _resolve_charge(brain: HunterBrain, target: Dictionary,
 	if occupied:
 		toggles.append({"cell": _charge_cell,
 			"eject_to": generator.hiding_exit_position(_charge_candidate),
-			"charge_impact": true})
+			"charge_impact": true, "temperature_add": GameConfig.LOXELLE_BREAK_TEMPERATURE,
+			"noise_add": GameConfig.LOXELLE_BREAK_NOISE})
 	else:
 		toggles.append({"cell": _charge_cell, "disabled": true,
 			"charge_impact": true})
@@ -231,3 +232,9 @@ func _nearest_live_spot(from: Vector2, generator, room_id: String) -> Dictionary
 			best_distance = distance
 			best = spot
 	return best
+
+
+## Non-lethal in 2D (nonLethal / specialist early return): she can never trigger a capture.
+func immune_to_capture() -> bool:
+	return true
+

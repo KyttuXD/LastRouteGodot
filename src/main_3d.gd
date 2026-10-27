@@ -31,6 +31,9 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
+var _death_moment: DeathMoment
+## How the local runner is dying, for the death line pick: contact (default), deal (Zephyra), cold (Wynelle).
+var _death_via := "contact"
 var pixel_signal_effect: PixelSignalEffect
 var _capture_resolving := false
 ## Admin-only: shows every hunter on both maps, active or not -- see
@@ -124,6 +127,8 @@ func _ready() -> void:
 	run_report.leave_requested.connect(_leave_after_report)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	_death_moment = DeathMoment.new()
+	add_child(_death_moment)
 	pixel_signal_effect = PixelSignalEffect.new()
 	pixel_signal_effect.name = "PixelSignalEffect"
 	add_child(pixel_signal_effect)
@@ -351,6 +356,9 @@ func _update_gameplay(delta: float) -> void:
 						"at": toggle["eject_to"],
 						"message": "LOXELLE BROKE YOUR COVER",
 					})
+					_dispatch_player_event(target, {"what": "meter_effect",
+						"temperature_add": float(toggle.get("temperature_add", 0.0)),
+						"noise_add": float(toggle.get("noise_add", 0.0))})
 				else:
 					var spot := facility_view.hiding_spot_at(cell)
 					if spot:
@@ -363,6 +371,8 @@ func _update_gameplay(delta: float) -> void:
 		# Wynelle's freeze grace is a second way to lose that isn't a grab:
 		# if it runs out you die where you stand, with no struggle.
 		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
+			if int(target.get("peer_id", 1)) == (multiplayer.get_unique_id() if RoomState.online else 1):
+				_death_via = "cold"
 			_capture_target(view, target, true)
 			view.brain.gimmick.consume_frozen_player(view.brain)
 			view.sync_from_brain()
@@ -413,6 +423,7 @@ func _local_hunter_target() -> Dictionary:
 		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
+		"map_open": hud.map_is_open(),
 		"no_target": player.admin_no_target,
 		"god_mode": player.admin_god_mode,
 		"escape_active": GameState.escape_active,
@@ -806,6 +817,20 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 			"offer": personal_offer, "coins": GameState.coins, "message": message})
 	if RoomState.online:
 		_remotes.broadcast_event({"what": "coins", "coins": GameState.coins})
+	# 2D: any deal can be fatal. She grabs through the normal capture path, the death line is drawn from the "deal" pool.
+	var zephyra_view: HunterView3D = null
+	for view in hunter_views:
+		if view.brain.gimmick == gimmick:
+			zephyra_view = view
+	if zephyra_view != null and zephyra_view.brain.next_random_float() < float(
+			GameConfig.ZEPHYRA_DEATH_CHANCE.get(RoomState.difficulty_id(), 0.05)):
+		if peer_id == local_id:
+			_death_via = "deal"
+			_trigger_capture(zephyra_view, true)
+		else:
+			_remotes.send_player_event(peer_id, {"what": "capture", "hunter_id": "zephyra",
+				"inescapable": true, "via": "deal"})
+		return "ZYTTU // THE DEAL COST MORE THAN COINS"
 	return message
 
 
@@ -1028,6 +1053,7 @@ func _resolve_capture_outcome() -> void:
 		Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
 	print("[capture] presentation-complete: hunter=%s" % hunter_id)
+	await _play_death_moment(hunter_id)
 	# Keep the run non-terminal while the capture presentation owns the camera.
 	# Setting game_over before this await lets the main loop and co-op snapshot
 	# path observe the death before the player sees the hunter.
@@ -1035,6 +1061,25 @@ func _resolve_capture_outcome() -> void:
 	_enter_game_over()
 	_capture_resolving = false
 	_force_disable_admin_cheats()
+
+
+## The short death cutscene (a line from the catcher, no jumpscare). Online it is an overlay only, solo the end card waits.
+func _play_death_moment(hunter_id: String) -> void:
+	if _death_moment == null:
+		return
+	var cause := {"hunter_id": hunter_id, "via": _death_via, "detail": ""}
+	_death_via = "contact"
+	if hunter_id == "nyxie" and capturing_view != null and capturing_view.brain.gimmick != null:
+		cause["detail"] = "lamp" if capturing_view.brain.gimmick.capture_is_inescapable() else "darkness"
+	var name := String(HunterRoster.get_identity(hunter_id).get("display_name", hunter_id))
+	var picked := DeathLines.pick(cause, RoomState.seed_text, GameState.depth, name)
+	if not DeathMoment.plays(picked):
+		return
+	var is_void := HunterRoster.VOID_IDS.has(hunter_id)
+	if RoomState.online:
+		_death_moment.play(name, picked, is_void)
+	else:
+		await _death_moment.play(name, picked, is_void)
 
 
 func _enter_game_over() -> void:
@@ -1561,6 +1606,8 @@ func _dispatch_player_event(target: Dictionary, event: Dictionary) -> void:
 func _apply_player_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
 		"capture":
+			if String(event.get("via", "")) != "":
+				_death_via = String(event.get("via", "contact"))
 			var view := _find_hunter(String(event.get("hunter_id", "")))
 			if view:
 				_trigger_capture(view, bool(event.get("inescapable", false)))
@@ -1829,7 +1876,7 @@ func _play_world_audio(event: Dictionary) -> void:
 	if what == "thessine_mimic":
 		_play_thessine_mimic(event)
 		return
-	if what in ["sabotage", "hiding_disabled", "sound_alert"] \
+	if what in ["sabotage", "hiding_disabled", "sound_alert"] or String(event.get("sound", "")) == "alert" \
 			or (what == "pickup" and note.begins_with("YSOLDE")):
 		Sound.alert()
 

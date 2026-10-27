@@ -196,7 +196,9 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	# boolean here let an ordinary peer suppress capture whenever the host itself
 	# happened to be an admin. The authoritative capture boundary rechecks the
 	# signed player permission before applying any result.
-	if not target_hidden and not target_in_safe_zone \
+	var may_grab_hidden := target_hidden and gimmick != null and gimmick.breaches_hiding() \
+		and has_last_known and last_known.distance_to(target_position) < 0.9
+	if (not target_hidden or may_grab_hidden) and not target_in_safe_zone \
 			and not (gimmick and gimmick.immune_to_capture()):
 		var reach := (GameConfig.PLAYER_RADIUS + radius) \
 			* GameConfig.CAPTURE_DISTANCE_SCALE \
@@ -301,7 +303,8 @@ func calm_reset(stun_duration: float) -> void:
 
 func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
 	var direct_distance := position.distance_to(target_position)
-	var can_sense := not target_in_safe_zone and not target_hidden
+	var breaches: bool = gimmick != null and gimmick.breaches_hiding()
+	var can_sense := not target_in_safe_zone and (not target_hidden or breaches)
 	if not can_sense:
 		direct_chase_visible = false
 	sense_timer -= delta
@@ -322,6 +325,8 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 	if target_flashlight_on:
 		sight_limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
 			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
+	if gimmick != null:
+		sight_limit *= gimmick.sight_scale(self)
 	var hearing_limit := target_noise * hearing_scale * difficulty_hearing
 	if can_sense:
 		# One throttled grid ray serves exposed sight and open-air hearing. Walls

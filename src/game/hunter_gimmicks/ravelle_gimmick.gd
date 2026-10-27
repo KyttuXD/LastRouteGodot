@@ -39,7 +39,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 	for wire in _wires:
 		if wire["triggered"]:
 			continue
-		if target_position.distance_to(wire["position"]) > GameConfig.RAVELLE_TRIGGER_RADIUS:
+		if _distance_to_segment(target_position, wire["a"], wire["b"]) > GameConfig.RAVELLE_TRIGGER_RADIUS:
 			continue
 		wire["triggered"] = true
 		_window_triggered = true
@@ -62,8 +62,13 @@ func _place_wires(brain: HunterBrain, generator) -> void:
 		var index := brain.next_random_index(candidates.size())
 		var cell: Vector2i = candidates[index]
 		candidates.remove_at(index)
+		# 2D hallwayCrossingSpan: the wire spans the whole 3-wide hall, not just the doorway cell's centre.
+		var centre := Vector2(cell) + Vector2(0.5, 0.5)
+		var across := Vector2(0, 1.42) if generator.is_floor(cell.x - 1 + 0.5, cell.y + 0.5) \
+			and generator.is_floor(cell.x + 1 + 0.5, cell.y + 0.5) else Vector2(1.42, 0)
 		_wires.append({
-			"position": Vector2(cell) + Vector2(0.5, 0.5),
+			"position": centre,
+			"a": centre - across, "b": centre + across,
 			"cell": cell,
 			"triggered": false,
 		})
@@ -85,3 +90,9 @@ static func _doorway_cells(generator) -> Array:
 		if horizontal or vertical:
 			cells.append(cell)
 	return cells
+
+
+static func _distance_to_segment(point: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((point - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+	return point.distance_to(a + ab * t)

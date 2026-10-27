@@ -84,6 +84,10 @@ var vsync_enabled := DEFAULT_VSYNC
 var fps_limit := DEFAULT_FPS_LIMIT
 var field_of_view := DEFAULT_FIELD_OF_VIEW
 var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
+## Accessibility: no fades or typing animation; the death moment shows its whole line at once.
+var reduced_motion := false
+## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
+var short_death_scenes := false
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 var _admin_preferences: Dictionary = ADMIN_PREFERENCE_DEFAULTS.duplicate()
@@ -145,6 +149,16 @@ func set_vsync(enabled: bool) -> void:
 	_apply_display_performance()
 	_save()
 	display_changed.emit()
+
+
+func set_reduced_motion(enabled: bool) -> void:
+	reduced_motion = enabled
+	_save()
+
+
+func set_short_death_scenes(enabled: bool) -> void:
+	short_death_scenes = enabled
+	_save()
 
 
 func set_fps_limit(limit: float) -> void:
@@ -349,6 +363,8 @@ func _load() -> void:
 		"pixel_effect_percent", DEFAULT_PIXEL_EFFECT_PERCENT), 0.0, 100.0)
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
+	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
+	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -392,6 +408,8 @@ func _save() -> void:
 	config.set_value("display", "field_of_view", field_of_view)
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
+	config.set_value("accessibility", "reduced_motion", reduced_motion)
+	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))

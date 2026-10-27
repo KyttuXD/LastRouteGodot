@@ -36,7 +36,7 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, _gen
 
 	if not _warned:
 		_warned = true
-		brain.world_events.append({"what": "message",
+		brain.world_events.append({"what": "message", "sound": "alert",
 			"message": "MUSIC BOX WOUND DOWN // FACILITY NOISE RISING"})
 
 	var meters = target.get("meters")
@@ -61,3 +61,8 @@ func wind(meters) -> void:
 	if meters != null and meters.has_method("reclaim_noise") and _noise_gained > 0.0:
 		meters.reclaim_noise(_noise_gained)
 	_noise_gained = 0.0
+
+
+## Non-lethal in 2D (nonLethal / specialist early return): she can never trigger a capture.
+func immune_to_capture() -> bool:
+	return true

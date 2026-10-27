@@ -32,3 +32,8 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	brain.has_last_known = true
 	brain.last_known = target["position"]
 	brain.lost_sight_timer = 0.0
+
+
+## 2D breachesHiding / breaksHiding: hiding does not hide the player from her.
+func breaches_hiding() -> bool:
+	return true

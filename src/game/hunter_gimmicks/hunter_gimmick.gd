@@ -85,6 +85,17 @@ func immune_to_capture() -> bool:
 	return false
 
 
+## Multiplies the brain's sight range (2D `gimmickModifiers.sightScale`: Ilyra 1.8, Mavrine's survey .7).
+func sight_scale(_brain: HunterBrain) -> float:
+	return 1.0
+
+
+## True for a hunter who can sense and grab a player hidden in a hiding spot (2D `breachesHiding`/`breaksHiding`:
+## Eirys, Loxelle). The brain then ignores the hidden flag while her last known point is within reach of it.
+func breaches_hiding() -> bool:
+	return false
+
+
 ## Small presentation/interaction state which a non-authoritative peer needs
 ## in addition to the shared HunterBrain fields. Timers and AI decisions stay
 ## host-only; subclasses expose only values a guest must render or consult
@@ -153,5 +164,23 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return VerrineGimmick.new()
 		"zephyra":
 			return ZephyraGimmick.new()
+		"void_black":
+			return VoidBlackGimmick.new()
+		"void_blue":
+			return VoidBlueGimmick.new()
+		"void_brown":
+			return VoidBrownGimmick.new()
+		"void_cyan":
+			return VoidCyanGimmick.new()
+		"void_green":
+			return VoidGreenGimmick.new()
+		"void_pink":
+			return VoidPinkGimmick.new()
+		"void_red":
+			return VoidRedGimmick.new()
+		"void_white":
+			return VoidWhiteGimmick.new()
+		"void_yellow":
+			return VoidYellowGimmick.new()
 		_:
 			return null

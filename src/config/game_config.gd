@@ -318,6 +318,8 @@ const WYNELLE_DEEP_COLD_THRESHOLD := 30.0
 const WYNELLE_PER_DEGREE_RATE := 0.5
 const WYNELLE_DEEP_COLD_RATE := 1.0
 const WYNELLE_DEATH_GRACE_SECONDS := 10.0
+## 2D Zephyra deathChance per trade (relaxed .02, normal .05, hard .075, nightmare .12).
+const ZEPHYRA_DEATH_CHANCE := {"relaxed": 0.02, "standard": 0.05, "hard": 0.075, "nightmare": 0.12}
 const WYNELLE_DEMATERIALIZE_RESET_PROGRESS := 50.0
 
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
@@ -429,6 +431,9 @@ const LOXELLE_INTERVAL := 5.0
 const LOXELLE_CHANCE := 0.25
 const LOXELLE_REGEN_SECONDS := 30.0
 const LOXELLE_BREAK_STALL := 10.0
+## 2D breaksHiding: the runner she exposes gets +30 temperature and makes 11 noise.
+const LOXELLE_BREAK_TEMPERATURE := 30.0
+const LOXELLE_BREAK_NOISE := 11.0
 const LOXELLE_CHARGE_WINDUP := 0.42
 const LOXELLE_CHARGE_SECONDS := 0.70
 const LOXELLE_CHARGE_SPEED := 6.8
@@ -439,10 +444,17 @@ const LOXELLE_CHARGE_IMPACT_DISTANCE := 0.20
 ## Ceryth — hiding trap (hunterAbilities.ceryth.hidingTrap). lockSeconds is her
 ## own plan's fallback of 30.
 const CERYTH_LOCK_SECONDS := 30.0
+## 2D hidingTrap: she sprints to a new spot at 6.4, at least 7 cells away.
+const CERYTH_RETREAT_SPEED := 6.4
+const CERYTH_MINIMUM_RETREAT := 7.0
 
 ## Briselle — room-entry relay sabotage (hunterAbilities.briselle.saboteur).
 ## dwell is her plan's own value; RELAY_RESECURE_SECONDS is TUNING's
 ## relayResecureSeconds fallback (2.6), the hold time to bring one back online.
+## 2D relayTracker: huntSeconds 12, speedScale 1.25, flashStunSeconds 3.
+const BRISELLE_HUNT_SECONDS := 12.0
+const BRISELLE_SPEED_SCALE := 1.25
+const BRISELLE_FLASH_STUN_SECONDS := 3.0
 const BRISELLE_ROOM_CHANCE := 0.5
 const BRISELLE_SABOTAGE_DWELL := 5.0
 const RELAY_RESECURE_SECONDS := 2.6
@@ -459,7 +471,9 @@ const GLYRA_NOISE_PER_SECOND := 1.0
 ## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Relaxed,
 ## Standard and Hard use the counterable Standard values; Nightmare's
 ## zero-delay pounce stays reserved with the unselectable mode.
-const ILYRA_POUNCE_DELAY := 0.75
+## 2D config pounceDelay (Nightmare: 0).
+const ILYRA_POUNCE_DELAY := 15.0
+const ILYRA_SIGHT_SCALE := 1.8
 const ILYRA_STUN_SECONDS := 5.0
 const ILYRA_BANISH_SECONDS := 30.0
 

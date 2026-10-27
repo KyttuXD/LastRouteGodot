@@ -83,6 +83,8 @@ var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
+var _death_moment: DeathMoment
+var _last_death_cause := {}
 ## Spectator state: peer id of the followed runner (0 = free camera).
 ## How long a caught PUBLIC-route runner spectates before rejoining (scripts/public_test.gd stretches it).
 static var public_spectate_seconds := 8.0
@@ -128,6 +130,8 @@ func _ready() -> void:
 	add_child(pixel_signal_effect)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	_death_moment = DeathMoment.new()
+	add_child(_death_moment)
 	_story = STORY_DIRECTOR_SCRIPT.new()
 	_story.name = "InfiniteStoryDirector"
 	add_child(_story)
@@ -2174,6 +2178,7 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 			target["position"]) if not target.is_empty() else INF})
 		view.sync_from_brain()
 		for hunter_event_value in view.brain.world_events:
+			_apply_gimmick_signal(hunter_event_value, view, target)
 			_apply_streamed_hunter_world_event(hunter_event_value, level,
 				navigation)
 		view.brain.world_events.clear()
@@ -2218,6 +2223,43 @@ func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
 	# host-authoritative and reliable, so guests see the same hinge animation.
 	_publish_stream_event({"what": "stream_door",
 		"door_id": nearest.room_door_id, "open": true, "broken": false})
+
+
+## Gimmick events that are not shared-world mutations: a toast, a player stun, a facility-wide alarm. The finite route
+## handles these in main_3d.gd; the streamed route used to drop them silently.
+func _apply_gimmick_signal(event: Dictionary, source: HunterView3D, target: Dictionary) -> void:
+	match String(event.get("what", "")):
+		"message":
+			var note := String(event.get("message", ""))
+			if String(event.get("sound", "")) == "alert":
+				Sound.alert()
+			if not note.is_empty():
+				hud.show_message(note)
+		"hiding_disabled":
+			var cell: Vector2i = event.get("cell", Vector2i(-1, -1))
+			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
+				var spot := spot_value as RouteInteractable3D
+				if spot != null and spot.source_cell == cell:
+					spot.set_disabled(bool(event.get("disabled", false)))
+		"stun":
+			if not target.is_empty():
+				_remotes.send_player_event(int(target.get("peer_id", 1)), {"what": "stun",
+					"seconds": float(event.get("seconds", 0.0)), "message": String(event.get("message", ""))})
+		"facility_alert":
+			Sound.alert()
+			var at: Vector2 = event.get("at", Vector2.ZERO)
+			var except_id := String(event.get("except", ""))
+			for other_value in _hunter_views.values():
+				var other := other_value as HunterView3D
+				if other == null or other == source or other.brain == null or not other.brain.active \
+						or other.brain.hunter_id == except_id:
+					continue
+				other.brain.state = HunterBrain.State.INVESTIGATE
+				other.brain.has_last_known = true
+				other.brain.last_known = at
+			var alert_note := String(event.get("message", ""))
+			if not alert_note.is_empty():
+				hud.show_message(alert_note)
 
 
 func _apply_streamed_hunter_world_event(event: Dictionary, level: int,
@@ -2383,6 +2425,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"inventory_capacity": player.inventory_capacity(),
 		"equipped_backpack": player.equipped_backpack,
 		"meters": player.meters,
+		"map_open": hud.map_is_open(),
 		"no_target": player.admin_no_target,
 		"god_mode": player.admin_god_mode,
 		"escape_active": GameState.escape_active,
@@ -3458,6 +3501,11 @@ func _apply_player_event(event: Dictionary) -> void:
 			var message := String(event.get("message", ""))
 			if not message.is_empty():
 				hud.show_message(message)
+		"stun":
+			player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
+			var stun_note := String(event.get("message", ""))
+			if not stun_note.is_empty():
+				hud.show_message(stun_note)
 		"revive":
 			if player.spectator_mode and not RoomState.is_host:
 				_end_spectating()
@@ -3556,6 +3604,14 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
 		await jumpscare.play(player.active_camera(), hunter_id)
+	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
+	# waits for it so the line is read before the end card.
+	_last_death_cause = _death_cause(hunter_id)
+	var moment := _death_moment_for(hunter_id, _last_death_cause)
+	if RoomState.public_route or RoomState.online:
+		_play_death_moment(hunter_name, moment, hunter_id)
+	else:
+		await _play_death_moment(hunter_name, moment, hunter_id)
 	if RoomState.public_route:
 		await _public_spectate_then_rejoin(hunter_name)
 		return
@@ -3589,6 +3645,31 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		"seed": RoomState.seed_text,
 	})
 	_capture_resolving = false
+
+
+## The cause the death line is drawn for: Nyxie's dead lamp or her darkness timer, otherwise an ordinary catch.
+func _death_cause(hunter_id: String) -> Dictionary:
+	var cause := {"hunter_id": hunter_id, "via": "contact", "detail": ""}
+	if hunter_id == "nyxie":
+		cause["detail"] = "darkness"
+		for view_value in _hunter_views.values():
+			var view := view_value as HunterView3D
+			if view != null and view.brain != null and view.brain.hunter_id == "nyxie" \
+					and view.brain.gimmick != null and view.brain.gimmick.capture_is_inescapable():
+				cause["detail"] = "lamp"
+	return cause
+
+
+func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Dictionary:
+	var cause := cause_override if not cause_override.is_empty() else _death_cause(hunter_id)
+	var name := String(HunterRoster.get_identity(String(cause["hunter_id"])).get("display_name", hunter_id))
+	return DeathLines.pick(cause, RoomState.seed_text, -facility.current_level(), name)
+
+
+func _play_death_moment(hunter_name: String, picked: Dictionary, hunter_id: String) -> void:
+	if _death_moment == null or not DeathMoment.plays(picked):
+		return
+	await _death_moment.play(hunter_name, picked, HunterRoster.VOID_IDS.has(hunter_id))
 
 
 func _apply_hunter_event(event: Dictionary) -> void:
@@ -3758,10 +3839,16 @@ func _update_spectating() -> void:
 			and _living_runners().is_empty():
 		_end_spectating()
 		_death_screen_open = true
+		# Party wipe: the last catcher gets the final word, as a line on the card rather than another cutscene.
+		var wipe_line := {}
+		if not _last_death_cause.is_empty():
+			wipe_line = _death_moment_for(String(_last_death_cause["hunter_id"]), _last_death_cause)
 		run_report.open({
 			"online": true, "host": true, "respawn": true,
 			"title": "RUN OVER", "kicker": "ALL RUNNERS // LOST",
 			"reason": "THE WHOLE PARTY WAS CAUGHT",
+			"line": String(wipe_line.get("text", "")) if DeathMoment.plays(wipe_line) else "",
+			"line_style": String(wipe_line.get("style", "")),
 			"depth": -facility.current_level(), "score": GameState.score,
 			"relays": GameState.relays_collected,
 			"relay_target": GameState.relay_target, "coins": GameState.coins,

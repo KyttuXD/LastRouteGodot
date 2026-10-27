@@ -21,12 +21,35 @@ extends HunterGimmick
 
 var trap_spot := Vector2i(-1, -1)
 var eyes_red := true
-## Set once she has been answered correctly. The scene reads this to retire her.
+## Only when a correct answer finds no other hiding spot to flee to (2D falls back to leaving the floor). The scene
+## reads this to retire her.
 var dispersed := false
+## 2D hidingTrap: a correct answer makes her a visible runner who sprints to a NEW spot at least
+## CERYTH_MINIMUM_RETREAT away and settles there with fresh eyes.
+var retreating := false
+var _answered := false
+var _next_spot := Vector2i(-1, -1)
 
 
 func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
 	if dispersed:
+		return
+	if _answered and not retreating:
+		_answered = false
+		_start_retreat(brain, generator)
+		if dispersed:
+			return
+	if retreating:
+		var perch: Vector2 = generator.hiding_exit_position({"x": _next_spot.x, "y": _next_spot.y,
+			"open_direction": _spot_direction(generator, _next_spot)})
+		brain.state = HunterBrain.State.INVESTIGATE
+		brain.has_last_known = true
+		brain.last_known = perch
+		if brain.position.distance_to(perch) < 0.9:
+			retreating = false
+			trap_spot = _next_spot
+			eyes_red = brain.next_random_index(2) == 0
+			brain.position = perch
 		return
 	if trap_spot.x < 0:
 		if generator.hiding_spots.is_empty():
@@ -39,7 +62,35 @@ func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, ge
 
 
 func holds_position() -> bool:
-	return not dispersed and trap_spot.x >= 0
+	return not dispersed and not retreating and trap_spot.x >= 0
+
+
+func speed_scale(brain: HunterBrain) -> float:
+	return GameConfig.CERYTH_RETREAT_SPEED / maxf(0.1, brain.base_speed) if retreating else 1.0
+
+
+func _spot_direction(generator, cell: Vector2i) -> Vector2i:
+	for spot in generator.hiding_spots:
+		if int(spot["x"]) == cell.x and int(spot["y"]) == cell.y:
+			return spot.get("open_direction", Vector2i.ZERO)
+	return Vector2i.ZERO
+
+
+func _start_retreat(brain: HunterBrain, generator) -> void:
+	var options := []
+	for spot in generator.hiding_spots:
+		var cell := Vector2i(int(spot["x"]), int(spot["y"]))
+		if cell == trap_spot:
+			continue
+		if Vector2(cell).distance_to(brain.position) < GameConfig.CERYTH_MINIMUM_RETREAT:
+			continue
+		options.append(cell)
+	if options.is_empty():
+		dispersed = true
+		return
+	_next_spot = options[brain.next_random_index(options.size())]
+	retreating = true
+	trap_spot = Vector2i(-2, -2)
 
 
 ## Dispersed, like Porcelle -- gone from the room, not from the simulation.
@@ -61,13 +112,13 @@ func resolve_entry(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 	if not answered:
 		return {"trapped": true, "message": "CERYTH %s EYES // LOCKED FOR %d s"
 			% ["RED" if eyes_red else "BLUE", int(GameConfig.CERYTH_LOCK_SECONDS)]}
-	dispersed = true
+	_answered = true
 	return {"trapped": false, "cleared": true,
-		"message": "CERYTH DISPERSED // HIDING SPOT CLEARED"}
+		"message": "CERYTH FLEES // HIDING SPOT CLEARED"}
 
 
 func network_state() -> Dictionary:
-	return {"trap_spot": trap_spot, "eyes_red": eyes_red, "dispersed": dispersed}
+	return {"trap_spot": trap_spot, "eyes_red": eyes_red, "dispersed": dispersed, "retreating": retreating}
 
 
 func apply_network_state(state: Dictionary) -> void:
@@ -76,3 +127,9 @@ func apply_network_state(state: Dictionary) -> void:
 		trap_spot = spot
 	eyes_red = bool(state.get("eyes_red", eyes_red))
 	dispersed = bool(state.get("dispersed", dispersed))
+	retreating = bool(state.get("retreating", retreating))
+
+
+## Non-lethal in 2D (nonLethal / specialist early return): she can never trigger a capture.
+func immune_to_capture() -> bool:
+	return true
