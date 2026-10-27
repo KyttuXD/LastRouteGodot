@@ -9,6 +9,7 @@ extends HunterGimmick
 ##   LURK -> BARK (1.25 s, holds, bark clip + cue) -> HUNT (<= HUNT_SECONDS) -> RETREAT (to the lair) -> LURK (cooldown)
 ##
 ## Host-simulated like every hunter; guests only need `phase` and `bark_seq` (network_state) to play the bark.
+## The black variant (BlackWolfSpiderGimmick, below this class's file) subclasses it with harsher numbers.
 
 enum Phase { LURK, BARK, HUNT, RETREAT }
 
@@ -24,12 +25,25 @@ const RETREAT_SPEED_SCALE := 3.2
 const LAIR_RADIUS := 1.8
 const SENSE_EVERY := 0.2
 
+## Per-variant tuning (the black variant overrides these in its _init; the consts above are the white defaults).
+var alert_radius := ALERT_RADIUS
+var bark_seconds := BARK_SECONDS
+var hunt_seconds := HUNT_SECONDS
+var cooldown_seconds := COOLDOWN_SECONDS
+var hunt_speed_scale := HUNT_SPEED_SCALE
+var retreat_speed_scale := RETREAT_SPEED_SCALE
+## Seconds of flashlight beam on it that drive it off (0 = the moment it is alerted); INF = it ignores the light.
+var flash_hold := 0.0
+## Which cue announces it ("bark" or "hiss"; the clip is always `bark`).
+var tell := "bark"
+
 var phase: Phase = Phase.LURK
 var bark_seq := 0
 var lair := Vector2.ZERO
 var has_lair := false
 
 var _timer := 0.0
+var _beam_time := 0.0
 var _cooldown := 0.0
 var _sense_left := 0.0
 var _spawn_barks := false
@@ -51,9 +65,9 @@ func holds_position() -> bool:
 func speed_scale(_brain: HunterBrain) -> float:
 	match phase:
 		Phase.HUNT:
-			return HUNT_SPEED_SCALE
+			return hunt_speed_scale
 		Phase.RETREAT:
-			return RETREAT_SPEED_SCALE
+			return retreat_speed_scale
 	return 1.0
 
 
@@ -79,13 +93,14 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 			_face(brain, target_position)
 			if _timer <= 0.0:
 				phase = Phase.HUNT
-				_timer = HUNT_SECONDS
+				_timer = hunt_seconds
 				brain.state = HunterBrain.State.CHASE
 				brain.has_last_known = true
 				brain.last_known = target_position
 		Phase.HUNT:
 			_timer -= delta
-			if not exposed or brain.winded or _timer <= 0.0 or brain.beam_alerted:
+			_beam_time = _beam_time + delta if brain.beam_alerted else 0.0
+			if not exposed or brain.winded or _timer <= 0.0 or (_beam_time > flash_hold and flash_hold != INF and brain.beam_alerted):
 				_begin_retreat(brain)
 			else:
 				brain.state = HunterBrain.State.CHASE   # it does not lose a runner it has marked: it follows sound and light
@@ -95,7 +110,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 		Phase.RETREAT:
 			if brain.position.distance_to(lair) <= LAIR_RADIUS:
 				phase = Phase.LURK
-				_cooldown = COOLDOWN_SECONDS
+				_cooldown = cooldown_seconds
 				brain.state = HunterBrain.State.IDLE
 				brain.has_wander_target = false
 			else:
@@ -122,14 +137,14 @@ func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, _g
 func _notices(brain: HunterBrain, target: Dictionary, target_position: Vector2, generator) -> bool:
 	var distance := brain.position.distance_to(target_position)
 	var noise := float(target.get("noise", 0.0)) * brain.hearing_scale * HEAR_RADIUS_SCALE
-	if distance <= ALERT_RADIUS and generator.has_line_of_sight(brain.position, target_position):
+	if distance <= alert_radius and generator.has_line_of_sight(brain.position, target_position):
 		return true
 	return noise > 0.0 and distance <= noise and generator.has_line_of_sight(brain.position, target_position)
 
 
 func _begin_bark(brain: HunterBrain, target_position: Vector2) -> void:
 	phase = Phase.BARK
-	_timer = BARK_SECONDS
+	_timer = bark_seconds
 	bark_seq += 1
 	brain.state = HunterBrain.State.IDLE
 	_face(brain, target_position)

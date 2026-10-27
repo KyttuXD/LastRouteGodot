@@ -119,4 +119,10 @@ func _bark_cue() -> void:
 	if distance >= BARK_CUE_RADIUS:
 		return
 	var side := (view.global_position - camera.global_position).dot(camera.global_basis.x)
-	Sound.spider_bark(clampf(side / maxf(distance, 1.0), -1.0, 1.0), clampf(1.4 - distance / BARK_CUE_RADIUS, .35, 1.4))
+	var pan := clampf(side / maxf(distance, 1.0), -1.0, 1.0)
+	var loudness := clampf(1.4 - distance / BARK_CUE_RADIUS, .35, 1.4)
+	var gimmick := view.brain.gimmick as WhiteWolfSpiderGimmick if view.brain != null else null
+	if gimmick != null and gimmick.tell == "hiss":
+		Sound.spider_hiss(pan, loudness)
+	else:
+		Sound.spider_bark(pan, loudness)

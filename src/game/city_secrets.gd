@@ -10,11 +10,13 @@ extends RefCounted
 ##   _city_secrets.update(self, delta)                            # first line of _update_hunters after the simulates() guard
 ##   (and `or entity_id.begins_with("SECRET:")` next to the "ADMIN:" check in _repair_duplicate_hunter_identities)
 ##
-## Triggers (SecretCreatures.TRIGGER): "garden_vigil" = stand still in a garden with the flashlight OFF for VIGIL_SECONDS
-## (nothing in normal play looks like that); "fountains" = stand at all FOUNTAIN_COUNT fountains in one run.
-## Only the local runner counts. The creature appears out of reach, already barking: the telegraph comes first.
+## Triggers (SecretCreatures.TRIGGER, "off" for now: nothing ever spawns by itself): "garden_vigil" = stand still in a garden with
+## the flashlight OFF for VIGIL_SECONDS (nothing in normal play looks like that); "fountains" = stand at all the fountains in one run.
+## Only the local runner counts. A creature appears out of reach, already telegraphing (bark or hiss): the warning comes first.
+## SecretCreatures.RELATIONSHIP says which creature a trigger brings: "black_follows_white" (first the white one; the black one only
+## for a runner who has MET the white one, on a second trigger), "black_rare" (one creature per run, black 1 time in 4) or "pair".
 
-const ENTITY_ID := "SECRET:white_wolf_spider"
+const ENTITY_ID := "SECRET:white_wolf_spider"   # the white one (kept for callers); see entity_id() for any creature
 const VIGIL_SECONDS := 45.0
 const VIGIL_STILL_SPEED := 0.45        # cells per second: slower than this counts as standing still
 const VIGIL_DECAY := 2.0               # moving, light on or leaving the garden drains the vigil this much faster
@@ -24,23 +26,38 @@ const SPAWN_MAX_DISTANCE := 23.0
 const DISCOVER_RANGE := 14.0
 const DISCOVER_EVERY := 0.5
 
-var fired := false
+## Test hooks: the validator arms a trigger / relationship without touching the shipped constants.
+static var trigger_override := ""
+static var relationship_override := ""
+
+var fired := false                  # at least one creature has been spawned this run
 var vigil := 0.0
 var fountains_seen := {}
+var spawned := {}                   # creature id -> true
+var met := {}                       # creature id -> true once the local runner has seen it (account-independent)
 
 var _last_position := Vector2.ZERO
 var _has_last := false
 var _discover_left := 0.0
 
 
+static func trigger() -> String:
+	return trigger_override if not trigger_override.is_empty() else SecretCreatures.TRIGGER
+
+
+static func relationship() -> String:
+	return relationship_override if not relationship_override.is_empty() else SecretCreatures.RELATIONSHIP
+
+
+static func entity_id(creature_id: String) -> String:
+	return "SECRET:%s" % creature_id
+
+
 func update(route, delta: float) -> void:
 	if not SecretCreatures.is_city_generator(route.facility.generator):
 		return
 	_discover(route, delta)
-	if fired or SecretCreatures.TRIGGER == "off":
-		return
-	if route.world_state.has_hunter(ENTITY_ID) or route.world_state.removed_hunters.has(ENTITY_ID):
-		fired = true
+	if trigger() == "off" or _finished(route):
 		return
 	var player = route.player
 	if player == null:
@@ -52,7 +69,7 @@ func update(route, delta: float) -> void:
 	var layout = route.facility.generator.get("layout")
 	if layout == null:
 		return
-	match SecretCreatures.TRIGGER:
+	match trigger():
 		"fountains":
 			_update_fountains(layout, position)
 			if fountains_seen.size() >= _fountain_cells(layout).size():
@@ -125,19 +142,61 @@ func _update_fountains(layout, position: Vector2) -> void:
 
 ## ---------------------------------------------------------------- spawn
 
+## Creatures that already exist this run (spawned now, or earlier in a saved route, or removed by an admin) count as done.
+func _finished(route) -> bool:
+	for id in _planned_ids():
+		var entity := entity_id(String(id))
+		if route.world_state.has_hunter(entity) or route.world_state.removed_hunters.has(entity):
+			spawned[id] = true
+	fired = not spawned.is_empty()
+	return _plan(route).is_empty() and fired
+
+
+func _planned_ids() -> Array:
+	return [SecretCreatures.WHITE_WOLF_SPIDER, SecretCreatures.BLACK_WOLF_SPIDER]
+
+
+## Which creatures the NEXT trigger brings (empty = nothing more to bring right now).
+func _plan(route) -> Array:
+	var white := SecretCreatures.WHITE_WOLF_SPIDER
+	var black := SecretCreatures.BLACK_WOLF_SPIDER
+	match relationship():
+		"pair":
+			return [] if spawned.has(white) or spawned.has(black) else [white, black]
+		"black_rare":
+			if spawned.has(white) or spawned.has(black):
+				return []
+			var roll := SeededRandom.new("%s:SECRET-PICK" % route.facility.generator.world_seed).next_float()
+			return [black] if roll < SecretCreatures.BLACK_CHANCE else [white]
+		_:
+			if not spawned.has(white):
+				return [white]
+			if not spawned.has(black) and met.has(white):
+				return [black]
+			return []
+
+
 func _fire(route, layout, player_position: Vector2) -> void:
-	fired = true
-	var spawn_position = _pick_lair(route, layout, player_position)
-	if spawn_position == null:
-		fired = false          # nowhere open yet: try again on a later tick
-		vigil = VIGIL_SECONDS * .9
+	var plan := _plan(route)
+	if plan.is_empty():
+		vigil = 0.0                      # armed, but nothing is due yet (e.g. the black one waits until the white one has been met)
+		fountains_seen.clear()
 		return
-	_spawn(route, spawn_position, player_position)
+	var spawned_now := false
+	for id in plan:
+		var spawn_position = _pick_lair(route, layout, player_position, String(id))
+		if spawn_position != null and _spawn(route, String(id), spawn_position, player_position):
+			spawned_now = true
+	if spawned_now:
+		vigil = 0.0
+		fountains_seen.clear()
+	else:
+		vigil = VIGIL_SECONDS * .9       # nowhere open yet: try again on a later tick
 
 
-## A deterministic open garden / plaza / path cell SPAWN_MIN..MAX cells from the runner (seeded by the route seed).
-func _pick_lair(route, layout, player_position: Vector2):
-	var rng := SeededRandom.new("%s:SECRET-LAIR" % route.facility.generator.world_seed)
+## A deterministic open garden / plaza / path cell SPAWN_MIN..MAX cells from the runner (seeded by the route seed and the creature).
+func _pick_lair(route, layout, player_position: Vector2, creature_id: String = SecretCreatures.WHITE_WOLF_SPIDER):
+	var rng := SeededRandom.new("%s:SECRET-LAIR:%s" % [route.facility.generator.world_seed, creature_id])
 	var preferred: Array = []
 	var fallback: Array = []
 	var kinds_wanted: Array = [_constant(layout, "GRASS"), _constant(layout, "PATH"), _constant(layout, "PLAZA")]
@@ -159,48 +218,54 @@ func _pick_lair(route, layout, player_position: Vector2):
 	return world_cell(layout, cell)
 
 
-func _spawn(route, spawn_position: Vector2, target_position: Vector2) -> void:
+func _spawn(route, creature_id: String, spawn_position: Vector2, target_position: Vector2) -> bool:
 	var level: int = route.facility.current_level()
 	var navigation = route._navigations.get(level)
 	if navigation == null:
-		fired = false
-		return
+		return false
 	var cell := Vector2i(floori(spawn_position.x), floori(spawn_position.y))
+	var entity := entity_id(creature_id)
 	var state: Dictionary = route.world_state.ensure_hunter({
-		"id": ENTITY_ID, "hunter_id": SecretCreatures.WHITE_WOLF_SPIDER,
+		"id": entity, "hunter_id": creature_id,
 		"origin_chunk": navigation.cell_chunk(cell, level),
 		"cell": StreamedHunterNavigation.local_cell(cell), "level": level,
 	})
 	if state.is_empty():
-		return
+		return false
 	state["position"] = spawn_position
 	state["active"] = true
 	state["state"] = int(HunterBrain.State.IDLE)
 	state["facing"] = (target_position - spawn_position).normalized()
-	route.world_state.hunters[ENTITY_ID] = state
+	route.world_state.hunters[entity] = state
 	route._hunter_stream_signature = ""
 	route._refresh_hunter_stream()
-	var view = route._hunter_views.get(ENTITY_ID)
+	var view = route._hunter_views.get(entity)
 	if view != null and view.brain != null:
 		view.brain.activate_at(target_position)
 		var gimmick := view.brain.gimmick as WhiteWolfSpiderGimmick
 		if gimmick != null:
 			gimmick.start_with_bark()
 		view.sync_from_brain()
-		route._store_hunter(ENTITY_ID, view)
+		route._store_hunter(entity, view)
+	spawned[creature_id] = true
+	fired = true
+	return true
 
 
-## The dossier entry is created only after an actual encounter: line of sight within DISCOVER_RANGE (account only,
-## never in a debug run: Backend.account_discover_hunter enforces both).
+## "Met" = the local runner has line of sight to it within DISCOVER_RANGE (the black one's condition under black_follows_white).
+## The dossier entry is created only for a signed-in account and never in a debug run (Backend.account_discover_hunter enforces both).
 func _discover(route, delta: float) -> void:
 	_discover_left -= delta
-	if _discover_left > 0.0 or not Backend.signed_in():
+	if _discover_left > 0.0 or route.player == null:
 		return
 	_discover_left = DISCOVER_EVERY
-	var view = route._hunter_views.get(ENTITY_ID)
-	if view == null or view.brain == null or not view.brain.active or route.player == null:
-		return
 	var here: Vector2 = route.player.grid_position()
-	if view.brain.position.distance_to(here) <= DISCOVER_RANGE \
-			and route.facility.generator.has_line_of_sight(here, view.brain.position):
-		Backend.account_discover_hunter(SecretCreatures.WHITE_WOLF_SPIDER)
+	for id in _planned_ids():
+		var view = route._hunter_views.get(entity_id(String(id)))
+		if view == null or view.brain == null or not view.brain.active:
+			continue
+		if view.brain.position.distance_to(here) <= DISCOVER_RANGE \
+				and route.facility.generator.has_line_of_sight(here, view.brain.position):
+			met[id] = true
+			if Backend.signed_in():
+				Backend.account_discover_hunter(String(id))

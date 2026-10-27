@@ -139,6 +139,11 @@ func spider_bark(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("spider_bark", pan, clampf(intensity, 0.1, 2.0))
 
 
+## The black variant's tell: a long low hiss.
+func spider_hiss(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("spider_hiss", pan, clampf(intensity, 0.1, 2.0))
+
+
 func remote_player_footstep(mode := "walk", pan: float = 0.0,
 		volume: float = 0.04) -> bool:
 	var resolved := mode if mode in ["sprint", "crouch"] else "walk"
@@ -358,6 +363,7 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"nyxie_timer": c = [_tone(72, .5, .09), _tone(108, .4, .07, .18, "triangle"), _tone(144, .3, .05, .34, "triangle")]
 		"nyxie_empty": c = [_tone(48, .7, .13, 0, "saw"), _tone(32, .9, .08, .1)]
 		"hunter_laugh": c = [_tone(392, .07, .05 * intensity, 0, "triangle", pan), _tone(349, .07, .045 * intensity, .10, "triangle", pan), _tone(311, .09, .04 * intensity, .20, "triangle", pan)]
+		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
 		"teammate_footstep_sprint": c = [_noise(.07, .066 * intensity, 610, 0, pan, 1.15), _thump(92, .065, .045 * intensity, 0, pan)]

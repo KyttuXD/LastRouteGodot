@@ -7,10 +7,12 @@ extends RefCounted
 ##   godot4 --headless res://scenes/validate.tscn -- secret_creature
 
 const ID := "white_wolf_spider"
+const BLACK_ID := "black_wolf_spider"
 const STEP := 1.0 / 30.0
 ## Files that may name it (everything else must stay silent: the grep test below).
 const ALLOWED := ["res://src/config/secret_creatures.gd", "res://src/game/city_secrets.gd",
-	"res://src/game/hunter_gimmicks/white_wolf_spider_gimmick.gd", "res://src/game/hunter_gimmicks/hunter_gimmick.gd",
+	"res://src/game/hunter_gimmicks/white_wolf_spider_gimmick.gd", "res://src/game/hunter_gimmicks/black_wolf_spider_gimmick.gd",
+	"res://src/game/hunter_gimmicks/hunter_gimmick.gd",
 	"res://src/game_3d/creature_view.gd", "res://scripts/validate_secret_creature.gd", "res://tools/look/creature_check.gd",
 	"res://scripts/validate_runner.gd", "res://docs/SECRET_WOLF_SPIDER.md"]
 const SKIP_DIRS := [".git", ".godot", "build", ".claude", "assets/city", "tools/city", "docs/secret_wolf_spider"]
@@ -56,11 +58,14 @@ class OpenField:
 
 
 func run(host: Node) -> int:
-	_model_and_clips(host)
+	for creature in [ID, BLACK_ID]:
+		_model_and_clips(host, creature)
 	_secret_stays_secret()
 	_behaviour()
+	_black_behaviour()
 	_determinism_and_network()
 	_trigger()
+	_relationship()
 	await _view(host)
 	await _live_route(host)
 	_no_hints()
@@ -71,8 +76,8 @@ func run(host: Node) -> int:
 
 ## ---------------------------------------------------------------- model
 
-func _model_and_clips(host: Node) -> void:
-	var identity := SecretCreatures.identity(ID)
+func _model_and_clips(host: Node, creature: String) -> void:
+	var identity := SecretCreatures.identity(creature)
 	var model := ModelSlot.instantiate(String(identity["model_scene"]))
 	_expect(model != null, "the creature glb did not load")
 	if model == null:
@@ -89,24 +94,24 @@ func _model_and_clips(host: Node) -> void:
 			if player.has_animation(clip):
 				_expect(player.get_animation(clip).loop_mode == Animation.LOOP_NONE, "%s must be a one-shot" % clip)
 		_expect(absf(player.get_animation("walk").length - 1.2) < .01 and absf(player.get_animation("sprint").length - .6) < .01
-			and absf(player.get_animation("bark").length - .9) < .01, "clip lengths differ from the source model")
-	_expect(model.find_child("head", true, false) != null and model.find_child("thorax", true, false) != null, "rig groups (head/thorax) are missing")
+			and absf(player.get_animation("bark").length - .9) < .01, "%s: clip lengths differ from the source model" % creature)
+	_expect(model.find_child("head", true, false) != null and (model.find_child("thorax", true, false) != null or model.find_child("body", true, false) != null), "%s: rig groups (head and thorax/body) are missing" % creature)
 	var meshes := model.find_children("*", "MeshInstance3D", true, false)
 	_expect(meshes.size() >= 30, "too few mesh groups (%d)" % meshes.size())
 	host.add_child(model)
 	var head := model.find_child("head", true, false) as Node3D
-	var abdomen := model.find_child("abdomen", true, false) as Node3D
+	var abdomen := (model.find_child("abdomen", true, false) if model.find_child("abdomen", true, false) != null else model.find_child("body", true, false)) as Node3D
 	if head != null and abdomen != null:
-		_expect(head.global_position.z < abdomen.global_position.z, "the head is not on the forward (-Z) side")
+		_expect(head.global_position.z < abdomen.global_position.z, "%s: the head is not on the forward (-Z) side" % creature)
 	# Loop closure: every looping clip ends exactly where it starts (checked on the converter's report).
-	var report = JSON.parse_string(FileAccess.get_file_as_string("res://assets/city/white_wolf_spider/white_wolf_spider.glb.report.json"))
+	var report = JSON.parse_string(FileAccess.get_file_as_string("res://assets/city/%s/%s.glb.report.json" % [creature, creature]))
 	_expect(report is Dictionary, "the converter report is missing (tools/city/bbmodel_creature.py writes it)")
 	if report is Dictionary:
 		for clip_name in ["walk", "idle", "sprint"]:
 			_expect(float(report["clips"][clip_name]["loop_closure_error_deg_or_units"]) < .001, "%s does not close its loop" % clip_name)
 		_expect(int(report["bytes"]) < 300 * 1024, "the glb grew past 300 KB (%d)" % int(report["bytes"]))
 		_expect(int(report["triangles"]) < 2500, "too many triangles (%d)" % int(report["triangles"]))
-	var import_text := FileAccess.get_file_as_string("res://assets/city/white_wolf_spider/white_wolf_spider.glb.import")
+	var import_text := FileAccess.get_file_as_string("res://assets/city/%s/%s.glb.import" % [creature, creature])
 	_expect(import_text.find("generate_lods=false") >= 0, "the glb import generates mesh LODs")
 	model.queue_free()
 
@@ -114,26 +119,33 @@ func _model_and_clips(host: Node) -> void:
 ## ---------------------------------------------------------------- secrecy of the data model
 
 func _secret_stays_secret() -> void:
-	_expect(not HunterRoster.PROFILES.has(ID), "it must not be in HunterRoster.PROFILES")
-	_expect(not HunterRoster.IMPLEMENTED_IDS.has(ID) and not HunterRoster.SPECIAL_IDS.has(ID) and not HunterRoster.A_Z_IDS.has(ID)
-		and not HunterRoster.VOID_IDS.has(ID) and not HunterRoster.OFFICE_VOID_IDS.has(ID), "it is listed in a HunterRoster id list")
-	_expect(not HunterDossier.sorted_ids().has(ID), "the dossier lists it")
+	_expect(not HunterRoster.PROFILES.has(ID) and not HunterRoster.PROFILES.has(BLACK_ID), "a secret creature is in HunterRoster.PROFILES")
+	_expect(SecretCreatures.TRIGGER == "off", "the shipped trigger must be off (KT: nothing spawns by itself for now)")
+	_expect(CitySecrets.trigger() == "off" and CitySecrets.relationship() == "black_follows_white", "the trigger/relationship defaults changed")
+	for creature in [ID, BLACK_ID]:
+		_expect(not HunterRoster.IMPLEMENTED_IDS.has(creature) and not HunterRoster.SPECIAL_IDS.has(creature) and not HunterRoster.A_Z_IDS.has(creature)
+			and not HunterRoster.VOID_IDS.has(creature) and not HunterRoster.OFFICE_VOID_IDS.has(creature), "%s is listed in a HunterRoster id list" % creature)
+		_expect(not HunterDossier.sorted_ids().has(creature), "the dossier lists %s" % creature)
 	_expect(HunterDossier.category_ids("secret").is_empty(), "the dossier's secret category is not empty before discovery")
 	_expect(SecretCreatures.dossier_categories().is_empty(), "the dossier would show a secret section before discovery")
 	for seed_number in 300:
 		for depth in [1, 5, 12]:
-			if HunterRoster.pick_for_floor("SECRET-CHECK:%d" % seed_number, depth, "standard") == ID:
+			if [ID, BLACK_ID].has(HunterRoster.pick_for_floor("SECRET-CHECK:%d" % seed_number, depth, "standard")):
 				_expect(false, "the random draw returned it")
 				return
 	_expect(HunterRoster.get_identity(ID)["display_name"] == "White Wolf Spider", "get_identity does not resolve the creature (brains would fall back to Dovelle)")
 	_expect(HunterRoster.get_identity("dovelle")["display_name"] == "Dovelle", "get_identity broke for ordinary hunters")
-	_expect(HunterGimmick.for_id(ID) is WhiteWolfSpiderGimmick, "the gimmick registry does not resolve it")
+	_expect(HunterGimmick.for_id(ID) is WhiteWolfSpiderGimmick and not (HunterGimmick.for_id(ID) is BlackWolfSpiderGimmick), "the gimmick registry does not resolve the white one")
+	_expect(HunterGimmick.for_id(BLACK_ID) is BlackWolfSpiderGimmick, "the gimmick registry does not resolve the black one")
+	_expect(HunterRoster.get_identity(BLACK_ID)["display_name"] == "Black Wolf Spider", "get_identity does not resolve the black one")
 	_expect(not SecretCreatures.is_city_generator(StreamedRouteGenerator.new("SECRET-CHECK")), "the maze generator counts as the City")
 	# death lines: a debug-only placeholder pool, generic copy in release builds
 	var pick := DeathLines.pick({"hunter_id": ID, "via": "contact"}, "S", 3, "", true)
 	_expect(pick["source"] == "hunter" and pick["style"] == "caption", "the creature's death line (caption) is not picked in a debug build (%s)" % [pick])
 	var release_pick := DeathLines.pick({"hunter_id": ID, "via": "contact"}, "S", 3, "", false)
 	_expect(release_pick["source"] != "hunter", "placeholder death lines must not render in release builds")
+	var black_pick := DeathLines.pick({"hunter_id": BLACK_ID, "via": "contact"}, "S", 3, "", true)
+	_expect(black_pick["source"] == "hunter" and black_pick["style"] == "caption" and black_pick["text"] != pick["text"], "the black one has no death line of its own (%s)" % [black_pick])
 
 
 ## ---------------------------------------------------------------- behaviour
@@ -323,6 +335,20 @@ class FakeRoute:
 
 
 func _trigger() -> void:
+	# with the shipped trigger (off) nothing builds up, even standing in a garden for minutes
+	var idle_route := FakeRoute.new()
+	idle_route.facility.generator = FakeCityGenerator.new()
+	idle_route.player.position2 = Vector2(89 - 90, 44 - 45) + Vector2(.5, .5)
+	var idle_secrets := CitySecrets.new()
+	for _i in 3000:
+		idle_secrets.update(idle_route, .1)
+	_expect(idle_secrets.vigil == 0.0 and not idle_secrets.fired and idle_route.world_state.hunters.is_empty(), "the off trigger left a trace in a garden")
+	CitySecrets.trigger_override = "garden_vigil"
+	_trigger_armed()
+	CitySecrets.trigger_override = ""
+
+
+func _trigger_armed() -> void:
 	# never in the maze
 	var maze_route := FakeRoute.new()
 	maze_route.facility.generator = StreamedRouteGenerator.new("SECRET-MAZE")
@@ -330,7 +356,7 @@ func _trigger() -> void:
 	maze_route.player.position2 = Vector2(0, 0)
 	for _i in 4000:
 		maze_secrets.update(maze_route, .1)
-	_expect(not maze_secrets.fired and maze_secrets.vigil == 0.0 and maze_route.world_state.hunters.is_empty(), "the secret trigger ran outside the City")
+	_expect(not maze_secrets.fired and maze_secrets.vigil == 0.0 and maze_route.world_state.hunters.is_empty(), "the armed secret trigger ran outside the City")
 	# garden vigil: standing still in a garden, light off, accumulates; moving or the light drains it
 	var route := FakeRoute.new()
 	route.facility.generator = FakeCityGenerator.new()
@@ -362,9 +388,86 @@ func _trigger() -> void:
 	var lair_a = secrets._pick_lair(route, layout, garden_world)
 	var lair_b = CitySecrets.new()._pick_lair(route, layout, garden_world)
 	_expect(lair_a != null and lair_a == lair_b, "the lair pick is not deterministic")
+	var black_lair = secrets._pick_lair(route, layout, garden_world, BLACK_ID)
+	_expect(black_lair != null and black_lair == CitySecrets.new()._pick_lair(route, layout, garden_world, BLACK_ID), "the black lair pick is not deterministic")
 	if lair_a != null:
 		var d: float = (lair_a as Vector2).distance_to(garden_world)
 		_expect(d >= CitySecrets.SPAWN_MIN_DISTANCE - 1.5 and d <= CitySecrets.SPAWN_MAX_DISTANCE + 1.5, "the lair is %.1f cells from the runner" % d)
+
+
+## The black variant: the same telegraph, harsher numbers, and it ignores the flashlight.
+func _black_behaviour() -> void:
+	var field := OpenField.new()
+	var lair := Vector2(50.5, 50.5)
+	var brain := HunterBrain.new(lair, "SECRET-BLACK", BLACK_ID)
+	brain.activate_at(lair)
+	var gimmick := brain.gimmick as BlackWolfSpiderGimmick
+	_expect(gimmick != null and gimmick.tell == "hiss" and gimmick.flash_hold == INF, "the black gimmick is not configured (hiss tell, ignores light)")
+	if gimmick == null:
+		return
+	_expect(brain.chase_speed > HunterRoster.get_identity(ID)["chase_speed"] and brain.hearing_scale > HunterRoster.get_identity(ID)["hearing_scale"], "the black one is not faster and keener than the white one")
+	# noticed from further away than the white one, with the same standing-still telegraph first
+	var far := Vector2(50.5, 50.5 + 17.0)       # outside the white one's radius (15), inside the black one's (19)
+	var white := _brain(lair, "SECRET-BLACK-WHITE")
+	_step(white, field, _target(far), 1.0)
+	_expect((white.gimmick as WhiteWolfSpiderGimmick).bark_seq == 0, "the white one noticed a runner 17 cells away")
+	_step(brain, field, _target(far), .6)
+	_expect(gimmick.phase == WhiteWolfSpiderGimmick.Phase.BARK and gimmick.bark_seq == 1 and brain.position.distance_to(lair) < .01, "the black one did not telegraph from 17 cells (phase %d)" % gimmick.phase)
+	# a flashlight beam does NOT drive it off: it keeps hunting through 2 s of beam while the white one would have left
+	var lit := _target(Vector2(50.5, 50.5 + 9.0))
+	lit["facing"] = Vector2(0, -1)
+	var fresh := HunterBrain.new(lair, "SECRET-BLACK-2", BLACK_ID)
+	fresh.activate_at(lair)
+	var fresh_gimmick := fresh.gimmick as BlackWolfSpiderGimmick
+	_step(fresh, field, lit, BlackWolfSpiderGimmick.BLACK_BARK_SECONDS + .6)
+	_expect(fresh_gimmick.phase == WhiteWolfSpiderGimmick.Phase.HUNT, "setup: the black one is not hunting before the beam")
+	lit["flashlight_on"] = true
+	var left_hunt := false
+	for _i in 60:
+		_step(fresh, field, lit, STEP)
+		if fresh_gimmick.phase == WhiteWolfSpiderGimmick.Phase.RETREAT:
+			left_hunt = true
+	_expect(not left_hunt, "a flashlight beam drove the black one off")
+	# hiding or a shelter still ends it; it then waits longer than the white one
+	var shelter := _target(Vector2(50.5, 50.5 + 12.0))
+	shelter["in_safe_zone"] = true
+	_step(fresh, field, shelter, STEP * 3.0)
+	_expect(fresh_gimmick.phase != WhiteWolfSpiderGimmick.Phase.HUNT, "a shelter did not end the black one's hunt")
+	_expect(fresh_gimmick.cooldown_seconds > WhiteWolfSpiderGimmick.COOLDOWN_SECONDS and fresh_gimmick.hunt_seconds > WhiteWolfSpiderGimmick.HUNT_SECONDS, "the black one does not hunt longer and rest longer")
+
+
+## The relationship options (CitySecrets._plan): which creature a trigger brings.
+func _relationship() -> void:
+	var route := FakeRoute.new()
+	route.facility.generator = FakeCityGenerator.new()
+	# default black_follows_white: white first; black only after the white one has been met, on a later trigger
+	var secrets := CitySecrets.new()
+	_expect(secrets._plan(route) == [ID], "the first trigger must bring the white one")
+	secrets.spawned[ID] = true
+	_expect(secrets._plan(route).is_empty(), "the black one came before the white one was met")
+	secrets.met[ID] = true
+	_expect(secrets._plan(route) == [BLACK_ID], "the black one did not follow once the white one was met")
+	secrets.spawned[BLACK_ID] = true
+	_expect(secrets._plan(route).is_empty(), "a third creature was planned")
+	# pair: both at once, only once
+	CitySecrets.relationship_override = "pair"
+	var pair := CitySecrets.new()
+	_expect(pair._plan(route) == [ID, BLACK_ID], "pair did not plan both")
+	pair.spawned[ID] = true
+	_expect(pair._plan(route).is_empty(), "pair planned again")
+	# black_rare: one creature per run, black about 1 time in 4 across seeds, deterministic per seed
+	CitySecrets.relationship_override = "black_rare"
+	var blacks := 0
+	for n in 400:
+		route.facility.generator.world_seed = "RARE-%d" % n
+		var plan: Array = CitySecrets.new()._plan(route)
+		_expect(plan.size() == 1 and plan == CitySecrets.new()._plan(route), "black_rare did not plan exactly one creature deterministically")
+		blacks += 1 if plan == [BLACK_ID] else 0
+	_expect(blacks > 55 and blacks < 145, "black_rare picked the black one %d times in 400 seeds (expected about 100)" % blacks)
+	CitySecrets.relationship_override = ""
+	route.facility.generator.world_seed = "FAKE-CITY"
+	# nothing is ever planned or spawned with the default off trigger (update returns first)
+	_expect(CitySecrets.trigger() == "off", "the trigger override leaked out of the test")
 
 
 ## ---------------------------------------------------------------- view
@@ -435,7 +538,10 @@ func _live_route(host: Node) -> void:
 	var secrets := CitySecrets.new()
 	var player = route.get("player")
 	var at: Vector2 = player.grid_position()
-	secrets._spawn(route, at + Vector2(0, -14), at)
+	_expect(secrets._spawn(route, BLACK_ID, at + Vector2(14, 0), at) and world_state.has_hunter(CitySecrets.entity_id(BLACK_ID)), "CitySecrets._spawn did not create the black hunter")
+	var black_view = (route.get("_hunter_views") as Dictionary).get(CitySecrets.entity_id(BLACK_ID))
+	_expect(black_view != null and black_view._creature != null and black_view.brain.gimmick is BlackWolfSpiderGimmick, "the spawned black creature is not drawn with the creature rig and its own gimmick")
+	_expect(secrets._spawn(route, ID, at + Vector2(0, -14), at), "CitySecrets._spawn failed for the white one")
 	_expect(world_state.has_hunter(CitySecrets.ENTITY_ID), "CitySecrets._spawn did not create the durable hunter")
 	var secret_view = (route.get("_hunter_views") as Dictionary).get(CitySecrets.ENTITY_ID)
 	_expect(secret_view != null and secret_view.brain != null and secret_view.brain.active, "the spawned creature is not an active hunter view")
@@ -454,7 +560,7 @@ func _live_route(host: Node) -> void:
 ## ---------------------------------------------------------------- nothing may hint at it
 
 func _no_hints() -> void:
-	var needles := ["white_wolf_spider", "white wolf spider", "whitewolfspider", "wolf spider", "wolfspider"]
+	var needles := ["white_wolf_spider", "white wolf spider", "whitewolfspider", "black_wolf_spider", "black wolf spider", "blackwolfspider", "wolf spider", "wolfspider"]
 	var offenders: Array = []
 	_scan("res://", needles, offenders)
 	_expect(offenders.is_empty(), "files outside the creature's own that name it: %s" % [offenders])
