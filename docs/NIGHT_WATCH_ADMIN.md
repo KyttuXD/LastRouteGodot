@@ -43,3 +43,20 @@ Hunter speed is a real multiplier in each logic (`hunter_speed`, 1.0 = the 2D nu
 ![Masked Hours](night_watch_admin/admin_mask_3_MASKED_HOURS_SPECIFIC.png)
 ![Salvage Run](night_watch_admin/admin_dayshift_3_SALVAGE_RUN_SPECIFIC.png)
 ![Mixed Shift](night_watch_admin/admin_mixed_3_MIXED_SHIFT_SPECIFIC.png)
+## Dead Air, Bedtime, The Facility (done, lane A; suite `night_watch_admin_a`)
+
+Each game offers `admin_*` hooks (jump to a shift, freeze, the mode's "power" as the common POWER control, infinite power, god, no jumpscare, hunter speed, per-hunter AI level and SEND TO, call play / skip, win / lose; plus
+time, reveal and noclip where the mode has them) and a provider in its own folder (`lure_admin.gd`, `bedroom_admin.gd`, `story_admin.gd`, one line each in `NightWatchAdmin.PROVIDERS`). The rules got three neutral switches (`god`,
+`hunter_speed`; Dead Air also `set_level`): at their defaults the 2D numbers and the goldens are untouched. `night_watch_admin_a` checks the gate, the sections, the layout at three sizes, and runs every entry from a prepared
+state comparing the game's state before and after (an items group is run last item first so each item has to move something).
+
+| Mode | "Power" is | Mode section (`<MODE> SPECIFIC`) |
+|---|---|---|
+| Dead Air | the air (100 = clear) | lure Xivvy now (no cooldown, no audio), reset the lure cooldown, force Xivvy to a crawlspace or a vent opening, break / fix each system (audio, cameras, vents, heater, fan), seal / open each vent, set the temperature, heater / fan on / off, clear the cold and the heat; common: set the hour, reveal (red dots on the camera map), phantoms shown in a chosen room |
+| Bedtime | the flashlight battery | which hand is down (closet door / hall light / bed light / none), the sleep meter (Haelith's creep) 0-99, make the house restless now; common: set the hour, reveal (all three shown and the room lit), Loxelle / Javelle to a stage, Haelith's creep to 0 / 50 / 90 |
+| The Facility | the beacon charge | the noise meter, force the current task done, jump to any task, go to any room, the lift (away / bell / open); common: Opalie and Porcelle 0-3 steps from you, noclip |
+
+![Dead Air specific](night_watch_admin/admin_lure_1280x720_3_DEAD_AIR_SPECIFIC.png)
+![Bedtime specific](night_watch_admin/admin_bedroom_1280x720_3_BEDTIME_SPECIFIC.png)
+![Facility specific](night_watch_admin/admin_story_1280x720_3_THE_FACILITY_SPECIFIC.png)
+(every tab of each mode is in `docs/night_watch_admin/`)

@@ -19,6 +19,9 @@ const PROVIDERS := {
 	"mask": "res://src/night_watch/mask/mask_admin.gd",
 	"dayshift": "res://src/night_watch/dayshift/dayshift_admin.gd",
 	"mixed": "res://src/night_watch/mixed/mixed_admin.gd",
+	"lure": "res://src/night_watch/lure/lure_admin.gd",
+	"bedroom": "res://src/night_watch/bedroom/bedroom_admin.gd",
+	"story": "res://src/night_watch/story/story_admin.gd",
 }
 const LEVEL_ITEMS := [0, 5, 10, 15, 20]
 

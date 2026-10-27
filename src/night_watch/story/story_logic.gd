@@ -84,6 +84,9 @@ var opalie := {}
 var porcelle := {}
 var quenelle := {}
 var dt := 0.0
+## Admin (NightWatchAdmin): god mode sends whoever would have got you a step back; the hunters' step clocks run at this multiple (1.0 = the 2D numbers).
+var god := false
+var hunter_speed := 1.0
 
 
 ## opts: night, rng, var_rng, levels, custom, infinite_beacon, order (a task order index, for tests).
@@ -198,7 +201,7 @@ func _creep(id: String, h: Dictionary, present: bool, ev: Array) -> bool:
 		var hears := noise > float(tune["hear"]) if id == "opalie" else true
 		if float(tune["awayPaceX"]) > 0.0 and int(h["dist"]) > 1:
 			h["away"] = 0.0
-			if hears and (h["pacer"] as NightWatchPacer).step(dt * float(tune["awayPaceX"]) * float(h["tempo"]), level(id)):
+			if hears and (h["pacer"] as NightWatchPacer).step(dt * float(tune["awayPaceX"]) * float(h["tempo"]) * hunter_speed, level(id)):
 				h["dist"] = int(h["dist"]) - 1
 				h["tempo"] = NightWatchStream.tempo(vr, VARIETY["stepTempo"])
 				ev.append({"type": "close", "id": id, "dist": h["dist"], "away": true})
@@ -226,7 +229,7 @@ func _creep(id: String, h: Dictionary, present: bool, ev: Array) -> bool:
 		h["push"] = 0.0
 		var noticed := noise > float(tune["hear"]) if id == "opalie" else true
 		var pace: float = float(tune["paceX"]) if noticed else float(tune["quietX"])
-		if int(h["dist"]) > 0 and pace > 0.0 and (h["pacer"] as NightWatchPacer).step(dt * pace * float(h["tempo"]), level(id)):
+		if int(h["dist"]) > 0 and pace > 0.0 and (h["pacer"] as NightWatchPacer).step(dt * pace * float(h["tempo"]) * hunter_speed, level(id)):
 			h["dist"] = int(h["dist"]) - 1
 			h["tempo"] = NightWatchStream.tempo(vr, VARIETY["stepTempo"])
 			ev.append({"type": "close", "id": id, "dist": h["dist"], "quiet": not noticed})
@@ -238,6 +241,16 @@ func _creep(id: String, h: Dictionary, present: bool, ev: Array) -> bool:
 
 
 func _finish(ev: Array, who: String) -> Array:
+	if god:   # admin: she is sent back
+		if who == "quenelle":
+			quenelle["expose"] = 0.0
+			quenelle["state"] = "away"
+			quenelle["t"] = 0.0
+		else:
+			var h: Dictionary = opalie if who == "opalie" else porcelle
+			h["dist"] = 2
+			h["strike"] = 0.0
+		return ev
 	over = "caught"
 	by = who
 	ev.append({"type": "caught", "by": who})

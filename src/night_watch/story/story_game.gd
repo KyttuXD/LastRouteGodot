@@ -33,6 +33,11 @@ var _porcelle_room := "workshop"
 var _glide := {}
 var _q_state := "away"
 var _tasks_seen := 0
+## Admin (NightWatchAdmin): the menu (null for non-admins) and the live switches the admin hooks below set.
+var admin_menu: AdminMenu
+var _admin_frozen := false
+var _admin_no_scare := false
+var _admin_noclip := false
 
 
 func _ready() -> void:
@@ -46,9 +51,11 @@ func _ready() -> void:
 	_build_world()
 	sim = StoryLogic.new(opts)
 	_spawn_hunters()
-	if not is_custom:
-		hud.queue_call(StoryData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 6.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
 	_sync_visuals()
+	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
+	if admin_menu != null:
+		hud.hint_label.text += "   0 admin"
 
 
 func _build_world() -> void:
@@ -251,9 +258,10 @@ func current_input() -> Dictionary:
 
 
 func advance_ms(dt_ms: float) -> void:
-	if state != State.PLAYING:
+	if state != State.PLAYING or _admin_frozen:
 		return
 	var events := sim.step(dt_ms, current_input())
+	hud.update_call(sim.elapsed, dt_ms)
 	for e in events:
 		_on_event(e)
 	_sync_visuals()
@@ -499,7 +507,7 @@ func _finish_caught() -> void:
 	var picked := DeathLines.pick({"hunter_id": who}, "nightwatch:story:%d" % seed_value, night, name_text)
 	last_death = {"by": who, "name": name_text, "picked": picked}
 	finished.emit("caught")
-	if DeathMoment.plays(picked):
+	if DeathMoment.plays(picked) and not _admin_no_scare:
 		death_moment.play(name_text, picked)
 	else:
 		_after_death_moment()
@@ -513,6 +521,170 @@ func _after_death_moment() -> void:
 	if last_death.get("by", "") == "quenelle":
 		line = "Quenelle saw you when the lift opened."
 	hud.show_end("CAUGHT", line, false)
+
+
+# --- admin hooks (NightWatchAdmin builds the menu from the ones a game has; each really changes the game) ---------------------
+
+func admin_status() -> String:
+	var q: Dictionary = sim.quenelle
+	var task := "ALL DONE"
+	if sim.task_idx < sim.tasks.size():
+		var t: Dictionary = sim.tasks[sim.task_idx]
+		task = "%d/%d %s (%s)" % [sim.task_idx + 1, sim.tasks.size(), t["label"], t["room"]]
+	return "FACILITY  NIGHT %d  ROOM %s%s\nTASK %s\nNOISE %d  BEACON %d%%  HIDDEN %s  LIGHT %s\nOPALIE  AI %d  %d steps\nPORCELLE  AI %d  %d steps\nQUENELLE  AI %d  lift %s\nFROZEN %s  GOD %s  NO SCARE %s  SPEED %.1fX" % [night, sim.room, " (WALKING)" if not sim.moving.is_empty() else "", task,
+		int(sim.noise), int(sim.charge), str(sim.hidden), str(sim.light), sim.level("opalie"), int(sim.opalie["dist"]), sim.level("porcelle"), int(sim.porcelle["dist"]),
+		sim.level("quenelle"), q["state"], str(_admin_frozen), str(sim.god), str(_admin_no_scare), sim.hunter_speed]
+
+
+func admin_jump_to(target_level: int) -> void:
+	NightWatchSession.start_mode(mode_id, target_level)
+	get_tree().paused = false
+	if get_tree().current_scene == self:
+		get_tree().reload_current_scene()
+
+
+func admin_set_frozen(on: bool) -> void:
+	_admin_frozen = on
+
+
+func admin_is_frozen() -> bool:
+	return _admin_frozen
+
+
+## "Power" in the Facility is the beacon's charge.
+func admin_set_power(percent: float) -> void:
+	sim.charge = clampf(percent, 0.0, 100.0)
+	_sync_visuals()
+
+
+func admin_set_infinite_power(on: bool) -> void:
+	sim.infinite_beacon = on
+
+
+func admin_infinite_power() -> bool:
+	return sim.infinite_beacon
+
+
+func admin_set_god(on: bool) -> void:
+	sim.god = on
+
+
+func admin_is_god() -> bool:
+	return sim.god
+
+
+func admin_set_no_scare(on: bool) -> void:
+	_admin_no_scare = on
+
+
+func admin_no_scare() -> bool:
+	return _admin_no_scare
+
+
+func admin_set_noclip(on: bool) -> void:
+	_admin_noclip = on
+	player.set_admin_noclip(on)
+
+
+func admin_is_noclip() -> bool:
+	return _admin_noclip
+
+
+func admin_set_hunter_speed(mult: float) -> void:
+	sim.hunter_speed = clampf(mult, 0.1, 8.0)
+
+
+func admin_hunter_ids() -> Array:
+	return StoryData.CAST.duplicate()
+
+
+func admin_set_hunter_level(id: String, level_value: int) -> void:
+	sim.levels[id] = level_value
+	_sync_visuals()
+
+
+func admin_places() -> Array:
+	return ["steps0", "steps1", "steps2", "steps3", "lift_away", "lift_bell", "lift_open"]
+
+
+## Opalie and Porcelle go to 0-3 steps from you; Quenelle's lift goes to away / bell / open.
+func admin_place_hunter(id: String, place: String) -> void:
+	if place.begins_with("steps") and (id == "opalie" or id == "porcelle"):
+		var h: Dictionary = sim.opalie if id == "opalie" else sim.porcelle
+		h["dist"] = int(place.substr(5))
+		h["strike"] = 0.0
+	elif place.begins_with("lift_") and id == "quenelle":
+		sim.quenelle["state"] = place.substr(5)
+		sim.quenelle["t"] = 0.0
+		sim.quenelle["expose"] = 0.0
+		sim.quenelle["clock"] = 0.0
+		sim.quenelle["gap"] = -1.0
+	_sync_visuals()
+
+
+func admin_play_call() -> void:
+	var entry := NightWatchCallsData.for_level(mode_id, level)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
+
+
+func admin_skip_call() -> void:
+	if hud.call_script != null:
+		hud.call_script.mute()
+	hud.show_call("")
+
+
+func admin_win() -> void:
+	if state == State.PLAYING:
+		sim.over = "win"
+		_finish_win()
+
+
+func admin_lose() -> void:
+	if state == State.PLAYING:
+		sim.over = "caught"
+		sim.by = "opalie"
+		_finish_caught()
+
+
+## The Facility's own controls: the noise meter, the task list (jump to a task, force the current one done), go to a room.
+func admin_set_noise(value: float) -> void:
+	sim.noise = clampf(value, 0.0, 100.0)
+	_sync_visuals()
+
+
+func admin_jump_to_task(index: int) -> void:
+	if index < 0 or index >= sim.tasks.size():
+		return
+	sim.task_idx = index
+	sim.task_ms = 0.0
+	sim.puzzle = sim._make_puzzle(sim.tasks[index])
+	_sync_visuals()
+
+
+func admin_complete_task() -> void:
+	if sim.over != "" or sim.task_idx >= sim.tasks.size():
+		return
+	var events := []
+	sim._complete_task(events)
+	for e in events:
+		if e["type"] == "task":
+			StorySounds.task_done()
+	_sync_visuals()
+	if sim.over == "win":
+		_finish_win()
+
+
+func admin_goto_room(room_id: String) -> void:
+	if not StoryData.ROOMS.has(room_id) or state != State.PLAYING:
+		return
+	sim.room = room_id
+	sim.moving = {}
+	_glide = {}
+	player.input_frozen = keypad_up
+	player.global_position = world.arrival(room_id, "C" if room_id == "lift" or room_id == "control" else "L")
+	sim.hidden = false
+	_sync_visuals()
 
 
 func _exit_tree() -> void:
