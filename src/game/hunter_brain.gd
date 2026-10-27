@@ -34,6 +34,12 @@ const SWEEP_STEP := 0.15
 const STUCK_CENTER_AFTER := 0.25
 const STUCK_REPATH_AFTER := 0.7
 const CENTER_STEER_SECONDS := 0.8
+## No route to the goal for this long (it lies outside the streamed window or inside geometry): walk toward the nearest
+## reachable point on the way, then give the goal up instead of standing and playing a walk clip.
+const UNREACHABLE_GIVE_UP := 1.6
+## Seconds the hunter has been trying to move without getting anywhere; read by the admin hunter list and the validators.
+var stuck_seconds := 0.0
+var _unreachable_time := 0.0
 
 var position: Vector2
 var state: State = State.IDLE
@@ -181,7 +187,9 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
+	var before_move := position
 	_update_movement(delta, generator, depth, relays_collected)
+	_note_displacement(delta, position.distance_to(before_move))
 
 	# Account/room-proof authorization belongs to the owning gameplay scene,
 	# not this presentation-agnostic brain. Trusting a replicated `god_mode`
@@ -469,7 +477,11 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 	# A visible runner needs no route search: follow the fresh 30 Hz target
 	# sample immediately. Grid collision still rejects a wall that enters the
 	# line before the next throttled perception probe.
-	if state == State.CHASE and direct_chase_visible:
+	# The visibility ray is a zero-width line, the body is not: charge straight only while the whole capsule clears the
+	# way, otherwise follow the route around the jamb/prop corner the ray slipped past.
+	var direct_clear := state == State.CHASE and direct_chase_visible \
+		and _clear_sweep(generator, position, move_target)
+	if direct_clear:
 		_path.clear()
 		_has_path_target = false
 		var direct_offset := move_target - position
@@ -480,8 +492,9 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 				* GameConfig.HUNTER_VISIBLE_CHASE_SPEED_SCALE * delta,
 				direct_distance)
 			facing = direct_direction
-			_move_with_collision(direct_direction.x * direct_travel,
+			var direct_moved := _move_with_collision(direct_direction.x * direct_travel,
 				direct_direction.y * direct_travel, generator)
+			_track_progress(direct_moved, direct_travel, delta, generator)
 		return
 	# Chase repaths fast to track a live target; every other moving state
 	# (investigate/search/wander) is walking to a fixed point and repaths
@@ -501,6 +514,25 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 	# it from an unreachable room. Stop and choose another patrol instead; chase
 	# and investigate also wait for a valid path rather than pushing into solids.
 	if _path.is_empty() and _cell_of(position) != target_cell:
+		_unreachable_time += delta
+		if _unreachable_time >= UNREACHABLE_GIVE_UP:
+			_unreachable_time = 0.0
+			if state == State.CHASE or state == State.INVESTIGATE:
+				has_last_known = false
+				state = State.SEARCH
+				search_timer = GameConfig.HUNTER_SEARCH_TIME
+				search_visits = 0
+				search_target = _pick_search_target(generator)
+				has_search_target = true
+			elif state == State.SEARCH:
+				search_target = _pick_search_target(generator)
+			_has_path_target = false
+			return
+		if state != State.WANDER:
+			var detour := _reachable_toward(generator, target_cell)
+			if detour != Vector2i(-99999, -99999):
+				_path = generator.find_path(_cell_of(position), detour)
+				_has_path_target = true
 		if state == State.WANDER:
 			state = State.IDLE
 			has_wander_target = false
@@ -508,6 +540,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 			_has_path_target = false
 		return
 
+	_unreachable_time = 0.0
 	_center_steer_left = maxf(0.0, _center_steer_left - delta)
 	var waypoint := move_target
 	if not _path.is_empty() and _center_steer_left > 0.0:
@@ -561,6 +594,31 @@ func _track_progress(moved: float, wanted: float, delta: float, generator) -> vo
 			var snapped = generator.nearest_open_position(position.x, position.y, radius)
 			if snapped is Dictionary and not (snapped as Dictionary).is_empty():
 				position = Vector2(float(snapped["x"]), float(snapped["y"]))
+
+
+## Telemetry for the admin hunter list and the validators: how long a hunter in a walking/chasing state has failed to go anywhere.
+func _note_displacement(delta: float, moved: float) -> void:
+	var busy := state != State.IDLE and stun_timer <= 0.0 and emote_left <= 0.0 \
+		and not (gimmick != null and gimmick.holds_position())
+	if busy and moved < 0.004:
+		stuck_seconds += delta
+	else:
+		stuck_seconds = 0.0
+
+
+## Nearest cell on the straight line towards an unreachable goal that still has a route from here.
+func _reachable_toward(generator, goal: Vector2i) -> Vector2i:
+	var from := _cell_of(position)
+	var offset := Vector2(goal - from)
+	var length := offset.length()
+	var steps := int(length / 3.0)
+	for i in range(steps, 0, -1):
+		var probe := from + Vector2i((offset * (float(i) / float(steps + 1))).round())
+		if probe == from:
+			continue
+		if generator.can_occupy(probe.x + .5, probe.y + .5, radius) and not generator.find_path(from, probe).is_empty():
+			return probe
+	return Vector2i(-99999, -99999)
 
 
 func _clear_sweep(generator, from: Vector2, to: Vector2) -> bool:

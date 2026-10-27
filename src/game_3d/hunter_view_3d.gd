@@ -56,6 +56,10 @@ var _emote_until_msec := 0
 var _emote_clip := ""
 var _emote_clip_started := false
 var _move_speed := 0.0
+## Seconds the body has barely moved; a walk/chase clip held past STILL_CLIP_AFTER would read as walking in place.
+var _still_time := 0.0
+const STILL_CLIP_AFTER := 0.35
+const STILL_SPEED := 0.15
 var _last_brain_position := Vector2.ZERO
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
@@ -421,6 +425,7 @@ func sync_from_brain() -> void:
 	_move_speed = lerpf(_move_speed, brain.position.distance_to(_last_brain_position) / frame, .3) \
 		if _presentation_initialized else 0.0
 	_last_brain_position = brain.position
+	_still_time = _still_time + frame if _move_speed < STILL_SPEED else 0.0
 	_apply_model(_desired_model_id())
 	_apply_visibility()
 	_update_emote_state()
@@ -515,6 +520,9 @@ func _update_animation() -> void:
 				clip_name = "sprint" if brain.direct_chase_visible and not brain.winded else "chase"
 			HunterBrain.State.WANDER, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 				clip_name = "walk"
+	# A hunter pinned against geometry (or waiting on a route) stands instead of treading on the spot.
+	if _still_time > STILL_CLIP_AFTER and clip_name in ["walk", "chase", "sprint"]:
+		clip_name = "idle"
 	if clip_name == "sprint" and _animation_player != null and not _animation_player.has_animation("sprint"):
 		clip_name = "chase"
 	var speed := 1.0
