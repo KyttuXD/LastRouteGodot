@@ -7,6 +7,7 @@ extends RefCounted
 
 const SCENES := {
 	"classic": "res://scenes/night_watch.tscn",
+	"descent": "res://scenes/night_watch_descent.tscn",
 }
 
 
