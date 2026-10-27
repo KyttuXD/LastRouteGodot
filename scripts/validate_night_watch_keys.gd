@@ -53,9 +53,11 @@ func run(host: Node) -> int:
 	var line := NightWatchControls.hint_line(false)
 	for entry in NightWatchControls.ACTIONS:
 		var a2 := String(entry["action"])
-		if a2.begins_with("nw_cam_") or a2 == "nw_cam_prev" or a2 == "nw_cam_next":
+		if a2.begins_with("nw_cam_") or a2 == "nw_cam_prev" or a2 == "nw_cam_next" or a2 == "nw_meet":
 			continue
 		_expect(line.contains(NightWatchControls.key_text(StringName(a2))), "the hint line does not show %s's key %s: %s" % [a2, NightWatchControls.key_text(StringName(a2)), line])
+	_expect(line.contains("WASD") or line.contains("W") and not line.contains("?"), "the hint line has a movement key it cannot name: %s" % line)
+	_expect(NightWatchControls.hint_line(true, ["nw_meet"]).contains(NightWatchControls.key_text(NightWatchControls.MEET) + " meet her eyes"), "the Night 7 monitor hint does not show the meet key")
 	var mline := NightWatchControls.hint_line(true)
 	_expect(mline.contains("1-8") and mline.contains("Left") and mline.contains("Right"), "the monitor hint line does not show the camera keys: %s" % mline)
 	# a rebind: the hint line and the saved override follow

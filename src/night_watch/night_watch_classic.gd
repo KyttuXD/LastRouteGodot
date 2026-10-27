@@ -26,16 +26,28 @@ var light_on := {"doorL": false, "doorR": false}
 var _rng := RandomNumberGenerator.new()
 var _tuning := {}
 var _lines := {"doorL": [], "doorR": []}
+var kathy_night := false
+var _hum_t := 0.0
+var _meet_lock_ms := 0.0
 
 
 ## `levels` optionally overrides the night's AI levels { id: level } (Custom Night, admin tools, tests).
-func _init(night_number: int = 1, seed_number: int = 0, levels: Dictionary = {}) -> void:
+func _init(night_number: int = 1, seed_number: int = 0, levels: Dictionary = {}, custom := false) -> void:
 	night = clampi(night_number, 1, NightWatchData.NIGHTS)
 	seed_value = seed_number
 	_rng.seed = seed_number
 	var i := NightWatchData.night_index(night)
 	_tuning = {"grace_ms": NightWatchData.DOOR_GRACE_MS[i], "pace": NightWatchData.NIGHT_PACE[i],
 		"push_ms": NightWatchData.LIGHT_PUSH_MS[i]}
+	kathy_night = NightWatchData.is_kathy_night(night, custom)
+	if kathy_night:
+		# Night 7: Kathy alone, on Night 6's door pacing scaled (she walks faster, waits less at an open door; the light never moves her)
+		var k := NightWatchData.KATHY
+		var grace := roundf(float(_tuning["grace_ms"]) * float(k["grace_scale"]))
+		var pace := snappedf(float(_tuning["pace"]) * float(k["pace_scale"]), 0.001)
+		hunters["kathy"] = NightWatchStalker.make_kathy(_rng, int(levels["kathy"]) if levels.has("kathy") else int(k["level"]), grace, pace)
+		nyxie_level = 0
+		return
 	for id in NightWatchData.HUNTERS:
 		var base := int(levels[id]) if levels.has(id) else NightWatchData.level_for(id, night)
 		hunters[id] = NightWatchStalker.make(id, _rng, base, float(_tuning["grace_ms"]), float(_tuning["pace"]),
@@ -121,7 +133,8 @@ func step(dt_ms: float, input: Dictionary = {}) -> Array:
 			if other.room.begins_with("door") and other.level >= int(combo["min_level"]) \
 					and hunter.level >= int(combo["min_level"]):
 				patience = maxf(patience, float(combo["patience_ms"]))
-		hunter.attack_ms = float(_tuning["grace_ms"]) - patience
+		if not kathy_night:
+			hunter.attack_ms = float(_tuning["grace_ms"]) - patience
 		_refresh_lines()
 		var line: Array = _lines.get(hunter.room, [])
 		var is_behind := not line.is_empty() and line.find(id) > 0
@@ -143,6 +156,16 @@ func step(dt_ms: float, input: Dictionary = {}) -> Array:
 		by = "nyxie"
 		events.append({"type": "caught", "id": "nyxie", "cause": "darkness"})
 		return events
+	if kathy_night:
+		_meet_lock_ms = maxf(0.0, _meet_lock_ms - dt_ms)
+		var kathy := hunters["kathy"] as NightWatchStalker
+		if kathy.is_at_door():
+			_hum_t += dt_ms
+			if _hum_t >= float(NightWatchData.KATHY["hum_ms"]):
+				_hum_t = 0.0
+				events.append({"type": "hum", "id": "kathy", "door": kathy.door(), "muffled": bool(shut.get(kathy.door(), false))})
+		else:
+			_hum_t = 0.0
 	_refresh_lines()
 	if elapsed >= NightWatchData.NIGHT_MS:
 		over = "win"
@@ -156,3 +179,27 @@ func door_poses(door: String) -> Array:
 	for hunter in at_door(door):
 		poses.append((hunter as NightWatchStalker).door_pose())
 	return poses
+
+
+## Night 7's tell: is this door's light dipping right now? Only while she stands at that door and its light is on (open or shut).
+func light_dip(door: String) -> bool:
+	if not kathy_night or not bool(light_on.get(door, false)):
+		return false
+	var kathy := hunters["kathy"] as NightWatchStalker
+	return kathy.room == door and NightWatchData.kathy_dip_on(elapsed)
+
+
+## Meet her eyes (Night 7): works while she is on the feed you are watching and that feed is one of the two halls; she fades back to the stage or the kitchen on a fresh
+## door. Anything else is a miss, and the key is dead for KATHY_MISS_LOCK_MS after it. Returns {"result": "met" | "miss" | "locked" | "none", "events": [...]}.
+func meet(cam: bool, cam_room: String, lost := false) -> Dictionary:
+	if not kathy_night or over != "":
+		return {"result": "none", "events": []}
+	if _meet_lock_ms > 0.0:
+		return {"result": "locked", "events": []}
+	var kathy := hunters["kathy"] as NightWatchStalker
+	if cam and not lost and not out and cam_room == kathy.room and NightWatchData.KATHY_MEET_ROOMS.has(kathy.room):
+		var from := kathy.room
+		kathy.fade()
+		return {"result": "met", "events": [{"type": "repelled", "id": "kathy", "room": kathy.room, "from": from}]}
+	_meet_lock_ms = NightWatchData.KATHY_MISS_LOCK_MS
+	return {"result": "miss", "events": []}

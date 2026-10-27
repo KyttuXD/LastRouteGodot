@@ -225,3 +225,12 @@ sets it to false (the player-scene equality check ignores exactly that line). Wi
 light) and never drains (the 2D game has no battery). Night Watch has no hotbar in its HUD (NightWatchHud draws none: no empty gap), no pickups in its scenes, no inventory in
 its saves, and the controls hint and tab list no pickup/drop/slot keys. The digits 1-8 are free for the camera keys inside the monitor. `night_watch` checks the flag, that no
 inventory node exists on the player or in the HUD, that the item APIs refuse, that slot keys and the wheel change nothing, and that the flashlight toggles, lights and does not drain.
+
+## 5g. Classic Night 7: Kathy
+
+Ported from `classic-logic.js` (`KATHY_HUNT`, `kathyTuning`, `KATHY_DIP`, `KATHY_MEET`): Night 7 is Kathy's alone (level 20, no Nyxie, not in Custom Night). She runs on Night 6's pacing
+scaled (grace x0.45 = 2610 ms at an open door, walk pace x0.65); the light never holds her wait; a shut door must stay shut for a rolled time (2.5 s plus an exponential, mean tail
+4.5 s, never above 20 s, `NightWatchData.roll_hold`) and then she fades silently to the stage or the kitchen on a fresh door (`NightWatchStalker.fade`). Her tells: the light at her door
+dips on a 2.6 s cycle (open or shut door, only the door she stands at), a hum every 1.1 s at her door (muffled by a shut door), and meeting her eyes: the **O** key (K in 2D; `nw_meet`, listed in the
+hint line on Night 7 only) while the monitor shows the west or east hall with her in it sends her back; a miss locks the key for 2 s. Her fade makes no sound. Tests in `night_watch`
+(tuning, determinism, roll distribution, the light never holds her, the shut-door fade, dip, hum, meet, scene). Not done: her pulsing camera glow (cosmetic) and her model's own pose set.

@@ -18,6 +18,7 @@ const LAMP := &"nw_lamp"
 const MONITOR := &"nw_monitor"
 const CAM_PREV := &"nw_cam_prev"
 const CAM_NEXT := &"nw_cam_next"
+const MEET := &"nw_meet"        # Night 7: meet Kathy's eyes (the 2D K key)
 const MUTE := &"office_radio"   # shared action, R
 
 ## {action, label (controls tab), key (physical keycode), alt (second keycode or 0), joy (gamepad button or -1)}
@@ -30,6 +31,7 @@ const ACTIONS := [
 	{"action": &"nw_monitor", "label": "CAMERAS (OPEN / CLOSE)", "key": KEY_U, "alt": 0, "joy": -1},
 	{"action": &"nw_cam_prev", "label": "PREVIOUS CAMERA", "key": KEY_LEFT, "alt": 0, "joy": JOY_BUTTON_DPAD_LEFT},
 	{"action": &"nw_cam_next", "label": "NEXT CAMERA", "key": KEY_RIGHT, "alt": 0, "joy": JOY_BUTTON_DPAD_RIGHT},
+	{"action": &"nw_meet", "label": "MEET HER EYES (NIGHT 7)", "key": KEY_O, "alt": 0, "joy": -1},
 	{"action": &"nw_cam_1", "label": "CAMERA 1", "key": KEY_1, "alt": KEY_KP_1, "joy": -1},
 	{"action": &"nw_cam_2", "label": "CAMERA 2", "key": KEY_2, "alt": KEY_KP_2, "joy": -1},
 	{"action": &"nw_cam_3", "label": "CAMERA 3", "key": KEY_3, "alt": KEY_KP_3, "joy": -1},
@@ -114,11 +116,13 @@ static func hint_line(monitor_up := false, active: Array = []) -> String:
 	if monitor_up:
 		var parts := PackedStringArray()
 		parts.append("%s / %s or 1-8 camera" % [key_text(CAM_PREV), key_text(CAM_NEXT)] if _cams_default() else "%s / %s camera" % [key_text(CAM_PREV), key_text(CAM_NEXT)])
+		if not active.is_empty() and active.has(String(MEET)):
+			parts.append("%s meet her eyes" % key_text(MEET))
 		parts.append("%s or %s close" % [key_text(MONITOR), key_text(&"interact")])
 		parts.append("%s mute" % key_text(MUTE))
 		return " · ".join(parts)
 	var out := PackedStringArray()
-	out.append("%s%s%s%s move" % [key_text(&"move_forward"), key_text(&"move_left"), key_text(&"move_back"), key_text(&"move_right")])
+	out.append("%s%s%s%s move" % [key_text(&"move_up"), key_text(&"move_left"), key_text(&"move_down"), key_text(&"move_right")])
 	out.append("%s use (hold on LIGHT)" % key_text(&"interact"))
 	if on.call(DOOR_LEFT):
 		out.append("%s / %s doors" % [key_text(DOOR_LEFT), key_text(DOOR_RIGHT)])

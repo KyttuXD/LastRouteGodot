@@ -455,6 +455,7 @@ func run(host: Node) -> int:
 	_expect(menu.start_button != null and menu.start_button.text.begins_with("▶ START SHIFT"), "the board has no START SHIFT")
 	menu.queue_free()
 	await _check_walking(host)
+	await _check_kathy(host)
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
 	NightWatchSession.start(1)
 	NightWatchSave.reset()
@@ -693,3 +694,110 @@ func _check_uvs(shift: NightWatchGame) -> void:
 	_expect(bad_uv == 0, "%d faces have non-finite, negative or zero-area UVs" % bad_uv)
 	_expect(bad_phase.is_empty(), "hazard faces that do not hold a whole number of periods: %s" % str(bad_phase.slice(0, 5)))
 	_expect(bad_density.is_empty(), "%d faces are off the texel density: %s" % [bad_density.size(), str(bad_density.slice(0, 6))])
+
+
+
+## Night 7: Kathy hunts alone (2D KATHY_HUNT): level 20 on Night 6's pacing scaled, the light never holds her, a shut door has to stay shut for a rolled time and then she
+## FADES silently to the stage or the kitchen on a fresh door, her light dips and hum are her tells, and meeting her eyes on a hall feed sends her back.
+func _check_kathy(host: Node) -> void:
+	var a := NightWatchClassic.new(7, 4242)
+	var b := NightWatchClassic.new(7, 4242)
+	_expect(a.kathy_night and a.hunters.size() == 1 and a.hunters.has("kathy") and a.nyxie_level == 0, "Night 7 is not Kathy's alone")
+	var k := a.hunters["kathy"] as NightWatchStalker
+	_expect(k.base == 20 and k.unseen and absf(k.attack_ms - 2610.0) < 1.0 and absf(k._pace - 0.6695) < 0.001, "Kathy's tuning differs from KATHY_HUNT (grace %.0f pace %.4f)" % [k.attack_ms, k._pace])
+	_expect(not NightWatchClassic.new(7, 4242, {}, true).kathy_night, "a Custom Night on level 7 became Kathy's night")
+	_expect(NightWatchData.active_hunters(7) == ["kathy"] and NightWatchData.NIGHTS == 7, "the Shift Board's night 7 does not show only Kathy")
+	# roll_hold: within [lo, hi], mean near lo + tail
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var total := 0.0
+	var lowest := 1e9
+	var highest := 0.0
+	for i in 4000:
+		var v := NightWatchData.roll_hold(rng.randf(), 2500.0, 20000.0, 4500.0)
+		total += v
+		lowest = minf(lowest, v)
+		highest = maxf(highest, v)
+	_expect(lowest >= 2500.0 and highest <= 20000.0 and absf(total / 4000.0 - 7000.0) < 400.0, "Kathy's shut-door hold is off the 2D distribution (mean %.0f, range %.0f-%.0f)" % [total / 4000.0, lowest, highest])
+	# determinism
+	var log_a := []
+	var log_b := []
+	for i in 600:
+		for e in a.step(250.0, {}):
+			log_a.append(e)
+		for e in b.step(250.0, {}):
+			log_b.append(e)
+	_expect(log_a == log_b and not log_a.is_empty(), "Night 7 is not deterministic for a seed")
+	# the light never holds her wait: she attacks after her grace at an open door even with the light on her
+	var lit := NightWatchClassic.new(7, 11)
+	var lk := lit.hunters["kathy"] as NightWatchStalker
+	lk.room = lk.door()
+	var door := lk.door()
+	var caught := false
+	var waited := 0.0
+	while waited < 4000.0 and not caught:
+		for e in lit.step(50.0, {"lightL": door == "doorL", "lightR": door == "doorR"}):
+			if String(e["type"]) == "caught":
+				caught = true
+		waited += 50.0
+	_expect(caught and waited < 3300.0, "the light held Kathy (caught after %.0f ms, grace 2610)" % waited)
+	# a shut door: she waits out a rolled time, then fades silently to the stage or the kitchen on a fresh door
+	var shut := NightWatchClassic.new(7, 21)
+	var sk := shut.hunters["kathy"] as NightWatchStalker
+	sk.room = sk.door()
+	var shut_door := sk.door()
+	var repelled := false
+	var shut_ms := 0.0
+	while shut_ms < 22000.0 and not repelled:
+		for e in shut.step(50.0, {"doorL": shut_door == "doorL", "doorR": shut_door == "doorR"}):
+			if String(e["type"]) == "repelled":
+				repelled = true
+		shut_ms += 50.0
+	_expect(repelled and shut_ms >= 2450.0 and shut_ms <= 20050.0, "the shut door did not turn Kathy away within the 2.5 to 20 s hold (%.0f ms)" % shut_ms)
+	_expect(NightWatchData.KATHY["fade_to"].has(sk.room) and not sk.is_at_door(), "Kathy did not fade to the stage or the kitchen (she is in %s)" % sk.room)
+	# her tells: the dip (only at the door she stands at, with its light on) and the hum
+	var tell := NightWatchClassic.new(7, 31)
+	var tk := tell.hunters["kathy"] as NightWatchStalker
+	tk.room = tk.door()
+	var tdoor := tk.door()
+	var other := "doorR" if tdoor == "doorL" else "doorL"
+	tell.step(100.0, {"lightL": true, "lightR": true})   # elapsed 100 ms: inside the first dip [0, 180)
+	_expect(tell.light_dip(tdoor) and not tell.light_dip(other), "the light at her door did not dip (and the other one must not)")
+	tell.step(300.0, {"lightL": true, "lightR": true})   # 400 ms: between dips
+	_expect(not tell.light_dip(tdoor), "the light dipped between dips")
+	tk.attack_ms = 1.0e9   # keep her waiting so the hum can be counted
+	var hums := 0
+	for i in 60:
+		for e in tell.step(100.0, {}):
+			if String(e["type"]) == "hum":
+				hums += 1
+	_expect(hums >= 4 and hums <= 6, "her hum came %d times in 6 s (every 1.1 s expected)" % hums)
+	# meeting her eyes: only on a hall feed with her in it; a miss locks the key
+	var meet := NightWatchClassic.new(7, 41)
+	var mk := meet.hunters["kathy"] as NightWatchStalker
+	mk.room = "dining"
+	_expect(String(meet.meet(true, "dining")["result"]) == "miss", "meeting her in the dining area (not a hall) worked")
+	_expect(String(meet.meet(true, "westhall")["result"]) == "locked", "the meet key was not locked after a miss")
+	meet.step(2100.0, {})
+	mk.room = "westhall"
+	var met := meet.meet(true, "westhall")
+	_expect(String(met["result"]) == "met" and NightWatchData.KATHY["fade_to"].has(mk.room), "meeting her eyes on the west hall feed did not send her back")
+	# the scene: Night 7 loads with only Kathy on the floor and the meet key listed
+	NightWatchSession.start(7, 77)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	shift.manual_clock = true
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	for i in 40:
+		shift.advance_ms(500.0)
+	var visible_ids := []
+	for id in shift._models:
+		if (shift._models[id] as Node3D).visible:
+			visible_ids.append(id)
+	_expect(visible_ids == ["kathy"] or visible_ids == [] , "Night 7 shows hunters other than Kathy: %s" % str(visible_ids))
+	_expect(NightWatchControls.hint_line(true, ["nw_meet"]).contains("meet her eyes"), "the monitor hint does not list the meet key on Night 7")
+	shift.open_monitor("westhall")
+	_expect(shift.meet_her_eyes() in ["met", "miss"], "the scene's meet key did nothing")
+	shift.queue_free()
+	await host.get_tree().process_frame
+	NightWatchSession.start(1)
