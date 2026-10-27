@@ -5,7 +5,7 @@ extends RefCounted
 ## spawn reaches every station (within use range) and every entrance, so nothing is walled off and nothing needs a jump or a fall. A mode whose office is not built yet
 ## is listed (it uses the Classic room meanwhile); once every mode has one, set REQUIRE_ALL_BUILT.
 
-const REQUIRE_ALL_BUILT := false
+const REQUIRE_ALL_BUILT := true
 const CELL := 0.25
 const CAPSULE_R := 0.3
 const CAPSULE_H := 1.7
