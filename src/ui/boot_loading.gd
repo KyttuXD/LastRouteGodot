@@ -10,7 +10,7 @@ extends Control
 ## visible through download, verify, and staging.
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
-const MAIN_MENU_PATH := "res://scenes/main_menu.tscn"
+const MAIN_MENU_PATH := "res://scenes/game_hub.tscn"
 const MIN_VISIBLE_SECONDS := 0.8
 
 @export var auto_start := true

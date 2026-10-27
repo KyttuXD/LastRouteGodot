@@ -1,0 +1,48 @@
+extends RefCounted
+
+## The game hub: the registry is consistent, themes load, the hub builds a card per game, Night Watch stays locked,
+## the shared entries exist, and boot opens the hub.
+
+var _failures := 0
+
+
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		print("  FAIL  %s" % message)
+		_failures += 1
+
+
+func run(host: Node) -> int:
+	var ids := []
+	for game in GameRegistry.all():
+		var id := String(game["id"])
+		_expect(not ids.has(id), "duplicate game id %s" % id)
+		ids.append(id)
+		_expect(ResourceLoader.exists(String(game["theme"])) and load(String(game["theme"])) is Theme,
+			"%s has no loadable theme" % id)
+		if bool(game["locked"]):
+			_expect(not String(game["locked_note"]).is_empty(), "%s is locked without a reason" % id)
+			_expect(not GameRegistry.is_launchable(id), "%s is locked but launchable" % id)
+		else:
+			_expect(ResourceLoader.exists(String(game["scene"])), "%s launches a missing scene" % id)
+	_expect(GameRegistry.is_launchable("last_route"), "Last Route is not launchable from the hub")
+	_expect(not GameRegistry.is_launchable("night_watch"), "Night Watch must stay locked until it is ported")
+	_expect(GameRegistry.get_game(GameRegistry.DEFAULT_ID).size() > 0, "default game is missing")
+
+	var hub: Control = (load("res://scenes/game_hub.tscn") as PackedScene).instantiate()
+	host.add_child(hub)
+	await host.get_tree().process_frame
+	for game in GameRegistry.all():
+		var id := String(game["id"])
+		var button := hub.find_child("Launch_%s" % id, true, false) as Button
+		_expect(button != null, "no launch button for %s" % id)
+		if button != null:
+			_expect(button.disabled == bool(game["locked"]), "%s launch button state disagrees with the registry" % id)
+	for shared in ["AccountButton", "SettingsButton", "AdminButton", "QuitButton"]:
+		_expect(hub.find_child(shared, true, false) != null, "hub is missing the %s entry" % shared)
+	hub.queue_free()
+	_expect(FileAccess.get_file_as_string("res://src/ui/boot_loading.gd").contains("game_hub.tscn"),
+		"boot does not open the hub")
+	if _failures == 0:
+		print("  hub  registry, themes, cards, shared entries, locked Night Watch, boot target")
+	return _failures
