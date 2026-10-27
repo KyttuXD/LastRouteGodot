@@ -46,6 +46,7 @@ var _last_obs := {}
 var _stuck_spots: Array = []
 var _safe_wait := 0.0
 var _door_tries := 0
+var _door_walk_time := 0.0
 var _has_last_pos := false
 
 
@@ -88,6 +89,12 @@ func start_run(params: Dictionary) -> Dictionary:
 	for _i in 20:
 		await tree.physics_frame
 	return {"ok": true, "seed": RoomState.seed_text, "difficulty": difficulty}
+
+
+func attach() -> void:
+	_reset()
+	GameState.debug_run = true
+	rng.seed = hash("%s|%s|attach" % [RoomState.seed_text, tree.get_multiplayer().get_unique_id() if RoomState.online else 0])
 
 
 func leave_run() -> void:
@@ -245,6 +252,9 @@ func observe(scene: Node, obs: Dictionary) -> void:
 		"relays": _nearest_entries(nav.relays, p, 8, true), "batteries": _nearest_entries(nav.batteries, p, 4, true),
 		"safe_zones": _nearest_entries(nav.safe_zones, p, 4, false),
 		"hiding_spots": _nearest_entries(nav.hiding_spots, p, 6, false)}
+	var remotes: Variant = scene.get("_remotes")
+	obs["online"] = {"active": RoomState.online, "host": RoomState.is_host, "peers": RoomState.peers.size(),
+		"remotes": (remotes.count() if remotes != null and remotes.has_method("count") else 0), "code": RoomState.code}
 	obs["hunters"] = _observe_hunters(scene, nav, p)
 	obs["interactables"] = _observe_interactables(facility, p)
 
@@ -496,23 +506,10 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	# a closed room door on the way: look at it and open it like a player would
 	var door := _closed_door_ahead(p, aim)
 	if not door.is_empty():
-		var door_pos: Array = door["pos"]
-		var door_target := Vector3(float(door_pos[0]), float(door_pos[1]), float(door_pos[2]))
-		var on_door := _aim_at(player, door_target, act, delta)
-		var door_distance := Vector2(door_target.x - p.x, door_target.z - p.z).length()
-		act["move"] = [0.0, .4 if door_distance > 1.5 else 0.0]
-		if on_door and door_distance <= 2.0 and _interact_cooldown <= 0.0:
-			act["pulse"].append("interact")
-			_interact_cooldown = .8
-			_door_tries += 1
-			if _door_tries > 4:
-				stats["door_failures"] = int(stats.get("door_failures", 0)) + 1
-				add_event("door_failed", {"at": [snappedf(p.x, .1), snappedf(p.z, .1)], "door": door_pos})
-				_door_tries = 0
-				_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
-				_goal = {}
+		_handle_door(nav, player, p, door, goal, act, delta)
 		return
 	_door_tries = 0
+	_door_walk_time = 0.0
 	var yaw_target := atan2(-to_aim.x, -to_aim.y)
 	var error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
@@ -524,6 +521,58 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	# stuck recovery overrides
 	if _stuck_level > 0:
 		_recover(scene, player, p, act)
+
+
+## Doors sit in a wall and only focus from in front of the leaf: walk to a standing point 1.2 m in front of it (on the side we are
+## on), face it, and press interact. After a few failed presses the door is reported as a finding and the goal dropped.
+func _handle_door(nav: StreamedHunterNavigation, player: PlayerController3D, p: Vector3, door: Dictionary, goal: Dictionary,
+		act: Dictionary, delta: float) -> void:
+	var door_pos: Array = door["pos"]
+	var door_xz := Vector2(float(door_pos[0]), float(door_pos[2]))
+	var target := Vector3(door_xz.x, float(door_pos[1]), door_xz.y)
+	var here := Vector2(p.x, p.z)
+	var stand := here
+	var best := 1e9
+	var found := false
+	for offset in [Vector2(1.2, 0), Vector2(-1.2, 0), Vector2(0, 1.2), Vector2(0, -1.2)]:
+		var candidate: Vector2 = door_xz + offset
+		if not nav.can_occupy(candidate.x, candidate.y):
+			continue
+		var d := here.distance_to(candidate)
+		if d < best:
+			best = d
+			stand = candidate
+			found = true
+	if found and here.distance_to(stand) > .4 and _door_walk_time < 4.0:
+		_door_walk_time += delta
+		_steer_to(player, here, stand, act, delta, .6)
+		return
+	var on_door := _aim_at(player, target, act, delta)
+	var door_distance := here.distance_to(door_xz)
+	act["move"] = [0.0, 0.0]
+	if on_door and door_distance <= 2.2 and _interact_cooldown <= 0.0:
+		act["pulse"].append("interact")
+		_interact_cooldown = .8
+		_door_tries += 1
+		if _door_tries > 4:
+			stats["door_failures"] = int(stats.get("door_failures", 0)) + 1
+			add_event("door_failed", {"at": [snappedf(p.x, .1), snappedf(p.z, .1)], "door": door_pos, "stood": [snappedf(stand.x, .1), snappedf(stand.y, .1)],
+				"focus": _last_obs.get("focus", {})})
+			_door_tries = 0
+			_door_walk_time = 0.0
+			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
+			_goal = {}
+
+
+func _steer_to(player: PlayerController3D, here: Vector2, point: Vector2, act: Dictionary, delta: float, speed: float) -> void:
+	var to_point := point - here
+	if to_point.length() < .05:
+		return
+	var error := wrapf(atan2(-to_point.x, -to_point.y) - player.rotation.y, -PI, PI)
+	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	var rate := LOOK_RATE * sens
+	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), PlaytestInput.look_strength(-player.first_person_pivot.rotation.x, rate, delta)]
+	act["move"] = [0.0, speed if absf(error) < .6 else 0.0]
 
 
 func _closed_door_ahead(p: Vector3, aim: Vector2) -> Dictionary:

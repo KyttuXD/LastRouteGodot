@@ -38,3 +38,4 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — chairs and tables audit, measured sizes, fixes, follow-up candidates
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
+- [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.

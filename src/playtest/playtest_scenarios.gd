@@ -7,12 +7,17 @@ const SAMPLE_EVERY := 30
 
 
 static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
-	var tree := bridge.get_tree()
-	var scenario := String(opts["scenario"])
 	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"],
 		"bot_seed": opts["bot_seed"], "debug": true})
 	if not bool(start.get("ok", false)):
 		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	return await run_loop(bridge, adapter, opts, report)
+
+
+## The frame loop shared by every playing scenario: observe -> decide -> inject, with death handling, perf sampling and targets.
+static func run_loop(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var scenario := String(opts["scenario"])
 	var delta := 1.0 / float(Engine.physics_ticks_per_second)
 	var limit_frames := int(float(opts["minutes"]) * 60.0 * float(Engine.physics_ticks_per_second))
 	var target := int(opts["target"])
@@ -24,6 +29,9 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 	var failure := ""
 	var last_over := false
 	var shots := 0
+	var peers_seen: Array = []
+	var remotes_seen: Array = []
+	var passive := bool(opts.get("passive", false))
 	while frames < limit_frames:
 		await tree.physics_frame
 		frames += 1
@@ -31,6 +39,8 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
 			fps.append(float(obs["fps"]))
 			frame_ms.append(float(obs["frame_ms"]))
+		if int(opts.get("hash_frames", 0)) > 0 and frames == int(opts["hash_frames"]):
+			report["state_hash"] = PlaytestObserver.state_hash(obs)
 		var over := adapter.run_over(obs)
 		if over and not last_over:
 			var death: Dictionary = obs.get("run", {}).get("death", {})
@@ -54,7 +64,10 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 			outcome = "died"
 			break
 		last_over = over
-		var act := adapter.decide(obs, delta)
+		if obs.has("online") and frames % 60 == 0 and bool(obs["online"].get("active", false)):
+			peers_seen.append(int(obs["online"]["peers"]))
+			remotes_seen.append(int(obs["online"]["remotes"]))
+		var act := adapter.decide(obs, delta) if not passive else {}
 		bridge.input.apply(act)
 		if bool(opts["screenshots"]) and frames % (60 * 20) == 0 and shots < 12:
 			shots += 1
@@ -75,9 +88,80 @@ static func play(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 	bridge.input.release_all()
 	if outcome == "time_limit" and scenario in ["explore_coverage", "collect_relays", "reach_depth"] and target > 0:
 		failure = "%s: target %d not reached in %.1f game minutes" % [scenario, target, float(opts["minutes"])]
+	var online_summary: Dictionary = {}
+	if peers_seen.size() > 0:
+		online_summary = {"peers_min": peers_seen.min(), "peers_max": peers_seen.max(), "remotes_min": remotes_seen.min(), "remotes_max": remotes_seen.max()}
+		report["online"] = online_summary
 	var summary: Dictionary = {"outcome": outcome, "game_seconds": snappedf(frames * delta, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": deaths, "scenario_failure": failure}
 	return summary
+
+
+## coop_bot: one client of a bot party. role=host creates the room against --backend and waits for --guests guests, role=guest reads the
+## room code from --dir/code.txt and joins. Then everyone plays the route with the bot (or stands still with --passive) for --minutes.
+## Driven by scripts/playtest_multi.sh on a test machine against a LOCAL backend (or the TEST instance; production needs the explicit flag).
+static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var role := String(opts["role"])
+	var shared := String(opts["dir"])
+	if role not in ["host", "guest"] or shared.is_empty():
+		return {"scenario_failure": "coop_bot needs --role=host|guest and --dir=<shared folder>", "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var wait_for := func(condition: Callable, what: String, seconds: float) -> bool:
+		var waited := 0
+		while waited < int(seconds * 60.0):
+			if condition.call():
+				return true
+			await tree.physics_frame
+			waited += 1
+		report["scenario_failure"] = "timed out waiting for %s" % what
+		return false
+	var read := func(name: String) -> String:
+		return FileAccess.get_file_as_string(shared.path_join(name)).strip_edges()
+	DirAccess.make_dir_recursive_absolute(shared)
+	if role == "host":
+		RoomState.create_local(RoomState.Mode.DEFAULT)
+		RoomState.seed_text = String(opts["seed"])
+		RoomState.set_map_scale(RoomState.Scale.INFINITE)
+		var error := RoomState.host_primary_room(int(opts["port"]))
+		if not error.is_empty():
+			return {"scenario_failure": "host failed: %s" % error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
+		if not await wait_for.call(func(): return Backend.registered, "backend registration", 20.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+		var code_file := FileAccess.open(shared.path_join("code.txt"), FileAccess.WRITE)
+		code_file.store_string(RoomState.code)
+		code_file.close()
+		if not await wait_for.call(func(): return RoomState.roster().size() >= int(opts["guests"]) + 1, "%d guest(s) to join" % int(opts["guests"]), 60.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+		RoomState.enter(tree)
+	else:
+		if not await wait_for.call(func(): return read.call("code.txt") != "", "the host's room code", 90.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+		var code: String = read.call("code.txt")
+		var box := [{}]
+		var finished := [false]
+		Backend.room_resolved.connect(func(_c: String, endpoint: Dictionary, err: String) -> void:
+			box[0] = endpoint if err.is_empty() else {"error": err}
+			finished[0] = true)
+		Backend.resolve_room(code)
+		if not await wait_for.call(func(): return finished[0], "room lookup", 15.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+		var resolved: Dictionary = box[0]
+		if resolved.has("error"):
+			return {"scenario_failure": "room lookup: %s" % resolved["error"], "outcome": "error", "game_seconds": 0.0, "frames": 0}
+		RoomState.create_local(RoomState.Mode.DEFAULT)
+		var join_error := RoomState.join_room(String(resolved.get("address", "")), int(resolved.get("port", 0)), String(resolved.get("transport", "relay")), code)
+		if not join_error.is_empty():
+			return {"scenario_failure": "join failed: %s" % join_error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	if not await wait_for.call(func(): return _scene(bridge) == "infinite_route_test.tscn", "the route scene", 90.0):
+		return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+	if role == "guest":
+		if not await wait_for.call(func(): return not bool(tree.current_scene.get("_awaiting_snapshot")), "the host snapshot", 60.0):
+			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
+	adapter.attach()
+	for _i in 60:
+		await tree.physics_frame
+	report["role"] = role
+	return await run_loop(bridge, adapter, opts, report)
 
 
 ## probe: start a run, teleport to --probe-x/--probe-z, wait for the chunk to stream in, then take four screenshots turning 90 degrees

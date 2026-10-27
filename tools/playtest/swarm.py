@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-SETUP = Path(os.environ.get("PLAYTEST_TOOLS_DIR", "/Volumes/BIG-HDD-2/Game Stuff/Claude-Setup"))
+SETUP = Path(os.environ.get("PLAYTEST_TOOLS_DIR", "/Users/kyttu/Developer/Claude-Setup"))
 MINI_RUN = os.environ.get("MINI_RUN", str(SETUP / "mini-run.sh"))
 WIN_RUN = os.environ.get("WIN_RUN", str(SETUP / "win-run.sh"))
 MACHINES = {"mini": ("mini", None), "kt-bee": ("win", "KT-BEE"), "ak-bee": ("win", "AK-BEE")}

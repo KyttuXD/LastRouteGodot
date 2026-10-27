@@ -41,6 +41,11 @@ func run_over(_obs: Dictionary) -> bool:
 	return false
 
 
+## Take over a run that is already loaded (joined co-op room, resumed save): reset the bot's own state, mark it a DEBUG RUN.
+func attach() -> void:
+	pass
+
+
 ## Leave the current run back to the game's menu / hub the way a player would.
 func leave_run() -> void:
 	pass
