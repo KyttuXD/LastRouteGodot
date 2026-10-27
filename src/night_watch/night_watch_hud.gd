@@ -56,6 +56,8 @@ var _call_queue: Array = []
 var _call_timer := 0.0
 var _call_active := false
 var _script_shown := false
+var _external_call_clock := false
+var _auto_call_ms := 0.0
 var muted := false
 var subtitles := true
 var subtitles_button: Button
@@ -473,11 +475,18 @@ func set_subtitles(on: bool) -> void:
 ## Zellia's script for this shift (NightWatchCallScript); the game feeds it the shift clock through update_call().
 func set_call_script(script: NightWatchCallScript) -> void:
 	call_script = script
+	_auto_call_ms = 0.0
 	_call_active = false
 	show_call("")
 
 
 func update_call(elapsed_ms: float, dt_ms: float) -> void:
+	_external_call_clock = true   # a game that feeds the shift clock owns the call's time (manual clocks, pauses, the admin freeze)
+	_step_call(elapsed_ms, dt_ms)
+
+
+## A scene that only hands the HUD its lines (queue_call / set_call_script) and never feeds it the clock still gets its call: the HUD runs it on real time.
+func _step_call(elapsed_ms: float, dt_ms: float) -> void:
 	if call_script == null:
 		return
 	for e in call_script.update(elapsed_ms, dt_ms):
@@ -500,6 +509,9 @@ func queue_call(lines: Array) -> void:
 
 
 func _process(delta: float) -> void:
+	if call_script != null and not _external_call_clock and not call_script.done:
+		_auto_call_ms += delta * 1000.0
+		_step_call(_auto_call_ms, delta * 1000.0)
 	if _note_left > 0.0:
 		_note_left -= delta
 		if _note_left <= 0.0:

@@ -115,6 +115,22 @@ func run(host: Node) -> int:
 		_expect(hud.call_mute != null and hud.call_mute.text.begins_with("Mute"), "the call box has no Mute button")
 		vp.queue_free()
 		await host.get_tree().process_frame
+	# a scene that only calls queue_call (never update_call) still gets its call, on real time
+	var lone_vp := SubViewport.new()
+	lone_vp.size = Vector2i(480, 270)
+	lone_vp.disable_3d = true
+	host.add_child(lone_vp)
+	var lone := NightWatchHud.new()
+	lone_vp.add_child(lone)
+	await host.get_tree().process_frame
+	lone.queue_call(["one two three four"])
+	for i in 30:
+		lone._process(0.1)
+	_expect(lone.call_script.open and lone.call_label.text.length() > 0 and lone.call_panel.visible, "a scene that only queues a call never got it (the HUD must run it on real time)")
+	for i in 120:
+		lone._process(0.1)
+	_expect(lone.call_script.done and not lone.call_panel.visible, "the lone call did not finish and close")
+	lone_vp.queue_free()
 	if _failures == 0:
 		print("  night_watch_calls  %d lines in %d modes equal the 2D game's; timings, typing, Mute and the box position match" % [lines_total, calls.size()])
 	return _failures
