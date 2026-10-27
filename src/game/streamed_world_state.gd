@@ -329,6 +329,7 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	claimed_pickups = (pickups as Dictionary).duplicate(true)
 	safe_rooms = (rooms as Dictionary).duplicate(true)
 	hunters = (hunter_data as Dictionary).duplicate(true)
+	HunterIdAliases.migrate_hunter_entries(hunters)   # snapshots saved before the hunter rename
 	removed_hunters = (removed_hunter_data as Dictionary).duplicate(true)
 	dropped_items = (drops as Dictionary).duplicate(true)
 	next_drop_sequence = maxi(1, int(snapshot_data.get("next_drop_sequence", 1)))

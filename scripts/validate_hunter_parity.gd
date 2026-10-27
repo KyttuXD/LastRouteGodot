@@ -117,13 +117,13 @@ func _capture_gates(navigation: StreamedHunterNavigation, origin: Vector2, along
 	for id in ["ceryth", "glyra", "ilyra", "loxelle", "ysolde"]:
 		var brain := _brain(id, origin + along * 2.0)
 		_expect(brain.gimmick != null and brain.gimmick.immune_to_capture(), "%s can still capture" % id)
-	# Eirys breaches hiding: a hidden player within reach is grabbed once she is on the last known point
-	var eirys := _brain("eirys", origin + along * 2.0)
+	# Elise breaches hiding: a hidden player within reach is grabbed once she is on the last known point
+	var elise := _brain("elise", origin + along * 2.0)
 	var hidden_target := _target(origin + along * 2.2, along, {"hidden": true})
-	eirys.has_last_known = true
-	eirys.last_known = hidden_target["position"]
-	var caught := eirys.update(STEP, navigation, hidden_target, 1, 0)
-	_expect(eirys.gimmick.breaches_hiding() and caught, "Eirys did not grab a hidden player next to her last known point")
+	elise.has_last_known = true
+	elise.last_known = hidden_target["position"]
+	var caught := elise.update(STEP, navigation, hidden_target, 1, 0)
+	_expect(elise.gimmick.breaches_hiding() and caught, "Elise did not grab a hidden player next to her last known point")
 	var dovelle := _brain("dovelle", origin + along * 2.0)
 	_expect(not dovelle.update(STEP, navigation, hidden_target, 1, 0), "an ordinary hunter grabbed a hidden player")
 	# Verrine idle: invisible and harmless

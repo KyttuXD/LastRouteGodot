@@ -9,7 +9,7 @@ extends RefCounted
 ##
 ## Fails on any stand-still longer than STUCK_LIMIT seconds or a trip that does not arrive.
 
-const HUNTERS := ["dovelle", "kathy", "loxelle", "aki", "eirys", "void_black"]
+const HUNTERS := ["dovelle", "kathy", "loxelle", "aki", "elise", "void_black"]
 const TRIALS_PER_HUNTER := 5
 const STUCK_LIMIT := 1.0
 const STEP := 1.0 / 30.0

@@ -16,7 +16,7 @@ extends HunterGimmick
 ## the player has no torch. It summons a dormant hunter and teleports Ysolde
 ## away, so it is a real absence, not a cosmetic one -- she currently has no
 ## answer to being confronted. The pesticide guard at the top of
-## after_perception IS ported -- Zephyra's shop now exists, and
+## after_perception IS ported -- Zellia's shop now exists, and
 ## `target["pesticide_active"]` is threaded in from main_3d the same way
 ## heater_unfrozen/heater_powered already are.
 

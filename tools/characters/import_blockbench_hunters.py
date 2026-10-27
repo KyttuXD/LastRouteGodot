@@ -33,10 +33,10 @@ from mc_to_hytale import repair_character_layers
 
 
 EXPECTED = {
-    "aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra",
-    "haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie",
-    "opalie", "porcelle", "quirith", "ravelle", "solyth", "thessine",
-    "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
+    "aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra",
+    "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie",
+    "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine",
+    "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia",
 }
 VOID_HUNTERS = {
     "void_black", "void_blue", "void_brown", "void_cyan", "void_gray",

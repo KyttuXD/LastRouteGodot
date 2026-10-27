@@ -815,7 +815,7 @@ func _request_interaction(event: Dictionary) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
 	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
+			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
 			"stream_waypoint", "stream_axe_rescue"].has(what):

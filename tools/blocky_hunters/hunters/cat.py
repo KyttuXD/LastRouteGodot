@@ -1,4 +1,4 @@
-"""Cat ears and a cat tail for the cat-folk hunters (Ilyra, Eirys).
+"""Cat ears and a cat tail for the cat-folk hunters (Ilyra, Elise).
 
 Ears: two stepped ears on the top of the head (L-Ear/R-Ear bones, they twitch), pink inside on the front.
 Tail: four segments curling up behind (Tail-1..4), swishing in every clip, the last one a lighter tip.
