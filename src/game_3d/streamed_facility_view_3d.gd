@@ -1014,12 +1014,25 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 		var room: Dictionary = prison_cells[room_index]
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var above_hall := rect.position.y < StreamedRouteGenerator.CHUNK_SIZE / 2
-		var gate_at := Vector3(rect.position.x + rect.size.x * .5, 0.0,
-			rect.end.y - .15 if above_hall else rect.position.y + .15)
-		tasks.append({"path": PRISON_MODELS["gate"], "at": gate_at,
-			"yaw": 0.0 if above_hall else PI,
-			"size": Vector3(rect.size.x, 2.4, .16),
-			"group": "streamed_prison_prop", "solid": true, "type": ""})
+		# The bars run along the cell's hall wall but stop at its doorway: one solid gate across the whole front sealed the
+		# cell for the player while the nav grid still walked through the door (playtest GOLF / HOTEL: bots stuck in front
+		# of a relay inside a cell).
+		var gate_z := rect.end.y - .15 if above_hall else rect.position.y + .15
+		var wall_row := rect.end.y - 1 if above_hall else rect.position.y
+		var grid_rows: Array = data.get("grid", [])
+		var run_start := rect.position.x
+		for gx in range(rect.position.x, rect.end.x + 1):
+			var is_door := gx < rect.end.x and wall_row >= 0 and wall_row < grid_rows.size() \
+				and gx >= 0 and gx < (grid_rows[wall_row] as Array).size() and int(grid_rows[wall_row][gx]) == 0
+			if is_door or gx == rect.end.x:
+				var run_end := gx
+				if run_end - run_start >= 1:
+					tasks.append({"path": PRISON_MODELS["gate"],
+						"at": Vector3((run_start + run_end) * .5, 0.0, gate_z),
+						"yaw": 0.0 if above_hall else PI,
+						"size": Vector3(run_end - run_start, 2.4, .16),
+						"group": "streamed_prison_prop", "solid": true, "type": ""})
+				run_start = gx + 1
 		# The dedicated cage fills this cell; do not bury a bunk/chair through it.
 		if room_index == cage_room_index:
 			continue
