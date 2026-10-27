@@ -25,6 +25,8 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
+	"waypoint": "PLACE / REMOVE WAYPOINT",
+	"waypoint_clear": "CLEAR WAYPOINT",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -40,7 +42,6 @@ const ACTION_LABELS := {
 
 ## The web build prints a bound key in amber, the colour it uses everywhere
 ## for "this is a system readout".
-const KEY_LABEL_COLOR := Palette.AMBER
 const LISTENING_TEXT := "PRESS A KEY..."
 
 ## Bindings are grouped under tabs, the way the web build's Controls screen groups them: a flat list of every action is a wall
@@ -69,6 +70,7 @@ var SECTIONS: Array = ControlsRegistry.tabs_for(GameRegistry.active_game_id)
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
+var _focus_pause_button: Button
 var _listening_action := ""
 var _listening_button: Button = null
 var _listening_append := false
@@ -97,6 +99,7 @@ func _ready() -> void:
 	# while it is open.
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
+	_build_focus_pause_row()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -157,6 +160,8 @@ func _refresh_from_settings() -> void:
 	Palette.set_state_toggle(fullscreen_button, Settings.fullscreen)
 	vsync_button.set_pressed_no_signal(Settings.vsync_enabled)
 	Palette.set_state_toggle(vsync_button, Settings.vsync_enabled)
+	_focus_pause_button.set_pressed_no_signal(Settings.pause_on_focus_loss)
+	Palette.set_state_toggle(_focus_pause_button, Settings.pause_on_focus_loss)
 	fps_limit_slider.set_value_no_signal(Settings.fps_limit)
 	_update_fps_limit_label(Settings.fps_limit)
 	fov_slider.set_value_no_signal(Settings.field_of_view)
@@ -280,6 +285,7 @@ func _apply_palette() -> void:
 	if fullscreen != null:
 		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
 	Palette.style_state_toggle(vsync_button, "VSYNC", Settings.vsync_enabled)
+	Palette.style_state_toggle(_focus_pause_button, "PAUSE WHEN WINDOW LOSES FOCUS", Settings.pause_on_focus_loss)
 
 
 func _build_control_rows() -> void:
@@ -291,6 +297,24 @@ func _build_control_rows() -> void:
 	_section_tabs.tab_changed.connect(_show_control_section)
 	controls_list.add_child(_section_tabs)
 	_show_control_section(0)
+
+
+func _build_focus_pause_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "FocusPauseRow"
+	row.offset_left = 20.0
+	row.offset_top = 208.0
+	row.offset_right = 420.0
+	row.offset_bottom = 224.0
+	_focus_pause_button = Button.new()
+	_focus_pause_button.name = "FocusPauseButton"
+	_focus_pause_button.toggle_mode = true
+	_focus_pause_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_focus_pause_button.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_pause_on_focus_loss(enabled)
+		Palette.set_state_toggle(_focus_pause_button, enabled))
+	row.add_child(_focus_pause_button)
+	add_child(row)
 
 
 func _build_settings_tabs() -> void:
@@ -311,7 +335,7 @@ func _show_settings_category(index: int) -> void:
 	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
-			"PixelEffectRow", "PlayerHueRow", "SensitivityRow"]:
+			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
 
@@ -326,6 +350,8 @@ func _show_control_section(index: int) -> void:
 	for action in active["actions"]:
 		if Settings.REBINDABLE_ACTIONS.has(action):
 			_build_control_row(action)
+	if String(active["title"]) == "ACTIONS" and SECTIONS.size() == ControlsRegistry.LAST_ROUTE_TABS.size():
+		_build_waypoint_preferences()
 	# Anything omitted from the organized categories is still reachable from
 	# System instead of becoming an invisible binding.
 	var placed := ControlsRegistry.registered_actions()
@@ -341,6 +367,55 @@ func _show_control_section(index: int) -> void:
 			_build_control_row(action)
 
 
+## WAYPOINT HUD preferences, under the waypoint keys (docs/WAYPOINTS.md).
+func _build_waypoint_preferences() -> void:
+	var heading := Label.new()
+	heading.name = "WaypointHeading"
+	heading.text = Palette.track("WAYPOINT")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	var guidance := Button.new()
+	guidance.name = "WaypointGuidanceButton"
+	guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper()
+	guidance.tooltip_text = "OFF: pin only // ARROW: pin and screen-edge arrow // PATH: also floor chevrons along the route"
+	guidance.pressed.connect(func() -> void:
+		var modes: Array = Settings.WAYPOINT_GUIDANCE_MODES
+		Settings.set_waypoint_guidance(modes[(modes.find(Settings.waypoint_guidance) + 1) % modes.size()])
+		guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper())
+	controls_list.add_child(guidance)
+	var distance := Button.new()
+	distance.name = "WaypointDistanceButton"
+	Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance)
+	distance.pressed.connect(func() -> void:
+		Settings.set_waypoint_show_distance(not Settings.waypoint_show_distance)
+		Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance))
+	controls_list.add_child(distance)
+	var chime := Button.new()
+	chime.name = "WaypointChimeButton"
+	Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime)
+	chime.pressed.connect(func() -> void:
+		Settings.set_waypoint_arrival_chime(not Settings.waypoint_arrival_chime)
+		Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime))
+	controls_list.add_child(chime)
+	var size_button := Button.new()
+	size_button.name = "WaypointSizeButton"
+	size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0)
+	size_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_scale + .2
+		Settings.set_waypoint_scale(next if next <= 1.61 else .6)
+		size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0))
+	controls_list.add_child(size_button)
+	var opacity_button := Button.new()
+	opacity_button.name = "WaypointOpacityButton"
+	opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0)
+	opacity_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_opacity - .2
+		Settings.set_waypoint_opacity(next if next >= .29 else 1.0)
+		opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0))
+	controls_list.add_child(opacity_button)
+
+
 func _build_control_row(action: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -354,7 +429,7 @@ func _build_control_row(action: String) -> void:
 	var key_label := Label.new()
 	key_label.text = Settings.get_action_key_label(action)
 	key_label.custom_minimum_size = Vector2(92, 0)
-	key_label.add_theme_color_override("font_color", KEY_LABEL_COLOR)
+	key_label.add_theme_color_override("font_color", Palette.AMBER)
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(key_label)
 	_key_labels[action] = key_label

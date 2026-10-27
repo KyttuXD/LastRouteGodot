@@ -1,0 +1,61 @@
+{
+ "hitbox": {
+  "min_m": [
+   -1.687,
+   0.0,
+   -1.5
+  ],
+  "max_m": [
+   1.687,
+   2.247,
+   1.874
+  ]
+ },
+ "source": "tools/city/black_wolf_spider.bbmodel",
+ "scale": 0.035,
+ "bytes": 274560,
+ "triangles": 1164,
+ "nodes": 37,
+ "meshes": 35,
+ "skipped_hidden_cubes": [
+  "hitbox"
+ ],
+ "clips": {
+  "walk": {
+   "length": 1.2,
+   "loop": true,
+   "tracks": 36,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "idle": {
+   "length": 4.0,
+   "loop": true,
+   "tracks": 36,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "bark": {
+   "length": 0.9,
+   "loop": false,
+   "tracks": 20,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "sprint": {
+   "length": 0.6,
+   "loop": true,
+   "tracks": 36,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "attack": {
+   "length": 1.1,
+   "loop": false,
+   "tracks": 36,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "death": {
+   "length": 2.6,
+   "loop": false,
+   "tracks": 36,
+   "loop_closure_error_deg_or_units": 0.0
+  }
+ }
+}

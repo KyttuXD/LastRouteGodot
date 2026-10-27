@@ -15,6 +15,8 @@ const GAMES := [
 		"theme": "res://src/ui/theme_lastroute.tres",
 		"locked": false,
 		"locked_note": "",
+		# Playtest bot adapter (see docs/PLAYTEST.md); a game without the key falls back to PlaytestAdapters.BUILT_IN.
+		"playtest_bot": "res://src/playtest/bots/last_route_bot.gd",
 	},
 	{
 		"id": "city",
@@ -32,10 +34,10 @@ const GAMES := [
 		"title": "NIGHT WATCH",
 		"kicker": "CAMERA FEED // OVERNIGHT SHIFT",
 		"tagline": "Hold the desk through the night. Watch the feeds, keep them out.",
-		"scene": "",
+		"scene": "res://scenes/night_watch_menu.tscn",
 		"theme": "res://src/ui/theme_nightwatch.tres",
-		"locked": true,
-		"locked_note": "3D PORT IN PLANNING // SEE docs/GAME_HUB.md",
+		"locked": false,
+		"locked_note": "",
 	},
 ]
 
@@ -43,7 +45,10 @@ const GAMES := [
 const HUB_SCENE := "res://scenes/game_hub.tscn"
 const DEFAULT_ID := "last_route"
 ## The game whose menus are open (set when the hub launches one); settings and the controls tabs follow it.
-static var active_game_id := "last_route"
+static var active_game_id := "last_route":
+	set(value):
+		active_game_id = value
+		Palette.apply_scheme(value)
 ## Per-run choice of what the hub opens when the player has used it before.
 const SETTINGS_SECTION := "hub"
 
@@ -64,12 +69,16 @@ static func save_summary(id: String) -> Dictionary:
 	return {"has_save": true, "text": String(data.get("summary", "SAVED")).to_upper()}
 
 
+## Tests register a synthetic list (1..12 games) here; empty means the real GAMES.
+static var test_games: Array = []
+
+
 static func all() -> Array:
-	return GAMES
+	return test_games if not test_games.is_empty() else GAMES
 
 
 static func get_game(id: String) -> Dictionary:
-	for game in GAMES:
+	for game in all():
 		if String(game["id"]) == id:
 			return game
 	return {}
@@ -82,7 +91,7 @@ static func is_launchable(id: String) -> bool:
 
 static func launchable_ids() -> Array:
 	var out := []
-	for game in GAMES:
+	for game in all():
 		if is_launchable(String(game["id"])):
 			out.append(String(game["id"]))
 	return out

@@ -1044,10 +1044,12 @@ func run(host: Node) -> int:
 				validation_waypoint_route = candidate_route
 	_expect(validation_waypoint_route.size() >= 2,
 		"discovered floor produced no reachable waypoint destination")
+	var guidance_before: String = Settings.waypoint_guidance
+	Settings.waypoint_guidance = "path"
 	live_scene.call("_on_map_waypoint_requested",
 		Vector2(validation_waypoint_cell) + Vector2(.2, .2),
 		facility.current_level())
-	var waypoints: Array = live_scene.get("_map_waypoints")
+	var waypoints: Array = live_scene.call("_active_waypoints")
 	_expect(waypoints.size() == 1 \
 		and (waypoints[0].get("at", Vector2.ZERO) as Vector2).is_equal_approx(
 			Vector2(validation_waypoint_cell) + Vector2(.5, .5)) \
@@ -1058,16 +1060,37 @@ func run(host: Node) -> int:
 	_expect(gps_route.size() >= 2 \
 		and live_scene.hud.minimap.waypoint_path == gps_route \
 		and live_scene.hud.plan.waypoint_path == gps_route,
-		"player waypoint did not produce a discovery-safe GPS map line")
+		"player waypoint did not produce a GPS map line")
 	_expect(gps_trail != null and gps_trail.mesh != null,
-		"player waypoint did not produce a visible ground trail")
+		"PATH guidance produced no floor chevrons")
+	# placing a second waypoint REPLACES the first: one waypoint, one map pin, one trail mesh
+	var second_cell := waypoint_player_cell
+	for candidate_cell in [Vector2i(-2, 0), Vector2i(2, 0), Vector2i(0, 2), Vector2i(0, -2),
+			Vector2i(-4, 0), Vector2i(4, 0)]:
+		if (live_scene.get("_navigation") as StreamedHunterNavigation).can_occupy(
+				waypoint_player_cell.x + candidate_cell.x + .5, waypoint_player_cell.y + candidate_cell.y + .5) \
+				and waypoint_player_cell + candidate_cell != validation_waypoint_cell:
+			second_cell = waypoint_player_cell + candidate_cell
+			break
+	live_scene.call("_place_waypoint_at", Vector2(second_cell) + Vector2(.5, .5), facility.current_level())
+	waypoints = live_scene.call("_active_waypoints")
+	_expect(waypoints.size() == 1 and (waypoints[0]["at"] as Vector2).is_equal_approx(Vector2(second_cell) + Vector2(.5, .5))
+		and (live_scene.world_state.waypoints.by_peer as Dictionary).size() == 1
+		and live_scene.hud.plan.waypoints.size() == 1,
+		"a second waypoint did not replace the first")
+	var trail_meshes := 0
+	for child in live_scene.world.get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).name == "WaypointGroundTrail":
+			trail_meshes += 1
+	_expect(trail_meshes == 1, "waypoint trail meshes leaked: %d" % trail_meshes)
 	var waypoint_player_position := player.global_position
 	var waypoint_at: Vector2 = waypoints[0].get("at", Vector2.ZERO)
-	player.global_position = Vector3(waypoint_at.x + 4.0,
+	player.global_position = Vector3(waypoint_at.x + 1.5,
 		waypoint_player_position.y, waypoint_at.y)
 	live_scene.call("_clear_reached_waypoints", facility.current_level())
-	_expect((live_scene.get("_map_waypoints") as Array).is_empty(),
-		"waypoint remained after the player entered its five-cell arrival radius")
+	_expect((live_scene.call("_active_waypoints") as Array).is_empty(),
+		"waypoint remained after the player entered its arrival radius")
+	Settings.waypoint_guidance = guidance_before
 	player.global_position = waypoint_player_position
 	live_scene.hud.map_overlay.visible = true
 	live_scene.call("_update_hud")
@@ -1123,7 +1146,7 @@ func run(host: Node) -> int:
 		# one hunter picker: every A-Z and Void hunter, with callable summon / remove / emote actions
 		var hunter_tool: Dictionary = admin_headings.get("HUNTER", {})
 		_expect(not hunter_tool.is_empty() \
-				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() \
+				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() + SecretCreatures.admin_ids().size() \
 				and (hunter_tool.get("hunter_tool", []) as Array).size() >= 3,
 			"Infinite admin menu lacks the complete hunter picker (A-Z + Void)")
 		for act in hunter_tool.get("hunter_tool", []):

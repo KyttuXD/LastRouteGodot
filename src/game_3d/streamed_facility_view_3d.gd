@@ -661,6 +661,7 @@ static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 	var open := func(cx: int, cz: int) -> bool:
 		return cx >= 0 and cz >= 0 and cx < size and cz < size \
 			and int(grid_data[cz][cx]) == 0
+	var runs := [0, 0]
 	for axis in 2:
 		var step := Vector2i(0, 1) if axis == 0 else Vector2i(1, 0)
 		var before := 0
@@ -670,6 +671,7 @@ static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 		while after < 6 and open.call(x + step.x * (after + 1), z + step.y * (after + 1)):
 			after += 1
 		var width := StreamedRouteGenerator.CORRIDOR_WIDTH
+		runs[axis] = before + after + 1
 		if before + after + 1 != width:
 			continue
 		var offset := before - width / 2     # across the hall, 0 = middle
@@ -678,7 +680,42 @@ static func _runner_kind(grid_data: Array, x: int, z: int) -> String:
 		var part := "l" if offset < 0 else ("r" if offset > 0 else "c")
 		# axis 0: hall runs along x (the cells vary in z); axis 1: along z
 		return ("runner_%s" if axis == 0 else "runnerz_%s") % part
+	# A junction (T, cross, corner) cell is crossed by a hall in both directions, so neither run is exactly one hall wide and
+	# it used to fall through to the random stone corridor tiles: a grey patch in the middle of the carpet. It carries the
+	# hall's own centre strip instead, so the carpet runs unbroken through the opening.
+	# Only where a one-hall-wide cell touches it, so a 5-wide hall keeps its own flooring.
+	if int(runs[0]) >= StreamedRouteGenerator.CORRIDOR_WIDTH and int(runs[1]) >= StreamedRouteGenerator.CORRIDOR_WIDTH:
+		for step_value in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var step: Vector2i = step_value
+			for reach in [1, 2]:
+				var nx: int = x + step.x * int(reach)
+				var nz: int = z + step.y * int(reach)
+				if not open.call(nx, nz):
+					break
+				if _exact_hall_cell(grid_data, nx, nz):
+					return "runner_c"
 	return ""
+
+
+## True when the open cell lies in a run of exactly one hall width along either axis.
+static func _exact_hall_cell(grid_data: Array, x: int, z: int) -> bool:
+	var size := grid_data.size()
+	for axis in 2:
+		var dx := 0 if axis == 0 else 1
+		var dz := 1 if axis == 0 else 0
+		var run := 1
+		for sign in [-1, 1]:
+			var k := 1
+			while k < 8:
+				var cx: int = x + dx * k * int(sign)
+				var cz: int = z + dz * k * int(sign)
+				if cx < 0 or cz < 0 or cx >= size or cz >= size or int(grid_data[cz][cx]) != 0:
+					break
+				run += 1
+				k += 1
+		if run == StreamedRouteGenerator.CORRIDOR_WIDTH:
+			return true
+	return false
 
 
 ## Wall kind for the face of wall cell (x, z) that looks into (nx, nz): chosen
@@ -976,6 +1013,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.set_meta("streamed_prop_type", prop_type)
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
 	visual.add_to_group(group_name)
+	_limit_prop_visibility(visual, visual_bounds, prop_type)
 	parent.add_child(visual)
 	if PropModelCatalog.is_empty_frame(prop_type):
 		_add_blank_frame_canvas(visual, prop_type)
@@ -998,13 +1036,57 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		return
 	var body := StaticBody3D.new()
 	var collision := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = blocker_size
-	collision.shape = shape
+	collision.shape = _shared_box_shape(blocker_size)
 	collision.position = at + Vector3.UP * (blocker_size.y * .5)
 	collision.rotation.y = yaw
 	body.add_child(collision)
 	parent.add_child(body)
+
+
+## Small and medium props stop drawing beyond a distance where they are a few pixels (visibility ranges: the renderer culls them,
+## no per-frame script). Big pieces, floor dressing and animated set pieces always draw.
+const PROP_RANGE_SMALL := 42.0     # bounding-box diagonal under 1.0 m
+const PROP_RANGE_MEDIUM := 64.0    # under 2.0 m
+const PROP_RANGE_MARGIN := 6.0
+## Switch for A/B measurements (tools/look/prop_perf.gd).
+static var limit_prop_visibility := true
+
+
+static func prop_visibility_range(bounds: AABB, prop_type: String) -> float:
+	if PropModelCatalog.is_floor_dressing(prop_type) or prop_type == "carouselCenterpiece":
+		return 0.0
+	var diagonal := bounds.size.length()
+	if diagonal <= 0.0:
+		return 0.0
+	if diagonal < 1.0:
+		return PROP_RANGE_SMALL
+	if diagonal < 2.0:
+		return PROP_RANGE_MEDIUM
+	return 0.0
+
+
+func _limit_prop_visibility(visual: Node3D, bounds: AABB, prop_type: String) -> void:
+	var range_end := prop_visibility_range(bounds, prop_type) if limit_prop_visibility else 0.0
+	if range_end <= 0.0:
+		return
+	for node in visual.find_children("*", "GeometryInstance3D", true, false):
+		var geometry := node as GeometryInstance3D
+		geometry.visibility_range_end = range_end
+		geometry.visibility_range_end_margin = PROP_RANGE_MARGIN
+
+
+static var _box_shapes := {}
+
+
+## One BoxShape3D per distinct blocker size: hundreds of chairs and tables share a handful of shapes.
+static func _shared_box_shape(size: Vector3) -> BoxShape3D:
+	var key := Vector3i(roundi(size.x * 100.0), roundi(size.y * 100.0), roundi(size.z * 100.0))
+	var shape := _box_shapes.get(key) as BoxShape3D
+	if shape == null:
+		shape = BoxShape3D.new()
+		shape.size = size
+		_box_shapes[key] = shape
+	return shape
 
 
 func _add_blank_frame_canvas(frame: Node3D, prop_type: String) -> void:

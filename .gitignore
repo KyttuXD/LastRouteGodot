@@ -36,3 +36,7 @@ __pycache__/
 *.pyc
 .venv/
 build/
+
+# playtest output (docs/PLAYTEST.md)
+.playtest/
+.playtest-results/
