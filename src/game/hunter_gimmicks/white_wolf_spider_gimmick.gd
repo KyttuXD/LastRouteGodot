@@ -37,7 +37,7 @@ var flash_hold := 0.0
 ## Which cue announces it ("bark" or "hiss"; the clip is always `bark`).
 var tell := "bark"
 
-## Set when the two are a pair (CitySecrets links them): shared rest and recall, see SpiderPack.
+## Set when the two are a pair (SecretCreatures.link_admin_pair links them): shared rest and recall, see SpiderPack.
 var pack: SpiderPack = null
 var rest_scale := 1.0
 
@@ -57,7 +57,7 @@ var _delay_target := Vector2.ZERO
 var _seen_recall := 0
 
 
-## City secrets spawn it already marking its runner (CitySecrets sets this right after creating the brain). `delay` staggers the tell
+## A spawner may start it already marking its runner (set right after creating the brain). `delay` staggers the tell
 ## of the second creature of a pair (the first barks at once, the other follows `delay` seconds later).
 func start_with_bark(delay: float = 0.0) -> void:
 	_spawn_barks = true

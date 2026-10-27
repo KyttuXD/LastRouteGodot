@@ -30,10 +30,10 @@ const PROFILES := {
 ## presentation body is never held up by a doorway the grid navigation already let it through (its legs sprawl wider).
 const BODY_RADIUS := 0.36
 const BODY_HEIGHT := 1.2
-## In-world trigger (see CitySecrets): "garden_vigil" or "fountains". "off" (KT's decision for now) means nothing ever spawns
+## In-world trigger (the archived City trigger): "garden_vigil" or "fountains". "off" (KT's decision for now) means nothing ever spawns
 ## by itself: the creatures are fully built but only the admin hunter picker can summon them (debug/admin testing).
 const TRIGGER := "off"
-## How the two relate once a trigger is armed (CitySecrets): "difficulty" (KT's choice, the default: SOLO or PAIR depending on the game
+## How the two relate once a trigger is armed (archived City trigger): "difficulty" (KT's choice, the default: SOLO or PAIR depending on the game
 ## difficulty, see DIFFICULTY below) or one of the older fixed options, kept selectable behind this constant: "black_follows_white"
 ## (the first trigger brings the white one; the black one only comes for a runner who has met the white one, on a second trigger),
 ## "black_rare" (every trigger brings one creature: the black one 1 time in 4) or "pair" (both at once).
@@ -63,7 +63,7 @@ const DIFFICULTY := {
 	"nightmare": {"mode": "pair_always", "pair": 1.0, "black_solo": 0.0, "join_delay": 0.0, "stagger": 1.8,
 		"knobs": {"notice": 1.2, "chase": 1.1, "rest": 0.7, "alert": 1.2}},
 }
-## A pair is never spawned on top of the runner: both creatures start at least SPAWN_MIN_DISTANCE away (CitySecrets) and
+## A pair is never spawned on top of the runner: both creatures start at least SPAWN_MIN_DISTANCE away and
 ## the second one at least PAIR_MIN_GAP cells from the first, on another side for coordinated pairs.
 const PAIR_MIN_GAP := 10.0
 const PAIR_FLANK_DEGREES := 100.0
@@ -186,3 +186,22 @@ static func is_city_generator(generator) -> bool:
 	if generator == null or not generator.has_method("biome_for"):
 		return false
 	return String(generator.biome_for(Vector3i.ZERO)) == "city"
+
+
+## Admin "pair" spawn: link the two creatures already on the route into one pack with the difficulty's knobs (moved here from
+## the archived CitySecrets).
+static func link_admin_pair(route, difficulty_id: String) -> void:
+	var row: Dictionary = DIFFICULTY.get(difficulty_id, DIFFICULTY["standard"])
+	var views := {}
+	for view_value in (route._hunter_views as Dictionary).values():
+		var view = view_value
+		if view != null and view.brain != null and IDS.has(view.brain.hunter_id):
+			views[view.brain.hunter_id] = view
+	if views.size() < 2:
+		return
+	var pack := SpiderPack.new()
+	for id in [WHITE_WOLF_SPIDER, BLACK_WOLF_SPIDER]:
+		var gimmick := views[id].brain.gimmick as WhiteWolfSpiderGimmick
+		if gimmick != null:
+			gimmick.apply_knobs(views[id].brain, row["knobs"])
+			pack.join(gimmick)

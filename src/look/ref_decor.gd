@@ -96,24 +96,55 @@ func _arches() -> void:
 		var hall_h := _hh((cells[1] as Vector2i) + outward)
 		var top := maxf(room_h, hall_h)
 		var along_x := absi(across.x) > 0
-		_add("arch_header", _box_t(centre + Vector3(0, (3.0 + top) * .5, 0),
-			Vector3(3.0 if along_x else 1.0, top - 3.0, 1.0 if along_x else 3.0)))
+		var out3 := Vector3(outward.x, 0, outward.y)
+		# Two-sided: each half of the arch takes the wall theme of the space it faces (room inside, hall outside).
+		var side_key := {}
+		for face in [-1.0, 1.0]:
+			var faced: Vector2i = (cells[1] as Vector2i) + outward * int(face)
+			side_key[face] = "arch_wall:" + arch_wall_kind(faced)
+		for face in [-1.0, 1.0]:
+			_add(side_key[face], _box_t(centre + out3 * face * .25 + Vector3(0, (3.0 + top) * .5, 0),
+				Vector3(3.0 if along_x else .5, top - 3.0, .5 if along_x else 3.0)))
 		_arch_trim(centre, along_x, outward, top)
 		for side in [-1.0, 1.0]:
 			var off: Vector3 = Vector3(across.x, 0, across.y) * side
-			_add("arch_header", _box_t(centre + off * 1.28 + Vector3(0, 2.8, 0),
-				Vector3(.44 if along_x else 1.0, .44, 1.0 if along_x else .44)))
-			# second step of the stepped corner: two blocks climb toward the middle of the opening
-			_add("arch_header", _box_t(centre + off * .88 + Vector3(0, 2.88, 0),
-				Vector3(.4 if along_x else 1.0, .24, 1.0 if along_x else .4)))
+			for face in [-1.0, 1.0]:
+				_add(side_key[face], _box_t(centre + off * 1.28 + out3 * face * .25 + Vector3(0, 2.8, 0),
+					Vector3(.44 if along_x else .5, .44, .5 if along_x else .44)))
+				# second step of the stepped corner: two blocks climb toward the middle of the opening
+				_add(side_key[face], _box_t(centre + off * .88 + out3 * face * .25 + Vector3(0, 2.88, 0),
+					Vector3(.4 if along_x else .5, .24, .5 if along_x else .4)))
 			for face in [-1.0, 1.0]:
 				var depth: Vector3 = Vector3(outward.x, 0, outward.y) * face * .62
 				var column: Vector3 = centre + off * 1.7 + depth
 				var size := Vector3(.42 if along_x else .34, 1.0, .34 if along_x else .42)
-				_add("arch_header", _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
+				_add(side_key[face], _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
 				for cap in [.06, top - .08]:
 					_add("arch_cap", _box_t(column + Vector3(0, cap, 0),
 						Vector3(.56 if along_x else .46, .12, .46 if along_x else .56)))
+
+
+## Wall kind of the face of an arch that looks into `cell` (chunk-local): same rule as the walls (RefLook.wall_kind).
+func arch_wall_kind(cell: Vector2i) -> String:
+	return RefLook.wall_kind(_region, String(_room_map.get(cell, "")),
+		_coord.x * _size + cell.x, _coord.z * _size + cell.y)
+
+
+static var _arch_materials := {}
+
+
+## The wall's own material on an arch block, mapped in world space (1 m across, the 4 m wall height down) so the paper,
+## panels and brick continue across the arch on the wall's texture grid instead of restarting per block.
+static func arch_wall_material(kind: String) -> StandardMaterial3D:
+	if _arch_materials.has(kind):
+		return _arch_materials[kind]
+	var m := (RefTextures.material("wall", kind) as StandardMaterial3D).duplicate() as StandardMaterial3D
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3(1.0, -.25, 1.0)
+	m.set_meta("arch_wall_kind", kind)
+	_arch_materials[kind] = m
+	return m
 
 
 ## Brass trim on both faces of an arch: a keystone over the middle, a moulding band under
@@ -682,6 +713,9 @@ static func mesh_for(key: String) -> Mesh:
 			["iron", _box(Vector3(.05, .1, .1)), _t(0, -.05, -.03)]])
 		"swag": mesh = _build_swag()
 		"arch_header": mesh = _merge([["stone", _box(Vector3.ONE), Transform3D.IDENTITY]])
+		_ when key.begins_with("arch_wall:"):
+			mesh = _box(Vector3.ONE)
+			(mesh as BoxMesh).material = arch_wall_material(key.trim_prefix("arch_wall:"))
 		"arch_cap": mesh = _merge([["brass", _box(Vector3.ONE), Transform3D.IDENTITY]])
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])

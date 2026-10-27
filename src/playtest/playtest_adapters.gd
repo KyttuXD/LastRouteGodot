@@ -6,7 +6,6 @@ extends RefCounted
 
 const BUILT_IN := {
 	"last_route": "res://src/playtest/bots/last_route_bot.gd",
-	"city": "res://src/playtest/bots/city_bot.gd",
 	"night_watch": "res://src/playtest/bots/night_watch_bot.gd",
 }
 
