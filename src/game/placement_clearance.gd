@@ -12,7 +12,7 @@ extends RefCounted
 ## small by placement rules upstream; docs/COLLISION.md has the numbers.
 
 const POCKET_AREA_LIMIT := 1.0
-const MAX_REMOVALS_PER_DOOR := 8
+const MAX_REMOVALS_PER_DOOR := 30
 const SAMPLE := 0.5
 
 
