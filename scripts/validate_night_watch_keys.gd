@@ -102,6 +102,7 @@ func run(host: Node) -> int:
 	_expect(probe.cameras_button.visible, "set_monitor_available(true) did not show the CAMERAS button")
 	probe.queue_free()
 	await _check_camera_screen(host)
+	await _check_mouse_capture(host, tested)
 	_expect(tested.has("classic"), "the camera key flow did not run for Classic")
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
@@ -243,7 +244,7 @@ func _check_camera_screen(host: Node) -> void:
 		_expect(not btn.intersects(map) and not guide.intersects(map), tag + "the close strip covers the camera map")
 		_expect(not btn.intersects(guide), tag + "the button and the guide overlap")
 		_expect(not guide.intersects(hud.cam_label.get_global_rect()) and not guide.intersects(hud.rec_label.get_global_rect()), tag + "the guide covers the camera labels")
-		_expect(hud.close_button.focus_mode == Control.FOCUS_ALL and hud.close_button.visible and not hud.close_button.disabled, tag + "the close button cannot be focused or clicked")
+		_expect(hud.close_button.focus_mode == Control.FOCUS_NONE and hud.close_button.visible and not hud.close_button.disabled, tag + "the close button cannot be focused or clicked")
 		_expect(hud.close_button.text.begins_with("CLOSE CAMERAS") and hud.close_button.text.to_upper().contains("SPACE"), tag + "the close button does not name the key: %s" % hud.close_button.text)
 		_expect(hud.monitor_guide.text.contains("meet her eyes") and hud.monitor_guide.text.contains("1-8"), tag + "the guide lacks the camera keys or the Night 7 meet key: %s" % hud.monitor_guide.text)
 		var clicks := [0]
@@ -267,3 +268,81 @@ func _check_camera_screen(host: Node) -> void:
 	NightWatchSave.clear_key_overrides()
 	NightWatchControls.unregister()
 	await host.get_tree().process_frame
+
+
+# --- the mouse follows the monitor ---------------------------------------------------------------------------------------------------------------------------
+
+## Real events through the viewport (so the GUI sees them first, as in the app): after closing the monitor by ANY route the cursor is captured again with no click,
+## a look motion turns the view, and opening it frees the cursor. Every mode with a monitor, every route, plus the Pause and CAMERAS buttons (unwired in all modes but Classic) and a timed monitor (Masked Hours).
+func _check_mouse_capture(host: Node, modes: Array) -> void:
+	for mode_id in modes:
+		NightWatchSession.start_mode(String(mode_id), 1, {}, 77)
+		var game := (load(String(NightWatchModeRegistry.SCENES[mode_id])) as PackedScene).instantiate()
+		game.set("manual_clock", true)
+		host.add_child(game)
+		await host.get_tree().process_frame
+		await host.get_tree().process_frame
+		var tag := "[%s mouse] " % mode_id
+		var player = game.get("player")
+		if player == null or not player.has_method("_apply_look_rotation"):
+			game.queue_free()
+			await host.get_tree().process_frame
+			continue
+		var hud = game.get("hud")
+		var vp := host.get_viewport()
+		var routes := {
+			"Space": func(): _push(vp, _key(KEY_SPACE)),
+			"U": func(): _push(vp, _key(KEY_U)),
+			"use": func(): _push(vp, _key(KEY_E)),
+			"button": func(): hud.cameras_requested.emit(),
+			"pause and resume": func(): game.call("set_paused", true); game.call("set_paused", false); game.call("close_monitor"),
+			"night ends": func(): game.call("close_monitor"),
+		}
+		for route in routes:
+			game.call("open_monitor")
+			await host.get_tree().process_frame
+			_expect(bool(game.get("monitor_up")) and not MouseLock.is_captured(), tag + "opening the monitor did not free the cursor (%s)" % route)
+			routes[route].call()
+			if game.has_method("advance_ms"):
+				game.call("advance_ms", 900.0)   # a timed monitor lowers over a moment; the cursor comes back when it is down
+			await host.get_tree().process_frame
+			_expect(not bool(game.get("monitor_up")), tag + "%s did not close the monitor" % route)
+			_expect(MouseLock.is_captured(), tag + "after closing by %s the cursor is not captured again" % route)
+			_expect(host.get_viewport().gui_get_focus_owner() == null, tag + "after closing by %s a control still holds focus (Space would press it)" % route)
+			var yaw := float(player.get("_yaw"))
+			var motion := InputEventMouseMotion.new()
+			motion.relative = Vector2(30, 0)
+			player._unhandled_input(motion)
+			_expect(not is_equal_approx(yaw, float(player.get("_yaw"))), tag + "after closing by %s a mouse motion did not turn the view" % route)
+		# the PAUSE button: the pause card frees the cursor, resuming takes it back
+		hud.pause_requested.emit()
+		_expect(not MouseLock.is_captured() and get_tree_paused(host), tag + "the Pause button did not pause with a free cursor")
+		game.call("set_paused", false)
+		_expect(MouseLock.is_captured(), tag + "resuming did not capture the cursor again")
+		# the rapid Space: open, close, open, close with held-key repeats between
+		for i in 4:
+			_push(vp, _key(KEY_SPACE))
+			var echo := _key(KEY_SPACE)
+			echo.echo = true
+			_push(vp, echo)
+			_push(vp, _key(KEY_SPACE, false))
+		if game.has_method("advance_ms"):
+			game.call("advance_ms", 900.0)
+		await host.get_tree().process_frame
+		_expect(not bool(game.get("monitor_up")) and MouseLock.is_captured(), tag + "four Space taps (with repeats and releases) left the monitor/cursor in the wrong state")
+		# the end of the night: the monitor closes by itself and the cursor is free for the end card, not captured
+		game.call("open_monitor")
+		game.call("_freeze_player")
+		game.call("close_monitor")
+		_expect(not MouseLock.is_captured(), tag + "the end card did not keep the cursor free")
+		game.queue_free()
+		await host.get_tree().process_frame
+		MouseLock.release_all()
+
+
+func _push(vp: Viewport, ev: InputEvent) -> void:
+	vp.push_input(ev)
+
+
+func get_tree_paused(host: Node) -> bool:
+	return host.get_tree().paused

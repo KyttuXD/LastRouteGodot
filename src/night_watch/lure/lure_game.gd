@@ -89,6 +89,8 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_level)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
