@@ -103,9 +103,15 @@ static func short_revision() -> String:
 
 ## Only exported debug builds fail closed on an unavailable update service.
 ## Editor runs stay usable while the developer is changing the backend.
+## BETA builds (export presets "* Beta", custom feature `beta`): play-test builds that talk to the PRODUCTION server
+## (public route/rooms) and never wait for an update. They change no version information.
+static func is_beta() -> bool:
+	return OS.has_feature("beta")
+
+
 static func requires_update_gate() -> bool:
 	# TEST SERVER builds (run_multi / export_test_multiplayer) are play-test builds: they never wait for an update.
-	if OS.has_feature("test_server") or OS.has_feature("web"):
+	if OS.has_feature("test_server") or OS.has_feature("web") or is_beta():
 		return false
 	return OS.is_debug_build() and revision() != SOURCE_REVISION
 
