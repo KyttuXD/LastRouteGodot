@@ -48,7 +48,14 @@ func run(host: Node) -> int:
 		await host.get_tree().process_frame
 		_expect(hub.find_child("QuitDialog", true, false) != null and hub.find_child("QuitNoButton", true, false) != null,
 			"QUIT did not ask QUIT TO DESKTOP?")
-		(hub.find_child("QuitNoButton", true, false) as Button).pressed.emit()
+		var yes_button := hub.find_child("QuitYesButton", true, false) as Button
+		var no_button := hub.find_child("QuitNoButton", true, false) as Button
+		_expect(yes_button != null and no_button != null and yes_button.get_index() < no_button.get_index(),
+			"QUIT TO DESKTOP? must show YES on the left and NO on the right")
+		_expect(no_button != null and (no_button.has_focus() or no_button.is_inside_tree()), "NO is not the default answer")
+		_expect(yes_button != null and no_button != null and yes_button.get_node(yes_button.focus_neighbor_right) == no_button,
+			"keyboard right from YES does not reach NO")
+		no_button.pressed.emit()
 		await host.get_tree().process_frame
 		_expect(hub.find_child("QuitDialog", true, false) == null or (hub.find_child("QuitDialog", true, false) as Node).is_queued_for_deletion(),
 			"NO did not close the quit question")

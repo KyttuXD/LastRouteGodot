@@ -43,23 +43,10 @@ const ACTION_LABELS := {
 const KEY_LABEL_COLOR := Palette.AMBER
 const LISTENING_TEXT := "PRESS A KEY..."
 
-## Bindings grouped the way the web build's Controls screen groups them, in
-## order. A flat alphabetical list of every action is a wall of text; the
-## same list under four headings is a thing you can scan. OFFICE MODE is last
-## and named as its own section because those are the SAME physical keys shown
-## by their office role, which is otherwise baffling to read.
-const SECTIONS := [
-	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
-		"move_right", "look_up", "look_down", "look_left", "look_right",
-		"sprint", "crouch", "jump"]},
-	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser",
-		"tool_use", "inventory", "drop_item", "chat", "toggle_map"]},
-	{"title": "SYSTEM", "actions": ["pause"]},
-	{"title": "OFFICE MODE", "actions": ["office_left_door", "office_right_door",
-		"office_desk_light", "office_vent", "office_cameras", "office_radio",
-		"office_breaker", "office_reboot", "office_emergency_flash",
-		"office_rear_flash"]},
-]
+## Bindings are grouped under tabs, the way the web build's Controls screen groups them: a flat list of every action is a wall
+## of text. The tabs shown come from ControlsRegistry for the game that is open (GameRegistry.active_game_id): Last Route shows
+## MOVEMENT / ACTIONS / SYSTEM; other games register their own (Night Watch: OFFICE).
+var SECTIONS: Array = ControlsRegistry.tabs_for(GameRegistry.active_game_id)
 
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var volume_value_label: Label = %VolumeValueLabel
@@ -341,13 +328,10 @@ func _show_control_section(index: int) -> void:
 			_build_control_row(action)
 	# Anything omitted from the organized categories is still reachable from
 	# System instead of becoming an invisible binding.
-	var placed := {}
-	for section_value in SECTIONS:
-		for action in section_value["actions"]:
-			placed[action] = true
+	var placed := ControlsRegistry.registered_actions()
 	var orphans: Array = Settings.REBINDABLE_ACTIONS.filter(
 		func(a: String) -> bool: return not placed.has(a))
-	if _active_section == 2 and not orphans.is_empty():
+	if _active_section == SECTIONS.size() - 1 and not orphans.is_empty():
 		var heading := Label.new()
 		heading.text = Palette.track("OTHER")
 		heading.add_theme_color_override("font_color", Palette.AMBER)

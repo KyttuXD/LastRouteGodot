@@ -16,8 +16,14 @@ var _tag := "x"
 func _ready() -> void:
 	LampField.optimise = OS.get_environment("CAP_LEGACY_LIGHTS") == ""
 	var args := OS.get_cmdline_user_args()
+	# extra "KEY=VALUE" arguments become environment variables (mini-run.sh cannot prefix env vars)
+	for extra in args.slice(3):
+		var pair := String(extra).split("=", false, 1)
+		if pair.size() == 2:
+			OS.set_environment(pair[0], pair[1])
 	_out_dir = args[0] if args.size() > 0 else "/tmp"
 	_tag = args[1] if args.size() > 1 else "x"
+	DirAccess.make_dir_recursive_absolute(_out_dir)
 	RoomState.seed_text = args[2] if args.size() > 2 else "REFLOOK"
 	if OS.get_environment("CAP_FPS") != "":
 		Settings.fps_limit = 0
@@ -168,6 +174,8 @@ func _run(scene: Node) -> void:
 	var seen := {}
 	var level_env := OS.get_environment("CAP_LEVELS")
 	var reach := 3 if level_env != "" else 2
+	if OS.get_environment("CAP_REACH") != "":
+		reach = int(OS.get_environment("CAP_REACH"))
 	for level_text in (level_env if level_env != "" else "0").split(","):
 		_scan_level(gen, int(level_text), reach, cs, picks, seen)
 	if OS.get_environment("CAP_SUITE") != "":
@@ -189,6 +197,27 @@ func _run(scene: Node) -> void:
 							picks.append({"name": "suite_%s" % room["room_type"], "pos": Vector3(
 								cx * cs + rect.position.x + rect.size.x * .5, .05,
 								cz * cs + rect.position.y + rect.size.y * .5)})
+	if OS.get_environment("CAP_GREAT") != "":
+		# CAP_GREAT=1: the first great hall (21x21 gathering room) of each district, seen from its door
+		picks = []
+		var seen_biomes := {}
+		for gr in range(0, 12):
+			for gz in range(-gr, gr + 1):
+				for gx in range(-gr, gr + 1):
+					var gc := Vector3i(gx, 0, gz)
+					if maxi(absi(gx), absi(gz)) != gr or not gen.is_chunk_allowed(gc):
+						continue
+					var gb := gen.biome_for(gc)
+					if seen_biomes.has(gb):
+						continue
+					var plan := gen.large_plan(gc)
+					for side in ["W", "E"]:
+						if String(plan[side]).is_empty() or seen_biomes.has(gb):
+							continue
+						seen_biomes[gb] = true
+						var west: bool = side == "W"
+						picks.append({"name": "great_%s_%s" % [gb, plan[side]], "yaw": 90.0 if west else -90.0,
+							"pos": Vector3(gx * cs + (17.5 if west else 27.5), 0.05, gz * cs + 22.5)})
 	if OS.get_environment("CAP_AT") not in ["", "start"]:
 		# CAP_AT="x,z;x,z": world metres, one pick per pair
 		picks = []
@@ -226,7 +255,7 @@ func _run(scene: Node) -> void:
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
-			await _wait(14)
+			await _wait(int(OS.get_environment("CAP_WAIT")) if OS.get_environment("CAP_WAIT") != "" else 14)
 			if OS.get_environment("CAP_FPS") != "":
 				var t0 := Time.get_ticks_usec()
 				await _wait(60)

@@ -7,6 +7,13 @@ extends RefCounted
 ## time streamed terrain brings a couch, locker or pickup into view.
 static var _pixel_material_cache := {}
 static var _blocky_prop_material_cache := {}
+## Every blocky prop GLB (art/props-3d/props/blocky) carries its own extracted copy of the same 128x64 pixel atlas (the builder is
+## deterministic and scripts/validate_props_rework.gd checks the size), so keying the material caches by the source material's RID gave
+## each of the ~600 models its own materials (and two duplicates each). Their atlas is keyed by name instead, so all of them share one
+## material per style profile. No pixels are read back: Texture2D.get_image() on a GPU texture stalls the renderer.
+const BLOCKY_ATLAS_DIR := "res://art/props-3d/props/blocky/"
+## Switch for A/B measurements (tools/look/prop_perf.gd): false gives every model its own materials again.
+static var share_blocky_materials := true
 
 ## Loads visuals from art/props-3d/ scene files so gameplay code never
 ## hardcodes placeholder geometry — swap a slot's .tscn contents for a real
@@ -163,6 +170,23 @@ static func _enable_stable_texture_filtering(node: Node) -> void:
 ## while walls/floors/stairs retain anisotropic filtering for stable motion.
 ## Mipmaps remain enabled so a distant couch or rug does not recreate the
 ## camera-motion moire that plain nearest sampling caused.
+## Content key of a material: the shared blocky atlas (any GLB) gives one key, everything else keeps its own resource identity.
+static func material_content_key(source: StandardMaterial3D) -> String:
+	var texture_key := "none"
+	var texture := source.albedo_texture
+	if texture != null:
+		var path := texture.resource_path
+		if share_blocky_materials and path.begins_with(BLOCKY_ATLAS_DIR) and path.ends_with("_BlockyAtlas.png") \
+				and texture.get_size() == Vector2(128, 64):
+			texture_key = "blocky_atlas"
+		else:
+			texture_key = "rid%d" % texture.get_rid().get_id()
+	else:
+		texture_key = "mat%d" % source.get_rid().get_id()
+	return "%s|%s|%.3f|%.3f|%d|%d|%d|%s" % [texture_key, source.albedo_color.to_html(true), source.roughness, source.metallic,
+		source.transparency, source.cull_mode, source.shading_mode, str(source.emission_enabled)]
+
+
 static func apply_prop_pixel_filter(node: Node) -> void:
 	if node.has_meta("pixel_material_filter_applied"):
 		return
@@ -174,7 +198,7 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 				var source := mesh_node.get_active_material(surface)
 				if source is StandardMaterial3D:
 					var source_material := source as StandardMaterial3D
-					var key := source_material.get_rid()
+					var key := material_content_key(source_material)
 					var material := _pixel_material_cache.get(key) as StandardMaterial3D
 					if material == null:
 						material = source_material.duplicate() as StandardMaterial3D
@@ -209,7 +233,7 @@ static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void
 				if source is StandardMaterial3D:
 					var source_material := source as StandardMaterial3D
 					var profile_key := _blocky_style_key(style_hint)
-					var key := "%s|%s" % [str(source_material.get_rid()), profile_key]
+					var key := "%s|%s" % [material_content_key(source_material), profile_key]
 					var material := _blocky_prop_material_cache.get(key) \
 						as StandardMaterial3D
 					if material == null:
