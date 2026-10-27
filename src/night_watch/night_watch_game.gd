@@ -1,5 +1,5 @@
 class_name NightWatchGame
-extends Node3D
+extends NightWatchMode
 
 ## The Night Watch shift scene: a walkable security room, the building the cameras look into, the hunters and the HUD, driven by
 ## NightWatchClassic. You are the SHARED player controller (PlayerController3D from scenes/night_watch_player.tscn: the same node tree
@@ -9,15 +9,11 @@ extends Node3D
 ## in the monitor 1-8 or the arrow keys pick a camera. All sounds go through the shared Sound autoload (NightWatchSounds).
 ## `manual_clock` stops the real-time clock so the validators step the night themselves with advance_ms().
 
-signal finished(result: String)
-
 enum State { PLAYING, PAUSED, WON, LOST }
 
 const WIN_TEXT := "You held the desk until 6 AM."
 
-var manual_clock := false
 var night := 1
-var seed_value := 0
 var state: State = State.PLAYING
 var sim: NightWatchClassic
 var office: NightWatchOffice
@@ -44,10 +40,8 @@ var _warned := {}
 
 func _ready() -> void:
 	NightWatchControls.register()
-	night = NightWatchSession.night
-	seed_value = NightWatchSession.seed_value
-	if seed_value == 0:
-		seed_value = int(Time.get_ticks_usec() & 0x7fffffff)
+	read_session()
+	night = level
 	_build_world()
 	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels)
 	_spawn_hunters()
@@ -242,22 +236,16 @@ func set_paused(on: bool) -> void:
 
 ## QUIT TO HUB / MENU: back to the Shift Board (the 2D game's "hub"), where the 2D game puts you.
 func back_to_games() -> void:
-	get_tree().paused = false
-	MouseLock.release_all()
-	NightWatchSession.menu_screen = "board"
-	get_tree().change_scene_to_file("res://scenes/night_watch_menu.tscn")
+	back_to_board()
 
 
-func retry() -> void:
-	NightWatchSession.start(night, seed_value)
-	get_tree().paused = false
-	get_tree().reload_current_scene()
+## Classic's nights run as far as the port goes (NightWatchData.NIGHTS); the mode table lists the 2D game's seven.
+func has_next_level() -> bool:
+	return not is_custom and level < NightWatchData.NIGHTS
 
 
 func next_night() -> void:
-	NightWatchSession.start(mini(night + 1, NightWatchData.NIGHTS))
-	get_tree().paused = false
-	get_tree().reload_current_scene()
+	next_level()
 
 
 # --- the clock ---------------------------------------------------------------------------------------------------------
@@ -466,8 +454,8 @@ func _finish_win() -> void:
 	close_monitor()
 	_freeze_player()
 	NightWatchSounds.win()
-	NightWatchSave.record_clear(night)
-	var more := night < NightWatchData.NIGHTS
+	record_win()
+	var more := has_next_level()
 	hud.show_end("NIGHT %d COMPLETE" % night, "6:00 AM\n" + WIN_TEXT + ("\nNight %d is open." % (night + 1) if more else "\nYou cleared every night."), more)
 	finished.emit("win")
 
