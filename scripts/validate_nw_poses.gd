@@ -113,6 +113,11 @@ func run(host: Node) -> int:
 	# ---- every model on the rig
 	var ids := _model_ids()
 	_expect(ids.size() >= 38, "expected at least the 38 hunters plus extras, found %d model folders" % ids.size())
+	# hunter-specific poses (Verrine's crawl) are only checked on their owner, below; every other model never plays them
+	var owned := {}
+	for owner in data.get("hunter_states", {}):
+		for state in data["hunter_states"][owner]:
+			owned[String(data["hunter_states"][owner][state])] = owner
 	var worst_floor := 0.0
 	var worst_hand := 9.0
 	for id in ids:
@@ -145,6 +150,8 @@ func run(host: Node) -> int:
 			for track in animation.get_track_count():
 				_expect(root.get_node_or_null(NodePath(String(animation.track_get_path(track)))) != null, "%s/%s: track %s does not resolve" % [id, pose_id, animation.track_get_path(track)])
 			_expect(animation.loop_mode == (Animation.LOOP_LINEAR if poses[pose_id]["loop"] else Animation.LOOP_NONE), "%s/%s: loop flag" % [id, pose_id])
+			if owned.has(pose_id):
+				continue
 			var steps := 24
 			for i in steps + 1:
 				var t := animation.length * i / steps
@@ -171,6 +178,43 @@ func run(host: Node) -> int:
 						break
 		model.queue_free()
 	print("  nw_poses: %d models x %d poses checked; lowest foot %.3f m under rest, closest hand to the body axis %.2f m" % [ids.size(), poses.size(), worst_floor, worst_hand])
+
+
+	# ---- Verrine's vent crawl: under vent height, nothing through the floor, transitions meet the crawl, table entry, scoped to her
+	var verrine := (load("res://assets/hunters_blocky/verrine/verrine.glb") as PackedScene).instantiate() as Node3D
+	host.add_child(verrine)
+	var vplayer := ModelSlot.find_animation_player(verrine)
+	NightWatchPoses.install(verrine, vplayer, "verrine")
+	var vrest := {}
+	HunterStride._collect_rest(verrine, verrine, vrest)
+	for pose_id in ["vent_crawl_verrine", "vent_drop_verrine", "vent_rise_verrine"]:
+		_expect(poses.has(pose_id), "missing %s" % pose_id)
+		var animation := vplayer.get_animation(NightWatchPoses.clip_name(pose_id))
+		var is_crawl: bool = pose_id == "vent_crawl_verrine"
+		for i in 41:
+			var pose_fk := HunterStride.fk(verrine, vrest, animation, animation.length * i / 40)
+			var top := -9.0
+			for bone in pose_fk:
+				top = maxf(top, (pose_fk[bone] as Transform3D).origin.y)
+			top = maxf(top, ((pose_fk["Head"] as Transform3D) * Vector3(0, .3, 0)).y)
+			var hands := minf((pose_fk["L-Hand"] as Transform3D).origin.y, (pose_fk["R-Hand"] as Transform3D).origin.y)
+			var knees := minf((pose_fk["L-Calf"] as Transform3D).origin.y, (pose_fk["R-Calf"] as Transform3D).origin.y)
+			var feet := minf((pose_fk["L-Foot"] as Transform3D).origin.y, (pose_fk["R-Foot"] as Transform3D).origin.y)
+			if is_crawl:
+				_expect(top <= .8, "%s t=%.2f: %.2f m high, over the 0.8 m vent" % [pose_id, animation.length * i / 40, top])
+			_expect(knees >= .0 and feet >= -.01 and hands >= .02, "%s t=%.2f: through the floor (hands %.2f knees %.2f feet %.2f)" % [pose_id, animation.length * i / 40, hands, knees, feet])
+	var crawl_rot: Dictionary = poses["vent_crawl_verrine"]["tracks"]
+	for bone in poses["vent_drop_verrine"]["tracks"]:
+		var drop_last: Array = poses["vent_drop_verrine"]["tracks"][bone]["rot"][-1]
+		var crawl_first: Array = crawl_rot[bone]["rot"][0]
+		_expect(_angle_gap(drop_last, crawl_first) < .01, "vent_drop_verrine does not end on the crawl (%s)" % bone)
+		var rise_first: Array = poses["vent_rise_verrine"]["tracks"][bone]["rot"][0]
+		_expect(_angle_gap(rise_first, crawl_first) < .01, "vent_rise_verrine does not start on the crawl (%s)" % bone)
+	var verrine_entry: Dictionary = HunterStride.table().get("verrine", {}).get("nw/vent_crawl_verrine", {})
+	_expect(float(verrine_entry.get("ref", 0.0)) > .2 and bool(verrine_entry.get("forward_ok", false)), "stride table has no usable vent crawl speed for Verrine")
+	_expect(NightWatchPoses.pose_for_state("vent", "verrine") == "vent_crawl_verrine", "Verrine's vent state must map to her own crawl")
+	_expect(NightWatchPoses.pose_for_state("vent", "dovelle") == "vent_crawl" and NightWatchPoses.pose_for_state("vent") == "vent_crawl", "other hunters keep the generic vent crawl")
+	verrine.queue_free()
 
 	# ---- the HunterView3D hook
 	var brain := HunterBrain.new(Vector2(5, 5), "NW-TEST", "dovelle", "standard")
