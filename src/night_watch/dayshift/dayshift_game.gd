@@ -175,8 +175,7 @@ func start_shift(basket: Array = []) -> void:
 	MouseLock.claim("night_watch_shop", false)
 	player.input_frozen = false
 	player.look_frozen = false
-	if not is_custom:
-		hud.queue_call(DayshiftData.call_lines(week))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, week))
 	_sync_visuals()
 
 
@@ -256,6 +255,7 @@ func advance_ms(dt_ms: float) -> void:
 	if state != State.PLAYING or _admin_frozen:
 		return
 	var events := sim.step(dt_ms, current_input())
+	hud.update_call(float(sim.s["elapsed"]), dt_ms)
 	if _admin_god and String(sim.s["over"]) != "":
 		_god_rescue()
 		events = []
@@ -687,14 +687,14 @@ func admin_set_door(door: String, shut: bool) -> void:
 
 
 func admin_play_call() -> void:
-	var lines := DayshiftData.call_lines(week)
-	hud.queue_call(lines.slice(1))
-	if not lines.is_empty():
-		hud.show_call(String(lines[0]))
+	var entry := NightWatchCallsData.for_level(mode_id, week)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
 
 
 func admin_skip_call() -> void:
-	hud.queue_call([])
+	if hud.call_script != null:
+		hud.call_script.mute()
 	hud.show_call("")
 
 

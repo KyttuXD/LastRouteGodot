@@ -82,8 +82,7 @@ func _ready() -> void:
 	controls = MaskControls.new()
 	sim = MaskLogic.new(night, rng, {"levels": custom, "custom": is_custom})
 	_spawn_hunters()
-	if not is_custom:
-		hud.queue_call(MaskData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, night))   # Zellia rings at the night's `at`; fed the shift clock
 	admin_menu = NightWatchAdmin.attach(self)   # after the sim exists
 	hud.hint_label.text = _hint()
 	_set_feed("music")
@@ -377,6 +376,7 @@ func advance_ms(dt_ms: float) -> void:
 	var input := controls.control_input()
 	_last_input = input
 	var events := sim.step(dt_ms, input)
+	hud.update_call(float(sim.s["elapsed"]), dt_ms)
 	if _admin_god and String(sim.s["over"]) == "caught":
 		_god_rescue()
 		events = []
@@ -883,10 +883,9 @@ func admin_set_mask_timer(ms: float) -> void:
 
 
 func admin_play_call() -> void:
-	var lines := MaskData.call_lines(night)
-	hud.queue_call(lines.slice(1))
-	if not lines.is_empty():
-		hud.show_call(String(lines[0]))
+	var entry := NightWatchCallsData.for_level(mode_id, night)
+	hud.set_call_script(NightWatchCallScript.new(entry.get("lines", ["Zellia, on the headset."]), 0.0))
+	hud.update_call(0.0, 0.0)
 
 
 ## One quick flash of the hall light (what answers Umbriel); a dead flashlight gets a little charge first.
@@ -900,7 +899,8 @@ func admin_flash_hall() -> void:
 
 
 func admin_skip_call() -> void:
-	hud.queue_call([])
+	if hud.call_script != null:
+		hud.call_script.mute()
 	hud.show_call("")
 
 

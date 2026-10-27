@@ -78,6 +78,7 @@ func run(host: Node) -> int:
 	_check_golden()
 	_check_rules()
 	await _check_scene(host)
+	await _check_call(host)
 	await _check_admin(host)
 	if _failures == 0:
 		print("  night_watch_dayshift  the 2D rules (golden shifts, shop, rack, noise, doors, window, power) and the shift scene (shop, weeks, win, short, loss, saves, Custom Night, carry-over, retry)")
@@ -477,6 +478,33 @@ func _check_scene(host: Node) -> void:
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	DayshiftGame.pending_carry = 0
 	NightWatchSession.start(1)
+
+
+# --- Zellia's call: rung at the week's `at` seconds on the shift clock (not during the shop), typed line by line, skipped with mute ----------------------------------------
+
+func _check_call(host: Node) -> void:
+	var game := _shift(host, 1, 750)
+	await host.get_tree().process_frame
+	game.advance_ms(60000.0)
+	_expect(game.state == DayshiftGame.State.SHOP and (game.hud.call_script == null or not game.hud.call_script.open), "the call rang during the shop")
+	game.start_shift([])
+	var at_s := float(NightWatchCallsData.for_level("dayshift", 1)["at"])
+	game.advance_ms((at_s - 1.0) * 1000.0)
+	_expect(not game.hud.call_script.open and game.hud.shown_call.is_empty(), "the call rang before its time")
+	game.admin_set_frozen(true)
+	game.advance_ms(5000.0)
+	_expect(not game.hud.call_script.open, "a frozen shift still rang the call")
+	game.admin_set_frozen(false)
+	for i in 15:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.shown_call == NightWatchCallsData.INCOMING_TEXT, "the call did not ring at %.0f s of the shift clock (%s)" % [at_s, game.hud.shown_call])
+	for i in 40:
+		game.advance_ms(100.0)
+	_expect(game.hud.call_script.open and game.hud.call_script.line == 0, "the call did not go on to its first line")
+	game.admin_skip_call()
+	_expect(game.hud.shown_call.is_empty(), "skipping the call left it on screen")
+	game.queue_free()
+	await host.get_tree().process_frame
 
 
 # --- the admin menu: the gate, the sections, the layout at three sizes, and every entry really changes the shift ---------------------------------------------
