@@ -610,10 +610,32 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 		var room: Dictionary = room_value
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var room_type := String(room.get("room_type", ""))
+		# The rect includes the room's wall ring and its door cells. Only the interior belongs to the room: a wall face
+		# looking into the hall, a door jamb and the doorway floor all take the HALL theme (the face is themed by the space
+		# it faces, the room floor starts inside the door line).
+		var grid: Array = data.get("grid", [])
 		for z in range(rect.position.y, rect.end.y):
 			for x in range(rect.position.x, rect.end.x):
+				var on_border := x == rect.position.x or z == rect.position.y or x == rect.end.x - 1 or z == rect.end.y - 1
+				if on_border and (_is_wall_at(grid, x, z) or _is_doorway(grid, rect, x, z)):
+					continue
 				map[Vector2i(x, z)] = room_type
 	return map
+
+
+static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
+	return z < 0 or x < 0 or z >= grid.size() or x >= (grid[z] as Array).size() or int(grid[z][x]) != 0
+
+
+## An open cell on a room's border with wall on both sides along that border: a door, which belongs to the hall.
+static func _is_doorway(grid: Array, rect: Rect2i, x: int, z: int) -> bool:
+	if x == rect.position.x or x == rect.end.x - 1:
+		if _is_wall_at(grid, x, z - 1) and _is_wall_at(grid, x, z + 1):
+			return true
+	if z == rect.position.y or z == rect.end.y - 1:
+		if _is_wall_at(grid, x - 1, z) and _is_wall_at(grid, x + 1, z):
+			return true
+	return false
 
 
 ## Ceiling height of a cell of the chunk under `root`.
@@ -641,12 +663,13 @@ func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
 	var gx := coord.x * size + x
 	var gz := coord.z * size + z
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(x, z), "")
+	var region := String(build.get("region", generator.biome_for(coord)))
 	var kinds: Array
 	if room_type != "":
-		kinds = (RefLook.ROOM_STYLE.get(room_type, {}) as Dictionary).get("floor", style["room"])
+		kinds = FloorSets.room(region, room_type)
 	else:
-		kinds = style["corridor"]
-		if bool(style["runner"]):
+		kinds = FloorSets.hall(region)
+		if FloorSets.hall_runner(region):
 			var runner := _runner_kind(build["data"]["grid"], x, z)
 			if runner != "":
 				return runner
@@ -726,10 +749,8 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-	var kinds: Array = (RefLook.ROOM_STYLE.get(room_type, {}) as Dictionary).get(
-		"wall", style["wall"]) if room_type != "" else style["wall"]
-	# patches of four cells, so a wall changes paper in runs rather than striping
-	return kinds[RefLook.pick((coord.x * size + x) / 4, (coord.z * size + z) / 4, 2, kinds.size())]
+	var region := String(build.get("region", generator.biome_for(coord) if generator != null else "maze"))
+	return RefLook.wall_kind(region, room_type, coord.x * size + x, coord.z * size + z)
 
 
 static func _wall_item_for(grid_data: Array, x: int, z: int,
