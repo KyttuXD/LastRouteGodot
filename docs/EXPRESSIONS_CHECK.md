@@ -5,7 +5,7 @@ feet). This is what was checked, on the real game scene (HunterView3D), on the m
 
 ![idle, chase, scream and stun, night lighting, hunters turned towards the camera](expressions_check.png)
 
-Rows: idle, chase, scream (chase with the runner close), stun. Verrine/Eirys, Kathy, Aki and Xivvy.
+Rows: idle, chase, scream (chase with the runner close), stun. Verrine/Elise, Kathy, Aki and Xivvy.
 
 ## Result: no texture or expression bug found in the models or in the face swap
 

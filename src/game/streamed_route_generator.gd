@@ -378,7 +378,7 @@ const TEMPLATE_PROP_SIZES := {
 ## hiding-place hunters stay in the standard mode until those world entities
 ## have streamed equivalents.
 const STREAMED_HUNTER_IDS := [
-	"dovelle", "quirith", "eirys", "xivvy", "thessine", "umbriel",
+	"dovelle", "quenelle", "elise", "xivvy", "thessine", "umbriel",
 	"aki", "porcelle", "glyra", "haelith", "opalie", "ysolde",
 	"briselle", "verrine",
 ]

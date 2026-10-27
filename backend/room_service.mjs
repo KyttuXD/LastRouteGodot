@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { canonicalHunterId } from "./hunter_id_aliases.mjs";
 
 export const DEFAULT_ROOM_SETTINGS = Object.freeze({
   mapScale: "standard",
@@ -17,10 +18,10 @@ const SETTING_VALUES = Object.freeze({
 });
 
 const PERSONAS = new Set([
-  "none", "aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra",
-  "haelith", "ilyra", "jyvra", "kathy", "loxelle", "mavrine", "nyxie", "opalie",
-  "porcelle", "quirith", "ravelle", "solyth", "thessine", "umbriel", "verrine",
-  "wynelle", "xivvy", "ysolde", "zephyra",
+  "none", "aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra",
+  "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie",
+  "porcelle", "quenelle", "ravelle", "solyth", "thessine", "umbriel", "verrine",
+  "wynelle", "xivvy", "ysolde", "zellia",
 ]);
 
 const MAX_PLAYERS = 16;
@@ -375,7 +376,8 @@ export function createRoomService({
     current.fanOn = Boolean(state.fanOn);
     current.heaterOn = Boolean(state.heaterOn);
     current.frame = Math.round(finite(state.frame, current.frame, 0, 3));
-    current.persona = PERSONAS.has(state.persona) ? state.persona : current.persona;
+    const persona = canonicalHunterId(state.persona);
+    current.persona = PERSONAS.has(persona) ? persona : current.persona;
     current.appearanceId = cleanAppearance(state.appearanceId, current.appearanceId);
     current.tagged = Number(state.roundId) === room.round.roundId && room.round.roundId > 0 ? current.tagged || Boolean(state.tagged) : false;
     current.noise = finite(state.noise, 0, 0, 100);

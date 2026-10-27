@@ -18,7 +18,7 @@ extends HunterGimmick
 ## The vent list itself lives on FacilityGenerator (place_vents()), not
 ## here, so the physical grates (facility_view_3d.gd) and this gimmick's own
 ## teleport/transit math read the exact same positions -- the same reason
-## place_hiding_spots() lives there for Ceryth/Jyvra/Loxelle.
+## place_hiding_spots() lives there for Ceryth/Javelle/Loxelle.
 
 var _active_in_vent := false
 var _speed_scale := 1.0

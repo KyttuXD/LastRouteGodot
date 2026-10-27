@@ -289,7 +289,7 @@ func _spawn_interactables() -> void:
 			node.set_meta("vent_mount", "low_wall")
 		else:
 			node.set_meta("vent_mount", "floor")
-	# Zephyra's economy. Placed last so it reads generator.vents (already
+	# Zellia's economy. Placed last so it reads generator.vents (already
 	# built above) and avoids landing on a vent grate, the same collision
 	# avoidance relays/batteries/safe_zones/hiding_spots already get.
 	for coin in generator.place_coins(GameConfig.COIN_PICKUP_COUNT):
@@ -843,7 +843,7 @@ func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:
 	return null
 
 
-## Zephyra's repair offer: whichever relay is currently offline, or null if
+## Zellia's repair offer: whichever relay is currently offline, or null if
 ## none is. Scans the same _interactables list shared_state() already reads
 ## sabotage off of, rather than generator.relays -- sabotage is presentation-
 ## node state (see route_interactable_3d.gd's own note on why), not the

@@ -5,16 +5,16 @@ every per-hunter file in the original (`src/game/hunters/*.js`,
 cross-referenced against `hunter-gimmicks.js`, `hunter-ai.js`, and
 `game-config.js`) against what this port actually has today.
 
-**Status: 26 of 26 A-Z hunters ported, plus 12 Void incursion models.** Dovelle (baseline), Quirith (flashlight
-tracker), Eirys (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
+**Status: 26 of 26 A-Z hunters ported, plus 12 Void incursion models.** Dovelle (baseline), Quenelle (flashlight
+tracker), Elise (sprint ratchet), Xivvy (proximity lock + chase ramp), Kathy
 (search beam), Ravelle (doorway tripwires), Mavrine (lattice mark), Umbriel
 (shapeshifter), Wynelle (cold materializer), Thessine (see below), Haelith
 (relay pursuer), Ysolde (battery thief), Opalie (relay guardian), Aki
-(phantom exposure), Porcelle (radar-only), Jyvra (locker ejection), Loxelle
+(phantom exposure), Porcelle (radar-only), Javelle (locker ejection), Loxelle
 (passive incinerator), Ceryth (hiding trap), **Briselle** (relay sabotage +
 resecure hold), **Ferryn** (permanent stalk + facility-wide scream),
 **Glyra** (spawn-room music box), **Ilyra** (corner observer + shadow
-pounce), **Verrine** (vent lurker) and **Zephyra** (coin exchange), plus the
+pounce), **Verrine** (vent lurker) and **Zellia** (coin exchange), plus the
 two rule-summoned specials Nyxie (darkness stalker) and Solyth
 (heat-summoned). See `MIGRATION.md`'s "Hunter roster" section for how
 they're wired.
@@ -36,29 +36,24 @@ than A-Z hunters, their baseline
 speed/perception is more aggressive, and a deterministic incursion can add one
 as an extra hunter from depth two onward.
 
-The first shipped Void pass gives them a shared, honest `VOID INCURSION`
-mechanic rather than inventing twelve half-implemented abilities. These are
-the intended colour identities for later focused passes:
+The Void colours have the powers below (copied from `src/game/hunter_gimmicks/void_*_gimmick.gd`; the dossier text in
+`src/config/void_hunter_gimmicks/void_hunter_gimmick_chart.gd` follows them). All twelve Voids have their powers.
 
-| Void | Candidate identity | Counterplay direction |
+| Void | Power | Counterplay direction |
 | --- | --- | --- |
-| Black | Eats nearby light and creates moving dark pockets | carry reserve light and leave the drained region |
-| Blue | Leaves a cold trail which slows prolonged pursuit | take warmer biome routes and avoid retracing it |
-| Brown | Specializes in boards and damaged barriers | do not rely on a single barricaded choke point |
-| Cyan | Interferes with taser charge and powered tools | use mechanical tools or fire the taser early |
-| Gray | Moves while unobserved and holds still under scrutiny | coordinate sightlines instead of fleeing alone |
-| Green | Creates temporary toxic area denial | rotate objectives before safe paths close |
-| Orange | Telegraphs a short, violent burst charge | sidestep at the cue and force a wall impact |
-| Pink | Mimics safe-room light and comfort audio | verify a safe-room marker before committing |
-| Purple | Short-phases between connected dark cells | keep multiple exits and avoid isolated rooms |
-| Red | Berserks after taking tool damage | stun to escape, not to start a long fight |
-| White | Nearly blind but exceptionally sensitive to noise | walk, close interactions quietly, avoid impacts |
-| Yellow | Disrupts powered lights and nearby switches | carry a flashlight and restore circuits behind it |
+| Black | Rear Stalker: Freezes while you are looking at her (within 11 cells, in your view, clear line) and moves 1.5x faster whenever you are not watching. | keep her in view: she freezes while you look at her |
+| Blue | Silent Stalker: Invisible and off the maps unless revealed. Shining your torch on her (12 cells) shoves her back 6 cells and shows her for 3.5 seconds. | torch her to push her back and show her |
+| Brown | Spot Jammer: Every 18 seconds she jams up to two hiding spots within 9 cells of you shut for 20 seconds. The spot you are hiding in is never jammed. | hide in the spot she cannot jam (yours) and do not count on neighbours |
+| Cyan | Signal Ping: If she keeps you in sight for 2.5 seconds she broadcasts your exact position, so every other active hunter investigates it, then she waits 30 seconds. | break line of sight before 2.5 seconds |
+| Gray | Signal Route: dormant (unseen, uncatchable) through a 180 s grace window (120 s Nightmare) that restarts at every relay; then 45 s (30 s) of standing still in the open opens a route of five E presses at 2.5 s each (1.8 s); a miss starts her chase until the next relay | keep moving, collect relays, or hide / use a safe room to wait |
+| Green | Vent Relocate: Every 22 seconds, if she is at least 14 cells away, she sinks out of sight for 2 seconds (still, unable to grab), then climbs out 9 cells from you and investigates. | move after the vent clatter: she surfaces 9 cells away |
+| Orange | System Saboteur: every 26 s one of flashlight / climate / radar goes offline for 9 s | wait it out somewhere safe; do not rely on one system |
+| Pink | False Signal: She never attacks and cannot catch you. Every 11 seconds she has a 60% chance to send a FOOTSTEPS // SOMEWHERE CLOSE cue. | ignore the footsteps cue: she cannot hurt you |
+| Purple | Radar Corrupter: every 21 s static for 8 s; 35% of the time a full radar blackout for 11 s instead | navigate from the game view until it reboots |
+| Red | Hall Runner: 1.55x faster in hallways and 0.78x slower inside rooms. | use rooms: she is slower there; avoid long hallways |
+| White | Light Frozen: Freezes while your lit torch is on her (within 10 cells) and moves 1.35x faster in the dark. Her hearing is the sharpest of the Voids. | keep the torch on her and stay quiet |
+| Yellow | Map Pressure: While your full-screen map is open her speed grows 0.06 per second up to 1.7x, and it stays for the rest of the route. | close the map: her speed grows while it is open |
 
-These rows are design commitments, not claims that the colour mechanics are
-already live. The roster and dossier currently label them as aggressive extra
-pursuers until each mechanic has its own authoritative co-op implementation
-and validation.
 
 ## Current refinement pass
 
@@ -140,8 +135,8 @@ once, and both are far cheaper than the big subsystems below.
 
 | Unlock | Hunters unblocked | What it takes |
 | --- | --- | --- |
-| **Relay/battery collected-state wiring** | up to 6 — Briselle, Haelith, Opalie, Ysolde outright; Solyth, Zephyra partially | `facility_generator.gd` already declares a `"collected": false` key on every relay and battery, but nothing ever writes `true` to it — `interactable.gd`/`route_interactable_3d.gd`'s `activate()` only flips a local `completed` flag on the presentation node and bumps `GameState.relays_collected`. Any hunter reading `generator.relays`/`generator.batteries` today sees everything as uncollected. Fix: have `activate()` also update the matching generator entry. |
-| **Directional flashlight beam-aim detection** — **BUILT** | Aki is **ported**; Ferryn and Ilyra still need a second system each | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quirith. |
+| **Relay/battery collected-state wiring** | up to 6 — Briselle, Haelith, Opalie, Ysolde outright; Solyth, Zellia partially | `facility_generator.gd` already declares a `"collected": false` key on every relay and battery, but nothing ever writes `true` to it — `interactable.gd`/`route_interactable_3d.gd`'s `activate()` only flips a local `completed` flag on the presentation node and bumps `GameState.relays_collected`. Any hunter reading `generator.relays`/`generator.batteries` today sees everything as uncollected. Fix: have `activate()` also update the matching generator entry. |
+| **Directional flashlight beam-aim detection** — **BUILT** | Aki is **ported**; Ferryn and Ilyra still need a second system each | The original's "lit by player beam" / "flash triggered" signal needs the player's *facing*, not just on/off. Both player controllers already compute a facing rotation; it's simply never threaded into the `target` dictionary passed to `HunterBrain.update()` (currently `position`/`hidden`/`in_safe_zone`/`noise`/`flashlight_on`). Add a `facing` field plus cone/dwell math — mechanically the same shape of change that `flashlight_on` was for Quenelle. |
 
 A third, trivial gap: **room-at(x, y) lookup**. Rooms carry bounding data but
 there's no point→room query. Never gates anything on its own.
@@ -159,7 +154,7 @@ in place as `HunterBrain.beam_reaches()`.
 
 | # | Hunter | Tier | Gimmick | Size |
 | --- | --- | --- | --- | --- |
-| 1 | **Eirys** *(ported)* | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
+| 1 | **Elise** *(ported)* | difficult | Cumulative ratchet: every second spent sprinting outside a safe zone (never decays); at 50s total she permanently locks into a blind chase. Sprint state is inferable from the existing per-frame `noise` value, since sprint noise is a distinct constant. Her `breachesHiding` flag is a pure no-op while hiding doesn't exist. | ~15-20 lines, 1 rule |
 | 2 | **Xivvy** *(ported)* | intermediate | Auto-locks to chase on pure proximity (no sight/hearing), then chase speed permanently ramps with chase duration. Caveat: her lock radius scales with player exposure, which doesn't exist — evaluating the same formula at exposure's rest value (0) gives a constant 0.5× radius, a legitimate default rather than a fabricated number. Full fidelity on that one knob wants the exposure meter later. | ~20-25 lines, 2 rules |
 | 3 | **Kathy** *(ported)* | difficult | A search-beam cone that spots the player past ordinary sight range. Needs new self-tracked facing bookkeeping (derived from her own movement) that no ported hunter has needed yet. Her second ability (`affectedSummon`) requires other already-active route hunters, which is structurally impossible at `ROUTE_HUNTER_COUNT = 1` in *both* codebases — permanently inert, not a blocker. | ~20-30 lines, 1 rule |
 | 4 | **Umbriel** *(ported)* | difficult | Every 30s, disguises as a random other roster hunter. On Standard this is purely cosmetic — attribute-copying is Nightmare-only. Just a timer, an exclusion-aware random pick, and telling `HunterView3D` to load a different model than `brain.hunter_id` implies. **Best deferred until more of the roster exists**, since her disguise pool is whatever's ported. Only self-contained hunter that touches the presentation layer. | ~40-50 lines |
@@ -172,14 +167,14 @@ Grouped by what unblocks them. `(sec.)` = secondary/partial dependency.
 
 | Subsystem | Hunters | Count |
 | --- | --- | --- |
-| Hiding spots | Ceryth, Jyvra, Loxelle | 3 |
+| Hiding spots | Ceryth, Javelle, Loxelle | 3 |
 | Audio system (positional / mimicked cues) | Haelith (ported; her footstep tell is the missing half), Thessine (ported; her cues change no state) | 0 blocked |
-| Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zephyra (sec.) | 1 (+1 sec.) |
+| Room/player temperature — **BUILT** | Loxelle (still needs hiding spots), Zellia (sec.) | 1 (+1 sec.) |
 | Accumulating noise/corruption meter — **BUILT** | Ferryn (also needs player beam-aim), Glyra (also needs a music-box prop) | 2 |
 | Concurrent multi-hunter activation — **BUILT** | Ysolde (sec.) | 1 (sec.) |
 | Exposure/sanity meter — **BUILT** | Aki (also needs player beam-aim) | 1 |
 | Relay/battery collected-state — **BUILT** | Briselle (also needs a sabotaged-relay state) — Haelith, Opalie and Ysolde are **ported** | 1 |
-| ~~Currency/inventory + shop UI~~ — **BUILT**; Zephyra is **ported** | 0 |
+| ~~Currency/inventory + shop UI~~ — **BUILT**; Zellia is **ported** | 0 |
 | ~~Player radar/gadget item~~ — Porcelle is **ported**; her radar was always the map | 0 |
 | ~~Vent-travel network~~ — **BUILT**; Verrine is **ported** | 0 |
 | ~~Player stun/incapacitation state~~ — **BUILT**; Ilyra is **ported** | 0 |
@@ -190,7 +185,7 @@ Notes worth keeping:
 - **Thessine** is mechanically *identical to Dovelle* without audio — her
   gimmick only ever plays fake sound cues and changes no state. She isn't
   degraded without an audio system, she's indistinguishable.
-- **Jyvra** is an ordinary chaser whose entire identity is one hiding-spot
+- **Javelle** is an ordinary chaser whose entire identity is one hiding-spot
   twist. She'd be trivial to add today, but it would be a Dovelle reskin
   rather than a port of her.
 - **Porcelle**'s AI needs nothing new (~4 lines); she's blocked purely
@@ -213,7 +208,7 @@ wired to any hunter via `HUNTER_ABILITIES`: `phantomExposure` (Aki),
 `emberVeil` (Ferryn), `latticeMark` (Mavrine). The other eight —
 `dualSensor`, `occlusionScan`, `coilTrace`, `carrierSweep`, `scentLine`,
 `quietPerch`, `routeEcho`, `resonancePlate` — are orphaned, referenced by no
-hunter. Likewise `jyvra.js`'s `resolveRouteEchoPrediction` and
+hunter. Likewise `javelle.js`'s `resolveRouteEchoPrediction` and
 `loxelle.js`'s `resolvePlateCharge` are unreachable (their hunters' real
 abilities are `hidingTimeout` and `passiveIncinerator`/`breaksHiding`).
 
@@ -226,16 +221,16 @@ constants that all hold the same value).
 | id | tier | baseSpeed | chaseSpeed | chaseProgScale | sightRange | hearingScale | spawnDistance |
 |---|---|---|---|---|---|---|---|
 | dovelle *(ported)* | easy | .80 | 3.55 | .18 | 8.0 | 1.00 | 12 |
-| quirith *(ported)* | easy | .81 | 3.50 | .17 | 8.1 | 0.85 | 12 |
+| quenelle *(ported)* | easy | .81 | 3.50 | .17 | 8.1 | 0.85 | 12 |
 | aki | easy | .82 | 3.55 | .20 | 8.2 | 1.00 | 11 |
 | briselle | easy | .84 | 3.62 | .18 | 7.7 | 1.00 | 12 |
 | ceryth | intermediate | .78 | 3.45 | .17 | 8.6 | 0.88 | 12 |
-| eirys | difficult | .82 | 3.58 | .18 | 8.1 | 1.05 | 12 |
+| elise | difficult | .82 | 3.58 | .18 | 8.1 | 1.05 | 12 |
 | ferryn | intermediate | .80 | 2.75 | .17 | 8.3 | 0.92 | 12 |
 | glyra | easy | .81 | 3.52 | .18 | 7.9 | 1.12 | 12 |
 | haelith | easy | .83 | 3.60 | .18 | 7.8 | 1.18 | 12 |
 | ilyra | intermediate | .77 | 3.68 | .17 | 8.7 | 0.80 | 12 |
-| jyvra | easy | .80 | 3.56 | .18 | 8.0 | 1.00 | 12 |
+| javelle | easy | .80 | 3.56 | .18 | 8.0 | 1.00 | 12 |
 | kathy | difficult | .82 | 4.15 | .20 | 8.2 | 1.00 | 16 |
 | loxelle | easy | .80 | 3.555 | .18 | 7.9 | 1.12 | 13 |
 | mavrine | intermediate | .80 | 3.50 | .17 | 8.2 | 0.95 | 12 |
@@ -250,7 +245,7 @@ constants that all hold the same value).
 | wynelle | difficult | .81 | 3.00 | .18 | 7.8 | 1.15 | 12 |
 | xivvy | intermediate | .97 | 4.35 | .12 | 6.72 | 0.84 | 13 |
 | ysolde | easy | .80 | 3.54 | .18 | 8.1 | 1.00 | 12 |
-| zephyra | easy | .83 | 3.60 | .17 | 8.0 | 0.95 | 12 |
+| zellia | easy | .83 | 3.60 | .17 | 8.0 | 0.95 | 12 |
 
 ### Per-hunter ability constants
 
@@ -262,12 +257,12 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 | aki | `phantomExposure{initialDelay:10, burstInterval:5, burstCount:3}` |
 | briselle | `saboteur{dwell:5, chance:.5}` |
 | ceryth | `hidingTrap{lockSeconds:30, torchSeconds:2.5}` |
-| eirys | `runningData{secondsToFull:50}`, `breachesHiding:true` |
+| elise | `runningData{secondsToFull:50}`, `breachesHiding:true` |
 | ferryn | `roundStalker{flashNoise:100}`; `emberVeil{exposureDuration:999, exposureDecay:1, revealedDuration:.01, veiledAlpha:.08}` |
 | glyra | `musicBoxThreat{baySeconds:20, noisePerSecond:1}` |
 | haelith | `relayPursuer:true`; hardcoded `AUDIBLE_RANGE=9`, `FOOTSTEP_INTERVAL=0.4` |
 | ilyra | `cornerObserver{sightScale:1.8, stunSeconds:5, pounceDelay:15, banishSeconds:30}` |
-| jyvra | `hidingTimeout{seconds:8}` (code fallback `ejectStall:2.2`) |
+| javelle | `hidingTimeout{seconds:8}` (code fallback `ejectStall:2.2`) |
 | kathy | `beamDetection{range:11.5, halfAngle:.24}`, `affectedSummon{checkInterval:5, spawnChance:.1}` |
 | loxelle | `passiveIncinerator{interval:5, chance:.25, regenerateSeconds:60, easyRegenerateScale:.5}`, `breaksHiding{stallSeconds:10, reach:1.45, noise:11, temperatureIncrease:30}`, `nonLethal:true` |
 | mavrine | `latticeMark{surveyDelay:6.2, surveyDuration:.9, projectionDuration:6, cooldownDuration:4.2, pingDuration:.45, triggerRadius:.62}` |
@@ -282,7 +277,7 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 | wynelle | `coldMaterializer{warmThreshold:60, deepColdThreshold:30, perDegreeRate:.5, deepColdRate:1, deathGraceSeconds:10, dematerializeResetProgress:50}` |
 | xivvy | `flight:true`, `chaseAccelerator{speedPerSecond:.035, maximumSpeedScale:1.8, closeLockRadius:1.5, wingNoisePerSecond:1.2}` |
 | ysolde | `batteryThief{stealRange:.8, torchRange:7}` |
-| zephyra | `merchant{nightmareDeathChance:.1, pesticideSeconds:60, offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}` |
+| zellia | `merchant{nightmareDeathChance:.1, pesticideSeconds:60, offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}` |
 
 ## Difficulty tiers and selection
 
@@ -296,9 +291,9 @@ so a partial roster does not distort the shares.
 - **Nightmare:** easy .175 / intermediate .525 / difficult .30 (original,
   reserved and not selectable)
 
-- **easy** — aki, briselle, dovelle, glyra, haelith, jyvra, loxelle, opalie, quirith, ysolde, zephyra
+- **easy** — aki, briselle, dovelle, glyra, haelith, javelle, loxelle, opalie, quenelle, ysolde, zellia
 - **intermediate** — ceryth, ferryn, ilyra, mavrine, porcelle, thessine, verrine, xivvy
-- **difficult** — eirys, kathy, ravelle, umbriel, wynelle
+- **difficult** — elise, kathy, ravelle, umbriel, wynelle
 - **special** (never in the random draw; summoned by a rule) — solyth (temperature extreme), nyxie (darkness)
 
 
@@ -371,9 +366,9 @@ map shows hunters.
 
 All ten are ported now: Ferryn, Briselle, Glyra, Verrine (a vent network: 4
 vents at room centres, player `in_vent` travel), Ilyra (a player
-stun/incapacitation state), Zephyra (coins: a per-run counter, a scatter of
+stun/incapacitation state), Zellia (coins: a per-run counter, a scatter of
 pickups, and a shop menu resolved through the same indirection
-music_box_resolver/vent_resolver already use), and Ceryth/Jyvra/Loxelle
+music_box_resolver/vent_resolver already use), and Ceryth/Javelle/Loxelle
 (hiding spots).
 
 Hiding spots are the biggest single unlock at three hunters, and are harder

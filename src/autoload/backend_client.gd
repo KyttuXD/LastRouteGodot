@@ -305,7 +305,7 @@ func discovered_hunters() -> Array[String]:
 	var raw = account_progress.get("hunter_discoveries", [])
 	if raw is Array:
 		for value in raw:
-			var hunter_id := String(value)
+			var hunter_id := HunterIdAliases.canonical(String(value))   # an old save may hold a pre-rename id
 			if (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)) and not result.has(hunter_id):
 				result.append(hunter_id)
 	result.sort()
@@ -313,13 +313,14 @@ func discovered_hunters() -> Array[String]:
 
 
 func hunter_discovered(hunter_id: String) -> bool:
-	return discovered_hunters().has(hunter_id)
+	return discovered_hunters().has(HunterIdAliases.canonical(hunter_id))
 
 
 ## Discovery is deliberately account-only. A guest can encounter a hunter in
 ## the current room, but receives no permanent dossier unlock and cannot copy
 ## another runner's progress through ENet.
-func account_discover_hunter(hunter_id: String) -> bool:
+func account_discover_hunter(requested_id: String) -> bool:
+	var hunter_id := HunterIdAliases.canonical(requested_id)
 	if GameState.debug_run:
 		return false
 	if not signed_in() or not (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)):

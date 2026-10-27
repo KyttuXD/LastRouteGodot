@@ -10,7 +10,7 @@ extends NightWatchMode
 enum State { PLAYING, PAUSED, WON, LOST }
 
 const CLAIM := "night_watch_descent"
-const ELISE_MODEL := "eirys"   # the 3D roster's E hunter wears Elise's model; Quenelle's is Quirith
+const ELISE_MODEL := "elise"   # the 3D roster's E hunter wears Elise's model
 
 var descent := 1
 var state: State = State.PLAYING
