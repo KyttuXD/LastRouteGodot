@@ -321,7 +321,8 @@ static func track(text: String, spaces: int = 1) -> String:
 ## moment a game is opened (and the hub puts Last Route's back), so settings, pause, account, lobby, results, loading,
 ## admin and the HUD frames all follow. Last Route keeps the purple route identity above; the City is a night city:
 ## deep navy ink, neon amber for primary actions, ice cyan for readouts, softly rounded glass-like panels. Night Watch
-## dresses its own menus and keeps Last Route's tokens here.
+## is the 2D game's CRT amber-on-black: its own menus and HUD are dressed by theme_nightwatch.tres, and this scheme
+## gives the SHARED screens that run inside it (the admin menu, results, the death moment) the same colours.
 const SCHEMES := {
 	"last_route": {},   # the defaults above
 	"city": {
@@ -332,6 +333,15 @@ const SCHEMES := {
 		"TEAL": "4ff0d2", "TEAL_BRIGHT": "c8fff4", "TEAL_DEEP": "1b7a70",
 		"ALERT": "ff5c7a", "STABLE": "5de0a0", "FIELD_EDGE": "3b4c96", "KEYCAP_EDGE": "56689f",
 		"CORNER": 3, "EDGE_WIDTH": 1, "LABEL_TRACKING": 3,
+	},
+	"night_watch": {
+		"BACKDROP": "0a0907", "PANEL": "0f0d0a", "PANEL_EDGE": "2a2620", "INSET": "060504", "SCRIM": "000000cc",
+		"INK": "e8e2d0", "BODY": "c9c3b0", "MUTED": "8a8472", "DIM": "5a5648", "DISABLED": "7a7566",
+		"AMBER": "e0b04a", "AMBER_FILL": "c4902e", "ON_AMBER": "0f0d0a",
+		"ACCENT": "e0b04a", "ACCENT_EDGE": "f2d089", "ACCENT_DEEP": "5a3f10",
+		"TEAL": "5fa88a", "TEAL_BRIGHT": "a8e0c8", "TEAL_DEEP": "245a46",
+		"ALERT": "e0504a", "STABLE": "6fbf8a", "FIELD_EDGE": "4a443a", "KEYCAP_EDGE": "6a6455",
+		"CORNER": 0, "EDGE_WIDTH": 1, "LABEL_TRACKING": 1,
 	},
 }
 static var scheme_id := "last_route"
@@ -360,7 +370,7 @@ static func tokens() -> Dictionary:
 	}
 
 
-## The scheme a game id uses ("night_watch" and unknown ids keep Last Route's).
+## The scheme a game id uses (unknown ids keep Last Route's).
 static func scheme_for(game_id: String) -> String:
 	return game_id if SCHEMES.has(game_id) else "last_route"
 
@@ -415,7 +425,7 @@ static func _set_token(key: String, value) -> void:
 
 ## The Theme a game puts on the root window: its own theme resource (buttons, cards, labels) plus a generated layer for the
 ## shared controls that theme does not define (sliders, tabs, checkboxes, scrollbars) so they stop falling back to Last
-## Route's purple project theme. null for Last Route and Night Watch (they keep the project theme).
+## Route's purple project theme. null for Last Route (it keeps the project theme).
 static var _theme_cache := {}
 
 

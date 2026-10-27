@@ -53,6 +53,13 @@ static func attach(host: Node, status: Callable, actions: Array, text_fields: Ar
 	return menu
 
 
+## A game with its own look (Night Watch) styles the menu with its theme instead of the project's.
+func apply_theme(new_theme: Theme) -> void:
+	for c in [_panel, _dimmer, _badge]:
+		if c != null:
+			(c as Control).theme = new_theme
+
+
 func _exit_tree() -> void:
 	# leaving the run (or the scene) always turns the debug view off again
 	DebugView.set_mode(DebugView.Mode.OFF)
