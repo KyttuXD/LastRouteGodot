@@ -14,6 +14,9 @@ extends CharacterBody3D
 
 var brain: HunterBrain
 var surface_height_provider: Callable
+## True while on a sewer ladder (set_climbing).
+var climbing := false
+var _collider: CollisionShape3D
 ## Host-selected runner this brain is currently evaluating. Replicated with
 ## presentation state so only the pursued client receives chase audio.
 var target_peer_id := 0
@@ -147,6 +150,7 @@ func _ready() -> void:
 	safe_margin = .035
 	var collider := CollisionShape3D.new()
 	collider.name = "HunterCollision"
+	_collider = collider
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = HUNTER_BODY_RADIUS
 	capsule.height = HUNTER_BODY_HEIGHT
@@ -202,6 +206,20 @@ func _physics_process(delta: float) -> void:
 	if not _streamed_height_override_active and position.y < _surface_target_y - FALL_RECOVERY_DEPTH:
 		position.y = _surface_target_y
 		velocity.y = 0.0
+
+
+## On a sewer ladder (LadderTraffic): the body rises or sinks with the climb,
+## faces the rungs, plays the climb clip and has no collision, so the maze floor
+## collider over the shaft does not push her back out.
+func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0) -> void:
+	if on:
+		set_streamed_height_override(height)
+		rotation.y = facing_yaw
+	elif climbing:
+		clear_streamed_height_override()
+	climbing = on
+	if _collider != null:
+		_collider.disabled = on
 
 
 func set_streamed_height_override(height: float) -> void:
@@ -488,6 +506,8 @@ func _apply_visibility() -> void:
 ## still: a chasing hunter turns toward the runner, anyone else keeps the
 ## brain's last real heading.
 func _update_body_yaw() -> void:
+	if climbing:
+		return
 	var direction := Vector2.ZERO
 	if _facing.moving():
 		direction = _facing.move_dir
@@ -843,6 +863,8 @@ func _update_animation() -> void:
 		clip_name = "stun_recover"
 	elif brain.stun_timer > 0.0:
 		pass
+	elif climbing:
+		clip_name = "climb"
 	elif brain.gimmick is XivvyGimmick \
 			and (brain.gimmick as XivvyGimmick).airborne():
 		clip_name = "flight"

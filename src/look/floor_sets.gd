@@ -17,6 +17,7 @@ const HALLS := {
 	"carnival": {"floor": ["check0", "check1"], "runner": false},
 	"prison": {"floor": ["concrete0", "concrete1"], "runner": false},
 	"inferno": {"floor": ["hazard", "metal3"], "runner": false},
+	"sewer": {"floor": ["stone0", "stone1"], "runner": false},       # worn stone walkways
 }
 
 ## District default for rooms whose purpose is not in ROOMS.
@@ -30,6 +31,7 @@ const ROOM_DEFAULT := {
 	"carnival": ["star0", "star1"],
 	"prison": ["concrete0", "concrete1"],
 	"inferno": ["metal3", "stone1"],
+	"sewer": ["concrete0", "concrete1"],
 }
 
 ## Room purpose -> floor kinds.
@@ -59,6 +61,8 @@ const ROOMS := {
 	# inferno
 	"thermal_chamber": ["hazard", "metal3"], "forge": ["hazard", "metal3"], "altar_room": ["stone1", "metal3"],
 	"lava_gallery": ["metal3", "hazard"],
+	# sewer waterworks
+	"pump_room": ["concrete0", "hazard"], "valve_room": ["concrete1", "concrete0"], "overflow_chamber": ["stone1", "concrete1"],
 }
 
 

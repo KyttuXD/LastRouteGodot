@@ -171,6 +171,23 @@ const SPRITE_DIR := "res://assets/sprites/hunters/"
 const SCYTHE_CARRY_CHANCE := 0.125
 
 
+## How a hunter treats the sewer under the maze (docs/SEWERS.md). "prefer": stalkers and ambushers who like the dark
+## and the noise of the water -- they follow a runner down, drift down on their own and do not climb back up unless
+## chasing. "avoid": hunters who will not go below -- they follow a runner to the ladder and wait at the top for them
+## to come back up. Everyone not listed (the Void hunters included) "follow"s: down or up after a runner, never on her
+## own. KT tunes these two lists.
+const SEWER_PREFER := ["verrine", "umbriel", "wynelle", "glyra", "loxelle", "ravelle"]
+const SEWER_AVOID := ["kathy", "ferryn", "solyth", "porcelle"]
+
+
+static func sewer_affinity(id: String) -> String:
+	if SEWER_PREFER.has(id):
+		return "prefer"
+	if SEWER_AVOID.has(id):
+		return "avoid"
+	return "follow"
+
+
 ## Scale for one hunter's presentation: humanoid hunters take MODEL_SCALE, secret creature rigs keep their authored size.
 static func scale_for(id: String) -> float:
 	return 1.0 if SecretCreatures.uses_creature_rig(id) else MODEL_SCALE

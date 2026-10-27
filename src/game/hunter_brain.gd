@@ -242,6 +242,35 @@ func update_without_target(delta: float, generator,
 	_update_movement(delta, generator, depth, relays_collected)
 
 
+## Walks toward `point` on this floor while the runner she follows is on the
+## other level (a sewer ladder she is heading for). Stays INVESTIGATE, so the
+## walk is part of the pursuit rather than a wander, and never perceives or
+## grabs anyone on the way. Returns true once she stands at the point.
+func head_to(point: Vector2, delta: float, generator, depth: int, relays_collected: int) -> bool:
+	_tick_emote(delta)
+	if not active:
+		return false
+	if stun_timer > 0.0:
+		stun_timer = maxf(0.0, stun_timer - delta)
+		return false
+	if position.distance_to(point) <= ARRIVAL_DISTANCE:
+		state = State.INVESTIGATE
+		has_last_known = true
+		last_known = point
+		return true
+	if state != State.INVESTIGATE or not has_last_known or last_known.distance_to(point) > .01:
+		_path.clear()
+		_has_path_target = false
+	state = State.INVESTIGATE
+	has_last_known = true
+	last_known = point
+	direct_chase_visible = false
+	_ability_direct_sight = false
+	_update_stamina(delta)
+	_update_movement(delta, generator, depth, relays_collected)
+	return position.distance_to(point) <= ARRIVAL_DISTANCE
+
+
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
 ## `duration` seconds. Used after a broken grip (hunter-ai.js's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).

@@ -571,6 +571,16 @@ const MODEL_PATHS := {
 		"res://art/props-3d/props/nether/charred_supply_crate.glb",
 	],
 	"prisonCellGate": ["res://art/props-3d/props/prison/prison_cell_gate.glb"],
+	# the sewer under the maze (tools/props/rebuild_hytale_props.py SEWER_BUILDERS)
+	"sewerLadder": ["res://art/props-3d/props/sewer/sewer_ladder.glb"],
+	"sewerLadderTop": ["res://art/props-3d/props/sewer/sewer_ladder_top.glb"],
+	"sewerManhole": ["res://art/props-3d/props/sewer/manhole_frame.glb"],
+	"sewerFloorGrate": ["res://art/props-3d/props/sewer/sewer_floor_grate.glb"],
+	"sewerValveWheel": ["res://art/props-3d/props/sewer/sewer_valve_wheel.glb"],
+	"sewerPump": ["res://art/props-3d/props/sewer/sewer_pump.glb"],
+	"sewerPipeRun": ["res://art/props-3d/props/sewer/sewer_pipe_run.glb"],
+	"sewerOverflowGrate": ["res://art/props-3d/props/sewer/sewer_overflow_grate.glb"],
+	"sewerLamp": ["res://art/props-3d/props/sewer/sewer_lamp.glb"],
 	"prisonBunk": ["res://art/props-3d/props/prison/prison_bunk.glb"],
 	"prisonCafeteriaTable": [
 		"res://art/props-3d/props/prison/prison_cafeteria_table.glb",
@@ -610,6 +620,8 @@ const LIGHT_PROFILES := {
 	"ceilingFan": {"color": Color("fff0c2"), "energy": .54, "range": 4.4, "height": .16},
 	"diningChandelier": {"color": Color("ffd58c"), "energy": .66, "range": 5.2, "height": .55},
 	"wallSconce": {"color": Color("ffd292"), "energy": .36, "range": 3.2, "height": 1.62},
+	# dim amber caged bulkheads, far apart: the sewer stays mostly dark
+	"sewerLamp": {"color": Color("ffa24a"), "energy": .42, "range": 5.0, "height": 0.0},
 }
 
 ## Coordinated furniture families share the same room id. Hash that room id,

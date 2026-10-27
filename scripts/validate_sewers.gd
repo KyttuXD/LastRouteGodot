@@ -23,10 +23,13 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
-func run(_host: Node) -> int:
+func run(host: Node) -> int:
 	var total_links := 0
 	for window in WINDOWS:
 		total_links += _check_window(window)
+	_check_traffic()
+	_check_hunter_paths()
+	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
 	if _failures == 0:
 		print("  ok    sewers: %d links, all reachable both ways" % total_links)
@@ -47,10 +50,10 @@ func _check_window(window: Dictionary) -> int:
 			var coord := Vector3i(cx, SewerRouteGenerator.LEVEL, cz)
 			var data: Dictionary = sewer.chunk(coord)
 			var twin: Dictionary = again.chunk(coord)
-			_expect(data["grid"] == twin["grid"] and data["links"] == twin["links"],
+			_expect(data["sewer_grid"] == twin["sewer_grid"] and data["links"] == twin["links"],
 				"%s sewer chunk %s is not deterministic" % [seed_text, coord])
 			var origin := Vector2i(cx * size, cz * size)
-			var grid: Array = data["grid"]
+			var grid: Array = data["sewer_grid"]
 			for z in size:
 				for x in size:
 					if SewerRouteGenerator.is_walkable(int(grid[z][x])):
@@ -76,6 +79,10 @@ func _check_window(window: Dictionary) -> int:
 					"%s link %s has no ladder at its foot" % [seed_text, link["id"]])
 				var up: Vector2i = link["from_cell"]
 				var down: Vector2i = link["to_cell"]
+				var behind: Vector2i = down + Vector2i(link.get("wall", Vector2i.ZERO))
+				_expect(Vector2i(link.get("wall", Vector2i.ZERO)) != Vector2i.ZERO \
+					and int(grid[behind.y][behind.x]) == SewerRouteGenerator.SOLID,
+					"%s link %s ladder has no brick behind its rungs" % [seed_text, link["id"]])
 				_expect(int(sgrid[up.y][up.x]) == 0, "%s link %s lid is not open maze floor" % [seed_text, link["id"]])
 				_expect(SewerRouteGenerator.is_dry(int(grid[down.y][down.x])), "%s link %s ladder foot is not dry" % [seed_text, link["id"]])
 				for prop in surface_data["region_props"] + surface_data["fixtures"] + surface_data["pickups"]:
@@ -155,3 +162,147 @@ func _check_round_trip(seed_text: String, surface: StreamedRouteGenerator, sewer
 		if sewer_reach.has(link["down"]):
 			ups += 1
 	_expect(ups == links.size(), "%s: only %d/%d ladders reachable from the first one below" % [seed_text, ups, links.size()])
+
+
+## The streamed view loads the sewer 3x3 around a runner below the maze plus the
+## maze chunk above it, flips back to the maze when the runner climbs out, keeps
+## every chunk build inside the frame budget, and leaves each ladder shaft open
+## (no maze floor drawn, no sewer ceiling) while the maze floor keeps its collider.
+func _check_streaming(host: Node) -> void:
+	var view := StreamedFacilityView3D.new()
+	host.add_child(view)
+	var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+	host.add_child(player)
+	var level_y := float(SewerRouteGenerator.LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	var under := Vector3(SewerRouteGenerator.CENTER - SewerRouteGenerator.TUNNEL_HALF + .5, level_y + .04,
+		SewerRouteGenerator.CENTER + .5)
+	player.global_position = under
+	var started := Time.get_ticks_usec()
+	view.begin("SEWER-STREAM", player)
+	var initial_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	_expect(view.current_level() == SewerRouteGenerator.LEVEL, "a runner in the sewer is not on level -1")
+	var sewer_loaded := 0
+	for coord in view._loaded.keys():
+		if (coord as Vector3i).y == SewerRouteGenerator.LEVEL:
+			sewer_loaded += 1
+	_expect(sewer_loaded == 9, "the sewer window holds %d chunks, not the 3x3 around the runner" % sewer_loaded)
+	_expect(view._loaded.has(Vector3i(0, 0, 0)), "the maze chunk above the runner is not loaded")
+	var root: Node3D = view._loaded.get(Vector3i(0, SewerRouteGenerator.LEVEL, 0))
+	var structure := root.get_node_or_null("Structure") as GridMap if root != null else null
+	_expect(structure != null and structure.get_cell_item(Vector3i(floori(under.x), 0, floori(under.z))) != GridMap.INVALID_CELL_ITEM,
+		"no floor collider under the runner in the sewer")
+	_expect(root != null and root.get_node_or_null("SewerWater") != null, "the sewer chunk has no flowing water")
+	# Walk east one chunk along the tunnel: the window streams incrementally.
+	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
+	var worst_frame_ms := 0.0
+	for _frame in 400:
+		var t := Time.get_ticks_usec()
+		view._process(1.0 / 60.0)
+		worst_frame_ms = maxf(worst_frame_ms, float(Time.get_ticks_usec() - t) / 1000.0)
+		await host.get_tree().process_frame
+		if view._pending_loads.is_empty() and view._active_build.is_empty() and view._pending_unloads.is_empty():
+			break
+	_expect(view._loaded.has(Vector3i(2, SewerRouteGenerator.LEVEL, 0)), "walking east did not stream the next sewer chunk")
+	_expect(worst_frame_ms < 40.0, "a streaming frame in the sewer took %.1f ms (budget 40)" % worst_frame_ms)
+	# Climb out at the origin chunk's ladder: back on the maze, the sewer chunk
+	# below that ladder stays loaded and the shaft is open in both chunks.
+	var links: Array = view.generator.sewer().links_for(Vector3i.ZERO)
+	_expect(not links.is_empty(), "the origin chunk has no ladder")
+	if not links.is_empty():
+		var lid: Vector2i = links[0]["from_cell"]
+		player.global_position = Vector3(lid.x + .5, .04, lid.y + .5)
+		view.refresh_at_tracked_player()
+		_expect(view.current_level() == 0, "a runner on the maze floor is not on level 0")
+		_expect(view._loaded.has(Vector3i(0, SewerRouteGenerator.LEVEL, 0)), "the sewer chunk under a ladder unloaded")
+		var maze_root: Node3D = view._loaded.get(Vector3i.ZERO)
+		var maze_grid := maze_root.get_node_or_null("Structure") as GridMap if maze_root != null else null
+		_expect(maze_grid != null and maze_grid.get_cell_item(Vector3i(lid.x, 0, lid.y)) != GridMap.INVALID_CELL_ITEM,
+			"the maze floor over a ladder lost its collider")
+		# The runner climbs down that ladder and back up: smooth, collision off on
+		# the rungs, and the view follows onto each level.
+		var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+		var top := Vector3(lid.x + .5, .04, lid.y + .5)
+		for leg in [{"from": top, "rise": -rise, "level": SewerRouteGenerator.LEVEL},
+				{"from": top - Vector3(0, rise, 0), "rise": rise, "level": 0}]:
+			player.begin_ladder_climb(leg["from"], leg["rise"], .6, 0.0, leg["level"])
+			_expect(player.is_climbing() and player.collision_layer == 0, "the runner did not get onto the ladder")
+			var midway_y := INF
+			for _frame in 120:
+				await host.get_tree().physics_frame
+				if player.ladder_climb_progress() > .45 and midway_y == INF:
+					midway_y = player.global_position.y
+				if not player.is_climbing():
+					break
+			view.refresh_at_tracked_player()
+			var want_y := float(Vector3(leg["from"]).y) + float(leg["rise"])
+			_expect(not player.is_climbing() and absf(player.global_position.y - want_y) < .05,
+				"the climb did not end on the far floor (y %.2f, want %.2f)" % [player.global_position.y, want_y])
+			_expect(midway_y > minf(float(Vector3(leg["from"]).y), want_y) + .5 \
+				and midway_y < maxf(float(Vector3(leg["from"]).y), want_y) - .5,
+				"the climb jumped instead of moving along the rungs")
+			_expect(view.current_level() == int(leg["level"]), "after the climb the view is on level %d, not %d" % [
+				view.current_level(), int(leg["level"])])
+			_expect(player.collision_layer == 1, "the runner kept collision off after the climb")
+	print("  ok    sewer streaming: first window %.0f ms, worst streaming frame %.1f ms" % [initial_ms, worst_frame_ms])
+	view.clear()
+	view.queue_free()
+	player.queue_free()
+
+
+## One climber per ladder: a second one waits; a finished climb frees it and
+## lands on the other level at the ladder cell.
+func _check_traffic() -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-TRAFFIC")
+	var link: Dictionary = generator.sewer().links_for(Vector3i.ZERO)[0]
+	var traffic := LadderTraffic.new()
+	_expect(traffic.begin("hunter:a", link, 0, 1.0), "a free ladder refused its first climber")
+	_expect(not traffic.begin("hunter:b", link, 0, 1.0), "two climbers got on one ladder")
+	var mid := traffic.advance("hunter:a", .5)
+	_expect(absf(float(mid["height"]) - LadderTraffic.RISE * .5) < .01, "a climb down is not halfway down at half time")
+	var done := traffic.advance("hunter:a", .6)
+	_expect(bool(done["done"]) and int(done["to_level"]) == SewerRouteGenerator.LEVEL, "the climb did not land in the sewer")
+	_expect(traffic.begin("hunter:b", link, 0, 1.0), "the ladder stayed taken after the first climber got off")
+	_expect(LadderTraffic.nearest_ladder(generator, 0, LadderTraffic.ladder_point(link, 0))["id"] == link["id"],
+		"nearest_ladder does not find the ladder a hunter stands on")
+	_expect(LadderTraffic.climb_seconds_for_speed(1.0) < LadderTraffic.climb_seconds_for_speed(0.8),
+		"faster hunters do not climb faster")
+
+
+## Hunter A* on the sewer level reaches between ladders through the tunnels,
+## and on the maze level reaches each ladder lid: the two-level route a hunter
+## follows down and back up.
+func _check_hunter_paths() -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-PATHS")
+	var coords := []
+	for z in range(-1, 2):
+		for x in range(-1, 2):
+			coords.append(Vector3i(x, SewerRouteGenerator.LEVEL, z))
+	var below := StreamedHunterNavigation.new(generator, SewerRouteGenerator.LEVEL)
+	below.refresh(SewerRouteGenerator.LEVEL, coords)
+	var maze_coords := []
+	for c in coords:
+		maze_coords.append(Vector3i((c as Vector3i).x, 0, (c as Vector3i).z))
+	var above := StreamedHunterNavigation.new(generator, 0)
+	above.refresh(0, maze_coords)
+	var feet := []
+	for c in coords:
+		for link in generator.sewer().links_for(c):
+			feet.append(link)
+	_expect(feet.size() >= 3, "only %d ladders around the origin to path between" % feet.size())
+	var routed := 0
+	var lids := 0
+	for i in range(1, feet.size()):
+		var a := LadderTraffic.ladder_point(feet[0], SewerRouteGenerator.LEVEL)
+		var b := LadderTraffic.ladder_point(feet[i], SewerRouteGenerator.LEVEL)
+		if not below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y))).is_empty():
+			routed += 1
+	for i in feet.size():
+		var lid := LadderTraffic.ladder_point(feet[i], 0)
+		# from another lid: the origin chunk's centre is a safe room hunters do not enter
+		var first := LadderTraffic.ladder_point(feet[(i + 1) % feet.size()], 0)
+		var start := Vector2i(floori(first.x), floori(first.y))
+		if not above.find_path(start, Vector2i(floori(lid.x), floori(lid.y))).is_empty():
+			lids += 1
+	_expect(routed == feet.size() - 1, "hunter A* reached %d of %d ladders through the sewer" % [routed, feet.size() - 1])
+	_expect(lids == feet.size(), "hunter A* reached %d of %d ladder lids on the maze" % [lids, feet.size()])
+	print("  ok    sewer hunter paths: %d ladders, all reachable above and below" % feet.size())

@@ -177,7 +177,7 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 	return await run_loop(bridge, adapter, opts, report)
 
 
-## probe: start a run, teleport to --probe-x/--probe-z, wait for the chunk to stream in, then take four screenshots turning 90 degrees
+## probe: start a run, teleport to --probe-x/--probe-z (and --probe-y for another level), wait for the chunk to stream in, then take four screenshots turning 90 degrees
 ## each time and list what is nearby. For looking at a stuck spot a bot found (needs a windowed run to get images).
 static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
 	var tree := bridge.get_tree()
@@ -186,6 +186,9 @@ static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary,
 		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
 	var obs := bridge.observe()
 	var y: float = float(obs["player"]["pos"][1])
+	# --probe-y picks another level (e.g. -3.96 for the sewer under the maze)
+	if float(opts.get("probe_y", -9999.0)) > -9000.0:
+		y = float(opts["probe_y"])
 	var result := bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": y, "z": float(opts["probe_z"])})
 	var frames := 0
 	for _i in 120:

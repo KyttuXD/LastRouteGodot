@@ -69,7 +69,7 @@ func _watch(seconds: float) -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "deadline": 0.0, "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "deadline": 0.0, "screenshots": false, "keep_alive": false}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)

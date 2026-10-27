@@ -14,6 +14,8 @@ extends CharacterBody3D
 ## reads a floor plan. So it is gone rather than carried as a broken option.
 
 signal flashlight_changed(enabled: bool)
+## A sewer ladder climb finished; the runner now stands on `to_level`.
+signal ladder_climb_finished(to_level: int)
 signal taser_requested
 signal tool_used(item_id: String)
 signal item_drop_requested(item_id: String, durability: int, slot: int)
@@ -192,6 +194,11 @@ var admin_god_mode := false
 var admin_noclip := false
 ## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
 var admin_speed_scale := 1.0
+## Wading the sewer's channel (set by the run scene from the sewer grid): slow
+## and loud, never deep. Dry walkways and bridges are normal floor.
+var wading := false
+const WADE_SPEED_SCALE := 0.55
+const WADE_NOISE_SCALE := 1.6
 ## A captured co-op guest remains in the room as a free-flying spectator rather
 ## than respawning or being forced back to the menu. The host still treats this
 ## state as game-over for targeting and replication purposes.
@@ -242,6 +249,11 @@ var _hiding_fixture: Node3D
 ## but does not mutate the shared prop, so two couch seats in co-op never need
 ## an authority round trip.
 var resting_furniture: RouteInteractable3D
+## A sewer ladder climb in progress (begin_ladder_climb): {from, rise, seconds, elapsed, to_level}.
+## Movement, items and collision are off; the body plays "climb" (guests see it
+## through current_clip) and the view shows both hands working the rungs.
+var ladder_climb := {}
+var _climb_hands: Node3D
 var resting_pose := ""
 var _furniture_return_position := Vector3.ZERO
 
@@ -601,6 +613,109 @@ func _unhandled_input(event: InputEvent) -> void:
 			select_inventory_slot(selected_inventory_slot + 1)
 
 
+func is_climbing() -> bool:
+	return not ladder_climb.is_empty()
+
+
+## Starts climbing a sewer ladder from `from` (the ladder cell's floor point on
+## this level) `rise` metres up (negative = down) over `seconds`, facing `yaw`.
+func begin_ladder_climb(from: Vector3, rise: float, seconds: float, yaw: float, to_level: int) -> void:
+	if is_climbing() or hidden or spectator_mode:
+		return
+	if resting_furniture != null:
+		leave_furniture()
+	ladder_climb = {"from": from, "rise": rise, "seconds": maxf(seconds, .1), "elapsed": 0.0, "to_level": to_level}
+	velocity = Vector3.ZERO
+	global_position = from
+	rotation.y = yaw
+	collision_layer = 0
+	collision_mask = 0
+	if first_person_items != null:
+		first_person_items.visible = false
+	_show_climb_hands(true)
+
+
+func ladder_climb_progress() -> float:
+	if ladder_climb.is_empty():
+		return 0.0
+	return clampf(float(ladder_climb["elapsed"]) / float(ladder_climb["seconds"]), 0.0, 1.0)
+
+
+func _update_ladder_climb(delta: float) -> void:
+	ladder_climb["elapsed"] = float(ladder_climb["elapsed"]) + delta
+	var t := ladder_climb_progress()
+	# Ease on and off the rungs so the camera does not jolt at either end.
+	var eased := t * t * (3.0 - 2.0 * t)
+	var rise := float(ladder_climb["rise"])
+	global_position = Vector3(ladder_climb["from"]) + Vector3(0, rise * eased, 0)
+	velocity = Vector3.ZERO
+	noise = 0.35   # rungs clank: a hunter near either end can hear the climb
+	_clip = "climb"
+	ModelSlot.play_if_available(_animation_player, _clip)
+	# Look at the rungs, tipped toward where the climb is heading.
+	_pitch = move_toward(_pitch, .55 if rise > 0.0 else -.75, delta * 2.5)
+	first_person_pivot.rotation.x = _pitch
+	_animate_climb_hands(float(ladder_climb["elapsed"]), rise > 0.0)
+	if t >= 1.0:
+		var to_level := int(ladder_climb["to_level"])
+		ladder_climb = {}
+		collision_layer = 1
+		collision_mask = 1
+		_show_climb_hands(false)
+		if first_person_items != null:
+			first_person_items.visible = true
+		_clip = "idle"
+		ladder_climb_finished.emit(to_level)
+
+
+## Two blocky fists gripping rungs in front of the camera, hand over hand.
+func _show_climb_hands(on: bool) -> void:
+	if _climb_hands == null and on:
+		_climb_hands = Node3D.new()
+		_climb_hands.name = "ClimbHands"
+		var skin := StandardMaterial3D.new()
+		skin.albedo_color = Color("d9a98a")
+		MaterialLook.tame(skin)
+		var sleeve := StandardMaterial3D.new()
+		sleeve.albedo_color = Color("3a4250")
+		MaterialLook.tame(sleeve)
+		for side in [-1.0, 1.0]:
+			var arm := Node3D.new()
+			arm.name = "L" if side < 0.0 else "R"
+			var forearm := MeshInstance3D.new()
+			var forearm_mesh := BoxMesh.new()
+			forearm_mesh.size = Vector3(.07, .07, .26)
+			forearm.mesh = forearm_mesh
+			forearm.material_override = sleeve
+			forearm.position = Vector3(0, -.02, .13)
+			arm.add_child(forearm)
+			var fist := MeshInstance3D.new()
+			var fist_mesh := BoxMesh.new()
+			fist_mesh.size = Vector3(.085, .085, .09)
+			fist.mesh = fist_mesh
+			fist.material_override = skin
+			arm.add_child(fist)
+			for child in arm.get_children():
+				(child as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			arm.position = Vector3(.16 * side, -.1, -.34)
+			_climb_hands.add_child(arm)
+		first_person_camera.add_child(_climb_hands)
+	if _climb_hands != null:
+		_climb_hands.visible = on
+
+
+func _animate_climb_hands(elapsed: float, up: bool) -> void:
+	if _climb_hands == null:
+		return
+	var phase := elapsed * TAU * (1.0 if up else -1.0)
+	for arm_value in _climb_hands.get_children():
+		var arm := arm_value as Node3D
+		var side := -1.0 if arm.name == "L" else 1.0
+		var reach := sin(phase + (0.0 if side < 0.0 else PI))
+		arm.position = Vector3(.16 * side, -.1 + .12 * reach, -.34 + .03 * absf(reach))
+		arm.rotation.x = -.35 * reach
+
+
 func set_admin_noclip(enabled: bool) -> void:
 	if admin_noclip == enabled:
 		return
@@ -723,6 +838,9 @@ func _physics_process(delta: float) -> void:
 		else:
 			_update_admin_noclip(delta)
 		return
+	if not ladder_climb.is_empty():
+		_update_ladder_climb(delta)
+		return
 	if resting_furniture != null and not is_instance_valid(resting_furniture):
 		# An admin teleport can evict the furniture's streamed chunk while the
 		# player is resting. Recover rather than freezing on a freed reference.
@@ -787,8 +905,12 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "walk"
 
 	movement_speed *= admin_speed_scale
+	if wading:
+		movement_speed *= WADE_SPEED_SCALE
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
+	if wading and is_moving:
+		noise = minf(1.0, noise * WADE_NOISE_SCALE)   # splashing carries even at a crouch
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 

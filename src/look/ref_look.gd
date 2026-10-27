@@ -147,6 +147,9 @@ const REGION_STYLE := {
 		"wall": ["corridor0", "corridor1", "panel0"], "ceiling": "ceil0", "runner": false},
 	"inferno": {"corridor": ["hazard", "metal3"], "room": ["metal3", "stone1"],
 		"wall": ["inferno0", "brick1"], "ceiling": "ceil0", "runner": false},
+	# the sewer under the maze: brick tunnels over worn stone walkways
+	"sewer": {"corridor": ["stone0", "stone1"], "room": ["concrete0", "concrete1"],
+		"wall": ["brick0", "brick1", "brick1"], "ceiling": "ceil0", "runner": false},
 }
 
 ## Room-type overrides: which floor and wall kinds a room gets regardless of
@@ -260,6 +263,9 @@ static func _ranged(key: String, bounds: Vector2) -> float:
 
 
 static func room_range(region: String, room_type: String) -> Vector2:
+	if region == "sewer":
+		# one fixed low vault so every ladder shaft has the same height
+		return Vector2(SewerRouteGenerator.CEILING_HEIGHT, SewerRouteGenerator.CEILING_HEIGHT)
 	if room_type == "":
 		return ROOM_RANGE if region == "beach" else CORRIDOR_RANGE
 	if region == "beach" and GREENHOUSE_ROOMS.has(room_type):

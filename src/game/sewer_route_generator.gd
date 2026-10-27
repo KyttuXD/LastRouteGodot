@@ -37,6 +37,11 @@ const ROOM_HALF := 3             # 7 x 7 utility rooms
 const SHAFT_HALF := 1            # 3 x 3 dry shaft chamber under a manhole
 const ROOM_KINDS := ["pump_room", "valve_room", "overflow_chamber"]
 const LINK_CHANCE := 0.55
+## Every sewer space has the same low brick ceiling, so a ladder shaft always
+## spans exactly LEVEL_HEIGHT - CEILING_HEIGHT between it and the maze floor.
+const CEILING_HEIGHT := 3.2
+## Shallow flowing water: about ankle-to-shin deep over the channel bed.
+const WATER_SURFACE := 0.18
 
 var world_seed: String
 var surface: StreamedRouteGenerator
@@ -49,7 +54,7 @@ func _init(p_surface: StreamedRouteGenerator) -> void:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	return coord.y == LEVEL and surface.is_chunk_allowed(Vector3i(coord.x, SURFACE_LEVEL, coord.z))
+	return coord.y == LEVEL
 
 
 func chunk_id(coord: Vector3i) -> String:
@@ -77,8 +82,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		row.fill(SOLID)
 		grid.append(row)
 	if not is_chunk_allowed(coord):
-		return {"coord": coord, "chunk_id": chunk_id(coord), "grid": grid, "rooms": [],
-			"links": [], "features": [], "level": coord.y}
+		return _streamed_schema(coord, grid, [], [], [])
 	_carve_main_cross(grid)
 	var rng := SeededRandom.new("%s:SEWER:%d:%d" % [world_seed, coord.x, coord.z])
 	var rooms := []
@@ -116,15 +120,49 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			if up.x < 0:
 				continue
 			var cover: String = covers[rng.next_index(covers.size())]
-			_carve_rect(grid, Rect2i(up - Vector2i(SHAFT_HALF, SHAFT_HALF), Vector2i(3, 3)), DRY)
-			_carve_branch(grid, up, SHAFT_HALF)
+			# The ladder hangs on the brick on the far side from the tunnel: the 3x3
+			# shaft chamber opens away from that wall and its branch leaves from the
+			# chamber's middle, so the wall behind the rungs stays solid.
+			var wall := _ladder_wall(up)
+			var chamber_center := up - wall
+			_carve_rect(grid, Rect2i(chamber_center - Vector2i(SHAFT_HALF, SHAFT_HALF), Vector2i(3, 3)), DRY)
+			_carve_branch(grid, chamber_center, SHAFT_HALF)
 			var link := LevelLink.make("ladder", coord, SURFACE_LEVEL, up, LEVEL, up)
 			link["cover"] = cover
+			link["wall"] = wall
 			links.append(link)
-			features.append({"type": "sewerLadder", "cell": up, "link": links.back()["id"]})
+			features.append({"type": "sewerLadder", "cell": up, "link": links.back()["id"], "wall": wall})
 	features.append_array(_tunnel_features())
-	return {"coord": coord, "chunk_id": chunk_id(coord), "level": coord.y, "grid": grid,
-		"rooms": rooms, "links": links, "features": features, "biome": "sewer", "region": "sewer"}
+	return _streamed_schema(coord, grid, rooms, links, features)
+
+
+## The chunk in StreamedRouteGenerator's schema so the streamed view, minimap and
+## audits read it like any maze chunk: "grid" is 0 for every walkable cell
+## (water included) and 1 for brick; "sewer_grid" keeps the dry/water/bridge codes.
+func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: Array, features: Array) -> Dictionary:
+	var grid := []
+	for row_value in sewer_grid:
+		var row := []
+		for code in row_value:
+			row.append(0 if is_walkable(int(code)) else 1)
+		grid.append(row)
+	var room_entries := []
+	for index in rooms.size():
+		var room: Dictionary = rooms[index]
+		room_entries.append({"id": "%s:ROOM:%d" % [chunk_id(coord), index], "room_type": room["kind"],
+			"rect": room["rect"], "center": room["center"]})
+	var seam := range(CENTER - TUNNEL_HALF, CENTER + TUNNEL_HALF + 1)
+	return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord), "level": coord.y,
+		"biome": "sewer", "region": "sewer", "grid": grid, "sewer_grid": sewer_grid,
+		"rooms": room_entries, "corridors": [], "suites": [],
+		"edges": {"west": seam, "east": seam, "north": seam, "south": seam},
+		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": _feature_props(coord, features),
+		"fixtures": _fixtures(coord, grid, room_entries, features),
+		"pickups": _pickups(coord, sewer_grid, grid, features, links),
+		"hunter_spawns": [], "dual_level_room": {},
+		"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
+		"difficulty": surface.difficulty_for_level(coord.y),
+		"links": links, "features": features}
 
 
 static func _carve_rect(grid: Array, rect: Rect2i, code: int) -> void:
@@ -172,6 +210,77 @@ static func _carve_branch(grid: Array, from: Vector2i, half: int) -> void:
 		_carve_rect(grid, Rect2i(from.x - 1, start, 3, finish - start), DRY)
 
 
+## Hiding spots in the utility rooms: a cabinet or locker backed against a room
+## wall, one per room, kept off the dressing. Same fixture records as the maze.
+func _fixtures(coord: Vector3i, grid: Array, rooms: Array, features: Array) -> Array:
+	var used := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(used, feature["cell"], 1)
+	var rng := SeededRandom.new("%s:SEWER-FIXTURES:%d:%d" % [world_seed, coord.x, coord.z])
+	var result := []
+	for room in rooms:
+		var rect: Rect2i = room["rect"]
+		var candidates := []
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				var cell := Vector2i(x, z)
+				if not used.has(cell) and int(grid[z][x]) == 0 and StreamedRouteGenerator._wall_count(grid, cell) == 1:
+					candidates.append(cell)
+		if candidates.is_empty():
+			continue
+		var cell: Vector2i = candidates[rng.next_index(candidates.size())]
+		var backing := StreamedRouteGenerator._backing_wall_direction(grid, cell)
+		result.append({"id": "%s:FIXTURE:HIDING_SPOT:%d" % [chunk_id(coord), result.size()], "kind": "hiding_spot",
+			"cell": cell, "yaw": StreamedRouteGenerator._room_facing_yaw(cell, cell - backing),
+			"backing_wall": backing, "open_direction": -backing})
+	return result
+
+
+## Relays and batteries on dry walkways (never in the water, on a bridge or by
+## a ladder), at a little under the maze's density, sometimes a tool.
+func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, links: Array) -> Array:
+	var excluded := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(excluded, feature["cell"], 1)
+	for link in links:
+		StreamedRouteGenerator._exclude_neighbourhood(excluded, link["to_cell"], 2)
+	var candidates := []
+	for z in range(1, CHUNK_SIZE - 1):
+		for x in range(1, CHUNK_SIZE - 1):
+			var cell := Vector2i(x, z)
+			if int(sewer_grid[z][x]) == DRY and not excluded.has(cell) \
+					and StreamedRouteGenerator._open_spawn_neighbourhood(grid, cell):
+				candidates.append(cell)
+	var rng := SeededRandom.new("%s:SEWER-PICKUPS:%d:%d" % [world_seed, coord.x, coord.z])
+	var plans := ["relay", "battery"]
+	if rng.next_float() < 0.55:
+		plans.append("relay")
+	if rng.next_float() < 0.45:
+		plans.append("tool")
+	var result := []
+	var kind_indices := {}
+	for kind_value in plans:
+		if candidates.is_empty():
+			break
+		var kind := String(kind_value)
+		var cell: Vector2i = candidates.pop_at(rng.next_index(candidates.size()))
+		var index := int(kind_indices.get(kind, 0))
+		kind_indices[kind] = index + 1
+		var item := ""
+		if kind == "tool":
+			item = StreamedRouteGenerator.PICKUP_TYPES[rng.next_index(StreamedRouteGenerator.PICKUP_TYPES.size())]
+		result.append({"id": surface.pickup_id(coord, index, kind), "cell": cell, "kind": kind, "item": item})
+	return result
+
+
+## Unit step from a ladder cell to the wall its rungs are fixed to: away from
+## the tunnel the shaft's branch runs to (the same axis _carve_branch picks).
+static func _ladder_wall(cell: Vector2i) -> Vector2i:
+	if absi(cell.x - CENTER) <= absi(cell.y - CENTER):
+		return Vector2i(-1, 0) if cell.x < CENTER else Vector2i(1, 0)
+	return Vector2i(0, -1) if cell.y < CENTER else Vector2i(0, 1)
+
+
 ## Maze cells the manhole must keep clear of: anything a prop, fixture, pickup
 ## or hunter spawn claims (with a one-cell ring), so no lid sits under furniture.
 static func _surface_blocked_cells(data: Dictionary) -> Dictionary:
@@ -205,7 +314,7 @@ static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked:
 			# Stay out of the tunnel band and two cells off the chunk edge.
 			if absi(x - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1 or absi(z - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1:
 				continue
-			if x < 3 or z < 3 or x > CHUNK_SIZE - 4 or z > CHUNK_SIZE - 4:
+			if x < 4 or z < 4 or x > CHUNK_SIZE - 5 or z > CHUNK_SIZE - 5:
 				continue
 			if blocked.has(cell):
 				continue
@@ -223,25 +332,71 @@ static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked:
 	return best
 
 
+## Room dressing. "wall" is the unit step from the cell to the brick the piece
+## is fixed to (Vector2i.ZERO for free-standing pieces).
 static func _room_features(kind: String, rect: Rect2i, center: Vector2i) -> Array:
-	var wall_n := Vector2i(center.x, rect.position.y)
+	var north := Vector2i(center.x, rect.position.y)
+	var west := Vector2i(rect.position.x, center.y)
+	var east := Vector2i(rect.end.x - 1, center.y)
 	match kind:
 		"pump_room":
-			return [{"type": "sewerPump", "cell": wall_n, "yaw": 0.0},
-				{"type": "sewerPipeRun", "cell": Vector2i(rect.position.x, center.y), "yaw": PI / 2.0}]
+			return [{"type": "sewerPump", "cell": north, "wall": Vector2i(0, -1)},
+				{"type": "sewerPipeRun", "cell": west, "wall": Vector2i(-1, 0)},
+				{"type": "sewerLamp", "cell": east, "wall": Vector2i(1, 0)}]
 		"valve_room":
-			return [{"type": "sewerValveWheel", "cell": wall_n, "yaw": 0.0},
-				{"type": "sewerValveWheel", "cell": Vector2i(rect.end.x - 1, center.y), "yaw": -PI / 2.0}]
+			return [{"type": "sewerValveWheel", "cell": north, "wall": Vector2i(0, -1)},
+				{"type": "sewerValveWheel", "cell": east, "wall": Vector2i(1, 0)},
+				{"type": "sewerPipeRun", "cell": west, "wall": Vector2i(-1, 0)}]
 		_:
-			return [{"type": "sewerOverflowGrate", "cell": center, "yaw": 0.0}]
+			return [{"type": "sewerOverflowGrate", "cell": center, "wall": Vector2i.ZERO},
+				{"type": "sewerLamp", "cell": north, "wall": Vector2i(0, -1)}]
 
 
+## Caged lamps far apart on the tunnels' outer walls, and pipe runs between them.
 static func _tunnel_features() -> Array:
 	var out := []
 	for offset in [7, 37]:
-		out.append({"type": "sewerLamp", "cell": Vector2i(offset, CENTER - TUNNEL_HALF), "yaw": 0.0})
-		out.append({"type": "sewerLamp", "cell": Vector2i(CENTER + TUNNEL_HALF, offset), "yaw": -PI / 2.0})
+		out.append({"type": "sewerLamp", "cell": Vector2i(offset, CENTER - TUNNEL_HALF), "wall": Vector2i(0, -1)})
+		out.append({"type": "sewerLamp", "cell": Vector2i(CENTER + TUNNEL_HALF, offset), "wall": Vector2i(1, 0)})
+	for offset in [14, 30]:
+		out.append({"type": "sewerPipeRun", "cell": Vector2i(offset, CENTER + TUNNEL_HALF), "wall": Vector2i(0, 1)})
+		out.append({"type": "sewerPipeRun", "cell": Vector2i(CENTER - TUNNEL_HALF, offset), "wall": Vector2i(-1, 0)})
 	return out
+
+
+## Wall-mounted height and whether a piece blocks movement; everything but the
+## pump stands aside of the walkway or in the water.
+const FEATURE_MOUNT_Y := {"sewerLamp": 2.35, "sewerValveWheel": 1.15, "sewerPipeRun": 2.55}
+const SOLID_FEATURES := {"sewerPump": Vector3(1.3, 1.5, 0.9)}
+
+
+## Yaw that turns an authored piece's back toward `wall` (PropModelCatalog adds
+## the half turn authored models need).
+static func wall_yaw(wall: Vector2i) -> float:
+	if wall == Vector2i.ZERO:
+		return 0.0
+	return atan2(float(wall.x), float(wall.y))
+
+
+func _feature_props(coord: Vector3i, features: Array) -> Array:
+	var props := []
+	for index in features.size():
+		var feature: Dictionary = features[index]
+		var type := String(feature["type"])
+		var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
+		var prop := {"id": "%s:PROP:%d" % [chunk_id(coord), index], "type": type, "cell": feature["cell"],
+			"yaw": wall_yaw(wall), "solid": SOLID_FEATURES.has(type), "sewer_feature": true}
+		if FEATURE_MOUNT_Y.has(type):
+			prop["mount_y"] = FEATURE_MOUNT_Y[type]
+			prop["mount_offset"] = Vector2(wall) * .5
+		elif type == "sewerPump":
+			prop["mount_offset"] = Vector2(wall) * .05
+		if SOLID_FEATURES.has(type):
+			prop["collider_size"] = SOLID_FEATURES[type]
+		if feature.has("link"):
+			prop["link"] = feature["link"]
+		props.append(prop)
+	return props
 
 
 static func is_walkable(code: int) -> bool:

@@ -15,6 +15,8 @@ const CHUNK_SIZE := 45
 ## stream as every other Infinite level; origin stairs still guarantee routes
 ## both upward and downward.
 const BIOME_REGION_SIZE := 4
+## Level of the sewer/waterworks layer under the maze (SewerRouteGenerator).
+const SEWER_LEVEL := -1
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 	"prison", "inferno", "carnival"]
@@ -323,11 +325,24 @@ var _chunk_cache := {}
 var _chunk_cache_order: Array[Vector3i] = []
 
 
+var _sewer: SewerRouteGenerator
+
+
 func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
 	world_seed = seed_text if not seed_text.is_empty() else "ENDLESS-ROUTE"
 
 
+## The sewer layer under the maze (SewerRouteGenerator). Built lazily: it reads
+## the maze chunk above to place each ladder on clear hallway floor.
+func sewer() -> SewerRouteGenerator:
+	if _sewer == null:
+		_sewer = SewerRouteGenerator.new(self)
+	return _sewer
+
+
 func chunk(coord: Vector3i) -> Dictionary:
+	if coord.y == SEWER_LEVEL and is_chunk_allowed(coord):
+		return sewer().chunk(coord)
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)
 		_chunk_cache_order.append(coord)
@@ -536,6 +551,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 
 
 func biome_for(coord: Vector3i) -> String:
+	if coord.y == SEWER_LEVEL:
+		return "sewer"
 	# A two-storey room owns one visual identity on both participating floors.
 	# Resolve this before ordinary biome choice so walls, props and the upper cap
 	# never change theme halfway up a carousel or other tall landmark.
@@ -683,8 +700,8 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# One level only (y == 0), unbounded horizontally.
-	return coord.y == 0
+	# One maze level (y == 0), unbounded horizontally, over the sewer layer.
+	return coord.y == 0 or coord.y == SEWER_LEVEL
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
