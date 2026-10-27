@@ -47,6 +47,8 @@ const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
 ## their spacious sector layout (_mixed_room_layout). Apartments are already dense suites.
 const DENSE_DISTRICTS := ["hotel", "prison"]
+## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
+const REMOVE_HUMPS := true
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -477,7 +479,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	# two adjacent cells. The perimeter restoration above must run after room
 	# dressing, but it cannot be allowed to re-seal the second leaf's lane.
 	_restore_authored_room_door_thresholds(grid, region_props)
-	_remove_wall_humps(grid, layout["rooms"], region_props)
+	if REMOVE_HUMPS:
+		_remove_wall_humps(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
@@ -1261,13 +1264,13 @@ func _carve_apartment_suite(coord: Vector3i, region: String, grid: Array,
 		{"role": "bedroom", "rect": Rect2i(0, 0, 9, 9), "door": Vector2i(4, 8)},
 		{"role": "house_bathroom", "rect": Rect2i(8, 0, 9, 9), "door": Vector2i(8, 4)},
 		{"role": "living_room", "rect": Rect2i(0, 8, 11, 9), "door": Vector2i(0, 12)},
-		{"role": "kitchen", "rect": Rect2i(10, 8, 7, 9), "door": Vector2i(10, 14)},
+		{"role": "kitchen", "rect": Rect2i(10, 8, 7, 9), "door": Vector2i(10, 15)},   # door beside the bottom wall: no one-cell wall stub below it
 	]
 	for entry in plan:
 		var world_rect: Rect2i = to_world_rect.call(entry["rect"])
 		_seal_room_perimeter_except(grid, world_rect, entry_cell)
 		grid[entry_cell.y][entry_cell.x] = 1
-	var door_cells := [Vector2i(4, 8), Vector2i(8, 4), Vector2i(10, 14), Vector2i(0, 12)]
+	var door_cells := [Vector2i(4, 8), Vector2i(8, 4), Vector2i(10, 15), Vector2i(0, 12)]
 	for door_local in door_cells:
 		var world_door: Vector2i = to_world_cell.call(door_local)
 		grid[world_door.y][world_door.x] = 0

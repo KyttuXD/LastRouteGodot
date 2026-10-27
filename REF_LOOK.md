@@ -145,3 +145,6 @@ Index: [docs/README.md](docs/README.md). Spectators: [docs/SPECTATORS.md](docs/S
 
 ## Kathy's beam
 Besides the real spot light (the only light involved; no new lights), `HunterView3D` hangs a visible beam on it: two unshaded additive cones (soft core + wider shell, `BEAM_SHADER`, a gentle pulse). It keeps the eye colour while she patrols and turns red, brighter and faster-pulsing while she chases (`brain.state`, so guests see the same colour); dimmed while she is stunned. Capture: `DARK=1 CAM_SIDE=1 HUNTERS=kathy HUNTER_STATE=walk|chase tools/look/hunter_check.tscn`.
+
+## Lighting balance
+All of it lives in constants at the top of `src/look/ref_look.gd`: `AMBIENT_ENERGY` 0.8 (was 2.0), `LAMP_ENERGY_SCALE` 0.7, `LAMP_RANGE_SCALE` 0.8, `LIT_ROOMS_SCALE` 0.55 (share of rooms/blocks with lamps), `CORRIDOR_LIT_PERCENT` 40 (only 40% of 14x14 hall blocks carry lamps: long dark stretches), `BULB_EMISSION_SCALE` 0.6, and a stronger checkpoint light (`SAFE_ROOM_LIGHT_ENERGY` 1.7, range 11) with every safe room fully lit. The LampField budget is unchanged. Captures (scratchpad `light/before` vs `light/after`): mean luminance of the sampled maze rooms dropped 30-35%, so the flashlight does most of the work while the rooms stay readable.
