@@ -109,6 +109,19 @@ func fade() -> void:
 	_dist = NightWatchData.distances_to(_door)
 
 
+## Admin: put her in `to_room` now. A door node makes it her door (she waits there as if she had walked up to it).
+func admin_send(to_room: String) -> void:
+	room = to_room
+	at_door_ms = 0.0
+	closed_ms = 0.0
+	lit_ms = 0.0
+	behind = false
+	reset_pacer()
+	if to_room.begins_with("door"):
+		_door = to_room
+		_dist = NightWatchData.distances_to(_door)
+
+
 func door() -> String:
 	return _door
 

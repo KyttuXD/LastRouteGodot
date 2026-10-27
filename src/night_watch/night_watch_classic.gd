@@ -27,6 +27,10 @@ var _rng := RandomNumberGenerator.new()
 var _tuning := {}
 var _lines := {"doorL": [], "doorR": []}
 var kathy_night := false
+## Admin hooks (NightWatchAdmin): god mode (attacks are shrugged off), infinite power, hunter speed multiplier. All off / 1.0 normally.
+var god := false
+var infinite_power := false
+var hunter_speed := 1.0
 var _hum_t := 0.0
 var _meet_lock_ms := 0.0
 
@@ -107,7 +111,7 @@ func step(dt_ms: float, input: Dictionary = {}) -> Array:
 	elapsed += dt_ms
 	var h := hour()
 	# Power: base drain plus a little for every device in use. At zero the doors open, the lights fail and Nyxie comes.
-	if not out:
+	if not out and not infinite_power:
 		power = maxf(0.0, power - (NightWatchData.POWER_BASE + NightWatchData.POWER_PER_DEVICE * usage(input)) * dt_ms / 1000.0)
 		if power <= 0.0:
 			out = true
@@ -141,17 +145,20 @@ func step(dt_ms: float, input: Dictionary = {}) -> Array:
 		var step_ctx := ctx.duplicate()
 		if is_behind:
 			step_ctx["behind"] = true
-		var stepped := hunter.step(dt_ms, bool(shut.get(hunter.door(), false)), step_ctx)
+		var stepped := hunter.step(dt_ms * hunter_speed, bool(shut.get(hunter.door(), false)), step_ctx)
 		for e in stepped:
 			events.append(e)
 			if String(e["type"]) == "attack":
+				if god:
+					hunter.at_door_ms = 0.0   # god mode: she is sent back to wait again instead of catching you
+					continue
 				over = "caught"
 				by = id
 				events.append({"type": "caught", "id": id})
 		if over != "":
 			return events
 	# Nyxie never walks the building: in the dark she reaches the office after a while.
-	if out and nyxie_level > 0 and out_ms >= NightWatchData.blackout_ms(nyxie_level):
+	if out and nyxie_level > 0 and not god and out_ms >= NightWatchData.blackout_ms(nyxie_level):
 		over = "caught"
 		by = "nyxie"
 		events.append({"type": "caught", "id": "nyxie", "cause": "darkness"})
