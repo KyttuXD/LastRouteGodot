@@ -19,7 +19,20 @@ const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
 	"story", "hunter_emotes", "player_model", "hallways", "hud_overlap", "coplanar", "hunter_nav", "hunter_real", "hunter_parity", "death_lines", "hub", "furniture", "props_rework", "prop_perf", "lods", "collision", "colliders", "app_name", "room_sizes", "button_contrast", "account_hub", "connectivity", "controls", "density", "humps", "account_session", "admin_layout", "waypoints", "hunter_fall", "material_look", "night_watch", "night_watch_menus", "night_watch_modes", "night_watch_calls", "secret_creature", "playtest", "hub_carousel", "silent_presses", "expressions", "hunter_facing", "nw_poses", "night_watch_offices", "night_watch_keys", "night_watch_lure", "night_watch_bedroom", "night_watch_story", "night_watch_mask", "night_watch_dayshift", "night_watch_mixed", "night_watch_descent", "night_watch_extra", "night_watch_maps", "foot_slip", "face_transitions", "xivvy_flight", "night_watch_cammap", "night_watch_ui", "scheme_styles", "night_watch_admin", "night_watch_admin_a", "rescue_axe", "idle_stability", "geometry_overlap", "minimap_radar", "debug_view", "hunter_scale", "scale_fit", "wall_themes", "city"]
 
 
+## Whole-run watchdog (seconds; VALIDATE_TIMEOUT overrides). A suite that never returns -- or a runtime error that kills
+## the run coroutine -- used to leave Godot idling until the machine's own watchdog; now the run reports and exits non-zero.
+const DEFAULT_TIMEOUT := 1500.0
+
+var _current := ""
+
+
 func _ready() -> void:
+	var limit := float(OS.get_environment("VALIDATE_TIMEOUT")) if not OS.get_environment("VALIDATE_TIMEOUT").is_empty() else DEFAULT_TIMEOUT
+	var timer := get_tree().create_timer(limit, true, false, true)
+	timer.timeout.connect(func() -> void:
+		print("  FAIL  validation timed out after %.0f s (suite: %s)" % [limit, _current if not _current.is_empty() else "?"])
+		push_error("validation timed out")
+		get_tree().quit(2))
 	_run()
 
 
@@ -34,7 +47,9 @@ func _run() -> void:
 		wanted = SUITES
 	var failures := 0
 	for name in wanted:
-		var path := "res://scripts/validate_%s.gd" % name
+		# a suite name, or a res:// path (the runner self-test points at a broken fixture this way)
+		var path := String(name) if String(name).begins_with("res://") else "res://scripts/validate_%s.gd" % name
+		_current = String(name)
 		if not ResourceLoader.exists(path):
 			print("  FAIL  no suite named %s" % name)
 			failures += 1
@@ -44,12 +59,19 @@ func _run() -> void:
 		# never returns -- so a typo in a check script used to look exactly like
 		# a hanging game, with the parse error scrolled off above it. Say what
 		# happened and keep going.
+		# A script with a parse error still LOADS (non-null) but cannot be instantiated; calling new() on it raised a script
+		# error that ended this coroutine, and the run hung. Check first, report, and stop with a non-zero exit.
 		var script := load(path) as GDScript
-		var suite: RefCounted = script.new() if script != null else null
-		if suite == null:
-			print("  FAIL  %s did not compile (see the parse error above)" % path)
-			failures += 1
-			continue
+		if script == null or not script.can_instantiate():
+			print("  FAIL  suite %s (%s) did not compile -- see the parse error above" % [name, path])
+			push_error("suite %s did not compile" % name)
+			get_tree().quit(1)
+			return
+		var suite: RefCounted = script.new()
+		if suite == null or not suite.has_method("run"):
+			print("  FAIL  suite %s (%s) has no run(host)" % [name, path])
+			get_tree().quit(1)
+			return
 		failures += await suite.run(self)
 		# Most gameplay suites queue their temporary scenes for deletion. Starting
 		# the next suite in the same frame leaves those worlds, group members and
