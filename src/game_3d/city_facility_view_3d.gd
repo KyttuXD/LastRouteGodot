@@ -322,7 +322,7 @@ func _facade_tile(style: String, pier: int, y: int, top: int, salt: int) -> int:
 			if window and storey <= 1:
 				var variant := "win_lit" if h < 34 else ("win_cyan" if h < 44 else "win_dark")
 				return CityAtlas.tile("%s_%s" % [variant, "bot" if storey == 0 else "top"])
-			return CityAtlas.tile(["brick_a", "brick_b", "brick_c"][h % 3])
+			return CityFacadeDetails.base_tile(CityFacadeDetails.variant_of(salt), y, h)
 
 
 func _build_city_cell(build: Dictionary, index: int) -> void:
@@ -423,6 +423,8 @@ func _build_facade_cell(surface: CitySurface, layout: CityLayout, x: int, z: int
 			var pier := gx if dir.y != 0 else gz
 			for y in top:
 				surface.wall_face(x, z, dir, y, y + 1, _facade_tile(style, pier, y, top, salt))
+			if style == "brick":
+				CityFacadeDetails.add_face(surface, building, dir, x, z, pier, top, salt)
 		elif neighbour == CityLayout.FLOOR or neighbour == CityLayout.DOOR or neighbour == CityLayout.KIOSK_FLOOR:
 			for row in int(CITY_CEILING):
 				surface.wall_face(x, z, dir, row, row + 1, CityAtlas.tile("plaster"))
@@ -437,6 +439,9 @@ func _build_door_cell(surface: CitySurface, layout: CityLayout, x: int, z: int, 
 	var top := int(height)
 	var salt := absi(hash(String(building.get("id", "K"))))
 	surface.ceiling_quad(x, z, DOOR_HEIGHT, CityAtlas.tile("stone_dark"))
+	if not kiosk:
+		# A low stone threshold across the doorway (visual only; the floor collider stays flat).
+		surface.box(Vector3(x, 0, z), Vector3(1, .1, 1), CityAtlas.tile("stone_base"), CityAtlas.tile("stone_dark"))
 	for dir_value in CitySurface.FACE_DIRS:
 		var dir: Vector2i = dir_value
 		var neighbour := layout.kind_at(gx + dir.x, gz + dir.y)
@@ -469,6 +474,8 @@ func _build_city_decor(build: Dictionary) -> void:
 		if middle.x < 1 or middle.y < 1 or middle.x > 43 or middle.y > 43:
 			continue
 		lamps.append([root.position + Vector3(middle.x + .5, 3.3, middle.y + .5), INTERIOR_LAMP_COLOR, .9, 0, 6.5])
+		if String(building["style"]) == "brick":
+			CityFacadeDetails.add_roof(surface, building, absi(hash(String(building["id"]))))
 
 
 func _add_decor_collider(body: StaticBody3D, type: String, cell: Vector2i, yaw: float) -> void:
@@ -534,4 +541,4 @@ func _add_decor(build_body: StaticBody3D, surface: CitySurface, root: Node3D, la
 			surface.box(Vector3(cx - .3, 3.05, cz - .3), Vector3(.6, .6, .6), stone)
 			surface.box(Vector3(cx + .45, 1.9, cz - .2), Vector3(.22, 1.2, .4), stone)
 		_:
-			pass
+			CityProps.add(type, surface, root, lamps, cx, cz, yaw)

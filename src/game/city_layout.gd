@@ -75,12 +75,16 @@ const DECOR_COLLIDERS := {
 	"lamp": Vector3(.3, 3.5, .3), "tree": Vector3(.4, 5.0, .4), "cypress": Vector3(1.1, 4.8, 1.1),
 	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.26, .8, .26),
 	"statue": Vector3(3.0, 3.8, 3.0),
+	"plaza_light": Vector3(.25, 4.4, .25), "banner": Vector3(.2, 4.0, .2), "market_stall": Vector3(.9, 1.0, .9),
+	"newsstand": Vector3(.9, 1.1, .9), "phone_booth": Vector3(.78, 2.1, .78), "hydrant": Vector3(.26, .55, .26),
 }
 ## The widest visible footprint of the same pieces (what the renderer draws), for the collider-vs-visual check.
 const DECOR_VISIBLE := {
 	"lamp": Vector3(.84, 3.5, .84), "tree": Vector3(2.2, 5.0, 2.2), "cypress": Vector3(1.1, 4.8, 1.1),
 	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.24, .8, .24),
 	"statue": Vector3(3.0, 3.8, 3.0),
+	"plaza_light": Vector3(.9, 4.6, .9), "banner": Vector3(1.1, 4.2, 1.1), "market_stall": Vector3(1.9, 2.5, 1.9),
+	"newsstand": Vector3(1.0, 2.5, 1.0), "phone_booth": Vector3(.84, 2.26, .84), "hydrant": Vector3(.4, .62, .4),
 }
 ## "hall" is last on purpose: it is only given to big civic lots, never drawn at random.
 const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "library", "chapel", "hall"]
@@ -626,6 +630,15 @@ func _lay_grand_plaza() -> void:
 		_place_decor(Vector2i(tree_x, 23), "tree", 0.0)
 	for bench_x in [mid_x - 10, mid_x + 10]:
 		_place_decor(Vector2i(bench_x, 23), "bench", PI)
+	# The plaza is the lit heart of the city: cyan lights in two rows, banners, and a row of market stalls (the rows sit
+	# inside DECOR_LIMIT, which the dome edge makes tight at the plaza's far north).
+	for light_x in range(mid_x - 40, mid_x + 41, 8):
+		_place_decor(Vector2i(light_x, 12), "plaza_light", 0.0)
+		_place_decor(Vector2i(light_x + 4, 21), "plaza_light", 0.0)
+	for banner_x in [mid_x - 34, mid_x - 26, mid_x - 14, mid_x + 14, mid_x + 26, mid_x + 34]:
+		_place_decor(Vector2i(banner_x, 17), "banner", 0.0)
+	for stall_x in [mid_x - 24, mid_x - 20, mid_x - 16, mid_x + 16, mid_x + 20, mid_x + 24]:
+		_place_decor(Vector2i(stall_x, 14), "market_stall", 0.0)
 
 
 # ---------------------------------------------------------------- blocks and buildings
@@ -920,6 +933,15 @@ func _lay_street_furniture() -> void:
 			if width == 9:
 				for gx in range(8 + side * 4, WIDTH - 3, 8):
 					_place_decor(Vector2i(gx, inner[side]), "tree", 0.0)
+	# Hydrants along the pavements, one every few blocks.
+	for street in NS_STREETS:
+		var hx: int = (street[0] as int) - (street[1] as int) / 2 + 1
+		for gz in range(14, HEIGHT - 6, 22):
+			_place_decor(Vector2i(hx, gz), "hydrant", 0.0)
+	for street in EW_STREETS:
+		var hz: int = (street[0] as int) - (street[1] as int) / 2 + 1
+		for gx in range(20, WIDTH - 6, 26):
+			_place_decor(Vector2i(gx, hz), "hydrant", 0.0)
 	# Bollards beside every doorway and planters on the shelter plazas' corners.
 	for shelter in shelters:
 		var center: Vector2i = shelter["center"]
@@ -927,6 +949,9 @@ func _lay_street_furniture() -> void:
 			_place_decor(center + (corner as Vector2i), "planter", 0.0)
 		for bench in [Vector2i(-6, 0), Vector2i(6, 0)]:
 			_place_decor(center + (bench as Vector2i), "bench", PI * .5)
+		_place_decor(center + Vector2i(0, -7), "phone_booth", 0.0)
+		_place_decor(center + Vector2i(4, 7), "newsstand", PI)
+		_place_decor(center + Vector2i(-4, 7), "phone_booth", PI)
 	for building in buildings:
 		var doors: Array = building["doors"]
 		if doors.is_empty():

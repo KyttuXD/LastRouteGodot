@@ -19,7 +19,8 @@ const NAMES := ["cobble", "cobble_wet", "sidewalk", "plaza", "grass", "path", "w
 	"win_cyan_top", "shop_bot", "shop_top", "stone_base", "cornice", "civic_a", "civic_arch_bot", "civic_arch_top",
 	"ind_panel", "ind_port", "kiosk_wall", "kiosk_sign", "plaster", "ceiling", "rim_wall", "door",
 	"pole", "lantern", "cyan_lamp", "trunk", "blossom", "cypress", "wood_bench", "planter",
-	"statue_stone", "water_edge", "dome_strut", "stone_dark", "petals", "hedge_top", "bed_edge", "kiosk_roof"]
+	"statue_stone", "water_edge", "dome_strut", "stone_dark", "petals", "hedge_top", "bed_edge", "kiosk_roof",
+	"brick_dark", "stucco", "ashlar", "ivy", "awning_red", "awning_teal", "fire_escape", "neon_sign"]
 
 static var _index := {}
 

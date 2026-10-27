@@ -203,3 +203,13 @@ open cell, so they now also land inside buildings. Not done: two-floor buildings
 stay the underground-style refuge).
 
 ![the dome gate](city_gate.png) ![library](city_interior_library.png) ![two rooms](city_interior_two_rooms.png) ![chapel](city_interior_chapel.png)
+
+## Look pass (pass 2)
+
+Atlas now 64 tiles (brick_dark, stucco, ashlar, ivy, two awnings, fire_escape, neon_sign). `CityFacadeDetails` gives every brick
+building one of six wall materials (brick mix, dark brick, stucco, ashlar, ivy on the lower floors) plus, by building kind:
+striped awnings and neon signs on shops and cafes, balconies on apartments, fire escapes, drainpipes and rooftop chimneys,
+and a stone threshold in every doorway. All of it hangs above head height or is a thin pipe, so collision and nav are
+unchanged. `CityProps` (new file) holds City-only street furniture: plaza lights, banners, market stalls, newsstands, phone
+booths and hydrants; the grand plaza now has 13 cyan lights, banners and a stall row. Shots: `city_look_street.png`,
+`city_look_plaza.png`.

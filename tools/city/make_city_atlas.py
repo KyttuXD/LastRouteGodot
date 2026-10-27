@@ -322,6 +322,47 @@ def make(name, index):
         t.fill(c("#1d2b3a"), .08)
         for y in range(0, T, 4):
             t.rect(0, y, T, y + 1, c("#101a24"))
+    elif name == "brick_dark":
+        brick(t, c("#3d4252"), c("#1f222c"), c("#565c70"))
+    elif name == "stucco":
+        t.fill(c("#a6957f"), .09)
+        t.dots(22, c("#8a7b68"))
+        t.dots(10, c("#bfae96"))
+        t.rect(0, 0, T, 1, c("#8a7b68"))
+    elif name == "ashlar":
+        t.fill(c("#3b3945"), .06)
+        for row in range(4):
+            offset = 8 if row % 2 else 0
+            for col in range(3):
+                x0 = (col * 16 + offset) % T
+                y0 = row * 8
+                t.rect(x0 + 1, y0 + 1, min(T, x0 + 15), y0 + 7, shade(c("#6d6a7a"), .85 + t.rng.random() * .3), jitter=.05)
+    elif name == "ivy":
+        brick(t, c("#5a3328"), c("#2a1a14"), c("#7a4a3c"))
+        t.dots(70, c("#2f6a3a"), 3)
+        t.dots(45, c("#3f8a4c"), 2)
+        t.dots(18, c("#1c4026"), 3)
+    elif name == "awning_red":
+        t.fill(c("#9c2f3e"), .05)
+        for x in range(0, T, 8):
+            t.rect(x, 0, x + 4, T, c("#e9d9c8"))
+        t.rect(0, 28, T, T, c("#5c1a24"))
+    elif name == "awning_teal":
+        t.fill(c("#1f7f86"), .05)
+        for x in range(0, T, 8):
+            t.rect(x, 0, x + 4, T, c("#e9d9c8"))
+        t.rect(0, 28, T, T, c("#10484d"))
+    elif name == "fire_escape":
+        t.fill(c("#111118"))
+        for y in range(2, T, 6):
+            t.rect(0, y, T, y + 2, c("#2c2c38"))
+        for x in range(3, T, 8):
+            t.rect(x, 0, x + 2, T, c("#2c2c38"))
+    elif name == "neon_sign":
+        t.fill(c("#1a1020"))
+        t.rect(2, 8, T - 2, 24, c("#ff5fa8"), emit=c("#ff5fa8"))
+        t.rect(5, 12, T - 5, 20, c("#ffc2de"), emit=c("#ffc2de"))
+        t.rect(0, 0, T, 2, c("#39e6dc"), emit=cyan)
     else:
         t.fill(c("#ff00ff"))
     return t

@@ -106,6 +106,13 @@ func _check_shape(layout: CityLayout) -> void:
 		kinds_seen[String(building["kind"])] = true
 		if not (building["partition"] as Array).is_empty():
 			partitioned += 1
+	var decor_counts := {}
+	for entry in layout.decor.values():
+		decor_counts[String(entry["type"])] = int(decor_counts.get(String(entry["type"]), 0)) + 1
+	for type in CityProps.TYPES:
+		_expect(int(decor_counts.get(type, 0)) >= 2, "City prop %s is placed %d times" % [type, int(decor_counts.get(type, 0))])
+	_expect(int(decor_counts.get("plaza_light", 0)) >= 8, "the grand plaza has only %d lights" % int(decor_counts.get("plaza_light", 0)))
+	print("  city: street furniture %s" % [decor_counts])
 	_expect(sealed <= 3, "%d buildings are sealed shut" % sealed)
 	print("  city: %d buildings (%d sealed), kinds %s, %d with two rooms" % [layout.buildings.size(), sealed, kinds_seen.keys(), partitioned])
 	_expect(kinds_seen.size() >= 7, "only %d building kinds" % kinds_seen.size())
