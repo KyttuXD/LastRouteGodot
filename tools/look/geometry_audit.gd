@@ -13,6 +13,7 @@ func _ready() -> void:
 	var seed_count := int(args[1]) if args.size() > 1 else 6
 	var per_biome := int(args[2]) if args.size() > 2 else 6
 	var tag: String = args[3] if args.size() > 3 else "run"
+	GeometryAudit.strict = args.size() > 4 and String(args[4]) == "strict"
 	DirAccess.make_dir_recursive_absolute(out_dir if out_dir.is_absolute_path() else ProjectSettings.globalize_path("res://").path_join(out_dir))
 	var seeds := ["ENDLESS-ROUTE", "CITY-LOOK"]
 	for i in seed_count:

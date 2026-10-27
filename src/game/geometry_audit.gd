@@ -13,8 +13,12 @@ extends RefCounted
 ## Everything works on the generator data (no nodes), so host and guests agree and the sweep is fast. The Night Watch
 ## offices are node trees and are audited per cube by audit_office().
 
-const TOL := 0.10              ## footprint penetration (m) below which two solids merely touch
+const TOL_DEFAULT := 0.10              ## footprint penetration (m) below which two solids merely touch
+## Diagnostics: strict mode drops the allow-list and uses a 2 cm tolerance to show every interpenetration there is.
+static var strict := false
 const SEAT_TOL := 0.55         ## a chair/stool may tuck under a table, desk or counter by this much
+## Largest share of a room's open floor its solid props may cover (the rest is the walking margin).
+const CAPACITY_LIMIT := 0.45
 const CEILING := 4.0
 const CEILING_SLACK := 0.15
 const GAME_LAST_ROUTE := "last_route"
@@ -24,7 +28,7 @@ const GAME_NIGHT_WATCH := "night_watch"
 ## Category weights for the ranking (a piece clipping through a wall is worse than a tolerance-level touch).
 const WEIGHTS := {"prop_in_wall": 5, "prop_in_prop": 3, "prop_in_hall": 4, "door_zone": 5, "door_frame": 4,
 	"building_overlap": 8, "orphan_mass": 7, "sliver": 4, "decor_in_wall": 5, "decor_overlap": 2,
-	"floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
+	"junction_floor": 6, "junction_pinch": 6, "hall_nub": 4, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
 
 const SEAT_WORDS := ["Chair", "Stool", "Bench", "Seat", "Armchair", "Couch", "Sofa"]
 const TABLE_WORDS := ["Table", "Desk", "Counter", "Workstation", "Bar", "Bookcase", "Shelf", "Piano"]
@@ -82,8 +86,10 @@ static func _word_in(type: String, words: Array) -> bool:
 	return false
 
 
-## The explicit allow-list. Returns the penetration (m) the pair may have before it counts, 0 = no allowance beyond TOL.
+## The explicit allow-list. Returns the penetration (m) the pair may have before it counts, 0 = no allowance beyond tol().
 static func pair_allowance(a_type: String, b_type: String) -> float:
+	if strict:
+		return 0.0
 	var seat_a := _word_in(a_type, SEAT_WORDS)
 	var seat_b := _word_in(b_type, SEAT_WORDS)
 	# a chair tucked under a table / desk / counter (or two seats side by side in a row)
@@ -92,6 +98,10 @@ static func pair_allowance(a_type: String, b_type: String) -> float:
 	if seat_a and seat_b:
 		return 0.2
 	return 0.0
+
+
+static func tol() -> float:
+	return 0.02 if strict else TOL_DEFAULT
 
 
 static func finding(game: String, cat: String, rule: String, seed_text: String, at: String, detail: String, depth: float = 0.0) -> Dictionary:
@@ -200,9 +210,29 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 				if depth > worst:
 					worst = depth
 					worst_cell = wc
-		if worst > TOL:
+		if worst > tol():
 			out.append(finding(GAME_LAST_ROUTE, "solid_overlap", "prop_in_wall", seed_text, at,
 				"penetrates wall cell %s by %.2f m" % [worst_cell, worst], worst))
+
+	_audit_junctions(data, seed_text, biome, where_prefix, room_rects, out)
+
+	# room capacity: the solid footprints of a room's props against its open floor; above the limit the room is squeezed
+	for room in rooms:
+		var rect: Rect2i = room.get("rect", Rect2i())
+		var area := 0
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				if is_open_cell(grid, size, Vector2i(x, z)):
+					area += 1
+		var used := 0.0
+		for s_value in solids:
+			var sp: Dictionary = s_value
+			if not bool(sp["wall_mounted"]) and rect.has_point(Vector2i(floori((sp["centre"] as Vector2).x), floori((sp["centre"] as Vector2).y))):
+				used += (sp["half"] as Vector2).x * (sp["half"] as Vector2).y * 4.0
+		if area > 0 and used / float(area) > CAPACITY_LIMIT:
+			out.append(finding(GAME_LAST_ROUTE, "capacity", "room_capacity", seed_text,
+				"%s room %s (%s %s)" % [where_prefix, room.get("id", ""), room.get("room_type", ""), rect.size],
+				"props fill %.0f%% of %d open m2 (limit %.0f%%)" % [used / float(area) * 100.0, area, CAPACITY_LIMIT * 100.0], used / float(area)))
 
 	# prop vs prop
 	for i in solids.size():
@@ -216,7 +246,7 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 			if (a["centre"] as Vector2).distance_to(b["centre"]) > (a["half"] as Vector2).length() + (b["half"] as Vector2).length():
 				continue
 			var depth := obb_depth(a["centre"], a["half"], float(a["yaw"]), b["centre"], b["half"], float(b["yaw"]))
-			var allowance := TOL + pair_allowance(String(a["type"]), String(b["type"]))
+			var allowance := tol() + pair_allowance(String(a["type"]), String(b["type"]))
 			if depth > allowance:
 				out.append(finding(GAME_LAST_ROUTE, "solid_overlap", "prop_in_prop", seed_text, String(a["at"]),
 					"%s (%s) interpenetrates %s by %.2f m" % [a["type"], a["id"], b["type"], depth], depth))
@@ -237,7 +267,7 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 				if not is_open_cell(grid, size, hc) or _in_any_room(room_rects, hc):
 					continue
 				var depth := obb_depth(centre, half, float(s["yaw"]), Vector2(hc) + Vector2(.5, .5), Vector2(.5, .5), 0.0)
-				if depth > TOL:
+				if depth > tol():
 					out.append(finding(GAME_LAST_ROUTE, "solid_overlap", "prop_in_hall", seed_text, String(s["at"]),
 						"%s reaches %.2f m into hall cell %s" % [s["type"], depth, hc], depth))
 					hit = true
@@ -273,6 +303,73 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 				out.append(finding(GAME_LAST_ROUTE, "solid_overlap", "door_frame", seed_text, at,
 					"span %d: the cell %s beside the frame is open, the jamb stands in the room" % [span, shoulder]))
 				break
+
+
+## Hall junctions (T, cross, corner) of one chunk: a runner-carpet biome gives every junction cell the hall's own carpet (no
+## stray stone tile patch), a cross has a clear 3x3 opening, and no single wall cell juts into the circulation.
+static func _audit_junctions(data: Dictionary, seed_text: String, biome: String, where_prefix: String, room_rects: Array, out: Array) -> void:
+	var grid: Array = data.get("grid", [])
+	var size := grid.size()
+	var runner: bool = bool((RefLook.REGION_STYLE.get(biome, {}) as Dictionary).get("runner", false))
+	for z in range(1, size - 1):
+		for x in range(1, size - 1):
+			var cell := Vector2i(x, z)
+			if _in_any_room(room_rects, cell):
+				continue
+			if not is_open_cell(grid, size, cell):
+				var open_n := 0
+				var room_n := false
+				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+					var n: Vector2i = cell + (step as Vector2i)
+					if is_open_cell(grid, size, n):
+						open_n += 1
+						if _in_any_room(room_rects, n):
+							room_n = true
+				if open_n >= 3 and not room_n:
+					out.append(finding(GAME_LAST_ROUTE, "junction", "hall_nub", seed_text, "%s cell %s" % [where_prefix, cell],
+						"a single wall cell juts into the hall on %d sides" % open_n))
+				continue
+			var run_x := _run_len(grid, size, cell, Vector2i(1, 0))
+			var run_z := _run_len(grid, size, cell, Vector2i(0, 1))
+			if run_x < 3 or run_z < 3:
+				continue
+			var four_open := true
+			for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if not is_open_cell(grid, size, cell + (step as Vector2i)):
+					four_open = false
+			if four_open:
+				for diag in [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+					if not is_open_cell(grid, size, cell + (diag as Vector2i)):
+						out.append(finding(GAME_LAST_ROUTE, "junction", "junction_pinch", seed_text, "%s cell %s" % [where_prefix, cell],
+							"crossing whose corner %s is wall: the opening is pinched" % (cell + (diag as Vector2i))))
+						break
+			# the floor: a carpet biome must lay the hall's runner through the junction (a cell crossed by two halls)
+			if runner and (run_x != 3 or run_z != 3) and _touches_exact_hall(grid, size, cell):
+				if String(StreamedFacilityView3D._runner_kind(grid, x, z)) == "":
+					out.append(finding(GAME_LAST_ROUTE, "junction", "junction_floor", seed_text, "%s cell %s" % [where_prefix, cell],
+						"junction cell falls back to the stone corridor tiles instead of the hall carpet"))
+
+
+static func _run_len(grid: Array, size: int, cell: Vector2i, dir: Vector2i) -> int:
+	var run := 1
+	for sign in [-1, 1]:
+		var k := 1
+		while k < 8 and is_open_cell(grid, size, cell + dir * k * int(sign)):
+			run += 1
+			k += 1
+	return run
+
+
+## True when an open cell within two steps along an axis lies in a run of exactly one hall width across the other axis.
+static func _touches_exact_hall(grid: Array, size: int, cell: Vector2i) -> bool:
+	for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		for reach in [1, 2]:
+			var n: Vector2i = cell + (step as Vector2i) * int(reach)
+			if not is_open_cell(grid, size, n):
+				break
+			if _run_len(grid, size, n, Vector2i(1, 0)) == 3 or _run_len(grid, size, n, Vector2i(0, 1)) == 3:
+				return true
+	return false
 
 
 static func is_open_cell(grid: Array, size: int, cell: Vector2i) -> bool:
@@ -357,7 +454,7 @@ static func audit_city(layout: CityLayout, seed_text: String, out: Array) -> voi
 					if depth > worst:
 						worst = depth
 						worst_cell = wc
-		if worst > TOL:
+		if worst > tol():
 			out.append(finding(g, "solid_overlap", "decor_in_wall", seed_text, "city %s at %s" % [type, cell],
 				"visible %s reaches %.2f m into wall cell %s" % [type, worst, worst_cell], worst))
 	for i in items.size():
@@ -370,7 +467,7 @@ static func audit_city(layout: CityLayout, seed_text: String, out: Array) -> voi
 				continue
 			var depth := obb_depth(a["centre"], a["half"], 0.0, b["centre"], b["half"], 0.0)
 			# same-kind canopies (tree/tree, cypress/cypress) may blend by a hand's width: an explicit allowance
-			var allowance := TOL + (0.3 if a["type"] == b["type"] and a["type"] in ["tree", "cypress"] else 0.0)
+			var allowance := tol() + (0.3 if a["type"] == b["type"] and a["type"] in ["tree", "cypress"] else 0.0)
 			if depth > allowance:
 				out.append(finding(g, "solid_overlap", "decor_overlap", seed_text, "city %s at %s" % [a["type"], a["cell"]],
 					"overlaps %s at %s by %.2f m" % [b["type"], b["cell"], depth], depth))
@@ -427,7 +524,7 @@ static func _audit_city_building(layout: CityLayout, building: Dictionary, seed_
 				if depth > worst:
 					worst = depth
 					worst_cell = wc
-		if worst > TOL:
+		if worst > tol():
 			out.append(finding(GAME_CITY, "solid_overlap", "prop_in_wall", seed_text, at,
 				"penetrates %s cell %s by %.2f m" % [CityLayout.KIND_NAMES[layout.kind_at(worst_cell.x, worst_cell.y)], worst_cell, worst], worst))
 	for i in rects.size():
@@ -437,7 +534,7 @@ static func _audit_city_building(layout: CityLayout, building: Dictionary, seed_
 			if (a["centre"] as Vector2).distance_to(b["centre"]) > 3.0:
 				continue
 			var depth := obb_depth(a["centre"], a["half"], float(a["yaw"]), b["centre"], b["half"], float(b["yaw"]))
-			if depth > TOL + pair_allowance(String(a["type"]), String(b["type"])):
+			if depth > tol() + pair_allowance(String(a["type"]), String(b["type"])):
 				out.append(finding(GAME_CITY, "solid_overlap", "prop_in_prop", seed_text, String(a["at"]),
 					"%s interpenetrates %s by %.2f m" % [a["type"], b["type"], depth], depth))
 
