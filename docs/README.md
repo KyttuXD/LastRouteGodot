@@ -36,5 +36,6 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [HUNTER_PARITY.md](HUNTER_PARITY.md) — 2D vs 3D hunter mechanics audit and what was ported
 - [DEATH_SCENES.md](DEATH_SCENES.md) — death lines catalog, the death moment, wipe variant
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
+- [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — chairs and tables audit, measured sizes, fixes, follow-up candidates
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
