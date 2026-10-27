@@ -236,6 +236,8 @@ static func goto_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var arrived := false
 	var arrived_at := -1.0
 	var run_frames := 0
+	var blocked := false
+	var first_pos: Array = [0.0, 0.0, 0.0]
 	var min_distance := 1e9
 	while run_frames < limit:
 		await tree.physics_frame
@@ -254,13 +256,21 @@ static func goto_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		if arrived:
 			arrived_at = snappedf(run_frames * delta, .1)
 			break
+		# cannot-move detection: nothing but standing still for 6 game seconds although a path exists -> say WHY (colliders, nav cells) and stop early
+		if run_frames == 360 and Vector2(float(pos[0]), float(pos[2])).distance_to(Vector2(float(first_pos[0]), float(first_pos[2]))) < .3 and distance > 2.0 and int(paths.get("direct_len", 0)) > 0:
+			report["blocked_diagnosis"] = adapter.collision_report()
+			bridge.input.release_all()
+			blocked = true
+			break
+		if run_frames == 1:
+			first_pos = pos
 		bridge.input.apply(adapter.decide(obs, delta))
 	bridge.input.release_all()
 	adapter.forced_goal = Vector2i(-99999, -99999)
 	report["goto_check"] = {"path": paths, "arrived": arrived, "seconds": arrived_at, "note": note, "checked_as": kind, "closest_m": snappedf(min_distance, .1), "start": [opts["probe_x"], opts["probe_z"]],
 		"goal": [goal.x, goal.y], "goal_kind": opts["goal_kind"], "stuck_spots": adapter.stats.get("stuck_events", 0), "door_failures": adapter.stats.get("door_failures", 0)}
 	return {"outcome": "arrived" if arrived else "not_arrived", "game_seconds": snappedf(frames * delta, .1), "frames": frames,
-		"scenario_failure": "" if arrived else "did not reach %s in %.1f game minutes (closest %.1f m, path from player %s)" % [goal, float(opts["minutes"]), min_distance, paths.get("direct_len", "?")]}
+		"scenario_failure": "" if arrived else ("blocked: the bot could not move from its start although a path of %s cells exists (see blocked_diagnosis)" % paths.get("direct_len", "?") if blocked else "did not reach %s in %.1f game minutes (closest %.1f m, path from player %s)" % [goal, float(opts["minutes"]), min_distance, paths.get("direct_len", "?")])}
 
 
 ## door_audit: tours chunks around the spawn (god mode), collects every closed ROOM_DOOR the streamed world shows, and for each one stands in front,

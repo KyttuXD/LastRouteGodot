@@ -192,6 +192,7 @@ func _check_streaming(host: Node) -> void:
 	_expect(structure != null and structure.get_cell_item(Vector3i(floori(under.x), 0, floori(under.z))) != GridMap.INVALID_CELL_ITEM,
 		"no floor collider under the runner in the sewer")
 	_expect(root != null and root.get_node_or_null("SewerWater") != null, "the sewer chunk has no flowing water")
+	_check_colliders_below_maze(view)
 	# Walk east one chunk along the tunnel: the window streams incrementally.
 	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
 	var worst_frame_ms := 0.0
@@ -306,3 +307,47 @@ func _check_hunter_paths() -> void:
 	_expect(routed == feet.size() - 1, "hunter A* reached %d of %d ladders through the sewer" % [routed, feet.size() - 1])
 	_expect(lids == feet.size(), "hunter A* reached %d of %d ladder lids on the maze" % [lids, feet.size()])
 	print("  ok    sewer hunter paths: %d ladders, all reachable above and below" % feet.size())
+
+
+## No level -1 collider may rise into level 0: every GridMap cell shape and
+## every prop body under a sewer chunk tops out at or below the underside of the
+## maze's floor slab (playtest GOLF: full-height wall blocks a storey down stood
+## 3.5 m into open maze halls). The ladder opening needs no exception: the maze
+## keeps its own floor collider over it and the sewer adds nothing there.
+func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
+	var ceiling := -StreamedFacilityView3D.SLAB + .001
+	var worst := -INF
+	var where := ""
+	var checked := 0
+	for coord_value in view._loaded.keys():
+		var coord: Vector3i = coord_value
+		if coord.y != SewerRouteGenerator.LEVEL:
+			continue
+		var root: Node3D = view._loaded[coord]
+		var grid := root.get_node_or_null("Structure") as GridMap
+		if grid != null:
+			for cell_value in grid.get_used_cells():
+				var cell: Vector3i = cell_value
+				var shapes: Array = grid.mesh_library.get_item_shapes(grid.get_cell_item(cell))
+				for i in range(0, shapes.size(), 2):
+					var top := _shape_top(shapes[i], grid.to_global(grid.map_to_local(cell)), shapes[i + 1])
+					checked += 1
+					if top > worst:
+						worst = top
+						where = "%s Structure cell %s" % [coord, cell]
+		for node in root.find_children("*", "CollisionShape3D", true, false):
+			var shape_node := node as CollisionShape3D
+			if shape_node.shape == null or shape_node.get_parent() is GridMap:
+				continue
+			var aabb := shape_node.global_transform * shape_node.shape.get_debug_mesh().get_aabb()
+			checked += 1
+			if aabb.end.y > worst:
+				worst = aabb.end.y
+				where = "%s %s" % [coord, root.get_path_to(shape_node)]
+	_expect(checked > 0, "no sewer colliders found to check")
+	_expect(worst <= ceiling, "a sewer collider rises into the maze: %s tops out at y %.2f (limit %.2f)" % [where, worst, ceiling])
+
+
+static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D) -> float:
+	var aabb := shape.get_debug_mesh().get_aabb()
+	return (Transform3D(Basis.IDENTITY, cell_origin) * local * aabb).end.y
