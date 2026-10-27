@@ -1,7 +1,7 @@
 extends Node
 
 ## The hunters as the game presents them (HunterView3D from a HunterBrain): a row of ids, lit like a
-## corridor, camera in front. HUNTERS=kathy,aki,... HUNTER_STATE=idle|walk|chase.
+## corridor, camera in front. HUNTERS=kathy,aki,... HUNTER_STATE=idle|walk|chase|search|stun|scream.
 ##   godot --path . res://tools/look/hunter_check.tscn -- OUT.png
 
 func _ready() -> void:
@@ -27,6 +27,15 @@ func _ready() -> void:
 	floor_mesh.mesh = plane
 	floor_mesh.position = Vector3(ids.size(), -.05, 0)
 	world.add_child(floor_mesh)
+	# HunterView3D is a CharacterBody3D with gravity: without a collider the hunters fall through this floor
+	var floor_body := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	var floor_box := BoxShape3D.new()
+	floor_box.size = plane.size
+	floor_shape.shape = floor_box
+	floor_body.collision_layer = 1
+	floor_body.add_child(floor_shape)
+	floor_mesh.add_child(floor_body)
 	var x := 0.0
 	var state := OS.get_environment("HUNTER_STATE")
 	for id in ids:
@@ -37,9 +46,17 @@ func _ready() -> void:
 			brain.state = HunterBrain.State.CHASE
 		elif state == "walk":
 			brain.state = HunterBrain.State.WANDER
+		elif state == "search":
+			brain.state = HunterBrain.State.SEARCH
+		elif state == "stun":
+			brain.apply_stun(30.0)
+		elif state == "scream":
+			brain.state = HunterBrain.State.CHASE
 		var view := HunterView3D.new()
 		view.brain = brain
 		world.add_child(view)
+		if state == "scream":
+			view.set_look_target(at + Vector2(0, 1.5))
 		view.sync_from_brain()
 		print("HUNTER %s scythe=%s clip=%s" % [id, view._carries_scythe, view._animation_player.current_animation if view._animation_player else "-"])
 		if OS.get_environment("HEAD_DEBUG") != "":

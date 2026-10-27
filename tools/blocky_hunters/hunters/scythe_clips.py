@@ -27,6 +27,11 @@ def hook(clips, restq, pel, U):
         _hold_tracks(c, restq)
         c["loop"] = True
         clips[dst] = c
+    # stunned while carrying it: the normal stun, but the right hand keeps its grip on the shaft
+    for src, dst in (("stun", "scythe_stun"), ("stun_recover", "scythe_stun_recover")):
+        c = copy.deepcopy(clips[src])
+        _hold_tracks(c, restq)
+        clips[dst] = c
     # swing: windup (0.35) -> slash (0.6) -> follow-through (0.8) -> recover (1.3)
     times = [0, .35, .6, .8, 1.3]
     pose = [

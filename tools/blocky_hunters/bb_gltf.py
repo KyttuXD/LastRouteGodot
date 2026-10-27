@@ -133,9 +133,13 @@ def write_glb(model, bones, clips, path, scale=1.0, loop_suffix=True):
     animations = []
     for cname, clip in clips.items():
         chans, samps = [], []
+        shared_times = {}                                 # one time accessor per distinct key-time list
         for bone, tr in clip["tracks"].items():
             for chan, (times, vals) in tr.items():
-                tacc = buf.acc(floats=times, minmax=True)
+                tkey = tuple(round(x, 6) for x in times)
+                if tkey not in shared_times:
+                    shared_times[tkey] = buf.acc(floats=times, minmax=True)
+                tacc = shared_times[tkey]
                 flat = [c for v in vals for c in (v if chan == "rotation" else tuple(x for x in v))]
                 if chan == "translation":
                     flat = [c * S if False else c for c in flat]

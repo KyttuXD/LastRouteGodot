@@ -23,7 +23,7 @@ CORE = [
     ("R-Thigh", "Pelvis"), ("R-Calf", "R-Thigh"), ("R-Foot", "R-Calf"),
 ]
 CORE_NAMES = [b for b, _ in CORE]
-REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "charge", "flight", "jumpscare"]
+REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "stun_recover", "charge", "flight", "jumpscare"]
 # the gameplay clips the roster/jumpscare code asks for by name (blink etc. are faces)
 
 
@@ -84,7 +84,7 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
                     (pel[0] + v[0] * k, pel[1] + (v[1] - HYTALE_PELVIS_Y) * k, pel[2] + v[2] * k) for v in tt["v"]])
         return {"length": src["length"], "tracks": tr}
 
-    for n in ("idle", "walk", "chase", "sprint", "crouch", "stun"):
+    for n in ("idle", "walk", "chase", "sprint", "crouch"):
         clips[n] = from_hytale(n)
 
     # charge: sprint with the whole torso leaned into it, head kept up
@@ -134,6 +134,68 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
+    # stun: staggering, head lolling, arms limp, knees buckled (authored; loops), and the wake-up that follows it
+    def stun_pose(b, p):
+        s1, c1, s2, c2 = math.sin(p), math.cos(p), math.sin(2 * p), math.cos(2 * p)
+        return {
+            "Pelvis": (0, 10 * s1, 3 * c1),
+            "Belly": (-9 + 3 * c2, 9 * s1, 3 * s1),
+            "Chest": (-8 + 3 * s2, 8 * math.sin(p + .8), 4 * c1),
+            "Head": (-15 + 6 * c1, 12 * s1, 9 * s1 + 5 * c1),
+            "L-Arm": (16 + 12 * s1, 0, -9 - 6 * c1), "R-Arm": (16 - 12 * s1, 0, 9 + 6 * c1),
+            "L-Forearm": (14 + 8 * c1, 0, 0), "R-Forearm": (14 - 8 * c1, 0, 0),
+            "L-Hand": (12, 0, 0), "R-Hand": (12, 0, 0),
+            "L-Thigh": (38 + 9 * s1, 0, -6), "R-Thigh": (30 - 9 * s1, 0, 6),
+            "L-Calf": (-66 - 10 * s1, 0, 0), "R-Calf": (-55 + 10 * s1, 0, 0),
+            "L-Foot": (28 + 1 * s1, 0, 0), "R-Foot": (25 - 1 * s1, 0, 0),
+        }.get(b)
+
+    def stun_dy(p):
+        return -0.11 + 0.025 * math.cos(2 * p)
+
+    def sampled(length, n, pose, dy, loop=True):
+        times = [length * i / n for i in range(n + 1)]
+        tr = {}
+        for b in CORE_NAMES:
+            vals = [quat_mul(quat_from_euler(*(pose(b, i) or (0, 0, 0))), restq[b]) for i in range(n + 1)]
+            tr[b] = {"rotation": (times, vals)}
+        tr["Pelvis"]["translation"] = (times, [(pel[0], pel[1] + dy(i) * k, pel[2]) for i in range(n + 1)])
+        return {"length": length, "tracks": tr, "loop": loop}
+    N = 16
+    clips["stun"] = sampled(1.6, N, lambda b, i: stun_pose(b, 2 * math.pi * (i % N) / N), lambda i: stun_dy(2 * math.pi * (i % N) / N))
+
+    def ease(u):
+        u = max(0.0, min(1.0, u))
+        return u * u * (3 - 2 * u)
+
+    def recover_pose(b, i, n=10, length=1.0):
+        t = i / n
+        u = ease(t / .7)
+        a = stun_pose(b, 0.0) or (0, 0, 0)
+        e = [v * (1 - u) for v in a]
+        if b in ("Head", "Chest"):             # wake-up jolt: head snaps up past level, then settles
+            e[0] += 12 * math.sin(math.pi * min(1, t / .8)) * (1 if b == "Head" else .5)
+        if b == "Head":
+            e[1] += 14 * math.sin(t * 2 * math.pi * 2.5) * (1 - t)       # shakes the dizziness off
+        return tuple(e)
+    clips["stun_recover"] = sampled(1.0, 10, recover_pose, lambda i: stun_dy(0.0) * (1 - ease(i / 10 / .7)), loop=False)
+
+    # run polish: chase and sprint lean into it, elbows bent, arms pumping harder, head kept level
+    for name, lean, elbow, arms, stride in (("chase", 7, 24, 1.3, 1.1), ("sprint", 12, 48, 1.5, 1.2)):
+        for bone, tr in clips[name]["tracks"].items():
+            if "rotation" not in tr:
+                continue
+            t, v = tr["rotation"]
+            if bone in ARM:
+                v = [_scale_about(restq[bone], q, arms) for q in v]
+            if bone in LEG or bone in KNEE:
+                v = [_scale_about(restq[bone], q, stride) for q in v]
+            off = {"Belly": (-lean * .55, 0, 0), "Chest": (-lean * .45, 0, 0), "Head": (lean * .85, 0, 0),
+                   "L-Forearm": (elbow, 0, 0), "R-Forearm": (elbow, 0, 0)}.get(bone)
+            if off:
+                v = [quat_mul(quat_from_euler(*off), q) for q in v]
+            tr["rotation"] = (t, v)
+
     _apply_profile(clips, restq, pel, profile or {})
     clips.update(emotes or {})            # one-shot emotes are added after the profile: they keep their own timing
 
@@ -141,14 +203,14 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
     for clip_name, clip in clips.items():
         length = clip["length"]
         cyc = {"idle": 1, "walk": 2, "chase": 2, "sprint": 2, "charge": 2, "crouch": 1,
-               "stun": 2, "flight": 3, "jumpscare": 4}.get(clip_name, max(1, round(length / 1.2)))   # emotes: one swing per ~1.2 s
+               "stun": 2, "stun_recover": 1, "flight": 3, "jumpscare": 4}.get(clip_name, max(1, round(length / 1.2)))   # emotes: one swing per ~1.2 s
         for b in bones:
             if not b["sway"]:
                 continue
             ax, az, mult, phase = b["sway"][:4]
             ay = b["sway"][4] if len(b["sway"]) > 4 else 0     # optional yaw (side-to-side wag)
             amp = {"idle": .5, "walk": 1.0, "chase": 1.5, "sprint": 1.8, "charge": 1.8, "crouch": .4,
-                   "stun": 1.4, "flight": b.get("flight_amp", 1.0) if isinstance(b, dict) else 1.0,
+                   "stun": .7, "flight": b.get("flight_amp", 1.0) if isinstance(b, dict) else 1.0,
                    "jumpscare": 1.6}.get(clip_name, 1.0)
             if b["name"].endswith("Wing"):
                 amp = {"idle": .5, "walk": .8, "chase": 1.2, "sprint": 1.4, "charge": 1.4, "crouch": .35,
