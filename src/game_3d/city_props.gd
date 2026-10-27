@@ -5,7 +5,8 @@ extends RefCounted
 ## banners, market stalls, a newsstand, phone booths and hydrants. Blocky boxes from the City atlas, drawn into the chunk's
 ## CitySurface like the rest of the street furniture. CityLayout.DECOR_COLLIDERS / DECOR_VISIBLE carry their footprints.
 
-const TYPES := ["plaza_light", "banner", "market_stall", "newsstand", "phone_booth", "hydrant", "mailbox", "silo", "tractor", "hay_bale", "water_pump"]
+const TYPES := ["plaza_light", "banner", "market_stall", "newsstand", "phone_booth", "hydrant", "mailbox", "silo", "tractor", "hay_bale", "water_pump",
+	"traffic_light", "bus_stop", "car_a", "car_b", "utility_pole", "billboard", "street_sign"]
 const PLAZA_COLOR := Color(0.34, 0.92, 0.9)
 
 
@@ -76,5 +77,40 @@ static func add(type: String, surface: CitySurface, root: Node3D, lamps: Array, 
 			surface.box(Vector3(cx - .25, 0, cz - .25), Vector3(.5, .8, .5), CityAtlas.tile("stone_dark"))
 			surface.box(Vector3(cx - .08, .8, cz - .08), Vector3(.16, .5, .16), pole)
 			surface.box(Vector3(cx - .3, 1.2, cz - .05), Vector3(.6, .08, .1), pole)
+		"traffic_light":
+			surface.box(Vector3(cx - .1, 0, cz - .1), Vector3(.2, 3.0, .2), pole)
+			surface.box(Vector3(cx - .18, 3.0, cz - .18), Vector3(.36, .8, .36), CityAtlas.tile("fire_escape"), pole)
+			surface.box(Vector3(cx - .1, 3.55, cz - .2), Vector3(.2, .16, .04), CityAtlas.tile("awning_red"))
+			surface.box(Vector3(cx - .1, 3.1, cz - .2), Vector3(.2, .16, .04), CityAtlas.tile("cyan_lamp"))
+		"street_sign":
+			surface.box(Vector3(cx - .05, 0, cz - .05), Vector3(.1, 2.2, .1), pole)
+			surface.box(Vector3(cx - .3, 2.25, cz - .03), Vector3(.6, .2, .06), CityAtlas.tile("awning_teal"))
+			surface.box(Vector3(cx - .03, 2.5, cz - .3), Vector3(.06, .2, .6), CityAtlas.tile("awning_teal"))
+		"bus_stop":
+			surface.box(Vector3(cx - .45, 0, cz - .45), Vector3(.06, 2.3, .06), pole)
+			surface.box(Vector3(cx + .39, 0, cz - .45), Vector3(.06, 2.3, .06), pole)
+			surface.box(Vector3(cx - .48, 2.3, cz - .48), Vector3(.96, .1, .96), CityAtlas.tile("kiosk_roof"))
+			surface.box(Vector3(cx - .45, .4, cz - .45), Vector3(.9, .1, .3), CityAtlas.tile("wood_bench"))
+			surface.box(Vector3(cx - .45, .6, cz - .47), Vector3(.9, 1.4, .04), CityAtlas.tile("win_cyan_top"))
+		"car_a", "car_b":
+			# half a parked car per cell (front / back), so the two halves line up into one 2 m car
+			var paint := CityAtlas.tile("awning_red" if int(cx * 7.0 + cz) % 3 == 0 else ("awning_teal" if int(cx + cz) % 2 == 0 else "stone_dark"))
+			surface.box(Vector3(cx - .46, .25, cz - .46), Vector3(.92, .55, .92), paint, paint)
+			if type == "car_a":
+				surface.box(Vector3(cx - .4, .8, cz - .4), Vector3(.8, .45, .8), CityAtlas.tile("win_dark_top"), paint)
+			for corner in [Vector2(-.42, -.3), Vector2(.3, -.3), Vector2(-.42, .18), Vector2(.3, .18)]:
+				surface.box(Vector3(cx + corner.x, 0, cz + corner.y), Vector3(.12, .3, .12), pole)
+		"utility_pole":
+			surface.box(Vector3(cx - .12, 0, cz - .12), Vector3(.24, 6.4, .24), CityAtlas.tile("trunk"))
+			if wide_along_x:
+				surface.box(Vector3(cx - .6, 6.2, cz - .06), Vector3(1.2, .12, .12), CityAtlas.tile("trunk"))
+			else:
+				surface.box(Vector3(cx - .06, 6.2, cz - .6), Vector3(.12, .12, 1.2), CityAtlas.tile("trunk"))
+		"billboard":
+			surface.box(Vector3(cx - .1, 0, cz - .1), Vector3(.2, 3.4, .2), pole)
+			if wide_along_x:
+				surface.box(Vector3(cx - 1.5, 3.4, cz - .1), Vector3(3.0, 3.0, .2), CityAtlas.tile("neon_sign"), pole)
+			else:
+				surface.box(Vector3(cx - .1, 3.4, cz - 1.5), Vector3(.2, 3.0, 3.0), CityAtlas.tile("neon_sign"), pole)
 		_:
 			pass

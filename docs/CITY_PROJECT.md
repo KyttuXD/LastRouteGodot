@@ -309,3 +309,10 @@ Hooks for the OSM maps lane (src/osm_city/, docs/CITY_OSM_MAPS.md): `CityRouteGe
 `CityFacilityView3D.begin()` asks `res://src/osm_city/osm_city_run.gd`.layout_for(seed) when that file exists,
 `CityLayout.in_chunk_range/chunk_min/chunk_max/is_outside/interior_kind_for` (instance, overridable), and a REAL PLACES
 button on the City menu shown only when `res://src/osm_city/osm_city_menu.gd` exists.
+
+## Modern street furniture
+
+`CityLayout._lay_modern_furniture` (drawn in `CityProps`, checked by the decor clipping rules): traffic lights on every corner
+of the downtown crossings (16), street-name signs (11), parked cars in the outer lanes of the avenue and main street (two
+cells each, front/back halves, 38), bus stops on the suburb arterials, utility poles on the ring road's outer pavement (65),
+billboards in the suburbs. Not done: manholes/storm drains (floor decals need atlas room), overhead wires, road barriers.

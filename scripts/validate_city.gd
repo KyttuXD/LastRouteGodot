@@ -808,7 +808,8 @@ func _check_outskirt_lots(layout: CityLayout) -> void:
 	var counts := {}
 	for entry in layout.decor.values():
 		counts[String(entry["type"])] = int(counts.get(String(entry["type"]), 0)) + 1
-	for type in ["mailbox", "silo", "tractor", "hay_bale", "water_pump"]:
+	_expect(int(counts.get("traffic_light", 0)) >= 6, "only %d traffic lights" % int(counts.get("traffic_light", 0)))
+	for type in ["mailbox", "silo", "tractor", "hay_bale", "water_pump", "bus_stop", "car_a", "car_b", "utility_pole", "billboard", "street_sign"]:
 		_expect(int(counts.get(type, 0)) >= 3, "farm/suburb prop %s placed %d times" % [type, int(counts.get(type, 0))])
 	print("  city: outskirts: %d houses, %d barns, props %s" % [houses, barns, counts])
 

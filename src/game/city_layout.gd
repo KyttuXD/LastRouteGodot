@@ -96,6 +96,9 @@ const DECOR_COLLIDERS := {
 	"newsstand": Vector3(.9, 1.1, .9), "phone_booth": Vector3(.78, 2.1, .78), "hydrant": Vector3(.26, .55, .26),
 	"mailbox": Vector3(.2, 1.2, .2), "silo": Vector3(.95, 7.5, .95), "tractor": Vector3(.95, 1.6, .95),
 	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.5, 1.3, .5),
+	"traffic_light": Vector3(.2, 3.6, .2), "bus_stop": Vector3(.9, 2.3, .9), "car_a": Vector3(.92, 1.3, .92),
+	"car_b": Vector3(.92, 1.3, .92), "utility_pole": Vector3(.24, 7.0, .24), "billboard": Vector3(.3, 6.0, .3),
+	"street_sign": Vector3(.12, 2.6, .12),
 }
 ## The widest visible footprint of the same pieces (what the renderer draws), for the collider-vs-visual check.
 const DECOR_VISIBLE := {
@@ -106,6 +109,9 @@ const DECOR_VISIBLE := {
 	"newsstand": Vector3(1.0, 2.5, 1.0), "phone_booth": Vector3(.84, 2.26, .84), "hydrant": Vector3(.4, .62, .4),
 	"mailbox": Vector3(.4, 1.3, .3), "silo": Vector3(.95, 8.2, .95), "tractor": Vector3(.95, 1.9, .95),
 	"hay_bale": Vector3(.9, .9, .9), "water_pump": Vector3(.6, 1.4, .6),
+	"traffic_light": Vector3(.7, 3.8, .7), "bus_stop": Vector3(.96, 2.5, .96), "car_a": Vector3(.96, 1.4, .96),
+	"car_b": Vector3(.96, 1.4, .96), "utility_pole": Vector3(1.2, 7.4, 1.2), "billboard": Vector3(3.0, 6.4, 3.0),
+	"street_sign": Vector3(.6, 2.8, .6),
 }
 ## "hall" is last on purpose: it is only given to big civic lots, never drawn at random.
 const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "library", "chapel", "hall"]
@@ -538,6 +544,7 @@ func _plan() -> void:
 	_lay_crosswalks()
 	_scatter_verge_trees()
 	_lay_street_furniture()
+	_lay_modern_furniture()
 	_remove_thin_alleys()
 	_fill_slivers()
 	_seal_unreachable()
@@ -1193,7 +1200,10 @@ func _place_decor(cell: Vector2i, type: String, yaw: float) -> bool:
 	if r > DECOR_LIMIT and (r < 1.0 or outer_r(cell.x, cell.y) > OUTER_WALL_FROM - .03):
 		return false
 	var current := kind_at(cell.x, cell.y)
-	if not [PAVE, PLAZA, GRASS, PATH, COMPASS, FIELD].has(current):
+	var allowed := [PAVE, PLAZA, GRASS, PATH, COMPASS, FIELD]
+	if type == "car_a" or type == "car_b":
+		allowed = [ROAD]
+	if not allowed.has(current):
 		return false
 	if _decor_clips_solid(cell, type) or _decor_clips_decor(cell, type, yaw):
 		return false
@@ -1220,6 +1230,14 @@ static func decor_parts(type: String, yaw: float) -> Array:
 			return [_part(.9 if along_x else .4, .4 if along_x else .9, 0.0, .9)]
 		"statue":
 			return [_part(3.0, 3.0, 0.0, 1.2), _part(2.0, 2.0, 1.2, 1.55), _part(.9, .6, 1.55, 3.65)]
+		"traffic_light":
+			return [_part(.2, .2, 0.0, 3.0), _part(.7, .7, 3.0, 3.8)]
+		"utility_pole":
+			return [_part(.24, .24, 0.0, 6.2), _part(1.2, .2 if along_x else 1.2, 6.2, 7.0) if along_x else _part(.2, 1.2, 6.2, 7.0)]
+		"billboard":
+			return [_part(.3, .3, 0.0, 3.4), _part(3.0 if along_x else .3, .3 if along_x else 3.0, 3.4, 6.4)]
+		"street_sign":
+			return [_part(.12, .12, 0.0, 2.2), _part(.6, .6, 2.2, 2.8)]
 	var vis: Vector3 = DECOR_VISIBLE.get(type, Vector3.ONE)
 	return [_part(vis.x, vis.z, 0.0, vis.y)]
 
@@ -1359,6 +1377,76 @@ func _lay_street_furniture() -> void:
 		var along := Vector2i(out.y, out.x)
 		_place_decor(door + out * 2 + along * 3, "bollard", 0.0)
 		_place_decor(door + out * 2 - along * 3, "bollard", 0.0)
+
+
+## Modern street furniture: traffic lights at the downtown crossings, street-name signs, bus stops along the arterials,
+## parked cars (two cells each, front and back) in the outer lane of the 9-wide downtown streets, utility poles along the
+## ring road and the farm tracks, billboards in the suburbs. Placed through _place_decor, so the clipping and doorway rules
+## apply and anything that does not fit is skipped.
+func _lay_modern_furniture() -> void:
+	# crossings of the downtown street grid: a light on each corner where the pavement cell is free, a sign on one
+	for ns in NS_STREETS:
+		for ew in EW_STREETS:
+			var cx: int = ns[0]
+			var cz: int = ew[0]
+			if ellipse_r(cx, cz) > 0.86:
+				continue
+			var hx: int = int(ns[1]) / 2
+			var hz: int = int(ew[1]) / 2
+			var signed := false
+			for corner in [Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
+				var cell := Vector2i(cx + corner.x * hx, cz + corner.y * hz)
+				_place_decor(cell, "traffic_light", atan2(float(-corner.x), float(-corner.y)))
+				# the street-name sign a few cells along the pavement from the first corner that takes one
+				if not signed:
+					for along in [3, 4, 5]:
+						if _place_decor(cell + Vector2i(0, corner.y * along), "street_sign", 0.0):
+							signed = true
+							break
+	# parked cars: outer lane of the 9-wide avenue and main street, every 11 cells, pointing along the road
+	for gz in range(6, HEIGHT - 6, 11):
+		for gx in [AVENUE_X - 2, AVENUE_X + 2]:
+			if ellipse_r(gx, gz) < 0.86 and kind_at(gx, gz) == ROAD and kind_at(gx, gz + 1) == ROAD:
+				if _place_decor(Vector2i(gx, gz), "car_a", 0.0) and not _place_decor(Vector2i(gx, gz + 1), "car_b", 0.0):
+					_unplace_decor(Vector2i(gx, gz))
+	for gx in range(6, WIDTH - 6, 11):
+		for gz in [MAIN_STREET_Z - 2, MAIN_STREET_Z + 2]:
+			if ellipse_r(gx, gz) < 0.86 and kind_at(gx, gz) == ROAD and kind_at(gx + 1, gz) == ROAD:
+				if _place_decor(Vector2i(gx, gz), "car_a", PI * .5) and not _place_decor(Vector2i(gx + 1, gz), "car_b", PI * .5):
+					_unplace_decor(Vector2i(gx, gz))
+	# bus stops on the arterial pavements through the suburbs, both directions
+	for gz in range(4, HEIGHT - 4, 24):
+		if ellipse_r(AVENUE_X, gz) >= 1.02 and not is_outside(AVENUE_X, gz):
+			_place_decor(Vector2i(AVENUE_X - 4, gz), "bus_stop", PI * .5)
+			_place_decor(Vector2i(AVENUE_X + 4, gz + 6), "bus_stop", -PI * .5)
+	for gx in range(4, WIDTH - 4, 24):
+		if ellipse_r(gx, MAIN_STREET_Z) >= 1.02 and not is_outside(gx, MAIN_STREET_Z):
+			_place_decor(Vector2i(gx, MAIN_STREET_Z - 4), "bus_stop", 0.0)
+			_place_decor(Vector2i(gx + 6, MAIN_STREET_Z + 4), "bus_stop", PI)
+	# utility poles on the ring road's outer pavement and beside the farm tracks
+	var placed := 0
+	for gz in range(2, HEIGHT - 2):
+		for gx in range(2, WIDTH - 2):
+			if (gx * 7 + gz * 13) % 17 != 0:
+				continue
+			var t := band_t(gx, gz)
+			if kind_at(gx, gz) == PAVE and t >= RING_ROAD.y and t < FARM_FROM:
+				if _place_decor(Vector2i(gx, gz), "utility_pole", 0.0):
+					placed += 1
+	# billboards facing the arterials in the suburbs (first free grass cell 6-10 out from the road)
+	for gz in range(6, HEIGHT - 6, 12):
+		for side in [-1, 1]:
+			for out in range(6, 11):
+				var cell := Vector2i(AVENUE_X + side * out, gz)
+				if ellipse_r(cell.x, cell.y) >= 1.03 and band_t(cell.x, cell.y) < SUBURB_TO \
+						and _place_decor(cell, "billboard", PI * .5):
+					break
+
+
+func _unplace_decor(cell: Vector2i) -> void:
+	if decor.has(cell) and _decor_floor.has(cell):
+		_set_kind(cell.x, cell.y, int(_decor_floor[cell]))
+		decor.erase(cell)
 
 
 ## The gate: a 9-wide closed barrier across the avenue (the escape objective, see CityRouteGenerator pickups).
