@@ -18,9 +18,9 @@ const MAPS := {
 	"lure":     {"script": "res://src/night_watch/lure/lure_map.gd", "single_space": false},
 	"bedroom":  {"script": "res://src/night_watch/bedroom/bedroom_map.gd", "single_space": false},
 	"story":    {"script": "res://src/night_watch/story/story_map.gd", "single_space": false},
-	"descent":  {"script": "", "single_space": false},
+	"descent":  {"script": "res://src/night_watch/descent/descent_map.gd", "single_space": false},
 	"dayshift": {"script": "res://src/night_watch/dayshift/dayshift_map.gd", "single_space": false},
-	"extra":    {"script": "", "single_space": false},
+	"extra":    {"script": "res://src/night_watch/openair/openair_map.gd", "single_space": false},
 	"mixed":    {"script": "res://src/night_watch/mixed/mixed_map.gd", "single_space": false, "rotates": true},
 }
 
