@@ -33,7 +33,7 @@ func is_safe_room(coord: Vector3i) -> bool:
 ## True when a route-space position (route cell units) is inside a building: used by hunters' daytime sight, which only
 ## applies outdoors.
 func is_indoor_route_position(position: Vector2) -> bool:
-	var kind := layout.kind_at(floori(position.x) + CityLayout.ORIGIN_OFFSET.x, floori(position.y) + CityLayout.ORIGIN_OFFSET.y)
+	var kind := layout.kind_at(floori(position.x) + layout.origin_offset.x, floori(position.y) + layout.origin_offset.y)
 	return kind == CityLayout.FLOOR or kind == CityLayout.DOOR or kind == CityLayout.KIOSK_FLOOR
 
 
@@ -41,7 +41,7 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	var neighbour := coord + Vector3i(direction.x, 0, direction.y)
 	if not is_chunk_allowed(coord) or not is_chunk_allowed(neighbour):
 		return []
-	var origin := CityLayout.chunk_origin(coord)
+	var origin := layout.chunk_origin_of(coord)
 	var out := []
 	for index in CHUNK_SIZE:
 		var own := Vector2i(origin.x + index, origin.y + CHUNK_SIZE - 1)
@@ -65,7 +65,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			"pickups": [], "hunter_spawns": [], "dual_level_room": {}, "floor_voids": [], "ceiling_voids": [],
 			"structural_voids": [], "difficulty": difficulty_for_level(coord.y)}
 	var grid := layout.chunk_grid(coord)
-	var origin := CityLayout.chunk_origin(coord)
+	var origin := layout.chunk_origin_of(coord)
 	var chunk_rect := Rect2i(origin, Vector2i(CHUNK_SIZE, CHUNK_SIZE))
 	var rooms := []
 	var region_props := []
@@ -101,7 +101,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var pickups := _pickups(coord, grid, [], safe, region_props, fixtures)
 	var hunters := _hunter_spawns(coord, grid, [], safe, region_props)
 	# The dome gate (the escape objective) is one extra pickup entity in the chunk that holds its interaction cell.
-	var gate_local := CityLayout.GATE_CELL - origin
+	var gate_local := layout.gate_cell - origin
 	if gate_local.x >= 0 and gate_local.y >= 0 and gate_local.x < CHUNK_SIZE and gate_local.y < CHUNK_SIZE:
 		pickups.append({"id": "%s:PICKUP:GATE:0" % chunk_id(coord), "cell": gate_local, "kind": "gate", "item": ""})
 	var shelter := layout.shelter_for_chunk(coord)

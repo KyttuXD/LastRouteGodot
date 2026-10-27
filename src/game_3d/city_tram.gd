@@ -4,7 +4,7 @@ extends Node3D
 ## Ambient traffic on rails: an elevated tram line over the avenue and one over the main street, each with two cars that
 ## glide end to end above head height (rail at 6 m, cars 6.3 m to 8.5 m, well above lamps, canopies and doorway signs).
 ## Visual only: no collision, no nav change, deterministic from the run clock so every peer sees the same cars.
-## Coordinates are route space; CityLayout.ORIGIN_OFFSET maps city cells to it.
+## Coordinates are route space; the layout's origin_offset maps city cells to it.
 
 const RAIL_Y := 6.0
 const CAR_SIZE := Vector3(1.8, 2.2, 5.0)
@@ -14,6 +14,8 @@ const CARS_PER_LINE := 2
 var _cars: Array[Node3D] = []
 var _lines: Array = []   # {axis: "x"|"z", at: float, from: float, to: float}
 var _clock := 0.0
+## The layout whose streets the trams run over (set before the node enters the tree).
+var layout: CityLayout
 
 
 func _ready() -> void:
@@ -30,7 +32,7 @@ func _ready() -> void:
 	rail.albedo_color = Color(0.08, 0.09, 0.12)
 	for material in [body, glow, rail]:
 		MaterialLook.tame(material)
-	var centre := Vector2(CityLayout.ROUNDABOUT_CENTER) + Vector2(.5, .5) - Vector2(CityLayout.ORIGIN_OFFSET)
+	var centre := Vector2(CityLayout.ROUNDABOUT_CENTER) + Vector2(.5, .5) - Vector2(layout.origin_offset)
 	# Rails run where the street is inside the rim; the roundabout kiosk is 4.5 m tall so the rail clears it.
 	_lines = [
 		{"axis": "z", "at": centre.x, "from": _street_end(true, centre.x, -1), "to": _street_end(true, centre.x, 1)},
@@ -75,16 +77,16 @@ func _ready() -> void:
 
 
 ## Where the street leaves the city ellipse in the given direction (route space), kept 6 m short of the rim.
-static func _street_end(along_z: bool, at: float, direction: int) -> float:
+func _street_end(along_z: bool, at: float, direction: int) -> float:
 	var position := 0.0
 	for step in 140:
 		var candidate := float(direction * step)
-		var gx := (at if along_z else candidate) + CityLayout.ORIGIN_OFFSET.x
-		var gz := (candidate if along_z else at) + CityLayout.ORIGIN_OFFSET.y
+		var gx := (at if along_z else candidate) + layout.origin_offset.x
+		var gz := (candidate if along_z else at) + layout.origin_offset.y
 		if CityLayout.ellipse_r(int(gx), int(gz)) >= CityLayout.RING_PAVE_FROM:
 			break
 		position = candidate
-	return position - float(direction) * 6.0
+	return position - float(direction) * 12.0
 
 
 func car_count() -> int:

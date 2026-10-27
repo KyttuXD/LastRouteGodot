@@ -104,8 +104,8 @@ func _refresh_stream(force: bool) -> void:
 func zone_name(world_position: Vector3) -> String:
 	if city_generator == null:
 		return ""
-	return city_generator.layout.zone_name(floori(world_position.x) + CityLayout.ORIGIN_OFFSET.x,
-		floori(world_position.z) + CityLayout.ORIGIN_OFFSET.y)
+	return city_generator.layout.zone_name(floori(world_position.x) + city_generator.layout.origin_offset.x,
+		floori(world_position.z) + city_generator.layout.origin_offset.y)
 
 
 ## The gate is an interactable (the lift kind) built from a "gate" pickup entity; every other pickup is the route's own.
@@ -159,6 +159,7 @@ func _ensure_sky() -> void:
 	if _tram == null:
 		_tram = CityTram.new()
 		_tram.name = "CityTram"
+		_tram.layout = city_generator.layout
 		add_child(_tram)
 
 
@@ -207,7 +208,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	var city: Dictionary = data.get("city", {})
 	return {
 		"coord": coord, "data": data, "root": root, "grid": grid, "surface": CitySurface.new(),
-		"kinds": city.get("kinds", PackedByteArray()), "origin": CityLayout.chunk_origin(coord),
+		"kinds": city.get("kinds", PackedByteArray()), "origin": city_generator.layout.chunk_origin_of(coord),
 		"safe": bool(data.get("safe_room", false)), "lamps": [], "props_body": StaticBody3D.new(),
 		"cell_index": 0, "phase": 0, "prop_index": 0, "fixture_index": 0, "pickup_index": 0,
 	}
