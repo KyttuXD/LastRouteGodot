@@ -1,8 +1,10 @@
 class_name NightWatchGame
 extends Node3D
 
-## The Night Watch shift scene: the office, the building, the hunters and the HUD, driven by NightWatchClassic. Controls:
-## A / D doors, hold Q / E lights, Space the monitor, 1-8 or the arrow keys pick a camera, Esc pauses, N mutes Zellia.
+## The Night Watch shift scene: a walkable security room, the building the cameras look into, the hunters and the HUD, driven by
+## NightWatchClassic. You WALK (WASD, mouse, shift, crouch) and USE stations with E: the monitor on the desk, the DOOR and LIGHT
+## buttons on the wall panels (hold E on LIGHT), the desk lamp, the chair (sit at the desk). Quick keys (nw_* actions): 1 / 2 doors,
+## hold 3 / 4 door lights, Tab the monitor, F the lamp, R mutes Zellia, Esc pauses; in the monitor 1-8 or the arrow keys pick a camera.
 ## `manual_clock` stops the real-time clock so the validators step the night themselves with advance_ms().
 
 signal finished(result: String)
@@ -17,6 +19,7 @@ var seed_value := 0
 var state: State = State.PLAYING
 var sim: NightWatchClassic
 var office: NightWatchOffice
+var walker: NightWatchWalker
 var building: NightWatchBuilding
 var hud: NightWatchHud
 var hunters_root: Node3D
@@ -32,9 +35,7 @@ var last_death := {}
 var _models := {}
 var _players := {}
 var _flinch_left := {}
-var _yaw := 0.0
-var _pitch := 0.0
-var _call_started := false
+var lamp_on := true
 
 
 func _ready() -> void:
@@ -89,7 +90,13 @@ func _build_world() -> void:
 	death_moment.name = "DeathMoment"
 	add_child(death_moment)
 	death_moment.finished.connect(_after_death_moment)
-	office.camera.current = true
+	walker = NightWatchWalker.new()
+	walker.prompts = office.prompts
+	add_child(walker)
+	walker.global_position = office.global_position + NightWatchOffice.SPAWN
+	walker.camera.current = true
+	walker.aim_changed.connect(func(_id: String, prompt: String): hud.set_prompt(prompt))
+	walker.interacted.connect(_on_station)
 
 
 func _spawn_hunters() -> void:
@@ -134,6 +141,7 @@ func open_monitor(room := "") -> void:
 	if room != "":
 		monitor_room = room
 	monitor_up = true
+	walker.frozen = true
 	hud.show_monitor(true)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.flash_static()
@@ -142,6 +150,7 @@ func open_monitor(room := "") -> void:
 
 func close_monitor() -> void:
 	monitor_up = false
+	walker.frozen = state != State.PLAYING
 	hud.show_monitor(false)
 	if state == State.PLAYING:
 		_capture_mouse(true)
@@ -166,6 +175,41 @@ func cycle_camera(step: int) -> void:
 	var rooms := NightWatchData.cam_rooms()
 	var i := rooms.find(monitor_room)
 	select_camera(String(rooms[posmod(i + step, rooms.size())]))
+
+
+func toggle_lamp() -> void:
+	lamp_on = not lamp_on
+	office.set_lamp(lamp_on)
+
+
+func toggle_sit() -> void:
+	if walker.sitting:
+		walker.stand()
+		hud.show_note("You stand up.")
+	else:
+		walker.sit(office.global_position + NightWatchOffice.SEAT, 0.0)
+		hud.show_note("You sit at the desk.")
+
+
+## What pressing use on a station does (the validators call this too).
+func _on_station(id: String) -> void:
+	if state != State.PLAYING:
+		return
+	match id:
+		"monitor":
+			toggle_monitor()
+		"doorL_door":
+			toggle_door("doorL")
+		"doorR_door":
+			toggle_door("doorR")
+		"lamp":
+			toggle_lamp()
+		"chair":
+			toggle_sit()
+		"breaker", "vent":
+			hud.show_note(String(office.prompts.get(id, "")))
+		_:
+			pass
 
 
 func set_paused(on: bool) -> void:
@@ -205,9 +249,14 @@ func _capture_mouse(on: bool) -> void:
 
 func _process(delta: float) -> void:
 	_animate_models(delta)
-	_look_with_keys(delta)
 	if state != State.PLAYING or manual_clock:
 		return
+	# lights are held: the quick key, or use held on a LIGHT button
+	for door in ["doorL", "doorR"]:
+		var action := NightWatchControls.LIGHT_LEFT if door == "doorL" else NightWatchControls.LIGHT_RIGHT
+		var want := Input.is_action_pressed(action) or (Input.is_action_pressed(&"interact") and walker.aimed_id == "%s_light" % door and not monitor_up)
+		if want != bool(light_held[door]):
+			set_light(door, want)
 	advance_ms(delta * 1000.0)
 
 
@@ -252,6 +301,9 @@ func _sync_visuals() -> void:
 		office.set_light(door, bool(sim.light_on[door]))
 	if manual_clock:
 		office.snap_slabs(sim.door_shut)
+	for door in ["doorL", "doorR"]:
+		office.set_button("%s_door" % door, bool(sim.door_shut[door]))
+		office.set_button("%s_light" % door, bool(sim.light_on[door]))
 	hud.update_status(sim.hour(), sim.power, NightWatchClassic.usage(current_input()), night)
 	_place_hunters()
 
@@ -267,8 +319,9 @@ func _place_hunters() -> void:
 		var pos: Vector3
 		var face: Vector3
 		if hunter.room.begins_with("door"):
-			pos = office.global_position + office.door_stand(hunter.room, mini(slot, 1))
-			face = office.global_position + Vector3(0.0, 0.0, 0.2)
+			var progress := hunter.at_door_ms / maxf(1.0, hunter.attack_ms)
+			pos = office.global_position + office.door_stand(hunter.room, mini(slot, 1), progress if slot == 0 else 0.0)
+			face = walker.global_position
 		else:
 			pos = building.stand_position(hunter.room, mini(slot, 1))
 			face = building.camera_transform(hunter.room).origin
@@ -278,9 +331,9 @@ func _place_hunters() -> void:
 	nyxie.visible = sim.out and sim.nyxie_level > 0
 	if nyxie.visible:
 		var t := clampf(sim.out_ms / NightWatchData.blackout_ms(sim.nyxie_level), 0.0, 1.0)
-		var from := office.global_position + office.door_stand("doorL", 0)
+		var from := office.global_position + office.door_stand("doorL", 0, 0.0)
 		var to := office.global_position + Vector3(-0.7, 0.0, -0.9)
-		_set_model_pose(nyxie, from.lerp(to, t), office.global_position + Vector3(0.0, 0.0, 0.9))
+		_set_model_pose(nyxie, from.lerp(to, t), walker.global_position)
 
 
 func _set_model_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
@@ -308,15 +361,6 @@ func _animate_models(delta: float) -> void:
 # --- input -----------------------------------------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and state == State.PLAYING and not monitor_up \
-			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var m := event as InputEventMouseMotion
-		_yaw -= m.relative.x * Settings.mouse_sensitivity
-		_pitch -= m.relative.y * Settings.mouse_sensitivity
-		office.look(_yaw, _pitch)
-		_yaw = office.camera.rotation.y
-		_pitch = office.camera.rotation.x
-		return
 	if event is InputEventKey and (event as InputEventKey).echo:
 		return
 	if event.is_action_pressed(&"pause"):
@@ -325,9 +369,30 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
-	if event.is_action_pressed(&"office_left_door"):
+	if monitor_up:
+		# in the monitor: 1-8 and the arrows pick a camera; use or Tab leaves it
+		if event.is_action_pressed(NightWatchControls.MONITOR) or event.is_action_pressed(&"interact"):
+			close_monitor()
+			return
+		if event.is_action_pressed(&"office_radio"):
+			hud.toggle_mute()
+			return
+		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_LEFT) \
+				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_LEFT):
+			cycle_camera(-1)
+			return
+		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_RIGHT) \
+				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_RIGHT):
+			cycle_camera(1)
+			return
+		for n in range(1, 9):
+			if event.is_action_pressed(NightWatchControls.camera_action(n)):
+				select_camera(NightWatchData.room_for_cam(n))
+				return
+		return
+	if event.is_action_pressed(NightWatchControls.DOOR_LEFT):
 		toggle_door("doorL")
-	elif event.is_action_pressed(&"office_right_door"):
+	elif event.is_action_pressed(NightWatchControls.DOOR_RIGHT):
 		toggle_door("doorR")
 	elif event.is_action_pressed(NightWatchControls.LIGHT_LEFT):
 		set_light("doorL", true)
@@ -337,41 +402,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		set_light("doorR", true)
 	elif event.is_action_released(NightWatchControls.LIGHT_RIGHT):
 		set_light("doorR", false)
-	elif event.is_action_pressed(&"office_cameras") or (event is InputEventKey and (event as InputEventKey).pressed \
-			and (event as InputEventKey).physical_keycode == KEY_SPACE):
-		toggle_monitor()
-	elif event.is_action_pressed(&"office_desk_light"):
-		office.lamp.visible = not office.lamp.visible
+	elif event.is_action_pressed(NightWatchControls.MONITOR):
+		open_monitor()
+	elif event.is_action_pressed(NightWatchControls.LAMP):
+		toggle_lamp()
 	elif event.is_action_pressed(&"office_radio"):
 		hud.toggle_mute()
-	elif monitor_up and ((event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_LEFT) \
-			or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_LEFT)):
-		cycle_camera(-1)
-	elif monitor_up and ((event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_RIGHT) \
-			or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_RIGHT)):
-		cycle_camera(1)
-	else:
-		for n in range(1, 9):
-			if event.is_action_pressed(NightWatchControls.camera_action(n)):
-				if not monitor_up:
-					open_monitor(NightWatchData.room_for_cam(n))
-				else:
-					select_camera(NightWatchData.room_for_cam(n))
-				return
-
-
-## Looking with the arrow keys or the right stick while the monitor is down.
-func _look_with_keys(delta: float) -> void:
-	if monitor_up or state != State.PLAYING:
-		return
-	var rate := NightWatchControls.look_rate()
-	if rate == Vector2.ZERO:
-		return
-	_yaw += rate.x * 1.6 * delta
-	_pitch += rate.y * 1.2 * delta
-	office.look(_yaw, _pitch)
-	_yaw = office.camera.rotation.y
-	_pitch = office.camera.rotation.x
 
 
 # --- the end of a night ----------------------------------------------------------------------------------------------

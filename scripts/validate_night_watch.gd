@@ -172,41 +172,107 @@ func run(host: Node) -> int:
 	shift.manual_clock = true
 	host.add_child(shift)
 	await host.get_tree().process_frame
-	_expect(shift.office != null and shift.office.slabs.size() == 2 and shift.office.door_lights.size() == 2, "the office has no two doors and door lights")
+	_expect(shift.office != null and shift.office.slabs.size() == 2 and shift.office.door_lights.size() == 2 and shift.office.prompts.size() >= 8, "the office has no two doors, door lights and stations")
 	_expect(shift.building.rooms.size() == 8 and shift.hud.cam_buttons.size() == 8, "the building does not have eight camera rooms and buttons")
 	for id in ["dovelle", "ravelle", "aki"]:
 		_expect((shift._models[id] as Node3D).visible and (shift._models[id] as Node3D).get_child_count() > 0, "%s is not on night 3's floor with a model" % id)
 	_expect(not (shift._models["ilyra"] as Node3D).visible, "Ilyra (level 0 on night 3) is shown")
-	# the controls: the OFFICE actions drive the office, Night Watch's own light actions exist while a shift is open and are gone after
-	_expect(InputMap.has_action(NightWatchControls.LIGHT_LEFT) and InputMap.has_action(NightWatchControls.LIGHT_RIGHT), "the door light actions are not registered")
-	for action in ["office_left_door", "office_right_door", "office_cameras"]:
+	# the controls: Night Watch's own nw_* quick actions exist while a shift is open and none clashes with the movement keys
+	var nw_actions := ["nw_door_left", "nw_door_right", "nw_light_left", "nw_light_right", "nw_lamp", "nw_monitor"]
+	for action in nw_actions:
+		_expect(InputMap.has_action(action), "%s is not registered" % action)
+		for ev in InputMap.action_get_events(action):
+			if ev is InputEventKey:
+				for move in ["move_left", "move_right", "move_up", "move_down", "sprint", "crouch", "interact"]:
+					for mev in InputMap.action_get_events(move):
+						_expect(not (mev is InputEventKey and (mev as InputEventKey).physical_keycode == (ev as InputEventKey).physical_keycode),
+							"%s shares its key with the movement action %s" % [action, move])
+	for action in ["nw_door_left", "nw_door_right", "nw_monitor"]:
 		var has_pad := false
 		for ev in InputMap.action_get_events(action):
 			has_pad = has_pad or ev is InputEventJoypadButton
-		_expect(has_pad, "%s has no gamepad default in Night Watch" % action)
+		_expect(has_pad, "%s has no gamepad default" % action)
 	_expect(NightWatchControls.controls_tab()["actions"].size() >= 8, "the OFFICE controls tab data is too short")
 	var press := func(action: String, pressed := true) -> void:
 		var ev := InputEventAction.new()
 		ev.action = action
 		ev.pressed = pressed
 		shift._unhandled_input(ev)
-	press.call("office_left_door")
-	_expect(bool(shift.door_shut["doorL"]), "the office_left_door action did not shut the left door")
-	press.call("office_left_door")
-	press.call(String(NightWatchControls.LIGHT_RIGHT))
-	_expect(bool(shift.light_held["doorR"]), "holding the right light action did not hold the light")
-	press.call(String(NightWatchControls.LIGHT_RIGHT), false)
-	_expect(not bool(shift.light_held["doorR"]), "releasing the right light action did not let it go")
+	press.call("nw_door_left")
+	_expect(bool(shift.door_shut["doorL"]), "the left door quick key did not shut the left door")
+	press.call("nw_door_left")
+	press.call("nw_light_right")
+	_expect(bool(shift.light_held["doorR"]), "holding the right light quick key did not hold the light")
+	press.call("nw_light_right", false)
+	_expect(not bool(shift.light_held["doorR"]), "releasing the right light quick key did not let it go")
+	press.call("nw_monitor")
+	_expect(shift.monitor_up and shift.walker.frozen, "the monitor quick key did not open the monitor and freeze the walker")
 	press.call("office_camera_3")
-	_expect(shift.monitor_up and shift.monitor_room == "backstage", "the camera 3 action did not open the monitor on the backstage feed")
-	press.call("office_cameras")
-	_expect(not shift.monitor_up, "the monitor action did not close the monitor")
+	_expect(shift.monitor_room == "backstage", "the camera 3 hotbar did not pick the backstage feed")
+	press.call("interact")
+	_expect(not shift.monitor_up and not shift.walker.frozen, "use did not leave the monitor")
 	press.call("office_radio")
 	_expect(shift.hud.muted, "the radio action did not mute Zellia")
 	press.call("office_radio")
 	shift.hud.subtitles_toggled.emit(false)
 	_expect(not shift.hud.subtitles and not NightWatchSave.subtitles(), "the subtitles toggle did not save")
 	shift.hud.subtitles_toggled.emit(true)
+	# the walkable room: spawn, walking into the chair and desk stops at them, aiming at the monitor and the panels, using them
+	var walker := shift.walker
+	_expect(walker != null and walker.global_position.distance_to(NightWatchOffice.SPAWN) < 0.05, "the player does not start at the spawn point")
+	Input.action_press("move_up")
+	for i in 150:
+		await host.get_tree().physics_frame
+	Input.action_release("move_up")
+	_expect(walker.global_position.z < 0.0 and walker.global_position.z > -0.75, "walking forward did not stop at the chair (z=%.2f)" % walker.global_position.z)
+	walker.face(0.0, -0.3)
+	await host.get_tree().physics_frame
+	await host.get_tree().physics_frame
+	_expect(walker.aimed_id == "monitor" and shift.hud.prompt_label.text.contains("MONITOR"), "aiming at the desk did not find the monitor (aimed '%s')" % walker.aimed_id)
+	walker.try_interact()
+	_expect(shift.monitor_up, "using the monitor station did not open the monitor")
+	walker.frozen = false
+	shift.close_monitor()
+	# the door panels: aim at DOOR and LIGHT beside the left door
+	walker.global_position = Vector3(-2.2, 0.0, 1.55)
+	walker.face(PI * 0.5, -0.3)
+	await host.get_tree().physics_frame
+	await host.get_tree().physics_frame
+	_expect(walker.aimed_id == "doorL_door", "aiming at the left panel's upper button did not find DOOR (aimed '%s')" % walker.aimed_id)
+	walker.try_interact()
+	_expect(bool(shift.door_shut["doorL"]), "using the left DOOR button did not shut the door")
+	shift.advance_ms(50.0)
+	_expect(is_equal_approx(float(shift.office.slab_progress["doorL"]), 1.0), "the left door slab did not close")
+	walker.face(PI * 0.5, -0.62)
+	await host.get_tree().physics_frame
+	await host.get_tree().physics_frame
+	_expect(walker.aimed_id == "doorL_light", "aiming at the left panel's lower button did not find LIGHT (aimed '%s')" % walker.aimed_id)
+	# a shut door blocks the way out, an open one lets you reach the hall mouth and no further
+	walker.global_position = Vector3(-2.0, 0.0, 0.0)
+	walker.face(PI * 0.5, 0.0)
+	Input.action_press("move_up")
+	for i in 120:
+		await host.get_tree().physics_frame
+	Input.action_release("move_up")
+	_expect(walker.global_position.x > -2.8, "a shut door did not block the player (x=%.2f)" % walker.global_position.x)
+	shift.set_door("doorL", false)
+	shift.advance_ms(50.0)
+	walker.global_position = Vector3(-2.0, 0.0, 0.0)
+	Input.action_press("move_up")
+	for i in 180:
+		await host.get_tree().physics_frame
+	Input.action_release("move_up")
+	_expect(walker.global_position.x < -3.0 and walker.global_position.x > -3.6, "the open doorway did not stop the player at the hall mouth (x=%.2f)" % walker.global_position.x)
+	# the lamp and the chair
+	shift.toggle_lamp()
+	_expect(not shift.office.lamp.visible, "the lamp station did not switch the lamp off")
+	shift.toggle_lamp()
+	walker.global_position = Vector3(0.0, 0.0, 0.2)
+	shift.toggle_sit()
+	_expect(walker.sitting and walker.global_position.distance_to(NightWatchOffice.SEAT) < 0.05, "sitting at the desk did not move the player to the seat")
+	shift.toggle_sit()
+	_expect(not walker.sitting and walker.global_position.distance_to(Vector3(0.0, 0.0, 0.2)) < 0.05, "standing up did not return the player")
+	walker.global_position = NightWatchOffice.SPAWN
 	shift.advance_ms(1000.0)
 	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "POWER 100%", "the clock or power label is wrong at the start of the night")
 	shift.toggle_door("doorL")

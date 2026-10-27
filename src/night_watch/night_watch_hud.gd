@@ -21,6 +21,10 @@ var night_label: Label
 var power_label: Label
 var usage_label: Label
 var hint_label: Label
+var prompt_label: Label
+var crosshair: ColorRect
+var note_label: Label
+var _note_left := 0.0
 var call_panel: PanelContainer
 var call_label: Label
 
@@ -89,12 +93,34 @@ func _build_status(root: Control) -> void:
 	usage_label.name = "UsageLabel"
 	for l in [clock_label, night_label, power_label, usage_label]:
 		box.add_child(l)
-	hint_label = _label("A / D doors   hold Q / E lights   C monitor   1-8 cameras   L lamp   R radio   ESC pause", 7, Color(0.7, 0.68, 0.62))
+	hint_label = _label("WASD move   E use   hold E on LIGHT   1 / 2 doors   3 / 4 lights   TAB monitor   F lamp   R radio   ESC pause", 7, Color(0.7, 0.68, 0.62))
 	hint_label.name = "HintLabel"
 	hint_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hint_label.position = Vector2(8, -14)
 	hint_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	root.add_child(hint_label)
+	crosshair = ColorRect.new()
+	crosshair.name = "Crosshair"
+	crosshair.color = Color(1, 1, 1, 0.55)
+	crosshair.size = Vector2(2, 2)
+	crosshair.set_anchors_preset(Control.PRESET_CENTER)
+	crosshair.position = Vector2(-1, -1)
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(crosshair)
+	prompt_label = _label("", 9, AMBER)
+	prompt_label.name = "PromptLabel"
+	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prompt_label.set_anchors_preset(Control.PRESET_CENTER)
+	prompt_label.custom_minimum_size = Vector2(300, 0)
+	prompt_label.position = Vector2(-150, 12)
+	root.add_child(prompt_label)
+	note_label = _label("", 8, Color(0.85, 0.82, 0.75))
+	note_label.name = "NoteLabel"
+	note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note_label.set_anchors_preset(Control.PRESET_CENTER)
+	note_label.custom_minimum_size = Vector2(300, 0)
+	note_label.position = Vector2(-150, 30)
+	root.add_child(note_label)
 
 
 func _build_call(root: Control) -> void:
@@ -301,7 +327,18 @@ func update_status(hour: int, power: float, usage: int, night: int) -> void:
 	usage_label.text = "USAGE " + "|".repeat(clampi(usage, 0, 6)) + ".".repeat(maxi(0, 4 - usage))
 
 
+func set_prompt(text: String) -> void:
+	prompt_label.text = text
+
+
+func show_note(text: String, seconds := 2.5) -> void:
+	note_label.text = text
+	_note_left = seconds
+
+
 func show_monitor(on: bool) -> void:
+	crosshair.visible = not on
+	prompt_label.visible = not on
 	monitor_root.visible = on
 	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 
@@ -340,6 +377,10 @@ func queue_call(lines: Array) -> void:
 
 
 func _process(delta: float) -> void:
+	if _note_left > 0.0:
+		_note_left -= delta
+		if _note_left <= 0.0:
+			note_label.text = ""
 	if _static_left > 0.0:
 		_static_left -= delta
 		static_rect.color = Color(0.7 + randf() * 0.2, 0.74 + randf() * 0.2, 0.72, clampf(_static_left / 0.14, 0.0, 1.0) * 0.9)

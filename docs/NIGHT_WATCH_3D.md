@@ -37,8 +37,8 @@ Progress is per level key `mode:index` (night, `beatFive`, `cleared`, stars, bes
 
 | 2D concept | 3D plan | Source in Godot 2 |
 |---|---|---|
-| Fixed office picture with parallax | A real first-person office room: desk, chair, monitor, two doorways with sliding slabs; the player sits at the desk and can look around (limited yaw/pitch, free look optional) | new scene `scenes/night_watch.tscn`, new files under `src/night_watch/` |
-| Door slab and light buttons (A/D/Q/E) | Interact with door buttons on the desk, or hotkeys A/D (doors) and held Q/E (lights); doors are cube slabs on a tween; lights are SpotLight3D shining down the hall (counted in the light budget) | `LampField` budget rules from [REF_LOOK.md](REF_LOOK.md), 2D key map kept |
+| Fixed office picture with parallax | A real WALKABLE first-person security room (KT's decision): desk and monitor, chair, lamp, breaker box and vent hatch, two doorways with sliding slabs, control panels on the walls; you walk, look and use things, or sit at the desk | new scene `scenes/night_watch.tscn`, new files under `src/night_watch/`; `NightWatchWalker` mirrors the shared player's actions |
+| Door slab and light buttons (A/D/Q/E) | A control panel on the wall beside each door (DOOR button: press use; LIGHT button: hold use) plus non-movement quick keys 1 / 2 (doors) and hold 3 / 4 (lights); doors are cube slabs on a tween with a collider (a shut door blocks the way); door lights are SpotLight3D shining down the hall (counted in the light budget) | `LampField` budget rules from [REF_LOOK.md](REF_LOOK.md) |
 | Camera view (8 cameras, map) | A desk monitor showing a `SubViewport` per camera (one rendered at a time, so one camera cost); the camera map is a UI panel | new `NightWatchMonitor` |
 | Camera rooms | Small blocky rooms (stage, dining, backstage, halls, closet, kitchen, corner), cube props in the Godot 2 style, each with a `Camera3D` and a stand position per hunter | new `NightWatchBuilding` (own files, NEW props only) |
 | Hunters (sprites with poses) | Blocky hunter models and clips (idle, walk, stun, emotes, scythe for Kathy) placed in the rooms from the graph; the door pose is the looming pose | `assets/hunters_blocky/<id>`, `HunterRoster`, `BlockyEmotes` |
@@ -68,7 +68,7 @@ Progress is per level key `mode:index` (night, `beatFive`, `cleared`, stars, bes
 | # | Milestone | Contents | Status |
 |---|---|---|---|
 | M0 | Plan | this page, hub entry, registry flip, menu | in this slice |
-| M1 | Classic office and monitor | office room, desk, all 8 camera rooms, monitor and map | done in the slice |
+| M1 | Classic office and monitor | walkable security room, desk, all 8 camera rooms, monitor and map | done in the slice |
 | M2 | Classic rules | `NightWatchClassic` port: graph, pacer, door grace, shut door, light push, Dovelle/Ravelle/Aki/Ilyra, Nyxie blackout, power, clock | done (variety levers later) |
 | M3 | Win, death, saves | 6 AM win, DeathMoment, end card, night progress save, night select | done (night select 1-6) |
 | M4 | Classic complete | Custom Night sliders, Kathy night 7, variety levers, audio, resume, account sync | planned |
@@ -81,12 +81,15 @@ Progress is per level key `mode:index` (night, `beatFive`, `cleared`, stars, bes
 
 Entry: the hub card NIGHT WATCH is unlocked (`GameRegistry`, status in progress) and opens `scenes/night_watch_menu.tscn` (night select 1-6, a cleared night opens the next, BACK TO GAMES). The shift is `scenes/night_watch.tscn` (`src/night_watch/night_watch_game.gd`):
 
-- **Office** (`night_watch_office.gd`): a blocky 6 x 5 m room, desk with monitor, keyboard and cup, a clock and a poster, a doorway with a sliding slab on each side wall and a short dark hall behind each, one desk lamp, two door spot lights (on only while held) and a very dim glow in each hall. First-person seat, look limited to +/-72 degrees left and right (mouse, captured), no walking.
+- **Security room** (`night_watch_office.gd`, `night_watch_walker.gd`): a walkable blocky 6 x 5 m room (KT chose a walkable room over a seated office). A desk with the monitor, keyboard, cup and desk lamp against the back wall, a chair, a breaker box and a vent hatch (physical props for the later modes: they show a prompt), a clock and a poster, a doorway with a sliding slab on each side wall and a control panel beside each doorway (DOOR above LIGHT), and a short dark hall behind each doorway. Everything solid has a collision body (the slabs carry theirs, so a shut door blocks the way) and an invisible guard at each hall mouth keeps you out of the hunters' corridor. Lights: the desk lamp, two door spot lights (on only while held) and a very dim glow per hall.
+- **Walking:** the shared actions (move_left/right/up/down, sprint, crouch, interact, the mouse sensitivity and FOV from Settings), the same capsule (0.25 x 1.7) and eye heights (1.6 m, 1.1 m crouched) as the shared player. It is `NightWatchWalker`, not `PlayerController3D`: the shared controller is about 1,900 lines of flashlight, taser, inventory and XR code and only talks to Last Route's `RouteInteractable3D`, which this lane may not edit, so the walker mirrors its movement and aiming in about 150 lines and the stations are Night Watch's own (layer-2 bodies with a prompt). Unifying them behind a shared base is a later clean-up.
+- **Stations (aim + use, E):** the monitor (opens the camera view; use, Tab or Esc leave it), DOOR (press) and LIGHT (hold) on each wall panel, the desk lamp (switch), the chair (SIT AT DESK: locks the view at the desk seat, stand with use), the breaker box and vent hatch (a note: not used tonight).
+- **Hunters at the door:** a hunter at a door starts well down the hall, steps up to the doorway as her wait runs out and leans in at the threshold; with the door shut she is held outside. Nyxie, in the dark, walks in from the left hall toward you over the blackout.
 - **Building** (`night_watch_building.gd`): the eight Classic rooms (stage, dining, backstage, west hall, supply closet, kitchen, east hall, east corner) as small cube rooms on a grid north of the office, each with a camera mount and two hunter spots.
 - **Monitor** (`night_watch_hud.gd`): Space opens a full-screen feed from ONE `SubViewport` (480 x 270, nearest filtering, only rendering while open) whose camera moves to the chosen room, with the room name, REC, a static flash on a switch and the clickable camera map. Keys 1-8 or the arrow keys pick a camera.
 - **Rules** (`night_watch_classic.gd`, `night_watch_stalker.gd`, `night_watch_data.gd`): the pure port of the 2D Classic: building graph, the sliding pacer, night levels with the 3 AM and 4 AM step-ups, door grace per night, shut door (0.45 s), light push and flinch, door sharing, Dovelle, Ravelle (alternates doors), Aki (only moves with the monitor down), Ilyra (freezes while her room is on the monitor), the combo patience, the power meter and Nyxie's blackout. Not ported yet: the variety levers (random wait spreads, pressure phases) and Kathy's night 7.
 - **Hunters in the world:** the blocky models and `idle`/`stun` clips from Godot 2; at a door they stand in the doorway facing the desk, a flinch plays the stun clip.
-- **Controls:** A / D shut and open the doors, hold Q / E for the door lights, Space the monitor, 1-8 / arrows cameras, N mutes Zellia, Esc pauses (RESUME or BACK TO GAMES).
+- **Controls:** WASD move, mouse look, Shift sprint, Ctrl/C crouch, E use. The old `office_*` defaults (A / D / L / C / R / V / B) clash with walking, so Night Watch registers its own quick actions while a shift is open (`NightWatchControls`, gone again when it closes): 1 / 2 the doors, hold 3 / 4 the door lights, Tab the monitor, F the lamp; R (`office_radio`) mutes Zellia; inside the monitor 1-8 (`office_camera_1..8`) or the arrows pick a camera and use / Tab / Esc leave. Gamepad: shoulder buttons the doors, triggers the door lights, Y the monitor, X the lamp, d-pad cameras, A use. `NightWatchControls.controls_tab()` returns the OFFICE tab data for the per-game controls registry. A validator checks that no Night Watch key shares a physical key with a movement action.
 - **Zellia:** her night 1-6 calls from the 2D game as subtitles (5.5 s each).
 - **End:** 6 AM shows a card (NEXT NIGHT, RETRY, BACK TO GAMES) and saves the clear; a catch plays the existing `DeathMoment` line (hunter name and a seeded line from `death_lines.json`, no jumpscare) then the CAUGHT card with RETRY (same seed) and BACK TO GAMES. Nyxie ends the night in the dark with her "darkness" lines.
 - **Saves:** `user://night_watch.cfg`, section `night_watch` (highest night unlocked, nights cleared), separate from Last Route's files. Account sync is later.
@@ -105,7 +108,7 @@ Everything is deterministic from a seed, uses no post effects and adds no versio
 
 ## 7. Questions for KT
 
-1. First-person feel: a seated office you look around in (this slice), or a walkable security room?
+1. ~~Seated office or walkable room?~~ Decided by KT: a walkable security room (with an optional SIT AT DESK).
 2. Should Night Watch be single-player only at first, or should a friend be able to spectate or share the office?
 3. Which mode after Classic: Mixed Shift (a director and many threats), Bedtime (the audio-first one) or Masked Hours?
 4. Keep the 45 s per hour night length, or longer in 3D?

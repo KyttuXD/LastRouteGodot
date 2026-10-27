@@ -26,15 +26,17 @@ func _ready() -> void:
 	dovelle.at_door_ms = 2500.0
 	var ravelle := game.sim.hunters["ravelle"] as NightWatchStalker
 	ravelle.room = "doorL"
+	game.walker.global_position = Vector3(-1.2, 0.0, 0.9)
 	game.set_light("doorL", true)
 	game.advance_ms(20.0)
-	game.office.look(1.05, -0.05)
+	game.walker.face(PI * 0.5, -0.05)
 	await _shot(out + "/door_light.png")
 	game.set_light("doorL", false)
 	game.advance_ms(20.0)
-	game.office.look(1.05, -0.05)
+	game.walker.face(PI * 0.5, -0.05)
 	await _shot(out + "/door_dark.png")
-	game.office.look(0.0, 0.0)
+	game.walker.global_position = NightWatchOffice.SPAWN
+	game.walker.face(0.0, -0.15)
 	# the monitor on two rooms with hunters in them
 	(game.sim.hunters["aki"] as NightWatchStalker).room = "dining"
 	dovelle.room = "dining"
