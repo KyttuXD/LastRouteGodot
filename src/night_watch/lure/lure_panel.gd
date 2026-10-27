@@ -39,7 +39,7 @@ func _ready() -> void:
 	for room in LureData.ROOMS:
 		var b := Button.new()
 		b.name = "Cam_%s" % room
-		b.text = "%d %s" % [LureData.ROOMS.find(room) + 1, String(LureData.INFO[room]["label"]).split(" ")[0]]
+		b.text = "%d %s" % [LureData.ROOMS.find(room) + 1, String(LureData.INFO[room]["short"])]
 		b.focus_mode = Control.FOCUS_NONE
 		b.size = Vector2(34, 12)
 		b.add_theme_font_size_override("font_size", 5)

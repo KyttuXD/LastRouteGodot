@@ -90,3 +90,9 @@ Validator `night_watch_maps`: no two modes share a layout signature (sorted room
 and no mode's map script extends `NightWatchBuilding`. The layout must stay in step with the walking-hunter paths and the office spec entrances. Themes: Masked Hours = a FNAF 2 style
 building (not derived from Classic), Dead Air = a radio station / studio floor, The Facility = an industrial complex, The Descent = stairwell / shaft levels, Open Air = open grounds,
 Mixed Shift = rotates between the other modes' maps, Classic stays as is.
+
+| Mode | Map script | Layout | Top-down |
+|---|---|---|---|
+| Dead Air (`lure`) | `src/night_watch/lure/lure_map.gd` (`LureMap`, built by `LureWorld`, walked by `LurePaths`) | a radio station: reception on top of a plus-shaped floor, studio A and B either side of the big live room, the transmitter room below it with the tape library beside it, two crawlspaces out to the booth; rooms of different sizes, doorways in shared walls. The rules graph is unchanged (lobby = reception, arcade = studio A, party = studio B, ballpit = live room, prize = tape library, storage = transmitter, ventl / ventr = the crawlspaces) | ![Dead Air map](night_watch_modes/1280x720_map_lure.png) |
+| Bedtime (`bedroom`) | single space (`bedroom_office.gd`) | one bedroom plus the hall Javelle walks | |
+| The Facility (`story`) | `src/night_watch/story/story_map.gd` (`StoryMap`, built by `StoryWorld`) | an industrial complex: the production line of five rooms (breaker room, gallery, control, workshop, auditorium) with the lift north of control. It is the rules' own graph, so the plan is a line with one branch; none of Classic's room ids | ![Facility map](night_watch_modes/1280x720_map_story.png) |

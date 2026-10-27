@@ -685,9 +685,9 @@ func _scene(host: Node) -> void:
 	_expect(not game.sim.fan_on and msg.contains("NOTHING TO COOL"), "the fan did something on night 4")
 	# the monitor and its panel
 	game.open_monitor("lobby")
-	_expect(game.monitor_up and game.hud.monitor_root.visible and game.hud.cam_label.text.contains("LOBBY") and game.hud.feed_camera.transform == game.world.camera_transform("lobby"), "the monitor did not show the lobby camera")
+	_expect(game.monitor_up and game.hud.monitor_root.visible and game.hud.cam_label.text.contains("RECEPTION") and game.hud.feed_camera.transform == game.world.camera_transform("lobby"), "the monitor did not show the lobby camera")
 	game.select_camera("ballpit")
-	_expect(game.hud.cam_label.text == "CAM 4  BALL PIT", "the camera label is wrong: %s" % game.hud.cam_label.text)
+	_expect(game.hud.cam_label.text == "CAM 4  LIVE ROOM", "the camera label is wrong: %s" % game.hud.cam_label.text)
 	_expect(game.do_lure() and game.sim.lure_cool > 0.0 and game.sim.killer["target"] == "ballpit", "LURE did not call Xivvy to the room on screen")
 	game.sim.systems["cams"] = {"state": "broken", "t": 0.0}
 	game.advance_ms(10.0)

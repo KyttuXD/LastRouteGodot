@@ -3,7 +3,7 @@ extends NightWatchMode
 
 ## Dead Air (mode `lure`), the shift scene: the broadcast booth (LureOffice, the shared player, prompt and
 ## crosshair), with the two DOOR buttons sealing the vent openings (the slabs are the vent covers), the left and right LIGHT buttons switching
-## the heater and the fan, and the monitor on the desk looking into the attraction hall (LureWorld). Rules: LureLogic. In the monitor: 1-8
+## the heater and the fan, and the monitor on the desk looking into the radio station (LureWorld, floor plan in LureMap). Rules: LureLogic. In the monitor: 1-8
 ## pick a camera, L lures Xivvy to the room on screen, Q / W / E / R / T reboot audio / cameras / vents / heater / fan (or click the buttons),
 ## N mutes Zellia. Quick keys outside it: Z / X seal the left / right vent, G / H heater / fan, U monitor, Y lamp, R mutes Zellia.
 ## Xivvy WALKS the hall (LurePaths, NightWatchWalker). `manual_clock` stops the real-time clock so the validators step the night with advance_ms().
