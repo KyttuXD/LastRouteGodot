@@ -179,7 +179,7 @@ func _room_lamps() -> void:
 		var cx := rect.position.x + rect.size.x / 2
 		var cz := rect.position.y + rect.size.y / 2
 		var height := _hh(Vector2i(cx, cz))
-		var garden: bool = _region == "beach" and RefLook.GREENHOUSE_ROOMS.has(String(room.get("room_type", "")))
+		var garden: bool = RefLook.is_glasshouse(_region, String(room.get("room_type", "")))
 		if height > RefLook.TALL_ROOM:
 			_tall_room(rect, height, garden)
 		if garden:
@@ -191,7 +191,7 @@ func _room_lamps() -> void:
 		var world := Vector3(cx + .5, 0, cz + .5)
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
-		if fancy or height > RefLook.TALL_ROOM:
+		if fancy or (height > RefLook.TALL_ROOM and _region not in ["hospital", "lab"]):
 			_pendant(world, height, cx, cz)
 		else:
 			_ceiling_lamp(world, cx, cz, height)
@@ -364,6 +364,13 @@ const STYLE := {
 	"carnival": {"lamp": "ceiling", "wall_lamp": 6, "teal": 20, "pipe": 6, "cable": 20, "frame": 0, "lit_rooms": .9},
 	"prison": {"lamp": "ceiling", "wall_lamp": 10, "teal": 9, "pipe": 2, "cable": 14, "frame": 0, "lit_rooms": .7},
 	"inferno": {"lamp": "ceiling", "wall_lamp": 8, "teal": 99, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .7},
+	# lighting mood: tint replaces the amber lamp colour; stutter is the share (1 in n) of lamps on the failing-tube flicker
+	"hospital": {"lamp": "ceiling", "wall_lamp": 9, "teal": 14, "pipe": 6, "cable": 40, "frame": 0, "lit_rooms": .8,
+		"tint": Color("e4f4ef"), "stutter": 3, "handrail": true},
+	"lab": {"lamp": "ceiling", "wall_lamp": 7, "teal": 12, "pipe": 4, "cable": 16, "frame": 0, "lit_rooms": .95,
+		"tint": Color("c8f2ff"), "stutter": 0},
+	"greenhouse": {"lamp": "lantern", "wall_lamp": 5, "teal": 30, "pipe": 4, "cable": 99, "frame": 0, "lit_rooms": .9,
+		"tint": Color("e6dc96"), "stutter": 0},
 }
 
 const DIRS := [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]
@@ -450,6 +457,10 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 					_add("arch_header", _box_t(base + n * (proj * .5) + Vector3(0, y, 0), size))
 				_add("arch_cap", _box_t(base + n * (reach * .65 * .5) + Vector3(0, hall_top - 1.14, 0),
 					Vector3(.58 if across_x else reach * .65, .08, reach * .65 if across_x else .58)))
+		# hospital corridors: a continuous handrail at hip height on every hall wall
+		if rid == "" and bool(style.get("handrail", false)):
+			var rail_axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
+			_add("handrail", Transform3D(rail_axis, base + Vector3(0, .9, 0) + n * .07))
 		# pipes run along the top of the wall in multi-cell stretches
 		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
@@ -577,9 +588,9 @@ func _wall_lamp(base: Vector3, n: Vector3, kind: String, x: int, z: int) -> void
 	if key == "lantern":
 		lamp_basis = lamp_basis.scaled(Vector3.ONE * 1.7)
 	_add(key, Transform3D(lamp_basis, pos))
-	var flicker := _h(x, z, 41, 4)
+	var flicker := _lamp_flicker(_h(x, z, 41, 4), x, z)
 	var light_pos := pos + n * .45
-	lamps.append([_root.position + light_pos, RefLook.AMBER_SOFT if flicker != 0 else RefLook.AMBER, 1.0, flicker])
+	lamps.append([_root.position + light_pos, _lamp_color(flicker != 0), 1.0, flicker])
 	_halo.append(light_pos - n * .35)
 	# warm pool and glossy streak on the floor in front of the wall
 	var floor_pos := Vector3(base.x, 0, base.z) + n * .85
@@ -591,11 +602,31 @@ func _ceiling_lamp(world: Vector3, x: int, z: int, height: float, small: bool = 
 	var pos := world + Vector3(0, height, 0)
 	var yaw := PI * .5 if _h(x, z, 51, 2) == 0 else 0.0
 	_add("ceiling_small" if small else "ceiling", Transform3D(Basis(Vector3.UP, yaw), pos))
-	var flicker := _h(x, z, 52, 5)
-	lamps.append([_root.position + pos - Vector3(0, .5, 0), RefLook.AMBER_SOFT, 1.1, flicker])
+	var flicker := _lamp_flicker(_h(x, z, 52, 5), x, z)
+	lamps.append([_root.position + pos - Vector3(0, .5, 0), _lamp_color(true), 1.1, flicker])
 	_halo.append(pos - Vector3(0, .2, 0))
 	_decal_pool.append(Vector3(world.x, 0, world.z))
 	_decal_streak.append(Vector3(world.x, 0, world.z))
+
+
+## Lamp colour for this region: amber by default, the region's tint where it sets one.
+func _lamp_color(soft: bool) -> Color:
+	var tint: Variant = _style().get("tint")
+	if tint == null:
+		return RefLook.AMBER_SOFT if soft else RefLook.AMBER
+	return (tint as Color).darkened(.06) if soft else tint
+
+
+## Flicker mode (LampField._flicker): a region with a stutter share puts that many of its lamps on the failing-tube
+## stutter (the hospital); a tinted region without one keeps clinical steady light.
+func _lamp_flicker(base: int, x: int, z: int) -> int:
+	var style := _style()
+	if not style.has("stutter"):
+		return base
+	var stutter := int(style["stutter"])
+	if stutter > 0 and _h(x, z, 57, stutter) == 0:
+		return 2
+	return 0 if stutter == 0 else mini(base, 1)
 
 
 func _flush() -> void:
@@ -678,6 +709,8 @@ static func mesh_for(key: String) -> Mesh:
 		"frame1": mesh = _build_frame(Vector2(.8, .56))
 		"pipe": mesh = _build_pipe(false)
 		"pipe_brass": mesh = _build_pipe(true)
+		"handrail": mesh = _merge([["brass", _box(Vector3(1.0, .06, .07)), Transform3D.IDENTITY],
+			["iron", _box(Vector3(.05, .1, .1)), _t(0, -.05, -.03)]])
 		"swag": mesh = _build_swag()
 		"arch_header": mesh = _merge([["stone", _box(Vector3.ONE), Transform3D.IDENTITY]])
 		_ when key.begins_with("arch_wall:"):

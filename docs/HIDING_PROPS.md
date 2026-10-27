@@ -31,7 +31,7 @@ A prop that does not fit is skipped, never squeezed in. Kitchen pots, as surface
 ## Hiding in beds and wardrobes
 
 Every bed and wardrobe that a room recipe places becomes an ordinary `hiding_spot` fixture. This applies to `singleBed`,
-`doubleBed`, `gothicDoubleBed`, `hospitalBed`, `bedroomWardrobe` and `gothicWardrobe` (see
+`doubleBed`, `gothicDoubleBed`, `bedroomWardrobe` and `gothicWardrobe` (see
 `StreamedRouteGenerator.HIDING_PROP_STYLES`).
 
 Because they are ordinary fixtures, everything the lockers already have applies without new code:

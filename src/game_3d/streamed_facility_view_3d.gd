@@ -59,6 +59,9 @@ const REGION_COLORS := {
 	"prison": Color("748895"),
 	"inferno": Color("c45b45"),
 	"carnival": Color("d58aa9"),
+	"hospital": Color("b9cfc6"),
+	"lab": Color("aebfc6"),
+	"greenhouse": Color("a8784e"),
 }
 const REGION_WALL_COLORS := {
 	"maze": Color("b47d6e"),
@@ -70,6 +73,9 @@ const REGION_WALL_COLORS := {
 	"prison": Color("61717d"),
 	"inferno": Color("9f493d"),
 	"carnival": Color("8e3f61"),
+	"hospital": Color("7fa39a"),
+	"lab": Color("8fa8b2"),
+	"greenhouse": Color("4f7a4a"),
 }
 
 var generator: StreamedRouteGenerator

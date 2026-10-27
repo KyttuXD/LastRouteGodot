@@ -34,6 +34,9 @@ const REGION_COLORS := {
 	"prison": Color("778994"),
 	"inferno": Color("d45b3f"),
 	"carnival": Color("ce5d96"),
+	"hospital": Color("9fd0c2"),
+	"lab": Color("5fd4e4"),
+	"greenhouse": Color("7fbf5a"),
 }
 
 @export var interactive := false

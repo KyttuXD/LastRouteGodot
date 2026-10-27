@@ -411,6 +411,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework4.py")).read())   # room-purpose catalog: infirmary, library, storage, lobby
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_biomes.py")).read())    # hospital, lab, greenhouse
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
 SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),
@@ -425,9 +426,15 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
+# BLOCKY_ONLY=a,b builds just those types and merges them into the existing manifest (the rest stay as built).
+ONLY = [n for n in os.environ.get("BLOCKY_ONLY", "").split(",") if n]
+if ONLY and os.path.exists(os.path.join(OUT, "manifest.json")):
+    manifest = json.load(open(os.path.join(OUT, "manifest.json")))
 for name, (base_boxes, base_subs) in PROPS.items():
+    if ONLY and name not in ONLY:
+        continue
     if name not in BOUNDS and name in TARGET_SIZE:
-        BOUNDS[name] = {"center": [0.0, 0.0], "min_y": 0.0, "size": list(TARGET_SIZE[name])}   # new designs: no old model
+        BOUNDS[name] = {"size": list(TARGET_SIZE[name]), "center": [0.0, 0.0], "min_y": 0.0}   # new types: no older model
     if name not in BOUNDS:
         print("skip (no bounds):", name)
         continue

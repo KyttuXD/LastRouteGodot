@@ -146,7 +146,7 @@ def standing_mirror():
     return c.boxes
 
 
-_reg("hospitalBed", hospital_bed(), (1.0, 1.0, 2.12))
+# hospitalBed comes from blocky_props_biomes.py (the biomes lane); the infirmary uses that one.
 _reg("ivStand", iv_stand(), (0.5, 1.9, 0.5))
 _reg("medicalCart", medical_cart(), (0.75, 1.0, 0.5))
 _reg("readingTable", reading_table(), (1.5, 0.75, 0.88), {"@wood": ["walnut", "oak", "mahogany"]})
@@ -157,5 +157,5 @@ _reg("receptionDesk", reception_desk(), (2.0, 1.12, 0.88), {"@wood": ["oak", "wa
 _reg("pottedPlant", potted_plant(), (0.5, 1.25, 0.5), {"@pot": ["rust", "white", "black"]})
 _reg("standingMirror", standing_mirror(), (0.62, 1.75, 0.44), {"@wood": ["oak", "walnut", "mahogany"]})
 
-NEW_ROOM_PROPS = ["hospitalBed", "ivStand", "medicalCart", "readingTable", "libraryGlobe", "storageBarrel",
+NEW_ROOM_PROPS = ["ivStand", "medicalCart", "readingTable", "libraryGlobe", "storageBarrel",
                   "storageShelving", "receptionDesk", "pottedPlant", "standingMirror"]

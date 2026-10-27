@@ -103,7 +103,7 @@ func _check_great_hall(generator: StreamedRouteGenerator, coord: Vector3i, data:
 	var table_range: Vector2i = profile.get("tables", Vector2i(1, 99))
 	_expect(tables.size() >= table_range.x and tables.size() <= table_range.y,
 		"great hall %s %s holds %d tables, profile wants %d-%d" % [room["id"], room["room_type"], tables.size(), table_range.x, table_range.y])
-	if String(room["room_type"]) != "prison_cafeteria":
+	if String(room["room_type"]) != "prison_cafeteria" and bool(profile.get("seated", true)):
 		_expect(chairs >= tables.size() * 3, "great hall %s has %d chairs for %d tables" % [room["id"], chairs, tables.size()])
 	# every table can be walked up to: a point within 1.0 m of its box is reachable from the door at radius 0.3
 	var world := CollisionWorld.from_chunk(data)

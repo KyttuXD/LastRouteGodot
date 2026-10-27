@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://brhmkjjqw6g0g"
-path="res://.godot/imported/hospitalBed.glb-5c933e1f2db9409d5f8e0d775638c2b4.scn"
+uid="uid://c4kj76583ecih"
+path="res://.godot/imported/ivDripStand.glb-0e85b3de0dfe07860f710069765ad958.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/hospitalBed.glb"
-dest_files=["res://.godot/imported/hospitalBed.glb-5c933e1f2db9409d5f8e0d775638c2b4.scn"]
+source_file="res://art/props-3d/props/blocky/ivDripStand.glb"
+dest_files=["res://.godot/imported/ivDripStand.glb-0e85b3de0dfe07860f710069765ad958.scn"]
 
 [params]
 
