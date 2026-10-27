@@ -21,10 +21,10 @@ const GAMES := [
 		"title": "NIGHT WATCH",
 		"kicker": "CAMERA FEED // OVERNIGHT SHIFT",
 		"tagline": "Hold the desk through the night. Watch the feeds, keep them out.",
-		"scene": "",
+		"scene": "res://scenes/night_watch_menu.tscn",
 		"theme": "res://src/ui/theme_nightwatch.tres",
-		"locked": true,
-		"locked_note": "3D PORT IN PLANNING // SEE docs/GAME_HUB.md",
+		"locked": false,
+		"locked_note": "",
 	},
 ]
 
