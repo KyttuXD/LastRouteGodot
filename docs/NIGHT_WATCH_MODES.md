@@ -11,7 +11,7 @@ framework contract and the status table. The menus already list all nine (`docs/
 |---|---|---|---|---|---|
 | 1 | Classic (`classic`) | Night 1-7 (7 = Kathy's alone) | `classic/classic-logic.js` 460, `core/kathy.js`, `core/variety-stream.js` | `validate-ai`, `-rng-moves`, `-variety-classic`, `-kathy`, `-toggles`, `-cams` | Nights 1-6 playable (`NightWatchClassic`); Night 7, variety levers, Custom Night to do |
 | 2 | Masked Hours (`mask`) | Night 1-6 | `mask/mask-logic.js` 516, `mask-data.js` | `validate-mask`, `-variety-mask` | not built |
-| 3 | Dead Air (`lure`) | Night 1-6 | `lure/lure-logic.js` 242, `lure-data.js` | `validate-lure`, `-lure-air`, `-variety-lure` | not built |
+| 3 | Dead Air (`lure`) | Night 1-6 | `lure/lure-logic.js` 242, `lure-data.js` | `validate-lure`, `-lure-air`, `-variety-lure` | **Built** (`src/night_watch/lure/`, scene `night_watch_lure.tscn`, suite `night_watch_lure`): Nights 1-6 and Custom Night; the office's DOOR buttons seal the vents, LIGHT runs the heater / fan, the monitor lures and reboots; Xivvy walks the hall. Replays the 2D shift draw for draw (`NightWatchStream`). [capture](night_watch_modes/1280x720_lure_office.png) [monitor](night_watch_modes/1280x720_lure_monitor.png) |
 | 4 | Bedtime (`bedroom`) | Night 1-6 | `bedroom/bedroom-logic.js` 126 | `validate-bedroom`, `-variety-bedroom` | not built |
 | 5 | The Facility (`story`) | Night 1-6 | `story/story-logic.js` 278, `story-data.js` | `validate-story`, `-variety-facility` | not built |
 | 6 | The Descent (`descent`) | Descent 1-5 | `descent/descent-logic.js` 280 | `validate-descent`, `-variety-descent` | not built |
