@@ -21,8 +21,8 @@ they're wired.
 
 ## Roster categories and discovery
 
-The dossier now has three explicit sections: **A-Z Hunters**, **Void
-Hunters**, and **Secret Characters** (currently marked coming soon). Names,
+The dossier has two sections: **A-Z Hunters** and **Void
+Hunters** (the old "Secret Characters / coming soon" placeholder section was removed). Names,
 abilities, counterplay, and tuning are hidden until the signed-in player
 personally discovers that hunter. Merely rolling a floor or receiving a host
 snapshot does not unlock anything. Ordinary hunters unlock from a nearby,

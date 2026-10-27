@@ -590,10 +590,6 @@ func _open_dossier() -> void:
 				else "???? // UNDISCOVERED"
 			var index := roster.add_item(label)
 			roster.set_item_metadata(index, hunter_id)
-	var secret_header := roster.add_item("-- SECRET CHARACTERS --")
-	roster.set_item_disabled(secret_header, true)
-	var secret_placeholder := roster.add_item("COMING SOON")
-	roster.set_item_disabled(secret_placeholder, true)
 	roster.item_selected.connect(func(index: int) -> void:
 		_show_dossier_entry(String(roster.get_item_metadata(index))))
 	if not ids.is_empty():

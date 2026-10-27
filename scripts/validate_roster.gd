@@ -154,9 +154,10 @@ func _everyone_has_a_dossier_entry() -> void:
 		_expect(HunterRoster.PROFILES.has(id),
 			"dossier contains unknown hunter '%s'" % id)
 	_expect(missing.is_empty(), "no complete dossier entry for: %s" % ", ".join(missing))
-	_expect(HunterDossier.ENTRIES.size() == HunterRoster.PROFILES.size(),
-		"dossier covers %d entries for a %d-hunter roster" % [
-			HunterDossier.ENTRIES.size(), HunterRoster.PROFILES.size()])
+	# ENTRIES holds the 26 A-Z hunters; the 12 Void hunters read from the Void gimmick chart (checked above through entry()).
+	_expect(HunterDossier.ENTRIES.size() == HunterRoster.A_Z_IDS.size(),
+		"dossier ENTRIES covers %d hunters for a %d-hunter A-Z roster" % [
+			HunterDossier.ENTRIES.size(), HunterRoster.A_Z_IDS.size()])
 	print("  dossier  %d ability entries" % HunterDossier.ENTRIES.size())
 
 

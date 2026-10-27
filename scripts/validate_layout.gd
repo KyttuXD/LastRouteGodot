@@ -464,21 +464,20 @@ func _check_room_lobby_contract(scene: Node) -> int:
 	scene.call("_on_dossier_pressed")
 	await _frame()
 	var dossier := scene.find_child("DossierRoster", true, false) as ItemList
-	if dossier == null or dossier.item_count != HunterRoster.PROFILES.size() + 4:
-		failures += _fail("hunter dossier does not list every categorized hunter and secret placeholder")
+	if dossier == null or dossier.item_count != HunterRoster.PROFILES.size() + 2:
+		failures += _fail("hunter dossier does not list every categorized hunter")
 	elif dossier.get_item_text(0) != "-- A-Z HUNTERS --" \
-			or dossier.get_item_text(27) != "-- VOID HUNTERS --" \
-			or dossier.get_item_text(dossier.item_count - 2) != "-- SECRET CHARACTERS --":
+			or dossier.get_item_text(27) != "-- VOID HUNTERS --":
 		failures += _fail("hunter dossier category headers are missing or out of order")
 	elif dossier.get_item_text(1) != "AKI" \
 			or dossier.get_item_text(2) != "???? // UNDISCOVERED":
 		failures += _fail("hunter dossier does not reveal only account discoveries")
-	for node_name in ["DossierName", "DossierBehavior", "DossierCounter", "DossierStats"]:
+	for node_name in ["DossierName", "DossierBehavior", "DossierStats"]:   # the counter label is retired: always hidden and empty
 		var label := scene.find_child(node_name, true, false) as Label
 		if label == null or label.text.is_empty():
 			failures += _fail("hunter dossier is missing populated %s" % node_name)
 	if dossier != null and dossier.item_count > 3:
-		var final_hunter := dossier.item_count - 3
+		var final_hunter := dossier.item_count - 1
 		dossier.select(final_hunter)
 		dossier.item_selected.emit(final_hunter)
 		await _frame()
