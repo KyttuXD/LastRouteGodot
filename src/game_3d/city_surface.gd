@@ -13,8 +13,8 @@ const TILE_SHADER_CODE := """
 shader_type spatial;
 // One layer per atlas tile: mipmaps are per layer, so a distant facade never blends in its neighbour tiles
 // (a 2D atlas with mipmaps smears windows, bricks and glow into each other with distance).
-uniform sampler2DArray tiles : source_color, filter_nearest_mipmap, repeat_disable;
-uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_disable;
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap, repeat_enable;
+uniform sampler2DArray glow : source_color, filter_nearest_mipmap, repeat_enable;
 uniform float roughness_value = 0.9;
 uniform float glow_energy = 1.05;
 varying flat float layer;
@@ -88,7 +88,7 @@ func is_empty() -> bool:
 
 ## A quad p0..p3 (bottom-left, bottom-right, top-right, top-left seen from the front) facing `normal`.
 func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: Vector3, tile: int,
-		repeat_v: float = 1.0) -> void:
+		repeat_v: float = 1.0, repeat_u: float = 1.0) -> void:
 	var v: PackedVector3Array = _vertices[mat]
 	var layers: PackedVector2Array = _layers[mat]
 	var n: PackedVector3Array = _normals[mat]
@@ -101,7 +101,8 @@ func quad(mat: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, normal: 
 	if mat == Mat.RIM:
 		t.append(Vector2(0, repeat_v)); t.append(Vector2(1, repeat_v)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
 	else:
-		t.append(Vector2(0, 1)); t.append(Vector2(1, 1)); t.append(Vector2(1, 0)); t.append(Vector2(0, 0))
+		# One tile is one metre: a face larger (or smaller) than that repeats (or crops) the tile instead of stretching it.
+		t.append(Vector2(0, repeat_v)); t.append(Vector2(repeat_u, repeat_v)); t.append(Vector2(repeat_u, 0)); t.append(Vector2(0, 0))
 	for _i in 4:
 		layers.append(Vector2(float(tile), 0.0))
 	# Godot draws clockwise triangles as front faces.
@@ -142,15 +143,19 @@ func box(origin: Vector3, size: Vector3, side_tile: int, top_tile: int = -1, mat
 	var hi := origin + size
 	var top := side_tile if top_tile < 0 else top_tile
 	quad(mat, Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, hi.y, hi.z),
-		Vector3(lo.x, hi.y, hi.z), Vector3(0, 0, 1), side_tile)
+		Vector3(lo.x, hi.y, hi.z), Vector3(0, 0, 1), side_tile, size.y, size.x)
 	quad(mat, Vector3(hi.x, lo.y, lo.z), Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, hi.y, lo.z),
-		Vector3(hi.x, hi.y, lo.z), Vector3(0, 0, -1), side_tile)
+		Vector3(hi.x, hi.y, lo.z), Vector3(0, 0, -1), side_tile, size.y, size.x)
 	quad(mat, Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, hi.y, lo.z),
-		Vector3(hi.x, hi.y, hi.z), Vector3(1, 0, 0), side_tile)
+		Vector3(hi.x, hi.y, hi.z), Vector3(1, 0, 0), side_tile, size.y, size.z)
 	quad(mat, Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, lo.y, hi.z), Vector3(lo.x, hi.y, hi.z),
-		Vector3(lo.x, hi.y, lo.z), Vector3(-1, 0, 0), side_tile)
+		Vector3(lo.x, hi.y, lo.z), Vector3(-1, 0, 0), side_tile, size.y, size.z)
 	quad(mat, Vector3(lo.x, hi.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(hi.x, hi.y, lo.z),
-		Vector3(lo.x, hi.y, lo.z), Vector3.UP, top)
+		Vector3(lo.x, hi.y, lo.z), Vector3.UP, top, size.z, size.x)
+	if lo.y > .05:
+		# Anything off the ground (canopies, awnings, balconies) is seen from below: give it an underside.
+		quad(mat, Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, lo.y, hi.z),
+			Vector3(lo.x, lo.y, hi.z), Vector3.DOWN, side_tile, size.z, size.x)
 
 
 func build() -> ArrayMesh:
