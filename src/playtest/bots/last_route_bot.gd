@@ -146,6 +146,84 @@ func admin(name: String, args: Dictionary) -> Dictionary:
 
 
 ## Look at the nearest interactable of `kind` and press interact on it (probe scenario helper). Returns what happened.
+## Does the navigation find a path from where the player stands to `goal`? (and from the nearest open cell). For goto_check reports.
+func path_report(goal: Vector2i) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var here := Vector2i(floori(player.global_position.x), floori(player.global_position.z))
+	var direct: Array = nav.find_path(here, goal)
+	var near := _open_cell_near(nav, Vector2(player.global_position.x, player.global_position.z))
+	var from_near: Array = nav.find_path(near, goal) if near != Vector2i(-99999, -99999) else []
+	var relay_here := false
+	for relay in nav.relays:
+		if int(relay.get("x", -99999)) == goal.x and int(relay.get("y", -99999)) == goal.y:
+			relay_here = true
+	return {"ok": true, "from": [here.x, here.y], "goal": [goal.x, goal.y], "goal_open": nav.can_occupy(goal.x + .5, goal.y + .5), "relay_at_goal": relay_here, "direct_len": direct.size(),
+		"from_open_cell_len": from_near.size(), "distance": snappedf(Vector2(player.global_position.x, player.global_position.z).distance_to(Vector2(goal) + Vector2(.5, .5)), .1)}
+
+
+## door_audit helper: stand 1.2 m in front of the door at `door_pos` (any side we can stand on), look at it, press interact when the game's own
+## interaction focus is that door, and report whether it opened. Teleports (debug run) so each door is tested in isolation.
+func audit_door(door_pos: Array, frames: int = 150) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var door_xz := Vector2(float(door_pos[0]), float(door_pos[2]))
+	var stands: Array = []
+	for offset in [Vector2(1.2, 0), Vector2(-1.2, 0), Vector2(0, 1.2), Vector2(0, -1.2)]:
+		var candidate: Vector2 = door_xz + offset
+		if nav.can_occupy(candidate.x, candidate.y):
+			stands.append(candidate)
+	if stands.is_empty():
+		return {"ok": true, "pos": door_pos, "opened": false, "focused": false, "note": "no standing point in front of the door"}
+	var input: PlaytestInput = Playtest.input
+	var delta := 1.0 / float(Engine.physics_ticks_per_second)
+	var best := {"ok": true, "pos": door_pos, "opened": false, "focused": false, "presses": 0, "stood": []}
+	for stand in stands:
+		admin("teleport", {"x": stand.x, "y": player.global_position.y, "z": stand.y})
+		for _i in 20:
+			await tree.physics_frame
+		var focused := false
+		var presses := 0
+		var opened := false
+		for i in frames:
+			await tree.physics_frame
+			var obs := {}
+			observe(scene, obs)
+			var target := {}
+			for item in obs.get("interactables", []):
+				if String(item["kind"]) == "ROOM_DOOR" and Vector2(float(item["pos"][0]), float(item["pos"][2])).distance_to(door_xz) < .6:
+					target = item
+					break
+			if target.is_empty():
+				break
+			if bool(target["door_open"]):
+				opened = true
+				break
+			var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "pulse": []}
+			var on_door := _aim_at(player, Vector3(float(target["pos"][0]), float(target["pos"][1]), float(target["pos"][2])), act, delta)
+			var focus_kind := String(obs.get("focus", {}).get("kind", ""))
+			if focus_kind == "ROOM_DOOR":
+				focused = true
+				if on_door and i % 15 == 0 and presses < 6:
+					act["pulse"].append("interact")
+					presses += 1
+			input.apply(act)
+		input.release_all()
+		best["stood"].append([snappedf(stand.x, .1), snappedf(stand.y, .1)])
+		best["focused"] = bool(best["focused"]) or focused
+		best["presses"] = int(best["presses"]) + presses
+		if opened:
+			best["opened"] = true
+			break
+	return best
+
+
 func probe_interact(kind: String, frames: int = 120) -> Dictionary:
 	var scene := tree.current_scene
 	if not _route_ready(scene):
@@ -394,6 +472,8 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 
 func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, threat: Dictionary) -> Dictionary:
 	var world: Dictionary = obs["world"]
+	if forced_goal != Vector2i(-99999, -99999):
+		return {"kind": forced_kind, "key": "forced:%d,%d" % [forced_goal.x, forced_goal.y], "cell": forced_goal}
 	if not threat.is_empty():
 		# flee: a safe room if one is near, else a hiding spot, else run away from the hunter
 		for entry in world["safe_zones"]:
