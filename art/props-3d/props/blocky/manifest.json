@@ -1024,5 +1024,178 @@
  ],
  "gothicDoubleRoomDoor": [
   "gothicDoubleRoomDoor.glb"
+ ],
+ "hospitalBed": [
+  "hospitalBed_0.glb",
+  "hospitalBed_1.glb",
+  "hospitalBed_2.glb"
+ ],
+ "hospitalCurtain": [
+  "hospitalCurtain_0.glb",
+  "hospitalCurtain_1.glb",
+  "hospitalCurtain_2.glb"
+ ],
+ "ivDripStand": [
+  "ivDripStand.glb"
+ ],
+ "vitalsMonitor": [
+  "vitalsMonitor.glb"
+ ],
+ "nursesStation": [
+  "nursesStation_0.glb",
+  "nursesStation_1.glb"
+ ],
+ "waitingChairs": [
+  "waitingChairs_0.glb",
+  "waitingChairs_1.glb",
+  "waitingChairs_2.glb"
+ ],
+ "operatingTable": [
+  "operatingTable.glb"
+ ],
+ "surgicalLight": [
+  "surgicalLight.glb"
+ ],
+ "instrumentTrolley": [
+  "instrumentTrolley.glb"
+ ],
+ "morgueCabinet": [
+  "morgueCabinet.glb"
+ ],
+ "autopsyTable": [
+  "autopsyTable.glb"
+ ],
+ "pharmacyShelf": [
+  "pharmacyShelf.glb"
+ ],
+ "xrayMachine": [
+  "xrayMachine.glb"
+ ],
+ "xrayLightbox": [
+  "xrayLightbox.glb"
+ ],
+ "medicalSupplyRack": [
+  "medicalSupplyRack.glb"
+ ],
+ "wheelchair": [
+  "wheelchair_0.glb",
+  "wheelchair_1.glb",
+  "wheelchair_2.glb"
+ ],
+ "hospitalWardSign": [
+  "hospitalWardSign_0.glb",
+  "hospitalWardSign_1.glb",
+  "hospitalWardSign_2.glb"
+ ],
+ "labBench": [
+  "labBench.glb"
+ ],
+ "fumeHood": [
+  "fumeHood.glb"
+ ],
+ "specimenTank": [
+  "specimenTank_0.glb",
+  "specimenTank_1.glb",
+  "specimenTank_2.glb"
+ ],
+ "containmentCell": [
+  "containmentCell.glb"
+ ],
+ "labCoolingUnit": [
+  "labCoolingUnit.glb"
+ ],
+ "controlConsole": [
+  "controlConsole.glb"
+ ],
+ "monitorWall": [
+  "monitorWall.glb"
+ ],
+ "deconShower": [
+  "deconShower.glb"
+ ],
+ "coldStorageUnit": [
+  "coldStorageUnit.glb"
+ ],
+ "labWhiteboard": [
+  "labWhiteboard.glb"
+ ],
+ "hazardSign": [
+  "hazardSign_0.glb",
+  "hazardSign_1.glb"
+ ],
+ "labGlassPartition": [
+  "labGlassPartition.glb"
+ ],
+ "labStool": [
+  "labStool_0.glb",
+  "labStool_1.glb",
+  "labStool_2.glb"
+ ],
+ "labMicroscope": [
+  "labMicroscope.glb"
+ ],
+ "gasCylinderRack": [
+  "gasCylinderRack.glb"
+ ],
+ "biohazardBin": [
+  "biohazardBin.glb"
+ ],
+ "raisedPlanter": [
+  "raisedPlanter_0.glb",
+  "raisedPlanter_1.glb",
+  "raisedPlanter_2.glb"
+ ],
+ "pottingBench": [
+  "pottingBench_0.glb",
+  "pottingBench_1.glb",
+  "pottingBench_2.glb"
+ ],
+ "pottedPalm": [
+  "pottedPalm_0.glb",
+  "pottedPalm_1.glb",
+  "pottedPalm_2.glb"
+ ],
+ "bananaPlant": [
+  "bananaPlant_0.glb",
+  "bananaPlant_1.glb"
+ ],
+ "saguaroCactus": [
+  "saguaroCactus.glb"
+ ],
+ "cactusCluster": [
+  "cactusCluster.glb"
+ ],
+ "seedlingRack": [
+  "seedlingRack.glb"
+ ],
+ "irrigationManifold": [
+  "irrigationManifold_0.glb",
+  "irrigationManifold_1.glb",
+  "irrigationManifold_2.glb"
+ ],
+ "mistingPost": [
+  "mistingPost.glb"
+ ],
+ "overgrowthPatch": [
+  "overgrowthPatch.glb"
+ ],
+ "hangingVines": [
+  "hangingVines_0.glb",
+  "hangingVines_1.glb"
+ ],
+ "domeFountain": [
+  "domeFountain.glb"
+ ],
+ "wateringCart": [
+  "wateringCart.glb"
+ ],
+ "greenhouseBench": [
+  "greenhouseBench_0.glb",
+  "greenhouseBench_1.glb",
+  "greenhouseBench_2.glb"
+ ],
+ "compostBins": [
+  "compostBins_0.glb",
+  "compostBins_1.glb"
  ]
 }
