@@ -215,7 +215,7 @@ func _ready() -> void:
 	_refresh_hunter_stream()
 
 	pause_menu = PauseMenu.new()
-	pause_menu.abandon_label = "LEAVE ROUTE"
+	pause_menu.abandon_label = "LEAVE THE CITY" if RoomState.is_city() else "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
 	pause_menu.dismiss_overlay = _dismiss_gameplay_overlay
 	if RoomState.online and RoomState.is_host:
@@ -224,6 +224,8 @@ func _ready() -> void:
 	elif RoomState.online:
 		pause_menu.abandon_warning = \
 			"This disconnects you and returns to staging. The host's route continues."
+	elif RoomState.is_city():
+		pause_menu.abandon_warning = "This ends the run and returns to the City menu. The City has no run saves yet."
 	else:
 		pause_menu.abandon_warning = \
 			"This returns to room staging. Save first if you want to resume later."
@@ -418,10 +420,17 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 	if _navigation != null and _remotes != null and _remotes.simulates():
 		_refresh_hunter_stream()
 	var region := String(data.get("region", "maze")).to_upper()
-	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
+	hud.depth_label.text = _city_zone_line() if RoomState.is_city() else "LEVEL %+d // %s" % [coord.y, region]
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
 	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")
+
+
+## The City HUD names the zone the runner stands in (Avenue, Grand Plaza, Garden, Shelter ...), not a maze level/district.
+func _city_zone_line() -> String:
+	if facility != null and facility.has_method("zone_name") and player != null:
+		return "THE CITY // %s" % String(facility.call("zone_name", player.global_position))
+	return "THE CITY"
 
 
 func _on_pickup_claimed(entity_id: String) -> void:
@@ -434,6 +443,8 @@ func _update_hud() -> void:
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
+	if RoomState.is_city():
+		hud.depth_label.text = _city_zone_line()
 	hud.update_battery(player.lamp_charge, player.flashlight_enabled, safe,
 		player.movement_mode)
 	hud.update_stamina(player.stamina, player.exhausted)
@@ -4324,7 +4335,7 @@ func _leave_test() -> void:
 	if RoomState.public_route:
 		PublicRoute.leave()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 		return
 	if RoomState.online and RoomState.is_host:
 		# Keep the ENet room alive and return every connected runner to the same
@@ -4336,6 +4347,11 @@ func _leave_test() -> void:
 		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
 		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	elif RoomState.is_city():
+		# A solo City run has no staging worth visiting: straight back to the City menu.
+		RoomState.session_active = false
+		RoomState.status_message = ""
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 	else:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"

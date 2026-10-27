@@ -90,6 +90,14 @@ func _refresh_stream(force: bool) -> void:
 	chunk_changed.emit(center, data.duplicate(false))
 
 
+## The zone under a world position (route metres) for the HUD.
+func zone_name(world_position: Vector3) -> String:
+	if city_generator == null:
+		return ""
+	return city_generator.layout.zone_name(floori(world_position.x) + CityLayout.ORIGIN_OFFSET.x,
+		floori(world_position.z) + CityLayout.ORIGIN_OFFSET.y)
+
+
 func _ensure_sky() -> void:
 	if _sky == null:
 		_sky = CitySky.new()

@@ -71,7 +71,9 @@ func _ready() -> void:
 	column.add_child(_status)
 	Backend.health_checked.connect(_on_health_checked)
 	Backend.room_resolved.connect(_on_room_resolved)
-	new_run.grab_focus.call_deferred()
+	(func() -> void:
+		if is_instance_valid(new_run) and new_run.is_inside_tree():
+			new_run.grab_focus()).call_deferred()
 
 
 func _exit_tree() -> void:

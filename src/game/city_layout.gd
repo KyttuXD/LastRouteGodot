@@ -146,6 +146,40 @@ func building_at(gx: int, gz: int) -> Dictionary:
 	return buildings[number - 1] if number > 0 else {}
 
 
+## The name the HUD shows for the place a cell belongs to.
+func zone_name(gx: int, gz: int) -> String:
+	var building := building_at(gx, gz)
+	if not building.is_empty():
+		var kind := String(building["kind"])
+		return "CIVIC HALL" if String(building["style"]) == "civic" else kind.to_upper()
+	for shelter in shelters:
+		if (shelter["rect"] as Rect2i).has_point(Vector2i(gx, gz)):
+			return "SHELTER"
+	var cell := Vector2i(gx, gz)
+	if Vector2(cell).distance_to(Vector2(ROUNDABOUT_CENTER)) <= 15.5:
+		return "FOUNTAIN ROUNDABOUT"
+	for rect in gardens:
+		if rect.has_point(cell):
+			return "GARDEN"
+	if GRAND_PLAZA.has_point(cell):
+		return "GRAND PLAZA"
+	for rect in plazas:
+		if rect.has_point(cell):
+			return "SHELTER PLAZA"
+	var here := kind_at(gx, gz)
+	if here == ALLEY:
+		return "ALLEY"
+	if ellipse_r(gx, gz) >= RING_PAVE_FROM:
+		return "RING ROAD"
+	if here == GRASS:
+		return "PARKLAND"
+	if gx >= 108 and gx <= 116:
+		return "CENTRAL AVENUE"
+	if gz >= 63 and gz <= 71:
+		return "MAIN STREET"
+	return "STREET"
+
+
 func is_open(gx: int, gz: int) -> bool:
 	return OPEN_KINDS.has(kind_at(gx, gz))
 

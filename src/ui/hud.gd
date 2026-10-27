@@ -277,7 +277,8 @@ func update_objective(depth: int, relays_collected: int, relay_target: int) -> v
 func update_infinite_status(relays_collected: int, loaded_chunks: int,
 		danger_percent: int) -> void:
 	var danger := clampi(danger_percent, 0, 100)
-	relay_label.text = "RELAYS %d // CHUNKS %d" % [relays_collected, loaded_chunks]
+	relay_label.text = ("RELAYS %d" % relays_collected) if RoomState.is_city() \
+		else "RELAYS %d // CHUNKS %d" % [relays_collected, loaded_chunks]
 	danger_row.visible = true
 	danger_label.text = "DANGER %d%%" % danger
 	danger_bar.value = danger

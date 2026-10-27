@@ -725,7 +725,7 @@ func difficulty_available(candidate: Difficulty) -> bool:
 
 ## What the button that leaves staging should say, in the web build's words.
 func start_label() -> String:
-	return "ENTER ROUTE"
+	return "ENTER THE CITY" if mode == Mode.CITY else "ENTER ROUTE"
 
 
 func mode_label() -> String:
@@ -905,9 +905,13 @@ func game_id() -> String:
 	return GAME_CITY if mode == Mode.CITY else GAME_LAST_ROUTE
 
 
-## Where "back to the menu" goes for this room's game.
+func is_city() -> bool:
+	return mode == Mode.CITY
+
+
+## Where "back to the menu" goes for this room's game: the City has its own menu, Last Route's menu is the hub.
 func menu_scene_path() -> String:
-	return CITY_MENU_SCENE if mode == Mode.CITY else MAIN_MENU_SCENE
+	return CITY_MENU_SCENE if mode == Mode.CITY else GameRegistry.HUB_SCENE
 
 
 ## Directory answers from servers that predate the `game` field are Last Route rooms.
