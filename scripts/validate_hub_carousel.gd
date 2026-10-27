@@ -214,6 +214,54 @@ func _check_navigation(host: Node) -> void:
 	Settings.hub_last_game = old_last
 
 
+## The keyboard path: Left/Right on a focused PLAY button change the game and the focus follows to the new PLAY button
+## (or the stage when that game is locked); Down reaches the shared row, Up comes back; Enter launches.
+func _check_keyboard(host: Node) -> void:
+	var was_reduced := Settings.reduced_motion
+	Settings.reduced_motion = true
+	Settings.hub_last_game = ""
+	var opened: Array = await _open_hub(host, Vector2i(1280, 720), 5)
+	var holder: SubViewport = opened[0]
+	var hub := opened[1] as GameHub
+	var play := hub.find_child("Launch_game_0", true, false) as Button
+	_expect(hub.get_viewport().gui_get_focus_owner() == play, "keyboard: the first PLAY button does not hold the focus on open")
+	var accept := InputEventAction.new()
+	accept.action = "ui_accept"
+	accept.pressed = true
+	for step in [["ui_right", "game_1"], ["ui_right", "game_2"], ["ui_left", "game_1"], ["ui_left", "game_0"], ["ui_left", "game_4"]]:
+		var event := InputEventAction.new()
+		event.action = step[0]
+		event.pressed = true
+		hub._input(event)
+		_expect(hub.focused_id() == step[1], "keyboard: %s did not reach %s (%s)" % [step[0], step[1], hub.focused_id()])
+		var owner := hub.get_viewport().gui_get_focus_owner()
+		var expected := hub.find_child("Launch_%s" % step[1], true, false) as Button
+		_expect(owner == expected, "keyboard: after %s the focus is on %s, not on the %s PLAY button" % [step[0], owner, step[1]])
+	hub.select(0)
+	play = hub.find_child("Launch_game_0", true, false) as Button
+	play.grab_focus()
+	var account := hub.find_child("AccountButton", true, false) as Control
+	_expect(play.find_valid_focus_neighbor(SIDE_BOTTOM) == account, "keyboard: Down from PLAY does not reach the shared row")
+	_expect(account.find_valid_focus_neighbor(SIDE_TOP) == play, "keyboard: Up from the shared row does not come back to PLAY")
+	_expect(play.find_valid_focus_neighbor(SIDE_LEFT) == play and play.find_valid_focus_neighbor(SIDE_RIGHT) == play,
+		"keyboard: Left/Right can leave the carousel through focus navigation")
+	var launched := []
+	GameHub.launch_override = func(id: String) -> void: launched.append(id)
+	play.pressed.emit()
+	_expect(launched == ["game_0"], "keyboard: PLAY pressed launched %s" % [launched])
+	GameHub.launch_override = Callable()
+	# every PLAY button keeps one label colour and an outline-only focus box
+	for id in hub.game_ids():
+		var button := hub.find_child("Launch_%s" % id, true, false) as Button
+		var focus := button.get_theme_stylebox("focus") as StyleBoxFlat
+		_expect(focus != null and not focus.draw_center, "%s: the PLAY focus box fills the button" % id)
+		var base := button.get_theme_color("font_color")
+		for color_name in ["font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			_expect(button.get_theme_color(color_name) == base, "%s: PLAY %s differs from its normal label colour" % [id, color_name])
+	await _close_hub(host, holder)
+	Settings.reduced_motion = was_reduced
+
+
 func run(host: Node) -> int:
 	var old_last := Settings.hub_last_game
 	Settings.hub_last_game = ""
@@ -221,6 +269,7 @@ func run(host: Node) -> int:
 		for count in COUNTS:
 			await _check_layout(host, key, WINDOWS[key], count)
 	await _check_navigation(host)
+	await _check_keyboard(host)
 	# the real registry also lays out cleanly at the smallest window
 	GameRegistry.test_games = []
 	await _check_layout(host, "real registry 1280x720", Vector2i(1280, 720), 0)

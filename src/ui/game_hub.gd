@@ -303,6 +303,8 @@ func _layout() -> void:
 		var button := _launch_buttons[id] as Button
 		button.focus_mode = Control.FOCUS_ALL if focused and not button.disabled else Control.FOCUS_NONE
 		button.mouse_filter = Control.MOUSE_FILTER_STOP if focused else Control.MOUSE_FILTER_IGNORE
+		_style_play_button(button)
+	_link_focus()
 	_left_arrow.visible = count > 1
 	_right_arrow.visible = count > 1
 
@@ -336,6 +338,48 @@ func _accent(id: String) -> Color:
 		if frame != null:
 			return frame.border_color
 	return Palette.ACCENT
+
+
+## PLAY keeps ONE fill and ONE label colour in every state, whatever the game's theme says: the state boxes are copied
+## from the theme (so hover/pressed still read) but the label colour is pinned and focus is a 2 px outline in the
+## label colour with no fill. Focus (keyboard) plus hover (mouse) can never dim the label, in any theme.
+func _style_play_button(button: Button) -> void:
+	if button.has_meta("play_styled") or not button.is_inside_tree():
+		return
+	button.set_meta("play_styled", true)
+	var label := button.get_theme_color("font_color")
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var box := button.get_theme_stylebox(state)
+		if box != null:
+			button.add_theme_stylebox_override(state, box.duplicate())
+	for color_name in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+		button.add_theme_color_override(color_name, label)
+	var outline := StyleBoxFlat.new()
+	outline.bg_color = Color(0, 0, 0, 0)
+	outline.draw_center = false
+	outline.set_border_width_all(2)
+	outline.border_color = label
+	outline.set_corner_radius_all(2)
+	button.add_theme_stylebox_override("focus", outline)
+
+
+## Up/Down move between the focused card's PLAY button and the shared row (Account / Settings / Admin / Quit);
+## Left/Right on PLAY are the carousel's (handled in _input), so PLAY keeps them.
+func _link_focus() -> void:
+	var play := _launch_buttons.get(focused_id()) as Button
+	var target: Control = play if play != null and play.focus_mode == Control.FOCUS_ALL else _stage
+	var row: Array[Control] = []
+	for button_name in ["AccountButton", "SettingsButton", "AdminButton", "QuitButton"]:
+		var shared := find_child(button_name, true, false) as Control
+		if shared != null and shared.visible:
+			row.append(shared)
+	for shared in row:
+		shared.focus_neighbor_top = shared.get_path_to(target)
+	if not row.is_empty():
+		target.focus_neighbor_bottom = target.get_path_to(row[0])
+		target.focus_neighbor_left = target.get_path_to(target)
+		target.focus_neighbor_right = target.get_path_to(target)
+		target.focus_neighbor_top = target.get_path_to(target)
 
 
 func _focus_current() -> void:
