@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://c87bi082vmawv"
-path="res://.godot/imported/restaurantPartyTable_1.glb-bca7424e3fc84d38a4d6211a7c7a2e52.scn"
+uid="uid://c4c1wxvblvtdw"
+path="res://.godot/imported/restaurantPartyTable.glb-b1a80197fb6d25ddb1b68ba184fce9bd.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/restaurantPartyTable_1.glb"
-dest_files=["res://.godot/imported/restaurantPartyTable_1.glb-bca7424e3fc84d38a4d6211a7c7a2e52.scn"]
+source_file="res://art/props-3d/props/blocky/restaurantPartyTable.glb"
+dest_files=["res://.godot/imported/restaurantPartyTable.glb-b1a80197fb6d25ddb1b68ba184fce9bd.scn"]
 
 [params]
 

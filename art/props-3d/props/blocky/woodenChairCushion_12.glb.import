@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dthpbwp3ibw44"
-path="res://.godot/imported/restaurantPartyTable_0.glb-b9d67f28b72659535f7b452040f546f0.scn"
+uid="uid://dvappga74l3lk"
+path="res://.godot/imported/woodenChairCushion_12.glb-5a26bde5557039c33e9bf335058fa039.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/restaurantPartyTable_0.glb"
-dest_files=["res://.godot/imported/restaurantPartyTable_0.glb-b9d67f28b72659535f7b452040f546f0.scn"]
+source_file="res://art/props-3d/props/blocky/woodenChairCushion_12.glb"
+dest_files=["res://.godot/imported/woodenChairCushion_12.glb-5a26bde5557039c33e9bf335058fa039.scn"]
 
 [params]
 

@@ -295,13 +295,13 @@ const SURFACE_PARENT_TYPES := {
 const SURFACE_HEIGHTS := {
 	# The dining model reaches 1.03 m only at its goblets. Dressing belongs on
 	# the 0.86 m runner/tabletop, not floating above those place settings.
-	"diningTable": .86,
-	"woodenTable": .79,
+	"diningTable": .75,
+	"woodenTable": .75,
 	"bedroomNightstand": .71,
 	"bedroomDresser": 1.04,
 	"gothicNightstand": .79,
 	"gothicDresser": 1.10,
-	"gothicPedestalTable": .90,
+	"gothicPedestalTable": .75,
 	"diningSideboard": 1.02,
 	"officeDesk": .78,
 	"officeCornerWorkstation": .78,
@@ -330,6 +330,7 @@ const FOOTPRINTS := {
 	"brokenAquarium": Vector2(.46, .32), "carnivalCarousel": Vector2(2.20, 1.80),
 	"woodenChair": Vector2(.25, .25), "woodenChairCushion": Vector2(.25, .25),
 	"woodenTable": Vector2(.60, .38), "diningTable": Vector2(1.10, .42),
+	"restaurantPartyTable": Vector2(1.31, .45),
 	"diningChair": Vector2(.25, .25), "diningChairCushion": Vector2(.25, .25),
 	"diningChandelier": Vector2(.47, .47), "diningSideboard": Vector2(.72, .35),
 	"flowerCenterpiece": Vector2(.25, .20), "tableCandelabra": Vector2(.32, .16),

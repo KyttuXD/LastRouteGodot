@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cgwiat48sqotc"
-path="res://.godot/imported/restaurantPartyTable_0_BlockyAtlas.png-7d50c79a601fc1350d9741ddb3d436d8.ctex"
+uid="uid://qwkwlkve0maw"
+path="res://.godot/imported/diningChair_12_BlockyAtlas.png-ea085f5e7f5102c494ae8778c7fd7c7b.ctex"
 metadata={
 "vram_texture": false
 }
@@ -13,8 +13,8 @@ generator_parameters={
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/restaurantPartyTable_0_BlockyAtlas.png"
-dest_files=["res://.godot/imported/restaurantPartyTable_0_BlockyAtlas.png-7d50c79a601fc1350d9741ddb3d436d8.ctex"]
+source_file="res://art/props-3d/props/blocky/diningChair_12_BlockyAtlas.png"
+dest_files=["res://.godot/imported/diningChair_12_BlockyAtlas.png-ea085f5e7f5102c494ae8778c7fd7c7b.ctex"]
 
 [params]
 

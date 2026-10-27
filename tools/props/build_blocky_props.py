@@ -293,10 +293,16 @@ PROPS["woodenDresserSideboard"] = PROPS["bedroomDresser"]
 
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_extra.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_variants.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_seating.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
-SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55)}
+SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),
+              # DONE11: chairs 0.94 m tall (seat 0.44), tables 0.75 m, restaurant table keeps its 2.23 m balloon cluster over a 0.75 m top
+              "woodenChair": (1.0, 0.94 / 1.01, 1.0), "woodenChairCushion": (1.0, 0.94 / 1.01, 1.0),
+              "diningChair": (1.0, 0.94 / 1.2, 1.0), "diningChairCushion": (1.0, 0.94 / 1.2, 1.0),
+              "woodenTable": (1.0, 0.75 / 0.79, 1.0), "diningTable": (1.0, 0.75 / 1.025, 1.0),
+              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0)}
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
