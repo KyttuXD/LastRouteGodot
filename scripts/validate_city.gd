@@ -344,6 +344,7 @@ func _check_run_scene(host: Node) -> void:
 	print("  city: far-rendering check %d ms" % (Time.get_ticks_msec() - started))
 	started = Time.get_ticks_msec()
 	_check_invisible_walls(facility)
+	await _check_entrances(host, facility, scene)
 	print("  city: invisible-wall check %d ms" % (Time.get_ticks_msec() - started))
 	_expect(absf(wrapf(player._yaw - PI, -PI, PI)) < .01, "the runner does not start facing the kiosk doorway (south)")
 	var layout := (facility.generator as CityRouteGenerator).layout
@@ -582,3 +583,69 @@ func _check_daytime() -> void:
 	_expect(not RoomState.is_day(), "Last Route rooms must never be day")
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	print("  city: daytime vision table, sight ranges, room flag, run save")
+
+
+## Every enterable building has a real City entrance: a CityDoor wide and high enough, whose leaves only block the doorway while
+## closed, and a player-sized capsule can walk street -> doorway -> interior once they open (no wall, prop or collider across it).
+func _check_entrances(host: Node, facility: StreamedFacilityView3D, scene: Node) -> void:
+	var layout := (facility.generator as CityRouteGenerator).layout
+	var enterable := 0
+	for building in layout.buildings:
+		if bool(building.get("sealed", false)):
+			continue
+		enterable += 1
+		var doors: Array = building["doors"]
+		var width := 0
+		for door_value in doors:
+			var door_cell: Vector2i = door_value
+			if layout.kind_at(door_cell.x, door_cell.y) == CityLayout.DOOR:
+				width += 1
+		_expect(width >= 2 and doors.size() % 2 == 0, "%s has a doorway narrower than 2 m (%d door cells)" % [building["id"], width])
+	var doors_found: Array = []
+	for chunk_value in facility._loaded.values():
+		for child in (chunk_value as Node).get_children():
+			if child is CityDoor:
+				doors_found.append(child)
+	_expect(doors_found.size() >= enterable, "only %d City doors for %d enterable buildings" % [doors_found.size(), enterable])
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = .35
+	capsule.height = 1.7
+	var space := facility.get_world_3d().direct_space_state
+	var player_rid: RID = (scene.get("player") as CollisionObject3D).get_rid()
+	var blocked: Array = []
+	var leaky: Array = []
+	var closed_free := 0
+	for door_value in doors_found:
+		var door: CityDoor = door_value
+		var forward := door.global_transform.basis.z
+		door.set_open_instant(true)
+		for _tick in 2:
+			await host.get_tree().physics_frame
+		for step in range(-4, 5):
+			var query := PhysicsShapeQueryParameters3D.new()
+			query.shape = capsule
+			query.exclude = [player_rid]
+			query.transform = Transform3D(Basis(), door.global_position + forward * (float(step) * .5) + Vector3(0, .95, 0))
+			if not space.intersect_shape(query, 1).is_empty():
+				blocked.append("%s at %.1f m" % [door.name, float(step) * .5])
+				break
+		door.set_open_instant(false)
+		for _tick in 2:
+			await host.get_tree().physics_frame
+		var closed_query := PhysicsShapeQueryParameters3D.new()
+		closed_query.shape = capsule
+		closed_query.exclude = [player_rid]
+		closed_query.transform = Transform3D(Basis(), door.global_position + Vector3(0, .95, 0))
+		if space.intersect_shape(closed_query, 1).is_empty():
+			leaky.append(door.name)
+		var away_query := PhysicsShapeQueryParameters3D.new()
+		away_query.shape = capsule
+		away_query.exclude = [player_rid]
+		away_query.transform = Transform3D(Basis(), door.global_position + forward * 2.0 + Vector3(0, .95, 0))
+		if space.intersect_shape(away_query, 1).is_empty():
+			closed_free += 1
+		door.set_open_instant(true)
+	_expect(blocked.is_empty(), "%d City doors are blocked when open, e.g. %s" % [blocked.size(), blocked.slice(0, 5)])
+	_expect(leaky.size() < doors_found.size(), "no door leaf collides when closed")
+	_expect(closed_free >= doors_found.size() * 9 / 10, "street in front of doors is blocked (%d of %d clear)" % [closed_free, doors_found.size()])
+	print("  city: %d entrances, all walkable when open" % doors_found.size())

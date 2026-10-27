@@ -38,6 +38,7 @@ func begin(seed_text: String, player: PlayerController3D,
 		player._yaw = PI
 		player._pitch = 0.0
 		player._apply_look_rotation()
+		player.add_to_group("city_door_agents")
 	_ensure_sky()
 	_apply_environment()
 	_refresh_stream(true)
@@ -457,6 +458,7 @@ func _build_door_cell(surface: CitySurface, layout: CityLayout, x: int, z: int, 
 	if not kiosk:
 		# A low stone threshold across the doorway (visual only; the floor collider stays flat).
 		surface.box(Vector3(x, 0, z), Vector3(1, .1, 1), CityAtlas.tile("stone_base"), CityAtlas.tile("stone_dark"))
+		_build_door_frame(surface, layout, building, x, z, gx, gz)
 	for dir_value in CitySurface.FACE_DIRS:
 		var dir: Vector2i = dir_value
 		var neighbour := layout.kind_at(gx + dir.x, gz + dir.y)
@@ -467,6 +469,45 @@ func _build_door_cell(surface: CitySurface, layout: CityLayout, x: int, z: int, 
 				surface.wall_face(x, z, dir, y, y + 1, tile)
 		elif neighbour == CityLayout.FLOOR or neighbour == CityLayout.KIOSK_FLOOR:
 			surface.wall_face(x, z, dir, DOOR_HEIGHT, CITY_CEILING, CityAtlas.tile("plaster"))
+
+
+## The doorway's dressing on the street side: a jamb post at each end of the two-cell opening, a lit lintel strip and a
+## sign plate above it. Visual only; the opening itself stays clear (see CityDoor for the leaves).
+func _build_door_frame(surface: CitySurface, layout: CityLayout, building: Dictionary, x: int, z: int, gx: int, gz: int) -> void:
+	var out := Vector2i.ZERO
+	for dir_value in CitySurface.FACE_DIRS:
+		var dir: Vector2i = dir_value
+		if CityLayout.OUTDOOR_KINDS.has(layout.kind_at(gx + dir.x, gz + dir.y)):
+			out = dir
+	if out == Vector2i.ZERO:
+		return
+	var along := Vector2i(absi(out.y), absi(out.x))
+	var metal := CityAtlas.tile("fire_escape")
+	for sign in [-1, 1]:
+		var neighbour := Vector2i(gx, gz) + along * int(sign)
+		if layout.kind_at(neighbour.x, neighbour.y) != CityLayout.WALL:
+			continue
+		var side_w := .16
+		var toward_high := int(sign) > 0
+		if out.y != 0:
+			var x0 := x + (1.0 - side_w if toward_high else 0.0)
+			var z0 := z + 1.0 if out.y > 0 else z - .12
+			surface.box(Vector3(x0, 0, z0), Vector3(side_w, 3.0, .12), metal)
+		else:
+			var z0 := z + (1.0 - side_w if toward_high else 0.0)
+			var x0 := x + 1.0 if out.x > 0 else x - .12
+			surface.box(Vector3(x0, 0, z0), Vector3(.12, 3.0, side_w), metal)
+	CityFacadeDetails._protrude(surface, x, z, out, 3.0, .1, .12, 1.0, CityAtlas.tile("cyan_lamp"))
+	var kind := String(building.get("kind", ""))
+	var sign_tile := "neon_sign"
+	match CityDoor.style_for(kind):
+		"civic":
+			sign_tile = "awning_red"
+		"wood":
+			sign_tile = "awning_teal"
+		"steel":
+			sign_tile = "stone_dark"
+	CityFacadeDetails._protrude(surface, x, z, out, 3.2, .55, .14, .96, CityAtlas.tile(sign_tile))
 
 
 # ---------------------------------------------------------------- street furniture and lights
@@ -481,6 +522,7 @@ func _build_city_decor(build: Dictionary) -> void:
 		var entry: Dictionary = entry_value
 		var cell: Vector2i = entry["cell"]
 		_add_decor(build["props_body"] as StaticBody3D, surface, root, lamps, String(entry["type"]), cell, float(entry["yaw"]))
+	_build_city_doors(build)
 	# One warm lamp inside every building whose middle lies in this chunk.
 	for building_value in city.get("buildings", []):
 		var building: Dictionary = building_value
@@ -491,6 +533,38 @@ func _build_city_decor(build: Dictionary) -> void:
 		lamps.append([root.position + Vector3(middle.x + .5, 3.3, middle.y + .5), INTERIOR_LAMP_COLOR, .9, 0, 6.5])
 		if String(building["style"]) == "brick":
 			CityFacadeDetails.add_roof(surface, building, absi(hash(String(building["id"]))))
+
+
+## One CityDoor per doorway (the doors list holds each doorway's two cells), standing in the wall plane.
+func _build_city_doors(build: Dictionary) -> void:
+	var root := build["root"] as Node3D
+	var city: Dictionary = (build["data"] as Dictionary).get("city", {})
+	for building_value in city.get("buildings", []):
+		var building: Dictionary = building_value
+		var rect: Rect2i = building["rect"]
+		var doors: Array = building["doors"]
+		for index in range(0, doors.size() - 1, 2):
+			var first: Vector2i = doors[index]
+			var second: Vector2i = doors[index + 1]
+			var out := Vector2i.ZERO
+			if first.y == rect.position.y:
+				out = Vector2i(0, -1)
+			elif first.y == rect.end.y - 1:
+				out = Vector2i(0, 1)
+			elif first.x == rect.position.x:
+				out = Vector2i(-1, 0)
+			else:
+				out = Vector2i(1, 0)
+			if first.x < 0 or first.y < 0 or first.x >= StreamedRouteGenerator.CHUNK_SIZE or first.y >= StreamedRouteGenerator.CHUNK_SIZE:
+				continue   # the neighbouring chunk that holds the doorway builds it
+			var door := CityDoor.new()
+			door.name = "Door_%s_%d" % [building["id"], index / 2]
+			door.style = CityDoor.style_for(String(building["kind"]))
+			var centre := Vector2(first + second) * .5 + Vector2(.5, .5)
+			door.position = Vector3(centre.x, 0, centre.y)
+			# Local +z points out to the street, local +x along the facade.
+			door.rotation.y = atan2(float(out.x), float(out.y))
+			root.add_child(door)
 
 
 func _add_decor_collider(body: StaticBody3D, type: String, cell: Vector2i, yaw: float) -> void:

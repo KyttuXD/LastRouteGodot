@@ -245,3 +245,15 @@ x`GameConfig.DAY_POPULATION_SCALE` (0.8) by day. Not done: a narrower view cone 
 | mavrine | 1.0 | 0.95 | 0.3 s |
 | void_black/blue/brown/cyan | 1.15 | 0.7 | 0.8 s |
 | everyone else | 1.0 | 1.0 | 0 |
+
+## Entrances (doors)
+
+Every enterable building has a `CityDoor` (`src/game_3d/city_door.gd`): a 2 m x 3 m doorway with two sliding leaves (glass for
+shops/cafes/offices/lobbies, steel for workshops, wood for apartments/libraries, civic for halls/chapels). The leaves are never
+locked and slide into the wall whenever the runner or a hunter is within 3.6 m; only the leaves carry colliders, so the opening is
+clear when open. The street side has jamb posts, a lit cyan lintel strip and a sign plate; the doorway cell has a stone
+threshold. No Last Route door type is used anywhere in the City (the route's `fixtures` are only vents and hiding spots; City
+chunks carry no `doors`): the earlier entrances were bare unlit openings, which read as blocked slits. `validate_city` checks each
+building's doorway width, that every enterable building has a CityDoor, that a player-sized capsule can walk from the street
+through the opened doorway (+-2 m, the keep-clear lane) and that the closed leaf blocks only the doorway. Shots:
+`city_door_before_*.png`, `city_door_after_*.png`. Shops and towers must build their entrances with the same `CityDoor`.

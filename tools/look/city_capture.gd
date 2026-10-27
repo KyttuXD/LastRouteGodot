@@ -98,6 +98,28 @@ func _spots(layout: CityLayout) -> Array:
 			"yaw": rad_to_deg(atan2(-toward.x, -toward.y)), "pitch": 0.0})
 		spots.append({"name": "facade", "pos": _at(door.x + .5 + signf(toward.x) * 7.0, door.y + .5 + signf(toward.y) * 7.0),
 			"yaw": rad_to_deg(atan2(toward.x, toward.y)), "pitch": 12.0})
+	# Entrances: three enterable buildings seen from 6 m out on the street, and from just inside looking out.
+	var entrance_count := 0
+	for building_value in layout.buildings:
+		var entry: Dictionary = building_value
+		if bool(entry.get("sealed", false)) or entrance_count >= 3 or (entry["rect"] as Rect2i).position.y < 30:
+			continue
+		var entry_door: Vector2i = (entry["doors"] as Array)[0]
+		var rect: Rect2i = entry["rect"]
+		var out := Vector2i.ZERO
+		if entry_door.y == rect.position.y:
+			out = Vector2i(0, -1)
+		elif entry_door.y == rect.end.y - 1:
+			out = Vector2i(0, 1)
+		elif entry_door.x == rect.position.x:
+			out = Vector2i(-1, 0)
+		else:
+			out = Vector2i(1, 0)
+		spots.append({"name": "door%d_out" % entrance_count, "pos": _at(entry_door.x + 1.0 + out.x * 6.0, entry_door.y + .5 + out.y * 6.0),
+			"yaw": rad_to_deg(atan2(-float(-out.x), -float(-out.y))), "pitch": 2.0})
+		spots.append({"name": "door%d_in" % entrance_count, "pos": _at(entry_door.x + 1.0 - out.x * 3.0, entry_door.y + .5 - out.y * 3.0),
+			"yaw": rad_to_deg(atan2(-float(out.x), -float(out.y))), "pitch": 0.0})
+		entrance_count += 1
 	spots.append({"name": "gate_far", "pos": _at(112.5, 98.5), "yaw": 180.0, "pitch": 4.0})
 	spots.append({"name": "gate_close", "pos": _at(112.5, 114.5), "yaw": 180.0, "pitch": 6.0})
 	# One look inside a library, a chapel and a two-room building (from just inside the first doorway).
