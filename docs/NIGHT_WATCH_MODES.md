@@ -10,7 +10,7 @@ framework contract and the status table. The menus already list all nine (`docs/
 | # | Mode (2D id) | Shifts | 2D logic to port | 2D validators to port | 3D status |
 |---|---|---|---|---|---|
 | 1 | Classic (`classic`) | Night 1-7 (7 = Kathy's alone) | `classic/classic-logic.js` 460, `core/kathy.js`, `core/variety-stream.js` | `validate-ai`, `-rng-moves`, `-variety-classic`, `-kathy`, `-toggles`, `-cams` | Nights 1-6 playable (`NightWatchClassic`); Night 7, variety levers, Custom Night to do |
-| 2 | Masked Hours (`mask`) | Night 1-6 | `mask/mask-logic.js` 516, `mask-data.js` | `validate-mask`, `-variety-mask` | not built |
+| 2 | Masked Hours (`mask`) | Night 1-6 | `mask/mask-logic.js` 516, `mask-data.js` | `validate-mask`, `-variety-mask` | **Built** (`src/night_watch/mask/`, [capture](night_watch_modes/mask_vent.png)): all six nights and Custom Night; the rules are a bit-exact port (`NightWatchMulberry` is the 2D mulberry32) and `validate_night_watch_mask` replays 19 whole 2D shifts event for event (`scripts/fixtures/night_watch_mask_golden.json`, regenerate with `node scripts/fixtures/gen_night_watch_mask_golden.mjs`); resume (save-and-continue) is left to the shared resume pass |
 | 3 | Dead Air (`lure`) | Night 1-6 | `lure/lure-logic.js` 242, `lure-data.js` | `validate-lure`, `-lure-air`, `-variety-lure` | not built |
 | 4 | Bedtime (`bedroom`) | Night 1-6 | `bedroom/bedroom-logic.js` 126 | `validate-bedroom`, `-variety-bedroom` | not built |
 | 5 | The Facility (`story`) | Night 1-6 | `story/story-logic.js` 278, `story-data.js` | `validate-story`, `-variety-facility` | not built |

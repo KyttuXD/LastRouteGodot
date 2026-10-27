@@ -114,9 +114,15 @@ func run(host: Node) -> int:
 	_expect(first.has("0 / 7 SHIFTS CLEARED · ★ 0/4 STARS"), "Classic's stat line differs: %s" % str(first))
 	_expect(first.has("01 NIGHT 1") and first.has("02 LOCKED ?????"), "Classic's tiles differ")
 	# a locked shift cannot be started; a mode that is not built says so
-	menu.select_mode(1)
-	menu.start_selected()
-	_expect(menu.toast_label.text.contains("not built yet") or NightWatchModeRegistry.playable("mask"), "starting an unbuilt mode gave no message")
+	var unbuilt := -1
+	for i in NightWatchModesData.MODES.size():
+		if not NightWatchModeRegistry.playable(String(NightWatchModesData.MODES[i]["id"])):
+			unbuilt = i
+			break
+	if unbuilt >= 0:
+		menu.select_mode(unbuilt)
+		menu.start_selected()
+		_expect(menu.toast_label.text.contains("not built yet"), "starting an unbuilt mode gave no message")
 	# the hud's pause card
 	var hud := NightWatchHud.new()
 	host.add_child(hud)
