@@ -484,6 +484,18 @@ func _check_scene(host: Node) -> void:
 		walk.sim.s["vent"]["L"]["shut"] = true
 		walk._place_hunters()
 		_expect(not (walk._models["verrine"] as Node3D).visible, "the crawler shows in a sealed vent")
+	if not vt.is_empty():
+		vt["active"] = true
+		vt["i"] = 1
+		walk._animate_models(0.016)
+		_expect(walk._vent_pose.state_of("verrine") == "vent_enter", "the vent crawler did not drop into the vent run")
+		for i in 60:
+			walk._animate_models(0.02)
+		_expect(walk._vent_pose.state_of("verrine") == "vent", "the vent crawler did not take her crawl pose in the vent run")
+		vt["active"] = false
+		vt["armed"] = false
+		walk._animate_models(0.016)
+		_expect(walk._vent_pose.state_of("verrine") == "vent_exit", "the vent crawler did not rise out of the run")
 	walk.queue_free()
 	await host.get_tree().process_frame
 	# a loss: an unanswered deadly tell kills, the CAUGHT card says what would have stopped it, Retry replays the seed

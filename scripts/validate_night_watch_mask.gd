@@ -614,6 +614,27 @@ func _check_scene(host: Node) -> void:
 	for room in MaskData.cam_rooms():
 		if room != "hall":
 			_expect(walk.world.route("C:%s" % room if room != "hall" else "H:15", "H:in").size() >= 2, "%s has no walk to the office" % room)
+	# a hunter in a vent shaft takes the vent pose: Verrine drops in (one-shot), crawls (her own belly-low crawl), rises out; the others use the generic crawl
+	_expect(NightWatchPoses.pose_for_state("vent", "verrine") == "vent_crawl_verrine" and NightWatchPoses.pose_for_state("vent", "ilyra") == "vent_crawl"
+		and NightWatchPoses.pose_for_state("vent_enter", "verrine") == "vent_drop_verrine" and NightWatchPoses.pose_for_state("vent_enter", "ilyra") == "", "the vent poses are not mapped as the pose data says")
+	var pv := walk.sim.s["vent"] as Dictionary
+	pv.merge({"state": "duct", "room": "ductL", "side": "L", "t": 0.0, "need": 99999.0}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("verrine") == "vent_enter", "Verrine did not drop into the duct with the vent_enter pose")
+	for i in 60:
+		walk._animate_models(0.02)
+	_expect(walk._vent_pose.state_of("verrine") == "vent", "Verrine did not crawl the duct in her vent pose")
+	var ilyra := walk.sim.s["ilyra"] as Dictionary
+	ilyra.merge({"state": "duct", "room": "ductR", "side": "R", "t": 0.0, "need": 99999.0, "step": 1}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("ilyra") == "vent", "Ilyra did not take the generic vent crawl (no drop)")
+	pv.merge({"state": "away", "room": "crawl"}, true)
+	walk._animate_models(0.016)
+	_expect(walk._vent_pose.state_of("verrine") == "vent_exit", "Verrine did not rise out of the shaft with vent_exit")
+	for i in 60:
+		walk._animate_models(0.02)
+	_expect(walk._vent_pose.state_of("verrine") == "", "Verrine kept a vent pose after leaving the shaft")
+	_expect(MaskOffice.HEIGHT > 0.8 and 1.8 > 0.8, "the air vents are lower than 0.8 m")
 	walk.queue_free()
 	await host.get_tree().process_frame
 	# a loss: Thessine unmasked in the office ends the night with the CAUGHT card

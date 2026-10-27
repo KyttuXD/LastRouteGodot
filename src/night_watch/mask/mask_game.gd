@@ -48,6 +48,7 @@ var _driven := {}
 var _hour_seen := 0
 var _last_input := {}
 var _flinch := {}
+var _vent_pose := NightWatchVentPose.new()
 
 
 class MaskOverlay extends Control:
@@ -567,6 +568,12 @@ func _set_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
 		model.rotation.y = atan2(d.x, d.z) + PI
 
 
+## A vent hunter is in a shaft while she crawls a duct or waits in an office vent.
+func _in_shaft(id: String) -> bool:
+	var st := String(sim.vent_state(id)["state"])
+	return st == "duct" or st == "vent"
+
+
 func _animate_models(delta: float) -> void:
 	for id in _walkers:
 		var walker := _walkers[id] as NightWatchWalker
@@ -578,6 +585,8 @@ func _animate_models(delta: float) -> void:
 	for id in _players:
 		var ap := _players[id] as AnimationPlayer
 		var walker2 := _walkers.get(id) as NightWatchWalker
+		if sim != null and MaskData.VENT_HUNTERS.has(id) and _vent_pose.update(id, _models[id] as Node3D, _in_shaft(id), walker2 != null and walker2.moving, delta):
+			continue
 		var clip := "idle"
 		if bool(_driven.get(id, false)):
 			clip = "sprint"

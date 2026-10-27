@@ -40,6 +40,7 @@ var _seal_held := {"L": false, "T": false, "R": false}
 var _light_down := {"L": false, "T": false, "R": false}
 var _wind_held := false
 var _shown_room := ""
+var _vent_pose := NightWatchVentPose.new()
 
 var monitor_room: String:
 	get:
@@ -561,6 +562,12 @@ func _legs_to(walker: NightWatchWalker, room_key: String, pos: Vector3) -> Array
 	return paths.legs_from(walker.pos, room_key)
 
 
+## The vent crawler is in a shaft while she crawls the vent run or waits at her vent.
+func _in_shaft(id: String) -> bool:
+	var th := sim.threat(id)
+	return not th.is_empty() and String(th["type"]) == "vent" and (bool(th["active"]) or bool(th["armed"]))
+
+
 func _animate_models(delta: float) -> void:
 	for id in _walkers:
 		var walker := _walkers[id] as NightWatchWalker
@@ -572,6 +579,8 @@ func _animate_models(delta: float) -> void:
 	for id in _players:
 		var ap := _players[id] as AnimationPlayer
 		var walker2 := _walkers.get(id) as NightWatchWalker
+		if sim != null and _vent_pose.update(id, _models[id] as Node3D, _in_shaft(id), walker2 != null and walker2.moving, delta):
+			continue
 		var clip := "idle"
 		if walker2 != null and walker2.moving:
 			clip = "sprint" if walker2.running and ap.has_animation("sprint") else "walk"
