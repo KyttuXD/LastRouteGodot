@@ -34,8 +34,8 @@ static func make_spec() -> NightWatchOfficeSpec:
 			{"id": "doorR", "kind": "door_slab", "position": Vector3(ROOM_W * 0.5, 0.0, 0.0), "outward": Vector3(1, 0, 0), "sim_room": "workshop", "blockable": false},
 			{"id": "lift", "kind": "lift", "position": Vector3(0.0, 0.0, -ROOM_D * 0.5), "outward": Vector3(0, 0, -1), "sim_room": "lift", "blockable": false},
 		],
-		"required_stations": ["monitor", "terminal", "hide_spot", "door_control_L", "door_control_R", "door_control_C"],
-		"has_monitor": true,
+		"required_stations": ["terminal", "hide_spot", "door_control_L", "door_control_R", "door_control_C"],
+		"has_monitor": false,   # the monitor wall tells you the next task; there is no camera monitor in the Facility
 		"mood": {"kind": "cold_monitor", "ambient": Color(0.38, 0.40, 0.55), "lamp": Color(1.0, 0.92, 0.75), "accent": Color(0.5, 1.0, 0.7)},
 		"tone_cue": "static",
 		"controls": ["nw_fac_beacon", "nw_fac_hide"],

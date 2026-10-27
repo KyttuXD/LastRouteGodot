@@ -287,7 +287,7 @@ func _check_scene(host: Node) -> void:
 		shift.start_shift([])
 		_expect(shift.state == DayshiftGame.State.PLAYING and shift.sim != null and shift.sim.week_idx == n - 1, "week %d did not start its night" % n)
 		shift.advance_ms(1000.0)
-		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "WEEK %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
+		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "7. Salvage Run · Week %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
 		shift.queue_free()
 		await host.get_tree().process_frame
 	# the shop: buttons follow the budget, START SHIFT hands the basket to the rules
@@ -346,11 +346,62 @@ func _check_scene(host: Node) -> void:
 	game.manual_clock = true
 	game.sim.s["ysolde"]["state"] = "knock"
 	game._place_hunters()
-	_expect(not (game._models["ysolde"] as Node3D).visible, "Ysolde was seen before she was at the glass")
+	_expect((game._models["ysolde"] as Node3D).visible, "Ysolde is not on her way across the yard during the knock")
 	game.sim.s["ysolde"]["state"] = "here"
 	game._place_hunters()
 	_expect((game._models["ysolde"] as Node3D).visible and (game._models["ysolde"] as Node3D).position.z > NightWatchOffice.HALF_D, "Ysolde is not outside the window")
+	# the map: a ship and its scrap yard around the bay; every room is a walk from every other, no route crosses a wall, the hunters come in from their ends of the ship
+	var layout := DayshiftMap.map_layout()
+	var yard := game.yard
+	for id in (layout["rooms"] as Dictionary):
+		_expect(yard.points.has("C:%s" % id) or id == "gantryL" and yard.points.has("G:L") or id == "gantryR" and yard.points.has("G:R"), "the map room %s has no waypoint" % id)
+	var keys := ["C:airlock", "C:dockL", "C:engine", "C:bridge", "C:hold", "C:yard", "C:crane", "G:L", "G:R", "W:stand", "D:L3", "D:R3"]
+	var bad_wall := 0
+	for ka in keys:
+		for kb in keys:
+			if ka == kb:
+				continue
+			var legs: Array = yard.route(ka, kb)
+			_expect(legs.size() >= 2, "no walk from %s to %s" % [ka, kb])
+			for k in range(1, legs.size()):
+				var p0: Vector3 = legs[k - 1]["p"]
+				var p1: Vector3 = legs[k]["p"]
+				var n := int(ceil(p0.distance_to(p1) / 0.1))
+				for q in n:
+					var pt := p0.lerp(p1, float(q) / float(n))
+					for w in yard.wall_boxes:
+						if (w["rect"] as Rect2).has_point(Vector2(pt.x, pt.z)):
+							bad_wall += 1
+	_expect(bad_wall == 0, "walking routes in the ship cross walls at %d points" % bad_wall)
+	var named := {}
+	for m in yard.find_children("*", "MeshInstance3D", true, false):
+		var nm := String(m.get_meta("nw_name", ""))
+		named[nm] = int(named.get(nm, 0)) + 1
+	_expect(int(named.get("BlockEngine", 0)) == 1 and int(named.get("ConsoleBridge", 0)) == 1 and int(named.get("BodyForklift", 0)) == 1 and int(named.get("BoomCrane", 0)) == 1
+		and int(named.get("FrameAirlock", 0)) >= 3 and int(named.get("ScrapBlock", 0)) >= 20 and int(named.get("StackHold", 0)) >= 3, "the engine, bridge, dock, airlock, crane, hold or scrap yard is missing")
+	_expect(game.office.find_children("*", "MeshInstance3D", true, false).filter(func(m): return String(m.get_meta("nw_name", "")) == "HallLEnd").is_empty(), "the left hall still has its end wall")
+	var route_l: Array = yard.legs_to("ravelle", "D:L3")
+	_expect(route_l.size() >= 5 and String(route_l[0]["key"]) == "C:airlock" and String(route_l[route_l.size() - 1]["key"]) == "D:L3" and (route_l[0]["p"] as Vector3).x < -25.0, "Ravelle's walk does not start at the airlock and end at the left gantry")
 	game.queue_free()
+	await host.get_tree().process_frame
+	var live := _shift(host, 3, 21)
+	await host.get_tree().process_frame
+	live.manual_clock = false
+	live.start_shift([])
+	var rav := live._models["ravelle"] as Node3D
+	_expect(rav.position.x < -20.0, "Ravelle did not start her shift at the airlock (x %.1f)" % rav.position.x)
+	for i in 120:
+		live._animate_models(0.1)
+	_expect(rav.position.distance_to(live.office.global_position + CargoBay.hall_stand("doorL", int(live.sim.s["ravelle"]["dist"]))) < 0.5, "Ravelle did not walk in from the airlock to the end of her gantry")
+	live.sim.s["ysolde"]["state"] = "knock"
+	live._place_hunters()
+	var ysm := live._models["ysolde"] as Node3D
+	_expect(ysm.visible and ysm.position.z > 12.0, "Ysolde does not start her knock at the crane")
+	for i in 60:
+		live._animate_models(0.1)
+	_expect(ysm.position.distance_to(live.office.global_position + CargoBay.YARD_STAND) < 0.5, "Ysolde did not cross the yard to the window")
+	live.manual_clock = true
+	live.queue_free()
 	await host.get_tree().process_frame
 	# a loss: an unanswered door ends the night with the CAUGHT card
 	var lose := _shift(host, 1, 5)

@@ -57,7 +57,7 @@ rebinds had nowhere to live.
 
 | Action | Default | Notes |
 |---|---|---|
-| `nw_monitor` | U | opens / closes the monitor (use closes it too) |
+| `nw_monitor` | **Space** (U kept as an alias) | opens / closes the monitor like the 2D game's Space (use closes it too); the shared jump is switched off in Night Watch (`jump_enabled = false` in `night_watch_player.tscn`), so Space never jumps; a rebind replaces both keys |
 | `nw_cam_prev` / `nw_cam_next` | Left / Right, gamepad d-pad left / right | cycle the eight cameras, wrapping |
 | `nw_cam_1` .. `nw_cam_8` | 1-8 and the number pad | pick a camera; only inside the monitor (they do nothing with it down) |
 | `nw_door_left` / `nw_door_right` | Z / X | quick keys (also by aiming and using the panels) |
@@ -79,3 +79,24 @@ rebinds had nowhere to live.
 
 The call text (and the ZELLIA name and Mute button) are now 5 px on the 480x270 base (they were 7 / 6 / 6): the 2D box is `.ncall { font-size: .7em }` of the stage's `2.6cqh`, i.e. 1.8% of the screen height (4.9 px of 270), so 7 was 1.4x too big. The box scales with the viewport (canvas_items), so it is 13 px at 1280x720 and 20 px at 1920x1080; the text wraps inside the box and never meets the name or the Mute button (`night_watch_calls` checks the box and `hud_overlap` the HUD).
 ![before and after](night_watch_ui/call_font_before_after.png)
+
+### The camera screen: CLOSE CAMERAS and the key guide
+
+While the monitor is up the picture sits above a strip with a **CLOSE CAMERAS  SPACE** button (mouse, keyboard or gamepad focus; it names the live key from `NightWatchControls`, so a rebind shows) and a guide line
+with the camera keys (`Left / Right or 1-8 camera · Space or E close · R mute`, plus `O meet her eyes` on Night 7). The strip is under the picture, the camera map and the labels are untouched, and the
+background hint line and CAMERAS button are hidden while the screen is up. `night_watch_keys` checks it at 480x270, 1280x720 and 1920x1080 (inside the screen, clear of the picture / map / labels, focusable,
+clickable, names the key, follows a rebind).
+![camera screen](night_watch_ui/camera_screen_close_guide.png)
+
+### The camera map (minimap), data-driven for every mode
+
+`NightWatchCamMap` (`src/night_watch/night_watch_cam_map.gd`) draws the camera screen's minimap in the style of the 2D game's cam map and FNAF's tablet: a schematic floor plan in the corner, a **CAM n** button at the
+position of every camera room, the active camera lit (amber), the routes between rooms as lines (vent shafts dashed), and a **YOU** marker with dashed lines from the entrances. It is built from the mode's layout
+(`NightWatchMapRegistry.layout_for(mode)`): positions come from the layout's room centres (scaled into the box, buttons pushed apart or, if too crowded, packed on a grid), so each mode's map is its own. The HUD
+takes it with `hud.set_cam_layout(layout)` (Classic's by default); the feed label ("CAM 4  WEST HALL"), the highlight (`set_cam`) and `camera_selected` all come from it. Fixed-size slots keep a button inside its box whatever the theme does.
+![Classic camera map](night_watch_ui/camera_map_classic.png)
+
+**What a mode supplies** in its `map_layout()` (see `docs/NIGHT_WATCH_OFFICES.md`, Maps): `rooms` {id: Vector3 centre}, `edges`, `entrances`, plus for the camera screen `cams` (camera rooms in order; camera n is `cams[n-1]`),
+`labels` {room: name}, `vents` (vent-shaft room ids; optional) and `office` (optional). A mode with a monitor must give `cams` and `labels`, and call `hud.set_cam_layout(NightWatchMapRegistry.layout_for(mode_id))`
+instead of building its own buttons. Suite `night_watch_cammap` checks every provided layout (and a crowded synthetic one): each camera once, rooms reachable from the entrances, the map and buttons inside the
+screen at 480x270 / 1280x720 / 1920x1080, no overlapping buttons, nothing over the picture labels or the close strip, the highlight follows the selection, a button selects its camera.

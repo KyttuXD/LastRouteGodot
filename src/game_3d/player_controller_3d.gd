@@ -70,6 +70,17 @@ var first_person_items: Node3D
 var flashlight_view: Node3D
 var taser_view: Node3D
 var tool_views := {}
+## Replicated with the movement state: every committed swing bumps the counter, so a peer plays one swing per increment (and plays the thud
+## when the swing connected). A swing that hits nothing is a harmless whoosh: no durability, no noise, no deny blip.
+var tool_swing_seq := 0
+var tool_swing_item := ""
+var tool_swing_hit := false
+## Extra scene hook: returns true when the scene (a safe room to repair, a grabbed teammate) has a use for this tool right here.
+var tool_context_probe := Callable()
+var _noise_burst := 0.0
+var _noise_burst_timer := 0.0
+var _swing_busy_until_msec := 0
+var _viewmodel_push := 0.0
 var taser_cooldown := 0.0
 var _flashlight_lens_material: StandardMaterial3D
 var _flashlight_probe: RayCast3D
@@ -80,8 +91,8 @@ var flashlight_hit_distance := FLASHLIGHT_MAX_RANGE
 var _flashlight_item_tween: Tween
 var _taser_item_tween: Tween
 var _tool_item_tween: Tween
-const FLASHLIGHT_ITEM_POSITION := Vector3(0.27, -0.22, -0.52)
-const TASER_ITEM_POSITION := Vector3(-0.24, -0.22, -0.50)
+const FLASHLIGHT_ITEM_POSITION := Vector3(0.27, -0.24, -0.52)
+const TASER_ITEM_POSITION := Vector3(-0.24, -0.24, -0.50)
 const UTILITY_ITEM_POSITION := Vector3(.25, -.24, -.58)
 const ITEM_MODEL_PATHS := {
 	"flashlight": "res://art/props-3d/interactables/flashlight_item.glb",
@@ -116,12 +127,22 @@ const INVENTORY_MAX_DURABILITY := {
 	"flashlight": 100, "lockpick": 12, "crowbar": 40, "rescue_axe": 24,
 }
 const BREACH_TOOLS := ["crowbar", "rescue_axe"]
+## The rescue axe is the heavy tool: a committed chop costs a quarter of its life (24 -> four chops), clears two boards at once, is loud enough
+## for hunters to hear across a room, and is the one thing that cuts the player (or a teammate) out of a hunter's hold.
+const TOOL_SWING_COST := {"crowbar": 1, "rescue_axe": 6}
+const AXE_BREAK_FREE_COST := 8
+const AXE_NOISE := 18.0
+const AXE_NOISE_SECONDS := 0.9
+const VIEWMODEL_PUSH_RANGE := 1.0
+const VIEWMODEL_MAX_PUSH := 0.65
 const LOCK_TOOLS := ["lockpick", "crowbar"]
 const FRIENDLY_FIRE_ENABLED := false
 ## Games without items (Night Watch) switch the inventory off by configuration, not by forking the controller: the flashlight stays as a built-in tool in
 ## the hand (toggle action, sound and spot light as ever) and never drains; the slot keys, the wheel, drop, tool use, the taser, pickups and backpacks do nothing.
 ## The default (true) is Last Route's and the City's.
 @export var inventory_enabled := true
+## Night Watch gives Space to the cameras (the 2D game's camera toggle): its player scene switches jumping off by configuration; the default (true) is Last Route's and the City's.
+@export var jump_enabled := true
 var selected_inventory_slot := 0
 ## Five physical inventory slots. Empty strings are real empty spaces rather
 ## than hidden catalog entries, so dragging into a blank slot behaves like an
@@ -674,6 +695,8 @@ func _update_admin_noclip(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_controller_look(delta)
+	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
+	_update_viewmodel_push(delta)
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
@@ -766,6 +789,8 @@ func _physics_process(delta: float) -> void:
 	movement_speed *= admin_speed_scale
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
+	if _noise_burst_timer > 0.0:
+		noise = maxf(noise, _noise_burst)
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,
@@ -911,7 +936,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := _jump_requested or Input.is_action_just_pressed("jump")
+	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false
@@ -1168,13 +1193,13 @@ func _build_first_person_items() -> void:
 
 	flashlight_view = Node3D.new()
 	flashlight_view.name = "FlashlightView"
-	flashlight_view.position = FLASHLIGHT_ITEM_POSITION
+	flashlight_view.position = HeldItemPoses.first_person_hand("flashlight")
 	first_person_items.add_child(flashlight_view)
 	_add_authored_item_model(flashlight_view, "flashlight", .50)
 
 	taser_view = Node3D.new()
 	taser_view.name = "TaserView"
-	taser_view.position = TASER_ITEM_POSITION
+	taser_view.position = HeldItemPoses.first_person_hand("taser")
 	first_person_items.add_child(taser_view)
 	_add_authored_item_model(taser_view, "taser", .50)
 	taser_view.visible = false
@@ -1189,7 +1214,7 @@ func _build_first_person_items() -> void:
 func _build_utility_view(item_id: String) -> void:
 	var view := Node3D.new()
 	view.name = "%sView" % item_id.to_pascal_case()
-	view.position = UTILITY_ITEM_POSITION
+	view.position = HeldItemPoses.first_person_hand(item_id)
 	first_person_items.add_child(view)
 	var scale_amount := .52 if item_id == "lockpick" else .43
 	if item_id == "battery":
@@ -1204,9 +1229,13 @@ func _add_authored_item_model(view: Node3D, item_id: String, scale_amount: float
 	var model := ModelSlot.instantiate_prop(model_path)
 	if model:
 		model.name = "AuthoredToolModel"
-		model.scale = Vector3.ONE * scale_amount
-		model.rotation.x = deg_to_rad(-72.0)
-		model.position = Vector3(0, -.02, -.18)
+		if HeldItemPoses.FIRST_PERSON.has(item_id):
+			# held by the grip, which is the view's origin: swings and the push-back pivot around the handle
+			model.transform = HeldItemPoses.first_person_transform(item_id)
+		else:
+			model.scale = Vector3.ONE * scale_amount
+			model.rotation.x = deg_to_rad(-72.0)
+			model.position = Vector3(0, -.02, -.18)
 		_disable_first_person_shadows(model)
 		view.add_child(model)
 	else:
@@ -1696,19 +1725,166 @@ func _use_selected_tool() -> void:
 	var item_id := selected_inventory_item()
 	if not BREACH_TOOLS.has(item_id) and not LOCK_TOOLS.has(item_id):
 		return   # not a tool: a click with it is silent
-	# A committed swing/use spends durability before any hit result. This makes
-	# ally hits cost the tool without ever creating friendly-fire damage.
-	if not consume_item_durability(item_id):
+	if Time.get_ticks_msec() < _swing_busy_until_msec:
+		return   # mid-swing
+	var target := _tool_target()
+	var context := tool_context_probe.is_valid() and bool(tool_context_probe.call(item_id))
+	if target != null and not _tool_fits_target(item_id, target):
+		# a target is right there but this tool cannot work it: say why, spend nothing
+		target.activate_with_tool(self, item_id, false)
 		Sound.interaction_fail()
 		return
-	_animate_tool_use(item_id)
+	if target == null and not context:
+		# nothing to work: the axe and crowbar still swing (a whoosh), everything else stays silent
+		if HeldItemPoses.SWINGS.has(item_id):
+			_begin_tool_swing(item_id, false)
+		return
+	# A committed swing spends durability before any hit result. This makes ally hits cost the tool without ever creating friendly-fire damage.
+	if not consume_item_durability(item_id, int(TOOL_SWING_COST.get(item_id, 1))):
+		Sound.interaction_fail()
+		return
+	_begin_tool_swing(item_id, true)
 	tool_used.emit(item_id)
+	if target != null:
+		var impact_delay := _swing_impact_delay(item_id)
+		if impact_delay > 0.0:
+			await get_tree().create_timer(impact_delay).timeout
+		if is_instance_valid(target) and is_inside_tree():
+			target.activate_with_tool(self, item_id, true)
+			if target.last_activation_failed:
+				Sound.interaction_fail()
+
+
+## The boarded path or locked cache the player is aiming at, or null.
+func _tool_target() -> RouteInteractable3D:
 	var target := _nearest_interactable()
 	if target != null and (target.kind == RouteInteractable3D.Kind.BOARDED_PATH \
 			or (target.kind == RouteInteractable3D.Kind.RELAY and target.locked_cache)):
-		target.activate_with_tool(self, item_id, true)
-		if target.last_activation_failed:
-			Sound.interaction_fail()
+		return target
+	return null
+
+
+func _tool_fits_target(item_id: String, target: RouteInteractable3D) -> bool:
+	if target.kind == RouteInteractable3D.Kind.BOARDED_PATH:
+		return BREACH_TOOLS.has(item_id)
+	return LOCK_TOOLS.has(item_id)
+
+
+func _swing_impact_delay(item_id: String) -> float:
+	var swing: Dictionary = HeldItemPoses.SWINGS.get(item_id, {})
+	return float(swing.get("windup", 0.0)) + float(swing.get("strike", 0.0))
+
+
+## Starts a swing: first-person arc around the grip, the replicated counter for everyone else, and (on a hit) noise, thud, debris and a light
+## camera kick timed to the end of the strike. Any caller (a board, a grabbed teammate, the escape struggle) goes through here.
+func _begin_tool_swing(item_id: String, hit: bool) -> void:
+	_animate_tool_use(item_id)
+	var swing: Dictionary = HeldItemPoses.SWINGS.get(item_id, {})
+	var total := float(swing.get("windup", 0.0)) + float(swing.get("strike", 0.0)) + float(swing.get("recover", 0.0))
+	_swing_busy_until_msec = Time.get_ticks_msec() + int(total * 1000.0) if not swing.is_empty() else 0
+	tool_swing_seq += 1
+	tool_swing_item = item_id
+	tool_swing_hit = hit
+	if swing.is_empty():
+		return
+	if item_id == "rescue_axe":
+		Sound.axe_swing()
+	if not hit:
+		return
+	await get_tree().create_timer(_swing_impact_delay(item_id)).timeout
+	if not is_inside_tree():
+		return
+	if item_id == "rescue_axe":
+		Sound.axe_chop()
+		emit_noise_burst(AXE_NOISE, AXE_NOISE_SECONDS)
+	else:
+		Sound.door_breach()
+	spawn_chop_debris()
+	kick_view(.012 if item_id == "rescue_axe" else .006)
+
+
+## The rescue axe cutting its owner out of a hunter's hold (input is frozen then, so this bypasses the normal use gate).
+func swing_axe_for_escape() -> void:
+	_swing_busy_until_msec = 0
+	_begin_tool_swing("rescue_axe", true)
+
+
+func emit_noise_burst(level: float, seconds: float) -> void:
+	_noise_burst = maxf(_noise_burst if _noise_burst_timer > 0.0 else 0.0, level)
+	_noise_burst_timer = maxf(_noise_burst_timer, seconds)
+	noise = maxf(noise, _noise_burst)
+
+
+## Wood chips and dust where the tool lands, in front of the camera.
+func spawn_chop_debris() -> void:
+	var camera := active_camera()
+	if camera == null or DisplayServer.get_name() == "headless":
+		return
+	var chips := CPUParticles3D.new()
+	chips.name = "ChopDebris"
+	chips.one_shot = true
+	chips.amount = 18
+	chips.lifetime = .55
+	chips.explosiveness = 1.0
+	chips.emitting = false
+	var chip_mesh := BoxMesh.new()
+	chip_mesh.size = Vector3(.045, .018, .018)
+	chips.mesh = chip_mesh
+	var chip_material := StandardMaterial3D.new()
+	chip_material.albedo_color = Color("9a6b3c")
+	chips.material_override = chip_material
+	chips.direction = Vector3(0, .6, 1)
+	chips.spread = 55.0
+	chips.initial_velocity_min = 1.6
+	chips.initial_velocity_max = 3.4
+	chips.gravity = Vector3(0, -9.0, 0)
+	chips.angular_velocity_min = -360.0
+	chips.angular_velocity_max = 360.0
+	chips.top_level = true
+	get_tree().current_scene.add_child(chips)
+	chips.global_position = camera.global_position - camera.global_basis.z * 1.15 - Vector3(0, .25, 0)
+	chips.look_at(chips.global_position + camera.global_basis.z, Vector3.UP)
+	chips.restart()
+	chips.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(chips.queue_free)
+
+
+## A short camera nudge (screen shake) that settles on its own; never touches the look direction.
+func kick_view(amount: float) -> void:
+	if first_person_camera == null or xr_active:
+		return
+	var tween := create_tween().set_trans(Tween.TRANS_SINE)
+	tween.tween_property(first_person_camera, "v_offset", -amount, .05)
+	tween.parallel().tween_property(first_person_camera, "h_offset", amount * .6, .05)
+	tween.tween_property(first_person_camera, "v_offset", 0.0, .16)
+	tween.parallel().tween_property(first_person_camera, "h_offset", 0.0, .16)
+
+
+## Keeps the viewmodel out of walls: when geometry is close in front of the camera the whole hand slides back (and drops a little) instead of
+## the tool head poking through.
+func _update_viewmodel_push(delta: float) -> void:
+	if first_person_items == null or first_person_camera == null or not first_person_items.visible:
+		return
+	var origin := first_person_camera.global_position
+	var forward := -first_person_camera.global_basis.z
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + forward * VIEWMODEL_PUSH_RANGE, 1)
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var wanted := 0.0
+	if not hit.is_empty():
+		wanted = viewmodel_push_for(origin.distance_to(hit["position"] as Vector3),
+			float(HeldItemPoses.REACH.get(selected_inventory_item(), .95)))
+	_viewmodel_push = move_toward(_viewmodel_push, wanted, delta * 3.0 if wanted > _viewmodel_push else delta * 1.4)
+	first_person_items.position = viewmodel_offset(_viewmodel_push)
+
+
+## How far the hand slides back when a wall is `wall_distance` in front of the camera and the held model reaches `reach` forward.
+static func viewmodel_push_for(wall_distance: float, reach: float) -> float:
+	return clampf(reach - wall_distance + .04, 0.0, VIEWMODEL_MAX_PUSH)
+
+
+static func viewmodel_offset(push: float) -> Vector3:
+	return Vector3(0.0, -push * .25, push)
 
 
 func _animate_tool_use(item_id: String) -> void:
@@ -1717,14 +1893,31 @@ func _animate_tool_use(item_id: String) -> void:
 		return
 	if _tool_item_tween and _tool_item_tween.is_valid():
 		_tool_item_tween.kill()
-	view.position = UTILITY_ITEM_POSITION
+	var hand := HeldItemPoses.first_person_hand(item_id)
+	view.position = hand
 	view.rotation = Vector3.ZERO
+	var swing: Dictionary = HeldItemPoses.SWINGS.get(item_id, {})
 	_tool_item_tween = create_tween().set_trans(Tween.TRANS_QUAD)
-	_tool_item_tween.tween_property(view, "rotation:z", -.72, .09)
-	_tool_item_tween.parallel().tween_property(view, "position",
-		UTILITY_ITEM_POSITION + Vector3(-.10, .04, -.06), .09)
-	_tool_item_tween.tween_property(view, "rotation:z", 0.0, .16)
-	_tool_item_tween.parallel().tween_property(view, "position", UTILITY_ITEM_POSITION, .16)
+	if swing.is_empty():
+		_tool_item_tween.tween_property(view, "rotation:z", -.72, .09)
+		_tool_item_tween.parallel().tween_property(view, "position",
+			hand + Vector3(-.10, .04, -.06), .09)
+		_tool_item_tween.tween_property(view, "rotation:z", 0.0, .16)
+		_tool_item_tween.parallel().tween_property(view, "position", hand, .16)
+		return
+	# overhead arc around the grip: head back and up, then down through the target, then settle
+	var arc := deg_to_rad(float(swing["arc"]))
+	_tool_item_tween.tween_property(view, "rotation:x", arc * .70, float(swing["windup"]))\
+		.set_ease(Tween.EASE_OUT)
+	_tool_item_tween.parallel().tween_property(view, "position", hand + Vector3(.02, .05, .06),
+		float(swing["windup"]))
+	_tool_item_tween.tween_property(view, "rotation:x", -arc * 1.15, float(swing["strike"]))\
+		.set_ease(Tween.EASE_IN)
+	_tool_item_tween.parallel().tween_property(view, "position", hand + Vector3(-.03, -.05, -.12),
+		float(swing["strike"]))
+	_tool_item_tween.tween_property(view, "rotation:x", 0.0, float(swing["recover"]))\
+		.set_ease(Tween.EASE_OUT)
+	_tool_item_tween.parallel().tween_property(view, "position", hand, float(swing["recover"]))
 
 
 func _refresh_inventory_view() -> void:

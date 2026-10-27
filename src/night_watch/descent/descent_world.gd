@@ -137,6 +137,16 @@ func _build_shaft() -> void:
 		for x in [-3.2, 3.2]:
 			_c(dress, Vector3(0.35, 0.25, 4.6), Vector3(x, y + 0.5, -3.6), "BeamArm", {"kind": "metal", "tint": Color(0.5, 0.5, 0.58)})
 		_c(dress, Vector3(0.5, 0.18, 0.08), Vector3(-3.9, y + 1.0, -5.8), "Sign", {"tint": Color(0.9, 0.7, 0.3)})
+		# the stairwell level: a landing on the left wall and a flight of steps up to the next one
+		_c(dress, Vector3(1.0, 0.15, 1.2), Vector3(-3.7, y, -5.2), "StairLanding", {"kind": "metal", "tint": Color(0.55, 0.55, 0.6)})
+		for i in 5:
+			_c(dress, Vector3(0.7, 0.12, 0.42), Vector3(-3.8, y + 0.12 + 0.55 * float(i), -4.5 + 0.5 * float(i)), "StairStep", {"kind": "metal", "tint": Color(0.5, 0.5, 0.55)})
+		# the service pipes on the right wall with a valve and a fuse box per level, a label by the landing
+		for dx in [0.0, 0.22, 0.44]:
+			_c(dress, Vector3(0.14, 3.0, 0.14), Vector3(3.6 + dx, y + 1.5, -5.7), "PipeRun", {"kind": "metal", "tint": Color(0.6, 0.45, 0.35) if dx < 0.3 else Color(0.5, 0.55, 0.65)})
+		_c(dress, Vector3(0.36, 0.3, 0.3), Vector3(3.8, y + 1.2, -5.5), "PipeValve", {"kind": "metal", "tint": Color(0.8, 0.25, 0.2)})
+		_c(dress, Vector3(0.7, 0.5, 0.2), Vector3(1.6, y + 1.5, -6.05), "FuseCabinet", {"kind": "metal", "tint": Color(0.45, 0.5, 0.5)})
+		_c(dress, Vector3(0.08, 0.08, 0.04), Vector3(1.8, y + 1.6, -5.92), "LedLevel", {})
 	for x in [-3.9, -1.9, 1.9, 3.9]:
 		_c(dress, Vector3(0.15, 24.0, 0.15), Vector3(x, 0.0, -5.9), "RailTall", {"kind": "metal", "tint": Color(0.6, 0.6, 0.65)})
 

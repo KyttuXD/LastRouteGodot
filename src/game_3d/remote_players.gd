@@ -45,6 +45,8 @@ var _remote_flashlights := {}
 var _remote_hand_anchors := {}
 var _remote_held_items := {}
 var _remote_held_item_ids := {}
+var _remote_swing_seq := {}
+var _remote_swing_tweens := {}
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 var _floor_exit_marks := {}
@@ -166,6 +168,9 @@ func _local_state() -> Dictionary:
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
 		"selected_item": controller.selected_inventory_item(),
+		"tool_swing_seq": controller.tool_swing_seq,
+		"tool_swing_item": controller.tool_swing_item,
+		"tool_swing_hit": controller.tool_swing_hit,
 		"selected_inventory_slot": controller.selected_inventory_slot,
 		"owned_items": controller.inventory_owned_snapshot(),
 		"item_durability": controller.inventory_durability_snapshot(),
@@ -379,11 +384,57 @@ func _sync_remote_equipment(id: int, body: Node3D, state: Dictionary) -> void:
 	if not REMOTE_HELD_MODELS.has(selected):
 		selected = ""
 	_sync_remote_held_item(id, body, selected)
+	_sync_remote_swing(id, body, state)
 	var flashlight_held := selected == "flashlight" \
 		and float(state.get("lamp_charge", 0.0)) > 0.0
 	light.visible = body.visible and flashlight_held \
 		and bool(state.get("flashlight_on", false))
 	_update_remote_equipment_pose(id, body, state)
+
+
+## Plays one swing on the remote hand anchor per increment of the replicated counter (the first packet only adopts it, so joining mid-game
+## never replays an old swing), and the thud when the swing connected, quieter with distance.
+func _sync_remote_swing(id: int, body: Node3D, state: Dictionary) -> void:
+	var seq := int(state.get("tool_swing_seq", 0))
+	if not _remote_swing_seq.has(id):
+		_remote_swing_seq[id] = seq
+		return
+	if seq == int(_remote_swing_seq[id]):
+		return
+	_remote_swing_seq[id] = seq
+	var item_id := String(state.get("tool_swing_item", ""))
+	var swing: Dictionary = HeldItemPoses.SWINGS.get(item_id, {})
+	var anchor := _remote_hand_anchors.get(id) as Node3D
+	if swing.is_empty() or anchor == null or not body.visible:
+		return
+	play_remote_swing(id, anchor, item_id, bool(state.get("tool_swing_hit", false)))
+
+
+func play_remote_swing(id: int, anchor: Node3D, item_id: String, hit: bool) -> void:
+	var swing: Dictionary = HeldItemPoses.SWINGS.get(item_id, {})
+	if swing.is_empty() or anchor == null:
+		return
+	var running := _remote_swing_tweens.get(id) as Tween
+	if running != null and running.is_valid():
+		running.kill()
+	var arc := deg_to_rad(float(swing["arc"]))
+	var tween := create_tween().set_trans(Tween.TRANS_QUAD)
+	_remote_swing_tweens[id] = tween
+	anchor.rotation.x = 0.0
+	# positive x tips the head toward the avatar's back; the strike goes forward and down through the target
+	tween.tween_property(anchor, "rotation:x", arc * .70, float(swing["windup"])).set_ease(Tween.EASE_OUT)
+	tween.tween_property(anchor, "rotation:x", -arc * 1.15, float(swing["strike"])).set_ease(Tween.EASE_IN)
+	tween.tween_property(anchor, "rotation:x", 0.0, float(swing["recover"])).set_ease(Tween.EASE_OUT)
+	var local := local_player as Node3D
+	var distance := 0.0 if local == null else local.global_position.distance_to(anchor.global_position)
+	var gain := clampf(1.0 - distance / 22.0, 0.0, 1.0)
+	if gain <= 0.0:
+		return
+	if item_id == "rescue_axe":
+		Sound.axe_swing(0.0, gain)
+		if hit:
+			get_tree().create_timer(float(swing["windup"]) + float(swing["strike"])).timeout.connect(
+				func() -> void: Sound.axe_chop(0.0, gain))
 
 
 ## Backwards-compatible name retained for focused validators and any finite
@@ -412,7 +463,9 @@ func _sync_remote_held_item(id: int, body: Node3D, selected: String) -> void:
 	if item == null:
 		return
 	item.name = "PeerHeld%s" % selected.to_pascal_case()
-	item.scale = Vector3.ONE * float(REMOTE_HELD_SCALES.get(selected, .32))
+	# held by the grip (the anchor is the hand), long tools upright and leaning forward
+	item.transform = HeldItemPoses.third_person_transform(selected,
+		float(REMOTE_HELD_SCALES.get(selected, .32)))
 	item.visible = body.visible
 	anchor.add_child(item)
 	_remote_held_items[id] = item
@@ -479,6 +532,8 @@ func _drop(id: int) -> void:
 	_remote_hand_anchors.erase(id)
 	_remote_held_items.erase(id)
 	_remote_held_item_ids.erase(id)
+	_remote_swing_seq.erase(id)
+	_remote_swing_tweens.erase(id)
 	_states.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)
@@ -749,7 +804,7 @@ func _request_interaction(event: Dictionary) -> void:
 			"vent_used", "zephyra_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint"].has(what):
+			"stream_waypoint", "stream_axe_rescue"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":

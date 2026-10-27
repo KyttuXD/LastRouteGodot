@@ -100,11 +100,13 @@ const PANEL_GAP := 4.0
 const MINIMAP_SIZE := Vector2(88, 72)
 const FPS_WIDTH := 78.0
 const MIN_TEXT_PIXELS := 12.0
+const MESSAGE_TOP := 49.0
 ## The floor never pushes text past this many HUD units, so a 480x270 pixel window (1 pixel per unit) stays usable.
 const MAX_FLOOR_UNITS := 9
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	_apply_scheme_frames()
 	status_bar = HudStatusBar.new()
 	add_child(status_bar)
 	_build_zone_panel()
@@ -863,8 +865,8 @@ static func _put(control: Control, position: Vector2, size: Vector2) -> void:
 
 
 ## Content-sized, margin-safe placement of the top panels. Every panel is sized from its own minimum size
-## (never a fixed height with dead space) and the stack runs: status bar, stats panel, message toast, all top
-## centre; minimap (or zone name) top right; FPS top left. The bar yields width to the side columns.
+## (never a fixed height with dead space) and the layout: status bar and message toast top centre; minimap (or zone
+## name) with the stats panel under it in the right column; FPS top left. The bar yields width to the side columns.
 func _layout_hud() -> void:
 	var view := get_viewport().get_visible_rect().size
 	# text stays at least MIN_TEXT_PIXELS tall on screen: window pixels per HUD unit decides the unit size
@@ -876,27 +878,51 @@ func _layout_hud() -> void:
 	var has_map := _minimap_available and minimap.has_data()
 	minimap_panel.visible = has_map
 	_zone_panel.visible = not has_map and not _zone_label.text.is_empty()
+	var right_edge := view.x - SAFE_MARGIN
 	var right_w := 0.0
+	var slot_h := MINIMAP_SIZE.y   # the minimap's slot stays reserved while it has no data (layout contract: stats right/top)
 	if has_map:
-		_put(minimap_panel, Vector2(view.x - SAFE_MARGIN - MINIMAP_SIZE.x, SAFE_MARGIN), MINIMAP_SIZE)
+		_put(minimap_panel, Vector2(right_edge - MINIMAP_SIZE.x, SAFE_MARGIN), MINIMAP_SIZE)
 		right_w = MINIMAP_SIZE.x
 	elif _zone_panel.visible:
 		var zone_size := _zone_panel.get_combined_minimum_size()
-		_put(_zone_panel, Vector2(view.x - SAFE_MARGIN - zone_size.x, SAFE_MARGIN), zone_size)
+		_put(_zone_panel, Vector2(right_edge - zone_size.x, SAFE_MARGIN), zone_size)
 		right_w = zone_size.x
+		slot_h = zone_size.y
+	# stats panel: right column under the minimap / zone name, content-sized
+	var objective := get_node("ObjectivePanel") as Control
+	var stats := objective.get_combined_minimum_size()
+	_put(objective, Vector2(right_edge - stats.x, SAFE_MARGIN + slot_h + PANEL_GAP), stats)
+	right_w = maxf(right_w, stats.x)
 	var fps_size := Vector2(maxf(FPS_WIDTH, fps_label.get_minimum_size().x), fps_label.get_minimum_size().y)
 	_put(fps_label, Vector2(SAFE_MARGIN, SAFE_MARGIN), fps_size)
 	var side := SAFE_MARGIN + maxf(fps_size.x, right_w) + PANEL_GAP
 	var available := maxf(60.0, view.x - 2.0 * side)
-	var y := SAFE_MARGIN
 	if status_bar.visible:
 		status_bar.fit(available, maxi(7, floor_units))
 		var bar_size := status_bar.get_combined_minimum_size()
-		_put(status_bar, Vector2((view.x - bar_size.x) * .5, y), bar_size)
-		y += bar_size.y + PANEL_GAP
-	var objective := get_node("ObjectivePanel") as Control
-	var stats := objective.get_combined_minimum_size()
-	_put(objective, Vector2((view.x - stats.x) * .5, y), stats)
-	y += stats.y + PANEL_GAP
+		_put(status_bar, Vector2((view.x - bar_size.x) * .5, SAFE_MARGIN), bar_size)
+	# the toast keeps its fixed top-centre line under the status bar
 	var toast_w := minf(340.0, available)
-	_put(message_label, Vector2((view.x - toast_w) * .5, y), Vector2(toast_w, message_label.get_minimum_size().y))
+	_put(message_label, Vector2((view.x - toast_w) * .5, MESSAGE_TOP),
+		Vector2(toast_w, message_label.get_minimum_size().y))
+
+
+## The panel frames in hud.tscn are scene-file colours: Last Route keeps them as authored, other games' schemes
+## (the City's navy glass) repaint them from Palette. The frame resource is shared by every HUD panel and by every
+## HUD instance, so the authored values are remembered the first time and put back for Last Route.
+func _apply_scheme_frames() -> void:
+	var frame := (get_node("ObjectivePanel") as Control).get_theme_stylebox("panel") as StyleBoxFlat
+	if frame == null:
+		return
+	if not frame.has_meta("authored"):
+		frame.set_meta("authored", [frame.bg_color, frame.border_color, frame.corner_radius_top_left])
+	var authored: Array = frame.get_meta("authored")
+	if Palette.scheme_id == "last_route":
+		frame.bg_color = authored[0]
+		frame.border_color = authored[1]
+		frame.set_corner_radius_all(int(authored[2]))
+	else:
+		frame.bg_color = Color(Palette.PANEL, 0.9)
+		frame.border_color = Palette.PANEL_EDGE
+		frame.set_corner_radius_all(Palette.CORNER)

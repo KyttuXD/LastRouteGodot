@@ -70,7 +70,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
-	"inventory", "drop_item", "chat", "toggle_map", "pause",
+	"inventory", "drop_item", "chat", "toggle_map", "waypoint", "waypoint_clear", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",
@@ -96,6 +96,13 @@ var pause_on_focus_loss := false
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
+## Waypoint HUD (docs/WAYPOINTS.md): guidance "off" (pin only), "arrow" (pin + screen-edge arrow), "path" (+ floor chevrons).
+const WAYPOINT_GUIDANCE_MODES := ["off", "arrow", "path"]
+var waypoint_guidance := "arrow"
+var waypoint_show_distance := true
+var waypoint_scale := 1.0
+var waypoint_opacity := 0.9
+var waypoint_arrival_chime := true
 var _admin_preferences: Dictionary = ADMIN_PREFERENCE_DEFAULTS.duplicate()
 
 var _master_bus_index := -1
@@ -205,6 +212,35 @@ func set_field_of_view(value: float) -> void:
 
 func set_mouse_sensitivity(value: float) -> void:
 	mouse_sensitivity = clampf(value, MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
+	_save()
+
+
+func set_waypoint_guidance(mode: String) -> void:
+	waypoint_guidance = mode if WAYPOINT_GUIDANCE_MODES.has(mode) else "arrow"
+	_save()
+	visual_changed.emit()
+
+
+func set_waypoint_show_distance(on: bool) -> void:
+	waypoint_show_distance = on
+	_save()
+	visual_changed.emit()
+
+
+func set_waypoint_scale(value: float) -> void:
+	waypoint_scale = clampf(value, .6, 1.6)
+	_save()
+	visual_changed.emit()
+
+
+func set_waypoint_opacity(value: float) -> void:
+	waypoint_opacity = clampf(value, .3, 1.0)
+	_save()
+	visual_changed.emit()
+
+
+func set_waypoint_arrival_chime(on: bool) -> void:
+	waypoint_arrival_chime = on
 	_save()
 
 
@@ -393,6 +429,12 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
+	var guidance := String(config.get_value("waypoint", "guidance", "arrow"))
+	waypoint_guidance = guidance if WAYPOINT_GUIDANCE_MODES.has(guidance) else "arrow"
+	waypoint_show_distance = bool(config.get_value("waypoint", "show_distance", true))
+	waypoint_scale = clampf(float(config.get_value("waypoint", "scale", 1.0)), .6, 1.6)
+	waypoint_opacity = clampf(float(config.get_value("waypoint", "opacity", .9)), .3, 1.0)
+	waypoint_arrival_chime = bool(config.get_value("waypoint", "arrival_chime", true))
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
@@ -404,8 +446,10 @@ func _load() -> void:
 		config.get_value("controls", "mouse_sensitivity", DEFAULT_MOUSE_SENSITIVITY),
 		MIN_MOUSE_SENSITIVITY, MAX_MOUSE_SENSITIVITY)
 	for action in REBINDABLE_ACTIONS:
-		var saved = config.get_value("controls", action, null)
-		if saved == null or not InputMap.has_action(action):
+		if not config.has_section_key("controls", action) or not InputMap.has_action(action):
+			continue   # never saved (a new action keeps its default binding)
+		var saved = config.get_value("controls", action)
+		if saved == null:
 			continue
 		# Read the original one-integer format so existing player settings migrate
 		# without silently resetting. New saves preserve every keyboard/mouse bind.
@@ -440,6 +484,11 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
+	config.set_value("waypoint", "guidance", waypoint_guidance)
+	config.set_value("waypoint", "show_distance", waypoint_show_distance)
+	config.set_value("waypoint", "scale", waypoint_scale)
+	config.set_value("waypoint", "opacity", waypoint_opacity)
+	config.set_value("waypoint", "arrival_chime", waypoint_arrival_chime)
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
 	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)

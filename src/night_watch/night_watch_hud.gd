@@ -31,6 +31,9 @@ var call_label: Label
 var call_mute: Button
 var pause_button: Button
 var cameras_button: Button
+var close_button: Button
+var _monitor_available := true
+var monitor_guide: Label
 var call_script: NightWatchCallScript
 
 var monitor_root: Control
@@ -40,6 +43,8 @@ var cam_label: Label
 var rec_label: Label
 var static_rect: ColorRect
 var cam_buttons := {}
+var cam_map: NightWatchCamMap
+var cam_layout := {}
 var _static_left := 0.0
 
 var pause_root: Control
@@ -227,7 +232,7 @@ func _build_monitor(root: Control) -> void:
 	ratio.offset_left = 22
 	ratio.offset_right = -22
 	ratio.offset_top = 12
-	ratio.offset_bottom = -12
+	ratio.offset_bottom = -30   # the bottom strip below the picture holds CLOSE CAMERAS and the key guide
 	monitor_root.add_child(ratio)
 	var container := SubViewportContainer.new()
 	container.name = "FeedContainer"
@@ -269,36 +274,48 @@ func _build_monitor(root: Control) -> void:
 	static_rect.offset_left = 22
 	static_rect.offset_right = -22
 	static_rect.offset_top = 12
-	static_rect.offset_bottom = -12
+	static_rect.offset_bottom = -30
 	monitor_root.add_child(static_rect)
-	# the camera map, bottom right
-	var map := Control.new()
-	map.name = "CamMap"
-	map.custom_minimum_size = Vector2(120, 92)
-	map.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	map.position = Vector2(-146, -112)
-	monitor_root.add_child(map)
-	var frame := ColorRect.new()
-	frame.color = Color(0.04, 0.08, 0.06, 0.8)
-	frame.size = Vector2(120, 92)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	map.add_child(frame)
-	for room in NightWatchData.cam_rooms():
-		var info: Dictionary = NightWatchData.ROOMS[room]
-		var b := Button.new()
-		b.name = "Cam_%s" % room
-		b.text = "CAM %d" % int(info["cam"])
-		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(30, 13)
-		b.add_theme_font_size_override("font_size", 6)
-		var p: Vector2 = info["map"]
-		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
-		b.pressed.connect(func(): camera_selected.emit(room))
-		map.add_child(b)
-		cam_buttons[room] = b
-	var you := _label("YOU", 7, AMBER)
-	you.position = Vector2(52, 82)
-	map.add_child(you)
+	# the strip under the picture: a CLOSE CAMERAS button (mouse, keyboard or gamepad focus) and the live key guide
+	var strip := HBoxContainer.new()
+	strip.name = "MonitorStrip"
+	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	strip.offset_left = 22
+	strip.offset_right = -22
+	strip.offset_top = -26
+	strip.offset_bottom = -6
+	strip.add_theme_constant_override("separation", 8)
+	monitor_root.add_child(strip)
+	close_button = Button.new()
+	close_button.name = "CloseCamerasButton"
+	close_button.text = "CLOSE CAMERAS"
+	close_button.focus_mode = Control.FOCUS_ALL
+	close_button.add_theme_font_size_override("font_size", 6)
+	close_button.custom_minimum_size = Vector2(96, 16)
+	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	close_button.pressed.connect(func(): cameras_requested.emit())
+	strip.add_child(close_button)
+	monitor_guide = _label("", 5, Color(0.54, 0.52, 0.45))
+	monitor_guide.name = "MonitorGuide"
+	monitor_guide.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	monitor_guide.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	monitor_guide.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	strip.add_child(monitor_guide)
+	# the camera map, bottom right: a NightWatchCamMap built from the mode's layout (Classic's until the mode sets its own with set_cam_layout)
+	cam_map = NightWatchCamMap.new()
+	cam_map.name = "CamMap"
+	cam_map.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	cam_map.position = Vector2(-146, -128)
+	monitor_root.add_child(cam_map)
+	cam_map.camera_selected.connect(func(room: String): camera_selected.emit(room))
+	set_cam_layout(NightWatchMapRegistry.classic_layout())
+
+
+## Give the camera screen this mode's map: the minimap, the CAM buttons and the room names all come from the layout (NightWatchMapRegistry.layout_for(mode)).
+func set_cam_layout(new_layout: Dictionary) -> void:
+	cam_layout = new_layout
+	cam_map.setup(new_layout)
+	cam_buttons = cam_map.buttons
 
 
 func _build_pause(root: Control) -> void:
@@ -400,24 +417,37 @@ func show_note(text: String, seconds := 2.5) -> void:
 	_note_left = seconds
 
 
+## The camera screen's guide: the CLOSE CAMERAS button names the live key (`close_key`), the line beside it lists the camera keys (NightWatchControls.hint_line(true, ...)).
+func set_monitor_guide(guide: String, close_key: String) -> void:
+	monitor_guide.text = guide
+	close_button.text = "CLOSE CAMERAS  %s" % close_key.to_upper()
+
+
 ## An office without a camera monitor (Bedtime, The Descent, Open Air) hides the CAMERAS button: call with `office.spec.has_monitor`.
 func set_monitor_available(on: bool) -> void:
+	_monitor_available = on
 	if cameras_button != null:
-		cameras_button.visible = on
+		cameras_button.visible = on and not monitor_root.visible
 
 
 func show_monitor(on: bool) -> void:
 	prompt_label.visible = not on
 	monitor_root.visible = on
+	hint_label.visible = not on and not call_panel.visible   # the camera screen has its own guide line
+	cameras_button.visible = _monitor_available and not on
 	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 
 
 func set_cam(room: String, mount: Transform3D) -> void:
-	var info: Dictionary = NightWatchData.ROOMS.get(room, {})
-	cam_label.text = "CAM %d  %s" % [int(info.get("cam", 0)), String(info.get("label", ""))]
+	var number := cam_map.number_for(room)
+	var label := cam_map.label_for(room)
+	if number == 0:   # a room outside the layout (a mode's extra camera): fall back to Classic's table
+		var info: Dictionary = NightWatchData.ROOMS.get(room, {})
+		number = int(info.get("cam", 0))
+		label = String(info.get("label", label))
+	cam_label.text = "CAM %d  %s" % [number, label]
 	feed_camera.transform = mount
-	for r in cam_buttons:
-		(cam_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
+	cam_map.set_active(room)
 
 
 func flash_static() -> void:

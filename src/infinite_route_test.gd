@@ -21,7 +21,8 @@ const HUNTER_MAX_CATCH_UP_STEPS := 2
 const HUNTER_BROADCAST_SECONDS := 1.0 / RemotePlayers.SEND_HZ
 const HUNTER_RESIDENCY_CHUNK_RADIUS := 3
 const MAP_DISCOVERY_NEARBY_RADIUS := 4.5
-const WAYPOINT_ARRIVAL_RADIUS := 5.0
+## Floor chevrons (PATH guidance) cover only the next stretch of the route.
+const WAYPOINT_TRAIL_METRES := 28.0
 const DROPPED_TOOL_MARK_RADIUS := 14.0
 const LOCAL_SAVE_SCHEMA := 1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
@@ -68,7 +69,9 @@ var _hunter_stream_signature := ""
 var _discovered_chunks: Dictionary = {}
 var _discovered_rooms := {}
 var _discovered_map_markers := {}
-var _map_waypoints: Array = []
+var _waypoint_change_msec := {}
+var _arrival_chime_pending := false
+var _waypoint_overlay: WaypointOverlay
 var _waypoint_route: Array = []
 var _waypoint_route_key := ""
 var _waypoint_grid_signature := ""
@@ -134,6 +137,12 @@ func _ready() -> void:
 	add_child(pixel_signal_effect)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	_waypoint_overlay = WaypointOverlay.new()
+	hud.add_child(_waypoint_overlay)
+	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
+	if RoomState.online and multiplayer.multiplayer_peer != null \
+			and not multiplayer.peer_disconnected.is_connected(_on_waypoint_peer_left):
+		multiplayer.peer_disconnected.connect(_on_waypoint_peer_left)
 	_death_moment = DeathMoment.new()
 	add_child(_death_moment)
 	_story = STORY_DIRECTOR_SCRIPT.new()
@@ -163,6 +172,7 @@ func _ready() -> void:
 	player.interaction_message.connect(hud.show_message)
 	player.taser_requested.connect(_on_taser_requested)
 	player.tool_used.connect(_on_tool_used)
+	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
@@ -357,6 +367,8 @@ func _process(delta: float) -> void:
 		_update_hud()
 		return
 	_clear_reached_waypoints(level)
+	_handle_waypoint_input(level)
+	_update_waypoint_hud(level)
 	if not _awaiting_snapshot:
 		_update_checkpoint(data)
 	_authority_refresh_elapsed += delta
@@ -630,6 +642,8 @@ func _infinite_admin_actions() -> Array:
 		{"label": "RESET STORY STATE", "permission": "world",
 			"action": _admin_reset_story},
 		{"heading": "VISUAL", "permission": "visual"},
+		{"label": "TELEPORT TO WAYPOINT", "action": _admin_teleport_to_waypoint, "permission": "player"},
+		{"label": "CLEAR WAYPOINT", "action": _clear_local_waypoint, "permission": "player"},
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_map},
@@ -904,7 +918,7 @@ func _build_route_save_payload() -> Dictionary:
 			"chunks": _discovered_chunks.duplicate(true),
 			"rooms": _discovered_rooms.duplicate(true),
 			"markers": _discovered_map_markers.duplicate(true),
-			"waypoints": _active_waypoints(),
+			"waypoints": _active_waypoints(),   # legacy shape (array); the single waypoint also rides in world_state
 		},
 		"story": _story.snapshot() if _story != null else {"active": false},
 		"anti_idle": {
@@ -949,8 +963,9 @@ func _adopt_route_save_before_stream(payload: Dictionary) -> bool:
 			_discovered_rooms = rooms.duplicate(true)
 		if markers is Dictionary:
 			_discovered_map_markers = markers.duplicate(true)
-		if waypoints is Array and not RoomState.online:
-			_map_waypoints = waypoints.duplicate(true)
+		# older saves kept several waypoints: the most recent one survives, owned by the local player
+		if waypoints is Array and not RoomState.online and not world_state.waypoints.has_for(1):
+			world_state.waypoints.adopt_legacy(waypoints, 1)
 	var anti_idle = payload.get("anti_idle", {})
 	if anti_idle is Dictionary:
 		_relay_inactivity_seconds = maxf(0.0,
@@ -1282,71 +1297,145 @@ func _update_map_discovery(data: Dictionary) -> void:
 
 
 func _on_map_waypoint_requested(world_position: Vector2, level: int) -> void:
-	var waypoint_at := Vector2(floori(world_position.x) + .5,
-		floori(world_position.y) + .5)
-	if RoomState.online:
-		var event := {"what": "stream_waypoint", "at": waypoint_at, "level": level}
-		if RoomState.is_host:
-			_accept_stream_waypoint(multiplayer.get_unique_id(), event)
-		else:
-			_remotes.request_interaction(event)
-			hud.show_message("WAYPOINT PROPOSED")
-		return
-	_toggle_local_waypoint(waypoint_at, level)
+	_request_waypoint({"what": "stream_waypoint", "at": world_position, "level": level})
 
 
-func _toggle_local_waypoint(snapped: Vector2, level: int) -> void:
-	for index in range(_map_waypoints.size() - 1, -1, -1):
-		var waypoint: Dictionary = _map_waypoints[index]
-		if int(waypoint.get("level", level)) == level \
-				and (waypoint.get("at", Vector2.ZERO) as Vector2).distance_to(snapped) <= 1.25:
-			_map_waypoints.remove_at(index)
-			Sound.menu_blip()
-			_update_streamed_maps()
-			return
-	_map_waypoints.append({"at": snapped, "level": level})
-	Sound.menu_blip()
-	_update_streamed_maps()
+func _local_peer_id() -> int:
+	return multiplayer.get_unique_id() if RoomState.online else 1
+
+
+## The local player's one waypoint ({} when none).
+func _local_waypoint() -> Dictionary:
+	return world_state.waypoints.get_for(_local_peer_id())
+
+
+## Every waypoint on the level (one per player), tagged "mine" for ours.
+func _floor_waypoints(level: int) -> Array:
+	return world_state.waypoints.on_level(level, _local_peer_id())
 
 
 func _active_waypoints() -> Array:
-	return world_state.shared_waypoints.duplicate(true) if RoomState.online \
-		else _map_waypoints.duplicate(true)
+	var mine := _local_waypoint()
+	return [] if mine.is_empty() else [mine]
 
 
-func _floor_waypoints(level: int) -> Array:
-	var source := _active_waypoints()
-	return source.filter(func(waypoint: Dictionary) -> bool:
-		return int(waypoint.get("level", level)) == level)
+## Single entry for every way of changing a waypoint (crosshair, map click, arrival, admin): a guest asks the host, the host
+## and offline runs decide here. {"at", "level"} places/replaces (the same cell again clears), {"clear": true} clears.
+func _request_waypoint(event: Dictionary) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+		return
+	_accept_stream_waypoint(_local_peer_id(), event)
+
+
+func _place_waypoint_at(at: Vector2, level: int) -> void:
+	_request_waypoint({"what": "stream_waypoint", "at": at, "level": level})
+
+
+func _clear_local_waypoint() -> void:
+	if _local_waypoint().is_empty():
+		return
+	_request_waypoint({"what": "stream_waypoint", "clear": true})
 
 
 func _clear_reached_waypoints(level: int) -> void:
 	var player_at := Vector2(player.global_position.x, player.global_position.z)
-	if RoomState.online:
+	if world_state.waypoints.reached(_local_peer_id(), player_at, level):
+		_arrival_chime_pending = true
+		_clear_local_waypoint()
+
+
+## A player who leaves takes their pin with them.
+func _on_waypoint_peer_left(peer_id: int) -> void:
+	if RoomState.is_host and world_state.waypoints.has_for(peer_id):
+		_publish_stream_event({"what": "stream_waypoint", "peer_id": peer_id,
+			"waypoint": {}, "message_peer_id": peer_id})
+
+
+func _waypoint_feedback(placed: bool) -> void:
+	if placed:
+		Sound.menu_blip()
+		hud.show_message("WAYPOINT SET")
+	elif _arrival_chime_pending:
+		_arrival_chime_pending = false
+		if Settings.waypoint_arrival_chime:
+			Sound.collect()
+		hud.show_message("WAYPOINT REACHED")
+	else:
+		Sound.menu_blip()
+		hud.show_message("WAYPOINT CLEARED")
+
+
+## Where the crosshair lands on the floor (or on the open floor in front of the wall / prop it hits), as world XZ; {} when
+## there is nothing within range. Marches the view ray over the same floor grid the hunters walk.
+func _crosshair_waypoint_target() -> Dictionary:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return {}
+	var level := facility.current_level()
+	var navigation := _navigations.get(level) as StreamedHunterNavigation
+	if navigation == null:
+		navigation = _navigation
+	if navigation == null:
+		return {}
+	var floor_y := facility.streamed_surface_height(Vector2.ZERO, level)
+	var origin := camera.global_position
+	var direction := -camera.global_transform.basis.z
+	var last_open := Vector2.INF
+	var distance := 0.0
+	while distance <= WaypointState.MAX_PLACE_RANGE:
+		var point := origin + direction * distance
+		var open := navigation.is_floor(point.x, point.z)
+		if point.y <= floor_y + .05:
+			if open:
+				return {"at": Vector2(point.x, point.z), "level": level}
+			break
+		if not open:
+			break
+		last_open = Vector2(point.x, point.z)
+		distance += .25
+	return {} if last_open == Vector2.INF else {"at": last_open, "level": level}
+
+
+## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. B2 clears outright.
+func _handle_waypoint_input(level: int) -> void:
+	if Input.is_action_just_pressed("waypoint_clear"):
+		_clear_local_waypoint()
+		return
+	if not Input.is_action_just_pressed("waypoint"):
+		return
+	var target := _crosshair_waypoint_target()
+	if target.is_empty():
+		hud.show_message("NOWHERE TO PLACE A WAYPOINT")
+		return
+	_place_waypoint_at(target["at"], level)
+
+
+func _update_waypoint_hud(level: int) -> void:
+	if _waypoint_overlay == null:
+		return
+	var camera := get_viewport().get_camera_3d()
+	var pins := []
+	if camera != null:
 		for waypoint_value in _floor_waypoints(level):
 			var waypoint: Dictionary = waypoint_value
-			var waypoint_at: Vector2 = waypoint.get("at", Vector2.ZERO)
-			if player_at.distance_to(waypoint_at) > WAYPOINT_ARRIVAL_RADIUS:
-				continue
-			var event := {"what": "stream_waypoint", "at": waypoint_at, "level": level}
-			if RoomState.is_host:
-				_accept_stream_waypoint(multiplayer.get_unique_id(), event)
-			else:
-				_remotes.request_interaction(event)
-			return
+			var at: Vector2 = waypoint["at"]
+			var owner_id := int(waypoint.get("peer_id", 0))
+			pins.append({"world": Vector3(at.x, facility.streamed_surface_height(at, level) + 1.1, at.y),
+				"mine": bool(waypoint.get("mine", false)),
+				"name": "" if bool(waypoint.get("mine", false)) else RoomState.peer_display_name(owner_id),
+				"peer_id": owner_id})
+	_waypoint_overlay.visible = not hud.map_is_open()
+	_waypoint_overlay.set_pins(pins, camera, player.global_position)
+
+
+func _admin_teleport_to_waypoint() -> void:
+	var mine := _local_waypoint()
+	if mine.is_empty():
+		hud.show_message("ADMIN // NO WAYPOINT SET")
 		return
-	var removed := false
-	for index in range(_map_waypoints.size() - 1, -1, -1):
-		var waypoint: Dictionary = _map_waypoints[index]
-		if int(waypoint.get("level", level)) != level:
-			continue
-		var waypoint_at: Vector2 = waypoint.get("at", Vector2.ZERO)
-		if player_at.distance_to(waypoint_at) > WAYPOINT_ARRIVAL_RADIUS:
-			continue
-		_map_waypoints.remove_at(index)
-		removed = true
-	if removed:
-		_waypoint_route_key = ""
+	var at: Vector2 = mine["at"]
+	_admin_teleport_to(Vector3(at.x, float(int(mine.get("level", 0))) * StreamedFacilityView3D.LEVEL_HEIGHT, at.y))
 
 
 func _map_chunks_with_available_pickups(chunks: Dictionary) -> Dictionary:
@@ -1406,31 +1495,37 @@ func _update_streamed_maps() -> void:
 
 
 func _refresh_waypoint_route(level: int) -> void:
-	var floor_waypoints := _floor_waypoints(level)
+	var mine := _local_waypoint()
 	var player_cell := Vector2i(floori(player.global_position.x),
 		floori(player.global_position.z))
-	var destinations := []
-	for waypoint_value in floor_waypoints:
-		var at: Vector2 = (waypoint_value as Dictionary).get("at", Vector2.ZERO)
-		destinations.append(Vector2i(floori(at.x), floori(at.y)))
-	var route_key := "%d:%s:%s:%d" % [level, player_cell, destinations,
-		_discovered_chunks.size()]
+	var destination := Vector2i(-2147483648, 0)
+	if not mine.is_empty() and int(mine.get("level", level)) == level:
+		var at: Vector2 = mine["at"]
+		destination = Vector2i(floori(at.x), floori(at.y))
+	var route_key := "%d:%s:%s:%d:%s" % [level, player_cell, destination,
+		_discovered_chunks.size(), Settings.waypoint_guidance]
 	if route_key == _waypoint_route_key:
 		return
 	_waypoint_route_key = route_key
 	_waypoint_route.clear()
-	var cursor := player_cell
-	for destination_value in destinations:
-		var destination: Vector2i = destination_value
-		var segment := _discovered_waypoint_path(cursor, destination, level)
-		if segment.is_empty():
-			break
+	if destination.x != -2147483648:
+		var segment := _waypoint_path(player_cell, destination, level)
 		for index in segment.size():
-			if not _waypoint_route.is_empty() and index == 0:
-				continue
 			_waypoint_route.append(Vector2(segment[index]) + Vector2(.5, .5))
-		cursor = destination
 	_update_waypoint_ground_trail(level)
+
+
+## The route to a waypoint: the live floor grid first (it covers everything streamed in, so the City, whose chunks are all
+## resident, and undiscovered maze floor both work), then the map-discovered floor as a fallback.
+func _waypoint_path(from_cell: Vector2i, to_cell: Vector2i, level: int) -> Array:
+	var navigation := _navigations.get(level) as StreamedHunterNavigation
+	if navigation == null:
+		navigation = _navigation
+	if navigation != null:
+		var live: Array = navigation.find_path(from_cell, to_cell)
+		if not live.is_empty():
+			return live
+	return _discovered_waypoint_path(from_cell, to_cell, level)
 
 
 func _dropped_tool_marks(level: int) -> Array:
@@ -1561,28 +1656,39 @@ func _build_waypoint_ground_trail() -> void:
 	world.add_child(_waypoint_trail)
 
 
+## PATH guidance: small chevrons on the floor along the next WAYPOINT_TRAIL_METRES of the route (nothing in off/arrow mode).
 func _update_waypoint_ground_trail(level: int) -> void:
 	if _waypoint_trail == null:
 		return
-	if _waypoint_route.size() < 2:
+	if Settings.waypoint_guidance != "path" or _waypoint_route.size() < 2:
 		_waypoint_trail.mesh = null
 		return
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var height := float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + .035
+	var height := facility.streamed_surface_height(Vector2.ZERO, level) + .035
+	var travelled := 0.0
+	var next_chevron := 1.0
 	for index in _waypoint_route.size() - 1:
 		var from_2d: Vector2 = _waypoint_route[index]
 		var to_2d: Vector2 = _waypoint_route[index + 1]
-		var from := Vector3(from_2d.x, height, from_2d.y)
-		var to := Vector3(to_2d.x, height, to_2d.y)
-		var direction := to - from
-		if direction.length_squared() <= .0001:
+		var length := from_2d.distance_to(to_2d)
+		if length <= .0001:
 			continue
-		var side := Vector3(-direction.z, 0.0, direction.x).normalized() * .075
-		for vertex in [from - side, to - side, to + side,
-				from - side, to + side, from + side]:
-			surface.set_normal(Vector3.UP)
-			surface.add_vertex(vertex)
+		var direction := (to_2d - from_2d) / length
+		while next_chevron <= travelled + length:
+			if next_chevron > WAYPOINT_TRAIL_METRES:
+				break
+			var centre := from_2d + direction * (next_chevron - travelled)
+			var side := direction.orthogonal() * .28
+			var tip := centre + direction * .3
+			var back := centre - direction * .18
+			for vertex in [tip, back + side, back - side]:
+				surface.set_normal(Vector3.UP)
+				surface.add_vertex(Vector3(vertex.x, height, vertex.y))
+			next_chevron += 1.6
+		travelled += length
+		if travelled > WAYPOINT_TRAIL_METRES:
+			break
 	_waypoint_trail.mesh = surface.commit()
 
 
@@ -2671,9 +2777,57 @@ func _resolve_taser(peer_id: int) -> void:
 			"display_name", hit.brain.hunter_id)).to_upper()})
 
 
+## True when the scene has a use for the tool in hand right here: a safe room to repair, or (axe) a grabbed teammate to cut free. Without one a
+## swing is a free whoosh: no durability, no noise and no deny blip.
+func _tool_context_available(item_id: String) -> bool:
+	if item_id not in ["crowbar", "rescue_axe"]:
+		return false
+	if item_id == "rescue_axe" and not _grabbed_teammate_in_reach().is_empty():
+		return true
+	return _safe_room_repair_in_reach()
+
+
+func _safe_room_repair_in_reach() -> bool:
+	var data := facility.current_chunk_data()
+	if not bool(data.get("safe_room", false)):
+		return false
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var center := Vector2((coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
+		(coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE)
+	return player.grid_position().distance_to(center) <= 4.25
+
+
+const AXE_RESCUE_REACH := 3.4
+
+
+## The teammate (if any) caught in a hunter's hold within reach of the axe: {"peer_id": ...} or empty.
+func _grabbed_teammate_in_reach() -> Dictionary:
+	if not RoomState.online:
+		return {}
+	var local_id := multiplayer.get_unique_id()
+	for state in _remotes.target_states({}):
+		var peer := int(state.get("peer_id", 0))
+		var at = state.get("at")
+		if peer == local_id or peer <= 0 or not bool(state.get("escape_active", false)) \
+				or not at is Vector3 or bool(state.get("spectating", false)):
+			continue
+		if (at as Vector3).distance_to(player.global_position) <= AXE_RESCUE_REACH:
+			return {"peer_id": peer}
+	return {}
+
+
 func _on_tool_used(item_id: String) -> void:
 	if item_id not in ["crowbar", "rescue_axe"]:
 		return
+	if item_id == "rescue_axe":
+		var grabbed := _grabbed_teammate_in_reach()
+		if not grabbed.is_empty():
+			var request := {"what": "stream_axe_rescue", "target_peer": int(grabbed["peer_id"])}
+			if RoomState.is_host:
+				_accept_axe_rescue(multiplayer.get_unique_id(), request)
+			else:
+				_remotes.request_interaction(request)
+			return
 	var data := facility.current_chunk_data()
 	if not bool(data.get("safe_room", false)):
 		return
@@ -2759,6 +2913,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_streamed_pickup(peer_id, event)
 		"stream_safe_repair":
 			_accept_safe_repair(peer_id, event)
+		"stream_axe_rescue":
+			_accept_axe_rescue(peer_id, event)
 		"stream_checkpoint":
 			_accept_checkpoint(peer_id, event)
 		"stream_drop":
@@ -2848,22 +3004,31 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 
 
 func _accept_stream_waypoint(peer_id: int, event: Dictionary) -> void:
-	var target := _target_state_for_peer(peer_id)
-	var at = event.get("at")
-	if target.is_empty() or not at is Vector2:
+	var now := Time.get_ticks_msec()
+	if peer_id != _local_peer_id():
+		if now - int(_waypoint_change_msec.get(peer_id, -100000)) < WaypointState.MIN_CHANGE_INTERVAL_MSEC:
+			return
+		_waypoint_change_msec[peer_id] = now
+	var current := world_state.waypoints.get_for(peer_id)
+	var waypoint := {}
+	if not bool(event.get("clear", false)):
+		var at = event.get("at")
+		if not at is Vector2:
+			return
+		var level := int(event.get("level", 999999))
+		if RoomState.online:
+			var target := _target_state_for_peer(peer_id)
+			if target.is_empty() or level != -int(target.get("depth", 0)):
+				return
+		var snapped := Vector2(floori(at.x) + .5, floori(at.y) + .5)
+		var same_spot: bool = not current.is_empty() and int(current.get("level", level)) == level \
+			and (current["at"] as Vector2).distance_to(snapped) <= .1
+		if not same_spot:
+			waypoint = {"at": snapped, "level": level, "peer_id": peer_id}
+	elif current.is_empty():
 		return
-	var level := int(event.get("level", 999999))
-	if level != -int(target.get("depth", 0)):
-		return
-	var result := world_state.toggle_shared_waypoint(
-		Vector2(floori(at.x) + .5, floori(at.y) + .5), level, peer_id)
-	if not bool(result.get("changed", false)):
-		return
-	var waypoint: Dictionary = result.get("waypoint", {})
-	_publish_stream_event({"what": "stream_waypoint",
-		"added": bool(result.get("added", false)),
-		"waypoint": waypoint,
-		"message_peer_id": peer_id})
+	_publish_stream_event({"what": "stream_waypoint", "peer_id": peer_id,
+		"waypoint": waypoint, "message_peer_id": peer_id})
 
 
 func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
@@ -2953,6 +3118,34 @@ func _accept_stream_door(peer_id: int, event: Dictionary) -> void:
 		"message_peer_id": peer_id})
 
 
+## Host-authoritative: a teammate swinging the rescue axe frees a grabbed player in reach. The host checks that the swinger really holds the axe,
+## that the target is mid-struggle and within reach of the swinger, then tells the victim, whose own client resolves the struggle (and stuns the
+## hunter through the normal "escaped" report).
+func _accept_axe_rescue(peer_id: int, event: Dictionary) -> void:
+	var target_peer := int(event.get("target_peer", 0))
+	if target_peer <= 0 or target_peer == peer_id:
+		return
+	var swinger := _target_state_for_peer(peer_id)
+	var owned = swinger.get("owned_items", {})
+	if swinger.is_empty() or not owned is Dictionary or not bool(owned.get("rescue_axe", false)):
+		return
+	var victim := _target_state_for_peer(target_peer)
+	var victim_at = victim.get("at")
+	var swinger_at = swinger.get("at")
+	var victim_grabbed := bool(victim.get("escape_active", false))
+	if target_peer == _local_peer_id():
+		victim_grabbed = GameState.escape_active
+		victim_at = player.global_position
+	if not victim_grabbed or not victim_at is Vector3 or not swinger_at is Vector3 \
+			or (victim_at as Vector3).distance_to(swinger_at as Vector3) > AXE_RESCUE_REACH + .8:
+		return
+	_remotes.send_player_event(target_peer, {"what": "axe_rescue", "rescuer_peer_id": peer_id,
+		"message": "RESCUE AXE // A TEAMMATE CUT YOU FREE"})
+	if peer_id != _local_peer_id():
+		_remotes.send_player_event(peer_id, {"what": "message",
+			"message": "RESCUE AXE // TEAMMATE FREED"})
+
+
 func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
 	var room := _safe_room_for_peer(peer_id, String(event.get("room_id", "")), 4.25)
 	var item_id := String(event.get("item", ""))
@@ -2962,7 +3155,7 @@ func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
 			or not owned is Dictionary or not bool(owned.get(item_id, false)):
 		return
 	var info: Dictionary = room.get("safe_room_data", {})
-	var status := world_state.repair_safe_room(info, 12)
+	var status := world_state.repair_safe_room(info, 18 if item_id == "rescue_axe" else 12)
 	_publish_stream_event({"what": "stream_safe",
 		"room_id": String(info.get("id", "")),
 		"integrity": int(status.get("integrity", 0)),
@@ -3139,10 +3332,12 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 					hud.show_message("SIGNAL RELAY RESECURED")
 		"stream_waypoint":
 			var waypoint = event.get("waypoint", {})
-			if waypoint is Dictionary and world_state.apply_shared_waypoint(
-					waypoint, bool(event.get("added", false))):
+			var owner_id := int(event.get("peer_id", 0))
+			if waypoint is Dictionary and owner_id > 0 \
+					and world_state.waypoints.apply(owner_id, waypoint):
 				_waypoint_route_key = ""
-				Sound.menu_blip()
+				if owner_id == _local_peer_id():
+					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
 		"stream_door":
 			var door_id := String(event.get("door_id", ""))
@@ -3560,6 +3755,9 @@ func _apply_player_event(event: Dictionary) -> void:
 			var message := String(event.get("message", ""))
 			if not message.is_empty():
 				hud.show_message(message)
+		"axe_rescue":
+			if GameState.escape_active:
+				_resolve_escape_success(true, String(event.get("message", "")))
 		"stun":
 			player.stun_timer = maxf(player.stun_timer, float(event.get("seconds", 0.0)))
 			var stun_note := String(event.get("message", ""))
@@ -3591,11 +3789,20 @@ func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
 	hud.set_escape_active(true)
 	hud.update_escape(GameState.escape_progress, GameState.escape_required,
 		GameState.escape_remaining, GameState.escape_duration)
+	if player.owns_inventory_item("rescue_axe"):
+		hud.show_message("RESCUE AXE // CLICK TO CUT FREE")
 	if jumpscare != null:
 		jumpscare.start_hold(player.active_camera(), hunter_id)
 
 
 func _update_escape_struggle(delta: float) -> void:
+	# The rescue axe cuts the hold: one click, then the grab is gone and the hunter is staggered for twice as long. It costs a third of the axe.
+	if Input.is_action_just_pressed("tool_use") and MouseLock.is_captured() \
+			and player.owns_inventory_item("rescue_axe") \
+			and player.consume_item_durability("rescue_axe", PlayerController3D.AXE_BREAK_FREE_COST):
+		player.swing_axe_for_escape()
+		_resolve_escape_success(true, "RESCUE AXE // CUT FREE")
+		return
 	if Input.is_action_just_pressed("interact"):
 		GameState.register_escape_press()
 		Sound.struggle(GameState.escape_progress / maxf(1.0, GameState.escape_required))
@@ -3608,7 +3815,7 @@ func _update_escape_struggle(delta: float) -> void:
 		await _resolve_capture_outcome(_escaping_hunter_id)
 
 
-func _resolve_escape_success() -> void:
+func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	GameState.resolve_escape_success()
 	Sound.escape()
 	hud.set_escape_active(false)
@@ -3619,13 +3826,14 @@ func _resolve_escape_success() -> void:
 	if _remotes.simulates():
 		var view := _hunter_views.get(_escaping_entity_id) as HunterView3D
 		if view != null:
-			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION * (2.0 if with_axe else 1.0))
 			view.sync_from_brain()
 			_store_hunter(_escaping_entity_id, view)
 	else:
 		_remotes.submit_hunter_event({"what": "escaped",
-			"entity_id": _escaping_entity_id, "hunter_id": _escaping_hunter_id})
-	hud.show_message("You broke free!")
+			"entity_id": _escaping_entity_id, "hunter_id": _escaping_hunter_id,
+			"axe": with_axe})
+	hud.show_message(note if not note.is_empty() else "You broke free!")
 	_escaping_entity_id = ""
 	_escaping_hunter_id = ""
 
@@ -3744,7 +3952,8 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
 			if view != null:
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION \
+					* (2.0 if bool(event.get("axe", false)) else 1.0))
 				view.sync_from_brain()
 				_store_hunter(String(event.get("entity_id", "")), view)
 
@@ -3982,6 +4191,7 @@ func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()
+	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
 	GameState.game_over = false
 	_end_spectating()

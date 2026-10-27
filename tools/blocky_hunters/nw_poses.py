@@ -106,7 +106,7 @@ L = 3.2
 t = {}
 add(t, "Chest", wave_keys(L, (-5, 0, 0), (2.0, 0, 0)))
 add(t, "Belly", wave_keys(L, (-4, 0, 0), (1.5, 0, 1.0)))
-add(t, "Head", wave_keys(L, (12, 0, 0), (2.5, 5, 2.0), phase=.25))
+add(t, "Head", wave_keys(L, (-10, 0, 0), (2.5, 5, 2.0), phase=.25))
 add(t, "L-Arm", wave_keys(L, (4, 0, -9), (1.5, 0, 1.5), phase=.1))
 add(t, "R-Arm", wave_keys(L, (4, 0, 9), (1.5, 0, -1.5), phase=.1))
 add(t, "L-Forearm", hold((12, 0, 0), L) if False else wave_keys(L, (14, 0, 0), (2, 0, 0)))
@@ -120,7 +120,7 @@ add(t, "Pelvis", wave_keys(L, (0, 0, 0), (0, 0, 0)))
 add_pos(t, "Pelvis", sample(L, lambda p: (0.07, -0.01 + .004 * math.sin(p * math.tau), 0)))
 add(t, "Belly", wave_keys(L, (-3, 0, 12), (1, 0, 1)))
 add(t, "Chest", wave_keys(L, (-5, 8, 10), (1.5, 0, 1)))
-add(t, "Head", wave_keys(L, (6, 28, -16), (1.5, 4, 1), phase=.3))
+add(t, "Head", wave_keys(L, (-4, 28, -16), (1.5, 4, 1), phase=.3))
 add(t, "L-Arm", hold((10, 0, -4), L))
 add(t, "R-Arm", hold((-8, 0, 14), L))
 add(t, "L-Forearm", hold((30, 0, 0), L))
@@ -198,7 +198,7 @@ add_pos(t, "Pelvis", sample(L, lambda p: (0, max(ext(*creep_leg(p, 1)), ext(*cre
 add(t, "Pelvis", wave_keys(L, (-6, 0, 0), (0, 4, 0), n=16))
 add(t, "Belly", wave_keys(L, (-12, 0, 0), (0, 3, 0), n=16))
 add(t, "Chest", hold((-6, 0, 0), L))
-add(t, "Head", wave_keys(L, (20, 0, 0), (2, 8, 0), phase=.1, n=16))
+add(t, "Head", wave_keys(L, (-18, 0, 0), (2, 8, 0), phase=.1, n=16))
 for side, s_ in (("L", 1), ("R", -1)):
     add(t, f"{side}-Thigh", sample(L, lambda p, s_=s_: (creep_leg(p, s_)[0], 0, 0), 16))
     add(t, f"{side}-Calf", sample(L, lambda p, s_=s_: (creep_leg(p, s_)[1], 0, 0), 16))
@@ -285,7 +285,7 @@ t = {}
 add_pos(t, "Pelvis", hold((0, -0.36, -0.04), L))
 add(t, "Pelvis", hold((-4, 0, 0), L))
 add(t, "Belly", wave_keys(L, (-8, 0, 0), (1.5, 0, 0)))
-add(t, "Head", wave_keys(L, (24, 0, 0), (2, 3, 0), phase=.2))
+add(t, "Head", wave_keys(L, (-24, 0, 0), (2, 3, 0), phase=.2))
 add(t, "L-Thigh", hold((88, 0, -4), L))
 add(t, "L-Calf", hold((-92, 0, 0), L))
 add(t, "L-Foot", hold((10, 0, 0), L))
@@ -304,7 +304,7 @@ t = {}
 add_pos(t, "Pelvis", hold((0, -.03, 0), L))
 add(t, "Belly", wave_keys(L, (-14, 0, 0), (1.5, 0, 1.5)))
 add(t, "Chest", wave_keys(L, (-12, 0, 0), (1.5, 0, 1)))
-add(t, "Head", wave_keys(L, (28, 0, 0), (2, 6, 3), phase=.3))
+add(t, "Head", wave_keys(L, (-26, 0, 0), (2, 6, 3), phase=.3))
 add(t, "L-Arm", wave_keys(L, (8, 0, -3), (2, 0, 0)))
 add(t, "R-Arm", wave_keys(L, (8, 0, 3), (-2, 0, 0), phase=.15))
 add(t, "L-Forearm", hold((10, 0, 0), L))
@@ -376,6 +376,87 @@ for side, s in (("L", 1), ("R", -1)):
     add(t, f"{side}-Foot", hold((30, 0, 0), L))
 pose("vent_crawl", L, True, .35, t, grounded=False, layers=False, note="all fours, hips low")
 
+# ------------------------------------------------------------------------------------ Verrine's vent crawl
+# Low belly crawl on hands and knees for Night Watch vent shafts (about 0.8 m of headroom): hips dropped to knee height,
+# torso pitched far forward, head low and cocked, elbows bent, arms and knees alternating in a shuffle. "travel" lists the
+# nodes whose backward travel sets the clip's reference speed (tools/look/stride_table.tscn): the clip then plays at
+# real ground speed / that, so hands and knees do not slide. vent_drop / vent_rise are the one-shot transitions.
+CRAWL_TRAVEL = ["L-Hand", "R-Hand", "L-Calf", "R-Calf"]
+CRAWL_PELVIS = (-78.0, 0.0, 0.0)
+CRAWL_Y = -0.36
+
+
+def crawl_frame(p, ph):
+    """One frame of the crawl at phase p (0..1); ph = +1/-1 selects which side leads."""
+    a = math.sin(p * math.tau)
+    b = math.sin(p * math.tau + math.pi)
+    return a, b
+
+
+L = 1.2
+t = {}
+add_pos(t, "Pelvis", sample(L, lambda p: (0.012 * math.sin(p * math.tau * 2), CRAWL_Y + 0.012 * abs(math.sin(p * math.tau)), -0.10), 16))
+add(t, "Pelvis", sample(L, lambda p: (CRAWL_PELVIS[0] + 2 * math.sin(p * math.tau * 2), 4 * math.sin(p * math.tau), 3 * math.sin(p * math.tau)), 16))
+add(t, "Belly", sample(L, lambda p: (4, 3 * math.sin(p * math.tau), -3 * math.sin(p * math.tau)), 16))
+add(t, "Chest", sample(L, lambda p: (6 + 2 * math.sin(p * math.tau * 2), -4 * math.sin(p * math.tau), 3 * math.sin(p * math.tau)), 16))
+add(t, "Head", sample(L, lambda p: (-16, 6 * math.sin(p * math.tau + 1.0), 16 + 3 * math.sin(p * math.tau)), 16))
+for side, s_ in (("L", 1), ("R", -1)):
+    ph = 0 if s_ > 0 else .5
+    add(t, f"{side}-Arm", sample(L, lambda p, ph=ph: (56 + 24 * math.sin((p + ph) * math.tau), 0, -4), 16))
+    add(t, f"{side}-Forearm", sample(L, lambda p, ph=ph: (24 + 18 * max(0, math.sin((p + ph) * math.tau)) + 10 * max(0, -math.sin((p + ph) * math.tau)), 0, 0), 16))
+    add(t, f"{side}-Hand", sample(L, lambda p, ph=ph: (-14, 0, 0), 16))
+    add(t, f"{side}-Thigh", sample(L, lambda p, ph=ph: (60 - 24 * math.sin((p + ph + .25) * math.tau), 0, 0), 16))
+    add(t, f"{side}-Calf", sample(L, lambda p, ph=ph: (-72 + 16 * math.sin((p + ph + .25) * math.tau), 0, 0), 16))
+    add(t, f"{side}-Foot", hold((20, 0, 0), L))
+pose("vent_crawl_verrine", L, True, .4, t, grounded=False, layers=False, note="belly-low hands-and-knees shuffle for vent shafts")
+POSES["vent_crawl_verrine"]["travel"] = CRAWL_TRAVEL
+
+L = .8
+t = {}
+frame = POSES["vent_crawl_verrine"]["tracks"]
+
+
+def at(bone, p):
+    """Rotation of a crawl track at phase p (interpolated from the 16-step keys)."""
+    keys = frame[bone]["rot"]
+    i = min(int(p * 16), 15)
+    k0, k1 = keys[i], keys[i + 1]
+    f = p * 16 - i
+    return tuple(k0[j] * (1 - f) + k1[j] * f for j in (1, 2, 3))
+
+
+def lerp3(a, b, f):
+    return tuple(a[i] * (1 - f) + b[i] * f for i in range(3))
+
+
+def ease(f):
+    return f * f * (3 - 2 * f)
+
+
+# drop: knees buckle first (legs lead), then the hips sink and the torso tips forward, the hands reach the floor last
+LEG_BONES = ("L-Thigh", "R-Thigh", "L-Calf", "R-Calf", "L-Foot", "R-Foot")
+LAGS = {"leg": (0.0, .5, .92, 1.0), "body": (0.0, .2, .6, 1.0), "pelvis": (0.0, .3, .7, 1.0)}
+TIMES = (0.0, .25, .5, .8)
+for bone in frame:
+    if bone == "Pelvis":
+        continue
+    end = at(bone, 0.0)
+    kind = "leg" if bone in LEG_BONES else "body"
+    add(t, bone, [(tt, lerp3((0, 0, 0), end, ease(lag))) for tt, lag in zip(TIMES, LAGS[kind])])
+end_p = frame["Pelvis"]["rot"][0]
+end_rot = (end_p[1], end_p[2], end_p[3])
+end_pos = (frame["Pelvis"]["pos"][0][1], frame["Pelvis"]["pos"][0][2], frame["Pelvis"]["pos"][0][3])
+add(t, "Pelvis", [(tt, lerp3((0, 0, 0), end_rot, ease(lag))) for tt, lag in zip(TIMES, LAGS["pelvis"])])
+add_pos(t, "Pelvis", [(tt, lerp3((0, 0, 0), end_pos, ease(lag))) for tt, lag in zip(TIMES, LAGS["pelvis"])])
+pose("vent_drop_verrine", L, False, .12, t, grounded=False, layers=False, note="drop from standing to the crawl (one-shot)")
+
+t = {}
+for bone, tr in POSES["vent_drop_verrine"]["tracks"].items():
+    rev = [[round(L - k[0], 4)] + k[1:] for k in reversed(tr["rot"])]
+    pos = [[round(L - k[0], 4)] + k[1:] for k in reversed(tr["pos"])]
+    t[bone] = {"rot": rev, "pos": pos}
+POSES["vent_rise_verrine"] = dict(POSES["vent_drop_verrine"], tracks=t, note="rise from the crawl to standing (one-shot)")
+
 # lean on the wall: arms folded, one shoulder to the wall, one foot crossed (a waiting pose for rooms)
 L = 4.0
 t = {}
@@ -406,8 +487,11 @@ STATES = {
 # per-hunter tweaks that do not need a model edit: {hunter_id: {"scale_pos": 1.1, "bone_rot": {"Head": [x, y, z]}}}
 HUNTER_OFFSETS = {}
 
+# hunter-specific poses for a state ("" = the generic one): play_state(view, "vent") picks vent_crawl_verrine for Verrine
+HUNTER_STATES = {"verrine": {"vent": "vent_crawl_verrine", "vent_enter": "vent_drop_verrine", "vent_exit": "vent_rise_verrine"}}
+
 DATA = {"version": 1, "limits": {b: {a: list(r) for a, r in v.items()} for b, v in LIMITS.items()},
-        "states": STATES, "hunter_offsets": HUNTER_OFFSETS, "poses": POSES}
+        "states": STATES, "hunter_states": HUNTER_STATES, "hunter_offsets": HUNTER_OFFSETS, "poses": POSES}
 
 if __name__ == "__main__":
     OUT.write_text(json.dumps(DATA, indent=1))

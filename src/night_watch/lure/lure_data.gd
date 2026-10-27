@@ -1,7 +1,7 @@
 class_name LureData
 extends RefCounted
 
-## Dead Air (mode `lure`): the attraction hall, its cameras and Zellia's script. Pure data from games/night-watch/src/modes/lure/lure-data.js.
+## Dead Air (mode `lure`): the radio station, its cameras and Zellia's script. Pure data from games/night-watch/src/modes/lure/lure-data.js.
 ## `pan` is where a room sounds from (-1 left to +1 right).
 
 const CAST := ["wynelle", "xivvy", "mavrine", "briselle", "solyth", "ferryn"]
@@ -9,14 +9,14 @@ const NAMES := {"xivvy": "Xivvy", "ferryn": "Ferryn", "briselle": "Briselle", "m
 
 const ROOMS := ["lobby", "arcade", "party", "ballpit", "prize", "storage", "ventl", "ventr"]   # camera 1..8
 const INFO := {
-	"lobby": {"label": "LOBBY", "pan": 0.0, "grid": Vector2i(0, 0)},
-	"arcade": {"label": "ARCADE", "pan": -0.6, "grid": Vector2i(0, 1)},
-	"party": {"label": "PARTY ROOM", "pan": 0.6, "grid": Vector2i(1, 0)},
-	"ballpit": {"label": "BALL PIT", "pan": 0.0, "grid": Vector2i(1, 1)},
-	"prize": {"label": "PRIZE COUNTER", "pan": 0.7, "grid": Vector2i(2, 0)},
-	"storage": {"label": "STORAGE", "pan": 0.0, "grid": Vector2i(2, 1)},
-	"ventl": {"label": "LEFT VENT", "pan": -0.9, "grid": Vector2i(2, 2)},
-	"ventr": {"label": "RIGHT VENT", "pan": 0.9, "grid": Vector2i(3, 1)},
+	"lobby": {"label": "RECEPTION", "short": "RECEPT", "pan": 0.0},
+	"arcade": {"label": "STUDIO A", "short": "STUDIO A", "pan": -0.6},
+	"party": {"label": "STUDIO B", "short": "STUDIO B", "pan": 0.6},
+	"ballpit": {"label": "LIVE ROOM", "short": "LIVE RM", "pan": 0.0},
+	"prize": {"label": "TAPE LIBRARY", "short": "TAPES", "pan": 0.7},
+	"storage": {"label": "TRANSMITTER ROOM", "short": "XMITTER", "pan": 0.0},
+	"ventl": {"label": "LEFT CRAWLSPACE", "short": "L CRAWL", "pan": -0.9},
+	"ventr": {"label": "RIGHT CRAWLSPACE", "short": "R CRAWL", "pan": 0.9},
 	"officeL": {"label": "LEFT VENT OPENING", "pan": -1.0},
 	"officeR": {"label": "RIGHT VENT OPENING", "pan": 1.0},
 }
@@ -47,7 +47,7 @@ const SYSTEMS := {
 
 ## Zellia's calls, nights 1-6 (the 2D lines; the keys are this game's: the wall panels seal the vents, the monitor reboots and lures).
 const CALLS := {
-	1: ["Zellia. This is the attraction hall. Only one of them is active tonight, and she's harmless: she takes the cameras.",
+	1: ["Zellia. This is the station floor. Only one of them is active tonight, and she's harmless: she takes the cameras.",
 		"When something goes dark, reboot it from the monitor with Q, W or E.",
 		"The wall panels seal the vents. The monitor is on your desk, and L plays a sound in the room you're watching.",
 		"Sealed vents make the air heavy, so don't leave them closed for long."],
