@@ -70,6 +70,7 @@ const ADMIN_PERMISSION_NAMES := [
 
 var _token := ""
 var _port := 0
+var _transport := "enet"
 var _player_count := 1
 var _session_active := false
 var _host_endpoint := {}
@@ -117,6 +118,13 @@ func _ready() -> void:
 ## local backend (or, in a debug build, the TEST instance from TEST_BASE_URLS). Only those are accepted, so a shipped build can never
 ## be redirected to an arbitrary server this way.
 func _apply_loopback_override() -> void:
+	# Web builds run on an https page and cannot call the plain-http primary service (mixed content), so the page
+	# that hosts the build sets `window.LR_API_BASE` to a same-origin forwarder (`https://kyttuslab.org/godot2-api`).
+	# Only this site (and loopback, for local testing) is accepted, never an arbitrary origin.
+	if OS.has_feature("web"):
+		var page_base := _web_api_base()
+		if not page_base.is_empty():
+			base_url = page_base
 	# Test-server builds (export presets "* Test Server", custom feature `test_server`) talk to the TEST instance by
 	# default; `--backend=` below still overrides it. Debug templates only.
 	if OS.is_debug_build() and OS.has_feature("test_server"):
@@ -134,6 +142,18 @@ func _apply_loopback_override() -> void:
 			test_server_active = true
 		else:
 			push_warning("ignored --backend override: only loopback origins (or the test instance in a debug build) are allowed")
+
+
+func _web_api_base() -> String:
+	if not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+	var value = JavaScriptBridge.eval("typeof window.LR_API_BASE === 'string' ? window.LR_API_BASE : ''", true)
+	var candidate := String(value).strip_edges().trim_suffix("/")
+	var lowered := candidate.to_lower()
+	if lowered.begins_with("https://kyttuslab.org/") or lowered.begins_with("https://www.kyttuslab.org/") \
+			or lowered.begins_with("http://127.0.0.1:") or lowered.begins_with("http://localhost:"):
+		return candidate
+	return ""
 
 
 ## Sessions are stored per server, so signing in to the test instance never clears (or is replaced by) the main login.
@@ -788,9 +808,10 @@ func use_test_base_url(url: String) -> void:
 
 
 func register_room(code: String, port: int, player_count: int,
-		session_active: bool) -> void:
+		session_active: bool, transport: String = "enet") -> void:
 	if not configured():
 		return
+	_transport = transport
 	if not _host_operation.is_empty():
 		_host_request.cancel_request()
 		_host_operation = ""
@@ -800,12 +821,15 @@ func register_room(code: String, port: int, player_count: int,
 	_player_count = clampi(player_count, 1, 16)
 	_session_active = session_active
 	_token = ""
-	_send_host("register", "/api/enet/rooms/register", {
+	var register_body := {
 		"code": registered_code,
 		"port": _port,
 		"players": _player_count,
 		"sessionActive": _session_active,
-	})
+	}
+	if _transport == "ws":
+		register_body["transport"] = "ws"
+	_send_host("register", "/api/enet/rooms/register", register_body)
 	_heartbeat.start()
 
 
@@ -895,9 +919,9 @@ func _send_heartbeat() -> void:
 func _on_directory_tick() -> void:
 	if registered:
 		_send_heartbeat()
-	elif configured() and not registered_code.is_empty() and _port > 0 \
+	elif configured() and not registered_code.is_empty() and (_port > 0 or _transport == "ws") \
 			and _host_operation.is_empty():
-		register_room(registered_code, _port, _player_count, _session_active)
+		register_room(registered_code, _port, _player_count, _session_active, _transport)
 
 
 func _send_host(operation: String, path: String, body: Dictionary) -> void:
@@ -931,7 +955,7 @@ func _on_host_response(result: int, response_code: int,
 			_token = ""
 			registration_changed.emit(false, "PRIMARY SERVER RESTARTED // RELISTING ROOM")
 			call_deferred("register_room", registered_code, _port,
-				_player_count, _session_active)
+				_player_count, _session_active, _transport)
 		return
 	if operation == "register":
 		_token = String(payload.get("token", ""))
@@ -963,7 +987,8 @@ func _on_resolve_response(result: int, response_code: int,
 			"ROOM %s WAS NOT FOUND" % code)))
 		return
 	var room = payload.get("room", {})
-	if not room is Dictionary or String(room.get("address", "")).is_empty():
+	if not room is Dictionary or (String(room.get("address", "")).is_empty() \
+			and String(room.get("transport", "")) != "ws"):
 		room_resolved.emit(code, {}, "DIRECTORY RETURNED AN INVALID ENDPOINT")
 		return
 	room_resolved.emit(code, room, "")

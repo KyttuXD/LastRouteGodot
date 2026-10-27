@@ -27,8 +27,10 @@ PIDS+=($!)
 sleep 2
 fi
 if [ "$REMOTE" = 1 ]; then BACKEND="--backend=$BACKEND_URL"; else BACKEND="--backend=http://127.0.0.1:$HTTP"; fi
+# COOP_WS=1: rooms use the WebSocket relay (what browser builds use) instead of ENet/UDP.
+WS_FLAG=""; [ -n "${COOP_WS:-}" ] && WS_FLAG="--ws-rooms"
 run() { # role, log
-  "$GODOT" --headless --path . res://scenes/coop_test.tscn -- "$1" "$BACKEND" "--dir=$TMP" $GODOT_FLAGS > "$TMP/$1.log" 2>&1 &
+  "$GODOT" --headless --path . res://scenes/coop_test.tscn -- "$1" "$BACKEND" "--dir=$TMP" $GODOT_FLAGS $WS_FLAG > "$TMP/$1.log" 2>&1 &
   PIDS+=($!); echo $! > "$TMP/$1.pid"
 }
 run host; sleep 3; run guest

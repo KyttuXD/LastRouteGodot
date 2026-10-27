@@ -251,11 +251,6 @@ func _apply_palette() -> void:
 func _on_play_pressed() -> void:
 	if _creating_room or _routes_update_locked:
 		return
-	if OS.has_feature("web"):
-		RoomState.create_local(RoomState.Mode.DEFAULT)
-		RoomState.status_message = "WEB BUILD SOLO // NATIVE CO-OP IS UNAVAILABLE"
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
-		return
 	_creating_room = true
 	play_button.disabled = true
 	play_button.text = "CONTACTING PRIMARY SERVER"

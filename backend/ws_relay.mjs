@@ -57,6 +57,8 @@ function frame(opcode, payload) {
   return Buffer.concat([header, body]);
 }
 
+const DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.LASTROUTE_WS_DEBUG || ""));
+
 export function createWsRelay({
   roomByCode,
   maxPlayers = 16,
@@ -69,6 +71,8 @@ export function createWsRelay({
   const clients = new Set();
   let statsPackets = 0;
   let statsBytes = 0;
+
+  const dbg = (...args) => { if (DEBUG) logger.log("[ws-relay]", ...args); };
 
   function sendText(client, object) {
     if (client.closed) return;
@@ -86,6 +90,7 @@ export function createWsRelay({
 
   function closeClient(client, code = 1000, reason = "") {
     if (client.closed) return;
+    dbg("close", client.role || "?", client.id, client.hub?.code || "-", code, reason);
     client.closed = true;
     clearTimeout(client.helloTimer);
     clients.delete(client);
@@ -135,6 +140,7 @@ export function createWsRelay({
     if (!hello || hello.t !== "hello") return fail(client, "EXPECTED HELLO");
     const code = String(hello.code || "").trim().toUpperCase();
     const room = code ? roomByCode(code) : null;
+    dbg("hello", hello.role, code, room ? `room ok transport=${room.transport}` : "no room");
     if (!room) return fail(client, "ROOM NOT FOUND");
     if (room.transport !== "ws") return fail(client, "ROOM DOES NOT USE THE WEB RELAY");
     if (hello.role === "host") {
@@ -214,7 +220,13 @@ export function createWsRelay({
       return onHello(client, payload);
     }
     if (opcode === OP.BINARY) return route(client, payload);
-    // Text after hello is ignored (reserved for future control messages).
+    if (opcode !== OP.TEXT || client.role !== "host" || payload.length > 256) return; // keepalive pings and the like
+    let control = null;
+    try { control = JSON.parse(payload.toString("utf8")); } catch { /* not JSON */ }
+    if (control?.t === "kick") {
+      const guest = client.hub?.guests.get(Number(control.id));
+      if (guest) closeClient(guest, 4005, "removed by host");
+    }
   }
 
   function parse(client) {

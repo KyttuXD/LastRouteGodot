@@ -244,3 +244,13 @@ test("a forwarded address is trusted from a loopback proxy only", async () => {
     assert.equal((await get("203.0.113.2")).status, 200);
   } finally { await app.close(); }
 });
+
+test("the host can remove a guest", async () => {
+  const app = await fixture();
+  try {
+    const { host, guest, guestId } = await hostAndGuest(app.url);
+    host.send({ t: "kick", id: guestId });
+    assert.equal((await guest.next((m) => m.close)).close, 4005);
+    host.close();
+  } finally { await app.close(); }
+});
