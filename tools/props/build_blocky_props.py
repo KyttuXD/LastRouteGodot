@@ -160,10 +160,8 @@ def rotation_matrix(rot):
     return mx @ my @ mz
 
 
-def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None):
-    """Blender coords, snapped to the voxel grid (never thinner than one voxel). `rot` (degrees about the prop axes) turns the
-    snapped box about `pivot` (Blender coords, default the box centre), so tilted backs, splayed legs and angled shades keep the
-    constant texel density and the voxel-sized thickness of the straight boxes."""
+def snap_extent(x0, y0, z0, x1, y1, z1):
+    """The voxel-snapped extent add_box gives a box (never thinner than one voxel; a box that starts at z == 0 keeps its floor)."""
     def fix(lo, hi, keep_lo=False):
         lo2 = lo if keep_lo else snap(lo)
         hi2 = snap(hi)
@@ -173,6 +171,73 @@ def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None):
     x0, x1 = fix(x0, x1)
     y0, y1 = fix(y0, y1)
     z0, z1 = fix(z0, z1, keep_lo=(z0 == 0.0))
+    return x0, y0, z0, x1, y1, z1
+
+
+COPLANAR_EPS = 0.006      # the earlier box's face is set back this far behind the later box's face (6 mm)
+COPLANAR_TOL = 0.0035     # planes closer than this fight in the depth buffer at room distances
+
+
+def aligned_axes(rot):
+    """Blender axes whose faces stay axis-aligned under `rot` (degrees about the prop axes x, y up, z front = Blender x, z, -y)."""
+    if rot is None or not any(abs(v) > 1e-6 for v in rot):
+        return {0, 1, 2}
+    turned = [i for i, v in enumerate(rot) if abs(v) > 1e-6]
+    if len(turned) > 1:
+        return set()
+    return {(0, 2, 1)[turned[0]]}
+
+
+def resolve_coplanar(extents, movable):
+    """extents: snapped (x0, y0, z0, x1, y1, z1) per box in build order; movable: False for rotated boxes (skipped). Two same-facing faces of
+    different boxes on one plane (and overlapping) z-fight. The LATER box (the detail laid on a base) keeps its plane and the EARLIER box's
+    face is set back COPLANAR_EPS behind it (inward, so a prop's overall size never grows: the derived collider sizes stay put).
+    Returns the extents with the set-backs applied, and the pairs found (earlier, later, axis, side, overlap area)."""
+    cur = [list(e) for e in extents]
+    floor = min(e[2] for e in extents) if extents else 0.0
+    found = []
+    for _pass in range(8):          # a stack of three layers needs the middle one moved again after the bottom one
+        before = len(found)
+        _resolve_pass(cur, movable, floor, found)
+        if len(found) == before:
+            break
+    return [tuple(e) for e in cur], found
+
+
+def _resolve_pass(cur, movable, floor, found):
+    for i, ei in enumerate(cur):
+        for axis in sorted(movable[i]):
+            other = [k for k in range(3) if k != axis]
+            for side in (-1, 1):
+                idx = axis if side < 0 else axis + 3
+                plane = ei[idx]
+                if axis == 2 and side < 0 and plane <= floor + 1e-6:
+                    continue                       # floor contact: the underside is never seen
+                for j in range(i):
+                    if axis not in movable[j]:
+                        continue
+                    ej = cur[j]
+                    pj = ej[idx]
+                    if abs(pj - plane) >= COPLANAR_TOL:
+                        continue
+                    ov = 1.0
+                    for k in other:
+                        ov *= max(0.0, min(ei[k + 3], ej[k + 3]) - max(ei[k], ej[k]))
+                    if ov < 1e-4:
+                        continue
+                    found.append((j, i, axis, side, ov))
+                    wanted = plane - side * COPLANAR_EPS
+                    opposite = ej[axis + 3] if side < 0 else ej[axis]
+                    if abs(wanted - opposite) >= 0.02:        # never collapse a thin box
+                        ej[idx] = wanted if (side > 0 and wanted < pj) or (side < 0 and wanted > pj) else pj
+
+
+def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None, extent=None):
+    """Blender coords, snapped to the voxel grid (never thinner than one voxel). `rot` (degrees about the prop axes) turns the
+    snapped box about `pivot` (Blender coords, default the box centre), so tilted backs, splayed legs and angled shades keep the
+    constant texel density and the voxel-sized thickness of the straight boxes. `extent` replaces the snapped extent (build() passes the
+    one with its coplanar faces raised)."""
+    x0, y0, z0, x1, y1, z1 = extent if extent is not None else snap_extent(x0, y0, z0, x1, y1, z1)
     quads = [
         [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)],   # +z top-facing order handled by winding fix below
         [(x1, y0, z0), (x0, y0, z0), (x0, y1, z0), (x1, y1, z0)],
@@ -200,6 +265,7 @@ def build(name, boxes, size, center, min_y, subst):
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
     sx, sy, sz = size
+    placed = []
     for box in boxes:
         a, b, c, d, e, f, kind = box[:7]
         rot = box[7] if len(box) > 7 else None          # (rx, ry, rz) degrees about the prop axes
@@ -213,8 +279,14 @@ def build(name, boxes, size, center, min_y, subst):
         pivot = None
         if piv is not None:
             pivot = (center[0] + (piv[0] - .5) * sx, -(center[1] + (piv[2] - .5) * sz), min_y + piv[1] * sy)
-        add_box(bm, uv, min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy, kind,
-                rot=rot, pivot=pivot)
+        raw = (min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy)
+        placed.append((raw, kind, rot, pivot))
+    extents = [snap_extent(*p[0]) for p in placed]
+    extents, pairs = resolve_coplanar(extents, [aligned_axes(p[2]) for p in placed])
+    if pairs:
+        print("BLOCKYCOPLANAR %s %d" % (name, len(pairs)))
+    for (raw, kind, rot, pivot), extent in zip(placed, extents):
+        add_box(bm, uv, *raw, kind, rot=rot, pivot=pivot, extent=extent)
     bm.to_mesh(me)
     bm.free()
     me.materials.append(MAT)
