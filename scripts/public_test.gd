@@ -161,6 +161,7 @@ func _run_a() -> void:
 	_say("hunter emote replicated to the guest")
 	# Spectator: the authority is caught while the guest still lives. It must watch
 	# without dropping the session or its hunter simulation, then rejoin on its own.
+	scene.get_script().set("public_spectate_seconds", 25.0)   # leave the guest time to see it
 	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
 	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "authority to spectate", 10.0):
 		return
@@ -169,7 +170,7 @@ func _run_a() -> void:
 		return
 	_say("authority is spectating (still authority, still simulating)")
 	_write("a_spectating.txt", "1")
-	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "authority to rejoin", 20.0):
+	if not await _wait_for(func() -> bool: return not scene.player.spectator_mode, "authority to rejoin", 40.0):
 		return
 	if not await _wait_for(func() -> bool: return _read("b2_spectating.txt") != "", "guest to spectate", 60.0):
 		return
@@ -254,6 +255,7 @@ func _run_b2() -> void:
 		return
 	_say("authority is spectating; this guest is still alive")
 	await get_tree().create_timer(10.0).timeout
+	scene.get_script().set("public_spectate_seconds", 25.0)
 	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
 	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate", 10.0):
 		return

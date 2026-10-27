@@ -81,6 +81,8 @@ var jumpscare: HunterJumpscare
 var _story
 var _death_screen_open := false
 ## Spectator state: peer id of the followed runner (0 = free camera).
+## How long a caught PUBLIC-route runner spectates before rejoining (scripts/public_test.gd stretches it).
+static var public_spectate_seconds := 8.0
 var _spectate_peer := 0
 var _spectator_banner: SpectatorBanner
 var _capture_resolving := false
@@ -3274,7 +3276,7 @@ func _public_spectate_then_rejoin(hunter_name: String) -> void:
 		_remotes.submit_hunter_event({"what": "caught"})
 	hud.show_message("CAUGHT BY %s // SPECTATING // REJOINING SHORTLY" % hunter_name)
 	_capture_resolving = false
-	await get_tree().create_timer(8.0).timeout
+	await get_tree().create_timer(public_spectate_seconds).timeout
 	if not is_inside_tree() or not RoomState.public_route:
 		return
 	_end_spectating()
