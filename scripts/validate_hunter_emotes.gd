@@ -206,8 +206,9 @@ func run(host: Node) -> int:
 	_expect(view._desired_expression() == "happy", "a wave shows the happy face")
 	view.brain.start_emote(HunterEmoteCatalog.TAUNT, 1.0)
 	view.sync_from_brain()
-	_expect(view._emote_clip == "" and view._desired_expression() == "scream",
-		"a taunt with no authored clip must fall back to the face alone")
+	# the blocky models now carry emote_taunt (a moving clip on the run); the face still follows the catalog
+	_expect(view._emote_clip == "emote_taunt" and view._desired_expression() == "scream",
+		"Dovelle should taunt with her emote_taunt clip and the scream face, got '%s'" % view._emote_clip)
 	view.brain.start_emote(HunterEmoteCatalog.LAUGH, 1.5)
 	view.sync_from_brain()
 	view._move_speed = 3.0

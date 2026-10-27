@@ -68,6 +68,7 @@ func run(host: Node) -> int:
 			var face_name := String(entry.get("face", ""))
 			if not BlockyFace.CELLS.has(face_name) and not BlockyFace.ANIMS.has(face_name):
 				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
+		_check_catalog_emotes(id, node, listed)
 		if id.begins_with("void_"):
 			for cue in VOID_CUES.get(id, []):
 				if node.find_child(cue, true, false) == null:
@@ -176,6 +177,49 @@ func run(host: Node) -> int:
 	_check_player_mannequin(host)
 	print("  %d blocky hunters checked" % HUNTERS.size())
 	return _failures
+
+
+## docs/HUNTER_EMOTES.md: every non-Void hunter carries the 12 catalog clips (emote_<id>) as one-shots of about the catalog
+## length with the catalog face listed in emotes.json; the moving ones (taunt, point, beckon; also void_pink's beckon) are built on
+## the run, so they must keep animating the legs. (Void otherwise uses its shared stand-ins.)
+const CATALOG_MOVING := ["taunt", "point", "beckon"]
+
+
+func _check_catalog_emotes(id: String, node: Node, listed: Array) -> void:
+	var player := ModelSlot.find_animation_player(node)
+	if player == null:
+		return
+	var is_void := id.begins_with("void_")
+	for entry in HunterEmoteCatalog.ENTRIES:
+		var emote_id := String(entry["id"])
+		var clip := String(entry["clip"])
+		if is_void and not (id == "void_pink" and emote_id == "beckon"):
+			continue
+		if emote_id == "wave" or emote_id == "shrug":
+			continue            # the shared set (wave, shrug) is checked with every hunter's own list
+		if not player.has_animation(clip):
+			_fail("%s is missing the catalog emote clip %s" % [id, clip])
+			continue
+		var anim := player.get_animation(clip)
+		if anim.loop_mode != Animation.LOOP_NONE:
+			_fail("%s catalog emote %s must be a one-shot" % [id, clip])
+		if absf(anim.length - float(entry["seconds"])) > .45 and not (emote_id in ["dance", "victory", "stretch", "yawn", "hum", "look_around", "smug", "laugh"]):
+			_fail("%s %s is %.2f s, catalog says %.2f s" % [id, clip, anim.length, float(entry["seconds"])])
+		if anim.length < float(entry["seconds"]) - .5:
+			_fail("%s %s is %.2f s, much shorter than the catalog's %.2f s" % [id, clip, anim.length, float(entry["seconds"])])
+		var face_ok := false
+		for item in listed:
+			if String(item.get("clip", "")) == clip and String(item.get("face", "")) == String(entry["face"]):
+				face_ok = true
+		if not face_ok:
+			_fail("%s emotes.json does not list %s with the catalog face %s" % [id, clip, entry["face"]])
+		if emote_id in CATALOG_MOVING:
+			var legs := false
+			for t in anim.get_track_count():
+				if String(anim.track_get_path(t)).contains("Thigh"):
+					legs = true
+			if not legs:
+				_fail("%s %s is a moving emote but has no leg tracks (the legs would freeze)" % [id, clip])
 
 
 ## The player body on the hunter rig (assets/hunters_blocky/player_mannequin): same bones, the player clip set (loops seamless,

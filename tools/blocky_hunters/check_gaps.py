@@ -38,9 +38,18 @@ def hunter_clips(name):
         sk = bb_skin.vanilla_sk(sh_x=6.0)
         bones = bb_rig.skeleton(sk, [])
         return player_clips.build(bones, sk["hip_y"], motion.profile(name)), {b["name"]: b["rot"] for b in bones}
+    from hunters import emotes as emote_lib
     sk = bb_skin.vanilla_sk()
     bones = bb_rig.skeleton(sk, [])
-    return bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name)), {b["name"]: b["rot"] for b in bones}
+    rest = {b["name"]: b["rot"] for b in bones}
+    pel = next(b for b in bones if b["name"] == "Pelvis")["pivot"]
+    k = sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y
+    emote_clips, _ = emote_lib.compile_emotes(name, rest, pel, bb_skin.U, k, bb_rig.CORE_NAMES)   # every emote is gap-checked too
+    new_clips, _ = emote_lib.compile_new(name, rest, pel, bb_skin.U, k, bb_rig.CORE_NAMES)
+    emote_clips.update(new_clips)
+    clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
+    emote_lib.compile_moving(name, clips, rest)
+    return clips, rest
 
 
 def wedge(q, rest, w, d):
@@ -52,7 +61,7 @@ def wedge(q, rest, w, d):
 
 
 def main():
-    worst, extreme = {}, {}
+    worst, extreme, offenders = {}, {}, {}
     loops_bad = []
     for name in IDS:
         clips, rest = hunter_clips(name)
@@ -67,6 +76,8 @@ def main():
                     if name == "player_mannequin" and bone.endswith(("Forearm", "Hand")):
                         w = 4                         # classic arms are 4 px wide
                     g = max(wedge(q, rest[bone], w, d) for q in tr["rotation"][1])
+                    if "--all" in sys.argv and cname != "crouch" and g > getattr(bb_skin, "PLUG_EXT", {}).get(bone, 0.0):
+                        offenders.setdefault((cname, bone), []).append((round(g, 2), name))
                     book = extreme if cname == "crouch" else worst
                     if g > book.get(bone, (0,))[0]:
                         book[bone] = (g, name, cname)
@@ -80,6 +91,8 @@ def main():
     for bone, (g, n, c) in sorted(extreme.items()):
         print("  %-10s crouch (deepest bend)  %.2f px (%s), plug covers %.2f px%s" % (
             bone, g, n, ext.get(bone, 0.0), "" if g <= ext.get(bone, 0.0) else "  (sliver at the deepest crouch)"))
+    for (cname, bone), lst in sorted(offenders.items()):
+        print("    over: %-22s %-10s %s" % (cname, bone, sorted(lst, reverse=True)[:6]))
     print("loops: %s" % ("all seamless" if not loops_bad else "%d broken, e.g. %s" % (len(loops_bad), loops_bad[:3])))
     return bad + len(loops_bad)
 
