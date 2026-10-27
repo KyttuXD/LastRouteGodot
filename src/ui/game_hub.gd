@@ -340,27 +340,74 @@ func _accent(id: String) -> Color:
 	return Palette.ACCENT
 
 
-## PLAY keeps ONE fill and ONE label colour in every state, whatever the game's theme says: the state boxes are copied
-## from the theme (so hover/pressed still read) but the label colour is pinned and focus is a 2 px outline in the
-## label colour with no fill. Focus (keyboard) plus hover (mouse) can never dim the label, in any theme.
+## PLAY is built from the NORMAL state only, so no theme (a game theme that forgets pressed/focus/disabled boxes, a hover box
+## that goes dark) can leave it unreadable: hover lightens the fill, pressed darkens it, hover+focus is the hover box, focus
+## is a 2 px outline with no fill; the label colour of every state is whichever of dark/light ink contrasts better with that
+## state's own fill (>= 4.5:1 for any fill that allows it). Disabled/LOCKED keeps the theme's muted look at >= 3:1.
+const INK_DARK := Color(0.102, 0.059, 0.078)
+const INK_LIGHT := Color(0.949, 0.929, 0.882)
+
+
+static func _luma(color: Color) -> float:
+	var channels := []
+	for value in [color.r, color.g, color.b]:
+		channels.append(value / 12.92 if value <= 0.03928 else pow((value + 0.055) / 1.055, 2.4))
+	return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+static func _ratio(a: Color, b: Color) -> float:
+	var la := _luma(a)
+	var lb := _luma(b)
+	return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+
+
+static func readable_ink(fill: Color) -> Color:
+	return INK_DARK if _ratio(INK_DARK, fill) >= _ratio(INK_LIGHT, fill) else INK_LIGHT
+
+
+## The first candidate fill an ink reads on at 4.5:1 (mid-tone fills fit neither ink), else the state's own fill.
+static func _readable_variant(fallback: Color, candidates: Array) -> Color:
+	for candidate in candidates:
+		if _ratio(readable_ink(candidate), candidate) >= 4.5:
+			return candidate
+	return fallback
+
+
 func _style_play_button(button: Button) -> void:
 	if button.has_meta("play_styled") or not button.is_inside_tree():
 		return
 	button.set_meta("play_styled", true)
-	var label := button.get_theme_color("font_color")
-	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
-		var box := button.get_theme_stylebox(state)
-		if box != null:
-			button.add_theme_stylebox_override(state, box.duplicate())
-	for color_name in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
-		button.add_theme_color_override(color_name, label)
+	var normal := button.get_theme_stylebox("normal") as StyleBoxFlat
+	if normal == null:
+		return
+	var fill := normal.bg_color
+	var pressed_fill := _readable_variant(fill, [fill.darkened(0.1), fill.darkened(0.2), fill.lightened(0.1)])
+	var states := {
+		"normal": fill,
+		"hover": _readable_variant(fill, [fill.lightened(0.12), fill.darkened(0.12), fill.lightened(0.2), fill.darkened(0.2)]),
+		"pressed": pressed_fill, "hover_pressed": pressed_fill,
+	}
+	var label_names := {"normal": "font_color", "hover": "font_hover_color", "pressed": "font_pressed_color",
+		"hover_pressed": "font_hover_pressed_color"}
+	for state in states:
+		var box := normal.duplicate() as StyleBoxFlat
+		box.bg_color = states[state]
+		button.add_theme_stylebox_override(state, box)
+		button.add_theme_color_override(label_names[state], readable_ink(states[state]))
+	# focus stays on top of whichever state box is showing; its outline uses the normal label colour
 	var outline := StyleBoxFlat.new()
 	outline.bg_color = Color(0, 0, 0, 0)
 	outline.draw_center = false
 	outline.set_border_width_all(2)
-	outline.border_color = label
+	outline.border_color = readable_ink(fill)
 	outline.set_corner_radius_all(2)
 	button.add_theme_stylebox_override("focus", outline)
+	button.add_theme_color_override("font_focus_color", readable_ink(fill))
+	# locked: muted fill with an ink that still reads
+	var disabled := normal.duplicate() as StyleBoxFlat
+	disabled.bg_color = Palette.INSET
+	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_color_override("font_disabled_color", readable_ink(disabled.bg_color))
 
 
 ## Up/Down move between the focused card's PLAY button and the shared row (Account / Settings / Admin / Quit);
