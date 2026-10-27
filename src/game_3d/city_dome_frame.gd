@@ -37,7 +37,10 @@ func _build_skyline() -> void:
 		towers.cube_tall(base, width, height)
 		if rng.randf() < .35:
 			towers.cube_tall(base + Vector3(0, height, 0), width * .45, 12.0 + rng.randf() * 22.0)
+		# Windows sit on the box face that looks at the city. The towers are axis-aligned boxes, so offsetting along the
+		# radial direction put diagonal towers' windows off the wall, glowing in the air beside or inside the box.
 		var toward := (CENTER - base).normalized()
+		toward = Vector3(signf(toward.x), 0, 0) if absf(toward.x) >= absf(toward.z) else Vector3(0, 0, signf(toward.z))
 		for _w in 16:
 			var along := Vector3(-toward.z, 0, toward.x) * (rng.randf() - .5) * (width * .8)
 			var point := base + toward * (width * .5 + .2) + along + Vector3(0, 4.0 + rng.randf() * (height - 6.0), 0)

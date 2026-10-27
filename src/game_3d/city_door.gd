@@ -84,12 +84,12 @@ func _ready() -> void:
 static func _matte(color: Color, emission: Color, emission_energy: float = 0.7) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
-	material.roughness = 0.92
-	material.metallic = 0.0
 	if emission != Color(0, 0, 0):
 		material.emission_enabled = true
 		material.emission = emission
 		material.emission_energy_multiplier = emission_energy
+	# Matte like everything else (shared MaterialLook rules); the glass leaves keep only their emissive glow.
+	MaterialLook.tame(material)
 	return material
 
 

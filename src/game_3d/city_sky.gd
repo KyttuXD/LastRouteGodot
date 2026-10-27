@@ -35,7 +35,9 @@ void fragment() {
 	vec2 star_cell = floor(plane * 38.0);
 	float star = step(0.986, hash(star_cell)) * step(0.06, d.y);
 	col += vec3(star) * (0.55 + 0.45 * sin(TIME * 1.6 + hash(star_cell + 3.1) * 6.2831));
-	vec2 cloud_uv = floor(plane * 7.0) / 3.0;
+	// Cloud pixels: the same noise frequency as before, three times finer cells. At floor(plane * 7) one cell near the
+	// zenith spanned ~10 degrees, so looking up the clouds read as big flat purple polygons hanging behind the towers.
+	vec2 cloud_uv = floor(plane * 21.0) / 9.0;
 	float cloud = noise(cloud_uv * 1.1 + vec2(TIME * 0.012, 0.0)) * 0.6 + noise(cloud_uv * 2.7) * 0.4;
 	float mask = smoothstep(0.50, 0.60, cloud) * smoothstep(0.03, 0.28, d.y);
 	vec3 cloud_col = mix(vec3(0.15, 0.09, 0.24), vec3(0.50, 0.26, 0.44), clamp(1.0 - d.y * 2.2, 0.0, 1.0));

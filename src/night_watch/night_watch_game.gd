@@ -77,6 +77,8 @@ func _build_world() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.38, 0.40, 0.55)
 	env.ambient_light_energy = 1.0
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	MaterialLook.install(get_tree())
 	world_env.environment = env
 	add_child(world_env)
 	office = NightWatchOffice.new()

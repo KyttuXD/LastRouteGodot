@@ -19,16 +19,17 @@ var _clock := 0.0
 func _ready() -> void:
 	var body := StandardMaterial3D.new()
 	body.albedo_color = Color(0.16, 0.22, 0.30)
-	body.roughness = 0.92
+
 	var glow := StandardMaterial3D.new()
 	glow.albedo_color = Color(0.9, 0.7, 0.35)
 	glow.emission_enabled = true
 	glow.emission = Color(1.0, 0.72, 0.3)
 	glow.emission_energy_multiplier = 1.6
-	glow.roughness = 0.9
+
 	var rail := StandardMaterial3D.new()
 	rail.albedo_color = Color(0.08, 0.09, 0.12)
-	rail.roughness = 0.95
+	for material in [body, glow, rail]:
+		MaterialLook.tame(material)
 	var centre := Vector2(CityLayout.ROUNDABOUT_CENTER) + Vector2(.5, .5) - Vector2(CityLayout.ORIGIN_OFFSET)
 	# Rails run where the street is inside the rim; the roundabout kiosk is 4.5 m tall so the rail clears it.
 	_lines = [

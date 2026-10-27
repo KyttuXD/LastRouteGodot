@@ -27,6 +27,7 @@ func run(host: Node) -> int:
 	var lr := GeometryAudit.sweep_last_route(SEEDS, PER_BIOME, findings)
 	var city := GeometryAudit.sweep_city(CITY_SEEDS, findings)
 	var offices := await _audit_offices(host, findings)
+	_audit_city_sky(host)
 	_expect(int(lr["chunks"]) > 20, "only %d Last Route chunks swept" % int(lr["chunks"]))
 	_expect(int(city["buildings"]) > 60, "only %d City buildings swept" % int(city["buildings"]))
 	var table := GeometryAudit.counts(findings)
@@ -55,3 +56,46 @@ func _audit_offices(host: Node, findings: Array) -> int:
 		await host.get_tree().process_frame
 		built += 1
 	return built
+
+
+## Looking up in the City (KT's Ring Road report): the far skyline must be towers with windows ON them (no glowing quads
+## in the air), there is no dome shell overhead, and a raised CitySurface box (tree canopy) is closed from below.
+func _audit_city_sky(host: Node) -> void:
+	var frame := CityDomeFrame.new()
+	host.add_child(frame)
+	var meshes := frame.find_children("*", "MeshInstance3D", true, false)
+	_expect(meshes.size() == 2, "CityDomeFrame builds %d meshes (expected towers + windows, no dome shell)" % meshes.size())
+	if meshes.size() == 2:
+		var towers := _boxes((meshes[0] as MeshInstance3D).mesh)
+		var floating := 0
+		for window_box in _boxes((meshes[1] as MeshInstance3D).mesh):
+			var centre: Vector3 = (window_box as AABB).get_center()
+			var on_face := false
+			for tower in towers:
+				var grown := (tower as AABB).grow(.75)
+				if grown.has_point(centre) and not (tower as AABB).grow(-.1).has_point(centre):
+					on_face = true
+					break
+			if not on_face:
+				floating += 1
+		_expect(floating == 0, "%d skyline windows float off their tower" % floating)
+	frame.queue_free()
+	var surface := CitySurface.new()
+	surface.box(Vector3(0, 2.5, 0), Vector3(1.7, .9, 1.7), 0)
+	var normals: PackedVector3Array = surface.build().surface_get_arrays(0)[Mesh.ARRAY_NORMAL]
+	var underside := false
+	for normal in normals:
+		underside = underside or normal.y < -.99   # normals come back compressed, never exactly DOWN
+	_expect(underside, "a raised CitySurface box has no underside")
+
+
+## CityDomeFrame._Beams writes 5 quads (20 vertices) per box.
+func _boxes(mesh: Mesh) -> Array:
+	var out := []
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	for start in range(0, vertices.size(), 20):
+		var box := AABB(vertices[start], Vector3.ZERO)
+		for index in range(start, mini(start + 20, vertices.size())):
+			box = box.expand(vertices[index])
+		out.append(box)
+	return out

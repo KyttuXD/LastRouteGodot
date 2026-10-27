@@ -670,20 +670,23 @@ static func material(key: String) -> Material:
 		"brass":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("5a4020")
-			s.metallic = .7
-			s.roughness = .45
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"iron":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("1a1617")
-			s.metallic = .5
-			s.roughness = .5
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"rust":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("3a2418")
-			s.metallic = .5
-			s.roughness = .6
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"canvas":
 			var s := StandardMaterial3D.new()

@@ -7,6 +7,9 @@ shader_type spatial;
 
 uniform sampler2DArray tex : source_color, filter_nearest_mipmap_anisotropic, repeat_enable;
 uniform vec3 tint : source_color = vec3(1.0);
+// Specular of dielectrics and of metal floors (MaterialLook): low by default, no glints.
+uniform float specular_base = 0.18;
+uniform float specular_metal = 0.32;
 
 varying flat float v_layer;
 varying vec3 v_params;
@@ -21,6 +24,6 @@ void fragment() {
 	ALBEDO = c * tint;
 	ROUGHNESS = v_params.x;
 	METALLIC = v_params.y;
-	SPECULAR = 0.5 + 0.4 * v_params.y;
+	SPECULAR = specular_base + (specular_metal - specular_base) * clamp(v_params.y / 0.18, 0.0, 1.0);
 	EMISSION = c * v_params.z;
 }
