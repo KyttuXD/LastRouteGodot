@@ -124,17 +124,24 @@ def shot(name, az, h0, h1, aspect=None):
     # glTF import: character faces -Z glTF = +Y Blender?  camera aims at target
     d = Vector((cx, 0, mid)) - co.location
     co.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
-    sc.render.filepath = f"{OUT}/{'-'.join(os.path.basename(x).replace('.glb','') for x in NAMES)}_{CLIP}_{name}.png"
+    sc.render.filepath = f"{OUT}/{'-'.join(os.path.basename(x).replace('.glb','') for x in NAMES)}_{CLIP}_{name}{SUFFIX}.png"
     bpy.ops.render.render(write_still=True)
 
 
+SUFFIX = ""
 FRAME = os.environ.get("FRAME_Y")
 y0f, y1f = (float(x) for x in FRAME.split(",")) if FRAME else (-0.02, 2.1)
-for v in VIEWS:
-    az = {"front": 180, "threeq": 150, "back": 0, "side": 90, "head": 160}[v]
-    if os.environ.get("AZ"):
-        az = float(os.environ["AZ"])               # turntable: any camera angle
-    if v == "head":
-        shot(v, az, 1.0, 1.78 + 0.0) if not FRAME else shot(v, az, y0f, y1f)
-    else:
-        shot(v, az, y0f, y1f)
+TIMES = [float(x) for x in os.environ["TIMES"].split(",")] if os.environ.get("TIMES") else [None]   # many frames per run
+for ti, tt in enumerate(TIMES):
+    if tt is not None:
+        sc.frame_set(int(round(tt * 30)))
+        bpy.context.view_layer.update()
+        SUFFIX = f"_t{ti}"
+    for v in VIEWS:
+        az = {"front": 180, "threeq": 150, "back": 0, "side": 90, "head": 160}[v]
+        if os.environ.get("AZ"):
+            az = float(os.environ["AZ"])               # turntable: any camera angle
+        if v == "head":
+            shot(v, az, 1.0, 1.78 + 0.0) if not FRAME else shot(v, az, y0f, y1f)
+        else:
+            shot(v, az, y0f, y1f)

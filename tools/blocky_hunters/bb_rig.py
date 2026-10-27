@@ -87,11 +87,13 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
     for n in ("idle", "walk", "chase", "sprint", "crouch"):
         clips[n] = from_hytale(n)
 
-    # charge: sprint with the whole torso leaned into it, head kept up
+    # charge: a bull-rush, the sprint with the whole body thrown forward, head up and eyes on the target, arms swept
+    # back and fists clenched (Loxelle's charge ability)
     ch = from_hytale("sprint")
-    for bone, lean in (("Belly", -10), ("Chest", -12), ("Head", 18)):
+    for bone, off in (("Belly", (-4, 0, 0)), ("Chest", (-3, 0, 0)), ("Head", (6, 0, 0)),
+                      ("L-Arm", (-38, 0, 8)), ("R-Arm", (-38, 0, -8)), ("L-Forearm", (24, 0, 0)), ("R-Forearm", (24, 0, 0))):
         t, v = ch["tracks"][bone]["rotation"]
-        ch["tracks"][bone]["rotation"] = (t, [quat_mul(quat_from_euler(lean, 0, 0), q) for q in v])
+        ch["tracks"][bone]["rotation"] = (t, [quat_mul(quat_from_euler(*off), q) for q in v])
     clips["charge"] = ch
 
     def authored(length, n, pose, pelvis_dy=lambda i: 0.0):
@@ -134,24 +136,10 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
-    # stun: staggering, head lolling, arms limp, knees buckled (authored; loops), and the wake-up that follows it
-    def stun_pose(b, p):
-        s1, c1, s2, c2 = math.sin(p), math.cos(p), math.sin(2 * p), math.cos(2 * p)
-        return {
-            "Pelvis": (0, 10 * s1, 3 * c1),
-            "Belly": (-9 + 3 * c2, 9 * s1, 3 * s1),
-            "Chest": (-8 + 3 * s2, 8 * math.sin(p + .8), 4 * c1),
-            "Head": (-15 + 6 * c1, 12 * s1, 9 * s1 + 5 * c1),
-            "L-Arm": (16 + 12 * s1, 0, -9 - 6 * c1), "R-Arm": (16 - 12 * s1, 0, 9 + 6 * c1),
-            "L-Forearm": (14 + 8 * c1, 0, 0), "R-Forearm": (14 - 8 * c1, 0, 0),
-            "L-Hand": (12, 0, 0), "R-Hand": (12, 0, 0),
-            "L-Thigh": (38 + 9 * s1, 0, -6), "R-Thigh": (30 - 9 * s1, 0, 6),
-            "L-Calf": (-66 - 10 * s1, 0, 0), "R-Calf": (-55 + 10 * s1, 0, 0),
-            "L-Foot": (28 + 1 * s1, 0, 0), "R-Foot": (25 - 1 * s1, 0, 0),
-        }.get(b)
-
-    def stun_dy(p):
-        return -0.11 + 0.025 * math.cos(2 * p)
+    # stun: a per-hunter style (stun.py) of staggering / toppling / curling ..., and the wake-up that follows it
+    import stun as stun_mod
+    st = stun_mod.style((profile or {}).get("stun_style", "base"), (profile or {}).get("stun_over"))
+    stun_pose, stun_dy = stun_mod.pose_fn(st), stun_mod.dy_fn(st)
 
     def sampled(length, n, pose, dy, loop=True):
         times = [length * i / n for i in range(n + 1)]
@@ -161,8 +149,8 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
             tr[b] = {"rotation": (times, vals)}
         tr["Pelvis"]["translation"] = (times, [(pel[0], pel[1] + dy(i) * k, pel[2]) for i in range(n + 1)])
         return {"length": length, "tracks": tr, "loop": loop}
-    N = 16
-    clips["stun"] = sampled(1.6, N, lambda b, i: stun_pose(b, 2 * math.pi * (i % N) / N), lambda i: stun_dy(2 * math.pi * (i % N) / N))
+    N = 24 if st["harm"] > 2 else 16
+    clips["stun"] = sampled(st["length"], N, lambda b, i: stun_pose(b, 2 * math.pi * (i % N) / N), lambda i: stun_dy(2 * math.pi * (i % N) / N))
 
     def ease(u):
         u = max(0.0, min(1.0, u))
@@ -178,25 +166,35 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
         if b == "Head":
             e[1] += 14 * math.sin(t * 2 * math.pi * 2.5) * (1 - t)       # shakes the dizziness off
         return tuple(e)
-    clips["stun_recover"] = sampled(1.0, 10, recover_pose, lambda i: stun_dy(0.0) * (1 - ease(i / 10 / .7)), loop=False)
+    clips["stun_recover"] = sampled(1.0 if st["length"] < 2 else 1.3, 10, recover_pose, lambda i: stun_dy(0.0) * (1 - ease(i / 10 / .7)), loop=False)
 
-    # run polish: chase and sprint lean into it, elbows bent, arms pumping harder, head kept level
-    for name, lean, elbow, arms, stride in (("chase", 7, 24, 1.3, 1.1), ("sprint", 12, 48, 1.5, 1.2)):
+    # run polish: the Hytale gaits are small shuffles, so chase / sprint / charge get a much longer stride, deeper knees,
+    # harder arm pumping, bent elbows and a lean into the run (head kept level); walk gets a little more stride
+    for name, lean, elbow, arms, stride, knee in (("walk", 0, 0, 1.3, 1.25, 1.2), ("chase", 11, 30, 1.9, 1.7, 1.5),
+                                                  ("sprint", 17, 55, 2.3, 2.0, 1.8), ("charge", 12, 40, 1.0, 2.0, 1.8)):
         for bone, tr in clips[name]["tracks"].items():
             if "rotation" not in tr:
                 continue
             t, v = tr["rotation"]
             if bone in ARM:
                 v = [_scale_about(restq[bone], q, arms) for q in v]
-            if bone in LEG or bone in KNEE:
+            if bone in LEG:
                 v = [_scale_about(restq[bone], q, stride) for q in v]
+            if bone in KNEE:
+                v = [_scale_about(restq[bone], q, knee) for q in v]
             off = {"Belly": (-lean * .55, 0, 0), "Chest": (-lean * .45, 0, 0), "Head": (lean * .85, 0, 0),
                    "L-Forearm": (elbow, 0, 0), "R-Forearm": (elbow, 0, 0)}.get(bone)
-            if off:
+            if off and any(off):
                 v = [quat_mul(quat_from_euler(*off), q) for q in v]
             tr["rotation"] = (t, v)
 
+    # life overlays: the Hytale idle / walk are very small motions; add breathing and weight shift to idle, and the
+    # torso counter-rotation + hip sway + head bob a real gait has to walk / chase / sprint / charge
+    for name, specs in OVERLAYS.items():
+        if name in clips:
+            overlay(clips[name], restq, specs)
     _apply_profile(clips, restq, pel, profile or {})
+    ground_fit(clips, bones, restq, st["buckle"] <= .2)
     clips.update(emotes or {})            # one-shot emotes are added after the profile: they keep their own timing
 
     # procedural sway for extra bones (ponytail, hair, wings, ribbons ...)
@@ -219,6 +217,14 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
                         "stun": 4, "flight": 10, "jumpscare": 8}.get(clip_name, max(2, round(length * 3)))
             else:
                 cyc2 = cyc * mult
+            rule = stun_mod.extra_rule(st, b["name"]) if clip_name in ("stun", "stun_recover") else None
+            off = (0.0, 0.0, 0.0)
+            if rule:
+                amp *= rule[0]
+                if rule[1]:
+                    cyc2 = cyc * rule[1] if clip_name == "stun" else cyc2
+                sgn = -1 if b["name"].startswith("L-") else 1
+                off = (rule[2][0], rule[2][1], rule[2][2] * sgn)
             n = 12 if cyc2 <= 3 else max(12, int(cyc2 * 4))
             times = [length * i / n for i in range(n + 1)]
             vals = []
@@ -227,6 +233,7 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
                 e = (ax * amp * math.sin(ph), ay * amp * math.sin(ph + .6), az * amp * math.sin(ph + 1.1))
                 if b["name"].endswith("Wing"):
                     e = (0, ax * amp * math.sin(ph), 0)
+                e = (e[0] + off[0], e[1] + off[1], e[2] + off[2])
                 vals.append(quat_euler(e, b["rot"]))
             clip["tracks"][b["name"]] = {"rotation": (times, vals)}
     return clips
@@ -295,3 +302,106 @@ def _apply_profile(clips, restq, pel, prof):
             t, v = pt
             clip["tracks"]["Pelvis"]["translation"] = (t, [(pel[0] + (x - pel[0]) * p["bounce"], pel[1] + (y - pel[1]) * p["bounce"],
                                                             pel[2] + (z - pel[2]) * p["bounce"]) for x, y, z in v])
+
+
+# How far the lowest sole may rise above the floor per clip (airborne phase of a run); everything else is fitted so
+# the lowest foot touches the floor (a pelvis bob that is bigger than the legs can follow makes feet float or sink).
+GROUND_SLACK = {"idle": 0.0, "walk": 0.015, "chase": 0.03, "sprint": 0.05, "charge": 0.04, "crouch": 0.0, "stun": 0.0,
+                "stun_recover": 0.0}
+
+
+def ground_fit(clips, bones, restq, hovering=False):
+    """Forward-kinematics pass: raise / lower the Pelvis per key so the lowest sole is on the floor (within the slack above)."""
+    import numpy as np
+
+    def qm(q):
+        x, y, z, w = q
+        return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                         [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+    par = {b["name"]: b["parent"] for b in bones}
+    piv = {b["name"]: np.array(b["pivot"], float) for b in bones}
+    chain = {}
+    for f in ("L-Foot", "R-Foot"):
+        c, n = [], f
+        while n:
+            c.append(n)
+            n = par[n]
+        chain[f] = c[::-1]
+    sole = {f: np.array([0.0, -piv[f][1], 0.0]) for f in chain}      # sole point in foot space (pivot height above floor)
+
+    def interp(t, v, x):
+        i = max(0, min(len(t) - 2, int(np.searchsorted(t, x, side="right") - 1)))
+        u = (x - t[i]) / max(t[i + 1] - t[i], 1e-9)
+        a, b = np.array(v[i]), np.array(v[i + 1])
+        if a @ b < 0:
+            b = -b
+        r = a + (b - a) * u
+        return r / np.linalg.norm(r)
+    for name, slack in GROUND_SLACK.items():
+        clip = clips.get(name)
+        if clip is None or (hovering and name.startswith("stun")):
+            continue
+        pt = clip["tracks"]["Pelvis"].get("translation")
+        if pt is None:
+            continue
+        times, trans = pt
+        new = []
+        for i, x in enumerate(times):
+            low = 1e9
+            for f, ch in chain.items():
+                M = np.eye(4)
+                for n in ch:
+                    tr = piv[n] - (piv[par[n]] if par[n] else 0 * piv[n])
+                    if n == "Pelvis":
+                        tr = np.array(trans[i], float)
+                    rot = clip["tracks"].get(n, {}).get("rotation")
+                    L = np.eye(4)
+                    L[:3, :3] = qm(interp(rot[0], rot[1], x) if rot else restq[n])
+                    L[:3, 3] = tr
+                    M = M @ L
+                low = min(low, (M @ np.append(sole[f], 1.0))[1])
+            shift = -low if low < 0 else (-(low - slack) if low > slack else 0.0)
+            new.append((trans[i][0], trans[i][1] + shift, trans[i][2]))
+        clip["tracks"]["Pelvis"]["translation"] = (times, new)
+
+
+# (bone, euler amplitude deg, cycles per clip, phase) added on top of the clip; walk = 1 gait cycle per clip
+OVERLAYS = {
+    "idle": [("Chest", (2.2, 0, 0), 1, 0.0), ("Belly", (0, 0, 2.0), 1, 1.6), ("Pelvis", (0, 0, 1.6), 1, 1.6),
+             ("Head", (-1.6, 5.0, 0), 1, 0.4), ("L-Arm", (0, 0, 2.5), 1, 0.0), ("R-Arm", (0, 0, -2.5), 1, 0.0)],
+    "walk": [("Chest", (0, 6.0, 0), 1, 0.0), ("Pelvis", (0, -5.0, 3.0), 1, 0.0), ("Belly", (0, 0, 2.5), 1, 1.0),
+             ("Head", (2.0, 0, 0), 2, 0.5)],
+    "chase": [("Chest", (0, 8.0, 0), 1, 0.0), ("Pelvis", (0, -6.0, 3.5), 1, 0.0), ("Belly", (0, 0, 3.0), 1, 1.0),
+              ("Head", (2.5, 0, 0), 2, 0.5)],
+    "sprint": [("Chest", (0, 11.0, 0), 1, 0.0), ("Pelvis", (0, -8.0, 4.0), 1, 0.0), ("Belly", (0, 0, 4.0), 1, 1.0),
+               ("Head", (3.0, 0, 0), 2, 0.5)],
+    "charge": [("Chest", (0, 7.0, 0), 1, 0.0), ("Pelvis", (0, -5.0, 3.0), 1, 0.0), ("Head", (2.0, 0, 0), 2, 0.5)],
+}
+
+
+def overlay(clip, restq, specs, n=24):
+    """Add sinusoidal rotation offsets to bones of a looping clip (the bone's track is resampled to n+1 keys)."""
+    length = clip["length"]
+    times = [length * i / n for i in range(n + 1)]
+    for bone, amp, cyc, phase in specs:
+        tr = clip["tracks"].setdefault(bone, {})
+        old = tr.get("rotation")
+        vals = []
+        for i, x in enumerate(times):
+            q = restq[bone] if old is None else _sample_q(old[0], old[1], x)
+            ph = 2 * math.pi * cyc * (i % n) / n + phase
+            e = tuple(a * math.sin(ph) for a in amp)
+            vals.append(quat_mul(quat_from_euler(*e), q))
+        tr["rotation"] = (times, vals)
+
+
+def _sample_q(t, v, x):
+    i = max(0, min(len(t) - 2, next((k for k in range(len(t) - 1) if t[k + 1] >= x), len(t) - 2)))
+    u = (x - t[i]) / max(t[i + 1] - t[i], 1e-9)
+    a, b = v[i], v[i + 1]
+    if sum(p * q for p, q in zip(a, b)) < 0:
+        b = tuple(-c for c in b)
+    r = tuple(a[k] + (b[k] - a[k]) * u for k in range(4))
+    nrm = math.sqrt(sum(c * c for c in r)) or 1.0
+    return tuple(c / nrm for c in r)
