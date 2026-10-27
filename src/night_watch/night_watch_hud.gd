@@ -193,10 +193,10 @@ func _build_call(root: Control) -> void:
 	row.name = "CallRow"
 	row.add_theme_constant_override("separation", 6)
 	call_panel.add_child(row)
-	var who := _label("Z E L L I A", 6, AMBER)
+	var who := _label("Z E L L I A", 5, AMBER)
 	who.name = "CallName"
 	row.add_child(who)
-	call_label = _label("", 7)
+	call_label = _label("", 5)   # the 2D box: .ncall font-size .7em of the stage's 2.6cqh = 1.8cqh, 4.9 px of 270 here (the 3D one was 7, 1.4x bigger)
 	call_label.name = "CallText"
 	call_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	call_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -205,7 +205,7 @@ func _build_call(root: Control) -> void:
 	call_mute.name = "CallMute"
 	call_mute.text = "Mute  R"
 	call_mute.focus_mode = Control.FOCUS_NONE
-	call_mute.add_theme_font_size_override("font_size", 6)
+	call_mute.add_theme_font_size_override("font_size", 5)
 	call_mute.pressed.connect(toggle_mute)
 	row.add_child(call_mute)
 	root.add_child(call_panel)
@@ -398,6 +398,12 @@ func set_prompt(text: String) -> void:
 func show_note(text: String, seconds := 2.5) -> void:
 	note_label.text = text
 	_note_left = seconds
+
+
+## An office without a camera monitor (Bedtime, The Descent, Open Air) hides the CAMERAS button: call with `office.spec.has_monitor`.
+func set_monitor_available(on: bool) -> void:
+	if cameras_button != null:
+		cameras_button.visible = on
 
 
 func show_monitor(on: bool) -> void:

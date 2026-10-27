@@ -9,7 +9,8 @@ the games: one card per game, plus the entries that belong to no single game.
 | Per-game themes | `src/ui/theme_lastroute.tres`, `src/ui/theme_nightwatch.tres` (regenerate with `tools/build_game_themes.gd`) |
 | Shared entries | ACCOUNT, SETTINGS, ADMIN, QUIT. Account and settings open the existing panels in the Last Route menu on arrival (`GameHub.pending_menu_action`) until they move out of that scene. ADMIN is enabled for admin accounts and says that the tools open inside a run |
 | Navigation | The hub is the main menu: boot lands on it and every game returns to it. The Last Route menu's last button is `BACK TO GAMES` (it no longer quits), leaving a route, the lobby's `BACK TO GAMES`, and a finished run all go to `GameRegistry.HUB_SCENE`. QUIT exists only on the hub, asks `QUIT TO DESKTOP?` (YES/NO), and is hidden on web builds. Esc on the hub does nothing (it only closes that question) |
-| Captures | `tools/look/hub_capture.tscn` at 1280x720, 1920x1080 and 3440x1440 (`docs/hub_1280x720.png`, `docs/hub_1920x1080.png`, `docs/hub_ultrawide3440x1440.png`) |
+| Layout | An arrow carousel, see below |
+| Captures | `tools/look/hub_capture.tscn` at 1280x720, 1440x840, 1920x1080, 2560x1440, 3440x1440 and phone-landscape 844x390 (`docs/hub_carousel_<size>.png`, plus `docs/hub_carousel_real_1280x720.png` with the real registry) |
 
 The Last Route card plays; the Night Watch card is shown locked with its reason. Flipping `locked` to false and setting a
 `scene` in the registry is all it takes to launch a ported Night Watch from the hub.
@@ -41,6 +42,34 @@ Plan, in order:
 7. **Launch.** Flip `locked` to false in `GameRegistry`, set `scene`, add the Night Watch theme to its own menus.
 
 Nothing of Night Watch is ported yet; this page is the plan only.
+
+## Arrow carousel
+
+The games sit in a carousel (`GameHub`), not a row of cards, so any number of games fits at any window size.
+
+- One game is focused: its card is centred and large (200 UI units wide), with a big `<` and `>` arrow button on each side
+  (`LeftArrow`, `RightArrow`). The neighbours peek in at half size, dimmed, only when they fit whole beside it; otherwise
+  they stay out of the stage (it clips) and the arrows plus the position indicator show where you are.
+- A position indicator sits under the stage: dots for up to 8 games and always `k / n`.
+- Left/Right and A/D, the d-pad / left stick and the shoulder buttons, the mouse wheel over the stage, a swipe (24 UI units
+  sideways) and the arrows move the selection; it wraps around at both ends. Clicking a peeking neighbour brings it forward.
+  Enter, Space or PLAY launches the focused game; a locked game stays selectable and its PLAY says LOCKED with the reason shown
+  on the card. The shared row (ACCOUNT / SETTINGS / ADMIN / QUIT) keeps its own left/right focus navigation.
+- The slide animation takes 0.22 s and is skipped when `Settings.reduced_motion` is on.
+- The card scales down to fit a small stage and never up. The stage is measured in UI units, so the real expand-stretch rule
+  (480x270 base, wider windows add width) decides what fits: at 480x270 only the focused card and the arrows show, at 584x270
+  and wider the neighbours peek.
+- The game played last is the default focus: `Settings.hub_last_game` (config section `hub`, key `last_game`), written when a
+  game launches. An unknown id falls back to the default game.
+- `GameRegistry.test_games` replaces the list (tests use 1, 3, 5 and 12 synthetic games); `GameHub.launch_override` intercepts a
+  launch. Accent colours come from each game's theme (`GameCard` frame border) or an optional `accent` key in the registry.
+
+The `hub_carousel` validator (`scripts/validate_hub_carousel.gd`) opens the hub at 1280x720, 1440x840, 1920x1080, 2560x1440,
+3440x1440 and 844x390 with 1, 3, 5 and 12 games and checks that the stage, the focused card, both arrows, the indicator and the
+shared row sit inside the viewport, that the arrows do not touch the stage, that neighbours are either whole inside the stage
+or fully outside it and never overlap the focused card, that stepping left/right wraps, that keys, arrows, wheel, swipe and a
+click on a neighbour work, that Enter launches the focused game and does nothing on a locked one, and that the last played game
+is the default focus.
 
 ## Navigation test
 

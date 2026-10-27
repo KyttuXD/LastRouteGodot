@@ -7,6 +7,14 @@ extends RefCounted
 
 const SCENES := {
 	"classic": "res://scenes/night_watch.tscn",
+	"lure": "res://scenes/night_watch_lure.tscn",
+	"bedroom": "res://scenes/night_watch_bedroom.tscn",
+	"story": "res://scenes/night_watch_story.tscn",
+	"mask": "res://scenes/night_watch_mask.tscn",
+	"dayshift": "res://scenes/night_watch_dayshift.tscn",
+	"mixed": "res://scenes/night_watch_mixed.tscn",
+	"descent": "res://scenes/night_watch_descent.tscn",
+	"extra": "res://scenes/night_watch_extra.tscn",
 }
 
 

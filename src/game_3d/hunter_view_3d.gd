@@ -31,9 +31,17 @@ var _streamed_height_override_active := false
 var _presentation_initialized := false
 var _heading_initialized := false
 var _head_node: Node3D
-var _head_base_y := 0.0
-var _head_look_yaw := 0.0
-var _head_scan_phase := 0.0
+var _facing := HunterFacing.new()
+## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
+## procedural breathing / sway / lean layers (off elsewhere).
+var nw_pose := ""
+var nw_pose_opts := {}
+var nw_layers := false
+var _nw_started := ""
+var _nw_layers := NightWatchPoseLayers.new()
+var _nw_last_yaw := 0.0
+var _head_rest_q := Quaternion.IDENTITY
+var _head_written_q := Quaternion.IDENTITY
 var _kathy_beam: SpotLight3D
 var _carries_scythe := false
 var _was_stunned := false
@@ -61,6 +69,8 @@ var _move_speed := 0.0
 var _still_time := 0.0
 const STILL_CLIP_AFTER := 0.35
 const STILL_SPEED := 0.15
+## Night Watch: the speed (m/s) each travel clip's stride was authored for; the clip speeds up or slows down with the real pace.
+const NW_STRIDE_REF := {"walk": 1.8, "chase": 3.8, "sprint": 5.0}
 var _last_brain_position := Vector2.ZERO
 
 ## Kathy (and Umbriel disguised as her) carries her scythe in the right hand: the model has a
@@ -96,13 +106,8 @@ const GRAVITY_ACCELERATION := 24.0
 const MAX_PRESENTATION_SPEED := 12.0
 const HUNTER_BODY_RADIUS := .28
 const HUNTER_BODY_HEIGHT := 1.72
-const HEAD_LOOK_LIMIT := deg_to_rad(52.0)
-const HEAD_SCAN_LIMIT := deg_to_rad(24.0)
-const HEAD_LOOK_SPEED := 5.5
-## Body rotation follows the brain's movement without teleporting around a
-## corner. This also prevents a newly selected wander waypoint behind the
-## hunter from producing an instant 180-degree visual snap.
-const BODY_TURN_SPEED := deg_to_rad(300.0)
+## Body yaw / head look live in HunterFacing so other creature views share them.
+
 
 
 func _ready() -> void:
@@ -128,6 +133,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_head_look(delta)
+	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
@@ -206,6 +212,9 @@ func _apply_model(model_id: String) -> void:
 	if _model:
 		add_child(_model)
 		_animation_player = ModelSlot.find_animation_player(_model)
+		NightWatchPoses.install(_model, _animation_player, _shown_id)
+		_nw_layers.bind(_model)
+		_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		if SecretCreatures.uses_creature_rig(model_id):
 			_creature = CreatureView.new(self, _model)
 		_configure_character_lights()
@@ -241,8 +250,9 @@ func _configure_character_lights() -> void:
 	_head_node = _model.find_child("Head", true, false) as Node3D
 	if _head_node == null:
 		return
-	_head_base_y = _head_node.rotation.y
-	_head_scan_phase = float(abs(hash(brain.hunter_id if brain != null else _shown_id)) % 628) \
+	_head_rest_q = _head_node.quaternion
+	_head_written_q = _head_rest_q
+	_facing.phase = float(abs(hash(brain.hunter_id if brain != null else _shown_id)) % 628) \
 		/ 100.0
 	# Glow eyes belong to the authored A-Z maze roster. Void/office hunters keep
 	# the eyes painted into their own skins; synthetic attachments both obscured
@@ -342,22 +352,64 @@ func _update_beam_visual(delta: float) -> void:
 func _update_head_look(delta: float) -> void:
 	if _head_node == null or brain == null:
 		return
-	var desired_yaw := 0.0
-	if has_look_target and brain.active and brain.stun_timer <= 0.0:
-		var offset := look_target_position - brain.position
-		if offset.length_squared() > .001:
-			var target_yaw := atan2(-offset.x, -offset.y)
-			desired_yaw = clampf(wrapf(target_yaw - rotation.y, -PI, PI),
-				-HEAD_LOOK_LIMIT, HEAD_LOOK_LIMIT)
-	elif brain.active and brain.stun_timer <= 0.0 \
-			and brain.state != HunterBrain.State.CHASE:
-		desired_yaw = sin(Time.get_ticks_msec() * .00135 + _head_scan_phase) \
-			* HEAD_SCAN_LIMIT
-	_head_look_yaw = lerp_angle(_head_look_yaw, desired_yaw,
-		clampf(delta * HEAD_LOOK_SPEED, 0.0, 1.0))
-	var head_rotation := _head_node.rotation
-	head_rotation.y = _head_base_y + _head_look_yaw
-	_head_node.rotation = head_rotation
+	var camera := get_viewport().get_camera_3d()
+	if camera != null and global_position.distance_squared_to(camera.global_position) \
+			> HunterFacing.UPDATE_RANGE * HunterFacing.UPDATE_RANGE:
+		_facing.weight = 0.0
+		return
+	var live := brain.active and brain.stun_timer <= 0.0 and _recover_left <= 0.0 \
+		and (_emote_index < 0 or _emote_clip.is_empty())
+	var mode := HunterFacing.Mode.NONE
+	var target := Vector2.ZERO
+	if live:
+		mode = _head_mode()
+		if mode == HunterFacing.Mode.LOCK or mode == HunterFacing.Mode.SWEEP:
+			target = look_target_position
+		elif mode == HunterFacing.Mode.AHEAD:
+			target = _head_ahead_point()
+			if target == Vector2.INF:
+				mode = HunterFacing.Mode.SCAN
+	_facing.update_head(delta, mode, rotation.y, brain.position, target,
+		Time.get_ticks_msec() * .001)
+	# Additive on whatever the clip left on the head: when the clip drives the
+	# Head bone the current rotation is the clip's pose, otherwise it is still
+	# what this function wrote last frame and the rest pose is the base.
+	var current := _head_node.quaternion
+	var base := _head_rest_q if current.is_equal_approx(_head_written_q) else current
+	var look := Quaternion(Vector3.UP, _facing.head_yaw * _facing.weight) \
+		* Quaternion(Vector3.RIGHT, _facing.head_pitch * _facing.weight)
+	_head_node.quaternion = look * base
+	_head_written_q = _head_node.quaternion
+
+
+## chase locks on the runner (the brain keeps last_known on her while she has
+## sight), search/investigate sweep toward the noise, everything else looks
+## where the path leads -- or scans while she stands.
+func _head_mode() -> int:
+	match brain.state:
+		HunterBrain.State.CHASE:
+			if has_look_target:
+				return HunterFacing.Mode.LOCK
+		HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
+			if has_look_target:
+				return HunterFacing.Mode.SWEEP
+	return HunterFacing.Mode.AHEAD if _facing.moving() else HunterFacing.Mode.SCAN
+
+
+## 2-4 m ahead along the route; flight and charge (and any guest, which has no
+## route) use the travel direction instead.
+func _head_ahead_point() -> Vector2:
+	var distance := _facing.look_ahead_distance()
+	var straight := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).flying
+	if brain.gimmick is LoxelleGimmick and (brain.gimmick as LoxelleGimmick).charge_active():
+		straight = true
+	if not straight:
+		var ahead := brain.path_look_ahead(distance)
+		if ahead != Vector2.INF:
+			return ahead
+	if _facing.moving():
+		return brain.position + _facing.move_dir.normalized() * distance
+	return Vector2.INF
 
 
 ## Stealth presentation is checked every sync rather than only when the model is
@@ -392,6 +444,29 @@ func _apply_visibility() -> void:
 		_kathy_beam.visible = _model.visible
 
 
+## Body follows the way she is actually travelling (smoothed position delta, so
+## it also works on guests), turning at a capped rate with no snapping. Standing
+## still: a chasing hunter turns toward the runner, anyone else keeps the
+## brain's last real heading.
+func _update_body_yaw() -> void:
+	var direction := Vector2.ZERO
+	if _facing.moving():
+		direction = _facing.move_dir
+	elif has_look_target and brain.active and brain.stun_timer <= 0.0 \
+			and brain.state == HunterBrain.State.CHASE:
+		direction = look_target_position - brain.position
+	if direction.length_squared() < .0001:
+		direction = brain.facing
+	if direction.length_squared() < .0001:
+		return
+	if not _heading_initialized:
+		rotation.y = atan2(-direction.x, -direction.y)
+		_heading_initialized = true
+		return
+	var running := brain.state == HunterBrain.State.CHASE or _facing.speed > 4.5
+	rotation.y = _facing.steer(rotation.y, direction, running, get_process_delta_time())
+
+
 func sync_from_brain() -> void:
 	if brain == null:
 		return
@@ -412,24 +487,13 @@ func sync_from_brain() -> void:
 	if not _presentation_initialized:
 		position = Vector3(brain.position.x, _surface_target_y, brain.position.y)
 		_presentation_initialized = true
-	if brain.facing.length_squared() > 0.0001:
-		# Godot's forward direction is -Z. The old angle aligned +Z with the
-		# brain direction, so every hunter visually ran back-first even though
-		# her simulation and radar movement were correct.
-		var target_yaw := atan2(-brain.facing.x, -brain.facing.y)
-		if not _heading_initialized:
-			rotation.y = target_yaw
-			_heading_initialized = true
-		else:
-			var turn_step := BODY_TURN_SPEED * maxf(
-				get_process_delta_time(), 1.0 / 60.0)
-			var yaw_delta := wrapf(target_yaw - rotation.y, -PI, PI)
-			rotation.y += clampf(yaw_delta, -turn_step, turn_step)
 	var frame := maxf(get_process_delta_time(), 1.0 / 120.0)
 	_move_speed = lerpf(_move_speed, brain.position.distance_to(_last_brain_position) / frame, .3) \
 		if _presentation_initialized else 0.0
 	_last_brain_position = brain.position
 	_still_time = _still_time + frame if _move_speed < STILL_SPEED else 0.0
+	_facing.track(brain.position, get_process_delta_time())
+	_update_body_yaw()
 	_apply_model(_desired_model_id())
 	_apply_visibility()
 	_update_emote_state()
@@ -496,6 +560,43 @@ func _emote_cue(radius: float) -> void:
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 
+func has_nw_pose() -> bool:
+	return _animation_player != null and not nw_pose.is_empty() \
+		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
+
+
+func _update_nw_layers(delta: float) -> void:
+	if _model == null or brain == null:
+		return
+	var yaw_rate := wrapf(rotation.y - _nw_last_yaw, -PI, PI) / maxf(delta, .001)
+	_nw_last_yaw = rotation.y
+	var spec := NightWatchPoses.pose(nw_pose) if not nw_pose.is_empty() else {}
+	var on: bool = nw_layers and brain.active and brain.stun_timer <= 0.0 and bool(spec.get("layers", true))
+	_nw_layers.apply(delta, Time.get_ticks_msec() * .001, yaw_rate, _facing.moving(), on)
+
+
+## Holds the requested Night Watch pose; false when there is none (or she is stunned, which wins).
+func _play_nw_pose() -> bool:
+	if not has_nw_pose():
+		if nw_pose.is_empty():
+			_nw_started = ""
+		return false
+	if brain.stun_timer > 0.0:
+		return false
+	var clip := NightWatchPoses.clip_name(nw_pose)
+	var spec := NightWatchPoses.pose(nw_pose)
+	if not (_animation_player.is_playing() and _animation_player.current_animation == clip):
+		if _nw_started == nw_pose and _animation_player.assigned_animation == clip:
+			# the one-shot finished: back to the normal clips
+			nw_pose = ""
+			_nw_started = ""
+			return false
+		_nw_started = nw_pose
+		_animation_player.play(clip, float(nw_pose_opts.get("blend", spec.get("blend", .3))))
+	_animation_player.speed_scale = float(nw_pose_opts.get("speed", 1.0))
+	return true
+
+
 func _update_animation() -> void:
 	if _creature != null:
 		_creature.tick(get_process_delta_time())
@@ -548,6 +649,10 @@ func _update_animation() -> void:
 			"chase", "sprint":
 				clip_name = "scythe_walk"
 				speed = SCYTHE_CHASE_SPEED
+	if nw_layers and _move_speed > STILL_SPEED and NW_STRIDE_REF.has(clip_name):
+		speed = clampf(_move_speed / float(NW_STRIDE_REF[clip_name]), .6, 1.8)
+	if _play_nw_pose():
+		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():
 		if not _emote_clip_started:
 			_emote_clip_started = true

@@ -14,7 +14,7 @@ const HOUR_MS := NIGHT_MS / 6.0
 const TIME_SCALE := NIGHT_MS / 480000.0
 
 ## The hunters on this game's floor (Nyxie only ever comes when the power is out).
-const CAST := ["dovelle", "nyxie", "ravelle", "ilyra", "aki"]
+const CAST := ["dovelle", "nyxie", "ravelle", "ilyra", "aki", "kathy"]
 const NAMES := {"dovelle": "Dovelle", "ravelle": "Ravelle", "aki": "Aki", "ilyra": "Ilyra", "nyxie": "Nyxie"}
 
 ## `cam` is the camera number (0 = none); `pan` is where the room sounds from the office (-1 west to +1 east);
@@ -62,7 +62,21 @@ const HUNTERS := {
 		"levels": [0, 0, 0, 5, 8, 12], "freezes_when_watched": true},
 }
 const NYXIE_LEVELS := [3, 5, 7, 9, 11, 13]
-const NIGHTS := 6
+const NIGHTS := 7          # Night 7 is Kathy's alone (docs: classic-logic.js KATHY_HUNT)
+const TUNED_NIGHTS := 6    # the per-night tables (grace, pace, push) run to Night 6; Night 7 scales Night 6's
+
+## Night 7: Kathy hunts, alone (2D KATHY_HUNT). She is not in HUNTERS or the cast (shared lore character; no Custom Night slider). hold_ms: how long a shut door
+## has to stay shut on her before she gives up silently (lo plus an exponential with mean hold_tail_ms, cut at hi); she fades to the stage or the kitchen on a fresh
+## door; the light never holds her wait; she hums every hum_ms while waiting at a door (a shut door muffles it).
+const KATHY_NIGHT := 7
+const KATHY := {"level": 20, "pace_scale": 0.65, "grace_scale": 0.45, "hold_ms": [2500.0, 20000.0], "hold_tail_ms": 4500.0, "start": "stage",
+	"fade_to": ["stage", "kitchen"], "doors": ["doorL", "doorR"], "hum_ms": 1100.0, "glow_period_ms": 1500.0, "glow_on_ms": 450.0}
+## The door light's tell: while she stands at a door and its light is on, the light dips at these moments ([start, end) ms of each cycle).
+const KATHY_DIP_CYCLE_MS := 2600.0
+const KATHY_DIPS := [[0.0, 180.0], [780.0, 900.0], [1500.0, 1760.0]]
+## Meet her eyes (the O key here, K in 2D): only on the feed of a hall; a miss locks the key for miss_lock_ms.
+const KATHY_MEET_ROOMS := ["westhall", "easthall"]
+const KATHY_MISS_LOCK_MS := 2000.0
 
 ## A shut door must stay shut this long on a hunter standing at it before she gives up.
 const T_CLOSED_MS := 450.0
@@ -125,7 +139,28 @@ static func level_for(id: String, night: int) -> int:
 
 
 static func nyxie_level(night: int) -> int:
+	if night == KATHY_NIGHT:
+		return 0   # Night 7 is Kathy's alone
 	return int(NYXIE_LEVELS[clampi(night, 1, NYXIE_LEVELS.size()) - 1])
+
+
+static func is_kathy_night(night: int, custom := false) -> bool:
+	return night == KATHY_NIGHT and not custom
+
+
+static func kathy_dip_on(elapsed_ms: float) -> bool:
+	var t := fmod(elapsed_ms, KATHY_DIP_CYCLE_MS)
+	for d in KATHY_DIPS:
+		if t >= float(d[0]) and t < float(d[1]):
+			return true
+	return false
+
+
+## How long a shut door must stay shut on Kathy this time (2D rollHold): lo plus an exponential with mean `tail`, never above hi; u is a draw in [0, 1).
+static func roll_hold(u: float, lo: float, hi: float, tail: float) -> float:
+	if tail <= 0.0:
+		return roundf(lo + u * (hi - lo))
+	return roundf(lo - tail * log(1.0 - u * (1.0 - exp(-(hi - lo) / tail))))
 
 
 ## How long the dark lasts before Nyxie reaches the office once the power is out (11 s at level 1 down to 4 s).
@@ -134,7 +169,7 @@ static func blackout_ms(level: int) -> float:
 
 
 static func night_index(night: int) -> int:
-	return clampi(night, 1, NIGHTS) - 1
+	return clampi(night, 1, TUNED_NIGHTS) - 1
 
 
 ## Breadth-first distance from every room to `target` along the graph.
@@ -151,6 +186,8 @@ static func distances_to(target: String, graph: Dictionary = GRAPH) -> Dictionar
 
 
 static func active_hunters(night: int) -> Array:
+	if night == KATHY_NIGHT:
+		return ["kathy"]
 	var out := []
 	for id in HUNTERS:
 		if level_for(id, night) > 0:

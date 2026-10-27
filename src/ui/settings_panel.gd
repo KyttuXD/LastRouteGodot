@@ -71,6 +71,7 @@ var SECTIONS: Array = ControlsRegistry.tabs_for(GameRegistry.active_game_id)
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
+var _focus_pause_button: Button
 var _listening_action := ""
 var _listening_button: Button = null
 var _listening_append := false
@@ -99,6 +100,7 @@ func _ready() -> void:
 	# while it is open.
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
+	_build_focus_pause_row()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -159,6 +161,8 @@ func _refresh_from_settings() -> void:
 	Palette.set_state_toggle(fullscreen_button, Settings.fullscreen)
 	vsync_button.set_pressed_no_signal(Settings.vsync_enabled)
 	Palette.set_state_toggle(vsync_button, Settings.vsync_enabled)
+	_focus_pause_button.set_pressed_no_signal(Settings.pause_on_focus_loss)
+	Palette.set_state_toggle(_focus_pause_button, Settings.pause_on_focus_loss)
 	fps_limit_slider.set_value_no_signal(Settings.fps_limit)
 	_update_fps_limit_label(Settings.fps_limit)
 	fov_slider.set_value_no_signal(Settings.field_of_view)
@@ -282,6 +286,7 @@ func _apply_palette() -> void:
 	if fullscreen != null:
 		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
 	Palette.style_state_toggle(vsync_button, "VSYNC", Settings.vsync_enabled)
+	Palette.style_state_toggle(_focus_pause_button, "PAUSE WHEN WINDOW LOSES FOCUS", Settings.pause_on_focus_loss)
 
 
 func _build_control_rows() -> void:
@@ -293,6 +298,24 @@ func _build_control_rows() -> void:
 	_section_tabs.tab_changed.connect(_show_control_section)
 	controls_list.add_child(_section_tabs)
 	_show_control_section(0)
+
+
+func _build_focus_pause_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "FocusPauseRow"
+	row.offset_left = 20.0
+	row.offset_top = 208.0
+	row.offset_right = 420.0
+	row.offset_bottom = 224.0
+	_focus_pause_button = Button.new()
+	_focus_pause_button.name = "FocusPauseButton"
+	_focus_pause_button.toggle_mode = true
+	_focus_pause_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_focus_pause_button.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_pause_on_focus_loss(enabled)
+		Palette.set_state_toggle(_focus_pause_button, enabled))
+	row.add_child(_focus_pause_button)
+	add_child(row)
 
 
 func _build_settings_tabs() -> void:
@@ -313,7 +336,7 @@ func _show_settings_category(index: int) -> void:
 	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
-			"PixelEffectRow", "PlayerHueRow", "SensitivityRow"]:
+			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
 

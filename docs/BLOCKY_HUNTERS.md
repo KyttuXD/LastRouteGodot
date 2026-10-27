@@ -34,3 +34,17 @@ In-world personality moments (taunt, shrug, yawn, victory...) are decided by the
 
 ## Player body
 The player mannequin is built by the same pipeline (`build.py player_mannequin`) and is wired as the default player body: see the Player model section of [../REF_LOOK.md](../REF_LOOK.md) and `docs/BLOCKY_ANIMATION.md`.
+
+## Facing: body and head follow the path
+
+`src/game_3d/hunter_facing.gd` (`HunterFacing`) holds the logic; `HunterView3D` applies it.
+
+- **Body yaw** follows the way she actually travels (smoothed position delta, not the brain's stored `facing`), so it works on guests with no extra network data. Eased turn, capped at 420 deg/s walking and 600 deg/s chasing or sprinting. Standing still keeps the last heading (a standing chaser turns toward the runner). Teleports (> 3 m in a frame) are ignored.
+- **Head look** is additive on the `Head` bone, on top of whatever the clip does with it (rest pose is the base when the clip has no Head track). Yaw clamp +-70 deg, pitch +-35 deg relative to the body, exponential damping.
+  - wander / patrol: looks 2-4 m ahead along the A* route (`HunterBrain.path_look_ahead`), so the head leads corners before the body; without a route (guests, Xivvy flight, Loxelle charge) it uses the travel direction. Gentle sway on top; standing = slow left-right scan.
+  - chase: locks on `look_target_position` (the runner while she has sight, otherwise last known); search / investigate: sweeps around the noise point.
+  - stun, stun recovery, inactive, and emotes that play a clip: the layer fades out (4 /s) so the clip owns the head.
+  - not evaluated beyond 40 m from the camera.
+- Pitch is only a small nod: the view has no target height, so the head does not look up or down at the runner.
+- Validator: `hunter_facing` (real `HunterView3D` walking a polyline with a deliberately wrong `brain.facing`). Captures: `facing_strip_before.png` (look layer off) and `facing_strip_after.png` from `tools/look/facing_strip.tscn` (`OLD=1` for the before).
+- The spider creature view is not on this branch; it can reuse `HunterFacing` (`track`, `steer`, `update_head`).
