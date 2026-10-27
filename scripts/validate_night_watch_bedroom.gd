@@ -292,7 +292,7 @@ func _scene(host: Node) -> void:
 	await host.get_tree().process_frame
 	_expect(game is NightWatchMode and game.mode_id == "bedroom" and game.level == 3 and game.seed_value == 4242 and game.level_name() == "NIGHT 3", "the shift scene did not read its session")
 	_expect(InputMap.has_action(BedroomControls.HOLD) and InputMap.has_action(BedroomControls.HALL) and InputMap.has_action(BedroomControls.BED), "the A / D / F actions are not registered")
-	_expect(game.camera != null and game.camera.current and game.camera.position == BedroomWorld.EYE, "there is no camera on the pillow")
+	_expect(game.camera != null and game.camera.current and game.camera.position == BedroomOffice.EYE, "there is no camera on the pillow")
 	for prop_name in ["Shell", "Bed", "Closet", "Hall", "Nightstand", "ToyShelf", "Window"]:
 		_expect(game.world.props.has(prop_name), "the bedroom has no %s" % prop_name)
 	var cubes := 0
@@ -328,7 +328,7 @@ func _scene(host: Node) -> void:
 	game.sim.javelle["state"] = "breath"
 	game._place_hunters()
 	game._animate_models(0.1)
-	_expect(jv.visible and jv.position.distance_to(BedroomWorld.HALL_FAR) < 1.0, "Javelle was not seen coming out of the far end of the hall")
+	_expect(jv.visible and jv.position.distance_to(BedroomOffice.HALL_FAR) < 1.0, "Javelle was not seen coming out of the far end of the hall")
 	game.sim.javelle["state"] = "near"
 	game._place_hunters()
 	var longest := 0.0
@@ -337,7 +337,7 @@ func _scene(host: Node) -> void:
 		game._animate_models(0.1)
 		longest = maxf(longest, jv.position.distance_to(last))
 		last = jv.position
-	_expect(jv.position.distance_to(BedroomWorld.HALL_NEAR) < 0.3, "Javelle did not walk up to the doorway")
+	_expect(jv.position.distance_to(BedroomOffice.HALL_NEAR) < 0.3, "Javelle did not walk up to the doorway")
 	_expect(longest <= NightWatchWalker.MAX_SPEED * 0.1 + 0.01, "Javelle moved %.2f m in one step" % longest)
 	game.sim.javelle["state"] = "away"
 	game._place_hunters()

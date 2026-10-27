@@ -1,5 +1,5 @@
-class_name BedroomWorld
-extends Node3D
+class_name BedroomOffice
+extends NightWatchOfficeBase
 
 ## Bedtime's room: a 5 x 5 m blocky bedroom seen from the pillow. The bed is against the south wall (the player lies in it, looking north), the closet
 ## is in the west wall (its door is held shut with A), the hall doorway is in the east wall with a long hall behind it (D puts a light down it), and
@@ -20,7 +20,6 @@ const CREEP_FROM := Vector3(-1.7, 0.0, -2.0)
 const CREEP_TO := Vector3(0.15, 0.0, 0.75)
 const CLOSET_Z := -0.9
 
-var props := {}
 var closet_pivot: Node3D
 var hall_light: SpotLight3D
 var bed_light: SpotLight3D
@@ -29,9 +28,39 @@ var hall_glow: OmniLight3D
 var closet_ajar := -0.22   # radians the door stands open while nobody holds it
 
 
-func _ready() -> void:
-	if props.is_empty():
-		build()
+func _make_spec() -> NightWatchOfficeSpec:
+	return make_spec()
+
+
+## The contract data of the child's bedroom (docs/NIGHT_WATCH_OFFICES.md): a closet, a bed and a hall door; no monitor, you listen.
+static func make_spec() -> NightWatchOfficeSpec:
+	return NightWatchOfficeSpec.make({
+		"id": "child_bedroom", "title": "Child's bedroom", "mode_ids": ["bedroom"],
+		"footprint": Rect2(-HALF + 0.1, -HALF + 0.1, HALF * 2.0 - 0.2, HALF * 2.0 - 0.2),
+		"spawn": Vector3(-1.0, 0.0, -0.6),
+		"entrances": [
+			{"id": "closet", "kind": "door_wood", "position": Vector3(-HALF, 0.0, CLOSET_Z), "outward": Vector3(-1, 0, 0), "sim_room": "closet", "blockable": true},
+			{"id": "hall", "kind": "opening", "position": Vector3(HALF, 0.0, -0.9), "outward": Vector3(1, 0, 0), "sim_room": "hall", "blockable": false},
+			{"id": "bed", "kind": "opening", "position": Vector3(0.15, 0.0, 0.75), "outward": Vector3(0, 0, -1), "sim_room": "bed", "blockable": false},
+		],
+		"required_stations": ["closet_door", "hall_light", "bed_light"],
+		"has_monitor": false,
+		"mood": {"kind": "night_outdoor", "ambient": Color(0.3, 0.3, 0.5), "lamp": Color(1.0, 0.95, 0.82), "accent": Color(0.55, 0.5, 0.9)},
+		"tone_cue": "breath",
+		"controls": ["nw_bed_hold", "nw_bed_hall", "nw_bed_light"],
+		"references": {"2d_screenshot": "docs/night_watch_offices/child_bedroom_2d.png"},
+	})
+
+
+func _station(id: String, prompt: String, pos: Vector3) -> NightWatchStation:
+	var st := NightWatchStation.new()
+	st.name = "Station_" + id
+	st.station_id = id
+	st.prompt_text = prompt
+	st.position = pos
+	add_child(st)
+	stations[id] = st
+	return st
 
 
 func _c(parent: Node3D, size: Vector3, pos: Vector3, node_name: String, opts := {}) -> MeshInstance3D:
@@ -47,6 +76,9 @@ func _prop(prop_name: String, pos := Vector3.ZERO) -> Node3D:
 
 
 func build() -> void:
+	_station("closet_door", "CLOSET DOOR // HOLD A", Vector3(-HALF + 0.3, 1.1, CLOSET_Z + 0.6))
+	_station("hall_light", "HALL LIGHT // HOLD D", Vector3(HALF - 0.3, 1.1, -0.2))
+	_station("bed_light", "BED LIGHT // HOLD F", Vector3(0.0, 0.9, 0.5))
 	_shell()
 	_bed()
 	_closet()
