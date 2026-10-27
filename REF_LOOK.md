@@ -81,7 +81,7 @@ switches back to the legacy Minecraft-skin body (`player_legacy.tscn`).
 * `tools/props/` rebuilds 63 key furniture/fixture types (86 models) as Minecraft-style box
   models from one pixel atlas, same size/pivot as the originals; `PropModelCatalog.USE_BLOCKY_PROPS`
   switches them on, the original models stay as the fallback (see tools/props/README.md).
-* Halls are five cells wide (`StreamedRouteGenerator.CORRIDOR_WIDTH`) with a three-strip carpet
+* Halls and corridors are three cells wide (`StreamedRouteGenerator.CORRIDOR_WIDTH`), with a carpet
   runner and pilasters; roomy rooms open onto the hall through three-cell archways ("arch"
   room-door props, drawn by `RefDecor._arches`), a few keep doors.
 * Per-room seeded ceiling heights: corridors 3.0-3.6 m, rooms 3.2-4.4, halls 4.8-6.0, greenhouses
@@ -105,7 +105,7 @@ the build_logo script (the SVG holds the same values).
   through the bedroom), living room (SW, entrance opens straight into it) and kitchen (SE), joined by single doors;
   the plan mirrors for the east-entrance sector. Furniture comes from the per-room templates (`apartment_living`: TV wall,
   couch facing it with coffee table and rug, armchair, dining set, clear entrance lane).
-* Rooms are never smaller than 7x7. Wide doors and arches are only for major rooms (halls, lobbies, greenhouses,
+* Rooms are never smaller than 9x9 (sizes 9x9, 9x11, 11x9, 11x13 and larger), anchored at the sector's inner corner so the connector to the main hall is only a few cells long. Wide doors and arches are only for major rooms (halls, lobbies, greenhouses,
   very large rooms); small rooms and the end of a hallway get a single door.
 * Props: `tools/props/` builds 434 blocky models (`blocky_props_extra.py` second batch, `blocky_props_variants.py` shape
   variants, `blocky_props_doors.py` doors and barrel). `capture.gd` has `CAP_AT=x,z` and `CAP_SUITE=apartment|office`.
@@ -119,7 +119,7 @@ Umbriel disguised as her) carries, on a rare seeded roll (`HunterRoster.SCYTHE_C
 `assets/props_3d/kathy_scythe.glb` in `R-HandProp` and plays `scythe_idle` / `scythe_walk`
 (`scythe_walk` at 1.8x for a chase). The old glowing eye quads are gone (Kathy's beam stays). `HunterJumpscare` is OFF (`HunterJumpscare.ENABLED = false`: a catch goes straight to game over, no lunge or sting); when enabled it plays the model's
 `jumpscare` clip under a faint red ambient so the dark cube textures read as a figure. Checks: `tools/look/hunter_check.tscn`
-(HUNTERS=..., HUNTER_STATE=idle|walk|chase) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).
+(HUNTERS=..., HUNTER_STATE=idle|walk|chase|search|stun|scream) and `tools/look/jumpscare_check.tscn` (JUMP_IDS=...).
 
 ## Light budget
 
@@ -130,3 +130,6 @@ casts no shadows and used to glow through walls; lamps within 3 m are exempt, ch
 6 nearest `LampField.make_budgeted()` lights within reach on (interactables, ceiling fairy-light bulbs, checkpoint light, braziers).
 Visible real lights dropped from 99-162 to 2-7 per view; the only shadow-casting light is the flashlight spot.
 `CAP_LIGHTS=1` / `CAP_LEGACY_LIGHTS=1` in `tools/look/capture.gd` print light counts and capture the old behaviour for comparison.
+
+## More docs
+Index: [docs/README.md](docs/README.md). Spectators: [docs/SPECTATORS.md](docs/SPECTATORS.md). Tests and the 9-failure baseline: [docs/TESTING.md](docs/TESTING.md). Deploy: [docs/DEPLOY_VPS3.md](docs/DEPLOY_VPS3.md).

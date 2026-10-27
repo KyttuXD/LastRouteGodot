@@ -19,7 +19,7 @@ black motes drifting at the shoulders (light eater) | blue icicle crown + 3-segm
 
 ## Eyes and faces
 - **Emissive eyes:** each model carries a second texture, `void_<colour>_emissive.png`, written into the glb as `emissiveTexture`. Only the giant eyes' inner pixels (the skin's `inner_face_accent`) are lit, in every expression cell. Dark accents (black, gray, brown) glow as a lifted, hue-true colour (black = cool grey). Nothing else is emissive.
-- **No expressions:** a Void only has glowing eyes and a blink. The source face is split across the head box and its overlay, so the model flattens it onto the head box (overlay face dropped); the expression cells are then the neutral face, with cell 1 (`blink`) as the only change. Any other expression name just shows the neutral glowing eyes. No mouth, nose or snout is ever drawn.
+- **Expressions:** since the animation rework the Void models change eye shape only (no mouth) with state; earlier note:  a Void only has glowing eyes and a blink. The source face is split across the head box and its overlay, so the model flattens it onto the head box (overlay face dropped); the expression cells are then the neutral face, with cell 1 (`blink`) as the only change. Any other expression name just shows the neutral glowing eyes. No mouth, nose or snout is ever drawn.
 
 ## Emotes
 Void do not wave or cheer. All 12 share `stare`, `tilt`, `twitch`, `loom` and each has one of its own: black devour, blue shiver, brown smash, cyan zap, gray freeze, green exhale, orange rev, pink beckon, purple flicker, red rage, white listen, yellow flick. They are body-only one-shot clips on the same rig (face stays neutral), listed in `emotes.json`.
@@ -28,4 +28,4 @@ Void do not wave or cheer. All 12 share `stare`, `tilt`, `twitch`, `loom` and ea
 - **Final-ish:** skins/face markings (exact supplied pixels), palette, rig, clips, expression cells, emissive eyes, height budget.
 - **Placeholder:** every cue, and the Void emotes and motion profiles (first pass, tune by eye). The lore audit says the variants carry no accessories and "colour filenames do not establish lore or abilities"; the cues are design proposals tied to the roster's gimmick chart and need KT's sign-off (or removal).
 - **Not done:** `Main` Void (flowers) not built (not in roster); no cue-specific glow (lure, antenna tips are not emissive, eyes only).
-- **Wiring:** none. Roster still points at `art/props-3d/characters/void_<colour>.tscn` (old models, untouched); the new models live at `assets/hunters_blocky/void_<colour>/void_<colour>.glb` like the other blocky hunters.
+- **Wiring:** done. `HunterRoster.USE_BLOCKY` points the roster at `assets/hunters_blocky/void_<colour>/`; see [BLOCKY_HUNTERS.md](BLOCKY_HUNTERS.md).
