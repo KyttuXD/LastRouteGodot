@@ -118,6 +118,10 @@ const INVENTORY_MAX_DURABILITY := {
 const BREACH_TOOLS := ["crowbar", "rescue_axe"]
 const LOCK_TOOLS := ["lockpick", "crowbar"]
 const FRIENDLY_FIRE_ENABLED := false
+## Games without items (Night Watch) switch the inventory off by configuration, not by forking the controller: the flashlight stays as a built-in tool in
+## the hand (toggle action, sound and spot light as ever) and never drains; the slot keys, the wheel, drop, tool use, the taser, pickups and backpacks do nothing.
+## The default (true) is Last Route's and the City's.
+@export var inventory_enabled := true
 var selected_inventory_slot := 0
 ## Five physical inventory slots. Empty strings are real empty spaces rather
 ## than hidden catalog entries, so dragging into a blank slot behaves like an
@@ -565,10 +569,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not message.is_empty():
 				interaction_message.emit(message)
 				return
-		if key >= KEY_1 and key <= KEY_5:
+		if key >= KEY_1 and key <= KEY_5 and inventory_enabled:
 			var target_slot := key - KEY_1
 			select_inventory_slot(target_slot)
-	elif event is InputEventMouseButton and event.pressed:
+	elif event is InputEventMouseButton and event.pressed and inventory_enabled:
 		var button := (event as InputEventMouseButton).button_index
 		if button == MOUSE_BUTTON_WHEEL_UP:
 			select_inventory_slot(selected_inventory_slot - 1)
@@ -853,16 +857,17 @@ func _physics_process(delta: float) -> void:
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
 		_set_flashlight(not flashlight_enabled)
-	if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
-		_fire_taser()
-	if Input.is_action_just_pressed("tool_use"):
-		_use_selected_item()
-	if Input.is_action_just_pressed("drop_item"):
-		request_drop_selected_item()
-	if Input.is_action_just_pressed("hotbar_previous"):
-		select_inventory_slot(selected_inventory_slot - 1)
-	if Input.is_action_just_pressed("hotbar_next"):
-		select_inventory_slot(selected_inventory_slot + 1)
+	if inventory_enabled:
+		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+			_fire_taser()
+		if Input.is_action_just_pressed("tool_use"):
+			_use_selected_item()
+		if Input.is_action_just_pressed("drop_item"):
+			request_drop_selected_item()
+		if Input.is_action_just_pressed("hotbar_previous"):
+			select_inventory_slot(selected_inventory_slot - 1)
+		if Input.is_action_just_pressed("hotbar_next"):
+			select_inventory_slot(selected_inventory_slot + 1)
 
 	_update_resecure(delta)
 	if Input.is_action_just_pressed("interact"):
@@ -1069,8 +1074,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 
 
 func _update_lamp(delta: float, is_sprinting: bool) -> void:
-	if not flashlight_enabled:
-		return
+	if not flashlight_enabled or not inventory_enabled:
+		return   # the built-in flashlight of an item-less game never drains
 	var difficulty := RoomState.difficulty_profile()
 	var drain := GameConfig.LAMP_IDLE_DRAIN * float(difficulty["lamp_drain"])
 	if is_sprinting:
@@ -1351,6 +1356,8 @@ func move_inventory_slot(from_slot: int, to_slot: int) -> void:
 
 
 func grant_inventory_item(item_id: String, restored_durability: int = -1) -> bool:
+	if not inventory_enabled:
+		return false
 	if BACKPACK_CAPACITY.has(item_id):
 		return collect_backpack(item_id)
 	if not INVENTORY_ITEMS.has(item_id):
@@ -1390,6 +1397,8 @@ func equip_backpack(item_id: String) -> bool:
 
 
 func collect_backpack(item_id: String) -> bool:
+	if not inventory_enabled:
+		return false
 	if not BACKPACK_CAPACITY.has(item_id):
 		return false
 	backpack_storage_units += int(BACKPACK_RANK[item_id])
@@ -1447,6 +1456,8 @@ func remove_inventory_item(item_id: String, preferred_slot: int = -1) -> Diction
 
 
 func request_drop_selected_item() -> bool:
+	if not inventory_enabled:
+		return false
 	if input_frozen or stun_timer > 0.0:
 		return false
 	var item_id := selected_inventory_item()

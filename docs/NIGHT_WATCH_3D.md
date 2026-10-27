@@ -216,3 +216,12 @@ underneath, joined into one sheet). Before (left) and after (right):
 Prop sheets from all sides (the full set renders on demand; these are samples): ![](night_watch_props/office_Desk.png) ![](night_watch_props/office_SlabL.png)
 ![](night_watch_props/office_DoorFrameL.png) ![](night_watch_props/office_ControlPanelL.png) ![](night_watch_props/office_Chair.png)
 ![](night_watch_props/building_kitchen_Fridge.png)
+
+## 5f. No inventory (Night Watch only)
+
+The shared controller has one configuration flag, `PlayerController3D.inventory_enabled` (default **true**: Last Route and the City are untouched). `scenes/night_watch_player.tscn`
+sets it to false (the player-scene equality check ignores exactly that line). With it off: the slot keys 1-5, the wheel, hotbar previous/next, drop, tool use, the taser,
+`grant_inventory_item`, backpacks and pickups do nothing; the flashlight stays as the built-in tool in the hand (the shared `flashlight` action toggles it, same sound and spot
+light) and never drains (the 2D game has no battery). Night Watch has no hotbar in its HUD (NightWatchHud draws none: no empty gap), no pickups in its scenes, no inventory in
+its saves, and the controls hint and tab list no pickup/drop/slot keys. The digits 1-8 are free for the camera keys inside the monitor. `night_watch` checks the flag, that no
+inventory node exists on the player or in the HUD, that the item APIs refuse, that slot keys and the wheel change nothing, and that the flashlight toggles, lights and does not drain.

@@ -38,7 +38,7 @@ func _player_block(text: String, is_main: bool) -> String:
 	var end := text.find('[node name="HUD"') if is_main else text.length()
 	var block := text.substr(start, end - start).strip_edges()
 	block = block.replace('parent="World/Player/', 'parent="').replace('parent="World/Player"', 'parent="."').replace(' parent="World"', "")
-	block = block.replace("unique_name_in_owner = true\n", "")
+	block = block.replace("unique_name_in_owner = true\n", "").replace("inventory_enabled = false\n", "")   # the one configured difference: Night Watch has no inventory
 	var cap_at := text.find("[sub_resource type=\"CapsuleShape3D\"")
 	return block + text.substr(cap_at, text.find("\n\n", cap_at) - cap_at)
 
@@ -267,6 +267,42 @@ func run(host: Node) -> int:
 	shift.hud.subtitles_toggled.emit(false)
 	_expect(not shift.hud.subtitles and not NightWatchSave.subtitles(), "the subtitles toggle did not save")
 	shift.hud.subtitles_toggled.emit(true)
+	# NW NO INVENTORY: the flag is the only difference, Last Route's default is untouched, the flashlight is built in and never drains, the item keys do nothing
+	var default_player := PlayerController3D.new()
+	_expect(not shift.player.inventory_enabled and default_player.inventory_enabled, "Night Watch's player must have the inventory off and the controller's default must stay on")
+	default_player.free()
+	for n in shift.player.get_children():
+		_expect(not String(n.name).to_lower().contains("hotbar") and not String(n.name).to_lower().contains("inventory"), "the Night Watch player has an inventory node: %s" % n.name)
+	for n in shift.hud.find_children("*", "Control", true, false):
+		_expect(not String(n.name).to_lower().contains("hotbar") and not String(n.name).to_lower().contains("inventory"), "the Night Watch HUD has an inventory node: %s" % n.name)
+	_expect(not shift.player.grant_inventory_item("taser") and not shift.player.request_drop_selected_item() and not shift.player.collect_backpack("backpack"), "an item API worked with the inventory off")
+	var slot_before: int = shift.player.selected_inventory_slot
+	for key in [KEY_3, KEY_5]:
+		var kev := InputEventKey.new()
+		kev.physical_keycode = key
+		kev.keycode = key
+		kev.pressed = true
+		shift.player._unhandled_input(kev)
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.pressed = true
+	shift.player._unhandled_input(wheel)
+	_expect(shift.player.selected_inventory_slot == slot_before, "a slot key or the wheel changed the held slot with the inventory off")
+	_expect(shift.player.owns_inventory_item("flashlight"), "the flashlight is not built in")
+	Input.action_press("flashlight")
+	await host.get_tree().physics_frame
+	Input.action_release("flashlight")
+	await host.get_tree().physics_frame
+	_expect(shift.player.flashlight_enabled and shift.player.flashlight.visible, "the flashlight action did not switch the built-in flashlight on")
+	var charge_before: float = shift.player.lamp_charge
+	for i in 120:
+		await host.get_tree().physics_frame
+	_expect(is_equal_approx(shift.player.lamp_charge, charge_before), "the built-in flashlight drained (%.2f to %.2f)" % [charge_before, shift.player.lamp_charge])
+	Input.action_press("flashlight")
+	await host.get_tree().physics_frame
+	Input.action_release("flashlight")
+	await host.get_tree().physics_frame
+	_expect(not shift.player.flashlight_enabled, "the flashlight action did not switch it off again")
 	# the SHARED player controller walks the room: spawn, walking into the chair and the desk stops, aiming, using
 	var player := shift.player
 	_expect(player is PlayerController3D and player.get_script().resource_path == "res://src/game_3d/player_controller_3d.gd", "the player is not the shared controller")
