@@ -83,13 +83,16 @@ func _ready() -> void:
 	cam.current = true
 	cam.environment = env.environment   # the camera's own environment so the backdrop colour applies
 	cam.fov = 38.0
-	cam.position = Vector3(x * .5 - 1.0, 1.5, 7.5)
+	var dist := float(OS.get_environment("CAM_DIST")) if OS.get_environment("CAM_DIST") != "" else 7.5
+	cam.position = Vector3(x * .5 - 1.0, 1.5, dist)
 	cam.look_at(Vector3(x * .5 - 1.0, 1.0, 0))
 	if OS.get_environment("CAM_SIDE") != "":
 		# from the side and a little behind, so a beam is seen along its length (Kathy's beam capture)
 		cam.position = Vector3(x * .5 - 1.0 + 6.5, 2.2, 6.0)
 		cam.fov = 55.0
 		cam.look_at(Vector3(x * .5 - 1.0, 1.0, 4.0))
+	if OS.get_environment("LOD") != "":
+		get_viewport().mesh_lod_threshold = float(OS.get_environment("LOD"))   # pixels of error allowed: tests generated LODs
 	for i in 30:
 		await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png(out)

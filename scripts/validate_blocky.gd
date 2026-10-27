@@ -69,6 +69,7 @@ func run(host: Node) -> int:
 			if not BlockyFace.CELLS.has(face_name) and not BlockyFace.ANIMS.has(face_name):
 				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
 		_check_catalog_emotes(id, node, listed)
+		_check_uv_mapping(id, node)
 		if id.begins_with("void_"):
 			for cue in VOID_CUES.get(id, []):
 				if node.find_child(cue, true, false) == null:
@@ -183,6 +184,83 @@ func run(host: Node) -> int:
 ## length with the catalog face listed in emotes.json; the moving ones (taunt, point, beckon; also void_pink's beckon) are built on
 ## the run, so they must keep animating the legs. (Void otherwise uses its shared stand-ins.)
 const CATALOG_MOVING := ["taunt", "point", "beckon"]
+
+
+## Per body part, where its triangles sample the atlas. Vanilla skin layout (hunters other than the Voids): each part must
+## stay inside its own skin region (base + overlay), except the joint plugs, which deliberately sample the neighbouring
+## torso colour; the part's base-layer triangles must land on opaque texels; the Face quad stays in the expression cells.
+## Catches a wrong atlas size / UV divisor, swapped limbs and faces pointing at transparent padding.
+const UV_REGIONS := {
+	"Head": [Rect2(0, 0, 64, 16)], "Belly": [Rect2(16, 16, 24, 32)], "Chest": [Rect2(16, 16, 24, 32)],
+	"R-Arm": [Rect2(40, 16, 16, 32)], "R-Forearm": [Rect2(40, 16, 16, 32)], "R-Hand": [Rect2(40, 16, 16, 32)],
+	"L-Arm": [Rect2(32, 48, 32, 16)], "L-Forearm": [Rect2(32, 48, 32, 16)], "L-Hand": [Rect2(32, 48, 32, 16)],
+	"R-Thigh": [Rect2(0, 16, 16, 32)], "R-Calf": [Rect2(0, 16, 16, 32)], "R-Foot": [Rect2(0, 16, 16, 32)],
+	"L-Thigh": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)], "L-Calf": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)],
+	"L-Foot": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)],
+}
+const UV_BASE_REGIONS := {
+	"Head": Rect2(0, 0, 32, 16), "Belly": Rect2(16, 16, 24, 16), "Chest": Rect2(16, 16, 24, 16),
+	"R-Arm": Rect2(40, 16, 16, 16), "R-Forearm": Rect2(40, 16, 16, 16), "R-Hand": Rect2(40, 16, 16, 16),
+	"L-Arm": Rect2(32, 48, 16, 16), "L-Forearm": Rect2(32, 48, 16, 16), "L-Hand": Rect2(32, 48, 16, 16),
+	"R-Thigh": Rect2(0, 16, 16, 16), "R-Calf": Rect2(0, 16, 16, 16), "R-Foot": Rect2(0, 16, 16, 16),
+	"L-Thigh": Rect2(16, 48, 16, 16), "L-Calf": Rect2(16, 48, 16, 16), "L-Foot": Rect2(16, 48, 16, 16),
+}
+const UV_PLUG_TRIS := 24   # joint-plug triangles per part that may sample outside the part's own region
+
+
+func _check_uv_mapping(id: String, node: Node) -> void:
+	var vanilla := not id.begins_with("void_")
+	var stack: Array = [node]
+	while stack.size() > 0:
+		var current: Node = stack.pop_back()
+		stack.append_array(current.get_children())
+		var mesh_node := current as MeshInstance3D
+		if mesh_node == null or mesh_node.mesh == null:
+			continue
+		var part := String(mesh_node.name)
+		for surface in mesh_node.mesh.get_surface_count():
+			var arrays := mesh_node.mesh.surface_get_arrays(surface)
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var index: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var material := mesh_node.mesh.surface_get_material(surface) as BaseMaterial3D
+			var image: Image = null
+			if material != null and material.albedo_texture != null:
+				image = material.albedo_texture.get_image()
+				if image.is_compressed():
+					image.decompress()
+			if image == null:
+				_fail("%s %s has no atlas texture" % [id, part])
+				continue
+			var size := Vector2(image.get_size())
+			var stray := 0
+			var clear_base := 0
+			var base_tris := 0
+			for i in range(0, index.size(), 3):
+				var centre := (uvs[index[i]] + uvs[index[i + 1]] + uvs[index[i + 2]]) / 3.0
+				if centre.x < 0.0 or centre.x > 1.0 or centre.y < 0.0 or centre.y > 1.0:
+					_fail("%s %s samples outside the atlas (%s)" % [id, part, centre])
+					break
+				var px := centre * size
+				if part == "Face":
+					if px.y < 64.0 or px.x > 24.0:
+						_fail("%s Face quad samples %s, outside the expression cells" % [id, px])
+					break
+				if not vanilla or not UV_REGIONS.has(part) or size != Vector2(64, 128):
+					continue
+				var inside := false
+				for rect in UV_REGIONS[part]:
+					if (rect as Rect2).grow(.6).has_point(px):
+						inside = true
+				if not inside and not Rect2(16, 16, 24, 32).grow(.6).has_point(px):
+					stray += 1
+				if (UV_BASE_REGIONS[part] as Rect2).grow(.6).has_point(px):
+					base_tris += 1
+					if image.get_pixel(clampi(int(px.x), 0, 63), clampi(int(px.y), 0, 127)).a < .5:
+						clear_base += 1
+			if stray > UV_PLUG_TRIS:
+				_fail("%s %s has %d triangles sampling outside its own skin region" % [id, part, stray])
+			if clear_base > 0:
+				_fail("%s %s has %d base-layer triangles on transparent texels" % [id, part, clear_base])
 
 
 func _check_catalog_emotes(id: String, node: Node, listed: Array) -> void:
