@@ -65,13 +65,13 @@ static func build() -> Theme:
 	t.set_color("font_hover_color", "Button", Palette.INK)
 	t.set_color("font_pressed_color", "Button", Palette.INK)
 	t.set_color("font_focus_color", "Button", Palette.INK)
-	t.set_color("font_disabled_color", "Button", Palette.DIM)
+	t.set_color("font_disabled_color", "Button", Palette.DISABLED)
 
 	t.add_type("PrimaryButton")
 	t.set_type_variation("PrimaryButton", "Button")
 	t.set_stylebox("normal", "PrimaryButton", _box(Palette.ACCENT, Palette.ACCENT_EDGE, 10, 4))
 	t.set_stylebox("hover", "PrimaryButton", _box(Palette.ACCENT.lightened(.12), Palette.ACCENT_EDGE.lightened(.2), 10, 4))
-	t.set_stylebox("pressed", "PrimaryButton", _box(Palette.ACCENT.darkened(.2), Palette.ACCENT_EDGE, 10, 4))
+	t.set_stylebox("pressed", "PrimaryButton", _box(Palette.ACCENT_DEEP, Palette.ACCENT_EDGE, 10, 4))
 	t.set_stylebox("focus", "PrimaryButton", _box(Palette.ACCENT, Palette.TEAL, 10, 4))
 	for state in ["font_color", "font_hover_color", "font_focus_color"]:
 		t.set_color(state, "PrimaryButton", Palette.ON_AMBER)
