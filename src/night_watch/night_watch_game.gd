@@ -35,6 +35,9 @@ var paths: NightWatchPaths
 var _walkers := {}   # hunter id -> NightWatchWalker
 var _players := {}
 var _flinch_left := {}
+var _retreat_left := {}   # hunter id -> seconds left of the retreat pose after a shut door or a light turned her away
+var _pose_state := {}     # hunter id -> the Night Watch pose state playing ("" = the rig's own walk / idle clips)
+var _attacker := ""
 var lamp_on := true
 var _hour_seen := 0
 var _elapsed_ms := 0.0
@@ -46,13 +49,15 @@ func _ready() -> void:
 	read_session()
 	night = level
 	_build_world()
-	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels)
+	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels, is_custom)
 	_spawn_hunters()
 	paths = NightWatchPaths.new(building, office)
 	hud.mode_text = "%d. %s · %s" % [int(mode_data().get("num", 1)), String(mode_data().get("title", "CLASSIC")).capitalize(), level_name().capitalize()]
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
+	hud.set_monitor_available(office.spec.has_monitor)
+	hud.hint_label.text = NightWatchControls.hint_line(false, _hint_actions())
 	_sync_visuals()
 
 
@@ -182,6 +187,7 @@ func open_monitor(room := "") -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_monitor", true)
 	hud.show_monitor(true)
+	hud.hint_label.text = NightWatchControls.hint_line(true, _hint_actions())
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.flash_static()
 	NightWatchSounds.monitor_toggle()
@@ -193,6 +199,7 @@ func close_monitor() -> void:
 	player.input_frozen = state != State.PLAYING
 	player.look_frozen = state != State.PLAYING
 	hud.show_monitor(false)
+	hud.hint_label.text = NightWatchControls.hint_line(false, _hint_actions())
 	NightWatchSounds.monitor_toggle()
 
 
@@ -210,6 +217,39 @@ func select_camera(room: String) -> void:
 	hud.set_cam(room, building.camera_transform(room))
 	hud.flash_static()
 	NightWatchSounds.camera_switch()
+
+
+## The actions the hint line lists: the office's, plus Night 7's meet key.
+func _hint_actions() -> Array:
+	var list := office.spec.controls.duplicate()
+	if sim != null and sim.kathy_night:
+		list.append("nw_meet")
+	return list
+
+
+## Night 7: meet Kathy's eyes on the feed you are watching (the 2D K key). A miss locks the key for two seconds.
+func meet_her_eyes() -> String:
+	if state != State.PLAYING or sim == null or not sim.kathy_night:
+		return "none"
+	var result: Dictionary = sim.meet(monitor_up, monitor_room, false)
+	match String(result["result"]):
+		"met":
+			hud.show_note("Her eyes meet yours. She is gone.")
+			hud.flash_static()
+			_sync_visuals()
+		"miss":
+			hud.show_note("Nothing there.")
+		"locked":
+			hud.show_note("Wait.")
+	return String(result["result"])
+
+
+func is_playing() -> bool:
+	return state == State.PLAYING
+
+
+func select_camera_number(n: int) -> void:
+	select_camera(NightWatchData.room_for_cam(n))
 
 
 func cycle_camera(step: int) -> void:
@@ -312,8 +352,13 @@ func _on_event(e: Dictionary) -> void:
 			light_held = {"doorL": false, "doorR": false}
 			hud.show_call("The power is out.")
 			NightWatchSounds.power_out()
+		"hum":
+			NightWatchSounds.office("breath", -0.8 if String(e["door"]) == "doorL" else 0.8, 0.35 if bool(e["muffled"]) else 0.9)
 		"moved", "arrived", "repelled", "pushed":
-			NightWatchSounds.hunter_event(e)
+			if String(e["type"]) == "repelled" or String(e["type"]) == "pushed":
+				_retreat_left[String(e["id"])] = 1.4
+			if not (String(e["id"]) == "kathy" and String(e["type"]) == "repelled"):   # her fading away makes no sound
+				NightWatchSounds.hunter_event(e)
 			if monitor_up and (String(e["room"]) == monitor_room or String(e["from"]) == monitor_room):
 				hud.flash_static()
 
@@ -322,7 +367,7 @@ func _on_event(e: Dictionary) -> void:
 
 func _sync_visuals() -> void:
 	for door in ["doorL", "doorR"]:
-		office.set_light(door, bool(sim.light_on[door]))
+		office.set_light(door, bool(sim.light_on[door]) and not sim.light_dip(door))   # Night 7: her light dips (the only tell the light gives)
 	if manual_clock:
 		office.snap_slabs(sim.door_shut)
 	for door in ["doorL", "doorR"]:
@@ -334,7 +379,10 @@ func _sync_visuals() -> void:
 
 func _place_hunters() -> void:
 	var slots := {}
-	for id in NightWatchData.HUNTERS:
+	for id in _models:
+		if id != "nyxie" and not sim.hunters.has(id):
+			(_models[id] as Node3D).visible = false
+	for id in sim.hunters:
 		var hunter := sim.hunters[id] as NightWatchStalker
 		var model := _models[id] as Node3D
 		var slot: int = int(slots.get(hunter.room, 0))
@@ -374,6 +422,39 @@ func _place_hunters() -> void:
 		_set_model_pose(nyxie, from.lerp(to, t), player.global_position)
 
 
+## The Night Watch pose state of a hunter this frame (docs/NIGHT_WATCH_POSES.md; "" = walking or nothing special: the rig's own clips). Moving hunters keep the walk / sprint
+## clips; standing ones take the pose of what they are doing: peeking, pounding on a shut door, leaning in at the end of the wait, staring at the camera you watch, flinching from
+## the light, backing away, lunging.
+func _hunter_pose_state(id: String) -> String:
+	var hunter := sim.hunters.get(id) as NightWatchStalker if sim != null else null
+	var walker := _walkers.get(id) as NightWatchWalker
+	if hunter == null or walker == null or not (_models[id] as Node3D).visible:
+		return ""
+	if id == _attacker and state == State.LOST:
+		return "attack"
+	if _flinch_left.has(id):
+		return "light_flinch"
+	if _retreat_left.has(id):
+		return "retreat"
+	if walker.moving:
+		return ""
+	if hunter.is_at_door():
+		if id == "kathy":
+			return "waiting"
+		if bool(sim.door_shut.get(hunter.door(), false)):
+			return "at_door"          # blocked by the shut door: pounding on it
+		match hunter.door_pose():
+			"peek":
+				return "peek_left" if hunter.door() == "doorL" else "peek_right"
+			"stand":
+				return "door_grace"
+			_:
+				return "reaching"     # leaning in at the end of the wait
+	if monitor_up and monitor_room == hunter.room:
+		return "camera"
+	return "listening" if id == "kathy" else "idle"
+
+
 func _set_model_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
 	model.position = pos
 	var d := face - pos
@@ -394,16 +475,24 @@ func _animate_models(delta: float) -> void:
 		var model := _models[id] as Node3D
 		model.position = walker.pos
 		model.rotation.y = walker.yaw
+	for id in _retreat_left.keys():
+		_retreat_left[id] = float(_retreat_left[id]) - delta
+		if float(_retreat_left[id]) <= 0.0:
+			_retreat_left.erase(id)
 	for id in _players:
 		var player := _players[id] as AnimationPlayer
 		var walker := _walkers.get(id) as NightWatchWalker
-		var clip := "idle"
-		if _flinch_left.has(id):
-			clip = "stun"
-		elif walker != null and walker.moving:
-			clip = "sprint" if walker.running and player.has_animation("sprint") else "walk"
-		if player.has_animation(clip) and player.current_animation != clip:
-			player.play(clip)
+		var pose_state := _hunter_pose_state(id)
+		if pose_state != String(_pose_state.get(id, "-")):
+			_pose_state[id] = pose_state
+			if pose_state.is_empty():
+				NightWatchPoses.stop(_models[id])
+			else:
+				NightWatchPoses.play_state(_models[id], pose_state)
+		if pose_state.is_empty():
+			var clip := "sprint" if walker != null and walker.moving and walker.running and player.has_animation("sprint") else ("walk" if walker != null and walker.moving else "idle")
+			if player.has_animation(clip) and player.current_animation != clip:
+				player.play(clip)
 	if state == State.PLAYING and not manual_clock:
 		office.animate(sim.door_shut if sim != null else door_shut, delta)
 
@@ -434,26 +523,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if NightWatchControls.handle_monitor_event(self, event):
+		return
 	if monitor_up:
-		# in the monitor: 1-8 and the arrows pick a camera; use or Tab leaves it
-		if event.is_action_pressed(NightWatchControls.MONITOR) or event.is_action_pressed(&"interact"):
-			close_monitor()
-			return
-		if event.is_action_pressed(&"office_radio"):
+		if event.is_action_pressed(NightWatchControls.MEET):
+			meet_her_eyes()
+		elif event.is_action_pressed(NightWatchControls.MUTE):
 			hud.toggle_mute()
-			return
-		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_LEFT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_LEFT):
-			cycle_camera(-1)
-			return
-		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_RIGHT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_RIGHT):
-			cycle_camera(1)
-			return
-		for n in range(1, 9):
-			if event.is_action_pressed(NightWatchControls.camera_action(n)):
-				select_camera(NightWatchData.room_for_cam(n))
-				return
 		return
 	if event.is_action_pressed(NightWatchControls.DOOR_LEFT):
 		toggle_door("doorL")
@@ -467,8 +543,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		set_light("doorR", true)
 	elif event.is_action_released(NightWatchControls.LIGHT_RIGHT):
 		set_light("doorR", false)
-	elif event.is_action_pressed(NightWatchControls.MONITOR):
-		open_monitor()
 	elif event.is_action_pressed(NightWatchControls.LAMP):
 		toggle_lamp()
 	elif event.is_action_pressed(&"office_radio"):
@@ -505,6 +579,7 @@ func _finish_caught() -> void:
 		cause["detail"] = "darkness"
 	var name_text := String(NightWatchData.NAMES.get(sim.by, sim.by.capitalize()))
 	var picked := DeathLines.pick(cause, "nightwatch:%d" % seed_value, night, name_text)
+	_attacker = sim.by
 	last_death = {"by": sim.by, "name": name_text, "picked": picked}
 	finished.emit("caught")
 	if DeathMoment.plays(picked):

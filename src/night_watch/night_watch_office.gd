@@ -1,5 +1,5 @@
 class_name NightWatchOffice
-extends Node3D
+extends NightWatchOfficeBase
 
 ## The security room: a walkable blocky 6 x 5 m room with a desk, monitor, radio and lamp against the back wall, a chair, a shelf, a
 ## breaker box and a vent hatch, and a doorway on each side wall with a sliding slab, a control panel (DOOR and LIGHT buttons) on
@@ -32,13 +32,33 @@ var prompts := {}
 var button_meshes := {}  # "doorL_door", "doorL_light", ... -> MeshInstance3D
 ## 0 = open, 1 = shut, per door: the slab slides toward its target in the scene's _process.
 var slab_progress := {"doorL": 0.0, "doorR": 0.0}
-var props := {}          # prop name -> Node3D group (for the validator)
-var stations := {}       # station id -> NightWatchStation
 
 
 func _ready() -> void:
 	if slabs.is_empty():
 		build()
+
+
+func _make_spec() -> NightWatchOfficeSpec:
+	return make_spec()
+
+
+## The contract data of the Classic security room (docs/NIGHT_WATCH_OFFICES.md): two sliding steel doors with panels and lights, a desk with the monitor.
+static func make_spec() -> NightWatchOfficeSpec:
+	return NightWatchOfficeSpec.make({
+		"id": "classic_security", "title": "Security room", "mode_ids": ["classic"],
+		"footprint": Rect2(-HALF_W + 0.5, -HALF_D + 0.5, HALF_W * 2.0 - 1.0, HALF_D * 2.0 - 1.0),
+		"spawn": SPAWN,
+		"entrances": [
+			{"id": "doorL", "kind": "door_slab", "position": Vector3(-HALF_W, 0.0, 0.0), "outward": Vector3(-1, 0, 0), "sim_room": "doorL", "blockable": true},
+			{"id": "doorR", "kind": "door_slab", "position": Vector3(HALF_W, 0.0, 0.0), "outward": Vector3(1, 0, 0), "sim_room": "doorR", "blockable": true},
+		],
+		"required_stations": ["monitor", "doorL_door", "doorR_door", "doorL_light", "doorR_light", "lamp", "chair"],
+		"has_monitor": true,
+		"mood": {"kind": "warm_lamp", "ambient": Color(0.38, 0.40, 0.55), "lamp": Color(1.0, 0.82, 0.55), "accent": Color(0.96, 0.72, 0.28)},
+		"tone_cue": "presence",
+		"controls": ["nw_door_left", "nw_door_right", "nw_light_left", "nw_light_right", "nw_lamp", "nw_monitor"],
+	})
 
 
 func _c(parent: Node3D, size: Vector3, pos: Vector3, node_name: String, opts := {}) -> MeshInstance3D:
@@ -120,7 +140,7 @@ func _build_shell() -> void:
 		_c(shell, Vector3(0.9, 0.02, 0.3), Vector3(x, HEIGHT - 0.1, 0.2), "CeilingLens", {"kind": "glass", "tint": Color(0.45, 0.5, 0.5)})
 	_c(shell, Vector3(0.05, 0.05, 0.05), Vector3(2.7, 0.9, HALF_D - 0.1), "LedAlarm", {})
 	# a hazard stripe along the floor in front of the desk and a floor mat
-	_c(shell, Vector3(2.8, 0.01, 0.12), Vector3(0, 0.005, -0.55), "FloorStripe", {"kind": "label", "tint": Color(0.8, 0.8, 0.8)})
+	_c(shell, Vector3(2.8, 0.01, 0.12), Vector3(0, 0.005, -0.55), "FloorStripe", {"hazard": "y", "tint": Color(0.8, 0.8, 0.8)})
 	_c(shell, Vector3(1.6, 0.02, 1.0), Vector3(0, 0.01, -1.1), "FloorMat", {"tint": Color(0.9, 0.9, 0.95)})
 
 
@@ -147,7 +167,7 @@ func _build_door_side(side: float) -> void:
 		_c(frame, Vector3(0.34, DOOR_H, 0.14), Vector3(x, DOOR_H * 0.5, zz), "FramePost", {"tint": Color(0.75, 0.7, 0.65)})
 		_c(frame, Vector3(0.1, DOOR_H - 0.1, 0.05), Vector3(side * (HALF_W - 0.1), DOOR_H * 0.5, zz * 0.92), "Seal", {"kind": "plastic"})
 	_c(frame, Vector3(0.34, 0.16, DOOR_W + 0.28), Vector3(x, DOOR_H + 0.06, 0), "FrameHeader", {"tint": Color(0.75, 0.7, 0.65)})
-	_c(frame, Vector3(0.2, 0.09, DOOR_W), Vector3(side * (HALF_W - 0.02), DOOR_H - 0.06, 0), "HazardStripe", {"kind": "label", "tint": Color(0.85, 0.85, 0.85)})
+	_c(frame, Vector3(0.2, 0.09, DOOR_W), Vector3(side * (HALF_W - 0.02), DOOR_H - 0.06, 0), "HazardStripe", {"hazard": "x", "tint": Color(0.85, 0.85, 0.85)})
 	_c(frame, Vector3(0.4, 0.05, DOOR_W), Vector3(x, 0.025, 0), "Threshold", {"kind": "metal", "tint": Color(0.85, 0.85, 0.9)})
 	# the slab in the doorway (its body rides along, so a shut door really blocks the way)
 	var slab := Node3D.new()
@@ -157,8 +177,14 @@ func _build_door_side(side: float) -> void:
 	add_child(slab)
 	props["Slab" + tag] = slab
 	_c(slab, Vector3(0.14, DOOR_H, DOOR_W - 0.04), Vector3.ZERO, "SlabBody", {"solid": true})
+	# four bands across the leaf: hazard tape at the top and bottom, a stepped metal rib at each of the two between (geometry, not texture lines)
 	for i in 4:
-		_c(slab, Vector3(0.16, 0.08, DOOR_W - 0.02), Vector3(0, -DOOR_H * 0.5 + 0.3 + i * 0.6, 0), "SlabStripe", {"kind": "label", "tint": Color(0.8, 0.8, 0.8)})
+		var by := -DOOR_H * 0.5 + 0.3 + i * 0.6
+		if i == 0 or i == 3:
+			_c(slab, Vector3(0.2, 0.12, DOOR_W - 0.06), Vector3(0, by, 0), "SlabStripe", {"hazard": "x", "tint": Color(1.0, 1.0, 1.0)})
+		else:
+			_c(slab, Vector3(0.18, 0.1, DOOR_W - 0.06), Vector3(0, by, 0), "SlabRibBand", {"kind": "metal", "tint": Color(0.85, 0.85, 0.9)})
+			_c(slab, Vector3(0.2, 0.04, DOOR_W - 0.14), Vector3(0, by, 0), "SlabRibStep", {"kind": "metal", "tint": Color(1.05, 1.05, 1.1)})
 	for zz in [-0.7, 0.7]:
 		for yy in [-0.95, 0.0, 0.95]:
 			_c(slab, Vector3(0.18, 0.07, 0.07), Vector3(0, yy, zz), "SlabBolt", {"kind": "metal", "tint": Color(1.1, 1.1, 1.1)})
@@ -176,7 +202,7 @@ func _build_door_side(side: float) -> void:
 	for zz in [-1.55, 1.55]:
 		_c(hall, Vector3(6.2, 0.2, 0.08), Vector3(hx, 0.1, zz), "Baseboard", {"tint": Color(0.7, 0.7, 0.75)})
 		_c(hall, Vector3(6.2, 0.1, 0.12), Vector3(hx, HEIGHT - 0.2, zz), "PipeHall", {"kind": "metal"})
-	_c(hall, Vector3(6.2, 0.01, 0.2), Vector3(hx, 0.005, 0), "HallStripe", {"kind": "label", "tint": Color(0.7, 0.7, 0.7)})
+	_c(hall, Vector3(6.2, 0.01, 0.2), Vector3(hx, 0.005, 0), "HallStripe", {"hazard": "y", "tint": Color(0.7, 0.7, 0.7)})
 	_c(hall, Vector3(0.08, 1.9, 1.0), Vector3(side * (HALF_W + 6.28), 1.0, 0), "HallEndDoor", {"kind": "metal", "tint": Color(0.8, 0.8, 0.85)})
 	_c(hall, Vector3(0.05, 0.2, 0.7), Vector3(side * (HALF_W + 6.28), 2.2, 0), "SignExit", {"tint": Color(0.5, 1.0, 0.6)})
 	_body(self, Vector3(0.3, HEIGHT, 3.2), Vector3(side * HALL_GUARD_X, HEIGHT * 0.5, 0.0), 1)
@@ -249,7 +275,7 @@ func _build_desk() -> void:
 	_c(kb, Vector3(0.07, 0.03, 0.1), Vector3(0.45, 0.0, 0.0), "KeyboardMouse", {})
 	var papers := _prop("Papers", Vector3(-0.75, 0.8, -1.75))
 	for i in 3:
-		_c(papers, Vector3(0.28, 0.012, 0.36), Vector3(0.01 * i, 0.007 + i * 0.012, 0.01 * i), "PaperSheet", {"kind": "label", "tint": Color(1.2, 1.2, 1.2), "ao": 1.0})
+		_c(papers, Vector3(0.28, 0.012, 0.36), Vector3(0.01 * i, 0.007 + i * 0.012, 0.01 * i), "PaperSheet", {"kind": "paper", "tint": Color(1.2, 1.2, 1.2), "ao": 1.0})
 	_c(papers, Vector3(0.3, 0.015, 0.4), Vector3(0.45, 0.01, 0.0), "ClipboardBoard", {"kind": "wood"})
 	_c(papers, Vector3(0.1, 0.02, 0.05), Vector3(0.45, 0.025, -0.18), "ClipboardClip", {"kind": "metal"})
 	var cup := _prop("Cup", Vector3(-1.0, 0.8, -1.5))
@@ -365,7 +391,7 @@ func _build_extras() -> void:
 	_c(ext, Vector3(0.22, 0.6, 0.22), Vector3(0, 0.55, 0), "ExtBody", {"kind": "red"})
 	_c(ext, Vector3(0.1, 0.1, 0.1), Vector3(0, 0.9, 0), "ExtHead", {"kind": "metal"})
 	_c(ext, Vector3(0.05, 0.05, 0.25), Vector3(-0.1, 0.92, 0), "ExtNozzle", {"kind": "plastic"})
-	_c(ext, Vector3(0.24, 0.1, 0.24), Vector3(0, 0.6, 0), "ExtBand", {"kind": "label", "tint": Color(0.9, 0.9, 0.9)})
+	_c(ext, Vector3(0.24, 0.1, 0.24), Vector3(0, 0.6, 0), "ExtBand", {"hazard": "xz", "tint": Color(0.9, 0.9, 0.9)})
 	var board := _prop("NoticeBoard", Vector3(1.3, 1.7, HALF_D))
 	_c(board, Vector3(1.2, 0.8, 0.05), Vector3(0, 0, -0.03), "BoardCork", {"kind": "wood", "tint": Color(1.1, 0.9, 0.7)})
 	for i in 4:

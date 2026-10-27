@@ -63,6 +63,9 @@ func _ready() -> void:
 ## "ADMIN ACTIVE" tag, top centre, also while the panel is closed, so an admin in a shared route or
 ## room (and anyone watching their screen) can see the tools are on. Says where, and DEBUG RUN once used.
 func _build_badge() -> void:
+	if HudStatusBar.find(get_tree()) != null:
+		_refresh_badge()
+		return
 	_badge = Label.new()
 	_badge.name = "AdminActiveBadge"
 	_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -83,14 +86,17 @@ func _build_badge() -> void:
 
 
 func _refresh_badge() -> void:
-	if _badge == null:
-		return
 	var where := "SOLO"
 	if RoomState.public_route:
 		where = "PUBLIC ROUTE"
 	elif RoomState.online:
 		where = "ROOM"
-	_badge.text = "ADMIN ACTIVE // %s%s" % [where, " // DEBUG RUN (NOT RECORDED)" if GameState.debug_run else ""]
+	var line := "ADMIN ACTIVE // %s%s" % [where, " // DEBUG RUN (NOT RECORDED)" if GameState.debug_run else ""]
+	var bar := HudStatusBar.find(get_tree()) if is_inside_tree() else null
+	if bar != null:
+		bar.set_segment("admin", line, "admin")
+	elif _badge != null:
+		_badge.text = line
 
 
 func is_open() -> bool:
@@ -467,8 +473,13 @@ func _entry_allowed(entry: Dictionary) -> bool:
 		else Build.admin_owner_tools_enabled()
 
 
+## True while any admin overlay is up (the pause menu never opens over it on a focus loss).
+static var overlay_open := false
+
+
 func _set_open(shown: bool) -> void:
 	_open = shown
+	overlay_open = shown
 	_panel.visible = shown
 	_dimmer.visible = shown
 	# The overlay is clickable, so it needs the cursor -- and it must not take

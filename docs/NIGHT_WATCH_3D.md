@@ -175,3 +175,71 @@ Top-down map of the facility with the walking routes (green) and the camera moun
 stuck test: four hunters walk every ordered room pair, never stall for a second, never stand inside a wall and arrive within their budget.
 Vent shafts, vent crawlers and doors that open for a passing hunter belong to the modes that have vents (Dead Air, Mixed Shift) and are
 built there on the same `NightWatchPaths` graph.
+
+## 5e. Door stripes and prop mapping (texture-stripe bug)
+
+**Cause.** `NightWatchArt.box_mesh` wound every triangle counter-clockwise seen from outside, but Godot's front faces are clockwise: every cube was
+drawn **inside out**. The near faces were culled and the far faces' insides showed through, mirrored, so the hazard stripes on the door frame, the header
+and the leaf bands looked skewed and broken (the stripe sense flipped between faces, thin bands showed a sliver of a tile). On top of that the UV scale was
+clamped to at least a quarter tile (`maxf(0.25, ...)`), which squashed the texture on anything thinner than 12 cm, hazard tape started mid-stripe at
+its ends, and the same diagonal-stripe texture was used for *every* "label" (paper sheets, notes, name plates, signs, the poster title).
+
+**Fix (at the source, `src/night_watch/night_watch_art.gd`).**
+* Triangles are wound `0,2,1 / 0,3,2` (clockwise), so each face is drawn from the outside with its UVs the right way round. A validator checks every cube.
+* Every face maps at the same texel density: 32 px per metre (`TILE` = 0.5 m per 16 px tile); no clamping.
+* Hazard tape is its own kind (`hazard`, option `"hazard": "x"` naming the tape faces): 64 px per metre (`HAZ_TILE` = 0.25 m), 45 degree stripes 4 px wide with a
+  lit and a dark edge pixel, and each tape face counts a **whole number of stripe periods along its length**, so it starts and ends on the same phase; the
+  ends and thickness faces of a tape piece map to one dark texel of the same texture (a dedicated tile, never a stretched copy of the stripes).
+* "label" is now a plain plate with text rows (no stripes) and "paper" an off-white sheet; only real tape is striped.
+* The door leaf's four bands are two hazard tapes (top, bottom) and two stepped metal ribs (geometry, 3 cm proud), not thin texture lines; the leaf is a rigid
+  mesh, the animation only moves it.
+* Tape users: door frame header, leaf top/bottom, floor stripe in front of the desk, the hall floor stripe, the extinguisher band, the room floor stripes and
+  runner trims in the camera rooms.
+
+**Checks.** `night_watch` now asserts, for every cube in the office and the camera rooms: clockwise winding; texel density within 10% on every face (32 px/m,
+tape 64 px/m); tape faces hold a whole number of periods; every UV finite, non-negative and with area; at least 20 dedicated edge faces of tape.
+
+**Captures.** `tools/look/night_watch_door_capture.tscn` (both doors closed / half / open from the office, and from the hall at 1.5 m and 4 m) and
+`tools/look/night_watch_prop_sheet.tscn` (every office prop and every camera-room prop group alone, 8 views: four sides, two three-quarter views, top and
+underneath, joined into one sheet). Before (left) and after (right):
+
+| | |
+|---|---|
+| left door closed, from the office | ![](night_watch_doors/cmp_doorL_closed_office.png) |
+| left door half open | ![](night_watch_doors/cmp_doorL_half_office.png) |
+| right door closed | ![](night_watch_doors/cmp_doorR_closed_office.png) |
+| left door from the hall, 1.5 m | ![](night_watch_doors/cmp_doorL_closed_hall15.png) |
+| left door from the hall, 4 m | ![](night_watch_doors/cmp_doorL_closed_hall40.png) |
+| right door from the hall, 1.5 m | ![](night_watch_doors/cmp_doorR_closed_hall15.png) |
+| desk, floor stripe, panels | ![](night_watch_doors/cmp_desk.png) |
+
+Prop sheets from all sides (the full set renders on demand; these are samples): ![](night_watch_props/office_Desk.png) ![](night_watch_props/office_SlabL.png)
+![](night_watch_props/office_DoorFrameL.png) ![](night_watch_props/office_ControlPanelL.png) ![](night_watch_props/office_Chair.png)
+![](night_watch_props/building_kitchen_Fridge.png)
+
+## 5f. No inventory (Night Watch only)
+
+The shared controller has one configuration flag, `PlayerController3D.inventory_enabled` (default **true**: Last Route and the City are untouched). `scenes/night_watch_player.tscn`
+sets it to false (the player-scene equality check ignores exactly that line). With it off: the slot keys 1-5, the wheel, hotbar previous/next, drop, tool use, the taser,
+`grant_inventory_item`, backpacks and pickups do nothing; the flashlight stays as the built-in tool in the hand (the shared `flashlight` action toggles it, same sound and spot
+light) and never drains (the 2D game has no battery). Night Watch has no hotbar in its HUD (NightWatchHud draws none: no empty gap), no pickups in its scenes, no inventory in
+its saves, and the controls hint and tab list no pickup/drop/slot keys. The digits 1-8 are free for the camera keys inside the monitor. `night_watch` checks the flag, that no
+inventory node exists on the player or in the HUD, that the item APIs refuse, that slot keys and the wheel change nothing, and that the flashlight toggles, lights and does not drain.
+
+## 5g. Classic Night 7: Kathy
+
+Ported from `classic-logic.js` (`KATHY_HUNT`, `kathyTuning`, `KATHY_DIP`, `KATHY_MEET`): Night 7 is Kathy's alone (level 20, no Nyxie, not in Custom Night). She runs on Night 6's pacing
+scaled (grace x0.45 = 2610 ms at an open door, walk pace x0.65); the light never holds her wait; a shut door must stay shut for a rolled time (2.5 s plus an exponential, mean tail
+4.5 s, never above 20 s, `NightWatchData.roll_hold`) and then she fades silently to the stage or the kitchen on a fresh door (`NightWatchStalker.fade`). Her tells: the light at her door
+dips on a 2.6 s cycle (open or shut door, only the door she stands at), a hum every 1.1 s at her door (muffled by a shut door), and meeting her eyes: the **O** key (K in 2D; `nw_meet`, listed in the
+hint line on Night 7 only) while the monitor shows the west or east hall with her in it sends her back; a miss locks the key for 2 s. Her fade makes no sound. Tests in `night_watch`
+(tuning, determinism, roll distribution, the light never holds her, the shut-door fade, dip, hum, meet, scene). Not done: her pulsing camera glow (cosmetic) and her model's own pose set.
+
+## 5h. Poses on the hunters (NW POSES hook)
+
+`claude/expr-lane` (a04cc34f, `docs/NIGHT_WATCH_POSES.md`) is merged. Night Watch hunters are bare blocky models (`ModelSlot`), not `HunterView3D`, so the hook uses `NightWatchPoses.play_state(model, state)` /
+`NightWatchPoses.stop(model)` (the library installs itself on first use); `nw_layers` belongs to `HunterView3D` and is not used. `NightWatchGame._hunter_pose_state(id)` picks the state each frame, and a pose only
+changes when the state does: **walking** keeps the rig's own walk / sprint clips (`""`); at a door: Kathy `waiting`; a shut door in front of her `at_door` (pounding); a fresh arrival `peek_left` / `peek_right`
+by door; the middle of the wait `door_grace`; the end of the wait `reaching`; standing in the room on the monitor `camera` (stares at it); a flinch from the light `light_flinch`; 1.4 s after a shut door or the
+light turned her away `retreat`; the hunter that caught you `attack`; idle in a room `idle` (Kathy `listening`). `night_watch` checks that every state has a pose and that live hunters take them.
+Not wired (no Night Watch state yet): `glass`, `vent` / `vent_crawl` (Dead Air, Mixed), `kneel`, `tired`, `point_office`, `greet`, `glitch`.

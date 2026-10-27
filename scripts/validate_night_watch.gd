@@ -38,7 +38,7 @@ func _player_block(text: String, is_main: bool) -> String:
 	var end := text.find('[node name="HUD"') if is_main else text.length()
 	var block := text.substr(start, end - start).strip_edges()
 	block = block.replace('parent="World/Player/', 'parent="').replace('parent="World/Player"', 'parent="."').replace(' parent="World"', "")
-	block = block.replace("unique_name_in_owner = true\n", "")
+	block = block.replace("unique_name_in_owner = true\n", "").replace("inventory_enabled = false\n", "")   # the one configured difference: Night Watch has no inventory
 	var cap_at := text.find("[sub_resource type=\"CapsuleShape3D\"")
 	return block + text.substr(cap_at, text.find("\n\n", cap_at) - cap_at)
 
@@ -216,6 +216,7 @@ func run(host: Node) -> int:
 		_expect(groups >= 3, "the %s camera room has only %d prop groups" % [id, groups])
 	_expect(building_cubes >= 420, "the eight camera rooms have only %d cubes (420 or more expected)" % building_cubes)
 	print("  art: office %d cubes in %d props, camera rooms %d cubes" % [office_cubes, shift.office.props.size(), building_cubes])
+	_check_uvs(shift)
 	# shading is baked: a cube has vertex colours that differ between its top and bottom
 	var sample := shift.office.find_child("DeskTop", true, false) as MeshInstance3D
 	var colors: PackedColorArray = sample.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
@@ -256,8 +257,8 @@ func run(host: Node) -> int:
 	_expect(not bool(shift.light_held["doorR"]), "releasing the right light quick key did not let it go")
 	press.call("nw_monitor")
 	_expect(shift.monitor_up and shift.player.input_frozen, "the monitor quick key did not open the monitor and freeze the player")
-	press.call("office_camera_3")
-	_expect(shift.monitor_room == "backstage", "the camera 3 hotbar did not pick the backstage feed")
+	press.call("nw_cam_3")
+	_expect(shift.monitor_room == "backstage", "camera key 3 did not pick the backstage feed")
 	press.call("interact")
 	_expect(not shift.monitor_up and not shift.player.input_frozen, "use did not leave the monitor")
 	press.call("office_radio")
@@ -266,6 +267,42 @@ func run(host: Node) -> int:
 	shift.hud.subtitles_toggled.emit(false)
 	_expect(not shift.hud.subtitles and not NightWatchSave.subtitles(), "the subtitles toggle did not save")
 	shift.hud.subtitles_toggled.emit(true)
+	# NW NO INVENTORY: the flag is the only difference, Last Route's default is untouched, the flashlight is built in and never drains, the item keys do nothing
+	var default_player := PlayerController3D.new()
+	_expect(not shift.player.inventory_enabled and default_player.inventory_enabled, "Night Watch's player must have the inventory off and the controller's default must stay on")
+	default_player.free()
+	for n in shift.player.get_children():
+		_expect(not String(n.name).to_lower().contains("hotbar") and not String(n.name).to_lower().contains("inventory"), "the Night Watch player has an inventory node: %s" % n.name)
+	for n in shift.hud.find_children("*", "Control", true, false):
+		_expect(not String(n.name).to_lower().contains("hotbar") and not String(n.name).to_lower().contains("inventory"), "the Night Watch HUD has an inventory node: %s" % n.name)
+	_expect(not shift.player.grant_inventory_item("taser") and not shift.player.request_drop_selected_item() and not shift.player.collect_backpack("backpack"), "an item API worked with the inventory off")
+	var slot_before: int = shift.player.selected_inventory_slot
+	for key in [KEY_3, KEY_5]:
+		var kev := InputEventKey.new()
+		kev.physical_keycode = key
+		kev.keycode = key
+		kev.pressed = true
+		shift.player._unhandled_input(kev)
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.pressed = true
+	shift.player._unhandled_input(wheel)
+	_expect(shift.player.selected_inventory_slot == slot_before, "a slot key or the wheel changed the held slot with the inventory off")
+	_expect(shift.player.owns_inventory_item("flashlight"), "the flashlight is not built in")
+	Input.action_press("flashlight")
+	await host.get_tree().physics_frame
+	Input.action_release("flashlight")
+	await host.get_tree().physics_frame
+	_expect(shift.player.flashlight_enabled and shift.player.flashlight.visible, "the flashlight action did not switch the built-in flashlight on")
+	var charge_before: float = shift.player.lamp_charge
+	for i in 120:
+		await host.get_tree().physics_frame
+	_expect(is_equal_approx(shift.player.lamp_charge, charge_before), "the built-in flashlight drained (%.2f to %.2f)" % [charge_before, shift.player.lamp_charge])
+	Input.action_press("flashlight")
+	await host.get_tree().physics_frame
+	Input.action_release("flashlight")
+	await host.get_tree().physics_frame
+	_expect(not shift.player.flashlight_enabled, "the flashlight action did not switch it off again")
 	# the SHARED player controller walks the room: spawn, walking into the chair and the desk stops, aiming, using
 	var player := shift.player
 	_expect(player is PlayerController3D and player.get_script().resource_path == "res://src/game_3d/player_controller_3d.gd", "the player is not the shared controller")
@@ -418,6 +455,8 @@ func run(host: Node) -> int:
 	_expect(menu.start_button != null and menu.start_button.text.begins_with("▶ START SHIFT"), "the board has no START SHIFT")
 	menu.queue_free()
 	await _check_walking(host)
+	await _check_kathy(host)
+	await _check_poses(host)
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
 	NightWatchSession.start(1)
 	NightWatchSave.reset()
@@ -569,3 +608,245 @@ func _check_walking(host: Node) -> void:
 	_expect(model.position.distance_to(shift.building.stand_position("westhall", 0)) < 1.6, "Dovelle did not arrive in the west hall")
 	shift.queue_free()
 	await host.get_tree().process_frame
+
+
+
+## Texture mapping of every cube in the office and the camera rooms: the same texel density on every face (32 px per metre, hazard tape 64 px per
+## metre along its length and width), within 10%; hazard tape counts a whole number of stripe periods along its length, so it starts and ends
+## on the same phase; every UV is finite, non-negative and spans a real area. Tape faces use the stripe tile, every other face of a tape cube a
+## plain metal tile (nothing is a stretched copy of the front texture).
+func _check_uvs(shift: NightWatchGame) -> void:
+	var meshes := []
+	meshes.append_array(shift.office.find_children("*", "MeshInstance3D", true, false))
+	meshes.append_array(shift.building.find_children("*", "MeshInstance3D", true, false))
+	var faces := 0
+	var tape_faces := 0
+	var bad_density := []
+	var bad_phase := []
+	var bad_uv := 0
+	var edge_faces := 0
+	for m in meshes:
+		var mi := m as MeshInstance3D
+		if mi.mesh == null or mi.mesh.get_surface_count() == 0 or not mi.has_meta("nw_name"):
+			continue
+		var hazard := String(mi.get_meta("nw_hazard", ""))
+		for surface in mi.mesh.get_surface_count():
+			var arrays := mi.mesh.surface_get_arrays(surface)
+			var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var tape_surface := not hazard.is_empty()
+			var f := 0
+			while f + 5 < v.size():
+				faces += 1
+				# a face is drawn as triangles with corners 0,2,1 and 0,3,2 (clockwise for Godot): corner 0 = v[f], corner 1 = v[f+2], corner 2 = v[f+1]
+				var p0 := v[f]
+				var p1 := v[f + 2]
+				var p2 := v[f + 1]
+				var u0 := uv[f]
+				var u1 := uv[f + 2]
+				var u2 := uv[f + 1]
+				for i in 6:
+					var q := uv[f + i]
+					if not is_finite(q.x) or not is_finite(q.y) or q.x < -0.001 or q.y < -0.001:
+						bad_uv += 1
+				var len_u := p0.distance_to(p1)
+				var len_v := p1.distance_to(p2)
+				var span_u := absf(u1.x - u0.x)
+				var span_v := absf(u1.y - u2.y)
+				if tape_surface and span_u < 0.0001 and span_v < 0.0001:
+					f += 6       # an end or thickness face of tape: one dark texel, no stripes (checked below)
+					edge_faces += 1
+					continue
+				if len_u < 0.0001 or len_v < 0.0001 or span_u < 0.0001 or span_v < 0.0001:
+					bad_uv += 1
+					f += 6
+					continue
+				var want_v := 64.0 if tape_surface else 32.0
+				var du := span_u * float(NightWatchArt.TEX) / len_u
+				var dv := span_v * float(NightWatchArt.TEX) / len_v
+				if tape_surface:
+					tape_faces += 1
+					var periods := span_u * 2.0
+					if absf(periods - roundf(periods)) > 0.001:
+						bad_phase.append("%s %.3f periods" % [mi.get_meta("nw_name"), periods])
+					du = 64.0 * (roundf(periods) * NightWatchArt.HAZ_PERIOD_M) / len_u   # the density after the whole-period rounding
+				if absf(dv - want_v) / want_v > 0.1 or absf(du - want_v) / want_v > 0.1:
+					bad_density.append("%s %.0f/%.0f px/m (want %.0f)" % [mi.get_meta("nw_name"), du, dv, want_v])
+				f += 6
+	# every cube is drawn outside-out: the first triangle of each face is wound clockwise seen from the face's normal side
+	var inside_out := 0
+	for m in meshes:
+		var mi2 := m as MeshInstance3D
+		if mi2.mesh == null or mi2.mesh.get_surface_count() == 0 or not mi2.has_meta("nw_name"):
+			continue
+		var arr := mi2.mesh.surface_get_arrays(0)
+		var vv: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var nn: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		var k := 0
+		while k + 2 < vv.size():
+			var tri_normal := (vv[k + 1] - vv[k]).cross(vv[k + 2] - vv[k])   # counter-clockwise normal; Godot's front is the clockwise side, so it must point inward
+			if tri_normal.dot(nn[k]) > 0.0:
+				inside_out += 1
+			k += 6
+	_expect(inside_out == 0, "%d cube faces are wound inside out (their near side is culled)" % inside_out)
+	_expect(faces > 500, "the UV check saw only %d faces" % faces)
+	_expect(tape_faces >= 12, "the UV check saw only %d hazard tape faces" % tape_faces)
+	_expect(edge_faces >= 20, "hazard tape has only %d dedicated edge faces" % edge_faces)
+	_expect(bad_uv == 0, "%d faces have non-finite, negative or zero-area UVs" % bad_uv)
+	_expect(bad_phase.is_empty(), "hazard faces that do not hold a whole number of periods: %s" % str(bad_phase.slice(0, 5)))
+	_expect(bad_density.is_empty(), "%d faces are off the texel density: %s" % [bad_density.size(), str(bad_density.slice(0, 6))])
+
+
+
+## Night 7: Kathy hunts alone (2D KATHY_HUNT): level 20 on Night 6's pacing scaled, the light never holds her, a shut door has to stay shut for a rolled time and then she
+## FADES silently to the stage or the kitchen on a fresh door, her light dips and hum are her tells, and meeting her eyes on a hall feed sends her back.
+func _check_kathy(host: Node) -> void:
+	var a := NightWatchClassic.new(7, 4242)
+	var b := NightWatchClassic.new(7, 4242)
+	_expect(a.kathy_night and a.hunters.size() == 1 and a.hunters.has("kathy") and a.nyxie_level == 0, "Night 7 is not Kathy's alone")
+	var k := a.hunters["kathy"] as NightWatchStalker
+	_expect(k.base == 20 and k.unseen and absf(k.attack_ms - 2610.0) < 1.0 and absf(k._pace - 0.6695) < 0.001, "Kathy's tuning differs from KATHY_HUNT (grace %.0f pace %.4f)" % [k.attack_ms, k._pace])
+	_expect(not NightWatchClassic.new(7, 4242, {}, true).kathy_night, "a Custom Night on level 7 became Kathy's night")
+	_expect(NightWatchData.active_hunters(7) == ["kathy"] and NightWatchData.NIGHTS == 7, "the Shift Board's night 7 does not show only Kathy")
+	# roll_hold: within [lo, hi], mean near lo + tail
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var total := 0.0
+	var lowest := 1e9
+	var highest := 0.0
+	for i in 4000:
+		var v := NightWatchData.roll_hold(rng.randf(), 2500.0, 20000.0, 4500.0)
+		total += v
+		lowest = minf(lowest, v)
+		highest = maxf(highest, v)
+	_expect(lowest >= 2500.0 and highest <= 20000.0 and absf(total / 4000.0 - 7000.0) < 400.0, "Kathy's shut-door hold is off the 2D distribution (mean %.0f, range %.0f-%.0f)" % [total / 4000.0, lowest, highest])
+	# determinism
+	var log_a := []
+	var log_b := []
+	for i in 600:
+		for e in a.step(250.0, {}):
+			log_a.append(e)
+		for e in b.step(250.0, {}):
+			log_b.append(e)
+	_expect(log_a == log_b and not log_a.is_empty(), "Night 7 is not deterministic for a seed")
+	# the light never holds her wait: she attacks after her grace at an open door even with the light on her
+	var lit := NightWatchClassic.new(7, 11)
+	var lk := lit.hunters["kathy"] as NightWatchStalker
+	lk.room = lk.door()
+	var door := lk.door()
+	var caught := false
+	var waited := 0.0
+	while waited < 4000.0 and not caught:
+		for e in lit.step(50.0, {"lightL": door == "doorL", "lightR": door == "doorR"}):
+			if String(e["type"]) == "caught":
+				caught = true
+		waited += 50.0
+	_expect(caught and waited < 3300.0, "the light held Kathy (caught after %.0f ms, grace 2610)" % waited)
+	# a shut door: she waits out a rolled time, then fades silently to the stage or the kitchen on a fresh door
+	var shut := NightWatchClassic.new(7, 21)
+	var sk := shut.hunters["kathy"] as NightWatchStalker
+	sk.room = sk.door()
+	var shut_door := sk.door()
+	var repelled := false
+	var shut_ms := 0.0
+	while shut_ms < 22000.0 and not repelled:
+		for e in shut.step(50.0, {"doorL": shut_door == "doorL", "doorR": shut_door == "doorR"}):
+			if String(e["type"]) == "repelled":
+				repelled = true
+		shut_ms += 50.0
+	_expect(repelled and shut_ms >= 2450.0 and shut_ms <= 20050.0, "the shut door did not turn Kathy away within the 2.5 to 20 s hold (%.0f ms)" % shut_ms)
+	_expect(NightWatchData.KATHY["fade_to"].has(sk.room) and not sk.is_at_door(), "Kathy did not fade to the stage or the kitchen (she is in %s)" % sk.room)
+	# her tells: the dip (only at the door she stands at, with its light on) and the hum
+	var tell := NightWatchClassic.new(7, 31)
+	var tk := tell.hunters["kathy"] as NightWatchStalker
+	tk.room = tk.door()
+	var tdoor := tk.door()
+	var other := "doorR" if tdoor == "doorL" else "doorL"
+	tell.step(100.0, {"lightL": true, "lightR": true})   # elapsed 100 ms: inside the first dip [0, 180)
+	_expect(tell.light_dip(tdoor) and not tell.light_dip(other), "the light at her door did not dip (and the other one must not)")
+	tell.step(300.0, {"lightL": true, "lightR": true})   # 400 ms: between dips
+	_expect(not tell.light_dip(tdoor), "the light dipped between dips")
+	tk.attack_ms = 1.0e9   # keep her waiting so the hum can be counted
+	var hums := 0
+	for i in 60:
+		for e in tell.step(100.0, {}):
+			if String(e["type"]) == "hum":
+				hums += 1
+	_expect(hums >= 4 and hums <= 6, "her hum came %d times in 6 s (every 1.1 s expected)" % hums)
+	# meeting her eyes: only on a hall feed with her in it; a miss locks the key
+	var meet := NightWatchClassic.new(7, 41)
+	var mk := meet.hunters["kathy"] as NightWatchStalker
+	mk.room = "dining"
+	_expect(String(meet.meet(true, "dining")["result"]) == "miss", "meeting her in the dining area (not a hall) worked")
+	_expect(String(meet.meet(true, "westhall")["result"]) == "locked", "the meet key was not locked after a miss")
+	meet.step(2100.0, {})
+	mk.room = "westhall"
+	var met := meet.meet(true, "westhall")
+	_expect(String(met["result"]) == "met" and NightWatchData.KATHY["fade_to"].has(mk.room), "meeting her eyes on the west hall feed did not send her back")
+	# the scene: Night 7 loads with only Kathy on the floor and the meet key listed
+	NightWatchSession.start(7, 77)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	shift.manual_clock = true
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	for i in 40:
+		shift.advance_ms(500.0)
+	var visible_ids := []
+	for id in shift._models:
+		if (shift._models[id] as Node3D).visible:
+			visible_ids.append(id)
+	_expect(visible_ids == ["kathy"] or visible_ids == [] , "Night 7 shows hunters other than Kathy: %s" % str(visible_ids))
+	_expect(NightWatchControls.hint_line(true, ["nw_meet"]).contains("meet her eyes"), "the monitor hint does not list the meet key on Night 7")
+	shift.open_monitor("westhall")
+	_expect(shift.meet_her_eyes() in ["met", "miss"], "the scene's meet key did nothing")
+	shift.queue_free()
+	await host.get_tree().process_frame
+	NightWatchSession.start(1)
+
+
+
+## The Night Watch pose library on the hunters (docs/NIGHT_WATCH_POSES.md): every state the scene uses has a pose, and the live hunters take them: pounding on a shut door,
+## peeking, staring at the camera you watch, flinching from the light, backing away; a walking hunter keeps the rig's own clips.
+func _check_poses(host: Node) -> void:
+	for st in ["light_flinch", "retreat", "attack", "waiting", "at_door", "peek_left", "peek_right", "door_grace", "reaching", "camera", "listening", "idle"]:
+		_expect(NightWatchPoses.has_pose(NightWatchPoses.pose_for_state(st)), "pose state '%s' has no pose in the library" % st)
+	NightWatchSession.start(3, 99)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	shift.manual_clock = true
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	var d := shift.sim.hunters["dovelle"] as NightWatchStalker
+	d.room = "doorL"
+	shift.toggle_door("doorL")
+	shift.advance_ms(20.0)
+	shift._place_hunters()
+	shift._animate_models(0.1)
+	var player := shift._players["dovelle"] as AnimationPlayer
+	_expect(shift._hunter_pose_state("dovelle") == "at_door" and player.current_animation == NightWatchPoses.clip_name("door_pound"), "Dovelle at a shut door is not pounding on it (%s / %s)" % [shift._hunter_pose_state("dovelle"), player.current_animation])
+	shift.toggle_door("doorL")
+	shift.advance_ms(20.0)
+	d.room = "doorL"
+	d.at_door_ms = 0.0
+	shift._place_hunters()
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "peek_left", "a fresh arrival at the left door does not peek left (%s)" % shift._hunter_pose_state("dovelle"))
+	d.at_door_ms = d.attack_ms * 0.95
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "reaching", "at the end of the wait she does not lean in (%s)" % shift._hunter_pose_state("dovelle"))
+	d.room = "dining"
+	shift._place_hunters()
+	shift.open_monitor("dining")
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "camera", "a hunter in the room on the monitor does not stare at it (%s)" % shift._hunter_pose_state("dovelle"))
+	shift.close_monitor()
+	shift._flinch_left["dovelle"] = 0.5
+	_expect(shift._hunter_pose_state("dovelle") == "light_flinch", "the flinch does not use the light_flinch pose")
+	shift._flinch_left.clear()
+	shift._retreat_left["dovelle"] = 1.0
+	_expect(shift._hunter_pose_state("dovelle") == "retreat", "a turned-away hunter does not back off")
+	shift._retreat_left.clear()
+	(shift._walkers["dovelle"] as NightWatchWalker).moving = true
+	_expect(shift._hunter_pose_state("dovelle") == "", "a walking hunter must keep the rig's own clips")
+	shift.queue_free()
+	await host.get_tree().process_frame
+	NightWatchSession.start(1)

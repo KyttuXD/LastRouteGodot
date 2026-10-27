@@ -120,7 +120,7 @@ func _build_room(room: Node3D, id: String, tint: Color) -> void:
 		_c(shell, Vector3(0.06, ROOM_H - 0.6, 0.05), Vector3(x, ROOM_H * 0.5, -half + 0.12), "PanelLine", {"tint": Color(0.8, 0.8, 0.85)})
 	_c(shell, Vector3(ROOM_W - 0.4, 0.11, 0.11), Vector3(0, ROOM_H - 0.22, -half + 0.2), "PipeRoom", {"kind": "metal"})
 	_c(shell, Vector3(1.4, 0.05, 1.4), Vector3(0, ROOM_H - 0.04, 0), "CeilingPanel", {})
-	_c(shell, Vector3(ROOM_W, 0.02, 0.3), Vector3(0, 0.01, 0.8), "FloorStripe", {"kind": "label", "tint": Color(0.8, 0.8, 0.8)})
+	_c(shell, Vector3(ROOM_W, 0.02, 0.3), Vector3(0, 0.01, 0.8), "FloorStripe", {"hazard": "y", "tint": Color(0.8, 0.8, 0.8)})
 	_c(shell, Vector3(0.05, 0.05, 0.05), Vector3(-half + 0.2, 2.6, half - 0.3), "LedSmoke", {})
 	# a vent grille on the north wall, wall bolts, a floor drain and a little clutter in every room
 	var detail := _group(room, id, "Details")
@@ -132,7 +132,7 @@ func _build_room(room: Node3D, id: String, tint: Color) -> void:
 	_c(detail, Vector3(0.3, 0.02, 0.3), Vector3(2.0, 0.01, 1.6), "FloorDrain", {"kind": "metal", "tint": Color(0.6, 0.6, 0.65)})
 	_c(detail, Vector3(0.2, 0.2, 0.2), Vector3(-2.4, 0.1, 2.0), "ClutterBox", {"kind": "wood", "tint": Color(0.9, 0.85, 0.8)})
 	_c(detail, Vector3(0.16, 0.16, 0.16), Vector3(-2.15, 0.08, 2.1), "ClutterCan", {"kind": "metal", "tint": Color(0.8, 1.1, 0.8)})
-	_c(detail, Vector3(0.3, 0.02, 0.22), Vector3(-2.3, 0.02, 1.7), "ClutterPaper", {"kind": "label", "tint": Color(1.2, 1.2, 1.1), "ao": 1.0})
+	_c(detail, Vector3(0.3, 0.02, 0.22), Vector3(-2.3, 0.02, 1.7), "ClutterPaper", {"kind": "paper", "tint": Color(1.2, 1.2, 1.1), "ao": 1.0})
 	match id:
 		"stage":
 			_stage(room, id, half)
@@ -216,7 +216,7 @@ func _hall(room: Node3D, id: String, half: float) -> void:
 	var runner := _group(room, id, "Runner")
 	_c(runner, Vector3(0.9, 0.04, 4.8), Vector3(0, 0.02, 0), "RunnerMat", {"kind": "fabric", "tint": Color(0.9, 0.8, 1.0)})
 	for z in [-2.2, 2.2]:
-		_c(runner, Vector3(0.9, 0.045, 0.1), Vector3(0, 0.025, z), "RunnerTrim", {"kind": "label", "tint": Color(0.9, 0.9, 0.9)})
+		_c(runner, Vector3(0.9, 0.045, 0.1), Vector3(0, 0.025, z), "RunnerTrim", {"hazard": "y", "tint": Color(0.9, 0.9, 0.9)})
 	var sign := _group(room, id, "Signs", Vector3(0, 2.2, -half + 0.2))
 	_c(sign, Vector3(1.4, 0.3, 0.05), Vector3.ZERO, "SignPlate", {"kind": "plastic"})
 	_c(sign, Vector3(1.2, 0.14, 0.03), Vector3(0, 0, 0.03), "SignText", {})

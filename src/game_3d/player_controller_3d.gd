@@ -118,6 +118,10 @@ const INVENTORY_MAX_DURABILITY := {
 const BREACH_TOOLS := ["crowbar", "rescue_axe"]
 const LOCK_TOOLS := ["lockpick", "crowbar"]
 const FRIENDLY_FIRE_ENABLED := false
+## Games without items (Night Watch) switch the inventory off by configuration, not by forking the controller: the flashlight stays as a built-in tool in
+## the hand (toggle action, sound and spot light as ever) and never drains; the slot keys, the wheel, drop, tool use, the taser, pickups and backpacks do nothing.
+## The default (true) is Last Route's and the City's.
+@export var inventory_enabled := true
 var selected_inventory_slot := 0
 ## Five physical inventory slots. Empty strings are real empty spaces rather
 ## than hidden catalog entries, so dragging into a blank slot behaves like an
@@ -565,10 +569,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not message.is_empty():
 				interaction_message.emit(message)
 				return
-		if key >= KEY_1 and key <= KEY_5:
+		if key >= KEY_1 and key <= KEY_5 and inventory_enabled:
 			var target_slot := key - KEY_1
 			select_inventory_slot(target_slot)
-	elif event is InputEventMouseButton and event.pressed:
+	elif event is InputEventMouseButton and event.pressed and inventory_enabled:
 		var button := (event as InputEventMouseButton).button_index
 		if button == MOUSE_BUTTON_WHEEL_UP:
 			select_inventory_slot(selected_inventory_slot - 1)
@@ -853,20 +857,28 @@ func _physics_process(delta: float) -> void:
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
 		_set_flashlight(not flashlight_enabled)
-	if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
-		_fire_taser()
-	if Input.is_action_just_pressed("tool_use"):
-		_use_selected_item()
-	if Input.is_action_just_pressed("drop_item"):
-		request_drop_selected_item()
-	if Input.is_action_just_pressed("hotbar_previous"):
-		select_inventory_slot(selected_inventory_slot - 1)
-	if Input.is_action_just_pressed("hotbar_next"):
-		select_inventory_slot(selected_inventory_slot + 1)
+	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
+	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
+	var click_ready := _cursor_was_captured and MouseLock.is_captured()
+	_cursor_was_captured = MouseLock.is_captured()
+	if inventory_enabled:
+		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+			_fire_taser()
+		if Input.is_action_just_pressed("tool_use") and click_ready:
+			_use_selected_item()
+		if Input.is_action_just_pressed("drop_item"):
+			request_drop_selected_item()
+		if Input.is_action_just_pressed("hotbar_previous"):
+			select_inventory_slot(selected_inventory_slot - 1)
+		if Input.is_action_just_pressed("hotbar_next"):
+			select_inventory_slot(selected_inventory_slot + 1)
 
 	_update_resecure(delta)
 	if Input.is_action_just_pressed("interact"):
 		_try_interact()
+
+
+var _cursor_was_captured := false
 
 
 func _nearby_ladder() -> Node3D:
@@ -1069,8 +1081,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 
 
 func _update_lamp(delta: float, is_sprinting: bool) -> void:
-	if not flashlight_enabled:
-		return
+	if not flashlight_enabled or not inventory_enabled:
+		return   # the built-in flashlight of an item-less game never drains
 	var difficulty := RoomState.difficulty_profile()
 	var drain := GameConfig.LAMP_IDLE_DRAIN * float(difficulty["lamp_drain"])
 	if is_sprinting:
@@ -1351,6 +1363,8 @@ func move_inventory_slot(from_slot: int, to_slot: int) -> void:
 
 
 func grant_inventory_item(item_id: String, restored_durability: int = -1) -> bool:
+	if not inventory_enabled:
+		return false
 	if BACKPACK_CAPACITY.has(item_id):
 		return collect_backpack(item_id)
 	if not INVENTORY_ITEMS.has(item_id):
@@ -1390,6 +1404,8 @@ func equip_backpack(item_id: String) -> bool:
 
 
 func collect_backpack(item_id: String) -> bool:
+	if not inventory_enabled:
+		return false
 	if not BACKPACK_CAPACITY.has(item_id):
 		return false
 	backpack_storage_units += int(BACKPACK_RANK[item_id])
@@ -1447,12 +1463,13 @@ func remove_inventory_item(item_id: String, preferred_slot: int = -1) -> Diction
 
 
 func request_drop_selected_item() -> bool:
+	if not inventory_enabled:
+		return false
 	if input_frozen or stun_timer > 0.0:
 		return false
 	var item_id := selected_inventory_item()
 	if item_id.is_empty():
-		Sound.interaction_fail()
-		return false
+		return false   # nothing in hand: dropping is silent
 	item_drop_requested.emit(item_id, item_durability(item_id),
 		selected_inventory_slot)
 	return true
@@ -1646,8 +1663,7 @@ func _sync_owned_inventory_items() -> void:
 func _use_selected_item() -> void:
 	var item_id := selected_inventory_item()
 	if item_id.is_empty():
-		Sound.interaction_fail()
-		return
+		return   # empty hand: a click with nothing to use is silent
 	match item_id:
 		"flashlight":
 			# F / the dedicated flashlight bind is the only toggle. Left click
@@ -1664,12 +1680,10 @@ func _use_selected_item() -> void:
 
 func _use_battery() -> void:
 	if lamp_charge >= GameConfig.MAX_LAMP_CHARGE - .01:
-		Sound.interaction_fail()
-		return
+		return   # lamp already full: nothing to do, no blip
 	var used_slot := selected_inventory_slot
 	if used_slot < 0 or used_slot >= inventory_order.size() \
 			or String(inventory_order[used_slot]) != "battery":
-		Sound.interaction_fail()
 		return
 	remove_inventory_item("battery", used_slot)
 	restore_lamp(GameConfig.BATTERY_RECHARGE)
@@ -1681,8 +1695,7 @@ func _use_selected_tool() -> void:
 		return
 	var item_id := selected_inventory_item()
 	if not BREACH_TOOLS.has(item_id) and not LOCK_TOOLS.has(item_id):
-		Sound.interaction_fail()
-		return
+		return   # not a tool: a click with it is silent
 	# A committed swing/use spends durability before any hit result. This makes
 	# ally hits cost the tool without ever creating friendly-fire damage.
 	if not consume_item_durability(item_id):
@@ -1794,8 +1807,7 @@ func _try_interact() -> void:
 			if not message.is_empty():
 				interaction_message.emit(message)
 				return
-		Sound.interaction_fail()
-		return
+		return   # E with nothing in reach is silent (the cue is only for a visible interactable that refuses)
 	# A sabotaged relay is worked entirely through the hold in
 	# _update_resecure() -- a single press would just bounce off activate()'s
 	# "already collected" case, which is technically true but not what a

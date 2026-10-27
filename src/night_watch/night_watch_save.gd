@@ -180,3 +180,23 @@ static func guest_name() -> String:
 		cfg.set_value(SECTION, "guest", name_value)
 		cfg.save(path)
 	return name_value
+
+
+## Rebound Night Watch keys: {action name: physical keycode}, applied by NightWatchControls.register() (so a rebind of a camera or door key survives a restart).
+static func key_overrides() -> Dictionary:
+	var value = _load().get_value(SECTION, "keys", {})
+	return value if value is Dictionary else {}
+
+
+static func set_key_override(action: String, keycode: int) -> void:
+	var cfg := _load()
+	var keys := key_overrides()
+	keys[action] = keycode
+	cfg.set_value(SECTION, "keys", keys)
+	cfg.save(path)
+
+
+static func clear_key_overrides() -> void:
+	var cfg := _load()
+	cfg.set_value(SECTION, "keys", {})
+	cfg.save(path)
