@@ -287,7 +287,7 @@ func _check_scene(host: Node) -> void:
 		shift.start_shift([])
 		_expect(shift.state == DayshiftGame.State.PLAYING and shift.sim != null and shift.sim.week_idx == n - 1, "week %d did not start its night" % n)
 		shift.advance_ms(1000.0)
-		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "WEEK %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
+		_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.night_label.text == "7. Salvage Run · Week %d" % n and shift.hud.usage_label.text.begins_with("$0 / $%d" % DayshiftData.QUOTA[n - 1]), "the clock, week or money label is wrong in week %d" % n)
 		shift.queue_free()
 		await host.get_tree().process_frame
 	# the shop: buttons follow the budget, START SHIFT hands the basket to the rules

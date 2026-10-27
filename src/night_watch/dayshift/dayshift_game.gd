@@ -54,7 +54,6 @@ func _ready() -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_shop", true)
 	hud.update_status(0, 100.0, 0, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.visible = false   # the shop has the screen
 
 
@@ -87,6 +86,7 @@ func _build_world() -> void:
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.set_monitor_available(office.spec.has_monitor)
+	hud.mode_text = "7. Salvage Run · %s" % ("Custom Night" if is_custom else "Week %d" % week)
 	hud.hint_label.text = "WASD move   hold E on a PIECE to salvage   E on DOOR buttons   hold E on LIGHT   Z / X doors   G / H lights   P pause"
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -306,7 +306,6 @@ func _sync_visuals() -> void:
 		if bool(dev[k]):
 			devices += 1
 	hud.update_status(NightWatchData.hour_index(float(s["elapsed"])), float(s["power"]), devices, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.usage_label.text = "$%d / $%d   NOISE %s" % [int(s["money"]), sim.need, "|".repeat(clampi(int(float(s["noise"]) / 10.0), 0, 10))]
 	(office.stations["ledger"] as NightWatchStation).prompt_text = "BUDGET LEDGER // $%d OF $%d" % [int(s["money"]), sim.need]
 	var by_slot := {}

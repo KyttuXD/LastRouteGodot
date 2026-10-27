@@ -56,6 +56,7 @@ func _ready() -> void:
 	paths = NightWatchPaths.new(building, office)
 	_spawn_hunters()
 	hud.set_call_script(NightWatchCallScript.new([], 0.0))
+	hud.mode_text = "9. Mixed Shift · %s" % String(sim.diff["name"])
 	hud.hint_label.text = MixedControls.hint(false)
 	_set_feed(MixedData.CAM_ROOMS[0])
 	_sync_visuals()
@@ -458,7 +459,6 @@ func _sync_visuals() -> void:
 		(office.flashes[key] as Node3D).visible = float(s["vent"][key]["flash"]) > 0.0
 	var devices := (1 if bool(doors["L"]["shut"]) else 0) + (1 if bool(doors["R"]["shut"]) else 0) + (1 if monitor_up else 0)
 	hud.update_status(sim.hour_of() % 6, 100.0 * float(s["seal"]) / sim.seal_max, devices, level)
-	hud.night_label.text = String(sim.diff["name"])
 	hud.power_label.text = "DOOR SEAL %d%%" % int(round(100.0 * float(s["seal"]) / sim.seal_max))
 	hud.usage_label.text = "VENT SEAL %d%%" % int(round(100.0 * float(s["ventSeal"]) / MixedData.VENT_SEAL_MAX))
 	if sim.endless:

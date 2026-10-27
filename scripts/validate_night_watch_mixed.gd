@@ -404,7 +404,7 @@ func _check_scene(host: Node) -> void:
 		_expect(shift.sim != null and shift.sim.diff["name"] == levels[n - 1] and shift.sim.endless == (n == 5) and shift.sim.chaos == (n == 4), "shift %d did not start as %s" % [n, levels[n - 1]])
 		_expect(shift.office is MixedOffice and shift.office.spec.id == "hub_office", "Mixed Shift is not in its hub office")
 		shift.advance_ms(1000.0)
-		_expect(shift.hud.night_label.text == levels[n - 1] and shift.hud.power_label.text.begins_with("DOOR SEAL") and shift.hud.usage_label.text.begins_with("VENT SEAL"), "the labels are wrong in shift %d" % n)
+		_expect(shift.hud.night_label.text == "9. Mixed Shift · %s" % levels[n - 1] and shift.hud.power_label.text.begins_with("DOOR SEAL") and shift.hud.usage_label.text.begins_with("VENT SEAL"), "the labels are wrong in shift %d" % n)
 		shift.queue_free()
 		await host.get_tree().process_frame
 	# the room, the shared pieces, no captions, no audio players of its own
