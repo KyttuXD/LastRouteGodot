@@ -85,9 +85,9 @@ Captures: `tools/look/night_watch_offices_c_capture.tscn` (run with `--scene ...
 
 The office is not the only thing that must differ: every mode's MAP (the rooms the hunters walk and the cameras look into) is its own themed layout, never a reskin of Classic's building.
 `NightWatchMapRegistry` (`src/night_watch/office/night_watch_map_registry.gd`) has one entry per mode: a script with `static func map_layout() -> Dictionary`
-(`{rooms: {id: centre}, edges: [[a, b]], entrances: [room ids the office is reached from], theme: text}`), or `single_space: true` for a mode with no multi-room map (Bedtime, Salvage Run).
+(`{rooms: {id: centre}, edges: [[a, b]], entrances: [room ids the office is reached from], theme: text}`), or `single_space: true` for a mode with no multi-room map (none now: Bedtime has a house wing and Salvage Run a ship / yard).
 Validator `night_watch_maps`: no two modes share a layout signature (sorted room centres and edges), no mode shares more than 3 room ids with Classic, every layout is connected from its entrances,
-and no mode's map script extends `NightWatchBuilding`. The layout must stay in step with the walking-hunter paths and the office spec entrances. Themes: Masked Hours = a FNAF 2 style
+and no mode's map script extends `NightWatchBuilding`. The layout must stay in step with the walking-hunter paths and the office spec entrances. Themes: Bedtime = a house wing (bedroom, hall, kids' room, bathroom, living room, kitchen, stairs / landing, closet), Salvage Run = a ship and yard (cargo bay office, gantry, docks, airlock, engine room, scrap yard, crane, hold, bridge), Masked Hours = a FNAF 2 style
 building (not derived from Classic), Dead Air = a radio station / studio floor, The Facility = an industrial complex, The Descent = stairwell / shaft levels, Open Air = open grounds,
 Mixed Shift = rotates between the other modes' maps, Classic stays as is.
 

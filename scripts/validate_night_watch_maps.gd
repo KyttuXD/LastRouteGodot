@@ -64,5 +64,5 @@ func run(_host: Node) -> int:
 	if REQUIRE_ALL:
 		_expect(planned.is_empty(), "maps not delivered: %s" % str(planned))
 	if _failures == 0:
-		print("  night_watch_maps  %d layouts distinct from Classic's (%s); single-space: Bedtime, Salvage Run; planned: %s" % [provided.size() - 1, ", ".join(PackedStringArray(provided)), ", ".join(PackedStringArray(planned))])
+		print("  night_watch_maps  %d layouts distinct from Classic's (%s); planned: %s" % [provided.size() - 1, ", ".join(PackedStringArray(provided)), ", ".join(PackedStringArray(planned))])
 	return _failures
