@@ -41,6 +41,10 @@ const UNREACHABLE_GIVE_UP := 1.6
 var stuck_seconds := 0.0
 ## Times the view had to put this hunter back on the floor (HunterView3D safety net; always 0 in a healthy run).
 var fall_recoveries := 0
+## How lit this hunter stands (LightField, set by the host each few frames); -1 = unknown (rule off).
+var self_exposure := -1.0
+## The runner's own exposure for the current target (LightField), -1 = unknown.
+var target_exposure := -1.0
 var _unreachable_time := 0.0
 
 var position: Vector2
@@ -380,6 +384,9 @@ func _target_in_daylight(target_position: Vector2) -> bool:
 func sight_limit_for(target_position: Vector2, target_flashlight_on: bool) -> float:
 	var difficulty_sight := float(difficulty_profile["hunter_sight"])
 	var limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
+	if LightField.enabled and target_exposure >= 0.0:
+		# her flashlight off: how far she is seen follows how lit she stands (pitch dark is close, a lamp pool far)
+		limit = sight_range * LightField.unlit_scale(target_exposure) * difficulty_sight
 	if target_flashlight_on:
 		limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
 			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
@@ -389,6 +396,10 @@ func sight_limit_for(target_position: Vector2, target_flashlight_on: bool) -> fl
 				* HunterVision.day_multiplier(hunter_id)
 		else:
 			limit *= HunterVision.night_multiplier(hunter_id)
+	# Mutual light: a hunter standing in light the runner can see her by also sees the runner (within her own sight range;
+	# line of sight is still required by the perception step).
+	if LightField.enabled and self_exposure >= LightField.VISIBLE_EXPOSURE:
+		limit = maxf(limit, sight_range * difficulty_sight)
 	if gimmick != null:
 		limit *= gimmick.sight_scale(self)
 	return limit
