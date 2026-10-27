@@ -17,7 +17,7 @@ const OFFICES := {
 	"descent":  {"id": "lift_landing", "script": ""},
 	"dayshift": {"id": "cargo_bay", "script": "res://src/night_watch/dayshift/cargo_bay.gd"},
 	"extra":    {"id": "watch_post", "script": ""},
-	"mixed":    {"id": "hub_office", "script": ""},
+	"mixed":    {"id": "hub_office", "script": "res://src/night_watch/mixed/mixed_office.gd"},
 }
 
 
