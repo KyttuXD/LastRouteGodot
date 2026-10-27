@@ -1,6 +1,6 @@
 # Blocky hunter animation notes
 
-Generators live in `tools/blocky_hunters/` (see its README); every one of the 41 models (A-Z, Void, `_tall` variants)
+Generators live in `tools/blocky_hunters/` (see its README); every one of the 41 models (A-Z and Void; the `_tall` variants were removed, see HUNTER_SCALE.md)
 carries the same clip names on the same rig, built per hunter by `bb_rig.build_clips` from `hunters/motion.py`.
 
 ## Clips
@@ -55,7 +55,7 @@ head toward +Z. Validator: `_check_player_mannequin`; `check_gaps.py` covers it 
 clips: `docs/player_mannequin_clips.png` (rows idle walk chase sprint crouch stun sit lay tpose jump fall climb).
 
 ## Hunter emote clips (docs/HUNTER_EMOTES.md)
-Every non-Void hunter (and `_tall`) carries the 12 catalog clips `emote_<id>` plus the shared wave/shrug/cheer/bow and her
+Every non-Void hunter carries the 12 catalog clips `emote_<id>` plus the shared wave/shrug/cheer/bow and her
 personal ones; `emotes.json` lists them with the catalog face. Built in `hunters/emotes.py` (`NEW_TEMPLATES`, `MOVING_TEMPLATES`):
 * Static one-shots (laugh, look_around, smug, dance, flinch, stretch, yawn, hum, victory) start and end at the idle pose.
 * **Moving** emotes (taunt, point, beckon) are layered on the hunter's own `sprint` clip: legs, pelvis and extra bones keep the stride,

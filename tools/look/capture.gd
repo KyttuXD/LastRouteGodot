@@ -147,11 +147,21 @@ func _place_hunters(origin: Vector3, yaw_deg: float) -> Array:
 		if node == null:
 			continue
 		_scene.add_child(node)
+		# CAP_SCALE=1.5: draw them at the in-game hunter scale (HunterRoster.MODEL_SCALE)
+		if OS.get_environment("CAP_SCALE") != "":
+			node.scale = Vector3.ONE * float(OS.get_environment("CAP_SCALE"))
 		node.global_position = origin + forward * distance + side * lateral
 		node.rotation.y = deg_to_rad(yaw_deg)
 		placed.append(node)
 		distance += 2.5
 		lateral = -lateral
+	if OS.get_environment("CAP_MANNEQUIN") != "":
+		# CAP_MANNEQUIN=1: the player model 1.5 m to the right of the nearest hunter, for scale
+		var mannequin: Node3D = (load(PlayerModels.BLOCKY) as PackedScene).instantiate()
+		_scene.add_child(mannequin)
+		mannequin.global_position = origin + forward * 3.5 + side * 1.2
+		mannequin.rotation.y = deg_to_rad(yaw_deg)
+		placed.append(mannequin)
 	return placed
 
 

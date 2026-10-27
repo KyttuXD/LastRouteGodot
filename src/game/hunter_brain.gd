@@ -207,7 +207,8 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 		and has_last_known and last_known.distance_to(target_position) < 0.9
 	if (not target_hidden or may_grab_hidden) and not target_in_safe_zone \
 			and not (gimmick and gimmick.immune_to_capture()):
-		var reach := (GameConfig.PLAYER_RADIUS + radius) \
+		# the catch reach keeps the tuned pre-scale footprint: a bigger body must not catch from further away
+		var reach := (GameConfig.PLAYER_RADIUS + GameConfig.HUNTER_CATCH_RADIUS) \
 			* GameConfig.CAPTURE_DISTANCE_SCALE \
 			* float(difficulty_profile["capture_distance"])
 		if position.distance_to(target_position) < reach:
