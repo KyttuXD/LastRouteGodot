@@ -18,6 +18,7 @@ const FLOOR_KINDS := {
 	"check0": "tile", "check1": "tile", "vinyl0": "tile", "vinyl1": "tile",
 	"stone0": "stone", "stone1": "stone", "stone2": "stone",
 	"concrete0": "concrete", "concrete1": "concrete",
+	"sewer_water": "water",   # the sewer channel: wading (docs/SEWERS.md)
 	"epoxy0": "tile", "epoxy1": "tile", "terracotta0": "stone", "terracotta1": "stone",
 	"terrazzo0": "tile", "terrazzo1": "tile",
 	"safe": "metal", "safe_plain": "metal", "safe_mark": "metal",

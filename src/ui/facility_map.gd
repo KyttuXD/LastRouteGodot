@@ -18,6 +18,8 @@ signal waypoint_requested(world_position: Vector2, level: int)
 const WALL := 0
 const RELAY_TEAL_BLUE := Color("32c9d8")
 const STAIR_ICON_WHITE := Color("f4f7f6")
+const SEWER_WATER_TINT := Color("2f5a52")
+const LADDER_ICON_TINT := Color("e8c25a")
 ## Solid props on the map: their real collision boxes (see _draw_collider_box).
 const PROP_BOX_TINT := Color("7899a1")
 const COOP_PLAYER_BLUE := Color("63d9f1")
@@ -33,6 +35,7 @@ const REGION_COLORS := {
 	"gothic": Color("8a68ad"),
 	"prison": Color("778994"),
 	"inferno": Color("d45b3f"),
+	"sewer": Color("5e7a5c"),
 	"carnival": Color("ce5d96"),
 	"hospital": Color("9fd0c2"),
 	"lab": Color("5fd4e4"),
@@ -389,6 +392,21 @@ func _draw_streamed() -> void:
 					continue
 				draw_rect(Rect2(local_origin + Vector2(x, z) * cell,
 					Vector2.ONE * cell), floor_tint)
+		var water: PackedByteArray = chunk.get("water", PackedByteArray())
+		if water.size() == streamed_chunk_size * streamed_chunk_size:
+			for index in water.size():
+				if water[index] == 0:
+					continue
+				var wx := index % streamed_chunk_size
+				var wz := index / streamed_chunk_size
+				if world_bounds.has_point(chunk_world_origin + Vector2i(wx, wz)):
+					draw_rect(Rect2(local_origin + Vector2(wx, wz) * cell, Vector2.ONE * cell), SEWER_WATER_TINT)
+		for ladder_value in chunk.get("ladders", []):
+			var ladder: Dictionary = ladder_value
+			var ladder_cell: Vector2i = ladder.get("cell", Vector2i.ZERO)
+			if world_bounds.has_point(chunk_world_origin + ladder_cell):
+				_draw_ladder_icon(local_origin + (Vector2(ladder_cell) + Vector2(.5, .5)) * cell, cell,
+					String(ladder.get("direction", "")) == "up")
 		for prop_value in chunk.get("props", []):
 			var prop: Dictionary = prop_value
 			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
@@ -760,6 +778,26 @@ func _draw_collider_box(local_origin: Vector2, cell: float, box: PackedFloat32Ar
 	for i in points.size():
 		points[i] = local_origin + points[i] * cell
 	draw_colored_polygon(points, tint)
+
+
+## A ladder between the maze and the sewer: two rails and three rungs inside a
+## ring, with a small arrow for the way it leads from this layer.
+func _draw_ladder_icon(at: Vector2, cell: float, up: bool) -> void:
+	var r := maxf(3.0, cell * .9)
+	draw_circle(at, r, Palette.BACKDROP)
+	draw_arc(at, r, 0.0, TAU, 20, LADDER_ICON_TINT, maxf(1.0, cell * .14))
+	var w := r * .38
+	var h := r * .62
+	var line := maxf(1.0, cell * .12)
+	draw_line(at + Vector2(-w, -h), at + Vector2(-w, h), LADDER_ICON_TINT, line)
+	draw_line(at + Vector2(w, -h), at + Vector2(w, h), LADDER_ICON_TINT, line)
+	for k in 3:
+		var y := lerpf(-h * .6, h * .6, k / 2.0)
+		draw_line(at + Vector2(-w, y), at + Vector2(w, y), LADDER_ICON_TINT, line)
+	var tip := at + Vector2(r * 1.05, -r * .7 if up else r * .7)
+	var back := -r * .35 if not up else r * .35
+	draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-r * .3, back), tip + Vector2(r * .3, back)]),
+		LADDER_ICON_TINT)
 
 
 func _draw_stair_icon(at: Vector2, cell: float, up: bool) -> void:

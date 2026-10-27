@@ -325,10 +325,10 @@ PROPS["woodenTable"] = ([(0, .86, 0, 1, 1, 1, "@wood")] + legs(.86, .1, "dark", 
 PROPS["diningTable"] = ([(0, .88, 0, 1, 1, 1, "dark"), (.04, .82, .06, .96, .88, .94, "@wood")] +
                         [(.02, 0, .1, .08, .82, .9, "dark"), (.92, 0, .1, .98, .82, .9, "dark")], {"@wood": WOODS})
 PROPS["restaurantPartyTable"] = PROPS["woodenTable"]
-bed_frame = [(0, .12, 0, 1, .42, 1, "dark"), (0, .12, 0, 1, .62, .05, "dark"), (0, .12, .95, 1, .5, 1, "dark"),
+bed_frame = [(0, .30, 0, 1, .42, 1, "dark"), (0, 0, 0, 1, .62, .05, "dark"), (0, .30, .95, 1, .5, 1, "dark"),   # raised: 0.40 m under the bed
              (.03, .42, .05, .97, .66, .95, "paper"), (.05, .66, .07, .95, .78, .3, "paper"),
-             (.03, .42, .4, .97, .7, .95, "@cloth")] + [(0, 0, 0, .08, .12, .05, "dark"), (.92, 0, 0, 1, .12, .05, "dark"),
-                                                       (0, 0, .95, .08, .12, 1, "dark"), (.92, 0, .95, 1, .12, 1, "dark")]
+             (.03, .42, .4, .97, .7, .95, "@cloth")] + [(0, 0, .9, .08, .30, .95, "dark"), (.92, 0, .9, 1, .30, .95, "dark"),
+                                                       (0, 0, .05, .08, .30, .1, "dark"), (.92, 0, .05, 1, .30, .1, "dark")]
 PROPS["singleBed"] = (bed_frame, {"@cloth": CLOTH})
 PROPS["doubleBed"] = (bed_frame, {"@cloth": CLOTH})
 PROPS["bedroomNightstand"] = ([(0, 0, 0, 1, 1, .94, "@wood"), (.06, .08, .94, .94, .46, 1, "oak"), (.06, .54, .94, .94, .92, 1, "oak"),
@@ -410,6 +410,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework4.py")).read())   # room-purpose catalog: infirmary, library, storage, lobby
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_biomes.py")).read())    # hospital, lab, greenhouse
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mall.py")).read())      # shopping arcade
 
@@ -419,7 +420,10 @@ SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1
               "woodenChair": (1.0, 0.94 / 1.01, 1.0), "woodenChairCushion": (1.0, 0.94 / 1.01, 1.0),
               "diningChair": (1.0, 0.94 / 1.2, 1.0), "diningChairCushion": (1.0, 0.94 / 1.2, 1.0),
               "woodenTable": (1.0, 0.75 / 0.79, 1.0), "diningTable": (1.0, 0.75 / 1.025, 1.0),
-              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0)}
+              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0),
+              # scale fit (docs/SCALE_FIT.md): beds about 2.25 m long including boards (the old models were 2.67 m)
+              "singleBed": (1.0, 1.0, 2.25 / 2.665), "doubleBed": (1.0, 1.0, 2.25 / 2.665)}
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mansion.py")).read())   # mansion finishes (after SIZE_SCALE)
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}

@@ -11,6 +11,20 @@ extends RefCounted
 const USE_BLOCKY_PROPS := true
 
 const MODEL_PATHS := {
+	## Mansion pieces (tools/props/blocky_props_mansion.py), blocky-only.
+	"mansionMarbleColumn": ["res://art/props-3d/props/blocky/mansionMarbleColumn.glb"],
+	"mansionPorcelainVase": ["res://art/props-3d/props/blocky/mansionPorcelainVase_0.glb", "res://art/props-3d/props/blocky/mansionPorcelainVase_1.glb", "res://art/props-3d/props/blocky/mansionPorcelainVase_2.glb"],
+	## Room-purpose catalog (tools/props/blocky_props_rework4.py): designed blocky-only, so the blocky GLBs are also their
+	## catalogue models.
+	"ivStand": ["res://art/props-3d/props/blocky/ivStand.glb"],
+	"medicalCart": ["res://art/props-3d/props/blocky/medicalCart.glb"],
+	"readingTable": ["res://art/props-3d/props/blocky/readingTable_0.glb", "res://art/props-3d/props/blocky/readingTable_1.glb", "res://art/props-3d/props/blocky/readingTable_2.glb"],
+	"libraryGlobe": ["res://art/props-3d/props/blocky/libraryGlobe_0.glb", "res://art/props-3d/props/blocky/libraryGlobe_1.glb"],
+	"storageBarrel": ["res://art/props-3d/props/blocky/storageBarrel_0.glb", "res://art/props-3d/props/blocky/storageBarrel_1.glb", "res://art/props-3d/props/blocky/storageBarrel_2.glb"],
+	"storageShelving": ["res://art/props-3d/props/blocky/storageShelving.glb"],
+	"receptionDesk": ["res://art/props-3d/props/blocky/receptionDesk_0.glb", "res://art/props-3d/props/blocky/receptionDesk_1.glb", "res://art/props-3d/props/blocky/receptionDesk_2.glb"],
+	"pottedPlant": ["res://art/props-3d/props/blocky/pottedPlant_0.glb", "res://art/props-3d/props/blocky/pottedPlant_1.glb", "res://art/props-3d/props/blocky/pottedPlant_2.glb"],
+	"standingMirror": ["res://art/props-3d/props/blocky/standingMirror_0.glb", "res://art/props-3d/props/blocky/standingMirror_1.glb", "res://art/props-3d/props/blocky/standingMirror_2.glb"],
 	"arcadeCabinet": [
 		"res://art/props-3d/props/maze/arcade_cabinet_default.glb",
 		"res://art/props-3d/props/maze/arcade_cabinet_amber.glb",
@@ -571,6 +585,16 @@ const MODEL_PATHS := {
 		"res://art/props-3d/props/nether/charred_supply_crate.glb",
 	],
 	"prisonCellGate": ["res://art/props-3d/props/prison/prison_cell_gate.glb"],
+	# the sewer under the maze (tools/props/rebuild_hytale_props.py SEWER_BUILDERS)
+	"sewerLadder": ["res://art/props-3d/props/sewer/sewer_ladder.glb"],
+	"sewerLadderTop": ["res://art/props-3d/props/sewer/sewer_ladder_top.glb"],
+	"sewerManhole": ["res://art/props-3d/props/sewer/manhole_frame.glb"],
+	"sewerFloorGrate": ["res://art/props-3d/props/sewer/sewer_floor_grate.glb"],
+	"sewerValveWheel": ["res://art/props-3d/props/sewer/sewer_valve_wheel.glb"],
+	"sewerPump": ["res://art/props-3d/props/sewer/sewer_pump.glb"],
+	"sewerPipeRun": ["res://art/props-3d/props/sewer/sewer_pipe_run.glb"],
+	"sewerOverflowGrate": ["res://art/props-3d/props/sewer/sewer_overflow_grate.glb"],
+	"sewerLamp": ["res://art/props-3d/props/sewer/sewer_lamp.glb"],
 	"prisonBunk": ["res://art/props-3d/props/prison/prison_bunk.glb"],
 	"prisonCafeteriaTable": [
 		"res://art/props-3d/props/prison/prison_cafeteria_table.glb",
@@ -688,6 +712,8 @@ const LIGHT_PROFILES := {
 	"ceilingFan": {"color": Color("fff0c2"), "energy": .54, "range": 4.4, "height": .16},
 	"diningChandelier": {"color": Color("ffd58c"), "energy": .66, "range": 5.2, "height": .55},
 	"wallSconce": {"color": Color("ffd292"), "energy": .36, "range": 3.2, "height": 1.62},
+	# dim amber caged bulkheads, far apart: the sewer stays mostly dark
+	"sewerLamp": {"color": Color("ffa24a"), "energy": .42, "range": 5.0, "height": 0.0},
 	"surgicalLight": {"color": Color("f4fbff"), "energy": .85, "range": 4.6, "height": .2},
 	"specimenTank": {"color": Color("5fe8d8"), "energy": .42, "range": 3.0, "height": 1.2},
 	"xrayLightbox": {"color": Color("e8f4ff"), "energy": .26, "range": 2.4, "height": 1.5},
@@ -819,11 +845,26 @@ static func authored_visual_yaw(gameplay_yaw: float) -> float:
 	return gameplay_yaw + PI
 
 
+## Region finishes (docs/MANSION_LUXURY.md): the mansion gets its own looks of the ordinary furniture types (lacquer,
+## marble tops, velvet, gilt), built as "<type>Mansion" model sets with the same footprints. The type names stay the
+## same, so sizes, colliders, surfaces, hiding spots and room rules all apply unchanged.
+const REGION_FINISHES := {"mansion": "Mansion"}
+## Switch for before/after captures (tools/look/mansion_rooms.gd).
+static var use_region_finishes := true
+
+
+static func region_finish(region: String) -> String:
+	return String(REGION_FINISHES.get(region, ""))
+
+
 static func model_path(type: String, instance_id: String,
-		room_id: String = "") -> String:
+		room_id: String = "", finish: String = "") -> String:
 	var paths: Array = MODEL_PATHS.get(type, [])
 	if paths.is_empty():
 		return ""
+	if USE_BLOCKY_PROPS and use_region_finishes and not finish.is_empty() and BlockyPropModels.MODELS.has(type + finish):
+		var finished: Array = BlockyPropModels.MODELS[type + finish]
+		return String(finished[_variant_index(type, instance_id, room_id, finished.size())])
 	if USE_BLOCKY_PROPS and BlockyPropModels.MODELS.has(type):
 		var blocky: Array = BlockyPropModels.MODELS[type]
 		return String(blocky[_variant_index(type, instance_id, room_id, blocky.size())])
@@ -869,7 +910,7 @@ static func interaction_for(type: String) -> String:
 		return "play"
 	if type.begins_with("retroComputer"):
 		return "use"
-	if "mirror" in lowered:
+	if "mirror" in lowered and type != "standingMirror":   # the working-mirror surface is sized for wall mirrors
 		return "mirror"
 	if type in ["labBench", "pottingBench", "dinerBooth"]:
 		return ""   # work benches, not seats

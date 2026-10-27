@@ -6,10 +6,9 @@ extends RefCounted
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- scale_fit
 
-## Owned by the props lane (they are model sizes): beds longer than a lying 1.78 m player needs (2.0-2.1 m + boards), a vanity and a
-## serving counter that include a mirror / sneeze hood in their collider box.
-const KNOWN := {"singleBed/long": true, "doubleBed/long": true, "gothicDoubleBed/long": true,
-	"bathroomVanity/height": true, "prisonServingCounter/height": true}
+## Owned by the props lane (they are model sizes). Empty since the props lane shortened the beds (2.25 m with boards, gothic
+## canopy 2.31 m) and capped the vanity / serving counter colliders below the mirror and the sneeze hood.
+const KNOWN := {}
 
 var _failures := 0
 

@@ -41,6 +41,19 @@ func run_over(_obs: Dictionary) -> bool:
 	return false
 
 
+## goto_check helpers (adapters that support them): pin the bot to one goal cell, ask the navigation for a path.
+var forced_goal := Vector2i(-99999, -99999)
+var forced_kind := "relay"
+
+
+func audit_door(_door_pos: Array, _frames: int = 150) -> Dictionary:
+	return {"ok": false, "error": "not supported by %s" % game_id}
+
+
+func path_report(_goal: Vector2i) -> Dictionary:
+	return {"ok": false, "error": "not supported by %s" % game_id}
+
+
 ## Take over a run that is already loaded (joined co-op room, resumed save): reset the bot's own state, mark it a DEBUG RUN.
 func attach() -> void:
 	pass

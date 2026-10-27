@@ -17,6 +17,7 @@ const HALLS := {
 	"carnival": {"floor": ["check0", "check1"], "runner": false},
 	"prison": {"floor": ["concrete0", "concrete1"], "runner": false},
 	"inferno": {"floor": ["hazard", "metal3"], "runner": false},
+	"sewer": {"floor": ["stone0", "stone1"], "runner": false},       # worn stone walkways
 	"hospital": {"floor": ["vinyl0", "vinyl1"], "runner": false},      # clinic sheet vinyl
 	"lab": {"floor": ["epoxy0", "epoxy0", "epoxy1"], "runner": false}, # white epoxy, hatched keep-clear joints
 	"greenhouse": {"floor": ["terracotta0", "terracotta1", "stone2"], "runner": false},
@@ -34,6 +35,7 @@ const ROOM_DEFAULT := {
 	"carnival": ["star0", "star1"],
 	"prison": ["concrete0", "concrete1"],
 	"inferno": ["metal3", "stone1"],
+	"sewer": ["concrete0", "concrete1"],
 	"hospital": ["vinyl0", "vinyl1"],
 	"lab": ["epoxy0"],
 	"greenhouse": ["terracotta0", "terracotta1"],
@@ -67,6 +69,8 @@ const ROOMS := {
 	# inferno
 	"thermal_chamber": ["hazard", "metal3"], "forge": ["hazard", "metal3"], "altar_room": ["stone1", "metal3"],
 	"lava_gallery": ["metal3", "hazard"],
+	# sewer waterworks
+	"pump_room": ["concrete0", "hazard"], "valve_room": ["concrete1", "concrete0"], "overflow_chamber": ["stone1", "concrete1"],
 	# hospital: vinyl wards, tiled theatre and morgue
 	"ward": ["vinyl0", "vinyl1"], "nurses_station": ["vinyl1"], "waiting_room": ["vinyl1", "carpet_tile0"],
 	"operating_theatre": ["check1", "vinyl0"], "icu": ["vinyl0"], "morgue": ["concrete1", "check1"],

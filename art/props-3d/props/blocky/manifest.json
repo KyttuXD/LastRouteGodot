@@ -1007,23 +1007,43 @@
  "magmaCrystalCluster": [
   "magmaCrystalCluster.glb"
  ],
- "normalRoomDoor": [
-  "normalRoomDoor.glb"
+ "ivStand": [
+  "ivStand.glb"
  ],
- "normalDoubleRoomDoor": [
-  "normalDoubleRoomDoor.glb"
+ "medicalCart": [
+  "medicalCart.glb"
  ],
- "luxuryRoomDoor": [
-  "luxuryRoomDoor.glb"
+ "readingTable": [
+  "readingTable_0.glb",
+  "readingTable_1.glb",
+  "readingTable_2.glb"
  ],
- "luxuryDoubleRoomDoor": [
-  "luxuryDoubleRoomDoor.glb"
+ "libraryGlobe": [
+  "libraryGlobe_0.glb",
+  "libraryGlobe_1.glb"
  ],
- "gothicRoomDoor": [
-  "gothicRoomDoor.glb"
+ "storageBarrel": [
+  "storageBarrel_0.glb",
+  "storageBarrel_1.glb",
+  "storageBarrel_2.glb"
  ],
- "gothicDoubleRoomDoor": [
-  "gothicDoubleRoomDoor.glb"
+ "storageShelving": [
+  "storageShelving.glb"
+ ],
+ "receptionDesk": [
+  "receptionDesk_0.glb",
+  "receptionDesk_1.glb",
+  "receptionDesk_2.glb"
+ ],
+ "pottedPlant": [
+  "pottedPlant_0.glb",
+  "pottedPlant_1.glb",
+  "pottedPlant_2.glb"
+ ],
+ "standingMirror": [
+  "standingMirror_0.glb",
+  "standingMirror_1.glb",
+  "standingMirror_2.glb"
  ],
  "hospitalBed": [
   "hospitalBed_0.glb",
@@ -1197,6 +1217,197 @@
  "compostBins": [
   "compostBins_0.glb",
   "compostBins_1.glb"
+ ],
+ "bathroomVanityMansion": [
+  "bathroomVanityMansion_0.glb",
+  "bathroomVanityMansion_1.glb",
+  "bathroomVanityMansion_2.glb"
+ ],
+ "bedroomBenchMansion": [
+  "bedroomBenchMansion_0.glb",
+  "bedroomBenchMansion_1.glb",
+  "bedroomBenchMansion_2.glb"
+ ],
+ "bedroomDresserMansion": [
+  "bedroomDresserMansion_0.glb",
+  "bedroomDresserMansion_1.glb",
+  "bedroomDresserMansion_2.glb"
+ ],
+ "bedroomNightstandMansion": [
+  "bedroomNightstandMansion_0.glb",
+  "bedroomNightstandMansion_1.glb",
+  "bedroomNightstandMansion_2.glb"
+ ],
+ "bedroomRugMansion": [
+  "bedroomRugMansion_0.glb",
+  "bedroomRugMansion_1.glb",
+  "bedroomRugMansion_2.glb"
+ ],
+ "bedroomVanityMansion": [
+  "bedroomVanityMansion_0.glb",
+  "bedroomVanityMansion_1.glb",
+  "bedroomVanityMansion_2.glb"
+ ],
+ "bedroomWardrobeMansion": [
+  "bedroomWardrobeMansion_0.glb",
+  "bedroomWardrobeMansion_1.glb",
+  "bedroomWardrobeMansion_2.glb"
+ ],
+ "diningChairMansion": [
+  "diningChairMansion_0.glb",
+  "diningChairMansion_1.glb",
+  "diningChairMansion_2.glb"
+ ],
+ "diningChairCushionMansion": [
+  "diningChairCushionMansion_0.glb",
+  "diningChairCushionMansion_1.glb",
+  "diningChairCushionMansion_2.glb"
+ ],
+ "diningChandelierMansion": [
+  "diningChandelierMansion_0.glb",
+  "diningChandelierMansion_1.glb",
+  "diningChandelierMansion_2.glb"
+ ],
+ "diningSideboardMansion": [
+  "diningSideboardMansion_0.glb",
+  "diningSideboardMansion_1.glb",
+  "diningSideboardMansion_2.glb"
+ ],
+ "diningTableMansion": [
+  "diningTableMansion_0.glb",
+  "diningTableMansion_1.glb",
+  "diningTableMansion_2.glb"
+ ],
+ "doubleBedMansion": [
+  "doubleBedMansion_0.glb",
+  "doubleBedMansion_1.glb",
+  "doubleBedMansion_2.glb"
+ ],
+ "floorLampMansion": [
+  "floorLampMansion_0.glb",
+  "floorLampMansion_1.glb",
+  "floorLampMansion_2.glb"
+ ],
+ "gothicPedestalTableMansion": [
+  "gothicPedestalTableMansion_0.glb",
+  "gothicPedestalTableMansion_1.glb",
+  "gothicPedestalTableMansion_2.glb"
+ ],
+ "loungeCouchMansion": [
+  "loungeCouchMansion_0.glb",
+  "loungeCouchMansion_1.glb",
+  "loungeCouchMansion_2.glb"
+ ],
+ "loungeCouchWideMansion": [
+  "loungeCouchWideMansion_0.glb",
+  "loungeCouchWideMansion_1.glb",
+  "loungeCouchWideMansion_2.glb"
+ ],
+ "mansionAreaRugMansion": [
+  "mansionAreaRugMansion_0.glb",
+  "mansionAreaRugMansion_1.glb",
+  "mansionAreaRugMansion_2.glb"
+ ],
+ "mansionBookshelfMansion": [
+  "mansionBookshelfMansion_0.glb",
+  "mansionBookshelfMansion_1.glb",
+  "mansionBookshelfMansion_2.glb"
+ ],
+ "mansionChaiseLoungeMansion": [
+  "mansionChaiseLoungeMansion_0.glb",
+  "mansionChaiseLoungeMansion_1.glb",
+  "mansionChaiseLoungeMansion_2.glb"
+ ],
+ "mansionConsoleTableMansion": [
+  "mansionConsoleTableMansion_0.glb",
+  "mansionConsoleTableMansion_1.glb",
+  "mansionConsoleTableMansion_2.glb"
+ ],
+ "mansionDisplayCabinetMansion": [
+  "mansionDisplayCabinetMansion_0.glb",
+  "mansionDisplayCabinetMansion_1.glb",
+  "mansionDisplayCabinetMansion_2.glb"
+ ],
+ "mansionTeaCartMansion": [
+  "mansionTeaCartMansion_0.glb",
+  "mansionTeaCartMansion_1.glb",
+  "mansionTeaCartMansion_2.glb"
+ ],
+ "normalBookcaseMansion": [
+  "normalBookcaseMansion_0.glb",
+  "normalBookcaseMansion_1.glb",
+  "normalBookcaseMansion_2.glb"
+ ],
+ "normalCoffeeTableMansion": [
+  "normalCoffeeTableMansion_0.glb",
+  "normalCoffeeTableMansion_1.glb",
+  "normalCoffeeTableMansion_2.glb"
+ ],
+ "normalTvConsoleMansion": [
+  "normalTvConsoleMansion_0.glb",
+  "normalTvConsoleMansion_1.glb",
+  "normalTvConsoleMansion_2.glb"
+ ],
+ "singleBedMansion": [
+  "singleBedMansion_0.glb",
+  "singleBedMansion_1.glb",
+  "singleBedMansion_2.glb"
+ ],
+ "tableLampMansion": [
+  "tableLampMansion_0.glb",
+  "tableLampMansion_1.glb",
+  "tableLampMansion_2.glb"
+ ],
+ "vanityStoolMansion": [
+  "vanityStoolMansion_0.glb",
+  "vanityStoolMansion_1.glb",
+  "vanityStoolMansion_2.glb"
+ ],
+ "woodenChairMansion": [
+  "woodenChairMansion_0.glb",
+  "woodenChairMansion_1.glb",
+  "woodenChairMansion_2.glb"
+ ],
+ "woodenChairCushionMansion": [
+  "woodenChairCushionMansion_0.glb",
+  "woodenChairCushionMansion_1.glb",
+  "woodenChairCushionMansion_2.glb"
+ ],
+ "woodenDresserSideboardMansion": [
+  "woodenDresserSideboardMansion_0.glb",
+  "woodenDresserSideboardMansion_1.glb",
+  "woodenDresserSideboardMansion_2.glb"
+ ],
+ "woodenTableMansion": [
+  "woodenTableMansion_0.glb",
+  "woodenTableMansion_1.glb",
+  "woodenTableMansion_2.glb"
+ ],
+ "mansionMarbleColumn": [
+  "mansionMarbleColumn.glb"
+ ],
+ "mansionPorcelainVase": [
+  "mansionPorcelainVase_0.glb",
+  "mansionPorcelainVase_1.glb",
+  "mansionPorcelainVase_2.glb"
+ ],
+ "normalRoomDoor": [
+  "normalRoomDoor.glb"
+ ],
+ "normalDoubleRoomDoor": [
+  "normalDoubleRoomDoor.glb"
+ ],
+ "luxuryRoomDoor": [
+  "luxuryRoomDoor.glb"
+ ],
+ "luxuryDoubleRoomDoor": [
+  "luxuryDoubleRoomDoor.glb"
+ ],
+ "gothicRoomDoor": [
+  "gothicRoomDoor.glb"
+ ],
+ "gothicDoubleRoomDoor": [
+  "gothicDoubleRoomDoor.glb"
  ],
  "shopShelf": [
   "shopShelf_0.glb",
