@@ -348,12 +348,16 @@ func run(host: Node) -> int:
 				hunter_dropdown_ok = true
 		_expect(hunter_dropdown_ok, "the hunter dropdown must list every A-Z and Void hunter")
 		_expect(route_menu._tabs.tab_count >= 5, "the admin menu should be split into tabs (got %d)" % route_menu._tabs.tab_count)
+		# the badge is a segment of the HUD's top status bar (its own label only where there is no HUD)
+		var status_bar := HudStatusBar.find(route_menu.get_tree())
 		var badge := route_menu.get_node_or_null("AdminActiveBadge") as Label
-		_expect(badge != null and badge.text.begins_with("ADMIN ACTIVE"),
+		var badge_text := func() -> String:
+			return status_bar.segment_text("admin") if status_bar != null else (badge.text if badge != null else "")
+		_expect((badge_text.call() as String).begins_with("ADMIN ACTIVE"),
 			"the ADMIN ACTIVE badge is missing")
 		GameState.debug_run = false
 		route_menu._mark_debug({"label": "x"})
-		_expect(GameState.debug_run and badge.text.contains("DEBUG RUN"),
+		_expect(GameState.debug_run and (badge_text.call() as String).contains("DEBUG RUN"),
 			"using a tool did not flag the run as a DEBUG RUN")
 		GameState.debug_run = false
 		route_menu._mark_debug({"no_debug": true})
