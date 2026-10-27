@@ -100,3 +100,8 @@ Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); no
 
 `geometry_overlap` now checks: the dome frame builds only towers + windows, every skyline window is on a tower face,
 and a raised `CitySurface` box has an underside.
+
+Straight up from Central Avenue (`docs/city_central_avenue_zenith_before_after.png`, left before bb183674, right after):
+the ring, spokes and cyan bracket markers were the dome ribs, rings and beacons of `CityDomeFrame._build_frame`. Render
+check: `tools/look/zenith_check.tscn` (not headless) looks straight up from Central Avenue, Main Street and the Ring Road
+and fails if the dome frame darkens more than 0.2% of the zenith disc (old frame: 0.9 to 3.7%, now 0%).
