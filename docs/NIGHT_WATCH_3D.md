@@ -234,3 +234,12 @@ scaled (grace x0.45 = 2610 ms at an open door, walk pace x0.65); the light never
 dips on a 2.6 s cycle (open or shut door, only the door she stands at), a hum every 1.1 s at her door (muffled by a shut door), and meeting her eyes: the **O** key (K in 2D; `nw_meet`, listed in the
 hint line on Night 7 only) while the monitor shows the west or east hall with her in it sends her back; a miss locks the key for 2 s. Her fade makes no sound. Tests in `night_watch`
 (tuning, determinism, roll distribution, the light never holds her, the shut-door fade, dip, hum, meet, scene). Not done: her pulsing camera glow (cosmetic) and her model's own pose set.
+
+## 5h. Poses on the hunters (NW POSES hook)
+
+`claude/expr-lane` (a04cc34f, `docs/NIGHT_WATCH_POSES.md`) is merged. Night Watch hunters are bare blocky models (`ModelSlot`), not `HunterView3D`, so the hook uses `NightWatchPoses.play_state(model, state)` /
+`NightWatchPoses.stop(model)` (the library installs itself on first use); `nw_layers` belongs to `HunterView3D` and is not used. `NightWatchGame._hunter_pose_state(id)` picks the state each frame, and a pose only
+changes when the state does: **walking** keeps the rig's own walk / sprint clips (`""`); at a door: Kathy `waiting`; a shut door in front of her `at_door` (pounding); a fresh arrival `peek_left` / `peek_right`
+by door; the middle of the wait `door_grace`; the end of the wait `reaching`; standing in the room on the monitor `camera` (stares at it); a flinch from the light `light_flinch`; 1.4 s after a shut door or the
+light turned her away `retreat`; the hunter that caught you `attack`; idle in a room `idle` (Kathy `listening`). `night_watch` checks that every state has a pose and that live hunters take them.
+Not wired (no Night Watch state yet): `glass`, `vent` / `vent_crawl` (Dead Air, Mixed), `kneel`, `tired`, `point_office`, `greet`, `glitch`.

@@ -456,6 +456,7 @@ func run(host: Node) -> int:
 	menu.queue_free()
 	await _check_walking(host)
 	await _check_kathy(host)
+	await _check_poses(host)
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
 	NightWatchSession.start(1)
 	NightWatchSave.reset()
@@ -798,6 +799,54 @@ func _check_kathy(host: Node) -> void:
 	_expect(NightWatchControls.hint_line(true, ["nw_meet"]).contains("meet her eyes"), "the monitor hint does not list the meet key on Night 7")
 	shift.open_monitor("westhall")
 	_expect(shift.meet_her_eyes() in ["met", "miss"], "the scene's meet key did nothing")
+	shift.queue_free()
+	await host.get_tree().process_frame
+	NightWatchSession.start(1)
+
+
+
+## The Night Watch pose library on the hunters (docs/NIGHT_WATCH_POSES.md): every state the scene uses has a pose, and the live hunters take them: pounding on a shut door,
+## peeking, staring at the camera you watch, flinching from the light, backing away; a walking hunter keeps the rig's own clips.
+func _check_poses(host: Node) -> void:
+	for st in ["light_flinch", "retreat", "attack", "waiting", "at_door", "peek_left", "peek_right", "door_grace", "reaching", "camera", "listening", "idle"]:
+		_expect(NightWatchPoses.has_pose(NightWatchPoses.pose_for_state(st)), "pose state '%s' has no pose in the library" % st)
+	NightWatchSession.start(3, 99)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	shift.manual_clock = true
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	var d := shift.sim.hunters["dovelle"] as NightWatchStalker
+	d.room = "doorL"
+	shift.toggle_door("doorL")
+	shift.advance_ms(20.0)
+	shift._place_hunters()
+	shift._animate_models(0.1)
+	var player := shift._players["dovelle"] as AnimationPlayer
+	_expect(shift._hunter_pose_state("dovelle") == "at_door" and player.current_animation == NightWatchPoses.clip_name("door_pound"), "Dovelle at a shut door is not pounding on it (%s / %s)" % [shift._hunter_pose_state("dovelle"), player.current_animation])
+	shift.toggle_door("doorL")
+	shift.advance_ms(20.0)
+	d.room = "doorL"
+	d.at_door_ms = 0.0
+	shift._place_hunters()
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "peek_left", "a fresh arrival at the left door does not peek left (%s)" % shift._hunter_pose_state("dovelle"))
+	d.at_door_ms = d.attack_ms * 0.95
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "reaching", "at the end of the wait she does not lean in (%s)" % shift._hunter_pose_state("dovelle"))
+	d.room = "dining"
+	shift._place_hunters()
+	shift.open_monitor("dining")
+	shift._animate_models(0.1)
+	_expect(shift._hunter_pose_state("dovelle") == "camera", "a hunter in the room on the monitor does not stare at it (%s)" % shift._hunter_pose_state("dovelle"))
+	shift.close_monitor()
+	shift._flinch_left["dovelle"] = 0.5
+	_expect(shift._hunter_pose_state("dovelle") == "light_flinch", "the flinch does not use the light_flinch pose")
+	shift._flinch_left.clear()
+	shift._retreat_left["dovelle"] = 1.0
+	_expect(shift._hunter_pose_state("dovelle") == "retreat", "a turned-away hunter does not back off")
+	shift._retreat_left.clear()
+	(shift._walkers["dovelle"] as NightWatchWalker).moving = true
+	_expect(shift._hunter_pose_state("dovelle") == "", "a walking hunter must keep the rig's own clips")
 	shift.queue_free()
 	await host.get_tree().process_frame
 	NightWatchSession.start(1)

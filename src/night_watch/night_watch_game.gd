@@ -35,6 +35,9 @@ var paths: NightWatchPaths
 var _walkers := {}   # hunter id -> NightWatchWalker
 var _players := {}
 var _flinch_left := {}
+var _retreat_left := {}   # hunter id -> seconds left of the retreat pose after a shut door or a light turned her away
+var _pose_state := {}     # hunter id -> the Night Watch pose state playing ("" = the rig's own walk / idle clips)
+var _attacker := ""
 var lamp_on := true
 var _hour_seen := 0
 var _elapsed_ms := 0.0
@@ -352,6 +355,8 @@ func _on_event(e: Dictionary) -> void:
 		"hum":
 			NightWatchSounds.office("breath", -0.8 if String(e["door"]) == "doorL" else 0.8, 0.35 if bool(e["muffled"]) else 0.9)
 		"moved", "arrived", "repelled", "pushed":
+			if String(e["type"]) == "repelled" or String(e["type"]) == "pushed":
+				_retreat_left[String(e["id"])] = 1.4
 			if not (String(e["id"]) == "kathy" and String(e["type"]) == "repelled"):   # her fading away makes no sound
 				NightWatchSounds.hunter_event(e)
 			if monitor_up and (String(e["room"]) == monitor_room or String(e["from"]) == monitor_room):
@@ -417,6 +422,39 @@ func _place_hunters() -> void:
 		_set_model_pose(nyxie, from.lerp(to, t), player.global_position)
 
 
+## The Night Watch pose state of a hunter this frame (docs/NIGHT_WATCH_POSES.md; "" = walking or nothing special: the rig's own clips). Moving hunters keep the walk / sprint
+## clips; standing ones take the pose of what they are doing: peeking, pounding on a shut door, leaning in at the end of the wait, staring at the camera you watch, flinching from
+## the light, backing away, lunging.
+func _hunter_pose_state(id: String) -> String:
+	var hunter := sim.hunters.get(id) as NightWatchStalker if sim != null else null
+	var walker := _walkers.get(id) as NightWatchWalker
+	if hunter == null or walker == null or not (_models[id] as Node3D).visible:
+		return ""
+	if id == _attacker and state == State.LOST:
+		return "attack"
+	if _flinch_left.has(id):
+		return "light_flinch"
+	if _retreat_left.has(id):
+		return "retreat"
+	if walker.moving:
+		return ""
+	if hunter.is_at_door():
+		if id == "kathy":
+			return "waiting"
+		if bool(sim.door_shut.get(hunter.door(), false)):
+			return "at_door"          # blocked by the shut door: pounding on it
+		match hunter.door_pose():
+			"peek":
+				return "peek_left" if hunter.door() == "doorL" else "peek_right"
+			"stand":
+				return "door_grace"
+			_:
+				return "reaching"     # leaning in at the end of the wait
+	if monitor_up and monitor_room == hunter.room:
+		return "camera"
+	return "listening" if id == "kathy" else "idle"
+
+
 func _set_model_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
 	model.position = pos
 	var d := face - pos
@@ -437,16 +475,24 @@ func _animate_models(delta: float) -> void:
 		var model := _models[id] as Node3D
 		model.position = walker.pos
 		model.rotation.y = walker.yaw
+	for id in _retreat_left.keys():
+		_retreat_left[id] = float(_retreat_left[id]) - delta
+		if float(_retreat_left[id]) <= 0.0:
+			_retreat_left.erase(id)
 	for id in _players:
 		var player := _players[id] as AnimationPlayer
 		var walker := _walkers.get(id) as NightWatchWalker
-		var clip := "idle"
-		if _flinch_left.has(id):
-			clip = "stun"
-		elif walker != null and walker.moving:
-			clip = "sprint" if walker.running and player.has_animation("sprint") else "walk"
-		if player.has_animation(clip) and player.current_animation != clip:
-			player.play(clip)
+		var pose_state := _hunter_pose_state(id)
+		if pose_state != String(_pose_state.get(id, "-")):
+			_pose_state[id] = pose_state
+			if pose_state.is_empty():
+				NightWatchPoses.stop(_models[id])
+			else:
+				NightWatchPoses.play_state(_models[id], pose_state)
+		if pose_state.is_empty():
+			var clip := "sprint" if walker != null and walker.moving and walker.running and player.has_animation("sprint") else ("walk" if walker != null and walker.moving else "idle")
+			if player.has_animation(clip) and player.current_animation != clip:
+				player.play(clip)
 	if state == State.PLAYING and not manual_clock:
 		office.animate(sim.door_shut if sim != null else door_shut, delta)
 
@@ -533,6 +579,7 @@ func _finish_caught() -> void:
 		cause["detail"] = "darkness"
 	var name_text := String(NightWatchData.NAMES.get(sim.by, sim.by.capitalize()))
 	var picked := DeathLines.pick(cause, "nightwatch:%d" % seed_value, night, name_text)
+	_attacker = sim.by
 	last_death = {"by": sim.by, "name": name_text, "picked": picked}
 	finished.emit("caught")
 	if DeathMoment.plays(picked):
