@@ -40,7 +40,6 @@ const ACTION_LABELS := {
 
 ## The web build prints a bound key in amber, the colour it uses everywhere
 ## for "this is a system readout".
-const KEY_LABEL_COLOR := Palette.AMBER
 const LISTENING_TEXT := "PRESS A KEY..."
 
 ## Bindings are grouped under tabs, the way the web build's Controls screen groups them: a flat list of every action is a wall
@@ -377,7 +376,7 @@ func _build_control_row(action: String) -> void:
 	var key_label := Label.new()
 	key_label.text = Settings.get_action_key_label(action)
 	key_label.custom_minimum_size = Vector2(92, 0)
-	key_label.add_theme_color_override("font_color", KEY_LABEL_COLOR)
+	key_label.add_theme_color_override("font_color", Palette.AMBER)
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(key_label)
 	_key_labels[action] = key_label

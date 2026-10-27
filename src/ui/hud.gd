@@ -106,6 +106,7 @@ const MAX_FLOOR_UNITS := 9
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	_apply_scheme_frames()
 	status_bar = HudStatusBar.new()
 	add_child(status_bar)
 	_build_zone_panel()
@@ -905,3 +906,23 @@ func _layout_hud() -> void:
 	var toast_w := minf(340.0, available)
 	_put(message_label, Vector2((view.x - toast_w) * .5, MESSAGE_TOP),
 		Vector2(toast_w, message_label.get_minimum_size().y))
+
+
+## The panel frames in hud.tscn are scene-file colours: Last Route keeps them as authored, other games' schemes
+## (the City's navy glass) repaint them from Palette. The frame resource is shared by every HUD panel and by every
+## HUD instance, so the authored values are remembered the first time and put back for Last Route.
+func _apply_scheme_frames() -> void:
+	var frame := (get_node("ObjectivePanel") as Control).get_theme_stylebox("panel") as StyleBoxFlat
+	if frame == null:
+		return
+	if not frame.has_meta("authored"):
+		frame.set_meta("authored", [frame.bg_color, frame.border_color, frame.corner_radius_top_left])
+	var authored: Array = frame.get_meta("authored")
+	if Palette.scheme_id == "last_route":
+		frame.bg_color = authored[0]
+		frame.border_color = authored[1]
+		frame.set_corner_radius_all(int(authored[2]))
+	else:
+		frame.bg_color = Color(Palette.PANEL, 0.9)
+		frame.border_color = Palette.PANEL_EDGE
+		frame.set_corner_radius_all(Palette.CORNER)
