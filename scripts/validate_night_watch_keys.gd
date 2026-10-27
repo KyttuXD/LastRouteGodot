@@ -113,7 +113,9 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 	# a mode with its own rooms offers camera_rooms() (the cameras in order) and camera_room_for(n); a timed monitor offers advance_ms(ms)
 	var rooms: Array = game.call("camera_rooms") if game.has_method("camera_rooms") else NightWatchData.cam_rooms()
 	var room_for := func(n: int) -> String:
-		return String(game.call("camera_room_for", n)) if game.has_method("camera_room_for") else NightWatchData.room_for_cam(n)
+		if game.has_method("camera_room_for"):
+			return String(game.call("camera_room_for", n))
+		return String(rooms[n - 1]) if game.has_method("camera_rooms") and n - 1 < rooms.size() else NightWatchData.room_for_cam(n)
 	var settle := func() -> void:
 		if game.has_method("advance_ms"):
 			game.call("advance_ms", 400.0)
