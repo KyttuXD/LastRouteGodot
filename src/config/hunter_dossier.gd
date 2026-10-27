@@ -63,7 +63,7 @@ const ENTRIES := {
 	},
 	"nyxie": {
 		"ability": "DARKNESS STALKER",
-		"behavior": "Nyxie is a rule-summoned second hunter. Extended darkness wakes her; a fully dead lamp eventually causes an inescapable attack.",
+		"behavior": "Nyxie is a rule-summoned second hunter. Extended darkness wakes her; a fully dead lamp eventually brings a catch she can't miss.",
 	},
 	"opalie": {
 		"ability": "RELAY GUARDIAN",

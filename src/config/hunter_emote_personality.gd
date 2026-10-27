@@ -21,10 +21,16 @@ const WEIGHTS := {
 	"loxelle": {"taunt": 1.5, "laugh": 1.5, "yawn": .5},                                           # PASSIVE INCINERATOR
 	"ilyra": {"point": 0.0, "beckon": 0.0, "look_around": 1.5, "stretch": 0.0},                    # SHADOW POUNCE: still, watching
 	"haelith": {"point": 2.0},                                                                     # RELAY PURSUER
-	"jyvra": {"smug": 2.0, "taunt": 1.5},                                                          # HIDING EJECTION
-	"briselle": {"laugh": 2.0, "smug": 1.5, "wave": .5},                                           # RELAY SABOTEUR
+	# Javelle (persona sheet): pushy but means well, a self-appointed coach and referee ("Touch it. Properly."): no smirking, she coaches
+	# with orders (point, beckon "come out, I know you're in there").
+	"jyvra": {"smug": 0.0, "taunt": .6, "beckon": 2.0, "point": 2.0, "laugh": .5, "shrug": .8, "wave": 1.0},
+	# Briselle (persona sheet): a showy hostess who overcorrects with politeness and stacked apologies: no smirking, welcoming waves and
+	# ushering beckons, apologetic shrugs, a little flourish (dance).
+	"briselle": {"smug": 0.0, "taunt": .3, "laugh": .8, "wave": 1.5, "beckon": 1.5, "shrug": 1.5, "dance": 1.0, "victory": .5},
 	"ceryth": {"look_around": 2.0, "taunt": 0.0},                                                  # HIDING RIDDLE
-	"eirys": {"hum": 1.5, "stretch": 1.5},                                                         # RUNNING DATA
+	# Elise (persona sheet): competitive, clipped and impatient, makes everything a race: no humming (that is Glyra's), restless rather than
+	# lounging, pushes the pace (point) and crows at a win (victory).
+	"eirys": {"hum": 0.0, "stretch": .5, "yawn": .3, "point": 1.3, "taunt": 1.3, "victory": 1.5},
 }
 const VOID := {"laugh": 0.0, "hum": 0.0, "dance": 0.0, "wave": 0.0, "yawn": 0.0, "stretch": 0.0, "smug": .5}
 
