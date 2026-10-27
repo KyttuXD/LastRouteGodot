@@ -400,7 +400,8 @@ func _refresh_stream(force: bool) -> void:
 		# IMMEDIATE_MARGIN); the rest of the window streams in over the next frames instead of freezing the game.
 		var urgent: Array[Vector3i] = []
 		for coord in _pending_loads:
-			if coord == center or previous.x == 999999 and coord.y == center.y \
+			# the floor above/below the runner (a ladder's other end) counts as under them
+			if coord.x == center.x and coord.z == center.z or previous.x == 999999 and coord.y == center.y \
 					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
 				urgent.append(coord)
 		if not urgent.is_empty():
