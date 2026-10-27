@@ -12,7 +12,7 @@ reflecting pool, cypress and blossom trees) and `city-ref-topdown-map.webp` (the
 
 ## 1. What the City is
 
-A sealed city under a giant dome. A dark truss ring runs around the rim with cyan beacons; overhead is an artificial
+A walled city under an open night sky (the dome shell was removed: no ribs, rings or pylons; only the rim wall bounds it). A dark truss ring runs around the rim with cyan beacons; overhead is an artificial
 night sky (navy to purple gradient, pixel stars, cloud blobs, a moon) with lit dome struts; beyond the dome the skyline
 of spires and arched viaducts is visible. Orange gas lanterns, cyan accent panels, pink-purple blossom trees, wet
 cobbles with fallen petals. It is dark: the flashlight still matters.
@@ -213,3 +213,9 @@ and a stone threshold in every doorway. All of it hangs above head height or is 
 unchanged. `CityProps` (new file) holds City-only street furniture: plaza lights, banners, market stalls, newsstands, phone
 booths and hydrants; the grand plaza now has 13 cyan lights, banners and a stall row. Shots: `city_look_street.png`,
 `city_look_plaza.png`.
+
+## Open sky
+
+The dome shell is gone: `CityDomeFrame` now only builds the ring of far towers (a natural skyline behind the rim wall); the
+sky shader, fog and colours are unchanged. The rim wall is the only boundary. Shots: `city_dome_before_street.png` (ribs
+overhead), `city_open_sky_street.png`, `city_open_sky_up.png`. The "DOME SEALED" kicker and the DOME GATE name are left as copy.

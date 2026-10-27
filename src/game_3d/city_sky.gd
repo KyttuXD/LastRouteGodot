@@ -1,7 +1,7 @@
 class_name CitySky
 extends Node3D
 
-## The artificial night sky under the dome: an inverted sphere that follows the camera and is drawn by one unshaded
+## The open night sky: an inverted sphere that follows the camera and is drawn by one unshaded
 ## spatial shader (navy to purple gradient, pixel stars, quantised cloud blobs, a moon). No post effects and no real
 ## lights; the shader is the whole sky.
 
