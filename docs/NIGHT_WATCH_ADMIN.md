@@ -28,3 +28,21 @@ their doors, and on Night 7 force Kathy's meet-her-eyes.
 Dead Air (radio / lure controls, vent crawlers), Bedtime (closet / bed state, sleep meter), Masked Hours (mask timer, music box %, vent lights), The Facility (power / hazards), Salvage Run (hull / oxygen / scrap),
 The Descent (level / stairs), Open Air (watch / waypoints), Mixed Shift / Endless (rotation: pick the next dressing / shift, set the endless wave). Each adds the common hooks it can (a mode with no clock, e.g. Bedtime's sleep meter,
 simply lacks `admin_set_hour`) and checks its section in `night_watch_admin` or its own suite.
+
+## Dead Air, Bedtime, The Facility (done, lane A; suite `night_watch_admin_a`)
+
+Each game offers `admin_*` hooks (jump to a shift, freeze, the mode's "power" as the common POWER control, infinite power, god, no jumpscare, hunter speed, per-hunter AI level and SEND TO, call play / skip, win / lose; plus
+time, reveal and noclip where the mode has them) and a provider in its own folder (`lure_admin.gd`, `bedroom_admin.gd`, `story_admin.gd`, one line each in `NightWatchAdmin.PROVIDERS`). The rules got three neutral switches (`god`,
+`hunter_speed`; Dead Air also `set_level`): at their defaults the 2D numbers and the goldens are untouched. `night_watch_admin_a` checks the gate, the sections, the layout at three sizes, and runs every entry from a prepared
+state comparing the game's state before and after (an items group is run last item first so each item has to move something).
+
+| Mode | "Power" is | Mode section (`<MODE> SPECIFIC`) |
+|---|---|---|
+| Dead Air | the air (100 = clear) | lure Xivvy now (no cooldown, no audio), reset the lure cooldown, force Xivvy to a crawlspace or a vent opening, break / fix each system (audio, cameras, vents, heater, fan), seal / open each vent, set the temperature, heater / fan on / off, clear the cold and the heat; common: set the hour, reveal (red dots on the camera map), phantoms shown in a chosen room |
+| Bedtime | the flashlight battery | which hand is down (closet door / hall light / bed light / none), the sleep meter (Haelith's creep) 0-99, make the house restless now; common: set the hour, reveal (all three shown and the room lit), Loxelle / Javelle to a stage, Haelith's creep to 0 / 50 / 90 |
+| The Facility | the beacon charge | the noise meter, force the current task done, jump to any task, go to any room, the lift (away / bell / open); common: Opalie and Porcelle 0-3 steps from you, noclip |
+
+![Dead Air specific](night_watch_admin/admin_lure_1280x720_3_DEAD_AIR_SPECIFIC.png)
+![Bedtime specific](night_watch_admin/admin_bedroom_1280x720_3_BEDTIME_SPECIFIC.png)
+![Facility specific](night_watch_admin/admin_story_1280x720_3_THE_FACILITY_SPECIFIC.png)
+(every tab of each mode is in `docs/night_watch_admin/`)
