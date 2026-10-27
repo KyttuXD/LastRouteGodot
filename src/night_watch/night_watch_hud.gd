@@ -291,7 +291,7 @@ func _build_monitor(root: Control) -> void:
 	close_button = Button.new()
 	close_button.name = "CloseCamerasButton"
 	close_button.text = "CLOSE CAMERAS"
-	close_button.focus_mode = Control.FOCUS_ALL
+	close_button.focus_mode = Control.FOCUS_NONE   # a focused button would take the Space press (ui_accept) from the monitor key
 	close_button.add_theme_font_size_override("font_size", 6)
 	close_button.custom_minimum_size = Vector2(96, 16)
 	close_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
