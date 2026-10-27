@@ -58,7 +58,7 @@ func run(host: Node) -> int:
 			_fail("%s admin overlay would not open" % entry[1])
 		if not MouseLock.cursor_visible():
 			_fail("%s admin overlay is clickable without a cursor" % entry[1])
-		_expect(menu._panel.size.x >= 360.0 and menu._panel.size.y >= 220.0,
+		_expect(menu._panel.size.x * menu._panel.scale.x >= 360.0 and menu._panel.size.y * menu._panel.scale.y >= 220.0,
 			"%s admin overlay is still a narrow side strip" % entry[1])
 		if entry[1] == "maze":
 			_expect(scene.player.input_frozen,
@@ -78,12 +78,12 @@ func run(host: Node) -> int:
 				off_count += 1 if String(chip.text) == "OFF" else 0
 			_expect(on_count == 1 and off_count == 4,
 				"admin defaults are not four safety toggles OFF plus pixel effect ON")
-			var item_buttons := menu._panel.find_children("*", "GridContainer", true, false)
-			if item_buttons.is_empty():
-				_fail("maze admin has no creative inventory grid")
-			else:
-				_expect(item_buttons[0].get_child_count() == PlayerController3D.COLLECTIBLE_ITEMS.size(),
-					"creative inventory does not list every collectible or storage upgrade")
+			var inventory_ok := false
+			for dropdown in menu._dropdowns:
+				if (dropdown["ids"] as Array) == PlayerController3D.COLLECTIBLE_ITEMS \
+						and (dropdown["option"] as OptionButton).item_count == PlayerController3D.COLLECTIBLE_ITEMS.size():
+					inventory_ok = true
+			_expect(inventory_ok, "creative inventory dropdown does not list every collectible or storage upgrade")
 		# Exercise genuinely different physical sizes and aspect ratios. The
 		# design viewport expands rather than letterboxes, so containment at the
 		# default size alone does not prove the panel stays usable.
@@ -93,7 +93,7 @@ func run(host: Node) -> int:
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
 			var view := host.get_tree().root.get_visible_rect()
-			var rect := Rect2(menu._panel.global_position, menu._panel.size)
+			var rect := Rect2(menu._panel.global_position, menu._panel.size * menu._panel.scale)
 			_expect(rect.position.x >= 0.0 and rect.position.y >= 0.0
 				and rect.end.x <= view.size.x + 1.0
 				and rect.end.y <= view.size.y + 1.0,
@@ -333,8 +333,8 @@ func run(host: Node) -> int:
 		var labels := []
 		for entry in route_menu._actions:
 			labels.append(String(entry.get("label", entry.get("heading", ""))))
-		for wanted in ["FREEZE ALL HUNTERS", "RELEASE ALL HUNTERS", "TELEPORT // CHUNKS AND SAFE ROOMS",
-				"RUN SPEED", "GAME SPEED // SOLO RUNS ONLY", "COPY SEED", "SUMMON VOID HUNTER",
+		for wanted in ["FREEZE ALL HUNTERS", "RELEASE ALL HUNTERS", "TELEPORT",
+				"RUN SPEED", "GAME SPEED // SOLO RUNS ONLY", "COPY SEED", "HUNTER",
 				"TOGGLE REGION MAP (F8)"]:
 			_expect(labels.has(wanted), "streamed route admin menu lacks %s" % wanted)
 		# everything the new tools add is permission-scoped (nothing falls through to ungated)
@@ -342,6 +342,12 @@ func run(host: Node) -> int:
 			var gated: bool = entry.has("permission") or bool(entry.get("owner_only", false))
 			_expect(gated, "admin entry %s has no permission scope" % entry.get("label", entry.get("heading", "?")))
 		_expect(not route._admin_region_map, "the admin region/biome map must default to off")
+		var hunter_dropdown_ok := false
+		for dropdown in route_menu._dropdowns:
+			if (dropdown["ids"] as Array).size() == HunterRoster.A_Z_IDS.size() + HunterRoster.VOID_IDS.size():
+				hunter_dropdown_ok = true
+		_expect(hunter_dropdown_ok, "the hunter dropdown must list every A-Z and Void hunter")
+		_expect(route_menu._tabs.tab_count >= 5, "the admin menu should be split into tabs (got %d)" % route_menu._tabs.tab_count)
 		var badge := route_menu.get_node_or_null("AdminActiveBadge") as Label
 		_expect(badge != null and badge.text.begins_with("ADMIN ACTIVE"),
 			"the ADMIN ACTIVE badge is missing")

@@ -102,10 +102,26 @@ func close() -> void:
 		_set_open(false)
 
 
+## The panel is laid out in canvas units (the 480x270 design viewport, which expands with the window): it takes about 92% of
+## the width up to MAX_SIZE and 90% of the height, is opaque, scrolls when a section does not fit, and is re-fitted
+## whenever the window changes, so it is readable and on screen at every resolution.
+const MAX_SIZE := Vector2(420, 300)
+const MIN_SIZE := Vector2(300, 190)
+## The panel is zoomed so one canvas unit is never smaller than this many pixels (8-unit text stays >= ~13 px).
+const MIN_PX_PER_UNIT := 1.6
+const SECTION_DEFAULT := "GENERAL"
+
+var _tabs: TabBar
+var _pages: Array[Control] = []
+var _section_titles: Array[String] = []
+## Dropdown rows: [{"option": OptionButton, "ids": Array}] so tests can read what each dropdown offers.
+var _dropdowns: Array = []
+
+
 func _build() -> void:
 	_dimmer = ColorRect.new()
 	_dimmer.name = "AdminModalDimmer"
-	_dimmer.color = Color(0.0, 0.0, 0.0, 0.76)
+	_dimmer.color = Color(0.0, 0.0, 0.0, 0.8)
 	_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
 	_dimmer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_dimmer)
@@ -113,130 +129,322 @@ func _build() -> void:
 	_panel = PanelContainer.new()
 	_panel.name = "AdminPanel"
 	_panel.add_theme_stylebox_override("panel",
-		Palette.panel_box(Palette.PANEL, Palette.AMBER, 8))
-	_panel.anchor_left = 0.08
-	_panel.anchor_top = 0.06
-	_panel.anchor_right = 0.92
-	_panel.anchor_bottom = 0.94
-	_panel.offset_left = 0
-	_panel.offset_top = 0
-	_panel.offset_right = 0
-	_panel.offset_bottom = 0
-	_panel.custom_minimum_size = Vector2(360, 220)
+		Palette.panel_box(Color(Palette.PANEL, 1.0), Palette.AMBER, 8))
+	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	add_child(_panel)
+	get_viewport().size_changed.connect(_fit_panel)
 
-	# The action list is deliberately taller than a 270p design viewport. A
-	# bounded ScrollContainer keeps the panel on screen and makes every action
-	# reachable instead of letting its minimum height push past the lower rail.
-	var scroll := ScrollContainer.new()
-	scroll.name = "AdminScroll"
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_panel.add_child(scroll)
+	var root := VBoxContainer.new()
+	root.name = "AdminRoot"
+	root.add_theme_constant_override("separation", 3)
+	_panel.add_child(root)
 
-	var column := VBoxContainer.new()
-	column.name = "AdminActions"
-	column.custom_minimum_size = Vector2(330, 0)
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.add_theme_constant_override("separation", 3)
-	scroll.add_child(column)
-
+	var header := HBoxContainer.new()
+	root.add_child(header)
 	var heading := Label.new()
 	heading.text = Palette.track("ADMIN // AUTHORIZED")
 	heading.add_theme_color_override("font_color", Palette.AMBER)
-	heading.add_theme_font_size_override("font_size", 6)
-	column.add_child(heading)
+	heading.add_theme_font_size_override("font_size", 8)
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(heading)
+	var close_button := Button.new()
+	close_button.name = "AdminClose"
+	close_button.text = "0 / ESC"
+	close_button.add_theme_font_size_override("font_size", 7)
+	Palette.style_button(close_button, false, true)
+	close_button.pressed.connect(close)
+	header.add_child(close_button)
 
+	_tabs = TabBar.new()
+	_tabs.name = "AdminTabs"
+	_tabs.tab_alignment = TabBar.ALIGNMENT_LEFT
+	_tabs.clip_tabs = true
+	_tabs.custom_minimum_size = Vector2(60, 0)
+	_tabs.add_theme_font_size_override("font_size", 7)
+	_tabs.tab_changed.connect(_show_page)
+	root.add_child(_tabs)
+
+	var body := PanelContainer.new()
+	body.name = "AdminBody"
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 5))
+	root.add_child(body)
+	var stack := Control.new()
+	stack.name = "AdminPages"
+	body.add_child(stack)
+	stack.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	# status page first, then one page per section
+	_add_page("STATUS", stack)
 	_readout = Label.new()
-	_readout.add_theme_color_override("font_color", Palette.BODY)
-	_readout.add_theme_font_size_override("font_size", 7)
+	_readout.add_theme_color_override("font_color", Palette.INK)
+	_readout.add_theme_font_size_override("font_size", 8)
 	_readout.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(_readout)
+	_readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_page_column(0).add_child(_readout)
 
-	for entry in _actions:
-		if not _entry_allowed(entry):
-			continue
-		if entry.has("heading"):
-			var section := Label.new()
-			section.text = String(entry["heading"])
-			section.add_theme_color_override("font_color", Palette.AMBER)
-			section.add_theme_font_size_override("font_size", 6)
-			column.add_child(section)
-			if entry.has("items"):
-				var grid := GridContainer.new()
-				grid.columns = 3
-				grid.add_theme_constant_override("h_separation", 3)
-				grid.add_theme_constant_override("v_separation", 3)
-				column.add_child(grid)
-				var item_action: Callable = entry["action"]
-				var labels: Dictionary = entry.get("labels", {})
-				for item_value in entry["items"]:
-					var item_id := String(item_value)
-					var item_button := Button.new()
-					item_button.text = String(labels.get(item_id, item_id)).to_upper()
-					item_button.add_theme_font_size_override("font_size", 6)
-					item_button.custom_minimum_size = Vector2(100, 16)
-					item_button.focus_mode = Control.FOCUS_ALL
-					Palette.style_button(item_button, false, true)
-					item_button.pressed.connect(func() -> void:
-						item_action.call(item_id)
-						_mark_debug(entry)
-						_refresh())
-					grid.add_child(item_button)
-					if _first_action_button == null:
-						_first_action_button = item_button
-			continue
-		var button := Button.new()
-		button.text = String(entry["label"])
-		button.add_theme_font_size_override("font_size", 7)
-		button.custom_minimum_size = Vector2(0, 16)
-		button.focus_mode = Control.FOCUS_ALL
-		if entry.has("state"):
-			var state: Callable = entry["state"]
-			Palette.style_state_toggle(button,
-				String(entry["label"]).trim_prefix("TOGGLE "),
-				bool(state.call()), true)
-			_state_buttons.append({"button": button, "state": state})
-		else:
-			Palette.style_button(button, false, true)
-		var action: Callable = entry["action"]
-		button.pressed.connect(func() -> void:
-			action.call()
-			_mark_debug(entry)
-			_refresh())
-		column.add_child(button)
-		if _first_action_button == null:
-			_first_action_button = button
-
+	var sections := _group_sections()
+	for section in sections:
+		var page_index := _add_page(String(section["title"]), stack)
+		_fill_section(_page_column(page_index), section["rows"])
+	var text_rows := []
 	for entry in _text_fields:
-		if not _entry_allowed(entry):
-			continue
-		var field_label := Label.new()
-		field_label.text = String(entry["label"])
-		field_label.add_theme_color_override("font_color", Palette.MUTED)
-		field_label.add_theme_font_size_override("font_size", 6)
-		column.add_child(field_label)
-
-		var field := LineEdit.new()
-		field.placeholder_text = String(entry.get("placeholder", ""))
-		field.add_theme_font_size_override("font_size", 7)
-		field.custom_minimum_size = Vector2(0, 15)
-		Palette.style_line_edit(field)
-		var on_submit: Callable = entry["on_submit"]
-		field.text_submitted.connect(func(value: String) -> void:
-			on_submit.call(value)
-			_mark_debug(entry)
-			_refresh())
-		column.add_child(field)
+		if _entry_allowed(entry):
+			text_rows.append(entry)
+	if not text_rows.is_empty():
+		var page_index := _add_page("FIELDS", stack)
+		for entry in text_rows:
+			_add_text_field(_page_column(page_index), entry)
 
 	var hint := Label.new()
-	hint.text = "0 CLOSES"
+	hint.text = "0 OR ESC CLOSES  //  DROPDOWN, THEN RUN"
 	hint.add_theme_color_override("font_color", Palette.MUTED)
 	hint.add_theme_font_size_override("font_size", 6)
-	column.add_child(hint)
-
+	root.add_child(hint)
+	_show_page(0)
+	_fit_panel()
 	_set_open(false)
+
+
+func _add_page(title: String, stack: Control) -> int:
+	var scroll := ScrollContainer.new()
+	scroll.name = "AdminPage_%s" % title
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	stack.add_child(scroll)
+	var column := VBoxContainer.new()
+	column.name = "Column"
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 4)
+	scroll.add_child(column)
+	_pages.append(scroll)
+	_section_titles.append(title)
+	_tabs.add_tab(title)
+	return _pages.size() - 1
+
+
+func _page_column(index: int) -> VBoxContainer:
+	return _pages[index].get_node("Column") as VBoxContainer
+
+
+func _show_page(index: int) -> void:
+	for i in _pages.size():
+		_pages[i].visible = i == index
+
+
+## Pixels per canvas unit of the viewport the menu is drawn in (the window's stretch factor).
+func _px_per_unit() -> float:
+	return maxf(.1, get_viewport().get_final_transform().get_scale().x)
+
+
+func _fit_panel() -> void:
+	if _panel == null:
+		return
+	var view := get_viewport().get_visible_rect().size
+	# Small effective scales (a phone-sized window) would shrink the text below readability: draw the panel zoomed instead
+	# and give it that much less room in canvas units.
+	var zoom := clampf(MIN_PX_PER_UNIT / _px_per_unit(), 1.0, 2.4)
+	var room := view / zoom
+	var size := Vector2(clampf(room.x * 0.94, 200.0, MAX_SIZE.x), clampf(room.y * 0.92, 150.0, MAX_SIZE.y)).min(room)
+	_panel.scale = Vector2(zoom, zoom)
+	_panel.size = size
+	_panel.position = (view - size * zoom) * 0.5
+
+
+## Turns the flat action list into sections: a heading entry WITHOUT items starts a section, an entry with items is a
+## dropdown row, plain actions in one section share a single "action" dropdown, `state` entries are checkboxes and
+## `hunter_tool` is the hunter picker.
+func _group_sections() -> Array:
+	var sections := []
+	var current := {"title": SECTION_DEFAULT, "rows": []}
+	for entry_value in _actions:
+		var entry: Dictionary = entry_value
+		if not _entry_allowed(entry):
+			continue
+		if entry.has("heading") and not entry.has("items") and not entry.has("hunter_tool") and not entry.has("action"):
+			if not (current["rows"] as Array).is_empty():
+				sections.append(current)
+			current = {"title": String(entry["heading"]).split(" // ")[0], "rows": []}
+			continue
+		(current["rows"] as Array).append(entry)
+	if not (current["rows"] as Array).is_empty():
+		sections.append(current)
+	return sections
+
+
+func _fill_section(column: VBoxContainer, rows: Array) -> void:
+	var plain := []
+	for entry_value in rows:
+		var entry: Dictionary = entry_value
+		if entry.has("hunter_tool"):
+			_add_hunter_tool(column, entry)
+		elif entry.has("items"):
+			_add_items_dropdown(column, entry)
+		elif entry.has("state"):
+			_add_checkbox(column, entry)
+		elif entry.has("action"):
+			plain.append(entry)
+	if not plain.is_empty():
+		_add_action_dropdown(column, plain)
+
+
+func _caption(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", Palette.AMBER)
+	label.add_theme_font_size_override("font_size", 7)
+	return label
+
+
+func _dropdown(ids: Array, labels: Dictionary) -> OptionButton:
+	var option := OptionButton.new()
+	option.add_theme_font_size_override("font_size", 8)
+	option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	option.custom_minimum_size = Vector2(120, 18)
+	option.fit_to_longest_item = false
+	option.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(option, false, true)
+	var popup := option.get_popup()
+	popup.add_theme_font_size_override("font_size", 8)
+	for id in ids:
+		option.add_item(String(labels.get(String(id), String(id))).to_upper())
+	return option
+
+
+func _run_button(text: String = "RUN") -> Button:
+	var button := Button.new()
+	button.text = text
+	button.add_theme_font_size_override("font_size", 8)
+	button.custom_minimum_size = Vector2(46, 18)
+	button.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(button, true, true)
+	return button
+
+
+func _remember_first(control: Control) -> void:
+	if _first_action_button == null and control is Button:
+		_first_action_button = control as Button
+
+
+func _add_items_dropdown(column: VBoxContainer, entry: Dictionary) -> void:
+	column.add_child(_caption(String(entry.get("heading", entry.get("label", "")))))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	column.add_child(row)
+	var ids: Array = entry["items"]
+	var option := _dropdown(ids, entry.get("labels", {}))
+	row.add_child(option)
+	var run := _run_button()
+	row.add_child(run)
+	_dropdowns.append({"option": option, "ids": ids, "entry": entry})
+	var action: Callable = entry["action"]
+	run.pressed.connect(func() -> void:
+		if option.selected >= 0 and option.selected < ids.size():
+			action.call(String(ids[option.selected]))
+			_mark_debug(entry)
+			_refresh())
+	_remember_first(option)
+
+
+func _add_action_dropdown(column: VBoxContainer, plain: Array) -> void:
+	column.add_child(_caption("ACTION"))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	column.add_child(row)
+	var ids := []
+	var labels := {}
+	for index in plain.size():
+		ids.append(str(index))
+		labels[str(index)] = String(plain[index]["label"])
+	var option := _dropdown(ids, labels)
+	row.add_child(option)
+	var run := _run_button()
+	row.add_child(run)
+	_dropdowns.append({"option": option, "ids": ids, "entries": plain})
+	run.pressed.connect(func() -> void:
+		var index: int = option.selected
+		if index >= 0 and index < plain.size():
+			var entry: Dictionary = plain[index]
+			(entry["action"] as Callable).call()
+			_mark_debug(entry)
+			_refresh())
+	_remember_first(option)
+
+
+func _add_checkbox(column: VBoxContainer, entry: Dictionary) -> void:
+	var state: Callable = entry["state"]
+	var box := CheckBox.new()
+	box.name = "Check_" + String(entry["label"]).replace(" ", "_")
+	box.custom_minimum_size = Vector2(0, 17)
+	box.focus_mode = Control.FOCUS_ALL
+	box.button_pressed = bool(state.call())
+	Palette.style_state_toggle(box, String(entry["label"]).trim_prefix("TOGGLE "), bool(state.call()), true)
+	_state_buttons.append({"button": box, "state": state})
+	var action: Callable = entry["action"]
+	box.pressed.connect(func() -> void:
+		action.call()
+		_mark_debug(entry)
+		_refresh())
+	column.add_child(box)
+	_remember_first(box)
+
+
+## "Hunter" picker: one dropdown of every A-Z and Void hunter, one of what to do to it (and, for emotes, which emote), one Run.
+func _add_hunter_tool(column: VBoxContainer, entry: Dictionary) -> void:
+	column.add_child(_caption("HUNTER"))
+	var hunters: Array = entry["hunters"]
+	var hunter_option := _dropdown(hunters, entry.get("hunter_labels", {}))
+	column.add_child(hunter_option)
+	column.add_child(_caption("DO"))
+	var actions: Array = entry["hunter_tool"]
+	var action_ids := []
+	var action_labels := {}
+	for index in actions.size():
+		action_ids.append(str(index))
+		action_labels[str(index)] = String(actions[index]["label"])
+	var action_option := _dropdown(action_ids, action_labels)
+	column.add_child(action_option)
+	var emote_ids: Array = entry.get("emotes", [])
+	var emote_row := HBoxContainer.new()
+	var emote_label := _caption("EMOTE")
+	emote_row.add_child(emote_label)
+	var emote_option := _dropdown(emote_ids, entry.get("emote_labels", {}))
+	emote_row.add_child(emote_option)
+	column.add_child(emote_row)
+	var run := _run_button()
+	column.add_child(run)
+	_dropdowns.append({"option": hunter_option, "ids": hunters, "entry": entry})
+	_dropdowns.append({"option": action_option, "ids": action_ids, "entry": entry})
+	var sync_emote := func() -> void:
+		var wants: bool = action_option.selected >= 0 and bool((actions[action_option.selected] as Dictionary).get("emote", false))
+		emote_row.visible = wants
+	action_option.item_selected.connect(func(_i: int) -> void: sync_emote.call())
+	sync_emote.call()
+	run.pressed.connect(func() -> void:
+		if hunter_option.selected < 0 or action_option.selected < 0:
+			return
+		var act: Dictionary = actions[action_option.selected]
+		var hunter_id := String(hunters[hunter_option.selected])
+		var extra := String(emote_ids[emote_option.selected]) if bool(act.get("emote", false)) and emote_option.selected >= 0 else ""
+		(act["call"] as Callable).call(hunter_id, extra)
+		_mark_debug(entry)
+		_refresh())
+	_remember_first(hunter_option)
+
+
+func _add_text_field(column: VBoxContainer, entry: Dictionary) -> void:
+	column.add_child(_caption(String(entry["label"])))
+	var field := LineEdit.new()
+	field.placeholder_text = String(entry.get("placeholder", ""))
+	field.add_theme_font_size_override("font_size", 8)
+	field.custom_minimum_size = Vector2(0, 17)
+	Palette.style_line_edit(field)
+	var on_submit: Callable = entry["on_submit"]
+	field.text_submitted.connect(func(value: String) -> void:
+		on_submit.call(value)
+		_mark_debug(entry)
+		_refresh())
+	column.add_child(field)
 
 
 ## Using a tool makes the run a DEBUG RUN: nothing from it is recorded (see GameState.debug_run).
@@ -267,6 +475,7 @@ func _set_open(shown: bool) -> void:
 	# it from a mode that is running normally when it is closed.
 	MouseLock.claim("admin", shown)
 	if shown:
+		_fit_panel()
 		_refresh()
 		if _first_action_button != null:
 			_first_action_button.grab_focus.call_deferred()
@@ -300,6 +509,11 @@ func _input(event: InputEvent) -> void:
 		# Right-stick click is debug-only because this menu does not exist for an
 		# ordinary release player.
 		is_toggle = button.pressed and button.button_index == JOY_BUTTON_RIGHT_STICK
+	if _open and event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo \
+			and (event as InputEventKey).physical_keycode == KEY_ESCAPE:
+		_set_open(false)
+		get_viewport().set_input_as_handled()
+		return
 	if is_toggle:
 		_set_open(not _open)
 		get_viewport().set_input_as_handled()

@@ -52,8 +52,13 @@ static func remote_guest_tools_allowed() -> bool:
 	return _headless_validation()
 
 
+## Set by tools/look/admin_capture.gd only: the screenshot rig has a window (so it is not "headless") but must draw the
+## admin panel without a live login. Debug builds only, never reachable from the UI or the command line.
+static var capture_rig := false
+
+
 static func _headless_validation() -> bool:
-	return OS.is_debug_build() and DisplayServer.get_name() == "headless"
+	return OS.is_debug_build() and (DisplayServer.get_name() == "headless" or capture_rig)
 
 
 ## Whether to draw the frame counter and other always-on readouts.

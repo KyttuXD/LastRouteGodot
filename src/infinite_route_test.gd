@@ -516,15 +516,27 @@ func _hunter_admin_labels(ids: Array) -> Dictionary:
 
 
 func _infinite_admin_actions() -> Array:
+	var hunter_ids: Array = []
+	hunter_ids.append_array(HunterRoster.A_Z_IDS)
+	hunter_ids.append_array(HunterRoster.VOID_IDS)
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
-		{"heading": "CREATIVE INVENTORY", "label": "CREATIVE INVENTORY",
+		{"heading": "ITEMS", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
 			"labels": PlayerController3D.INVENTORY_LABELS,
 			"action": _admin_give_item},
-		{"heading": "PLAYER TOOLS", "permission": "player"},
+		{"heading": "PLAYER", "permission": "player"},
+		{"heading": "TELEPORT", "permission": "player",
+			"items": ["north", "south", "east", "west", "safe_room", "relay", "start", "checkpoint"],
+			"labels": {"north": "Chunk N", "south": "Chunk S", "east": "Chunk E", "west": "Chunk W",
+				"safe_room": "Safe room", "relay": "Nearest relay", "start": "Start", "checkpoint": "Checkpoint"},
+			"action": _admin_teleport_chunk},
+		{"heading": "RUN SPEED", "permission": "player",
+			"items": ["1", "1.5", "2", "3"],
+			"labels": {"1": "1x", "1.5": "1.5x", "2": "2x", "3": "3x"},
+			"action": func(id: String) -> void: player.admin_speed_scale = float(id)},
 		{"label": "FULL LAMP", "permission": "player", "action": func() -> void:
 			player.restore_lamp(GameConfig.MAX_LAMP_CHARGE)},
 		{"label": "RESTORE PLAYER", "action": _admin_restore_player,
@@ -533,12 +545,6 @@ func _infinite_admin_actions() -> Array:
 			"action": func() -> void:
 			player.stun_timer = 0.0
 			player.taser_cooldown = 0.0},
-		{"label": "TELEPORT TO START", "permission": "player",
-			"action": func() -> void:
-			_admin_teleport_to(facility.spawn_position())},
-		{"label": "TELEPORT TO CHECKPOINT", "permission": "player",
-			"action": func() -> void:
-			_admin_teleport_to(_checkpoint_world_position())},
 		{"label": "TOGGLE NO TARGET", "action": _admin_toggle_no_target,
 			"permission": "player",
 			"state": func() -> bool: return player.admin_no_target},
@@ -548,56 +554,37 @@ func _infinite_admin_actions() -> Array:
 		{"label": "TOGGLE NOCLIP", "action": _admin_toggle_noclip,
 			"permission": "player",
 			"state": func() -> bool: return player.admin_noclip},
-		{"heading": "WORLD + HUNTERS", "permission": "world"},
-		{"label": "GRANT RELAY", "permission": "world", "action": func() -> void:
-			_admin_world_action("grant_relay")},
-		{"label": "ALL LOADED RELAYS", "permission": "world",
-			"action": func() -> void: _admin_world_action("all_relays")},
+		{"heading": "HUNTERS", "permission": "hunters"},
+		{"heading": "HUNTER", "permission": "hunters", "hunter_tool": [
+			{"label": "Summon", "call": func(id: String, _extra: String) -> void: _admin_summon_hunter(id)},
+			{"label": "Remove (all matches)", "call": func(id: String, _extra: String) -> void: _admin_remove_hunter(id)},
+			{"label": "Play emote (nearby)", "emote": true, "call": func(_id: String, emote: String) -> void:
+				_admin_world_action("hunter_emote", {"emote": emote})},
+		], "hunters": hunter_ids, "hunter_labels": _hunter_admin_labels(hunter_ids),
+			"emotes": _hunter_emote_ids(), "emote_labels": _hunter_emote_labels()},
 		{"label": "STUN ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("stun_hunters")},
 		{"label": "WAKE ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("wake_hunters")},
 		{"label": "CALM ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("calm_hunters")},
-		{"heading": "PLAY HUNTER EMOTE // NEARBY", "permission": "hunters", "no_debug": true,
-			"items": _hunter_emote_ids(), "labels": _hunter_emote_labels(),
-			"action": func(emote_id: String) -> void:
-			_admin_world_action("hunter_emote", {"emote": emote_id})},
-		{"heading": "SUMMON A-Z HUNTER", "items": HunterRoster.A_Z_IDS,
-			"permission": "hunters",
-			"labels": _hunter_admin_labels(HunterRoster.A_Z_IDS),
-			"action": _admin_summon_hunter},
-		{"heading": "REMOVE A-Z HUNTER // ALL MATCHES",
-			"permission": "hunters",
-			"items": HunterRoster.A_Z_IDS,
-			"labels": _hunter_admin_labels(HunterRoster.A_Z_IDS),
-			"action": _admin_remove_hunter},
-		{"heading": "SUMMON VOID HUNTER", "items": HunterRoster.VOID_IDS,
-			"permission": "hunters",
-			"labels": _hunter_admin_labels(HunterRoster.VOID_IDS),
-			"action": _admin_summon_hunter},
-		{"heading": "REMOVE VOID HUNTER // ALL MATCHES",
-			"permission": "hunters",
-			"items": HunterRoster.VOID_IDS,
-			"labels": _hunter_admin_labels(HunterRoster.VOID_IDS),
-			"action": _admin_remove_hunter},
 		{"label": "FREEZE ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("freeze_hunters")},
 		{"label": "RELEASE ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("release_hunters")},
-		{"heading": "TELEPORT // CHUNKS AND SAFE ROOMS", "permission": "player",
-			"items": ["north", "south", "east", "west", "safe_room", "relay"],
-			"labels": {"north": "Chunk N", "south": "Chunk S", "east": "Chunk E", "west": "Chunk W",
-				"safe_room": "Safe room", "relay": "Nearest relay"},
-			"action": _admin_teleport_chunk},
-		{"heading": "RUN SPEED", "permission": "player",
-			"items": ["1", "1.5", "2", "3"],
-			"labels": {"1": "1x", "1.5": "1.5x", "2": "2x", "3": "3x"},
-			"action": func(id: String) -> void: player.admin_speed_scale = float(id)},
+		{"heading": "WORLD", "permission": "world"},
 		{"heading": "GAME SPEED // SOLO RUNS ONLY", "permission": "world",
 			"items": ["0", "0.25", "1", "2", "4", "step"],
 			"labels": {"0": "Pause", "0.25": "0.25x", "1": "1x", "2": "2x", "4": "4x", "step": "Step 1 frame"},
 			"action": _admin_game_speed},
+		{"label": "GRANT RELAY", "permission": "world", "action": func() -> void:
+			_admin_world_action("grant_relay")},
+		{"label": "ALL LOADED RELAYS", "permission": "world",
+			"action": func() -> void: _admin_world_action("all_relays")},
+		{"label": "DAMAGE CHECKPOINT", "permission": "world",
+			"action": func() -> void: _admin_world_action("damage_checkpoint")},
+		{"label": "REPAIR CHECKPOINT", "permission": "world",
+			"action": func() -> void: _admin_world_action("repair_checkpoint")},
 		{"label": "COPY SEED", "permission": "world", "no_debug": true,
 			"action": func() -> void:
 				DisplayServer.clipboard_set(str(facility.generator.world_seed))
@@ -606,15 +593,11 @@ func _infinite_admin_actions() -> Array:
 			"action": func() -> void:
 				DisplayServer.clipboard_set(RoomState.code)
 				hud.show_message("ROOM CODE COPIED")},
-		{"label": "DAMAGE CHECKPOINT", "permission": "world",
-			"action": func() -> void: _admin_world_action("damage_checkpoint")},
-		{"label": "REPAIR CHECKPOINT", "permission": "world",
-			"action": func() -> void: _admin_world_action("repair_checkpoint")},
 		{"label": "TOGGLE ALL REGION LIGHTS", "permission": "world",
 			"action": func() -> void:
 				facility.set_all_lights(not facility.all_lights_enabled()),
 			"state": func() -> bool: return facility.all_lights_enabled()},
-		{"heading": "STORY / CUTSCENES", "permission": "world"},
+		{"heading": "STORY", "permission": "world"},
 		{"heading": "PLAY STORY / CUTSCENE", "permission": "world",
 			"items": _story.admin_scene_ids() if _story != null else [],
 			"labels": _story.admin_scene_labels() if _story != null else {},
@@ -623,7 +606,7 @@ func _infinite_admin_actions() -> Array:
 			"action": _admin_stop_story},
 		{"label": "RESET STORY STATE", "permission": "world",
 			"action": _admin_reset_story},
-		{"heading": "VISUAL TOOLS", "permission": "visual"},
+		{"heading": "VISUAL", "permission": "visual"},
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_map},
@@ -643,8 +626,21 @@ func _infinite_admin_actions() -> Array:
 	]
 
 
+## Teleport to world cell "X,Z" (the position readout's cell coordinates).
+func _admin_teleport_coordinates(text: String) -> void:
+	var parts := text.replace(";", ",").replace(" ", ",").split(",", false)
+	if parts.size() < 2 or not parts[0].is_valid_float() or not parts[1].is_valid_float():
+		hud.show_message("ADMIN // TELEPORT NEEDS X,Z")
+		return
+	var at := Vector2(float(parts[0]), float(parts[1]))
+	var spot := _nearest_valid_position(at)
+	_admin_teleport_to(spot)
+
+
 func _admin_roster_fields() -> Array:
 	return [
+		{"label": "TELEPORT TO CELL X,Z", "placeholder": "X,Z  (e.g. 120,-45)", "permission": "player",
+			"on_submit": _admin_teleport_coordinates},
 		{"label": "ADD / UPDATE LIMITED ADMIN",
 			"placeholder": "USERNAME:player,world,hunters,visual,inventory",
 			"on_submit": Backend.admin_roster_set_spec, "owner_only": true, "no_debug": true},
@@ -3865,6 +3861,12 @@ func _admin_teleport_chunk(id: String) -> void:
 			if target == here:
 				hud.show_message("ADMIN // NO SAFE ROOM WITHIN 5 CHUNKS")
 				return
+		"start":
+			_admin_teleport_to(facility.spawn_position())
+			return
+		"checkpoint":
+			_admin_teleport_to(_checkpoint_world_position())
+			return
 		"relay":
 			var relay := _admin_nearest_relay_position()
 			if relay == Vector3.INF:
