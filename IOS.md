@@ -24,7 +24,7 @@ On the Mac:
 3. Select the appropriate development provisioning profile if Xcode cannot
    manage signing automatically.
 4. Run `./scripts/export_ios_xcode.sh`.
-5. Unzip `builds/LastRoute-iOS-Debug.zip`, open the generated `.xcodeproj`,
+5. Unzip `builds/KyttusLab-iOS-Debug.zip`, open the generated `.xcodeproj`,
    select a signing team and device, then build from Xcode.
 
 The current gameplay UI assumes a physical controller on touch-only iPhones and

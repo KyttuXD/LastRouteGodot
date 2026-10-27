@@ -22,16 +22,16 @@ export_one() { # preset file zip-name
   "$GODOT" --headless --path "$ROOT" --export-debug "$1" "$OUT/$2"
 }
 if [ "$want" = all ] || [ "$want" = macos ]; then
-  export_one "macOS Test Server" LastRoute-TEST-macOS.zip
-  mv "$OUT/LastRoute-TEST-macOS.zip" "$OUT/LastRoute-TEST-$STAMP-macOS.zip"
+  export_one "macOS Test Server" KyttusLab-TEST-macOS.zip
+  mv "$OUT/KyttusLab-TEST-macOS.zip" "$OUT/KyttusLab-TEST-$STAMP-macOS.zip"
 fi
 if [ "$want" = all ] || [ "$want" = windows ]; then
-  export_one "Windows Test Server" LastRoute-TEST-Windows.exe
-  (cd "$OUT" && zip -q -FS "LastRoute-TEST-$STAMP-Windows.zip" LastRoute-TEST-Windows.exe && rm -f LastRoute-TEST-Windows.exe)
+  export_one "Windows Test Server" KyttusLab-TEST-Windows.exe
+  (cd "$OUT" && zip -q -FS "KyttusLab-TEST-$STAMP-Windows.zip" KyttusLab-TEST-Windows.exe && rm -f KyttusLab-TEST-Windows.exe)
 fi
 if [ "$want" = all ] || [ "$want" = linux ]; then
-  export_one "Linux Test Server" LastRoute-TEST-Linux.x86_64
-  (cd "$OUT" && zip -q -FS "LastRoute-TEST-$STAMP-Linux.zip" LastRoute-TEST-Linux.x86_64 && rm -f LastRoute-TEST-Linux.x86_64)
+  export_one "Linux Test Server" KyttusLab-TEST-Linux.x86_64
+  (cd "$OUT" && zip -q -FS "KyttusLab-TEST-$STAMP-Linux.zip" KyttusLab-TEST-Linux.x86_64 && rm -f KyttusLab-TEST-Linux.x86_64)
 fi
 rm -f "$ROOT/build_revision.json"
 echo "test builds in $OUT:"; ls -la "$OUT"

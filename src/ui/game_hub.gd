@@ -33,6 +33,13 @@ func _ready() -> void:
 	column.grow_vertical = Control.GROW_DIRECTION_BOTH
 	column.add_theme_constant_override("separation", 10)
 	add_child(column)
+	var brand := Label.new()
+	brand.name = "HubTitle"
+	Palette.style_title(brand, Palette.INK)
+	brand.add_theme_font_size_override("font_size", 22)
+	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	brand.text = "KYTTU'S LAB"
+	column.add_child(brand)
 	var kicker := Label.new()
 	kicker.name = "HubKicker"
 	Palette.style_label(kicker, Palette.AMBER, 6)

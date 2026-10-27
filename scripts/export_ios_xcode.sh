@@ -41,12 +41,12 @@ cleanup_revision() {
 trap cleanup_revision EXIT
 
 mkdir -p "${build_dir}"
-rm -f -- "${build_dir}/LastRoute-iOS-Debug.zip" \
-	"${build_dir}/LastRoute-iOS-Debug.pck"
+rm -f -- "${build_dir}/KyttusLab-iOS-Debug.zip" \
+	"${build_dir}/KyttusLab-iOS-Debug.pck"
 node "${project_dir}/scripts/generate_build_revision.mjs"
 "${godot_command[@]}" --headless --path "${project_dir}" \
-	--export-debug "iOS Debug Xcode" "${build_dir}/LastRoute-iOS-Debug.zip"
+	--export-debug "iOS Debug Xcode" "${build_dir}/KyttusLab-iOS-Debug.zip"
 
-unzip -tq "${build_dir}/LastRoute-iOS-Debug.zip"
+unzip -tq "${build_dir}/KyttusLab-iOS-Debug.zip"
 printf 'iOS Xcode project is ready at %s\n' \
-	"${build_dir}/LastRoute-iOS-Debug.zip"
+	"${build_dir}/KyttusLab-iOS-Debug.zip"
