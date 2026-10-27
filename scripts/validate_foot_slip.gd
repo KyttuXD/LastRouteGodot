@@ -1,6 +1,6 @@
 extends RefCounted
 
-## Foot slip: the planted foot must stay on the ground while a hunter travels. For every model (38 hunters, tall variants,
+## Foot slip: the planted foot must stay on the ground while a hunter travels. For every model (38 hunters,
 ## the mannequin, both spiders) this re-measures the walk/chase/sprint clips by forward kinematics, checks the stored
 ## stride table is not stale, that no clip strides backwards (moonwalk), and that at every pace a hunter really moves
 ## (base speed, chase speed, the visible-chase speed and the Night Watch pace range 1.2-6.0 m/s) the clip HunterStride
@@ -54,6 +54,7 @@ func run(host: Node) -> int:
 	for entry in _models():
 		var id: String = entry["id"]
 		var model := (load(entry["path"]) as PackedScene).instantiate() as Node3D
+		model.scale = Vector3.ONE * HunterRoster.scale_for(id)   # measured at the size the game draws
 		host.add_child(model)
 		var player := ModelSlot.find_animation_player(model)
 		var feet: Array = HunterStride.HUMANOID_FEET
@@ -72,7 +73,7 @@ func run(host: Node) -> int:
 			_expect(bool(table[id][clip].get("reverse", false)) == bool(m["reverse"]), "%s/%s: the table's reverse flag is stale" % [id, clip])
 			if entry["humanoid"]:
 				_expect(bool(m["forward_ok"]) and not bool(m["reverse"]), "%s/%s moonwalks: the planted foot moves FORWARD relative to the body" % [id, clip])
-			var stored := float(table[id][clip]["ref"])
+			var stored := float(table[id][clip]["ref"]) * HunterRoster.scale_for(id)   # the table is at authored size
 			_expect(absf(stored - float(m["ref"])) <= STALE * maxf(stored, .5) + .004, "%s/%s: stride table is stale (%.3f stored, %.3f measured)" % [id, clip, stored, m["ref"]])
 		for required in ["walk", "sprint"] if not entry["humanoid"] else ["walk", "chase"]:
 			_expect(measured.has(required), "%s: no measured %s clip" % [id, required])
@@ -99,7 +100,7 @@ func run(host: Node) -> int:
 	print("  foot_slip: %d pace checks, worst planted-foot slip %.1f %% (%s)" % [checked, worst_slip * 100.0, worst_who])
 
 	# ---- a real view walking 10 m
-	for hunter_id in ["dovelle", "glyra_tall" if false else "aki_tall", "kathy"]:
+	for hunter_id in ["dovelle", "aki", "kathy"]:
 		for speed in [1.4, 3.6]:
 			var brain := HunterBrain.new(Vector2(5.5, 5.5), "SLIP-TEST", hunter_id, "standard")
 			brain.activate_at(Vector2(5.5, 5.5))
@@ -121,8 +122,12 @@ func run(host: Node) -> int:
 				frames += 1
 				if travelled > 4.0 and not (view._animation_player.current_animation in ["idle"]):
 					pass
-			var pick := HunterStride.choose(hunter_id, "chase" if speed > 3.0 else "walk", speed)
 			var player: AnimationPlayer = view._animation_player
+			# at 1.5x scale a 3.6 m/s pace is inside the walk clip's range, so either base clip's pick is right
+			var pick := HunterStride.choose(hunter_id, "chase" if speed > 3.0 else "walk", speed)
+			var other := HunterStride.choose(hunter_id, "walk", speed)
+			if String(player.current_animation) == String(other["clip"]):
+				pick = other
 			var want_clip := String(pick["clip"])
 			var playing := String(player.current_animation)
 			_expect(playing == want_clip or (hunter_id == "kathy" and playing.begins_with("scythe")), "%s at %.1f m/s should play %s, plays %s" % [hunter_id, speed, want_clip, playing])

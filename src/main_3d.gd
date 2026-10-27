@@ -229,7 +229,7 @@ func _process(delta: float) -> void:
 	var remote_map_players := _remotes.remote_player_marks(GameState.depth) \
 		if _remotes != null else []
 	hud.update_minimap(facility_view.generator, player.grid_position(),
-		player.facing, _map_marks(true) if _admin_reveal_hunters else [],
+		player.facing, _map_marks(true) if _admin_reveal_hunters else _radar_marks(),
 		remote_map_players)
 	if hud.map_is_open():
 		hud.update_map(facility_view.generator, player.grid_position(),
@@ -593,6 +593,11 @@ func _map_marks(include_inactive: bool = false) -> Array:
 			"active": true,
 		})
 	return marks
+
+
+## The only hunter the minimap may show without admin reveal: Porcelle, while she is active (her radar ping).
+func _radar_marks() -> Array:
+	return _map_marks(false).filter(func(mark: Dictionary) -> bool: return String(mark.get("hunter_id", "")) == "porcelle")
 
 
 ## Ceryth's riddle, asked at the moment the player tries to hide in the spot

@@ -37,3 +37,12 @@ Server-side public-route admin endpoints (reset resume, wipe state) would need n
 part of this overlay; the PUBLIC route status shows in the readout only. There is no time-of-day or hour system in Godot 2.
 
 Checked by `scripts/validate_admin.gd` (`godot --headless res://scenes/validate.tscn -- admin`).
+
+## FULLBRIGHT / WIREFRAME debug view
+
+Every admin menu (Last Route, the City, Night Watch) has a DEBUG VIEW section: TOGGLE FULLBRIGHT and TOGGLE WIREFRAME; F7
+(action `debug_fullbright`) toggles fullbright while an admin menu exists. Admin only (`Build.tools_enabled()`), never on a public
+route, shown in the ADMIN ACTIVE badge, local to this client. Fullbright puts a flat white-ambient Environment (no fog, glow, SSAO,
+SDFGI) on the current camera, so the world's Environment and every light keep their real values and gameplay light rules are
+unchanged; off restores the camera's own environment exactly, and leaving the run turns it off. Tests: `debug_view`; rendered
+brightness check `tools/look/fullbright_check.tscn` (Mac mini).

@@ -47,10 +47,22 @@ static func attach(host: Node, status: Callable, actions: Array, text_fields: Ar
 		return null
 	var menu := AdminMenu.new()
 	menu._status = status
-	menu._actions = actions
+	menu._actions = actions + DebugView.admin_entries()
 	menu._text_fields = text_fields
 	host.add_child(menu)
 	return menu
+
+
+## A game with its own look (Night Watch) styles the menu with its theme instead of the project's.
+func apply_theme(new_theme: Theme) -> void:
+	for c in [_panel, _dimmer, _badge]:
+		if c != null:
+			(c as Control).theme = new_theme
+
+
+func _exit_tree() -> void:
+	# leaving the run (or the scene) always turns the debug view off again
+	DebugView.set_mode(DebugView.Mode.OFF)
 
 
 func _ready() -> void:
@@ -91,7 +103,7 @@ func _refresh_badge() -> void:
 		where = "PUBLIC ROUTE"
 	elif RoomState.online:
 		where = "ROOM"
-	var line := "ADMIN ACTIVE // %s%s" % [where, " // DEBUG RUN (NOT RECORDED)" if GameState.debug_run else ""]
+	var line := "ADMIN ACTIVE // %s%s" % [where, " // DEBUG RUN (NOT RECORDED)" if GameState.debug_run else ""] + DebugView.badge_text()
 	var bar := HudStatusBar.find(get_tree()) if is_inside_tree() else null
 	if bar != null:
 		bar.set_segment("admin", line, "admin")
@@ -503,12 +515,18 @@ func _refresh() -> void:
 
 
 func _process(_delta: float) -> void:
+	DebugView.maintain()
 	_refresh_badge()
 	if _open:
 		_refresh()
 
 
 func _input(event: InputEvent) -> void:
+	DebugView.ensure_action()
+	if event.is_action_pressed(DebugView.ACTION) and not (event is InputEventKey and (event as InputEventKey).echo):
+		DebugView.toggle_fullbright()
+		get_viewport().set_input_as_handled()
+		return
 	var is_toggle := false
 	if event is InputEventKey:
 		var key := event as InputEventKey

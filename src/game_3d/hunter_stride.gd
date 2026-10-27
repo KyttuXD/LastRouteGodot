@@ -40,9 +40,11 @@ static func has_clip(hunter_id: String, clip: String) -> bool:
 	return table().get(hunter_id, {}).has(clip)
 
 
+## The table is measured at the models' authored size; the view scales humanoids by HunterRoster.MODEL_SCALE, which scales the
+## planted-foot speed with it, so the playback ratio uses the scaled reference.
 static func ref_speed(hunter_id: String, clip: String) -> float:
 	var entry: Dictionary = table().get(hunter_id, {}).get(clip, {})
-	return maxf(float(entry.get("ref", FALLBACK.get(clip, 1.5))), .3)
+	return maxf(float(entry.get("ref", FALLBACK.get(clip, 1.5))), .3) * HunterRoster.scale_for(hunter_id)
 
 
 ## The clip to play and its speed_scale for a given real ground speed. `preferred` is the state's clip

@@ -870,6 +870,7 @@ func register_room(code: String, port: int, player_count: int,
 		"port": _port,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"daytime": RoomState.is_day(),
 		"game": RoomState.game_id(),
 	})
 	_heartbeat.start()
@@ -955,6 +956,7 @@ func _send_heartbeat() -> void:
 		"token": _token,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"daytime": RoomState.is_day(),
 	})
 
 

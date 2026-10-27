@@ -125,7 +125,10 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
 ## meters directly; each presentation layer converts at its own boundary.
 const PLAYER_RADIUS := 0.2
-const HUNTER_RADIUS := 0.22
+## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
+const HUNTER_RADIUS := 0.33
+## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.
+const HUNTER_CATCH_RADIUS := 0.22
 const MOVEMENT_STEP := 0.11
 
 const HUNTER_SEARCH_TIME := 3.2
@@ -154,6 +157,11 @@ const UNLIT_SIGHT_SCALE := 0.5
 ## normal per-hunter sight profile still differentiates the roster.
 const FLASHLIGHT_SIGHT_SCALE := 3.0
 const FLASHLIGHT_SIGHT_MIN := 24.0
+## City DAYTIME: outdoors a hunter sees `sight x this` metres whether or not the runner carries a light (about 19 m for an
+## 8 m profile), which is also how far the runner is seen. Per-hunter tuning lives in HunterVision.
+const DAYLIGHT_SIGHT_SCALE := 2.4
+## Daytime thins the streamed hunter population a little (scaled, never below one once hunters are active).
+const DAY_POPULATION_SCALE := 0.8
 
 ## Player noise emitted per frame by movement mode, consumed by hunter hearing.
 const NOISE_CROUCH := 0.9

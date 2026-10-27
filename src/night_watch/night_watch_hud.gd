@@ -21,6 +21,7 @@ const PANEL := Color(0.05, 0.04, 0.07, 0.88)
 var clock_label: Label
 var night_label: Label
 var power_label: Label
+var status_box: VBoxContainer
 var usage_label: Label
 var hint_label: Label
 var prompt_label: Label
@@ -67,17 +68,18 @@ var mode_text := ""   # "1. Classic · Night 1", set by the mode scene
 
 func _ready() -> void:
 	layer = 20
-	var theme_path := "res://src/ui/theme_nightwatch.tres"
 	var root := Control.new()
 	root.name = "HudRoot"
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if ResourceLoader.exists(theme_path) and load(theme_path) is Theme:
-		root.theme = load(theme_path)
+	root.theme = NightWatchTheme.get_theme()
 	add_child(root)
 	_build_status(root)
 	_build_call(root)
 	_build_monitor(root)
+	# the power / usage block, the clock and Pause stay readable and clickable ON the camera screen (the 2D HUD does the same): drawn after the monitor
+	for keep in [status_box, clock_label, pause_button]:
+		root.move_child(keep, root.get_child_count() - 1)
 	_build_pause(root)
 	_build_end(root)
 
@@ -93,6 +95,7 @@ func _label(text: String, size := 18, color := INK) -> Label:
 
 func _build_status(root: Control) -> void:
 	var box := VBoxContainer.new()
+	status_box = box
 	box.name = "Status"
 	box.position = Vector2(8, 6)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -225,7 +228,7 @@ func _build_monitor(root: Control) -> void:
 	monitor_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(monitor_root)
 	var back := ColorRect.new()
-	back.color = Color(0.02, 0.03, 0.03, 0.96)
+	back.color = Color(0.02, 0.03, 0.03, 1.0)   # opaque: the HUD text under it must not ghost through
 	back.set_anchors_preset(Control.PRESET_FULL_RECT)
 	monitor_root.add_child(back)
 	var ratio := AspectRatioContainer.new()
@@ -261,12 +264,14 @@ func _build_monitor(root: Control) -> void:
 	# feed furniture: room name, REC, static on a switch
 	cam_label = _label("CAM 1  SHOW STAGE", 11, Color(0.8, 1.0, 0.85))
 	cam_label.name = "CamLabel"
-	cam_label.position = Vector2(30, 18)
+	cam_label.set_anchors_preset(Control.PRESET_CENTER_TOP)   # centred above the picture: the power / usage block owns the top left, REC the top right
+	cam_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	cam_label.offset_top = 14
 	monitor_root.add_child(cam_label)
 	rec_label = _label("● REC", 10, Color(1.0, 0.3, 0.3))
 	rec_label.name = "RecLabel"
 	rec_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	rec_label.position = Vector2(-80, 18)
+	rec_label.position = Vector2(-120, 8)   # left of the clock, which stays above the picture
 	monitor_root.add_child(rec_label)
 	static_rect = ColorRect.new()
 	static_rect.name = "Static"

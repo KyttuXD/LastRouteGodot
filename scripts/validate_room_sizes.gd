@@ -65,9 +65,23 @@ func run(_host: Node) -> int:
 	var a := StreamedRouteGenerator.new("RS-DET").large_plan(Vector3i(3, 0, 3))
 	var b := StreamedRouteGenerator.new("RS-DET").large_plan(Vector3i(3, 0, 3))
 	_expect(a == b, "great hall plan is not deterministic")
-	metrics = {"halls": halls, "tables": tables_total, "types": types_seen.size()}
+	# capacity: every room holds its props with a walking margin, per room type and seed (RoomCapacity)
+	var capacity := RoomCapacity.survey(SEEDS, 3)
+	_expect(int(capacity["rooms"]) > 500, "capacity survey saw only %d rooms" % capacity["rooms"])
+	_expect((capacity["over_fill"] as Array).is_empty(), "%d rooms whose solid props take over %.0f%% of the floor, e.g. %s" % [
+		capacity["over_fill"].size(), RoomCapacity.FILL_LIMIT * 100.0, (capacity["over_fill"] as Array).slice(0, 4)])
+	_expect((capacity["under_reach"] as Array).is_empty(), "%d rooms where under %.0f%% of the free floor is reachable from the door, e.g. %s" % [
+		capacity["under_reach"].size(), RoomCapacity.REACH_MIN * 100.0, (capacity["under_reach"] as Array).slice(0, 4)])
+	for type in capacity["types"]:
+		var t: Dictionary = capacity["types"][type]
+		if bool(t["wants_signature"]):
+			_expect(float(t["signature_rooms"]) / float(t["rooms"]) >= RoomCapacity.SIGNATURE_MIN,
+				"only %d of %d %s rooms hold a signature prop %s" % [t["signature_rooms"], t["rooms"], type, RoomSizeProfiles.profile(type)["signature"]])
+	metrics = {"halls": halls, "tables": tables_total, "types": types_seen.size(), "capacity_rooms": capacity["rooms"]}
 	if _failures == 0:
 		print("  room_sizes  %d great halls with %d tables, every room inside its profile, seams agree" % [halls, tables_total])
+		print("  capacity    %d rooms of %d types hold their props under %.0f%% fill with %.0f%%+ of the free floor reachable" % [
+			capacity["rooms"], capacity["types"].size(), RoomCapacity.FILL_LIMIT * 100.0, RoomCapacity.REACH_MIN * 100.0])
 	return _failures
 
 

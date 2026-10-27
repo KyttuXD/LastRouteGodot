@@ -32,7 +32,11 @@ const LEVEL_ITEMS := [0, 5, 10, 15, 20]
 static func attach(game: Node, allowed: bool = Build.tools_enabled()) -> AdminMenu:
 	if not allowed:
 		return null
-	return AdminMenu.attach(game, func() -> String: return status(game), entries(game))
+	var menu := AdminMenu.attach(game, func() -> String: return status(game), entries(game))
+	if menu != null:
+		GameRegistry.active_game_id = "night_watch"
+		menu.apply_theme(NightWatchTheme.get_theme())   # Night Watch's look, not Last Route's
+	return menu
 
 
 static func status(game: Node) -> String:

@@ -107,6 +107,11 @@ var seed_text := ""
 ## True while this room is the shared PUBLIC route: no lobby, server-owned state.
 var public_route := false
 var mode: Mode = Mode.DEFAULT
+## A City run save queued by the City menu's CONTINUE; the run scene consumes it once (see CityRunSave).
+var pending_city_save: Dictionary = {}
+## City DAYTIME: the host's setting for the whole room (sky, lighting and how hunters see; see HunterVision). Only the
+## City reads it; other modes ignore it. Synced with the room (_receive_daytime) and saved with a City run.
+var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -131,6 +136,7 @@ var peers := {}
 const DEFAULT_PORT := 8421
 ## The persistent server-owned route (see PublicRoute).
 const PUBLIC_CODE := "PUBLC"
+const PUBLIC_CODE_CITY := "CTYPR"
 const CONNECTION_TIMEOUT_MSEC := 15_000
 const RECONNECT_GRACE_MSEC := 8_000
 const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000
@@ -191,6 +197,8 @@ func _exit_tree() -> void:
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
 	public_route = false
+	pending_city_save = {}
+	daytime = false
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -243,6 +251,24 @@ func prepare_route_checkpoint(checkpoint: Dictionary) -> String:
 	status_message = "CHECKPOINT READY // DEPTH %d" % int(checkpoint["depth"])
 	if not GameState.queue_route_checkpoint(checkpoint):
 		return "THE SAVED ROUTE CHECKPOINT COULD NOT BE PREPARED"
+	changed.emit()
+	return ""
+
+
+## Prepare a saved City run (the account's `games.city` checkpoint) as a fresh solo City room; the run scene applies the
+## queued values once. Returns an error message, or "" when the room is ready.
+func prepare_city_run(save: Dictionary) -> String:
+	if not CityRunSave.valid(save):
+		return "THE SAVED CITY RUN IS INVALID"
+	var saved_difficulty := String(save.get("difficulty_id", "standard"))
+	create_local(Mode.CITY)
+	seed_text = String(save.get("seed_text", seed_text))
+	for key in DIFFICULTY_IDS:
+		if DIFFICULTY_IDS[key] == saved_difficulty and difficulty_available(key):
+			difficulty = key as Difficulty
+	pending_city_save = save.duplicate(true)
+	daytime = bool(save.get("daytime", false))
+	status_message = "SAVED RUN READY // %s" % String(save.get("summary", ""))
 	changed.emit()
 	return ""
 
@@ -391,6 +417,7 @@ func _on_peer_connected(id: int) -> void:
 	# rather than asked about it.
 	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
+	_receive_daytime.rpc_id(id, daytime)
 	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
 	# A room remains joinable while a route is running. The new peer first gets
@@ -612,6 +639,30 @@ func broadcast() -> void:
 	if online and is_host:
 		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 			session_active)
+		_receive_daytime.rpc(daytime)
+
+
+## The host's City daytime flag (a separate small RPC so the room RPC's signature stays as it was).
+@rpc("authority", "call_remote", "reliable")
+func _receive_daytime(p_daytime: bool) -> void:
+	daytime = p_daytime
+	changed.emit()
+
+
+## City only: whether this room is in daytime. Last Route rooms are never day.
+func is_day() -> bool:
+	return mode == Mode.CITY and daytime
+
+
+## Host (or solo) toggles daytime before the run starts; guests see it through the room sync.
+func set_daytime(value: bool) -> void:
+	if online and not is_host:
+		return
+	if daytime == value:
+		return
+	daytime = value
+	broadcast()
+	changed.emit()
 
 
 func _local_name() -> String:
@@ -859,6 +910,7 @@ func enter(tree: SceneTree) -> void:
 	broadcast()
 	Backend.update_room(peers.size(), session_active)
 	if online:
+		_receive_daytime.rpc(daytime)
 		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
 	_enter_session_scene(tree)
 
@@ -903,6 +955,11 @@ func suppress_scene_transitions_for_tests() -> void:
 ## The game this room belongs to; sent with the directory registration and checked when a code is resolved.
 func game_id() -> String:
 	return GAME_CITY if mode == Mode.CITY else GAME_LAST_ROUTE
+
+
+## The always-open shared route code of a game (the backend keeps one public route per game id).
+func public_code() -> String:
+	return PUBLIC_CODE_CITY if mode == Mode.CITY else PUBLIC_CODE
 
 
 func is_city() -> bool:

@@ -158,6 +158,9 @@ const TIER_WEIGHTS := TIER_WEIGHTS_BY_DIFFICULTY["standard"]
 ## shows. Flip USE_BLOCKY to fall back to the older rigged models, and USE_SPRITES to show the flat
 ## 2D cutouts (A-Z only) instead of any 3D model.
 const USE_BLOCKY := true
+## Every humanoid hunter's model is drawn at this scale (1.5 = +50%): the body, the hit radius (GameConfig.HUNTER_RADIUS), the
+## view collider and the stride reference speeds all follow it. The tall model variants are gone: this is the one size knob.
+const MODEL_SCALE := 1.5
 const BLOCKY_DIR := "res://assets/hunters_blocky/"
 const USE_SPRITES := false
 const SPRITE_DIR := "res://assets/sprites/hunters/"
@@ -166,6 +169,11 @@ const SPRITE_DIR := "res://assets/sprites/hunters/"
 ## roll, seeded by the hunter's own spawn seed so every peer of a route agrees. Otherwise she is
 ## unarmed and uses the normal clips.
 const SCYTHE_CARRY_CHANCE := 0.125
+
+
+## Scale for one hunter's presentation: humanoid hunters take MODEL_SCALE, secret creature rigs keep their authored size.
+static func scale_for(id: String) -> float:
+	return 1.0 if SecretCreatures.uses_creature_rig(id) else MODEL_SCALE
 
 
 static func carries_scythe(spawn_seed_text: String) -> bool:

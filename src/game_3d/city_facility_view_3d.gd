@@ -18,17 +18,25 @@ const INTERIOR_LAMP_COLOR := Color(1.0, 0.74, 0.42)
 
 ## The City is five chunks wide and three deep: with radius 2 every chunk of it is resident from the spawn (the maze
 ## streams only the 3 x 3 around the runner, which here left the far end of every long street empty).
-const CITY_STREAM_RADIUS := 2
+const CITY_STREAM_RADIUS := 3
 
 var city_generator: CityRouteGenerator
 var _sky: CitySky
 var _dome_frame: CityDomeFrame
+var _ambience: CityAmbience
+var _rain: CityRain
+var _tram: CityTram
 
 
 func begin(seed_text: String, player: PlayerController3D,
 		state: StreamedWorldState = null) -> void:
 	clear()
-	city_generator = CityRouteGenerator.new(seed_text)
+	# Real places (OSM maps): a run on a real-world area injects its own layout; null for the generated City.
+	var prebuilt: CityLayout = null
+	var osm_run := "res://src/osm_city/osm_city_run.gd"
+	if ResourceLoader.exists(osm_run):
+		prebuilt = load(osm_run).layout_for(seed_text)
+	city_generator = CityRouteGenerator.new(seed_text, prebuilt)
 	generator = city_generator
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
@@ -38,6 +46,7 @@ func begin(seed_text: String, player: PlayerController3D,
 		player._yaw = PI
 		player._pitch = 0.0
 		player._apply_look_rotation()
+		player.add_to_group("city_door_agents")
 	_ensure_sky()
 	_apply_environment()
 	_refresh_stream(true)
@@ -95,8 +104,8 @@ func _refresh_stream(force: bool) -> void:
 func zone_name(world_position: Vector3) -> String:
 	if city_generator == null:
 		return ""
-	return city_generator.layout.zone_name(floori(world_position.x) + CityLayout.ORIGIN_OFFSET.x,
-		floori(world_position.z) + CityLayout.ORIGIN_OFFSET.y)
+	return city_generator.layout.zone_name(floori(world_position.x) + city_generator.layout.origin_offset.x,
+		floori(world_position.z) + city_generator.layout.origin_offset.y)
 
 
 ## The gate is an interactable (the lift kind) built from a "gate" pickup entity; every other pickup is the route's own.
@@ -128,10 +137,30 @@ func _ensure_sky() -> void:
 		_sky = CitySky.new()
 		_sky.name = "CitySky"
 		add_child(_sky)
+		_sky.set_day(RoomState.is_day())
+		CitySurface.set_day(RoomState.is_day())
 	if _dome_frame == null:
 		_dome_frame = CityDomeFrame.new()
 		_dome_frame.name = "CityDomeFrame"
 		add_child(_dome_frame)
+	# Life and sound: the sound bed, rain (a device setting) and the elevated trams. All visual/audio only.
+	if _ambience == null:
+		_ambience = CityAmbience.new()
+		_ambience.name = "CityAmbience"
+		_ambience.indoor_check = city_generator.is_indoor_route_position
+		_ambience.configure(tracked_player, Settings.city_rain, RoomState.is_day())
+		add_child(_ambience)
+	if _rain == null:
+		_rain = CityRain.new()
+		_rain.name = "CityRain"
+		_rain.indoor_check = city_generator.is_indoor_route_position
+		add_child(_rain)
+		_rain.set_raining(Settings.city_rain)
+	if _tram == null:
+		_tram = CityTram.new()
+		_tram.name = "CityTram"
+		_tram.layout = city_generator.layout
+		add_child(_tram)
 
 
 ## A dark night: the dome sky supplies the picture, the environment only the faint moonlit ambient. No post effects.
@@ -145,6 +174,19 @@ func _apply_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.20, 0.23, 0.42)
 	env.ambient_light_energy = 0.42
+	var sun := get_tree().root.find_child("RouteLight", true, false) as DirectionalLight3D
+	if RoomState.is_day():
+		# Daytime: a bright sky-coloured ambient and a warm sun with shadows, so building interiors (roofed) stay dim.
+		env.background_color = Color(0.55, 0.75, 0.95)
+		env.ambient_light_color = Color(0.62, 0.72, 0.90)
+		env.ambient_light_energy = 0.34
+		if sun != null:
+			sun.light_color = Color(1.0, 0.94, 0.8)
+			sun.light_energy = 1.35
+			sun.shadow_enabled = true
+			sun.directional_shadow_max_distance = 70.0
+	elif sun != null:
+		sun.light_energy = 0.10
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 
 
@@ -166,7 +208,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	var city: Dictionary = data.get("city", {})
 	return {
 		"coord": coord, "data": data, "root": root, "grid": grid, "surface": CitySurface.new(),
-		"kinds": city.get("kinds", PackedByteArray()), "origin": CityLayout.chunk_origin(coord),
+		"kinds": city.get("kinds", PackedByteArray()), "origin": city_generator.layout.chunk_origin_of(coord),
 		"safe": bool(data.get("safe_room", false)), "lamps": [], "props_body": StaticBody3D.new(),
 		"cell_index": 0, "phase": 0, "prop_index": 0, "fixture_index": 0, "pickup_index": 0,
 	}
@@ -263,15 +305,80 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 
 # ---------------------------------------------------------------- cells
 
+## Modern carriageway: asphalt with a dashed yellow centre line down the middle column of a road band, dashed white lane
+## lines on the other lane boundaries of a 5-wide carriageway, a solid edge line beside the kerb. The band is measured
+## from the cell's run of ROAD cells across each axis; the ring roads (curved) just get plain asphalt.
+func _road_tile(gx: int, gz: int, h: int) -> int:
+	var layout := city_generator.layout
+	var run_x := _road_run(layout, gx, gz, Vector2i(1, 0))
+	var run_z := _road_run(layout, gx, gz, Vector2i(0, 1))
+	# [first cell, length] of the shorter run = the road's cross-section
+	var r := layout.ellipse_r(gx, gz)
+	# The curved ring roads (downtown rim, suburb loop, roundabout circle) carry no markings: their cross-sections are
+	# not axis-aligned, so a dash tile would run the wrong way.
+	if r >= CityLayout.RING_PAVE_FROM and r < 1.0:
+		return CityAtlas.tile("asphalt")
+	if r >= 1.0 and CityLayout.band_t(gx, gz) >= CityLayout.SUBURB_TO - 0.02 and CityLayout.band_t(gx, gz) < CityLayout.FARM_FROM + 0.02:
+		return CityAtlas.tile("asphalt")
+	if Vector2(gx, gz).distance_to(Vector2(CityLayout.ROUNDABOUT_CENTER)) < 15.5:
+		return CityAtlas.tile("asphalt")
+	# A straight road is the axis whose run is shorter (the cross-section); markings run along the other axis.
+	var across: Array = run_x if run_x[1] <= run_z[1] else run_z
+	var along_x := across == run_z
+	var width: int = across[1]
+	var offset: int = (gz if along_x else gx) - int(across[0])
+	if width < 3 or width > 9 or run_x[1] == run_z[1]:
+		return CityAtlas.tile("asphalt")
+	if h < 3 and r < 1.0:
+		return CityAtlas.tile("petals")
+	var suffix := "_x" if along_x else ""
+	if offset == width / 2 and width % 2 == 1:
+		return CityAtlas.tile("asphalt_centre" + suffix)
+	if offset == 0 or offset == width - 1:
+		return CityAtlas.tile("asphalt_edge" + suffix)
+	if width >= 7 and (offset == 1 or offset == width - 2):
+		return CityAtlas.tile("asphalt_lane" + suffix)
+	return CityAtlas.tile("asphalt")
+
+
+## [start, length] of the contiguous ROAD run through (gx, gz) along `step` (at most 12 cells each way).
+static func _road_run(layout: CityLayout, gx: int, gz: int, step: Vector2i) -> Array:
+	var lo := Vector2i(gx, gz)
+	var hi := Vector2i(gx, gz)
+	for _i in 12:
+		var next := lo - step
+		if layout.kind_at(next.x, next.y) != CityLayout.ROAD:
+			break
+		lo = next
+	for _i in 12:
+		var next := hi + step
+		if layout.kind_at(next.x, next.y) != CityLayout.ROAD:
+			break
+		hi = next
+	var length := (hi.x - lo.x if step.x != 0 else hi.y - lo.y) + 1
+	return [lo.x if step.x != 0 else lo.y, length]
+
+
 func _floor_tile(kind: int, gx: int, gz: int) -> int:
 	var h := absi(hash(Vector2i(gx, gz))) % 100
 	match kind:
 		CityLayout.ROAD:
-			if h < 7:
-				return CityAtlas.tile("petals")
-			return CityAtlas.tile("cobble_wet") if h < 62 else CityAtlas.tile("cobble")
+			return _road_tile(gx, gz, h)
 		CityLayout.PAVE:
-			return CityAtlas.tile("petals") if h < 4 else CityAtlas.tile("sidewalk")
+			# A kerb where the pavement meets the carriageway, plain sidewalk otherwise.
+			var layout := city_generator.layout
+			for dir_value in CitySurface.FACE_DIRS:
+				var dir: Vector2i = dir_value
+				if layout.kind_at(gx + dir.x, gz + dir.y) == CityLayout.ROAD:
+					return CityAtlas.tile("kerb")
+			return CityAtlas.tile("petals") if h < 4 and layout.ellipse_r(gx, gz) < 1.0 else CityAtlas.tile("sidewalk")
+		CityLayout.FIELD:
+			var band := int(floor((float(gx) + float(gz) * 0.35) / 7.0))
+			return CityAtlas.tile("crop_a" if band % 2 == 0 else "crop_b") if (gx + gz) % 2 == 0 else CityAtlas.tile("soil")
+		CityLayout.DIRT:
+			return CityAtlas.tile("dirt")
+		CityLayout.GRAVEL:
+			return CityAtlas.tile("gravel")
 		CityLayout.PLAZA, CityLayout.POST:
 			return CityAtlas.tile("plaza") if kind == CityLayout.PLAZA else CityAtlas.tile("sidewalk")
 		CityLayout.GRASS:
@@ -306,6 +413,17 @@ func _facade_tile(style: String, pier: int, y: int, top: int, salt: int) -> int:
 	var storey := (y - 1) % 4
 	var h := absi(hash(Vector3i(pier, (y - storey) / 4, salt))) % 100
 	match style:
+		"house":
+			if y == top - 1:
+				return CityAtlas.tile("house_roof")
+			var window := pier % 3 == 1 and storey <= 1 and y >= 1 and y <= 4
+			if window:
+				return CityAtlas.tile("win_lit_bot" if h < 50 else "win_dark_bot") if y % 2 == 1 else CityAtlas.tile("win_lit_top" if h < 50 else "win_dark_top")
+			return CityAtlas.tile("house_wall")
+		"barn":
+			if y == top - 1:
+				return CityAtlas.tile("stone_dark")
+			return CityAtlas.tile("barn_red")
 		"civic":
 			if pier % 4 == 1 and storey == 0:
 				return CityAtlas.tile("civic_arch_bot")
@@ -323,7 +441,7 @@ func _facade_tile(style: String, pier: int, y: int, top: int, salt: int) -> int:
 			if window and storey <= 1:
 				var variant := "win_lit" if h < 34 else ("win_cyan" if h < 44 else "win_dark")
 				return CityAtlas.tile("%s_%s" % [variant, "bot" if storey == 0 else "top"])
-			return CityAtlas.tile(["brick_a", "brick_b", "brick_c"][h % 3])
+			return CityFacadeDetails.base_tile(CityFacadeDetails.variant_of(salt), y, h)
 
 
 func _build_city_cell(build: Dictionary, index: int) -> void:
@@ -431,8 +549,10 @@ func _build_facade_cell(surface: CitySurface, layout: CityLayout, x: int, z: int
 		var pier := gx if dir.y != 0 else gz
 		for y in range(span.x, span.y):
 			surface.wall_face(x, z, dir, y, y + 1, _facade_tile(style, pier, y, top, salt))
+		if style == "brick" and span.x == 0 and CityLayout.OUTDOOR_KINDS.has(neighbour):
+			CityFacadeDetails.add_face(surface, building, dir, x, z, pier, top, salt)
 	# a roof, so the tower is a closed box from above and from the open sky
-	surface.top_quad(x, z, float(top), CityAtlas.tile("kiosk_roof"))
+	surface.top_quad(x, z, float(top), CityAtlas.tile("house_roof" if style == "house" else ("stone_dark" if style == "barn" else "kiosk_roof")))
 
 
 ## Rows [from, to) of a facade face toward the neighbour at `dir`: empty when the neighbour is a solid mass at least as
@@ -463,6 +583,10 @@ func _build_door_cell(surface: CitySurface, layout: CityLayout, x: int, z: int, 
 	var top := int(height)
 	var salt := absi(hash(String(building.get("id", "K"))))
 	surface.ceiling_quad(x, z, DOOR_HEIGHT, CityAtlas.tile("stone_dark"))
+	if not kiosk:
+		# A low stone threshold across the doorway (visual only; the floor collider stays flat).
+		surface.box(Vector3(x, 0, z), Vector3(1, .1, 1), CityAtlas.tile("stone_base"), CityAtlas.tile("stone_dark"))
+		_build_door_frame(surface, layout, building, x, z, gx, gz)
 	for dir_value in CitySurface.FACE_DIRS:
 		var dir: Vector2i = dir_value
 		var neighbour := layout.kind_at(gx + dir.x, gz + dir.y)
@@ -473,6 +597,45 @@ func _build_door_cell(surface: CitySurface, layout: CityLayout, x: int, z: int, 
 				surface.wall_face(x, z, dir, y, y + 1, tile)
 		elif neighbour == CityLayout.FLOOR or neighbour == CityLayout.KIOSK_FLOOR:
 			surface.wall_face(x, z, dir, DOOR_HEIGHT, CITY_CEILING, CityAtlas.tile("plaster"))
+
+
+## The doorway's dressing on the street side: a jamb post at each end of the two-cell opening, a lit lintel strip and a
+## sign plate above it. Visual only; the opening itself stays clear (see CityDoor for the leaves).
+func _build_door_frame(surface: CitySurface, layout: CityLayout, building: Dictionary, x: int, z: int, gx: int, gz: int) -> void:
+	var out := Vector2i.ZERO
+	for dir_value in CitySurface.FACE_DIRS:
+		var dir: Vector2i = dir_value
+		if CityLayout.OUTDOOR_KINDS.has(layout.kind_at(gx + dir.x, gz + dir.y)):
+			out = dir
+	if out == Vector2i.ZERO:
+		return
+	var along := Vector2i(absi(out.y), absi(out.x))
+	var metal := CityAtlas.tile("fire_escape")
+	for sign in [-1, 1]:
+		var neighbour := Vector2i(gx, gz) + along * int(sign)
+		if layout.kind_at(neighbour.x, neighbour.y) != CityLayout.WALL:
+			continue
+		var side_w := .16
+		var toward_high := int(sign) > 0
+		if out.y != 0:
+			var x0 := x + (1.0 - side_w if toward_high else 0.0)
+			var z0 := z + 1.0 if out.y > 0 else z - .12
+			surface.box(Vector3(x0, 0, z0), Vector3(side_w, 3.0, .12), metal)
+		else:
+			var z0 := z + (1.0 - side_w if toward_high else 0.0)
+			var x0 := x + 1.0 if out.x > 0 else x - .12
+			surface.box(Vector3(x0, 0, z0), Vector3(.12, 3.0, side_w), metal)
+	CityFacadeDetails._protrude(surface, x, z, out, 3.0, .1, .12, 1.0, CityAtlas.tile("cyan_lamp"))
+	var kind := String(building.get("kind", ""))
+	var sign_tile := "neon_sign"
+	match CityDoor.style_for(kind):
+		"civic":
+			sign_tile = "awning_red"
+		"wood":
+			sign_tile = "awning_teal"
+		"steel":
+			sign_tile = "stone_dark"
+	CityFacadeDetails._protrude(surface, x, z, out, 3.2, .55, .14, .96, CityAtlas.tile(sign_tile))
 
 
 # ---------------------------------------------------------------- street furniture and lights
@@ -487,6 +650,7 @@ func _build_city_decor(build: Dictionary) -> void:
 		var entry: Dictionary = entry_value
 		var cell: Vector2i = entry["cell"]
 		_add_decor(build["props_body"] as StaticBody3D, surface, root, lamps, String(entry["type"]), cell, float(entry["yaw"]))
+	_build_city_doors(build)
 	# One warm lamp inside every building whose middle lies in this chunk.
 	for building_value in city.get("buildings", []):
 		var building: Dictionary = building_value
@@ -495,6 +659,40 @@ func _build_city_decor(build: Dictionary) -> void:
 		if middle.x < 1 or middle.y < 1 or middle.x > 43 or middle.y > 43:
 			continue
 		lamps.append([root.position + Vector3(middle.x + .5, 3.3, middle.y + .5), INTERIOR_LAMP_COLOR, .9, 0, 6.5])
+		if String(building["style"]) == "brick":
+			CityFacadeDetails.add_roof(surface, building, absi(hash(String(building["id"]))))
+
+
+## One CityDoor per doorway (the doors list holds each doorway's two cells), standing in the wall plane.
+func _build_city_doors(build: Dictionary) -> void:
+	var root := build["root"] as Node3D
+	var city: Dictionary = (build["data"] as Dictionary).get("city", {})
+	for building_value in city.get("buildings", []):
+		var building: Dictionary = building_value
+		var rect: Rect2i = building["rect"]
+		var doors: Array = building["doors"]
+		for index in range(0, doors.size() - 1, 2):
+			var first: Vector2i = doors[index]
+			var second: Vector2i = doors[index + 1]
+			var out := Vector2i.ZERO
+			if first.y == rect.position.y:
+				out = Vector2i(0, -1)
+			elif first.y == rect.end.y - 1:
+				out = Vector2i(0, 1)
+			elif first.x == rect.position.x:
+				out = Vector2i(-1, 0)
+			else:
+				out = Vector2i(1, 0)
+			if first.x < 0 or first.y < 0 or first.x >= StreamedRouteGenerator.CHUNK_SIZE or first.y >= StreamedRouteGenerator.CHUNK_SIZE:
+				continue   # the neighbouring chunk that holds the doorway builds it
+			var door := CityDoor.new()
+			door.name = "Door_%s_%d" % [building["id"], index / 2]
+			door.style = CityDoor.style_for(String(building["kind"]))
+			var centre := Vector2(first + second) * .5 + Vector2(.5, .5)
+			door.position = Vector3(centre.x, 0, centre.y)
+			# Local +z points out to the street, local +x along the facade.
+			door.rotation.y = atan2(float(out.x), float(out.y))
+			root.add_child(door)
 
 
 func _add_decor_collider(body: StaticBody3D, type: String, cell: Vector2i, yaw: float) -> void:
@@ -524,7 +722,7 @@ func _add_decor(build_body: StaticBody3D, surface: CitySurface, root: Node3D, la
 			surface.box(Vector3(cx - .06 + arm.x * .5, 3.0, cz - .06 + arm.z * .5), Vector3(.12 + absf(arm.x), .1, .12 + absf(arm.z)), pole)
 			surface.box(Vector3(cx + arm.x - .14, 2.98, cz + arm.z - .14), Vector3(.28, .46, .28), CityAtlas.tile("lantern"))
 			surface.box(Vector3(cx + arm.x - .18, 3.44, cz + arm.z - .18), Vector3(.36, .07, .36), pole)
-			lamps.append([root.position + Vector3(cx + arm.x, 3.2, cz + arm.z), LAMP_COLOR, 1.0, 0, 7.5])
+			lamps.append([root.position + Vector3(cx + arm.x, 3.2, cz + arm.z), LAMP_COLOR, 0.0 if RoomState.is_day() else 1.0, 0, 7.5])
 		"tree":
 			surface.box(Vector3(cx - .14, 0, cz - .14), Vector3(.28, 2.7, .28), CityAtlas.tile("trunk"))
 			surface.box(Vector3(cx - .85, 2.5, cz - .85), Vector3(1.7, .9, 1.7), CityAtlas.tile("blossom"))
@@ -560,4 +758,4 @@ func _add_decor(build_body: StaticBody3D, surface: CitySurface, root: Node3D, la
 			surface.box(Vector3(cx - .3, 3.05, cz - .3), Vector3(.6, .6, .6), stone)
 			surface.box(Vector3(cx + .45, 1.9, cz - .2), Vector3(.22, 1.2, .4), stone)
 		_:
-			pass
+			CityProps.add(type, surface, root, lamps, cx, cz, yaw)
