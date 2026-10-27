@@ -52,6 +52,18 @@ func _ready() -> void:
 	await _shot(out + "/feed_westhall.png", 10)
 	game.select_camera("stage")
 	await _shot(out + "/feed_stage.png", 10)
+	# walking: the sim moves Dovelle from the dining area into the west hall; her model walks the doorway, it is not placed
+	game.manual_clock = false
+	dovelle.room = "dining"
+	game._place_hunters()
+	game._animate_models(0.016)
+	dovelle.room = "westhall"
+	game._place_hunters()
+	game.select_camera("dining")
+	for i in 14:
+		game._animate_models(0.1)
+	await _shot(out + "/walk_mid.png", 3)
+	game.manual_clock = true
 	game.close_monitor()
 	game.sim.power = 0.0
 	game.advance_ms(100.0)

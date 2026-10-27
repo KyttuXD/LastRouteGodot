@@ -55,15 +55,61 @@ func _group(room: Node3D, id: String, prop_name: String, pos := Vector3.ZERO) ->
 	return node
 
 
+## Rooms that have a doorway in their north / west / east wall: the hunters walk through them (NightWatchPaths). The south side of
+## every room is open to the lane the feed cameras look across.
+const DOORWAYS := {
+	"N": ["dining", "westhall", "closet", "corner"],
+	"W": ["stage", "dining", "easthall"],
+	"E": ["backstage", "westhall", "dining"],
+}
+const DOOR_GAP := 1.8
+const DOOR_TOP := 2.5
+
+var wall_boxes := []   # [{room, rect: Rect2 on the XZ plane (world), name}] for the path validator
+
+
+func has_doorway(side: String, id: String) -> bool:
+	return (DOORWAYS.get(side, []) as Array).has(id)
+
+
+## One wall of a room: a single slab, or two slabs and a lintel around a doorway.
+func _wall(shell: Node3D, side: String, id: String, tint: Color) -> void:
+	var half := ROOM_W * 0.5
+	var along_x := side == "N"
+	var centre := Vector3(0, ROOM_H * 0.5, -half) if side == "N" else Vector3(-half if side == "W" else half, ROOM_H * 0.5, 0)
+	var thick := 0.2
+	var wname := "Wall" + side
+	if not has_doorway(side, id):
+		_c(shell, Vector3(ROOM_W, ROOM_H, thick) if along_x else Vector3(thick, ROOM_H, ROOM_W), centre, wname, {"tint": tint})
+		_record_wall(shell, centre, ROOM_W, thick, along_x, wname)
+		return
+	var seg := (ROOM_W - DOOR_GAP) * 0.5
+	var off := DOOR_GAP * 0.5 + seg * 0.5
+	for sign in [-1.0, 1.0]:
+		var c := centre + (Vector3(sign * off, 0, 0) if along_x else Vector3(0, 0, sign * off))
+		_c(shell, Vector3(seg, ROOM_H, thick) if along_x else Vector3(thick, ROOM_H, seg), c, wname if sign < 0 else wname + "2", {"tint": tint})
+		_record_wall(shell, c, seg, thick, along_x, wname)
+	var lintel_h := ROOM_H - DOOR_TOP
+	var lc := Vector3(centre.x, DOOR_TOP + lintel_h * 0.5, centre.z)
+	_c(shell, Vector3(DOOR_GAP, lintel_h, thick) if along_x else Vector3(thick, lintel_h, DOOR_GAP), lc, wname + "Lintel", {"tint": tint * Color(0.9, 0.9, 0.9)})
+
+
+func _record_wall(shell: Node3D, local_centre: Vector3, length: float, thick: float, along_x: bool, wname: String) -> void:
+	var room := shell.get_parent() as Node3D
+	var c := room.position + local_centre
+	var size := Vector2(length, thick) if along_x else Vector2(thick, length)
+	wall_boxes.append({"room": room.name, "name": wname, "rect": Rect2(Vector2(c.x, c.z) - size * 0.5, size)})
+
+
 func _build_room(room: Node3D, id: String, tint: Color) -> void:
 	var half := ROOM_W * 0.5
 	var shell := _group(room, id, "Shell")
 	# floor tiles, ceiling, three walls (the south side is open toward the camera side so the feed sees in)
 	_c(shell, Vector3(ROOM_W, 0.2, ROOM_W), Vector3(0, -0.1, 0), "Floor", {"tint": tint * Color(0.95, 0.95, 0.95)})
 	_c(shell, Vector3(ROOM_W, 0.2, ROOM_W), Vector3(0, ROOM_H + 0.1, 0), "Ceiling", {"tint": tint * Color(0.6, 0.6, 0.6)})
-	_c(shell, Vector3(ROOM_W, ROOM_H, 0.2), Vector3(0, ROOM_H * 0.5, -half), "WallN", {"tint": tint})
-	_c(shell, Vector3(0.2, ROOM_H, ROOM_W), Vector3(-half, ROOM_H * 0.5, 0), "WallW", {"tint": tint * Color(1.05, 1.05, 1.05)})
-	_c(shell, Vector3(0.2, ROOM_H, ROOM_W), Vector3(half, ROOM_H * 0.5, 0), "WallE", {"tint": tint * Color(1.05, 1.05, 1.05)})
+	_wall(shell, "N", id, tint)
+	_wall(shell, "W", id, tint * Color(1.05, 1.05, 1.05))
+	_wall(shell, "E", id, tint * Color(1.05, 1.05, 1.05))
 	# baseboards, a crown strip, vertical panel lines, a ceiling pipe, a lit ceiling panel, a floor stripe
 	_c(shell, Vector3(ROOM_W, 0.24, 0.08), Vector3(0, 0.12, -half + 0.14), "Baseboard", {"tint": Color(0.7, 0.7, 0.75)})
 	for sx in [-half + 0.14, half - 0.14]:

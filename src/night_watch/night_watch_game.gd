@@ -31,6 +31,8 @@ var monitor_room := "stage"
 var last_death := {}
 
 var _models := {}
+var paths: NightWatchPaths
+var _walkers := {}   # hunter id -> NightWatchWalker
 var _players := {}
 var _flinch_left := {}
 var lamp_on := true
@@ -45,6 +47,7 @@ func _ready() -> void:
 	_build_world()
 	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels)
 	_spawn_hunters()
+	paths = NightWatchPaths.new(building, office)
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.queue_call(NightWatchData.call_lines(night))
@@ -340,7 +343,21 @@ func _place_hunters() -> void:
 		else:
 			pos = building.stand_position(hunter.room, mini(slot, 1))
 			face = building.camera_transform(hunter.room).origin
-		_set_model_pose(model, pos, face)
+		var walker := _walkers.get(id) as NightWatchWalker
+		if walker == null:
+			walker = NightWatchWalker.new()
+			_walkers[id] = walker
+			walker.place(pos, pos, face, hunter.room)
+		elif manual_clock:
+			walker.place(pos, pos, face, hunter.room)
+		elif walker.room != hunter.room:
+			walker.go(paths.legs_from(walker.pos, hunter.room), hunter.room, pos)
+			walker.look = face
+		else:
+			walker.final = pos
+			walker.look = face
+		model.position = walker.pos
+		model.rotation.y = walker.yaw
 	# Nyxie: only in the dark, creeping in from the left hall toward the desk over the blackout
 	var nyxie := _models["nyxie"] as Node3D
 	nyxie.visible = sim.out and sim.nyxie_level > 0
@@ -364,9 +381,21 @@ func _animate_models(delta: float) -> void:
 		_flinch_left[id] = float(_flinch_left[id]) - delta
 		if float(_flinch_left[id]) <= 0.0:
 			_flinch_left.erase(id)
+	for id in _walkers:
+		var walker := _walkers[id] as NightWatchWalker
+		if not manual_clock:
+			walker.step(delta)
+		var model := _models[id] as Node3D
+		model.position = walker.pos
+		model.rotation.y = walker.yaw
 	for id in _players:
 		var player := _players[id] as AnimationPlayer
-		var clip := "stun" if _flinch_left.has(id) else "idle"
+		var walker := _walkers.get(id) as NightWatchWalker
+		var clip := "idle"
+		if _flinch_left.has(id):
+			clip = "stun"
+		elif walker != null and walker.moving:
+			clip = "sprint" if walker.running and player.has_animation("sprint") else "walk"
 		if player.has_animation(clip) and player.current_animation != clip:
 			player.play(clip)
 	if state == State.PLAYING and not manual_clock:

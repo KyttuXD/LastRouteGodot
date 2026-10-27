@@ -417,6 +417,7 @@ func run(host: Node) -> int:
 		"the shift board does not follow the save")
 	_expect(menu.start_button != null and menu.start_button.text.begins_with("▶ START SHIFT"), "the board has no START SHIFT")
 	menu.queue_free()
+	await _check_walking(host)
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT), "the door light actions stayed registered after the shift closed")
 	NightWatchSession.start(1)
 	NightWatchSave.reset()
@@ -425,3 +426,84 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  night_watch  rules port (2D numbers, determinism, doors, lights, cameras, power, blackout) and the shift scene (office, feeds, hunters, win, loss, saves, menu)")
 	return _failures
+
+
+
+## Hunters walk: routes exist between every pair of rooms and doors, never cross a wall, never jump except from the hall to the office, and a hunter the
+## sim moves keeps to walking pace on screen (she is not placed in the new room).
+func _check_walking(host: Node) -> void:
+	NightWatchSession.start(3, 99)
+	var shift := (load("res://scenes/night_watch.tscn") as PackedScene).instantiate() as NightWatchGame
+	host.add_child(shift)
+	await host.get_tree().process_frame
+	var paths := shift.paths
+	var rooms := NightWatchData.GRAPH.keys()
+	var walls: Array = shift.building.wall_boxes
+	var bad_wall := 0
+	var bad_jump := 0
+	var missing := 0
+	for a in rooms:
+		for b in rooms:
+			if a == b:
+				continue
+			var legs: Array = paths.legs_for(String(a), String(b))
+			if legs.size() < 2:
+				missing += 1
+				continue
+			for i in range(1, legs.size()):
+				if bool(legs[i]["jump"]):
+					var ok: bool = String(legs[i]["key"]).begins_with("DO:") or String(legs[i - 1]["key"]).begins_with("DO:")
+					if not ok:
+						bad_jump += 1
+					continue
+				var p0: Vector3 = legs[i - 1]["p"]
+				var p1: Vector3 = legs[i]["p"]
+				var n := int(ceil(p0.distance_to(p1) / 0.1))
+				for k in range(1, n):
+					var q := p0.lerp(p1, float(k) / float(n))
+					for w in walls:
+						if (w["rect"] as Rect2).has_point(Vector2(q.x, q.z)):
+							bad_wall += 1
+	_expect(missing == 0, "%d room pairs have no walking route" % missing)
+	_expect(bad_wall == 0, "walking routes cross walls at %d points" % bad_wall)
+	_expect(bad_jump == 0, "%d route legs jump other than from the hall to the office" % bad_jump)
+	_expect(NightWatchPaths.walked_length(paths.legs_for("stage", "dining")) > 4.0, "stage to dining is not a walk")
+	var kitchen: Array = paths.legs_for("kitchen", "dining")
+	var via_lane := false
+	for leg in kitchen:
+		if String(leg["key"]).begins_with("L:"):
+			via_lane = true
+	_expect(via_lane, "the kitchen route does not go out through the lane")
+	# a walker keeps to a pace: no step longer than the run speed allows (jumps excepted)
+	var w := NightWatchWalker.new()
+	var legs2: Array = paths.legs_for("stage", "westhall")
+	var start: Vector3 = legs2[0]["p"]
+	var goal := shift.building.stand_position("westhall", 0)
+	w.place(start, goal, goal, "stage")
+	w.go(legs2, "westhall", goal)
+	var longest := 0.0
+	var steps := 0
+	var last := w.pos
+	while (w.is_walking() or w.pos.distance_to(goal) > 0.05) and steps < 2000:
+		w.step(0.05)
+		steps += 1
+		longest = maxf(longest, w.pos.distance_to(last))
+		last = w.pos
+	_expect(steps < 2000 and w.pos.distance_to(goal) <= 0.05, "the walker never reached her room")
+	_expect(longest <= NightWatchWalker.RUN_SPEED * 0.05 + 0.01, "the walker moved %.2f m in one 0.05 s step" % longest)
+	# in the scene: the sim moves Dovelle two rooms away and her model walks, it is not placed
+	shift.manual_clock = false
+	var dovelle := shift.sim.hunters["dovelle"] as NightWatchStalker
+	dovelle.room = "stage"
+	shift._place_hunters()
+	var model := shift._models["dovelle"] as Node3D
+	var from_pos := model.position
+	dovelle.room = "westhall"
+	shift._place_hunters()
+	shift._animate_models(0.1)
+	_expect(model.position.distance_to(from_pos) < 1.5, "Dovelle was placed in the next room instead of walking there")
+	for i in 80:
+		shift._animate_models(0.1)
+	_expect(model.position.distance_to(shift.building.stand_position("westhall", 0)) < 1.6, "Dovelle did not arrive in the west hall")
+	shift.queue_free()
+	await host.get_tree().process_frame

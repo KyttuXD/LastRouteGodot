@@ -145,3 +145,16 @@ Validators: the player scene equals the route's, the prompt style equals the rou
 3. Which mode after Classic: Mixed Shift (a director and many threats), Bedtime (the audio-first one) or Masked Hours?
 4. Keep the 45 s per hour night length, or longer in 3D?
 5. Hunter art at doors: keep the blocky models or give Night Watch its own looming pose set?
+
+## 5d. Hunters walk (pathfinding instead of teleporting)
+
+The rules still move a hunter from room to room as a step, but she is no longer placed in the new room: `NightWatchPaths`
+(`src/night_watch/night_watch_paths.gd`) holds a waypoint graph over the building (each room's centre, its open south mouth and the lane
+outside it, plus doorway links) searched with AStar3D, and `NightWatchWalker` walks her along the route at a walking pace (a run when the
+sim gives her a short window, within about two seconds), playing the rig's walk/sprint clip and facing where she goes. The building's
+rooms have real doorways in the shared walls (`NightWatchBuilding.DOORWAYS`). The two office doors hang off the halls: the leg from
+the hall to the point down the office hall is the only jump (out of sight, in the dark); she walks the rest. Validators check that every
+pair of rooms is connected, no walked segment crosses a wall, the only jumps are hall to office, a walker never exceeds the run
+speed in a step, and a hunter the sim moves is not placed in the new room.
+
+![Dovelle walking through the dining area on camera 2](night_watch_walk.png)
