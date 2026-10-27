@@ -1307,6 +1307,7 @@ func run(host: Node) -> int:
 				StreamedRouteGenerator.CHUNK_SIZE * 20, 0.0, 0.0)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
+			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
 			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 				"long-distance hunter unload leaked streamed chunks")
 			player.global_position = Vector3(
@@ -1333,6 +1334,7 @@ func run(host: Node) -> int:
 				(hunter_coord.z - 2 - step * 2) * StreamedRouteGenerator.CHUNK_SIZE + chunk_center)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
+			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
 			# nine on the runner's level, plus the sewer chunk below when it has a ladder
 			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 				"long-session stream exceeded its nine-chunk window at step %d" % step)
@@ -1369,6 +1371,7 @@ func run(host: Node) -> int:
 			"live stream did not follow the runner into the lower prison region")
 		_expect(not host.get_tree().get_nodes_in_group("streamed_prison_prop").is_empty(),
 			"live prison chunk contains no authored prison models")
+		await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
 		_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
 			"moving far away leaked old streamed chunks instead of evicting them")
 		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
@@ -1447,3 +1450,10 @@ func run(host: Node) -> int:
 		print("  renderer  bounded collidable stream, vertical flights and regional art load")
 		print("streamed_world OK")
 	return _failures
+
+
+func _await_stream(host: Node, facility: StreamedFacilityView3D) -> void:
+	for _i in 900:
+		if not facility.is_streaming():
+			return
+		await host.get_tree().process_frame
