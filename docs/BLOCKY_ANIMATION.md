@@ -67,3 +67,10 @@ personal ones; `emotes.json` lists them with the catalog face. Built in `hunters
   in every emote automatically.
 * `check_gaps.py` now also checks every emote (and `--all` lists each pose over the plug limit); a few existing emotes (bow, smash,
   tilt) were over it and were trimmed. Validator: `_check_catalog_emotes` (clips present, one-shot, catalog length/face, moving ones keep leg tracks).
+
+## Mesh LODs (hands vanish, stripes smear)
+
+The glb imports must keep `meshes/generate_lods=false`. With generated LODs on, a viewport with a high LOD threshold (low-res or
+scaled 3D, as in the game) decimates the cube meshes: hands/forearms disappear, wolf-ear tips are cut and striped socks turn into
+flat blocks. It looked like a UV bug. Repro: `HUNTERS=verrine HUNTER_STATE=walk CAM_DIST=8 LOD=3000 godot --path . res://tools/look/hunter_check.tscn -- out.png`
+(`LOD=` sets `Viewport.mesh_lod_threshold`, `CAM_YAW=` orbits the camera). `validate blocky` fails if any import turns LODs on again.

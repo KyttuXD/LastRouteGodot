@@ -70,6 +70,7 @@ func run(host: Node) -> int:
 				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
 		_check_catalog_emotes(id, node, listed)
 		_check_uv_mapping(id, node)
+		_check_no_generated_lods(path)
 		if id.begins_with("void_"):
 			for cue in VOID_CUES.get(id, []):
 				if node.find_child(cue, true, false) == null:
@@ -205,6 +206,14 @@ const UV_BASE_REGIONS := {
 	"R-Thigh": Rect2(0, 16, 16, 16), "R-Calf": Rect2(0, 16, 16, 16), "R-Foot": Rect2(0, 16, 16, 16),
 	"L-Thigh": Rect2(16, 48, 16, 16), "L-Calf": Rect2(16, 48, 16, 16), "L-Foot": Rect2(16, 48, 16, 16),
 }
+## Godot's generated mesh LODs decimate these few-hundred-triangle cube meshes once a viewport's LOD threshold is high
+## (low-res / scaled 3D): hands and forearms vanish, ear tips are cut and leg stripes smear. The imports must not make any.
+func _check_no_generated_lods(path: String) -> void:
+	var config := ConfigFile.new()
+	if config.load(path + ".import") == OK and bool(config.get_value("params", "meshes/generate_lods", false)):
+		_fail("%s imports with meshes/generate_lods=true (hunter hands/limbs vanish at distance)" % path)
+
+
 const UV_PLUG_TRIS := 24   # joint-plug triangles per part that may sample outside the part's own region
 
 
