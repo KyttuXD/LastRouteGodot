@@ -1,0 +1,61 @@
+{
+ "hitbox": {
+  "min_m": [
+   -1.734,
+   0.0,
+   -1.56
+  ],
+  "max_m": [
+   1.734,
+   2.03,
+   1.908
+  ]
+ },
+ "source": "tools/city/white_wolf_spider.bbmodel",
+ "scale": 0.035,
+ "bytes": 265908,
+ "triangles": 1080,
+ "nodes": 38,
+ "meshes": 36,
+ "skipped_hidden_cubes": [
+  "hitbox"
+ ],
+ "clips": {
+  "walk": {
+   "length": 1.2,
+   "loop": true,
+   "tracks": 37,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "idle": {
+   "length": 4.0,
+   "loop": true,
+   "tracks": 37,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "bark": {
+   "length": 0.9,
+   "loop": false,
+   "tracks": 19,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "sprint": {
+   "length": 0.6,
+   "loop": true,
+   "tracks": 37,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "attack": {
+   "length": 1.1,
+   "loop": false,
+   "tracks": 37,
+   "loop_closure_error_deg_or_units": 0.0
+  },
+  "death": {
+   "length": 2.6,
+   "loop": false,
+   "tracks": 37,
+   "loop_closure_error_deg_or_units": 0.0
+  }
+ }
+}

@@ -16,7 +16,7 @@ extends Node
 const SUITES := ["room", "player", "body", "pause", "maze", "admin", "layout",
 	"run_report", "sync", "roster", "hunters", "sprites",
 	"blocky", "custom_map", "streamed_world", "props", "player_effects", "audio", "saves",
-	"story", "hunter_emotes", "player_model", "hallways", "hud_overlap", "coplanar", "hunter_nav", "hunter_real", "hunter_parity", "death_lines", "hub", "furniture", "props_rework", "prop_perf", "lods", "collision", "colliders", "app_name", "room_sizes", "button_contrast", "account_hub", "connectivity", "controls", "density", "humps", "account_session", "admin_layout", "night_watch", "night_watch_menus", "night_watch_modes", "night_watch_calls", "city", "city_nav"]
+	"story", "hunter_emotes", "player_model", "hallways", "hud_overlap", "coplanar", "hunter_nav", "hunter_real", "hunter_parity", "death_lines", "hub", "furniture", "props_rework", "prop_perf", "lods", "collision", "colliders", "app_name", "room_sizes", "button_contrast", "account_hub", "connectivity", "controls", "density", "humps", "account_session", "admin_layout", "night_watch", "night_watch_menus", "night_watch_modes", "night_watch_calls", "city", "city_nav", "secret_creature"]
 
 
 func _ready() -> void:
