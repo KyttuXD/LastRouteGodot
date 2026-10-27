@@ -87,3 +87,16 @@ with the camera keys (`Left / Right or 1-8 camera · Space or E close · R mute`
 background hint line and CAMERAS button are hidden while the screen is up. `night_watch_keys` checks it at 480x270, 1280x720 and 1920x1080 (inside the screen, clear of the picture / map / labels, focusable,
 clickable, names the key, follows a rebind).
 ![camera screen](night_watch_ui/camera_screen_close_guide.png)
+
+### The camera map (minimap), data-driven for every mode
+
+`NightWatchCamMap` (`src/night_watch/night_watch_cam_map.gd`) draws the camera screen's minimap in the style of the 2D game's cam map and FNAF's tablet: a schematic floor plan in the corner, a **CAM n** button at the
+position of every camera room, the active camera lit (amber), the routes between rooms as lines (vent shafts dashed), and a **YOU** marker with dashed lines from the entrances. It is built from the mode's layout
+(`NightWatchMapRegistry.layout_for(mode)`): positions come from the layout's room centres (scaled into the box, buttons pushed apart or, if too crowded, packed on a grid), so each mode's map is its own. The HUD
+takes it with `hud.set_cam_layout(layout)` (Classic's by default); the feed label ("CAM 4  WEST HALL"), the highlight (`set_cam`) and `camera_selected` all come from it. Fixed-size slots keep a button inside its box whatever the theme does.
+![Classic camera map](night_watch_ui/camera_map_classic.png)
+
+**What a mode supplies** in its `map_layout()` (see `docs/NIGHT_WATCH_OFFICES.md`, Maps): `rooms` {id: Vector3 centre}, `edges`, `entrances`, plus for the camera screen `cams` (camera rooms in order; camera n is `cams[n-1]`),
+`labels` {room: name}, `vents` (vent-shaft room ids; optional) and `office` (optional). A mode with a monitor must give `cams` and `labels`, and call `hud.set_cam_layout(NightWatchMapRegistry.layout_for(mode_id))`
+instead of building its own buttons. Suite `night_watch_cammap` checks every provided layout (and a crowded synthetic one): each camera once, rooms reachable from the entrances, the map and buttons inside the
+screen at 480x270 / 1280x720 / 1920x1080, no overlapping buttons, nothing over the picture labels or the close strip, the highlight follows the selection, a button selects its camera.
