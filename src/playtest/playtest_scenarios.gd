@@ -36,6 +36,9 @@ static func run_loop(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		await tree.physics_frame
 		frames += 1
 		var obs := bridge.observe()
+		if frames % 120 == 0:
+			bridge.status = "%s frame %d/%d, chunk %s, goal %s, scene %s" % [scenario, frames, limit_frames, obs.get("world", {}).get("chunk", "?"),
+				(adapter.get("_goal") if adapter.get("_goal") != null else "?"), obs.get("scene", "")]
 		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
 			fps.append(float(obs["fps"]))
 			frame_ms.append(float(obs["frame_ms"]))
@@ -218,6 +221,11 @@ static func _frames(bridge: PlaytestBridge, count: int) -> void:
 		await bridge.get_tree().physics_frame
 
 
+## A step the tour/tour-like scenarios take: names it for the watchdog ("stuck at ...") and refuses to go on after the budget is spent.
+static func _status(bridge: PlaytestBridge, text: String) -> void:
+	bridge.status = "%s (scene %s, frame %d)" % [text, _scene(bridge), Engine.get_physics_frames()]
+
+
 static func _scene(bridge: PlaytestBridge) -> String:
 	var scene := bridge.get_tree().current_scene
 	return scene.scene_file_path.get_file() if scene != null else ""
@@ -235,6 +243,7 @@ static func menu_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Diction
 	if _scene(bridge) != "game_hub.tscn":
 		problems.append("could not boot to the hub (%s)" % _scene(bridge))
 	var press := func(button: String, expect: String = "") -> bool:
+		_status(bridge, "menu_tour pressing '%s'" % button)
 		var before_errors := bridge.log_sink.errors
 		var reply: Dictionary = await bridge.press(button)
 		await _frames(bridge, 20)
@@ -261,7 +270,7 @@ static func menu_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Diction
 	for button_name in names:
 		if _scene(bridge) != "main_menu.tscn":
 			await _return_to_menu(bridge, press, problems)
-		var current := PlaytestObserver.ui(tree)["buttons"].filter(func(b): return String(b["name"]) == button_name)
+		var current: Array = PlaytestObserver.ui(tree)["buttons"].filter(func(b): return String(b["name"]) == button_name)
 		if current.is_empty() or bool(current[0]["disabled"]):
 			steps.append({"press": button_name, "ok": true, "scene": _scene(bridge), "skipped": "not visible or disabled"})
 			continue
@@ -273,6 +282,7 @@ static func menu_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Diction
 		else:
 			await _return_to_menu(bridge, press, problems)
 	# solo route and back out
+	_status(bridge, "menu_tour starting a solo route")
 	var started := await adapter.start_run({"seed": opts["seed"], "difficulty": opts["difficulty"], "debug": true})
 	if not bool(started.get("ok", false)):
 		problems.append("could not start a route: %s" % started.get("error", "?"))
@@ -327,6 +337,7 @@ static func death_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			problems.append("route scene lost before %s" % hunter_id)
 			break
 		var errors_before := bridge.log_sink.errors
+		_status(bridge, "death_scene_tour waiting for %s to catch the bot" % hunter_id)
 		scene.call("_admin_summon_hunter", String(hunter_id))
 		var killed := false
 		var waited := 0

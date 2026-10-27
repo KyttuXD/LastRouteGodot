@@ -14,6 +14,13 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	# 0. every playtest script must compile (a parse error in the scenarios file once made every run exit without playing)
+	for path in ["res://src/playtest/playtest_scenarios.gd", "res://src/playtest/playtest_runner.gd", "res://src/playtest/playtest_reporter.gd",
+			"res://src/playtest/bots/last_route_bot.gd", "res://src/playtest/bots/city_bot.gd", "res://src/playtest/bots/night_watch_bot.gd"]:
+		var script := load(path) as GDScript
+		_expect(script != null and script.can_instantiate(), "%s must compile" % path)
+	_expect(PlaytestScenarios.has_method("play") and PlaytestScenarios.has_method("menu_tour") and PlaytestScenarios.has_method("death_tour"), "PlaytestScenarios must expose play, menu_tour and death_tour")
+
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")
 	_expect(not Playtest.is_physics_processing(), "a disabled bridge must not process every frame")

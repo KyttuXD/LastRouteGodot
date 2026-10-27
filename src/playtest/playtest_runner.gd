@@ -14,6 +14,8 @@ const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_dept
 var _driver := false
 var _opts := {}
 var _started_msec := 0
+var _watchdog: Thread
+var _finished := false
 
 
 func _ready() -> void:
@@ -28,13 +30,46 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_opts = parse_args(OS.get_cmdline_user_args())
 	_started_msec = Time.get_ticks_msec()
+	_start_watchdog()
 	await get_tree().process_frame
 	await _run()
 
 
+## Hard WALL-CLOCK deadline for every scenario (default 3x the game minutes + 120 s, 300 s for the menu tour, 45 min for the death tour; --deadline=SECONDS
+## overrides). Runs on its own thread, so it still fires when the main thread is stuck: it writes a failing report that says what the scenario was
+## doing ("stuck at ...") and kills this process.
+func _start_watchdog() -> void:
+	var seconds := float(_opts["deadline"])
+	if seconds <= 0.0:
+		match String(_opts["scenario"]):
+			"menu_tour":
+				seconds = 300.0
+			"death_scene_tour":
+				seconds = 2700.0
+			_:
+				seconds = float(_opts["minutes"]) * 60.0 * 3.0 + 120.0
+	_watchdog = Thread.new()
+	_watchdog.start(_watch.bind(seconds))
+
+
+func _watch(seconds: float) -> void:
+	var limit_msec := int(seconds * 1000.0)
+	while not _finished:
+		OS.delay_msec(500)
+		if Time.get_ticks_msec() - _started_msec > limit_msec:
+			var where := String(Playtest.status) if Playtest != null else ""
+			var report := {"game": _opts["game"], "scenario": _opts["scenario"], "seed": _opts["seed"], "pass": false,
+				"failures": ["wall-clock deadline of %d s exceeded: stuck at %s" % [int(seconds), where if where != "" else "unknown state"]],
+				"scenario_failure": "deadline", "revision": Build.revision()}
+			PlaytestReporter.write(_out_dir(report), report)
+			print("PLAYTEST FAIL: %s/%s seed=%s  WALL-CLOCK DEADLINE %d s exceeded, stuck at %s" % [_opts["game"], _opts["scenario"], _opts["seed"], int(seconds), where])
+			OS.kill(OS.get_process_id())
+			return
+
+
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "deadline": 0.0, "screenshots": false, "keep_alive": false}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -102,7 +137,7 @@ func _blank_report(game: String, scenario: String, error: String) -> Dictionary:
 		"revision": Build.revision(), "scenario_failure": error, "pass": error.is_empty(), "failures": []}
 
 
-func _finish(report: Dictionary, code: int) -> void:
+func _out_dir(report: Dictionary) -> String:
 	var name := String(_opts["name"])
 	if name.is_empty():
 		name = "%s_%s_%s" % [report.get("game", "game"), report.get("scenario", "run"), String(_opts["seed"]).validate_filename()]
@@ -111,7 +146,12 @@ func _finish(report: Dictionary, code: int) -> void:
 		out_dir = ".playtest/%s" % name
 	if not out_dir.is_absolute_path():
 		out_dir = ProjectSettings.globalize_path("res://").path_join(out_dir)
-	var path := PlaytestReporter.write(out_dir, report)
+	return out_dir
+
+
+func _finish(report: Dictionary, code: int) -> void:
+	_finished = true
+	var path := PlaytestReporter.write(_out_dir(report), report)
 	print("PLAYTEST %s: %s/%s seed=%s game_s=%.1f frames=%d  stuck=%d soft_locks=%d unreachable=%d errors=%d deaths=%d relays=%d depth=%d chunks=%d" % [
 		"PASS" if code == 0 else ("FAIL" if code == 1 else "SKIP"), report.get("game"), report.get("scenario"), report.get("seed"),
 		float(report.get("game_seconds", 0.0)), int(report.get("frames", 0)),

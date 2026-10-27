@@ -26,9 +26,13 @@ DEFAULT_PARALLEL = {"mini": 5, "kt-bee": 6, "ak-bee": 4}
 RESULT_LINE = re.compile(r"PLAYTEST (PASS|FAIL|SKIP): (.*)")
 
 
-def runner_cmd(machine: str, worktree: str, lane: str, *args: str, nosync: bool = True) -> list:
+def runner_cmd(machine: str, worktree: str, lane: str, *args: str, nosync: bool = True, timeout: int = 0) -> list:
     kind, host = MACHINES[machine]
-    env_prefix = ["env", "NOSYNC=1"] if nosync else []
+    env_prefix = ["env", "NOSYNC=1"] if nosync else ["env"]
+    if timeout:
+        env_prefix.append(("MINI_TIMEOUT=%d" if kind == "mini" else "WIN_TIMEOUT=%d") % timeout)
+    if env_prefix == ["env"]:
+        env_prefix = []
     if kind == "mini":
         return env_prefix + [MINI_RUN, worktree, lane, *args]
     return env_prefix + [WIN_RUN, host, worktree, lane, *args]
@@ -43,7 +47,9 @@ def godot_args(game, scenario, seed, minutes, name, extra):
 def run_job(job):
     machine, seed, args = job["machine"], job["seed"], job["args"]
     started = time.time()
-    proc = subprocess.run(runner_cmd(machine, args["worktree"], args["lane"], *godot_args(args["game"], args["scenario"], seed, args["minutes"], job["name"], args["extra"])),
+    # the runner has its own wall-clock deadline (3x the game minutes + 120 s); the machine-side watchdog gets a little more
+    timeout = int(float(args["minutes"]) * 60 * 3 + 120 + 90)
+    proc = subprocess.run(runner_cmd(machine, args["worktree"], args["lane"], *godot_args(args["game"], args["scenario"], seed, args["minutes"], job["name"], args["extra"]), timeout=timeout),
                           capture_output=True, text=True)
     out = proc.stdout + proc.stderr
     line = ""
@@ -51,6 +57,20 @@ def run_job(job):
         line = found.group(0)
     return {"machine": machine, "seed": seed, "name": job["name"], "exit": proc.returncode, "line": line,
             "wall": round(time.time() - started, 1), "tail": out.strip().splitlines()[-6:]}
+
+
+def kill_own_runs(machine: str) -> int:
+    """Kill leftover playtest runner processes of ours on a machine, by exact PID (the command line contains playtest_runner.tscn)."""
+    kind, host = MACHINES[machine]
+    if kind == "mini":
+        cmd = ["ssh", "-i", os.path.expanduser("~/.ssh/id_ed25519_codync"), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "kyttu@KT-Mini4-2.local",
+               "n=0; for p in $(pgrep -f playtest_runner.tscn); do kill $p && n=$((n+1)); done; echo $n"]
+    else:
+        cmd = ["ssh", "-i", os.path.expanduser("~/.ssh/id_ed25519_codync"), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", host,
+               "$n=0; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*playtest_runner.tscn*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $n++ }; $n"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    digits = [line for line in result.stdout.splitlines() if line.strip().isdigit()]
+    return int(digits[-1]) if digits else 0
 
 
 def main() -> int:
@@ -77,6 +97,10 @@ def main() -> int:
     out_dir = Path(args.out or f".playtest-results/{stamp}_{args.game}_{args.scenario}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    for machine in machines:
+        killed = kill_own_runs(machine)
+        if killed:
+            print(f"  killed {killed} leftover playtest run(s) on {machine}")
     # 1. sync + import once per machine (in parallel), 2. run jobs, 3. pull reports
     print(f"swarm: {len(seeds)} seeds on {machines}, {args.minutes} game minutes each -> {out_dir}")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(machines)) as pool:
@@ -101,6 +125,10 @@ def main() -> int:
         print(f"  [{result['machine']:6}] {result['seed']:10} exit={result['exit']} {result['wall']:6.1f}s  {result['line'][:150]}")
     for pool in executors.values():
         pool.shutdown()
+    for machine in machines:
+        killed = kill_own_runs(machine)
+        if killed:
+            print(f"  killed {killed} runner process(es) still running on {machine}")
     for machine in machines:
         dest = out_dir / machine
         subprocess.run(runner_cmd(machine, args.worktree, args.lane, "--pull", ".playtest", str(dest)), capture_output=True, text=True)

@@ -20,6 +20,8 @@ var log_sink := PlaytestLog.new()
 var input := PlaytestInput.new()
 var adapter: BotAdapter
 var active_game := ""
+## What the running scenario is doing right now (shown when the wall-clock watchdog has to kill a run: "stuck at <status>").
+var status := ""
 var _server: TCPServer
 var _peers: Array = []
 
