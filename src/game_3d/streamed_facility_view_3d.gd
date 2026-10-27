@@ -36,6 +36,9 @@ const WALL_HEIGHT := 4.0
 ## Every wall cell remains a full 1m cube/block so streamed rooms do not
 ## create slab-like collision gaps or elongated wall seams between chunks.
 const LEVEL_TRANSITION_MARGIN := 0.35
+## Sewer wall colliders: the storey below the maze, up to the underside of the
+## maze's floor slab (which occupies -SLAB..0 of level 0).
+const SEWER_WALL_HEIGHT := LEVEL_HEIGHT - SLAB
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -92,6 +95,7 @@ var _safe_floor_item := -1
 ## RefLook surface items: kind -> MeshLibrary id.
 var _col_floor_item := -1
 var _col_wall_item := -1
+var _col_sewer_wall_item := -1
 var _loaded := {}
 var _chunk_data := {}
 var _pickup_nodes := {}
@@ -641,7 +645,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				surface.add_wall(nx, nz, -step, RefTextures.layer("wall", lintel_kind),
 					RefTextures.params("wall", lintel_kind), height, neighbour_height, height)
 	else:
-		grid.set_cell_item(Vector3i(x, 0, z), _col_wall_item)
+		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
+			if (build["coord"] as Vector3i).y == StreamedRouteGenerator.SEWER_LEVEL else _col_wall_item)
 		for step_value in RefDecor.DIRS:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
@@ -1585,6 +1590,16 @@ func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	wall_shape.size = Vector3(1.0, RefLook.MAX_HEIGHT, 1.0)
 	library.set_item_shapes(next_id, [wall_shape,
 		Transform3D(Basis.IDENTITY, Vector3(0.0, RefLook.MAX_HEIGHT * .5, 0.0))])
+	next_id += 1
+	# The sewer's walls stop under the maze floor slab above them. A full-height
+	# maze wall block placed one storey down rose 3.5 m into level 0 and walled
+	# off open maze halls (playtest GOLF).
+	_col_sewer_wall_item = next_id
+	library.create_item(next_id)
+	var sewer_wall_shape := BoxShape3D.new()
+	sewer_wall_shape.size = Vector3(1.0, SEWER_WALL_HEIGHT, 1.0)
+	library.set_item_shapes(next_id, [sewer_wall_shape,
+		Transform3D(Basis.IDENTITY, Vector3(0.0, SEWER_WALL_HEIGHT * .5, 0.0))])
 	return next_id + 1
 
 
