@@ -479,7 +479,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				var prison_tasks: Array = build["prison_tasks"]
 				var prop_index := int(build["prop_index"])
 				if prop_index < region_props.size():
-					_spawn_region_prop(root, build["coord"], region_props[prop_index])
+					_spawn_region_prop(root, build["coord"], region_props[prop_index],
+						PropModelCatalog.region_finish(String(data.get("region", ""))))
 					build["prop_index"] = prop_index + 1
 					if not immediate:
 						return false
@@ -915,11 +916,12 @@ func _spawn_prison_prop_task(parent: Node3D, task: Dictionary) -> void:
 
 func _spawn_region_props(parent: Node3D, data: Dictionary) -> void:
 	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var finish := PropModelCatalog.region_finish(String(data.get("region", "")))
 	for value in data.get("region_props", []):
-		_spawn_region_prop(parent, coord, value)
+		_spawn_region_prop(parent, coord, value, finish)
 
 
-func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> void:
+func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finish: String = "") -> void:
 	var type := String(prop.get("type", ""))
 	if not PropModelCatalog.has_model(type):
 		return
@@ -936,7 +938,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary) -> vo
 	var mount_offset: Vector2 = prop.get("mount_offset", Vector2.ZERO) \
 		+ prop.get("placement_offset", Vector2.ZERO)
 	_spawn_authored_prop(parent, PropModelCatalog.model_path(type,
-		String(prop.get("id", "")), String(prop.get("room_id", ""))),
+		String(prop.get("id", "")), String(prop.get("room_id", "")), finish),
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),

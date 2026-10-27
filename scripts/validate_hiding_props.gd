@@ -51,7 +51,7 @@ func _check_models() -> void:
 func _check_fit() -> void:
 	for type in StreamedRouteGenerator.HIDING_PROP_STYLES:
 		var style := String(StreamedRouteGenerator.HIDING_PROP_STYLES[type])
-		for path in BlockyPropModels.MODELS.get(type, []):
+		for path in BlockyPropModels.MODELS.get(type, []) + BlockyPropModels.MODELS.get(type + "Mansion", []):
 			var scene := load(String(path)) as PackedScene
 			if scene == null:
 				continue

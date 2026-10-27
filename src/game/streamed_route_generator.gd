@@ -183,6 +183,7 @@ const REGION_DOUBLE_ROOM_DOORS := {
 ## Local X runs across a prop's front and local Z runs from its back into the
 ## room; _template_prop_entry rotates both visual and collision together.
 const TEMPLATE_PROP_SIZES := {
+	"mansionMarbleColumn": Vector3(.5, 2.25, .5), "mansionPorcelainVase": Vector3(.44, .94, .44),
 	# Room-purpose catalog (tools/props/blocky_props_rework4.py); fitted boxes come from prop_collider_sizes.gd.
 	"hospitalBed": Vector3(1.0, 1.0, 2.12), "ivStand": Vector3(.5, 1.9, .5), "medicalCart": Vector3(.75, 1.0, .5),
 	"readingTable": Vector3(1.5, .75, .88), "libraryGlobe": Vector3(.62, 1.06, .62), "storageBarrel": Vector3(.62, .94, .62),
@@ -2687,6 +2688,13 @@ static func _room_template_specs(template: String, region: String,
 				var copy: Dictionary = (original as Dictionary).duplicate()
 				copy["side"] = int(copy.get("side", 0)) + shift
 				specs.append(copy)
+	if region == "mansion" and template in ["bedroom", "lounge", "mansion_dining", "dining_hall"]:
+		# Mansion luxury (docs/MANSION_LUXURY.md): marble columns in the back corners, porcelain vases on the back wall.
+		var corner := maxi(2, side_span / 2 - 1)
+		for column_side in [-corner, corner]:
+			specs.append({"type": "mansionMarbleColumn", "side": column_side, "depth": 0, "wall_backed": true, "facing": "open"})
+		for vase_side in [-corner + 1, corner - 1]:
+			specs.append({"type": "mansionPorcelainVase", "side": vase_side, "depth": 1, "facing": "open"})
 	return _keep_entrance_clear(specs, side_span, depth_span)
 
 
@@ -2711,7 +2719,7 @@ static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int)
 
 static func _frame_type_for_region(region: String, wide: bool) -> String:
 	match region:
-		"hotel":
+		"hotel", "mansion":
 			return "luxuryPaintingFrameEmpty" if wide else "luxuryPictureFrameEmpty"
 		"gothic":
 			return "gothicPaintingFrameEmpty" if wide else "gothicPictureFrameEmpty"
@@ -2721,6 +2729,8 @@ static func _frame_type_for_region(region: String, wide: bool) -> String:
 
 static func _rug_type_for_region(region: String) -> String:
 	match region:
+		"mansion":
+			return "mansionAreaRug"
 		"hotel":
 			return "hotelCarpet"
 		"apartment":

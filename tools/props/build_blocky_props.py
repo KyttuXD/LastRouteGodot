@@ -418,7 +418,10 @@ SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1
               "woodenChair": (1.0, 0.94 / 1.01, 1.0), "woodenChairCushion": (1.0, 0.94 / 1.01, 1.0),
               "diningChair": (1.0, 0.94 / 1.2, 1.0), "diningChairCushion": (1.0, 0.94 / 1.2, 1.0),
               "woodenTable": (1.0, 0.75 / 0.79, 1.0), "diningTable": (1.0, 0.75 / 1.025, 1.0),
-              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0)}
+              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0),
+              # scale fit (docs/SCALE_FIT.md): beds about 2.25 m long including boards (the old models were 2.67 m)
+              "singleBed": (1.0, 1.0, 2.25 / 2.665), "doubleBed": (1.0, 1.0, 2.25 / 2.665)}
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mansion.py")).read())   # mansion finishes (after SIZE_SCALE)
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
