@@ -27,7 +27,7 @@ const GAME_NIGHT_WATCH := "night_watch"
 
 ## Category weights for the ranking (a piece clipping through a wall is worse than a tolerance-level touch).
 const WEIGHTS := {"prop_in_wall": 5, "prop_in_prop": 3, "prop_in_hall": 4, "door_zone": 5, "door_frame": 4,
-	"building_overlap": 8, "orphan_mass": 7, "sliver": 4, "decor_in_wall": 5, "decor_overlap": 2,
+	"building_overlap": 8, "orphan_mass": 7, "facade_hole": 9, "sliver": 4, "decor_in_wall": 5, "decor_overlap": 2,
 	"junction_floor": 6, "hall_nub": 4, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
 
 const SEAT_WORDS := ["Chair", "Stool", "Bench", "Seat", "Armchair", "Couch", "Sofa"]
@@ -461,6 +461,47 @@ static func audit_city(layout: CityLayout, seed_text: String, out: Array) -> voi
 			if depth > allowance:
 				out.append(finding(g, "solid_overlap", "decor_overlap", seed_text, "city %s at %s" % [a["type"], a["cell"]],
 					"overlaps %s at %s by %.2f m" % [b["type"], b["cell"], depth], depth))
+	# facade faces: every edge of a building wall that is exposed (not against an equally tall mass or an interior) must be drawn,
+	# otherwise the tower is open there and its inside shows through. GEO_LEGACY=1 models the old OUTDOOR-only drawing.
+	var legacy := OS.get_environment("GEO_LEGACY") != ""
+	var holes := 0
+	var first_hole := ""
+	for building in buildings:
+		var rect: Rect2i = building["rect"]
+		var top := int(float(building["height"]))
+		for gz in range(rect.position.y, rect.end.y):
+			for gx in range(rect.position.x, rect.end.x):
+				if layout.kind_at(gx, gz) != CityLayout.WALL or layout.building_index[CityLayout.index_of(gx, gz)] != layout.buildings.find(building) + 1:
+					continue
+				for step in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+					var dir: Vector2i = step
+					var nk := layout.kind_at(gx + dir.x, gz + dir.y)
+					if [CityLayout.FLOOR, CityLayout.DOOR, CityLayout.KIOSK_FLOOR].has(nk):
+						continue
+					var covered := 0
+					if nk == CityLayout.WALL:
+						covered = int(float(layout.building_at(gx + dir.x, gz + dir.y).get("height", 6.0)))
+					elif nk == CityLayout.KIOSK_WALL:
+						covered = 4
+					elif nk == CityLayout.GATE:
+						covered = 7
+					elif nk == CityLayout.RIM:
+						covered = 11
+					if covered >= top:
+						continue
+					var drawn: bool
+					if legacy:
+						drawn = CityLayout.OUTDOOR_KINDS.has(nk)
+					else:
+						var span: Vector2i = CityFacilityView3D.facade_span(layout, gx, gz, dir, top)
+						drawn = span.y > span.x and span.x <= covered
+					if not drawn:
+						holes += 1
+						if first_hole == "":
+							first_hole = "%s cell (%d,%d) side %s against %s" % [building["id"], gx, gz, dir, CityLayout.KIND_NAMES[nk]]
+	if holes > 0:
+		out.append(finding(g, "solid_overlap", "facade_hole", seed_text, "city " + first_hole,
+			"%d facade edges are left undrawn (the tower is open there and shows its inside)" % holes, float(holes)))
 	# interior props
 	for building in buildings:
 		_audit_city_building(layout, building, seed_text, out)

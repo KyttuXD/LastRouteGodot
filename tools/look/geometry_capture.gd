@@ -78,6 +78,8 @@ func _run() -> void:
 			var forward := Vector2(-sin(deg_to_rad(yaw)), -cos(deg_to_rad(yaw)))
 			var eye := Vector2(spot.x + .5, spot.y + .5) - forward * 9.0
 			await _shot("c%d_%d_h%03d_street" % [spot.x, spot.y, int(yaw)], player, facility, _at(eye.x, eye.y, .05), yaw, 8.0)
+			var near := Vector2(spot.x + .5, spot.y + .5) - forward * 5.0
+			await _shot("c%d_%d_h%03d_up" % [spot.x, spot.y, int(yaw)], player, facility, _at(near.x, near.y, .05), yaw, 55.0)
 			var high := Vector2(spot.x + .5, spot.y + .5) - forward * 14.0
 			await _shot("c%d_%d_h%03d_high" % [spot.x, spot.y, int(yaw)], player, facility, _at(high.x, high.y, 14.0), yaw, -24.0)
 		print("orbit %s done" % spot)

@@ -63,6 +63,16 @@ the hall's centre strip (`runner_c`). Audit rules: `junction_floor` (that fallba
 hall; 0 found, so the wall mass in KT's screenshot is not a grid stub and still needs a repro with its seed/position).
 Not yet verified by a capture: my junction captures landed in a wrong spot, so the visual before/after is still open.
 
+## City see-through facades (KT: "smaller blocks can be seen through")
+
+Root cause: `_build_facade_cell` drew a facade face only toward OUTDOOR neighbours. A facade cell beside a lamp/tree/bollard
+(POST), hedge, bed or water cell had no face, a taller building beside a lower one had no face above its neighbour's roof,
+and towers had no roof: the tower was open there and its inside showed through (about 100 undrawn edges per seed). Fix:
+`CityFacilityView3D.facade_span` (draw from the neighbouring mass's top to this building's top for every non-interior
+neighbour) plus a roof quad. Audit rule `facade_hole` (0 now; was 67-132 per city, old OUTDOOR-only rule on the same layouts).
+`docs/city_facade_holes_before_after.png`: top before, bottom after (centre column: the lamp-side seam in the tower is gone).
+Dome ribs/rings still exist on main (the City lane removes them in 43f09e20); not touched here.
+
 ## Not covered / left
 
 * Prop hitbox vs mesh AABB comparison, walk-test through visible space and the minimap box check are not built yet (the
