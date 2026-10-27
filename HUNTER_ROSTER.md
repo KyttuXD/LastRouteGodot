@@ -36,29 +36,24 @@ than A-Z hunters, their baseline
 speed/perception is more aggressive, and a deterministic incursion can add one
 as an extra hunter from depth two onward.
 
-The first shipped Void pass gives them a shared, honest `VOID INCURSION`
-mechanic rather than inventing twelve half-implemented abilities. These are
-the intended colour identities for later focused passes:
+The Void colours have the powers below (copied from `src/game/hunter_gimmicks/void_*_gimmick.gd`; the dossier text in
+`src/config/void_hunter_gimmicks/void_hunter_gimmick_chart.gd` follows them). Gray, Orange and Purple have no gimmick class yet.
 
-| Void | Candidate identity | Counterplay direction |
+| Void | Power | Counterplay direction |
 | --- | --- | --- |
-| Black | Eats nearby light and creates moving dark pockets | carry reserve light and leave the drained region |
-| Blue | Leaves a cold trail which slows prolonged pursuit | take warmer biome routes and avoid retracing it |
-| Brown | Specializes in boards and damaged barriers | do not rely on a single barricaded choke point |
-| Cyan | Interferes with taser charge and powered tools | use mechanical tools or fire the taser early |
-| Gray | Moves while unobserved and holds still under scrutiny | coordinate sightlines instead of fleeing alone |
-| Green | Creates temporary toxic area denial | rotate objectives before safe paths close |
-| Orange | Telegraphs a short, violent burst charge | sidestep at the cue and force a wall impact |
-| Pink | Mimics safe-room light and comfort audio | verify a safe-room marker before committing |
-| Purple | Short-phases between connected dark cells | keep multiple exits and avoid isolated rooms |
-| Red | Berserks after taking tool damage | stun to escape, not to start a long fight |
-| White | Nearly blind but exceptionally sensitive to noise | walk, close interactions quietly, avoid impacts |
-| Yellow | Disrupts powered lights and nearby switches | carry a flashlight and restore circuits behind it |
+| Black | Rear Stalker: Freezes while you are looking at her (within 11 cells, in your view, clear line) and moves 1.5x faster whenever you are not watching. | keep her in view: she freezes while you look at her |
+| Blue | Silent Stalker: Invisible and off the maps unless revealed. Shining your torch on her (12 cells) shoves her back 6 cells and shows her for 3.5 seconds. | torch her to push her back and show her |
+| Brown | Spot Jammer: Every 18 seconds she jams up to two hiding spots within 9 cells of you shut for 20 seconds. The spot you are hiding in is never jammed. | hide in the spot she cannot jam (yours) and do not count on neighbours |
+| Cyan | Signal Ping: If she keeps you in sight for 2.5 seconds she broadcasts your exact position, so every other active hunter investigates it, then she waits 30 seconds. | break line of sight before 2.5 seconds |
+| Gray | No power yet: No special power is in the game yet: she simply hunts at Void speed with the longest sight of the Voids. | none special: she is a plain Void pursuer |
+| Green | Vent Relocate: Every 22 seconds, if she is at least 14 cells away, she sinks out of sight for 2 seconds (still, unable to grab), then climbs out 9 cells from you and investigates. | move after the vent clatter: she surfaces 9 cells away |
+| Orange | No power yet: No special power is in the game yet: she simply hunts at Void speed. | none special: she is a plain Void pursuer |
+| Pink | False Signal: She never attacks and cannot catch you. Every 11 seconds she has a 60% chance to send a FOOTSTEPS // SOMEWHERE CLOSE cue. | ignore the footsteps cue: she cannot hurt you |
+| Purple | No power yet: No special power is in the game yet: she simply hunts at Void speed and ramps her chase quickly. | none special: she is a plain Void pursuer |
+| Red | Hall Runner: 1.55x faster in hallways and 0.78x slower inside rooms. | use rooms: she is slower there; avoid long hallways |
+| White | Light Frozen: Freezes while your lit torch is on her (within 10 cells) and moves 1.35x faster in the dark. Her hearing is the sharpest of the Voids. | keep the torch on her and stay quiet |
+| Yellow | Map Pressure: While your full-screen map is open her speed grows 0.06 per second up to 1.7x, and it stays for the rest of the route. | close the map: her speed grows while it is open |
 
-These rows are design commitments, not claims that the colour mechanics are
-already live. The roster and dossier currently label them as aggressive extra
-pursuers until each mechanic has its own authoritative co-op implementation
-and validation.
 
 ## Current refinement pass
 

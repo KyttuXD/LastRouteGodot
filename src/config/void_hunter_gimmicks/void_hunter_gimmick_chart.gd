@@ -1,82 +1,81 @@
 class_name VoidHunterGimmickChart
 extends RefCounted
 
-## Design-chart entries for the Void roster. These are not claims that each
-## colour's bespoke mechanic is already authoritative in gameplay; they are the
-## intended identities surfaced in the in-game dossier so the chart is no
-## longer trapped in HUNTER_ROSTER.md alone.
+## Player-facing text for the Void roster's powers, as the dossier / lobby / pause menu show it. Each entry describes what the
+## matching `src/game/hunter_gimmicks/void_*_gimmick.gd` actually does (numbers copied from those files): the game's Void
+## abilities are canon, this chart follows them. Gray, Orange and Purple have no gimmick class yet and say so.
 const ENTRIES := {
 	"void_black": {
 		"ability": "VOID INCURSION",
 		"behavior": "Black can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "LIGHT EATER",
-		"gimmick_behavior": "Eats nearby light and creates moving dark pockets.",
+		"gimmick_title": "REAR STALKER",
+		"gimmick_behavior": "Freezes while you are looking at her (within 11 cells, in your view, clear line) and moves 1.5x faster whenever you are not watching.",
 	},
 	"void_blue": {
 		"ability": "VOID INCURSION",
 		"behavior": "Blue can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "COLD TRAIL",
-		"gimmick_behavior": "Leaves a cold trail which slows prolonged pursuit.",
+		"gimmick_title": "SILENT STALKER",
+		"gimmick_behavior": "Invisible and off the maps unless revealed. Shining your torch on her (12 cells) shoves her back 6 cells and shows her for 3.5 seconds.",
 	},
 	"void_brown": {
 		"ability": "VOID INCURSION",
 		"behavior": "Brown can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "BARRIER BREAKER",
-		"gimmick_behavior": "Specializes in boards and damaged barriers.",
+		"gimmick_title": "SPOT JAMMER",
+		"gimmick_behavior": "Every 18 seconds she jams up to two hiding spots within 9 cells of you shut for 20 seconds. The spot you are hiding in is never jammed.",
 	},
 	"void_cyan": {
 		"ability": "VOID INCURSION",
 		"behavior": "Cyan can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "POWER INTERFERENCE",
-		"gimmick_behavior": "Interferes with taser charge and powered tools.",
+		"gimmick_title": "SIGNAL PING",
+		"gimmick_behavior": "If she keeps you in sight for 2.5 seconds she broadcasts your exact position, so every other active hunter investigates it, then she waits 30 seconds.",
 	},
 	"void_gray": {
 		"ability": "VOID INCURSION",
 		"behavior": "Gray can enter as an additional long-sighted pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "UNOBSERVED PURSUIT",
-		"gimmick_behavior": "Moves while unobserved and holds still under scrutiny.",
+		"gimmick_title": "NO POWER YET",
+		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed with the longest sight of the Voids.",
 	},
 	"void_green": {
 		"ability": "VOID INCURSION",
 		"behavior": "Green can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "TOXIC DENIAL",
-		"gimmick_behavior": "Creates temporary toxic area denial.",
+		"gimmick_title": "VENT RELOCATE",
+		"gimmick_behavior": "Every 22 seconds, if she is at least 14 cells away, she sinks out of sight for 2 seconds (still, unable to grab), then climbs out 9 cells from you and investigates.",
 	},
 	"void_orange": {
 		"ability": "VOID INCURSION",
-		"behavior": "Orange can enter as an additional extremely fast pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "BURST CHARGE",
-		"gimmick_behavior": "Telegraphs a short, violent burst charge.",
+		"behavior": "Orange can enter as an additional fast pursuer alongside the route's A-Z hunter.",
+		"gimmick_title": "NO POWER YET",
+		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed.",
 	},
 	"void_pink": {
 		"ability": "VOID INCURSION",
 		"behavior": "Pink can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "FALSE COMFORT",
-		"gimmick_behavior": "Mimics safe-room light and comfort audio.",
+		"gimmick_title": "FALSE SIGNAL",
+		"gimmick_behavior": "She never attacks and cannot catch you. Every 11 seconds she has a 60% chance to send a FOOTSTEPS // SOMEWHERE CLOSE cue.",
 	},
 	"void_purple": {
 		"ability": "VOID INCURSION",
-		"behavior": "Purple can enter as an additional rapidly accelerating pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "DARK PHASE",
-		"gimmick_behavior": "Short-phases between connected dark cells.",
+		"behavior": "Purple can enter as an additional fast-ramping pursuer alongside the route's A-Z hunter.",
+		"gimmick_title": "NO POWER YET",
+		"gimmick_behavior": "No special power is in the game yet: she simply hunts at Void speed and ramps her chase quickly.",
 	},
 	"void_red": {
 		"ability": "VOID INCURSION",
-		"behavior": "Red can enter as the most aggressive baseline Void pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "BERSERK RESPONSE",
-		"gimmick_behavior": "Berserks after taking tool damage.",
+		"behavior": "Red can enter as the fastest baseline Void pursuer alongside the route's A-Z hunter.",
+		"gimmick_title": "HALL RUNNER",
+		"gimmick_behavior": "1.55x faster in hallways and 0.78x slower inside rooms.",
 	},
 	"void_white": {
 		"ability": "VOID INCURSION",
 		"behavior": "White can enter as an additional hearing-focused pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SOUND HUNTER",
-		"gimmick_behavior": "Nearly blind but exceptionally sensitive to noise.",
+		"gimmick_title": "LIGHT FROZEN",
+		"gimmick_behavior": "Freezes while your lit torch is on her (within 10 cells) and moves 1.35x faster in the dark. Her hearing is the sharpest of the Voids.",
 	},
 	"void_yellow": {
 		"ability": "VOID INCURSION",
 		"behavior": "Yellow can enter as an additional fast, far-sighted pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "POWER CUT",
-		"gimmick_behavior": "Disrupts powered lights and nearby switches.",
+		"gimmick_title": "MAP PRESSURE",
+		"gimmick_behavior": "While your full-screen map is open her speed grows 0.06 per second up to 1.7x, and it stays for the rest of the route.",
 	},
 }
 
