@@ -268,6 +268,10 @@ func update_manifest_url() -> String:
 
 func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 		body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and code == 404:
+		# The server is reachable but has no update published for this channel/platform: nothing to install.
+		_finish_check(true, false, "UP TO DATE")
+		return
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
 		return
