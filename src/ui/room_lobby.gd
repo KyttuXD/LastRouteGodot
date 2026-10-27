@@ -399,8 +399,9 @@ func _actions() -> Control:
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
+		var menu_scene := RoomState.menu_scene_path()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
+		get_tree().change_scene_to_file(menu_scene))
 	row.add_child(leave)
 
 	return stack

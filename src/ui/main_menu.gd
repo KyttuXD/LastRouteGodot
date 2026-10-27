@@ -365,6 +365,9 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 	if not error.is_empty():
 		status.text = error
 		return
+	if not RoomState.game_matches(String(endpoint.get("game", "")), RoomState.GAME_LAST_ROUTE):
+		status.text = "THAT ROOM IS FOR ANOTHER GAME // JOIN IT FROM ITS OWN MENU"
+		return
 	var join_error := RoomState.join_room(String(endpoint.get("address", "")),
 		int(endpoint.get("port", RoomState.DEFAULT_PORT)),
 		String(endpoint.get("transport", "relay")), code)

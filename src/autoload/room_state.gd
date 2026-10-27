@@ -25,7 +25,8 @@ signal changed
 ## gameplay scene has been replaced.
 signal connection_lost(reason: String)
 
-enum Mode { DEFAULT }
+## CITY is KYTTU: The City (its own game in the hub). Appended last so the numbers of the other modes never change.
+enum Mode { DEFAULT, CITY }
 ## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
 ## steps that only differed by how big, with nothing else changing between
 ## them, was a choice that cost more attention at the lobby than it earned.
@@ -48,7 +49,14 @@ const CODE_LENGTH := 5
 
 const MODE_LABELS := {
 	Mode.DEFAULT: "DEFAULT",
+	Mode.CITY: "CITY",
 }
+## Rooms carry the id of the game they belong to so a code for one game is never joined from another.
+const GAME_LAST_ROUTE := "last_route"
+const GAME_CITY := "city"
+const CITY_MENU_SCENE := "res://scenes/city_menu.tscn"
+const CITY_ROUTE_SCENE := "res://scenes/city_route.tscn"
+const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
 	Scale.IMMENSE: "IMMENSE", Scale.INFINITE: "INFINITE",
@@ -88,6 +96,7 @@ const GUEST_LAST_NAMES := [
 ## can move the shared simulation into a route room without changing staging.
 const MODE_SCENES := {
 	Mode.DEFAULT: "res://scenes/main_3d.tscn",
+	Mode.CITY: "res://scenes/city_route.tscn",
 }
 const ROUTE_LOADING_SCENE := "res://scenes/route_loading.tscn"
 
@@ -703,11 +712,11 @@ func roster() -> PackedStringArray:
 ## are rejected here as well as in staging so stale clients and direct calls
 ## cannot enter an unfinished ruleset.
 func mode_available(candidate: Mode) -> bool:
-	return candidate == Mode.DEFAULT
+	return candidate == Mode.DEFAULT or candidate == Mode.CITY
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
-	return "" if candidate == Mode.DEFAULT else "MODE IS UNAVAILABLE"
+	return "" if mode_available(candidate) else "MODE IS UNAVAILABLE"
 
 
 func difficulty_available(candidate: Difficulty) -> bool:
@@ -891,7 +900,24 @@ func suppress_scene_transitions_for_tests() -> void:
 	_scene_transitions_suppressed_for_tests = true
 
 
+## The game this room belongs to; sent with the directory registration and checked when a code is resolved.
+func game_id() -> String:
+	return GAME_CITY if mode == Mode.CITY else GAME_LAST_ROUTE
+
+
+## Where "back to the menu" goes for this room's game.
+func menu_scene_path() -> String:
+	return CITY_MENU_SCENE if mode == Mode.CITY else MAIN_MENU_SCENE
+
+
+## Directory answers from servers that predate the `game` field are Last Route rooms.
+static func game_matches(room_game: String, expected: String) -> bool:
+	return (room_game if not room_game.is_empty() else GAME_LAST_ROUTE) == expected
+
+
 func session_scene_path() -> String:
+	if mode == Mode.CITY:
+		return CITY_ROUTE_SCENE
 	if map_scale == Scale.INFINITE:
 		return "res://scenes/infinite_route_test.tscn"
 	return "res://scenes/infinite_route_test.tscn"
