@@ -113,7 +113,9 @@ func _remote_flashlight_presentation(scene: Node) -> void:
 		"a remote player does not visibly hold the authored flashlight model")
 	_expect(held_item != null and held_item.get_parent() != null \
 		and held_item.get_parent().name == "PeerHeldItemAnchor" \
-		and held_item.get_parent().get_parent().name == "R-Attachment",
+		and (held_item.get_parent().get_parent().name == "R-Attachment" \
+			or (held_item.get_parent().get_parent().name == "HandPropFrame" \
+				and held_item.get_parent().get_parent().get_parent().name == "R-HandProp")),
 		"the remote flashlight model is not attached to the animated right hand")
 	var hand_anchor := remotes._remote_hand_anchors.get(919) as Node3D
 	_expect(hand_anchor != null and hand_anchor.global_basis.y.normalized().dot(

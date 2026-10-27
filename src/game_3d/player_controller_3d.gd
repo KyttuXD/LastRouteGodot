@@ -193,6 +193,7 @@ var _body_fade := 0.0
 ## The clip this body is playing, published so remote copies can play the same
 ## one. Set where the local body is told to play, so the two cannot disagree.
 var _clip := "idle"
+var _airborne_time := 0.0
 ## One-frame hop request used by XR and deterministic gameplay validation.
 ## Keyboard/controller bindings still use Input's ordinary `jump` action.
 var _jump_requested := false
@@ -778,6 +779,12 @@ func _physics_process(delta: float) -> void:
 	# movement while the stable idle pose keeps the body human-shaped.
 	_clip = "crouch" if movement_mode == "crouch" else (
 		movement_mode if is_moving else "idle")
+	_airborne_time = 0.0 if is_on_floor() else _airborne_time + delta   # ramps and stairs briefly leave the floor
+	# The blocky player rig also has stun / jump / fall clips; rigs without them keep the movement clip.
+	if stun_timer > 0.0:
+		_clip = "stun"
+	elif _airborne_time > .18 and not in_vent:
+		_clip = "fall" if velocity.y < -1.0 else "jump"
 	ModelSlot.play_if_available(_animation_player,
 		"idle" if _clip == "crouch" else _clip)
 	_update_crouch_fade(delta, movement_mode == "crouch")

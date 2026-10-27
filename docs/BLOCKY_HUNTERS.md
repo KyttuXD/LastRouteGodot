@@ -31,3 +31,6 @@ A stunned hunter has three stars circling its head. Void models only change eye 
 
 ## Hunter emotes
 In-world personality moments (taunt, shrug, yawn, victory...) are decided by the host and replayed on every peer: see [HUNTER_EMOTES.md](HUNTER_EMOTES.md), which also lists the `emote_*` clips the rig should gain. Missing clips fall back to the face.
+
+## Player body
+The player mannequin is built by the same pipeline (`build.py player_mannequin`) and is wired as the default player body: see the Player model section of [../REF_LOOK.md](../REF_LOOK.md) and `docs/BLOCKY_ANIMATION.md`.

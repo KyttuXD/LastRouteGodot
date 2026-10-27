@@ -330,6 +330,15 @@ func _attach_remote_flashlight(id: int, body: Node3D) -> SpotLight3D:
 	# model is swapped only when the replicated slot changes, never every packet.
 	var hand := body.find_child("R-Attachment", true, false) as Node3D
 	if hand == null:
+		var prop := body.find_child("R-HandProp", true, false) as Node3D
+		if prop != null:
+			# the blocky rig's hand prop has no tilt (Y up, -Z forward): turn it into the R-Attachment convention
+			# (local +Y forward) that the anchor below expects
+			hand = Node3D.new()
+			hand.name = "HandPropFrame"
+			hand.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)
+			prop.add_child(hand)
+	if hand == null:
 		hand = body
 	var anchor := Node3D.new()
 	anchor.name = "PeerHeldItemAnchor"
@@ -436,7 +445,7 @@ func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
 	if local_player == null or not body.visible:
 		return
 	var clip := String(body.get_meta("movement_clip", "idle"))
-	if clip == "idle":
+	if not clip in ["walk", "sprint", "chase", "crouch"]:
 		_step_distances[id] = 0.0
 		return
 	_step_distances[id] = float(_step_distances.get(id, 0.0)) \

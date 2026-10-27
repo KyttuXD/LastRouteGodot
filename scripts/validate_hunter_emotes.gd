@@ -69,6 +69,23 @@ func run(host: Node) -> int:
 	_expect(HunterEmoteCatalog.resolve_clip(HunterEmoteCatalog.WAVE, "dovelle", null) == "", "no player, no clip")
 	stub.queue_free()
 
+	# ---- real blocky models: every emote resolves to a clip the model has, or to nothing (face-only); never an error
+	var face_only := {}
+	for hunter_id in ["aki", "kathy", "glyra", "xivvy", "void_blue", "void_black"]:
+		var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(hunter_id))
+		host.add_child(model)
+		var real_player := ModelSlot.find_animation_player(model)
+		_expect(real_player != null, "%s has no AnimationPlayer" % hunter_id)
+		for emote in HunterEmoteCatalog.count():
+			var resolved := HunterEmoteCatalog.resolve_clip(emote, hunter_id, real_player,
+				HunterEmotePersonality.clip_override(hunter_id, emote))
+			_expect(resolved == "" or (real_player != null and real_player.has_animation(resolved)),
+				"%s resolved %s to a clip it does not have" % [hunter_id, HunterEmoteCatalog.entry(emote)["id"]])
+			if resolved == "":
+				face_only[String(HunterEmoteCatalog.entry(emote)["id"])] = true
+		model.queue_free()
+	print("  emote clips missing on at least one checked hunter (face-only there): %s" % [face_only.keys()])
+
 	# ---- personality
 	_expect(HunterEmotePersonality.weight("dovelle", HunterEmoteCatalog.TAUNT) == 1.0, "baseline hunters weigh everything 1")
 	_expect(HunterEmotePersonality.weight("ferryn", HunterEmoteCatalog.TAUNT) == 0.0, "Ferryn never taunts")

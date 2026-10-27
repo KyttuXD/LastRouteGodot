@@ -15,6 +15,5 @@ Co-op and the PUBLIC route need only the Node service (no Godot server export). 
 `kyttuslab.org`: [DEPLOY_VPS3.md](DEPLOY_VPS3.md). Point the client or scripts at the test instance with `Backend.test_server_active` / `BACKEND_URL`
 (the HUD shows a TEST SERVER badge).
 
-## Downloads page (plan)
-Players get builds from a downloads page on kyttuslab.org, built in the website repo (`LastRoute`, branch `downloads-page`). It lists the exported ZIPs per
-platform with checksums, and is not deployed until KT approves. Exported archives go to the site, never into this repo.
+## Downloads page
+Players get builds from the downloads page on kyttuslab.org, which is **deployed**: <https://kyttuslab.org/home/downloads/> (also `/downloads/`). It is part of the website repo (`LastRoute`). Its manifest is empty until the first release is published with `scripts/publish-downloads.mjs` in that repo; it then lists the exported ZIPs per platform with checksums. Exported archives go to the site through that script, never into this repo.
