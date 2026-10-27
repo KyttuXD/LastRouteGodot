@@ -208,7 +208,7 @@ wired to any hunter via `HUNTER_ABILITIES`: `phantomExposure` (Aki),
 `emberVeil` (Ferryn), `latticeMark` (Mavrine). The other eight —
 `dualSensor`, `occlusionScan`, `coilTrace`, `carrierSweep`, `scentLine`,
 `quietPerch`, `routeEcho`, `resonancePlate` — are orphaned, referenced by no
-hunter. Likewise `jyvra.js`'s `resolveRouteEchoPrediction` and
+hunter. Likewise `javelle.js`'s `resolveRouteEchoPrediction` and
 `loxelle.js`'s `resolvePlateCharge` are unreachable (their hunters' real
 abilities are `hidingTimeout` and `passiveIncinerator`/`breaksHiding`).
 
@@ -221,16 +221,16 @@ constants that all hold the same value).
 | id | tier | baseSpeed | chaseSpeed | chaseProgScale | sightRange | hearingScale | spawnDistance |
 |---|---|---|---|---|---|---|---|
 | dovelle *(ported)* | easy | .80 | 3.55 | .18 | 8.0 | 1.00 | 12 |
-| quirith *(ported)* | easy | .81 | 3.50 | .17 | 8.1 | 0.85 | 12 |
+| quenelle *(ported)* | easy | .81 | 3.50 | .17 | 8.1 | 0.85 | 12 |
 | aki | easy | .82 | 3.55 | .20 | 8.2 | 1.00 | 11 |
 | briselle | easy | .84 | 3.62 | .18 | 7.7 | 1.00 | 12 |
 | ceryth | intermediate | .78 | 3.45 | .17 | 8.6 | 0.88 | 12 |
-| eirys | difficult | .82 | 3.58 | .18 | 8.1 | 1.05 | 12 |
+| elise | difficult | .82 | 3.58 | .18 | 8.1 | 1.05 | 12 |
 | ferryn | intermediate | .80 | 2.75 | .17 | 8.3 | 0.92 | 12 |
 | glyra | easy | .81 | 3.52 | .18 | 7.9 | 1.12 | 12 |
 | haelith | easy | .83 | 3.60 | .18 | 7.8 | 1.18 | 12 |
 | ilyra | intermediate | .77 | 3.68 | .17 | 8.7 | 0.80 | 12 |
-| jyvra | easy | .80 | 3.56 | .18 | 8.0 | 1.00 | 12 |
+| javelle | easy | .80 | 3.56 | .18 | 8.0 | 1.00 | 12 |
 | kathy | difficult | .82 | 4.15 | .20 | 8.2 | 1.00 | 16 |
 | loxelle | easy | .80 | 3.555 | .18 | 7.9 | 1.12 | 13 |
 | mavrine | intermediate | .80 | 3.50 | .17 | 8.2 | 0.95 | 12 |
@@ -245,7 +245,7 @@ constants that all hold the same value).
 | wynelle | difficult | .81 | 3.00 | .18 | 7.8 | 1.15 | 12 |
 | xivvy | intermediate | .97 | 4.35 | .12 | 6.72 | 0.84 | 13 |
 | ysolde | easy | .80 | 3.54 | .18 | 8.1 | 1.00 | 12 |
-| zephyra | easy | .83 | 3.60 | .17 | 8.0 | 0.95 | 12 |
+| zellia | easy | .83 | 3.60 | .17 | 8.0 | 0.95 | 12 |
 
 ### Per-hunter ability constants
 
@@ -257,12 +257,12 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 | aki | `phantomExposure{initialDelay:10, burstInterval:5, burstCount:3}` |
 | briselle | `saboteur{dwell:5, chance:.5}` |
 | ceryth | `hidingTrap{lockSeconds:30, torchSeconds:2.5}` |
-| eirys | `runningData{secondsToFull:50}`, `breachesHiding:true` |
+| elise | `runningData{secondsToFull:50}`, `breachesHiding:true` |
 | ferryn | `roundStalker{flashNoise:100}`; `emberVeil{exposureDuration:999, exposureDecay:1, revealedDuration:.01, veiledAlpha:.08}` |
 | glyra | `musicBoxThreat{baySeconds:20, noisePerSecond:1}` |
 | haelith | `relayPursuer:true`; hardcoded `AUDIBLE_RANGE=9`, `FOOTSTEP_INTERVAL=0.4` |
 | ilyra | `cornerObserver{sightScale:1.8, stunSeconds:5, pounceDelay:15, banishSeconds:30}` |
-| jyvra | `hidingTimeout{seconds:8}` (code fallback `ejectStall:2.2`) |
+| javelle | `hidingTimeout{seconds:8}` (code fallback `ejectStall:2.2`) |
 | kathy | `beamDetection{range:11.5, halfAngle:.24}`, `affectedSummon{checkInterval:5, spawnChance:.1}` |
 | loxelle | `passiveIncinerator{interval:5, chance:.25, regenerateSeconds:60, easyRegenerateScale:.5}`, `breaksHiding{stallSeconds:10, reach:1.45, noise:11, temperatureIncrease:30}`, `nonLethal:true` |
 | mavrine | `latticeMark{surveyDelay:6.2, surveyDuration:.9, projectionDuration:6, cooldownDuration:4.2, pingDuration:.45, triggerRadius:.62}` |
@@ -277,7 +277,7 @@ Only for hunters not yet ported. Source: `HUNTER_ABILITIES` in
 | wynelle | `coldMaterializer{warmThreshold:60, deepColdThreshold:30, perDegreeRate:.5, deepColdRate:1, deathGraceSeconds:10, dematerializeResetProgress:50}` |
 | xivvy | `flight:true`, `chaseAccelerator{speedPerSecond:.035, maximumSpeedScale:1.8, closeLockRadius:1.5, wingNoisePerSecond:1.2}` |
 | ysolde | `batteryThief{stealRange:.8, torchRange:7}` |
-| zephyra | `merchant{nightmareDeathChance:.1, pesticideSeconds:60, offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}` |
+| zellia | `merchant{nightmareDeathChance:.1, pesticideSeconds:60, offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}` |
 
 ## Difficulty tiers and selection
 
@@ -291,9 +291,9 @@ so a partial roster does not distort the shares.
 - **Nightmare:** easy .175 / intermediate .525 / difficult .30 (original,
   reserved and not selectable)
 
-- **easy** — aki, briselle, dovelle, glyra, haelith, jyvra, loxelle, opalie, quirith, ysolde, zephyra
+- **easy** — aki, briselle, dovelle, glyra, haelith, javelle, loxelle, opalie, quenelle, ysolde, zellia
 - **intermediate** — ceryth, ferryn, ilyra, mavrine, porcelle, thessine, verrine, xivvy
-- **difficult** — eirys, kathy, ravelle, umbriel, wynelle
+- **difficult** — elise, kathy, ravelle, umbriel, wynelle
 - **special** (never in the random draw; summoned by a rule) — solyth (temperature extreme), nyxie (darkness)
 
 

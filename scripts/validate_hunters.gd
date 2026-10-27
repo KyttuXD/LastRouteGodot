@@ -53,7 +53,7 @@ func run(_host: Node) -> int:
 	_chase_persists_around_corners()
 	await _hunter_face_lights_are_aligned(_host)
 	await _porcelle_is_only_on_the_map(_host)
-	await _hiding_spots_and_jyvra(_host)
+	await _hiding_spots_and_javelle(_host)
 	await _loxelle_burns_and_regrows(_host)
 	await _ceryth_traps_and_disperses(_host)
 	await _briselle_sabotages_and_resecures(_host)
@@ -61,7 +61,7 @@ func run(_host: Node) -> int:
 	_glyra_winds_down_and_back_up(generator)
 	_ilyra_tags_and_pounces(generator)
 	await _verrine_lurks_and_chases(_host)
-	await _zephyra_trades_and_repairs(_host)
+	await _zellia_trades_and_repairs(_host)
 	await _interactables_require_facing(_host)
 	_hunter_paths_to_a_distant_target(generator)
 	if _failures == 0:
@@ -513,7 +513,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 ## the key that gets you out. The other is Javelle's timer keying on her being in
 ## "chase" -- the shared brain drops her out of chase the moment you hide, so
 ## the ejection never fires and the locker is permanent safety.
-func _hiding_spots_and_jyvra(host: Node) -> void:
+func _hiding_spots_and_javelle(host: Node) -> void:
 	RoomState.seed_text = "HIDE-CHECK"
 	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	var generator := FacilityGenerator.new(GameState.level_seed_text(),
@@ -561,7 +561,7 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 	_expect(not scene.player.hidden, "the player could not get back out of a locker")
 
 	# Javelle standing over an occupied spot for her full count.
-	var brain := _brain("jyvra", Vector2(cell) + Vector2(0.5, 0.5))
+	var brain := _brain("javelle", Vector2(cell) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
 		_fail("Javelle has no gimmick")
 		scene.queue_free()
@@ -570,17 +570,17 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 	hiding["hidden"] = true
 	hiding["hiding_spot"] = cell
 	var fired := false
-	for i in int((GameConfig.JYVRA_HIDING_SECONDS + 0.5) / STEP):
+	for i in int((GameConfig.JAVELLE_HIDING_SECONDS + 0.5) / STEP):
 		brain.update(STEP, scene.facility_view.generator, hiding, 1, 0)
 		if brain.gimmick.ejecting:
 			fired = true
 			break
 	_expect(fired, "Javelle stood over an occupied locker for %.0fs and never reached in"
-		% GameConfig.JYVRA_HIDING_SECONDS)
+		% GameConfig.JAVELLE_HIDING_SECONDS)
 	_expect(brain.stun_timer > 0.0,
 		"Javelle's ejection left her free to grab the player she just pulled out")
-	print("  jyvra     pulls a hidden player out after %.0fs, then stalls"
-		% GameConfig.JYVRA_HIDING_SECONDS)
+	print("  javelle     pulls a hidden player out after %.0fs, then stalls"
+		% GameConfig.JAVELLE_HIDING_SECONDS)
 	scene.queue_free()
 
 
@@ -1091,7 +1091,7 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 	print("  verrine   inert outside the network, chases and ramps speed inside it, resets on exit")
 
 
-func _zephyra_trades_and_repairs(host: Node) -> void:
+func _zellia_trades_and_repairs(host: Node) -> void:
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
 	await host.get_tree().process_frame
@@ -1120,7 +1120,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		"collecting a coin did not credit GameState.coins")
 	_expect(coin_node.completed, "a collected coin did not mark itself completed")
 
-	var brain := _brain("zephyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	var brain := _brain("zellia", Vector2(generator.start) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
 		_fail("Zellia has no gimmick")
 		scene.queue_free()
@@ -1173,9 +1173,9 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	var coins_before_trade := GameState.coins
 	message = brain.gimmick.choose_offer(1, player, scene.facility_view)
 	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
-	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZEPHYRA_TEMPERATURE_STEP),
+	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZELLIA_TEMPERATURE_STEP),
 		"cooling did not actually lower temperature")
-	_expect(GameState.coins == coins_before_trade - GameConfig.ZEPHYRA_COOL_COST,
+	_expect(GameState.coins == coins_before_trade - GameConfig.ZELLIA_COOL_COST,
 		"cooling did not charge the right number of coins")
 	_expect(not brain.gimmick.shop_open, "a completed trade left the shop open")
 
@@ -1204,7 +1204,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	brain.gimmick.shop_open = true
 	message = brain.gimmick.choose_offer(4, player, scene.facility_view)
 	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real pesticide trade did not complete")
-	_expect(player.pesticide_timer >= GameConfig.ZEPHYRA_PESTICIDE_SECONDS - 0.01,
+	_expect(player.pesticide_timer >= GameConfig.ZELLIA_PESTICIDE_SECONDS - 0.01,
 		"pesticide did not arm the player's timer")
 
 	# Far and hidden, so ordinary sight/hearing cannot itself put either brain
@@ -1228,7 +1228,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		"Ysolde still targeted a battery while pesticide was active")
 
 	scene.queue_free()
-	print("  zephyra   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
+	print("  zellia   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
 
 
 ## Not hunter-specific -- general player/interactable infrastructure, tested

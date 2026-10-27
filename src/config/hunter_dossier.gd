@@ -25,7 +25,7 @@ const ENTRIES := {
 		"ability": "BASELINE PURSUER",
 		"behavior": "Dovelle is the pure route hunter: she patrols, hears noise, follows sightings, searches your last known position and gives chase without a special rule.",
 	},
-	"eirys": {
+	"elise": {
 		"ability": "RUNNING DATA",
 		"behavior": "Every second spent moving at a sprint outside safe zones permanently fills Elise' hidden tracker. When full, she knows your position forever.",
 	},
@@ -45,7 +45,7 @@ const ENTRIES := {
 		"ability": "SHADOW POUNCE",
 		"behavior": "Ilyra watches from room corners. If she sees you and you then look away, she tags that moment and pounces after a delay to stun you.",
 	},
-	"jyvra": {
+	"javelle": {
 		"ability": "HIDING EJECTION",
 		"behavior": "A hiding spot is not permanent safety from Javelle. If she remains over your occupied spot long enough, she pulls you into the open.",
 	},
@@ -73,7 +73,7 @@ const ENTRIES := {
 		"ability": "RADAR TRACKED",
 		"behavior": "Porcelle remains visible in the route, and her moving position is also exposed as a hunter mark on the full facility map.",
 	},
-	"quirith": {
+	"quenelle": {
 		"ability": "FLASHLIGHT TRACKER",
 		"behavior": "Keeping the flashlight on too long lets Quenelle lock permanently onto you. Repeated light toggles also increase her chase speed.",
 	},
@@ -109,7 +109,7 @@ const ENTRIES := {
 		"ability": "BATTERY THIEF",
 		"behavior": "Ysolde seeks the nearest uncollected battery and removes it from the shared floor permanently before runners can reach it.",
 	},
-	"zephyra": {
+	"zellia": {
 		"ability": "COIN EXCHANGE",
 		"behavior": "Zellia settles near the facility centre as a trader. Her deals are usually fair: coins buy cooling, warmth, repairs or temporary pesticide. But a deal can go badly: each trade has a small chance of ending the run (2% on Relaxed up to 12% on Nightmare).",
 	},
@@ -151,7 +151,8 @@ static func profile(hunter_id: String) -> Dictionary:
 	return HunterRoster.PROFILES.get(hunter_id, SecretCreatures.profile(hunter_id))
 
 
-static func entry(hunter_id: String) -> Dictionary:
+static func entry(requested_id: String) -> Dictionary:
+	var hunter_id := HunterIdAliases.canonical(requested_id)
 	if SecretCreatures.has(hunter_id):
 		return SecretCreatures.dossier_entry(hunter_id)
 	if VOID_GIMMICK_CHART.has_entry(hunter_id):

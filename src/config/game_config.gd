@@ -219,15 +219,15 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## in the original). Consumed via HunterRoster, not referenced directly by
 ## hunter_brain.gd (see src/config/hunter_roster.gd).
 
-## Quenelle — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
-## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
+## Quenelle — flashlight tracker (hunterAbilities.quenelle.flashlightTracker in
+## the original). Keeping the flashlight on for QUENELLE_FLASHLIGHT_LOCK_SECONDS
 ## straight earns a permanent chase lock; every flashlight on/off flick after
-## that ramps her chase speed further, capped at QUIRITH_MAX_SPEED_SCALE after
-## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
+## that ramps her chase speed further, capped at QUENELLE_MAX_SPEED_SCALE after
+## QUENELLE_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
 ## behaviour; Nightmare's shorter 5s threshold remains reserved with that mode.
-const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
-const QUIRITH_MAX_SPEED_SCALE := 1.45
-const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
+const QUENELLE_FLASHLIGHT_LOCK_SECONDS := 8.0
+const QUENELLE_MAX_SPEED_SCALE := 1.45
+const QUENELLE_SPEED_RAMP_ACTIVATIONS := 10
 
 ## Thessine's original soundMimic plan: one authoritative check every ten
 ## seconds, with a one-in-two false cue and a small rare-audio pool.
@@ -235,12 +235,12 @@ const THESSINE_MIMIC_INTERVAL := 10.0
 const THESSINE_MIMIC_CHANCE := 0.5
 const THESSINE_MIMIC_RARE_CHANCE := 0.08
 
-## Elise — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
+## Elise — running-data ratchet (hunterAbilities.elise.runningData). Time spent
 ## actually sprinting outside a safe zone accumulates and NEVER decays; at
-## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
+## ELISE_SECONDS_TO_FULL she locks into a permanent blind chase. Her
 ## `breachesHiding` flag isn't ported — hiding spots don't exist yet, so it
 ## would be a no-op either way.
-const EIRYS_SECONDS_TO_FULL := 50.0
+const ELISE_SECONDS_TO_FULL := 50.0
 
 ## Xivvy — chase accelerator (hunterAbilities.xivvy.chaseAccelerator). Locks on
 ## by pure proximity (no sight/hearing check), then her chase speed ramps the
@@ -327,7 +327,7 @@ const WYNELLE_PER_DEGREE_RATE := 0.5
 const WYNELLE_DEEP_COLD_RATE := 1.0
 const WYNELLE_DEATH_GRACE_SECONDS := 10.0
 ## 2D Zellia deathChance per trade (relaxed .02, normal .05, hard .075, nightmare .12).
-const ZEPHYRA_DEATH_CHANCE := {"relaxed": 0.02, "standard": 0.05, "hard": 0.075, "nightmare": 0.12}
+const ZELLIA_DEATH_CHANCE := {"relaxed": 0.02, "standard": 0.05, "hard": 0.075, "nightmare": 0.12}
 const WYNELLE_DEMATERIALIZE_RESET_PROGRESS := 50.0
 
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
@@ -423,13 +423,13 @@ const AKI_BURST_COUNT := 3
 const AKI_BURST_EXPOSURE := 100.0
 
 
-## Javelle — hiding timeout (hunterAbilities.jyvra.hidingTimeout). The reach is
-## jyvra.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
+## Javelle — hiding timeout (hunterAbilities.javelle.hidingTimeout). The reach is
+## javelle.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
 ## the ejection is non-lethal, so she is left briefly winded rather than
 ## capturing the player she just pulled into the open.
-const JYVRA_HIDING_SECONDS := 8.0
-const JYVRA_REACH := 2.0
-const JYVRA_EJECT_STALL := 2.2
+const JAVELLE_HIDING_SECONDS := 8.0
+const JAVELLE_REACH := 2.0
+const JAVELLE_EJECT_STALL := 2.2
 
 
 ## Loxelle — passive incinerator (hunterAbilities.loxelle.passiveIncinerator /
@@ -492,19 +492,19 @@ const VERRINE_INITIAL_SPEED_SCALE := 0.4
 const VERRINE_SPEED_PER_SECOND := 0.025
 const VERRINE_MAX_SPEED_SCALE := 2.4
 
-## Zellia — merchant (hunterAbilities.zephyra.merchant):
+## Zellia — merchant (hunterAbilities.zellia.merchant):
 ## {nightmareDeathChance:.1, pesticideSeconds:60,
 ## offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}.
 ## Nightmare's instant-death roll stays reserved with the unselectable mode;
 ## Hard never silently turns a shop interaction into an instant death.
-const ZEPHYRA_SHOP_RANGE := 1.35
-const ZEPHYRA_PESTICIDE_SECONDS := 60.0
-const ZEPHYRA_COOL_COST := 2
-const ZEPHYRA_WARM_COST := 2
-const ZEPHYRA_REPAIR_COST := 3
-const ZEPHYRA_PESTICIDE_COST := 4
-const ZEPHYRA_TEMPERATURE_STEP := 15.0
-const ZEPHYRA_LAMP_REPAIR := 25.0
+const ZELLIA_SHOP_RANGE := 1.35
+const ZELLIA_PESTICIDE_SECONDS := 60.0
+const ZELLIA_COOL_COST := 2
+const ZELLIA_WARM_COST := 2
+const ZELLIA_REPAIR_COST := 3
+const ZELLIA_PESTICIDE_COST := 4
+const ZELLIA_TEMPERATURE_STEP := 15.0
+const ZELLIA_LAMP_REPAIR := 25.0
 
 ## Coin pickups, scattered on the floor the same way relays/batteries are.
 ## The original places a variable-value coin scatter (`maze.coins`); this

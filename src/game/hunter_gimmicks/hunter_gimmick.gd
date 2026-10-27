@@ -112,16 +112,16 @@ func apply_network_state(_state: Dictionary) -> void:
 ## any id with no behavior-changing gimmick (tuning-only hunters like
 ## Dovelle, and every not-yet-ported id) — HunterBrain treats null as "skip
 ## every hook", so adding a hunter here is opt-in, never a stub to fill in.
-static func for_id(hunter_id: String) -> HunterGimmick:
-	match hunter_id:
+static func for_id(requested_id: String) -> HunterGimmick:
+	match HunterIdAliases.canonical(requested_id):
 		"white_wolf_spider":
 			return WhiteWolfSpiderGimmick.new()
 		"black_wolf_spider":
 			return BlackWolfSpiderGimmick.new()
-		"quirith":
-			return QuirithGimmick.new()
-		"eirys":
-			return EirysGimmick.new()
+		"quenelle":
+			return QuenelleGimmick.new()
+		"elise":
+			return EliseGimmick.new()
 		"xivvy":
 			return XivvyGimmick.new()
 		"kathy":
@@ -150,8 +150,8 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return AkiGimmick.new()
 		"porcelle":
 			return PorcelleGimmick.new()
-		"jyvra":
-			return JyvraGimmick.new()
+		"javelle":
+			return JavelleGimmick.new()
 		"loxelle":
 			return LoxelleGimmick.new()
 		"ceryth":
@@ -166,8 +166,8 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return IlyraGimmick.new()
 		"verrine":
 			return VerrineGimmick.new()
-		"zephyra":
-			return ZephyraGimmick.new()
+		"zellia":
+			return ZelliaGimmick.new()
 		"void_black":
 			return VoidBlackGimmick.new()
 		"void_blue":

@@ -60,13 +60,13 @@ const JUMPSCARE_PROFILES := {
 		"overlay_tint": Color(0.70, 0.02, 0.03),
 	},
 	# Example bespoke A-Z tweaks (feel free to add more)
-	"eirys": {
+	"elise": {
 		"duration": 1.20,
 		"roll": 0.18,
 		"scale": 1.10,
 		"overlay_tint": Color(0.58, 0.06, 0.10),
 	},
-	"quirith": {
+	"quenelle": {
 		"duration": 1.05,
 		"roll": 0.14,
 		"scale": 1.06,

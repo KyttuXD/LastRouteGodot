@@ -127,6 +127,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 	position = spawn_position
 	_rng = SeededRandom.new(rng_seed_text)
 	spawn_seed_text = rng_seed_text
+	id = HunterIdAliases.canonical(id)
 	hunter_id = id
 	difficulty_id = route_difficulty if GameConfig.DIFFICULTY_PROFILES.has(
 		route_difficulty) else "standard"
