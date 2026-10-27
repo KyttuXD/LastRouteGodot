@@ -45,6 +45,7 @@ const ADMIN_PREFERENCE_DEFAULTS := {
 	"god_mode": false,
 	"noclip": false,
 	"map_reveal": false,
+	"region_map": false,
 	"hunter_reveal": false,
 	"pixel_effect_enabled": true,
 }

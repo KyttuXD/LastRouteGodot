@@ -74,6 +74,9 @@ var _waypoint_grid_signature := ""
 var _waypoint_grid := AStarGrid2D.new()
 var _waypoint_trail: MeshInstance3D
 var _admin_reveal_map := false
+## Region/biome overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
+var _admin_region_map := false
+const REGION_MAP_KEY := KEY_F8
 var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
@@ -624,6 +627,9 @@ func _infinite_admin_actions() -> Array:
 		{"label": "TOGGLE MAP REVEAL", "action": _admin_toggle_map_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_map},
+		{"label": "TOGGLE REGION MAP (F8)", "action": _admin_toggle_region_map,
+			"permission": "visual",
+			"state": func() -> bool: return _admin_region_map},
 		{"label": "TOGGLE HUNTER REVEAL", "action": _admin_toggle_hunter_reveal,
 			"permission": "visual",
 			"state": func() -> bool: return _admin_reveal_hunters},
@@ -1024,6 +1030,7 @@ func _apply_persisted_admin_preferences() -> void:
 	player.set_admin_noclip(player_tools and Settings.admin_preference("noclip"))
 	_set_admin_map_reveal(visual_tools and Settings.admin_preference("map_reveal"))
 	_admin_reveal_hunters = visual_tools and Settings.admin_preference("hunter_reveal")
+	_admin_region_map = visual_tools and Settings.admin_preference("region_map")
 	pixel_signal_effect.set_admin_enabled(
 		visual_tools and Settings.admin_preference("pixel_effect_enabled"))
 
@@ -1041,6 +1048,13 @@ func _admin_toggle_god_mode() -> void:
 func _admin_toggle_noclip() -> void:
 	player.set_admin_noclip(not player.admin_noclip)
 	Settings.set_admin_preference("noclip", player.admin_noclip)
+
+
+func _admin_toggle_region_map() -> void:
+	_admin_region_map = not _admin_region_map and Build.admin_permission("visual")
+	Settings.set_admin_preference("region_map", _admin_region_map)
+	if _admin_menu != null:
+		_admin_menu._refresh()
 
 
 func _admin_toggle_hunter_reveal() -> void:
@@ -1065,6 +1079,7 @@ func _force_disable_admin_cheats() -> void:
 		player.admin_speed_scale = 1.0
 	Engine.time_scale = 1.0
 	_admin_reveal_hunters = false
+	_admin_region_map = false
 	_admin_reveal_map = false
 	_set_admin_map_reveal(false)
 	if pixel_signal_effect != null:
@@ -1320,7 +1335,7 @@ func _update_streamed_maps() -> void:
 	var level := facility.current_level()
 	# Region boundaries expose generation information, so they follow the same
 	# authenticated visual-admin permission as hunter/map reveal controls.
-	var show_admin_regions := Build.admin_permission("visual")
+	var show_admin_regions := Build.admin_permission("visual") and _admin_region_map
 	var remote_map_players := _remotes.remote_player_marks(-level) \
 		if _remotes != null else []
 	var dropped_tool_marks := _dropped_tool_marks(level)
@@ -3759,6 +3774,12 @@ func _update_spectating() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).physical_keycode == REGION_MAP_KEY \
+			and _admin_menu != null and Build.admin_permission("visual"):
+		_admin_toggle_region_map()
+		get_viewport().set_input_as_handled()
+		return
 	if not player.spectator_mode or not (event is InputEventKey) \
 			or not event.pressed or event.echo:
 		return

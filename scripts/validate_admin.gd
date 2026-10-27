@@ -334,12 +334,14 @@ func run(host: Node) -> int:
 		for entry in route_menu._actions:
 			labels.append(String(entry.get("label", entry.get("heading", ""))))
 		for wanted in ["FREEZE ALL HUNTERS", "RELEASE ALL HUNTERS", "TELEPORT // CHUNKS AND SAFE ROOMS",
-				"RUN SPEED", "GAME SPEED // SOLO RUNS ONLY", "COPY SEED", "SUMMON VOID HUNTER"]:
+				"RUN SPEED", "GAME SPEED // SOLO RUNS ONLY", "COPY SEED", "SUMMON VOID HUNTER",
+				"TOGGLE REGION MAP (F8)"]:
 			_expect(labels.has(wanted), "streamed route admin menu lacks %s" % wanted)
 		# everything the new tools add is permission-scoped (nothing falls through to ungated)
 		for entry in route_menu._actions:
 			var gated: bool = entry.has("permission") or bool(entry.get("owner_only", false))
 			_expect(gated, "admin entry %s has no permission scope" % entry.get("label", entry.get("heading", "?")))
+		_expect(not route._admin_region_map, "the admin region/biome map must default to off")
 		var badge := route_menu.get_node_or_null("AdminActiveBadge") as Label
 		_expect(badge != null and badge.text.begins_with("ADMIN ACTIVE"),
 			"the ADMIN ACTIVE badge is missing")
