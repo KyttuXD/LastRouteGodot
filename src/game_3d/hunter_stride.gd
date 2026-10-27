@@ -126,12 +126,14 @@ static func measure(model: Node3D, animation: Animation, feet: Array, sole_drop:
 	var mean := sum / count
 	# A clip whose planted foot travels FORWARD relative to the body (a moonwalk) plays backwards instead:
 	# its reference speed is then the forward travel of the same feet.
-	var reverse := low_count > 0 and low_sum < 0.0 and fcount > 0
+	# (only when it is clear: a near-zero low-foot speed, as a crawl's joints have, is noise, not a moonwalk)
+	var low_mean := low_sum / low_count if low_count > 0 else 1.0
+	var reverse := low_count > 0 and low_mean < -.2 * mean and fcount > 0
 	if reverse:
 		mean = fsum / fcount
 	var variance := maxf(squares / count - mean * mean, 0.0)
 	return {"ref": mean * world_scale, "slip_rms": sqrt(variance) / maxf(mean, .001),
-		"contacts": count, "cycle": animation.length, "forward_ok": low_count == 0 or low_sum > 0.0, "reverse": reverse,
+		"contacts": count, "cycle": animation.length, "forward_ok": low_count == 0 or low_mean >= -.2 * maxf(mean, .001), "reverse": reverse,
 		"stance": (low_sum / low_count * world_scale) if low_count > 0 else mean * world_scale}
 
 

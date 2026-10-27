@@ -19,7 +19,7 @@ func _ready() -> void:
 	ids.sort()
 	for id in ids:
 		print("measuring ", id)
-		table[id] = _measure("res://assets/hunters_blocky/%s/%s.glb" % [id, id], CLIPS, HunterStride.HUMANOID_FEET, true)
+		table[id] = _measure("res://assets/hunters_blocky/%s/%s.glb" % [id, id], CLIPS, HunterStride.HUMANOID_FEET, true, id)
 	for id in SecretCreatures.IDS:
 		creatures[id] = _measure(String(SecretCreatures.PROFILES[id]["model"]), CREATURE_CLIPS, [], false)
 	# creatures live in their own file under assets/city (nothing outside their folders may name them)
@@ -31,7 +31,7 @@ func _ready() -> void:
 	get_tree().quit()
 
 
-func _measure(path: String, clips: Array, feet: Array, humanoid: bool) -> Dictionary:
+func _measure(path: String, clips: Array, feet: Array, humanoid: bool, id: String = "") -> Dictionary:
 	var model := (load(path) as PackedScene).instantiate() as Node3D
 	add_child(model)
 	var player := ModelSlot.find_animation_player(model)
@@ -47,5 +47,16 @@ func _measure(path: String, clips: Array, feet: Array, humanoid: bool) -> Dictio
 		var m := HunterStride.measure(model, player.get_animation(clip), foot_nodes, humanoid, model.scale.y)
 		result[clip] = {"ref": snappedf(m["ref"], .001), "slip_rms": snappedf(m["slip_rms"], .001), "cycle": snappedf(m["cycle"], .001),
 			"contacts": m["contacts"], "forward_ok": m["forward_ok"], "reverse": m["reverse"], "stance": snappedf(m["stance"], .001)}
+	# travelling Night Watch poses (the data lists the nodes that touch the ground) are measured as "nw/<pose>"
+	if humanoid and player != null:
+		NightWatchPoses.install(model, player, id)
+		for pose_id in NightWatchPoses.pose_ids():
+			var travel: Array = NightWatchPoses.pose(pose_id).get("travel", [])
+			if travel.is_empty():
+				continue
+			var m := HunterStride.measure(model, player.get_animation(NightWatchPoses.clip_name(pose_id)), travel, false, model.scale.y)
+			result[NightWatchPoses.clip_name(pose_id)] = {"ref": snappedf(m["ref"], .001), "slip_rms": snappedf(m["slip_rms"], .001),
+				"cycle": snappedf(m["cycle"], .001), "contacts": m["contacts"], "forward_ok": m["forward_ok"], "reverse": m["reverse"],
+				"stance": snappedf(m["stance"], .001)}
 	model.queue_free()
 	return result

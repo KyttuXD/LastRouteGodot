@@ -580,6 +580,11 @@ func _play_travel(clip_name: String) -> void:
 			player.seek(phase * player.get_animation(clip_name).length, false)
 
 
+## The model id this view is showing (Umbriel's disguise included).
+func shown_id() -> String:
+	return _shown_id
+
+
 func has_nw_pose() -> bool:
 	return _animation_player != null and not nw_pose.is_empty() \
 		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
@@ -613,8 +618,22 @@ func _play_nw_pose() -> bool:
 			return false
 		_nw_started = nw_pose
 		_animation_player.play(clip, float(nw_pose_opts.get("blend", spec.get("blend", .3))))
-	_animation_player.speed_scale = float(nw_pose_opts.get("speed", 1.0))
+	if nw_pose_opts.has("speed"):
+		_animation_player.speed_scale = float(nw_pose_opts["speed"])
+	elif spec.has("travel"):
+		# a travelling pose (the vent crawl) plays at real ground speed / its measured stride speed, and holds still when she does
+		var wanted := 0.0
+		if _gait_pose_moving():
+			wanted = clampf(_move_speed / HunterStride.ref_speed(_shown_id, clip), HunterStride.HARD_MIN, HunterStride.HARD_MAX)
+		_stride_scale = lerpf(_stride_scale, wanted, 1.0 - exp(-10.0 * get_process_delta_time()))
+		_animation_player.speed_scale = _stride_scale if wanted > 0.0 or _stride_scale > .05 else 0.0
+	else:
+		_animation_player.speed_scale = 1.0
 	return true
+
+
+func _gait_pose_moving() -> bool:
+	return _move_speed > GAIT_ENTER_SPEED * .5
 
 
 func _update_animation() -> void:
