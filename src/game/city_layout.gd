@@ -82,7 +82,8 @@ const DECOR_VISIBLE := {
 	"bench": Vector3(.9, .9, .4), "planter": Vector3(.84, .9, .84), "bollard": Vector3(.24, .8, .24),
 	"statue": Vector3(3.0, 3.8, 3.0),
 }
-const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "hall"]
+## "hall" is last on purpose: it is only given to big civic lots, never drawn at random.
+const BUILDING_KINDS := ["shop", "cafe", "office", "apartment", "lobby", "workshop", "library", "chapel", "hall"]
 
 ## Footprints (metres) of the interior props this plan places; all of them are shared prop types.
 const PROP_SIZES := {
@@ -107,7 +108,11 @@ const INTERIOR_RECIPES := {
 	"lobby": [["woodenChair", "row"], ["floorLamp", "wall"], ["vendingMachine", "wall"], ["normalBookcase", "wall"]],
 	"workshop": [["supplyCrates", "row"], ["serverRack", "wall"], ["officeFileBoxes", "scatter"], ["filingCabinet", "wall"], ["trashBin", "scatter"]],
 	"hall": [["diningTable", "row"], ["diningChair", "seat"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
+	"library": [["normalBookcase", "row"], ["normalBookcase", "wall"], ["woodenTable", "scatter"], ["woodenChair", "seat"], ["floorLamp", "wall"]],
+	"chapel": [["woodenChair", "row"], ["floorLamp", "wall"], ["floorLamp", "wall"], ["normalBookcase", "wall"]],
 }
+## Interiors at least this wide get a partition wall with a two-wide doorway, so the building has two rooms.
+const PARTITION_MIN := 11
 
 var seed_text := ""
 var kinds := PackedByteArray()
@@ -275,6 +280,8 @@ func shelter_for_chunk(coord: Vector3i) -> Dictionary:
 
 ## Interior furniture entries of one building (city cells), deterministic from the seed and the building id.
 func building_props(building: Dictionary) -> Array:
+	if bool(building.get("sealed", false)):
+		return []
 	var kind := String(building["kind"])
 	var recipe: Array = INTERIOR_RECIPES.get(kind, [])
 	if recipe.is_empty():
@@ -288,6 +295,11 @@ func building_props(building: Dictionary) -> Array:
 		for dz in range(-2, 3):
 			for dx in range(-2, 3):
 				taken[door + Vector2i(dx, dz)] = true
+	for wall_value in building.get("partition", []):
+		var wall_cell: Vector2i = wall_value
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				taken[wall_cell + Vector2i(dx, dz)] = true
 	var props := []
 	var index := 0
 	var row_cells := []
@@ -354,6 +366,8 @@ func _keep_floor_connected(building: Dictionary, props: Array) -> Array:
 	var start: Vector2i = doors[0]
 	for _attempt in 16:
 		var blocked := {}
+		for wall_value in building.get("partition", []):
+			blocked[wall_value] = true
 		for prop in props:
 			blocked[prop["cell"]] = true
 		var seen := {}
@@ -681,16 +695,16 @@ func _split_with_alley(rect: Rect2i, horizontal: bool) -> Array:
 
 func _split_lots(rect: Rect2i) -> Array:
 	var longest := maxi(rect.size.x, rect.size.y)
-	if longest <= 22:
+	if longest <= 17:
 		return [rect]
 	var ratio := .4 + _rng.next_float() * .2
 	var out := []
 	if rect.size.x >= rect.size.y:
-		var cut := clampi(roundi(rect.size.x * ratio), 10, rect.size.x - 10)
+		var cut := clampi(roundi(rect.size.x * ratio), 9, rect.size.x - 9)
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y, cut, rect.size.y)))
 		out.append_array(_split_lots(Rect2i(rect.position.x + cut, rect.position.y, rect.size.x - cut, rect.size.y)))
 	else:
-		var cut := clampi(roundi(rect.size.y * ratio), 10, rect.size.y - 10)
+		var cut := clampi(roundi(rect.size.y * ratio), 9, rect.size.y - 9)
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y, rect.size.x, cut)))
 		out.append_array(_split_lots(Rect2i(rect.position.x, rect.position.y + cut, rect.size.x, rect.size.y - cut)))
 	return out
@@ -728,6 +742,9 @@ func _try_building(lot: Rect2i) -> void:
 	var kind: String = BUILDING_KINDS[_rng.next_index(BUILDING_KINDS.size() - 1)]
 	var height := 12.0 + _rng.next_float() * 16.0
 	var style := "brick"
+	if kind == "chapel":
+		style = "civic"
+		height = 16.0 + _rng.next_float() * 6.0
 	if area >= 260 and (center_z < 25 or center_z > 110):
 		kind = "hall"
 		height = 18.0 + _rng.next_float() * 6.0
@@ -739,8 +756,36 @@ func _try_building(lot: Rect2i) -> void:
 	for gz in range(lot.position.y, lot.end.y):
 		for gx in range(lot.position.x, lot.end.x):
 			building_index[index_of(gx, gz)] = buildings.size() + 1
-	buildings.append({"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
-		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors})
+	var building := {"id": id, "rect": lot, "interior": Rect2i(lot.position + Vector2i.ONE, lot.size - Vector2i(2, 2)),
+		"kind": kind, "height": snappedf(height, .5), "style": style, "doors": doors, "partition": []}
+	building["partition"] = _lay_partition(building)
+	buildings.append(building)
+
+
+## A wall across the middle of a big interior with a two-wide doorway in it; empty when a door is too close to the line.
+## Returns the wall cells (the doorway cells stay floor).
+func _lay_partition(building: Dictionary) -> Array:
+	var interior: Rect2i = building["interior"]
+	if maxi(interior.size.x, interior.size.y) < PARTITION_MIN or mini(interior.size.x, interior.size.y) < 5:
+		return []
+	var vertical := interior.size.x >= interior.size.y
+	var length := interior.size.y if vertical else interior.size.x
+	var across := interior.size.x if vertical else interior.size.y
+	var line := (interior.position.x if vertical else interior.position.y) + across / 2 + _rng.next_index(3) - 1
+	for door_value in building["doors"]:
+		var door: Vector2i = door_value
+		if absi((door.x if vertical else door.y) - line) <= 3:
+			return []
+	var gap := (interior.position.y if vertical else interior.position.x) + 1 + _rng.next_index(maxi(1, length - 3))
+	var cells := []
+	for step in length:
+		var along := (interior.position.y if vertical else interior.position.x) + step
+		if along == gap or along == gap + 1:
+			continue
+		var cell := Vector2i(line, along) if vertical else Vector2i(along, line)
+		cells.append(cell)
+		_set_kind(cell.x, cell.y, WALL)
+	return cells
 
 
 func _lot_buildable(lot: Rect2i) -> bool:
@@ -919,6 +964,12 @@ static func gate_relays_required(difficulty_id: String) -> int:
 
 ## An alley is 3 wide; leftover 1-2 cell slivers (clipped by the dome edge or the roundabout) become solid.
 func _remove_thin_alleys() -> void:
+	# Removing a thin strip can leave its neighbours thin, so repeat until the alleys that remain are all 3+ wide.
+	while _remove_thin_alley_pass():
+		pass
+
+
+func _remove_thin_alley_pass() -> bool:
 	var thin := []
 	for gz in HEIGHT:
 		for gx in WIDTH:
@@ -939,6 +990,7 @@ func _remove_thin_alleys() -> void:
 				thin.append(Vector2i(gx, gz))
 	for cell in thin:
 		_set_kind((cell as Vector2i).x, (cell as Vector2i).y, WALL)
+	return not thin.is_empty()
 
 
 ## Open cells that cannot be reached from the spawn become solid, so the city is one connected walkable space.
@@ -962,6 +1014,14 @@ func _seal_unreachable() -> void:
 		for gx in WIDTH:
 			if is_open(gx, gz) and reached[index_of(gx, gz)] == 0:
 				_set_kind(gx, gz, WALL)
+	# A building whose every doorway got sealed is now a solid mass: no rooms, props or lamp for it.
+	for building in buildings:
+		var enterable := false
+		for door_value in building["doors"]:
+			var door: Vector2i = door_value
+			if kind_at(door.x, door.y) == DOOR:
+				enterable = true
+		building["sealed"] = not enterable
 
 
 # ---------------------------------------------------------------- map image

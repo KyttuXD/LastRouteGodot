@@ -62,6 +62,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var region_props := []
 	var buildings := []
 	for building in layout.buildings_in_chunk(coord):
+		if bool(building.get("sealed", false)):
+			continue
 		var rect: Rect2i = building["rect"]
 		var interior: Rect2i = building["interior"]
 		# One cell is kept off every chunk border: the route's fixture placement looks at the cell behind a wall.

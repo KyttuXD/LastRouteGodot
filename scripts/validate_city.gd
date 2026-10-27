@@ -95,7 +95,21 @@ func _check_determinism(layout: CityLayout) -> void:
 
 func _check_shape(layout: CityLayout) -> void:
 	_expect(layout.kinds.size() == CityLayout.WIDTH * CityLayout.HEIGHT, "layout size is wrong")
-	_expect(layout.buildings.size() >= 20, "too few buildings (%d)" % layout.buildings.size())
+	_expect(layout.buildings.size() >= 47 and layout.buildings.size() <= 70, "building count %d is outside 47..70" % layout.buildings.size())
+	var kinds_seen := {}
+	var partitioned := 0
+	var sealed := 0
+	for building in layout.buildings:
+		if bool(building.get("sealed", false)):
+			sealed += 1
+			continue
+		kinds_seen[String(building["kind"])] = true
+		if not (building["partition"] as Array).is_empty():
+			partitioned += 1
+	_expect(sealed <= 3, "%d buildings are sealed shut" % sealed)
+	print("  city: %d buildings (%d sealed), kinds %s, %d with two rooms" % [layout.buildings.size(), sealed, kinds_seen.keys(), partitioned])
+	_expect(kinds_seen.size() >= 7, "only %d building kinds" % kinds_seen.size())
+	_expect(partitioned >= 5, "only %d buildings have a partition" % partitioned)
 	_expect(layout.shelters.size() == 5, "expected 5 shelters, got %d" % layout.shelters.size())
 	_expect(layout.gardens.size() == 2, "expected two gardens")
 	var open := 0
@@ -189,6 +203,8 @@ func _check_buildings(layout: CityLayout) -> void:
 	for building in layout.buildings:
 		var id := String(building["id"])
 		_expect(not ids.has(id), "duplicate building id %s" % id)
+		if bool(building.get("sealed", false)):
+			continue
 		ids[id] = true
 		var doors: Array = building["doors"]
 		_expect(doors.size() >= 2, "%s has no usable door" % id)
@@ -223,7 +239,7 @@ func _check_buildings(layout: CityLayout) -> void:
 		for gz in range(interior.position.y, interior.end.y):
 			for gx in range(interior.position.x, interior.end.x):
 				var cell := Vector2i(gx, gz)
-				if not blocked.has(cell) and not reached.has(cell):
+				if layout.kind_at(gx, gz) == CityLayout.FLOOR and not blocked.has(cell) and not reached.has(cell):
 					missed += 1
 		_expect(missed == 0, "%s has %d floor cells cut off by furniture" % [id, missed])
 

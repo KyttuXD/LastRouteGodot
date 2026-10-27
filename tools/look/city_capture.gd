@@ -97,6 +97,29 @@ func _spots(layout: CityLayout) -> Array:
 			"yaw": rad_to_deg(atan2(-toward.x, -toward.y)), "pitch": 0.0})
 		spots.append({"name": "facade", "pos": _at(door.x + .5 + signf(toward.x) * 7.0, door.y + .5 + signf(toward.y) * 7.0),
 			"yaw": rad_to_deg(atan2(toward.x, toward.y)), "pitch": 12.0})
+	spots.append({"name": "gate_far", "pos": _at(112.5, 98.5), "yaw": 180.0, "pitch": 4.0})
+	spots.append({"name": "gate_close", "pos": _at(112.5, 114.5), "yaw": 180.0, "pitch": 6.0})
+	# One look inside a library, a chapel and a two-room building (from just inside the first doorway).
+	var shown := {}
+	for building_value in layout.buildings:
+		var entry: Dictionary = building_value
+		if bool(entry.get("sealed", false)):
+			continue
+		var tag := String(entry["kind"])
+		if not (entry["partition"] as Array).is_empty() and not shown.has("tworoom"):
+			tag = "tworoom"
+		elif tag != "library" and tag != "chapel":
+			continue
+		if shown.has(tag):
+			continue
+		shown[tag] = true
+		var room: Rect2i = entry["interior"]
+		var entry_door: Vector2i = (entry["doors"] as Array)[0]
+		var centre := room.position + room.size / 2
+		var inward := Vector2(centre - entry_door)
+		var start := Vector2(entry_door) + inward.normalized() * 2.0
+		spots.append({"name": "inside_%s" % tag, "pos": _at(start.x + .5, start.y + .5),
+			"yaw": rad_to_deg(atan2(-inward.x, -inward.y)), "pitch": 0.0})
 	return spots
 
 

@@ -191,3 +191,15 @@ stays online when signed in so it can save. The dome gate clears the save.
 The City menu also has ACCOUNT (the shared `AccountPanel`) and SETTINGS (the shared `scenes/settings_overlay.tscn`, now split
 out of `main_menu.tscn`). Controls tabs come from `ControlsRegistry`; the City is an alias of Last Route's (MOVEMENT / ACTIONS /
 SYSTEM). The pause menu's local save slots stay off in the City.
+
+
+## World depth (pass 2)
+
+Blocks are now split into lots down to 9x9, giving about 51 buildings (3 end up sealed shut where an alley was removed and are
+solid masses with no rooms). Two new interior kinds, **library** (bookcase rows, tables) and **chapel** (benches, lamps; civic
+style, taller). Interiors 11+ wide get a **partition wall with a two-wide doorway**, so about a tenth of the buildings have
+two rooms (props keep the doorway clear, the validator floods both rooms). Relays, pickups and hunter spawns already pick any
+open cell, so they now also land inside buildings. Not done: two-floor buildings and subway interiors (the four shelter plazas
+stay the underground-style refuge).
+
+![the dome gate](city_gate.png) ![library](city_interior_library.png) ![two rooms](city_interior_two_rooms.png) ![chapel](city_interior_chapel.png)
