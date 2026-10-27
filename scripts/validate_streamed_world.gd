@@ -249,10 +249,15 @@ func run(host: Node) -> int:
 							return room["room_type"] in ["prison_cell",
 								"prison_cafeteria", "stairwell"]))
 				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
+				# A great hall (docs/ROOM_SIZES.md) trims the middle east-west hall on its side and the neighbour's; the
+				# vertical hall and the untrimmed part of the middle hall must stay whole.
+				var trim_west: bool = world.hall_trimmed(data["coord"], -1)
+				var trim_east: bool = world.hall_trimmed(data["coord"], 1)
 				for axis_offset in range(-1, 2):
 					for axis_cell in range(1, StreamedRouteGenerator.CHUNK_SIZE - 1):
-						_expect(int(data["grid"][center + axis_offset][axis_cell]) == 0 \
-							and int(data["grid"][axis_cell][center + axis_offset]) == 0,
+						var horizontal_ok: bool = int(data["grid"][center + axis_offset][axis_cell]) == 0 \
+							or (trim_west and axis_cell < center - 1) or (trim_east and axis_cell > center + 1)
+						_expect(horizontal_ok and int(data["grid"][axis_cell][center + axis_offset]) == 0,
 							"%s central hall narrowed below three cells" % data["coord"])
 				for corridor_value in data["corridors"]:
 					var corridor: Dictionary = corridor_value

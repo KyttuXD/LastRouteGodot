@@ -495,6 +495,132 @@ func _check_room_lobby_contract(scene: Node) -> int:
 		if dossier_panel == null or not _root().get_visible_rect().encloses(
 				Rect2(dossier_panel.global_position, dossier_panel.size)):
 			failures += _fail("hunter dossier spills outside %s" % size)
+	panel.close()
+	Backend.account_username = account_before["username"]
+	Backend.account_session_token = account_before["token"]
+	Backend.account_session_verified = account_before["verified"]
+	Backend.account_progress = account_before["progress"]
+	await _frame()
+	return failures
+
+
+func _check_main_menu_contract(scene: Node) -> int:
+	var failures := 0
+	if scene.find_child("RouteNotice", true, false) != null:
+		failures += _fail("main menu still carries the removed room-description line")
+	var generic_input := LineEdit.new()
+	Palette.style_line_edit(generic_input)
+	if generic_input.text_direction != Control.TEXT_DIRECTION_LTR \
+			or generic_input.alignment != HORIZONTAL_ALIGNMENT_LEFT:
+		failures += _fail("shared text inputs are not forced left-to-right")
+	generic_input.free()
+	if not scene.has_method("_on_create_health_checked"):
+		failures += _fail("CREATE ROOM has no primary-server health/fallback flow")
+	var settings := scene.find_child("SettingsButton", true, false) as Button
+	if settings == null or settings.text != "SETTINGS":
+		failures += _fail("main menu does not label the categorized panel SETTINGS")
+	if scene.find_child("DossierButton", true, false) != null:
+		failures += _fail("hunter dossier is still exposed on the main menu")
+	for heading in ["AudioHeading", "DisplayHeading", "ControlsHeading"]:
+		if scene.find_child(heading, true, false) == null:
+			failures += _fail("Settings is missing its %s category" % heading)
+	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
+	if settings_tabs == null or settings_tabs.tab_count != 3 \
+			or settings_tabs.get_tab_title(0) != "AUDIO" \
+			or settings_tabs.get_tab_title(1) != "DISPLAY" \
+			or settings_tabs.get_tab_title(2) != "CONTROLS":
+		failures += _fail("Settings categories do not use the shared tab treatment")
+	if scene.find_child("PixelEffectSlider", true, false) == null \
+			or scene.find_child("PixelEffectValueLabel", true, false) == null:
+		failures += _fail("Settings is missing the 3D signal-filter intensity control")
+	if scene.find_child("PlayerHueSlider", true, false) == null \
+			or scene.find_child("PlayerHueValueLabel", true, false) == null:
+		failures += _fail("Settings is missing the player skin hue control")
+	for control_name in ["SfxVolumeSlider", "UiVolumeSlider", "VsyncButton",
+			"FpsLimitSlider", "FovSlider"]:
+		if scene.find_child(control_name, true, false) == null:
+			failures += _fail("Settings is missing %s" % control_name)
+	var fov := scene.find_child("FovSlider", true, false) as HSlider
+	if fov != null and (fov.min_value != Settings.MIN_FIELD_OF_VIEW \
+			or fov.max_value != Settings.MAX_FIELD_OF_VIEW):
+		failures += _fail("FOV slider does not use Settings' supported range")
+	var play_button := scene.find_child("PlayButton", true, false) as Button
+	var join_button := scene.find_child("JoinButton", true, false) as Button
+	var offline_button := scene.find_child("OfflineButton", true, false) as Button
+	scene.call("_set_route_update_locked", "UPDATING")
+	if play_button == null or join_button == null or not play_button.disabled \
+			or not join_button.disabled or play_button.text != "UPDATING" \
+			or join_button.text != "UPDATING":
+		failures += _fail("mandatory updates do not lock and relabel both route buttons")
+	if offline_button == null or offline_button.disabled \
+			or offline_button.text != "PLAY OFFLINE":
+		failures += _fail("main menu has no independent offline solo test path")
+	scene.call("_clear_route_update_lock")
+	if play_button == null or join_button == null or play_button.disabled \
+			or join_button.disabled or play_button.text != "CREATE ROOM" \
+			or join_button.text != "JOIN ROOM":
+		failures += _fail("route buttons do not recover after the update gate clears")
+	if not scene.has_method("_open_update_progress_if_needed"):
+		failures += _fail("main menu cannot switch to the desktop update-in-progress screen")
+	elif bool(scene.call("_open_update_progress_if_needed")):
+		failures += _fail("main menu opened the update screen without a required desktop update")
+	scene.call("_on_join_pressed")
+	await _frame()
+	var room_code_input := scene.find_child("RoomCodeInput", true, false) as LineEdit
+	if scene.find_child("MenuModal", true, false) == null or room_code_input == null:
+		failures += _fail("Join Room did not open before the periodic-update test")
+	else:
+		room_code_input.text = "a"
+		room_code_input.caret_column = 1
+		scene.call("_on_join_code_changed", "a")
+		room_code_input.insert_text_at_caret("b")
+		scene.call("_on_join_code_changed", room_code_input.text)
+		if room_code_input.text != "AB" or room_code_input.caret_column != 2:
+			failures += _fail("room-code normalization reverses typed characters")
+	scene.call("_set_route_update_locked", "UPDATING")
+	await _frame()
+	if scene.find_child("MenuModal", true, false) != null:
+		failures += _fail("a newly discovered update leaves an existing Join dialog open")
+	scene.call("_clear_route_update_lock")
+	var settings_close := scene.find_child("CloseButton", true, false) as Button
+	if settings_close == null or settings_close.find_child("EscCloseContent", true, false) == null:
+		failures += _fail("Settings close action does not use the ESC keycap control")
+	var fullscreen := scene.find_child("FullscreenButton", true, false) as Button
+	if fullscreen == null or fullscreen.find_child("StateChip", true, false) == null:
+		failures += _fail("Fullscreen does not expose a boxed ON/OFF state chip")
+
+	# Dynamic dialogs use the same control. Opening one here catches regressions
+	# that a static scene-file scan cannot see.
+	scene.call("_on_tutorial_pressed")
+	await _frame()
+	var modal := scene.find_child("MenuModal", true, false)
+	if modal == null or modal.find_child("EscCloseContent", true, false) == null:
+		failures += _fail("menu dialogs do not use the ESC keycap close control")
+	scene.call("_close_modal")
+	await _frame()
+
+	# Failed account requests must remain readable. This used to rebuild the
+	# dialog on every account signal, erasing the server error one frame later.
+	# Isolate this from a developer's persisted local login/custom-host state;
+	# validation must always exercise the signed-out primary-host form.
+	var account_before := {
+		"username": Backend.account_username,
+		"token": Backend.account_session_token,
+		"admin": Backend.account_admin,
+		"admin_owner": Backend.account_admin_owner,
+		"admin_permissions": Backend.account_admin_permissions.duplicate(),
+		"verified": Backend.account_session_verified,
+		"progress": Backend.account_progress.duplicate(true),
+		"saved_at": Backend.account_progress_saved_at,
+		"base_url": Backend.base_url,
+	}
+	Backend.account_username = ""
+	Backend.account_session_token = ""
+	Backend.account_admin = false
+	Backend.account_admin_owner = false
+	Backend.account_admin_permissions = PackedStringArray()
+	Backend.account_session_verified = false
+	Backend.base_url = Backend.PRIMARY_BASE_URL
 	scene.call("_close_modal")
 	Backend.account_username = account_before["username"]
 	Backend.account_session_token = account_before["token"]

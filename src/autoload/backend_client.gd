@@ -459,6 +459,9 @@ func account_save_progress(progress: Dictionary) -> void:
 		return
 	var merged := progress.duplicate(true)
 	merged["hunter_discoveries"] = discovered_hunters()
+	# other games' saves live beside the Last Route document (account_save_game_progress) and must survive its writes
+	if account_progress.get("games") is Dictionary and not (account_progress["games"] as Dictionary).is_empty():
+		merged["games"] = (account_progress["games"] as Dictionary).duplicate(true)
 	_queue_progress_save(merged)
 
 
@@ -466,17 +469,79 @@ func account_clear_progress() -> void:
 	if not signed_in():
 		return
 	var discoveries := discovered_hunters()
-	if discoveries.is_empty():
+	var other_games: Dictionary = (account_progress["games"] as Dictionary).duplicate(true) \
+		if account_progress.get("games") is Dictionary else {}
+	if discoveries.is_empty() and other_games.is_empty():
 		_send_account("save", "/api/account/save", {
 			"sessionToken": account_session_token,
 			"progress": null,
 		})
 	else:
-		_queue_progress_save({
-			"schema": 1,
-			"kind": "profile",
-			"hunter_discoveries": discoveries,
-		})
+		var profile := {"schema": 1, "kind": "profile", "hunter_discoveries": discoveries}
+		if not other_games.is_empty():
+			profile["games"] = other_games
+		_queue_progress_save(profile)
+
+
+## ---- per-game account data -------------------------------------------------------------------------------------------
+## One account, one server document. Last Route's record stays where it always was (the document itself: route checkpoint
+## plus hunter discoveries), so existing accounts and saves load unchanged. Every other game keeps its record under
+## `games.<game_id>` in the same document; the server stores the document opaquely, so no backend change is needed.
+const DEFAULT_GAME_ID := "last_route"
+
+
+func game_progress(game_id: String = DEFAULT_GAME_ID) -> Dictionary:
+	if game_id == DEFAULT_GAME_ID:
+		return account_progress
+	var games = account_progress.get("games")
+	if games is Dictionary and (games as Dictionary).get(game_id) is Dictionary:
+		return ((games as Dictionary)[game_id] as Dictionary).duplicate(true)
+	return {}
+
+
+func game_has_save(game_id: String = DEFAULT_GAME_ID) -> bool:
+	if game_id == DEFAULT_GAME_ID:
+		return has_route_checkpoint()
+	return not game_progress(game_id).is_empty()
+
+
+func account_save_game_progress(game_id: String, data: Dictionary) -> void:
+	if game_id == DEFAULT_GAME_ID:
+		account_save_progress(data)
+		return
+	if GameState.debug_run:
+		return
+	if not signed_in():
+		return
+	var document := account_progress.duplicate(true)
+	if document.is_empty():
+		document = {"schema": 1, "kind": "profile"}
+	var games: Dictionary = (document["games"] as Dictionary).duplicate(true) if document.get("games") is Dictionary else {}
+	games[game_id] = data.duplicate(true)
+	document["games"] = games
+	account_progress = document.duplicate(true)
+	account_progress_changed.emit(has_route_checkpoint(), account_progress.duplicate(true), account_progress_saved_at,
+		"%s SAVE UPDATED" % game_id.to_upper())
+	_queue_progress_save(document)
+
+
+func account_clear_game_progress(game_id: String) -> void:
+	if game_id == DEFAULT_GAME_ID:
+		account_clear_progress()
+		return
+	if not signed_in() or not game_has_save(game_id):
+		return
+	var document := account_progress.duplicate(true)
+	var games: Dictionary = (document["games"] as Dictionary).duplicate(true)
+	games.erase(game_id)
+	if games.is_empty():
+		document.erase("games")
+	else:
+		document["games"] = games
+	account_progress = document.duplicate(true)
+	account_progress_changed.emit(has_route_checkpoint(), account_progress.duplicate(true), account_progress_saved_at,
+		"%s SAVE CLEARED" % game_id.to_upper())
+	_queue_progress_save(document)
 
 
 func _queue_progress_save(progress: Dictionary) -> void:
