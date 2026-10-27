@@ -3,7 +3,7 @@ extends NightWatchMode
 
 ## Dead Air (mode `lure`), the shift scene: the broadcast booth (LureOffice, the shared player, prompt and
 ## crosshair), with the two DOOR buttons sealing the vent openings (the slabs are the vent covers), the left and right LIGHT buttons switching
-## the heater and the fan, and the monitor on the desk looking into the attraction hall (LureWorld). Rules: LureLogic. In the monitor: 1-8
+## the heater and the fan, and the monitor on the desk looking into the radio station (LureWorld, floor plan in LureMap). Rules: LureLogic. In the monitor: 1-8
 ## pick a camera, L lures Xivvy to the room on screen, Q / W / E / R / T reboot audio / cameras / vents / heater / fan (or click the buttons),
 ## N mutes Zellia. Quick keys outside it: Z / X seal the left / right vent, G / H heater / fan, U monitor, Y lamp, R mutes Zellia.
 ## Xivvy WALKS the hall (LurePaths, NightWatchWalker). `manual_clock` stops the real-time clock so the validators step the night with advance_ms().
@@ -32,6 +32,8 @@ var _models := {}
 var _walkers := {}
 var _players := {}
 var _hour_seen := 0
+var _pose_state := {}   # hunter id -> "" | "vent_enter" | "vent" | "vent_exit": the vent crawl (NightWatchPoses)
+var _vent_left := 0.0
 var _feed_container: Control
 
 
@@ -86,14 +88,11 @@ func _build_world() -> void:
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.hint_label.text = NightWatchControls.hint_line(false, LureOffice.make_spec().controls)
-	# the monitor: Classic's camera map goes, Dead Air's panel comes
-	for b in hud.cam_buttons.values():
-		(b as Control).get_parent().queue_free()
-		break
-	hud.cam_buttons.clear()
+	# the monitor: the camera map is the HUD's, from Dead Air's own layout (camera n = LureMap's cams[n - 1])
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("lure"))
+	hud.camera_selected.connect(func(map_id: String): select_camera(String(LureMap.ROOMS[map_id][0])))
 	panel = LurePanel.new()
 	hud.monitor_root.add_child(panel)
-	panel.room_selected.connect(select_camera)
 	panel.lure_pressed.connect(func(): do_lure())
 	panel.reboot_pressed.connect(func(system: String): do_reboot(system))
 	_feed_container = hud.feed_viewport.get_parent() as Control
@@ -258,8 +257,7 @@ func select_camera(room: String) -> void:
 
 func _select_room(room: String, flash: bool) -> void:
 	monitor_room = room
-	hud.feed_camera.transform = world.camera_transform(room)
-	hud.cam_label.text = "CAM %d  %s" % [LureData.ROOMS.find(room) + 1, LureData.INFO[room]["label"]]
+	hud.set_cam(LureMap.sim_to_map(room), world.camera_transform(room))
 	if flash:
 		hud.flash_static()
 		NightWatchSounds.camera_switch()
@@ -459,8 +457,11 @@ func _animate_models(delta: float) -> void:
 		var model := _models[id] as Node3D
 		model.position = walker.pos
 		model.rotation.y = walker.yaw
+	_vent_pose(delta)
 	for id in _players:
 		var anim := _players[id] as AnimationPlayer
+		if id == "xivvy" and String(_pose_state.get("xivvy", "")) != "":
+			continue   # the vent crawl owns her animation
 		var walker2 := _walkers.get(id) as NightWatchWalker
 		var clip := "idle"
 		if walker2 != null and walker2.moving:
@@ -469,6 +470,56 @@ func _animate_models(delta: float) -> void:
 			anim.play(clip)
 	if state == State.PLAYING and not manual_clock and sim != null:
 		office.animate({"doorL": bool(sim.seals["L"]), "doorR": bool(sim.seals["R"])}, delta)
+
+
+## Xivvy in a vent shaft or crawlspace crawls (NightWatchPoses): a drop in ("vent_enter", a one-shot only Verrine has), the crawl loop (the generic vent crawl, its speed
+## follows how fast she is moving), a rise out ("vent_exit"), then back to walking. The crawl is 0.67 m high, well under the crawlspaces' ceiling.
+const VENT_ROOMS := ["ventl", "ventr", "officeL", "officeR"]
+const VENT_ONE_SHOT := 0.8
+
+
+func _vent_pose(delta: float) -> void:
+	if sim == null or not _models.has("xivvy"):
+		return
+	var model := _models["xivvy"] as Node3D
+	var in_vent := VENT_ROOMS.has(String(sim.killer["room"])) and model.visible
+	var cur := String(_pose_state.get("xivvy", ""))
+	var next := cur
+	match cur:
+		"":
+			if in_vent:
+				next = "vent_enter"
+		"vent_enter":
+			_vent_left -= delta
+			if not in_vent and _vent_left <= 0.0:
+				next = "vent_exit"
+			elif _vent_left <= 0.0:
+				next = "vent"
+		"vent":
+			if not in_vent:
+				next = "vent_exit"
+		"vent_exit":
+			_vent_left -= delta
+			if in_vent:
+				next = "vent_enter"
+			elif _vent_left <= 0.0:
+				next = ""
+	var walker := _walkers.get("xivvy") as NightWatchWalker
+	if next != cur:
+		_pose_state["xivvy"] = next
+		_vent_left = VENT_ONE_SHOT
+		match next:
+			"":
+				NightWatchPoses.stop(model)
+			"vent_enter", "vent_exit":
+				NightWatchPoses.play_state(model, next, {"hunter_id": "xivvy"})
+			"vent":
+				NightWatchPoses.play_state(model, "vent", {"hunter_id": "xivvy"})
+	if String(_pose_state.get("xivvy", "")) == "vent" and _players.has("xivvy"):
+		var speed := 0.15
+		if walker != null and walker.moving:
+			speed = 2.0 if walker.running else 1.0
+		(_players["xivvy"] as AnimationPlayer).speed_scale = speed
 
 
 # --- input -----------------------------------------------------------------------------------------------------------

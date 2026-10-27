@@ -19,6 +19,7 @@ var sim: DayshiftLogic
 var rng: NightWatchMulberry
 var owned: Array = []
 var office: CargoBay
+var yard: DayshiftYard
 var shop: DayshiftShop
 var player: PlayerController3D
 var hud: NightWatchHud
@@ -54,7 +55,6 @@ func _ready() -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_shop", true)
 	hud.update_status(0, 100.0, 0, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.visible = false   # the shop has the screen
 
 
@@ -72,6 +72,10 @@ func _build_world() -> void:
 	office = NightWatchOfficeRegistry.make("dayshift") as CargoBay
 	office.name = "Office"
 	add_child(office)
+	yard = DayshiftYard.new()
+	yard.name = "Ship"
+	yard.office = office
+	add_child(yard)
 	hunters_root = Node3D.new()
 	hunters_root.name = "Hunters"
 	add_child(hunters_root)
@@ -87,6 +91,7 @@ func _build_world() -> void:
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.set_monitor_available(office.spec.has_monitor)
+	hud.mode_text = "7. Salvage Run · %s" % ("Custom Night" if is_custom else "Week %d" % week)
 	hud.hint_label.text = "WASD move   hold E on a PIECE to salvage   E on DOOR buttons   hold E on LIGHT   Z / X doors   G / H lights   P pause"
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -306,7 +311,6 @@ func _sync_visuals() -> void:
 		if bool(dev[k]):
 			devices += 1
 	hud.update_status(NightWatchData.hour_index(float(s["elapsed"])), float(s["power"]), devices, week)
-	hud.night_label.text = "CUSTOM" if is_custom else "WEEK %d" % week
 	hud.usage_label.text = "$%d / $%d   NOISE %s" % [int(s["money"]), sim.need, "|".repeat(clampi(int(float(s["noise"]) / 10.0), 0, 10))]
 	(office.stations["ledger"] as NightWatchStation).prompt_text = "BUDGET LEDGER // $%d OF $%d" % [int(s["money"]), sim.need]
 	var by_slot := {}
@@ -345,20 +349,40 @@ func _place_hunters() -> void:
 		else:
 			pos = o + CargoBay.hall_stand(door, dist)
 			key = "d%d" % dist
-		_move(id, key, pos, face)
+		var first_legs: Array = yard.legs_to(id, "D:L3" if id == "ravelle" else "D:R3") if dist > 0 else []
+		_move(id, key, pos, face, false, first_legs)
 	var u: Dictionary = s["ysolde"]
 	var ys := _models["ysolde"] as Node3D
-	ys.visible = String(u["state"]) == "here"
-	_move("ysolde", "yard", o + CargoBay.YARD_STAND, face, true)
+	var ust := String(u["state"])
+	ys.visible = ust == "knock" or ust == "here"
+	if ust == "away":
+		_walkers.erase("ysolde")   # she goes back to the crane: the next knock starts her walk again
+	elif ust == "knock" and _walkers.get("ysolde") == null and not manual_clock:
+		# the knock: she comes across the yard from the crane to the glass (the knock lasts 3 to 4.2 s)
+		var w := NightWatchWalker.new()
+		_walkers["ysolde"] = w
+		var legs: Array = yard.legs_to("ysolde", "W:stand")
+		w.place(yard.points["C:crane"], yard.points["C:crane"], face, "walk")
+		w.go(legs, "yard", o + CargoBay.YARD_STAND, 3.0)
+		ys.position = w.pos
+		ys.rotation.y = w.yaw
+	else:
+		_move("ysolde", "yard", o + CargoBay.YARD_STAND, face, manual_clock)
 
 
-func _move(id: String, key: String, pos: Vector3, face: Vector3, snap := false) -> void:
+func _move(id: String, key: String, pos: Vector3, face: Vector3, snap := false, first_legs := []) -> void:
 	var model := _models[id] as Node3D
 	var walker := _walkers.get(id) as NightWatchWalker
 	if walker == null:
 		walker = NightWatchWalker.new()
 		_walkers[id] = walker
-		walker.place(pos, pos, face, key)
+		if not first_legs.is_empty() and not manual_clock:
+			# the shift begins with her coming in from her end of the ship (the airlock, the hold) to the end of her gantry
+			var start: Vector3 = (first_legs[0] as Dictionary)["p"]
+			walker.place(start, start, face, "origin")
+			walker.go(first_legs, key, pos, 7.0)
+		else:
+			walker.place(pos, pos, face, key)
 	elif manual_clock or snap:
 		walker.place(pos, pos, face, key)
 	elif walker.room != key:

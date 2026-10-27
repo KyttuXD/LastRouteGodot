@@ -98,6 +98,7 @@ func run(host: Node) -> int:
 	_custom_and_misc()
 	_variety()
 	_paths(host)
+	_map()
 	await _offices(host)
 	await _scene(host)
 	if _failures == 0:
@@ -656,6 +657,23 @@ func _paths(host: Node) -> void:
 		steps += 1
 	_expect(walker.pos.distance_to(roof.point("R2")) < 0.1 and worst <= NightWatchWalker.RUN_SPEED / 30.0 + 0.2, "the walker does not arrive, or exceeds the run speed in a step (%.2f)" % worst)
 	roof.queue_free()
+
+
+# --- the map (docs/NIGHT_WATCH_OFFICES.md, "Maps"): open grounds, one layout for the three watches ----------------------------------
+
+func _map() -> void:
+	_expect(NightWatchMapRegistry.MAPS["extra"]["script"] == "res://src/night_watch/openair/openair_map.gd", "the registry has no map for Open Air")
+	var layout := NightWatchMapRegistry.layout_for("extra")
+	var rooms: Dictionary = layout["rooms"]
+	for e in layout["edges"]:
+		_expect(rooms.has(e[0]) and rooms.has(e[1]), "map edge %s has an unknown room" % str(e))
+	_expect(layout["entrances"] == ["roof", "bus_shelter", "clearing"], "the map's entrances are not the three watches' offices")
+	for room in ["catwalk_w", "catwalk_e", "back_catwalk", "road_stop", "road_far", "trees_w", "trees_e", "log_pile"]:
+		_expect(rooms.has(room), "the map has no %s" % room)
+	# each watch's office stands in its cluster of the map
+	for w in 3:
+		var spec := NightWatchOpenAirOffice.make_spec(w)
+		_expect(spec.entrances.size() >= 1, "watch %d's office has no entrance" % w)
 
 
 # --- the office (docs/NIGHT_WATCH_OFFICES.md): watch_post, built three ways ----------------------------------------------------

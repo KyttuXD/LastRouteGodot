@@ -7,17 +7,18 @@ extends RefCounted
 const CAST := ["verrine", "thessine", "glyra", "nyxie", "umbriel", "haelith", "ilyra"]
 const NAMES := {"thessine": "Thessine", "umbriel": "Umbriel", "verrine": "Verrine", "glyra": "Glyra", "nyxie": "Nyxie", "haelith": "Haelith", "ilyra": "Ilyra"}
 
-## The wing: eight camera rooms around a hall and two vents. `cam` is the camera number, `pan` where the room sounds from the office
+## The wing, FNAF 2 style: eight camera rooms around a main hall and two air vents (3D names; the ids and the graph are the 2D game's). Prize Corner (music box), Parts / Service,
+## Show Stage, Game Area (the junction), Vent Hub, Left / Right Air Vent, Main Hall. `cam` is the camera number, `pan` where the room sounds from the office
 ## (-1 left to +1 right), `map` the room's place on the camera map (percent). The hall (CAM 8) is the office's own right-hand corridor in 3D.
 const ROOMS := {
-	"music": {"cam": 1, "label": "MUSIC ROOM", "pan": 0.0, "map": Vector2(50, 11), "grid": Vector2i(1, 0)},
-	"costume": {"cam": 2, "label": "COSTUME STORE", "pan": -0.5, "map": Vector2(15, 11), "grid": Vector2i(0, 0)},
-	"gallery": {"cam": 3, "label": "MASK GALLERY", "pan": 0.5, "map": Vector2(85, 11), "grid": Vector2i(2, 0)},
-	"ballroom": {"cam": 4, "label": "BALLROOM", "pan": 0.0, "map": Vector2(50, 35), "grid": Vector2i(1, 1)},
-	"crawl": {"cam": 5, "label": "CRAWLSPACE", "pan": 0.0, "map": Vector2(15, 35), "grid": Vector2i(0, 1)},
-	"ductL": {"cam": 6, "label": "LEFT DUCT", "pan": -0.9, "map": Vector2(15, 61.5), "grid": Vector2i(0, 2)},
-	"ductR": {"cam": 7, "label": "RIGHT DUCT", "pan": 0.9, "map": Vector2(85, 61.5), "grid": Vector2i(2, 2)},
-	"hall": {"cam": 8, "label": "HALL", "pan": 0.0, "map": Vector2(50, 61.5), "grid": Vector2i(-1, -1)},
+	"music": {"cam": 1, "label": "PRIZE CORNER", "pan": 0.0, "map": Vector2(15, 33), "grid": Vector2i(1, 0)},
+	"costume": {"cam": 2, "label": "PARTS / SERVICE", "pan": 0.5, "map": Vector2(85, 33), "grid": Vector2i(0, 0)},
+	"gallery": {"cam": 3, "label": "SHOW STAGE", "pan": 0.0, "map": Vector2(50, 11), "grid": Vector2i(2, 0)},
+	"ballroom": {"cam": 4, "label": "GAME AREA", "pan": 0.0, "map": Vector2(50, 33), "grid": Vector2i(1, 1)},
+	"crawl": {"cam": 5, "label": "VENT HUB", "pan": 0.0, "map": Vector2(50, 78), "grid": Vector2i(0, 1)},
+	"ductL": {"cam": 6, "label": "LEFT AIR VENT", "pan": -0.9, "map": Vector2(15, 61.5), "grid": Vector2i(0, 2)},
+	"ductR": {"cam": 7, "label": "RIGHT AIR VENT", "pan": 0.9, "map": Vector2(85, 61.5), "grid": Vector2i(2, 2)},
+	"hall": {"cam": 8, "label": "MAIN HALL", "pan": 0.0, "map": Vector2(50, 61.5), "grid": Vector2i(-1, -1)},
 	"office": {"cam": 0, "label": "OFFICE", "pan": 0.0, "map": Vector2(50, 94), "grid": Vector2i(-1, -1)},
 	"ventL": {"cam": 0, "label": "LEFT VENT", "pan": -1.0, "map": Vector2(32.5, 77.75), "grid": Vector2i(-1, -1)},
 	"ventR": {"cam": 0, "label": "RIGHT VENT", "pan": 1.0, "map": Vector2(67.5, 77.75), "grid": Vector2i(-1, -1)},
