@@ -88,14 +88,11 @@ func _build_world() -> void:
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.hint_label.text = NightWatchControls.hint_line(false, LureOffice.make_spec().controls)
-	# the monitor: Classic's camera map goes, Dead Air's panel comes
-	for b in hud.cam_buttons.values():
-		(b as Control).get_parent().queue_free()
-		break
-	hud.cam_buttons.clear()
+	# the monitor: the camera map is the HUD's, from Dead Air's own layout (camera n = LureMap's cams[n - 1])
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("lure"))
+	hud.camera_selected.connect(func(map_id: String): select_camera(String(LureMap.ROOMS[map_id][0])))
 	panel = LurePanel.new()
 	hud.monitor_root.add_child(panel)
-	panel.room_selected.connect(select_camera)
 	panel.lure_pressed.connect(func(): do_lure())
 	panel.reboot_pressed.connect(func(system: String): do_reboot(system))
 	_feed_container = hud.feed_viewport.get_parent() as Control
@@ -260,8 +257,7 @@ func select_camera(room: String) -> void:
 
 func _select_room(room: String, flash: bool) -> void:
 	monitor_room = room
-	hud.feed_camera.transform = world.camera_transform(room)
-	hud.cam_label.text = "CAM %d  %s" % [LureData.ROOMS.find(room) + 1, LureData.INFO[room]["label"]]
+	hud.set_cam(LureMap.sim_to_map(room), world.camera_transform(room))
 	if flash:
 		hud.flash_static()
 		NightWatchSounds.camera_switch()

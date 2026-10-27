@@ -66,5 +66,12 @@ static func map_layout() -> Dictionary:
 	var rooms := {}
 	for id in ROOMS:
 		rooms[id] = center(id)
-	return {"rooms": rooms, "edges": EDGES, "entrances": ["crawl_l", "crawl_r"],
+	# the camera screen's minimap (NightWatchCamMap): camera n is cams[n - 1] (the rules' camera order), labels are the feed names, the crawlspaces are the vent shafts
+	var cams := []
+	var labels := {}
+	for sim_id in LureData.ROOMS:
+		var map_id := sim_to_map(sim_id)
+		cams.append(map_id)
+		labels[map_id] = String(LureData.INFO[sim_id]["label"])
+	return {"rooms": rooms, "edges": EDGES, "entrances": ["crawl_l", "crawl_r"], "cams": cams, "labels": labels, "vents": ["crawl_l", "crawl_r"],
 		"theme": "radio station: reception, two studios round a live room, tape library, transmitter room and two crawlspaces out to the booth"}

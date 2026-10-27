@@ -660,7 +660,7 @@ func _scene(host: Node) -> void:
 	var game := _make(host, 4, 4242)
 	await host.get_tree().process_frame
 	_expect(game is NightWatchMode and game.mode_id == "lure" and game.level == 4 and game.seed_value == 4242 and game.level_name() == "NIGHT 4", "the shift scene did not read its session")
-	_expect(game.office.slabs.size() == 2 and game.world.rooms.size() == 8 and game.panel.room_buttons.size() == 8 and game.hud.cam_buttons.is_empty(), "the office, the hall or the monitor panel is missing")
+	_expect(game.office.slabs.size() == 2 and game.world.rooms.size() == 8 and game.hud.cam_buttons.size() == 8, "the office, the hall or the monitor panel is missing")
 	for prop_name in ["Shell", "Details"]:
 		for id in LureData.ROOMS:
 			_expect(game.world.props.has("%s/%s" % [id, prop_name]), "%s has no %s" % [id, prop_name])
