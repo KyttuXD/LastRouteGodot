@@ -32,10 +32,12 @@ const HEAD_DAMP := 9.0
 const FADE_SPEED := 4.0
 ## Beyond this distance from the camera the look layer is not evaluated.
 const UPDATE_RANGE := 40.0
-const AHEAD_SWAY := deg_to_rad(10.0)
-const SCAN_SWING := deg_to_rad(42.0)
-const SWEEP_SWING := deg_to_rad(22.0)
-const NOD := deg_to_rad(5.0)
+## A standing hunter's head must read as still, not wobbling: the idle scan is a small slow turn (about +-9 deg, a 14 s period).
+const AHEAD_SWAY := deg_to_rad(5.0)
+const SCAN_SWING := deg_to_rad(9.0)
+const SCAN_RATE := .45
+const SWEEP_SWING := deg_to_rad(14.0)
+const NOD := deg_to_rad(2.0)
 
 var move_dir := Vector2.ZERO
 var speed := 0.0
@@ -115,11 +117,11 @@ func update_head(delta: float, mode: int, body_yaw: float, origin: Vector2,
 				yaw = wrapf(atan2(-offset.x, -offset.y) - body_yaw, -PI, PI)
 		match mode:
 			Mode.AHEAD:
-				yaw += sin(seconds * .9 + phase) * AHEAD_SWAY * scan_scale
+				yaw += sin(seconds * .6 + phase) * AHEAD_SWAY * scan_scale
 			Mode.SWEEP:
-				yaw += sin(seconds * 1.9 + phase) * SWEEP_SWING * scan_scale
+				yaw += sin(seconds * 1.1 + phase) * SWEEP_SWING * scan_scale
 			Mode.SCAN:
-				yaw = sin(seconds * .7 + phase) * SCAN_SWING * scan_scale
+				yaw = sin(seconds * SCAN_RATE + phase) * SCAN_SWING * scan_scale
 		if mode != Mode.LOCK:
 			pitch = sin(seconds * .5 + phase * 1.3) * NOD * scan_scale
 	yaw = clampf(yaw, -YAW_LIMIT, YAW_LIMIT)

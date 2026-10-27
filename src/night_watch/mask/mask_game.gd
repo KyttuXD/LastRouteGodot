@@ -126,6 +126,8 @@ func _build_world() -> void:
 	hud.retry_pressed.connect(retry)
 	hud.next_pressed.connect(next_night)
 	hud.menu_pressed.connect(back_to_board)
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
@@ -253,6 +255,7 @@ func select_camera_number(n: int) -> void:
 func _settle() -> void:
 	for e in controls.step(500.0):
 		_on_control_event(e)
+	_refresh_lock()
 
 
 func _update_hint() -> void:
@@ -373,6 +376,7 @@ func advance_ms(dt_ms: float) -> void:
 		return
 	for e in controls.step(dt_ms):
 		_on_control_event(e)
+	_refresh_lock()   # the monitor finishes lowering here, not on a key press: the cursor goes back to the view when it is down
 	var input := controls.control_input()
 	_last_input = input
 	var events := sim.step(dt_ms, input)
@@ -867,6 +871,7 @@ func admin_set_mask(on: bool) -> void:
 		press("mask")
 	for e in controls.step(500.0):
 		_on_control_event(e)
+	_refresh_lock()
 	_sync_visuals()
 
 
