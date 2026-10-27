@@ -30,14 +30,9 @@ static func set_expression(model: Node, expression: Variant) -> bool:
 	var face := model.find_child("Face", true, false) as MeshInstance3D
 	if face == null or face.mesh == null:
 		return false
-	var material := face.get_surface_override_material(0) as StandardMaterial3D
+	var material := own_material(face)
 	if material == null:
-		var source := face.get_active_material(0) as StandardMaterial3D
-		if source == null:
-			return false
-		# Own copy: ModelSlot shares one material per source across every instance.
-		material = source.duplicate() as StandardMaterial3D
-		face.set_surface_override_material(0, material)
+		return false
 	if face.has_meta("blocky_tween"):
 		var old := face.get_meta("blocky_tween") as Tween
 		if old != null and old.is_valid():
@@ -60,6 +55,32 @@ static func set_expression(model: Node, expression: Variant) -> bool:
 			cell = int(expression)
 		_show_cell(material, cell)
 	return true
+
+
+## The Face quad's PRIVATE material. ModelSlot.share_blocky_materials hands every mesh of a hunter (body, legs, the
+## Face quad ...) the SAME shared override material, so an override being present does not mean it is the face's own:
+## writing uv1_offset to it shifted the UVs of the whole body on every expression change (garbled legs and torso
+## whenever a hunter chased, searched or was stunned). The copy is remembered in meta, and re-made when something
+## (a fade, a material restore) put another material on the quad.
+static func own_material(face: MeshInstance3D) -> StandardMaterial3D:
+	var mine := face.get_meta("blocky_face_material") as StandardMaterial3D if face.has_meta("blocky_face_material") else null
+	var current := face.get_surface_override_material(0) as StandardMaterial3D
+	if mine != null and current == mine:
+		return mine
+	var source := current if current != null else face.get_active_material(0) as StandardMaterial3D
+	if source == null:
+		return null
+	var copy := source.duplicate() as StandardMaterial3D
+	copy.uv1_offset = Vector3.ZERO
+	face.set_surface_override_material(0, copy)
+	face.set_meta("blocky_face_material", copy)
+	return copy
+
+
+## True while the Face quad still wears its own material (a view re-applies the expression when it does not).
+static func owns_material(face: MeshInstance3D) -> bool:
+	return face != null and face.has_meta("blocky_face_material") \
+		and face.get_surface_override_material(0) == face.get_meta("blocky_face_material")
 
 
 static func _show_cell(material: StandardMaterial3D, cell: int) -> void:
