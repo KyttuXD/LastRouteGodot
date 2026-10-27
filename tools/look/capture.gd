@@ -159,6 +159,9 @@ func _run(scene: Node) -> void:
 	var player: PlayerController3D = scene.get_node("%Player")
 	if OS.get_environment("CAP_HUD") == "":
 		scene.get_node("%HUD").visible = false
+	if OS.get_environment("CAP_COLLISION") != "":
+		# CAP_COLLISION=1: the admin SHOW COLLISION overlay (colliders red, door keep-clear zones green)
+		scene.call("_set_show_collision", true)
 	var gen := facility.generator
 	var cs := StreamedRouteGenerator.CHUNK_SIZE
 	var picks := []

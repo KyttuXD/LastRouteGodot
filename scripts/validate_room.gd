@@ -187,15 +187,15 @@ func run(host: Node) -> int:
 		_expect(not UpdateManager._safe_archive_entry(unsafe_entry),
 			"the updater accepted unsafe archive entry %s" % unsafe_entry)
 	_expect(UpdateManager._mac_bundle_path(
-		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route") \
-		== "/Applications/KYTTU- The Last Route.app",
+		"/Applications/Kyttu's Lab.app/Contents/MacOS/Kyttu's Lab") \
+		== "/Applications/Kyttu's Lab.app",
 		"the updater could not resolve a macOS app bundle")
 	_expect(UpdateManager._previous_install_backup_path("windows",
-		"C:/Games/LastRoute-Windows-Debug.exe") \
+		"C:/Games/KyttusLab-Windows-Debug.exe") \
 		== "C:/Games/.lastroute-backup-previous",
 		"the updater could not resolve a Windows rollback folder")
 	_expect(UpdateManager._previous_install_backup_path("macos",
-		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route") \
+		"/Applications/Kyttu's Lab.app/Contents/MacOS/Kyttu's Lab") \
 		== "/Applications/.lastroute-backup-previous",
 		"the updater could not resolve a macOS rollback folder")
 	var update_archive := "user://last-route-update-test.zip"
@@ -203,11 +203,11 @@ func run(host: Node) -> int:
 	UpdateManager._remove_tree(update_stage)
 	var packer := ZIPPacker.new()
 	_expect(packer.open(update_archive) == OK, "could not create updater test ZIP")
-	_expect(packer.start_file("LastRoute-Test.x86_64") == OK,
+	_expect(packer.start_file("KyttusLab-Test.x86_64") == OK,
 		"could not add the updater test executable")
 	packer.write_file("test executable".to_utf8_buffer())
 	packer.close_file()
-	_expect(packer.start_file("LastRoute-Test.pck") == OK,
+	_expect(packer.start_file("KyttusLab-Test.pck") == OK,
 		"could not add the updater test PCK")
 	packer.write_file("test pck".to_utf8_buffer())
 	packer.close_file()
@@ -222,17 +222,17 @@ func run(host: Node) -> int:
 		"user://missing-last-route-update.zip", update_stage).contains("RETRY"),
 		"a missing update package no longer offers retry")
 	var update_layout := UpdateManager._installation_layout("linux",
-		"/games/LastRoute-Old.x86_64", update_stage)
-	_expect(String(update_layout.get("launch", "")) == "LastRoute-Test.x86_64",
+		"/games/KyttusLab-Old.x86_64", update_stage)
+	_expect(String(update_layout.get("launch", "")) == "KyttusLab-Test.x86_64",
 		"the updater could not find the staged Linux executable")
 	var legacy_executable := FileAccess.open(
-		update_stage.path_join("LastRoute-Windows-Legacy-Debug.exe"), FileAccess.WRITE)
+		update_stage.path_join("KyttusLab-Windows-Legacy-Debug.exe"), FileAccess.WRITE)
 	legacy_executable.store_string("test legacy executable")
 	legacy_executable.close()
 	var legacy_layout := UpdateManager._installation_layout("windows_legacy",
-		"C:/Games/LastRoute-Windows-Legacy-Debug.exe", update_stage)
+		"C:/Games/KyttusLab-Windows-Legacy-Debug.exe", update_stage)
 	_expect(String(legacy_layout.get("launch", "")) == \
-		"LastRoute-Windows-Legacy-Debug.exe",
+		"KyttusLab-Windows-Legacy-Debug.exe",
 		"the updater could not find the staged legacy Windows executable")
 	_expect(String(legacy_layout.get("stage", "")) == update_stage,
 		"a flat Windows archive was rewritten to a nested export folder")
@@ -242,7 +242,7 @@ func run(host: Node) -> int:
 	var nested_packer := ZIPPacker.new()
 	_expect(nested_packer.open(nested_archive) == OK,
 		"could not create the nested Windows updater test ZIP")
-	_expect(nested_packer.start_file("LastRoute-Windows-Debug/LastRoute-Windows-Debug.exe") == OK,
+	_expect(nested_packer.start_file("KyttusLab-Windows-Debug/KyttusLab-Windows-Debug.exe") == OK,
 		"could not add the nested Windows updater test executable")
 	nested_packer.write_file("nested windows executable".to_utf8_buffer())
 	nested_packer.close_file()
@@ -251,14 +251,14 @@ func run(host: Node) -> int:
 	_expect(UpdateManager._extract_archive(nested_archive, nested_stage).is_empty(),
 		"the updater could not unpack a Godot-style nested Windows archive")
 	_expect(UpdateManager._export_root("windows", nested_stage) \
-		== nested_stage.path_join("LastRoute-Windows-Debug"),
+		== nested_stage.path_join("KyttusLab-Windows-Debug"),
 		"the updater did not descend into the single Windows export folder")
 	var nested_windows := UpdateManager._installation_layout("windows",
-		"C:/Games/LastRoute-Windows-Debug.exe", nested_stage)
-	_expect(String(nested_windows.get("launch", "")) == "LastRoute-Windows-Debug.exe",
+		"C:/Games/KyttusLab-Windows-Debug.exe", nested_stage)
+	_expect(String(nested_windows.get("launch", "")) == "KyttusLab-Windows-Debug.exe",
 		"the updater rejected a Windows zip whose exe sits in one export folder")
 	_expect(String(nested_windows.get("stage", "")) \
-		== nested_stage.path_join("LastRoute-Windows-Debug"),
+		== nested_stage.path_join("KyttusLab-Windows-Debug"),
 		"the updater did not stage from the nested Windows export folder")
 	var linux_only := "user://last-route-linux-only-update-test"
 	UpdateManager._remove_tree(linux_only)
@@ -266,38 +266,38 @@ func run(host: Node) -> int:
 	_expect(UpdateManager._extract_archive(update_archive, linux_only).is_empty(),
 		"the updater could not unpack a Linux-only archive for the mismatch check")
 	_expect(UpdateManager._installation_layout("windows",
-		"C:/Games/LastRoute-Windows-Debug.exe", linux_only).is_empty(),
+		"C:/Games/KyttusLab-Windows-Debug.exe", linux_only).is_empty(),
 		"a Linux archive was accepted as a Windows update")
 	_expect(String(UpdateManager._installation_layout("linux",
-		"/games/LastRoute-Old.x86_64", linux_only).get("launch", "")) \
-		== "LastRoute-Test.x86_64",
+		"/games/KyttusLab-Old.x86_64", linux_only).get("launch", "")) \
+		== "KyttusLab-Test.x86_64",
 		"the Linux-only archive fixture lost its executable")
 	var nested_linux_stage := "user://last-route-nested-linux-update-test"
 	UpdateManager._remove_tree(nested_linux_stage)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(
-		nested_linux_stage.path_join("LastRoute-Linux-Debug")))
+		nested_linux_stage.path_join("KyttusLab-Linux-Debug")))
 	var nested_linux_exe := FileAccess.open(nested_linux_stage.path_join(
-		"LastRoute-Linux-Debug/LastRoute-Linux-Debug.x86_64"), FileAccess.WRITE)
+		"KyttusLab-Linux-Debug/KyttusLab-Linux-Debug.x86_64"), FileAccess.WRITE)
 	nested_linux_exe.store_string("nested linux executable")
 	nested_linux_exe.close()
 	_expect(UpdateManager._installation_layout("windows",
-		"C:/Games/LastRoute-Windows-Debug.exe", nested_linux_stage).is_empty(),
+		"C:/Games/KyttusLab-Windows-Debug.exe", nested_linux_stage).is_empty(),
 		"a nested Linux zip was accepted as a Windows update")
 	_expect(UpdateManager._installation_layout("linux",
-		"/games/LastRoute-Old.x86_64", nested_stage).is_empty(),
+		"/games/KyttusLab-Old.x86_64", nested_stage).is_empty(),
 		"a nested Windows zip was accepted as a Linux update")
 	var macos_stage := "user://last-route-macos-update-test"
 	UpdateManager._remove_tree(macos_stage)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(
-		macos_stage.path_join("KYTTU- The Last Route.app/Contents/MacOS")))
+		macos_stage.path_join("Kyttu's Lab.app/Contents/MacOS")))
 	_expect(UpdateManager._export_root("macos", macos_stage) == macos_stage,
 		"the updater unwrapped a top-level macOS app bundle")
 	_expect(String(UpdateManager._installation_layout("macos",
-		"/Applications/KYTTU- The Last Route.app/Contents/MacOS/KYTTU- The Last Route",
-		macos_stage).get("launch", "")) == "KYTTU- The Last Route.app",
+		"/Applications/Kyttu's Lab.app/Contents/MacOS/Kyttu's Lab",
+		macos_stage).get("launch", "")) == "Kyttu's Lab.app",
 		"the updater could not find a top-level macOS app bundle")
 	_expect(FileAccess.get_file_as_string(
-		update_stage.path_join("LastRoute-Test.pck")) == "test pck",
+		update_stage.path_join("KyttusLab-Test.pck")) == "test pck",
 		"the updater changed the staged PCK")
 	var helper_path := "user://last-route-update-helper-test.sh"
 	_expect(UpdateManager._write_text(helper_path, UpdateManager.UNIX_HELPER),
@@ -355,17 +355,17 @@ func run(host: Node) -> int:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(apply_stage))
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(apply_install))
 	var new_executable := FileAccess.open(
-		apply_stage.path_join("LastRoute-Test.x86_64"), FileAccess.WRITE)
+		apply_stage.path_join("KyttusLab-Test.x86_64"), FileAccess.WRITE)
 	new_executable.store_string("#!/bin/sh\nexit 0\n")
 	new_executable.close()
-	var new_pck := FileAccess.open(apply_stage.path_join("LastRoute-Test.pck"), FileAccess.WRITE)
+	var new_pck := FileAccess.open(apply_stage.path_join("KyttusLab-Test.pck"), FileAccess.WRITE)
 	new_pck.store_string("new pck")
 	new_pck.close()
 	var old_executable := FileAccess.open(
-		apply_install.path_join("LastRoute-Test.x86_64"), FileAccess.WRITE)
+		apply_install.path_join("KyttusLab-Test.x86_64"), FileAccess.WRITE)
 	old_executable.store_string("old executable")
 	old_executable.close()
-	var old_pck := FileAccess.open(apply_install.path_join("LastRoute-Test.pck"), FileAccess.WRITE)
+	var old_pck := FileAccess.open(apply_install.path_join("KyttusLab-Test.pck"), FileAccess.WRITE)
 	old_pck.store_string("old pck")
 	old_pck.close()
 	if has_unix_shell:
@@ -374,14 +374,14 @@ func run(host: Node) -> int:
 			ProjectSettings.globalize_path(helper_path),
 			ProjectSettings.globalize_path(apply_stage),
 			ProjectSettings.globalize_path(apply_install),
-			"LastRoute-Test.x86_64", "99999999", "abcdef1", "linux"]),
+			"KyttusLab-Test.x86_64", "99999999", "abcdef1", "linux"]),
 			helper_output, true) == 0,
 			"the Unix update helper failed its disposable install: %s" % helper_output)
 		_expect(FileAccess.get_file_as_string(
-			apply_install.path_join("LastRoute-Test.pck")) == "new pck",
+			apply_install.path_join("KyttusLab-Test.pck")) == "new pck",
 			"the update helper did not install the new PCK")
 		_expect(FileAccess.get_file_as_string(apply_install.path_join(
-			".lastroute-backup-previous/LastRoute-Test.pck")) == "old pck",
+			".lastroute-backup-previous/KyttusLab-Test.pck")) == "old pck",
 			"the update helper did not retain the previous PCK")
 	else:
 		_expect(FileAccess.file_exists(helper_path),

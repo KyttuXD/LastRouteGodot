@@ -281,7 +281,7 @@ the generated manifest and archives:
 ```sh
 gh release create debug --prerelease \
   --title "Last Route debug 0.0.1.0" \
-  builds/LastRoute-*-Debug.zip builds/updates.debug.json
+  builds/KyttusLab-*-Debug.zip builds/updates.debug.json
 ```
 
 Keep the GitHub tags channel-based: use `debug` for debug uploads and

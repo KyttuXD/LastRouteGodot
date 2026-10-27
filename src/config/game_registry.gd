@@ -39,6 +39,8 @@ const GAMES := [
 	},
 ]
 
+## The hub is the main menu: the first screen after boot and the one every game returns to.
+const HUB_SCENE := "res://scenes/game_hub.tscn"
 const DEFAULT_ID := "last_route"
 ## Per-run choice of what the hub opens when the player has used it before.
 const SETTINGS_SECTION := "hub"

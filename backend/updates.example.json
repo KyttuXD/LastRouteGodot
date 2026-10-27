@@ -3,7 +3,7 @@
     "linux": {
       "version": "0.0.1.0",
       "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
-      "file": "LastRoute-Linux-Debug.zip",
+      "file": "KyttusLab-Linux-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "Debug multiplayer test build.",
       "required": true
@@ -11,7 +11,7 @@
     "steamvr": {
       "version": "0.0.1.0",
       "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
-      "file": "LastRoute-Windows-SteamVR-Debug.zip",
+      "file": "KyttusLab-Windows-SteamVR-Debug.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "SteamVR OpenXR test build.",
       "required": true
@@ -21,7 +21,7 @@
     "windows": {
       "version": "0.0.1.0",
       "revision": "REPLACE_WITH_7_TO_40_CHARACTER_GIT_SHA",
-      "file": "LastRoute-Windows.zip",
+      "file": "KyttusLab-Windows.zip",
       "sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
       "notes": "First public release.",
       "required": false

@@ -67,7 +67,7 @@ func run(_host: Node) -> int:
 		_expect((entry["box"] as AABB).size.y <= 1.0, "normalEntryBench is taller than 1.0 m")
 	# colliders: the footprint table must cover the model without being a giant box
 	for type in CHAIR_TYPES + TABLE_TYPES + ["restaurantPartyTable"]:
-		var half: Vector2 = RoomCatalog.FOOTPRINTS.get(type, Vector2.ZERO)
+		var half: Vector2 = RoomCatalog.footprint(type)
 		_expect(half != Vector2.ZERO, "%s has no collider footprint" % type)
 		for entry in _variants(type):
 			var box: AABB = entry["box"]

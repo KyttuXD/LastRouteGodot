@@ -53,7 +53,6 @@ func _ready() -> void:
 	TestServerBadge.attach(self)
 	_build_public_button()
 	_build_local_saves_button()
-	_build_games_button()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
 	offline_button.pressed.connect(_on_offline_pressed)
@@ -96,20 +95,6 @@ func _ready() -> void:
 			_on_settings_pressed.call_deferred()
 	GameHub.pending_menu_action = ""
 
-
-## Back to the hub that lists every game.
-func _build_games_button() -> void:
-	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
-	if box == null or box.has_node("GamesButton"):
-		return
-	var button := Button.new()
-	button.name = "GamesButton"
-	button.text = "ALL GAMES"
-	button.focus_mode = Control.FOCUS_ALL
-	Palette.style_button(button, false, true)
-	button.pressed.connect(func() -> void: get_tree().change_scene_to_file("res://scenes/game_hub.tscn"))
-	box.add_child(button)
-	box.move_child(button, maxi(0, box.get_child_count() - 2))
 
 ## Mutes the version label (the keyboard hint under the menu was removed).
 func _build_hint() -> void:
@@ -732,11 +717,9 @@ func _close_modal() -> void:
 	_manage_password = null
 
 
+## The menu's last button no longer quits the app: the hub is the main menu, quitting is its own button there.
 func _on_quit_pressed() -> void:
-	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.location.assign('/kyttus-lab/');", true)
-		return
-	get_tree().quit()
+	get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
 
 
 ## CREATE and JOIN are one route-entry surface. A mandatory update must lock
