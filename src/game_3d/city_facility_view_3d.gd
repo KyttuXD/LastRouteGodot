@@ -420,13 +420,38 @@ func _build_facade_cell(surface: CitySurface, layout: CityLayout, x: int, z: int
 	for dir_value in CitySurface.FACE_DIRS:
 		var dir: Vector2i = dir_value
 		var neighbour := layout.kind_at(gx + dir.x, gz + dir.y)
-		if CityLayout.OUTDOOR_KINDS.has(neighbour):
-			var pier := gx if dir.y != 0 else gz
-			for y in top:
-				surface.wall_face(x, z, dir, y, y + 1, _facade_tile(style, pier, y, top, salt))
-		elif neighbour == CityLayout.FLOOR or neighbour == CityLayout.DOOR or neighbour == CityLayout.KIOSK_FLOOR:
+		if neighbour == CityLayout.FLOOR or neighbour == CityLayout.DOOR or neighbour == CityLayout.KIOSK_FLOOR:
 			for row in int(CITY_CEILING):
 				surface.wall_face(x, z, dir, row, row + 1, CityAtlas.tile("plaster"))
+			continue
+		# The outside face runs from wherever the neighbouring mass ends up to the top. It used to be drawn toward
+		# OUTDOOR cells only, so a facade had NO face behind a lamp, tree or hedge (POST/HEDGE/BED/WATER cells) and none
+		# above a lower neighbouring building: the tower was open there and you saw its inside through the hole.
+		var span := facade_span(layout, gx, gz, dir, top)
+		var pier := gx if dir.y != 0 else gz
+		for y in range(span.x, span.y):
+			surface.wall_face(x, z, dir, y, y + 1, _facade_tile(style, pier, y, top, salt))
+	# a roof, so the tower is a closed box from above and from the open sky
+	surface.top_quad(x, z, float(top), CityAtlas.tile("kiosk_roof"))
+
+
+## Rows [from, to) of a facade face toward the neighbour at `dir`: empty when the neighbour is a solid mass at least as
+## tall, the part above it when it is lower, the whole height otherwise.
+static func facade_span(layout: CityLayout, gx: int, gz: int, dir: Vector2i, top: int) -> Vector2i:
+	var nx := gx + dir.x
+	var nz := gz + dir.y
+	var neighbour := layout.kind_at(nx, nz)
+	var covered := 0
+	match neighbour:
+		CityLayout.WALL:
+			covered = int(float(layout.building_at(nx, nz).get("height", 6.0)))
+		CityLayout.KIOSK_WALL:
+			covered = int(CITY_CEILING)
+		CityLayout.GATE:
+			covered = int(GATE_HEIGHT)
+		CityLayout.RIM:
+			covered = int(RIM_HEIGHT)
+	return Vector2i(mini(covered, top), top)
 
 
 ## A doorway is 3 m high; the facade continues above it and the lintel's underside closes the opening.
