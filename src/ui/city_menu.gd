@@ -7,6 +7,8 @@ extends Control
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
 const THEME_PATH := "res://src/ui/theme_city.tres"
+## Width of the menu column in UI units (fits the 480-unit-wide canvas with margins).
+const COLUMN_W := 300.0
 const HUB_SCENE := "res://scenes/game_hub.tscn"
 const LOBBY_SCENE := "res://scenes/room_lobby.tscn"
 
@@ -28,9 +30,13 @@ var _hosting := false
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") and _settings_overlay != null and _settings_overlay.visible:
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	if _settings_overlay != null and _settings_overlay.visible:
 		_settings_overlay.close()
-		get_viewport().set_input_as_handled()
+	else:
+		_on_back()   # Esc = back to games
+	get_viewport().set_input_as_handled()
 
 
 func _ready() -> void:
@@ -42,14 +48,33 @@ func _ready() -> void:
 	backdrop.name = "SignalBackdrop"
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(backdrop)
+	# Layout: a centred column inside a scroll container (short windows scroll instead of clipping): header, the primary
+	# row (NEW RUN prominent), PLAY, MULTIPLAYER (host + code + join on one row), OPTIONS (compact toggles on one row) and
+	# a footer row. Every button keeps its node name and handler.
+	var scroll := ScrollContainer.new()
+	scroll.name = "CityScroll"
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_left = 8
+	scroll.offset_top = 8
+	scroll.offset_right = -8
+	scroll.offset_bottom = -8
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+	var centre := CenterContainer.new()
+	centre.name = "CityCentre"
+	centre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	centre.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(centre)
 	var column := VBoxContainer.new()
 	column.name = "CityColumn"
-	column.set_anchors_preset(Control.PRESET_CENTER)
-	column.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	column.grow_vertical = Control.GROW_DIRECTION_BOTH
-	column.custom_minimum_size = Vector2(170, 0)
-	column.add_theme_constant_override("separation", 6)
-	add_child(column)
+	column.custom_minimum_size = Vector2(COLUMN_W, 0)
+	column.add_theme_constant_override("separation", 3)
+	centre.add_child(column)
+	var primary_row := _row("CityPrimaryRow")
+	var play_row := _row("CityPlayRow")
+	var multiplayer_row := _row("CityMultiplayerRow")
+	var options_row := _row("CityOptionsRow")
+	var footer_row := _row("CityFooterRow")
 	var kicker := Label.new()
 	kicker.name = "CityKicker"
 	kicker.theme_type_variation = &"KickerLabel"
@@ -66,15 +91,23 @@ func _ready() -> void:
 	_save_summary.theme_type_variation = &"MutedLabel"
 	_save_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_save_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_save_summary.custom_minimum_size = Vector2(170, 10)
+	_save_summary.custom_minimum_size = Vector2(COLUMN_W, 10)
 	column.add_child(_save_summary)
+	column.add_child(primary_row)
+	column.add_child(_caption("PLAY"))
+	column.add_child(play_row)
+	column.add_child(_caption("MULTIPLAYER"))
+	column.add_child(multiplayer_row)
+	column.add_child(_caption("OPTIONS"))
+	column.add_child(options_row)
+	column.add_child(footer_row)
 	_continue_button = _button("ContinueRunButton", "CONTINUE RUN", true, _on_continue_run)
-	column.add_child(_continue_button)
+	primary_row.add_child(_continue_button)
 	_clear_button = _button("ClearRunButton", "CLEAR SAVE", false, _on_clear_run)
-	column.add_child(_clear_button)
+	primary_row.add_child(_clear_button)
 	_time_button = _button("TimeButton", _time_label(), false, _on_time_toggle)
 	_time_button.tooltip_text = "Daytime: bright open sky, lamps off, hunters see farther outdoors (the host decides for the room)"
-	column.add_child(_time_button)
+	options_row.add_child(_time_button)
 	# Real places (OSM maps, online only): shown only when that feature's code is present (src/osm_city/).
 	var osm_script := "res://src/osm_city/osm_city_menu.gd"
 	if ResourceLoader.exists(osm_script):
@@ -84,15 +117,17 @@ func _ready() -> void:
 				handler.open(self))
 		real_places.disabled = Backend.offline_mode or not Backend.configured()
 		real_places.tooltip_text = "Real-world map areas (needs the server)"
-		column.add_child(real_places)
+		play_row.add_child(real_places)
 	var rain_button := _button("RainButton", _rain_label(), false, func() -> void: pass)
 	rain_button.tooltip_text = "Rain over the streets (a setting on this device, not a room choice)"
 	rain_button.pressed.connect(func() -> void:
 		Settings.set_city_rain(not Settings.city_rain)
 		rain_button.text = _rain_label())
-	column.add_child(rain_button)
+	options_row.add_child(rain_button)
 	var new_run := _button("NewRunButton", "NEW RUN // SOLO", not Backend.game_has_save(RoomState.GAME_CITY), _on_new_run)
-	column.add_child(new_run)
+	primary_row.add_child(new_run)
+	primary_row.move_child(new_run, 0)
+	new_run.size_flags_stretch_ratio = 2.0
 	var public_button := _button("PublicButton", "PUBLIC CITY", false, func() -> void: pass)
 	public_button.disabled = Backend.offline_mode or not Backend.configured()
 	public_button.tooltip_text = "Join the always-open shared City (needs the primary server)"
@@ -104,11 +139,14 @@ func _ready() -> void:
 			public_button.text = message.substr(0, 38)
 			public_button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
 				and not message.begins_with("PUBLIC ROUTE NEEDS"))
-	column.add_child(public_button)
+	play_row.add_child(public_button)
+	play_row.move_child(public_button, 0)
 	_host_button = _button("HostButton", "HOST A ROOM", false, _on_host)
-	column.add_child(_host_button)
+	multiplayer_row.add_child(_host_button)
 	_join_input = LineEdit.new()
 	_join_input.name = "RoomCodeInput"
+	_join_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_join_input.custom_minimum_size = Vector2(60, 0)
 	_join_input.placeholder_text = "ROOM CODE"
 	_join_input.max_length = RoomState.CODE_LENGTH
 	_join_input.text_changed.connect(func(value: String) -> void:
@@ -117,17 +155,17 @@ func _ready() -> void:
 			_join_input.text = upper
 			_join_input.caret_column = upper.length())
 	_join_input.text_submitted.connect(func(_text: String) -> void: _on_join())
-	column.add_child(_join_input)
+	multiplayer_row.add_child(_join_input)
 	_join_button = _button("JoinButton", "JOIN A ROOM", false, _on_join)
-	column.add_child(_join_button)
-	column.add_child(_button("AccountButton", Backend.account_username if Backend.signed_in() else "ACCOUNT", false, _on_account))
-	column.add_child(_button("SettingsButton", "SETTINGS", false, _on_settings))
-	column.add_child(_button("BackToGamesButton", "BACK TO GAMES", false, _on_back))
+	multiplayer_row.add_child(_join_button)
+	footer_row.add_child(_button("AccountButton", Backend.account_username if Backend.signed_in() else "ACCOUNT", false, _on_account))
+	footer_row.add_child(_button("SettingsButton", "SETTINGS", false, _on_settings))
+	footer_row.add_child(_button("BackToGamesButton", "BACK TO GAMES", false, _on_back))
 	_status = Label.new()
 	_status.name = "CityStatus"
 	_status.theme_type_variation = &"MutedLabel"
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.custom_minimum_size = Vector2(170, 10)
+	_status.custom_minimum_size = Vector2(COLUMN_W, 10)
 	_status.text = RoomState.status_message if RoomState.mode == RoomState.Mode.CITY else ""
 	column.add_child(_status)
 	Backend.health_checked.connect(_on_health_checked)
@@ -154,11 +192,28 @@ func _exit_tree() -> void:
 		Backend.room_resolved.disconnect(_on_room_resolved)
 
 
+func _row(row_name: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = row_name
+	row.add_theme_constant_override("separation", 4)
+	return row
+
+
+func _caption(text: String) -> Label:
+	var label := Label.new()
+	label.name = "Caption_" + text
+	label.theme_type_variation = &"KickerLabel"
+	label.text = Palette.track(text)
+	return label
+
+
 func _button(button_name: String, label: String, primary: bool, handler: Callable) -> Button:
 	var button := Button.new()
 	button.name = button_name
 	button.text = label
 	button.focus_mode = Control.FOCUS_ALL
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.clip_text = true
 	if primary:
 		button.theme_type_variation = &"PrimaryButton"
 	button.pressed.connect(handler)
