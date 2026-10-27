@@ -77,7 +77,8 @@ func _check_tokens() -> void:
 			differing += 1
 	_expect(differing >= 18, "only %d tokens differ between Last Route and the City" % differing)
 	Palette.apply_scheme("city")
-	_expect(Palette.theme_for("city") != null and Palette.theme_for("last_route") == null, "the City must carry a window theme, Last Route none")
+	# The City game is archived (no hub entry), so its scheme has no window theme on main; Last Route never has one.
+	_expect(Palette.theme_for("last_route") == null, "Last Route must not carry a window theme")
 	var city_theme := Palette.theme_for("city")
 	if city_theme != null:
 		_expect(city_theme.get_stylebox("grabber_area", "HSlider") != null and city_theme.has_stylebox("tab_selected", "TabBar"),

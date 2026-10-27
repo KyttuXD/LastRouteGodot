@@ -66,8 +66,7 @@ func _wait_for(test: Callable, what: String, seconds: float = 30.0) -> bool:
 
 func _in_route() -> bool:
 	var current := get_tree().current_scene
-	var route_scene := RoomState.CITY_ROUTE_SCENE if OS.get_environment("COOP_MODE") == "city" \
-		else "res://scenes/infinite_route_test.tscn"
+	var route_scene := "res://scenes/infinite_route_test.tscn"
 	return current != null and current.scene_file_path == route_scene \
 		and current.get("facility") != null and current.facility.generator != null
 
@@ -127,9 +126,8 @@ func _first_relay() -> Dictionary:
 
 # -- roles -------------------------------------------------------------------------
 
-## COOP_MODE=city runs the same checks on KYTTU: The City (host and guest must end up in the City scene).
 static func _test_mode() -> RoomState.Mode:
-	return RoomState.Mode.CITY if OS.get_environment("COOP_MODE") == "city" else RoomState.Mode.DEFAULT
+	return RoomState.Mode.DEFAULT
 
 
 func _run_host() -> void:

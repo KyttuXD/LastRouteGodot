@@ -97,7 +97,7 @@ var game_mode: RoomState.Mode = RoomState.Mode.DEFAULT
 
 
 func game_id() -> String:
-	return RoomState.GAME_CITY if game_mode == RoomState.Mode.CITY else RoomState.GAME_LAST_ROUTE
+	return RoomState.GAME_LAST_ROUTE
 
 
 func join(for_mode: RoomState.Mode = RoomState.Mode.DEFAULT) -> void:
