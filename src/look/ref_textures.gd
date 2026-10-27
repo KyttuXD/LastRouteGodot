@@ -316,7 +316,7 @@ static func _paint_terrazzo(variant: int) -> Image:
 	var base := Color("5a5048") if variant == 0 else Color("4c4a50")
 	_noise(img, 0, 0, PX, PX, base, .04, rng, 2)
 	for i in 40:
-		var chip := [Color("8a8278"), Color("2e2a28"), Color("7a5a44"), Color("6a7470")][i % 4]
+		var chip: Color = [Color("8a8278"), Color("2e2a28"), Color("7a5a44"), Color("6a7470")][i % 4]
 		_dot(img, rng.randi_range(0, PX - 2), rng.randi_range(0, PX - 2), chip, 1 + i % 2, 1)
 	_dot(img, 0, 0, Color("7a5c2c"), PX, 1)
 	_dot(img, 0, 0, Color("7a5c2c"), 1, PX)
