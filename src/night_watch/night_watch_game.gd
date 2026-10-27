@@ -53,6 +53,8 @@ func _ready() -> void:
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
+	hud.set_monitor_available(office.spec.has_monitor)
+	hud.hint_label.text = NightWatchControls.hint_line(false, office.spec.controls)
 	_sync_visuals()
 
 
@@ -182,6 +184,7 @@ func open_monitor(room := "") -> void:
 	player.look_frozen = true
 	MouseLock.claim("night_watch_monitor", true)
 	hud.show_monitor(true)
+	hud.hint_label.text = NightWatchControls.hint_line(true, office.spec.controls)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
 	hud.flash_static()
 	NightWatchSounds.monitor_toggle()
@@ -193,6 +196,7 @@ func close_monitor() -> void:
 	player.input_frozen = state != State.PLAYING
 	player.look_frozen = state != State.PLAYING
 	hud.show_monitor(false)
+	hud.hint_label.text = NightWatchControls.hint_line(false, office.spec.controls)
 	NightWatchSounds.monitor_toggle()
 
 
@@ -210,6 +214,14 @@ func select_camera(room: String) -> void:
 	hud.set_cam(room, building.camera_transform(room))
 	hud.flash_static()
 	NightWatchSounds.camera_switch()
+
+
+func is_playing() -> bool:
+	return state == State.PLAYING
+
+
+func select_camera_number(n: int) -> void:
+	select_camera(NightWatchData.room_for_cam(n))
 
 
 func cycle_camera(step: int) -> void:
@@ -434,26 +446,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if NightWatchControls.handle_monitor_event(self, event):
+		return
 	if monitor_up:
-		# in the monitor: 1-8 and the arrows pick a camera; use or Tab leaves it
-		if event.is_action_pressed(NightWatchControls.MONITOR) or event.is_action_pressed(&"interact"):
-			close_monitor()
-			return
-		if event.is_action_pressed(&"office_radio"):
+		if event.is_action_pressed(NightWatchControls.MUTE):
 			hud.toggle_mute()
-			return
-		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_LEFT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_LEFT):
-			cycle_camera(-1)
-			return
-		if (event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_RIGHT) \
-				or (event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed and (event as InputEventJoypadButton).button_index == JOY_BUTTON_DPAD_RIGHT):
-			cycle_camera(1)
-			return
-		for n in range(1, 9):
-			if event.is_action_pressed(NightWatchControls.camera_action(n)):
-				select_camera(NightWatchData.room_for_cam(n))
-				return
 		return
 	if event.is_action_pressed(NightWatchControls.DOOR_LEFT):
 		toggle_door("doorL")
@@ -467,8 +464,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		set_light("doorR", true)
 	elif event.is_action_released(NightWatchControls.LIGHT_RIGHT):
 		set_light("doorR", false)
-	elif event.is_action_pressed(NightWatchControls.MONITOR):
-		open_monitor()
 	elif event.is_action_pressed(NightWatchControls.LAMP):
 		toggle_lamp()
 	elif event.is_action_pressed(&"office_radio"):

@@ -1,0 +1,192 @@
+extends RefCounted
+
+## The camera keys and the whole key flow, one source of truth (NightWatchControls.ACTIONS): the table, the InputMap, the hint line, the controls tab and the
+## handlers must agree; then for EVERY playable mode scene with a monitor the key flow runs with real key events: open the monitor, cycle all cameras forward and
+## backward by Left/Right, pick each camera by number key and by number pad, gamepad d-pad cycling, keys do nothing while the monitor is down or the game is
+## paused, keys still work after pause/resume and after leaving and re-entering the monitor, use closes it, the old office_camera_n actions are ignored, and a
+## rebound key shows in the hint line and works. A mode scene without a monitor (Bedtime, ...) is skipped, with the reason listed.
+
+var _failures := 0
+
+
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		print("  FAIL  %s" % message)
+		_failures += 1
+
+
+func _key(code: int, pressed := true) -> InputEventKey:
+	var e := InputEventKey.new()
+	e.physical_keycode = code
+	e.keycode = code
+	e.pressed = pressed
+	return e
+
+
+func _joy(button: int) -> InputEventJoypadButton:
+	var e := InputEventJoypadButton.new()
+	e.button_index = button
+	e.pressed = true
+	return e
+
+
+func run(host: Node) -> int:
+	NightWatchSave.path = "user://night_watch_keys_test.cfg"
+	NightWatchSave.reset()
+	# --- the table, the InputMap, the hint line and the controls tab
+	NightWatchControls.register()
+	var seen_keys := {}
+	for entry in NightWatchControls.ACTIONS:
+		var action: StringName = entry["action"]
+		_expect(InputMap.has_action(action), "%s is in the table but not in the InputMap" % action)
+		var k := int(entry["key"])
+		_expect(not seen_keys.has(k), "%s and %s share the default key %s" % [action, seen_keys.get(k, ""), OS.get_keycode_string(k)])
+		seen_keys[k] = action
+		_expect(NightWatchControls.key_text(action) != "?", "%s has no key" % action)
+		_expect(int(entry["joy"]) < 0 or InputMap.action_get_events(action).any(func(e): return e is InputEventJoypadButton), "%s has no gamepad button though the table names one" % action)
+	var tab := NightWatchControls.controls_tab()
+	var tab_actions := []
+	for a in tab["actions"]:
+		tab_actions.append(String(a["action"]))
+	for entry in NightWatchControls.ACTIONS:
+		_expect(tab_actions.has(String(entry["action"])), "%s is missing from the OFFICE controls tab" % entry["action"])
+	var line := NightWatchControls.hint_line(false)
+	for entry in NightWatchControls.ACTIONS:
+		var a2 := String(entry["action"])
+		if a2.begins_with("nw_cam_") or a2 == "nw_cam_prev" or a2 == "nw_cam_next":
+			continue
+		_expect(line.contains(NightWatchControls.key_text(StringName(a2))), "the hint line does not show %s's key %s: %s" % [a2, NightWatchControls.key_text(StringName(a2)), line])
+	var mline := NightWatchControls.hint_line(true)
+	_expect(mline.contains("1-8") and mline.contains("Left") and mline.contains("Right"), "the monitor hint line does not show the camera keys: %s" % mline)
+	# a rebind: the hint line and the saved override follow
+	NightWatchControls.rebind(NightWatchControls.MONITOR, KEY_O)
+	_expect(NightWatchControls.key_text(NightWatchControls.MONITOR) == "O" and NightWatchControls.hint_line(false).contains("O cameras"), "a rebind of the monitor key did not show in the hint line")
+	_expect(int(NightWatchSave.key_overrides().get("nw_monitor", 0)) == KEY_O, "the rebind was not saved")
+	NightWatchControls.unregister()
+	NightWatchControls.register()
+	_expect(NightWatchControls.key_text(NightWatchControls.MONITOR) == "O", "the saved rebind was not applied on the next register()")
+	NightWatchSave.clear_key_overrides()
+	NightWatchControls.unregister()
+	# --- the key flow in every mode scene that has a monitor
+	var skipped := []
+	var tested := []
+	for mode_id in NightWatchModeRegistry.SCENES:
+		var spec := NightWatchOfficeRegistry.spec_for(String(mode_id))
+		if not spec.has_monitor:
+			skipped.append("%s (no monitor)" % mode_id)
+			continue
+		NightWatchSession.start_mode(String(mode_id), 1, {}, 77)
+		var game := (load(String(NightWatchModeRegistry.SCENES[mode_id])) as PackedScene).instantiate()
+		if not (game.has_method("cycle_camera") and game.has_method("select_camera_number") and game.has_method("is_playing")):
+			skipped.append("%s (its scene does not offer the camera API)" % mode_id)
+			game.free()
+			continue
+		game.set("manual_clock", true)
+		host.add_child(game)
+		await host.get_tree().process_frame
+		await host.get_tree().process_frame
+		await _flow(host, game, String(mode_id))
+		tested.append(String(mode_id))
+		game.queue_free()
+		await host.get_tree().process_frame
+	var probe := NightWatchHud.new()
+	host.add_child(probe)
+	await host.get_tree().process_frame
+	probe.set_monitor_available(false)
+	_expect(not probe.cameras_button.visible, "set_monitor_available(false) did not hide the CAMERAS button")
+	probe.set_monitor_available(true)
+	_expect(probe.cameras_button.visible, "set_monitor_available(true) did not show the CAMERAS button")
+	probe.queue_free()
+	_expect(tested.has("classic"), "the camera key flow did not run for Classic")
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
+	if _failures == 0:
+		print("  night_watch_keys  table, InputMap, hint line and controls tab agree; camera key flow passes in: %s; skipped: %s" % [", ".join(PackedStringArray(tested)), ", ".join(PackedStringArray(skipped)) if not skipped.is_empty() else "none"])
+	return _failures
+
+
+func _send(game: Node, ev: InputEvent) -> void:
+	game.call("_unhandled_input", ev)
+
+
+func _flow(host: Node, game: Node, mode_id: String) -> void:
+	var rooms := NightWatchData.cam_rooms()
+	var tag := "[%s] " % mode_id
+	_expect(not bool(game.get("monitor_up")), tag + "the monitor starts open")
+	# camera keys do nothing with the monitor down
+	_send(game, _key(KEY_3))
+	_send(game, _key(KEY_RIGHT))
+	_expect(not bool(game.get("monitor_up")), tag + "a camera key opened the monitor")
+	# open by the monitor key (a real key event)
+	_send(game, _key(KEY_U))
+	_expect(bool(game.get("monitor_up")), tag + "U did not open the monitor")
+	var start_room := String(game.get("monitor_room"))
+	# cycle forward through all cameras and back
+	var room := start_room
+	for step in rooms.size():
+		_send(game, _key(KEY_RIGHT))
+		var want := String(rooms[posmod(rooms.find(room) + 1, rooms.size())])
+		_expect(String(game.get("monitor_room")) == want, tag + "Right from %s did not reach %s (got %s)" % [room, want, game.get("monitor_room")])
+		room = String(game.get("monitor_room"))
+	_expect(room == start_room, tag + "eight Right presses did not come back to the first camera")
+	for step in rooms.size():
+		_send(game, _key(KEY_LEFT))
+		var want2 := String(rooms[posmod(rooms.find(room) - 1, rooms.size())])
+		_expect(String(game.get("monitor_room")) == want2, tag + "Left from %s did not reach %s" % [room, want2])
+		room = String(game.get("monitor_room"))
+	# the number keys and the number pad pick each camera; the gamepad d-pad cycles
+	for n in range(1, 9):
+		_send(game, _key(KEY_1 + n - 1))
+		_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(n), tag + "key %d did not pick camera %d" % [n, n])
+		_send(game, _key(KEY_KP_1 + n - 1))
+		_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(n), tag + "number pad %d did not pick camera %d" % [n, n])
+	_send(game, _key(KEY_1))
+	_send(game, _joy(JOY_BUTTON_DPAD_RIGHT))
+	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(2), tag + "the d-pad right did not go to camera 2")
+	_send(game, _joy(JOY_BUTTON_DPAD_LEFT))
+	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(1), tag + "the d-pad left did not go back to camera 1")
+	# the old office_camera_n actions are not read any more
+	var old := InputEventAction.new()
+	old.action = "office_camera_5"
+	old.pressed = true
+	var before := String(game.get("monitor_room"))
+	_send(game, old)
+	_expect(String(game.get("monitor_room")) == before, tag + "the old office_camera_5 action still switches cameras")
+	# pause with the monitor up: keys are ignored; resume: they work again
+	var pause := InputEventAction.new()
+	pause.action = "pause"
+	pause.pressed = true
+	_send(game, pause)
+	_send(game, _key(KEY_5))
+	_expect(String(game.get("monitor_room")) == before, tag + "a camera key worked while paused")
+	_send(game, pause)
+	_send(game, _key(KEY_5))
+	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(5), tag + "camera keys stopped working after pause and resume")
+	# close with the key, camera keys dead again, reopen, close with use
+	_send(game, _key(KEY_U))
+	_expect(not bool(game.get("monitor_up")), tag + "U did not close the monitor")
+	var kept := String(game.get("monitor_room"))
+	_send(game, _key(KEY_7))
+	_send(game, _key(KEY_RIGHT))
+	_expect(String(game.get("monitor_room")) == kept and not bool(game.get("monitor_up")), tag + "camera keys acted with the monitor down")
+	_send(game, _key(KEY_U))
+	_expect(bool(game.get("monitor_up")) and String(game.get("monitor_room")) == kept, tag + "re-entering the monitor lost the camera or did not open it")
+	_send(game, _key(KEY_8))
+	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(8), tag + "camera keys did not work after re-entering the monitor")
+	var use := InputEventAction.new()
+	use.action = "interact"
+	use.pressed = true
+	_send(game, use)
+	_expect(not bool(game.get("monitor_up")), tag + "use did not close the monitor")
+	# the key is not stuck: three open/close rounds
+	for i in 3:
+		_send(game, _key(KEY_U))
+		_expect(bool(game.get("monitor_up")), tag + "open round %d failed" % i)
+		_send(game, _key(KEY_U))
+		_expect(not bool(game.get("monitor_up")), tag + "close round %d failed" % i)
+	# the hint line follows the monitor
+	_send(game, _key(KEY_U))
+	var hud = game.get("hud")
+	_expect(hud != null and String(hud.hint_label.text).contains("close"), tag + "the hint line does not switch to the monitor keys")
+	_send(game, _key(KEY_U))
+	_expect(hud != null and String(hud.hint_label.text).contains("doors"), tag + "the hint line did not come back")
