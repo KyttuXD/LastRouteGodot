@@ -52,7 +52,7 @@ func build() -> void:
 	super.build()
 	# the yard outside the window
 	var yard := _prop("Yard", Vector3(WINDOW_X, 0.0, HALF_D + 2.0))
-	_c(yard, Vector3(6.0, 0.2, 4.0), Vector3(0, -0.1, 0), "YardFloor", {"kind": "concrete", "tint": Color(0.7, 0.75, 0.8)})
+	_c(yard, Vector3(6.0, 0.2, 3.8), Vector3(0, -0.1, 0.1), "YardFloor", {"kind": "concrete", "tint": Color(0.7, 0.75, 0.8)})
 	_c(yard, Vector3(6.0, 3.0, 0.2), Vector3(0, 1.5, 2.1), "YardFence", {"kind": "concrete", "tint": Color(0.6, 0.62, 0.7)})
 	_c(yard, Vector3(0.1, 2.6, 0.1), Vector3(1.8, 1.3, 1.5), "YardPost", {"kind": "metal"})
 	_c(yard, Vector3(0.5, 0.12, 0.3), Vector3(1.5, 2.6, 1.5), "GlowYardLamp", {})
