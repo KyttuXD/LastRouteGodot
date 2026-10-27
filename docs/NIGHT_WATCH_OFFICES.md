@@ -90,3 +90,10 @@ Validator `night_watch_maps`: no two modes share a layout signature (sorted room
 and no mode's map script extends `NightWatchBuilding`. The layout must stay in step with the walking-hunter paths and the office spec entrances. Themes: Bedtime = a house wing (bedroom, hall, kids' room, bathroom, living room, kitchen, stairs / landing, closet), Salvage Run = a ship and yard (cargo bay office, gantry, docks, airlock, engine room, scrap yard, crane, hold, bridge), Masked Hours = a FNAF 2 style
 building (not derived from Classic), Dead Air = a radio station / studio floor, The Facility = an industrial complex, The Descent = stairwell / shaft levels, Open Air = open grounds,
 Mixed Shift = rotates between the other modes' maps, Classic stays as is.
+
+### Map rows (lane B)
+
+| Mode | Map (`map_layout()`) | World | Top-down capture |
+|---|---|---|---|
+| Masked Hours | `mask/mask_map.gd`: 14 rooms on a hall-and-plaza plan: the Game Area at the heart of the open-plan show floor (Show Stage north, Prize Corner west, Parts / Service east), the 15 m Main Hall south into the door-less office with four Party Rooms off it, Left / Right Halls to the Vent Hub behind the office, two air vent ducts | `mask/mask_world.gd` (own building, AStar graph, no jumps) | ![map](night_watch_modes/mask_map_topdown.png) |
+| Salvage Run | `dayshift/dayshift_map.gd`: 9 rooms on a long east-west ship: airlock, dock, gantry, engine room and bridge to the west, gantry and cargo hold to the east, the scrap yard with the crane to the south; Ravelle walks in from the airlock, Ceryth from the hold, Ysolde from the crane to the window | `dayshift/dayshift_yard.gd` (AStar graph over the cargo bay's opened halls) | ![map](night_watch_modes/dayshift_map_topdown.png) |

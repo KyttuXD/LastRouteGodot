@@ -17,7 +17,7 @@ const MAPS := {
 	"bedroom":  {"script": "", "single_space": false},
 	"story":    {"script": "", "single_space": false},
 	"descent":  {"script": "", "single_space": false},
-	"dayshift": {"script": "", "single_space": false},
+	"dayshift": {"script": "res://src/night_watch/dayshift/dayshift_map.gd", "single_space": false},
 	"extra":    {"script": "", "single_space": false},
 	"mixed":    {"script": "", "single_space": false, "rotates": true},
 }
