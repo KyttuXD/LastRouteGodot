@@ -78,7 +78,7 @@ func run(host: Node) -> int:
 		NightWatchSession.start_mode(String(mode_id), 1, {}, 77)
 		var game := (load(String(NightWatchModeRegistry.SCENES[mode_id])) as PackedScene).instantiate()
 		if not (game.has_method("cycle_camera") and game.has_method("select_camera_number") and game.has_method("is_playing")):
-			skipped.append("%s (its scene does not offer the camera API)" % mode_id)
+			skipped.append("%s (its scene does not offer the camera API: is_playing, cycle_camera, select_camera_number)" % mode_id)
 			game.free()
 			continue
 		game.set("manual_clock", true)
@@ -110,7 +110,13 @@ func _send(game: Node, ev: InputEvent) -> void:
 
 
 func _flow(host: Node, game: Node, mode_id: String) -> void:
-	var rooms := NightWatchData.cam_rooms()
+	# a mode with its own rooms offers camera_rooms() (the cameras in order) and camera_room_for(n); a timed monitor offers advance_ms(ms)
+	var rooms: Array = game.call("camera_rooms") if game.has_method("camera_rooms") else NightWatchData.cam_rooms()
+	var room_for := func(n: int) -> String:
+		return String(game.call("camera_room_for", n)) if game.has_method("camera_room_for") else NightWatchData.room_for_cam(n)
+	var settle := func() -> void:
+		if game.has_method("advance_ms"):
+			game.call("advance_ms", 400.0)
 	var tag := "[%s] " % mode_id
 	_expect(not bool(game.get("monitor_up")), tag + "the monitor starts open")
 	# camera keys do nothing with the monitor down
@@ -119,12 +125,14 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 	_expect(not bool(game.get("monitor_up")), tag + "a camera key opened the monitor")
 	# open by the monitor key (a real key event)
 	_send(game, _key(KEY_U))
+	settle.call()
 	_expect(bool(game.get("monitor_up")), tag + "U did not open the monitor")
 	var start_room := String(game.get("monitor_room"))
 	# cycle forward through all cameras and back
 	var room := start_room
 	for step in rooms.size():
 		_send(game, _key(KEY_RIGHT))
+		settle.call()
 		var want := String(rooms[posmod(rooms.find(room) + 1, rooms.size())])
 		_expect(String(game.get("monitor_room")) == want, tag + "Right from %s did not reach %s (got %s)" % [room, want, game.get("monitor_room")])
 		room = String(game.get("monitor_room"))
@@ -135,16 +143,16 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 		_expect(String(game.get("monitor_room")) == want2, tag + "Left from %s did not reach %s" % [room, want2])
 		room = String(game.get("monitor_room"))
 	# the number keys and the number pad pick each camera; the gamepad d-pad cycles
-	for n in range(1, 9):
+	for n in range(1, mini(9, rooms.size() + 1)):
 		_send(game, _key(KEY_1 + n - 1))
-		_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(n), tag + "key %d did not pick camera %d" % [n, n])
+		_expect(String(game.get("monitor_room")) == room_for.call(n), tag + "key %d did not pick camera %d" % [n, n])
 		_send(game, _key(KEY_KP_1 + n - 1))
-		_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(n), tag + "number pad %d did not pick camera %d" % [n, n])
+		_expect(String(game.get("monitor_room")) == room_for.call(n), tag + "number pad %d did not pick camera %d" % [n, n])
 	_send(game, _key(KEY_1))
 	_send(game, _joy(JOY_BUTTON_DPAD_RIGHT))
-	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(2), tag + "the d-pad right did not go to camera 2")
+	_expect(String(game.get("monitor_room")) == room_for.call(2), tag + "the d-pad right did not go to camera 2")
 	_send(game, _joy(JOY_BUTTON_DPAD_LEFT))
-	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(1), tag + "the d-pad left did not go back to camera 1")
+	_expect(String(game.get("monitor_room")) == room_for.call(1), tag + "the d-pad left did not go back to camera 1")
 	# the old office_camera_n actions are not read any more
 	var old := InputEventAction.new()
 	old.action = "office_camera_5"
@@ -161,7 +169,7 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 	_expect(String(game.get("monitor_room")) == before, tag + "a camera key worked while paused")
 	_send(game, pause)
 	_send(game, _key(KEY_5))
-	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(5), tag + "camera keys stopped working after pause and resume")
+	_expect(String(game.get("monitor_room")) == room_for.call(5), tag + "camera keys stopped working after pause and resume")
 	# close with the key, camera keys dead again, reopen, close with use
 	_send(game, _key(KEY_U))
 	_expect(not bool(game.get("monitor_up")), tag + "U did not close the monitor")
@@ -172,7 +180,7 @@ func _flow(host: Node, game: Node, mode_id: String) -> void:
 	_send(game, _key(KEY_U))
 	_expect(bool(game.get("monitor_up")) and String(game.get("monitor_room")) == kept, tag + "re-entering the monitor lost the camera or did not open it")
 	_send(game, _key(KEY_8))
-	_expect(String(game.get("monitor_room")) == NightWatchData.room_for_cam(8), tag + "camera keys did not work after re-entering the monitor")
+	_expect(String(game.get("monitor_room")) == room_for.call(8), tag + "camera keys did not work after re-entering the monitor")
 	var use := InputEventAction.new()
 	use.action = "interact"
 	use.pressed = true
