@@ -90,7 +90,15 @@ def build(name, tall=0.0):
     else:
         emote_clips, emote_meta = emote_lib.compile_emotes(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
                                                            sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
+        new_clips, new_meta = emote_lib.compile_new(name, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U,
+                                                    sk["hip_y"] / bb_rig.HYTALE_PELVIS_Y, bb_rig.CORE_NAMES)
+        emote_clips.update(new_clips)
         clips = bb_rig.build_clips(bones, sk["hip_y"], motion.profile(name), emote_clips)
+        moving_meta = emote_lib.compile_moving(name, clips, {x["name"]: x["rot"] for x in bones})
+        clips_have = {m["clip"] for m in new_meta + moving_meta}
+        emote_meta = [m for m in emote_meta if m["clip"] not in clips_have] + new_meta + moving_meta
+        if name.startswith("void_pink"):                   # her beckon was static; the moving one replaced it in the clip set
+            emote_meta = [m for i, m in enumerate(emote_meta) if m["clip"] != "emote_beckon" or m in moving_meta]
         _record_emotes(name, emote_meta)
     hook = getattr(mod, "CLIP_HOOK", None)             # hunter-specific extra clips (Kathy's scythe set)
     if hook:

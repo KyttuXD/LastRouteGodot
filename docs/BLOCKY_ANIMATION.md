@@ -53,3 +53,17 @@ names / hierarchy / rest pose as the hunters, 1.78 m, both skin layers, 64x64 at
 idle walk chase sprint crouch stun (loops), stun_recover jump (one-shot), sit lay tpose fall climb (loops). `lay` is face-up with the
 head toward +Z. Validator: `_check_player_mannequin`; `check_gaps.py` covers it too. Views: `docs/player_mannequin_views.png`,
 clips: `docs/player_mannequin_clips.png` (rows idle walk chase sprint crouch stun sit lay tpose jump fall climb).
+
+## Hunter emote clips (docs/HUNTER_EMOTES.md)
+Every non-Void hunter (and `_tall`) carries the 12 catalog clips `emote_<id>` plus the shared wave/shrug/cheer/bow and her
+personal ones; `emotes.json` lists them with the catalog face. Built in `hunters/emotes.py` (`NEW_TEMPLATES`, `MOVING_TEMPLATES`):
+* Static one-shots (laugh, look_around, smug, dance, flinch, stretch, yawn, hum, victory) start and end at the idle pose.
+* **Moving** emotes (taunt, point, beckon) are layered on the hunter's own `sprint` clip: legs, pelvis and extra bones keep the stride,
+  only head/chest/one arm are overridden, blended in and out so the clip starts and ends on the run. Kathy uses her LEFT hand (the
+  scythe is in the right). Void: only void_pink's beckon (built the same way); the rest use their shared stand-ins.
+* Persona: `ENERGY` scales every gesture (Aki .65 ... Xivvy 1.4); variants: glyra waltz dance, xivvy hop dance, haelith/opalie/ravelle
+  the older bouncy dance, opalie/ravelle/xivvy/zephyra the older bouncy laugh; smug is arms-crossed for kathy mavrine ceryth thessine
+  jyvra briselle ilyra verrine and hands-behind-the-back for the rest; glyra hums bigger. Extra bones (ears, tails, wings, hair) sway
+  in every emote automatically.
+* `check_gaps.py` now also checks every emote (and `--all` lists each pose over the plug limit); a few existing emotes (bow, smash,
+  tilt) were over it and were trimmed. Validator: `_check_catalog_emotes` (clips present, one-shot, catalog length/face, moving ones keep leg tracks).
