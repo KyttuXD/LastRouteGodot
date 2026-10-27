@@ -296,3 +296,16 @@ Lots are walked round each band: 19 suburb **houses** (9 x 9, clapboard walls, s
 mailbox) and 4 **barns** (red planks) with a silo, a water pump, hay bales and a tractor; two irrigation channels (WATER) cross
 the fields. Every lot keeps 2 clear cells from roads, tracks and other masses. Validated: counts, bands, no lot touching a
 road; geometry_overlap stays at zero.
+
+## Water bodies and OSM hooks
+
+Generic WATER cells (solid on the nav grid, drawn with a bank lip, never a spawn/pickup/furniture cell): a 3-wide canal
+along the inner edge of the west farmland with footbridges, a lake in the east farmland, two farm ponds, irrigation
+channels, plus the existing roundabout ring, garden ponds and plaza pool. Arterials run straight over the canal. Validated:
+water never walkable, nothing built or placed on it, every enterable building and the gate reachable from the spawn.
+Barns: 9 x 9 lots walked round band_t 0.73 with a 1-cell clearance (~17 per seed).
+
+Hooks for the OSM maps lane (src/osm_city/, docs/CITY_OSM_MAPS.md): `CityRouteGenerator.new(seed, prebuilt_layout)`,
+`CityFacilityView3D.begin()` asks `res://src/osm_city/osm_city_run.gd`.layout_for(seed) when that file exists,
+`CityLayout.in_chunk_range/chunk_min/chunk_max/is_outside/interior_kind_for` (instance, overridable), and a REAL PLACES
+button on the City menu shown only when `res://src/osm_city/osm_city_menu.gd` exists.

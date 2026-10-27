@@ -75,6 +75,16 @@ func _ready() -> void:
 	_time_button = _button("TimeButton", _time_label(), false, _on_time_toggle)
 	_time_button.tooltip_text = "Daytime: bright open sky, lamps off, hunters see farther outdoors (the host decides for the room)"
 	column.add_child(_time_button)
+	# Real places (OSM maps, online only): shown only when that feature's code is present (src/osm_city/).
+	var osm_script := "res://src/osm_city/osm_city_menu.gd"
+	if ResourceLoader.exists(osm_script):
+		var real_places := _button("RealPlacesButton", "REAL PLACES", false, func() -> void:
+			var handler = load(osm_script)
+			if handler != null and handler.has_method("open"):
+				handler.open(self))
+		real_places.disabled = Backend.offline_mode or not Backend.configured()
+		real_places.tooltip_text = "Real-world map areas (needs the server)"
+		column.add_child(real_places)
 	var rain_button := _button("RainButton", _rain_label(), false, func() -> void: pass)
 	rain_button.tooltip_text = "Rain over the streets (a setting on this device, not a room choice)"
 	rain_button.pressed.connect(func() -> void:
