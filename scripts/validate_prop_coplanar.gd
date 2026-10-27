@@ -11,6 +11,9 @@ const DIR := "res://art/props-3d/props/blocky"
 const PLANE_TOL := 0.002
 const MIN_OVERLAP := 0.0005
 const KNOWN := 0
+## KT's reports (gothic bedroom): these must exist and be clean by name, whatever happens to the ratchet.
+const BEDROOM_SET := ["gothicWardrobe_0", "gothicDoubleBed_0", "gothicDoubleBed_1", "gothicNightstand_0", "gothicDresser_0",
+	"gothicHighbackChair_0", "gothicBedsideCandelabra", "bedroomWardrobe_0", "singleBed_0", "doubleBed_0", "bunkBed_0"]
 
 var _failures := 0
 var offenders := []
@@ -149,6 +152,12 @@ func run(_host: Node) -> int:
 		models += 1
 		if not found.is_empty():
 			offenders.append("%s: %d (%s)" % [file, found.size(), found[0]])
+	for model_name in BEDROOM_SET:
+		var path := "%s/%s.glb" % [DIR, model_name]
+		_expect(ResourceLoader.exists(path), "bedroom set model %s is missing" % model_name)
+		if ResourceLoader.exists(path):
+			var found := scan_model(path)
+			_expect(found.is_empty(), "%s z-fights: %s" % [model_name, found.slice(0, 3)])
 	_expect(offenders.size() <= KNOWN, "%d of %d blocky models still have coplanar same-facing faces (allowed %d), e.g. %s" % [
 		offenders.size(), models, KNOWN, offenders.slice(0, 6)])
 	for line in offenders:

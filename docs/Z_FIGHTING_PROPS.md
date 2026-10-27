@@ -58,3 +58,22 @@ Sheet: `docs/bed_zfight_before_after.png` (gothic double bed; top row before, bo
 | bunkBed_0 | side | 2.0 m | 1.428 | 1.097 |
 | bunkBed_0 | side | 6.0 m | 0.117 | 0.073 |
 | bunkBed_0 | side | 15.0 m | 0.024 | 0.022 |
+
+## Wardrobe and the rest of the gothic bedroom: z-fighting, not shadow acne
+KT's wardrobe shots showed big jagged black patches on the doors. `tools/look/shadow_acne.tscn` (windowed, on the mini) renders the gothic
+bedroom set (wardrobe, double bed, nightstand, dresser, high-back chair, candelabra) in a dark room. The light is the player's flashlight
+(the scene's own SpotLight3D: bias 0.3, normal bias 1.0, reverse-cull shadows), with the lantern OmniLight on or off. Each view is
+rendered three ways: flashlight shadows ON, shadows OFF, and shadows OFF with the camera nudged 3 mm.
+
+- **Shadow acne** is the share of lit pixels that the shadow pass alone darkens into small isolated patches. It was below 0.3% before
+  and after, with the lantern on (0.31) or off (0.85, mostly the edges of real cast shadows).
+- **Z-fighting** is the frame difference with shadows off. It fell from 2.37 / 1.57 / 1.78 / 3.27 / 0.39 to 0.31 / 0.31 / 0.27 / 0.34 /
+  0.12 (wardrobe close, wardrobe mid, bed foot, bed side, wide view).
+
+So the patches were the door slab's front fighting the raised panel's front: both snapped to the same plane. The builder pass above
+fixes that. No light or shadow setting changed. The room lanterns (LampField pool) cast no shadows, so only the flashlight could
+produce acne, and its bias holds.
+
+Sheet: `docs/bedroom_zfight_before_after.png`. Top row is before, bottom row after: wardrobe close, wardrobe mid, bed side, flashlight
+shadows on. The two renders are lit differently because the before tree predates the matte material pass. `prop_coplanar` also names
+the bedroom set explicitly.
