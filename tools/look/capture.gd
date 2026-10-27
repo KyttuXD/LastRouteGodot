@@ -29,7 +29,12 @@ func _ready() -> void:
 		Settings.fps_limit = 0
 		Settings.vsync_enabled = false
 		Settings._apply_display_performance()
-	var scene: Node = load("res://scenes/infinite_route_test.tscn").instantiate()
+	# CAP_CITY=1: the same rig in The City (CAP_AT picks the spots, e.g. the fountain roundabout at 22,28)
+	var city := OS.get_environment("CAP_CITY") != ""
+	if city:
+		RoomState.create_local(RoomState.Mode.CITY)
+		Backend.enable_offline_mode()
+	var scene: Node = load(RoomState.CITY_ROUTE_SCENE if city else "res://scenes/infinite_route_test.tscn").instantiate()
 	add_child(scene)
 	_scene = scene
 	_run(scene)

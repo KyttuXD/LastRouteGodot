@@ -163,6 +163,7 @@ static func material(kind: String, tint := Color.WHITE, emissive := false) -> St
 	m.albedo_color = tint
 	m.vertex_color_use_as_albedo = true
 	m.roughness = 1.0
+	m.metallic_specular = MaterialLook.SPECULAR_DEFAULT
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	if emissive:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

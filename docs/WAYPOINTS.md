@@ -24,7 +24,7 @@ The first waypoint system lived only on the fullscreen map (click, or the centre
   Offline runs use peer id 1.
 * **Placement**: the `waypoint` key (default **B**, gamepad R3) places at the crosshair: the view ray is marched over the live
   floor grid and lands on the floor, or on the open floor in front of the wall or prop it hits (range 90 m). Pressing it on the
-  same cell clears it. `waypoint_clear` (default **X**) clears outright. The fullscreen map still places at the map cursor.
+  same cell clears it. `waypoint_clear` (default **V**) clears outright. The fullscreen map still places at the map cursor.
   All paths go through `_request_waypoint`: a guest asks the host, the host (or the offline run) decides and publishes one
   `stream_waypoint` event `{peer_id, waypoint | {}}`, which every peer applies idempotently. A guest may change its pin every
   150 ms at most.
@@ -54,6 +54,6 @@ render. A late joiner adopts the host snapshot and sees the same pins. Public ro
 
 `waypoints` (`scripts/validate_waypoints.gd`): place twice gives one, replace/clear/arrival, per-player independence,
 host/guest/late-joiner agreement, legacy migration, malformed data, the edge clamp at 1280x720 / 1920x1080 / 3440x1440,
-controls registration and no key conflicts (B, X, R3), settings clamps, and a City run-scene pass (A then B gives only B, one
+controls registration and no key conflicts (B, V, R3), settings clamps, and a City run-scene pass (A then B gives only B, one
 trail node, a route over open street cells, a teammate pin next to ours, arrival clears). `streamed_world` covers the Last
 Route live scene (map click, GPS line, chevrons, replace, arrival).
