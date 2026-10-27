@@ -14,14 +14,14 @@ const SHARED_ROOM_IDS_MAX := 3
 
 const MAPS := {
 	"classic":  {"script": "res://src/night_watch/night_watch_building.gd", "single_space": false},
-	"mask":     {"script": "", "single_space": false},
+	"mask":     {"script": "res://src/night_watch/mask/mask_map.gd", "single_space": false},
 	"lure":     {"script": "res://src/night_watch/lure/lure_map.gd", "single_space": false},
 	"bedroom":  {"script": "res://src/night_watch/bedroom/bedroom_map.gd", "single_space": false},
 	"story":    {"script": "res://src/night_watch/story/story_map.gd", "single_space": false},
 	"descent":  {"script": "", "single_space": false},
-	"dayshift": {"script": "", "single_space": false},
+	"dayshift": {"script": "res://src/night_watch/dayshift/dayshift_map.gd", "single_space": false},
 	"extra":    {"script": "", "single_space": false},
-	"mixed":    {"script": "", "single_space": false, "rotates": true},
+	"mixed":    {"script": "res://src/night_watch/mixed/mixed_map.gd", "single_space": false, "rotates": true},
 }
 
 

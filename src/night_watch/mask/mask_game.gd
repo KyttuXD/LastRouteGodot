@@ -13,7 +13,7 @@ enum State { PLAYING, PAUSED, WON, LOST }
 
 const WIN_TEXT := "You held the wing until 6 AM."
 const HINT := "WASD move   E use   Z mask (no doors here)   U monitor   G / H vent lights   X hall light   R wind   Y lamp   P pause"
-const HOLDS := [["lightL", "vent", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "doorR_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
+const HOLDS := [["lightL", "ventL", "nw_light_left"], ["lightR", "ventR", "nw_light_right"], ["lightH", "hall_light", "nw_door_right"], ["winPtr", "musicbox", ""]]
 
 var night := 1
 var state: State = State.PLAYING
@@ -29,7 +29,6 @@ var death_moment: DeathMoment
 var world_env: WorldEnvironment
 var overlay: MaskOverlay
 var held_label: Label
-var map_buttons := {}
 var last_death := {}
 var monitor_shown := false   # the monitor's picture is on screen (fully up)
 ## Whether the player is on the monitor: it is up, or on its way (the panel machine raises it in 250 ms). The camera keys and the shared handler read this.
@@ -48,6 +47,7 @@ var _driven := {}
 var _hour_seen := 0
 var _last_input := {}
 var _flinch := {}
+var _vent_pose := NightWatchVentPose.new()
 
 
 class MaskOverlay extends Control:
@@ -124,6 +124,7 @@ func _build_world() -> void:
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
 	hud.hint_label.text = HINT
+	hud.mode_text = "2. Masked Hours · %s" % ("Custom Night" if is_custom else "Night %d" % night)
 	_build_map_buttons()
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
@@ -131,31 +132,16 @@ func _build_world() -> void:
 	death_moment.finished.connect(_after_death_moment)
 	player = (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
 	add_child(player)
-	player.global_position = office.global_position + NightWatchOffice.SPAWN
+	player.global_position = office.spawn_position()
 	face_player(0.0, -0.1)
 	player.interaction_message.connect(func(message: String): hud.show_note(message))
 	office.set_lamp(false)
 	_wire_stations()
 
 
-## The monitor's camera map for this wing (the HUD builds Classic's; those buttons are hidden).
+## The monitor's camera map comes from the mode's layout (NightWatchMapRegistry): the prize corner, parts room, show stage, game area, vent hub, the two air vents and the main hall.
 func _build_map_buttons() -> void:
-	var map := hud.monitor_root.find_child("CamMap", true, false) as Control
-	for b in hud.cam_buttons.values():
-		(b as Button).visible = false
-	for room in MaskData.cam_rooms():
-		var info: Dictionary = MaskData.ROOMS[room]
-		var b := Button.new()
-		b.name = "MaskCam_%s" % room
-		b.text = "CAM %d" % int(info["cam"])
-		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(30, 13)
-		b.add_theme_font_size_override("font_size", 6)
-		var p: Vector2 = info["map"]
-		b.position = Vector2(p.x / 100.0 * 120.0 - 15.0, p.y / 100.0 * 92.0 - 6.0)
-		b.pressed.connect(func(): select_camera(room))
-		map.add_child(b)
-		map_buttons[room] = b
+	hud.set_cam_layout(NightWatchMapRegistry.layout_for("mask"))
 	held_label = Label.new()
 	held_label.name = "HeldLabel"
 	held_label.text = "HELD STILL"
@@ -186,7 +172,7 @@ func _wire_stations() -> void:
 		return ""
 	(st["chair"] as NightWatchStation).on_activate = func(p) -> String:
 		return String(p.use_furniture(st["chair"], "sit"))
-	for id in ["vent", "ventR", "doorR_light", "musicbox", "doorL_door", "doorL_light", "doorR_door"]:
+	for id in ["ventL", "ventR", "hall_light", "musicbox"]:
 		(st[id] as NightWatchStation).on_activate = func(_p) -> String: return ""   # held, see _process
 
 
@@ -322,8 +308,6 @@ func _on_control_event(e: Dictionary) -> void:
 func _set_feed(room: String) -> void:
 	hud.set_cam(room, world.feed_transform(room))
 	_update_cam_label(room)
-	for r in map_buttons:
-		(map_buttons[r] as Button).modulate = Color(1.0, 0.85, 0.4) if r == room else Color(1, 1, 1)
 
 
 func _update_cam_label(room: String) -> void:
@@ -439,8 +423,8 @@ func _on_event(e: Dictionary) -> void:
 func _sync_visuals() -> void:
 	var s := sim.s
 	var lit: Dictionary = s["lit"]
-	office.set_light("doorR", bool(lit["H"]))
-	office.set_button("doorR_light", bool(lit["H"]))
+	office.set_light("hall", bool(lit["H"]))
+	office.set_button("hall_light", bool(lit["H"]))
 	office.set_lamp(controls.lamp and float(s["battery"]) > 0.0)
 	for side in ["L", "R"]:
 		(office.vent_beams[side] as SpotLight3D).visible = bool(lit[side])
@@ -450,6 +434,7 @@ func _sync_visuals() -> void:
 		(world.duct_lights[duct] as OmniLight3D).visible = bool(lit[side]) and controls.is_up("monitor") and controls.cam == duct
 		world.glints[duct].visible = sim.glint(duct)
 	office.set_box(float(s["box"]))
+	world.set_box(float(s["box"]))
 	overlay.cover = controls.cover("mask")
 	overlay.queue_redraw()
 	var devices := (1 if bool(lit["L"]) or bool(lit["R"]) else 0) + (1 if bool(lit["H"]) else 0) + (1 if bool(s["lamp"]) else 0) + (1 if monitor_shown else 0)
@@ -514,8 +499,8 @@ func _place_hunters() -> void:
 			model.visible = dark
 			if dark:
 				var t := clampf(float(s["dark"]) / MaskLogic.dark_grace_ms(sim.base_level("nyxie")), 0.0, 1.0)
-				var from := office.global_position + Vector3(MaskWorld.HALL_NEAR_X, 0.0, 0.0)
-				var to := office.global_position + Vector3(0.7, 0.0, -0.5)
+				var from := office.global_position + Vector3(0.0, 0.0, -MaskWorld.HALL_NEAR)
+				var to := office.global_position + Vector3(0.5, 0.0, -1.0)
 				_set_pose(model, from.lerp(to, t), player.global_position)
 			continue
 		var tgt := _target(id)
@@ -552,20 +537,8 @@ func _place_hunters() -> void:
 		model.rotation.y = walker.yaw
 
 
-## The walk to a new room: through the wing and its doorways, down the hall, or (leaving the hall / office) back out to the far end and on.
-func _legs_to(walker: NightWatchWalker, room_key: String, pos: Vector3) -> Array:
-	var in_office_area := walker.pos.z > -20.0
-	var to_office_area := room_key == "hall" or room_key == "office"
-	if in_office_area and to_office_area:
-		return [{"p": pos, "jump": false}]
-	if in_office_area:
-		var far: Vector3 = world.points.get("H:far", walker.pos)
-		var legs: Array = [{"p": far, "jump": false}]
-		var back: Array = world.route("S:ballroom", world.key_for(room_key))
-		if not back.is_empty():
-			back[0]["jump"] = true
-			legs.append_array(back)
-		return legs
+## The walk to a new place: along the wing's real waypoints (the show floor, the main hall, the side halls, the vent hub and the ducts); nothing jumps.
+func _legs_to(walker: NightWatchWalker, room_key: String, _pos: Vector3) -> Array:
 	return world.legs_from(walker.pos, room_key)
 
 
@@ -575,6 +548,12 @@ func _set_pose(model: Node3D, pos: Vector3, face: Vector3) -> void:
 	d.y = 0.0
 	if d.length() > 0.01:
 		model.rotation.y = atan2(d.x, d.z) + PI
+
+
+## A vent hunter is in a shaft while she crawls a duct or waits in an office vent.
+func _in_shaft(id: String) -> bool:
+	var st := String(sim.vent_state(id)["state"])
+	return st == "duct" or st == "vent"
 
 
 func _animate_models(delta: float) -> void:
@@ -588,6 +567,8 @@ func _animate_models(delta: float) -> void:
 	for id in _players:
 		var ap := _players[id] as AnimationPlayer
 		var walker2 := _walkers.get(id) as NightWatchWalker
+		if sim != null and MaskData.VENT_HUNTERS.has(id) and _vent_pose.update(id, _models[id] as Node3D, _in_shaft(id), walker2 != null and walker2.moving, delta):
+			continue
 		var clip := "idle"
 		if bool(_driven.get(id, false)):
 			clip = "sprint"

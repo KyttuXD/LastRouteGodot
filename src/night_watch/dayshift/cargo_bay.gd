@@ -50,12 +50,14 @@ static func hall_stand(door: String, dist: int) -> Vector3:
 
 func build() -> void:
 	super.build()
-	# the yard outside the window
-	var yard := _prop("Yard", Vector3(WINDOW_X, 0.0, HALF_D + 2.0))
-	_c(yard, Vector3(6.0, 0.2, 4.0), Vector3(0, -0.1, 0), "YardFloor", {"kind": "concrete", "tint": Color(0.7, 0.75, 0.8)})
-	_c(yard, Vector3(6.0, 3.0, 0.2), Vector3(0, 1.5, 2.1), "YardFence", {"kind": "concrete", "tint": Color(0.6, 0.62, 0.7)})
-	_c(yard, Vector3(0.1, 2.6, 0.1), Vector3(1.8, 1.3, 1.5), "YardPost", {"kind": "metal"})
-	_c(yard, Vector3(0.5, 0.12, 0.3), Vector3(1.5, 2.6, 1.5), "GlowYardLamp", {})
+	# the halls carry on as gantries into the ship (DayshiftYard builds the ship and the scrap yard outside the window): the halls' end walls are opened
+	for tag in ["L", "R"]:
+		var hall := props.get("Hall" + tag) as Node3D
+		if hall != null:
+			for child in hall.get_children():
+				var nm := String(child.get_meta("nw_name", ""))
+				if nm == "Hall%sEnd" % tag or nm == "HallEndDoor":
+					child.queue_free()
 	# the workbench and the rack
 	var bench := _prop("Workbench", Vector3(1.7, 0.0, 1.25))
 	_c(bench, Vector3(2.2, 0.08, 0.7), Vector3(0, 0.86, 0), "BenchTop", {"kind": "wood", "tint": WOOD})
