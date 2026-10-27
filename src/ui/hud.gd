@@ -106,6 +106,7 @@ const MAX_FLOOR_UNITS := 9
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	minimap.ghost_ping = true   # Porcelle pulses on the minimap; the full map keeps her steady mark
 	_apply_scheme_frames()
 	status_bar = HudStatusBar.new()
 	add_child(status_bar)
@@ -302,8 +303,7 @@ func update_objective(depth: int, relays_collected: int, relay_target: int) -> v
 func update_infinite_status(relays_collected: int, loaded_chunks: int,
 		danger_percent: int) -> void:
 	var danger := clampi(danger_percent, 0, 100)
-	relay_label.text = ("RELAYS %d" % relays_collected) if RoomState.is_city() \
-		else "RELAYS %d // CHUNKS %d" % [relays_collected, loaded_chunks]
+	relay_label.text = "RELAYS %d // CHUNKS %d" % [relays_collected, loaded_chunks]
 	danger_row.visible = true
 	danger_label.text = "DANGER %d%%" % danger
 	danger_bar.value = danger

@@ -17,7 +17,7 @@ const CHUNK_SIZE := 45
 const BIOME_REGION_SIZE := 4
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-	"prison", "inferno", "carnival"]
+	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse"]
 const EDGE_OFFSETS := [5, 11, 17, 22, 27, 33, 39]
 ## Keep vertical links far enough from the chunk centre to fit the physical
 ## eight-metre flight used by StreamedFacilityView3D. Ordinary door seams may
@@ -46,21 +46,39 @@ const CORRIDOR_WIDTH := 3
 const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
 ## their spacious sector layout (_mixed_room_layout). Apartments are already dense suites.
-const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic", "carnival", "inferno"]
+const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic", "carnival", "inferno",
+	"hospital", "lab", "greenhouse"]
 ## Share of bank sides that become ONE big room (21x9, a hall/ballroom/greenhouse/big top) instead of two 11x9 rooms, and the
 ## hall-type rooms to pick from. Hotel and prison stay all small rooms; apartments are all suites (_mixed_room_layout).
-const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2}
+const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
+	"hospital": .3, "lab": .4, "greenhouse": .55}
 const BANK_BIG_TYPES := {
 	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
 	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage"],
+	"hospital": ["ward", "operating_theatre"], "lab": ["server_hall", "containment", "clean_room"],
+	"greenhouse": ["glasshouse", "palm_house"],
 }
+## Room types of the three facility biomes, in the order a bank cycles through them (big/great-hall types also appear
+## through BANK_BIG_TYPES and LARGE_ROOM_TYPES). The research lab is Kyttu's Lab, the story's home, and gets the most.
+const HOSPITAL_ROOMS := ["ward", "nurses_station", "waiting_room", "operating_theatre", "icu", "morgue",
+	"pharmacy", "imaging", "supply_closet"]
+const LAB_ROOMS := ["clean_room", "chem_lab", "control_room", "containment", "bio_lab", "decon",
+	"server_hall", "cold_storage", "lab_office"]
+const GREENHOUSE_ROOMS := ["glasshouse", "potting_shed", "palm_house", "cactus_room", "irrigation_room",
+	"overgrown_room"]
+## Biome recipes laid twice (at sides -5 and +5) across a 21-wide hall room; the rest size themselves to the room.
+const BIOME_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmacy", "imaging", "supply_closet",
+	"nurses_station", "waiting_room", "clean_room", "control_room", "decon", "chem_lab", "bio_lab", "cold_storage",
+	"lab_office", "palm_house", "cactus_room", "potting_shed", "irrigation_room", "overgrown_room", "glasshouse"]
 ## Great halls (docs/ROOM_SIZES.md): a side of a dense chunk can merge its two middle banks and the east-west hall between
 ## them into ONE 21x21 room for the districts' big gathering rooms (restaurant, mess hall, dining hall). The room opens on
 ## the vertical hall; both chunks at that seam give up the seam row and trim the hall stub so no dead-end hall remains.
-const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion": .30}
+const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion": .30,
+	"hospital": .25, "lab": .30, "greenhouse": .45}
 const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_cafeteria"],
-	"hotel": ["restaurant_dining"], "mansion": ["dining_room"]}
+	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
+	"hospital": ["ward"], "lab": ["containment"], "greenhouse": ["dome_atrium"]}
 const LARGE_ROOM_SIZE := 21
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
@@ -162,6 +180,32 @@ const REGION_PROP_SETS := {
 		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
 		{"type": "privacyCurtain", "size": Vector3(.9, 2.4, .5)},
 		{"type": "floorLamp", "size": Vector3(.55, 1.9, .55)},
+	],
+	"hospital": [
+		{"type": "hospitalBed", "size": Vector3(.95, 1.05, 2.1)},
+		{"type": "wheelchair", "size": Vector3(.65, .95, .95)},
+		{"type": "ivDripStand", "size": Vector3(.45, 1.95, .45)},
+		{"type": "medicalSupplyRack", "size": Vector3(1.2, 1.9, .5)},
+		{"type": "waitingChairs", "size": Vector3(2.0, .86, .62)},
+		{"type": "hospitalWardSign", "size": Vector3(.95, .36, .06), "solid": false},
+		{"type": "xrayLightbox", "size": Vector3(1.3, .85, .08), "solid": false},
+	],
+	"lab": [
+		{"type": "labBench", "size": Vector3(2.0, 1.45, .8)},
+		{"type": "specimenTank", "size": Vector3(.95, 2.3, .95)},
+		{"type": "gasCylinderRack", "size": Vector3(.95, 1.65, .45)},
+		{"type": "biohazardBin", "size": Vector3(.5, .82, .5)},
+		{"type": "serverRack", "size": Vector3(.8, 2.0, .55)},
+		{"type": "hazardSign", "size": Vector3(.6, .62, .05), "solid": false},
+		{"type": "labWhiteboard", "size": Vector3(1.8, 1.15, .08), "solid": false},
+	],
+	"greenhouse": [
+		{"type": "raisedPlanter", "size": Vector3(2.0, 1.05, .9)},
+		{"type": "bananaPlant", "size": Vector3(1.1, 1.8, 1.1)},
+		{"type": "cactusCluster", "size": Vector3(.95, 1.0, .95)},
+		{"type": "seedlingRack", "size": Vector3(1.2, 1.85, .5)},
+		{"type": "wateringCart", "size": Vector3(1.0, .95, .6)},
+		{"type": "overgrowthPatch", "size": Vector3(1.6, .35, 1.3), "solid": false},
 	],
 }
 const REGION_ROOM_DOORS := {
@@ -305,6 +349,29 @@ const TEMPLATE_PROP_SIZES := {
 	"infernoChainLantern": Vector3(.42, 1.6, .42),
 	"lavaPipeManifold": Vector3(1.35, 1.45, .55),
 	"charredSupplyCrate": Vector3(.95, .92, .85),
+	# hospital, research lab and greenhouse props (tools/props/blocky_props_biomes.py: the authored size in metres)
+	"hospitalBed": Vector3(.95, 1.05, 2.1), "hospitalCurtain": Vector3(1.9, 2.4, .16),
+	"ivDripStand": Vector3(.45, 1.95, .45), "vitalsMonitor": Vector3(.6, 1.62, .55),
+	"nursesStation": Vector3(2.4, 1.18, .95), "waitingChairs": Vector3(2, .86, .62),
+	"operatingTable": Vector3(.75, 1, 2), "surgicalLight": Vector3(1.5, .9, 1.5),
+	"instrumentTrolley": Vector3(.9, .95, .55), "morgueCabinet": Vector3(2, 2.1, .95),
+	"autopsyTable": Vector3(.85, .95, 2), "pharmacyShelf": Vector3(1.6, 2, .45), "xrayMachine": Vector3(1.6, 2.2, 1.5),
+	"xrayLightbox": Vector3(1.3, .85, .08), "medicalSupplyRack": Vector3(1.2, 1.9, .5),
+	"wheelchair": Vector3(.65, .95, .95), "hospitalWardSign": Vector3(.95, .36, .06), "labBench": Vector3(2, 1.45, .8),
+	"fumeHood": Vector3(1.5, 2.35, .9), "specimenTank": Vector3(.95, 2.3, .95),
+	"containmentCell": Vector3(2.2, 2.6, 1.7), "labCoolingUnit": Vector3(1, 2.1, .85),
+	"controlConsole": Vector3(2.4, 1.4, 1), "monitorWall": Vector3(2.4, 1.4, .1), "deconShower": Vector3(1.3, 2.5, 1.3),
+	"coldStorageUnit": Vector3(1.4, 2.1, .85), "labWhiteboard": Vector3(1.8, 1.15, .08),
+	"hazardSign": Vector3(.6, .62, .05), "labGlassPartition": Vector3(1.95, 2.5, .14),
+	"labStool": Vector3(.42, .75, .42), "labMicroscope": Vector3(.34, .46, .36),
+	"gasCylinderRack": Vector3(.95, 1.65, .45), "biohazardBin": Vector3(.5, .82, .5),
+	"raisedPlanter": Vector3(2, 1.05, .9), "pottingBench": Vector3(1.6, 1.45, .7), "pottedPalm": Vector3(1.5, 2.7, 1.5),
+	"bananaPlant": Vector3(1.1, 1.8, 1.1), "saguaroCactus": Vector3(.8, 2.15, .6),
+	"cactusCluster": Vector3(.95, 1, .95), "seedlingRack": Vector3(1.2, 1.85, .5),
+	"irrigationManifold": Vector3(1.5, 1.85, .6), "mistingPost": Vector3(.4, 2.5, .4),
+	"overgrowthPatch": Vector3(1.6, .35, 1.3), "hangingVines": Vector3(1.2, 1.25, 1.2),
+	"domeFountain": Vector3(2.6, 1.6, 2.6), "wateringCart": Vector3(1, .95, .6),
+	"greenhouseBench": Vector3(1.6, .85, .6), "compostBins": Vector3(1.4, 1, .75),
 }
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
@@ -549,7 +616,8 @@ func biome_for(coord: Vector3i) -> String:
 	var rng := SeededRandom.new("%s:BIOME:%d:%d:%d" % [
 		world_seed, region_x, coord.y, region_z])
 	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-		"prison", "carnival", "inferno", "mansion", "hotel", "maze"]
+		"prison", "carnival", "inferno", "mansion", "hotel", "maze",
+		"hospital", "lab", "lab", "greenhouse"]
 	if coord.y == 0:
 		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
@@ -637,9 +705,10 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	# neighbouring chunks run as a double line beside the border). Hotel/prison chunks side by side also pass their two
 	# extra halls through the seam.
 	if DENSE_DISTRICTS.has(biome_for(coord)) and DENSE_DISTRICTS.has(biome_for(neighbour)) and direction.x != 0:
+		var openings := [10, CHUNK_SIZE / 2, 34]   # all three halls run on through the seam
 		if hall_trimmed(coord, direction.x):
-			return [10, 34]   # a great hall stands where the middle hall would cross
-		return [10, CHUNK_SIZE / 2, 34]   # all three halls run on through the seam
+			openings.erase(CHUNK_SIZE / 2)   # a great hall stands where the middle hall would cross
+		return openings
 	return [CHUNK_SIZE / 2]
 
 
@@ -1091,6 +1160,12 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 				entry["doorway"] = doorway
 				rooms.append(entry)
 				room_index += 1
+	if office_quarter and 34 in edge_openings(coord, Vector2i(1, 0)):
+		# the lower hall stops short of the east border here (the office suite owns that quarter); the seam row the
+		# neighbour's lower hall comes through gets a full three-wide bay instead of a one-cell stub in the wall
+		var bay := Rect2i(CHUNK_SIZE - 3, 33, 3, 3)
+		_carve_rect(grid, bay)
+		_mark_rect_cells(circulation, bay)
 	if office_quarter:
 		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(24, 24, 17, 17), 3, "office", rng)
 		rooms.append_array(suite["rooms"])
@@ -1110,6 +1185,7 @@ static func _room_type_choices(region: String) -> Array:
 		"carnival": ["big_top", "midway", "game_stall", "backstage"],
 		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
 		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
+		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS,
 	}
 	return types.get(region, ["room"])
 
@@ -1638,6 +1714,7 @@ static func _room_type_for(region: String, index: int) -> String:
 		"carnival": ["big_top", "midway", "game_stall", "backstage"],
 		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
 		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
+		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS,
 	}
 	var choices: Array = types.get(region, ["room"])
 	return String(choices[index % choices.size()])
@@ -1927,6 +2004,9 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = "prison_cafeteria"
 	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		template = room_type
+	elif region in ["hospital", "lab", "greenhouse"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
+			+ ["dome_atrium"]).has(room_type):
+		template = room_type
 	if template.is_empty():
 		return []
 	# Great halls (21x21) get the table-grid versions of their gathering-room recipes (docs/ROOM_SIZES.md).
@@ -1951,7 +2031,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	var specs := _room_template_specs(template, region, side_span, depth_span,
 		mirror, rng)
 	var result := []
-	for spec_index in specs.size():
+	for spec_index in _claim_order(specs):
 		var spec: Dictionary = specs[spec_index]
 		var entry := _template_prop_entry(coord, room, basis, template,
 			spec_index, spec, grid, reserved)
@@ -1962,10 +2042,65 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 				and not result.any(func(other: Dictionary) -> bool:
 					return RoomCatalog.surface_parent_covers(other, entry)):
 			continue
+		if not _collider_clear(entry, result):
+			continue
+		entry["spec_index"] = spec_index
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
+	# back to recipe order, so everything downstream sees the same sequence as before the claim order
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
+	for entry in result:
+		entry.erase("spec_index")
 	return result
+
+
+## Big props claim their space first: solid specs by footprint (largest first), then the rest; ties keep recipe order, so
+## a bed or counter is never dropped because a chair or crate listed earlier took its cell. Surface props come after the
+## desks and tables that carry them. Deterministic (depends only on the recipe).
+static func _claim_order(specs: Array) -> Array:
+	var order := []
+	for i in specs.size():
+		var spec: Dictionary = specs[i]
+		var type := String(spec.get("type", ""))
+		var area := 0.0
+		if bool(spec.get("solid", not bool(spec.get("wall_mount", false)))) and not RoomCatalog.is_surface_prop(type):
+			var size: Vector3 = TEMPLATE_PROP_SIZES.get(type, PropColliderSizes.SIZES.get(type, Vector3.ZERO))
+			area = size.x * size.z
+		order.append([area, i])
+	order.sort_custom(func(a: Array, b: Array) -> bool:
+		return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	var out := []
+	for pair in order:
+		out.append(pair[1])
+	return out
+
+
+## Prop clearance as a placement rule: a solid prop's collision boxes may not interpenetrate an already placed solid's
+## beyond what GeometryAudit allows (a chair tucked under its table, a stool at a counter).
+static func _collider_clear(entry: Dictionary, placed: Array) -> bool:
+	if not bool(entry.get("solid", true)) or bool(entry.get("wall_mounted", false)):
+		return true
+	var mine := _collider_rects(entry)
+	for other in placed:
+		if not bool(other.get("solid", true)) or bool(other.get("wall_mounted", false)):
+			continue
+		var allowance := GeometryAudit.tol() + GeometryAudit.pair_allowance(String(entry["type"]), String(other["type"]))
+		for a in mine:
+			for b in _collider_rects(other):
+				if GeometryAudit.obb_depth(a["c"], a["h"], a["yaw"], b["c"], b["h"], b["yaw"]) > allowance:
+					return false
+	return true
+
+
+static func _collider_rects(prop: Dictionary) -> Array:
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	var at := Vector2(cell) + Vector2(.5, .5) + Vector2(prop.get("mount_offset", Vector2.ZERO)) + Vector2(prop.get("placement_offset", Vector2.ZERO))
+	var yaw := float(prop.get("yaw", 0.0))
+	var out := []
+	for box in PropColliderBoxes.for_prop(prop):
+		out.append({"c": PropColliderBoxes.world_centre(at, box["c"], yaw), "h": box["h"], "yaw": yaw})
+	return out
 
 
 ## A grid of long tables for a great hall. Each table sits at (column side, row depth) with `chair_span` chairs along both
@@ -2589,6 +2724,8 @@ static func _room_template_specs(template: String, region: String,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
+	if region in ["hospital", "lab", "greenhouse"]:
+		specs.append_array(_biome_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
 	if side_span >= 17 and depth_span <= 11 and template in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		var originals := specs.duplicate()
@@ -2617,6 +2754,334 @@ static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int)
 		if not covers_door:
 			kept.append(entry)
 	return kept
+
+
+## One template spec: `side` across the room (0 = the door's column), `depth` from the back wall (0 = first interior row).
+static func _sp(type: String, side: int, depth: int, facing: String = "open", extra: Dictionary = {}) -> Dictionary:
+	var spec := {"type": type, "side": side, "depth": depth, "facing": facing}
+	spec.merge(extra)
+	return spec
+
+
+const _WALL := {"wall_backed": true}
+const _MOUNT := {"wall_mount": true, "solid": false}
+const _LOOSE := {"solid": false}
+
+
+## Hospital, research lab and greenhouse rooms (docs/BIOMES.md). Recipes are written for the 11-wide bank room (interior
+## sides -4..4, depths 0..front); BIOME_REPEAT_TEMPLATES are laid twice, at sides -5 and +5, across a 21-wide hall room.
+## `front` is the entrance row; nothing solid lands on its middle cell (_keep_entrance_clear) and recipes keep the
+## middle column in front of the door free so the room reads from the doorway.
+static func _biome_room_specs(template: String, half: int, depth_span: int, mirror: int) -> Array:
+	var front := depth_span - 3
+	var mid := front / 2
+	var specs := []
+	match template:
+		# ---- hospital ----
+		"ward":
+			# beds head-to-wall every second column with a ceiling-track curtain between neighbours
+			var bed_sides := range(-half, half + 1, 2)
+			for bed_index in bed_sides.size():
+				var bed_side: int = bed_sides[bed_index]
+				specs.append(_sp("hospitalBed", bed_side, 0, "open", _WALL))
+				if bed_side + 1 <= half:
+					specs.append(_sp("hospitalCurtain", bed_side + 1, 1, "right"))
+				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open
+				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
+				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 3, "back"))
+			if depth_span >= 15:
+				# a great-hall ward: a facing bed row by the entrance wall and the nurses' desk in the middle
+				for bed_side in range(-half, half + 1, 2):
+					if absi(bed_side) <= 2:
+						continue
+					specs.append(_sp("hospitalBed", bed_side, front - 1, "back"))
+					if bed_side + 1 <= half and absi(bed_side + 1) > 2:
+						specs.append(_sp("hospitalCurtain", bed_side + 1, front - 1, "right"))
+				specs.append(_sp("nursesStation", 0, mid, "open"))
+				specs.append(_sp("officeChair", -1, mid - 1, "open"))
+				specs.append(_sp("officeChair", 1, mid - 1, "open"))
+				specs.append(_sp("medicalSupplyRack", -4, mid, "center"))
+				specs.append(_sp("wheelchair", 4, mid, "center"))
+			for light_side in range(-half + 2, half, 4):
+				specs.append(_sp("ceilingLight", light_side, mid, "open", _LOOSE))
+			specs.append(_sp("hospitalWardSign", 1, 0, "open", _MOUNT))
+		"nurses_station":
+			specs.append(_sp("nursesStation", 0, 2, "open"))
+			specs.append(_sp("officeChair", -1, 1, "open"))
+			specs.append(_sp("officeChair", 1, 1, "open"))
+			specs.append(_sp("medicalSupplyRack", -3 * mirror, 0, "open", _WALL))
+			specs.append(_sp("filingCabinet", 3 * mirror, 0, "open", _WALL))
+			specs.append(_sp("filingCabinet", 4 * mirror, 0, "open", _WALL))
+			specs.append(_sp("vitalsMonitor", -4 * mirror, 3, "center"))
+			specs.append(_sp("ivDripStand", -3 * mirror, 4, "center"))
+			specs.append(_sp("wheelchair", 3 * mirror, 4, "center"))
+			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"waiting_room":
+			for row_side in [-3, 0, 3]:
+				specs.append(_sp("waitingChairs", row_side, 0, "open", _WALL))
+			specs.append(_sp("waitingChairs", -3, 3, "open"))
+			specs.append(_sp("waitingChairs", 3, 3, "open"))
+			specs.append(_sp("vendingMachine", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("officeWaterCooler", 4 * mirror, front - 1, "center"))
+			specs.append(_sp("bananaPlant", 4 * mirror, 2, "center"))
+			specs.append(_sp("magazineRack", -4 * mirror, 2, "center"))
+			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", -2, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 2, mid, "open", _LOOSE))
+		"operating_theatre":
+			specs.append(_sp("operatingTable", 0, 2, "open"))
+			specs.append(_sp("surgicalLight", 0, 2, "open", _LOOSE))
+			specs.append(_sp("instrumentTrolley", 2 * mirror, 2, "center"))
+			specs.append(_sp("vitalsMonitor", -2 * mirror, 1, "center"))
+			specs.append(_sp("ivDripStand", -2 * mirror, 3, "center"))
+			specs.append(_sp("medicalSupplyRack", 3 * mirror, 0, "open", _WALL))
+			specs.append(_sp("biohazardBin", -4 * mirror, 0, "open", _WALL))
+			specs.append(_sp("xrayLightbox", 0, 0, "open", _MOUNT))
+			specs.append(_sp("hazardSign", -2 * mirror, 0, "open", _MOUNT))
+		"icu":
+			for bay in [-2, 2]:
+				specs.append(_sp("hospitalBed", bay, 0, "open", _WALL))
+				specs.append(_sp("vitalsMonitor", bay - 1, 0, "open", _WALL))
+				specs.append(_sp("ivDripStand", bay + 1, 0, "center"))
+			specs.append(_sp("hospitalCurtain", 0, 1, "right"))
+			specs.append(_sp("instrumentTrolley", -4 * mirror, 3, "center"))
+			specs.append(_sp("medicalSupplyRack", 4 * mirror, 3, "center"))
+			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", -2, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 2, mid, "open", _LOOSE))
+		"morgue":
+			specs.append(_sp("morgueCabinet", -2, 0, "open", _WALL))
+			specs.append(_sp("morgueCabinet", 2, 0, "open", _WALL))
+			specs.append(_sp("autopsyTable", 0, 3, "open"))
+			specs.append(_sp("instrumentTrolley", 2 * mirror, 3, "center"))
+			specs.append(_sp("biohazardBin", -4 * mirror, 3, "center"))
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"pharmacy":
+			for shelf_side in [-3, 0, 3]:
+				specs.append(_sp("pharmacyShelf", shelf_side, 0, "open", _WALL))
+			specs.append(_sp("nursesStation", 0, 3, "open"))
+			specs.append(_sp("officeChair", 0, 2, "open"))
+			specs.append(_sp("medicalSupplyRack", -3 * mirror, 3, "center"))
+			specs.append(_sp("filingCabinet", 4 * mirror, 3, "center"))
+			specs.append(_sp("hospitalWardSign", 2 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, 1, "open", _LOOSE))
+		"imaging":
+			specs.append(_sp("xrayMachine", 0, 1, "open"))
+			specs.append(_sp("xrayLightbox", -3 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("hazardSign", 3 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("officeDesk", 3 * mirror, 3, "center"))
+			specs.append(_sp("retroComputerDesktop", 3 * mirror, 3, "center", {"solid": false, "mount_y": .78}))
+			specs.append(_sp("officeChair", 4 * mirror, 3, "center"))
+			specs.append(_sp("wheelchair", -3 * mirror, 3, "center"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"supply_closet":
+			for rack_side in [-3, 0, 3]:
+				specs.append(_sp("medicalSupplyRack", rack_side, 0, "open", _WALL))
+			specs.append(_sp("supplyCrates", -3 * mirror, 3, "center"))
+			specs.append(_sp("utilityCart", 3 * mirror, 3, "center"))
+			specs.append(_sp("wheelchair", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		# ---- research lab ----
+		"clean_room":
+			# glass airlock: two partitions across the front leave a one-door gap behind the entrance
+			specs.append(_sp("labGlassPartition", -3, front - 2, "open"))
+			specs.append(_sp("labGlassPartition", 3, front - 2, "open"))
+			specs.append(_sp("labBench", -2, 0, "open", _WALL))
+			specs.append(_sp("labBench", 2, 0, "open", _WALL))
+			specs.append(_sp("labMicroscope", -2, 0, "open", {"solid": false, "mount_y": .92}))
+			specs.append(_sp("labStool", -2, 1, "back"))
+			specs.append(_sp("labStool", 2, 1, "back"))
+			specs.append(_sp("specimenTank", 4 * mirror, 2, "center"))
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", -2, mid - 1, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 2, mid - 1, "open", _LOOSE))
+		"containment":
+			var cell_sides := [-3, 3] if half < 9 else [-7, -3, 3, 7]
+			var tank_sides := [0] if half < 9 else [-5, 0, 5]
+			for cell_side in cell_sides:
+				specs.append(_sp("containmentCell", cell_side, 0, "open", _WALL))
+				specs.append(_sp("hazardSign", cell_side, 0, "open", _MOUNT))
+			for tank_side in tank_sides:
+				specs.append(_sp("specimenTank", tank_side, 0, "open", _WALL))
+			if half >= 9 or depth_span >= 11:
+				specs.append(_sp("controlConsole", 0, mid + 1, "back"))
+				specs.append(_sp("officeChair", -1, mid + 2, "back"))
+				specs.append(_sp("officeChair", 1, mid + 2, "back"))
+			if depth_span >= 15:
+				for cell_side in cell_sides:
+					specs.append(_sp("containmentCell", cell_side, front - 1, "back"))
+				for tank_side in [-5, 5]:
+					specs.append(_sp("specimenTank", tank_side, mid, "center"))
+			specs.append(_sp("biohazardBin", -half * mirror, mid, "center"))
+			for light_side in range(-half + 2, half, 4):
+				specs.append(_sp("ceilingLight", light_side, mid, "open", _LOOSE))
+		"server_hall":
+			# a rack row on the back wall and back-to-back island rows (hot/cold aisles), cooling units at the ends
+			for rack_side in range(-half, half + 1):
+				specs.append(_sp("serverRack", rack_side, 0, "open", _WALL))
+			var island := 2
+			while island + 1 <= front - 3:
+				for rack_side in range(-half + 2, half - 1):
+					specs.append(_sp("serverRack", rack_side, island, "back"))
+					specs.append(_sp("serverRack", rack_side, island + 1, "open"))
+				specs.append(_sp("labCoolingUnit", -half, island, "center"))
+				specs.append(_sp("labCoolingUnit", half, island + 1, "center"))
+				island += 6
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			for light_side in range(-half + 1, half, 3):
+				specs.append(_sp("ceilingLight", light_side, 1, "open", _LOOSE))
+		"control_room":
+			specs.append(_sp("monitorWall", 0, 0, "open", _MOUNT))
+			specs.append(_sp("controlConsole", 0, 2, "back"))
+			specs.append(_sp("officeChair", -1, 3, "back"))
+			specs.append(_sp("officeChair", 1, 3, "back"))
+			specs.append(_sp("serverRack", -4, 0, "open", _WALL))
+			specs.append(_sp("serverRack", 4, 0, "open", _WALL))
+			specs.append(_sp("filingCabinet", 4 * mirror, front - 1, "center"))
+			specs.append(_sp("officeWaterCooler", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("labWhiteboard", -3 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"decon":
+			specs.append(_sp("deconShower", -2, 0, "open", _WALL))
+			specs.append(_sp("deconShower", 2, 0, "open", _WALL))
+			specs.append(_sp("locker", -4, 0, "open", _WALL))
+			specs.append(_sp("locker", 4, 0, "open", _WALL))
+			specs.append(_sp("labGlassPartition", -3, front - 2, "open"))
+			specs.append(_sp("labGlassPartition", 3, front - 2, "open"))
+			specs.append(_sp("publicShowerBench", 0, 3, "open"))
+			specs.append(_sp("biohazardBin", -4 * mirror, 3, "center"))
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, 2, "open", _LOOSE))
+		"chem_lab":
+			specs.append(_sp("fumeHood", -3 * mirror, 0, "open", _WALL))
+			specs.append(_sp("labBench", 1 * mirror, 0, "open", _WALL))
+			specs.append(_sp("gasCylinderRack", 4 * mirror, 0, "open", _WALL))
+			specs.append(_sp("labBench", 0, 3, "open"))
+			specs.append(_sp("labMicroscope", 0, 3, "open", {"solid": false, "mount_y": .92}))
+			specs.append(_sp("labStool", -1, 4, "back"))
+			specs.append(_sp("labStool", 1, 4, "back"))
+			specs.append(_sp("biohazardBin", -4 * mirror, 3, "center"))
+			specs.append(_sp("hazardSign", -1 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid - 1, "open", _LOOSE))
+		"bio_lab":
+			specs.append(_sp("specimenTank", -4 * mirror, 0, "open", _WALL))
+			specs.append(_sp("specimenTank", -2 * mirror, 0, "open", _WALL))
+			specs.append(_sp("labBench", 2 * mirror, 0, "open", _WALL))
+			specs.append(_sp("labMicroscope", 2 * mirror, 0, "open", {"solid": false, "mount_y": .92}))
+			specs.append(_sp("labBench", 0, 3, "open"))
+			specs.append(_sp("labStool", 0, 4, "back"))
+			specs.append(_sp("coldStorageUnit", 3 * mirror, 3, "center"))
+			specs.append(_sp("biohazardBin", -4 * mirror, 3, "center"))
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid - 1, "open", _LOOSE))
+		"cold_storage":
+			for unit_side in [-3, 0, 3]:
+				specs.append(_sp("coldStorageUnit", unit_side, 0, "open", _WALL))
+			specs.append(_sp("gasCylinderRack", -4 * mirror, 3, "center"))
+			specs.append(_sp("supplyCrates", 3 * mirror, 3, "center"))
+			specs.append(_sp("hazardSign", 2 * mirror, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"lab_office":
+			for desk_side in [-2, 2]:
+				specs.append(_sp("officeDesk", desk_side, 1, "open"))
+				specs.append(_sp("retroComputerDesktop" if desk_side < 0 else "retroComputerTerminal", desk_side, 1,
+					"open", {"solid": false, "mount_y": .78}))
+				specs.append(_sp("officeChair", desk_side, 0, "open"))
+			specs.append(_sp("labWhiteboard", 0, 0, "open", _MOUNT))
+			specs.append(_sp("filingCabinet", -4, 0, "open", _WALL))
+			specs.append(_sp("filingCabinet", 4, 0, "open", _WALL))
+			specs.append(_sp("officeWaterCooler", 4 * mirror, front - 1, "center"))
+			specs.append(_sp("bananaPlant", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		# ---- greenhouse ----
+		"glasshouse":
+			for bed_side in [-3, 0, 3]:
+				specs.append(_sp("raisedPlanter", bed_side, 0, "open", _WALL))
+			specs.append(_sp("raisedPlanter", -2, 3, "open"))
+			specs.append(_sp("raisedPlanter", 2, 3, "open"))
+			specs.append(_sp("mistingPost", 0, 3, "open"))
+			specs.append(_sp("greenhouseBench", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("overgrowthPatch", 3 * mirror, front - 1, "open", _LOOSE))
+			specs.append(_sp("hangingVines", -2, mid, "open", _LOOSE))
+			specs.append(_sp("hangingVines", 2, mid, "open", _LOOSE))
+		"palm_house":
+			specs.append(_sp("pottedPalm", -3, 1, "open"))
+			specs.append(_sp("pottedPalm", 3, 1, "open"))
+			specs.append(_sp("bananaPlant", 0, 0, "open", _WALL))
+			specs.append(_sp("overgrowthPatch", 0, 2, "open", _LOOSE))
+			specs.append(_sp("mistingPost", -1, 3, "open"))
+			specs.append(_sp("mistingPost", 1, 3, "open"))
+			specs.append(_sp("greenhouseBench", -3, 4, "center"))
+			specs.append(_sp("greenhouseBench", 3, 4, "center"))
+			specs.append(_sp("hangingVines", 0, mid, "open", _LOOSE))
+		"cactus_room":
+			specs.append(_sp("saguaroCactus", -3 * mirror, 0, "open"))
+			specs.append(_sp("saguaroCactus", 1 * mirror, 1, "open"))
+			specs.append(_sp("saguaroCactus", 4 * mirror, 0, "open"))
+			specs.append(_sp("cactusCluster", -1 * mirror, 0, "open"))
+			specs.append(_sp("cactusCluster", 3 * mirror, 2, "open"))
+			specs.append(_sp("cactusCluster", -4 * mirror, 3, "open"))
+			specs.append(_sp("greenhouseBench", 2 * mirror, 4, "back"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"potting_shed":
+			specs.append(_sp("pottingBench", -2, 0, "open", _WALL))
+			specs.append(_sp("pottingBench", 2, 0, "open", _WALL))
+			specs.append(_sp("seedlingRack", -3 * mirror, 3, "center"))
+			specs.append(_sp("compostBins", 3 * mirror, 3, "center"))
+			specs.append(_sp("wateringCart", -4 * mirror, front - 1, "center"))
+			specs.append(_sp("supplyCrates", 4 * mirror, front - 1, "center"))
+			specs.append(_sp("hangingVines", 0, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 0, 1, "open", _LOOSE))
+		"irrigation_room":
+			specs.append(_sp("irrigationManifold", -2 * mirror, 0, "open", _WALL))
+			specs.append(_sp("irrigationManifold", 2 * mirror, 0, "open", _WALL))
+			specs.append(_sp("mistingPost", 0, 1, "open"))
+			specs.append(_sp("seedlingRack", -3 * mirror, 3, "center"))
+			specs.append(_sp("wateringCart", 3 * mirror, 3, "center"))
+			specs.append(_sp("overgrowthPatch", 0, 3, "open", _LOOSE))
+			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"overgrown_room":
+			specs.append(_sp("pottedPalm", -3 * mirror, 1, "open"))
+			specs.append(_sp("bananaPlant", 3 * mirror, 0, "open", _WALL))
+			specs.append(_sp("raisedPlanter", 1 * mirror, 0, "open", _WALL))
+			specs.append(_sp("compostBins", 3 * mirror, 3, "center"))
+			for patch in [Vector2i(-2, 3), Vector2i(1, 2), Vector2i(3, front - 1), Vector2i(-3, front - 1)]:
+				specs.append(_sp("overgrowthPatch", patch.x * mirror, patch.y, "open", _LOOSE))
+			specs.append(_sp("hangingVines", -1, mid, "open", _LOOSE))
+			specs.append(_sp("hangingVines", 2, 1, "open", _LOOSE))
+		"dome_atrium":
+			# the great glass dome: a fountain under the crown, benches facing it, palms and planters round the edge
+			var centre := mid
+			specs.append(_sp("domeFountain", 0, centre, "open"))
+			for bench in [Vector2i(-3, 0), Vector2i(3, 0)]:
+				specs.append(_sp("greenhouseBench", bench.x, centre, "center"))
+			specs.append(_sp("greenhouseBench", 0, centre - 3, "open"))
+			for palm in [Vector2i(-6, 3), Vector2i(6, 3), Vector2i(-6, front - 4), Vector2i(6, front - 4)]:
+				specs.append(_sp("pottedPalm", palm.x, palm.y, "open"))
+			for bed_side in [-6, -2, 2, 6]:
+				specs.append(_sp("raisedPlanter", bed_side, 0, "open", _WALL))
+			for side_index in 2:
+				var edge := -half if side_index == 0 else half
+				for plant_depth in range(3, front - 2, 4):
+					specs.append(_sp("bananaPlant" if plant_depth % 8 == 3 else "cactusCluster", edge, plant_depth, "center"))
+			for post in [Vector2i(-3, centre - 3), Vector2i(3, centre + 3), Vector2i(-3, centre + 3), Vector2i(3, centre - 3)]:
+				specs.append(_sp("mistingPost", post.x, post.y, "open"))
+			for vine in [Vector2i(-5, centre), Vector2i(5, centre), Vector2i(0, 3), Vector2i(0, front - 3)]:
+				specs.append(_sp("hangingVines", vine.x, vine.y, "open", _LOOSE))
+			for patch in [Vector2i(-7, centre + 1), Vector2i(7, centre - 1), Vector2i(-2, front - 2), Vector2i(4, 2)]:
+				specs.append(_sp("overgrowthPatch", patch.x, patch.y, "open", _LOOSE))
+	if half >= 9 and BIOME_REPEAT_TEMPLATES.has(template):
+		var repeated := []
+		for shift in [-5, 5]:
+			for original in specs:
+				var copy: Dictionary = (original as Dictionary).duplicate()
+				copy["side"] = int(copy.get("side", 0)) + shift
+				repeated.append(copy)
+		specs = repeated
+	return specs
 
 
 static func _frame_type_for_region(region: String, wide: bool) -> String:
@@ -2920,6 +3385,7 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 static func _is_major_room(room: Dictionary, rect: Rect2i) -> bool:
 	var room_type := String(room.get("room_type", ""))
 	return RefLook.HALL_ROOMS.has(room_type) or RefLook.GREENHOUSE_ROOMS.has(room_type) \
+		or RefLook.GLASSHOUSE_ROOMS.has(room_type) \
 		or (rect.size.x >= 13 and rect.size.y >= 13)
 
 

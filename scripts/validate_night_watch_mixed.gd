@@ -62,12 +62,16 @@ func _bot(kind: String, g: MixedLogic) -> void:
 	g.set_wind(not winder.is_empty() and float(winder["tune"]) < 0.6)
 
 
+const KIT_MARKER := {"bench": "SeatBench", "party": "BalloonCube", "yard": "BodyContainer", "pizzeria": "CabinetPizza", "studio": "OnAirStudio", "house": "BedHouse", "lab": "ConsoleLab", "shaft": "PillarShaft", "camp": "TentCamp"}
+
+
 func run(host: Node) -> int:
 	_check_data()
 	_check_golden()
 	_check_rules()
 	await _check_scene(host)
 	await _check_admin(host)
+	await _check_rotation(host)
 	if _failures == 0:
 		print("  night_watch_mixed  the 2D rules (golden shifts of all five presets, rosters, spikes, fairness, CHAOS, ENDLESS) and the shift scene (board, win, loss, best hour, vents, monitor, walking)")
 	return _failures
@@ -438,7 +442,7 @@ func _check_scene(host: Node) -> void:
 	game._unhandled_input(_key(KEY_U))
 	_expect(game.monitor_up and game.hud.monitor_root.visible and game.hud.cam_label.text.begins_with("CAM 1"), "the monitor did not open on CAM 1")
 	game._unhandled_input(_key(KEY_9))
-	_expect(game.monitor_room == "vent" and game.hud.cam_label.text.begins_with("CAM 9  VENT RUN") and game.hud.feed_camera.global_position.distance_to(game.feed_transform("vent").origin) < 0.01, "key 9 did not show the vent run")
+	_expect(game.monitor_room == "vent" and game.hud.cam_label.text == "CAM 9  %s" % String(MixedSkin.skin(game.world.dress_set)["labels"]["duct"]) and game.hud.feed_camera.global_position.distance_to(game.feed_transform("vent").origin) < 0.01, "key 9 did not show the vent run")
 	game._unhandled_input(_key(KEY_3))
 	_expect(game.monitor_room == "backstage", "key 3 did not pick camera 3")
 	game._unhandled_input(_key(KEY_U))
@@ -470,9 +474,9 @@ func _check_scene(host: Node) -> void:
 		_expect(model.position.distance_to(goal) < 0.5, "a walker never reached her next room")
 	# the transit hub: every sim room is a walk from every other and from both doors, no route crosses a wall, the map names and the nine cameras are MixedMap's, the dressing follows the seed
 	var layout := MixedMap.map_layout()
-	_expect((layout["cams"] as Array).size() == 9 and MixedMap.map_for("stage") == "platform" and MixedMap.sim_for("duct") == "vent" and MixedMap.set_for_seed(3) == 0 and MixedMap.set_for_seed(4) == 1 and MixedMap.set_for_seed(5) == 2,
+	_expect((layout["cams"] as Array).size() == 9 and MixedMap.map_for("stage") == "platform" and MixedMap.sim_for("duct") == "vent" and MixedMap.SETS.size() == MixedSkin.SKINS.size(),
 		"the transit hub's cameras, names or dressing draw are wrong")
-	_expect(walk.world.dress_set == MixedMap.set_for_seed(8), "the night's dressing does not follow its seed")
+	_expect(walk.world.dress_set >= 0 and walk.world.dress_set < MixedMap.SETS.size(), "the night's skin is not one of the rotation")
 	var hub_keys := ["C:stage", "C:backstage", "C:dining", "C:westhall", "C:easthall", "C:kitchen", "C:closet", "C:corner", "D:doorL", "D:doorR"]
 	var bad_wall := 0
 	for ka in hub_keys:
@@ -495,7 +499,7 @@ func _check_scene(host: Node) -> void:
 		var rooms_r: Array = route_def["rooms"]
 		for i in range(rooms_r.size() - 1):
 			_expect(walk.world.route(walk.world.key_for(String(rooms_r[i])), walk.world.key_for(String(rooms_r[i + 1]))).size() >= 2, "route %s has no walk from %s to %s" % [route_def["id"], rooms_r[i], rooms_r[i + 1]])
-	for s_idx in 3:
+	for s_idx in MixedSkin.SKINS.size():
 		var dressed := MixedWorld.new()
 		dressed.dress_set = s_idx
 		dressed.office = walk.office
@@ -504,7 +508,7 @@ func _check_scene(host: Node) -> void:
 		var seen_kind := {}
 		for m in dressed.find_children("*", "MeshInstance3D", true, false):
 			seen_kind[String(m.get_meta("nw_name", ""))] = true
-		_expect((s_idx == 0 and seen_kind.has("SeatBench")) or (s_idx == 1 and seen_kind.has("BalloonCube")) or (s_idx == 2 and seen_kind.has("BodyContainer")), "dressing %d has none of its own props" % s_idx)
+		_expect(seen_kind.has(String(KIT_MARKER[String(MixedSkin.skin(s_idx)["kit"])])), "skin %s has none of its own props (%s)" % [MixedSkin.skin(s_idx)["id"], KIT_MARKER[String(MixedSkin.skin(s_idx)["kit"])]])
 		dressed.queue_free()
 		await host.get_tree().process_frame
 	walk.manual_clock = true
@@ -640,8 +644,8 @@ func _check_admin(host: Node) -> void:
 	_expect(g2.sim.hour_of() == 7 and g2.hud.clock_label.text != "", "Endless SET THE HOUR 7 did not set the hour")
 	g2.advance_ms(200.0)
 	_expect(g2.hud.clock_label.text == "HOUR 7", "Endless's clock does not read HOUR 7 after the jump: %s" % g2.hud.clock_label.text)
-	g2.admin_set_dressing(2)
-	_expect(g2.world.dress_set == 2 and g2.world.find_children("*", "MeshInstance3D", true, false).any(func(m): return String(m.get_meta("nw_name", "")) == "BodyContainer"), "the dressing did not change to the salvage yard")
+	g2.admin_set_dressing(MixedSkin.index_of("yard"))
+	_expect(g2.world.dress_set == MixedSkin.index_of("yard") and g2.world.find_children("*", "MeshInstance3D", true, false).any(func(m): return String(m.get_meta("nw_name", "")) == "BodyContainer"), "the dressing did not change to the salvage yard")
 	g2.sim.admin_force_spike()
 	var spike := false
 	for i in 40:
@@ -678,3 +682,76 @@ func _check_admin(host: Node) -> void:
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	NightWatchSession.start(1)
+
+
+## The ROTATION through the other modes' maps (MixedSkin): every skin is visited, never the same one twice in a row, each skin's cameras/minimap/light/props are its own, and EVERY threat of the pool
+## can be placed and shown on EVERY skin (door, hall, vent, camera room), because the rules' shape is the same one under every skin.
+func _check_rotation(host: Node) -> void:
+	var ids := MixedSkin.ids()
+	_expect(ids.size() == 9, "the rotation does not have a skin for each of the nine maps")
+	var modes := {}
+	for sk in MixedSkin.SKINS:
+		modes[String(sk["mode"])] = true
+		var labels: Dictionary = sk["labels"]
+		_expect(labels.size() == 9 and MixedMap.CAMS.all(func(c): return labels.has(c) and String(labels[c]) != ""), "skin %s does not name all nine cameras" % sk["id"])
+		_expect(MixedSkin.SKINS.all(func(o): return o == sk or String((o["labels"] as Dictionary)["concourse"]) != String(labels["concourse"])), "skin %s shares its central room name with another" % sk["id"])
+		_expect(MixedSkin.layout_for(MixedSkin.index_of(String(sk["id"])))["labels"] == labels, "layout_for(%s) does not carry the skin's names" % sk["id"])
+	for m in ["classic", "mask", "lure", "bedroom", "story", "descent", "dayshift", "extra", "mixed"]:
+		_expect(modes.has(m), "no skin for the %s map" % m)
+	# the bag: 4 full cycles, each skin once per cycle, never twice in a row (also across the refill)
+	MixedSkin.reset()
+	var seq := []
+	for i in 36:
+		seq.append(MixedSkin.pick(1000 + i * 7))
+	for i in range(1, seq.size()):
+		_expect(seq[i] != seq[i - 1], "the rotation repeated skin %d back to back at night %d" % [seq[i], i])
+	for c in 4:
+		var seen := {}
+		for i in 9:
+			seen[seq[c * 9 + i]] = true
+		_expect(seen.size() == 9, "rotation cycle %d did not visit every map" % c)
+	# a night on each skin: the cameras (minimap labels), the props, the light; and every pool hunter everywhere
+	for idx in MixedSkin.SKINS.size():
+		var sk := MixedSkin.skin(idx)
+		var g := _shift(host, 5, 300 + idx)
+		await host.get_tree().process_frame
+		g.admin_set_dressing(idx)
+		await host.get_tree().process_frame
+		var tag := "[skin %s] " % sk["id"]
+		_expect(g.world.dress_set == idx, tag + "the world is not on the skin")
+		for c in MixedMap.CAMS:
+			_expect(g.hud.cam_map.label_for(c) == String((sk["labels"] as Dictionary)[c]), tag + "the minimap does not name %s '%s'" % [c, (sk["labels"] as Dictionary)[c]])
+		_expect(g.world_env.environment.ambient_light_color.is_equal_approx(sk["light"]), tag + "the light is not the skin's")
+		_expect(g.world.find_children("*", "MeshInstance3D", true, false).any(func(m): return String(m.get_meta("nw_name", "")) == KIT_MARKER[String(sk["kit"])]), tag + "no props of the skin")
+		g.admin_set_hour(2)
+		for p in MixedData.POOL:
+			var id := String(p["id"])
+			g.sim.admin_add_threat(id)
+			for place in g.admin_places():
+				g.admin_place_hunter(id, place)
+				g._sync_visuals()
+				var model := g._models[id] as Node3D
+				var type := String(p["type"])
+				if type == "counter":
+					continue
+				var th: Dictionary = g.sim.threat(id)
+				if bool(th.get("active", false)) or bool(th.get("present", false)):
+					_expect(model.position.is_finite(), tag + "%s at %s has no position" % [id, place])
+					if type == "vent" and not place.begins_with("vent"):
+						continue
+					if String(place).begins_with("door") or place.begins_with("vent") or type == "vent":
+						continue
+					var legs: Array = g.world.legs_from(g.world.stand_position("stage", 0), place)
+					_expect(legs.size() >= 1, tag + "%s has no walk to %s" % [id, place])
+		g.queue_free()
+		await host.get_tree().process_frame
+	# ENDLESS keeps cycling: a rotation event moves the map on
+	var e := _shift(host, 5, 801)
+	await host.get_tree().process_frame
+	var before := int(e.world.dress_set)
+	e.sim.s["run"]["rotateAt"] = float(e.sim.s["elapsed"])
+	e.advance_ms(250.0)
+	_expect(e.sim.endless and int(e.world.dress_set) != before, "an ENDLESS roster rotation did not move the map on")
+	e.queue_free()
+	await host.get_tree().process_frame
+	MixedSkin.reset()

@@ -25,8 +25,8 @@ signal changed
 ## gameplay scene has been replaced.
 signal connection_lost(reason: String)
 
-## CITY is KYTTU: The City (its own game in the hub). Appended last so the numbers of the other modes never change.
-enum Mode { DEFAULT, CITY }
+## KYTTU: The City used to be Mode 1; it was archived (branch archive/city-20261027).
+enum Mode { DEFAULT }
 ## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
 ## steps that only differed by how big, with nothing else changing between
 ## them, was a choice that cost more attention at the lobby than it earned.
@@ -49,13 +49,9 @@ const CODE_LENGTH := 5
 
 const MODE_LABELS := {
 	Mode.DEFAULT: "DEFAULT",
-	Mode.CITY: "CITY",
 }
 ## Rooms carry the id of the game they belong to so a code for one game is never joined from another.
 const GAME_LAST_ROUTE := "last_route"
-const GAME_CITY := "city"
-const CITY_MENU_SCENE := "res://scenes/city_menu.tscn"
-const CITY_ROUTE_SCENE := "res://scenes/city_route.tscn"
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
@@ -96,7 +92,6 @@ const GUEST_LAST_NAMES := [
 ## can move the shared simulation into a route room without changing staging.
 const MODE_SCENES := {
 	Mode.DEFAULT: "res://scenes/main_3d.tscn",
-	Mode.CITY: "res://scenes/city_route.tscn",
 }
 const ROUTE_LOADING_SCENE := "res://scenes/route_loading.tscn"
 
@@ -107,6 +102,8 @@ var seed_text := ""
 ## True while this room is the shared PUBLIC route: no lobby, server-owned state.
 var public_route := false
 var mode: Mode = Mode.DEFAULT
+## Daytime room flag (the archived City used it; kept because HunterBrain.day_mode and the room sync still carry it).
+var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -191,6 +188,7 @@ func _exit_tree() -> void:
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
 	public_route = false
+	daytime = false
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -391,6 +389,7 @@ func _on_peer_connected(id: int) -> void:
 	# rather than asked about it.
 	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
+	_receive_daytime.rpc_id(id, daytime)
 	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
 	# A room remains joinable while a route is running. The new peer first gets
@@ -612,6 +611,30 @@ func broadcast() -> void:
 	if online and is_host:
 		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 			session_active)
+		_receive_daytime.rpc(daytime)
+
+
+## The host's City daytime flag (a separate small RPC so the room RPC's signature stays as it was).
+@rpc("authority", "call_remote", "reliable")
+func _receive_daytime(p_daytime: bool) -> void:
+	daytime = p_daytime
+	changed.emit()
+
+
+## City only: whether this room is in daytime. Last Route rooms are never day.
+func is_day() -> bool:
+	return false   # only the archived City had daytime
+
+
+## Host (or solo) toggles daytime before the run starts; guests see it through the room sync.
+func set_daytime(value: bool) -> void:
+	if online and not is_host:
+		return
+	if daytime == value:
+		return
+	daytime = value
+	broadcast()
+	changed.emit()
 
 
 func _local_name() -> String:
@@ -712,7 +735,7 @@ func roster() -> PackedStringArray:
 ## are rejected here as well as in staging so stale clients and direct calls
 ## cannot enter an unfinished ruleset.
 func mode_available(candidate: Mode) -> bool:
-	return candidate == Mode.DEFAULT or candidate == Mode.CITY
+	return candidate == Mode.DEFAULT
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
@@ -725,7 +748,7 @@ func difficulty_available(candidate: Difficulty) -> bool:
 
 ## What the button that leaves staging should say, in the web build's words.
 func start_label() -> String:
-	return "ENTER THE CITY" if mode == Mode.CITY else "ENTER ROUTE"
+	return "ENTER ROUTE"
 
 
 func mode_label() -> String:
@@ -859,6 +882,7 @@ func enter(tree: SceneTree) -> void:
 	broadcast()
 	Backend.update_room(peers.size(), session_active)
 	if online:
+		_receive_daytime.rpc(daytime)
 		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
 	_enter_session_scene(tree)
 
@@ -902,16 +926,21 @@ func suppress_scene_transitions_for_tests() -> void:
 
 ## The game this room belongs to; sent with the directory registration and checked when a code is resolved.
 func game_id() -> String:
-	return GAME_CITY if mode == Mode.CITY else GAME_LAST_ROUTE
+	return GAME_LAST_ROUTE
+
+
+## The always-open shared route code of a game (the backend keeps one public route per game id).
+func public_code() -> String:
+	return PUBLIC_CODE
 
 
 func is_city() -> bool:
-	return mode == Mode.CITY
+	return false   # KYTTU: The City is archived
 
 
 ## Where "back to the menu" goes for this room's game: the City has its own menu, Last Route's menu is the hub.
 func menu_scene_path() -> String:
-	return CITY_MENU_SCENE if mode == Mode.CITY else GameRegistry.HUB_SCENE
+	return GameRegistry.HUB_SCENE
 
 
 ## Directory answers from servers that predate the `game` field are Last Route rooms.
@@ -920,8 +949,6 @@ static func game_matches(room_game: String, expected: String) -> bool:
 
 
 func session_scene_path() -> String:
-	if mode == Mode.CITY:
-		return CITY_ROUTE_SCENE
 	if map_scale == Scale.INFINITE:
 		return "res://scenes/infinite_route_test.tscn"
 	return "res://scenes/infinite_route_test.tscn"

@@ -22,7 +22,6 @@ const CAPACITY_LIMIT := 0.45
 const CEILING := 4.0
 const CEILING_SLACK := 0.15
 const GAME_LAST_ROUTE := "last_route"
-const GAME_CITY := "city"
 const GAME_NIGHT_WATCH := "night_watch"
 
 ## Category weights for the ranking (a piece clipping through a wall is worse than a tolerance-level touch).
@@ -191,8 +190,13 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 		var centre := Vector2(cell) + Vector2(.5, .5) + offset
 		var half := Vector2(collider.x, collider.z) * .5
 		var yaw := float(prop.get("yaw", 0.0))
-		solids.append({"id": String(prop.get("id", "")), "type": type, "centre": centre, "half": half, "yaw": yaw,
-			"y0": 0.0, "y1": collider.y, "at": at, "wall_mounted": wall_mounted})
+		var base_centre := centre
+		var shapes := PropColliderBoxes.boxes(type, collider, PropColliderBoxes.variant_of(prop))
+		if shapes.size() == 1:
+			centre = PropColliderBoxes.world_centre(centre, shapes[0]["c"], yaw)
+		for box in shapes:
+			solids.append({"id": String(prop.get("id", "")), "type": type, "centre": PropColliderBoxes.world_centre(base_centre, box["c"], yaw),
+				"half": box["h"], "yaw": yaw, "y0": 0.0, "y1": collider.y, "at": at, "wall_mounted": wall_mounted})
 		# prop into wall: every closed cell around the box
 		if wall_mounted:
 			continue
@@ -375,203 +379,6 @@ static func _in_any_room(rects: Array, cell: Vector2i) -> bool:
 
 # ------------------------------------------------------------------ City
 
-static func audit_city(layout: CityLayout, seed_text: String, out: Array) -> void:
-	var buildings := layout.buildings
-	var g := GAME_CITY
-	# building masses overlapping each other
-	for i in buildings.size():
-		var ra: Rect2i = buildings[i]["rect"]
-		for j in range(i + 1, buildings.size()):
-			var rb: Rect2i = buildings[j]["rect"]
-			if ra.intersects(rb):
-				var clip := ra.intersection(rb)
-				out.append(finding(g, "solid_overlap", "building_overlap", seed_text,
-					"%s %s overlaps %s %s" % [buildings[i]["id"], ra, buildings[j]["id"], rb],
-					"%d cells shared at %s" % [clip.size.x * clip.size.y, clip], float(mini(clip.size.x, clip.size.y))))
-	# orphan masses: solid WALL cells with no building (drawn as a default 6 m brick stub next to 12-28 m towers)
-	var seen := {}
-	for gz in CityLayout.HEIGHT:
-		for gx in CityLayout.WIDTH:
-			var cell := Vector2i(gx, gz)
-			if layout.kind_at(gx, gz) != CityLayout.WALL or layout.building_index[CityLayout.index_of(gx, gz)] != 0 or seen.has(cell):
-				continue
-			var cluster := [cell]
-			seen[cell] = true
-			var cursor := 0
-			while cursor < cluster.size():
-				var c: Vector2i = cluster[cursor]
-				cursor += 1
-				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-					var n: Vector2i = c + (step as Vector2i)
-					if not seen.has(n) and CityLayout.in_bounds(n.x, n.y) and layout.kind_at(n.x, n.y) == CityLayout.WALL \
-							and layout.building_index[CityLayout.index_of(n.x, n.y)] == 0:
-						seen[n] = true
-						cluster.append(n)
-			var tallest := 0.0
-			for c_value in cluster:
-				var c: Vector2i = c_value
-				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-					var nb := layout.building_at(c.x + (step as Vector2i).x, c.y + (step as Vector2i).y)
-					tallest = maxf(tallest, float(nb.get("height", 0.0)))
-			out.append(finding(g, "solid_overlap", "orphan_mass", seed_text, "city cell %s (%d cells)" % [cell, cluster.size()],
-				"stub mass drawn at the default 6 m beside buildings up to %.1f m" % tallest, maxf(0.0, tallest - 6.0) / 6.0))
-	# slivers: a 1-2 cell open strip squeezed between two different building masses
-	for gz in CityLayout.HEIGHT:
-		for gx in CityLayout.WIDTH:
-			_sliver_run(layout, Vector2i(gx, gz), Vector2i(1, 0), seed_text, out)
-			_sliver_run(layout, Vector2i(gx, gz), Vector2i(0, 1), seed_text, out)
-	# street furniture vs facades and vs each other: each piece is a few vertical parts (a tree is a thin trunk under a wide
-	# canopy), so a bench under a canopy is fine and a canopy through a facade is not
-	var items: Array = []
-	for cell_value in layout.decor.keys():
-		var cell: Vector2i = cell_value
-		var entry: Dictionary = layout.decor[cell]
-		var type := String(entry["type"])
-		var yaw := float(entry["yaw"])
-		var centre := Vector2(cell) + Vector2(.5, .5)
-		var worst := 0.0
-		var worst_cell := Vector2i.ZERO
-		for part_value in CityLayout.decor_parts(type, yaw):
-			var part: Dictionary = part_value
-			var half: Vector2 = part["half"]
-			items.append({"type": type, "cell": cell, "centre": centre, "half": half, "y0": part["y0"], "y1": part["y1"]})
-			for dz in range(-2, 3):
-				for dx in range(-2, 3):
-					var wc := cell + Vector2i(dx, dz)
-					if layout.kind_at(wc.x, wc.y) not in [CityLayout.WALL, CityLayout.KIOSK_WALL, CityLayout.GATE, CityLayout.RIM]:
-						continue
-					var depth := obb_depth(centre, half, 0.0, Vector2(wc) + Vector2(.5, .5), Vector2(.5, .5), 0.0)
-					if depth > worst:
-						worst = depth
-						worst_cell = wc
-		if worst > tol():
-			out.append(finding(g, "solid_overlap", "decor_in_wall", seed_text, "city %s at %s" % [type, cell],
-				"visible %s reaches %.2f m into wall cell %s" % [type, worst, worst_cell], worst))
-	for i in items.size():
-		var a: Dictionary = items[i]
-		for j in range(i + 1, items.size()):
-			var b: Dictionary = items[j]
-			if a["cell"] == b["cell"] or (a["centre"] as Vector2).distance_to(b["centre"]) > 3.0:
-				continue
-			if float(a["y1"]) <= float(b["y0"]) or float(b["y1"]) <= float(a["y0"]):
-				continue
-			var depth := obb_depth(a["centre"], a["half"], 0.0, b["centre"], b["half"], 0.0)
-			# same-kind canopies (tree/tree, cypress/cypress) may blend by a hand's width: an explicit allowance
-			var allowance := tol() + (0.3 if a["type"] == b["type"] and a["type"] in ["tree", "cypress"] else 0.0)
-			if depth > allowance:
-				out.append(finding(g, "solid_overlap", "decor_overlap", seed_text, "city %s at %s" % [a["type"], a["cell"]],
-					"overlaps %s at %s by %.2f m" % [b["type"], b["cell"], depth], depth))
-	# facade faces: every edge of a building wall that is exposed (not against an equally tall mass or an interior) must be drawn,
-	# otherwise the tower is open there and its inside shows through. GEO_LEGACY=1 models the old OUTDOOR-only drawing.
-	var legacy := OS.get_environment("GEO_LEGACY") != ""
-	var holes := 0
-	var first_hole := ""
-	for building in buildings:
-		var rect: Rect2i = building["rect"]
-		var top := int(float(building["height"]))
-		for gz in range(rect.position.y, rect.end.y):
-			for gx in range(rect.position.x, rect.end.x):
-				if layout.kind_at(gx, gz) != CityLayout.WALL or layout.building_index[CityLayout.index_of(gx, gz)] != layout.buildings.find(building) + 1:
-					continue
-				for step in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
-					var dir: Vector2i = step
-					var nk := layout.kind_at(gx + dir.x, gz + dir.y)
-					if [CityLayout.FLOOR, CityLayout.DOOR, CityLayout.KIOSK_FLOOR].has(nk):
-						continue
-					var covered := 0
-					if nk == CityLayout.WALL:
-						covered = int(float(layout.building_at(gx + dir.x, gz + dir.y).get("height", 6.0)))
-					elif nk == CityLayout.KIOSK_WALL:
-						covered = 4
-					elif nk == CityLayout.GATE:
-						covered = 7
-					elif nk == CityLayout.RIM:
-						covered = 11
-					if covered >= top:
-						continue
-					var drawn: bool
-					if legacy:
-						drawn = CityLayout.OUTDOOR_KINDS.has(nk)
-					else:
-						var span: Vector2i = CityFacilityView3D.facade_span(layout, gx, gz, dir, top)
-						drawn = span.y > span.x and span.x <= covered
-					if not drawn:
-						holes += 1
-						if first_hole == "":
-							first_hole = "%s cell (%d,%d) side %s against %s" % [building["id"], gx, gz, dir, CityLayout.KIND_NAMES[nk]]
-	if holes > 0:
-		out.append(finding(g, "solid_overlap", "facade_hole", seed_text, "city " + first_hole,
-			"%d facade edges are left undrawn (the tower is open there and shows its inside)" % holes, float(holes)))
-	# interior props
-	for building in buildings:
-		_audit_city_building(layout, building, seed_text, out)
-
-
-static func _sliver_run(layout: CityLayout, start: Vector2i, step: Vector2i, seed_text: String, out: Array) -> void:
-	# start is a building wall; look across 1 or 2 non-solid cells to a different building wall
-	var a := layout.building_index[CityLayout.index_of(start.x, start.y)] if CityLayout.in_bounds(start.x, start.y) else 0
-	if a == 0 or layout.kind_at(start.x, start.y) != CityLayout.WALL:
-		return
-	for gap in [1, 2]:
-		var far: Vector2i = start + step * (int(gap) + 1)
-		if not CityLayout.in_bounds(far.x, far.y):
-			return
-		var b := layout.building_index[CityLayout.index_of(far.x, far.y)]
-		if b == 0 or b == a or layout.kind_at(far.x, far.y) != CityLayout.WALL:
-			continue
-		var all_open := true
-		for k in range(1, int(gap) + 1):
-			var m: Vector2i = start + step * k
-			if layout.kind_at(m.x, m.y) in [CityLayout.WALL, CityLayout.DOOR, CityLayout.FLOOR]:
-				all_open = false
-		if all_open:
-			out.append(finding(GAME_CITY, "sliver", "sliver", seed_text, "city cell %s -> %s" % [start, far],
-				"%d-cell gap between %s and %s" % [gap, layout.buildings[a - 1]["id"], layout.buildings[b - 1]["id"]], float(gap)))
-		return
-
-
-static func _audit_city_building(layout: CityLayout, building: Dictionary, seed_text: String, out: Array) -> void:
-	var props := layout.building_props(building)
-	var rects: Array = []
-	for prop in props:
-		var type := String(prop["type"])
-		var size: Vector3 = prop["size"]
-		var cell: Vector2i = prop["cell"]
-		var centre := Vector2(cell) + Vector2(.5, .5)
-		var half := Vector2(size.x, size.z) * .5
-		var yaw := float(prop["yaw"])
-		var at := "city %s %s %s cell %s" % [building["id"], type, prop["id"], cell]
-		rects.append({"type": type, "centre": centre, "half": half, "yaw": yaw, "at": at, "id": prop["id"]})
-		if size.y > CEILING - CEILING_SLACK:
-			out.append(finding(GAME_CITY, "poke", "poke_ceiling", seed_text, at, "%.2f m tall" % size.y, size.y - CEILING))
-		var worst := 0.0
-		var worst_cell := Vector2i.ZERO
-		for dz in range(-2, 3):
-			for dx in range(-2, 3):
-				var wc := cell + Vector2i(dx, dz)
-				if layout.kind_at(wc.x, wc.y) in [CityLayout.FLOOR]:
-					continue
-				var depth := obb_depth(centre, half, yaw, Vector2(wc) + Vector2(.5, .5), Vector2(.5, .5), 0.0)
-				if depth > worst:
-					worst = depth
-					worst_cell = wc
-		if worst > tol():
-			out.append(finding(GAME_CITY, "solid_overlap", "prop_in_wall", seed_text, at,
-				"penetrates %s cell %s by %.2f m" % [CityLayout.KIND_NAMES[layout.kind_at(worst_cell.x, worst_cell.y)], worst_cell, worst], worst))
-	for i in rects.size():
-		for j in range(i + 1, rects.size()):
-			var a: Dictionary = rects[i]
-			var b: Dictionary = rects[j]
-			if (a["centre"] as Vector2).distance_to(b["centre"]) > 3.0:
-				continue
-			var depth := obb_depth(a["centre"], a["half"], float(a["yaw"]), b["centre"], b["half"], float(b["yaw"]))
-			if depth > tol() + pair_allowance(String(a["type"]), String(b["type"])):
-				out.append(finding(GAME_CITY, "solid_overlap", "prop_in_prop", seed_text, String(a["at"]),
-					"%s interpenetrates %s by %.2f m" % [a["type"], b["type"], depth], depth))
-
-
-# ------------------------------------------------------------------ Night Watch offices
-
 const NW_STRUCTURE_WORDS := ["wall", "floor", "ceiling", "room", "shell", "frame_outer", "carpet", "rug"]
 const NW_HANGING_WORDS := ["light", "lamp", "sign", "poster", "clock", "camera", "vent", "window", "pipe", "cable", "wire",
 	"hang", "banner", "map", "board", "frame", "fan", "sconce", "shelf", "rail", "duct", "panel", "fixture", "monitor",
@@ -700,17 +507,6 @@ static func sweep_last_route(seeds: Array, per_biome: int, out: Array) -> Dictio
 	return stats
 
 
-static func sweep_city(seeds: Array, out: Array) -> Dictionary:
-	var stats := {"cities": 0, "buildings": 0, "decor": 0}
-	for seed_value in seeds:
-		var layout := CityLayout.build(String(seed_value))
-		stats["cities"] += 1
-		stats["buildings"] += layout.buildings.size()
-		stats["decor"] += layout.decor.size()
-		audit_city(layout, String(seed_value), out)
-	return stats
-
-
 ## Plain-text counts table + the top `limit` ranked findings.
 static func report_text(findings: Array, limit: int = 40) -> String:
 	var lines := PackedStringArray()
@@ -727,3 +523,53 @@ static func report_text(findings: Array, limit: int = 40) -> String:
 		var f: Dictionary = ranked[i]
 		lines.append("  #%d [%s/%s] seed %s | %s | %s" % [i + 1, f["game"], f["rule"], f["seed"], f["at"], f["detail"]])
 	return "\n".join(lines)
+
+## One T and one cross hall junction of `biome` from `generator`, as CAP_AT entries (world x, z, yaw): the camera stands
+## 5 m down an arm looking at the centre. Used by tools/look/capture.gd (CAP_JUNCTION=biome).
+static func junction_spots(generator: StreamedRouteGenerator, biome: String) -> Array:
+	var found := {}
+	for r in range(0, 12):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dz)) != r or found.size() >= 2:
+					continue
+				var coord := Vector3i(dx, 0, dz)
+				if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != biome:
+					continue
+				var data := generator.chunk(coord)
+				var grid: Array = data["grid"]
+				var size := grid.size()
+				var rooms := []
+				for room in data["rooms"]:
+					rooms.append(room["rect"])
+				for z in range(6, size - 6):
+					for x in range(6, size - 6):
+						var cell := Vector2i(x, z)
+						if not is_open_cell(grid, size, cell) or _in_any_room(rooms, cell):
+							continue
+						var arms := []
+						for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+							var ok := true
+							for k in range(1, 6):
+								var c: Vector2i = cell + (step as Vector2i) * k
+								if not is_open_cell(grid, size, c) or _in_any_room(rooms, c):
+									ok = false
+							if ok:
+								arms.append(step)
+						if arms.size() < 3:
+							continue
+						# the centre of a 3 x 3 crossing: all eight neighbours open too
+						var all_open := true
+						for ddz in range(-1, 2):
+							for ddx in range(-1, 2):
+								if not is_open_cell(grid, size, cell + Vector2i(ddx, ddz)):
+									all_open = false
+						if not all_open:
+							continue
+						var kind := "cross" if arms.size() == 4 else "T"
+						if found.has(kind):
+							continue
+						var arm: Vector2i = arms[0]
+						var eye := Vector2(cell) + Vector2(.5, .5) + Vector2(arm) * 5.0
+						found[kind] = "%.1f,%.1f,%.0f" % [coord.x * 45 + eye.x, coord.z * 45 + eye.y, rad_to_deg(atan2(float(arm.x), float(arm.y)))]
+	return found.values()

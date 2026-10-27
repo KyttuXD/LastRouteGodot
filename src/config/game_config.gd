@@ -157,6 +157,11 @@ const UNLIT_SIGHT_SCALE := 0.5
 ## normal per-hunter sight profile still differentiates the roster.
 const FLASHLIGHT_SIGHT_SCALE := 3.0
 const FLASHLIGHT_SIGHT_MIN := 24.0
+## City DAYTIME: outdoors a hunter sees `sight x this` metres whether or not the runner carries a light (about 19 m for an
+## 8 m profile), which is also how far the runner is seen. Per-hunter tuning lives in HunterVision.
+const DAYLIGHT_SIGHT_SCALE := 2.4
+## Daytime thins the streamed hunter population a little (scaled, never below one once hunters are active).
+const DAY_POPULATION_SCALE := 0.8
 
 ## Player noise emitted per frame by movement mode, consumed by hunter hearing.
 const NOISE_CROUCH := 0.9

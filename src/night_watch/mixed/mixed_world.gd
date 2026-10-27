@@ -21,7 +21,6 @@ const AREAS := {
 	"closet": [-20.0, -9.5, 6.0, 16.0, Color(1.2, 1.1, 0.9)],
 	"corner": [9.5, 20.0, 6.0, 16.0, Color(1.2, 1.1, 0.9)],
 }
-const SET_TINTS := [Color(1.0, 1.0, 1.0), Color(1.4, 1.1, 1.5), Color(1.3, 1.0, 0.8)]
 
 var dress_set := 0
 var astar := AStar3D.new()
@@ -65,7 +64,8 @@ func _wall(parent: Node3D, along_x: bool, fixed: float, a: float, b: float, gaps
 
 func build() -> void:
 	var root := A.prop(self, "Hub")
-	var wall: Color = Color(1.3, 1.25, 1.4) * (SET_TINTS[dress_set] as Color)
+	var skin_tint: Color = MixedSkin.skin(dress_set)["tint"]
+	var wall: Color = Color(1.3, 1.25, 1.4) * skin_tint
 	for id in AREAS:
 		var r: Array = AREAS[id]
 		var room := A.prop(root, "Area_%s" % id)
@@ -73,7 +73,7 @@ func build() -> void:
 		var x1: float = r[1]
 		var z0: float = r[2]
 		var z1: float = r[3]
-		var floor_tint: Color = (r[4] as Color) * (SET_TINTS[dress_set] as Color)
+		var floor_tint: Color = (r[4] as Color) * skin_tint
 		_b(room, Vector3(x1 - x0, 0.2, z1 - z0), Vector3((x0 + x1) * 0.5, -0.1, (z0 + z1) * 0.5), "FloorHub", {"tint": floor_tint})
 		_b(room, Vector3(x1 - x0, 0.2, z1 - z0), Vector3((x0 + x1) * 0.5, H + 0.1, (z0 + z1) * 0.5), "CeilingHub", {"tint": Color(0.8, 0.8, 0.9)})
 		var marker := Node3D.new()
@@ -118,6 +118,7 @@ func _signs(root: Node3D) -> void:
 # --- the three dressings -------------------------------------------------------------------------------------------------------------
 
 func _dress(root: Node3D) -> void:
+	var kit := String(MixedSkin.skin(dress_set)["kit"])
 	var d := A.prop(root, "Dressing%d" % dress_set)
 	for id in AREAS:
 		var r: Array = AREAS[id]
@@ -133,13 +134,25 @@ func _dress(root: Node3D) -> void:
 		elif id == "kitchen":
 			spots = [Vector3(cx - 5.0, 0, cz), Vector3(cx + 5.0, 0, cz)]
 		for k in spots.size():
-			match dress_set:
-				0:
+			match kit:
+				"bench":
 					_bench(d, spots[k], k)
-				1:
+				"party":
 					_party(d, spots[k], k)
-				_:
+				"yard":
 					_yard(d, spots[k], k)
+				"pizzeria":
+					_pizzeria(d, spots[k], k)
+				"studio":
+					_studio(d, spots[k], k)
+				"house":
+					_house(d, spots[k], k)
+				"lab":
+					_lab(d, spots[k], k)
+				"shaft":
+					_shaft(d, spots[k], k)
+				_:
+					_camp(d, spots[k], k)
 
 
 func _bench(parent: Node3D, pos: Vector3, k: int) -> void:
@@ -187,6 +200,97 @@ func _yard(parent: Node3D, pos: Vector3, k: int) -> void:
 			_b(p, Vector3(0.7, 0.95, 0.7), Vector3(i * 0.8, 0.48, (i % 2) * 0.5), "BarrelHold", {"kind": "metal", "tint": Color(1.7, 0.6, 0.4)})
 		_b(p, Vector3(0.3, 3.0, 0.3), Vector3(-1.0, 1.5, 0), "LegCrane", {"kind": "metal", "tint": Color(1.7, 1.4, 0.3)})
 		_b(p, Vector3(3.0, 0.3, 0.3), Vector3(0.4, 3.0, 0), "BeamCrane", {"kind": "metal", "tint": Color(1.7, 1.4, 0.3)})
+
+
+# --- the other maps' props (MixedSkin): three small pieces per kit, never in the lanes the hunters walk -----------------------------------
+
+func _pizzeria(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "PizzaDress", pos)
+	if k % 3 == 0:   # a table with a cake and two party hats
+		_b(p, Vector3(1.6, 0.08, 1.0), Vector3(0, 0.78, 0), "TablePizza", {"kind": "fabric", "tint": Color(1.6, 0.6, 0.5)})
+		_b(p, Vector3(0.12, 0.76, 0.12), Vector3(0, 0.38, 0), "LegPizza", {"kind": "metal"})
+		_b(p, Vector3(0.3, 0.2, 0.3), Vector3(0, 0.92, 0), "CakePizza", {"kind": "fabric", "tint": Color(1.8, 1.5, 1.6)})
+		for sx in [-0.5, 0.5]:
+			_b(p, Vector3(0.2, 0.3, 0.2), Vector3(sx, 0.97, 0.3), "HatPizza", {"kind": "plastic", "tint": BALLOON_TINTS[int(sx > 0) + k % 3]})
+	elif k % 3 == 1:   # a banner and a checker rug
+		_b(p, Vector3(2.4, 0.02, 1.6), Vector3(0, 0.01, 0), "RugPizza", {"kind": "fabric", "tint": Color(1.7, 0.5, 0.5)})
+		_b(p, Vector3(3.0, 0.5, 0.05), Vector3(0, 2.8, 0), "BannerPizza", {"kind": "fabric", "tint": Color(1.7, 1.4, 0.4)})
+	else:   # a prize cabinet
+		_b(p, Vector3(0.8, 1.7, 0.6), Vector3(0, 0.85, 0), "CabinetPizza", {"kind": "plastic", "tint": Color(0.5, 0.9, 1.7)})
+		_b(p, Vector3(0.6, 0.6, 0.04), Vector3(0, 1.2, 0.32), "ScreenPizza", {})
+
+
+func _studio(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "StudioDress", pos)
+	if k % 3 == 0:   # a desk with a microphone and a reel
+		_b(p, Vector3(1.8, 0.08, 0.8), Vector3(0, 0.76, 0), "DeskStudio", {"kind": "wood", "tint": Color(0.9, 0.8, 0.7)})
+		_b(p, Vector3(0.04, 0.5, 0.04), Vector3(0.3, 1.05, 0), "MicStandStudio", {"kind": "metal"})
+		_b(p, Vector3(0.14, 0.14, 0.14), Vector3(0.3, 1.34, 0), "MicStudio", {"kind": "plastic", "tint": Color(0.4, 0.4, 0.45)})
+		_b(p, Vector3(0.3, 0.06, 0.3), Vector3(-0.5, 0.83, 0), "ReelStudio", {"kind": "metal", "tint": Color(1.2, 1.2, 1.3)})
+	elif k % 3 == 1:   # a speaker stack
+		for i in 3:
+			_b(p, Vector3(0.7, 0.7, 0.6), Vector3(0, 0.35 + i * 0.7, 0), "SpeakerStudio", {"kind": "plastic", "tint": Color(0.5, 0.5, 0.55)})
+	else:   # an ON AIR sign
+		_b(p, Vector3(1.0, 0.35, 0.08), Vector3(0, 2.6, 0), "OnAirStudio", {"kind": "label", "tint": Color(1.9, 0.3, 0.3)})
+		_b(p, Vector3(0.9, 0.5, 0.9), Vector3(0, 0.25, 0), "RackStudio", {"kind": "metal", "tint": Color(0.6, 0.65, 0.7)})
+
+
+func _house(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "HouseDress", pos)
+	if k % 3 == 0:   # a bed
+		_b(p, Vector3(1.0, 0.4, 2.0), Vector3(0, 0.3, 0), "BedHouse", {"kind": "wood", "tint": Color(1.3, 0.9, 0.7)})
+		_b(p, Vector3(0.9, 0.18, 1.5), Vector3(0, 0.58, 0.2), "BlanketHouse", {"kind": "fabric", "tint": BALLOON_TINTS[k % 5]})
+		_b(p, Vector3(0.6, 0.15, 0.35), Vector3(0, 0.62, -0.8), "PillowHouse", {"kind": "fabric", "tint": Color(1.8, 1.8, 1.7)})
+	elif k % 3 == 1:   # a wardrobe
+		_b(p, Vector3(1.2, 2.2, 0.6), Vector3(0, 1.1, 0), "WardrobeHouse", {"kind": "wood", "tint": Color(1.1, 0.8, 0.6)})
+		_b(p, Vector3(0.04, 1.0, 0.02), Vector3(0, 1.1, 0.31), "SeamHouse", {"kind": "metal"})
+	else:   # a toy chest with blocks
+		_b(p, Vector3(0.9, 0.5, 0.6), Vector3(0, 0.25, 0), "ChestHouse", {"kind": "wood", "tint": Color(1.5, 0.8, 0.5)})
+		for i in 3:
+			_b(p, Vector3(0.25, 0.25, 0.25), Vector3(-0.6 - i * 0.2, 0.13, 0.3 * (i % 2)), "BlockHouse", {"kind": "plastic", "tint": BALLOON_TINTS[i % 5]})
+
+
+func _lab(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "LabDress", pos)
+	if k % 3 == 0:   # a bench with a beaker
+		_b(p, Vector3(2.0, 0.9, 0.8), Vector3(0, 0.45, 0), "BenchLab", {"kind": "metal", "tint": Color(0.9, 1.1, 1.0)})
+		_b(p, Vector3(0.16, 0.3, 0.16), Vector3(0.5, 1.05, 0), "BeakerLab", {"kind": "plastic", "tint": Color(0.6, 1.8, 1.2)})
+	elif k % 3 == 1:   # a pipe rack
+		for i in 3:
+			_b(p, Vector3(0.12, 3.0, 0.12), Vector3(-0.4 + i * 0.4, 1.5, 0), "PipeLab", {"kind": "metal", "tint": Color(1.2, 1.1, 0.6) * Color(1.0 - 0.1 * i, 1.0, 1.0)})
+	else:   # a console with a status light
+		_b(p, Vector3(1.4, 1.0, 0.7), Vector3(0, 0.5, 0), "ConsoleLab", {"kind": "metal", "tint": Color(0.7, 0.8, 0.8)})
+		_b(p, Vector3(1.2, 0.5, 0.04), Vector3(0, 1.2, 0.2), "ScreenLab", {})
+		_b(p, Vector3(0.2, 0.2, 0.06), Vector3(0.5, 1.7, 0.3), "LightLab", {"kind": "label", "tint": Color(0.4, 1.9, 0.6)})
+
+
+func _shaft(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "ShaftDress", pos)
+	if k % 3 == 0:   # a pillar with a cable
+		_b(p, Vector3(0.6, 3.4, 0.6), Vector3(0, 1.7, 0), "PillarShaft", {"kind": "metal", "tint": Color(0.6, 0.65, 0.8)})
+		_b(p, Vector3(0.05, 3.0, 0.05), Vector3(0.45, 1.6, 0), "CableShaft", {"kind": "metal", "tint": Color(0.3, 0.3, 0.35)})
+	elif k % 3 == 1:   # a lift frame
+		_b(p, Vector3(1.6, 0.1, 1.6), Vector3(0, 0.05, 0), "BaseShaft", {"kind": "metal", "tint": Color(1.3, 1.2, 0.5)})
+		for sx in [-0.75, 0.75]:
+			_b(p, Vector3(0.1, 2.6, 0.1), Vector3(sx, 1.3, 0), "FrameShaft", {"kind": "metal", "tint": Color(1.3, 1.2, 0.5)})
+		_b(p, Vector3(1.6, 0.1, 0.1), Vector3(0, 2.6, 0), "BeamShaft", {"kind": "metal", "tint": Color(1.3, 1.2, 0.5)})
+	else:   # a counterweight stack
+		for i in 4:
+			_b(p, Vector3(0.9, 0.3, 0.6), Vector3(0, 0.15 + i * 0.32, 0), "WeightShaft", {"kind": "metal", "tint": Color(0.5, 0.5, 0.58)})
+
+
+func _camp(parent: Node3D, pos: Vector3, k: int) -> void:
+	var p := A.prop(parent, "CampDress", pos)
+	if k % 3 == 0:   # a tent
+		_b(p, Vector3(2.0, 0.1, 2.0), Vector3(0, 0.05, 0), "GroundCamp", {"kind": "fabric", "tint": Color(0.7, 0.9, 0.6)})
+		for sx in [-0.5, 0.5]:
+			_b(p, Vector3(1.0, 1.4, 1.8), Vector3(sx, 0.75, 0), "TentCamp", {"kind": "fabric", "tint": Color(1.5, 0.9, 0.4) * Color(1.0 - 0.15 * int(sx > 0), 1.0, 1.0)})
+	elif k % 3 == 1:   # logs round a fire
+		for i in 3:
+			_b(p, Vector3(1.2, 0.3, 0.3), Vector3(0, 0.15, (i - 1) * 0.5), "LogCamp", {"kind": "wood", "tint": Color(1.2, 0.8, 0.5)})
+	else:   # a lantern on a post
+		_b(p, Vector3(0.1, 2.2, 0.1), Vector3(0, 1.1, 0), "PostCamp", {"kind": "wood", "tint": Color(1.1, 0.8, 0.6)})
+		_b(p, Vector3(0.3, 0.4, 0.3), Vector3(0, 2.3, 0), "LanternCamp", {"kind": "label", "tint": Color(1.9, 1.5, 0.6)})
 
 
 # --- cameras, stands, walking ---------------------------------------------------------------------------------------------------------

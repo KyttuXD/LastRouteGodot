@@ -18,6 +18,8 @@ signal waypoint_requested(world_position: Vector2, level: int)
 const WALL := 0
 const RELAY_TEAL_BLUE := Color("32c9d8")
 const STAIR_ICON_WHITE := Color("f4f7f6")
+## Solid props on the map: their real collision boxes (see _draw_collider_box).
+const PROP_BOX_TINT := Color("7899a1")
 const COOP_PLAYER_BLUE := Color("63d9f1")
 const PORCELLE_GHOST := Color("c9b6e4")
 const MIN_MAP_ZOOM := 0.75
@@ -32,6 +34,9 @@ const REGION_COLORS := {
 	"prison": Color("778994"),
 	"inferno": Color("d45b3f"),
 	"carnival": Color("ce5d96"),
+	"hospital": Color("9fd0c2"),
+	"lab": Color("5fd4e4"),
+	"greenhouse": Color("7fbf5a"),
 }
 
 @export var interactive := false
@@ -41,6 +46,13 @@ var player_at := Vector2.ZERO
 var player_facing := Vector2(0, 1)
 ## [{ "at": Vector2, "name": String, "active": bool }]
 var hunters: Array = []
+## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
+## the real clock (tests pin it).
+var ghost_ping := false
+var radar_time := -1.0:
+	set(value):
+		radar_time = value
+		queue_redraw()
 ## Other runners are deliberately separate from hunter intelligence: co-op
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
@@ -81,6 +93,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Porcelle's ping animates, so a minimap with her mark redraws every frame
+	if ghost_ping and is_visible_in_tree():
+		for mark in hunters:
+			if bool(mark.get("ghost", false)):
+				queue_redraw()
+				break
 	if not interactive or not visible or not has_focus() or streamed_chunk_size <= 0:
 		return
 	# Full-map controller controls: left stick pans, shoulders zoom, and X drops
@@ -370,6 +388,18 @@ func _draw_streamed() -> void:
 					continue
 				draw_rect(Rect2(local_origin + Vector2(x, z) * cell,
 					Vector2.ONE * cell), floor_tint)
+		for prop_value in chunk.get("props", []):
+			var prop: Dictionary = prop_value
+			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
+			if not world_bounds.has_point(chunk_world_origin + local):
+				continue
+			if String(prop.get("kind", "prop")) == "prop":
+				# solid props: their real collision boxes (decor has none and is not drawn)
+				for box in prop.get("boxes", []):
+					_draw_collider_box(local_origin, cell, box, PROP_BOX_TINT)
+				continue
+			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
+			draw_circle(prop_at, maxf(1.0, cell * .16), PROP_BOX_TINT)
 		for pickup_value in chunk.get("pickups", []):
 			var pickup: Dictionary = pickup_value
 			var kind := String(pickup.get("kind", ""))
@@ -382,15 +412,6 @@ func _draw_streamed() -> void:
 				else Color(0.95, 0.82, 0.25)
 			draw_circle(local_origin + (Vector2(local) + Vector2(.5, .5)) * cell,
 				maxf(1.0, cell * (.34 if kind == "relay" else .26)), tint)
-		for prop_value in chunk.get("props", []):
-			var prop: Dictionary = prop_value
-			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
-			if not world_bounds.has_point(chunk_world_origin + local):
-				continue
-			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
-			var radius := maxf(1.0, cell * .20)
-			draw_rect(Rect2(prop_at - Vector2.ONE * radius,
-				Vector2.ONE * radius * 2.0), Color("7899a1"))
 		var spawn_cell: Vector2i = chunk.get("spawn", Vector2i(-1, -1))
 		if spawn_cell.x >= 0 and world_bounds.has_point(chunk_world_origin + spawn_cell):
 			var spawn_at := local_origin + (Vector2(spawn_cell) + Vector2(.5, .5)) * cell
@@ -417,9 +438,12 @@ func _draw_streamed() -> void:
 		if not bool(mark.get("active", true)):
 			continue
 		var mark_world: Vector2 = mark["at"]
+		var mark_at := origin + (mark_world - world_origin) * cell
+		if bool(mark.get("ghost", false)) and ghost_ping:
+			_draw_ghost_ping(mark_at, cell)   # clamps to the edge when she is out of range
+			continue
 		if not Rect2(world_bounds).has_point(mark_world):
 			continue
-		var mark_at := origin + (mark_world - world_origin) * cell
 		_draw_hunter_marker(mark_at, cell, mark)
 	for mark in players:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
@@ -531,7 +555,36 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 			-1, font_size).x + 22.0
 
 
+func _ping_clock() -> float:
+	return radar_time if radar_time >= 0.0 else Time.get_ticks_msec() / 1000.0
+
+
+## Porcelle's pulse: a dot with one expanding ring while a ping lasts, nothing in between; out of range it clamps to the
+## edge as a small arrow so the direction still reads. Reduced motion draws the steady dim dot instead.
+func _draw_ghost_ping(at: Vector2, cell: float) -> void:
+	var info := RadarPing.marker(at, Rect2(Vector2.ZERO, size), _ping_clock(), Settings.reduced_motion)
+	if not bool(info["visible"]):
+		return
+	var strength: float = info["strength"]
+	var pos: Vector2 = info["pos"]
+	var radius := maxf(RadarPing.MIN_RADIUS, cell * RadarPing.MARK_RADIUS_CELLS)
+	var colour := Palette.ALERT
+	if bool(info["clamped"]):
+		var dir: Vector2 = info["direction"]
+		var side := Vector2(-dir.y, dir.x)
+		draw_colored_polygon(PackedVector2Array([pos + dir * radius, pos - dir * radius * .6 + side * radius * .7,
+			pos - dir * radius * .6 - side * radius * .7]), Color(colour, strength))
+		return
+	draw_circle(pos, radius, Color(colour, strength))
+	if not Settings.reduced_motion:
+		var grown := radius * lerpf(1.0, RadarPing.RING_GROWTH, float(info["progress"]))
+		draw_arc(pos, grown, 0.0, TAU, 20, Color(colour, strength * (1.0 - float(info["progress"]))), maxf(1.0, cell * .10), true)
+
+
 func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
+	if bool(mark.get("ghost", false)) and ghost_ping:
+		_draw_ghost_ping(at, cell)
+		return
 	if bool(mark.get("ghost", false)):
 		# Porcelle is readable but deliberately uncertain: a translucent head and
 		# taper replace the solid danger dot used by visible hunters.
@@ -674,6 +727,40 @@ func _draw_waypoint(at: Vector2, cell: float) -> void:
 
 ## Fullscreen/admin maps show a direction-aware white stair symbol. The regular
 ## minimap never reaches this helper because it deliberately hides stair data.
+## The collision boxes of a generated chunk's solid props, by prop id: [PackedFloat32Array(centre x, centre z, half x,
+## half z, yaw)] in chunk-local metres, straight from CollisionWorld (the boxes the 3D view builds), so the map shows
+## exactly what blocks the player. Props the placement clean-up removed are not in the chunk and get nothing.
+static func collider_boxes(data: Dictionary) -> Dictionary:
+	var out := {}
+	for rect_value in CollisionWorld.from_chunk(data).rects:
+		var rect: Dictionary = rect_value
+		var centre: Vector2 = rect["center"]
+		var half: Vector2 = rect["half"]
+		var list: Array = out.get(String(rect["id"]), [])
+		list.append(PackedFloat32Array([centre.x, centre.y, half.x, half.y, float(rect["yaw"])]))
+		out[String(rect["id"])] = list
+	return out
+
+
+## One collision box [centre x, centre z, half x, half z, yaw] in chunk-local metres, as the rotated rectangle the player meets.
+static func collider_corners(box: PackedFloat32Array) -> PackedVector2Array:
+	var centre := Vector2(box[0], box[1])
+	var c := cos(box[4])
+	var s := sin(box[4])
+	var out := PackedVector2Array()
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var local := Vector2(box[2] * corner.x, box[3] * corner.y)
+		out.append(centre + Vector2(local.x * c + local.y * s, -local.x * s + local.y * c))
+	return out
+
+
+func _draw_collider_box(local_origin: Vector2, cell: float, box: PackedFloat32Array, tint: Color) -> void:
+	var points := collider_corners(box)
+	for i in points.size():
+		points[i] = local_origin + points[i] * cell
+	draw_colored_polygon(points, tint)
+
+
 func _draw_stair_icon(at: Vector2, cell: float, up: bool) -> void:
 	var tint := STAIR_ICON_WHITE
 	var shadow := Color(0.02, 0.04, 0.05, 0.9)

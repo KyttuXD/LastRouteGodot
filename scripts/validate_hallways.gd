@@ -7,11 +7,12 @@ extends RefCounted
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- hallways
 
-## seed, first chunk, last chunk. MAP-CHECK's south-east window holds a hotel and a prison; the others cover the mixed districts.
+## seed, first chunk, last chunk. the windows together hold a hotel and a prison and cover the mixed districts.
 const WINDOWS := [
 	{"seed": "MAP-CHECK", "from": Vector2i(0, 3), "to": Vector2i(6, 6)},
 	{"seed": "MAP-CHECK", "from": Vector2i(-6, -6), "to": Vector2i(-1, -1)},
 	{"seed": "HALL-A", "from": Vector2i(-4, -4), "to": Vector2i(4, 4)},
+	{"seed": "MAP-CHECK", "from": Vector2i(2, -6), "to": Vector2i(6, -1)},
 ]
 
 var _failures := 0

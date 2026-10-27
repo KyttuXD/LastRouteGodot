@@ -40,6 +40,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — props audits (DONE11 chairs and tables, DONE13 rotated parts and weak families, DONE14 materials and finishes, DONE16 performance), measured sizes, fixes, contact sheets
 - [RESCUE_AXE.md](RESCUE_AXE.md) — held-tool poses (grip table, wall push-back, remote hand), the rescue axe (cut free of a hold, chop boards, noise, durability), captures
+- [Z_FIGHTING_PROPS.md](Z_FIGHTING_PROPS.md) — coplanar faces inside prop models (beds, cabinets, couches, doors): builder fix, prop_coplanar suite, bed flicker before/after
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
@@ -49,3 +50,4 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [WALL_THEMES.md](WALL_THEMES.md) — per-face wall themes (no room bleed onto halls), floor sets per district and room purpose, validator
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.
+- KYTTU: The City (and its OpenStreetMap "real places" maps) is archived on branch `archive/city-20261027` (see its docs/CITY_ARCHIVE.md); it is no longer part of main.

@@ -29,12 +29,7 @@ func _ready() -> void:
 		Settings.fps_limit = 0
 		Settings.vsync_enabled = false
 		Settings._apply_display_performance()
-	# CAP_CITY=1: the same rig in The City (CAP_AT picks the spots, e.g. the fountain roundabout at 22,28)
-	var city := OS.get_environment("CAP_CITY") != ""
-	if city:
-		RoomState.create_local(RoomState.Mode.CITY)
-		Backend.enable_offline_mode()
-	var scene: Node = load(RoomState.CITY_ROUTE_SCENE if city else "res://scenes/infinite_route_test.tscn").instantiate()
+	var scene: Node = load("res://scenes/infinite_route_test.tscn").instantiate()
 	add_child(scene)
 	_scene = scene
 	_run(scene)
@@ -238,7 +233,16 @@ func _run(scene: Node) -> void:
 		picks = []
 		for pair in OS.get_environment("CAP_AT").split(";"):
 			var xz := pair.split(",")
-			picks.append({"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))})
+			var pick := {"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))}
+			if xz.size() > 2:
+				pick["yaw"] = float(xz[2])   # optional third value: the heading in degrees
+			picks.append(pick)
+	if OS.get_environment("CAP_JUNCTION") != "":
+		# CAP_JUNCTION=gothic: one T and one cross junction of that biome in THIS run's generator, 5 m down an arm
+		picks = []
+		for entry in GeometryAudit.junction_spots(facility.generator, OS.get_environment("CAP_JUNCTION")):
+			var xz := String(entry).split(",")
+			picks.append({"name": "junction_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1])), "yaw": float(xz[2])})
 	if OS.get_environment("CAP_AT") == "start":
 		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
 		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]
@@ -304,8 +308,63 @@ func _run(scene: Node) -> void:
 							by_owner[key] = int(by_owner.get(key, 0)) + 1
 					print("UNBUDGETED ", by_owner)
 				print("LIGHTS %s yaw %s: omni=%d visible=%d shadowed(omni=%d spot=%d)" % [p["name"], yaw_text, omni, omni_visible, omni_shadow, spot_shadow])
+			var map_layer: CanvasLayer = null
+			if OS.get_environment("CAP_MAP") != "":
+				map_layer = await _show_map(scene, player)
 			var img := get_viewport().get_texture().get_image()
+			if map_layer != null:
+				map_layer.queue_free()
+				img = img.get_region(Rect2i(0, 0, mini(img.get_width(), img.get_height()), mini(img.get_width(), img.get_height())))
+				img.resize(480, 480, Image.INTERPOLATE_BILINEAR)
 			img.save_png("%s/%s_%s_%s.png" % [_out_dir, _tag, p["name"], yaw_text])
 			for node in hunter_nodes:
 				node.queue_free()
 	get_tree().quit()
+
+
+## CAP_MAP=1: the HUD map widget (FacilityMap, revealed, CAP_MAP_RADIUS cells around the runner, default 9) drawn over the
+## frame, with the prop collision shapes that really exist in the 3D scene outlined in red on top: on an accurate map the
+## grey boxes fill the red outlines exactly.
+func _show_map(scene: Node, player: PlayerController3D) -> CanvasLayer:
+	scene.set("_admin_reveal_map", true)
+	scene.call("_discover_loaded_chunks")
+	var layer := CanvasLayer.new()
+	layer.layer = 100
+	var side := float(mini(get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y))
+	var map := FacilityMap.new()
+	map.size = Vector2(side, side)
+	layer.add_child(map)
+	var truth := _ShapeOutlines.new()
+	truth.map = map
+	truth.size = map.size
+	layer.add_child(truth)
+	get_tree().root.add_child(layer)
+	var radius := int(OS.get_environment("CAP_MAP_RADIUS")) if OS.get_environment("CAP_MAP_RADIUS") != "" else 9
+	var facility: StreamedFacilityView3D = scene.get_node("%StreamedFacility")
+	map.show_streamed_state(scene.call("_local_map_chunks"), facility.current_chunk_coord().y, StreamedRouteGenerator.CHUNK_SIZE,
+		Vector2(player.global_position.x, player.global_position.z), Vector2(0, 1), [], false, radius)
+	for shape_node in facility.find_children("*", "CollisionShape3D", true, false):
+		var shape := (shape_node as CollisionShape3D).shape
+		if shape is BoxShape3D and StreamedFacilityView3D._box_shapes.values().has(shape):
+			truth.boxes.append([(shape_node as CollisionShape3D).global_transform, (shape as BoxShape3D).size])
+	await _wait(4)
+	return layer
+
+
+class _ShapeOutlines extends Control:
+	var map: FacilityMap
+	var boxes: Array = []
+
+	func _draw() -> void:
+		var cell: float = map._last_cell_scale
+		for entry in boxes:
+			var xf: Transform3D = entry[0]
+			var size: Vector3 = entry[1]
+			var points := PackedVector2Array()
+			for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1), Vector3(-1, 0, -1)]:
+				var w: Vector3 = xf * ((corner as Vector3) * size * .5)
+				points.append(map._last_screen_origin + (Vector2(w.x, w.z) - map._last_world_origin) * cell)
+			draw_polyline(points, Color(1, .2, .2), 1.5)
+
+	func _process(_delta: float) -> void:
+		queue_redraw()

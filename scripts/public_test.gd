@@ -10,6 +10,7 @@ var role := ""
 var dir := ""
 var scene: Node
 var started := 0
+var game_mode: RoomState.Mode = RoomState.Mode.DEFAULT
 
 
 func _ready() -> void:
@@ -77,13 +78,15 @@ func _read(name: String) -> String:
 
 func _in_route() -> bool:
 	var current := get_tree().current_scene
-	return current != null and current.scene_file_path == "res://scenes/infinite_route_test.tscn" \
+	var route_scene := "res://scenes/infinite_route_test.tscn"
+	return current != null and current.scene_file_path == route_scene \
 		and current.get("facility") != null and current.facility.generator != null
 
 
 func _relay() -> Dictionary:
 	var generator: StreamedRouteGenerator = scene.facility.generator
-	for coord in [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(-1, 0, 0), Vector3i(0, 0, -1)]:
+	for coord in [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(-1, 0, 0), Vector3i(0, 0, -1),
+			Vector3i(1, 0, 1), Vector3i(-1, 0, 1), Vector3i(1, 0, -1), Vector3i(-1, 0, -1), Vector3i(2, 0, 0), Vector3i(-2, 0, 0)]:
 		for pickup_value in generator.chunk(coord).get("pickups", []):
 			var pickup: Dictionary = pickup_value
 			if String(pickup.get("kind", "")) == "relay":
@@ -95,7 +98,7 @@ func _relay() -> Dictionary:
 
 
 func _enter_public() -> bool:
-	PublicRoute.join()
+	PublicRoute.join(game_mode)
 	if not await _wait_for(_in_route, "route scene", 60.0):
 		return false
 	scene = get_tree().current_scene

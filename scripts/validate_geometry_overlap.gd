@@ -8,7 +8,6 @@ extends RefCounted
 ##   godot --headless --path . res://scenes/validate.tscn -- geometry_overlap
 
 const SEEDS := ["GEOM-AUDIT-A", "GEOM-AUDIT-B", "ENDLESS-ROUTE"]
-const CITY_SEEDS := ["CITY-LOOK", "GEOM-AUDIT-A", "GEOM-AUDIT-B", "GEOM-AUDIT-C"]
 const PER_BIOME := 3
 ## game -> rule -> allowed count in this sweep
 const RATCHET := {}
@@ -25,10 +24,8 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	var findings: Array = []
 	var lr := GeometryAudit.sweep_last_route(SEEDS, PER_BIOME, findings)
-	var city := GeometryAudit.sweep_city(CITY_SEEDS, findings)
 	var offices := await _audit_offices(host, findings)
 	_expect(int(lr["chunks"]) > 20, "only %d Last Route chunks swept" % int(lr["chunks"]))
-	_expect(int(city["buildings"]) > 60, "only %d City buildings swept" % int(city["buildings"]))
 	var table := GeometryAudit.counts(findings)
 	for game in table:
 		for rule in (table[game] as Dictionary):
@@ -37,8 +34,8 @@ func run(host: Node) -> int:
 	if _failures > 0:
 		print(GeometryAudit.report_text(findings, 25))
 	else:
-		print("  geometry_overlap  %d chunks / %d props, %d cities / %d buildings / %d furniture, %d offices: %d findings (ratchet %s)" % [
-			lr["chunks"], lr["props"], city["cities"], city["buildings"], city["decor"], offices, findings.size(), str(RATCHET)])
+		print("  geometry_overlap  %d chunks / %d props, %d offices: %d findings (ratchet %s)" % [
+			lr["chunks"], lr["props"], offices, findings.size(), str(RATCHET)])
 	return _failures
 
 

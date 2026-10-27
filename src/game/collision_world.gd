@@ -42,11 +42,14 @@ static func from_chunk(data: Dictionary) -> CollisionWorld:
 		var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
 		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
 		var offset: Vector2 = Vector2(prop.get("mount_offset", Vector2.ZERO)) + Vector2(prop.get("placement_offset", Vector2.ZERO))
-		world.rects.append({
-			"id": String(prop.get("id", "")), "type": String(prop.get("type", "")),
-			"center": Vector2(cell) + Vector2(.5, .5) + offset,
-			"half": Vector2(size.x, size.z) * .5, "yaw": float(prop.get("yaw", 0.0)), "height": size.y,
-		})
+		var at := Vector2(cell) + Vector2(.5, .5) + offset
+		var yaw := float(prop.get("yaw", 0.0))
+		for box in PropColliderBoxes.boxes(String(prop.get("type", "")), size, PropColliderBoxes.variant_of(prop)):
+			world.rects.append({
+				"id": String(prop.get("id", "")), "type": String(prop.get("type", "")),
+				"center": PropColliderBoxes.world_centre(at, box["c"], yaw),
+				"half": box["h"], "yaw": yaw, "height": size.y,
+			})
 	return world
 
 

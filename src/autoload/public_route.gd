@@ -92,7 +92,16 @@ func hunter_target_count() -> int:
 # -- joining -----------------------------------------------------------------------
 
 ## Entry point for the title screen's PUBLIC button (and for automatic rejoin).
-func join() -> void:
+## Which game's shared route this client is on (the backend namespaces public routes by game id).
+var game_mode: RoomState.Mode = RoomState.Mode.DEFAULT
+
+
+func game_id() -> String:
+	return RoomState.GAME_LAST_ROUTE
+
+
+func join(for_mode: RoomState.Mode = RoomState.Mode.DEFAULT) -> void:
+	game_mode = for_mode
 	if _joining or Backend.offline_mode or not Backend.configured():
 		if Backend.offline_mode or not Backend.configured():
 			_set_status("PUBLIC ROUTE NEEDS THE PRIMARY SERVER")
@@ -100,7 +109,7 @@ func join() -> void:
 	_joining = true
 	active = true
 	_set_status("CONTACTING PUBLIC ROUTE")
-	_request("/api/public/join", {"playerKey": player_key,
+	_request("/api/public/join", {"playerKey": player_key, "game": game_id(),
 		"name": RoomState.local_display_name()}, _on_join)
 
 
@@ -122,9 +131,9 @@ func _on_join(ok: bool, body: Dictionary) -> void:
 	_posted_claims.clear()
 	for id in claimed_ids:
 		_posted_claims[String(id)] = true
-	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.create_local(game_mode)
 	RoomState.public_route = true
-	RoomState.code = RoomState.PUBLIC_CODE
+	RoomState.code = RoomState.public_code()
 	RoomState.seed_text = String(body.get("seed", "PUBLIC-ROUTE"))
 	RoomState.set_map_scale(RoomState.Scale.INFINITE)
 	RoomState.difficulty = RoomState.Difficulty.STANDARD
@@ -158,7 +167,7 @@ func _on_registration(listed: bool, message: String) -> void:
 		# Someone registered first (409) or the listing failed: join them instead.
 		RoomState.leave_network()
 		RoomState.public_route = true
-		RoomState.code = RoomState.PUBLIC_CODE
+		RoomState.code = RoomState.public_code()
 		_set_status("PUBLIC ROUTE // JOINING THE LIVE ROUTE (%s)" % message)
 		_become_guest()
 
@@ -166,11 +175,11 @@ func _on_registration(listed: bool, message: String) -> void:
 func _become_guest() -> void:
 	if not Backend.room_resolved.is_connected(_on_resolved):
 		Backend.room_resolved.connect(_on_resolved)
-	Backend.resolve_room(RoomState.PUBLIC_CODE)
+	Backend.resolve_room(RoomState.public_code())
 
 
 func _on_resolved(resolved_code: String, endpoint: Dictionary, error: String) -> void:
-	if resolved_code != RoomState.PUBLIC_CODE or not RoomState.public_route or is_authority:
+	if resolved_code != RoomState.public_code() or not RoomState.public_route or is_authority:
 		return
 	if RoomState.online or RoomState.connecting:
 		return
@@ -181,7 +190,7 @@ func _on_resolved(resolved_code: String, endpoint: Dictionary, error: String) ->
 		return
 	var join_error := RoomState.join_room(String(endpoint.get("address", "")),
 		int(endpoint.get("port", 0)), String(endpoint.get("transport", "relay")),
-		RoomState.PUBLIC_CODE)
+		RoomState.public_code())
 	if not join_error.is_empty():
 		_set_status(join_error)
 		_retry_join_later()
@@ -211,7 +220,7 @@ func leave() -> void:
 	if not active:
 		return
 	if not session_id.is_empty():
-		_request("/api/public/leave", {"sessionId": session_id}, func(_ok: bool, _b: Dictionary) -> void: pass)
+		_request("/api/public/leave", {"sessionId": session_id, "game": game_id()}, func(_ok: bool, _b: Dictionary) -> void: pass)
 	active = false
 	is_authority = false
 	session_id = ""
@@ -246,7 +255,7 @@ func _tick() -> void:
 			and not RoomState.online and not RoomState.connecting:
 		_join_attempt_after_msec = 0
 		_joining = false
-		join()
+		join(game_mode)
 		return
 	if session_id.is_empty() and _scene != null and is_instance_valid(_scene) and not _joining \
 			and now >= _join_attempt_after_msec:
@@ -268,6 +277,7 @@ func _tick() -> void:
 			var snapshot: Dictionary = _scene.call("_build_stream_snapshot")
 			body["snapshot"] = Marshalls.raw_to_base64(var_to_bytes(snapshot))
 	_busy = true
+	body["game"] = game_id()
 	_request("/api/public/state", body, _on_state)
 
 
@@ -298,7 +308,7 @@ func _new_claims() -> Array:
 ## the route is running: take a new session id without touching the live route.
 func _refresh_session() -> void:
 	_joining = true
-	_request("/api/public/join", {"playerKey": player_key,
+	_request("/api/public/join", {"playerKey": player_key, "game": game_id(),
 		"name": RoomState.local_display_name()}, func(ok: bool, body: Dictionary) -> void:
 		_joining = false
 		if ok:
