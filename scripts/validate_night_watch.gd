@@ -352,7 +352,7 @@ func run(host: Node) -> int:
 		if file.ends_with(".gd"):
 			_expect(not FileAccess.get_file_as_string("res://src/night_watch/" + file).contains("AudioStreamPlayer"), "%s makes its own audio player" % file)
 	shift.advance_ms(1000.0)
-	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "POWER 100%", "the clock or power label is wrong at the start of the night")
+	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "Power left: 100%", "the clock or power label is wrong at the start of the night")
 	shift.toggle_door("doorL")
 	shift.set_light("doorR", true)
 	shift.advance_ms(100.0)

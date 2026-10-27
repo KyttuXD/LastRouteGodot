@@ -37,6 +37,7 @@ var _players := {}
 var _flinch_left := {}
 var lamp_on := true
 var _hour_seen := 0
+var _elapsed_ms := 0.0
 var _warned := {}
 
 
@@ -48,9 +49,10 @@ func _ready() -> void:
 	sim = NightWatchClassic.new(night, seed_value, NightWatchSession.custom_levels)
 	_spawn_hunters()
 	paths = NightWatchPaths.new(building, office)
+	hud.mode_text = "%d. %s · %s" % [int(mode_data().get("num", 1)), String(mode_data().get("title", "CLASSIC")).capitalize(), level_name().capitalize()]
 	hud.update_status(0, 100.0, 0, night)
 	hud.set_cam(monitor_room, building.camera_transform(monitor_room))
-	hud.queue_call(NightWatchData.call_lines(night))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level(mode_id, level))
 	_sync_visuals()
 
 
@@ -82,6 +84,8 @@ func _build_world() -> void:
 	hud.next_pressed.connect(next_night)
 	hud.menu_pressed.connect(back_to_games)
 	hud.resume_pressed.connect(func(): set_paused(false))
+	hud.pause_requested.connect(func(): set_paused(true))
+	hud.cameras_requested.connect(toggle_monitor)
 	hud.subtitles_toggled.connect(func(on: bool):
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
@@ -281,6 +285,8 @@ func current_input() -> Dictionary:
 func advance_ms(dt_ms: float) -> void:
 	if state != State.PLAYING:
 		return
+	_elapsed_ms += dt_ms
+	hud.update_call(_elapsed_ms, dt_ms)
 	var events := sim.step(dt_ms, current_input())
 	if sim.hour() != _hour_seen:
 		_hour_seen = sim.hour()
