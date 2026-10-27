@@ -19,7 +19,11 @@ func run(host: Node) -> int:
 			"res://src/playtest/bots/last_route_bot.gd", "res://src/playtest/bots/city_bot.gd", "res://src/playtest/bots/night_watch_bot.gd"]:
 		var script := load(path) as GDScript
 		_expect(script != null and script.can_instantiate(), "%s must compile" % path)
-	_expect(PlaytestScenarios.has_method("play") and PlaytestScenarios.has_method("menu_tour") and PlaytestScenarios.has_method("death_tour"), "PlaytestScenarios must expose play, menu_tour and death_tour")
+	var scenario_methods: Array = []
+	for method in (load("res://src/playtest/playtest_scenarios.gd") as GDScript).get_script_method_list():
+		scenario_methods.append(String(method["name"]))
+	for wanted in ["play", "run_loop", "menu_tour", "death_tour", "coop_bot", "probe"]:
+		_expect(scenario_methods.has(wanted), "PlaytestScenarios must define %s()" % wanted)
 
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")
