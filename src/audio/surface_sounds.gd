@@ -19,6 +19,7 @@ const FLOOR_KINDS := {
 	"stone0": "stone", "stone1": "stone", "stone2": "stone",
 	"concrete0": "concrete", "concrete1": "concrete",
 	"epoxy0": "tile", "epoxy1": "tile", "terracotta0": "stone", "terracotta1": "stone",
+	"terrazzo0": "tile", "terrazzo1": "tile",
 	"safe": "metal", "safe_plain": "metal", "safe_mark": "metal",
 }
 

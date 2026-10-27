@@ -6,7 +6,7 @@ extends RefCounted
 ## of a room is reachable from its door (so hunters and players can walk the whole room). Hall widths, humps, room sizes
 ## and seam connectivity are the shared suites' job; they sample every biome in StreamedRouteGenerator.BIOMES.
 
-const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE"]
+const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
 const RADIUS := 7
 const REGIONS := ["hospital", "lab", "greenhouse", "mall"]
 const MIN_CHUNKS := 6
