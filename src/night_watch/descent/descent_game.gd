@@ -16,6 +16,7 @@ var descent := 1
 var state: State = State.PLAYING
 var sim: NightWatchDescentLogic
 var world: NightWatchDescentWorld
+var office: NightWatchDescentOffice
 var panel: NightWatchDescentPanel
 var hud: NightWatchHud
 var death_moment: DeathMoment
@@ -43,7 +44,7 @@ func _ready() -> void:
 		elise_level = clampi(int(custom.get("elise", 0)), 0, NightWatchModesData.MAX_AI)
 	_build_world()
 	sim = NightWatchDescentLogic.new(descent, seed_value, elise_level)
-	hud.queue_call([] if is_custom else NightWatchDescentData.call_lines(descent))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level("descent", descent))
 	_ride_seen = true
 	_sync_visuals()
 
@@ -59,10 +60,10 @@ func _build_world() -> void:
 	env.ambient_light_energy = 1.0
 	world_env.environment = env
 	add_child(world_env)
-	world = NightWatchDescentWorld.new()
-	world.name = "World"
-	add_child(world)
-	world.build()
+	office = NightWatchOfficeRegistry.make("descent") as NightWatchDescentOffice
+	office.name = "Office"
+	add_child(office)
+	world = office.world
 	_spawn_elise()
 	_panel_layer = CanvasLayer.new()
 	_panel_layer.name = "PanelLayer"
@@ -176,6 +177,7 @@ func advance_ms(dt_ms: float) -> void:
 	if state != State.PLAYING:
 		return
 	_handle(sim.step(dt_ms, {"hold": hold_down}))
+	hud.update_call(sim.elapsed, dt_ms)
 	_sync_visuals()
 	_check_end()
 

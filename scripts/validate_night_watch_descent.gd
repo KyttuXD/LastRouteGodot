@@ -130,6 +130,7 @@ func run(host: Node) -> int:
 	_dynamics()
 	_variety()
 	_calls()
+	await _office(host)
 	await _scene(host)
 	if _failures == 0:
 		print("  night_watch_descent  the 2D numbers, puzzles, variety levers, seeded replay, the shift scene (win, loss, saves, Custom Night)")
@@ -526,7 +527,7 @@ func _calls() -> void:
 	var ordinal := RegEx.new()
 	ordinal.compile("(?i)\\b(next|first|then|afterwards?|after that|before|second|third|fourth|last|finally)\\b")
 	for d in range(1, 6):
-		var lines := D.call_lines(d)
+		var lines: Array = NightWatchCallsData.for_level("descent", d).get("lines", [])
 		_expect(not lines.is_empty(), "descent %d has no call" % d)
 		for line in lines:
 			var text := String(line)
@@ -538,7 +539,29 @@ func _calls() -> void:
 				_expect((D.RUNS[d] as Array).has(kind), "descent %d's call names the %s stage it does not have: %s" % [d, kind, text])
 				_expect(ordinal.search(text) == null or kind == "hold" or d == 1, "descent %d: '%s' ranks the %s stage" % [d, text, kind])
 
-	_expect((D.call_lines(3) as Array).any(func(l): return String(l).contains("She slows down while you work the pipes, but she doesn't stop.")), "descent 3's call does not say she slows on the pipes")
+	_expect((NightWatchCallsData.for_level("descent", 3).get("lines", []) as Array).any(func(l): return String(l).contains("She slows down while you work the pipes, but she doesn't stop.")), "descent 3's call does not say she slows on the pipes")
+
+
+# --- the office (docs/NIGHT_WATCH_OFFICES.md): lift_landing --------------------------------------------------------------------
+
+func _office(host: Node) -> void:
+	_expect(NightWatchOfficeRegistry.built("descent") and NightWatchOfficeRegistry.office_id("descent") == "lift_landing", "The Descent's office is not registered as lift_landing")
+	var office := NightWatchOfficeRegistry.make("descent") as NightWatchDescentOffice
+	host.add_child(office)
+	await host.get_tree().process_frame
+	await host.get_tree().physics_frame
+	for p in office.spec.problems():
+		_expect(false, "lift_landing: %s" % p)
+	_expect(not office.spec.has_monitor and office.stations.has("panel") and office.stations.has("door"), "lift_landing: a monitor, or the panel / door station missing")
+	_expect(office.light_count() <= NightWatchOfficeSpec.MAX_REAL_LIGHTS, "lift_landing: %d real lights" % office.light_count())
+	_expect(office.world.camera != null and office.world.get_child_count() > 0 and office.find_children("*", "Camera3D", true, false).size() == 1, "lift_landing is built twice (more than one camera)")
+	for e in office.spec.entrances:
+		var at := Vector3((-1.0 if e["sim_room"] == "L" else 1.0) * NightWatchDescentWorld.WINDOW_X, 0.0, NightWatchDescentWorld.SILL_NEAR)
+		_expect((e["position"] as Vector3).distance_to(at) < 0.05, "lift_landing: entrance %s is not where Elise stands at the glass" % e["id"])
+	for problem in NwOfficeWalk.problems(office):
+		_expect(false, "lift_landing: %s" % problem)
+	office.queue_free()
+	await host.get_tree().process_frame
 
 
 # --- the shift scene ----------------------------------------------------------------------------------------------------------

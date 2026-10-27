@@ -14,9 +14,9 @@ const OFFICES := {
 	"lure":     {"id": "broadcast_booth", "script": ""},
 	"bedroom":  {"id": "child_bedroom", "script": ""},
 	"story":    {"id": "control_room", "script": ""},
-	"descent":  {"id": "lift_landing", "script": ""},
+	"descent":  {"id": "lift_landing", "script": "res://src/night_watch/descent/descent_office.gd"},
 	"dayshift": {"id": "cargo_bay", "script": ""},
-	"extra":    {"id": "watch_post", "script": ""},
+	"extra":    {"id": "watch_post", "script": "res://src/night_watch/openair/openair_office.gd"},
 	"mixed":    {"id": "hub_office", "script": ""},
 }
 

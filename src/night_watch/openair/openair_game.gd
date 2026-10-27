@@ -24,6 +24,7 @@ var has_more := false
 var state: State = State.PLAYING
 var sim: NightWatchOpenAirLogic
 var world: NightWatchOpenAirWorld
+var office: NightWatchOpenAirOffice
 var player: PlayerController3D
 var hud: NightWatchHud
 var death_moment: DeathMoment
@@ -65,7 +66,7 @@ func _ready() -> void:
 	sim = NightWatchOpenAirLogic.new(watch, seed_value + step_index, own, verrine, quenelle)
 	_build_world()
 	_spawn_hunters()
-	hud.queue_call([] if is_custom else D.call_lines(watch + 1))
+	hud.set_call_script(NightWatchCallScript.new([], 0.0) if is_custom else NightWatchCallScript.for_level("extra", watch + 1))
 	_sync_visuals(0.0, true)
 
 
@@ -84,10 +85,11 @@ func _build_world() -> void:
 	env.ambient_light_energy = 1.0
 	world_env.environment = env
 	add_child(world_env)
-	world = NightWatchOpenAirWorld.new()
-	world.name = "World"
-	add_child(world)
-	world.build(watch)
+	office = NightWatchOfficeRegistry.make("extra") as NightWatchOpenAirOffice
+	office.name = "Office"
+	office.watch = watch
+	add_child(office)
+	world = office.world
 	hud = NightWatchHud.new()
 	hud.name = "Hud"
 	add_child(hud)
@@ -279,6 +281,7 @@ func advance_ms(dt_ms: float, delta := -1.0) -> void:
 	if watch == 2:
 		inp["tent"] = world.in_tent(player.global_position)
 	var events := sim.step(dt_ms, inp)
+	hud.update_call(sim.elapsed, dt_ms)
 	var hour := NightWatchData.hour_index(sim.elapsed)
 	if hour != _hour_seen:
 		_hour_seen = hour

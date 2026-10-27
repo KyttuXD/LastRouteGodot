@@ -47,10 +47,27 @@ Rules for an office:
 | Dead Air (`lure`) | `broadcast_booth` | a radio / broadcast booth: reboot panels, vent and a climate dial, glass window | vent, window, door | yes (systems panel) | A (nw-modes-a) |
 | Bedtime (`bedroom`) | `child_bedroom` | a child's bedroom with a closet, a bed and a hall door: listen, no cameras | closet, hall door, bed | no | A |
 | The Facility (`story`) | `control_room` | a control room: a wall of monitors and task panels, six rooms of tasks | door, lift, vent | yes (wall) | A |
-| The Descent (`descent`) | `lift_landing` | an elevator cabin / shaft landing: wires, signal panel, pipes, a window | window, hatch | no | C (nw-modes-c) |
+| The Descent (`descent`) | `lift_landing` | an elevator cabin / shaft landing: wires, signal panel, pipes, a window | window, hatch | no | C (nw-modes-c): **built** |
 | Salvage Run (`dayshift`) | `cargo_bay` | a cargo bay / workshop: a rack to salvage from, a budget desk, doors and a window | two doors, window | yes | B |
-| Open Air (`extra`) | `watch_post` | an outdoor guard booth / roof / bus stop / campfire (three watches): daylight and night outdoor | opening, edge, path | no | C |
+| Open Air (`extra`) | `watch_post` | an outdoor guard booth / roof / bus stop / campfire (three watches): daylight and night outdoor | opening, edge, path | no | C (nw-modes-c): **built** |
 | Mixed Shift (`mixed`) | `hub_office` | rotates through the set (one office per hour, drawn by the pacing director) or the Classic building hub | per office | yes | this lane |
 
 Each lane chooses and documents its own offices in this file (a row of its own, with the 2D screenshot next to the 3D concept) and implements them in its
 own folder. Mixed Shift's `rotation` lists the office ids it cycles.
+
+
+## Lane C: `lift_landing` (The Descent) and `watch_post` (Open Air)
+
+Both are built from their mode's own world class (`NightWatchDescentWorld`, `NightWatchOpenAirWorld`) wrapped by a `NightWatchOfficeBase` script in the mode's folder
+(`src/night_watch/descent/descent_office.gd`, `src/night_watch/openair/openair_office.gd`); the game scenes make them with `NightWatchOfficeRegistry.make(mode)`. Neither has a
+monitor. Entrance positions are the last waypoints of the hunters' graphs (Elise at the glass, Verrine at the stair door and hatch, Wynelle at the shelter, the campfire's three).
+`NwOfficeWalk` (`scripts/nw_office_walk.gd`) is the capsule flood fill as a helper: the mode suites run it on every variant (`watch_post` is built three ways, by `watch`).
+
+| Office | 2D (`games/night-watch/assets/offices/`) | 3D, from the entrance | 3D, at the desk / main station |
+|---|---|---|---|
+| `lift_landing` (descent): car, panel, two caged windows, shaft | ![descent](night_watch_offices/lift_landing_2d.png) | ![door](night_watch_offices/lift_landing_door.png) | ![panel](night_watch_offices/lift_landing_desk.png) |
+| `watch_post`, ROOFTOP (`extra`): stair door left, hatch right, lantern post | ![extra](night_watch_offices/watch_post_2d.png) | ![door](night_watch_offices/watch_post_door.png) | ![lantern](night_watch_offices/watch_post_desk.png) |
+| `watch_post`, BUS STOP: shelter, heat lamp, canisters, the road | ![bus stop](night_watch_offices/watch_post_busstop_2d.png) | ![road](night_watch_offices/watch_post_busstop_door.png) | ![lamp](night_watch_offices/watch_post_busstop_desk.png) |
+| `watch_post`, CAMPFIRE: fire, log pile, firewood, tent, torch posts | ![campfire](night_watch_offices/watch_post_campfire_2d.png) | ![trees](night_watch_offices/watch_post_campfire_door.png) | ![fire](night_watch_offices/watch_post_campfire_desk.png) |
+
+Captures: `tools/look/night_watch_offices_c_capture.tscn` (run with `--scene ... -- OUT_DIR` on the mini).

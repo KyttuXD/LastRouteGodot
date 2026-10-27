@@ -36,30 +36,4 @@ const PIPES_TURNS := [2, 2, 2, 2, 2]
 
 const STAGE_NAMES := {"wires": "FUSE BOXES", "memory": "SIGNAL PANEL", "pipes": "PIPEWORK", "hold": "DOOR"}
 
-const CALLS := {
-	1: {"at": 5, "lines": [
-		"Zellia. The elevator needs its service run, and you'll be doing it from the car.",
-		"Each stage has its own panel. The first is the fuse boxes: when one lights up, follow its wire to the button it ends at and press it.",
-		"Nothing is out there tonight. Take your time.",
-	]},
-	2: {"at": 5, "lines": [
-		"There's something outside the car this time. She comes closer the longer you take, and every wrong attempt makes it quicker.",
-		"A new stage this run: the signal panel. Four pads light up one at a time. When they stop, press them in the same order.",
-	]},
-	3: {"at": 5, "lines": [
-		"This run has pipes as well. Turn each piece until there's one clear line from IN to OUT. She slows down while you work the pipes, but she doesn't stop.",
-		"Finish a stage and she drops back for a while. Get through them one at a time and don't linger.",
-	]},
-	4: {"at": 5, "lines": [
-		"At the bottom she may try to get on. Hold the door shut until the car stops.",
-		"Keep your wrong attempts down. They count for more now.",
-	]},
-	5: {"at": 5, "lines": [
-		"This is the longest run. Everything's on it, and the wires have to be done twice.",
-		"Stay steady. You've done each of these already.",
-	]},
-}
-
-
-static func call_lines(descent: int) -> Array:
-	return (CALLS[descent]["lines"] as Array).duplicate() if CALLS.has(descent) else []
+## Zellia's calls are the shared table (NightWatchCallsData, mode `descent`), verbatim from the 2D descent-data.js.

@@ -75,21 +75,21 @@ func build() -> void:
 
 func _build_car() -> void:
 	var shell := _prop("Car")
-	_c(shell, Vector3(HALF_W * 2.0 + 0.4, 0.2, HALF_D * 2.0 + 0.4), Vector3(0, -0.1, 0), "Floor", {"tint": Color(1.0, 1.0, 1.0)})
+	_c(shell, Vector3(HALF_W * 2.0 + 0.4, 0.2, HALF_D * 2.0 + 0.4), Vector3(0, -0.1, 0), "Floor", {"solid": true, "tint": Color(1.0, 1.0, 1.0)})
 	_c(shell, Vector3(HALF_W * 2.0 + 0.4, 0.2, HALF_D * 2.0 + 0.4), Vector3(0, HEIGHT + 0.1, 0), "Ceiling", {"tint": Color(0.7, 0.7, 0.75)})
 	for x in [-HALF_W - 0.1, HALF_W + 0.1]:
-		_c(shell, Vector3(0.2, HEIGHT, HALF_D * 2.0), Vector3(x, HEIGHT * 0.5, 0), "WallSide", {"tint": Color(0.8, 0.8, 0.85)})
-	_c(shell, Vector3(HALF_W * 2.0 + 0.4, HEIGHT, 0.2), Vector3(0, HEIGHT * 0.5, HALF_D + 0.1), "WallFront", {"tint": Color(0.7, 0.7, 0.75)})
+		_c(shell, Vector3(0.2, HEIGHT, HALF_D * 2.0), Vector3(x, HEIGHT * 0.5, 0), "WallSide", {"solid": true, "tint": Color(0.8, 0.8, 0.85)})
+	_c(shell, Vector3(HALF_W * 2.0 + 0.4, HEIGHT, 0.2), Vector3(0, HEIGHT * 0.5, HALF_D + 0.1), "WallFront", {"solid": true, "tint": Color(0.7, 0.7, 0.75)})
 	# the back wall, with a window opening each side of the service panel
-	_c(shell, Vector3(HALF_W * 2.0, WINDOW_BOTTOM, 0.2), Vector3(0, WINDOW_BOTTOM * 0.5, -HALF_D - 0.1), "WallBackLow", {"tint": Color(0.85, 0.85, 0.9)})
-	_c(shell, Vector3(HALF_W * 2.0, HEIGHT - WINDOW_TOP, 0.2), Vector3(0, WINDOW_TOP + (HEIGHT - WINDOW_TOP) * 0.5, -HALF_D - 0.1), "WallBackHigh", {"tint": Color(0.85, 0.85, 0.9)})
+	_c(shell, Vector3(HALF_W * 2.0, WINDOW_BOTTOM, 0.2), Vector3(0, WINDOW_BOTTOM * 0.5, -HALF_D - 0.1), "WallBackLow", {"solid": true, "tint": Color(0.85, 0.85, 0.9)})
+	_c(shell, Vector3(HALF_W * 2.0, HEIGHT - WINDOW_TOP, 0.2), Vector3(0, WINDOW_TOP + (HEIGHT - WINDOW_TOP) * 0.5, -HALF_D - 0.1), "WallBackHigh", {"solid": true, "tint": Color(0.85, 0.85, 0.9)})
 	var mid_h := WINDOW_TOP - WINDOW_BOTTOM
 	var mid_y := WINDOW_BOTTOM + mid_h * 0.5
 	var edge_w := HALF_W - (WINDOW_X + WINDOW_W * 0.5)
 	var centre_w := (WINDOW_X - WINDOW_W * 0.5) * 2.0
-	_c(shell, Vector3(centre_w, mid_h, 0.2), Vector3(0, mid_y, -HALF_D - 0.1), "WallBackPanel", {"tint": Color(0.85, 0.85, 0.9)})
+	_c(shell, Vector3(centre_w, mid_h, 0.2), Vector3(0, mid_y, -HALF_D - 0.1), "WallBackPanel", {"solid": true, "tint": Color(0.85, 0.85, 0.9)})
 	for s in [-1.0, 1.0]:
-		_c(shell, Vector3(edge_w, mid_h, 0.2), Vector3(s * (HALF_W - edge_w * 0.5), mid_y, -HALF_D - 0.1), "WallBackEdge", {"tint": Color(0.85, 0.85, 0.9)})
+		_c(shell, Vector3(edge_w, mid_h, 0.2), Vector3(s * (HALF_W - edge_w * 0.5), mid_y, -HALF_D - 0.1), "WallBackEdge", {"solid": true, "tint": Color(0.85, 0.85, 0.9)})
 	# the service panel plate on the wall between the windows (the repair screen is drawn over it)
 	panel_plate = _c(shell, Vector3(centre_w - 0.1, mid_h - 0.1, 0.05), Vector3(0, mid_y, -HALF_D + 0.03), "PanelPlate", {"kind": "metal", "tint": Color(0.5, 0.52, 0.58)})
 	for z in [-HALF_D + 0.04, HALF_D - 0.04]:

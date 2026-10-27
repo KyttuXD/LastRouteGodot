@@ -30,29 +30,7 @@ const WEATHER := {
 const BUS_MS := 18000.0
 const WATCH_MS := NightWatchData.NIGHT_MS   # as long as any night
 
-const CALLS := {
-	1: {"at": 6, "lines": [
-		"Zellia. Tonight's watch is on the roof. The wind keeps taking the lantern, so relight it when it goes.",
-		"The stair door is on the left and the hatch on the right. Hold the torch toward each side to keep her still.",
-		"Bar one when she's at it, and keep the torch on her while she approaches. The lantern's oil works the winches as well as the light, so don't hold them shut for longer than you have to.",
-	]},
-	2: {"at": 6, "lines": [
-		"The bus stop. It's colder than it looks out there.",
-		"The heat lamp burns fuel. There are canisters left around the shelter. Pick them up when you see them.",
-		"Snow comes through in squalls, and the cold bites harder while one lasts. The first bus is due at dawn.",
-	]},
-	3: {"at": 6, "lines": [
-		"Last watch is the campfire. Logs go on the fire, and you fetch more from the dark. Your back is to the trees while you do.",
-		"Verrine comes out of the trees on the left, Quenelle on the right. Hold the torch on a side, and that holds her still.",
-		"Keep the torch on Verrine once she reaches the light, and she goes back. It only holds Quenelle: get in the tent while she's there and she loses the trail.",
-		"The tent only hides you from Quenelle. Verrine keeps coming, and Ysolde goes for the logs. Stay in too long and she looks in.",
-		"Rain comes and goes, and the fire goes down faster in it. When it burns low, they get bolder.",
-	]},
-}
-
-
-static func call_lines(watch_number: int) -> Array:
-	return (CALLS[watch_number]["lines"] as Array).duplicate() if CALLS.has(watch_number) else []
+## Zellia's calls are the shared table (NightWatchCallsData, mode `extra`), verbatim from the 2D openair-data.js.
 
 
 ## Where a step is heard: on the side she is coming from ("L" the stair door, "R" the hatch), at her own distance from centre.

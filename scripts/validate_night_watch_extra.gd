@@ -98,6 +98,7 @@ func run(host: Node) -> int:
 	_custom_and_misc()
 	_variety()
 	_paths(host)
+	await _offices(host)
 	await _scene(host)
 	if _failures == 0:
 		print("  night_watch_extra  the 2D numbers, three watches, variety levers, seeded replay, walking routes, the shift scene (board, win, loss, saves, Custom Night chain)")
@@ -129,11 +130,11 @@ func _numbers() -> void:
 	_expect(D.custom_watches({"verrine": 20, "wynelle": 20, "ysolde": 20, "quenelle": 20}) == [0, 1, 2], "custom watches (everyone)")
 	# her steps are heard on the side she is coming from
 	_expect(D.side_pan("verrine", "L") == -0.6 and D.side_pan("verrine", "R") == 0.6 and D.side_pan("verrine", "") == -0.6 and D.side_pan("quenelle", "R") == 0.6, "the steps' pans differ")
-	# Zellia's calls: every watch has one, the campfire's says how it works (the keys are on the HUD's hint line)
+	# Zellia's calls are the shared table (verbatim 2D); the campfire's says how it works, in her words, and matches the rules
 	for n in 3:
-		_expect(not D.call_lines(n + 1).is_empty(), "watch %d has no call" % (n + 1))
-	var text := " ".join(D.call_lines(3))
-	for re_text in ["Verrine[^.]*\\bleft\\b", "Quenelle[^.]*\\bright\\b", "torch[^.]*\\bholds her still", "torch on Verrine[^.]*\\bgoes back\\b", "only holds Quenelle[^.]*\\btent\\b[^.]*loses the trail", "tent only hides you from Quenelle[^.]*\\. Verrine keeps coming", "Ysolde goes for the logs[^.]*\\. Stay in too long and she looks in"]:
+		_expect(not (NightWatchCallsData.for_level("extra", n + 1).get("lines", []) as Array).is_empty(), "watch %d has no call" % (n + 1))
+	var text := " ".join(NightWatchCallsData.for_level("extra", 3).get("lines", []))
+	for re_text in ["Verrine[^.]*\\bleft\\b", "Quenelle[^.]*\\bright\\b", "\\bQ and E\\b[^.]*\\btorch\\b[^.]*\\bholds her still", "torch on Verrine[^.]*\\bgoes back\\b", "only holds Quenelle[^.]*\\btent with T\\b[^.]*loses the trail", "tent only hides you from Quenelle[^.]*\\. Verrine keeps coming", "Ysolde goes for the logs[^.]*\\. Stay in too long and she looks in", "\\bSpace\\b", "\\bG fetches\\b"]:
 		var re := RegEx.new()
 		re.compile(re_text)
 		_expect(re.search(text) != null, "Zellia's campfire call does not say /%s/" % re_text)
@@ -655,6 +656,33 @@ func _paths(host: Node) -> void:
 		steps += 1
 	_expect(walker.pos.distance_to(roof.point("R2")) < 0.1 and worst <= NightWatchWalker.RUN_SPEED / 30.0 + 0.2, "the walker does not arrive, or exceeds the run speed in a step (%.2f)" % worst)
 	roof.queue_free()
+
+
+# --- the office (docs/NIGHT_WATCH_OFFICES.md): watch_post, built three ways ----------------------------------------------------
+
+func _offices(host: Node) -> void:
+	_expect(NightWatchOfficeRegistry.built("extra") and NightWatchOfficeRegistry.office_id("extra") == "watch_post", "Open Air's office is not registered as watch_post")
+	for w in 3:
+		var office := NightWatchOfficeRegistry.make("extra") as NightWatchOpenAirOffice
+		office.watch = w
+		host.add_child(office)
+		await host.get_tree().process_frame
+		await host.get_tree().physics_frame
+		var label := "watch %d office" % w
+		for p in office.spec.problems():
+			_expect(false, "%s: %s" % [label, p])
+		for sid in office.spec.required_stations:
+			_expect(office.stations.has(sid), "%s: no station %s" % [label, sid])
+		_expect(not office.spec.has_monitor and office.light_count() <= NightWatchOfficeSpec.MAX_REAL_LIGHTS, "%s: a monitor, or %d real lights" % [label, office.light_count()])
+		for prop_name in office.props:
+			_expect(int(NightWatchArt.prop_stats(office.props[prop_name])["untextured"]) == 0, "%s: prop %s has untextured cubes" % [label, prop_name])
+		# the entrances are where the hunters' last waypoints are
+		for e in office.spec.entrances:
+			_expect(office.world.paths.has_key(String(e["sim_room"])) and (office.world.point(String(e["sim_room"])) - (e["position"] as Vector3)).length() < 0.05, "%s: entrance %s is not at its waypoint %s" % [label, e["id"], e["sim_room"]])
+		for problem in NwOfficeWalk.problems(office):
+			_expect(false, "%s: %s" % [label, problem])
+		office.queue_free()
+		await host.get_tree().process_frame
 
 
 # --- the shift scene ----------------------------------------------------------------------------------------------------------
