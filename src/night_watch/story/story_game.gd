@@ -79,6 +79,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
+	hud.set_monitor_available(false)   # no camera monitor in this scene
 	hud.hint_label.text = "WASD move   E use (hold E on the lift button)   hold F beacon   hold H hide in Control   hold C through a door to crawl   P pause"
 	panel = StoryPanel.new()
 	hud.add_child(panel)

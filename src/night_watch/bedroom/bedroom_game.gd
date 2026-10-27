@@ -88,6 +88,7 @@ func _build_world() -> void:
 		hud.set_subtitles(on)
 		NightWatchSave.set_subtitles(on))
 	hud.set_subtitles(NightWatchSave.subtitles())
+	hud.set_monitor_available(false)   # no camera monitor in this scene
 	hud.hint_label.text = "Hold  A closet door   D hall light   F bed light   mouse / arrows look   R radio   P pause"
 	death_moment = DeathMoment.new()
 	death_moment.name = "DeathMoment"
