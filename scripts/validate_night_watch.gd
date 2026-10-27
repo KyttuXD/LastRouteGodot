@@ -216,6 +216,7 @@ func run(host: Node) -> int:
 		_expect(groups >= 3, "the %s camera room has only %d prop groups" % [id, groups])
 	_expect(building_cubes >= 420, "the eight camera rooms have only %d cubes (420 or more expected)" % building_cubes)
 	print("  art: office %d cubes in %d props, camera rooms %d cubes" % [office_cubes, shift.office.props.size(), building_cubes])
+	_check_uvs(shift)
 	# shading is baked: a cube has vertex colours that differ between its top and bottom
 	var sample := shift.office.find_child("DeskTop", true, false) as MeshInstance3D
 	var colors: PackedColorArray = sample.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
@@ -352,7 +353,7 @@ func run(host: Node) -> int:
 		if file.ends_with(".gd"):
 			_expect(not FileAccess.get_file_as_string("res://src/night_watch/" + file).contains("AudioStreamPlayer"), "%s makes its own audio player" % file)
 	shift.advance_ms(1000.0)
-	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "POWER 100%", "the clock or power label is wrong at the start of the night")
+	_expect(shift.hud.clock_label.text == "12 AM" and shift.hud.power_label.text == "Power left: 100%", "the clock or power label is wrong at the start of the night")
 	shift.toggle_door("doorL")
 	shift.set_light("doorR", true)
 	shift.advance_ms(100.0)
@@ -461,8 +462,8 @@ func _check_walking(host: Node) -> void:
 				var n := int(ceil(p0.distance_to(p1) / 0.1))
 				for k in range(1, n):
 					var q := p0.lerp(p1, float(k) / float(n))
-					for w in walls:
-						if (w["rect"] as Rect2).has_point(Vector2(q.x, q.z)):
+					for wb in walls:
+						if (wb["rect"] as Rect2).has_point(Vector2(q.x, q.z)):
 							bad_wall += 1
 	_expect(missing == 0, "%d room pairs have no walking route" % missing)
 	_expect(bad_wall == 0, "walking routes cross walls at %d points" % bad_wall)
@@ -491,6 +492,48 @@ func _check_walking(host: Node) -> void:
 		last = w.pos
 	_expect(steps < 2000 and w.pos.distance_to(goal) <= 0.05, "the walker never reached her room")
 	_expect(longest <= NightWatchWalker.MAX_SPEED * 0.05 + 0.01, "the walker moved %.2f m in one 0.05 s step" % longest)
+	# the stuck test: every hunter walks every ordered room pair, arrives within her hop budget (plus slack), makes progress at every second and never stands in a wall
+	var stuck := 0
+	var late := 0
+	var in_wall := 0
+	for hid in ["dovelle", "ravelle", "aki", "ilyra"]:
+		var level := 12
+		var budget2 := NightWatchWalker.budget_for(level)
+		for a in rooms:
+			for b in rooms:
+				if a == b or String(a).begins_with("door") and String(b).begins_with("door"):
+					continue
+				var wk := NightWatchWalker.new()
+				var legs3: Array = paths.legs_for(String(a), String(b))
+				if legs3.is_empty():
+					continue
+				var goal2: Vector3 = legs3[legs3.size() - 1]["p"]
+				wk.place(legs3[0]["p"], goal2, goal2, String(a))
+				wk.go(legs3, String(b), goal2, budget2)
+				var t := 0.0
+				var last_pos := wk.pos
+				var idle_t := 0.0
+				while wk.is_walking() and t < 30.0:
+					wk.step(0.05)
+					t += 0.05
+					if wk.pos.distance_to(last_pos) < 0.001 and wk.is_walking():
+						idle_t += 0.05
+					else:
+						idle_t = 0.0
+					if idle_t > 1.0:
+						stuck += 1
+						break
+					last_pos = wk.pos
+					for wb in walls:
+						if (wb["rect"] as Rect2).has_point(Vector2(wk.pos.x, wk.pos.z)):
+							in_wall += 1
+				if wk.is_walking():
+					stuck += 1
+				elif t > budget2 * 1.5 + 1.0 + (0.0 if NightWatchPaths.walked_length(legs3) / budget2 <= NightWatchWalker.MAX_SPEED else NightWatchPaths.walked_length(legs3) / NightWatchWalker.MAX_SPEED):
+					late += 1
+	_expect(stuck == 0, "%d walks got stuck" % stuck)
+	_expect(in_wall == 0, "walkers stood in a wall %d times" % in_wall)
+	_expect(late == 0, "%d walks arrived later than their budget allows" % late)
 	# the speed rule: every hop of every hunter on every night stays inside the clamp; report how many hops the clamp bites on
 	var clamped := 0
 	var hops := 0
@@ -527,3 +570,90 @@ func _check_walking(host: Node) -> void:
 	_expect(model.position.distance_to(shift.building.stand_position("westhall", 0)) < 1.6, "Dovelle did not arrive in the west hall")
 	shift.queue_free()
 	await host.get_tree().process_frame
+
+
+
+## Texture mapping of every cube in the office and the camera rooms: the same texel density on every face (32 px per metre, hazard tape 64 px per
+## metre along its length and width), within 10%; hazard tape counts a whole number of stripe periods along its length, so it starts and ends
+## on the same phase; every UV is finite, non-negative and spans a real area. Tape faces use the stripe tile, every other face of a tape cube a
+## plain metal tile (nothing is a stretched copy of the front texture).
+func _check_uvs(shift: NightWatchGame) -> void:
+	var meshes := []
+	meshes.append_array(shift.office.find_children("*", "MeshInstance3D", true, false))
+	meshes.append_array(shift.building.find_children("*", "MeshInstance3D", true, false))
+	var faces := 0
+	var tape_faces := 0
+	var bad_density := []
+	var bad_phase := []
+	var bad_uv := 0
+	var edge_faces := 0
+	for m in meshes:
+		var mi := m as MeshInstance3D
+		if mi.mesh == null or mi.mesh.get_surface_count() == 0 or not mi.has_meta("nw_name"):
+			continue
+		var hazard := String(mi.get_meta("nw_hazard", ""))
+		for surface in mi.mesh.get_surface_count():
+			var arrays := mi.mesh.surface_get_arrays(surface)
+			var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var tape_surface := not hazard.is_empty()
+			var f := 0
+			while f + 5 < v.size():
+				faces += 1
+				# a face is drawn as triangles with corners 0,2,1 and 0,3,2 (clockwise for Godot): corner 0 = v[f], corner 1 = v[f+2], corner 2 = v[f+1]
+				var p0 := v[f]
+				var p1 := v[f + 2]
+				var p2 := v[f + 1]
+				var u0 := uv[f]
+				var u1 := uv[f + 2]
+				var u2 := uv[f + 1]
+				for i in 6:
+					var q := uv[f + i]
+					if not is_finite(q.x) or not is_finite(q.y) or q.x < -0.001 or q.y < -0.001:
+						bad_uv += 1
+				var len_u := p0.distance_to(p1)
+				var len_v := p1.distance_to(p2)
+				var span_u := absf(u1.x - u0.x)
+				var span_v := absf(u1.y - u2.y)
+				if tape_surface and span_u < 0.0001 and span_v < 0.0001:
+					f += 6       # an end or thickness face of tape: one dark texel, no stripes (checked below)
+					edge_faces += 1
+					continue
+				if len_u < 0.0001 or len_v < 0.0001 or span_u < 0.0001 or span_v < 0.0001:
+					bad_uv += 1
+					f += 6
+					continue
+				var want_v := 64.0 if tape_surface else 32.0
+				var du := span_u * float(NightWatchArt.TEX) / len_u
+				var dv := span_v * float(NightWatchArt.TEX) / len_v
+				if tape_surface:
+					tape_faces += 1
+					var periods := span_u * 2.0
+					if absf(periods - roundf(periods)) > 0.001:
+						bad_phase.append("%s %.3f periods" % [mi.get_meta("nw_name"), periods])
+					du = 64.0 * (roundf(periods) * NightWatchArt.HAZ_PERIOD_M) / len_u   # the density after the whole-period rounding
+				if absf(dv - want_v) / want_v > 0.1 or absf(du - want_v) / want_v > 0.1:
+					bad_density.append("%s %.0f/%.0f px/m (want %.0f)" % [mi.get_meta("nw_name"), du, dv, want_v])
+				f += 6
+	# every cube is drawn outside-out: the first triangle of each face is wound clockwise seen from the face's normal side
+	var inside_out := 0
+	for m in meshes:
+		var mi2 := m as MeshInstance3D
+		if mi2.mesh == null or mi2.mesh.get_surface_count() == 0 or not mi2.has_meta("nw_name"):
+			continue
+		var arr := mi2.mesh.surface_get_arrays(0)
+		var vv: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var nn: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		var k := 0
+		while k + 2 < vv.size():
+			var tri_normal := (vv[k + 1] - vv[k]).cross(vv[k + 2] - vv[k])   # counter-clockwise normal; Godot's front is the clockwise side, so it must point inward
+			if tri_normal.dot(nn[k]) > 0.0:
+				inside_out += 1
+			k += 6
+	_expect(inside_out == 0, "%d cube faces are wound inside out (their near side is culled)" % inside_out)
+	_expect(faces > 500, "the UV check saw only %d faces" % faces)
+	_expect(tape_faces >= 12, "the UV check saw only %d hazard tape faces" % tape_faces)
+	_expect(edge_faces >= 20, "hazard tape has only %d dedicated edge faces" % edge_faces)
+	_expect(bad_uv == 0, "%d faces have non-finite, negative or zero-area UVs" % bad_uv)
+	_expect(bad_phase.is_empty(), "hazard faces that do not hold a whole number of periods: %s" % str(bad_phase.slice(0, 5)))
+	_expect(bad_density.is_empty(), "%d faces are off the texel density: %s" % [bad_density.size(), str(bad_density.slice(0, 6))])

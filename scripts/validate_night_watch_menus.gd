@@ -113,6 +113,34 @@ func run(host: Node) -> int:
 	var first := _texts(menu)
 	_expect(first.has("0 / 7 SHIFTS CLEARED · ★ 0/4 STARS"), "Classic's stat line differs: %s" % str(first))
 	_expect(first.has("01 NIGHT 1") and first.has("02 LOCKED ?????"), "Classic's tiles differ")
+	# hover must not select: entering a row or tile changes nothing, a click selects, the arrow keys move
+	menu.select_mode(0)
+	var title_before := (menu._screen_root.find_child("ModeTitle", true, false) as Label).text
+	var before_mode := menu.board_mode
+	var before_level := menu.board_level
+	for b in menu.mode_buttons:
+		b.mouse_entered.emit()
+	for t in menu.tile_buttons:
+		t.mouse_entered.emit()
+	_expect(menu.board_mode == before_mode and menu.board_level == before_level, "hovering a board entry changed the selection")
+	_expect((menu._screen_root.find_child("ModeTitle", true, false) as Label).text == title_before, "hovering a board entry changed the detail panel")
+	menu.mode_buttons[3].pressed.emit()
+	await host.get_tree().process_frame
+	_expect(menu.board_mode == 3 and (menu._screen_root.find_child("ModeTitle", true, false) as Label).text == "4. BEDTIME", "clicking a mode did not select it")
+	var down := InputEventKey.new()
+	down.keycode = KEY_DOWN
+	down.pressed = true
+	menu._unhandled_input(down)
+	await host.get_tree().process_frame
+	_expect(menu.board_mode == 4, "the down arrow did not move the selection")
+	menu.show_screen("title")
+	await host.get_tree().process_frame
+	var idx := menu.title_index
+	for b in menu.title_buttons:
+		b.mouse_entered.emit()
+	_expect(menu.title_index == idx, "hovering a title entry moved the selection")
+	menu.show_screen("board")
+	await host.get_tree().process_frame
 	# a locked shift cannot be started; a mode that is not built says so
 	var unbuilt := -1
 	for i in NightWatchModesData.MODES.size():
