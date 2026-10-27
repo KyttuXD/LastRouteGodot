@@ -727,3 +727,53 @@ static func report_text(findings: Array, limit: int = 40) -> String:
 		var f: Dictionary = ranked[i]
 		lines.append("  #%d [%s/%s] seed %s | %s | %s" % [i + 1, f["game"], f["rule"], f["seed"], f["at"], f["detail"]])
 	return "\n".join(lines)
+
+## One T and one cross hall junction of `biome` from `generator`, as CAP_AT entries (world x, z, yaw): the camera stands
+## 5 m down an arm looking at the centre. Used by tools/look/capture.gd (CAP_JUNCTION=biome).
+static func junction_spots(generator: StreamedRouteGenerator, biome: String) -> Array:
+	var found := {}
+	for r in range(0, 12):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dz)) != r or found.size() >= 2:
+					continue
+				var coord := Vector3i(dx, 0, dz)
+				if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != biome:
+					continue
+				var data := generator.chunk(coord)
+				var grid: Array = data["grid"]
+				var size := grid.size()
+				var rooms := []
+				for room in data["rooms"]:
+					rooms.append(room["rect"])
+				for z in range(6, size - 6):
+					for x in range(6, size - 6):
+						var cell := Vector2i(x, z)
+						if not is_open_cell(grid, size, cell) or _in_any_room(rooms, cell):
+							continue
+						var arms := []
+						for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+							var ok := true
+							for k in range(1, 6):
+								var c: Vector2i = cell + (step as Vector2i) * k
+								if not is_open_cell(grid, size, c) or _in_any_room(rooms, c):
+									ok = false
+							if ok:
+								arms.append(step)
+						if arms.size() < 3:
+							continue
+						# the centre of a 3 x 3 crossing: all eight neighbours open too
+						var all_open := true
+						for ddz in range(-1, 2):
+							for ddx in range(-1, 2):
+								if not is_open_cell(grid, size, cell + Vector2i(ddx, ddz)):
+									all_open = false
+						if not all_open:
+							continue
+						var kind := "cross" if arms.size() == 4 else "T"
+						if found.has(kind):
+							continue
+						var arm: Vector2i = arms[0]
+						var eye := Vector2(cell) + Vector2(.5, .5) + Vector2(arm) * 5.0
+						found[kind] = "%.1f,%.1f,%.0f" % [coord.x * 45 + eye.x, coord.z * 45 + eye.y, rad_to_deg(atan2(float(arm.x), float(arm.y)))]
+	return found.values()

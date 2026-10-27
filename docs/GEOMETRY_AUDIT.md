@@ -61,7 +61,7 @@ or corner cell is crossed by a hall in both directions, matched neither test and
 tiles: the grey tile patch in the middle of the carpet at every junction. Junction cells next to a one-hall-wide cell now take
 the hall's centre strip (`runner_c`). Audit rules: `junction_floor` (that fallback), `hall_nub` (single wall cell jutting into a
 hall; 0 found, so the wall mass in KT's screenshot is not a grid stub and still needs a repro with its seed/position).
-Not yet verified by a capture: my junction captures landed in a wrong spot, so the visual before/after is still open.
+`docs/junction_before_after.png` (gothic, `CAP_JUNCTION=gothic` in tools/look/capture.gd): top before shows the grey stone tile patch cut into the red carpet at a hall junction, bottom after shows the carpet running through. The jutting wall mass is still not reproduced.
 
 ## City see-through facades (KT: "smaller blocks can be seen through")
 
