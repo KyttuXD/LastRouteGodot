@@ -86,6 +86,12 @@ func _ready() -> void:
 	var dist := float(OS.get_environment("CAM_DIST")) if OS.get_environment("CAM_DIST") != "" else 7.5
 	cam.position = Vector3(x * .5 - 1.0, 1.5, dist)
 	cam.look_at(Vector3(x * .5 - 1.0, 1.0, 0))
+	if OS.get_environment("CAM_YAW") != "":
+		# orbit the row's centre: 0 front, 90 side, 180 back (hunters walk toward +Z, so they face the camera at 0)
+		var centre := Vector3(x * .5 - 1.0, 1.0, 0)
+		cam.position = centre + (cam.position - centre).rotated(Vector3.UP, deg_to_rad(float(OS.get_environment("CAM_YAW"))))
+		cam.position.y = 1.5
+		cam.look_at(centre)
 	if OS.get_environment("CAM_SIDE") != "":
 		# from the side and a little behind, so a beam is seen along its length (Kathy's beam capture)
 		cam.position = Vector3(x * .5 - 1.0 + 6.5, 2.2, 6.0)
