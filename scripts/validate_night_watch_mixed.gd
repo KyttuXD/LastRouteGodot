@@ -67,6 +67,7 @@ func run(host: Node) -> int:
 	_check_golden()
 	_check_rules()
 	await _check_scene(host)
+	await _check_admin(host)
 	if _failures == 0:
 		print("  night_watch_mixed  the 2D rules (golden shifts of all five presets, rosters, spikes, fairness, CHAOS, ENDLESS) and the shift scene (board, win, loss, best hour, vents, monitor, walking)")
 	return _failures
@@ -606,6 +607,74 @@ func _check_scene(host: Node) -> void:
 	en.queue_free()
 	await host.get_tree().process_frame
 	_expect(not InputMap.has_action(NightWatchControls.LIGHT_LEFT) and not InputMap.has_action(MixedControls.SEAL_LEFT), "the quick-key actions stayed registered after the shift closed")
+	NightWatchSave.reset()
+	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
+	NightWatchSession.start(1)
+
+
+# --- the admin menu: the gate, the sections, the layout at three sizes, and every entry really changes the shift ---------------------------------------------
+
+func _admin_snapshot(game: MixedGame) -> String:
+	return NightWatchAdminCheck.dump(game.sim.s) + str(game.sim.roster) + "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [game.sim.hunter_speed, game._admin_frozen, game._admin_god, game._admin_no_scare, game._admin_reveal,
+		game._admin_noclip, game._admin_infinite_seal, game.world.dress_set, game.state, NightWatchSession.night, game.hud.cam_map.blips]
+
+
+func _check_admin(host: Node) -> void:
+	NightWatchSave.path = "user://night_watch_mixed_admin_test.cfg"
+	NightWatchSave.reset()
+	var game := _shift(host, 5, 800)
+	await host.get_tree().process_frame
+	for msg in NightWatchAdminCheck.sections(game, "MIXED SHIFT SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	_expect(game.hud.hint_label.text.contains("0 admin"), "the hint line does not list the admin key for an admin")
+	for msg in await NightWatchAdminCheck.layout(host, game, "MIXED SHIFT SPECIFIC"):
+		_expect(false, "[admin] " + msg)
+	game.advance_ms(5000.0)
+	for msg in NightWatchAdminCheck.exercise(game, func(g): return _admin_snapshot(g), ["WIN THE SHIFT", "LOSE THE SHIFT"]):
+		_expect(false, "[admin] " + msg)
+	game.queue_free()
+	await host.get_tree().process_frame
+	var g2 := _shift(host, 5, 801)
+	await host.get_tree().process_frame
+	g2.admin_set_hour(7)
+	_expect(g2.sim.hour_of() == 7 and g2.hud.clock_label.text != "", "Endless SET THE HOUR 7 did not set the hour")
+	g2.advance_ms(200.0)
+	_expect(g2.hud.clock_label.text == "HOUR 7", "Endless's clock does not read HOUR 7 after the jump: %s" % g2.hud.clock_label.text)
+	g2.admin_set_dressing(2)
+	_expect(g2.world.dress_set == 2 and g2.world.find_children("*", "MeshInstance3D", true, false).any(func(m): return String(m.get_meta("nw_name", "")) == "BodyContainer"), "the dressing did not change to the salvage yard")
+	g2.sim.admin_force_spike()
+	var spike := false
+	for i in 40:
+		g2.advance_ms(100.0)
+		spike = spike or String(g2.sim.s["beat"]) == "spike"
+	_expect(spike, "FORCE A SPIKE did not start a spike")
+	_expect(g2.sim.admin_force_chaos("flicker") and float(g2.sim.s["chaos"]["flicker"]) > 0.0, "FORCE A CHAOS EVENT did not start a flicker")
+	g2.sim.admin_add_threat("verrine")
+	g2.admin_place_hunter("verrine", "vent")
+	g2._animate_models(0.016)
+	_expect(String(g2.sim.threat("verrine")["routeId"]).begins_with("V-") and bool(g2.sim.threat("verrine")["active"]), "the vent crawler was not put in the run")
+	g2.admin_set_frozen(true)
+	var before := float(g2.sim.s["elapsed"])
+	g2.advance_ms(2000.0)
+	_expect(float(g2.sim.s["elapsed"]) == before, "the frozen clock still ran")
+	g2.admin_set_frozen(false)
+	g2.admin_set_god(true)
+	g2.admin_set_hunter_speed(4.0)
+	g2.admin_place_hunter(String(g2.sim.roster[0]), "doorL")
+	g2.advance_ms(15000.0)
+	_expect(g2.state == MixedGame.State.PLAYING, "god mode did not save the shift from a threat at the door")
+	g2.admin_set_god(false)
+	g2.admin_set_no_scare(true)
+	g2.admin_lose()
+	_expect(g2.state == MixedGame.State.LOST and not g2.death_moment.is_open(), "LOSE THE SHIFT with no jumpscare still played the scare")
+	g2.queue_free()
+	await host.get_tree().process_frame
+	var g3 := _shift(host, 1, 802)
+	await host.get_tree().process_frame
+	g3.admin_win()
+	_expect(g3.state == MixedGame.State.WON, "WIN THE SHIFT did not win")
+	g3.queue_free()
+	await host.get_tree().process_frame
 	NightWatchSave.reset()
 	NightWatchSave.path = NightWatchSave.DEFAULT_PATH
 	NightWatchSession.start(1)

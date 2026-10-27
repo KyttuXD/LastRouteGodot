@@ -58,6 +58,8 @@ var levels: Dictionary = {}
 var infinite_battery := false
 var custom := false
 var s: Dictionary = {}
+## Admin: a multiplier on how fast the hunters' rests and waits run (1.0 = the 2D game's numbers exactly).
+var hunter_speed := 1.0
 var _box_starts := 0.0
 var _decay := 0.0
 var _flash_per_sec := 0.0
@@ -415,8 +417,8 @@ func step(dt_ms: float, input := {}) -> Array:
 		var h: Dictionary = s["hall"][id]
 		var st := String(h["state"])
 		if st == "away":
-			h["cool"] = maxf(0.0, float(h["cool"]) - dt_ms * float(mood["hall"]["v"]))
-			if float(h["cool"]) <= 0.0 and (h["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["hall"]["v"]), level(id)):
+			h["cool"] = maxf(0.0, float(h["cool"]) - dt_ms * float(mood["hall"]["v"]) * hunter_speed)
+			if float(h["cool"]) <= 0.0 and (h["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["hall"]["v"]) * hunter_speed, level(id)):
 				h["state"] = "room"
 				h["room"] = next_toward(String(h["room"]))
 				h["t"] = 0.0
@@ -487,8 +489,8 @@ func step(dt_ms: float, input := {}) -> Array:
 	var r: Dictionary = s["rush"]
 	var rl := level(MaskData.RUSHER)
 	if String(r["state"]) == "away":
-		r["cool"] = maxf(0.0, float(r["cool"]) - dt_ms * float(mood["rush"]["v"]))
-		if float(r["cool"]) <= 0.0 and (r["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["rush"]["v"]), rl):
+		r["cool"] = maxf(0.0, float(r["cool"]) - dt_ms * float(mood["rush"]["v"]) * hunter_speed)
+		if float(r["cool"]) <= 0.0 and (r["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["rush"]["v"]) * hunter_speed, rl):
 			r["state"] = "poised"
 			r["room"] = "ballroom"
 			r["t"] = 0.0
@@ -534,14 +536,14 @@ func step(dt_ms: float, input := {}) -> Array:
 	var haelith: Dictionary = s["haelith"]
 	var ilyra: Dictionary = s["ilyra"]
 	if not _vent_out():
-		vent["cool"] = maxf(0.0, float(vent["cool"]) - dt_ms * float(mood["vent"]["v"]))
+		vent["cool"] = maxf(0.0, float(vent["cool"]) - dt_ms * float(mood["vent"]["v"]) * hunter_speed)
 		var pool := []
 		var top := 0
 		for id in MaskData.VENT_HUNTERS:
 			if level(id) > 0 and float(s["elapsed"]) >= float(T["ventFrom"][id]):
 				pool.append(id)
 				top = maxi(top, level(id))
-		if float(vent["cool"]) <= 0.0 and (vent["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["vent"]["v"]), top):
+		if float(vent["cool"]) <= 0.0 and (vent["pacer"] as NightWatchMulberryPacer).step(dt_ms * float(mood["vent"]["v"]) * hunter_speed, top):
 			var who: String = pool[0]
 			if pool.size() > 1:
 				var total := 0

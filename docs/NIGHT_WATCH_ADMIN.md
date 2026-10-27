@@ -28,3 +28,18 @@ their doors, and on Night 7 force Kathy's meet-her-eyes.
 Dead Air (radio / lure controls, vent crawlers), Bedtime (closet / bed state, sleep meter), Masked Hours (mask timer, music box %, vent lights), The Facility (power / hazards), Salvage Run (hull / oxygen / scrap),
 The Descent (level / stairs), Open Air (watch / waypoints), Mixed Shift / Endless (rotation: pick the next dressing / shift, set the endless wave). Each adds the common hooks it can (a mode with no clock, e.g. Bedtime's sleep meter,
 simply lacks `admin_set_hour`) and checks its section in `night_watch_admin` or its own suite.
+
+## Masked Hours, Salvage Run, Mixed Shift (lane B, done)
+
+Each game offers its own `admin_*` hooks (jump to a shift, set the hour, freeze the clock, "power" = the flashlight battery / the power / the doors' seal store, infinite power, god mode, no jumpscare, hunter speed, hunters and where
+they are, win / lose, noclip; calls where the mode has them; reveal where it has a camera map) and a provider script: `mask/mask_admin.gd`, `dayshift/dayshift_admin.gd`, `mixed/mixed_admin.gd` (one `PROVIDERS` line each).
+Hunter speed is a real multiplier in each logic (`hunter_speed`, 1.0 = the 2D numbers exactly, so the golden shifts are untouched). Every entry is exercised in the mode's own suite through `scripts/night_watch_admin_check.gd`
+(the gate, the sections, the layout at 480x270 / 1280x720 / 1920x1080, and that EVERY control changes the snapshot of the game's state).
+
+* **Masked Hours** (MASKED HOURS SPECIFIC): mask on / off and Thessine's mask timer, music box %, vent lights and hall light (held), one flash of the hall light, the desk lamp, Thessine into the office, Umbriel runs the hall, Verrine to the left vent, all hunters home.
+* **Salvage Run** (SALVAGE RUN SPECIFIC): money, quota, rack pieces (scrap / parts / prize / clear), the upgrades, the noise, doors and door lights, Ysolde's knock / glass / away, both visitors one step from their doors. (The 2D mode has no hull or oxygen.)
+* **Mixed Shift** (MIXED SHIFT SPECIFIC): the rotation (tonight's dressing), Endless's hour and roster re-draw, force the next spike, a chaos event now, doors and vent seals, the vent crawler into the run or at a vent, stop the Winder's music box, all threats home.
+
+![Masked Hours](night_watch_admin/admin_mask_3_MASKED_HOURS_SPECIFIC.png)
+![Salvage Run](night_watch_admin/admin_dayshift_3_SALVAGE_RUN_SPECIFIC.png)
+![Mixed Shift](night_watch_admin/admin_mixed_3_MIXED_SHIFT_SPECIFIC.png)

@@ -16,6 +16,9 @@ extends RefCounted
 
 const PROVIDERS := {
 	"classic": "res://src/night_watch/admin/classic_admin.gd",
+	"mask": "res://src/night_watch/mask/mask_admin.gd",
+	"dayshift": "res://src/night_watch/dayshift/dayshift_admin.gd",
+	"mixed": "res://src/night_watch/mixed/mixed_admin.gd",
 }
 const LEVEL_ITEMS := [0, 5, 10, 15, 20]
 
