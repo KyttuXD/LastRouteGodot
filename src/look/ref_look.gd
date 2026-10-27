@@ -126,6 +126,9 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 #   carnival  prize room: star carpet, brass, checker
 #   prison    service bays: riveted metal, hazard striping
 #   inferno   warehouse/foundry: hazard plates and ember cracks
+#   hospital  sage vinyl, mint/white walls with a teal crash rail
+#   lab       Kyttu's Lab: white epoxy and composite panels, cyan guide line, hazard feet
+#   greenhouse terracotta quarry tiles, iron-and-glass glazing, glass roofs over the glasshouses
 
 const REGION_STYLE := {
 	"maze": {"corridor": ["metal0", "metal1", "metal2", "metal3", "grate"],
@@ -147,6 +150,12 @@ const REGION_STYLE := {
 		"wall": ["corridor0", "corridor1", "panel0"], "ceiling": "ceil0", "runner": false},
 	"inferno": {"corridor": ["hazard", "metal3"], "room": ["metal3", "stone1"],
 		"wall": ["inferno0", "brick1"], "ceiling": "ceil0", "runner": false},
+	"hospital": {"corridor": ["vinyl0", "vinyl1"], "room": ["vinyl0", "vinyl1"],
+		"wall": ["hospital0", "hospital1"], "ceiling": "ceil0", "runner": false},
+	"lab": {"corridor": ["epoxy0", "epoxy0", "epoxy1"], "room": ["epoxy0"],
+		"wall": ["lab0", "lab0", "lab1"], "ceiling": "ceil0", "runner": false},
+	"greenhouse": {"corridor": ["terracotta0", "terracotta1", "stone2"], "room": ["terracotta0", "terracotta1"],
+		"wall": ["glasshouse0", "glasshouse1"], "ceiling": "glass", "runner": false},
 }
 
 ## Room-type overrides: which floor and wall kinds a room gets regardless of
@@ -182,6 +191,19 @@ const ROOM_STYLE := {
 	"tide_pool": {"floor": ["stone2"], "wall": ["hedge1", "stone0"]},
 	"thermal_chamber": {"floor": ["hazard", "metal3"], "wall": ["inferno0", "panel2"]},
 	"forge": {"floor": ["hazard", "metal3"], "wall": ["inferno0", "panel0"]},
+	"operating_theatre": {"floor": ["check1", "vinyl0"], "wall": ["hospital0"]},
+	"morgue": {"floor": ["metal2", "check1"], "wall": ["corridor0", "hospital0"]},
+	"waiting_room": {"floor": ["vinyl1"], "wall": ["hospital1"]},
+	"supply_closet": {"floor": ["metal2"], "wall": ["panel0", "hospital0"]},
+	"containment": {"floor": ["epoxy1", "hazard"], "wall": ["lab1"]},
+	"server_hall": {"floor": ["grate", "epoxy0"], "wall": ["lab0", "panel2"]},
+	"decon": {"floor": ["grate", "epoxy1"], "wall": ["lab1"]},
+	"cold_storage": {"floor": ["metal1", "epoxy0"], "wall": ["lab0"]},
+	"lab_office": {"floor": ["floral1", "epoxy0"], "wall": ["office0", "lab0"]},
+	"potting_shed": {"floor": ["parquet1", "terracotta1"], "wall": ["glasshouse0"]},
+	"irrigation_room": {"floor": ["grate", "terracotta0"], "wall": ["glasshouse0", "panel2"]},
+	"cactus_room": {"floor": ["stone2", "terracotta1"], "wall": ["glasshouse0"]},
+	"overgrown_room": {"floor": ["stone2", "terracotta0"], "wall": ["glasshouse1", "hedge1"]},
 }
 
 ## The wall kind of a face that looks into a space: the room purpose's paper if the space is a room interior, else the
@@ -249,9 +271,19 @@ const MAX_HEIGHT := 7.5
 const WALL_TEXTURE_SPAN := 4.0
 
 const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
+## The greenhouse biome's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
+## its potting sheds and plant rooms keep an ordinary ceiling.
+const GLASSHOUSE_ROOMS := ["glasshouse", "palm_house", "cactus_room", "overgrown_room", "dome_atrium"]
 const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",
 	"crypt", "archive", "storage", "forge", "thermal_chamber", "lava_gallery",
-	"altar_room", "prison_cafeteria", "midway", "restaurant_dining"]
+	"altar_room", "prison_cafeteria", "midway", "restaurant_dining",
+	"ward", "operating_theatre", "server_hall", "containment", "clean_room"]
+
+
+## True for rooms that read as a glass conservatory (tall glazed roof, canopy and greenery).
+static func is_glasshouse(region: String, room_type: String) -> bool:
+	return (region == "beach" and GREENHOUSE_ROOMS.has(room_type)) \
+		or (region == "greenhouse" and GLASSHOUSE_ROOMS.has(room_type))
 
 
 static func _ranged(key: String, bounds: Vector2) -> float:
@@ -261,8 +293,8 @@ static func _ranged(key: String, bounds: Vector2) -> float:
 
 static func room_range(region: String, room_type: String) -> Vector2:
 	if room_type == "":
-		return ROOM_RANGE if region == "beach" else CORRIDOR_RANGE
-	if region == "beach" and GREENHOUSE_ROOMS.has(room_type):
+		return ROOM_RANGE if region in ["beach", "greenhouse"] else CORRIDOR_RANGE
+	if is_glasshouse(region, room_type):
 		return GREENHOUSE_RANGE
 	if HALL_ROOMS.has(room_type):
 		return HALL_RANGE
