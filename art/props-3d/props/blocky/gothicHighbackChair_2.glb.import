@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b10onw0s7xo0h"
-path="res://.godot/imported/gothicWardrobe.glb-8555ddb811fce46197025039c6420ce5.scn"
+uid="uid://cr6ai57ucpol"
+path="res://.godot/imported/gothicHighbackChair_2.glb-7fdf4d46bae038be1f3d8533ef911a24.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/gothicWardrobe.glb"
-dest_files=["res://.godot/imported/gothicWardrobe.glb-8555ddb811fce46197025039c6420ce5.scn"]
+source_file="res://art/props-3d/props/blocky/gothicHighbackChair_2.glb"
+dest_files=["res://.godot/imported/gothicHighbackChair_2.glb-7fdf4d46bae038be1f3d8533ef911a24.scn"]
 
 [params]
 

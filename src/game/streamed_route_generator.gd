@@ -80,7 +80,7 @@ const REGION_PROP_SETS := {
 		{"type": "diningSideboard", "size": Vector3(1.4, 1.1, .5)},
 		{"type": "diningChair", "size": Vector3(.65, 1.0, .65)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "mansionAreaRug", "size": Vector3(2.6, .03, 1.6), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
 		{"type": "luxuryPictureFrameEmpty", "size": Vector3(.75, 1.0, .12), "solid": false},
@@ -88,7 +88,7 @@ const REGION_PROP_SETS := {
 	],
 	"hotel": [
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "bedroomWardrobe", "size": Vector3(1.2, 2.1, .55)},
 		{"type": "bedroomNightstand", "size": Vector3(.65, .8, .55)},
 		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
@@ -103,7 +103,7 @@ const REGION_PROP_SETS := {
 		{"type": "normalBookcase", "size": Vector3(1.25, 1.9, .45)},
 		{"type": "loungeCouchWide", "size": Vector3(2.6, 1.0, .95)},
 		{"type": "singleBed", "size": Vector3(1.0, .75, 2.0)},
-		{"type": "bunkBed", "size": Vector3(1.12, 1.78, 2.14)},
+		{"type": "bunkBed", "size": Vector3(1.06, 1.88, 2.1)},
 		{"type": "woodenChair", "size": Vector3(.65, 1.0, .65)},
 		{"type": "apartmentCarpet", "size": Vector3(2.0, .03, 1.35), "solid": false},
 		{"type": "bathroomMirror", "size": Vector3(.85, 1.4, .14), "solid": false},
@@ -120,7 +120,7 @@ const REGION_PROP_SETS := {
 	],
 	"gothic": [
 		{"type": "gothicBookcase", "size": Vector3(1.4, 2.1, .5)},
-		{"type": "gothicHighbackChair", "size": Vector3(.75, 1.6, .75)},
+		{"type": "gothicHighbackChair", "size": Vector3(.7, 1.35, .7)},
 		{"type": "gothicCoffinChest", "size": Vector3(.85, .65, 1.9)},
 		{"type": "gothicDoubleBed", "size": Vector3(1.8, .9, 2.2)},
 		{"type": "gothicBedroomBench", "size": Vector3(1.4, .7, .55)},
@@ -136,7 +136,7 @@ const REGION_PROP_SETS := {
 	"prison": [
 		{"type": "prisonBunk", "size": Vector3(.55, .95, 1.75)},
 		{"type": "supplyCrates", "size": Vector3(1.4, 1.0, .8)},
-		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .90, 1.62)},
+		{"type": "prisonCafeteriaTable", "size": Vector3(2.65, .78, 1.62)},
 		{"type": "prisonServingCounter", "size": Vector3(2.46, 2.05, .88)},
 		{"type": "prisonTrayReturn", "size": Vector3(1.0, 1.45, .72)},
 		{"type": "prisonKitchenRack", "size": Vector3(1.35, 1.82, .62)},
@@ -182,8 +182,8 @@ const TEMPLATE_PROP_SIZES := {
 	"singleBed": Vector3(1.1, .78, 2.7),
 	"doubleBed": Vector3(1.9, .92, 2.7),
 	"prisonBunk": Vector3(.55, .98, 1.75),
-	"bunkBed": Vector3(1.12, 1.78, 2.14),
-	"officeDesk": Vector3(1.65, .90, .72),
+	"bunkBed": Vector3(1.06, 1.88, 2.1),
+	"officeDesk": Vector3(1.65, .78, .72),
 	"officeChair": Vector3(.68, 1.42, .68),
 	"officeCrtSecurityConsole": Vector3(1.65, 1.45, .78),
 	"officeCubiclePartition": Vector3(1.82, 1.72, .20),
@@ -197,7 +197,7 @@ const TEMPLATE_PROP_SIZES := {
 	# table's navigation envelope to one cell so it can sit in the middle row
 	# without claiming the serving line or the doorway, matching the restaurant
 	# party-table treatment of a wide visual and a compact collider.
-	"prisonCafeteriaTable": Vector3(2.65, .90, .95),
+	"prisonCafeteriaTable": Vector3(2.65, .78, .95),
 	"prisonServingCounter": Vector3(2.46, 2.05, .88),
 	"prisonTrayReturn": Vector3(1.0, 1.45, .72),
 	# Corner placement in a 5-wide wing needs a one-cell width. The authored

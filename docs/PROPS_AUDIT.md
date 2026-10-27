@@ -56,3 +56,63 @@ viewport's LOD threshold is high (low-resolution or scaled 3D): hunter hands and
 checks every `.glb/.gltf` import. A chair, a table and a nightstand rendered at 3 m and 10 m with a threshold of 8, LODs on
 vs off (`tools/look/lod_check.tscn`), came out pixel-identical: props this small never get LODs generated, so the visible
 artifact was a hunter problem; the change is the safe default for everything.
+
+# Props rework 2 (DONE13)
+
+Every blocky prop family was measured again (`tools/look/prop_dims.gd` over all 204 types) and the weak ones were rebuilt in
+`tools/props/blocky_props_rework2.py`, authored in metres on the 6 cm grid. Before/after: `docs/props_rework2_before_after.png`
+(rendered headless with `tools/props/render_sheet.py`).
+
+References: the thuing library was looked at read-only for proportions, part counts and rotation conventions (backrest tilt of
+5-15 degrees, splayed legs, rocker arcs, how drapes hang off a canopy). Nothing was copied, converted or committed; every shape is our
+own design with our own numbers.
+
+## Rotation field in the box builder
+
+A box can now carry two optional trailing items: `(x0, y0, z0, x1, y1, z1, kind, (rx, ry, rz), (px, py, pz))` - degrees about the
+prop axes (x right, y up, z front, applied z, then y, then x) and a pivot in the same fractions. In `blocky_props_*.py` the `Part.add`
+helper takes `rot=(rx, ry, rz)` and `pivot=(x, y, z)` in metres (default: the box centre). A positive `rx` tips the top toward the front,
+so a backrest that leans back uses a negative `rx`. Rotated boxes keep the voxel-sized thickness and the constant texel density.
+`TARGET_SIZE[name] = (w, h, d)` builds a design at exactly that size (floor props are pinned to y = 0 - the old beach chair model floated 4 cm).
+
+## What was wrong and what changed
+
+| Prop | Problem (measured) | Fix |
+| --- | --- | --- |
+| gothicHighbackChair | 2.12 m tall (a throne taller than a person) | 1.30 m: padded panel and crest leaning back 8 degrees, finials, arms on posts, stretchers |
+| restraintChair | 1.94 m, 1.0 m wide, a solid block | 1.35 m: slab back leaning 6 degrees with head rest, arms with wrist cuffs, ankle cuffs, lap strap |
+| mansionRockingChair | 1.56 m tall, 1.0 m deep slab | 1.05 m: two curved rockers made of short boxes turned along the arc, slat back leaning 12 degrees, arms |
+| beachChair | 0.38 m deep stub, floated 4 cm | 0.6 x 1.0 m lounger: level seat, striped back reclined 45 degrees, props holding the back up |
+| bunkBed | 1.75 m, no guard or ladder | 1.85 m: posts, two decks with mattresses and pillows, upper guard rails, ladder at the foot |
+| prisonBunk | 1.44 m (an upper bunk you could not sit under) | 1.7 m steel frame, thin grey mattresses, ladder rungs |
+| gothicDoubleBed | canopy without hangings | posts, canopy frame, tall headboard, coverlet, drapes slightly out of line and turned a few degrees |
+| loungeCouch / loungeCouchWide | very wide (1.62 / 2.75 m), one slab | 1.7 m two-seat / 2.4 m three-seat: rolled arms, split seat cushions, back cushions leaning 9 degrees, feet; three back heights |
+| normalBookcase / mansionBookshelf / gothicBookcase | flat front, books as a pattern | carcass with kick plate, shelf boards, crown that stays inside the footprint, varied books, leaning books; 3 variants each |
+| bedroomWardrobe / gothicWardrobe | flat slab front | feet, cornice, two doors with raised panels and handles; 3 finishes each |
+| locker | flat front | door with louvre slats, handle recess, number plate, base |
+| prisonCafeteriaTable | grey slab 0.81 m | bolted steel table 0.75 m with two benches at 0.44 m |
+| bedroomBench / gothicBedroomBench / vanityStool | 0.44-0.56 m, solid | 0.46 m with legs, rails, cushion; stools with splayed legs |
+| officeDesk | top at 0.88 m | 0.75 m (surface height 0.75, blocker 0.78) |
+| kitchen counters / sinks / stoves | counter top 1.12 m next to a 1.0 m stove and a 1.38 m sink | counters 0.92 m, sink 1.12 m with tap, stove 0.92 m so the run lines up |
+
+Colliders, footprints and surface heights followed: `streamed_route_generator.gd` (gothicHighbackChair, bunkBed, prisonCafeteriaTable,
+officeDesk), `room_catalog.gd` (beachChair footprint, officeDesk surface 0.75). Rooms are not re-laid out: footprints only shrank,
+except the beach chair (0.34 x 0.54 half-size).
+
+Validator `props_rework` (scripts/validate_props_rework.gd): each reworked type is built at its designed size, stands on the floor,
+keeps rotated parts inside the footprint, colliders cover it without being giant boxes, desk and kitchen heights line up, and a
+sweep over all 438 blocky models catches floating, sunken or collapsed shapes. The sweep and the per-design checks found five real
+issues in the first draft of this pass (crown overhangs, drapes and cuffs poking outside the footprint, an ajar wardrobe door that
+left its footprint, rocker feet above the floor); all are fixed.
+
+Workflow: `render_sheet.py` (headless contact sheets), `emit_models.py` (regenerates `blocky_prop_models.gd` from the build's
+`manifest.json`; the committed manifest had been stale), `clean_orphans.py` (removes GLBs a rebuild no longer lists; keeps the locked
+relay barrel). The build is deterministic: rebuilding the previous commit reproduced all 437 committed GLBs byte for byte.
+
+## Families that still look weak (candidates for DONE14)
+
+Measured but not reworked yet: nightstands/dressers (flat fronts, 6 cm drawer lines only), kitchen wall cabinets and islands,
+sinks/vanities/mirrors (bathroom), shower enclosures and tubs, floor and table lamps (blocky stacks), TV consoles, desks with computers
+(screen/keyboard parts), display cabinets and the piano, arcade and carnival cabinets, supply crates and shelves, the old non-blocky
+families (maze, mansion, beach, carnival, nether, prison original models are only fallbacks), plants and flowers (no variants), and
+texture density/palette consistency across districts. Collision pass and set dressing belong to the world lane.

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://chuuvf0tqiell"
-path="res://.godot/imported/diningTable_6.glb-37fd91ab6731fbb8742876d2643b3384.scn"
+uid="uid://buwoik7g2ulib"
+path="res://.godot/imported/gothicWardrobe_2.glb-8b0dc25591f3008dc9664d098dd6aa4c.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/diningTable_6.glb"
-dest_files=["res://.godot/imported/diningTable_6.glb-37fd91ab6731fbb8742876d2643b3384.scn"]
+source_file="res://art/props-3d/props/blocky/gothicWardrobe_2.glb"
+dest_files=["res://.godot/imported/gothicWardrobe_2.glb-8b0dc25591f3008dc9664d098dd6aa4c.scn"]
 
 [params]
 

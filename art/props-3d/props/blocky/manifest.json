@@ -10,7 +10,9 @@
   "woodenChair_7.glb",
   "woodenChair_8.glb",
   "woodenChair_9.glb",
-  "woodenChair_10.glb"
+  "woodenChair_10.glb",
+  "woodenChair_11.glb",
+  "woodenChair_12.glb"
  ],
  "woodenChairCushion": [
   "woodenChairCushion_0.glb",
@@ -24,7 +26,8 @@
   "woodenChairCushion_8.glb",
   "woodenChairCushion_9.glb",
   "woodenChairCushion_10.glb",
-  "woodenChairCushion_11.glb"
+  "woodenChairCushion_11.glb",
+  "woodenChairCushion_12.glb"
  ],
  "diningChair": [
   "diningChair_0.glb",
@@ -38,7 +41,8 @@
   "diningChair_8.glb",
   "diningChair_9.glb",
   "diningChair_10.glb",
-  "diningChair_11.glb"
+  "diningChair_11.glb",
+  "diningChair_12.glb"
  ],
  "diningChairCushion": [
   "diningChairCushion_0.glb",
@@ -52,7 +56,8 @@
   "diningChairCushion_8.glb",
   "diningChairCushion_9.glb",
   "diningChairCushion_10.glb",
-  "diningChairCushion_11.glb"
+  "diningChairCushion_11.glb",
+  "diningChairCushion_12.glb"
  ],
  "woodenTable": [
   "woodenTable_0.glb",
@@ -70,13 +75,10 @@
   "diningTable_2.glb",
   "diningTable_3.glb",
   "diningTable_4.glb",
-  "diningTable_5.glb",
-  "diningTable_6.glb",
-  "diningTable_7.glb"
+  "diningTable_5.glb"
  ],
  "restaurantPartyTable": [
-  "restaurantPartyTable_0.glb",
-  "restaurantPartyTable_1.glb"
+  "restaurantPartyTable.glb"
  ],
  "singleBed": [
   "singleBed_0.glb",
@@ -153,7 +155,9 @@
   "bedroomWardrobe_2.glb"
  ],
  "gothicWardrobe": [
-  "gothicWardrobe.glb"
+  "gothicWardrobe_0.glb",
+  "gothicWardrobe_1.glb",
+  "gothicWardrobe_2.glb"
  ],
  "normalBookcase": [
   "normalBookcase_0.glb",
@@ -507,8 +511,7 @@
  ],
  "gothicBedroomBench": [
   "gothicBedroomBench_0.glb",
-  "gothicBedroomBench_1.glb",
-  "gothicBedroomBench_2.glb"
+  "gothicBedroomBench_1.glb"
  ],
  "bedroomVanity": [
   "bedroomVanity.glb"
@@ -523,8 +526,7 @@
  ],
  "gothicVanityStool": [
   "gothicVanityStool_0.glb",
-  "gothicVanityStool_1.glb",
-  "gothicVanityStool_2.glb"
+  "gothicVanityStool_1.glb"
  ],
  "bunkBed": [
   "bunkBed_0.glb",
@@ -564,7 +566,8 @@
  ],
  "mansionRockingChair": [
   "mansionRockingChair_0.glb",
-  "mansionRockingChair_1.glb"
+  "mansionRockingChair_1.glb",
+  "mansionRockingChair_2.glb"
  ],
  "mansionTeaCart": [
   "mansionTeaCart.glb"
@@ -595,7 +598,8 @@
  ],
  "gothicHighbackChair": [
   "gothicHighbackChair_0.glb",
-  "gothicHighbackChair_1.glb"
+  "gothicHighbackChair_1.glb",
+  "gothicHighbackChair_2.glb"
  ],
  "gothicPedestalTable": [
   "gothicPedestalTable_0.glb",

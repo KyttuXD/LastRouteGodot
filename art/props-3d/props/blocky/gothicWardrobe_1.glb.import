@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dcelqq0qwdqcb"
-path="res://.godot/imported/gothicVanityStool_2.glb-4355f2a450aab35986ba833ef3f52d4d.scn"
+uid="uid://c41x6ssj5foyd"
+path="res://.godot/imported/gothicWardrobe_1.glb-4fb74929c1a1ded4ea2ba72ec73cbeec.scn"
 
 [deps]
 
-source_file="res://art/props-3d/props/blocky/gothicVanityStool_2.glb"
-dest_files=["res://.godot/imported/gothicVanityStool_2.glb-4355f2a450aab35986ba833ef3f52d4d.scn"]
+source_file="res://art/props-3d/props/blocky/gothicWardrobe_1.glb"
+dest_files=["res://.godot/imported/gothicWardrobe_1.glb-4fb74929c1a1ded4ea2ba72ec73cbeec.scn"]
 
 [params]
 

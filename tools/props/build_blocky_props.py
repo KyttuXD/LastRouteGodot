@@ -8,6 +8,10 @@ prop type uses today), so every rebuilt prop keeps its old size, pivot and front
 (+Z in Godot). Each prop is a handful of axis-aligned boxes in fractions of that
 footprint, textured from one shared 128x64 pixel atlas (8x4 tiles of 16 px) with
 nearest sampling; colour variants swap the `@cloth` / `@wood` placeholders.
+
+Rotation (DONE13): a box may carry two optional trailing items, (x0, y0, z0, x1, y1, z1, kind, (rx, ry, rz), (px, py, pz)): degrees
+about the prop axes (x right, y up, z front) and a pivot in the same fractions as the box (default: the box centre). Use it for
+backrest tilt (5-15 deg about x), splayed legs, angled lamp shades, lids and rocker curves; everything else stays axis aligned.
 """
 import json
 import math
@@ -134,8 +138,22 @@ def add_face(bm, uv_layer, quad, tile):
                 loop[uv_layer].uv = uv
 
 
-def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
-    """Blender coords, snapped to the voxel grid (never thinner than one voxel)."""
+def rotation_matrix(rot):
+    """rot = (rx, ry, rz) degrees about the prop's own axes (x right, y up, z front, applied z, then y, then x).
+    Godot axes map to Blender axes as (x, y, z) -> (X, -Z... i.e. Blender X = x, Blender Y = -z, Blender Z = y), so a turn about
+    the prop's +x is a turn about Blender +X, about +y is about Blender +Z, and about +z is about Blender -Y."""
+    mu = __import__("mathutils")
+    rx, ry, rz = [math.radians(a) for a in rot]
+    mx = mu.Matrix.Rotation(rx, 3, mu.Vector((1, 0, 0)))
+    my = mu.Matrix.Rotation(ry, 3, mu.Vector((0, 0, 1)))
+    mz = mu.Matrix.Rotation(rz, 3, mu.Vector((0, -1, 0)))
+    return mx @ my @ mz
+
+
+def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None):
+    """Blender coords, snapped to the voxel grid (never thinner than one voxel). `rot` (degrees about the prop axes) turns the
+    snapped box about `pivot` (Blender coords, default the box centre), so tilted backs, splayed legs and angled shades keep the
+    constant texel density and the voxel-sized thickness of the straight boxes."""
     def fix(lo, hi, keep_lo=False):
         lo2 = lo if keep_lo else snap(lo)
         hi2 = snap(hi)
@@ -154,6 +172,12 @@ def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
         [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1)],
     ]
     outward = [(0, 0, 1), (0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)]
+    if rot is not None and any(abs(a) > 1e-6 for a in rot):
+        mu = __import__("mathutils")
+        m = rotation_matrix(rot)
+        c0 = mu.Vector(pivot) if pivot is not None else mu.Vector(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
+        quads = [[tuple(c0 + m @ (mu.Vector(p) - c0)) for p in q] for q in quads]
+        outward = [tuple(m @ mu.Vector(o)) for o in outward]
     for quad, out in zip(quads, outward):
         a, b, c = [__import__("mathutils").Vector(q) for q in quad[:3]]
         if (b - a).cross(c - a).dot(__import__("mathutils").Vector(out)) < 0:
@@ -166,14 +190,21 @@ def build(name, boxes, size, center, min_y, subst):
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
     sx, sy, sz = size
-    for (a, b, c, d, e, f, kind) in boxes:
+    for box in boxes:
+        a, b, c, d, e, f, kind = box[:7]
+        rot = box[7] if len(box) > 7 else None          # (rx, ry, rz) degrees about the prop axes
+        piv = box[8] if len(box) > 8 else None          # pivot as prop fractions (x, y, z), default the box centre
         kind = subst.get(kind, kind)
         # normalised: x left..right, y bottom..top, z back..front; front = Blender -Y
         x0 = center[0] + (a - .5) * sx
         x1 = center[0] + (d - .5) * sx
         y_lo = -(center[1] + (f - .5) * sz)
         y_hi = -(center[1] + (c - .5) * sz)
-        add_box(bm, uv, min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy, kind)
+        pivot = None
+        if piv is not None:
+            pivot = (center[0] + (piv[0] - .5) * sx, -(center[1] + (piv[2] - .5) * sz), min_y + piv[1] * sy)
+        add_box(bm, uv, min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy, kind,
+                rot=rot, pivot=pivot)
     bm.to_mesh(me)
     bm.free()
     me.materials.append(MAT)
@@ -295,6 +326,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_variants.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_seating.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
 SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),
@@ -313,6 +345,10 @@ for name, (base_boxes, base_subs) in PROPS.items():
     info = dict(BOUNDS[name])
     if name in SIZE_SCALE:
         info["size"] = [c * f for c, f in zip(info["size"], SIZE_SCALE[name])]
+    if name in TARGET_SIZE:
+        info["size"] = list(TARGET_SIZE[name])       # DONE13: designs authored in metres are built at exactly this size
+        if info["min_y"] < 0.1:
+            info["min_y"] = 0.0                      # floor props stand on the floor (the old beach chair model floated 4 cm)
     files = []
     shapes = [(base_boxes, base_subs)] + list(VARIANTS.get(name, []))
     combos = []     # (boxes, substitution) for every shape x colour option
