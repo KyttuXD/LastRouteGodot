@@ -342,6 +342,8 @@ func _spawn_tool_pickups() -> void:
 			available.remove_at(index)
 	var rng := SeededRandom.new("%s:EQUIPMENT-PICKUPS" % generator.seed_text)
 	for item_id in PlayerController3D.COLLECTIBLE_ITEMS:
+		if item_id == "flashlight":
+			continue    # every runner starts with one
 		if available.is_empty():
 			push_error("NO FREE CELL FOR EQUIPMENT PICKUP // %s" % item_id)
 			break
