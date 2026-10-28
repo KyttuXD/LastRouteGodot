@@ -32,6 +32,7 @@ var culled: Array = []
 var _last_camera := Transform3D.IDENTITY
 var _base_fov := 78.0
 var _catch_camera := Transform3D.IDENTITY
+var _last_wanted := Vector3.INF
 var _player: PlayerController3D
 var _view: Node3D
 var _origin := Vector3.ZERO
@@ -206,6 +207,35 @@ static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> vo
 		placed.basis = Basis(axis, lean) * placed.basis
 	placed.origin += along * forward + Vector3.DOWN * drop
 	model.global_transform = placed
+
+
+## The shoulder carry: the carried runner's hips bend (thighs swung down the hunter's front), `amount` 0..1 of the way.
+## Bent from each thigh's own pose every frame (after the clip); 0 puts them back.
+const CARRY_HIP := 2.35
+
+
+static func fold_legs(body: Node3D, amount: float) -> void:
+	for thigh_name in ["L-Thigh", "R-Thigh"]:
+		var thigh := body.find_child(thigh_name, true, false) as Node3D
+		if thigh == null:
+			continue
+		if not thigh.has_meta("carry_rest"):
+			if amount <= 0.0:
+				continue
+			thigh.set_meta("carry_rest", thigh.basis)
+		var rest: Basis = thigh.get_meta("carry_rest")
+		thigh.basis = Basis(Vector3.RIGHT, CARRY_HIP * amount) * rest
+		if amount <= 0.0:
+			thigh.remove_meta("carry_rest")
+
+
+## She walks while carrying: her walk clip, at the grab's own time, so every peer shows the same step.
+static func play_walk(view: Node3D, t: float) -> void:
+	var player := view.get("_animation_player") as AnimationPlayer if "_animation_player" in view else null
+	if player == null or not player.has_animation("walk"):
+		return
+	ModelSlot.play_if_available(player, "walk")
+	player.seek(fmod(t, maxf(player.get_animation("walk").length, .01)), true)
 
 
 ## How far a style stretches her arms at `t`: up to arm_stretch, eased in with her reach.
@@ -408,19 +438,25 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 		return
 	var pose := GrabStyles.pose(String(packet[0]), float(packet[1]), {})
 	# the grab's own frame comes from the body's facing (to the hunter, or away for a leg grab), not from where she stands
-	var front := -body.global_basis.z
-	front = Vector3(front.x, 0.0, front.z).normalized()
+	# from the body's own heading (RemotePlayers sets it as rotation.y, apart from the lean in rotation.x): a basis read back
+	# would flip it for a body hung or carried head down
+	var front := Vector3(-sin(body.rotation.y), 0.0, -cos(body.rotation.y))
 	var along := -front * float(pose["face"])
 	if along.length_squared() < .5:
 		along = Vector3(body.global_position.x - best.global_position.x, 0.0, body.global_position.z - best.global_position.z).normalized()
 	pose_hunter_body(best, along, [packet[4], packet[5], packet[6]])
+	if bool(pose.get("walk", false)):
+		play_walk(best, float(packet[1]))
 	stretch_arms(best, stretch_for(String(packet[0]), float(packet[1])))
+	fold_legs(body, float(pose.get("fold", 0.0)))
 	var basis := body.global_basis.orthonormalized()
 	var points := contacts(body.global_position, basis, pose["arms"])
 	# her head (and the chest share of the turn) first: the arms hang from the chest, so they are bent onto the body after it
 	var id := String(best.call("shown_id")) if best.has_method("shown_id") else ""
-	head_look(best, body.global_position + basis * (GrabStyles.BODY_POINTS["neck"] + Vector3(0.0, .3, 0.0)),
-		best.get_process_delta_time(), along, GrabStyles.look_away(id, float(packet[1])))
+	var her_target := body.global_position + basis * (GrabStyles.BODY_POINTS["neck"] + Vector3(0.0, .3, 0.0))
+	if bool(pose.get("her_look_ahead", false)):
+		her_target = best.global_position + along * (4.0 + float(packet[4])) + Vector3.UP * 1.6
+	head_look(best, her_target, best.get_process_delta_time(), along, GrabStyles.look_away(id, float(packet[1])))
 	pose_arms_on(best, along, points, bool(pose.get("wide", false)))
 	pose_runner_arms(body, best, pose, along, float(packet[1]))
 
@@ -617,7 +653,10 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 		return point
 	# the nearest clear spot, searched straight up (over her reach) and straight back from her, whichever is closer; found
 	# continuously by bisection, so the camera never steps or jitters; walls always win
-	for axis in [Vector3.UP, _side, -_side]:   # never back behind the eyes (KT); up over her reach, or to one side
+	# never back behind the eyes (KT): up over her reach, or to one side; a runner hung or carried head down has their own
+	# body above the eyes, so sideways first
+	var inverted := absf(float(current.get("tilt", 0.0))) > PI * .5 if not current.is_empty() else false
+	for axis in ([_side, -_side, Vector3.UP] if inverted else [Vector3.UP, _side, -_side]):
 		var hi := -1.0
 		for i in range(1, 16):
 			var probe: Vector3 = fix_walls.call(point + axis * (i * .1))
@@ -639,6 +678,9 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 
 func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3D:
 	var look := _look_point()
+	var down_back := float(current.get("look_down_back", 0.0))
+	if down_back > 0.0:
+		look = look.lerp(head_world - _along * 1.2 + Vector3.DOWN * 1.6, down_back)
 	var turned := float(current.get("look", 1.0))
 	if turned < 1.0:
 		var ahead := head_world - _along * float(current["face"]) * 3.0
@@ -657,8 +699,11 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	if elapsed < .2 and playing:
 		at = _catch_camera.origin.lerp(at, GrabStyles.smooth(elapsed / .2))
 	var step := at - previous.origin
-	if pushes > 0 and step.length() > MAX_PUSH and previous.origin.distance_to(wanted) < MAX_PUSH:
-		at = previous.origin + step.limit_length(MAX_PUSH)
+	# never a jump: a push (or coming back from one) moves at most MAX_PUSH a frame more than the eyes themselves moved
+	var eyes_moved := wanted.distance_to(_last_wanted) if _last_wanted != Vector3.INF else 0.0
+	_last_wanted = wanted
+	if step.length() > eyes_moved + MAX_PUSH:
+		at = previous.origin + step.limit_length(eyes_moved + MAX_PUSH)
 	_cull_near(at)
 	var to := look - at
 	var flat_to := Vector2(to.x, to.z).length()
@@ -729,7 +774,7 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 	pushes = 0
 	player.begin_grab_view()
 	_apply(0.0, 0.0)
-	while elapsed < GrabStyles.TOTAL_SECONDS and is_inside_tree() and is_instance_valid(player) and is_instance_valid(view):
+	while elapsed < GrabStyles.duration(style) and is_inside_tree() and is_instance_valid(player) and is_instance_valid(view):
 		await get_tree().process_frame
 		var delta := get_process_delta_time()
 		elapsed += delta
@@ -743,6 +788,7 @@ func _apply(t: float, delta: float) -> void:
 	if t == 0.0:
 		_last_camera = _player.first_person_camera.global_transform
 		_catch_camera = _last_camera
+		_last_wanted = Vector3.INF
 	current = GrabStyles.pose(style, t, _ctx)
 	var at: Vector3 = current["at"]
 	var r := GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
@@ -757,6 +803,8 @@ func _apply(t: float, delta: float) -> void:
 	# the hunter steps in or back until every hand reaches its contact, then the arms bend onto it
 	var offsets: Array = (current["hunter"] as Array).duplicate()
 	pose_hunter_body(_view, _along, offsets)
+	if bool(current.get("walk", false)):
+		play_walk(_view, t)
 	stretch_arms(_view, stretch_for(style, t))
 	var points := contacts(body_feet, basis, current["arms"])
 	for _i in 3:
@@ -767,7 +815,10 @@ func _apply(t: float, delta: float) -> void:
 		offsets[1] = float(offsets[1]) + fix.y
 		pose_hunter_body(_view, _along, offsets)
 	# her eyes go to the camera (last frame's: close enough); the chest takes a share of that turn, so it comes before the arms
-	head_look(_view, _last_camera.origin, delta, _along, GrabStyles.look_away(_hunter_id, t))
+	var her_target := _last_camera.origin
+	if bool(current.get("her_look_ahead", false)):
+		her_target = _view.global_position + _along * (4.0 + float((current["hunter"] as Array)[0])) + Vector3.UP * 1.6
+	head_look(_view, her_target, delta, _along, GrabStyles.look_away(_hunter_id, t))
 	contact_gap = pose_arms_on(_view, _along, points, bool(current.get("wide", false)))
 	# the runner's own body, drawn from inside: posed like everyone else sees it, its hands on what they hold
 	var body := _player.first_person_body()
@@ -807,7 +858,7 @@ func _process(delta: float) -> void:
 		return
 	if _applied_frame == Engine.get_process_frames():
 		return
-	_apply(GrabStyles.TOTAL_SECONDS, delta)
+	_apply(GrabStyles.duration(style), delta)
 
 
 ## Lets go: the runner stands back up and the hunter's model is put back (a new run, a respawn).

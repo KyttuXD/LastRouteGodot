@@ -14,7 +14,7 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 | `wrap` (WR) | both arms close round the runner | - |
 | `leg_grab` (LG) | an ankle taken from behind, the runner falls on their face and is dragged back | 1.8 m clear ahead |
 | `upside_down` (UD) | a leg hoisted, the runner hung head down in front of her at arm's length; first person turns over slowly | ceiling 2.4 m, 1.5 m clear behind |
-| `bear_hug` (BH) | crushed in both arms round the torso, lifted until the runner's chest is at hers | ceiling 2.75 m |
+| `shoulder_carry` (SC) | hoisted over her shoulder (torso down her back, legs down her front, her arm round them) and carried off 2.4 m; first person looks down her back at the floor going away | ceiling 2.75 m, 2.8 m clear ahead |
 | `collar_drag` (CD) | pulled face down by the collar and dragged as the hunter backs off | 1.6 m clear behind the hunter |
 | `wall_pin` (WP) | shoved back against a wall and held there | a wall within 1.3 m behind |
 | `pounce_pin` (PP) | creature rigs only: pounced on and pinned on the back | 1.7 m clear behind |
@@ -51,6 +51,7 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 - **Position:** the first-person body's real eyes, never behind them (KT). It rides the eyes exactly (every pose is eased), easing in from the runner's own view over the first 0.2 s. Only a wall, the floor or her collider moves it: up or to the side, never back.
 - **Framing:** her arms are straight (she holds the runner at arm's length) and, for the reaching styles (`HunterGrab.STRETCH_STYLES`), stretched along their length up to `arm_stretch` (1.6), eased in with the reach. The hand keeps its size, and HunterView3D puts the arms back once nothing grabs with her. The view tips up to her face, and in the hold it widens up to `fov_widen` degrees (25), eased, while her face is closer than 1.2 m. KT picked 1.6x arms with up to +25 (option c of the comparison).
 - **Upside-down hold:** hung head down, the runner looks up along their own body at her. Their torso, upper arms and thighs (`HunterGrab.UPSIDE_DOWN_HIDDEN`, each bone's own box only) join the head on the first-person-only layer for that style; others still see the whole body, and the calves and feet in her hand stay in view. Before/after: ![](hunter_grab_upside_down.png)
+- **Shoulder carry (SC, replaces the bear hug):** frames start/hold/end and third person: ![](hunter_grab_shoulder_carry.png)
 - **The runner's own head:** the whole head group (head box and everything parented to it) is moved onto `FirstPersonBody.HEAD_LAYER`, which the first-person camera's cull mask skips. Other cameras and the lights' shadows still have it. This is re-applied every frame, so a skin refresh cannot bring it back. Tested every frame of every grab and on ladders.
 - **Her model at the lens:** any box of her within the near plane is drawn on a layer the first-person camera skips, for that frame.
 - **On a live route:** her model is pinned where the grab began, turned square to the runner. The hunter's simulation keeps moving her (wander, turn) while she holds someone, so a model riding along would pull her hands off the body.

@@ -9,10 +9,10 @@ const NECK_LIFTERS := ["kathy", "xivvy", "umbriel", "elise", "wynelle", "ravelle
 ## A hunter whose model has arms, for each style (the creature rig for its own).
 const STYLE_HUNTER := {
 	"neck_lift": "kathy", "shoulder_grab": "dovelle", "tackle": "haelith", "wrist_yank": "aki", "wrap": "briselle",
-	"leg_grab": "ceryth", "upside_down": "xivvy", "bear_hug": "kathy", "collar_drag": "javelle", "wall_pin": "opalie",
+	"leg_grab": "ceryth", "upside_down": "xivvy", "shoulder_carry": "kathy", "collar_drag": "javelle", "wall_pin": "opalie",
 	"pounce_pin": SecretCreatures.IDS[0],
 }
-const LIFTED := ["neck_lift", "bear_hug", "upside_down"]
+const LIFTED := ["neck_lift", "shoulder_carry", "upside_down"]
 const FLOORED := ["tackle", "leg_grab", "pounce_pin"]
 
 var _failures := 0
@@ -82,7 +82,7 @@ func _expect_picks() -> void:
 		var roll := GrabStyles.roll_for("LOW", 1, i)
 		for id in NECK_LIFTERS:
 			var picked := GrabStyles.pick(String(id), roll, low)
-			_expect(not picked in [GrabStyles.NECK_LIFT, GrabStyles.UPSIDE_DOWN, GrabStyles.BEAR_HUG],
+			_expect(not picked in [GrabStyles.NECK_LIFT, GrabStyles.UPSIDE_DOWN, GrabStyles.SHOULDER_CARRY],
 				"%s lifts under a 2.1 m ceiling (%s)" % [id, picked])
 		var walled := GrabStyles.pick("opalie", roll, {"ceiling": 4.0, "back": .9, "hunter_back": 3.0})
 		_expect(walled in [GrabStyles.SHOULDER_GRAB, GrabStyles.WALL_PIN], "opalie picked %s by a wall" % walled)
@@ -201,7 +201,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	grab.play(player, view, id, .5, style)
 	var previous := player.first_person_camera.global_transform
 	var worst := ""
-	var t_end := GrabStyles.TOTAL_SECONDS + .7
+	var t_end := GrabStyles.duration(style) + .7
 	var waited := 0.0
 	var flipped := false
 	var max_gap := 0.0
@@ -284,11 +284,10 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	# the hold: her face framed, not a close-up; her head turned to the camera as far as the neck goes; the hands on screen
 	var camera := player.first_person_camera.global_transform
 	var head := view.find_child("Head", true, false) as Node3D
-	if head != null:
-		# pinned to a wall by a hunter half again your size, her face is closer: still framed, never inside
-		# pinned to a wall, or hugged, by a hunter half again your size: her face is close (framed, never inside)
+	# carried over her shoulder the runner looks down her back: her face is not theirs to see
+	if head != null and style != GrabStyles.SHOULDER_CARRY:
 		# crushed in a hug against a body half again your size, her face is right there: framed (and the view widened), not inside
-		var face_min := .3 if style in [GrabStyles.WRAP, GrabStyles.BEAR_HUG] else FACE_MIN
+		var face_min := .3 if style == GrabStyles.WRAP else FACE_MIN
 		_expect(camera.origin.distance_to(head.global_position) >= face_min, "%s: the camera is %.2f m from her face" % [label, camera.origin.distance_to(head.global_position)])
 		var screen := player.first_person_camera.unproject_position(head.global_position)
 		var size := player.get_viewport().get_visible_rect().size
@@ -342,8 +341,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		route.add_child(body)
 		body.scale = Vector3.ONE * PlayerModels.SCALE
 		body.global_position = player.global_position + Vector3.UP * float(sent[2])
-		body.global_basis = Basis.from_euler(Vector3(float(sent[3]), GrabStyles.body_yaw(grab._along, float(pose["face"])), 0.0)) \
-			* Basis.from_scale(body.scale)
+		body.rotation = Vector3(float(sent[3]), GrabStyles.body_yaw(grab._along, float(pose["face"])), 0.0)   # as RemotePlayers does
 		await route.get_tree().process_frame
 		_expect(absf(body.global_basis.get_scale().y / player._body_model.global_basis.get_scale().y - 1.0) < .02,
 			"%s: a guest's copy of the runner is not the player's size" % label)
@@ -391,7 +389,7 @@ func _expect_every_hunter_looks(route: Node, player: PlayerController3D, grab: H
 			continue
 		grab.play(player, view, String(id), .5, style)
 		var waited := 0.0
-		while waited < GrabStyles.TOTAL_SECONDS + .6:
+		while waited < GrabStyles.duration(style) + .6:
 			await route.get_tree().process_frame
 			waited += route.get_process_delta_time()
 		var angle := _facing_angle(view, player.first_person_camera.global_position)

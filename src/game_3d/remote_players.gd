@@ -648,10 +648,11 @@ static func _grab_packet(state: Dictionary) -> Array:
 		if not (typeof(grab[i]) in [TYPE_INT, TYPE_FLOAT]):
 			return []
 	var out: Array = (grab as Array).duplicate()
-	out[1] = clampf(float(out[1]), 0.0, GrabStyles.TOTAL_SECONDS)
+	out[1] = clampf(float(out[1]), 0.0, GrabStyles.MAX_SECONDS)
 	out[2] = clampf(float(out[2]), 0.0, 2.2)
 	out[3] = clampf(float(out[3]), -PI, PI)
-	for i in range(4, 7):
+	out[4] = clampf(float(out[4]), -1.5, GrabStyles.CARRY_METRES + 1.0)   # she may walk off with the runner (shoulder carry)
+	for i in range(5, 7):
 		out[i] = clampf(float(out[i]), -1.5, 1.5)
 	return out
 

@@ -43,7 +43,7 @@ func attach(body_model: Node3D, body_visual: Node3D, player: AnimationPlayer) ->
 	_arm_rest.clear()
 	if model == null:
 		return
-	for bone_name in ["L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand"]:
+	for bone_name in ["L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand", "L-Thigh", "R-Thigh"]:
 		var bone := model.find_child(bone_name, true, false) as Node3D
 		if bone != null:
 			_arm_rest[bone] = bone.transform
