@@ -6,7 +6,7 @@ extends RefCounted
 ## - on: aiming at its interactive part inside its reach (RouteInteractable3D.AIM_REACH) picks it;
 ## - out of reach: the same aim from past the reach gives nothing;
 ## - near miss: aiming just beside the part (past AIM_BOX_MARGIN) gives nothing;
-## - behind a wall: a wall between the eye and the part blocks it;
+## - behind a wall: a wall between the eye and the part blocks it, also one straddling the part's front face;
 ## - neighbours: two of a kind side by side each get picked only when aimed at; on one ray the nearer one wins.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- interact_aim
@@ -121,6 +121,9 @@ func run(host: Node) -> int:
 		route.add_child(wall)
 		wall.global_position = player.active_camera().global_position + Vector3(0, 0, -.45)
 		_expect(await _picked(host, player) == null, "%s: picked through a wall" % kind_name)
+		# a blocker straddling the part's front face (the hunters suite's relay case): still blocked
+		wall.global_position = player.active_camera().global_position + Vector3(0, 0, -(reach - .25 - .1))
+		_expect(await _picked(host, player) == null, "%s: picked through a blocker right at its face" % kind_name)
 		wall.queue_free()
 		await host.get_tree().physics_frame
 		# neighbours: one beside the other, then one in front of the other

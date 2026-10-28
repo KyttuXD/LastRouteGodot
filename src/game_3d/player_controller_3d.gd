@@ -307,6 +307,8 @@ var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
 const SIT_EYE := 1.15
+## How far short of an aim box a solid may be hit and still count as the box itself (its frame, its wall).
+const AIM_RAY_SLACK := .06
 ## The 1.60 m runner's seated eye above the seat pan (eye 1.36 standing, hip 0.81, plus the thigh under her).
 const SIT_EYE_ABOVE_SEAT := .7
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
@@ -3133,7 +3135,7 @@ func _nearest_interactable() -> RouteInteractable3D:
 		if candidate.has_aim_box():
 			var along: float = candidate.aim_hit_distance(origin, look)
 			if along >= 0.0 and along <= candidate.aim_reach() and along < hit_distance \
-					and _interaction_has_line_of_sight(origin + look * maxf(along, .01), candidate):
+					and _aim_ray_clear(origin, look, along, candidate):
 				hit_spot = candidate
 				hit_distance = along
 			continue
@@ -3158,6 +3160,22 @@ func _nearest_interactable() -> RouteInteractable3D:
 	if hit_spot != null and hit_distance <= chosen_ray:
 		return hit_spot
 	return chosen
+
+
+## The aim ray reaches `candidate`'s aim box `along` metres out with nothing else solid in front of it: a hit on the
+## candidate's own bodies, or past the box's front (its frame, the wall it is on), is fine; anything nearer blocks.
+func _aim_ray_clear(origin: Vector3, look: Vector3, along: float, candidate: RouteInteractable3D) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + look * (along + AIM_RAY_SLACK))
+	query.exclude = [get_rid()]
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return true
+	var collider = hit.get("collider")
+	if collider == candidate or (collider is Node and candidate.is_ancestor_of(collider)):
+		return true
+	return (hit.get("position", origin) as Vector3).distance_to(origin) >= along - AIM_RAY_SLACK
 
 
 func _interaction_has_line_of_sight(focus: Vector3, candidate: RouteInteractable3D) -> bool:
