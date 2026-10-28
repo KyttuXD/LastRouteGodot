@@ -260,6 +260,7 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"emote": brain.emote_id,
 		"emote_seq": brain.emote_seq,
 		"emote_left": brain.emote_left,
+		"chase_style": brain.chase_style,
 		"peek_phase": int(brain.peek_phase),
 		"peek_body": brain.peek_body,
 		"peek_head": brain.peek_head,
@@ -294,6 +295,9 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.emote_id = int(state.get("emote", -1))
 	brain.emote_seq = int(state.get("emote_seq", 0))
 	brain.emote_left = float(state.get("emote_left", 0.0))
+	var style := String(state.get("chase_style", brain.chase_style))
+	if HunterChaseStyle.valid(style):
+		brain.chase_style = style
 	brain.peek_phase = clampi(int(state.get("peek_phase", 0)), HunterBrain.Peek.SETTLE, HunterBrain.Peek.AMBUSH)
 	brain.peek_body = state.get("peek_body", brain.position)
 	brain.peek_head = state.get("peek_head", brain.position)

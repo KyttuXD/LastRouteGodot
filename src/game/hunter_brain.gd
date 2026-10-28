@@ -156,6 +156,9 @@ var inspect_cooldown := 0.0
 var inspections := 0
 var _inspect_resume := Vector2.ZERO
 
+## How she runs in a chase (HunterChaseStyle id, from her data or the fallback table). Presentation only; replicated.
+var chase_style := HunterChaseStyle.DEFAULT
+
 var _rng: SeededRandom
 
 
@@ -177,6 +180,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 	chase_progression_scale = identity["chase_progression_scale"]
 	sight_range = identity["sight_range"]
 	hearing_scale = identity["hearing_scale"]
+	chase_style = HunterChaseStyle.style_for(id)
 
 
 ## Mirrors applyRelayActivation(): a hunter isn't just "spawned", it starts
