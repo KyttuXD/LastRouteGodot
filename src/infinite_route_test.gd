@@ -70,6 +70,7 @@ var _ladder_rung_timer := 0.0
 var _ladder_hint_id := ""
 ## Decides when hunters emote (host only); see docs/HUNTER_EMOTES.md.
 var _hunter_emoter := HunterEmoter.new()
+var _inferno_secrets := InfernoSecrets.new()   # the Inferno's secret creatures: trigger on level -3 (InfernoSecrets)
 var _taser_ready_usec_by_peer := {}
 var _last_checkpoint_request := ""
 var _last_checkpoint_request_usec := 0
@@ -150,6 +151,7 @@ var _loaded_from_save := false
 
 
 func _ready() -> void:
+	Sound.reset_run_effects()   # a new run or CONTINUE never inherits the last run's muffle or duck
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	RefLook.install(self, get_node_or_null("WorldEnvironment") as WorldEnvironment)
 	add_to_group("gameplay_session")
@@ -839,6 +841,8 @@ func _settle_spawn() -> void:
 		var marker := find_child("StartingSafeZoneMarker", true, false) as Node3D
 		player.global_position = player.clear_spot_near(player.global_position, 4,
 			marker.global_position if marker != null else Vector3.INF, SPAWN_MARKER_CLEARANCE)
+	if is_instance_valid(player):
+		player.reveal_xr_view()   # the headset fades in from black only now (XRFade)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
@@ -2636,6 +2640,7 @@ func _direct_hunters(delta: float, local_target: Dictionary) -> void:
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
+	_inferno_secrets.update(self, delta)
 	for cell_value in _hide_check_cooldowns.keys():
 		_hide_check_cooldowns[cell_value] = float(_hide_check_cooldowns[cell_value]) - delta
 		if float(_hide_check_cooldowns[cell_value]) <= 0.0:
@@ -2734,8 +2739,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		navigation: StreamedHunterNavigation, target: Dictionary, local_target: Dictionary, delta: float) -> bool:
 	var brain := view.brain
-	if brain == null or not brain.active:
-		return false
+	if brain == null or not brain.active or SecretCreatures.stays_home(brain.hunter_id):
+		return false   # a secret creature never takes a ramp or a ladder: it stays on its home level
 	var depth := maxi(1, -level + 1)
 	if _ladders.is_climbing(entity_id):
 		var climb := _ladders.advance(entity_id, delta)
@@ -5268,6 +5273,9 @@ func _respawn_after_death() -> void:
 			if peer != 0 and bool((target_value as Dictionary).get("spectating", false)):
 				_remotes.send_player_event(peer, {"what": "revive"})
 	_death_screen_open = false
+	Sound.reset_run_effects()
+	if player.xr_active:
+		player.xr_camera.current = true   # the listener follows the current camera; the jumpscare borrowed it
 	_capture_cooldown = 3.5
 	player.global_position = _checkpoint_world_position()
 	player.velocity = Vector3.ZERO
@@ -5534,6 +5542,9 @@ func _admin_summon_hunter_authoritative(peer_id: int, hunter_id: String) -> void
 		_admin_feedback(peer_id, "ADMIN SUMMON FAILED // RUNNER NOT AVAILABLE")
 		return
 	var level := -int(target.get("depth", 0))
+	if SecretCreatures.stays_home(hunter_id) and level != SecretCreatures.HOME_LEVEL:
+		_admin_feedback(peer_id, "ADMIN SUMMON FAILED // THIS ONE LIVES ON LEVEL %+d" % SecretCreatures.HOME_LEVEL)
+		return
 	var navigation := _navigations.get(level) as StreamedHunterNavigation
 	if navigation == null:
 		var target_coord := Vector3i(
@@ -5676,6 +5687,7 @@ func _state_chunk(state: Dictionary) -> Vector3i:
 
 func _exit_tree() -> void:
 	Sound.set_ambience("")   # the bed belongs to the run
+	Sound.reset_run_effects()
 
 
 func _leave_test() -> void:
@@ -5685,7 +5697,7 @@ func _leave_test() -> void:
 	if RoomState.public_route:
 		PublicRoute.leave()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(RoomState.menu_scene_path())
+		XRFade.change_scene(get_tree(), RoomState.menu_scene_path())
 		return
 	if RoomState.online and RoomState.is_host:
 		# Keep the ENet room alive and return every connected runner to the same
@@ -5696,11 +5708,11 @@ func _leave_test() -> void:
 		# local staging room ready rather than dropping all the way to the title.
 		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
 		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 	else:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 ## Quick chat "HUNTER!": the hunter in front of the crosshair (within 30 m, close to the view direction), as a map mark.

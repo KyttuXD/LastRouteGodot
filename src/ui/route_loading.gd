@@ -110,6 +110,9 @@ func _open_loaded_route() -> void:
 	if packed == null:
 		_fail_load("THE ROUTE SCENE COULD NOT BE OPENED")
 		return
+	if XRFade.active(get_tree()) != null:
+		XRFade.change_scene(get_tree(), packed)   # fade the headset to black first
+		return
 	var error := get_tree().change_scene_to_packed(packed)
 	if error != OK:
 		_fail_load("THE ROUTE SCENE COULD NOT START // ERROR %d" % error)
@@ -131,7 +134,7 @@ func _return_to_staging() -> void:
 		return
 	RoomState.session_active = false
 	RoomState.status_message = "ROUTE LOAD FAILED // RETURNED TO STAGING"
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _set_phase(message: String, amount: float, indeterminate: bool) -> void:

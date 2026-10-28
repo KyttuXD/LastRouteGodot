@@ -1,0 +1,42 @@
+{
+ "black_wolf_spider": {
+  "sprint": {
+   "contacts": 384,
+   "cycle": 0.6,
+   "forward_ok": false,
+   "ref": 2.104,
+   "reverse": true,
+   "slip_rms": 0.348,
+   "stance": -2.081
+  },
+  "walk": {
+   "contacts": 332,
+   "cycle": 1.2,
+   "forward_ok": false,
+   "ref": 0.617,
+   "reverse": true,
+   "slip_rms": 0.991,
+   "stance": -0.557
+  }
+ },
+ "white_wolf_spider": {
+  "sprint": {
+   "contacts": 386,
+   "cycle": 0.6,
+   "forward_ok": false,
+   "ref": 1.967,
+   "reverse": true,
+   "slip_rms": 0.411,
+   "stance": -1.149
+  },
+  "walk": {
+   "contacts": 332,
+   "cycle": 1.2,
+   "forward_ok": false,
+   "ref": 0.561,
+   "reverse": true,
+   "slip_rms": 0.991,
+   "stance": -0.433
+  }
+ }
+}

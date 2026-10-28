@@ -236,7 +236,7 @@ func _save_row(game: Dictionary) -> Control:
 		var open_button := _button("OPEN", false)
 		open_button.name = "SaveOpen_%s" % id
 		open_button.pressed.connect(func() -> void:
-			get_tree().change_scene_to_file(String(game["scene"])))
+			XRFade.change_scene(get_tree(), String(game["scene"])))
 		row.add_child(open_button)
 	if bool(summary["has_save"]):
 		var clear := _button("SURE?" if _confirm_clear == id else "CLEAR", false)

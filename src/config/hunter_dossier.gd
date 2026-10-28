@@ -143,3 +143,17 @@ static func redacted(hunter_id: String, text: String) -> String:
 	for form in [hunter_name, hunter_name.to_upper(), hunter_name.to_lower()]:
 		out = out.replace(form, "\u2588".repeat(hunter_name.length()))
 	return out
+
+
+const PORTRAIT_DIR := "res://assets/ui/hunter_portraits/"
+const SILHOUETTE := Color(0.02, 0.015, 0.03, 1.0)
+
+
+## The dossier tile: the 2D Last Route portrait (96x96 pixel art), <PORTRAIT_DIR><id>.png. A hunter data file may name its own
+## "portrait". (tools/look/hunter_portraits.tscn bakes 3D-model renders into assets/ui/hunter_portraits_3d/ as an unused alternative.) Null when the hunter has none.
+static func portrait(hunter_id: String) -> Texture2D:
+	var id := HunterIdAliases.canonical(hunter_id)
+	var path := PORTRAIT_DIR + id + ".png"
+	if ContentRegistry.has("hunters", id):
+		path = String(ContentRegistry.get_def("hunters", id).get("portrait", path))
+	return load(path) as Texture2D if ResourceLoader.exists(path) else null
