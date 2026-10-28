@@ -302,6 +302,21 @@ func _run(scene: Node) -> void:
 							"look": Vector3(cx * fsize + seal_centre.x, seal_y + 1.4, cz * fsize + seal_centre.y)})
 						break
 					continue
+				if OS.get_environment("CAP_FALLS") == "sewerseal":
+					# CAP_FALLS=sewerseal: the first sealed utility room of the sewer (-1) and the collector (-2), 5 m back from its gate
+					for seal_level in [StreamedRouteGenerator.SEWER_LEVEL, StreamedRouteGenerator.LOWER_SEWER_LEVEL]:
+						for spec in facility.generator.chunk(Vector3i(cx, seal_level, cz)).get("breakables", []):
+							if String(spec["kind"]) != Breach.KIND_SEAL:
+								continue
+							var gate_centre: Vector2 = spec["extras"]["centre"]
+							var gate_dir: Vector2 = spec["extras"]["dir"]
+							var stand: Vector2 = gate_centre + gate_dir * 5.0   # on the tunnel side, looking into the room
+							var gate_y: float = seal_level * StreamedFacilityView3D.LEVEL_HEIGHT
+							picks.append({"name": "sewerseal_%d_%s" % [seal_level, String(spec["variant"])], "yaw": 0.0,
+								"pos": Vector3(cx * fsize + stand.x, gate_y + .05, cz * fsize + stand.y),
+								"look": Vector3(cx * fsize + gate_centre.x, gate_y + 1.4, cz * fsize + gate_centre.y)})
+							break
+					continue
 				if OS.get_environment("CAP_FALLS") == "cave":
 					var cave_data: Dictionary = facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))
 					var cave_chambers: Array = cave_data.get("inferno_caverns", [])
