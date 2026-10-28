@@ -108,6 +108,22 @@ viewport's picture on a floating panel 1.5 m in front of the head:
 - **Recentre:** the left menu button puts the panel back in front of the head.
 - **In a route:** the panel steps aside while a route's XR player owns the view, and comes back when the route ends.
 
+## Screens inside a route (headset)
+
+In a route the root viewport renders in XR, so CanvasLayers no longer reach the eyes. `XRRoutePanel`
+(`src/ui/xr_route_panel.gd`, attached by the route when `PlatformProfile.is_xr`) takes over once the player is in XR:
+
+- **Drawing:** every CanvasLayer of the route (HUD, pause menu, map, inventory, chat, story, death moment) draws into
+  the panel's own 2D viewport through `CanvasLayer.custom_viewport`, including layers created later.
+- **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
+  escape struggle), as a panel 1.2 m in front of the head.
+- **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
+  `custom_viewport` only moves where they are drawn.
+- **Scrolling:** on both panels the right stick scrolls what the laser points at. Scroll containers only drag-scroll
+  for touch, so this is what reaches ENTER ROUTE on the staging screen.
+- **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
+  of the head, and a laser click presses the button under it.
+
 ## Quest build (Gradle)
 
 The prebuilt Android template carries no OpenXR loader and no VR manifest entries, so the Quest needs:

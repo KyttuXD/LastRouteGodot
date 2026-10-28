@@ -54,6 +54,7 @@ func run(host: Node) -> int:
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
 	_check_xr_comfort(host)
+	await _check_xr_route_panel(host)
 	if _failures == 0:
 		print("  platform  desktop keeps the reference budgets; phone %s; quest %s" % [phone.summary(), quest.summary()])
 	return _failures
@@ -79,6 +80,77 @@ func _notification(what: int) -> void:
 				profile.free()
 
 
+## The in-route XR panel end to end, headless: a fake route whose player is "in XR" gets its CanvasLayer moved into the
+## panel's viewport; the panel shows only while a screen is open, in front of the head; and a laser click on the
+## middle of the panel presses the button drawn there.
+func _check_xr_route_panel(host: Node) -> void:
+	var route := Node.new()
+	route.name = "FakeXRRoute"
+	host.add_child(route)
+	var player := Node3D.new()
+	player.set_script(_xr_player_script())
+	route.add_child(player)
+	var origin := XROrigin3D.new()
+	player.add_child(origin)
+	var camera := XRCamera3D.new()
+	camera.position = Vector3(0, 1.6, 0)
+	origin.add_child(camera)
+	var left := XRController3D.new()
+	var right := XRController3D.new()
+	origin.add_child(left)
+	origin.add_child(right)
+	player.set("xr_origin", origin)
+	player.set("xr_camera", camera)
+	player.set("xr_left", left)
+	player.set("xr_right", right)
+	var layer := CanvasLayer.new()
+	route.add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(190, 110)
+	button.size = Vector2(100, 50)
+	layer.add_child(button)
+	var clicks := [0]
+	button.pressed.connect(func() -> void: clicks[0] += 1)
+	var open := [false]
+	var panel := XRRoutePanel.attach(route, player, func() -> bool: return open[0])
+	panel._process(0.0)
+	_expect(layer.custom_viewport == null, "the XR route panel moved the UI while the player was not in XR")
+	player.set("xr_active", true)
+	panel._process(0.0)
+	_expect(layer.custom_viewport != null, "the XR route panel did not take the route's CanvasLayers once in XR")
+	var quad := origin.get_node_or_null("RouteUIPanel") as MeshInstance3D
+	_expect(quad != null and not quad.visible, "the XR route panel shows with no screen open")
+	open[0] = true
+	panel._process(0.0)
+	_expect(quad != null and quad.visible and quad.global_position.z < -0.8 and absf(quad.global_position.x) < 0.01,
+		"the XR route panel did not open in front of the head (%s)" % [quad.global_position if quad != null else "none"])
+	right.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, -0.2))
+	panel._process(0.0)
+	panel.call("_click", true)
+	await host.get_tree().process_frame
+	panel.call("_click", false)
+	await host.get_tree().process_frame
+	_expect(clicks[0] == 1, "a laser click on the XR route panel did not press the button under it (%d)" % clicks[0])
+	# The right stick scrolls: nothing inside the dead zone, one step past it, then a short wait between steps.
+	var wait := XRMenuPanel.scroll_from_stick(0.2, Vector2(240, 135), 0.0, 0.016)
+	var stepped := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), 0.0, 0.016)
+	var waiting := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), stepped, 0.016)
+	_expect(wait == 0.0 and is_equal_approx(stepped, XRMenuPanel.SCROLL_STEP_SECONDS) and waiting < stepped and waiting > 0.0,
+		"the XR panel stick scroll steps wrongly (%s %s %s)" % [wait, stepped, waiting])
+	open[0] = false
+	panel._process(0.0)
+	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
+	route.queue_free()
+	await host.get_tree().process_frame
+
+
+func _xr_player_script() -> GDScript:
+	var script := GDScript.new()
+	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
+	script.reload()
+	return script
+
+
 ## XR comfort maths (XRComfort; only built once OpenXR starts, so checked here directly): the world scale makes any
 ## real height see from 1.60 m, snap turn steps once per push, smooth turn is proportional, and a desktop run built no
 ## comfort node.
@@ -97,6 +169,21 @@ func _check_xr_comfort(host: Node) -> void:
 	_expect(XRComfort.smooth_turn(0.1, 0.1) == 0.0 and XRComfort.smooth_turn(1.0, 0.5) < XRComfort.smooth_turn(0.5, 0.5),
 		"smooth turn ignores the dead zone or is not proportional")
 	_expect(host.get_tree().root.find_children("XRComfort", "", true, false).is_empty(), "a desktop run built the XR comfort node")
+	# The in-route XR panel moves the route's CanvasLayers into its own viewport, but never TouchControls or a layer that
+	# already renders elsewhere.
+	var fake_route := Node.new()
+	var hud_layer := CanvasLayer.new()
+	var elsewhere := CanvasLayer.new()
+	var touch := TouchControls.new()
+	var target := SubViewport.new()
+	var other := SubViewport.new()
+	elsewhere.custom_viewport = other
+	for node in [hud_layer, elsewhere, touch, target, other]:
+		fake_route.add_child(node)
+	var moved := XRRoutePanel.retarget_canvas_layers(fake_route, target)
+	_expect(moved == 1 and hud_layer.custom_viewport == target and elsewhere.custom_viewport == other and touch.custom_viewport == null,
+		"the XR route panel retargets the wrong CanvasLayers (moved %d)" % moved)
+	fake_route.free()
 	# The XR menu panel: a desktop run has none, and the laser maps onto the panel's UV (top-left 0,0) and misses off it.
 	_expect(PlatformProfile.find_children("XRMenuPanel", "", true, false).is_empty(), "a desktop run built the XR menu panel")
 	var panel := Transform3D(Basis.IDENTITY, Vector3(0, 1.5, -1.5))
