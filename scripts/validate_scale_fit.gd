@@ -10,8 +10,9 @@ extends RefCounted
 ## Owned by the props lane (they are model sizes). Empty since the props lane shortened the beds (2.25 m with boards, gothic
 ## canopy 2.31 m) and capped the vanity / serving counter colliders below the mirror and the sneeze hood.
 const KNOWN := {}
-## On once the props lane has resized everything to hunter scale: then a person-sized prop fails too.
-const HUNTER_SCALE_STRICT := false
+## On since the props lane resized everything to hunter scale (PropModelCatalog.HUNTER_SCALE, docs/SEATING.md): a
+## person-sized prop fails too.
+const HUNTER_SCALE_STRICT := true
 
 var _failures := 0
 

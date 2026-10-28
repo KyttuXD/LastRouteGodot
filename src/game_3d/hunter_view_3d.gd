@@ -49,12 +49,21 @@ var _facing := HunterFacing.new()
 ## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
 ## procedural breathing / sway / lean layers (off elsewhere).
 var nw_pose := ""
+var _peek_pose := ""
+## The scare beat: the local camera caught her head round a corner (once per peek).
+signal peek_spotted(view: HunterView3D)
+var _peek_spotted := false
+const PEEK_SPOT_RANGE := 16.0
 ## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
 var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
 var nw_layers := false
 var _nw_started := ""
 var _nw_layers := NightWatchPoseLayers.new()
+## Per-hunter chase style (HunterChaseStyle): an upper-body layer over the chase clip. GRAB can switch it off for a
+## grab (it blends out over a third of a second rather than popping).
+var _chase := HunterChaseStyle.new()
+var chase_layer_enabled := true
 var _nw_last_yaw := 0.0
 var _head_rest_q := Quaternion.IDENTITY
 var _head_written_q := Quaternion.IDENTITY
@@ -117,10 +126,18 @@ void vertex() {
 	along = clamp(0.5 - VERTEX.y / length_m, 0.0, 1.0);
 }
 void fragment() {
-	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 1.4);
+	// KT: a blocky beam -- a 4-sided frustum. Each face fades out toward its two edges (UV.x runs once round the
+	// mesh, a quarter per face), so the square silhouette stays soft, plus a mild view-angle term.
+	float e = fract(UV.x * 4.0);
+	float edge = pow(smoothstep(0.0, 0.5, min(e, 1.0 - e)), 1.6);
+	float facing = mix(0.55, 1.0, clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0));
 	float pulse = 1.0 + 0.14 * sin(TIME * pulse_speed);
+	// a camera inside or right next to the beam sees it fade away instead of filling the screen
+	float near_fade = smoothstep(0.4, 3.0, length(VERTEX));
+	// voxel-like steps along its length: the fade drops in eight blocks rather than a smooth ramp
+	float stepped = mix(along, floor(along * 8.0) / 8.0, 0.6);
 	ALBEDO = beam_color.rgb;
-	ALPHA = clamp(strength * pulse * rim * (1.0 - along * 0.8), 0.0, 1.0);
+	ALPHA = clamp(strength * pulse * edge * facing * near_fade * (1.0 - smoothstep(0.0, 1.0, stepped) * 0.9), 0.0, 0.35);
 }
 """
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
@@ -169,7 +186,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_doorway.restore()
+	_chase.restore()
 	_update_head_look(delta)
+	_update_chase_style(delta)
 	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
@@ -277,6 +296,25 @@ func _apply_sleep_pose() -> void:
 		_model.remove_meta("awake_position")
 
 
+## Seated on a seat (HunterSeats, docs/SEATING.md): facing out of the seat, in the shared "sit" pose. Set every sync by
+## the host and from the hunter report on guests.
+var _seated := false
+
+
+func set_seated(on: bool, yaw: float = 0.0) -> void:
+	if on:
+		rotation.y = yaw
+		if nw_pose != HunterSeats.POSE:
+			NightWatchPoses.play(self, HunterSeats.POSE)
+	elif _seated and nw_pose == HunterSeats.POSE:
+		NightWatchPoses.stop(self)
+	_seated = on
+
+
+func is_seated() -> bool:
+	return _seated
+
+
 func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
 	climb_clip = clip
 	if on:
@@ -342,6 +380,7 @@ func _apply_model(model_id: String) -> void:
 			NightWatchPoses.install(_model, _animation_player, _shown_id)
 			_doorway.bind(_model)
 			_nw_layers.bind(_model)
+			_chase.bind(_model)
 			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
 		_attach_scythe()
@@ -414,6 +453,8 @@ func _configure_character_lights() -> void:
 		_kathy_beam.spot_angle_attenuation = 1.35
 		_kathy_beam.shadow_enabled = true
 		_kathy_beam.shadow_bias = .25
+		# The light stays round: a square projector cookie would match the blocky beam, but the project's Compatibility
+		# renderer does not draw spot projectors (tried; the footprint just came out round and wider).
 		_head_node.add_child(_kathy_beam)
 		_beam_neutral = eye_color
 		_beam_color = eye_color
@@ -423,7 +464,8 @@ func _configure_character_lights() -> void:
 
 func _build_beam_visual() -> void:
 	var length := GameConfig.KATHY_BEAM_RANGE
-	var shell_radius := minf(length * tan(GameConfig.KATHY_BEAM_HALF_ANGLE), BEAM_SHELL_RADIUS_CAP)
+	# a square frustum: CylinderMesh with 4 sides has its corners on the radius, so a half-width w needs radius w * sqrt 2
+	var shell_radius := minf(length * tan(GameConfig.KATHY_BEAM_HALF_ANGLE), BEAM_SHELL_RADIUS_CAP) * sqrt(2.0)
 	var shader := Shader.new()
 	shader.code = BEAM_SHADER
 	for part in ["Shell", "Core"]:
@@ -431,7 +473,7 @@ func _build_beam_visual() -> void:
 		cone.top_radius = 0.0
 		cone.bottom_radius = shell_radius if part == "Shell" else shell_radius * .28
 		cone.height = length
-		cone.radial_segments = 20
+		cone.radial_segments = 4   # square (KT: blocky), edges softened per face in the shader
 		cone.rings = 1
 		var material := ShaderMaterial.new()
 		material.shader = shader
@@ -442,7 +484,8 @@ func _build_beam_visual() -> void:
 		instance.material_override = material
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# the cone's apex sits at the eye and it opens along the light's -Z
-		instance.rotation_degrees = Vector3(90, 0, 0)
+		# the 45 degree twist puts the square's sides level with her head, not its corners
+		instance.basis = Basis(Vector3.RIGHT, PI * .5) * Basis(Vector3.UP, PI * .25)
 		instance.position = Vector3(0, 0, -length * .5)
 		_kathy_beam.add_child(instance)
 		if part == "Shell":
@@ -466,13 +509,31 @@ func _update_beam_visual(delta: float) -> void:
 	if _beam_shell != null:
 		var shell := _beam_shell.material_override as ShaderMaterial
 		shell.set_shader_parameter("beam_color", _beam_color)
-		shell.set_shader_parameter("strength", lerpf(.22, .34, _beam_chase_mix) * dim)
+		# KT: "much less visible" -- about 30% of the old .22-.34; the light on the floor and walls carries the cue
+		shell.set_shader_parameter("strength", lerpf(.066, .10, _beam_chase_mix) * dim)
 		shell.set_shader_parameter("pulse_speed", pulse_speed)
 	if _beam_core != null:
 		var core := _beam_core.material_override as ShaderMaterial
 		core.set_shader_parameter("beam_color", _beam_color.lerp(Color.WHITE, .35))
-		core.set_shader_parameter("strength", lerpf(.5, .8, _beam_chase_mix) * dim)
+		core.set_shader_parameter("strength", lerpf(.15, .24, _beam_chase_mix) * dim)
 		core.set_shader_parameter("pulse_speed", pulse_speed)
+
+
+## The chase style layer: on while she is in a live chase on foot and nothing else is posing her.
+func _update_chase_style(delta: float) -> void:
+	if brain == null or _model == null or _creature != null:
+		return
+	var flying := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne()
+	var chasing := chase_layer_enabled and brain.active and brain.state == HunterBrain.State.CHASE \
+		and brain.stun_timer <= 0.0 and _recover_left <= 0.0 and not climbing and not flying and not has_nw_pose() \
+		and not (_emote_index >= 0 and not _emote_clip.is_empty())
+	var aim := 0.0
+	if has_look_target and HunterChaseStyle.reaches(brain.chase_style):
+		var forward := Vector2(-sin(rotation.y), -cos(rotation.y))
+		var to_runner := look_target_position - brain.position
+		if to_runner.length() > .1:
+			aim = clampf(forward.angle_to(to_runner.normalized()), -HunterChaseStyle.AIM_LIMIT, HunterChaseStyle.AIM_LIMIT)
+	_chase.apply(brain.chase_style, chasing, delta, -aim, Time.get_ticks_msec() * .001)
 
 
 func _update_head_look(delta: float) -> void:
@@ -519,6 +580,9 @@ func _head_mode() -> int:
 		HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 			if has_look_target:
 				return HunterFacing.Mode.SWEEP
+		HunterBrain.State.INSPECT:
+			if brain.inspect_phase != HunterBrain.Inspect.WALK:
+				return HunterFacing.Mode.NONE   # the lean pose aims her face straight in at the slats
 	return HunterFacing.Mode.AHEAD if _facing.moving() else HunterFacing.Mode.SCAN
 
 
@@ -863,6 +927,109 @@ func shown_id() -> String:
 	return _shown_id
 
 
+## Corner peek (HunterPeek): the deep lean pose while her head is out past the edge, toward the edge's side. Only
+## clears a pose it set, so Night Watch's own poses are never touched.
+func _sync_peek_pose() -> void:
+	if brain == null:
+		return
+	var wanted := ""
+	if brain.peeking_out() and brain.stun_timer <= 0.0:
+		wanted = "corner_peek_left" if brain.peek_side > 0 else "corner_peek_right"
+	elif brain.inspecting_close() and brain.stun_timer <= 0.0:
+		wanted = "locker_lean"   # bent in at the slats (HunterInspect); blends in over the shot's 1.6 s bow
+	if wanted == _peek_pose:
+		return
+	if wanted.is_empty():
+		if nw_pose == _peek_pose:
+			nw_pose = ""
+	elif nw_pose.is_empty() or nw_pose == _peek_pose:
+		nw_pose = wanted
+		nw_pose_opts = {"blend": HunterInspect.LEAN_SECONDS} if wanted == "locker_lean" else {}
+	_peek_pose = wanted
+
+
+## Locker inspection: one close breath when she settles at the slats, heard only near the spot (the hider, mostly).
+var _breathed := false
+
+
+func _update_inspect_breath() -> void:
+	var lingering := brain.state == HunterBrain.State.INSPECT and brain.inspect_phase == HunterBrain.Inspect.LINGER
+	if not lingering:
+		_breathed = false
+		return
+	if _breathed or not is_inside_tree():
+		return
+	_breathed = true
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var gap := global_position.distance_to(camera.global_position)
+	if gap > 3.5:
+		return
+	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	var breaths := int(HunterInspect.tuning(brain.hunter_id)["breaths"])   # Nyxie's easter egg breathes twice, longer
+	for i in breaths:
+		if i > 0:
+			await get_tree().create_timer(1.1).timeout
+			if not is_inside_tree():
+				return
+		Sound.nw("breath", clampf(side, -1.0, 1.0), (1.0 - gap / 3.5 * .5) * (1.15 if breaths > 1 else 1.0))
+
+
+## Glyra hums while her music box plays and falls silent when it stops (GlyraGimmick.humming, replicated mood).
+var _hum: AudioStreamPlayer3D
+
+
+func _update_glyra_hum() -> void:
+	if not brain.gimmick is GlyraGimmick:
+		return
+	var on := brain.active and (brain.gimmick as GlyraGimmick).humming()
+	if _hum == null:
+		if not on:
+			return
+		_hum = AudioStreamPlayer3D.new()
+		_hum.name = "GlyraHum"
+		_hum.unit_size = 4.0
+		_hum.max_distance = 14.0
+		_hum.volume_db = 3.0
+		_hum.position = Vector3(0, 1.5, 0)
+		var hum := Sound.render_cue("glyra_hum").duplicate() as AudioStreamWAV
+		if hum != null:
+			hum.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			hum.loop_begin = 0
+			hum.loop_end = int(hum.data.size() / 4)
+			_hum.stream = hum
+		add_child(_hum)
+	if on and not _hum.playing and _hum.stream != null and DisplayServer.get_name() != "headless":
+		_hum.play()
+	elif not on and _hum.playing:
+		_hum.stop()
+
+
+## Runs on every peer from replicated state: when this machine's camera has a clear line to her leaned-out head, play
+## the sting once for this peek. The head is where the brain says it is, so the beat matches what she can see back.
+func _update_peek_spot() -> void:
+	if not brain.peeking_out():
+		_peek_spotted = false
+		return
+	if _peek_spotted or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var head := Vector3(brain.peek_head.x, global_position.y + 1.5 * HunterRoster.scale_for(_shown_id), brain.peek_head.y)
+	var to_head := head - camera.global_position
+	if to_head.length() > PEEK_SPOT_RANGE or (-camera.global_basis.z).dot(to_head.normalized()) < .55:
+		return
+	var query := PhysicsRayQueryParameters3D.create(camera.global_position, head)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and not is_ancestor_of(hit.get("collider")) and hit.get("collider") != self:
+		return
+	_peek_spotted = true
+	Sound.alert()
+	peek_spotted.emit(self)
+
+
 func has_nw_pose() -> bool:
 	return _animation_player != null and not nw_pose.is_empty() \
 		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
@@ -1007,6 +1174,10 @@ func _update_animation() -> void:
 			clip_name = String(pick["clip"])
 		_stride_scale = lerpf(_stride_scale, float(pick["scale"]), 1.0 - exp(-10.0 * delta))
 		speed = _stride_scale
+	_sync_peek_pose()
+	_update_peek_spot()
+	_update_glyra_hum()
+	_update_inspect_breath()
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():

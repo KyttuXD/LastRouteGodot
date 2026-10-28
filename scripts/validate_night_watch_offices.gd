@@ -64,6 +64,14 @@ func _check_office(host: Node, mode_id: String) -> void:
 	for prop_name in office.props:
 		var st := NightWatchArt.prop_stats(office.props[prop_name])
 		_expect(int(st["untextured"]) == 0, "%s: prop %s has untextured cubes" % [mode_id, prop_name])
+	# the signature decor (bands, posters, dashes, bars, grilles) hangs on the walls: none of it stands in the walk area (the footprint, floor to head height)
+	var sig := office.get_node_or_null("Signature")
+	if sig != null:
+		var walk := AABB(Vector3(spec.footprint.position.x, 0.05, spec.footprint.position.y), Vector3(spec.footprint.size.x, 1.75, spec.footprint.size.y))
+		for node in sig.find_children("*", "MeshInstance3D", true, false):
+			var mi := node as MeshInstance3D
+			var box: AABB = office.global_transform.affine_inverse() * mi.global_transform * mi.get_aabb()
+			_expect(not box.intersects(walk), "%s: signature piece %s stands in the walk area (%s)" % [mode_id, mi.name, str(box)])
 	# walkability: a capsule flood fill from the spawn over the footprint
 	var space := (host.get_viewport().world_3d if host.get_viewport() != null else null)
 	var space_state: PhysicsDirectSpaceState3D = office.get_world_3d().direct_space_state

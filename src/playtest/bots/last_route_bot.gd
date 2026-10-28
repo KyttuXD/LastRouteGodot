@@ -464,7 +464,7 @@ func observe(scene: Node, obs: Dictionary) -> void:
 	if focus is RouteInteractable3D and is_instance_valid(focus):
 		obs["focus"] = {"kind": RouteInteractable3D.Kind.keys()[(focus as RouteInteractable3D).kind], "prompt": (focus as RouteInteractable3D).get_prompt()}
 	obs["world"] = {"chunk": [chunk.x, chunk.y, chunk.z], "level": facility.current_level(),
-		"loaded_chunks": facility.loaded_chunk_count(), "biome": String(data.get("biome", "")),
+		"loaded_chunks": facility.loaded_chunk_count(), "region": String(data.get("region", "")),
 		"relays": _nearest_entries(nav.relays, p, 8, true), "batteries": _nearest_entries(nav.batteries, p, 4, true),
 		"safe_zones": _nearest_entries(nav.safe_zones, p, 4, false),
 		"hiding_spots": _nearest_entries(nav.hiding_spots, p, 6, false)}

@@ -51,6 +51,7 @@ func run(_host: Node) -> int:
 	var hides := 0
 	var spots := 0
 	var grates := 0
+	var mezz_wells := 0
 	for seed_text in SEEDS:
 		var stack := _stack(seed_text)
 		var twin := _stack(seed_text)
@@ -84,6 +85,19 @@ func run(_host: Node) -> int:
 							"%s %s %d->%d ends not walkable" % [where, link["kind"], level, level + 1])
 					if has_up:
 						up_chunks[level] = int(up_chunks.get(level, 0)) + 1
+				# the Mezzanine's way up is the maze chunk's own stairwell: both levels carve the same cells
+				var mezz_data: Dictionary = stack[1].chunk(Vector3i(dx, 1, dz))
+				var maze_well: Dictionary = stack[0].stairwell_between(dx, dz, 1)
+				_expect((mezz_data["stairwells"] as Array).size() == (0 if maze_well.is_empty() else 1),
+					"%s mezzanine and maze disagree on the way up" % where)
+				if not maze_well.is_empty():
+					mezz_wells += 1
+					var landing: Vector2i = maze_well["landing"]
+					_expect(int(grids[0][landing.y][landing.x]) == 0 and int(grids[1][landing.y][landing.x]) == 0,
+						"%s the +1 stairwell landing %s is not walkable on both levels" % [where, landing])
+					for shaft_cell in maze_well["shaft"]:
+						_expect(int(mezz_data["mezzanine_grid"][shaft_cell.y][shaft_cell.x]) == MezzanineRouteGenerator.OPEN,
+							"%s the +1 stairwell shaft %s is not open air upstairs" % [where, shaft_cell])
 				var attic: Dictionary = stack[4].chunk(Vector3i(dx, 4, dz))
 				var standing := _flood(attic["attic_grid"], [AtticRouteGenerator.STAND])
 				for feature in attic["features"]:
@@ -108,12 +122,15 @@ func run(_host: Node) -> int:
 						"%s vent grate %s does not join a duct to a walkable cell" % [where, cell])
 	for level in range(0, 4):
 		_expect(int(up_chunks.get(level, 0)) > 0, "no way up from level %d" % level)
-		_expect(int(up_chunks.get(level + 1, 0)) <= int(up_chunks.get(level, 0)),
+		# the maze vetoes a way up that does not fit its halls and suites (_maze_stairwell_fits), so level 0 may sit a few
+		# percent under the pure chance that thins the levels above it
+		_expect(int(up_chunks.get(level + 1, 0)) <= int(up_chunks.get(level, 0)) * (1.1 if level == 0 else 1.0),
 			"ways up do not thin out going higher: %s" % [up_chunks])
+	_expect(mezz_wells > 0, "no stairwell up to the Mezzanine in the sampled chunks")
 	_expect(hides > 0 and spots > 0 and grates > 0, "missing attic hides, archive spots or vent grates")
 	if _failures == 0:
-		print("  upper_levels  %d chunks x 4 levels: deterministic, connected, seams meet, under the slab; ways up per level %s (%s); %d crawl-only hides, %d stack spots, %d vent grates"
-			% [chunks, up_chunks, kinds, hides, spots, grates])
+		print("  upper_levels  %d chunks x 4 levels: deterministic, connected, seams meet, under the slab; ways up per level %s (%s); %d crawl-only hides, %d stack spots, %d vent grates, %d stairwells to the mezzanine"
+			% [chunks, up_chunks, kinds, hides, spots, grates, mezz_wells])
 	return _failures
 
 

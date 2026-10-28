@@ -137,10 +137,6 @@ func _build_shell() -> void:
 	var w := HALF_W * 2.0 + 0.4
 	var d := BACK_Z - FRONT_Z + 0.4
 	_c(shell, Vector3(w, 0.2, d), Vector3(0, -0.1, (BACK_Z + FRONT_Z) * 0.5), "Floor", {"solid": true, "tint": Color(1.5, 1.1, 1.5)})
-	for ix in 5:   # a checkered rug of floor tiles
-		for iz in 4:
-			if (ix + iz) % 2 == 0:
-				_c(shell, Vector3(1.0, 0.012, 1.0), Vector3(-2.0 + ix, 0.006, -1.3 + iz), "FloorTile", {"kind": "floor", "tint": Color(1.9, 1.5, 2.2)})
 	_c(shell, Vector3(w, 0.2, d), Vector3(0, HEIGHT + 0.1, (BACK_Z + FRONT_Z) * 0.5), "Ceiling", {"tint": Color(0.9, 0.8, 1.1)})
 	# the south wall, the two side walls (the vents are low in them) and the north wall around the opening with a header above it
 	_c(shell, Vector3(w, HEIGHT, 0.2), Vector3(0, HEIGHT * 0.5, BACK_Z + 0.1), "WallBack", {"solid": true, "tint": WALL})

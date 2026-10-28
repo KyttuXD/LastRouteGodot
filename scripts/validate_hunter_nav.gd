@@ -153,7 +153,8 @@ func _simulate(generator: StreamedRouteGenerator, setup: Dictionary, hunter_id: 
 				break
 		var moved := brain.position.distance_to(previous)
 		previous = brain.position
-		if moved < 0.004:
+		# a corner peek stops on purpose for its look (bounded and checked by hunter_peek)
+		if moved < 0.004 and brain.state != HunterBrain.State.PEEK:
 			still += STEP
 			if still > worst_still:
 				worst_still = still

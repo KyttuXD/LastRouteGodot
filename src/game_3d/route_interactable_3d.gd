@@ -25,6 +25,7 @@ enum Kind {
 	LIGHT_SWITCH,
 	FURNITURE,
 	ROOM_DOOR,
+	BREAKABLE,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -83,6 +84,7 @@ const GLOW_COLORS := {
 	Kind.BOARDED_PATH: Color(0.94, 0.48, 0.22),
 	Kind.TOOL_PICKUP: Color(0.64, 0.84, 0.96),
 	Kind.LIGHT_SWITCH: Color(0.96, 0.72, 0.30),
+	Kind.BREAKABLE: Color(0.94, 0.48, 0.22),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -102,6 +104,9 @@ var generator: FacilityGenerator
 var heater_state: HeaterState = HeaterState.FROZEN
 ## Vent only -- which entry in FacilityGenerator.vents this node stands on.
 var vent_id := ""
+## MUSIC_BOX: which box (StreamedRouteGenerator._music_boxes) and the shared clock its tune follows.
+var music_box_id := ""
+var music_boxes: MusicBoxes
 ## Some deterministic relay spawns are concealed inside a locked crate or
 ## barrel. They remain ordinary relays for objective counts and late-join
 ## snapshots; this flag only adds the tool gate and container presentation.
@@ -173,6 +178,9 @@ var _door_target_x := 0.0
 
 func _ready() -> void:
 	add_to_group("interactable")
+	if kind == Kind.BREAKABLE:
+		_ready_breakable()
+		return
 	if kind == Kind.ROOM_DOOR:
 		_ready_room_door()
 		return
@@ -225,8 +233,56 @@ func _ready() -> void:
 	_light.light_color = GLOW_COLORS[kind]
 	add_child(_light)
 	LampField.make_budgeted(_light)
+	if kind == Kind.MUSIC_BOX and music_boxes != null:
+		var tune := MusicBoxTune.new()
+		tune.box_id = music_box_id
+		tune.boxes = music_boxes
+		add_child(tune)
 
 	_refresh_visual()
+
+
+## A breakable (Breach, docs/BREACH.md): its spec, the hit points it shows, and the visual pieces that fall away as they drop.
+var breakable_spec := {}
+var breakable_hp := 0
+var _breakable_pieces: Array = []
+
+
+func configure_breakable(spec: Dictionary, hp: int, is_open: bool) -> void:
+	breakable_spec = spec
+	breakable_hp = hp
+	opened = is_open
+	if is_inside_tree():
+		_ready_breakable()
+
+
+func _ready_breakable() -> void:
+	if breakable_spec.is_empty() or _visual != null:
+		return
+	var built := BreakableView.build(breakable_spec)
+	_visual = built["root"]
+	_breakable_pieces = built["pieces"]
+	add_child(_visual)
+	_interaction_focus_local = Vector3(0.0, 1.3, 0.0)
+	_refresh_visual()
+
+
+func apply_breakable_state(hp: int, is_open: bool) -> void:
+	breakable_hp = hp
+	opened = is_open
+	_refresh_visual()
+
+
+func _refresh_breakable_pieces() -> void:
+	var total := _breakable_pieces.size()
+	if total == 0:
+		return
+	var max_hp := maxi(1, int(breakable_spec.get("hp", 1)))
+	var shown := ceili(float(total) * float(breakable_hp) / float(max_hp)) if breakable_hp > 0 else 0
+	for index in total:
+		var piece := _breakable_pieces[index] as Node3D
+		if is_instance_valid(piece):
+			piece.visible = index < shown
 
 
 func _process(delta: float) -> void:
@@ -278,6 +334,83 @@ func interaction_focus() -> Vector3:
 	return global_transform * _interaction_focus_local
 
 
+## Every interactable is aimed at, not just looked toward (KT: "locker instruction hitbox too big", "fix prompt hitboxes
+## for other props too", "make the reach closer"): the prompt needs the aim ray to hit this local box (the interactive
+## part plus AIM_BOX_MARGIN) within its kind's AIM_REACH, measured from the eye along the ray. Nearest hit wins.
+const AIM_BOX_MARGIN := .08
+## Small things (a battery, a coin, a tool on the floor) get a little more slack so they are not fiddly.
+const SMALL_AIM_MARGIN := .16
+## Reach along the aim ray, metres, per kind (the runner is 1.60 m, eye 1.44): wall controls and doors close
+## (you stand at the doorway and reach the handle), furniture and hiding props a step further.
+const AIM_REACH := {
+	Kind.ROOM_DOOR: 1.4, Kind.LIGHT_SWITCH: 1.4, Kind.BOARDED_PATH: 1.5, Kind.VENT: 1.5,
+	Kind.HIDING_SPOT: 1.6, Kind.LIFT: 1.6, Kind.SAFE_ZONE: 1.6, Kind.HEATER_STATION: 1.6, Kind.MUSIC_BOX: 1.6,
+	Kind.RELAY: 1.7, Kind.BATTERY: 1.7, Kind.COIN: 1.7, Kind.TOOL_PICKUP: 1.7,
+	Kind.FURNITURE: 1.8, Kind.BREAKABLE: 2.0,
+}
+const DEFAULT_AIM_REACH := 1.6
+
+var _aim_box_cache := AABB()
+var _aim_box_cached := false
+
+
+func has_aim_box() -> bool:
+	return aim_box().size != Vector3.ZERO
+
+
+func aim_reach() -> float:
+	return float(AIM_REACH.get(kind, DEFAULT_AIM_REACH))
+
+
+## The interactive part in this node's frame, cached once it is known (a door's box is its closed leaf and frame).
+func aim_box() -> AABB:
+	if _aim_box_cached:
+		return _aim_box_cache
+	var box := _compute_aim_box()
+	if box.size != Vector3.ZERO and is_inside_tree():
+		_aim_box_cache = box
+		_aim_box_cached = true
+	return box
+
+
+func _compute_aim_box() -> AABB:
+	if kind == Kind.FURNITURE and has_meta("rest_size"):
+		# a seat's own cushion (one sit point of a bench), a bed's mattress, a booth or a mirror's footprint
+		var size: Vector3 = get_meta("rest_size")
+		var floor_y := -(.48 if furniture_action == "lay" else .03)    # the view seats it this far above the floor
+		var top := float(get_meta("seat_top", 0.0)) + .25 if has_meta("seat_top") \
+			else (float(get_meta("rest_top", 0.0)) + .2 if has_meta("rest_top") else size.y)
+		return AABB(Vector3(-size.x * .5, floor_y, -size.z * .5), Vector3(size.x, maxf(top, .3), size.z)).grow(AIM_BOX_MARGIN)
+	if _visual != null and is_instance_valid(_visual):
+		var boxes: Array[AABB] = []
+		_collect_mesh_bounds(_visual, boxes)
+		if not boxes.is_empty():
+			var combined := boxes[0]
+			for i in range(1, boxes.size()):
+				combined = combined.merge(boxes[i])
+			var small := kind in [Kind.BATTERY, Kind.COIN, Kind.TOOL_PICKUP] or combined.size.length() < .6
+			return combined.grow(SMALL_AIM_MARGIN if small else AIM_BOX_MARGIN)
+	if kind == Kind.HIDING_SPOT:
+		# furniture hiding spots (bed, wardrobe): the placed prop's footprint and height
+		var height := maxf(hide_size.y, .5)
+		return AABB(Vector3(-hide_size.x * .5, 0.0, -hide_size.z * .5), Vector3(hide_size.x, height, hide_size.z)).grow(AIM_BOX_MARGIN)
+	return AABB()
+
+
+## Distance along the ray (world origin, unit direction) to where it enters the aim box, or -1 for a miss.
+func aim_hit_distance(origin: Vector3, direction: Vector3) -> float:
+	var inverse := global_transform.affine_inverse()
+	var local_origin := inverse * origin
+	var local_dir := (inverse.basis * direction)
+	var box := aim_box()
+	if box.has_point(local_origin):
+		return 0.0
+	var hit: Variant = box.intersects_ray(local_origin, local_dir)
+	if hit == null:
+		return -1.0
+	return (global_transform * (hit as Vector3)).distance_to(origin)
+
+
 func hiding_inside_position() -> Vector3:
 	if hide_style == "bed":
 		return global_transform * Vector3(0.0, 0.02, 0.0)
@@ -288,13 +421,18 @@ func hiding_inside_position() -> Vector3:
 	# plane intersecting the door panel. Sit toward the +Z/back wall instead: the
 	# player still looks through the real eye-level slats, but the door no longer
 	# fills or clips across the camera.
-	return global_transform * Vector3(0.0, 0.02, 0.18)
+	# A locker: right up behind the vent band, so the hider's eye is LOCKER_EYE_BEHIND behind the slats.
+	return global_transform * Vector3(0.0, 0.02, LOCKER_DOOR_Z + LOCKER_EYE_BEHIND)
 
 
 ## Eye height while hidden: under a bed you lie flat and look out under the frame; a wardrobe and a locker keep standing
 ## eye height (the player's own).
 func hiding_eye_height() -> float:
-	return .16 if hide_style == "bed" else -1.0
+	if hide_style == "bed":
+		return .16
+	if hide_style.is_empty() and kind == Kind.HIDING_SPOT:
+		return (LOCKER_VENT_LO + LOCKER_VENT_HI) * .5 - .02   # centred on the vent band (the body stands 2 cm up)
+	return -1.0
 
 
 ## Hunter checking this spot (host decides, every peer plays it): the furniture rattles for `seconds` with a creak, the
@@ -350,6 +488,8 @@ func set_local_hiding_view(open: bool) -> void:
 	if kind != Kind.HIDING_SPOT:
 		return
 	_local_hiding_view_open = open
+	# A locker's model door is solid apart from its own small louvres; for the hider only, the model goes and the shell
+	# with the full vent band is the locker (applied in _refresh_visual). Everyone else sees the model with the band.
 	if not hide_style.is_empty():
 		if open and _hide_seal == null:
 			_hide_seal = _build_hide_seal()
@@ -460,6 +600,14 @@ func get_prompt() -> String:
 		return "PICK LOCK // LOCKPICK OR CROWBAR"
 	if kind == Kind.BOARDED_PATH and not opened:
 		return "BREACH BOARDS // CROWBAR OR RESCUE AXE"
+	if kind == Kind.BREAKABLE:
+		if opened:
+			return ""
+		var names := []
+		for tool in breakable_spec.get("tools", []):
+			names.append(String(PlayerController3D.INVENTORY_LABELS.get(tool, tool)).to_upper())
+		var verb := "PICK LOCK" if bool(breakable_spec.get("locked", false)) else "BREAK"
+		return "%s // %s" % [verb, " OR ".join(names)]
 	if kind == Kind.TOOL_PICKUP:
 		return "COLLECT %s" % String(PlayerController3D.INVENTORY_LABELS.get(
 			tool_item_id, tool_item_id)).to_upper()
@@ -468,9 +616,10 @@ func get_prompt() -> String:
 	if kind == Kind.FURNITURE:
 		match furniture_action:
 			"lay": return "LIE DOWN"
-			"sit": return "SIT DOWN"
+			"sit": return "" if SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)) else "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
+			"music": return MusicProps.prompt_for(String(get_meta("prop_type", "")))
 			"play":
 				if prompt_resolver.is_valid():
 					return String(prompt_resolver.call())
@@ -500,7 +649,7 @@ func activate(player: PlayerController3D) -> String:
 		return _fail("Already collected.")
 	if kind == Kind.RELAY and locked_cache:
 		return activate_with_tool(player, player.selected_inventory_item())
-	if kind == Kind.BOARDED_PATH:
+	if kind == Kind.BOARDED_PATH or kind == Kind.BREAKABLE:
 		return activate_with_tool(player, player.selected_inventory_item())
 
 	match kind:
@@ -541,6 +690,14 @@ func activate(player: PlayerController3D) -> String:
 			if furniture_action == "play":
 				Sound.menu_blip()
 				return ""
+			if furniture_action == "music":
+				var now := Time.get_ticks_msec()
+				if now - int(get_meta("music_played_ms", -100000)) >= int(MusicProps.COOLDOWN_SECONDS * 1000.0):
+					set_meta("music_played_ms", now)
+					MusicProps.play(String(get_meta("prop_type", "")), player)
+				return ""
+			if furniture_action == "sit" and player.resting_furniture != self and SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)):
+				return "Someone is already sitting there."
 			return player.use_furniture(self, furniture_action)
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
@@ -563,7 +720,7 @@ func activate(player: PlayerController3D) -> String:
 			# plain interactable has no business knowing what a hunter is.
 			if player.music_box_resolver.is_valid():
 				Sound.music_box()
-				return String(player.music_box_resolver.call())
+				return String(player.music_box_resolver.call(music_box_id))
 			return _fail("Nothing happens.")
 		Kind.VENT:
 			# Never completes, and the prompt stays the same coming or going --
@@ -615,7 +772,7 @@ func _fail(message: String) -> String:
 
 
 func configure_furniture(action: String) -> void:
-	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play"] else ""
+	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play", "music"] else ""
 
 
 func configure_room_door(door_id: String, model_path: String,
@@ -724,6 +881,17 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		changed.emit({"what": "pickup", "cell": source_cell, "kind": kind,
 			"locked_cache": true, "tool": item_id})
 		return "%s OPENED // SIGNAL RELAY RECOVERED" % cache_style.to_upper()
+	if kind == Kind.BREAKABLE:
+		if opened:
+			return _fail("Already broken open.")
+		if not Breach.accepts(breakable_spec, item_id):
+			return _fail("WRONG TOOL // NEEDS %s" % " OR ".join((breakable_spec.get("tools", []) as Array).map(
+				func(tool: String) -> String: return String(PlayerController3D.INVENTORY_LABELS.get(tool, tool)).to_upper())))
+		if not already_consumed and not player.consume_item_durability(item_id, Breach.swing_cost(item_id)):
+			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).to_upper())
+		# the host decides what the swing did (Breach): this only reports it
+		changed.emit({"what": "breakable_hit", "id": String(breakable_spec["id"]), "tool": item_id})
+		return "HIT"
 	if kind == Kind.BOARDED_PATH:
 		if opened:
 			return _fail("Path already cleared.")
@@ -863,6 +1031,20 @@ static func _style_hint_for_kind(interactable_kind: Kind) -> String:
 ## The locker is built from separate panels, so a few slits remain at its corners and edges (door
 ## against side, top, base). From inside, those showed the world through the walls. A closed,
 ## two-sided dark box just inside the panel thickness seals them; from outside it is hidden by the panels.
+## The locker's vent band (KT: the trailer's "locker breath" view): LOCKER_SLATS horizontal slats with real gaps across
+## the door at eye height, in the locker's root space (door face at LOCKER_DOOR_Z). Everyone sees the band on the door
+## (_add_locker_vent_band); the hider, whose eye sits LOCKER_EYE_BEHIND behind it, looks out through it (the model is
+## swapped for the seal shell while they are inside, the way wardrobes already work).
+const LOCKER_VENT_LO := 1.38
+const LOCKER_VENT_HI := 1.72
+const LOCKER_VENT_HALF_W := .24
+const LOCKER_SLATS := 6
+const LOCKER_DOOR_Z := -.29
+const LOCKER_EYE_BEHIND := .09
+var _locker_seal: Node3D
+var _locker_band: Node3D
+
+
 func _add_locker_seal() -> void:
 	var seal := Node3D.new()
 	seal.name = "LockerSeal"
@@ -870,19 +1052,25 @@ func _add_locker_seal() -> void:
 	material.albedo_color = Color(.07, .08, .1)
 	material.roughness = 1.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# [size, centre] in the locker's root space; each piece sits inside the thickness of a real panel.
-	# The front is left open over the door's sight slats (x +-0.21, y 1.43-1.70) so the hider can still look out.
+	var lo := LOCKER_VENT_LO
+	var hi := LOCKER_VENT_HI
+	var hw := LOCKER_VENT_HALF_W
+	var side := (.64 - hw * 2.0) * .5
+	# [size, centre] in the locker's root space; each piece sits inside the thickness of a real panel, and the front is
+	# open over the vent band so the hider can look out between its slats.
 	var pieces := [
 		[Vector3(.64, 1.8, .02), Vector3(0, 1.04, .22)],      # back
 		[Vector3(.02, 1.8, .56), Vector3(-.315, 1.04, -.02)], # left
 		[Vector3(.02, 1.8, .56), Vector3(.315, 1.04, -.02)],  # right
 		[Vector3(.64, .02, .56), Vector3(0, 1.9, -.02)],      # top
 		[Vector3(.64, .02, .56), Vector3(0, .15, -.02)],      # bottom
-		[Vector3(.64, 1.28, .02), Vector3(0, .79, -.29)],     # front below the slats
-		[Vector3(.64, .23, .02), Vector3(0, 1.815, -.29)],    # front above the slats
-		[Vector3(.22, .27, .02), Vector3(-.21, 1.565, -.29)], # front beside the slats
-		[Vector3(.22, .27, .02), Vector3(.21, 1.565, -.29)],
+		[Vector3(.64, lo - .15, .02), Vector3(0, (lo + .15) * .5, LOCKER_DOOR_Z)],    # front below the band
+		[Vector3(.64, 1.9 - hi, .02), Vector3(0, (1.9 + hi) * .5, LOCKER_DOOR_Z)],    # front above the band
+		[Vector3(side, hi - lo, .02), Vector3(-(hw + side * .5), (lo + hi) * .5, LOCKER_DOOR_Z)],
+		[Vector3(side, hi - lo, .02), Vector3(hw + side * .5, (lo + hi) * .5, LOCKER_DOOR_Z)],
 	]
+	for y in _locker_slat_heights():
+		pieces.append([Vector3(hw * 2.0, _locker_slat_thickness(), .008), Vector3(0, y, LOCKER_DOOR_Z)])
 	for piece in pieces:
 		var mesh_node := MeshInstance3D.new()
 		var box := BoxMesh.new()
@@ -892,7 +1080,51 @@ func _add_locker_seal() -> void:
 		mesh_node.position = piece[1]
 		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		seal.add_child(mesh_node)
-	_visual.add_child(seal)
+	seal.visible = false
+	add_child(seal)
+	_locker_seal = seal
+	_add_locker_vent_band()
+
+
+static func _locker_slat_thickness() -> float:
+	return (LOCKER_VENT_HI - LOCKER_VENT_LO) / float(LOCKER_SLATS) * .4   # 40% slat, 60% gap
+
+
+## Slat centres, evenly through the band (gaps between and at both edges).
+static func _locker_slat_heights() -> Array:
+	var heights := []
+	var step := (LOCKER_VENT_HI - LOCKER_VENT_LO) / float(LOCKER_SLATS)
+	for i in LOCKER_SLATS:
+		heights.append(LOCKER_VENT_LO + step * (float(i) + .5))
+	return heights
+
+
+## The same band as everyone else sees it on the model's door: a dark recess with the slats across it, a hair proud of
+## the door face so it reads as the vent the hider looks out of.
+func _add_locker_vent_band() -> void:
+	var band := Node3D.new()
+	band.name = "LockerVentBand"
+	var recess := StandardMaterial3D.new()
+	recess.albedo_color = Color(.02, .02, .025)
+	recess.roughness = 1.0
+	var slat := StandardMaterial3D.new()
+	slat.albedo_color = Color(.2, .25, .3)
+	slat.roughness = .7
+	slat.metallic = .3
+	var pieces := [[Vector3(LOCKER_VENT_HALF_W * 2.0, LOCKER_VENT_HI - LOCKER_VENT_LO, .006),
+		Vector3(0, (LOCKER_VENT_LO + LOCKER_VENT_HI) * .5, LOCKER_DOOR_Z - .012), recess]]
+	for y in _locker_slat_heights():
+		pieces.append([Vector3(LOCKER_VENT_HALF_W * 2.0, _locker_slat_thickness(), .018), Vector3(0, y, LOCKER_DOOR_Z - .02), slat])
+	for piece in pieces:
+		var mesh_node := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = piece[0]
+		mesh_node.mesh = box
+		mesh_node.material_override = piece[2]
+		mesh_node.position = piece[1]
+		band.add_child(mesh_node)
+	add_child(band)
+	_locker_band = band
 
 
 func _add_blocking_box(size: Vector3, at: Vector3) -> void:
@@ -1087,12 +1319,23 @@ func _refresh_visual() -> void:
 	var taken := (completed and (PICKUPS.has(kind) or PERSONAL_PICKUPS.has(kind)) \
 		and not sabotaged) \
 		or (kind == Kind.HIDING_SPOT and disabled)
-	if kind == Kind.BOARDED_PATH:
+	if kind == Kind.BOARDED_PATH or kind == Kind.BREAKABLE:
 		taken = opened
+	var locker_inside := _locker_seal != null and _local_hiding_view_open
 	if _visual:
-		_visual.visible = not taken
+		_visual.visible = not taken and not locker_inside
+	if _locker_band != null:
+		_locker_band.visible = not taken and not locker_inside
+	if _locker_seal != null:
+		_locker_seal.visible = locker_inside and not taken
 	if kind == Kind.BOARDED_PATH and not opened:
 		_refresh_board_pieces()
+	if kind == Kind.BREAKABLE:
+		_refresh_breakable_pieces()
+		for child in _visual.get_children() if _visual != null else []:
+			if child is CollisionObject3D:
+				(child as CollisionObject3D).process_mode = Node.PROCESS_MODE_DISABLED if opened else Node.PROCESS_MODE_INHERIT
+		return
 	if _light:
 		LampField.set_wanted(_light, (not completed or sabotaged) and not _local_hiding_view_open)
 		if kind == Kind.RELAY:

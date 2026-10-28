@@ -302,6 +302,11 @@ func reset_run_effects() -> void:
 	_office_queue_until_usec = 0
 
 
+## A music-wing prop being played (MusicProps): "mic", "podium", "drums", "electric", "acoustic", "bass", "keys", "piano".
+func music(kind: String, pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("music_" + kind, pan, clampf(intensity, 0.1, 2.0))
+
+
 ## A hand or boot on an iron ladder rung.
 func ladder_rung(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("ladder_rung", pan, clampf(intensity, 0.1, 2.0))
@@ -693,6 +698,17 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"music_box":
 			var phrase := [1046.5, 1318.5, 1568.0, 1318.5, 1760.0, 1568.0]
 			for index in phrase.size(): c.append(_tone(phrase[index], .22, .07, index * .2, "triangle"))
+		"music_box_tune":
+			# the music box's loop (MusicBoxTune): a phrase, four notes more, then four that turn around and come home
+			var tune := [1046.5, 1318.5, 1568.0, 1318.5, 1760.0, 1568.0, 1318.5, 1174.7,
+				1318.5, 1568.0, 1396.9, 1174.7, 1046.5, 1174.7, 1318.5, 1046.5]
+			for index in tune.size(): c.append(_tone(tune[index], .34, .14, index * .27, "triangle"))
+			c.append(_tone(0.0, .01, 0.0, tune.size() * .27 + .3))   # breath before the loop
+		"glyra_hum":
+			# Glyra humming along, low and soft (HunterView3D, only while her music plays)
+			var hum := [261.6, 329.6, 392.0, 329.6, 440.0, 392.0, 329.6, 293.7]
+			for index in hum.size(): c.append(_tone(hum[index], .5, .12, index * .45, "sine"))
+			c.append(_tone(0.0, .01, 0.0, hum.size() * .45 + .6))
 		"alert": c = [_tone(150, .12, .12, 0, "saw"), _tone(96, .2, .10, .06, "square")]
 		"chase_start": c = [_tone(92, .16, .16, 0, "saw"),
 			_tone(138, .19, .13, .07, "square"),
@@ -748,6 +764,17 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
 		"splash_big": c = [_noise(.9, .22 * intensity, 700, 0, pan, .8), _noise(.5, .16 * intensity, 2200, .02, pan, 1.2), _thump(70, .35, .16 * intensity, 0, pan),
 			_noise(.7, .08 * intensity, 1400, .25, pan, 1.0)]
+		"music_mic": c = [_tone(2100, .5, .05 * intensity, 0, "sine", pan), _tone(2800, .45, .035 * intensity, .08, "sine", pan), _thump(90, .12, .1 * intensity, 0, pan)]
+		"music_podium": c = [_thump(110, .1, .14 * intensity, 0, pan), _thump(110, .1, .12 * intensity, .28, pan), _noise(.06, .03 * intensity, 1800, 0, pan, 1.0)]
+		"music_drums": c = [_thump(60, .3, .2 * intensity, 0, pan), _noise(.14, .12 * intensity, 1900, .22, pan, 1.0), _thump(60, .3, .18 * intensity, .44, pan),
+			_noise(.12, .11 * intensity, 1900, .66, pan, 1.0), _noise(.9, .07 * intensity, 6200, .66, pan, 1.4)]
+		"music_electric": c = [_tone(82.4, .9, .07 * intensity, 0, "saw", pan), _tone(123.5, .9, .06 * intensity, .01, "saw", pan), _tone(164.8, .9, .05 * intensity, .02, "square", pan)]
+		"music_acoustic": c = [_tone(196, .8, .05 * intensity, 0, "triangle", pan), _tone(247, .75, .05 * intensity, .04, "triangle", pan), _tone(294, .7, .05 * intensity, .08, "triangle", pan),
+			_tone(392, .65, .045 * intensity, .12, "triangle", pan)]
+		"music_bass": c = [_tone(55, .7, .14 * intensity, 0, "saw", pan), _tone(110, .5, .04 * intensity, 0, "triangle", pan)]
+		"music_keys": c = [_tone(261.6, .7, .05 * intensity, 0, "square", pan), _tone(329.6, .7, .045 * intensity, 0, "square", pan), _tone(392, .7, .045 * intensity, 0, "square", pan)]
+		"music_piano": c = [_tone(220, 1.1, .07 * intensity, 0, "triangle", pan), _tone(277.2, 1.0, .06 * intensity, .02, "triangle", pan), _tone(329.6, .95, .06 * intensity, .04, "triangle", pan),
+			_tone(440, .8, .03 * intensity, .04, "sine", pan)]
 		"water_drip": c = [_tone(980, .05, .05 * intensity, 0, "triangle", pan), _tone(640, .09, .04 * intensity, .04, "triangle", pan), _noise(.05, .03 * intensity, 3000, 0, pan, 1.2)]
 		"spider_skitter": c = [_noise(.04, .07 * intensity, 3100, 0, pan, 1.3), _noise(.04, .06 * intensity, 2700, .07, pan, 1.3), _noise(.04, .065 * intensity, 3300, .13, pan, 1.3),
 			_noise(.04, .055 * intensity, 2500, .21, pan, 1.3), _noise(.04, .06 * intensity, 3000, .26, pan, 1.3), _thump(150, .05, .03 * intensity, .0, pan)]

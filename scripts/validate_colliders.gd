@@ -57,6 +57,8 @@ func run(_host: Node) -> int:
 			var node := scene.instantiate()
 			var box := _extent(node)
 			node.free()
+			var factor := PropModelCatalog.hunter_scale(type)    # the view scales these models (docs/SEATING.md)
+			box = AABB(box.position * factor, box.size * factor)
 			total = box if not have else total.merge(box)
 			have = true
 		if not have:
@@ -67,7 +69,7 @@ func run(_host: Node) -> int:
 			print("  FAIL  %s collider %.2f x %.2f is out of date against its model %.2f x %.2f (run tools/props/emit_collider_sizes.gd)" % [
 				type, size.x, size.z, total.size.x, total.size.z])
 			_failures += 1
-		_expect(size.y <= 2.21 and size.y > 0.05, "%s collider height %.2f is out of range" % [type, size.y])
+		_expect(size.y <= 3.41 and size.y > 0.05, "%s collider height %.2f is out of range" % [type, size.y])
 	# chunks hand the derived size to the view
 	var generator := StreamedRouteGenerator.new("COLLIDERS")
 	var seen := 0

@@ -71,9 +71,14 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var rooms := []
 	var links := []
 	var features := []
-	var below: Array = surface.chunk(Vector3i(coord.x, SURFACE_LEVEL, coord.z))["grid"]
+	# The stairwell up from level 0 (Stairwells, pure seed maths: the maze chunk below carved the same cells) takes its
+	# quadrant; the balconies hang in the others.
+	var well := surface.stairwell_between(coord.x, coord.z, LEVEL)
+	var well_quadrant: int = int(well["quadrant"]) if not well.is_empty() else -1
+	var free_order: Array = order.filter(func(q: int) -> bool: return q != well_quadrant)
+	balcony_count = mini(balcony_count, free_order.size())
 	for slot in balcony_count:
-		var quadrant: int = order[slot]
+		var quadrant: int = free_order[slot]
 		var qc: Vector2i = UpperLevelTools.QUADRANT_CENTERS[quadrant]
 		var rect := Rect2i(qc - Vector2i(BALCONY_HALF, BALCONY_HALF), Vector2i.ONE * (BALCONY_HALF * 2 + 1))
 		UpperLevelTools.carve(grid, rect, DECK)
@@ -87,24 +92,41 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			up["provisional"] = true
 			links.append(up)
 			features.append({"type": "stairFoot", "cell": foot, "link": up["id"]})
-		elif slot == 1:
-			# Provisional landing of the stairwell up from level 0: only a cell over open level-0 floor qualifies.
-			var landing := _landing_cell(rect, below)
-			if landing != Vector2i(-1, -1):
-				var stairs := LevelLink.make("stairs", coord, LEVEL, landing, SURFACE_LEVEL, landing)
-				stairs["provisional"] = true
-				links.append(stairs)
-				features.append({"type": "stairLanding", "cell": landing, "link": stairs["id"]})
+	var stairwells := []
+	if not well.is_empty():
+		stairwells.append(well)
+		_carve_stairwell_top(grid, well)
+		links.append(well["link"])
+		features.append({"type": "stairLanding", "cell": well["landing"], "link": (well["link"] as Dictionary)["id"]})
 	features.append_array(_rails(grid))
-	return _schema(coord, grid, rooms, links, features)
+	var data := _schema(coord, grid, rooms, links, features)
+	data["stairwells"] = stairwells
+	data["shaft_cells"] = _shaft_cells(stairwells)
+	return data
 
 
-static func _landing_cell(rect: Rect2i, below: Array) -> Vector2i:
-	for z in range(rect.position.y + 1, rect.end.y - 1):
-		for x in range(rect.position.x + 1, rect.end.x - 1):
-			if int(below[z][x]) == 0:
-				return Vector2i(x, z)
-	return Vector2i(-1, -1)
+## The top of a stairwell on this level: the well's box is air (the stairs rise through it), the landing and doorway are
+## deck, and a catwalk runs from the doorway to the cross.
+static func _carve_stairwell_top(grid: Array, well: Dictionary) -> void:
+	UpperLevelTools.carve(grid, well["box"], OPEN)
+	var north: bool = well["north"]
+	var door: Rect2i = well["door"]
+	var hall_edge: int = UpperLevelTools.CENTER - UpperLevelTools.CROSS_HALF if north else UpperLevelTools.CENTER + UpperLevelTools.CROSS_HALF
+	var lane := Stairwells.corridor(well, hall_edge)
+	UpperLevelTools.carve(grid, Rect2i(lane.position.x, lane.position.y, lane.size.x, lane.size.y), GRATE)
+	for cell in Stairwells.cells_for(well, LEVEL)["walk"]:
+		grid[cell.y][cell.x] = DECK
+	# the doorway row is deck too, so the landing meets the catwalk without a gap
+	for x in range(door.position.x, door.end.x):
+		grid[door.position.y][x] = DECK
+
+
+static func _shaft_cells(stairwells: Array) -> Dictionary:
+	var out := {}
+	for well in stairwells:
+		for cell in well["shaft"]:
+			out[cell] = {"upper": true, "well": well}
+	return out
 
 
 ## A railing on every walkable edge that drops to OPEN (chunk seams stay open: the cross continues next door).

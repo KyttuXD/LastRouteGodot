@@ -4,6 +4,7 @@ extends Node
 ## the runner to one room of each type and saves viewport PNGs.
 ##
 ##   godot --path . res://tools/look/capture.tscn -- OUTDIR TAG [SEED]
+## Add CAP_FULLBRIGHT=1 (or FULLBRIGHT=1) as an extra argument for the flat fullbright look (DebugView).
 ##
 ## Environment: CAP_ONLY=<substring of "region_roomtype">, CAP_MAX=<n rooms>,
 ## CAP_YAWS="0,90" (degrees), CAP_FPS=1 to print the frame time instead of
@@ -210,21 +211,21 @@ func _run(scene: Node) -> void:
 	if OS.get_environment("CAP_GREAT") != "":
 		# CAP_GREAT=1: the first great hall (21x21 gathering room) of each district, seen from its door
 		picks = []
-		var seen_biomes := {}
+		var seen_regions := {}
 		for gr in range(0, 12):
 			for gz in range(-gr, gr + 1):
 				for gx in range(-gr, gr + 1):
 					var gc := Vector3i(gx, 0, gz)
 					if maxi(absi(gx), absi(gz)) != gr or not gen.is_chunk_allowed(gc):
 						continue
-					var gb := gen.biome_for(gc)
-					if seen_biomes.has(gb):
+					var gb := gen.region_for(gc)
+					if seen_regions.has(gb):
 						continue
 					var plan := gen.large_plan(gc)
 					for side in ["W", "E"]:
-						if String(plan[side]).is_empty() or seen_biomes.has(gb):
+						if String(plan[side]).is_empty() or seen_regions.has(gb):
 							continue
-						seen_biomes[gb] = true
+						seen_regions[gb] = true
 						var west: bool = side == "W"
 						picks.append({"name": "great_%s_%s" % [gb, plan[side]], "yaw": 90.0 if west else -90.0,
 							"pos": Vector3(gx * cs + (17.5 if west else 27.5), 0.05, gz * cs + 22.5)})
@@ -240,7 +241,7 @@ func _run(scene: Node) -> void:
 				pick["pos"].y = float(xz[3])   # optional fourth value: the standing height (a lower level's floor)
 			picks.append(pick)
 	if OS.get_environment("CAP_JUNCTION") != "":
-		# CAP_JUNCTION=gothic: one T and one cross junction of that biome in THIS run's generator, 5 m down an arm
+		# CAP_JUNCTION=gothic: one T and one cross junction of that region in THIS run's generator, 5 m down an arm
 		picks = []
 		for entry in GeometryAudit.junction_spots(facility.generator, OS.get_environment("CAP_JUNCTION")):
 			var xz := String(entry).split(",")
@@ -269,14 +270,60 @@ func _run(scene: Node) -> void:
 			for cx in range(-4, 5):
 				if not picks.is_empty():
 					continue
+				if OS.get_environment("CAP_FALLS") == "ramp":
+					var ramp: Dictionary = facility.generator.sewer().ramp_between(cx, cz, SewerRouteGenerator.LOWER_LEVEL)
+					if ramp.is_empty():
+						continue
+					var rz := cz * fsize + float(ramp["row"]) + .5
+					var top_rect: Rect2i = ramp["top"]
+					var bottom_rect: Rect2i = ramp["bottom"]
+					var slope_rect: Rect2i = ramp["ramp"]
+					var top_cx := cx * fsize + top_rect.position.x + 1.5
+					var bot_cx := cx * fsize + bottom_rect.position.x + 1.5
+					var slope_mid := cx * fsize + slope_rect.position.x + slope_rect.size.x * .5
+					var low2 := SewerRouteGenerator.LOWER_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var low3 := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var away := -1.0 if top_cx > slope_mid else 1.0       # from the landing toward the slope
+					picks.append({"name": "ramp_top", "pos": Vector3(top_cx - away * 1.5, low2 + .05, rz), "yaw": 0.0,
+						"look": Vector3(slope_mid, low3 + 1.2, rz)})
+					picks.append({"name": "ramp_bottom", "pos": Vector3(bot_cx + away * 1.0, low3 + .05, rz), "yaw": 0.0,
+						"look": Vector3(slope_mid, low2 + .6, rz)})
+					picks.append({"name": "ramp_bottom_side", "pos": Vector3(bot_cx, low3 + .05, rz), "yaw": 0.0,
+						"look": Vector3(bot_cx, low3 + 1.4, cz * fsize + float((ramp["connector"] as Rect2i).position.y) + (ramp["connector"] as Rect2i).size.y * .5)})
+					continue
+				if OS.get_environment("CAP_FALLS") == "seal":
+					var seal_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					for spec in facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz)).get("breakables", []):
+						var seal_centre: Vector2 = spec["extras"]["centre"]
+						var seal_dir: Vector2 = spec["extras"]["dir"]
+						var from_cell: Vector2 = seal_centre - seal_dir * 5.0
+						picks.append({"name": "seal_%s" % String(spec["variant"]), "yaw": 0.0,
+							"pos": Vector3(cx * fsize + from_cell.x, seal_y + .05, cz * fsize + from_cell.y),
+							"look": Vector3(cx * fsize + seal_centre.x, seal_y + 1.4, cz * fsize + seal_centre.y)})
+						break
+					continue
+				if OS.get_environment("CAP_FALLS") == "cave":
+					var cave_data: Dictionary = facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))
+					var cave_chambers: Array = cave_data.get("inferno_caverns", [])
+					if cave_chambers.is_empty() or cx != 1 or cz != 1:
+						continue
+					var cave_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var mid := Vector2i(StreamedRouteGenerator.CHUNK_SIZE / 2, StreamedRouteGenerator.CHUNK_SIZE / 2)
+					# from the middle chamber looking along a tunnel toward the seam, and across the chamber
+					var home: Vector2i = InfernoCaverns.landing(cave_data)
+					for heading in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+						picks.append({"name": "cave_%d_%d" % [heading.x, heading.y], "yaw": 0.0,
+							"pos": Vector3(cx * fsize + home.x + .5, cave_y + .05, cz * fsize + home.y + .5),
+							"look": Vector3(cx * fsize + home.x + .5 + heading.x * 12, cave_y + 1.2, cz * fsize + home.y + .5 + heading.y * 12)})
+					continue
 				if OS.get_environment("CAP_FALLS") == "pit":
 					for pit in InfernoCaverns.pits_in(facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))):
 						var span: Rect2i = pit["bridge"]
 						var pit_north: bool = pit["north"]
 						var pit_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
 						var pit_z := float(span.end.y) + 5.0 if pit_north else float(span.position.y) - 5.0
-						picks.append({"name": "pit_stand", "pos": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .05, cz * fsize + pit_z),
-							"yaw": 0.0, "look": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .2, cz * fsize + float(span.position.y) + 1.5)})
+						picks.append({"name": "pit_stand", "pos": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .05, cz * fsize + pit_z + (3.0 if pit_north else -3.0)),
+							"yaw": 0.0, "look": Vector3(cx * fsize + span.position.x + 1.5, pit_y - .7, cz * fsize + float(span.position.y) + 1.5)})
 						break
 					continue
 				var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
@@ -333,6 +380,11 @@ func _run(scene: Node) -> void:
 				player._pitch = atan2(d.y, Vector2(d.x, d.z).length())
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
+			# CAP_FULLBRIGHT=1 (or FULLBRIGHT=1): DebugView's flat, shadowless look, so dark levels can be judged; the shot name
+			# gets a _fb suffix. Capture tools only: DebugView stays admin-gated in the game.
+			if OS.get_environment("CAP_FULLBRIGHT") != "" or OS.get_environment("FULLBRIGHT") != "":
+				DebugView.tool_override = true
+				DebugView.set_mode(DebugView.Mode.FULLBRIGHT, get_viewport())
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
 			await _wait(int(OS.get_environment("CAP_WAIT")) if OS.get_environment("CAP_WAIT") != "" else 14)
 			if OS.get_environment("CAP_FPS") != "":

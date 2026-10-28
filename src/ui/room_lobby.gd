@@ -27,6 +27,8 @@ var _dossier_gimmick_heading: Label
 var _dossier_gimmick: Label
 var _dossier_stats: Label
 var _default_focus: Control
+## Persistent across _rebuild(): the mod-pack confirm/progress/error overlay for joining a room that runs mods.
+var mod_join: ModJoinDialog
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -39,6 +41,8 @@ func _ready() -> void:
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	RoomState.changed.connect(_rebuild)
+	mod_join = ModJoinDialog.new()
+	add_child(mod_join)
 	if not RoomState.status_message.is_empty():
 		_notice = RoomState.status_message
 	_rebuild()
@@ -49,7 +53,9 @@ func _rebuild() -> void:
 	_default_focus = null
 	_clear_dossier_fields()
 	for child in get_children():
-		child.queue_free()
+		if child != mod_join:
+			child.queue_free()
+	move_child.call_deferred(mod_join, -1)
 
 	var background := SIGNAL_BACKDROP_SCRIPT.new()
 	background.name = "SignalBackdrop"

@@ -40,9 +40,9 @@ func _model_box(type: String) -> AABB:
 
 func _init() -> void:
 	var sizes := {}
-	for biome in StreamedRouteGenerator.REGION_PROP_SETS:
-		for entry in StreamedRouteGenerator.REGION_PROP_SETS[biome]:
-			sizes[String(entry["type"])] = {"size": entry["size"], "solid": bool(entry.get("solid", true)), "src": "scatter:" + String(biome)}
+	for region in StreamedRouteGenerator.REGION_PROP_SETS:
+		for entry in StreamedRouteGenerator.REGION_PROP_SETS[region]:
+			sizes[String(entry["type"])] = {"size": entry["size"], "solid": bool(entry.get("solid", true)), "src": "scatter:" + String(region)}
 	for type in StreamedRouteGenerator.TEMPLATE_PROP_SIZES:
 		if not sizes.has(type):
 			sizes[String(type)] = {"size": StreamedRouteGenerator.TEMPLATE_PROP_SIZES[type], "solid": true, "src": "template"}

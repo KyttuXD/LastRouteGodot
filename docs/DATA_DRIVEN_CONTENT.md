@@ -4,7 +4,7 @@ Status: Phase 1 design note (DATA lane). Nothing here changes runtime yet.
 
 ## Goal
 
-Move prop, region (biome/level) and hunter definitions out of GDScript
+Move prop, region (region/level) and hunter definitions out of GDScript
 constants into data files with one registry per kind. Behaviour must stay
 identical: same seed, same chunk, same output. Later, the same path loads
 player content packs from `user://mods/` in private rooms only. Packs carry
@@ -41,10 +41,11 @@ res://data/
   props/<family>.json        # one file per prop family (office, mall, sewer…)
   regions/<region>.json      # one file per region
   hunters/<id>.json          # one file per hunter
-user://mods/<pack_id>/
+user://mods/<pack_id>/       # hand-installed packs
   pack.json                  # manifest
   props/ regions/ hunters/   # same schemas as built-in content
   assets/                    # .glb, .png, .ogg only
+user://mods/.cache/<sha256>/ # downloaded packs (step 10), same layout
 ```
 
 ## Schemas (v1)
@@ -92,7 +93,10 @@ logic with their lanes.
 (`HunterRoster.PROFILES`), `eye_glow` (a `Color`), `aliases`
 (`hunter_id_aliases.gd`), `pools` (`a_z`, `void`, `office_void`, `special`),
 `vision` (`hunter_vision.gd`), `emote_personality`, `dossier` (text),
-`model` (body GLB or blocky rig id), `scale` (default 2.67 m), `behaviour`.
+`model` (body GLB or blocky rig id), `scale` (default 2.67 m), `behaviour`,
+`chase_style` (optional; how she runs in a chase, one of `HunterChaseStyle.STYLES`
+with an optional `:variant`, for example `"reach2"` or `"pump:fast"`; absent or
+unknown means `"pump"`).
 
 `behaviour` names an ability script that ships with the game, for example
 `"ravelle_traps"`. Mod hunters may only reuse built-in behaviours with tuned
@@ -115,11 +119,77 @@ ContentRegistry.errors() -> PackedStringArray
 ContentRegistry.parse_file(path, kind) -> {defs, errors}
 ContentRegistry.resolve(code_table, kind, field)  # fill ContentRegistry.DATA entries
 ContentRegistry.splice(code_array, flag)          # "@data:<family>" -> that family's ids
-# later, for mod packs (step 9):
-ContentRegistry.load_packs(pack_ids) -> LoadReport
-ContentRegistry.unload_packs()
-ContentRegistry.pack_hash() -> String
+# mod packs (step 9, built):
+ContentRegistry.load_packs(dirs) -> {ok, packs, errors, hash}  # all or nothing, replaces the loaded set
+ContentRegistry.unload_packs()                               # back to exactly the built-in game
+ContentRegistry.pack_hash() / builtin_pack_hash() -> String
+ContentRegistry.loaded_packs() -> [{id, name, version, author, sha256, dir}]
+ContentRegistry.pack_of(kind, id) / added_ids(kind)
+ContentRegistry.pack_scene(path) / pack_texture(path)        # runtime glTF / PNG, only inside a loaded pack
+ContentRegistry.watch(rebuild) -> true                       # readers register their rebuild
+ContentPacks.discover() / read(dir)                          # src/config/content_packs.gd
 ```
+
+### Mod packs as built (step 9, loader)
+
+- **Ids.** A pack's new ids must start with `<pack_id>_`, so they can never
+  collide with the game or with another pack. A pack replaces a built-in id
+  only when `pack.json` lists it under `"overrides"` as `"<kind>/<id>"`, and
+  only one loaded pack may override a given id. Prop families are namespaced
+  internally as `<pack_id>:<family>`, so a pack prop never joins a built-in
+  coordinated set.
+- **Tables.** `resolve()` gives an overridden key the pack's definition (an
+  optional field the override leaves out falls back to the built-in value)
+  and appends ids that packs added after the code keys, sorted. With no pack
+  loaded the tables are the code tables exactly; `data_packs` compares every
+  table and the three parity hashes before loading and after unloading.
+- **Readers rebuild themselves.** `HunterRoster`, `PropModelCatalog`,
+  `FloorSets` and `StreamedRouteGenerator` register `rebuild_from_registry()`
+  with `ContentRegistry.watch()`, and `ModelSlot` registers
+  `clear_material_caches()`. The registry never names its readers, so there
+  is no class-loading cycle, and a reader loaded after packs builds from them.
+- **Hunters.** Pack hunters join the seeded draw (`HunterRoster.DRAW_IDS` =
+  `IMPLEMENTED_IDS` + pack hunters, so vanilla draws are unchanged), run the
+  default chase behaviour on their own tuning, and must be in a drawn tier.
+  `model` is a pack `.glb` or a shipped hunter body under
+  `res://assets/hunters_blocky/` or `res://art/props-3d/characters/`;
+  `portrait` is a pack `.png` or a shipped portrait.
+- **Models.** `ModelSlot.instantiate()` sends every `user://` path to
+  `ContentRegistry.pack_scene()`: `GLTFDocument` at runtime, then every node
+  that is not a mesh, skeleton, bone attachment or animation player is
+  dropped and every script cleared. A model outside a loaded pack is refused.
+  `PropModelCatalog.model_path()` lets a prop override win over the blocky
+  substitutes.
+- **Regions.** Overrides of built-in regions (for example `mall`) work now.
+  A pack region with a new id registers and validates, but no level draws it
+  until levels are data (`lr.level/1`). A region's `prop_set` only dresses
+  rooms without a furniture template, and every mall role has one, so a pack
+  prop shows up in the world through a prop override (it replaces the model
+  wherever the game places that prop) until room templates are data too.
+
+### Rooms (step 9, hot-swap)
+
+- `RoomPacks` (`src/network/room_packs.gd`) holds the room rules;
+  `RoomState` only calls it. `Settings.mods_enabled` lists the pack ids a
+  player's private rooms use (`[mods] enabled` in settings.cfg).
+- **Host.** `host_room()` and `enter()` call `RoomPacks.host_load()`: a public
+  route unloads every pack; a private room loads the enabled packs, and a run
+  does not start while they fail to load (the reason is the room status).
+- **Guests.** `broadcast()` sends `_receive_packs(announce())` ahead of
+  `_receive_room`. The guest finds each pack locally by id and sha256
+  (`user://mods/<id>` or `user://mods/.cache/<sha256>`), loads them, and checks
+  that its `pack_hash()` now equals the host's. Otherwise it leaves before
+  generating anything, with `MODS DIFFER // MISSING <name> <version>` (or the
+  load error) as the status; a public route whose host hash is not the
+  built-in one is refused outright.
+- **Leaving.** `leave_network()` (which every new, joined or hosted room goes
+  through first) and a dropped connection unload every pack. A reconnect
+  grace period keeps them.
+- `data_hotswap` runs vanilla -> modded -> vanilla -> another modded room ->
+  vanilla in one process through these calls, checks tables and parity hashes
+  after each return, generate-and-checks each modded mall, counts objects and
+  resources across repeated modded rooms, and drives the guest handshake
+  (adopt, refuse a modded public route, name a missing pack).
 
 Migrating a table works like this. The old `const NAME` becomes
 `const _CODE_NAME`, and each migrated entry's value becomes
@@ -309,16 +379,38 @@ Joining or leaving a modded room never needs a game restart.
 
   This suite ships with step 9, together with `load_packs`/`unload_packs`.
 
+### Downloads as built (step 10, client side)
+
+- `PackDownloads` (`src/network/pack_downloads.gd`) is the mod UI's provider
+  (`ModPackApi.provider`, HUB lane): `installed_packs()`, `remove_downloaded()`
+  and `download_packs()`. `RoomState` installs it, and hands a private room's
+  missing packs to the lobby's `ModJoinDialog` (confirm or auto-download,
+  progress, cancel); the guest stays in staging until `RoomPacks.adopt()`
+  succeeds, and a cancel leaves the room.
+- For each missing pack it asks the VPS 3 index
+  (`<backend>/api/mods/packs/<id>?version=<v>`) and refuses a blocked pack, a
+  file list whose paths or sizes this loader would refuse, and a list whose
+  identity sha (the same formula as `ContentPacks.read()`) is not the host's.
+  Files are fetched one by one from the index's `downloadBase`
+  (`<base>/<id>/<version>/<path>`, VPS 2) -- packs are plain file trees, not
+  archives -- each checked against the index's size and sha256, into
+  `user://mods/.cache/.download-<sha>`, read back as a pack, and only then
+  renamed to `.cache/<sha>`. Any failure deletes the staging folder.
+- `data_downloads` runs this against a local stand-in for the index and file
+  host (download, reuse, remove, tampered file, blocked, wrong version, path
+  escape). `scripts/pack_smoke.sh` runs the room handshake between two real
+  processes.
+
 ### Cache
 
-- `user://mods/` holds packs keyed by sha256. `index.json` records
-  `last_used`, size and source.
+- `user://mods/.cache/` holds downloaded packs keyed by sha256. `index.json`
+  records `last_used`, size and source.
 - LRU cleanup removes the least recently used packs once the cache goes
   over 1 GB, which players can change. Packs the current room needs are
   never evicted.
 - Settings → Online has a **REMOVE DOWNLOADED MODS** button with a confirm
-  step. It deletes everything under `user://mods/` that the player did not
-  install by hand. Hand-installed packs live in `user://mods/local/`.
+  step. It deletes `user://mods/.cache/`; hand-installed packs in
+  `user://mods/<pack_id>/` stay.
 
 ### Owner moderation
 
@@ -355,7 +447,7 @@ until all readers have moved.
    special pools).
 6. **Remaining regions.** Do the quiet ones first: hospital, lab,
    greenhouse, hotel, apartment and office. Leave **sewer, inferno, the new
-   biomes and mansion/carnival until those lanes land** and have been
+   regions and mansion/carnival until those lanes land** and have been
    merged to main. Then coordinate with each lane to get a frozen window.
 7. **Remaining prop families**, leaving **seats and anything being
    rescaled until PROPS lands**.

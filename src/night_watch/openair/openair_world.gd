@@ -258,7 +258,7 @@ func _build_campfire() -> void:
 	fire_glow = _c(ground, Vector3(0.8, 0.5, 0.8), Vector3(0, 0.3, 0), "FireGlow", {})
 	_c(ground, Vector3(1.0, 0.15, 0.2), Vector3(0, 0.1, 0), "Kindling", {"kind": "wood", "tint": Color(0.6, 0.5, 0.4)})
 	light = _point_light("FireLight", Vector3(0, 1.0, 0), Color(1.0, 0.62, 0.3), 2.6, 12.0)
-	# the trees, a ring of trunks with square crowns (a fixed pattern, so every run looks the same)
+	# the trees, a ring of trunks with tiered fir crowns (a fixed pattern, so every run looks the same)
 	var trees := _prop("Trees")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4141
@@ -268,7 +268,10 @@ func _build_campfire() -> void:
 		var h := rng.randf_range(4.0, 6.5)
 		var p := Vector3(cos(a) * r, 0, sin(a) * r - 2.0)
 		_c(trees, Vector3(0.5, h, 0.5), p + Vector3(0, h * 0.5, 0), "TreeTrunk", {"kind": "wood", "solid": true, "tint": Color(0.5, 0.42, 0.34)})
-		_c(trees, Vector3(2.6, 1.8, 2.6), p + Vector3(0, h + 0.2, 0), "TreeCrown", {"kind": "fabric", "tint": Color(0.3, 0.5, 0.35)})
+		for tier in 4:   # a fir: four stacked tiers from head height up, narrowing to the tip
+			var w := 3.4 - float(tier) * 0.75
+			var ty := 1.5 + float(tier) * (h - 1.0) / 4.0
+			_c(trees, Vector3(w, (h - 1.0) / 4.0 + 0.3, w), p + Vector3(0, ty + 0.5, 0), "TreeCrown", {"kind": "fabric", "tint": Color(0.16, 0.36, 0.22)})
 	# the log pile (it shrinks as the logs go on the fire), firewood at the edge of the trees
 	pile = Node3D.new()
 	pile.name = "LogPile"

@@ -128,8 +128,12 @@ var voice_input_device := "Default"
 var voice_chat_volume := 1.0
 var voice_player_volumes := {}
 var tts_mode := "everyone"
+## Settings -> MODS: fetch missing room mod packs without asking. Off by default; downloads are other players' content.
+var auto_download_mods := false
 var tts_rate := 1.0
 var tts_voice_id := ""
+## Content packs (user://mods/<id>) this player's private rooms play with; RoomPacks.host_load(). Public routes ignore it.
+var mods_enabled: Array = []
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
@@ -271,6 +275,11 @@ func set_voice_chat(on: bool, mode: String, gain: float, sensitivity: float, dev
 	voice_sensitivity = clampf(sensitivity, 0.0, 1.0)
 	voice_input_device = device if not device.is_empty() else "Default"
 	voice_chat_volume = clampf(volume, 0.0, 1.5)
+	_save()
+
+
+func set_auto_download_mods(on: bool) -> void:
+	auto_download_mods = on
 	_save()
 
 
@@ -664,6 +673,8 @@ func _load() -> void:
 		tts_mode = "everyone"
 	tts_rate = clampf(float(config.get_value("voice", "tts_rate", 1.0)), 0.5, 2.0)
 	tts_voice_id = String(config.get_value("voice", "tts_voice", ""))
+	auto_download_mods = bool(config.get_value("mods", "auto_download", false))
+	mods_enabled = Array(config.get_value("mods", "enabled", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -773,6 +784,8 @@ func _save() -> void:
 	config.set_value("voice", "tts_mode", tts_mode)
 	config.set_value("voice", "tts_rate", tts_rate)
 	config.set_value("voice", "tts_voice", tts_voice_id)
+	config.set_value("mods", "auto_download", auto_download_mods)
+	config.set_value("mods", "enabled", mods_enabled)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))
