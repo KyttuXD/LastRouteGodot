@@ -209,7 +209,7 @@ static func _read_manifest(dir: String, folder_is_id: bool, errors: PackedString
 	elif folder_is_id and dir.get_file() != id:
 		errors.append("%s: id \"%s\" must match the folder name \"%s\"" % [path, id, dir.get_file()])
 	if not _is_version(String(data["version"])):
-		errors.append("%s: version must be 1-32 of 0-9 A-Z a-z . + -" % path)
+		errors.append("%s: version must be 1-32 of 0-9 A-Z a-z . + -, starting with a letter or digit" % path)
 	for entry in data.get("overrides", []):
 		var parts := String(entry).split("/")
 		if parts.size() != 2 or not KINDS.has(parts[0]) or not ContentRegistry._is_id(parts[1]):
@@ -342,8 +342,9 @@ static func _is_pack_id(value: String) -> bool:
 	return true
 
 
+## Same rule as the TOOLS index: starts with a letter or digit, then letters, digits and . + -, at most 32.
 static func _is_version(value: String) -> bool:
-	if value.is_empty() or value.length() > 32:
+	if value.is_empty() or value.length() > 32 or value[0] in ".+-":
 		return false
 	for c in value:
 		if not (c in ".+-" or (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9")):
