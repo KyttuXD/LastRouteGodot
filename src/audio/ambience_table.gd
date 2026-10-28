@@ -4,7 +4,8 @@ extends RefCounted
 ## Ambient beds by region / room purpose (docs/AMBIENCE.md). Each bed is a seamless loop rendered by AmbienceSynth from
 ## layers: "hum" (a drone at the frequency), "noise" (low-passed room tone), "pulse" (sparse details at jittered
 ## intervals: drips, clanks, relay ticks; long ones are soft chimes), "chirp" (scattered soft trills: birds, rats). A region registers its own with AmbienceTable.register(key, layers);
-## room purposes override the district bed when they have one.
+## room purposes override the district bed when they have one. Level beds ("level:<name>", LevelAmbience) play on their own
+## players under whichever district bed is on, so a level layer blends with the region rather than replacing it.
 
 const LOOP_SECONDS := AmbienceSynth.LOOP_SECONDS
 
@@ -40,17 +41,37 @@ static var _rooms := {
 	"cubicle_room": [{"kind": "hum", "hz": 120.0, "vol": .011}, {"kind": "noise", "hz": 500.0, "vol": .005}],
 }
 
+## Level beds (docs/AMBIENCE.md, "Level layer"): the maze level's building hum and far thuds, the Mezzanine's air and
+## creaking metal, the sewers' running water, drips and pipe groans, the Inferno's fire, embers and deep rumble, and the
+## void shaft's hollow wind. Their echo comes mostly from the Level bus reverb (LevelAmbience.REVERB).
+static var _levels := {
+	"maze": [{"kind": "hum", "hz": 55.0, "vol": .007}, {"kind": "thump", "hz": 48.0, "vol": .03, "every": 4.2}],
+	"mezzanine": [{"kind": "wind", "hz": 520.0, "vol": .010, "q": 1.1, "gust": 7.0},
+		{"kind": "creak", "hz": 410.0, "vol": .007, "every": 3.4}],
+	"sewer": [{"kind": "water", "hz": 1300.0, "vol": .009, "density": 55.0, "swell": 5.0},
+		{"kind": "pulse", "hz": 1500.0, "vol": .005, "every": 1.1, "len": .04},
+		{"kind": "groan", "hz": 85.0, "vol": .010, "every": 5.5}, {"kind": "thump", "hz": 60.0, "vol": .012, "every": 6.5}],
+	"inferno": [{"kind": "noise", "hz": 300.0, "vol": .012, "swell": 4.0}, {"kind": "crackle", "hz": 2100.0, "vol": .006, "rate": 3.5},
+		{"kind": "noise", "hz": 55.0, "vol": .016, "swell": 9.0}, {"kind": "thump", "hz": 32.0, "vol": .02, "every": 6.0}],
+	"void": [{"kind": "wind", "hz": 170.0, "vol": .016, "q": 4.0, "gust": 9.0}, {"kind": "wind", "hz": 420.0, "vol": .005, "q": 2.0, "gust": 5.0},
+		{"kind": "hum", "hz": 38.0, "vol": .004}],
+}
+
 
 ## Registers (or replaces) a bed: `key` is a region id or a room purpose. Regions call this once, e.g.
 ## AmbienceTable.register("hospital", [{"kind": "hum", "hz": 120.0, "vol": .01}, {"kind": "pulse", "hz": 980.0, ...}])
 static func register(key: String, layers: Array, room_purpose: bool = false) -> void:
-	if room_purpose:
+	if key.begins_with("level:"):
+		_levels[key.trim_prefix("level:")] = layers.duplicate(true)
+	elif room_purpose:
 		_rooms[key] = layers.duplicate(true)
 	else:
 		_beds[key] = layers.duplicate(true)
 
 
 static func has_bed(key: String) -> bool:
+	if key.begins_with("level:"):
+		return _levels.has(key.trim_prefix("level:"))
 	return _beds.has(key) or _rooms.has(key)
 
 
@@ -64,6 +85,8 @@ static func key_for(region: String, room_type: String) -> String:
 static func layers(key: String) -> Array:
 	if key.begins_with("room:"):
 		return _rooms.get(key.trim_prefix("room:"), [])
+	if key.begins_with("level:"):
+		return _levels.get(key.trim_prefix("level:"), [])
 	return _beds.get(key, [])
 
 
@@ -73,3 +96,8 @@ static func regions() -> Array:
 
 static func room_purposes() -> Array:
 	return _rooms.keys()
+
+
+## Level bed keys ("level:maze", ...).
+static func levels() -> Array:
+	return _levels.keys().map(func(name: String) -> String: return "level:" + name)

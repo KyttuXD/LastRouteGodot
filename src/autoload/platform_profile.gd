@@ -97,8 +97,8 @@ func _ready() -> void:
 	add_child(governor)
 	get_tree().node_added.connect(_on_node_added)
 	if prerender_ambience and DisplayServer.get_name() != "headless":
-		# every district bed renders on the worker pool at boot, so entering a district never waits for one
-		for key in AmbienceTable.regions():
+		# every district and level bed renders on the worker pool at boot, so entering one never waits for it
+		for key in AmbienceTable.regions() + AmbienceTable.levels():
 			Sound.prerender_ambience.call_deferred(String(key))
 	PerfLog.install(get_tree().root, perf_log or args.has("--perflog"))
 	if is_phone or is_quest:

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/audio/render_level_clips.gd" id="1"]
+
+[node name="RenderLevelClips" type="Node"]
+script = ExtResource("1")

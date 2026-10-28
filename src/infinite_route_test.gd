@@ -104,6 +104,8 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
+## The level layer of the ambience (docs/AMBIENCE.md).
+var level_ambience: LevelAmbience
 ## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
 var grab: HunterGrab
 ## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
@@ -168,6 +170,8 @@ func _ready() -> void:
 	world.add_child(jumpscare)
 	grab = HunterGrab.new()
 	world.add_child(grab)
+	level_ambience = LevelAmbience.new()
+	world.add_child(level_ambience)
 	_waypoint_overlay = WaypointOverlay.new()
 	hud.add_child(_waypoint_overlay)
 	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
@@ -1501,13 +1505,17 @@ func _clear_reached_waypoints(level: int) -> void:
 		_clear_local_waypoint()
 
 
-## Footstep surface under the runner and the ambient bed for where they stand (district or room purpose), ducked in chases.
+## Footstep surface under the runner, the ambient bed for where they stand (district or room purpose), ducked in chases, and
+## the level layer (LevelAmbience: the level's bed and reverb, and the nearest waterfalls, lava and floods).
 func _update_floor_audio(level: int) -> void:
 	var at := Vector2(player.global_position.x, player.global_position.z)
 	var kind := facility.floor_kind_at(at, level)
 	player.footstep_surface = SurfaceSounds.for_floor(kind) if kind != "" else ""
 	var region := String(facility.current_chunk_data().get("region", ""))
 	Sound.set_ambience(AmbienceTable.key_for(region, facility.room_type_at(at, level)))
+	var camera := get_viewport().get_camera_3d()
+	level_ambience.update(camera.global_position if camera != null else player.global_position, level,
+		facility.current_chunk_data())
 	var chased := false
 	for view_value in _hunter_views.values():
 		var view := view_value as HunterView3D
