@@ -1202,7 +1202,14 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
-	# Inferno caverns rise to the full storey; the maze around them keeps its low ceilings.
+	# Cave ceilings are uneven: the tunnels' roof steps between 3.1 and 3.7 m in 3-cell patches, the chambers rise to the
+	# full storey.
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		var cave_grid: Array = data["grid"]
+		for z in StreamedRouteGenerator.CHUNK_SIZE:
+			for x in StreamedRouteGenerator.CHUNK_SIZE:
+				if int(cave_grid[z][x]) == 0:
+					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
 	for cavern in data.get("inferno_caverns", []):
 		for cell_value in (cavern as Dictionary)["cells"]:
 			heights[cell_value] = LEVEL_HEIGHT - SLAB
@@ -2456,6 +2463,15 @@ static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionar
 	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cell := Vector2i(x, z)
+	if region == "inferno":
+		# the caves are rock; only walkways (the chain bridge, a ramp's landing and its connector) are plated
+		for pit in InfernoCaverns.pits_in(data):
+			if (pit["bridge"] as Rect2i).has_point(cell):
+				return "hazard"
+		for ramp in data.get("ramps", []):
+			if (ramp["bottom"] as Rect2i).has_point(cell) or (ramp["connector"] as Rect2i).has_point(cell):
+				return "hazard"
+		return "rock%d" % posmod(RefLook.pick(coord.x * size + x, coord.z * size + z, 7, 3), 3)
 	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
 		var origin: Vector2i = room_anchor.get(cell, cell)

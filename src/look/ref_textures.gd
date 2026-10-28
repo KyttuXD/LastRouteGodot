@@ -782,6 +782,64 @@ static func _paint_wall_inferno(variant: int) -> Image:
 	return img
 
 
+## Basalt for the Inferno's caves: no paving, no panels. A dark volcanic ground with grit, pits, paler flecks and the odd ember
+## crack, so a chunk of cave floor never reads as plates.
+static func _paint_rock_floor(variant: int) -> Image:
+	var rng := _rng("rockfloor%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("2c2527") if variant != 1 else Color("30272a")
+	_noise(img, 0, 0, PX, PX, base, .2, rng, 2)
+	_noise(img, 0, 0, PX, PX, base, .1, rng)
+	for i in 34:
+		var shade := Color("0f0b0c") if i % 3 != 0 else Color("4a403f")
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), shade, rng.randi_range(1, 3), rng.randi_range(1, 2))
+	for i in 3:
+		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(2, 29), rng.randi_range(5, 12), Color("0c0809"))
+	if variant == 2:
+		for i in 2:
+			_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(2, 29), rng.randi_range(5, 11), Color("c8481a") if i == 0 else Color("7a2a14"))
+	return img
+
+
+## Cave wall: strata in uneven bands, vertical weathering streaks, ember cracks, and a ragged dark top instead of a cornice.
+static func _paint_wall_rock(variant: int) -> Image:
+	var rng := _rng("rockwall%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	var base := Color("2a2224") if variant % 2 == 0 else Color("2f2325")
+	_noise(img, 0, 0, PX, WALL_H, base, .16, rng, 2)
+	var y := 0
+	while y < WALL_H:
+		var band := rng.randi_range(6, 18)
+		var tone := rng.randf_range(.78, 1.18)
+		for x in PX:
+			if rng.randf() < .7:
+				_dot(img, x, y, _mul(base, tone * rng.randf_range(.9, 1.1)), 1, band)
+		_dot(img, 0, y, Color("0d0909"), PX, 1)
+		y += band
+	for i in 10:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, WALL_H - 8), Color("0c0808"), 1, rng.randi_range(4, 20))
+	# ember cracks: how many (none on some variants) and where differs per variant, so no pattern repeats along a wall
+	var cracks: int = [3, 0, 2, 4, 1, 0, 3, 2][variant % 8]
+	for i in cracks:
+		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(12, WALL_H - 16), rng.randi_range(8, 24),
+			Color("c8481a") if i % 2 == 0 else Color("7a2a14"))
+	# ragged top: the rock above the cave ceiling bites down unevenly
+	for x in PX:
+		_dot(img, x, 0, Color("0c0809"), 1, rng.randi_range(2, 9))
+	_dot(img, 0, WALL_H - 3, Color("100b0c"), PX, 3)
+	return img
+
+
+static func _paint_rock_ceiling(variant: int) -> Image:
+	var rng := _rng("rockceil%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("151012")
+	_noise(img, 0, 0, PX, PX, base, .22, rng, 2)
+	for i in 14:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), Color("07040a") if i % 2 == 0 else Color("2a2022"), rng.randi_range(2, 5), rng.randi_range(2, 4))
+	return img
+
+
 # -- ceilings ------------------------------------------------------------------
 
 static func _paint_ceiling(variant: int) -> Image:
@@ -858,6 +916,7 @@ const FLOOR_PAINTERS := {
 	"terrazzo0": [&"_paint_terrazzo", 0], "terrazzo1": [&"_paint_terrazzo", 1],
 	"epoxy0": [&"_paint_epoxy", 0], "epoxy1": [&"_paint_epoxy", 1],
 	"terracotta0": [&"_paint_terracotta", 0], "terracotta1": [&"_paint_terracotta", 1],
+	"rock0": [&"_paint_rock_floor", 0], "rock1": [&"_paint_rock_floor", 1], "rock2": [&"_paint_rock_floor", 2],
 }
 const WALL_PAINTERS := {
 	"panel0": [&"_paint_wall_panel", 0], "panel1": [&"_paint_wall_panel", 1],
@@ -869,6 +928,9 @@ const WALL_PAINTERS := {
 	"office0": [&"_paint_wall_office", 0], "office1": [&"_paint_wall_office", 1],
 	"corridor0": [&"_paint_wall_corridor", 0], "corridor1": [&"_paint_wall_corridor", 1],
 	"inferno0": [&"_paint_wall_inferno", 0],
+	"rockwall0": [&"_paint_wall_rock", 0], "rockwall1": [&"_paint_wall_rock", 1], "rockwall2": [&"_paint_wall_rock", 2],
+	"rockwall3": [&"_paint_wall_rock", 3], "rockwall4": [&"_paint_wall_rock", 4], "rockwall5": [&"_paint_wall_rock", 5], "rockwall6": [&"_paint_wall_rock", 6],
+	"rockwall7": [&"_paint_wall_rock", 7],
 	"hospital0": [&"_paint_wall_hospital", 0], "hospital1": [&"_paint_wall_hospital", 1],
 	"lab0": [&"_paint_wall_lab", 0], "lab1": [&"_paint_wall_lab", 1],
 	"mall0": [&"_paint_wall_mall", 0], "mall1": [&"_paint_wall_mall", 1],
@@ -877,6 +939,7 @@ const WALL_PAINTERS := {
 const CEILING_PAINTERS := {
 	"ceil0": [&"_paint_ceiling", 0], "ceil1": [&"_paint_ceiling", 1],
 	"glass": [&"_paint_glass", 0],
+	"rockceil": [&"_paint_rock_ceiling", 0],
 	"vault": [&"_paint_vault", 0],
 }
 
