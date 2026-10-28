@@ -99,29 +99,32 @@ numbers. That is how "hunter variants" work without script mods.
 
 ## Registry and loader API
 
+As built in Phase 2, this is a static class, `ContentRegistry`
+(`src/config/content_registry.gd`), rather than an autoload. The config
+classes that read it (`HunterRoster`, `PropModelCatalog`, `FloorSets`,
+`StreamedRouteGenerator`) are static, and leaving it out of autoloads also
+keeps `project.godot` untouched.
+
 ```gdscript
-# src/data/content_registry.gd (autoload: Content)
-Content.props   : PropRegistry
-Content.regions : RegionRegistry
-Content.hunters : HunterRegistry
-
-registry.get_def(id) -> Def        # null + push_error on miss
-registry.has(id) -> bool
-registry.ids() -> PackedStringArray  # sorted, stable across peers
-registry.source_of(id) -> String    # "builtin" or pack_id
-
-Content.load_builtin()                    # at boot: res://data
-Content.load_packs(pack_ids: Array) -> LoadReport   # private rooms only
-Content.unload_packs()                    # back to the built-in-only state
-Content.pack_hash() -> String
+ContentRegistry.get_def(kind, id) -> Dictionary   # {} when missing
+ContentRegistry.has(kind, id) -> bool
+ContentRegistry.ids(kind) -> PackedStringArray    # sorted, stable across peers
+ContentRegistry.family(name) -> Array             # prop ids of one family, file order
+ContentRegistry.errors() -> PackedStringArray
+ContentRegistry.parse_file(path, kind) -> {defs, errors}
+ContentRegistry.resolve(code_table, kind, field)  # fill ContentRegistry.DATA entries
+ContentRegistry.splice(code_array, flag)          # "@data:<family>" -> that family's ids
+# later, for mod packs (step 9):
+ContentRegistry.load_packs(pack_ids) -> LoadReport
+ContentRegistry.unload_packs()
+ContentRegistry.pack_hash() -> String
 ```
 
-Existing APIs stay as thin wrappers during the migration.
-`HunterRoster.PROFILES[id]` becomes `HunterRoster.profile(id)`, which reads
-from `Content.hunters`. `RoomCatalog.footprint()`,
-`PropModelCatalog.model_path()` and the others keep their signatures, so call
-sites in other lanes do not change. The `const` dictionaries are deleted only
-once nothing reads them.
+Migrating a table works like this. The old `const NAME` becomes
+`const _CODE_NAME`, and each migrated entry's value becomes
+`ContentRegistry.DATA`. A `static var NAME` holds the resolved table.
+Readers keep using `NAME`, and key order is preserved. The `_CODE_`
+tables are deleted once every entry in them is data.
 
 Load order: built-in content, then packs sorted by `pack_id`. A pack may
 **add** ids. It may **override** a built-in id only if its manifest lists the
@@ -208,24 +211,33 @@ KT's request: players can download mods automatically, at their own risk.
 5. This only applies in private rooms. Public and ranked rooms refuse any
    pack hash other than the built-in one.
 
-### Transfer source: backend mirror (recommended), not host over ENet
+### Transfer source: VPS 2 hosts the files, VPS 3 holds the index
 
-All co-op traffic already passes through the VPS 3 relay (UDP 1105), so
-sending packs host-to-guest over ENet would cross VPS 3 anyway. It would
-also cross it once per guest and would compete with gameplay packets on the
-same channel. The mirror works like this:
+KT ruled that pack files are hosted primarily on **VPS 2**, which is the
+file host. VPS 3, the game backend, does not serve pack files. Host over
+ENet is not used either, because all co-op traffic already runs through the
+VPS 3 relay (UDP 1105).
 
-- The host uploads a pack once, when they create a private room that uses
-  it: `PUT /packs/<sha256>`. The upload needs an authenticated account, and
-  the server recomputes the hash and checks the pack against the same
-  validator rules before accepting it.
-- Guests fetch `GET /packs/<sha256>` over HTTPS. The storage is
-  content-addressed, so a popular pack is stored once and served many times.
-  Because the content never changes for a given hash, the response can be
-  cached publicly behind the existing Cloudflare front (orange-cloud 443 in
-  `DEPLOY_VPS3.md`). After the first fetch, most bandwidth comes from
-  Cloudflare, not from the VPS.
-- Owner blocking (see below) works at a single point.
+- **VPS 2 (files).** Every pack archive is stored on and downloaded from
+  VPS 2. Anything over 1 MB must be there, and tiny packs live there too so
+  there is one rule. Storage is content-addressed (`<sha256>.zip`) and
+  immutable, so it can be cached publicly behind a CDN.
+- **VPS 3 (index and moderation).** VPS 3 keeps only the pack index (id,
+  version, sha256, size, author account, upload time), the moderation state
+  and blocks, and per-account quotas. When a room is joined, VPS 3 returns
+  the room's pack list with a **download URL on VPS 2** for each pack.
+- **Upload.** The host asks VPS 3 for an upload slot (an authenticated
+  account, quota checked). VPS 3 issues a short-lived signed upload URL on
+  VPS 2. After the upload, VPS 2 (or a VPS 3 job) recomputes the sha256 and
+  runs the validator rules. Only then does VPS 3 publish the index entry.
+- **Download check.** Clients verify the sha256 **from VPS 3's index**
+  before opening anything they downloaded from VPS 2. A mismatch throws the
+  file away and cancels the join. VPS 2 is never trusted on its own.
+- **No hardcoded hosts.** The VPS 2 file host and VPS 3 API base URLs come
+  from config: the backend endpoint config the client already reads, and
+  the download URLs VPS 3 hands out. Source code never names a host.
+  The signing secrets live only on the servers, never in the repo or the
+  client.
 
 Limits for v1. These are proposals for KT to confirm.
 
@@ -235,15 +247,14 @@ Limits for v1. These are proposals for KT to confirm.
 | per pack (zip, compressed) | 64 MB; uncompressed ≤ 128 MB |
 | packs per room | 8, total ≤ 192 MB |
 | uploads per account | 10 per day, 512 MB stored per account |
-| mirror disk quota | 6 GB total (VPS 3 has a 25 GB disk with about 12 GB free), with LRU eviction of packs no room has used in 30 days |
+| VPS 2 storage quota | set to fit VPS 2's disk, with LRU eviction of packs no room has used in 30 days |
 | download rate | 4 MB/s per client, 20 concurrent downloads per server |
 
-Bandwidth on VPS 3: in the worst case, with no Cloudflare cache hit, a room
-of 4 guests pulling a 64 MB pack costs about 256 MB of egress. With the
-cache, a pack costs about 64 MB per edge region per cache lifetime. Host
-over ENet would cost the same 256 MB, and it would run through the gameplay
-relay. Host over ENet is kept only as a fallback design for LAN or offline
-play, and v1 does not include it.
+Bandwidth: VPS 3 now carries only small index and moderation JSON
+responses, so mod downloads add next to nothing to the game backend. Pack
+bytes leave from VPS 2, with the CDN in front of it. In the worst case, a
+room of 4 guests pulling a 64 MB pack costs about 256 MB of VPS 2 egress
+with no cache hit.
 
 ### Safety rules (the loader enforces them, and the server does too on upload)
 
@@ -265,6 +276,38 @@ play, and v1 does not include it.
   pack with a `LoadReport` entry. It never crashes the game and never
   partially loads the pack. The guest's join fails cleanly with the reason.
 
+### No restart, ever (hard requirement)
+
+Joining or leaving a modded room never needs a game restart.
+
+- Packs load when a room is joined and unload when it is left, through
+  `ContentRegistry.load_packs()` / `unload_packs()`. Every resolved table
+  (`HunterRoster.PROFILES`, `PropModelCatalog.MODEL_PATHS`,
+  `StreamedRouteGenerator.REGION_PROP_SETS` and the others) is rebuilt from
+  the registry at load and at unload. Because these are `static var`s
+  rather than consts, they can be reassigned.
+- `ProjectSettings.load_resource_pack()` is **never** used for mods, because
+  a resource pack cannot be unloaded. Mods are JSON plus runtime loads from
+  `user://`: `GLTFDocument` for models, `Image.load_from_file` for textures
+  and `AudioStreamOggVorbis.load_from_file` for audio. None of these go
+  through `ResourceLoader`, so nothing is cached under `res://` paths.
+- Unload frees every mesh, texture and audio stream a pack created. It also
+  clears every cache keyed by mod ids: the prop model cache, materials,
+  hunter rigs and collider boxes.
+- Pack downloads happen inside the join flow and show a progress bar. A
+  failed or cancelled download leaves the game in the vanilla state.
+- **`data_hotswap` suite**, all in one process:
+  1. Boot vanilla.
+  2. Join a modded room. The pack loads and its region generates and
+     passes the generate-and-check rules.
+  3. Leave, then join a vanilla room. The vanilla parity hashes must equal
+     a fresh boot's, with no leaked mod ids in any table and no leaked
+     resources (object and resource counts are back to their earlier
+     values).
+  4. Join a different modded room and check it the same way.
+
+  This suite ships with step 9, together with `load_packs`/`unload_packs`.
+
 ### Cache
 
 - `user://mods/` holds packs keyed by sha256. `index.json` records
@@ -280,7 +323,7 @@ play, and v1 does not include it.
 
 - Blocking works like skin removal. Owners block a pack sha256 (and, if
   they choose, every pack from an author account) from the hub ADMIN
-  panel. The mirror then returns 451 for that hash and deletes the stored
+  panel. VPS 3 stops handing out its URL (451), VPS 2 deletes the stored
   copy.
 - Clients fetch the blocklist with the update manifest. A blocked hash is
   never loaded, even from the local cache, and the guest sees the reason
@@ -318,7 +361,7 @@ until all readers have moved.
 8. **Delete the old constants** once nothing reads them.
 9. **Mod packs.** Add `user://mods` discovery, the manifest, the pack hash
    handshake, and the private-room UI.
-10. **Auto-download.** Add the mirror endpoints, the client downloader and
+10. **Auto-download.** Add the VPS 3 index and VPS 2 file endpoints, the client downloader and
     cache, the setting and confirm screen, and the owner blocklist.
 
 Steps 1–4 are Phase 2 of this lane. Steps 5–8 are Phase 3. Steps 9–10 come
