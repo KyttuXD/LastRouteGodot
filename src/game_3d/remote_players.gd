@@ -19,7 +19,7 @@ const REMOTE_HELD_MODELS := {
 }
 const REMOTE_HELD_SCALES := {
 	"flashlight": .34, "taser": .32, "lockpick": .29,
-	"crowbar": .30, "rescue_axe": .29, "battery": .40,
+	"crowbar": .58, "rescue_axe": .62, "battery": .40,
 }
 const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
