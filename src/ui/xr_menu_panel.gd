@@ -118,6 +118,9 @@ func _ready() -> void:
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
 	_left.button_pressed.connect(_on_left_pressed)
+	var keyboard := XRKeyboard.new()   # no system keyboard in an immersive app: type room codes and chat on the panel
+	keyboard.name = "XRKeyboard"
+	add_child(keyboard)
 
 
 func _on_right_pressed(action: StringName) -> void:
