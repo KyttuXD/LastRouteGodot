@@ -29,7 +29,7 @@ district) and calls `Sound.set_ambience(key)`: a 1.6 s crossfade between two pla
 silence on leaving the run. A hunter chasing within 18 m ducks the bed by 14 dB (`Sound.set_ambience_duck`). Beds play on
 the SFX bus, so the SFX volume and mute apply; every peer runs its own (guests hear their own surroundings).
 
-New biome or room: `AmbienceTable.register("hospital", layers)` or `register("pump_room", layers, true)` for a room purpose.
+New region or room: `AmbienceTable.register("hospital", layers)` or `register("pump_room", layers, true)` for a room purpose.
 
 ## Footsteps by floor
 

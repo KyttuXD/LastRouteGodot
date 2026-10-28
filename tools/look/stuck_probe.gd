@@ -21,7 +21,7 @@ func _probe() -> void:
 	var navigation = load("res://src/game/streamed_hunter_navigation.gd").new(generator, 0)
 	navigation.refresh(0, coords)
 	var path: Array = navigation.find_path(from, to)
-	print("chunk ", cc, " biome ", generator.biome_for(cc), " plan ", generator.large_plan(cc))
+	print("chunk ", cc, " region ", generator.region_for(cc), " plan ", generator.large_plan(cc))
 	print("path ", from, " -> ", to, " size ", path.size())
 	for z in range(from.y - 4, from.y + 5):
 		var row := ""

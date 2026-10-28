@@ -20,7 +20,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(_host: Node) -> int:
 	_check_plane_uv()
-	for region in StreamedRouteGenerator.BIOMES:
+	for region in StreamedRouteGenerator.REGIONS:
 		_expect(FloorSets.HALLS.has(region), "district %s has no hall floor set" % region)
 		_expect(FloorSets.ROOM_DEFAULT.has(region), "district %s has no room floor default" % region)
 	var all_kinds := []
@@ -49,7 +49,7 @@ func run(_host: Node) -> int:
 				if not generator.is_chunk_allowed(coord):
 					continue
 				var data := generator.chunk(coord)
-				var region := String(data.get("region", generator.biome_for(coord)))
+				var region := String(data.get("region", generator.region_for(coord)))
 				var grid: Array = data["grid"]
 				var room_map := StreamedFacilityView3D._room_type_map(data)
 				var build := {"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]), "coord": coord,
@@ -155,7 +155,7 @@ func run(_host: Node) -> int:
 	_expect(hall_arches > 20, "only %d hall arches sampled" % hall_arches)
 	if _failures == 0:
 		print("  wall_themes  %d wall faces and every floor cell themed by the space they face (0 mismatches), %d doorways on the hall theme, %d room purposes with their own floors, %d districts, %d arches in their walls' themes on both sides, %d hall arches centred and flush with district trim" % [
-			faces, doors, purposes.size(), StreamedRouteGenerator.BIOMES.size(), arches, hall_arches])
+			faces, doors, purposes.size(), StreamedRouteGenerator.REGIONS.size(), arches, hall_arches])
 	return _failures
 
 

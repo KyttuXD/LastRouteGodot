@@ -1,5 +1,5 @@
-"""Dive-lab props for the lab biome's pod room (Last Route lore: Book 0 and Book 4), authored in metres like
-blocky_props_biomes.py. exec'd by build_blocky_props.py, so Part, TARGET_SIZE and _reg are in scope.
+"""Dive-lab props for the lab region's pod room (Last Route lore: Book 0 and Book 4), authored in metres like
+blocky_props_regions.py. exec'd by build_blocky_props.py, so Part, TARGET_SIZE and _reg are in scope.
 
 Every shape is our own design (the thuing bbmodels were reference only). No text, no names, no logos: the headsets'
 grey tape covers where a logo was, and the console's list is unreadable bars. Front is +z, back (z = 0) on the wall.

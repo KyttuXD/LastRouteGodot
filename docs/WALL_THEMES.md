@@ -18,7 +18,7 @@ the suite's theme.
 Arch headers, stepped corners and pilasters used one default stone block. They are now two-sided: the half facing the room
 takes the room's wall kind, the half facing the hall the hall's (`RefLook.wall_kind`, the same function the walls, door
 jambs and lintels use), with the wall's own texture mapped in world space (1 m across, 4 m wall height) so it continues on
-the wall's grid. Brass trim stays as trim. Other biome builders (new biomes, sewers) should call `RefLook.wall_kind(region,
+the wall's grid. Brass trim stays as trim. Other region builders (new regions, sewers) should call `RefLook.wall_kind(region,
 room_type, gx, gz)` and `RefDecor.arch_wall_material(kind)` for any frame or pass-through. `wall_themes` checks 112 arches:
 no default block left, each side's kind is its wall's, and the material is the wall texture on the world grid.
 

@@ -1,0 +1,9 @@
+{
+	"schema": "lr.pack/1",
+	"id": "ember",
+	"name": "Ember",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: every office printer in ember orange, and Ember, a faster Aki variant.",
+	"overrides": ["props/officePrinter"]
+}

@@ -149,8 +149,8 @@ static func audit_type(type: String) -> Array:
 ## Solid types that reach the view with no derived box (they would fall back to the authored blocker size).
 static func solid_types_without_box() -> Array:
 	var solid := {}
-	for biome in StreamedRouteGenerator.REGION_PROP_SETS:
-		for entry in StreamedRouteGenerator.REGION_PROP_SETS[biome]:
+	for region in StreamedRouteGenerator.REGION_PROP_SETS:
+		for entry in StreamedRouteGenerator.REGION_PROP_SETS[region]:
 			if bool(entry.get("solid", true)):
 				solid[String(entry["type"])] = true
 	for type in StreamedRouteGenerator.TEMPLATE_PROP_SIZES:

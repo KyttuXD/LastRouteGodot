@@ -15,6 +15,16 @@ const BLOCKY_ATLAS_DIR := "res://art/props-3d/props/blocky/"
 ## Switch for A/B measurements (tools/look/prop_perf.gd): false gives every model its own materials again.
 static var share_blocky_materials := true
 
+
+static var _watching: bool = ContentRegistry.watch(clear_material_caches)
+
+
+## Drop every shared material, so none from an unloaded content pack stays referenced. Rebuilt on demand.
+static func clear_material_caches() -> void:
+	_pixel_material_cache.clear()
+	_blocky_prop_material_cache.clear()
+
+
 ## Loads visuals from art/props-3d/ scene files so gameplay code never
 ## hardcodes placeholder geometry — swap a slot's .tscn contents for a real
 ## imported model and the game picks it up with no code changes. See
@@ -100,7 +110,9 @@ static func _find_collision_shape(node: Node) -> CollisionShape3D:
 ## needs to be (skeleton, AnimationPlayer, multiple mesh parts) with no
 ## assumptions about its internal structure at all.
 static func instantiate(scene_path: String) -> Node3D:
-	var scene: PackedScene = load(scene_path)
+	# pack models load at runtime through ContentRegistry (stripped glTF), never through ResourceLoader
+	var scene: PackedScene = ContentRegistry.pack_scene(scene_path) if scene_path.begins_with("user://") \
+		else load(scene_path)
 	if scene == null:
 		push_warning("ModelSlot: could not load %s" % scene_path)
 		return null

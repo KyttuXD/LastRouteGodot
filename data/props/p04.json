@@ -1,0 +1,129 @@
+{
+	"schema": "lr.prop/1",
+	"family": "p04",
+	"props": [
+		{
+			"id": "diningChair",
+			"models": [
+				"res://art/props-3d/props/mansion/dining_chair_burgundy.glb",
+				"res://art/props-3d/props/mansion/dining_chair_ivory.glb"
+			]
+		},
+		{
+			"id": "diningChairCushion",
+			"models": [
+				"res://art/props-3d/props/mansion/dining_chair_cushion_burgundy.glb"
+			]
+		},
+		{
+			"id": "diningChandelier",
+			"models": [
+				"res://art/props-3d/props/mansion/dining_chandelier.glb",
+				"res://art/props-3d/props/mansion/dining_chandelier_crystal.glb",
+				"res://art/props-3d/props/mansion/dining_chandelier_gothic.glb"
+			]
+		},
+		{
+			"id": "diningSideboard",
+			"models": [
+				"res://art/props-3d/props/mansion/ornate_sideboard.glb"
+			]
+		},
+		{
+			"id": "flowerCenterpiece",
+			"models": [
+				"res://art/props-3d/props/mansion/flower_centerpiece.glb"
+			]
+		},
+		{
+			"id": "framedWallPortrait",
+			"models": [
+				"res://art/props-3d/props/mansion/framed_wall_portrait.glb"
+			]
+		},
+		{
+			"id": "normalPictureFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/normal_picture_frame_empty.glb"
+			]
+		},
+		{
+			"id": "normalPaintingFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/normal_painting_frame_empty.glb"
+			]
+		},
+		{
+			"id": "luxuryPictureFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/luxury_picture_frame_empty.glb"
+			]
+		},
+		{
+			"id": "luxuryPaintingFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/luxury_painting_frame_empty.glb"
+			]
+		},
+		{
+			"id": "gothicPictureFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/gothic_picture_frame_empty.glb"
+			]
+		},
+		{
+			"id": "gothicPaintingFrameEmpty",
+			"models": [
+				"res://art/props-3d/props/mansion/gothic_painting_frame_empty.glb"
+			]
+		},
+		{
+			"id": "normalRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/normal_room_door.glb"
+			]
+		},
+		{
+			"id": "luxuryRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/luxury_room_door.glb"
+			]
+		},
+		{
+			"id": "gothicRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/gothic_room_door.glb"
+			]
+		},
+		{
+			"id": "normalDoubleRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/normal_double_room_door.glb"
+			]
+		},
+		{
+			"id": "luxuryDoubleRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/luxury_double_room_door.glb"
+			]
+		},
+		{
+			"id": "gothicDoubleRoomDoor",
+			"models": [
+				"res://art/props-3d/props/mansion/gothic_double_room_door.glb"
+			]
+		},
+		{
+			"id": "heavyMansionDrapes",
+			"models": [
+				"res://art/props-3d/props/mansion/heavy_mansion_drapes.glb"
+			]
+		},
+		{
+			"id": "mansionAreaRug",
+			"models": [
+				"res://art/props-3d/props/mansion/mansion_area_rug.glb"
+			]
+		}
+	]
+}
