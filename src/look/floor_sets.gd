@@ -65,7 +65,7 @@ const ROOMS := {
 	# beach
 	"cove": ["stone2", "stone0"], "tide_pool": ["stone2"], "beach_hut": ["parquet1"], "boardwalk_room": ["parquet0", "parquet1"],
 	# prison
-	"prison_cell": ["concrete0"],
+	"prison_cell": ["concrete0"], "infirmary": ["vinyl0", "vinyl1"],
 	# inferno
 	"thermal_chamber": ["hazard", "metal3"], "forge": ["hazard", "metal3"], "altar_room": ["stone1", "metal3"],
 	"lava_gallery": ["metal3", "hazard"],
