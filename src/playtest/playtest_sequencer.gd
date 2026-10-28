@@ -60,6 +60,11 @@ class Actor:
 	var blend_t0 := -1.0
 	var last_pose: Dictionary = {}   # the bones as the pose (and blend) left them last frame, before any flinch layer
 	var blend_dur := .3
+	var waist := Vector2.ZERO        # extra Belly / Chest roll (degrees, for a corner opening on the camera's right; mirrored otherwise)
+	var waist_w := 0.0
+	var rest_legs: Dictionary = {}   # leg bones at rest (straight, feet under the hips), blended in with the lean
+	var waist_goal := 0.0
+	var waist_rate := 1.0 / .8
 	var react: Dictionary = {}   # {t0, dur, hold, release, away_yaw, arm, hunch}: a fast eased flinch layered on the pose
 
 
@@ -107,6 +112,14 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	if not corner_stage.is_empty():
 		stage_frame = int(corner_stage["frame"])
 	var origin_eye := track.pos[stage_frame]
+	var grid_corner := {}
+	if bool(shot.get("corner_grid", false)):
+		grid_corner = _grid_corner(PlaytestFlythrough.Sampler.new(generator, int(info.get("level", 0))), track, float(shot.get("camera_back", 6.5)))
+		if grid_corner.is_empty():
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no corridor corner (two perpendicular corridors) near the %s route" % area}
+			return {"scenario_failure": "no corridor corner found", "outcome": "error", "game_seconds": 0.0, "frames": 0}
+		var cam2: Vector2 = grid_corner["camera"]
+		origin_eye = Vector3(cam2.x, origin_eye.y, cam2.y)
 	bridge.admin("teleport", {"x": origin_eye.x, "y": origin_eye.y - EYE, "z": origin_eye.z})
 	var frames := 0
 	for _i in 120:
@@ -124,11 +137,25 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	# the stage: origin on the floor, forward along the longest open run
 	var floor_origin := _floor_at(space, Vector3(origin_eye.x, origin_eye.y, origin_eye.z), player, origin_eye.y - EYE)
 	var forward: Vector3 = corner_stage.get("forward", Vector3.ZERO)
+	if not grid_corner.is_empty():
+		var f2: Vector2 = grid_corner["F"]
+		forward = Vector3(f2.x, 0.0, f2.y)
 	if forward == Vector3.ZERO:
 		forward = _longest_run(space, Vector3(origin_eye.x, floor_origin.y + 1.3, origin_eye.z), player, float(shot.get("min_run", 10.0)), track.yaw[0])
 	var right := forward.cross(Vector3.UP)
 	var stage := {"o": floor_origin, "f": forward, "r": right}
-	stage["corner"] = _find_corner(space, stage, player)
+	if grid_corner.is_empty():
+		stage["corner"] = _find_corner(space, stage, player)
+	else:
+		# a real corridor corner from the level grid: d/w place the wall-edge VERTEX in stage coordinates, s says which side corridor B opens
+		var r2: Vector2 = grid_corner["R"]
+		var r3 := Vector3(r2.x, 0.0, r2.y)
+		var v2: Vector2 = _measured_edge(space, player, grid_corner, floor_origin.y + 1.2)
+		info["edge_grid"] = [snappedf((grid_corner["vertex"] as Vector2).x, .01), snappedf((grid_corner["vertex"] as Vector2).y, .01)]
+		info["edge_measured"] = [snappedf(v2.x, .01), snappedf(v2.y, .01)]
+		var rel := Vector3(v2.x, floor_origin.y, v2.y) - floor_origin
+		stage["corner"] = {"d": snappedf(rel.dot(forward), .01), "w": snappedf(rel.dot(r3), .01), "s": signf(r3.dot(right)), "a_far": grid_corner["a_far"],
+			"grid": true, "vertex": [snappedf(v2.x, .01), snappedf(v2.y, .01)], "b_cells": grid_corner["b_cells"]}
 	info["corner"] = stage["corner"]
 	info["stage_forward"] = [snappedf(forward.x, .01), snappedf(forward.z, .01)]
 
@@ -160,6 +187,18 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	torch.shadow_enabled = false
 	camera.add_child(torch)
 	var torch_peak := float(shot.get("torch_energy", 9.0))
+	if shot.has("corner_light") and (stage["corner"] as Dictionary).has("vertex"):
+		# one dim practical light near the corner, so the peek reads in the dark before the flashlight
+		var cl: Dictionary = shot["corner_light"]
+		var vx: Array = stage["corner"]["vertex"]
+		var corner_lamp := OmniLight3D.new()
+		corner_lamp.light_energy = float(cl.get("energy", .6))
+		corner_lamp.omni_range = float(cl.get("range", 4.0))
+		corner_lamp.light_color = Color(cl.get("color", "#ffd9a8"))
+		corner_lamp.shadow_enabled = true
+		scene.add_child(corner_lamp)
+		var off: Array = cl.get("at", [-0.6, -0.5, 2.3])
+		corner_lamp.global_position = Vector3(float(vx[0]), floor_origin.y + float(off[2]), float(vx[1])) + forward * float(off[0]) + right * float((stage["corner"] as Dictionary)["s"]) * float(off[1])
 	var torch_on := false
 	var torch_level := 0.0
 	var flicker_left := 0.0
@@ -281,6 +320,11 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			var label := str(beat.get("label", str(beat_index)))
 			snap.save_png("%s/%s_%s.png" % [snap_dir, shot_name, label])
 			var one := _check(beat, actors, camera, player, space, stage, snap)
+			if beat.has("pixels"):
+				var px := await _pixel_check(scene, camera, actors.get(str(beat.get("actor", ""))) as Actor, beat["pixels"], "%s/%s_%s_mask.png" % [snap_dir, shot_name, label])
+				(one["rows"] as Array).append_array(px)
+				for row in px:
+					one["pass"] = bool(one["pass"]) and bool(row["pass"])
 			one["label"] = label
 			beat_reports.append(one)
 			beat_index += 1
@@ -430,8 +474,149 @@ static func _path_corner(track: PlaytestFlythrough.Track) -> Dictionary:
 	return {}
 
 
+## A real corridor corner from the level grid (1 m cells), near the walked route: corridor A runs straight along F for 10+ cells into a junction
+## where corridor B leaves sideways along R. The cells of A's R-side wall run straight up to the junction, B's near wall continues 4 cells,
+## so the block between them is a solid corner with one vertical edge. Returns that edge (the VERTEX, world xz), F, R, the camera cell in A
+## `back` metres before the edge, and A's free width on the far side at the camera (for an off-centre camera that sees the edge at an angle).
+static func _grid_corner(grid: PlaytestFlythrough.Sampler, track: PlaytestFlythrough.Track, back: float) -> Dictionary:
+	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var seen := {}
+	var best := {}
+	var best_score := -1e9
+	var k := 0
+	while k < track.size():
+		if int(track.ground[k]) != 1:
+			k += 15
+			continue
+		var around := Vector2i(floori(track.pos[k].x), floori(track.pos[k].z))
+		k += 15
+		for dz in range(-8, 9):
+			for dx in range(-8, 9):
+				var j := around + Vector2i(dx, dz)
+				if seen.has(j) or not grid.open(j.x, j.y):
+					continue
+				seen[j] = true
+				for f in dirs:
+					for r in [Vector2i(f.y, -f.x), Vector2i(-f.y, f.x)]:
+						var found := _corner_at(grid, j, f, r, back)
+						if found.is_empty():
+							continue
+						if float(found["score"]) > best_score:
+							best_score = float(found["score"])
+							best = found
+		if not best.is_empty() and best_score > 0.0:
+			break
+	return best
+
+
+## The grid says where the corner block's cells are; the wall faces themselves sit inside the cells (thin walls, pilasters). Rays find the two
+## real faces next to the grid vertex: corridor A's wall face (cast toward R from inside A, just short of the junction) and corridor B's near
+## wall face (cast toward -F from inside B, just past the edge). Their crossing is the true vertical edge.
+static func _measured_edge(space: PhysicsDirectSpaceState3D, player: Node, corner: Dictionary, y: float) -> Vector2:
+	var v: Vector2 = corner["vertex"]
+	var f: Vector2 = corner["F"]
+	var r: Vector2 = corner["R"]
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var a_lat := 0.0
+	var b_fwd := 0.0
+	var a_hits := 0
+	var b_hits := 0
+	# A's face: several rays from A's interior toward R, 0.15-0.45 m before the edge (the face right at the corner, not a pilaster further back)
+	for back in [.15, .3, .45]:
+		var from2: Vector2 = v - f * back - r * 1.2
+		var q := PhysicsRayQueryParameters3D.create(Vector3(from2.x, y, from2.y), Vector3(from2.x + r.x * 2.4, y, from2.y + r.y * 2.4))
+		q.exclude = exclude
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			var hp: Vector3 = hit["position"]
+			a_lat += (Vector2(hp.x, hp.z) - v).dot(r)
+			a_hits += 1
+	# B's near face: rays from B's interior toward -F, 0.15-0.45 m past the edge
+	for over in [.15, .3, .45]:
+		var from_b: Vector2 = v + r * over + f * 1.2
+		var qb := PhysicsRayQueryParameters3D.create(Vector3(from_b.x, y, from_b.y), Vector3(from_b.x - f.x * 2.4, y, from_b.y - f.y * 2.4))
+		qb.exclude = exclude
+		var hb := space.intersect_ray(qb)
+		if not hb.is_empty():
+			var hpb: Vector3 = hb["position"]
+			b_fwd += (Vector2(hpb.x, hpb.z) - v).dot(f)
+			b_hits += 1
+	var lat := a_lat / float(a_hits) if a_hits > 0 else 0.0
+	var fwd := b_fwd / float(b_hits) if b_hits > 0 else 0.0
+	return v + r * lat + f * fwd
+
+
+static func _corner_at(grid: PlaytestFlythrough.Sampler, j: Vector2i, f: Vector2i, r: Vector2i, back: float) -> Dictionary:
+	var cam_k := int(ceil(back))
+	# A: a straight open centre line well past the camera
+	for k in range(0, cam_k + 3):
+		if not grid.open(j.x - f.x * k, j.y - f.y * k):
+			return {}
+	# A's R-side wall: the first closed cell beside the row just before the junction, half width at most 3 cells
+	var w_r := 0
+	for jj in range(1, 4):
+		var c := j - f + r * jj
+		if not grid.open(c.x, c.y):
+			w_r = jj
+			break
+	if w_r == 0:
+		return {}
+	# that wall is straight for 5 rows back (open inside, closed at w_r): the occluding face
+	for k in range(1, 6):
+		for jj in range(0, w_r):
+			var inside := j - f * k + r * jj
+			if not grid.open(inside.x, inside.y):
+				return {}
+		var wall := j - f * k + r * w_r
+		if grid.open(wall.x, wall.y):
+			return {}
+	# B: the junction row runs open 4+ cells past A's wall line
+	for jj in range(0, w_r + 4):
+		var b := j + r * jj
+		if not grid.open(b.x, b.y):
+			return {}
+	# B's near wall continues 4 cells (a solid corner block, not a door jamb)
+	for jj in range(w_r, w_r + 4):
+		var nb := j - f + r * jj
+		if grid.open(nb.x, nb.y):
+			return {}
+	# B is a corridor: its far wall within 3 rows (prefer narrow)
+	var b_width := 0
+	for kk in range(1, 4):
+		var far := j + f * kk + r * (w_r + 2)
+		if not grid.open(far.x, far.y):
+			b_width = kk
+			break
+	if b_width == 0:
+		return {}
+	# camera row: A's free width on the far (-R) side
+	var cam_cell := j - f * cam_k
+	var a_far := 0.5
+	for jj in range(1, 5):
+		var fc := cam_cell - r * jj
+		if not grid.open(fc.x, fc.y):
+			a_far = float(jj) - .5
+			break
+	var fv := Vector2(f.x, f.y)
+	var rv := Vector2(r.x, r.y)
+	var block := j - f + r * w_r
+	var vertex := Vector2(block.x + .5, block.y + .5) + fv * .5 - rv * .5
+	var camera := Vector2(j.x + .5, j.y + .5) - fv * float(cam_k)
+	var score := 10.0 - float(b_width) * 2.0 - float(w_r) + a_far
+	return {"vertex": vertex, "F": fv, "R": rv, "camera": camera, "a_far": a_far - .35, "b_cells": b_width, "w_r": w_r, "junction": j, "score": score}
+
+
 static func _stage_point(stage: Dictionary, at: Array) -> Vector3:
-	if at.size() > 0 and at[0] is String:
+	if at.size() > 0 and at[0] is String and String(at[0]) == "N":
+		# ["N", metres back from the corner edge, fraction of the way from A's centre line to the corner's own wall, height]: a camera on the
+		# corner's side of corridor A, looking along that wall, so only what crosses the wall plane shows
+		var cn: Dictionary = stage["corner"]
+		at = [float(cn["d"]) - float(at[1]), float(cn["s"]) * float(cn["w"]) * float(at[2]), at[3] if at.size() > 3 else 0.0]
+	elif at.size() > 0 and at[0] is String and String(at[0]) == "A":
+		# ["A", metres back from the corner edge, fraction of corridor A's free width on the far side, height]: the camera spot in corridor A
+		var ca: Dictionary = stage["corner"]
+		at = [float(ca["d"]) - float(at[1]), float(ca["s"]) * -float(ca.get("a_far", 1.0)) * float(at[2]), at[3] if at.size() > 3 else 0.0]
+	elif at.size() > 0 and at[0] is String:
 		var c: Dictionary = stage["corner"]
 		at = [float(c["d"]) + float(at[1]), float(c["s"]) * (float(c["w"]) + float(at[2])) * (stage_r_sign(stage)), at[3] if at.size() > 3 else 0.0]
 	var p: Vector3 = stage["o"] + (stage["f"] as Vector3) * float(at[0]) + (stage["r"] as Vector3) * float(at[1])
@@ -457,6 +642,13 @@ static func _make_actor(scene: Node, key: String, spec: Dictionary, stage: Dicti
 	actor.anim = ModelSlot.find_animation_player(model)
 	if actor.anim != null:
 		NightWatchPoses.install(model, actor.anim, actor.hunter_id)
+	for bone in ["L-Thigh", "R-Thigh", "L-Calf", "R-Calf", "L-Foot", "R-Foot"]:
+		var leg := model.find_child(bone, true, false) as Node3D
+		if leg != null:
+			actor.rest_legs[bone] = leg.quaternion
+	var pelvis_node := model.find_child("Pelvis", true, false) as Node3D
+	if pelvis_node != null:
+		actor.rest_legs["@pelvis_pos"] = pelvis_node.position
 	actor.height = 1.72 * HunterRoster.scale_for(actor.hunter_id)
 	var at: Array = spec.get("at", [8, 0])
 	actor.pos = _pt(stage, at, 0.0)
@@ -488,18 +680,29 @@ static func _resolve_face(actor: Actor, t: float) -> void:
 static func _play(actor: Actor, spec: Dictionary) -> void:
 	if actor.anim == null:
 		return
-	actor.posed = spec.has("pose")
+	if spec.has("pose") and str(spec["pose"]) == "peek_auto":
+		# lean toward the open side: peek_right for a corner whose corridor B opens on the camera's right, peek_left for the mirror
+		spec = spec.duplicate()
+		spec["pose"] = "peek_right" if float((_stage.get("corner", {}) as Dictionary).get("s", 1.0)) > 0.0 else "peek_left"
 	if spec.has("pose"):
-		# the crossfade is done here (eased, from the exact bones as they stood), the player itself cuts
-		actor.blend_snap = actor.last_pose.duplicate()
-		actor.blend_t0 = actor.clock
-		actor.blend_dur = float(spec.get("blend", .3))
+		actor.posed = true
+		_crossfade(actor, float(spec.get("blend", .3)))
 		NightWatchPoses.play(actor.model, str(spec["pose"]), {"speed": float(spec.get("pose_speed", 1.0)), "blend": 0.0})
 	elif spec.has("clip"):
 		var clip := str(spec["clip"])
 		if actor.anim.has_animation(clip):
+			actor.posed = false
+			_crossfade(actor, float(spec.get("blend", .25)))
 			actor.anim.speed_scale = float(spec.get("clip_speed", 1.0))
-			actor.anim.play(clip, .2)
+			actor.anim.play(clip, 0.0)
+
+
+## Every pose or clip change crossfades HERE, eased, from the exact bones as they stood last frame (the AnimationPlayer itself cuts):
+## its own blend popped by up to 40 degrees in one frame when driven by manual advance().
+static func _crossfade(actor: Actor, seconds: float) -> void:
+	actor.blend_snap = actor.last_pose.duplicate()
+	actor.blend_t0 = actor.clock
+	actor.blend_dur = seconds
 
 
 static func _set_tag(actor: Actor, text: String) -> void:
@@ -527,6 +730,14 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 	if ev.has("face"):
 		actor.face_mode = ev["face"]
 		_resolve_face(actor, float(ev.get("t", 0.0)))
+	if ev.has("waist"):
+		var wv: Array = ev["waist"]
+		actor.waist = Vector2(float(wv[0]), float(wv[1]))
+		actor.waist_goal = 1.0
+		actor.waist_rate = 1.0 / maxf(float(ev.get("waist_in", .8)), .05)
+	if ev.has("waist_off"):
+		actor.waist_goal = 0.0
+		actor.waist_rate = 1.0 / maxf(float(ev["waist_off"]), .05)
 	if ev.has("react"):
 		var r: Dictionary = (ev["react"] as Dictionary).duplicate()
 		r["t0"] = actor.clock
@@ -585,7 +796,8 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 		var pick := HunterStride.choose(actor.hunter_id, preferred, actor.speed)
 		if not actor.posed and actor.anim.has_animation(String(pick["clip"])):
 			if actor.anim.current_animation != String(pick["clip"]):
-				actor.anim.play(String(pick["clip"]), .15)
+				_crossfade(actor, .2)
+				actor.anim.play(String(pick["clip"]), 0.0)
 			actor.anim.speed_scale = float(pick["scale"])
 	if actor.anim != null:
 		actor.anim.advance(dt)
@@ -595,6 +807,7 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 		var pn := actor.model.find_child(bone, true, false) as Node3D
 		if pn != null:
 			actor.last_pose[bone] = [pn.quaternion, pn.position]
+	_apply_waist(actor, dt)
 	_apply_react(actor)
 	_track_smooth(actor)
 	if not actor.head_cfg.is_empty():
@@ -620,6 +833,33 @@ static func _apply_pose_blend(actor: Actor) -> void:
 		node.position = (snap[1] as Vector3).lerp(node.position, w)
 	if u >= 1.0:
 		actor.blend_snap.clear()
+
+
+## The lean out from behind the corner: a bend at the waist (Belly, then Chest), eased in and out, so the legs and hips stay planted behind the
+## wall while the head and upper torso cross the edge. Mirrored with the corner side.
+static func _apply_waist(actor: Actor, dt: float) -> void:
+	actor.waist_w = move_toward(actor.waist_w, actor.waist_goal, dt * actor.waist_rate)
+	if actor.waist_w <= 0.0 or actor.waist == Vector2.ZERO:
+		return
+	var w := actor.waist_w * actor.waist_w * (3.0 - 2.0 * actor.waist_w)
+	var side := float((_stage.get("corner", {}) as Dictionary).get("s", 1.0))
+	var belly := actor.model.find_child("Belly", true, false) as Node3D
+	var chest := actor.model.find_child("Chest", true, false) as Node3D
+	if belly != null:
+		belly.quaternion = NightWatchPoses.key_quaternion(Vector3(0.0, 0.0, actor.waist.x * side) * w) * belly.quaternion
+	if chest != null:
+		chest.quaternion = NightWatchPoses.key_quaternion(Vector3(0.0, 0.0, actor.waist.y * side) * w) * chest.quaternion
+	# planted: the legs straighten under the hips while she leans, so no foot slides out past the edge
+	for bone in actor.rest_legs:
+		if str(bone) == "@pelvis_pos":
+			# the peek pose slides the hips toward the open side: keep them over the planted feet, behind the wall
+			var pelvis := actor.model.find_child("Pelvis", true, false) as Node3D
+			if pelvis != null:
+				pelvis.position = pelvis.position.lerp(actor.rest_legs[bone] as Vector3, w)
+			continue
+		var leg := actor.model.find_child(str(bone), true, false) as Node3D
+		if leg != null:
+			leg.quaternion = leg.quaternion.slerp(actor.rest_legs[bone] as Quaternion, w)
 
 
 ## Eased weight 0..1 of the flinch: snaps in with an ease-out over `dur`, holds, then releases over `release`.
@@ -648,6 +888,10 @@ static func _apply_react(actor: Actor) -> void:
 	if w <= 0.0:
 		return
 	var side := str(actor.react.get("arm", "R"))
+	if side == "auto":
+		# the near arm: facing the camera from a corner on the camera's right, her right side is toward the edge
+		side = "R" if float((_stage.get("corner", {}) as Dictionary).get("s", 1.0)) > 0.0 else "L"
+	# the arm_z sign follows the arm, not the corner side
 	var arm_sign := 1.0 if side == "R" else -1.0
 	var arms := [side] if side != "both" else ["L", "R"]
 	for a in arms:
@@ -699,7 +943,7 @@ static func _apply_head(actor: Actor, head: Node3D, dt: float, cam_pos: Vector3)
 	var rw := _react_weight(actor)
 	if rw > 0.0:
 		# snap the face away from the light: the look-at gives way to the flinch, never a pop (the weight is eased)
-		var away := deg_to_rad(float(actor.react.get("away_yaw", 55.0)))
+		var away := deg_to_rad(float(actor.react.get("away_yaw", 55.0)) * float((_stage.get("corner", {}) as Dictionary).get("s", 1.0)))
 		actor.head_yaw = lerpf(actor.head_yaw, away, rw)
 		actor.head_pitch = lerpf(actor.head_pitch, deg_to_rad(float(actor.react.get("away_pitch", -12.0))), rw)
 	var breath := sin(actor.clock * 1.7) * deg_to_rad(float(cfg.get("sway", 0.8)))
@@ -816,13 +1060,14 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	for part in want:
 		rows.append({"name": "%s %s" % [part, "visible" if bool(want[part]) else "hidden"], "pass": bool(vis.get(part, false)) == bool(want[part]), "detail": "seen=%s" % vis.get(part)})
 	if expect.has("torso_visible"):
-		var chest := _bone_pos(actor, "Chest")
-		var side := camera.global_basis.x
+		# the torso as the camera sees it: from the hips up to the neck (the Head pivot), across her own shoulder width
+		var neck := _bone_pos(actor, "Head")
+		var across := actor.root.global_basis.x.normalized()
 		var seen_count := 0
 		var total := 0
 		for a in 5:
 			for b in 5:
-				var point := pelvis.lerp(chest, float(a) / 4.0) + side * (float(b) / 4.0 - .5) * .5
+				var point := pelvis.lerp(neck, .1 + .8 * float(a) / 4.0) + across * (float(b) / 4.0 - .5) * .44
 				total += 1
 				if _seen(space, camera, player, point) and _on_screen(camera, point):
 					seen_count += 1
@@ -848,7 +1093,7 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	# 5. screen size of the visible subject (head to the lowest visible, on-screen sample), as a fraction of the frame height
 	if expect.has("screen_fraction"):
 		var top := camera.unproject_position(_bone_pos(actor, "Head") + Vector3.UP * .25).y
-		var low := top
+		var low := camera.unproject_position(_bone_pos(actor, "Head") - Vector3.UP * .2).y
 		for bone in ["Chest", "Belly", "Pelvis", "L-Calf", "R-Calf", "L-Foot", "R-Foot"]:
 			var point := _bone_pos(actor, bone)
 			if _seen(space, camera, player, point) and _on_screen(camera, point):
@@ -867,6 +1112,82 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 				worst = float((_smooth[bone] as Dictionary)["max"])
 				worst_bone = "%s @%ss" % [bone, (_smooth[bone] as Dictionary).get("at", "?")]
 		rows.append({"name": "animation smooth", "pass": worst <= float(expect["smooth_max_deg"]), "detail": "worst single-frame bone step %.1f deg (%s), max %s" % [worst, worst_bone, expect["smooth_max_deg"]]})
+	# the occluder is the REAL corner: rays from the camera to her feet and hips must stop on the corner block, within 1.2 m of the edge
+	var corner_info: Dictionary = stage.get("corner", {})
+	if expect.has("occluded_by_corner") and corner_info.has("vertex") and actor.root.visible:
+		var vx: Array = corner_info["vertex"]
+		var vertex2 := Vector2(float(vx[0]), float(vx[1]))
+		var bad_rays: Array = []
+		var cf: Vector3 = stage["f"]
+		var cr: Vector3 = (stage["r"] as Vector3) * float(corner_info.get("s", 1.0))
+		var vertex3 := Vector3(vertex2.x, 0.0, vertex2.y)
+		# bone centres (feet lifted off the floor): rays ignore her own body, so box corners behind her torso would read as "seen";
+		# slivers at the edge are the pixel check's job
+		var targets: Array = []
+		for bone in expect["occluded_by_corner"]:
+			targets.append([str(bone), _bone_pos(actor, str(bone)) + (Vector3.UP * .15 if str(bone).ends_with("Foot") else Vector3.ZERO)])
+		for target in targets:
+			var point: Vector3 = target[1]
+			var ray := PhysicsRayQueryParameters3D.create(cam_pos, point)
+			ray.exclude = [(player as CollisionObject3D).get_rid()]
+			var hit := space.intersect_ray(ray)
+			if hit.is_empty():
+				if not _on_screen(camera, point):
+					continue
+				bad_rays.append("%s: seen" % target[0])
+				continue
+			var hp: Vector3 = hit["position"]
+			var flat := Vector3(hp.x, 0.0, hp.z) - vertex3
+			var on_a_face := absf(flat.dot(cr)) <= .3 and flat.dot(cf) <= .3 and flat.dot(cf) >= -4.0
+			var on_b_face := absf(flat.dot(cf)) <= .3 and flat.dot(cr) >= -.3 and flat.dot(cr) <= 4.0
+			if (hit["normal"] as Vector3).y > .7:
+				continue   # a box corner at floor level, behind the floor's own edge: not visible either way
+			if not (on_a_face or on_b_face):
+				bad_rays.append("%s: hidden by something %.1f m from the corner" % [target[0], flat.length()])
+		var unique := {}
+		for b in bad_rays:
+			unique[b] = true
+		bad_rays = unique.keys()
+		rows.append({"name": "feet/hips hidden by the corner wall", "pass": bad_rays.is_empty(), "detail": "ok" if bad_rays.is_empty() else ", ".join(bad_rays)})
+	if expect.has("edge_max_m") and corner_info.has("vertex") and actor.root.visible:
+		var vxe: Array = corner_info["vertex"]
+		var v2 := Vector2(float(vxe[0]), float(vxe[1]))
+		var nearest := 99.0
+		var nearest_bone := ""
+		for node in actor.model.find_children("*", "MeshInstance3D", true, false):
+			var mi := node as MeshInstance3D
+			if not mi.is_visible_in_tree() or mi.mesh == null:
+				continue
+			var box := mi.global_transform * mi.get_aabb()
+			var qx := clampf(v2.x, box.position.x, box.end.x)
+			var qz := clampf(v2.y, box.position.z, box.end.z)
+			var dist := Vector2(qx, qz).distance_to(v2)
+			if dist < nearest:
+				nearest = dist
+				nearest_bone = str(mi.get_parent().name) + "/" + str(mi.name)
+		rows.append({"name": "hugging the wall edge", "pass": nearest <= float(expect["edge_max_m"]), "detail": "%s %.2f m from the edge (max %s)" % [nearest_bone, nearest, expect["edge_max_m"]]})
+	if bool(expect.get("corner_is_grid", false)):
+		rows.append({"name": "a real corridor corner", "pass": bool(corner_info.get("grid", false)), "detail": "grid corner at %s, corridor B %s cell(s) wide" % [corner_info.get("vertex"), corner_info.get("b_cells")]})
+	# her whole BODY (every mesh part's box, shrunk 10%) against the level: no part pushed into a wall
+	if bool(expect.get("no_mesh_in_wall", false)) and actor.root.visible:
+		var parts_in: Array = []
+		for node in actor.model.find_children("*", "MeshInstance3D", true, false):
+			var mi := node as MeshInstance3D
+			if not mi.is_visible_in_tree() or mi.mesh == null:
+				continue
+			var box_aabb := mi.get_aabb()
+			var scale := mi.global_basis.get_scale()
+			var box := BoxShape3D.new()
+			box.size = (box_aabb.size * scale * .9).max(Vector3.ONE * .01)
+			var query := PhysicsShapeQueryParameters3D.new()
+			query.shape = box
+			query.transform = Transform3D(mi.global_basis.orthonormalized(), mi.global_transform * box_aabb.get_center() + Vector3.UP * .04)
+			query.exclude = [(player as CollisionObject3D).get_rid()]
+			for hit in space.intersect_shape(query, 4):
+				var body := hit["collider"] as Node
+				parts_in.append(str(mi.get_parent().name) + "/" + str(mi.name))
+				break
+		rows.append({"name": "body mesh clear of walls", "pass": parts_in.is_empty(), "detail": "in walls: %s" % [parts_in]})
 	if bool(expect.get("no_labels", false)):
 		var shown: Array = []
 		for node in _scene.find_children("*", "Label3D", true, false):
@@ -917,3 +1238,136 @@ static func _dim_world(scene: Node, player: Node, camera: Camera3D, own: Array, 
 		if env != null and not env.has_meta("trailer_dimmed"):
 			env.set_meta("trailer_dimmed", true)
 			env.ambient_light_energy *= factor
+
+
+# ------------------------------------------------------------------------------------------------ pixel truth (what the camera really shows)
+const PART_COLORS := {"legs": Color(1, 0, 1), "hips": Color(0, 1, 1), "torso": Color(1, 1, 0), "head": Color(0, 1, 0), "arms": Color(1, 0, 0)}
+
+
+static func _part_group(mi: MeshInstance3D) -> String:
+	var n := (str(mi.name) + " " + str(mi.get_parent().name)).to_lower()
+	var own := str(mi.name).to_lower()
+	for key in ["thigh", "calf", "foot"]:
+		if own.contains(key):
+			return "legs"
+	for key in ["forearm", "hand", "-arm"]:
+		if own.contains(key):
+			return "arms"
+	if own.contains("pelvis"):
+		return "hips"
+	if own.contains("chest") or own.contains("belly"):
+		return "torso"
+	if n.contains("head"):
+		return "head"
+	if n.contains("thigh") or n.contains("calf") or n.contains("foot"):
+		return "legs"
+	if n.contains("pelvis"):
+		return "hips"
+	if n.contains("chest") or n.contains("belly"):
+		return "torso"
+	if n.contains("arm") or n.contains("hand"):
+		return "arms"
+	return "head"
+
+
+## Renders the SAME shot camera twice with her parts in flat colours: once depth-tested (what is really visible past the wall), once with only
+## the torso drawn on top of everything (its full on-screen size). Counts pixels per part; rays can disagree with the rendered wall faces.
+static func _pixel_check(scene: Node, camera: Camera3D, actor: Actor, want: Dictionary, mask_path: String) -> Array:
+	var rows: Array = []
+	if actor == null or not actor.root.visible:
+		return [{"name": "pixel check", "pass": not bool(want.get("need_visible", false)), "detail": "actor hidden"}]
+	var meshes: Array = actor.model.find_children("*", "MeshInstance3D", true, false)
+	var saved_env := camera.environment
+	var flat_env := Environment.new()
+	flat_env.background_mode = Environment.BG_COLOR
+	flat_env.background_color = Color.BLACK
+	flat_env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	camera.environment = flat_env
+	var counts_a := await _mask_render(scene, meshes, true, "", mask_path)
+	var counts_b := await _mask_render(scene, meshes, false, "torso", "")
+	# the torso's full on-screen silhouette (pass B) against what pass A shows inside it: any of HER pixels there (an arm across the
+	# chest still means the torso is out past the wall); wall pixels there mean the wall hides it
+	var sil: Image = counts_b["_image"]
+	var shown: Image = counts_a["_image"]
+	var inside := 0
+	var out_past := 0
+	for y in range(0, sil.get_height(), 2):
+		for x in range(0, sil.get_width(), 2):
+			if _pixel_part(sil.get_pixel(x, y)) != "torso":
+				continue
+			inside += 1
+			if not _pixel_part(shown.get_pixel(x, y)).is_empty():
+				out_past += 1
+	counts_a["_torso_sil"] = inside
+	counts_a["_torso_out"] = out_past
+	camera.environment = saved_env
+	for mi_value in meshes:
+		var mi := mi_value as MeshInstance3D
+		mi.material_override = null
+		mi.visible = true
+	var limits: Dictionary = want.get("max_px", {})
+	for part in limits:
+		rows.append({"name": "%s pixels past the wall" % part, "pass": int(counts_a.get(part, 0)) <= int(limits[part]), "detail": "%d px visible (max %s)" % [int(counts_a.get(part, 0)), limits[part]]})
+	if want.has("min_px"):
+		var mins: Dictionary = want["min_px"]
+		for part in mins:
+			rows.append({"name": "%s pixels visible" % part, "pass": int(counts_a.get(part, 0)) >= int(mins[part]), "detail": "%d px (min %s)" % [int(counts_a.get(part, 0)), mins[part]]})
+	if want.has("torso_fraction"):
+		var full := maxi(int(counts_a.get("_torso_sil", 0)), 1)
+		var frac := float(counts_a.get("_torso_out", 0)) / float(full)
+		var rng: Array = want["torso_fraction"]
+		rows.append({"name": "torso showing past the wall (pixels)", "pass": frac >= float(rng[0]) and frac <= float(rng[1]), "detail": "%.0f%% of her torso silhouette is not behind the wall (wanted %d-%d%%)" % [frac * 100.0, int(float(rng[0]) * 100), int(float(rng[1]) * 100)]})
+	if want.has("height_fraction"):
+		var hf: float = float(counts_a.get("_height", 0)) / float(maxi(int(counts_a.get("_rows", 1)), 1))
+		var hr: Array = want["height_fraction"]
+		rows.append({"name": "visible figure height", "pass": hf >= float(hr[0]) and hf <= float(hr[1]), "detail": "%.0f%% of frame height (wanted %d-%d%%)" % [hf * 100.0, int(float(hr[0]) * 100), int(float(hr[1]) * 100)]})
+	return rows
+
+
+static func _mask_render(scene: Node, meshes: Array, depth_test: bool, only: String, save_path: String) -> Dictionary:
+	for mi_value in meshes:
+		var mi := mi_value as MeshInstance3D
+		var group := _part_group(mi)
+		mi.visible = only.is_empty() or group == only
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = PART_COLORS[group]
+		mat.no_depth_test = not depth_test
+		mat.render_priority = 10 if not depth_test else 0
+		mi.material_override = mat
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var image := scene.get_viewport().get_texture().get_image()
+	if not save_path.is_empty():
+		image.save_png(save_path)
+	var counts := {}
+	var top := -1
+	var bottom := -1
+	var step := 2
+	for y in range(0, image.get_height(), step):
+		for x in range(0, image.get_width(), step):
+			var part := _pixel_part(image.get_pixel(x, y))
+			if part.is_empty():
+				continue
+			counts[part] = int(counts.get(part, 0)) + step * step
+			if top < 0:
+				top = y
+			bottom = y
+	counts["_height"] = 0 if top < 0 else bottom - top
+	counts["_rows"] = image.get_height()
+	counts["_image"] = image
+	return counts
+
+
+static func _pixel_part(c: Color) -> String:
+	if c.r > .6 and c.b > .6 and c.g < .25:
+		return "legs"
+	if c.g > .6 and c.b > .6 and c.r < .25:
+		return "hips"
+	if c.r > .6 and c.g > .6 and c.b < .25:
+		return "torso"
+	if c.g > .6 and c.r < .25 and c.b < .25:
+		return "head"
+	if c.r > .6 and c.g < .25 and c.b < .25:
+		return "arms"
+	return ""
