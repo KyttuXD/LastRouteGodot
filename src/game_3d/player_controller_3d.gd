@@ -1189,7 +1189,7 @@ func _update_ladder_climb(delta: float) -> void:
 	ModelSlot.play_if_available(_animation_player, _clip)
 	if _animation_player != null:
 		_animation_player.speed_scale = 1.0 if moving else 0.0
-	_animate_climb_hands(float(ladder_climb["travel"]) / LADDER_CLIMB_SPEED, true)
+	_animate_climb_hands(float(ladder_climb["height"]))
 	if String(ladder_climb["phase"]) == "dismount" and float(ladder_climb["t"]) >= 1.0:
 		var to_level := int(ladder_climb["to_level"])
 		ladder_climb = {}
@@ -1230,23 +1230,69 @@ func _show_climb_hands(on: bool) -> void:
 			if side < 0.0:
 				hand.scale.x = -hand.scale.x
 			arm.add_child(hand)
-			arm.position = Vector3(.16 * side, -.1, -.34)
+			arm.position = Vector3(CLIMB_HAND_X * side, CLIMB_HAND_Y, CLIMB_HAND_Z)
 			_climb_hands.add_child(arm)
 		first_person_camera.add_child(_climb_hands)
 	if _climb_hands != null:
 		_climb_hands.visible = on
 
 
-func _animate_climb_hands(elapsed: float, up: bool) -> void:
+## Hands on the rungs: `height` is the signed position on the ladder, so the hands alternate rung by rung while W/S moves you, run
+## in reverse going down, and stand still (gripping) when you stop. Each hand holds its rung while the body rises past it
+## (the hand slides down the view with a slight pull toward the face), then reaches up to the next one.
+const CLIMB_RUNG_SPACING := .3
+const CLIMB_REACH := .11
+
+
+static func climb_hand_pose(height: float, side: float) -> Dictionary:
+	var cycle := height / (CLIMB_RUNG_SPACING * 2.0) + (0.0 if side < 0.0 else .5)
+	var t := cycle - floorf(cycle)
+	var grip := t < .5
+	var y := 0.0
+	var pull := 0.0
+	if grip:
+		y = lerpf(CLIMB_REACH, -CLIMB_REACH, t * 2.0)
+		pull = sin(t * 2.0 * PI) * .03
+	else:
+		var k := (t - .5) * 2.0
+		y = lerpf(-CLIMB_REACH, CLIMB_REACH, k * k * (3.0 - 2.0 * k))
+	return {"y": y, "pull": pull, "grip": grip}
+
+
+func _animate_climb_hands(height: float, _up: bool = true) -> void:
 	if _climb_hands == null:
 		return
-	var phase := elapsed * TAU * (1.0 if up else -1.0)
 	for arm_value in _climb_hands.get_children():
 		var arm := arm_value as Node3D
 		var side := -1.0 if arm.name == "L" else 1.0
-		var reach := sin(phase + (0.0 if side < 0.0 else PI))
-		arm.position = Vector3(.16 * side, -.1 + .12 * reach, -.34 + .03 * absf(reach))
-		arm.rotation.x = -.35 * reach
+		var pose := climb_hand_pose(height, side)
+		arm.position = Vector3(CLIMB_HAND_X * side, CLIMB_HAND_Y + float(pose["y"]), CLIMB_HAND_Z + float(pose["pull"]))
+		arm.rotation.x = -.25 * float(pose["y"]) / CLIMB_REACH
+
+
+## Hands for crawling through a vent: they alternate forward and back on the floor in step with the distance moved, still when
+## the player stops. Shown only while `in_vent`; ladders use the climb pose, everything else shows no hands.
+var _crawl_travel := 0.0
+var _crawl_last := Vector3.ZERO
+
+
+func _update_crawl_hands() -> void:
+	if is_climbing():
+		return
+	if not in_vent:
+		if _climb_hands != null and _climb_hands.visible:
+			_climb_hands.visible = false
+		return
+	_show_climb_hands(true)
+	var flat := Vector3(global_position.x, 0.0, global_position.z)
+	_crawl_travel += flat.distance_to(_crawl_last) if _crawl_last != Vector3.ZERO else 0.0
+	_crawl_last = flat
+	for arm_value in _climb_hands.get_children():
+		var arm := arm_value as Node3D
+		var side := -1.0 if arm.name == "L" else 1.0
+		var reach := sin(_crawl_travel / .45 * PI + (0.0 if side < 0.0 else PI))
+		arm.position = Vector3(CLIMB_HAND_X * side, -.3 + .02 * absf(reach), -.46 - .1 * reach)
+		arm.rotation.x = deg_to_rad(-40.0) + .12 * reach
 
 
 func set_admin_noclip(enabled: bool) -> void:
@@ -1361,6 +1407,7 @@ func _physics_process(delta: float) -> void:
 	_update_soaked(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
+	_update_crawl_hands()
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
@@ -2069,9 +2116,12 @@ func _build_first_person_items() -> void:
 ## hue as the body), with the hand's prop point (R-HandProp) on the held item's grip, the view origin, and the forearm
 ## running back and down toward the camera. `first_person_hands` turns them off (held items only).
 static var first_person_hands := true
-const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
-const CLIMB_HAND_SCALE := .17       # ladder hands: smaller and reaching up the rungs
-const CLIMB_ARM_TILT := 150.0
+const FP_HAND_SCALE := .52          # mannequin units -> camera space, matched to the held items' scale
+const CLIMB_HAND_SCALE := .3       # ladder / vent hands: real-arm size, reaching up the rungs
+const CLIMB_ARM_TILT := 105.0
+const CLIMB_HAND_X := .2
+const CLIMB_HAND_Y := -.06
+const CLIMB_HAND_Z := -.45
 const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
 static var _fp_hand_parts: Array = []   # classic arms: [[mesh, material_override or null, transform relative to R-HandProp], ...]
 static var _fp_hand_parts_slim: Array = []   # the same from the slim (Alex) mannequin

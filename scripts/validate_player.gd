@@ -109,6 +109,7 @@ func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
 	var right := hands.get_node("R").get_child(0) as Node3D
 	if left.scale.x * right.scale.x >= 0.0:
 		_fail("the left climb hand is not mirrored")
+	_expect_climb_motion_and_size(controller)
 	var was_arms := Settings.skin_arms
 	var was_slim := Settings.skin_slim
 	Settings.skin_arms = "slim"
@@ -119,6 +120,63 @@ func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
 	Settings.skin_arms = was_arms
 	Settings.skin_slim = was_slim
 	controller._apply_visual_settings()
+
+
+## The hands alternate rung by rung with the climb height, reverse going down, stay put when the climb stops, and read as real
+## arms: their on-screen size is a fixed share of the view at the default FOV and at both FOV extremes.
+func _expect_climb_motion_and_size(controller: PlayerController3D) -> void:
+	var snapshot := func(height: float) -> Array:
+		controller._animate_climb_hands(height)
+		var out := []
+		for arm in controller._climb_hands.get_children():
+			out.append((arm as Node3D).position)
+		return out
+	var base: Array = snapshot.call(1.0)
+	var same: Array = snapshot.call(1.0)
+	_expect_equal_poses(base, same, "the climb hands moved while the climb was stopped")
+	var moved: Array = snapshot.call(1.15)
+	if base[0].is_equal_approx(moved[0]) and base[1].is_equal_approx(moved[1]):
+		_fail("the climb hands did not move when the climb moved 15 cm")
+	var left_a := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var right_a := PlayerController3D.climb_hand_pose(1.0, 1.0)
+	if bool(left_a["grip"]) == bool(right_a["grip"]):
+		_fail("both climb hands grip or reach at the same time; they must alternate")
+	var up := PlayerController3D.climb_hand_pose(1.2, -1.0)
+	var back := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var down := PlayerController3D.climb_hand_pose(0.8, -1.0)
+	if is_equal_approx(float(up["y"]), float(down["y"])) or is_equal_approx(float(up["y"]), float(back["y"])):
+		_fail("climbing up and down do not give different hand poses")
+	if not PlayerController3D.climb_hand_pose(0.3, -1.0)["pull"] is float:
+		_fail("no grip pull value")
+	var camera := controller.first_person_camera
+	var viewport_size := controller.get_viewport().get_visible_rect().size
+	var was_fov := Settings.field_of_view
+	for fov in [Settings.MIN_FIELD_OF_VIEW, Settings.DEFAULT_FIELD_OF_VIEW, Settings.MAX_FIELD_OF_VIEW]:
+		camera.fov = fov
+		controller._animate_climb_hands(1.0)
+		var top := 1.0e9
+		var bottom := -1.0e9
+		for mesh_value in controller._climb_hands.find_children("*", "MeshInstance3D", true, false):
+			var mesh_node := mesh_value as MeshInstance3D
+			var box := mesh_node.mesh.get_aabb()
+			for corner in 8:
+				var point := mesh_node.global_transform * box.get_endpoint(corner)
+				if camera.is_position_behind(point):
+					continue
+				var screen := camera.unproject_position(point)
+				top = minf(top, screen.y)
+				bottom = maxf(bottom, screen.y)
+		var share := (bottom - top) / viewport_size.y
+		if share < .2 or share > .8:
+			_fail("the climb hand is %.0f%% of the screen height at FOV %.0f (want 20-80%%)" % [share * 100.0, fov])
+	camera.fov = was_fov
+
+
+func _expect_equal_poses(a: Array, b: Array, message: String) -> void:
+	for i in a.size():
+		if not (a[i] as Vector3).is_equal_approx(b[i]):
+			_fail(message)
+			return
 
 
 ## XR hand interactions (XRHands, milestone 4): a flat run builds none of the XR helpers and still aims [E] from the head;

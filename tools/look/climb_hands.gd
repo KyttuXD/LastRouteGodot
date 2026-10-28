@@ -27,8 +27,8 @@ func _ready() -> void:
 		player.begin_ladder_climb(player.global_position, 3.0, 1.0, player.rotation.y, player.global_position + Vector3(0, 3, -1),
 			player.global_position + Vector3(0, 0, 1), 0, 0)
 		player.ladder_climb["phase"] = "climb"
-		for step in 3:
-			player._animate_climb_hands(float(step) * .17, true)
+		for step in 4:
+			player.ladder_climb["height"] = 1.0 + float(step) * .1   # the climb itself animates the hands from the height
 			for _i in 6:
 				await get_tree().process_frame
 			get_viewport().get_texture().get_image().save_png("%s/climb_%s_%d.png" % [out, style, step])
