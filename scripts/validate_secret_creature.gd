@@ -69,6 +69,7 @@ func run(host: Node) -> int:
 	_inferno_trigger_and_lairs()
 	await _view(host)
 	await _live_route(host)
+	await _inferno_live(host)
 	_no_hints()
 	if _failures == 0:
 		print("secret_creature OK")
@@ -687,6 +688,111 @@ func _inferno_trigger_and_lairs() -> void:
 	InfernoSecrets.trigger_override = ""
 	InfernoSecrets.difficulty_override = ""
 	InfernoSecrets.relationship_override = ""
+
+
+## The real level -3 (only when the generator has one): the trigger on a live route, the lair on wide ground, traversal across the big spaces
+## (a brain walks real navigation between far-apart cells without getting stuck), and the containment when the runner leaves the level.
+func _inferno_live(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "SECRET-INFERNO"
+	RoomState.map_scale = RoomState.Scale.INFINITE
+	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(route)
+	await host.get_tree().process_frame
+	for _i in 8:
+		await host.get_tree().physics_frame
+	var generator = route.facility.generator
+	if not generator.is_chunk_allowed(Vector3i(0, SecretCreatures.HOME_LEVEL, 0)):
+		route.queue_free()
+		await host.get_tree().process_frame
+		return                        # this branch has no Inferno yet: the fake level in _inferno_trigger_and_lairs covers it
+	var home := SecretCreatures.HOME_LEVEL
+	var height := float(home) * StreamedFacilityView3D.LEVEL_HEIGHT
+	# a floor cell of the Inferno near the origin chunk, on wide ground when there is any
+	var data: Dictionary = generator.chunk(Vector3i(0, home, 0))
+	var grid: Array = data["grid"]
+	var start := Vector2i(-1, -1)
+	var best := -1.0
+	for z in range(4, grid.size() - 4):
+		for x in range(4, (grid[z] as Array).size() - 4):
+			if int(grid[z][x]) != 0:
+				continue
+			var open := 0
+			for dz in range(-3, 4):
+				for dx in range(-3, 4):
+					open += 1 if int(grid[z + dz][x + dx]) == 0 else 0
+			if float(open) > best:
+				best = float(open)
+				start = Vector2i(x, z)
+	_expect(start.x >= 0, "level -3 has no floor near the origin chunk")
+	InfernoSecrets.difficulty_override = "nightmare"
+	route.call("_admin_teleport_to", Vector3(start.x + .5, height, start.y + .5))
+	for _i in 40:
+		await host.get_tree().physics_frame
+	_expect(route.facility.current_level() == home, "the runner did not arrive on level -3 (level %d)" % route.facility.current_level())
+	var world_state = route.get("world_state")
+	var secrets: InfernoSecrets = route.get("_inferno_secrets")
+	_expect(world_state.hunters.keys().filter(func(k): return String(k).begins_with("SECRET:")).is_empty(), "a creature appeared before the dwell time")
+	secrets.dwell = InfernoSecrets.DWELL_SECONDS
+	for _i in 60:
+		await host.get_tree().physics_frame
+	var spiders: Array = world_state.hunters.keys().filter(func(k): return String(k).begins_with("SECRET:"))
+	_expect(spiders.size() == 2, "nightmare brought %d creatures on level -3 (expected a pair)" % spiders.size())
+	var views: Dictionary = route.get("_hunter_views")
+	var levels: Dictionary = route.get("_hunter_levels")
+	var navigation = route.get("_navigations").get(home)
+	for key in spiders:
+		_expect(int((world_state.hunters[key] as Dictionary)["level"]) == home and int(levels.get(key, 999)) == home, "%s is not on level -3" % key)
+		_expect(views.get(key) != null and views[key]._creature != null, "%s is not drawn with the creature rig" % key)
+		var at: Vector2 = (world_state.hunters[key] as Dictionary)["position"]
+		_expect(navigation != null and navigation.is_floor(at.x, at.y), "%s stands inside a wall" % key)
+	# traversal: a brain walks across the loaded Inferno between far-apart cells (the big spaces) and does not get stuck
+	if navigation != null:
+		var cells: Array = navigation.floor_cells()
+		var wide_cells := 0
+		for cell in cells:
+			wide_cells += 1 if InfernoSecrets.clearance(navigation, cell) >= InfernoSecrets.WIDE_CLEARANCE else 0
+		print("  inferno: %d floor cells in the loaded window, %d on wide ground (%.0f%%)" % [cells.size(), wide_cells, 100.0 * wide_cells / maxf(1.0, cells.size())])
+		var rng := SeededRandom.new("SECRET-TRAVERSE")
+		var walked := 0
+		var attempts := 0
+		while walked < 6 and attempts < 60 and cells.size() > 100:
+			attempts += 1
+			var a: Vector2i = cells[rng.next_index(cells.size())]
+			var b: Vector2i = cells[rng.next_index(cells.size())]
+			if Vector2(a).distance_to(Vector2(b)) < 25.0 or not navigation.can_occupy(a.x + .5, a.y + .5) or not navigation.can_occupy(b.x + .5, b.y + .5):
+				continue
+			var route_cells: Array = navigation.find_path(a, b)
+			if route_cells.is_empty() or route_cells.size() > 110:
+				continue                  # one navigation window is 3 chunks: longer trips are several hunter legs in the game
+			walked += 1
+			var brain := HunterBrain.new(Vector2(a) + Vector2(.5, .5), "TRAVERSE-%d" % walked, ID if walked % 2 == 0 else BLACK_ID)
+			brain.activate_at(Vector2(b) + Vector2(.5, .5))
+			brain.gimmick = null          # the lurk phase holds a spider still: this walks the ground itself, at its own pace
+			var goal := Vector2(b) + Vector2(.5, .5)
+			var arrived := false
+			var mark := brain.position
+			var seconds := 0.0
+			var limit := maxf(60.0, float(route_cells.size()) * 2.2)
+			while seconds < limit and not arrived:
+				arrived = brain.head_to(goal, STEP, navigation, 3, 0)
+				seconds += STEP
+				if fmod(seconds, 15.0) < STEP:
+					_expect(brain.position.distance_to(mark) >= 1.0 or arrived, "a spider is stuck at %s after %.0f s (from %s to %s)" % [brain.position, seconds, a, b])
+					mark = brain.position
+			_expect(arrived, "a spider did not cross from %s to %s within %.0f s (stopped %.1f cells short, path of %d cells)" % [a, b, limit, brain.position.distance_to(goal), route_cells.size()])
+		_expect(walked >= 3, "found only %d far-apart reachable cell pairs on level -3 to walk" % walked)
+	# containment: the runner leaves the level; the spiders do not follow, and no ladder/ramp plan is ever made for them
+	var plans: Dictionary = route.get("_ladder_plans")
+	route.call("_admin_teleport_to", Vector3(start.x + .5, float(home + 1) * StreamedFacilityView3D.LEVEL_HEIGHT, start.y + .5))
+	for _i in 240:
+		await host.get_tree().physics_frame
+	for key in spiders:
+		_expect(int((world_state.hunters[key] as Dictionary)["level"]) == home and int(levels.get(key, 999)) == home, "%s left level -3 with the runner" % key)
+		_expect(not plans.has(key), "a ramp/ladder plan was made for %s" % key)
+	InfernoSecrets.difficulty_override = ""
+	route.queue_free()
+	await host.get_tree().process_frame
 
 
 ## ---------------------------------------------------------------- nothing may hint at it
