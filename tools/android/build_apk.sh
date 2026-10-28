@@ -9,6 +9,11 @@
 # and build number (git rev-list --count HEAD of $GIT_DIR), and the preset's Android version/code becomes that build
 # number. The visible version name is never touched.
 #
+# PLAYER=1 builds the encrypted player release instead ("<...> Player Release" preset, --export-release): the PCK key
+# comes from ~/Developer/secrets/godot_pck.key (GODOT_SCRIPT_ENCRYPTION_KEY) and the release signing key from
+# ~/Developer/secrets/android_release.keystore + .pass; neither is ever printed. The encrypted Android template
+# (android_source.zip) comes from ~/Developer/godot-build/templates/android (docs/XR_ANDROID.md, "Encrypted player builds").
+#
 # Needs ANDROID_HOME, JAVA_HOME (JDK 17) and GODOT_ANDROID_KEYSTORE_DEBUG_PATH / _USER / _PASSWORD.
 set -euo pipefail
 TARGET="${1:?phone or quest}"
@@ -20,7 +25,21 @@ case "$TARGET" in
   quest) PRESET="Meta Quest OpenXR Debug"; OUT="builds/KyttusLab-Quest-Debug.apk" ;;
   *) echo "target must be phone or quest" >&2; exit 1 ;;
 esac
-BUILD="$HOME/Developer/lanes/android-$TARGET"
+EXPORT_FLAG=--export-debug
+if [ "${PLAYER:-0}" = 1 ]; then
+  SECRETS="$HOME/Developer/secrets"
+  case "$TARGET" in
+    phone) PRESET="Android Phone Player Release"; OUT="builds/player/KyttusLab-Android.apk" ;;
+    quest) PRESET="Meta Quest Player Release"; OUT="builds/player/KyttusLab-Quest.apk" ;;
+  esac
+  EXPORT_FLAG=--export-release
+  [ -f "$HOME/Developer/godot-build/templates/android/android_source.zip" ] || { echo "encrypted Android template not built yet" >&2; exit 1; }
+  export GODOT_SCRIPT_ENCRYPTION_KEY="$(tr -d '\n' < "$SECRETS/godot_pck.key")"
+  export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$SECRETS/android_release.keystore"
+  export GODOT_ANDROID_KEYSTORE_RELEASE_USER=kyttuslab
+  export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$(tr -d '\n' < "$SECRETS/android_release.pass")"
+fi
+BUILD="$HOME/Developer/lanes/android-$TARGET${PLAYER:+-player}"
 mkdir -p "$BUILD"
 rsync -a --delete --exclude /.godot --exclude /.git --exclude /builds --exclude /android \
   --exclude /addons/godotopenxrvendors --exclude /addons/kyttu_installer/bin "$SOURCE/" "$BUILD/"
@@ -73,7 +92,7 @@ open(p, "w").write(t[:opt] + block + t[end:])
 PY
   echo "publish identity: $REVISION build $NUMBER"
 fi
-mkdir -p builds
+mkdir -p "$(dirname "$OUT")"
 INSTALL=""
 [ -d android/build ] || INSTALL=--install-android-build-template
 if [ -n "$INSTALL" ]; then
@@ -83,6 +102,6 @@ fi
 bash tools/android/build_installer_plugin.sh "$BUILD"
 "$GODOT" --headless --path . --editor --quit > /tmp/android-$TARGET-import.log 2>&1 || true
 rm -f "$OUT"
-"$GODOT" --headless --path . --export-debug "$PRESET" "$OUT" > /tmp/android-$TARGET-export.log 2>&1 || true
+"$GODOT" --headless --path . $EXPORT_FLAG "$PRESET" "$OUT" > /tmp/android-$TARGET-export.log 2>&1 || true
 [ -f "$OUT" ] || { grep -iE "error|fail" /tmp/android-$TARGET-export.log | tail -20 >&2; exit 1; }
 echo "$BUILD/$OUT"
