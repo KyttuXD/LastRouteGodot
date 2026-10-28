@@ -604,6 +604,10 @@ func run(host: Node) -> int:
 		"staging lost its enter-route action")
 	_expect(lobby.find_child("BackToMenuButton", true, false) != null,
 		"staging lost its back-to-menu action")
+	var back := lobby.find_child("BackToMenuButton", true, false) as Button
+	_expect(back != null and back.text == "BACK TO LAST ROUTE", "the staging back button is not BACK TO LAST ROUTE (%s)" % (back.text if back != null else "none"))
+	_expect(RoomState.menu_scene_path() == "res://scenes/main_menu.tscn" and Settings.hub_last_game == "last_route",
+		"back from Last Route staging does not land on the Last Route menu / card")
 	var old_connection_copy := ["HOST + LIST ROOM", "JOIN ROOM CODE", "LOCAL SESSION",
 		"JOIN AT", "GO OFFLINE", "127.0.0.1", ":8421"]
 	for node in lobby.find_children("*", "Control", true, false):
