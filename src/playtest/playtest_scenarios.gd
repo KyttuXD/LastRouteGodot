@@ -339,10 +339,7 @@ static func probe(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary,
 	if float(opts.get("probe_y", -9999.0)) > -9000.0:
 		y = float(opts["probe_y"])
 	var result := bridge.admin("teleport", {"x": float(opts["probe_x"]), "y": y, "z": float(opts["probe_z"])})
-	var frames := 0
-	for _i in 120:
-		await tree.physics_frame
-		frames += 1
+	var frames := await _await_streamed(tree)
 	obs = bridge.observe()
 	var shots: Array = []
 	var dir := String(opts["out"]) if not String(opts["out"]).is_empty() else ".playtest/probe"
@@ -781,11 +778,9 @@ static func _soak_level(bridge: PlaytestBridge, scene: Node, target: int) -> Dic
 			float(step) * StreamedFacilityView3D.LEVEL_HEIGHT + .1, float(chunk.z) * cs + float(cell.y) + .5)
 		player.set_admin_noclip(true)
 		bridge.admin("teleport", {"x": landing.x, "y": landing.y, "z": landing.z})
-		for _i in 90:
-			await tree.physics_frame
+		frames += await _await_streamed(tree, func() -> void:
 			player.global_position = landing
-			player.velocity = Vector3.ZERO
-		frames += 90
+			player.velocity = Vector3.ZERO)
 		# step off the link (the bot does not use ladders: left on one it climbs straight back) onto the most open floor beside it
 		var space := player.get_world_3d().direct_space_state
 		var off := Vector3.ZERO
@@ -904,7 +899,7 @@ static func _soak_music_box(scene: Node, wound: Dictionary) -> RouteInteractable
 
 
 # ------------------------------------------------------------------------------------------------ coop_check
-## coop_bot --coop-check: a scripted live co-op test. Every peer plays with the bot and, on the same timeline (seconds since it entered the
+## coop_bot --coop-check: a scripted live co-op test. No runner is a target until its scripted catch, so nothing ends early. Every peer plays with the bot and, on the same timeline (seconds since it entered the
 ## route), does its part; every peer writes a state sample each wall-clock second (epoch ms) to <out>/coop_samples.jsonl and screenshots
 ## at the key moments, so tools/playtest/coop_compare.py can line the peers up afterwards.
 ##   guests are ordered by peer id: A (first), B (second or A), C (third or A)
@@ -935,6 +930,9 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var frame_ms: Array = []
 	var frames := 0
 	var obs := {}
+	# hunters leave every runner alone until its scripted catch (A from t 235, the host from t 470): a windowed debug build only
+	# honours no-target with admin rights, so the harness takes the screenshot rig's debug-only stand-in for them
+	Build.capture_rig = true
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -949,6 +947,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		var b := int(guests[1]) if guests.size() > 1 else a
 		var c := int(guests[2]) if guests.size() > 2 else a
 		var player: PlayerController3D = scene.get("player")
+		player.admin_no_target = not ((me == a and t >= 235.0) or (role == "host" and t >= 470.0))
 		# the timeline, each step once
 		var step := ""
 		if role == "host" and t >= 50.0 and not done.has("glyra"):
@@ -1005,6 +1004,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
 	bridge.input.release_all()
 	samples.close()
+	Build.capture_rig = false
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
@@ -1085,8 +1085,7 @@ static func _coop_wind(bridge: PlaytestBridge, scene: Node, player: PlayerContro
 		return {"step": "wind", "ok": false, "why": "no music box on this storey in the loaded chunks"}
 	var stand := _coop_stand(player, best.global_position)
 	bridge.admin("teleport", {"x": stand.x, "y": stand.y, "z": stand.z})
-	for _i in 20:
-		await bridge.get_tree().physics_frame
+	await _await_streamed(bridge.get_tree())
 	var to := best.global_position - player.first_person_camera.global_position
 	player._yaw = PlaytestFlythrough.yaw_for(to.x, to.z)
 	player._pitch = PlaytestFlythrough.pitch_for(to.normalized())
@@ -1121,8 +1120,7 @@ static func _coop_hide(bridge: PlaytestBridge, scene: Node, player: PlayerContro
 	var out_dir := Vector3(-sin(yaw), 0.0, -cos(yaw))
 	var stand := best.global_position + out_dir * .9
 	bridge.admin("teleport", {"x": stand.x, "y": player.global_position.y, "z": stand.z})
-	for _i in 20:
-		await bridge.get_tree().physics_frame
+	await _await_streamed(bridge.get_tree())
 	var said := best.activate(player)
 	for _i in 60:
 		await bridge.get_tree().physics_frame
@@ -1167,3 +1165,28 @@ static func _coop_stand(player: PlayerController3D, target: Vector3) -> Vector3:
 		if space.intersect_ray(ray).is_empty():
 			return Vector3(target.x, player.global_position.y, target.z) + dir * 1.2
 	return Vector3(target.x + 1.2, player.global_position.y, target.z)
+
+
+## After a teleport: frames until the storey around the runner has streamed in (facility.is_preloading() clear, at most 12 s), then
+## 0.3 s more, so a screenshot or a "landed" check never sees a half-built storey (PERF: up to ~2 s in Mezzanine well columns,
+## ~3.7 s on a first hop). `hold` runs every frame meanwhile (keep the runner in place under noclip).
+static func _await_streamed(tree: SceneTree, hold: Callable = Callable()) -> int:
+	var frames := 0
+	var started := Time.get_ticks_msec()
+	var clear_since := -1
+	while Time.get_ticks_msec() - started < 12000:
+		await tree.physics_frame
+		frames += 1
+		if hold.is_valid():
+			hold.call()
+		var scene := tree.current_scene
+		var facility: Object = scene.get("facility") if scene != null else null
+		var busy := facility != null and facility.has_method("is_preloading") and bool(facility.call("is_preloading"))
+		if frames < 20 or busy:
+			clear_since = -1
+			continue
+		if clear_since < 0:
+			clear_since = Time.get_ticks_msec()
+		if Time.get_ticks_msec() - clear_since >= 300:
+			break
+	return frames
