@@ -53,8 +53,17 @@ var hunters: Array = []
 ## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
 ## the real clock (tests pin it).
 var ghost_ping := false
-## Full-map player arrow: minimum size (tip to tail, HUD units) so it reads at any zoom.
+## Full-map player arrow: a constant on-screen size (HUD units, tip reach) at every zoom, so zooming in shows more map
+## around it instead of growing the arrow over several rooms. Kept within [MIN, MAX].
 const PLAYER_ARROW_MIN := 7.0
+const PLAYER_ARROW_SIZE := 8.0
+const PLAYER_ARROW_MAX := 9.0
+
+
+## How far the player arrow reaches from its centre at `cell` HUD units per cell: the minimap scales with its cells, the
+## full map keeps a fixed on-screen size.
+static func arrow_reach(cell: float, full_map: bool) -> float:
+	return clampf(PLAYER_ARROW_SIZE, PLAYER_ARROW_MIN, PLAYER_ARROW_MAX) if full_map else cell * 0.95
 var radar_time := -1.0:
 	set(value):
 		radar_time = value
@@ -947,8 +956,8 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 	var at := origin + player_at * cell
 	var forward := player_facing.normalized() if player_facing.length() > 0.01 else Vector2(0, 1)
 	var side := Vector2(-forward.y, forward.x)
-	# the full map's arrow never shrinks below PLAYER_ARROW_MIN (HUD units) however far it is zoomed out, and has an outline
-	var reach := maxf(cell * 0.95, PLAYER_ARROW_MIN if interactive else 0.0)
+	# full map: a fixed on-screen arrow (arrow_reach) with an outline; minimap: scales with its cells
+	var reach := arrow_reach(cell, interactive)
 	var arrow := PackedVector2Array([
 		at + forward * reach,
 		at - forward * reach * 0.5 + side * reach * 0.6,
