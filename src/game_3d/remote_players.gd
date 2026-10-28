@@ -601,7 +601,8 @@ func _interpolate_bodies(delta: float) -> void:
 		body.rotation.x = lerp_angle(body.rotation.x, float(grab[3]) if not grab.is_empty() else 0.0, weight)
 		body.rotation.z = 0.0
 		if not grab.is_empty():
-			HunterGrab.pose_nearest_hunter(self, body, grab)
+			# after every hunter view has run its clips and head look this frame
+			(func(): if is_instance_valid(body): HunterGrab.pose_nearest_hunter(self, body, grab)).call_deferred()
 
 
 ## A held runner's grab entry ([style, t, lift, body pitch, hunter forward, drop, lean], HunterGrab), checked; [] when free.

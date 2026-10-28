@@ -1240,21 +1240,36 @@ func begin_grab_view() -> void:
 	grab_active = true
 
 
-## One frame of a grab: `head` is the eye relative to the feet in world axes, the body turned to `yaw`; `pitch` and `roll` tip the
-## view on top; `hands` names the first-person hand pose (HunterGrab / GrabStyles.pose) at amount `k`; `clip` is what others see.
-## A headset keeps its own tracked view: only the body, the clip and the state move.
-func set_grab_view(head: Vector3, yaw: float, pitch: float, roll: float, hands: String, k: float, clip: String) -> void:
+## One frame of a grab (HunterGrab): the camera goes exactly where the grab's camera solver put it (`camera`, world space, already
+## clear of walls and the hunter and eased); the body turns to `yaw`; `hands` names the first-person hand pose at amount `k`;
+## `clip` is what others see. A headset keeps its own tracked view: only the body, the clip and the state move.
+func set_grab_camera(camera: Transform3D, yaw: float, hands: String, k: float, clip: String) -> void:
 	grab_active = true
 	grab_clip = clip
+	_yaw = yaw
+	rotation.y = yaw
 	if xr_active:
 		return
-	_yaw = yaw
-	_pitch = 0.0
-	grab_pitch = pitch
-	grab_roll = roll
-	_apply_look_rotation()
-	first_person_pivot.position = global_basis.inverse() * head
+	first_person_pivot.global_transform = camera
+	grab_roll = first_person_pivot.rotation.z
+	if first_person_items != null:
+		first_person_items.visible = false   # no tool in hand while held: only the skinned hands
 	_pose_grab_hands(hands, k)
+
+
+## The wrist yank: the runner's left skinned hand is the one in the hunter's grip, at `world`, kept on screen.
+func hold_grab_hand_at(world: Vector3) -> void:
+	if _grab_hands == null or xr_active:
+		return
+	var arm := _grab_hands.get_node_or_null("L") as Node3D
+	if arm == null:
+		return
+	var local := first_person_camera.global_transform.affine_inverse() * world
+	local.z = minf(local.z, -.6)
+	var half := tan(deg_to_rad(first_person_camera.fov * .5)) * -local.z * .8
+	local.y = clampf(local.y, -half, half)
+	local.x = clampf(local.x, -half * 1.5, half * 1.5)
+	arm.position = arm.position.lerp(local, .5)
 
 
 func end_grab_view() -> void:
@@ -1266,7 +1281,10 @@ func end_grab_view() -> void:
 	grab_clip = ""
 	grab_state = []
 	_apply_look_rotation()
-	first_person_pivot.position = Vector3(0.0, _standing_camera_height, 0.0)
+	first_person_pivot.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, _standing_camera_height, 0.0))
+	_apply_look_rotation()
+	if first_person_items != null:
+		first_person_items.visible = true
 	if _grab_hands != null:
 		_grab_hands.visible = false
 
@@ -1278,7 +1296,7 @@ const GRAB_HAND_POSES := {
 	"grip_arm": [Vector3(.13, -.13, -.32), Vector3(0.0, 18.0, 14.0)],
 	"push": [Vector3(.16, -.12, -.36), Vector3(10.0, 8.0, 6.0)],
 	"held": [Vector3(.14, -.06, -.42), Vector3(25.0, 6.0, 0.0)],
-	"pinned": [Vector3(.2, -.36, -.3), Vector3(-10.0, -6.0, 0.0)],
+	"pinned": [Vector3(.2, -.2, -.36), Vector3(-10.0, -6.0, 0.0)],
 	"claw": [Vector3(.18, -.2, -.42), Vector3(-25.0, 4.0, 0.0)],
 	"push_up": [Vector3(.17, -.04, -.36), Vector3(30.0, 8.0, 4.0)],
 	"dangle": [Vector3(.22, .2, -.34), Vector3(180.0, 0.0, 0.0)],
@@ -1312,8 +1330,8 @@ func _pose_grab_hands(hands: String, k: float) -> void:
 			# alternate: one hand reaches ahead and digs in while the other drags back
 			var phase := sin(now * 5.0 + (0.0 if side < 0.0 else PI))
 			target += Vector3(0.0, absf(phase) * .03, -phase * .09)
-		elif hands == "held" and side < 0.0:
-			target = Vector3(-.26, -.3 + sin(now * 9.0) * .04, -.34)   # the free hand flails low
+		elif hands == "held" and side > 0.0:
+			target = Vector3(.24, -.22 + sin(now * 9.0) * .03, -.4)   # the free hand flails low
 		elif hands == "dangle":
 			target += Vector3(sin(now * 3.0 + side) * .03, 0.0, 0.0)
 		arm.position = Vector3(.3 * side, -.42, -.4).lerp(target, k) + wobble
@@ -1500,6 +1518,9 @@ func system_offline(system: String) -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	if grab_active:
+		velocity = Vector3.ZERO   # a hunter holds the body (HunterGrab places it): no gravity, no sliding out of her collider
+		return
 	if outage_left > 0.0:
 		outage_left = maxf(0.0, outage_left - delta)
 		if outage_left <= 0.0:

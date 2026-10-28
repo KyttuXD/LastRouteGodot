@@ -1,14 +1,18 @@
 extends Node
 
-## Hunter grab capture: every style once, first person mid-grab and at the hold, then the same grab from the side the way
-## another player sees it (a mannequin drawn from the runner's state packet, HunterGrab.pose_nearest_hunter). Windowed:
+## Hunter grab capture (KT's camera rules, docs/HUNTER_GRABS.md): every style in three places -- the route's spawn spot (the
+## same spot as the earlier sheet, for before/after), an open room and a tight hallway (scripts/grab_arena.gd) -- at three
+## moments in first person (start, hold, end) and once from the side the way another player sees it (a mannequin drawn from
+## the runner's state packet). Styles the room rules out are marked, not forced. Windowed:
 ##   Godot --path . res://tools/look/grabs.tscn -- /tmp/grab_caps
 
+const ARENA := preload("res://scripts/grab_arena.gd")
 const STYLE_HUNTER := {
 	"neck_lift": "kathy", "shoulder_grab": "dovelle", "tackle": "haelith", "wrist_yank": "aki", "wrap": "briselle",
 	"leg_grab": "ceryth", "upside_down": "xivvy", "bear_hug": "glyra", "collar_drag": "javelle", "wall_pin": "opalie",
 	"pounce_pin": SecretCreatures.IDS[0],
 }
+const MOMENTS := {"start": .3, "hold": 1.5}
 
 var _guest: Node3D
 var _packet := []
@@ -57,19 +61,14 @@ func _ready() -> void:
 	player.input_frozen = true
 	player.look_frozen = true
 	var fill := OmniLight3D.new()
-	fill.light_energy = 2.5
-	fill.omni_range = 6.0
-	fill.position = Vector3(0, .6, -.6)
+	fill.light_energy = 1.5
+	fill.omni_range = 5.0
+	fill.position = Vector3(0, .4, .3)
 	player.active_camera().add_child(fill)
-	var stand := player.global_position
-	var facing := -player.global_basis.z
-	facing.y = 0.0
-	facing = facing.normalized()
-	var side := facing.cross(Vector3.UP).normalized()
 	var camera := Camera3D.new()
 	scene.add_child(camera)
 	var light := OmniLight3D.new()
-	light.light_energy = 7.0
+	light.light_energy = 6.0
 	light.omni_range = 9.0
 	scene.add_child(light)
 	_guest = ModelSlot.instantiate(PlayerModels.SCENE)
@@ -77,41 +76,70 @@ func _ready() -> void:
 	_guest.scale = Vector3.ONE * PlayerModels.SCALE
 	_guest.visible = false
 	ModelSlot.play_if_available(ModelSlot.find_animation_player(_guest), "fall")
-	for style in STYLE_HUNTER:
-		var id := String(STYLE_HUNTER[style])
-		player.global_position = stand
-		player.active_camera().current = true
-		var view := _hunter(scene, id, stand + facing * .8, -facing)
-		for _i in 4:
+	var spawn := player.global_position
+	var spawn_facing := -player.global_basis.z
+	spawn_facing.y = 0.0
+	for where in ["level", "open", "hallway"]:
+		# one test space at a time: both are built in the same spot
+		var place: Dictionary = {"stand": spawn, "facing": spawn_facing.normalized(), "root": null} if where == "level" \
+			else ARENA.build(scene, where)
+		var stand: Vector3 = place["stand"]
+		var facing: Vector3 = place["facing"]
+		var side := facing.cross(Vector3.UP).normalized()
+		for style in STYLE_HUNTER:
+			var id := String(STYLE_HUNTER[style])
+			player.global_position = stand
+			player._yaw = atan2(-facing.x, -facing.z)
+			player._pitch = 0.0
+			player._apply_look_rotation()
+			player.active_camera().current = true
+			var view := _hunter(scene, id, stand + facing * .8, -facing)
+			for _i in 4:
+				await get_tree().process_frame
+			var room := HunterGrab.probe_room(player.get_world_3d().direct_space_state, stand, stand + facing * .8, -facing,
+				[player.get_rid(), view.get_rid()], player.collision_mask)
+			if where != "level" and not GrabStyles.fits(style, room):
+				FileAccess.open("%s/%s_%s_ruled_out.txt" % [out, where, style], FileAccess.WRITE).store_string(str(room))
+				view.queue_free()
+				await get_tree().process_frame
+				continue
+			grab.play(player, view, id, .5, style)
+			var shot_names := MOMENTS.keys()
+			var next := 0
+			var waited := 0.0
+			while waited < GrabStyles.TOTAL_SECONDS + .6:
+				await get_tree().process_frame
+				waited += get_process_delta_time()
+				if next < shot_names.size() and waited >= float(MOMENTS[shot_names[next]]):
+					await _shot(out, "%s_%s_%s" % [where, style, shot_names[next]])
+					next += 1
+			await _shot(out, "%s_%s_end" % [where, style])
+			# the same hold as another player draws it
+			_packet = player.grab_state.duplicate()
+			var held_at := player.global_position
+			var yaw := GrabStyles.body_yaw(grab._along, float(grab.current["face"]))
+			grab.release()
+			player.global_position = stand + side * 30.0 + Vector3.UP * 30.0   # out of the way
+			_guest.visible = true
+			_guest.global_position = held_at + Vector3.UP * float(_packet[2])
+			_guest.global_basis = Basis.from_euler(Vector3(float(_packet[3]), yaw, 0.0)) * Basis.from_scale(_guest.scale)
+			var middle := (view.global_position + held_at) * .5
+			if where == "hallway":
+				camera.global_position = middle + facing * 3.4 + side * .7 + Vector3.UP * 2.1
+			else:
+				camera.global_position = middle + side * 3.2 - facing * .8 + Vector3.UP * 1.5
+			camera.look_at(middle + Vector3.UP * 1.0, Vector3.UP)
+			camera.current = true
+			light.global_position = middle + side * .6 + Vector3.UP * 2.4
+			for _i in 6:
+				await get_tree().process_frame
+			await _shot(out, "%s_%s_tp" % [where, style])
+			_guest.visible = false
+			_packet = []
+			HunterGrab.pose_hunter_body(view, facing, [0.0, 0.0, 0.0])
+			view.queue_free()
 			await get_tree().process_frame
-		grab.play(player, view, id, .5, style)
-		var mid := false
-		while grab.playing:
+		if place["root"] != null:
+			(place["root"] as Node).queue_free()
 			await get_tree().process_frame
-			if not mid and grab.elapsed > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS * .5:
-				mid = true
-				await _shot(out, "%s_fp_mid" % style)
-		await _shot(out, "%s_fp_hold" % style)
-		# the same hold as another player draws it
-		_packet = player.grab_state.duplicate()
-		var held_at := player.global_position
-		var yaw := GrabStyles.body_yaw(grab._along, float(grab.current["face"]))
-		grab.release()
-		player.global_position = stand + side * 6.0   # out of the way
-		_guest.visible = true
-		_guest.global_position = held_at + Vector3.UP * float(_packet[2])
-		_guest.global_basis = Basis.from_euler(Vector3(float(_packet[3]), yaw, 0.0)) * Basis.from_scale(_guest.scale)
-		var middle := (view.global_position + held_at) * .5
-		camera.global_position = middle + side * 3.2 - facing * .8 + Vector3.UP * 1.5
-		camera.look_at(middle + Vector3.UP * 1.0, Vector3.UP)
-		camera.current = true
-		light.global_position = middle + side * 2.0 + Vector3.UP * 2.5
-		for _i in 6:
-			await get_tree().process_frame
-		await _shot(out, "%s_tp" % style)
-		_guest.visible = false
-		_packet = []
-		HunterGrab.pose_hunter_body(view, facing, [0.0, 0.0, 0.0])
-		view.queue_free()
-		await get_tree().process_frame
 	get_tree().quit()
