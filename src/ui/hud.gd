@@ -803,7 +803,25 @@ func set_public_line(text: String) -> void:
 	status_bar.set_segment("public", text, "line")
 
 
+## Admin room-proof status lines (READY / VERIFYING / VERIFIED / REQUESTING) repeat on every ticket renewal and re-verification.
+## Each one shows once per room on this client; rejections and errors are never held back.
+const ADMIN_PROOF_PREFIXES := ["ADMIN ROOM PROOF", "ADMIN // VERIFYING ROOM PROOF", "ADMIN // REQUESTING ROOM PROOF"]
+var _admin_proof_seen := {}
+
+
+static func is_admin_proof_notice(text: String) -> bool:
+	for prefix in ADMIN_PROOF_PREFIXES:
+		if text.begins_with(prefix) and not text.contains("DISABLED") and not text.contains("COULD NOT"):
+			return true
+	return false
+
+
 func show_message(text: String) -> void:
+	if is_admin_proof_notice(text):
+		var key := "%s|%s" % [RoomState.code, text]
+		if _admin_proof_seen.has(key):
+			return
+		_admin_proof_seen[key] = true
 	message_label.remove_theme_color_override("font_color")
 	# toast treatment: letter-spaced amber line with a dark outline
 	message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))

@@ -101,6 +101,20 @@ func _check_hud(host: Node) -> void:
 	hud.update_streamed_map({}, 0, 16, Vector2.ZERO, Vector2.DOWN, [], marks)
 	_expect(hud.minimap.players.size() == 2, "the minimap did not receive the teammates (%d)" % hud.minimap.players.size())
 	_expect(hud.plan.players.size() == 2, "the full map did not receive the teammates (%d)" % hud.plan.players.size())
+	# the admin room-proof lines show once per room, not on every ticket renewal; rejections always show
+	hud.show_message("ADMIN ROOM PROOF READY")
+	_expect(hud.message_label.visible and hud.message_label.text == "ADMIN ROOM PROOF READY", "the first admin proof notice did not show")
+	hud.message_label.visible = false
+	hud.show_message("ADMIN ROOM PROOF READY")
+	_expect(not hud.message_label.visible, "the admin proof notice showed a second time")
+	hud.show_message("ADMIN ROOM PROOF VERIFIED")
+	_expect(hud.message_label.visible, "a different admin proof line should still show once")
+	hud.message_label.visible = false
+	hud.show_message("ADMIN REQUEST REJECTED // PERMISSION REQUIRED")
+	_expect(hud.message_label.visible, "an admin rejection must always show")
+	hud.message_label.visible = false
+	hud.show_message("ADMIN REQUEST REJECTED // PERMISSION REQUIRED")
+	_expect(hud.message_label.visible, "a repeated admin rejection must still show")
 	hud.set_death_flow(true)
 	await host.get_tree().process_frame
 	_expect(not hud.minimap.is_visible_in_tree(), "the minimap (and its teammates) must hide during the death flow")
