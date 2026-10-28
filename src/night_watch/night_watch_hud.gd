@@ -83,6 +83,8 @@ func _ready() -> void:
 		root.move_child(keep, root.get_child_count() - 1)
 	_build_pause(root)
 	_build_end(root)
+	for panel in [pause_root, end_root]:   # the 2D menu blips on the pause and end cards
+		NightWatchSounds.wire_buttons(panel)
 
 
 func _label(text: String, size := 18, color := INK) -> Label:

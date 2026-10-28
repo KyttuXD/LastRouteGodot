@@ -385,7 +385,7 @@ func run(host: Node) -> int:
 	shift.toggle_door("doorR")
 	shift.open_monitor("dining")
 	shift.close_monitor()
-	_expect(Sound.play_counts.has("door_close") and Sound.play_counts.has("door_open") and Sound.play_counts.has("office_camera"),
+	_expect(Sound.play_counts.has("nw_door") and Sound.play_counts.has("nw_camera"),
 		"the door and monitor sounds did not go through the shared Sound autoload (%s)" % str(Sound.play_counts.keys()))
 	_expect(shift.find_children("*", "AudioStreamPlayer", true, false).is_empty() and shift.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(),
 		"Night Watch has an audio player of its own")
