@@ -12,7 +12,7 @@ extends RefCounted
 ## from_level is the upper end (the manhole, grate or stair head), to_level the
 ## lower end (ladder foot or stair foot). Every link is walkable both ways.
 
-const KINDS := ["manhole", "grate", "stairs", "ladder", "elevator"]
+const KINDS := ["manhole", "grate", "stairs", "spiral", "ladder", "elevator", "ramp", "drop", "vent"]
 
 
 static func make(kind: String, chunk: Vector3i, from_level: int, from_cell: Vector2i,

@@ -58,3 +58,20 @@ Test: `minimap_radar`. Frame sequence (start, rising, peak, ring, fading, betwee
 `RegionNames` (`src/config/region_names.gd`): players see `LEVEL -1`, admins (`Build.tools_enabled()`: owner, scoped admin, room
 admin ticket) see `LEVEL -1 // SEWER`. The City's zone panel and the map's region key stay empty for players. Decided per peer,
 locally. Test: `region_names`.
+
+## Control hints
+
+Prompts name the key for the device the player last used (`InputGlyphs`, `src/ui/input_glyphs.gd`): keyboard/mouse from the live
+InputMap (a rebind changes the prompt), gamepad from its joypad bindings, phone touch buttons (USE, JUMP, D-PAD...), Quest controllers
+(TRIGGER uses, GRIP climbs, A lets go). Every interactable prompt reads "[E] OPEN DOOR", "[E] HIDE IN WARDROBE"; hidden: "[E] LEAVE"
+("LOCKED IN // 3s" while locked); climbing: "HOLD [W]/[S] CLIMB // [SPACE] LET GO" (LET GO only near the bottom, where jump works);
+furniture and sleep prompts use the same glyphs. The prompt sits just under the crosshair and fades in/out; the chat panel stays below
+it. Test: `prompt_glyphs`.
+
+## Full map follows the runner
+
+The full-screen map opens centred on the runner and glides after them while open (`FacilityMap.follow_player`, `FOLLOW_RATE`),
+zooming about them. Dragging, the stick, arrow keys, a trackpad or a one-finger touch drag pans away and stops following; the RECENTER
+button (shown with the jump key for the active device) or the jump key brings it back. Pinch / trackpad magnify zooms on touch. The
+zoom is remembered between opens (`FacilityMap.remembered_zoom`). Teammates, hunters and waypoints draw as before; the title shows the
+current floor. Test: `map_follow`.

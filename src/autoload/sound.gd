@@ -96,6 +96,12 @@ func collect() -> bool:
 	return _play_named("collect")
 
 
+## Carnival booth sounds (CarnivalBooth3D): "start" a bell ding, "throw" a ring whoosh, "ring_on" a clink, "ring_miss" a soft thud, "windup" a rising whine, "swing" the mallet, "thud" a puck that fell short,
+## "bell" the strength tester's bell, "win" a little fanfare, "lose" a sad slide, "tick" a light click, "pop" / "clang" / "splash" / "motor" / "grip" for the other booths.
+func carnival(kind: String, pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("carnival_" + kind, pan, intensity)
+
+
 func recharge(amount: float = 10.0) -> bool:
 	return _play_named("recharge", 0.0, clampf(amount / 10.0, 0.0, 4.0))
 
@@ -233,6 +239,35 @@ func xivvy_wing(pan: float = 0.0, intensity: float = 1.0) -> bool:
 ## The black variant's tell: a long low hiss.
 func spider_hiss(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("spider_hiss", pan, clampf(intensity, 0.1, 2.0))
+
+
+## The runner hitting the cistern after the waterfall jump: a heavy splash that carries (hunters hear it too, see the player's noise burst).
+func splash_big(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("splash_big", pan, clampf(intensity, 0.1, 2.0))
+
+
+## A drip off a soaked runner.
+func water_drip(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("water_drip", pan, clampf(intensity, 0.1, 2.0))
+
+
+var _muffle_effect: AudioEffectLowPassFilter = null
+
+
+## Underwater: everything on the master bus goes dull (a low-pass) until released.
+func set_muffled(on: bool) -> void:
+	var bus := AudioServer.get_bus_index("Master")
+	if bus < 0:
+		return
+	if _muffle_effect == null:
+		if not on:
+			return
+		_muffle_effect = AudioEffectLowPassFilter.new()
+		_muffle_effect.cutoff_hz = 650.0
+		AudioServer.add_bus_effect(bus, _muffle_effect)
+	for index in AudioServer.get_bus_effect_count(bus):
+		if AudioServer.get_bus_effect(bus, index) == _muffle_effect:
+			AudioServer.set_bus_effect_enabled(bus, index, on)
 
 
 ## A hand or boot on an iron ladder rung.
@@ -572,6 +607,22 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 	if cue.begins_with("step:"):
 		return _surface_step(cue, pan, intensity)
 	match cue:
+		"carnival_start": c = [_tone(1318, .22, .07, 0, "triangle", pan), _tone(1760, .3, .05, .08, "triangle", pan)]
+		"carnival_throw": c = [_noise(.16, .05, 1500, 0, pan, .8), _tone(420, .12, .04, 0, "triangle", pan)]
+		"carnival_ring_on": c = [_tone(1568, .12, .09, 0, "triangle", pan), _tone(2093, .2, .07, .06, "triangle", pan), _thump(300, .05, .05, 0, pan)]
+		"carnival_ring_miss": c = [_thump(120, .12, .09, 0, pan), _noise(.09, .04, 500, 0, pan, .7)]
+		"carnival_windup": c = [_tone(180, .35, .05, 0, "saw", pan), _tone(270, .3, .04, .2, "saw", pan)]
+		"carnival_swing": c = [_noise(.18, .08, 900, 0, pan, .7), _thump(70, .22, .16, .1, pan)]
+		"carnival_thud": c = [_thump(90, .25, .14, 0, pan), _noise(.1, .06, 400, 0, pan, .6)]
+		"carnival_bell": c = [_tone(880, 1.6, .2 * minf(intensity, 1.5), 0, "sine", pan), _tone(1320, 1.3, .13, 0, "sine", pan), _tone(1760, 1.0, .1, 0, "triangle", pan), _thump(60, .3, .15, 0, pan)]
+		"carnival_win": c = [_tone(523, .12, .08, 0, "square", pan), _tone(659, .12, .08, .1, "square", pan), _tone(784, .12, .08, .2, "square", pan), _tone(1046, .3, .09, .3, "triangle", pan)]
+		"carnival_lose": c = [_tone(330, .18, .07, 0, "triangle", pan), _tone(262, .2, .07, .15, "triangle", pan), _tone(196, .4, .07, .3, "triangle", pan)]
+		"carnival_tick": c = [_tone(1400, .02, .03, 0, "square", pan)]
+		"carnival_pop": c = [_thump(160, .08, .1, 0, pan), _tone(700, .05, .05, 0, "square", pan)]
+		"carnival_clang": c = [_tone(1200, .3, .1, 0, "square", pan), _tone(1900, .25, .06, 0, "triangle", pan), _noise(.06, .08, 3000, 0, pan, 1.2)]
+		"carnival_splash": c = [_noise(.3, .06, 900, 0, pan, .9), _tone(500, .08, .04, .02, "sine", pan)]
+		"carnival_motor": c = [_tone(90, .3, .05, 0, "saw", pan), _tone(120, .3, .03, 0, "square", pan)]
+		"carnival_grip": c = [_tone(240, .1, .06, 0, "square", pan), _thump(110, .12, .08, .05, pan)]
 		"collect":
 			c = [_tone(220, .12, .13, 0, "square"), _tone(330, .16, .10, .09, "square"), _tone(660, .22, .07, .19)]
 		"recharge":
@@ -634,6 +685,12 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"xivvy_wing": c = [_noise(.13, .05 * intensity, 520, 0, pan, .9), _thump(120, .09, .03 * intensity, .02, pan)]
 		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
+		# the falls into the collector: a broad roar (looped by the level, two seconds long)
+		"waterfall": c = [_noise(2.0, .26 * intensity, 380, 0, pan, .55), _noise(2.0, .14 * intensity, 1300, 0, pan, 1.0),
+			_noise(2.0, .08 * intensity, 160, 0, pan, .4)]
+		"splash_big": c = [_noise(.9, .22 * intensity, 700, 0, pan, .8), _noise(.5, .16 * intensity, 2200, .02, pan, 1.2), _thump(70, .35, .16 * intensity, 0, pan),
+			_noise(.7, .08 * intensity, 1400, .25, pan, 1.0)]
+		"water_drip": c = [_tone(980, .05, .05 * intensity, 0, "triangle", pan), _tone(640, .09, .04 * intensity, .04, "triangle", pan), _noise(.05, .03 * intensity, 3000, 0, pan, 1.2)]
 		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
 			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]

@@ -20,8 +20,12 @@ const NIGHTMARE_RELAY_GRACE_SECONDS := 120.0
 ## Slower than this (cells/s) counts as standing still.
 const STILL_SPEED := .15
 const REPORT_SLACK := 3.0
+const LOCK_RELEASE_DISTANCE := 5.0
 
 var hunting := false
+## Woken by the anti-idle / anti-AFK pressure: she knows the runner's exact position and keeps it (no search, no lost-sight
+## grace) for as long as they stay within LOCK_RELEASE_DISTANCE of where they were when she woke.
+var locked := false
 var dormant := true
 var route_active := false
 var route_peer := 1
@@ -34,6 +38,7 @@ var _route_left := 0.0
 var _relays := -1
 var _last_position := Vector2.INF
 var _last_target_position := Vector2.ZERO
+var _lock_origin := Vector2.ZERO
 
 
 static func idle_limit(nightmare: bool) -> float:
@@ -66,6 +71,17 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 			brain.world_events.append({"what": "message", "message": "GRAY PRESSURE RESET // RELAY SECURED"})
 	if hunting:
 		dormant = false
+		if locked and not target.is_empty():
+			var at_now: Vector2 = target.get("position", _lock_origin)
+			if at_now.distance_to(_lock_origin) > LOCK_RELEASE_DISTANCE:
+				locked = false   # they moved on: a normal hunt from here
+			else:
+				_last_target_position = at_now
+				brain.lost_sight_timer = 0.0
+				brain.has_last_known = true
+				brain.last_known = at_now
+				if brain.state != HunterBrain.State.CHASE:
+					brain.continue_chase_from(at_now)
 		return
 	dormant = true
 	_grace = minf(grace_limit(nightmare), _grace + delta)
@@ -115,6 +131,17 @@ func route_result(brain: HunterBrain, ok: bool) -> void:
 		_fail(brain)
 
 
+## The anti-idle pressure reached an idle runner: Gray stops being dormant and goes straight for where they stand.
+func force_hunt(brain: HunterBrain, at: Vector2) -> void:
+	route_active = false
+	hunting = true
+	dormant = false
+	locked = true
+	_lock_origin = at
+	_last_target_position = at
+	brain.continue_chase_from(at)
+
+
 func _fail(brain: HunterBrain) -> void:
 	route_active = false
 	_grace = 0.0
@@ -139,10 +166,11 @@ func immune_to_capture() -> bool:
 
 
 func network_state() -> Dictionary:
-	return {"hunting": hunting, "dormant": dormant, "route": route_active}
+	return {"hunting": hunting, "dormant": dormant, "route": route_active, "locked": locked}
 
 
 func apply_network_state(state: Dictionary) -> void:
 	hunting = bool(state.get("hunting", hunting))
 	dormant = bool(state.get("dormant", dormant))
 	route_active = bool(state.get("route", route_active))
+	locked = bool(state.get("locked", locked))

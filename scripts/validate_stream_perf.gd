@@ -5,9 +5,10 @@ extends RefCounted
 ##   - no frame spends more than MAX_STREAM_CPU_MS of main-thread time on chunk building/unloading,
 ##   - a level change or teleport never builds the whole window synchronously (MAX_JUMP_MS),
 ##   - the chunk under the runner is always loaded (no pop-in where the player stands) and the queue drains,
-##   - ladder trips between the maze and the sewer: no frame over MAX_LADDER_FRAME_MS around a level change, and climbing
-##     back rebuilds nothing (the storey left behind is parked, not freed); no level change builds anything synchronously
-##     (the linked level's chunks around the ladder are pre-built in the background and parked).
+##   - ladder trips between the maze and the sewer, and ramp walks between the two sewers: no frame over
+##     MAX_LADDER_FRAME_MS around a level change, and climbing back rebuilds nothing (the storey left behind is parked,
+##     not freed); no level change builds anything synchronously (the linked level's chunks near the link are pre-built
+##     in the background and parked).
 ## Windowed frame times (no frame > 33 ms while streaming on the mini) come from tools/look/stream_bench.tscn; when
 ## STREAM_BENCH_JSON names its output, those budgets are checked here too.
 ##
@@ -195,9 +196,163 @@ func _ladder(host: Node) -> void:
 	await host.get_tree().process_frame
 
 
+## Down and up a walkable ramp tunnel between the two sewers three times (docs/SEWERS.md). A walk has no pause at the
+## level boundary, so the far storey must already be streaming when the runner reaches it: the same frame and
+## no-rebuild budgets as the ladder.
+func _ramp(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "STREAM-BENCH"
+	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	var facility: StreamedFacilityView3D = scene.get_node("%StreamedFacility")
+	var player: PlayerController3D = scene.get_node("%Player")
+	for _i in 10:
+		await host.get_tree().process_frame
+	player.admin_god_mode = true
+	player.set_physics_process(false)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var ramp := {}
+	var column := Vector2i.ZERO
+	for z in range(-3, 4):
+		for x in range(-3, 4):
+			if ramp.is_empty():
+				ramp = facility.generator.sewer().ramp_between(x, z, SewerRouteGenerator.LEVEL)
+				column = Vector2i(x, z)
+	_expect(not ramp.is_empty(), "ramp: no sewer ramp within three chunks of the spawn")
+	if ramp.is_empty():
+		scene.queue_free()
+		return
+	var height := StreamedFacilityView3D.LEVEL_HEIGHT
+	var top_cell: Vector2i = ramp["link"]["from_cell"]
+	var bottom_cell: Vector2i = ramp["link"]["to_cell"]
+	var top := Vector3(column.x * size + top_cell.x + .5, SewerRouteGenerator.LEVEL * height + .05, column.y * size + top_cell.y + .5)
+	var bottom := Vector3(column.x * size + bottom_cell.x + .5, SewerRouteGenerator.LOWER_LEVEL * height + .05,
+		column.y * size + bottom_cell.y + .5)
+	player.global_position = top
+	facility.refresh_at_tracked_player()
+	for _i in 300:
+		await host.get_tree().process_frame
+		if not facility.is_streaming():
+			break
+	var worst := 0.0
+	var worst_trip := 0
+	var rebuilds := 0
+	for trip in 6:
+		var from := top if trip % 2 == 0 else bottom
+		var to := bottom if trip % 2 == 0 else top
+		var builds_before := facility.chunk_builds
+		var last := Time.get_ticks_usec()
+		for i in 300:   # walk the 15 m over 5 s, then wait 2 s at the far landing
+			player.global_position = from.lerp(to, float(i + 1) / 300.0)
+			await host.get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		for i in 120:
+			await host.get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		if trip >= 2:
+			rebuilds += facility.chunk_builds - builds_before
+		_expect(facility.current_level() == (SewerRouteGenerator.LOWER_LEVEL if trip % 2 == 0 else SewerRouteGenerator.LEVEL),
+			"ramp: trip %d did not change the runner's level" % trip)
+	_expect(worst <= MAX_LADDER_FRAME_MS, "ramp: a %.0f ms frame around a level change (trip %d, budget %.0f)" % [worst, worst_trip, MAX_LADDER_FRAME_MS])
+	_expect(rebuilds == 0, "ramp: walking back and forth rebuilt %d chunks (the left storey should be parked)" % rebuilds)
+	print("  stream_perf ramp  worst frame %.1f ms (trip %d), rebuilds after the first round trip %d, %d parked" % [
+		worst, worst_trip, rebuilds, facility.dormant_chunk_count()])
+	scene.queue_free()
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+
+
+## The waterfall jump (docs/SEWERS.md): off a falls ledge on the first sewer down into the collector's cistern, a one-second arc that crosses
+## the storey boundary mid-air, four times (teleported back to the ledge between trips). Same frame budget and no-rebuild rule as the ramp:
+## the collector under the falls must already be streaming (or parked) when the runner arrives.
+func _plunge(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "STREAM-BENCH"
+	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	var facility: StreamedFacilityView3D = scene.get_node("%StreamedFacility")
+	var player: PlayerController3D = scene.get_node("%Player")
+	for _i in 10:
+		await host.get_tree().process_frame
+	player.admin_god_mode = true
+	player.set_physics_process(false)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var site := {}
+	for z in range(-3, 4):
+		for x in range(-3, 4):
+			var falls: Dictionary = facility.generator.sewer().falls_between(x, z)
+			if site.is_empty() and not falls.is_empty():
+				site = falls.merged({"x": x, "z": z})
+	_expect(not site.is_empty(), "plunge: no falls within three chunks of the spawn")
+	if site.is_empty():
+		scene.queue_free()
+		return
+	var height := StreamedFacilityView3D.LEVEL_HEIGHT
+	var origin := Vector2(int(site["x"]) * size, int(site["z"]) * size)
+	var jump: Dictionary = site["jump"]
+	var top := Vector3(origin.x + (jump["start"] as Vector2i).x + .5, SewerRouteGenerator.LEVEL * height + .05, origin.y + (jump["start"] as Vector2i).y + .5)
+	var land := Vector2(jump["land"]) + origin
+	var pool := Vector3(land.x, SewerRouteGenerator.LOWER_LEVEL * height + SewerRouteGenerator.WATER_SURFACE, land.y)
+	player.global_position = top
+	facility.refresh_at_tracked_player()
+	for _i in 3000:
+		await host.get_tree().process_frame
+		if not facility.is_streaming() and not facility.is_preloading():
+			break
+	facility.take_frame_stream_cost()
+	var worst := 0.0
+	var worst_trip := 0
+	var worst_stream := 0.0
+	var rebuilds := 0
+	for trip in 4:
+		player.global_position = top
+		for _i in 30:
+			await host.get_tree().process_frame
+		var builds_before := facility.chunk_builds
+		var last := Time.get_ticks_usec()
+		for i in 60:   # the arc: about a second
+			var k := float(i + 1) / 60.0
+			player.global_position = top.lerp(pool, k * k)
+			await host.get_tree().process_frame
+			var cost: Array = facility.take_frame_stream_cost()
+			var stream_ms := 0.0 if String(cost[1]).begins_with("chunk_changed") else float(cost[0])
+			worst_stream = maxf(worst_stream, stream_ms)
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		for i in 180:  # and a swim's worth of staying
+			await host.get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		if trip >= 1:
+			rebuilds += facility.chunk_builds - builds_before
+		_expect(facility.current_level() == SewerRouteGenerator.LOWER_LEVEL, "plunge: trip %d did not change the runner's level" % trip)
+	_expect(worst <= MAX_LADDER_FRAME_MS, "plunge: a %.0f ms frame around the mid-fall level change (trip %d, budget %.0f)" % [worst, worst_trip, MAX_LADDER_FRAME_MS])
+	_expect(rebuilds == 0, "plunge: repeated jumps rebuilt %d chunks (the left storey should be parked)" % rebuilds)
+	print("  stream_perf plunge  worst frame %.1f ms (trip %d), worst stream %.1f ms, rebuilds after the first trip %d" % [worst, worst_trip, worst_stream, rebuilds])
+	scene.queue_free()
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+
+
 func run(host: Node) -> int:
 	await _drive(host, false)
 	await _ladder(host)
+	await _ramp(host)
+	await _plunge(host)
 	var bench := OS.get_environment("STREAM_BENCH_JSON")
 	if bench != "":
 		for path in bench.split(","):

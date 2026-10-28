@@ -48,6 +48,12 @@ func run(host: Node) -> int:
 		await host.get_tree().process_frame
 		_expect(hub.find_child("QuitDialog", true, false) != null and hub.find_child("QuitNoButton", true, false) != null,
 			"QUIT did not ask QUIT TO DESKTOP?")
+		var dialog := hub.find_child("QuitDialog", true, false) as Control
+		var top_card := 0
+		for card in hub.find_children("*", "Control", true, false):
+			if not dialog.is_ancestor_of(card) and card != dialog:
+				top_card = maxi(top_card, (card as Control).z_index)
+		_expect(dialog.z_index > top_card, "the QUIT question draws under a carousel card (z %d vs %d)" % [dialog.z_index, top_card])
 		var yes_button := hub.find_child("QuitYesButton", true, false) as Button
 		var no_button := hub.find_child("QuitNoButton", true, false) as Button
 		_expect(yes_button != null and no_button != null and yes_button.get_index() < no_button.get_index(),

@@ -58,7 +58,10 @@ func run(host: Node) -> int:
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
+	_check_quit()
+	_check_self_update()
 	_check_xr_comfort(host)
+	await _check_xr_route_panel(host)
 	if _failures == 0:
 		print("  platform  desktop keeps the reference budgets; phone %s; quest %s" % [phone.summary(), quest.summary()])
 	return _failures
@@ -84,6 +87,196 @@ func _notification(what: int) -> void:
 				profile.free()
 
 
+## The in-route XR panel end to end, headless: a fake route whose player is "in XR" gets its CanvasLayer moved into the
+## panel's viewport; the panel shows only while a screen is open, in front of the head; and a laser click on the
+## middle of the panel presses the button drawn there.
+func _check_xr_route_panel(host: Node) -> void:
+	var route := Node.new()
+	route.name = "FakeXRRoute"
+	host.add_child(route)
+	var player := Node3D.new()
+	player.set_script(_xr_player_script())
+	route.add_child(player)
+	var origin := XROrigin3D.new()
+	player.add_child(origin)
+	var camera := XRCamera3D.new()
+	camera.position = Vector3(0, 1.6, 0)
+	origin.add_child(camera)
+	var left := XRController3D.new()
+	var right := XRController3D.new()
+	origin.add_child(left)
+	origin.add_child(right)
+	player.set("xr_origin", origin)
+	player.set("xr_camera", camera)
+	player.set("xr_left", left)
+	player.set("xr_right", right)
+	var layer := CanvasLayer.new()
+	route.add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(190, 110)
+	button.size = Vector2(100, 50)
+	layer.add_child(button)
+	var clicks := [0]
+	button.pressed.connect(func() -> void: clicks[0] += 1)
+	var open := [false]
+	var panel := XRRoutePanel.attach(route, player, func() -> bool: return open[0])
+	panel._process(0.0)
+	_expect(layer.custom_viewport == null, "the XR route panel moved the UI while the player was not in XR")
+	player.set("xr_active", true)
+	panel._process(0.0)
+	_expect(layer.custom_viewport != null, "the XR route panel did not take the route's CanvasLayers once in XR")
+	var quad := origin.get_node_or_null("RouteUIPanel") as MeshInstance3D
+	_expect(quad != null and not quad.visible, "the XR route panel shows with no screen open")
+	open[0] = true
+	panel._process(0.0)
+	_expect(quad != null and quad.visible and quad.global_position.z < -0.8 and absf(quad.global_position.x) < 0.01,
+		"the XR route panel did not open in front of the head (%s)" % [quad.global_position if quad != null else "none"])
+	right.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, -0.2))
+	panel._process(0.0)
+	panel.call("_click", true)
+	await host.get_tree().process_frame
+	panel.call("_click", false)
+	await host.get_tree().process_frame
+	_expect(clicks[0] == 1, "a laser click on the XR route panel did not press the button under it (%d)" % clicks[0])
+	# The right stick scrolls: nothing inside the dead zone, one step past it, then a short wait between steps.
+	var wait := XRMenuPanel.scroll_from_stick(0.2, Vector2(240, 135), 0.0, 0.016)
+	var stepped := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), 0.0, 0.016)
+	var waiting := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), stepped, 0.016)
+	_expect(wait == 0.0 and is_equal_approx(stepped, XRMenuPanel.SCROLL_STEP_SECONDS) and waiting < stepped and waiting > 0.0,
+		"the XR panel stick scroll steps wrongly (%s %s %s)" % [wait, stepped, waiting])
+	open[0] = false
+	panel._process(0.0)
+	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
+	route.queue_free()
+	await host.get_tree().process_frame
+	await _check_xr_keyboard(host)
+
+
+## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
+## goes away with the focus.
+func _check_xr_keyboard(host: Node) -> void:
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var field := LineEdit.new()
+	field.position = Vector2(100, 40)
+	field.size = Vector2(200, 20)
+	layer.add_child(field)
+	var keyboard := XRKeyboard.new()
+	host.add_child(keyboard)
+	var submitted := [""]
+	field.text_submitted.connect(func(text: String) -> void: submitted[0] = text)
+	keyboard._process(0.0)
+	_expect(not keyboard.is_open(), "the XR keyboard shows with no text field focused")
+	field.grab_focus()
+	keyboard._process(0.0)
+	_expect(keyboard.is_open(), "the XR keyboard does not open for a focused text field")
+	keyboard.type_text("A")
+	keyboard.type_text("7")
+	keyboard.backspace()
+	keyboard.type_text("B")
+	keyboard.submit()
+	_expect(field.text == "AB" and submitted[0] == "AB" and field.has_focus(),
+		"the XR keyboard typed '%s' / submitted '%s' (focus kept: %s)" % [field.text, submitted[0], field.has_focus()])
+	field.release_focus()
+	keyboard._process(0.0)
+	_expect(not keyboard.is_open(), "the XR keyboard stays open after the field lost focus")
+	keyboard.queue_free()
+	layer.queue_free()
+	await host.get_tree().process_frame
+
+
+func _xr_player_script() -> GDScript:
+	var script := GDScript.new()
+	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
+	script.reload()
+	return script
+
+
+## Phone / Quest self-update (UpdateManager): the platform picks the right channel, the manifest parser accepts only
+## HTTPS or the backend's own files with a real sha256 (and normalises them), a newer commit installs only with a
+## higher build number, and the sha256 the download is checked with matches a known digest.
+func _check_self_update() -> void:
+	var keys := {["android"]: "phone", ["android", "quest", "xr"]: "quest", ["ios"]: "ios", ["web"]: "web",
+		["windows", "xr"]: "steamvr", ["windows"]: "windows", ["macos"]: "macos", []: "linux"}
+	for features in keys:
+		var tags: Array = features
+		var key := UpdateManager.platform_key_for(func(name: String) -> bool: return tags.has(name))
+		_expect(key == keys[features], "features %s pick the update channel %s, not %s" % [features, key, keys[features]])
+	var sha := "a".repeat(64)
+	var good := UpdateManager.parse_manifest(JSON.stringify({"update": {"version": "0.0.1.0", "revision": "ABCDEF1234",
+		"build": 812, "url": "/api/updates/files/KyttusLab-Android-Debug.apk", "sha256": sha.to_upper()}}),
+		"https://lab.test", false)
+	_expect(not good.has("error") and good["url"] == "https://lab.test/api/updates/files/KyttusLab-Android-Debug.apk"
+		and good["revision"] == "abcdef1234" and good["sha256"] == sha and int(good["build"]) == 812,
+		"a valid phone manifest parsed as %s" % [good])
+	var cases := {
+		"not json": "INVALID UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://evil.test/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "https://lab.test/x.apk", "sha256": "a".repeat(63)}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://127.0.0.1/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+	}
+	for text in cases:
+		var parsed := UpdateManager.parse_manifest(String(text), "https://lab.test", false)
+		_expect(String(parsed.get("error", "")) == cases[text], "manifest %s parsed as %s" % [text, parsed])
+	var newer := "b".repeat(40)
+	var installed := "c".repeat(40)
+	_expect(UpdateManager.mobile_update_needed(newer, installed, 813, 812), "a newer commit with a higher build does not update")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 812, 812), "an equal build number would install (Android refuses it)")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 700, 812), "an older build would install")
+	_expect(not UpdateManager.mobile_update_needed(installed, installed, 900, 812), "the same commit would install again")
+	_expect(not UpdateManager.mobile_update_needed("not-a-sha", installed, 900, 812), "an invalid revision would install")
+	var path := "user://self_update_check.bin"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("abc")
+	file.close()
+	_expect(FileAccess.get_sha256(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"the download checksum does not match a known sha256")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it
+## leaves.
+func _check_quit() -> void:
+	_expect(PlatformProfile.can_quit(), "a desktop run lost its QUIT button")
+	_expect(not PlatformProfile.quit_allowed(true, false) and not PlatformProfile.quit_allowed(false, true)
+		and PlatformProfile.quit_allowed(false, false), "QUIT visibility per platform is wrong")
+	var order: Array = []
+	var on_saved := func() -> void: order.append("saved")
+	PlatformProfile.saves_flushed.connect(on_saved)
+	PlatformProfile.quit_app(func() -> void: order.append("quit"))
+	PlatformProfile.saves_flushed.disconnect(on_saved)
+	_expect(order == ["saved", "quit"], "quitting does not save first: %s" % [order])
+
+
+## Touch look: a drag across the short side turns LOOK_DEGREES_PER_SHORT_SIDE at speed 1 on any screen (a 2400x1080
+## phone and a 1688x780 one give the same angle for the same fraction of the screen); speed, vertical and invert apply;
+## acceleration only boosts fast flicks; and the settings round-trip through the settings file.
+func _check_touch_look() -> void:
+	var full := deg_to_rad(TouchControls.LOOK_DEGREES_PER_SHORT_SIDE)
+	for screen in [Vector2(2400, 1080), Vector2(1688, 780)]:
+		var short_side: float = minf(screen.x, screen.y)
+		var turn := TouchControls.look_turn(Vector2(short_side * .5, short_side * .25), short_side, 1.0, 1.0, false, false, 0.0)
+		_expect(is_equal_approx(turn.x, full * .5) and is_equal_approx(turn.y, full * .25),
+			"touch look on %s turns %s instead of %s" % [screen, turn, Vector2(full * .5, full * .25)])
+	var tuned := TouchControls.look_turn(Vector2(100, 100), 270.0, 2.0, 0.5, true, false, 0.0)
+	_expect(is_equal_approx(tuned.x, full * 200.0 / 270.0) and is_equal_approx(tuned.y, -full * 100.0 / 270.0),
+		"touch look speed/vertical/invert are wrong: %s" % tuned)
+	var slow := TouchControls.look_turn(Vector2(10, 0), 270.0, 1.0, 1.0, false, true, 100.0)
+	var flick := TouchControls.look_turn(Vector2(10, 0), 270.0, 1.0, 1.0, false, true, 2000.0)
+	_expect(is_equal_approx(slow.x, full * 10.0 / 270.0) and flick.x > slow.x * 1.5 and flick.x <= slow.x * 2.5 + 0.0001,
+		"touch look acceleration is wrong (slow %s, flick %s)" % [slow.x, flick.x])
+	var saved := [Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+		Settings.touch_look_smoothing, Settings.touch_look_accel]
+	Settings.set_touch_look(1.75, 0.6, true, "high", true)
+	var config := ConfigFile.new()
+	var loaded := config.load("user://settings.cfg") == OK
+	_expect(loaded and is_equal_approx(float(config.get_value("touch", "look_speed", 0.0)), 1.75)
+		and is_equal_approx(float(config.get_value("touch", "look_vertical", 0.0)), 0.6)
+		and bool(config.get_value("touch", "look_invert_y", false)) and String(config.get_value("touch", "look_smoothing", "")) == "high"
+		and bool(config.get_value("touch", "look_accel", false)), "the TOUCH LOOK settings do not save")
+	Settings.set_touch_look(saved[0], saved[1], saved[2], saved[3], saved[4])
+
+
 ## XR comfort maths (XRComfort; only built once OpenXR starts, so checked here directly): the world scale makes any
 ## real height see from 1.60 m, snap turn steps once per push, smooth turn is proportional, and a desktop run built no
 ## comfort node.
@@ -102,6 +295,21 @@ func _check_xr_comfort(host: Node) -> void:
 	_expect(XRComfort.smooth_turn(0.1, 0.1) == 0.0 and XRComfort.smooth_turn(1.0, 0.5) < XRComfort.smooth_turn(0.5, 0.5),
 		"smooth turn ignores the dead zone or is not proportional")
 	_expect(host.get_tree().root.find_children("XRComfort", "", true, false).is_empty(), "a desktop run built the XR comfort node")
+	# The in-route XR panel moves the route's CanvasLayers into its own viewport, but never TouchControls or a layer that
+	# already renders elsewhere.
+	var fake_route := Node.new()
+	var hud_layer := CanvasLayer.new()
+	var elsewhere := CanvasLayer.new()
+	var touch := TouchControls.new()
+	var target := SubViewport.new()
+	var other := SubViewport.new()
+	elsewhere.custom_viewport = other
+	for node in [hud_layer, elsewhere, touch, target, other]:
+		fake_route.add_child(node)
+	var moved := XRRoutePanel.retarget_canvas_layers(fake_route, target)
+	_expect(moved == 1 and hud_layer.custom_viewport == target and elsewhere.custom_viewport == other and touch.custom_viewport == null,
+		"the XR route panel retargets the wrong CanvasLayers (moved %d)" % moved)
+	fake_route.free()
 	# The XR menu panel: a desktop run has none, and the laser maps onto the panel's UV (top-left 0,0) and misses off it.
 	_expect(PlatformProfile.find_children("XRMenuPanel", "", true, false).is_empty(), "a desktop run built the XR menu panel")
 	var panel := Transform3D(Basis.IDENTITY, Vector3(0, 1.5, -1.5))
@@ -200,5 +408,6 @@ func _check_touch_controls(host: Node) -> void:
 	controls.call("_set_move", Vector2.ZERO)
 	_expect(not Input.is_action_pressed("move_up") and not Input.is_action_pressed("sprint"), "releasing the stick leaves movement pressed")
 	Settings.touch_move = saved_mode
+	_check_touch_look()
 	controls.queue_free()
 	fake_hud.queue_free()

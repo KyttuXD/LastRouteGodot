@@ -47,6 +47,8 @@ var _dragging := false
 var _toast: Label
 var _signed_in: Label
 var _quit_dialog: Control
+## Draw order of the QUIT question, above every carousel card (card.z_index tops out at 10).
+const QUIT_DIALOG_Z := 50
 
 
 func _ready() -> void:
@@ -134,8 +136,9 @@ func _ready() -> void:
 	admin.disabled = not Backend.admin_owner_authorized()
 	admin.tooltip_text = "Admin tools open inside a run"
 	footer.add_child(admin)
-	# Web builds have no desktop to quit to; the browser tab is the way out.
-	if not OS.has_feature("web"):
+	# Web builds have no desktop to quit to (the browser tab is the way out) and iOS apps may not quit themselves
+	# (the user swipes them away): PlatformProfile.can_quit hides the button there.
+	if PlatformProfile.can_quit():
 		footer.add_child(_shared_button("QuitButton", "QUIT", _ask_quit))
 	_toast = Label.new()
 	_toast.name = "HubToast"
@@ -561,6 +564,8 @@ func _ask_quit() -> void:
 		return
 	_quit_dialog = Control.new()
 	_quit_dialog.name = "QuitDialog"
+	# Above the carousel: the cards raise themselves with z_index (up to 10) and used to cover the YES / NO box.
+	_quit_dialog.z_index = QUIT_DIALOG_Z
 	_quit_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_quit_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
 	_quit_dialog.gui_input.connect(func(event: InputEvent) -> void:
@@ -583,7 +588,7 @@ func _ask_quit() -> void:
 	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
 	var question := Label.new()
-	question.text = "QUIT TO DESKTOP?"
+	question.text = "QUIT GAME?" if OS.has_feature("mobile") else "QUIT TO DESKTOP?"
 	Palette.style_label(question, Palette.INK, 8)
 	box.add_child(question)
 	var row := HBoxContainer.new()
@@ -591,7 +596,7 @@ func _ask_quit() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
-	var yes := _shared_button("QuitYesButton", "YES", func() -> void: get_tree().quit())
+	var yes := _shared_button("QuitYesButton", "YES", func() -> void: PlatformProfile.quit_app())
 	var no := _shared_button("QuitNoButton", "NO", _close_quit_dialog)
 	row.add_child(yes)
 	row.add_child(no)

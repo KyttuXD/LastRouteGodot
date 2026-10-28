@@ -16,6 +16,8 @@ var brain: HunterBrain
 var surface_height_provider: Callable
 ## True while on a sewer ladder (set_climbing).
 var climbing := false
+## The clip played while `climbing`: "climb" on a ladder, "walk" down a ramp tunnel.
+var climb_clip := "climb"
 var _collider: CollisionShape3D
 ## Host-selected runner this brain is currently evaluating. Replicated with
 ## presentation state so only the pursued client receives chase audio.
@@ -63,6 +65,7 @@ var _recover_left := 0.0
 var _expression := ""
 var _blink_timer := 2.0
 var _scream_latched := false
+var _leap_seq_seen := 0
 var _face_node: MeshInstance3D
 var _gait_moving := false
 var _stride_scale := 1.0
@@ -274,7 +277,8 @@ func _apply_sleep_pose() -> void:
 		_model.remove_meta("awake_position")
 
 
-func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0) -> void:
+func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
+	climb_clip = clip
 	if on:
 		set_streamed_height_override(height)
 		rotation.y = facing_yaw
@@ -910,7 +914,23 @@ func _gait_pose_moving() -> bool:
 	return _move_speed > GAIT_ENTER_SPEED * .5
 
 
+## The one sound of a pounce: a single footfall as she launches (nothing earlier).
+func _update_pounce_cue() -> void:
+	if brain == null or brain.hard == null:
+		return
+	if brain.hard.leap_seq != _leap_seq_seen:
+		_leap_seq_seen = brain.hard.leap_seq
+		if brain.hard.leaping and is_inside_tree():
+			var camera := get_viewport().get_camera_3d()
+			if camera != null:
+				var distance := global_position.distance_to(camera.global_position)
+				if distance < 30.0:
+					var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+					Sound.hunter_footstep(clampf(side / maxf(distance, 1.0), -1.0, 1.0), clampf(1.4 - distance / 30.0, .3, 1.4) * .05)
+
+
 func _update_animation() -> void:
+	_update_pounce_cue()
 	if _creature != null:
 		_creature.tick(get_process_delta_time())
 		return
@@ -931,13 +951,18 @@ func _update_animation() -> void:
 	elif brain.stun_timer > 0.0:
 		pass
 	elif climbing:
-		clip_name = "climb"
+		clip_name = climb_clip
 	elif brain.gimmick is XivvyGimmick \
 			and (brain.gimmick as XivvyGimmick).airborne():
 		clip_name = "flight"
 	elif brain.gimmick is LoxelleGimmick \
 			and (brain.gimmick as LoxelleGimmick).charge_active():
 		clip_name = "charge"
+	elif brain.hard != null and brain.hard.leaping:
+		clip_name = "charge"        # the pounce: the leap pose is the only tell
+	elif brain.hard != null and brain.hard.stumble_left > 0.0 and _animation_player != null \
+			and _animation_player.has_animation("stun_recover"):
+		clip_name = "stun_recover"  # the stumble after a miss
 	else:
 		match brain.state:
 			HunterBrain.State.CHASE:

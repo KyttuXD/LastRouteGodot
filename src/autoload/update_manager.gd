@@ -19,6 +19,7 @@ signal update_ready(path: String)
 
 const UPDATE_ROOT := "user://updates"
 const DOWNLOAD_PART := "pending-update.part"
+const SELF_UPDATE_TEST_APK := "user://self-update-test.apk"
 const DEBUG_RECHECK_SECONDS := 10.0
 const RELEASE_RECHECK_SECONDS := 60.0
 const MANIFEST_TIMEOUT_SECONDS := 8.0
@@ -156,6 +157,12 @@ func _ready() -> void:
 	if OS.has_feature("ios"):
 		_finish_check(true, false, "APP STORE UPDATES")
 		return
+	# Device test of the installer hand-off without a server (debug builds only, docs/XR_ANDROID.md): an APK planted at
+	# user://self-update-test.apk (adb shell run-as <package> cp ...) is handed to the installer at boot; remove it again
+	# with run-as rm (the installer reads it after this returns, so the game cannot delete it itself).
+	if OS.is_debug_build() and is_mobile_package() and FileAccess.file_exists(SELF_UPDATE_TEST_APK):
+		get_tree().create_timer(4.0).timeout.connect(func() -> void:
+			print("SELF_UPDATE_TEST ", _install_apk(ProjectSettings.globalize_path(SELF_UPDATE_TEST_APK))))
 	if DisplayServer.get_name() != "headless" and not offline_mode:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
@@ -244,21 +251,26 @@ func enable_offline_mode() -> void:
 
 
 func platform_key() -> String:
-	if OS.has_feature("web"):
+	return platform_key_for(Callable(OS, "has_feature"))
+
+
+## The update channel's platform for a build whose feature tags `has_feature` (a Callable(name) -> bool) reports.
+static func platform_key_for(has_feature: Callable) -> String:
+	if has_feature.call("web"):
 		return "web"
-	if OS.has_feature("ios"):
+	if has_feature.call("ios"):
 		return "ios"
-	if OS.has_feature("quest"):
+	if has_feature.call("quest"):
 		return "quest"
-	if OS.has_feature("android"):
-		return "android"   # sideloaded phone builds: no self-update channel on the server, the check simply fails
-	if OS.has_feature("windows") and OS.has_feature("xr"):
+	if has_feature.call("android"):
+		return "phone"   # flat Android phones and tablets (the Quest is checked first)
+	if has_feature.call("windows") and has_feature.call("xr"):
 		return "steamvr"
-	if OS.has_feature("windows") and OS.has_feature("legacy"):
+	if has_feature.call("windows") and has_feature.call("legacy"):
 		return "windows_legacy"
-	if OS.has_feature("macos"):
+	if has_feature.call("macos"):
 		return "macos"
-	if OS.has_feature("windows"):
+	if has_feature.call("windows"):
 		return "windows"
 	return "linux"
 
@@ -277,31 +289,20 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
 		return
-	var parsed = JSON.parse_string(body.get_string_from_utf8())
-	if not parsed is Dictionary or not parsed.get("update") is Dictionary:
-		_finish_check(false, false, "INVALID UPDATE RESPONSE")
+	var candidate := parse_manifest(body.get_string_from_utf8(), Backend.base_url, OS.is_debug_build())
+	if candidate.has("error"):
+		_finish_check(false, false, String(candidate["error"]))
 		return
-	var candidate: Dictionary = parsed["update"]
 	var version := String(candidate.get("version", ""))
-	var revision := String(candidate.get("revision", "")).strip_edges().to_lower()
-	var url := String(candidate.get("url", ""))
-	var sha256 := String(candidate.get("sha256", "")).strip_edges().to_lower()
-	if url.begins_with("/api/"):
-		url = "%s%s" % [Backend.base_url, url]
-		candidate["url"] = url
-	var trusted_transport := url.begins_with("https://") \
-		or url.begins_with("%s/api/updates/files/" % Backend.base_url) \
-		or (OS.is_debug_build() and (url.begins_with("http://127.0.0.1") \
-			or url.begins_with("http://localhost")))
-	if not trusted_transport or not _valid_sha256(sha256):
-		_finish_check(false, false, "UNTRUSTED UPDATE RESPONSE")
-		return
+	var revision := String(candidate.get("revision", ""))
 	# Source/editor sessions are never an installation target. Without this
 	# guard a future version bump could try to replace the Godot editor itself.
 	if Build.revision() == Build.SOURCE_REVISION:
 		_finish_check(true, false, "SOURCE BUILD // UPDATE SKIPPED")
 		return
-	if not _update_needed(version, Build.VERSION, revision, Build.revision()):
+	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number()) \
+		if is_mobile_package() else _update_needed(version, Build.VERSION, revision, Build.revision())
+	if not needed:
 		_finish_check(true, false, "UP TO DATE")
 		return
 	available = candidate.duplicate(true)
@@ -326,7 +327,7 @@ func download_update(force_web_refresh := false) -> void:
 		return
 	var revision := String(available.get("revision", "")).to_lower()
 	var identity := revision if _valid_revision(revision) else String(available.get("version", ""))
-	var extension := "apk" if platform_key() == "quest" else "zip"
+	var extension := "apk" if is_mobile_package() else "zip"
 	var safe_identity := identity.replace(".", "-")
 	if safe_identity.is_empty():
 		safe_identity = "latest"
@@ -395,15 +396,15 @@ func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 
 func _prepare_verified_download() -> void:
 	preparing = true
-	if platform_key() == "quest":
+	if is_mobile_package():
 		preparing = false
 		ready_to_install = true
 		update_ready.emit(downloaded_path)
 		if _should_install_automatically():
-			_set_status("UPDATE READY // OPENING QUEST INSTALLER")
+			_set_status("UPDATE READY // OPENING INSTALLER")
 			install_update.call_deferred()
 		else:
-			_set_status("UPDATE READY // INSTALL ON QUEST")
+			_set_status("UPDATE READY // TAP INSTALL")
 		return
 	_set_status("UNPACKING UPDATE")
 	await get_tree().process_frame
@@ -452,13 +453,8 @@ func _prepare_verified_download() -> void:
 func install_update() -> void:
 	if installing or not ready_to_install:
 		return
-	if platform_key() == "quest":
-		var apk := ProjectSettings.globalize_path(downloaded_path)
-		var open_error := OS.shell_open(apk)
-		if open_error == OK:
-			_set_status("APPROVE UPDATE IN THE QUEST INSTALLER")
-		else:
-			_set_status("COULD NOT OPEN QUEST INSTALLER // RETRY")
+	if is_mobile_package():
+		_set_status(_install_apk(ProjectSettings.globalize_path(downloaded_path)))
 		return
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
@@ -510,6 +506,69 @@ func install_update() -> void:
 		_install_launch_failed()
 		return
 	_quit_for_update.call_deferred()
+
+
+## The server's answer as an update candidate, or {"error": <status line>}: the JSON must hold an "update" object whose
+## package comes over HTTPS or from this backend's own file route (plain localhost only in debug builds) with a
+## 64-hex sha256. Relative "/api/" URLs become absolute; revision and sha256 are normalised to lower case.
+static func parse_manifest(text: String, base_url: String, allow_local_http: bool) -> Dictionary:
+	var parsed = JSON.parse_string(text)
+	if not parsed is Dictionary or not parsed.get("update") is Dictionary:
+		return {"error": "INVALID UPDATE RESPONSE"}
+	var candidate: Dictionary = (parsed["update"] as Dictionary).duplicate(true)
+	var url := String(candidate.get("url", ""))
+	var sha256 := String(candidate.get("sha256", "")).strip_edges().to_lower()
+	if url.begins_with("/api/"):
+		url = "%s%s" % [base_url, url]
+	var trusted_transport := url.begins_with("https://") \
+		or url.begins_with("%s/api/updates/files/" % base_url) \
+		or (allow_local_http and (url.begins_with("http://127.0.0.1") or url.begins_with("http://localhost")))
+	if not trusted_transport or not _valid_sha256(sha256):
+		return {"error": "UNTRUSTED UPDATE RESPONSE"}
+	candidate["url"] = url
+	candidate["sha256"] = sha256
+	candidate["revision"] = String(candidate.get("revision", "")).strip_edges().to_lower()
+	candidate["build"] = maxi(0, int(candidate.get("build", 0)))
+	return candidate
+
+
+## Phone and Quest updates are whole APKs, handed to Android's own installer (never installed silently).
+func is_mobile_package() -> bool:
+	return platform_key() in ["phone", "quest"]
+
+
+## A phone or Quest build updates when the published commit differs from this build's and its build number (commit
+## count, the Android versionCode) is higher: Android refuses to install a lower versionCode over a higher one.
+static func mobile_update_needed(candidate_revision: String, current_revision: String, candidate_build: int,
+		current_build: int) -> bool:
+	var candidate := candidate_revision.strip_edges().to_lower()
+	var current := current_revision.strip_edges().to_lower()
+	return _valid_revision(candidate) and _valid_revision(current) and candidate != current \
+		and candidate_build > current_build
+
+
+## Opens Android's installer for the verified APK through the KyttuInstaller plugin (platform/android/kyttu_installer)
+## and returns the status line. The system screen always asks the user to confirm.
+func _install_apk(apk_path: String) -> String:
+	var fallback := "INSTALL THIS UPDATE FROM THE MINI (adb install)" if platform_key() == "quest" \
+		else "COULD NOT OPEN THE INSTALLER // RETRY"
+	if not Engine.has_singleton("KyttuInstaller"):
+		return fallback
+	var installer := Engine.get_singleton("KyttuInstaller")
+	match String(installer.call("installApk", apk_path)):
+		"ok":
+			return "CONFIRM THE UPDATE IN ANDROID'S INSTALLER"
+		"permission":
+			var opened := bool(installer.call("openInstallPermission"))
+			var where := "Quest: Settings > Apps > Unknown sources" if platform_key() == "quest" \
+				else "Settings > Apps > Special access > Install unknown apps"
+			return "ALLOW INSTALLS FROM KYTTU'S LAB (%s), THEN TAP INSTALL%s" % [
+				where, "" if opened else " // OR INSTALL FROM THE MINI"]
+		"missing":
+			ready_to_install = false
+			download_update.call_deferred()
+			return "UPDATE FILE MISSING // DOWNLOADING AGAIN"
+	return fallback
 
 
 func _quit_for_update() -> void:

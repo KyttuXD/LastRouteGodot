@@ -281,6 +281,7 @@ func _place(state: Dictionary) -> void:
 		if body == null:
 			return
 		body.name = "Peer%d" % id
+		body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
 		add_child(body)
 		body.global_position = at
 		body.rotation.y = float(state.get("facing_y", 0.0))
@@ -876,7 +877,7 @@ func _request_interaction(event: Dictionary) -> void:
 			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light"].has(what):
+			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":

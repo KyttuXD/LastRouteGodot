@@ -54,7 +54,7 @@ const ANCHORED := {
 		"MetersPanel": ["left", "right", "bottom"],
 		"FpsLabel": ["left", "top"],
 		"HotbarPanel": ["hcentre", "bottom"],
-		"InteractionLabel": ["hcentre", "bottom"],
+		"InteractionLabel": ["hcentre", "vcentre"],   # just under the crosshair
 		"MessageLabel": ["hcentre", "top"],
 		"MapOverlay": ["hcentre", "vcentre"],
 		"EscapeOverlay": ["hcentre", "vcentre"],

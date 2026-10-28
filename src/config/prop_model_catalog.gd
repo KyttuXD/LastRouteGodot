@@ -824,6 +824,19 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 ]
 
 
+## Walkable decks authored with their walking surface at the model origin
+## (z = 0 in the builder) and structure hanging below it: spawned at the cell's
+## floor height as authored, never seated on their lowest point, so the deck
+## top is flush with the floor collider under it (girders reach down into the
+## channel trench). Seating the sewer bridge on its bearings raised the deck
+## 0.6 m above the walkway and runners walked through it.
+const DECK_TYPES := ["sewerBridge", "sewerGrateDeck"]
+
+
+static func keeps_authored_pivot(type: String) -> bool:
+	return DECK_TYPES.has(type)
+
+
 static func is_floor_dressing(type: String) -> bool:
 	return FLOOR_DRESSING_TYPES.has(type)
 

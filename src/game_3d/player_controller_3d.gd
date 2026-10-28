@@ -16,6 +16,8 @@ extends CharacterBody3D
 signal flashlight_changed(enabled: bool)
 ## A sewer ladder climb finished; the runner now stands on `to_level`.
 signal ladder_climb_finished(to_level: int)
+## The waterfall plunge is over: where the runner climbed out of the cistern (world position).
+signal plunge_finished(exit_position: Vector3)
 signal taser_requested
 signal tool_used(item_id: String)
 signal item_drop_requested(item_id: String, durability: int, slot: int)
@@ -24,19 +26,22 @@ signal interaction_message(message: String)
 ## Fallback only. At runtime the standing camera is aligned to the player
 ## model's authored eye attachments, keeping the first-person POV and visible
 ## co-op mannequin at the same height when the model is revised.
-const CAMERA_HEIGHT := 1.6
-const CAMERA_HEIGHT_MIN := 1.35
-const CAMERA_HEIGHT_MAX := 1.78
+const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
+const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
+const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-const STANDING_COLLISION_HEIGHT := 1.7
-const CROUCH_COLLISION_HEIGHT := 1.08
-const STANDING_COLLISION_CENTER_Y := .85
-const CROUCH_COLLISION_CENTER_Y := .54
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius stays as it is.
+const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
+const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
+const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
+const CROUCH_COLLISION_CENTER_Y := CROUCH_COLLISION_HEIGHT * .5
+## How far the floor snap reaches (keeps her on stair ramps going down), scaled with her.
+const FLOOR_SNAP := .28 * PlayerModels.SCALE
 const CROUCH_EYE_RATIO := .69
 const CROUCH_EYE_TOP_CLEARANCE := .08
-const CAMERA_BOB_WALK_AMPLITUDE := .024
-const CAMERA_BOB_SPRINT_AMPLITUDE := .038
-const CAMERA_BOB_CROUCH_AMPLITUDE := .012
+const CAMERA_BOB_WALK_AMPLITUDE := .024 * PlayerModels.SCALE
+const CAMERA_BOB_SPRINT_AMPLITUDE := .038 * PlayerModels.SCALE
+const CAMERA_BOB_CROUCH_AMPLITUDE := .012 * PlayerModels.SCALE
 const FLASHLIGHT_MAX_RANGE := 16.0
 const FLASHLIGHT_MIN_RANGE := .8
 ## Camera-local position of the flashlight's physical lens. The old light
@@ -192,6 +197,8 @@ var input_frozen := false
 ## from input_frozen because hiding and the escape struggle still allow the
 ## player to look around.
 var look_frozen := false
+## A booth game (CarnivalBooth3D) holds the player at the counter: no walking, sprinting or jumping, but looking and aiming stay free, with mouse, stick, touch and XR.
+var movement_locked := false
 
 ## Debug-only protections driven by main_3d's tools-gated admin overlay. They
 ## live on the controller so the same state can be published to the ENet host;
@@ -241,8 +248,6 @@ var xr_comfort: XRComfort
 var xr_hands: XRHands
 ## Metres a gripping hand pulled the runner up (+) or down (-) this frame (XRHands), applied by _update_ladder_climb.
 var _xr_climb_pull := 0.0
-## Touch drags are in screen pixels on a high-DPI phone: a little gentler than mouse counts.
-const TOUCH_LOOK_SCALE := 0.6
 
 ## Out of sight, in a locker. Movement stops, the body is not drawn, and
 ## perception treats you as gone -- the shared brain's `hidden` gate has always
@@ -268,11 +273,28 @@ var resting_furniture: RouteInteractable3D
 ## Movement, items and collision are off; the body plays "climb" (guests see it
 ## through current_clip) and the view shows both hands working the rungs.
 var ladder_climb := {}
+## The waterfall plunge in progress (begin_plunge), and the soaked status after it (seconds left).
+var plunge := {}
+var soaked_left := 0.0
+var _drip_left := 0.0
 var _climb_hands: Node3D
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
+## The waterfall jump (begin_plunge): an arc off the ledge into the cistern, a muffled moment under the surface, a slow swim to the
+## walkway ring, then SOAKED_SECONDS of dripping and louder steps (hunters hear a wet runner from further away).
+const PLUNGE_HOP_SPEED := 1.6
+const PLUNGE_GRAVITY := 9.8
+const PLUNGE_SPLASH_SECONDS := .55
+const PLUNGE_SWIM_SPEED := 1.5
+const PLUNGE_CLIMB_OUT_SECONDS := .6
+const PLUNGE_SPLASH_NOISE := 3.0
+const PLUNGE_SPLASH_NOISE_SECONDS := 1.2
+const PLUNGE_SWIM_NOISE := .8
+const SOAKED_SECONDS := 30.0
+const SOAKED_NOISE_SCALE := 1.45
+const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
 const LADDER_CLIMB_SPEED := 1.7
-const LADDER_LET_GO_HEIGHT := 1.3
+const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
 const LADDER_DISMOUNT_SECONDS := .45
 var resting_pose := ""
@@ -398,8 +420,8 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	if pose == "ride":
 		Sound.menu_blip()
 		return ""
-	return "LYING DOWN // JUMP TO SLEEP // INTERACT TO GET UP" if pose == "lay" \
-		else "SEATED // INTERACT TO STAND"
+	return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")] if pose == "lay" \
+		else "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 
 
 ## Where the body and eye go on a piece of furniture (the furniture interactable sits on the prop, facing its open side;
@@ -485,7 +507,7 @@ func fall_asleep(accidental: bool) -> String:
 	_sleep_stir_cooldown = 0.0
 	_set_flashlight(false)
 	Sound.sleep_settle()
-	return "YOU DOZED OFF" if accidental else "ASLEEP // JUMP OR INTERACT TO WAKE"
+	return "YOU DOZED OFF" if accidental else "ASLEEP // %s OR %s WAKE" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
 
 
 func wake_from_sleep(message: String = "WOKE WITH A JOLT") -> String:
@@ -755,7 +777,7 @@ func _ready() -> void:
 	# Keeps a grounded body attached to the stair ramp while walking down it.
 	# The snap is shorter than a real fall, so stepping off the mezzanine still
 	# becomes airborne and reaches the fall-stun path below.
-	floor_snap_length = 0.28
+	floor_snap_length = FLOOR_SNAP
 	first_person_camera.fov = Settings.field_of_view
 	if PlatformProfile.camera_far > 0.0:
 		# phones and headsets draw less far (desktop keeps the scene's far plane)
@@ -765,6 +787,7 @@ func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
+		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
 		_animation_player = ModelSlot.find_animation_player(model)
@@ -775,6 +798,7 @@ func _ready() -> void:
 	# The starter flashlight is owned and visible in slot one, but begins off so
 	# entering a route never spends charge before the player chooses to use it.
 	_set_flashlight(false)
+	_update_crouch_hitbox(false)
 	_connect_xr_buttons()
 	if not _try_enter_xr():
 		_enter_first_person()
@@ -808,7 +832,7 @@ func _can_stand_up() -> bool:
 	# an obstruction.
 	var standing_shape := BoxShape3D.new()
 	var clearance_height := STANDING_COLLISION_HEIGHT - CROUCH_COLLISION_HEIGHT
-	standing_shape.size = Vector3(.48, clearance_height - .02, .48)
+	standing_shape.size = Vector3(.48, maxf(clearance_height - .02, .05), .48)
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = standing_shape
 	query.transform = Transform3D(global_basis,
@@ -882,12 +906,13 @@ func is_look_input_active() -> bool:
 	return stick.length_squared() > 0.0001
 
 
-## Touch look (TouchControls): a drag in pixels, scaled by the same sensitivity setting as the mouse.
-func apply_look_delta(delta: Vector2) -> void:
+## Touch look (TouchControls.look_turn): radians to turn right (x) and tilt down (y), already scaled by the TOUCH LOOK
+## settings, so the mouse sensitivity does not apply twice.
+func apply_look_turn(turn: Vector2) -> void:
 	if xr_active or look_frozen or input_frozen:
 		return
-	_yaw -= delta.x * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE
-	_pitch = clampf(_pitch - delta.y * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE, -1.4, 1.4)
+	_yaw -= turn.x
+	_pitch = clampf(_pitch - turn.y, -1.4, 1.4)
 	if resting_furniture != null:
 		note_rest_activity()
 	_apply_look_rotation()
@@ -902,7 +927,7 @@ func _apply_look_rotation() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
 	# desktops. Keyboard look covers that case; mouse look stays capture-only.
-	# Phones look with the touch drag (apply_look_delta); the mouse motion Godot emulates from touches is ignored.
+	# Phones look with the touch drag (apply_look_turn); the mouse motion Godot emulates from touches is ignored.
 	if event is InputEventMouseMotion and not xr_active and not look_frozen \
 			and MouseLock.is_captured() and not PlatformProfile.is_phone:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
@@ -938,6 +963,103 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func is_climbing() -> bool:
 	return not ladder_climb.is_empty()
+
+
+func is_plunging() -> bool:
+	return not plunge.is_empty()
+
+
+## The deliberate waterfall jump (docs/SEWERS.md): from the ledge `from`, an arc into the cistern pool at `land` (its water surface at
+## `surface_y`), the splash and a muffled moment, a slow swim to `exit` on the walkway ring (floor height `exit.y`), then SOAKED_SECONDS
+## of soaked. Collision is off for the duration; no damage, input is ignored. The level changes by itself as the feet cross the storey.
+func begin_plunge(from: Vector3, land: Vector3, exit: Vector3, surface_y: float) -> void:
+	if is_plunging() or is_climbing() or hidden or spectator_mode:
+		return
+	if resting_furniture != null:
+		leave_furniture()
+	var drop := maxf(from.y - surface_y, .5)
+	var fall_seconds := (PLUNGE_HOP_SPEED + sqrt(PLUNGE_HOP_SPEED * PLUNGE_HOP_SPEED + 2.0 * PLUNGE_GRAVITY * drop)) / PLUNGE_GRAVITY
+	var bed_y := surface_y - SewerRouteGenerator.CHANNEL_DEPTH - SewerRouteGenerator.WATER_SURFACE
+	var swim_distance := Vector2(land.x, land.z).distance_to(Vector2(exit.x, exit.z))
+	plunge = {"phase": "fall", "t": 0.0, "from": from, "land": land, "exit": exit, "surface": surface_y,
+		"fall_seconds": fall_seconds, "swim_seconds": maxf(2.0, swim_distance / PLUNGE_SWIM_SPEED), "bed": bed_y, "splashed": false}
+	velocity = Vector3.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	if first_person_items != null:
+		first_person_items.visible = false
+
+
+func _update_plunge(delta: float) -> void:
+	var phase := String(plunge["phase"])
+	var surface := float(plunge["surface"])
+	var wade_y := float(plunge["bed"])    # feet on the bed: the eye just clears the surface
+	var from: Vector3 = plunge["from"]
+	var land: Vector3 = plunge["land"]
+	var exit: Vector3 = plunge["exit"]
+	plunge["t"] = float(plunge["t"]) + delta
+	var t := float(plunge["t"])
+	match phase:
+		"fall":
+			var d := float(plunge["fall_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var y := from.y + PLUNGE_HOP_SPEED * t - .5 * PLUNGE_GRAVITY * t * t
+			global_position = Vector3(lerpf(from.x, land.x, k), maxf(y, surface), lerpf(from.z, land.z, k))
+			noise = 0.0
+			if t >= d:
+				plunge["phase"] = "splash"
+				plunge["t"] = 0.0
+				Sound.splash_big(0.0, 1.2)
+				Sound.set_muffled(true)
+				emit_noise_burst(PLUNGE_SPLASH_NOISE, PLUNGE_SPLASH_NOISE_SECONDS)
+				force_flashlight_flicker(1.4)
+				plunge["splashed"] = true
+		"splash":
+			var k := clampf(t / PLUNGE_SPLASH_SECONDS, 0.0, 1.0)
+			global_position = Vector3(land.x, lerpf(surface, wade_y, _smooth(k)), land.z)
+			noise = maxf(noise, _noise_burst)
+			if t >= PLUNGE_SPLASH_SECONDS:
+				plunge["phase"] = "swim"
+				plunge["t"] = 0.0
+		"swim":
+			var d := float(plunge["swim_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var bob := sin(t * 3.0) * .04
+			global_position = Vector3(lerpf(land.x, exit.x, _smooth(k)), wade_y + bob, lerpf(land.z, exit.z, _smooth(k)))
+			noise = PLUNGE_SWIM_NOISE
+			if t >= d:
+				plunge["phase"] = "climb_out"
+				plunge["t"] = 0.0
+				plunge["swim_end"] = global_position
+				Sound.set_muffled(false)
+		"climb_out":
+			var k := clampf(t / PLUNGE_CLIMB_OUT_SECONDS, 0.0, 1.0)
+			var start: Vector3 = plunge["swim_end"]
+			global_position = start.lerp(exit, _smooth(k)) + Vector3(0, sin(k * PI) * .12, 0)
+			noise = 0.3
+			if t >= PLUNGE_CLIMB_OUT_SECONDS:
+				plunge = {}
+				collision_layer = 1
+				collision_mask = 1
+				if first_person_items != null:
+					first_person_items.visible = true
+				soaked_left = SOAKED_SECONDS
+				_drip_left = 1.0
+				_clip = "idle"
+				plunge_finished.emit(exit)
+				return
+	velocity = Vector3.ZERO
+	_clip = "idle"
+
+
+func _update_soaked(delta: float) -> void:
+	if soaked_left <= 0.0:
+		return
+	soaked_left = maxf(0.0, soaked_left - delta)
+	_drip_left -= delta
+	if _drip_left <= 0.0:
+		_drip_left = randf_range(SOAKED_DRIP_EVERY.x, SOAKED_DRIP_EVERY.y)
+		Sound.water_drip(randf_range(-.3, .3), .35 + .65 * soaked_left / SOAKED_SECONDS)
 
 
 ## Gets onto a sewer ladder (docs/SEWERS.md). The ladder's line runs up from
@@ -1216,6 +1338,7 @@ func _physics_process(delta: float) -> void:
 		if outage_left <= 0.0:
 			outage_system = ""
 	_update_controller_look(delta)
+	_update_soaked(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
@@ -1246,6 +1369,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if not ladder_climb.is_empty():
 		_update_ladder_climb(delta)
+		return
+	if not plunge.is_empty():
+		_update_plunge(delta)
 		return
 	if resting_furniture != null and not is_instance_valid(resting_furniture):
 		# An admin teleport can evict the furniture's streamed chunk while the
@@ -1309,6 +1435,8 @@ func _physics_process(delta: float) -> void:
 		if stick.length_squared() > input_vector.length_squared():
 			# OpenXR stick-up is positive; Input.get_vector's forward/W is -Y.
 			input_vector = Vector2(stick.x, -stick.y)
+	if movement_locked:
+		input_vector = Vector2.ZERO
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
 	var difficulty := RoomState.difficulty_profile()
 	var is_moving := input_vector.length_squared() > 0.0
@@ -1333,6 +1461,8 @@ func _physics_process(delta: float) -> void:
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
+	if soaked_left > 0.0:
+		noise *= SOAKED_NOISE_SCALE
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,
@@ -1409,7 +1539,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = (guide.x - global_position.x) * 5.0
 		velocity.z = (guide.z - global_position.z) * 5.0
 	else:
-		floor_snap_length = .28
+		floor_snap_length = FLOOR_SNAP
 		_update_vertical_motion(delta, movement_mode != "crouch")
 	_move_and_resolve_landing()
 	_update_camera_pose(delta, is_moving and is_on_floor(), is_sprinting,
@@ -1422,6 +1552,8 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
+		if lamp_charge <= 0.0 and not flashlight_enabled:
+			Sound.light_switch()    # an empty flashlight just clicks
 		_set_flashlight(not flashlight_enabled)
 	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
@@ -1430,7 +1562,7 @@ func _physics_process(delta: float) -> void:
 	if inventory_enabled:
 		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
-		if Input.is_action_just_pressed("tool_use") and click_ready:
+		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
 		if Input.is_action_just_pressed("drop_item"):
 			request_drop_selected_item()
@@ -1477,7 +1609,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
+	var wants_to_jump := jump_enabled and not movement_locked and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false
@@ -1654,7 +1786,10 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	lamp_charge = maxf(0.0, lamp_charge - drain * meters.drain_scale() * delta)
 	_save_active_flashlight_charge()
 	if lamp_charge <= 0.0:
-		_break_inventory_item("flashlight", _active_flashlight_slot)
+		# KT: the flashlight never breaks. An empty one sputters out and stays in its slot until a battery recharges it.
+		_set_flashlight(false)
+		Sound.light_switch()
+		interaction_message.emit("FLASHLIGHT DEAD // FIND A BATTERY")
 
 
 func _update_flashlight_flicker(delta: float) -> void:
@@ -1728,6 +1863,8 @@ func _update_flashlight_occlusion() -> void:
 func _build_first_person_items() -> void:
 	first_person_items = Node3D.new()
 	first_person_items.name = "FirstPersonItems"
+	# smaller hands: the held items shrink with her
+	first_person_items.scale = Vector3.ONE * PlayerModels.SCALE
 	first_person_camera.add_child(first_person_items)
 
 	flashlight_view = Node3D.new()
@@ -1747,7 +1884,75 @@ func _build_first_person_items() -> void:
 	_build_utility_view("crowbar")
 	_build_utility_view("rescue_axe")
 	_build_utility_view("battery")
+	for view in [flashlight_view, taser_view] + tool_views.values():
+		_add_first_person_hand(view as Node3D)
 	_refresh_inventory_view()
+
+
+## First-person hands (docs/RESCUE_AXE.md): the mannequin's own right forearm and hand (same meshes, atlas and player
+## hue as the body), with the hand's prop point (R-HandProp) on the held item's grip, the view origin, and the forearm
+## running back and down toward the camera. `first_person_hands` turns them off (held items only).
+static var first_person_hands := true
+const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
+const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
+static var _fp_hand_parts: Array = []   # [[mesh, material_override or null, transform relative to R-HandProp], ...]
+
+
+static func _mannequin_hand_parts() -> Array:
+	if not _fp_hand_parts.is_empty():
+		return _fp_hand_parts
+	var scene := load(PlayerModels.BLOCKY.replace(".tscn", ".glb")) as PackedScene
+	if scene == null:
+		return []
+	var root := scene.instantiate()
+	var prop := root.find_child("R-HandProp", true, false) as Node3D
+	if prop != null:
+		var prop_xf := _local_to(root, prop)
+		for part_name in ["R-Forearm", "R-Hand"]:
+			var part := root.find_child(part_name, true, false) as MeshInstance3D
+			if part != null:
+				_fp_hand_parts.append([part.mesh, part.material_override, prop_xf.affine_inverse() * _local_to(root, part)])
+	root.free()
+	return _fp_hand_parts
+
+
+static func _local_to(root: Node, node: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var at: Node = node
+	while at != null and at != root:
+		if at is Node3D:
+			xf = (at as Node3D).transform * xf
+		at = at.get_parent()
+	return xf
+
+
+func _add_first_person_hand(view: Node3D) -> void:
+	var parts := _mannequin_hand_parts()
+	if parts.is_empty():
+		return
+	var hand := Node3D.new()
+	hand.name = "FirstPersonHand"
+	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
+	for part_value in parts:
+		var part: Array = part_value
+		var mesh_node := MeshInstance3D.new()
+		mesh_node.mesh = part[0]
+		if part[1] != null:
+			mesh_node.material_override = part[1]
+		mesh_node.transform = part[2]
+		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		hand.add_child(mesh_node)
+	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
+	hand.visible = first_person_hands
+	view.add_child(hand)
+
+
+func set_first_person_hands(on: bool) -> void:
+	first_person_hands = on
+	if first_person_items == null:
+		return
+	for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+		(hand as Node3D).visible = on
 
 
 func _build_utility_view(item_id: String) -> void:
@@ -1858,7 +2063,7 @@ func _fire_taser() -> void:
 			or input_frozen or stun_timer > 0.0:
 		return
 	select_inventory_slot(inventory_order.find("taser"))
-	taser_cooldown = GameConfig.TASER_COOLDOWN_SECONDS
+	taser_cooldown = GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown")
 	Sound.taser()
 	_animate_taser_fire()
 	taser_requested.emit()
@@ -2504,21 +2709,25 @@ func is_in_safe_zone() -> bool:
 
 func get_interaction_prompt() -> String:
 	if hidden:
-		return ""    # E only means "come out" while hidden
+		if hiding_lock_timer > 0.0:
+			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)
+		return InputGlyphs.prompt("interact", "LEAVE")
+	if is_climbing():
+		return InputGlyphs.climb_prompt(float(ladder_climb.get("height", 0.0)) <= LADDER_LET_GO_HEIGHT)
 	var percent := resecure_percent()
 	if percent >= 0:
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target != null:
 		var prompt: String = target.get_prompt()
-		# Hiding fixtures and generic development interactables remain usable with
-		# E/right-click, but their one-word toasts add no useful information and sit
-		# directly over the first-person view. Keep contextual prompts (doors, vents,
-		# pickups, furniture) because those communicate a distinct action.
-		if prompt.strip_edges().to_upper() in ["HIDE", "USE"]:
+		# Generic development interactables ("USE") add nothing; every other prompt names its action and gets the key
+		# for the active device: "[E] HIDE", "[E] OPEN DOOR", "HOLD [E] RESTORE SABOTAGED RELAY".
+		if prompt.strip_edges().to_upper() == "USE":
 			prompt = ""
+		if prompt.begins_with("HOLD INTERACT // "):
+			return InputGlyphs.hold("interact", prompt.trim_prefix("HOLD INTERACT // "))
 		if not prompt.is_empty():
-			return prompt
+			return InputGlyphs.prompt("interact", prompt)
 	if shop_prompt_provider.is_valid():
 		var shop_prompt: String = String(shop_prompt_provider.call())
 		if not shop_prompt.is_empty():
@@ -2642,7 +2851,7 @@ func _nearest_interactable() -> RouteInteractable3D:
 	var aim := interaction_aim()
 	var origin := aim.origin
 	var look := -aim.basis.z.normalized()
-	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
+	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE * PlayerModels.SCALE
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
 			continue

@@ -21,9 +21,10 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 
 ## Export presets
 
-- **Android Phone Debug** (`builds/KyttusLab-Android-Debug.apk`): arm64, flat (OpenXR off), feature `phone`, package
+- **Android Phone Debug** (`builds/KyttusLab-Android-Debug.apk`, Gradle build): arm64, flat (OpenXR off), feature `phone`, package
   `org.kyttuslab.lastroute.phone`, so it installs next to the Quest build.
-- **Meta Quest OpenXR Debug** (`builds/KyttusLab-Quest-Debug.apk`): arm64, OpenXR, features `xr,quest`.
+- **Meta Quest OpenXR Debug** (`builds/KyttusLab-Quest-Debug.apk`, Gradle build with the OpenXR vendors addon): arm64,
+  OpenXR, features `xr,quest`.
 - **iPhone Debug** (`builds/ios/`): exports an Xcode project only, with feature `phone` (same profile and touch controls
   as Android), bundle id `org.kyttuslab.lastroute.phone`, and KT's free Personal Team (7-day signing). Build, sign and
   install on the mini with `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration` and
@@ -33,16 +34,68 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 
 ## Building (KT-Mini4-2 only)
 
-- **Toolchain:** Godot 4.7.2 Android templates (prebuilt, no Gradle build). The Android SDK is at
-  `~/Developer/android-sdk` (platform-tools, build-tools 35.0.0, platform android-35). Temurin JDK 17 is at
-  `~/Developer/jdk/jdk-17.0.21+9`; the existing JDK 25 is untouched.
+Both Android presets use Godot's Gradle build. Build them with `tools/android/build_apk.sh phone|quest [source dir]`
+(the default source is the synced lane `~/Developer/lanes/xr-android`):
+
+- **Build copy:** the script copies the project into `~/Developer/lanes/android-<target>`; the repo never holds
+  `android/`, the OpenXR vendors addon or any binary. In that copy it then:
+  - installs Godot's Android build template on first use;
+  - builds the APK installer plugin (`tools/android/build_installer_plugin.sh`, Gradle offline from the mini's cache);
+  - for the Quest, adds the official GodotVR OpenXR Vendors 5.1.0 addon, sha256-checked, from
+    `~/Developer/vendor-cache`;
+  - exports `builds/KyttusLab-Android-Debug.apk` or `builds/KyttusLab-Quest-Debug.apk`.
+- **Toolchain:** Godot 4.7.2 templates and Gradle 8.11.1 (AGP 8.6.1, Kotlin 2.1.21, as the template pins them). The
+  Android SDK is at `~/Developer/android-sdk` (platform-tools, build-tools 35.0.0, platform android-35). Temurin JDK 17
+  is at `~/Developer/jdk/jdk-17.0.21+9`; the existing JDK 25 is untouched.
 - **Debug keystore:** `~/.android/godot-debug.keystore`, with Android's standard debug credentials. It never goes in the
   repo; release signing is a separate, later step.
-- **Environment for an export:**
-  - `ANDROID_HOME`
-  - `JAVA_HOME` (JDK 17)
-  - `GODOT_ANDROID_KEYSTORE_DEBUG_PATH`, `_USER` and `_PASSWORD`
-- **Install on a device:** `adb install -r builds/KyttusLab-Android-Debug.apk` with the phone on the mini's USB.
+- **Environment:** `ANDROID_HOME`, `JAVA_HOME` (JDK 17), and `GODOT_ANDROID_KEYSTORE_DEBUG_PATH`, `_USER` and
+  `_PASSWORD`.
+- **Install:** with the device on the mini's USB, `adb -s <serial> install -r <apk>`. Use the SDK's adb (37.0.1), never
+  the one bundled with Meta Quest Developer Hub: two adb versions keep killing each other's server.
+
+## Self-update (phone and Quest)
+
+The git commit is the build identity. A publish stamps `build_revision.json` with the commit and its build number
+(`git rev-list --count`), and the Android versionCode becomes that build number in the publish copy only.
+`version/name` stays "0.0.1.0" and the repo's `version/code` stays 1.
+
+- **Client (`UpdateManager`):**
+  - Phones check the `phone` channel, the Quest the `quest` channel (`platform_key_for`).
+  - An update is offered when the published commit differs from this build's and its `build` is higher
+    (`mobile_update_needed`); Android refuses a lower versionCode.
+  - The APK downloads to `user://updates` with a progress bar and a sha256 check (`parse_manifest` accepts only HTTPS
+    or the backend's own file route).
+  - It is then handed to Android's installer through the `KyttuInstaller` plugin. The user always confirms on the
+    system screen; nothing installs silently.
+  - If installs from this app aren't allowed yet, the plugin opens that settings page and the game says where it is
+    (on the Quest it also offers installing from the mini).
+  - Phone and Quest builds show `VERSION 0.0.1.0 // BUILD <commit>` on the title screen.
+- **Installer plugin:** `platform/android/kyttu_installer` (Kotlin; `REQUEST_INSTALL_PACKAGES`). It shares the APK
+  through Godot's own FileProvider (`<package>.fileprovider`), and `addons/kyttu_installer` links the built AAR into
+  Gradle exports.
+- **Device test without a server (debug builds):** copy an APK to the app as `files/self-update-test.apk` with
+  `adb shell run-as <package> cp ...` and launch. The game hands it to the installer and logs `SELF_UPDATE_TEST
+  <status>`. Remove the file afterwards with `run-as rm`.
+- **Server (`backend/server.mjs`):**
+  - `/api/updates/<channel>/phone` and `/quest` serve entries with `version`, `revision`, `build`, `file` or `url`,
+    `sha256` and `bytes`.
+  - An entry without a revision or a positive build number is withheld.
+  - Mobile entries are never `required`.
+- **Publishing a phone or Quest update:**
+  1. On the mini, from a clean checkout of the commit being published:
+     `PUBLISH=1 GIT_DIR=<checkout>/.git tools/android/build_apk.sh phone <checkout>` (and `quest`). This prints the
+     commit and build number it stamped.
+  2. Copy the APKs into `builds/` beside the desktop builds for the same commit.
+     `scripts/generate_update_manifest.mjs` adds the `phone` and `quest` entries with `build` from
+     `build_revision.json`; `scripts/generate_build_revision.mjs` writes it. One release holds one commit.
+  3. Upload the APKs and `updates.debug.json` to the GitHub `debug` release as today; the backend's release sync
+     fetches them.
+- **Deploying the server change:** VPS 3 runs the backend as the systemd service `lastroute-godot2` and is deployed by
+  hand by the coordinator, after KT's approval. Run `deploy/deploy.sh` on the VPS for a dry run, then
+  `deploy/deploy.sh --apply` to deploy; `--rollback --apply` returns to the previous release. Nothing redeploys on its
+  own. Afterwards check `GET /api/updates/debug/phone`: 404 until a phone APK is published, then the entry with its
+  `build`.
 
 ## Touch controls (phones)
 
@@ -55,8 +108,12 @@ keyboard makes:
   - Sprint: double-tap an arrow and hold it (second press within 0.3 s); it sprints that way until released.
   - Settings → `MOVE: ARROWS / STICK` (phones only, `Settings.touch_move`) swaps in the floating analogue stick, which
     sprints when pushed past its ring.
-- **Look:** dragging on any free part of the screen calls `PlayerController3D.apply_look_delta`, scaled by the mouse
-  sensitivity setting times `TOUCH_LOOK_SCALE`. The mouse motion Godot emulates from touches is ignored on phones.
+- **Look:** dragging on any free part of the screen turns the view on every drag event
+  (`TouchControls.look_turn` → `PlayerController3D.apply_look_turn`).
+  - Screen-independent: a drag across the screen's short side turns 180° at LOOK SPEED 1.0, on any phone.
+  - Not scaled by the mouse sensitivity. The mouse motion Godot emulates from touches is ignored on phones.
+  - Settings → CONTROLS → TOUCH LOOK (phones only, saved): LOOK SPEED, VERTICAL SPEED, INVERT Y, SMOOTHING (off by
+    default; low and high ease the turn in over 30 or 80 ms) and ACCELERATION (a fast flick turns up to 2.5×).
 - **Buttons:**
   - bottom-right: USE, JUMP, DUCK, TOOL and LIGHT;
   - either side of the HUD hotbar (measured from its real slots): the `hotbar_previous` / `hotbar_next` arrows;
@@ -107,6 +164,29 @@ viewport's picture on a floating panel 1.5 m in front of the head:
   every menu works unchanged.
 - **Recentre:** the left menu button puts the panel back in front of the head.
 - **In a route:** the panel steps aside while a route's XR player owns the view, and comes back when the route ends.
+
+## Screens inside a route (headset)
+
+In a route the root viewport renders in XR, so CanvasLayers no longer reach the eyes. `XRRoutePanel`
+(`src/ui/xr_route_panel.gd`, attached by the route when `PlatformProfile.is_xr`) takes over once the player is in XR:
+
+- **Drawing:** every CanvasLayer of the route (HUD, pause menu, map, inventory, chat, story, death moment) draws into
+  the panel's own 2D viewport through `CanvasLayer.custom_viewport`, including layers created later.
+- **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
+  escape struggle), as a panel 1.2 m in front of the head.
+- **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
+  `custom_viewport` only moves where they are drawn.
+- **Scrolling:** on both panels the right stick scrolls what the laser points at. Scroll containers only drag-scroll
+  for touch, so this is what reaches ENTER ROUTE on the staging screen.
+- **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
+  of the head, and a laser click presses the button under it.
+
+## Typing in the headset
+
+An immersive OpenXR app gets no system keyboard on the Quest. `XRKeyboard` (`src/ui/xr_keyboard.gd`, owned by
+`XRMenuPanel`) shows a key grid whenever a LineEdit has focus: digits, letters, `. ? ! -`, space, delete, case, ENTER
+and DONE. It sits clear of the field and is clicked with the laser, so room codes, names and chat can be typed. The keys
+never take focus. Inside a route the keyboard draws on the route panel.
 
 ## Quest build (Gradle)
 
