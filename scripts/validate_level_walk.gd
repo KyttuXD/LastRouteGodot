@@ -28,7 +28,7 @@ func run(host: Node) -> int:
 	var generator: StreamedRouteGenerator = facility.generator
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var checked := 0
-	var tower := VoidRegion.tower_chunk(RoomState.seed_text)
+	var tower := VoidRegion.tower_chunk(generator.world_seed)
 	for level in [0, -1, 1, -2, -3, 0]:
 		# inside the void (its stair tower) and in the ordinary maze beside it
 		for column in [tower, Vector2i(0, 0), Vector2i(-3, 2)]:

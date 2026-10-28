@@ -7,7 +7,7 @@ extends RefCounted
 ## can), and every vent grate opens onto a walkable cell and a duct.
 
 const SEEDS := ["UPPER-A", "UPPER-B", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
-const RADIUS := 4
+const RADIUS := 8
 ## A full-size humanoid hunter: the rig is about 1.8 m tall before HunterRoster.MODEL_SCALE.
 const HUNTER_HEIGHT := 1.8 * HunterRoster.MODEL_SCALE
 const OWN_GRID := {1: "mezzanine_grid", 2: "offices_grid", 3: "archive_grid", 4: "attic_grid"}
@@ -56,10 +56,11 @@ func run(_host: Node) -> int:
 		var stack := _stack(seed_text)
 		var twin := _stack(seed_text)
 		var vents := VentNetwork.new(stack[0], stack.slice(1))
-		# the Offices, Archive and Attic stack on the Mezzanine, which exists only inside the void's footprint (VoidRegion)
-		var footprint := VoidRegion.footprint(seed_text)
-		for dz in range(footprint.position.y, footprint.end.y):
-			for dx in range(footprint.position.x, footprint.end.x):
+		for dz in range(-RADIUS, RADIUS + 1):
+			for dx in range(-RADIUS, RADIUS + 1):
+				# the Offices, Archive and Attic stack on a deck patch (DeckPatches); the void has its own suite
+				if not stack[0].is_chunk_allowed(Vector3i(dx, 1, dz)) or stack[0].is_void_column(Vector3i(dx, 0, dz)):
+					continue
 				chunks += 1
 				var where := "%s (%d,%d)" % [seed_text, dx, dz]
 				var grids := {0: stack[0].chunk(Vector3i(dx, 0, dz))["grid"]}
@@ -87,20 +88,19 @@ func run(_host: Node) -> int:
 							"%s %s %d->%d ends not walkable" % [where, link["kind"], level, level + 1])
 					if has_up:
 						up_chunks[level] = int(up_chunks.get(level, 0)) + 1
-				# the tower: a continuous spiral from the Inferno floor to the Mezzanine, the same landing cell on every level
-				var tower := VoidRegion.tower_chunk(seed_text)
-				if dx == tower.x and dz == tower.y:
+				# the Mezzanine's way up is the maze chunk's own stairwell: both levels carve the same cells
+				var mezz_data: Dictionary = stack[1].chunk(Vector3i(dx, 1, dz))
+				var maze_well: Dictionary = stack[0].stairwell_between(dx, dz, 1)
+				_expect((mezz_data["stairwells"] as Array).size() == (0 if maze_well.is_empty() else 1),
+					"%s mezzanine and maze disagree on the way up" % where)
+				if not maze_well.is_empty():
 					mezz_wells += 1
-					for upper in range(VoidRegion.BOTTOM_LEVEL + 1, VoidRegion.TOP_LEVEL + 1):
-						var tower_well: Dictionary = stack[0].stairwell_between(dx, dz, upper)
-						_expect(not tower_well.is_empty(), "%s the tower has no stairwell up to level %d" % [where, upper])
-						if tower_well.is_empty():
-							continue
-						var landing: Vector2i = tower_well["landing"]
-						for level in [upper, upper - 1]:
-							var tower_grid: Array = stack[0].chunk(Vector3i(dx, level, dz))["grid"]
-							_expect(int(tower_grid[landing.y][landing.x]) == 0,
-								"%s the tower landing %s is not walkable on level %d" % [where, landing, level])
+					var landing: Vector2i = maze_well["landing"]
+					_expect(int(grids[0][landing.y][landing.x]) == 0 and int(grids[1][landing.y][landing.x]) == 0,
+						"%s the +1 stairwell landing %s is not walkable on both levels" % [where, landing])
+					for shaft_cell in maze_well["shaft"]:
+						_expect(int(mezz_data["mezzanine_grid"][shaft_cell.y][shaft_cell.x]) == MezzanineRouteGenerator.OPEN,
+							"%s the +1 stairwell shaft %s is not open air upstairs" % [where, shaft_cell])
 				var attic: Dictionary = stack[4].chunk(Vector3i(dx, 4, dz))
 				var standing := _flood(attic["attic_grid"], [AtticRouteGenerator.STAND])
 				for feature in attic["features"]:
@@ -127,13 +127,12 @@ func run(_host: Node) -> int:
 		_expect(int(up_chunks.get(level, 0)) > 0, "no way up from level %d" % level)
 		# the maze vetoes a way up that does not fit its halls and suites (_maze_stairwell_fits), so level 0 may sit a few
 		# percent under the pure chance that thins the levels above it
-		if level > 0:   # level 0 -> +1 is the single tower; the provisional ways up from +1 on are many
-			_expect(int(up_chunks.get(level + 1, 0)) <= int(up_chunks.get(level, 0)),
-				"ways up do not thin out going higher: %s" % [up_chunks])
-	_expect(mezz_wells > 0, "no stair tower in the sampled void footprints")
+		_expect(int(up_chunks.get(level + 1, 0)) <= int(up_chunks.get(level, 0)) * (1.1 if level == 0 else 1.0),
+			"ways up do not thin out going higher: %s" % [up_chunks])
+	_expect(mezz_wells > 0, "no stairwell up to the Mezzanine in the sampled chunks")
 	_expect(hides > 0 and spots > 0 and grates > 0, "missing attic hides, archive spots or vent grates")
 	if _failures == 0:
-		print("  upper_levels  %d chunks x 4 levels: deterministic, connected, seams meet, under the slab; ways up per level %s (%s); %d crawl-only hides, %d stack spots, %d vent grates, %d stair towers"
+		print("  upper_levels  %d chunks x 4 levels: deterministic, connected, seams meet, under the slab; ways up per level %s (%s); %d crawl-only hides, %d stack spots, %d vent grates, %d stairwells to the mezzanine"
 			% [chunks, up_chunks, kinds, hides, spots, grates, mezz_wells])
 	return _failures
 

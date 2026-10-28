@@ -31,12 +31,15 @@ func run(_host: Node) -> int:
 		var limit: int = SealRules.BORDER_RADIUS
 		_expect(rect.position.x >= -limit and rect.position.y >= -limit and rect.end.x - 1 <= limit and rect.end.y - 1 <= limit,
 			"%s void %s is outside the sealed border" % [seed_text, rect])
-		# the generator makes only void chunks in the footprint, and +1 nowhere else
+		# inside the footprint every level is a void chunk; outside it level +1 is the ordinary deck where a patch is
 		for dz in range(-10, 11):
 			for dx in range(-10, 11):
 				var inside := rect.has_point(Vector2i(dx, dz))
-				_expect(generator.is_chunk_allowed(Vector3i(dx, 1, dz)) == inside, "%s level +1 at (%d, %d) allowed=%s but void=%s" % [
-					seed_text, dx, dz, generator.is_chunk_allowed(Vector3i(dx, 1, dz)), inside])
+				var deck := generator.is_chunk_allowed(Vector3i(dx, 1, dz))
+				_expect(deck == (inside or DeckPatches.is_deck(seed_text, dx, dz)), "%s level +1 at (%d, %d): allowed=%s, void=%s" % [
+					seed_text, dx, dz, deck, inside])
+				if deck and not inside:
+					_expect(not (generator.chunk(Vector3i(dx, 1, dz)) as Dictionary).has("void_cap"), "%s the +1 deck at (%d, %d) is a void chunk" % [seed_text, dx, dz])
 		var tower := VoidRegion.tower_chunk(seed_text)
 		var last_landing := Vector2i(-1, -1)
 		for level in range(VoidRegion.BOTTOM_LEVEL, VoidRegion.TOP_LEVEL + 1):

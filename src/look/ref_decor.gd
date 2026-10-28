@@ -81,6 +81,10 @@ const CEILING_FIXTURE_PROPS := ["ceilingFan", "ceilingLight", "diningChandelier"
 ## Builds SLICE_ROWS grid rows; returns true once the whole chunk is done and
 ## the instance nodes have been attached.
 func step() -> bool:
+	# the Mezzanine's decks and void have no walls to dress: no pilasters, arches, pipes or lamps
+	if _data.has("mezzanine_grid"):
+		_row = _size
+		return true
 	if _row == 0:
 		_room_lamps()
 		_arches()

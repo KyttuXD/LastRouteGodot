@@ -5103,7 +5103,7 @@ func _tick_void_fall(delta: float) -> void:
 		return
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord := Vector3i(floori(at.x / size), VoidRegion.BOTTOM_LEVEL, floori(at.z / size))
-	if not facility.generator.is_chunk_allowed(coord) or not VoidRegion.is_void_chunk(RoomState.seed_text, coord):
+	if not VoidRegion.is_void_chunk(facility.generator.world_seed, coord):
 		return
 	var grid: Array = facility.generator.chunk(coord).get("mezzanine_grid", [])
 	if grid.is_empty():

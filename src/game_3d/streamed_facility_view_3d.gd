@@ -436,6 +436,16 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
+	# The maze and the deck over it look through each other (grating, the open balcony edges): on a deck the 3x3 of the maze
+	# below stays loaded; in the maze only the deck chunk overhead.
+	if center.y == 0 or center.y == StreamedRouteGenerator.MEZZANINE_LEVEL:
+		var other_level := StreamedRouteGenerator.MEZZANINE_LEVEL if center.y == 0 else 0
+		var reach := 0 if center.y == 0 else 1
+		for z in range(center.z - reach, center.z + reach + 1):
+			for x in range(center.x - reach, center.x + reach + 1):
+				var other := Vector3i(x, other_level, z)
+				if generator.is_chunk_allowed(other):
+					wanted[other] = true
 	# The Mezzanine void is one open shaft: standing in or beside it, every level of its columns within one chunk stays
 	# loaded, so the whole shaft is visible from any ledge, catwalk or deck.
 	for z in range(center.z - 1, center.z + 2):
@@ -1242,6 +1252,11 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 			for x in range(drop.position.x, drop.end.x):
 				open_above[Vector2i(x, z)] = true
 				heights[Vector2i(x, z)] = LEVEL_HEIGHT
+	# Under a deck's grating the maze has no ceiling: the grating is the roof, and hunters see up through it
+	if coord.y == 0 and generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)) \
+			and not generator.is_void_column(coord):
+		for cell_value in generator.mezzanine().sight_cells(coord):
+			open_above[cell_value as Vector2i] = true
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
 	for cell_value in shaft_cells:
 		# a stairwell's lower level opens straight up the well: full-storey walls
@@ -1301,6 +1316,8 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"wall_items": _wall_items.get(region, _wall_items["maze"]),
 		"ceiling_voids": ceiling_voids,
 		"floor_voids": floor_voids,
+		# a maze chunk beside a deck patch or the void is seen from above: its slab gets a top face (ceilings face down)
+		"roof_top": coord.y == 0 and _seen_from_above(coord),
 		"structural_voids": structural_voids,
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
@@ -1500,6 +1517,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	if data.has("mezzanine_grid"):
 		_build_mezzanine_cell(build, cell)
 		return
+	if bool(build.get("roof_top", false)) and not (build["open_above"] as Dictionary).has(cell):
+		var roof_y := _height_in(build, cell) if int(grid_data[z][x]) == 0 else float(build["corridor_h"])
+		surface.add_floor_at(x, z, roof_y + .03, RefTextures.layer("floor", ceiling_kind), RefTextures.params("ceiling", ceiling_kind))
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
@@ -1672,6 +1692,17 @@ static func _is_lava(build: Dictionary, cell: Vector2i) -> bool:
 		and (build["structural_voids"] as Dictionary).has(cell)
 
 
+## True for a level-0 chunk with no deck over it but one in the 3x3 around it (or the void): from there it is seen from above.
+func _seen_from_above(coord: Vector3i) -> bool:
+	if generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)):
+		return false
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			if generator.is_chunk_allowed(Vector3i(coord.x + dx, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z + dz)):
+				return true
+	return false
+
+
 ## One cell of a void chunk (Mezzanine, VoidRegion): grating or deck underfoot (a floor collider, drawn), open air
 ## elsewhere (no wall, no collider, no ceiling), the pit floor at the bottom, and a roof over everything at the top. The
 ## railings come in _spawn_mezzanine_rails.
@@ -1732,13 +1763,22 @@ func _spawn_mezzanine_rails(root: Node3D, data: Dictionary) -> void:
 	root.add_child(mesh)
 	# the shaft is dark: one budgeted lamp over the catwalk crossing of every void chunk lights the deck and the walls of
 	# the shaft round it
-	var lamp := OmniLight3D.new()
-	lamp.light_color = Color("ffd29a")
-	lamp.light_energy = .9
-	lamp.omni_range = 16.0
-	lamp.position = Vector3(UpperLevelTools.CENTER + .5, 2.4, UpperLevelTools.CENTER + .5)
-	root.add_child(lamp)
-	LampField.make_budgeted(lamp)
+	for spot in [Vector2(0, 0), Vector2(-11, 0), Vector2(11, 0), Vector2(0, -11), Vector2(0, 11)]:
+		var lamp := OmniLight3D.new()
+		lamp.light_color = Color("ffd29a")
+		lamp.light_energy = 1.1
+		lamp.omni_range = 18.0
+		lamp.position = Vector3(UpperLevelTools.CENTER + .5 + spot.x, 2.6, UpperLevelTools.CENTER + .5 + spot.y)
+		root.add_child(lamp)
+		LampField.make_budgeted(lamp)
+	if bool(data.get("void_floor", false)):
+		# a faint red glow rising from the pit
+		var glow := OmniLight3D.new()
+		glow.light_color = Color("c8402a")
+		glow.light_energy = .8
+		glow.omni_range = 26.0
+		glow.position = Vector3(UpperLevelTools.CENTER + .5, .6, UpperLevelTools.CENTER + .5)
+		root.add_child(glow)
 
 
 func _add_rail_bar(surface: SurfaceTool, center: Vector3, size: Vector3) -> void:
