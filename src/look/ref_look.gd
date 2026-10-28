@@ -163,6 +163,26 @@ const REGION_STYLE := {
 		"wall": ["glasshouse0", "glasshouse1"], "ceiling": "glass", "runner": false},
 }
 
+## The trim of archways and hall pilasters (caps, mouldings, keystones) per district: [texture group, kind, tint, metal].
+## The jambs and arches themselves are the hall's own wall (RefDecor.arch_wall_material); this is only the accent. Gold
+## only where the district uses it.
+const ARCH_ACCENT := {
+	"mansion": ["floor", "metal0", Color("c9a25a"), true], "hotel": ["floor", "metal0", Color("c9a25a"), true],
+	"apartment": ["floor", "metal0", Color("b8955a"), true], "carnival": ["floor", "metal0", Color("d4a84a"), true],
+	"maze": ["floor", "concrete0", Color("b0aaa0"), false], "office": ["floor", "concrete0", Color("b0aaa0"), false],
+	"prison": ["floor", "metal1", Color("8a96a0"), true], "inferno": ["floor", "metal3", Color("9a6a50"), true],
+	"lab": ["floor", "metal1", Color("c8d4dc"), true], "hospital": ["floor", "metal1", Color("e4e8ea"), true],
+	"industrial": ["floor", "metal1", Color("6f8a96"), true],
+	"gothic": ["floor", "stone1", Color("a8a29a"), false], "sewer": ["floor", "stone0", Color("9a948a"), false],
+	"beach": ["floor", "stone2", Color("d8ccb0"), false], "mall": ["floor", "terrazzo0", Color("e0dcd4"), false],
+	"greenhouse": ["floor", "metal2", Color("5f7a5a"), true],
+}
+
+
+static func arch_accent(region: String) -> Array:
+	return ARCH_ACCENT.get(region, ARCH_ACCENT["maze"])
+
+
 ## Room-type overrides: which floor and wall kinds a room gets regardless of
 ## the region default (offices are carpeted, restrooms are tiled...).
 const ROOM_STYLE := {
@@ -268,7 +288,8 @@ static func _graded_material(source: StandardMaterial3D, strength: float) -> Sta
 ## Above this a room counts as "tall": pendants on chains, roof ribs, tiered walls.
 const TALL_ROOM := 4.6
 const CORRIDOR_RANGE := Vector2(4.0, 4.6)   # taller than wide so a hall does not read as a low box
-const ROOM_RANGE := Vector2(3.2, 4.4)
+## Low end raised so every door frame (raised for the 1.5x hunters, DoorwayFrames.FRAME_TOP_CAP) fits under it.
+const ROOM_RANGE := Vector2(3.7, 4.4)
 const HALL_RANGE := Vector2(4.8, 6.0)
 const GREENHOUSE_RANGE := Vector2(6.4, 7.5)
 const MAX_HEIGHT := 7.5
@@ -300,6 +321,9 @@ static func room_range(region: String, room_type: String) -> Vector2:
 	if region == "sewer":
 		# one fixed low vault so every ladder shaft has the same height
 		return Vector2(SewerRouteGenerator.CEILING_HEIGHT, SewerRouteGenerator.CEILING_HEIGHT)
+	if region == "gothic" and not HALL_ROOMS.has(room_type):
+		# the gothic door frames' crest (DoorwayFrames.GOTHIC_FRAME_TOP_CAP) needs the headroom, on both sides of a door
+		return Vector2(4.1, 4.6)
 	if room_type == "":
 		return ROOM_RANGE if region in ["beach", "greenhouse"] else CORRIDOR_RANGE
 	if is_glasshouse(region, room_type):

@@ -65,6 +65,10 @@ const LOCKED_CACHE_MODELS := {
 	"crate": "res://art/props-3d/interactables/locked_relay_crate.glb",
 	"barrel": "res://art/props-3d/props/blocky/locked_relay_barrel.glb",
 }
+## Degrees past the authored open pose a room door swings to, so the open leaf stands square to the wall.
+const DOOR_OPEN_EXTRA := 22.0
+## How far the hinge pivot slides into the jamb when the door is fully open (half the leaf's thickness).
+const HINGE_SLIDE := .19
 const BOARDED_HALLWAY_MODEL := "res://art/props-3d/interactables/boarded_hallway.glb"
 const GLOW_COLORS := {
 	Kind.RELAY: Color(0.26, 0.88, 0.92),
@@ -210,6 +214,7 @@ func _ready() -> void:
 	if kind == Kind.BOARDED_PATH:
 		_add_blocking_box(Vector3(.96, 2.05, .12), Vector3(0, 1.025, 0))
 		_cache_board_pieces()
+		_raise_boarded_frame()
 
 	_light = OmniLight3D.new()
 	_light.position = Vector3(0, 0.5, 0)
@@ -242,6 +247,22 @@ func _process(delta: float) -> void:
 			-_door_target_y, weight)
 		_door_hinge_right.rotation.x = lerp_angle(_door_hinge_right.rotation.x,
 			_door_target_x, weight)
+	_slide_hinges()
+
+
+## The authored hinge pivots in the middle of the leaf's thickness, 7 cm inside the post: square open, the leaf (and its
+## handles) stood a quarter of the way across the opening. The pivot slides into the jamb as the door opens.
+func _slide_hinges() -> void:
+	for pair in [[_door_hinge, 1.0], [_door_hinge_right, -1.0]]:
+		var hinge := pair[0] as Node3D
+		if hinge == null:
+			continue
+		if not hinge.has_meta("rest_x"):
+			hinge.set_meta("rest_x", hinge.position.x)
+		var rest_x := float(hinge.get_meta("rest_x"))
+		var open := clampf(inverse_lerp(deg_to_rad(-68.0), deg_to_rad(DOOR_OPEN_EXTRA),
+			hinge.rotation.y * float(pair[1])), 0.0, 1.0)
+		hinge.position.x = rest_x + signf(rest_x) * HINGE_SLIDE * open
 
 
 func interaction_focus() -> Vector3:
@@ -602,7 +623,8 @@ func apply_room_door_state(open: bool, broken: bool) -> void:
 		return
 	room_door_broken = broken
 	room_door_open = open or broken
-	_door_target_y = 0.0 if room_door_open else deg_to_rad(-68.0)
+	# open: square to the wall (the authored open leaf stands at 68 degrees, half across a hunter's way); closed: shut
+	_door_target_y = deg_to_rad(DOOR_OPEN_EXTRA) if room_door_open else deg_to_rad(-68.0)
 	_door_target_x = deg_to_rad(82.0) if room_door_broken else 0.0
 	if _door_collision != null:
 		_door_collision.set_deferred("disabled", room_door_open)
@@ -621,6 +643,7 @@ func _ready_room_door() -> void:
 		_cache_interaction_focus()
 	if _door_hinge == null:
 		push_error("ROOM DOOR MODEL HAS NO DoorHinge // %s" % room_door_model_path)
+	_raise_room_door()
 	var barrier_width := 1.92 if room_door_span == 2 else .92
 	_add_blocking_box(Vector3(barrier_width, 2.34, .10),
 		Vector3(0.0, 1.17, 0.0))
@@ -636,6 +659,43 @@ func _ready_room_door() -> void:
 	if _door_hinge_right != null:
 		_door_hinge_right.rotation.y = -_door_target_y
 		_door_hinge_right.rotation.x = _door_target_x
+	_slide_hinges()
+
+
+## The authored frames open 2.375 m (gothic 2.31): lower than a 1.5x hunter's head. Stretch the frame and leaf up
+## (DoorwayFrames.raise_scale) and register the opening, so the hunters walk under it or duck (DoorwayPose).
+func _raise_room_door() -> void:
+	var opening := 2.375
+	var top := 2.625
+	if _visual != null:
+		var leaf_top := 0.0
+		for mesh in _visual.find_children("*Leaf*", "MeshInstance3D", true, false):
+			leaf_top = maxf(leaf_top, DoorwayPose.bounds(mesh as Node3D, _local_to_visual(mesh as Node3D)).end.y)
+		if leaf_top > 0.0:
+			opening = leaf_top
+		# the header's underside, where it is lower than the leaf (the gothic arch)
+		var clear := DoorwayFrames.opening(_visual, ["DoorFrame"]).y
+		if clear < INF:
+			opening = minf(opening, clear)
+		top = DoorwayPose.bounds(_visual).end.y
+		_visual.scale.y = DoorwayFrames.raise_scale(opening, top, DoorwayFrames.frame_cap(room_door_model_path.get_file()))
+		opening *= _visual.scale.y
+		# the posts stood 6.5 cm inside the wall gap on each side: widen the frame (and leaf) so the posts' inner faces
+		# stand just proud of the gap's faces and the outer parts sit inside the neighbouring wall cells
+		var inner := DoorwayFrames.opening(_visual, ["DoorFrame"]).x
+		if inner > .1 and inner < INF:
+			_visual.scale.x = clampf((float(room_door_span) - DoorwayFrames.POST_PROUD * 2.0) / inner, 1.0, 1.25)
+	DoorwayFrames.register(self, float(room_door_span) - DoorwayFrames.POST_PROUD * 2.0, opening, .25)
+
+
+## A mesh's parent chain up to (and including) the visual root, as a transform in this node's space.
+func _local_to_visual(mesh: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var node := mesh.get_parent_node_3d()
+	while node != null and node != self:
+		xf = node.transform * xf
+		node = node.get_parent_node_3d()
+	return xf
 
 
 func activate_with_tool(player: PlayerController3D, item_id: String,
@@ -671,6 +731,22 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 			return "BOARDED PATH CLEARED // DURABILITY USED"
 		return "BOARDS BROKEN // %d REMAIN // DURABILITY USED" % board_pieces_remaining
 	return _fail("That tool cannot be used here.")
+
+
+## The boarded doorway's header sat at 2.16 m and its posts stood 0.84 m apart. Stretch the frame up and across like the
+## room doors and register the opening (hunters turn side-on to pass).
+func _raise_boarded_frame() -> void:
+	if _visual == null or boarded_variant == "hallway":
+		return
+	var clear := DoorwayFrames.opening(_visual, ["DoorFrame", "DoorHeader"])
+	var opening := clear.y if clear.y < INF else 2.16
+	# boarded doorways stand in the facility maze, whose walls meet a 3 m ceiling: the frame is raised to touch it, so
+	# nothing is left open above the header either
+	_visual.scale.y = DoorwayFrames.raise_scale(opening, DoorwayPose.bounds(_visual).end.y, FacilityView3D.WALL_HEIGHT - .005)
+	# widened like the room doors so the posts meet the 1 m wall gap (the boards span it too)
+	var across := clear.x if clear.x < INF else .84
+	_visual.scale.x = clampf((1.0 - DoorwayFrames.POST_PROUD * 2.0) / across, 1.0, 1.25)
+	DoorwayFrames.register(self, across * _visual.scale.x, opening * _visual.scale.y, .15, _visual)
 
 
 func configure_locked_cache(style: String) -> void:
@@ -710,6 +786,7 @@ func configure_boarded_variant(variant: String) -> void:
 	if kind != Kind.BOARDED_PATH or variant != "hallway":
 		return
 	boarded_variant = "hallway"
+	DoorwayFrames.unregister(self)
 	if _visual:
 		_visual.queue_free()
 	_visual = ModelSlot.instantiate_prop(BOARDED_HALLWAY_MODEL, "boarded_door")

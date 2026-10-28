@@ -390,7 +390,9 @@ const TEMPLATE_PROP_SIZES := {
 	"wheelchair": Vector3(.65, .95, .95), "hospitalWardSign": Vector3(.95, .36, .06), "labBench": Vector3(2, 1.45, .8),
 	"fumeHood": Vector3(1.5, 2.35, .9), "specimenTank": Vector3(.95, 2.3, .95),
 	"containmentCell": Vector3(2.2, 2.6, 1.7), "labCoolingUnit": Vector3(1, 2.1, .85),
-	"controlConsole": Vector3(2.4, 1.4, 1), "monitorWall": Vector3(2.4, 1.4, .1), "deconShower": Vector3(1.3, 2.5, 1.3),
+	"controlConsole": Vector3(2.4, 1.4, 1), "monitorWall": Vector3(2.4, 1.4, .1), "divePod": Vector3(1.0, 1.35, 2.2), "divePodFilm": Vector3(1.0, 1.35, 2.2),
+	"divePodLit": Vector3(1.0, 1.35, 2.2), "diveHeadsetStand": Vector3(.32, 1.25, .32),
+	"diveHeadsetShelf": Vector3(1.9, .45, .32), "diveConsole": Vector3(2.0, 1.3, .8), "deconShower": Vector3(1.3, 2.5, 1.3),
 	"coldStorageUnit": Vector3(1.4, 2.1, .85), "labWhiteboard": Vector3(1.8, 1.15, .08),
 	"hazardSign": Vector3(.6, .62, .05), "labGlassPartition": Vector3(1.95, 2.5, .14),
 	"labStool": Vector3(.42, .75, .42), "labMicroscope": Vector3(.34, .46, .36),
@@ -1482,6 +1484,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			small_types.append(type_name)
 	if small_types.is_empty():
 		small_types = _room_type_choices(region)
+	var pod_pending := region == "lab" and is_pod_room_chunk(coord)
 	var room_index := 0
 	# a mall chunk holds eight shops: start its cycle through the thirteen shop kinds at a per-chunk offset
 	var type_offset := rng.next_index(small_types.size()) if mall else 0
@@ -1512,7 +1515,10 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			if merged_sides.has(side) and (int(row["y"]) == 12 or int(row["y"]) == 24):
 				continue
 			var specs := []
-			if mall:
+			if pod_pending:
+				pod_pending = false
+				specs.append({"x": side_x[side], "w": 21, "type": "pod_room"})
+			elif mall:
 				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
 			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
 				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
@@ -1554,6 +1560,17 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
 	return {"rooms": rooms, "corridors": corridors, "suites": suites, "circulation": circulation}
+
+
+## The dive lab's pod room is rare: one chunk of each lab district (BIOME_REGION_SIZE squared chunks) holds it.
+func is_pod_room_chunk(coord: Vector3i) -> bool:
+	if coord.y != 0 or biome_for(coord) != "lab":
+		return false
+	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
+	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var rng := SeededRandom.new("%s:PODROOM:%d:%d" % [world_seed, region_x, region_z])
+	return posmod(coord.x, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE) \
+		and posmod(coord.z, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE)
 
 
 ## The room-type names of a district (the table _room_type_for cycles through).
@@ -2389,7 +2406,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		template = room_type
 	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
-			+ MALL_ROOMS + ["dome_atrium"]).has(room_type):
+			+ MALL_ROOMS + ["dome_atrium", "pod_room"]).has(room_type):
 		template = room_type
 	if template.is_empty():
 		return []
@@ -2432,7 +2449,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
-	result = one_ceiling_family(result)
+	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
@@ -2444,6 +2461,42 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 ## wins over a fan, a fan (which has its own light kit) over a plain ceiling light; the others are dropped.
 const CEILING_FIXTURE_FAMILY := {"diningChandelier": "chandelier", "ceilingFan": "fan", "ceilingLight": "light"}
 const CEILING_FAMILY_ORDER := ["chandelier", "fan", "light"]
+
+
+## Recipe ceiling fixtures laid out evenly (KT: "center or even with the room"): one sits at the exact centre of the
+## room's interior; several form rows along the long axis (two rows in a room 12+ cells deep when there are 4 or more),
+## each at the middle of an equal share, so they are symmetric about the centre with equal margins to the walls. The
+## fixture keeps its cell (and room); placement_offset moves it. Leftovers that would break the grid are dropped.
+static func even_ceiling_fixtures(props: Array, rect: Rect2i) -> Array:
+	var fixtures := props.filter(func(prop: Dictionary) -> bool:
+		return CEILING_FIXTURE_FAMILY.has(String(prop.get("type", ""))))
+	if fixtures.is_empty():
+		return props
+	var long_x := rect.size.x >= rect.size.y
+	var short_len := float(mini(rect.size.x, rect.size.y))
+	var rows := 2 if fixtures.size() >= 4 and short_len >= 12.0 else 1
+	var cols := fixtures.size() / rows
+	var along := func(prop: Dictionary) -> float:
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		return float(cell.x if long_x else cell.y)
+	fixtures.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return along.call(a) < along.call(b))
+	var long_start := float(rect.position.x if long_x else rect.position.y)
+	var long_len := float(rect.size.x if long_x else rect.size.y)
+	var short_start := float(rect.position.y if long_x else rect.position.x)
+	var dropped := {}
+	for index in fixtures.size():
+		var prop: Dictionary = fixtures[index]
+		if index >= rows * cols:
+			dropped[prop] = true
+			continue
+		var a := long_start + long_len * (float(index % cols) + .5) / float(cols)
+		var b := short_start + short_len * (float(index / cols) + .5) / float(rows)
+		var desired := Vector2(a, b) if long_x else Vector2(b, a)
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		prop["placement_offset"] = desired - (Vector2(cell) + Vector2(.5, .5))
+	if dropped.is_empty():
+		return props
+	return props.filter(func(prop: Dictionary) -> bool: return not dropped.has(prop))
 
 
 static func one_ceiling_family(props: Array) -> Array:
@@ -3379,6 +3432,24 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
 			for light_side in range(-half + 1, half, 3):
 				specs.append(_sp("ceilingLight", light_side, 1, "open", _LOOSE))
+		"pod_room":
+			# the dive lab (Last Route lore): six white pods in a curved row along the far wall, lids open, heads to the
+			# wall; the outer pair stands a step forward so the row bows. Two still have film on their lids, one is left
+			# on (a faint glow), the rest dark. A headset on a stand beside each pod; the console with its scrolling list
+			# and the shelf of headsets above it in the corner.
+			var pod_sides := [-5, -3, -1, 1, 3, 5]
+			for pod_index in pod_sides.size():
+				var pod_side: int = pod_sides[pod_index] * mirror
+				var pod_type := "divePod"
+				if pod_index == 1 or pod_index == 4:
+					pod_type = "divePodFilm"
+				elif pod_index == 2:
+					pod_type = "divePodLit"
+				var outer := pod_index == 0 or pod_index == pod_sides.size() - 1
+				specs.append(_sp(pod_type, pod_side, 1 if outer else 0, "open", {} if outer else _WALL))
+				specs.append(_sp("diveHeadsetStand", pod_side + mirror, 0, "open", _WALL))
+			specs.append(_sp("diveConsole", (half - 1) * mirror, 0, "open", _WALL))
+			specs.append(_sp("diveHeadsetShelf", (half - 1) * mirror, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.45}))
 		"control_room":
 			specs.append(_sp("monitorWall", 0, 0, "open", _MOUNT))
 			specs.append(_sp("controlConsole", 0, 2, "back"))
@@ -3914,11 +3985,11 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var suite_child := room.has("suite_id") \
 			and not bool(room.get("suite_parent", false))
-		# Only major rooms (halls, lobbies, greenhouses, very large rooms) and a suite's own entrance
-		# get wide doors; small rooms always get a single door.
+		# Doors are sized for the hunters (docs/DOORWAY_CLEARANCE.md): every room with a side of 4+ cells and a suite's
+		# own entrance get a two-cell double door; only small rooms and the rooms inside a suite keep a single door.
 		var major := _is_major_room(room, rect)
 		var use_double := bool(room.get("suite_parent", false)) \
-			or (not suite_child and major and (rect.size.x >= 7 or rect.size.y >= 7))
+			or (not suite_child and (rect.size.x >= 4 or rect.size.y >= 4))
 		# Roomy major rooms open onto the hall through a three-cell archway instead of
 		# a door; a few keep a door for variety (see RefDecor for the arch itself).
 		var arch := major and not room.has("suite_id") and rect.size.x >= 7 and rect.size.y >= 7 \

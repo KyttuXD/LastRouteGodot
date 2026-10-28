@@ -359,7 +359,7 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 		item_id, "EMPTY SLOT")).to_upper()
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
-		bar.value = clampf(1.0 - taser_cooldown / GameConfig.TASER_COOLDOWN_SECONDS,
+		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
 			0.0, 1.0) * 100.0
 	else:
 		var max_value := maxi(1, int(maximums.get(item_id, 1)))
@@ -514,6 +514,15 @@ func _ensure_inventory_menu_capacity(capacity: int) -> void:
 		stack.add_child(bar)
 		_inventory_menu_slots.append(slot)
 		_inventory_menu_bars.append(bar)
+
+
+## The hotbar's rect on the HUD canvas (the union of its slots), for TouchControls to keep clear of.
+func hotbar_rect() -> Rect2:
+	var rect := Rect2()
+	for slot in _inventory_slots:
+		if slot != null and slot.is_visible_in_tree():
+			rect = slot.get_global_rect() if rect.size == Vector2.ZERO else rect.merge(slot.get_global_rect())
+	return rect
 
 
 func inventory_is_open() -> bool:
@@ -863,7 +872,8 @@ func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 ## Name of the area the player stands in. Shown in the minimap's slot while the minimap has no map to draw
 ## (the City has zones, not a facility plan). Empty clears it.
 func set_zone_text(text: String) -> void:
-	_zone_label.text = text
+	# a zone / district name is an admin-only readout (RegionNames)
+	_zone_label.text = text if RegionNames.visible() else ""
 
 
 ## A scene with no map to show (the City) turns the minimap off so only the zone name takes its slot.

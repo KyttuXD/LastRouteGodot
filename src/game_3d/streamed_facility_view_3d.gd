@@ -146,6 +146,16 @@ var _ready_dirty := false
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
+## Room light switches (docs/LIGHT_SWITCHES.md): room id -> [[lamp, full energy], ...] for every lamp (decor and fixture
+## props) of a lit room, the switch node per room, and the chunk each room's lamps came from. Switching zeroes the lamps'
+## energy in place: the LampField pool and LightField.exposure_at read the same arrays, so the rendered light and the
+## mutual-light-sight rule go dark together, and parked storeys keep the state (their lamp arrays are kept).
+var _room_lamps := {}
+var _switch_nodes := {}
+var _room_lamp_coord := {}
+## Callable(on: bool, room_id: String) -> String, set by the route (host-authoritative toggle; the room id is bound).
+var room_light_requester: Callable
+const SWITCH_HEIGHT := 1.45      # hunter-scale world, still within a 1.60 m runner's reach (2.15 m)
 var _fixture_nodes := {}
 var _last_player_chunk := Vector3i(999999, 999999, 999999)
 var _pending_loads: Array[Vector3i] = []
@@ -616,6 +626,8 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 
 func _vertical_ready_set(center: Vector3i) -> Dictionary:
 	var out := {}
+	if not PlatformProfile.prebuild_linked_levels:
+		return out   # low-memory phones and Quest: a ladder trip rebuilds the other storey instead of parking it (~30 MB)
 	for level in _linked_levels(center):
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
@@ -1016,6 +1028,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
 		"room_map": room_map,
+		"room_anchor": room_anchor_map(data),
 		"heights": heights,
 		"corridor_h": corridor_h,
 		"decor": null,
@@ -1025,6 +1038,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"fixture_index": 0,
 		"pickup_index": 0,
 		"prison_tasks": _prison_prop_tasks(data) if region == "prison" else [],
+		"door_headers": door_headers(region_props, heights, corridor_h),
 	}
 
 
@@ -1147,6 +1161,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					var lamp_list: Array = (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array)
 					root.set_meta("lamp_list", lamp_list)
 					_lamp_field.register(coord, lamp_list)
+					_bind_room_lights(root, data, coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
@@ -1274,6 +1289,14 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
 			if (build["coord"] as Vector3i).y < 0 else _col_wall_item)
+		# a room door's cell: wall over the frame up to both rooms' ceilings, and a soffit on the frame (no see-through)
+		var header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
+		if not header.is_empty():
+			var across: Vector2i = header["normal"]
+			var front_kind := _ref_wall_kind(build, x, z, x + across.x, z + across.y)
+			var back_kind := _ref_wall_kind(build, x, z, x - across.x, z - across.y)
+			add_door_header(surface, cell, header, [RefTextures.layer("wall", front_kind), RefTextures.params("wall", front_kind)],
+				[RefTextures.layer("wall", back_kind), RefTextures.params("wall", back_kind)])
 		for step_value in RefDecor.DIRS:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
@@ -1898,6 +1921,62 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 	return map
 
 
+## Cell -> the rect origin of the room it belongs to, built by the same pass as _room_type_map (same cells, same
+## last-room-wins order), so a room's floor is one kind.
+static func room_anchor_map(data: Dictionary) -> Dictionary:
+	var map := {}
+	var grid: Array = data.get("grid", [])
+	for room_value in data.get("rooms", []):
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				var on_border := x == rect.position.x or z == rect.position.y or x == rect.end.x - 1 or z == rect.end.y - 1
+				if on_border and (_is_wall_at(grid, x, z) or _is_doorway(grid, rect, x, z)):
+					continue
+				map[Vector2i(x, z)] = rect.position
+	return map
+
+
+## The cells a room door stands in -> {"normal" (through the door), "front_h" / "back_h" (the ceilings either side)}:
+## the header over the frame closes the opening up to both ceilings (docs/DOORWAY_CLEARANCE.md).
+static func door_headers(region_props: Array, heights: Dictionary, corridor_h: float) -> Dictionary:
+	var out := {}
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		if not PropModelCatalog.is_room_door(String(prop.get("type", ""))):
+			continue
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		var centre := Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
+		var yaw := float(prop.get("yaw", 0.0))
+		var along := Vector2(cos(yaw), -sin(yaw))
+		var through := Vector2(sin(yaw), cos(yaw))
+		var normal := Vector2i(roundi(through.x), roundi(through.y))
+		var span := int(prop.get("door_span", 1))
+		var cells: Array[Vector2i] = []
+		if span == 2:
+			cells = [Vector2i((centre - along * .5).floor()), Vector2i((centre + along * .5).floor())]
+		else:
+			cells = [Vector2i(centre.floor())]
+		for door_cell in cells:
+			out[door_cell] = {"normal": normal, "header_y": DoorwayFrames.header_y(String(prop.get("type", ""))),
+				"front_h": float(heights.get(door_cell + normal, corridor_h)),
+				"back_h": float(heights.get(door_cell - normal, corridor_h))}
+	return out
+
+
+## The header's faces on `surface`: a wall face toward each side from the soffit up to that side's ceiling, and the
+## soffit itself. `front` / `back`: [texture layer, params] of the wall theme on each side.
+static func add_door_header(surface: RefSurfaceMesh, cell: Vector2i, header: Dictionary, front: Array, back: Array) -> void:
+	var across: Vector2i = header["normal"]
+	for side in [across, -across]:
+		var look: Array = front if side == across else back
+		var top := float(header["front_h"] if side == across else header["back_h"])
+		var soffit := float(header.get("header_y", DoorwayFrames.HEADER_Y))
+		if top > soffit:
+			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, soffit, top)
+	surface.add_ceiling(cell.x, cell.y, float(header.get("header_y", DoorwayFrames.HEADER_Y)), float(front[0]), front[1])
+
+
 static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
 	return z < 0 or x < 0 or z >= grid.size() or x >= (grid[z] as Array).size() or int(grid[z][x]) != 0
 
@@ -1932,23 +2011,28 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var style: Dictionary = build["style"]
-	var coord: Vector3i = build["coord"]
+	var region := String(build.get("region", generator.biome_for(build["coord"])))
+	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
+
+
+## The floor kind of cell (x, z): one kind per room (FloorSets.room_kind, keyed on the room's origin) and one per chunk
+## for its halls (the carpet runner strips still follow the hall). Picking per cell scattered two floors checkerboard-style.
+static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionary, room_anchor: Dictionary,
+		x: int, z: int) -> String:
+	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var gx := coord.x * size + x
-	var gz := coord.z * size + z
-	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(x, z), "")
-	var region := String(build.get("region", generator.biome_for(coord)))
-	var kinds: Array
+	var cell := Vector2i(x, z)
+	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
-		kinds = FloorSets.room(region, room_type)
-	else:
-		kinds = FloorSets.hall(region)
-		if FloorSets.hall_runner(region):
-			var runner := _runner_kind(build["data"]["grid"], x, z)
-			if runner != "":
-				return runner
-	return kinds[RefLook.pick(gx, gz, 1, kinds.size())]
+		var origin: Vector2i = room_anchor.get(cell, cell)
+		return FloorSets.room_kind(region, room_type, Vector2i(coord.x * size, coord.z * size) + origin)
+	if FloorSets.hall_runner(region):
+		var runner := _runner_kind(data["grid"], x, z)
+		if runner != "":
+			return runner
+	# One hall floor per chunk: the set varies chunk to chunk, never tile to tile.
+	var kinds := FloorSets.hall(region)
+	return kinds[RefLook.pick(coord.x, coord.z, 1, kinds.size())]
 
 
 ## Carpet runner down the middle three cells of a hall, oriented along the hall:
@@ -2060,6 +2144,11 @@ func _discard_active_build() -> void:
 func _unload_chunk(coord: Vector3i) -> void:
 	if _lamp_field != null:
 		_lamp_field.unregister(coord)
+	for room_id in _room_lamp_coord.keys().duplicate():
+		if _room_lamp_coord[room_id] == coord:
+			_room_lamps.erase(room_id)
+			_room_lamp_coord.erase(room_id)
+			_switch_nodes.erase(room_id)
 	var root := _loaded.get(coord) as Node
 	if root != null:
 		_forget_chunk_entities(root)
@@ -2197,6 +2286,9 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 						"size": Vector3(run_end - run_start, 2.4, .16),
 						"group": "streamed_prison_prop", "solid": true, "type": ""})
 				run_start = gx + 1
+				if is_door:
+					# no lintel, but the jambs stand a cell apart: the hunters turn side-on (DoorwayFrames)
+					tasks.append({"doorway": true, "at": Vector3(gx + .5, 0.0, gate_z), "width": 1.0})
 		# The dedicated cage fills this cell; do not bury a bunk/chair through it.
 		if room_index == cage_room_index:
 			continue
@@ -2232,6 +2324,13 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 
 
 func _spawn_prison_prop_task(parent: Node3D, task: Dictionary) -> void:
+	if bool(task.get("doorway", false)):
+		var marker := Node3D.new()
+		marker.name = "PrisonDoorway"
+		marker.position = task.get("at", Vector3.ZERO)
+		parent.add_child(marker)
+		DoorwayFrames.register(marker, float(task.get("width", 1.0)), DoorwayFrames.NO_HEADER, .34)
+		return
 	_spawn_authored_prop(parent, String(task.get("path", "")),
 		task.get("at", Vector3.ZERO), float(task.get("yaw", 0.0)),
 		task.get("size", Vector3.ONE),
@@ -2320,6 +2419,90 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 		int(prop.get("door_span", 1)))
 	parent.add_child(door)
 	_door_nodes[door_id] = door
+
+
+## Groups a built chunk's lamps by room, applies each room's saved/seeded state, and puts a switch inside every lit room
+## beside its main doorway, on the wall at SWITCH_HEIGHT, facing into the room.
+func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_list: Array) -> void:
+	var room_ids := RefLook.chunk_room_ids(data)
+	var groups := {}
+	for lamp_value in lamp_list:
+		var lamp: Array = lamp_value
+		var local: Vector3 = (lamp[0] as Vector3) - root.position
+		var room_id := String(room_ids.get(Vector2i(floori(local.x), floori(local.z)), ""))
+		if room_id.is_empty():
+			continue
+		if not groups.has(room_id):
+			groups[room_id] = []
+		(groups[room_id] as Array).append([lamp, float(lamp[2])])
+	var doors := {}
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if bool(prop.get("room_door", false)) and not doors.has(String(prop.get("room_id", ""))):
+			doors[String(prop.get("room_id", ""))] = prop
+	for room_id in groups:
+		_room_lamps[room_id] = groups[room_id]
+		_room_lamp_coord[room_id] = coord
+		var on := world_state.room_light_on(room_id)
+		_set_room_lamps(room_id, on)
+		if not doors.has(room_id):
+			continue
+		var door: Dictionary = doors[room_id]
+		var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+		var centre := Vector2.ZERO
+		for cell_value in cells:
+			centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+		centre /= float(maxi(1, cells.size()))
+		var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+		var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+		var at := centre + inward * .54 + across * (cells.size() * .5 + .35)
+		var switch := RouteInteractable3D.new()
+		switch.name = "LightSwitch_%s" % room_id.replace(":", "_")
+		switch.kind = RouteInteractable3D.Kind.LIGHT_SWITCH
+		switch.prompt_text = "TOGGLE ROOM LIGHT"
+		switch.position = Vector3(at.x, SWITCH_HEIGHT, at.y)
+		switch.rotation.y = atan2(-inward.x, -inward.y)
+		switch.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + floori(at.x),
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + floori(at.y))
+		switch.add_to_group("streamed_light_switch")
+		switch.set_meta("room_id", room_id)
+		root.add_child(switch)
+		switch.configure_room_light(room_id, on,
+			room_light_requester.bind(room_id) if room_light_requester.is_valid() else Callable())
+		_switch_nodes[room_id] = switch
+
+
+func _set_room_lamps(room_id: String, on: bool) -> void:
+	for entry_value in _room_lamps.get(room_id, []):
+		var entry: Array = entry_value
+		(entry[0] as Array)[2] = float(entry[1]) if on else 0.0
+
+
+## Applies a room's light state (from the world state, any peer): lamps, light field and the switch's position.
+func apply_room_light(room_id: String, on: bool) -> bool:
+	var changed := world_state.set_room_light(room_id, on)
+	_set_room_lamps(room_id, on)
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	if switch != null and is_instance_valid(switch) and switch.light_enabled != on:
+		switch.light_enabled = on
+		switch.configure_room_light(room_id, on, switch.light_resolver)
+	return changed
+
+
+func room_light_switch(room_id: String) -> RouteInteractable3D:
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	return switch if switch != null and is_instance_valid(switch) else null
+
+
+func lit_rooms() -> Array:
+	return _room_lamps.keys()
+
+
+func room_lamp_energy(room_id: String) -> float:
+	var total := 0.0
+	for entry_value in _room_lamps.get(room_id, []):
+		total += float(((entry_value as Array)[0] as Array)[2])
+	return total
 
 
 func apply_room_door_state(door_id: String, open: bool, broken: bool) -> bool:

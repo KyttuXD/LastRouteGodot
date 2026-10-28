@@ -11,6 +11,8 @@ extends RefCounted
 const SEEDS := ["CEIL-A", "CEIL-B", "CEIL-C"]
 const DECOR_FIXTURES := ["chandelier", "chandelier_grand", "ceiling", "ceiling_small"]
 
+const TOLERANCE := .05
+
 var _failures := 0
 var metrics := {}
 
@@ -28,6 +30,7 @@ func run(_host: Node) -> int:
 	var mansion_fans := []
 	var decor_doubles := []
 	var mansion_decor := {"medallion": 0, "chandeliers": 0, "crown": 0, "coffer": 0}
+	var layout_report := {"rooms": 0, "bad": []}
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		for dz in range(-6, 7):
@@ -76,6 +79,7 @@ func run(_host: Node) -> int:
 						if String((prop_value as Dictionary).get("type", "")) == "diningChandelier":
 							hung += 1
 					mansion_decor["chandeliers"] += hung
+				_check_layout(data, decor, layout_report)
 				root.free()
 	_expect(rooms_checked > 50, "only %d rooms with ceiling fixtures in the sample" % rooms_checked)
 	_expect(mixed.is_empty(), "%d rooms mix ceiling fixture families: %s" % [mixed.size(), mixed.slice(0, 5)])
@@ -85,7 +89,63 @@ func run(_host: Node) -> int:
 	_expect(int(mansion_decor["medallion"]) >= int(mansion_decor["chandeliers"]) and int(mansion_decor["chandeliers"]) > 0,
 		"mansion chandeliers without a ceiling medallion (%d medallions, %d chandeliers)" % [mansion_decor["medallion"], mansion_decor["chandeliers"]])
 	_expect(int(mansion_decor["crown"]) > 0 and int(mansion_decor["coffer"]) > 0, "mansion rooms have no crown moulding or coffers")
-	metrics = {"rooms": rooms_checked, "mansion": mansion_decor}
+	_expect(int(layout_report["rooms"]) > 100, "only %d rooms with fixtures checked for layout" % layout_report["rooms"])
+	_expect((layout_report["bad"] as Array).is_empty(), "%d rooms with off-centre or uneven fixtures: %s" % [
+		(layout_report["bad"] as Array).size(), (layout_report["bad"] as Array).slice(0, 6)])
+	metrics = {"rooms": rooms_checked, "layout_rooms": layout_report["rooms"], "mansion": mansion_decor}
 	if _failures == 0:
 		print("  ceiling_fixtures  %s" % [metrics])
 	return _failures
+
+
+## KT: "center or even with the room". Every room's ceiling fixtures (decor or recipe props) are symmetric about the
+## room's interior centre (each mirrors onto another within TOLERANCE) and evenly spaced along each axis.
+func _check_layout(data: Dictionary, decor: RefDecor, report: Dictionary) -> void:
+	var by_room := {}
+	for key in DECOR_FIXTURES:
+		for t_value in decor._transforms.get(key, []):
+			var at := Vector2((t_value as Transform3D).origin.x, (t_value as Transform3D).origin.z)
+			var room_id := decor._room_id_at(Vector2i(floori(at.x), floori(at.y)))
+			if not room_id.is_empty():
+				if not by_room.has(room_id):
+					by_room[room_id] = []
+				(by_room[room_id] as Array).append(at)
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if not StreamedRouteGenerator.CEILING_FIXTURE_FAMILY.has(String(prop.get("type", ""))):
+			continue
+		var room_id := String(prop.get("room_id", ""))
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		if not by_room.has(room_id):
+			by_room[room_id] = []
+		(by_room[room_id] as Array).append(Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2))
+	var rects := {}
+	for room_value in data.get("rooms", []):
+		rects[String((room_value as Dictionary).get("id", ""))] = (room_value as Dictionary).get("rect", Rect2i())
+	for room_id in by_room:
+		if not rects.has(room_id):
+			continue
+		var rect: Rect2i = rects[room_id]
+		var centre := Vector2(rect.position) + Vector2(rect.size) * .5
+		var points: Array = by_room[room_id]
+		report["rooms"] = int(report["rooms"]) + 1
+		var problem := ""
+		for p_value in points:
+			var mirror: Vector2 = centre * 2.0 - (p_value as Vector2)
+			if not points.any(func(q: Vector2) -> bool: return q.distance_to(mirror) <= TOLERANCE):
+				problem = "not symmetric about the centre"
+				break
+		if problem.is_empty():
+			for axis in 2:
+				var values := []
+				for p_value in points:
+					var v := snappedf((p_value as Vector2)[axis], .01)
+					if not values.any(func(w: float) -> bool: return absf(w - v) <= TOLERANCE):
+						values.append(v)
+				values.sort()
+				for i in range(2, values.size()):
+					if absf((values[i] - values[i - 1]) - (values[1] - values[0])) > TOLERANCE:
+						problem = "uneven spacing"
+		if not problem.is_empty():
+			(report["bad"] as Array).append("%s %s %s" % [room_id, problem, points.slice(0, 4)])
+

@@ -20,7 +20,8 @@ const WALL_TEXTURE := "res://art/props-3d/environment/wall_texture.png"
 
 ## Corridor height, and the thickness of the slabs that cap it. 3 m matches the
 ## office rooms, so a player moving between modes reads the same scale.
-const WALL_HEIGHT := 3.0
+## 3.6 m since the hunter-scale world (docs/SCALE_FIT.md): boarded doorways raised for the 1.5x hunters fit under it.
+const WALL_HEIGHT := 3.6
 const SLAB := 0.1
 
 const ITEM_FLOOR := 0

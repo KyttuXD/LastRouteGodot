@@ -314,6 +314,16 @@ func _build_focus_pause_row() -> void:
 		Settings.set_pause_on_focus_loss(enabled)
 		Palette.set_state_toggle(_focus_pause_button, enabled))
 	row.add_child(_focus_pause_button)
+	if PlatformProfile.is_phone:
+		# Phones only: the movement control for TouchControls (desktop never shows this button).
+		var move_button := Button.new()
+		move_button.name = "TouchMoveButton"
+		move_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS")
+		move_button.pressed.connect(func() -> void:
+			Settings.set_touch_move("dpad" if Settings.touch_move == "stick" else "stick")
+			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
+		row.add_child(move_button)
 	add_child(row)
 
 
@@ -346,6 +356,8 @@ func _show_control_section(index: int) -> void:
 		if child != _section_tabs:
 			child.queue_free()
 	_key_labels.clear()
+	if PlatformProfile.is_phone and _active_section == 0:
+		_build_touch_look_rows()
 	var active: Dictionary = SECTIONS[_active_section]
 	for action in active["actions"]:
 		if Settings.REBINDABLE_ACTIONS.has(action):
@@ -365,6 +377,79 @@ func _show_control_section(index: int) -> void:
 		controls_list.add_child(heading)
 		for action in orphans:
 			_build_control_row(action)
+
+
+## Phones only: TOUCH LOOK (TouchControls.look_turn) at the top of the first CONTROLS section. Desktop never builds it.
+func _build_touch_look_rows() -> void:
+	var heading := Label.new()
+	heading.name = "TouchLookHeading"
+	heading.text = Palette.track("TOUCH LOOK")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	_touch_slider("LOOK SPEED", 0.25, 3.0, Settings.touch_look_speed, func(value: float) -> void:
+		Settings.set_touch_look(value, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	_touch_slider("VERTICAL SPEED", 0.3, 1.5, Settings.touch_look_vertical, func(value: float) -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, value, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	var row := HBoxContainer.new()
+	row.name = "TouchLookToggles"
+	controls_list.add_child(row)
+	var invert := _touch_toggle(row, func() -> String: return "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	invert.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, not Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel)
+		invert.text = "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	var smooth := _touch_toggle(row, func() -> String: return "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	smooth.pressed.connect(func() -> void:
+		var order := ["off", "low", "high"]
+		var next: String = order[(order.find(Settings.touch_look_smoothing) + 1) % order.size()]
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			next, Settings.touch_look_accel)
+		smooth.text = "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	var accel := _touch_toggle(row, func() -> String: return "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+	accel.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, not Settings.touch_look_accel)
+		accel.text = "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+
+
+func _touch_slider(label_text: String, low: float, high: float, value: float, changed: Callable) -> void:
+	var row := HBoxContainer.new()
+	row.name = label_text.replace(" ", "") + "Row"
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = low
+	slider.max_value = high
+	slider.step = 0.05
+	slider.value = value
+	slider.custom_minimum_size = Vector2(0, 22)   # a thumb-sized track on a phone
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%.2fx" % value
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(next: float) -> void:
+		readout.text = "%.2fx" % next
+		changed.call(next))
+	controls_list.add_child(row)
+
+
+func _touch_toggle(row: HBoxContainer, label: Callable) -> Button:
+	var button := Button.new()
+	button.text = String(label.call())
+	button.custom_minimum_size = Vector2(0, 22)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 8)
+	row.add_child(button)
+	return button
 
 
 ## WAYPOINT HUD preferences, under the waypoint keys (docs/WAYPOINTS.md).

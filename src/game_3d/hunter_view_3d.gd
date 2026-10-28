@@ -49,6 +49,8 @@ var _facing := HunterFacing.new()
 ## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
 ## procedural breathing / sway / lean layers (off elsewhere).
 var nw_pose := ""
+## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
+var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
 var nw_layers := false
 var _nw_started := ""
@@ -63,6 +65,7 @@ var _recover_left := 0.0
 var _expression := ""
 var _blink_timer := 2.0
 var _scream_latched := false
+var _leap_seq_seen := 0
 var _face_node: MeshInstance3D
 var _gait_moving := false
 var _stride_scale := 1.0
@@ -135,6 +138,8 @@ const MAX_PRESENTATION_SPEED := 12.0
 const PRESENTATION_DEAD_ZONE := .006
 ## View collider: slightly wider than the brain footprint (GameConfig.HUNTER_RADIUS) and as tall as the scaled model.
 const HUNTER_BODY_RADIUS := GameConfig.HUNTER_RADIUS + .05
+## Beyond this distance from the camera nobody sees the doorway pose, so it is not worked out.
+const DOORWAY_POSE_RANGE := 45.0
 const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 ## Body yaw / head look live in HunterFacing so other creature views share them.
 
@@ -163,11 +168,25 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_doorway.restore()
 	_update_head_look(delta)
 	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
+	_update_doorway(delta)
+
+
+## In a door frame: duck under a low lintel and turn the shoulders through a narrow opening (DoorwayPose), last of
+## the layers so it bends whatever the clip and the head look made of the pose.
+func _update_doorway(delta: float) -> void:
+	if _model == null or not _doorway.bound() or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera != null and global_position.distance_squared_to(camera.global_position) > DOORWAY_POSE_RANGE * DOORWAY_POSE_RANGE:
+		return
+	var frame := DoorwayFrames.nearest(global_position)
+	_doorway.update(delta, frame, float(frame.get("along", INF)))
 
 
 func _physics_process(delta: float) -> void:
@@ -306,6 +325,7 @@ func _apply_model(model_id: String) -> void:
 		_expression = ""
 		_stars = null
 		_creature = null
+		_doorway = DoorwayPose.new()
 		_wing_nodes.clear()
 		_wings_searched = false
 		_wing_fold_applied = 0.0
@@ -320,6 +340,7 @@ func _apply_model(model_id: String) -> void:
 			_creature = CreatureView.new(self, _model)
 		else:
 			NightWatchPoses.install(_model, _animation_player, _shown_id)
+			_doorway.bind(_model)
 			_nw_layers.bind(_model)
 			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
@@ -893,7 +914,23 @@ func _gait_pose_moving() -> bool:
 	return _move_speed > GAIT_ENTER_SPEED * .5
 
 
+## The one sound of a pounce: a single footfall as she launches (nothing earlier).
+func _update_pounce_cue() -> void:
+	if brain == null or brain.hard == null:
+		return
+	if brain.hard.leap_seq != _leap_seq_seen:
+		_leap_seq_seen = brain.hard.leap_seq
+		if brain.hard.leaping and is_inside_tree():
+			var camera := get_viewport().get_camera_3d()
+			if camera != null:
+				var distance := global_position.distance_to(camera.global_position)
+				if distance < 30.0:
+					var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+					Sound.hunter_footstep(clampf(side / maxf(distance, 1.0), -1.0, 1.0), clampf(1.4 - distance / 30.0, .3, 1.4) * .05)
+
+
 func _update_animation() -> void:
+	_update_pounce_cue()
 	if _creature != null:
 		_creature.tick(get_process_delta_time())
 		return
@@ -921,6 +958,11 @@ func _update_animation() -> void:
 	elif brain.gimmick is LoxelleGimmick \
 			and (brain.gimmick as LoxelleGimmick).charge_active():
 		clip_name = "charge"
+	elif brain.hard != null and brain.hard.leaping:
+		clip_name = "charge"        # the pounce: the leap pose is the only tell
+	elif brain.hard != null and brain.hard.stumble_left > 0.0 and _animation_player != null \
+			and _animation_player.has_animation("stun_recover"):
+		clip_name = "stun_recover"  # the stumble after a miss
 	else:
 		match brain.state:
 			HunterBrain.State.CHASE:
