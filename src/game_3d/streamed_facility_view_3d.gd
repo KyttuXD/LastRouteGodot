@@ -120,9 +120,29 @@ var _loaded := {}
 ## chunks (each ladder trip used to rebuild the whole other level). Freed once the runner walks out of that 3x3.
 var _dormant := {}
 var _dormant_data := {}
+## Vertical preloading: the 3x3 on every level a link in the runner's 3x3 reaches is built in the background after
+## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
+## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
+const PREBUILD_LEVEL_RANGE := 1
+const PREDATA_LEVEL_RANGE := 2
+var _ready_set := {}
+var _wanted_now := {}
+var _pending_prebuild: Array[Vector3i] = []
+var _pending_data: Array[Vector3i] = []
+var _ready_dirty := false
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
+## Room light switches (docs/LIGHT_SWITCHES.md): room id -> [[lamp, full energy], ...] for every lamp (decor and fixture
+## props) of a lit room, the switch node per room, and the chunk each room's lamps came from. Switching zeroes the lamps'
+## energy in place: the LampField pool and LightField.exposure_at read the same arrays, so the rendered light and the
+## mutual-light-sight rule go dark together, and parked storeys keep the state (their lamp arrays are kept).
+var _room_lamps := {}
+var _switch_nodes := {}
+var _room_lamp_coord := {}
+## Callable(on: bool, room_id: String) -> String, set by the route (host-authoritative toggle; the room id is bound).
+var room_light_requester: Callable
+const SWITCH_HEIGHT := 1.45      # hunter-scale world, still within a 1.60 m runner's reach (2.15 m)
 var _fixture_nodes := {}
 var _last_player_chunk := Vector3i(999999, 999999, 999999)
 var _pending_loads: Array[Vector3i] = []
@@ -202,6 +222,9 @@ func clear() -> void:
 			(node_value as Node).queue_free()
 	_dormant.clear()
 	_dormant_data.clear()
+	_pending_prebuild.clear()
+	_pending_data.clear()
+	_ready_set = {}
 	_chunk_data.clear()
 	_pickup_nodes.clear()
 	_door_nodes.clear()
@@ -400,6 +423,9 @@ func _refresh_stream(force: bool) -> void:
 		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
 		if not wanted.has(active_coord):
 			_discard_active_build()
+	_wanted_now = wanted
+	_pending_data.clear()
+	_ready_set = _vertical_ready_set(center)
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
 		var coord: Vector3i = coord_value
@@ -477,14 +503,81 @@ func _prestream_ladder_destination() -> void:
 func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 	for coord_value in _loaded.keys().duplicate():
 		var coord: Vector3i = coord_value
-		if not wanted.has(coord) and coord.y != center.y and _near_column(coord, center):
+		if not wanted.has(coord) and (_ready_set.has(coord) or coord.y != center.y and _near_column(coord, center)):
 			_make_dormant(coord)
 	for coord_value in _dormant.keys().duplicate():
 		var coord: Vector3i = coord_value
 		if wanted.has(coord):
 			_revive(coord)
-		elif not _near_column(coord, center):
+		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PREBUILD_LEVEL_RANGE):
 			_free_dormant(coord)
+	_pending_prebuild.clear()
+	for coord_value in _ready_set:
+		var coord: Vector3i = coord_value
+		if not wanted.has(coord) and not _dormant.has(coord) and not _loaded.has(coord):
+			_pending_prebuild.append(coord)
+	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
+		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
+			continue
+		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+				var coord := Vector3i(x, level, z)
+				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord) and not _pending_data.has(coord):
+					_pending_data.append(coord)
+
+
+## The other levels a link (ladder, ramp, stairwell ...) in the runner's 3x3 leads to. Generators with
+## vertical_links(coord) (every level) are asked directly; otherwise the sewer's ladders link 0 and -1.
+func _linked_levels(center: Vector3i) -> Array[int]:
+	var out: Array[int] = []
+	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+			var coord := Vector3i(x, center.y, z)
+			var links: Array = []
+			if generator.has_method("vertical_links"):
+				links = generator.call("vertical_links", coord)
+			elif center.y in [0, StreamedRouteGenerator.SEWER_LEVEL]:
+				# The sewer chunk under this column holds its ladders. Only read it once generated: generating it here
+				# (~30 ms) on every chunk change was a main-thread stall; queue it for the worker instead.
+				var sewer_coord := Vector3i(x, StreamedRouteGenerator.SEWER_LEVEL, z)
+				if generator.has_chunk_cached(sewer_coord) or sewer_coord == Vector3i(center.x, sewer_coord.y, center.z):
+					links = generator.chunk(sewer_coord).get("links", [])
+				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
+					_pending_data.append(sewer_coord)
+					_ready_dirty = true
+			for link_value in links:
+				var link: Dictionary = link_value
+				for key in ["from_level", "to_level"]:
+					var level := int(link.get(key, center.y))
+					if level != center.y and absi(level - center.y) <= PREBUILD_LEVEL_RANGE and not out.has(level):
+						out.append(level)
+	return out
+
+
+func _vertical_ready_set(center: Vector3i) -> Dictionary:
+	var out := {}
+	for level in _linked_levels(center):
+		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+				var coord := Vector3i(x, level, z)
+				if generator.is_chunk_allowed(coord):
+					out[coord] = true
+	return out
+
+
+## True while linked levels are still being pre-built in the background (the current window is already complete).
+func is_preloading() -> bool:
+	return not _pending_prebuild.is_empty() or (not _active_build.is_empty() and not _wanted_now.has(_active_build.get("coord")))
+
+
+func prebuilt_chunk_count() -> int:
+	var count := 0
+	for coord in _dormant:
+		if _ready_set.has(coord):
+			count += 1
+	return count
 
 
 static func _near_column(coord: Vector3i, center: Vector3i) -> bool:
@@ -608,11 +701,20 @@ func _queue_generation() -> void:
 			if _pending_loads.has(coord):
 				_prefetch_chunk(coord)
 		_gen_task_results = {}
+		if _ready_dirty and _last_player_chunk.x != 999999:
+			# link data for the 3x3 has arrived: recompute which levels to pre-build
+			_ready_dirty = false
+			_ready_set = _vertical_ready_set(_last_player_chunk)
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	var coords: Array[Vector3i] = []
-	for coord in _pending_loads:
+	for coord in _pending_loads + _pending_prebuild:
 		for need in _generation_needs(coord):
 			if not generator.has_chunk_cached(need) and not coords.has(need):
 				coords.append(need)
+	for coord in _pending_data:
+		if not generator.has_chunk_cached(coord) and not coords.has(coord):
+			coords.append(coord)
+	_pending_data.clear()
 	if coords.is_empty():
 		return
 	_gen_task_coords = coords
@@ -660,10 +762,10 @@ func _cell_batch_done(index: int, started: int, immediate: bool) -> bool:
 func _drain_stream_queue() -> void:
 	if not _prefetching.is_empty():
 		_poll_prefetch()
-	if not _pending_loads.is_empty() or _gen_task != -1:
+	if not _pending_loads.is_empty() or not _pending_prebuild.is_empty() or not _pending_data.is_empty() or _gen_task != -1:
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
-			and _active_build.is_empty():
+			and _active_build.is_empty() and _pending_prebuild.is_empty():
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
 	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
@@ -678,6 +780,15 @@ func _drain_stream_queue() -> void:
 			_prof("unload", tu)
 			break
 		var t0 := Time.get_ticks_usec()
+		if _active_build.is_empty() and _pending_loads.is_empty() and not _pending_prebuild.is_empty():
+			# the current window is complete: pre-build the linked levels (parked when done)
+			var next: Vector3i = _pending_prebuild[0]
+			if not _chunk_generated(next):
+				break
+			_pending_prebuild.pop_front()
+			if not _loaded.has(next) and not _dormant.has(next):
+				_active_build = _create_chunk_build(next)
+				_prefetch_chunk(next)
 		if _active_build.is_empty() and not _pending_loads.is_empty():
 			if not _chunk_generated(_pending_loads[0]):
 				break   # the worker is still generating it
@@ -926,10 +1037,13 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					var lamp_list: Array = (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array)
 					root.set_meta("lamp_list", lamp_list)
 					_lamp_field.register(coord, lamp_list)
+					_bind_room_lights(root, data, coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
+				if _ready_set.has(coord) and not _wanted_now.has(coord):
+					_make_dormant(coord)
 				return true
 			_:
 				return true
@@ -1425,6 +1539,11 @@ func _discard_active_build() -> void:
 func _unload_chunk(coord: Vector3i) -> void:
 	if _lamp_field != null:
 		_lamp_field.unregister(coord)
+	for room_id in _room_lamp_coord.keys().duplicate():
+		if _room_lamp_coord[room_id] == coord:
+			_room_lamps.erase(room_id)
+			_room_lamp_coord.erase(room_id)
+			_switch_nodes.erase(room_id)
 	var root := _loaded.get(coord) as Node
 	if root != null:
 		_forget_chunk_entities(root)
@@ -1697,6 +1816,90 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 	_door_nodes[door_id] = door
 
 
+## Groups a built chunk's lamps by room, applies each room's saved/seeded state, and puts a switch inside every lit room
+## beside its main doorway, on the wall at SWITCH_HEIGHT, facing into the room.
+func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_list: Array) -> void:
+	var room_ids := RefLook.chunk_room_ids(data)
+	var groups := {}
+	for lamp_value in lamp_list:
+		var lamp: Array = lamp_value
+		var local: Vector3 = (lamp[0] as Vector3) - root.position
+		var room_id := String(room_ids.get(Vector2i(floori(local.x), floori(local.z)), ""))
+		if room_id.is_empty():
+			continue
+		if not groups.has(room_id):
+			groups[room_id] = []
+		(groups[room_id] as Array).append([lamp, float(lamp[2])])
+	var doors := {}
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if bool(prop.get("room_door", false)) and not doors.has(String(prop.get("room_id", ""))):
+			doors[String(prop.get("room_id", ""))] = prop
+	for room_id in groups:
+		_room_lamps[room_id] = groups[room_id]
+		_room_lamp_coord[room_id] = coord
+		var on := world_state.room_light_on(room_id)
+		_set_room_lamps(room_id, on)
+		if not doors.has(room_id):
+			continue
+		var door: Dictionary = doors[room_id]
+		var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+		var centre := Vector2.ZERO
+		for cell_value in cells:
+			centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+		centre /= float(maxi(1, cells.size()))
+		var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+		var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+		var at := centre + inward * .54 + across * (cells.size() * .5 + .35)
+		var switch := RouteInteractable3D.new()
+		switch.name = "LightSwitch_%s" % room_id.replace(":", "_")
+		switch.kind = RouteInteractable3D.Kind.LIGHT_SWITCH
+		switch.prompt_text = "TOGGLE ROOM LIGHT"
+		switch.position = Vector3(at.x, SWITCH_HEIGHT, at.y)
+		switch.rotation.y = atan2(-inward.x, -inward.y)
+		switch.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + floori(at.x),
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + floori(at.y))
+		switch.add_to_group("streamed_light_switch")
+		switch.set_meta("room_id", room_id)
+		root.add_child(switch)
+		switch.configure_room_light(room_id, on,
+			room_light_requester.bind(room_id) if room_light_requester.is_valid() else Callable())
+		_switch_nodes[room_id] = switch
+
+
+func _set_room_lamps(room_id: String, on: bool) -> void:
+	for entry_value in _room_lamps.get(room_id, []):
+		var entry: Array = entry_value
+		(entry[0] as Array)[2] = float(entry[1]) if on else 0.0
+
+
+## Applies a room's light state (from the world state, any peer): lamps, light field and the switch's position.
+func apply_room_light(room_id: String, on: bool) -> bool:
+	var changed := world_state.set_room_light(room_id, on)
+	_set_room_lamps(room_id, on)
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	if switch != null and is_instance_valid(switch) and switch.light_enabled != on:
+		switch.light_enabled = on
+		switch.configure_room_light(room_id, on, switch.light_resolver)
+	return changed
+
+
+func room_light_switch(room_id: String) -> RouteInteractable3D:
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	return switch if switch != null and is_instance_valid(switch) else null
+
+
+func lit_rooms() -> Array:
+	return _room_lamps.keys()
+
+
+func room_lamp_energy(room_id: String) -> float:
+	var total := 0.0
+	for entry_value in _room_lamps.get(room_id, []):
+		total += float(((entry_value as Array)[0] as Array)[2])
+	return total
+
+
 func apply_room_door_state(door_id: String, open: bool, broken: bool) -> bool:
 	var changed := world_state.apply_room_door_state(door_id, open, broken)
 	var door := _door_nodes.get(door_id) as RouteInteractable3D
@@ -1752,6 +1955,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.name = "Furniture_%s" % prop_type
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
+		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)
