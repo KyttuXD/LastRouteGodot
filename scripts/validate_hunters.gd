@@ -357,8 +357,11 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		_fail("Opalie has no gimmick")
 		return
 
+	# Nobody detected (the runner is in a safe room), so she keeps standing watch.
+	var unseen := _target(post + Vector2(6, 6))
+	unseen["in_safe_zone"] = true
 	for i in 60:
-		brain.update(STEP, generator, _target(post + Vector2(6, 6)), 1, 0)
+		brain.update(STEP, generator, unseen, 1, 0)
 	if not brain.gimmick.holds_position():
 		_fail("Opalie started on her relay and still has not settled on it")
 		return
@@ -371,7 +374,26 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		"Opalie's suppression does not reach %.1f cells" % GameConfig.OPALIE_SUPPRESSION_RADIUS)
 	_expect(not brain.gimmick.call("blocks", post + Vector2(4.0, 0.0)),
 		"Opalie denies interactions far outside her suppression radius")
-	print("  opalie    settles on a relay and denies %.1f cells around it"
+
+	# KT: "chase further". A runner she detects, even well away from the post, gets a normal chase.
+	var far := Vector2.ZERO
+	for cell in generator.floor_cells():
+		var point := Vector2(cell.x + .5, cell.y + .5)
+		var gap := point.distance_to(brain.position)
+		if gap >= 6.0 and gap <= 9.0 and generator.has_line_of_sight(brain.position, point):
+			far = point
+			break
+	var seen := _target(far)
+	seen["flashlight_on"] = true
+	seen["noise"] = 0.6
+	var chased := false
+	for i in 60:
+		brain.update(STEP, generator, seen, 1, 0)
+		if brain.state == HunterBrain.State.CHASE and not brain.gimmick.holds_position():
+			chased = true
+			break
+	_expect(far != Vector2.ZERO and chased, "Opalie saw a runner %.1f cells off and stayed on her post instead of chasing" % far.distance_to(post))
+	print("  opalie    settles on a relay, denies %.1f cells around it, and leaves it to chase a runner she detects"
 		% GameConfig.OPALIE_SUPPRESSION_RADIUS)
 
 

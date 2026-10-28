@@ -38,11 +38,9 @@ func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, gen
 	if open.is_empty():
 		return
 	var post := Vector2(open["x"], open["y"])
-	# KT: "opalie saw me, i hid in a locker, and now shes walking away even if i go up close". A runner she can see near
-	# her (or her post) wins over the walk back: she chases on the shared brain's sight/hearing and returns once she loses them.
-	var target_position = target.get("position")
-	if brain.state == HunterBrain.State.CHASE and not bool(target.get("hidden", false)) and target_position is Vector2 \
-			and minf(post.distance_to(target_position), brain.position.distance_to(target_position)) <= GameConfig.OPALIE_CHASE_LEASH:
+	# KT: "opalie saw me, i hid in a locker, and now shes walking away even if i go up close" / "chase further". Once
+	# she has seen or heard a runner she chases like any hunter and only walks back to her post after losing them.
+	if brain.state == HunterBrain.State.CHASE and not bool(target.get("hidden", false)):
 		on_station = false
 		station = Vector2.ZERO
 		return
