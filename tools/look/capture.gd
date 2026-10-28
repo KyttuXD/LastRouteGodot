@@ -236,6 +236,8 @@ func _run(scene: Node) -> void:
 			var pick := {"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))}
 			if xz.size() > 2:
 				pick["yaw"] = float(xz[2])   # optional third value: the heading in degrees
+			if xz.size() > 3:
+				pick["pos"].y = float(xz[3])   # optional fourth value: the standing height (a lower level's floor)
 			picks.append(pick)
 	if OS.get_environment("CAP_JUNCTION") != "":
 		# CAP_JUNCTION=gothic: one T and one cross junction of that biome in THIS run's generator, 5 m down an arm
@@ -258,6 +260,39 @@ func _run(scene: Node) -> void:
 						picks.append({"name": "crawl_%d_%d" % [cx, cz], "pos": Vector3(at.x, SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT + .05, at.y),
 							"yaw": rad_to_deg(atan2(float(step.x), float(step.y)))})
 						break
+	if OS.get_environment("CAP_FALLS") != "":
+		# CAP_FALLS=1: the first waterfall of this run's generator: the top (level -1, on the spur looking at the lip) and the
+		# bottom (level -2, across the cistern looking at the landing); CAP_FALLS=pit: the first cage pit on level -3
+		picks = []
+		var fsize := StreamedRouteGenerator.CHUNK_SIZE
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if not picks.is_empty():
+					continue
+				if OS.get_environment("CAP_FALLS") == "pit":
+					for pit in InfernoCaverns.pits_in(facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))):
+						var span: Rect2i = pit["bridge"]
+						var pit_north: bool = pit["north"]
+						var pit_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+						var pit_z := float(span.end.y) + 5.0 if pit_north else float(span.position.y) - 5.0
+						picks.append({"name": "pit_stand", "pos": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .05, cz * fsize + pit_z),
+							"yaw": 0.0, "look": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .2, cz * fsize + float(span.position.y) + 1.5)})
+						break
+					continue
+				var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
+				if falls.is_empty():
+					continue
+				var qc: Vector2i = falls["center"]
+				var falls_north: bool = falls["north"]
+				var lip_z := cz * fsize + float(falls["edge_z"])
+				var fx := cx * fsize + qc.x + .5
+				var top_y := SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+				var low_y := SewerRouteGenerator.LOWER_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+				var back := 6.0 if falls_north else -6.0
+				picks.append({"name": "falls_top", "pos": Vector3(fx, top_y + .05, lip_z + back),
+					"yaw": 0.0, "look": Vector3(fx, top_y - 1.0, lip_z)})
+				picks.append({"name": "falls_bottom", "pos": Vector3(fx, low_y + .05, lip_z - back * 1.1),
+					"yaw": 0.0, "look": Vector3(fx, low_y + 1.2, lip_z)})
 	if OS.get_environment("CAP_AT") == "start":
 		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
 		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]
@@ -286,6 +321,16 @@ func _run(scene: Node) -> void:
 			player.global_position = p["pos"]
 			player._yaw = deg_to_rad(float(yaw_text))
 			player._pitch = deg_to_rad(float(OS.get_environment("CAP_PITCH")) if OS.get_environment("CAP_PITCH") != "" else -2.0)
+			if p.has("look") or OS.get_environment("CAP_LOOK") != "":
+				# CAP_LOOK="x,y,z": aim every CAP_AT pick at that world point (eye height 1.6 m)
+				var d := Vector3.ZERO
+				if p.has("look"):
+					d = (p["look"] as Vector3) - (p["pos"] as Vector3 + Vector3(0, 1.6, 0))
+				else:
+					var target := PackedStringArray(OS.get_environment("CAP_LOOK").split(","))
+					d = Vector3(float(target[0]), float(target[1]), float(target[2])) - (p["pos"] as Vector3 + Vector3(0, 1.6, 0))
+				player._yaw = atan2(-d.x, -d.z)
+				player._pitch = atan2(d.y, Vector2(d.x, d.z).length())
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))

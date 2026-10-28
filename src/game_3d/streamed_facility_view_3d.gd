@@ -61,6 +61,8 @@ const RAMP_FLOOR_KIND := "concrete1"
 const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
+## How far the concrete outflow spout juts out over a waterfall drop; the sheet leaves its tip.
+const FALLS_SPOUT := 1.0
 const FALLS_SOUND_RANGE := 28.0
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
@@ -1408,8 +1410,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 				continue
-			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", CLIFF_WALL_KIND),
-				RefTextures.params("wall", CLIFF_WALL_KIND), 0.0, -LEVEL_HEIGHT)
+			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box
+			var shaft_kind := _ref_wall_kind(build, n.x, n.y, x, z)
+			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", shaft_kind),
+				RefTextures.params("wall", shaft_kind), 0.0, -LEVEL_HEIGHT, LEVEL_HEIGHT)
 	else:
 		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
@@ -1791,8 +1795,9 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# just past the lip, from the channel's surface down to the pool's
 		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
-			lip.z + (-.12 if bool(falls["north"]) else .12))
+			lip.z + (-FALLS_SPOUT if bool(falls["north"]) else FALLS_SPOUT))
 		root.add_child(sheet)
+		_add_falls_spillway(root, lip, bool(falls["north"]))
 		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
 	elif level == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
 		var mist := GPUParticles3D.new()
@@ -1819,9 +1824,105 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		puff_material.albedo_color = Color(.78, .84, .8, .16)
 		puff.material = puff_material
 		mist.draw_pass_1 = puff
-		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-.7 if bool(falls["north"]) else .7))
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_SPOUT - .65 if bool(falls["north"]) else FALLS_SPOUT + .65))
 		root.add_child(mist)
+		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_SPOUT - .75 if bool(falls["north"]) else FALLS_SPOUT + .75)))
 		_add_falls_sound(root, mist.position)
+
+
+## The top of a fall (level -1): the spur channel's water runs on over a concrete sill, a crest of foam rolls over the
+## lip, and a cool light on the spur shows the water, the sheet's top and the shaft walls (it read as a dark box).
+func _add_falls_spillway(root: Node3D, lip: Vector3, north: bool) -> void:
+	var dir := -1.0 if north else 1.0                  # the way the water runs, toward and over the lip
+	var y := SewerRouteGenerator.WATER_SURFACE
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# the sill: a low concrete lip under the water's last metre, and a foam strip riding the crest
+	InfernoPitView.iron_box(tool, Vector3(lip.x, y - .22, lip.z - dir * .08), Vector3(3.2, .36, .22))
+	# the outflow spout: a concrete tongue jutting over the drop from the channel's end; the sheet leaves its tip, so
+	# from the cistern below the water visibly comes out of something
+	InfernoPitView.iron_box(tool, Vector3(lip.x, y - .55, lip.z + dir * FALLS_SPOUT * .5), Vector3(3.6, .6, FALLS_SPOUT))
+	for side in [-1.0, 1.0]:
+		InfernoPitView.iron_box(tool, Vector3(lip.x + side * 1.7, y + .05, lip.z + dir * FALLS_SPOUT * .5), Vector3(.2, .6, FALLS_SPOUT))
+	var sill := MeshInstance3D.new()
+	sill.name = "FallsSill"
+	sill.mesh = tool.commit()
+	var concrete := StandardMaterial3D.new()
+	concrete.albedo_color = Color(.2, .21, .2)
+	concrete.roughness = .95
+	sill.material_override = concrete
+	root.add_child(sill)
+	var crest := MeshInstance3D.new()
+	crest.name = "FallsCrest"
+	var strip := QuadMesh.new()
+	strip.size = Vector2(3.0, 1.0)
+	crest.mesh = strip
+	crest.rotation = Vector3(-PI / 2.0 + dir * .22, 0, 0)
+	crest.position = Vector3(lip.x, y + .02, lip.z - dir * .45)
+	crest.material_override = _foam_material(.8)
+	crest.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(crest)
+	var light := OmniLight3D.new()
+	light.name = "FallsLipLight"
+	light.position = Vector3(lip.x, y + 1.6, lip.z - dir * 1.2)
+	light.light_color = Color("7fd1b0")
+	light.light_energy = 1.4
+	light.omni_range = 9.0
+	light.shadow_enabled = false
+	root.add_child(light)
+
+
+## The bottom of a fall (level -2): foam churning where the sheet lands, a standing ring that spreads over the cistern,
+## and a cool light that lights the pool and the shaft above it.
+func _add_falls_impact(root: Node3D, at: Vector3) -> void:
+	var churn := MeshInstance3D.new()
+	churn.name = "FallsFoam"
+	var disc := QuadMesh.new()
+	disc.size = Vector2(4.2, 2.6)
+	churn.mesh = disc
+	churn.rotation = Vector3(-PI / 2.0, 0, 0)
+	churn.position = at + Vector3(0, .03, 0)
+	churn.material_override = _foam_material(1.0)
+	churn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(churn)
+	var light := OmniLight3D.new()
+	light.name = "FallsPoolLight"
+	light.position = at + Vector3(0, 1.4, 0)
+	light.light_color = Color("8fe0c0")
+	light.light_energy = 1.8
+	light.omni_range = 10.0
+	light.shadow_enabled = false
+	root.add_child(light)
+
+
+static var _foam_cache := {}
+
+
+static func _foam_material(strength: float) -> ShaderMaterial:
+	if _foam_cache.has(strength):
+		return _foam_cache[strength]
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_disabled, unshaded;
+uniform float strength = 1.0;
+float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+void fragment() {
+	vec2 c = UV - vec2(.5);
+	float edge = smoothstep(.5, .15, length(c * vec2(1.0, 1.5)));
+	float t = TIME * .6;
+	float f = n(UV * vec2(14.0, 9.0) + vec2(t, -t * .7)) * .6 + n(UV * vec2(31.0, 20.0) - vec2(t * 1.3, t)) * .4;
+	ALBEDO = mix(vec3(.55, .66, .6), vec3(.92, .97, .93), f);
+	ALPHA = edge * smoothstep(.25, .85, f) * strength;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("strength", strength)
+	_foam_cache[strength] = material
+	return material
 
 
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
