@@ -416,6 +416,8 @@ func _check_player_release_presets() -> void:
 				"%s does not encrypt its PCK" % name)
 			excluded = String(presets.get_value(section, "exclude_filter", "")).split(",")
 			_expect(excluded.size() >= 3, "%s excludes no internal code" % name)
+			_expect(int(presets.get_value(section, "script_export_mode", -1)) == 2,
+				"%s does not export GDScript as compressed binary tokens (script_export_mode 2)" % name)
 		else:
 			_expect(features.has("internal"), "%s is not marked internal" % name)
 	# macOS builds are Apple Silicon only unless a preset opts in by name ("... Universal ..."): KT, Intel on request.
