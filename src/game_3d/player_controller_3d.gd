@@ -1742,7 +1742,30 @@ func _xr_smoke_log() -> void:
 					print("XR_SMOKE_NEAR_EYE %s #%d aabb=%s" % [shape.name, i, box])
 		elif (shape.global_transform * shape.get_aabb()).size.length() < 20.0:
 			print("XR_SMOKE_NEAR_EYE %s aabb=%s" % [shape.get_path(), shape.global_transform * shape.get_aabb()])
+	var cell_kind := "unknown"
+	var facility := get_tree().root.find_child("StreamedFacility", true, false)
+	if facility != null and facility.get("generator") != null:
+		var generator = facility.get("generator")
+		var size: int = generator.CHUNK_SIZE
+		var coord := Vector3i(floori(global_position.x / size), 0, floori(global_position.z / size))
+		var grid: Array = generator.chunk(coord).get("grid", [])
+		var local := Vector2i(posmod(floori(global_position.x), size), posmod(floori(global_position.z), size))
+		if local.y < grid.size() and local.x < (grid[local.y] as Array).size():
+			cell_kind = "open" if int(grid[local.y][local.x]) == 0 else "wall"
+	var clearance := INF
+	var space := get_world_3d().direct_space_state
+	for i in 16:
+		var direction := Vector3(cos(TAU * i / 16.0), 0, sin(TAU * i / 16.0))
+		var from := global_position + Vector3.UP * 1.0
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + direction * 3.0, collision_mask, [get_rid()]))
+		if not hit.is_empty():
+			clearance = minf(clearance, from.distance_to(hit["position"]))
+	print("XR_SMOKE_CELL kind=%s clearance=%.2f" % [cell_kind, clearance])
 	var problems := []
+	if cell_kind != "open":
+		problems.append("the body stands on a %s cell" % cell_kind)
+	if clearance < 0.4:
+		problems.append("a wall is %.2f m from the body" % clearance)
 	if not xr_active:
 		problems.append("xr_active is false")
 	for hand in [xr_left, xr_right]:
@@ -1756,6 +1779,10 @@ func _xr_smoke_log() -> void:
 		problems.append("the body is inside level geometry or off the floor")
 	if not xr_origin.current:
 		problems.append("the runner's XROrigin3D is not the current origin (the headset renders from another one)")
+	var render_origin := XRServer.world_origin.origin
+	print("XR_SMOKE_WORLD_ORIGIN %s" % render_origin)
+	if Vector2(render_origin.x - global_position.x, render_origin.z - global_position.z).length() > 0.3:
+		problems.append("the headset renders from %s, not the body" % render_origin)
 	var marker := get_tree().root.find_child("StartingSafeZoneMarker", true, false) as Node3D
 	if marker != null and Vector2(marker.global_position.x - global_position.x, marker.global_position.z - global_position.z).length() < 0.6:
 		problems.append("the body stands on the safe-zone marker post")

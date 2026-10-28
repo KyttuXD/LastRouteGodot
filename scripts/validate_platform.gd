@@ -143,6 +143,7 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_xr_panel_scroll(host)
 	await _check_vr_pose_sync(host)
 	await _check_no_touch_controllers(host)
+	await _check_xr_origin_handover(host)
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -315,6 +316,28 @@ func _check_no_touch_controllers(host: Node) -> void:
 	Input.action_release("look_right")
 	_expect(is_equal_approx(turn, 1.0) and is_equal_approx(XRComfort.turn_input(-0.7), -0.7),
 		"a gamepad / keyboard look does not turn a headset player (%s)" % turn)
+	await host.get_tree().process_frame
+
+
+## Only one XROrigin3D drives the headset: the first in the tree becomes current (the menu panel's). The route's origin
+## must take over when it enters XR (PlayerController3D._try_enter_xr) and the panel's must take back the view after.
+func _check_xr_origin_handover(host: Node) -> void:
+	var menu := XROrigin3D.new()
+	var route := XROrigin3D.new()
+	route.position = Vector3(22.5, 0, 21.5)
+	host.add_child(menu)
+	host.add_child(route)
+	await host.get_tree().process_frame
+	var first_current := menu.current and not route.current
+	route.current = true
+	var route_drives := route.current and not menu.current \
+		and XRServer.world_origin.origin.is_equal_approx(route.global_position)
+	menu.current = true
+	var menu_back := menu.current and not route.current
+	_expect(menu_back and route_drives, "the XR origin hand-over is wrong (route drives %s, menu back %s; first current %s)" % [
+		route_drives, menu_back, first_current])
+	menu.queue_free()
+	route.queue_free()
 	await host.get_tree().process_frame
 
 
