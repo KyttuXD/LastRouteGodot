@@ -132,6 +132,36 @@ func run(host: Node) -> int:
 		if is_instance_valid(body):
 			(body as Node).queue_free()
 
+	# ---- XR: the hands on the controllers are the mannequin's skinned hand parts, in the same skin as flat mode; a remote rig too
+	PlayerSkin.import_bytes(_png(Color(.8, .3, .8, 1.0)))
+	var own := PlayerSkin.active_texture()
+	var left_controller := XRController3D.new()
+	var right_controller := XRController3D.new()
+	var origin := XROrigin3D.new()
+	host.add_child(origin)
+	origin.add_child(left_controller)
+	origin.add_child(right_controller)
+	var xr_hands := XRHands.new()
+	host.add_child(xr_hands)
+	xr_hands.setup(Node3D.new(), origin, left_controller, right_controller)
+	for controller in [left_controller, right_controller]:
+		var rig := controller.find_child("SkinnedHand", true, false) as Node3D
+		_expect(rig != null, "an XR controller has no mannequin hand")
+		if rig != null:
+			_expect(_carries(rig, own), "an XR hand does not wear the flat-mode skin")
+	PlayerSkin.import_bytes(_png(Color(.2, .8, .8, 1.0)))   # changing the skin updates the XR hands live
+	var changed := PlayerSkin.active_texture()
+	_expect(changed != own and _carries(left_controller.find_child("SkinnedHand", true, false), changed), "an XR hand did not follow a skin change")
+	# the remote VR rig is the same mannequin through the same apply: it shows a peer's skin like any co-op body
+	var remote_rig := ModelSlot.instantiate(PlayerModels.SCENE)
+	host.add_child(remote_rig)
+	PlayerSkin.apply(remote_rig, changed)
+	_expect(_carries(remote_rig, changed), "a remote VR rig does not show the skin")
+	remote_rig.queue_free()
+	xr_hands.queue_free()
+	origin.queue_free()
+	PlayerSkin.reset_active()
+
 	# ---- publishing: only when signed in and the server holds the skin
 	PlayerSkin.import_bytes(_png(Color(.5, .5, .1, 1.0)))
 	sync.uploaded_hash = ""
