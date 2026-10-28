@@ -777,8 +777,10 @@ func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary)
 	var upper_y := float(upper) * StreamedFacilityView3D.LEVEL_HEIGHT
 	player.global_position = Vector3(top_point.x, upper_y + .1, top_point.y)
 	view.begin("SEWER-DEEP", player)
-	for _frame in 20:
+	# a runner reaches a ramp head over seconds of walking: let the window (both levels) stream in first
+	for _frame in 90:
 		await host.get_tree().physics_frame
+	var unseen := {}
 	for leg in [{"to": bottom_point, "level": upper - 1}, {"to": top_point, "level": upper}]:
 		var target: Vector2 = leg["to"]
 		var arrived := false
@@ -789,6 +791,7 @@ func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary)
 			player.rotation.y = atan2(-heading.x, -heading.y)
 			await host.get_tree().physics_frame
 			view._process(1.0 / 60.0)
+			_link_view_frame(view, player, [upper, upper - 1], unseen, "ramp from %d" % upper)
 			if here.distance_to(target) < .6:
 				arrived = true
 				break
@@ -800,6 +803,7 @@ func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary)
 			"walking the ramp did not reach level %d (at %s)" % [int(leg["level"]), player.global_position])
 		_expect(view.current_level() == int(leg["level"]), "after the ramp the view is on level %d, not %d" % [
 			view.current_level(), int(leg["level"])])
+	_link_view_report(unseen, "ramp from %d" % upper)
 	view.clear()
 	view.queue_free()
 	player.queue_free()
@@ -986,6 +990,48 @@ func _check_stairwell_ends(generator: StreamedRouteGenerator, x: int, z: int, we
 		_expect(_flood_grid(grid, landing).size() > 200, "stairwell %s: a landing is cut off from its level" % well["link"]["id"])
 
 
+## Stairs and slopes (KT: "a blank area" around the stairs on the test build): while a runner walks a stairwell or a
+## ramp, every chunk on either of its two levels within LINK_VIEW_CLEAR metres of the runner is in the stream window
+## the whole way (never dropped at the level flip half way along), and is built and shown within LINK_VIEW_GRACE
+## frames of coming that close. `unseen` collects chunk -> {"frames", "worst", "dropped"} across the walk.
+const LINK_VIEW_CLEAR := 12.0
+const LINK_VIEW_GRACE := 45
+
+
+func _link_view_frame(view: StreamedFacilityView3D, player: PlayerController3D, levels: Array, unseen: Dictionary,
+		_where: String) -> void:
+	var here := Vector2(player.global_position.x, player.global_position.z)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(here.x / size)
+	var cz := floori(here.y / size)
+	for level in levels:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var coord := Vector3i(cx + dx, int(level), cz + dz)
+				if not view.generator.is_chunk_allowed(coord) \
+						or StreamedFacilityView3D._distance_from_point_to_chunk(here, coord) >= LINK_VIEW_CLEAR:
+					continue
+				var entry: Dictionary = unseen.get(coord, {"frames": 0, "worst": 0, "dropped": false})
+				if not view._wanted_now.has(coord):
+					entry["dropped"] = true
+				var root: Node3D = view._loaded.get(coord)
+				if root == null or not root.visible:
+					entry["frames"] = int(entry["frames"]) + 1
+				else:
+					entry["frames"] = 0
+				entry["worst"] = maxi(int(entry["worst"]), int(entry["frames"]))
+				unseen[coord] = entry
+
+
+func _link_view_report(unseen: Dictionary, where: String) -> void:
+	for coord in unseen:
+		var entry: Dictionary = unseen[coord]
+		_expect(not bool(entry["dropped"]), "%s: chunk %s within %.0f m left the stream window during the walk" % [
+			where, coord, LINK_VIEW_CLEAR])
+		_expect(int(entry["worst"]) <= LINK_VIEW_GRACE, "%s: chunk %s within %.0f m stayed unloaded for %d frames" % [
+			where, coord, LINK_VIEW_CLEAR, entry["worst"]])
+
+
 ## Follows the stair path with the movement keys, up then down.
 func _walk_stairwell(host: Node, well: Dictionary) -> void:
 	var view := StreamedFacilityView3D.new()
@@ -999,8 +1045,9 @@ func _walk_stairwell(host: Node, well: Dictionary) -> void:
 	var start: Vector3 = path[0]
 	player.global_position = origin + start + Vector3(0, .05, 0)
 	view.begin("SEWER-STAIRS", player)
-	for _frame in 20:
+	for _frame in 90:
 		await host.get_tree().physics_frame
+	var unseen := {}
 	for leg in ["up", "down"]:
 		var points: Array = path.duplicate()
 		if leg == "down":
@@ -1017,6 +1064,7 @@ func _walk_stairwell(host: Node, well: Dictionary) -> void:
 				player.rotation.y = atan2(-heading.x, -heading.y)
 				await host.get_tree().physics_frame
 				view._process(1.0 / 60.0)
+				_link_view_frame(view, player, [int(well["upper"]), int(well["upper"]) - 1], unseen, "%s stairwell" % well["kind"])
 				worst_pop = maxf(worst_pop, absf(player.global_position.y - last_y))
 				last_y = player.global_position.y
 				frames += 1
@@ -1034,6 +1082,7 @@ func _walk_stairwell(host: Node, well: Dictionary) -> void:
 			well["kind"], leg, player.global_position.y, end.y])
 		_expect(worst_pop < .12, "%s stairwell: the runner popped %.2f m in one frame going %s (snag or step)" % [
 			well["kind"], worst_pop, leg])
+	_link_view_report(unseen, "%s stairwell" % well["kind"])
 	_check_colliders_below_maze(view)
 	view.clear()
 	view.queue_free()

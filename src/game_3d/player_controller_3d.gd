@@ -250,6 +250,8 @@ var xr_active := false
 var xr_comfort: XRComfort
 ## OpenXR hand interactions: hand-over-hand ladders, physical swings, pokes, the flashlight in the left hand.
 var xr_hands: XRHands
+var xr_fade: XRFade
+const XR_REVEAL_FALLBACK_SECONDS := 2.5
 ## Metres a gripping hand pulled the runner up (+) or down (-) this frame (XRHands), applied by _update_ladder_climb.
 var _xr_climb_pull := 0.0
 
@@ -795,6 +797,7 @@ func _ready() -> void:
 		first_person_camera.far = PlatformProfile.camera_far
 		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
+	_warm_flashlight.call_deferred()
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
@@ -1694,6 +1697,12 @@ func _wants_xr() -> bool:
 	return OS.has_feature("xr") or OS.get_cmdline_user_args().has("--xr")
 
 
+## Fades the headset in from black (after the spawn settles; see _try_enter_xr).
+func reveal_xr_view() -> void:
+	if xr_fade != null and is_instance_valid(xr_fade):
+		xr_fade.fade_to(0.0)
+
+
 func _try_enter_xr() -> bool:
 	if not _wants_xr():
 		return false
@@ -1711,6 +1720,10 @@ func _try_enter_xr() -> bool:
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
+	# Comfort (XRFade): the route starts black and fades in once the spawn has settled (reveal_xr_view), so the eye never
+	# sees the world stream in or the spawn move; a fallback fades in anyway.
+	xr_fade = XRFade.attach(xr_camera, 1.0)
+	get_tree().create_timer(XR_REVEAL_FALLBACK_SECONDS).timeout.connect(reveal_xr_view)
 	body_visual.visible = false
 	# Desktop viewmodels are camera-framed props, not world-scale VR hands.
 	# Hide them in OpenXR until controller-held models get their own pass.
@@ -2204,6 +2217,27 @@ func _update_first_person_item_lights() -> void:
 	var lit := flashlight != null and flashlight.visible
 	_flashlight_lens_material.emission_enabled = lit
 	_flashlight_lens_material.albedo_color = Color("eee3ad") if lit else Color("3c3b35")
+
+
+## The first time the shadowed SpotLight becomes visible the renderer compiles its shader variants and allocates the
+## positional shadow atlas, a long frame. Do that once right after spawning, at zero energy, so the player's first
+## toggle (and every later one) only flips visibility.
+func _warm_flashlight() -> void:
+	if flashlight == null:
+		return
+	for _i in 2:
+		await get_tree().process_frame
+	if flashlight == null or flashlight.visible:
+		return
+	var energy := flashlight.light_energy
+	flashlight.light_energy = 0.0
+	flashlight.visible = true
+	for _i in 3:
+		await get_tree().process_frame
+	if flashlight == null:
+		return
+	flashlight.light_energy = energy
+	flashlight.visible = _flashlight_beam_should_be_visible()
 
 
 func _flashlight_beam_should_be_visible() -> bool:

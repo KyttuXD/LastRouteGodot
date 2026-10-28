@@ -8,11 +8,11 @@ extends NightWatchOfficeBase
 ## start); the hall light and the vent lights are held. Real lights: the lamp, the hall light, two vent beams: at most the lamp and one held light are ever on together.
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
-const HALF_W := 2.4
+const HALF_W := 3.4
 const FRONT_Z := -1.8
-const BACK_Z := 2.2
-const HEIGHT := 3.2
-const OPENING := 1.9      # half-width of the opening onto the hall
+const BACK_Z := 3.6
+const HEIGHT := 3.7
+const OPENING := 2.5      # half-width of the opening onto the hall
 const SPAWN := Vector3(0.0, 0.0, 1.35)
 const WALL := Color(1.8, 1.25, 1.9)
 const WOOD := Color(1.6, 1.1, 0.8)
@@ -154,7 +154,7 @@ func _build_shell() -> void:
 		_c(shell, Vector3(0.05, 0.1, BACK_Z - FRONT_Z), Vector3(sx * (HALF_W - 0.03), 1.1, (BACK_Z + FRONT_Z) * 0.5), "StripeOrange", {"kind": "label", "tint": Color(1.9, 1.0, 0.45)})
 	_c(shell, Vector3(HALF_W * 2.0, 0.22, 0.08), Vector3(0, 0.11, BACK_Z - 0.04), "Baseboard", {"tint": Color(1.3, 0.9, 1.1)})
 	_c(shell, Vector3(HALF_W * 2.0, 0.1, 0.05), Vector3(0, 1.1, BACK_Z - 0.03), "StripeOrange", {"kind": "label", "tint": Color(1.9, 1.0, 0.45)})
-	for x in [-1.2, 1.2]:
+	for x in [-2.0, 2.0]:
 		_c(shell, Vector3(1.0, 0.08, 0.5), Vector3(x, HEIGHT - 0.04, 0.3), "CeilingFixture", {"kind": "plastic"})
 		_c(shell, Vector3(0.8, 0.02, 0.3), Vector3(x, HEIGHT - 0.1, 0.3), "CeilingLens", {"kind": "glass", "tint": Color(0.6, 0.55, 0.7)})
 	# the front vent: a decorative grille above the opening (sealed; nothing comes out of it in this mode)
@@ -298,9 +298,9 @@ func _build_decor() -> void:
 	var art := _prop("Drawings", Vector3(0.0, 1.8, BACK_Z))
 	for i in 5:
 		var tint: Color = MaskWorld.BALLOON_TINTS[i]
-		_c(art, Vector3(0.45, 0.6, 0.03), Vector3(-1.5 + i * 0.75, (i % 2) * 0.25 - 0.1, -0.03), "DrawingPaper", {"kind": "label", "tint": PAPER * Color(0.9, 0.9, 0.9), "ao": 1.0})
-		_c(art, Vector3(0.3, 0.3, 0.02), Vector3(-1.5 + i * 0.75, (i % 2) * 0.25 - 0.1, -0.06), "DrawingBlob", {"kind": "fabric", "tint": tint})
-	var clock := _prop("WallClock", Vector3(1.6, 2.3, BACK_Z))
+		_c(art, Vector3(0.45, 0.6, 0.03), Vector3(-2.0 + i * 1.0, (i % 2) * 0.25 - 0.1, -0.03), "DrawingPaper", {"kind": "label", "tint": PAPER * Color(0.9, 0.9, 0.9), "ao": 1.0})
+		_c(art, Vector3(0.3, 0.3, 0.02), Vector3(-2.0 + i * 1.0, (i % 2) * 0.25 - 0.1, -0.06), "DrawingBlob", {"kind": "fabric", "tint": tint})
+	var clock := _prop("WallClock", Vector3(2.5, 2.5, BACK_Z))
 	_c(clock, Vector3(0.58, 0.58, 0.05), Vector3(0, 0, -0.03), "ClockFrame", {"kind": "plastic"})
 	_c(clock, Vector3(0.5, 0.5, 0.03), Vector3(0, 0, -0.06), "ClockFace", {})
 	_c(clock, Vector3(0.03, 0.18, 0.02), Vector3(0, 0.07, -0.09), "ClockHandA", {"kind": "plastic"})
@@ -308,9 +308,9 @@ func _build_decor() -> void:
 	var poster := _prop("PosterShow", Vector3(-HALF_W, 1.9, -0.4))
 	_c(poster, Vector3(0.04, 1.0, 0.75), Vector3(0.03, 0, 0), "PosterPaper", {"kind": "fabric", "tint": Color(1.9, 1.0, 0.5)})
 	_c(poster, Vector3(0.04, 0.2, 0.5), Vector3(0.06, 0.32, 0), "PosterTitle", {"kind": "label", "tint": Color(0.9, 0.9, 0.9)})
-	var balloon := _prop("Balloon", Vector3(-2.0, 0.0, 1.8))
+	var balloon := _prop("Balloon", Vector3(-2.8, 0.0, 2.9))
 	_c(balloon, Vector3(0.02, 1.8, 0.02), Vector3(0, 0.9, 0), "StringBalloon", {"kind": "plastic", "tint": Color(1.6, 1.6, 1.6)})
 	_c(balloon, Vector3(0.42, 0.5, 0.42), Vector3(0, 2.0, 0), "BalloonCube", {"kind": "fabric", "tint": MaskWorld.BALLOON_TINTS[0]})
-	var hats := _prop("PartyHats", Vector3(2.0, 0.0, 1.8))
+	var hats := _prop("PartyHats", Vector3(2.8, 0.0, 2.9))
 	for i in 3:
 		_c(hats, Vector3(0.3, 0.26 - i * 0.04, 0.3), Vector3(0, 0.13 + i * 0.26, 0), "HatCone", {"kind": "fabric", "tint": MaskWorld.BALLOON_TINTS[i + 1]})

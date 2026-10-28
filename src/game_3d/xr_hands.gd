@@ -13,6 +13,10 @@ extends Node
 ##
 ## Hand positions are read in the origin's own space, so walking, snap turns and the climb itself never count as hand
 ## movement.
+##
+## The controllers track Godot's "default" pose, which OpenXR binds to the AIM pose (the laser direction, pitched well
+## down from how the hand holds the controller). The hand models were built for the GRIP pose, so each frame they are
+## turned by aim->grip from the controller's own tracker (exact for every controller; KT saw them about 90 degrees off).
 
 const GRIP_HOLD := 0.6
 const SWING_SPEED := 2.2
@@ -93,9 +97,12 @@ func _wear_skin() -> void:
 	for hand in [left, right]:
 		var rig := hand.find_child("SkinnedHand", true, false) as Node3D if hand != null else null
 		if rig != null and bool(rig.get_meta("slim", false)) != Settings.effective_slim():
-			rig.get_parent().remove_child(rig)
-			rig.free()
+			var old := rig.get_parent()
+			var placed := (old as Node3D).transform
+			hand.remove_child(old)
+			old.free()
 			var fresh := _hand_mesh(hand == left, Settings.effective_slim())
+			fresh.transform = placed
 			hand.add_child(fresh)
 			rig = fresh.find_child("SkinnedHand", true, false) as Node3D
 		if rig != null:
@@ -106,7 +113,26 @@ func _hand_local(hand: XRController3D) -> Vector3:
 	return origin.global_transform.affine_inverse() * hand.global_position
 
 
+## The hand model's transform under an aim-pose controller that puts it on the grip pose (identity without a grip pose).
+static func grip_offset(tracker: XRPositionalTracker) -> Transform3D:
+	if tracker == null:
+		return Transform3D.IDENTITY
+	var aim := tracker.get_pose(&"default")
+	var grip := tracker.get_pose(&"grip")
+	if aim == null or grip == null or not aim.has_tracking_data or not grip.has_tracking_data:
+		return Transform3D.IDENTITY
+	return aim.transform.affine_inverse() * grip.transform
+
+
+func _fit_hands_to_grip() -> void:
+	for hand in [left, right]:
+		var model := hand.get_node_or_null(^"HandModel") as Node3D
+		if model != null:
+			model.transform = grip_offset(XRServer.get_tracker(hand.tracker) as XRPositionalTracker)
+
+
 func step(delta: float) -> void:
+	_fit_hands_to_grip()
 	var now := {"left": _hand_local(left), "right": _hand_local(right)}
 	_swing_cooldown = maxf(0.0, _swing_cooldown - delta)
 	if bool(player.call("is_climbing")):

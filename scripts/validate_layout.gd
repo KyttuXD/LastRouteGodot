@@ -471,7 +471,7 @@ func _check_room_lobby_contract(scene: Node) -> int:
 			or dossier.get_item_text(27) != "-- VOID HUNTERS --":
 		failures += _fail("hunter dossier category headers are missing or out of order")
 	elif dossier.get_item_text(1) != "AKI" \
-			or dossier.get_item_text(2) != "???? // UNDISCOVERED":
+			or dossier.get_item_text(2) != "???":
 		failures += _fail("hunter dossier does not reveal only account discoveries")
 	for node_name in ["DossierName", "DossierBehavior", "DossierStats"]:   # the counter label is retired: always hidden and empty
 		var label := scene.find_child(node_name, true, false) as Label
