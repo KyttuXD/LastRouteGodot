@@ -11,6 +11,7 @@ const RADIUS := 3
 
 var _failures := 0
 var _pits_seen := 0
+var _piles := 0
 
 
 func _expect(condition: bool, message: String) -> void:
@@ -24,8 +25,14 @@ func run(host: Node) -> int:
 	for seed_text in SEEDS:
 		_check_seed(seed_text)
 		pits += _pits_seen
+	_expect(_piles >= 8, "only %d landing piles across the windows" % _piles)
+	var forced := StreamedRouteGenerator.new("PILE-FORCE")
+	var spot := Vector3i(1, StreamedRouteGenerator.INFERNO_LEVEL, 1)
+	forced.dump_landing_chunks[spot] = true
+	_expect((forced.chunk(spot)["landing_pile"] as Vector2i).x >= 0, "a dump-hole chunk shows no landing pile")
 	_expect(pits >= 4, "only %d cage pits across the windows" % pits)
 	await _check_pit_view(host)
+	await _check_closed_world(host)
 	return _failures
 
 
@@ -52,14 +59,20 @@ func _check_seed(seed_text: String) -> void:
 						if InfernoCaverns.clearance(grid, Vector2i(x, z)) >= InfernoCaverns.OPEN_CLEARANCE:
 							wide_cells += 1
 			var caverns := generator.inferno_caverns_at(coord)
+			var pile: Vector2i = data.get("landing_pile", Vector2i(-1, -1))
+			if pile.x >= 0:
+				_piles += 1
+				_expect(InfernoCaverns.clearance(grid, pile, 1) >= 1 and pile == generator.dump_landing(coord),
+					"%s %s: the landing pile at %s is not on the clear landing cell" % [seed_text, coord, pile])
 			_check_wide_enough(seed_text, coord, data)
 			_check_seams(seed_text, coord, data, generator)
 			chunks_with += 1 if not caverns.is_empty() else 0
 			caverns_total += caverns.size()
 			_expect(JSON.stringify(_digest(caverns)) == JSON.stringify(_digest(other.inferno_caverns_at(coord))),
 				"%s %s: caverns differ between two generators" % [seed_text, coord])
-			for cavern in caverns:
-				_check_cavern(seed_text, coord, data, cavern)
+			for chamber_index in caverns.size():
+				var cavern: Dictionary = caverns[chamber_index]
+				_check_cavern(seed_text, coord, data, cavern, chamber_index == 0)
 				if not (cavern.get("pit", {}) as Dictionary).is_empty():
 					_pits_seen += 1
 					_check_pit(seed_text, coord, data, cavern["pit"])
@@ -129,19 +142,24 @@ func _check_wide_enough(seed_text: String, coord: Vector3i, data: Dictionary) ->
 	_expect(narrow <= 2, "%s %s: %d open cells are in passages narrower than three (two stray cells beside a pillar or cage are allowed), e.g. %s" % [seed_text, coord, narrow, where])
 
 
-func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern: Dictionary) -> void:
+func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern: Dictionary, is_main: bool) -> void:
 	var tag := "%s %s" % [seed_text, coord]
 	var rect: Rect2i = cavern["rect"]
-	_expect(rect.size.x >= InfernoCaverns.MIN_SPAN and rect.size.x <= InfernoCaverns.MAX_SPAN
-		and rect.size.y >= InfernoCaverns.MIN_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
-		"%s: cavern %s is outside 14-22 cells" % [tag, rect])
+	# the middle chamber is 14-22 across with a clear 7x7; side chambers (the sealed wings) are smaller, 7 and up
+	if is_main:
+		_expect(rect.size.x >= InfernoCaverns.MIN_SPAN and rect.size.x <= InfernoCaverns.MAX_SPAN
+			and rect.size.y >= InfernoCaverns.MIN_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
+			"%s: middle chamber %s is outside 14-22 cells" % [tag, rect])
+	else:
+		_expect(rect.size.x >= 7 and rect.size.y >= 7 and rect.size.x <= InfernoCaverns.MAX_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
+			"%s: side chamber %s is outside 7-22 cells" % [tag, rect])
 	var grid: Array = data["grid"]
 	var open_middle := false
 	for cell in cavern["cells"]:
 		if InfernoCaverns.clearance(grid, cell) >= InfernoCaverns.OPEN_CLEARANCE:
 			open_middle = true
 			break
-	_expect(open_middle, "%s: cavern %s has no clear 7x7" % [tag, rect])
+	_expect(open_middle or not is_main, "%s: middle chamber %s has no clear 7x7" % [tag, rect])
 	for crevice in cavern["crevices"]:
 		var mouth: Vector2i = crevice["mouth"]
 		var cells: Array = crevice["cells"]
@@ -305,3 +323,137 @@ func _check_pit_view(host: Node) -> void:
 	view.clear()
 	view.queue_free()
 	player.queue_free()
+
+
+## Walks a ray on the chunk's plan until it leaves the chunk: true if it leaves through an open cell (a seam opening).
+static func _rock_hit(grid: Array, from: Vector2, dir: Vector2) -> String:
+	var at := from
+	var prev := Vector2i(int(from.x), int(from.y))
+	for _i in 400:
+		at += dir * .25
+		var cell := Vector2i(int(at.x), int(at.y))
+		if cell.x < 0 or cell.y < 0 or cell.x >= StreamedRouteGenerator.CHUNK_SIZE or cell.y >= StreamedRouteGenerator.CHUNK_SIZE:
+			return "left chunk at %s" % at
+		if int(grid[cell.y][cell.x]) != 0:
+			return "rock %s entered from %s at (%.2f, %.2f)" % [cell, prev, at.x, at.y]
+		prev = cell
+	return "none"
+
+
+static func _leaves_through_opening(grid: Array, from: Vector2, dir: Vector2, slopes: Array = []) -> bool:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var at := from
+	var last := Vector2i(int(from.x), int(from.y))
+	for _i in 400:
+		at += dir * .25
+		if at.x < 0.0 or at.y < 0.0 or at.x >= size or at.y >= size:
+			return int(grid[last.y][last.x]) == 0
+		last = Vector2i(int(at.x), int(at.y))
+		for slope in slopes:
+			if (slope as Rect2i).has_point(last):
+				return true  # a ramp tunnel opens up to the storey above: not a gap
+		if int(grid[last.y][last.x]) != 0:
+			return false     # it ran into rock the mesh should have a wall on
+	return false
+
+
+const RAY_HEIGHTS := [0.3, 1.3, 2.2, 3.0]
+## Pitches (degrees) of the rays: flat, and up toward the roof steps and wall tops where a seam would let the void show.
+const RAY_PITCHES := [0.0, 30.0, 55.0]
+const RAY_DIRECTIONS := 16
+const RAY_LENGTH := 70.0
+
+## The caves are closed: from open cells at several heights, a ray in every compass direction and straight up hits the built
+## surface (walls, roof, pit sides) within RAY_LENGTH. A ray that escapes is a gap through which the void shows (KT: the
+## pale bands behind the pit's rails). Chunks around a pit, a plain cave and the seam are loaded and their meshes searched.
+func _check_closed_world(host: Node) -> void:
+	for seed_text in SEEDS:
+		var generator := StreamedRouteGenerator.new(seed_text)
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var level := StreamedRouteGenerator.INFERNO_LEVEL
+		var targets: Array[Vector3i] = []
+		for cz in range(-3, 4):
+			for cx in range(-3, 4):
+				var coord := Vector3i(cx, level, cz)
+				if targets.size() < 1 and not InfernoCaverns.pits_in(generator.chunk(coord)).is_empty():
+					targets.append(coord)
+		targets.append(Vector3i(0, level, 1))
+		for target in targets:
+			var view := StreamedFacilityView3D.new()
+			host.add_child(view)
+			var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+			host.add_child(player)
+			var data := generator.chunk(target)
+			var start := InfernoCaverns.landing(data)
+			player.global_position = Vector3(target.x * size + start.x + .5, float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + .1,
+				target.z * size + start.y + .5)
+			view.begin(seed_text, player)
+			var meshes: Array = []
+			for _i in 900:
+				await host.get_tree().process_frame
+				meshes.clear()
+				for coord_value in view._loaded:
+					var coord: Vector3i = coord_value
+					if coord.y != level:
+						continue
+					var root: Node3D = view._loaded[coord]
+					var surface := root.get_node_or_null("Surface") as MeshInstance3D
+					if surface != null and surface.mesh != null:
+						meshes.append({"offset": root.position, "tri": surface.mesh.generate_triangle_mesh()})
+				if meshes.size() >= 9 and not view.is_streaming() and not view.is_preloading():
+					break
+			var grid: Array = data["grid"]
+			# for the plan walk a lava channel is open space (the ray crosses it)
+			var plan_grid: Array = []
+			for row in grid:
+				plan_grid.append((row as Array).duplicate())
+			for pit in InfernoCaverns.pits_in(data):
+				for lava_cell in pit["lava"]:
+					plan_grid[lava_cell.y][lava_cell.x] = 0
+			var slopes: Array = []
+			for ramp in data.get("ramps", []):
+				slopes.append(ramp["ramp"])
+			var tested := 0
+			var escaped := []
+			for z in range(2, size - 2, 3):
+				for x in range(2, size - 2, 3):
+					if int(grid[z][x]) != 0:
+						continue
+					for height in RAY_HEIGHTS:
+						var origin := Vector3(target.x * size + x + .5, float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + height,
+							target.z * size + z + .5)
+						for k in (RAY_DIRECTIONS * RAY_PITCHES.size()) + 1:
+							var dir := Vector3.UP
+							if k < RAY_DIRECTIONS * RAY_PITCHES.size():
+								var pitch := deg_to_rad(float(RAY_PITCHES[k / RAY_DIRECTIONS]))
+								var yaw := TAU * float(k % RAY_DIRECTIONS) / RAY_DIRECTIONS
+								dir = Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))
+							tested += 1
+							# the nearest surface along the ray, and which side of it the ray meets: its front (a wall, roof or pit side
+							# seen from inside the cave) is fine; its back means the ray slipped through a gap into solid rock
+							var hit := false
+							var nearest := 1.0e9
+							var front := false
+							for entry in meshes:
+								var local_origin: Vector3 = origin - (entry["offset"] as Vector3)
+								var result: Dictionary = (entry["tri"] as TriangleMesh).intersect_ray(local_origin, dir)
+								if result.is_empty():
+									continue
+								var distance := (result["position"] as Vector3).distance_to(local_origin)
+								if distance < nearest:
+									nearest = distance
+									front = (result["normal"] as Vector3).dot(dir) < 0.0
+							hit = nearest <= RAY_LENGTH and front
+							if not hit and dir != Vector3.UP and _leaves_through_opening(plan_grid, Vector2(x + .5, z + .5), Vector2(dir.x, dir.z).normalized(), slopes):
+								hit = true      # it runs out through a seam opening into the neighbour's tunnel: a long straight view
+							if not hit and escaped.size() < 6:
+								escaped.append("%s h%.1f dir %d: %s" % [Vector2i(x, z), height, k, _rock_hit(plan_grid, Vector2(x + .5, z + .5), Vector2(dir.x, dir.z))])
+							elif not hit:
+								escaped.append("")
+			var misses := escaped.size()
+			print("  closed world %s %s: %d meshes, %d rays, %d escaped %s" % [seed_text, target, meshes.size(), tested, misses, escaped.slice(0, 4)])
+			_expect(meshes.size() >= 9, "%s %s: only %d chunk meshes loaded to cast against" % [seed_text, target, meshes.size()])
+			_expect(misses == 0, "%s %s: %d of %d rays escape to the void, e.g. %s" % [seed_text, target, misses, tested, escaped.slice(0, 4)])
+			view.clear()
+			view.queue_free()
+			player.queue_free()

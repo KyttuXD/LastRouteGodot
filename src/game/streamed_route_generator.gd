@@ -874,10 +874,19 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	}
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
 	var inferno_caverns := []
+	var breakables: Array = []
+	var sealed_cells := {}
+	var cave_tunnels: Array = []
 	if coord.y == INFERNO_LEVEL:
-		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation)
+		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation, cave_tunnels)
 		for ramp in ramps:
 			_carve_ramp_bottom(grid, layout, circulation, ramp)
+			# the landing's 3x3 reaches the chunk's edge column, which the shared carve leaves as one brick cell
+			for part in ["bottom", "connector"]:
+				for z in range((ramp[part] as Rect2i).position.y, (ramp[part] as Rect2i).end.y):
+					for x in range((ramp[part] as Rect2i).position.x, (ramp[part] as Rect2i).end.x):
+						if x == 0 or x == CHUNK_SIZE - 1:
+							grid[z][x] = 0
 		# lava is rock to the walk grid but no wall and no floor to the view
 		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
 			for cell in pit["lava"]:
@@ -938,7 +947,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	fixtures.append_array(_prop_hiding_fixtures(coord, region_props, safe))
-	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
+	# Sealed wings (SealPlanner) are planned on the finished grid, then relays and tools are placed against them.
+	if coord.y == INFERNO_LEVEL and not safe:
+		var seal_plan := SealPlanner.plan_cave(world_seed, coord, grid, inferno_caverns, cave_tunnels)
+		breakables = SealPlanner.specs(world_seed, coord, seal_plan, coord.y)
+		for cell in seal_plan["sealed"]:
+			sealed_cells[cell] = true
+	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures, sealed_cells)
 	var music_boxes := _music_boxes(coord, grid, stairs, safe, region_props, fixtures, pickups)
 	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
@@ -968,6 +983,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
 		"inferno_caverns": inferno_caverns,
+		"landing_pile": _landing_pile(coord, grid, inferno_caverns, ramps),
+		"breakables": breakables,
+		"sealed_cells": sealed_cells.keys(),
 		"stairwells": wells,
 		"shaft_cells": shaft_cells,
 	}
@@ -1060,6 +1078,16 @@ static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dic
 			grid[z][x] = 1      # the slope itself is reached only as a ramp link
 
 
+## The breakable spec with this id (Breach.make_id), or {}: found by regenerating its chunk, so a guest can name it.
+func breakable_by_id(id: String) -> Dictionary:
+	var parsed := Breach.parse_id(id)
+	if parsed.is_empty() or not is_chunk_allowed(parsed["chunk"]):
+		return {}
+	var list: Array = chunk(parsed["chunk"]).get("breakables", [])
+	var index := int(parsed["index"])
+	return list[index] if index >= 0 and index < list.size() else {}
+
+
 ## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.
 func inferno_caverns_at(coord: Vector3i) -> Array:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
@@ -1069,6 +1097,12 @@ func inferno_caverns_at(coord: Vector3i) -> Array:
 
 ## Where something dropped into the Inferno lands: a chunk-local walkable cell with a clear 3x3, in the chunk's main
 ## cavern or a 5-wide hall (otherwise its clearest open ground). (-1, -1) if the chunk has none.
+## Chunk coordinates (level -3) that must show a landing pile because something is dumped into them (the dump holes of the
+## level above fill this); any other chunk shows one for a share of its caves.
+var dump_landing_chunks := {}
+const LANDING_PILE_SHARE := .3
+
+
 func dump_landing(coord: Vector3i) -> Vector2i:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
 		return Vector2i(-1, -1)
@@ -2485,6 +2519,20 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved[occupied] = true
 			_exclude_neighbourhood(solid_exclusion, occupied, 1)
 	return result
+
+
+## The cell of a landing pile in a level -3 chunk, or (-1, -1): forced for dump-hole chunks, else a share of them. It stands
+## in the middle chamber, away from ramp landings.
+func _landing_pile(coord: Vector3i, grid: Array, chambers: Array, ramps: Array) -> Vector2i:
+	if coord.y != INFERNO_LEVEL or chambers.is_empty():
+		return Vector2i(-1, -1)
+	if not dump_landing_chunks.has(coord) and SeededRandom.new("%s:PILE:%s" % [world_seed, chunk_id(coord)]).next_float() >= LANDING_PILE_SHARE:
+		return Vector2i(-1, -1)
+	var cell := InfernoCaverns.landing({"grid": grid, "inferno_caverns": chambers})
+	for ramp in ramps:
+		if (ramp["bottom"] as Rect2i).grow(4).has_point(cell):
+			return Vector2i(-1, -1)
+	return cell
 
 
 ## Dressing for level -3's caves: basalt pillars, ember braziers and crystal clusters standing against the walls of each
@@ -4747,7 +4795,7 @@ func _fixtures(coord: Vector3i, grid: Array, rooms: Array, stairs: Array,
 
 
 func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
-		region_props: Array = [], fixtures: Array = []) -> Array:
+		region_props: Array = [], fixtures: Array = [], sealed: Dictionary = {}) -> Array:
 	if safe:
 		return []
 	# Use the full stair-path exclusion so collectables cannot be placed on a
@@ -4764,9 +4812,24 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 			if grid[z][x] == 0 and not excluded.has(cell) \
 					and _open_spawn_neighbourhood(grid, cell):
 				candidates.append(cell)
+	# Sealed wings (SealPlanner): the first relay and the tools stay on open ground, the second relay usually sits behind a
+	# seal, and a deep wing may hold a bonus relay (SealRules).
+	var sealed_candidates := []
+	if not sealed.is_empty():
+		var open_candidates := []
+		for candidate in candidates:
+			if sealed.has(candidate):
+				sealed_candidates.append(candidate)
+			else:
+				open_candidates.append(candidate)
+		candidates = open_candidates
 	var rng := SeededRandom.new("%s:PICKUPS:%s" % [world_seed, chunk_id(coord)])
 	var result := []
 	var plans := ["relay", "relay", "battery"]
+	if not sealed_candidates.is_empty() and rng.next_float() < SealRules.BONUS_RELAY_CHANCE:
+		plans.append("relay")
+	if not sealed.is_empty() and SealRules.guaranteed_tool(coord):
+		plans.append("tool")
 	if rng.next_float() < 0.72:
 		plans.append("tool")
 	if rng.next_float() < 0.38:
@@ -4777,13 +4840,16 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 		plans.append("backpack")
 	var kind_indices := {}
 	for kind_value in plans:
-		if candidates.is_empty():
+		if candidates.is_empty() and sealed_candidates.is_empty():
 			break
 		var kind := String(kind_value)
-		var pick_index := rng.next_index(candidates.size())
-		var cell: Vector2i = candidates[pick_index]
-		candidates.remove_at(pick_index)
 		var index := int(kind_indices.get(kind, 0))
+		var from_sealed := kind == "relay" and index >= 1 and not sealed_candidates.is_empty() \
+			and (index >= 2 or rng.next_float() < SealRules.SECOND_RELAY_SEALED)
+		var pool: Array = sealed_candidates if from_sealed or candidates.is_empty() else candidates
+		var pick_index := rng.next_index(pool.size())
+		var cell: Vector2i = pool[pick_index]
+		pool.remove_at(pick_index)
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":

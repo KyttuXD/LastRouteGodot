@@ -217,6 +217,7 @@ func _ready() -> void:
 	if minimap_panel != null:
 		minimap_panel.visible = true
 	facility.chunk_changed.connect(_on_chunk_changed)
+	facility.breakable_hit.connect(_request_breach)
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
 	_music_boxes.difficulty_id = RoomState.difficulty_id()
@@ -3958,6 +3959,64 @@ func _tick_carousels(delta: float) -> void:
 				_accept_carousel(0, {"carousel_id": ride_id})
 
 
+## Breakables (Breach, docs/BREACH.md): a tool swing at a seal, board or pipe. Host-authoritative like doors: the host takes
+## the hit points off and publishes "stream_breach" (the new hp, so replays are harmless); a guest asks.
+func _request_breach(id: String, tool: String) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "stream_breach_request", "id": id, "tool": tool})
+	else:
+		_host_breach(id, tool, _local_peer_id())
+
+
+func _host_breach(id: String, tool: String, by: int) -> void:
+	var spec := facility.generator.breakable_by_id(id)
+	if spec.is_empty() or world_state.breach_open(id):
+		return
+	var hp_now := world_state.breach_hp(spec)
+	var damage := Breach.damage_for(spec, tool, hp_now)
+	if damage <= 0:
+		return
+	var hp := maxi(0, hp_now - damage)
+	var chunk: Vector3i = spec["chunk"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var centre: Vector2 = (spec["extras"] as Dictionary).get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
+	_publish_stream_event({"what": "stream_breach", "id": id, "kind": spec["kind"], "variant": spec["variant"],
+		"level": chunk.y, "chunk": chunk, "cell": spec["cell"], "hp": hp, "max": spec["hp"], "opened": hp == 0, "tool": tool,
+		"by": by, "position": Vector3(chunk.x * size + centre.x, chunk.y * StreamedFacilityView3D.LEVEL_HEIGHT + 1.0,
+			chunk.z * size + centre.y)})
+
+
+func _accept_breach_request(peer_id: int, event: Dictionary) -> void:
+	_host_breach(String(event.get("id", "")), String(event.get("tool", "")), peer_id)
+
+
+## Every machine: the new hit points, the piece, the hooks; the host also sends the hunters to look.
+func _apply_breach_event(event: Dictionary) -> void:
+	var id := String(event.get("id", ""))
+	var opened := bool(event.get("opened", false))
+	var changed := world_state.set_breach(id, int(event.get("hp", 0)), opened)
+	facility.apply_breach(id, int(event.get("hp", 0)), opened)
+	Breach.dispatch("hit", event)
+	if opened and changed:
+		Breach.dispatch("breached", event)
+		if _remotes.simulates():
+			_hunters_investigate(int(event.get("level", 0)), event.get("position", Vector3.ZERO) as Vector3)
+
+
+## Hunters on the level hear a seal give way and go to see (SealRules.INVESTIGATE_SECONDS: they stay on the spot's trail).
+func _hunters_investigate(level: int, at: Vector3) -> void:
+	for entity_id_value in _hunter_views:
+		var view := _hunter_views.get(entity_id_value) as HunterView3D
+		if view == null or view.brain == null or not view.brain.active or int(_hunter_levels.get(entity_id_value, 0)) != level:
+			continue
+		var point := Vector2(at.x, at.z)
+		if view.brain.position.distance_to(point) > 60.0 or view.brain.state == HunterBrain.State.CHASE:
+			continue
+		view.brain.state = HunterBrain.State.INVESTIGATE
+		view.brain.has_last_known = true
+		view.brain.last_known = point
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -4036,6 +4095,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_booth(peer_id, event)
 		"stream_carousel":
 			_accept_carousel(peer_id, event)
+		"stream_breach_request":
+			_accept_breach_request(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -4460,6 +4521,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			_apply_booth_event(event)
 		"stream_carousel":
 			_apply_carousel_event(event)
+		"stream_breach":
+			_apply_breach_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":

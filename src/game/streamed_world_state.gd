@@ -23,6 +23,8 @@ var room_doors := {}
 ## Room light switches (docs/LIGHT_SWITCHES.md): room id -> on/off, only rooms someone switched. Others use the seeded
 ## default (about one room in four starts dark).
 var room_lights := {}
+## Breakables (Breach, docs/BREACH.md): spec id -> {hp, opened}, only things somebody has hit. Untouched ones are at their spec hp.
+var breaches := {}
 ## One waypoint per player (WaypointState); never a shared list.
 var waypoints := WaypointState.new()
 var disabled_hiding := {}
@@ -335,6 +337,27 @@ func set_room_light(room_id: String, on: bool) -> bool:
 	return changed
 
 
+## Hit points left on a breakable (its spec hp until somebody hits it).
+func breach_hp(spec: Dictionary) -> int:
+	return int((breaches.get(String(spec["id"]), {}) as Dictionary).get("hp", int(spec["hp"])))
+
+
+func breach_open(id: String) -> bool:
+	return bool((breaches.get(id, {}) as Dictionary).get("opened", false))
+
+
+## Sets a breakable's hit points (idempotent, so replayed reliable packets are harmless); true when that changed it.
+func set_breach(id: String, hp: int, opened: bool) -> bool:
+	if id.is_empty():
+		return false
+	var before: Dictionary = breaches.get(id, {})
+	if before.get("hp", -1) == hp and bool(before.get("opened", false)) == opened:
+		return false
+	breaches[id] = {"hp": hp, "opened": opened}
+	navigation_revision += 1
+	return true
+
+
 ## Seconds until the booth is ready again (0 when it is ready). `now` is unix time, passed in so the validators can run a clock.
 func booth_cooldown_left(booth_id: String, now: float) -> float:
 	return maxf(0.0, float(booth_ready_at.get(booth_id, 0.0)) - now)
@@ -393,6 +416,7 @@ func snapshot() -> Dictionary:
 		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
 		"room_lights": room_lights.duplicate(true),
+		"breaches": breaches.duplicate(true),
 		"booth_ready_at": booth_ready_at.duplicate(true),
 		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
 	}
@@ -441,6 +465,8 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	room_doors = (doors as Dictionary).duplicate(true)
 	var lights = snapshot_data.get("room_lights", {})
 	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
+	var broken = snapshot_data.get("breaches", {})
+	breaches = (broken as Dictionary).duplicate(true) if broken is Dictionary else {}
 	var booths = snapshot_data.get("booth_ready_at", {})
 	booth_ready_at = (booths as Dictionary).duplicate(true) if booths is Dictionary else {}
 	carousels = {}

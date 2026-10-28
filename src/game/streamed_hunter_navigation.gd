@@ -419,6 +419,15 @@ func _chunk(coord: Vector3i) -> Dictionary:
 
 func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
+	# a closed seal (or any breakable that blocks) is a wall to the hunters until somebody breaks it open
+	for spec_value in data.get("breakables", []):
+		var spec: Dictionary = spec_value
+		if String((spec.get("extras", {}) as Dictionary).get("blocks", "")) == "" and String(spec.get("kind", "")) != Breach.KIND_SEAL:
+			continue
+		if world_state != null and world_state.breach_open(String(spec["id"])):
+			continue
+		for local_value in (spec["extras"] as Dictionary).get("cells", []):
+			_solid_prop_cells[base + (local_value as Vector2i)] = true
 	for prop_value in data.get("region_props", []):
 		var prop: Dictionary = prop_value
 		if not bool(prop.get("solid", true)) \
