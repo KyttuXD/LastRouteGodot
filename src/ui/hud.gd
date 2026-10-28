@@ -863,7 +863,8 @@ func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 ## Name of the area the player stands in. Shown in the minimap's slot while the minimap has no map to draw
 ## (the City has zones, not a facility plan). Empty clears it.
 func set_zone_text(text: String) -> void:
-	_zone_label.text = text
+	# a zone / district name is an admin-only readout (RegionNames)
+	_zone_label.text = text if RegionNames.visible() else ""
 
 
 ## A scene with no map to show (the City) turns the minimap off so only the zone name takes its slot.

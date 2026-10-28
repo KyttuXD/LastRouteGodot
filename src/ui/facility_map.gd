@@ -542,7 +542,7 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 		if not regions.has(region):
 			regions.append(region)
 	regions.sort()
-	if regions.is_empty():
+	if regions.is_empty() or not RegionNames.visible():
 		return
 	var current_coord := Vector3i(floori(player_at.x / streamed_chunk_size),
 		streamed_level, floori(player_at.y / streamed_chunk_size))
