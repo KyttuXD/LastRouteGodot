@@ -66,6 +66,7 @@ const KIT_MARKER := {"bench": "SeatBench", "party": "BalloonCube", "yard": "Body
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_check_data()
 	_check_golden()
 	_check_rules()

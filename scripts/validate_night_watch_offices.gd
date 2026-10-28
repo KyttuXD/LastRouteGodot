@@ -20,6 +20,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	var ids := {}
 	var built := []
 	var planned := []

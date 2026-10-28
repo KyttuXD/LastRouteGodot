@@ -124,6 +124,7 @@ func _trace(descent: int, seed_number: int, steps: int) -> String:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	NwLeakProbe.report(host, "descent")
 	_numbers()
 	_wires_memory()

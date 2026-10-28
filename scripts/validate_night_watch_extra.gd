@@ -90,6 +90,7 @@ func _at_edge(g: L, id: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	NwLeakProbe.report(host, "extra")
 	_numbers()
 	_rooftop()
