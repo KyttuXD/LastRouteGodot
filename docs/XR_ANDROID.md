@@ -69,6 +69,22 @@ Shots: `touch_controls_2400x1080.png`, `touch_controls_1688x780.png` (`tools/loo
 - **Wrist HUD:** a Label3D on the left controller showing relays, light charge and stamina, refreshed every 0.25 s.
 - **Settings:** saved in the `[xr]` section of the settings file. Desktop and phones never read them.
 
+## XR interactions (Quest)
+
+`XRHands` (`src/game_3d/xr_hands.gd`) is built beside `XRComfort`. Every interaction ends in the player code a keyboard
+drives, so networking, sounds and validators see nothing new:
+
+- **Ladders:** on a ladder, hold grip on either hand and pull it down to climb up, hand over hand at 1:1. Push up to climb
+  down. The stick still works.
+- **Swings:** a fast right-hand swing (2.2 m/s or more) with the crowbar or rescue axe selected swings it. The left grip
+  uses the selected tool like a left click.
+- **Doors and switches:** the right trigger works whatever the right hand points at, because [E]'s aim follows the hand
+  (`PlayerController3D.interaction_aim`). Touching a door, switch or relay with the right fingertip works it too.
+- **Flashlight:** the beam comes from the left hand.
+
+Hand positions are read in the origin's own space, so walking, snap turns and the climb itself never count as hand
+movement.
+
 **The Quest APK needs the Gradle build.** The prebuilt Android template exports a signed Quest APK, but it carries no
 OpenXR loader and no VR manifest entries, so a headset runs it as a flat app. Running in VR needs the Gradle build plus
 the Godot OpenXR Vendors plugin (Meta loader), which waits for KT's approval.
@@ -83,6 +99,8 @@ the Godot OpenXR Vendors plugin (Meta loader), which waits for KT's approval.
     and every target meets the minimum size.
 - `platform` also checks the XR comfort maths: world scale, the latched snap turn, proportional smooth turn, and that a
   desktop run builds no comfort node.
+- `player` checks that a flat run builds no XR helpers and keeps [E] aimed from the head, the climb and swing maths, and
+  that a 0.4 m hand pull moves a real ladder climb by 0.4 m and stops at the foot.
 - `player` already checks the OpenXR rig and that XR stays off without the feature.
 
 ## Milestones
