@@ -1,8 +1,10 @@
 extends RefCounted
 
-## The update gate: with an update available the player stays on the update screen (only INSTALL & RESTART, or RETRY after a
-## failure; no CONTINUE / CONTINUE OFFLINE) and the hub never opens; when the server is unreachable the boot screen falls
-## through to the menu in offline mode; iOS and the web build never block.
+## Background updates (no blocking gate): with an update available the boot screen still opens the menu, the hub opens, and
+## the update downloads in the background; the UpdateBadge shows "UPDATE AVAILABLE // DOWNLOADING n%" then
+## "UPDATE READY // RESTART TO APPLY" (phones: TAP TO INSTALL), in a run inside the HUD status bar; staging waits while a run is
+## going; a ready update is applied on quit (helper swap without relaunch) or with RESTART NOW from the badge popup; dev builds
+## only see the badge text; a stamped build is never offered a lower build.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- update_gate
 
@@ -18,91 +20,87 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	var saved_available := UpdateManager.available.duplicate(true)
 	var saved_offline := UpdateManager.offline_mode
+	var saved_ready := UpdateManager.ready_to_install
 	var opened := [0]
 	UpdateManager.gate_override = func() -> void: opened[0] += 1
-	for key in ["macos", "windows", "phone", "quest"]:
-		_expect(UpdateManager.gated_platform(key), "%s is not held on the update screen" % key)
-	for key in ["ios", "web"]:
-		_expect(not UpdateManager.gated_platform(key), "%s must never be blocked by the update gate" % key)
-	# a newer build is available, for a stamped build (the hard gate)
 	UpdateManager.build_number_override = 700
 	UpdateManager.offline_mode = false
-	UpdateManager.available = {"revision": "b".repeat(40), "build": 999, "sha256": "e".repeat(64), "url": "https://x/y.zip"}
-	if UpdateManager.uses_in_progress_screen() and not UpdateManager.is_dev_build():
-		_expect(UpdateManager.should_open_progress_screen(), "an available update does not hold the player")
-		# the boot screen goes to the update screen, never the menu
-		var boot := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
-		boot.set("auto_start", false)
-		host.add_child(boot)
-		await host.get_tree().process_frame
-		boot.call("_on_update_check_finished", true, true)
-		_expect(opened[0] >= 1 and not bool(boot.get("_may_open_menu")), "boot let the menu open with an update available")
-		boot.queue_free()
-		# the hub refuses to open
-		opened[0] = 0
-		var hub := (load("res://scenes/game_hub.tscn") as PackedScene).instantiate()
-		host.add_child(hub)
-		await host.get_tree().process_frame
-		_expect(opened[0] == 1 and hub.find_child("HubCarousel", true, false) == null, "the hub opened with an update available")
-		hub.queue_free()
-		# the update screen: install only, no way to skip
-		var screen := (load("res://scenes/update_progress.tscn") as PackedScene).instantiate()
-		screen.set("auto_start", false)
-		host.add_child(screen)
-		await host.get_tree().process_frame
-		screen.call("_show_install_button")
-		var cont := screen.find_child("ContinueOfflineButton", true, false) as Button
-		var install := screen.find_child("InstallUpdateButton", true, false) as Button
-		_expect(install != null and install.visible, "the update screen has no INSTALL & RESTART")
-		_expect(cont == null or not cont.visible, "the update screen offers CONTINUE")
-		screen.call("_show_retry", "UPDATE DOWNLOAD FAILED // RETRY")
-		var retry := screen.find_child("RetryUpdateButton", true, false) as Button
-		_expect(retry != null and retry.visible and (cont == null or not cont.visible), "a failed download does not stay on the screen with RETRY only")
-		screen.queue_free()
-	else:
-		print("  (this platform is not gated: %s)" % UpdateManager.platform_key())
-	# a stamped build newer than the manifest is never offered a downgrade
-	_expect(not UpdateManager.mobile_update_needed("b".repeat(40), "c".repeat(40), 783, 790), "a newer stamped build was offered build 783")
-	_expect(UpdateManager.mobile_update_needed("b".repeat(40), "c".repeat(40), 790, 783), "an older stamped build was not offered the update")
-	# unstamped (dev) builds: told, never blocked
-	_expect(UpdateManager.dev_build(0) and not UpdateManager.dev_build(783), "dev build detection")
+	UpdateManager.available = {"revision": "b".repeat(40), "build": 783, "sha256": "e".repeat(64), "url": "https://x/y.zip"}
+	_expect(not UpdateManager.should_open_progress_screen(), "an update still blocks the player")
+	# boot falls through to the menu
+	var boot := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
+	boot.set("auto_start", false)
+	host.add_child(boot)
+	await host.get_tree().process_frame
+	boot.call("_on_update_check_finished", true, true)
+	_expect(bool(boot.get("_may_open_menu")) and opened[0] == 0, "boot did not open the menu with an update available")
+	boot.queue_free()
+	# the hub opens
+	var hub := (load("res://scenes/game_hub.tscn") as PackedScene).instantiate()
+	host.add_child(hub)
+	await host.get_tree().process_frame
+	_expect(hub.find_child("HubCarousel", true, false) != null and opened[0] == 0, "the hub did not open with an update available")
+	hub.queue_free()
+	# badge states
+	var badge := host.get_tree().root.find_child("UpdateBadge", true, false) as UpdateBadge
+	if badge == null:
+		badge = UpdateBadge.new()
+		host.add_child(badge)
+	UpdateManager.downloading = true
+	UpdateManager._last_progress_percent = 42
+	_expect(UpdateManager.badge_text() == "UPDATE AVAILABLE // DOWNLOADING 42%", "downloading badge: %s" % UpdateManager.badge_text())
+	await host.get_tree().process_frame
+	_expect(badge.badge_visible_text() == UpdateManager.badge_text(), "the badge does not show the download")
+	UpdateManager.downloading = false
+	UpdateManager.ready_to_install = true
+	var ready_text := "UPDATE READY // %s" % ("TAP TO INSTALL" if UpdateManager.is_mobile_package() else "RESTART TO APPLY")
+	_expect(UpdateManager.badge_text() == ready_text, "ready badge: %s" % UpdateManager.badge_text())
+	badge.open_popup()
+	await host.get_tree().process_frame
+	var restart := badge.find_child("RestartNowButton", true, false) as Button
+	_expect(badge.popup_open() and restart != null and restart.visible, "the popup has no RESTART NOW for a ready update")
+	badge.close_popup()
+	# in a run: the text moves into the HUD status bar
+	var hud := (load("res://scenes/hud.tscn") as PackedScene).instantiate()
+	host.add_child(hud)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	_expect((hud.get("status_bar") as HudStatusBar).segment_text("update") == ready_text and badge.badge_visible_text().is_empty(),
+		"in a run the update status is not in the HUD bar")
+	hud.queue_free()
+	# staging waits during a run
+	UpdateManager.ready_to_install = false
+	var marker := Node.new()
+	marker.add_to_group("gameplay_session")
+	host.add_child(marker)
+	UpdateManager.downloaded_path = "user://updates/none.zip"
+	UpdateManager._prepare_verified_download()
+	_expect(UpdateManager.staging_deferred and not UpdateManager.preparing, "staging ran during a run")
+	marker.queue_free()
+	UpdateManager.staging_deferred = false
+	UpdateManager.set_process(false)
+	# dev builds: badge text only
 	UpdateManager.build_number_override = 0
-	if UpdateManager.is_dev_build():
-		UpdateManager.available = {"revision": "b".repeat(40), "build": 783}
-		_expect(not UpdateManager.should_open_progress_screen(), "an unstamped dev build is held by the update gate")
-		var boot3 := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
-		boot3.set("auto_start", false)
-		host.add_child(boot3)
-		await host.get_tree().process_frame
-		opened[0] = 0
-		boot3.call("_on_update_check_finished", true, true)
-		var cont3 := boot3.find_child("ContinueOfflineButton", true, false) as Button
-		var phase := String((boot3.get("_phase") as Label).text)
-		_expect(opened[0] == 0 and cont3 != null and cont3.visible and phase.contains("783"),
-			"a dev build is not shown an optional 'UPDATE AVAILABLE (BUILD 783)' notice with CONTINUE (phase '%s')" % phase)
-		var was_offline := Backend.offline_mode if "offline_mode" in Backend else false
-		boot3.call("_continue_offline")
-		_expect(bool(boot3.get("_may_open_menu")), "CONTINUE on the dev notice does not open the menu")
-		_expect(("offline_mode" not in Backend) or Backend.offline_mode == was_offline, "CONTINUE on the dev notice went offline")
-		boot3.queue_free()
-		UpdateManager.available = {}
-	# unreachable: fall through to the menu offline
+	_expect(UpdateManager.badge_text().contains("DEV BUILD") and UpdateManager.badge_text().contains("783"), "dev badge: %s" % UpdateManager.badge_text())
+	UpdateManager.build_number_override = 700
+	# no downgrade
+	_expect(not UpdateManager.mobile_update_needed("b".repeat(40), "c".repeat(40), 783, 790), "a newer stamped build was offered 783")
+	# unreachable: menu, offline
 	UpdateManager.available = {}
 	var boot2 := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
 	boot2.set("auto_start", false)
 	host.add_child(boot2)
 	await host.get_tree().process_frame
-	opened[0] = 0
 	boot2.call("_on_update_check_finished", false, false)
-	_expect(bool(boot2.get("_may_open_menu")) and opened[0] == 0 and UpdateManager.offline_mode,
-		"an unreachable server did not fall through to the menu offline")
+	_expect(bool(boot2.get("_may_open_menu")) and UpdateManager.offline_mode, "an unreachable server did not fall through offline")
 	boot2.queue_free()
-	_expect(UpdateManager.MANIFEST_TIMEOUT_SECONDS <= 8.0, "the update check waits longer than 8 s")
 	UpdateManager.gate_override = Callable()
 	UpdateManager.build_number_override = -1
 	UpdateManager.available = saved_available
 	UpdateManager.offline_mode = saved_offline
+	UpdateManager.ready_to_install = saved_ready
+	UpdateManager.downloaded_path = ""
 	await host.get_tree().process_frame
 	if _failures == 0:
-		print("  updategate an available update holds every self-updating platform on the update screen (install or retry only); unreachable -> menu offline; iOS/web never blocked")
+		print("  updategate no blocking gate: boot + hub open, badge DOWNLOADING n% -> READY (HUD bar in runs), RESTART NOW popup, staging waits for the run, dev badge, no downgrade, offline fall-through")
 	return _failures

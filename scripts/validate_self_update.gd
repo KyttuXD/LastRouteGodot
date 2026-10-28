@@ -107,6 +107,19 @@ func _check_swap() -> void:
 	_expect(_read(install.path_join(".lastroute-backup-previous/data.pck")) == "old", "the previous build was not kept for rollback")
 	_expect(FileAccess.file_exists(marker) and (_read(marker).contains("updated-from") or _read(marker).contains(B)),
 		"the new build was not relaunched (marker: '%s')" % _read(marker))
+	# apply on quit: the same swap without a relaunch
+	_write(stage.path_join("data.pck"), "newer")
+	if FileAccess.file_exists(marker):
+		DirAccess.remove_absolute(marker)
+	if windows:
+		var helper2 := root.path_join("apply-update.ps1")
+		OS.execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper2,
+			"-Stage", stage, "-Install", install, "-Launch", launch, "-GamePid", "999999", "-Revision", B, "-Relaunch", "0"], output, true)
+	else:
+		OS.execute("/bin/sh", [root.path_join("apply-update.sh"), stage, install, launch, "999999", B, "linux", "0"], output, true)
+	OS.delay_msec(800)
+	_expect(_read(install.path_join("data.pck")) == "newer", "the quit-time swap did not install the update")
+	_expect(not FileAccess.file_exists(marker), "the quit-time swap relaunched the game")
 	_wipe(root)
 
 
