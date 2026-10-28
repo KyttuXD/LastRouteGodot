@@ -91,9 +91,11 @@ The git commit is the build identity. A publish stamps `build_revision.json` wit
      `build_revision.json`; `scripts/generate_build_revision.mjs` writes it. One release holds one commit.
   3. Upload the APKs and `updates.debug.json` to the GitHub `debug` release as today; the backend's release sync
      fetches them.
-- **Deploying the server change:** merging to main is enough. The backend's GitHub source watcher restarts it through
-  Pterodactyl, which runs its `git pull`. Check `GET /api/updates/debug/phone`: 404 until a phone APK is published,
-  then the entry with its `build`.
+- **Deploying the server change:** VPS 3 runs the backend as the systemd service `lastroute-godot2` and is deployed by
+  hand by the coordinator, after KT's approval. Run `deploy/deploy.sh` on the VPS for a dry run, then
+  `deploy/deploy.sh --apply` to deploy; `--rollback --apply` returns to the previous release. Nothing redeploys on its
+  own. Afterwards check `GET /api/updates/debug/phone`: 404 until a phone APK is published, then the entry with its
+  `build`.
 
 ## Touch controls (phones)
 
