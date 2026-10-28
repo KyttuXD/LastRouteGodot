@@ -793,7 +793,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	# Vertical links participate in room planning. When layout ran first, its
 	# rooms could be carved directly through the later stair footprint.
 	var stairs := stair_links(coord)
-	var layout := _region_layout(coord, region, grid, stairs)
+	# Level -3 is a cave network, not a maze: no rooms, halls or doorways to plan (InfernoCaverns).
+	var layout := {"rooms": [], "corridors": [], "suites": [], "circulation": {}} if coord.y == INFERNO_LEVEL \
+		else _region_layout(coord, region, grid, stairs)
 	var dual_level := dual_level_room_spec(coord)
 	var floor_voids: Array[Vector2i] = []
 	var ceiling_voids: Array[Vector2i] = []
@@ -812,17 +814,26 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"north": edge_openings(coord, Vector2i(0, -1)),
 		"south": edge_openings(coord, Vector2i(0, 1)),
 	}
-	var wide_seams := {}
-	for side in edges:
-		wide_seams[side] = wide_seam(coord, {"west": Vector2i(-1, 0), "east": Vector2i(1, 0), "north": Vector2i(0, -1),
-			"south": Vector2i(0, 1)}[side])
-	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region), wide_seams)
-	(layout["corridors"] as Array).append_array(edge_corridors)
-	for stair in stairs:
-		_carve_stair_access(grid, stair, layout["rooms"], circulation)
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
-	for ramp in ramps:
-		_carve_ramp_bottom(grid, layout, circulation, ramp)
+	var inferno_caverns := []
+	if coord.y == INFERNO_LEVEL:
+		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation)
+		for ramp in ramps:
+			_carve_ramp_bottom(grid, layout, circulation, ramp)
+		# lava is rock to the walk grid but no wall and no floor to the view
+		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
+			for cell in pit["lava"]:
+				floor_voids.append(cell)
+				structural_voids.append(cell)
+	else:
+		var wide_seams := {}
+		for side in edges:
+			wide_seams[side] = wide_seam(coord, {"west": Vector2i(-1, 0), "east": Vector2i(1, 0), "north": Vector2i(0, -1),
+				"south": Vector2i(0, 1)}[side])
+		var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region), wide_seams)
+		(layout["corridors"] as Array).append_array(edge_corridors)
+		for stair in stairs:
+			_carve_stair_access(grid, stair, layout["rooms"], circulation)
 	var wells := []
 	if coord.y == 0:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
@@ -845,6 +856,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		_carve_safe_room(grid)
 	var region_props := _region_props(coord, region, layout["rooms"], grid, safe,
 		stairs, circulation)
+	if coord.y == INFERNO_LEVEL:
+		region_props.append_array(_cave_props(coord, inferno_caverns, grid, ramps))
 	# Safe-lobby carving and door-frame planning are the final topology-aware
 	# operations. Reassert every room threshold afterwards so a central safe
 	# square or overlapping suite perimeter cannot reopen a diagonal corner.
@@ -866,6 +879,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		region_props, safe)
 	fixtures.append_array(_prop_hiding_fixtures(coord, region_props, safe))
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
+	var music_boxes := _music_boxes(coord, grid, stairs, safe, region_props, fixtures, pickups)
 	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
 		"schema": 2,
@@ -885,6 +899,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"region_props": region_props,
 		"fixtures": fixtures,
 		"pickups": pickups,
+		"music_boxes": music_boxes,
 		"hunter_spawns": hunters,
 		"dual_level_room": dual_level,
 		"floor_voids": floor_voids,
@@ -892,6 +907,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"structural_voids": structural_voids,
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
+		"inferno_caverns": inferno_caverns,
 		"stairwells": wells,
 		"shaft_cells": shaft_cells,
 	}
@@ -982,6 +998,21 @@ static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dic
 	for z in range(slope.position.y, slope.end.y):
 		for x in range(slope.position.x, slope.end.x):
 			grid[z][x] = 1      # the slope itself is reached only as a ramp link
+
+
+## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.
+func inferno_caverns_at(coord: Vector3i) -> Array:
+	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
+		return []
+	return chunk(coord).get("inferno_caverns", [])
+
+
+## Where something dropped into the Inferno lands: a chunk-local walkable cell with a clear 3x3, in the chunk's main
+## cavern or a 5-wide hall (otherwise its clearest open ground). (-1, -1) if the chunk has none.
+func dump_landing(coord: Vector3i) -> Vector2i:
+	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
+		return Vector2i(-1, -1)
+	return InfernoCaverns.landing(chunk(coord))
 
 
 func biome_for(coord: Vector3i) -> String:
@@ -2386,6 +2417,67 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 	return result
 
 
+## Dressing for level -3's caves: basalt pillars, ember braziers and crystal clusters standing against the walls of each
+## chamber, off the tunnel mouths, the crevices, the lava and the cages.
+func _cave_props(coord: Vector3i, chambers: Array, grid: Array, ramps: Array) -> Array:
+	var choices: Array = REGION_PROP_SETS["inferno"]
+	var rng := SeededRandom.new("%s:CAVE-DRESSING:%s" % [world_seed, chunk_id(coord)])
+	var excluded := {}
+	var reserved := {}
+	for ramp in ramps:
+		for part in ["ramp", "bottom", "connector"]:
+			_exclude_rect(excluded, (ramp[part] as Rect2i).grow(2))
+	var result := []
+	var index := 0
+	for chamber_value in chambers:
+		var chamber: Dictionary = chamber_value
+		for tunnel_cell in chamber["tunnel_cells"]:
+			_exclude_neighbourhood(excluded, tunnel_cell as Vector2i, 1)
+		for slit in chamber["crevices"]:
+			_exclude_neighbourhood(excluded, slit["mouth"] as Vector2i, 2)
+		var pit: Dictionary = chamber.get("pit", {})
+		if not pit.is_empty():
+			for cell in pit["lava"]:
+				_exclude_neighbourhood(excluded, cell as Vector2i, 1)
+			_exclude_rect(excluded, (pit["bridge"] as Rect2i).grow(3))
+			for cage in pit["cages"]:
+				excluded[cage["cell"]] = true
+			for entry in pit["row"]:
+				excluded[entry["cell"]] = true
+		var rect: Rect2i = chamber["rect"]
+		for _k in 5:
+			var choice: Dictionary = choices[rng.next_index(choices.size())]
+			var blocker_size: Vector3 = choice.get("size", Vector3.ONE)
+			var placement := _solid_prop_placement(rect, grid, excluded, reserved, blocker_size, rng)
+			if placement.is_empty():
+				continue
+			var cell: Vector2i = placement["cell"]
+			var open_direction: Vector2i = placement["open_direction"]
+			var prop_type := String(choice["type"])
+			result.append({"id": "%s:PROP:CAVE:%d" % [chunk_id(coord), index],
+				"type": prop_type, "cell": cell,
+				"yaw": _room_facing_yaw(cell, cell + open_direction),
+				"facing_target": cell + open_direction,
+				"placement_offset": placement["placement_offset"],
+				"backing_wall": -open_direction,
+				"open_direction": open_direction,
+				"blocker_size": blocker_size, "solid": true,
+				"collider_size": _collider_size(prop_type, blocker_size),
+				"occupied_cells": placement["occupied_cells"],
+				"corridor_clear": true})
+			index += 1
+			for occupied_value in placement["occupied_cells"]:
+				reserved[occupied_value as Vector2i] = true
+				_exclude_neighbourhood(excluded, occupied_value as Vector2i, 1)
+	return result
+
+
+static func _exclude_rect(excluded: Dictionary, rect: Rect2i) -> void:
+	for z in range(rect.position.y, rect.end.y):
+		for x in range(rect.position.x, rect.end.x):
+			excluded[Vector2i(x, z)] = true
+
+
 func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		grid: Array, reserved: Dictionary) -> Array:
 	var room_type := String(room.get("room_type", ""))
@@ -2505,6 +2597,29 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
 			return PropModelCatalog.interaction_for(String(e.get("type", ""))) == "lay"):
 		var bed := _fallback_bed(coord, room, basis, template, specs, grid, reserved, result)
+		if bed.is_empty():
+			# hunter-scale furniture can fill a small bedroom before the bed gets a wall: the bed wins, and the floor
+			# furniture in its way goes (wall and ceiling props stay)
+			var movable := result.filter(func(e: Dictionary) -> bool:
+				var t := String(e.get("type", ""))
+				return not PropModelCatalog.is_wall_mounted(t) and not PropModelCatalog.is_ceiling_mounted(t))
+			var freed := reserved.duplicate()
+			for e in movable:
+				for cell_value in e.get("occupied_cells", []):
+					freed.erase(cell_value as Vector2i)
+			var keep := result.filter(func(e: Dictionary) -> bool: return not movable.has(e))
+			bed = _fallback_bed(coord, room, basis, template, specs, grid, freed, keep)
+			if not bed.is_empty():
+				var bed_cells := {}
+				for cell_value in bed.get("occupied_cells", []):
+					bed_cells[cell_value as Vector2i] = true
+				for e in movable:
+					var hit := not _collider_clear(bed, [e]) or (e.get("occupied_cells", []) as Array).any(
+						func(c: Vector2i) -> bool: return bed_cells.has(c))
+					if hit:
+						result.erase(e)
+						for cell_value in e.get("occupied_cells", []):
+							reserved.erase(cell_value as Vector2i)
 		if not bed.is_empty():
 			bed["spec_index"] = specs.size()
 			result.append(bed)
@@ -3214,11 +3329,12 @@ static func _room_template_specs(template: String, region: String,
 			for candle_side in [-9, 9]:
 				specs.append({"type": "gothicFloorCandelabra", "side": candle_side, "depth": 0, "wall_backed": true, "facing": "open"})
 		"infirmary":
-			for bed_side in [-4, -1, 2, 5]:
+			# hunter-scale beds are 1.54 m wide: the IV stand stands two cells over, the curtains a row further in
+			for bed_side in [-4, 0, 4]:
 				specs.append({"type": "hospitalBed", "side": bed_side, "depth": 0, "wall_backed": true, "facing": "open"})
-				specs.append({"type": "ivStand", "side": bed_side + 1, "depth": 0, "facing": "open"})
-			for curtain_side in [-2, 1, 4]:
-				specs.append({"type": "privacyCurtain", "side": curtain_side, "depth": 1, "facing": "right"})
+				specs.append({"type": "ivStand", "side": bed_side + 2, "depth": 0, "facing": "open"})
+			for curtain_side in [-2, 2]:
+				specs.append({"type": "privacyCurtain", "side": curtain_side, "depth": 2, "facing": "right"})
 			for cart_side in [-3, 3]:
 				specs.append({"type": "medicalCart", "side": cart_side, "depth": mid_depth + 1, "facing": "back"})
 			for light_side in [-3, 3]:
@@ -3532,24 +3648,25 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 	match template:
 		# ---- hospital ----
 		"ward":
-			# beds head-to-wall every second column with a ceiling-track curtain between neighbours
-			var bed_sides := range(-half, half + 1, 2)
+			# beds head-to-wall every fourth column (hunter-scale beds are 1.54 m wide) with a ceiling-track curtain midway
+			# between neighbours
+			var bed_sides := range(-half, half + 1, 4)
 			for bed_index in bed_sides.size():
 				var bed_side: int = bed_sides[bed_index]
 				specs.append(_sp("hospitalBed", bed_side, 0, "open", _WALL))
-				if bed_side + 1 <= half:
-					specs.append(_sp("hospitalCurtain", bed_side + 1, 1, "right"))
+				if bed_side + 2 <= half:
+					specs.append(_sp("hospitalCurtain", bed_side + 2, 1, "right"))
 				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open
 				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
 				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 3, "back"))
 			if depth_span >= 15:
 				# a great-hall ward: a facing bed row by the entrance wall and the nurses' desk in the middle
-				for bed_side in range(-half, half + 1, 2):
+				for bed_side in range(-half, half + 1, 4):
 					if absi(bed_side) <= 2:
 						continue
 					specs.append(_sp("hospitalBed", bed_side, front - 1, "back"))
-					if bed_side + 1 <= half and absi(bed_side + 1) > 2:
-						specs.append(_sp("hospitalCurtain", bed_side + 1, front - 1, "right"))
+					if bed_side + 2 <= half and absi(bed_side + 2) > 2:
+						specs.append(_sp("hospitalCurtain", bed_side + 2, front - 1, "right"))
 				specs.append(_sp("nursesStation", 0, mid, "open"))
 				specs.append(_sp("officeChair", -1, mid - 1, "open"))
 				specs.append(_sp("officeChair", 1, mid - 1, "open"))
@@ -3593,13 +3710,15 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("xrayLightbox", 0, 0, "open", _MOUNT))
 			specs.append(_sp("hazardSign", -2 * mirror, 0, "open", _MOUNT))
 		"icu":
+			# hunter-scale beds (1.54 m wide) sit two cells off the centre line: 1.7 m between each bed and its side wall and
+			# 2.4 m between the beds, all wider than a hunter, so no strip beside a bed is a dead pocket
 			for bay in [-2, 2]:
 				specs.append(_sp("hospitalBed", bay, 0, "open", _WALL))
-				specs.append(_sp("vitalsMonitor", bay - 1, 0, "open", _WALL))
-				specs.append(_sp("ivDripStand", bay + 1, 0, "center"))
-			specs.append(_sp("hospitalCurtain", 0, 1, "right"))
-			specs.append(_sp("instrumentTrolley", -4 * mirror, 3, "center"))
-			specs.append(_sp("medicalSupplyRack", 4 * mirror, 3, "center"))
+				specs.append(_sp("vitalsMonitor", bay * 2, 0, "open", _WALL))
+				specs.append(_sp("ivDripStand", signi(bay), 0, "center"))
+			# past the beds' feet (depth 3), so the strip between a bed and its side wall stays open at its foot
+			specs.append(_sp("instrumentTrolley", -4 * mirror, 5, "center"))
+			specs.append(_sp("medicalSupplyRack", 4 * mirror, 5, "center"))
 			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
 			specs.append(_sp("ceilingLight", -2, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 2, mid, "open", _LOOSE))
@@ -3938,10 +4057,11 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 				specs.append(_sp("dinerBooth", booth_side, 0, "open", _WALL))
 			specs.append(_sp("coffeeStation", 0, 0, "open", _WALL))
 			specs.append(_sp("menuBoard", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
-			specs.append(_sp("checkoutCounter", -4, 3, "open"))
-			specs.append(_sp("checkoutCounter", 4, 3, "open"))
+			# hunter-scale bodies need 1.4 m between a counter's back and the booths behind it
+			specs.append(_sp("checkoutCounter", -4, 4, "open"))
+			specs.append(_sp("checkoutCounter", 4, 4, "open"))
 			for stool_side in [-5, -3, 3, 5]:
-				specs.append(_sp("dinerStool", stool_side, 4, "back"))
+				specs.append(_sp("dinerStool", stool_side, 5, "back"))
 			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
 		"florist":
@@ -4609,6 +4729,43 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 			"item": item,
 		})
 	return result
+
+
+## Which chunks of a 4x4 region hold one of its MUSIC_BOXES_PER_REGION music boxes: picked from the region's own seed,
+## so every chunk agrees without loading its neighbours. A picked chunk that turns out to be a safe room keeps none.
+func music_box_chunk(coord: Vector3i) -> bool:
+	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
+	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var rng := SeededRandom.new("%s:MUSICBOX:%d:%d:%d" % [world_seed, region_x, coord.y, region_z])
+	var slots: Array = range(BIOME_REGION_SIZE * BIOME_REGION_SIZE)
+	var local := (coord.x - region_x * BIOME_REGION_SIZE) + (coord.z - region_z * BIOME_REGION_SIZE) * BIOME_REGION_SIZE
+	for i in GameConfig.MUSIC_BOXES_PER_REGION:
+		var pick := rng.next_index(slots.size())
+		if int(slots[pick]) == local:
+			return true
+		slots.remove_at(pick)
+	return false
+
+
+## A music box (Glyra's counterplay, a random route item) on open floor clear of props, fixtures and pickups. Its own
+## seed, so adding it moved no other item.
+func _music_boxes(coord: Vector3i, grid: Array, stairs: Array, safe: bool, region_props: Array, fixtures: Array,
+		pickups: Array) -> Array:
+	if safe or not music_box_chunk(coord):
+		return []
+	var excluded := _stair_door_exclusion(stairs)
+	for entry in region_props + fixtures + pickups:
+		_exclude_neighbourhood(excluded, entry.get("cell", Vector2i.ZERO), 1)
+	var candidates := []
+	for z in range(1, CHUNK_SIZE - 1):
+		for x in range(1, CHUNK_SIZE - 1):
+			var cell := Vector2i(x, z)
+			if grid[z][x] == 0 and not excluded.has(cell) and _open_spawn_neighbourhood(grid, cell):
+				candidates.append(cell)
+	if candidates.is_empty():
+		return []
+	var rng := SeededRandom.new("%s:MUSICBOX-CELL:%s" % [world_seed, chunk_id(coord)])
+	return [{"id": "%s:music_box" % chunk_id(coord), "cell": candidates[rng.next_index(candidates.size())]}]
 
 
 static func _exclude_neighbourhood(excluded: Dictionary, cell: Vector2i,

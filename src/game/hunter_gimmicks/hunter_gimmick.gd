@@ -100,6 +100,12 @@ func breaches_hiding() -> bool:
 ## in addition to the shared HunterBrain fields. Timers and AI decisions stay
 ## host-only; subclasses expose only values a guest must render or consult
 ## while resolving its own input (Ceryth's riddle, Opalie's guard, etc.).
+## Corner peeking (HunterPeek): the chance a qualifying corner gets a peek, given the hunter's tuned chance. A gimmick
+## whose mood changes how she searches (Glyra) overrides it.
+func peek_chance(_brain: HunterBrain, base: float) -> float:
+	return base
+
+
 func network_state() -> Dictionary:
 	return {}
 

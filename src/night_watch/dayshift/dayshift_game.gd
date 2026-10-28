@@ -69,9 +69,9 @@ func _build_world() -> void:
 	world_env.name = "WorldEnvironment"
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.02, 0.02, 0.03)
+	env.background_color = Color(0.55, 0.74, 0.95)   # a day shift: the yard window shows daylight, not a night sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.38, 0.40, 0.55)
+	env.ambient_light_color = Color(0.62, 0.6, 0.58)
 	env.ambient_light_energy = 0.9
 	world_env.environment = env
 	add_child(world_env)

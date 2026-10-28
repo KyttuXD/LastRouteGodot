@@ -16,7 +16,8 @@ models, `PropColliderSizes`): seats 0.70-1.45 m tall and at most 0.85 wide, tabl
 vanities 0.85-1.35, tall storage 1.2-2.25, couches 0.7-1.1 tall and 1.4-2.8 long, beds 1.8-2.35 long, lamps 1.3-2.0, toilets
 0.7-1.05, showers 1.8-2.25, crates 0.3-1.2: person ranges, judged at hunter scale with `ScaleFit.HUNTER_FACTOR` (1.5x).
 Suite: `scale_fit` fails on a prop wrong at both scales (and on a known outlier that got fixed), lists the props still
-person-sized as the props lane's resize worklist, and fails on them too once `HUNTER_SCALE_STRICT` is switched on.
+person-sized as the props lane's resize worklist, and fails on them too: `HUNTER_SCALE_STRICT` is on since the
+hunter-scale rescale ([SEATING.md](SEATING.md), `PropModelCatalog.HUNTER_SCALE`) emptied the worklist.
 `ScaleFit.ARCHITECTURE` holds the checks for ceiling (4.0 m), room doors (raised toward 2.95 m for the 1.5x hunters, who duck the rest: [DOORWAY_CLEARANCE.md](DOORWAY_CLEARANCE.md); a person needs 2.0),
 hall width (3 or 5 cells), capsule and camera, light switch height (1.45 m: within the runner's reach).
 

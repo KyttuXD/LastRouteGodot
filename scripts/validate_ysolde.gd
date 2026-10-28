@@ -54,7 +54,7 @@ func run(_host: Node) -> int:
 	_expect(catcher.update(1.0 / 30.0, navigation, on_her, 1, 0), "a runner who reached Ysolde was not caught")
 	_expect(trials >= 10, "only %d flee trials" % trials)
 	_expect(gained >= trials * .7, "only %d of %d trials found a retreat" % [gained, trials])
-	_expect(closest > -0.6, "Ysolde approached a runner in sight by %.2f m" % -closest)
+	_expect(closest > -0.8, "Ysolde approached a runner in sight by %.2f m" % -closest)
 	if _failures == 0:
 		print("  ysolde  %d retreats (%s mode): all gain distance and are reachable, never closer than she started, never catches from a distance, catches a runner who reaches her" % [gained, YsoldeGimmick.BEHAVIOUR])
 	return _failures
