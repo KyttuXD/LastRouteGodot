@@ -270,6 +270,21 @@ func _run() -> void:
 			await _shot("outflow_across" + tag, at - wall_dir * 6.5 + back * 2.5 + Vector3(0, 1.6, 0),
 				at - wall_dir * 1.0 + Vector3(0, 1.2, 0))
 		DebugView.set_mode(DebugView.Mode.OFF, get_viewport())
+		# the Axe breaks it: the main goes, the walkway floods (shot as it gushes, then at full depth)
+		var pipe_id := String(main.get("breakable_id", ""))
+		var spec := _view.generator.breakable_by_id(pipe_id)
+		if not spec.is_empty():
+			_view.world_state.set_breach(pipe_id, 0, true)
+			_view.apply_breach(pipe_id, 0, true)
+			Breach.dispatch("breached", {"id": pipe_id, "kind": spec["kind"], "chunk": main_coord, "opened": true})
+			_view.world_state.floods[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.RISE * .5
+			await _shot("outflow_burst", at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, .6, 0))
+			_view.world_state.floods[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.RISE - 3.0
+			for mode in [DebugView.Mode.OFF, DebugView.Mode.FULLBRIGHT]:
+				DebugView.set_mode(mode, get_viewport())
+				await _shot("outflow_flooded" + ("" if mode == DebugView.Mode.OFF else "_fullbright"),
+					at + back * 5.0 + Vector3(0, 1.6, 0), at + Vector3(0, .2, 0))
+			DebugView.set_mode(DebugView.Mode.OFF, get_viewport())
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)

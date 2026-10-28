@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLastRouteServer } from "./server.mjs";
-import { MOD_LIMITS, packIdentity, validatePackManifest } from "./mod_packs.mjs";
+import { MOD_LIMITS, MOD_PACK_KINDS, packIdentity, validatePackManifest } from "./mod_packs.mjs";
 import { buildPack, deployPack, localTransport } from "./deploy_mod_pack.mjs";
 
 const quiet = { error() {}, log() {}, warn() {} };
@@ -76,6 +76,11 @@ test("manifest validation follows the client loader (lr.pack/1) and refuses trav
   assert.equal(validatePackManifest(manifest({ scripts: ["x.gd"] })).error, "UNKNOWN_PACK_FIELD");
   assert.ok(validatePackManifest(manifest({ overrides: ["props/officePrinter"], game_version: "0.9", description: "d" })).pack);
   assert.equal(validatePackManifest(manifest({ overrides: ["../x"] })).error, "INVALID_PACK_OVERRIDES");
+  for (const kind of MOD_PACK_KINDS) {
+    const ok = manifest({ overrides: [`${kind}/x`], files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path: `${kind}/a.json`, sha256: sha("a"), size: 1 }] });
+    assert.ok(validatePackManifest(ok).pack, `${kind}/*.json is a pack data folder`);
+  }
+  assert.deepEqual(MOD_PACK_KINDS, ["props", "regions", "hunters", "grabs"], "same list as ContentPacks.KINDS");
   for (const path of ["props/sub/x.json", "assets/a.GLB", "maps/x.json", "assets/a.gd", "props/x.png"]) {
     const bad = manifest({ files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path, sha256: sha("x"), size: 1 }] });
     assert.equal(validatePackManifest(bad).error, "INVALID_FILE_PATH", path);

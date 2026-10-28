@@ -113,6 +113,19 @@ func _check_panel(host: Node) -> void:
 	var detail := panel.find_child("ModDetail", true, false) as Label
 	_expect(detail != null and detail.text.contains("SOMEONE") and detail.text.contains("MB"), "a pack row lacks author or size")
 	_expect(panel.remove_button.text.contains("(1)"), "remove button should count 1 downloaded pack (%s)" % panel.remove_button.text)
+	var saved_enabled: Array = Settings.mods_enabled.duplicate()
+	Settings.mods_enabled = []
+	var use := panel.find_child("Mod_beta", true, false).find_child("UseButton", true, false) as Button
+	_expect(use != null, "a LOCAL pack has no USE IN MY ROOMS toggle")
+	_expect(panel.find_child("Mod_alpha", true, false).find_child("UseButton", true, false) == null, "a downloaded pack must not be hostable")
+	_expect(panel.find_child("Mod_core", true, false).find_child("UseButton", true, false) == null, "a built-in pack has a host toggle")
+	if use != null:
+		use.pressed.emit()
+		_expect(Settings.mods_enabled == ["beta"], "the toggle did not enable the pack (%s)" % [Settings.mods_enabled])
+		(panel.find_child("Mod_beta", true, false).find_child("UseButton", true, false) as Button).pressed.emit()
+		_expect(Settings.mods_enabled.is_empty(), "the toggle did not disable the pack")
+	Settings.mods_enabled = saved_enabled
+	Settings.set_mod_enabled("", false)
 	panel.auto_button.pressed.emit()
 	_expect(Settings.auto_download_mods, "the switch did not turn auto-download on")
 	panel.auto_button.pressed.emit()
