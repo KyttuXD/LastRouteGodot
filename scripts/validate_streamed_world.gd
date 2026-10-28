@@ -1338,8 +1338,9 @@ func run(host: Node) -> int:
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
 			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
-			# nine on the runner's level, plus the sewer chunk below when it has a ladder
-			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
+			# nine on the runner's level, plus the far end of a ladder, or the other level's chunks around a walked
+			# stairwell / ramp (StreamedFacilityView3D.WALKED_LINKS), bounded to the same 3x3 column
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 				"long-session stream exceeded its nine-chunk window at step %d" % step)
 			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 				"long-session scene retained an evicted chunk at step %d" % step)
@@ -1375,7 +1376,8 @@ func run(host: Node) -> int:
 		_expect(not host.get_tree().get_nodes_in_group("streamed_prison_prop").is_empty(),
 			"live prison chunk contains no authored prison models")
 		await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
-		_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
+		# (the same bound as the long session: 9 here plus at most a 3x3 of the linked level)
+		_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 			"moving far away leaked old streamed chunks instead of evicting them")
 		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 			"streamed scene tree retained evicted chunk nodes")

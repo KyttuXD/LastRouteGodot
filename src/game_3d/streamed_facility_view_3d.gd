@@ -138,6 +138,10 @@ const PREBUILD_LEVEL_RANGE := 1
 ## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
 const PARK_LEVEL_RANGE := PREBUILD_LEVEL_RANGE + 1
 const PREDATA_LEVEL_RANGE := 2
+## Links walked from level to level (no shaft hides the other storey), and how far around each end of one both
+## levels stay loaded: the deepest look up or down a stairwell or along a ramp tunnel.
+const WALKED_LINKS := ["stairs", "spiral", "ramp"]
+const LINK_VIEW_MARGIN := 20.0
 var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
@@ -411,6 +415,27 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 		var vertical := Vector3i(center.x, far, center.z)
 		if generator.is_chunk_allowed(vertical):
 			wanted[vertical] = true
+	# Stairwells and ramps are walked, not climbed: the other level comes into view
+	# from the landing and the runner's level flips half way along, so both levels
+	# keep every chunk within LINK_VIEW_MARGIN of the link's ends (KT: a blank,
+	# unloaded area beyond the stairs). Links in the neighbouring chunks count too
+	# (read only once generated), since a stairwell can sit against a chunk edge.
+	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+			var own := x == center.x and z == center.z
+			for link_value in generator.vertical_links(Vector3i(x, center.y, z), not own):
+				var link: Dictionary = link_value
+				if not WALKED_LINKS.has(String(link["kind"])):
+					continue
+				for level in [int(link["from_level"]), int(link["to_level"])]:
+					var end := LadderTraffic.ladder_point(link, level)
+					for dz in range(-1, 2):
+						for dx in range(-1, 2):
+							var near := Vector3i(x + dx, level, z + dz)
+							# bounded to the runner's 3x3 column on the other level (at most 9 extra chunks)
+							if not wanted.has(near) and _near_column(near, center) and generator.is_chunk_allowed(near) \
+									and _distance_from_point_to_chunk(end, near) < LINK_VIEW_MARGIN:
+								wanted[near] = true
 	# You can see across the falls' drop between the two sewers: in a chunk with
 	# falls the other level's chamber stays loaded.
 	if (center.y == StreamedRouteGenerator.SEWER_LEVEL or center.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL) \

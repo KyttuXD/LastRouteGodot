@@ -136,6 +136,27 @@ func _run() -> void:
 		await _settle()
 		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
 			lip + Vector3(0, low_y + 1.8, 0))
+	# 6c: a maze <-> sewer stairwell, looking up it from the foot and down it from the head, with the runner on the
+	# stairs half way (where its level flips): the other storey around the doorway must be built, not blank
+	var well := {}
+	var well_column := Vector2i.ZERO
+	for cz in range(-4, 5):
+		for cx in range(-4, 5):
+			if well.is_empty():
+				well = _view.generator.stairwell_between(cx, cz, 0)
+				well_column = Vector2i(cx, cz)
+	if not well.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var base := Vector3(well_column.x * size, level_y, well_column.y * size)
+		var path: Array = well["link"]["path"]
+		var foot: Vector3 = base + (path[0] as Vector3)
+		var head: Vector3 = base + (path[path.size() - 1] as Vector3)
+		var out_dir := Vector3(0, 0, float(int(well["outward"])))
+		_player.global_position = base + (path[path.size() / 2] as Vector3) + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		await _shot("stairwell_looking_up", foot + Vector3(0, 1.5, 0) - out_dir * 1.5, head + Vector3(0, 1.6, 0) + out_dir * 6.0)
+		await _shot("stairwell_looking_down", head + Vector3(0, 1.7, 0) + out_dir * 4.0, foot + Vector3(0, .3, 0) - out_dir * 1.0)
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
