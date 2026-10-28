@@ -19,6 +19,7 @@ const PUBLIC_ENET_TTL_MS = 15_000;
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DEFAULT_DEV_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const ACCOUNT_RATE_LIMIT_PATHS = new Set([
   "/api/account/register",
   "/api/account/login",
@@ -29,6 +30,7 @@ const ACCOUNT_RATE_LIMIT_PATHS = new Set([
 	"/api/admin/roster/set",
 	"/api/admin/roster/remove",
   "/api/dev/login",
+  "/api/dev/reload",   // accepts adminProof (the setup password): must not be a cheap guessing oracle
   "/api/enet/admin-tickets/issue",
 ]);
 const UPDATE_CHANNELS = ["debug", "release"];
@@ -276,6 +278,7 @@ export function createLastRouteServer({
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
   apiRateLimitMax = 600,
   accountRateLimitMax = 30,
+  devTokenTtlMs = DEFAULT_DEV_TOKEN_TTL_MS,
   now = Date.now,
   logger = console,
 } = {}) {
@@ -305,7 +308,7 @@ export function createLastRouteServer({
   const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
     roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
   const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
-  const devTokens = new Set();
+  const devTokens = new Map();   // token -> expiresAt; a leaked dev token must not grant developer proof forever
   const requestRates = new Map();
   let enetRelay = null;
   let reloadId = 0;
@@ -351,14 +354,21 @@ export function createLastRouteServer({
   }
 
   function developerRequest(body) {
-    if (body?.devToken && devTokens.has(String(body.devToken))) return true;
+    if (body?.devToken) {
+      const key = String(body.devToken);
+      const expiresAt = devTokens.get(key);
+      if (expiresAt && expiresAt > now()) return true;
+      if (expiresAt) devTokens.delete(key);
+    }
     if (adminPassword && safeEqual(body?.adminProof, adminPassword)) return true;
     return Boolean(accountService.sessionAdminIdentity(body?.sessionToken)?.adminOwner);
   }
 
   function issueDevToken() {
     const token = randomBytes(24).toString("hex");
-    devTokens.add(token);
+    const timestamp = now();
+    for (const [key, expiresAt] of devTokens) if (expiresAt <= timestamp) devTokens.delete(key);
+    devTokens.set(token, timestamp + Math.max(1000, Number(devTokenTtlMs) || DEFAULT_DEV_TOKEN_TTL_MS));
     return token;
   }
 

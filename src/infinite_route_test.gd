@@ -230,6 +230,9 @@ func _ready() -> void:
 	_remotes.player_event.connect(_apply_player_event)
 	_remotes.hunter_event.connect(_apply_hunter_event)
 	_remotes.snapshot_source = _build_stream_snapshot
+	# Respawns and checkpoint returns are the only long jumps a guest makes on one floor (docs/ANTI_CHEAT.md).
+	_remotes.guard.legit_spot = func(at: Vector3, _depth: int) -> bool:
+		return at.distance_to(facility.spawn_position()) < 4.0 or at.distance_to(_checkpoint_world_position()) < 4.0
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
 	_room_chat.ping_posted.connect(hud.add_map_ping)
