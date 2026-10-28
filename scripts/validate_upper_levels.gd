@@ -22,6 +22,20 @@ func run(_host: Node) -> int:
 		"a full-size hunter fits the attic crawlspace")
 	_expect(VentNetwork.DUCT_HEIGHT < HUNTER_HEIGHT, "a hunter fits the vents")
 	_expect(VentNetwork.DUCT_HEIGHT >= PlayerController3D.CROUCH_COLLISION_HEIGHT, "a crouching runner does not fit the vents")
+	# the shared sealed-map table reads the same on every level
+	for level in range(0, 6):
+		var mix := SealRules.seal_mix(level)
+		var total := 0.0
+		for kind in mix:
+			total += float(mix[kind])
+			_expect(SealRules.seal_prop(level, kind) != "", "level %d uses seal %s with no themed prop" % [level, kind])
+		_expect(not mix.is_empty() and absf(total - 1.0) < 0.001, "level %d seal mix does not sum to 1: %s" % [level, mix])
+	var last_open := 1.0
+	for entry in SealRules.RINGS:
+		_expect(float(entry[1]) <= last_open, "open share does not shrink going out: %s" % [SealRules.RINGS])
+		last_open = float(entry[1])
+	_expect(is_equal_approx(SealRules.open_share(Vector3i(0, 0, 0)), 0.75) and is_equal_approx(SealRules.open_share(Vector3i(9, 0, -3)), 0.25),
+		"ring lookup does not match the approved table")
 	var chunks := 0
 	var up_chunks := {}
 	var kinds := {}
