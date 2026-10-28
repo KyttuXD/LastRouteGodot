@@ -237,7 +237,8 @@ def main():
         if not wanted:
             print("RESULT: PASS (nothing affected; run --full before pushing)")
             return 0
-    unknown = [s for s in wanted if s not in known and not s.startswith("res://")]
+    # "suite#i/n" is shard i of n of a known suite (the runner sets VALIDATE_SHARD for it)
+    unknown = [s for s in wanted if s.split("#")[0] not in known and not s.startswith("res://")]
     durations = {}
     if os.path.exists(TIMINGS):
         try:
@@ -303,7 +304,7 @@ def main():
     wall = time.time() - t0
 
     for s, (v, secs) in results.items():
-        if s in known and secs > 0:
+        if s.split("#")[0] in known and secs > 0:
             durations[s] = secs
     try:
         json.dump(durations, open(TIMINGS, "w"), indent=1, sort_keys=True)
