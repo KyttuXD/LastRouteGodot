@@ -29,6 +29,8 @@ func run(_host: Node) -> int:
 		for kind in mix:
 			total += float(mix[kind])
 			_expect(SealRules.seal_prop(level, kind) != "", "level %d uses seal %s with no themed prop" % [level, kind])
+			for tool in SealRules.seal_tools(level, kind):
+				_expect(SealRules.tool_mix(level).has(tool), "level %d seal %s needs %s, which never spawns there" % [level, kind, tool])
 		_expect(not mix.is_empty() and absf(total - 1.0) < 0.001, "level %d seal mix does not sum to 1: %s" % [level, mix])
 	var last_open := 1.0
 	for entry in SealRules.RINGS:

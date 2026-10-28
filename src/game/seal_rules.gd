@@ -30,6 +30,10 @@ const SECOND_TOOL_CHANCE := 0.5
 const TOOL_MIX := {"crowbar": 0.45, "axe": 0.30, "lockpick": 0.25}
 ## Seal kinds and their share (props lane interactables).
 const SEAL_MIX := {"barricade": 0.40, "locked_door": 0.25, "weak_wall": 0.20, "vent_grate": 0.15}
+## Which tools open each seal kind (props lane reads this; bare hands open nothing). A locked door is the existing room
+## door prop with "locked": true; a lockpick is quiet, a crowbar forces it loudly.
+const SEAL_TOOLS := {"barricade": ["axe", "crowbar"], "locked_door": ["lockpick", "crowbar"],
+	"weak_wall": ["axe", "crowbar"], "vent_grate": ["crowbar"]}
 ## Opening a seal draws nearby hunters to investigate for this long (on top of each hit's noise burst).
 const INVESTIGATE_SECONDS := 20.0
 ## Per-level flavour: each seal kind's themed form on that level ("" = that kind does not occur there).
@@ -43,7 +47,7 @@ const LEVEL_SEALS := {
 }
 ## Single values a level changes (key -> value), e.g. {5: {"tool_mix": {"axe": 1.0}}} once the Overgrowth exists.
 const LEVEL_OVERRIDES := {
-	5: {"tool_mix": {"axe": 1.0}},
+	5: {"tool_mix": {"axe": 1.0}, "seal_tools": {"barricade": ["axe"]}},
 }
 
 
@@ -96,3 +100,8 @@ static func guaranteed_tool(coord: Vector3i) -> bool:
 
 static func second_tool_chance(coord: Vector3i) -> float:
 	return SECOND_TOOL_CHANCE if ring(coord) >= SECOND_TOOL_RING else 0.0
+
+
+static func seal_tools(level: int, kind: String) -> Array:
+	var overrides: Dictionary = (LEVEL_OVERRIDES.get(level, {}) as Dictionary).get("seal_tools", {})
+	return overrides.get(kind, SEAL_TOOLS.get(kind, []))
