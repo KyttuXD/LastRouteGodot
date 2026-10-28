@@ -913,49 +913,25 @@ func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
 ## contribution once it runs down, and winding it gives back exactly what she
 ## added rather than leaving the meter wherever it happened to land.
 func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
+	# Finite floor: no route boxes, so she keeps one private box at her spawn (the full rules: glyra_music).
 	var brain := _brain("glyra", Vector2(generator.start) + Vector2(0.5, 0.5))
-	if brain.gimmick == null:
+	var glyra := brain.gimmick as GlyraGimmick
+	if glyra == null:
 		_fail("Glyra has no gimmick")
 		return
-	var meters := PlayerMeters.new()
-	var target := _target(brain.position)
-	target["meters"] = meters
-
-	# Freshly wound: silent, and pinned in place.
+	var target := _target(brain.position + Vector2(12, 0))
 	brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.gimmick.holds_position(), "Glyra is not pinned in place")
-	_expect(brain.world_events.is_empty(), "a freshly wound music box already raised a warning")
-
-	# Run the wind all the way down.
-	for i in int(GameConfig.GLYRA_BAY_SECONDS / STEP) + 5:
-		brain.update(STEP, generator, target, 1, 0)
-	var warned := false
-	for event in brain.world_events:
-		if String(event.get("message", "")).find("WOUND DOWN") >= 0:
-			warned = true
-	_expect(warned, "Glyra's music box ran down with no warning to the player")
-	brain.world_events.clear()
-
-	# Unwound now: real noise, accumulating.
-	meters.update(STEP, {})
-	var before := meters.noise_meter
-	for i in 30:
-		brain.update(STEP, generator, target, 1, 0)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter > before, "an unwound music box raised no facility noise")
-
-	# Winding it gives back what it took, not just stops taking more.
-	var winding := meters.noise_meter
-	brain.gimmick.wind(meters)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter < winding,
-		"winding the music box did not reclaim the noise it had added")
-	for i in 10:
-		brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.world_events.is_empty(),
-		"a freshly rewound box is already raising noise or warnings again")
-
-	print("  glyra     silent while wound, raises real noise once run down, reclaims it on rewind")
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING and glyra.immune_to_capture() and glyra.humming(),
+		"a freshly wound Glyra is not calm, humming and harmless")
+	_expect(not glyra.holds_position(), "Glyra is still pinned in place")
+	glyra.boxes.set_seconds_left(glyra.box_id, 0.0)
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.STOPPED and not glyra.immune_to_capture() and not glyra.humming(),
+		"Glyra's stopped box did not set her hunting")
+	glyra.wind()
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING, "winding Glyra's box on the finite floor did not calm her")
+	print("  glyra     calm while her box plays, hunts once it stops, calm again after a wind")
 
 
 ## Ilyra teleports to a corner and watches. Seen once, then LOOKED AWAY FROM

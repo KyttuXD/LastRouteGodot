@@ -887,6 +887,36 @@ func _sync_peek_pose() -> void:
 	_peek_pose = wanted
 
 
+## Glyra hums while her music box plays and falls silent when it stops (GlyraGimmick.humming, replicated mood).
+var _hum: AudioStreamPlayer3D
+
+
+func _update_glyra_hum() -> void:
+	if not brain.gimmick is GlyraGimmick:
+		return
+	var on := brain.active and (brain.gimmick as GlyraGimmick).humming()
+	if _hum == null:
+		if not on:
+			return
+		_hum = AudioStreamPlayer3D.new()
+		_hum.name = "GlyraHum"
+		_hum.unit_size = 4.0
+		_hum.max_distance = 14.0
+		_hum.volume_db = 3.0
+		_hum.position = Vector3(0, 1.5, 0)
+		var hum := Sound.render_cue("glyra_hum").duplicate() as AudioStreamWAV
+		if hum != null:
+			hum.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			hum.loop_begin = 0
+			hum.loop_end = int(hum.data.size() / 4)
+			_hum.stream = hum
+		add_child(_hum)
+	if on and not _hum.playing and _hum.stream != null and DisplayServer.get_name() != "headless":
+		_hum.play()
+	elif not on and _hum.playing:
+		_hum.stop()
+
+
 ## Runs on every peer from replicated state: when this machine's camera has a clear line to her leaned-out head, play
 ## the sting once for this peek. The head is where the brain says it is, so the beat matches what she can see back.
 func _update_peek_spot() -> void:
@@ -1057,6 +1087,7 @@ func _update_animation() -> void:
 		speed = _stride_scale
 	_sync_peek_pose()
 	_update_peek_spot()
+	_update_glyra_hum()
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():

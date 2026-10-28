@@ -1030,7 +1030,11 @@ func _consider_peek(generator) -> void:
 		return
 	if gimmick != null and gimmick.holds_position():
 		return
-	var odds := peek_chance_override if peek_chance_override >= 0.0 else HunterPeek.chance(hunter_id, difficulty_id)
+	var odds := HunterPeek.chance(hunter_id, difficulty_id)
+	if gimmick != null:
+		odds = gimmick.peek_chance(self, odds)
+	if peek_chance_override >= 0.0:
+		odds = peek_chance_override
 	if odds <= 0.0 or not generator.has_method("is_floor"):
 		return
 	var here := _cell_of(position)

@@ -102,6 +102,9 @@ var generator: FacilityGenerator
 var heater_state: HeaterState = HeaterState.FROZEN
 ## Vent only -- which entry in FacilityGenerator.vents this node stands on.
 var vent_id := ""
+## MUSIC_BOX: which box (StreamedRouteGenerator._music_boxes) and the shared clock its tune follows.
+var music_box_id := ""
+var music_boxes: MusicBoxes
 ## Some deterministic relay spawns are concealed inside a locked crate or
 ## barrel. They remain ordinary relays for objective counts and late-join
 ## snapshots; this flag only adds the tool gate and container presentation.
@@ -225,6 +228,11 @@ func _ready() -> void:
 	_light.light_color = GLOW_COLORS[kind]
 	add_child(_light)
 	LampField.make_budgeted(_light)
+	if kind == Kind.MUSIC_BOX and music_boxes != null:
+		var tune := MusicBoxTune.new()
+		tune.box_id = music_box_id
+		tune.boxes = music_boxes
+		add_child(tune)
 
 	_refresh_visual()
 
@@ -563,7 +571,7 @@ func activate(player: PlayerController3D) -> String:
 			# plain interactable has no business knowing what a hunter is.
 			if player.music_box_resolver.is_valid():
 				Sound.music_box()
-				return String(player.music_box_resolver.call())
+				return String(player.music_box_resolver.call(music_box_id))
 			return _fail("Nothing happens.")
 		Kind.VENT:
 			# Never completes, and the prompt stays the same coming or going --

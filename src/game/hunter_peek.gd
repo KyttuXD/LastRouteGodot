@@ -26,6 +26,7 @@ const DEFAULT := {"chance": 0.35, "look": 1.4, "style": "burst"}
 const TUNING := {
 	"nyxie": {"chance": 0.9, "look": 2.0, "style": "ambush"},
 	"thessine": {"chance": 0.7, "look": 1.8, "style": "ambush"},
+	"glyra": {"chance": 0.8, "look": 1.8, "style": "ambush"},   # only once her music is running down (GlyraGimmick.peek_chance)
 	"ilyra": {"chance": 0.65, "look": 1.5, "style": "burst"},
 	"quenelle": {"chance": 0.55, "look": 1.6, "style": "ambush"},
 	"umbriel": {"chance": 0.55, "look": 1.8, "style": "ambush"},
@@ -42,7 +43,7 @@ const TUNING := {
 	"void_red": {"chance": 0.2, "look": 1.0, "style": "burst"},
 	"void_orange": {"chance": 0.2, "look": 1.0, "style": "burst"},
 }
-const NEVER := ["wynelle", "haelith", "ysolde", "opalie", "verrine", "zellia", "void_gray", "glyra", "mavrine", "ceryth",
+const NEVER := ["wynelle", "haelith", "ysolde", "opalie", "verrine", "zellia", "void_gray", "mavrine", "ceryth",
 	"briselle", "ferryn", "javelle", "aki"]
 
 ## Difficulty: chance scale, seconds from first sight to the burst, and how long an ambusher waits in cover.

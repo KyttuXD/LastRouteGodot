@@ -505,10 +505,19 @@ const RELAY_RESECURE_SECONDS := 2.6
 ## is her plan's own value.
 const FERRYN_FLASH_NOISE := 100.0
 
-## Glyra — spawn-room music box (hunterAbilities.glyra.musicBoxThreat).
-## baySeconds/noisePerSecond are her plan's own values.
-const GLYRA_BAY_SECONDS := 20.0
-const GLYRA_NOISE_PER_SECOND := 1.0
+## Glyra and the music boxes (GlyraGimmick, MusicBoxes; KT 2026-10-28). A wound box plays for MUSIC_BOX_WOUND_SECONDS
+## (by difficulty); its last MUSIC_BOX_WINDDOWN_SECONDS go off-key. Glyra is calm while her nearest box plays, restless
+## while it winds down, and hunts fast once it stops. Winding is a hold of MUSIC_BOX_WIND_HOLD seconds.
+const MUSIC_BOX_WOUND_SECONDS := {"standard": 45.0, "hard": 35.0, "nightmare": 25.0}
+const MUSIC_BOX_WINDDOWN_SECONDS := 15.0
+const MUSIC_BOX_WIND_HOLD := 1.5
+const MUSIC_BOXES_PER_REGION := 2
+const GLYRA_CALM_SPEED_SCALE := 0.6
+const GLYRA_CALM_SIGHT := 4.0          # calm, she only chases a runner this close
+const GLYRA_CALM_LEASH := 8.0          # calm, she wanders back toward her box beyond this
+const GLYRA_HUNT_SPEED_SCALE := {"standard": 1.3, "hard": 1.3, "nightmare": 1.5}
+const GLYRA_HUNT_HEARING_SCALE := 1.5
+const GLYRA_CALM_AFTER_WIND := 3.0     # a rewind settles her within this, unless she can see who she is chasing
 
 ## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Relaxed,
 ## Standard and Hard use the counterable Standard values; Nightmare's

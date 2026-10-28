@@ -688,6 +688,17 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"music_box":
 			var phrase := [1046.5, 1318.5, 1568.0, 1318.5, 1760.0, 1568.0]
 			for index in phrase.size(): c.append(_tone(phrase[index], .22, .07, index * .2, "triangle"))
+		"music_box_tune":
+			# the music box's loop (MusicBoxTune): a phrase, four notes more, then four that turn around and come home
+			var tune := [1046.5, 1318.5, 1568.0, 1318.5, 1760.0, 1568.0, 1318.5, 1174.7,
+				1318.5, 1568.0, 1396.9, 1174.7, 1046.5, 1174.7, 1318.5, 1046.5]
+			for index in tune.size(): c.append(_tone(tune[index], .34, .14, index * .27, "triangle"))
+			c.append(_tone(0.0, .01, 0.0, tune.size() * .27 + .3))   # breath before the loop
+		"glyra_hum":
+			# Glyra humming along, low and soft (HunterView3D, only while her music plays)
+			var hum := [261.6, 329.6, 392.0, 329.6, 440.0, 392.0, 329.6, 293.7]
+			for index in hum.size(): c.append(_tone(hum[index], .5, .12, index * .45, "sine"))
+			c.append(_tone(0.0, .01, 0.0, hum.size() * .45 + .6))
 		"alert": c = [_tone(150, .12, .12, 0, "saw"), _tone(96, .2, .10, .06, "square")]
 		"chase_start": c = [_tone(92, .16, .16, 0, "saw"),
 			_tone(138, .19, .13, .07, "square"),

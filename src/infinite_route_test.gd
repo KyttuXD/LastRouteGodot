@@ -219,6 +219,9 @@ func _ready() -> void:
 	facility.chunk_changed.connect(_on_chunk_changed)
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
+	_music_boxes.difficulty_id = RoomState.difficulty_id()
+	facility.music_boxes = _music_boxes
+	player.music_box_resolver = _wind_streamed_music_box
 	facility.door_requester = _request_streamed_door
 	facility.room_light_requester = _request_room_light
 	facility.booth_requester = _request_booth
@@ -347,6 +350,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 func _process(delta: float) -> void:
 	_update_troll_ads(delta)
+	_music_boxes.tick(delta)
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
 	_tick_carousels(delta)
@@ -2573,6 +2577,8 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
 	_configure_day_vision(view.brain)
+	if view.brain.gimmick is GlyraGimmick:
+		(view.brain.gimmick as GlyraGimmick).boxes = _music_boxes
 	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
 	_lock_gray_on(entity_id, view.brain)
@@ -3251,6 +3257,22 @@ func _accept_stream_guardian_ping(peer_id: int, event: Dictionary) -> void:
 		var view := view_value as HunterView3D
 		if view != null and view.brain.active:
 			view.brain.enter_search_from(position, 1.8)
+
+
+## The route's music boxes (MusicBoxes; Glyra's counterplay). Every peer ticks its own clock; a wind is a stream event.
+var _music_boxes := MusicBoxes.new()
+
+
+## Hold [E] on a box: wind it here at once (the tune restarts), and through the host for everyone else.
+func _wind_streamed_music_box(box_id: String) -> String:
+	if box_id.is_empty():
+		return "Nothing happens."
+	if RoomState.online and not RoomState.is_host:
+		_music_boxes.wind(box_id)
+		_remotes.request_interaction({"what": "music_box", "id": box_id})
+	else:
+		_publish_stream_event({"what": "stream_music_box", "id": box_id})
+	return "Music box wound. The tune starts again."
 
 
 func _use_streamed_vent(vent_id: String) -> String:
@@ -3981,6 +4003,10 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":
 			_accept_stream_vent(peer_id, event)
+		"music_box":
+			var box_id := String(event.get("id", ""))
+			if not box_id.is_empty() and box_id.ends_with(":music_box"):
+				_publish_stream_event({"what": "stream_music_box", "id": box_id})
 		"signal_route_result":
 			VoidPlayerEffects.host_route_result(_hunter_views.values(), peer_id, bool(event.get("ok", false)))
 
@@ -4308,6 +4334,8 @@ func _publish_stream_event(event: Dictionary, _state_already_applied: bool = fal
 
 func _apply_stream_world_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
+		"stream_music_box":
+			_music_boxes.wind(String(event.get("id", "")))
 		"stream_respawn":
 			for id_value in event.get("ids", []):
 				world_state.claimed_pickups.erase(String(id_value))

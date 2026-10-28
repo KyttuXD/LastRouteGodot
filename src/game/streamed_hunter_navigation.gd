@@ -19,6 +19,8 @@ var safe_zones: Array = []
 var relays: Array = []
 var batteries: Array = []
 var vents: Array = []
+## Music boxes on this level: {"id", "x", "y", "source_chunk"} (Glyra reads her nearest).
+var music_boxes: Array = []
 var hiding_spots: Array = []
 var start := Vector2i.ZERO
 var exit_cell := Vector2i.ZERO
@@ -70,6 +72,7 @@ func refresh(route_level: int, coords: Array) -> void:
 	relays.clear()
 	batteries.clear()
 	vents.clear()
+	music_boxes.clear()
 	hiding_spots.clear()
 	_active_coords = canonical
 	_refresh_revision = revision
@@ -111,6 +114,12 @@ func refresh(route_level: int, coords: Array) -> void:
 				relays.append(pickup_entry)
 			elif kind == "battery":
 				batteries.append(pickup_entry)
+		for box_value in data.get("music_boxes", []):
+			var box: Dictionary = box_value
+			var box_cell: Vector2i = box.get("cell", Vector2i.ZERO)
+			music_boxes.append({"id": String(box.get("id", "")),
+				"x": coord.x * StreamedRouteGenerator.CHUNK_SIZE + box_cell.x,
+				"y": coord.z * StreamedRouteGenerator.CHUNK_SIZE + box_cell.y, "source_chunk": coord})
 		for fixture_value in data.get("fixtures", []):
 			var fixture: Dictionary = fixture_value
 			var cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
