@@ -3,6 +3,6 @@
 	"id": "void_yellow",
 	"pool": {
 		"shoulder_grab": 6,
-		"bear_hug": 2
+		"shoulder_carry": 2
 	}
 }
