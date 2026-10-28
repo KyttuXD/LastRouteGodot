@@ -30,6 +30,7 @@ Exit code: `0` pass, `1` thresholds failed, `2` could not run (no bot for the ga
 and thresholds `--max-stuck=3 --max-soft-locks=0 --max-errors=0 --max-unreachable=6 --min-fps=0 --max-pitch-median-deg=15`.
 `--observe-every=N` builds the bot's observation every Nth physics tick (default 1; `soak` 3): a full observation every tick
 costs more than the game itself on old machines, so the fps of a run at 1 is not a player's fps.
+Bot scenarios run with the master bus muted (`--mute=false` keeps the sound; `flythrough`/`sequence` keep it unless `--mute`).
 Bot scenarios keep the mouse uncaptured (the look stick aims), so someone using the machine cannot turn the bot's view.
 
 | scenario | what it does |

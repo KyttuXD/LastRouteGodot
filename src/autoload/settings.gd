@@ -278,6 +278,17 @@ func set_voice_chat(on: bool, mode: String, gain: float, sensitivity: float, dev
 	_save()
 
 
+## Turn a hand-installed pack on or off for the rooms this player hosts (RoomPacks.host_load reads mods_enabled).
+func set_mod_enabled(pack_id: String, on: bool) -> void:
+	if on and not mods_enabled.has(pack_id):
+		mods_enabled.append(pack_id)
+	elif not on:
+		mods_enabled.erase(pack_id)
+	else:
+		return
+	_save()
+
+
 func set_auto_download_mods(on: bool) -> void:
 	auto_download_mods = on
 	_save()
