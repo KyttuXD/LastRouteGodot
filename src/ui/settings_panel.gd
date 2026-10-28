@@ -101,6 +101,7 @@ func _ready() -> void:
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_build_focus_pause_row()
+	_build_voice_rows()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -343,6 +344,58 @@ func _build_focus_pause_row() -> void:
 	add_child(row)
 
 
+## AUDIO: spoken chat volume, and voices / subtitles toggles (voices off = subtitles only).
+func _build_voice_rows() -> void:
+	var row := HBoxContainer.new()
+	row.name = "VoiceVolumeRow"
+	row.offset_left = 20.0
+	row.offset_top = 142.0
+	row.offset_right = 420.0
+	row.offset_bottom = 158.0
+	var label := Label.new()
+	label.text = "SPOKEN CHAT"
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.name = "VoiceVolumeSlider"
+	slider.min_value = 0
+	slider.max_value = 100
+	slider.step = 5
+	slider.value = Settings.voice_volume
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%d%%" % int(Settings.voice_volume)
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(value: float) -> void:
+		readout.text = "%d%%" % int(value)
+		Settings.set_voice(value, Settings.voice_enabled, Settings.voice_subtitles))
+	add_child(row)
+	var toggles := HBoxContainer.new()
+	toggles.name = "VoiceToggleRow"
+	toggles.offset_left = 20.0
+	toggles.offset_top = 166.0
+	toggles.offset_right = 420.0
+	toggles.offset_bottom = 182.0
+	for pair in [["VOICES", "voice_enabled"], ["SUBTITLES", "voice_subtitles"]]:
+		var button := Button.new()
+		button.name = "Voice%sButton" % String(pair[0]).capitalize()
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		Palette.style_state_toggle(button, String(pair[0]), bool(Settings.get(String(pair[1]))))
+		button.set_pressed_no_signal(bool(Settings.get(String(pair[1]))))
+		var key := String(pair[1])
+		button.toggled.connect(func(enabled: bool) -> void:
+			Settings.set_voice(Settings.voice_volume, enabled if key == "voice_enabled" else Settings.voice_enabled,
+				enabled if key == "voice_subtitles" else Settings.voice_subtitles)
+			Palette.set_state_toggle(button, enabled))
+		toggles.add_child(button)
+	add_child(toggles)
+
+
 func _build_settings_tabs() -> void:
 	_settings_tabs = TabBar.new()
 	_settings_tabs.name = "SettingsCategoryTabs"
@@ -362,7 +415,7 @@ func _build_settings_tabs() -> void:
 
 func _show_settings_category(index: int) -> void:
 	_active_settings_category = clampi(index, 0, 3)
-	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
+	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
 			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:

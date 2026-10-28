@@ -877,6 +877,7 @@ func open() -> void:
 	if _open:
 		return
 	_set_open(true)
+	_refresh_voice_history()
 	_set_copy_status("", true)
 	_refresh_share()
 	_set_section("pause")
@@ -1026,3 +1027,44 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif tap_to_pause:
 		open()
 		get_viewport().set_input_as_handled()
+
+
+
+## The only chat log: the last lines said in the room (RoomChat.history), each speaker with a local MUTE toggle.
+func _refresh_voice_history() -> void:
+	if _pause_view == null:
+		return
+	var old := _pause_view.get_node_or_null("VoiceHistory")
+	if old != null:
+		old.free()
+	if RoomChat.history.is_empty():
+		return
+	var box := VBoxContainer.new()
+	box.name = "VoiceHistory"
+	box.add_theme_constant_override("separation", 1)
+	_pause_view.add_child(box)
+	var heading := Label.new()
+	heading.text = Palette.track("SAID RECENTLY")
+	Palette.style_label(heading, Palette.AMBER, 6)
+	box.add_child(heading)
+	var speakers := {}
+	for entry_value in RoomChat.history.slice(maxi(0, RoomChat.history.size() - 6)):
+		var entry: Dictionary = entry_value
+		var line := Label.new()
+		line.text = ("// %s" % entry["text"]) if bool(entry.get("system", false)) else "%s: %s" % [String(entry["name"]).to_upper(), entry["text"]]
+		Palette.style_label(line, Palette.BODY, 6)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size = Vector2(220, 0)
+		box.add_child(line)
+		if not bool(entry.get("system", false)) and int(entry.get("peer", 0)) != (multiplayer.get_unique_id() if RoomState.online else 1):
+			speakers[String(entry["name"]).to_upper()] = true
+	for callsign in speakers:
+		var mute := Button.new()
+		mute.name = "Mute_%s" % callsign
+		mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign
+		mute.add_theme_font_size_override("font_size", 6)
+		Palette.style_button(mute, false, true)
+		mute.pressed.connect(func() -> void:
+			Settings.set_player_muted(callsign, not Settings.is_player_muted(callsign))
+			mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign)
+		box.add_child(mute)

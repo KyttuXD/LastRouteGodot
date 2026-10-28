@@ -110,6 +110,12 @@ var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
 ## TEST SERVER builds so two windows can be played side by side. focus_loss_pauses() also refuses with other players.
 var pause_on_focus_loss := false
+## Spoken chat (RoomChat): text-to-speech volume 0..100, voices on/off (off = subtitles only), subtitles, locally muted
+## players (by callsign, upper case).
+var voice_volume := 80.0
+var voice_enabled := true
+var voice_subtitles := true
+var muted_players: Array = []
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
@@ -226,6 +232,26 @@ func set_xr_comfort(height: float, smooth_turn: bool, vignette: bool, seated: bo
 	xr_smooth_turn = smooth_turn
 	xr_vignette = vignette
 	xr_seated = seated
+	_save()
+
+
+func set_voice(volume: float, enabled: bool, subtitles: bool) -> void:
+	voice_volume = clampf(volume, 0.0, 100.0)
+	voice_enabled = enabled
+	voice_subtitles = subtitles
+	_save()
+
+
+func is_player_muted(callsign: String) -> bool:
+	return muted_players.has(callsign.strip_edges().to_upper())
+
+
+func set_player_muted(callsign: String, muted: bool) -> void:
+	var key := callsign.strip_edges().to_upper()
+	if muted and not muted_players.has(key):
+		muted_players.append(key)
+	elif not muted:
+		muted_players.erase(key)
 	_save()
 
 
@@ -532,6 +558,10 @@ func _load() -> void:
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
+	voice_volume = clampf(float(config.get_value("voice", "volume", 80.0)), 0.0, 100.0)
+	voice_enabled = bool(config.get_value("voice", "enabled", true))
+	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
+	muted_players = Array(config.get_value("voice", "muted", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -623,6 +653,10 @@ func _save() -> void:
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
 	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)
+	config.set_value("voice", "volume", voice_volume)
+	config.set_value("voice", "enabled", voice_enabled)
+	config.set_value("voice", "subtitles", voice_subtitles)
+	config.set_value("voice", "muted", muted_players)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))
