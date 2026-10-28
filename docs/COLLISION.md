@@ -50,7 +50,7 @@ Switch: `StreamedRouteGenerator.CLEAR_WALKWAYS`.
 
 The audit works on `CollisionWorld` (`src/game/collision_world.gd`): the same boxes and walls as the 3D view, exact
 point-to-rotated-box distance, a 0.25 m raster. `tools/look/collision_audit.gd` prints the counts and samples
-(`-- SEEDS_CSV CHUNKS_PER_BIOME`); `tools/look/collider_audit.gd` lists blockers that disagree with their models.
+(`-- SEEDS_CSV CHUNKS_PER_REGION`); `tools/look/collider_audit.gd` lists blockers that disagree with their models.
 Before the clean-up the audit found, on 285 doors of one seed: 30 props in keep-clear zones, 4 doors fully blocked
 (a reception desk across an office-suite door) and 219 m2 of cut-off floor at radius 0.2; after it, 0 / 0 / 19 m2 of small
 pockets (none of 1.5 m2).

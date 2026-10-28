@@ -1,7 +1,7 @@
-"""Shopping arcade (mall) props, authored in metres like blocky_props_biomes.py: the City's shop fixtures (shelf, fridge,
+"""Shopping arcade (mall) props, authored in metres like blocky_props_regions.py: the City's shop fixtures (shelf, fridge,
 register, display, donut tray, coffee, fryer, rack, stool, clothes, screen, washer, flowers, barber chair, seats, menu
 board, booth) rebuilt as proper Last Route props, plus the cinema and food court pieces. exec'd after
-blocky_props_biomes.py, so Part, _reg, _wheels and _foliage are in scope. Front is +z, back (z = 0) is the wall.
+blocky_props_regions.py, so Part, _reg, _wheels and _foliage are in scope. Front is +z, back (z = 0) is the wall.
 """
 
 

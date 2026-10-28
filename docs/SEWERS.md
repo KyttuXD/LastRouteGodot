@@ -128,7 +128,7 @@ leave by the same doorway on both levels; the bottom and top landings are the sa
 carries a `path` that hunters walk (`LadderTraffic.path_point`) and the validator walks with the movement keys.
 
 * **0 <-> -1 (sparse, 12%).** Placed by the maze chunk itself, which is the source of truth: the sewer and
-  `vertical_links` read it from there, as they read ladders. Every maze biome runs main halls along rows 9-11 and
+  `vertical_links` read it from there, as they read ladders. Every maze region runs main halls along rows 9-11 and
   33-35 and the sewer's cross tunnel fills 18-26, so the box goes in an outer room band (`Stairwells.MAZE_AREAS`,
   rows 0-8 / 36-44, inside one room column, clear of the sewer walkways) with its doorway opening onto a main hall.
   A candidate must fit the maze as built: no suite or main hall touched, at most 100 cells of plain rooms dropped, and

@@ -541,7 +541,7 @@ const FOOTPRINTS := {
 	"mansionBustPedestal": Vector2(.27, .27),
 	"prisonCellGate": Vector2(1.48, .18), "prisonBunk": Vector2(.55, .98),
 	"dungeonCage": Vector2(1.25, 1.25), "restraintChair": Vector2(.55, .55),
-	# hospital, research lab and greenhouse (tools/props/blocky_props_biomes.py)
+	# hospital, research lab and greenhouse (tools/props/blocky_props_regions.py)
 	"hospitalBed": Vector2(.45, 1.03), "hospitalCurtain": Vector2(.93, .08), "ivDripStand": Vector2(.21, .21),
 	"vitalsMonitor": Vector2(.28, .26), "nursesStation": Vector2(1.18, .45), "waitingChairs": Vector2(.98, .29),
 	"operatingTable": Vector2(.35, .98), "surgicalLight": Vector2(.73, .73),

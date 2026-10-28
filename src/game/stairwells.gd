@@ -21,7 +21,7 @@ const SPIRAL_SHARE := {0: .5, 1: 1.0, 2: .6, 3: .7}   # +1 is all spirals: the m
 ## The 9 x 9 cell area a stairwell (walls included) may use in each quadrant:
 ## inside 2..41, clear of the spine and of the duct lines 6 and 38.
 const QUADRANT_AREAS := [Rect2i(7, 7, 9, 9), Rect2i(29, 7, 9, 9), Rect2i(7, 29, 9, 9), Rect2i(29, 29, 9, 9)]
-## The maze's own areas for 0 <-> -1: every maze biome runs main halls along
+## The maze's own areas for 0 <-> -1: every maze region runs main halls along
 ## rows 9-11 and 33-35 right across the chunk, and the sewer's cross tunnel
 ## fills rows and columns 18-26, so a stairwell fits only in the outer room
 ## bands (rows 0-8 and 36-44), inside one room column, its doorway opening

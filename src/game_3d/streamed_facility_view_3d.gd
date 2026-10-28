@@ -2529,11 +2529,11 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord: Vector3i = build["coord"]
 	var neighbour := Vector3i(coord.x + floori(float(nx) / size), coord.y, coord.z + floori(float(nz) / size))
-	return RefLook.corridor_height(generator.biome_for(neighbour), neighbour)
+	return RefLook.corridor_height(generator.region_for(neighbour), neighbour)
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var region := String(build.get("region", generator.biome_for(build["coord"])))
+	var region := String(build.get("region", generator.region_for(build["coord"])))
 	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
 
 
@@ -2639,7 +2639,7 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-	var region := String(build.get("region", generator.biome_for(coord) if generator != null else "maze"))
+	var region := String(build.get("region", generator.region_for(coord) if generator != null else "maze"))
 	return RefLook.wall_kind(region, room_type, coord.x * size + x, coord.z * size + z)
 
 

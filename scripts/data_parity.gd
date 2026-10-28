@@ -22,7 +22,7 @@ static func chunks_of(generator: StreamedRouteGenerator, region: String, count: 
 					if maxi(absi(x), absi(z)) != radius:
 						continue
 					var coord := Vector3i(x, level, z)
-					if generator.biome_for(coord) == region:
+					if generator.region_for(coord) == region:
 						out.append(coord)
 						if out.size() >= count:
 							return out

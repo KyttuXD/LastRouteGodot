@@ -1,7 +1,7 @@
 extends RefCounted
 
-## Biome / district names are admin-only (RegionNames): as a player no visible UI text in the streamed route (HUD level line,
-## zone panel, map region key, menus that are open) contains a biome or district name, the level number stays; as an admin the
+## Region / district names are admin-only (RegionNames): as a player no visible UI text in the streamed route (HUD level line,
+## zone panel, map region key, menus that are open) contains a region or district name, the level number stays; as an admin the
 ## HUD level line names the region again. Each peer decides locally.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- region_names
@@ -73,5 +73,5 @@ func run(host: Node) -> int:
 	route.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:
-		print("  regions   players see LEVEL n without biome/district names anywhere in the route UI; admins see the names")
+		print("  regions   players see LEVEL n without region/district names anywhere in the route UI; admins see the names")
 	return _failures

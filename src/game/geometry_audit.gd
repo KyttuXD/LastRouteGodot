@@ -133,9 +133,9 @@ static func counts(findings: Array) -> Dictionary:
 # ------------------------------------------------------------------ Last Route
 
 ## One generated chunk. `data` is StreamedRouteGenerator.chunk().
-static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out: Array) -> void:
+static func audit_chunk(data: Dictionary, seed_text: String, region: String, out: Array) -> void:
 	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
-	var where_prefix := "%s chunk %s" % [biome, coord]
+	var where_prefix := "%s chunk %s" % [region, coord]
 	var grid: Array = data.get("grid", [])
 	var size := grid.size()
 	var props: Array = []
@@ -218,7 +218,7 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 			out.append(finding(GAME_LAST_ROUTE, "solid_overlap", "prop_in_wall", seed_text, at,
 				"penetrates wall cell %s by %.2f m" % [worst_cell, worst], worst))
 
-	_audit_junctions(data, seed_text, biome, where_prefix, room_rects, out)
+	_audit_junctions(data, seed_text, region, where_prefix, room_rects, out)
 
 	# room capacity: the solid footprints of a room's props against its open floor; above the limit the room is squeezed
 	for room in rooms:
@@ -309,12 +309,12 @@ static func audit_chunk(data: Dictionary, seed_text: String, biome: String, out:
 				break
 
 
-## Hall junctions (T, cross, corner) of one chunk: a runner-carpet biome gives every junction cell the hall's own carpet (no
+## Hall junctions (T, cross, corner) of one chunk: a runner-carpet region gives every junction cell the hall's own carpet (no
 ## stray stone tile patch), and no single wall cell juts into the circulation.
-static func _audit_junctions(data: Dictionary, seed_text: String, biome: String, where_prefix: String, room_rects: Array, out: Array) -> void:
+static func _audit_junctions(data: Dictionary, seed_text: String, region: String, where_prefix: String, room_rects: Array, out: Array) -> void:
 	var grid: Array = data.get("grid", [])
 	var size := grid.size()
-	var runner: bool = bool((RefLook.REGION_STYLE.get(biome, {}) as Dictionary).get("runner", false))
+	var runner: bool = bool((RefLook.REGION_STYLE.get(region, {}) as Dictionary).get("runner", false))
 	for z in range(1, size - 1):
 		for x in range(1, size - 1):
 			var cell := Vector2i(x, z)
@@ -337,7 +337,7 @@ static func _audit_junctions(data: Dictionary, seed_text: String, biome: String,
 			var run_z := _run_len(grid, size, cell, Vector2i(0, 1))
 			if run_x < 3 or run_z < 3:
 				continue
-			# the floor: a carpet biome must lay the hall's runner through the junction (a cell crossed by two halls)
+			# the floor: a carpet region must lay the hall's runner through the junction (a cell crossed by two halls)
 			if runner and (run_x != 3 or run_z != 3) and _touches_exact_hall(grid, size, cell):
 				if String(StreamedFacilityView3D._runner_kind(grid, x, z)) == "":
 					out.append(finding(GAME_LAST_ROUTE, "junction", "junction_floor", seed_text, "%s cell %s" % [where_prefix, cell],
@@ -480,9 +480,9 @@ static func audit_office(label: String, props: Dictionary, out: Array) -> void:
 
 # ------------------------------------------------------------------ sweeps
 
-## Last Route: chunks around the origin of every seed, at most `per_biome` chunks of each biome per seed.
-static func sweep_last_route(seeds: Array, per_biome: int, out: Array) -> Dictionary:
-	var stats := {"chunks": 0, "props": 0, "biomes": {}}
+## Last Route: chunks around the origin of every seed, at most `per_region` chunks of each region per seed.
+static func sweep_last_route(seeds: Array, per_region: int, out: Array) -> Dictionary:
+	var stats := {"chunks": 0, "props": 0, "regions": {}}
 	for seed_value in seeds:
 		var seed_text := String(seed_value)
 		var generator := StreamedRouteGenerator.new(seed_text)
@@ -495,15 +495,15 @@ static func sweep_last_route(seeds: Array, per_biome: int, out: Array) -> Dictio
 					var coord := Vector3i(dx, 0, dz)
 					if not generator.is_chunk_allowed(coord):
 						continue
-					var biome := generator.biome_for(coord)
-					if int(taken.get(biome, 0)) >= per_biome:
+					var region := generator.region_for(coord)
+					if int(taken.get(region, 0)) >= per_region:
 						continue
-					taken[biome] = int(taken.get(biome, 0)) + 1
+					taken[region] = int(taken.get(region, 0)) + 1
 					var data := generator.chunk(coord)
 					stats["chunks"] += 1
 					stats["props"] += (data.get("region_props", []) as Array).size()
-					stats["biomes"][biome] = int(stats["biomes"].get(biome, 0)) + 1
-					audit_chunk(data, seed_text, biome, out)
+					stats["regions"][region] = int(stats["regions"].get(region, 0)) + 1
+					audit_chunk(data, seed_text, region, out)
 	return stats
 
 
@@ -524,9 +524,9 @@ static func report_text(findings: Array, limit: int = 40) -> String:
 		lines.append("  #%d [%s/%s] seed %s | %s | %s" % [i + 1, f["game"], f["rule"], f["seed"], f["at"], f["detail"]])
 	return "\n".join(lines)
 
-## One T and one cross hall junction of `biome` from `generator`, as CAP_AT entries (world x, z, yaw): the camera stands
-## 5 m down an arm looking at the centre. Used by tools/look/capture.gd (CAP_JUNCTION=biome).
-static func junction_spots(generator: StreamedRouteGenerator, biome: String) -> Array:
+## One T and one cross hall junction of `region` from `generator`, as CAP_AT entries (world x, z, yaw): the camera stands
+## 5 m down an arm looking at the centre. Used by tools/look/capture.gd (CAP_JUNCTION=region).
+static func junction_spots(generator: StreamedRouteGenerator, region: String) -> Array:
 	var found := {}
 	for r in range(0, 12):
 		for dz in range(-r, r + 1):
@@ -534,7 +534,7 @@ static func junction_spots(generator: StreamedRouteGenerator, biome: String) -> 
 				if maxi(absi(dx), absi(dz)) != r or found.size() >= 2:
 					continue
 				var coord := Vector3i(dx, 0, dz)
-				if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != biome:
+				if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != region:
 					continue
 				var data := generator.chunk(coord)
 				var grid: Array = data["grid"]

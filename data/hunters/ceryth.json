@@ -1,0 +1,12 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "ceryth",
+	"name": "Ceryth",
+	"tier": "intermediate",
+	"speed": 0.78,
+	"chase": 3.45,
+	"prog": 0.17,
+	"sight": 8.6,
+	"hearing": 0.88,
+	"spawn": 12
+}

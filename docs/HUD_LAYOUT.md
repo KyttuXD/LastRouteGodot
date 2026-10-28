@@ -53,7 +53,7 @@ The full facility map keeps her steady ghost mark. Tune cadence, duration, ring 
 Test: `minimap_radar`. Frame sequence (start, rising, peak, ring, fading, between, reduced motion): `radar_ping_sequence.png`
 (`tools/look/radar_capture.tscn`).
 
-## Biome and district names are admin-only
+## Region and district names are admin-only
 
 `RegionNames` (`src/config/region_names.gd`): players see `LEVEL -1`, admins (`Build.tools_enabled()`: owner, scoped admin, room
 admin ticket) see `LEVEL -1 // SEWER`. The City's zone panel and the map's region key stay empty for players. Decided per peer,

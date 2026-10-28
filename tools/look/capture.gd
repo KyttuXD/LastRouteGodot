@@ -210,21 +210,21 @@ func _run(scene: Node) -> void:
 	if OS.get_environment("CAP_GREAT") != "":
 		# CAP_GREAT=1: the first great hall (21x21 gathering room) of each district, seen from its door
 		picks = []
-		var seen_biomes := {}
+		var seen_regions := {}
 		for gr in range(0, 12):
 			for gz in range(-gr, gr + 1):
 				for gx in range(-gr, gr + 1):
 					var gc := Vector3i(gx, 0, gz)
 					if maxi(absi(gx), absi(gz)) != gr or not gen.is_chunk_allowed(gc):
 						continue
-					var gb := gen.biome_for(gc)
-					if seen_biomes.has(gb):
+					var gb := gen.region_for(gc)
+					if seen_regions.has(gb):
 						continue
 					var plan := gen.large_plan(gc)
 					for side in ["W", "E"]:
-						if String(plan[side]).is_empty() or seen_biomes.has(gb):
+						if String(plan[side]).is_empty() or seen_regions.has(gb):
 							continue
-						seen_biomes[gb] = true
+						seen_regions[gb] = true
 						var west: bool = side == "W"
 						picks.append({"name": "great_%s_%s" % [gb, plan[side]], "yaw": 90.0 if west else -90.0,
 							"pos": Vector3(gx * cs + (17.5 if west else 27.5), 0.05, gz * cs + 22.5)})
@@ -240,7 +240,7 @@ func _run(scene: Node) -> void:
 				pick["pos"].y = float(xz[3])   # optional fourth value: the standing height (a lower level's floor)
 			picks.append(pick)
 	if OS.get_environment("CAP_JUNCTION") != "":
-		# CAP_JUNCTION=gothic: one T and one cross junction of that biome in THIS run's generator, 5 m down an arm
+		# CAP_JUNCTION=gothic: one T and one cross junction of that region in THIS run's generator, 5 m down an arm
 		picks = []
 		for entry in GeometryAudit.junction_spots(facility.generator, OS.get_environment("CAP_JUNCTION")):
 			var xz := String(entry).split(",")

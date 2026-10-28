@@ -29,7 +29,7 @@ func run(_host: Node) -> int:
 					if maxi(absi(dx), absi(dz)) != r:
 						continue
 					var coord := Vector3i(dx, 0, dz)
-					if not generator.is_chunk_allowed(coord) or not StreamedRouteGenerator.DENSE_DISTRICTS.has(generator.biome_for(coord)):
+					if not generator.is_chunk_allowed(coord) or not StreamedRouteGenerator.DENSE_DISTRICTS.has(generator.region_for(coord)):
 						continue
 					var data := generator.chunk(coord)
 					for room in data["rooms"]:
