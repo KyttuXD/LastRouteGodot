@@ -32,6 +32,7 @@ collector gets a preset when it lands (add it to `AREAS` in `src/playtest/playte
 ## Notes
 
 * The maze is dark on purpose; the flythrough adds a soft lamp on the camera (`--lamp=false` in the runner's own arguments turns it off).
+* The overview stays under about 10 m: higher up, the game treats the player as being on a level that has no chunks and unloads the world.
 * The camera is the player's own, moved by the script (noclip, so it passes through props), so what you see is what the game renders.
 * `scripts/validate_playtest.gd` (suite `playtest`) plans every default area without a scene and checks the track length and that the camera
   never jumps, so a world change that breaks a path shows up as a failing check, not as a bad video.

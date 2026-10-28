@@ -394,7 +394,8 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			if track.size() < 10:
 				return {"ok": false, "error": "no walkable route from the middle of chunk %s" % coord}
 			var centre := Vector3(base.x + CHUNK * .5, floor_y, base.y + CHUNK * .5)
-			bake_overview(track, centre, points[points.size() - 1], 80.0, ORBIT_SECONDS, floor_y + 12.0, 14.0, fps)
+			# overview height stays under ~10 m above the floor: higher up the player counts as being on a level that has no chunks and the world is unloaded
+			bake_overview(track, centre, points[points.size() - 1], 80.0, ORBIT_SECONDS, floor_y + 8.0, 13.0, fps)
 			info.merge({"level": level, "chunk": [coord.x, coord.z], "biome": gen.biome_for(coord), "start": [start.x, start.y], "goal": [goal.x, goal.y], "path_cells": points.size()})
 		"sewer_tunnels":
 			var base := Vector2i.ZERO
@@ -565,6 +566,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		lamp.omni_range = 11.0
 		lamp.light_color = Color(1.0, .95, .85)
 		camera.add_child(lamp)
+	var diag: Array = []
 	var clip_start_frame := Engine.get_frames_drawn()
 	for i in track.size():
 		bridge.status = "flythrough %s: frame %d / %d" % [area, i, track.size()]
@@ -583,8 +585,13 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		# a camera that does not move "for real" trips the anti-idle clocks: ~30 s in, Gray is sent and the view goes to the grey void
 		scene.set("_relay_inactivity_seconds", 0.0)
 		scene.set("_party_afk_seconds", 0.0)
+		if i % 60 == 0:
+			var current_camera := scene.get_viewport().get_camera_3d()
+			diag.append([i, current_camera == camera, bool(scene.get("_death_screen_open")), player.spectator_mode, snappedf(player.global_position.y, .1),
+				String(current_camera.get_path()) if current_camera != null else "none", str(scene.get("_last_death_cause"))])
 		await tree.process_frame
 		frames += 1
+	info["diag"] = diag
 	info["fps"] = fps
 	info["clip_start_frame"] = clip_start_frame
 	info["clip_frames"] = track.size()
