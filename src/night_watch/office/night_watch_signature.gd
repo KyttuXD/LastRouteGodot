@@ -18,6 +18,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 	match office_id:
 		"classic_security", "hub_office":
 			_classic(office)
+			if office_id == "hub_office":
+				_mixed(office)
 		"broadcast_booth":
 			_broadcast(office)
 		"front_office":
@@ -349,3 +351,15 @@ static func _sky_piece(parent: Node3D, piece_name: String, size: Vector3, pos: V
 	mesh.set_meta("nw_name", piece_name)
 	parent.add_child(mesh)
 	return mesh
+
+
+## Mixed Shift (Classic's office with the vents): the 2D picture's amber framed lamp boards on both side walls by the back corners; the ceiling grate and the floor vents are the office's own.
+static func _mixed(office: Node3D) -> void:
+	var hw: float = NightWatchOffice.HALF_W
+	var root := Node3D.new()
+	root.name = "SignatureMixed"
+	office.add_child(root)
+	for side in [-1.0, 1.0]:
+		var x: float = side * (hw - 0.05)
+		NightWatchArt.box(root, Vector3(0.03, 0.8, 0.56), Vector3(x, 1.75, -1.15), {"name": "BoardFrame", "kind": "wall", "tint": Color(0.5, 0.32, 0.18)})
+		NightWatchArt.box(root, Vector3(0.04, 0.32, 0.16), Vector3(x - side * 0.01, 1.75, -1.15), {"name": "BoardLamp", "kind": "light", "tint": Color(2.0, 1.4, 0.4)})
