@@ -11,7 +11,6 @@ extends Control
 
 @onready var play_button: Button = %PlayButton
 @onready var join_button: Button = %JoinButton
-@onready var offline_button: Button = %OfflineButton
 @onready var settings_button: Button = %SettingsButton
 @onready var account_button: Button = %AccountButton
 @onready var tutorial_button: Button = %TutorialButton
@@ -41,6 +40,7 @@ func _ready() -> void:
 	# The menu is where every mode lands on the way out, so it is the one place
 	# that can be sure the cursor should be free.
 	MouseLock.release_all()
+	Backend.end_run_offline()   # an offline run ends when the player is back at the menu: online play works again with no restart
 	_apply_palette()
 	_build_hint()
 	TestServerBadge.attach(self)
@@ -52,7 +52,6 @@ func _ready() -> void:
 	RunSaves.cloud_sync()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
-	offline_button.pressed.connect(_on_offline_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	account_button.pressed.connect(_on_account_pressed)
 	tutorial_button.pressed.connect(_on_tutorial_pressed)
@@ -197,7 +196,7 @@ func _format_save_duration(seconds: float) -> String:
 
 
 func _focus_default_button() -> void:
-	var preferred := offline_button if play_button.disabled else play_button
+	var preferred := play_button
 	if preferred != null and preferred.visible and not preferred.disabled:
 		if preferred.is_inside_tree():
 			preferred.grab_focus()   # a scene change can take it out of the tree first
@@ -227,7 +226,6 @@ func _apply_palette() -> void:
 		if button != null:
 			Palette.style_button(button, true, true)
 	for path in ["ButtonPanel/ButtonBox/SettingsButton",
-			"ButtonPanel/ButtonBox/OfflineButton",
 			"ButtonPanel/ButtonBox/AccountButton",
 			"ButtonPanel/ButtonBox/TutorialButton",
 			"ButtonPanel/ButtonBox/UpdateButton",
@@ -249,10 +247,79 @@ func _on_play_pressed() -> void:
 		RoomState.status_message = "WEB BUILD SOLO // NATIVE CO-OP IS UNAVAILABLE"
 		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 		return
+	_open_create_dialog()
+
+
+## CREATE ROOM: an "Offline (solo, no server)" option replaces the old PLAY OFFLINE button. It starts on (with a note) when the
+## server is down or the game is offline already, and an offline choice lasts for this run only.
+var _create_offline := false
+
+
+func _open_create_dialog() -> void:
+	_close_modal()
+	_create_offline = Backend.offline_mode
+	var content := _modal_content("ROUTE SIGNAL // NEW ROOM", "CREATE ROOM", Vector2(220, 110))
+	var toggle := Button.new()
+	toggle.name = "CreateOfflineToggle"
+	toggle.custom_minimum_size = Vector2(0, 16)
+	toggle.add_theme_font_size_override("font_size", 7)
+	toggle.pressed.connect(func() -> void:
+		_create_offline = not _create_offline
+		_refresh_create_dialog())
+	content.add_child(toggle)
+	var note := _modal_label("", Palette.AMBER, 6)
+	note.name = "CreateNote"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(note)
+	var actions := HBoxContainer.new()
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	actions.add_theme_constant_override("separation", 5)
+	content.add_child(actions)
+	var go_online_button := _modal_button("GO ONLINE", false)
+	go_online_button.name = "CreateGoOnline"
+	go_online_button.pressed.connect(go_online)
+	actions.add_child(go_online_button)
+	var cancel := _modal_button("CANCEL", false)
+	cancel.pressed.connect(_close_modal)
+	actions.add_child(cancel)
+	var create := _modal_button("CREATE ROOM", true)
+	create.name = "CreateConfirm"
+	create.pressed.connect(_confirm_create)
+	actions.add_child(create)
+	_refresh_create_dialog(Backend.OFFLINE_NOTE if Backend.offline_mode else "")
+	create.grab_focus.call_deferred()
+
+
+func _refresh_create_dialog(note_text: String = "") -> void:
+	if _modal == null:
+		return
+	var toggle := _modal.find_child("CreateOfflineToggle", true, false) as Button
+	if toggle != null:
+		Palette.style_state_toggle(toggle, "OFFLINE (SOLO, NO SERVER)", _create_offline, true)
+	var note := _modal.find_child("CreateNote", true, false) as Label
+	if note != null:
+		if not note_text.is_empty():
+			note.text = note_text
+		elif _create_offline:
+			note.text = "SOLO ROOM ON THIS DEVICE. NO SERVER, NO CO-OP. THIS ONLY LASTS UNTIL YOU LEAVE THE ROOM."
+		else:
+			note.text = "ONLINE ROOM: HOSTED THROUGH THE PRIMARY SERVER SO FRIENDS CAN JOIN."
+	var go_button := _modal.find_child("CreateGoOnline", true, false) as Button
+	if go_button != null:
+		go_button.visible = Backend.offline_mode
+
+
+func _confirm_create() -> void:
+	if _creating_room:
+		return
+	if _create_offline:
+		_start_offline_room()
+		return
 	_creating_room = true
-	play_button.disabled = true
-	play_button.text = "CONTACTING PRIMARY SERVER"
-	join_button.disabled = true
+	var create := _modal.find_child("CreateConfirm", true, false) as Button if _modal != null else null
+	if create != null:
+		create.disabled = true
+		create.text = "CONTACTING SERVER"
 	Backend.check_health()
 
 
@@ -260,12 +327,18 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 	if not _creating_room:
 		return
 	_creating_room = false
-	RoomState.create_local(RoomState.Mode.DEFAULT)
 	if ok:
+		RoomState.create_local(RoomState.Mode.DEFAULT)
 		RoomState.host_primary_room()
-	else:
-		RoomState.status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM"
-	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
+		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
+		return
+	# the server cannot be reached: switch the Offline option on with a note and let the player decide
+	_create_offline = true
+	var create := _modal.find_child("CreateConfirm", true, false) as Button if _modal != null else null
+	if create != null:
+		create.disabled = false
+		create.text = "CREATE ROOM"
+	_refresh_create_dialog("SERVER NOT REACHABLE // OFFLINE TURNED ON. PRESS CREATE ROOM TO PLAY SOLO, OR GO ONLINE TO TRY AGAIN.")
 
 
 ## OFFLINE badge and GO ONLINE button while Backend.offline_mode is set (boot fell back, or PLAY OFFLINE / --offline).
@@ -323,6 +396,9 @@ func go_online() -> void:
 	_refresh_offline_ui()
 	_refresh_account_button()
 	RunSaves.cloud_sync()
+	if _modal != null and _modal.find_child("CreateOfflineToggle", true, false) != null:
+		_create_offline = false
+		_refresh_create_dialog("GOING ONLINE...")
 	var status: Label = null
 	if _modal != null:
 		status = _modal.find_child("JoinStatus", true, false) as Label
@@ -335,12 +411,11 @@ func go_online() -> void:
 			_submit_join()
 
 
-func _on_offline_pressed() -> void:
+func _start_offline_room() -> void:
 	# Explicitly bypasses health, directory, account, and periodic update traffic.
 	# It remains available when the online update gate is waiting so a local test
 	# does not depend on the Pterodactyl deployment matching the worktree.
-	Backend.enable_offline_mode()
-	UpdateManager.enable_offline_mode()
+	Backend.enter_run_offline()
 	_refresh_offline_ui()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.status_message = "OFFLINE SOLO ROOM"
@@ -483,7 +558,7 @@ func _on_tutorial_pressed() -> void:
 		+ "ITEMS + INVENTORY\n"
 		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and the rarer axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item. G or LB fires the taser.\n\n"
 		+ "CO-OP\n"
-		+ "Create an online room for friends, join with its five-character code, or choose Play Offline for a server-free solo test. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
+		+ "Create an online room for friends, join with its five-character code, or turn on Offline (solo, no server) in Create Room for a server-free solo run. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
 		Palette.BODY, 7)
 	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notes.custom_minimum_size = Vector2(320, 0)
@@ -566,7 +641,7 @@ func _set_route_update_locked(title: String = "UPDATING") -> void:
 	# Ignore a pending health response rather than letting a room transition
 	# race past an update discovered immediately after CREATE was pressed.
 	_creating_room = false
-	if _join_input != null:
+	if _modal != null:
 		_close_modal()
 	play_button.disabled = true
 	play_button.text = title

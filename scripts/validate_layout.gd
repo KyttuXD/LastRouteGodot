@@ -562,15 +562,13 @@ func _check_main_menu_contract(scene: Node) -> int:
 		failures += _fail("FOV slider does not use Settings' supported range")
 	var play_button := scene.find_child("PlayButton", true, false) as Button
 	var join_button := scene.find_child("JoinButton", true, false) as Button
-	var offline_button := scene.find_child("OfflineButton", true, false) as Button
 	scene.call("_set_route_update_locked", "UPDATING")
 	if play_button == null or join_button == null or not play_button.disabled \
 			or not join_button.disabled or play_button.text != "UPDATING" \
 			or join_button.text != "UPDATING":
 		failures += _fail("mandatory updates do not lock and relabel both route buttons")
-	if offline_button == null or offline_button.disabled \
-			or offline_button.text != "PLAY OFFLINE":
-		failures += _fail("main menu has no independent offline solo test path")
+	if scene.find_child("OfflineButton", true, false) != null:
+		failures += _fail("the separate PLAY OFFLINE button is back; offline lives in the Create Room dialog")
 	scene.call("_clear_route_update_lock")
 	if play_button == null or join_button == null or play_button.disabled \
 			or join_button.disabled or play_button.text != "CREATE ROOM" \
