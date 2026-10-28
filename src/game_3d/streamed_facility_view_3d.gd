@@ -1066,6 +1066,16 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
+	# Inferno caverns rise to the full storey; the maze around them keeps its low ceilings.
+	for cavern in data.get("inferno_caverns", []):
+		for cell_value in (cavern as Dictionary)["cells"]:
+			heights[cell_value] = LEVEL_HEIGHT - SLAB
+		for hall in (cavern as Dictionary)["halls"]:
+			var rect: Rect2i = hall
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					if x > 0 and z > 0 and x < StreamedRouteGenerator.CHUNK_SIZE - 1 and z < StreamedRouteGenerator.CHUNK_SIZE - 1:
+						heights[Vector2i(x, z)] = LEVEL_HEIGHT - SLAB
 	var open_above := {}
 	var falls: Dictionary = data.get("falls", {})
 	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:

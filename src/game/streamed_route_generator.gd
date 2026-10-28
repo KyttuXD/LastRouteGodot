@@ -817,6 +817,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
 	for ramp in ramps:
 		_carve_ramp_bottom(grid, layout, circulation, ramp)
+	var inferno_caverns := []
+	if coord.y == INFERNO_LEVEL and not is_safe_room(coord):
+		var keep_out: Array[Rect2i] = []
+		for ramp in ramps:
+			for part in ["ramp", "bottom", "connector"]:
+				keep_out.append((ramp[part] as Rect2i).grow(1))
+		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, layout, circulation, keep_out)
 	var wells := []
 	if coord.y == 0:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
@@ -886,6 +893,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"structural_voids": structural_voids,
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
+		"inferno_caverns": inferno_caverns,
 		"stairwells": wells,
 		"shaft_cells": shaft_cells,
 	}
@@ -976,6 +984,21 @@ static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dic
 	for z in range(slope.position.y, slope.end.y):
 		for x in range(slope.position.x, slope.end.x):
 			grid[z][x] = 1      # the slope itself is reached only as a ramp link
+
+
+## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.
+func inferno_caverns_at(coord: Vector3i) -> Array:
+	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
+		return []
+	return chunk(coord).get("inferno_caverns", [])
+
+
+## Where something dropped into the Inferno lands: a chunk-local walkable cell with a clear 3x3, in the chunk's main
+## cavern or a 5-wide hall (otherwise its clearest open ground). (-1, -1) if the chunk has none.
+func dump_landing(coord: Vector3i) -> Vector2i:
+	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
+		return Vector2i(-1, -1)
+	return InfernoCaverns.landing(chunk(coord))
 
 
 func biome_for(coord: Vector3i) -> String:
