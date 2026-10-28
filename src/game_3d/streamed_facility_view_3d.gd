@@ -546,6 +546,11 @@ func _vertical_ready_set(center: Vector3i) -> Dictionary:
 	return out
 
 
+## True while linked levels are still being pre-built in the background (the current window is already complete).
+func is_preloading() -> bool:
+	return not _pending_prebuild.is_empty() or (not _active_build.is_empty() and not _wanted_now.has(_active_build.get("coord")))
+
+
 func prebuilt_chunk_count() -> int:
 	var count := 0
 	for coord in _dormant:
