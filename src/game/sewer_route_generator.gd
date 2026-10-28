@@ -11,7 +11,7 @@ extends RefCounted
 ## of deep flowing water sunk below two railed three-wide walkways. Bridge decks
 ## cross the channel at regular spacing so nobody is trapped on one bank, and
 ## the tunnels meet in a junction chamber whose confluence is decked over with
-## a cross-shaped grate plaza. Up to two quadrants hold a utility room (pump, valve or overflow) on
+## a cross-shaped grate plaza. Up to two quadrants hold a utility room (pump or valve) on
 ## a three-wide dry branch; the others may hold an access shaft that climbs to
 ## an open maze hallway cell above: every entrance is a climbable ladder
 ## (LevelLink kind "ladder") under a manhole lid or a floor grate ("cover").
@@ -59,7 +59,10 @@ const BRIDGE_OFFSETS := [10, 34]
 const QUADRANT_CENTERS := [Vector2i(9, 9), Vector2i(35, 9), Vector2i(9, 35), Vector2i(35, 35)]
 const ROOM_HALF := 3             # 7 x 7 utility rooms
 const SHAFT_HALF := 1            # 3 x 3 dry shaft chamber under a manhole
-const ROOM_KINDS := ["pump_room", "valve_room", "overflow_chamber"]
+## Rooms reserve their cells: no channel, basin, bridge, railing or falls lip
+## inside one (KT: the overflow chamber's railed basin read as the channel
+## running through a room, so that kind is retired).
+const ROOM_KINDS := ["pump_room", "valve_room"]
 const LINK_CHANCE := 0.55
 ## Every sewer space has the same low brick ceiling, so a ladder shaft always
 ## spans exactly LEVEL_HEIGHT - CEILING_HEIGHT between it and the maze floor.
@@ -276,14 +279,10 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		var qc: Vector2i = QUADRANT_CENTERS[quadrant]
 		if slot < room_count:
 			var kind: String = ROOM_KINDS[rng.next_index(ROOM_KINDS.size())]
-			# The overflow chamber is two cells wider so a three-wide dry ring
-			# survives around its central basin.
-			var half := ROOM_HALF + 1 if kind == "overflow_chamber" else ROOM_HALF
+			var half := ROOM_HALF
 			var rect := Rect2i(qc - Vector2i(half, half), Vector2i.ONE * (half * 2 + 1))
 			_carve_rect(grid, rect, DRY)
 			_carve_branch(grid, qc, half)
-			if kind == "overflow_chamber":
-				_carve_rect(grid, Rect2i(qc - Vector2i.ONE, Vector2i(3, 3)), WATER)
 			rooms.append({"kind": kind, "rect": rect, "center": qc})
 			features.append_array(_room_features(kind, rect, qc))
 		elif wants_link and links.size() < 2:
@@ -549,6 +548,9 @@ static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked:
 				var wall: Vector2i = wall_value
 				if wall == toward_tunnel or open.call(cell + wall):
 					continue
+				# the rails and lid keep a cell clear of the hall's pilasters and the arches they spring
+				if RefDecor.near_pilaster(cell, wall):
+					continue
 				var side := Vector2i(absi(wall.y), absi(wall.x))
 				if not open.call(cell - wall) or blocked.has(cell - wall) \
 						or not open.call(cell + side) or not open.call(cell - side):
@@ -571,13 +573,10 @@ static func _room_features(kind: String, rect: Rect2i, center: Vector2i) -> Arra
 			return [{"type": "sewerPump", "cell": north, "wall": Vector2i(0, -1)},
 				{"type": "sewerPipeRun", "cell": west, "wall": Vector2i(-1, 0)},
 				{"type": "sewerLamp", "cell": east, "wall": Vector2i(1, 0)}]
-		"valve_room":
+		_:
 			return [{"type": "sewerValveWheel", "cell": north, "wall": Vector2i(0, -1)},
 				{"type": "sewerValveWheel", "cell": east, "wall": Vector2i(1, 0)},
 				{"type": "sewerPipeRun", "cell": west, "wall": Vector2i(-1, 0)}]
-		_:
-			return [{"type": "sewerOverflowGrate", "cell": center, "wall": Vector2i.ZERO},
-				{"type": "sewerLamp", "cell": north, "wall": Vector2i(0, -1)}]
 
 
 ## Caged lamps far apart on the tunnels' outer walls, and pipe runs between them.

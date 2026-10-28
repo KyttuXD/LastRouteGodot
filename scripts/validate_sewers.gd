@@ -46,6 +46,27 @@ func run(host: Node) -> int:
 var valves_checked := 0
 
 
+## Rooms reserve their cells (KT: "sewer rooms are broken", a railed basin
+## inside a utility room read as the channel running through it): no channel,
+## falls, ramp or deck cell and no bridge inside any room footprint on -1 or -2,
+## so no railing (railings stand only on walkway-water edges) runs inside one.
+func _check_rooms_dry(seed_text: String, coord: Vector3i, data: Dictionary) -> void:
+	var grid: Array = data["sewer_grid"]
+	for room_value in data.get("rooms", []):
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		var wet := 0
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				if int(grid[z][x]) != SewerRouteGenerator.DRY:
+					wet += 1
+		var decks := 0
+		for feature in data.get("features", []):
+			if String(feature["type"]) in ["sewerBridge", "sewerGrateDeck"] and rect.grow(1).has_point(feature["cell"]):
+				decks += 1
+		_expect(wet == 0 and decks == 0, "%s %s: room %s at %s holds %d channel/falls/deck cells and %d bridges" % [
+			seed_text, coord, (room_value as Dictionary).get("room_type", "?"), rect, wet, decks])
+
+
 func _check_window(window: Dictionary) -> int:
 	var seed_text: String = window["seed"]
 	var surface := StreamedRouteGenerator.new(seed_text)
@@ -76,9 +97,8 @@ func _check_window(window: Dictionary) -> int:
 						maze_open[origin + Vector2i(x, z)] = true
 			for feature in data["features"]:
 				var fc: Vector2i = feature["cell"]
-				# the overflow weir stands in its basin's water; everything else on floor or deck
-				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])) \
-					or (feature["type"] == "sewerOverflowGrate" and int(grid[fc.y][fc.x]) == SewerRouteGenerator.WATER)
+				# everything stands on floor or deck
+				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x]))
 				_expect(standing, "%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
 				# nothing hangs in the air: a wall-mounted piece (valve wheel, lamp, pipe run,
 				# pump, ladder) stands on floor with brick directly behind it
@@ -89,10 +109,26 @@ func _check_window(window: Dictionary) -> int:
 					if feature["type"] == "sewerValveWheel":
 						valves_checked += 1
 			_check_channels(seed_text, coord, data)
+			for level in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+				_check_rooms_dry(seed_text, Vector3i(cx, level, cz), sewer.chunk(Vector3i(cx, level, cz)))
 			var ladders := {}
 			for feature in data["features"]:
 				if feature["type"] == "sewerLadder":
 					ladders[feature["link"]] = feature["cell"]
+			# KT: "archway and ladder getting stuck together": a ladder top keeps a cell clear of hall pilasters (and the
+			# arches they spring) and of every doorway, archway and threshold on the maze
+			var thresholds := {}
+			for prop in surface_data.get("region_props", []):
+				for cell in prop.get("doorway_cells", []):
+					thresholds[cell] = true
+			for link in data["links"]:
+				var top: Vector2i = link["from_cell"]
+				var clear := not RefDecor.near_pilaster(top, link.get("wall", Vector2i.ZERO))
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						if thresholds.has(top + Vector2i(dx, dz)):
+							clear = false
+				_expect(clear, "%s ladder %s stands within a cell of a pilaster, arch or doorway" % [seed_text, link["id"]])
 			for link in data["links"]:
 				_expect(link["kind"] == "ladder" and ["manhole", "grate"].has(link.get("cover", "")),
 					"%s link %s is not a covered ladder" % [seed_text, link["id"]])
@@ -221,6 +257,7 @@ func _check_streaming(host: Node) -> void:
 	_check_colliders_below_maze(view)
 	_check_live_channel(view, Vector3i(0, SewerRouteGenerator.LEVEL, 0))
 	_check_lamps_over_floor(view)
+	_check_ceiling_fixtures(view)
 	# Walk east one chunk along the tunnel: the window streams incrementally.
 	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
 	var worst_frame_ms := 0.0
@@ -424,7 +461,7 @@ static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D)
 ## Deep channels with real crossings, per chunk: the water lies well below the
 ## walkways over a bed a metre down; along both arms of the cross no stretch of
 ## open water runs longer than MAX_OPEN_WATER cells between decks; every 3 x 3
-## deck carries its authored bridge; and the overflow basin is open water too.
+## deck carries its authored bridge.
 ## Crossings come about every 24 m: the longest open stretch is the 21 cells
 ## through the junction's open confluence between an arm's two bridges.
 const MAX_OPEN_WATER := 21
@@ -530,32 +567,24 @@ func _check_bridge_decks(host: Node) -> void:
 					continue
 				for point in instance.mesh.get_faces():
 					faces.append(instance.global_transform * point)
+			# the deck's walking surface: its highest vertex inside the kick plates (slats are 3.5 cm wide on a
+			# 15 cm pitch, so rays at a coarse grid fall between them; their vertices sit at the slat ends, 1.40 m
+			# out, and the kick plates start at 1.44 m)
 			var centre := (node as Node3D).global_position
-			var tops := {}
-			var highest := -INF
-			for i in 5:
-				for j in 5:
-					var sample := centre + Vector3(-1.2 + .6 * i, 0, -1.2 + .6 * j)
-					var top := -INF
-					for f in range(0, faces.size(), 3):
-						var hit: Variant = Geometry3D.ray_intersects_triangle(sample + Vector3.UP * 3.0, Vector3.DOWN,
-							faces[f], faces[f + 1], faces[f + 2])
-						if hit != null:
-							top = maxf(top, (hit as Vector3).y)
-					tops[sample] = top
-					highest = maxf(highest, top)
-			for sample in tops:
-				# only samples landing on the deck surface (not a slot between slats)
-				if float(tops[sample]) < highest - .05:
-					continue
+			var deck_top := -INF
+			for point in faces:
+				if absf(point.x - centre.x) < 1.43 and absf(point.z - centre.z) < 1.43:
+					deck_top = maxf(deck_top, point.y)
+			for offset in [Vector3.ZERO, Vector3(.9, 0, .9), Vector3(-.9, 0, .9), Vector3(.9, 0, -.9), Vector3(-.9, 0, -.9)]:
+				var sample: Vector3 = centre + offset
 				var query := PhysicsRayQueryParameters3D.create(sample + Vector3.UP * 3.0, sample + Vector3.DOWN * 3.0)
 				query.exclude = [player.get_rid()]
 				var hit := space.intersect_ray(query)
 				var floor_y := float((hit["position"] as Vector3).y) if not hit.is_empty() else -INF
-				var gap := absf(floor_y - float(tops[sample]))
+				var gap := absf(floor_y - deck_top)
 				if gap > worst:
 					worst = gap
-					where = "deck %.2f, collider %.2f at %s" % [float(tops[sample]), floor_y, sample]
+					where = "deck %.2f, collider %.2f at %s" % [deck_top, floor_y, sample]
 	_expect(bridges >= 4, "only %d sewer bridges loaded around the walk" % bridges)
 	_expect(worst <= .03, "a bridge's visible deck and its walkable collider are %.2f m apart (%s)" % [worst, where])
 	# walk across, the movement keys held, facing the far walkway
@@ -586,6 +615,46 @@ func _check_bridge_decks(host: Node) -> void:
 	view.clear()
 	view.queue_free()
 	player.queue_free()
+
+
+## Nothing hangs in the air (KT: "floating lights here in the sewer room"): every ceiling lamp below the maze is
+## mounted flush (within 5 cm) on a ceiling face drawn in its own cell, at the sewer's storey height.
+func _check_ceiling_fixtures(view: StreamedFacilityView3D) -> void:
+	var checked := 0
+	var bad := []
+	for coord_value in view._loaded.keys():
+		var coord: Vector3i = coord_value
+		if coord.y >= 0:
+			continue
+		var root: Node3D = view._loaded[coord]
+		var ceiling := {}
+		var surface := root.get_node_or_null("Surface") as MeshInstance3D
+		if surface == null or surface.mesh == null:
+			continue
+		var faces := surface.mesh.get_faces()
+		for f in range(0, faces.size(), 3):
+			var a: Vector3 = faces[f]
+			if a.y > 2.0 and absf(faces[f + 1].y - a.y) < .001 and absf(faces[f + 2].y - a.y) < .001:
+				var mid: Vector3 = (a + faces[f + 1] + faces[f + 2]) / 3.0
+				ceiling[Vector2i(floori(mid.x), floori(mid.z))] = a.y
+		if not view._lamp_field._chunks.has(coord):
+			continue
+		for lamp_value in view._lamp_field._chunks[coord]:
+			var local: Vector3 = (lamp_value as Array)[0] - root.position
+			# ceiling lamps hang at a cell centre (wall lamps sit on a cell boundary)
+			if absf(local.x - floorf(local.x) - .5) > .1 or absf(local.z - floorf(local.z) - .5) > .1:
+				continue
+			checked += 1
+			var cell := Vector2i(floori(local.x), floori(local.z))
+			var mount := local.y + .5    # RefDecor._ceiling_lamp registers its light half a metre under the fitting
+			# wall-mounted sewer lamps (props at FEATURE_MOUNT_Y) sit well under the vault on their wall: not ceiling fittings
+			if ceiling.has(cell) and mount < float(ceiling[cell]) - .5:
+				continue
+			if not ceiling.has(cell) or absf(float(ceiling[cell]) - mount) > .05:
+				bad.append("%s %s (mount %.2f, ceiling %s)" % [coord, cell, mount, ceiling.get(cell, "none")])
+	_expect(checked > 0, "no ceiling lamps below the maze to check")
+	_expect(bad.is_empty(), "%d ceiling lamps below the maze float (no ceiling face within 5 cm over them), e.g. %s" % [
+		bad.size(), bad.slice(0, 4)])
 
 
 ## The game window is opaque (KT: the macOS desktop showed through the sewer and
@@ -829,7 +898,6 @@ func _check_lamps_over_floor(view: StreamedFacilityView3D) -> void:
 			var at: Vector3 = (lamp_value as Array)[0]
 			# wall lamps only (they sit on a cell boundary, on the face they are fixed
 			# to); a pendant hangs from the vault at a cell centre, anchored overhead
-			# even over an overflow basin
 			var fx := absf(at.x - roundf(at.x))
 			var fz := absf(at.z - roundf(at.z))
 			if fx > .15 and fz > .15:

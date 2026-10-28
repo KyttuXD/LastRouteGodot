@@ -155,6 +155,28 @@ func arch_wall_kind(cell: Vector2i) -> String:
 		_coord.x * _size + cell.x, _coord.z * _size + cell.y)
 
 
+## Hall pilasters stand on wall cells every PILASTER_EVERY cells along a wall
+## run (chunk-local x for walls facing z, z for walls facing x), at this phase;
+## every second one springs an arch. Shared with placement that must keep clear
+## of them (sewer ladders: SewerRouteGenerator._shaft_cell).
+const PILASTER_EVERY := 6
+const PILASTER_PHASE := 3
+
+
+static func is_pilaster_column(along: int) -> bool:
+	return posmod(along, PILASTER_EVERY) == PILASTER_PHASE
+
+
+## True when a fixture against the wall behind `cell` (toward `wall`) would be
+## within `clearance` cells of a hall pilaster position on that wall.
+static func near_pilaster(cell: Vector2i, wall: Vector2i, clearance: int = 1) -> bool:
+	var along := cell.x if wall.y != 0 else cell.y
+	for k in range(-clearance, clearance + 1):
+		if is_pilaster_column(along + k):
+			return true
+	return false
+
+
 ## How far a hall pilaster stands out of the wall.
 const PILASTER_DEPTH := .32
 
@@ -627,7 +649,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
 		# pilasters down both sides of halls, between the lamps, in the hall's own wall with the district's trim
-		if rid == "" and along % 6 == 3 and _open_run(grid, x, z, d):
+		if rid == "" and is_pilaster_column(along) and _open_run(grid, x, z, d):
 			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
 			var across_x := d.y != 0
 			var wall_key := "arch_wall:%s@%.1f" % [arch_wall_kind(Vector2i(x + d.x, z + d.y)), _hh(Vector2i(x + d.x, z + d.y))]

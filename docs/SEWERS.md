@@ -55,8 +55,9 @@ quadrant no ramp uses:
   The junction's confluence is open water: the channels meet with no deck over them, and the arm bridges join all
   four walkway quadrants around it. The water keeps flowing under every bridge, visible through the grating
   (validated: every dry cell reachable, hunters never route through water).
-* **Utility rooms.** One or two quadrants of each chunk hold a pump room, a valve room or an overflow chamber
-  (9 x 9, with a central basin and a barred weir). Each sits on a three-wide dry branch to the tunnel. Each has one
+* **Utility rooms.** One or two quadrants of each chunk hold a pump room or a valve room (7 x 7). Rooms reserve
+  their cells: no channel, basin, deck, railing or falls lip inside one (validated on -1 and -2; the overflow
+  chamber's railed basin read as the channel through a room and was retired). Each sits on a three-wide dry branch to the tunnel. Each has one
   hiding spot.
 * **Pickups.** Relays and batteries, sometimes a tool. They spawn on dry cells only, never by a ladder, and slightly
   thinner than the maze.
