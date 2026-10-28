@@ -24,9 +24,7 @@ const SEGMENTS := [["Pelvis", "Chest"], ["Chest", "Head"], ["L-Thigh", "L-Calf"]
 const ARM_SEGMENTS := [["L-Arm", "L-Forearm"], ["L-Forearm", "L-Hand"], ["R-Arm", "R-Forearm"], ["R-Forearm", "R-Hand"]]
 const UPRIGHT := ["idle", "scythe_idle", "walk", "scythe_walk"]
 const SAMPLES := 4
-## Night Watch builds its own stage and draws its hunters at the authored size (ModelSlot.instantiate_hunter, no scale): its
-## rooms are sized for that. It is one number for every NW mode, checked below; the main game's scale is HunterRoster's.
-const NW_SCALE := 1.0
+## (Night Watch used to draw its hunters at the authored 1.0; KT ruled they match Last Route's: NightWatchHunterScale, checked at the end of _previews.)
 const SKIP_MESH := ["Beam", "Star", "Scythe", "Cue-", "Halo", "Glyph"]
 
 var _failures := 0
@@ -522,22 +520,44 @@ func _previews(host: Node) -> void:
 			"the SKIN tab preview is drawn at %s, not the runner's %.2f" % [preview.global_basis.get_scale().abs(), PlayerModels.SCALE])
 		_record("runner SKIN tab preview", "preview", _measure(preview, _runner_ref(host, PlayerModels.SCENE), PlayerModels.SCALE, preview.global_position.y), true)
 	panel.queue_free()
-	# Night Watch: one scale for the whole stage, in every mode, and the menu's camera preview matches it
+	# Night Watch draws every hunter at its Last Route scale (KT's ruling): the one helper, in every mode, and the menu's camera preview matches it
 	var offenders := []
 	for dir_name in ["", "bedroom", "dayshift", "descent", "lure", "mask", "mixed", "openair", "story"]:
 		var folder: String = ("res://src/night_watch/" + dir_name) if not dir_name.is_empty() else "res://src/night_watch"
 		for file_name in DirAccess.get_files_at(folder):
-			if not String(file_name).ends_with(".gd"):
+			if not String(file_name).ends_with(".gd") or String(file_name) == "night_watch_hunter_scale.gd":
 				continue
 			var source := FileAccess.get_file_as_string("%s/%s" % [folder, file_name])
-			if source.contains("instantiate_hunter") and (source.contains("model.scale =") or source.contains("model.scale=")):
+			if source.contains("ModelSlot.instantiate_hunter"):
 				offenders.append("%s/%s" % [dir_name, file_name])
-	_expect(offenders.is_empty(), "Night Watch scripts rescale their hunters themselves (want NW_SCALE %.1f everywhere): %s" % [NW_SCALE, ", ".join(offenders)])
-	var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity("kathy"))
-	host.add_child(model)
-	await tree.process_frame
-	_expect(model.global_basis.get_scale().is_equal_approx(Vector3.ONE * NW_SCALE), "a Night Watch hunter is drawn at %s, want %.1f" % [model.global_basis.get_scale(), NW_SCALE])
-	model.queue_free()
+	_expect(offenders.is_empty(), "Night Watch scripts build hunters without NightWatchHunterScale (they would be drawn at 1.0): %s" % ", ".join(offenders))
+	var tallest := 0.0
+	var casts := {}
+	for cast in [NightWatchData.CAST, DayshiftData.CAST, BedroomData.CAST, NightWatchDescentData.CAST, MaskData.CAST, NightWatchOpenAirData.CAST, LureData.CAST, StoryData.CAST]:
+		for hunter_id in cast:
+			casts[String(hunter_id)] = true
+	_expect(casts.size() >= 20, "the Night Watch casts were not found (%d)" % casts.size())
+	for hunter_id in casts:
+		var identity := HunterRoster.get_identity(String(hunter_id))
+		if identity.is_empty():
+			continue
+		var nw := NightWatchHunterScale.instantiate(identity)
+		if nw == null:
+			continue
+		host.add_child(nw)
+		await tree.process_frame
+		var want := HunterRoster.scale_for(String(identity.get("id", hunter_id)))
+		_expect(nw.global_basis.get_scale().is_equal_approx(Vector3.ONE * want), "Night Watch draws %s at %s, want its Last Route scale %.2f" % [hunter_id, nw.global_basis.get_scale(), want])
+		tallest = maxf(tallest, _top(nw) - nw.global_position.y)
+		nw.queue_free()
+	# every Night Watch ceiling, door top and window top clears the tallest hunter (no head through a header or the ceiling)
+	var heights := {"NightWatchOffice.HEIGHT": NightWatchOffice.HEIGHT, "NightWatchOffice.DOOR_H": NightWatchOffice.DOOR_H, "NightWatchBuilding.ROOM_H": NightWatchBuilding.ROOM_H,
+		"NightWatchBuilding.DOOR_TOP": NightWatchBuilding.DOOR_TOP, "BedroomWing.HEIGHT": BedroomWing.HEIGHT, "BedroomWing.DOOR_TOP": BedroomWing.DOOR_TOP,
+		"BedroomOffice.HEIGHT": BedroomOffice.HEIGHT, "Descent.HEIGHT": NightWatchDescentWorld.HEIGHT, "Descent.WINDOW_TOP": NightWatchDescentWorld.WINDOW_TOP,
+		"LureWorld.HEIGHT": LureWorld.HEIGHT, "LureWorld.DOOR_TOP": LureWorld.DOOR_TOP, "StoryWorld.HEIGHT": StoryWorld.HEIGHT, "StoryWorld.DOOR_TOP": StoryWorld.DOOR_TOP,
+		"ControlRoomOffice.HEIGHT": ControlRoomOffice.HEIGHT, "ControlRoomOffice.DOOR_TOP": ControlRoomOffice.DOOR_TOP, "MaskWorld.H": MaskWorld.H, "MaskOffice.HEIGHT": MaskOffice.HEIGHT}
+	for key in heights:
+		_expect(float(heights[key]) >= tallest + 0.1, "%s is %.2f m: a %.2f m Night Watch hunter would clip it" % [key, float(heights[key]), tallest])
 
 
 func run(host: Node) -> int:
