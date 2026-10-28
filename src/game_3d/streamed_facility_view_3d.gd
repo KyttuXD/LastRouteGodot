@@ -12,6 +12,8 @@ signal breakable_hit(id: String, tool: String)
 
 const CELL_SIZE := 1.0
 const LEVEL_HEIGHT := 4.0
+## Roof height of the ring of cells on the edge of every level -3 chunk: both neighbours use it, so seams have no step.
+const INFERNO_SEAM_ROOF := 3.4
 const STREAM_RADIUS := 1
 ## New chunks are outside the runner's already-collidable 3x3 window, giving us
 ## time to assemble them incrementally. A 45x45 GridMap used to issue more than
@@ -1089,7 +1091,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		var cave_grid: Array = data["grid"]
 		for z in StreamedRouteGenerator.CHUNK_SIZE:
 			for x in StreamedRouteGenerator.CHUNK_SIZE:
-				if int(cave_grid[z][x]) == 0:
+				if x == 0 or z == 0 or x == StreamedRouteGenerator.CHUNK_SIZE - 1 or z == StreamedRouteGenerator.CHUNK_SIZE - 1:
+					# the seam ring has one roof height on both sides, so the two chunks' roofs and walls meet exactly
+					heights[Vector2i(x, z)] = INFERNO_SEAM_ROOF
+				elif int(cave_grid[z][x]) == 0:
 					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
 	for cavern in data.get("inferno_caverns", []):
 		for cell_value in (cavern as Dictionary)["cells"]:
@@ -1405,6 +1410,12 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var nx: int = x + step.x
 			var nz: int = z + step.y
 			var outside := nx < 0 or nz < 0 or nx >= size or nz >= size
+			if not outside and _is_lava(build, Vector2i(nx, nz)):
+				# the lip of a lava channel: the ground's own wall runs down to the basin, so the pit has sides
+				var lip_kind := _ref_wall_kind(build, x, z, nx, nz)
+				surface.add_wall(x, z, step, RefTextures.layer("wall", lip_kind), RefTextures.params("wall", lip_kind),
+					0.0, InfernoPitView.BASIN_Y, LEVEL_HEIGHT)
+				continue
 			if not outside and int(grid_data[nz][nx]) != 0:
 				continue
 			var neighbour_height := _seam_height(build, nx, nz) if outside \
@@ -1468,15 +1479,19 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var face_height := float(build["corridor_h"])
 			var room_top := -1.0
 			var room_floor := 0.0
+			var face_bottom := 0.0
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
 				# ramp tunnels, channels and the falls' drop are open space too, though the
 				# grid keeps them off the walk graph
 				var open_space := (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
 					or (data.get("shaft_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
-					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]
+					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL] \
+					or _is_lava(build, Vector2i(nx, nz))
 				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
+				if _is_lava(build, Vector2i(nx, nz)):
+					face_bottom = InfernoPitView.BASIN_Y      # the rock round a lava channel runs down to its basin
 				var ramp_info: Dictionary = (data.get("ramp_cells", {}) as Dictionary).get(Vector2i(nx, nz), {})
 				if not ramp_info.is_empty():
 					# a ramp tunnel is one room two storeys tall: both levels' side walls
@@ -1488,7 +1503,13 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if room_top > 0.0:
 				wall_kind = _ramp_wall_kind(build, nx, nz)
 			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
-				RefTextures.params("wall", wall_kind), face_height, 0.0, room_top, room_floor, 1 if room_top > 0.0 else 0)
+				RefTextures.params("wall", wall_kind), face_height, face_bottom, room_top, room_floor, 1 if room_top > 0.0 else 0)
+
+
+## A lava channel cell of level -3 (rock to the walk grid, no wall and no floor of its own: InfernoPitView draws it).
+static func _is_lava(build: Dictionary, cell: Vector2i) -> bool:
+	return int((build["coord"] as Vector3i).y) == StreamedRouteGenerator.INFERNO_LEVEL \
+		and (build["structural_voids"] as Dictionary).has(cell)
 
 
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
@@ -2344,6 +2365,8 @@ static func _height_in(build: Dictionary, cell: Vector2i) -> float:
 func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord: Vector3i = build["coord"]
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		return INFERNO_SEAM_ROOF
 	var neighbour := Vector3i(coord.x + floori(float(nx) / size), coord.y, coord.z + floori(float(nz) / size))
 	return RefLook.corridor_height(generator.biome_for(neighbour), neighbour)
 

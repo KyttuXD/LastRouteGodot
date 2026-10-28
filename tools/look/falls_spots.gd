@@ -51,7 +51,11 @@ func _ready() -> void:
 		for z in size:
 			var row := ""
 			for x in size:
-				row += "#" if int(grid[z][x]) != 0 else ("x" if not covered.has(Vector2i(x, z)) else ".")
+				var lava_here := false
+				for pit in InfernoCaverns.pits_in(data):
+					if (pit["lava"] as Array).has(Vector2i(x, z)):
+						lava_here = true
+				row += "L" if lava_here else ("#" if int(grid[z][x]) != 0 else ("x" if not covered.has(Vector2i(x, z)) else "."))
 			print(row)
 		print("ramps ", data.get("ramps", []).size(), " pits ", InfernoCaverns.pits_in(data).size())
 		get_tree().quit(0)
