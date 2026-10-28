@@ -136,6 +136,59 @@ func _run() -> void:
 		await _settle()
 		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
 			lip + Vector3(0, low_y + 1.8, 0))
+	# 6c: a maze <-> sewer stairwell, looking up it from the foot and down it from the head, with the runner on the
+	# stairs half way (where its level flips): the other storey around the doorway must be built, not blank
+	var well := {}
+	var well_column := Vector2i.ZERO
+	for cz in range(-4, 5):
+		for cx in range(-4, 5):
+			if well.is_empty():
+				well = _view.generator.stairwell_between(cx, cz, 0)
+				well_column = Vector2i(cx, cz)
+	if not well.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var base := Vector3(well_column.x * size, level_y, well_column.y * size)
+		var path: Array = well["link"]["path"]
+		var well_foot: Vector3 = base + (path[0] as Vector3)
+		var well_head: Vector3 = base + (path[path.size() - 1] as Vector3)
+		var out_dir := Vector3(0, 0, float(int(well["outward"])))
+		_player.global_position = well_foot + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		for _frame in 600:      # both storeys of the window streamed in (the shots are about what is built)
+			if _view._pending_loads.is_empty() and _view._active_build.is_empty():
+				break
+			await get_tree().process_frame
+		var lower_data: Dictionary = _view._chunk_data.get(Vector3i(well_column.x, SewerRouteGenerator.LEVEL, well_column.y), {})
+		var upper_data: Dictionary = _view._chunk_data.get(Vector3i(well_column.x, 0, well_column.y), {})
+		var landing: Vector2i = well["landing"]
+		print("stairwell %s kind %s box %s: level %d, lower shaft %d/%d, upper shaft %d/%d, landing open %s/%s" % [
+			well["link"]["id"], well["kind"], well["box"], _view.current_level(),
+			(well["shaft"] as Dictionary).keys().filter(func(c): return (lower_data.get("shaft_cells", {}) as Dictionary).has(c)).size(),
+			(well["shaft"] as Dictionary).size(),
+			(well["shaft"] as Dictionary).keys().filter(func(c): return (upper_data.get("shaft_cells", {}) as Dictionary).has(c)).size(),
+			(well["shaft"] as Dictionary).size(),
+			int((lower_data.get("grid", []) as Array)[landing.y][landing.x]) if lower_data.has("grid") else -9,
+			int((upper_data.get("grid", []) as Array)[landing.y][landing.x]) if upper_data.has("grid") else -9])
+		# walk the flight at a runner's pace (the bug is in streaming while walking, not in a settled window): start at
+		# the foot, climb to the head, shoot out of the top doorway at once; then walk back down and shoot out of the foot
+		for leg in ["up", "down"]:
+			var points: Array = path.duplicate()
+			if leg == "down":
+				points.reverse()
+			for k in range(1, points.size()):
+				var a: Vector3 = base + (points[k - 1] as Vector3)
+				var b: Vector3 = base + (points[k] as Vector3)
+				var steps := maxi(1, int(a.distance_to(b) / (3.5 / 60.0)))
+				for t in steps:
+					_player.global_position = a.lerp(b, float(t + 1) / float(steps)) + Vector3(0, .04, 0)
+					await get_tree().process_frame
+			if leg == "up":
+				await _shot("stairwell_top_after_climb", well_head + Vector3(0, 1.6, 0) - out_dir * .5,
+					well_head + Vector3(0, 1.2, 0) + out_dir * 10.0)
+			else:
+				await _shot("stairwell_foot_after_descent", well_foot + Vector3(0, 1.6, 0) - out_dir * .5,
+					well_foot + Vector3(0, 1.2, 0) + out_dir * 10.0)
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
