@@ -19,7 +19,16 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience"]
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
+## Surface replacements (pack-only kinds): a floor or wall kind RefTextures paints, replaced by a pack PNG. Ceilings are
+## left out for now (glass and vault carry emission the sewer depends on).
+const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS"}
+## Kinds packs may not replace: the safe-room floors mark the safe zone (gameplay information), and the runner_*/runnerz_*
+## pieces are slices of one continuous strip (a pack replaces "runner"/"runnerz" whole).
+const SURFACE_LOCKED := {"floors": ["safe", "safe_plain", "safe_mark", "runner_l", "runner_c", "runner_r", "runnerz_l",
+	"runnerz_c", "runnerz_r"]}
+const SURFACE_FIELDS := {"image": "string"}
+const SURFACE_SCRIPT := "res://src/look/ref_textures.gd"
 const GRAB_SCRIPT := "res://src/config/grab_styles.gd"
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
@@ -36,7 +45,7 @@ const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_de
 ## (AmbienceTable keys). `files`: .ogg variants, one picked per play; `gain_db`: volume offset.
 const SOUND_FIELDS := {"files": "strings", "gain_db": "float?"}
 const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1", "sounds": "lr.sound/1",
-	"ambience": "lr.sound/1"}
+	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1"}
 const AMBIENCE_SCRIPT := "res://src/audio/ambience_table.gd"
 
 static var _loaded := false
@@ -45,14 +54,14 @@ static var _builtin := {"props": {}, "regions": {}, "hunters": {}}
 static var _builtin_families := {}
 static var _builtin_hash := ""
 ## What readers see: built-in plus the loaded packs.
-static var _defs := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}, "sounds": {}, "ambience": {}}
+static var _defs := {}
 static var _families := {}
 static var _errors := PackedStringArray()
 ## Loaded packs (ContentPacks.read() results) sorted by pack id; per kind, id -> pack id for every pack definition and
 ## the sorted ids packs added (as opposed to overrode).
 static var _packs: Array = []
-static var _origin := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}, "sounds": {}, "ambience": {}}
-static var _added := {"props": [], "regions": [], "hunters": [], "grabs": [], "sounds": [], "ambience": []}
+static var _origin := {}
+static var _added := {}
 ## Pack asset path -> stripped PackedScene (models) or ImageTexture (PNGs), dropped on unload.
 static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
@@ -265,6 +274,10 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 		by_id[pack_id] = pack["dir"]
 		for entry in pack["manifest"].get("overrides", []):
 			var parts := String(entry).split("/")
+			if SURFACE_LOCKED.get(parts[0], []).has(parts[1]):
+				errors.append("%s: %s cannot be replaced (a safe-zone marking or a slice of the runner strip)" % [
+					pack["dir"], entry])
+				continue
 			if not _is_builtin_id(parts[0], parts[1]):
 				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
 		for kind in PACK_KINDS:
@@ -298,6 +311,8 @@ static func _is_builtin_id(kind: String, id: String) -> bool:
 		return sound != null and sound.knows_cue(id)
 	if kind == "ambience":
 		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
+	if SURFACE_KINDS.has(kind):
+		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
 	if kind == "grabs":
 		# every built-in hunter (and secret creature) can have its grab pool replaced
 		var grabs: GDScript = load(GRAB_SCRIPT)
@@ -430,16 +445,19 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		return {"defs": [], "errors": ["%s: top level is not an object" % path]}
 	if root.get("schema", "") != SCHEMAS[kind]:
 		return {"defs": [], "errors": ["%s: schema must be \"%s\"" % [path, SCHEMAS[kind]]]}
-	if kind in ["sounds", "ambience"]:
+	if kind in ["sounds", "ambience"] or SURFACE_KINDS.has(kind):
+		# one list of entries per file: "sounds" for sound kinds, "surfaces" for surface kinds
+		var list := "sounds" if kind in ["sounds", "ambience"] else "surfaces"
 		for key in root:
-			if not key in ["schema", "sounds"]:
+			if not key in ["schema", list]:
 				errors.append("%s: unknown key \"%s\"" % [path, key])
-		if typeof(root.get("sounds")) != TYPE_ARRAY:
-			errors.append("%s: a sound file needs \"sounds\" (array)" % path)
+		if typeof(root.get(list)) != TYPE_ARRAY:
+			errors.append("%s: this file needs \"%s\" (array)" % [path, list])
 			return {"defs": [], "errors": errors}
 		var index := 0
-		for entry in root["sounds"]:
-			var def := _parse_entry(entry, SOUND_FIELDS, "%s: sounds[%d]" % [path, index], errors)
+		for entry in root[list]:
+			var def := _parse_entry(entry, SOUND_FIELDS if list == "sounds" else SURFACE_FIELDS,
+				"%s: %s[%d]" % [path, list, index], errors)
 			if not def.is_empty():
 				defs.append(def)
 			index += 1

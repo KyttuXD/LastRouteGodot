@@ -50,8 +50,22 @@ func _snapshot() -> String:
 		var_to_str(PropModelCatalog.COORDINATED_SET_TYPES), var_to_str(FloorSets.HALLS), var_to_str(FloorSets.ROOM_DEFAULT),
 		var_to_str(StreamedRouteGenerator.REGION_PROP_SETS), var_to_str(StreamedRouteGenerator.SHOP_NAMES),
 		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()),
-		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]), ContentRegistry.pack_hash(),
+		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]),
+		var_to_str(RefTextures._pack_images), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
+		ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
+
+
+## One surface kind as the game paints it (RefTextures._paint, used for both the per-kind texture and the shared array:
+## headless has no GPU copies to read back), plus whether that group's array still builds with every layer.
+func _surface_pixel(group: String, kind: String) -> String:
+	var table: Dictionary = RefTextures.FLOOR_PAINTERS if group == "floor" else RefTextures.WALL_PAINTERS
+	var image := RefTextures._paint(group, kind, table[kind])
+	RefTextures._array_textures.erase(group)
+	RefTextures._build_array(group)
+	var arr: Texture2DArray = RefTextures._array_textures[group]
+	return "%s %s %s %s" % [image.get_size(), image.get_format(), image.get_pixel(3, 3).to_html(),
+		arr.get_layers() == RefTextures._array_kinds(group).size()]
 
 
 ## Every hunter's grab pool and look, in a stable order.
@@ -87,6 +101,12 @@ func _check_loaded(dir: String) -> void:
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
 	_expect(Sound._cue_overrides.has("alert") and Sound._ambience_overrides.has("mall"), "pack sounds not loaded")
+	var floor := _surface_pixel("floor", "terrazzo0")
+	_expect(floor == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
+		"floor replacement not painted at 32x32 RGBA8 into a complete array: %s" % floor)
+	var wall := _surface_pixel("wall", "panel0")
+	_expect(wall == "(32, 128) %d %s true" % [Image.FORMAT_RGBA8, Color.LIME.to_html()],
+		"wall replacement (an RGB8 PNG) not converted into a complete array: %s" % wall)
 	var plays := int(Sound.play_counts.get("alert", 0))
 	_expect(Sound.alert() and int(Sound.play_counts.get("alert", 0)) == plays + 1, "the replaced cue did not play")
 	_expect(Sound._cue_overrides["alert"]["streams"][0] is AudioStreamOggVorbis, "the cue is not the pack's recording")
@@ -158,6 +178,12 @@ func _check_rejections(vanilla: String) -> void:
 		"schema": "lr.sound/1", "sounds": [{"id": "not_a_cue", "files": ["assets/tone.ogg"]}]})})], "does not have"])
 	cases.append(["sound not ogg", [_good_pack("wavy", {"sounds/x.json": JSON.stringify({"schema": "lr.sound/1",
 		"sounds": [{"id": "alert", "files": ["assets/printer.glb"]}]})})], "is not a .ogg"])
+	cases.append(["locked floor", [_good_pack("safety", {}, ["floors/safe"], {"floors/x.json": JSON.stringify({
+		"schema": "lr.surface/1", "surfaces": [{"id": "safe", "image": "assets/ember.png"}]})})], "cannot be replaced"])
+	cases.append(["unknown floor", [_good_pack("nofloor", {}, ["floors/lava_floor"], {"floors/x.json": JSON.stringify({
+		"schema": "lr.surface/1", "surfaces": [{"id": "lava_floor", "image": "assets/ember.png"}]})})], "does not have"])
+	cases.append(["undeclared wall", [_good_pack("sneaky", {"walls/x.json": JSON.stringify({"schema": "lr.surface/1",
+		"surfaces": [{"id": "brick0", "image": "assets/ember.png"}]})})], "replace built-in ones"])
 	cases.append(["bad ogg", [_good_pack("badogg", {"assets/sound.ogg": "not ogg"})], "sound.ogg"])
 	cases.append(["glTF extension", [_good_pack("gltfext", {"assets/body.glb": _glb({"asset": {"version": "2.0"},
 		"extensionsUsed": ["OMI_physics_body"], "scenes": [{"nodes": []}], "scene": 0})})], "OMI_physics_body"])
@@ -194,7 +220,7 @@ func _check_rejections(vanilla: String) -> void:
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
 	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
-		"ambience/mall"] if overrides.is_empty() else overrides
+		"ambience/mall", "floors/terrazzo0", "walls/panel0"] if overrides.is_empty() else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
 			"author": "validator", "overrides": all_overrides}),
@@ -218,6 +244,10 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 			"files": ["assets/tone.ogg"], "gain_db": -3}]})
 		files["ambience/beds.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "mall",
 			"files": ["assets/tone.ogg"]}]})
+		files["floors/floors.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "terrazzo0",
+			"image": "assets/floor.png"}]})
+		files["walls/walls.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "panel0",
+			"image": "assets/wall.png"}]})
 		files["props/ember.json"] = JSON.stringify({"schema": "lr.prop/1", "family": "ember", "props": [
 			{"id": "officePrinter", "models": ["assets/printer.glb"], "themes": ["ember"]},
 			{"id": "%s_lamp" % id, "models": ["assets/printer.glb"]}]})
@@ -232,6 +262,13 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		face.fill(Color.ORANGE_RED)
 		DirAccess.make_dir_recursive_absolute(dir.path_join("assets"))
 		face.save_png(dir.path_join("assets/ember.png"))
+		# a floor at another size (scaled down) and a wall as an RGB8 PNG (converted), so the arrays stay uniform
+		var floor := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+		floor.fill(Color.DEEP_PINK)
+		floor.save_png(dir.path_join("assets/floor.png"))
+		var wall := Image.create(32, 128, false, Image.FORMAT_RGB8)
+		wall.fill(Color.LIME)
+		wall.save_png(dir.path_join("assets/wall.png"))
 	return dir
 
 

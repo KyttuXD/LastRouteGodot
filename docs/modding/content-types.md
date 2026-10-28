@@ -121,3 +121,26 @@ its own `.ogg` recordings. Both folders use the same file shape:
   few queued office cues are not replaceable yet.
 - `ambience/` replaces **beds**: the region beds (`maze`, `mansion`, `hotel`, `mall`, `sewer`, `inferno`, ...) and room
   beds. Make the recording loop seamlessly.
+
+## Surfaces (floors and walls)
+
+The game paints its floor and wall patterns itself at a deliberately low resolution. A pack can replace any of them
+with an image:
+
+```json
+{"schema": "lr.surface/1", "surfaces": [{"id": "terrazzo0", "image": "assets/my_terrazzo.png"}]}
+```
+
+| field | required | meaning |
+|---|---|---|
+| `id` | yes | the floor or wall kind, listed in `overrides` as `"floors/<kind>"` or `"walls/<kind>"` |
+| `image` | yes | a `.png` under `assets/`. Floors are shown at 32x32 pixels and walls at 32x128 (one wall tile, floor to ceiling); other sizes are scaled to that with no smoothing, so draw at that size or an exact multiple. |
+
+- Floor kinds are the list under [Regions](#regions) (`terrazzo0`, `parquet1`, `stone2`, `metal0`, `grate`, `hazard`,
+  `runner`, ...). Wall kinds include `panel0-2`, `paper0-1`, `brick0-1`, `stone0-1`, `hedge0-1`, `office0-1`,
+  `corridor0-1`, `inferno0`, `rockwall0-7` and the rest the game paints. A floor and a wall kind may share a name
+  (`stone0`); the folder says which one you mean.
+- Not replaceable: the safe-room floors (`safe`, `safe_plain`, `safe_mark`), which tell players where the safe zone
+  is, and the pieces of the hall runner (`runner_l`, `runner_c`, ...); replace `runner` / `runnerz` as a whole.
+  Ceilings are not replaceable yet.
+- Only the picture changes. How shiny a floor looks comes from its kind, so a replaced metal floor still shines.

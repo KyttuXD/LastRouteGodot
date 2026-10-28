@@ -14,9 +14,9 @@ extends RefCounted
 
 const ROOT := "user://mods"
 const SCHEMA := "lr.pack/1"
-const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience"]
+const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
 ## Kinds that only replace built-in things (a new id would never be used): every entry must be listed in overrides.
-const OVERRIDE_ONLY_KINDS := ["sounds", "ambience"]
+const OVERRIDE_ONLY_KINDS := ["sounds", "ambience", "floors", "walls"]
 const ASSET_EXTENSIONS := ["glb", "png", "ogg"]
 ## Finder litter that is skipped (and left out of the hash) rather than rejecting a hand-installed pack.
 const IGNORED_NAMES := [".DS_Store"]
@@ -260,6 +260,11 @@ static func _finish_def(def: Dictionary, kind: String, manifest: Dictionary, dir
 				errors.append("%s: files is empty" % where)
 				return {}
 			out["files"] = files
+		"floors", "walls":
+			var image := _asset(String(def["image"]), "png", dir, assets, where, errors)
+			if image.is_empty():
+				return {}
+			out["image"] = image
 		"props":
 			out["family"] = "%s:%s" % [pack_id, def["family"]]
 			var models := []
