@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Turns a finished scenario into report.json + report.md (and events.jsonl) and decides pass/fail against thresholds.
 
-const DEFAULT_LIMITS := {"max_stuck": 3, "max_soft_locks": 0, "max_errors": 0, "max_unreachable": 6, "min_fps": 0.0}
+const DEFAULT_LIMITS := {"max_stuck": 3, "max_soft_locks": 0, "max_errors": 0, "max_unreachable": 6, "min_fps": 0.0, "max_pitch_median_deg": 15.0}
 
 
 static func evaluate(report: Dictionary, limits: Dictionary) -> Array:
@@ -18,12 +18,35 @@ static func evaluate(report: Dictionary, limits: Dictionary) -> Array:
 	var log_errors := int(report.get("log", {}).get("errors", 0))
 	if log_errors > int(limits["max_errors"]):
 		failures.append("engine errors %d > %d" % [log_errors, int(limits["max_errors"])])
+	# a bot that walks looking at the floor or the ceiling draws a different game (KT: every tester stared down)
+	var median: Variant = pitch_median(bot.get("pitch_hist", {}))
+	if median != null:
+		bot["pitch_median_deg"] = median
+		if absf(float(median)) > float(limits["max_pitch_median_deg"]):
+			failures.append("camera pitch median %d deg, more than %d from level" % [int(median), int(limits["max_pitch_median_deg"])])
 	if report.get("scenario_failure", "") != "":
 		failures.append(String(report["scenario_failure"]))
 	var fps_p5 := float(report.get("perf", {}).get("fps_p5", 0.0))
 	if float(limits["min_fps"]) > 0.0 and fps_p5 > 0.0 and fps_p5 < float(limits["min_fps"]):
 		failures.append("fps p5 %.1f < %.1f" % [fps_p5, float(limits["min_fps"])])
 	return failures
+
+
+## The median of a whole-degree histogram {"-3": frames, ...}, or null when it is empty.
+static func pitch_median(hist: Dictionary) -> Variant:
+	var total := 0
+	for key in hist:
+		total += int(hist[key])
+	if total == 0:
+		return null
+	var degrees: Array = hist.keys().map(func(k: Variant) -> int: return int(k))
+	degrees.sort()
+	var seen := 0
+	for deg in degrees:
+		seen += int(hist[str(deg)])
+		if seen * 2 >= total:
+			return deg
+	return degrees[-1]
 
 
 static func perf_summary(fps: Array, frame_ms: Array) -> Dictionary:

@@ -6,6 +6,9 @@ extends BotAdapter
 ## collects relays, flees from hunters to safe rooms / hiding spots, and watches itself for stuck spots and soft-locks.
 
 const ROUTE_SCENE := "res://scenes/infinite_route_test.tscn"
+const PITCH_LEVEL_DEG := 2.0   # walking eye line: a touch above level, swept by PITCH_SWEEP_DEG
+const PITCH_SWEEP_DEG := 4.0
+const HUNTER_HEAD := 1.6
 const LOOK_RATE := 2.8          # PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND
 const CHUNK := 45               # StreamedRouteGenerator.CHUNK_SIZE
 const INTERACT_RANGE := 2.1
@@ -265,7 +268,7 @@ func collision_report() -> Dictionary:
 		var direction: Vector3 = (player.global_transform.basis * (entry[1] as Vector3)).normalized() * .5
 		var collision := KinematicCollision3D.new()
 		if player.test_move(player.global_transform, direction, collision):
-			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p)
+			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p, collision.get_position() - collision.get_normal() * .1)
 			hit["normal"] = _v3(collision.get_normal())
 			hit["depth"] = snappedf(collision.get_depth(), .001)
 			hit["hit_at"] = _v3(collision.get_position())
@@ -288,6 +291,24 @@ func collision_report() -> Dictionary:
 	return out
 
 
+## The occupied cells of a GridMap around a world point: cell coords, the mesh library item name, the cell's world box, plus the GridMap's own origin/cell size.
+func _gridmap_cells(grid: GridMap, around: Vector3) -> Dictionary:
+	var centre := grid.local_to_map(grid.to_local(around))
+	var cells: Array = []
+	for dy in range(-2, 3):
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var cell := centre + Vector3i(dx, dy, dz)
+				var item := grid.get_cell_item(cell)
+				if item == GridMap.INVALID_CELL_ITEM:
+					continue
+				var item_name := grid.mesh_library.get_item_name(item) if grid.mesh_library != null else str(item)
+				var world := grid.to_global(grid.map_to_local(cell))
+				cells.append({"cell": [cell.x, cell.y, cell.z], "item": item_name, "world_centre": _v3(world)})
+	return {"origin": _v3(grid.global_position), "cell_size": [snappedf(grid.cell_size.x, .01), snappedf(grid.cell_size.y, .01), snappedf(grid.cell_size.z, .01)],
+		"centre_cell": [centre.x, centre.y, centre.z], "occupied_nearby": cells.slice(0, 40)}
+
+
 func _v3(v: Vector3) -> Array:
 	return [snappedf(v.x, .01), snappedf(v.y, .01), snappedf(v.z, .01)]
 
@@ -305,7 +326,7 @@ func _shape_text(shape: Shape3D) -> String:
 
 
 ## What a collider is: node path, class, the prop/owner it belongs to, shape text, a world AABB and its distance from the player.
-func _describe_collider(collider: Variant, shape_index: int, from: Vector3) -> Dictionary:
+func _describe_collider(collider: Variant, shape_index: int, from: Vector3, point: Vector3 = Vector3.INF) -> Dictionary:
 	var info := {"node": "?", "class": "?", "owner_chain": [], "shape": "?", "aabb": [], "distance": -1.0}
 	if not (collider is Node):
 		info["node"] = str(collider)
@@ -321,6 +342,8 @@ func _describe_collider(collider: Variant, shape_index: int, from: Vector3) -> D
 		chain.append("%s(%s)" % [walker.name, walker.get_class()])
 		walker = walker.get_parent()
 	info["owner_chain"] = chain
+	if node is GridMap:
+		info["gridmap"] = _gridmap_cells(node as GridMap, from if point == Vector3.INF else point)
 	if node is CollisionObject3D:
 		var body := node as CollisionObject3D
 		info["layer"] = body.collision_layer
@@ -384,9 +407,11 @@ func probe_interact(kind: String, frames: int = 120) -> Dictionary:
 
 
 func _reset() -> void:
+	# the pitch histogram covers the whole process (a soak resumes its run several times)
+	var pitch_hist: Dictionary = stats.get("pitch_hist", {}) if stats is Dictionary else {}
 	stats = {"frames": 0, "distance_m": 0.0, "stuck_events": 0, "soft_locks": 0, "interact_failures": 0,
 		"unreachable_goals": 0, "chase_frames": 0, "relays": 0, "deaths": 0, "hidden_frames": 0,
-		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}}
+		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist}
 	events.clear()
 	_goal = {}
 	_path = []
@@ -525,6 +550,10 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 	var cell := Vector2i(floori(p.x), floori(p.z))
 	var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "hold": {"sprint": false, "crouch": false, "jump": false}, "pulse": []}
 	_track_progress(obs, p, delta)
+	if int(stats["frames"]) % 10 == 0 and not player.hidden:
+		# where the bot looks, for the run's median-pitch check (PlaytestReporter): whole degrees -> frames
+		var deg := str(roundi(rad_to_deg(player.first_person_pivot.rotation.x)))
+		stats["pitch_hist"][deg] = int(stats["pitch_hist"].get(deg, 0)) + 1
 	if bool(obs["run"].get("over", false)) or player.spectator_mode or player.input_frozen:
 		return act
 	_interact_cooldown = maxf(0.0, _interact_cooldown - delta)
@@ -720,7 +749,7 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	var error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
 	var rate := LOOK_RATE * sens
-	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), PlaytestInput.look_strength(-player.first_person_pivot.rotation.x, rate, delta)]
+	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), _walk_pitch(player, rate, delta)]
 	var forward := 1.0 if absf(error) < .7 else (.25 if absf(error) < 1.4 else 0.0)
 	act["move"] = [0.0, forward]
 	act["hold"]["sprint"] = sprint and forward > .9 and player.stamina > 15.0
@@ -777,7 +806,7 @@ func _steer_to(player: PlayerController3D, here: Vector2, point: Vector2, act: D
 	var error := wrapf(atan2(-to_point.x, -to_point.y) - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
 	var rate := LOOK_RATE * sens
-	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), PlaytestInput.look_strength(-player.first_person_pivot.rotation.x, rate, delta)]
+	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), _walk_pitch(player, rate, delta)]
 	act["move"] = [0.0, speed if absf(error) < .6 else 0.0]
 
 
@@ -799,9 +828,29 @@ func _cell_centre(cell: Variant) -> Vector2:
 	return Vector2(float(value.x) + .5, float(value.y) + .5)
 
 
+## The pitch stick while walking: eyes near level with a slow, uneven sweep (about -2..+6 degrees), or on a hunter's head while she is
+## in front (chasing or being chased), kept within -5..+10. The controller does pitch -= stick * rate, so the stick that closes an error
+## is -look_strength(error) (as in _aim_at); these walks used +look_strength(-pitch), which pushed any tilt further until the view
+## hit its clamp and every bot run stared at the floor.
+func _walk_pitch(player: PlayerController3D, rate: float, delta: float) -> float:
+	var pitch := player.first_person_pivot.rotation.x
+	var target := deg_to_rad(PITCH_LEVEL_DEG + PITCH_SWEEP_DEG * (.7 * sin(_clock * .43) + .3 * sin(_clock * 1.17 + 1.3)))
+	var eye := player.first_person_pivot.global_position
+	for hunter in _last_obs.get("hunters", []):
+		if float(hunter["dist"]) > THREAT_RANGE or not bool(hunter.get("los", false)):
+			continue
+		var pos: Array = hunter["pos"]
+		var flat := Vector2(float(pos[0]) - eye.x, float(pos[1]) - eye.z)
+		var facing := Vector2(-sin(player.rotation.y), -cos(player.rotation.y))
+		if flat.length() > .5 and facing.angle_to(flat.normalized()) < deg_to_rad(55.0) and facing.angle_to(flat.normalized()) > deg_to_rad(-55.0):
+			target = clampf(atan2(player.global_position.y + HUNTER_HEAD - eye.y, flat.length()), deg_to_rad(-5.0), deg_to_rad(10.0))
+		break
+	return -PlaytestInput.look_strength(target - pitch, rate, delta)
+
+
 func _idle_look(player: PlayerController3D, act: Dictionary, delta: float) -> void:
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
-	act["look"] = [.35, PlaytestInput.look_strength(-player.first_person_pivot.rotation.x, LOOK_RATE * sens, delta)]
+	act["look"] = [.35, _walk_pitch(player, LOOK_RATE * sens, delta)]
 
 
 func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, goal_pos: Vector2, kinds: Array,

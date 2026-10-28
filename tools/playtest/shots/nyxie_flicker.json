@@ -1,0 +1,227 @@
+{
+ "name": "nyxie_flicker",
+ "area": "prison",
+ "seconds": 8.6,
+ "dark": 0.0,
+ "world_dim": 0.35,
+ "torch_energy": 0,
+ "lamp_corridor": {
+  "min_lamps": 3,
+  "max_dist": 20.0,
+  "max_lateral": 0.7,
+  "min_first": 4.0,
+  "min_spacing": 3.0
+ },
+ "actors": {
+  "nyxie": {
+   "id": "nyxie",
+   "at": [
+    "Lc",
+    2,
+    0.0
+   ],
+   "face": "shot_camera",
+   "pose": "stare_camera",
+   "head": {
+    "max_yaw": 60,
+    "max_pitch": 30,
+    "sway": 0.4,
+    "ease": 6
+   }
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    0.0,
+    0.0,
+    1.55
+   ],
+   "look": [
+    12.0,
+    0.0,
+    1.9
+   ],
+   "fov": 46
+  }
+ ],
+ "flashlight": [],
+ "events": [
+  {
+   "t": 2.1,
+   "blackout": true
+  },
+  {
+   "t": 2.22,
+   "blackout": false
+  },
+  {
+   "t": 2.3,
+   "blackout": true
+  },
+  {
+   "t": 2.36,
+   "actor": "nyxie",
+   "place": [
+    "Lc",
+    1,
+    0.0
+   ],
+   "face": "shot_camera"
+  },
+  {
+   "t": 2.62,
+   "blackout": false
+  },
+  {
+   "t": 4.05,
+   "blackout": true
+  },
+  {
+   "t": 4.12,
+   "actor": "nyxie",
+   "place": [
+    "Lc",
+    0,
+    0.0
+   ],
+   "face": "shot_camera"
+  },
+  {
+   "t": 4.3,
+   "blackout": false
+  },
+  {
+   "t": 4.36,
+   "blackout": true
+  },
+  {
+   "t": 4.45,
+   "blackout": false
+  },
+  {
+   "t": 5.7,
+   "blackout": true
+  },
+  {
+   "t": 5.76,
+   "blackout": false
+  },
+  {
+   "t": 5.86,
+   "blackout": true
+  },
+  {
+   "t": 5.92,
+   "actor": "nyxie",
+   "place": [
+    3.0,
+    0.0
+   ],
+   "face": "shot_camera"
+  },
+  {
+   "t": 6.2,
+   "blackout": false
+  },
+  {
+   "t": 7.25,
+   "blackout": true
+  },
+  {
+   "t": 7.33,
+   "actor": "nyxie",
+   "place": [
+    2.1,
+    0.0
+   ],
+   "face": "shot_camera",
+   "bow": [
+    -18,
+    -10
+   ],
+   "bow_in": 0.0,
+   "fill": 0.35
+  },
+  {
+   "t": 7.52,
+   "blackout": false
+  }
+ ],
+ "expects": [
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 1.5,
+   "label": "lamp2",
+   "face_camera_deg": 25,
+   "pixels": {
+    "min_px": {
+     "head": 40
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 3.3,
+   "label": "lamp1",
+   "face_camera_deg": 25,
+   "pixels": {
+    "min_px": {
+     "head": 80
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 5.1,
+   "label": "lamp0",
+   "face_camera_deg": 25,
+   "pixels": {
+    "min_px": {
+     "head": 200
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 6.8,
+   "label": "near",
+   "face_camera_deg": 25,
+   "pixels": {
+    "min_px": {
+     "head": 1500
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 8.3,
+   "label": "closeup",
+   "face_camera_deg": 25,
+   "head_faces_camera_deg": 15,
+   "pixels": {
+    "min_px": {
+     "head": 6000
+    }
+   },
+   "jumps_only_in_dark": true,
+   "smooth_max_deg": 24
+  }
+ ],
+ "smooth": {
+  "from": 0.5,
+  "to": 8.5
+ },
+ "fade_out": 0
+}

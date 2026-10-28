@@ -1,0 +1,89 @@
+{
+ "name": "the_hunters",
+ "music": "02_Exploration_DesolateHalls.mid",
+ "music_volume": 0.8,
+ "shots": [
+  {
+   "card": [
+    "THE HUNTERS"
+   ],
+   "t": 3.0
+  },
+  {
+   "clip": "nyxie_peek",
+   "ss": 0,
+   "t": 12
+  },
+  {
+   "clip": "quenelle",
+   "ss": 0,
+   "t": 5.5,
+   "lower": {
+    "name": "QUENELLE",
+    "line": "she hums when she hunts",
+    "from": 0.8,
+    "to": 4.6
+   }
+  },
+  {
+   "clip": "javelle",
+   "ss": 0,
+   "t": 5.5,
+   "lower": {
+    "name": "JAVELLE",
+    "line": "never in a hurry",
+    "from": 0.8,
+    "to": 4.6
+   }
+  },
+  {
+   "clip": "zellia",
+   "ss": 0,
+   "t": 5.5,
+   "lower": {
+    "name": "ZELLIA",
+    "line": "listens before she looks",
+    "from": 0.8,
+    "to": 4.6
+   }
+  },
+  {
+   "clip": "elise_sprint",
+   "ss": 0,
+   "t": 6,
+   "lower": {
+    "name": "ELISE",
+    "line": "you will not outrun her",
+    "from": 0.8,
+    "to": 5.1
+   }
+  },
+  {
+   "clip": "nyxie_locker",
+   "ss": 0,
+   "t": 16.5,
+   "game_audio": 0.8
+  },
+  {
+   "clip": "nyxie_flicker",
+   "ss": 0,
+   "t": 8.6,
+   "game_audio": 0.9,
+   "fade_out": 0
+  },
+  {
+   "card": [
+    ""
+   ],
+   "t": 1.0,
+   "fade_in": 0,
+   "fade_out": 0
+  },
+  {
+   "card": [
+    "LAST ROUTE"
+   ],
+   "t": 3.4
+  }
+ ]
+}
