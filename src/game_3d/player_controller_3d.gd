@@ -291,7 +291,7 @@ var grab_pitch := 0.0
 var grab_roll := 0.0
 var grab_clip := ""
 var grab_state: Array = []
-var _grab_hands: Node3D
+var _first_person_body: FirstPersonBody
 var _grab_pivot_rest := Vector3.ZERO
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
@@ -850,9 +850,8 @@ func _apply_visual_settings() -> void:
 		_climb_hands = null
 		if climbing_now:
 			_show_climb_hands(true)
-	if _grab_hands != null:
-		_grab_hands.free()
-		_grab_hands = null
+	if _first_person_body != null:
+		_first_person_body.build(PlayerSkin.active_texture(), Settings.effective_slim(), Settings.player_hue_degrees)
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
 			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
@@ -1243,6 +1242,15 @@ static func _smooth(t: float) -> float:
 
 
 ## Two blocky fists gripping rungs in front of the camera, hand over hand.
+## The runner's own skinned body for first-person views (grabs; same model, skin, arms and scale as the third-person body).
+func first_person_body() -> FirstPersonBody:
+	if _first_person_body == null:
+		_first_person_body = FirstPersonBody.new()
+		add_child(_first_person_body)
+		_first_person_body.build(PlayerSkin.active_texture(), Settings.effective_slim(), Settings.player_hue_degrees)
+	return _first_person_body
+
+
 func begin_grab_view() -> void:
 	if not grab_active:
 		_grab_pivot_rest = first_person_pivot.position
@@ -1250,9 +1258,9 @@ func begin_grab_view() -> void:
 
 
 ## One frame of a grab (HunterGrab): the camera goes exactly where the grab's camera solver put it (`camera`, world space, already
-## clear of walls and the hunter and eased); the body turns to `yaw`; `hands` names the first-person hand pose at amount `k`;
-## `clip` is what others see. A headset keeps its own tracked view: only the body, the clip and the state move.
-func set_grab_camera(camera: Transform3D, yaw: float, hands: String, k: float, clip: String) -> void:
+## clear of walls and the hunter and eased); the body turns to `yaw`; `clip` is what others see. The runner's own body in
+## first person is first_person_body(), posed by the grab. A headset keeps its own tracked view: only the body, the clip and the state move.
+func set_grab_camera(camera: Transform3D, yaw: float, clip: String) -> void:
 	grab_active = true
 	grab_clip = clip
 	_yaw = yaw
@@ -1262,23 +1270,7 @@ func set_grab_camera(camera: Transform3D, yaw: float, hands: String, k: float, c
 	first_person_pivot.global_transform = camera
 	grab_roll = first_person_pivot.rotation.z
 	if first_person_items != null:
-		first_person_items.visible = false   # no tool in hand while held: only the skinned hands
-	_pose_grab_hands(hands, k)
-
-
-## The wrist yank: the runner's left skinned hand is the one in the hunter's grip, at `world`, kept on screen.
-func hold_grab_hand_at(world: Vector3) -> void:
-	if _grab_hands == null or xr_active:
-		return
-	var arm := _grab_hands.get_node_or_null("L") as Node3D
-	if arm == null:
-		return
-	var local := first_person_camera.global_transform.affine_inverse() * world
-	local.z = minf(local.z, -.6)
-	var half := tan(deg_to_rad(first_person_camera.fov * .5)) * -local.z * .8
-	local.y = clampf(local.y, -half, half)
-	local.x = clampf(local.x, -half * 1.5, half * 1.5)
-	arm.position = arm.position.lerp(local, .5)
+		first_person_items.visible = false   # no tool in hand while held: the runner's own body is drawn instead
 
 
 func end_grab_view() -> void:
@@ -1294,57 +1286,8 @@ func end_grab_view() -> void:
 	_apply_look_rotation()
 	if first_person_items != null:
 		first_person_items.visible = true
-	if _grab_hands != null:
-		_grab_hands.visible = false
-
-
-## The skinned hands while held (same source as the ladder hands): gripping the hunter's arm, pushing at it, one wrist held,
-## pinned at the sides, clawing at the floor, pushing up from the floor, or hanging (towards the floor, which is up in an
-## upside-down view). `k` 0..1 brings them from low at the sides into the pose.
-const GRAB_HAND_POSES := {
-	"grip_arm": [Vector3(.13, -.13, -.32), Vector3(0.0, 18.0, 14.0)],
-	"push": [Vector3(.16, -.12, -.36), Vector3(10.0, 8.0, 6.0)],
-	"held": [Vector3(.14, -.06, -.42), Vector3(25.0, 6.0, 0.0)],
-	"pinned": [Vector3(.2, -.2, -.36), Vector3(-10.0, -6.0, 0.0)],
-	"claw": [Vector3(.18, -.2, -.42), Vector3(-25.0, 4.0, 0.0)],
-	"push_up": [Vector3(.17, -.04, -.36), Vector3(30.0, 8.0, 4.0)],
-	"dangle": [Vector3(.22, .2, -.34), Vector3(180.0, 0.0, 0.0)],
-}
-
-
-func _pose_grab_hands(hands: String, k: float) -> void:
-	if _grab_hands == null:
-		_grab_hands = Node3D.new()
-		_grab_hands.name = "GrabHands"
-		for side in [-1.0, 1.0]:
-			var arm := Node3D.new()
-			arm.name = "L" if side < 0.0 else "R"
-			var hand := _build_skinned_hand(CLIMB_HAND_SCALE, CLIMB_ARM_TILT)
-			if side < 0.0:
-				hand.scale.x = -hand.scale.x
-			arm.add_child(hand)
-			_grab_hands.add_child(arm)
-		first_person_camera.add_child(_grab_hands)
-	_grab_hands.visible = true
-	var pose: Array = GRAB_HAND_POSES.get(hands, GRAB_HAND_POSES["push"])
-	var now := Time.get_ticks_msec() * .001
-	for arm_value in _grab_hands.get_children():
-		var arm := arm_value as Node3D
-		var side := -1.0 if arm.name == "L" else 1.0
-		var at: Vector3 = pose[0]
-		var turn: Vector3 = pose[1]
-		var target := Vector3(at.x * side, at.y, at.z)
-		var wobble := Vector3(0.0, sin(now * 19.0 + side) * .012, 0.0) * k
-		if hands == "claw":
-			# alternate: one hand reaches ahead and digs in while the other drags back
-			var phase := sin(now * 5.0 + (0.0 if side < 0.0 else PI))
-			target += Vector3(0.0, absf(phase) * .03, -phase * .09)
-		elif hands == "held" and side > 0.0:
-			target = Vector3(.24, -.22 + sin(now * 9.0) * .03, -.4)   # the free hand flails low
-		elif hands == "dangle":
-			target += Vector3(sin(now * 3.0 + side) * .03, 0.0, 0.0)
-		arm.position = Vector3(.3 * side, -.42, -.4).lerp(target, k) + wobble
-		arm.rotation = Vector3(deg_to_rad(turn.x) * k, deg_to_rad(turn.y) * k * -side, deg_to_rad(turn.z) * k * side)
+	if _first_person_body != null:
+		_first_person_body.visible = false
 
 
 func _show_climb_hands(on: bool) -> void:

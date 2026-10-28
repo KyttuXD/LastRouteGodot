@@ -5128,6 +5128,15 @@ func _death_cause(hunter_id: String) -> Dictionary:
 
 
 
+## Debug/recording hook (playtest sequencer, capture rigs): `view` grabs the local runner now with `style` (GrabStyles), the
+## same presentation a real catch plays, without the run ending. Returns when the hold starts; call grab.release() after.
+func admin_force_grab(view: HunterView3D, style: String) -> void:
+	if view == null or grab == null or not GrabStyles.STYLES.has(style):
+		return
+	grab.release()
+	await grab.play(player, view, view.brain.hunter_id, .5, style)
+
+
 ## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
 func _take_grab_roll() -> float:
 	var roll := _grab_roll

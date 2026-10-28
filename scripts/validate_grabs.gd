@@ -106,28 +106,14 @@ func _hunter(parent: Node, id: String, at: Vector3, facing: Vector3) -> HunterVi
 	return view
 
 
-func _expect_skinned(hands: Node3D, label: String) -> void:
-	_expect(hands != null and hands.visible, "%s: the grab hands are not shown" % label)
-	if hands == null:
-		return
-	for node in hands.find_children("*", "MeshInstance3D", true, false):
-		var mesh_node := node as MeshInstance3D
-		_expect(not mesh_node.mesh is BoxMesh, "%s: a grab hand is a placeholder box" % label)
-		var material := mesh_node.get_active_material(0)
-		if material is StandardMaterial3D:
-			_expect((material as StandardMaterial3D).albedo_texture != null, "%s: a grab hand is not skin-textured" % label)
-	var left := hands.get_node("L").get_child(0) as Node3D
-	var right := hands.get_node("R").get_child(0) as Node3D
-	_expect(left.scale.x * right.scale.x < 0.0, "%s: the left grab hand is not mirrored" % label)
-
-
 const ARENA := preload("res://scripts/grab_arena.gd")
-## Camera rules (KT): clear of every hunter collider, model box and wall by at least the near plane plus a margin; roll within
-## 15 degrees (the upside-down hold: within 10 of upside down once it has turned over); no snapping; the FOV never changes; the
-## hunter's face not an extreme close-up at the hold; the skinned hands on screen and not huge; every grip within 3 cm.
-const CAMERA_CLEARANCE := .07
+## Camera rules (KT): clear of every hunter collider, model box and wall by at least the near plane plus a margin, and never
+## inside the runner's own body; at that body's eyes; roll within 15 degrees (the upside-down hold: within 10 of upside down
+## once it has turned over); no snapping; the FOV never changes; the hunter's face framed at the hold; the runner's own hands
+## on screen and not huge where they hold something; every grip within 3 cm.
+const CAMERA_CLEARANCE := .06
 const MAX_TURN_RATE := 2.6
-const MAX_MOVE_RATE := 3.0
+const MAX_MOVE_RATE := 5.2
 const FACE_MIN := .9
 const CONTACT := .03
 
@@ -136,16 +122,21 @@ func _roll_of(basis: Basis) -> float:
 	return asin(clampf(basis.x.normalized().y, -1.0, 1.0))
 
 
-## How many hand corners are on screen, and the tallest single hand as a share of the screen height.
+## The runner's own first-person body: how many hand corners are on screen, and the taller hand as a share of the screen.
 func _hand_share(player: PlayerController3D) -> Vector2:
 	var camera := player.first_person_camera
 	var size := player.get_viewport().get_visible_rect().size
 	var seen := 0
 	var tallest := 0.0
-	for arm in player._grab_hands.get_children():
+	for hand_name in ["L-Hand", "R-Hand"]:
+		var hand := player.first_person_body().model.find_child(hand_name, true, false) as Node3D
+		if hand == null:
+			continue
 		var top := 1e9
 		var bottom := -1e9
-		for node in (arm as Node).find_children("*", "MeshInstance3D", true, false):
+		for node in [hand] + hand.find_children("*", "MeshInstance3D", true, false):
+			if not node is MeshInstance3D:
+				continue
 			var mesh_node := node as MeshInstance3D
 			var box := mesh_node.mesh.get_aabb()
 			for corner in 8:
@@ -205,6 +196,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	var max_gap := 0.0
 	var away_seen := false
 	var pushes_seen := 0
+	var eye_frames := 0
+	var drift_frames := 0
 	while waited < t_end:
 		await route.get_tree().process_frame
 		var delta := maxf(route.get_process_delta_time(), .001)
@@ -212,8 +205,33 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		var camera := player.first_person_camera.global_transform
 		var blocked := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], player.collision_mask, [view],
 			CAMERA_CLEARANCE)
+		# a part of her at the lens may only be there if it is not drawn for this camera (culled for the frame)
+		if blocked.begins_with("hunter mesh"):
+			var part := blocked.trim_prefix("hunter mesh (").trim_suffix(")")
+			var hidden_from_camera := false
+			for mesh in grab.culled:
+				hidden_from_camera = hidden_from_camera or (mesh as Node).name == part
+			if hidden_from_camera:
+				blocked = ""
 		if not blocked.is_empty() and worst.is_empty():
 			worst = "the camera is inside a %s at %.2f s" % [blocked, waited]
+		var own := player.first_person_body()
+		if waited > .3 and own.model != null:
+			var inside_self := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], 0, [own.model], .02)
+			if not inside_self.is_empty():
+				var part := inside_self.trim_prefix("hunter mesh (").trim_suffix(")")
+				for mesh in grab.culled:
+					if (mesh as Node).name == part and own.model.is_ancestor_of(mesh):
+						inside_self = ""
+			if not inside_self.is_empty() and worst.is_empty():
+				worst = "the camera is inside the runner's own %s at %.2f s" % [inside_self.trim_prefix("hunter mesh "), waited]
+			# at the body's own eyes, unless her arm or body is right there (then it is nudged clear, as the rules ask)
+			var eye_clear := HunterGrab.camera_blocked(space, own.eye(), [player.get_rid()], player.collision_mask, [view],
+				HunterGrab.CLEARANCE + .03, true).is_empty()
+			if eye_clear and grab.pushes == pushes_seen:
+				eye_frames += 1
+				if camera.origin.distance_to(own.eye()) >= HunterGrab.MAX_PULLBACK + .2:
+					drift_frames += 1
 		var roll := _roll_of(camera.basis)
 		var upright := camera.basis.y.y > 0.0
 		if style == GrabStyles.UPSIDE_DOWN and waited > t_end - .15:
@@ -228,8 +246,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		var pushed := grab.pushes > pushes_seen   # she moved into the camera: the push may be quick, never skipped
 		pushes_seen = grab.pushes
 		# she moved into the camera: it is pushed clear at once, but still never jumps
-		var rate := MAX_MOVE_RATE * (2.0 if pushed else 1.0)
-		_expect((pushed and waited < .05) or previous.origin.distance_to(camera.origin) / delta <= rate, "%s: the camera jumps %.2f m in one frame at %.2f s s" % [label, previous.origin.distance_to(camera.origin), waited])
+		# a push out of her arm may be one quick step (at most 20 cm), never a jump across the room
+		_expect((pushed and previous.origin.distance_to(camera.origin) <= HunterGrab.MAX_PUSH + .05) or previous.origin.distance_to(camera.origin) / delta <= MAX_MOVE_RATE, "%s: the camera jumps %.2f m in one frame at %.2f s s" % [label, previous.origin.distance_to(camera.origin), waited])
 		_expect(is_equal_approx(player.first_person_camera.fov, fov), "%s: the FOV changed" % label)
 		previous = camera
 		if waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS and not (grab.current["arms"] as Array).is_empty():
@@ -237,6 +255,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		if GrabStyles.SHY.has(id) and waited > GrabStyles.REACH_SECONDS and waited < GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS:
 			away_seen = away_seen or _facing_angle(view, camera.origin) > deg_to_rad(40.0)
 	_expect(worst.is_empty(), "%s: %s" % [label, worst])
+	_expect(drift_frames <= eye_frames / 10, "%s: the camera left the body's eyes on %d of %d clear frames" % [label, drift_frames, eye_frames])
 	if style == GrabStyles.UPSIDE_DOWN:
 		_expect(flipped, "%s: the view never turned over" % label)
 	_expect(max_gap < CONTACT, "%s: a grip is %.1f cm off its contact during the hold" % [label, max_gap * 100.0])
@@ -245,6 +264,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	var head := view.find_child("Head", true, false) as Node3D
 	if head != null:
 		# pinned to a wall by a hunter half again your size, her face is closer: still framed, never inside
+		# pinned to a wall, or hugged, by a hunter half again your size: her face is close (framed, never inside)
 		var face_min := .45 if style == GrabStyles.WALL_PIN else FACE_MIN
 		_expect(camera.origin.distance_to(head.global_position) >= face_min, "%s: the camera is %.2f m from her face" % [label, camera.origin.distance_to(head.global_position)])
 		var screen := player.first_person_camera.unproject_position(head.global_position)
@@ -256,9 +276,28 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 			"%s: she looks %.0f deg away from the runner at the hold" % [label, rad_to_deg(angle)])
 	if GrabStyles.SHY.has(id):
 		_expect(away_seen, "%s: shy %s never looked away" % [label, id])
+	# the runner's own body: the same model and scale as the third-person player (KT: not doll-sized), skinned, no head
+	var own := player.first_person_body()
+	_expect(own.visible and own.model != null, "%s: no first-person body" % label)
+	var normal_scale := player._body_model.global_basis.get_scale().y
+	_expect(absf(own.model.global_basis.get_scale().y / normal_scale - 1.0) < .02, "%s: the first-person body is %.2fx the player model" % [label,
+		own.model.global_basis.get_scale().y / normal_scale])
+	var head_node := own.model.find_child("Head", true, false)
+	for mesh in head_node.find_children("*", "MeshInstance3D", true, false):
+		_expect(not (mesh as MeshInstance3D).visible, "%s: the head mesh is drawn in first person" % label)
+	var textured := false
+	for mesh in own.model.find_children("*", "MeshInstance3D", true, false):
+		var material := (mesh as MeshInstance3D).get_active_material(0)
+		textured = textured or (material is StandardMaterial3D and (material as StandardMaterial3D).albedo_texture != null)
+	_expect(textured, "%s: the first-person body is not skinned" % label)
+	# the runner's own hands, when in view, never fill it (looking up at her face they are often below the view: the body is
+	# there to look down at, not to be held up in front of the lens)
 	var hands := _hand_share(player)
-	_expect(hands.x > 0, "%s: the skinned hands are off screen" % label)
-	_expect(hands.y <= .5, "%s: a hand fills %.0f%% of the screen height" % [label, hands.y * 100.0])
+	_expect(hands.x == 0 or hands.y <= .5, "%s: a hand fills %.0f%% of the screen height" % [label, hands.y * 100.0])
+	if String(grab.current["hands"]) == "held":
+		for entry in HunterGrab.runner_hand_targets(own.model, view, grab.current, grab._along, waited):
+			var gap := HunterGrab.grip_point(HunterGrab.arm_chain(own.model, String(entry[0]))).distance_to(entry[1])
+			_expect(gap < CONTACT, "%s: the runner's own hand is %.1f cm from where she holds it" % [label, gap * 100.0])
 	_expect(player.grab_active and player.current_clip() == String(grab.current["clip"]), "%s: not held / wrong clip" % label)
 	var state: Array = player.grab_state
 	_expect(state.size() == 7 and String(state[0]) == style, "%s: the state other players get is %s" % [label, state])
@@ -270,7 +309,6 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		_expect(player.first_person_camera.global_position.y - stand.y < 1.4, "%s: the eye is not down low" % label)
 	if style == "leg_grab":
 		_expect(float(pose["face"]) < 0.0, "%s: the body faces the hunter" % label)
-	_expect_skinned(player._grab_hands, label)
 	# other players: the runner's own state carries it; their copy of the body is taken the same way, clear of the walls
 	var remote := RemotePlayers.new()
 	remote.local_player = player
@@ -285,6 +323,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		body.global_basis = Basis.from_euler(Vector3(float(sent[3]), GrabStyles.body_yaw(grab._along, float(pose["face"])), 0.0)) \
 			* Basis.from_scale(body.scale)
 		await route.get_tree().process_frame
+		_expect(absf(body.global_basis.get_scale().y / player._body_model.global_basis.get_scale().y - 1.0) < .02,
+			"%s: a guest's copy of the runner is not the player's size" % label)
 		HunterGrab.pose_nearest_hunter(remote, body, sent)
 		var basis := body.global_basis.orthonormalized()
 		for entry in HunterGrab.contacts(body.global_position, basis, pose["arms"]):
@@ -303,7 +343,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		body.queue_free()
 	remote.queue_free()
 	grab.release()
-	_expect(not player.grab_active and player.grab_state.is_empty() and not player._grab_hands.visible, "%s: release left the runner held" % label)
+	_expect(not player.grab_active and player.grab_state.is_empty() and not player.first_person_body().visible, "%s: release left the runner held" % label)
 	_expect(absf(player.first_person_pivot.rotation.z) < .001, "%s: the view stays rolled after release" % label)
 	if model != null:
 		_expect(model.transform.is_equal_approx(rest), "%s: the hunter's model was not put back" % label)

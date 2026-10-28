@@ -27,6 +27,8 @@ var _hunter_id := ""
 var _applied_frame := -1
 ## Frames on which the hard clearance had to push the camera (she moved into it): the grabs suite tracks these.
 var pushes := 0
+## Hunter meshes hidden from the camera this frame because the lens is inside them (see _cull_near).
+var culled: Array = []
 var _last_camera := Transform3D.IDENTITY
 var _player: PlayerController3D
 var _view: Node3D
@@ -164,6 +166,8 @@ static func elbow_pole(arm_side: String, along: Vector3, wide: bool = false) -> 
 
 ## Leans, lowers and moves a hunter's model (not the simulated hunter) towards `along`: [forward, drop, lean]. Zeros put it back.
 static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> void:
+	if "grab_until_msec" in view:
+		view.set("grab_until_msec", Time.get_ticks_msec() + 250)   # no beam (Kathy) while she holds someone
 	var model := view.get("_model") as Node3D if "_model" in view else null
 	if model == null:
 		return
@@ -229,6 +233,54 @@ static func pose_arms_on(view: Node3D, along: Vector3, points: Array, wide: bool
 		if chain["hand"] != null and float(entry[2]) >= .999:
 			worst = maxf(worst, grip_point(chain).distance_to(entry[1]))
 	return worst
+
+
+## Where a held runner's own hands go (`body` is their mannequin; the local first-person body or another player's copy):
+## onto her forearm when held up by it, against her chest when pushing her off, the held wrist out to her grip, clawing at
+## the floor ahead when dragged; the clip's own arms otherwise (pinned, dangling).
+static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, along: Vector3, t: float) -> Array:
+	var hands := String(pose.get("hands", ""))
+	var basis := body.global_basis.orthonormalized()
+	var right := basis.x
+	var out := []
+	match hands:
+		"grip_arm":
+			var chain := arm_chain(view, "R")
+			if chain["forearm"] != null and chain["hand"] != null:
+				var elbow := (chain["forearm"] as Node3D).global_position
+				var wrist := (chain["hand"] as Node3D).global_position
+				out = [["L", elbow.lerp(wrist, .45)], ["R", elbow.lerp(wrist, .8)]]
+		"push", "push_up":
+			# arms out against her, at the runner's own arm's length (not up in their face)
+			var chest := view.find_child("Chest", true, false) as Node3D
+			var target := chest.global_position if chest != null else view.global_position + Vector3.UP
+			for side in [["L", -1.0], ["R", 1.0]]:
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
+				var toward := (target - shoulder).normalized()
+				out.append([side[0], shoulder + toward * .36 + Vector3.DOWN * .08])
+		"held":
+			for entry in pose.get("runner_arms", []):
+				out.append([String(entry[0]), body.global_position + basis * (GrabStyles.BODY_POINTS[String(entry[1])] as Vector3)])
+		"dangle":
+			# hanging head down: the arms hang towards the floor, out to the sides, clear of the face
+			for side in [["L", -1.0], ["R", 1.0]]:
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
+				out.append([side[0], shoulder + Vector3.DOWN * .25 + right * (.3 * float(side[1]))])
+		"claw":
+			# reaching ahead along the floor in turn, as if digging in
+			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2)
+			ahead.y = body.global_position.y + .06
+			for side in [["L", -1.0], ["R", 1.0]]:
+				var reach := .25 + .2 * sin(t * 5.0 + (0.0 if side[1] < 0.0 else PI))
+				out.append([side[0], ahead + right * (.18 * float(side[1])) - basis.z * reach])
+	return out
+
+
+static func pose_runner_arms(body: Node3D, view: Node3D, pose: Dictionary, along: Vector3, t: float) -> void:
+	var amount := float(pose.get("k", 1.0))
+	for entry in runner_hand_targets(body, view, pose, along, t):
+		solve_arm(body, String(entry[0]), entry[1], amount, Vector3.DOWN * .6 + body.global_basis.orthonormalized().x
+			* (.5 if entry[0] == "R" else -.5) + body.global_basis.orthonormalized().z * .4)
 
 
 ## The hunter turns her head (and so her eyes) towards `target`, within a neck's reach (about 66 degrees either way, 30 down,
@@ -301,31 +353,36 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 	pose_hunter_body(best, along, [packet[4], packet[5], packet[6]])
 	var basis := body.global_basis.orthonormalized()
 	var points := contacts(body.global_position, basis, pose["arms"])
-	# the runner's own arm goes out to where the hunter holds it (the wrist yank)
-	for entry in pose.get("runner_arms", []):
-		solve_arm(body, String(entry[0]), body.global_position + basis * (GrabStyles.BODY_POINTS[String(entry[1])] as Vector3),
-			float(pose["k"]), Vector3.DOWN - along * .3)
 	pose_arms_on(best, along, points, bool(pose.get("wide", false)))
+	pose_runner_arms(body, best, pose, along, float(packet[1]))
 	var id := String(best.call("shown_id")) if best.has_method("shown_id") else ""
 	head_look(best, body.global_position + basis * (GrabStyles.BODY_POINTS["neck"] + Vector3(0.0, .3, 0.0)),
 		best.get_process_delta_time(), along, GrabStyles.look_away(id, float(packet[1])))
 
 
-## The first-person camera while held (KT: the views must never look horrific). It sits at the grabbed body's head, pulled
-## back (at most MAX_PULLBACK) until the hunter's face and upper body are framed at FACE_DISTANCE; it never ends inside a wall
+## The first-person camera while held (KT: the views must never look horrific). It starts at the eyes of the runner's own body
+## (FirstPersonBody, posed by the grab), drawn back to frame her face (FACE_DISTANCE), and looks at her face; it never ends
+## inside a wall
 ## (ray from where the runner stood, then a sphere test) or inside the hunter (her collider and every box of her posed model,
 ## with CLEARANCE); it eases towards that spot and that view every frame instead of snapping; roll stays within MAX_ROLL (the
 ## upside-down hold flips slowly, then sways within FLIP_SWAY).
+const CLEARANCE := .07
+## At the body's eyes the hunter (half again the runner's size) is a wall of texture a hand's width away (KT: horrific), so the
+## camera is drawn back from the eyes, straight away from her, until her face and upper body sit FACE_DISTANCE away: at most
+## MAX_PULLBACK, never into a wall (then to the roomier side), never into the runner's own body (its head is not drawn).
 const FACE_DISTANCE := 1.45
 const MAX_PULLBACK := .9
-const CLEARANCE := .2
-const WALL_MARGIN := .22
-const EASE_RATE := 4.0
+const WALL_MARGIN := .12
+const EASE_RATE := 30.0
 ## Speed limits on the eased camera, so nothing ever snaps: metres and radians per second.
-const MAX_SPEED := 2.8
+const MAX_SPEED := 5.0
 const MAX_TURN := 2.4
 ## The hard limit, only ever enforced by a push: the near plane (.06) plus a little.
-const HARD_CLEARANCE := .08
+const HARD_CLEARANCE := .065
+## The most a push may move the camera in one frame.
+const MAX_PUSH := .18
+## Render layer for hunter parts hidden from the held runner's camera (inside its near plane this frame).
+const NEAR_CULL_LAYER := 1 << 18
 const MAX_ROLL := .26
 const FLIP_SWAY := .17
 const MAX_LOOK_PITCH := 1.2
@@ -334,7 +391,7 @@ const MAX_LOOK_PITCH := 1.2
 ## Is `point` clear of walls and of every hunter (collider, and each box of its posed model grown by CLEARANCE)? "" when it is,
 ## else what it is inside. Shared with the grabs suite, which runs it on every frame of every grab.
 static func camera_blocked(space: PhysicsDirectSpaceState3D, point: Vector3, exclude: Array, mask: int,
-		hunters: Array, clearance: float = CLEARANCE) -> String:
+		hunters: Array, clearance: float = CLEARANCE, skip_arms: bool = false) -> String:
 	var sphere := SphereShape3D.new()
 	sphere.radius = clearance
 	var query := PhysicsShapeQueryParameters3D.new()
@@ -355,12 +412,64 @@ static func camera_blocked(space: PhysicsDirectSpaceState3D, point: Vector3, exc
 			var mesh_node := node as MeshInstance3D
 			if mesh_node.mesh == null or not mesh_node.is_visible_in_tree() or String(mesh_node.name).contains("Beam"):
 				continue   # her body, not the see-through vision beam
+			if skip_arms and _is_arm(mesh_node):
+				continue
 			var local := mesh_node.global_transform.affine_inverse() * point
 			var scale := mesh_node.global_transform.basis.get_scale()
 			var grown := mesh_node.mesh.get_aabb().grow(clearance / maxf(minf(scale.x, minf(scale.y, scale.z)), .001))
 			if grown.has_point(local):
 				return "hunter mesh (%s)" % mesh_node.name
 	return ""
+
+
+## Any box of her model within the near plane of the camera at `at` is drawn on a layer the first-person camera skips, for
+## this frame only, so the lens never shows the inside of a mesh; everything else is put back.
+func _cull_near(at: Vector3) -> void:
+	var camera := _player.first_person_camera
+	camera.cull_mask &= ~NEAR_CULL_LAYER
+	var model := _view.get("_model") as Node3D if "_model" in _view else _view
+	if model == null:
+		return
+	var parts := model.find_children("*", "MeshInstance3D", true, false)
+	var body := _player.first_person_body()
+	if body.model != null and body.visible:
+		for node in body.model.find_children("*", "MeshInstance3D", true, false):
+			if _is_arm(node):
+				parts.append(node)   # the runner's own arm at the lens (pushing her off, gripping her arm)
+	for node in parts:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		if mesh_node.has_meta("grab_layers"):
+			mesh_node.layers = int(mesh_node.get_meta("grab_layers"))
+			mesh_node.remove_meta("grab_layers")
+		var local := mesh_node.global_transform.affine_inverse() * at
+		var scale := mesh_node.global_transform.basis.get_scale()
+		if mesh_node.mesh.get_aabb().grow(HARD_CLEARANCE / maxf(minf(scale.x, minf(scale.y, scale.z)), .001)).has_point(local):
+			mesh_node.set_meta("grab_layers", mesh_node.layers)
+			mesh_node.layers = NEAR_CULL_LAYER
+			culled.append(mesh_node)
+
+
+func _own_torso() -> Array:
+	var body := _player.first_person_body()
+	if body.model == null or not body.visible:
+		return []
+	var out := []
+	for node in body.model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh != null and mesh_node.is_visible_in_tree() and not _is_arm(mesh_node):
+			out.append(mesh_node)
+	return out
+
+
+static func _is_arm(node: Node) -> bool:
+	var at := node
+	while at != null:
+		if String(at.name) in ["L-Arm", "R-Arm"]:
+			return true
+		at = at.get_parent()
+	return false
 
 
 func _exclude() -> Array:
@@ -403,47 +512,66 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 		if not hit.is_empty():
 			p = (hit["position"] as Vector3) + (hit["normal"] as Vector3) * WALL_MARGIN
 		for _i in 10:
-			if camera_blocked(space, p, walls_only, mask, [], WALL_MARGIN).is_empty():
+			if camera_blocked(space, p, walls_only, mask, [], WALL_MARGIN * .8).is_empty():
 				break
 			p = p.lerp(anchor, .25)
 		return p
 	point = fix_walls.call(point)
+	# the runner's own torso and legs count as solid too (their own arms are just not drawn when at the lens: _cull_near)
+	var own: Array = _own_torso()
 	var blocked := func(p: Vector3) -> bool:
-		return not camera_blocked(space, p, walls_only, mask, [_view], clearance).is_empty()
+		# her arms reach right up to the runner's face: those are culled at the lens (_cull_near), not dodged
+		if not camera_blocked(space, p, walls_only, mask, [_view], clearance, true).is_empty():
+			return true
+		for part in own:
+			var mesh_node := part as MeshInstance3D
+			if mesh_node.mesh.get_aabb().grow(.02).has_point(mesh_node.global_transform.affine_inverse() * p):
+				return true
+		return false
 	if not blocked.call(point):
 		return point
-	# out of the hunter: the nearest clear spot straight back from her (found continuously, so it never steps or jitters);
-	# a wall behind means rising over her reach instead
-	var lo := 0.0
-	var hi := -1.0
-	for i in range(1, 26):
-		if not blocked.call(point + _along * (i * .1)):
-			hi = i * .1
-			lo = (i - 1) * .1
-			break
-	if hi < 0.0:
-		return fix_walls.call(point + Vector3.UP * .4)
-	for _i in 7:
-		var mid := (lo + hi) * .5
-		if blocked.call(point + _along * mid):
-			lo = mid
-		else:
-			hi = mid
-	var out: Vector3 = point + _along * hi
-	var walled: Vector3 = fix_walls.call(out)
-	if walled.distance_to(out) > .01 and blocked.call(walled):
-		lo = 0.0
-		hi = 1.0
-		if blocked.call(walled + Vector3.UP * hi):
-			return walled + Vector3.UP * hi
+	# the nearest clear spot, searched straight up (over her reach) and straight back from her, whichever is closer; found
+	# continuously by bisection, so the camera never steps or jitters; walls always win
+	for axis in [Vector3.UP, _along]:
+		var hi := -1.0
+		for i in range(1, 16):
+			var probe: Vector3 = fix_walls.call(point + axis * (i * .1))
+			if not blocked.call(probe):
+				hi = i * .1
+				break
+		if hi < 0.0:
+			continue
+		var lo := hi - .1
 		for _i in 7:
 			var mid := (lo + hi) * .5
-			if blocked.call(walled + Vector3.UP * mid):
+			if blocked.call(fix_walls.call(point + axis * mid)):
 				lo = mid
 			else:
 				hi = mid
-		return walled + Vector3.UP * hi
-	return walled
+		var up_hit: Vector3 = fix_walls.call(point + axis * hi)
+		if axis == Vector3.UP and hi > .6:
+			# rising more than that would leave the head: try straight back first
+			var back := _clear_along(point, blocked, fix_walls)
+			if back != Vector3.INF and back.distance_to(point) < hi:
+				return back
+		return up_hit
+	return fix_walls.call(point + Vector3.UP * .4)
+
+
+func _clear_along(point: Vector3, blocked: Callable, fix_walls: Callable) -> Vector3:
+	for i in range(1, 16):
+		var probe: Vector3 = fix_walls.call(point + _along * (i * .1))
+		if not blocked.call(probe):
+			var lo := (i - 1) * .1
+			var hi := i * .1
+			for _j in 7:
+				var mid := (lo + hi) * .5
+				if blocked.call(fix_walls.call(point + _along * mid)):
+					lo = mid
+				else:
+					hi = mid
+			return fix_walls.call(point + _along * hi)
+	return Vector3.INF
 
 
 func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3D:
@@ -475,7 +603,7 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 					room = free
 					best = dir
 			wanted += best * clampf(room - WALL_MARGIN, 0.0, .55)
-	wanted = _clear(wanted, CLEARANCE + .15)   # aim with room to spare, so easing towards it never grazes her
+	wanted = _clear(wanted, CLEARANCE)
 	# eased from where the camera was last frame (the first frame: the view the runner had when caught)
 	var previous := _last_camera
 	var at := previous.origin.lerp(wanted, 1.0 - exp(-EASE_RATE * delta))
@@ -483,9 +611,13 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	if move.length() > MAX_SPEED * delta:
 		at = previous.origin + move.normalized() * MAX_SPEED * delta
 	if not camera_blocked(_player.get_world_3d().direct_space_state, at, _walls_only(), _player.collision_mask, [_view],
-			HARD_CLEARANCE).is_empty():
-		at = _clear(at, HARD_CLEARANCE)   # only when she moves into the eased camera itself
+			HARD_CLEARANCE, true).is_empty():
+		# only when she moves into the eased camera itself: a short push (never a jump); whatever part of her is still at the
+		# lens after that is not drawn for this camera this frame (_cull_near)
+		var pushed := _clear(at, HARD_CLEARANCE)
+		at = at + (pushed - at).limit_length(MAX_PUSH)
 		pushes += 1
+	_cull_near(at)
 	var to := look - at
 	var flat_to := Vector2(to.x, to.z).length()
 	var pitch := clampf(atan2(to.y, flat_to), -MAX_LOOK_PITCH, MAX_LOOK_PITCH)
@@ -540,6 +672,7 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 
 func _apply(t: float, delta: float) -> void:
 	_applied_frame = Engine.get_process_frames()
+	culled.clear()
 	if t == 0.0:
 		_last_camera = _player.first_person_camera.global_transform
 	current = GrabStyles.pose(style, t, _ctx)
@@ -565,9 +698,15 @@ func _apply(t: float, delta: float) -> void:
 		offsets[1] = float(offsets[1]) + fix.y
 		pose_hunter_body(_view, _along, offsets)
 	contact_gap = pose_arms_on(_view, _along, points, bool(current.get("wide", false)))
-	# the camera: from the grabbed body's head, framed on her face, clear of her and the walls, eased
-	var head := basis * Vector3(0.0, _ctx["eye"], 0.0) + body_feet
-	head.y = maxf(head.y, _player.global_position.y + .25)
+	# the runner's own body, drawn from inside: posed like everyone else sees it, its hands on what they hold
+	var body := _player.first_person_body()
+	body.visible = not _player.xr_active
+	body.pose(body_feet, basis, String(current["clip"]))
+	if body.model != null:
+		pose_runner_arms(body.model, _view, current, _along, t)
+	# the camera sits at that body's real eyes (no drift from the head), clear of her and the walls, eased
+	var head := body.eye() if body.model != null else basis * Vector3(0.0, _ctx["eye"], 0.0) + body_feet
+	head.y = maxf(head.y, _player.global_position.y + .1)
 	var roll := float(current["view_roll"])
 	if style == GrabStyles.UPSIDE_DOWN:
 		var flip := float(current.get("flip", 0.0))
@@ -578,9 +717,7 @@ func _apply(t: float, delta: float) -> void:
 	head_look(_view, _last_camera.origin, delta, _along, GrabStyles.look_away(_hunter_id, t))
 	var camera := _solve_camera(head, roll, delta)
 	_last_camera = camera
-	_player.set_grab_camera(camera, _body_yaw(face), String(current["hands"]), float(current["k"]), String(current["clip"]))
-	if String(current["hands"]) == "held" and not points.is_empty():
-		_player.hold_grab_hand_at(points[0][1])   # the runner's own (left) skinned hand is the one in her grip
+	_player.set_grab_camera(camera, _body_yaw(face), String(current["clip"]))
 	state = [style, snappedf(t, .01), snappedf(lift, .001), snappedf(tilt * face, .001), snappedf(float(offsets[0]), .001),
 		snappedf(float(offsets[1]), .001), snappedf(float(offsets[2]), .001)]
 	_player.grab_state = state
@@ -605,8 +742,15 @@ func release() -> void:
 	current = {}
 	state = []
 	if _view != null and is_instance_valid(_view):
+		for node in _view.find_children("*", "MeshInstance3D", true, false):
+			if node.has_meta("grab_layers"):
+				(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
+				node.remove_meta("grab_layers")
+		culled.clear()
 		pose_hunter_body(_view, _along, [0.0, 0.0, 0.0])
 		_view.remove_meta("grab_head")
+		if "grab_until_msec" in _view:
+			_view.set("grab_until_msec", 0)
 	if _player != null and is_instance_valid(_player):
 		_player.end_grab_view()
 	_view = null

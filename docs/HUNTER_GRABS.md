@@ -30,14 +30,28 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 - **File format:** strict, like `ContentRegistry`. Unknown keys, unknown styles and non-positive weights are errors.
 - **Content packs:** packs can replace a pool with `GrabStyles.apply_defs` once the pack loader lists `grabs/<id>` overrides, following the `lr.pack/1` manifest pattern.
 
+## The runner's own body in first person (`FirstPersonBody`)
+
+- **Which body:** the held runner sees their own skinned body: the same mannequin, skin, arm style and scale as the third-person player model (PlayerModels.SCALE). The grabs suite checks it is within 2% of that model, for the first-person body and for a guest's copy.
+- **Head:** it is hidden, so it never blocks the camera.
+- **Pose:** it is posed exactly like the body other players see: same feet, lean and clip.
+- **Arms:** they hold what they hold (`HunterGrab.runner_hand_targets`):
+  - on her forearm when lifted by it;
+  - against her at arm's length when pushing her off;
+  - the held wrist out to her grip;
+  - clawing at the floor when dragged;
+  - hanging out to the sides upside down.
+- **Hunter beam:** Kathy's beam (cone and light) is off for the whole grab, everywhere (`HunterView3D.grab_until_msec`, refreshed every frame a grab poses her).
+- **Debug hook:** `admin_force_grab(view, style)` on both route scenes plays a grab on the local runner without ending the run (call `grab.release()` after).
+
 ## First-person camera rules (KT, after the first sheet)
 
 `HunterGrab._solve_camera` places the camera every frame:
-- **Start:** the grabbed body's head.
+- **Start:** the first-person body's real eyes.
 - **Framing:** pulled straight back from the hunter, by at most 0.9 m, until her face and upper body sit 1.45 m away. If a wall is behind, it stops short of the wall and steps to the roomier side instead.
 - **Walls:** it is never inside a wall. A ray runs from where the runner stood, then a sphere test.
-- **Hunter:** it is never inside the hunter. Her collider and every box of her posed model count, 0.2 m spare for the aim and 0.08 m hard, which is the near plane plus a little. Nearest-clear points are found by bisection, so the camera doesn't jitter.
-- **Motion:** it eases at 4/s, capped at 2.8 m/s and 2.4 rad/s, starting from the view the runner had when caught.
+- **Hunter:** it is never inside the hunter's collider or the boxes of her torso and head, nor the runner's own torso. Hard clearance is 0.065 m (near plane 0.06). A push moves the camera at most 0.18 m in a frame, straight up or straight back, whichever is nearer. Her arms (and the runner's own arms) reach right up to the face: any of those boxes at the lens are drawn on a layer the first-person camera skips, for that frame only, so the lens never shows the inside of a mesh.
+- **Motion:** it eases at 30/s, capped at 5 m/s and 2.4 rad/s, starting from the view the runner had when caught. The motion itself is eased in the poses: knock-downs, the upside-down hoist and the leg-grab fall are paced so the head never moves faster than that.
 - **Look:** it always looks at her face.
 - **Roll:** at most 15 degrees. The upside-down hold turns over slowly, eased over 1.5 s, then sways within 10 degrees.
 - **Other limits:** the FOV is never touched. The held tool is hidden. The skinned hands stay on screen and at most half the screen tall.

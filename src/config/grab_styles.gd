@@ -53,10 +53,10 @@ const TOTAL_SECONDS := REACH_SECONDS + ACT_SECONDS + HOLD_SECONDS
 
 ## Points on the 1.60 m runner body the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
 const BODY_POINTS := {
-	"neck": Vector3(0.0, 1.15, -.19),
+	"neck": Vector3(0.0, 1.08, -.17),
 	"l_shoulder": Vector3(-.3, 1.27, -.03),
 	"r_shoulder": Vector3(.3, 1.27, -.03),
-	"l_wrist": Vector3(-.3, 1.38, -.32),
+	"l_wrist": Vector3(-.3, 1.24, -.37),
 	"back_l": Vector3(-.24, 1.05, .08),
 	"back_r": Vector3(.24, 1.05, .08),
 	"r_ankle": Vector3(.1, .1, .1),
@@ -241,7 +241,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 	var arm := float(ctx.get("arm", .66))
 	var back := float(ctx.get("back", 3.0))
 	var out := {"at": Vector3(0.0, 0.0, .75), "face": 1.0, "tilt": 0.0, "view_pitch": 0.0, "view_roll": 0.0,
-		"hands": "push", "k": r, "arms": [], "hunter": [0.0, 0.0, 0.0], "clip": "stun"}
+		"hands": "push", "k": r, "arms": [], "hunter": [0.0, 0.0, 0.0], "clip": "idle"}
 	match style:
 		NECK_LIFT:
 			# one hand nearly straight out at shoulder height; the runner's neck rises to it
@@ -270,8 +270,8 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 		WRIST_YANK:
 			# her hand closes on the runner's outstretched wrist and she hauls them in, leaning back into the pull
 			var yank := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .45))
-			out["at"] = Vector3(0.0, 0.0, lerpf(1.05, .8, yank))
-			out["tilt"] = -.18 * yank
+			out["at"] = Vector3(0.0, 0.0, lerpf(1.05, .88, yank))
+			out["tilt"] = -.06 * yank
 			out["view_pitch"] = -.08 * yank
 			out["view_roll"] = -.08 * yank
 			out["hands"] = "held"
@@ -280,13 +280,13 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["runner_arms"] = [["L", "l_wrist"]]
 			out["hunter"] = [0.0, 0.0, -.18 * yank]
 		WRAP:
-			out["at"] = Vector3(0.0, .1 * a, lerpf(.75, .5, a))
+			out["at"] = Vector3(0.0, .1 * a, .95)
 			out["view_roll"] = sway * .04
 			out["hands"] = "pinned"
 			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
 			out["wide"] = true   # elbows out wide, so the arms come round the runner instead of through them
 		BEAR_HUG:
-			out["at"] = Vector3(0.0, .45 * a, lerpf(.75, .5, a))
+			out["at"] = Vector3(0.0, .45 * a, .95)
 			out["view_pitch"] = .15 * a
 			out["view_roll"] = sway * .05
 			out["hands"] = "pinned"
@@ -295,7 +295,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["clip"] = "fall"
 		LEG_GRAB:
 			# grabbed low from behind: the runner falls forward on their face and is dragged back to the hunter
-			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .5))
+			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .85))
 			var drag := smooth((t - REACH_SECONDS - ACT_SECONDS * .35) / (ACT_SECONDS * .65 + HOLD_SECONDS * .6))
 			out["face"] = -1.0
 			out["at"] = Vector3(0.0, 0.0, lerpf(1.25, .75, drag))
@@ -311,13 +311,13 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 		UPSIDE_DOWN:
 			# a leg in one hand, hoisted to shoulder height: the runner hangs head down; the view turns over slowly (eased, about
 			# 1.5 s), then only sways a little
-			var hoist := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .8))
+			var hoist := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .65))
 			var flip := smooth((t - REACH_SECONDS) / 1.5)
 			# held straight out to her side, so hanging there you look up under her arm at her face, not into the arm
 			var out_side := shoulder_side + signf(shoulder_side) * arm * .85
 			out["at"] = Vector3(lerpf(shoulder_side * .6, out_side, hoist), lerpf(0.0, shoulder_y - .15, hoist),
-				shoulder_fwd + lerpf(arm * .75, .2, hoist))
-			out["tilt"] = PI * smooth(hoist * 1.25)
+				lerpf(.85, shoulder_fwd + .2, hoist))
+			out["tilt"] = PI * hoist   # the head swings down as the feet go up, evenly (no fast swing through)
 			out["flip"] = flip
 			out["view_roll"] = PI * flip + sway * .05
 			out["hands"] = "dangle"
@@ -346,11 +346,12 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["arms"] = [["R", "neck", r]]
 			out["hunter"] = [0.0, 0.0, 0.0]   # she steps in only as far as her arm needs
 		POUNCE_PIN:
-			out["at"] = Vector3(0.0, 0.0, lerpf(.9, 1.2, a))
-			out["tilt"] = lerpf(0.0, PI * .5 - .1, a)
+			var down := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .4))   # knocked flat, not snapped flat
+			out["at"] = Vector3(0.0, 0.0, lerpf(.9, 1.2, down))
+			out["tilt"] = lerpf(0.0, PI * .5 - .1, down)
 			out["view_pitch"] = .25 * a
 			out["hands"] = "push_up"
-			out["hunter"] = [lerpf(0.0, .5, a), 0.0, .2 * a]
+			out["hunter"] = [lerpf(0.0, .3, a), 0.0, .15 * a]
 			out["clip"] = "fall"
 	return out
 
