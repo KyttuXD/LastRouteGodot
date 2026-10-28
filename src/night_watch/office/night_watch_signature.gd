@@ -26,6 +26,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 			_bedroom(office)
 		"control_room":
 			_facility(office)
+		"lift_landing":
+			_descent(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -239,3 +241,28 @@ static func _facility(office: Node3D) -> void:
 			NightWatchArt.box(root, Vector3(0.03, 2.5, 0.02), Vector3(float(i) * 0.8, 1.5, z), {"name": "PanelLineV", "kind": "metal", "tint": Color(0.1, 0.16, 0.26)})
 	NightWatchArt.box(root, Vector3(0.14, 0.08, 0.04), Vector3(0, 2.55, z + 0.02), {"name": "LiftLampRed", "kind": "light", "tint": Color(2.0, 0.25, 0.2)})
 	NightWatchArt.box(root, Vector3(1.4, 0.04, 0.4), Vector3(0, ControlRoomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelCool", "kind": "light", "tint": Color(1.4, 1.6, 1.8)})
+
+
+## The Descent: the 2D picture is a slate lift landing: a big dark grid panel in an amber frame on the far wall, a small amber lamp above it and a warm amber ceiling lamp:
+## the framed grid panel, the round lamp and the amber ceiling panel.
+static func _descent(office: Node3D) -> void:
+	var hd: float = NightWatchDescentOffice.W.HALF_D
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var z: float = -hd + 0.04
+	var amber := Color(1.9, 1.35, 0.45)
+	var cx := 0.0
+	var cy := 1.45
+	var pw := 1.9
+	var ph := 1.25
+	for e in [[Vector3(pw + 0.08, 0.04, 0.03), Vector3(cx, cy + ph * 0.5, z)], [Vector3(pw + 0.08, 0.04, 0.03), Vector3(cx, cy - ph * 0.5, z)],
+			[Vector3(0.04, ph, 0.03), Vector3(cx - pw * 0.5, cy, z)], [Vector3(0.04, ph, 0.03), Vector3(cx + pw * 0.5, cy, z)]]:
+		NightWatchArt.box(root, e[0], e[1], {"name": "PanelFrame", "kind": "metal", "tint": amber})
+	NightWatchArt.box(root, Vector3(pw - 0.04, ph - 0.04, 0.02), Vector3(cx, cy, z - 0.005), {"name": "PanelGlass", "kind": "metal", "tint": Color(0.05, 0.06, 0.09)})
+	for i in range(1, 8):
+		NightWatchArt.box(root, Vector3(0.015, ph - 0.06, 0.012), Vector3(cx - pw * 0.5 + pw * float(i) / 8.0, cy, z + 0.01), {"name": "PanelGridV", "kind": "metal", "tint": Color(0.3, 0.33, 0.45)})
+	for i in range(1, 5):
+		NightWatchArt.box(root, Vector3(pw - 0.06, 0.015, 0.012), Vector3(cx, cy - ph * 0.5 + ph * float(i) / 5.0, z + 0.01), {"name": "PanelGridH", "kind": "metal", "tint": Color(0.3, 0.33, 0.45)})
+	NightWatchArt.box(root, Vector3(0.14, 0.09, 0.04), Vector3(0, cy + ph * 0.5 + 0.3, z + 0.01), {"name": "LampAmber", "kind": "light", "tint": Color(2.0, 1.4, 0.3)})
+	NightWatchArt.box(root, Vector3(1.0, 0.04, 0.3), Vector3(0, NightWatchDescentOffice.W.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelAmber", "kind": "light", "tint": Color(1.9, 1.4, 0.4)})
