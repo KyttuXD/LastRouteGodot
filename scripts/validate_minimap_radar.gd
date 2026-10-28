@@ -109,7 +109,26 @@ func _check_map_wiring(host: Node) -> void:
 	await host.get_tree().process_frame
 
 
+## Teammates: a stable, distinct colour per peer (shared with their 3D nametag), callsigns on the full map; the full-map
+## arrow has a minimum on-screen size; ladders are not drawn on either map; nametags sit just above a 1.60 m runner.
+func _check_teammates_and_icons() -> void:
+	var seen := {}
+	for id in range(1, 9):
+		var colour := RemotePlayers.peer_colour(id)
+		_expect(colour == RemotePlayers.peer_colour(id), "peer %d colour is not stable" % id)
+		seen[colour.to_html()] = true
+	_expect(seen.size() == 8, "8 teammates share colours (%d distinct)" % seen.size())
+	_expect(FacilityMap.PLAYER_ARROW_MIN >= 7.0, "the full-map player arrow minimum is too small")
+	var source := FileAccess.get_file_as_string("res://src/ui/facility_map.gd")
+	_expect(not source.contains("\t\t\t\t\t_draw_ladder_icon(icon_at"), "ladder icons are still drawn on the maps")
+	var map_source := source
+	_expect(map_source.contains("draw_string_outline(font, at_label, callsign"), "the full map does not label teammates")
+	_expect(RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE < 1.95 and RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE > 1.6,
+		"the nametag is not just above a 1.60 m runner (%.2f m)" % (RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE))
+
+
 func run(host: Node) -> int:
+	_check_teammates_and_icons()
 	_check_cadence()
 	_check_reduced()
 	_check_clamp()

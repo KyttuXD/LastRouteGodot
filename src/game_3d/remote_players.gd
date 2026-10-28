@@ -351,16 +351,27 @@ func _interpolate_bodies(delta: float) -> void:
 		_update_remote_footstep(id, body, previous)
 
 
+const NAME_TAG_HEIGHT := 1.92
+## One colour per teammate, stable for a peer id, shared by the 3D nametag and the minimap / full-map markers.
+const PEER_COLOURS := [Color("4fd1ff"), Color("ff8a3d"), Color("7ee26b"), Color("ff5fb4"), Color("ffd84a"), Color("a98bff"),
+	Color("3fe0c0"), Color("ff6b6b")]
+
+
+static func peer_colour(peer_id: int) -> Color:
+	return PEER_COLOURS[posmod(peer_id * 7 + 3, PEER_COLOURS.size())]
+
+
 func _add_name_tag(body: Node3D, display_name: String) -> void:
 	var label := Label3D.new()
 	label.name = "PlayerNameTag"
 	label.text = display_name.strip_edges().to_upper().substr(0, 32)
-	label.position = Vector3(0.0, 2.08, 0.0)
+	# just over a 1.60 m runner's head (it floated half a metre above after the scale change)
+	label.position = Vector3(0.0, NAME_TAG_HEIGHT, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
 	label.font_size = 24
 	label.outline_size = 5
-	label.modulate = Color(0.78, 0.92, 0.94, .94)
+	label.modulate = Color(peer_colour(int(String(body.name).to_int())).lightened(.35), .96)
 	body.add_child(label)
 
 
@@ -688,6 +699,7 @@ func remote_player_marks(depth: int) -> Array:
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
 			"level": -depth,
+			"colour": peer_colour(id),
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)
