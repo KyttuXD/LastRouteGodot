@@ -687,7 +687,7 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		return
 	if not Backend.hunter_discovered(hunter_id):
 		_dossier_name.text = "??? (LOCKED)"
-		_dossier_status.text = "ENCOUNTER IN THE ROUTE TO UNLOCK // ACCOUNT DISCOVERY REQUIRED" \
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" \
 			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
 		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
 		var locked_chart := entry.has("gimmick_behavior")

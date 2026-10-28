@@ -235,6 +235,13 @@ func _process(delta: float) -> void:
 		_update_search_tell(delta)
 		return
 	if kind != Kind.ROOM_DOOR or _door_hinge == null:
+		# Nothing to animate: stop ticking (hundreds of streamed interactables each cost a call every frame on a
+		# phone or the Quest). play_search_tell and apply_room_door_state switch processing back on.
+		set_process(false)
+		return
+	if absf(angle_difference(_door_hinge.rotation.y, _door_target_y)) < .001 \
+			and absf(angle_difference(_door_hinge.rotation.x, _door_target_x)) < .001:
+		set_process(false)   # settled
 		return
 	# A damped hinge avoids abrupt state pops when a reliable co-op event or a
 	# late-join snapshot arrives.  Broken doors pitch down from the floor-level
@@ -631,6 +638,7 @@ func apply_room_door_state(open: bool, broken: bool) -> void:
 	# open: square to the wall (the authored open leaf stands at 68 degrees, half across a hunter's way); closed: shut
 	_door_target_y = deg_to_rad(DOOR_OPEN_EXTRA) if room_door_open else deg_to_rad(-68.0)
 	_door_target_x = deg_to_rad(82.0) if room_door_broken else 0.0
+	set_process(true)
 	if _door_collision != null:
 		_door_collision.set_deferred("disabled", room_door_open)
 
