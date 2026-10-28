@@ -67,6 +67,11 @@ func _ready() -> void:
 	_player.admin_god_mode = true
 	_player.set_physics_process(false)
 	_build_path()
+	if OS.get_environment("BENCH_NOLIGHTS") != "":
+		_facility.set_all_lights(false)
+	if OS.get_environment("BENCH_NOAUDIO") != "":
+		AudioServer.set_bus_mute(0, true)
+		_scene.set_process(false)
 	for _i in 30:
 		await _settle()
 	if _facility.has_method("take_frame_stream_cost"):
@@ -83,7 +88,50 @@ func _settle() -> void:
 	get_tree().paused = false
 
 
+## Ladder mode: a real ladder near the spawn; the runner climbs down (2 s), stays 6 s, climbs up (2 s), stays 6 s.
+const LADDER_CLIMB := 2.0
+const LADDER_STAY := 6.0
+var _ladder_top := Vector3.ZERO
+var _trips: Array = []
+var _trip_level := 0
+
+
+func _find_ladder() -> bool:
+	var gen := _facility.generator
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for ring in 4:
+		for z in range(-ring, ring + 1):
+			for x in range(-ring, ring + 1):
+				var links: Array = gen.sewer().links_for(Vector3i(x, 0, z))
+				if links.is_empty():
+					continue
+				var cell: Vector2i = links[0]["from_cell"]
+				_ladder_top = Vector3(x * size + cell.x + .5, .05, z * size + cell.y + .5)
+				return true
+	return false
+
+
+func _ladder_point(t: float) -> Vector3:
+	var cycle := 2.0 * (LADDER_CLIMB + LADDER_STAY)
+	var u := fmod(t, cycle)
+	var bottom := _ladder_top + Vector3(0, SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT, 0)
+	if u < LADDER_STAY:
+		return _ladder_top
+	u -= LADDER_STAY
+	if u < LADDER_CLIMB:
+		return _ladder_top.lerp(bottom, u / LADDER_CLIMB)
+	u -= LADDER_CLIMB
+	if u < LADDER_STAY:
+		return bottom
+	return bottom.lerp(_ladder_top, (u - LADDER_STAY) / LADDER_CLIMB)
+
+
 func _build_path() -> void:
+	if _mode == "ladder":
+		if not _find_ladder():
+			push_error("stream_bench: no ladder near the spawn")
+		_path = [_ladder_top, _ladder_top]
+		return
 	var start := _player.global_position
 	var size := float(StreamedRouteGenerator.CHUNK_SIZE)
 	if _mode == "city":
@@ -122,7 +170,9 @@ func _process(delta: float) -> void:
 	var cost: Array = _facility.take_frame_stream_cost() if _facility.has_method("take_frame_stream_cost") else [0.0, ""]
 	if frame_ms > HITCH_MS:
 		_hitch_log.append({"t": snappedf(_elapsed, .01), "ms": snappedf(frame_ms, .1),
-			"stream_cpu_ms": snappedf(float(cost[0]), .1), "step": cost[1]})
+			"stream_cpu_ms": snappedf(float(cost[0]), .1), "step": cost[1],
+			"process_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, .1),
+			"physics_ms": snappedf(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, .1)})
 	_stream_cpu_max = maxf(_stream_cpu_max, float(cost[0]))
 	_stream_frames.append(1 if _streaming() else 0)
 	_elapsed += delta
@@ -130,6 +180,10 @@ func _process(delta: float) -> void:
 	var dir: Vector3 = point["dir"]
 	_player.global_position = point["pos"]
 	_player._yaw = atan2(-dir.x, -dir.z)
+	if _mode == "ladder":
+		_player.global_position = _ladder_point(_elapsed)
+		_player._yaw = _elapsed * .6   # look around: the whole window is on screen over a stay
+		_track_trip(frame_ms)
 	_player._pitch = 0.0
 	_player._apply_look_rotation()
 	_sample_clock += delta
@@ -138,7 +192,45 @@ func _process(delta: float) -> void:
 		_samples.append(_sample())
 	if _elapsed >= _seconds:
 		_running = false
-		_jump_probes()
+		if _mode == "ladder":
+			_finish()
+		else:
+			_jump_probes()
+
+
+## Per level change: frames in the 4 s after arriving (max, count over 33 ms, mean), chunk builds and lights then.
+func _track_trip(frame_ms: float) -> void:
+	var level := _facility.current_level()
+	if level != _trip_level:
+		_trip_level = level
+		_trips.append({"to": level, "t": snappedf(_elapsed, .01), "builds0": _builds(), "frames": PackedFloat32Array(),
+			"loaded_max": 0, "lights_shadow_max": 0})
+	if _trips.is_empty():
+		return
+	var trip: Dictionary = _trips[-1]
+	if _elapsed - float(trip["t"]) <= 4.0:
+		var frames: PackedFloat32Array = trip["frames"]
+		frames.append(frame_ms)
+		trip["frames"] = frames
+		trip["loaded_max"] = maxi(int(trip["loaded_max"]), _facility.loaded_chunk_count())
+	trip["builds"] = _builds() - int(trip["builds0"])
+
+
+func _trip_summary() -> Array:
+	var out := []
+	for trip in _trips:
+		var frames: PackedFloat32Array = trip["frames"]
+		var worst := 0.0
+		var over := 0
+		var total := 0.0
+		for f in frames:
+			worst = maxf(worst, f)
+			total += f
+			if f > HITCH_MS:
+				over += 1
+		out.append({"to": trip["to"], "t": trip["t"], "max_ms": snappedf(worst, .1), "over33": over,
+			"mean_ms": snappedf(total / maxf(frames.size(), 1), .01), "builds": trip.get("builds", 0), "loaded_max": trip["loaded_max"]})
+	return out
 
 
 func _sample() -> Dictionary:
@@ -164,6 +256,7 @@ func _sample() -> Dictionary:
 		"vmem_mb": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
 		"lights": lights, "lights_visible": visible_lights, "lights_shadow": shadow_lights,
 		"chunks": _facility.loaded_chunk_count(),
+		"dormant": _facility.dormant_chunk_count() if _facility.has_method("dormant_chunk_count") else 0,
 	}
 
 
@@ -207,7 +300,7 @@ func _summary() -> Dictionary:
 		"p99_ms": snappedf(_percentile(sorted, .99), .01), "max_ms": snappedf(sorted[-1] if not sorted.is_empty() else 0.0, .01),
 		"stream_frames": stream_sorted.size(), "stream_max_ms": snappedf(stream_sorted[-1] if not stream_sorted.is_empty() else 0.0, .01),
 		"stream_p99_ms": snappedf(_percentile(stream_sorted, .99), .01),
-		"hitches_33": hitches, "stream_cpu_max_ms": snappedf(_stream_cpu_max, .1), "jump_ms": _jumps, "loadavg": _loadavg, "stream_hitches_33": stream_hitches,
+		"hitches_33": hitches, "stream_cpu_max_ms": snappedf(_stream_cpu_max, .1), "jump_ms": _jumps, "trips": _trip_summary(), "loadavg": _loadavg, "stream_hitches_33": stream_hitches,
 		"peak": peak, "mean": mean, "last": last,
 		"mem_growth_mb": snappedf(float(last.get("mem_mb", 0.0)) - float(_samples[min(4, _samples.size() - 1)].get("mem_mb", 0.0)), .1) if _samples.size() > 1 else 0.0,
 	}
@@ -246,8 +339,12 @@ func _finish() -> void:
 		_tag, _mode, summary["startup_ms"], summary["avg_fps"], summary["p50_ms"], summary["p95_ms"], summary["p99_ms"],
 		summary["max_ms"], summary["stream_max_ms"], summary["hitches_33"], summary["stream_hitches_33"]]
 	print(line)
+	for trip in summary["trips"]:
+		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d" % [trip["to"], trip["t"], trip["max_ms"],
+			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"]])
 	for hitch in _hitch_log.slice(0, 40):
-		print("HITCH t=%.2f ms=%.1f stream_cpu=%.1f step=%s" % [hitch["t"], hitch["ms"], hitch["stream_cpu_ms"], hitch["step"]])
+		print("HITCH t=%.2f ms=%.1f stream_cpu=%.1f step=%s process=%.1f physics=%.1f" % [hitch["t"], hitch["ms"], hitch["stream_cpu_ms"],
+			hitch["step"], hitch["process_ms"], hitch["physics_ms"]])
 	var peak: Dictionary = summary["peak"]
 	var mean: Dictionary = summary["mean"]
 	print("BENCH %s draw_calls avg=%.0f peak=%.0f objects avg=%.0f nodes peak=%.0f lights_visible avg=%.1f shadow avg=%.1f peak=%.0f mem_mb=%.0f growth=%.1f vmem_mb=%.0f chunks peak=%.0f" % [
@@ -261,3 +358,8 @@ func _streaming() -> bool:
 	if _facility.has_method("is_streaming"):
 		return _facility.is_streaming()
 	return not (_facility._pending_loads.is_empty() and _facility._pending_unloads.is_empty() and _facility._active_build.is_empty())
+
+
+func _builds() -> int:
+	var value = _facility.get("chunk_builds")
+	return int(value) if value != null else -1

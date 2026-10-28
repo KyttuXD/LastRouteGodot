@@ -131,7 +131,11 @@ static func instantiate_hunter(identity: Dictionary) -> Node3D:
 		var sprite := SpriteBillboard.create(front, String(identity.get("sprite_back", "")))
 		if sprite != null:
 			return sprite
-	return instantiate(String(identity.get("model_scene", "")))
+	var model := instantiate(String(identity.get("model_scene", "")))
+	if model != null:
+		# data-driven rig add-ons (extra bones, parts, held props): docs/HUNTER_ADDONS.md
+		HunterAddons.mount(model, String(identity.get("id", "")))
+	return model
 
 
 ## Prop-only companion to instantiate(). Character materials keep their
@@ -340,7 +344,7 @@ static func _collect_local_bounds(node: Node, relative: Transform3D,
 		state: Dictionary) -> void:
 	if node is MeshInstance3D:
 		var mesh_node := node as MeshInstance3D
-		if mesh_node.mesh != null:
+		if mesh_node.mesh != null and not HunterAddons.is_addon(mesh_node):
 			var box := relative * mesh_node.get_aabb()
 			state["bounds"] = (state["bounds"] as AABB).merge(box) \
 				if bool(state["found"]) else box

@@ -408,7 +408,8 @@ func _cache_interaction_focus() -> void:
 
 
 func _collect_mesh_bounds(node: Node, boxes: Array[AABB]) -> void:
-	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null \
+			and not HunterAddons.is_addon(node):
 		var mesh_node := node as MeshInstance3D
 		var local_from_mesh := global_transform.affine_inverse() * mesh_node.global_transform
 		boxes.append(local_from_mesh * mesh_node.get_aabb())

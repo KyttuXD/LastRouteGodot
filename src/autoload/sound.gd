@@ -56,6 +56,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if not _ambience_jobs.is_empty():
+		_poll_ambience_jobs()
 	var now := Time.get_ticks_usec()
 	for index in range(_pending.size() - 1, -1, -1):
 		var item: Dictionary = _pending[index]
@@ -145,6 +147,28 @@ func axe_chop(pan: float = 0.0, intensity: float = 1.0) -> bool:
 ## A hunter checking a bed or wardrobe: wood creak and a rattle, the tell before it pulls the spot open.
 func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("hide_search", pan, intensity)
+
+
+## Sleep (docs/REST_AND_SLEEP.md): settling into sleep, a yawn when drowsy, the muffled stir of something close, the
+## jolt awake, and a sleeping hunter's snore.
+func sleep_settle(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_settle", pan, intensity)
+
+
+func sleep_yawn(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_yawn", pan, intensity)
+
+
+func sleep_stir(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_stir", pan, intensity)
+
+
+func sleep_jolt(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_jolt", pan, intensity)
+
+
+func hunter_snore(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("hunter_snore", pan, intensity)
 
 
 func nyxie_timer_wake() -> bool:
@@ -302,12 +326,47 @@ func set_ambience(key: String) -> bool:
 	var fade := create_tween().set_parallel(true)
 	fade.tween_property(old, "volume_db", -80.0, AMBIENCE_FADE)
 	if key != "" and not muted:
-		new_player.stream = render_ambience(key)
-		new_player.volume_db = -80.0
-		if DisplayServer.get_name() != "headless":
-			new_player.play()
-		fade.tween_property(new_player, "volume_db", _ambience_level_db(), AMBIENCE_FADE)
+		if _ambience_cache.has(key):
+			_fade_in_ambience(new_player, key, fade)
+		else:
+			# A bed not heard yet is synthesized off the main thread (150-300 ms of GDScript sample maths that used to
+			# freeze the frame on entering a new district, room or the sewer); it fades in once ready.
+			_render_ambience_async(key)
 	return true
+
+
+func _fade_in_ambience(new_player: AudioStreamPlayer, key: String, fade: Tween) -> void:
+	new_player.stream = render_ambience(key)
+	new_player.volume_db = -80.0
+	if DisplayServer.get_name() != "headless":
+		new_player.play()
+	fade.tween_property(new_player, "volume_db", _ambience_level_db(), AMBIENCE_FADE)
+
+
+var _ambience_jobs := {}   # key -> {"task": WorkerThreadPool id, "out": [stream]}
+
+
+func _render_ambience_async(key: String) -> void:
+	if _ambience_jobs.has(key):
+		return
+	var out := []
+	_ambience_jobs[key] = {"out": out, "task": WorkerThreadPool.add_task(func() -> void:
+		out.append(_render_ambience_uncached(key)), false, "ambience bed")}
+
+
+func _poll_ambience_jobs() -> void:
+	for key in _ambience_jobs.keys():
+		var job: Dictionary = _ambience_jobs[key]
+		if not WorkerThreadPool.is_task_completed(int(job["task"])):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(job["task"]))
+		_ambience_jobs.erase(key)
+		var out: Array = job["out"]
+		if out.is_empty():
+			continue
+		_ambience_cache[key] = out[0]
+		if key == ambience_key and not muted:
+			_fade_in_ambience(_ambience_players[_ambience_active], key, create_tween())
 
 
 ## 0 = full bed, 1 = ducked (a chase is on): eased toward by the caller each frame.
@@ -326,6 +385,13 @@ func _ambience_level_db() -> float:
 func render_ambience(key: String) -> AudioStreamWAV:
 	if _ambience_cache.has(key):
 		return _ambience_cache[key]
+	var stream := _render_ambience_uncached(key)
+	_ambience_cache[key] = stream
+	return stream
+
+
+## Pure: no shared state, safe on a worker thread.
+func _render_ambience_uncached(key: String) -> AudioStreamWAV:
 	var seconds := AmbienceTable.LOOP_SECONDS
 	var components := []
 	var rng := RandomNumberGenerator.new()
@@ -355,7 +421,6 @@ func render_ambience(key: String) -> AudioStreamWAV:
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	stream.loop_begin = 0
 	stream.loop_end = int(seconds * SAMPLE_RATE)
-	_ambience_cache[key] = stream
 	return stream
 
 
@@ -520,6 +585,13 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"sleep_settle": c = [_noise(.5, .05, 400, 0, pan, .5), _tone(110, .4, .04, .1, "sine", pan)]
+		"sleep_yawn": c = [_tone(220, .55, .07, 0, "triangle", pan), _tone(165, .5, .05, .35, "triangle", pan),
+			_noise(.4, .04, 900, .2, pan, .6)]
+		"sleep_stir": c = [_thump(55, .3, .12, 0, pan), _noise(.35, .05, 300, .05, pan, .5)]
+		"sleep_jolt": c = [_thump(80, .18, .22, 0, pan), _tone(330, .12, .09, 0, "square", pan),
+			_noise(.12, .1, 1600, .02, pan, 1.0)]
+		"hunter_snore": c = [_noise(.7, .07, 260, 0, pan, .7), _tone(70, .6, .06, .05, "sawtooth", pan)]
 		"hide_search": c = [_tone(92, .42, .09, 0, "sawtooth", pan),
 			_noise(.3, .07, 520, .05, pan, .8),
 			_thump(70, .16, .12, .18, pan),

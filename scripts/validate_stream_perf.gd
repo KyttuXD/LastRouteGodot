@@ -4,7 +4,9 @@ extends RefCounted
 ## Last Route chunks and checks the budgets the stream queue promises:
 ##   - no frame spends more than MAX_STREAM_CPU_MS of main-thread time on chunk building/unloading,
 ##   - a level change or teleport never builds the whole window synchronously (MAX_JUMP_MS),
-##   - the chunk under the runner is always loaded (no pop-in where the player stands) and the queue drains.
+##   - the chunk under the runner is always loaded (no pop-in where the player stands) and the queue drains,
+##   - ladder trips between the maze and the sewer: no frame over MAX_LADDER_FRAME_MS around a level change, and climbing
+##     back rebuilds nothing (the storey left behind is parked, not freed).
 ## Windowed frame times (no frame > 33 ms while streaming on the mini) come from tools/look/stream_bench.tscn; when
 ## STREAM_BENCH_JSON names its output, those budgets are checked here too.
 ##
@@ -13,6 +15,7 @@ extends RefCounted
 const MAX_STREAM_CPU_MS := 22.0     # STREAM_BUDGET_MAX_MS plus one indivisible step (a GridMap/surface attach, one prop)
 const MAX_JUMP_MS := 1500.0         # was 2.8-4.2 s headless on the Windows PCs (whole window plus shafts in one frame); now ~0.6-0.9 s
 const BENCH_MAX_STREAM_FRAME_MS := 33.3
+const MAX_LADDER_FRAME_MS := 60.0  # headless CPU frame on arriving at the other storey (was 170-600 ms: rebuilds, ambience synth)
 const SPEED := 9.0                  # metres per frame-second, a little above a sprint
 
 var _failures := 0
@@ -96,8 +99,75 @@ func _check_bench(path: String) -> void:
 	print("  stream_perf bench %s  stream max %.1f ms, p99 %.1f ms" % [summary["tag"], summary["stream_max_ms"], summary["p99_ms"]])
 
 
+## Down and up a real ladder near the spawn three times, holding a few seconds at each end.
+func _ladder(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "STREAM-BENCH"
+	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	var facility: StreamedFacilityView3D = scene.get_node("%StreamedFacility")
+	var player: PlayerController3D = scene.get_node("%Player")
+	for _i in 10:
+		await host.get_tree().process_frame
+	player.admin_god_mode = true
+	player.set_physics_process(false)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var top := Vector3.INF
+	for z in range(-3, 4):
+		for x in range(-3, 4):
+			var links: Array = facility.generator.sewer().links_for(Vector3i(x, 0, z))
+			if top == Vector3.INF and not links.is_empty():
+				var cell: Vector2i = links[0]["from_cell"]
+				top = Vector3(x * size + cell.x + .5, .05, z * size + cell.y + .5)
+	_expect(top != Vector3.INF, "ladder: no sewer ladder within three chunks of the spawn")
+	if top == Vector3.INF:
+		scene.queue_free()
+		return
+	var bottom := top + Vector3(0, SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT, 0)
+	player.global_position = top
+	for _i in 300:
+		await host.get_tree().process_frame
+		if not facility.is_streaming():
+			break
+	var worst := 0.0
+	var worst_trip := 0
+	var rebuilds := 0
+	for trip in 6:
+		var from := top if trip % 2 == 0 else bottom
+		var to := bottom if trip % 2 == 0 else top
+		var builds_before := facility.chunk_builds
+		var last := Time.get_ticks_usec()
+		for i in 120:   # climb over 2 s at 60 frames
+			player.global_position = from.lerp(to, float(i + 1) / 120.0)
+			await host.get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		for i in 180:   # and stay 3 s
+			await host.get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			if (now - last) / 1000.0 > worst:
+				worst = (now - last) / 1000.0
+				worst_trip = trip
+			last = now
+		if trip >= 2:
+			rebuilds += facility.chunk_builds - builds_before
+		_expect(facility.current_level() == (SewerRouteGenerator.LEVEL if trip % 2 == 0 else 0),
+			"ladder: trip %d did not change the runner's level" % trip)
+	_expect(worst <= MAX_LADDER_FRAME_MS, "ladder: a %.0f ms frame around a level change (trip %d, budget %.0f)" % [worst, worst_trip, MAX_LADDER_FRAME_MS])
+	_expect(rebuilds == 0, "ladder: climbing back and forth rebuilt %d chunks (the left storey should be parked)" % rebuilds)
+	print("  stream_perf ladder  worst frame %.1f ms (trip %d), rebuilds after the first round trip %d, %d parked" % [
+		worst, worst_trip, rebuilds, facility.dormant_chunk_count()])
+	scene.queue_free()
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+
+
 func run(host: Node) -> int:
 	await _drive(host, false)
+	await _ladder(host)
 	var bench := OS.get_environment("STREAM_BENCH_JSON")
 	if bench != "":
 		for path in bench.split(","):

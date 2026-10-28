@@ -115,6 +115,11 @@ var _col_wall_item := -1
 var _col_sewer_wall_item := -1
 var _col_channel_item := -1
 var _loaded := {}
+## Chunks of the storey the runner just left by a ladder (the 3x3 around the shaft): hidden, lights off, physics
+## disabled, but kept built and registered, so climbing back revives them in a frame instead of rebuilding eight
+## chunks (each ladder trip used to rebuild the whole other level). Freed once the runner walks out of that 3x3.
+var _dormant := {}
+var _dormant_data := {}
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -192,6 +197,11 @@ func clear() -> void:
 		if node != null:
 			node.queue_free()
 	_loaded.clear()
+	for node_value in _dormant.values():
+		if node_value != null and is_instance_valid(node_value):
+			(node_value as Node).queue_free()
+	_dormant.clear()
+	_dormant_data.clear()
 	_chunk_data.clear()
 	_pickup_nodes.clear()
 	_door_nodes.clear()
@@ -332,6 +342,7 @@ func _process(_delta: float) -> void:
 	if generator == null or tracked_player == null:
 		return
 	_refresh_stream(false)
+	_prestream_ladder_destination()
 	_drain_stream_queue()
 	_collect_taken_pickups()
 	_update_shared_mirror(_delta)
@@ -389,6 +400,7 @@ func _refresh_stream(force: bool) -> void:
 		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
 		if not wanted.has(active_coord):
 			_discard_active_build()
+	_settle_dormant(center, wanted)
 	for coord_value in wanted:
 		var coord: Vector3i = coord_value
 		if not _loaded.has(coord) and (_active_build.is_empty() \
@@ -433,6 +445,94 @@ func _refresh_stream(force: bool) -> void:
 		generator.chunk(center) if generator != null else {})
 	chunk_changed.emit(center, data.duplicate(false))
 	_prof("chunk_changed", t_refresh)
+
+
+## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
+## stream queue, so they are built during the climb and the level change has nothing left to build synchronously.
+var _prestreamed_for := Vector3i(999999, 999999, 999999)
+func _prestream_ladder_destination() -> void:
+	var y := tracked_player.global_position.y - global_position.y
+	var on_ladder := y < -.6 and y > -LEVEL_HEIGHT + .6
+	var center := _last_player_chunk
+	if not on_ladder or center == _prestreamed_for or center.x == 999999:
+		return
+	_prestreamed_for = center
+	var target_y := StreamedRouteGenerator.SEWER_LEVEL if center.y == 0 else 0
+	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+			var coord := Vector3i(x, target_y, z)
+			if _loaded.has(coord) or _pending_loads.has(coord) or not generator.is_chunk_allowed(coord) \
+					or _distance_to_chunk(coord) >= IMMEDIATE_MARGIN:
+				continue
+			if _dormant.has(coord):
+				_revive(coord)
+				continue
+			_pending_loads.push_front(coord)
+			_prefetch_chunk(coord)
+			_stream_completion_pending = true
+
+
+## Ladder trips: park the storey being left (around the shaft), revive a parked chunk the window wants again, and
+## free parked chunks the runner has walked away from.
+func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
+	for coord_value in _loaded.keys().duplicate():
+		var coord: Vector3i = coord_value
+		if not wanted.has(coord) and coord.y != center.y and _near_column(coord, center):
+			_make_dormant(coord)
+	for coord_value in _dormant.keys().duplicate():
+		var coord: Vector3i = coord_value
+		if wanted.has(coord):
+			_revive(coord)
+		elif not _near_column(coord, center):
+			_free_dormant(coord)
+
+
+static func _near_column(coord: Vector3i, center: Vector3i) -> bool:
+	return absi(coord.x - center.x) <= STREAM_RADIUS and absi(coord.z - center.z) <= STREAM_RADIUS
+
+
+func _make_dormant(coord: Vector3i) -> void:
+	var root := _loaded.get(coord) as Node3D
+	_loaded.erase(coord)
+	if _lamp_field != null:
+		_lamp_field.unregister(coord)
+	if root == null:
+		_chunk_data.erase(coord)
+		return
+	_dormant[coord] = root
+	_dormant_data[coord] = _chunk_data.get(coord, {})
+	_chunk_data.erase(coord)
+	root.visible = false
+	root.process_mode = Node.PROCESS_MODE_DISABLED
+	root.remove_from_group("streamed_chunk")
+
+
+func _revive(coord: Vector3i) -> void:
+	var root := _dormant[coord] as Node3D
+	_loaded[coord] = root
+	_chunk_data[coord] = _dormant_data.get(coord, {})
+	_dormant.erase(coord)
+	_dormant_data.erase(coord)
+	root.visible = true
+	root.process_mode = Node.PROCESS_MODE_INHERIT
+	root.add_to_group("streamed_chunk")
+	if _lamp_field != null:
+		_lamp_field.register(coord, root.get_meta("lamp_list", []))
+	if not _all_lights_enabled:
+		_set_lights_recursive(root, false)
+
+
+func _free_dormant(coord: Vector3i) -> void:
+	var root := _dormant.get(coord) as Node
+	_dormant.erase(coord)
+	_dormant_data.erase(coord)
+	if root != null and is_instance_valid(root):
+		_forget_chunk_entities(root)
+		root.queue_free()
+
+
+func dormant_chunk_count() -> int:
+	return _dormant.size()
 
 
 ## Start background loads of the prop scenes a queued chunk will need, so its build never reads a GLB on the main thread.
@@ -631,7 +731,10 @@ func _load_chunk(coord: Vector3i) -> void:
 		pass
 
 
+## Chunk builds started since begin() (benchmarks count rebuilds of chunks that were just unloaded).
+var chunk_builds := 0
 func _create_chunk_build(coord: Vector3i) -> Dictionary:
+	chunk_builds += 1
 	var data := generator.chunk(coord)
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]
@@ -819,7 +922,9 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				root.add_to_group("streamed_chunk")
 				root.set_meta("floor_kinds", build.get("floor_kinds", {}))
 				if build["decor"] != null and _lamp_field != null:
-					_lamp_field.register(coord, (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array))
+					var lamp_list: Array = (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array)
+					root.set_meta("lamp_list", lamp_list)
+					_lamp_field.register(coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
@@ -1589,6 +1694,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.name = "Furniture_%s" % prop_type
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
+		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)
@@ -1920,6 +2026,8 @@ func refresh_mutations() -> void:
 	# Rebuild only the bounded local window after a late-join snapshot. The
 	# deterministic base stays identical; claimed entities are filtered through
 	# StreamedWorldState as chunks return.
+	for coord_value in _dormant.keys().duplicate():
+		_free_dormant(coord_value)
 	for coord_value in _loaded.keys().duplicate():
 		var coord: Vector3i = coord_value
 		_unload_chunk(coord)
