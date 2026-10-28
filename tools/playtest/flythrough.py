@@ -27,14 +27,14 @@ REPO = Path(__file__).resolve().parents[2]
 
 DEFAULT_SET = ["hospital", "lab", "greenhouse", "mall", "prison", "mansion", "hotel", "sewer_tunnels", "sewer_junction",
                "sewer_valve_room", "sewer_ladder", "inferno"]
-ALL_AREAS = DEFAULT_SET + ["maze", "apartment", "beach", "gothic", "carnival", "sewer_pump_room", "sewer_overflow"]
+ALL_AREAS = DEFAULT_SET + ["descent_ladder", "maze", "apartment", "beach", "gothic", "carnival", "sewer_pump_room", "sewer_overflow"]
 BLURB = {
     "hospital": "Hospital district: halls, wards and the nurses' station", "lab": "Research lab district", "greenhouse": "Greenhouse district",
     "mall": "Mall / arcade district", "prison": "Prison cell blocks", "mansion": "Mansion halls", "hotel": "Hotel corridors",
     "maze": "The plain maze", "apartment": "Apartment district", "beach": "Beach district", "gothic": "Gothic wing", "carnival": "Carnival",
     "inferno": "Inferno (-3)", "sewer_tunnels": "Sewer -1: the long tunnels", "sewer_junction": "Sewer -1: junction plaza orbit",
     "sewer_valve_room": "Sewer -1: valve room", "sewer_pump_room": "Sewer -1: pump room", "sewer_overflow": "Sewer -1: overflow chamber",
-    "sewer_ladder": "Sewer -1: the ladder climb up to the maze",
+    "sewer_ladder": "Sewer -1: the ladder climb up to the maze", "descent_ladder": "Maze manhole: climb down the ladder into the sewer",
 }
 
 

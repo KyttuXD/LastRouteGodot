@@ -35,6 +35,7 @@ const AREAS := {
 	"sewer_pump_room": {"kind": "sewer_room", "room": "pump_room"},
 	"sewer_overflow": {"kind": "sewer_room", "room": "overflow_chamber"},
 	"sewer_ladder": {"kind": "sewer_ladder"},
+	"descent_ladder": {"kind": "maze_ladder_down"},
 }
 
 ## What `flythrough.py` renders by default (the coordinator's list). The collector (-2) has no preset until it exists on main.
@@ -783,6 +784,36 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			bake_walk(track, path_to(field, walk_to), s, _sewer_pois(gen, [room["chunk"]]), fps, bob)
 			bake_orbit(track, Vector3(centre.x + .5, floor_y, centre.y + .5), 300.0, ORBIT_SECONDS + 4.0, floor_y + 2.4, 3.6, floor_y + 1.0, fps)
 			info.merge({"level": -1, "chunk": [room["chunk"].x, room["chunk"].y], "room": wanted, "start": [junction.x, junction.y], "goal": [centre.x, centre.y]})
+		"maze_ladder_down":
+			var link := {}
+			var chunk_of := Vector2i.ZERO
+			for cz in range(-4, 5):
+				for cx in range(-4, 5):
+					if not link.is_empty():
+						break
+					var links: Array = gen.sewer().chunk(Vector3i(cx, -1, cz)).get("links", [])
+					if not links.is_empty():
+						link = links[0]
+						chunk_of = Vector2i(cx, cz)
+			if link.is_empty():
+				return {"ok": false, "error": "no sewer ladder within four chunks of the origin", "unavailable": true}
+			var base := _chunk_start(chunk_of)
+			var manhole: Vector2i = base + (link["from_cell"] as Vector2i)
+			var s := Sampler.new(gen, 0)
+			sampler = s
+			var start := _nearest_open(s, base + Vector2i(CHUNK / 2, CHUNK / 2))
+			var field := path_field(s, start, 70)
+			var goal := _nearest_open(s, manhole, false)
+			if not field["cost"].has(goal):
+				return {"ok": false, "error": "manhole %s not reachable from the middle of its chunk" % manhole}
+			var pois: Array = _chunk_pois(gen.chunk(Vector3i(chunk_of.x, 0, chunk_of.y)), base)
+			pois.append(poi(manhole.x + .5, manhole.y + .5, 0.0, 2.0, "manhole"))
+			bake_walk(track, path_to(field, goal), s, pois, fps, bob)
+			track.hold(fps)
+			track.events[track.size()] = {"ladder": true, "at": Vector2(manhole.x + .5, manhole.y + .5), "level": 0, "down": true}
+			track.add(track.pos[track.size() - 1], track.yaw[track.yaw.size() - 1], 0.0, 2)
+			bake_turn(track, 120.0, ORBIT_SECONDS * .5, 0.0, fps)
+			info.merge({"level": 0, "chunk": [chunk_of.x, chunk_of.y], "manhole": [manhole.x, manhole.y]})
 		"sewer_ladder":
 			var link := {}
 			var chunk_of := Vector2i.ZERO
