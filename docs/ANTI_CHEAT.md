@@ -52,3 +52,17 @@ device kicked in the last 24 h (`/api/moderation/peers`, polled every 30 s). Hos
 and leaves teammates alone; hunters chase it 15 % faster; its pickups are refused (they vanish on its screen only).
 Its own client (told by a `troll` player event): 1.6× sprint drain, flashlight flicker and fake hunter footsteps, and a
 2.5× longer caught scare.
+
+## Lag never counts as cheating
+
+- Credit is earned for the real time between arrivals, capped by the longest gap in the last 10 s, so a 3–10 s freeze
+  and its catch-up burst add up to the legit distance. A move beyond the budget and 12 m is a teleport.
+- Budgets widen a little with round trip (ENet RTT) and measured arrival jitter.
+- Samples carry `seq`: duplicates and out-of-order samples are dropped unjudged; packet loss or a gap > 0.3 s skips
+  the wall sweep.
+- Heavy lag (RTT > 400 ms, a gap > 1.5 s, or jitter > 250 ms, held 5 s): movement and stamina violations still snap
+  back but are tagged `lag`: no strike, no kick, no troll mode, nothing reported to the server. The guest sees
+  "CONNECTION UNSTABLE" (a real correction shows "POSITION CORRECTED").
+- `anti_cheat` simulates 300 / 800 / 2000 ms RTT, jitter, 10 % loss, 3 s and 10 s freezes, reordering and duplicates:
+  zero strikes for legit runs, while speed and teleport cheats are still snapped back under every link (struck below
+  the heavy-lag line).

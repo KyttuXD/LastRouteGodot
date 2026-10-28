@@ -106,6 +106,7 @@ var troll_peers := {}
 const PEER_LOOKUP_SECONDS := 30.0
 var _lookup_elapsed := PEER_LOOKUP_SECONDS - 2.0
 var _flag_noticed := {}
+var _send_seq := 0
 
 
 func _ready() -> void:
@@ -342,7 +343,10 @@ func _process(delta: float) -> void:
 	if _since_send < 1.0 / SEND_HZ:
 		return
 	_since_send = 0.0
-	_send_to_live(_place, [_local_state()])
+	var state := _local_state()
+	_send_seq += 1
+	state["seq"] = _send_seq   # lets the host drop duplicated / reordered samples (GuestGuard)
+	_send_to_live(_place, [state])
 
 
 func _local_state() -> Dictionary:
@@ -1327,22 +1331,36 @@ func _player_event(event: Dictionary) -> void:
 func _guard_sample(id: int, received: Dictionary) -> bool:
 	if not guard.exempt.is_valid():
 		guard.exempt = func(peer_id: int) -> bool: return remote_admin_peer_allowed(peer_id)
+		guard.rtt_ms = _peer_rtt_ms
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state if is_inside_tree() else null
 	var verdict := guard.check(id, received, Time.get_ticks_msec() / 1000.0, space)
 	if verdict.is_empty():
 		return true
+	if bool(verdict.get("drop", false)):
+		return false   # a duplicate or out-of-order sample: the newer one already landed
 	var snap: Vector3 = verdict["snap_to"]
 	received["at"] = snap
 	received["position"] = Vector2(snap.x, snap.z)
 	var kicked := bool(verdict["kick"])
-	set_troll(id, true)
+	var lag := bool(verdict.get("lag", false))
+	if not lag:
+		set_troll(id, true)   # a lag-only snap never trolls
 	guest_violation.emit(id, String(verdict["reason"]), int(verdict["strikes"]), kicked)
 	if peer_is_live(id):
-		_player_event.rpc_id(id, {"what": "anticheat_snap", "at": snap, "reason": String(verdict["reason"])})
+		_player_event.rpc_id(id, {"what": "anticheat_snap", "at": snap, "reason": String(verdict["reason"]), "lag": lag})
 	if kicked:
 		kick_guest(id, String(verdict["reason"]))
 		return false
 	return true
+
+
+## The transport's round trip to a guest in ms (ENet direct connections; 0 when unknown, e.g. behind the relay).
+func _peer_rtt_ms(peer_id: int) -> float:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer if is_inside_tree() else null
+	if enet == null:
+		return 0.0
+	var packet_peer := enet.get_peer(peer_id)
+	return packet_peer.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME) if packet_peer != null else 0.0
 
 
 ## Host only: tells everyone, then drops the guest's connection.

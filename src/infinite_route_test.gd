@@ -4756,6 +4756,9 @@ func _apply_player_event(event: Dictionary) -> void:
 			var stun_note := String(event.get("message", ""))
 			if not stun_note.is_empty():
 				hud.show_message(stun_note)
+		"anticheat_snap":
+			# RemotePlayers already moved the player back. Lag gets a plain network note, never anti-cheat wording.
+			hud.show_message("CONNECTION UNSTABLE" if bool(event.get("lag", false)) else "POSITION CORRECTED")
 		"troll":
 			player.troll_active = bool(event.get("on", false))
 		"troll_pickup":
