@@ -471,62 +471,89 @@ later and is not started without KT's go-ahead.
 
 KT's step 3d. A room recipe furnishes one room type (a ward, a bedroom, the mall's music_store). Today every recipe is a
 branch of `StreamedRouteGenerator._room_template_specs()` (about 1,200 lines shared by BIOMES, WORLD and MUSIC). Data
-recipes let packs add shop and room roles and place new props, which nothing else can do.
+recipes let packs add shop and room roles and place new props, which nothing else can do. Revised after review by
+MUSIC and WORLD (2026-10-28).
+
+### Axes and units
+
+Recipes use the generator's own spec frame, in **cells**:
+- `depth` runs from the **back wall** (`0`, the first interior row) to the **front** row, `front = depth_span - 3`,
+  whose middle cell is the entrance (it is always kept clear, `_keep_entrance_clear`). The entrance wall is the one
+  the room's door (the corridor connection the layout gives it) sits in; a room with a second door or an archway still
+  has one entrance for the recipe frame, and other openings are kept clear by the same placement code.
+- `side` runs across the room; `0` is the centre column (for an even width, the column left of centre, as the code
+  rounds), `half = side_span / 2`. The room's seeded `mirror` (+1/-1) multiplies `side` unless `"mirror": false`.
+- `facing`: `open` (towards the entrance), `back`, `left`, `right`, `center` (towards the room centre).
+- Size-relative positions are strings: `back`, `front`, `mid` (= `depth_span / 2`), `half`, and offsets on them:
+  `"front-1"`, `"half-1"`, `"-half+1"`.
+- A range `"side": [from, to, step]` places one item per value from `from` up to and excluding `to` (like `range()`),
+  bounds may be size-relative (`["-half+1", "half", 3]`); mirroring applies to each placed value after the step.
 
 ### What a recipe is
 
-The generator already reduces every recipe to a list of **specs** placed relative to the room's door wall:
-`{type, side, depth, facing, wall_backed?, wall_mount?, solid?, mount_y?}`, with `side` across the room (mirrored by a
-seeded `mirror` of +1/-1) and `depth` away from the door wall. A data recipe is that list plus the few conditions the
-code uses:
+The generator already reduces every recipe to a list of specs `{type, side, depth, facing, wall_backed?, wall_mount?,
+solid?, mount_y?}`; a data recipe is that list plus the few conditions the code uses:
 
 ```json
-{"schema": "lr.room/1", "id": "mypack_record_shop", "regions": ["mall"],
+{"schema": "lr.room/1", "id": "mypack_record_shop",
  "items": [
-	{"type": "checkoutCounter", "side": -2, "depth": 0, "wall_backed": true, "facing": "open"},
-	{"type": "mypack_record_rack", "side": 2, "depth": "mid", "facing": "center", "mirror": true},
+	{"type": "checkoutCounter", "side": -2, "depth": "front-1", "wall_backed": false, "facing": "open"},
+	{"type": ["mypack_rack_a", "mypack_rack_b"], "side": ["-half+1", "half", 3], "depth": "back", "wall_backed": true},
 	{"type": "@rug", "side": 0, "depth": "mid", "solid": false, "when": {"min_side": 9}},
 	{"choose": [{"type": "guitarWallHanger", "weight": 3}, {"type": "@painting", "weight": 1}],
-	 "side": 0, "depth": 0, "wall_mount": true, "solid": false, "when": {"chance": 0.5}},
-	{"type": "vanityStool", "side": [-3, 3, 2], "depth": 1, "facing": "back"}
+	 "side": 0, "depth": "back", "wall_mount": true, "solid": false, "when": {"chance": 0.5}}
  ]}
 ```
 
-- `side`/`depth`: integers; `depth` may be `"mid"` (half the room's depth) or `"far"`; `side` may be `[from, to, step]`
-  to repeat an item along the wall (the chair rows).
-- `mirror: true` multiplies `side` by the room's seeded mirror (default true, as the code does).
-- `@frame`, `@painting`, `@rug`: the region's own frame/painting/rug type (`_frame_type_for_region`, `_rug_type_for_region`);
-  skipped where the region has none.
-- `when`: `min_side`, `min_depth`, `max_side`, `chance` (one seeded draw), all of which must hold.
-- `choose`: a weighted pick (one seeded draw).
-- Everything else (clearance, door keep-clear, wall snapping, surface parents, colliders) is the generator's existing
-  placement code, unchanged.
+- `type`: a prop id; a **list** on a range item cycles by index (`types[i % n]`, no draw).
+- `@frame`, `@painting`, `@rug`: the region's own frame/painting/rug type; the item is skipped where the region has none.
+- `when`: `min_side`, `max_side`, `min_depth`, `max_depth`, `chance`; all must hold.
+- `choose`: a weighted pick.
+- `mount_y` is in metres (world scale); surface parents (a mic on a desk) are not in v1 -- recipes that need them stay
+  code until the field is designed.
+- Placement (clearance, door keep-clear, wall snapping, colliders) is the generator's existing code, unchanged.
 
-### Determinism and parity
+### Determinism
 
-Every `chance` and `choose` consumes exactly one draw from the room's `SeededRandom`, in item order, so the same seed
-gives the same room on every peer. Existing code recipes stay code: a data recipe is only used for room types that
-have no code branch (new roles from packs or new content). Migrating a built-in recipe to data is allowed only when
-its draws can be expressed in item order; the region parity hash (full chunk data) must not move, and recipes with
-loops over computed spans keep a named code "layout" (`"layout": "dining_rows"`) the data refers to, the way regions
-name dressers.
+- Data recipes draw from **their own** stream, `SeededRandom("%s:ROOMDATA:%s" % [seed, room_id])`, never the room's
+  rng, so editing a data recipe can never shift a later code draw (pickups, hiding spots, dressing).
+- Every `chance` and every `choose` consumes **exactly one** draw in item order, **even when** its size condition fails
+  or placement refuses the item. Range items with a `chance` draw once per placed value. Host and guest therefore get
+  the same room whatever their room sizes or clearance results.
 
-### Rules for packs
+### What recipes may place
 
-- New room types: id `<pack>_<name>`. They are used where a region lists them in `room_roles` (a region override, or a
-  pack region once levels place regions), so a pack can add, say, a record shop to the mall's shop cycle.
-- Overriding a built-in recipe (`rooms/<type>` in overrides) is allowed only for types that are already data.
-- Every `type` must be a known prop (built-in or the pack's); validators generate rooms of every new type over N seeds
-  and room sizes and require: all props placed, no overlaps, doorway clear, every floor cell reachable (the
-  `regions_*` shard rules), and sizes per the size table.
-- Hot-swap: recipes rebuild through `ContentRegistry.watch()` like every other table; a world is generated after its
-  room's packs load, so no chunk mixes recipe sets.
+- Only plain props: no interactables. Hiding spots and lockers, music boxes, relays, pickups, ladders and vents stay
+  placed by the game (lockers carry inspect and vent logic; pickup and relay plans take free floor cells).
+- Every prop needs a footprint the generator knows (a collider size or a declared size), so clearance never works on
+  an unknown footprint.
+- Recipes never apply to safe rooms, sealed-wing seal cells, or stairwell and ladder footprints.
+
+### Ids, roles and the code hand-off
+
+- Built-in data recipes keep their plain id (`music_store`); the `<pack>_` prefix is only for pack recipes.
+- Where a room appears is decided by the region's `room_roles` alone (mall.json stays the single source); a recipe has
+  no region list.
+- A data recipe is used only where no code branch exists, so moving a built-in recipe to data removes its code branch
+  (e.g. `MusicWing.TEMPLATES` and its match arm for music_store) **in the same commit** that adds the JSON.
+- Pack recipes override built-in data recipes through `overrides` (`rooms/<type>`); code recipes cannot be overridden.
+
+### Validation (`data_rooms`)
+
+For every data recipe, over N seeds and every room size its roles get: all items placed or deliberately skipped, no
+overlaps, entrance clear, every floor cell reachable for players **and** for hunter navigation
+(StreamedHunterNavigation), at least 4 free reachable floor cells left (relay chunks need 2-3) for pickups and relays,
+sizes per the size table, and the defining props of the room type (the KEY_PROPS of validate_regions and the owning
+lane's recipe checks) present. Determinism: two generations hash equal. Hot-swap: recipes rebuild through
+`ContentRegistry.watch()`, and a world is generated after its packs load, so no chunk mixes recipe sets.
 
 ### Order and coordination
 
-1. Interpreter plus `rooms/` pack kind, used only for room types with no code branch. No built-in change; parity
-   trivially identical. Suites: data_rooms (schema, determinism, the regions_* placement rules on generated rooms).
-2. MUSIC's `music_store` as the first data recipe (it is new, so no parity to keep), with MUSIC.
-3. Optional migration of simple built-in recipes, one region at a time, in frozen windows agreed with BIOMES
-   (layouts), WORLD (doors, archways, sizes) and MUSIC (mall/music wing), parity hash per region.
+1. Interpreter plus the `rooms/` pack kind, used only for room types with no code branch. No built-in change; parity
+   identical. Suite data_rooms.
+2. music_store as the first data recipe, as one joint commit with MUSIC (JSON in, code branch out); its key props and
+   MUSIC's recipe checks keep passing.
+3. Optional migration of simple built-in recipes, one region at a time, in frozen windows with BIOMES (layouts),
+   WORLD (doors, archways, sizes; a window for any region with hiding spots near doors) and MUSIC, parity hash per
+   region. Recipes with computed loops or derived edges (music_stage, dining rows) keep a named code `"layout"`.
 4. Levels (`lr.level/1`, the level-0 pilot already approved) come after, so pack regions can be placed.
