@@ -593,6 +593,28 @@ func _check_main_menu_contract(scene: Node) -> int:
 		scene.call("_on_join_code_changed", room_code_input.text)
 		if room_code_input.text != "AB" or room_code_input.caret_column != 2:
 			failures += _fail("room-code normalization reverses typed characters")
+		# no tooltip (it ran off the dialog edge); a wrapped hint and a wrapped, clear error stay inside the dialog at every size
+		if not room_code_input.tooltip_text.is_empty():
+			failures += _fail("the room-code field still uses a tooltip that can run off the dialog")
+		scene.call("_on_room_resolved", "ABC12", {}, "ROOM ABC12 WAS NOT FOUND")
+		var join_status := scene.find_child("JoinStatus", true, false) as Label
+		var join_hint := scene.find_child("JoinHint", true, false) as Label
+		if join_status == null or join_hint == null:
+			failures += _fail("the join dialog lacks its hint or status label")
+		else:
+			if not join_status.text.contains("ENDED OR NOT STARTED YET"):
+				failures += _fail("an inactive room code does not say it may have ended or not started (%s)" % join_status.text)
+			for join_size in [Vector2i(480, 270), Vector2i(1024, 768), Vector2i(1366, 768)]:
+				_root().size = join_size
+				await _frame()
+				await _frame()
+				var modal_panel := scene.find_child("MenuModal", true, false) as Control
+				for label in [join_status, join_hint]:
+					if label.autowrap_mode == TextServer.AUTOWRAP_OFF:
+						failures += _fail("%s does not wrap" % label.name)
+					if modal_panel != null and not modal_panel.get_global_rect().grow(1.0).encloses(label.get_global_rect()):
+						failures += _fail("%s runs outside the join dialog at %s (%s in %s)" % [label.name, join_size,
+							label.get_global_rect(), modal_panel.get_global_rect()])
 	scene.call("_set_route_update_locked", "UPDATING")
 	await _frame()
 	if scene.find_child("MenuModal", true, false) != null:

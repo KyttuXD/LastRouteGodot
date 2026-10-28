@@ -267,13 +267,18 @@ func _on_join_pressed() -> void:
 	_join_input.max_length = RoomState.CODE_LENGTH
 	_join_input.add_theme_font_size_override("font_size", 12)
 	_join_input.custom_minimum_size = Vector2(0, 27)
-	_join_input.tooltip_text = "FIVE-CHARACTER PRIMARY ROOM CODE"
 	_join_input.text_changed.connect(_on_join_code_changed)
 	_join_input.text_submitted.connect(func(_value: String) -> void: _submit_join())
 	Palette.style_line_edit(_join_input)
 	content.add_child(_join_input)
+	# a hint below the field, not a tooltip: tooltips ran off the dialog's right edge
+	var hint := _modal_label("FIVE-CHARACTER ROOM CODE, E.G. ABC12", Palette.MUTED, 6)
+	hint.name = "JoinHint"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(hint)
 	var status := _modal_label("", Palette.ALERT, 6)
 	status.name = "JoinStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(status)
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_END
@@ -309,7 +314,9 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 		return
 	var status := _modal.find_child("JoinStatus", true, false) as Label
 	if not error.is_empty():
-		status.text = error
+		# a code that is well formed but not active: say why it may be missing
+		status.text = "ROOM %s NOT FOUND // IT MAY HAVE ENDED OR NOT STARTED YET" % code \
+			if error.to_upper().contains("NOT FOUND") else error
 		return
 	if not RoomState.game_matches(String(endpoint.get("game", "")), RoomState.GAME_LAST_ROUTE):
 		status.text = "THAT ROOM IS FOR ANOTHER GAME // JOIN IT FROM ITS OWN MENU"
