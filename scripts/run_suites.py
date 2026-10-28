@@ -123,8 +123,23 @@ class Worker:
             watcher = threading.Thread(target=_stall_watch, args=(proc, state), daemon=True)
             watcher.start()
             broken, preamble = {}, []
+            written, flooded = 0, False
             for line in proc.stdout:
                 state["last"] = time.time()
+                if flooded:
+                    continue   # drain the pipe until the killed process closes it; write nothing more
+                written += len(line)
+                if written > LOG_CAP:
+                    flooded = True
+                    log.write("\n[run_suites] log flood: over %d MB; killing this Godot\n" % (LOG_CAP // 1048576))
+                    _kill_group(proc)
+                    if current and current not in verdicts:
+                        verdicts[current] = ("FAIL", 0.0)
+                        lines_by.setdefault(current, []).append(
+                            "  FAIL  log flood: over %d MB of output (a per-frame error?); killed. Last line: %s"
+                            % (LOG_CAP // 1048576, line.strip()[:200]))
+                        print("[w%d] FAIL %s (log flood)" % (self.idx, current), flush=True)
+                    continue
                 log.write(line)
                 stripped = line.rstrip("\n")
                 if stripped.startswith("== ") and stripped[3:] in suites:
@@ -161,6 +176,90 @@ class Worker:
 
 
 STALL = int(os.environ.get("GUARD_STALL_INNER", "30"))
+# A per-frame SCRIPT ERROR once wrote 63 GB into one worker log and filled the mini's disk. Past this many bytes a
+# worker's output is a flood: the suite is killed and FAILs as "log flood".
+LOG_CAP = int(os.environ.get("VALIDATE_LOG_CAP_MB", "50")) * 1024 * 1024
+KEEP_LOG_BYTES = 1024 * 1024   # trimmed tail of each worker log kept in <project>/.validate-logs after the run
+SWEEP_AGE_S = 2 * 3600
+
+
+def _pid_alive(pid):
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"], capture_output=True, text=True).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _remove_tree(path):
+    """rmtree that also works on Windows, where read-only files (the project clone's) make plain rmtree fail -- and
+    ignore_errors hid that, so Windows run folders piled up in %TEMP%."""
+    import stat
+
+    def clear_and_retry(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+    shutil.rmtree(path, onerror=clear_and_retry)
+
+
+def sweep_old_runs():
+    """Remove lr-validate-* run folders older than 2 h whose owning run_suites is gone (crashed or killed runs)."""
+    root = tempfile.gettempdir()
+    now = time.time()
+    for name in os.listdir(root):
+        if not name.startswith("lr-validate-"):
+            continue
+        path = os.path.join(root, name)
+        try:
+            if not os.path.isdir(path):
+                continue
+            # age = newest write anywhere in it: a live run keeps appending to its logs (the folder's own mtime doesn't
+            # move), and a run started by an older run_suites has no .owner-pid to protect it
+            newest = os.path.getmtime(path)
+            for sub in (path, os.path.join(path, "logs")):
+                for entry in os.listdir(sub) if os.path.isdir(sub) else []:
+                    try:
+                        newest = max(newest, os.path.getmtime(os.path.join(sub, entry)))
+                    except OSError:
+                        pass
+            if now - newest < SWEEP_AGE_S:
+                continue
+            owner = 0
+            try:
+                owner = int(open(os.path.join(path, ".owner-pid")).read().strip() or 0)
+            except (OSError, ValueError):
+                pass
+            if _pid_alive(owner):
+                continue
+            _remove_tree(path)
+            print("swept stale run folder %s%s" % (path, "" if not os.path.exists(path) else " (partly: files in use)"), flush=True)
+        except OSError:
+            continue
+
+
+def keep_trimmed_logs(logs_dir):
+    """Copy the tail of each worker log into <project>/.validate-logs (replaced every run), so the temp folder can go."""
+    keep = os.path.join(ROOT, ".validate-logs")
+    shutil.rmtree(keep, ignore_errors=True)
+    os.makedirs(keep, exist_ok=True)
+    for name in sorted(os.listdir(logs_dir)) if os.path.isdir(logs_dir) else []:
+        src = os.path.join(logs_dir, name)
+        with open(src, "rb") as f:
+            f.seek(max(0, os.path.getsize(src) - KEEP_LOG_BYTES))
+            tail = f.read()
+        with open(os.path.join(keep, name), "wb") as out:
+            out.write(tail)
+    return keep
 
 
 def _cpu_seconds(pid):
@@ -268,9 +367,24 @@ def main():
     pool = [s for s in wanted if s not in serial and s not in unknown]
     bins = pack(pool, durations, max(1, args.jobs))
 
+    sweep_old_runs()
     base = tempfile.mkdtemp(prefix="lr-validate-")
+    with open(os.path.join(base, ".owner-pid"), "w") as f:
+        f.write(str(os.getpid()))
     logs = os.path.join(base, "logs")
     os.makedirs(logs)
+    try:
+        return _run_all(args, known, wanted, unknown, serial, bins, base, logs, durations)
+    finally:
+        try:
+            kept = keep_trimmed_logs(logs)
+            print("logs (trimmed): %s" % kept)
+        except OSError:
+            pass
+        _remove_tree(base)   # always: success, failure or exception
+
+
+def _run_all(args, known, wanted, unknown, serial, bins, base, logs, durations):
     t0 = time.time()
     workers = [Worker(i, base) for i in range(max(len(bins), 1))]
     results, fail_lines = {}, {}
@@ -341,9 +455,6 @@ def main():
     if args.json:
         json.dump({"wall": wall, "jobs": len(bins), "results": results,
                    "fail_lines": fail_lines}, open(args.json, "w"), indent=1)
-    for w in workers:
-        shutil.rmtree(w.proj, ignore_errors=True)
-    print("\nlogs: %s" % logs)
     print("RESULT: %s (%d failed of %d)" % ("FAIL" if failed else "PASS", len(failed), len(results)))
     return 1 if failed else 0
 
