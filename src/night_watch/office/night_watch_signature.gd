@@ -155,8 +155,8 @@ static func _broadcast(office: Node3D) -> void:
 	NightWatchArt.box(root, Vector3(0.5, 0.3, 0.4), Vector3(-1.9, 0.15, -half_d + 0.4), {"name": "FloorBox", "kind": "metal", "tint": Color(0.4, 0.45, 0.5)})
 
 
-## Masked Hours: the 2D picture is a purple corridor with dark vent grilles on both walls, orange dashes along them, a pink-and-violet striped curtain at the end and a checkered floor:
-## grilles and dashes on the side walls, the striped curtain on the front wall and a checker floor laid over the floor.
+## Masked Hours: the 2D picture is a purple corridor with dark vent grilles on both walls, orange dashes along them and a checkered floor:
+## dashes on the side walls and a checker floor laid over the floor (the room already has the vents; the front wall stays plain).
 static func _mask(office: Node3D) -> void:
 	var hw: float = MaskOffice.HALF_W
 	var fz: float = MaskOffice.FRONT_Z
@@ -167,20 +167,6 @@ static func _mask(office: Node3D) -> void:
 	for side in [-1.0, 1.0]:
 		for z in [-1.2, -0.7, 1.4, 1.8]:
 			NightWatchArt.box(root, Vector3(0.03, 0.07, 0.35), Vector3(side * (hw - 0.04), 1.05, z), {"name": "OrangeDash", "kind": "wall", "tint": ORANGE})
-	# pink and violet curtain stripes either side of the opening on the front wall
-	var img := Image.create(8, 1, false, Image.FORMAT_RGBA8)
-	for i in 8:
-		img.set_pixel(i, 0, Color8(200, 70, 120) if i % 2 == 0 else Color8(70, 50, 140))
-	var m := StandardMaterial3D.new()
-	m.albedo_texture = ImageTexture.create_from_image(img)
-	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	m.roughness = 1.0
-	m.set_meta("nw_kind", "fabric")
-	var gap: float = hw - MaskOffice.OPENING
-	for side in [-1.0, 1.0]:
-		var curtain := NightWatchArt.box(root, Vector3(maxf(gap, 0.1) + 0.3, 3.0, 0.04), Vector3(side * (MaskOffice.OPENING + gap * 0.5 - 0.1), 1.5, fz + 0.04), {"name": "StripedCurtain", "kind": "wall"})
-		curtain.material_override = m
-		curtain.set_meta("nw_palette", "poster")
 	var floor_img := Image.create(2, 2, false, Image.FORMAT_RGBA8)
 	floor_img.set_pixel(0, 0, Color8(60, 40, 120))
 	floor_img.set_pixel(1, 1, Color8(60, 40, 120))
