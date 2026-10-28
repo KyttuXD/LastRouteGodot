@@ -77,6 +77,16 @@ const _CODE_PROFILES := {
 
 static var PROFILES: Dictionary = ContentRegistry.resolve(_CODE_PROFILES, "hunters")
 
+
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): recompute everything derived from the registry.
+static func rebuild_from_registry() -> void:
+	PROFILES = ContentRegistry.resolve(_CODE_PROFILES, "hunters")
+	DRAW_IDS = _draw_ids()
+	_eye_glow_color_cache.clear()
+
 ## The hunters the game actually draws. Grows as gimmicks are ported; a hunter
 ## with a profile and a model but no gimmick is NOT in here, because shipping
 ## her would be a Dovelle reskin wearing someone else's name.
@@ -96,6 +106,17 @@ const IMPLEMENTED_IDS := [
 ## whichever route hunter was drawn, which is why main_3d.gd keeps a
 ## collection of hunters rather than one.
 const SPECIAL_IDS := ["nyxie", "solyth"]
+## What pick_for_floor draws from: IMPLEMENTED_IDS plus hunters added by loaded packs (exactly IMPLEMENTED_IDS without
+## packs, so vanilla draws are unchanged). Pack hunters run the default chase behaviour on their own tuning.
+static var DRAW_IDS: Array = _draw_ids()
+
+
+static func _draw_ids() -> Array:
+	var ids := IMPLEMENTED_IDS.duplicate()
+	ids.append_array(ContentRegistry.added_ids("hunters"))
+	ids.make_read_only()
+	return ids
+
 ## Complete letter roster in display/alphabet order. Keeping this explicit
 ## gives debug/admin tooling one canonical source rather than reconstructing
 ## A-Z from the weighted random pool (which intentionally excludes specials).
@@ -277,7 +298,7 @@ static func pick_for_floor(seed_text: String, depth: int,
 	var weights: Dictionary = TIER_WEIGHTS_BY_DIFFICULTY.get(difficulty_id,
 		TIER_WEIGHTS_BY_DIFFICULTY["standard"])
 	var by_tier := {}
-	for id in IMPLEMENTED_IDS:
+	for id in DRAW_IDS:
 		var tier: String = PROFILES[id]["tier"]
 		by_tier.get_or_add(tier, []).append(id)
 
@@ -285,10 +306,10 @@ static func pick_for_floor(seed_text: String, depth: int,
 	for tier in by_tier:
 		total += float(weights.get(tier, 0.0))
 	if total <= 0.0:
-		return IMPLEMENTED_IDS[rng.next_index(IMPLEMENTED_IDS.size())]
+		return DRAW_IDS[rng.next_index(DRAW_IDS.size())]
 
 	# Walk the tiers in a fixed order: a Dictionary's iteration order follows
-	# insertion, which follows IMPLEMENTED_IDS, so it is stable -- but only by
+	# insertion, which follows DRAW_IDS, so it is stable -- but only by
 	# accident. Sorting makes the draw depend on the seed alone.
 	var tiers: Array = by_tier.keys()
 	tiers.sort()

@@ -156,4 +156,6 @@ static func portrait(hunter_id: String) -> Texture2D:
 	var path := PORTRAIT_DIR + id + ".png"
 	if ContentRegistry.has("hunters", id):
 		path = String(ContentRegistry.get_def("hunters", id).get("portrait", path))
+	if path.begins_with("user://"):
+		return ContentRegistry.pack_texture(path)
 	return load(path) as Texture2D if ResourceLoader.exists(path) else null

@@ -758,6 +758,16 @@ static var COORDINATED_SET_TYPES: Array = ContentRegistry.splice(_CODE_COORDINAT
 static var VARIANT_THEMES: Dictionary = ContentRegistry.resolve(_CODE_VARIANT_THEMES, "props", "themes")
 
 
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): recompute the tables read from the registry.
+static func rebuild_from_registry() -> void:
+	MODEL_PATHS = ContentRegistry.resolve(_CODE_MODEL_PATHS, "props", "models")
+	COORDINATED_SET_TYPES = ContentRegistry.splice(_CODE_COORDINATED_SET_TYPES, "coordinated")
+	VARIANT_THEMES = ContentRegistry.resolve(_CODE_VARIANT_THEMES, "props", "themes")
+
+
 static func has_model(type: String) -> bool:
 	return MODEL_PATHS.has(type) and not (MODEL_PATHS[type] as Array).is_empty()
 
@@ -852,6 +862,8 @@ static func model_path(type: String, instance_id: String,
 	var paths: Array = MODEL_PATHS.get(type, [])
 	if paths.is_empty():
 		return ""
+	if not ContentRegistry.pack_of("props", type).is_empty():
+		return String(paths[_variant_index(type, instance_id, room_id, paths.size())])
 	if USE_BLOCKY_PROPS and use_region_finishes and not finish.is_empty() and BlockyPropModels.MODELS.has(type + finish):
 		var finished: Array = BlockyPropModels.MODELS[type + finish]
 		return String(finished[_variant_index(type, instance_id, room_id, finished.size())])

@@ -251,6 +251,19 @@ static var REGION_PROP_SETS: Dictionary = ContentRegistry.resolve(_CODE_REGION_P
 static var REGION_ROOM_DOORS: Dictionary = ContentRegistry.resolve(_CODE_REGION_ROOM_DOORS, "regions", "room_door")
 static var REGION_DOUBLE_ROOM_DOORS: Dictionary = ContentRegistry.resolve(_CODE_REGION_DOUBLE_ROOM_DOORS, "regions",
 	"double_room_door")
+
+
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): recompute the tables read from the registry. Chunks a
+## generator already cached keep their old dressing; callers build a fresh generator per room.
+static func rebuild_from_registry() -> void:
+	MALL_ROOMS = ContentRegistry.get_def("regions", "mall").get("room_roles", [])
+	SHOP_NAMES = ContentRegistry.get_def("regions", "mall").get("shop_names", {})
+	REGION_PROP_SETS = ContentRegistry.resolve(_CODE_REGION_PROP_SETS, "regions", "prop_set")
+	REGION_ROOM_DOORS = ContentRegistry.resolve(_CODE_REGION_ROOM_DOORS, "regions", "room_door")
+	REGION_DOUBLE_ROOM_DOORS = ContentRegistry.resolve(_CODE_REGION_DOUBLE_ROOM_DOORS, "regions", "double_room_door")
 ## Collision envelopes for deterministic furnished-room recipes. These follow
 ## the authored GLB footprints rather than the old one-cell placeholder rule.
 ## Local X runs across a prop's front and local Z runs from its back into the
