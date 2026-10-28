@@ -36,6 +36,7 @@ var _failures := 0
 var _counts := {}
 var _problems := {}
 var _pairs := {}
+var _worst_layers_usec := 0
 
 
 func _expect(condition: bool, message: String) -> void:
@@ -53,6 +54,8 @@ func run(host: Node) -> int:
 	# their stairwells are audited when they are; upper_levels checks their slabs meanwhile
 	for pair in ["0/-1", "-1/-2", "-2/-3"]:
 		_expect(_pairs.has(pair), "no link audited between levels %s" % pair)
+	print("  level_links: StoreyLayers.apply worst %.2f ms per chunk" % (_worst_layers_usec / 1000.0))
+	_expect(_worst_layers_usec < 4000, "StoreyLayers.apply took %.2f ms on one chunk (a streaming frame step)" % (_worst_layers_usec / 1000.0))
 	if _failures == 0:
 		print("  ok    level_links: audited %s over %d seeds, level pairs %s" % [_counts, SEEDS.size(), _pairs.keys()])
 	else:
@@ -137,6 +140,11 @@ func _audit_seed(host: Node, seed_text: String) -> void:
 		_pairs["%d/%d" % [entry["hi"], entry["lo"]]] = true
 		_audit_link(view, seed_text, entry, roots)
 		await host.get_tree().process_frame
+	# the per-chunk layer pass is one build step: keep it well inside a streaming frame
+	for coord in built:
+		var started := Time.get_ticks_usec()
+		StoreyLayers.apply(built[coord], coord.y)
+		_worst_layers_usec = maxi(_worst_layers_usec, Time.get_ticks_usec() - started)
 	# storey seams and doubles across every chunk built for the seed
 	for coord in built:
 		_check_z_fighting(seed_text, coord, built[coord])

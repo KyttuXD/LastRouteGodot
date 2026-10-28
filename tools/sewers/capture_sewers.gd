@@ -238,6 +238,28 @@ func _run() -> void:
 	await _settle()
 	await _shot("collector_channel_vault", Vector3(c - half + 1.2, low_level_y + 1.6, c + 14.5),
 		Vector3(c + 1.0, low_level_y + 3.0, c + 6.0))
+	# 6f: an outflow main across a walkway (KT: crawl under it or go round): from down the walkway, and crouched under it
+	var main := {}
+	var main_coord := Vector3i.ZERO
+	for cz in range(-3, 4):
+		for cx in range(-3, 4):
+			if main.is_empty():
+				for prop in _view.generator.chunk(Vector3i(cx, SewerRouteGenerator.LEVEL, cz))["region_props"]:
+					if bool((prop as Dictionary).get("outflow", false)):
+						main = prop
+						main_coord = Vector3i(cx, SewerRouteGenerator.LEVEL, cz)
+	if not main.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var corner := Vector3(main_coord.x * size, level_y, main_coord.z * size)
+		var middle: Vector2i = main["cell"]
+		var along: Vector2i = main["crawl_step"]
+		var at := corner + Vector3(middle.x + .5, 0, middle.y + .5)
+		var back := Vector3(along.x, 0, along.y)
+		_player.global_position = at + back * 6.0 + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		await _shot("outflow_main", at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, 1.4, 0))
+		await _shot("outflow_crawl", at + back * 1.4 + Vector3(0, .8, 0), at - back * 3.0 + Vector3(0, .6, 0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)

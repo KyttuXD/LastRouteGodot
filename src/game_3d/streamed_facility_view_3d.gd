@@ -2852,6 +2852,11 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		float(prop.get("collider_y0", 0.0)))
 	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
 		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
+	elif bool(prop.get("outflow", false)):
+		# a trickle out of the main's mouth into the channel, from the bore's lip
+		var wall := Vector2(prop.get("outflow_wall", Vector2i.ZERO))
+		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 1.66, float(prop.get("collider_y0", 1.0)) + .08,
+			cell.y + .5 - wall.y * 1.66), prop, Vector3(.12, 0.0, .12), 14)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -2865,17 +2870,18 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 
 
 ## Water dripping off a sewer crawl-under pipe: a few small blue streaks falling from its underside to the floor.
-func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary) -> void:
+func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary, extents := Vector3.ZERO, amount := 8) -> void:
 	var drips := GPUParticles3D.new()
 	drips.name = "PipeDrips"
 	drips.position = at
-	drips.amount = 8
+	drips.amount = amount
 	drips.lifetime = 0.5
 	drips.visibility_aabb = AABB(Vector3(-2, -1.5, -2), Vector3(4, 2, 4))
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
 	var step: Vector2i = prop.get("crawl_step", Vector2i(1, 0))
-	process.emission_box_extents = Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05)
+	process.emission_box_extents = extents if extents != Vector3.ZERO \
+		else (Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05))
 	process.direction = Vector3.DOWN
 	process.spread = 0.0
 	process.initial_velocity_min = 0.0

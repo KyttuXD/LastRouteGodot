@@ -6049,6 +6049,47 @@ def make_sewer_pipe_run():
     return objects, (1.8, -2.4, 1.0), (0.0, 0.3, 0.1)
 
 
+## The outflow main's underside sits at SewerRouteGenerator.CRAWL_CLEARANCE (the crouched capsule, 1.08 m x
+## PlayerModels.SCALE 0.9, + 5 cm): a crouched runner passes under it, nothing taller does.
+OUTFLOW_CLEARANCE = 1.08 * 0.9 + 0.05
+OUTFLOW_VAULT = 3.2
+
+
+def make_sewer_outflow_pipe():
+    """A 1.5 m rusted outflow main out of the tunnel wall (Blender +Y) straight across the 3 m walkway, flanged twice,
+    hung from the vault on two straps, its open mouth over the channel. Origin: the middle walkway cell on the floor."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_outflow_pipe")
+    objects = []
+    radius = 0.75
+    flange = 0.82
+    cz = OUTFLOW_CLEARANCE + flange
+    axis = (math.pi / 2.0, 0.0, 0.0)
+    for index, (y0, y1) in enumerate(((1.70, 0.60), (0.60, -0.50), (-0.50, -1.62))):
+        cylinder("Barrel%d" % index, (0.0, (y0 + y1) * .5, cz), radius, y0 - y1, 20, rust if index != 1 else iron,
+                 4 + index % 2, count, objects, rotation=axis)
+    cylinder("WallCollar", (0.0, 1.48, cz), flange, 0.14, 20, concrete, 3, count, objects, rotation=axis)
+    for name, y in (("FlangeA", 0.60), ("FlangeB", -0.50)):
+        cylinder(name, (0.0, y, cz), flange, 0.12, 20, iron, 2, count, objects, rotation=axis, bevel=0.01)
+        for bolt in range(12):
+            a = bolt * math.tau / 12.0
+            box("%sBolt%02d" % (name, bolt), (math.cos(a) * (flange - 0.05), y, cz + math.sin(a) * (flange - 0.05)),
+                (0.05, 0.16, 0.05), rust, 6, count, objects)
+    # the open mouth: a thick rim and the dark bore behind it
+    cylinder("MouthRim", (0.0, -1.62, cz), flange, 0.12, 20, iron, 1, count, objects, rotation=axis, bevel=0.01)
+    cylinder("Bore", (0.0, -1.67, cz), radius - 0.08, 0.02, 20, iron, 0, count, objects, rotation=axis)
+    box("DripLip", (0.0, -1.70, cz - radius + 0.02), (0.30, 0.08, 0.04), rust, 4, count, objects)
+    for index, x in enumerate((-0.32, 0.10, 0.41)):
+        box("RustStreak%d" % index, (x, -0.95 + index * 0.55, cz + radius - 0.01), (0.07, 0.42, 0.02), rust, 5,
+            count, objects)
+    top = cz + radius
+    for index, y in enumerate((0.05, -1.10)):
+        cylinder("Strap%d" % index, (0.0, y, cz), radius + 0.03, 0.07, 20, iron, 1, count, objects, rotation=axis)
+        box("Hanger%d" % index, (0.0, y, (top + OUTFLOW_VAULT) * .5), (0.06, 0.06, OUTFLOW_VAULT - top), iron, 2,
+            count, objects)
+        box("HangerPlate%d" % index, (0.0, y, OUTFLOW_VAULT - 0.02), (0.22, 0.22, 0.04), rust, 1, count, objects)
+    return objects, (3.4, -3.6, 1.9), (0.0, -0.2, 1.6)
+
+
 def make_sewer_overflow_grate():
     """Barred weir across the overflow chamber's basin: a low iron screen standing in the water."""
     iron, rust, concrete, _, count = sewer_materials("sewer_overflow_grate")
@@ -6145,6 +6186,7 @@ SEWER_BUILDERS = {
     "sewer_valve_wheel": make_sewer_valve_wheel,
     "sewer_pump": make_sewer_pump,
     "sewer_pipe_run": make_sewer_pipe_run,
+    "sewer_outflow_pipe": make_sewer_outflow_pipe,
     "sewer_overflow_grate": make_sewer_overflow_grate,
     "sewer_lamp": make_sewer_lamp,
 }
