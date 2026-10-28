@@ -35,6 +35,7 @@ func build() -> void:
 func _ready() -> void:
 	if props.is_empty():
 		build()
+	NightWatchPalette.apply(self, spec.id)   # the 2D office's colours on the shell
 
 
 func spawn_position() -> Vector3:
