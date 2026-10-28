@@ -65,12 +65,14 @@ const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic
 ## Share of bank sides that become ONE big room (21x9, a hall/ballroom/greenhouse/big top) instead of two 11x9 rooms, and the
 ## hall-type rooms to pick from. Hotel and prison stay all small rooms; apartments are all suites (_mixed_room_layout).
 const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
-	"hospital": .3, "lab": .4, "greenhouse": .55}
+	"hospital": .5, "lab": .55, "greenhouse": .55}
 const BANK_BIG_TYPES := {
 	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
-	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage"],
-	"hospital": ["ward", "operating_theatre"], "lab": ["server_hall", "containment", "clean_room"],
+	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage", "arcade_room"],
+	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles (docs/ROOM_REFERENCE.md): these are 21x9 rooms
+	"hospital": ["ward", "operating_theatre", "icu", "nurses_station", "imaging"],
+	"lab": ["server_hall", "containment", "clean_room", "chem_lab", "bio_lab", "control_room"],
 	"greenhouse": ["glasshouse", "palm_house"],
 }
 ## Room types of the three facility regions, in the order a bank cycles through them (big/great-hall types also appear
@@ -98,7 +100,7 @@ const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion":
 	"hospital": .25, "lab": .30, "greenhouse": .45}
 const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_cafeteria"],
 	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
-	"hospital": ["ward"], "lab": ["containment"], "greenhouse": ["dome_atrium"]}
+	"hospital": ["ward"], "lab": ["containment", "server_hall"], "greenhouse": ["dome_atrium", "glasshouse"]}
 const LARGE_ROOM_SIZE := 21
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
@@ -1682,7 +1684,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		_carve_rect(grid, bay)
 		_mark_rect_cells(circulation, bay)
 	if office_quarter:
-		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 17), 3, "office", rng)
+		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 19), 3, "office", rng)
 		rooms.append_array(suite["rooms"])
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
@@ -1898,18 +1900,25 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 	parent["preset_room"] = true
 	suite_rooms.append(parent)
 
-	var hall_x := Rect2i(rect.position + Vector2i(7, 1), Vector2i(3, 15))
-	var hall_z := Rect2i(rect.position + Vector2i(1, 7), Vector2i(15, 3))
+	# four rooms round a three-wide cross: 7 x 7 in a 17 x 17 sector; the maze's office sector is 17 wide (the seam bay
+	# needs the last three columns) and 19 tall under the five-wide hall, so its rooms are 7 x 8 (hunter scale needs the
+	# depth; docs/ROOM_REFERENCE.md). A 21 sector would give 9 x 9.
+	var room_w := (rect.size.x - 3) / 2
+	var room_h := (rect.size.y - 3) / 2
+	var far_x := room_w + 3
+	var far_z := room_h + 3
+	var hall_x := Rect2i(rect.position + Vector2i(room_w, 1), Vector2i(3, rect.size.y - 2))
+	var hall_z := Rect2i(rect.position + Vector2i(1, room_h), Vector2i(rect.size.x - 2, 3))
 	for hall in [hall_x, hall_z]:
 		_carve_rect(grid, hall)
 		_mark_rect_cells(circulation, hall)
 	var child_specs := [
-		{"rect": Rect2i(rect.position, Vector2i(7, 7)), "door_side": "right"},
-		{"rect": Rect2i(rect.position + Vector2i(10, 0), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position, Vector2i(room_w, room_h)), "door_side": "right"},
+		{"rect": Rect2i(rect.position + Vector2i(far_x, 0), Vector2i(room_w, room_h)),
 			"door_side": "left"},
-		{"rect": Rect2i(rect.position + Vector2i(0, 10), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position + Vector2i(0, far_z), Vector2i(room_w, room_h)),
 			"door_side": "right"},
-		{"rect": Rect2i(rect.position + Vector2i(10, 10), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position + Vector2i(far_x, far_z), Vector2i(room_w, room_h)),
 			"door_side": "left"},
 	]
 	var apartment_roles := ["bedroom", "kitchen", "family_dining",

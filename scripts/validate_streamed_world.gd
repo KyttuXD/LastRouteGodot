@@ -199,7 +199,7 @@ func run(host: Node) -> int:
 							child_roles[child_role] = true
 							suite_roles_seen[child_role] = true
 					_expect(suite_kind in ["apartment", "office"] \
-						and suite_rect.size == Vector2i(17, 17),
+						and suite_rect.size in [Vector2i(17, 17), Vector2i(17, 19)],   # the maze's office sector is 19 tall under the five-wide hall
 						"unsupported or clipped generated suite: %s" % suite)
 					_expect(parent_count == 1 and child_ids.size() == 4,
 						"%s is not one shared entry plus four amenity rooms" % suite_id)
