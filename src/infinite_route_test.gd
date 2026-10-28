@@ -2516,6 +2516,32 @@ func _store_hunter(entity_id: String, view: HunterView3D) -> void:
 		_hunter_origins.get(entity_id, Vector3i.ZERO))
 
 
+var _hunter_directors := {}
+
+
+## Hunters on a level work together on every mode (HunterDirector): share sightings, split into small teams, spread out, cap per runner.
+func _direct_hunters(delta: float, local_target: Dictionary) -> void:
+	var by_level := {}
+	for entity_id_value in _hunter_views:
+		var view := _hunter_views[entity_id_value] as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			continue
+		var level := int(_hunter_levels.get(entity_id_value, 0))
+		if not by_level.has(level):
+			by_level[level] = []
+		by_level[level].append({"id": str(entity_id_value), "brain": view.brain,
+			"target": _remotes.best_target(view.brain.position, local_target, -level)})
+	for level in by_level:
+		var navigation := _navigations.get(level) as StreamedHunterNavigation
+		if navigation == null:
+			continue
+		var director := _hunter_directors.get(level) as HunterDirector
+		if director == null or director.mode_id != RoomState.difficulty_id():
+			director = HunterDirector.new(RoomState.difficulty_id(), "DIRECTOR-%d" % level)
+			_hunter_directors[level] = director
+		director.tick(delta, by_level[level], navigation)
+
+
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
@@ -2526,6 +2552,7 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 	var local_safe := _player_in_intact_safe_room(facility.current_chunk_data())
 	var local_target := _hunter_target(local_safe)
 	var breach_rooms := {}
+	_direct_hunters(delta, local_target)
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
 		var view := _hunter_views.get(entity_id) as HunterView3D

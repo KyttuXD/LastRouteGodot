@@ -289,6 +289,16 @@ func head_to(point: Vector2, delta: float, generator, depth: int, relays_collect
 	return position.distance_to(point) <= ARRIVAL_DISTANCE
 
 
+## The director's nudge: investigate `point` (a wandering hunter given somewhere to go). Never used on a chasing hunter.
+func direct_to(point: Vector2) -> void:
+	state = State.INVESTIGATE
+	has_last_known = true
+	last_known = point
+	_path.clear()
+	_has_path_target = false
+	direct_chase_visible = false
+
+
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
 ## `duration` seconds. Used after a broken grip (hunter-ai.js's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).

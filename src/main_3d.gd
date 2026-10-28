@@ -301,6 +301,7 @@ func _update_gameplay(delta: float) -> void:
 	# not-yet-updated sibling, then have that sibling's own update() overwrite
 	# it right back a moment later.
 	var facility_alerts: Array = []
+	_direct_hunters(delta, local_target, generator)
 	for view in hunter_views:
 		var selected := _remotes.best_target(view.brain.position,
 			local_target, GameState.depth)
@@ -441,6 +442,20 @@ func _local_hunter_target() -> Dictionary:
 ## RPC dictionaries cannot contain RefCounted objects. Remote meter values are
 ## reconstructed into the same shape hunter gimmicks expect; a baseline lets
 ## us turn host-side mutations of that copy into targeted owner events.
+var _hunter_director: HunterDirector
+
+
+## Hunters work together on every mode (HunterDirector): share sightings, split into small teams, spread out, cap per runner.
+func _direct_hunters(delta: float, local_target: Dictionary, generator) -> void:
+	if _hunter_director == null or _hunter_director.mode_id != RoomState.difficulty_id():
+		_hunter_director = HunterDirector.new(RoomState.difficulty_id(), "%s-director" % str(RoomState.seed_text if "seed_text" in RoomState else "ROUTE"))
+	var entries: Array = []
+	for view in hunter_views:
+		var selected := _remotes.best_target(view.brain.position, local_target, GameState.depth)
+		entries.append({"id": str(view.get_instance_id()), "brain": view.brain, "target": selected})
+	_hunter_director.tick(delta, entries, generator)
+
+
 func _target_with_runtime(source: Dictionary) -> Dictionary:
 	var target := source.duplicate(true)
 	if not target.has("meters"):

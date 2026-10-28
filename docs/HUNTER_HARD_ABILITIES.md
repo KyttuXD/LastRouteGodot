@@ -51,3 +51,22 @@ double back at a corner against an intercept; the slam only costs you the door a
 ## Switching them off
 
 `RoomState.hunter_abilities` (host's lobby toggle) or `HardAbilities.enabled = false` (code / tests). Relaxed never has them regardless.
+
+## Hunter director (all modes)
+
+`HunterDirector` (`src/game/hunter_director.gd`) runs host-side once per level and makes the hunters cooperate on every mode. It only gives
+wandering or idle hunters somewhere to investigate (`HunterBrain.direct_to`); chasing, stunned and inactive hunters are left alone.
+
+| Mode | Call reach (cells) | Team size | Flank | Cover an exit | Cap per runner | Tick |
+| --- | --- | --- | --- | --- | --- | --- |
+| Relaxed | 10 | 1 | never | never | 2 | 2.0 s |
+| Normal | 16 | 2 | rare (10%) | occasional (25%) | 3 | 1.5 s |
+| Hard | 24 | 2 | 60% | 50% | 3 | 1.0 s |
+| Nightmare | 40 | up to 3 | always | 80% | 4 | 0.7 s |
+
+- **Share:** a hunter that sees a runner calls up the nearest idle hunters within reach.
+- **Split:** the first goes straight in; the others flank (a point beside the runner's escape line) or cover the nearest relay.
+- **Scatter:** idle hunters standing within the mode's gap of each other walk apart, unless a runner is close.
+- **No overload:** at most `cap` hunters are committed to one runner; surplus directed hunters are sent away.
+
+Validated by `hunter_director`.
