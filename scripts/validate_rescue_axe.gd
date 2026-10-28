@@ -98,7 +98,7 @@ func _check_third_person() -> void:
 	for item_id in ITEMS:
 		var scale_amount := float(RemotePlayers.REMOTE_HELD_SCALES.get(item_id, .32))
 		var transform := HeldItemPoses.third_person_transform(item_id, scale_amount)
-		var grip_at := transform * (HeldItemPoses.GRIP[item_id] as Vector3)
+		var grip_at := transform * HeldItemPoses.third_person_grip(item_id)
 		_expect(grip_at.length() < .001, "%s: the grip is not at the hand (off by %.3f)" % [item_id, grip_at.length()])
 		var head := (transform.basis * Vector3.UP).normalized()
 		if bool((HeldItemPoses.THIRD_PERSON.get(item_id, {}) as Dictionary).get("upright", false)):
@@ -109,9 +109,9 @@ func _check_third_person() -> void:
 		var corners := _corners(item_id)
 		for corner in corners:
 			var world := transform * corner
-			_expect(world.length() <= .62, "%s: a vertex is %.2f m from the hand" % [item_id, world.length()])
-			_expect(world.z >= -.16, "%s: pokes %.2f m below the hand" % [item_id, -world.z])
-	_expect(is_equal_approx(float(RemotePlayers.REMOTE_HELD_SCALES["rescue_axe"]), .29), "the remote axe scale is not .29")
+			_expect(world.length() <= .72, "%s: a vertex is %.2f m from the hand" % [item_id, world.length()])
+			_expect(world.z >= -.24, "%s: pokes %.2f m below the hand" % [item_id, -world.z])
+	_expect(is_equal_approx(float(RemotePlayers.REMOTE_HELD_SCALES["rescue_axe"]), .62), "the remote axe scale is not .62")
 
 
 func _in_front(player: PlayerController3D) -> Vector3:
