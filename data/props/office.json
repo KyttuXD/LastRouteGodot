@@ -1,0 +1,146 @@
+{
+	"schema": "lr.prop/1",
+	"family": "office",
+	"props": [
+		{
+			"id": "officeDesk",
+			"models": [
+				"res://art/props-3d/props/maze/office_desk.glb",
+				"res://art/props-3d/props/maze/office_desk_charcoal.glb",
+				"res://art/props-3d/props/maze/office_desk_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeChair",
+			"models": [
+				"res://art/props-3d/props/maze/office_task_chair.glb",
+				"res://art/props-3d/props/maze/office_task_chair_charcoal.glb",
+				"res://art/props-3d/props/maze/office_task_chair_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeCrtSecurityConsole",
+			"models": [
+				"res://art/props-3d/props/maze/office_crt_security_console.glb",
+				"res://art/props-3d/props/maze/office_crt_security_console_charcoal.glb",
+				"res://art/props-3d/props/maze/office_crt_security_console_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeCubiclePartition",
+			"models": [
+				"res://art/props-3d/props/maze/office_cubicle_partition.glb",
+				"res://art/props-3d/props/maze/office_cubicle_partition_charcoal.glb",
+				"res://art/props-3d/props/maze/office_cubicle_partition_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officePrinter",
+			"models": [
+				"res://art/props-3d/props/maze/office_printer.glb",
+				"res://art/props-3d/props/maze/office_printer_charcoal.glb",
+				"res://art/props-3d/props/maze/office_printer_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeWaterCooler",
+			"models": [
+				"res://art/props-3d/props/maze/office_water_cooler.glb",
+				"res://art/props-3d/props/maze/office_water_cooler_charcoal.glb",
+				"res://art/props-3d/props/maze/office_water_cooler_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officePhotocopier",
+			"models": [
+				"res://art/props-3d/props/maze/office_photocopier.glb",
+				"res://art/props-3d/props/maze/office_photocopier_charcoal.glb",
+				"res://art/props-3d/props/maze/office_photocopier_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeShredder",
+			"models": [
+				"res://art/props-3d/props/maze/office_shredder.glb",
+				"res://art/props-3d/props/maze/office_shredder_charcoal.glb",
+				"res://art/props-3d/props/maze/office_shredder_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeFileBoxes",
+			"models": [
+				"res://art/props-3d/props/maze/office_file_boxes.glb",
+				"res://art/props-3d/props/maze/office_file_boxes_charcoal.glb",
+				"res://art/props-3d/props/maze/office_file_boxes_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		},
+		{
+			"id": "officeCornerWorkstation",
+			"models": [
+				"res://art/props-3d/props/maze/office_corner_workstation.glb",
+				"res://art/props-3d/props/maze/office_corner_workstation_charcoal.glb",
+				"res://art/props-3d/props/maze/office_corner_workstation_teal.glb"
+			],
+			"themes": [
+				"neutral",
+				"charcoal",
+				"teal"
+			],
+			"coordinated": true
+		}
+	]
+}
