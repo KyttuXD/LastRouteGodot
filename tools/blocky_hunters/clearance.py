@@ -27,6 +27,9 @@ OFFSETS = sorted({(a, b, c) for a in (0, 6, -6, 12, -12, 20, -20, 32, -32, 48, -
 
 CANDIDATES = sorted(((1 - s) * 40 + abs(o[0]) + abs(o[1]) + abs(o[2]), s, o) for s in SCALES for o in OFFSETS)
 
+# wings only calm down (a smaller flap): any pitch/yaw/roll offset swings them out wider than a one-cell door (validate_door_clearance)
+WING_CANDIDATES = [c for c in CANDIDATES if not any(c[2])]
+
 
 def qmat(q):
     x, y, z, w = q
@@ -142,7 +145,8 @@ def solve(model, bones, clips, scale, verbose=False):
     if not extras:
         return 0
     body = [n for n in rig.bones if n in CORE and n in rig.box]
-    rest_depth = rig.depths(rig.world({}, {}), extras, body)
+    rest_world = rig.world({}, {})
+    rest_depth = rig.depths(rest_world, extras, body)
     changed = 0
     for cname, clip in clips.items():
         tracks = clip["tracks"]
@@ -158,7 +162,7 @@ def solve(model, bones, clips, scale, verbose=False):
                 trans = {}
                 if "Pelvis" in tracks and "translation" in tracks["Pelvis"]:
                     trans["Pelvis"] = sample_v(tracks["Pelvis"]["translation"], t) * scale
-                best = _pick(rig, rot, trans, bone, vals[i], body, rest_depth)
+                best = _pick(rig, rot, trans, bone, vals[i], body, rest_depth, rest_world)
                 if best != vals[i]:
                     changed += 1
                 new_vals.append(best)
@@ -168,12 +172,13 @@ def solve(model, bones, clips, scale, verbose=False):
     return changed
 
 
-def _pick(rig, rot, trans, bone, desired, body, rest_depth):
+def _pick(rig, rot, trans, bone, desired, body, rest_depth, rest_world):
     rest = rig.rest_q[bone]
     W = rig.world(rot, trans)
     PR, PO = W[rig.parent[bone]]
     lt = rig.local_t[bone]
     c, h = rig.box[bone]
+    wing = bone.endswith("Wing")
     bodies = [(W[b][1] + W[b][0] @ rig.box[b][0], W[b][0], rig.box[b][1], rest_depth.get((bone, b), 0.0) + (0.0 if b in TORSO else TOL_LIMB - TOL)) for b in body]
 
     def excess(q):
@@ -191,7 +196,7 @@ def _pick(rig, rot, trans, bone, desired, body, rest_depth):
     if ex0 <= TOL:
         return desired
     least, least_ex = desired, 1e9
-    for cost, s, off in CANDIDATES:
+    for cost, s, off in (WING_CANDIDATES if wing else CANDIDATES):
         q = nlerp(rest, desired, s)
         if any(off):
             q = quat_mul(quat_from_euler(*off), q)
