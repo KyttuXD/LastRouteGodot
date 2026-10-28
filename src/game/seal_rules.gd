@@ -7,7 +7,12 @@ extends RefCounted
 ## override single values in LEVEL_OVERRIDES. Each level themes its seals with its own prop kinds (LEVEL_SEALS); the
 ## props lane owns the interactables and the shared "stream_breach" event that opens them.
 
-## [first ring, open share, seals per chunk]. Ring = Chebyshev chunk distance from spawn.
+## The map border (KT, approved 2026-10-28): chunks farther than this from spawn (Chebyshev) are never generated or
+## streamed on any level; halls end in walls and doors at it are welded blast doors. 0 = no border (infinite route).
+const BORDER_RADIUS := 8
+
+## [first ring, open share, seals per chunk]. Ring = Chebyshev chunk distance from spawn. With the border at 8 the 5-8
+## band is the outer edge; the 9+ band only applies when BORDER_RADIUS is 0 (infinite).
 const RINGS := [
 	[0, 0.75, 1.5],
 	[2, 0.50, 2.5],
@@ -105,3 +110,13 @@ static func second_tool_chance(coord: Vector3i) -> float:
 static func seal_tools(level: int, kind: String) -> Array:
 	var overrides: Dictionary = (LEVEL_OVERRIDES.get(level, {}) as Dictionary).get("seal_tools", {})
 	return overrides.get(kind, SEAL_TOOLS.get(kind, []))
+
+
+## Whether a chunk lies inside the map border (always, when BORDER_RADIUS is 0).
+static func inside_border(coord: Vector3i) -> bool:
+	return BORDER_RADIUS <= 0 or ring(coord) <= BORDER_RADIUS
+
+
+## True for chunks on the border ring itself, where halls end in walls and doors are welded shut.
+static func on_border(coord: Vector3i) -> bool:
+	return BORDER_RADIUS > 0 and ring(coord) == BORDER_RADIUS

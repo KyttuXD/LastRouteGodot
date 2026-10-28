@@ -38,6 +38,13 @@ func run(_host: Node) -> int:
 		last_open = float(entry[1])
 	_expect(is_equal_approx(SealRules.open_share(Vector3i(0, 0, 0)), 0.75) and is_equal_approx(SealRules.open_share(Vector3i(9, 0, -3)), 0.25),
 		"ring lookup does not match the approved table")
+	# with the border on, the outermost reachable band still paces relays and tools (second-tool chance, seals)
+	if SealRules.BORDER_RADIUS > 0:
+		var edge := Vector3i(SealRules.BORDER_RADIUS, 0, 0)
+		_expect(SealRules.inside_border(edge) and not SealRules.inside_border(edge + Vector3i(1, 0, 0)), "border ring misplaced")
+		_expect(SealRules.second_tool_chance(edge) > 0.0 and SealRules.guaranteed_tool(edge),
+			"tools do not keep pace at the border ring")
+		_expect(SealRules.BORDER_RADIUS >= SealRules.SECOND_TOOL_RING, "the border cuts off the second-tool band")
 	var chunks := 0
 	var up_chunks := {}
 	var kinds := {}
