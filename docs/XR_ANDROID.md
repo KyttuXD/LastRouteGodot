@@ -124,6 +124,13 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
 
+## Typing in the headset
+
+An immersive OpenXR app gets no system keyboard on the Quest. `XRKeyboard` (`src/ui/xr_keyboard.gd`, owned by
+`XRMenuPanel`) shows a key grid whenever a LineEdit has focus: digits, letters, `. ? ! -`, space, delete, case, ENTER
+and DONE. It sits clear of the field and is clicked with the laser, so room codes, names and chat can be typed. The keys
+never take focus. Inside a route the keyboard draws on the route panel.
+
 ## Quest build (Gradle)
 
 The prebuilt Android template carries no OpenXR loader and no VR manifest entries, so the Quest needs:

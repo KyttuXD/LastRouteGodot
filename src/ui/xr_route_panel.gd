@@ -93,6 +93,9 @@ func _activate() -> void:
 	_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(_view)
 	retarget_canvas_layers(route, _view)
+	# The headset keyboard (XRMenuPanel's) draws on this panel while the route owns the view.
+	for keyboard in get_tree().get_nodes_in_group(&"xr_keyboard"):
+		(keyboard as CanvasLayer).custom_viewport = _view
 	get_tree().node_added.connect(_on_node_added)   # the death screen, chat and friends are created later
 	var origin := player.get("xr_origin") as XROrigin3D
 	_right = player.get("xr_right") as XRController3D
@@ -124,6 +127,12 @@ func _activate() -> void:
 		node.visible = false
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
+
+
+func _exit_tree() -> void:
+	for keyboard in get_tree().get_nodes_in_group(&"xr_keyboard"):
+		if (keyboard as CanvasLayer).custom_viewport == _view:
+			(keyboard as CanvasLayer).custom_viewport = null
 
 
 func _box(node_name: String, size: Vector3, color: Color, priority: int) -> MeshInstance3D:

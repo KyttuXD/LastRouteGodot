@@ -142,6 +142,40 @@ func _check_xr_route_panel(host: Node) -> void:
 	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
 	route.queue_free()
 	await host.get_tree().process_frame
+	await _check_xr_keyboard(host)
+
+
+## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
+## goes away with the focus.
+func _check_xr_keyboard(host: Node) -> void:
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var field := LineEdit.new()
+	field.position = Vector2(100, 40)
+	field.size = Vector2(200, 20)
+	layer.add_child(field)
+	var keyboard := XRKeyboard.new()
+	host.add_child(keyboard)
+	var submitted := [""]
+	field.text_submitted.connect(func(text: String) -> void: submitted[0] = text)
+	keyboard._process(0.0)
+	_expect(not keyboard.is_open(), "the XR keyboard shows with no text field focused")
+	field.grab_focus()
+	keyboard._process(0.0)
+	_expect(keyboard.is_open(), "the XR keyboard does not open for a focused text field")
+	keyboard.type_text("A")
+	keyboard.type_text("7")
+	keyboard.backspace()
+	keyboard.type_text("B")
+	keyboard.submit()
+	_expect(field.text == "AB" and submitted[0] == "AB" and field.has_focus(),
+		"the XR keyboard typed '%s' / submitted '%s' (focus kept: %s)" % [field.text, submitted[0], field.has_focus()])
+	field.release_focus()
+	keyboard._process(0.0)
+	_expect(not keyboard.is_open(), "the XR keyboard stays open after the field lost focus")
+	keyboard.queue_free()
+	layer.queue_free()
+	await host.get_tree().process_frame
 
 
 func _xr_player_script() -> GDScript:
