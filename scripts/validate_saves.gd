@@ -79,7 +79,7 @@ func run(host: Node) -> int:
 	RunSaves.save_dir = old_dir
 	RunSaves.cloud_disabled = old_cloud
 	if _failures == 0:
-		print("  store     one run: atomic write + backup, vectors survive, CONTINUE consumed once, cloud newer-wins")
+		print("  store     one run: atomic write + backup, vectors survive, CONTINUE consumed once, cloud newer-wins; 404/offline/5xx keep it owed, never shown")
 		print("  migrate   an old 9-slot .lrsave becomes the run; a newer format is refused with a message")
 		print("  safety    corrupt file -> backup or a clear message; an interrupted write keeps the run")
 		print("  route     level/checkpoint/relay/quit autosave; solo death clears (every difficulty); co-op keeps it through one death and a host quit, wipe clears; guests never save")
@@ -123,6 +123,44 @@ func _check_store() -> void:
 	RunSaves.clear()
 	_expect(not RunSaves.has_run() and not FileAccess.file_exists(RunSaves.main_path() + ".bak"),
 		"clearing the run left a copy behind")
+	_check_cloud_failures()
+
+
+## Offline, a 404 from a server without the route, 5xx, 401, 429 or a refused connection: the run stays playable, nothing is
+## reported, and the save stays owed ("push" / "clear") for the next try. Only a 2xx settles it.
+func _check_cloud_failures() -> void:
+	RunSaves.clear()
+	RunSaves.write(_payload(-2), "LEVEL -2")
+	_expect(RunSaves.pending_sync() == "push", "a new save is not marked as owed to the cloud")
+	var failures := [[HTTPRequest.RESULT_SUCCESS, 404], [HTTPRequest.RESULT_SUCCESS, 500], [HTTPRequest.RESULT_SUCCESS, 503],
+		[HTTPRequest.RESULT_SUCCESS, 401], [HTTPRequest.RESULT_SUCCESS, 429], [HTTPRequest.RESULT_SUCCESS, 413],
+		[HTTPRequest.RESULT_CANT_CONNECT, 0], [HTTPRequest.RESULT_TIMEOUT, 0]]
+	for failure in failures:
+		RunSaves.set("_cloud_operation", "push")
+		RunSaves.call("_on_cloud_response", failure[0], failure[1], PackedStringArray(),
+			"{\"ok\":false,\"code\":\"NOT_FOUND\"}".to_utf8_buffer())
+		_expect(RunSaves.pending_sync() == "push" and String(RunSaves.load_run().get("place", "")) == "LEVEL -2" \
+			and bool(RunSaves.summary().get("ok", false)),
+			"a cloud failure (%s/%s) dropped the owed upload or touched the run" % failure)
+	RunSaves.set("_cloud_operation", "pull")
+	RunSaves.call("_on_cloud_response", HTTPRequest.RESULT_SUCCESS, 404, PackedStringArray(), PackedByteArray())
+	_expect(String(RunSaves.load_run().get("place", "")) == "LEVEL -2", "a 404 on pull changed the local run")
+	RunSaves.set("_cloud_operation", "push")
+	RunSaves.call("_on_cloud_response", HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), "{\"ok\":true}".to_utf8_buffer())
+	_expect(RunSaves.pending_sync().is_empty(), "a confirmed upload stayed owed")
+	# death offline: the clear stays owed, and an older account copy can never bring the dead run back
+	RunSaves.clear()
+	_expect(RunSaves.pending_sync() == "clear", "an offline death did not leave the cloud clear owed")
+	var record := {"format": RunSaves.FORMAT, "saved_at": int(Time.get_unix_time_from_system()) + 600,
+		"place": "LEVEL -3", "payload": _payload(-3)}
+	_expect(not RunSaves.adopt_cloud(record) and not RunSaves.has_run(), "a pull revived a run that died offline")
+	RunSaves.set("_cloud_operation", "clear")
+	RunSaves.call("_on_cloud_response", HTTPRequest.RESULT_SUCCESS, 404, PackedStringArray(), PackedByteArray())
+	_expect(RunSaves.pending_sync() == "clear", "a 404 settled the owed clear")
+	RunSaves.set("_cloud_operation", "clear")
+	RunSaves.call("_on_cloud_response", HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), PackedByteArray())
+	_expect(RunSaves.pending_sync().is_empty(), "a confirmed clear stayed owed")
+	RunSaves.set("_cloud_operation", "")
 
 
 func _check_migration() -> void:

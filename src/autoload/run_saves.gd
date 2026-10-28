@@ -12,8 +12,9 @@ extends Node
 ## Version-safe: every record carries FORMAT and goes through migrate() on load. Anything unreadable comes back as
 ## {ok: false, message} for the title screen to show, never a crash or a half-built run.
 ##
-## Cloud: signed-in players also keep the record in their account (/api/v1/saves/CLOUD_GAME_ID/CLOUD_SLOT). Offline
-## writes mark the local copy unsynced; it is pushed on the next save or title visit. The newer copy wins on pull.
+## Cloud: signed-in players also keep the record in their account (PUT/GET /api/v1/saves/CLOUD_GAME_ID/CLOUD_SLOT on the
+## Godot backend, backend/game_saves.mjs). Every write marks the local copy unsynced until the server confirms it; offline
+## or a failing server just leaves it owed for the next save or title visit. The newer copy wins.
 
 signal changed
 
@@ -40,6 +41,7 @@ var cloud_disabled := false
 var _pending := {}
 var _cloud_request: HTTPRequest
 var _cloud_operation := ""
+var _resync := false
 
 
 func _ready() -> void:
@@ -77,8 +79,8 @@ func write(payload: Dictionary, place: String) -> Dictionary:
 	}
 	var result := _write_record(record)
 	if bool(result.get("ok", false)):
-		_mark_unsynced(true)
-		_cloud_push(record)
+		_mark_unsynced("push")
+		cloud_sync()
 		changed.emit()
 	return result
 
@@ -170,8 +172,9 @@ func clear() -> void:
 	_pending = {}
 	for path in [main_path(), _temp_path(), _backup_path()]:
 		_remove(path)
-	_mark_unsynced(false)
-	_cloud_send({"sessionToken": Backend.account_session_token, "data": null})
+	# the account copy must go too; until the server confirms, a pull can never bring the dead run back
+	_mark_unsynced("clear")
+	cloud_sync()
 	changed.emit()
 
 
@@ -283,6 +286,8 @@ func _migrate_legacy_slots() -> void:
 
 
 # --- cloud ------------------------------------------------------------------------------------------------------
+# Nothing here ever reaches the player mid-run: offline, signed out, a 404 from an older server, a 5xx or a refused
+# connection all leave the marker file in place ("push" or "clear") and the next save or title visit tries again.
 
 func _cloud_ready() -> bool:
 	return not cloud_disabled and _cloud_request != null and Backend.signed_in() \
@@ -293,51 +298,73 @@ func _cloud_path() -> String:
 	return "/api/v1/saves/%s/%s" % [CLOUD_GAME_ID, CLOUD_SLOT]
 
 
-func _cloud_push(record: Dictionary) -> void:
-	_cloud_send({"sessionToken": Backend.account_session_token, "data": JSON.from_native(record)})
-
-
-func _cloud_send(body: Dictionary) -> void:
-	if not _cloud_ready() or not _cloud_operation.is_empty():
-		return
-	_cloud_operation = "push"
-	if _cloud_request.request(Backend._url(_cloud_path()), Backend._headers(), HTTPClient.METHOD_POST,
-			JSON.stringify(body)) != OK:
-		_cloud_operation = ""
-
-
-## Title screen: push an unsynced local run, or pull the account's run when it is newer than the local one.
-func cloud_sync() -> void:
-	if not _cloud_ready() or not _cloud_operation.is_empty():
-		return
-	if FileAccess.file_exists(_sync_marker()):
-		var local := migrate(_read(main_path()))
-		if not local.has("error"):
-			_cloud_push(local)
-			return
-	_cloud_operation = "pull"
+func _cloud_headers() -> PackedStringArray:
 	var headers := Backend._headers()
 	headers.append("X-Session-Token: %s" % Backend.account_session_token)
-	if _cloud_request.request(Backend._url(_cloud_path()), headers, HTTPClient.METHOD_GET) != OK:
+	return headers
+
+
+## What the cloud still owes: "push" (a local run not uploaded yet), "clear" (a run that ended) or "" (in sync).
+func pending_sync() -> String:
+	if not FileAccess.file_exists(_sync_marker()):
+		return ""
+	var value := FileAccess.get_file_as_string(_sync_marker()).strip_edges()
+	return value if value in ["push", "clear"] else "push"
+
+
+## Called on every save and every title visit: send what is owed, else pull the account's run when it is newer.
+func cloud_sync() -> void:
+	if not _cloud_ready():
+		return
+	if not _cloud_operation.is_empty():
+		_resync = true   # a newer save landed while a request is out; send it once that one answers
+		return
+	var owed := pending_sync()
+	var body := {}
+	if owed == "clear":
+		body = {"data": null, "updatedAt": int(Time.get_unix_time_from_system())}
+	elif owed == "push":
+		var local := migrate(_read(main_path()))
+		if local.has("error"):
+			_mark_unsynced("")
+		else:
+			body = {"data": JSON.from_native(local), "updatedAt": int(local.get("saved_at", 0))}
+	if not body.is_empty():
+		_cloud_operation = owed
+		if _cloud_request.request(Backend._url(_cloud_path()), _cloud_headers(), HTTPClient.METHOD_PUT,
+				JSON.stringify(body)) != OK:
+			_cloud_operation = ""
+		return
+	_cloud_operation = "pull"
+	if _cloud_request.request(Backend._url(_cloud_path()), _cloud_headers(), HTTPClient.METHOD_GET) != OK:
 		_cloud_operation = ""
 
 
 func _on_cloud_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var operation := _cloud_operation
 	_cloud_operation = ""
-	if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300:
-		return
-	if operation == "push":
-		_mark_unsynced(false)
-		return
-	var data = Backend._parse_body(body).get("data")
-	if data is Dictionary:
-		adopt_cloud(JSON.to_native(data, false))
+	var resync := _resync
+	_resync = false
+	var reached := result == HTTPRequest.RESULT_SUCCESS
+	if operation in ["push", "clear"]:
+		if reached and code >= 200 and code < 300 and not resync and pending_sync() == operation:
+			_mark_unsynced("")
+		elif reached and code == 409 and operation == "push":
+			# the account holds a newer run (another machine): drop our claim and let the pull decide
+			_mark_unsynced("")
+			resync = true
+		# anything else (offline, 401, 404, 413, 429, 5xx) stays owed and is retried later
+	elif operation == "pull" and reached and code >= 200 and code < 300:
+		var data = Backend._parse_body(body).get("data")
+		if data is Dictionary:
+			adopt_cloud(JSON.to_native(data, false))
+	if resync:
+		cloud_sync()
 
 
-## A cloud record replaces the local run only when it is newer.
+## A cloud record replaces the local run only when it is newer, and never while a death's clear is still owed.
 func adopt_cloud(value) -> bool:
-	if not value is Dictionary:
+	if not value is Dictionary or pending_sync() == "clear":
 		return false
 	var record := migrate(value)
 	if record.has("error"):
@@ -351,14 +378,15 @@ func adopt_cloud(value) -> bool:
 	return true
 
 
-func _mark_unsynced(on: bool) -> void:
-	if on:
-		_ensure_directory()
-		var marker := FileAccess.open(_sync_marker(), FileAccess.WRITE)
-		if marker != null:
-			marker.close()
-	else:
+func _mark_unsynced(owed: String) -> void:
+	if owed.is_empty():
 		_remove(_sync_marker())
+		return
+	_ensure_directory()
+	var marker := FileAccess.open(_sync_marker(), FileAccess.WRITE)
+	if marker != null:
+		marker.store_string(owed)
+		marker.close()
 
 
 func _remove(path: String) -> void:

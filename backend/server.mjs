@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
 import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
 import { SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
+import { SAVE_MAX_BYTES, SAVE_PATH, createGameSaves } from "./game_saves.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
@@ -63,7 +64,7 @@ function responseHeaders() {
   return {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
+    "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
     "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}, ${SKIN_TOKEN_HEADER}`,
   };
 }
@@ -273,6 +274,8 @@ export function createLastRouteServer({
   cityMaps: cityMapOptions = {},
   skinDirectory = null,
   skinOptions = {},
+  saveDirectory = null,
+  saveOptions = {},
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -320,6 +323,7 @@ export function createLastRouteServer({
     accountExists: (name) => accountService.accountExists(name),
     updatesProvider: () => currentUpdates() });
   const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
+  const gameSaves = createGameSaves({ directory: saveDirectory, accountService, now, logger, ...saveOptions });
   const devTokens = new Map();   // token -> expiresAt; a leaked dev token must not grant developer proof forever
   const requestRates = new Map();
   let enetRelay = null;
@@ -449,6 +453,35 @@ export function createLastRouteServer({
         return response.end(request.method === "HEAD" ? undefined : result[1]);
       }
       return json(response, result[0], result[1]);
+    }
+
+    const savePath = SAVE_PATH.exec(url.pathname);
+    if (savePath && new Set(["GET", "PUT"]).has(request.method)) {
+      // cloud saves (game_saves.mjs): the session rides in a header, the body is capped before it is parsed
+      const saveToken = String(request.headers["x-session-token"] || "");
+      const [gameId, slot] = [savePath[1], savePath[2]];   // allow-listed plain ids, never decoded
+      if (request.method === "GET") {
+        const loaded = gameSaves.get(saveToken, gameId, slot);
+        return json(response, loaded[0], loaded[1]);
+      }
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }   // never read an unbounded body
+        if (received <= SAVE_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SAVE_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "SAVE_TOO_LARGE", error: `A save is at most ${SAVE_MAX_BYTES / 1024} KB` });
+      }
+      let saveBody = null;
+      try {
+        saveBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return json(response, 400, { ok: false, code: "BAD_SAVE", error: "INVALID JSON BODY" });
+      }
+      const stored = gameSaves.put(saveToken, gameId, slot, saveBody);
+      return json(response, stored[0], stored[1]);
     }
 
     const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
@@ -868,6 +901,7 @@ export function startLastRouteServerFromEnvironment() {
     moderationStorePath: environmentPath("LASTROUTE_MODERATION_STORE") || join(dirname(accountStorePath), "moderation.json"),
     moderationSalt: String(process.env.LASTROUTE_MODERATION_SALT || ""),
     skinDirectory: environmentPath("LASTROUTE_SKINS_DIR") || join(dataDirectory, "skins"),
+    saveDirectory: environmentPath("LASTROUTE_SAVES_DIR") || join(dataDirectory, "saves"),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
