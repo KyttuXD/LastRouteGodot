@@ -24,6 +24,7 @@ func run(host: Node) -> int:
 	for seed_text in SEEDS:
 		sites += _check_sites(seed_text)
 	_expect(sites >= 8, "only %d falls sites to check around the origin" % sites)
+	_check_roar_loop()
 	await _check_view_gap(host)
 	await _live_plunge(host)
 	if _failures == 0:
@@ -216,3 +217,48 @@ func _live_plunge(host: Node) -> void:
 	_expect(player.soaked_left == 0.0, "soaked did not time out")
 	route.queue_free()
 	await host.get_tree().process_frame
+
+
+## The falls' roar loops without a seam or a lurch (KT: "weird banging"): no click where the end meets the start, and the
+## level in 100 ms windows (whole signal) and 200 ms windows (the low band alone) stay within 3 dB / 4 dB across the whole loop.
+func _check_roar_loop() -> void:
+	var channels := FallsLoop.samples()
+	for channel in 2:
+		var data: PackedFloat32Array = channels[channel]
+		var frames := data.size()
+		var diffs := 0.0
+		for i in range(1, frames):
+			diffs += pow(data[i] - data[i - 1], 2.0)
+		var step := sqrt(diffs / frames)
+		_expect(absf(data[0] - data[frames - 1]) <= step * 6.0, "the roar has a click at the loop seam (jump %.4f vs typical step %.4f)" % [absf(data[0] - data[frames - 1]), step])
+		# 100 ms RMS windows, wrapping, over the full signal and over a one-pole low band (~200 Hz)
+		var alpha := 1.0 - exp(-TAU * 200.0 / FallsLoop.RATE)
+		var low := PackedFloat32Array()
+		low.resize(frames)
+		var state := data[frames - 1]
+		for pass_index in 2:
+			for i in frames:
+				state += (data[i] - state) * alpha
+				if pass_index == 1:
+					low[i] = state
+		for signal_name in ["full", "low"]:
+			var source: PackedFloat32Array = data if signal_name == "full" else low
+			var window := FallsLoop.RATE / 10 * (2 if signal_name == "low" else 1)
+			var lo := 1.0e9
+			var hi := 0.0
+			for start in range(0, frames - window, window / 2):
+				var sum := 0.0
+				for i in window:
+					sum += source[start + i] * source[start + i]
+				var rms := sqrt(sum / window)
+				lo = minf(lo, rms)
+				hi = maxf(hi, rms)
+			# the window straddling the seam
+			var seam := 0.0
+			for i in window:
+				var v := source[(frames - window / 2 + i) % frames]
+				seam += v * v
+			var seam_rms := sqrt(seam / window)
+			lo = minf(lo, seam_rms)
+			hi = maxf(hi, seam_rms)
+			_expect(hi / maxf(lo, 1e-9) <= (1.6 if signal_name == "low" else 1.41), "the roar's %s level lurches %.1f dB within the loop" % [signal_name, 20.0 * log(hi / maxf(lo, 1e-9)) / log(10.0)])

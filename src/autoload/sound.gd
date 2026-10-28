@@ -746,9 +746,6 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"xivvy_wing": c = [_noise(.13, .05 * intensity, 520, 0, pan, .9), _thump(120, .09, .03 * intensity, .02, pan)]
 		"spider_hiss": c = [_noise(.9, .16 * intensity, 520, 0, pan, .7), _tone(61, .8, .15 * intensity, .02, "saw", pan), _noise(.55, .09 * intensity, 900, .25, pan, 1.1)]
 		"spider_bark": c = [_tone(74, .30, .20 * intensity, 0, "saw", pan), _tone(55, .36, .18 * intensity, .04, "square", pan), _noise(.22, .09 * intensity, 240, .02, pan, .8), _tone(96, .22, .15 * intensity, .46, "saw", pan), _noise(.18, .07 * intensity, 300, .46, pan, .9)]
-		# the falls into the collector: a broad roar (looped by the level, two seconds long)
-		"waterfall": c = [_noise(2.0, .26 * intensity, 380, 0, pan, .55), _noise(2.0, .14 * intensity, 1300, 0, pan, 1.0),
-			_noise(2.0, .08 * intensity, 160, 0, pan, .4)]
 		"splash_big": c = [_noise(.9, .22 * intensity, 700, 0, pan, .8), _noise(.5, .16 * intensity, 2200, .02, pan, 1.2), _thump(70, .35, .16 * intensity, 0, pan),
 			_noise(.7, .08 * intensity, 1400, .25, pan, 1.0)]
 		"water_drip": c = [_tone(980, .05, .05 * intensity, 0, "triangle", pan), _tone(640, .09, .04 * intensity, .04, "triangle", pan), _noise(.05, .03 * intensity, 3000, 0, pan, 1.2)]

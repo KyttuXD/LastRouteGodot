@@ -1827,10 +1827,7 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	var stream := (Sound.render_cue("waterfall") as AudioStreamWAV).duplicate() as AudioStreamWAV
-	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	stream.loop_begin = 0
-	stream.loop_end = stream.data.size() / 4      # 16-bit stereo frames
+	var stream := FallsLoop.stream()
 	var roar := AudioStreamPlayer3D.new()
 	roar.name = "FallsRoar"
 	roar.stream = stream
