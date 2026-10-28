@@ -129,6 +129,16 @@ var _loaded := {}
 ## chunks (each ladder trip used to rebuild the whole other level). Freed once the runner walks out of that 3x3.
 var _dormant := {}
 var _dormant_data := {}
+## Vertical preloading: the 3x3 on every level a link in the runner's 3x3 reaches is built in the background after
+## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
+## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
+const PREBUILD_LEVEL_RANGE := 1
+const PREDATA_LEVEL_RANGE := 2
+var _ready_set := {}
+var _wanted_now := {}
+var _pending_prebuild: Array[Vector3i] = []
+var _pending_data: Array[Vector3i] = []
+var _ready_dirty := false
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -213,6 +223,9 @@ func clear() -> void:
 			(node_value as Node).queue_free()
 	_dormant.clear()
 	_dormant_data.clear()
+	_pending_prebuild.clear()
+	_pending_data.clear()
+	_ready_set = {}
 	_chunk_data.clear()
 	_pickup_nodes.clear()
 	_door_nodes.clear()
@@ -431,6 +444,9 @@ func _refresh_stream(force: bool) -> void:
 		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
 		if not wanted.has(active_coord):
 			_discard_active_build()
+	_wanted_now = wanted
+	_pending_data.clear()
+	_ready_set = _vertical_ready_set(center)
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
 		var coord: Vector3i = coord_value
@@ -532,14 +548,90 @@ func _prestream_ladder_destination() -> void:
 func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 	for coord_value in _loaded.keys().duplicate():
 		var coord: Vector3i = coord_value
-		if not wanted.has(coord) and coord.y != center.y and _near_column(coord, center):
+		if not wanted.has(coord) and (_ready_set.has(coord) or coord.y != center.y and _near_column(coord, center)):
 			_make_dormant(coord)
 	for coord_value in _dormant.keys().duplicate():
 		var coord: Vector3i = coord_value
 		if wanted.has(coord):
 			_revive(coord)
-		elif not _near_column(coord, center):
+		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PREBUILD_LEVEL_RANGE):
 			_free_dormant(coord)
+	_pending_prebuild.clear()
+	for coord_value in _ready_set:
+		var coord: Vector3i = coord_value
+		if not wanted.has(coord) and not _dormant.has(coord) and not _loaded.has(coord):
+			_pending_prebuild.append(coord)
+	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
+		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
+			continue
+		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+				var coord := Vector3i(x, level, z)
+				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord) and not _pending_data.has(coord):
+					_pending_data.append(coord)
+
+
+## The other levels a link (ladder, ramp, stairwell ...) in the runner's 3x3 leads to. Generators with
+## vertical_links(coord) (every level) are asked directly; otherwise the sewer's ladders link 0 and -1.
+func _linked_levels(center: Vector3i) -> Array[int]:
+	var out: Array[int] = []
+	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+			var coord := Vector3i(x, center.y, z)
+			var links: Array = []
+			var own_column := x == center.x and z == center.z
+			if generator.has_method("vertical_links"):
+				# ladders live in the sewer chunk under the column: read them only once it is generated (or under the
+				# runner), queue the rest for the worker
+				links = generator.call("vertical_links", coord, not own_column)
+				var ladder_coord := Vector3i(x, StreamedRouteGenerator.SEWER_LEVEL, z)
+				if not own_column and center.y in [0, StreamedRouteGenerator.SEWER_LEVEL] \
+						and not generator.has_chunk_cached(ladder_coord) and generator.is_chunk_allowed(ladder_coord) \
+						and not _pending_data.has(ladder_coord):
+					_pending_data.append(ladder_coord)
+					_ready_dirty = true
+			elif center.y in [0, StreamedRouteGenerator.SEWER_LEVEL]:
+				# The sewer chunk under this column holds its ladders. Only read it once generated: generating it here
+				# (~30 ms) on every chunk change was a main-thread stall; queue it for the worker instead.
+				var sewer_coord := Vector3i(x, StreamedRouteGenerator.SEWER_LEVEL, z)
+				if generator.has_chunk_cached(sewer_coord) or sewer_coord == Vector3i(center.x, sewer_coord.y, center.z):
+					links = generator.chunk(sewer_coord).get("links", [])
+				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
+					_pending_data.append(sewer_coord)
+					_ready_dirty = true
+			for link_value in links:
+				var link: Dictionary = link_value
+				for key in ["from_level", "to_level"]:
+					var level := int(link.get(key, center.y))
+					if level != center.y and absi(level - center.y) <= PREBUILD_LEVEL_RANGE and not out.has(level):
+						out.append(level)
+	return out
+
+
+func _vertical_ready_set(center: Vector3i) -> Dictionary:
+	var out := {}
+	for level in _linked_levels(center):
+		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
+			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
+				var coord := Vector3i(x, level, z)
+				if generator.is_chunk_allowed(coord):
+					out[coord] = true
+	return out
+
+
+## True while linked levels are still being pre-built in the background (the current window is already complete).
+func is_preloading() -> bool:
+	return not _pending_prebuild.is_empty() or (not _active_build.is_empty() and not _wanted_now.has(_active_build.get("coord")))
+
+
+func prebuilt_chunk_count() -> int:
+	var count := 0
+	for coord in _dormant:
+		if _ready_set.has(coord):
+			count += 1
+	return count
 
 
 static func _near_column(coord: Vector3i, center: Vector3i) -> bool:
@@ -681,11 +773,20 @@ func _queue_generation() -> void:
 			if _pending_loads.has(coord):
 				_prefetch_chunk(coord)
 		_gen_task_results = {}
+		if _ready_dirty and _last_player_chunk.x != 999999:
+			# link data for the 3x3 has arrived: recompute which levels to pre-build
+			_ready_dirty = false
+			_ready_set = _vertical_ready_set(_last_player_chunk)
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	var coords: Array[Vector3i] = []
-	for coord in _pending_loads + _extra_generation.keys():
+	for coord in _pending_loads + _pending_prebuild + _extra_generation.keys():
 		for need in _generation_needs(coord):
 			if not generator.has_chunk_cached(need) and not coords.has(need):
 				coords.append(need)
+	for coord in _pending_data:
+		if not generator.has_chunk_cached(coord) and not coords.has(coord):
+			coords.append(coord)
+	_pending_data.clear()
 	for coord in _extra_generation.keys():
 		if _chunk_generated(coord):
 			_extra_generation.erase(coord)
@@ -736,10 +837,11 @@ func _cell_batch_done(index: int, started: int, immediate: bool) -> bool:
 func _drain_stream_queue() -> void:
 	if not _prefetching.is_empty():
 		_poll_prefetch()
-	if not _pending_loads.is_empty() or _gen_task != -1 or not _extra_generation.is_empty():
+	if not _pending_loads.is_empty() or not _pending_prebuild.is_empty() or not _pending_data.is_empty() or _gen_task != -1 \
+			or not _extra_generation.is_empty():
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
-			and _active_build.is_empty():
+			and _active_build.is_empty() and _pending_prebuild.is_empty():
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
 	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
@@ -754,6 +856,15 @@ func _drain_stream_queue() -> void:
 			_prof("unload", tu)
 			break
 		var t0 := Time.get_ticks_usec()
+		if _active_build.is_empty() and _pending_loads.is_empty() and not _pending_prebuild.is_empty():
+			# the current window is complete: pre-build the linked levels (parked when done)
+			var next: Vector3i = _pending_prebuild[0]
+			if not _chunk_generated(next):
+				break
+			_pending_prebuild.pop_front()
+			if not _loaded.has(next) and not _dormant.has(next):
+				_active_build = _create_chunk_build(next)
+				_prefetch_chunk(next)
 		if _active_build.is_empty() and not _pending_loads.is_empty():
 			if not _chunk_generated(_pending_loads[0]):
 				break   # the worker is still generating it
@@ -1030,6 +1141,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
+				if _ready_set.has(coord) and not _wanted_now.has(coord):
+					_make_dormant(coord)
 				return true
 			_:
 				return true
@@ -1945,6 +2058,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.name = "Furniture_%s" % prop_type
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
+		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)

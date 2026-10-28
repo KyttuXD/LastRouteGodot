@@ -213,6 +213,51 @@ func _physics_process(delta: float) -> void:
 ## On a sewer ladder (LadderTraffic): the body rises or sinks with the climb,
 ## faces the rungs, plays the climb clip and has no collision, so the maze floor
 ## collider over the shaft does not push her back out.
+## Asleep in a bed (HunterNaps, docs/REST_AND_SLEEP.md): the model lies on its back along the bed (head toward the
+## headboard), on the mattress. Set every sync by the host and from the hunter report on guests.
+var _asleep := false
+var _sleep_yaw := 0.0
+const SLEEP_MATTRESS_Y := .62
+
+
+var _sleep_stage := 0
+
+
+func set_asleep(on: bool, yaw: float = 0.0, stage: int = 0) -> void:
+	_asleep = on
+	_sleep_yaw = yaw
+	_sleep_stage = stage if on else 0
+	_apply_sleep_pose()
+
+
+## HunterNaps wake meter: 0 sound asleep, 1 stirring, 2 turned over, 3 snore stopped.
+func sleep_stage() -> int:
+	return _sleep_stage
+
+
+func is_asleep() -> bool:
+	return _asleep
+
+
+func _apply_sleep_pose() -> void:
+	if _model == null or not is_instance_valid(_model):
+		return
+	if _asleep:
+		if not _model.has_meta("awake_position"):
+			_model.set_meta("awake_position", _model.position)
+		rotation.y = _sleep_yaw
+		_model.rotation.x = PI * .5
+		# turned over onto one side once the meter passes the second cue
+		_model.rotation.z = .55 if _sleep_stage >= 2 else (.08 * sin(float(Time.get_ticks_msec()) * .004) if _sleep_stage == 1 else 0.0)
+		var length := 1.8 * _model.scale.y
+		_model.position = (_model.get_meta("awake_position") as Vector3) + Vector3(0.0, SLEEP_MATTRESS_Y, -length * .5)
+	elif _model.has_meta("awake_position"):
+		_model.rotation.x = 0.0
+		_model.rotation.z = 0.0
+		_model.position = _model.get_meta("awake_position")
+		_model.remove_meta("awake_position")
+
+
 func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
 	climb_clip = clip
 	if on:
@@ -713,6 +758,8 @@ func sync_from_brain() -> void:
 	_facing.track(brain.position, get_process_delta_time())
 	_update_body_yaw()
 	_apply_model(_desired_model_id())
+	if _asleep:
+		_apply_sleep_pose()
 	_apply_visibility()
 	_update_emote_state()
 	_update_animation()

@@ -206,6 +206,7 @@ static func get_identity(requested_id: String) -> Dictionary:
 	var profile: Dictionary = PROFILES.get(id, PROFILES[DEFAULT_ID])
 	var key: String = id if PROFILES.has(id) else DEFAULT_ID
 	return {
+		"id": key,
 		"display_name": profile["name"],
 		"base_speed": profile["speed"],
 		"chase_speed": profile["chase"],

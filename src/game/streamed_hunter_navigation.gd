@@ -122,7 +122,13 @@ func refresh(route_level: int, coords: Array) -> void:
 				# this authored direction in the navigation snapshot prevents the
 				# gimmick from placing a player inside the destination grate/wall.
 				"open_direction": open_direction,
-				"source_chunk": coord}
+				"source_chunk": coord,
+				# furniture hiding spots: the bed or wardrobe itself (hunter naps use the beds, docs/REST_AND_SLEEP.md)
+				"style": String(fixture.get("style", "")),
+				"prop_at": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE) \
+					+ (fixture.get("local_position", Vector2(cell) + Vector2(.5, .5)) as Vector2),
+				"yaw": float(fixture.get("yaw", 0.0)),
+				"prop_size": fixture.get("blocker_size", Vector3.ONE)}
 			if String(fixture.get("kind", "")) == "vent":
 				vents.append(fixture_entry)
 			else:
