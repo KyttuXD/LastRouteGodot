@@ -122,13 +122,18 @@ void vertex() {
 	along = clamp(0.5 - VERTEX.y / length_m, 0.0, 1.0);
 }
 void fragment() {
-	// soft edges: the rim falls off steeply, so the cone's silhouette fades out instead of drawing a hard outline
-	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 2.6);
+	// KT: a blocky beam -- a 4-sided frustum. Each face fades out toward its two edges (UV.x runs once round the
+	// mesh, a quarter per face), so the square silhouette stays soft, plus a mild view-angle term.
+	float e = fract(UV.x * 4.0);
+	float edge = pow(smoothstep(0.0, 0.5, min(e, 1.0 - e)), 1.6);
+	float facing = mix(0.55, 1.0, clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0));
 	float pulse = 1.0 + 0.14 * sin(TIME * pulse_speed);
-	// a camera inside or right next to the cone sees it fade away instead of filling the screen
+	// a camera inside or right next to the beam sees it fade away instead of filling the screen
 	float near_fade = smoothstep(0.4, 3.0, length(VERTEX));
+	// voxel-like steps along its length: the fade drops in eight blocks rather than a smooth ramp
+	float stepped = mix(along, floor(along * 8.0) / 8.0, 0.6);
 	ALBEDO = beam_color.rgb;
-	ALPHA = clamp(strength * pulse * rim * near_fade * (1.0 - smoothstep(0.0, 1.0, along) * 0.9), 0.0, 0.35);
+	ALPHA = clamp(strength * pulse * edge * facing * near_fade * (1.0 - smoothstep(0.0, 1.0, stepped) * 0.9), 0.0, 0.35);
 }
 """
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
@@ -441,6 +446,8 @@ func _configure_character_lights() -> void:
 		_kathy_beam.spot_angle_attenuation = 1.35
 		_kathy_beam.shadow_enabled = true
 		_kathy_beam.shadow_bias = .25
+		# The light stays round: a square projector cookie would match the blocky beam, but the project's Compatibility
+		# renderer does not draw spot projectors (tried; the footprint just came out round and wider).
 		_head_node.add_child(_kathy_beam)
 		_beam_neutral = eye_color
 		_beam_color = eye_color
@@ -450,7 +457,8 @@ func _configure_character_lights() -> void:
 
 func _build_beam_visual() -> void:
 	var length := GameConfig.KATHY_BEAM_RANGE
-	var shell_radius := minf(length * tan(GameConfig.KATHY_BEAM_HALF_ANGLE), BEAM_SHELL_RADIUS_CAP)
+	# a square frustum: CylinderMesh with 4 sides has its corners on the radius, so a half-width w needs radius w * sqrt 2
+	var shell_radius := minf(length * tan(GameConfig.KATHY_BEAM_HALF_ANGLE), BEAM_SHELL_RADIUS_CAP) * sqrt(2.0)
 	var shader := Shader.new()
 	shader.code = BEAM_SHADER
 	for part in ["Shell", "Core"]:
@@ -458,7 +466,7 @@ func _build_beam_visual() -> void:
 		cone.top_radius = 0.0
 		cone.bottom_radius = shell_radius if part == "Shell" else shell_radius * .28
 		cone.height = length
-		cone.radial_segments = 36   # enough sides that the soft rim does not show facets
+		cone.radial_segments = 4   # square (KT: blocky), edges softened per face in the shader
 		cone.rings = 1
 		var material := ShaderMaterial.new()
 		material.shader = shader
@@ -469,7 +477,8 @@ func _build_beam_visual() -> void:
 		instance.material_override = material
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# the cone's apex sits at the eye and it opens along the light's -Z
-		instance.rotation_degrees = Vector3(90, 0, 0)
+		# the 45 degree twist puts the square's sides level with her head, not its corners
+		instance.basis = Basis(Vector3.RIGHT, PI * .5) * Basis(Vector3.UP, PI * .25)
 		instance.position = Vector3(0, 0, -length * .5)
 		_kathy_beam.add_child(instance)
 		if part == "Shell":
