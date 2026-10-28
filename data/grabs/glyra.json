@@ -3,7 +3,7 @@
 	"id": "glyra",
 	"pool": {
 		"wrap": 6,
-		"bear_hug": 3,
+		"shoulder_carry": 3,
 		"upside_down": 2
 	}
 }
