@@ -129,6 +129,11 @@ func _expect_xr(route: Node) -> void:
 			or controller.xr_left == null or controller.xr_right == null:
 		_fail("the route player is missing its OpenXR origin/camera/controllers")
 		return
+	# OpenXR names its controller trackers left_hand / right_hand (a /user/hand/... path never tracks).
+	if controller.xr_left.tracker != &"left_hand" or controller.xr_right.tracker != &"right_hand" \
+			or controller.xr_left.pose != &"default" or controller.xr_right.pose != &"default":
+		_fail("the XR controllers listen to %s/%s %s/%s instead of left_hand/right_hand with the default pose" % [
+			controller.xr_left.tracker, controller.xr_left.pose, controller.xr_right.tracker, controller.xr_right.pose])
 	if controller.first_person_items == null or controller.flashlight_view == null \
 			or controller.taser_view == null:
 		_fail("the desktop first-person camera is missing its held equipment view")

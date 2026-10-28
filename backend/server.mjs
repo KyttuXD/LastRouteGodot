@@ -31,7 +31,7 @@ const ACCOUNT_RATE_LIMIT_PATHS = new Set([
   "/api/enet/admin-tickets/issue",
 ]);
 const UPDATE_CHANNELS = ["debug", "release"];
-const UPDATE_PLATFORMS = ["linux", "windows", "windows_legacy", "macos", "web", "steamvr", "quest"];
+const UPDATE_PLATFORMS = ["linux", "windows", "windows_legacy", "macos", "web", "steamvr", "quest", "phone"];
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -153,9 +153,15 @@ function publicUpdateManifest(updates, channel, platform) {
   if (!/^\d+(?:\.\d+){2,3}$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
   if (!/^[a-f0-9]{64}$/.test(sha256)) return null;
   if (revision && !/^[a-f0-9]{7,40}$/.test(revision)) return null;
+  // Phone and Quest APKs carry the publish build number (git rev-list --count, the Android versionCode); clients only
+  // install a higher one, so a missing or invalid number withholds the entry rather than offering an unusable update.
+  const mobile = platform === "phone" || platform === "quest";
+  const build = Number.isSafeInteger(entry.build) && entry.build > 0 ? entry.build : undefined;
+  if (mobile && (!build || !revision)) return null;
   return {
     version,
     revision,
+    build,
     url: url.startsWith("https://") ? url : relativeUrl,
     file,
     bytes: Number.isSafeInteger(entry.bytes) && entry.bytes > 0 ? entry.bytes : undefined,
@@ -413,7 +419,7 @@ export function createLastRouteServer({
       return json(response, 404, { ok: false, error: "CUSTOM MAP NOT FOUND" });
     }
 
-    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|windows_legacy|macos|web|steamvr|quest)$/);
+    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|windows_legacy|macos|web|steamvr|quest|phone)$/);
     if (request.method === "GET" && updateLookup) {
       const update = publicUpdateManifest(currentUpdates(), updateLookup[1], updateLookup[2]);
       if (!update) return json(response, 404, { ok: false, error: "NO UPDATE PUBLISHED" });

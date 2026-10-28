@@ -46,6 +46,26 @@ func setup(run_player: Node3D, xr_origin: XROrigin3D, xr_left: XRController3D, x
 	origin = xr_origin
 	left = xr_left
 	right = xr_right
+	for hand in [left, right]:
+		hand.add_child(_hand_mesh(hand == left))
+
+
+## A blocky hand (palm and thumb, the runner's dark glove), so each controller shows where the hand is.
+static func _hand_mesh(is_left: bool) -> Node3D:
+	var hand := Node3D.new()
+	hand.name = "HandModel"
+	var glove := StandardMaterial3D.new()
+	glove.albedo_color = Color(0.16, 0.13, 0.17)
+	for part in [[Vector3(0.07, 0.03, 0.1), Vector3(0, 0, 0.02)], [Vector3(0.025, 0.025, 0.06), Vector3(0.045 if is_left else -0.045, 0.005, -0.01)]]:
+		var box := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = part[0]
+		box.mesh = mesh
+		box.material_override = glove
+		box.position = part[1]
+		box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		hand.add_child(box)
+	return hand
 
 
 func _hand_local(hand: XRController3D) -> Vector3:

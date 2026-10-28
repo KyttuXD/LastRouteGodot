@@ -21,3 +21,27 @@ Peers see swings through `tool_swing_seq/item/hit` in the movement state (one sw
 `rescue_axe` suite (held pose bounds at every FOV/aspect, wall push-back, grip placement, chop damage, durability, noise, guest swing) and `tools/look/held_items.tscn` captures.
 
 Not done: the finite-game struggle (main_3d) has no axe break-free; the streamed route generates no boarded paths (boards exist in the finite maze only).
+
+## First-person hands (KT: "fit the mannequin model or be invisible entirely")
+
+The held items now come with the mannequin's own right forearm and hand: the same meshes and atlas as the body, with
+the player hue. The hand's prop point (`R-HandProp`) sits on the item's grip, and the forearm runs back and down toward
+the camera (`PlayerController3D._add_first_person_hand`, scale `FP_HAND_SCALE`). `PlayerController3D.first_person_hands`
+(`set_first_person_hands`) turns them off, leaving the held items only. The hands are on for now; KT picks.
+
+![top: mannequin hands; bottom: items only. Axe, crowbar, flashlight, taser, lockpick](first_person_hands_options.png)
+
+Capture: `mini-run.sh <dir> props-lane --scene res://tools/look/held_items.tscn -- /tmp/out [nohands]`.
+
+## Flashlight never breaks
+
+An empty flashlight sputters out with a click and stays in slot 1 at 0 charge. Toggling it then just clicks, and a
+battery recharges it. Flashlights are no longer world pickups (`StreamedRouteGenerator.PICKUP_TYPES`, the sewer pickups
+and the finite route's equipment spawns), since every runner starts with one. The `flashlight_empty` suite checks this.
+
+## Screens face their seat
+
+Computers, CRT consoles, terminals and monitors placed by room recipes turn to face the nearest seat within 2.6 m
+(`StreamedRouteGenerator.face_screens_to_seats`). The `screen_facing` suite checks every screen-and-seat pair across
+three seeds and levels 0 to 5 (233 pairs in lab, maze and hospital), requiring the screen's forward vector to point at
+the seat with dot > 0.7. Night Watch's office desks are built by Night Watch's own code and are not covered.

@@ -112,7 +112,7 @@ flashlight={
 }
 taser={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":81,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":71,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":9,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
@@ -318,7 +318,12 @@ environment/defaults/default_clear_color=Color(0.015, 0.02, 0.028, 1)
 [xr]
 
 openxr/enabled.quest=true
+openxr/reference_space.quest=2
 openxr/foveation_level=3
 openxr/foveation_dynamic=true
 openxr/startup_alert=false
 shaders/enabled=true
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/kyttu_installer/plugin.cfg")

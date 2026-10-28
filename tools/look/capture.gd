@@ -243,6 +243,21 @@ func _run(scene: Node) -> void:
 		for entry in GeometryAudit.junction_spots(facility.generator, OS.get_environment("CAP_JUNCTION")):
 			var xz := String(entry).split(",")
 			picks.append({"name": "junction_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1])), "yaw": float(xz[2])})
+	if OS.get_environment("CAP_CRAWL") != "":
+		# CAP_CRAWL=1: the first crawl-under pipe of the sewer layer, 4 m down its branch looking at it (CAP_LEVELS is ignored)
+		picks = []
+		var sewers := SewerRouteGenerator.new(facility.generator)
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if picks.size() >= 2:
+					continue
+				for prop in sewers.chunk(Vector3i(cx, SewerRouteGenerator.LEVEL, cz))["region_props"]:
+					if prop.get("crawl_under", false) and picks.size() < 2:
+						var step: Vector2i = prop["crawl_step"]
+						var at := Vector2(cx * 45 + (prop["cell"] as Vector2i).x + .5, cz * 45 + (prop["cell"] as Vector2i).y + .5) + Vector2(step) * 4.0
+						picks.append({"name": "crawl_%d_%d" % [cx, cz], "pos": Vector3(at.x, SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT + .05, at.y),
+							"yaw": rad_to_deg(atan2(float(step.x), float(step.y)))})
+						break
 	if OS.get_environment("CAP_AT") == "start":
 		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
 		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]

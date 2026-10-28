@@ -446,7 +446,7 @@ func get_prompt() -> String:
 			return ""
 		return "CLOSE DOOR" if room_door_open else "OPEN DOOR"
 	if kind == Kind.RELAY and sabotaged:
-		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"
+		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"  # the player turns "HOLD INTERACT // " into the held key
 	if completed or disabled:
 		return ""
 	if kind == Kind.RELAY and locked_cache:

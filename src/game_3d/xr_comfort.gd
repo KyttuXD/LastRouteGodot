@@ -40,6 +40,8 @@ var wrist: Label3D
 var _turn_latched := false
 var _vignette_level := 0.0
 var _wrist_left := 0.0
+## Recentre once the headset reports a real pose (at setup the runtime often has none yet, so the first centring is lost).
+var _centred_with_tracking := false
 
 
 ## The origin scale that makes a player of `real_height` metres see the world as a 1.60 m runner (clamped to sane values).
@@ -96,6 +98,9 @@ func setup(run_player: Node3D, xr_origin: XROrigin3D, xr_camera: XRCamera3D, xr_
 	wrist.rotation_degrees = Vector3(-70, 0, 0)
 	left.add_child(wrist)
 	XRServer.center_on_hmd(XRServer.RESET_BUT_KEEP_TILT, true)
+	var openxr := XRServer.find_interface("OpenXR")
+	if openxr != null and openxr.has_signal("pose_recentered"):
+		openxr.connect("pose_recentered", recenter)   # the user long-pressed the Meta button to recentre
 
 
 func apply_settings() -> void:
@@ -107,6 +112,9 @@ func apply_settings() -> void:
 
 ## Called every physics step by the player: turning, the vignette and the wrist readout.
 func step(delta: float, moving: bool) -> void:
+	if not _centred_with_tracking and camera.position.length_squared() > 0.0001:
+		_centred_with_tracking = true
+		recenter()
 	var stick_x := right.get_vector2("primary").x
 	var turn := smooth_turn(stick_x, delta) if Settings.xr_smooth_turn else snap_turn(stick_x)
 	if turn != 0.0:

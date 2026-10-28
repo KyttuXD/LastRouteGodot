@@ -801,13 +801,15 @@ static func _paint_ceiling(variant: int) -> Image:
 	return img
 
 
-## The sewer's barrel vault: damp dark concrete with a faint course line in one
+## The sewer's barrel vault: damp concrete with a faint course line in one
 ## direction only, so a long tunnel ceiling reads as a plain vault instead of
-## the coffered beam grid (whose 1 m beams read as a lattice of crosses).
+## the coffered beam grid (whose 1 m beams read as a lattice of crosses). Light
+## enough to read as a slab under the lamps (KT: "floating lights" — at 110e0e
+## the vault rendered as black space and every ceiling lamp hung in a void).
 static func _paint_vault(_variant: int) -> Image:
 	var rng := _rng("vault")
 	var img := _new_image(PX, PX)
-	var base := Color("110e0e")
+	var base := Color("4a443d")
 	_noise(img, 0, 0, PX, PX, base, .18, rng)
 	_dot(img, 0, 0, _mul(base, 1.35), PX, 1)
 	for i in 4:
@@ -977,6 +979,10 @@ static func params(group: String, kind: String) -> Color:
 		metal = response.y
 	elif group == "ceiling" and kind == "glass":
 		emit = .55
+	elif group == "ceiling" and kind == "vault":
+		# the sewer has no ambient fill and its lamps light downward: a faint glow keeps the vault a visible slab
+		# over the fittings instead of black space (KT: "floating lights")
+		emit = .16
 	return Color(rough, metal, emit)
 
 

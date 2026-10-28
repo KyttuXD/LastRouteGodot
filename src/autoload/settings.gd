@@ -325,11 +325,29 @@ func rebind_action(action: String, event: InputEvent) -> void:
 	set_action_binding(action, event, false)
 
 
+## Actions that are live at the same time share no key: the route's gameplay actions, and separately Office mode's (Office
+## mode runs on its own scene, so its keys may repeat route keys). The taser used to sit on Q with Drop.
+static func binding_group(action: String) -> Array[String]:
+	var office := action.begins_with("office_")
+	var out: Array[String] = []
+	for candidate in REBINDABLE_ACTIONS:
+		if candidate.begins_with("office_") == office:
+			out.append(candidate)
+	return out
+
+
 func set_action_binding(action: String, event: InputEvent, append: bool) -> void:
 	if not InputMap.has_action(action):
 		return
 	if not (event is InputEventKey or event is InputEventMouseButton):
 		return
+	# a key moves: whatever else in the same group had it lets go, so a rebind can never create a double binding
+	for other in binding_group(action):
+		if other == action or not InputMap.has_action(other):
+			continue
+		for existing in InputMap.action_get_events(other):
+			if _event_signature(existing) == _event_signature(event):
+				InputMap.action_erase_event(other, existing)
 	if not append:
 		_erase_keyboard_mouse_bindings(action)
 	else:
@@ -520,7 +538,32 @@ func _load() -> void:
 				key.physical_keycode = int(entry.get("code", 0))
 				if key.physical_keycode > 0:
 					InputMap.action_add_event(action, key)
+	_migrate_taser_off_q()
 	_apply_volume()
+
+
+## Old defaults put the taser on Q together with Drop. A saved profile that still has Q on both gives Q back to Drop and
+## the taser its new default (G) if it has no other key.
+func _migrate_taser_off_q() -> void:
+	if not InputMap.has_action("taser") or not InputMap.has_action("drop_item"):
+		return
+	var q_on_drop := false
+	for event in InputMap.action_get_events("drop_item"):
+		if event is InputEventKey and (event as InputEventKey).physical_keycode == KEY_Q:
+			q_on_drop = true
+	if not q_on_drop:
+		return
+	var keys_left := 0
+	for event in InputMap.action_get_events("taser"):
+		if event is InputEventKey:
+			if (event as InputEventKey).physical_keycode == KEY_Q:
+				InputMap.action_erase_event("taser", event)
+			else:
+				keys_left += 1
+	if keys_left == 0:
+		var g := InputEventKey.new()
+		g.physical_keycode = KEY_G
+		InputMap.action_add_event("taser", g)
 
 
 func _save() -> void:
