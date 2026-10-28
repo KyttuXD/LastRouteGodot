@@ -77,6 +77,8 @@ def build(name):
     if hook:
         hook(clips, {x["name"]: x["rot"] for x in bones}, pel, SKIN_U)
     if not getattr(mod, "PLAYER", False):
+        import hairsim                                    # hair / tail chains: baked spring-damper follow with collision (hairsim.py)
+        hairsim.simulate(model, bones, clips, model.scale, sway=bb_rig.SWAY_SCALE * float(motion.profile(name).get("sway", 1.0)), verbose=True)
         import clearance                                  # swaying parts must not pass through the body (clearance.py)
         clearance.solve(model, bones, clips, model.scale, verbose=True)
     d = OUT / name

@@ -11,7 +11,7 @@ HEIGHT = 1.78
 DESIGN_TOP = 32 * U
 SK = vanilla_sk()
 BASE = (3.1, 31.8, -3.0)
-_BRAIDS = [chain.chain(side, "Pig", 6.2, 0.0, 28.0, [(21.0, 28.0, 2.8, 2.8), (15.5, 21.2, 2.6, 2.6), (10.5, 15.7, 2.6, 2.6), (5.5, 10.7, 2.4, 2.4), (2.5, 5.7, 2.0, 2.0)], beads=True)
+_BRAIDS = [chain.chain(side, "Pig", 6.2, 0.0, 28.0, [(21.0, 28.0, 2.8, 2.8), (16.0, 21.2, 2.4, 2.4)], beads=True)
            for side in ("L", "R")]
 EXTRAS = horn.extras(BASE) + halo.EXTRAS + _BRAIDS[0][0] + _BRAIDS[1][0]
 EYES = eye_locators()
