@@ -948,8 +948,17 @@ func dormant_chunk_count() -> int:
 	return _dormant.size()
 
 
+## Headless runs (validators, bots) use Godot's dummy renderer, whose mesh registry is not thread-safe: a GLB loading on
+## a loader thread created its meshes while the main thread built a chunk's surface, and ~1 run in 8 lost a chunk's
+## Surface mesh ("Initializing already initialized RID", mesh_add_surface on a null mesh). The real renderers (GL
+## Compatibility, Mobile, Forward+) keep thread-safe mesh registries, so only headless skips the threaded prefetch.
+static var _headless := DisplayServer.get_name() == "headless"
+
+
 ## Start background loads of the prop scenes a queued chunk will need, so its build never reads a GLB on the main thread.
 func _prefetch_chunk(coord: Vector3i) -> void:
+	if _headless:
+		return   # see _headless: the props load on the main thread when the chunk builds
 	if _gen_worker != null and not _chunk_generated(coord):
 		return   # its props are prefetched once the worker has generated it (_adopt_generated)
 	var data := generator.chunk(coord)
