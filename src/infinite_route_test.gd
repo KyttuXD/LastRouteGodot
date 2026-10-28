@@ -208,6 +208,7 @@ func _ready() -> void:
 	facility.room_light_requester = _request_room_light
 	facility.booth_requester = _request_booth
 	facility.booth_reporter = _report_booth
+	facility.carousel_requester = _request_carousel
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -337,6 +338,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
+	_tick_carousels(delta)
 	if _void_fx != null:
 		_void_fx.tick(delta)
 	if not _slammed_doors.is_empty() and _remotes.simulates():
@@ -3795,6 +3797,99 @@ func _relay_hint() -> String:
 	return "THE BELL CARRIES // A SIGNAL RELAY IS %s, ABOUT %d M" % [way, roundi(away.length())]
 
 
+# --- the merry-go-round (CarouselRide3D) ------------------------------------------------------------------------------------------------
+## The lever asks the host; the host toggles the ride and publishes its angle at that instant; every machine re-bases its own clock to it (StreamedWorldState.carousels), so all show the same angle.
+## A ride nobody is near is stopped by the host after CAROUSEL_IDLE_STOP seconds (CPU, and the music).
+
+const CAROUSEL_IDLE_STOP := 20.0
+const CAROUSEL_NEAR := 32.0
+const CAROUSEL_REACH := 4.6
+var _carousel_idle := {}
+var _carousel_check := 0.0
+
+
+func _request_carousel(_requesting_player: PlayerController3D, ride_id: String) -> String:
+	var event := {"what": "stream_carousel", "carousel_id": ride_id}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_carousel(_local_peer_id(), event)
+	return ""
+
+
+## {center (Vector2 world cell), coord} of a real generated carousel, else {}.
+func _carousel_info(ride_id: String) -> Dictionary:
+	var parts := ride_id.split(":")
+	if ride_id.length() > 80 or parts.size() != 6 or parts[3] != "carouselCenterpiece" or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == "carouselCenterpiece" and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"coord": coord, "center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_carousel(peer_id: int, event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var info := _carousel_info(ride_id)
+	if info.is_empty():
+		return
+	if peer_id != 0:   # peer 0 is the host's own idle stop
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CAROUSEL_REACH + CarouselRide3D.RADIUS:
+			return
+	var now := Time.get_unix_time_from_system()
+	var turn_on := not world_state.carousel_on(ride_id) if peer_id != 0 else false
+	_publish_stream_event({"what": "stream_carousel", "carousel_id": ride_id, "on": turn_on, "angle": world_state.carousel_angle(ride_id, now), "peer_id": peer_id})
+
+
+func _apply_carousel_event(event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var on := bool(event.get("on", false))
+	world_state.set_carousel(ride_id, on, float(event.get("angle", 0.0)), Time.get_unix_time_from_system())
+	var ride := facility.carousel_node(ride_id)
+	if ride != null:
+		ride._refresh()
+	if int(event.get("peer_id", 0)) == _local_peer_id():
+		Sound.carnival("lever")
+		player.emit_noise_burst(0.8 if on else 0.4, 3.0)
+	_carousel_idle.erase(ride_id)
+
+
+## Host: a ride that runs with nobody near is stopped.
+func _tick_carousels(delta: float) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	_carousel_check -= delta
+	if _carousel_check > 0.0:
+		return
+	_carousel_check = 2.0
+	for ride_id in world_state.carousels.keys():
+		if not world_state.carousel_on(String(ride_id)):
+			continue
+		var info := _carousel_info(String(ride_id))
+		if info.is_empty():
+			continue
+		var near := false
+		for target in _remotes.target_states(_hunter_target(_player_in_intact_safe_room(facility.current_chunk_data()))):
+			var position = target.get("position")
+			if position is Vector2 and -int(target.get("depth", 999999)) == (info["coord"] as Vector3i).y and (position as Vector2).distance_to(info["center"]) < CAROUSEL_NEAR:
+				near = true
+		if near:
+			_carousel_idle.erase(ride_id)
+		else:
+			_carousel_idle[ride_id] = float(_carousel_idle.get(ride_id, 0.0)) + 2.0
+			if float(_carousel_idle[ride_id]) >= CAROUSEL_IDLE_STOP:
+				_accept_carousel(0, {"carousel_id": ride_id})
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -3871,6 +3966,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_door(peer_id, event)
 		"stream_booth":
 			_accept_booth(peer_id, event)
+		"stream_carousel":
+			_accept_carousel(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -4286,6 +4383,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				_update_streamed_maps()
 		"stream_booth":
 			_apply_booth_event(event)
+		"stream_carousel":
+			_apply_carousel_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":

@@ -1668,6 +1668,12 @@ func _move_and_resolve_landing() -> void:
 		_fall_speed = 0.0
 
 
+## A turning platform (CarouselRide3D) carries the player: the view turns with it.
+func rotate_with_platform(angle: float) -> void:
+	_yaw += angle
+	_apply_look_rotation()
+
+
 func request_jump() -> void:
 	_jump_requested = true
 

@@ -335,6 +335,7 @@ const TEMPLATE_PROP_SIZES := {
 	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
 	"popcornCart": Vector3(1.45, 1.9, .9),
 	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"carouselCenterpiece": Vector3(1.3, 3.3, 1.3),
 	"shootingGallery": Vector3(2.6, 2.65, 1.55),
 	"whackAMole": Vector3(2.6, 2.65, 1.55),
 	"duckPond": Vector3(1.7, .8, 1.7),
@@ -2210,7 +2211,7 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 		var dual_center: Vector2i = dual_room.get("center", Vector2i.ZERO)
 		var activity_specs := [
 			{"type": "carouselCenterpiece", "cell": dual_center,
-				"size": Vector3(.7, 6.45, .7), "offset": Vector2i.ZERO},
+				"size": Vector3(1.3, 6.45, 1.3), "offset": Vector2i.ZERO},
 			{"type": "ringTossStall", "cell": dual_center + Vector2i(-5, 4),
 				"size": Vector3(2.6, 2.65, 1.55), "offset": Vector2i(-5, 4)},
 			{"type": "strengthTester", "cell": dual_center + Vector2i(5, 4),
@@ -3115,8 +3116,10 @@ static func _room_template_specs(template: String, region: String,
 					"depth": mid_depth + 2, "facing": "center"})
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
-			for pedestal_side in [-6, 0, 6]:
-				specs.append({"type": "duckPond" if pedestal_side == 0 else "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
+			# the room's centre is the working merry-go-round (CarouselRide3D); a duck pond and a pedestal either side
+			specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "duckPond", "side": 6, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -6, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:

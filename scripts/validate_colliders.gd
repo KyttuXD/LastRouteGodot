@@ -92,7 +92,8 @@ func run(_host: Node) -> int:
 			if mesh_findings <= 12:
 				print("  FAIL  %s %s: %s" % [finding["kind"], finding["type"], finding["detail"]])
 	_expect(mesh_findings == 0, "%d collider-vs-mesh disagreements (tools/look/collider_mesh_report.gd)" % mesh_findings)
-	_expect(ColliderAudit.solid_types_without_box() == ["beachUmbrella"],
+	# the merry-go-round is a code-built ride with an explicit blocker, its model is hidden
+	_expect(ColliderAudit.solid_types_without_box() == ["beachUmbrella", "carouselCenterpiece"],
 		"solid props with no derived collider: %s" % [ColliderAudit.solid_types_without_box()])
 	var walk := walk_test()
 	_expect(int(walk["props"]) > 300, "walk-test saw only %d solid props" % walk["props"])
