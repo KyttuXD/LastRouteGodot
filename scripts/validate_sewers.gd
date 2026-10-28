@@ -101,6 +101,11 @@ func _check_window(window: Dictionary) -> int:
 					and int(grid[behind.y][behind.x]) == SewerRouteGenerator.SOLID,
 					"%s link %s ladder has no brick behind its rungs" % [seed_text, link["id"]])
 				_expect(int(sgrid[up.y][up.x]) == 0, "%s link %s lid is not open maze floor" % [seed_text, link["id"]])
+				# flush against a hallway wall up top too, never free-standing mid-hall
+				var maze_wall: Vector2i = up + Vector2i(link.get("wall", Vector2i.ZERO))
+				var front: Vector2i = up - Vector2i(link.get("wall", Vector2i.ZERO))
+				_expect(int(sgrid[maze_wall.y][maze_wall.x]) != 0 and int(sgrid[front.y][front.x]) == 0,
+					"%s link %s ladder is not against a maze hallway wall" % [seed_text, link["id"]])
 				_expect(SewerRouteGenerator.is_dry(int(grid[down.y][down.x])), "%s link %s ladder foot is not dry" % [seed_text, link["id"]])
 				for prop in surface_data["region_props"] + surface_data["fixtures"] + surface_data["pickups"]:
 					_expect(Vector2i(prop.get("cell", Vector2i(-9, -9))) != up,
@@ -237,31 +242,46 @@ func _check_streaming(host: Node) -> void:
 		var maze_grid := maze_root.get_node_or_null("Structure") as GridMap if maze_root != null else null
 		_expect(maze_grid != null and maze_grid.get_cell_item(Vector3i(lid.x, 0, lid.y)) != GridMap.INVALID_CELL_ITEM,
 			"the maze floor over a ladder lost its collider")
-		# The runner climbs down that ladder and back up: smooth, collision off on
-		# the rungs, and the view follows onto each level.
+		# The runner climbs that ladder under their own control: hold back to climb
+		# down to the sewer, hold forward to climb up, let go to hang still mid-way;
+		# each end dismounts smoothly onto the floor in front of the ladder.
 		var rise := StreamedFacilityView3D.LEVEL_HEIGHT
-		var top := Vector3(lid.x + .5, .04, lid.y + .5)
-		for leg in [{"from": top, "rise": -rise, "level": SewerRouteGenerator.LEVEL},
-				{"from": top - Vector3(0, rise, 0), "rise": rise, "level": 0}]:
-			player.begin_ladder_climb(leg["from"], leg["rise"], .6, 0.0, leg["level"])
-			_expect(player.is_climbing() and player.collision_layer == 0, "the runner did not get onto the ladder")
-			var midway_y := INF
-			for _frame in 120:
-				await host.get_tree().physics_frame
-				if player.ladder_climb_progress() > .45 and midway_y == INF:
-					midway_y = player.global_position.y
-				if not player.is_climbing():
-					break
-			view.refresh_at_tracked_player()
-			var want_y := float(Vector3(leg["from"]).y) + float(leg["rise"])
-			_expect(not player.is_climbing() and absf(player.global_position.y - want_y) < .05,
-				"the climb did not end on the far floor (y %.2f, want %.2f)" % [player.global_position.y, want_y])
-			_expect(midway_y > minf(float(Vector3(leg["from"]).y), want_y) + .5 \
-				and midway_y < maxf(float(Vector3(leg["from"]).y), want_y) - .5,
-				"the climb jumped instead of moving along the rungs")
-			_expect(view.current_level() == int(leg["level"]), "after the climb the view is on level %d, not %d" % [
-				view.current_level(), int(leg["level"])])
-			_expect(player.collision_layer == 1, "the runner kept collision off after the climb")
+		var wall: Vector2i = links[0].get("wall", Vector2i.ZERO)
+		var sewer_y := float(SewerRouteGenerator.LEVEL) * rise + .04
+		var foot := Vector3(lid.x + .5 + wall.x * .12, sewer_y, lid.y + .5 + wall.y * .12)
+		var front := Vector3(lid.x + .5 - wall.x * .9, 0.0, lid.y + .5 - wall.y * .9)
+		var top_exit := front + Vector3(0, .04, 0)
+		var bottom_exit := front + Vector3(0, sewer_y, 0)
+		# down: mount at the top, hold "move_down"
+		player.begin_ladder_climb(foot, rise, rise, 0.0, top_exit, bottom_exit, 0, SewerRouteGenerator.LEVEL)
+		_expect(player.is_climbing() and player.collision_layer == 0, "the runner did not get onto the ladder")
+		var midway := await _hold_climb(host, player, "move_down", 300)
+		view.refresh_at_tracked_player()
+		_expect(not player.is_climbing() and player.global_position.distance_to(bottom_exit) < .05,
+			"climbing down did not step off at the bottom (at %s)" % player.global_position)
+		_expect(midway > sewer_y + .5 and midway < -.5, "the climb down jumped instead of moving along the rungs")
+		_expect(view.current_level() == SewerRouteGenerator.LEVEL, "after climbing down the view is not in the sewer")
+		_expect(player.collision_layer == 1, "the runner kept collision off after the climb")
+		# up, with a stop part-way: hold "move_up" for a second, let go, hang
+		player.begin_ladder_climb(foot, rise, 0.0, 0.0, top_exit, bottom_exit, 0, SewerRouteGenerator.LEVEL)
+		Input.action_press("move_up")
+		for _frame in 60:
+			await host.get_tree().physics_frame
+		Input.action_release("move_up")
+		await host.get_tree().physics_frame
+		var hang := player.ladder_climb_progress()
+		var hang_y := player.global_position.y
+		for _frame in 45:
+			await host.get_tree().physics_frame
+		_expect(player.is_climbing() and hang > .15 and hang < .85,
+			"letting go part-way did not leave the runner hanging on the ladder (progress %.2f)" % hang)
+		_expect(absf(player.global_position.y - hang_y) < .01 and player.noise == 0.0,
+			"a runner hanging still on the ladder drifted or kept making noise")
+		await _hold_climb(host, player, "move_up", 300)
+		view.refresh_at_tracked_player()
+		_expect(not player.is_climbing() and player.global_position.distance_to(top_exit) < .05,
+			"climbing up did not step off at the top (at %s)" % player.global_position)
+		_expect(view.current_level() == 0, "after climbing up the view is not on the maze")
 	print("  ok    sewer streaming: first window %.0f ms, worst streaming frame %.1f ms" % [initial_ms, worst_frame_ms])
 	view.clear()
 	view.queue_free()
@@ -463,3 +483,18 @@ func _check_opaque_window(host: Node) -> void:
 	_expect(not host.get_tree().root.transparent_bg, "the root viewport draws a transparent background")
 	_expect(RefLook.make_environment().background_mode == Environment.BG_COLOR \
 		and RefLook.make_environment().background_color.a >= 1.0, "the route environment's background is not opaque")
+
+
+## Holds an input action until the runner has stepped off the ladder (or
+## `frames` pass); returns the height seen when the climb was half done.
+func _hold_climb(host: Node, player: PlayerController3D, action: String, frames: int) -> float:
+	var midway := INF
+	Input.action_press(action)
+	for _frame in frames:
+		await host.get_tree().physics_frame
+		if midway == INF and absf(player.ladder_climb_progress() - .5) < .05:
+			midway = player.global_position.y
+		if not player.is_climbing():
+			break
+	Input.action_release(action)
+	return midway

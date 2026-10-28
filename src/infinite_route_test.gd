@@ -2668,7 +2668,7 @@ func _update_player_ladder(level: int) -> void:
 	var going_down := level == 0
 	if distance <= 1.4 and _ladder_hint_id != link_id:
 		_ladder_hint_id = link_id
-		hud.show_message("[E] CLIMB %s" % ("DOWN INTO THE SEWER" if going_down else "UP"))
+		hud.show_message("[E] LADDER %s // HOLD W / S TO CLIMB" % ("DOWN INTO THE SEWER" if going_down else "UP"))
 	elif distance > 2.0 and _ladder_hint_id == link_id:
 		_ladder_hint_id = ""
 	var wants := distance <= 0.45 or (distance <= 1.4 and Input.is_action_just_pressed("interact"))
@@ -2679,18 +2679,25 @@ func _update_player_ladder(level: int) -> void:
 		hud.show_message("SOMEONE IS ON THE LADDER")
 		_ladder_rearm_id = link_id
 		return
-	var floor_y := float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + .04
-	var to_level := StreamedRouteGenerator.SEWER_LEVEL if going_down else 0
-	player.begin_ladder_climb(Vector3(point.x, floor_y, point.y),
-		-StreamedFacilityView3D.LEVEL_HEIGHT if going_down else StreamedFacilityView3D.LEVEL_HEIGHT,
-		LadderTraffic.RUNNER_CLIMB_SECONDS, _ladder_yaw(link), to_level)
+	# The ladder's line: a little in from the cell centre, hands on the rungs against
+	# the wall, from the sewer floor up one storey. The runner gets on at the end
+	# they came from and climbs it themselves; each end steps off onto the floor in
+	# front of the ladder.
+	var wall: Vector2i = link.get("wall", Vector2i.ZERO)
+	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+	var sewer_y := float(StreamedRouteGenerator.SEWER_LEVEL) * rise + .04
+	var foot := Vector3(point.x + wall.x * .12, sewer_y, point.y + wall.y * .12)
+	var front := Vector3(point.x - wall.x * .9, 0.0, point.y - wall.y * .9)
+	player.begin_ladder_climb(foot, rise, rise if going_down else 0.0, _ladder_yaw(link),
+		front + Vector3(0, .04, 0), front + Vector3(0, sewer_y, 0), 0, StreamedRouteGenerator.SEWER_LEVEL)
 	_ladder_rearm_id = link_id
 
 
 ## A clank per rung on any ladder climb. The sewer's water, drips and rats are
 ## its AmbienceTable bed.
 func _update_sewer_ambience(delta: float, _level: int) -> void:
-	if player == null or not player.is_climbing():
+	# only while the runner actually moves on the rungs (hanging still is silent)
+	if player == null or not player.is_climbing() or player.noise <= 0.0:
 		return
 	_ladder_rung_timer -= delta
 	if _ladder_rung_timer <= 0.0:
@@ -2705,9 +2712,10 @@ func _on_player_ladder_finished(_to_level: int) -> void:
 	_update_streamed_maps()
 
 
-## Facing the rungs: the ladder hangs on the shaft's north wall.
-static func _ladder_yaw(_link: Dictionary) -> float:
-	return 0.0
+## Facing the rungs: the ladder hangs on its link's wall (the same side on both levels).
+static func _ladder_yaw(link: Dictionary) -> float:
+	var wall: Vector2i = link.get("wall", Vector2i(0, -1))
+	return atan2(-float(wall.x), -float(wall.y))
 
 
 ## Hunters search hiding spots (docs/HIDING_PROPS.md). Fair by construction: only a spot the hunter tracked the runner
