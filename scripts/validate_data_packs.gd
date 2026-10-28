@@ -48,8 +48,16 @@ func _snapshot() -> String:
 		var_to_str(PropModelCatalog.MODEL_PATHS), var_to_str(PropModelCatalog.VARIANT_THEMES),
 		var_to_str(PropModelCatalog.COORDINATED_SET_TYPES), var_to_str(FloorSets.HALLS), var_to_str(FloorSets.ROOM_DEFAULT),
 		var_to_str(StreamedRouteGenerator.REGION_PROP_SETS), var_to_str(StreamedRouteGenerator.SHOP_NAMES),
-		var_to_str(StreamedRouteGenerator.MALL_ROOMS), ContentRegistry.pack_hash(),
+		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()), ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
+
+
+## Every hunter's grab pool and look, in a stable order.
+func _grabs() -> Array:
+	GrabStyles.ensure_loaded()
+	var ids := GrabStyles._pools.keys()
+	ids.sort()
+	return ids.map(func(id): return [id, GrabStyles._pools[id], GrabStyles._looks.get(id, {})])
 
 
 func _check_loaded(dir: String) -> void:
@@ -76,6 +84,10 @@ func _check_loaded(dir: String) -> void:
 		model.free()
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
+	_expect(GrabStyles.pool_for("testpack_ember") == {"bear_hug": 3.0, "wrap": 1.0}, "pack hunter's grabs not loaded: %s"
+		% [GrabStyles.pool_for("testpack_ember")])
+	_expect(GrabStyles.pool_for("aki") == {"tackle": 1.0} and GrabStyles.look_for("aki")["delay"] == 0.0,
+		"grab override not applied: %s" % [GrabStyles.pool_for("aki")])
 	var draws := {}
 	for depth in range(1, 400):
 		draws[HunterRoster.pick_for_floor("PACK-DRAW", depth)] = true
@@ -130,6 +142,10 @@ func _check_rejections(vanilla: String) -> void:
 	cases.append(["foreign model root", [_good_pack("foreign", {"hunters/x.json": _hunter("foreign_x",
 		{"model": "res://project.godot"})})], "not a built-in hunter model"])
 	cases.append(["bad png", [_good_pack("badpng", {"assets/face.png": "not a png"})], "face.png"])
+	cases.append(["grabs for no hunter", [_good_pack("nohunter", {"grabs/x.json": JSON.stringify({"schema": "lr.grab/1",
+		"id": "nohunter_ghost", "pool": {"tackle": 1}})})], "not a hunter"])
+	cases.append(["unknown grab style", [_good_pack("badgrab", {"grabs/x.json": JSON.stringify({"schema": "lr.grab/1",
+		"id": "badgrab_ember", "pool": {"backflip": 1}})})], "unknown grab style"])
 	cases.append(["bad ogg", [_good_pack("badogg", {"assets/sound.ogg": "not ogg"})], "sound.ogg"])
 	cases.append(["glTF extension", [_good_pack("gltfext", {"assets/body.glb": _glb({"asset": {"version": "2.0"},
 		"extensionsUsed": ["OMI_physics_body"], "scenes": [{"nodes": []}], "scene": 0})})], "OMI_physics_body"])
@@ -165,7 +181,8 @@ func _check_rejections(vanilla: String) -> void:
 ## region override, plus `extra` files, `overrides` and `replace` files on top.
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
-	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall"] if overrides.is_empty() else overrides
+	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki"] if overrides.is_empty() \
+		else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
 			"author": "validator", "overrides": all_overrides}),
@@ -182,6 +199,9 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		files["regions/mall.json"] = JSON.stringify(mall)
 		files["hunters/ember.json"] = _hunter("%s_ember" % id, {"model": AKI, "portrait": "assets/ember.png"})
 		files["hunters/aki.json"] = _hunter("aki", {"speed": 0.5})
+		files["grabs/ember.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "%s_ember" % id,
+			"pool": {"bear_hug": 3, "wrap": 1}})
+		files["grabs/aki.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "aki", "pool": {"tackle": 1}})
 		files["props/ember.json"] = JSON.stringify({"schema": "lr.prop/1", "family": "ember", "props": [
 			{"id": "officePrinter", "models": ["assets/printer.glb"], "themes": ["ember"]},
 			{"id": "%s_lamp" % id, "models": ["assets/printer.glb"]}]})

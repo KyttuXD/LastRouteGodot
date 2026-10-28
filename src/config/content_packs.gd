@@ -14,7 +14,7 @@ extends RefCounted
 
 const ROOT := "user://mods"
 const SCHEMA := "lr.pack/1"
-const KINDS := ["props", "regions", "hunters"]
+const KINDS := ["props", "regions", "hunters", "grabs"]
 const ASSET_EXTENSIONS := ["glb", "png", "ogg"]
 ## Finder litter that is skipped (and left out of the hash) rather than rejecting a hand-installed pack.
 const IGNORED_NAMES := [".DS_Store"]
@@ -56,7 +56,7 @@ static func discover(root: String = ROOT) -> PackedStringArray:
 ## One pack folder -> {"dir", "manifest", "defs": {kind: [def]}, "files": [{path, bytes, sha256}], "sha256", "errors"}.
 ## `defs` hold runtime values with pack-relative asset paths made absolute and prop families namespaced by pack id.
 static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = true) -> Dictionary:
-	var pack := {"dir": dir, "manifest": {}, "defs": {"props": [], "regions": [], "hunters": []}, "files": [],
+	var pack := {"dir": dir, "manifest": {}, "defs": {"props": [], "regions": [], "hunters": [], "grabs": []}, "files": [],
 		"sha256": "", "errors": PackedStringArray()}
 	var errors: PackedStringArray = pack["errors"]
 	var paths := []
@@ -117,7 +117,7 @@ static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = 
 	for rel in assets:
 		_check_asset(dir.path_join(rel), "%s/%s" % [dir, rel], errors)
 	if not errors.is_empty():
-		pack["defs"] = {"props": [], "regions": [], "hunters": []}
+		pack["defs"] = {"props": [], "regions": [], "hunters": [], "grabs": []}
 	return pack
 
 

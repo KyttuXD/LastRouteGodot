@@ -78,3 +78,22 @@ Floor kinds: `metal0-3 grate hazard floral0-1 star0-1 carpet_red carpet_teal car
 runner parquet0-1 check0-1 vinyl0-1 stone0-2 rock0-2 concrete0-1 epoxy0-1 terracotta0-1 terrazzo0-1`.
 
 A region with a new id loads and validates, but no level places it until levels become a pack type.
+
+## Grabs
+
+How a hunter takes hold of a runner it has caught: a weighted pool of grab styles, one file per hunter. On a catch the
+game drops the styles the surroundings rule out (a lift under a low ceiling, a wall pin with no wall) and picks one of
+the rest, the same one for everyone in the room. The animations themselves are built in; a pack chooses which ones a
+hunter uses and how often.
+
+```json
+{"schema": "lr.grab/1", "id": "mypack_runner", "pool": {"shoulder_grab": 3, "tackle": 1}, "look": {"delay": 0.5}}
+```
+
+| field | required | meaning |
+|---|---|---|
+| `id` | yes | the hunter: one of your pack's hunters, or a built-in hunter listed in `overrides` as `"grabs/<id>"` |
+| `pool` | yes | style: weight (positive numbers). Styles: `neck_lift`, `shoulder_grab`, `tackle`, `wrist_yank`, `wrap`, `leg_grab`, `upside_down`, `bear_hug`, `collar_drag`, `wall_pin`, `pounce_pin` |
+| `look` | no | how the head follows the runner: `yaw`, `up`, `down` (degrees), `chest` (0-1 share), `delay` (seconds before looking), `forward` ([x, y, z]) |
+
+A hunter without a pool uses the shoulder grab. The built-in pools are in the game's `data/grabs/`.

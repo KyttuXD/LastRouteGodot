@@ -1,0 +1,8 @@
+{
+	"schema": "lr.grab/1",
+	"id": "template_runner",
+	"pool": {
+		"shoulder_grab": 3,
+		"tackle": 1
+	}
+}

@@ -17,6 +17,10 @@ extends RefCounted
 const DATA := "@data"
 const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
+## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
+## reads res://data/grabs itself and takes pack definitions through pack_defs()).
+const PACK_KINDS := ["props", "regions", "hunters", "grabs"]
+const GRAB_SCRIPT := "res://src/config/grab_styles.gd"
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
 const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?", "speed": "float",
@@ -36,14 +40,14 @@ static var _builtin := {"props": {}, "regions": {}, "hunters": {}}
 static var _builtin_families := {}
 static var _builtin_hash := ""
 ## What readers see: built-in plus the loaded packs.
-static var _defs := {"props": {}, "regions": {}, "hunters": {}}
+static var _defs := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}}
 static var _families := {}
 static var _errors := PackedStringArray()
 ## Loaded packs (ContentPacks.read() results) sorted by pack id; per kind, id -> pack id for every pack definition and
 ## the sorted ids packs added (as opposed to overrode).
 static var _packs: Array = []
-static var _origin := {"props": {}, "regions": {}, "hunters": {}}
-static var _added := {"props": [], "regions": [], "hunters": []}
+static var _origin := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}}
+static var _added := {"props": [], "regions": [], "hunters": [], "grabs": []}
 ## Pack asset path -> stripped PackedScene (models) or ImageTexture (PNGs), dropped on unload.
 static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
@@ -158,6 +162,15 @@ static func pack_of(kind: String, id: String) -> String:
 	return String(_origin[kind].get(id, ""))
 
 
+## The definitions loaded packs ship for `kind`, in pack order (for readers with their own built-in data, e.g. grabs).
+static func pack_defs(kind: String) -> Array:
+	ensure_loaded()
+	var out := []
+	for pack in _packs:
+		out.append_array(pack["defs"].get(kind, []))
+	return out
+
+
 ## Ids that loaded packs added (not overrides), sorted.
 static func added_ids(kind: String) -> Array:
 	ensure_loaded()
@@ -194,8 +207,8 @@ static func _apply(packs: Array) -> void:
 	_defs = {}
 	_origin = {}
 	_added = {}
-	for kind in KINDS:
-		_defs[kind] = _builtin[kind].duplicate()
+	for kind in PACK_KINDS:
+		_defs[kind] = _builtin.get(kind, {}).duplicate()
 		_origin[kind] = {}
 		_added[kind] = []
 	_families = {}
@@ -203,7 +216,7 @@ static func _apply(packs: Array) -> void:
 		_families[family] = _builtin_families[family].duplicate()
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
-		for kind in KINDS:
+		for kind in PACK_KINDS:
 			for def in pack["defs"][kind]:
 				var id := String(def["id"])
 				_defs[kind][id] = def
@@ -212,7 +225,7 @@ static func _apply(packs: Array) -> void:
 					_added[kind].append(id)
 				if kind == "props":
 					_families.get_or_add(String(def["family"]), []).append(id)
-	for kind in KINDS:
+	for kind in PACK_KINDS:
 		_added[kind].sort()
 		_added[kind].make_read_only()
 
@@ -224,6 +237,7 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 	var seen := {}
 	var by_id := {}
 	var props := {}
+	var hunters := {}
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
 		if by_id.has(pack_id):
@@ -233,7 +247,7 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 			var parts := String(entry).split("/")
 			if not _is_builtin_id(parts[0], parts[1]):
 				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
-		for kind in KINDS:
+		for kind in PACK_KINDS:
 			for def in pack["defs"][kind]:
 				var key := "%s/%s" % [kind, def["id"]]
 				if seen.has(key):
@@ -241,6 +255,13 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				seen[key] = pack_id
 				if kind == "props":
 					props[def["id"]] = true
+				if kind == "hunters":
+					hunters[def["id"]] = true
+	for pack in packs:
+		# a grab pool belongs to a hunter: one the game has, or one these packs add
+		for def in pack["defs"]["grabs"]:
+			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
+				errors.append("%s: grabs for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
 	for pack in packs:
 		for def in pack["defs"]["regions"]:
 			for choice in def["prop_set"]:
@@ -252,6 +273,11 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 
 
 static func _is_builtin_id(kind: String, id: String) -> bool:
+	if kind == "grabs":
+		# every built-in hunter (and secret creature) can have its grab pool replaced
+		var grabs: GDScript = load(GRAB_SCRIPT)
+		grabs.ensure_loaded()
+		return grabs._pools.has(id) or _is_builtin_id("hunters", id)
 	if _builtin[kind].has(id):
 		return true
 	var source: Array = _CODE_IDS[kind]
@@ -363,6 +389,9 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 
 ## Parse one file of `kind`: {"defs": [runtime dicts], "errors": [messages naming file and field]}.
 static func parse_file(path: String, kind: String) -> Dictionary:
+	if kind == "grabs":
+		var parsed: Dictionary = load(GRAB_SCRIPT).parse_file(path)
+		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
 	var errors := PackedStringArray()
 	var defs := []
 	var text := FileAccess.get_file_as_string(path)

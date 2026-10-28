@@ -13,9 +13,10 @@ Packs are played in **private rooms only**. Public routes are always the unmodde
 | **Props** (furniture, dressing) | yes: replace its model everywhere the game places it | yes, but it only appears where a region's prop set places it (see [content types](content-types.md#props)) |
 | **Hunters** | yes: retune any hunter | yes: a new hunter joins the seeded draw with the default chase behaviour and a shipped or custom body |
 | **Regions** | yes: floors, doors, shop names, room roles, dressing | loads and validates, but no level places a new region yet |
+| **Grabs** (how a hunter takes hold of a caught runner) | yes: any hunter's pool of grab styles | yes: give your own hunters a pool |
 
-Not yet moddable: hunter abilities and AI, sounds and music, textures and skins outside models, levels and room
-furniture recipes. Those are planned as further pack types.
+Not yet moddable: hunter abilities and AI, new grab animations, sounds and music, textures and skins outside models,
+levels and room furniture recipes. Those are planned as further pack types.
 
 ## Quick start
 

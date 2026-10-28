@@ -8,6 +8,7 @@ mypack/
   props/<anything>.json     prop files      (lr.prop/1)
   hunters/<anything>.json   hunter files    (lr.hunter/1)
   regions/<anything>.json   region files    (lr.region/1)
+  grabs/<anything>.json     grab pools      (lr.grab/1)
   assets/...                .glb models, .png images, .ogg sounds (any sub-folders, lower-case extensions)
 ```
 
