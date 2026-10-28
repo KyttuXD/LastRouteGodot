@@ -147,6 +147,13 @@ static func instantiate_prop(scene_path: String, style_hint: String = "") -> Nod
 	if instance != null:
 		apply_blocky_prop_style(instance,
 			style_hint if not style_hint.is_empty() else scene_path)
+		# hunter-scale rescale (PropModelCatalog.HUNTER_SCALE): scaling the children keeps the root free for the
+		# view's yaw and position, and the local bounds everyone measures include it
+		var factor := PropModelCatalog.hunter_scale(style_hint)
+		if factor != 1.0:
+			for child in instance.get_children():
+				if child is Node3D:
+					(child as Node3D).transform = Transform3D(Basis.from_scale(Vector3.ONE * factor), Vector3.ZERO) * (child as Node3D).transform
 	return instance
 
 

@@ -377,6 +377,11 @@ func _local_state() -> Dictionary:
 		"hiding_spot": controller.hidden_spot,
 		"hiding_style": controller.hiding_style(),
 		"asleep": controller.asleep,
+		# the seat this runner sits on (SeatOccupancy, docs/SEATING.md): peers do not offer it
+		"seat_at": SeatOccupancy.plan_of(controller.resting_furniture) \
+			if controller.resting_pose == "sit" and controller.resting_furniture != null and is_instance_valid(controller.resting_furniture) else null,
+		"seat_top": float(controller.resting_furniture.get_meta("seat_top", 0.0)) \
+			if controller.resting_pose == "sit" and controller.resting_furniture != null and is_instance_valid(controller.resting_furniture) else 0.0,
 		"in_safe_zone": controller.is_in_safe_zone(),
 		"noise": controller.noise,
 		# Publish the actual rendered beam, including held-slot, charge and
@@ -528,6 +533,9 @@ func _place(state: Dictionary) -> void:
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
+	# seated on a hunter-scale seat: the "sit" clip is authored for a person chair, so lift the body by the difference
+	if received.get("seat_at") is Vector2:
+		at = (at as Vector3) + Vector3.UP * maxf(0.0, float(received.get("seat_top", 0.0)) - PlayerController3D.SIT_CLIP_SEAT)
 	_positions[id] = at
 	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
@@ -914,6 +922,16 @@ func remote_admin_peer_allowed(peer_id: int, permission: String = "") -> bool:
 ## runner wins over a hidden or safe runner; hidden/safe states remain as a
 ## fallback so a gimmick which explicitly reacts to them still receives a
 ## coherent target when everyone is concealed.
+## Plan positions of the seats the remote runners sit on (SeatOccupancy).
+func occupied_seats() -> Array:
+	var out := []
+	for id in _states:
+		var seat_at: Variant = (_states[id] as Dictionary).get("seat_at")
+		if seat_at is Vector2:
+			out.append(seat_at)
+	return out
+
+
 func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dictionary:
 	var candidates: Array[Dictionary] = []
 	if int(local_target.get("depth", depth)) == depth:

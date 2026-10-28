@@ -27,7 +27,74 @@ func _exposure_in(route: Node, room_id: String) -> float:
 	return float(LightField.exposure_at(Vector3(at.x, 1.0, at.z), facility._lamp_field._chunks)["value"])
 
 
+## KT: "doors collide with light switches". Over many generated chunks, no switch (and, reported, no wall-mounted
+## prop) sits within a door's frame plus FRAME_CLEAR beyond the opening's edge, inside its swing (the opening's width on
+## either side of the wall, as a leaf may swing in or out).
+const CLEAR_SEEDS := ["SWITCH-A", "SWITCH-B", "SWITCH-C", "ENDLESS-ROUTE"]
+const FRAME_CLEAR := .5
+
+
+static func in_door_zone(at: Vector2, door: Dictionary) -> bool:
+	var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+	var centre := Vector2.ZERO
+	for cell_value in cells:
+		centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+	centre /= float(maxi(1, cells.size()))
+	var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+	var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+	var rel := at - centre
+	var half := float(cells.size()) * .5
+	return absf(rel.dot(across)) < half + FRAME_CLEAR and absf(rel.dot(inward)) < float(cells.size()) + .2
+
+
+func _check_door_clearance() -> void:
+	var switches := 0
+	var bad := []
+	var mounted_near := []
+	for seed_text in CLEAR_SEEDS:
+		var generator := StreamedRouteGenerator.new(seed_text)
+		for dz in range(-5, 6):
+			for dx in range(-5, 6):
+				var coord := Vector3i(dx, 0, dz)
+				if not generator.is_chunk_allowed(coord):
+					continue
+				var data := generator.chunk(coord)
+				var doors := []
+				var main_door := {}
+				for prop_value in data.get("region_props", []):
+					var prop: Dictionary = prop_value
+					if bool(prop.get("room_door", false)):
+						doors.append(prop)
+						if not main_door.has(String(prop.get("room_id", ""))):
+							main_door[String(prop.get("room_id", ""))] = prop
+				for room_id in main_door:
+					var at := StreamedFacilityView3D.switch_spot(main_door[room_id], data.get("grid", []))
+					if at.x == INF:
+						continue
+					switches += 1
+					for door in doors:
+						if in_door_zone(at, door):
+							bad.append("%s %s by %s" % [coord, room_id, (door as Dictionary).get("id", "")])
+				for prop_value in data.get("region_props", []):
+					var prop: Dictionary = prop_value
+					if not PropModelCatalog.is_wall_mounted(String(prop.get("type", ""))):
+						continue
+					var at := Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2) \
+						+ (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+					for door in doors:
+						if in_door_zone(at, door):
+							mounted_near.append("%s %s" % [coord, prop.get("type", "")])
+							break
+	_expect(switches > 200, "only %d switches in the door-clearance sample" % switches)
+	_expect(bad.is_empty(), "%d light switches inside a door's frame or swing: %s" % [bad.size(), bad.slice(0, 6)])
+	metrics["door_clear_switches"] = switches
+	metrics["wall_props_in_door_zones"] = mounted_near.size()
+	if not mounted_near.is_empty():
+		print("  note  %d wall-mounted props in a door zone (other lanes' recipes), e.g. %s" % [mounted_near.size(), mounted_near.slice(0, 5)])
+
+
 func run(host: Node) -> int:
+	_check_door_clearance()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.seed_text = "LIGHT-SWITCH"
 	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()

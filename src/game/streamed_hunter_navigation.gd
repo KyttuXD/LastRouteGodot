@@ -20,6 +20,8 @@ var relays: Array = []
 var batteries: Array = []
 var vents: Array = []
 var hiding_spots: Array = []
+## Free seats a patrolling hunter may sit on (HunterSeats, docs/SEATING.md): one per sit point of every sit prop.
+var seat_spots: Array = []
 var start := Vector2i.ZERO
 var exit_cell := Vector2i.ZERO
 
@@ -71,6 +73,7 @@ func refresh(route_level: int, coords: Array) -> void:
 	batteries.clear()
 	vents.clear()
 	hiding_spots.clear()
+	seat_spots.clear()
 	_active_coords = canonical
 	_refresh_revision = revision
 	_refresh_generation += 1
@@ -133,6 +136,29 @@ func refresh(route_level: int, coords: Array) -> void:
 				vents.append(fixture_entry)
 			else:
 				hiding_spots.append(fixture_entry)
+		var origin := Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE)
+		for prop_value in data.get("region_props", []):
+			var prop: Dictionary = prop_value
+			var type := String(prop.get("type", ""))
+			if PropModelCatalog.interaction_for(type) != "sit":
+				continue
+			# the same size and position the view spawns the sit interactables at (StreamedFacilityView3D._spawn_region_prop)
+			var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+			var yaw := float(prop.get("yaw", 0.0))
+			var centre := origin + Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
+				+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+			var points: Array = PropModelCatalog.seat_points(type, size)
+			for index in points.size():
+				var point: Dictionary = points[index]
+				# gameplay-local (x, z) turned by yaw into the plan, as the view places the sit interactables
+				var local := Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+				var at := centre + Vector2(local.x, local.z)
+				var exit_local := Vector3((point["exit"] as Vector2).x, 0.0, (point["exit"] as Vector2).y).rotated(Vector3.UP, yaw)
+				var exit_dir := Vector2(exit_local.x, exit_local.z)
+				var exit_reach := (size.x * .5 - absf(float(point["x"])) if absf(exit_dir.dot(Vector2(cos(yaw), -sin(yaw)))) > .5 \
+					else size.z * .5 + absf(float(point["z"]))) + .6
+				seat_spots.append({"id": "%s#%d" % [String(prop.get("id", "%s@%s" % [type, at])), index], "type": type,
+					"seat_at": at, "stand_at": at + exit_dir * exit_reach, "yaw": yaw + float(point["turn"])})
 	vents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return String(a.get("id", "")) < String(b.get("id", "")))
 	for index in vents.size():

@@ -49,6 +49,11 @@ var _facing := HunterFacing.new()
 ## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
 ## procedural breathing / sway / lean layers (off elsewhere).
 var nw_pose := ""
+var _peek_pose := ""
+## The scare beat: the local camera caught her head round a corner (once per peek).
+signal peek_spotted(view: HunterView3D)
+var _peek_spotted := false
+const PEEK_SPOT_RANGE := 16.0
 ## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
 var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
@@ -275,6 +280,25 @@ func _apply_sleep_pose() -> void:
 		_model.rotation.z = 0.0
 		_model.position = _model.get_meta("awake_position")
 		_model.remove_meta("awake_position")
+
+
+## Seated on a seat (HunterSeats, docs/SEATING.md): facing out of the seat, in the shared "sit" pose. Set every sync by
+## the host and from the hunter report on guests.
+var _seated := false
+
+
+func set_seated(on: bool, yaw: float = 0.0) -> void:
+	if on:
+		rotation.y = yaw
+		if nw_pose != HunterSeats.POSE:
+			NightWatchPoses.play(self, HunterSeats.POSE)
+	elif _seated and nw_pose == HunterSeats.POSE:
+		NightWatchPoses.stop(self)
+	_seated = on
+
+
+func is_seated() -> bool:
+	return _seated
 
 
 func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
@@ -863,6 +887,49 @@ func shown_id() -> String:
 	return _shown_id
 
 
+## Corner peek (HunterPeek): the deep lean pose while her head is out past the edge, toward the edge's side. Only
+## clears a pose it set, so Night Watch's own poses are never touched.
+func _sync_peek_pose() -> void:
+	if brain == null:
+		return
+	var wanted := ""
+	if brain.peeking_out() and brain.stun_timer <= 0.0:
+		wanted = "corner_peek_left" if brain.peek_side > 0 else "corner_peek_right"
+	if wanted == _peek_pose:
+		return
+	if wanted.is_empty():
+		if nw_pose == _peek_pose:
+			nw_pose = ""
+	elif nw_pose.is_empty() or nw_pose == _peek_pose:
+		nw_pose = wanted
+		nw_pose_opts = {}
+	_peek_pose = wanted
+
+
+## Runs on every peer from replicated state: when this machine's camera has a clear line to her leaned-out head, play
+## the sting once for this peek. The head is where the brain says it is, so the beat matches what she can see back.
+func _update_peek_spot() -> void:
+	if not brain.peeking_out():
+		_peek_spotted = false
+		return
+	if _peek_spotted or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var head := Vector3(brain.peek_head.x, global_position.y + 1.5 * HunterRoster.scale_for(_shown_id), brain.peek_head.y)
+	var to_head := head - camera.global_position
+	if to_head.length() > PEEK_SPOT_RANGE or (-camera.global_basis.z).dot(to_head.normalized()) < .55:
+		return
+	var query := PhysicsRayQueryParameters3D.create(camera.global_position, head)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and not is_ancestor_of(hit.get("collider")) and hit.get("collider") != self:
+		return
+	_peek_spotted = true
+	Sound.alert()
+	peek_spotted.emit(self)
+
+
 func has_nw_pose() -> bool:
 	return _animation_player != null and not nw_pose.is_empty() \
 		and _animation_player.has_animation(NightWatchPoses.clip_name(nw_pose))
@@ -1007,6 +1074,8 @@ func _update_animation() -> void:
 			clip_name = String(pick["clip"])
 		_stride_scale = lerpf(_stride_scale, float(pick["scale"]), 1.0 - exp(-10.0 * delta))
 		speed = _stride_scale
+	_sync_peek_pose()
+	_update_peek_spot()
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():

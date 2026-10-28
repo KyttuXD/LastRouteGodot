@@ -79,6 +79,7 @@ var _settings_tabs: TabBar
 var _active_settings_category := 0
 var _skin_panel: SkinPanel
 var _voice_panel: VoicePanel
+var _mods_panel: ModsPanel
 
 
 func _ready() -> void:
@@ -412,7 +413,7 @@ func _build_settings_tabs() -> void:
 	_settings_tabs.position = Vector2(20, 37)
 	_settings_tabs.size = Vector2(400, 22)
 	_settings_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	for title in ["AUDIO", "DISPLAY", "CONTROLS", "SKIN", "VOICE"]:
+	for title in ["AUDIO", "DISPLAY", "CONTROLS", "SKIN", "VOICE", "MODS"]:
 		_settings_tabs.add_tab(title)
 	_settings_tabs.tab_changed.connect(_show_settings_category)
 	add_child(_settings_tabs)
@@ -424,11 +425,15 @@ func _build_settings_tabs() -> void:
 	_voice_panel.position = Vector2(20, 66)
 	_voice_panel.size = Vector2(400, 176)
 	add_child(_voice_panel)
+	_mods_panel = ModsPanel.new()
+	_mods_panel.position = Vector2(20, 66)
+	_mods_panel.size = Vector2(400, 176)
+	add_child(_mods_panel)
 	_show_settings_category(0)
 
 
 func _show_settings_category(index: int) -> void:
-	_active_settings_category = clampi(index, 0, 4)
+	_active_settings_category = clampi(index, 0, 5)
 	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
@@ -439,6 +444,8 @@ func _show_settings_category(index: int) -> void:
 		_skin_panel.visible = _active_settings_category == 3
 	if _voice_panel != null:
 		_voice_panel.visible = _active_settings_category == 4
+	if _mods_panel != null:
+		_mods_panel.visible = _active_settings_category == 5
 
 
 func _show_control_section(index: int) -> void:

@@ -128,3 +128,7 @@ generator it reads needs the autoloads, which `-s` scripts do not get.
 While you are in a wardrobe, its model is hidden for your own camera only, because the model's doors are solid. The
 shell then forms the wardrobe, with slats to peek through. Everyone else still sees the real wardrobe.
 
+
+## Aiming at a hiding spot (KT: "locker instruction hitbox too big")
+
+This is now the rule for every interactable. See "Prompt hitboxes" in [SEATING.md](SEATING.md).

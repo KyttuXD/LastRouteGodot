@@ -22,7 +22,7 @@ const PUBLIC_ENET_TTL_MS = 15_000;
 const MAX_BODY_BYTES = 64 * 1024;
 // a pack manifest lists up to 500 files with a sha256 each; only the owner-only register call may send this much
 const MOD_REGISTER_MAX_BODY_BYTES = 256 * 1024;
-const MOD_PACK_PATH = /^\/api\/mods\/packs\/([a-z0-9][a-z0-9_-]{2,47})$/;
+const MOD_PACK_PATH = /^\/api\/mods\/packs\/([a-z0-9][a-z0-9_]{2,31})$/;
 const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_DEV_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
