@@ -181,7 +181,14 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   and leaving the route call `Sound.reset_run_effects()` (underwater muffle and chase duck off) and, in XR, make the
   XR camera current again (the audio listener follows it; the jumpscare borrows the camera).
 - **Hands:** the controllers track Godot's `default` pose, which OpenXR binds to the aim pose. The hand models (skinned
-  hands and gloves) are turned each frame by aim to grip from the controller's own tracker (`XRHands.grip_offset`).
+  hands and gloves) are turned each frame by the aim/grip difference from the controller's own tracker
+  (`XRHands.grip_offset`; KT saw `aim^-1 * grip` 180 degrees off on the Quest, so its inverse is used).
+- **Sitting, ladders, water:** the flat first-person viewmodel sits in the world at the head, so every place that shows
+  it again (standing up, leaving the water, the end of a climb) keeps it hidden while in XR.
+- **Models in VR:** the Quest runs the Compatibility renderer, which ignores `GeometryInstance3D.transparency` and has no
+  screen or depth textures. `XRRenderAudit.problems()` lists why a model would not draw there (no mesh, no material,
+  fully transparent, an all-discarding alpha scissor, a screen/depth shader, layer, bounding box); `validate_platform`
+  runs it on every hunter (`XR_AUDIT_VERBOSE=1` prints each one).
 
 ### Scene changes in a headset
 
@@ -190,8 +197,10 @@ and the menu panel only took the view back a frame later. Every XR camera now ca
 around the head, drawn over everything), and switches go through `XRFade.change_scene(tree, scene)`:
 
 - fade to black over 0.3 s on whatever the headset sees;
-- the menu panel takes the view at once, still black (`XRMenuPanel.take_view_dark`), so no frame renders from a
-  camera that is being freed;
+- leaving a route: the route's view is black when the scene changes, the headset keeps that black frame, and the
+  menu panel takes the view back (once the route's camera is gone) starting black; between menus the panel holds
+  black (`XRMenuPanel.hold_dark`). Switching XR viewports while the route's camera still existed left the headset on
+  the dead route: KT saw black menus;
 - the new scene loads, then 0.25 s of black, then a 0.3 s fade in (`scene_changed`);
 - entering a route: the player enters XR black and fades in once the spawn has settled (`reveal_xr_view`, with a
   2.5 s fallback).
