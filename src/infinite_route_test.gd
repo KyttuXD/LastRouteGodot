@@ -2016,52 +2016,7 @@ func _reset_gray_void_pressure(despawn_gray: bool) -> bool:
 
 
 func _party_moved_since_pressure_sample(targets: Array) -> bool:
-	var moved := false
-	var present := {}
-	for target_value in targets:
-		var target: Dictionary = target_value
-		var position_value = target.get("position")
-		if not position_value is Vector2 or bool(target.get("game_over", false)):
-			continue
-		var peer_id := int(target.get("peer_id", 1))
-		var position: Vector2 = position_value
-		var facing_value = target.get("facing")
-		var facing := Vector2.ZERO
-		if facing_value is Vector2:
-			facing = facing_value
-		present[peer_id] = true
-		var previous = _party_activity_anchors.get(peer_id)
-		var prev_position := position
-		var prev_facing := Vector2.ZERO
-		var had_anchor := false
-		if previous is Dictionary:
-			had_anchor = true
-			var stored_position = previous.get("position")
-			if stored_position is Vector2:
-				prev_position = stored_position
-			var stored_facing = previous.get("facing")
-			if stored_facing is Vector2:
-				prev_facing = stored_facing
-		elif previous is Vector2:
-			had_anchor = true
-			prev_position = previous
-		var walked := had_anchor and prev_position.distance_to(position) >= .35
-		var looked := false
-		if had_anchor and facing.length_squared() > .0001 \
-				and prev_facing.length_squared() > .0001 \
-				and prev_facing.distance_to(facing) >= .22:
-			looked = true
-		if not had_anchor or walked or looked:
-			_party_activity_anchors[peer_id] = {
-				"position": position, "facing": facing}
-			moved = true
-		elif facing.length_squared() > .0001 and prev_facing.length_squared() <= .0001:
-			_party_activity_anchors[peer_id] = {
-				"position": prev_position, "facing": facing}
-	for peer_id_value in _party_activity_anchors.keys().duplicate():
-		if not present.has(peer_id_value):
-			_party_activity_anchors.erase(peer_id_value)
-	return moved or present.is_empty()
+	return AntiIdle.party_moved(_party_activity_anchors, targets)
 
 
 func _afk_void_warning_remaining() -> float:
