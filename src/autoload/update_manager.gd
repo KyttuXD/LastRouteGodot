@@ -131,15 +131,21 @@ var _recheck_timer: Timer
 var _last_progress_percent := -1
 
 
+## Debug builds only: `-- --update-smoke` checks at once (even headless), accepts the update without the confirm button and
+## prints UPDATE_SMOKE lines (tools/update_e2e). Never active in a release export.
+var smoke_test := false
+
+
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
+	smoke_test = OS.is_debug_build() and "--update-smoke" in OS.get_cmdline_user_args()
 	# A completed update leaves no useful player data behind in this directory.
 	# Clear archives, extracted staging trees, partial downloads and installer
 	# helpers from older revisions before beginning another check. Route saves,
 	# settings and account credentials live outside UPDATE_ROOT and are never
 	# considered by this cleanup.
 	_cleanup_update_cache()
-	_cleanup_previous_install_backup()
+	# the previous build (.lastroute-backup-previous beside the game) is KEPT for rollback; the next update replaces it
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
 	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
@@ -163,7 +169,10 @@ func _ready() -> void:
 	if OS.is_debug_build() and is_mobile_package() and FileAccess.file_exists(SELF_UPDATE_TEST_APK):
 		get_tree().create_timer(4.0).timeout.connect(func() -> void:
 			print("SELF_UPDATE_TEST ", _install_apk(ProjectSettings.globalize_path(SELF_UPDATE_TEST_APK))))
-	if DisplayServer.get_name() != "headless" and not offline_mode:
+	if smoke_test:
+		print("UPDATE_SMOKE start revision=%s build=%d platform=%s" % [Build.revision(), Build.build_number(), platform_key()])
+		check.call_deferred()
+	if DisplayServer.get_name() != "headless" and not offline_mode and not smoke_test:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
 		_recheck_timer.wait_time = DEBUG_RECHECK_SECONDS \
@@ -300,8 +309,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	if Build.revision() == Build.SOURCE_REVISION:
 		_finish_check(true, false, "SOURCE BUILD // UPDATE SKIPPED")
 		return
-	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number()) \
-		if is_mobile_package() else _update_needed(version, Build.VERSION, revision, Build.revision())
+	# every native platform: a different commit with a higher build number (desktop too, since the 2026-10 rework)
+	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number())
 	if not needed:
 		_finish_check(true, false, "UP TO DATE")
 		return
@@ -435,6 +444,10 @@ func _prepare_verified_download() -> void:
 	preparing = false
 	ready_to_install = true
 	update_ready.emit(staged_path)
+	if smoke_test:
+		_set_status("UPDATE READY // SMOKE TEST INSTALLS")
+		install_update.call_deferred()
+		return
 	if _should_install_automatically():
 		_set_status("UPDATE READY // RESTARTING")
 		install_update.call_deferred()
@@ -537,8 +550,9 @@ func is_mobile_package() -> bool:
 	return platform_key() in ["phone", "quest"]
 
 
-## A phone or Quest build updates when the published commit differs from this build's and its build number (commit
-## count, the Android versionCode) is higher: Android refuses to install a lower versionCode over a higher one.
+## A build updates when the published commit differs from this build's and its build number (commit count, also the
+## Android versionCode) is higher. Phones, the Quest, macOS and Windows all use this rule; Android also refuses a lower
+## versionCode, and on desktop it stops a stale manifest from "updating" to an older commit.
 static func mobile_update_needed(candidate_revision: String, current_revision: String, candidate_build: int,
 		current_build: int) -> bool:
 	var candidate := candidate_revision.strip_edges().to_lower()
@@ -911,6 +925,8 @@ static func _previous_install_backup_path(platform: String, executable_path: Str
 
 
 func _set_status(message: String) -> void:
+	if smoke_test:
+		print("UPDATE_SMOKE status ", message)
 	status_message = message
 	status_changed.emit(message)
 

@@ -158,7 +158,9 @@ function publicUpdateManifest(updates, channel, platform) {
   // install a higher one, so a missing or invalid number withholds the entry rather than offering an unusable update.
   const mobile = platform === "phone" || platform === "quest";
   const build = Number.isSafeInteger(entry.build) && entry.build > 0 ? entry.build : undefined;
-  if (mobile && (!build || !revision)) return null;
+  // phones/Quest and (since the 2026-10 rework) macOS / Windows / Linux clients compare build numbers: withhold entries
+  // without one rather than offer an update no client will take. The web build refreshes by revision only.
+  if (platform !== "web" && (!build || !revision)) return null;
   return {
     version,
     revision,
