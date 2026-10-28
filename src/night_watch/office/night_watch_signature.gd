@@ -22,6 +22,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 			_broadcast(office)
 		"front_office":
 			_mask(office)
+		"child_bedroom":
+			_bedroom(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -165,3 +167,50 @@ static func _mask(office: Node3D) -> void:
 	for side in [-1.0, 1.0]:
 		for z in [-1.2, -0.7, 1.4, 1.8]:
 			NightWatchArt.box(root, Vector3(0.03, 0.07, 0.35), Vector3(side * (hw - 0.04), 1.05, z), {"name": "OrangeDash", "kind": "wall", "tint": ORANGE})
+
+
+## Bedtime: the 2D picture's far wall is moon wallpaper: rows of small pale stars, a big crescent and a small framed one, under a warm yellow ceiling panel. One painted 44 x 20 pixel quad on the far wall (z = -half) and the lamp panel.
+static func _bedroom(office: Node3D) -> void:
+	var half: float = BedroomOffice.HALF
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var w := 44
+	var h := 20
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var star := Color8(214, 214, 236)
+	var moon := Color8(246, 226, 140)
+	for row in 4:
+		for col in 11:
+			img.set_pixel(2 + col * 4, 2 + row * 4, star)
+	for y in range(3, 15):   # the big crescent: a disc less a shifted disc
+		for x in range(14, 28):
+			var d1 := Vector2(x - 20.0, y - 9.0).length()
+			var d2 := Vector2(x - 22.5, y - 8.0).length()
+			if d1 <= 6.0 and d2 > 5.0:
+				img.set_pixel(x, y, moon)
+	for y in range(5, 12):   # the small framed crescent
+		for x in range(33, 40):
+			img.set_pixel(x, y, Color8(70, 50, 100))
+			if Vector2(x - 36.0, y - 8.0).length() <= 2.6 and Vector2(x - 37.2, y - 7.4).length() > 2.2:
+				img.set_pixel(x, y, moon)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	m.emission_enabled = true
+	m.emission_texture = m.albedo_texture
+	m.emission_energy_multiplier = 0.5
+	m.roughness = 1.0
+	m.set_meta("nw_kind", "fabric")
+	var quad := QuadMesh.new()
+	quad.size = Vector2(3.6, 3.6 * float(h) / float(w))
+	var wall := MeshInstance3D.new()
+	wall.name = "MoonWallpaper"
+	wall.mesh = quad
+	wall.material_override = m
+	wall.position = Vector3(0, 2.0, -half + 0.04)
+	wall.set_meta("nw_name", "MoonWallpaper")
+	wall.set_meta("nw_palette", "poster")
+	root.add_child(wall)
+	NightWatchArt.box(root, Vector3(1.2, 0.04, 0.4), Vector3(0, BedroomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelWarm", "kind": "light", "tint": Color(1.6, 1.35, 0.6)})
