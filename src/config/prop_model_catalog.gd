@@ -638,6 +638,12 @@ const MODEL_PATHS := {
 	"labCoolingUnit": ["res://art/props-3d/props/blocky/labCoolingUnit.glb"],
 	"controlConsole": ["res://art/props-3d/props/blocky/controlConsole.glb"],
 	"monitorWall": ["res://art/props-3d/props/blocky/monitorWall.glb"],
+	"divePod": ["res://art/props-3d/props/blocky/divePod.glb"],
+	"divePodFilm": ["res://art/props-3d/props/blocky/divePodFilm.glb"],
+	"divePodLit": ["res://art/props-3d/props/blocky/divePodLit.glb"],
+	"diveHeadsetStand": ["res://art/props-3d/props/blocky/diveHeadsetStand.glb"],
+	"diveHeadsetShelf": ["res://art/props-3d/props/blocky/diveHeadsetShelf.glb"],
+	"diveConsole": ["res://art/props-3d/props/blocky/diveConsole.glb"],
 	"deconShower": ["res://art/props-3d/props/blocky/deconShower.glb"],
 	"coldStorageUnit": ["res://art/props-3d/props/blocky/coldStorageUnit.glb"],
 	"labWhiteboard": ["res://art/props-3d/props/blocky/labWhiteboard.glb"],
@@ -718,6 +724,8 @@ const LIGHT_PROFILES := {
 	"sewerLamp": {"color": Color("ffa24a"), "energy": .42, "range": 5.0, "height": 0.0},
 	"surgicalLight": {"color": Color("f4fbff"), "energy": .85, "range": 4.6, "height": .2},
 	"specimenTank": {"color": Color("5fe8d8"), "energy": .42, "range": 3.0, "height": 1.2},
+	# the one dive pod left on: a faint glow, the rest of the pod room stays dark
+	"divePodLit": {"color": Color("8fe6f0"), "energy": .18, "range": 2.2, "height": .6},
 	"xrayLightbox": {"color": Color("e8f4ff"), "energy": .26, "range": 2.4, "height": 1.5},
 	"donutSign": {"color": Color("ff8fc8"), "energy": .38, "range": 3.0, "height": .7},
 	"menuBoard": {"color": Color("ffe0b0"), "energy": .24, "range": 2.4, "height": .45},
@@ -811,7 +819,7 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 	"publicHandDryer", "publicSoapDispenser", "publicPaperTowelDispenser",
 	"publicBabyChangeStation", "publicMensRoomSign", "publicWomensRoomSign",
 	"houseMedicineCabinet", "houseTowelRack", "houseBathroomShelf",
-	"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard",
+	"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard", "diveHeadsetShelf",
 	"hazardSign", "menuBoard", "donutSign", "cinemaScreen",
 ]
 
@@ -916,7 +924,7 @@ static func interaction_for(type: String) -> String:
 		return "mirror"
 	if type in ["labBench", "pottingBench", "dinerBooth"]:
 		return ""   # work benches, not seats
-	if type in ["controlConsole", "nursesStation"]:
+	if type in ["controlConsole", "nursesStation", "diveConsole"]:
 		return "use"
 	if "bed" in lowered or "bunk" in lowered:
 		return "lay"

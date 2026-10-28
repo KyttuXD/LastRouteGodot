@@ -386,7 +386,9 @@ const TEMPLATE_PROP_SIZES := {
 	"wheelchair": Vector3(.65, .95, .95), "hospitalWardSign": Vector3(.95, .36, .06), "labBench": Vector3(2, 1.45, .8),
 	"fumeHood": Vector3(1.5, 2.35, .9), "specimenTank": Vector3(.95, 2.3, .95),
 	"containmentCell": Vector3(2.2, 2.6, 1.7), "labCoolingUnit": Vector3(1, 2.1, .85),
-	"controlConsole": Vector3(2.4, 1.4, 1), "monitorWall": Vector3(2.4, 1.4, .1), "deconShower": Vector3(1.3, 2.5, 1.3),
+	"controlConsole": Vector3(2.4, 1.4, 1), "monitorWall": Vector3(2.4, 1.4, .1), "divePod": Vector3(1.0, 1.35, 2.2), "divePodFilm": Vector3(1.0, 1.35, 2.2),
+	"divePodLit": Vector3(1.0, 1.35, 2.2), "diveHeadsetStand": Vector3(.32, 1.25, .32),
+	"diveHeadsetShelf": Vector3(1.9, .45, .32), "diveConsole": Vector3(2.0, 1.3, .8), "deconShower": Vector3(1.3, 2.5, 1.3),
 	"coldStorageUnit": Vector3(1.4, 2.1, .85), "labWhiteboard": Vector3(1.8, 1.15, .08),
 	"hazardSign": Vector3(.6, .62, .05), "labGlassPartition": Vector3(1.95, 2.5, .14),
 	"labStool": Vector3(.42, .75, .42), "labMicroscope": Vector3(.34, .46, .36),
@@ -1241,6 +1243,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			small_types.append(type_name)
 	if small_types.is_empty():
 		small_types = _room_type_choices(region)
+	var pod_pending := region == "lab" and is_pod_room_chunk(coord)
 	var room_index := 0
 	# a mall chunk holds eight shops: start its cycle through the thirteen shop kinds at a per-chunk offset
 	var type_offset := rng.next_index(small_types.size()) if mall else 0
@@ -1271,7 +1274,10 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			if merged_sides.has(side) and (int(row["y"]) == 12 or int(row["y"]) == 24):
 				continue
 			var specs := []
-			if mall:
+			if pod_pending:
+				pod_pending = false
+				specs.append({"x": side_x[side], "w": 21, "type": "pod_room"})
+			elif mall:
 				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
 			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
 				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
@@ -1313,6 +1319,17 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
 	return {"rooms": rooms, "corridors": corridors, "suites": suites, "circulation": circulation}
+
+
+## The dive lab's pod room is rare: one chunk of each lab district (BIOME_REGION_SIZE squared chunks) holds it.
+func is_pod_room_chunk(coord: Vector3i) -> bool:
+	if coord.y != 0 or biome_for(coord) != "lab":
+		return false
+	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
+	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var rng := SeededRandom.new("%s:PODROOM:%d:%d" % [world_seed, region_x, region_z])
+	return posmod(coord.x, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE) \
+		and posmod(coord.z, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE)
 
 
 ## The room-type names of a district (the table _room_type_for cycles through).
@@ -2148,7 +2165,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		template = room_type
 	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
-			+ MALL_ROOMS + ["dome_atrium"]).has(room_type):
+			+ MALL_ROOMS + ["dome_atrium", "pod_room"]).has(room_type):
 		template = room_type
 	if template.is_empty():
 		return []
@@ -3108,6 +3125,24 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
 			for light_side in range(-half + 1, half, 3):
 				specs.append(_sp("ceilingLight", light_side, 1, "open", _LOOSE))
+		"pod_room":
+			# the dive lab (Last Route lore): six white pods in a curved row along the far wall, lids open, heads to the
+			# wall; the outer pair stands a step forward so the row bows. Two still have film on their lids, one is left
+			# on (a faint glow), the rest dark. A headset on a stand beside each pod; the console with its scrolling list
+			# and the shelf of headsets above it in the corner.
+			var pod_sides := [-5, -3, -1, 1, 3, 5]
+			for pod_index in pod_sides.size():
+				var pod_side: int = pod_sides[pod_index] * mirror
+				var pod_type := "divePod"
+				if pod_index == 1 or pod_index == 4:
+					pod_type = "divePodFilm"
+				elif pod_index == 2:
+					pod_type = "divePodLit"
+				var outer := pod_index == 0 or pod_index == pod_sides.size() - 1
+				specs.append(_sp(pod_type, pod_side, 1 if outer else 0, "open", {} if outer else _WALL))
+				specs.append(_sp("diveHeadsetStand", pod_side + mirror, 0, "open", _WALL))
+			specs.append(_sp("diveConsole", (half - 1) * mirror, 0, "open", _WALL))
+			specs.append(_sp("diveHeadsetShelf", (half - 1) * mirror, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.45}))
 		"control_room":
 			specs.append(_sp("monitorWall", 0, 0, "open", _MOUNT))
 			specs.append(_sp("controlConsole", 0, 2, "back"))
