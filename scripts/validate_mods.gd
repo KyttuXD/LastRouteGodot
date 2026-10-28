@@ -222,17 +222,20 @@ func _check_dialog(host: Node) -> void:
 	dialog.begin(host_list)
 	_expect(fake.calls.size() == 1 and _joined == 3 and dialog.stage == ModJoinDialog.Stage.HIDDEN, "auto-download still asked for confirmation")
 
-	# packs differ: the guest has an extra local pack, or the room is public
+	# installed packs the host does not use never refuse a join
 	Settings.auto_download_mods = false
 	fake.packs = [_pack("have", "local"), _pack("mine", "local")]
 	fake.calls.clear()
+	var joined_before := _joined
 	dialog.begin([_pack("have", "local")])
-	_expect(dialog.stage == ModJoinDialog.Stage.DIFFER and dialog.title.text == "PACKS DIFFER", "an extra local pack did not show PACKS DIFFER")
-	_expect(dialog.list_box.get_child_count() == 1 and (dialog.list_box.get_child(0) as Label).text.begins_with("NOT IN THIS ROOM"), "the differ list does not name the extra pack")
-	_expect(fake.calls.is_empty() and _joined == 3, "a refused join must not download or join")
+	_expect(_joined == joined_before + 1 and not dialog.visible and fake.calls.is_empty(), "an extra installed pack must not refuse or delay the join")
+	# a public room refuses a modded host and shows what differs
 	fake.packs = [_pack("have", "local")]
-	dialog.begin(host_list, false)
-	_expect(dialog.stage == ModJoinDialog.Stage.DIFFER and fake.calls.is_empty(), "a public room must refuse a pack difference without downloading")
+	dialog.begin([_pack("have", "local"), _pack("need1")], false)
+	_expect(dialog.stage == ModJoinDialog.Stage.DIFFER and dialog.title.text == "PACKS DIFFER", "a public room did not show PACKS DIFFER")
+	_expect(dialog.list_box.get_child_count() == 1 and (dialog.list_box.get_child(0) as Label).text.begins_with("MISSING"), "the differ list does not name the missing pack")
+	fake.packs = [_pack("have", "local")]
+	_expect(fake.calls.is_empty(), "a refused join must not download")
 	dialog.queue_free()
 	await host.get_tree().process_frame
 
