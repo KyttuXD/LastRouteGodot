@@ -32,10 +32,13 @@ static func run_loop(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 	var peers_seen: Array = []
 	var remotes_seen: Array = []
 	var passive := bool(opts.get("passive", false))
+	var observe_every := maxi(int(opts.get("observe_every", 0)), 1)
+	var obs := {}
 	while frames < limit_frames:
 		await tree.physics_frame
 		frames += 1
-		var obs := bridge.observe()
+		if obs.is_empty() or frames % observe_every == 0:
+			obs = bridge.observe()
 		if frames % 120 == 0:
 			bridge.status = "%s frame %d/%d, chunk %s, goal %s, scene %s" % [scenario, frames, limit_frames, obs.get("world", {}).get("chunk", "?"),
 				(adapter.get("_goal") if adapter.get("_goal") != null else "?"), obs.get("scene", "")]
@@ -63,6 +66,7 @@ static func run_loop(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 					await tree.physics_frame
 					frames += 1
 				last_over = false
+				obs = {}   # the cached one still says the run is over
 				continue
 			if scenario == "coop_bot":
 				# online: the host restarts the run for everyone and a caught runner spectates; the bot just waits (no restart/leave press)
@@ -602,11 +606,16 @@ static func soak(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 	var frames := 0
 	var last_over := false
 	counts["hunters_summoned"] = int(counts["hunters_summoned"]) + _soak_hunters(tree, String(opts["hunters"]))
+	# a full observation every tick costs more than the game on old machines (PERF: 4-13 fps instead of 90+), so the soak looks
+	# every 3rd tick unless --observe-every says otherwise; the bot steers on the last one in between
+	var observe_every := int(opts["observe_every"]) if int(opts["observe_every"]) > 0 else 3
+	var obs := {}
 	while frames < limit:
 		await tree.physics_frame
 		frames += 1
 		var t := float(frames) / hz
-		var obs := bridge.observe()
+		if obs.is_empty() or frames % observe_every == 0 or not _soak_route(tree.current_scene):
+			obs = bridge.observe()
 		var scene := tree.current_scene
 		var level := int(obs.get("world", {}).get("level", 0))
 		levels_seen[level] = int(levels_seen.get(level, 0)) + 1
@@ -628,6 +637,7 @@ static func soak(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, 
 				await tree.physics_frame
 			frames += 120
 			override = {}
+			obs = {}   # the cached one still says the run is over
 			counts["hunters_summoned"] = int(counts["hunters_summoned"]) + _soak_hunters(tree, String(opts["hunters"]))
 			continue
 		last_over = over
