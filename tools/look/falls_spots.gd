@@ -12,48 +12,29 @@ func _ready() -> void:
 	var generator := StreamedRouteGenerator.new(seed_text)
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var spots: Array[String] = []
-	if what == "seal":
-		var at := Vector3i(int(args[2]), StreamedRouteGenerator.INFERNO_LEVEL, int(args[3]))
-		var gen := generator
-		var data := gen.chunk(at)
-		print("breakables ", data["breakables"].size(), " sealed ", data["sealed_cells"].size(), " chambers ", data["inferno_caverns"].size())
-		var tunnels: Array = []
-		var grid2 := gen._solid_grid()
-		var edges := {"west": gen.edge_openings(at, Vector2i(-1, 0)), "east": gen.edge_openings(at, Vector2i(1, 0)), "north": gen.edge_openings(at, Vector2i(0, -1)), "south": gen.edge_openings(at, Vector2i(0, 1))}
-		var chambers := InfernoCaverns.carve(gen.world_seed, at, grid2, edges, gen.sewer().ramps_at(at.x, at.z, at.y), false, {}, tunnels)
-		for t in tunnels:
-			var g := {}
-			if String(t["kind"]) in ["hang", "loop"]:
-				g = SealPlanner._gate(grid2, chambers, t, 0)
-			var shut := -1
-			if not g.is_empty():
-				var entries: Array = []
-				for t2 in tunnels:
-					if String(t2["kind"]) in ["portal", "anchor"]:
-						entries.append(t2["from"])
-				var blocked := SealPlanner._blocked([g])
-				var total := SealPlanner._open_count(grid2)
-				shut = total - blocked.size() - SealPlanner._reach_count(SealPlanner._reach(grid2, entries, blocked))
-			print(t["kind"], " from ", t["from"], " to_chamber ", t["to_chamber"], " from_chamber ", t["from_chamber"], " gate ", g.get("cells", []).size(), " shut ", shut)
-		var gates: Array = []
-		var entries2: Array = []
-		for ti in tunnels.size():
-			var t3: Dictionary = tunnels[ti]
-			if String(t3["kind"]) in ["portal", "anchor"]:
-				entries2.append(t3["from"])
-			if String(t3["kind"]) in ["hang", "loop"]:
-				var g3 := SealPlanner._gate(grid2, chambers, t3, ti)
-				if not g3.is_empty():
-					gates.append(g3)
-		var total2 := SealPlanner._open_count(grid2)
-		for mask in range(1, 1 << gates.size()):
-			var chosen: Array = []
-			for bit in gates.size():
-				if mask & (1 << bit) != 0:
-					chosen.append(gates[bit])
-			var blocked2 := SealPlanner._blocked(chosen)
-			var reach2 := SealPlanner._reach(grid2, entries2, blocked2)
-			print("mask ", mask, " entries ok ", SealPlanner._all_reached(reach2, entries2), " shut ", total2 - blocked2.size() - SealPlanner._reach_count(reach2))
+	if what == "time":
+		for level in [0, -1, -2, -3]:
+			var t0 := Time.get_ticks_usec()
+			for cz in range(10, 14):
+				for cx in range(10, 14):
+					generator.chunk(Vector3i(cx, level, cz))
+			print("level ", level, ": ", (Time.get_ticks_usec() - t0) / 16000.0, " ms per chunk")
+		var t1 := Time.get_ticks_usec()
+		var tun_total := 0.0
+		var plan_total := 0.0
+		for cz in range(10, 14):
+			for cx in range(10, 14):
+				var at := Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz)
+				var g := generator._solid_grid()
+				var edges := {"west": generator.edge_openings(at, Vector2i(-1, 0)), "east": generator.edge_openings(at, Vector2i(1, 0)), "north": generator.edge_openings(at, Vector2i(0, -1)), "south": generator.edge_openings(at, Vector2i(0, 1))}
+				var tunnels: Array = []
+				var a := Time.get_ticks_usec()
+				var chambers := InfernoCaverns.carve(generator.world_seed, at, g, edges, [], false, {}, tunnels)
+				tun_total += Time.get_ticks_usec() - a
+				var b := Time.get_ticks_usec()
+				SealPlanner.plan_cave(generator.world_seed, at, g, chambers, tunnels)
+				plan_total += Time.get_ticks_usec() - b
+		print("carve ", tun_total / 16000.0, " ms, plan ", plan_total / 16000.0, " ms per chunk")
 		get_tree().quit(0)
 		return
 	if what == "cave":

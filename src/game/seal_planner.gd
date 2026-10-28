@@ -41,48 +41,50 @@ static func plan_cave(world_seed: String, coord: Vector3i, grid: Array, chambers
 	var rng := SeededRandom.new("%s:SEALS:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
 	var base := SealRules.seals_per_chunk(coord)
 	var want := floori(base) + (1 if rng.next_float() < base - floor(base) else 0)
-	var total_open := _open_count(grid)
-	var best := {}
-	var best_score := 1.0e9
-	var target_open := SealRules.open_share(coord)
-	for mask in range(1, 1 << candidates.size()):
-		var chosen: Array = []
-		for bit in candidates.size():
-			if mask & (1 << bit) != 0:
-				chosen.append(candidates[bit])
-		var blocked := _blocked(chosen)
-		var reach := _reach(grid, entries, blocked)
+	var open := _open_mask(grid)
+	var total_open := 0
+	for value in open:
+		total_open += int(value)
+	# each candidate on its own first: the entrances must still meet and it must shut a worthwhile wing in (the gates of
+	# different tunnels do not touch each other's wings, so one flood each is enough); then a few at a time
+	var usable: Array = []
+	for gate in candidates:
+		var blocked := _block_mask([gate])
+		var reach := _reach_mask(open, entries, blocked)
 		if not _all_reached(reach, entries):
 			continue
-		# every gate must shut ground in: without it, fewer cells stay cut off (the gate's own cells do not count)
-		var shut := total_open - blocked.size() - _reach_count(reach)
-		if shut < MIN_WING:
-			continue
-		var effective := true
-		for gate in chosen:
-			var without := _blocked(chosen.filter(func(g): return g != gate))
-			if total_open - without.size() - _reach_count(_reach(grid, entries, without)) >= shut:
-				effective = false
-				break
-		if not effective:
-			continue
-		var open_share := float(_reach_count(reach)) / maxf(1.0, float(total_open - blocked.size()))
-		var score := absf(float(chosen.size() - want)) * 2.0 + absf(open_share - target_open)
-		if score < best_score:
-			best_score = score
-			best = {"chosen": chosen, "reach": reach, "open_share": open_share}
-	if best.is_empty():
+		var shut := total_open - _count(blocked, open) - _count(reach, open)
+		if shut >= MIN_WING:
+			(gate as Dictionary)["shut"] = shut
+			usable.append(gate)
+	if usable.is_empty():
 		return result
+	# shuffle (deterministic) and take as many as the ring asks for
+	for i in range(usable.size() - 1, 0, -1):
+		var j := rng.next_index(i + 1)
+		var swap = usable[i]
+		usable[i] = usable[j]
+		usable[j] = swap
+	var chosen: Array = usable.slice(0, mini(maxi(1, want), usable.size()))
+	var reach_all := PackedByteArray()
+	var blocked_all := PackedByteArray()
+	while true:
+		blocked_all = _block_mask(chosen)
+		reach_all = _reach_mask(open, entries, blocked_all)
+		if _all_reached(reach_all, entries) or chosen.size() <= 1:
+			break
+		chosen.pop_back()
 	var sealed: Array[Vector2i] = []
-	var reached: PackedByteArray = best["reach"]
-	var blocked_cells := _blocked(best["chosen"])
 	for z in CHUNK_SIZE:
 		for x in CHUNK_SIZE:
-			if int(grid[z][x]) == 0 and reached[z * CHUNK_SIZE + x] == 0 and not blocked_cells.has(Vector2i(x, z)):
+			var at := z * CHUNK_SIZE + x
+			if open[at] == 1 and reach_all[at] == 0 and blocked_all[at] == 0:
 				sealed.append(Vector2i(x, z))
-	result["gates"] = best["chosen"]
+	if sealed.is_empty():
+		return result
+	result["gates"] = chosen
 	result["sealed"] = sealed
-	result["open_share"] = best["open_share"]
+	result["open_share"] = float(_count(reach_all, open)) / maxf(1.0, float(total_open - _count(blocked_all, open)))
 	return result
 
 
@@ -169,56 +171,62 @@ static func _gate(grid: Array, chambers: Array, tunnel: Dictionary, index: int) 
 	return {"cells": cells, "centre": centre, "dir": dir, "radius": radius, "tunnel": index}
 
 
-static func _blocked(gates: Array) -> Dictionary:
-	var blocked := {}
+static func _open_mask(grid: Array) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(CHUNK_SIZE * CHUNK_SIZE)
+	for z in CHUNK_SIZE:
+		var row: Array = grid[z]
+		for x in CHUNK_SIZE:
+			if int(row[x]) == 0:
+				mask[z * CHUNK_SIZE + x] = 1
+	return mask
+
+
+static func _block_mask(gates: Array) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(CHUNK_SIZE * CHUNK_SIZE)
 	for gate in gates:
 		for cell in (gate as Dictionary)["cells"]:
-			blocked[cell] = true
-	return blocked
+			mask[(cell as Vector2i).y * CHUNK_SIZE + (cell as Vector2i).x] = 1
+	return mask
 
 
-static func _open_count(grid: Array) -> int:
+## Cells where both masks are set.
+static func _count(mask: PackedByteArray, within: PackedByteArray) -> int:
 	var n := 0
-	for z in range(CHUNK_SIZE):
-		for x in range(CHUNK_SIZE):
-			if int(grid[z][x]) == 0:
-				n += 1
+	for i in mask.size():
+		n += mask[i] & within[i]
 	return n
 
 
 ## Flood from the entries over open cells that are not blocked; 1 marks reached.
-static func _reach(grid: Array, entries: Array, blocked: Dictionary) -> PackedByteArray:
+static func _reach_mask(open: PackedByteArray, entries: Array, blocked: PackedByteArray) -> PackedByteArray:
 	var seen := PackedByteArray()
 	seen.resize(CHUNK_SIZE * CHUNK_SIZE)
 	var stack := PackedInt32Array()
 	for entry in entries:
 		var e: Vector2i = entry
-		if int(grid[e.y][e.x]) == 0 and not blocked.has(e):
-			stack.append(e.y * CHUNK_SIZE + e.x)
-			seen[e.y * CHUNK_SIZE + e.x] = 1
+		var at := e.y * CHUNK_SIZE + e.x
+		if open[at] == 1 and blocked[at] == 0 and seen[at] == 0:
+			stack.append(at)
+			seen[at] = 1
 	while not stack.is_empty():
 		var at := stack[stack.size() - 1]
 		stack.resize(stack.size() - 1)
 		var x := at % CHUNK_SIZE
-		var z := at / CHUNK_SIZE
-		for step in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-			var nx: int = x + step[0]
-			var nz: int = z + step[1]
-			if nx < 0 or nz < 0 or nx >= CHUNK_SIZE or nz >= CHUNK_SIZE:
-				continue
-			var n := nz * CHUNK_SIZE + nx
-			if seen[n] == 1 or int(grid[nz][nx]) != 0 or (not blocked.is_empty() and blocked.has(Vector2i(nx, nz))):
-				continue
-			seen[n] = 1
-			stack.append(n)
+		if x > 0 and open[at - 1] == 1 and seen[at - 1] == 0 and blocked[at - 1] == 0:
+			seen[at - 1] = 1
+			stack.append(at - 1)
+		if x < CHUNK_SIZE - 1 and open[at + 1] == 1 and seen[at + 1] == 0 and blocked[at + 1] == 0:
+			seen[at + 1] = 1
+			stack.append(at + 1)
+		if at >= CHUNK_SIZE and open[at - CHUNK_SIZE] == 1 and seen[at - CHUNK_SIZE] == 0 and blocked[at - CHUNK_SIZE] == 0:
+			seen[at - CHUNK_SIZE] = 1
+			stack.append(at - CHUNK_SIZE)
+		if at < CHUNK_SIZE * (CHUNK_SIZE - 1) and open[at + CHUNK_SIZE] == 1 and seen[at + CHUNK_SIZE] == 0 and blocked[at + CHUNK_SIZE] == 0:
+			seen[at + CHUNK_SIZE] = 1
+			stack.append(at + CHUNK_SIZE)
 	return seen
-
-
-static func _reach_count(seen: PackedByteArray) -> int:
-	var n := 0
-	for value in seen:
-		n += int(value)
-	return n
 
 
 static func _all_reached(seen: PackedByteArray, entries: Array) -> bool:

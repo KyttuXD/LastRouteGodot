@@ -113,17 +113,15 @@ func _check_chunk(seed_text: String, coord: Vector3i, data: Dictionary, specs: A
 			for ramp in data.get("ramps", []):
 				for part in ["ramp", "bottom", "connector"]:
 					_expect(not (ramp[part] as Rect2i).has_point(cell), "%s: gate cell %s sits on a ramp %s" % [tag, cell, part])
-	var total_open := 0
-	for z in size:
-		for x in size:
-			total_open += 1 if int(grid[z][x]) == 0 else 0
-	var reach := SealPlanner._reach(grid, entries, blocked)
+	var open_mask := SealPlanner._open_mask(grid)
+	var total_open := SealPlanner._count(open_mask, open_mask)
+	var reach := SealPlanner._reach_mask(open_mask, entries, SealPlanner._block_mask(specs.map(func(sp): return {"cells": (sp["extras"] as Dictionary)["cells"]}))) 
 	var lost := []
 	for entry in entries:
 		if reach[entry.y * size + entry.x] == 0:
 			lost.append("%s(grid %d)" % [entry, int(grid[entry.y][entry.x])])
 	_expect(lost.is_empty(), "%s: closed seals cut a seam opening or ramp landing off: %s of %d gates %d" % [tag, lost, entries.size(), specs.size()])
-	var reached := SealPlanner._reach_count(reach)
+	var reached := SealPlanner._count(reach, open_mask)
 	var sealed: Array = data.get("sealed_cells", [])
 	if not specs.is_empty():
 		_expect(not sealed.is_empty(), "%s: seals shut nothing in" % tag)

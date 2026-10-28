@@ -152,19 +152,45 @@ static func _close_slivers(grid: Array, ramps: Array, stubs: Array[Rect2i], prot
 			for z in range(rect.position.y, rect.end.y):
 				for x in range(rect.position.x, rect.end.x):
 					protect[Vector2i(x, z)] = true
+	var n := CHUNK_SIZE
+	var protect_mask := PackedByteArray()
+	protect_mask.resize(n * n)
+	for cell_value in protect:
+		var pc: Vector2i = cell_value
+		if pc.x >= 0 and pc.y >= 0 and pc.x < n and pc.y < n:
+			protect_mask[pc.y * n + pc.x] = 1
 	for _round in 12:
-		var covered := {}
-		for z in range(1, CHUNK_SIZE - 1):
-			for x in range(1, CHUNK_SIZE - 1):
-				if clearance(grid, Vector2i(x, z), 1) >= 1:
-					for dz in range(-1, 2):
-						for dx in range(-1, 2):
-							covered[Vector2i(x + dx, z + dz)] = true
+		# open mask, then the centres of fully open 3x3 blocks (three-in-a-row twice), then every cell such a block covers
+		var open := PackedByteArray()
+		open.resize(n * n)
+		for z in n:
+			var row: Array = grid[z]
+			for x in n:
+				if row[x] == 0:
+					open[z * n + x] = 1
+		var across := PackedByteArray()
+		across.resize(n * n)
+		for z in n:
+			for x in range(1, n - 1):
+				var i := z * n + x
+				across[i] = open[i - 1] & open[i] & open[i + 1]
+		var centre := PackedByteArray()
+		centre.resize(n * n)
+		for z in range(1, n - 1):
+			for x in range(1, n - 1):
+				var i := z * n + x
+				centre[i] = across[i - n] & across[i] & across[i + n]
+		var spread := PackedByteArray()
+		spread.resize(n * n)
+		for z in n:
+			for x in range(1, n - 1):
+				var i := z * n + x
+				spread[i] = centre[i - 1] | centre[i] | centre[i + 1]
 		var closed := 0
-		for z in range(1, CHUNK_SIZE - 1):
-			for x in range(1, CHUNK_SIZE - 1):
-				var at := Vector2i(x, z)
-				if grid[z][x] == 0 and not covered.has(at) and not protect.has(at):
+		for z in range(1, n - 1):
+			for x in range(1, n - 1):
+				var i := z * n + x
+				if open[i] == 1 and protect_mask[i] == 0 and (spread[i - n] | spread[i] | spread[i + n]) == 0:
 					grid[z][x] = 1
 					closed += 1
 		if closed == 0:
