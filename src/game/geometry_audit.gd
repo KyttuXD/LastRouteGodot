@@ -27,10 +27,10 @@ const GAME_NIGHT_WATCH := "night_watch"
 ## Category weights for the ranking (a piece clipping through a wall is worse than a tolerance-level touch).
 const WEIGHTS := {"prop_in_wall": 5, "prop_in_prop": 3, "prop_in_hall": 4, "door_zone": 5, "door_frame": 4,
 	"building_overlap": 8, "orphan_mass": 7, "facade_hole": 9, "sliver": 4, "decor_in_wall": 5, "decor_overlap": 2,
-	"junction_floor": 6, "hall_nub": 4, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
+	"junction_floor": 6, "hall_nub": 4, "sewer_lamp_symmetry": 5, "sewer_blocker": 8, "room_capacity": 3, "floating": 6, "slab_coplanar": 3, "poke_ceiling": 5, "prop_over_void": 6, "cube_overlap": 3, "cube_floating": 4}
 
 const SEAT_WORDS := ["Chair", "Stool", "Bench", "Seat", "Armchair", "Couch", "Sofa"]
-const TABLE_WORDS := ["Table", "Desk", "Counter", "Workstation", "Bar", "Bookcase", "Shelf", "Piano"]
+const TABLE_WORDS := ["Table", "Desk", "Console", "Counter", "Workstation", "Bar", "Bookcase", "Shelf", "Piano"]
 
 
 # ------------------------------------------------------------------ geometry helpers
@@ -573,3 +573,62 @@ static func junction_spots(generator: StreamedRouteGenerator, biome: String) -> 
 						var eye := Vector2(cell) + Vector2(.5, .5) + Vector2(arm) * 5.0
 						found[kind] = "%.1f,%.1f,%.0f" % [coord.x * 45 + eye.x, coord.z * 45 + eye.y, rad_to_deg(atan2(float(arm.x), float(arm.y)))]
 	return found.values()
+
+# ------------------------------------------------------------------ Sewers
+
+## One sewer chunk: lamps are evenly spaced (mirror-symmetric about the chunk centre on their tunnel wall, centred on their room
+## wall) and nothing solid stands in a tunnel walkway or a branch (only the pump room's pump is solid, inside its room).
+static func audit_sewer_chunk(data: Dictionary, seed_text: String, out: Array) -> void:
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	var where_prefix := "sewer chunk %s" % coord
+	var centre := SewerRouteGenerator.CENTER
+	var half := SewerRouteGenerator.TUNNEL_HALF
+	var rooms: Array = data.get("rooms", [])
+	var lamps := {}
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		var type := String(prop.get("type", ""))
+		if type == "sewerLamp":
+			lamps[cell] = prop
+		if bool(prop.get("solid", false)):
+			var in_room := false
+			for room in rooms:
+				if (room["rect"] as Rect2i).has_point(cell):
+					in_room = true
+			if not in_room:
+				out.append(finding("sewer", "solid_overlap", "sewer_blocker", seed_text, "%s %s cell %s" % [where_prefix, type, cell],
+					"a solid piece stands outside any room, in the walkway"))
+	for cell_value in lamps:
+		var cell: Vector2i = cell_value
+		var in_tunnel := absi(cell.x - centre) <= half or absi(cell.y - centre) <= half
+		var room_rect := Rect2i()
+		var in_room := false
+		for room in rooms:
+			if (room["rect"] as Rect2i).has_point(cell):
+				in_room = true
+				room_rect = room["rect"]
+				var room_centre: Vector2i = room["center"]
+				var wall: Vector2i = (lamps[cell] as Dictionary).get("mount_offset", Vector2.ZERO) * 2.0
+				var along := cell.x - room_centre.x if wall.y != 0 else cell.y - room_centre.y
+				if along != 0:
+					out.append(finding("sewer", "floating", "sewer_lamp_symmetry", seed_text, "%s lamp %s in room %s" % [where_prefix, cell, room_rect],
+						"room lamp is %d cells off the middle of its wall" % along, float(absi(along))))
+		if in_room or not in_tunnel:
+			continue
+		var wall_v := Vector2((lamps[cell] as Dictionary).get("mount_offset", Vector2.ZERO)) * 2.0
+		var mirror := Vector2i(2 * centre - cell.x, cell.y) if wall_v.y != 0.0 else Vector2i(cell.x, 2 * centre - cell.y)
+		if not lamps.has(mirror):
+			out.append(finding("sewer", "floating", "sewer_lamp_symmetry", seed_text, "%s lamp %s" % [where_prefix, cell],
+				"no lamp at the mirror cell %s: spacing along the tunnel wall is uneven" % mirror))
+
+
+static func sweep_sewers(seeds: Array, radius: int, out: Array) -> Dictionary:
+	var stats := {"chunks": 0}
+	for seed_value in seeds:
+		var generator := SewerRouteGenerator.new(StreamedRouteGenerator.new(String(seed_value)))
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				audit_sewer_chunk(generator.chunk(Vector3i(dx, SewerRouteGenerator.LEVEL, dz)), String(seed_value), out)
+				stats["chunks"] += 1
+	return stats
