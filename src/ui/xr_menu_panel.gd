@@ -201,15 +201,11 @@ func _player_in_xr() -> bool:
 	return root.use_xr and root.get_camera_3d() is XRCamera3D
 
 
-## XRFade.change_scene: the route's (or this) view has faded to black; this view takes the headset now, still black,
-## so no frame renders from a camera that is about to be freed. It fades in once the new scene is up and settled.
-func take_view_dark() -> void:
-	var root := get_tree().root
-	root.use_xr = false
-	_view.use_xr = true
-	_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	_origin.current = true
-	_placed = false
+## XRFade.change_scene between menus: this view has faded to black; it stays black until the new scene is up and
+## settled, then fades in. (Leaving a route, the route's own view fades to black and this view takes the headset back
+## in _process once the route is gone, starting black: switching XR viewports while the route's camera still existed
+## left the headset on the dead route, KT saw black menus.)
+func hold_dark() -> void:
 	_fade.alpha = 1.0
 	_fade.fade_to(1.0)
 	_awaiting_scene = true

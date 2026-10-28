@@ -483,7 +483,7 @@ func _advance_rest_ease(delta: float) -> void:
 	_apply_rest_ease()
 	if float(_rest_ease["t"]) >= 1.0:
 		if bool(_rest_ease.get("leaving", false)) and first_person_items != null:
-			first_person_items.visible = true
+			first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 		_rest_ease = {}
 		first_person_pivot.position.x = 0.0
 		first_person_pivot.position.z = 0.0
@@ -1079,7 +1079,7 @@ func _update_plunge(delta: float) -> void:
 				collision_layer = 1
 				collision_mask = 1
 				if first_person_items != null:
-					first_person_items.visible = true
+					first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 				soaked_left = SOAKED_SECONDS
 				_drip_left = 1.0
 				_clip = "idle"
@@ -1197,7 +1197,7 @@ func _update_ladder_climb(delta: float) -> void:
 		collision_mask = 1
 		_show_climb_hands(false)
 		if first_person_items != null:
-			first_person_items.visible = true
+			first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 		if _animation_player != null:
 			_animation_player.speed_scale = 1.0
 		_clip = "idle"
@@ -1677,7 +1677,7 @@ func _enter_first_person() -> void:
 	first_person_camera.current = true
 	body_visual.visible = false
 	if first_person_items:
-		first_person_items.visible = true
+		first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 	# Stated as a preference, not set directly: a menu on top has to be able to
 	# hand the cursor back without this taking it again next frame.
 	MouseLock.set_gameplay_capture(true)

@@ -153,6 +153,9 @@ func _check_xr_route_panel(host: Node) -> void:
 	_check_xr_canvas_fit()
 	_check_death_audio_reset()
 	_check_xr_scene_fades(host)
+	_check_hunter_models_render(host)
+	_expect(not FileAccess.get_file_as_string("res://src/game_3d/player_controller_3d.gd").contains("first_person_items.visible = true"),
+		"the flat viewmodel is shown unconditionally somewhere (standing up in VR put the flat hand back)")
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -237,10 +240,12 @@ func _check_xr_scene_fades(host: Node) -> void:
 			_record_luma(tree, frames, route)
 			if leaving.is_settled():
 				break
-		panel.take_view_dark()
-		if route != null:
-			route.free()   # the scene change frees the route and its camera
+		if route == null:
+			panel.hold_dark()   # between menus
+		else:
+			route.free()   # the scene change frees the route and its camera; the headset keeps its last (black) frame
 			route = null
+			menu_fade.alpha = 1.0   # what _process does when it takes the view back
 		for _i in 6:   # the new scene loading
 			panel._process(XR_FADE_FRAME)
 			menu_fade.advance(XR_FADE_FRAME)
@@ -297,6 +302,28 @@ func _record_luma(tree: SceneTree, frames: Array[float], route: Node) -> void:
 		return
 	var scene_luma := XR_ROUTE_LUMA if route != null and route.is_ancestor_of(fade) else XR_MENU_LUMA
 	frames.append((1.0 - fade.alpha) * scene_luma)
+
+
+## KT: some hunters (Ysolde) were invisible in VR. Every hunter the route can spawn must instantiate the way the game
+## does (ModelSlot.instantiate_hunter) into something that draws on the Quest/XR path: at least one visible mesh with
+## surfaces, a material on every surface, no fully transparent or custom screen/depth shader material, layer 1, and a
+## sane bounding box.
+func _check_hunter_models_render(host: Node) -> void:
+	var bad := []
+	for id in HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS:
+		var identity := HunterRoster.get_identity(id)
+		var model := ModelSlot.instantiate_hunter(identity)
+		if model == null:
+			bad.append("%s: no model (%s)" % [id, identity.get("model_scene", "")])
+			continue
+		host.add_child(model)
+		var notes := XRRenderAudit.problems(model)
+		if OS.get_environment("XR_AUDIT_VERBOSE") == "1":
+			print("  hunter %s: %s" % [id, "ok" if notes.is_empty() else ", ".join(notes)])
+		if not notes.is_empty():
+			bad.append("%s: %s" % [id, ", ".join(notes.slice(0, 4))])
+		model.free()
+	_expect(bad.is_empty(), "hunter models that would not render in XR: %s" % "; ".join(bad))
 
 
 func _check_xr_keyboard(host: Node) -> void:
