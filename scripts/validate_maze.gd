@@ -284,16 +284,15 @@ func _expect_tool_gates(view: FacilityView3D, scene: Node) -> void:
 		elif item.kind == RouteInteractable3D.Kind.TOOL_PICKUP:
 			pickups[item.tool_item_id] = item
 	for item_id in PlayerController3D.INVENTORY_ITEMS:
+		if item_id == "flashlight":   # the player starts with it and the world spawns no flashlight pickups
+			if pickups.has(item_id):
+				_fail("the world spawned a flashlight pickup")
+			continue
 		if not pickups.has(item_id):
 			_fail("the seeded facility has no %s pickup" % item_id)
 		elif (pickups[item_id] as RouteInteractable3D).find_child(
 				"AuthoredPickup_%s" % item_id, true, false) == null:
 			_fail("the %s pickup is not using its authored GLB" % item_id)
-	if pickups.has("flashlight"):
-		var pickup := pickups["flashlight"] as RouteInteractable3D
-		pickup.activate(scene.player)
-		if not pickup.completed or not scene.player.owns_inventory_item("flashlight"):
-			_fail("collecting the flashlight did not grant it and clear the floor pickup")
 	if locked == null:
 		_fail("the route generated no locked relay crate/barrel")
 	else:
