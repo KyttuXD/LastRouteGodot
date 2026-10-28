@@ -14,7 +14,7 @@ const MALL_HALL := {"floor": ["terrazzo0", "terrazzo1"], "runner": false}
 const MALL_ROOM_DEFAULT := ["terrazzo0"]
 const MALL_ROOMS := ["donut_shop", "cinema", "corner_store", "food_court", "bakery", "laundromat", "electronics",
 	"night_diner", "drugstore", "florist", "barber", "pawn_shop", "stationery"]
-const SHOP_NAMES := {"donut_shop": "KYTTU DONUTS", "cinema": "CINEMA", "corner_store": "24/7 CORNER",
+const SHOP_NAMES := {"donut_shop": "DONUT COUNTER", "cinema": "CINEMA", "corner_store": "24/7 CORNER",
 	"food_court": "FOOD COURT", "bakery": "BAKERY", "laundromat": "LAUNDROMAT", "electronics": "ARCADE & ELECTRONICS",
 	"night_diner": "NIGHT DINER", "drugstore": "PHARMACY", "florist": "FLORIST", "barber": "BARBER",
 	"pawn_shop": "PAWN & LOAN", "stationery": "STATIONERY & READING"}
