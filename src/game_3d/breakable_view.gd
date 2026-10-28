@@ -39,7 +39,22 @@ static func build(spec: Dictionary) -> Dictionary:
 	root.name = "BreakableVisual"
 	var width := gate_width(spec) if (spec.get("extras", {}) as Dictionary).has("cells") else float((spec.get("extras", {}) as Dictionary).get("width", 2.0))
 	var pieces: Array = []
-	match String(spec.get("variant", "")):
+	var variant := String(spec.get("variant", ""))
+	if variant == "authored" or variant == "none":
+		# the owner draws it (SEWER's authored pipes): only an invisible aim target stands here, no collider, no pieces
+		var aim := MeshInstance3D.new()
+		var aim_mesh := BoxMesh.new()
+		aim_mesh.size = Vector3(width, 1.2, .6)
+		aim.mesh = aim_mesh
+		aim.position = Vector3(0, .8, 0)
+		var clear := StandardMaterial3D.new()
+		clear.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		clear.albedo_color = Color(1, 1, 1, 0)
+		aim.material_override = clear
+		aim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(aim)
+		return {"root": root, "pieces": pieces, "body": null, "width": width}
+	match variant:
 		"chainedGate":
 			_chained_gate(root, pieces, width)
 		"crackedFurnaceWall":

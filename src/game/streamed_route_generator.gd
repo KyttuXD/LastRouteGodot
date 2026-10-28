@@ -821,6 +821,12 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation, cave_tunnels)
 		for ramp in ramps:
 			_carve_ramp_bottom(grid, layout, circulation, ramp)
+			# the landing's 3x3 reaches the chunk's edge column, which the shared carve leaves as one brick cell
+			for part in ["bottom", "connector"]:
+				for z in range((ramp[part] as Rect2i).position.y, (ramp[part] as Rect2i).end.y):
+					for x in range((ramp[part] as Rect2i).position.x, (ramp[part] as Rect2i).end.x):
+						if x == 0 or x == CHUNK_SIZE - 1:
+							grid[z][x] = 0
 		# lava is rock to the walk grid but no wall and no floor to the view
 		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
 			for cell in pit["lava"]:

@@ -4,6 +4,7 @@ extends Node
 ## the runner to one room of each type and saves viewport PNGs.
 ##
 ##   godot --path . res://tools/look/capture.tscn -- OUTDIR TAG [SEED]
+## Add CAP_FULLBRIGHT=1 (or FULLBRIGHT=1) as an extra argument for the flat fullbright look (DebugView).
 ##
 ## Environment: CAP_ONLY=<substring of "region_roomtype">, CAP_MAX=<n rooms>,
 ## CAP_YAWS="0,90" (degrees), CAP_FPS=1 to print the frame time instead of
@@ -379,6 +380,11 @@ func _run(scene: Node) -> void:
 				player._pitch = atan2(d.y, Vector2(d.x, d.z).length())
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
+			# CAP_FULLBRIGHT=1 (or FULLBRIGHT=1): DebugView's flat, shadowless look, so dark levels can be judged; the shot name
+			# gets a _fb suffix. Capture tools only: DebugView stays admin-gated in the game.
+			if OS.get_environment("CAP_FULLBRIGHT") != "" or OS.get_environment("FULLBRIGHT") != "":
+				DebugView.tool_override = true
+				DebugView.set_mode(DebugView.Mode.FULLBRIGHT, get_viewport())
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
 			await _wait(int(OS.get_environment("CAP_WAIT")) if OS.get_environment("CAP_WAIT") != "" else 14)
 			if OS.get_environment("CAP_FPS") != "":

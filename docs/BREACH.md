@@ -30,3 +30,8 @@ all hang off it.
 
 `SealPlanner` places seals per chunk from `SealRules` (open share and seals per ring, chained wings, relays and tools).
 Seals never stand on a level link (ramps, stairs, falls) and every relay and tool the rules guarantee is reachable.
+
+## Authored pieces
+
+A spec with variant `"authored"` (or `"none"`) draws nothing and has no collider: only an invisible aim target stands at its
+cells, so the owner (SEWER's pipes) draws and removes its own mesh and collider from the "hit" / "breached" hooks.
