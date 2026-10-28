@@ -231,6 +231,35 @@ func spider_hiss(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("spider_hiss", pan, clampf(intensity, 0.1, 2.0))
 
 
+## The runner hitting the cistern after the waterfall jump: a heavy splash that carries (hunters hear it too, see the player's noise burst).
+func splash_big(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("splash_big", pan, clampf(intensity, 0.1, 2.0))
+
+
+## A drip off a soaked runner.
+func water_drip(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("water_drip", pan, clampf(intensity, 0.1, 2.0))
+
+
+var _muffle_effect: AudioEffectLowPassFilter = null
+
+
+## Underwater: everything on the master bus goes dull (a low-pass) until released.
+func set_muffled(on: bool) -> void:
+	var bus := AudioServer.get_bus_index("Master")
+	if bus < 0:
+		return
+	if _muffle_effect == null:
+		if not on:
+			return
+		_muffle_effect = AudioEffectLowPassFilter.new()
+		_muffle_effect.cutoff_hz = 650.0
+		AudioServer.add_bus_effect(bus, _muffle_effect)
+	for index in AudioServer.get_bus_effect_count(bus):
+		if AudioServer.get_bus_effect(bus, index) == _muffle_effect:
+			AudioServer.set_bus_effect_enabled(bus, index, on)
+
+
 ## A hand or boot on an iron ladder rung.
 func ladder_rung(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("ladder_rung", pan, clampf(intensity, 0.1, 2.0))
@@ -627,6 +656,9 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		# the falls into the collector: a broad roar (looped by the level, two seconds long)
 		"waterfall": c = [_noise(2.0, .26 * intensity, 380, 0, pan, .55), _noise(2.0, .14 * intensity, 1300, 0, pan, 1.0),
 			_noise(2.0, .08 * intensity, 160, 0, pan, .4)]
+		"splash_big": c = [_noise(.9, .22 * intensity, 700, 0, pan, .8), _noise(.5, .16 * intensity, 2200, .02, pan, 1.2), _thump(70, .35, .16 * intensity, 0, pan),
+			_noise(.7, .08 * intensity, 1400, .25, pan, 1.0)]
+		"water_drip": c = [_tone(980, .05, .05 * intensity, 0, "triangle", pan), _tone(640, .09, .04 * intensity, .04, "triangle", pan), _noise(.05, .03 * intensity, 3000, 0, pan, 1.2)]
 		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
 			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]

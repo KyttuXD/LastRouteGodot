@@ -189,8 +189,16 @@ func falls_between(x: int, z: int) -> Dictionary:
 	var overlook := Rect2i(qc.x + 2, ledge_z0, 3, ledge_z1 - ledge_z0 + 1)
 	var chamber := Rect2i(qc.x - 5, qc.y - 5 if north else qc.y - 6, 11, 12)
 	var pool := Rect2i(qc.x - 2, qc.y - 2 if north else qc.y - 3, 5, 6)
+	# The deliberate jump (docs/SEWERS.md): one gap in the overlook's railing, in front of the drop. Stepping through it
+	# off the ledge (`cell` is the first drop cell, `start` the ledge cell before it, `dir` the way out) is a plunge into the
+	# cistern: the arc lands at `land` in the pool, the swim ends at `exit` on the walkway ring (chunk-local, cell centres).
+	var jump_dir := Vector2i(0, -1) if north else Vector2i(0, 1)
+	var jump_cell := Vector2i(qc.x + 3, void_rect.end.y - 1 if north else void_rect.position.y)
+	var jump := {"cell": jump_cell, "start": jump_cell - jump_dir, "dir": jump_dir,
+		"land": Vector2(qc.x + 1.5, qc.y + .5 if north else qc.y - .5),
+		"exit": Vector2(qc.x + 1.5, float(pool.end.y) + .5 if north else float(pool.position.y) - .5)}
 	return {"quadrant": quadrant, "north": north, "void": void_rect, "spur": spur, "spur_deck": deck,
-		"overlook": overlook, "chamber": chamber, "pool": pool, "center": qc,
+		"overlook": overlook, "chamber": chamber, "pool": pool, "center": qc, "jump": jump,
 		"edge_z": float(void_rect.end.y) if north else float(void_rect.position.y),
 		"edge_x0": float(qc.x - 1)}
 

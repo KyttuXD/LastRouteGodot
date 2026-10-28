@@ -175,3 +175,21 @@ Build them with:
 * the view streams the sewer window, keeps the maze collider over the shaft, and stays inside the streaming frame
   budget;
 * a runner climbs down and back up (smoothly, ending on the far floor, collision restored).
+
+## The waterfall jump
+
+At each falls lip on the first sewer (-1) the overlook ledge's railing has one gap in front of one open drop cell (`falls_between()["jump"]`: `start` the ledge cell,
+`cell` the open drop cell, `dir` the way out, `land` and `exit` in the cistern below). Walking into that cell is a deliberate choice, never an accident: the hint "THE FALLS //
+STEP THROUGH THE GAP TO JUMP" shows within 2.4 cells. The route (`_update_falls_jump`) then calls `PlayerController3D.begin_plunge`:
+
+1. **Arc** (about a second, collision off, no damage): off the ledge into the cistern pool; the level changes by itself when the feet cross the storey.
+2. **Splash** (0.55 s): `splash_big` cue, the master bus goes muffled (`Sound.set_muffled`), the flashlight flickers for 1.4 s, and a noise burst of 3.0 for 1.2 s tells nearby hunters (it
+   beats the falls' roar mask).
+3. **Swim** (2-3 s at 1.5 m/s, eye just above the water) to the dry ring beside the pool, then a short climb out.
+4. **Soaked** for `SOAKED_SECONDS` (30): drips (`water_drip`) every 1-2.4 s and footsteps 1.45x louder to hunters. It times out by itself.
+5. 8% chance (`FALLS_ITEM_DROP_CHANCE`) that the item in hand slipped away: it is dropped at the climb-out point (`at_override` of the normal `stream_drop` event, so co-op guests request it
+   through the host like any drop).
+
+Co-op: the plunging runner's position is replicated like any movement; the drop and the noise go through the same host paths as every other drop and noise. Validators: `falls_jump`
+(every lip has a jump cell on dry ledge, lands in a pool, swims 2-3 s over pool water to dry ground connected to the collector, the view leaves the railing and collider open there only,
+and a live plunge ends on the collector floor, soaked, uncolliding nothing, and soaked times out) and the `plunge` section of `stream_perf` (mid-fall level change frame budget, no rebuilds).

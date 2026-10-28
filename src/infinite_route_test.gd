@@ -44,6 +44,8 @@ var _navigations := {}
 var _hunter_views := {}
 var _hunter_origins := {}
 var _hunter_levels := {}
+const FALLS_ITEM_DROP_CHANCE := .08            # the waterfall jump: chance the item in hand slips away
+var _jump_hint_shown := false
 var _safe_damage_accumulators := {}
 var _capture_cooldown := 0.0
 var _was_chased := false
@@ -182,6 +184,7 @@ func _ready() -> void:
 	player.ladder_climb_finished.connect(_on_player_ladder_finished)
 	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
+	player.plunge_finished.connect(_on_player_plunge_finished)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
@@ -388,6 +391,7 @@ func _process(delta: float) -> void:
 	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
+	_update_falls_jump(level)
 	_update_sewer_ambience(delta, level)
 	if not _awaiting_snapshot:
 		_update_checkpoint(data)
@@ -2838,6 +2842,62 @@ func _falls_noise_mask(at: Vector2, level: int) -> float:
 	return lerpf(FALLS_MASK_FLOOR, 1.0, clampf((nearest - FALLS_MASK_NEAR) / (FALLS_MASK_FAR - FALLS_MASK_NEAR), 0.0, 1.0))
 
 
+## The waterfall jump (docs/SEWERS.md): on the first sewer, stepping through the railing gap off an overlook ledge into the open drop is a
+## deliberate plunge into the collector's cistern. Nothing happens by accident: the gap is the only open cell, and walking into it is the choice.
+func _update_falls_jump(level: int) -> void:
+	if player == null or level != StreamedRouteGenerator.SEWER_LEVEL or player.is_plunging() or player.is_climbing() \
+			or player.hidden or player.spectator_mode or player.admin_noclip:
+		return
+	var jump := _falls_jump_near(player.grid_position(), level)
+	if jump.is_empty():
+		_jump_hint_shown = false
+		return
+	var at := player.grid_position()
+	var cell: Vector2 = jump["cell_world"]
+	if at.distance_to(cell) <= 2.4 and not _jump_hint_shown:
+		_jump_hint_shown = true
+		hud.show_message("THE FALLS // STEP THROUGH THE GAP TO JUMP")
+	if Vector2i(floori(at.x), floori(at.y)) != Vector2i(floori(cell.x), floori(cell.y)):
+		return
+	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+	var surface_y := float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise + SewerRouteGenerator.WATER_SURFACE
+	var land: Vector2 = jump["land_world"]
+	var exit: Vector2 = jump["exit_world"]
+	player.begin_plunge(Vector3(cell.x, player.global_position.y, cell.y), Vector3(land.x, surface_y, land.y),
+		Vector3(exit.x, float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise, exit.y), surface_y)
+
+
+## {"cell_world", "land_world", "exit_world"} of the falls jump in the chunk column around `at`, or {}.
+func _falls_jump_near(at: Vector2, level: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
+	if falls.is_empty() or not falls.has("jump"):
+		return {}
+	var jump: Dictionary = falls["jump"]
+	var origin := Vector2(cx * size, cz * size)
+	return {"cell_world": origin + Vector2(jump["cell"]) + Vector2(.5, .5), "land_world": origin + Vector2(jump["land"]),
+		"exit_world": origin + Vector2(jump["exit"]), "level": level}
+
+
+## Out of the pool: a small chance the item in hand slipped away; it floats to where the runner climbed out. (Soaked runs for SOAKED_SECONDS.)
+func _on_player_plunge_finished(exit_position: Vector3) -> void:
+	hud.show_message("SOAKED // YOUR STEPS CARRY")
+	var item := player.selected_inventory_item()
+	if item.is_empty() or randf() >= FALLS_ITEM_DROP_CHANCE:
+		return
+	var slot: int = player.selected_inventory_slot
+	var event := {"what": "stream_drop", "action": "create", "item": item, "durability": 0, "slot": slot,
+		"at_override": exit_position + Vector3(0, .0, 0)}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_stream_drop(multiplayer.get_unique_id() if RoomState.online else 1, event)
+	hud.show_message("YOUR %s SLIPPED AWAY // IT FLOATED TO THE EDGE" % String(
+		PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
+
+
 func _on_player_ladder_finished(_to_level: int) -> void:
 	_ladders.release("runner:%d" % (multiplayer.get_unique_id() if RoomState.online else 1))
 	facility.refresh_at_tracked_player()
@@ -3643,6 +3703,8 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 				return
 			var drop_position: Vector3 = at
 			drop_position += Vector3(facing.x, 0.0, facing.y) * .72
+			if event.has("at_override") and event["at_override"] is Vector3:
+				drop_position = event["at_override"]      # a drop that floated to the pool's edge
 			drop_position.y = facility.streamed_surface_height(Vector2(
 				drop_position.x, drop_position.z), -int(target.get("depth", 0))) + .12
 			var record := world_state.create_drop(item_id, durability, drop_position,
