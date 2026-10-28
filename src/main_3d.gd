@@ -648,7 +648,7 @@ func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 ## hunter roll could still draw someone else as the route hunter while she
 ## sits inert as a special-like fixture; if there is no Glyra on this floor
 ## at all, there is nothing to wind.
-func _wind_music_box() -> String:
+func _wind_music_box(_box_id := "") -> String:
 	if RoomState.online and not RoomState.is_host:
 		_remotes.request_interaction({"what": "music_box",
 			"cell": facility_view.music_box.source_cell if facility_view.music_box else Vector2i(-1, -1)})

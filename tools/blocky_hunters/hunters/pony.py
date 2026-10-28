@@ -44,7 +44,11 @@ def measure(canvas):
     return colour, body, width, rows, strand
 
 
-def apply(canvas, build=True):
+## Longest a ponytail hangs (px): to about the shoulder blades / mid-back. Nyxie keeps the full strand (the testers' "braid girl").
+MAX_LENGTH = 16.0
+
+
+def apply(canvas, build=True, keep_long=False):
     """Remove the painted strand (body back -> body colour, jacket back -> transparent) and return the cubes."""
     got = measure(canvas)
     if got is None:
@@ -66,6 +70,8 @@ def apply(canvas, build=True):
             for i in range(w):
                 canvas.putpixel((x + i, y + j), (*c, 255))
     length = 9.0 + rows                             # ponytails hang 17-21 px
+    if not keep_long:
+        length = min(length, MAX_LENGTH)
     seg = [(length * .30, 1.0), (length * .30, 0.95), (length * .25, 0.8), (length * .15, 0.55)]
 
     def box(name, bone, y0, y1, w, d, zc, key, rot=(0, 0, 0), pivot=None):

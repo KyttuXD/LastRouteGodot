@@ -13,7 +13,7 @@ EYES = eye_locators()
 MODEL_KW = {}
 
 # per side: bone chain hanging from a tie high on the side of the head (skin px)
-_PIG = [(1, 30.2, 3.0, 24.6, 3.6), (2, 24.6, 3.6, 18.2, 3.8), (3, 18.2, 3.8, 11.4, 3.8), (4, 11.4, 3.8, None, None)]
+_PIG = [(1, 30.2, 3.0, 24.6, 3.6), (2, 24.6, 3.6, 18.2, 3.8), (3, 18.2, 3.8, 14.0, 3.8)]
 EXTRAS = list(pony.EXTRAS)
 for _side, _s in (("L", -1), ("R", 1)):
     for _i, _y, _z, _, _ in _PIG:
@@ -30,7 +30,7 @@ def _modify(canvas):
     for side, s in (("L", -1), ("R", 1)):
         cubes.append(Cube(f"{side}-pig-tie", f"{side}-Pig-1", (m(s * 5.0 - 0.7), m(29.5), m(2.2)), (m(s * 5.0 + 0.7), m(31.1), m(4.0)),
                           uv={f: tie for f in "ENWSUD"}))
-        spans = [(24.6, 30.2, 3.2, 3.0), (18.2, 24.8, 3.4, 3.0), (11.4, 18.4, 3.2, 2.8), (6.0, 11.6, 2.0, 2.2)]
+        spans = [(24.6, 30.2, 3.2, 3.0), (18.2, 24.8, 3.4, 3.0), (14.0, 18.4, 2.6, 2.6)]
         for i, (y0, y1, w, d) in enumerate(spans):
             x = s * (5.7 + 0.35 * i)
             zc = 3.5 + 0.1 * i

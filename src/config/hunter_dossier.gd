@@ -28,7 +28,7 @@ const ENTRIES := {
 		"behavior": "Ferryn is completely cloaked except for glowing amber eyes that slowly follow you through the corridors. Ducking into hiding or stepping into a safe zone banishes them back to their origin room. Shining a flashlight beam into their eyes also forces a retreat, but their piercing shriek maxes out the noise meter and alerts every other active hunter to your position.",
 	},
 	"glyra": {
-		"behavior": "Glyra anchors to the music box located in the starting room. Fully winding the music box grants 20 seconds of calm before the facility noise meter begins steadily climbing by one point per second. Return and wind the box periodically to silence the chime and clear any noise accrued from neglect.",
+		"behavior": "Glyra follows the nearest music box. While it plays she wanders close by, humming, and leaves you alone unless you walk right up to her. When the tune slows and goes off-key she grows restless, stalks the halls and peeks round corners. When it stops, the humming stops too: she hunts fast until someone holds [E] to wind the box again.",
 	},
 	"haelith": {
 		"behavior": "Rather than wandering aimlessly, Haelith marches directly toward the nearest uncollected relay on the floor. Heavy rhythmic footsteps echo loudly within nine cells. Rush to finish objectives before they arrive, or duck into nearby lockers to let them pass by safely.",

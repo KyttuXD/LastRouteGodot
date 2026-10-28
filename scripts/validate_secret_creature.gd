@@ -10,7 +10,7 @@ const ID := "white_wolf_spider"
 const BLACK_ID := "black_wolf_spider"
 const STEP := 1.0 / 30.0
 ## Files that may name it (everything else must stay silent: the grep test below).
-const ALLOWED := ["res://src/config/secret_creatures.gd", "res://src/game/inferno_secrets.gd",
+const ALLOWED := ["res://assets/hunters_blocky/creature_stride_table.json", "res://src/config/secret_creatures.gd", "res://src/game/inferno_secrets.gd",
 	"res://src/game/hunter_gimmicks/white_wolf_spider_gimmick.gd", "res://src/game/hunter_gimmicks/black_wolf_spider_gimmick.gd",
 	"res://src/game/hunter_gimmicks/hunter_gimmick.gd",
 	"res://src/game_3d/creature_view.gd", "res://scripts/validate_secret_creature.gd", "res://tools/look/creature_check.gd",

@@ -256,7 +256,8 @@ func run(host: Node) -> int:
 				# vertical hall and the untrimmed part of the middle hall must stay whole.
 				var trim_west: bool = world.hall_trimmed(data["coord"], -1)
 				var trim_east: bool = world.hall_trimmed(data["coord"], 1)
-				for axis_offset in range(-1, 2):
+				# level -3 is a cave network (InfernoCaverns), with no central cross to keep whole
+				for axis_offset in range(-1, 2) if int(data["coord"].y) != StreamedRouteGenerator.INFERNO_LEVEL else []:
 					for axis_cell in range(1, StreamedRouteGenerator.CHUNK_SIZE - 1):
 						var horizontal_ok: bool = int(data["grid"][center + axis_offset][axis_cell]) == 0 \
 							or (trim_west and axis_cell < center - 1) or (trim_east and axis_cell > center + 1)
@@ -266,7 +267,7 @@ func run(host: Node) -> int:
 					var corridor: Dictionary = corridor_value
 					_expect(int(corridor.get("width", 0)) == StreamedRouteGenerator.CORRIDOR_WIDTH,
 						"recorded corridor is not three cells wide: %s" % corridor)
-				_expect((data["corridors"] as Array).any(func(corridor: Dictionary) -> bool:
+				_expect(int(data["coord"].y) == StreamedRouteGenerator.INFERNO_LEVEL or (data["corridors"] as Array).any(func(corridor: Dictionary) -> bool:
 					return bool(corridor.get("branch", false)) \
 						and bool(corridor.get("from_main_hall", false))),
 					"%s has no secondary hall branching from its main cross" % data["coord"])

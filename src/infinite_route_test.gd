@@ -226,6 +226,9 @@ func _ready() -> void:
 	facility.chunk_changed.connect(_on_chunk_changed)
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
+	_music_boxes.difficulty_id = RoomState.difficulty_id()
+	facility.music_boxes = _music_boxes
+	player.music_box_resolver = _wind_streamed_music_box
 	facility.door_requester = _request_streamed_door
 	facility.room_light_requester = _request_room_light
 	facility.booth_requester = _request_booth
@@ -354,6 +357,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 func _process(delta: float) -> void:
 	_update_troll_ads(delta)
+	_music_boxes.tick(delta)
+	_tick_seat_occupancy()
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
 	_tick_carousels(delta)
@@ -2580,6 +2585,8 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
 	_configure_day_vision(view.brain)
+	if view.brain.gimmick is GlyraGimmick:
+		(view.brain.gimmick as GlyraGimmick).boxes = _music_boxes
 	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
 	_lock_gray_on(entity_id, view.brain)
@@ -2648,6 +2655,10 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
 	_inferno_secrets.update(self, delta)
+	for cell_value in _inspect_cooldowns.keys():
+		_inspect_cooldowns[cell_value] = float(_inspect_cooldowns[cell_value]) - delta
+		if float(_inspect_cooldowns[cell_value]) <= 0.0:
+			_inspect_cooldowns.erase(cell_value)
 	for cell_value in _hide_check_cooldowns.keys():
 		_hide_check_cooldowns[cell_value] = float(_hide_check_cooldowns[cell_value]) - delta
 		if float(_hide_check_cooldowns[cell_value]) <= 0.0:
@@ -2698,6 +2709,15 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 			_store_hunter(entity_id, view)
 			continue
 		view.set_asleep(false)
+		# idle seats (docs/SEATING.md): a seated hunter is owned by the seat until a noise or a sighting gets her up
+		if not _naps.naps.has(entity_id) and _seats.update(entity_id, view.brain, navigation, target, delta, _nap_rng.randf(), RoomState.difficulty_id()):
+			view.target_peer_id = 0
+			view.set_look_target(null)
+			view.sync_from_brain()
+			view.set_seated(true, float(_seats.seat_of(entity_id).get("yaw", 0.0)))
+			_store_hunter(entity_id, view)
+			continue
+		view.set_seated(false)
 		var captured := false
 		if not target.is_empty():
 			view.target_peer_id = int(target.get("peer_id", 1))
@@ -3002,9 +3022,22 @@ static func _ladder_yaw(link: Dictionary) -> float:
 ## hunter logic; the result reaches the hider as a player event and the tell as a stream event.
 var _hide_checks := {}
 var _hide_check_cooldowns := {}
+var _inspect_cooldowns := {}
 
 
 var _naps := HunterNaps.new()
+var _seats := HunterSeats.new()
+
+
+## Who sits where this frame (SeatOccupancy, docs/SEATING.md): remote runners from their replicated seat, hunters from
+## their seated views (host and guests alike), so a taken seat offers no prompt and no hunter picks it.
+func _tick_seat_occupancy() -> void:
+	var taken: Array = _remotes.occupied_seats() if _remotes != null else []
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view != null and is_instance_valid(view) and view.is_seated():
+			taken.append(SeatOccupancy.plan_of(view))
+	SeatOccupancy.rebuild(taken)
 var _nap_rng := RandomNumberGenerator.new()
 var _snore_cooldowns := {}
 
@@ -3064,6 +3097,7 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	var centre := Vector2(spot) + Vector2(.5, .5)
 	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre,
 			GameConfig.profile_value(RoomState.difficulty_id(), "hide_trail")):
+		_maybe_inspect_spot(brain, navigation, spot, centre)
 		return
 	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"),
 		"peer": int(target.get("peer_id", 1))}
@@ -3071,6 +3105,22 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))
 	_publish_stream_event({"what": "stream_hide_check", "cell": spot,
 		"seconds": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell")})
+
+
+## She did not see them go in (no hide check): maybe a close look through the slats instead (HunterInspect), which never
+## finds them. Only slatted spots; the same spot is left alone for SPOT_COOLDOWN.
+func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigation, cell: Vector2i, centre: Vector2) -> void:
+	if HunterInspect.chance(brain.hunter_id, RoomState.difficulty_id()) <= 0.0 or _inspect_cooldowns.has(cell) \
+			or not HunterInspect.qualifies(brain, centre, false) or navigation == null:
+		return
+	for spot_value in navigation.hiding_spots:
+		var spot: Dictionary = spot_value
+		if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) != cell or not HunterInspect.slatted(String(spot.get("style", ""))):
+			continue
+		var at: Vector2 = spot.get("prop_at", centre)
+		if brain.maybe_inspect(at, HunterInspect.door_direction(float(spot.get("yaw", 0.0))), navigation):
+			_inspect_cooldowns[cell] = HunterInspect.SPOT_COOLDOWN
+		return
 
 
 static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:
@@ -3258,6 +3308,22 @@ func _accept_stream_guardian_ping(peer_id: int, event: Dictionary) -> void:
 		var view := view_value as HunterView3D
 		if view != null and view.brain.active:
 			view.brain.enter_search_from(position, 1.8)
+
+
+## The route's music boxes (MusicBoxes; Glyra's counterplay). Every peer ticks its own clock; a wind is a stream event.
+var _music_boxes := MusicBoxes.new()
+
+
+## Hold [E] on a box: wind it here at once (the tune restarts), and through the host for everyone else.
+func _wind_streamed_music_box(box_id: String) -> String:
+	if box_id.is_empty():
+		return "Nothing happens."
+	if RoomState.online and not RoomState.is_host:
+		_music_boxes.wind(box_id)
+		_remotes.request_interaction({"what": "music_box", "id": box_id})
+	else:
+		_publish_stream_event({"what": "stream_music_box", "id": box_id})
+	return "Music box wound. The tune starts again."
 
 
 func _use_streamed_vent(vent_id: String) -> String:
@@ -3990,6 +4056,10 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":
 			_accept_stream_vent(peer_id, event)
+		"music_box":
+			var box_id := String(event.get("id", ""))
+			if not box_id.is_empty() and box_id.ends_with(":music_box"):
+				_publish_stream_event({"what": "stream_music_box", "id": box_id})
 		"signal_route_result":
 			VoidPlayerEffects.host_route_result(_hunter_views.values(), peer_id, bool(event.get("ok", false)))
 
@@ -4317,6 +4387,8 @@ func _publish_stream_event(event: Dictionary, _state_already_applied: bool = fal
 
 func _apply_stream_world_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
+		"stream_music_box":
+			_music_boxes.wind(String(event.get("id", "")))
 		"stream_respawn":
 			for id_value in event.get("ids", []):
 				world_state.claimed_pickups.erase(String(id_value))
@@ -4762,6 +4834,8 @@ func _collect_hunter_report() -> void:
 		state["asleep"] = _naps.is_asleep(entity_id)
 		state["sleep_yaw"] = float(_naps.bed_of(entity_id).get("yaw", 0.0))
 		state["sleep_stage"] = _naps.stage_of(entity_id)
+		state["seated"] = _seats.is_seated(entity_id)
+		state["seat_yaw"] = float(_seats.seat_of(entity_id).get("yaw", 0.0))
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
 		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
@@ -4803,6 +4877,7 @@ func _apply_hunter_report(data: Array) -> void:
 		view.target_peer_id = int(state.get("target_peer_id", 0))
 		view.set_look_target(state.get("look_target"))
 		view.set_asleep(bool(state.get("asleep", false)), float(state.get("sleep_yaw", 0.0)), int(state.get("sleep_stage", 0)))
+		view.set_seated(bool(state.get("seated", false)), float(state.get("seat_yaw", 0.0)))
 		var gimmick_state = state.get("gimmick", {})
 		if view.brain.gimmick != null and gimmick_state is Dictionary:
 			view.brain.gimmick.apply_network_state(gimmick_state)

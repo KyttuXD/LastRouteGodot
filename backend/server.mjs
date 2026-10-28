@@ -11,6 +11,7 @@ import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
 import { createModeration } from "./moderation.mjs";
+import { createModPacks } from "./mod_packs.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
@@ -19,6 +20,9 @@ const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 // listing must lapse quickly so a guest can take over.
 const PUBLIC_ENET_TTL_MS = 15_000;
 const MAX_BODY_BYTES = 64 * 1024;
+// a pack manifest lists up to 500 files with a sha256 each; only the owner-only register call may send this much
+const MOD_REGISTER_MAX_BODY_BYTES = 256 * 1024;
+const MOD_PACK_PATH = /^\/api\/mods\/packs\/([a-z0-9][a-z0-9_]{2,31})$/;
 const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_DEV_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
@@ -85,12 +89,12 @@ function json(response, status, value, extraHeaders = {}) {
   response.end(body);
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("REQUEST BODY TOO LARGE"), { status: 413 });
+    if (size > maxBytes) throw Object.assign(new Error("REQUEST BODY TOO LARGE"), { status: 413 });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -286,8 +290,12 @@ export function createLastRouteServer({
   publicRouteStorePath = null,
   publicRouteSeed = "PUBLIC-ROUTE",
   publicItemRespawnMs,
+  modPackStorePath = null,
+  modDownloadBase = "",
+  modPackLimits,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
   apiRateLimitMax = 600,
+  modRateLimitMax = 120,
   accountRateLimitMax = 30,
   devTokenTtlMs = DEFAULT_DEV_TOKEN_TTL_MS,
   now = Date.now,
@@ -322,6 +330,8 @@ export function createLastRouteServer({
     isOwner: (name) => accountService.isAdminOwner(name),
     accountExists: (name) => accountService.accountExists(name),
     updatesProvider: () => currentUpdates() });
+  const modPacks = createModPacks({ storePath: modPackStorePath, downloadBase: modDownloadBase, now, logger,
+    ...(modPackLimits ? { limits: modPackLimits } : {}) });
   const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
   const gameSaves = createGameSaves({ directory: saveDirectory, accountService, now, logger, ...saveOptions });
   const devTokens = new Map();   // token -> expiresAt; a leaked dev token must not grant developer proof forever
@@ -390,11 +400,13 @@ export function createLastRouteServer({
 
   function rateLimitRequest(request, pathname) {
     const sensitive = ACCOUNT_RATE_LIMIT_PATHS.has(pathname);
-    const maximum = Math.max(1, Number(sensitive ? accountRateLimitMax : apiRateLimitMax) || 1);
+    // mod index reads get their own, tighter bucket so a client polling packs cannot starve gameplay calls
+    const mods = !sensitive && pathname.startsWith("/api/mods/");
+    const maximum = Math.max(1, Number(sensitive ? accountRateLimitMax : mods ? modRateLimitMax : apiRateLimitMax) || 1);
     const windowMs = Math.max(1000, Number(rateLimitWindowMs) || DEFAULT_RATE_LIMIT_WINDOW_MS);
     const timestamp = now();
     const address = requesterAddress(request, trustProxy) || "unknown";
-    const key = `${sensitive ? "account" : "api"}|${address}`;
+    const key = `${sensitive ? "account" : mods ? "mods" : "api"}|${address}`;
     let rate = requestRates.get(key);
     if (!rate || timestamp >= rate.resetAt) {
       rate = { count: 0, resetAt: timestamp + windowMs };
@@ -453,6 +465,17 @@ export function createLastRouteServer({
         return response.end(request.method === "HEAD" ? undefined : result[1]);
       }
       return json(response, result[0], result[1]);
+    }
+
+    // mod pack index (mod_packs.mjs): metadata only; the files themselves are served from VPS 2
+    if (request.method === "GET" && url.pathname === "/api/mods/packs") {
+      const result = modPacks.list();
+      return json(response, result[0], result[1], { "cache-control": "public, max-age=60" });
+    }
+    const modPackPath = MOD_PACK_PATH.exec(url.pathname);
+    if (request.method === "GET" && modPackPath) {
+      const result = modPacks.get(modPackPath[1], url.searchParams.get("version"));
+      return json(response, result[0], result[1], { "cache-control": "public, max-age=60" });
     }
 
     const savePath = SAVE_PATH.exec(url.pathname);
@@ -549,7 +572,8 @@ export function createLastRouteServer({
 
     let body;
     try {
-      body = await readJson(request);
+      body = await readJson(request,
+        url.pathname === "/api/admin/mods/register" ? MOD_REGISTER_MAX_BODY_BYTES : MAX_BODY_BYTES);
     } catch (error) {
       return json(response, error.status || 400, { ok: false, error: error.message });
     }
@@ -714,6 +738,18 @@ export function createLastRouteServer({
       return json(response, 200, { ok: true, status: moderation.status({ deviceId: body.deviceId,
         address: requesterAddress(request, trustProxy),
         username: body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "" }) });
+    }
+    if (url.pathname.startsWith("/api/admin/mods/")) {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      let result;
+      if (url.pathname === "/api/admin/mods/register") result = modPacks.register(body, owner);
+      else if (url.pathname === "/api/admin/mods/block") result = modPacks.block(body, owner);
+      else if (url.pathname === "/api/admin/mods/unblock") result = modPacks.unblock(body, owner);
+      else result = [404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" }];
+      return json(response, result[0], result[1]);
     }
     if (url.pathname.startsWith("/api/admin/flags") || url.pathname.startsWith("/api/admin/builds/")) {
       const owner = accountService.sessionUsername(body.sessionToken);
@@ -902,6 +938,9 @@ export function startLastRouteServerFromEnvironment() {
     moderationSalt: String(process.env.LASTROUTE_MODERATION_SALT || ""),
     skinDirectory: environmentPath("LASTROUTE_SKINS_DIR") || join(dataDirectory, "skins"),
     saveDirectory: environmentPath("LASTROUTE_SAVES_DIR") || join(dataDirectory, "saves"),
+    modPackStorePath: environmentPath("LASTROUTE_MOD_INDEX_STORE") || join(dataDirectory, "mod_packs.json"),
+    // public URL of the VPS 2 mod folder, e.g. https://<vps2>/lr3d/mods (the index never serves pack files itself)
+    modDownloadBase: String(process.env.LASTROUTE_MOD_DOWNLOAD_BASE || "").trim(),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
@@ -919,6 +958,7 @@ export function startLastRouteServerFromEnvironment() {
     rateLimitWindowMs,
     apiRateLimitMax,
     accountRateLimitMax,
+    modRateLimitMax: Math.max(1, Number(process.env.LASTROUTE_MOD_RATE_LIMIT) || 120),
   });
   if (relayEnabled) server.startEnetRelay({ host, port: relayPort });
   server.listen(port, host, () => loggerStartup(host, port, accountStorePath,

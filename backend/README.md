@@ -119,6 +119,9 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
 | `LASTROUTE_SAVES_DIR` | `<data>/saves` | per-account cloud saves (`<USERNAME>.json`) |
+| `LASTROUTE_MOD_INDEX_STORE` | `<data>/mod_packs.json` | mod pack index (metadata only, see "Mod packs") |
+| `LASTROUTE_MOD_DOWNLOAD_BASE` | empty | public URL of the VPS 2 mod folder, e.g. `https://<vps2>/lr3d/mods` |
+| `LASTROUTE_MOD_RATE_LIMIT` | `120` | `/api/mods/*` requests per address per rate window (own bucket) |
 | `LASTROUTE_MODERATION_STORE` | `moderation.json` beside the account store | flags, kick log, cooldowns, build allow-list |
 | `LASTROUTE_MODERATION_SALT` | generated and persisted in the store | salt for the sha256 of device ids and IPs |
 | `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
@@ -311,6 +314,50 @@ Run the real Godot integration smoke test against the deployed primary service:
 ```sh
 godot4 --headless --path .. res://scenes/backend_smoke.tscn
 ```
+
+## Mod packs
+
+The pack **index** lives here (VPS 3); the pack **files** live only on VPS 2. The index never serves pack files.
+
+- `GET /api/mods/packs` lists every pack (newest version each): `id`, `name`, `version`, `author`, `description`,
+  `gameVersion`, `overrides`, `sha256` (pack identity, below), `blocked`, `blockedReason`, `files` (`path`, `sha256`,
+  `size`; `pack.json` included), `totalBytes`, `downloadBase`, `versions`. Clients must skip `blocked` packs and verify
+  every downloaded file against its `sha256` before loading it.
+- `GET /api/mods/packs/<id>[?version=<v>]` returns one pack (404 `PACK_NOT_FOUND`).
+- Owner only (body `sessionToken` of an admin owner, as for `/api/admin/flags`):
+  - `POST /api/admin/mods/register` with `{ pack, replace? }` (used by the deploy script). A version that already
+    exists is refused with 409 `VERSION_EXISTS` unless `replace` is set.
+  - `POST /api/admin/mods/block` with `{ id, reason? }` and `POST /api/admin/mods/unblock` with `{ id }`.
+- Caps follow the client loader: 16 MB per file, 128 MB per version, 512 files. The index holds at most 2000 packs and
+  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters/*.json`
+  one level deep; `assets/**` `.glb` `.png` `.ogg` (lower case). Anything else is refused at deploy time.
+  The register body may be up to 256 KB; every other route keeps the 64 KB cap. `/api/mods/*` has its own
+  rate-limit bucket (`LASTROUTE_MOD_RATE_LIMIT`).
+
+Layout on VPS 2: `<remote-root>/<pack_id>/<version>/<files>` (default remote root `/srv/lr3d/mods`), served at
+`<LASTROUTE_MOD_DOWNLOAD_BASE>/<pack_id>/<version>/<path>`. A version folder is never changed in place: publish a new
+version instead.
+
+`pack.json` (`lr.pack/1`, the DATA lane's loader schema; see `docs/DATA_DRIVEN_CONTENT.md`):
+- `schema: "lr.pack/1"` is required, and unknown keys refuse the pack.
+- `id` is `[a-z0-9][a-z0-9_]{2,31}`, with no hyphen: content ids are `<pack_id>_<name>`.
+- `version` is `[0-9A-Za-z.+-]`, at most 32 characters.
+- `name` and `author` are required here.
+- `description`, `game_version` and `overrides` (`"<kind>/<id>"`) are optional.
+- `files` is optional; if present, it must list every file except `pack.json` with its exact sha256 and size.
+
+Pack identity (the client's cache key and room-handshake value) is the sha256 of the `"<file sha256> <path>"` lines,
+sorted by path and joined by `\n`, over every file including `pack.json`.
+
+Deploying a pack (dry run unless `--apply`; the owner session comes only from the environment):
+
+```bash
+LASTROUTE_OWNER_SESSION=... node backend/deploy_mod_pack.mjs path/to/pack --vps2 <ssh-host> --index https://<vps3-host> --apply
+```
+
+The script hashes every file and enforces the caps. It copies the pack to `<id>/<version>.uploading-<pid>` on VPS 2
+and re-hashes the files there with `sha256sum`. Only if every hash matches does it rename the folder into place and
+register the pack in the index. A bad upload is deleted, and nothing is registered.
 
 ## Moderation
 

@@ -902,6 +902,73 @@ static func is_batchable(type: String) -> bool:
 
 ## Turn decorative furniture into a gameplay surface without coupling the
 ## generator to model filenames. An empty result remains ordinary dressing.
+## Hunter-scale rescale (docs/SEATING.md, docs/SCALE_FIT.md): the world is built for a 2.67 m hunter, and these models were
+## authored person-sized. ModelSlot.instantiate_prop scales their children by this factor, so the view, the collider
+## emitter (PropColliderSizes) and every audit see the same scaled model. Seats, benches, sofas and stools all scale.
+const HUNTER_SCALE := {
+	# seats (every chair, stool, bench and sofa you can sit on): seat pans end up about 0.45 m x 1.5
+	"barberChair": 1.5, "beachChair": 1.5, "dinerStool": 1.5, "diningChair": 1.5, "diningChairCushion": 1.5,
+	"gothicBedroomBench": 1.5, "gothicHighbackChair": 1.5, "greenhouseBench": 1.5, "labStool": 1.5, "loungeCouch": 1.5,
+	"loungeCouchWide": 1.5, "mallBench": 1.5, "officeChair": 1.5, "publicShowerBench": 1.5, "waitingChairs": 1.5,
+	"wheelchair": 1.5, "woodenChair": 1.5, "woodenChairCushion": 1.5, "dinerBooth": 1.5,
+	# beds (the gothic canopy stops at 1.48 so it stays under the hunter-scale bed length)
+	"bunkBed": 1.5, "doubleBed": 1.5, "gothicDoubleBed": 1.48, "hospitalBed": 1.5, "prisonBunk": 1.5, "singleBed": 1.5,
+	# counters, kitchens, sinks
+	"bathroomSink": 1.5, "bathroomVanity": 1.5, "bedroomDresser": 1.5, "checkoutCounter": 1.5, "concessionCounter": 1.5,
+	"diningSideboard": 1.5, "luxuryKitchenCounter": 1.5, "luxuryKitchenIsland": 1.5, "luxuryKitchenSink": 1.5,
+	"luxuryKitchenStove": 1.5, "normalKitchenCounter": 1.5, "normalKitchenIsland": 1.5, "normalKitchenSink": 1.5,
+	"normalKitchenStove": 1.5, "prisonServingCounter": 1.5, "receptionDesk": 1.5, "woodenDresserSideboard": 1.5,
+	"normalCoffeeTable": 1.5,
+	# storage, lamps, bathrooms
+	"clothesRack": 1.5, "filingCabinet": 1.5, "gasCylinderRack": 1.5, "surfboardRack": 1.5, "floorLamp": 1.5,
+	"gothicFloorCandelabra": 1.5, "deconShower": 1.5, "houseShowerEnclosure": 1.5, "publicMensShowerStall": 1.5,
+	"publicWomensShowerStall": 1.5, "houseToilet": 1.5, "publicRestroomToilet": 1.5, "publicMensUrinal": 1.5,
+}
+## Multi-seat furniture: this many separate sit points side by side along the prop's width, each its own interactable
+## (its own prompt and camera, picked by aim), and each a seat a hunter can take. Anything not listed is one seat.
+const SEAT_COUNTS := {"dinerBooth": 4, "waitingChairs": 3, "loungeCouch": 2, "loungeCouchWide": 3, "mallBench": 2, "greenhouseBench": 2,
+	"gothicBedroomBench": 2, "publicShowerBench": 2}
+
+
+static func hunter_scale(type: String) -> float:
+	return float(HUNTER_SCALE.get(type, 1.0))
+
+
+## Props whose seats sit in rows facing each other instead of one row facing out: per row, its centre along the prop's
+## local z as a fraction of the depth (gameplay frame: -Z is the prop's front) and the turn from the prop's yaw it faces
+## (0 = out of the front, PI = toward the back). The diner booth's two benches face each other across its table.
+const SEAT_ROWS := {"dinerBooth": [{"z": .36, "turn": 0.0}, {"z": -.36, "turn": PI}]}
+
+
+static func seat_count(type: String) -> int:
+	return int(SEAT_COUNTS.get(type, 1)) if interaction_for(type) == "sit" else 1
+
+
+## Sit points of a sit prop `size` big, in its gameplay-local frame: [{"x", "z", "turn", "width", "exit"}]. One row of
+## seat_count seats across the width by default, each `width` wide, facing out (turn 0); SEAT_ROWS props split them over
+## their rows. "exit" is the local direction you get up toward: out of the front, or out of the nearer open end of a
+## booth bench.
+static func seat_points(type: String, size: Vector3) -> Array:
+	var rows: Array = SEAT_ROWS.get(type, [{"z": 0.0, "turn": 0.0}])
+	var per_row := maxi(1, seat_count(type) / rows.size())
+	var out := []
+	for row_value in rows:
+		var row: Dictionary = row_value
+		for i in per_row:
+			var x := (float(i) + .5) / float(per_row) * size.x - size.x * .5
+			var exit := Vector2(0, -1).rotated(-float(row["turn"])) if rows.size() == 1 else Vector2(signf(x) if x != 0.0 else 1.0, 0)
+			out.append({"x": x, "z": float(row["z"]) * size.z, "turn": float(row["turn"]), "width": size.x / float(per_row), "exit": exit})
+	return out
+
+
+## Seat centres along a single-row sit prop's local x (kept for callers that only need the row).
+static func seat_offsets(type: String, width: float) -> Array:
+	var out := []
+	for point in seat_points(type, Vector3(width, 1.0, 1.0)):
+		out.append(float(point["x"]))
+	return out
+
+
 static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
 	if type == "carouselCenterpiece":
@@ -912,7 +979,9 @@ static func interaction_for(type: String) -> String:
 		return "use"
 	if "mirror" in lowered and type != "standingMirror":   # the working-mirror surface is sized for wall mirrors
 		return "mirror"
-	if type in ["labBench", "pottingBench", "dinerBooth"]:
+	if type == "dinerBooth":
+		return "sit"    # two benches facing across the table, two seats each (SEAT_ROWS)
+	if type in ["labBench", "pottingBench"]:
 		return ""   # work benches, not seats
 	if type in ["controlConsole", "nursesStation", "diveConsole"]:
 		return "use"

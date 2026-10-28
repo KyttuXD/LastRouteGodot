@@ -114,7 +114,11 @@ class Worker:
                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", **_group_kwargs())
             killer = threading.Timer(timeout + 60, lambda: _kill_group(proc))
             killer.start()
+            state = {"last": time.time(), "stalled": False}
+            watcher = threading.Thread(target=_stall_watch, args=(proc, state), daemon=True)
+            watcher.start()
             for line in proc.stdout:
+                state["last"] = time.time()
                 log.write(line)
                 stripped = line.rstrip("\n")
                 if stripped.startswith("== ") and stripped[3:] in suites:
@@ -122,11 +126,66 @@ class Worker:
                 m = VERDICT.match(stripped)
                 if m:
                     verdicts[m.group(1)] = (m.group(2), float(m.group(3)))
+                    print("[w%d] %s %s %ss" % (self.idx, m.group(2), m.group(1), m.group(3)), flush=True)
                 if current and ("FAIL" in stripped or "SCRIPT ERROR" in stripped or "ERROR:" in stripped):
                     lines_by.setdefault(current, []).append(stripped)
             rc = proc.wait()
             killer.cancel()
+            state["done"] = True
+            if state["stalled"] and current and current not in verdicts:
+                # a blocking Godot ALERT (or any hang without CPU use) inside this suite: a test FAIL, not a hang
+                verdicts[current] = ("FAIL", 0.0)
+                lines_by.setdefault(current, []).append(
+                    "  FAIL  STALL: no output for %ds and no CPU use (blocking Godot ALERT?); killed" % STALL)
+                print("[w%d] FAIL %s (stall)" % (self.idx, current), flush=True)
         return verdicts, lines_by, rc
+
+
+STALL = int(os.environ.get("GUARD_STALL_INNER", "30"))
+
+
+def _cpu_seconds(pid):
+    """CPU seconds of every process in pid's process group (POSIX), None where not measurable."""
+    if os.name == "nt":
+        return None
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pgid=,time="], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    total = 0.0
+    for row in out.splitlines():
+        parts = row.split()
+        if len(parts) != 2 or parts[0] != str(pid):
+            continue
+        m = re.match(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$", parts[1])
+        if m:
+            total += int(m.group(1) or 0) * 86400 + int(m.group(2) or 0) * 3600 + int(m.group(3)) * 60 + float(m.group(4))
+    return total
+
+
+def _stall_watch(proc, state):
+    """Kill this Godot (its own group) when it prints nothing for STALL s and its CPU time stops growing.
+    Windows is covered by the outer guard.ps1, which measures the whole process tree."""
+    if STALL <= 0 or os.name == "nt":
+        return
+    cpu_mark = None
+    while proc.poll() is None and not state.get("done"):
+        time.sleep(5)
+        quiet = time.time() - state["last"]
+        if quiet < STALL / 2:
+            cpu_mark = None
+            continue
+        if cpu_mark is None:
+            cpu_mark = _cpu_seconds(proc.pid)
+            continue
+        if quiet >= STALL:
+            now = _cpu_seconds(proc.pid)
+            if now is not None and now - cpu_mark < 0.3:
+                state["stalled"] = True
+                _kill_group(proc)
+                return
+            state["last"] = time.time()
+            cpu_mark = None
 
 
 def _group_kwargs():
@@ -178,7 +237,8 @@ def main():
         if not wanted:
             print("RESULT: PASS (nothing affected; run --full before pushing)")
             return 0
-    unknown = [s for s in wanted if s not in known and not s.startswith("res://")]
+    # "suite#i/n" is shard i of n of a known suite (the runner sets VALIDATE_SHARD for it)
+    unknown = [s for s in wanted if s.split("#")[0] not in known and not s.startswith("res://")]
     durations = {}
     if os.path.exists(TIMINGS):
         try:
@@ -244,7 +304,7 @@ def main():
     wall = time.time() - t0
 
     for s, (v, secs) in results.items():
-        if s in known and secs > 0:
+        if s.split("#")[0] in known and secs > 0:
             durations[s] = secs
     try:
         json.dump(durations, open(TIMINGS, "w"), indent=1, sort_keys=True)

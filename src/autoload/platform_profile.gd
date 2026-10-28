@@ -47,9 +47,18 @@ var prerender_ambience := true
 var map_update_hz := 0.0
 ## 3D render resolution scale (the governor's last step; flat screens only: an XR swapchain is sized at session start).
 var render_scale := 1.0
+## HiDPI (Retina) desktops: the canvas stretch renders 3D at the window's physical pixels, 4x the pixels of the same
+## window on a 1x screen. 3D renders at logical resolution instead (the art is low-res pixels); 1.0 on 1x screens.
+var hidpi_scale := 1.0
+## The governor's last notch: hold 30 fps steadily when even the lowest settings miss 60 (0 = no governor cap).
+var governor_fps_cap := 0
 ## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
 var prop_density := 1.0
 var decor_density := 1.0
+## Maze culling (StreamedFacilityView3D): hide prop visuals and 15 x 15 surface tiles no open line of sight can reach.
+## Opt-in while it is measured (`--cull` or MAZE_CULLING=1).
+var maze_culling := (OS.get_environment("MAZE_CULLING") == "1" or OS.get_cmdline_user_args().has("--cull")) \
+	and not OS.get_cmdline_user_args().has("--no-cull")
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor
@@ -72,11 +81,19 @@ func _ready() -> void:
 	specs = QualityTier.detect()
 	detected_tier = QualityTier.score(specs)
 	tier = detected_tier
+	if not is_phone and not is_xr and DisplayServer.get_name() != "headless" and DisplayServer.screen_get_scale() > 1.01 \
+			and not args.has("--no-hidpi-scale"):
+		hidpi_scale = 1.0 / DisplayServer.screen_get_scale()
 	apply_budgets()
+	for arg in args:
+		if String(arg).begins_with("--graphics="):   # benchmarks: force a tier (LOW / MEDIUM / HIGH / ULTRA)
+			set_graphics_quality.call_deferred(String(arg).trim_prefix("--graphics=").to_upper())
 	governor = QualityGovernor.new()
 	governor.name = "QualityGovernor"
 	governor.target_ms = 1000.0 / frame_target_hz
 	governor.notch_changed.connect(_on_notch_changed)
+	if hidpi_scale < 1.0:
+		_apply_live.call_deferred()
 	add_child(governor)
 	get_tree().node_added.connect(_on_node_added)
 	if prerender_ambience and DisplayServer.get_name() != "headless":
@@ -111,6 +128,7 @@ func apply_budgets() -> void:
 	prerender_ambience = budgets["prerender_ambience"]
 	map_update_hz = budgets["map_update_hz"]
 	render_scale = budgets["render_scale"]
+	governor_fps_cap = int(budgets.get("fps_cap", 0))
 	prop_density = budgets["prop_density"]
 	decor_density = budgets["decor_density"]
 	frame_target_hz = budgets["frame_target_hz"]
@@ -145,9 +163,11 @@ func _on_notch_changed(value: int) -> void:
 ## Budgets that can change mid-run: the camera far plane and shadow-casting lights. Streaming budgets are read every
 ## frame; lamp pool, prop ranges and pre-building apply to what streams in next.
 func _apply_live() -> void:
+	if Settings.fps_limit <= 0:
+		Engine.max_fps = default_fps_cap()
 	var viewport := get_viewport()
 	if viewport != null and not is_xr:
-		viewport.scaling_3d_scale = render_scale
+		viewport.scaling_3d_scale = render_scale * hidpi_scale
 	var camera := viewport.get_camera_3d() if viewport != null else null
 	if camera != null:
 		if not camera.has_meta("tier_base_far"):
@@ -171,6 +191,8 @@ func _on_node_added(node: Node) -> void:
 
 ## The frame rate a device can hold when the player sets no limit: phones 60, the Quest its fixed 72 (desktop: none).
 func default_fps_cap() -> int:
+	if governor_fps_cap > 0:
+		return governor_fps_cap
 	if is_quest:
 		return 72
 	if is_phone:

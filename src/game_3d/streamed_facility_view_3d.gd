@@ -61,6 +61,8 @@ const RAMP_FLOOR_KIND := "concrete1"
 const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
+## How far past the lip the sheet hangs.
+const FALLS_SPOUT := .12
 const FALLS_SOUND_RANGE := 28.0
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
@@ -112,6 +114,8 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## The route scene's shared music-box clock; each box's tune follows it (MusicBoxTune).
+var music_boxes: MusicBoxes
 ## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
 var booth_requester: Callable
 var booth_reporter: Callable
@@ -151,6 +155,8 @@ const PREDATA_LEVEL_RANGE := 2
 ## levels stay loaded: the deepest look up or down a stairwell or along a ramp tunnel.
 const WALKED_LINKS := ["stairs", "spiral", "ramp"]
 const LINK_VIEW_MARGIN := 20.0
+## Height of a ramp tunnel's vault over its upper level's floor (the sewer ceiling; ramps start on sewer levels).
+const RAMP_VAULT := SewerRouteGenerator.CEILING_HEIGHT
 var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
@@ -398,6 +404,8 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	if PlatformProfile.maze_culling:
+		_update_maze_culling()
 	_ready_recheck -= _delta
 	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
 		_ready_recheck = .5
@@ -514,7 +522,10 @@ func _refresh_stream(force: bool) -> void:
 	if not _active_build.is_empty():
 		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
 		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
-		if not wanted.has(active_coord) and not _ready_set.has(active_coord):
+		# so does one in the runner's column a storey or two away: it gets parked when done (cancelling it on a level
+		# change meant building it again on the way back)
+		if not wanted.has(active_coord) and not _ready_set.has(active_coord) \
+				and not (_near_column(active_coord, center) and absi(active_coord.y - center.y) <= PARK_LEVEL_RANGE):
 			_discard_active_build()
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
@@ -553,6 +564,12 @@ func _refresh_stream(force: bool) -> void:
 					pass
 				_active_build = {}
 				urgent = urgent.filter(func(c: Vector3i) -> bool: return not _loaded.has(c))
+			if not _active_build.is_empty():
+				var keep: Vector3i = _active_build.get("coord")
+				if _near_column(keep, center) and absi(keep.y - center.y) <= PARK_LEVEL_RANGE:
+					while not _advance_chunk_build(_active_build, true):   # finish it: it is parked, not rebuilt later
+						pass
+					_active_build = {}
 			_discard_active_build()
 			_generate_parallel(urgent)
 			for coord in urgent:
@@ -579,6 +596,123 @@ func _thinned_out(prop: Dictionary, type: String) -> bool:
 			or not PropModelCatalog.interaction_for(type).is_empty():
 		return false
 	return absi(hash(String(prop.get("id", "")) + ":thin")) % 100 >= int(density * 100.0)
+
+
+## Maze culling (every renderer, the web included): when the runner enters a new cell, a worker floods out through open
+## cells (closed room doors block) to MAZE_CULL_RADIUS metres and the prop visuals on the runner's level whose cell the
+## flood did not reach are hidden. Any straight line of sight through the maze is a run of open cells, so the flood is
+## a superset of what can be seen; one extra ring of cells covers lines that graze a corner. Only visuals hide:
+## colliders, hunters, audio and lamps are untouched. scripts/validate_maze_culling.gd guards against popping.
+const MAZE_CULL_RADIUS := 64
+var _cull_task := -1
+var _cull_result := {}
+var _cull_cell := Vector2i(999999, 999999)
+var _cull_level := 999999
+var _cull_visible := {}
+var maze_cull_hidden := 0
+var maze_cull_props := 0
+var maze_cull_tiles_hidden := 0
+var maze_cull_tiles := 0
+
+
+func _update_maze_culling() -> void:
+	if _cull_task != -1:
+		if not WorkerThreadPool.is_task_completed(_cull_task):
+			return
+		WorkerThreadPool.wait_for_task_completion(_cull_task)
+		_cull_task = -1
+		_cull_visible = _cull_result.get("visible", {})
+		_apply_maze_culling()
+	var local := tracked_player.global_position - global_position
+	var cell := Vector2i(floori(local.x), floori(local.z))
+	var level := current_level()
+	if cell == _cull_cell and level == _cull_level:
+		return
+	_cull_cell = cell
+	_cull_level = level
+	var grids := {}
+	for coord_value in _loaded:
+		var coord: Vector3i = coord_value
+		if coord.y == level and _chunk_data.has(coord):
+			grids[Vector2i(coord.x, coord.z)] = (_chunk_data[coord] as Dictionary).get("grid", [])
+	var closed := {}
+	for door_value in _door_nodes.values():
+		var door := door_value as Node3D
+		if door != null and is_instance_valid(door) and not bool(door.get("room_door_open")):
+			var at := door.global_position - global_position
+			if floori(at.y / LEVEL_HEIGHT + .5) == level:
+				closed[Vector2i(floori(at.x), floori(at.z))] = true
+	var result := {}
+	_cull_result = result
+	_cull_task = WorkerThreadPool.add_task(func() -> void:
+		result["visible"] = maze_visible_cells(grids, closed, cell, MAZE_CULL_RADIUS), false, "maze culling")
+
+
+## Cells reachable through open cells from `start` within `radius` (closed doors block), plus one ring around them.
+static func maze_visible_cells(grids: Dictionary, closed: Dictionary, start: Vector2i, radius: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var open := func(c: Vector2i) -> bool:
+		var chunk := Vector2i(floori(float(c.x) / size), floori(float(c.y) / size))
+		var grid: Array = grids.get(chunk, [])
+		if grid.is_empty() or closed.has(c):
+			return false
+		var lx := posmod(c.x, size)
+		var lz := posmod(c.y, size)
+		return lz < grid.size() and lx < (grid[lz] as Array).size() and int(grid[lz][lx]) == 0
+	var seen := {start: true}
+	var frontier: Array[Vector2i] = [start]
+	var r2 := radius * radius
+	while not frontier.is_empty():
+		var c: Vector2i = frontier.pop_back()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = c + d
+			if seen.has(n) or (n - start).length_squared() > r2 or not open.call(n):
+				continue
+			seen[n] = true
+			frontier.append(n)
+	var out := seen.duplicate()
+	for c in seen:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				out[Vector2i(c.x + dx, c.y + dz)] = true
+	return out
+
+
+func _apply_maze_culling() -> void:
+	var hidden := 0
+	var total := 0
+	for node in get_tree().get_nodes_in_group("cull_prop"):
+		var prop := node as Node3D
+		var root := prop.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		total += 1
+		var show := _cull_visible.has(prop.get_meta("cull_cell", Vector2i.ZERO))
+		if prop.visible != show:
+			prop.visible = show
+		if not show:
+			hidden += 1
+	maze_cull_hidden = hidden
+	maze_cull_props = total
+	var tiles_seen := {}
+	for c in _cull_visible:
+		var cell: Vector2i = c
+		tiles_seen[Vector2i(floori(float(cell.x) / RefSurfaceMesh.TILE), floori(float(cell.y) / RefSurfaceMesh.TILE))] = true
+	var tiles_hidden := 0
+	var tiles_total := 0
+	for node in get_tree().get_nodes_in_group("cull_tile"):
+		var tile := node as Node3D
+		var root := tile.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		tiles_total += 1
+		var show := tiles_seen.has(tile.get_meta("cull_tile", Vector2i.ZERO))
+		if tile.visible != show:
+			tile.visible = show
+		if not show:
+			tiles_hidden += 1
+	maze_cull_tiles_hidden = tiles_hidden
+	maze_cull_tiles = tiles_total
 
 
 ## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
@@ -1039,10 +1173,12 @@ func _load_chunk(coord: Vector3i) -> void:
 		pass
 
 
-## Chunk builds started since begin() (benchmarks count rebuilds of chunks that were just unloaded).
+## Chunk builds finished since begin() (benchmarks count rebuilds of chunks that were just unloaded). Counted when a
+## build completes, so a background pre-build that a level change cancels and restarts is not a "rebuild".
 var chunk_builds := 0
+## The last chunks whose build finished (validators name a rebuilt chunk with it).
+var recent_builds: Array[Vector3i] = []
 func _create_chunk_build(coord: Vector3i) -> Dictionary:
-	chunk_builds += 1
 	var data := generator.chunk(coord)
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]
@@ -1066,6 +1202,23 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
+	# Cave ceilings are uneven: the tunnels' roof steps between 3.1 and 3.7 m in 3-cell patches, the chambers rise to the
+	# full storey.
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		var cave_grid: Array = data["grid"]
+		for z in StreamedRouteGenerator.CHUNK_SIZE:
+			for x in StreamedRouteGenerator.CHUNK_SIZE:
+				if int(cave_grid[z][x]) == 0:
+					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
+	for cavern in data.get("inferno_caverns", []):
+		for cell_value in (cavern as Dictionary)["cells"]:
+			heights[cell_value] = LEVEL_HEIGHT - SLAB
+		for hall in (cavern as Dictionary)["halls"]:
+			var rect: Rect2i = hall
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					if x > 0 and z > 0 and x < StreamedRouteGenerator.CHUNK_SIZE - 1 and z < StreamedRouteGenerator.CHUNK_SIZE - 1:
+						heights[Vector2i(x, z)] = LEVEL_HEIGHT - SLAB
 	var open_above := {}
 	var falls: Dictionary = data.get("falls", {})
 	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
@@ -1178,12 +1331,28 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			2:
-				var surface_node := MeshInstance3D.new()
-				surface_node.name = "Surface"
-				surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
-					RefTextures.array_material("floor"), RefTextures.array_material("wall"))
-				surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-				root.add_child(surface_node)
+				if PlatformProfile.maze_culling:
+					# maze culling: one surface mesh per 15 x 15 tile, hidden when no line of sight reaches it
+					var tiles: Dictionary = (build["surface"] as RefSurfaceMesh).build_tiles(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					var coord: Vector3i = build["coord"]
+					var size := StreamedRouteGenerator.CHUNK_SIZE
+					for t in tiles:
+						var tile_node := MeshInstance3D.new()
+						tile_node.name = "Surface%d" % t
+						tile_node.mesh = tiles[t]
+						tile_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						tile_node.set_meta("cull_tile", Vector2i(coord.x * size / RefSurfaceMesh.TILE + t % 3,
+							coord.z * size / RefSurfaceMesh.TILE + t / 3))
+						tile_node.add_to_group("cull_tile")
+						root.add_child(tile_node)
+				else:
+					var surface_node := MeshInstance3D.new()
+					surface_node.name = "Surface"
+					surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					root.add_child(surface_node)
 				build["phase"] = 3
 				if not immediate:
 					return false
@@ -1195,6 +1364,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
+				InfernoPitView.build(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -1251,6 +1421,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					if not immediate:
 						return false
 					continue
+				_spawn_music_boxes(root, data)
 				build["phase"] = 7
 			7:
 				var pickups: Array = data.get("pickups", [])
@@ -1275,7 +1446,12 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
-				if _ready_set.has(coord) and not _wanted_now.has(coord):
+				chunk_builds += 1
+				recent_builds.append(coord)
+				if recent_builds.size() > 32:
+					recent_builds.pop_front()
+				if not _wanted_now.has(coord) and (_ready_set.has(coord) or coord.y != _last_player_chunk.y \
+						and _near_column(coord, _last_player_chunk)):
 					_make_dormant(coord)
 				return true
 			_:
@@ -1296,6 +1472,11 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
+		return
+	if (build["structural_voids"] as Dictionary).has(cell) and int(data.get("coord", Vector3i.ZERO).y) == StreamedRouteGenerator.INFERNO_LEVEL:
+		# a lava channel: no wall and no floor here (InfernoPitView draws the lava, the rails and the blockers), the vault stays
+		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+			RefTextures.params("ceiling", ceiling_kind))
 		return
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
 	if shaft_cells.has(cell):
@@ -1396,8 +1577,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 				continue
-			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", CLIFF_WALL_KIND),
-				RefTextures.params("wall", CLIFF_WALL_KIND), 0.0, -LEVEL_HEIGHT)
+			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box
+			var shaft_kind := _ref_wall_kind(build, n.x, n.y, x, z)
+			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", shaft_kind),
+				RefTextures.params("wall", shaft_kind), 0.0, -LEVEL_HEIGHT, LEVEL_HEIGHT)
 	else:
 		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
@@ -1417,6 +1600,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			# faces toward another chunk are emitted too; a hidden face is cheaper
 			# than a missing one
 			var face_height := float(build["corridor_h"])
+			var room_top := -1.0
+			var room_floor := 0.0
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
 				# ramp tunnels, channels and the falls' drop are open space too, though the
 				# grid keeps them off the walk graph
@@ -1426,9 +1611,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
+				var ramp_info: Dictionary = (data.get("ramp_cells", {}) as Dictionary).get(Vector2i(nx, nz), {})
+				if not ramp_info.is_empty():
+					# a ramp tunnel is one room two storeys tall: both levels' side walls
+					# paint one span, lower floor to the slope's vault, in a single repeat (two
+					# put a cornice and skirting across the shaft at 3.6 m instead)
+					room_floor = -LEVEL_HEIGHT if bool(ramp_info["upper"]) else 0.0
+					room_top = face_height if bool(ramp_info["upper"]) else LEVEL_HEIGHT + RAMP_VAULT
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
+			if room_top > 0.0:
+				wall_kind = _ramp_wall_kind(build, nx, nz)
 			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
-				RefTextures.params("wall", wall_kind), face_height)
+				RefTextures.params("wall", wall_kind), face_height, 0.0, room_top, room_floor, 1 if room_top > 0.0 else 0)
 
 
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
@@ -1441,18 +1635,66 @@ static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
 ## nothing at all, the tunnel opening straight up to the level above. The
 ## slope's collider is built once per ramp (_spawn_ramps).
 func _build_ramp_cell(build: Dictionary, cell: Vector2i, info: Dictionary) -> void:
-	if not bool(info["upper"]):
-		return
 	var surface := build["surface"] as RefSurfaceMesh
+	var ramp: Dictionary = info["ramp"]
+	# The tunnel mouth at the slope's foot: the slope's ceiling is its upper level's,
+	# a storey above the foot landing's, and nothing closed the step between them
+	# on the lower level, so looking down the ramp showed the storey above through
+	# it (KT, LEVEL -2). A header wall faces up the slope from the landing's ceiling
+	# to the top of the storey; above that the upper level's rock wall already
+	# faces the slope.
+	var down := int(signf(float(ramp["bottom_x"]) - float(ramp["top_x"])))
+	var end_x := int(ramp["bottom_x"]) - (1 if down > 0 else 0)
+	if cell.x == end_x and not bool(info["upper"]):
+		var landing := Vector2i(end_x + down, cell.y)
+		var kind := _ramp_wall_kind(build, cell.x, cell.y)
+		var lintel := _height_in(build, landing)
+		if LEVEL_HEIGHT > lintel:
+			surface.add_wall(landing.x, landing.y, Vector2i(-down, 0), RefTextures.layer("wall", kind),
+				RefTextures.params("wall", kind), LEVEL_HEIGHT, lintel, LEVEL_HEIGHT + RAMP_VAULT, 0.0, 1)
+	if not bool(info["upper"]):
+		_close_ramp_sides(build, cell)
+		return
 	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
 	surface.add_ceiling(cell.x, cell.y, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 		RefTextures.params("ceiling", ceiling_kind))
-	var ramp: Dictionary = info["ramp"]
 	var y0 := _ramp_surface_y(ramp, float(cell.x))
 	var y1 := _ramp_surface_y(ramp, float(cell.x + 1))
 	surface.add_quad_floor(Vector3(cell.x, y0, cell.y), Vector3(cell.x + 1, y1, cell.y),
 		Vector3(cell.x + 1, y1, cell.y + 1), Vector3(cell.x, y0, cell.y + 1),
 		RefTextures.layer("floor", RAMP_FLOOR_KIND), RefTextures.params("floor", RAMP_FLOOR_KIND))
+
+
+## The slope's side on its lower level where open floor runs alongside it (an
+## Inferno maze corridor beside the collector ramp, INFERNO): the grid keeps the
+## slope solid, so neither side had a face and the slope hung in a gap with the
+## corridor's far wall behind it. A ramp wall two storeys of paint tall faces
+## into the tunnel, and the corridor gets its own wall facing out.
+func _close_ramp_sides(build: Dictionary, cell: Vector2i) -> void:
+	var data: Dictionary = build["data"]
+	var grid_data: Array = data["grid"]
+	var ramp_cells: Dictionary = data.get("ramp_cells", {})
+	var surface := build["surface"] as RefSurfaceMesh
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for step in [Vector2i(0, 1), Vector2i(0, -1)]:
+		var n: Vector2i = cell + step
+		if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or ramp_cells.has(n) or int(grid_data[n.y][n.x]) != 0:
+			continue
+		var inside := _ramp_wall_kind(build, cell.x, cell.y)
+		surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", inside), RefTextures.params("wall", inside),
+			LEVEL_HEIGHT, 0.0, LEVEL_HEIGHT + RAMP_VAULT, 0.0, 1)
+		var outside := _ref_wall_kind(build, cell.x, cell.y, n.x, n.y)
+		surface.add_wall(cell.x, cell.y, step, RefTextures.layer("wall", outside), RefTextures.params("wall", outside),
+			_height_in(build, n))
+
+
+## A ramp tunnel's wall paint on both its levels: the sewer brick of the level it
+## starts on (ramps start on sewer levels), so the Inferno storey under the
+## collector ramp does not switch style half way up the tunnel wall.
+func _ramp_wall_kind(build: Dictionary, x: int, z: int) -> String:
+	var coord: Vector3i = build["coord"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	return RefLook.wall_kind("sewer", "", coord.x * size + x, coord.z * size + z)
 
 
 ## Height of a ramp's walking surface at chunk-local x, relative to its upper level's floor.
@@ -1779,8 +2021,9 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# just past the lip, from the channel's surface down to the pool's
 		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
-			lip.z + (-.12 if bool(falls["north"]) else .12))
+			lip.z + (-FALLS_SPOUT if bool(falls["north"]) else FALLS_SPOUT))
 		root.add_child(sheet)
+		_add_falls_spillway(root, lip, bool(falls["north"]))
 		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
 	elif level == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
 		var mist := GPUParticles3D.new()
@@ -1807,18 +2050,94 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		puff_material.albedo_color = Color(.78, .84, .8, .16)
 		puff.material = puff_material
 		mist.draw_pass_1 = puff
-		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-.7 if bool(falls["north"]) else .7))
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_SPOUT - .65 if bool(falls["north"]) else FALLS_SPOUT + .65))
 		root.add_child(mist)
+		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_SPOUT - .75 if bool(falls["north"]) else FALLS_SPOUT + .75)))
 		_add_falls_sound(root, mist.position)
+
+
+## The top of a fall (level -1): the spur channel's water runs on over the lip with a crest of foam, and a cool light on
+## the spur shows the water, the sheet's top and the shaft walls (it read as a dark box). No slab behind it (KT).
+func _add_falls_spillway(root: Node3D, lip: Vector3, north: bool) -> void:
+	var dir := -1.0 if north else 1.0                  # the way the water runs, toward and over the lip
+	var y := SewerRouteGenerator.WATER_SURFACE
+	var crest := MeshInstance3D.new()
+	crest.name = "FallsCrest"
+	var strip := QuadMesh.new()
+	strip.size = Vector2(3.0, 1.0)
+	crest.mesh = strip
+	crest.rotation = Vector3(-PI / 2.0 + dir * .22, 0, 0)
+	crest.position = Vector3(lip.x, y + .02, lip.z - dir * .45)
+	crest.material_override = _foam_material(.8)
+	crest.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(crest)
+	var light := OmniLight3D.new()
+	light.name = "FallsLipLight"
+	light.position = Vector3(lip.x, y + 1.6, lip.z - dir * 1.2)
+	light.light_color = Color("7fd1b0")
+	light.light_energy = 1.4
+	light.omni_range = 9.0
+	light.shadow_enabled = false
+	root.add_child(light)
+
+
+## The bottom of a fall (level -2): foam churning where the sheet lands, a standing ring that spreads over the cistern,
+## and a cool light that lights the pool and the shaft above it.
+func _add_falls_impact(root: Node3D, at: Vector3) -> void:
+	var churn := MeshInstance3D.new()
+	churn.name = "FallsFoam"
+	var disc := QuadMesh.new()
+	disc.size = Vector2(4.2, 2.6)
+	churn.mesh = disc
+	churn.rotation = Vector3(-PI / 2.0, 0, 0)
+	churn.position = at + Vector3(0, .03, 0)
+	churn.material_override = _foam_material(1.0)
+	churn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(churn)
+	var light := OmniLight3D.new()
+	light.name = "FallsPoolLight"
+	light.position = at + Vector3(0, 1.4, 0)
+	light.light_color = Color("8fe0c0")
+	light.light_energy = 1.8
+	light.omni_range = 10.0
+	light.shadow_enabled = false
+	root.add_child(light)
+
+
+static var _foam_cache := {}
+
+
+static func _foam_material(strength: float) -> ShaderMaterial:
+	if _foam_cache.has(strength):
+		return _foam_cache[strength]
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_disabled, unshaded;
+uniform float strength = 1.0;
+float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+void fragment() {
+	vec2 c = UV - vec2(.5);
+	float edge = smoothstep(.5, .15, length(c * vec2(1.0, 1.5)));
+	float t = TIME * .6;
+	float f = n(UV * vec2(14.0, 9.0) + vec2(t, -t * .7)) * .6 + n(UV * vec2(31.0, 20.0) - vec2(t * 1.3, t)) * .4;
+	ALBEDO = mix(vec3(.55, .66, .6), vec3(.92, .97, .93), f);
+	ALPHA = edge * smoothstep(.25, .85, f) * strength;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("strength", strength)
+	_foam_cache[strength] = material
+	return material
 
 
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	var stream := (Sound.render_cue("waterfall") as AudioStreamWAV).duplicate() as AudioStreamWAV
-	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	stream.loop_begin = 0
-	stream.loop_end = stream.data.size() / 4      # 16-bit stereo frames
+	var stream := FallsLoop.stream()
 	var roar := AudioStreamPlayer3D.new()
 	roar.name = "FallsRoar"
 	roar.stream = stream
@@ -2144,6 +2463,15 @@ static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionar
 	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cell := Vector2i(x, z)
+	if region == "inferno":
+		# the caves are rock; only walkways (the chain bridge, a ramp's landing and its connector) are plated
+		for pit in InfernoCaverns.pits_in(data):
+			if (pit["bridge"] as Rect2i).has_point(cell):
+				return "hazard"
+		for ramp in data.get("ramps", []):
+			if (ramp["bottom"] as Rect2i).has_point(cell) or (ramp["connector"] as Rect2i).has_point(cell):
+				return "hazard"
+		return "rock%d" % posmod(RefLook.pick(coord.x * size + x, coord.z * size + z, 7, 3), 3)
 	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
 		var origin: Vector2i = room_anchor.get(cell, cell)
@@ -2577,6 +2905,35 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 	_door_nodes[door_id] = door
 
 
+## How far past the door opening's edge a light switch sits (KT: "doors collide with light switches"): clear of the
+## frame post and its trim, and of the leaf, which swings on the opening's side of its hinge and stands square to the wall.
+const SWITCH_PAST_OPENING := .75
+
+
+## Where a room's light switch goes beside its door (chunk-local plan position), on the inside wall face: one side of the
+## door, else the other, wherever the wall carries on past the frame (solid behind, open room in front). INF: no room.
+static func switch_spot(door: Dictionary, grid: Array = []) -> Vector2:
+	var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+	var centre := Vector2.ZERO
+	for cell_value in cells:
+		centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+	centre /= float(maxi(1, cells.size()))
+	var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+	var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+	for side in [1.0, -1.0]:
+		var at: Vector2 = centre + inward * .54 + across * side * (cells.size() * .5 + SWITCH_PAST_OPENING)
+		if grid.is_empty() or (_grid_solid(grid, at - inward * .6) and not _grid_solid(grid, at + inward * .3)):
+			return at
+	return Vector2(INF, INF)
+
+
+static func _grid_solid(grid: Array, at: Vector2) -> bool:
+	var cell := Vector2i(floori(at.x), floori(at.y))
+	if cell.y < 0 or cell.y >= grid.size() or cell.x < 0 or cell.x >= (grid[cell.y] as Array).size():
+		return true
+	return int(grid[cell.y][cell.x]) != 0
+
+
 ## Groups a built chunk's lamps by room, applies each room's saved/seeded state, and puts a switch inside every lit room
 ## beside its main doorway, on the wall at SWITCH_HEIGHT, facing into the room.
 func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_list: Array) -> void:
@@ -2604,14 +2961,10 @@ func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_lis
 		if not doors.has(room_id):
 			continue
 		var door: Dictionary = doors[room_id]
-		var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
-		var centre := Vector2.ZERO
-		for cell_value in cells:
-			centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
-		centre /= float(maxi(1, cells.size()))
 		var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
-		var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
-		var at := centre + inward * .54 + across * (cells.size() * .5 + .35)
+		var at := switch_spot(door, data.get("grid", []))
+		if at.x == INF:
+			continue
 		var switch := RouteInteractable3D.new()
 		switch.name = "LightSwitch_%s" % room_id.replace(":", "_")
 		switch.kind = RouteInteractable3D.Kind.LIGHT_SWITCH
@@ -2745,10 +3098,70 @@ static var _mattress_tops := {}
 static func mattress_top(visual: Node3D, path: String) -> float:
 	if _mattress_tops.has(path):
 		return float(_mattress_tops[path])
+	var height := _upward_top(visual, Vector2(.2, .15), 0.0, 1.0)
+	_mattress_tops[path] = height
+	return height
+
+
+## Height of a seat pan above the floor: the level with the most upward-facing area over the middle of the seat, a little
+## in front of centre (the model's back is -Z), above the bottom fifth (bases, feet, star legs). Armrest caps and
+## backrest tops are narrow; the pan is the widest flat. Cached per model path.
+static var _seat_tops := {}
+
+
+static func seat_top(visual: Node3D, path: String, type: String = "") -> float:
+	if _seat_tops.has(path):
+		return float(_seat_tops[path])
+	# a booth's middle is its table: measure over its first bench row (model frame: the gameplay z is mirrored)
+	var rows: Array = PropModelCatalog.SEAT_ROWS.get(type, [])
+	var height := _largest_flat(visual, Vector2(.18, .12), -float((rows[0] as Dictionary)["z"])) if not rows.is_empty() \
+		else _largest_flat(visual, Vector2(.18, .3), .08)
+	_seat_tops[path] = height
+	return height
+
+
+static func _largest_flat(visual: Node3D, reach_frac: Vector2, z_shift: float) -> float:
 	var inverse := visual.global_transform.affine_inverse()
 	var bounds := ModelSlot.combined_local_bounds(visual)
-	var centre := bounds.get_center()
-	var reach := Vector2(bounds.size.x * .2, bounds.size.z * .15)
+	var centre := bounds.get_center() + Vector3(0.0, 0.0, bounds.size.z * z_shift)
+	var reach := Vector2(bounds.size.x * reach_frac.x, bounds.size.z * reach_frac.y)
+	var floor_cut := bounds.position.y + bounds.size.y * .2
+	var areas := {}
+	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		var xf := inverse * mesh_node.global_transform
+		var faces := mesh_node.mesh.get_faces()
+		for i in range(0, faces.size(), 3):
+			var a := xf * faces[i]
+			var b := xf * faces[i + 1]
+			var c := xf * faces[i + 2]
+			var normal := (b - a).cross(c - a)
+			if normal.y <= normal.length() * .9:
+				continue
+			var mid := (a + b + c) / 3.0
+			if mid.y < floor_cut or absf(mid.x - centre.x) > reach.x or absf(mid.z - centre.z) > reach.y:
+				continue
+			var level := int(roundf(mid.y / .03))
+			areas[level] = float(areas.get(level, 0.0)) + normal.length() * .5
+	var best := -1
+	for level in areas:
+		if best < 0 or float(areas[level]) > float(areas[best]):
+			best = int(level)
+	if best < 0:
+		return 0.0
+	return (float(best) * .03 - bounds.position.y) * visual.scale.y
+
+
+## The highest upward-facing triangle within a patch around the model's centre (`reach` x and z as fractions of the
+## bounds, the patch shifted `z_shift` of the depth toward the front), below `cap` of the model's height.
+static func _upward_top(visual: Node3D, reach_frac: Vector2, z_shift: float, cap: float) -> float:
+	var inverse := visual.global_transform.affine_inverse()
+	var bounds := ModelSlot.combined_local_bounds(visual)
+	var centre := bounds.get_center() + Vector3(0.0, 0.0, bounds.size.z * z_shift)
+	var reach := Vector2(bounds.size.x * reach_frac.x, bounds.size.z * reach_frac.y)
+	var ceiling := bounds.position.y + bounds.size.y * cap
 	var top := bounds.position.y
 	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
 		var mesh_node := mesh_value as MeshInstance3D
@@ -2764,11 +3177,9 @@ static func mattress_top(visual: Node3D, path: String) -> float:
 			if absf(normal.y) < normal.length() * .9:
 				continue
 			var mid := (a + b + c) / 3.0
-			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y:
+			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y and mid.y <= ceiling + .001:
 				top = maxf(top, mid.y)
-	var height := (top - bounds.position.y) * visual.scale.y
-	_mattress_tops[path] = height
-	return height
+	return (top - bounds.position.y) * visual.scale.y
 
 
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
@@ -2792,6 +3203,10 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.rotation.y = PropModelCatalog.authored_visual_yaw(yaw)
 	visual.set_meta("streamed_prop_type", prop_type)
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
+	# maze culling: the world cell this prop stands in (its visual hides when no open path of sight reaches the cell)
+	var world_at := (parent.position if parent != null else Vector3.ZERO) + at
+	visual.set_meta("cull_cell", Vector2i(floori(world_at.x), floori(world_at.z)))
+	visual.add_to_group("cull_prop")
 	visual.add_to_group(group_name)
 	_limit_prop_visibility(visual, visual_bounds, prop_type)
 	parent.add_child(visual)
@@ -2812,18 +3227,30 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
-		var furniture := RouteInteractable3D.new()
-		furniture.name = "Furniture_%s" % prop_type
-		furniture.kind = RouteInteractable3D.Kind.FURNITURE
-		furniture.configure_furniture(furniture_action)
-		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
-		if furniture_action == "lay":
-			furniture.set_meta("rest_top", mattress_top(visual, path))
-		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
-		furniture.rotation.y = yaw
-		parent.add_child(furniture)
-		if furniture_action == "play" and not booth_id.is_empty():
-			_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
+		# a multi-seat (waiting-room row, bench, couch, booth) gets one interactable per seat (docs/SEATING.md)
+		var seat_points: Array = PropModelCatalog.seat_points(prop_type, blocker_size) if furniture_action == "sit" \
+			else [{"x": 0.0, "z": 0.0, "turn": 0.0, "width": blocker_size.x}]
+		var seat_height := seat_top(visual, path, prop_type) if furniture_action == "sit" else 0.0
+		for seat_index in seat_points.size():
+			var point: Dictionary = seat_points[seat_index]
+			var furniture := RouteInteractable3D.new()
+			furniture.name = "Furniture_%s" % prop_type if seat_points.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
+			furniture.kind = RouteInteractable3D.Kind.FURNITURE
+			furniture.configure_furniture(furniture_action)
+			# PlayerController3D.rest_spot: where the body and eye go (a booth seat is one bench's half, not the table)
+			furniture.set_meta("rest_size", Vector3(float(point["width"]), blocker_size.y,
+				blocker_size.z * (.28 if PropModelCatalog.SEAT_ROWS.has(prop_type) else 1.0)) if seat_points.size() > 1 else blocker_size)
+			if furniture_action == "lay":
+				furniture.set_meta("rest_top", mattress_top(visual, path))
+			elif furniture_action == "sit":
+				furniture.set_meta("seat_top", seat_height)
+				furniture.set_meta("seat_index", seat_index)
+			furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03) \
+				+ Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+			furniture.rotation.y = yaw + float(point["turn"])
+			parent.add_child(furniture)
+			if furniture_action == "play" and not booth_id.is_empty():
+				_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
 	if not solid:
 		return
 	var body := StaticBody3D.new()
@@ -3073,6 +3500,25 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	parent.add_child(spot)
 	if not entity_id.is_empty():
 		_fixture_nodes[entity_id] = spot
+
+
+## Music boxes (at most one per chunk): hold [E] to wind, resolved by the route scene's player.music_box_resolver.
+func _spawn_music_boxes(parent: Node3D, data: Dictionary) -> void:
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	for box_value in data.get("music_boxes", []):
+		var box: Dictionary = box_value
+		var cell: Vector2i = box.get("cell", Vector2i.ZERO)
+		var node := RouteInteractable3D.new()
+		node.kind = RouteInteractable3D.Kind.MUSIC_BOX
+		node.music_box_id = String(box.get("id", ""))
+		node.music_boxes = music_boxes
+		node.name = "MusicBox_%s" % node.music_box_id.replace(":", "_")
+		node.prompt_text = "HOLD INTERACT // WIND MUSIC BOX"
+		node.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
+		node.position = Vector3(cell.x + .5, .04, cell.y + .5)
+		node.add_to_group("streamed_music_box")
+		parent.add_child(node)
 
 
 func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:

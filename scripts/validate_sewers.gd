@@ -706,6 +706,7 @@ func _check_deep_levels(host: Node) -> void:
 		"there is a level below the Inferno")
 	var counts := {SewerRouteGenerator.LEVEL: 0, SewerRouteGenerator.LOWER_LEVEL: 0}
 	var walk_ramp := {}
+	var inferno_ramp := {}      # collector -> Inferno: the same ramp code, the Inferno maze at its foot
 	for z in range(-3, 4):
 		for x in range(-3, 4):
 			for upper in counts:
@@ -716,10 +717,14 @@ func _check_deep_levels(host: Node) -> void:
 				_check_ramp(generator, x, z, ramp)
 				if upper == SewerRouteGenerator.LEVEL and walk_ramp.is_empty():
 					walk_ramp = ramp.merged({"x": x, "z": z})
+				if upper == SewerRouteGenerator.LOWER_LEVEL and inferno_ramp.is_empty():
+					inferno_ramp = ramp.merged({"x": x, "z": z})
 	_expect(int(counts[SewerRouteGenerator.LEVEL]) >= 5 and int(counts[SewerRouteGenerator.LOWER_LEVEL]) >= 5,
 		"too few ramps around the origin (%s)" % [counts])
 	if not walk_ramp.is_empty():
 		await _walk_ramp(host, generator, walk_ramp)
+	if not inferno_ramp.is_empty():
+		await _walk_ramp(host, generator, inferno_ramp)
 	print("  ok    deep levels: Inferno only at -3, %d sewer ramps and %d Inferno ramps checked" % [
 		counts[SewerRouteGenerator.LEVEL], counts[SewerRouteGenerator.LOWER_LEVEL]])
 
@@ -804,9 +809,161 @@ func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary)
 		_expect(view.current_level() == int(leg["level"]), "after the ramp the view is on level %d, not %d" % [
 			view.current_level(), int(leg["level"])])
 	_link_view_report(unseen, "ramp from %d" % upper)
+	_check_ramp_mouth(view, ramp)
 	view.clear()
 	view.queue_free()
 	player.queue_free()
+
+
+## KT (LEVEL -2, looking down the collector ramp): a slab across the slope's foot with the storey above showing
+## through. The slope's ceiling is its upper level's, a storey over the foot landing's, so the tunnel mouth needs a
+## wall facing up the slope over every row of it: on the lower level from the landing's ceiling to the top of the
+## storey, on the upper one from its floor up to the slope's ceiling.
+func _check_ramp_mouth(view: StreamedFacilityView3D, ramp: Dictionary) -> void:
+	var upper := int(ramp["upper"])
+	var down := int(signf(float(ramp["bottom_x"]) - float(ramp["top_x"])))
+	var plane := float(ramp["bottom_x"])
+	var rect: Rect2i = ramp["ramp"]
+	for level in [upper - 1, upper]:
+		var root := view.get_node_or_null("Chunk_%d_%d_%d" % [int(ramp["x"]), level, int(ramp["z"])])
+		_expect(root != null, "ramp from %d: chunk on level %d not built" % [upper, level])
+		if root == null:
+			continue
+		# the band each level must close: just under the lower storey's top, just over the upper's floor
+		# (the Inferno's landings run up to 3.9 m, the collector's to 3.2 m: just the band under the storey line)
+		var need := Vector2(StreamedFacilityView3D.LEVEL_HEIGHT - .08, StreamedFacilityView3D.LEVEL_HEIGHT - .02) \
+			if level == upper - 1 else Vector2(.05, 1.5)
+		var covered := {}
+		for node in root.find_children("Surface", "MeshInstance3D", true, false):
+			var mesh := (node as MeshInstance3D).mesh
+			if mesh == null or mesh.get_surface_count() < 2:
+				continue
+			var arrays := mesh.surface_get_arrays(1)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			for q in range(0, verts.size(), 4):
+				if absf(verts[q].x - plane) > .01 or absf(verts[q + 2].x - plane) > .01 \
+						or normals[q].x * -down < .5:
+					continue
+				var lo := minf(verts[q].y, verts[q + 2].y)
+				var hi := maxf(verts[q].y, verts[q + 2].y)
+				if lo <= need.x and hi >= need.y:
+					covered[floori(minf(verts[q].z, verts[q + 2].z) + .5)] = true
+		var open := []
+		for row in range(rect.position.y, rect.end.y):
+			if not covered.has(row):
+				open.append(row)
+		_expect(open.is_empty(), "ramp from %d: the tunnel mouth at x %.0f is open on level %d over rows %s (y %.2f-%.2f)" % [
+			upper, plane, level, open, need.x, need.y])
+	_check_ramp_sides(view, ramp)
+
+
+## The ramp tunnel's side walls are one wall per side across both storeys: the same plane (no inset, no ledge), no
+## face doubled on another in the same place, and the paint carrying on over the storey line (the lower level's v at
+## its top equals the upper level's v at its floor, so no cornice and skirting band across the shaft).
+func _check_ramp_sides(view: StreamedFacilityView3D, ramp: Dictionary) -> void:
+	var upper := int(ramp["upper"])
+	var rect: Rect2i = ramp["ramp"]
+	var faces := {}      # level -> Array of [a, b, uv_a, uv_b]
+	for level in [upper - 1, upper]:
+		faces[level] = []
+		var root := view.get_node_or_null("Chunk_%d_%d_%d" % [int(ramp["x"]), level, int(ramp["z"])])
+		if root == null:
+			continue
+		for node in root.find_children("Surface", "MeshInstance3D", true, false):
+			var mesh := (node as MeshInstance3D).mesh
+			if mesh == null or mesh.get_surface_count() < 2:
+				continue
+			var arrays := mesh.surface_get_arrays(1)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var layers: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+			for q in range(0, verts.size(), 4):
+				var a := verts[q]
+				var b := verts[q + 2]
+				if absf(a.z - b.z) > .01:
+					continue      # only the faces along the ramp (constant z)
+				var mid_x := (a.x + b.x) * .5
+				if mid_x < rect.position.x or mid_x > rect.end.x or absf(a.z - rect.position.y) > .3 and absf(a.z - rect.end.y) > .3:
+					continue
+				(faces[level] as Array).append([a, b, uvs[q].y, uvs[q + 2].y, layers[q].x])
+	var problems := []
+	for level in faces:
+		var seen := {}
+		for face in faces[level]:
+			var a: Vector3 = face[0]
+			var b: Vector3 = face[1]
+			if absf(a.z - rect.position.y) > .01 and absf(a.z - rect.end.y) > .01:
+				problems.append("L%d face off the side plane at z %.2f" % [level, a.z])
+			var key := "%.2f:%.2f:%.2f:%.2f" % [minf(a.x, b.x), a.z, minf(a.y, b.y), maxf(a.y, b.y)]
+			if seen.has(key):
+				problems.append("L%d doubled face %s" % [level, key])
+			seen[key] = true
+	# both sides closed on the lower level the whole run (INFERNO: an Inferno corridor alongside left a gap), and the
+	# same paint (texture layer) on both storeys
+	var lower_cols := {}
+	var layer_of := {}
+	for face in faces[upper - 1]:
+		var a: Vector3 = face[0]
+		var key := "%d:%.0f" % [floori(minf(a.x, (face[1] as Vector3).x)), a.z]
+		lower_cols[key] = true
+		if absf(maxf(a.y, (face[1] as Vector3).y) - StreamedFacilityView3D.LEVEL_HEIGHT) < .01:
+			layer_of[key] = float(face[4])      # the face that meets the storey line
+	for col in range(rect.position.x, rect.end.x):
+		for side in [rect.position.y, rect.end.y]:
+			if not lower_cols.has("%d:%d" % [col, side]):
+				problems.append("L%d no side wall at column %d z %d" % [upper - 1, col, side])
+	for face in faces[upper]:
+		var a: Vector3 = face[0]
+		var key := "%d:%.0f" % [floori(minf(a.x, (face[1] as Vector3).x)), a.z]
+		if absf(minf(a.y, (face[1] as Vector3).y)) < .01 and layer_of.has(key) \
+				and absf(float(layer_of[key]) - float(face[4])) > .01:
+			problems.append("paint changes style at the storey line at %s (layer %.0f below, %.0f above)" % [
+				key, layer_of[key], face[4]])
+	# paint continuity at the storey line, per side and column
+	var tops := {}
+	for face in faces[upper - 1]:
+		var a: Vector3 = face[0]
+		if absf(maxf(a.y, (face[1] as Vector3).y) - StreamedFacilityView3D.LEVEL_HEIGHT) < .01:
+			tops["%d:%.0f" % [floori(minf(a.x, (face[1] as Vector3).x)), a.z]] = float(face[2]) if a.y > (face[1] as Vector3).y else float(face[3])
+	for face in faces[upper]:
+		var a: Vector3 = face[0]
+		var b: Vector3 = face[1]
+		if absf(minf(a.y, b.y)) > .01:
+			continue
+		var key := "%d:%.0f" % [floori(minf(a.x, b.x)), a.z]
+		if not tops.has(key):
+			continue
+		var v_floor := float(face[3]) if a.y > b.y else float(face[2])
+		# exact, not modulo a repeat: the old seam had v 0 below and a whole repeat above, a cornice on a skirting
+		if absf(v_floor - float(tops[key])) > .01:
+			problems.append("paint breaks at the storey line at %s (v %.2f below, %.2f above)" % [key, tops[key], v_floor])
+		elif absf(v_floor - roundf(v_floor)) < .05:
+			problems.append("a paint repeat ends at the storey line at %s (v %.2f: cornice on skirting)" % [key, v_floor])
+	# and no repeat ends anywhere between the lower floor and the vault (a band across the shaft, e.g. at 3.6 m)
+	for level in faces:
+		for face in faces[level]:
+			var lo := minf(float(face[2]), float(face[3]))
+			var hi := maxf(float(face[2]), float(face[3]))
+			if floorf(hi - .05) > lo + .05 and hi - lo > .2:
+				problems.append("L%d face at %s crosses a paint repeat (v %.2f-%.2f)" % [level, (face[0] as Vector3).snapped(Vector3.ONE * .01), lo, hi])
+	# no one-storey wall dressing (wall-top pipes, pilasters, arches) on the ramp's side walls
+	for level in [upper - 1, upper]:
+		var root := view.get_node_or_null("Chunk_%d_%d_%d" % [int(ramp["x"]), level, int(ramp["z"])])
+		if root == null:
+			continue
+		for node in root.find_children("Ref_*", "MultiMeshInstance3D", true, false):
+			var key := String(node.name).trim_prefix("Ref_")
+			if not (key.begins_with("pipe") or key.begins_with("arch") or key.begins_with("trim")):
+				continue
+			var mm := (node as MultiMeshInstance3D).multimesh
+			for i in mm.instance_count:
+				var at := mm.get_instance_transform(i).origin
+				if at.x > rect.position.x and at.x < rect.end.x \
+						and (absf(at.z - rect.position.y) < .6 or absf(at.z - rect.end.y) < .6):
+					problems.append("L%d %s on a side wall at %s" % [level, key, at.snapped(Vector3.ONE * .01)])
+	_expect(problems.is_empty(), "ramp from %d: side walls not one continuous wall (%d: %s)" % [
+		upper, problems.size(), ", ".join(problems.slice(0, 5))])
 
 
 ## The first sewer feeds the collector: at each falls site the spur channel runs

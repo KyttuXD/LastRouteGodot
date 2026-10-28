@@ -9,7 +9,7 @@ HEIGHT = 1.78
 DESIGN_TOP = 32 * U
 SK = vanilla_sk()
 BASE = (3.0, 32.0, -1.0)
-_TAILS = [chain.chain(side, "Pig", 5.2, 2.6, 30.6, [(22.0, 30.6, 3.4, 3.0), (14.6, 22.2, 3.6, 3.0), (8.0, 14.8, 3.2, 2.8), (3.5, 8.2, 2.2, 2.4)])
+_TAILS = [chain.chain(side, "Pig", 5.2, 2.6, 30.6, [(22.0, 30.6, 3.4, 3.0), (16.0, 22.2, 3.0, 2.8)])
           for side in ("L", "R")]
 EXTRAS = horn.extras(BASE) + _TAILS[0][0] + _TAILS[1][0]
 EYES = eye_locators()

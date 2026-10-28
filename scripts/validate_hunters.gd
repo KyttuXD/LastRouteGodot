@@ -357,8 +357,11 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		_fail("Opalie has no gimmick")
 		return
 
+	# Nobody detected (the runner is in a safe room), so she keeps standing watch.
+	var unseen := _target(post + Vector2(6, 6))
+	unseen["in_safe_zone"] = true
 	for i in 60:
-		brain.update(STEP, generator, _target(post + Vector2(6, 6)), 1, 0)
+		brain.update(STEP, generator, unseen, 1, 0)
 	if not brain.gimmick.holds_position():
 		_fail("Opalie started on her relay and still has not settled on it")
 		return
@@ -371,7 +374,26 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		"Opalie's suppression does not reach %.1f cells" % GameConfig.OPALIE_SUPPRESSION_RADIUS)
 	_expect(not brain.gimmick.call("blocks", post + Vector2(4.0, 0.0)),
 		"Opalie denies interactions far outside her suppression radius")
-	print("  opalie    settles on a relay and denies %.1f cells around it"
+
+	# KT: "chase further". A runner she detects, even well away from the post, gets a normal chase.
+	var far := Vector2.ZERO
+	for cell in generator.floor_cells():
+		var point := Vector2(cell.x + .5, cell.y + .5)
+		var gap := point.distance_to(brain.position)
+		if gap >= 6.0 and gap <= 9.0 and generator.has_line_of_sight(brain.position, point):
+			far = point
+			break
+	var seen := _target(far)
+	seen["flashlight_on"] = true
+	seen["noise"] = 0.6
+	var chased := false
+	for i in 60:
+		brain.update(STEP, generator, seen, 1, 0)
+		if brain.state == HunterBrain.State.CHASE and not brain.gimmick.holds_position():
+			chased = true
+			break
+	_expect(far != Vector2.ZERO and chased, "Opalie saw a runner %.1f cells off and stayed on her post instead of chasing" % far.distance_to(post))
+	print("  opalie    settles on a relay, denies %.1f cells around it, and leaves it to chase a runner she detects"
 		% GameConfig.OPALIE_SUPPRESSION_RADIUS)
 
 
@@ -547,8 +569,11 @@ func _hiding_spots_and_javelle(host: Node) -> void:
 		return
 	var inside := fixture.hiding_inside_position()
 	var inside_local := fixture.to_local(inside)
-	_expect(absf(inside_local.z - .18) < .01,
-		"the locker camera is not recessed behind its door sight slats")
+	# the hider's eye sits LOCKER_EYE_BEHIND behind the door's vent band, centred on it (the trailer's "locker breath" view)
+	_expect(absf(inside_local.z - (RouteInteractable3D.LOCKER_DOOR_Z + RouteInteractable3D.LOCKER_EYE_BEHIND)) < .01,
+		"the locker camera is not right behind its vent slats")
+	_expect(absf(fixture.hiding_eye_height() + .02 - (RouteInteractable3D.LOCKER_VENT_LO + RouteInteractable3D.LOCKER_VENT_HI) * .5) < .01,
+		"the locker camera is not centred on its vent band")
 	var approach := fixture.global_position + Vector3(0.0, 0.0, -.65)
 	scene.player.global_position = approach
 	scene.player.enter_hiding(cell, inside, approach, fixture)
@@ -891,49 +916,25 @@ func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
 ## contribution once it runs down, and winding it gives back exactly what she
 ## added rather than leaving the meter wherever it happened to land.
 func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
+	# Finite floor: no route boxes, so she keeps one private box at her spawn (the full rules: glyra_music).
 	var brain := _brain("glyra", Vector2(generator.start) + Vector2(0.5, 0.5))
-	if brain.gimmick == null:
+	var glyra := brain.gimmick as GlyraGimmick
+	if glyra == null:
 		_fail("Glyra has no gimmick")
 		return
-	var meters := PlayerMeters.new()
-	var target := _target(brain.position)
-	target["meters"] = meters
-
-	# Freshly wound: silent, and pinned in place.
+	var target := _target(brain.position + Vector2(12, 0))
 	brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.gimmick.holds_position(), "Glyra is not pinned in place")
-	_expect(brain.world_events.is_empty(), "a freshly wound music box already raised a warning")
-
-	# Run the wind all the way down.
-	for i in int(GameConfig.GLYRA_BAY_SECONDS / STEP) + 5:
-		brain.update(STEP, generator, target, 1, 0)
-	var warned := false
-	for event in brain.world_events:
-		if String(event.get("message", "")).find("WOUND DOWN") >= 0:
-			warned = true
-	_expect(warned, "Glyra's music box ran down with no warning to the player")
-	brain.world_events.clear()
-
-	# Unwound now: real noise, accumulating.
-	meters.update(STEP, {})
-	var before := meters.noise_meter
-	for i in 30:
-		brain.update(STEP, generator, target, 1, 0)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter > before, "an unwound music box raised no facility noise")
-
-	# Winding it gives back what it took, not just stops taking more.
-	var winding := meters.noise_meter
-	brain.gimmick.wind(meters)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter < winding,
-		"winding the music box did not reclaim the noise it had added")
-	for i in 10:
-		brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.world_events.is_empty(),
-		"a freshly rewound box is already raising noise or warnings again")
-
-	print("  glyra     silent while wound, raises real noise once run down, reclaims it on rewind")
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING and glyra.immune_to_capture() and glyra.humming(),
+		"a freshly wound Glyra is not calm, humming and harmless")
+	_expect(not glyra.holds_position(), "Glyra is still pinned in place")
+	glyra.boxes.set_seconds_left(glyra.box_id, 0.0)
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.STOPPED and not glyra.immune_to_capture() and not glyra.humming(),
+		"Glyra's stopped box did not set her hunting")
+	glyra.wind()
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING, "winding Glyra's box on the finite floor did not calm her")
+	print("  glyra     calm while her box plays, hunts once it stops, calm again after a wind")
 
 
 ## Ilyra teleports to a corner and watches. Seen once, then LOOKED AWAY FROM

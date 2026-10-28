@@ -25,6 +25,10 @@ func _tiers() -> void:
 		{"name": "MacBook Air M1 (8 cores, 8 GB)", "specs": {"cores": 8, "ram_bytes": 8 * GB, "adapter": "Apple M1", "refresh": 60.0}, "tier": QualityTier.Tier.HIGH},
 		{"name": "AMD APU laptop (16 threads, 16 GB)", "specs": {"cores": 16, "ram_bytes": 16 * GB, "adapter": "AMD Radeon(TM) Graphics", "refresh": 60.0}, "tier": QualityTier.Tier.MEDIUM},
 		{"name": "old Intel laptop (4 threads, 8 GB)", "specs": {"cores": 4, "ram_bytes": 8 * GB, "adapter": "Intel(R) UHD Graphics 620", "refresh": 60.0}, "tier": QualityTier.Tier.LOW},
+		{"name": "2015 MacBook Pro (i7-4770HQ, Iris Pro, 16 GB)", "specs": {"cores": 8, "ram_bytes": 16 * GB, "adapter": "Intel Iris Pro OpenGL Engine", "refresh": 60.0}, "tier": QualityTier.Tier.LOW},
+		{"name": "2013 MacBook Air (HD 5000, 8 GB)", "specs": {"cores": 4, "ram_bytes": 8 * GB, "adapter": "Intel HD Graphics 5000 OpenGL Engine", "refresh": 60.0}, "tier": QualityTier.Tier.LOW},
+		{"name": "T480 (8 threads, 16 GB, UHD 620)", "specs": {"cores": 8, "ram_bytes": 16 * GB, "adapter": "Mesa Intel(R) UHD Graphics 620 (KBL GT2)", "refresh": 60.0}, "tier": QualityTier.Tier.LOW},
+		{"name": "Iris Xe laptop (12 threads, 16 GB)", "specs": {"cores": 12, "ram_bytes": 16 * GB, "adapter": "Intel(R) Iris(R) Xe Graphics", "refresh": 60.0}, "tier": QualityTier.Tier.MEDIUM},
 		{"name": "iPhone 16 Pro (6 cores, 8 GB)", "specs": {"cores": 6, "ram_bytes": 8 * GB, "adapter": "Apple A18 Pro GPU", "phone": true, "refresh": 120.0}, "tier": QualityTier.Tier.MEDIUM},
 		{"name": "Galaxy S24 FE (8 cores, 8 GB)", "specs": {"cores": 8, "ram_bytes": 8 * GB, "adapter": "Mali-G715", "phone": true, "refresh": 120.0}, "tier": QualityTier.Tier.MEDIUM},
 		{"name": "budget phone (8 cores, 4 GB)", "specs": {"cores": 8, "ram_bytes": 4 * GB, "adapter": "Adreno (TM) 610", "phone": true}, "tier": QualityTier.Tier.LOW},
@@ -98,6 +102,7 @@ func _governor() -> void:
 			last_change = change["change"]
 	_expect(flips <= 2, "alternating slow/fast frames flipped quality direction %d times in two minutes" % flips)
 	var degraded := QualityGovernor.degrade(QualityTier.budgets(QualityTier.Tier.ULTRA, {}), QualityGovernor.MAX_NOTCH)
+	_expect(int(degraded.get("fps_cap", 0)) == 30, "the last notch is not the steady 30 fps cap")
 	_expect(float(degraded["camera_far"]) > 0.0 and bool(degraded["shadows"]) and float(degraded["render_scale"]) < 1.0,
 		"a slow desktop gave up the flashlight shadows, or the last notch is not render scale")
 	print("  quality_tiers  20 s at 30 fps -> notch %d in %d steps; margin brought it back to %d; dead band 0 changes; %d direction flips" % [
