@@ -2,7 +2,7 @@
 
 Extra, persona-anchored abilities on top of each hunter's own gimmick: **Relaxed gets none; Normal gets every one very rarely; Hard has them regularly; Nightmare more often and
 stronger.** Code: `HardAbilities` (`src/game/hard_abilities.gd`, one component per brain: `HunterBrain.hard`), host-simulated like every brain, visible state replicated with the
-hunter report (`"hard"`). Suite: `hard_abilities`. The host can switch every ability off for the room: **HUNTER ABILITIES ON/OFF** in the lobby (`RoomState.hunter_abilities`).
+hunter report (`"hard"`). Suite: `hard_abilities`. There is no separate room setting: abilities follow the difficulty alone (Relaxed none, Normal very rare, Hard regular, Nightmare full); the staging menu's difficulty buttons describe it (`RoomState.DIFFICULTY_BLURBS`).
 
 Built so far (step 1): the **pounce**, the **sprint burst** after losing sight, **intercept** and the **door slam-through**. The rest of the pitch is listed at the end.
 
@@ -50,7 +50,7 @@ double back at a corner against an intercept; the slam only costs you the door a
 
 ## Switching them off
 
-`RoomState.hunter_abilities` (host's lobby toggle) or `HardAbilities.enabled = false` (code / tests). Relaxed never has them regardless.
+`HardAbilities.enabled = false` (code / tests only; the room has no toggle, and old saved values are ignored). Relaxed never has them regardless.
 
 ## Hunter director (all modes)
 
