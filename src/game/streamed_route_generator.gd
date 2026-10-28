@@ -2636,12 +2636,13 @@ static func seat_in_front_of_screens(props: Array, grid: Array) -> void:
 		for other_value in props:
 			var other: Dictionary = other_value
 			if other != seat and other != screen and bool(other.get("solid", true)) \
-					and prop_point(other).distance_to(spot) < .6:
+					and (prop_point(other).distance_to(spot) < .6 or (other.get("occupied_cells", []) as Array).has(cell)):
 				taken = true
 				break
 		if taken:
 			continue
 		seat["cell"] = cell
+		seat["occupied_cells"] = [cell]    # the seat's collider moved with it; reservations and reachability follow
 		seat["placement_offset"] = spot - (Vector2(cell) + Vector2(.5, .5))
 		seat["yaw"] = snappedf(atan2(front.x, front.y), PI * .25)    # facing back at the screen
 		seat["oriented"] = true
