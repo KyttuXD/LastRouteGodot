@@ -1276,7 +1276,7 @@ static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteI
 				break
 		if on_screen:
 			visible_frames += 1
-		if progress >= .8 and swing_frames > 8:
+		if progress >= .8 and swing_frames >= 20:
 			break
 	for _k in 8:
 		await tree.process_frame
