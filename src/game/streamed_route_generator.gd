@@ -522,7 +522,8 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	if coord.y == SEWER_LEVEL and is_chunk_allowed(coord):
+	# a chunk a streaming worker already generated (adopt_chunk) is reused on every level, the sewer's included
+	if coord.y == SEWER_LEVEL and is_chunk_allowed(coord) and not _chunk_cache.has(coord):
 		return sewer().chunk(coord)
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)

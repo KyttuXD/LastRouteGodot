@@ -129,6 +129,7 @@ var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
+var _ready_dirty := false
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -413,6 +414,7 @@ func _refresh_stream(force: bool) -> void:
 		if not wanted.has(active_coord):
 			_discard_active_build()
 	_wanted_now = wanted
+	_pending_data.clear()
 	_ready_set = _vertical_ready_set(center)
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
@@ -506,14 +508,13 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 			_pending_prebuild.append(coord)
 	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) < _chunk_distance(b, center))
-	_pending_data.clear()
 	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
 		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
 			continue
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 				var coord := Vector3i(x, level, z)
-				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord):
+				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord) and not _pending_data.has(coord):
 					_pending_data.append(coord)
 
 
@@ -524,8 +525,18 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, center.y, z)
-			var links: Array = generator.call("vertical_links", coord) if generator.has_method("vertical_links") \
-				else (generator.sewer().links_for(coord) if center.y in [0, StreamedRouteGenerator.SEWER_LEVEL] else [])
+			var links: Array = []
+			if generator.has_method("vertical_links"):
+				links = generator.call("vertical_links", coord)
+			elif center.y in [0, StreamedRouteGenerator.SEWER_LEVEL]:
+				# The sewer chunk under this column holds its ladders. Only read it once generated: generating it here
+				# (~30 ms) on every chunk change was a main-thread stall; queue it for the worker instead.
+				var sewer_coord := Vector3i(x, StreamedRouteGenerator.SEWER_LEVEL, z)
+				if generator.has_chunk_cached(sewer_coord) or sewer_coord == Vector3i(center.x, sewer_coord.y, center.z):
+					links = generator.chunk(sewer_coord).get("links", [])
+				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
+					_pending_data.append(sewer_coord)
+					_ready_dirty = true
 			for link_value in links:
 				var link: Dictionary = link_value
 				for key in ["from_level", "to_level"]:
@@ -680,6 +691,11 @@ func _queue_generation() -> void:
 			if _pending_loads.has(coord):
 				_prefetch_chunk(coord)
 		_gen_task_results = {}
+		if _ready_dirty and _last_player_chunk.x != 999999:
+			# link data for the 3x3 has arrived: recompute which levels to pre-build
+			_ready_dirty = false
+			_ready_set = _vertical_ready_set(_last_player_chunk)
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	var coords: Array[Vector3i] = []
 	for coord in _pending_loads + _pending_prebuild:
 		for need in _generation_needs(coord):
