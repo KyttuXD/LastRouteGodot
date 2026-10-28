@@ -149,6 +149,33 @@ func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("hide_search", pan, intensity)
 
 
+## Sleep (docs/REST_AND_SLEEP.md): settling into sleep, a yawn when drowsy, the muffled stir of something close, the
+## jolt awake, and a sleeping hunter's snore.
+## Room light switch click (docs/LIGHT_SWITCHES.md).
+func light_switch(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("light_switch", pan, intensity)
+
+
+func sleep_settle(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_settle", pan, intensity)
+
+
+func sleep_yawn(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_yawn", pan, intensity)
+
+
+func sleep_stir(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_stir", pan, intensity)
+
+
+func sleep_jolt(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("sleep_jolt", pan, intensity)
+
+
+func hunter_snore(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("hunter_snore", pan, intensity)
+
+
 func nyxie_timer_wake() -> bool:
 	return _play_named("nyxie_timer")
 
@@ -563,6 +590,14 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"light_switch": c = [_tone(2600, .012, .1, 0, "square", pan), _thump(140, .04, .08, .01, pan)]
+		"sleep_settle": c = [_noise(.5, .05, 400, 0, pan, .5), _tone(110, .4, .04, .1, "sine", pan)]
+		"sleep_yawn": c = [_tone(220, .55, .07, 0, "triangle", pan), _tone(165, .5, .05, .35, "triangle", pan),
+			_noise(.4, .04, 900, .2, pan, .6)]
+		"sleep_stir": c = [_thump(55, .3, .12, 0, pan), _noise(.35, .05, 300, .05, pan, .5)]
+		"sleep_jolt": c = [_thump(80, .18, .22, 0, pan), _tone(330, .12, .09, 0, "square", pan),
+			_noise(.12, .1, 1600, .02, pan, 1.0)]
+		"hunter_snore": c = [_noise(.7, .07, 260, 0, pan, .7), _tone(70, .6, .06, .05, "sawtooth", pan)]
 		"hide_search": c = [_tone(92, .42, .09, 0, "sawtooth", pan),
 			_noise(.3, .07, 520, .05, pan, .8),
 			_thump(70, .16, .12, .18, pan),

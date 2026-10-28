@@ -1,0 +1,7 @@
+{
+ "version": 1,
+ "_comment": "Runtime rig add-ons (docs/HUNTER_ADDONS.md). Nothing is assigned yet: add a kit under 'kits' and list its hunters under 'hunters' (or 'shared'). A tail / lantern example kit lives in scripts/fixtures/addons/ and is used only by the hunter_addons test.",
+ "shared": [],
+ "hunters": {},
+ "kits": {}
+}

@@ -235,7 +235,10 @@ var _jump_requested := false
 ## automatic for the Quest preset. If initialization fails, the same binary
 ## falls back to the ordinary first-person camera.
 var xr_active := false
-var _xr_turn_latched := false
+## OpenXR comfort and the wrist HUD (built only once OpenXR has started).
+var xr_comfort: XRComfort
+## Touch drags are in screen pixels on a high-DPI phone: a little gentler than mouse counts.
+const TOUCH_LOOK_SCALE := 0.6
 
 ## Out of sight, in a locker. Movement stops, the body is not drawn, and
 ## perception treats you as gone -- the shared brain's `hidden` gate has always
@@ -269,6 +272,35 @@ const LADDER_LET_GO_HEIGHT := 1.3
 const LADDER_MOUNT_SECONDS := .3
 const LADDER_DISMOUNT_SECONDS := .45
 var resting_pose := ""
+## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
+## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
+const SIT_EYE := 1.15
+const REST_EASE_SECONDS := 0.35
+const SIT_YAW_LIMIT := deg_to_rad(75.0)
+const LAY_YAW_LIMIT := deg_to_rad(55.0)
+const SIT_PITCH := Vector2(-0.95, 0.6)
+const LAY_PITCH := Vector2(-0.35, 1.05)
+var _rest_yaw := 0.0
+var _rest_eye := SIT_EYE
+var _rest_ease := {}
+## Sleep (docs/REST_AND_SLEEP.md). In a bed, jump sleeps / wakes. Asleep: dark screen, stamina refills, a hunter close by
+## stirs you with a muffled cue and a closer one (or any noise event) wakes you with a jolt; you are an ordinary target.
+## Solo only: lying idle in a bed for REST_DROWSY_AFTER seconds makes you drowsy (blinks, a yawn) and then you doze off,
+## unless you move the mouse or press a key. Co-op turns accidental sleep off (accidental_sleep_enabled).
+const REST_DROWSY_AFTER := 50.0
+const DROWSY_SECONDS := 8.0
+const SLEEP_STAMINA_PER_SECOND := 9.0
+const SLEEP_STIR_DISTANCE := 12.0
+const SLEEP_WAKE_DISTANCE := 5.0
+var asleep := false
+var drowsiness := 0.0
+var accidental_sleep_enabled := true
+var _rest_idle := 0.0
+var _yawned := false
+var _sleep_time := 0.0
+var _sleep_stir_cooldown := 0.0
+var _sleep_fade := 0.0
+var _sleep_overlay: ColorRect
 var _furniture_return_position := Vector3.ZERO
 
 ## Ceryth's trap: a spot she has staked out answers the flashlight riddle wrong
@@ -338,36 +370,201 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 		resting_furniture = null
 		resting_pose = ""
 		global_position = _furniture_return_position
-		first_person_pivot.position.y = _standing_camera_height
+		first_person_pivot.position = Vector3(0.0, _standing_camera_height, 0.0)
 	if resting_furniture != null:
 		leave_furniture()
+	var start_camera := first_person_pivot.global_position
 	_furniture_return_position = global_position
 	resting_furniture = furniture
 	resting_pose = pose
-	global_position = furniture.global_position
-	rotation.y = furniture.global_rotation.y
-	_yaw = rotation.y
-	first_person_pivot.position.y = .72 if pose == "lay" else 1.02
+	var spot := rest_spot(furniture, pose)
+	global_position = spot["body"]
+	_rest_yaw = float(spot["yaw"])
+	_rest_eye = float(spot["eye"])
+	_yaw = _rest_yaw
+	_pitch = float(spot["pitch"])
+	_apply_look_rotation()
+	first_person_pivot.position = Vector3(0.0, _rest_eye, 0.0)
+	_rest_ease = {"from": start_camera, "t": 0.0, "leaving": false}
+	_apply_rest_ease()
+	_rest_idle = 0.0
 	velocity = Vector3.ZERO
 	_clip = "sit" if pose == "ride" else pose
 	ModelSlot.play_if_available(_animation_player, _clip)
 	if pose == "ride":
 		Sound.menu_blip()
 		return ""
-	return "LYING DOWN // INTERACT TO GET UP" if pose == "lay" \
+	return "LYING DOWN // JUMP TO SLEEP // INTERACT TO GET UP" if pose == "lay" \
 		else "SEATED // INTERACT TO STAND"
+
+
+## Where the body and eye go on a piece of furniture (the furniture interactable sits on the prop, facing its open side;
+## its "rest_size" meta is the prop's footprint). Sitting: the body a little forward of the seat centre (clear of the
+## backrest), eye at seated height, facing out. Lying: the body at the pillow end, eye just above the mattress, looking
+## along the bed toward its foot, tipped up a little.
+static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
+	if not furniture.has_meta("rest_size"):
+		# authored seats (Night Watch's office chair, its bedroom bed) place the body exactly on their own point
+		return {"body": furniture.global_position, "eye": .72 if pose == "lay" else 1.02,
+			"yaw": furniture.global_rotation.y, "pitch": 0.0}
+	var size: Vector3 = furniture.get_meta("rest_size", Vector3(1.0, .8, 2.0) if pose == "lay" else Vector3(.5, .9, .5))
+	var floor_y := furniture.global_position.y - (.48 if pose == "lay" else .03)
+	var xf := furniture.global_transform
+	if pose == "lay":
+		var head := xf * Vector3(0.0, 0.0, maxf(0.0, size.z * .5 - .5))
+		var eye := clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95
+		return {"body": Vector3(head.x, floor_y, head.z), "eye": eye, "yaw": furniture.global_rotation.y, "pitch": .12}
+	var seat := xf * Vector3(0.0, 0.0, -.06)
+	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": SIT_EYE, "yaw": furniture.global_rotation.y, "pitch": -.08}
 
 
 func leave_furniture() -> String:
 	if resting_furniture == null:
 		return ""
+	if asleep:
+		wake_from_sleep("")
+	var start_camera := first_person_pivot.global_position
 	global_position = _furniture_return_position
 	resting_furniture = null
 	resting_pose = ""
-	first_person_pivot.position.y = _standing_camera_height
+	drowsiness = 0.0
+	first_person_pivot.position = Vector3(0.0, _standing_camera_height, 0.0)
+	_rest_ease = {"from": start_camera, "t": 0.0, "leaving": true}
+	_apply_rest_ease()
 	_clip = "idle"
 	ModelSlot.play_if_available(_animation_player, _clip)
 	return "STOOD UP"
+
+
+func rest_ease_active() -> bool:
+	return not _rest_ease.is_empty()
+
+
+## The eye eases from where it was to its new place (both ways), in REST_EASE_SECONDS; input waits for it.
+func _advance_rest_ease(delta: float) -> void:
+	_rest_ease["t"] = minf(1.0, float(_rest_ease["t"]) + delta / REST_EASE_SECONDS)
+	_apply_rest_ease()
+	if float(_rest_ease["t"]) >= 1.0:
+		_rest_ease = {}
+		first_person_pivot.position.x = 0.0
+		first_person_pivot.position.z = 0.0
+
+
+func _apply_rest_ease() -> void:
+	var t := smoothstep(0.0, 1.0, float(_rest_ease.get("t", 1.0)))
+	var target := global_position + Vector3.UP * (_rest_eye if resting_furniture != null else _standing_camera_height)
+	first_person_pivot.global_position = (_rest_ease["from"] as Vector3).lerp(target, t)
+
+
+## Look limits while resting: yaw within the furniture's facing +- the pose's limit, pitch in the pose's range.
+func _clamp_rest_look() -> void:
+	if resting_furniture == null:
+		return
+	var limit := LAY_YAW_LIMIT if resting_pose == "lay" else SIT_YAW_LIMIT
+	_yaw = _rest_yaw + clampf(wrapf(_yaw - _rest_yaw, -PI, PI), -limit, limit)
+	var pitch_range := LAY_PITCH if resting_pose == "lay" else SIT_PITCH
+	_pitch = clampf(_pitch, pitch_range.x, pitch_range.y)
+
+
+func toggle_sleep() -> String:
+	if asleep:
+		return wake_from_sleep("AWAKE")
+	if resting_furniture == null or resting_pose != "lay" or rest_ease_active():
+		return ""
+	return fall_asleep(false)
+
+
+func fall_asleep(accidental: bool) -> String:
+	asleep = true
+	drowsiness = 0.0
+	_sleep_time = 0.0
+	_sleep_stir_cooldown = 0.0
+	_set_flashlight(false)
+	Sound.sleep_settle()
+	return "YOU DOZED OFF" if accidental else "ASLEEP // JUMP OR INTERACT TO WAKE"
+
+
+func wake_from_sleep(message: String = "WOKE WITH A JOLT") -> String:
+	if not asleep:
+		return ""
+	asleep = false
+	drowsiness = 0.0
+	_rest_idle = 0.0
+	_yawned = false
+	if message == "WOKE WITH A JOLT":
+		kick_view(.06)
+		Sound.sleep_jolt()
+	return message
+
+
+## Called by the route every frame with the distance to the nearest hunter (INF when none) while this runner is asleep
+## or drowsy: a stir cue in SLEEP_STIR_DISTANCE, a jolt awake inside SLEEP_WAKE_DISTANCE.
+func sleep_disturb(hunter_distance: float, delta: float) -> String:
+	if not asleep:
+		return ""
+	_sleep_stir_cooldown = maxf(0.0, _sleep_stir_cooldown - delta)
+	if hunter_distance <= SLEEP_WAKE_DISTANCE:
+		return wake_from_sleep()
+	if hunter_distance <= SLEEP_STIR_DISTANCE and _sleep_stir_cooldown <= 0.0:
+		_sleep_stir_cooldown = 3.0
+		Sound.sleep_stir(0.0, clampf(1.0 - hunter_distance / SLEEP_STIR_DISTANCE, .25, 1.0))
+	return ""
+
+
+func _update_sleep(delta: float) -> void:
+	var lying := resting_furniture != null and resting_pose == "lay"
+	if asleep:
+		_sleep_time += delta
+		stamina = minf(GameConfig.MAX_STAMINA, stamina + SLEEP_STAMINA_PER_SECOND * delta)
+		_sleep_fade = move_toward(_sleep_fade, 1.0, delta * 1.5)
+	else:
+		_sleep_fade = move_toward(_sleep_fade, 0.0, delta * 3.0)
+		if lying and accidental_sleep_enabled and not rest_ease_active():
+			_rest_idle += delta
+			if _rest_idle >= REST_DROWSY_AFTER:
+				if not _yawned:
+					_yawned = true
+					Sound.sleep_yawn()
+					interaction_message.emit("DROWSY...")
+				drowsiness = minf(1.0, (_rest_idle - REST_DROWSY_AFTER) / DROWSY_SECONDS)
+				if drowsiness >= 1.0:
+					interaction_message.emit(fall_asleep(true))
+		else:
+			drowsiness = 0.0
+	# slow blinks while drowsy, full dark while asleep
+	var blink := 0.0
+	if drowsiness > 0.0:
+		blink = drowsiness * .55 + .45 * drowsiness * maxf(0.0, sin(float(Time.get_ticks_msec()) * .0025))
+	_set_sleep_overlay(maxf(_sleep_fade * .94, blink))
+
+
+## Any deliberate input while resting keeps you awake (resets the drowsy clock).
+func note_rest_activity() -> void:
+	_rest_idle = 0.0
+	if drowsiness > 0.0:
+		drowsiness = 0.0
+		_yawned = false
+
+
+func _set_sleep_overlay(alpha: float) -> void:
+	if alpha <= 0.001 and _sleep_overlay == null:
+		return
+	if _sleep_overlay == null:
+		var layer := CanvasLayer.new()
+		layer.name = "SleepOverlay"
+		layer.layer = 40
+		add_child(layer)
+		_sleep_overlay = ColorRect.new()
+		_sleep_overlay.color = Color(0, 0, 0, 0)
+		_sleep_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_sleep_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(_sleep_overlay)
+	_sleep_overlay.color = Color(0, 0, 0, clampf(alpha, 0.0, 1.0))
+	_sleep_overlay.visible = alpha > .001
+
+
+func sleep_overlay_alpha() -> float:
+	return _sleep_overlay.color.a if _sleep_overlay != null and _sleep_overlay.visible else 0.0
 
 
 func enter_hiding(cell: Vector2i, inside_position: Vector3 = Vector3.ZERO,
@@ -556,6 +753,10 @@ func _ready() -> void:
 	# becomes airborne and reaches the fall-stun path below.
 	floor_snap_length = 0.28
 	first_person_camera.fov = Settings.field_of_view
+	if PlatformProfile.camera_far > 0.0:
+		# phones and headsets draw less far (desktop keeps the scene's far plane)
+		first_person_camera.far = PlatformProfile.camera_far
+		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
@@ -677,6 +878,17 @@ func is_look_input_active() -> bool:
 	return stick.length_squared() > 0.0001
 
 
+## Touch look (TouchControls): a drag in pixels, scaled by the same sensitivity setting as the mouse.
+func apply_look_delta(delta: Vector2) -> void:
+	if xr_active or look_frozen or input_frozen:
+		return
+	_yaw -= delta.x * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE
+	_pitch = clampf(_pitch - delta.y * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE, -1.4, 1.4)
+	if resting_furniture != null:
+		note_rest_activity()
+	_apply_look_rotation()
+
+
 func _apply_look_rotation() -> void:
 	rotation.y = _yaw
 	first_person_pivot.rotation.x = _pitch
@@ -686,12 +898,23 @@ func _apply_look_rotation() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
 	# desktops. Keyboard look covers that case; mouse look stays capture-only.
+	# Phones look with the touch drag (apply_look_delta); the mouse motion Godot emulates from touches is ignored.
 	if event is InputEventMouseMotion and not xr_active and not look_frozen \
-			and MouseLock.is_captured():
+			and MouseLock.is_captured() and not PlatformProfile.is_phone:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
+		if resting_furniture != null:
+			if not asleep:
+				_clamp_rest_look()
+				if event.relative.length() > 2.0:
+					note_rest_activity()
+			else:
+				_yaw = rotation.y
+				_pitch = first_person_pivot.rotation.x
 		_apply_look_rotation()
 	elif event is InputEventKey and event.pressed and not event.echo:
+		if resting_furniture != null:
+			note_rest_activity()
 		var key := (event as InputEventKey).physical_keycode
 		if key >= KEY_1 and key <= KEY_4 and shop_resolver.is_valid():
 			var message := String(shop_resolver.call(str(key - KEY_1 + 1)))
@@ -1015,14 +1238,29 @@ func _physics_process(delta: float) -> void:
 		resting_pose = ""
 		global_position = _furniture_return_position
 		first_person_pivot.position.y = _standing_camera_height
+	if not _rest_ease.is_empty() and bool(_rest_ease["leaving"]):
+		velocity = Vector3.ZERO
+		_advance_rest_ease(delta)
+		_update_sleep(delta)
+		return
 	if resting_furniture != null:
 		velocity = Vector3.ZERO
 		noise = 0.0
 		_clip = resting_pose
 		ModelSlot.play_if_available(_animation_player, _clip)
+		if not _rest_ease.is_empty():
+			_advance_rest_ease(delta)
+		_update_sleep(delta)
 		if Input.is_action_just_pressed("interact"):
-			interaction_message.emit(leave_furniture())
+			if asleep:
+				interaction_message.emit(wake_from_sleep("AWAKE"))
+			else:
+				interaction_message.emit(leave_furniture())
+		elif Input.is_action_just_pressed("jump") and resting_pose == "lay":
+			interaction_message.emit(toggle_sleep())
 		return
+	if _sleep_fade > 0.0 or drowsiness > 0.0:
+		_update_sleep(delta)
 	if input_frozen or stun_timer > 0.0:
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -1137,7 +1375,7 @@ func _physics_process(delta: float) -> void:
 		facing = Vector2(look.x, look.z).normalized()
 		flashlight.global_transform = xr_camera.global_transform.translated_local(
 			Vector3(0.0, -.08, -.18))
-		_update_xr_snap_turn()
+		xr_comfort.step(delta, move_direction.length_squared() > 0.0)
 	else:
 		facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
@@ -1296,6 +1534,10 @@ func _try_enter_xr() -> bool:
 		first_person_items.visible = false
 	MouseLock.set_gameplay_capture(false)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	xr_comfort = XRComfort.new()
+	xr_comfort.name = "XRComfort"
+	add_child(xr_comfort)
+	xr_comfort.setup(self, xr_origin, xr_camera, xr_left, xr_right)
 	return true
 
 
@@ -1357,20 +1599,6 @@ func _emit_xr_action_event(action: StringName, pressed: bool) -> void:
 	event.action = action
 	event.pressed = pressed
 	Input.parse_input_event(event)
-
-
-## Thirty-degree comfort turn with a latch, so holding the stick cannot spin
-## several steps per physics frame. Physical room-scale offset remains owned
-## by OpenXR beneath this body.
-func _update_xr_snap_turn() -> void:
-	var turn := xr_right.get_vector2("primary").x
-	if absf(turn) < 0.45:
-		_xr_turn_latched = false
-		return
-	if _xr_turn_latched:
-		return
-	_xr_turn_latched = true
-	rotate_y(deg_to_rad(-30.0 if turn > 0.0 else 30.0))
 
 
 func _update_stamina(delta: float, is_sprinting: bool) -> void:

@@ -158,6 +158,7 @@ func _local_state() -> Dictionary:
 		"hidden": controller.hidden,
 		"hiding_spot": controller.hidden_spot,
 		"hiding_style": controller.hiding_style(),
+		"asleep": controller.asleep,
 		"in_safe_zone": controller.is_in_safe_zone(),
 		"noise": controller.noise,
 		# Publish the actual rendered beam, including held-slot, charge and
@@ -309,9 +310,27 @@ func _place(state: Dictionary) -> void:
 		body.remove_meta("hide_started_usec")
 	body.visible = shown
 	_sync_remote_equipment(id, body, state)
+	_sync_sleep_tag(body, bool(state.get("asleep", false)))
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
+
+
+## A sleeping teammate shows "z Z" over their head (docs/REST_AND_SLEEP.md).
+func _sync_sleep_tag(body: Node3D, asleep: bool) -> void:
+	var tag := body.get_node_or_null("SleepTag") as Label3D
+	if tag == null:
+		if not asleep:
+			return
+		tag = Label3D.new()
+		tag.name = "SleepTag"
+		tag.text = "z Z"
+		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		tag.font_size = 48
+		tag.modulate = Color(.75, .85, 1.0)
+		tag.position = Vector3(0, 2.25, 0)
+		body.add_child(tag)
+	tag.visible = asleep
 
 
 func _interpolate_bodies(delta: float) -> void:
@@ -857,7 +876,7 @@ func _request_interaction(event: Dictionary) -> void:
 			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm"].has(what):
+			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light"].has(what):
 		return
 	var accepted: Dictionary
 	if what == "admin_auth":

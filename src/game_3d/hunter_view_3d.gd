@@ -47,6 +47,8 @@ var _facing := HunterFacing.new()
 ## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
 ## procedural breathing / sway / lean layers (off elsewhere).
 var nw_pose := ""
+## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
+var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
 var nw_layers := false
 var _nw_started := ""
@@ -133,6 +135,8 @@ const MAX_PRESENTATION_SPEED := 12.0
 const PRESENTATION_DEAD_ZONE := .006
 ## View collider: slightly wider than the brain footprint (GameConfig.HUNTER_RADIUS) and as tall as the scaled model.
 const HUNTER_BODY_RADIUS := GameConfig.HUNTER_RADIUS + .05
+## Beyond this distance from the camera nobody sees the doorway pose, so it is not worked out.
+const DOORWAY_POSE_RANGE := 45.0
 const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 ## Body yaw / head look live in HunterFacing so other creature views share them.
 
@@ -161,11 +165,25 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_doorway.restore()
 	_update_head_look(delta)
 	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
+	_update_doorway(delta)
+
+
+## In a door frame: duck under a low lintel and turn the shoulders through a narrow opening (DoorwayPose), last of
+## the layers so it bends whatever the clip and the head look made of the pose.
+func _update_doorway(delta: float) -> void:
+	if _model == null or not _doorway.bound() or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera != null and global_position.distance_squared_to(camera.global_position) > DOORWAY_POSE_RANGE * DOORWAY_POSE_RANGE:
+		return
+	var frame := DoorwayFrames.nearest(global_position)
+	_doorway.update(delta, frame, float(frame.get("along", INF)))
 
 
 func _physics_process(delta: float) -> void:
@@ -211,6 +229,51 @@ func _physics_process(delta: float) -> void:
 ## On a sewer ladder (LadderTraffic): the body rises or sinks with the climb,
 ## faces the rungs, plays the climb clip and has no collision, so the maze floor
 ## collider over the shaft does not push her back out.
+## Asleep in a bed (HunterNaps, docs/REST_AND_SLEEP.md): the model lies on its back along the bed (head toward the
+## headboard), on the mattress. Set every sync by the host and from the hunter report on guests.
+var _asleep := false
+var _sleep_yaw := 0.0
+const SLEEP_MATTRESS_Y := .62
+
+
+var _sleep_stage := 0
+
+
+func set_asleep(on: bool, yaw: float = 0.0, stage: int = 0) -> void:
+	_asleep = on
+	_sleep_yaw = yaw
+	_sleep_stage = stage if on else 0
+	_apply_sleep_pose()
+
+
+## HunterNaps wake meter: 0 sound asleep, 1 stirring, 2 turned over, 3 snore stopped.
+func sleep_stage() -> int:
+	return _sleep_stage
+
+
+func is_asleep() -> bool:
+	return _asleep
+
+
+func _apply_sleep_pose() -> void:
+	if _model == null or not is_instance_valid(_model):
+		return
+	if _asleep:
+		if not _model.has_meta("awake_position"):
+			_model.set_meta("awake_position", _model.position)
+		rotation.y = _sleep_yaw
+		_model.rotation.x = PI * .5
+		# turned over onto one side once the meter passes the second cue
+		_model.rotation.z = .55 if _sleep_stage >= 2 else (.08 * sin(float(Time.get_ticks_msec()) * .004) if _sleep_stage == 1 else 0.0)
+		var length := 1.8 * _model.scale.y
+		_model.position = (_model.get_meta("awake_position") as Vector3) + Vector3(0.0, SLEEP_MATTRESS_Y, -length * .5)
+	elif _model.has_meta("awake_position"):
+		_model.rotation.x = 0.0
+		_model.rotation.z = 0.0
+		_model.position = _model.get_meta("awake_position")
+		_model.remove_meta("awake_position")
+
+
 func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0) -> void:
 	if on:
 		set_streamed_height_override(height)
@@ -258,6 +321,7 @@ func _apply_model(model_id: String) -> void:
 		_expression = ""
 		_stars = null
 		_creature = null
+		_doorway = DoorwayPose.new()
 		_wing_nodes.clear()
 		_wings_searched = false
 		_wing_fold_applied = 0.0
@@ -272,6 +336,7 @@ func _apply_model(model_id: String) -> void:
 			_creature = CreatureView.new(self, _model)
 		else:
 			NightWatchPoses.install(_model, _animation_player, _shown_id)
+			_doorway.bind(_model)
 			_nw_layers.bind(_model)
 			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
@@ -710,6 +775,8 @@ func sync_from_brain() -> void:
 	_facing.track(brain.position, get_process_delta_time())
 	_update_body_yaw()
 	_apply_model(_desired_model_id())
+	if _asleep:
+		_apply_sleep_pose()
 	_apply_visibility()
 	_update_emote_state()
 	_update_animation()
