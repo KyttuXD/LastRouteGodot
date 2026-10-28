@@ -178,7 +178,8 @@ variant `"authored"`, Axe only) from `SewerRouteGenerator._pipe_breakables`. Its
 
 A swing is loud: `Breach.NOISE_LEVEL` brings hunters. When the pipe gives way ("breached", on every machine):
 
-* the view removes its mains, collider and drips, and a rebuilt chunk leaves it out;
+* the view removes its mains, collider and drips (an outflow main leaves its torn stump at the wall, the authored
+  `sewer_outflow_pipe_broken`, gushing along the old run while it floods), and a rebuilt chunk keeps it broken;
 * hunter navigation and the minimap drop it;
 * `SewerFloods` starts a flood over the spec's `flood_cells`: dry walkway within `FLOOD_REACH` steps, at most
   `FLOOD_MAX_CELLS`.

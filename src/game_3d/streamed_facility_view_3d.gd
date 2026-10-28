@@ -2984,22 +2984,44 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 	var pipe_id := String(prop.get("breakable_id", ""))
 	if not pipe_id.is_empty():
 		if world_state != null and world_state.breach_open(pipe_id):
+			_spawn_pipe_stump(parent, prop)
 			return
 		var before := parent.get_child_count()
 		_spawn_region_prop_now(parent, coord, prop, finish)
-		if not _pipe_nodes.has(pipe_id):
-			_pipe_nodes[pipe_id] = []
+		# a rebuilt chunk starts the pipe's entry afresh (the old root went with its nodes)
+		if not _pipe_nodes.has(pipe_id) or (_pipe_nodes[pipe_id] as Dictionary)["parent"] != parent:
+			_pipe_nodes[pipe_id] = {"nodes": [], "props": [], "parent": parent}
+		var entry: Dictionary = _pipe_nodes[pipe_id]
+		(entry["props"] as Array).append(prop)
 		for index in range(before, parent.get_child_count()):
-			(_pipe_nodes[pipe_id] as Array).append(parent.get_child(index))
+			(entry["nodes"] as Array).append(parent.get_child(index))
 		return
 	_spawn_region_prop_now(parent, coord, prop, finish)
 
 
-## A burst pipe's mains, collider and drips go (its flood comes from SewerFloods).
+## The torn end an outflow main leaves at its wall once the Axe breaks it (authored with the main, no collider: it is all
+## above the crawl clearance on the outer walkway cell). A crawl pipe's thin mains leave nothing.
+const OUTFLOW_STUMP := "res://art/props-3d/props/sewer/sewer_outflow_pipe_broken.glb"
+
+
+func _spawn_pipe_stump(parent: Node3D, prop: Dictionary) -> void:
+	if not bool(prop.get("outflow", false)):
+		return
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	_spawn_authored_prop(parent, OUTFLOW_STUMP, Vector3(cell.x + .5, 0.0, cell.y + .5), float(prop.get("yaw", 0.0)),
+		Vector3.ONE, "streamed_region_prop", false, "sewerOutflowPipe")
+
+
+## A burst pipe's mains, collider and drips go and the stump stays (its flood comes from SewerFloods).
 func _remove_pipe(id: String) -> void:
-	for node in _pipe_nodes.get(id, []):
+	var entry: Dictionary = _pipe_nodes.get(id, {})
+	for node in entry.get("nodes", []):
 		if is_instance_valid(node):
 			(node as Node).queue_free()
+	var parent: Variant = entry.get("parent")
+	if is_instance_valid(parent):
+		for prop in entry.get("props", []):
+			_spawn_pipe_stump(parent as Node3D, prop)
 	_pipe_nodes.erase(id)
 
 
