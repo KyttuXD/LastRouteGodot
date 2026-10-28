@@ -177,6 +177,14 @@ func _check_arch_log(decor: RefDecor, data: Dictionary, region: String, where: S
 	var hall := 0
 	for entry_value in decor.arch_log:
 		var entry: Dictionary = entry_value
+		if entry["kind"] == "haunch":
+			# sewer ribs: half a C from the wall to the ceiling, never down over the walkway or past its far edge
+			_expect(absf(float(entry["top"]) - float(entry["ceiling"])) < .001, "%s: sewer rib does not meet the ceiling" % where)
+			_expect(float(entry["lowest"]) >= float(entry["spring"]) - .2, "%s: sewer rib hangs %.2f m below its spring line" % [where, float(entry["spring"]) - float(entry["lowest"])])
+			_expect(float(entry["spring"]) >= 1.9, "%s: sewer rib springs at %.2f m, in the walkway's headroom" % [where, entry["spring"]])
+			_expect(float(entry["reach"]) <= float(entry["width"]) * .5 + .001, "%s: sewer rib reaches %.2f m over a %.0f-cell walkway" % [where, entry["reach"], entry["width"]])
+			hall += 1
+			continue
 		var centre: Vector3 = entry["centre"]
 		var hall_centre: Vector3 = entry["hall_centre"]
 		var offset := Vector2(centre.x - hall_centre.x, centre.z - hall_centre.z).length()

@@ -136,6 +136,96 @@ func _run() -> void:
 		await _settle()
 		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
 			lip + Vector3(0, low_y + 1.8, 0))
+	# 6c: a maze <-> sewer stairwell, looking up it from the foot and down it from the head, with the runner on the
+	# stairs half way (where its level flips): the other storey around the doorway must be built, not blank
+	var well := {}
+	var well_column := Vector2i.ZERO
+	for cz in range(-4, 5):
+		for cx in range(-4, 5):
+			if well.is_empty():
+				well = _view.generator.stairwell_between(cx, cz, 0)
+				well_column = Vector2i(cx, cz)
+	if not well.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var base := Vector3(well_column.x * size, level_y, well_column.y * size)
+		var path: Array = well["link"]["path"]
+		var well_foot: Vector3 = base + (path[0] as Vector3)
+		var well_head: Vector3 = base + (path[path.size() - 1] as Vector3)
+		var out_dir := Vector3(0, 0, float(int(well["outward"])))
+		_player.global_position = well_foot + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		for _frame in 600:      # both storeys of the window streamed in (the shots are about what is built)
+			if _view._pending_loads.is_empty() and _view._active_build.is_empty():
+				break
+			await get_tree().process_frame
+		var lower_data: Dictionary = _view._chunk_data.get(Vector3i(well_column.x, SewerRouteGenerator.LEVEL, well_column.y), {})
+		var upper_data: Dictionary = _view._chunk_data.get(Vector3i(well_column.x, 0, well_column.y), {})
+		var landing: Vector2i = well["landing"]
+		print("stairwell %s kind %s box %s: level %d, lower shaft %d/%d, upper shaft %d/%d, landing open %s/%s" % [
+			well["link"]["id"], well["kind"], well["box"], _view.current_level(),
+			(well["shaft"] as Dictionary).keys().filter(func(c): return (lower_data.get("shaft_cells", {}) as Dictionary).has(c)).size(),
+			(well["shaft"] as Dictionary).size(),
+			(well["shaft"] as Dictionary).keys().filter(func(c): return (upper_data.get("shaft_cells", {}) as Dictionary).has(c)).size(),
+			(well["shaft"] as Dictionary).size(),
+			int((lower_data.get("grid", []) as Array)[landing.y][landing.x]) if lower_data.has("grid") else -9,
+			int((upper_data.get("grid", []) as Array)[landing.y][landing.x]) if upper_data.has("grid") else -9])
+		await _shaft_shots("stairwell", well, base)
+		# walk the flight at a runner's pace (the bug is in streaming while walking, not in a settled window): start at
+		# the foot, climb to the head, shoot out of the top doorway at once; then walk back down and shoot out of the foot
+		for leg in ["up", "down"]:
+			var points: Array = path.duplicate()
+			if leg == "down":
+				points.reverse()
+			for k in range(1, points.size()):
+				var a: Vector3 = base + (points[k - 1] as Vector3)
+				var b: Vector3 = base + (points[k] as Vector3)
+				var steps := maxi(1, int(a.distance_to(b) / (3.5 / 60.0)))
+				for t in steps:
+					_player.global_position = a.lerp(b, float(t + 1) / float(steps)) + Vector3(0, .04, 0)
+					await get_tree().process_frame
+			if leg == "up":
+				await _shot("stairwell_top_after_climb", well_head + Vector3(0, 1.6, 0) - out_dir * .5,
+					well_head + Vector3(0, 1.2, 0) + out_dir * 10.0)
+			else:
+				await _shot("stairwell_foot_after_descent", well_foot + Vector3(0, 1.6, 0) - out_dir * .5,
+					well_foot + Vector3(0, 1.2, 0) + out_dir * 10.0)
+	# 6d: the sewer -> collector and collector -> Inferno ramps (KT's report on LEVEL -2: a slab across the way down),
+	# from each foot up the slope, from each head down it, and from a few steps down at the tunnel mouth
+	for ramp_upper in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+		var tag := "collector_ramp" if ramp_upper == SewerRouteGenerator.LEVEL else "inferno_ramp"
+		var deep_ramp := {}
+		var ramp_column := Vector2i.ZERO
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if deep_ramp.is_empty():
+					deep_ramp = _view.generator.sewer().ramp_between(cx, cz, ramp_upper)
+					ramp_column = Vector2i(cx, cz)
+		if not deep_ramp.is_empty():
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			var height := StreamedFacilityView3D.LEVEL_HEIGHT
+			var corner := Vector3(ramp_column.x * size, 0, ramp_column.y * size)
+			var row := float(int(deep_ramp["row"])) + .5
+			var top_x := float(deep_ramp["top_x"])
+			var bottom_x := float(deep_ramp["bottom_x"])
+			var down := signf(bottom_x - top_x)
+			var ramp_foot := corner + Vector3(bottom_x + down * 1.5, (ramp_upper - 1) * height, row)
+			var ramp_head := corner + Vector3(top_x - down * 1.5, ramp_upper * height, row)
+			print("ramp %s at column %s: foot %s head %s" % [deep_ramp["link"]["id"], ramp_column, ramp_foot, ramp_head])
+			_player.global_position = ramp_foot + Vector3(0, .04, 0)
+			_view.refresh_at_tracked_player()
+			await _settle()
+			for _frame in 600:
+				if _view._pending_loads.is_empty() and _view._active_build.is_empty():
+					break
+				await get_tree().process_frame
+			if OS.get_environment("RAMP_DUMP") != "":
+				_dump_ramp(deep_ramp, ramp_column)
+			await _shot(tag + "_looking_up", ramp_foot + Vector3(0, 1.6, 0), ramp_head + Vector3(0, 2.4, 0))
+			await _shot(tag + "_looking_down", ramp_head + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, .6, 0))
+			# KT's viewpoint: a few steps down the slope, looking down at the tunnel mouth
+			var part_way := ramp_head.lerp(ramp_foot, .35)
+			await _shot(tag + "_mouth", part_way + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, 1.2, 0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
@@ -144,6 +234,59 @@ func _run() -> void:
 	await _shot("inferno_hall", Vector3(c + 9.5, inferno_y + 1.7, c + .5), Vector3(c - 6.0, inferno_y + 1.0, c + .5))
 	print("SEWER CAPTURES -> %s" % ProjectSettings.globalize_path(_out))
 	get_tree().quit()
+
+
+## Looking up a stairwell's shaft from its lower landing and down it from the upper one. `base` is the world
+## position of the well's lower storey's chunk origin; the path's y runs 0 (lower) .. RISE (upper) above it.
+func _shaft_shots(name: String, well: Dictionary, base: Vector3) -> void:
+	var path: Array = well["link"]["path"]
+	var lower := base
+	var foot: Vector3 = lower + (path[0] as Vector3)
+	var middle := Vector3.ZERO
+	for cell_value in well["shaft"]:
+		var cell: Vector2i = cell_value
+		middle += Vector3(cell.x + .5, 0, cell.y + .5)
+	middle /= float((well["shaft"] as Dictionary).size())
+	_player.global_position = foot + Vector3(0, .04, 0)
+	_view.refresh_at_tracked_player()
+	await _settle()
+	for _frame in 600:
+		if _view._pending_loads.is_empty() and _view._active_build.is_empty():
+			break
+		await get_tree().process_frame
+	await _shot(name + "_looking_up", foot + Vector3(0, 1.5, 0), lower + middle + Vector3(0, 5.5, 0))
+	var head: Vector3 = base + (path[path.size() - 1] as Vector3)
+	await _shot(name + "_looking_down", head + Vector3(0, 1.6, 0), lower + middle + Vector3(0, .3, 0))
+
+
+## Debug (RAMP_DUMP=1): every quad and mesh of both chunks near a ramp, chunk-local.
+func _dump_ramp(ramp: Dictionary, column: Vector2i) -> void:
+	var rect: Rect2i = ramp["ramp"]
+	print("RAMPDUMP rect %s top %s bottom %s top_x %s bottom_x %s" % [rect, ramp["top"], ramp["bottom"], ramp["top_x"], ramp["bottom_x"]])
+	for level in [int(ramp["upper"]), int(ramp["upper"]) - 1]:
+		var node := _view.get_node_or_null("Chunk_%d_%d_%d" % [column.x, level, column.y]) as Node3D
+		if node == null:
+			print("RAMPDUMP level %d missing" % level)
+			continue
+		var inv := node.global_transform.affine_inverse()
+		for m in node.find_children("*", "MeshInstance3D", true, false):
+			var mi := m as MeshInstance3D
+			if mi.mesh == null:
+				continue
+			var xf: Transform3D = inv * mi.global_transform
+			if mi.name != "Surface":
+				var at: Vector3 = xf.origin
+				if at.x > rect.position.x - 2 and at.x < rect.end.x + 2 and at.z > rect.position.y - 2 and at.z < rect.end.y + 2:
+					print("RAMPDUMP L%d mesh %s at %s" % [level, node.get_path_to(mi), at.snapped(Vector3.ONE * .01)])
+				continue
+			for si in mi.mesh.get_surface_count():
+				var v: PackedVector3Array = mi.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX]
+				for q in range(0, v.size(), 4):
+					var a: Vector3 = xf * v[q]
+					var b: Vector3 = xf * v[q + 2]
+					var c := (a + b) * .5
+					if c.x > rect.position.x - 1.5 and c.x < rect.end.x + 1.5 and c.z > rect.position.y - 1.5 and c.z < rect.end.y + 1.5:
+						print("RAMPDUMP L%d s%d %s -> %s" % [level, si, a.snapped(Vector3.ONE * .01), b.snapped(Vector3.ONE * .01)])
 
 
 func _settle() -> void:

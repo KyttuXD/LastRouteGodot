@@ -116,6 +116,22 @@ var voice_volume := 80.0
 var voice_enabled := true
 var voice_subtitles := true
 var muted_players: Array = []
+## Proximity voice chat (VoiceChat): on/off, "vad" (voice activated) or "ptt" (push to talk, the push_to_talk action), mic gain
+## 0..2, activation sensitivity 0..1 (higher hears quieter speech), input device name, loudness of other players 0..1.5 and
+## per-player volumes by callsign. Spoken chat (RoomChat) reads aloud "everyone" else, only "own" lines, or nobody ("off") at
+## tts_rate 0.5..2 with an optional OS voice id ("" = a stable voice per player).
+var voice_chat_on := false
+var voice_mode := "vad"
+var voice_mic_gain := 1.0
+var voice_sensitivity := 0.5
+var voice_input_device := "Default"
+var voice_chat_volume := 1.0
+var voice_player_volumes := {}
+var tts_mode := "everyone"
+## Settings -> MODS: fetch missing room mod packs without asking. Off by default; downloads are other players' content.
+var auto_download_mods := false
+var tts_rate := 1.0
+var tts_voice_id := ""
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
@@ -247,6 +263,42 @@ func set_voice(volume: float, enabled: bool, subtitles: bool) -> void:
 	voice_volume = clampf(volume, 0.0, 100.0)
 	voice_enabled = enabled
 	voice_subtitles = subtitles
+	_save()
+
+
+func set_voice_chat(on: bool, mode: String, gain: float, sensitivity: float, device: String, volume: float) -> void:
+	voice_chat_on = on
+	voice_mode = mode if mode in ["vad", "ptt"] else "vad"
+	voice_mic_gain = clampf(gain, 0.0, 2.0)
+	voice_sensitivity = clampf(sensitivity, 0.0, 1.0)
+	voice_input_device = device if not device.is_empty() else "Default"
+	voice_chat_volume = clampf(volume, 0.0, 1.5)
+	_save()
+
+
+func set_auto_download_mods(on: bool) -> void:
+	auto_download_mods = on
+	_save()
+
+
+func set_tts(mode: String, rate: float, voice_id: String) -> void:
+	tts_mode = mode if mode in ["off", "own", "everyone"] else "everyone"
+	tts_rate = clampf(rate, 0.5, 2.0)
+	tts_voice_id = voice_id
+	_save()
+
+
+## Loudness multiplier 0..1.5 for one player's voice chat (1 unless set).
+func player_voice_volume(callsign: String) -> float:
+	return clampf(float(voice_player_volumes.get(callsign.strip_edges().to_upper(), 1.0)), 0.0, 1.5)
+
+
+func set_player_voice_volume(callsign: String, volume: float) -> void:
+	var key := callsign.strip_edges().to_upper()
+	if is_equal_approx(volume, 1.0):
+		voice_player_volumes.erase(key)
+	else:
+		voice_player_volumes[key] = clampf(volume, 0.0, 1.5)
 	_save()
 
 
@@ -605,6 +657,21 @@ func _load() -> void:
 	voice_enabled = bool(config.get_value("voice", "enabled", true))
 	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
 	muted_players = Array(config.get_value("voice", "muted", []))
+	voice_chat_on = bool(config.get_value("voice", "chat_on", false))
+	voice_mode = String(config.get_value("voice", "mode", "vad"))
+	if not voice_mode in ["vad", "ptt"]:
+		voice_mode = "vad"
+	voice_mic_gain = clampf(float(config.get_value("voice", "mic_gain", 1.0)), 0.0, 2.0)
+	voice_sensitivity = clampf(float(config.get_value("voice", "sensitivity", 0.5)), 0.0, 1.0)
+	voice_input_device = String(config.get_value("voice", "input_device", "Default"))
+	voice_chat_volume = clampf(float(config.get_value("voice", "chat_volume", 1.0)), 0.0, 1.5)
+	voice_player_volumes = Dictionary(config.get_value("voice", "player_volumes", {}))
+	tts_mode = String(config.get_value("voice", "tts_mode", "everyone"))
+	if not tts_mode in ["off", "own", "everyone"]:
+		tts_mode = "everyone"
+	tts_rate = clampf(float(config.get_value("voice", "tts_rate", 1.0)), 0.5, 2.0)
+	tts_voice_id = String(config.get_value("voice", "tts_voice", ""))
+	auto_download_mods = bool(config.get_value("mods", "auto_download", false))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -704,6 +771,17 @@ func _save() -> void:
 	config.set_value("voice", "enabled", voice_enabled)
 	config.set_value("voice", "subtitles", voice_subtitles)
 	config.set_value("voice", "muted", muted_players)
+	config.set_value("voice", "chat_on", voice_chat_on)
+	config.set_value("voice", "mode", voice_mode)
+	config.set_value("voice", "mic_gain", voice_mic_gain)
+	config.set_value("voice", "sensitivity", voice_sensitivity)
+	config.set_value("voice", "input_device", voice_input_device)
+	config.set_value("voice", "chat_volume", voice_chat_volume)
+	config.set_value("voice", "player_volumes", voice_player_volumes)
+	config.set_value("voice", "tts_mode", tts_mode)
+	config.set_value("voice", "tts_rate", tts_rate)
+	config.set_value("voice", "tts_voice", tts_voice_id)
+	config.set_value("mods", "auto_download", auto_download_mods)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))

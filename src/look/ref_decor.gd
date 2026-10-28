@@ -194,6 +194,9 @@ func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vect
 	var far := Vector2i(x + d.x * (width + 1), z + d.y * (width + 1))
 	if width < 2 or width >= 12 or _open(grid, far.x, far.y) or not _open_run(grid, far.x, far.y, -d):
 		return
+	if _region == "sewer":
+		_sewer_haunch(x, z, base, n, float(width), hall_top, wall_key)
+		return
 	var half := float(width) * .5 - PILASTER_DEPTH
 	var rise := clampf(half * .55, .45, 1.1)
 	var spring := hall_top - rise - .18
@@ -213,6 +216,34 @@ func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vect
 		"between": float(width) - PILASTER_DEPTH * 2.0, "spring": spring, "top": spring + rise + .15,
 		"ceiling": hall_top + .1, "wall_key": wall_key})
 
+
+
+## The sewers' rib (KT: "half a C, not a full C"): the open span stops at the channel's edge, so a full arch over
+## the walkway dropped its far leg into the air above the water. Instead a quarter ellipse springs from the pilaster
+## face and curves up to meet the vault ceiling, with its keystone pressed flush against the ceiling: nothing hangs
+## below the spring line or stands in the walkway.
+func _sewer_haunch(x: int, z: int, base: Vector3, n: Vector3, width: float, hall_top: float, wall_key: String) -> void:
+	var reach := clampf(width * .5 - PILASTER_DEPTH, .55, 1.2)
+	var rise := clampf(reach * .8, .45, .9)
+	var ceiling := hall_top + .1
+	var spring := ceiling - rise
+	var centre := base + n * (PILASTER_DEPTH + reach) + Vector3.UP * spring
+	var along := n.cross(Vector3.UP).normalized()
+	var segments := 6
+	var previous := centre - n * reach
+	var lowest := INF
+	for i in range(1, segments + 1):
+		var theta := PI - PI * .5 * float(i) / float(segments)
+		var point := centre + n * (reach * cos(theta)) + Vector3.UP * (rise * sin(theta))
+		var tangent := point - previous
+		var radial := along.cross(tangent.normalized())
+		_add(wall_key, Transform3D(Basis(tangent * 1.06, radial * .3, along * .5), (point + previous) * .5))
+		lowest = minf(lowest, minf(point.y, previous.y) - .16)
+		previous = point
+	_add(_trim_key(), _box_t(centre + Vector3.UP * (rise - .21), Vector3(.3, .42, .3) + along.abs() * .26))
+	arch_log.append({"kind": "haunch", "centre": centre, "spring": spring, "lowest": lowest, "top": ceiling,
+		"ceiling": ceiling, "reach": PILASTER_DEPTH + reach, "width": width, "wall_key": wall_key,
+		"cell": Vector2i(x, z)})
 
 static var _arch_materials := {}
 const PLANE_UV_SHADER := preload("res://src/look/ref_plane_uv.gdshader")
@@ -603,6 +634,9 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			continue
 		var n := Vector3(d.x, 0, d.y)
 		var base := Vector3(x + .5 + d.x * .5, 0, z + .5 + d.y * .5)
+		# a ramp tunnel's side wall is one face two storeys tall: wall-top pipes, pilasters and arches sized for one
+		# storey ran across the shaft at the storey line (KT: a dark band down the collector ramp)
+		var beside_ramp := (_data.get("ramp_cells", {}) as Dictionary).has(Vector2i(x + d.x, z + d.y))
 		# position along the wall run, so spacing is regular instead of random
 		var along: int = x if d.y != 0 else z
 		var line: int = z if d.y != 0 else x
@@ -660,7 +694,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
 		# pilasters down both sides of halls, between the lamps, in the hall's own wall with the district's trim
-		if rid == "" and is_pilaster_column(along) and _open_run(grid, x, z, d):
+		if rid == "" and not beside_ramp and is_pilaster_column(along) and _open_run(grid, x, z, d):
 			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
 			var across_x := d.y != 0
 			var wall_key := "arch_wall:%s@%.1f" % [arch_wall_kind(Vector2i(x + d.x, z + d.y)), _hh(Vector2i(x + d.x, z + d.y))]
@@ -678,7 +712,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			var rail_axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
 			_add("handrail", Transform3D(rail_axis, base + Vector3(0, .9, 0) + n * .07))
 		# pipes run along the top of the wall in multi-cell stretches
-		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
+		if int(style["pipe"]) < 90 and not beside_ramp and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
 			var pipe_top := minf(_hh(Vector2i(x + d.x, z + d.y)), 3.6)
 			var pipe_pos := base + Vector3(0, pipe_top - 0.30, 0) + n * .09

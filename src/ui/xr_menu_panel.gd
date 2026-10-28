@@ -30,6 +30,11 @@ var _trigger_down := false
 var _scroll := XRPanelScroll.new()
 ## Head-gaze dwell clicking when no controller is tracked and no gamepad is connected (XRGaze).
 var _gaze := XRGaze.new()
+const GROUP := &"xr_menu_panel"
+## The comfort fade on this view's camera (XRFade): black through every scene switch, then a fade in.
+var _fade: XRFade
+var _awaiting_scene := false
+var _hold := 0.0
 const HINT := "STICK: SCROLL  //  TRIGGER: CLICK OR DRAG  //  LEFT MENU: RECENTRE"
 
 
@@ -108,6 +113,9 @@ func _ready() -> void:
 	var keyboard := XRKeyboard.new()   # no system keyboard in an immersive app: type room codes and chat on the panel
 	keyboard.name = "XRKeyboard"
 	add_child(keyboard)
+	add_to_group(GROUP)
+	_fade = XRFade.attach(_camera)
+	get_tree().scene_changed.connect(_on_scene_changed)
 
 
 func _on_right_pressed(action: StringName) -> void:
@@ -193,6 +201,22 @@ func _player_in_xr() -> bool:
 	return root.use_xr and root.get_camera_3d() is XRCamera3D
 
 
+## XRFade.change_scene between menus: this view has faded to black; it stays black until the new scene is up and
+## settled, then fades in. (Leaving a route, the route's own view fades to black and this view takes the headset back
+## in _process once the route is gone, starting black: switching XR viewports while the route's camera still existed
+## left the headset on the dead route, KT saw black menus.)
+func hold_dark() -> void:
+	_fade.alpha = 1.0
+	_fade.fade_to(1.0)
+	_awaiting_scene = true
+	_hold = XRFade.HOLD_SECONDS
+
+
+func _on_scene_changed() -> void:
+	_awaiting_scene = false
+	_hold = XRFade.HOLD_SECONDS
+
+
 func _process(delta: float) -> void:
 	var root := get_tree().root
 	if _player_in_xr():
@@ -208,6 +232,13 @@ func _process(delta: float) -> void:
 		_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 		_origin.current = true   # back from a route: the menus render from this origin again
 		_placed = false
+		_fade.alpha = 1.0   # a route that ended without XRFade.change_scene: still start black and fade in
+		_fade.fade_to(1.0)
+		_hold = XRFade.HOLD_SECONDS
+	if _fade.target > 0.0 and not _awaiting_scene:
+		_hold -= delta
+		if _hold <= 0.0:
+			_fade.fade_to(0.0)
 	var screen := Vector2(root.size)
 	var size := Vector2(PANEL_WIDTH, PANEL_WIDTH * screen.y / maxf(screen.x, 1.0))
 	(_panel.mesh as QuadMesh).size = size

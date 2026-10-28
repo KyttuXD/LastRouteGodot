@@ -250,6 +250,8 @@ var xr_active := false
 var xr_comfort: XRComfort
 ## OpenXR hand interactions: hand-over-hand ladders, physical swings, pokes, the flashlight in the left hand.
 var xr_hands: XRHands
+var xr_fade: XRFade
+const XR_REVEAL_FALLBACK_SECONDS := 2.5
 ## Metres a gripping hand pulled the runner up (+) or down (-) this frame (XRHands), applied by _update_ladder_climb.
 var _xr_climb_pull := 0.0
 
@@ -488,7 +490,7 @@ func _advance_rest_ease(delta: float) -> void:
 	_apply_rest_ease()
 	if float(_rest_ease["t"]) >= 1.0:
 		if bool(_rest_ease.get("leaving", false)) and first_person_items != null:
-			first_person_items.visible = true
+			first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 		_rest_ease = {}
 		first_person_pivot.position.x = 0.0
 		first_person_pivot.position.z = 0.0
@@ -802,6 +804,7 @@ func _ready() -> void:
 		first_person_camera.far = PlatformProfile.camera_far
 		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
+	_warm_flashlight.call_deferred()
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
@@ -829,6 +832,13 @@ func _apply_visual_settings() -> void:
 	if _body_model != null:
 		PlayerSkin.set_arms(_body_model, Settings.effective_slim())
 		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
+	if _climb_hands != null:
+		# skin, hue or arm style changed: rebuild the ladder hands from the same source (live update)
+		var climbing_now := _climb_hands.visible
+		_climb_hands.free()
+		_climb_hands = null
+		if climbing_now:
+			_show_climb_hands(true)
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
 			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
@@ -1076,7 +1086,7 @@ func _update_plunge(delta: float) -> void:
 				collision_layer = 1
 				collision_mask = 1
 				if first_person_items != null:
-					first_person_items.visible = true
+					first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 				soaked_left = SOAKED_SECONDS
 				_drip_left = 1.0
 				_clip = "idle"
@@ -1194,7 +1204,7 @@ func _update_ladder_climb(delta: float) -> void:
 		collision_mask = 1
 		_show_climb_hands(false)
 		if first_person_items != null:
-			first_person_items.visible = true
+			first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 		if _animation_player != null:
 			_animation_player.speed_scale = 1.0
 		_clip = "idle"
@@ -1220,30 +1230,13 @@ func _show_climb_hands(on: bool) -> void:
 	if _climb_hands == null and on:
 		_climb_hands = Node3D.new()
 		_climb_hands.name = "ClimbHands"
-		var skin := StandardMaterial3D.new()
-		skin.albedo_color = Color("d9a98a")
-		MaterialLook.tame(skin)
-		var sleeve := StandardMaterial3D.new()
-		sleeve.albedo_color = Color("3a4250")
-		MaterialLook.tame(sleeve)
 		for side in [-1.0, 1.0]:
 			var arm := Node3D.new()
 			arm.name = "L" if side < 0.0 else "R"
-			var forearm := MeshInstance3D.new()
-			var forearm_mesh := BoxMesh.new()
-			forearm_mesh.size = Vector3(.07, .07, .26)
-			forearm.mesh = forearm_mesh
-			forearm.material_override = sleeve
-			forearm.position = Vector3(0, -.02, .13)
-			arm.add_child(forearm)
-			var fist := MeshInstance3D.new()
-			var fist_mesh := BoxMesh.new()
-			fist_mesh.size = Vector3(.085, .085, .09)
-			fist.mesh = fist_mesh
-			fist.material_override = skin
-			arm.add_child(fist)
-			for child in arm.get_children():
-				(child as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var hand := _build_skinned_hand(CLIMB_HAND_SCALE, CLIMB_ARM_TILT)   # the player's own skinned forearm and hand, mirrored for the left
+			if side < 0.0:
+				hand.scale.x = -hand.scale.x
+			arm.add_child(hand)
 			arm.position = Vector3(.16 * side, -.1, -.34)
 			_climb_hands.add_child(arm)
 		first_person_camera.add_child(_climb_hands)
@@ -1691,7 +1684,7 @@ func _enter_first_person() -> void:
 	first_person_camera.current = true
 	body_visual.visible = false
 	if first_person_items:
-		first_person_items.visible = true
+		first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 	# Stated as a preference, not set directly: a menu on top has to be able to
 	# hand the cursor back without this taking it again next frame.
 	MouseLock.set_gameplay_capture(true)
@@ -1699,6 +1692,12 @@ func _enter_first_person() -> void:
 
 func _wants_xr() -> bool:
 	return OS.has_feature("xr") or OS.get_cmdline_user_args().has("--xr")
+
+
+## Fades the headset in from black (after the spawn settles; see _try_enter_xr).
+func reveal_xr_view() -> void:
+	if xr_fade != null and is_instance_valid(xr_fade):
+		xr_fade.fade_to(0.0)
 
 
 func _try_enter_xr() -> bool:
@@ -1718,6 +1717,10 @@ func _try_enter_xr() -> bool:
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
+	# Comfort (XRFade): the route starts black and fades in once the spawn has settled (reveal_xr_view), so the eye never
+	# sees the world stream in or the spawn move; a fallback fades in anyway.
+	xr_fade = XRFade.attach(xr_camera, 1.0)
+	get_tree().create_timer(XR_REVEAL_FALLBACK_SECONDS).timeout.connect(reveal_xr_view)
 	body_visual.visible = false
 	# Desktop viewmodels are camera-framed props, not world-scale VR hands.
 	# Hide them in OpenXR until controller-held models get their own pass.
@@ -1834,6 +1837,16 @@ func _connect_xr_buttons() -> void:
 	xr_left.button_released.connect(_on_xr_left_released)
 
 
+## Push to talk in a headset: hold both thumbstick clicks (every single button is taken). VoiceChat opens its gate while held.
+var _xr_stick_left := false
+var _xr_stick_right := false
+
+
+func _xr_talk(held: bool) -> void:
+	for node in get_tree().get_nodes_in_group("voice_chat"):
+		(node as VoiceChat).set_xr_push_to_talk(held)
+
+
 func _on_xr_right_pressed(action: StringName) -> void:
 	match String(action):
 		"trigger_click":
@@ -1843,7 +1856,10 @@ func _on_xr_right_pressed(action: StringName) -> void:
 		"by_button":
 			request_jump()
 		"primary_click":
-			if not xr_left.get_has_tracking_data():
+			_xr_stick_right = true
+			if _xr_stick_left:
+				_xr_talk(true)   # both stick clicks held: push to talk (voice chat), not pause
+			elif not xr_left.get_has_tracking_data():
 				_emit_xr_action_event("pause", true)   # right hand only: the stick click opens the menu
 				_emit_xr_action_event("pause", false)
 		"grip_click":
@@ -1852,6 +1868,9 @@ func _on_xr_right_pressed(action: StringName) -> void:
 
 func _on_xr_right_released(action: StringName) -> void:
 	match String(action):
+		"primary_click":
+			_xr_stick_right = false
+			_xr_talk(false)
 		"trigger_click":
 			Input.action_release("interact")
 		"ax_button":
@@ -1868,7 +1887,11 @@ func _on_xr_left_pressed(action: StringName) -> void:
 		"trigger_click":
 			Input.action_press("taser")
 		"primary_click":
-			Input.action_press("crouch")
+			_xr_stick_left = true
+			if _xr_stick_right:
+				_xr_talk(true)
+			else:
+				Input.action_press("crouch")
 		"by_button":
 			Input.action_press("toggle_map")
 		"grip_click":
@@ -1885,6 +1908,8 @@ func _on_xr_left_released(action: StringName) -> void:
 		"trigger_click":
 			Input.action_release("taser")
 		"primary_click":
+			_xr_stick_left = false
+			_xr_talk(false)
 			Input.action_release("crouch")
 		"by_button":
 			Input.action_release("toggle_map")
@@ -2052,6 +2077,8 @@ func _build_first_person_items() -> void:
 ## running back and down toward the camera. `first_person_hands` turns them off (held items only).
 static var first_person_hands := true
 const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
+const CLIMB_HAND_SCALE := .17       # ladder hands: smaller and reaching up the rungs
+const CLIMB_ARM_TILT := 150.0
 const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
 static var _fp_hand_parts: Array = []   # classic arms: [[mesh, material_override or null, transform relative to R-HandProp], ...]
 static var _fp_hand_parts_slim: Array = []   # the same from the slim (Alex) mannequin
@@ -2086,14 +2113,16 @@ static func _local_to(root: Node, node: Node3D) -> Transform3D:
 	return xf
 
 
-func _add_first_person_hand(view: Node3D) -> void:
+## The player's skinned forearm and hand (Steve or Alex arm width, current skin and hue) from the mannequin's own meshes: the one
+## source for every first-person hand (held-item views, ladder climbing). Null if the mannequin could not be loaded.
+func _build_skinned_hand(hand_scale: float = FP_HAND_SCALE, tilt: float = FP_ARM_TILT) -> Node3D:
 	var parts := _mannequin_hand_parts(Settings.effective_slim())
 	if parts.is_empty():
-		return
+		return null
 	var hand := Node3D.new()
 	hand.name = "FirstPersonHand"
 	hand.set_meta("slim", Settings.effective_slim())
-	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
+	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(tilt)).scaled(Vector3.ONE * hand_scale)
 	for part_value in parts:
 		var part: Array = part_value
 		var mesh_node := MeshInstance3D.new()
@@ -2105,6 +2134,13 @@ func _add_first_person_hand(view: Node3D) -> void:
 		hand.add_child(mesh_node)
 	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
 	PlayerSkin.apply(hand, PlayerSkin.active_texture())
+	return hand
+
+
+func _add_first_person_hand(view: Node3D) -> void:
+	var hand := _build_skinned_hand()
+	if hand == null:
+		return
 	hand.visible = first_person_hands
 	view.add_child(hand)
 
@@ -2189,6 +2225,27 @@ func _update_first_person_item_lights() -> void:
 	var lit := flashlight != null and flashlight.visible
 	_flashlight_lens_material.emission_enabled = lit
 	_flashlight_lens_material.albedo_color = Color("eee3ad") if lit else Color("3c3b35")
+
+
+## The first time the shadowed SpotLight becomes visible the renderer compiles its shader variants and allocates the
+## positional shadow atlas, a long frame. Do that once right after spawning, at zero energy, so the player's first
+## toggle (and every later one) only flips visibility.
+func _warm_flashlight() -> void:
+	if flashlight == null:
+		return
+	for _i in 2:
+		await get_tree().process_frame
+	if flashlight == null or flashlight.visible:
+		return
+	var energy := flashlight.light_energy
+	flashlight.light_energy = 0.0
+	flashlight.visible = true
+	for _i in 3:
+		await get_tree().process_frame
+	if flashlight == null:
+		return
+	flashlight.light_energy = energy
+	flashlight.visible = _flashlight_beam_should_be_visible()
 
 
 func _flashlight_beam_should_be_visible() -> bool:

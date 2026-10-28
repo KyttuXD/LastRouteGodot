@@ -14,6 +14,10 @@ const PANEL_WIDTH := 1.4
 const PANEL_DISTANCE := 1.2
 const PANEL_DROP := 0.1
 const RAY_LENGTH := 3.0
+## The death screen must be unmissable in a headset: it stays in front of the head (re-placed once the head turns this
+## far away), and a cue plus a haptic pulse on both controllers repeat this often while it is up.
+const DEATH_FOLLOW_DEGREES := 50.0
+const DEATH_ALERT_SECONDS := 15.0
 
 var route: Node
 var player: Node3D
@@ -34,6 +38,7 @@ var _scroll := XRPanelScroll.new()
 var _left: XRController3D
 var _gaze := XRGaze.new()
 var _canvas_size := Vector2(480, 270)
+var _death_alert_in := 0.0
 
 
 static func attach(host: Node, run_player: Node3D, open_check: Callable) -> XRRoutePanel:
@@ -85,9 +90,34 @@ func _process(delta: float) -> void:
 		for node in [_panel, _backdrop, _ray]:
 			node.visible = wanted
 		_dot.visible = false
+	if _shown and _death_screen():
+		_keep_death_screen_in_view(delta)
+	else:
+		_death_alert_in = 0.0
 	if _shown:
 		_point()
 		_scroll.stick(get_tree().root, [_left.get_vector2("primary"), _right.get_vector2("primary")], delta)
+
+
+func _death_screen() -> bool:
+	return route.get("_death_screen_open") == true
+
+
+func _keep_death_screen_in_view(delta: float) -> void:
+	var camera := player.get("xr_camera") as XRCamera3D
+	var forward := -camera.global_basis.z
+	var to_panel := _panel.global_position - camera.global_position
+	forward.y = 0.0
+	to_panel.y = 0.0
+	if forward.length_squared() > 0.0001 and to_panel.length_squared() > 0.0001 \
+			and rad_to_deg(forward.angle_to(to_panel)) > DEATH_FOLLOW_DEGREES:
+		_place()
+	_death_alert_in -= delta
+	if _death_alert_in <= 0.0:
+		_death_alert_in = DEATH_ALERT_SECONDS
+		Sound.alert()
+		for hand in [_left, _right]:
+			hand.trigger_haptic_pulse(&"haptic", 0.0, 0.8, 0.5, 0.0)
 
 
 func _activate() -> void:

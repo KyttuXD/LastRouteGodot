@@ -98,9 +98,21 @@ const DRIFT_TOLERANCE := 1.5
 
 func run(host: Node) -> int:
 	_host = host
+	# Leave the root window as found: later suites in the same process (platform's XR laser click) read its size.
+	var root := _root()
+	var before := {"size": root.size, "mode": root.content_scale_mode, "aspect": root.content_scale_aspect,
+		"scale_size": root.content_scale_size, "factor": root.content_scale_factor}
 	var failures := 0
 	for path in ANCHORED:
 		failures += await _check_scene(path)
+	root.size = before["size"]
+	root.content_scale_mode = before["mode"]
+	root.content_scale_aspect = before["aspect"]
+	root.content_scale_size = before["scale_size"]
+	root.content_scale_factor = before["factor"]
+	root.gui_release_focus()
+	await _frame()
+	await _frame()
 	if failures == 0:
 		print("layout OK")
 	return failures
@@ -471,7 +483,7 @@ func _check_room_lobby_contract(scene: Node) -> int:
 			or dossier.get_item_text(27) != "-- VOID HUNTERS --":
 		failures += _fail("hunter dossier category headers are missing or out of order")
 	elif dossier.get_item_text(1) != "AKI" \
-			or dossier.get_item_text(2) != "???? // UNDISCOVERED":
+			or dossier.get_item_text(2) != "???":
 		failures += _fail("hunter dossier does not reveal only account discoveries")
 	for node_name in ["DossierName", "DossierBehavior", "DossierStats"]:   # the counter label is retired: always hidden and empty
 		var label := scene.find_child(node_name, true, false) as Label
@@ -526,11 +538,13 @@ func _check_main_menu_contract(scene: Node) -> int:
 		if scene.find_child(heading, true, false) == null:
 			failures += _fail("Settings is missing its %s category" % heading)
 	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
-	if settings_tabs == null or settings_tabs.tab_count != 4 \
+	if settings_tabs == null or settings_tabs.tab_count != 6 \
 			or settings_tabs.get_tab_title(0) != "AUDIO" \
 			or settings_tabs.get_tab_title(1) != "DISPLAY" \
 			or settings_tabs.get_tab_title(2) != "CONTROLS" \
-			or settings_tabs.get_tab_title(3) != "SKIN":
+			or settings_tabs.get_tab_title(3) != "SKIN" \
+			or settings_tabs.get_tab_title(4) != "VOICE" \
+			or settings_tabs.get_tab_title(5) != "MODS":
 		failures += _fail("Settings categories do not use the shared tab treatment")
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:

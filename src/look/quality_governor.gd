@@ -3,14 +3,15 @@ extends Node
 
 ## Live quality adaptation inside the detected (or chosen) tier. Watches a rolling frame time against the device's
 ## frame target (QualityTier.frame_target); when the target is missed for MISS_SECONDS it gives up one "notch", in
-## this order: draw distance, shadows, prop density, lamps, streaming slice, render scale. After a sustained margin it takes one
+## this order: draw distance, shadows, prop density, lamps, streaming slice, render scale, and last a 30 fps cap (steady
+## pacing on hardware that cannot hold 60 even fully stepped down, instead of swinging between 30 and 50). After a sustained margin it takes one
 ## back. Separate thresholds, cooldowns and a hold after every step-down keep it from flickering. Only in GRAPHICS AUTO.
 ##
 ## The decision core (feed) is pure so scripts/validate_quality_tiers.gd can run it on synthetic frame times.
 
 signal notch_changed(notch: int)
 
-const MAX_NOTCH := 6
+const MAX_NOTCH := 7
 const WINDOW_SECONDS := 2.0
 const MISS_SECONDS := 3.0          # target missed this long -> one notch down
 const MARGIN_SECONDS := 12.0       # comfortably under budget this long -> one notch up
@@ -108,4 +109,6 @@ static func degrade(budgets: Dictionary, n: int) -> Dictionary:
 		out["stream_budget_max_ms"] = maxf(3.0, float(out.get("stream_budget_max_ms", 9.0)) - 2.0)
 	if n >= 6:
 		out["render_scale"] = maxf(.6, float(out.get("render_scale", 1.0)) * .8)
+	if n >= 7:
+		out["fps_cap"] = 30
 	return out

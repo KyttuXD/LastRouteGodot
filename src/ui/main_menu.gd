@@ -223,7 +223,7 @@ func _on_play_pressed() -> void:
 	if OS.has_feature("web"):
 		RoomState.create_local(RoomState.Mode.DEFAULT)
 		RoomState.status_message = "WEB BUILD SOLO // NATIVE CO-OP IS UNAVAILABLE"
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 		return
 	_creating_room = true
 	play_button.disabled = true
@@ -241,7 +241,7 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 		RoomState.host_primary_room()
 	else:
 		RoomState.status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM"
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_offline_pressed() -> void:
@@ -252,7 +252,7 @@ func _on_offline_pressed() -> void:
 	UpdateManager.enable_offline_mode()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.status_message = "OFFLINE SOLO ROOM"
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_join_pressed() -> void:
@@ -321,7 +321,7 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 		status.text = join_error
 		return
 	_close_modal()
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_settings_pressed() -> void:
@@ -439,7 +439,7 @@ func _close_modal() -> void:
 
 ## The menu's last button no longer quits the app: the hub is the main menu, quitting is its own button there.
 func _on_quit_pressed() -> void:
-	get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+	XRFade.change_scene(get_tree(), GameRegistry.HUB_SCENE)
 
 
 ## CREATE and JOIN are one route-entry surface. A mandatory update must lock

@@ -60,9 +60,13 @@ func add_ceiling(x: int, z: int, height: float, layer: float, params: Color) -> 
 ## A wall face on the side of cell (x, z) toward `dir` (a unit step), spanning
 ## y0..y1. `room_height` is the ceiling of the room the face looks into: the
 ## texture repeats one storey at a time from the floor up, so v is measured
-## from the bottom of a whole number of storeys.
+## from the bottom of a whole number of storeys. `room_floor` is that room's
+## floor (below 0 for a face whose room starts a storey down, e.g. a ramp
+## tunnel's side walls on its upper level, so they carry on the paint of the
+## level below without a cornice and skirting at the storey line). `tiers` > 0
+## fixes the number of repeats (a ramp tunnel's wall paints once, floor to vault).
 func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
-		y1: float, y0: float = 0.0, room_height: float = -1.0) -> void:
+		y1: float, y0: float = 0.0, room_height: float = -1.0, room_floor: float = 0.0, tiers: int = 0) -> void:
 	var a: Vector3
 	var b: Vector3
 	if dir == Vector2i(0, 1):
@@ -79,10 +83,10 @@ func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
 		b = Vector3(x, 0, z + 1)
 	# The painted wall (skirting to cornice) is stretched over each repeat of the
 	# room's height, so the cornice always meets the ceiling.
-	var full := y1 if room_height < 0.0 else room_height
-	var repeats := float(RefLook.wall_tiers(full))
-	var v_top := repeats * (1.0 - y1 / full)
-	var v_bottom := repeats * (1.0 - y0 / full)
+	var full := (y1 if room_height < 0.0 else room_height) - room_floor
+	var repeats := float(tiers if tiers > 0 else RefLook.wall_tiers(full))
+	var v_top := repeats * (1.0 - (y1 - room_floor) / full)
+	var v_bottom := repeats * (1.0 - (y0 - room_floor) / full)
 	var base := _v[1].size()
 	var n := Vector3(dir.x, 0, dir.y)
 	_v[1].append_array(PackedVector3Array([a + Vector3(0, y1, 0), b + Vector3(0, y1, 0),

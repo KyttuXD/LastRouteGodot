@@ -27,6 +27,8 @@ var _dossier_gimmick_heading: Label
 var _dossier_gimmick: Label
 var _dossier_stats: Label
 var _default_focus: Control
+## Persistent across _rebuild(): the mod-pack confirm/progress/error overlay for joining a room that runs mods.
+var mod_join: ModJoinDialog
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -39,6 +41,8 @@ func _ready() -> void:
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	RoomState.changed.connect(_rebuild)
+	mod_join = ModJoinDialog.new()
+	add_child(mod_join)
 	if not RoomState.status_message.is_empty():
 		_notice = RoomState.status_message
 	_rebuild()
@@ -49,7 +53,9 @@ func _rebuild() -> void:
 	_default_focus = null
 	_clear_dossier_fields()
 	for child in get_children():
-		child.queue_free()
+		if child != mod_join:
+			child.queue_free()
+	move_child.call_deferred(mod_join, -1)
 
 	var background := SIGNAL_BACKDROP_SCRIPT.new()
 	background.name = "SignalBackdrop"
@@ -353,7 +359,7 @@ func _actions() -> Control:
 	leave.pressed.connect(func() -> void:
 		var menu_scene := RoomState.menu_scene_path()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(menu_scene))
+		XRFade.change_scene(get_tree(), menu_scene))
 	row.add_child(leave)
 
 	return stack
@@ -374,6 +380,9 @@ func _on_dossier_pressed() -> void:
 	roster.custom_minimum_size = Vector2(108, 0)
 	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	roster.allow_reselect = true
+	roster.fixed_icon_size = Vector2i(48, 48)
+	roster.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # 2D pixel-art portraits
+	roster.icon_mode = ItemList.ICON_MODE_LEFT
 	roster.add_theme_font_size_override("font_size", 7)
 	roster.add_theme_color_override("font_color", Palette.BODY)
 	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
@@ -436,9 +445,11 @@ func _on_dossier_pressed() -> void:
 			var discovered := Backend.hunter_discovered(hunter_id)
 			var profile: Dictionary = HunterDossier.profile(hunter_id)
 			var label := String(profile["name"]).to_upper() if discovered \
-				else "???? // UNDISCOVERED"
-			var index := roster.add_item(label)
+				else "???"
+			var index := roster.add_item(label, HunterDossier.portrait(hunter_id))
 			roster.set_item_metadata(index, hunter_id)
+			if not discovered:
+				roster.set_item_icon_modulate(index, HunterDossier.SILHOUETTE)
 	roster.item_selected.connect(func(index: int) -> void:
 		_show_dossier_entry(String(roster.get_item_metadata(index))))
 	if not ids.is_empty():

@@ -151,6 +151,11 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_no_touch_controllers(host)
 	await _check_xr_origin_handover(host)
 	_check_xr_canvas_fit()
+	_check_death_audio_reset()
+	_check_xr_scene_fades(host)
+	_check_hunter_models_render(host)
+	_expect(not FileAccess.get_file_as_string("res://src/game_3d/player_controller_3d.gd").contains("first_person_items.visible = true"),
+		"the flat viewmodel is shown unconditionally somewhere (standing up in VR put the flat hand back)")
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -175,6 +180,150 @@ func _check_xr_canvas_fit() -> void:
 	_expect(full.offset_right == 480.0 and full.offset_bottom == 270.0 and full.offset_left == 0.0,
 		"the XR panel does not fit a full-rect screen to 480 x 270")
 	full.free()
+
+
+## KT lost the sound in VR after dying: the run's audio effects (underwater muffle, chase duck) must clear on respawn,
+## continue and the return to the hub. And a hand without a grip pose keeps the identity offset.
+func _check_death_audio_reset() -> void:
+	Sound.set_muffled(true)
+	Sound.ambience_duck = 1.0
+	Sound.reset_run_effects()
+	var bus := AudioServer.get_bus_index("Master")
+	var muffled := false
+	for index in AudioServer.get_bus_effect_count(bus):
+		if AudioServer.get_bus_effect(bus, index) is AudioEffectLowPassFilter and AudioServer.is_bus_effect_enabled(bus, index):
+			muffled = true
+	_expect(not muffled and Sound.ambience_duck == 0.0, "Sound.reset_run_effects leaves the muffle or the chase duck on")
+	_expect(XRHands.grip_offset(null) == Transform3D.IDENTITY, "an XR hand without a grip pose is not left on the controller")
+
+
+## KT: leaving a route and switching menus flashed heavily in VR. Steps every headset transition (leave route, pause to
+## hub, death to menu, menu to menu, entering a route) in a fake XR setup at the Quest's 72 Hz and fails on a frame with
+## no XR camera (a bare frame) or a frame-to-frame brightness jump above XR_FADE_MAX_STEP.
+const XR_FADE_FRAME := 1.0 / 72.0
+const XR_FADE_MAX_STEP := 0.05
+const XR_ROUTE_LUMA := 0.35
+const XR_MENU_LUMA := 0.12
+
+
+func _check_xr_scene_fades(host: Node) -> void:
+	var tree := host.get_tree()
+	var panel := XRMenuPanel.new()
+	host.add_child(panel)
+	var menu_view := panel.get_node("XRMenuView") as SubViewport
+	var menu_fade := panel.get("_fade") as XRFade
+	_expect(menu_fade != null and menu_fade.alpha == 0.0, "the XR menu panel has no comfort fade")
+	var worst := 0.0
+	var bare := 0
+	for transition in ["leave route", "pause to hub", "death to menu", "menu to menu", "enter route"]:
+		var frames: Array[float] = []
+		var route := _fake_xr_route(host, 0.0)
+		if transition in ["menu to menu", "enter route"]:
+			route.free()
+			route = null
+			menu_view.use_xr = true
+			(panel.get("_origin") as XROrigin3D).current = true
+			panel.set("_awaiting_scene", false)
+			menu_fade.alpha = 0.0
+			menu_fade.fade_to(0.0)
+		else:
+			menu_view.use_xr = false
+		_record_luma(tree, frames, route)
+		# fade out on whatever the headset sees (XRFade.change_scene's to_black)
+		var leaving := XRFade.active(tree)
+		_expect(leaving != null, "%s: no active XR fade before the switch" % transition)
+		if leaving == null:
+			continue
+		leaving.fade_to(1.0)
+		for _i in 60:
+			leaving.advance(XR_FADE_FRAME)
+			_record_luma(tree, frames, route)
+			if leaving.is_settled():
+				break
+		if route == null:
+			panel.hold_dark()   # between menus
+		else:
+			route.free()   # the scene change frees the route and its camera; the headset keeps its last (black) frame
+			route = null
+			menu_fade.alpha = 1.0   # what _process does when it takes the view back
+		for _i in 6:   # the new scene loading
+			panel._process(XR_FADE_FRAME)
+			menu_fade.advance(XR_FADE_FRAME)
+			_record_luma(tree, frames, route)
+		panel._on_scene_changed()
+		if transition == "enter route":
+			route = _fake_xr_route(host, 1.0)   # the route's player enters XR black
+			menu_view.use_xr = false
+			_record_luma(tree, frames, route)
+			(route.get_meta("fade") as XRFade).fade_to(0.0)   # reveal_xr_view after the spawn settles
+		for _i in 90:
+			if transition != "enter route":
+				panel._process(XR_FADE_FRAME)
+				menu_fade.advance(XR_FADE_FRAME)
+			else:
+				(route.get_meta("fade") as XRFade).advance(XR_FADE_FRAME)
+			_record_luma(tree, frames, route)
+		var end_fade := XRFade.active(tree)
+		_expect(end_fade != null and end_fade.alpha == 0.0, "%s: the headset does not fade back in" % transition)
+		for i in range(1, frames.size()):
+			if frames[i] < 0.0:
+				bare += 1
+			elif frames[i - 1] >= 0.0:
+				worst = maxf(worst, absf(frames[i] - frames[i - 1]))
+		_expect(bare == 0, "%s: %d frame(s) with no XR camera (a bare frame in the headset)" % [transition, bare])
+		_expect(worst <= XR_FADE_MAX_STEP, "%s: brightness jumps by %.3f in one frame (max %.2f)" % [transition, worst, XR_FADE_MAX_STEP])
+		if route != null:
+			route.free()
+	menu_view.use_xr = false
+	panel.free()
+	tree.root.use_xr = false
+
+
+## A route's XR view: its own XR viewport with a current XRCamera3D carrying an XRFade at `start`.
+func _fake_xr_route(host: Node, start: float) -> SubViewport:
+	var view := SubViewport.new()
+	view.use_xr = true
+	view.disable_3d = false
+	host.add_child(view)
+	var origin := XROrigin3D.new()
+	view.add_child(origin)
+	var camera := XRCamera3D.new()
+	origin.add_child(camera)
+	camera.current = true
+	view.set_meta("fade", XRFade.attach(camera, start))
+	return view
+
+
+## What the eye sees this frame: the active fade over its scene's brightness, or -1 for a frame with no XR camera.
+func _record_luma(tree: SceneTree, frames: Array[float], route: Node) -> void:
+	var fade := XRFade.active(tree)
+	if fade == null:
+		frames.append(-1.0)
+		return
+	var scene_luma := XR_ROUTE_LUMA if route != null and route.is_ancestor_of(fade) else XR_MENU_LUMA
+	frames.append((1.0 - fade.alpha) * scene_luma)
+
+
+## KT: some hunters (Ysolde) were invisible in VR. Every hunter the route can spawn must instantiate the way the game
+## does (ModelSlot.instantiate_hunter) into something that draws on the Quest/XR path: at least one visible mesh with
+## surfaces, a material on every surface, no fully transparent or custom screen/depth shader material, layer 1, and a
+## sane bounding box.
+func _check_hunter_models_render(host: Node) -> void:
+	var bad := []
+	for id in HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS:
+		var identity := HunterRoster.get_identity(id)
+		var model := ModelSlot.instantiate_hunter(identity)
+		if model == null:
+			bad.append("%s: no model (%s)" % [id, identity.get("model_scene", "")])
+			continue
+		host.add_child(model)
+		var notes := XRRenderAudit.problems(model)
+		if OS.get_environment("XR_AUDIT_VERBOSE") == "1":
+			print("  hunter %s: %s" % [id, "ok" if notes.is_empty() else ", ".join(notes)])
+		if not notes.is_empty():
+			bad.append("%s: %s" % [id, ", ".join(notes.slice(0, 4))])
+		model.free()
+	_expect(bad.is_empty(), "hunter models that would not render in XR: %s" % "; ".join(bad))
 
 
 func _check_xr_keyboard(host: Node) -> void:

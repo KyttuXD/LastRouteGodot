@@ -184,7 +184,7 @@ func run(host: Node) -> int:
 		host.add_child(panel)
 		await host.get_tree().process_frame
 		var tabs := panel.find_child("SettingsCategoryTabs", true, false) as TabBar
-		_expect(tabs != null and tabs.tab_count == 4 and tabs.get_tab_title(3) == "SKIN", "the settings panel has no SKIN tab")
+		_expect(tabs != null and tabs.tab_count >= 4 and tabs.get_tab_title(3) == "SKIN", "the settings panel has no SKIN tab")
 		var section := panel.find_child("SkinSection", true, false) as SkinPanel
 		_expect(section != null, "the SKIN section is missing")
 		if section != null and tabs != null:
