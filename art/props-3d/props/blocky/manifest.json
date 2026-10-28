@@ -1539,5 +1539,100 @@
  ],
  "diveConsole": [
   "diveConsole.glb"
+ ],
+ "micStand": [
+  "micStand.glb"
+ ],
+ "podiumMic": [
+  "podiumMic_0.glb",
+  "podiumMic_1.glb"
+ ],
+ "deskMic": [
+  "deskMic.glb"
+ ],
+ "drumKit": [
+  "drumKit_0.glb",
+  "drumKit_1.glb",
+  "drumKit_2.glb"
+ ],
+ "electricGuitarStand": [
+  "electricGuitarStand_0.glb",
+  "electricGuitarStand_1.glb",
+  "electricGuitarStand_2.glb",
+  "electricGuitarStand_3.glb"
+ ],
+ "acousticGuitarStand": [
+  "acousticGuitarStand_0.glb",
+  "acousticGuitarStand_1.glb",
+  "acousticGuitarStand_2.glb"
+ ],
+ "bassGuitarStand": [
+  "bassGuitarStand_0.glb",
+  "bassGuitarStand_1.glb",
+  "bassGuitarStand_2.glb"
+ ],
+ "keyboardStand": [
+  "keyboardStand_0.glb",
+  "keyboardStand_1.glb",
+  "keyboardStand_2.glb"
+ ],
+ "uprightPianoMusic": [
+  "uprightPianoMusic_0.glb",
+  "uprightPianoMusic_1.glb",
+  "uprightPianoMusic_2.glb"
+ ],
+ "ampStack": [
+  "ampStack_0.glb",
+  "ampStack_1.glb"
+ ],
+ "comboAmp": [
+  "comboAmp_0.glb",
+  "comboAmp_1.glb",
+  "comboAmp_2.glb"
+ ],
+ "stageMonitor": [
+  "stageMonitor.glb"
+ ],
+ "paSpeakerPole": [
+  "paSpeakerPole.glb"
+ ],
+ "mixingDesk": [
+  "mixingDesk.glb"
+ ],
+ "studioMonitors": [
+  "studioMonitors_0.glb",
+  "studioMonitors_1.glb"
+ ],
+ "rackGear": [
+  "rackGear.glb"
+ ],
+ "musicStand": [
+  "musicStand.glb"
+ ],
+ "cableCoil": [
+  "cableCoil.glb"
+ ],
+ "cableRun": [
+  "cableRun.glb"
+ ],
+ "stageLightRig": [
+  "stageLightRig.glb"
+ ],
+ "acousticPanel": [
+  "acousticPanel_0.glb",
+  "acousticPanel_1.glb",
+  "acousticPanel_2.glb"
+ ],
+ "guitarWallHanger": [
+  "guitarWallHanger_0.glb",
+  "guitarWallHanger_1.glb"
+ ],
+ "instrumentCases": [
+  "instrumentCases_0.glb",
+  "instrumentCases_1.glb",
+  "instrumentCases_2.glb"
+ ],
+ "onAirSign": [
+  "onAirSign.glb"
  ]
 }

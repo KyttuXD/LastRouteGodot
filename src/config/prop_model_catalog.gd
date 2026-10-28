@@ -659,6 +659,31 @@ const _CODE_MODEL_PATHS := {
 	"foodCourtTable": ["res://art/props-3d/props/blocky/foodCourtTable_0.glb", "res://art/props-3d/props/blocky/foodCourtTable_1.glb", "res://art/props-3d/props/blocky/foodCourtTable_2.glb"],
 	"mallPlanter": ["res://art/props-3d/props/blocky/mallPlanter_0.glb", "res://art/props-3d/props/blocky/mallPlanter_1.glb", "res://art/props-3d/props/blocky/mallPlanter_2.glb"],
 	"mallBench": ["res://art/props-3d/props/blocky/mallBench_0.glb", "res://art/props-3d/props/blocky/mallBench_1.glb"],
+	## Music wing (tools/props/blocky_props_music.py): models come from data/props/music.json.
+	"micStand": ContentRegistry.DATA,
+	"podiumMic": ContentRegistry.DATA,
+	"deskMic": ContentRegistry.DATA,
+	"drumKit": ContentRegistry.DATA,
+	"electricGuitarStand": ContentRegistry.DATA,
+	"acousticGuitarStand": ContentRegistry.DATA,
+	"bassGuitarStand": ContentRegistry.DATA,
+	"keyboardStand": ContentRegistry.DATA,
+	"uprightPianoMusic": ContentRegistry.DATA,
+	"ampStack": ContentRegistry.DATA,
+	"comboAmp": ContentRegistry.DATA,
+	"stageMonitor": ContentRegistry.DATA,
+	"paSpeakerPole": ContentRegistry.DATA,
+	"mixingDesk": ContentRegistry.DATA,
+	"studioMonitors": ContentRegistry.DATA,
+	"rackGear": ContentRegistry.DATA,
+	"musicStand": ContentRegistry.DATA,
+	"cableCoil": ContentRegistry.DATA,
+	"cableRun": ContentRegistry.DATA,
+	"stageLightRig": ContentRegistry.DATA,
+	"acousticPanel": ContentRegistry.DATA,
+	"guitarWallHanger": ContentRegistry.DATA,
+	"instrumentCases": ContentRegistry.DATA,
+	"onAirSign": ContentRegistry.DATA,
 }
 
 ## Highest local point of ceiling-hung models. Their exported origins stay in
@@ -770,7 +795,7 @@ const FLOOR_DRESSING_TYPES := [
 	"mansionAreaRug", "corridorCarpet", "hotelCarpet",
 	"apartmentCarpet", "beachMat", "bedroomRug", "gothicBedroomRug",
 	"houseBathMat", "arcadeCarpetCircle", "arcadeCarpetRunner",
-	"frozenTidelinePool", "overgrowthPatch",
+	"frozenTidelinePool", "overgrowthPatch", "cableCoil", "cableRun",
 ]
 const EMPTY_FRAME_TYPES := [
 	"normalPictureFrameEmpty", "normalPaintingFrameEmpty",
@@ -787,7 +812,7 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 	"publicBabyChangeStation", "publicMensRoomSign", "publicWomensRoomSign",
 	"houseMedicineCabinet", "houseTowelRack", "houseBathroomShelf",
 	"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard", "diveHeadsetShelf",
-	"hazardSign", "menuBoard", "donutSign", "cinemaScreen",
+	"hazardSign", "menuBoard", "donutSign", "cinemaScreen", "acousticPanel", "guitarWallHanger", "onAirSign",
 ]
 
 
@@ -923,6 +948,8 @@ const HUNTER_SCALE := {
 	"clothesRack": 1.5, "filingCabinet": 1.5, "gasCylinderRack": 1.5, "surfboardRack": 1.5, "floorLamp": 1.5,
 	"gothicFloorCandelabra": 1.5, "deconShower": 1.5, "houseShowerEnclosure": 1.5, "publicMensShowerStall": 1.5,
 	"publicWomensShowerStall": 1.5, "houseToilet": 1.5, "publicRestroomToilet": 1.5, "publicMensUrinal": 1.5,
+	# music wing: authored at real size like the counters
+	"micStand": 1.5, "podiumMic": 1.5, "deskMic": 1.5, "drumKit": 1.5, "electricGuitarStand": 1.5, "acousticGuitarStand": 1.5, "bassGuitarStand": 1.5, "keyboardStand": 1.5, "uprightPianoMusic": 1.5, "ampStack": 1.5, "comboAmp": 1.5, "stageMonitor": 1.5, "paSpeakerPole": 1.5, "mixingDesk": 1.5, "studioMonitors": 1.5, "rackGear": 1.5, "musicStand": 1.5, "cableCoil": 1.5, "cableRun": 1.5, "stageLightRig": 1.5, "acousticPanel": 1.5, "guitarWallHanger": 1.5, "instrumentCases": 1.5, "onAirSign": 1.5,
 }
 ## Multi-seat furniture: this many separate sit points side by side along the prop's width, each its own interactable
 ## (its own prompt and camera, picked by aim), and each a seat a hunter can take. Anything not listed is one seat.
@@ -971,6 +998,8 @@ static func seat_offsets(type: String, width: float) -> Array:
 
 static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
+	if MusicProps.is_playable(type):
+		return "music"   # mics and instruments (MusicProps)
 	if type == "carouselCenterpiece":
 		return "ride"
 	if CarnivalBooths.is_booth(type):
