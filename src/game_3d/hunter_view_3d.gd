@@ -122,10 +122,13 @@ void vertex() {
 	along = clamp(0.5 - VERTEX.y / length_m, 0.0, 1.0);
 }
 void fragment() {
-	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 1.4);
+	// soft edges: the rim falls off steeply, so the cone's silhouette fades out instead of drawing a hard outline
+	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 2.6);
 	float pulse = 1.0 + 0.14 * sin(TIME * pulse_speed);
+	// a camera inside or right next to the cone sees it fade away instead of filling the screen
+	float near_fade = smoothstep(0.4, 3.0, length(VERTEX));
 	ALBEDO = beam_color.rgb;
-	ALPHA = clamp(strength * pulse * rim * (1.0 - along * 0.8), 0.0, 1.0);
+	ALPHA = clamp(strength * pulse * rim * near_fade * (1.0 - smoothstep(0.0, 1.0, along) * 0.9), 0.0, 0.35);
 }
 """
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
@@ -455,7 +458,7 @@ func _build_beam_visual() -> void:
 		cone.top_radius = 0.0
 		cone.bottom_radius = shell_radius if part == "Shell" else shell_radius * .28
 		cone.height = length
-		cone.radial_segments = 20
+		cone.radial_segments = 36   # enough sides that the soft rim does not show facets
 		cone.rings = 1
 		var material := ShaderMaterial.new()
 		material.shader = shader
@@ -490,12 +493,13 @@ func _update_beam_visual(delta: float) -> void:
 	if _beam_shell != null:
 		var shell := _beam_shell.material_override as ShaderMaterial
 		shell.set_shader_parameter("beam_color", _beam_color)
-		shell.set_shader_parameter("strength", lerpf(.22, .34, _beam_chase_mix) * dim)
+		# KT: "much less visible" -- about 30% of the old .22-.34; the light on the floor and walls carries the cue
+		shell.set_shader_parameter("strength", lerpf(.066, .10, _beam_chase_mix) * dim)
 		shell.set_shader_parameter("pulse_speed", pulse_speed)
 	if _beam_core != null:
 		var core := _beam_core.material_override as ShaderMaterial
 		core.set_shader_parameter("beam_color", _beam_color.lerp(Color.WHITE, .35))
-		core.set_shader_parameter("strength", lerpf(.5, .8, _beam_chase_mix) * dim)
+		core.set_shader_parameter("strength", lerpf(.15, .24, _beam_chase_mix) * dim)
 		core.set_shader_parameter("pulse_speed", pulse_speed)
 
 
