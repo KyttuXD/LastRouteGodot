@@ -28,6 +28,7 @@ func _peak(stream: AudioStreamWAV) -> float:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	for cue in NightWatchSounds.CUES:
 		var stream := Sound.render_cue("nw_" + String(cue))
 		_expect(stream != null and stream.get_length() > 0.02, "the 2D cue '%s' renders nothing" % cue)

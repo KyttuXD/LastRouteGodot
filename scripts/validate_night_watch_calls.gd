@@ -66,6 +66,7 @@ func _check_call_visible(host: Node) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	await _check_call_visible(host)
 	var golden = JSON.parse_string(FileAccess.get_file_as_string(GOLDEN))
 	_expect(golden is Dictionary, "the golden 2D call file is missing or not JSON")

@@ -171,11 +171,25 @@ func _write(path: String, content) -> void:
 	file.close()
 
 
+## Delete `dir` and everything in it. Only test folders (their name carries "data_downloads_") are ever touched, and the walk
+## uses absolute paths (ContentPacks.os_path) so a user data dir containing "//" cannot point it at the project.
 func _wipe(dir: String) -> void:
-	if not DirAccess.dir_exists_absolute(dir):
+	var path := ContentPacks.os_path(dir)
+	if not path.contains("data_downloads_") or not DirAccess.dir_exists_absolute(path):
 		return
-	for name in DirAccess.get_files_at(dir):
-		DirAccess.remove_absolute(dir.path_join(name))
-	for name in DirAccess.get_directories_at(dir):
-		_wipe(dir.path_join(name))
-	DirAccess.remove_absolute(dir)
+	_remove_tree(path)
+
+
+func _remove_tree(path: String) -> void:
+	var access := DirAccess.open(path)
+	if access == null:
+		return
+	access.include_hidden = true
+	for name in access.get_files():
+		DirAccess.remove_absolute(path.path_join(name))
+	for name in access.get_directories():
+		if access.is_link(name):
+			DirAccess.remove_absolute(path.path_join(name))
+		else:
+			_remove_tree(path.path_join(name))
+	DirAccess.remove_absolute(path)

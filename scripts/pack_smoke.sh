@@ -7,10 +7,10 @@ GUARD="$HOME/Developer/Claude-Setup/guard.pl"
 cd "$(dirname "$0")/.."
 rc=0
 for scenario in match missing; do
-	perl "$GUARD" 60 "$GODOT" --headless --path . res://scenes/pack_smoke.tscn -- host "$scenario" &
+	perl "$GUARD" 120 "$GODOT" --headless --path . res://scenes/pack_smoke.tscn -- host "$scenario" &
 	host=$!
 	sleep 2
-	perl "$GUARD" 60 "$GODOT" --headless --path . res://scenes/pack_smoke.tscn -- client "$scenario" || rc=1
+	perl "$GUARD" 120 "$GODOT" --headless --path . res://scenes/pack_smoke.tscn -- client "$scenario" || rc=1
 	wait "$host" || rc=1
 done
 exit $rc

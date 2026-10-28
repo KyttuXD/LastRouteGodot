@@ -35,6 +35,8 @@ const SECOND_TOOL_CHANCE := 0.5
 const TOOL_MIX := {"crowbar": 0.45, "axe": 0.30, "lockpick": 0.25}
 ## Seal kinds and their share (props lane interactables).
 const SEAL_MIX := {"barricade": 0.40, "locked_door": 0.25, "weak_wall": 0.20, "vent_grate": 0.15}
+## Hit points of each seal kind (Breach): the axe takes two a chop, the crowbar one, a lockpick opens a locked door outright.
+const SEAL_HP := {"barricade": 4, "locked_door": 3, "weak_wall": 4, "vent_grate": 2}
 ## Which tools open each seal kind (props lane reads this; bare hands open nothing). A locked door is the existing room
 ## door prop with "locked": true; a lockpick is quiet, a crowbar forces it loudly.
 const SEAL_TOOLS := {"barricade": ["axe", "crowbar"], "locked_door": ["lockpick", "crowbar"],
@@ -49,6 +51,8 @@ const LEVEL_SEALS := {
 	3: {"barricade": "chainedShelving", "locked_door": "lockedRecordVault", "weak_wall": "", "vent_grate": "ventGrate"},
 	4: {"barricade": "boardedHatch", "locked_door": "", "weak_wall": "weakPlaster", "vent_grate": "ventGrate"},
 	5: {"barricade": "vineChokedDoorway", "locked_door": "", "weak_wall": "", "vent_grate": ""},
+	# the Inferno under the sewers: chained gates, a locked furnace door and cracked furnace walls across the tunnels
+	-3: {"barricade": "chainedGate", "locked_door": "lockedFurnaceDoor", "weak_wall": "crackedFurnaceWall", "vent_grate": ""},
 }
 ## Single values a level changes (key -> value), e.g. {5: {"tool_mix": {"axe": 1.0}}} once the Overgrowth exists.
 const LEVEL_OVERRIDES := {

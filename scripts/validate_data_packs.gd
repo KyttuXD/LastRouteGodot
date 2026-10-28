@@ -153,7 +153,7 @@ func _check_rejections(vanilla: String) -> void:
 	_expect(not report["ok"] and Array(report["errors"]).any(func(e: String): return e.contains("per-file limit")),
 		"oversize file was not refused: %s" % [report["errors"]])
 	var linked := _good_pack("linked")
-	if DirAccess.open(linked).create_link(ProjectSettings.globalize_path(ROOT),
+	if DirAccess.open(ContentPacks.os_path(linked)).create_link(ProjectSettings.globalize_path(ROOT),
 			ProjectSettings.globalize_path(linked.path_join("assets/escape"))) == OK:
 		report = ContentRegistry.load_packs([linked])
 		_expect(not report["ok"] and Array(report["errors"]).any(func(e: String): return e.contains("links")),
@@ -231,7 +231,7 @@ func _manifest(dir: String, changes: Dictionary) -> String:
 
 func _rename(dir: String, name: String) -> String:
 	var target := ROOT.path_join(name)
-	DirAccess.rename_absolute(dir, target)
+	DirAccess.rename_absolute(ContentPacks.os_path(dir), ContentPacks.os_path(target))
 	return target
 
 
@@ -245,16 +245,25 @@ func _write(path: String, content) -> void:
 	file.close()
 
 
+## Delete `dir` and everything in it. Only test folders (their name carries "data_packs_test") are ever touched, and the walk
+## uses absolute paths (ContentPacks.os_path) so a user data dir containing "//" cannot point it at the project.
 func _wipe(dir: String) -> void:
-	if not DirAccess.dir_exists_absolute(dir):
+	var path := ContentPacks.os_path(dir)
+	if not path.contains("data_packs_test") or not DirAccess.dir_exists_absolute(path):
 		return
-	var access := DirAccess.open(dir)
+	_remove_tree(path)
+
+
+func _remove_tree(path: String) -> void:
+	var access := DirAccess.open(path)
+	if access == null:
+		return
 	access.include_hidden = true
 	for name in access.get_files():
-		access.remove(name)
+		DirAccess.remove_absolute(path.path_join(name))
 	for name in access.get_directories():
 		if access.is_link(name):
-			access.remove(name)
+			DirAccess.remove_absolute(path.path_join(name))
 		else:
-			_wipe(dir.path_join(name))
-	DirAccess.remove_absolute(dir)
+			_remove_tree(path.path_join(name))
+	DirAccess.remove_absolute(path)

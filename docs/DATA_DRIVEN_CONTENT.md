@@ -93,7 +93,10 @@ logic with their lanes.
 (`HunterRoster.PROFILES`), `eye_glow` (a `Color`), `aliases`
 (`hunter_id_aliases.gd`), `pools` (`a_z`, `void`, `office_void`, `special`),
 `vision` (`hunter_vision.gd`), `emote_personality`, `dossier` (text),
-`model` (body GLB or blocky rig id), `scale` (default 2.67 m), `behaviour`.
+`model` (body GLB or blocky rig id), `scale` (default 2.67 m), `behaviour`,
+`chase_style` (optional; how she runs in a chase, one of `HunterChaseStyle.STYLES`
+with an optional `:variant`, for example `"reach2"` or `"pump:fast"`; absent or
+unknown means `"pump"`).
 
 `behaviour` names an ability script that ships with the game, for example
 `"ravelle_traps"`. Mod hunters may only reuse built-in behaviours with tuned

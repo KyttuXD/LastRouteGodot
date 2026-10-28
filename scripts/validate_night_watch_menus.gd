@@ -59,6 +59,7 @@ func _same(actual: Array, expected: Array, what: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	NightWatchSave.path = "user://night_watch_menu_test.cfg"
 	NightWatchSave.reset()
 	var menu := (load("res://scenes/night_watch_menu.tscn") as PackedScene).instantiate() as NightWatchMenu

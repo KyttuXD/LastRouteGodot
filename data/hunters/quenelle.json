@@ -8,5 +8,6 @@
 	"prog": 0.17,
 	"sight": 8.1,
 	"hearing": 0.85,
-	"spawn": 12
+	"spawn": 12,
+	"chase_style": "reach2"
 }
