@@ -97,8 +97,9 @@ func _governor() -> void:
 				flips += 1
 			last_change = change["change"]
 	_expect(flips <= 2, "alternating slow/fast frames flipped quality direction %d times in two minutes" % flips)
-	var degraded := QualityGovernor.degrade(QualityTier.budgets(QualityTier.Tier.ULTRA, {}), 2)
-	_expect(float(degraded["camera_far"]) > 0.0 and not bool(degraded["shadows"]), "the first notches are not draw distance then shadows")
+	var degraded := QualityGovernor.degrade(QualityTier.budgets(QualityTier.Tier.ULTRA, {}), QualityGovernor.MAX_NOTCH)
+	_expect(float(degraded["camera_far"]) > 0.0 and bool(degraded["shadows"]) and float(degraded["render_scale"]) < 1.0,
+		"a slow desktop gave up the flashlight shadows, or the last notch is not render scale")
 	print("  quality_tiers  20 s at 30 fps -> notch %d in %d steps; margin brought it back to %d; dead band 0 changes; %d direction flips" % [
 		low_notch, down.size(), gov.notch, flips])
 	gov.free()

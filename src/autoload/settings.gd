@@ -516,7 +516,8 @@ func _apply_display() -> void:
 func _apply_display_performance() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED \
 		if vsync_enabled else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = fps_limit
+	# no limit set: phones and the Quest still cap at the rate they can hold (PlatformProfile.default_fps_cap)
+	Engine.max_fps = fps_limit if fps_limit > 0 else PlatformProfile.default_fps_cap()
 
 
 func _apply_volume() -> void:
