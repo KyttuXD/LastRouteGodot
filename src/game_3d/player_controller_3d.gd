@@ -1721,6 +1721,10 @@ func _xr_smoke_log() -> void:
 		xr_right.tracker, xr_right.pose, xr_right.get_has_tracking_data(), head, Vector2(head.x, head.z).length(),
 		xr_origin.world_scale, xr_comfort != null and xr_comfort.wrist != null and xr_comfort.wrist.is_visible_in_tree(),
 		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
+	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
+	var blocked := spot_blocked(global_position)
+	print("XR_SMOKE_PLACE body=%s camera=%s origin=%s cell_offset=%s origin_parent=%s body_blocked=%s" % [global_position,
+		xr_camera.global_position, xr_origin.global_position, cell, xr_origin.get_parent().name, blocked])
 	var problems := []
 	if not xr_active:
 		problems.append("xr_active is false")
@@ -1731,6 +1735,8 @@ func _xr_smoke_log() -> void:
 			problems.append("%s not tracked (controller asleep?)" % hand.tracker)
 	if Vector2(head.x, head.z).length() > 0.3:
 		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
+	if blocked:
+		problems.append("the body is inside level geometry or off the floor")
 	if get_tree().root.find_children("XRRoutePanel", "", true, false).is_empty():
 		problems.append("no route panel")
 	print("XR_SMOKE_RESULT %s" % ("PASS" if problems.is_empty() else "FAIL: " + ", ".join(problems)))
@@ -2738,6 +2744,39 @@ func restore_lamp(amount: float) -> void:
 ## mapped directly onto the XZ ground plane (see facility_view_3d.gd).
 func grid_position() -> Vector2:
 	return Vector2(global_position.x, global_position.z)
+
+
+## Whether the capsule would sit inside level geometry at `at` (feet position), or has no floor under it.
+func spot_blocked(at: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = player_collision.shape
+	query.transform = Transform3D(player_collision.global_basis, at + (player_collision.global_position - global_position))
+	query.exclude = [get_rid()]
+	query.collision_mask = collision_mask
+	if not space.intersect_shape(query, 1).is_empty():
+		return true
+	var floor_ray := PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6, collision_mask, [get_rid()])
+	return space.intersect_ray(floor_ray).is_empty()
+
+
+## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor, else the nearest cell centre
+## (the route's 1 m grid) within `radius` cells that does. Spawning on a wall junction put a headset camera inside the
+## walls; flat players were pushed out by the capsule but started wedged too.
+func clear_spot_near(at: Vector3, radius := 4) -> Vector3:
+	if not spot_blocked(at):
+		return at
+	var cell := Vector2i(floori(at.x), floori(at.z))
+	var best := at
+	var best_distance := INF
+	for dz in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			var candidate := Vector3(cell.x + dx + 0.5, at.y, cell.y + dz + 0.5)
+			var distance := Vector2(candidate.x - at.x, candidate.z - at.z).length()
+			if distance < best_distance and not spot_blocked(candidate):
+				best = candidate
+				best_distance = distance
+	return best
 
 
 func restore_at_safe_zone() -> void:
