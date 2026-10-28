@@ -175,7 +175,7 @@ static func apply_defs(defs: Array) -> void:
 
 ## How a hunter's head follows the runner during a grab (radians, chest share 0..1, Aki's look-away seconds): the data's
 ## "look" over these defaults.
-const LOOK_DEFAULTS := {"yaw": 1.75, "up": 1.05, "down": .96, "chest": .3, "delay": 0.0}
+const LOOK_DEFAULTS := {"yaw": 2.0, "up": 1.05, "down": 1.4, "chest": 0.0, "delay": 0.0}
 
 
 static func look_for(hunter_id: String) -> Dictionary:
@@ -324,7 +324,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["runner_arms"] = [["L", "l_wrist"]]
 			out["hunter"] = [0.0, 0.0, -.18 * yank]
 		WRAP:
-			out["at"] = Vector3(0.0, .1 * a, .95)
+			out["at"] = Vector3(0.0, .1 * a, 1.3)   # her long arms round the runner from a step away: her face stays in front of theirs
 			out["view_roll"] = sway * .04
 			out["hands"] = "pinned"
 			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
@@ -353,7 +353,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["clip"] = "idle"
 		LEG_GRAB:
 			# grabbed low from behind: the runner falls forward on their face and is dragged back to the hunter
-			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .85))
+			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .25))
 			var drag := smooth((t - REACH_SECONDS - ACT_SECONDS * .35) / (ACT_SECONDS * .65 + HOLD_SECONDS * .6))
 			out["face"] = -1.0
 			out["at"] = Vector3(0.0, 0.0, lerpf(1.25, .75, drag))
