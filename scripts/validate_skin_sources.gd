@@ -97,21 +97,25 @@ func run(host: Node) -> int:
 		_expect(_same(upgraded.get_pixel(36 + (3 - x), 52 + 5), Color(0.0, 1.0, float(x) / 4.0, 1.0)), "left arm front column %d is not the mirrored right arm" % x)
 	_expect(_same(upgraded.get_pixel(16 + 8 + 3, 52 + 2), Color(1.0, 0.0, 0.0, 1.0)), "the leg's side faces did not swap when mirrored")
 	_expect(_same(upgraded.get_pixel(5, 21), legacy.get_pixel(5, 21)), "the right leg changed in the upgrade")
-	# slim arms: 3 columns widen to 4 (repeating the first), sides keep their pixels
+	# slim (Alex): nothing is stretched or moved -- the slim mannequin wears the 3 px layout as it is, and the style is recorded
 	var slim := _blank(64, 64)
 	var palette := [Color(1, 0, 0, 1), Color(0, 1, 0, 1), Color(0, 0, 1, 1)]
 	for x in 3:
-		slim.set_pixel(44 + x, 20 + 3, palette[x])        # right arm front (3 wide): columns A B C
-		slim.set_pixel(51 + x, 20 + 3, palette[x])        # right arm back (starts at 51 in the slim layout)
-	slim.set_pixel(40, 22, Color(1, 1, 0, 1))             # right arm, outer side face
-	slim.set_pixel(47, 22, Color(0, 1, 1, 1))             # right arm, inner side face (slim: starts at 47)
-	var widened: Image = PlayerSkin.from_minecraft(slim, true)["image"]
-	var expected := [palette[0], palette[0], palette[1], palette[2]]
-	for x in 4:
-		_expect(_same(widened.get_pixel(44 + x, 23), expected[x]), "slim front column %d is wrong after widening" % x)
-		_expect(_same(widened.get_pixel(52 + x, 23), expected[x]), "slim back column %d is wrong after widening" % x)
-	_expect(_same(widened.get_pixel(40, 22), Color(1, 1, 0, 1)) and _same(widened.get_pixel(48, 22), Color(0, 1, 1, 1)), "the slim arm's side faces moved wrongly")
-	_expect(PlayerSkin.from_minecraft(slim, false)["ok"], "a classic-flagged skin was refused")
+		slim.set_pixel(44 + x, 23, palette[x])        # right arm front (3 wide): columns A B C
+		slim.set_pixel(51 + x, 23, palette[x])        # right arm back (starts at 51 in the slim layout)
+	for rect in [Rect2i(50, 16, 2, 4), Rect2i(54, 20, 2, 12), Rect2i(42, 48, 2, 4), Rect2i(46, 52, 2, 12)]:
+		_fill(slim, rect, Color(0, 0, 0, 0))          # the 4th arm column is transparent in an Alex skin
+	var slim_result: Dictionary = PlayerSkin.validate(slim.save_png_to_buffer())
+	_expect(slim_result["ok"] and slim_result["slim"] == true, "an Alex skin was not detected from its transparent arm column")
+	var kept: Image = slim_result["image"]
+	for x in 3:
+		_expect(_same(kept.get_pixel(44 + x, 23), palette[x]) and _same(kept.get_pixel(51 + x, 23), palette[x]), "an Alex arm column %d moved" % x)
+	_expect(kept.get_pixel(54, 25).a == 1.0, "an Alex skin's base layer was not forced opaque")
+	_expect(PlayerSkin.validate(_blank(64, 64).save_png_to_buffer())["slim"] == false, "a classic skin was detected as slim")
+	var from_profile: Dictionary = PlayerSkin.from_minecraft(_blank(64, 64), true)
+	_expect(from_profile["ok"] and from_profile["slim"] == true, "the Mojang profile's slim model was ignored")
+	_expect(PlayerSkin.from_minecraft(_blank(64, 64), false)["slim"] == false and PlayerSkin.from_minecraft(slim, false)["slim"] == true, "from_minecraft lost the style")
+	_expect(PlayerSkin.from_minecraft(legacy, true)["slim"] == false, "an old 64x32 skin was treated as slim")
 
 	# ---- copying another player's skin, from the memory cache
 	var saved := Settings.skin_hash
@@ -122,13 +126,13 @@ func run(host: Node) -> int:
 	var theirs_validated := PlayerSkin.validate(theirs.save_png_to_buffer())
 	var their_hash := String(theirs_validated["hash"])
 	sync.accept_download(their_hash, true, theirs_validated["png"])
-	PlayerSkin.note_peer(2, "FRIEND", their_hash, true)
+	PlayerSkin.note_peer(2, "FRIEND", their_hash, true, true)
 	PlayerSkin.note_peer(3, "PRIVATE", their_hash, false)
 	PlayerSkin.note_peer(4, "NOSKIN", "", true)
 	var listed := PlayerSkin.copyable_peers()
 	_expect(listed.size() == 1 and listed[0]["name"] == "FRIEND", "the copy list is wrong: %s" % str(listed))
-	var copied := PlayerSkin.copy_peer(their_hash)
-	_expect(copied["ok"] and Settings.skin_hash == their_hash, "copying a peer's skin did not make it yours")
+	var copied := PlayerSkin.copy_peer(their_hash, true)
+	_expect(copied["ok"] and Settings.skin_hash == their_hash and Settings.skin_slim, "copying a peer's skin did not make it yours (with their arm style)")
 	_expect(FileAccess.file_exists(PlayerSkin.OWN_PATH) and PlayerSkin.load_own() != null, "the copied skin was not kept as your own file")
 	_expect(not PlayerSkin.copy_peer("0".repeat(64))["ok"], "copied a skin that is not loaded")
 	PlayerSkin.clear_peer_cache()

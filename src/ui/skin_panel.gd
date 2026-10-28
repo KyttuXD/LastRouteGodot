@@ -16,6 +16,7 @@ var name_edit: LineEdit
 var peer_list: OptionButton
 var copyable_check: CheckBox
 var _copy_button: Button
+var _arms_button: Button
 var _busy := false
 var _preview_model: Node3D
 var _spin := 0.0
@@ -85,11 +86,15 @@ func _ready() -> void:
 	copy_row.add_child(peer_list)
 	_copy_button = _button(copy_row, "COPY SKIN", _copy_peer)
 	copyable_check = CheckBox.new()
-	copyable_check.text = "OTHERS MAY COPY MY SKIN"
+	copyable_check.text = "OTHERS MAY COPY"
 	copyable_check.add_theme_font_size_override("font_size", 6)
 	copyable_check.button_pressed = Settings.skin_copyable
 	copyable_check.toggled.connect(Settings.set_skin_copyable)
-	column.add_child(copyable_check)
+	var options_row := HBoxContainer.new()
+	options_row.add_theme_constant_override("separation", 4)
+	column.add_child(options_row)
+	options_row.add_child(copyable_check)
+	_arms_button = _button(options_row, _arms_text(), _cycle_arms)
 	status_label = Label.new()
 	status_label.name = "SkinStatus"
 	status_label.add_theme_font_size_override("font_size", 6)
@@ -134,8 +139,9 @@ func _process(delta: float) -> void:
 		_preview_model.rotation_degrees.y = _spin
 
 
-func _show(texture: Texture2D) -> void:
+func _show(texture: Texture2D, slim: bool = Settings.effective_slim()) -> void:
 	if _preview_model != null:
+		PlayerSkin.set_arms(_preview_model, slim)
 		PlayerSkin.apply(_preview_model, texture)
 
 
@@ -177,8 +183,8 @@ func pick_path(path: String) -> Dictionary:
 		_say("Not applied: %s." % String(result["reason"]))
 	else:
 		_pending = result
-		_show(ImageTexture.create_from_image(result["image"]))
-		_say("Preview only. Press APPLY to wear it.")
+		_show(ImageTexture.create_from_image(result["image"]), _slim_for(result))
+		_say("Preview only. Press APPLY to wear it (%s arms)." % ("slim" if _slim_for(result) else "classic"))
 	_refresh()
 	return result
 
@@ -190,8 +196,8 @@ func _preview(result: Dictionary) -> Dictionary:
 		_say("Not applied: %s." % String(result["reason"]))
 	else:
 		_pending = result
-		_show(ImageTexture.create_from_image(result["image"]))
-		_say("Preview only. Press APPLY to wear it.")
+		_show(ImageTexture.create_from_image(result["image"]), _slim_for(result))
+		_say("Preview only. Press APPLY to wear it (%s arms)." % ("slim" if _slim_for(result) else "classic"))
 	_refresh()
 	return result
 
@@ -238,13 +244,39 @@ func _copy_peer() -> Dictionary:
 	var hash := String(peer_list.get_item_metadata(peer_list.selected))
 	var texture := PlayerSkin.peer_texture(hash)
 	var result := PlayerSkin.validate(texture.get_image().save_png_to_buffer()) if texture != null else {"ok": false, "reason": "that skin is not loaded"}
+	if bool(result["ok"]):
+		for peer in PlayerSkin.copyable_peers():
+			if String(peer["hash"]) == hash:
+				result["slim"] = bool(peer["slim"])   # the style comes from the owner's state; the pixels were normalised
 	return _preview(result)
+
+
+## The arm style a picked skin would be worn with: the player's override, else what the skin itself says.
+func _slim_for(result: Dictionary) -> bool:
+	match Settings.skin_arms:
+		"slim":
+			return true
+		"classic":
+			return false
+	return bool(result.get("slim", false))
+
+
+func _cycle_arms() -> void:
+	var modes := ["auto", "classic", "slim"]
+	Settings.set_skin_arms(modes[(modes.find(Settings.skin_arms) + 1) % modes.size()])
+	_arms_button.text = _arms_text()
+	_show(PlayerSkin.default_texture() if _pending.is_empty() and Settings.skin_hash.is_empty() else (ImageTexture.create_from_image(_pending["image"]) if not _pending.is_empty() else PlayerSkin.active_texture()),
+		_slim_for(_pending) if not _pending.is_empty() else Settings.effective_slim())
+
+
+func _arms_text() -> String:
+	return "ARMS: %s" % Settings.skin_arms.to_upper()
 
 
 func _apply() -> void:
 	if _pending.is_empty():
 		return
-	var result := PlayerSkin.import_bytes(_pending["png"])
+	var result := PlayerSkin.apply_result(_pending)
 	if bool(result["ok"]):
 		_pending = {}
 		Backend.skin_sync.sync_own()

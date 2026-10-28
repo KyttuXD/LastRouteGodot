@@ -1,10 +1,19 @@
 # Custom player skins
 
-A skin is a standard Minecraft-layout **64×64 PNG** on the player mannequin (`assets/hunters_blocky/player_mannequin`, classic
+A skin is a standard Minecraft-layout **64×64 PNG** (the old 64×32 format is accepted: the left limbs are mirrored from the right) on the player mannequin (`assets/hunters_blocky/player_mannequin`, classic
 proportions). Settings → **SKIN** picks a file, previews it on a rotating mannequin, applies it, resets to the default, or saves the
 template to paint over.
 
-- **Template:** [player_skin_template.png](player_skin_template.png) (the default skin, clear overlay layer). The map of regions is
+- **Steve and Alex:** the mannequin matches the Minecraft player model (head 8³, body 8×12×4, legs 4×12×4, arms 4×12×4 classic / 3×12×4 slim,
+  hat / jacket / sleeves / pants as slightly inflated outer shells, UVs exactly per the 64×64 layout incl. the separate left arm and leg),
+  scaled to the 1.60 m runner. There are two bodies on one rig: `player_mannequin` (Steve) and `player_mannequin_slim` (Alex), built by
+  `tools/blocky_hunters/build.py`. The style is detected from the skin (an Alex skin leaves the arms' 4th texture column transparent) or
+  the Minecraft profile's model field, can be forced with SKIN → ARMS (AUTO / CLASSIC / SLIM), and is sent with the skin hash
+  (`"skin_slim"`). `PlayerSkin.set_arms` swaps the six arm meshes in place (same bones and pivots, so every clip, the ladder, swing and
+  hand poses keep working); the first-person hand and the XR hands follow the style too. Nothing is stretched or converted: a Minecraft
+  skin maps 1:1. References: [player_skins_steve_alex.png](player_skins_steve_alex.png) (our own Steve-style and Alex-style test skins
+  `player_skin_steve_reference.png` / `player_skin_alex_reference.png` on the two bodies; `tools/blocky_hunters/render_skins.py`).
+- **Template:** [player_skin_template.png](player_skin_template.png) (the default skin, clear overlay layer) and [player_skin_template_slim.png](player_skin_template_slim.png) (the same with the Alex arm layout). The map of regions is
   [player_skin_guide.png](player_skin_guide.png) (base regions outlined in amber, overlay regions in blue).
 - **Base layer:** head, body, arms, legs. Alpha is ignored there: the base is forced opaque, so nobody can go invisible.
 - **Overlay layer:** hat (32,0 32×16), jacket (16,32 24×16), right sleeve (40,32 16×16), right pants (0,32 16×16), left sleeve
@@ -26,9 +35,9 @@ All of them end in the same preview → APPLY → (signed in) upload flow, with 
   decoded as an image.
 - **FROM MC NAME:** a Minecraft username → `api.mojang.com` (uuid) → `sessionserver.mojang.com` (profile textures) →
   `textures.minecraft.net` (PNG), every hop pinned to those hosts, then converted by `PlayerSkin.from_minecraft`. The template *is* the
-  Minecraft 64×64 layout, so the only conversions are the old 64×32 format (left limbs mirrored from the right; no second layer) and
-  slim (Alex) 3 px arms → the mannequin's 4 px arms (the first column of each face repeats once, so slim arms look slightly stretched).
-  Lost: capes and elytra, and the slim-arm shape.
+  Minecraft 64×64 layout, so the only conversion is the old 64×32 format (left limbs mirrored from the right; no second layer). Slim
+  (Alex) skins keep their 3 px arms on the slim mannequin.
+  Nothing else is converted; capes and elytra are not used.
 - **COPY SKIN:** pick a co-op player in the list (those whose skin is downloaded and who allow copying) and copy it; the copy comes
   from the in-memory peer cache and becomes your own skin (stored as your file, uploaded when signed in). Each player has an
   "OTHERS MAY COPY MY SKIN" box (`Settings.skin_copyable`, published as `"skin_copy"` in the co-op state; honoured by the other client).

@@ -118,6 +118,10 @@ var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 var skin_hash := ""
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
+## The arm style of the skin: skin_slim is what the skin's own pixels said when it was picked (Alex = transparent 4th arm column, or the
+## Minecraft profile's model); skin_arms is the player's choice: "auto" follows the skin, "classic" (Steve) / "slim" (Alex) force it.
+var skin_slim := false
+var skin_arms := "auto"
 ## Waypoint HUD (docs/WAYPOINTS.md): guidance "off" (pin only), "arrow" (pin + screen-edge arrow), "path" (+ floor chevrons).
 const WAYPOINT_GUIDANCE_MODES := ["off", "arrow", "path"]
 var waypoint_guidance := "arrow"
@@ -296,6 +300,22 @@ func set_waypoint_arrival_chime(on: bool) -> void:
 
 func set_pixel_effect_percent(value: float) -> void:
 	pixel_effect_percent = clampf(value, 0.0, 100.0)
+	_save()
+	visual_changed.emit()
+
+
+func effective_slim() -> bool:
+	return skin_arms == "slim" or (skin_arms == "auto" and skin_slim)
+
+
+func set_skin_slim(value: bool) -> void:
+	skin_slim = value
+	_save()
+	visual_changed.emit()
+
+
+func set_skin_arms(mode: String) -> void:
+	skin_arms = mode if ["auto", "classic", "slim"].has(mode) else "auto"
 	_save()
 	visual_changed.emit()
 
@@ -512,6 +532,10 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
+	skin_slim = bool(config.get_value("player", "skin_slim", false))
+	skin_arms = String(config.get_value("player", "skin_arms", "auto"))
+	if not ["auto", "classic", "slim"].has(skin_arms):
+		skin_arms = "auto"
 	if not PlayerSkin.valid_hash(skin_hash):
 		skin_hash = ""
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
@@ -612,6 +636,8 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
 	config.set_value("player", "skin_copyable", skin_copyable)
+	config.set_value("player", "skin_slim", skin_slim)
+	config.set_value("player", "skin_arms", skin_arms)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
 	config.set_value("touch", "move", touch_move)
