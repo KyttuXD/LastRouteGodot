@@ -219,6 +219,7 @@ func show_screen(name_value: String) -> void:
 			_build_credits()
 		_:
 			_build_title()
+	NightWatchSounds.wire_buttons(_screen_root)   # the 2D menu blips: move on hover / focus, pick on press, deny on a locked choice
 	set_toast(toast_text if screen == "title" else "")
 	screen_changed.emit(screen)
 
