@@ -186,6 +186,25 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
 
+## VR bodies in co-op
+
+Everyone else sees a VR runner's real motion (`VRPoseSync`, `src/game_3d/vr_pose_sync.gd`):
+
+- **Sending:** the VR player adds a 43-byte `vr` packet to the ordinary 20 Hz remote-player state, about 860 bytes/s
+  per VR peer. It holds the head and both controllers relative to the body (millimetre positions, int16 quaternions)
+  plus tracked and crouch flags. Flat players never send it.
+- **Crouching:** a head below 78 % of the calibrated standing height (a slowly relaxing running maximum) sends the
+  crouch clip, so crouching in real life lowers the body.
+- **Receiving (`RemotePlayers`):**
+  - The pose is smoothed every frame, and the body turns to follow the head beyond 50°.
+  - After the walk/idle clip, the mannequin's `Head` takes the head rotation and each tracked arm swings from the
+    shoulder to point at its hand, forearm straight; the cubes are rigid, so no bending IK is needed.
+  - The held item rides the right hand, and the flashlight beam starts at the left hand. Hand-over-hand climbing,
+    swings and pokes all show.
+- **Flat peers** are drawn exactly as before.
+- **Validator:** `platform` checks the packet round trip and size, that the arms point at the hands, the head pitch,
+  the body follow, and that a flat peer is untouched.
+
 ## Typing in the headset
 
 An immersive OpenXR app gets no system keyboard on the Quest. `XRKeyboard` (`src/ui/xr_keyboard.gd`, owned by
