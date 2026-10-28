@@ -16,6 +16,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
+	NwLeakProbe.fresh()
 	var classic := NightWatchMapRegistry.classic_layout()
 	var classic_sig := NightWatchMapRegistry.signature(classic)
 	_expect(classic_sig != 0 and (classic["rooms"] as Dictionary).size() == 8, "Classic's own layout is not 8 rooms")

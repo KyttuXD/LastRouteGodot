@@ -69,6 +69,7 @@ func _prep(mode: String, game: Node) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	for mode in MODES:
 		await _check_mode(host, String(mode))
 	# win and lose on fresh games
