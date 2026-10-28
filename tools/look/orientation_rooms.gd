@@ -27,7 +27,7 @@ func _ready() -> void:
 				if maxi(absi(dx), absi(dz)) != r:
 					continue
 				var coord := Vector3i(dx, 0, dz)
-				var region := generator.biome_for(coord)
+				var region := generator.region_for(coord)
 				if not generator.is_chunk_allowed(coord) or found.has(region) or not REGIONS.has(region):
 					continue
 				var data := generator.chunk(coord)

@@ -32,7 +32,7 @@ func _ready() -> void:
 					if maxi(absi(dx), absi(dz)) != r:
 						continue
 					var coord := Vector3i(dx, 0, dz)
-					if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != "mansion":
+					if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != "mansion":
 						continue
 					for room in generator.chunk(coord)["rooms"]:
 						var type := String(room.get("room_type", ""))

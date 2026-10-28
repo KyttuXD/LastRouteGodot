@@ -2981,6 +2981,8 @@ func get_interaction_prompt() -> String:
 		return InputGlyphs.climb_prompt(float(ladder_climb.get("height", 0.0)) <= LADDER_LET_GO_HEIGHT)
 	var percent := resecure_percent()
 	if percent >= 0:
+		if _resecure_target.kind == RouteInteractable3D.Kind.MUSIC_BOX:
+			return "WINDING MUSIC BOX // %d%%" % percent
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target != null:
@@ -3051,8 +3053,8 @@ func _activate_interactable(target: RouteInteractable3D) -> void:
 	# _update_resecure() -- a single press would just bounce off activate()'s
 	# "already collected" case, which is technically true but not what a
 	# HOLD prompt told the player to do.
-	if target.kind == RouteInteractable3D.Kind.RELAY and target.sabotaged:
-		return
+	if _hold_seconds(target) > 0.0:
+		return   # worked by the hold in _update_resecure
 	if interaction_veto.is_valid():
 		var refused := String(interaction_veto.call(target))
 		if not refused.is_empty():
@@ -3075,10 +3077,9 @@ var _resecure_progress := 0.0
 
 func _update_resecure(delta: float) -> void:
 	var target := _nearest_interactable()
-	var is_sabotaged_relay := target != null and target.kind == RouteInteractable3D.Kind.RELAY \
-		and target.sabotaged
-	if not is_sabotaged_relay or target != _resecure_target:
-		_resecure_target = target if is_sabotaged_relay else null
+	var held_kind: bool = target != null and _hold_seconds(target) > 0.0
+	if not held_kind or target != _resecure_target:
+		_resecure_target = target if held_kind else null
 		_resecure_progress = 0.0
 	if _resecure_target == null:
 		return
@@ -3086,12 +3087,23 @@ func _update_resecure(delta: float) -> void:
 		_resecure_progress = 0.0
 		return
 	_resecure_progress += delta
-	if _resecure_progress >= GameConfig.RELAY_RESECURE_SECONDS:
-		var message := _resecure_target.set_sabotaged(false)
+	if _resecure_progress >= _hold_seconds(_resecure_target):
+		var done := _resecure_target
 		_resecure_progress = 0.0
 		_resecure_target = null
+		var message: String = done.set_sabotaged(false) if done.kind == RouteInteractable3D.Kind.RELAY else done.activate(self)
 		if not message.is_empty():
 			interaction_message.emit(message)
+
+
+## Hold-to-use interactables and how long the hold is: a sabotaged relay (Briselle) and a music box (Glyra).
+## 0 for everything worked by a single press.
+func _hold_seconds(target: RouteInteractable3D) -> float:
+	if target.kind == RouteInteractable3D.Kind.RELAY and target.sabotaged:
+		return GameConfig.RELAY_RESECURE_SECONDS
+	if target.kind == RouteInteractable3D.Kind.MUSIC_BOX and not target.disabled:
+		return GameConfig.MUSIC_BOX_WIND_HOLD
+	return 0.0
 
 
 ## Percent through a resecure hold, or -1 while nothing is being held --
@@ -3100,7 +3112,7 @@ func _update_resecure(delta: float) -> void:
 func resecure_percent() -> int:
 	if _resecure_target == null:
 		return -1
-	return clampi(roundi(_resecure_progress / GameConfig.RELAY_RESECURE_SECONDS * 100.0), 0, 100)
+	return clampi(roundi(_resecure_progress / maxf(.01, _hold_seconds(_resecure_target)) * 100.0), 0, 100)
 
 
 ## Best interactable under the camera crosshair: in reach, inside a modest aim

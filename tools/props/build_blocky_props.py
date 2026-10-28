@@ -411,7 +411,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework4.py")).read())   # room-purpose catalog: infirmary, library, storage, lobby
-exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_biomes.py")).read())    # hospital, lab, greenhouse
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_regions.py")).read())    # hospital, lab, greenhouse
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mall.py")).read())      # shopping arcade
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_music.py")).read())     # music wing (Rehearsal Hall)
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_pods.py")).read())      # lab pod room (dive lab)

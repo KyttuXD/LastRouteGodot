@@ -114,6 +114,8 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## The route scene's shared music-box clock; each box's tune follows it (MusicBoxTune).
+var music_boxes: MusicBoxes
 ## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
 var booth_requester: Callable
 var booth_reporter: Callable
@@ -1200,7 +1202,14 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
-	# Inferno caverns rise to the full storey; the maze around them keeps its low ceilings.
+	# Cave ceilings are uneven: the tunnels' roof steps between 3.1 and 3.7 m in 3-cell patches, the chambers rise to the
+	# full storey.
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		var cave_grid: Array = data["grid"]
+		for z in StreamedRouteGenerator.CHUNK_SIZE:
+			for x in StreamedRouteGenerator.CHUNK_SIZE:
+				if int(cave_grid[z][x]) == 0:
+					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
 	for cavern in data.get("inferno_caverns", []):
 		for cell_value in (cavern as Dictionary)["cells"]:
 			heights[cell_value] = LEVEL_HEIGHT - SLAB
@@ -1412,6 +1421,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					if not immediate:
 						return false
 					continue
+				_spawn_music_boxes(root, data)
 				build["phase"] = 7
 			7:
 				var pickups: Array = data.get("pickups", [])
@@ -2438,11 +2448,11 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord: Vector3i = build["coord"]
 	var neighbour := Vector3i(coord.x + floori(float(nx) / size), coord.y, coord.z + floori(float(nz) / size))
-	return RefLook.corridor_height(generator.biome_for(neighbour), neighbour)
+	return RefLook.corridor_height(generator.region_for(neighbour), neighbour)
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var region := String(build.get("region", generator.biome_for(build["coord"])))
+	var region := String(build.get("region", generator.region_for(build["coord"])))
 	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
 
 
@@ -2453,6 +2463,15 @@ static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionar
 	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cell := Vector2i(x, z)
+	if region == "inferno":
+		# the caves are rock; only walkways (the chain bridge, a ramp's landing and its connector) are plated
+		for pit in InfernoCaverns.pits_in(data):
+			if (pit["bridge"] as Rect2i).has_point(cell):
+				return "hazard"
+		for ramp in data.get("ramps", []):
+			if (ramp["bottom"] as Rect2i).has_point(cell) or (ramp["connector"] as Rect2i).has_point(cell):
+				return "hazard"
+		return "rock%d" % posmod(RefLook.pick(coord.x * size + x, coord.z * size + z, 7, 3), 3)
 	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
 		var origin: Vector2i = room_anchor.get(cell, cell)
@@ -2539,7 +2558,7 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-	var region := String(build.get("region", generator.biome_for(coord) if generator != null else "maze"))
+	var region := String(build.get("region", generator.region_for(coord) if generator != null else "maze"))
 	return RefLook.wall_kind(region, room_type, coord.x * size + x, coord.z * size + z)
 
 
@@ -3482,6 +3501,25 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	parent.add_child(spot)
 	if not entity_id.is_empty():
 		_fixture_nodes[entity_id] = spot
+
+
+## Music boxes (at most one per chunk): hold [E] to wind, resolved by the route scene's player.music_box_resolver.
+func _spawn_music_boxes(parent: Node3D, data: Dictionary) -> void:
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	for box_value in data.get("music_boxes", []):
+		var box: Dictionary = box_value
+		var cell: Vector2i = box.get("cell", Vector2i.ZERO)
+		var node := RouteInteractable3D.new()
+		node.kind = RouteInteractable3D.Kind.MUSIC_BOX
+		node.music_box_id = String(box.get("id", ""))
+		node.music_boxes = music_boxes
+		node.name = "MusicBox_%s" % node.music_box_id.replace(":", "_")
+		node.prompt_text = "HOLD INTERACT // WIND MUSIC BOX"
+		node.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
+		node.position = Vector3(cell.x + .5, .04, cell.y + .5)
+		node.add_to_group("streamed_music_box")
+		parent.add_child(node)
 
 
 func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:

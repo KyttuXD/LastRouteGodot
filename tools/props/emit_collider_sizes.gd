@@ -87,8 +87,8 @@ func _footprint(type: String) -> Rect2:
 
 func _ready() -> void:
 	var solid_types := {}
-	for biome in StreamedRouteGenerator.REGION_PROP_SETS:
-		for entry in StreamedRouteGenerator.REGION_PROP_SETS[biome]:
+	for region in StreamedRouteGenerator.REGION_PROP_SETS:
+		for entry in StreamedRouteGenerator.REGION_PROP_SETS[region]:
 			if bool(entry.get("solid", true)):
 				solid_types[String(entry["type"])] = true
 	for type in StreamedRouteGenerator.TEMPLATE_PROP_SIZES:

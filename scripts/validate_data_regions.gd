@@ -39,7 +39,7 @@ func run(_host: Node) -> int:
 	_expect(ContentRegistry.errors().is_empty(), "res://data has errors: %s" % ", ".join(ContentRegistry.errors()))
 	for id in ContentRegistry.ids("regions"):
 		var def := ContentRegistry.get_def("regions", id)
-		_expect(StreamedRouteGenerator.BIOMES.has(id), "data region %s is not a generator biome" % id)
+		_expect(StreamedRouteGenerator.REGIONS.has(id), "data region %s is not a generator region" % id)
 		for choice in def["prop_set"]:
 			_expect(PropModelCatalog.has_model(String(choice["type"])), "%s prop_set names %s, which has no model"
 				% [id, choice["type"]])

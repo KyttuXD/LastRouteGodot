@@ -271,7 +271,7 @@ func _spawn_interactables() -> void:
 	# never leaves that room either -- she is stationary infrastructure, not
 	# a hunter who has to be found.
 	music_box = _spawn_interactable(RouteInteractable3D.Kind.MUSIC_BOX,
-		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "WIND MUSIC BOX")
+		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "HOLD INTERACT // WIND MUSIC BOX")
 	# Verrine's vent network: one grate per generator.vents entry, at the exact
 	# positions VerrineGimmick itself reads -- see FacilityGenerator.place_vents.
 	for vent in generator.place_vents(GameConfig.VERRINE_VENT_COUNT):

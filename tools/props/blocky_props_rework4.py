@@ -146,7 +146,7 @@ def standing_mirror():
     return c.boxes
 
 
-# hospitalBed comes from blocky_props_biomes.py (the biomes lane); the infirmary uses that one.
+# hospitalBed comes from blocky_props_regions.py (the regions lane); the infirmary uses that one.
 _reg("ivStand", iv_stand(), (0.5, 1.9, 0.5))
 _reg("medicalCart", medical_cart(), (0.75, 1.0, 0.5))
 _reg("readingTable", reading_table(), (1.5, 0.75, 0.88), {"@wood": ["walnut", "oak", "mahogany"]})

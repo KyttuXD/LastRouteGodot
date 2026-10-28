@@ -113,7 +113,7 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 
 # -- surface style tables ----------------------------------------------------
 #
-# Region = the multi-chunk biome the generator picked; room type = the finer
+# Region = the multi-chunk region the generator picked; room type = the finer
 # label on each room rectangle. Floors/walls are chosen per cell from these.
 # Kinds are RefTextures keys (floor/wall groups). The room families of the
 # references map onto the generator's regions like this:
@@ -148,8 +148,9 @@ const REGION_STYLE := {
 		"wall": ["paper1", "panel1"], "ceiling": "ceil1", "runner": false},
 	"prison": {"corridor": ["metal1", "metal2", "grate"], "room": ["metal2", "metal3"],
 		"wall": ["corridor0", "corridor1", "panel0"], "ceiling": "ceil0", "runner": false},
-	"inferno": {"corridor": ["hazard", "metal3"], "room": ["metal3", "stone1"],
-		"wall": ["inferno0", "brick1"], "ceiling": "ceil0", "runner": false},
+	"inferno": {"corridor": ["rock0", "rock1"], "room": ["rock0", "rock1"],
+		"wall": ["rockwall0", "rockwall1", "rockwall2", "rockwall3", "rockwall4", "rockwall5", "rockwall6", "rockwall7"],
+		"ceiling": "rockceil", "runner": false},
 	# the sewer under the maze: brick tunnels over worn stone walkways
 	"sewer": {"corridor": ["stone0", "stone1"], "room": ["concrete0", "concrete1"],
 		"wall": ["brick0", "brick1", "brick1"], "ceiling": "vault", "runner": false},
@@ -236,6 +237,9 @@ const ROOM_STYLE := {
 static func wall_kind(region: String, room_type: String, gx: int, gz: int) -> String:
 	var style: Dictionary = REGION_STYLE.get(region, REGION_STYLE["maze"])
 	var kinds: Array = (ROOM_STYLE.get(room_type, {}) as Dictionary).get("wall", style["wall"]) if room_type != "" else style["wall"]
+	# cave rock changes every cell (no 4-cell blocks of one texture), so nothing tiles along a wall
+	if region == "inferno":
+		return kinds[pick(gx, gz, 2, kinds.size())]
 	return kinds[pick(gx / 4, gz / 4, 2, kinds.size())]
 
 
@@ -297,7 +301,7 @@ const MAX_HEIGHT := 7.5
 const WALL_TEXTURE_SPAN := 4.0
 
 const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
-## The greenhouse biome's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
+## The greenhouse region's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
 ## its potting sheds and plant rooms keep an ordinary ceiling.
 const GLASSHOUSE_ROOMS := ["glasshouse", "palm_house", "cactus_room", "overgrown_room", "dome_atrium"]
 const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",
