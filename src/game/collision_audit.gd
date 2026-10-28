@@ -8,7 +8,7 @@ extends RefCounted
 const RADII := [CollisionWorld.PLAYER_RADIUS, CollisionWorld.MARGIN_RADIUS, CollisionWorld.LANE_RADIUS]
 
 
-static func run(seeds: Array, per_biome_limit: int) -> Dictionary:
+static func run(seeds: Array, per_region_limit: int) -> Dictionary:
 	var totals := {"rooms": 0, "zone_violations": 0}
 	for r in RADII:
 		totals["door_blocked_%.1f" % r] = 0
@@ -16,7 +16,7 @@ static func run(seeds: Array, per_biome_limit: int) -> Dictionary:
 		totals["pocket_m2_%.1f" % r] = 0.0
 		totals["big_pockets_%.1f" % r] = 0
 	var samples := {}
-	var per_biome := {}
+	var per_region := {}
 	for seed_text in seeds:
 		var generator := StreamedRouteGenerator.new(String(seed_text))
 		for r in range(0, 12):
@@ -27,22 +27,22 @@ static func run(seeds: Array, per_biome_limit: int) -> Dictionary:
 					var coord := Vector3i(dx, 0, dz)
 					if not generator.is_chunk_allowed(coord):
 						continue
-					var biome := generator.biome_for(coord)
-					per_biome[biome] = int(per_biome.get(biome, 0)) + 1
-					if int(per_biome[biome]) > per_biome_limit * seeds.size():
+					var region := generator.region_for(coord)
+					per_region[region] = int(per_region.get(region, 0)) + 1
+					if int(per_region[region]) > per_region_limit * seeds.size():
 						continue
-					chunk_report(generator.chunk(coord), biome, coord, RADII, totals, samples)
+					chunk_report(generator.chunk(coord), region, coord, RADII, totals, samples)
 	return {"totals": totals, "samples": samples}
 
 
-static func chunk_report(data: Dictionary, biome: String, coord: Vector3i, radii: Array, totals: Dictionary, samples: Dictionary) -> void:
+static func chunk_report(data: Dictionary, region: String, coord: Vector3i, radii: Array, totals: Dictionary, samples: Dictionary) -> void:
 	var world := CollisionWorld.from_chunk(data)
 	var rooms := {}
 	for room in data.get("rooms", []):
 		rooms[String(room.get("id", ""))] = room
 	for v in world.zone_violations():
 		totals["zone_violations"] += 1
-		_sample(samples, "zone", "%s %s door %s <- %s" % [biome, coord, v["door"], v["prop"]])
+		_sample(samples, "zone", "%s %s door %s <- %s" % [region, coord, v["door"], v["prop"]])
 	for door in world.doors:
 		var room: Dictionary = rooms.get(String(door.get("room_id", "")), {})
 		if room.is_empty():
@@ -67,12 +67,12 @@ static func chunk_report(data: Dictionary, biome: String, coord: Vector3i, radii
 			var inside := Vector2(cell) + Vector2(.5, .5) + Vector2(inward) * 1.0
 			if not world.reached_near(reached, area, inside, 0.3):
 				totals["door_blocked_%.1f" % radius] += 1
-				_sample(samples, "door_blocked_%.1f" % radius, "%s %s %s door %s room %s" % [biome, coord, door["room_id"], cell, rect])
+				_sample(samples, "door_blocked_%.1f" % radius, "%s %s %s door %s room %s" % [region, coord, door["room_id"], cell, rect])
 				continue
 			for t in targets:
 				if not world.reached_near(reached, area, t["at"], t["within"]):
 					totals["target_unreached_%.1f" % radius] += 1
-					_sample(samples, "target_%.1f" % radius, "%s %s %s %s" % [biome, coord, door["room_id"], t["name"]])
+					_sample(samples, "target_%.1f" % radius, "%s %s %s %s" % [region, coord, door["room_id"], t["name"]])
 			# standable floor in the room that the door cannot reach
 			var cut := 0
 			var cut_points := {}
@@ -92,7 +92,7 @@ static func chunk_report(data: Dictionary, biome: String, coord: Vector3i, radii
 				var largest := _largest_patch(cut_points)
 				if largest >= 6:
 					totals["big_pockets_%.1f" % radius] += 1
-					_sample(samples, "pocket_%.1f" % radius, "%s %s room %s cut-off patch %.1f m2" % [biome, coord, rect, largest * 0.25])
+					_sample(samples, "pocket_%.1f" % radius, "%s %s room %s cut-off patch %.1f m2" % [region, coord, rect, largest * 0.25])
 
 
 static func _largest_patch(points: Dictionary) -> int:

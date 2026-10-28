@@ -95,7 +95,7 @@ var _waypoint_grid_signature := ""
 var _waypoint_grid := AStarGrid2D.new()
 var _waypoint_trail: MeshInstance3D
 var _admin_reveal_map := false
-## Region/biome overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
+## Region/region overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
 var _admin_region_map := false
 var _admin_show_collision := false
 var _collision_overlay: CollisionOverlay

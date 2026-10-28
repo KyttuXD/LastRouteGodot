@@ -55,6 +55,6 @@ func _init() -> void:
 			checked += 1
 			if missing > 0:
 				bad += 1
-				print("UNREACHABLE chunk %s %s: %d open cells cut off (e.g. local %s) plan %s" % [coord, generator.biome_for(coord), missing, sample, generator.large_plan(coord)])
+				print("UNREACHABLE chunk %s %s: %d open cells cut off (e.g. local %s) plan %s" % [coord, generator.region_for(coord), missing, sample, generator.large_plan(coord)])
 	print("connectivity: %d chunks checked, %d with cut-off floor" % [checked, bad])
 	quit()

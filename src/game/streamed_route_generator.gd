@@ -14,7 +14,9 @@ const CHUNK_SIZE := 45
 ## Level zero is the spawn floor. It uses the same horizontally unbounded
 ## stream as every other Infinite level; origin stairs still guarantee routes
 ## both upward and downward.
-const BIOME_REGION_SIZE := 4
+const REGION_SIZE_CHUNKS := 4
+## Deprecated pre-rename name (biome -> region), kept until the other lanes' branches have landed; use REGION_SIZE_CHUNKS.
+const BIOME_REGION_SIZE := REGION_SIZE_CHUNKS
 ## Level of the sewer/waterworks layer under the maze (SewerRouteGenerator).
 const SEWER_LEVEL := -1
 ## The collector sewer under the first one, and the Inferno maze under that
@@ -22,8 +24,10 @@ const SEWER_LEVEL := -1
 const LOWER_SEWER_LEVEL := -2
 const INFERNO_LEVEL := -3
 const CHUNK_CACHE_LIMIT := 192
-const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
+const REGIONS := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse", "mall"]
+## Deprecated pre-rename names (biome -> region), kept until the other lanes' branches have landed; use REGIONS.
+const BIOMES := REGIONS
 const EDGE_OFFSETS := [5, 11, 17, 22, 27, 33, 39]
 ## Keep vertical links far enough from the chunk centre to fit the physical
 ## eight-metre flight used by StreamedFacilityView3D. Ordinary door seams may
@@ -65,7 +69,7 @@ const BANK_BIG_TYPES := {
 	"hospital": ["ward", "operating_theatre"], "lab": ["server_hall", "containment", "clean_room"],
 	"greenhouse": ["glasshouse", "palm_house"],
 }
-## Room types of the three facility biomes, in the order a bank cycles through them (big/great-hall types also appear
+## Room types of the three facility regions, in the order a bank cycles through them (big/great-hall types also appear
 ## through BANK_BIG_TYPES and LARGE_ROOM_TYPES). The research lab is Kyttu's Lab, the story's home, and gets the most.
 const HOSPITAL_ROOMS := ["ward", "nurses_station", "waiting_room", "operating_theatre", "icu", "morgue",
 	"pharmacy", "imaging", "supply_closet"]
@@ -79,8 +83,8 @@ const GREENHOUSE_ROOMS := ["glasshouse", "potting_shed", "palm_house", "cactus_r
 static var MALL_ROOMS: Array = ContentRegistry.get_def("regions", "mall").get("room_roles", [])
 static var SHOP_NAMES: Dictionary = ContentRegistry.get_def("regions", "mall").get("shop_names", {})
 const MALL_SHOP_WIDTH := 20
-## Biome recipes laid twice (at sides -5 and +5) across a 21-wide hall room; the rest size themselves to the room.
-const BIOME_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmacy", "imaging", "supply_closet",
+## Region recipes laid twice (at sides -5 and +5) across a 21-wide hall room; the rest size themselves to the room.
+const REGION_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmacy", "imaging", "supply_closet",
 	"nurses_station", "waiting_room", "clean_room", "control_room", "decon", "chem_lab", "bio_lab", "cold_storage",
 	"lab_office", "palm_house", "cactus_room", "potting_shed", "irrigation_room", "overgrown_room", "glasshouse"]
 ## Great halls (docs/ROOM_SIZES.md): a side of a dense chunk can merge its two middle banks and the east-west hall between
@@ -385,7 +389,7 @@ const TEMPLATE_PROP_SIZES := {
 	"infernoChainLantern": Vector3(.42, 1.6, .42),
 	"lavaPipeManifold": Vector3(1.35, 1.45, .55),
 	"charredSupplyCrate": Vector3(.95, .92, .85),
-	# hospital, research lab and greenhouse props (tools/props/blocky_props_biomes.py: the authored size in metres)
+	# hospital, research lab and greenhouse props (tools/props/blocky_props_regions.py: the authored size in metres)
 	"hospitalBed": Vector3(.95, 1.05, 2.1), "hospitalCurtain": Vector3(1.9, 2.4, .16),
 	"ivDripStand": Vector3(.45, 1.95, .45), "vitalsMonitor": Vector3(.6, 1.62, .55),
 	"nursesStation": Vector3(2.4, 1.18, .95), "waitingChairs": Vector3(2, .86, .62),
@@ -787,7 +791,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 			"difficulty": difficulty_for_level(coord.y)}
 	var grid := _solid_grid()
-	var region := biome_for(coord)
+	var region := region_for(coord)
 	# Vertical links participate in room planning. When layout ran first, its
 	# rooms could be carved directly through the later stair footprint.
 	var stairs := stair_links(coord)
@@ -879,7 +883,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"schema": 2,
 		"coord": coord,
 		"chunk_id": chunk_id(coord),
-		"biome": region,
+		"biome": region,   # deprecated alias of "region" for branches written before the rename; nothing here reads it
 		"region": region,
 		"rooms": layout["rooms"],
 		"corridors": layout["corridors"],
@@ -1009,7 +1013,12 @@ func dump_landing(coord: Vector3i) -> Vector2i:
 	return InfernoCaverns.landing(chunk(coord))
 
 
+
+## Deprecated pre-rename name, kept until the other lanes' branches have landed; use region_for().
 func biome_for(coord: Vector3i) -> String:
+	return region_for(coord)
+
+func region_for(coord: Vector3i) -> String:
 	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
 	# The Inferno is no longer a district of the maze: it is the whole level under
@@ -1017,15 +1026,16 @@ func biome_for(coord: Vector3i) -> String:
 	if coord.y == INFERNO_LEVEL:
 		return "inferno"
 	# A two-storey room owns one visual identity on both participating floors.
-	# Resolve this before ordinary biome choice so walls, props and the upper cap
+	# Resolve this before ordinary region choice so walls, props and the upper cap
 	# never change theme halfway up a carousel or other tall landmark.
 	if _dual_level_pair_active(coord):
 		return "carnival"
-	# Four-by-four regions read as facility biomes rather than every doorway
+	# Four-by-four regions read as facility regions rather than every doorway
 	# changing material language. Level participates so a stair can lead into a
 	# visibly different wing without destabilising horizontal neighbours.
-	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
-	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var region_x := floori(float(coord.x) / REGION_SIZE_CHUNKS)
+	var region_z := floori(float(coord.z) / REGION_SIZE_CHUNKS)
+	# "BIOME" is part of the seed, not a name: changing it would move every region (kept through the rename).
 	var rng := SeededRandom.new("%s:BIOME:%d:%d:%d" % [
 		world_seed, region_x, coord.y, region_z])
 	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
@@ -1034,7 +1044,7 @@ func biome_for(coord: Vector3i) -> String:
 	if coord.y == 0:
 		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
-	# the central floor; Inferno is a deep-only biome and can never leak upward.
+	# the central floor; Inferno is a deep-only region and can never leak upward.
 	if coord.y <= -1:
 		choices.append("gothic")
 		choices.append("gothic")
@@ -1078,7 +1088,7 @@ func large_plan(coord: Vector3i) -> Dictionary:
 	if _large_cache.has(key):
 		return _large_cache[key]
 	var plan := {"W": "", "E": ""}
-	var region := biome_for(coord) if is_chunk_allowed(coord) else ""
+	var region := region_for(coord) if is_chunk_allowed(coord) else ""
 	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord):
 		var rng := SeededRandom.new("%s:LARGE:%s" % [world_seed, key])
 		var types: Array = LARGE_ROOM_TYPES[region]
@@ -1090,7 +1100,7 @@ func large_plan(coord: Vector3i) -> Dictionary:
 			if region == "maze" and side == "E":
 				continue   # the office suite owns the south-east quarter
 			var neighbour := coord + Vector3i(-1 if side == "W" else 1, 0, 0)
-			if not is_chunk_allowed(neighbour) or not DENSE_DISTRICTS.has(biome_for(neighbour)):
+			if not is_chunk_allowed(neighbour) or not DENSE_DISTRICTS.has(region_for(neighbour)):
 				continue
 			plan[side] = String(types[type_index])
 	_large_cache[key] = plan
@@ -1101,11 +1111,11 @@ func large_plan(coord: Vector3i) -> Dictionary:
 ## there, or the neighbour's across the seam.
 func hall_trimmed(coord: Vector3i, dx: int) -> bool:
 	var neighbour := coord + Vector3i(dx, 0, 0)
-	if not DENSE_DISTRICTS.has(biome_for(coord)):
+	if not DENSE_DISTRICTS.has(region_for(coord)):
 		return false
 	var mine: String = String(large_plan(coord)["W" if dx < 0 else "E"])
 	var theirs := ""
-	if is_chunk_allowed(neighbour) and DENSE_DISTRICTS.has(biome_for(neighbour)):
+	if is_chunk_allowed(neighbour) and DENSE_DISTRICTS.has(region_for(neighbour)):
 		theirs = String(large_plan(neighbour)["E" if dx < 0 else "W"])
 	return not mine.is_empty() or not theirs.is_empty()
 
@@ -1117,7 +1127,7 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	# Every seam meets the centre cross of both chunks (an off-centre seam needs a perimeter lane, and the lanes of two
 	# neighbouring chunks run as a double line beside the border). Hotel/prison chunks side by side also pass their two
 	# extra halls through the seam.
-	if DENSE_DISTRICTS.has(biome_for(coord)) and DENSE_DISTRICTS.has(biome_for(neighbour)) and direction.x != 0:
+	if DENSE_DISTRICTS.has(region_for(coord)) and DENSE_DISTRICTS.has(region_for(neighbour)) and direction.x != 0:
 		var openings := [10, CHUNK_SIZE / 2, 34]   # all three halls run on through the seam
 		if hall_trimmed(coord, direction.x):
 			openings.erase(CHUNK_SIZE / 2)   # a great hall stands where the middle hall would cross
@@ -1599,15 +1609,15 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	return {"rooms": rooms, "corridors": corridors, "suites": suites, "circulation": circulation}
 
 
-## The dive lab's pod room is rare: one chunk of each lab district (BIOME_REGION_SIZE squared chunks) holds it.
+## The dive lab's pod room is rare: one chunk of each lab district (REGION_SIZE_CHUNKS squared chunks) holds it.
 func is_pod_room_chunk(coord: Vector3i) -> bool:
-	if coord.y != 0 or biome_for(coord) != "lab":
+	if coord.y != 0 or region_for(coord) != "lab":
 		return false
-	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
-	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var region_x := floori(float(coord.x) / REGION_SIZE_CHUNKS)
+	var region_z := floori(float(coord.z) / REGION_SIZE_CHUNKS)
 	var rng := SeededRandom.new("%s:PODROOM:%d:%d" % [world_seed, region_x, region_z])
-	return posmod(coord.x, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE) \
-		and posmod(coord.z, BIOME_REGION_SIZE) == rng.next_index(BIOME_REGION_SIZE)
+	return posmod(coord.x, REGION_SIZE_CHUNKS) == rng.next_index(REGION_SIZE_CHUNKS) \
+		and posmod(coord.z, REGION_SIZE_CHUNKS) == rng.next_index(REGION_SIZE_CHUNKS)
 
 
 ## The room-type names of a district (the table _room_type_for cycles through).
@@ -3537,7 +3547,7 @@ static func _room_template_specs(template: String, region: String,
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	if region in ["hospital", "lab", "greenhouse", "mall"]:
-		specs.append_array(_biome_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
+		specs.append_array(_region_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
 	if side_span >= 17 and depth_span <= 11 and template in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		var originals := specs.duplicate()
@@ -3592,11 +3602,11 @@ const _MOUNT := {"wall_mount": true, "solid": false}
 const _LOOSE := {"solid": false}
 
 
-## Hospital, research lab and greenhouse rooms (docs/BIOMES.md). Recipes are written for the 11-wide bank room (interior
-## sides -4..4, depths 0..front); BIOME_REPEAT_TEMPLATES are laid twice, at sides -5 and +5, across a 21-wide hall room.
+## Hospital, research lab and greenhouse rooms (docs/REGIONS.md). Recipes are written for the 11-wide bank room (interior
+## sides -4..4, depths 0..front); REGION_REPEAT_TEMPLATES are laid twice, at sides -5 and +5, across a 21-wide hall room.
 ## `front` is the entrance row; nothing solid lands on its middle cell (_keep_entrance_clear) and recipes keep the
 ## middle column in front of the door free so the room reads from the doorway.
-static func _biome_room_specs(template: String, half: int, depth_span: int, mirror: int) -> Array:
+static func _region_room_specs(template: String, half: int, depth_span: int, mirror: int) -> Array:
 	var front := depth_span - 3
 	var mid := front / 2
 	var specs := []
@@ -4066,7 +4076,7 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("mallPlanter", 7, front - 1, "open"))
 			for light_side in [-6, -2, 2, 6]:
 				specs.append(_sp("ceilingLight", light_side, mid, "open", _LOOSE))
-	if half >= 9 and BIOME_REPEAT_TEMPLATES.has(template):
+	if half >= 9 and REGION_REPEAT_TEMPLATES.has(template):
 		var repeated := []
 		for shift in [-5, 5]:
 			for original in specs:
@@ -4538,7 +4548,7 @@ static func _room_facing_yaw(cell: Vector2i, target: Vector2i) -> float:
 ## hiding_spot fixture, so the same toggle, hunter gimmicks (Loxelle's break, Javelle's reach), navigation and replication
 ## apply. "style" tells the view how to hide (under the bed, inside the wardrobe); the prop itself is the visual.
 const HIDING_PROP_STYLES := {
-	"singleBed": "bed", "doubleBed": "bed", "gothicDoubleBed": "bed",   # hospitalBed (biomes lane) has a low base: not hideable
+	"singleBed": "bed", "doubleBed": "bed", "gothicDoubleBed": "bed",   # hospitalBed (regions lane) has a low base: not hideable
 	"bedroomWardrobe": "wardrobe", "gothicWardrobe": "wardrobe",
 }
 
@@ -4686,11 +4696,11 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 ## Which chunks of a 4x4 region hold one of its MUSIC_BOXES_PER_REGION music boxes: picked from the region's own seed,
 ## so every chunk agrees without loading its neighbours. A picked chunk that turns out to be a safe room keeps none.
 func music_box_chunk(coord: Vector3i) -> bool:
-	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
-	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var region_x := floori(float(coord.x) / REGION_SIZE_CHUNKS)
+	var region_z := floori(float(coord.z) / REGION_SIZE_CHUNKS)
 	var rng := SeededRandom.new("%s:MUSICBOX:%d:%d:%d" % [world_seed, region_x, coord.y, region_z])
-	var slots: Array = range(BIOME_REGION_SIZE * BIOME_REGION_SIZE)
-	var local := (coord.x - region_x * BIOME_REGION_SIZE) + (coord.z - region_z * BIOME_REGION_SIZE) * BIOME_REGION_SIZE
+	var slots: Array = range(REGION_SIZE_CHUNKS * REGION_SIZE_CHUNKS)
+	var local := (coord.x - region_x * REGION_SIZE_CHUNKS) + (coord.z - region_z * REGION_SIZE_CHUNKS) * REGION_SIZE_CHUNKS
 	for i in GameConfig.MUSIC_BOXES_PER_REGION:
 		var pick := rng.next_index(slots.size())
 		if int(slots[pick]) == local:
@@ -4836,8 +4846,8 @@ static func _open_spawn_neighbourhood(grid: Array, cell: Vector2i) -> bool:
 	return true
 
 
-static func _stair_style(biome: String) -> String:
-	match biome:
+static func _stair_style(region: String) -> String:
+	match region:
 		"mansion":
 			return "grand_foyer"
 		"hotel":

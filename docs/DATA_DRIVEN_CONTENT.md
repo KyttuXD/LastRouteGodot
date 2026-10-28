@@ -4,7 +4,7 @@ Status: Phase 1 design note (DATA lane). Nothing here changes runtime yet.
 
 ## Goal
 
-Move prop, region (biome/level) and hunter definitions out of GDScript
+Move prop, region (region/level) and hunter definitions out of GDScript
 constants into data files with one registry per kind. Behaviour must stay
 identical: same seed, same chunk, same output. Later, the same path loads
 player content packs from `user://mods/` in private rooms only. Packs carry
@@ -355,7 +355,7 @@ until all readers have moved.
    special pools).
 6. **Remaining regions.** Do the quiet ones first: hospital, lab,
    greenhouse, hotel, apartment and office. Leave **sewer, inferno, the new
-   biomes and mansion/carnival until those lanes land** and have been
+   regions and mansion/carnival until those lanes land** and have been
    merged to main. Then coordinate with each lane to get a frozen window.
 7. **Remaining prop families**, leaving **seats and anything being
    rescaled until PROPS lands**.

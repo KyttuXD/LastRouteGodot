@@ -24,7 +24,7 @@ func run(_host: Node) -> int:
 				var missing := _cut_off(generator, coord)
 				checked += 1
 				if missing > 0:
-					bad.append("%s %s %s: %d cells" % [seed_text, coord, generator.biome_for(coord), missing])
+					bad.append("%s %s %s: %d cells" % [seed_text, coord, generator.region_for(coord), missing])
 	if not bad.is_empty():
 		print("  FAIL  %d of %d chunks have floor cut off from their halls (e.g. %s)" % [bad.size(), checked, bad.slice(0, 4)])
 		_failures += 1

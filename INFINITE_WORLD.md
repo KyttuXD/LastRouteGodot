@@ -16,7 +16,7 @@ fallback; it is not the direction of new map work.
 - The renderer keeps a collidable 3×3 horizontal window. Old geometry, pickup
   nodes, hunter views, navigation caches, and generator cache entries are
   bounded as the runner travels.
-- Every biome (Maze, Mansion, Hotel, Apartment, Beach, Gothic, Prison, Carnival,
+- Every region (Maze, Mansion, Hotel, Apartment, Beach, Gothic, Prison, Carnival,
   Inferno) can appear on the one floor, with deterministic room/corridor layouts
   and authored regional GLB dressing. Hotel and prison chunks use long halls
   serving multiple rooms; landmark rooms reach 15×15 cells.

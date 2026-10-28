@@ -1,7 +1,7 @@
 class_name RegionNames
 extends RefCounted
 
-## Biome / district / region names (MAZE, SEWER, HOTEL, a City district...) are for admins only. Players see the level
+## Region / district / region names (MAZE, SEWER, HOTEL, a City district...) are for admins only. Players see the level
 ## number without the name everywhere the UI would print one (HUD level line, the City's zone panel, map region key, debug
 ## readouts). Each peer decides from its own admin state, so this is purely local and changes nothing in the room.
 

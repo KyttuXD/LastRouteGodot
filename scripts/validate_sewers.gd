@@ -696,11 +696,11 @@ func _check_deep_levels(host: Node) -> void:
 	var inferno_on_maze := 0
 	for z in range(-8, 9):
 		for x in range(-8, 9):
-			if generator.biome_for(Vector3i(x, 0, z)) == "inferno":
+			if generator.region_for(Vector3i(x, 0, z)) == "inferno":
 				inferno_on_maze += 1
 	_expect(inferno_on_maze == 0, "%d maze chunks still roll the Inferno" % inferno_on_maze)
-	_expect(generator.biome_for(Vector3i(3, StreamedRouteGenerator.INFERNO_LEVEL, -2)) == "inferno"
-		and generator.biome_for(Vector3i(3, StreamedRouteGenerator.LOWER_SEWER_LEVEL, -2)) == "sewer",
+	_expect(generator.region_for(Vector3i(3, StreamedRouteGenerator.INFERNO_LEVEL, -2)) == "inferno"
+		and generator.region_for(Vector3i(3, StreamedRouteGenerator.LOWER_SEWER_LEVEL, -2)) == "sewer",
 		"level -2 is not the sewer or level -3 is not the Inferno")
 	_expect(not generator.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)),
 		"there is a level below the Inferno")

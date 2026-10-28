@@ -5,7 +5,7 @@ extends RefCounted
 ## 1.5 m2 or more at capsule + margin. Also the deterministic clean-up pass gives the same chunk twice.
 
 const SEEDS := ["COL-A", "COL-B"]
-const CHUNKS_PER_BIOME := 3
+const CHUNKS_PER_REGION := 3
 
 var _failures := 0
 var metrics := {}
@@ -18,7 +18,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
-	var report := CollisionAudit.run(SEEDS, CHUNKS_PER_BIOME)
+	var report := CollisionAudit.run(SEEDS, CHUNKS_PER_REGION)
 	var t: Dictionary = report["totals"]
 	var samples: Dictionary = report["samples"]
 	metrics = t

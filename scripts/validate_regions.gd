@@ -1,14 +1,15 @@
 extends RefCounted
 
-## The hospital, research lab and greenhouse biomes over many seeds: each one generates, every room of theirs gets its
+## The hospital, research lab and greenhouse regions over many seeds: each one generates, every room of theirs gets its
 ## furnished recipe with the props that make it that room (a ward has beds, a morgue its drawer cabinets, the dome its
 ## fountain), solid props never interpenetrate, the doorway and the cell inside it stay clear, and every free floor cell
 ## of a room is reachable from its door (so hunters and players can walk the whole room). Hall widths, humps, room sizes
-## and seam connectivity are the shared suites' job; they sample every biome in StreamedRouteGenerator.BIOMES.
+## and seam connectivity are the shared suites' job; they sample every region in StreamedRouteGenerator.REGIONS.
 
+## Seed strings, not names: kept as they were before the biome -> region rename so the same worlds are checked.
 const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
 const RADIUS := 7
-const REGIONS := ["hospital", "lab", "greenhouse", "mall"]
+const FACILITY_REGIONS := ["hospital", "lab", "greenhouse", "mall"]
 const MIN_CHUNKS := 6
 ## The props a room must show to read as that room.
 const KEY_PROPS := {
@@ -53,8 +54,8 @@ func run(_host: Node) -> int:
 				var coord := Vector3i(dx, 0, dz)
 				if not generator.is_chunk_allowed(coord) or generator.is_safe_room(coord):
 					continue
-				var region := generator.biome_for(coord)
-				if not REGIONS.has(region):
+				var region := generator.region_for(coord)
+				if not FACILITY_REGIONS.has(region):
 					continue
 				chunks_by_region[region] = int(chunks_by_region.get(region, 0)) + 1
 				var data := generator.chunk(coord)
@@ -101,12 +102,12 @@ func run(_host: Node) -> int:
 						if stranded > 0:
 							pockets.append("%s: %d cells" % [where, stranded])
 							pocket_types[room_type] = int(pocket_types.get(room_type, 0)) + 1
-	for region in REGIONS:
+	for region in FACILITY_REGIONS:
 		_expect(int(chunks_by_region.get(region, 0)) >= MIN_CHUNKS,
 			"%s generated only %d chunks over %d seeds" % [region, int(chunks_by_region.get(region, 0)), SEEDS.size()])
 	for room_type in KEY_PROPS:
 		_expect(rooms_by_type.has(room_type), "no %s room was ever generated" % room_type)
-	_expect(unfurnished.is_empty(), "%d biome rooms have no furnished recipe (e.g. %s)" % [unfurnished.size(),
+	_expect(unfurnished.is_empty(), "%d region rooms have no furnished recipe (e.g. %s)" % [unfurnished.size(),
 		unfurnished.slice(0, 4)])
 	_expect(missing_key.is_empty(), "rooms missing their defining props: %s" % [missing_key])
 	_expect(overlaps.is_empty(), "%d rooms have interpenetrating solid props (e.g. %s)" % [overlaps.size(),
@@ -116,7 +117,7 @@ func run(_host: Node) -> int:
 	_expect(pockets.is_empty(), "%d rooms have floor walled off by props (by type %s; e.g. %s)" % [pockets.size(),
 		pocket_types, pockets.slice(0, 4)])
 	if _failures == 0:
-		print("  biomes  %s chunks, %d rooms of %d types: furnished, key props, no overlaps, doors clear, all floor reachable"
+		print("  regions  %s chunks, %d rooms of %d types: furnished, key props, no overlaps, doors clear, all floor reachable"
 			% [chunks_by_region, room_count, rooms_by_type.size()])
 	return _failures
 

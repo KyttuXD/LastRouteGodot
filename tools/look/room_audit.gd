@@ -11,7 +11,7 @@ func _init() -> void:
 	var stats := {}
 	for seed_text in seeds:
 		var generator := StreamedRouteGenerator.new(String(seed_text))
-		var per_biome := {}
+		var per_region := {}
 		for r in range(0, 10):
 			for dz in range(-r, r + 1):
 				for dx in range(-r, r + 1):
@@ -20,11 +20,11 @@ func _init() -> void:
 					var coord := Vector3i(dx, 0, dz)
 					if not generator.is_chunk_allowed(coord):
 						continue
-					var biome := generator.biome_for(coord)
-					per_biome[biome] = int(per_biome.get(biome, 0)) + 1
-					if int(per_biome[biome]) > 10:
+					var region := generator.region_for(coord)
+					per_region[region] = int(per_region.get(region, 0)) + 1
+					if int(per_region[region]) > 10:
 						continue
-					_chunk(generator.chunk(coord), biome, stats)
+					_chunk(generator.chunk(coord), region, stats)
 	var keys := stats.keys()
 	keys.sort()
 	print("%-34s %5s %6s %6s %6s %6s %6s %6s %6s" % ["region/type", "rooms", "area", "solid", "cover%", "wall", "light", "rug", "types"])
@@ -37,12 +37,12 @@ func _init() -> void:
 	quit()
 
 
-func _chunk(data: Dictionary, biome: String, stats: Dictionary) -> void:
+func _chunk(data: Dictionary, region: String, stats: Dictionary) -> void:
 	for room in data.get("rooms", []):
 		if bool(room.get("suite_parent", false)):
 			continue
 		var rect: Rect2i = room["rect"]
-		var key := "%s/%s" % [biome, room.get("room_type", "")]
+		var key := "%s/%s" % [region, room.get("room_type", "")]
 		if not stats.has(key):
 			stats[key] = {"rooms": 0, "area": 0.0, "solid": 0, "cover": 0.0, "wall": 0, "light": 0, "rug": 0, "types": 0}
 		var s: Dictionary = stats[key]

@@ -577,8 +577,8 @@ const _CODE_MODEL_PATHS := {
 	],
 	"dungeonCage": ["res://art/props-3d/props/prison/dungeon_cage.glb"],
 	"restraintChair": ["res://art/props-3d/props/prison/restraint_chair.glb"],
-	## Hospital, research lab and greenhouse biome props: authored only as blocky models
-	## (tools/props/blocky_props_biomes.py), so their catalogue entry is the blocky GLB itself.
+	## Hospital, research lab and greenhouse region props: authored only as blocky models
+	## (tools/props/blocky_props_regions.py), so their catalogue entry is the blocky GLB itself.
 	"hospitalBed": ["res://art/props-3d/props/blocky/hospitalBed_0.glb", "res://art/props-3d/props/blocky/hospitalBed_1.glb", "res://art/props-3d/props/blocky/hospitalBed_2.glb"],
 	"hospitalCurtain": ["res://art/props-3d/props/blocky/hospitalCurtain_0.glb", "res://art/props-3d/props/blocky/hospitalCurtain_1.glb", "res://art/props-3d/props/blocky/hospitalCurtain_2.glb"],
 	"ivDripStand": ["res://art/props-3d/props/blocky/ivDripStand.glb"],
@@ -633,7 +633,7 @@ const _CODE_MODEL_PATHS := {
 	"wateringCart": ["res://art/props-3d/props/blocky/wateringCart.glb"],
 	"greenhouseBench": ["res://art/props-3d/props/blocky/greenhouseBench_0.glb", "res://art/props-3d/props/blocky/greenhouseBench_1.glb", "res://art/props-3d/props/blocky/greenhouseBench_2.glb"],
 	"compostBins": ["res://art/props-3d/props/blocky/compostBins_0.glb", "res://art/props-3d/props/blocky/compostBins_1.glb"],
-	## Shopping arcade props (tools/props/blocky_props_mall.py), blocky-only like the biome props above.
+	## Shopping arcade props (tools/props/blocky_props_mall.py), blocky-only like the region props above.
 	"shopShelf": ["res://art/props-3d/props/blocky/shopShelf_0.glb", "res://art/props-3d/props/blocky/shopShelf_1.glb", "res://art/props-3d/props/blocky/shopShelf_2.glb"],
 	"shopFridge": ["res://art/props-3d/props/blocky/shopFridge_0.glb", "res://art/props-3d/props/blocky/shopFridge_1.glb"],
 	"checkoutCounter": ["res://art/props-3d/props/blocky/checkoutCounter_0.glb", "res://art/props-3d/props/blocky/checkoutCounter_1.glb", "res://art/props-3d/props/blocky/checkoutCounter_2.glb"],

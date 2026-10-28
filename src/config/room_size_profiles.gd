@@ -47,7 +47,7 @@ const PROFILES := {
 	"backstage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"beach_hut": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},
 	"boardwalk_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	# hospital, research lab and greenhouse (scripts/validate_biomes.gd); the great halls seat nobody, so no chair rule
+	# hospital, research lab and greenhouse (scripts/validate_regions.gd); the great halls seat nobody, so no chair rule
 	"ward": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 0), "signature": [], "generated": true, "seated": false},
 	"operating_theatre": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"nurses_station": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},

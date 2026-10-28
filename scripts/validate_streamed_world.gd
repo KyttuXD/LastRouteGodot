@@ -26,7 +26,7 @@ func run(host: Node) -> int:
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
 		"admin/fullscreen stair markers are not the requested white icon")
 	var map_region_colours := {}
-	for region in StreamedRouteGenerator.BIOMES:
+	for region in StreamedRouteGenerator.REGIONS:
 		_expect(ResourceLoader.exists("res://art/props-3d/environment/floor_%s.png" % region) \
 			and ResourceLoader.exists("res://art/props-3d/environment/wall_%s.png" % region),
 			"%s is missing its regional floor/wall texture pair" % region)
@@ -127,10 +127,10 @@ func run(host: Node) -> int:
 		_expect(not bool(arrival_state.get("active", true)),
 			"streamed hunter state starts active before its difficulty gate")
 
-	var biomes := {}
+	var regions := {}
 	var pickup_ids := {}
 	var hunter_ids := {}
-	var dressed_biomes := {}
+	var dressed_regions := {}
 	var first_hunter_spawn: Dictionary = {}
 	var saw_hotel_layout := false
 	var saw_prison_layout := false
@@ -160,7 +160,7 @@ func run(host: Node) -> int:
 				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
 					continue
 				var data := world.chunk(sampled_coord)
-				biomes[data["biome"]] = true
+				regions[data["region"]] = true
 				var dual_contract: Dictionary = data.get("dual_level_room", {})
 				if not dual_contract.is_empty():
 					if String(dual_contract.get("role", "")) == "lower":
@@ -217,7 +217,7 @@ func run(host: Node) -> int:
 							return child_roles.has(role)),
 						"%s suite omitted a required amenity: %s" % [suite_id,
 							expected_roles])
-				if String(data.get("biome", "")) == "apartment":
+				if String(data.get("region", "")) == "apartment":
 					var apartment_units := (data.get("suites", []) as Array).filter(
 						func(suite: Dictionary) -> bool:
 							return String(suite.get("kind", "")) == "apartment")
@@ -242,11 +242,11 @@ func run(host: Node) -> int:
 							"%s generated intersecting stair access at %s" \
 							% [data["coord"], access_cell])
 						occupied_stair_access[access_cell] = stair.get("id", "")
-				if data["biome"] == "hotel":
+				if data["region"] == "hotel":
 					saw_hotel_layout = data["rooms"].size() >= 6 \
 						and data["corridors"].any(func(hall):
 							return bool(hall.get("serves_many_rooms", false)))
-				if data["biome"] == "prison":
+				if data["region"] == "prison":
 					saw_prison_layout = saw_prison_layout or (data["rooms"].size() >= 6 \
 						and data["rooms"].all(func(room):
 							return room["room_type"] in ["prison_cell",
@@ -342,7 +342,7 @@ func run(host: Node) -> int:
 							"stairwell contains an ordinary prop: %s" % room_prop)
 				for prop_value in data.get("region_props", []):
 					var prop: Dictionary = prop_value
-					dressed_biomes[data["biome"]] = true
+					dressed_regions[data["region"]] = true
 					_expect(PropModelCatalog.has_model(String(prop.get("type", ""))) \
 							or bool(prop.get("arch", false)),
 						"streamed region prop has no authored model: %s" % prop)
@@ -386,7 +386,7 @@ func run(host: Node) -> int:
 						_expect(seated,
 							"surface prop %s is floating off its desk/table: %s" \
 							% [prop_type, prop.get("id", prop_type)])
-					if data["biome"] == "prison" \
+					if data["region"] == "prison" \
 							and prop_type in ["restaurantPartyTable",
 								"woodenTable", "woodenChair",
 								"normalKitchenCounter", "normalKitchenSink"]:
@@ -522,8 +522,8 @@ func run(host: Node) -> int:
 						"streamed route selected an unsupported hunter %s" % spawn["hunter_id"])
 					if first_hunter_spawn.is_empty():
 						first_hunter_spawn = spawn.duplicate(true)
-	_expect(biomes.size() == StreamedRouteGenerator.BIOMES.size(),
-		"seeded sample did not produce every biome: %s" % [biomes.keys()])
+	_expect(regions.size() == StreamedRouteGenerator.REGIONS.size(),
+		"seeded sample did not produce every region: %s" % [regions.keys()])
 	_expect(saw_hotel_layout,
 		"hotel region did not create a long multi-room corridor floor")
 	_expect(saw_prison_layout,
@@ -536,10 +536,10 @@ func run(host: Node) -> int:
 			"office_reception", "cubicle_room", "office_job", "private_office"]:
 		_expect(suite_roles_seen.has(suite_role),
 			"generated suites never exposed the %s amenity" % suite_role)
-	for biome in StreamedRouteGenerator.BIOMES:
-		if biome != "prison":
-			_expect(dressed_biomes.has(biome),
-				"%s region produced no authored streamed dressing" % biome)
+	for region in StreamedRouteGenerator.REGIONS:
+		if region != "prison":
+			_expect(dressed_regions.has(region),
+				"%s region produced no authored streamed dressing" % region)
 	# Rooms are furnished properly now: nothing below 9x9 here (no closets or 3x3 cells).
 	for expected_size in [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 13)]:
 		_expect(StreamedRouteGenerator.ROOM_SIZES.has(expected_size),
@@ -1369,7 +1369,7 @@ func run(host: Node) -> int:
 			if prison_coord.x != 999:
 				break
 			for x in range(-6, 7):
-				if facility.generator.biome_for(Vector3i(x, level, z)) == "prison":
+				if facility.generator.region_for(Vector3i(x, level, z)) == "prison":
 					prison_coord = Vector3i(x, level, z)
 					break
 	_expect(prison_coord.x != 999, "validation seed produced no reachable prison test chunk")
@@ -1458,7 +1458,7 @@ func run(host: Node) -> int:
 		print("  chunks    deterministic topology, canonical seams and stable pickup ids")
 		print("  vertical  unbounded levels; central spawn links both up and down")
 		print("  regions   %d area identities; Gothic/Prison/Inferno constrained below" \
-			% StreamedRouteGenerator.BIOMES.size())
+			% StreamedRouteGenerator.REGIONS.size())
 		print("  rooms     %d sizes; hotel/prison corridors serve many rooms" % room_sizes.size())
 		print("  survival  checkpoints, pickups and hunter state persist across unload")
 		print("  hunters   deterministic spawns, seam navigation and live pursuit load")

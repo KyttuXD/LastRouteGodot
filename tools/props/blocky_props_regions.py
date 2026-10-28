@@ -1,4 +1,4 @@
-"""Biome props (hospital, research lab, greenhouse), authored in metres like blocky_props_rework2.py. exec'd by
+"""Region props (hospital, research lab, greenhouse), authored in metres like blocky_props_rework2.py. exec'd by
 build_blocky_props.py after rework3, so PROPS, VARIANTS, Part, VOX, TARGET_SIZE and _reg are in scope.
 
 Every shape is our own design. Front is +z (the side facing into the room), back (z = 0) sits against the wall.
@@ -907,7 +907,7 @@ _reg("wateringCart", watering_cart(), (1.0, 0.95, 0.6))
 _reg("greenhouseBench", greenhouse_bench(), (1.6, 0.85, 0.6), {"@wood": ["oak", "pine", "teal"]})
 _reg("compostBins", compost_bins(), (1.4, 1.0, 0.75), {"@wood": ["dark", "oak"]})
 
-BIOME_PROP_NAMES = ["hospitalBed", "hospitalCurtain", "ivDripStand", "vitalsMonitor", "nursesStation", "waitingChairs",
+REGION_PROP_NAMES = ["hospitalBed", "hospitalCurtain", "ivDripStand", "vitalsMonitor", "nursesStation", "waitingChairs",
                     "operatingTable", "surgicalLight", "instrumentTrolley", "morgueCabinet", "autopsyTable",
                     "pharmacyShelf", "xrayMachine", "xrayLightbox", "medicalSupplyRack", "wheelchair",
                     "hospitalWardSign", "labBench", "fumeHood", "specimenTank", "containmentCell", "labCoolingUnit",

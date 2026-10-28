@@ -47,14 +47,14 @@ func run(_host: Node) -> int:
 	var stuck := 0
 	var worst := 0.0
 	var worst_case := ""
-	var by_biome := {}
+	var by_region := {}
 	var samples: Array = []
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash(seed_text)
-		for biome in StreamedRouteGenerator.BIOMES:
-			var coord := _find_chunk(generator, biome)
+		for region in StreamedRouteGenerator.REGIONS:
+			var coord := _find_chunk(generator, region)
 			if coord.y == 999999:
 				continue
 			var navigation := _navigation(generator, coord)
@@ -73,37 +73,37 @@ func run(_host: Node) -> int:
 					trials += 1
 					if float(result["still"]) > STUCK_LIMIT:
 						stuck += 1
-						by_biome[biome] = int(by_biome.get(biome, 0)) + 1
+						by_region[region] = int(by_region.get(region, 0)) + 1
 						if samples.size() < 8:
-							samples.append("%s %s %s %s at %s state %s still %.1fs" % [seed_text, biome,
+							samples.append("%s %s %s %s at %s state %s still %.1fs" % [seed_text, region,
 								hunter_id, mode, result["where"], result["state"], float(result["still"])])
 					if float(result["still"]) > worst:
 						worst = float(result["still"])
-						worst_case = "%s %s %s %s" % [seed_text, biome, hunter_id, mode]
-	metrics = {"trials": trials, "stuck": stuck, "worst": worst, "by_biome": by_biome, "samples": samples}
+						worst_case = "%s %s %s %s" % [seed_text, region, hunter_id, mode]
+	metrics = {"trials": trials, "stuck": stuck, "worst": worst, "by_region": by_region, "samples": samples}
 	_expect(stuck == 0, "%d of %d real hunter trials stood still more than %.1f s (worst %.2f s %s; by district %s; e.g. %s)" % [
-		stuck, trials, STUCK_LIMIT, worst, worst_case, by_biome, samples])
+		stuck, trials, STUCK_LIMIT, worst, worst_case, by_region, samples])
 	if _failures == 0:
 		print("  hunter_real  %d real-geometry trials (38 hunters, every district%s), none stuck over %.1f s (worst %.2f s)" % [
 			trials, "" if shard_count == 1 else ", shard %d of %d" % [shard_index + 1, shard_count], STUCK_LIMIT, worst])
 	return _failures
 
 
-func _find_chunk(generator: StreamedRouteGenerator, biome: String) -> Vector3i:
+func _find_chunk(generator: StreamedRouteGenerator, region: String) -> Vector3i:
 	for r in range(0, 14):
 		for dz in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if maxi(absi(dx), absi(dz)) != r:
 					continue
 				var coord := Vector3i(dx, 0, dz)
-				if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != biome:
+				if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != region:
 					continue
 				# the whole 3x3 window should be this district and allowed
 				var ok := true
 				for oz in range(-1, 2):
 					for ox in range(-1, 2):
 						var n := Vector3i(dx + ox, 0, dz + oz)
-						if not generator.is_chunk_allowed(n) or generator.biome_for(n) != biome:
+						if not generator.is_chunk_allowed(n) or generator.region_for(n) != region:
 							ok = false
 				if ok:
 					return coord
