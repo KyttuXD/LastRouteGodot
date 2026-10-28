@@ -302,8 +302,8 @@ static func _dayshift(office: Node3D) -> void:
 		q.set_meta("nw_palette", "poster")
 
 
-## Open Air: the three watches are outdoors under the 2D picture's night sky: a pale full moon with a halo, scattered stars, and (at the campfire) a dark ring of fir trees:
-## a far dome of stars, the moon, and for watch 2 the tree ring (all well outside every footprint).
+## Open Air: the three watches are outdoors under the 2D picture's night sky: a pale full moon with a halo, scattered stars, and (at the campfire) a grass and dirt ground:
+## a far dome of stars, the moon, and for watch 2 the grass over the clearing's checker.
 static func _openair(office: Node3D) -> void:
 	var root := Node3D.new()
 	root.name = "Signature"
@@ -324,15 +324,8 @@ static func _openair(office: Node3D) -> void:
 	halo.look_at(Vector3.ZERO, Vector3.UP)
 	if int((office as NightWatchOpenAirOffice).watch) != 2:
 		return
-	for i in 28:
-		var a := TAU * float(i) / 28.0 + rng.randf() * 0.2
-		var r := 15.5 + rng.randf() * 3.0
-		var base := Vector3(cos(a) * r, 0.0, sin(a) * r)
-		var h := 5.0 + rng.randf() * 3.0
-		for tier in 4:
-			var w := 3.0 - float(tier) * 0.7
-			NightWatchArt.box(root, Vector3(w, h * 0.22, w), base + Vector3(0, h * (0.2 + 0.2 * float(tier)), 0), {"name": "FirTier", "kind": "wall", "tint": Color(0.05, 0.1, 0.07)})
-		NightWatchArt.box(root, Vector3(0.5, h * 0.3, 0.5), base + Vector3(0, h * 0.15, 0), {"name": "FirTrunk", "kind": "wall", "tint": Color(0.1, 0.07, 0.05)})
+	# the campfire clearing is grass and dirt under the firs (the world builds the trees), not a checkerboard
+	_ground(office)
 
 
 ## A flat unshaded sky piece (stars, moon): lit by nothing, so the night's ambient cannot dull it.
@@ -363,3 +356,31 @@ static func _mixed(office: Node3D) -> void:
 		var x: float = side * (hw - 0.05)
 		NightWatchArt.box(root, Vector3(0.03, 0.8, 0.56), Vector3(x, 1.75, -1.15), {"name": "BoardFrame", "kind": "wall", "tint": Color(0.5, 0.32, 0.18)})
 		NightWatchArt.box(root, Vector3(0.04, 0.32, 0.16), Vector3(x - side * 0.01, 1.75, -1.15), {"name": "BoardLamp", "kind": "light", "tint": Color(2.0, 1.4, 0.4)})
+
+
+## Watch 2's clearing: painted grass with dirt patches over the floor's checker (the world's own firs ring it).
+static func _ground(office: Node3D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 777
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	for y in 32:
+		for x in 32:
+			var n := rng.randf()
+			var c := Color8(34, 52, 30)
+			if n > 0.72:
+				c = Color8(48, 72, 38)
+			elif n < 0.14:
+				c = Color8(70, 52, 34)
+			elif n < 0.26:
+				c = Color8(26, 40, 24)
+			img.set_pixel(x, y, c)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	m.uv1_scale = Vector3(34.0 / 1.6, 34.0 / 1.6, 1.0)
+	m.roughness = 1.0
+	m.set_meta("nw_kind", "floor")
+	for node in office.find_children("Floor*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.get_aabb().size.x > 20.0 or node.name == "FloorChecker":
+			mi.material_override = m
