@@ -89,6 +89,34 @@ func _run() -> void:
 	_view.refresh_at_tracked_player()
 	await _settle()
 	await _shot("maze_manhole", Vector3(foot.x, 1.9, foot.y) + away * 1.6, Vector3(foot.x, -1.2, foot.y))
+	# 6: down a ramp tunnel from the first sewer to the collector, from its top landing
+	for upper in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+		var ramp := {}
+		var column := Vector2i.ZERO
+		for cz in range(-2, 3):
+			for cx in range(-2, 3):
+				if ramp.is_empty():
+					ramp = _view.generator.sewer().ramp_between(cx, cz, upper)
+					column = Vector2i(cx, cz)
+		if ramp.is_empty():
+			continue
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var base := Vector2(column * size)
+		var top := base + Vector2(ramp["link"]["from_cell"]) + Vector2(.5, .5)
+		var bottom := base + Vector2(ramp["link"]["to_cell"]) + Vector2(.5, .5)
+		var upper_y := float(upper) * StreamedFacilityView3D.LEVEL_HEIGHT
+		_player.global_position = Vector3(top.x, upper_y + .04, top.y)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		var back := (top - bottom).normalized()
+		await _shot("ramp_from_%d" % upper, Vector3(top.x + back.x * 1.2, upper_y + 1.7, top.y + back.y * 1.2),
+			Vector3(bottom.x, upper_y - 3.2, bottom.y))
+	# 7: the Inferno, the deepest level, along its central hall
+	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
+	_view.refresh_at_tracked_player()
+	await _settle()
+	await _shot("inferno_hall", Vector3(c + 9.5, inferno_y + 1.7, c + .5), Vector3(c - 6.0, inferno_y + 1.0, c + .5))
 	print("SEWER CAPTURES -> %s" % ProjectSettings.globalize_path(_out))
 	get_tree().quit()
 

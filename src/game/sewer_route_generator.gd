@@ -19,6 +19,10 @@ extends RefCounted
 const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
 const LEVEL := -1
 const SURFACE_LEVEL := 0
+## The deep collector: a second sewer level under the first, reached down sloped
+## ramp tunnels (no ladder, no loading break). The Inferno maze lies under it.
+const LOWER_LEVEL := -2
+const INFERNO_LEVEL := -3
 
 ## Grid codes. Water is open channel nobody walks in; bridge cells are walkable
 ## decks with the channel running underneath.
@@ -26,6 +30,14 @@ const SOLID := 1
 const DRY := 0
 const WATER := 2
 const BRIDGE := 3
+## A cell of a sloped ramp tunnel between two levels (on both of them): no floor
+## on the upper level, no ceiling on the lower one, walled on both sides.
+const RAMP := 4
+
+## Ramps (docs/SEWERS.md): a three-wide tunnel dropping one storey over RAMP_RUN
+## cells (about 18 degrees), in one quadrant of a chunk that both levels reserve.
+const RAMP_RUN := 12
+const RAMP_CHANCE := {-1: .35, -2: .3}
 
 const CENTER := CHUNK_SIZE / 2
 const TUNNEL_HALF := 4           # 22 - 4 .. 22 + 4: walkway 18-20, water 21-23, walkway 24-26
@@ -63,7 +75,7 @@ func _init(p_surface: StreamedRouteGenerator) -> void:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	return coord.y == LEVEL
+	return coord.y == LEVEL or coord.y == LOWER_LEVEL
 
 
 func chunk_id(coord: Vector3i) -> String:
@@ -83,6 +95,76 @@ func links_for(coord: Vector3i) -> Array:
 	return chunk(Vector3i(coord.x, LEVEL, coord.z))["links"]
 
 
+## The ramp from `upper_level` down one storey in the chunk column (x, z), or {}.
+## Deterministic from the seed alone, so the upper and lower chunks (and the
+## Inferno maze chunk under the collector) agree without reading each other.
+## {quadrant, upper, top (landing on the upper level), ramp, bottom (landing on
+## the lower level), connector (lower level, from the landing to its halls),
+## top_x / bottom_x (where the slope starts and ends, chunk-local), row, link}.
+func ramp_between(x: int, z: int, upper_level: int) -> Dictionary:
+	if not RAMP_CHANCE.has(upper_level):
+		return {}
+	var rng := SeededRandom.new("%s:RAMP:%d:%d:%d" % [world_seed, x, z, upper_level])
+	if rng.next_float() >= float(RAMP_CHANCE[upper_level]):
+		return {}
+	var quadrant := rng.next_index(QUADRANT_CENTERS.size())
+	if upper_level == LOWER_LEVEL:
+		# the collector already hosts the bottom of the upper ramp in one quadrant
+		var above := ramp_between(x, z, LEVEL)
+		if not above.is_empty() and int(above["quadrant"]) == quadrant:
+			quadrant = (quadrant + 1) % QUADRANT_CENTERS.size()
+	var qc: Vector2i = QUADRANT_CENTERS[quadrant]
+	var west := qc.x < CENTER
+	var north := qc.y < CENTER
+	var walkway := CENTER - TUNNEL_HALF if west else CENTER + TUNNEL_HALF
+	# top landing beside the north-south tunnel's outer walkway, the slope running
+	# away from it, the bottom landing at the chunk edge
+	var top_x0 := walkway - 3 if west else walkway + 1
+	var ramp_x0 := top_x0 - RAMP_RUN if west else top_x0 + 3
+	var bottom_x0 := ramp_x0 - 3 if west else ramp_x0 + RAMP_RUN
+	var row0 := qc.y - 1
+	# the lower level's halls: the collector's tunnel walkway, or the Inferno maze's central hall
+	var hall_edge := (CENTER - TUNNEL_HALF if north else CENTER + TUNNEL_HALF) if upper_level == LEVEL \
+		else (CENTER - 1 if north else CENTER + 1)
+	var conn_z0 := row0 if north else hall_edge + 1
+	var conn_z1 := hall_edge - 1 if north else row0 + 2
+	if upper_level == LOWER_LEVEL:
+		conn_z1 = hall_edge if north else conn_z1
+		conn_z0 = conn_z0 if north else hall_edge
+	var chunk := Vector3i(x, 0, z)
+	var top_cell := Vector2i(top_x0 + 1, qc.y)
+	var bottom_cell := Vector2i(bottom_x0 + 1, qc.y)
+	var link := LevelLink.make("ramp", chunk, upper_level, top_cell, upper_level - 1, bottom_cell)
+	return {"quadrant": quadrant, "upper": upper_level, "row": qc.y,
+		"top": Rect2i(top_x0, row0, 3, 3), "ramp": Rect2i(ramp_x0, row0, RAMP_RUN, 3),
+		"bottom": Rect2i(bottom_x0, row0, 3, 3),
+		"connector": Rect2i(bottom_x0, conn_z0, 3, conn_z1 - conn_z0 + 1),
+		"top_x": float(top_x0) if west else float(top_x0 + 3),
+		"bottom_x": float(ramp_x0) if west else float(ramp_x0 + RAMP_RUN),
+		"link": link}
+
+
+## Every ramp touching level `level` in the chunk column (x, z).
+func ramps_at(x: int, z: int, level: int) -> Array:
+	var out := []
+	for upper in [level, level + 1]:
+		var ramp := ramp_between(x, z, upper)
+		if not ramp.is_empty():
+			out.append(ramp)
+	return out
+
+
+## Cell -> true when it is part of a ramp's slope, for `level` in column (x, z).
+func ramp_cells(x: int, z: int, level: int) -> Dictionary:
+	var cells := {}
+	for ramp in ramps_at(x, z, level):
+		var rect: Rect2i = ramp["ramp"]
+		for cz in range(rect.position.y, rect.end.y):
+			for cx in range(rect.position.x, rect.end.x):
+				cells[Vector2i(cx, cz)] = {"upper": int(ramp["upper"]) == level, "ramp": ramp}
+	return cells
+
+
 func _build_chunk(coord: Vector3i) -> Dictionary:
 	var grid := []
 	for z in CHUNK_SIZE:
@@ -93,11 +175,14 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	if not is_chunk_allowed(coord):
 		return _streamed_schema(coord, grid, [], [], [])
 	_carve_main_cross(grid)
-	var rng := SeededRandom.new("%s:SEWER:%d:%d" % [world_seed, coord.x, coord.z])
+	# the collector gets its own rooms and dressing; the first sewer keeps its seed stream
+	var salt := "SEWER" if coord.y == LEVEL else "SEWER%d" % -coord.y
+	var rng := SeededRandom.new("%s:%s:%d:%d" % [world_seed, salt, coord.x, coord.z])
 	var rooms := []
 	var links := []
 	var features := []
 	var order := [0, 1, 2, 3]
+	var ramps := ramps_at(coord.x, coord.z, coord.y)
 	# Deterministic shuffle so rooms and shafts land in different quadrants per chunk.
 	for i in range(order.size() - 1, 0, -1):
 		var j := rng.next_index(i + 1)
@@ -106,6 +191,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		order[j] = t
 	var room_count := 1 + rng.next_index(2)
 	var wants_link := coord.x == 0 and coord.z == 0 or rng.next_float() < LINK_CHANCE
+	# ladders come down from the maze only into the first sewer
+	if coord.y != LEVEL:
+		wants_link = false
+	# ramp quadrants are taken: no room or shaft there
+	for ramp in ramps:
+		order.erase(int(ramp["quadrant"]))
+		_carve_ramp(grid, ramp, coord.y)
 	var surface_data: Dictionary = surface.chunk(Vector3i(coord.x, SURFACE_LEVEL, coord.z))
 	var blocked := _surface_blocked_cells(surface_data)
 	var covers := ["manhole", "grate"]
@@ -146,13 +238,25 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	features.append_array(_tunnel_features())
 	features.append_array(_crossing_features())
 	features = _mount_on_walls(grid, features)
-	return _streamed_schema(coord, grid, rooms, links, features)
+	return _streamed_schema(coord, grid, rooms, links, features, ramps)
+
+
+## One ramp's cells on this level: the top landing and slope on the upper level,
+## the slope, bottom landing and connector on the lower one.
+static func _carve_ramp(grid: Array, ramp: Dictionary, level: int) -> void:
+	_carve_rect(grid, ramp["ramp"], RAMP)
+	if int(ramp["upper"]) == level:
+		_carve_rect(grid, ramp["top"], DRY)
+	else:
+		_carve_rect(grid, ramp["bottom"], DRY)
+		_carve_rect(grid, ramp["connector"], DRY)
 
 
 ## The chunk in StreamedRouteGenerator's schema so the streamed view, minimap and
 ## audits read it like any maze chunk: "grid" is 0 for every walkable cell
 ## (water included) and 1 for brick; "sewer_grid" keeps the dry/water/bridge codes.
-func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: Array, features: Array) -> Dictionary:
+func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: Array, features: Array,
+		ramps: Array = []) -> Dictionary:
 	var grid := []
 	for row_value in sewer_grid:
 		var row := []
@@ -175,7 +279,8 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		"hunter_spawns": [], "dual_level_room": {},
 		"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 		"difficulty": surface.difficulty_for_level(coord.y),
-		"links": links, "features": features}
+		"links": links, "features": features, "ramps": ramps,
+		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y)}
 
 
 static func _carve_rect(grid: Array, rect: Rect2i, code: int) -> void:

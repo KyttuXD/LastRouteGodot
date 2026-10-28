@@ -12,6 +12,7 @@ extends RefCounted
 const RISE := 4.0                       # StreamedFacilityView3D.LEVEL_HEIGHT
 const BASE_CLIMB_RATE := 1.6            # metres per second for a hunter of base speed 0.8
 const RUNNER_CLIMB_SECONDS := 2.4
+const RAMP_WALK_SECONDS := 7.0
 ## How close (cells) a body must be to the ladder cell's centre to get on it.
 const MOUNT_DISTANCE := 0.95
 
@@ -21,6 +22,11 @@ var _climbs := {}                       # climber id -> {link, from_level, to_le
 
 static func climb_seconds_for_speed(base_speed: float) -> float:
 	return RISE / (BASE_CLIMB_RATE * clampf(base_speed / 0.8, 0.6, 1.4))
+
+
+## A hunter walking a ramp tunnel: its 13 m of slope at a steady walk.
+static func ramp_seconds_for_speed(base_speed: float) -> float:
+	return RAMP_WALK_SECONDS / clampf(base_speed / 0.8, 0.6, 1.4)
 
 
 func is_free(link_id: String, climber_id: String = "") -> bool:
@@ -79,9 +85,10 @@ func clear() -> void:
 	_climbs.clear()
 
 
-## The ladder on `level` nearest to the global cell `near`, searching the chunk
+## The ladder or ramp (`kinds`) on `level` nearest to the global cell `near`, searching the chunk
 ## holding it and its eight neighbours. Returns {} when there is none.
-static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: Vector2) -> Dictionary:
+static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: Vector2,
+		kinds: Array = ["ladder", "ramp"]) -> Dictionary:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cx := floori(near.x / size)
 	var cz := floori(near.y / size)
@@ -90,8 +97,10 @@ static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: 
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
 			var coord := Vector3i(cx + dx, level, cz + dz)
-			for link_value in generator.sewer().links_for(coord):
+			for link_value in generator.vertical_links(coord):
 				var link: Dictionary = link_value
+				if not kinds.has(String(link["kind"])):
+					continue
 				var cell := LevelLink.cell_on(link, level)
 				if cell.x < 0:
 					continue

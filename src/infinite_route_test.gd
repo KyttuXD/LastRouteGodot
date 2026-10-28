@@ -1229,9 +1229,12 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			for x in side:
 				water[z * side + x] = 1 if int(sewer_grid[z][x]) == SewerRouteGenerator.WATER else 0
 	var ladders := []
-	for link_value in facility.generator.sewer().links_for(coord):
+	for link_value in facility.generator.vertical_links(coord):
 		var link: Dictionary = link_value
-		ladders.append({"cell": LevelLink.cell_on(link, coord.y),
+		var cell := LevelLink.cell_on(link, coord.y)
+		if cell.x < 0:
+			continue
+		ladders.append({"cell": cell, "kind": String(link["kind"]),
 			"direction": "down" if coord.y == int(link["from_level"]) else "up"})
 	_discovered_chunks[coord] = {"walls": walls, "pickups": visible_pickups,
 		"props": visible_props,
@@ -2589,8 +2592,17 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		var climb := _ladders.advance(entity_id, delta)
 		var link: Dictionary = (_ladders.climb_of(entity_id).get("link", {}) as Dictionary) \
 			if not bool(climb.get("done", false)) else (_ladder_plans.get(entity_id, {}) as Dictionary).get("link", {})
-		var lower_y := float(StreamedRouteGenerator.SEWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
-		view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
+		var lower_y := float(mini(int(link.get("from_level", 0)), int(link.get("to_level", 0)))) \
+			* StreamedFacilityView3D.LEVEL_HEIGHT
+		if String(link.get("kind", "")) == "ramp":
+			# a ramp is walked, not climbed: down the slope from one landing to the other
+			var start := LadderTraffic.ladder_point(link, int(climb.get("from_level", level)))
+			var finish := LadderTraffic.ladder_point(link, int(climb.get("to_level", level)))
+			brain.position = start.lerp(finish, float(climb.get("progress", 0.0)))
+			var heading := finish - start
+			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), atan2(-heading.x, -heading.y), "walk")
+		else:
+			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
 		if bool(climb.get("done", false)):
 			var to_level := int(climb["to_level"])
 			_hunter_levels[entity_id] = to_level
@@ -2617,8 +2629,11 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		_ladder_plans.erase(entity_id)
 		plan = {}
 	if plan.is_empty():
-		var other_level := 0 if level == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL
-		var other := _remotes.best_target(brain.position, local_target, -other_level)
+		# the runner she was after may be one level up or one level down
+		var other := {}
+		for other_level in [level + 1, level - 1]:
+			if other.is_empty() and facility.generator.is_chunk_allowed(Vector3i(0, other_level, 0)):
+				other = _remotes.best_target(brain.position, local_target, -other_level)
 		var pursuing := brain.state == HunterBrain.State.CHASE or brain.state == HunterBrain.State.INVESTIGATE
 		if not other.is_empty() and pursuing:
 			var goal: Vector2 = other["position"]
@@ -2639,8 +2654,10 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 	var point := LadderTraffic.ladder_point(link, level)
 	var arrived := brain.head_to(point, delta, navigation, depth, GameState.relays_collected)
 	if arrived and String(plan["mode"]) != "wait":
-		# One climber at a time: she waits at the ladder while it is taken.
-		_ladders.begin(entity_id, link, level, LadderTraffic.climb_seconds_for_speed(brain.base_speed))
+		# One at a time on a ladder (and a ramp): she waits at it while it is taken.
+		var seconds := LadderTraffic.ramp_seconds_for_speed(brain.base_speed) if String(link["kind"]) == "ramp" \
+			else LadderTraffic.climb_seconds_for_speed(brain.base_speed)
+		_ladders.begin(entity_id, link, level, seconds)
 	return true
 
 
@@ -2654,7 +2671,8 @@ func _update_player_ladder(level: int) -> void:
 			or player.input_frozen or player.admin_noclip:
 		return
 	var at := player.grid_position()
-	var link := LadderTraffic.nearest_ladder(facility.generator, level, at)
+	# runners climb ladders; ramps they simply walk
+	var link := LadderTraffic.nearest_ladder(facility.generator, level, at, ["ladder"])
 	if link.is_empty():
 		_ladder_rearm_id = ""
 		return
@@ -4112,6 +4130,7 @@ func _collect_hunter_report() -> void:
 		state["presentation_y"] = view.position.y
 		state["climbing"] = view.climbing
 		state["climb_yaw"] = view.rotation.y
+		state["climb_clip"] = view.climb_clip
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
 		_hunter_report.append(state)
@@ -4145,7 +4164,7 @@ func _apply_hunter_report(data: Array) -> void:
 		# A host hunter on a sewer ladder: guests show the same climb at the host's height.
 		if bool(state.get("climbing", false)):
 			view.set_climbing(true, float(state.get("presentation_y", view.position.y)),
-				float(state.get("climb_yaw", view.rotation.y)))
+				float(state.get("climb_yaw", view.rotation.y)), String(state.get("climb_clip", "climb")))
 		else:
 			view.set_climbing(false)
 			view.clear_streamed_height_override()

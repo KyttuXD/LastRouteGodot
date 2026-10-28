@@ -3,6 +3,29 @@
 Last Route is one maze level (0) over a sewer and waterworks level (-1). Both stream on the same 45 x 45 chunk
 coordinates from the same seed, so every peer builds the same tunnels, ladders and pickups.
 
+## The stack
+
+| level | what | how you reach it |
+| --- | --- | --- |
+| 0 | the maze (every district but the Inferno) | spawn |
+| -1 | the sewer | ladders from the maze |
+| -2 | the collector: a second sewer, same tunnels and decks, its own rooms, no ladders | ramp tunnels from -1 |
+| -3 | the Inferno: a full maze level of Inferno districts, and the only place they appear | ramp tunnels from -2 |
+
+**Ramps** (`SewerRouteGenerator.ramp_between`, LevelLink kind `ramp`) are the seamless link down. Each is a walled,
+three-wide tunnel that drops one storey over `RAMP_RUN` (12) cells, about 18 degrees, in one quadrant of a chunk that
+both levels reserve (about 35 % of chunks for -1 to -2, 30 % for -2 to -3).
+
+* The top landing sits beside the upper level's tunnel walkway. The bottom landing joins the lower level's tunnels, or
+  in the Inferno its central hall; any room the footprint would cut through is dropped.
+* You walk it; the level switches on height with no loading break. The upper chunk owns the slope's collider and
+  surface. On the lower level the tunnel opens straight up, so its walls run the full storey.
+* Hunters walk a ramp as a timed link (walk clip, height and position following the slope), with the same follow and
+  avoid rules as ladders. Runners only climb ladders.
+* The map shows ramps with the stair icon.
+* Below the maze every storey is capped to `LEVEL_HEIGHT` - slab, so tall Inferno halls never rise into the sewer
+  above.
+
 ## Layout (`src/game/sewer_route_generator.gd`)
 
 * **Main cross.** Every sewer chunk has a nine-wide brick tunnel along x = 22 and z = 22, so tunnels always meet

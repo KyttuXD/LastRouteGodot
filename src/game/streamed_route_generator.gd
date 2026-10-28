@@ -17,6 +17,10 @@ const CHUNK_SIZE := 45
 const BIOME_REGION_SIZE := 4
 ## Level of the sewer/waterworks layer under the maze (SewerRouteGenerator).
 const SEWER_LEVEL := -1
+## The collector sewer under the first one, and the Inferno maze under that
+## (docs/SEWERS.md): reached only by ramps from the sewer level above.
+const LOWER_SEWER_LEVEL := -2
+const INFERNO_LEVEL := -3
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse", "mall"]
@@ -458,6 +462,17 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 		_chunk_cache.erase(_chunk_cache_order.pop_front())
 
 
+## Every ladder and ramp touching the chunk's level: ladders between the maze
+## and the first sewer, ramps between the sewers and down into the Inferno.
+func vertical_links(coord: Vector3i) -> Array:
+	var out := []
+	if coord.y == 0 or coord.y == SEWER_LEVEL:
+		out.append_array(sewer().links_for(coord))
+	for ramp in sewer().ramps_at(coord.x, coord.z, coord.y):
+		out.append(ramp["link"])
+	return out
+
+
 ## The sewer layer under the maze (SewerRouteGenerator). Built lazily: it reads
 ## the maze chunk above to place each ladder on clear hallway floor.
 func sewer() -> SewerRouteGenerator:
@@ -522,7 +537,7 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	if coord.y == SEWER_LEVEL and is_chunk_allowed(coord):
+	if (coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL) and is_chunk_allowed(coord):
 		return sewer().chunk(coord)
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)
@@ -675,6 +690,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	(layout["corridors"] as Array).append_array(edge_corridors)
 	for stair in stairs:
 		_carve_stair_access(grid, stair, layout["rooms"], circulation)
+	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
+	for ramp in ramps:
+		_carve_ramp_bottom(grid, layout, circulation, ramp)
 	# Perimeter seams and stair approaches are carved after the room banks. They
 	# must never punch a second opening through a room which already owns one
 	# canonical branch doorway. Rebuild each ordinary room's boundary now that
@@ -730,12 +748,48 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"floor_voids": floor_voids,
 		"ceiling_voids": ceiling_voids,
 		"structural_voids": structural_voids,
+		"ramps": ramps,
+		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
 	}
 
 
+## The bottom of a ramp down from the collector sewer into an Inferno chunk: the
+## ramp's footprint, its landing and a three-wide connector to the central hall.
+## Rooms the footprint would cut through are dropped (their cells go back to
+## solid first) so no half-room is left with a hole in it.
+static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dictionary, ramp: Dictionary) -> void:
+	var footprint: Array[Rect2i] = [ramp["ramp"], ramp["bottom"], ramp["connector"]]
+	var kept := []
+	for room_value in layout["rooms"]:
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		var hit := false
+		for part in footprint:
+			if rect.grow(1).intersects(part):
+				hit = true
+		if hit:
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					grid[z][x] = 1
+		else:
+			kept.append(room_value)
+	layout["rooms"] = kept
+	_carve_rect(grid, ramp["bottom"])
+	_carve_rect(grid, ramp["connector"])
+	_mark_rect_cells(circulation, ramp["bottom"])
+	_mark_rect_cells(circulation, ramp["connector"])
+	var slope: Rect2i = ramp["ramp"]
+	for z in range(slope.position.y, slope.end.y):
+		for x in range(slope.position.x, slope.end.x):
+			grid[z][x] = 1      # the slope itself is reached only as a ramp link
+
+
 func biome_for(coord: Vector3i) -> String:
-	if coord.y == SEWER_LEVEL:
+	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
+	# The Inferno is no longer a district of the maze: it is the whole level under
+	# the sewers, and only there.
+	if coord.y == INFERNO_LEVEL:
+		return "inferno"
 	# A two-storey room owns one visual identity on both participating floors.
 	# Resolve this before ordinary biome choice so walls, props and the upper cap
 	# never change theme halfway up a carousel or other tall landmark.
@@ -749,7 +803,7 @@ func biome_for(coord: Vector3i) -> String:
 	var rng := SeededRandom.new("%s:BIOME:%d:%d:%d" % [
 		world_seed, region_x, coord.y, region_z])
 	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-		"prison", "carnival", "inferno", "mansion", "hotel", "maze",
+		"prison", "carnival", "mansion", "hotel", "maze",
 		"hospital", "lab", "lab", "greenhouse", "mall"]
 	if coord.y == 0:
 		return choices[rng.next_index(choices.size())]
@@ -886,7 +940,7 @@ func spawn_cell() -> Vector2i:
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
 	# One maze level (y == 0), unbounded horizontally, over the sewer layer.
-	return coord.y == 0 or coord.y == SEWER_LEVEL
+	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:

@@ -54,6 +54,9 @@ const RAIL_HEIGHT := 1.0
 const RAIL_INSET := 0.06
 ## The channel collider rises this far above the walkways (over the railings).
 const CHANNEL_BLOCK_TOP := 1.2
+## Ramp tunnels: the slope's collider thickness and its painted floor.
+const RAMP_THICKNESS := 0.3
+const RAMP_FLOOR_KIND := "concrete1"
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -234,14 +237,16 @@ func current_level() -> int:
 ## the sewer once its feet are more than half a storey below the maze floor;
 ## the hysteresis margin keeps a ladder climb from flickering between the two.
 static func snapped_level_for_world_y(world_y: float) -> int:
-	return StreamedRouteGenerator.SEWER_LEVEL if world_y < -LEVEL_HEIGHT * .5 else 0
+	return clampi(roundi(world_y / LEVEL_HEIGHT), StreamedRouteGenerator.INFERNO_LEVEL, 0)
 
 
+## The level stays put until the runner is more than half a storey plus the
+## margin away from its floor, so a ladder or ramp never flickers between two.
 static func hysteresis_level_for_world_y(world_y: float, current_level_hint: int) -> int:
-	var boundary := -LEVEL_HEIGHT * .5
-	if current_level_hint == StreamedRouteGenerator.SEWER_LEVEL:
-		return 0 if world_y > boundary + LEVEL_TRANSITION_MARGIN else StreamedRouteGenerator.SEWER_LEVEL
-	return StreamedRouteGenerator.SEWER_LEVEL if world_y < boundary - LEVEL_TRANSITION_MARGIN else 0
+	var floor_y := float(current_level_hint) * LEVEL_HEIGHT
+	if absf(world_y - floor_y) <= LEVEL_HEIGHT * .5 + LEVEL_TRANSITION_MARGIN:
+		return current_level_hint
+	return snapped_level_for_world_y(world_y)
 
 
 func current_chunk_coord() -> Vector3i:
@@ -351,14 +356,15 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
-	# A ladder's other end stays loaded while the runner is in a chunk with one,
-	# so the shaft never opens onto an unloaded floor halfway up the climb.
-	# Chunks with no ladder keep the plain nine-chunk window.
-	if not generator.sewer().links_for(center).is_empty():
-		for vertical in [Vector3i(center.x, center.y - 1, center.z),
-				Vector3i(center.x, center.y + 1, center.z)]:
-			if generator.is_chunk_allowed(vertical):
-				wanted[vertical] = true
+	# The far end of a ladder or ramp stays loaded while the runner is in a chunk
+	# with one, so a shaft or a ramp tunnel never opens onto an unloaded level.
+	# Chunks with no link keep the plain nine-chunk window.
+	for link_value in generator.vertical_links(center):
+		var link: Dictionary = link_value
+		var far := int(LevelLink.other_end(link, center.y)["level"])
+		var vertical := Vector3i(center.x, far, center.z)
+		if generator.is_chunk_allowed(vertical):
+			wanted[vertical] = true
 	return wanted
 
 
@@ -648,6 +654,19 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	var room_map := _room_type_map(data)
 	var heights := RefLook.chunk_heights(data)
 	var corridor_h := RefLook.corridor_height(region, coord)
+	# Below the maze every storey is LEVEL_HEIGHT: tall Inferno halls stop under
+	# the collector's floor instead of rising into the sewer above them.
+	if coord.y < 0:
+		var cap := LEVEL_HEIGHT - SLAB
+		corridor_h = minf(corridor_h, cap)
+		for cell_value in heights:
+			heights[cell_value] = minf(float(heights[cell_value]), cap)
+	var ramp_cells: Dictionary = data.get("ramp_cells", {})
+	for cell_value in ramp_cells:
+		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
+		# the level above, so its walls run the full storey
+		if not bool((ramp_cells[cell_value] as Dictionary)["upper"]):
+			heights[cell_value] = LEVEL_HEIGHT
 	root.set_meta("ref_region", region)
 	root.set_meta("ref_heights", heights)
 	root.set_meta("ref_corridor_h", corridor_h)
@@ -661,8 +680,9 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	for cell_value in data.get("structural_voids", []):
 		structural_voids[cell_value as Vector2i] = true
 	var link_cells := {}
-	for link_value in generator.sewer().links_for(coord):
-		link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
+	if coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL:
+		for link_value in generator.sewer().links_for(coord):
+			link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
 	# The maze end of every ladder: its top section with grab hoops in the shaft,
 	# and the manhole lid dragged aside or the floor grate swung up.
 	var region_props: Array = data.get("region_props", [])
@@ -747,6 +767,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
 					_spawn_sewer_water(root, build["sewer_grid"])
+				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -840,6 +861,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var grid := build["grid"] as GridMap
 	var surface := build["surface"] as RefSurfaceMesh
 	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
+	var ramp_cells: Dictionary = data.get("ramp_cells", {})
+	if ramp_cells.has(cell):
+		_build_ramp_cell(build, cell, ramp_cells[cell])
+		return
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
 		var kind := _ref_floor_kind(build, x, z)
@@ -910,8 +935,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 			RefTextures.params("ceiling", ceiling_kind))
 	else:
+		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
-			if (build["coord"] as Vector3i).y == StreamedRouteGenerator.SEWER_LEVEL else _col_wall_item)
+			if (build["coord"] as Vector3i).y < 0 else _col_wall_item)
 		for step_value in RefDecor.DIRS:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
@@ -920,7 +946,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			# than a missing one
 			var face_height := float(build["corridor_h"])
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
-				if int(grid_data[nz][nx]) != 0:
+				# ramp tunnels are open space too, though the grid keeps them off the walk graph
+				if int(grid_data[nz][nx]) != 0 and not (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)):
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
@@ -931,6 +958,59 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
 	var sewer_grid: Array = build["sewer_grid"]
 	return SewerRouteGenerator.DRY if sewer_grid.is_empty() else int(sewer_grid[z][x])
+
+
+## One cell of a ramp tunnel. On its upper level: the vault overhead and the
+## slope underfoot (no flat floor, no floor collider); on its lower level:
+## nothing at all, the tunnel opening straight up to the level above. The
+## slope's collider is built once per ramp (_spawn_ramps).
+func _build_ramp_cell(build: Dictionary, cell: Vector2i, info: Dictionary) -> void:
+	if not bool(info["upper"]):
+		return
+	var surface := build["surface"] as RefSurfaceMesh
+	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
+	surface.add_ceiling(cell.x, cell.y, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+		RefTextures.params("ceiling", ceiling_kind))
+	var ramp: Dictionary = info["ramp"]
+	var y0 := _ramp_surface_y(ramp, float(cell.x))
+	var y1 := _ramp_surface_y(ramp, float(cell.x + 1))
+	surface.add_quad_floor(Vector3(cell.x, y0, cell.y), Vector3(cell.x + 1, y1, cell.y),
+		Vector3(cell.x + 1, y1, cell.y + 1), Vector3(cell.x, y0, cell.y + 1),
+		RefTextures.layer("floor", RAMP_FLOOR_KIND), RefTextures.params("floor", RAMP_FLOOR_KIND))
+
+
+## Height of a ramp's walking surface at chunk-local x, relative to its upper level's floor.
+static func _ramp_surface_y(ramp: Dictionary, x: float) -> float:
+	var top_x := float(ramp["top_x"])
+	var bottom_x := float(ramp["bottom_x"])
+	var t := clampf((x - top_x) / (bottom_x - top_x), 0.0, 1.0)
+	return -LEVEL_HEIGHT * t
+
+
+## The sloped collider of every ramp whose upper end is this chunk's level: one
+## thin box lying along the slope, its top face through both landings' floors.
+func _spawn_ramps(root: Node3D, data: Dictionary, level: int) -> void:
+	for ramp_value in data.get("ramps", []):
+		var ramp: Dictionary = ramp_value
+		if int(ramp["upper"]) != level:
+			continue
+		var top_x := float(ramp["top_x"])
+		var bottom_x := float(ramp["bottom_x"])
+		var run := absf(top_x - bottom_x)
+		var angle := atan2(LEVEL_HEIGHT, run) * (1.0 if top_x > bottom_x else -1.0)
+		var body := StaticBody3D.new()
+		body.name = "Ramp"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(sqrt(run * run + LEVEL_HEIGHT * LEVEL_HEIGHT), RAMP_THICKNESS, 3.0)
+		shape.shape = box
+		var basis := Basis(Vector3.BACK, angle)
+		var mid := Vector3((top_x + bottom_x) * .5, -LEVEL_HEIGHT * .5, float(ramp["row"]) + .5)
+		shape.transform = Transform3D(basis, mid - basis.y * RAMP_THICKNESS * .5)
+		body.add_child(shape)
+		root.add_child(body)
 
 
 static func _is_channel(code: int) -> bool:

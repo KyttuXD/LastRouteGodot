@@ -31,6 +31,7 @@ func run(host: Node) -> int:
 	_check_opaque_window(host)
 	_check_traffic()
 	_check_hunter_paths()
+	await _check_deep_levels(host)
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
 	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
@@ -360,14 +361,17 @@ func _check_hunter_paths() -> void:
 ## 3.5 m into open maze halls). The ladder opening needs no exception: the maze
 ## keeps its own floor collider over it and the sewer adds nothing there.
 func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
-	var ceiling := -StreamedFacilityView3D.SLAB + .001
+	# every level below the maze: its colliders stop under the floor slab of the
+	# level above it (sewers, the collector, the Inferno; ramps top out at their
+	# upper landing's floor)
 	var worst := -INF
 	var where := ""
 	var checked := 0
 	for coord_value in view._loaded.keys():
 		var coord: Vector3i = coord_value
-		if coord.y != SewerRouteGenerator.LEVEL:
+		if coord.y >= 0:
 			continue
+		var limit := float(coord.y + 1) * StreamedFacilityView3D.LEVEL_HEIGHT - StreamedFacilityView3D.SLAB + .001
 		var root: Node3D = view._loaded[coord]
 		var grid := root.get_node_or_null("Structure") as GridMap
 		if grid != null:
@@ -375,10 +379,10 @@ func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
 				var cell: Vector3i = cell_value
 				var shapes: Array = grid.mesh_library.get_item_shapes(grid.get_cell_item(cell))
 				for i in range(0, shapes.size(), 2):
-					var top := _shape_top(shapes[i], grid.to_global(grid.map_to_local(cell)), shapes[i + 1])
+					var over := _shape_top(shapes[i], grid.to_global(grid.map_to_local(cell)), shapes[i + 1]) - limit
 					checked += 1
-					if top > worst:
-						worst = top
+					if over > worst:
+						worst = over
 						where = "%s Structure cell %s" % [coord, cell]
 		for node in root.find_children("*", "CollisionShape3D", true, false):
 			var shape_node := node as CollisionShape3D
@@ -386,11 +390,11 @@ func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
 				continue
 			var aabb := shape_node.global_transform * shape_node.shape.get_debug_mesh().get_aabb()
 			checked += 1
-			if aabb.end.y > worst:
-				worst = aabb.end.y
+			if aabb.end.y - limit > worst:
+				worst = aabb.end.y - limit
 				where = "%s %s" % [coord, root.get_path_to(shape_node)]
-	_expect(checked > 0, "no sewer colliders found to check")
-	_expect(worst <= ceiling, "a sewer collider rises into the maze: %s tops out at y %.2f (limit %.2f)" % [where, worst, ceiling])
+	_expect(checked > 0, "no colliders below the maze found to check")
+	_expect(worst <= 0.0, "a collider rises into the level above: %s is %.2f m over its storey" % [where, worst])
 
 
 static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D) -> float:
@@ -498,3 +502,123 @@ func _hold_climb(host: Node, player: PlayerController3D, action: String, frames:
 			break
 	Input.action_release(action)
 	return midway
+
+
+## The levels under the sewer (docs/SEWERS.md): the Inferno is gone from the maze
+## and is the whole of level -3; -2 is the collector sewer; every ramp agrees
+## between its two levels, its top landing joins the upper level's walkways and
+## its bottom landing the lower level's halls (the collector's tunnels or the
+## Inferno's central hall); hunter A* reaches both landings; and a runner walks
+## down a ramp onto the collector and back up, the view following.
+func _check_deep_levels(host: Node) -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-DEEP")
+	var inferno_on_maze := 0
+	for z in range(-8, 9):
+		for x in range(-8, 9):
+			if generator.biome_for(Vector3i(x, 0, z)) == "inferno":
+				inferno_on_maze += 1
+	_expect(inferno_on_maze == 0, "%d maze chunks still roll the Inferno" % inferno_on_maze)
+	_expect(generator.biome_for(Vector3i(3, StreamedRouteGenerator.INFERNO_LEVEL, -2)) == "inferno"
+		and generator.biome_for(Vector3i(3, StreamedRouteGenerator.LOWER_SEWER_LEVEL, -2)) == "sewer",
+		"level -2 is not the sewer or level -3 is not the Inferno")
+	_expect(not generator.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)),
+		"there is a level below the Inferno")
+	var counts := {SewerRouteGenerator.LEVEL: 0, SewerRouteGenerator.LOWER_LEVEL: 0}
+	var walk_ramp := {}
+	for z in range(-3, 4):
+		for x in range(-3, 4):
+			for upper in counts:
+				var ramp: Dictionary = generator.sewer().ramp_between(x, z, upper)
+				if ramp.is_empty():
+					continue
+				counts[upper] = int(counts[upper]) + 1
+				_check_ramp(generator, x, z, ramp)
+				if upper == SewerRouteGenerator.LEVEL and walk_ramp.is_empty():
+					walk_ramp = ramp.merged({"x": x, "z": z})
+	_expect(int(counts[SewerRouteGenerator.LEVEL]) >= 5 and int(counts[SewerRouteGenerator.LOWER_LEVEL]) >= 5,
+		"too few ramps around the origin (%s)" % [counts])
+	if not walk_ramp.is_empty():
+		await _walk_ramp(host, generator, walk_ramp)
+	print("  ok    deep levels: Inferno only at -3, %d sewer ramps and %d Inferno ramps checked" % [
+		counts[SewerRouteGenerator.LEVEL], counts[SewerRouteGenerator.LOWER_LEVEL]])
+
+
+func _check_ramp(generator: StreamedRouteGenerator, x: int, z: int, ramp: Dictionary) -> void:
+	var upper := int(ramp["upper"])
+	var lower := upper - 1
+	var top_data: Dictionary = generator.chunk(Vector3i(x, upper, z))
+	var low_data: Dictionary = generator.chunk(Vector3i(x, lower, z))
+	var slope: Rect2i = ramp["ramp"]
+	var agree := true
+	for cz in range(slope.position.y, slope.end.y):
+		for cx in range(slope.position.x, slope.end.x):
+			var cell := Vector2i(cx, cz)
+			if not (top_data["ramp_cells"] as Dictionary).has(cell) or not (low_data["ramp_cells"] as Dictionary).has(cell):
+				agree = false
+	_expect(agree, "ramp %s: the two levels disagree about its slope" % ramp["link"]["id"])
+	var top: Vector2i = ramp["link"]["from_cell"]
+	var bottom: Vector2i = ramp["link"]["to_cell"]
+	_expect(int(top_data["grid"][top.y][top.x]) == 0 and int(low_data["grid"][bottom.y][bottom.x]) == 0,
+		"ramp %s: a landing is not open floor" % ramp["link"]["id"])
+	# both landings join their level's halls: flood the chunk's open grid from the landing
+	for pair in [[top_data, top], [low_data, bottom]]:
+		var grid: Array = pair[0]["grid"]
+		var seen := _flood_grid(grid, pair[1])
+		_expect(seen.size() > 200, "ramp %s: a landing is cut off from its level (%d cells reached)" % [
+			ramp["link"]["id"], seen.size()])
+
+
+static func _flood_grid(grid: Array, start: Vector2i) -> Dictionary:
+	var seen := {start: true}
+	var queue := [start]
+	while not queue.is_empty():
+		var cell: Vector2i = queue.pop_back()
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = cell + step
+			if n.x < 0 or n.y < 0 or n.x >= grid.size() or n.y >= grid.size() or seen.has(n) or int(grid[n.y][n.x]) != 0:
+				continue
+			seen[n] = true
+			queue.append(n)
+	return seen
+
+
+## Walks a real runner down the ramp and back up with the movement keys.
+func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary) -> void:
+	var view := StreamedFacilityView3D.new()
+	host.add_child(view)
+	var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+	host.add_child(player)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var origin := Vector2(int(ramp["x"]) * size, int(ramp["z"]) * size)
+	var upper := int(ramp["upper"])
+	var top_point := origin + Vector2(ramp["link"]["from_cell"]) + Vector2(.5, .5)
+	var bottom_point := origin + Vector2(ramp["link"]["to_cell"]) + Vector2(.5, .5)
+	var upper_y := float(upper) * StreamedFacilityView3D.LEVEL_HEIGHT
+	player.global_position = Vector3(top_point.x, upper_y + .1, top_point.y)
+	view.begin("SEWER-DEEP", player)
+	for _frame in 20:
+		await host.get_tree().physics_frame
+	for leg in [{"to": bottom_point, "level": upper - 1}, {"to": top_point, "level": upper}]:
+		var target: Vector2 = leg["to"]
+		var arrived := false
+		Input.action_press("move_up")
+		for _frame in 900:
+			var here := Vector2(player.global_position.x, player.global_position.z)
+			var heading := target - here
+			player.rotation.y = atan2(-heading.x, -heading.y)
+			await host.get_tree().physics_frame
+			view._process(1.0 / 60.0)
+			if here.distance_to(target) < .6:
+				arrived = true
+				break
+		Input.action_release("move_up")
+		for _frame in 10:
+			await host.get_tree().physics_frame
+		var want_y := float(int(leg["level"])) * StreamedFacilityView3D.LEVEL_HEIGHT
+		_expect(arrived and absf(player.global_position.y - want_y) < .3,
+			"walking the ramp did not reach level %d (at %s)" % [int(leg["level"]), player.global_position])
+		_expect(view.current_level() == int(leg["level"]), "after the ramp the view is on level %d, not %d" % [
+			view.current_level(), int(leg["level"])])
+	view.clear()
+	view.queue_free()
+	player.queue_free()
