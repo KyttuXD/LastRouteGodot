@@ -19,6 +19,21 @@ if (!explicit && !/^(1|true|yes|on)$/i.test(String(process.env.LASTROUTE_ALLOW_D
   if (dirty) throw new Error("Commit tracked changes before exporting, or explicitly set LASTROUTE_ALLOW_DIRTY_BUILD=true");
 }
 
+// The build number (commits up to this revision) orders phone and Quest updates and becomes their Android versionCode
+// in the publish copy (tools/android/build_apk.sh). Desktop builds ignore it. LASTROUTE_BUILD_NUMBER overrides it.
+const explicitNumber = String(process.env.LASTROUTE_BUILD_NUMBER || "").trim();
+let build = /^\d+$/.test(explicitNumber) ? Number(explicitNumber) : 0;
+if (!build) {
+  try {
+    build = Number(execFileSync("git", ["rev-list", "--count", revision], {
+      cwd: projectDirectory,
+      encoding: "utf8",
+    }).trim()) || 0;
+  } catch {
+    build = 0;
+  }
+}
+
 const output = join(projectDirectory, "build_revision.json");
-writeFileSync(output, `${JSON.stringify({ revision }, null, 2)}\n`);
-console.log(`Stamped build revision ${revision}`);
+writeFileSync(output, `${JSON.stringify(build ? { revision, build } : { revision }, null, 2)}\n`);
+console.log(`Stamped build revision ${revision}${build ? ` (build ${build})` : ""}`);
