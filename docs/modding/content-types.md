@@ -93,7 +93,7 @@ hunter uses and how often.
 | field | required | meaning |
 |---|---|---|
 | `id` | yes | the hunter: one of your pack's hunters, or a built-in hunter listed in `overrides` as `"grabs/<id>"` |
-| `pool` | yes | style: weight (positive numbers). Styles: `neck_lift`, `shoulder_grab`, `tackle`, `wrist_yank`, `wrap`, `leg_grab`, `upside_down`, `bear_hug`, `collar_drag`, `wall_pin`, `pounce_pin` |
+| `pool` | yes | style: weight (positive numbers). Styles: `neck_lift`, `shoulder_grab`, `tackle`, `wrist_yank`, `wrap`, `leg_grab`, `upside_down`, `shoulder_carry`, `collar_drag`, `wall_pin`, `pounce_pin` (creature rigs only). New styles are added from time to time; an unknown style is refused with its name. |
 | `look` | no | how the head follows the runner: `yaw`, `up`, `down` (degrees), `chest` (0-1 share), `delay` (seconds before looking), `forward` ([x, y, z]) |
 
 A hunter without a pool uses the shoulder grab. The built-in pools are in the game's `data/grabs/`.

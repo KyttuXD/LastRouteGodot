@@ -90,9 +90,9 @@ func _check_loaded(dir: String) -> void:
 	var plays := int(Sound.play_counts.get("alert", 0))
 	_expect(Sound.alert() and int(Sound.play_counts.get("alert", 0)) == plays + 1, "the replaced cue did not play")
 	_expect(Sound._cue_overrides["alert"]["streams"][0] is AudioStreamOggVorbis, "the cue is not the pack's recording")
-	_expect(GrabStyles.pool_for("testpack_ember") == {"bear_hug": 3.0, "wrap": 1.0}, "pack hunter's grabs not loaded: %s"
+	_expect(GrabStyles.pool_for("testpack_ember") == {"wrap": 3.0, "tackle": 1.0}, "pack hunter's grabs not loaded: %s"
 		% [GrabStyles.pool_for("testpack_ember")])
-	_expect(GrabStyles.pool_for("aki") == {"tackle": 1.0} and GrabStyles.look_for("aki")["delay"] == 0.0,
+	_expect(GrabStyles.pool_for("aki") == {"shoulder_grab": 1.0} and GrabStyles.look_for("aki")["delay"] == 0.0,
 		"grab override not applied: %s" % [GrabStyles.pool_for("aki")])
 	var draws := {}
 	for depth in range(1, 400):
@@ -212,8 +212,8 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		files["hunters/ember.json"] = _hunter("%s_ember" % id, {"model": AKI, "portrait": "assets/ember.png"})
 		files["hunters/aki.json"] = _hunter("aki", {"speed": 0.5})
 		files["grabs/ember.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "%s_ember" % id,
-			"pool": {"bear_hug": 3, "wrap": 1}})
-		files["grabs/aki.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "aki", "pool": {"tackle": 1}})
+			"pool": {"wrap": 3, "tackle": 1}})
+		files["grabs/aki.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "aki", "pool": {"shoulder_grab": 1}})
 		files["sounds/cues.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "alert",
 			"files": ["assets/tone.ogg"], "gain_db": -3}]})
 		files["ambience/beds.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "mall",
