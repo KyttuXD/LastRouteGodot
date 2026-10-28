@@ -3247,6 +3247,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 			furniture.name = "Furniture_%s" % prop_type if seat_points.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
 			furniture.kind = RouteInteractable3D.Kind.FURNITURE
 			furniture.configure_furniture(furniture_action)
+			furniture.set_meta("prop_type", prop_type)
 			# PlayerController3D.rest_spot: where the body and eye go (a booth seat is one bench's half, not the table)
 			furniture.set_meta("rest_size", Vector3(float(point["width"]), blocker_size.y,
 				blocker_size.z * (.28 if PropModelCatalog.SEAT_ROWS.has(prop_type) else 1.0)) if seat_points.size() > 1 else blocker_size)

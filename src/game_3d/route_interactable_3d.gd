@@ -563,6 +563,7 @@ func get_prompt() -> String:
 			"sit": return "" if SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)) else "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
+			"music": return MusicProps.prompt_for(String(get_meta("prop_type", "")))
 			"play":
 				if prompt_resolver.is_valid():
 					return String(prompt_resolver.call())
@@ -632,6 +633,12 @@ func activate(player: PlayerController3D) -> String:
 				return "MIRROR VIEW // MOVE AWAY TO CLOSE"
 			if furniture_action == "play":
 				Sound.menu_blip()
+				return ""
+			if furniture_action == "music":
+				var now := Time.get_ticks_msec()
+				if now - int(get_meta("music_played_ms", -100000)) >= int(MusicProps.COOLDOWN_SECONDS * 1000.0):
+					set_meta("music_played_ms", now)
+					MusicProps.play(String(get_meta("prop_type", "")), player)
 				return ""
 			if furniture_action == "sit" and player.resting_furniture != self and SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)):
 				return "Someone is already sitting there."
@@ -709,7 +716,7 @@ func _fail(message: String) -> String:
 
 
 func configure_furniture(action: String) -> void:
-	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play"] else ""
+	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play", "music"] else ""
 
 
 func configure_room_door(door_id: String, model_path: String,
