@@ -3,9 +3,10 @@ extends RefCounted
 ## The sewer layer under the Last Route maze (SewerRouteGenerator, level -1):
 ## deterministic per seed; every seam meets; every dry cell sits in a 3x3 dry
 ## block (three-wide walkways and branches) and the tunnel is nine walkable
-## cells across; every link's lid is an open, prop-free maze hallway cell; dry
-## walkers reach every link and every seam without wading; and a walker can go
-## from the maze spawn down one link, through the sewer and up another link.
+## cells across; every link's lid is an open, prop-free maze hallway cell;
+## walkers reach every link and every seam on walkways, bridges and the
+## junction's grate plaza (the deep channels are never walkable); and a walker
+## can go from the maze spawn down one link, through the sewer and up another.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- sewers
 
@@ -27,13 +28,18 @@ func run(host: Node) -> int:
 	var total_links := 0
 	for window in WINDOWS:
 		total_links += _check_window(window)
+	_check_opaque_window(host)
 	_check_traffic()
 	_check_hunter_paths()
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
+	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
 	if _failures == 0:
 		print("  ok    sewers: %d links, all reachable both ways" % total_links)
 	return _failures
+
+
+var valves_checked := 0
 
 
 func _check_window(window: Dictionary) -> int:
@@ -66,8 +72,19 @@ func _check_window(window: Dictionary) -> int:
 						maze_open[origin + Vector2i(x, z)] = true
 			for feature in data["features"]:
 				var fc: Vector2i = feature["cell"]
-				_expect(SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])),
-					"%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
+				# the overflow weir stands in its basin's water; everything else on floor or deck
+				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])) \
+					or (feature["type"] == "sewerOverflowGrate" and int(grid[fc.y][fc.x]) == SewerRouteGenerator.WATER)
+				_expect(standing, "%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
+				# nothing hangs in the air: a wall-mounted piece (valve wheel, lamp, pipe run,
+				# pump, ladder) stands on floor with brick directly behind it
+				var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
+				if wall != Vector2i.ZERO:
+					_expect(SewerRouteGenerator.wall_backed(grid, fc, wall),
+						"%s %s: %s at %s floats (no brick behind it toward %s)" % [seed_text, coord, feature["type"], fc, wall])
+					if feature["type"] == "sewerValveWheel":
+						valves_checked += 1
+			_check_channels(seed_text, coord, data)
 			var ladders := {}
 			for feature in data["features"]:
 				if feature["type"] == "sewerLadder":
@@ -84,6 +101,11 @@ func _check_window(window: Dictionary) -> int:
 					and int(grid[behind.y][behind.x]) == SewerRouteGenerator.SOLID,
 					"%s link %s ladder has no brick behind its rungs" % [seed_text, link["id"]])
 				_expect(int(sgrid[up.y][up.x]) == 0, "%s link %s lid is not open maze floor" % [seed_text, link["id"]])
+				# flush against a hallway wall up top too, never free-standing mid-hall
+				var maze_wall: Vector2i = up + Vector2i(link.get("wall", Vector2i.ZERO))
+				var front: Vector2i = up - Vector2i(link.get("wall", Vector2i.ZERO))
+				_expect(int(sgrid[maze_wall.y][maze_wall.x]) != 0 and int(sgrid[front.y][front.x]) == 0,
+					"%s link %s ladder is not against a maze hallway wall" % [seed_text, link["id"]])
 				_expect(SewerRouteGenerator.is_dry(int(grid[down.y][down.x])), "%s link %s ladder foot is not dry" % [seed_text, link["id"]])
 				for prop in surface_data["region_props"] + surface_data["fixtures"] + surface_data["pickups"]:
 					_expect(Vector2i(prop.get("cell", Vector2i(-9, -9))) != up,
@@ -192,6 +214,8 @@ func _check_streaming(host: Node) -> void:
 	_expect(structure != null and structure.get_cell_item(Vector3i(floori(under.x), 0, floori(under.z))) != GridMap.INVALID_CELL_ITEM,
 		"no floor collider under the runner in the sewer")
 	_expect(root != null and root.get_node_or_null("SewerWater") != null, "the sewer chunk has no flowing water")
+	_check_colliders_below_maze(view)
+	_check_live_channel(view, Vector3i(0, SewerRouteGenerator.LEVEL, 0))
 	# Walk east one chunk along the tunnel: the window streams incrementally.
 	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
 	var worst_frame_ms := 0.0
@@ -218,31 +242,46 @@ func _check_streaming(host: Node) -> void:
 		var maze_grid := maze_root.get_node_or_null("Structure") as GridMap if maze_root != null else null
 		_expect(maze_grid != null and maze_grid.get_cell_item(Vector3i(lid.x, 0, lid.y)) != GridMap.INVALID_CELL_ITEM,
 			"the maze floor over a ladder lost its collider")
-		# The runner climbs down that ladder and back up: smooth, collision off on
-		# the rungs, and the view follows onto each level.
+		# The runner climbs that ladder under their own control: hold back to climb
+		# down to the sewer, hold forward to climb up, let go to hang still mid-way;
+		# each end dismounts smoothly onto the floor in front of the ladder.
 		var rise := StreamedFacilityView3D.LEVEL_HEIGHT
-		var top := Vector3(lid.x + .5, .04, lid.y + .5)
-		for leg in [{"from": top, "rise": -rise, "level": SewerRouteGenerator.LEVEL},
-				{"from": top - Vector3(0, rise, 0), "rise": rise, "level": 0}]:
-			player.begin_ladder_climb(leg["from"], leg["rise"], .6, 0.0, leg["level"])
-			_expect(player.is_climbing() and player.collision_layer == 0, "the runner did not get onto the ladder")
-			var midway_y := INF
-			for _frame in 120:
-				await host.get_tree().physics_frame
-				if player.ladder_climb_progress() > .45 and midway_y == INF:
-					midway_y = player.global_position.y
-				if not player.is_climbing():
-					break
-			view.refresh_at_tracked_player()
-			var want_y := float(Vector3(leg["from"]).y) + float(leg["rise"])
-			_expect(not player.is_climbing() and absf(player.global_position.y - want_y) < .05,
-				"the climb did not end on the far floor (y %.2f, want %.2f)" % [player.global_position.y, want_y])
-			_expect(midway_y > minf(float(Vector3(leg["from"]).y), want_y) + .5 \
-				and midway_y < maxf(float(Vector3(leg["from"]).y), want_y) - .5,
-				"the climb jumped instead of moving along the rungs")
-			_expect(view.current_level() == int(leg["level"]), "after the climb the view is on level %d, not %d" % [
-				view.current_level(), int(leg["level"])])
-			_expect(player.collision_layer == 1, "the runner kept collision off after the climb")
+		var wall: Vector2i = links[0].get("wall", Vector2i.ZERO)
+		var sewer_y := float(SewerRouteGenerator.LEVEL) * rise + .04
+		var foot := Vector3(lid.x + .5 + wall.x * .12, sewer_y, lid.y + .5 + wall.y * .12)
+		var front := Vector3(lid.x + .5 - wall.x * .9, 0.0, lid.y + .5 - wall.y * .9)
+		var top_exit := front + Vector3(0, .04, 0)
+		var bottom_exit := front + Vector3(0, sewer_y, 0)
+		# down: mount at the top, hold "move_down"
+		player.begin_ladder_climb(foot, rise, rise, 0.0, top_exit, bottom_exit, 0, SewerRouteGenerator.LEVEL)
+		_expect(player.is_climbing() and player.collision_layer == 0, "the runner did not get onto the ladder")
+		var midway := await _hold_climb(host, player, "move_down", 300)
+		view.refresh_at_tracked_player()
+		_expect(not player.is_climbing() and player.global_position.distance_to(bottom_exit) < .05,
+			"climbing down did not step off at the bottom (at %s)" % player.global_position)
+		_expect(midway > sewer_y + .5 and midway < -.5, "the climb down jumped instead of moving along the rungs")
+		_expect(view.current_level() == SewerRouteGenerator.LEVEL, "after climbing down the view is not in the sewer")
+		_expect(player.collision_layer == 1, "the runner kept collision off after the climb")
+		# up, with a stop part-way: hold "move_up" for a second, let go, hang
+		player.begin_ladder_climb(foot, rise, 0.0, 0.0, top_exit, bottom_exit, 0, SewerRouteGenerator.LEVEL)
+		Input.action_press("move_up")
+		for _frame in 60:
+			await host.get_tree().physics_frame
+		Input.action_release("move_up")
+		await host.get_tree().physics_frame
+		var hang := player.ladder_climb_progress()
+		var hang_y := player.global_position.y
+		for _frame in 45:
+			await host.get_tree().physics_frame
+		_expect(player.is_climbing() and hang > .15 and hang < .85,
+			"letting go part-way did not leave the runner hanging on the ladder (progress %.2f)" % hang)
+		_expect(absf(player.global_position.y - hang_y) < .01 and player.noise == 0.0,
+			"a runner hanging still on the ladder drifted or kept making noise")
+		await _hold_climb(host, player, "move_up", 300)
+		view.refresh_at_tracked_player()
+		_expect(not player.is_climbing() and player.global_position.distance_to(top_exit) < .05,
+			"climbing up did not step off at the top (at %s)" % player.global_position)
+		_expect(view.current_level() == 0, "after climbing up the view is not on the maze")
 	print("  ok    sewer streaming: first window %.0f ms, worst streaming frame %.1f ms" % [initial_ms, worst_frame_ms])
 	view.clear()
 	view.queue_free()
@@ -294,8 +333,15 @@ func _check_hunter_paths() -> void:
 	for i in range(1, feet.size()):
 		var a := LadderTraffic.ladder_point(feet[0], SewerRouteGenerator.LEVEL)
 		var b := LadderTraffic.ladder_point(feet[i], SewerRouteGenerator.LEVEL)
-		if not below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y))).is_empty():
+		var route: Array = below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y)))
+		if not route.is_empty():
 			routed += 1
+		for step in route:
+			var cell: Vector2i = step
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			var code := int(generator.sewer().chunk(Vector3i(floori(float(cell.x) / size), SewerRouteGenerator.LEVEL,
+				floori(float(cell.y) / size)))["sewer_grid"][posmod(cell.y, size)][posmod(cell.x, size)])
+			_expect(code != SewerRouteGenerator.WATER, "a hunter route wades through the channel at %s" % cell)
 	for i in feet.size():
 		var lid := LadderTraffic.ladder_point(feet[i], 0)
 		# from another lid: the origin chunk's centre is a safe room hunters do not enter
@@ -306,3 +352,149 @@ func _check_hunter_paths() -> void:
 	_expect(routed == feet.size() - 1, "hunter A* reached %d of %d ladders through the sewer" % [routed, feet.size() - 1])
 	_expect(lids == feet.size(), "hunter A* reached %d of %d ladder lids on the maze" % [lids, feet.size()])
 	print("  ok    sewer hunter paths: %d ladders, all reachable above and below" % feet.size())
+
+
+## No level -1 collider may rise into level 0: every GridMap cell shape and
+## every prop body under a sewer chunk tops out at or below the underside of the
+## maze's floor slab (playtest GOLF: full-height wall blocks a storey down stood
+## 3.5 m into open maze halls). The ladder opening needs no exception: the maze
+## keeps its own floor collider over it and the sewer adds nothing there.
+func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
+	var ceiling := -StreamedFacilityView3D.SLAB + .001
+	var worst := -INF
+	var where := ""
+	var checked := 0
+	for coord_value in view._loaded.keys():
+		var coord: Vector3i = coord_value
+		if coord.y != SewerRouteGenerator.LEVEL:
+			continue
+		var root: Node3D = view._loaded[coord]
+		var grid := root.get_node_or_null("Structure") as GridMap
+		if grid != null:
+			for cell_value in grid.get_used_cells():
+				var cell: Vector3i = cell_value
+				var shapes: Array = grid.mesh_library.get_item_shapes(grid.get_cell_item(cell))
+				for i in range(0, shapes.size(), 2):
+					var top := _shape_top(shapes[i], grid.to_global(grid.map_to_local(cell)), shapes[i + 1])
+					checked += 1
+					if top > worst:
+						worst = top
+						where = "%s Structure cell %s" % [coord, cell]
+		for node in root.find_children("*", "CollisionShape3D", true, false):
+			var shape_node := node as CollisionShape3D
+			if shape_node.shape == null or shape_node.get_parent() is GridMap:
+				continue
+			var aabb := shape_node.global_transform * shape_node.shape.get_debug_mesh().get_aabb()
+			checked += 1
+			if aabb.end.y > worst:
+				worst = aabb.end.y
+				where = "%s %s" % [coord, root.get_path_to(shape_node)]
+	_expect(checked > 0, "no sewer colliders found to check")
+	_expect(worst <= ceiling, "a sewer collider rises into the maze: %s tops out at y %.2f (limit %.2f)" % [where, worst, ceiling])
+
+
+static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D) -> float:
+	var aabb := shape.get_debug_mesh().get_aabb()
+	return (Transform3D(Basis.IDENTITY, cell_origin) * local * aabb).end.y
+
+
+## Deep channels with real crossings, per chunk: the water lies well below the
+## walkways over a bed a metre down; along both arms of the cross no stretch of
+## open water runs longer than MAX_OPEN_WATER cells between decks; every 3 x 3
+## deck carries its authored prop (a bridge on the tunnels, grate tiles on the
+## junction plaza); and the overflow basin is open water too. Crossings come
+## about every 24 m: within a chunk the longest open stretch is 9 cells (two such
+## stretches meet across a seam).
+const MAX_OPEN_WATER := 10
+
+
+func _check_channels(seed_text: String, coord: Vector3i, data: Dictionary) -> void:
+	_expect(SewerRouteGenerator.WATER_SURFACE <= -.2 and SewerRouteGenerator.CHANNEL_DEPTH >= .8,
+		"the sewer water is not deep (surface %.2f, bed %.2f)" % [SewerRouteGenerator.WATER_SURFACE,
+			-SewerRouteGenerator.CHANNEL_DEPTH])
+	var grid: Array = data["sewer_grid"]
+	var c := SewerRouteGenerator.CENTER
+	for arm in 2:
+		var run := 0
+		var longest := 0
+		for i in SewerRouteGenerator.CHUNK_SIZE:
+			var code := int(grid[c][i]) if arm == 0 else int(grid[i][c])
+			run = run + 1 if code == SewerRouteGenerator.WATER else 0
+			longest = maxi(longest, run)
+		_expect(longest <= MAX_OPEN_WATER, "%s %s: %d cells of open channel without a crossing" % [seed_text, coord, longest])
+	var decks := {}
+	for feature in data["features"]:
+		if feature["type"] in ["sewerBridge", "sewerGrateDeck"]:
+			decks[feature["cell"]] = feature["type"]
+	var bridge_cells := 0
+	for z in grid.size():
+		for x in (grid[z] as Array).size():
+			if int(grid[z][x]) != SewerRouteGenerator.BRIDGE:
+				continue
+			bridge_cells += 1
+			var covered := false
+			for centre in decks:
+				if absi(x - (centre as Vector2i).x) <= 1 and absi(z - (centre as Vector2i).y) <= 1:
+					covered = true
+			_expect(covered, "%s %s: deck cell %s has no bridge or grate prop" % [seed_text, coord, Vector2i(x, z)])
+	_expect(bridge_cells == decks.size() * 9, "%s %s: %d deck cells for %d deck props" % [
+		seed_text, coord, bridge_cells, decks.size()])
+
+
+## The live chunk: every open-water cell has the channel collider, which stands
+## above the railings so nobody steps in; every deck cell is walkable floor; the
+## water mesh runs under the decks and the railings are there.
+func _check_live_channel(view: StreamedFacilityView3D, coord: Vector3i) -> void:
+	var root: Node3D = view._loaded.get(coord)
+	if root == null:
+		_expect(false, "sewer chunk %s not loaded for the channel check" % coord)
+		return
+	var grid := root.get_node_or_null("Structure") as GridMap
+	var sewer_grid: Array = view.generator.chunk(coord)["sewer_grid"]
+	var bad := 0
+	for z in sewer_grid.size():
+		for x in (sewer_grid[z] as Array).size():
+			var item := grid.get_cell_item(Vector3i(x, 0, z))
+			match int(sewer_grid[z][x]):
+				SewerRouteGenerator.WATER:
+					if item != view._col_channel_item:
+						bad += 1
+				SewerRouteGenerator.BRIDGE:
+					if item != view._col_floor_item:
+						bad += 1
+	_expect(bad == 0, "%d channel or deck cells have the wrong collider" % bad)
+	var shapes: Array = grid.mesh_library.get_item_shapes(view._col_channel_item)
+	var top := _shape_top(shapes[0], Vector3.ZERO, shapes[1])
+	_expect(top >= StreamedFacilityView3D.RAIL_HEIGHT, "the channel collider (top %.2f) is lower than the railings" % top)
+	_expect(root.get_node_or_null("ChannelRails") != null and root.get_node_or_null("ChannelPosts") != null,
+		"the sewer chunk has no channel railings")
+	if bad == 0:
+		print("  ok    sewer channels: deep water behind railings, decks walkable, colliders right")
+
+
+## The game window is opaque (KT: the macOS desktop showed through the sewer and
+## past the far distance): no transparent window, no per-pixel transparency and
+## an opaque root viewport, so empty or unlit space shows the environment colour.
+func _check_opaque_window(host: Node) -> void:
+	_expect(not bool(ProjectSettings.get_setting("display/window/size/transparent", false)),
+		"project.godot makes the game window transparent")
+	_expect(not bool(ProjectSettings.get_setting("display/window/per_pixel_transparency/allowed", false)),
+		"project.godot allows per-pixel window transparency")
+	_expect(not host.get_tree().root.transparent_bg, "the root viewport draws a transparent background")
+	_expect(RefLook.make_environment().background_mode == Environment.BG_COLOR \
+		and RefLook.make_environment().background_color.a >= 1.0, "the route environment's background is not opaque")
+
+
+## Holds an input action until the runner has stepped off the ladder (or
+## `frames` pass); returns the height seen when the climb was half done.
+func _hold_climb(host: Node, player: PlayerController3D, action: String, frames: int) -> float:
+	var midway := INF
+	Input.action_press(action)
+	for _frame in frames:
+		await host.get_tree().physics_frame
+		if midway == INF and absf(player.ladder_climb_progress() - .5) < .05:
+			midway = player.global_position.y
+		if not player.is_climbing():
+			break
+	Input.action_release(action)
+	return midway

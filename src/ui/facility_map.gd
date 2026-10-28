@@ -40,6 +40,7 @@ const REGION_COLORS := {
 	"hospital": Color("9fd0c2"),
 	"lab": Color("5fd4e4"),
 	"greenhouse": Color("7fbf5a"),
+	"mall": Color("e8b05a"),
 }
 
 @export var interactive := false

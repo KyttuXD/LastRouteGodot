@@ -114,9 +114,11 @@ func _void_powers(navigation: StreamedHunterNavigation, origin: Vector2, along: 
 
 
 func _capture_gates(navigation: StreamedHunterNavigation, origin: Vector2, along: Vector2) -> void:
-	for id in ["ceryth", "glyra", "ilyra", "loxelle", "ysolde"]:
+	for id in ["ceryth", "glyra", "ilyra", "loxelle"]:
 		var brain := _brain(id, origin + along * 2.0)
 		_expect(brain.gimmick != null and brain.gimmick.immune_to_capture(), "%s can still capture" % id)
+	# Ysolde (KT's ruling, docs/YSOLDE.md): she flees, but a runner who reaches her is caught
+	_expect(not _brain("ysolde", origin + along * 2.0).gimmick.immune_to_capture(), "ysolde can no longer catch a runner who reaches her")
 	# Elise breaches hiding: a hidden player within reach is grabbed once she is on the last known point
 	var elise := _brain("elise", origin + along * 2.0)
 	var hidden_target := _target(origin + along * 2.2, along, {"hidden": true})

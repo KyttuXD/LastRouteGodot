@@ -412,6 +412,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework4.py")).read())   # room-purpose catalog: infirmary, library, storage, lobby
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_biomes.py")).read())    # hospital, lab, greenhouse
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mall.py")).read())      # shopping arcade
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
 SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),

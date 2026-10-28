@@ -8,10 +8,10 @@ extends RefCounted
 ##
 ## Every chunk carries the same main cross so seams always meet: a nine-wide
 ## brick tunnel along x = 22 and z = 22, made of a three-wide central channel
-## of shallow flowing water (wading only: slow and loud, never deep) between two
-## three-wide dry walkways. Footbridges cross the channel at regular spacing so
-## a dry walker is never trapped on one bank. The tunnels meet in a junction
-## chamber. Up to two quadrants hold a utility room (pump, valve or overflow) on
+## of deep flowing water sunk below two railed three-wide walkways. Bridge decks
+## cross the channel at regular spacing so nobody is trapped on one bank, and
+## the tunnels meet in a junction chamber whose confluence is decked over with
+## a cross-shaped grate plaza. Up to two quadrants hold a utility room (pump, valve or overflow) on
 ## a three-wide dry branch; the others may hold an access shaft that climbs to
 ## an open maze hallway cell above: every entrance is a climbable ladder
 ## (LevelLink kind "ladder") under a manhole lid or a floor grate ("cover").
@@ -20,8 +20,8 @@ const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
 const LEVEL := -1
 const SURFACE_LEVEL := 0
 
-## Grid codes. Water is walkable (wading) but never dry; bridge cells are dry
-## decks over the channel.
+## Grid codes. Water is open channel nobody walks in; bridge cells are walkable
+## decks with the channel running underneath.
 const SOLID := 1
 const DRY := 0
 const WATER := 2
@@ -31,7 +31,12 @@ const CENTER := CHUNK_SIZE / 2
 const TUNNEL_HALF := 4           # 22 - 4 .. 22 + 4: walkway 18-20, water 21-23, walkway 24-26
 const CHANNEL_HALF := 1
 const JUNCTION_HALF := 6         # 13 x 13 chamber
-const BRIDGE_OFFSETS := [3, 10, 34, 41]   # along each tunnel, clear of the junction
+## One bridge on each tunnel arm either side of the junction (plus the junction's
+## grate plaza): a crossing about every 24 m along the channel.
+const BRIDGE_OFFSETS := [10, 34]
+## Centres (along each arm, from the junction centre) of the 3 x 3 grate tiles
+## that deck the confluence: cells -4..+4 of both arms are walkable grating.
+const PLAZA_TILES := [-3, 0, 3]
 const QUADRANT_CENTERS := [Vector2i(9, 9), Vector2i(35, 9), Vector2i(9, 35), Vector2i(35, 35)]
 const ROOM_HALF := 3             # 7 x 7 utility rooms
 const SHAFT_HALF := 1            # 3 x 3 dry shaft chamber under a manhole
@@ -40,8 +45,12 @@ const LINK_CHANCE := 0.55
 ## Every sewer space has the same low brick ceiling, so a ladder shaft always
 ## spans exactly LEVEL_HEIGHT - CEILING_HEIGHT between it and the maze floor.
 const CEILING_HEIGHT := 3.2
-## Shallow flowing water: about ankle-to-shin deep over the channel bed.
-const WATER_SURFACE := 0.18
+## Deep channels: the bed lies CHANNEL_DEPTH below the walkways and the water
+## surface WATER_SURFACE below them (negative = down). Nobody wades: railings
+## line every walkway edge and the channel cells block movement, so the water
+## is crossed only on the bridges and the junction's grate plaza.
+const CHANNEL_DEPTH := 1.0
+const WATER_SURFACE := -0.3
 
 var world_seed: String
 var surface: StreamedRouteGenerator
@@ -116,14 +125,16 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			rooms.append({"kind": kind, "rect": rect, "center": qc})
 			features.append_array(_room_features(kind, rect, qc))
 		elif wants_link and links.size() < 2:
-			var up := _shaft_cell(qc, surface_data["grid"], blocked)
-			if up.x < 0:
+			var spot := _shaft_cell(qc, surface_data["grid"], blocked)
+			if spot.is_empty():
 				continue
+			var up: Vector2i = spot["cell"]
 			var cover: String = covers[rng.next_index(covers.size())]
-			# The ladder hangs on the brick on the far side from the tunnel: the 3x3
-			# shaft chamber opens away from that wall and its branch leaves from the
-			# chamber's middle, so the wall behind the rungs stays solid.
-			var wall := _ladder_wall(up)
+			# The ladder hangs flush on a hallway wall in the maze and on the brick of
+			# the same side below: the 3x3 shaft chamber opens away from that wall and
+			# its branch leaves from the chamber's middle, so the wall behind the rungs
+			# stays solid on both levels.
+			var wall: Vector2i = spot["wall"]
 			var chamber_center := up - wall
 			_carve_rect(grid, Rect2i(chamber_center - Vector2i(SHAFT_HALF, SHAFT_HALF), Vector2i(3, 3)), DRY)
 			_carve_branch(grid, chamber_center, SHAFT_HALF)
@@ -133,6 +144,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			links.append(link)
 			features.append({"type": "sewerLadder", "cell": up, "link": links.back()["id"], "wall": wall})
 	features.append_array(_tunnel_features())
+	features.append_array(_crossing_features())
+	features = _mount_on_walls(grid, features)
 	return _streamed_schema(coord, grid, rooms, links, features)
 
 
@@ -182,14 +195,15 @@ func _carve_main_cross(grid: Array) -> void:
 	var c_w := CHANNEL_HALF * 2 + 1
 	_carve_rect(grid, Rect2i(0, c_lo, CHUNK_SIZE, c_w), WATER)
 	_carve_rect(grid, Rect2i(c_lo, 0, c_w, CHUNK_SIZE), WATER)
-	# Bridges three cells wide over each channel, plus the four decks around the
-	# junction's central confluence.
+	# Three-cell bridge decks over each channel along the tunnels, and a
+	# cross-shaped grated plaza over the junction's confluence: the water keeps
+	# flowing under every deck.
 	for offset in BRIDGE_OFFSETS:
 		_carve_rect(grid, Rect2i(offset - 1, c_lo, 3, c_w), BRIDGE)
 		_carve_rect(grid, Rect2i(c_lo, offset - 1, c_w, 3), BRIDGE)
-	for d in [-JUNCTION_HALF + 2, JUNCTION_HALF - 2]:
-		_carve_rect(grid, Rect2i(CENTER + d - 1, c_lo, 3, c_w), BRIDGE)
-		_carve_rect(grid, Rect2i(c_lo, CENTER + d - 1, c_w, 3), BRIDGE)
+	for k in PLAZA_TILES:
+		_carve_rect(grid, Rect2i(CENTER + k - 1, c_lo, 3, c_w), BRIDGE)
+		_carve_rect(grid, Rect2i(c_lo, CENTER + k - 1, c_w, 3), BRIDGE)
 
 
 ## A three-wide dry branch from a room/shaft centre straight to the nearer
@@ -296,39 +310,48 @@ static func _surface_blocked_cells(data: Dictionary) -> Dictionary:
 						blocked[Vector2i(cell) + Vector2i(dx, dz)] = true
 	for room in data.get("rooms", []):
 		# Hallway cells only: rooms keep their own floor plans.
+		# The rect includes the room's wall ring, so the hall cell just outside it
+		# stays free: that is where a ladder can stand flush against the wall.
 		var rect: Rect2i = room.get("rect", Rect2i())
-		for z in range(rect.position.y - 1, rect.end.y + 1):
-			for x in range(rect.position.x - 1, rect.end.x + 1):
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
 				blocked[Vector2i(x, z)] = true
 	return blocked
 
 
-## The open maze hallway cell nearest the quadrant centre with a full 3x3 of
-## open floor around it (the lid plus clearance), or (-1, -1).
-static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked: Dictionary) -> Vector2i:
-	var best := Vector2i(-1, -1)
+## The maze hallway cell nearest the quadrant centre where a ladder can stand
+## flush against a hallway wall: open floor with solid wall directly behind it
+## (toward `wall`), open floor in front (where the lid lies) and to both sides.
+## The wall may face any way but toward the tunnel (the sewer chamber's branch
+## would then run through the brick behind the rungs). Returns {cell, wall} or {}.
+static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked: Dictionary) -> Dictionary:
+	var best := {}
 	var best_d := 1 << 30
+	var open := func(c: Vector2i) -> bool:
+		return c.x >= 0 and c.y >= 0 and c.x < CHUNK_SIZE and c.y < CHUNK_SIZE and int(surface_grid[c.y][c.x]) == 0
 	for z in range(quadrant_center.y - 7, quadrant_center.y + 8):
 		for x in range(quadrant_center.x - 7, quadrant_center.x + 8):
 			var cell := Vector2i(x, z)
-			# Stay out of the tunnel band and two cells off the chunk edge.
+			# Stay out of the tunnel band and off the chunk edge (the chamber reaches two cells out).
 			if absi(x - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1 or absi(z - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1:
 				continue
 			if x < 4 or z < 4 or x > CHUNK_SIZE - 5 or z > CHUNK_SIZE - 5:
 				continue
-			if blocked.has(cell):
+			if blocked.has(cell) or not open.call(cell):
 				continue
-			var clear := true
-			for dz in range(-1, 2):
-				for dx in range(-1, 2):
-					if int(surface_grid[z + dz][x + dx]) != 0:
-						clear = false
-			if not clear:
-				continue
-			var d := (cell - quadrant_center).length_squared()
-			if d < best_d:
-				best_d = d
-				best = cell
+			var toward_tunnel := -_ladder_wall(cell)
+			for wall_value in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var wall: Vector2i = wall_value
+				if wall == toward_tunnel or open.call(cell + wall):
+					continue
+				var side := Vector2i(absi(wall.y), absi(wall.x))
+				if not open.call(cell - wall) or blocked.has(cell - wall) \
+						or not open.call(cell + side) or not open.call(cell - side):
+					continue
+				var d := (cell - quadrant_center).length_squared()
+				if d < best_d:
+					best_d = d
+					best = {"cell": cell, "wall": wall}
 	return best
 
 
@@ -364,6 +387,62 @@ static func _tunnel_features() -> Array:
 	return out
 
 
+## Every wall-mounted piece (valves, lamps, pipe runs, pumps) must have brick
+## behind it. Rooms, branches and shaft chambers carved after the dressing was
+## planned can open a doorway exactly where a piece wanted its wall (playtest:
+## a valve wheel hanging in mid-air in a pump-room doorway): such a piece slides
+## along its wall to the nearest walkable cell that is backed by brick, or is
+## left out when there is none within reach.
+const MOUNT_SLIDE := 3
+
+
+static func _mount_on_walls(grid: Array, features: Array) -> Array:
+	var out := []
+	for feature_value in features:
+		var feature: Dictionary = feature_value
+		var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
+		# free-standing pieces stay put, and so do ladders (their cell is the link)
+		if wall == Vector2i.ZERO or feature.has("link"):
+			out.append(feature)
+			continue
+		var cell: Vector2i = feature["cell"]
+		var along := Vector2i(absi(wall.y), absi(wall.x))
+		for k in [0, 1, -1, 2, -2, 3, -3]:
+			if absi(k) > MOUNT_SLIDE:
+				continue
+			var spot: Vector2i = cell + along * k
+			if wall_backed(grid, spot, wall):
+				var moved := feature.duplicate()
+				moved["cell"] = spot
+				out.append(moved)
+				break
+	return out
+
+
+## True when `cell` is walkable floor and the cell beyond it toward `wall` is brick.
+static func wall_backed(grid: Array, cell: Vector2i, wall: Vector2i) -> bool:
+	var back := cell + wall
+	for c in [cell, back]:
+		if c.x < 0 or c.y < 0 or c.x >= CHUNK_SIZE or c.y >= CHUNK_SIZE:
+			return false
+	return int(grid[cell.y][cell.x]) == DRY and int(grid[back.y][back.x]) == SOLID
+
+
+## The decks: an authored bridge over the channel at each tunnel crossing and
+## grate tiles over the confluence. "yaw" turns the span across the water
+## (authored spanning local z, i.e. across an east-west channel).
+static func _crossing_features() -> Array:
+	var out := []
+	for offset in BRIDGE_OFFSETS:
+		out.append({"type": "sewerBridge", "cell": Vector2i(offset, CENTER), "yaw": 0.0})
+		out.append({"type": "sewerBridge", "cell": Vector2i(CENTER, offset), "yaw": PI / 2.0})
+	for k in PLAZA_TILES:
+		out.append({"type": "sewerGrateDeck", "cell": Vector2i(CENTER + k, CENTER), "yaw": 0.0})
+		if k != 0:
+			out.append({"type": "sewerGrateDeck", "cell": Vector2i(CENTER, CENTER + k), "yaw": PI / 2.0})
+	return out
+
+
 ## Wall-mounted height and whether a piece blocks movement; everything but the
 ## pump stands aside of the walkway or in the water.
 const FEATURE_MOUNT_Y := {"sewerLamp": 2.35, "sewerValveWheel": 1.15, "sewerPipeRun": 2.55}
@@ -385,7 +464,7 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 		var type := String(feature["type"])
 		var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
 		var prop := {"id": "%s:PROP:%d" % [chunk_id(coord), index], "type": type, "cell": feature["cell"],
-			"yaw": wall_yaw(wall), "solid": SOLID_FEATURES.has(type), "sewer_feature": true}
+			"yaw": float(feature.get("yaw", wall_yaw(wall))), "solid": SOLID_FEATURES.has(type), "sewer_feature": true}
 		if FEATURE_MOUNT_Y.has(type):
 			prop["mount_y"] = FEATURE_MOUNT_Y[type]
 			prop["mount_offset"] = Vector2(wall) * .5
@@ -400,7 +479,7 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 
 
 static func is_walkable(code: int) -> bool:
-	return code != SOLID
+	return code == DRY or code == BRIDGE
 
 
 static func is_dry(code: int) -> bool:

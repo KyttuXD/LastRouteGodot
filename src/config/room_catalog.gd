@@ -280,6 +280,21 @@ const TYPES := [
 		"streamed_only": true,
 		"props": ["pottingBench", "pottingBench", "seedlingRack", "compostBins",
 			"wateringCart", "irrigationManifold"]},
+	{"id": "donutShop", "label": "KYTTU DONUTS", "region": "mall",
+		"streamed_only": true, "landmark": true,
+		"props": ["displayCase", "checkoutCounter", "coffeeStation", "donutFryer",
+			"bakeryRack", "dinerBooth", "dinerStool", "menuBoard", "donutSign"]},
+	{"id": "mallCinema", "label": "CINEMA", "region": "mall",
+		"streamed_only": true, "landmark": true,
+		"props": ["cinemaScreen", "cinemaSeats", "cinemaSeats", "ticketBooth",
+			"concessionCounter", "privacyCurtain"]},
+	{"id": "foodCourt", "label": "FOOD COURT", "region": "mall",
+		"streamed_only": true, "landmark": true,
+		"props": ["foodCourtTable", "foodCourtTable", "displayCase", "coffeeStation",
+			"concessionCounter", "menuBoard", "mallPlanter"]},
+	{"id": "laundromat", "label": "LAUNDROMAT", "region": "mall",
+		"streamed_only": true,
+		"props": ["washingMachine", "washingMachine", "dryerStack", "mallBench"]},
 ]
 
 const REGION_DEFAULT_TYPE := {
@@ -287,7 +302,7 @@ const REGION_DEFAULT_TYPE := {
 	"circus": "circusTent", "nether": "netherChamber", "beach": "beachCove",
 	"mansion": "diningRoom", "bedroom": "bedroom", "garden": "garden",
 	"prison": "prisonCellBlock", "hospital": "hospitalWard", "lab": "labContainment",
-	"greenhouse": "palmHouse",
+	"greenhouse": "palmHouse", "mall": "foodCourt",
 }
 
 ## Pieces that need their back oriented toward the nearest room edge. The
@@ -331,7 +346,9 @@ const WALL_BACKED_TYPES := [
 	"labBench", "fumeHood", "containmentCell", "labCoolingUnit", "monitorWall",
 	"deconShower", "coldStorageUnit", "labWhiteboard", "hazardSign",
 	"gasCylinderRack", "raisedPlanter", "pottingBench", "seedlingRack",
-	"irrigationManifold",
+	"irrigationManifold", "shopShelf", "shopFridge", "coffeeStation", "donutFryer",
+	"dinerBooth", "menuBoard", "donutSign", "washingMachine", "dryerStack",
+	"flowerStand", "barberStation", "tvWall", "cinemaScreen",
 ]
 
 ## Small dining dressing shares the cell of a real table and is lifted to its
@@ -543,6 +560,16 @@ const FOOTPRINTS := {
 	"overgrowthPatch": Vector2(.78, .63), "hangingVines": Vector2(.58, .58),
 	"domeFountain": Vector2(1.28, 1.28), "wateringCart": Vector2(.48, .28),
 	"greenhouseBench": Vector2(.78, .28), "compostBins": Vector2(.68, .35),
+	# shopping arcade
+	"shopShelf": Vector2(.58, .23), "shopFridge": Vector2(.48, .35), "checkoutCounter": Vector2(.88, .35),
+	"displayCase": Vector2(.68, .35), "coffeeStation": Vector2(.63, .3), "donutFryer": Vector2(.63, .38),
+	"bakeryRack": Vector2(.48, .28), "dinerStool": Vector2(.19, .19), "dinerBooth": Vector2(.78, .73),
+	"menuBoard": Vector2(.73, .03), "donutSign": Vector2(.63, .13), "washingMachine": Vector2(.35, .34),
+	"dryerStack": Vector2(.35, .34), "flowerStand": Vector2(.63, .3), "barberChair": Vector2(.33, .45),
+	"barberStation": Vector2(.58, .21), "clothesRack": Vector2(.68, .26), "tvWall": Vector2(.78, .23),
+	"cinemaSeats": Vector2(1.18, .38), "cinemaScreen": Vector2(2.08, .04), "ticketBooth": Vector2(.83, .58),
+	"concessionCounter": Vector2(1.08, .38), "foodCourtTable": Vector2(.83, .83),
+	"mallPlanter": Vector2(.63, .63), "mallBench": Vector2(.88, .28),
 }
 
 
@@ -571,7 +598,7 @@ static func color_for_region(region: String) -> Color:
 		"prison": Color("35424a"),
 		"garden": Color("527b4c"), "circus": Color("bd536e"),
 		"hospital": Color("8fb8ac"), "lab": Color("6ccbd8"),
-		"greenhouse": Color("7fae5a"),
+		"greenhouse": Color("7fae5a"), "mall": Color("d9a35a"),
 	}.get(region, Color("68616b"))
 
 
@@ -681,7 +708,7 @@ static func is_solid(type: String) -> bool:
 		"grandStaircase", "grandFoyerStaircase",
 		"surgicalLight", "hangingVines", "overgrowthPatch", "labMicroscope",
 		"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard",
-		"hazardSign"]
+		"hazardSign", "menuBoard", "donutSign", "cinemaScreen"]
 
 
 static func is_walkable_structure(type: String) -> bool:

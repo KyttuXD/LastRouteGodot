@@ -201,11 +201,6 @@ var admin_god_mode := false
 var admin_noclip := false
 ## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
 var admin_speed_scale := 1.0
-## Wading the sewer's channel (set by the run scene from the sewer grid): slow
-## and loud, never deep. Dry walkways and bridges are normal floor.
-var wading := false
-const WADE_SPEED_SCALE := 0.55
-const WADE_NOISE_SCALE := 1.6
 ## A captured co-op guest remains in the room as a free-flying spectator rather
 ## than respawning or being forced back to the menu. The host still treats this
 ## state as game-over for targeting and replication purposes.
@@ -261,11 +256,18 @@ var _hide_move := {}
 ## but does not mutate the shared prop, so two couch seats in co-op never need
 ## an authority round trip.
 var resting_furniture: RouteInteractable3D
-## A sewer ladder climb in progress (begin_ladder_climb): {from, rise, seconds, elapsed, to_level}.
+## A sewer ladder climb in progress (begin_ladder_climb): where it runs, how high the runner is and the
+## phase (mount, climb, dismount).
 ## Movement, items and collision are off; the body plays "climb" (guests see it
 ## through current_clip) and the view shows both hands working the rungs.
 var ladder_climb := {}
 var _climb_hands: Node3D
+## Ladder handling: climb speed (m/s), the height under which jump lets go, and
+## the smooth mount / dismount times.
+const LADDER_CLIMB_SPEED := 1.7
+const LADDER_LET_GO_HEIGHT := 1.3
+const LADDER_MOUNT_SECONDS := .3
+const LADDER_DISMOUNT_SECONDS := .45
 var resting_pose := ""
 var _furniture_return_position := Vector3.ZERO
 
@@ -711,16 +713,23 @@ func is_climbing() -> bool:
 	return not ladder_climb.is_empty()
 
 
-## Starts climbing a sewer ladder from `from` (the ladder cell's floor point on
-## this level) `rise` metres up (negative = down) over `seconds`, facing `yaw`.
-func begin_ladder_climb(from: Vector3, rise: float, seconds: float, yaw: float, to_level: int) -> void:
+## Gets onto a sewer ladder (docs/SEWERS.md). The ladder's line runs up from
+## `foot` (its base on the lower floor, against the rungs) for `rise` metres;
+## the runner mounts at `height` above the foot and from then on climbs under
+## their own control: hold move up / move down to climb at CLIMB_SPEED, release
+## to hang still. At either end the climb dismounts smoothly onto `top_exit` or
+## `bottom_exit` (the floor in front of the ladder); jump near the bottom lets go.
+## The camera stays free; movement, items and collision are off on the rungs.
+func begin_ladder_climb(foot: Vector3, rise: float, height: float, yaw: float,
+		top_exit: Vector3, bottom_exit: Vector3, top_level: int, bottom_level: int) -> void:
 	if is_climbing() or hidden or spectator_mode:
 		return
 	if resting_furniture != null:
 		leave_furniture()
-	ladder_climb = {"from": from, "rise": rise, "seconds": maxf(seconds, .1), "elapsed": 0.0, "to_level": to_level}
+	ladder_climb = {"foot": foot, "rise": rise, "height": clampf(height, 0.0, rise),
+		"top_exit": top_exit, "bottom_exit": bottom_exit, "top_level": top_level, "bottom_level": bottom_level,
+		"phase": "mount", "t": 0.0, "from": global_position, "to_level": top_level, "travel": 0.0}
 	velocity = Vector3.ZERO
-	global_position = from
 	rotation.y = yaw
 	collision_layer = 0
 	collision_mask = 0
@@ -729,28 +738,61 @@ func begin_ladder_climb(from: Vector3, rise: float, seconds: float, yaw: float, 
 	_show_climb_hands(true)
 
 
+## How far up the ladder the runner is, 0 (bottom) .. 1 (top).
 func ladder_climb_progress() -> float:
 	if ladder_climb.is_empty():
 		return 0.0
-	return clampf(float(ladder_climb["elapsed"]) / float(ladder_climb["seconds"]), 0.0, 1.0)
+	return clampf(float(ladder_climb["height"]) / maxf(float(ladder_climb["rise"]), .01), 0.0, 1.0)
+
+
+func _ladder_point() -> Vector3:
+	return Vector3(ladder_climb["foot"]) + Vector3(0, float(ladder_climb["height"]), 0)
 
 
 func _update_ladder_climb(delta: float) -> void:
-	ladder_climb["elapsed"] = float(ladder_climb["elapsed"]) + delta
-	var t := ladder_climb_progress()
-	# Ease on and off the rungs so the camera does not jolt at either end.
-	var eased := t * t * (3.0 - 2.0 * t)
 	var rise := float(ladder_climb["rise"])
-	global_position = Vector3(ladder_climb["from"]) + Vector3(0, rise * eased, 0)
+	var moving := false
+	match String(ladder_climb["phase"]):
+		"mount":
+			ladder_climb["t"] = minf(1.0, float(ladder_climb["t"]) + delta / LADDER_MOUNT_SECONDS)
+			var k := _smooth(float(ladder_climb["t"]))
+			global_position = Vector3(ladder_climb["from"]).lerp(_ladder_point(), k)
+			if float(ladder_climb["t"]) >= 1.0:
+				ladder_climb["phase"] = "climb"
+		"climb":
+			# W / stick forward climbs up, S / stick back climbs down; nothing pressed: hang
+			var axis := -Input.get_vector("move_left", "move_right", "move_up", "move_down").y
+			if input_frozen or stun_timer > 0.0:
+				axis = 0.0
+			var height := float(ladder_climb["height"])
+			if Input.is_action_just_pressed("jump") and height <= LADDER_LET_GO_HEIGHT:
+				_ladder_dismount("bottom")
+			elif axis > .2 and height >= rise:
+				_ladder_dismount("top")
+			elif axis < -.2 and height <= 0.0:
+				_ladder_dismount("bottom")
+			elif absf(axis) > .2:
+				var step := signf(axis) * LADDER_CLIMB_SPEED * delta
+				ladder_climb["height"] = clampf(height + step, 0.0, rise)
+				ladder_climb["travel"] = float(ladder_climb["travel"]) + absf(step)
+				moving = true
+			global_position = _ladder_point()
+		"dismount":
+			ladder_climb["t"] = minf(1.0, float(ladder_climb["t"]) + delta / LADDER_DISMOUNT_SECONDS)
+			var k := _smooth(float(ladder_climb["t"]))
+			var to: Vector3 = ladder_climb["to"]
+			# a small lift over the lip of the hatch on the way off at the top
+			var lift := sin(k * PI) * (.25 if bool(ladder_climb["over_top"]) else 0.0)
+			global_position = Vector3(ladder_climb["from"]).lerp(to, k) + Vector3(0, lift, 0)
+			moving = true
 	velocity = Vector3.ZERO
-	noise = 0.35   # rungs clank: a hunter near either end can hear the climb
+	noise = 0.35 if moving else 0.0   # rungs clank while you move: a hunter near either end hears it
 	_clip = "climb"
 	ModelSlot.play_if_available(_animation_player, _clip)
-	# Look at the rungs, tipped toward where the climb is heading.
-	_pitch = move_toward(_pitch, .55 if rise > 0.0 else -.75, delta * 2.5)
-	first_person_pivot.rotation.x = _pitch
-	_animate_climb_hands(float(ladder_climb["elapsed"]), rise > 0.0)
-	if t >= 1.0:
+	if _animation_player != null:
+		_animation_player.speed_scale = 1.0 if moving else 0.0
+	_animate_climb_hands(float(ladder_climb["travel"]) / LADDER_CLIMB_SPEED, true)
+	if String(ladder_climb["phase"]) == "dismount" and float(ladder_climb["t"]) >= 1.0:
 		var to_level := int(ladder_climb["to_level"])
 		ladder_climb = {}
 		collision_layer = 1
@@ -758,8 +800,24 @@ func _update_ladder_climb(delta: float) -> void:
 		_show_climb_hands(false)
 		if first_person_items != null:
 			first_person_items.visible = true
+		if _animation_player != null:
+			_animation_player.speed_scale = 1.0
 		_clip = "idle"
 		ladder_climb_finished.emit(to_level)
+
+
+func _ladder_dismount(end: String) -> void:
+	var top := end == "top"
+	ladder_climb["phase"] = "dismount"
+	ladder_climb["t"] = 0.0
+	ladder_climb["from"] = global_position
+	ladder_climb["to"] = ladder_climb["top_exit"] if top else ladder_climb["bottom_exit"]
+	ladder_climb["to_level"] = int(ladder_climb["top_level"] if top else ladder_climb["bottom_level"])
+	ladder_climb["over_top"] = top
+
+
+static func _smooth(t: float) -> float:
+	return t * t * (3.0 - 2.0 * t)
 
 
 ## Two blocky fists gripping rungs in front of the camera, hand over hand.
@@ -1017,12 +1075,8 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "walk"
 
 	movement_speed *= admin_speed_scale
-	if wading:
-		movement_speed *= WADE_SPEED_SCALE
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
-	if wading and is_moving:
-		noise = minf(1.0, noise * WADE_NOISE_SCALE)   # splashing carries even at a crouch
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 

@@ -27,6 +27,7 @@ func _init() -> void:
 		"hospital": [Color("8fa59c"), Color("7d948c")],
 		"lab": [Color("9aa7ad"), Color("8496a0")],
 		"greenhouse": [Color("8a5a3c"), Color("4c6a46")],
+		"mall": [Color("9a8a76"), Color("7a5e52")],
 	}
 	for region in palettes:
 		var colors: Array = palettes[region]

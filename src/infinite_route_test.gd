@@ -375,6 +375,7 @@ func _process(delta: float) -> void:
 		return
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
+	_update_ravelle_traps(get_process_delta_time())
 	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
@@ -646,6 +647,9 @@ func _infinite_admin_actions() -> Array:
 		{"heading": "VISUAL", "permission": "visual"},
 		{"label": "TELEPORT TO WAYPOINT", "action": _admin_teleport_to_waypoint, "permission": "player"},
 		{"label": "CLEAR WAYPOINT", "action": _clear_local_waypoint, "permission": "player"},
+		{"label": "SHOW TRAPS", "action": _admin_toggle_show_traps, "permission": "visual",
+			"state": func() -> bool: return _admin_show_traps},
+		{"label": "SPAWN RAVELLE TRAP HERE", "action": _admin_spawn_ravelle_trap, "permission": "world"},
 		{"label": "MUTUAL LIGHT SIGHT", "action": _admin_toggle_light_sight, "permission": "visual",
 			"state": func() -> bool: return LightField.enabled},
 		{"label": "LIGHT PROBE HERE", "action": _admin_light_probe, "permission": "visual"},
@@ -1424,6 +1428,126 @@ func _admin_light_probe() -> void:
 	var at := player.global_position + Vector3(0, 1.2, 0)
 	var result := LightField.exposure_at(at, lamps, _navigation.has_line_of_sight if _navigation != null else Callable())
 	hud.show_message("LIGHT // HERE %.2f (VISIBLE AT %.2f)" % [float(result["value"]), LightField.VISIBLE_EXPOSURE])
+
+
+var _trap_mesh: MeshInstance3D
+var _trap_refresh := 0.0
+var _trap_cut_held := 0.0
+var _admin_show_traps := false
+
+
+## RAVELLE TRAPS (docs/RAVELLE_TRAPS.md): draws every live wire of every Ravelle (host and guests alike, from the replicated
+## gimmick state): a thin shimmering wire across the hall with a bell at each end, easy to miss, easy to spot in a torch
+## beam; and lets the runner cut one by holding INTERACT next to it (noisy: it brings nearby hunters to look).
+func _update_ravelle_traps(delta: float) -> void:
+	var live := []
+	for entity_id_value in _hunter_views:
+		var view := _hunter_views[entity_id_value] as HunterView3D
+		if view == null or view.brain == null or not view.brain.gimmick is RavelleGimmick:
+			continue
+		var wires: Array = (view.brain.gimmick as RavelleGimmick).wires()
+		for index in wires.size():
+			if not bool(wires[index]["triggered"]):
+				live.append({"entity": String(entity_id_value), "index": index, "a": wires[index]["a"], "b": wires[index]["b"]})
+	_trap_refresh -= delta
+	if _trap_refresh <= 0.0:
+		_trap_refresh = .25
+		_draw_trap_wires(live)
+	var at := Vector2(player.global_position.x, player.global_position.z)
+	var near := {}
+	for wire in live:
+		if RavelleGimmick._distance_to_segment(at, wire["a"], wire["b"]) <= GameConfig.RAVELLE_CUT_REACH:
+			near = wire
+			break
+	if near.is_empty() or not Input.is_action_pressed("interact") or player.input_frozen:
+		_trap_cut_held = 0.0
+		return
+	if _trap_cut_held == 0.0:
+		hud.show_message("CUTTING THE WIRE...")
+	_trap_cut_held += delta
+	if _trap_cut_held < GameConfig.RAVELLE_CUT_SECONDS:
+		return
+	_trap_cut_held = 0.0
+	var event := {"what": "ravelle_disarm", "entity": near["entity"], "index": int(near["index"]), "at": at}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_ravelle_disarm(event)
+	hud.show_message("WIRE CUT // THE BELLS RATTLE")
+
+
+func _accept_ravelle_disarm(event: Dictionary) -> void:
+	var view := _hunter_views.get(String(event.get("entity", ""))) as HunterView3D
+	if view == null or not view.brain.gimmick is RavelleGimmick:
+		return
+	if not (view.brain.gimmick as RavelleGimmick).cut_wire(int(event.get("index", -1))):
+		return
+	var at = event.get("at", view.brain.position)
+	for other_value in _hunter_views.values():
+		var other := other_value as HunterView3D
+		if other != null and other.brain != null and other.brain.active and at is Vector2 \
+				and other.brain.position.distance_to(at) < 14.0:
+			other.brain.state = HunterBrain.State.INVESTIGATE
+			other.brain.has_last_known = true
+			other.brain.last_known = at
+	Sound.alert()
+
+
+func _draw_trap_wires(live: Array) -> void:
+	if _trap_mesh == null:
+		_trap_mesh = MeshInstance3D.new()
+		_trap_mesh.name = "RavelleWires"
+		_trap_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var made := StandardMaterial3D.new()
+		made.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		made.albedo_color = Color(.75, .78, .82, .55)
+		made.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		made.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_trap_mesh.material_override = made
+		world.add_child(_trap_mesh)
+	var material := _trap_mesh.material_override as StandardMaterial3D
+	material.albedo_color.a = .95 if _admin_show_traps else .45 + .12 * sin(Time.get_ticks_msec() * .004)
+	if live.is_empty():
+		_trap_mesh.mesh = null
+		return
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var base := facility.streamed_surface_height(Vector2.ZERO, facility.current_level())
+	var thick := .03 if _admin_show_traps else .012
+	for wire in live:
+		var a: Vector2 = wire["a"]
+		var b: Vector2 = wire["b"]
+		var pa := Vector3(a.x, base + .32, a.y)
+		var pb := Vector3(b.x, base + .32, b.y)
+		var side := Vector3(0, thick, 0)
+		for vertex in [pa - side, pb - side, pb + side, pa - side, pb + side, pa + side]:
+			surface.add_vertex(vertex)
+		for e in [pa, pb]:
+			var end: Vector3 = e
+			for vertex in [end + Vector3(-.04, -.06, 0), end + Vector3(.04, -.06, 0), end + Vector3(0, .04, 0)]:
+				surface.add_vertex(vertex)
+	_trap_mesh.mesh = surface.commit()
+
+
+func _admin_toggle_show_traps() -> void:
+	_admin_show_traps = not _admin_show_traps
+	_trap_refresh = 0.0
+	if _admin_menu != null:
+		_admin_menu._refresh()
+
+
+func _admin_spawn_ravelle_trap() -> void:
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view != null and view.brain != null and view.brain.gimmick is RavelleGimmick:
+			var at := Vector2(player.global_position.x, player.global_position.z) + player.facing * 1.5
+			var across := Vector2(-player.facing.y, player.facing.x) * 1.42
+			(view.brain.gimmick as RavelleGimmick).wires().append({"a": at - across, "b": at + across, "position": at,
+				"cell": Vector2i(at), "triggered": false})
+			_trap_refresh = 0.0
+			hud.show_message("ADMIN // RAVELLE TRAP PLACED")
+			return
+	hud.show_message("ADMIN // NO RAVELLE IN THIS ROUTE")
 
 
 ## A player who leaves takes their pin with them.
@@ -2526,8 +2650,6 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 ## runner has stepped off it, so arriving at the top does not send them
 ## straight back down.
 func _update_player_ladder(level: int) -> void:
-	if player != null:
-		player.wading = _in_sewer_water(level, player.grid_position()) and not player.is_climbing()
 	if player == null or player.is_climbing() or player.hidden or player.spectator_mode \
 			or player.input_frozen or player.admin_noclip:
 		return
@@ -2546,7 +2668,7 @@ func _update_player_ladder(level: int) -> void:
 	var going_down := level == 0
 	if distance <= 1.4 and _ladder_hint_id != link_id:
 		_ladder_hint_id = link_id
-		hud.show_message("[E] CLIMB %s" % ("DOWN INTO THE SEWER" if going_down else "UP"))
+		hud.show_message("[E] LADDER %s // HOLD W / S TO CLIMB" % ("DOWN INTO THE SEWER" if going_down else "UP"))
 	elif distance > 2.0 and _ladder_hint_id == link_id:
 		_ladder_hint_id = ""
 	var wants := distance <= 0.45 or (distance <= 1.4 and Input.is_action_just_pressed("interact"))
@@ -2557,35 +2679,30 @@ func _update_player_ladder(level: int) -> void:
 		hud.show_message("SOMEONE IS ON THE LADDER")
 		_ladder_rearm_id = link_id
 		return
-	var floor_y := float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + .04
-	var to_level := StreamedRouteGenerator.SEWER_LEVEL if going_down else 0
-	player.begin_ladder_climb(Vector3(point.x, floor_y, point.y),
-		-StreamedFacilityView3D.LEVEL_HEIGHT if going_down else StreamedFacilityView3D.LEVEL_HEIGHT,
-		LadderTraffic.RUNNER_CLIMB_SECONDS, _ladder_yaw(link), to_level)
+	# The ladder's line: a little in from the cell centre, hands on the rungs against
+	# the wall, from the sewer floor up one storey. The runner gets on at the end
+	# they came from and climbs it themselves; each end steps off onto the floor in
+	# front of the ladder.
+	var wall: Vector2i = link.get("wall", Vector2i.ZERO)
+	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+	var sewer_y := float(StreamedRouteGenerator.SEWER_LEVEL) * rise + .04
+	var foot := Vector3(point.x + wall.x * .12, sewer_y, point.y + wall.y * .12)
+	var front := Vector3(point.x - wall.x * .9, 0.0, point.y - wall.y * .9)
+	player.begin_ladder_climb(foot, rise, rise if going_down else 0.0, _ladder_yaw(link),
+		front + Vector3(0, .04, 0), front + Vector3(0, sewer_y, 0), 0, StreamedRouteGenerator.SEWER_LEVEL)
 	_ladder_rearm_id = link_id
 
 
 ## A clank per rung on any ladder climb. The sewer's water, drips and rats are
-## its AmbienceTable bed and the wading splash is the "water" footstep surface.
+## its AmbienceTable bed.
 func _update_sewer_ambience(delta: float, _level: int) -> void:
-	if player == null or not player.is_climbing():
+	# only while the runner actually moves on the rungs (hanging still is silent)
+	if player == null or not player.is_climbing() or player.noise <= 0.0:
 		return
 	_ladder_rung_timer -= delta
 	if _ladder_rung_timer <= 0.0:
 		_ladder_rung_timer = .42
 		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
-
-
-func _in_sewer_water(level: int, at: Vector2) -> bool:
-	if level != StreamedRouteGenerator.SEWER_LEVEL:
-		return false
-	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var cell := Vector2i(floori(at.x), floori(at.y))
-	var coord := Vector3i(floori(float(cell.x) / size), level, floori(float(cell.y) / size))
-	var sewer_grid: Array = facility.generator.chunk(coord).get("sewer_grid", [])
-	if sewer_grid.is_empty():
-		return false
-	return int(sewer_grid[posmod(cell.y, size)][posmod(cell.x, size)]) == SewerRouteGenerator.WATER
 
 
 func _on_player_ladder_finished(_to_level: int) -> void:
@@ -2595,9 +2712,10 @@ func _on_player_ladder_finished(_to_level: int) -> void:
 	_update_streamed_maps()
 
 
-## Facing the rungs: the ladder hangs on the shaft's north wall.
-static func _ladder_yaw(_link: Dictionary) -> float:
-	return 0.0
+## Facing the rungs: the ladder hangs on its link's wall (the same side on both levels).
+static func _ladder_yaw(link: Dictionary) -> float:
+	var wall: Vector2i = link.get("wall", Vector2i(0, -1))
+	return atan2(-float(wall.x), -float(wall.y))
 
 
 ## Hunters search hiding spots (docs/HIDING_PROPS.md). Fair by construction: only a spot the hunter tracked the runner
@@ -3233,6 +3351,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_door(peer_id, event)
 		"stream_waypoint":
 			_accept_stream_waypoint(peer_id, event)
+		"ravelle_disarm":
+			_accept_ravelle_disarm(event)
 		"guardian_ping":
 			_accept_stream_guardian_ping(peer_id, event)
 		"vent_used":

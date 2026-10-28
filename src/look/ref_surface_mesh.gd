@@ -37,6 +37,12 @@ func add_floor(x: int, z: int, layer: float, params: Color) -> void:
 		Vector3(x, 0, z + 1), Vector3.UP, layer, params)
 
 
+## A floor quad at height `y` (the bed of a sewer channel below the walkways).
+func add_floor_at(x: int, z: int, y: float, layer: float, params: Color) -> void:
+	_quad(0, Vector3(x, y, z), Vector3(x + 1, y, z), Vector3(x + 1, y, z + 1),
+		Vector3(x, y, z + 1), Vector3.UP, layer, params)
+
+
 func add_ceiling(x: int, z: int, height: float, layer: float, params: Color) -> void:
 	_quad(0, Vector3(x, height, z), Vector3(x + 1, height, z),
 		Vector3(x + 1, height, z + 1), Vector3(x, height, z + 1),

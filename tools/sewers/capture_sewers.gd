@@ -52,6 +52,8 @@ func _run() -> void:
 	await _settle()
 	# 1: down the east-west tunnel from the north walkway
 	await _shot("sewer_tunnel", Vector3(c + 12.5, level_y + 1.6, c - half + 1.2), Vector3(c - 6.0, level_y + .4, c + .5))
+	# 1b: looking up at the vault over the tunnel (what decorates the ceiling)
+	await _shot("sewer_ceiling", Vector3(c + 8.5, level_y + 1.6, c - half + 1.5), Vector3(c - 2.0, level_y + 3.1, c + .5))
 	# 2: across the junction chamber
 	await _shot("sewer_junction", Vector3(c - 5.5, level_y + 2.2, c - 5.5), Vector3(c + 3.0, level_y, c + 3.0))
 	# 3: a utility room nearby

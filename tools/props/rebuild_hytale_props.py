@@ -5909,18 +5909,19 @@ def sewer_materials(name):
 
 ## Sewer ladders hang on the north wall of a 1 x 1 m shaft (Blender +Y, Godot -Z).
 ## Origin: the ladder cell's centre on the floor of the level it stands in.
-LADDER_RAIL_Y = 0.40
-LADDER_RAIL_X = 0.22
+## Person scale: 0.6 m between the rails, stout 7 cm rails and rungs a hand can close round, every 0.3 m.
+LADDER_RAIL_Y = 0.38
+LADDER_RAIL_X = 0.30
 
 
 def _ladder_section(objects, iron, rust, count, z0, z1, rung_from, rung_step, prefix):
     for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-        box("%sRail%s" % (prefix, side), (x, LADDER_RAIL_Y, (z0 + z1) * .5), (0.05, 0.05, z1 - z0),
+        box("%sRail%s" % (prefix, side), (x, LADDER_RAIL_Y, (z0 + z1) * .5), (0.07, 0.07, z1 - z0),
             iron, 2, count, objects, bevel=0.006)
     z = rung_from
     index = 0
     while z < z1 - 0.05:
-        cylinder("%sRung%02d" % (prefix, index), (0.0, LADDER_RAIL_Y, z), 0.018, LADDER_RAIL_X * 2.0, 6,
+        cylinder("%sRung%02d" % (prefix, index), (0.0, LADDER_RAIL_Y, z), 0.026, LADDER_RAIL_X * 2.0, 8,
                  rust if index % 3 == 1 else iron, 3, count, objects, rotation=(0.0, math.pi / 2.0, 0.0))
         z += rung_step
         index += 1
@@ -5933,7 +5934,7 @@ def make_sewer_ladder():
     _ladder_section(objects, iron, rust, count, 0.0, 3.2, 0.28, 0.30, "")
     for index, z in enumerate((0.55, 1.65, 2.75)):
         for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-            box("Bracket%d%s" % (index, side), (x, 0.47, z), (0.04, 0.10, 0.04), rust, 1, count, objects)
+            box("Bracket%d%s" % (index, side), (x, 0.455, z), (0.06, 0.09, 0.06), rust, 1, count, objects)
     return objects, (2.4, -3.0, 2.2), (0.0, 0.3, 1.5)
 
 
@@ -5942,11 +5943,13 @@ def make_sewer_ladder_top():
     iron, rust, _, _, count = sewer_materials("sewer_ladder_top")
     objects = []
     _ladder_section(objects, iron, rust, count, -0.8, 0.0, -0.62, 0.30, "")
-    # hoops: the rails bend over the edge and back down, something to hold stepping on or off
+    # grab rails: the stiles carry on 1.15 m above the opening and bend back to the wall, a full
+    # handhold for stepping on or off at person height
     for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-        box("HoopUp%s" % side, (x, LADDER_RAIL_Y, 0.45), (0.05, 0.05, 0.90), iron, 2, count, objects, bevel=0.006)
-        box("HoopTop%s" % side, (x, LADDER_RAIL_Y + 0.07, 0.90), (0.05, 0.19, 0.05), iron, 2, count, objects, bevel=0.006)
-        box("HoopFoot%s" % side, (x, 0.49, 0.03), (0.07, 0.04, 0.06), rust, 1, count, objects)
+        box("HoopUp%s" % side, (x, LADDER_RAIL_Y, 0.575), (0.07, 0.07, 1.15), iron, 2, count, objects, bevel=0.008)
+        box("HoopTop%s" % side, (x, LADDER_RAIL_Y + 0.06, 1.15), (0.07, 0.19, 0.07), iron, 2, count, objects, bevel=0.008)
+        box("HoopMid%s" % side, (x, LADDER_RAIL_Y + 0.06, 0.6), (0.06, 0.16, 0.06), rust, 1, count, objects)
+        box("HoopFoot%s" % side, (x, 0.47, 0.04), (0.09, 0.06, 0.08), rust, 1, count, objects)
     return objects, (2.0, -2.6, 1.4), (0.0, 0.3, 0.1)
 
 
@@ -6080,7 +6083,61 @@ def make_sewer_lamp():
     return objects, (0.9, -1.3, 0.5), (0.0, 0.3, 0.0)
 
 
+def _grate_deck(objects, iron, rust, count, prefix, half=1.5, slat=0.15):
+    """A 3 x 3 m grated deck whose walking surface is z = 0: a frame and open slats you can see the water through."""
+    t = 0.10
+    for name, loc, dim in (("FrameN", (0.0, half - 0.05, -t * .5), (half * 2, 0.10, t)),
+                           ("FrameS", (0.0, -half + 0.05, -t * .5), (half * 2, 0.10, t)),
+                           ("FrameE", (half - 0.05, 0.0, -t * .5), (0.10, half * 2, t)),
+                           ("FrameW", (-half + 0.05, 0.0, -t * .5), (0.10, half * 2, t))):
+        box(prefix + name, loc, dim, iron, 2, count, objects, bevel=0.006)
+    index = 0
+    x = -half + 0.10 + slat * .5
+    while x < half - 0.10:
+        box("%sSlat%02d" % (prefix, index), (x, 0.0, -0.035), (0.035, half * 2 - 0.2, 0.07),
+            rust if index % 5 == 2 else iron, 3, count, objects)
+        x += slat
+        index += 1
+    for j, y in enumerate((-0.75, 0.0, 0.75)):
+        box("%sCrossbar%d" % (prefix, j), (0.0, y, -0.06), (half * 2 - 0.2, 0.05, 0.04), iron, 1, count, objects)
+
+
+def make_sewer_bridge():
+    """Tunnel crossing: a 3 x 3 m riveted grate deck spanning the channel (span along local z) on two deep girders
+    that bear on the walkway edges, with kick plates along its open sides. Railings are added by the level."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_bridge")
+    objects = []
+    _grate_deck(objects, iron, rust, count, "Deck")
+    for side, x in (("L", -1.15), ("R", 1.15)):
+        box("Girder%s" % side, (x, 0.0, -0.32), (0.10, 3.8, 0.36), iron, 2, count, objects, bevel=0.008)
+        box("Flange%s" % side, (x, 0.0, -0.13), (0.24, 3.8, 0.04), rust, 5, count, objects)
+        box("FlangeLow%s" % side, (x, 0.0, -0.49), (0.24, 3.8, 0.04), iron, 1, count, objects)
+        for j, y in enumerate((-1.6, -0.8, 0.0, 0.8, 1.6)):
+            box("Rivet%s%d" % (side, j), (x + (0.06 if x > 0 else -0.06), y, -0.32), (0.02, 0.05, 0.05), rust, 6,
+                count, objects)
+        box("Kick%s" % side, (x * 1.27, 0.0, 0.06), (0.04, 3.0, 0.12), rust, 5, count, objects)
+    for side, y in (("N", 1.75), ("S", -1.75)):
+        box("Bearing%s" % side, (0.0, y, -0.55), (2.6, 0.3, 0.12), concrete, 4, count, objects, bevel=0.01)
+    for j, y in enumerate((-1.0, 1.0)):
+        box("Brace%d" % j, (0.0, y, -0.44), (2.2, 0.06, 0.06), iron, 1, count, objects)
+    return objects, (3.6, -4.2, 2.6), (0.0, 0.0, -0.2)
+
+
+def make_sewer_grate_deck():
+    """Junction plaza tile: a 3 x 3 m grate panel over the confluence on a beam grid; neighbouring tiles butt up."""
+    iron, rust, _, _, count = sewer_materials("sewer_grate_deck")
+    objects = []
+    _grate_deck(objects, iron, rust, count, "Deck")
+    for j, x in enumerate((-1.45, 0.0, 1.45)):
+        box("BeamX%d" % j, (x, 0.0, -0.24), (0.08, 3.0, 0.28), iron, 2, count, objects)
+    for j, y in enumerate((-1.45, 1.45)):
+        box("BeamY%d" % j, (0.0, y, -0.24), (3.0, 0.08, 0.28), iron, 2, count, objects)
+    return objects, (3.4, -4.0, 2.4), (0.0, 0.0, -0.2)
+
+
 SEWER_BUILDERS = {
+    "sewer_bridge": make_sewer_bridge,
+    "sewer_grate_deck": make_sewer_grate_deck,
     "sewer_ladder": make_sewer_ladder,
     "sewer_ladder_top": make_sewer_ladder_top,
     "manhole_frame": make_manhole_frame,

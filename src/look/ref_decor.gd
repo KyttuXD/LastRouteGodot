@@ -371,6 +371,8 @@ const STYLE := {
 		"tint": Color("e4f4ef"), "stutter": 3, "handrail": true},
 	"lab": {"lamp": "ceiling", "wall_lamp": 7, "teal": 12, "pipe": 4, "cable": 16, "frame": 0, "lit_rooms": .95,
 		"tint": Color("c8f2ff"), "stutter": 0},
+	"mall": {"lamp": "ceiling", "wall_lamp": 6, "teal": 16, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .95,
+		"tint": Color("ffe9cc"), "stutter": 0},
 	"greenhouse": {"lamp": "lantern", "wall_lamp": 5, "teal": 30, "pipe": 4, "cable": 99, "frame": 0, "lit_rooms": .9,
 		"tint": Color("e6dc96"), "stutter": 0},
 }

@@ -45,11 +45,16 @@ func run(_host: Node) -> int:
 		var start_gap := at.distance_to(threat)
 		var target := {"position": threat, "hidden": false, "in_safe_zone": false, "noise": 4.0, "flashlight_on": true}
 		for _step in 150:
-			_expect(not brain.update(1.0 / 30.0, navigation, target, 1, 0), "Ysolde captured the runner")
+			_expect(not brain.update(1.0 / 30.0, navigation, target, 1, 0), "Ysolde captured a runner who kept her distance")
 			closest = minf(closest, brain.position.distance_to(threat) - start_gap)
+	# KT: a runner who catches up to her (or blocks her) is grabbed like by any other hunter
+	var catcher := HunterBrain.new(Vector2(cells[0]) + Vector2(.5, .5), "YS-CATCH", "ysolde", "standard")
+	catcher.activate_at(catcher.position)
+	var on_her := {"position": catcher.position, "hidden": false, "in_safe_zone": false, "noise": 4.0, "flashlight_on": true}
+	_expect(catcher.update(1.0 / 30.0, navigation, on_her, 1, 0), "a runner who reached Ysolde was not caught")
 	_expect(trials >= 10, "only %d flee trials" % trials)
 	_expect(gained >= trials * .7, "only %d of %d trials found a retreat" % [gained, trials])
 	_expect(closest > -0.6, "Ysolde approached a runner in sight by %.2f m" % -closest)
 	if _failures == 0:
-		print("  ysolde  %d retreats (%s mode): all gain distance and are reachable, never closer than she started, never captures" % [gained, YsoldeGimmick.BEHAVIOUR])
+		print("  ysolde  %d retreats (%s mode): all gain distance and are reachable, never closer than she started, never catches from a distance, catches a runner who reaches her" % [gained, YsoldeGimmick.BEHAVIOUR])
 	return _failures

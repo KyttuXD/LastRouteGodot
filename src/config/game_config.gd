@@ -274,6 +274,11 @@ const RAVELLE_TRIPWIRE_REFRESH := 30.0
 const RAVELLE_TRIPWIRE_COUNT := 2
 const RAVELLE_TRIGGER_RADIUS := 0.8
 const RAVELLE_SPEED_PER_TRIGGER := 0.08
+## Walking into one of her wires stuns the runner this long (same stun as Ilyra's pounce: movement locked).
+const RAVELLE_TRAP_STUN := 1.6
+## Holding INTERACT this long within reach of a wire cuts it (noisy).
+const RAVELLE_CUT_SECONDS := 1.2
+const RAVELLE_CUT_REACH := 1.3
 
 ## Mavrine — lattice mark (hunterAbilities.mavrine.latticeMark). Cycles
 ## cooldown -> survey (holds still) -> project (an armed frame somewhere on the

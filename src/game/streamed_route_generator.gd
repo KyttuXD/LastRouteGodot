@@ -19,7 +19,7 @@ const BIOME_REGION_SIZE := 4
 const SEWER_LEVEL := -1
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse"]
+	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse", "mall"]
 const EDGE_OFFSETS := [5, 11, 17, 22, 27, 33, 39]
 ## Keep vertical links far enough from the chunk centre to fit the physical
 ## eight-metre flight used by StreamedFacilityView3D. Ordinary door seams may
@@ -49,7 +49,7 @@ const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
 ## their spacious sector layout (_mixed_room_layout). Apartments are already dense suites.
 const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic", "carnival", "inferno",
-	"hospital", "lab", "greenhouse"]
+	"hospital", "lab", "greenhouse", "mall"]
 ## Share of bank sides that become ONE big room (21x9, a hall/ballroom/greenhouse/big top) instead of two 11x9 rooms, and the
 ## hall-type rooms to pick from. Hotel and prison stay all small rooms; apartments are all suites (_mixed_room_layout).
 const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
@@ -69,6 +69,15 @@ const LAB_ROOMS := ["clean_room", "chem_lab", "control_room", "containment", "bi
 	"server_hall", "cold_storage", "lab_office"]
 const GREENHOUSE_ROOMS := ["glasshouse", "potting_shed", "palm_house", "cactus_room", "irrigation_room",
 	"overgrown_room"]
+## Shopping arcade: every shop is a 20x9 shopfront on a five-wide main hall (_dense_linear_layout), named over its
+## door in lit letters (StreamedFacilityView3D). The City's shop list, ported as Last Route rooms.
+const MALL_ROOMS := ["donut_shop", "cinema", "corner_store", "food_court", "bakery", "laundromat", "electronics",
+	"night_diner", "drugstore", "florist", "barber", "pawn_shop", "stationery"]
+const SHOP_NAMES := {"donut_shop": "KYTTU DONUTS", "cinema": "CINEMA", "corner_store": "24/7 CORNER",
+	"food_court": "FOOD COURT", "bakery": "BAKERY", "laundromat": "LAUNDROMAT", "electronics": "ARCADE & ELECTRONICS",
+	"night_diner": "NIGHT DINER", "drugstore": "PHARMACY", "florist": "FLORIST", "barber": "BARBER",
+	"pawn_shop": "PAWN & LOAN", "stationery": "STATIONERY & READING"}
+const MALL_SHOP_WIDTH := 20
 ## Biome recipes laid twice (at sides -5 and +5) across a 21-wide hall room; the rest size themselves to the room.
 const BIOME_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmacy", "imaging", "supply_closet",
 	"nurses_station", "waiting_room", "clean_room", "control_room", "decon", "chem_lab", "bio_lab", "cold_storage",
@@ -183,6 +192,13 @@ const REGION_PROP_SETS := {
 		{"type": "privacyCurtain", "size": Vector3(.9, 2.4, .5)},
 		{"type": "floorLamp", "size": Vector3(.55, 1.9, .55)},
 	],
+	"mall": [
+		{"type": "mallBench", "size": Vector3(1.8, .5, .6)},
+		{"type": "mallPlanter", "size": Vector3(1.3, 2.4, 1.3)},
+		{"type": "shopShelf", "size": Vector3(1.2, 1.9, .5)},
+		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
+		{"type": "menuBoard", "size": Vector3(1.5, .9, .08), "solid": false},
+	],
 	"hospital": [
 		{"type": "hospitalBed", "size": Vector3(.95, 1.05, 2.1)},
 		{"type": "wheelchair", "size": Vector3(.65, .95, .95)},
@@ -216,6 +232,7 @@ const REGION_ROOM_DOORS := {
 	"hotel": "luxuryRoomDoor",
 	"mansion": "luxuryRoomDoor",
 	"gothic": "gothicRoomDoor",
+	"mall": "normalRoomDoor",
 }
 const REGION_DOUBLE_ROOM_DOORS := {
 	"maze": "normalDoubleRoomDoor",
@@ -223,6 +240,7 @@ const REGION_DOUBLE_ROOM_DOORS := {
 	"hotel": "luxuryDoubleRoomDoor",
 	"mansion": "luxuryDoubleRoomDoor",
 	"gothic": "gothicDoubleRoomDoor",
+	"mall": "normalDoubleRoomDoor",
 }
 ## Collision envelopes for deterministic furnished-room recipes. These follow
 ## the authored GLB footprints rather than the old one-cell placeholder rule.
@@ -380,6 +398,17 @@ const TEMPLATE_PROP_SIZES := {
 	"overgrowthPatch": Vector3(1.6, .35, 1.3), "hangingVines": Vector3(1.2, 1.25, 1.2),
 	"domeFountain": Vector3(2.6, 1.6, 2.6), "wateringCart": Vector3(1, .95, .6),
 	"greenhouseBench": Vector3(1.6, .85, .6), "compostBins": Vector3(1.4, 1, .75),
+	# shopping arcade props (tools/props/blocky_props_mall.py)
+	"shopShelf": Vector3(1.2, 1.9, .5), "shopFridge": Vector3(1, 2.1, .75), "checkoutCounter": Vector3(1.8, 1.32, .75),
+	"displayCase": Vector3(1.4, 1.25, .75), "coffeeStation": Vector3(1.3, 1.55, .65),
+	"donutFryer": Vector3(1.3, 1.25, .8), "bakeryRack": Vector3(1, 1.9, .6), "dinerStool": Vector3(.42, .78, .42),
+	"dinerBooth": Vector3(1.6, 1.15, 1.5), "menuBoard": Vector3(1.5, .9, .08), "donutSign": Vector3(1.3, 1.3, .3),
+	"washingMachine": Vector3(.75, 1.15, .72), "dryerStack": Vector3(.75, 2.05, .72),
+	"flowerStand": Vector3(1.3, 1.2, .65), "barberChair": Vector3(.7, 1.25, .95),
+	"barberStation": Vector3(1.2, 1.9, .45), "clothesRack": Vector3(1.4, 1.65, .55), "tvWall": Vector3(1.6, 1.9, .5),
+	"cinemaSeats": Vector3(2.4, 1, .8), "cinemaScreen": Vector3(4.2, 2.2, .12), "ticketBooth": Vector3(1.7, 2.35, 1.2),
+	"concessionCounter": Vector3(2.2, 1.7, .8), "foodCourtTable": Vector3(1.7, .78, 1.7),
+	"mallPlanter": Vector3(1.3, 2.4, 1.3), "mallBench": Vector3(1.8, .5, .6),
 }
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
@@ -721,7 +750,7 @@ func biome_for(coord: Vector3i) -> String:
 		world_seed, region_x, coord.y, region_z])
 	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 		"prison", "carnival", "inferno", "mansion", "hotel", "maze",
-		"hospital", "lab", "lab", "greenhouse"]
+		"hospital", "lab", "lab", "greenhouse", "mall"]
 	if coord.y == 0:
 		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
@@ -1189,8 +1218,11 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var middle_start := center - 1 if hall_trimmed(coord, -1) else 1
 	# the maze office suite is entered from this hall (doors at x 31-32), so its east trim leaves the hall as far as the entrance
 	var middle_end := (35 if office_quarter else center + 2) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
+	var mall := region == "mall"
+	# the arcade's main hall is five wide (shops on both sides); every other district keeps a three-wide centre hall
+	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
 	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3), Rect2i(middle_start, center - 1, middle_end - middle_start, 3),
-		Rect2i(1, 33, 22 if office_quarter else CHUNK_SIZE - 2, 3), Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)]
+		Rect2i(1, 33, 22 if office_quarter else CHUNK_SIZE - 2, 3), main_hall]
 	for hall_index in halls.size():
 		var hall: Rect2i = halls[hall_index]
 		_carve_rect(grid, hall)
@@ -1201,7 +1233,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	# side is either two 11x9 rooms sharing a wall or one 21x9 hall room, from the chunk border to the centre hall.
 	var rows := [{"y": 0, "door_top": false}, {"y": 12, "door_top": true},
 		{"y": 24, "door_top": false}, {"y": 36, "door_top": true}]
-	var side_x := [0, 24]
+	var side_x := [0, 25] if mall else [0, 24]
 	var big_types: Array = BANK_BIG_TYPES.get(region, [])
 	var small_types := []
 	for type_name in (_room_type_choices(region) as Array):
@@ -1210,6 +1242,8 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	if small_types.is_empty():
 		small_types = _room_type_choices(region)
 	var room_index := 0
+	# a mall chunk holds eight shops: start its cycle through the thirteen shop kinds at a per-chunk offset
+	var type_offset := rng.next_index(small_types.size()) if mall else 0
 	# great halls first: two middle banks and the hall between them become one 21x21 room opening on the vertical hall
 	var merged_sides := {}
 	for side in 2:
@@ -1237,7 +1271,9 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			if merged_sides.has(side) and (int(row["y"]) == 12 or int(row["y"]) == 24):
 				continue
 			var specs := []
-			if not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
+			if mall:
+				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
+			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
 				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
 			else:
 				specs.append({"x": side_x[side], "w": 11, "type": ""})
@@ -1260,7 +1296,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 						room_type = "prison_cafeteria" if room_index % 5 == 2 \
 							else ("infirmary" if room_index % 5 == 4 else "prison_cell")
 					else:
-						room_type = String(small_types[room_index % small_types.size()])
+						room_type = String(small_types[(room_index + type_offset) % small_types.size()])
 				var entry := _room_entry(coord, room_index, region, rect, room_type)
 				entry["doorway"] = doorway
 				rooms.append(entry)
@@ -1290,7 +1326,7 @@ static func _room_type_choices(region: String) -> Array:
 		"carnival": ["big_top", "midway", "game_stall", "backstage"],
 		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
 		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
-		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS,
+		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS, "mall": MALL_ROOMS,
 	}
 	return types.get(region, ["room"])
 
@@ -1819,7 +1855,7 @@ static func _room_type_for(region: String, index: int) -> String:
 		"carnival": ["big_top", "midway", "game_stall", "backstage"],
 		"maze": ["restaurant_dining", "arcade_room", "public_restroom", "storage"],
 		"prison": ["prison_cell", "prison_cafeteria", "prison_cell", "prison_cell"],
-		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS,
+		"hospital": HOSPITAL_ROOMS, "lab": LAB_ROOMS, "greenhouse": GREENHOUSE_ROOMS, "mall": MALL_ROOMS,
 	}
 	var choices: Array = types.get(region, ["room"])
 	return String(choices[index % choices.size()])
@@ -2111,8 +2147,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = "infirmary"
 	elif room_type in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		template = room_type
-	elif region in ["hospital", "lab", "greenhouse"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
-			+ ["dome_atrium"]).has(room_type):
+	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
+			+ MALL_ROOMS + ["dome_atrium"]).has(room_type):
 		template = room_type
 	if template.is_empty():
 		return []
@@ -2857,7 +2893,7 @@ static func _room_template_specs(template: String, region: String,
 				"depth": 0, "wall_backed": true, "facing": "open"})
 			specs.append({"type": "ceilingLight", "side": 0,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
-	if region in ["hospital", "lab", "greenhouse"]:
+	if region in ["hospital", "lab", "greenhouse", "mall"]:
 		specs.append_array(_biome_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
 	if side_span >= 17 and depth_span <= 11 and template in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
@@ -3090,7 +3126,8 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("locker", 4, 0, "open", _WALL))
 			specs.append(_sp("labGlassPartition", -3, front - 2, "open"))
 			specs.append(_sp("labGlassPartition", 3, front - 2, "open"))
-			specs.append(_sp("publicShowerBench", 0, 3, "open"))
+			# no bench on the door axis: with the airlock partitions it closed the room off (WORLD lane, seed PICKUPS)
+			specs.append(_sp("publicShowerBench", -3, 1, "open"))
 			specs.append(_sp("biohazardBin", -4 * mirror, 3, "center"))
 			specs.append(_sp("hazardSign", 0, 0, "open", _MOUNT))
 			specs.append(_sp("ceilingLight", 0, 2, "open", _LOOSE))
@@ -3213,6 +3250,155 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 				specs.append(_sp("hangingVines", vine.x, vine.y, "open", _LOOSE))
 			for patch in [Vector2i(-7, centre + 1), Vector2i(7, centre - 1), Vector2i(-2, front - 2), Vector2i(4, 2)]:
 				specs.append(_sp("overgrowthPatch", patch.x, patch.y, "open", _LOOSE))
+		# ---- shopping arcade (20x9 shopfronts: sides -8..8 plus the far column, depths 0..front) ----
+		"donut_shop":
+			# two rooms: the back kitchen behind a counter line with two pass-throughs, the shop floor in front
+			specs.append(_sp("donutFryer", -6, 0, "open", _WALL))
+			specs.append(_sp("bakeryRack", -3, 0, "open", _WALL))
+			specs.append(_sp("normalKitchenFridge", 3, 0, "open", _WALL))
+			specs.append(_sp("shopShelf", 6, 0, "open", _WALL))
+			specs.append(_sp("donutSign", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.7}))
+			specs.append(_sp("menuBoard", -3, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 2.05}))
+			specs.append(_sp("displayCase", -5, 2, "open"))
+			specs.append(_sp("displayCase", -2, 2, "open"))
+			specs.append(_sp("checkoutCounter", 3, 2, "open"))
+			specs.append(_sp("coffeeStation", 6, 2, "open"))
+			specs.append(_sp("dinerStool", -5, 3, "back"))
+			specs.append(_sp("dinerStool", -3, 3, "back"))
+			specs.append(_sp("dinerBooth", -7, 5, "open"))
+			specs.append(_sp("dinerBooth", 7, 5, "open"))
+			for light_side in [-5, 0, 5]:
+				specs.append(_sp("ceilingLight", light_side, mid, "open", _LOOSE))
+		"cinema":
+			# the screening room at the back, a curtain line, then the lobby with the box office and concessions
+			specs.append(_sp("cinemaScreen", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": .9}))
+			for row_depth in [1, 2]:
+				for seat_side in [-5, 0, 5]:
+					specs.append(_sp("cinemaSeats", seat_side, row_depth, "back"))
+			for curtain_side in [-7, -4, 4, 7]:
+				specs.append(_sp("privacyCurtain", curtain_side, 3, "open"))
+			specs.append(_sp("ticketBooth", -6, 5, "center"))
+			specs.append(_sp("concessionCounter", 6, 5, "center"))
+			specs.append(_sp("ceilingLight", -3, front - 1, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, front - 1, "open", _LOOSE))
+		"bakery":
+			specs.append(_sp("bakeryRack", -7, 0, "open", _WALL))
+			specs.append(_sp("bakeryRack", -5, 0, "open", _WALL))
+			specs.append(_sp("normalKitchenStove", -2, 0, "open", _WALL))
+			specs.append(_sp("shopShelf", 4, 0, "open", _WALL))
+			specs.append(_sp("shopShelf", 7, 0, "open", _WALL))
+			specs.append(_sp("menuBoard", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
+			specs.append(_sp("displayCase", -5, 2, "open"))
+			specs.append(_sp("displayCase", -2, 2, "open"))
+			specs.append(_sp("checkoutCounter", 4, 2, "open"))
+			specs.append(_sp("mallBench", -6, front - 1, "open"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"laundromat":
+			for machine_side in range(-8, 9):
+				if absi(machine_side) <= 1:
+					continue
+				specs.append(_sp("dryerStack" if machine_side % 3 == 0 else "washingMachine", machine_side, 0, "open", _WALL))
+			for machine_side in range(-5, 6):
+				if absi(machine_side) <= 1:
+					continue
+				specs.append(_sp("washingMachine", machine_side, 3, "open"))
+			specs.append(_sp("mallBench", -6, front - 1, "open"))
+			specs.append(_sp("vendingMachine", 8, front - 1, "center"))
+			specs.append(_sp("dinerStool", 6, front - 1, "open"))
+			for light_side in [-5, 0, 5]:
+				specs.append(_sp("ceilingLight", light_side, 2, "open", _LOOSE))
+		"drugstore":
+			for shelf_side in [-6, -3, 0, 3, 6]:
+				specs.append(_sp("pharmacyShelf", shelf_side, 0, "open", _WALL))
+			for aisle_side in [-6, -3, 3]:
+				specs.append(_sp("shopShelf", aisle_side, 3, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("shopFridge", 8, 2, "center"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"corner_store":
+			for fridge_side in [-7, -6, -5, -4]:
+				specs.append(_sp("shopFridge", fridge_side, 0, "open", _WALL))
+			for shelf_side in [1, 4, 7]:
+				specs.append(_sp("shopShelf", shelf_side, 0, "open", _WALL))
+			for aisle_side in [-5, -2, 2, 5]:
+				specs.append(_sp("shopShelf", aisle_side, 3, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("vendingMachine", -8, front - 1, "center"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"electronics":
+			for tv_side in [-6, -3, 3, 6]:
+				specs.append(_sp("tvWall", tv_side, 0, "open", _WALL))
+			specs.append(_sp("arcadeCabinet", -1, 0, "open", _WALL))
+			specs.append(_sp("arcadeCabinetCyanMagenta", 1, 0, "open", _WALL))
+			specs.append(_sp("displayCase", -5, 3, "open"))
+			specs.append(_sp("displayCase", 5, 3, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"night_diner":
+			for booth_side in [-6, -3, 3, 6]:
+				specs.append(_sp("dinerBooth", booth_side, 0, "open", _WALL))
+			specs.append(_sp("coffeeStation", 0, 0, "open", _WALL))
+			specs.append(_sp("menuBoard", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
+			specs.append(_sp("checkoutCounter", -4, 3, "open"))
+			specs.append(_sp("checkoutCounter", 4, 3, "open"))
+			for stool_side in [-5, -3, 3, 5]:
+				specs.append(_sp("dinerStool", stool_side, 4, "back"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"florist":
+			for stand_side in [-6, -3, 3, 6]:
+				specs.append(_sp("flowerStand", stand_side, 0, "open", _WALL))
+			specs.append(_sp("bananaPlant", 0, 0, "open", _WALL))
+			specs.append(_sp("flowerStand", -4, 3, "open"))
+			specs.append(_sp("flowerStand", 4, 3, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("mallPlanter", -7, front - 1, "open"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"barber":
+			for station_side in [-6, -3, 3, 6]:
+				specs.append(_sp("barberStation", station_side, 0, "open", _WALL))
+				specs.append(_sp("barberChair", station_side, 2, "back"))
+			specs.append(_sp("mallBench", -5, front - 1, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
+			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
+		"pawn_shop":
+			for shelf_side in [-6, -3, 3, 6]:
+				specs.append(_sp("shopShelf", shelf_side, 0, "open", _WALL))
+			specs.append(_sp("tvWall", 0, 0, "open", _WALL))
+			specs.append(_sp("displayCase", -4, 3, "open"))
+			specs.append(_sp("displayCase", 4, 3, "open"))
+			specs.append(_sp("checkoutCounter", -7, front - 1, "center"))
+			specs.append(_sp("clothesRack", 7, front - 1, "center"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"stationery":
+			for shelf_side in [-6, -3, 3, 6]:
+				specs.append(_sp("shopShelf", shelf_side, 0, "open", _WALL))
+			specs.append(_sp("normalBookcase", 0, 0, "open", _WALL))
+			specs.append(_sp("shopShelf", -5, 3, "open"))
+			specs.append(_sp("shopShelf", 5, 3, "open"))
+			specs.append(_sp("magazineRack", -1, 3, "open"))
+			specs.append(_sp("checkoutCounter", 6, front - 1, "center"))
+			specs.append(_sp("mallBench", -6, front - 1, "open"))
+			specs.append(_sp("ceilingLight", 0, mid, "open", _LOOSE))
+		"food_court":
+			# the atrium: food counters along the back, tables on the floor, planters by the door
+			specs.append(_sp("displayCase", -6, 0, "open", _WALL))
+			specs.append(_sp("coffeeStation", -3, 0, "open", _WALL))
+			specs.append(_sp("concessionCounter", 3, 0, "open", _WALL))
+			specs.append(_sp("donutFryer", 6, 0, "open", _WALL))
+			specs.append(_sp("menuBoard", -3, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
+			specs.append(_sp("menuBoard", 3, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
+			for table in [Vector2i(-6, 3), Vector2i(-2, 3), Vector2i(2, 3), Vector2i(6, 3)]:
+				specs.append(_sp("foodCourtTable", table.x, table.y, "open"))
+			specs.append(_sp("mallPlanter", -7, front - 1, "open"))
+			specs.append(_sp("mallPlanter", 7, front - 1, "open"))
+			for light_side in [-6, -2, 2, 6]:
+				specs.append(_sp("ceilingLight", light_side, mid, "open", _LOOSE))
 	if half >= 9 and BIOME_REPEAT_TEMPLATES.has(template):
 		var repeated := []
 		for shift in [-5, 5]:

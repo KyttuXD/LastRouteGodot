@@ -6,9 +6,9 @@ extends RefCounted
 ## of a room is reachable from its door (so hunters and players can walk the whole room). Hall widths, humps, room sizes
 ## and seam connectivity are the shared suites' job; they sample every biome in StreamedRouteGenerator.BIOMES.
 
-const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE"]
+const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
 const RADIUS := 7
-const REGIONS := ["hospital", "lab", "greenhouse"]
+const REGIONS := ["hospital", "lab", "greenhouse", "mall"]
 const MIN_CHUNKS := 6
 ## The props a room must show to read as that room.
 const KEY_PROPS := {
@@ -24,6 +24,12 @@ const KEY_PROPS := {
 	"cactus_room": ["saguaroCactus", "cactusCluster"], "potting_shed": ["pottingBench"],
 	"irrigation_room": ["irrigationManifold"], "overgrown_room": ["overgrowthPatch"],
 	"dome_atrium": ["domeFountain", "pottedPalm"],
+	"donut_shop": ["donutFryer", "displayCase", "checkoutCounter", "coffeeStation"], "cinema": ["cinemaSeats", "ticketBooth",
+	"concessionCounter", "cinemaScreen"], "corner_store": ["shopFridge", "shopShelf", "checkoutCounter"],
+	"food_court": ["foodCourtTable"], "bakery": ["bakeryRack", "displayCase"], "laundromat": ["washingMachine", "dryerStack"],
+	"electronics": ["tvWall"], "night_diner": ["dinerBooth", "dinerStool"], "drugstore": ["pharmacyShelf", "checkoutCounter"],
+	"florist": ["flowerStand"], "barber": ["barberChair", "barberStation"], "pawn_shop": ["displayCase", "shopShelf"],
+	"stationery": ["shopShelf"],
 }
 
 var _failures := 0

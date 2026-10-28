@@ -152,11 +152,13 @@ const REGION_STYLE := {
 		"wall": ["inferno0", "brick1"], "ceiling": "ceil0", "runner": false},
 	# the sewer under the maze: brick tunnels over worn stone walkways
 	"sewer": {"corridor": ["stone0", "stone1"], "room": ["concrete0", "concrete1"],
-		"wall": ["brick0", "brick1", "brick1"], "ceiling": "ceil0", "runner": false},
+		"wall": ["brick0", "brick1", "brick1"], "ceiling": "vault", "runner": false},
 	"hospital": {"corridor": ["vinyl0", "vinyl1"], "room": ["vinyl0", "vinyl1"],
 		"wall": ["hospital0", "hospital1"], "ceiling": "ceil0", "runner": false},
 	"lab": {"corridor": ["epoxy0", "epoxy0", "epoxy1"], "room": ["epoxy0"],
 		"wall": ["lab0", "lab0", "lab1"], "ceiling": "ceil0", "runner": false},
+	"mall": {"corridor": ["terrazzo0", "terrazzo1"], "room": ["terrazzo0"],
+		"wall": ["mall0", "mall1"], "ceiling": "ceil1", "runner": false},
 	"greenhouse": {"corridor": ["terracotta0", "terracotta1", "stone2"], "room": ["terracotta0", "terracotta1"],
 		"wall": ["glasshouse0", "glasshouse1"], "ceiling": "glass", "runner": false},
 }
