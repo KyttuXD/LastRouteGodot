@@ -172,6 +172,10 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
 
 - **Drawing:** every CanvasLayer of the route (HUD, pause menu, map, inventory, chat, story, death moment) draws into
   the panel's own 2D viewport through `CanvasLayer.custom_viewport`, including layers created later.
+- **Layout:** Godot skips the window's content-scale stretch while the root viewport renders XR, so the screens would
+  lay out at 1:1 on the eye buffer (about 1680 x 1760 on a Quest 3S), and the pause menu was a small box. The panel
+  re-anchors each layer's top-level Controls against the designed 480 x 270 canvas (`XRRoutePanel.fit_to_canvas`,
+  which places them exactly where the stretch would have), and the pointer maps onto that canvas.
 - **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
@@ -185,6 +189,24 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
     panels need this; it's also how you reach ENTER ROUTE on the staging screen.
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
+
+## Playing without Touch controllers
+
+The Quest build plays with whatever input is there:
+
+- **Gamepad (Bluetooth, a standard Android joypad) or keyboard:**
+  - The left stick or WASD moves, relative to where you look. The right stick or the look keys turn the player, snap
+    or smooth (`XRComfort.turn_input`); a paired mouse turns too.
+  - Buttons and keys keep their usual actions (use, jump, crouch, tool, light, menu).
+  - Menus navigate with the D-pad or arrows, and A or Enter.
+- **Head aim:** without a tracked right hand, [E] aims with the head (`interaction_aim`); without a tracked left hand,
+  the flashlight shines from the head.
+- **One controller:** whichever hand is tracked points at the panels (right first) and its trigger clicks. With only
+  the right hand, its stick click opens the pause menu.
+- **Nothing at all:** with no tracked hand and no gamepad, the head points at the panels (`XRGaze`). Resting the
+  reticle on a button for 1.2 s clicks it; the reticle grows while it dwells.
+- **Hidden hands:** an untracked controller (asleep, flat battery) hides its hand, laser and wrist HUD instead of
+  lying on the floor (`show_when_tracked`).
 
 ## VR bodies in co-op
 

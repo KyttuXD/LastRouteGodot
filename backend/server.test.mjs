@@ -591,8 +591,10 @@ test("serves validated debug/release update manifests", async () => {
     updateDirectory,
     updates: {
       debug: {
-        linux: { version: "0.0.1.0", revision: "c".repeat(40), file: "linux.zip", bytes: 10, sha256, notes: "Test route", required: true },
-        windows_legacy: { version: "0.0.1.0", revision: "c".repeat(40), file: "windows-legacy.zip", sha256 },
+        linux: { version: "0.0.1.0", revision: "c".repeat(40), build: 41, file: "linux.zip", bytes: 10, sha256, notes: "Test route", required: true },
+        windows_legacy: { version: "0.0.1.0", revision: "c".repeat(40), build: 41, file: "windows-legacy.zip", sha256 },
+        // a desktop entry without a build number is withheld (clients compare build numbers)
+        windows: { version: "0.0.1.0", revision: "c".repeat(40), file: "windows-legacy.zip", sha256 },
       },
       release: { windows: { version: "1.0.0", url: "http://insecure.invalid/game.zip" } },
     },
@@ -606,6 +608,7 @@ test("serves validated debug/release update manifests", async () => {
     assert.equal(payload.update.sha256, sha256);
     assert.equal(payload.update.file, "linux.zip");
     assert.equal(payload.update.bytes, 10);
+    assert.equal(payload.update.build, 41);
     assert.equal(payload.update.required, true);
     assert.equal(payload.update.url, "/api/updates/files/linux.zip");
     response = await fetch(`${app.url}/api/health`);
@@ -625,6 +628,8 @@ test("serves validated debug/release update manifests", async () => {
     assert.equal(response.status, 404);
     response = await fetch(`${app.url}/api/updates/release/windows`);
     assert.equal(response.status, 404);
+    response = await fetch(`${app.url}/api/updates/debug/windows`);
+    assert.equal(response.status, 404, "a desktop entry without a build number must be withheld");
   } finally {
     await app.close();
     await rm(updateDirectory, { recursive: true, force: true });
@@ -663,7 +668,7 @@ test("reloads update metadata without restarting the backend", async () => {
   let revision = "a".repeat(40);
   const app = await fixtureWith(() => createLastRouteServer({
     updatesProvider: () => ({
-      debug: { linux: { version: "0.0.1.0", revision, url: "https://example.test/linux.zip", sha256 } },
+      debug: { linux: { version: "0.0.1.0", revision, build: 5, url: "https://example.test/linux.zip", sha256 } },
     }),
   }));
   try {
@@ -745,6 +750,34 @@ test("rooms carry the game they belong to (missing or invalid means last_route)"
     assert.equal(await gameOf("CTY22"), "city");
     assert.equal(await gameOf("LEGCY"), "last_route");
     assert.equal(await gameOf("WERD2"), "last_route");
+  } finally {
+    await app.close();
+  }
+});
+
+test("developer tokens expire and /api/dev/reload is rate limited as a sensitive endpoint", async () => {
+  let current = 50_000;
+  const app = await fixtureWith(() => createLastRouteServer({
+    now: () => current,
+    adminPassword: "server setup proof",
+    devTokenTtlMs: 5_000,
+    rateLimitWindowMs: 60_000,
+    accountRateLimitMax: 4,
+    apiRateLimitMax: 100,
+  }));
+  try {
+    let result = await post(app.url, "/api/dev/login", { password: "server setup proof" });
+    assert.equal(result.response.status, 200);
+    const devToken = result.body.devToken;
+    result = await post(app.url, "/api/dev/reload", { devToken });
+    assert.equal(result.response.status, 200);
+    current += 5_001;
+    result = await post(app.url, "/api/dev/reload", { devToken });
+    assert.equal(result.response.status, 401, "an expired dev token still granted developer proof");
+    result = await post(app.url, "/api/dev/reload", { adminProof: "guess" });
+    assert.equal(result.response.status, 401);
+    result = await post(app.url, "/api/dev/reload", { adminProof: "guess 2" });
+    assert.equal(result.response.status, 429, "adminProof guesses on /api/dev/reload were not rate limited");
   } finally {
     await app.close();
   }

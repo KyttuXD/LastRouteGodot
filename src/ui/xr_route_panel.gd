@@ -32,6 +32,8 @@ var _held := false
 var _trigger_down := false
 var _scroll := XRPanelScroll.new()
 var _left: XRController3D
+var _gaze := XRGaze.new()
+var _canvas_size := Vector2(480, 270)
 
 
 static func attach(host: Node, run_player: Node3D, open_check: Callable) -> XRRoutePanel:
@@ -42,6 +44,11 @@ static func attach(host: Node, run_player: Node3D, open_check: Callable) -> XRRo
 	panel.overlay_open = open_check
 	host.add_child(panel)
 	return panel
+
+
+## The 2D canvas the panel shows (for XR_SMOKE), or Vector2i.ZERO before the player is in XR.
+func canvas_size() -> Vector2i:
+	return _view.size_2d_override if _view != null else Vector2i.ZERO
 
 
 ## Points every CanvasLayer under `root` (except TouchControls and layers that already render elsewhere) at `view`.
@@ -71,6 +78,8 @@ func _process(delta: float) -> void:
 		_shown = wanted
 		if wanted:
 			_place()
+			if OS.is_debug_build():
+				_log_layers.call_deferred()
 		else:
 			_trigger(false)
 		for node in [_panel, _backdrop, _ray]:
@@ -85,8 +94,13 @@ func _activate() -> void:
 	_active = true
 	_view = SubViewport.new()
 	_view.name = "XRRouteUI"
-	# The same canvas the root lays the UI out on (480 x 270 stretched with "expand", so wider on a wide window).
-	var canvas := Vector2i(get_tree().root.get_visible_rect().size.round())
+	# The designed 2D canvas (480 x 270). Godot skips the window's content-scale stretch while the root viewport renders
+	# XR, so the route's screens would otherwise lay out at 1:1 on the eye buffer (about 1680 x 1760 on a Quest 3S) and
+	# the pause menu came out as a small box on the panel. fit_to_canvas re-anchors each screen against this canvas.
+	var canvas := Vector2i(get_tree().root.content_scale_size)
+	if canvas.x <= 0 or canvas.y <= 0:
+		canvas = Vector2i(480, 270)
+	_canvas_size = Vector2(canvas)
 	_view.size = canvas * RENDER_SCALE
 	_view.size_2d_override = canvas
 	_view.size_2d_override_stretch = true
@@ -95,9 +109,13 @@ func _activate() -> void:
 	_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(_view)
 	retarget_canvas_layers(route, _view)
+	for node in route.find_children("*", "CanvasLayer", true, false):
+		if (node as CanvasLayer).custom_viewport == _view:
+			_fit_layer(node)
 	# The headset keyboard (XRMenuPanel's) draws on this panel while the route owns the view.
 	for keyboard in get_tree().get_nodes_in_group(&"xr_keyboard"):
 		(keyboard as CanvasLayer).custom_viewport = _view
+		_fit_layer(keyboard)
 	get_tree().node_added.connect(_on_node_added)   # the death screen, chat and friends are created later
 	var origin := player.get("xr_origin") as XROrigin3D
 	_right = player.get("xr_right") as XRController3D
@@ -133,6 +151,43 @@ func _activate() -> void:
 		node.visible = false
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
+	_left.button_pressed.connect(_on_left_pressed)
+	_left.button_released.connect(_on_right_released)
+
+
+## Debug: where each visible screen on the panel is laid out (adb logcat | grep XR_SMOKE_LAYER).
+func _log_layers() -> void:
+	for node in route.find_children("*", "CanvasLayer", true, false):
+		var layer := node as CanvasLayer
+		if layer.custom_viewport != _view or not layer.visible:
+			continue
+		for child in layer.get_children():
+			if child is Control and (child as Control).visible:
+				var control := child as Control
+				print("XR_SMOKE_LAYER %s/%s rect=%s viewport_rect=%s layer=%s" % [layer.name, control.name,
+					control.get_global_rect(), control.get_viewport_rect(), layer.transform])
+
+
+## Lays every top-level Control of `layer` out against the 480 x 270 canvas instead of the eye-sized root viewport.
+func _fit_layer(layer: Node) -> void:
+	for child in layer.get_children():
+		if child is Control:
+			fit_to_canvas(child, _canvas_size)
+
+
+## Turns `control`'s anchors into fixed offsets that place it exactly where it would sit on a `canvas`-sized screen
+## (what the window stretch would have done). Its children keep their own anchors, so whole screens follow.
+static func fit_to_canvas(control: Control, canvas: Vector2) -> void:
+	var left := control.anchor_left * canvas.x + control.offset_left
+	var top := control.anchor_top * canvas.y + control.offset_top
+	var right := control.anchor_right * canvas.x + control.offset_right
+	var bottom := control.anchor_bottom * canvas.y + control.offset_bottom
+	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		control.set_anchor(side, 0.0, false, false)
+	control.offset_left = left
+	control.offset_top = top
+	control.offset_right = right
+	control.offset_bottom = bottom
 
 
 func _exit_tree() -> void:
@@ -162,6 +217,14 @@ func _on_node_added(node: Node) -> void:
 	if node is CanvasLayer and not node is TouchControls and route.is_ancestor_of(node) \
 			and (node as CanvasLayer).custom_viewport == null:
 		(node as CanvasLayer).custom_viewport = _view
+		_fit_layer.call_deferred(node)
+	elif node is Control and node.get_parent() is CanvasLayer and (node.get_parent() as CanvasLayer).custom_viewport == _view:
+		_fit_new.call_deferred(node)
+
+
+func _fit_new(control: Control) -> void:
+	if is_instance_valid(control):
+		fit_to_canvas(control, _canvas_size)
 
 
 ## In front of the head at a comfortable height, facing it (yaw only), in the origin's space so it travels with the
@@ -176,16 +239,30 @@ func _place() -> void:
 	_panel.global_transform = Transform3D(Basis.looking_at(forward, Vector3.UP), centre)
 
 
+func _on_left_pressed(action: StringName) -> void:
+	if action == &"trigger_click" and _shown and XRGaze.pointer_hand(_left, _right) == _left:
+		_trigger(true)
+
+
+## The pointer: the tracked hand's laser, else the head (gaze dwell when nothing else can click; see XRGaze).
 func _point() -> void:
 	var size := (_panel.mesh as QuadMesh).size
-	var uv := XRMenuPanel.panel_uv(_right.global_position, -_right.global_basis.z, _panel.global_transform, size)
+	var hand := XRGaze.pointer_hand(_left, _right)
+	var source: Node3D = hand if hand != null else player.get("xr_camera") as Node3D
+	_ray.visible = hand != null
+	if hand != null and _ray.get_parent() != hand:
+		_ray.reparent(hand, false)
+	var uv := XRMenuPanel.panel_uv(source.global_position, -source.global_basis.z, _panel.global_transform, size)
 	_dot.visible = uv.x >= 0.0
 	if uv.x < 0.0:
+		_gaze.reset()
 		return
+	if XRGaze.dwell_wanted(hand) and _gaze.update(get_tree().root, _canvas(_pointer), get_process_delta_time()):
+		_click(true)
+		_click(false)
 	_dot.global_transform = _panel.global_transform.translated_local(
 		Vector3((uv.x - 0.5) * size.x, (0.5 - uv.y) * size.y, 0.004))
-	var root := get_tree().root
-	var at := (root.get_final_transform() * (uv * root.get_visible_rect().size)).round()
+	var at := (uv * _canvas_size).round()   # the screens' coordinates (the root has no stretch transform in XR)
 	if at == _pointer:
 		return
 	_pointer = at

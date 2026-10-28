@@ -31,7 +31,7 @@ const debug = {};
 for (const [platform, file] of Object.entries(artifacts)) {
   const path = join(buildDirectory, file);
   if (!existsSync(path)) continue;
-  if (MOBILE.has(platform) && !build) {
+  if (!build) {
     console.warn(`Skipping ${file}: build_revision.json has no build number (re-run generate_build_revision.mjs)`);
     continue;
   }
@@ -45,7 +45,15 @@ for (const [platform, file] of Object.entries(artifacts)) {
     notes: "Debug multiplayer and platform test build.",
     required: !MOBILE.has(platform),
   };
-  if (MOBILE.has(platform)) debug[platform].build = build;
+  // every native platform orders updates by build number (desktop since the 2026-10 rework)
+  debug[platform].build = build;
+  // Client integrity (the server recognises legit builds): the sha256 of the build's PCK and executable when they sit
+  // beside the package (desktop exports: <name>.pck, <name>.exe or <name>.x86_64); an APK's PCK is inside it.
+  const stem = file.replace(/\.(zip|apk|exe|x86_64)$/, "");
+  for (const [key, candidates] of [["pck_sha256", [`${stem}.pck`]], ["exe_sha256", [`${stem}.exe`, `${stem}.x86_64`]]]) {
+    const sibling = candidates.map((name) => join(buildDirectory, name)).find((candidate) => candidate !== path && existsSync(candidate));
+    if (sibling) debug[platform][key] = createHash("sha256").update(readFileSync(sibling)).digest("hex");
+  }
 }
 
 const output = join(buildDirectory, "updates.debug.json");

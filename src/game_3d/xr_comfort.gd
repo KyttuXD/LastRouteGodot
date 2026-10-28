@@ -49,6 +49,13 @@ static func world_scale_for(real_height: float) -> float:
 	return clampf(PLAYER_HEIGHT / clampf(real_height, 1.0, 2.3), 0.6, 1.6)
 
 
+## The turn axis: the right Touch stick, or a gamepad's right stick / keyboard look keys (look_left / look_right),
+## whichever is pushed further, so a headset plays without Touch controllers.
+static func turn_input(touch_x: float) -> float:
+	var look := Input.get_axis("look_left", "look_right")
+	return look if absf(look) > absf(touch_x) else touch_x
+
+
 ## Snap turn: one step per push past the dead zone, latched until the stick returns. Returns radians to turn by.
 func snap_turn(stick_x: float) -> float:
 	if absf(stick_x) < 0.45:
@@ -121,7 +128,7 @@ func step(delta: float, moving: bool) -> void:
 	if not _centred_with_tracking and camera.position.length_squared() > 0.0001:
 		_centred_with_tracking = true
 		recenter()
-	var stick_x := right.get_vector2("primary").x
+	var stick_x := turn_input(right.get_vector2("primary").x)
 	var turn := smooth_turn(stick_x, delta) if Settings.xr_smooth_turn else snap_turn(stick_x)
 	if turn != 0.0:
 		player.rotate_y(turn)

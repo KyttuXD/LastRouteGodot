@@ -53,8 +53,20 @@ var hunters: Array = []
 ## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
 ## the real clock (tests pin it).
 var ghost_ping := false
-## Full-map player arrow: minimum size (tip to tail, HUD units) so it reads at any zoom.
+## Quick-chat pings: {at (map units like player marks), colour, label, until (msec)}; drawn for PING_SECONDS.
+var pings: Array = []
+const PING_SECONDS := 6.0
+## Full-map player arrow: a constant on-screen size (HUD units, tip reach) at every zoom, so zooming in shows more map
+## around it instead of growing the arrow over several rooms. Kept within [MIN, MAX].
 const PLAYER_ARROW_MIN := 7.0
+const PLAYER_ARROW_SIZE := 8.0
+const PLAYER_ARROW_MAX := 9.0
+
+
+## How far the player arrow reaches from its centre at `cell` HUD units per cell: the minimap scales with its cells, the
+## full map keeps a fixed on-screen size.
+static func arrow_reach(cell: float, full_map: bool) -> float:
+	return clampf(PLAYER_ARROW_SIZE, PLAYER_ARROW_MIN, PLAYER_ARROW_MAX) if full_map else cell * 0.95
 var radar_time := -1.0:
 	set(value):
 		radar_time = value
@@ -128,6 +140,8 @@ func view_center() -> Vector2:
 
 
 func _process(delta: float) -> void:
+	if not pings.is_empty() and is_visible_in_tree():
+		queue_redraw()   # pings pulse and expire
 	# Porcelle's ping animates, so a minimap with her mark redraws every frame
 	if ghost_ping and is_visible_in_tree():
 		for mark in hunters:
@@ -393,6 +407,7 @@ func _draw() -> void:
 	for mark in players:
 		_draw_remote_player(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
+	_draw_pings(origin, Vector2.ZERO, cell)
 	for mark in dropped_tools:
 		_draw_dropped_tool(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
@@ -564,6 +579,7 @@ func _draw_streamed() -> void:
 		if not Rect2(world_bounds).has_point(mark_world):
 			continue
 		_draw_remote_player(origin + (mark_world - world_origin) * cell, cell, mark)
+	_draw_pings(origin, world_origin, cell)
 	for mark in dropped_tools:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
 		if not Rect2(world_bounds).has_point(mark_world):
@@ -667,6 +683,35 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Palette.INK)
 		key_at.x += font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT,
 			-1, font_size).x + 22.0
+
+
+func add_ping(at: Vector2, colour: Color, label: String) -> void:
+	pings.append({"at": at, "colour": colour, "label": label.to_upper().substr(0, 12),
+		"until": Time.get_ticks_msec() + int(PING_SECONDS * 1000.0)})
+	queue_redraw()
+
+
+func live_pings() -> Array:
+	var now := Time.get_ticks_msec()
+	pings = pings.filter(func(ping: Dictionary) -> bool: return int(ping["until"]) > now)
+	return pings
+
+
+func _draw_pings(origin: Vector2, world_origin: Vector2, cell: float) -> void:
+	var font := ThemeDB.fallback_font
+	var now := Time.get_ticks_msec()
+	for ping_value in live_pings():
+		var ping: Dictionary = ping_value
+		var at: Vector2 = origin + ((ping["at"] as Vector2) - world_origin) * cell
+		var left := float(int(ping["until"]) - now) / (PING_SECONDS * 1000.0)
+		var colour: Color = ping["colour"]
+		var radius := maxf(3.0, cell * .6)
+		var pulse := 1.0 + .5 * fposmod(float(now) / 700.0, 1.0)
+		draw_arc(at, radius * pulse, 0.0, TAU, 18, Color(colour, .9 * left), maxf(1.0, cell * .12), true)
+		draw_circle(at, radius * .45, Color(colour, .95))
+		if interactive:
+			draw_string_outline(font, at + Vector2(radius + 2.0, 3.0), String(ping["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 8, 3, Color(0, 0, 0, .9))
+			draw_string(font, at + Vector2(radius + 2.0, 3.0), String(ping["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 8, colour.lightened(.2))
 
 
 func _ping_clock() -> float:
@@ -947,8 +992,8 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 	var at := origin + player_at * cell
 	var forward := player_facing.normalized() if player_facing.length() > 0.01 else Vector2(0, 1)
 	var side := Vector2(-forward.y, forward.x)
-	# the full map's arrow never shrinks below PLAYER_ARROW_MIN (HUD units) however far it is zoomed out, and has an outline
-	var reach := maxf(cell * 0.95, PLAYER_ARROW_MIN if interactive else 0.0)
+	# full map: a fixed on-screen arrow (arrow_reach) with an outline; minimap: scales with its cells
+	var reach := arrow_reach(cell, interactive)
 	var arrow := PackedVector2Array([
 		at + forward * reach,
 		at - forward * reach * 0.5 + side * reach * 0.6,

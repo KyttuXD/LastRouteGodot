@@ -25,8 +25,6 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
-	"waypoint": "PLACE / REMOVE WAYPOINT",
-	"waypoint_clear": "CLEAR WAYPOINT",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -101,6 +99,7 @@ func _ready() -> void:
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_build_focus_pause_row()
+	_build_voice_rows()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -315,6 +314,21 @@ func _build_focus_pause_row() -> void:
 		Settings.set_pause_on_focus_loss(enabled)
 		Palette.set_state_toggle(_focus_pause_button, enabled))
 	row.add_child(_focus_pause_button)
+	# GRAPHICS: AUTO follows the detected device tier (PlatformProfile / QualityTier); the label shows what AUTO picked.
+	var graphics_button := Button.new()
+	graphics_button.name = "GraphicsQualityButton"
+	graphics_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var graphics_label := func() -> String:
+		return "GRAPHICS: %s" % (("AUTO (%s)" % QualityTier.name_of(PlatformProfile.tier)) \
+			if Settings.graphics_quality == "AUTO" else Settings.graphics_quality)
+	graphics_button.text = graphics_label.call()
+	graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout()
+	graphics_button.pressed.connect(func() -> void:
+		var choices: Array = Settings.GRAPHICS_CHOICES
+		Settings.set_graphics_quality(choices[(choices.find(Settings.graphics_quality) + 1) % choices.size()])
+		graphics_button.text = graphics_label.call()
+		graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout())
+	row.add_child(graphics_button)
 	if PlatformProfile.is_phone:
 		# Phones only: the movement control for TouchControls (desktop never shows this button).
 		var move_button := Button.new()
@@ -326,6 +340,69 @@ func _build_focus_pause_row() -> void:
 			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
 		row.add_child(move_button)
 	add_child(row)
+	# In-world ads (flavour, TrollAds): OFF / GENTLE / ANNOYING, OFF by default. Troll mode overrides it for cheaters.
+	var ads_button := Button.new()
+	ads_button.name = "AdsModeButton"
+	ads_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ads_button.tooltip_text = "In-world joke ads on shop signs, plus pop-ups (GENTLE: rare, skip any time; ANNOYING: frequent, sneaky skip)."
+	ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper()
+	ads_button.pressed.connect(func() -> void:
+		var modes: Array = TrollAds.MODES
+		Settings.set_ads_mode(modes[(modes.find(Settings.ads_mode) + 1) % modes.size()])
+		ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper())
+	$DisplayRow.add_child(ads_button)
+
+
+## AUDIO: spoken chat volume, and voices / subtitles toggles (voices off = subtitles only).
+func _build_voice_rows() -> void:
+	var row := HBoxContainer.new()
+	row.name = "VoiceVolumeRow"
+	row.offset_left = 20.0
+	row.offset_top = 142.0
+	row.offset_right = 420.0
+	row.offset_bottom = 158.0
+	var label := Label.new()
+	label.text = "SPOKEN CHAT"
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.name = "VoiceVolumeSlider"
+	slider.min_value = 0
+	slider.max_value = 100
+	slider.step = 5
+	slider.value = Settings.voice_volume
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%d%%" % int(Settings.voice_volume)
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(value: float) -> void:
+		readout.text = "%d%%" % int(value)
+		Settings.set_voice(value, Settings.voice_enabled, Settings.voice_subtitles))
+	add_child(row)
+	var toggles := HBoxContainer.new()
+	toggles.name = "VoiceToggleRow"
+	toggles.offset_left = 20.0
+	toggles.offset_top = 166.0
+	toggles.offset_right = 420.0
+	toggles.offset_bottom = 182.0
+	for pair in [["VOICES", "voice_enabled"], ["SUBTITLES", "voice_subtitles"]]:
+		var button := Button.new()
+		button.name = "Voice%sButton" % String(pair[0]).capitalize()
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		Palette.style_state_toggle(button, String(pair[0]), bool(Settings.get(String(pair[1]))))
+		button.set_pressed_no_signal(bool(Settings.get(String(pair[1]))))
+		var key := String(pair[1])
+		button.toggled.connect(func(enabled: bool) -> void:
+			Settings.set_voice(Settings.voice_volume, enabled if key == "voice_enabled" else Settings.voice_enabled,
+				enabled if key == "voice_subtitles" else Settings.voice_subtitles)
+			Palette.set_state_toggle(button, enabled))
+		toggles.add_child(button)
+	add_child(toggles)
 
 
 func _build_settings_tabs() -> void:
@@ -340,14 +417,14 @@ func _build_settings_tabs() -> void:
 	add_child(_settings_tabs)
 	_skin_panel = SkinPanel.new()
 	_skin_panel.position = Vector2(20, 66)
-	_skin_panel.size = Vector2(400, 160)
+	_skin_panel.size = Vector2(400, 176)
 	add_child(_skin_panel)
 	_show_settings_category(0)
 
 
 func _show_settings_category(index: int) -> void:
 	_active_settings_category = clampi(index, 0, 3)
-	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
+	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
 			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:

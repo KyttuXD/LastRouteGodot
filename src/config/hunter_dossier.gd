@@ -10,108 +10,82 @@ const VOID_GIMMICK_CHART := preload(
 ## Every roster id must have one entry; the validation scene enforces that.
 const ENTRIES := {
 	"aki": {
-		"ability": "PHANTOM EXPOSURE",
-		"behavior": "Holding the flashlight beam on Aki arms three delayed exposure bursts. Each burst makes every hunter on the floor much more likely to find you.",
+		"behavior": "Flashing Aki with your flashlight triggers three delayed exposure surges. These attacks hit 10, 15, and 20 seconds after the flash, with each surge filling your exposure meter. Stun them only when necessary, and note that additional flashes will not trigger another attack sequence until the active cycle finishes.",
 	},
 	"briselle": {
-		"ability": "RELAY SABOTEUR",
 		"behavior": "Briselle can stop at a collected relay and take it offline, blocking the service lift until the relay is repaired.",
 	},
 	"ceryth": {
-		"ability": "HIDING RIDDLE",
-		"behavior": "Ceryth claims one hiding spot and watches it. Red eyes demand darkness; blue eyes demand a live flashlight. A wrong answer locks you inside.",
+		"behavior": "Ceryth ambushes from inside a hiding locker, marked by a dim red or blue light glowing around the frame. Match your flashlight state to enter safely: turn it OFF if the light is red, or keep it ON if the light is blue. Guessing correctly forces them to run off to another hiding spot without pursuing you; an incorrect entry locks you trapped inside for 30 seconds.",
 	},
 	"dovelle": {
-		"ability": "BASELINE PURSUER",
-		"behavior": "Dovelle is the pure route hunter: she patrols, hears noise, follows sightings, searches your last known position and gives chase without a special rule.",
+		"behavior": "Dovelle follows standard hunter rules: patrolling hallways, investigating loud noises, and relentlessly chasing anyone in sight. When pursued, break line of sight around corners and duck into a hiding spot to lose their attention.",
 	},
 	"elise": {
-		"ability": "RUNNING DATA",
-		"behavior": "Every second spent moving at a sprint outside safe zones permanently fills Elise' hidden tracker. When full, she knows your position forever.",
+		"behavior": "Elise tracks runner movement whenever you sprint. Accumulating a total of 50 seconds of running completely fills their tracker; once full, they permanently track your location and can reach you inside hiding spots. Walk or crouch to navigate without adding progress to the tracker.",
 	},
 	"ferryn": {
-		"ability": "ROUND STALKER",
-		"behavior": "Ferryn always knows where you are and pursues without needing sight or sound. Driving her away with light creates a facility-wide noise spike.",
+		"behavior": "Ferryn is completely cloaked except for glowing amber eyes that slowly follow you through the corridors. Ducking into hiding or stepping into a safe zone banishes them back to their origin room. Shining a flashlight beam into their eyes also forces a retreat, but their piercing shriek maxes out the noise meter and alerts every other active hunter to your position.",
 	},
 	"glyra": {
-		"ability": "MUSIC-BOX PRESSURE",
-		"behavior": "Glyra stays beside the spawn-room music box. When it unwinds, facility noise rises continuously and makes every active hunter more dangerous.",
+		"behavior": "Glyra anchors to the music box located in the starting room. Fully winding the music box grants 20 seconds of calm before the facility noise meter begins steadily climbing by one point per second. Return and wind the box periodically to silence the chime and clear any noise accrued from neglect.",
 	},
 	"haelith": {
-		"ability": "RELAY PURSUER",
-		"behavior": "Haelith ignores ordinary patrol goals and continually heads toward the nearest uncollected relay, meeting runners at their objectives.",
+		"behavior": "Rather than wandering aimlessly, Haelith marches directly toward the nearest uncollected relay on the floor. Heavy rhythmic footsteps echo loudly within nine cells. Rush to finish objectives before they arrive, or duck into nearby lockers to let them pass by safely.",
 	},
 	"ilyra": {
-		"ability": "SHADOW POUNCE",
-		"behavior": "Ilyra watches from room corners. If she sees you and you then look away, she tags that moment and pounces after a delay to stun you.",
+		"behavior": "Ilyra lurks motionless in dark room corners. If they spot you and subsequently lose visual contact, your position is marked and you will be stunned after 15 seconds; on Nightmare difficulty this stun triggers immediately. Hit them with a direct flashlight beam while spotted to banish them from the facility for 30 seconds.",
 	},
 	"javelle": {
-		"ability": "HIDING EJECTION",
-		"behavior": "A hiding spot is not permanent safety from Javelle. If she remains over your occupied spot long enough, she pulls you into the open.",
+		"behavior": "Javelle is an aggressive hunter who pursues runners on sight. If you duck into a locker while being chased and they camp outside for eight seconds, Javelle forcefully pulls you out and suffers a brief self-stun. Never overstay in a single hiding spot while they pace outside.",
 	},
 	"kathy": {
-		"ability": "SEARCH BEAM",
 		"behavior": "Kathy sees through a long cone projected along her facing, detecting runners well beyond ordinary hunter sight range when the path is clear.",
 	},
 	"loxelle": {
-		"ability": "PASSIVE INCINERATOR",
-		"behavior": "While calm, Loxelle periodically burns a hiding spot in her current room. Empty spots recover later; occupied spots eject their runner.",
+		"behavior": "While calm, Loxelle scans their surroundings every five seconds and may smash nearby hiding spots. Broken lockers reconstruct after 30 seconds, or 60 on Nightmare. If they strike a hiding spot you currently occupy, it is instantly demolished, forcing you out, raising the room temperature by 30 degrees Fahrenheit, and leaving the hunter winded and stunned for 10 seconds.",
 	},
 	"mavrine": {
-		"ability": "LATTICE MARK",
-		"behavior": "Mavrine pauses to project an invisible frame elsewhere in the facility. Crossing the armed cell tells her exactly where to investigate.",
+		"behavior": "Mavrine deploys glowing trip-scanner frames onto open floor tiles. A scanner frame is never placed on a safe zone, relay, hiding spot, or starting area. Stepping across a frame triggers an alert directly to your coordinates and disarms the sensor. Watch the floor tiles closely when navigating corridors.",
 	},
 	"nyxie": {
-		"ability": "DARKNESS STALKER",
 		"behavior": "Nyxie is a rule-summoned second hunter. Extended darkness wakes her; a fully dead lamp eventually brings a catch she can't miss.",
 	},
 	"opalie": {
-		"ability": "RELAY GUARDIAN",
-		"behavior": "Opalie takes a relay station and suppresses every interaction nearby. Touching her guarded area also broadcasts your position to active hunters.",
+		"behavior": "Opalie singles out an uncollected relay and establishes a defensive perimeter around it. You cannot collect that terminal while this guardian stands watch nearby. Attempting to tamper with the guarded objective sounds an alarm alerting every active hunter across the facility, so draw their guard away before attempting collection.",
 	},
 	"porcelle": {
-		"ability": "RADAR TRACKED",
-		"behavior": "Porcelle remains visible in the route, and her moving position is also exposed as a hunter mark on the full facility map.",
+		"behavior": "Porcelle stalks under optical camouflage, appearing almost invisible in direct view. However, their active trace is fully revealed on the full-screen map whenever facility radar remains functional. Consult your navigation map frequently to track their movement, then break line of sight and take cover.",
 	},
 	"quenelle": {
-		"ability": "FLASHLIGHT TRACKER",
-		"behavior": "Keeping the flashlight on too long lets Quenelle lock permanently onto you. Repeated light toggles also increase her chase speed.",
+		"behavior": "Quenelle is hypersensitive to light sources. Leaving your flashlight on continuously for eight seconds grants them a permanent tracking lock on your position; this threshold drops to five seconds on Nightmare. After a lock is established, each time your lamp is turned on they surge with speed, moving up to 45% faster while illuminated. Pulse your light briefly rather than keeping it on.",
 	},
 	"ravelle": {
-		"ability": "DOORWAY TRIPWIRES",
 		"behavior": "Ravelle arms invisible wires at doorway-shaped cells. Each wire crossed starts a chase and permanently compounds her speed for the floor.",
 	},
 	"solyth": {
-		"ability": "HEAT MANIFEST",
 		"behavior": "Solyth is a rule-summoned second hunter. Reaching maximum heat wakes her permanently and she begins destroying uncollected batteries over time.",
 	},
 	"thessine": {
-		"ability": "AUDIO MIMIC",
-		"behavior": "At irregular ten-second checks, Thessine can replay an amplified cue from another active hunter or emit an uncanny false signal.",
+		"behavior": "Thessine deceives runners using audio acoustic playback. Every 10 seconds, there is a 50% chance they will replicate the signature audio cue of another active hunter, alongside an 8% chance to project a ghost auditory cue. They follow standard patrol and chase rules, so confirm acoustic contacts with visual sightings or radar before redirecting your path.",
 	},
 	"umbriel": {
-		"ability": "SHAPESHIFTER",
 		"behavior": "Umbriel regularly wears another hunter's model while keeping her own movement, senses and behaviour.",
 	},
 	"verrine": {
-		"ability": "VENT LURKER",
-		"behavior": "Verrine is inert and unseen until a runner enters the vent network. Inside, she tracks perfectly and accelerates for as long as the traversal lasts.",
+		"behavior": "When active, Verrine uses a connected maintenance shaft that links across four rooms. This stalker stays concealed until someone enters the shafts. Inside the ducts, they begin prowling at 40% movement speed and accelerate by 2.5% for every second spent inside, capping out at a frantic 240% maximum speed. Navigate swiftly through the duct network to escape back out into open hallways.",
 	},
 	"wynelle": {
-		"ability": "COLD MATERIALIZER",
 		"behavior": "Cold builds Wynelle's hidden progress until she materialises on the runner and starts a lethal freeze countdown.",
 	},
 	"xivvy": {
-		"ability": "CHASE ACCELERATOR",
 		"behavior": "Xivvy locks on at close range without sight or hearing and becomes faster the longer the same chase continues.",
 	},
 	"ysolde": {
-		"ability": "BATTERY THIEF",
 		"behavior": "Ysolde seeks the nearest uncollected battery and removes it from the shared floor permanently before runners can reach it.",
 	},
 	"zellia": {
-		"ability": "COIN EXCHANGE",
-		"behavior": "Zellia settles near the facility centre as a trader. Her deals are usually fair: coins buy cooling, warmth, repairs or temporary pesticide. But a deal can go badly: each trade has a small chance of ending the run (2% on Relaxed up to 12% on Nightmare).",
+		"behavior": "Stationed in the facility's central chamber, Zellia operates an interactive merchant stall. Players can trade collected coins for thermal regulation, equipment repairs, or temporary protection against passive threats. However, striking a deal carries a fatal risk: 2% on Relaxed, 5% on Standard, 7.5% on Hard, and 12% on Nightmare.",
 	},
 }
 
@@ -158,3 +132,14 @@ static func entry(requested_id: String) -> Dictionary:
 	if VOID_GIMMICK_CHART.has_entry(hunter_id):
 		return VOID_GIMMICK_CHART.entry(hunter_id)
 	return ENTRIES.get(hunter_id, {})
+
+
+## The dossier text with the hunter's own name blanked, as the 2D file screen shows a locked entry.
+static func redacted(hunter_id: String, text: String) -> String:
+	var hunter_name := String(profile(HunterIdAliases.canonical(hunter_id)).get("name", ""))
+	if hunter_name.is_empty():
+		return text
+	var out := text
+	for form in [hunter_name, hunter_name.to_upper(), hunter_name.to_lower()]:
+		out = out.replace(form, "\u2588".repeat(hunter_name.length()))
+	return out

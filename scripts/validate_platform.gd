@@ -17,8 +17,13 @@ func run(host: Node) -> int:
 	# This run is a desktop headless run: the live profile must be the desktop reference.
 	var live := PlatformProfile
 	_expect(not live.is_phone and not live.is_quest, "a desktop run reports a phone or Quest profile")
-	_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels and live.default_pixel_effect_percent < 0.0,
-		"the desktop profile changed a reference budget: %s" % live.summary())
+	# Desktops adapt to their tier (QualityTier); a desktop on ULTRA keeps the reference budgets exactly.
+	var expected := QualityGovernor.degrade(QualityTier.budgets(live.tier, live.specs), live.notch)
+	_expect(live.lamp_pool == int(expected["lamp_pool"]) and live.camera_far == float(expected["camera_far"])
+		and live.default_pixel_effect_percent < 0.0, "the desktop profile does not match its tier: %s" % live.summary())
+	if live.tier == QualityTier.Tier.ULTRA and live.notch == 0:
+		_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels,
+			"an ULTRA desktop changed a reference budget: %s" % live.summary())
 	# The other profiles, built from a fresh instance with the feature checks faked.
 	var phone = _profile({"mobile": true})
 	_expect(phone.is_phone and phone.lamp_pool < 8 and phone.camera_far > 0.0 and phone.default_pixel_effect_percent == 0.0,
@@ -54,6 +59,7 @@ func run(host: Node) -> int:
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
 	_check_quit()
+	_check_player_release_presets()
 	_check_self_update()
 	_check_xr_comfort(host)
 	await _check_xr_route_panel(host)
@@ -126,7 +132,8 @@ func _check_xr_route_panel(host: Node) -> void:
 	panel._process(0.0)
 	_expect(quad != null and quad.visible and quad.global_position.z < -0.8 and absf(quad.global_position.x) < 0.01,
 		"the XR route panel did not open in front of the head (%s)" % [quad.global_position if quad != null else "none"])
-	right.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, -0.2))
+	# No tracked controller here, so the head points (XRGaze.pointer_hand): look straight at the panel's middle.
+	camera.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, 0))
 	panel._process(0.0)
 	panel.call("_click", true)
 	await host.get_tree().process_frame
@@ -141,10 +148,35 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_xr_keyboard(host)
 	await _check_xr_panel_scroll(host)
 	await _check_vr_pose_sync(host)
+	await _check_no_touch_controllers(host)
+	await _check_xr_origin_handover(host)
+	_check_xr_canvas_fit()
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
 ## goes away with the focus.
+## In XR Godot skips the window stretch, so the route panel re-anchors screens against 480 x 270 itself: a centred
+## 380 x 236 box (the pause menu) and a full-rect screen must land where the stretch would put them.
+func _check_xr_canvas_fit() -> void:
+	var box := Control.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.offset_left = -190
+	box.offset_right = 190
+	box.offset_top = -118
+	box.offset_bottom = 118
+	XRRoutePanel.fit_to_canvas(box, Vector2(480, 270))
+	_expect(Rect2(box.offset_left, box.offset_top, box.offset_right - box.offset_left, box.offset_bottom - box.offset_top) \
+			== Rect2(50, 17, 380, 236) and box.anchor_left == 0.0 and box.anchor_right == 0.0,
+		"the XR panel places a centred 380 x 236 box at %s" % [Rect2(box.offset_left, box.offset_top, box.offset_right - box.offset_left, box.offset_bottom - box.offset_top)])
+	box.free()
+	var full := Control.new()
+	full.set_anchors_preset(Control.PRESET_FULL_RECT)
+	XRRoutePanel.fit_to_canvas(full, Vector2(480, 270))
+	_expect(full.offset_right == 480.0 and full.offset_bottom == 270.0 and full.offset_left == 0.0,
+		"the XR panel does not fit a full-rect screen to 480 x 270")
+	full.free()
+
+
 func _check_xr_keyboard(host: Node) -> void:
 	var layer := CanvasLayer.new()
 	host.add_child(layer)
@@ -276,6 +308,68 @@ func _check_vr_pose_sync(host: Node) -> void:
 	await host.get_tree().process_frame
 
 
+## Playing without Touch controllers: with no tracked hand the head points (pointer_hand null), dwell clicks a button
+## once after XRGaze.DWELL_SECONDS and moving away resets it, and a gamepad's right stick / look keys turn the player.
+func _check_no_touch_controllers(host: Node) -> void:
+	var left := XRController3D.new()
+	var right := XRController3D.new()
+	_expect(XRGaze.pointer_hand(left, right) == null, "an untracked controller still points at the panels")
+	left.free()
+	right.free()
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(100, 60)
+	button.size = Vector2(80, 30)
+	layer.add_child(button)
+	var clicks := [0]
+	button.pressed.connect(func() -> void: clicks[0] += 1)
+	await host.get_tree().process_frame
+	var root := host.get_tree().root
+	var centre := Vector2(140, 75)
+	var motion := InputEventMouseMotion.new()
+	motion.position = root.get_final_transform() * centre
+	motion.global_position = motion.position
+	Input.parse_input_event(motion)
+	await host.get_tree().process_frame
+	var gaze := XRGaze.new()
+	var fired := 0
+	for i in 15:   # 1.5 s of steady gaze in 0.1 s steps
+		if gaze.update(root, centre, 0.1):
+			fired += 1
+	_expect(fired == 1, "a steady gaze on a button clicked %d times (once expected)" % fired)
+	_expect(not gaze.update(root, centre + Vector2(30, 0), 0.1) and gaze.progress < 0.1, "moving the gaze does not restart the dwell")
+	layer.queue_free()
+	Input.action_press("look_right")
+	var turn := XRComfort.turn_input(0.2)
+	Input.action_release("look_right")
+	_expect(is_equal_approx(turn, 1.0) and is_equal_approx(XRComfort.turn_input(-0.7), -0.7),
+		"a gamepad / keyboard look does not turn a headset player (%s)" % turn)
+	await host.get_tree().process_frame
+
+
+## Only one XROrigin3D drives the headset: the first in the tree becomes current (the menu panel's). The route's origin
+## must take over when it enters XR (PlayerController3D._try_enter_xr) and the panel's must take back the view after.
+func _check_xr_origin_handover(host: Node) -> void:
+	var menu := XROrigin3D.new()
+	var route := XROrigin3D.new()
+	route.position = Vector3(22.5, 0, 21.5)
+	host.add_child(menu)
+	host.add_child(route)
+	await host.get_tree().process_frame
+	var first_current := menu.current and not route.current
+	route.current = true
+	var route_drives := route.current and not menu.current \
+		and XRServer.world_origin.origin.is_equal_approx(route.global_position)
+	menu.current = true
+	var menu_back := menu.current and not route.current
+	_expect(menu_back and route_drives, "the XR origin hand-over is wrong (route drives %s, menu back %s; first current %s)" % [
+		route_drives, menu_back, first_current])
+	menu.queue_free()
+	route.queue_free()
+	await host.get_tree().process_frame
+
+
 func _xr_player_script() -> GDScript:
 	var script := GDScript.new()
 	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
@@ -323,6 +417,94 @@ func _check_self_update() -> void:
 	_expect(FileAccess.get_sha256(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 		"the download checksum does not match a known sha256")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+## Player Release presets (docs/XR_ANDROID.md, "Encrypted player builds"): one per shipped platform, encrypted (PCK and
+## directory), feature "player", internal code excluded; every other preset is "internal". No shipped script or scene
+## may reference an excluded file, or a player build would fail to load it.
+## The macOS template zip a preset exports with (its custom template, else the installed official one) must hold
+## macos_template.app/Contents/MacOS/<binary>. A template that is not on this machine is reported, not failed.
+func _check_macos_template(preset_name: String, custom: String, binary: String) -> void:
+	var path := custom
+	if path.is_empty():
+		var version := Engine.get_version_info()
+		path = OS.get_data_dir().path_join("Godot/export_templates/%d.%d.%d.%s/macos.zip" % [version.major, version.minor,
+			version.patch, version.status])
+	if not FileAccess.file_exists(path):
+		print("NOTE %s: template %s is not on this machine, %s not checked" % [preset_name, path, binary])
+		return
+	var zip := ZIPReader.new()
+	_expect(zip.open(path) == OK, "%s: cannot open its template %s" % [preset_name, path])
+	var found := zip.get_files().has("macos_template.app/Contents/MacOS/" + binary)
+	zip.close()
+	_expect(found, "%s: template %s has no %s, so the export would fail" % [preset_name, path, binary])
+
+
+func _check_player_release_presets() -> void:
+	var presets := ConfigFile.new()
+	_expect(presets.load("res://export_presets.cfg") == OK, "export_presets.cfg does not load")
+	var player := {}
+	var excluded := PackedStringArray()
+	for section in presets.get_sections():
+		if section.ends_with(".options") or not presets.has_section_key(section, "name"):
+			continue
+		var name := String(presets.get_value(section, "name"))
+		var features := String(presets.get_value(section, "custom_features", "")).split(",")
+		if name.ends_with("Player Release"):
+			player[name] = true
+			_expect(features.has("player") and not features.has("internal"), "%s is not a player-only build" % name)
+			_expect(bool(presets.get_value(section, "encrypt_pck", false)) and bool(presets.get_value(section, "encrypt_directory", false)),
+				"%s does not encrypt its PCK" % name)
+			excluded = String(presets.get_value(section, "exclude_filter", "")).split(",")
+			_expect(excluded.size() >= 3, "%s excludes no internal code" % name)
+			_expect(int(presets.get_value(section, "script_export_mode", -1)) == 2,
+				"%s does not export GDScript as compressed binary tokens (script_export_mode 2)" % name)
+		else:
+			_expect(features.has("internal"), "%s is not marked internal" % name)
+	# Godot's macOS templates (official and our encrypted ones) only ship *.universal binaries, so every macOS preset
+	# exports universal and tools/macos/thin_app.sh thins the app to arm64 afterwards (KT: Apple Silicon only).
+	# The template each preset uses must really contain the binary it asks for, or the export fails on the mini.
+	for section in presets.get_sections():
+		if section.ends_with(".options") or String(presets.get_value(section, "platform", "")) != "macOS":
+			continue
+		var mac_name := String(presets.get_value(section, "name"))
+		var arch := String(presets.get_value(section + ".options", "binary_format/architecture", ""))
+		_expect(arch == "universal", "%s builds %s (macOS presets export universal; the scripts thin to arm64)" % [mac_name, arch])
+		for kind in ["debug", "release"]:
+			_check_macos_template(mac_name, String(presets.get_value(section + ".options", "custom_template/" + kind, "")),
+				"godot_macos_%s.%s" % [kind, arch])
+	for wanted in ["macOS", "Windows", "Linux", "Android Phone", "Meta Quest", "iPhone"]:
+		_expect(player.has("%s Player Release" % wanted), "missing the %s Player Release preset" % wanted)
+	var offenders := []
+	for path in _shipped_sources("res://src") + _shipped_sources("res://scenes"):
+		if _excluded(path, excluded):
+			continue
+		var text := FileAccess.get_file_as_string(path)
+		for pattern in excluded:
+			var folder := pattern.strip_edges().trim_suffix("*")
+			if folder.ends_with("/") and text.contains("res://" + folder) and path != "res://src/look/perf_log.gd":
+				offenders.append("%s -> %s" % [path, folder])
+	_expect(offenders.is_empty(), "shipped code references excluded files: %s" % [offenders])
+
+
+func _shipped_sources(dir_path: String) -> Array:
+	var found := []
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return found
+	for file in dir.get_files():
+		if file.ends_with(".gd") or file.ends_with(".tscn"):
+			found.append(dir_path.path_join(file))
+	for sub in dir.get_directories():
+		found.append_array(_shipped_sources(dir_path.path_join(sub)))
+	return found
+
+
+func _excluded(path: String, patterns: PackedStringArray) -> bool:
+	for pattern in patterns:
+		if path.trim_prefix("res://").match(pattern.strip_edges()):
+			return true
+	return false
 
 
 ## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it

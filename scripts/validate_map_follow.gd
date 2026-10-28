@@ -49,6 +49,13 @@ func run(host: Node) -> int:
 	# zoom while following keeps the runner centred
 	map.zoom_at(1.5, Vector2(30, 30))
 	_expect(map.view_center().distance_to(Vector2(20, 9)) < 0.05 and map.follow_player, "zooming moved the view off the runner")
+	# the player arrow keeps a constant on-screen size on the full map at the smallest and largest zoom
+	for zoom in [FacilityMap.MIN_MAP_ZOOM, 1.0, FacilityMap.MAX_MAP_ZOOM]:
+		var reach := FacilityMap.arrow_reach(map._base_cell_scale * zoom, true)
+		_expect(reach >= FacilityMap.PLAYER_ARROW_MIN and reach <= FacilityMap.PLAYER_ARROW_MAX,
+			"the full-map arrow is %.1f units at zoom %.2f (keep %.0f..%.0f)" % [reach, zoom, FacilityMap.PLAYER_ARROW_MIN, FacilityMap.PLAYER_ARROW_MAX])
+	_expect(is_equal_approx(FacilityMap.arrow_reach(40.0, true), FacilityMap.arrow_reach(2.0, true)), "the full-map arrow grows with zoom")
+	_expect(FacilityMap.arrow_reach(40.0, true) <= 40.0, "the zoomed-in arrow is bigger than a cell")
 	# manual pan stops following
 	map.pan_screen(Vector2(40, 0))
 	_expect(not map.follow_player, "panning did not turn follow off")

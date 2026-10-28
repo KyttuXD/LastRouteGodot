@@ -160,7 +160,7 @@ func _show_sign_in() -> void:
 	_status.text = "NOT SIGNED IN // PLAY WITHOUT AN ACCOUNT OR SIGN IN TO SAVE ACROSS DEVICES"
 	if not Backend.accounts_available():
 		var warning := Backend.account_transport_warning()
-		_status.text = warning if not warning.is_empty() else "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
+		_status.text = ServerPrivacy.scrub(warning) if not warning.is_empty() else "ACCOUNT SIGN-IN IS DISABLED ON THIS SERVER"
 		_status.add_theme_color_override("font_color", Palette.ALERT)
 	elif not Backend.account_transport_warning().is_empty():
 		_status.text += "\n%s" % Backend.account_transport_warning()
@@ -345,7 +345,7 @@ func _submit_password() -> void:
 ## when the state changed sides, so a failed attempt's message is not erased by a rebuild.
 func _on_account_changed(signed_in_now: bool, _username_value: String, _admin: bool, message: String) -> void:
 	if _status != null and is_instance_valid(_status):
-		_status.text = message
+		_status.text = ServerPrivacy.scrub(message)
 	var showing_form := _username != null and is_instance_valid(_username)
 	var showing_management := _manage_username != null and is_instance_valid(_manage_username)
 	if (signed_in_now and showing_form) or (not signed_in_now and not showing_form):
@@ -360,4 +360,4 @@ func _on_progress_changed(_available: bool, _progress: Dictionary, _saved_at: in
 	if _mode == "main" and _surface != null:
 		show_main()
 		if _status != null and is_instance_valid(_status):
-			_status.text = message
+			_status.text = ServerPrivacy.scrub(message)

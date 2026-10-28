@@ -86,6 +86,10 @@ func stop_all() -> void:
 
 func _exit_tree() -> void:
 	stop_all()
+	# a bed still rendering on the worker pool must finish before this autoload goes away (it runs our method)
+	for key in _ambience_jobs.keys():
+		WorkerThreadPool.wait_for_task_completion(int(_ambience_jobs[key]["task"]))
+	_ambience_jobs.clear()
 
 
 func collect() -> bool:
@@ -393,6 +397,12 @@ func _fade_in_ambience(new_player: AudioStreamPlayer, key: String, fade: Tween) 
 var _ambience_jobs := {}   # key -> {"task": WorkerThreadPool id, "out": [stream]}
 
 
+## Render a bed in the background ahead of need (PlatformProfile.prerender_ambience at boot).
+func prerender_ambience(key: String) -> void:
+	if key != "" and not _ambience_cache.has(key):
+		_render_ambience_async(key)
+
+
 func _render_ambience_async(key: String) -> void:
 	if _ambience_jobs.has(key):
 		return
@@ -439,43 +449,7 @@ func render_ambience(key: String) -> AudioStreamWAV:
 
 ## Pure: no shared state, safe on a worker thread.
 func _render_ambience_uncached(key: String) -> AudioStreamWAV:
-	var seconds := AmbienceTable.LOOP_SECONDS
-	var components := []
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(key)
-	for layer_value in AmbienceTable.layers(key):
-		var layer: Dictionary = layer_value
-		var hz := float(layer.get("hz", 200.0))
-		var vol := float(layer.get("vol", .005))
-		match String(layer.get("kind", "hum")):
-			"hum":
-				components.append({"kind": "tone", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "wave": "sine", "pan": 0.0, "flat": true})
-			"noise":
-				var swell := float(layer.get("swell", 0.0))
-				components.append({"kind": "noise", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "pan": 0.0, "rate": 1.0, "flat": true, "swell": swell})
-			"pulse":
-				var every := maxf(.1, float(layer.get("every", 1.0)))
-				var t := 0.0
-				while t < seconds - .05:
-					components.append(_tone(hz, float(layer.get("len", .1)), vol, t, String(layer.get("wave", "sine")), rng.randf_range(-.3, .3)))
-					t += every
-			"chirp":
-				for _i in int(layer.get("count", 3)):
-					var at := rng.randf_range(0.0, seconds - .3)
-					for k in 3:
-						components.append(_tone(hz * rng.randf_range(.9, 1.15), .05, vol, at + k * .07, "triangle", rng.randf_range(-.6, .6)))
-	var stream := _render_components(components, abs(key.hash()), seconds)
-	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	stream.loop_begin = 0
-	stream.loop_end = int(seconds * SAMPLE_RATE)
-	# One guard frame after loop_end, a copy of frame 0 so the seam stays clean. With loop_end on the very last frame,
-	# Android's mixer interpolates one frame past the end of the buffer and the hardened allocator kills the process
-	# (SIGSEGV in the AudioTrack thread as a route starts).
-	var data := stream.data
-	data.resize(stream.loop_end * 4)
-	data.append_array(data.slice(0, 4))
-	stream.data = data
-	return stream
+	return AmbienceSynth.render(key, AmbienceTable.layers(key))
 
 
 ## Public for the headless audio check and future waveform previews. Callers
@@ -670,6 +644,15 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"carnival_miss_swing": c = [_noise(.1, .05, 800, 0, pan, .8)]
 		"carnival_miss": c = [_tone(220, .2, .05, 0, "triangle", pan), _tone(165, .3, .05, .15, "triangle", pan)]
 		"carnival_hook": c = [_noise(.08, .04, 1600, 0, pan, 1.0), _tone(900, .05, .04, 0, "triangle", pan)]
+		"carnival_carousel_tune":
+			# a waltz on a music box that has been left out in the damp: every note a little off, one flat, the bass a beat late
+			var melody := [523.3, 659.3, 784.0, 659.3, 880.0, 784.0, 659.3, 587.3, 523.3, 659.3, 784.0, 1046.5, 880.0, 784.0, 698.5, 659.3]
+			for i in melody.size():
+				var off := 1.0 + 0.018 * sin(float(i) * 2.3) - (0.04 if i == 11 else 0.0)
+				c.append(_tone(float(melody[i]) * off, .42, .05, float(i) * .5, "triangle", pan))
+				if i % 4 == 0:
+					c.append(_tone(130.8 if i % 8 == 0 else 196.0, .9, .035, float(i) * .5 + 0.03, "square", pan))
+		"carnival_lever": c = [_thump(80, .2, .2, 0, pan), _tone(220, .15, .08, 0, "square", pan), _noise(.12, .08, 700, .05, pan, .8)]
 		"carnival_tick": c = [_tone(1400, .02, .03, 0, "square", pan)]
 		"carnival_pop": c = [_thump(160, .08, .1, 0, pan), _tone(700, .05, .05, 0, "square", pan)]
 		"carnival_clang": c = [_tone(1200, .3, .1, 0, "square", pan), _tone(1900, .25, .06, 0, "triangle", pan), _noise(.06, .08, 3000, 0, pan, 1.2)]

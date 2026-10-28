@@ -118,7 +118,7 @@ func _check_teammates_and_icons() -> void:
 		_expect(colour == RemotePlayers.peer_colour(id), "peer %d colour is not stable" % id)
 		seen[colour.to_html()] = true
 	_expect(seen.size() == 8, "8 teammates share colours (%d distinct)" % seen.size())
-	_expect(FacilityMap.PLAYER_ARROW_MIN >= 7.0, "the full-map player arrow minimum is too small")
+	_expect(FacilityMap.arrow_reach(1.0, true) >= 7.0 and FacilityMap.arrow_reach(60.0, true) <= FacilityMap.PLAYER_ARROW_MAX, "the full-map player arrow is not a constant readable size")
 	var source := FileAccess.get_file_as_string("res://src/ui/facility_map.gd")
 	_expect(not source.contains("\t\t\t\t\t_draw_ladder_icon(icon_at"), "ladder icons are still drawn on the maps")
 	var map_source := source

@@ -47,19 +47,20 @@ func setup(run_player: Node3D, xr_origin: XROrigin3D, xr_left: XRController3D, x
 	left = xr_left
 	right = xr_right
 	for hand in [left, right]:
-		hand.add_child(_hand_mesh(hand == left))
+		hand.add_child(_hand_mesh(hand == left, Settings.effective_slim()))
 	Settings.visual_changed.connect(_wear_skin)
 
 
 ## The runner's own hand on each controller: the mannequin's forearm and hand cubes (the same parts as the first-person hand on
 ## flat screens), wearing the player's skin. Falls back to the plain glove boxes if the mannequin cannot be read.
-static func _hand_mesh(is_left: bool) -> Node3D:
+static func _hand_mesh(is_left: bool, slim: bool = false) -> Node3D:
 	var hand := Node3D.new()
 	hand.name = "HandModel"
-	var parts := PlayerController3D._mannequin_hand_parts()
+	var parts := PlayerController3D._mannequin_hand_parts(slim)
 	if not parts.is_empty():
 		var rig := Node3D.new()
 		rig.name = "SkinnedHand"
+		rig.set_meta("slim", slim)
 		# the parts are relative to the mannequin's right-hand prop point; mirror for the left, runner scale
 		rig.basis = Basis.from_scale(Vector3(-1.0 if is_left else 1.0, 1.0, 1.0) * PlayerModels.SCALE)
 		for part_value in parts:
@@ -91,6 +92,12 @@ static func _hand_mesh(is_left: bool) -> Node3D:
 func _wear_skin() -> void:
 	for hand in [left, right]:
 		var rig := hand.find_child("SkinnedHand", true, false) as Node3D if hand != null else null
+		if rig != null and bool(rig.get_meta("slim", false)) != Settings.effective_slim():
+			rig.get_parent().remove_child(rig)
+			rig.free()
+			var fresh := _hand_mesh(hand == left, Settings.effective_slim())
+			hand.add_child(fresh)
+			rig = fresh.find_child("SkinnedHand", true, false) as Node3D
 		if rig != null:
 			PlayerSkin.apply(rig, PlayerSkin.active_texture())
 
@@ -109,7 +116,9 @@ func step(delta: float) -> void:
 		_step_swing(now, delta)
 		_step_poke()
 	_last = now
-	(player.get("flashlight") as Node3D).global_transform = left.global_transform.translated_local(Vector3(0.0, 0.0, -0.06))
+	var lamp_source: Node3D = left if left.get_has_tracking_data() else player.get("xr_camera") as Node3D
+	var offset := Vector3(0.0, 0.0, -0.06) if lamp_source == left else Vector3(0.0, -0.08, -0.18)
+	(player.get("flashlight") as Node3D).global_transform = lamp_source.global_transform.translated_local(offset)
 
 
 func _step_climb(now: Dictionary) -> void:

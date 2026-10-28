@@ -178,6 +178,13 @@ func _expect_xr(route: Node) -> void:
 	_expect_keyboard_look(controller)
 	_expect_xr_hands(controller)
 	_expect_xr_head_follow(controller)
+	# A headset without a tracked right / left hand aims [E] and the flashlight with the head.
+	controller.xr_active = true
+	var head_aim := controller.interaction_aim().is_equal_approx(controller.xr_camera.global_transform)
+	var lamp_aim := controller.equipment_aim_direction().is_equal_approx(-controller.xr_camera.global_basis.z.normalized())
+	controller.xr_active = false
+	if not head_aim or not lamp_aim:
+		_fail("without tracked hands the headset does not aim [E] (%s) and the flashlight (%s) from the head" % [head_aim, lamp_aim])
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:
@@ -187,8 +194,11 @@ func _expect_xr(route: Node) -> void:
 		if not is_equal_approx(controller._flashlight_probe.target_position.z,
 				-PlayerController3D.FLASHLIGHT_MAX_RANGE):
 			_fail("the flashlight ray does not cover the beam range")
-	if not controller.flashlight.shadow_enabled:
-		_fail("the flashlight does not cast wall/prop shadows")
+	# Quality tiers: the flashlight casts shadows on every desktop tier but LOW (QualityTier); judge it per the live tier.
+	if PlatformProfile.shadows and not controller.flashlight.shadow_enabled:
+		_fail("the flashlight does not cast wall/prop shadows (tier %s keeps shadows)" % PlatformProfile.tier_readout())
+	if not PlatformProfile.shadows and controller.flashlight.shadow_enabled:
+		_fail("the flashlight casts shadows on tier %s, which drops them" % PlatformProfile.tier_readout())
 	var beam_color := controller.flashlight.light_color
 	var beam_color_error := maxf(absf(beam_color.r - 1.0), maxf(
 		absf(beam_color.g - 1.0), absf(beam_color.b - 1.0)))

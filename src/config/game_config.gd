@@ -69,8 +69,14 @@ const SAFE_ZONE_LIMITS_BY_DIFFICULTY := {
 const MAX_STAMINA := 100.0
 const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
-const STAMINA_RECOVERY_DELAY := 0.65
+## KT: "no delay before stamina regeneration": regen starts the frame sprinting stops, at the normal rate.
+const STAMINA_RECOVERY_DELAY := 0.0
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
+## Troll mode for caught / flagged cheaters (docs/ANTI_CHEAT.md).
+const TROLL_HUNTER_SPEED_SCALE := 1.15
+const TROLL_STAMINA_DRAIN_SCALE := 1.6
+const TROLL_SCARE_SCALE := 2.5
+const TROLL_FAKE_STEP_SECONDS := Vector2(2.5, 6.0)
 
 ## A modest first-person hop rather than a platforming jump. These produce a
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to

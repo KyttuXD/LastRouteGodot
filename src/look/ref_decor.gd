@@ -538,7 +538,18 @@ static func _facing_basis(normal: Vector3) -> Basis:
 
 
 func _style() -> Dictionary:
-	return STYLE.get(_region, STYLE["maze"])
+	var style: Dictionary = STYLE.get(_region, STYLE["maze"])
+	var density := PlatformProfile.decor_density
+	if density >= 1.0:
+		return style
+	# Lower quality tiers (the Quest): pipes, cables, frames and teal trims are "one in N" draws; N grows so fewer spawn.
+	# Lamps keep their spacing (they light the way).
+	var thinned := style.duplicate()
+	for key in ["teal", "pipe", "cable", "frame"]:
+		var every := int(thinned.get(key, 0))
+		if every > 0 and every < 90:
+			thinned[key] = mini(89, ceili(every / maxf(density, .05)))
+	return thinned
 
 
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.
