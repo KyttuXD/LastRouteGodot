@@ -176,8 +176,13 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
   `custom_viewport` only moves where they are drawn.
-- **Scrolling:** on both panels the right stick scrolls what the laser points at. Scroll containers only drag-scroll
-  for touch, so this is what reaches ENTER ROUTE on the staging screen.
+- **Scrolling (`XRPanelScroll`, both panels):** a hint under each panel says how.
+  - Either stick, up or down, scrolls the list under the laser (or the focused one), smoothly and faster the longer
+    it's held. Left and right step the menu carousel.
+  - Hold the trigger and drag to scroll like a finger. A press that stays inside the dead zone is a click. Sliders and
+    scroll bars keep their normal drag.
+  - Lists scrolled this way show their scroll bar. Scroll containers only drag-scroll for touch, which is why the
+    panels need this; it's also how you reach ENTER ROUTE on the staging screen.
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
 

@@ -133,18 +133,13 @@ func _check_xr_route_panel(host: Node) -> void:
 	panel.call("_click", false)
 	await host.get_tree().process_frame
 	_expect(clicks[0] == 1, "a laser click on the XR route panel did not press the button under it (%d)" % clicks[0])
-	# The right stick scrolls: nothing inside the dead zone, one step past it, then a short wait between steps.
-	var wait := XRMenuPanel.scroll_from_stick(0.2, Vector2(240, 135), 0.0, 0.016)
-	var stepped := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), 0.0, 0.016)
-	var waiting := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), stepped, 0.016)
-	_expect(wait == 0.0 and is_equal_approx(stepped, XRMenuPanel.SCROLL_STEP_SECONDS) and waiting < stepped and waiting > 0.0,
-		"the XR panel stick scroll steps wrongly (%s %s %s)" % [wait, stepped, waiting])
 	open[0] = false
 	panel._process(0.0)
 	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
 	route.queue_free()
 	await host.get_tree().process_frame
 	await _check_xr_keyboard(host)
+	await _check_xr_panel_scroll(host)
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -176,6 +171,49 @@ func _check_xr_keyboard(host: Node) -> void:
 	keyboard._process(0.0)
 	_expect(not keyboard.is_open(), "the XR keyboard stays open after the field lost focus")
 	keyboard.queue_free()
+	layer.queue_free()
+	await host.get_tree().process_frame
+
+
+## XR panel scrolling (XRPanelScroll): a stick held on either controller scrolls the list in use (here the focused one)
+## down and back up, faster with time; a trigger press that stays inside the dead zone is a click, one that moves
+## drags the list like a finger.
+func _check_xr_panel_scroll(host: Node) -> void:
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var list := ScrollContainer.new()
+	list.position = Vector2(40, 40)
+	list.size = Vector2(200, 120)
+	layer.add_child(list)
+	var column := VBoxContainer.new()
+	column.custom_minimum_size = Vector2(180, 900)
+	list.add_child(column)
+	var row := Button.new()
+	row.text = "ROW"
+	column.add_child(row)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	row.grab_focus()
+	var root := host.get_tree().root
+	_expect(XRPanelScroll.target_in(root) == list, "the XR panel scroll does not find the list in use")
+	var scroll := XRPanelScroll.new()
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)   # right stick down
+	var first := list.scroll_vertical
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)
+	var second := list.scroll_vertical - first
+	_expect(first > 0 and second > first, "stick down did not scroll the list faster over time (%d then %d)" % [first, second])
+	var before := list.scroll_vertical
+	scroll.stick(root, [Vector2(0, 1), Vector2.ZERO], 0.25)   # left stick up
+	_expect(list.scroll_vertical < before, "the left stick does not scroll back up")
+	scroll.stick(root, [Vector2.ZERO, Vector2.ZERO], 0.1)
+	scroll.press(root, Vector2(120, 100))
+	_expect(not scroll.move(root, Vector2(121, 102)) and not scroll.release(), "a still trigger press is not a click")
+	list.scroll_vertical = 100
+	scroll.press(root, Vector2(120, 100))
+	var dragged := scroll.move(root, Vector2(120, 60))
+	var after_drag := list.scroll_vertical
+	_expect(dragged and scroll.release() and absi(after_drag - 140) <= 1,
+		"dragging up 40 units did not scroll the list down 40 (now %d)" % after_drag)
 	layer.queue_free()
 	await host.get_tree().process_frame
 
