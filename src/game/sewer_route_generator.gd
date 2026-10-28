@@ -439,11 +439,13 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		for spec in breakables:
 			for cell in spec["extras"]["cells"]:
 				StreamedRouteGenerator._exclude_neighbourhood(gate_cells, cell, 1)
+	var region_props := _feature_props(coord, features)
+	breakables = _pipe_breakables(coord, sewer_grid, region_props) + breakables   # the pipes' ids count from 0, the seals' from 100
 	return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord), "level": coord.y,
 		"biome": "sewer", "region": "sewer", "grid": grid, "sewer_grid": sewer_grid,
 		"rooms": room_entries, "corridors": [], "suites": [],
 		"edges": {"west": seam, "east": seam, "north": seam, "south": seam},
-		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": _feature_props(coord, features),
+		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": region_props,
 		"fixtures": _fixtures(coord, grid, room_entries, features),
 		"pickups": _pickups(coord, sewer_grid, grid, features, links, sealed, gate_cells),
 		"breakables": breakables, "sealed_cells": sealed.keys(),
@@ -571,7 +573,7 @@ func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, 
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
-			item = StreamedRouteGenerator.PICKUP_TYPES[rng.next_index(StreamedRouteGenerator.PICKUP_TYPES.size())]
+			item = StreamedRouteGenerator.pick_tool(rng)
 		result.append({"id": surface.pickup_id(coord, index, kind), "cell": cell, "kind": kind, "item": item})
 	return result
 
@@ -752,6 +754,70 @@ func _outflow_features(coord: Vector3i, grid: Array, features: Array, links: Arr
 			return [{"type": "sewerOutflowPipe", "cell": middle, "yaw": wall_yaw(wall), "outflow_wall": wall,
 				"outflow": true, "cells": cells, "step": along}]
 	return []
+
+
+## The Axe breaks the sewer's pipes (docs/BREACH.md, KIND_PIPE, variant "authored": the view draws and removes the pipe
+## itself). One spec per crawl pipe (its two mains) and per outflow main, in feature order so the ids are stable per seed.
+## Each names its props (they carry "breakable_id") and the walkway cells its burst floods: dry floor within
+## FLOOD_REACH steps of the pipe's cells, at most FLOOD_MAX_CELLS of them.
+const PIPE_TOOLS := ["rescue_axe"]
+const PIPE_HP := {"crawl": 3, "outflow": 4}
+const FLOOD_REACH := 4
+const FLOOD_MAX_CELLS := 40
+
+
+func _pipe_breakables(coord: Vector3i, sewer_grid: Array, region_props: Array) -> Array:
+	var out := []
+	var by_cells := {}     # a crawl pipe's two mains share their cells: one spec for both
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		var pipe := "outflow" if bool(prop.get("outflow", false)) else ("crawl" if bool(prop.get("crawl_under", false)) else "")
+		if pipe.is_empty():
+			continue
+		var cells: Array = prop["occupied_cells"]
+		var key := str(cells)
+		if by_cells.has(key):
+			var spec: Dictionary = out[int(by_cells[key])]
+			(spec["extras"]["props"] as Array).append(prop["id"])
+			prop["breakable_id"] = spec["id"]
+			continue
+		var middle: Vector2i = cells[cells.size() / 2]
+		var along: Vector2i = prop["crawl_step"]
+		var id := Breach.make_id(coord, out.size())
+		prop["breakable_id"] = id
+		by_cells[key] = out.size()
+		out.append(Breach.make_spec(id, Breach.KIND_PIPE, "authored", coord, middle, int(PIPE_HP[pipe]), PIPE_TOOLS, {
+			"pipe": pipe, "props": [prop["id"]], "cells": cells.duplicate(),
+			"centre": Vector2(middle) + Vector2(.5, .5), "dir": Vector2(along),
+			"flood_cells": _flood_cells(sewer_grid, cells)}))
+	return out
+
+
+## Dry walkway cells a burst pipe floods: a walk outward from its cells over dry floor and decks, FLOOD_REACH steps,
+## nearest first, at most FLOOD_MAX_CELLS (the pipe's own cells included).
+static func _flood_cells(sewer_grid: Array, cells: Array) -> Array:
+	var seen := {}
+	var queue := []
+	for cell in cells:
+		seen[cell] = 0
+		queue.append(cell)
+	var cursor := 0
+	while cursor < queue.size() and queue.size() < FLOOD_MAX_CELLS:
+		var cell: Vector2i = queue[cursor]
+		cursor += 1
+		if int(seen[cell]) >= FLOOD_REACH:
+			continue
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + (step as Vector2i)
+			if seen.has(next) or next.x < 0 or next.y < 0 or next.x >= CHUNK_SIZE or next.y >= CHUNK_SIZE:
+				continue
+			if not is_walkable(int(sewer_grid[next.y][next.x])):
+				continue
+			seen[next] = int(seen[cell]) + 1
+			queue.append(next)
+			if queue.size() >= FLOOD_MAX_CELLS:
+				break
+	return queue
 
 
 ## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.

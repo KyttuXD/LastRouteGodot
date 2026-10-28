@@ -9,10 +9,10 @@ const NECK_LIFTERS := ["kathy", "xivvy", "umbriel", "elise", "wynelle", "ravelle
 ## A hunter whose model has arms, for each style (the creature rig for its own).
 const STYLE_HUNTER := {
 	"neck_lift": "kathy", "shoulder_grab": "dovelle", "tackle": "haelith", "wrist_yank": "aki", "wrap": "briselle",
-	"leg_grab": "ceryth", "upside_down": "xivvy", "bear_hug": "kathy", "collar_drag": "javelle", "wall_pin": "opalie",
+	"leg_grab": "ceryth", "upside_down": "xivvy", "shoulder_carry": "kathy", "collar_drag": "javelle", "wall_pin": "opalie",
 	"pounce_pin": SecretCreatures.IDS[0],
 }
-const LIFTED := ["neck_lift", "bear_hug", "upside_down"]
+const LIFTED := ["neck_lift", "shoulder_carry", "upside_down"]
 const FLOORED := ["tackle", "leg_grab", "pounce_pin"]
 
 var _failures := 0
@@ -82,7 +82,7 @@ func _expect_picks() -> void:
 		var roll := GrabStyles.roll_for("LOW", 1, i)
 		for id in NECK_LIFTERS:
 			var picked := GrabStyles.pick(String(id), roll, low)
-			_expect(not picked in [GrabStyles.NECK_LIFT, GrabStyles.UPSIDE_DOWN, GrabStyles.BEAR_HUG],
+			_expect(not picked in [GrabStyles.NECK_LIFT, GrabStyles.UPSIDE_DOWN, GrabStyles.SHOULDER_CARRY],
 				"%s lifts under a 2.1 m ceiling (%s)" % [id, picked])
 		var walled := GrabStyles.pick("opalie", roll, {"ceiling": 4.0, "back": .9, "hunter_back": 3.0})
 		_expect(walled in [GrabStyles.SHOULDER_GRAB, GrabStyles.WALL_PIN], "opalie picked %s by a wall" % walled)
@@ -165,6 +165,16 @@ func _hand_share(player: PlayerController3D) -> Vector2:
 	return Vector2(seen, tallest)
 
 
+## Her face: between her eyes (her head when the rig has no eyes).
+func _face_point(view: Node3D) -> Vector3:
+	var head := view.find_child("Head", true, false) as Node3D
+	var left := head.find_child("L-Eye-Attachment", true, false) as Node3D if head else null
+	var right := head.find_child("R-Eye-Attachment", true, false) as Node3D if head else null
+	if left != null and right != null:
+		return (left.global_position + right.global_position) * .5
+	return head.global_position if head != null else view.global_position + Vector3.UP * 2.0
+
+
 ## Angle between where her face points and `target` (the runner's camera), in 3D.
 func _facing_angle(view: Node3D, target: Vector3) -> float:
 	var head := view.find_child("Head", true, false) as Node3D
@@ -201,7 +211,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	grab.play(player, view, id, .5, style)
 	var previous := player.first_person_camera.global_transform
 	var worst := ""
-	var t_end := GrabStyles.TOTAL_SECONDS + .7
+	var t_end := GrabStyles.duration(style) + .7
 	var waited := 0.0
 	var flipped := false
 	var max_gap := 0.0
@@ -229,7 +239,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		var own := player.first_person_body()
 		if own.model != null and own.visible and not _head_hidden(own.model, player.first_person_camera) and worst.is_empty():
 			worst = "the runner's own head is visible to the first-person camera at %.2f s" % waited
-		if waited > .3 and own.model != null:
+		if waited > HunterGrab.CATCH_EASE + .05 and own.model != null:
 			var inside_self := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], 0, [own.model], .02)
 			if not inside_self.is_empty():
 				var part := inside_self.trim_prefix("hunter mesh (").trim_suffix(")")
@@ -243,7 +253,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 				HunterGrab.CLEARANCE + .03, true).is_empty()
 			if eye_clear and grab.pushes == pushes_seen:
 				eye_frames += 1
-				if camera.origin.distance_to(own.eye()) >= .15:
+				if camera.origin.distance_to(own.eye()) >= .03:   # at the head's front face plus at most 2 cm (and rounding)
 					drift_frames += 1
 		var roll := _roll_of(camera.basis)
 		var upright := camera.basis.y.y > 0.0
@@ -266,7 +276,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		_expect(widened > -.01 and widened <= HunterGrab.fov_widen + .01, "%s: the FOV moved %.1f deg" % [label, widened])
 		_expect(widened < .01 or waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS * .5, "%s: the view widened before the hold" % label)
 		# never behind the runner's eye plane (KT: in front of the head, not over the shoulder)
-		if own.model != null and waited > .3:
+		if own.model != null and waited > HunterGrab.CATCH_EASE + .05:
 			var front := -own.global_basis.z
 			var ahead := Vector3(front.x, 0.0, front.z).normalized()   # the plane through the eyes, square to where the body faces
 			_expect((camera.origin - own.eye()).dot(ahead) > -.03, "%s: the camera is %.2f m behind the runner's eyes at %.2f s" % [label,
@@ -277,25 +287,28 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		if float(GrabStyles.look_for(id)["delay"]) > 0.0 and waited > GrabStyles.REACH_SECONDS and waited < GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS:
 			away_seen = away_seen or _facing_angle(view, camera.origin) > deg_to_rad(40.0)
 	_expect(worst.is_empty(), "%s: %s" % [label, worst])
-	_expect(drift_frames <= eye_frames / 10, "%s: the camera left the body's eyes on %d of %d clear frames" % [label, drift_frames, eye_frames])
+	_expect(drift_frames == 0, "%s: the camera left the head's front face on %d of %d clear frames" % [label, drift_frames, eye_frames])
 	if style == GrabStyles.UPSIDE_DOWN:
 		_expect(flipped, "%s: the view never turned over" % label)
 	_expect(max_gap < CONTACT, "%s: a grip is %.1f cm off its contact during the hold" % [label, max_gap * 100.0])
 	# the hold: her face framed, not a close-up; her head turned to the camera as far as the neck goes; the hands on screen
 	var camera := player.first_person_camera.global_transform
 	var head := view.find_child("Head", true, false) as Node3D
-	if head != null:
-		# pinned to a wall by a hunter half again your size, her face is closer: still framed, never inside
-		# pinned to a wall, or hugged, by a hunter half again your size: her face is close (framed, never inside)
+	# carried over her shoulder the runner looks down her back: her face is not theirs to see
+	if head != null and style != GrabStyles.SHOULDER_CARRY:
 		# crushed in a hug against a body half again your size, her face is right there: framed (and the view widened), not inside
-		var face_min := .3 if style in [GrabStyles.WRAP, GrabStyles.BEAR_HUG] else FACE_MIN
+		var face_min := .3 if style == GrabStyles.WRAP else FACE_MIN
 		_expect(camera.origin.distance_to(head.global_position) >= face_min, "%s: the camera is %.2f m from her face" % [label, camera.origin.distance_to(head.global_position)])
 		var screen := player.first_person_camera.unproject_position(head.global_position)
 		var size := player.get_viewport().get_visible_rect().size
 		_expect(not player.first_person_camera.is_position_behind(head.global_position) and Rect2(size * .1, size * .8).has_point(screen),
 			"%s: her face is not framed (%s)" % [label, screen])
 		var angle := _facing_angle(view, camera.origin)
-		_expect(angle < deg_to_rad(15.0), "%s: she looks %.0f deg away from the runner at the hold" % [label, rad_to_deg(angle)])
+		_expect(angle < deg_to_rad(10.0), "%s: she looks %.0f deg away from the runner at the hold" % [label, rad_to_deg(angle)])
+		# and the runner's view is centred on her face
+		var face := _face_point(view)
+		var off := (-camera.basis.z).angle_to(face - camera.origin)
+		_expect(off < deg_to_rad(10.0), "%s: her face is %.0f deg off the centre of the view at the hold" % [label, rad_to_deg(off)])
 	if float(GrabStyles.look_for(id)["delay"]) > 0.0:
 		_expect(away_seen, "%s: shy %s never looked away" % [label, id])
 	# the runner's own body: the same model and scale as the third-person player (KT: not doll-sized), skinned, no head
@@ -342,8 +355,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		route.add_child(body)
 		body.scale = Vector3.ONE * PlayerModels.SCALE
 		body.global_position = player.global_position + Vector3.UP * float(sent[2])
-		body.global_basis = Basis.from_euler(Vector3(float(sent[3]), GrabStyles.body_yaw(grab._along, float(pose["face"])), 0.0)) \
-			* Basis.from_scale(body.scale)
+		body.rotation = Vector3(float(sent[3]), GrabStyles.body_yaw(grab._along, float(pose["face"])), 0.0)   # as RemotePlayers does
 		await route.get_tree().process_frame
 		_expect(absf(body.global_basis.get_scale().y / player._body_model.global_basis.get_scale().y - 1.0) < .02,
 			"%s: a guest's copy of the runner is not the player's size" % label)
@@ -391,11 +403,15 @@ func _expect_every_hunter_looks(route: Node, player: PlayerController3D, grab: H
 			continue
 		grab.play(player, view, String(id), .5, style)
 		var waited := 0.0
-		while waited < GrabStyles.TOTAL_SECONDS + .6:
+		while waited < GrabStyles.duration(style) + .6:
 			await route.get_tree().process_frame
 			waited += route.get_process_delta_time()
 		var angle := _facing_angle(view, player.first_person_camera.global_position)
-		_expect(angle < deg_to_rad(15.0), "%s (%s): she looks %.0f deg away from the runner at the hold" % [id, style, rad_to_deg(angle)])
+		_expect(angle < deg_to_rad(10.0), "%s (%s): she looks %.0f deg away from the runner at the hold" % [id, style, rad_to_deg(angle)])
+		if style != GrabStyles.SHOULDER_CARRY:
+			var cam := player.first_person_camera.global_transform
+			var off := (-cam.basis.z).angle_to(_face_point(view) - cam.origin)
+			_expect(off < deg_to_rad(10.0), "%s (%s): her face is %.0f deg off the centre of the view" % [id, style, rad_to_deg(off)])
 		grab.release()
 		view.queue_free()
 		await route.get_tree().process_frame
