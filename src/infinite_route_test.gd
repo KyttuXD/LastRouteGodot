@@ -1794,7 +1794,7 @@ func _update_streamed_maps() -> void:
 	# Region boundaries expose generation information, so they follow the same
 	# authenticated visual-admin permission as hunter/map reveal controls.
 	var show_admin_regions := Build.admin_permission("visual") and _admin_region_map
-	var remote_map_players := _remotes.remote_player_marks(-level) \
+	var remote_map_players := _remotes.remote_player_marks(-level, true) \
 		if _remotes != null else []
 	var dropped_tool_marks := _dropped_tool_marks(level)
 	var discovered_map_chunks := _map_chunks_with_available_pickups(_discovered_chunks)

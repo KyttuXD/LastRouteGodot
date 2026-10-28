@@ -1076,14 +1076,17 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 ## Map-safe view of fresh remote transforms. The caller supplies the same
 ## depth value that is replicated in movement packets, preventing teammates on
 ## upper/lower floors from leaking onto the current floor's map.
-func remote_player_marks(depth: int) -> Array:
+## include_other_floors: teammates on a different storey also come back, flagged "other_floor" (the maps show them as an up/down marker).
+func remote_player_marks(depth: int, include_other_floors: bool = false) -> Array:
 	var result := []
 	var now := Time.get_ticks_usec()
 	for id_value in _states:
 		var id := int(id_value)
 		var state: Dictionary = _states[id]
-		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC \
-				or int(state.get("depth", -999999)) != depth:
+		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
+			continue
+		var other_floor := int(state.get("depth", -999999)) != depth
+		if other_floor and not include_other_floors:
 			continue
 		var marker_position = state.get("position")
 		if not marker_position is Vector2:
@@ -1093,8 +1096,10 @@ func remote_player_marks(depth: int) -> Array:
 			"at": marker_position,
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
-			"level": -depth,
+			"level": -int(state.get("depth", depth)),
 			"colour": peer_colour(id),
+			"spectating": bool(state.get("spectating", false)) or bool(state.get("game_over", false)),
+			"other_floor": other_floor,
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)
