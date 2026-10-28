@@ -224,6 +224,122 @@ func audit_door(door_pos: Array, frames: int = 150) -> Dictionary:
 	return best
 
 
+## Why can the player not move? Lists what overlaps the body (physics query), what blocks a 0.5 m move in each direction (test_move), and the
+## navigation's view of the start cell and its neighbours. Used by goto_check when the bot stands still although a path exists.
+func collision_report() -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var p := player.global_position
+	var out := {"ok": true, "player": {"pos": [snappedf(p.x, .01), snappedf(p.y, .01), snappedf(p.z, .01)], "layer": player.collision_layer, "mask": player.collision_mask,
+		"on_floor": player.is_on_floor(), "frozen": player.input_frozen, "noclip": player.admin_noclip, "velocity": [snappedf(player.velocity.x, .01), snappedf(player.velocity.y, .01), snappedf(player.velocity.z, .01)]}}
+	# the player's own collision shape(s)
+	var shapes: Array = []
+	for node in player.find_children("*", "CollisionShape3D", true, false):
+		var shape_node := node as CollisionShape3D
+		if shape_node == null or shape_node.shape == null:
+			continue
+		shapes.append({"path": str(player.get_path_to(shape_node)), "disabled": shape_node.disabled, "shape": _shape_text(shape_node.shape), "center": _v3(shape_node.global_position)})
+	out["player_shapes"] = shapes
+	# 1. everything overlapping the body (inflated by 5 cm)
+	var overlaps: Array = []
+	var space := player.get_world_3d().direct_space_state
+	for shape_info in player.find_children("*", "CollisionShape3D", true, false):
+		var node := shape_info as CollisionShape3D
+		if node == null or node.shape == null or node.disabled:
+			continue
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = node.shape
+		query.transform = node.global_transform
+		query.margin = .05
+		query.collision_mask = player.collision_mask
+		query.exclude = [player.get_rid()]
+		for hit in space.intersect_shape(query, 16):
+			overlaps.append(_describe_collider(hit.get("collider"), int(hit.get("shape", 0)), p))
+	out["overlapping"] = overlaps
+	# 2. what stops a 0.5 m step in each direction
+	var blockers := {}
+	for entry in [["forward", Vector3(0, 0, -1)], ["back", Vector3(0, 0, 1)], ["left", Vector3(-1, 0, 0)], ["right", Vector3(1, 0, 0)]]:
+		var direction: Vector3 = (player.global_transform.basis * (entry[1] as Vector3)).normalized() * .5
+		var collision := KinematicCollision3D.new()
+		if player.test_move(player.global_transform, direction, collision):
+			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p)
+			hit["normal"] = _v3(collision.get_normal())
+			hit["depth"] = snappedf(collision.get_depth(), .001)
+			hit["hit_at"] = _v3(collision.get_position())
+			blockers[String(entry[0])] = hit
+		else:
+			blockers[String(entry[0])] = "free"
+	out["blocked_directions"] = blockers
+	# 3. the navigation's view of the start cell and its neighbours
+	var cell := Vector2i(floori(p.x), floori(p.z))
+	var grid: Array = []
+	for dz in range(-1, 2):
+		var row: Array = []
+		for dx in range(-1, 2):
+			var c := cell + Vector2i(dx, dz)
+			row.append({"cell": [c.x, c.y], "floor": nav.is_floor(c.x + .5, c.y + .5), "can_occupy": nav.can_occupy(c.x + .5, c.y + .5)})
+		grid.append(row)
+	var solid_props: Variant = nav.get("_solid_prop_cells")
+	out["nav"] = {"cell": [cell.x, cell.y], "grid_3x3_rows_z_minus1_to_plus1": grid, "solid_prop_cell": (solid_props is Dictionary and (solid_props as Dictionary).has(cell)),
+		"safe_zone_blocked": nav.get_safe_zone_blocked_cells().has(cell), "room": nav.room_at(p.x, p.z).get("id", nav.room_at(p.x, p.z).get("kind", ""))}
+	return out
+
+
+func _v3(v: Vector3) -> Array:
+	return [snappedf(v.x, .01), snappedf(v.y, .01), snappedf(v.z, .01)]
+
+
+func _shape_text(shape: Shape3D) -> String:
+	if shape is CapsuleShape3D:
+		return "capsule r=%.2f h=%.2f" % [(shape as CapsuleShape3D).radius, (shape as CapsuleShape3D).height]
+	if shape is BoxShape3D:
+		return "box size=%s" % [(shape as BoxShape3D).size]
+	if shape is CylinderShape3D:
+		return "cylinder r=%.2f h=%.2f" % [(shape as CylinderShape3D).radius, (shape as CylinderShape3D).height]
+	if shape is SphereShape3D:
+		return "sphere r=%.2f" % (shape as SphereShape3D).radius
+	return shape.get_class()
+
+
+## What a collider is: node path, class, the prop/owner it belongs to, shape text, a world AABB and its distance from the player.
+func _describe_collider(collider: Variant, shape_index: int, from: Vector3) -> Dictionary:
+	var info := {"node": "?", "class": "?", "owner_chain": [], "shape": "?", "aabb": [], "distance": -1.0}
+	if not (collider is Node):
+		info["node"] = str(collider)
+		return info
+	var node := collider as Node
+	info["node"] = str(node.get_path())
+	info["class"] = node.get_class()
+	var chain: Array = []
+	var walker: Node = node
+	for _i in 5:
+		if walker == null:
+			break
+		chain.append("%s(%s)" % [walker.name, walker.get_class()])
+		walker = walker.get_parent()
+	info["owner_chain"] = chain
+	if node is CollisionObject3D:
+		var body := node as CollisionObject3D
+		info["layer"] = body.collision_layer
+		var owners: Array = body.get_shape_owners()
+		if shape_index >= 0 and shape_index < owners.size() + 8:
+			for owner_id in owners:
+				for shape_i in body.shape_owner_get_shape_count(owner_id):
+					var shape := body.shape_owner_get_shape(owner_id, shape_i)
+					info["shape"] = _shape_text(shape)
+					var shape_transform := body.global_transform * body.shape_owner_get_transform(owner_id)
+					var aabb := shape.get_debug_mesh().get_aabb() if shape != null else AABB()
+					var world := shape_transform * aabb
+					info["aabb"] = [_v3(world.position), _v3(world.size)]
+					info["distance"] = snappedf((world.get_center() - from).length(), .01)
+					break
+				break
+	return info
+
+
 func probe_interact(kind: String, frames: int = 120) -> Dictionary:
 	var scene := tree.current_scene
 	if not _route_ready(scene):

@@ -44,6 +44,12 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 		wire["triggered"] = true
 		_window_triggered = true
 		triggered_count += 1
+		# RAVELLE TRAPS (docs/RAVELLE_TRAPS.md): the wire trips the runner -- a short stun for the one who walked into it,
+		# and the bells ring: nearby hunters come to the spot (Ravelle herself is already locked on below).
+		brain.world_events.append({"what": "stun", "seconds": GameConfig.RAVELLE_TRAP_STUN,
+			"message": "TRIPWIRE // STUNNED"})
+		brain.world_events.append({"what": "facility_alert", "at": target_position, "sound": "alert",
+			"message": "BELLS RING DOWN THE HALL"})
 		brain.state = HunterBrain.State.CHASE
 		brain.has_last_known = true
 		brain.last_known = target_position
@@ -90,6 +96,40 @@ static func _doorway_cells(generator) -> Array:
 		if horizontal or vertical:
 			cells.append(cell)
 	return cells
+
+
+## Cuts a wire (the runner's slow, noisy disarm); returns true when one was cut. `index` is the wire's slot.
+func cut_wire(index: int) -> bool:
+	if index < 0 or index >= _wires.size() or bool(_wires[index]["triggered"]):
+		return false
+	_wires[index]["triggered"] = true
+	return true
+
+
+## The wires every peer draws (live ones shimmer; spent ones are gone) and the host's trap state for late joiners.
+func wires() -> Array:
+	return _wires
+
+
+func network_state() -> Dictionary:
+	var out := []
+	for wire in _wires:
+		out.append({"a": wire["a"], "b": wire["b"], "t": bool(wire["triggered"])})
+	return {"wires": out, "n": triggered_count}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	var list = state.get("wires", [])
+	if not list is Array:
+		return
+	_wires.clear()
+	for entry in list:
+		if entry is Dictionary and entry.get("a") is Vector2 and entry.get("b") is Vector2:
+			var a: Vector2 = entry["a"]
+			var b: Vector2 = entry["b"]
+			_wires.append({"a": a, "b": b, "position": (a + b) * .5, "cell": Vector2i((a + b) * .5), "triggered": bool(entry.get("t", false))})
+	_has_wires = true
+	triggered_count = int(state.get("n", triggered_count))
 
 
 static func _distance_to_segment(point: Vector2, a: Vector2, b: Vector2) -> float:

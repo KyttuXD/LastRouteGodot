@@ -50,6 +50,10 @@ func audit_door(_door_pos: Array, _frames: int = 150) -> Dictionary:
 	return {"ok": false, "error": "not supported by %s" % game_id}
 
 
+func collision_report() -> Dictionary:
+	return {"ok": false, "error": "not supported by %s" % game_id}
+
+
 func path_report(_goal: Vector2i) -> Dictionary:
 	return {"ok": false, "error": "not supported by %s" % game_id}
 
