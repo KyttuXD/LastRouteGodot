@@ -177,10 +177,117 @@ sha256 of every file)`, built-in content included, so that a client with
 mismatched data also shows up. The host sends its hash and pack list in the
 join handshake. A client with a different hash is refused before it
 generates anything, and is told which packs differ. Generation is seeded, so
-an identical hash plus an identical seed gives an identical world. Mod
-downloads from the host are out of scope for v1, and players install packs
-themselves. The anti-cheat work in the WORLD lane can reuse the built-in
+an identical hash plus an identical seed gives an identical world. Packs a guest is missing are fetched as described in "Auto-download of
+packs" below. The anti-cheat work in the WORLD lane can reuse the built-in
 hash.
+
+## Auto-download of packs (at the player's own risk)
+
+KT's request: players can download mods automatically, at their own risk.
+
+### Flow
+
+1. The host's join handshake sends a pack list
+   `[{pack_id, version, name, author, size, sha256}]` plus `pack_hash`.
+2. The guest compares that list with its local cache. Packs it already has
+   (matched by sha256) are used as they are.
+3. **The setting "Auto-download mods — at your own risk"** is in
+   Settings → Online and is **off by default**:
+   - **Off:** the guest sees a confirm screen listing each missing pack's
+     name, author, size and short hash, with the warning "Mods are made by
+     other players. They contain data and assets only, but Kyttu's Lab does
+     not review them. Download at your own risk." The guest chooses
+     DOWNLOAD & JOIN or CANCEL. A "don't ask again" tick on that screen turns
+     the setting on.
+   - **On:** missing packs download without asking. A HUD line names each
+     pack, and the own-risk notice shows once per session.
+4. The guest downloads, verifies and loads the packs. The client checks that
+   `pack_hash` now equals the host's, then generation starts. If anything
+   fails, the join is cancelled with the reason. The guest never joins with
+   a partial pack set.
+5. This only applies in private rooms. Public and ranked rooms refuse any
+   pack hash other than the built-in one.
+
+### Transfer source: backend mirror (recommended), not host over ENet
+
+All co-op traffic already passes through the VPS 3 relay (UDP 1105), so
+sending packs host-to-guest over ENet would cross VPS 3 anyway. It would
+also cross it once per guest and would compete with gameplay packets on the
+same channel. The mirror works like this:
+
+- The host uploads a pack once, when they create a private room that uses
+  it: `PUT /packs/<sha256>`. The upload needs an authenticated account, and
+  the server recomputes the hash and checks the pack against the same
+  validator rules before accepting it.
+- Guests fetch `GET /packs/<sha256>` over HTTPS. The storage is
+  content-addressed, so a popular pack is stored once and served many times.
+  Because the content never changes for a given hash, the response can be
+  cached publicly behind the existing Cloudflare front (orange-cloud 443 in
+  `DEPLOY_VPS3.md`). After the first fetch, most bandwidth comes from
+  Cloudflare, not from the VPS.
+- Owner blocking (see below) works at a single point.
+
+Limits for v1. These are proposals for KT to confirm.
+
+| limit | value |
+|---|---|
+| per file | 16 MB |
+| per pack (zip, compressed) | 64 MB; uncompressed ≤ 128 MB |
+| packs per room | 8, total ≤ 192 MB |
+| uploads per account | 10 per day, 512 MB stored per account |
+| mirror disk quota | 6 GB total (VPS 3 has a 25 GB disk with about 12 GB free), with LRU eviction of packs no room has used in 30 days |
+| download rate | 4 MB/s per client, 20 concurrent downloads per server |
+
+Bandwidth on VPS 3: in the worst case, with no Cloudflare cache hit, a room
+of 4 guests pulling a 64 MB pack costs about 256 MB of egress. With the
+cache, a pack costs about 64 MB per edge region per cache lifetime. Host
+over ENet would cost the same 256 MB, and it would run through the gameplay
+relay. Host over ENet is kept only as a fallback design for LAN or offline
+play, and v1 does not include it.
+
+### Safety rules (the loader enforces them, and the server does too on upload)
+
+- **Data plus assets only.** Allowed extensions are `.json`, `.glb`, `.png`,
+  `.ogg` and `.wav`. Any other file, including `.gd`, `.tres`, `.res`,
+  `.tscn`, `.gdextension`, `.so`, `.dll` and `.pck`, causes the **whole
+  pack to be rejected**. GLBs load through `GLTFDocument`, and any scripts or
+  extensions inside them are dropped.
+- **Hash first.** The archive's sha256 must match the handshake hash
+  before the archive is opened at all.
+- **Extraction.** Files are extracted only under
+  `user://mods/<sha256>/`. Each entry path is normalised, and the pack is
+  rejected if a path is absolute, contains `..`, is a symlink, has a drive
+  letter or backslash, or has a duplicate name after case folding. The
+  per-file and total uncompressed caps are checked during extraction, which
+  also guards against zip bombs. Extraction first goes to a temp directory,
+  which is renamed into place only once everything has passed.
+- **Malformed files.** Bad JSON, a broken GLB or a bad image rejects that
+  pack with a `LoadReport` entry. It never crashes the game and never
+  partially loads the pack. The guest's join fails cleanly with the reason.
+
+### Cache
+
+- `user://mods/` holds packs keyed by sha256. `index.json` records
+  `last_used`, size and source.
+- LRU cleanup removes the least recently used packs once the cache goes
+  over 1 GB, which players can change. Packs the current room needs are
+  never evicted.
+- Settings → Online has a **REMOVE DOWNLOADED MODS** button with a confirm
+  step. It deletes everything under `user://mods/` that the player did not
+  install by hand. Hand-installed packs live in `user://mods/local/`.
+
+### Owner moderation
+
+- Blocking works like skin removal. Owners block a pack sha256 (and, if
+  they choose, every pack from an author account) from the hub ADMIN
+  panel. The mirror then returns 451 for that hash and deletes the stored
+  copy.
+- Clients fetch the blocklist with the update manifest. A blocked hash is
+  never loaded, even from the local cache, and the guest sees the reason
+  "Removed by moderators". A host whose room uses a blocked pack cannot
+  open the room until the pack is removed.
+- Uploads record the account id, so a block can trace back to the
+  uploader. No credentials or tokens are stored in packs or in the cache.
 
 ## Migration order (avoiding other lanes)
 
@@ -211,8 +318,10 @@ until all readers have moved.
 8. **Delete the old constants** once nothing reads them.
 9. **Mod packs.** Add `user://mods` discovery, the manifest, the pack hash
    handshake, and the private-room UI.
+10. **Auto-download.** Add the mirror endpoints, the client downloader and
+    cache, the setting and confirm screen, and the owner blocklist.
 
-Steps 1–4 are Phase 2 of this lane. Steps 5–8 are Phase 3. Step 9 comes
+Steps 1–4 are Phase 2 of this lane. Steps 5–8 are Phase 3. Steps 9–10 come
 later and is not started without KT's go-ahead.
 
 ## Open questions for KT and the coordinator
