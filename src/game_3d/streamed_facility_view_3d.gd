@@ -1304,7 +1304,17 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	}
 
 
+## Set once a chunk build came back without its root (a script error while it was created hands back an empty Dictionary): the callers loop on
+## "not finished", so an unguarded access threw the same SCRIPT ERROR every iteration and flooded the logs. Logged once, the build is dropped.
+var _reported_broken_build := false
+
+
 func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
+	if not build.has("root"):
+		if not _reported_broken_build:
+			_reported_broken_build = true
+			push_warning("StreamedFacilityView3D: a chunk build has no root (the error that emptied it is logged above); dropping it")
+		return true
 	var root := build["root"] as Node3D
 	if root == null or not is_instance_valid(root):
 		return true
