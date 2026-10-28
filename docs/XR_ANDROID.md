@@ -85,9 +85,29 @@ drives, so networking, sounds and validators see nothing new:
 Hand positions are read in the origin's own space, so walking, snap turns and the climb itself never count as hand
 movement.
 
-**The Quest APK needs the Gradle build.** The prebuilt Android template exports a signed Quest APK, but it carries no
-OpenXR loader and no VR manifest entries, so a headset runs it as a flat app. Running in VR needs the Gradle build plus
-the Godot OpenXR Vendors plugin (Meta loader), which waits for KT's approval.
+## Menus in the headset
+
+The game's screens are 2D, and the root viewport only becomes an XR viewport once the route's player enters XR.
+`XRMenuPanel` (`src/ui/xr_menu_panel.gd`, created by `PlatformProfile` only when OpenXR is running) draws the root
+viewport's picture on a floating panel 1.5 m in front of the head:
+
+- **Pointer:** a laser from the right controller moves the mouse, and the trigger clicks with ordinary mouse events, so
+  every menu works unchanged.
+- **Recentre:** the left menu button puts the panel back in front of the head.
+- **In a route:** the panel steps aside while a route's XR player owns the view, and comes back when the route ends.
+
+## Quest build (Gradle)
+
+The prebuilt Android template carries no OpenXR loader and no VR manifest entries, so the Quest needs:
+
+- `xr/openxr/enabled.quest=true` in `project.godot`. Only builds with the `quest` feature start OpenXR at boot; desktop
+  and phones are unaffected.
+- **Godot's Gradle build and the official GodotVR OpenXR Vendors addon** (5.1.0, Meta loader). Both live only on the
+  mini, outside the repo:
+  - the addon is in `~/Developer/vendor-cache/godot_openxr_vendors-5.1.0`, sha256-checked against the release digest;
+  - the build directory is `~/Developer/lanes/xr-quest`. It copies the lane, adds the addon, enables the plugin, and
+    switches the Quest preset to `use_gradle_build` with `enable_meta_plugin`.
+- **Verified on a Quest 3S:** the build starts on the Meta OpenXR runtime at 72/72 FPS and shows the menu panel.
 
 ## Validators
 
