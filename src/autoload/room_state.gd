@@ -160,6 +160,9 @@ var _reconnect_request_in_flight := false
 ## usable as solo instead of waiting forever behind an online-only button.
 var _primary_create_fallback_enabled := false
 var _scene_transitions_suppressed_for_tests := false
+## The host's pack announcement while this guest is still confirming or downloading packs ({} when none): the guest
+## stays in staging until RoomPacks.adopt() succeeds.
+var _packs_waiting := {}
 
 
 func _ready() -> void:
@@ -171,6 +174,7 @@ func _ready() -> void:
 	_relay.relay_ready.connect(_on_relay_ready)
 	_relay.relay_failed.connect(_on_relay_failed)
 	add_child(_relay)
+	PackDownloads.install(self)
 	# A room always exists, so nothing has to null-check it. Landing straight
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
@@ -285,6 +289,9 @@ func host_room(port: int = DEFAULT_PORT,
 	_directory_status = ""
 	peers = {1: _local_name()}
 	_bind_signals()
+	var pack_error := RoomPacks.host_load(public_route)
+	if not pack_error.is_empty():
+		status_message = pack_error
 	Backend.register_room(code, port, peers.size(), session_active)
 	changed.emit()
 	return ""
@@ -362,6 +369,7 @@ func leave_network() -> void:
 		Backend.unregister_room()
 	_close_transport_only(true)
 	_clear_reconnect_state()
+	RoomPacks.leave()
 	changed.emit()
 
 
@@ -382,6 +390,7 @@ func _close_transport_only(reset_room_identity: bool) -> void:
 		is_host = true
 		session_active = false
 		peers = {}
+		_packs_waiting = {}
 
 
 func _bind_signals() -> void:
@@ -559,6 +568,7 @@ func _close_failed_connection(reason: String) -> void:
 	var was_public := public_route
 	_close_transport_only(true)
 	_clear_reconnect_state()
+	RoomPacks.leave()
 	status_message = reason
 	changed.emit()
 	connection_lost.emit(reason)
@@ -652,9 +662,55 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 ## so a client never generates a building from a stale route.
 func broadcast() -> void:
 	if online and is_host:
+		_receive_packs.rpc(RoomPacks.announce())
 		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
 			session_active)
 		_receive_daytime.rpc(daytime)
+
+
+## The host's content packs, sent ahead of every room update (a separate RPC so the room RPC's signature stays as it
+## was). A guest that cannot load the same packs leaves before it generates anything, with the reason in the status.
+@rpc("authority", "call_remote", "reliable")
+func _receive_packs(p_packs: Dictionary) -> void:
+	if is_host:
+		return
+	var result := RoomPacks.adopt(p_packs, public_route)
+	if result["ok"]:
+		_packs_waiting = {}
+		return
+	# Missing packs in a private room: the mod UI asks (or auto-downloads) and calls back; anything else refuses.
+	var dialog := get_tree().root.find_child("ModJoinDialog", true, false)
+	if result["missing"].is_empty() or public_route or dialog == null or not dialog.has_method("begin"):
+		_close_failed_connection(String(result["reason"]))
+		return
+	if String(_packs_waiting.get("hash", "")) == String(p_packs.get("hash", "")):
+		return
+	_packs_waiting = p_packs
+	if not dialog.is_connected("join_allowed", _on_mod_join_allowed):
+		dialog.connect("join_allowed", _on_mod_join_allowed)
+		dialog.connect("cancelled", _on_mod_join_cancelled)
+	status_message = "MODS NEEDED // %s" % String(result["reason"])
+	changed.emit()
+	dialog.begin(p_packs.get("packs", []), not public_route)
+
+
+func _on_mod_join_allowed() -> void:
+	if _packs_waiting.is_empty():
+		return
+	var result := RoomPacks.adopt(_packs_waiting, public_route)
+	_packs_waiting = {}
+	if not result["ok"]:
+		_close_failed_connection(String(result["reason"]))
+		return
+	status_message = "MODS LOADED // WAITING FOR HOST"
+	changed.emit()
+	if online and session_active:
+		call_deferred("_enter_session_scene", get_tree())
+
+
+func _on_mod_join_cancelled() -> void:
+	if not _packs_waiting.is_empty():
+		_close_failed_connection("JOIN CANCELLED // ROOM MODS NOT DOWNLOADED")
 
 
 ## The host's City daytime flag (a separate small RPC so the room RPC's signature stays as it was).
@@ -920,6 +976,11 @@ func enter(tree: SceneTree) -> void:
 		status_message = mode_unavailable_reason(mode)
 		changed.emit()
 		return
+	var pack_error := RoomPacks.host_load(public_route)
+	if not pack_error.is_empty():
+		status_message = pack_error
+		changed.emit()
+		return
 	session_active = true
 	status_message = "ROUTE IN PROGRESS"
 	broadcast()
@@ -948,7 +1009,7 @@ func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 
 
 func _enter_session_scene(tree: SceneTree) -> void:
-	if _scene_transitions_suppressed_for_tests:
+	if _scene_transitions_suppressed_for_tests or not _packs_waiting.is_empty():
 		return
 	var path := session_scene_path()
 	if tree.current_scene != null and tree.current_scene.scene_file_path in [
