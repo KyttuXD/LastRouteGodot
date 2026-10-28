@@ -29,6 +29,8 @@ static var _keys: Array = []
 static var _stage: Dictionary = {}
 static var _actors: Dictionary = {}
 static var _scene: Node
+static var _pickup: RouteInteractable3D
+static var _player_camera: Camera3D   # gameplay clips: "face the camera" means the player's own camera
 static var _smooth := {}   # bone -> {last: Quaternion, max: float} over the shot's smoothness window
 static var _smooth_window := Vector2(-1, -1)
 ## Root-motion watch: the longest run of frames her root did not move, inside the shot's motion window (while she is visible).
@@ -96,7 +98,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	if not bool(start.get("ok", false)):
 		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
 	bridge.admin("god", {"on": true})
-	bridge.admin("no_target", {"on": true})
+	var gameplay := bool(shot.get("gameplay", false))
+	# gameplay clips: real hunters may hunt the player (god mode keeps the run alive); trailer shots keep them blind
+	bridge.admin("no_target", {"on": not bool(shot.get("hunt", false))})
 	var scene := tree.current_scene
 	var facility: Object = scene.get("facility")
 	var generator := facility.get("generator") as StreamedRouteGenerator
@@ -109,15 +113,17 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		return {"scenario_failure": "", "outcome": "unavailable", "game_seconds": 0.0, "frames": 0}
 	var track: PlaytestFlythrough.Track = planned["track"]
 	var info: Dictionary = planned["info"]
-	for layer in scene.find_children("*", "CanvasLayer", true, false):
-		(layer as CanvasLayer).visible = false
-	if player.first_person_items != null:
-		player.first_person_items.visible = false
-	player.input_frozen = true
-	player.look_frozen = true
-	player.set_admin_noclip(true)
+	if not gameplay:
+		for layer in scene.find_children("*", "CanvasLayer", true, false):
+			(layer as CanvasLayer).visible = false
+		if player.first_person_items != null:
+			player.first_person_items.visible = false
+		player.input_frozen = true
+		player.look_frozen = true
+		player.set_admin_noclip(true)
 	# the stage starts where the flythrough first WALKS (frame 0 is the high establishing shot)
 	var stage_frame := 0
+	var storey_floor := float(int(info.get("level", 0))) * PlaytestFlythrough.LEVEL_HEIGHT
 	for k in track.size():
 		if int(track.ground[k]) == 1:
 			stage_frame = k
@@ -126,6 +132,14 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	if not corner_stage.is_empty():
 		stage_frame = int(corner_stage["frame"])
 	var origin_eye := track.pos[stage_frame]
+	# a deep district's walking frames carry surface heights (its runner walks on the real floor): put the stage on its storey
+	if absf(origin_eye.y - EYE - storey_floor) > 1.5:
+		origin_eye.y = storey_floor + EYE
+	var walk_heights := {}
+	for k in range(0, track.size(), 10):
+		if int(track.ground[k]) == 1:
+			walk_heights[snappedf(track.pos[k].y, .5)] = int(walk_heights.get(snappedf(track.pos[k].y, .5), 0)) + 1
+	info["stage_frame"] = [stage_frame, snappedf(origin_eye.y, .01), walk_heights]
 	var grid_corner := {}
 	if bool(shot.get("corner_grid", false)):
 		grid_corner = _grid_corner(PlaytestFlythrough.Sampler.new(generator, int(info.get("level", 0))), track, float(shot.get("camera_back", 6.5)))
@@ -161,6 +175,29 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		for _settle in 20:
 			await tree.process_frame
 			frames += 1
+	var world_stage := {}
+	if shot.has("world_at"):
+		# an exact spot (tools/look/falls_spots.gd prints these for the sewer falls on a seed): x, z, floor y, yaw degrees
+		var wa: Dictionary = shot["world_at"]
+		var wyaw := deg_to_rad(float(wa.get("yaw", 0.0)))
+		world_stage = {"eye": Vector3(float(wa["x"]), float(wa["y"]) + EYE, float(wa["z"])), "f": Vector3(-sin(wyaw), 0.0, -cos(wyaw))}
+		origin_eye = world_stage["eye"]
+	var near_stage := {}
+	if shot.has("near_node"):
+		# a named piece of the level (e.g. "Lava", the Inferno pits' lava surface): stand back from it on real floor, facing it
+		near_stage = _near_node(scene, space, player, shot["near_node"])
+		if near_stage.is_empty():
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no %s near the %s route" % [(shot["near_node"] as Dictionary).get("name", "?"), area]}
+			return {"scenario_failure": "no node found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
+		origin_eye = near_stage["eye"]
+		info["near_node"] = near_stage["at"]
+	var pickup: RouteInteractable3D = null
+	if shot.has("pickup"):
+		pickup = _find_pickup(scene, space, player, shot["pickup"])
+		if pickup == null:
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no reachable pickup near the %s route" % area}
+			return {"scenario_failure": "no pickup found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
+		info["pickup"] = [RouteInteractable3D.Kind.keys()[pickup.kind], snappedf(pickup.global_position.x, .01), snappedf(pickup.global_position.z, .01)]
 	var locker: RouteInteractable3D = null
 	var locker_out := Vector3.ZERO
 	if shot.has("locker"):
@@ -174,8 +211,18 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		origin_eye = Vector3(door.x, origin_eye.y, door.z)
 	var floor_origin := _floor_at(space, Vector3(origin_eye.x, origin_eye.y, origin_eye.z), player, origin_eye.y - EYE)
 	var forward: Vector3 = corner_stage.get("forward", Vector3.ZERO)
+	if not near_stage.is_empty():
+		forward = near_stage["f"]
+	if not world_stage.is_empty():
+		forward = world_stage["f"]
 	if locker != null:
 		forward = locker_out
+	if pickup != null:
+		# the stage looks at the pickup from where the player will stand (its open side)
+		var to_item: Vector3 = pickup.get_meta("trailer_approach_dir", Vector3.FORWARD)
+		forward = to_item
+		var at_item := pickup.global_position - to_item * float((shot["pickup"] as Dictionary).get("distance", 1.6))
+		floor_origin = _floor_at(space, Vector3(at_item.x, pickup.global_position.y + 1.2, at_item.z), player, floor_origin.y)
 	if not lamp_stage.is_empty():
 		forward = lamp_stage["f"]
 	if not grid_corner.is_empty():
@@ -200,7 +247,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	if not lamp_stage.is_empty():
 		stage["lamps"] = lamp_stage["lamps"]
 		info["lamps"] = lamp_stage["lamps"]
-	var hiding_cam := locker != null
+	var hiding_cam := locker != null and not bool(shot.get("gameplay", false))   # gameplay: the player gets in through their own interact
 	var eye_hold := Callable()
 	if hiding_cam:
 		# the camera is the player's own, hidden in the locker: the game puts it inside and faces it out through the door slats
@@ -230,6 +277,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	_keys = shot.get("camera", [])
 	_stage = stage
 	_actors = actors
+	_player_camera = camera if bool(shot.get("gameplay", false)) else null
 	for key in (shot.get("actors", {}) as Dictionary):
 		var spec: Dictionary = shot["actors"][key]
 		var actor := _make_actor(scene, str(key), spec, stage, space, player)
@@ -279,7 +327,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var torch_level := 0.0
 	var flicker_left := 0.0
 	var flash_left := 0.0
-	var clean := bool(opts.get("clean", true))
+	# gameplay clips show the level as players see it: no hidden pickups
+	var clean := bool(opts.get("clean", true)) and not bool(shot.get("gameplay", false))
 	var keep := String(opts.get("keep", "")).split(",", false)
 	var camera_probe := SphereShape3D.new()
 	camera_probe.radius = .2
@@ -313,6 +362,34 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var inside_frames := 0
 	var overlap_frames := 0
 	var depth_min := 99.0
+	var input := PlaytestInput.new()
+	var turns: Array = []          # {t0, dur, yaw, pitch, done}: quick mouse-style turns (the mouse handler's own math)
+	var summoned: Array = []
+	if gameplay:
+		PlaytestFlythrough._clear_hunters(scene, false)
+		var start_at := _pt(stage, shot.get("start", [0.0, 0.0]), 0.0)
+		# the game's own teleport (it switches storeys); noclip stays on until that storey's floor has streamed in, or the
+		# player falls and the route's fall recovery puts them back on level 0
+		player.set_admin_noclip(true)
+		bridge.admin("teleport", {"x": start_at.x, "y": floor_origin.y + .05, "z": start_at.z})
+		for _load in 90:
+			await tree.process_frame
+			frames += 1
+		var ground := _floor_at(space, Vector3(start_at.x, floor_origin.y + 1.2, start_at.z), player, floor_origin.y)
+		player.global_position = Vector3(start_at.x, ground.y + .05, start_at.z)
+		player.set_admin_noclip(false)
+		player.velocity = Vector3.ZERO
+		var face_at := pickup.global_position + Vector3.UP * .1 if (pickup != null and str(shot.get("face_at", "")) == "pickup") \
+			else _pt(stage, shot.get("face_at", [8.0, 0.0, 1.6]), 1.6)
+		_pickup = pickup
+		var to_face := face_at - (player.global_position + Vector3.UP * EYE)
+		player._yaw = PlaytestFlythrough.yaw_for(to_face.x, to_face.z)
+		player._pitch = deg_to_rad(float(shot["pitch"])) if shot.has("pitch") else PlaytestFlythrough.pitch_for(to_face.normalized())
+		player._apply_look_rotation()
+		for _settle in 30:
+			await tree.process_frame
+			frames += 1
+		PlaytestFlythrough._clear_hunters(scene, false)
 	var clip_start_frame := Engine.get_frames_drawn()
 	var next_event := 0
 	var dt := 1.0 / float(fps)
@@ -335,6 +412,20 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			if ev.has("sound"):
 				# the game's own cues: "breath" is the office breathing
 				Sound.queue_office_cue(str(ev["sound"]), float(ev.get("pan", 0.0)), float(ev.get("intensity", 1.0)))
+			if ev.has("pulse"):
+				for action in ev["pulse"]:
+					input.pulse(str(action))
+			if ev.has("turn"):
+				var tv: Dictionary = ev["turn"]
+				var yaw_deg := float(tv.get("yaw", 0.0))
+				if tv.has("corner"):
+					# toward corridor B: a corner opening on the camera's right is a right turn (negative yaw)
+					yaw_deg = -float(tv["corner"]) * float((stage.get("corner", {}) as Dictionary).get("s", 1.0))
+				turns.append({"t0": t, "dur": float(tv.get("dur", .3)), "yaw": deg_to_rad(yaw_deg), "pitch": deg_to_rad(float(tv.get("pitch", 0.0))), "done": 0.0})
+			if ev.has("summon"):
+				var sid := _summon(scene, str(ev["summon"]), _pt(stage, ev.get("at", [6.0, 0.0]), 0.0))
+				if not sid.is_empty():
+					summoned.append(sid)
 			if ev.has("fill"):
 				dark = float(ev["fill"])   # the camera-side fill (also cut by every blackout)
 			if ev.has("blackout"):
@@ -355,9 +446,36 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			if ev.has("actor") and actors.has(str(ev["actor"])):
 				_apply_event(actors[str(ev["actor"])] as Actor, ev, stage, actors, camera)
 		# camera
-		var cam := _camera_at(camera_keys, t, stage, actors)
+		var cam := _camera_at(camera_keys, t, stage, actors) if not camera_keys.is_empty() else {"pos": Vector3.ZERO, "look": Vector3.FORWARD}
 		var dir: Vector3
-		if hiding_cam:
+		if gameplay:
+			_gameplay_input(input, shot.get("inputs", []), t)
+			# position triggers: fire once when the player passes a point measured from the corner edge (e.g. turn the corner as you reach it)
+			for trig in shot.get("triggers", []):
+				var tr: Dictionary = trig
+				if tr.has("_fired"):
+					continue
+				var past := (player.global_position - (stage["o"] as Vector3)).dot(stage["f"] as Vector3) - float((stage.get("corner", {}) as Dictionary).get("d", 0.0))
+				if past >= float(tr.get("edge_past", 0.0)):
+					tr["_fired"] = snappedf(t, .01)
+					if tr.has("turn"):
+						var tt: Dictionary = tr["turn"]
+						var tyaw := float(tt.get("yaw", 0.0))
+						if tt.has("corner"):
+							tyaw = -float(tt["corner"]) * float((stage.get("corner", {}) as Dictionary).get("s", 1.0))
+						turns.append({"t0": t, "dur": float(tt.get("dur", .3)), "yaw": deg_to_rad(tyaw), "pitch": 0.0, "done": 0.0})
+			# the debug-run FPS counter is not part of the game as players see it
+			var hud: Node = scene.get("hud")
+			if hud != null and hud.get("fps_label") is Label:
+				(hud.get("fps_label") as Label).visible = false
+			# nor are the admin toasts the clip's own summons raise ("ADMIN SUMMONED // KATHY")
+			if hud != null and hud.get("message_label") is Label and (hud.get("message_label") as Label).text.begins_with("ADMIN"):
+				(hud.get("message_label") as Label).visible = false
+				hud.set("_message_time_left", 0.0)
+			for turn in turns:
+				_apply_turn(player, turn, t)
+			dir = Vector3.ZERO
+		elif hiding_cam:
 			# stay where the game put the hider (the locker's own inside position); only the view is aimed
 			if not player.hide_move_active():
 				player.global_position = locker.hiding_inside_position()
@@ -367,9 +485,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			player.first_person_pivot.position.y = EYE
 			player.velocity = Vector3.ZERO
 			dir = (cam["look"] as Vector3) - (cam["pos"] as Vector3)
-		player._yaw = PlaytestFlythrough.yaw_for(dir.x, dir.z)
-		player._pitch = PlaytestFlythrough.pitch_for(dir.normalized())
-		player._apply_look_rotation()
+		if not gameplay:
+			player._yaw = PlaytestFlythrough.yaw_for(dir.x, dir.z)
+			player._pitch = PlaytestFlythrough.pitch_for(dir.normalized())
+			player._apply_look_rotation()
 		if cam.has("fov"):
 			camera.fov = float(cam["fov"])
 		# actors
@@ -392,7 +511,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			torch_flick = 0.0 if (int(t * 22.0) % 4 == 0) else 1.0
 		lamp.light_energy = 0.0 if _blackout else 1.1 * dark * flick
 		torch.light_energy = torch_peak * torch_level * torch_flick
-		if i % 45 == 0:
+		if i % 45 == 0 and not gameplay:
 			PlaytestFlythrough._clear_hunters(scene, false)
 		if clean and i % 30 == 0:
 			PlaytestFlythrough._clean_scene(scene, keep)
@@ -401,7 +520,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		overlap.shape = camera_probe
 		overlap.transform = Transform3D(Basis.IDENTITY, camera.global_position)
 		overlap.exclude = [player.get_rid()]
-		if not hiding_cam and not space.intersect_shape(overlap, 4).is_empty():
+		if not hiding_cam and not player.hidden and not space.intersect_shape(overlap, 4).is_empty():
 			inside_frames += 1
 		var look := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position - camera.global_basis.z * 12.0)
 		look.exclude = [player.get_rid()]
@@ -427,7 +546,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			beat_reports.append(one)
 			beat_index += 1
 		await tree.process_frame
+		input.begin_frame()
 		frames += 1
+	input.release_all()
+	info["summoned"] = summoned
 	if eye_hold.is_valid() and RenderingServer.frame_pre_draw.is_connected(eye_hold):
 		RenderingServer.frame_pre_draw.disconnect(eye_hold)
 	if preview and not beat_reports.is_empty():
@@ -783,9 +905,10 @@ static func _make_actor(scene: Node, key: String, spec: Dictionary, stage: Dicti
 
 ## "camera" / "shot_camera": turn toward where the SHOT camera is at time t, decided once here from the shot file; the actor keeps that heading.
 static func _resolve_face(actor: Actor, t: float) -> void:
-	if actor.face_mode is String and (String(actor.face_mode) == "camera" or String(actor.face_mode) == "shot_camera") and not _keys.is_empty():
-		var cam := _camera_at(_keys, t, _stage, _actors)
-		var d: Vector3 = (cam["pos"] as Vector3) - actor.pos
+	if actor.face_mode is String and (String(actor.face_mode) == "camera" or String(actor.face_mode) == "shot_camera") \
+			and (not _keys.is_empty() or _player_camera != null):
+		var cam_pos: Vector3 = (_camera_at(_keys, t, _stage, _actors)["pos"] as Vector3) if not _keys.is_empty() else _player_camera.global_position
+		var d: Vector3 = cam_pos - actor.pos
 		actor.face_mode = rad_to_deg(atan2(-d.x, -d.z))
 	if actor.face_mode is float or actor.face_mode is int:
 		actor.authored_yaw = deg_to_rad(float(actor.face_mode))
@@ -1208,8 +1331,10 @@ static func _on_screen(camera: Camera3D, point: Vector3) -> bool:
 static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, player: Node, space: PhysicsDirectSpaceState3D, stage: Dictionary, image: Image) -> Dictionary:
 	var actor := actors.get(str(expect.get("actor", ""))) as Actor
 	var rows: Array = []
-	if actor == null:
+	if actor == null and expect.has("actor"):
 		return {"pass": false, "rows": [{"name": "actor", "pass": false, "detail": "no such actor"}]}
+	if actor == null:
+		return _gameplay_check(expect, camera, player, space)
 	var cam_pos := camera.global_position
 	# 1. faces the camera
 	var forward := -actor.root.global_basis.z
@@ -1498,8 +1623,10 @@ static func _pixel_check(scene: Node, camera: Camera3D, actor: Actor, want: Dict
 	flat_env.background_color = Color.BLACK
 	flat_env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	camera.environment = flat_env
-	var counts_a := await _mask_render(scene, meshes, true, "", mask_path)
-	var counts_b := await _mask_render(scene, meshes, false, "torso", "")
+	# pass C first: her meshes hidden, so level pixels that happen to be a part colour (a cyan sign, a magenta light) are known
+	var counts_c := await _mask_render(scene, meshes, true, "_none", "")
+	var counts_a := await _mask_render(scene, meshes, true, "", mask_path, counts_c["_image"])
+	var counts_b := await _mask_render(scene, meshes, false, "torso", "", counts_c["_image"])
 	# the torso's full on-screen silhouette (pass B) against what pass A shows inside it: any of HER pixels there (an arm across the
 	# chest still means the torso is out past the wall); wall pixels there mean the wall hides it
 	var sil: Image = counts_b["_image"]
@@ -1539,7 +1666,7 @@ static func _pixel_check(scene: Node, camera: Camera3D, actor: Actor, want: Dict
 	return rows
 
 
-static func _mask_render(scene: Node, meshes: Array, depth_test: bool, only: String, save_path: String) -> Dictionary:
+static func _mask_render(scene: Node, meshes: Array, depth_test: bool, only: String, save_path: String, ignore: Image = null) -> Dictionary:
 	for mi_value in meshes:
 		var mi := mi_value as MeshInstance3D
 		var group := _part_group(mi)
@@ -1562,6 +1689,8 @@ static func _mask_render(scene: Node, meshes: Array, depth_test: bool, only: Str
 	for y in range(0, image.get_height(), step):
 		for x in range(0, image.get_width(), step):
 			var part := _pixel_part(image.get_pixel(x, y))
+			if not part.is_empty() and ignore != null and not _pixel_part(ignore.get_pixel(x, y)).is_empty():
+				part = ""   # already that colour without her: the level's own pixel
 			if part.is_empty():
 				continue
 			counts[part] = int(counts.get(part, 0)) + step * step
@@ -1732,4 +1861,189 @@ static func _find_locker(scene: Node, space: PhysicsDirectSpaceState3D, player: 
 		if score > best_score:
 			best_score = score
 			best = it
+	return best
+
+
+# ------------------------------------------------------------------------------------------------ gameplay clips
+## The real player through the real input actions (move / look stick / sprint / crouch / interact / flashlight).
+## inputs: [{"t": 0, "until": 1.5, "move": [right, forward], "look": [right, down], "hold": {"sprint": true}}]; later entries win.
+static func _gameplay_input(input: PlaytestInput, inputs: Array, t: float) -> void:
+	var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "hold": {"sprint": false, "crouch": false, "jump": false}}
+	for entry_value in inputs:
+		var entry: Dictionary = entry_value
+		if t < float(entry.get("t", 0.0)) or t >= float(entry.get("until", 1e9)):
+			continue
+		for key in ["move", "look"]:
+			if entry.has(key):
+				act[key] = entry[key]
+		if entry.has("hold"):
+			for action in (entry["hold"] as Dictionary):
+				(act["hold"] as Dictionary)[action] = entry["hold"][action]
+	input.apply(act)
+
+
+## A quick look like a mouse flick: the same yaw/pitch change the controller's mouse handler makes, eased over `dur`
+## (real mouse look needs the OS cursor captured, which a render machine someone may be using must not have).
+static func _apply_turn(player: PlayerController3D, turn: Dictionary, t: float) -> void:
+	var u := clampf((t - float(turn["t0"])) / maxf(float(turn["dur"]), .05), 0.0, 1.0)
+	var eased := u * u * (3.0 - 2.0 * u)
+	var step := eased - float(turn["done"])
+	if absf(step) < 1e-6:
+		return
+	turn["done"] = eased
+	player._yaw += float(turn["yaw"]) * step
+	player._pitch = clampf(player._pitch + float(turn["pitch"]) * step, -1.4, 1.4)
+	player._apply_look_rotation()
+
+
+## A real hunter (the route's own summon: real brain and view, real AI), then moved to `at` so the clip is repeatable.
+static func _summon(scene: Node, hunter_id: String, at: Vector3) -> String:
+	var world_state: Object = scene.get("world_state")
+	if world_state == null or not scene.has_method("_admin_summon_hunter_authoritative"):
+		return ""
+	var before := (world_state.get("hunters") as Dictionary).keys()
+	# the route's own target lookup uses peer 1 offline (its _hunter_target)
+	scene.call("_admin_summon_hunter_authoritative", scene.multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
+	var entity := ""
+	for id_value in (world_state.get("hunters") as Dictionary):
+		if not before.has(id_value):
+			entity = str(id_value)
+	if entity.is_empty():
+		return ""
+	var state: Dictionary = (world_state.get("hunters") as Dictionary)[entity]
+	state["position"] = Vector2(at.x, at.z)
+	var views: Dictionary = scene.get("_hunter_views")
+	var view := views.get(entity) as HunterView3D
+	if view != null and view.brain != null:
+		view.brain.position = Vector2(at.x, at.z)
+		view.global_position = Vector3(at.x, view.global_position.y, at.z)
+	return entity
+
+
+## Gameplay frames: the HUD and the first-person hands are on, no hunter carries a tag, no alert box is open, and the named
+## hunters are really on screen (their meshes counted in a flat-colour render from the player camera).
+static func _gameplay_check(expect: Dictionary, camera: Camera3D, player: PlayerController3D, space: PhysicsDirectSpaceState3D) -> Dictionary:
+	var rows: Array = []
+	if bool(expect.get("hud", false)):
+		var shown := 0
+		for layer in _scene.find_children("*", "CanvasLayer", true, false):
+			if (layer as CanvasLayer).visible:
+				shown += 1
+		rows.append({"name": "HUD on", "pass": shown > 0, "detail": "%d canvas layer(s) visible" % shown})
+	if bool(expect.get("hands", false)):
+		var hands_on := player.first_person_items != null and player.first_person_items.is_visible_in_tree()
+		rows.append({"name": "first-person hands/items shown", "pass": hands_on, "detail": str(hands_on)})
+	if bool(expect.get("no_alerts", true)):
+		var open: Array = []
+		for node in _scene.get_tree().root.find_children("*", "AcceptDialog", true, false):
+			if (node as Window).visible:
+				open.append(str(node.name))
+		rows.append({"name": "no alert boxes", "pass": open.is_empty(), "detail": "open: %s" % [open]})
+	if bool(expect.get("no_labels", true)):
+		var tags: Array = []
+		for node in _scene.find_children("*", "Label3D", true, false):
+			var up := (node as Node).get_parent()
+			while up != null:
+				if up is HunterView3D and (node as Label3D).is_visible_in_tree():
+					tags.append(str((node as Label3D).text))
+					break
+				up = up.get_parent()
+		rows.append({"name": "no name tags on hunters", "pass": tags.is_empty(), "detail": "tags: %s" % [tags]})
+	if expect.has("hunter_seen"):
+		var want: Dictionary = expect["hunter_seen"]
+		var seen_any := false
+		var detail := "none"
+		for view_value in (_scene.get("_hunter_views") as Dictionary).values():
+			var view := view_value as HunterView3D
+			if view == null or not view.is_visible_in_tree() or view.brain == null or str(view.brain.hunter_id) != str(want.get("id", "")):
+				continue
+			var head := view.global_position + Vector3.UP * 1.6
+			# her own body collider must not count as hiding her
+			var ray := PhysicsRayQueryParameters3D.create(camera.global_position, head)
+			ray.exclude = [player.get_rid(), view.get_rid()]
+			var hit := space.intersect_ray(ray)
+			var visible := hit.is_empty() and _on_screen(camera, head)
+			detail = "%s at %.1f m, head on screen and unblocked: %s" % [view.brain.hunter_id, camera.global_position.distance_to(head), visible]
+			seen_any = seen_any or visible
+		rows.append({"name": "%s really on screen" % want.get("id", ""), "pass": seen_any == bool(want.get("visible", true)), "detail": detail})
+	if expect.has("pickup_taken"):
+		var gone := _pickup == null or not is_instance_valid(_pickup) or not _pickup.is_visible_in_tree()
+		var in_view := false
+		if _pickup != null and is_instance_valid(_pickup):
+			in_view = _on_screen(camera, _pickup.global_position)
+		var want_gone := bool(expect["pickup_taken"])
+		rows.append({"name": "pickup %s" % ("collected" if want_gone else "there and on screen"), "pass": gone == want_gone and (want_gone or in_view), "detail": "gone=%s on_screen=%s" % [gone, in_view]})
+	var fac: Object = _scene.get("facility")
+	rows.append({"name": "where", "pass": true, "detail": "player y %.2f, level %s, biome %s" % [player.global_position.y, fac.call("current_level") if fac != null else "?",
+		(fac.call("current_chunk_data") as Dictionary).get("biome", "?") if fac != null else "?"]})
+	if expect.has("player_moving"):
+		var speed := Vector2(player.velocity.x, player.velocity.z).length()
+		rows.append({"name": "player moving", "pass": speed >= float(expect["player_moving"]), "detail": "%.1f m/s (min %s)" % [speed, expect["player_moving"]]})
+	var ok := true
+	for row in rows:
+		ok = ok and bool(row["pass"])
+	return {"pass": ok, "rows": rows}
+
+
+## A real pickup lying in the loaded level (battery, tool, coin, relay...) with open floor on one side: the direction the player
+## walks in from is stored on it (meta "trailer_approach_dir").
+static func _find_pickup(scene: Node, space: PhysicsDirectSpaceState3D, player: Node, cfg: Dictionary) -> RouteInteractable3D:
+	var kinds: Array = cfg.get("kinds", ["BATTERY", "TOOL_PICKUP"])
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var best: RouteInteractable3D = null
+	var best_d := 1e9
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it == null or not it.is_visible_in_tree() or not kinds.has(RouteInteractable3D.Kind.keys()[it.kind]):
+			continue
+		for dir in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+			# stand `distance` back along -dir, the item ahead along dir: the walk-in line must be clear at knee and chest height
+			var item := it.global_position
+			var stand := item - (dir as Vector3) * (float(cfg.get("distance", 1.6)) + .4)
+			var clear := true
+			for h in [.5, 1.3]:
+				var ray := PhysicsRayQueryParameters3D.create(Vector3(stand.x, item.y + h, stand.z), Vector3(item.x, item.y + h, item.z) - (dir as Vector3) * .3)
+				ray.exclude = exclude
+				if not space.intersect_ray(ray).is_empty():
+					clear = false
+			if not clear:
+				continue
+			var d := item.distance_to((player as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = it
+				it.set_meta("trailer_approach_dir", dir)
+			break
+	return best
+
+
+## The nearest loaded node called `name` (a MeshInstance3D: its AABB centre), and a standing point `distance` back from it on
+## real floor in one of the four axis directions, with a clear chest-height line to it.
+static func _near_node(scene: Node, space: PhysicsDirectSpaceState3D, player: Node, cfg: Dictionary) -> Dictionary:
+	var want := str(cfg.get("name", "Lava"))
+	var dist := float(cfg.get("distance", 5.0))
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var best := {}
+	var best_d := 1e9
+	for node in scene.find_children(want, "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if not mi.is_visible_in_tree():
+			continue
+		var centre := mi.global_transform * mi.get_aabb().get_center()
+		for dir in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+			var stand := centre - (dir as Vector3) * (dist + mi.get_aabb().size.length() * .25)
+			var down := PhysicsRayQueryParameters3D.create(Vector3(stand.x, centre.y + 2.0, stand.z), Vector3(stand.x, centre.y - 3.0, stand.z))
+			down.exclude = exclude
+			var floor_hit := space.intersect_ray(down)
+			if floor_hit.is_empty():
+				continue
+			var fy: float = (floor_hit["position"] as Vector3).y
+			var look := PhysicsRayQueryParameters3D.create(Vector3(stand.x, fy + 1.2, stand.z), Vector3(centre.x, fy + 1.2, centre.z) - (dir as Vector3) * 1.0)
+			look.exclude = exclude
+			if not space.intersect_ray(look).is_empty():
+				continue
+			var d := centre.distance_to((player as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = {"eye": Vector3(stand.x, fy + EYE, stand.z), "f": dir, "at": [snappedf(centre.x, .01), snappedf(centre.y, .01), snappedf(centre.z, .01)]}
 	return best
