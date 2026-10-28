@@ -1521,5 +1521,23 @@
  "mallBench": [
   "mallBench_0.glb",
   "mallBench_1.glb"
+ ],
+ "divePod": [
+  "divePod.glb"
+ ],
+ "divePodFilm": [
+  "divePodFilm.glb"
+ ],
+ "divePodLit": [
+  "divePodLit.glb"
+ ],
+ "diveHeadsetStand": [
+  "diveHeadsetStand.glb"
+ ],
+ "diveHeadsetShelf": [
+  "diveHeadsetShelf.glb"
+ ],
+ "diveConsole": [
+  "diveConsole.glb"
  ]
 }

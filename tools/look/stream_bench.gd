@@ -257,6 +257,7 @@ func _sample() -> Dictionary:
 		"lights": lights, "lights_visible": visible_lights, "lights_shadow": shadow_lights,
 		"chunks": _facility.loaded_chunk_count(),
 		"dormant": _facility.dormant_chunk_count() if _facility.has_method("dormant_chunk_count") else 0,
+		"prebuilt": _facility.prebuilt_chunk_count() if _facility.has_method("prebuilt_chunk_count") else 0,
 	}
 
 
@@ -347,10 +348,10 @@ func _finish() -> void:
 			hitch["step"], hitch["process_ms"], hitch["physics_ms"]])
 	var peak: Dictionary = summary["peak"]
 	var mean: Dictionary = summary["mean"]
-	print("BENCH %s draw_calls avg=%.0f peak=%.0f objects avg=%.0f nodes peak=%.0f lights_visible avg=%.1f shadow avg=%.1f peak=%.0f mem_mb=%.0f growth=%.1f vmem_mb=%.0f chunks peak=%.0f" % [
+	print("BENCH %s draw_calls avg=%.0f peak=%.0f objects avg=%.0f nodes peak=%.0f lights_visible avg=%.1f shadow avg=%.1f peak=%.0f mem_mb=%.0f growth=%.1f vmem_mb=%.0f chunks peak=%.0f dormant peak=%.0f prebuilt peak=%.0f" % [
 		_tag, mean.get("draw_calls", 0), peak.get("draw_calls", 0), mean.get("objects", 0), peak.get("nodes", 0),
 		mean.get("lights_visible", 0), mean.get("lights_shadow", 0), peak.get("lights_shadow", 0), peak.get("mem_mb", 0),
-		summary["mem_growth_mb"], peak.get("vmem_mb", 0), peak.get("chunks", 0)])
+		summary["mem_growth_mb"], peak.get("vmem_mb", 0), peak.get("chunks", 0), peak.get("dormant", 0), peak.get("prebuilt", 0)])
 	get_tree().quit(0)
 
 

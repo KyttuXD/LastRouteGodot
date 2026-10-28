@@ -9,7 +9,7 @@ knee 0.48, reach up 2.15). Hunters are 1.5x on purpose (2.67 m) and are not fitt
 models, `PropColliderSizes`): seats 0.70-1.45 m tall and at most 0.85 wide, tables 0.40-1.0, counters 0.85-1.20, sinks and
 vanities 0.85-1.35, tall storage 1.2-2.25, couches 0.7-1.1 tall and 1.4-2.8 long, beds 1.8-2.35 long, lamps 1.3-2.0, toilets
 0.7-1.05, showers 1.8-2.25, crates 0.3-1.2. Suite: `scale_fit` (fails on any new outlier, and on a known outlier that got fixed).
-`ScaleFit.ARCHITECTURE` holds the checks for ceiling (4.0 m), room doors (2.6 m, sized for a 1.5x hunter; a person needs 2.0),
+`ScaleFit.ARCHITECTURE` holds the checks for ceiling (4.0 m), room doors (raised toward 2.95 m for the 1.5x hunters, who duck the rest: [DOORWAY_CLEARANCE.md](DOORWAY_CLEARANCE.md); a person needs 2.0),
 hall width (3 or 5 cells), capsule and camera.
 
 ## Outliers (current -> target)
@@ -24,4 +24,4 @@ hall width (3 or 5 cells), capsule and camera.
 
 Everything else in the 92 collider-sized props sits in range. Not covered yet: held and pickup item sizes against hand
 size, door handle and light switch heights, stairs/ladder step height, Night Watch props (cube-built, no collider table),
-and the before/after lineup capture. Room doors at 2.6 m are 1.46x the player: deliberate for the 1.5x hunters.
+and the before/after lineup capture. Raised room doors (2.47-2.85 m clear) are well over the player: deliberate for the 1.5x hunters.

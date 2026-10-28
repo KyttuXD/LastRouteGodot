@@ -250,6 +250,8 @@ func platform_key() -> String:
 		return "ios"
 	if OS.has_feature("quest"):
 		return "quest"
+	if OS.has_feature("android"):
+		return "android"   # sideloaded phone builds: no self-update channel on the server, the check simply fails
 	if OS.has_feature("windows") and OS.has_feature("xr"):
 		return "steamvr"
 	if OS.has_feature("windows") and OS.has_feature("legacy"):

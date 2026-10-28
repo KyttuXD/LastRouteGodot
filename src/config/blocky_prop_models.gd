@@ -327,4 +327,10 @@ const MODELS := {
 	"foodCourtTable": ["res://art/props-3d/props/blocky/foodCourtTable_0.glb", "res://art/props-3d/props/blocky/foodCourtTable_1.glb", "res://art/props-3d/props/blocky/foodCourtTable_2.glb"],
 	"mallPlanter": ["res://art/props-3d/props/blocky/mallPlanter_0.glb", "res://art/props-3d/props/blocky/mallPlanter_1.glb", "res://art/props-3d/props/blocky/mallPlanter_2.glb"],
 	"mallBench": ["res://art/props-3d/props/blocky/mallBench_0.glb", "res://art/props-3d/props/blocky/mallBench_1.glb"],
+	"divePod": ["res://art/props-3d/props/blocky/divePod.glb"],
+	"divePodFilm": ["res://art/props-3d/props/blocky/divePodFilm.glb"],
+	"divePodLit": ["res://art/props-3d/props/blocky/divePodLit.glb"],
+	"diveHeadsetStand": ["res://art/props-3d/props/blocky/diveHeadsetStand.glb"],
+	"diveHeadsetShelf": ["res://art/props-3d/props/blocky/diveHeadsetShelf.glb"],
+	"diveConsole": ["res://art/props-3d/props/blocky/diveConsole.glb"],
 }

@@ -44,6 +44,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [HIDING_PROPS.md](HIDING_PROPS.md) — room props by purpose (infirmary, storage, reception, archive, bedroom) and hiding under beds / in wardrobes, hunter checks with a tell
 - [MANSION_LUXURY.md](MANSION_LUXURY.md) — mansion finishes (lacquer, marble, velvet, gilt) for the ordinary furniture types, columns and vases, bed scale fix, before/after
 - [REST_AND_SLEEP.md](REST_AND_SLEEP.md) — rest camera on chairs and beds (what was wrong, the fix), runner sleep and solo drowsiness, hunter naps
+- [LIGHT_SWITCHES.md](LIGHT_SWITCHES.md) — room light switches in the streamed world: lamps per room, light sight, persistence, co-op, hunters
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
@@ -59,3 +60,4 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.
 - [FLYTHROUGH.md](FLYTHROUGH.md): one-command flythrough videos of every area of a commit, rendered on the test Mac.
 - KYTTU: The City (and its OpenStreetMap "real places" maps) is archived on branch `archive/city-20261027` (see its docs/CITY_ARCHIVE.md); it is no longer part of main.
+- [XR_ANDROID.md](XR_ANDROID.md) — Android phone and OpenXR (Quest/PC VR) support: PlatformProfile flags and budgets, export presets, building on the mini, milestones

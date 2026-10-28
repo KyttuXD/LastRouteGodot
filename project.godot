@@ -26,6 +26,7 @@ config/icon="res://assets/branding/logo_1024.png"
 
 [autoload]
 
+PlatformProfile="*res://src/autoload/platform_profile.gd"
 GameState="*res://src/autoload/game_state.gd"
 Settings="*res://src/autoload/settings.gd"
 RunSaves="*res://src/autoload/run_saves.gd"
@@ -45,7 +46,7 @@ window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [gui]
 
