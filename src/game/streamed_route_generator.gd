@@ -2460,11 +2460,47 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 			reserved[occupied_value as Vector2i] = true
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	orient_props(result, grid)
+	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
+			return PropModelCatalog.interaction_for(String(e.get("type", ""))) == "lay"):
+		var bed := _fallback_bed(coord, room, basis, template, specs, grid, reserved, result)
+		if not bed.is_empty():
+			bed["spec_index"] = specs.size()
+			result.append(bed)
+			for occupied_value in bed.get("occupied_cells", []):
+				reserved[occupied_value as Vector2i] = true
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## KT: "a gothic bedroom is nearly empty, no bed". A bedroom never goes without a bed: when the recipe's bed could not be
+## placed (the room narrower than the bed, a door or the 3-wide opening on its wall cell, a wardrobe claiming it), the
+## bed is tried along the whole back wall, then the side walls' spans, and then smaller types, before giving up.
+const BED_TEMPLATES := ["bedroom", "gothic_bedroom"]
+const FALLBACK_BEDS := ["singleBed", "bunkBed"]
+static var guarantee_beds := true
+
+
+func _fallback_bed(coord: Vector3i, room: Dictionary, basis: Dictionary, template: String, specs: Array, grid: Array,
+		reserved: Dictionary, placed: Array) -> Dictionary:
+	var types := []
+	for spec in specs:
+		if PropModelCatalog.interaction_for(String(spec.get("type", ""))) == "lay" and not types.has(spec["type"]):
+			types.append(spec["type"])
+	for t in FALLBACK_BEDS:
+		if not types.has(t):
+			types.append(t)
+	var span := int(basis.get("side_span", 9)) / 2
+	for type in types:
+		for step in range(0, span + 1):
+			for side in ([0] if step == 0 else [-step, step]):
+				var spec := {"type": type, "side": side, "depth": 0, "wall_backed": true, "facing": "open"}
+				var entry := _template_prop_entry(coord, room, basis, template, specs.size(), spec, grid, reserved)
+				if not entry.is_empty() and _collider_clear(entry, placed):
+					return entry
+	return {}
 
 
 ## Ceiling fixtures by family (KT: "chandeliers AND ceiling fans together"). A room keeps one family: a chandelier
