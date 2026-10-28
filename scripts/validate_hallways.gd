@@ -57,6 +57,12 @@ func run(_host: Node) -> int:
 					for z in range(rect.position.y, rect.end.y):
 						for x in range(rect.position.x, rect.end.x):
 							rooms[origin + Vector2i(x, z)] = true
+				# a stairwell is an enclosed well, not a hallway: its landing is not a second hall beside the centre one
+				for well in data.get("stairwells", []):
+					var box: Rect2i = well["box"]
+					for z in range(box.position.y, box.end.y):
+						for x in range(box.position.x, box.end.x):
+							rooms[origin + Vector2i(x, z)] = true
 				for prop in data["region_props"]:
 					if prop.get("room_door", false):
 						for cell in prop.get("doorway_cells", []):

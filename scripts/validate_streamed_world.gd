@@ -16,11 +16,11 @@ func run(host: Node) -> int:
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
-	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
+	_expect(world.stair_links(Vector3i.ZERO).is_empty() and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
 		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not one unbounded maze level over the two sewers and the Inferno")
+		"the route is not one unbounded maze level under the Mezzanine and over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -774,8 +774,8 @@ func run(host: Node) -> int:
 			"zero pixel-effect strength still leaves a screen-space filter visible")
 		Settings.pixel_effect_percent = old_pixel_strength
 		pixel_effect.call("_refresh")
-	_expect(facility != null and facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
-		"live stream did not hold the 3x3 chunk window of the maze floor (plus the sewer under a ladder)")
+	_expect(facility != null and facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
+		"live stream did not hold the 3x3 chunk window of the maze floor (plus the sewer under a ladder, and the other level around a walked stairwell)")
 	_expect(not facility.get_tree().get_nodes_in_group("streamed_region_prop").is_empty(),
 		"live streamed regions loaded no authored dressing models")
 	var live_lower := facility.generator.chunk(Vector3i.ZERO)
@@ -1320,7 +1320,7 @@ func run(host: Node) -> int:
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
 			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
-			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 10,
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 				"long-distance hunter unload leaked streamed chunks")
 			player.global_position = Vector3(
 				(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
