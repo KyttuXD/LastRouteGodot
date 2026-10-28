@@ -353,7 +353,7 @@ func _actions() -> Control:
 	leave.pressed.connect(func() -> void:
 		var menu_scene := RoomState.menu_scene_path()
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(menu_scene))
+		XRFade.change_scene(get_tree(), menu_scene))
 	row.add_child(leave)
 
 	return stack
