@@ -529,15 +529,17 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 ## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
 ## upper-levels lane, which builds around them.
 func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
-	if upper_level == 0 or upper_level == MEZZANINE_LEVEL:
+	if VoidRegion.contains(world_seed, x, z):
+		# inside the void the only stairs are the tower's
+		var tower := VoidRegion.tower_chunk(world_seed)
+		return VoidRegion.tower_well(world_seed, upper_level) if x == tower.x and z == tower.y else {}
+	if upper_level == 0:
 		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
 			if int(well["upper"]) == upper_level:
 				return well
 		return {}
-	var key := Vector3i(x, upper_level, z)
-	if not _stairwell_cache.has(key):
-		_stairwell_cache[key] = Stairwells.plan(world_seed, x, z, upper_level)
-	return _stairwell_cache[key]
+	# above the maze there are no stairs but the void's tower
+	return {}
 
 
 const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
@@ -630,6 +632,11 @@ func stairwells_at(x: int, z: int, level: int) -> Array:
 ## seed maths and always included).
 func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
 	var out := []
+	if VoidRegion.contains(world_seed, coord.x, coord.z):
+		# the void has no ladders, ramps or maze stairwells: only the tower
+		for well in stairwells_at(coord.x, coord.z, coord.y):
+			out.append(well["link"])
+		return out
 	if coord.y == 0 or coord.y == SEWER_LEVEL:
 		var ladder_coord := Vector3i(coord.x, SEWER_LEVEL, coord.z)
 		if not cached_only or _chunk_cache.has(ladder_coord):
@@ -714,7 +721,7 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	if coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord):
+	if VoidRegion.is_void_chunk(world_seed, coord):
 		if _chunk_cache.has(coord):
 			return _chunk_cache[coord]
 		var mezzanine_data := mezzanine().chunk(coord)
@@ -911,12 +918,6 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
 		if not down.is_empty():
 			wells.append(down)
-		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)):
-			# the way up to the Mezzanine is decided here too, in a different quadrant from the way down
-			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL,
-				[int(down["quadrant"])] if not down.is_empty() else [])
-			if not up.is_empty():
-				wells.append(up)
 	var shaft_cells := {}
 	for well in wells:
 		_carve_stairwell(grid, layout, circulation, well, coord.y, shaft_cells)
@@ -1121,7 +1122,7 @@ func biome_for(coord: Vector3i) -> String:
 	return region_for(coord)
 
 func region_for(coord: Vector3i) -> String:
-	if coord.y == MEZZANINE_LEVEL:
+	if VoidRegion.is_void_chunk(world_seed, coord):
 		return "mezzanine"
 	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
@@ -1307,8 +1308,15 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# One maze level (y == 0), unbounded horizontally, over the sewer layer and under the Mezzanine.
-	return coord.y <= MEZZANINE_LEVEL and coord.y >= INFERNO_LEVEL
+	# One maze level (y == 0), unbounded horizontally, over the sewer layer; level +1 exists only inside the void.
+	if coord.y == MEZZANINE_LEVEL:
+		return VoidRegion.contains(world_seed, coord.x, coord.z)
+	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
+
+
+## True for a chunk column inside the Mezzanine void's footprint (VoidRegion): no maze, sewer or Inferno chunk is made there.
+func is_void_column(coord: Vector3i) -> bool:
+	return VoidRegion.contains(world_seed, coord.x, coord.z)
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:

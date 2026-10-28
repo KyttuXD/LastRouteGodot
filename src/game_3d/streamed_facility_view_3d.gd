@@ -436,17 +436,14 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
-	# The maze and the Mezzanine above it look through each other (grating, the open balcony edges). On the Mezzanine the
-	# 3x3 of the maze below stays loaded; in the maze only the Mezzanine chunk overhead (the neighbours stream in when a
-	# stairwell is walked, and are seen through the open-air edges only from above).
-	if center.y == 0 or center.y == StreamedRouteGenerator.MEZZANINE_LEVEL:
-		var other_level := StreamedRouteGenerator.MEZZANINE_LEVEL if center.y == 0 else 0
-		var reach := 0 if center.y == 0 else 1
-		for z in range(center.z - reach, center.z + reach + 1):
-			for x in range(center.x - reach, center.x + reach + 1):
-				var other := Vector3i(x, other_level, z)
-				if generator.is_chunk_allowed(other):
-					wanted[other] = true
+	# The Mezzanine void is one open shaft: standing in or beside it, every level of its columns within one chunk stays
+	# loaded, so the whole shaft is visible from any ledge, catwalk or deck.
+	for z in range(center.z - 1, center.z + 2):
+		for x in range(center.x - 1, center.x + 2):
+			if not generator.is_void_column(Vector3i(x, 0, z)):
+				continue
+			for level in range(VoidRegion.BOTTOM_LEVEL, VoidRegion.TOP_LEVEL + 1):
+				wanted[Vector3i(x, level, z)] = true
 	# The far end of a ladder or ramp stays loaded while the runner is in a chunk
 	# with one, so a shaft or a ramp tunnel never opens onto an unloaded level.
 	# Chunks with no link keep the plain nine-chunk window.
@@ -1245,10 +1242,6 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 			for x in range(drop.position.x, drop.end.x):
 				open_above[Vector2i(x, z)] = true
 				heights[Vector2i(x, z)] = LEVEL_HEIGHT
-	# Under the Mezzanine's grating the maze has no ceiling: the grating is the roof, and hunters see up through it
-	if coord.y == 0 and generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)):
-		for cell_value in generator.mezzanine().sight_cells(coord):
-			open_above[cell_value as Vector2i] = true
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
 	for cell_value in shaft_cells:
 		# a stairwell's lower level opens straight up the well: full-storey walls
@@ -1277,7 +1270,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	for cell_value in data.get("structural_voids", []):
 		structural_voids[cell_value as Vector2i] = true
 	var link_cells := {}
-	if coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL:
+	if (coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL) and not generator.is_void_column(coord):
 		for link_value in generator.sewer().links_for(coord):
 			link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
 	# The maze end of every ladder: its top section with grab hoops in the shaft,
@@ -1679,17 +1672,25 @@ static func _is_lava(build: Dictionary, cell: Vector2i) -> bool:
 		and (build["structural_voids"] as Dictionary).has(cell)
 
 
-## One cell of a Mezzanine chunk: grating or deck underfoot (a floor collider, drawn), open air everywhere else (no wall,
-## no collider, no ceiling: the double-height void over the maze). The railings come in _spawn_mezzanine_rails.
+## One cell of a void chunk (Mezzanine, VoidRegion): grating or deck underfoot (a floor collider, drawn), open air
+## elsewhere (no wall, no collider, no ceiling), the pit floor at the bottom, and a roof over everything at the top. The
+## railings come in _spawn_mezzanine_rails.
 func _build_mezzanine_cell(build: Dictionary, cell: Vector2i) -> void:
 	var data: Dictionary = build["data"]
 	var code := int((data["mezzanine_grid"] as Array)[cell.y][cell.x])
+	var surface := build["surface"] as RefSurfaceMesh
+	if bool(data.get("void_cap", false)):
+		surface.add_ceiling(cell.x, cell.y, LEVEL_HEIGHT - SLAB, RefTextures.layer("floor", "ceil0"),
+			RefTextures.params("ceiling", "ceil0"))
+	if code == MezzanineRouteGenerator.PIT:
+		(build["grid"] as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item)
+		surface.add_floor(cell.x, cell.y, RefTextures.layer("floor", "hazard"), RefTextures.params("floor", "hazard"))
+		return
 	if not MezzanineRouteGenerator.is_walkable(code):
 		return
 	var kind := "grate" if code == MezzanineRouteGenerator.GRATE else "metal2"
 	(build["grid"] as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item)
-	(build["surface"] as RefSurfaceMesh).add_floor(cell.x, cell.y, RefTextures.layer("floor", kind),
-		RefTextures.params("floor", kind))
+	surface.add_floor(cell.x, cell.y, RefTextures.layer("floor", kind), RefTextures.params("floor", kind))
 
 
 ## Railings on every Mezzanine edge that drops to open air: an iron top bar and a collider, waist high.
@@ -1729,6 +1730,15 @@ func _spawn_mezzanine_rails(root: Node3D, data: Dictionary) -> void:
 	mesh.mesh = surface.commit()
 	mesh.material_override = _stair_iron()
 	root.add_child(mesh)
+	# the shaft is dark: one budgeted lamp over the catwalk crossing of every void chunk lights the deck and the walls of
+	# the shaft round it
+	var lamp := OmniLight3D.new()
+	lamp.light_color = Color("ffd29a")
+	lamp.light_energy = .9
+	lamp.omni_range = 16.0
+	lamp.position = Vector3(UpperLevelTools.CENTER + .5, 2.4, UpperLevelTools.CENTER + .5)
+	root.add_child(lamp)
+	LampField.make_budgeted(lamp)
 
 
 func _add_rail_bar(surface: SurfaceTool, center: Vector3, size: Vector3) -> void:

@@ -115,6 +115,9 @@ var _story
 var _death_screen_open := false
 var _death_moment: DeathMoment
 var _last_death_cause := {}
+## `_resolve_capture_outcome`'s hunter id for a fall to the bottom of the Mezzanine void (VoidRegion): the same death flow, no hunter.
+const VOID_FALL := "void_fall"
+var _void_fall_check := 0.0
 ## Spectator state: peer id of the followed runner (0 = free camera).
 ## How long a caught PUBLIC-route runner spectates before rejoining (scripts/public_test.gd stretches it).
 static var public_spectate_seconds := 8.0
@@ -361,6 +364,7 @@ func _process(delta: float) -> void:
 	if not _slammed_doors.is_empty() and _remotes.simulates():
 		_tick_slammed_doors(delta)
 	_update_spectating()
+	_tick_void_fall(delta)
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
@@ -5086,12 +5090,35 @@ func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	_escaping_hunter_id = ""
 
 
+## Falling to the bottom of the Mezzanine void (VoidRegion) is a catch: standing below the pit floor's surface, over a pit
+## cell, ends the run through the normal death flow with no hunter (KT). Checked four times a second.
+func _tick_void_fall(delta: float) -> void:
+	_void_fall_check -= delta
+	if _void_fall_check > 0.0 or player == null or _capture_resolving or _death_screen_open:
+		return
+	_void_fall_check = .25
+	var at := player.global_position
+	var floor_y := float(VoidRegion.BOTTOM_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	if at.y > floor_y + 1.2 or at.y < floor_y - 2.0:
+		return
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var coord := Vector3i(floori(at.x / size), VoidRegion.BOTTOM_LEVEL, floori(at.z / size))
+	if not facility.generator.is_chunk_allowed(coord) or not VoidRegion.is_void_chunk(RoomState.seed_text, coord):
+		return
+	var grid: Array = facility.generator.chunk(coord).get("mezzanine_grid", [])
+	if grid.is_empty():
+		return
+	if int(grid[posmod(floori(at.z), size)][posmod(floori(at.x), size)]) == MezzanineRouteGenerator.PIT:
+		_resolve_capture_outcome(VOID_FALL)
+
+
 ## Shared by a failed struggle and an inescapable grab (void hunters, or a
 ## gimmick that declares the grab inescapable): the same local jumpscare and
 ## death report either way.
 func _resolve_capture_outcome(hunter_id: String) -> void:
 	if _capture_resolving:
 		return
+	var fell := hunter_id == VOID_FALL
 	_capture_resolving = true
 	GameState.resolve_escape_failure()
 	_save_after_local_death()
@@ -5100,7 +5127,8 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	_escaping_hunter_id = ""
 	_force_disable_admin_cheats()
 	_death_screen_open = true
-	_hunters_gloat(multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
+	if not fell:
+		_hunters_gloat(multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
 	_capture_cooldown = 60.0 * 60.0
 	player.velocity = Vector3.ZERO
 	player.input_frozen = true
@@ -5111,24 +5139,26 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		pause_menu.close()
 	pause_menu.set_process(false)
 	pause_menu.set_process_unhandled_input(false)
-	var identity := HunterRoster.get_identity(hunter_id)
-	var hunter_name := String(identity.get("display_name", hunter_id)).to_upper()
+	var identity := {} if fell else HunterRoster.get_identity(hunter_id)
+	var hunter_name := "THE VOID" if fell else String(identity.get("display_name", hunter_id)).to_upper()
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
-	if HunterJumpscare.ENABLED:
+	if HunterJumpscare.ENABLED and not fell:
 		Sound.office_jumpscare(hunter_id)
-	if jumpscare != null:
+	if jumpscare != null and not fell:
 		jumpscare.duration_scale = GameConfig.TROLL_SCARE_SCALE if player.troll_active else 1.0
 		await jumpscare.play(player.active_camera(), hunter_id)
 	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
 	# waits for it so the line is read before the end card.
-	_last_death_cause = _death_cause(hunter_id)
-	var moment := _death_moment_for(hunter_id, _last_death_cause)
-	if RoomState.public_route or RoomState.online:
-		_play_death_moment(hunter_name, moment, hunter_id)
-	else:
-		await _play_death_moment(hunter_name, moment, hunter_id)
+	# a fall into the void has no hunter and no line, only the card
+	_last_death_cause = {} if fell else _death_cause(hunter_id)
+	if not fell:
+		var moment := _death_moment_for(hunter_id, _last_death_cause)
+		if RoomState.public_route or RoomState.online:
+			_play_death_moment(hunter_name, moment, hunter_id)
+		else:
+			await _play_death_moment(hunter_name, moment, hunter_id)
 	if RoomState.public_route:
 		await _public_spectate_then_rejoin(hunter_name)
 		return
@@ -5153,7 +5183,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		"online": RoomState.online, "host": RoomState.is_host,
 		"respawn": true, "title": "YOU DIED",
 		"kicker": "RUNNER SIGNAL // LOST",
-		"reason": "CAUGHT BY %s" % hunter_name,
+		"reason": "FELL INTO THE VOID" if fell else "CAUGHT BY %s" % hunter_name,
 		"depth": -facility.current_level(), "score": GameState.score,
 		"relays": GameState.relays_collected,
 		"relay_target": GameState.relay_target,

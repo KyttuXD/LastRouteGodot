@@ -1117,17 +1117,14 @@ func _check_stairwells(host: Node) -> void:
 				if upper == 0:
 					# the maze's own areas: outer room bands, clear of the main halls and the spine
 					clear = Stairwells.MAZE_AREAS.any(func(area: Rect2i) -> bool: return area.encloses(box))
-				elif upper == 1:
-					# the way up to the Mezzanine is decided by the maze chunk, in the middle banks beside the centre hall
-					clear = clear and Stairwells.MAZE_UP_AREAS.any(func(area: Rect2i) -> bool: return area.encloses(box)) \
-						and String(well["kind"]) == "spiral"
 				_expect(clear, "stairwell %s breaks the placement rules (box %s)" % [well["link"]["id"], box])
 				if upper == 0:
 					_check_stairwell_ends(generator, x, z, well)
 					if not walk.has(well["kind"]):
 						walk[well["kind"]] = well.merged({"x": x, "z": z})
+	# above the maze the only stairs are the Mezzanine void's tower (scripts/validate_void.gd)
 	for upper in [1, 2, 3]:
-		_expect(not generator.stairwell_between(0, 0, upper).is_empty(), "no guaranteed stairwell up to +%d at chunk (0, 0)" % upper)
+		_expect(generator.stairwell_between(0, 0, upper).is_empty(), "a maze chunk at the spawn has a stairwell up to +%d" % upper)
 	_expect(int(counts[0]) >= 3 and int(counts[0]) <= 30, "%d maze <-> sewer stairwells in 81 chunks (want sparse)" % counts[0])
 	_expect(kinds.has("stairs") and kinds.has("spiral"), "only %s stairwell kinds generated" % [kinds.keys()])
 	for kind in walk:
