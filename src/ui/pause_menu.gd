@@ -73,6 +73,7 @@ var _pause_view: VBoxContainer
 var _tabs := {}
 var section := "pause"
 var _statistics_scroll: ScrollContainer
+var _saves_scroll: ScrollContainer
 var _saves_view: VBoxContainer
 var _statistics_view: VBoxContainer
 var _save_list: VBoxContainer
@@ -213,23 +214,52 @@ func _build() -> void:
 	_set_section("pause")
 
 
+## SAVES matches STATISTICS: one scroller for the whole page (house-style bar, wheel / touch / focus), the same tracked
+## amber section header, the same inset panel frame around the save controls, the same spacing.
 func _build_saves_view(parent: VBoxContainer) -> void:
 	_saves_view = VBoxContainer.new()
 	_saves_view.name = "PauseSaves"
-	_saves_view.add_theme_constant_override("separation", 5)
 	_saves_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(_saves_view)
+	var page_scroll := ScrollContainer.new()
+	page_scroll.name = "PauseSavesScroll"
+	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	page_scroll.follow_focus = true
+	_style_scrollbar(page_scroll.get_v_scroll_bar())
+	_saves_view.add_child(page_scroll)
+	_saves_scroll = page_scroll
+	var page := VBoxContainer.new()
+	page.name = "PauseSavesPage"
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override("separation", 6)
+	page_scroll.add_child(page)
+
+	var heading := Label.new()
+	heading.name = "SavesHeading"
+	heading.text = Palette.track("ROUTE ARCHIVES")
+	Palette.style_label(heading, Palette.AMBER, 8)
+	page.add_child(heading)
+
+	var frame := PanelContainer.new()
+	frame.name = "SaveControls"
+	frame.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
+	page.add_child(frame)
+	var frame_stack := VBoxContainer.new()
+	frame_stack.add_theme_constant_override("separation", 4)
+	frame.add_child(frame_stack)
 
 	var help := Label.new()
-	help.text = "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
+	help.text = "HOST SAVES SHARED PROGRESS // LOAD WHILE SOLO"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(help, Palette.MUTED, 7)
-	_saves_view.add_child(help)
+	frame_stack.add_child(help)
 
 	var create_row := HBoxContainer.new()
 	create_row.name = "SaveCreateRow"
 	create_row.add_theme_constant_override("separation", 4)
-	_saves_view.add_child(create_row)
+	frame_stack.add_child(create_row)
 
 	_save_name = LineEdit.new()
 	_save_name.name = "SaveNameInput"
@@ -246,22 +276,21 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	save_new_button.custom_minimum_size = Vector2(92, 22)
 	create_row.add_child(save_new_button)
 
-	var scroll := ScrollContainer.new()
-	scroll.name = "SaveSlotScroll"
-	scroll.custom_minimum_size = Vector2(0, 112)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_saves_view.add_child(scroll)
+	var slots_heading := Label.new()
+	slots_heading.text = Palette.track("SAVED ROUTES")
+	Palette.style_label(slots_heading, Palette.AMBER, 8)
+	page.add_child(slots_heading)
 	_save_list = VBoxContainer.new()
 	_save_list.name = "SaveSlotList"
 	_save_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_save_list.add_theme_constant_override("separation", 3)
-	scroll.add_child(_save_list)
+	_save_list.add_theme_constant_override("separation", 5)
+	page.add_child(_save_list)
 
 	_save_status = Label.new()
 	_save_status.name = "SaveStatus"
 	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(_save_status, Palette.MUTED, 7)
-	_saves_view.add_child(_save_status)
+	page.add_child(_save_status)
 
 
 ## The whole STATISTICS page scrolls (wheel, touch drag, focus): nothing clips at small windows, phones or the XR panel.
@@ -307,6 +336,12 @@ static func _style_scrollbar(bar: VScrollBar) -> void:
 	bar.add_theme_stylebox_override("scroll", track)
 	for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
 		bar.add_theme_stylebox_override(state, Palette.panel_box(Palette.ACCENT if state == "grabber" else Palette.ACCENT_EDGE, Palette.ACCENT_EDGE, 0))
+
+
+## Scrolls the saves page to its end (the last slot and status).
+func scroll_saves_to_end() -> void:
+	if _saves_scroll != null:
+		_saves_scroll.scroll_vertical = int(_saves_scroll.get_v_scroll_bar().max_value)
 
 
 ## Scrolls the statistics page so its last row is visible (keyboard/controller "end", tests).
