@@ -397,7 +397,6 @@ func _process(delta: float) -> void:
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
 	_update_ravelle_traps(get_process_delta_time())
-	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
 	_update_falls_jump(level)
@@ -1701,19 +1700,6 @@ func _crosshair_waypoint_target() -> Dictionary:
 
 
 ## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. the clear key removes it outright.
-func _handle_waypoint_input(level: int) -> void:
-	if Input.is_action_just_pressed("waypoint_clear"):
-		_clear_local_waypoint()
-		return
-	if not Input.is_action_just_pressed("waypoint"):
-		return
-	var target := _crosshair_waypoint_target()
-	if target.is_empty():
-		hud.show_message("NOWHERE TO PLACE A WAYPOINT")
-		return
-	_place_waypoint_at(target["at"], level)
-
-
 func _update_waypoint_hud(level: int) -> void:
 	if _waypoint_overlay == null:
 		return
