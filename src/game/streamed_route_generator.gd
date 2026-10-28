@@ -67,7 +67,7 @@ const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic
 const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
 	"hospital": .5, "lab": .55, "greenhouse": .55}
 const BANK_BIG_TYPES := {
-	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway"],
+	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway", "carnival_stage"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
 	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage", "arcade_room"],
 	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles (docs/ROOM_REFERENCE.md): these are 21x9 rooms
@@ -102,6 +102,9 @@ const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_caf
 	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
 	"hospital": ["ward"], "lab": ["containment", "server_hall"], "greenhouse": ["dome_atrium", "glasshouse"]}
 const LARGE_ROOM_SIZE := 21
+## The music wing (MusicWing): rare, hotel chunks only (the mall's slots are 20 wide), both slots of a chunk or neither.
+const MUSIC_WING_REGIONS := ["hotel"]
+const MUSIC_WING_CHANCE := .06
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
 ## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through.
@@ -1177,6 +1180,18 @@ func large_plan(coord: Vector3i) -> Dictionary:
 			if not is_chunk_allowed(neighbour) or not DENSE_DISTRICTS.has(region_for(neighbour)):
 				continue
 			plan[side] = String(types[type_index])
+	# the music wing takes BOTH great-hall slots of a hotel chunk or none (MusicWing, its own roll so the other plans are unchanged)
+	if MUSIC_WING_REGIONS.has(region) and not is_safe_room(coord):
+		var wing_rng := SeededRandom.new("%s:MUSICWING:%s" % [world_seed, key])
+		if wing_rng.next_float() < MUSIC_WING_CHANCE:
+			var both := true
+			for dx in [-1, 1]:
+				var next_door := coord + Vector3i(dx, 0, 0)
+				both = both and is_chunk_allowed(next_door) and DENSE_DISTRICTS.has(region_for(next_door)) \
+					and String(large_plan(next_door)["E" if dx < 0 else "W"]).is_empty()
+			if both:
+				plan["W"] = MusicWing.LARGE_TYPE
+				plan["E"] = MusicWing.LARGE_TYPE
 	_large_cache[key] = plan
 	return plan
 
@@ -1645,6 +1660,23 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
 			"axis": "east_west", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
 			"from_main_hall": true, "serves_many_rooms": false, "doorway": big_door})
+		if hall_type == MusicWing.LARGE_TYPE:
+			var wing := MusicWing.carve(grid, big, big_door, null, MusicWing.part_for_side(side))
+			for wing_room in wing["rooms"]:
+				var wing_entry := _room_entry(coord, room_index, region, wing_room["rect"], String(wing_room["room_type"]))
+				wing_entry["doorway"] = wing_room["doorway"]
+				wing_entry["preset_room"] = true
+				rooms.append(wing_entry)
+				room_index += 1
+			if (wing["hall"] as Rect2i).has_area():
+				# the wing hall is three wide, so its entrance from the vertical hall is a three-wide opening, not one cell
+				for door_row in range(big_door.y - 1, big_door.y + 2):
+					grid[door_row][big_door.x] = 0
+				corridors.append({"id": "%s:WING-HALL:%d" % [chunk_id(coord), side], "rect": wing["hall"],
+					"axis": "east_west", "width": CORRIDOR_WIDTH, "branch": true, "serves_many_rooms": true})
+			for wing_cell in wing["circulation"]:
+				_mark_corridor_cell(circulation, wing_cell, 1)
+			continue
 		var big_entry := _room_entry(coord, room_index, region, big, hall_type)
 		big_entry["doorway"] = big_door
 		big_entry["great_hall"] = true
@@ -2629,6 +2661,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		template = room_type
 	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
 			+ MALL_ROOMS + ["dome_atrium", "pod_room"]).has(room_type):
+		template = room_type
+	elif MusicWing.TEMPLATES.has(room_type):
 		template = room_type
 	if template.is_empty():
 		return []
@@ -3662,6 +3696,9 @@ static func _room_template_specs(template: String, region: String,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	if region in ["hospital", "lab", "greenhouse", "mall"]:
 		specs.append_array(_region_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
+	# the music wing's rooms (docs/MUSIC_WING.md): the stage, practice rooms, store, booth, the mall music store, the carnival stage
+	if MusicWing.TEMPLATES.has(template):
+		specs.append_array(MusicWing.room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
 	if side_span >= 17 and depth_span <= 11 and template in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		var originals := specs.duplicate()
