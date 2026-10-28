@@ -609,6 +609,8 @@ var _cull_level := 999999
 var _cull_visible := {}
 var maze_cull_hidden := 0
 var maze_cull_props := 0
+var maze_cull_tiles_hidden := 0
+var maze_cull_tiles := 0
 
 
 func _update_maze_culling() -> void:
@@ -690,6 +692,25 @@ func _apply_maze_culling() -> void:
 			hidden += 1
 	maze_cull_hidden = hidden
 	maze_cull_props = total
+	var tiles_seen := {}
+	for c in _cull_visible:
+		var cell: Vector2i = c
+		tiles_seen[Vector2i(floori(float(cell.x) / RefSurfaceMesh.TILE), floori(float(cell.y) / RefSurfaceMesh.TILE))] = true
+	var tiles_hidden := 0
+	var tiles_total := 0
+	for node in get_tree().get_nodes_in_group("cull_tile"):
+		var tile := node as Node3D
+		var root := tile.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		tiles_total += 1
+		var show := tiles_seen.has(tile.get_meta("cull_tile", Vector2i.ZERO))
+		if tile.visible != show:
+			tile.visible = show
+		if not show:
+			tiles_hidden += 1
+	maze_cull_tiles_hidden = tiles_hidden
+	maze_cull_tiles = tiles_total
 
 
 ## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
@@ -1301,12 +1322,28 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			2:
-				var surface_node := MeshInstance3D.new()
-				surface_node.name = "Surface"
-				surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
-					RefTextures.array_material("floor"), RefTextures.array_material("wall"))
-				surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-				root.add_child(surface_node)
+				if PlatformProfile.maze_culling:
+					# maze culling: one surface mesh per 15 x 15 tile, hidden when no line of sight reaches it
+					var tiles: Dictionary = (build["surface"] as RefSurfaceMesh).build_tiles(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					var coord: Vector3i = build["coord"]
+					var size := StreamedRouteGenerator.CHUNK_SIZE
+					for t in tiles:
+						var tile_node := MeshInstance3D.new()
+						tile_node.name = "Surface%d" % t
+						tile_node.mesh = tiles[t]
+						tile_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						tile_node.set_meta("cull_tile", Vector2i(coord.x * size / RefSurfaceMesh.TILE + t % 3,
+							coord.z * size / RefSurfaceMesh.TILE + t / 3))
+						tile_node.add_to_group("cull_tile")
+						root.add_child(tile_node)
+				else:
+					var surface_node := MeshInstance3D.new()
+					surface_node.name = "Surface"
+					surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					root.add_child(surface_node)
 				build["phase"] = 3
 				if not immediate:
 					return false

@@ -55,8 +55,10 @@ var governor_fps_cap := 0
 ## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
 var prop_density := 1.0
 var decor_density := 1.0
-## Maze culling (StreamedFacilityView3D): hide prop visuals no open line of sight can reach. EXPERIMENT branch: on.
-var maze_culling := OS.get_environment("MAZE_CULLING") != "0" and not OS.get_cmdline_user_args().has("--no-cull")
+## Maze culling (StreamedFacilityView3D): hide prop visuals and 15 x 15 surface tiles no open line of sight can reach.
+## Opt-in while it is measured (`--cull` or MAZE_CULLING=1).
+var maze_culling := (OS.get_environment("MAZE_CULLING") == "1" or OS.get_cmdline_user_args().has("--cull")) \
+	and not OS.get_cmdline_user_args().has("--no-cull")
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor

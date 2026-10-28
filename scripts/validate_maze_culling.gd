@@ -39,6 +39,8 @@ static func _sight(facility: StreamedFacilityView3D, from: Vector2, to: Vector2,
 
 
 func run(host: Node) -> int:
+	var was := PlatformProfile.maze_culling
+	PlatformProfile.maze_culling = true   # before the scene: chunks build their surfaces as cullable tiles
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.seed_text = "STREAM-BENCH"
 	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
@@ -49,13 +51,14 @@ func run(host: Node) -> int:
 		await host.get_tree().process_frame
 	player.admin_god_mode = true
 	player.set_physics_process(false)
-	var was := PlatformProfile.maze_culling
-	PlatformProfile.maze_culling = true
 	var start := player.global_position
 	var checked := 0
 	var popped := 0
 	var hidden_total := 0
 	var props_total := 0
+	var tiles_hidden := 0
+	var tiles_total := 0
+	var tiles_popped := 0
 	for sample in 16:
 		var target := start + Vector3(sample * 6.0, 0, (sample % 4) * 3.0)
 		player.global_position = target
@@ -84,12 +87,30 @@ func run(host: Node) -> int:
 						print("  popped: %s at %s seen from %s" % [prop.get_meta("streamed_prop_type", "?"), cell, eye])
 		hidden_total += facility.maze_cull_hidden
 		props_total += facility.maze_cull_props
+		tiles_hidden += facility.maze_cull_tiles_hidden
+		tiles_total += facility.maze_cull_tiles
+		# every surface tile holding a cell in line of sight must be drawn
+		for node in host.get_tree().get_nodes_in_group("cull_tile"):
+			var tile := node as Node3D
+			if tile.visible or roundi((tile.get_parent() as Node3D).position.y / StreamedFacilityView3D.LEVEL_HEIGHT) != level:
+				continue
+			var key: Vector2i = tile.get_meta("cull_tile")
+			var size := RefSurfaceMesh.TILE
+			for dz in size:
+				for dx in size:
+					var at := Vector2(key.x * size + dx + .5, key.y * size + dz + .5)
+					if at.distance_to(eye) < StreamedFacilityView3D.MAZE_CULL_RADIUS - 2 and _open(facility, Vector2i(floori(at.x), floori(at.y)), level) \
+							and _sight(facility, eye, at, level):
+						tiles_popped += 1
+						break
 	PlatformProfile.maze_culling = was
 	_expect(checked > 50, "only %d visible props were checked" % checked)
 	_expect(popped == 0, "%d props in line of sight were hidden (popping)" % popped)
 	_expect(hidden_total > 0, "maze culling hid nothing")
-	print("  maze_culling  %d props in sight all visible; culled %.0f%% of prop visuals on average (%d of %d over 16 spots)" % [
-		checked, 100.0 * hidden_total / maxf(props_total, 1), hidden_total, props_total])
+	_expect(tiles_popped == 0, "%d surface tiles with an open cell in line of sight were hidden (walls/floors popping)" % tiles_popped)
+	_expect(tiles_hidden > 0, "no wall/floor tile was culled")
+	print("  maze_culling  %d props in sight all visible; culled %.0f%% of prop visuals and %.0f%% of wall/floor tiles (%d of %d) over 16 spots" % [
+		checked, 100.0 * hidden_total / maxf(props_total, 1), 100.0 * tiles_hidden / maxf(tiles_total, 1), tiles_hidden, tiles_total])
 	scene.queue_free()
 	await host.get_tree().process_frame
 	return _failures
