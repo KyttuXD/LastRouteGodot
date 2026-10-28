@@ -466,3 +466,67 @@ later and is not started without KT's go-ahead.
   The proposal is overrides only when the manifest declares them.
 - Should the world-generation budgets live in PERF's code or in region data?
   The proposal is that PERF owns the defaults and regions may only lower them.
+
+## Room recipes (`lr.room/1`): design, not built yet
+
+KT's step 3d. A room recipe furnishes one room type (a ward, a bedroom, the mall's music_store). Today every recipe is a
+branch of `StreamedRouteGenerator._room_template_specs()` (about 1,200 lines shared by BIOMES, WORLD and MUSIC). Data
+recipes let packs add shop and room roles and place new props, which nothing else can do.
+
+### What a recipe is
+
+The generator already reduces every recipe to a list of **specs** placed relative to the room's door wall:
+`{type, side, depth, facing, wall_backed?, wall_mount?, solid?, mount_y?}`, with `side` across the room (mirrored by a
+seeded `mirror` of +1/-1) and `depth` away from the door wall. A data recipe is that list plus the few conditions the
+code uses:
+
+```json
+{"schema": "lr.room/1", "id": "mypack_record_shop", "regions": ["mall"],
+ "items": [
+	{"type": "checkoutCounter", "side": -2, "depth": 0, "wall_backed": true, "facing": "open"},
+	{"type": "mypack_record_rack", "side": 2, "depth": "mid", "facing": "center", "mirror": true},
+	{"type": "@rug", "side": 0, "depth": "mid", "solid": false, "when": {"min_side": 9}},
+	{"choose": [{"type": "guitarWallHanger", "weight": 3}, {"type": "@painting", "weight": 1}],
+	 "side": 0, "depth": 0, "wall_mount": true, "solid": false, "when": {"chance": 0.5}},
+	{"type": "vanityStool", "side": [-3, 3, 2], "depth": 1, "facing": "back"}
+ ]}
+```
+
+- `side`/`depth`: integers; `depth` may be `"mid"` (half the room's depth) or `"far"`; `side` may be `[from, to, step]`
+  to repeat an item along the wall (the chair rows).
+- `mirror: true` multiplies `side` by the room's seeded mirror (default true, as the code does).
+- `@frame`, `@painting`, `@rug`: the region's own frame/painting/rug type (`_frame_type_for_region`, `_rug_type_for_region`);
+  skipped where the region has none.
+- `when`: `min_side`, `min_depth`, `max_side`, `chance` (one seeded draw), all of which must hold.
+- `choose`: a weighted pick (one seeded draw).
+- Everything else (clearance, door keep-clear, wall snapping, surface parents, colliders) is the generator's existing
+  placement code, unchanged.
+
+### Determinism and parity
+
+Every `chance` and `choose` consumes exactly one draw from the room's `SeededRandom`, in item order, so the same seed
+gives the same room on every peer. Existing code recipes stay code: a data recipe is only used for room types that
+have no code branch (new roles from packs or new content). Migrating a built-in recipe to data is allowed only when
+its draws can be expressed in item order; the region parity hash (full chunk data) must not move, and recipes with
+loops over computed spans keep a named code "layout" (`"layout": "dining_rows"`) the data refers to, the way regions
+name dressers.
+
+### Rules for packs
+
+- New room types: id `<pack>_<name>`. They are used where a region lists them in `room_roles` (a region override, or a
+  pack region once levels place regions), so a pack can add, say, a record shop to the mall's shop cycle.
+- Overriding a built-in recipe (`rooms/<type>` in overrides) is allowed only for types that are already data.
+- Every `type` must be a known prop (built-in or the pack's); validators generate rooms of every new type over N seeds
+  and room sizes and require: all props placed, no overlaps, doorway clear, every floor cell reachable (the
+  `regions_*` shard rules), and sizes per the size table.
+- Hot-swap: recipes rebuild through `ContentRegistry.watch()` like every other table; a world is generated after its
+  room's packs load, so no chunk mixes recipe sets.
+
+### Order and coordination
+
+1. Interpreter plus `rooms/` pack kind, used only for room types with no code branch. No built-in change; parity
+   trivially identical. Suites: data_rooms (schema, determinism, the regions_* placement rules on generated rooms).
+2. MUSIC's `music_store` as the first data recipe (it is new, so no parity to keep), with MUSIC.
+3. Optional migration of simple built-in recipes, one region at a time, in frozen windows agreed with BIOMES
+   (layouts), WORLD (doors, archways, sizes) and MUSIC (mall/music wing), parity hash per region.
+4. Levels (`lr.level/1`, the level-0 pilot already approved) come after, so pack regions can be placed.
