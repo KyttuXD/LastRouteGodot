@@ -14,7 +14,9 @@ extends RefCounted
 
 const ROOT := "user://mods"
 const SCHEMA := "lr.pack/1"
-const KINDS := ["props", "regions", "hunters", "grabs"]
+const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience"]
+## Kinds that only replace built-in things (a new id would never be used): every entry must be listed in overrides.
+const OVERRIDE_ONLY_KINDS := ["sounds", "ambience"]
 const ASSET_EXTENSIONS := ["glb", "png", "ogg"]
 ## Finder litter that is skipped (and left out of the hash) rather than rejecting a hand-installed pack.
 const IGNORED_NAMES := [".DS_Store"]
@@ -56,7 +58,7 @@ static func discover(root: String = ROOT) -> PackedStringArray:
 ## One pack folder -> {"dir", "manifest", "defs": {kind: [def]}, "files": [{path, bytes, sha256}], "sha256", "errors"}.
 ## `defs` hold runtime values with pack-relative asset paths made absolute and prop families namespaced by pack id.
 static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = true) -> Dictionary:
-	var pack := {"dir": dir, "manifest": {}, "defs": {"props": [], "regions": [], "hunters": [], "grabs": []}, "files": [],
+	var pack := {"dir": dir, "manifest": {}, "defs": _empty_defs(), "files": [],
 		"sha256": "", "errors": PackedStringArray()}
 	var errors: PackedStringArray = pack["errors"]
 	var paths := []
@@ -117,8 +119,15 @@ static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = 
 	for rel in assets:
 		_check_asset(dir.path_join(rel), "%s/%s" % [dir, rel], errors)
 	if not errors.is_empty():
-		pack["defs"] = {"props": [], "regions": [], "hunters": [], "grabs": []}
+		pack["defs"] = _empty_defs()
 	return pack
+
+
+static func _empty_defs() -> Dictionary:
+	var out := {}
+	for kind in KINDS:
+		out[kind] = []
+	return out
 
 
 ## A pack model as a scene with every script, extension node, light, camera and physics body removed, or null.
@@ -231,12 +240,26 @@ static func _finish_def(def: Dictionary, kind: String, manifest: Dictionary, dir
 	var where := "%s/%s (%s)" % [dir, rel, id]
 	var pack_id := String(manifest["id"])
 	var overriding: bool = manifest.get("overrides", []).has("%s/%s" % [kind, id])
+	if not overriding and OVERRIDE_ONLY_KINDS.has(kind):
+		errors.append("%s: %s replace built-in ones; list \"%s/%s\" under overrides" % [where, kind, kind, id])
+		return {}
 	if not overriding and not id.begins_with(pack_id + "_"):
 		errors.append("%s: a new id must start with \"%s_\" (or list \"%s/%s\" under overrides)" % [where, pack_id,
 			kind, id])
 		return {}
 	var out := def.duplicate(true)
 	match kind:
+		"sounds", "ambience":
+			var files := []
+			for file in def["files"]:
+				var absolute := _asset(String(file), "ogg", dir, assets, where, errors)
+				if absolute.is_empty():
+					return {}
+				files.append(absolute)
+			if files.is_empty():
+				errors.append("%s: files is empty" % where)
+				return {}
+			out["files"] = files
 		"props":
 			out["family"] = "%s:%s" % [pack_id, def["family"]]
 			var models := []

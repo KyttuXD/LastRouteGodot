@@ -10,6 +10,7 @@ const Parity := preload("res://scripts/data_parity.gd")
 const ROOT := "user://data_packs_test"
 const PRINTER := "res://art/props-3d/props/maze/office_printer.glb"
 const AKI := "res://assets/hunters_blocky/aki/aki.glb"
+const TONE := "res://scripts/fixtures/pack_tone.ogg"
 
 var _failures := 0
 
@@ -48,7 +49,8 @@ func _snapshot() -> String:
 		var_to_str(PropModelCatalog.MODEL_PATHS), var_to_str(PropModelCatalog.VARIANT_THEMES),
 		var_to_str(PropModelCatalog.COORDINATED_SET_TYPES), var_to_str(FloorSets.HALLS), var_to_str(FloorSets.ROOM_DEFAULT),
 		var_to_str(StreamedRouteGenerator.REGION_PROP_SETS), var_to_str(StreamedRouteGenerator.SHOP_NAMES),
-		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()), ContentRegistry.pack_hash(),
+		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()),
+		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]), ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
 
 
@@ -84,6 +86,10 @@ func _check_loaded(dir: String) -> void:
 		model.free()
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
+	_expect(Sound._cue_overrides.has("alert") and Sound._ambience_overrides.has("mall"), "pack sounds not loaded")
+	var plays := int(Sound.play_counts.get("alert", 0))
+	_expect(Sound.alert() and int(Sound.play_counts.get("alert", 0)) == plays + 1, "the replaced cue did not play")
+	_expect(Sound._cue_overrides["alert"]["streams"][0] is AudioStreamOggVorbis, "the cue is not the pack's recording")
 	_expect(GrabStyles.pool_for("testpack_ember") == {"bear_hug": 3.0, "wrap": 1.0}, "pack hunter's grabs not loaded: %s"
 		% [GrabStyles.pool_for("testpack_ember")])
 	_expect(GrabStyles.pool_for("aki") == {"tackle": 1.0} and GrabStyles.look_for("aki")["delay"] == 0.0,
@@ -146,6 +152,12 @@ func _check_rejections(vanilla: String) -> void:
 		"id": "nohunter_ghost", "pool": {"tackle": 1}})})], "not a hunter"])
 	cases.append(["unknown grab style", [_good_pack("badgrab", {"grabs/x.json": JSON.stringify({"schema": "lr.grab/1",
 		"id": "badgrab_ember", "pool": {"backflip": 1}})})], "unknown grab style"])
+	cases.append(["undeclared sound", [_good_pack("loud", {"sounds/x.json": JSON.stringify({"schema": "lr.sound/1",
+		"sounds": [{"id": "taser", "files": ["assets/tone.ogg"]}]})})], "replace built-in ones"])
+	cases.append(["unknown cue", [_good_pack("nocue", {}, ["sounds/not_a_cue"], {"sounds/x.json": JSON.stringify({
+		"schema": "lr.sound/1", "sounds": [{"id": "not_a_cue", "files": ["assets/tone.ogg"]}]})})], "does not have"])
+	cases.append(["sound not ogg", [_good_pack("wavy", {"sounds/x.json": JSON.stringify({"schema": "lr.sound/1",
+		"sounds": [{"id": "alert", "files": ["assets/printer.glb"]}]})})], "is not a .ogg"])
 	cases.append(["bad ogg", [_good_pack("badogg", {"assets/sound.ogg": "not ogg"})], "sound.ogg"])
 	cases.append(["glTF extension", [_good_pack("gltfext", {"assets/body.glb": _glb({"asset": {"version": "2.0"},
 		"extensionsUsed": ["OMI_physics_body"], "scenes": [{"nodes": []}], "scene": 0})})], "OMI_physics_body"])
@@ -181,8 +193,8 @@ func _check_rejections(vanilla: String) -> void:
 ## region override, plus `extra` files, `overrides` and `replace` files on top.
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
-	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki"] if overrides.is_empty() \
-		else overrides
+	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
+		"ambience/mall"] if overrides.is_empty() else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
 			"author": "validator", "overrides": all_overrides}),
@@ -202,6 +214,10 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		files["grabs/ember.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "%s_ember" % id,
 			"pool": {"bear_hug": 3, "wrap": 1}})
 		files["grabs/aki.json"] = JSON.stringify({"schema": "lr.grab/1", "id": "aki", "pool": {"tackle": 1}})
+		files["sounds/cues.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "alert",
+			"files": ["assets/tone.ogg"], "gain_db": -3}]})
+		files["ambience/beds.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "mall",
+			"files": ["assets/tone.ogg"]}]})
 		files["props/ember.json"] = JSON.stringify({"schema": "lr.prop/1", "family": "ember", "props": [
 			{"id": "officePrinter", "models": ["assets/printer.glb"], "themes": ["ember"]},
 			{"id": "%s_lamp" % id, "models": ["assets/printer.glb"]}]})
@@ -211,6 +227,7 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		_write(dir.path_join(rel), files[rel])
 	if overrides.is_empty() or not replace.is_empty():
 		_write(dir.path_join("assets/printer.glb"), FileAccess.get_file_as_bytes(PRINTER))
+		_write(dir.path_join("assets/tone.ogg"), FileAccess.get_file_as_bytes(TONE))
 		var face := Image.create(8, 8, false, Image.FORMAT_RGBA8)
 		face.fill(Color.ORANGE_RED)
 		DirAccess.make_dir_recursive_absolute(dir.path_join("assets"))

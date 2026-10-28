@@ -19,7 +19,7 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs"]
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience"]
 const GRAB_SCRIPT := "res://src/config/grab_styles.gd"
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
@@ -32,7 +32,12 @@ const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": 
 const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_default_floor": "strings",
 	"room_roles": "strings", "shop_names": "dict_strings?", "room_door": "string?", "double_room_door": "string?",
 	"prop_set": "prop_set"}
-const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1"}
+## Sound replacements (pack-only kinds): "sounds" are named cues (Sound.render_cue names), "ambience" the looping beds
+## (AmbienceTable keys). `files`: .ogg variants, one picked per play; `gain_db`: volume offset.
+const SOUND_FIELDS := {"files": "strings", "gain_db": "float?"}
+const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1", "sounds": "lr.sound/1",
+	"ambience": "lr.sound/1"}
+const AMBIENCE_SCRIPT := "res://src/audio/ambience_table.gd"
 
 static var _loaded := false
 ## Built-in definitions (res://data) and families, never changed after loading.
@@ -40,14 +45,14 @@ static var _builtin := {"props": {}, "regions": {}, "hunters": {}}
 static var _builtin_families := {}
 static var _builtin_hash := ""
 ## What readers see: built-in plus the loaded packs.
-static var _defs := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}}
+static var _defs := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}, "sounds": {}, "ambience": {}}
 static var _families := {}
 static var _errors := PackedStringArray()
 ## Loaded packs (ContentPacks.read() results) sorted by pack id; per kind, id -> pack id for every pack definition and
 ## the sorted ids packs added (as opposed to overrode).
 static var _packs: Array = []
-static var _origin := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}}
-static var _added := {"props": [], "regions": [], "hunters": [], "grabs": []}
+static var _origin := {"props": {}, "regions": {}, "hunters": {}, "grabs": {}, "sounds": {}, "ambience": {}}
+static var _added := {"props": [], "regions": [], "hunters": [], "grabs": [], "sounds": [], "ambience": []}
 ## Pack asset path -> stripped PackedScene (models) or ImageTexture (PNGs), dropped on unload.
 static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
@@ -189,6 +194,21 @@ static func pack_scene(path: String) -> PackedScene:
 	return scene
 
 
+## A loaded pack's Ogg Vorbis file as a stream (`loop` for beds); null for anything outside a loaded pack.
+static func pack_audio(path: String, loop: bool = false) -> AudioStream:
+	var key := "%s|%s" % [path, loop]
+	if _assets.has(key):
+		return _assets[key]
+	if not _packs.any(func(pack: Dictionary): return path.begins_with(String(pack["dir"]) + "/")):
+		push_warning("ContentRegistry: %s is not part of a loaded pack" % path)
+		return null
+	var stream := AudioStreamOggVorbis.load_from_file(path)
+	if stream != null:
+		stream.loop = loop
+	_assets[key] = stream
+	return stream
+
+
 ## A loaded pack's PNG as a nearest-filtered texture; null for anything outside a loaded pack.
 static func pack_texture(path: String) -> Texture2D:
 	if _assets.has(path):
@@ -273,6 +293,11 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 
 
 static func _is_builtin_id(kind: String, id: String) -> bool:
+	if kind == "sounds":
+		var sound := (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Sound")
+		return sound != null and sound.knows_cue(id)
+	if kind == "ambience":
+		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
 	if kind == "grabs":
 		# every built-in hunter (and secret creature) can have its grab pool replaced
 		var grabs: GDScript = load(GRAB_SCRIPT)
@@ -405,7 +430,20 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		return {"defs": [], "errors": ["%s: top level is not an object" % path]}
 	if root.get("schema", "") != SCHEMAS[kind]:
 		return {"defs": [], "errors": ["%s: schema must be \"%s\"" % [path, SCHEMAS[kind]]]}
-	if kind == "props":
+	if kind in ["sounds", "ambience"]:
+		for key in root:
+			if not key in ["schema", "sounds"]:
+				errors.append("%s: unknown key \"%s\"" % [path, key])
+		if typeof(root.get("sounds")) != TYPE_ARRAY:
+			errors.append("%s: a sound file needs \"sounds\" (array)" % path)
+			return {"defs": [], "errors": errors}
+		var index := 0
+		for entry in root["sounds"]:
+			var def := _parse_entry(entry, SOUND_FIELDS, "%s: sounds[%d]" % [path, index], errors)
+			if not def.is_empty():
+				defs.append(def)
+			index += 1
+	elif kind == "props":
 		for key in root:
 			if not key in ["schema", "family", "props"]:
 				errors.append("%s: unknown key \"%s\"" % [path, key])

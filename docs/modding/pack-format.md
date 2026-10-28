@@ -9,6 +9,8 @@ mypack/
   hunters/<anything>.json   hunter files    (lr.hunter/1)
   regions/<anything>.json   region files    (lr.region/1)
   grabs/<anything>.json     grab pools      (lr.grab/1)
+  sounds/<anything>.json    sound effects   (lr.sound/1)
+  ambience/<anything>.json  ambience beds   (lr.sound/1)
   assets/...                .glb models, .png images, .ogg sounds (any sub-folders, lower-case extensions)
 ```
 

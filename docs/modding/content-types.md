@@ -97,3 +97,27 @@ hunter uses and how often.
 | `look` | no | how the head follows the runner: `yaw`, `up`, `down` (degrees), `chest` (0-1 share), `delay` (seconds before looking), `forward` ([x, y, z]) |
 
 A hunter without a pool uses the shoulder grab. The built-in pools are in the game's `data/grabs/`.
+
+## Sounds and ambience
+
+The game makes its sounds itself (synthesized cues and looping background beds). A pack can replace any of them with
+its own `.ogg` recordings. Both folders use the same file shape:
+
+```json
+{"schema": "lr.sound/1", "sounds": [
+	{"id": "alert", "files": ["assets/alert_a.ogg", "assets/alert_b.ogg"], "gain_db": -3}
+]}
+```
+
+| field | required | meaning |
+|---|---|---|
+| `id` | yes | the built-in sound, listed in `overrides`: `"sounds/<cue>"` or `"ambience/<bed>"` |
+| `files` | yes | one or more `.ogg` (Ogg Vorbis) files under `assets/`; each play picks one. A bed uses the first and loops it. |
+| `gain_db` | no | volume offset in decibels |
+
+- `sounds/` replaces **cues**: `alert`, `chase_start`, `door_open`, `door_close`, `taser`, `music_box`, `axe_chop`,
+  the Night Watch cues (`nw_ring`, `nw_door`, ...) and the rest of the game's named sounds. An unknown name is refused.
+  A cue's in-game loudness still scales your file; left/right placement is not applied to recordings. Footsteps and a
+  few queued office cues are not replaceable yet.
+- `ambience/` replaces **beds**: the region beds (`maze`, `mansion`, `hotel`, `mall`, `sewer`, `inferno`, ...) and room
+  beds. Make the recording loop seamlessly.
