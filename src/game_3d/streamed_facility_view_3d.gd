@@ -2853,10 +2853,10 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
 		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
 	elif bool(prop.get("outflow", false)):
-		# a trickle out of the main's mouth into the channel, from the bore's lip
+		# the drop's flange over the channel weeps into the flow
 		var wall := Vector2(prop.get("outflow_wall", Vector2i.ZERO))
-		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 1.66, float(prop.get("collider_y0", 1.0)) + .08,
-			cell.y + .5 - wall.y * 1.66), prop, Vector3(.12, 0.0, .12), 14)
+		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
+			cell.y + .5 - wall.y * 2.53), prop, Vector3(.7, 0.0, .7), 12)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:

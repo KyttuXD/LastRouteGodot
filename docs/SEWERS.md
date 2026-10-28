@@ -159,9 +159,9 @@ pointing up (and on the maze, down).
 
 ## Outflow mains
 
-A 1.5 m rusted main (`sewerOutflowPipe`) comes out of a tunnel's outer wall and runs across its three-wide walkway. Its
-mouth sits over the channel and trickles into it. The underside is `CRAWL_CLEARANCE`, so a crouched runner crawls under
-it. A standing runner or any hunter goes round: the main only sits between an arm's bridge and the junction
+A 1.5 m rusted main (`sewerOutflowPipe`) comes out of a tunnel's outer wall through a riveted wall plate and runs across
+its three-wide walkway. Over the railing it turns down an elbow into the channel with its foot in the flow, and the drop's
+flange weeps into the water. The underside is `CRAWL_CLEARANCE`, so a crouched runner crawls under it. A standing runner or any hunter goes round: the main only sits between an arm's bridge and the junction
 (`OUTFLOW_OFFSETS`), so there is a crossing on both sides of it. Placement:
 
 * at most one per chunk on either sewer, from its own seed stream (`SewerRouteGenerator._outflow_features`);

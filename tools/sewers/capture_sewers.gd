@@ -258,8 +258,18 @@ func _run() -> void:
 		_player.global_position = at + back * 6.0 + Vector3(0, .04, 0)
 		_view.refresh_at_tracked_player()
 		await _settle()
-		await _shot("outflow_main", at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, 1.4, 0))
-		await _shot("outflow_crawl", at + back * 1.4 + Vector3(0, .8, 0), at - back * 3.0 + Vector3(0, .6, 0))
+		var to_wall: Vector2i = main["outflow_wall"]
+		var wall_dir := Vector3(to_wall.x, 0, to_wall.y)
+		DebugView.tool_override = true     # a capture tool, not a player: fullbright is allowed
+		for mode in [DebugView.Mode.OFF, DebugView.Mode.FULLBRIGHT]:
+			DebugView.set_mode(mode, get_viewport())
+			var tag := "" if mode == DebugView.Mode.OFF else "_fullbright"
+			await _shot("outflow_main" + tag, at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, 1.4, 0))
+			await _shot("outflow_crawl" + tag, at + back * 1.4 + Vector3(0, .8, 0), at - back * 3.0 + Vector3(0, .6, 0))
+			# across the channel from the far walkway: wall plate, run, elbow and the drop into the water
+			await _shot("outflow_across" + tag, at - wall_dir * 6.5 + back * 2.5 + Vector3(0, 1.6, 0),
+				at - wall_dir * 1.0 + Vector3(0, 1.2, 0))
+		DebugView.set_mode(DebugView.Mode.OFF, get_viewport())
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
