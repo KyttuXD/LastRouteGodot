@@ -49,13 +49,19 @@ dragged aside) or `grate` (a floor grate swung up).
 * About 55 % of chunks have a ladder (the origin chunk always does), and a ladder usually leads up into a different
   chunk from where you went down.
 
-**Runner.** Step onto the ladder cell, or press E within 1.4 cells, to climb.
+**Runner.** Step onto the ladder cell, or press E within 1.4 cells, to get on. You mount smoothly at the end you came from
+(`PlayerController3D.begin_ladder_climb`), then climb under your own control:
 
-* The climb is a smooth 2.4 s glide over the storey. The body plays `climb`, which guests see through the
-  replicated clip and transform. The first-person view shows two blocky fists working the rungs.
-* Movement, items and collision are off while you climb.
-* The level switches halfway up, with hysteresis. That gives the short vulnerable window: a hunter at either end can
-  grab you over that half of the climb.
+* Hold move up (W / stick forward) to climb up, or move down (S / stick back) to climb down, at a steady
+  `LADDER_CLIMB_SPEED` (1.7 m/s). Release to hang still, silent, anywhere on the rungs.
+* Keep climbing past either end and you step off smoothly onto the floor in front of the ladder: over the lip of the
+  hatch at the top, onto the shaft chamber floor at the bottom. Jump within `LADDER_LET_GO_HEIGHT` of the bottom to let
+  go.
+* The camera stays free to look around. Movement, items and collision are off on the rungs. The body plays `climb`
+  (paused while you hang), which guests see through the replicated clip and transform. The first-person view shows two
+  blocky fists working the rungs. The rungs clank only while you move.
+* The level switches halfway up, with hysteresis. That gives the vulnerable window: a hunter at either end can grab
+  you over that half of the climb, and hanging there is a risk.
 * Once you're off, the ladder re-arms only after you step away, so arriving at the top doesn't send you straight back
   down.
 
