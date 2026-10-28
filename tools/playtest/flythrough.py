@@ -63,7 +63,8 @@ def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: i
     fade_out = max(length - 0.9, 0.0)
     vf = f"scale={scale_w}:-2:flags=lanczos,fade=t=in:st=0:d=0.6,fade=t=out:st={fade_out:.2f}:d=0.9,format=yuv420p"
     af = f"afade=t=in:st=0:d=0.6,afade=t=out:st={fade_out:.2f}:d=0.9"
-    base = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(avi), "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-vf", vf]
+    # -ss BEFORE -i: the clip's timestamps start at 0, so the fades land on the clip (MJPEG frames are all key frames, the seek is exact)
+    base = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(avi), "-t", f"{length:.3f}", "-vf", vf]
     audio = ["-af", af, "-c:a", "aac", "-b:a", "64k", "-ac", "1"]
     video = ["-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-movflags", "+faststart", "-r", str(fps)]
     out = sh([*base, *audio, *video, str(mp4)])
@@ -165,6 +166,8 @@ def main() -> int:
             results.append(result)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        # keep only this commit's lane on the mini (each holds a copy of the project and its import cache)
+        mini(REPO, lane, "--cmd", "cd .. && for d in fly-*; do [ \"$d\" != \"%s\" ] && rm -rf \"$d\"; done; true" % lane, timeout=300)
 
     (out_dir / "index.json").write_text(json.dumps({"commit": rev, "seed": args.seed, "fps": args.fps, "areas": results}, indent=2))
     lines = ["# Last Route flythroughs - commit %s" % rev, "", "Seed `%s`, %d fps, 1280x720 source. Re-render: `tools/playtest/flythrough.py --commit %s`." % (args.seed, args.fps, rev), ""]

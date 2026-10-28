@@ -38,6 +38,8 @@ func run(host: Node) -> int:
 			_expect(track.size() > 30 * 15 and track.size() < 30 * 60, "flythrough %s should last 15-60 s, got %.1f s" % [area, float(track.size()) / 30.0])
 			var biggest_jump := 0.0
 			for i in range(2, track.size()):
+				if track.cuts.has(i) or track.cuts.has(i - 1):
+					continue    # a planned hard cut to the overview shot
 				# a jump is a sudden change of the per-frame step, not the (fast) crane move itself
 				biggest_jump = maxf(biggest_jump, absf(track.pos[i].distance_to(track.pos[i - 1]) - track.pos[i - 1].distance_to(track.pos[i - 2])))
 			_expect(biggest_jump < .12, "flythrough %s camera speed jumps by %.2f m/frame" % [area, biggest_jump])
