@@ -1,0 +1,287 @@
+{
+ "name": "nyxie_peek",
+ "area": "hospital",
+ "seconds": 12,
+ "corner_grid": true,
+ "camera_back": 6.8,
+ "dark": 0.2,
+ "world_dim": 0.2,
+ "torch_energy": 0,
+ "actors": {
+  "nyxie": {
+   "id": "nyxie",
+   "at": [
+    "c",
+    0.5,
+    0.53
+   ],
+   "face": "shot_camera",
+   "pose": "peek_auto",
+   "head": {
+    "max_yaw": 60,
+    "max_pitch": 30,
+    "sway": 0.8,
+    "ease": 4
+   }
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    "A",
+    6.8,
+    0.5,
+    1.5
+   ],
+   "look": "nyxie:@Head",
+   "fov": 54.0
+  },
+  {
+   "t": 5.0,
+   "at": [
+    "A",
+    6.6,
+    0.5,
+    1.5
+   ],
+   "look": "nyxie:@Head",
+   "fov": 54.0
+  },
+  {
+   "t": 5.4,
+   "at": [
+    "A",
+    6.55,
+    0.5,
+    1.5
+   ],
+   "look": [
+    "c",
+    -1.2,
+    -1.4,
+    1.2
+   ],
+   "fov": 54.0
+  },
+  {
+   "t": 6.25,
+   "at": [
+    "A",
+    6.5,
+    0.5,
+    1.5
+   ],
+   "look": "nyxie:@Head",
+   "fov": 54.0
+  },
+  {
+   "t": 12,
+   "at": [
+    "A",
+    6.2,
+    0.5,
+    1.5
+   ],
+   "look": [
+    "c",
+    0.3,
+    0.05,
+    1.45
+   ],
+   "fov": 54.0
+  }
+ ],
+ "flashlight": [],
+ "events": [
+  {
+   "t": 1.0,
+   "flicker": 0.5
+  },
+  {
+   "t": 2.0,
+   "actor": "nyxie",
+   "waist": [
+    -56,
+    -34
+   ],
+   "waist_in": 1.4
+  },
+  {
+   "t": 5.4,
+   "game_torch": true
+  },
+  {
+   "t": 6.3,
+   "actor": "nyxie",
+   "react": {
+    "dur": 0.25,
+    "hold": 0.25,
+    "release": 0.35,
+    "away_yaw": -55,
+    "arm": "auto",
+    "hunch": 14
+   },
+   "recoil": {
+    "dist": 0.45,
+    "dur": 0.25
+   }
+  },
+  {
+   "t": 6.5,
+   "actor": "nyxie",
+   "waist_off": 0.3,
+   "move": [
+    "c",
+    0.95,
+    4.2
+   ],
+   "speed": 3.6,
+   "accel": 9.0,
+   "clip": "sprint",
+   "blend": 0.45
+  },
+  {
+   "t": 6.55,
+   "steps": {
+    "count": 18,
+    "interval": 0.22,
+    "volume": 0.18,
+    "pan": 0.35,
+    "fade": true
+   }
+  },
+  {
+   "t": 7.45,
+   "actor": "nyxie",
+   "hide": true
+  }
+ ],
+ "smooth": {
+  "from": 5.8,
+  "to": 9.0
+ },
+ "expects": [
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 4.8,
+   "label": "peek",
+   "corner_is_grid": true,
+   "face_camera_deg": 30,
+   "head_faces_camera_deg": 20,
+   "lean_open_side": true,
+   "visible_parts": {
+    "head": true,
+    "chest": true
+   },
+   "occluded_by_corner": [
+    "Pelvis",
+    "L-Thigh",
+    "R-Thigh",
+    "L-Calf",
+    "R-Calf",
+    "L-Foot",
+    "R-Foot"
+   ],
+   "edge_max_m": 0.3,
+   "pixels": {
+    "max_px": {
+     "legs": 0,
+     "hips": 0
+    },
+    "min_px": {
+     "head": 1500
+    },
+    "torso_fraction": [
+     0.5,
+     0.95
+    ],
+    "height_fraction": [
+     0.15,
+     0.3
+    ]
+   },
+   "face_luma_min": 0.06
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 6.25,
+   "label": "beam",
+   "visible_parts": {
+    "head": true
+   },
+   "occluded_by_corner": [
+    "Pelvis",
+    "L-Thigh",
+    "R-Thigh",
+    "L-Calf",
+    "R-Calf",
+    "L-Foot",
+    "R-Foot"
+   ],
+   "face_luma_min": 0.2,
+   "aim_deg": 6,
+   "pixels": {
+    "max_px": {
+     "legs": 0,
+     "hips": 0
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 6.5,
+   "label": "cover",
+   "occluded_by_corner": [
+    "Pelvis",
+    "L-Thigh",
+    "R-Thigh",
+    "L-Calf",
+    "R-Calf",
+    "L-Foot",
+    "R-Foot"
+   ],
+   "pixels": {
+    "max_px": {
+     "legs": 0,
+     "hips": 0
+    }
+   }
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_mesh_in_wall": true,
+   "t": 9.5,
+   "label": "gone",
+   "visible_parts": {
+    "head": false,
+    "chest": false,
+    "hips": false,
+    "legs": false
+   },
+   "smooth_max_deg": 24,
+   "static_max_frames": 2
+  }
+ ],
+ "corner_light": {
+  "energy": 1.1,
+  "range": 4.5,
+  "color": "#ffd9a8",
+  "at": [
+   -0.8,
+   -0.6,
+   2.3
+  ]
+ },
+ "motion": {
+  "from": 6.3,
+  "to": 7.45
+ }
+}

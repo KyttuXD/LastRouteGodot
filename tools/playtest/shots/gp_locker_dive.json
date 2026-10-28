@@ -1,0 +1,85 @@
+{
+ "name": "gp_locker_dive",
+ "area": "hospital",
+ "seconds": 2.8,
+ "gameplay": true,
+ "dark": 0.0,
+ "torch_energy": 0,
+ "locker": {
+  "side_clear": 2.0
+ },
+ "start": [
+  1.25,
+  0.15
+ ],
+ "face_at": [
+  0.0,
+  0.0,
+  1.05
+ ],
+ "actors": {
+  "elise": {
+   "id": "elise",
+   "at": [
+    1.5,
+    -5.0
+   ],
+   "face": "heading",
+   "clip": "walk"
+  }
+ },
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 0.3,
+   "move": [
+    0.0,
+    0.4
+   ]
+  }
+ ],
+ "events": [
+  {
+   "t": 0.0,
+   "actor": "elise",
+   "move": [
+    1.5,
+    5.0
+   ],
+   "speed": 2.2,
+   "clip": "chase"
+  },
+  {
+   "t": 0.35,
+   "pulse": [
+    "interact"
+   ]
+  }
+ ],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 0.25,
+   "label": "before"
+  },
+  {
+   "hud": true,
+   "hands": false,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.9,
+   "label": "hidden",
+   "actor": "elise",
+   "pixels": {
+    "min_px": {
+     "any": 100
+    }
+   }
+  }
+ ]
+}
