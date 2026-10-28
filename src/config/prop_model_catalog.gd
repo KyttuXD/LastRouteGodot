@@ -595,6 +595,8 @@ const MODEL_PATHS := {
 	"sewerPipeRun": ["res://art/props-3d/props/sewer/sewer_pipe_run.glb"],
 	"sewerOverflowGrate": ["res://art/props-3d/props/sewer/sewer_overflow_grate.glb"],
 	"sewerLamp": ["res://art/props-3d/props/sewer/sewer_lamp.glb"],
+	"sewerBridge": ["res://art/props-3d/props/sewer/sewer_bridge.glb"],
+	"sewerGrateDeck": ["res://art/props-3d/props/sewer/sewer_grate_deck.glb"],
 	"prisonBunk": ["res://art/props-3d/props/prison/prison_bunk.glb"],
 	"prisonCafeteriaTable": [
 		"res://art/props-3d/props/prison/prison_cafeteria_table.glb",

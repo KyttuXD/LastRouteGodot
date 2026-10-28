@@ -10,7 +10,6 @@ const DIRECTIONS4 := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
 const MAX_PATH_SPAN := StreamedRouteGenerator.CHUNK_SIZE * 3
 const MAX_NEAREST_VISITS := 4096
 const SAFE_ZONE_BLOCK_RADIUS := 3.15
-const WATER_WEIGHT := 2.5
 
 var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
@@ -270,16 +269,7 @@ func _rebuild_path_grid_if_needed() -> void:
 			var cell := Vector2i(x, z)
 			if not can_occupy(x + .5, z + .5):
 				_path_grid.set_point_solid(cell, true)
-	# Sewer channels are wadeable but slow: routes keep to the dry walkways and
-	# bridges unless the water is the only way.
-	if level == StreamedRouteGenerator.SEWER_LEVEL:
-		for coord in _active_coords:
-			var sewer_grid: Array = _chunk(coord).get("sewer_grid", [])
-			var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
-			for z in sewer_grid.size():
-				for x in (sewer_grid[z] as Array).size():
-					if int(sewer_grid[z][x]) == SewerRouteGenerator.WATER:
-						_path_grid.set_point_weight_scale(base + Vector2i(x, z), WATER_WEIGHT)
+
 
 
 func has_line_of_sight(from: Vector2, to: Vector2) -> bool:

@@ -49,6 +49,11 @@ const LEVEL_TRANSITION_MARGIN := 0.35
 ## Sewer wall colliders: the storey below the maze, up to the underside of the
 ## maze's floor slab (which occupies -SLAB..0 of level 0).
 const SEWER_WALL_HEIGHT := LEVEL_HEIGHT - SLAB
+## Channel railings: height and inset from the walkway edge.
+const RAIL_HEIGHT := 1.0
+const RAIL_INSET := 0.06
+## The channel collider rises this far above the walkways (over the railings).
+const CHANNEL_BLOCK_TOP := 1.2
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -108,6 +113,7 @@ var _safe_floor_item := -1
 var _col_floor_item := -1
 var _col_wall_item := -1
 var _col_sewer_wall_item := -1
+var _col_channel_item := -1
 var _loaded := {}
 var _chunk_data := {}
 var _pickup_nodes := {}
@@ -846,22 +852,25 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				kind = "safe_plain"
 			elif edge == 3:
 				kind = "safe"
-		var sewer_code := _sewer_code(build, x, z)
-		if sewer_code == SewerRouteGenerator.WATER:
-			kind = "concrete1"      # the channel bed under the flowing water
-		elif sewer_code == SewerRouteGenerator.BRIDGE:
+		# A bridge or plaza deck over a sewer channel: walkable at floor level (the
+		# authored deck prop is the visible floor), with the channel's trench and
+		# its water running underneath.
+		var on_deck := _sewer_code(build, x, z) == SewerRouteGenerator.BRIDGE
+		if on_deck:
 			kind = "grate"
+			_add_channel_trench(build, cell)
 		grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 		if not build.has("floor_kinds"):
 			build["floor_kinds"] = {}
-		# footsteps: the channel splashes (SurfaceSounds "water") though its bed is painted concrete
-		(build["floor_kinds"] as Dictionary)[cell] = "sewer_water" if sewer_code == SewerRouteGenerator.WATER else kind
+		(build["floor_kinds"] as Dictionary)[cell] = kind
 		var link_here := (build["link_cells"] as Dictionary).has(cell)
 		var coord_y := (build["coord"] as Vector3i).y
 		# A ladder shaft: the maze keeps its walkable collider over the opening (the
 		# climb owns the crossing) but draws no floor, and lines the shaft down to
 		# the sewer ceiling; the sewer leaves its ceiling open under it.
-		if not (link_here and coord_y == 0):
+		if on_deck:
+			pass
+		elif not (link_here and coord_y == 0):
 			surface.add_floor(x, z, RefTextures.layer("floor", kind),
 				RefTextures.params("floor", kind))
 		else:
@@ -892,6 +901,14 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				var lintel_kind := _ref_wall_kind(build, nx, nz, x, z)
 				surface.add_wall(nx, nz, -step, RefTextures.layer("wall", lintel_kind),
 					RefTextures.params("wall", lintel_kind), height, neighbour_height, height)
+	elif _sewer_code(build, x, z) == SewerRouteGenerator.WATER:
+		# Open channel: a trench of deep water nobody enters. Its collider stands
+		# from the bed to above the railing height, so runners and hunters stay on
+		# the walkways and decks; the vault continues overhead.
+		grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
+		_add_channel_trench(build, cell)
+		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+			RefTextures.params("ceiling", ceiling_kind))
 	else:
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
 			if (build["coord"] as Vector3i).y == StreamedRouteGenerator.SEWER_LEVEL else _col_wall_item)
@@ -914,6 +931,30 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
 	var sewer_grid: Array = build["sewer_grid"]
 	return SewerRouteGenerator.DRY if sewer_grid.is_empty() else int(sewer_grid[z][x])
+
+
+static func _is_channel(code: int) -> bool:
+	return code == SewerRouteGenerator.WATER or code == SewerRouteGenerator.BRIDGE
+
+
+## The trench under a channel or deck cell: its bed CHANNEL_DEPTH down and a
+## brick side wall wherever it meets a walkway or room (cells over the seam
+## continue the channel, so no face there).
+func _add_channel_trench(build: Dictionary, cell: Vector2i) -> void:
+	var surface := build["surface"] as RefSurfaceMesh
+	var depth := SewerRouteGenerator.CHANNEL_DEPTH
+	surface.add_floor_at(cell.x, cell.y, -depth, RefTextures.layer("floor", "concrete1"),
+		RefTextures.params("floor", "concrete1"))
+	var coord: Vector3i = build["coord"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for step_value in RefDecor.DIRS:
+		var step: Vector2i = step_value
+		var n := cell + step
+		if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or _is_channel(_sewer_code(build, n.x, n.y)):
+			continue
+		var kind := RefLook.wall_kind("sewer", "", coord.x * size + n.x, coord.z * size + n.y)
+		surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", kind),
+			RefTextures.params("wall", kind), 0.0, -depth)
 
 
 ## Brick lining of a ladder shaft under a maze link cell, from the maze floor
@@ -943,7 +984,7 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
 	var any := false
 	for z in sewer_grid.size():
 		for x in (sewer_grid[z] as Array).size():
-			if int(sewer_grid[z][x]) != SewerRouteGenerator.WATER:
+			if not _is_channel(int(sewer_grid[z][x])):
 				continue
 			any = true
 			var along_x := absi(z - center) <= SewerRouteGenerator.CHANNEL_HALF
@@ -963,6 +1004,57 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
 	material.shader = SEWER_WATER_SHADER
 	water.material_override = material
 	root.add_child(water)
+	_spawn_channel_railings(root, sewer_grid)
+
+
+## Iron railings along every edge where a walkway, room floor or deck meets open
+## water: a post at each metre and a top and mid rail, as two MultiMeshes per
+## chunk. They are the visible reason the channel collider stops you.
+func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
+	var segments: Array[Transform3D] = []
+	var size := sewer_grid.size()
+	for z in size:
+		for x in size:
+			if not SewerRouteGenerator.is_walkable(int(sewer_grid[z][x])):
+				continue
+			for step_value in RefDecor.DIRS:
+				var step: Vector2i = step_value
+				var n := Vector2i(x, z) + step
+				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
+						or int(sewer_grid[n.y][n.x]) != SewerRouteGenerator.WATER:
+					continue
+				# on the walkway side of the edge, running along it
+				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))
+				var basis := Basis(Vector3.UP, PI / 2.0) if step.x != 0 else Basis.IDENTITY
+				segments.append(Transform3D(basis, mid))
+	if segments.is_empty():
+		return
+	var iron := StandardMaterial3D.new()
+	iron.albedo_color = Color("3b3f42")
+	MaterialLook.tame(iron, true)
+	var rail_mesh := BoxMesh.new()
+	rail_mesh.size = Vector3(1.0, .055, .055)
+	var post_mesh := BoxMesh.new()
+	post_mesh.size = Vector3(.07, RAIL_HEIGHT, .07)
+	for part in ["Rails", "Posts"]:
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = rail_mesh if part == "Rails" else post_mesh
+		multi.instance_count = segments.size() * (2 if part == "Rails" else 1)
+		for i in segments.size():
+			var t: Transform3D = segments[i]
+			if part == "Rails":
+				multi.set_instance_transform(i * 2, t.translated(Vector3(0, RAIL_HEIGHT - .03, 0)))
+				multi.set_instance_transform(i * 2 + 1, t.translated(Vector3(0, RAIL_HEIGHT * .5, 0)))
+			else:
+				# a post at the segment's start corner, so a run of segments has one per metre
+				multi.set_instance_transform(i, t.translated(t.basis.x * -.5 + Vector3(0, RAIL_HEIGHT * .5, 0)))
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "Channel" + part
+		instance.multimesh = multi
+		instance.material_override = iron
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(instance)
 
 
 ## Cell -> room_type for every cell inside a room rectangle of this chunk.
@@ -1899,6 +1991,15 @@ func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	sewer_wall_shape.size = Vector3(1.0, SEWER_WALL_HEIGHT, 1.0)
 	library.set_item_shapes(next_id, [sewer_wall_shape,
 		Transform3D(Basis.IDENTITY, Vector3(0.0, SEWER_WALL_HEIGHT * .5, 0.0))])
+	next_id += 1
+	# Open sewer channel: blocks from the trench bed to above the railings.
+	_col_channel_item = next_id
+	library.create_item(next_id)
+	var channel_shape := BoxShape3D.new()
+	var channel_h := SewerRouteGenerator.CHANNEL_DEPTH + CHANNEL_BLOCK_TOP
+	channel_shape.size = Vector3(1.0, channel_h, 1.0)
+	library.set_item_shapes(next_id, [channel_shape,
+		Transform3D(Basis.IDENTITY, Vector3(0.0, CHANNEL_BLOCK_TOP - channel_h * .5, 0.0))])
 	return next_id + 1
 
 

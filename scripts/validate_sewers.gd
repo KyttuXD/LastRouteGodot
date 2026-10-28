@@ -3,9 +3,10 @@ extends RefCounted
 ## The sewer layer under the Last Route maze (SewerRouteGenerator, level -1):
 ## deterministic per seed; every seam meets; every dry cell sits in a 3x3 dry
 ## block (three-wide walkways and branches) and the tunnel is nine walkable
-## cells across; every link's lid is an open, prop-free maze hallway cell; dry
-## walkers reach every link and every seam without wading; and a walker can go
-## from the maze spawn down one link, through the sewer and up another link.
+## cells across; every link's lid is an open, prop-free maze hallway cell;
+## walkers reach every link and every seam on walkways, bridges and the
+## junction's grate plaza (the deep channels are never walkable); and a walker
+## can go from the maze spawn down one link, through the sewer and up another.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- sewers
 
@@ -31,9 +32,13 @@ func run(host: Node) -> int:
 	_check_hunter_paths()
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
+	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
 	if _failures == 0:
 		print("  ok    sewers: %d links, all reachable both ways" % total_links)
 	return _failures
+
+
+var valves_checked := 0
 
 
 func _check_window(window: Dictionary) -> int:
@@ -66,8 +71,19 @@ func _check_window(window: Dictionary) -> int:
 						maze_open[origin + Vector2i(x, z)] = true
 			for feature in data["features"]:
 				var fc: Vector2i = feature["cell"]
-				_expect(SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])),
-					"%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
+				# the overflow weir stands in its basin's water; everything else on floor or deck
+				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])) \
+					or (feature["type"] == "sewerOverflowGrate" and int(grid[fc.y][fc.x]) == SewerRouteGenerator.WATER)
+				_expect(standing, "%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
+				# nothing hangs in the air: a wall-mounted piece (valve wheel, lamp, pipe run,
+				# pump, ladder) stands on floor with brick directly behind it
+				var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
+				if wall != Vector2i.ZERO:
+					_expect(SewerRouteGenerator.wall_backed(grid, fc, wall),
+						"%s %s: %s at %s floats (no brick behind it toward %s)" % [seed_text, coord, feature["type"], fc, wall])
+					if feature["type"] == "sewerValveWheel":
+						valves_checked += 1
+			_check_channels(seed_text, coord, data)
 			var ladders := {}
 			for feature in data["features"]:
 				if feature["type"] == "sewerLadder":
@@ -193,6 +209,7 @@ func _check_streaming(host: Node) -> void:
 		"no floor collider under the runner in the sewer")
 	_expect(root != null and root.get_node_or_null("SewerWater") != null, "the sewer chunk has no flowing water")
 	_check_colliders_below_maze(view)
+	_check_live_channel(view, Vector3i(0, SewerRouteGenerator.LEVEL, 0))
 	# Walk east one chunk along the tunnel: the window streams incrementally.
 	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
 	var worst_frame_ms := 0.0
@@ -295,8 +312,15 @@ func _check_hunter_paths() -> void:
 	for i in range(1, feet.size()):
 		var a := LadderTraffic.ladder_point(feet[0], SewerRouteGenerator.LEVEL)
 		var b := LadderTraffic.ladder_point(feet[i], SewerRouteGenerator.LEVEL)
-		if not below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y))).is_empty():
+		var route: Array = below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y)))
+		if not route.is_empty():
 			routed += 1
+		for step in route:
+			var cell: Vector2i = step
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			var code := int(generator.sewer().chunk(Vector3i(floori(float(cell.x) / size), SewerRouteGenerator.LEVEL,
+				floori(float(cell.y) / size)))["sewer_grid"][posmod(cell.y, size)][posmod(cell.x, size)])
+			_expect(code != SewerRouteGenerator.WATER, "a hunter route wades through the channel at %s" % cell)
 	for i in feet.size():
 		var lid := LadderTraffic.ladder_point(feet[i], 0)
 		# from another lid: the origin chunk's centre is a safe room hunters do not enter
@@ -351,3 +375,77 @@ func _check_colliders_below_maze(view: StreamedFacilityView3D) -> void:
 static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D) -> float:
 	var aabb := shape.get_debug_mesh().get_aabb()
 	return (Transform3D(Basis.IDENTITY, cell_origin) * local * aabb).end.y
+
+
+## Deep channels with real crossings, per chunk: the water lies well below the
+## walkways over a bed a metre down; along both arms of the cross no stretch of
+## open water runs longer than MAX_OPEN_WATER cells between decks; every 3 x 3
+## deck carries its authored prop (a bridge on the tunnels, grate tiles on the
+## junction plaza); and the overflow basin is open water too. Crossings come
+## about every 24 m: within a chunk the longest open stretch is 9 cells (two such
+## stretches meet across a seam).
+const MAX_OPEN_WATER := 10
+
+
+func _check_channels(seed_text: String, coord: Vector3i, data: Dictionary) -> void:
+	_expect(SewerRouteGenerator.WATER_SURFACE <= -.2 and SewerRouteGenerator.CHANNEL_DEPTH >= .8,
+		"the sewer water is not deep (surface %.2f, bed %.2f)" % [SewerRouteGenerator.WATER_SURFACE,
+			-SewerRouteGenerator.CHANNEL_DEPTH])
+	var grid: Array = data["sewer_grid"]
+	var c := SewerRouteGenerator.CENTER
+	for arm in 2:
+		var run := 0
+		var longest := 0
+		for i in SewerRouteGenerator.CHUNK_SIZE:
+			var code := int(grid[c][i]) if arm == 0 else int(grid[i][c])
+			run = run + 1 if code == SewerRouteGenerator.WATER else 0
+			longest = maxi(longest, run)
+		_expect(longest <= MAX_OPEN_WATER, "%s %s: %d cells of open channel without a crossing" % [seed_text, coord, longest])
+	var decks := {}
+	for feature in data["features"]:
+		if feature["type"] in ["sewerBridge", "sewerGrateDeck"]:
+			decks[feature["cell"]] = feature["type"]
+	var bridge_cells := 0
+	for z in grid.size():
+		for x in (grid[z] as Array).size():
+			if int(grid[z][x]) != SewerRouteGenerator.BRIDGE:
+				continue
+			bridge_cells += 1
+			var covered := false
+			for centre in decks:
+				if absi(x - (centre as Vector2i).x) <= 1 and absi(z - (centre as Vector2i).y) <= 1:
+					covered = true
+			_expect(covered, "%s %s: deck cell %s has no bridge or grate prop" % [seed_text, coord, Vector2i(x, z)])
+	_expect(bridge_cells == decks.size() * 9, "%s %s: %d deck cells for %d deck props" % [
+		seed_text, coord, bridge_cells, decks.size()])
+
+
+## The live chunk: every open-water cell has the channel collider, which stands
+## above the railings so nobody steps in; every deck cell is walkable floor; the
+## water mesh runs under the decks and the railings are there.
+func _check_live_channel(view: StreamedFacilityView3D, coord: Vector3i) -> void:
+	var root: Node3D = view._loaded.get(coord)
+	if root == null:
+		_expect(false, "sewer chunk %s not loaded for the channel check" % coord)
+		return
+	var grid := root.get_node_or_null("Structure") as GridMap
+	var sewer_grid: Array = view.generator.chunk(coord)["sewer_grid"]
+	var bad := 0
+	for z in sewer_grid.size():
+		for x in (sewer_grid[z] as Array).size():
+			var item := grid.get_cell_item(Vector3i(x, 0, z))
+			match int(sewer_grid[z][x]):
+				SewerRouteGenerator.WATER:
+					if item != view._col_channel_item:
+						bad += 1
+				SewerRouteGenerator.BRIDGE:
+					if item != view._col_floor_item:
+						bad += 1
+	_expect(bad == 0, "%d channel or deck cells have the wrong collider" % bad)
+	var shapes: Array = grid.mesh_library.get_item_shapes(view._col_channel_item)
+	var top := _shape_top(shapes[0], Vector3.ZERO, shapes[1])
+	_expect(top >= StreamedFacilityView3D.RAIL_HEIGHT, "the channel collider (top %.2f) is lower than the railings" % top)
+	_expect(root.get_node_or_null("ChannelRails") != null and root.get_node_or_null("ChannelPosts") != null,
+		"the sewer chunk has no channel railings")
+	if bad == 0:
+		print("  ok    sewer channels: deep water behind railings, decks walkable, colliders right")

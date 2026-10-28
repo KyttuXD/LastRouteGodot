@@ -201,11 +201,6 @@ var admin_god_mode := false
 var admin_noclip := false
 ## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
 var admin_speed_scale := 1.0
-## Wading the sewer's channel (set by the run scene from the sewer grid): slow
-## and loud, never deep. Dry walkways and bridges are normal floor.
-var wading := false
-const WADE_SPEED_SCALE := 0.55
-const WADE_NOISE_SCALE := 1.6
 ## A captured co-op guest remains in the room as a free-flying spectator rather
 ## than respawning or being forced back to the menu. The host still treats this
 ## state as game-over for targeting and replication purposes.
@@ -1017,12 +1012,8 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "walk"
 
 	movement_speed *= admin_speed_scale
-	if wading:
-		movement_speed *= WADE_SPEED_SCALE
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
-	if wading and is_moving:
-		noise = minf(1.0, noise * WADE_NOISE_SCALE)   # splashing carries even at a crouch
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 

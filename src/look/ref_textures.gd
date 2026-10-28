@@ -801,6 +801,20 @@ static func _paint_ceiling(variant: int) -> Image:
 	return img
 
 
+## The sewer's barrel vault: damp dark concrete with a faint course line in one
+## direction only, so a long tunnel ceiling reads as a plain vault instead of
+## the coffered beam grid (whose 1 m beams read as a lattice of crosses).
+static func _paint_vault(_variant: int) -> Image:
+	var rng := _rng("vault")
+	var img := _new_image(PX, PX)
+	var base := Color("110e0e")
+	_noise(img, 0, 0, PX, PX, base, .18, rng)
+	_dot(img, 0, 0, _mul(base, 1.35), PX, 1)
+	for i in 4:
+		_dot(img, rng.randi_range(1, PX - 3), rng.randi_range(3, PX - 3), _mul(base, .55), 2, 1)
+	return img
+
+
 static func _paint_glass(_variant: int) -> Image:
 	# glass-and-iron conservatory roof: night panes in a black lattice
 	var rng := _rng("glass")
@@ -861,6 +875,7 @@ const WALL_PAINTERS := {
 const CEILING_PAINTERS := {
 	"ceil0": [&"_paint_ceiling", 0], "ceil1": [&"_paint_ceiling", 1],
 	"glass": [&"_paint_glass", 0],
+	"vault": [&"_paint_vault", 0],
 }
 
 

@@ -6080,7 +6080,61 @@ def make_sewer_lamp():
     return objects, (0.9, -1.3, 0.5), (0.0, 0.3, 0.0)
 
 
+def _grate_deck(objects, iron, rust, count, prefix, half=1.5, slat=0.15):
+    """A 3 x 3 m grated deck whose walking surface is z = 0: a frame and open slats you can see the water through."""
+    t = 0.10
+    for name, loc, dim in (("FrameN", (0.0, half - 0.05, -t * .5), (half * 2, 0.10, t)),
+                           ("FrameS", (0.0, -half + 0.05, -t * .5), (half * 2, 0.10, t)),
+                           ("FrameE", (half - 0.05, 0.0, -t * .5), (0.10, half * 2, t)),
+                           ("FrameW", (-half + 0.05, 0.0, -t * .5), (0.10, half * 2, t))):
+        box(prefix + name, loc, dim, iron, 2, count, objects, bevel=0.006)
+    index = 0
+    x = -half + 0.10 + slat * .5
+    while x < half - 0.10:
+        box("%sSlat%02d" % (prefix, index), (x, 0.0, -0.035), (0.035, half * 2 - 0.2, 0.07),
+            rust if index % 5 == 2 else iron, 3, count, objects)
+        x += slat
+        index += 1
+    for j, y in enumerate((-0.75, 0.0, 0.75)):
+        box("%sCrossbar%d" % (prefix, j), (0.0, y, -0.06), (half * 2 - 0.2, 0.05, 0.04), iron, 1, count, objects)
+
+
+def make_sewer_bridge():
+    """Tunnel crossing: a 3 x 3 m riveted grate deck spanning the channel (span along local z) on two deep girders
+    that bear on the walkway edges, with kick plates along its open sides. Railings are added by the level."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_bridge")
+    objects = []
+    _grate_deck(objects, iron, rust, count, "Deck")
+    for side, x in (("L", -1.15), ("R", 1.15)):
+        box("Girder%s" % side, (x, 0.0, -0.32), (0.10, 3.8, 0.36), iron, 2, count, objects, bevel=0.008)
+        box("Flange%s" % side, (x, 0.0, -0.13), (0.24, 3.8, 0.04), rust, 5, count, objects)
+        box("FlangeLow%s" % side, (x, 0.0, -0.49), (0.24, 3.8, 0.04), iron, 1, count, objects)
+        for j, y in enumerate((-1.6, -0.8, 0.0, 0.8, 1.6)):
+            box("Rivet%s%d" % (side, j), (x + (0.06 if x > 0 else -0.06), y, -0.32), (0.02, 0.05, 0.05), rust, 6,
+                count, objects)
+        box("Kick%s" % side, (x * 1.27, 0.0, 0.06), (0.04, 3.0, 0.12), rust, 5, count, objects)
+    for side, y in (("N", 1.75), ("S", -1.75)):
+        box("Bearing%s" % side, (0.0, y, -0.55), (2.6, 0.3, 0.12), concrete, 4, count, objects, bevel=0.01)
+    for j, y in enumerate((-1.0, 1.0)):
+        box("Brace%d" % j, (0.0, y, -0.44), (2.2, 0.06, 0.06), iron, 1, count, objects)
+    return objects, (3.6, -4.2, 2.6), (0.0, 0.0, -0.2)
+
+
+def make_sewer_grate_deck():
+    """Junction plaza tile: a 3 x 3 m grate panel over the confluence on a beam grid; neighbouring tiles butt up."""
+    iron, rust, _, _, count = sewer_materials("sewer_grate_deck")
+    objects = []
+    _grate_deck(objects, iron, rust, count, "Deck")
+    for j, x in enumerate((-1.45, 0.0, 1.45)):
+        box("BeamX%d" % j, (x, 0.0, -0.24), (0.08, 3.0, 0.28), iron, 2, count, objects)
+    for j, y in enumerate((-1.45, 1.45)):
+        box("BeamY%d" % j, (0.0, y, -0.24), (3.0, 0.08, 0.28), iron, 2, count, objects)
+    return objects, (3.4, -4.0, 2.4), (0.0, 0.0, -0.2)
+
+
 SEWER_BUILDERS = {
+    "sewer_bridge": make_sewer_bridge,
+    "sewer_grate_deck": make_sewer_grate_deck,
     "sewer_ladder": make_sewer_ladder,
     "sewer_ladder_top": make_sewer_ladder_top,
     "manhole_frame": make_manhole_frame,

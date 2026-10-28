@@ -2650,8 +2650,6 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 ## runner has stepped off it, so arriving at the top does not send them
 ## straight back down.
 func _update_player_ladder(level: int) -> void:
-	if player != null:
-		player.wading = _in_sewer_water(level, player.grid_position()) and not player.is_climbing()
 	if player == null or player.is_climbing() or player.hidden or player.spectator_mode \
 			or player.input_frozen or player.admin_noclip:
 		return
@@ -2690,7 +2688,7 @@ func _update_player_ladder(level: int) -> void:
 
 
 ## A clank per rung on any ladder climb. The sewer's water, drips and rats are
-## its AmbienceTable bed and the wading splash is the "water" footstep surface.
+## its AmbienceTable bed.
 func _update_sewer_ambience(delta: float, _level: int) -> void:
 	if player == null or not player.is_climbing():
 		return
@@ -2698,18 +2696,6 @@ func _update_sewer_ambience(delta: float, _level: int) -> void:
 	if _ladder_rung_timer <= 0.0:
 		_ladder_rung_timer = .42
 		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
-
-
-func _in_sewer_water(level: int, at: Vector2) -> bool:
-	if level != StreamedRouteGenerator.SEWER_LEVEL:
-		return false
-	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var cell := Vector2i(floori(at.x), floori(at.y))
-	var coord := Vector3i(floori(float(cell.x) / size), level, floori(float(cell.y) / size))
-	var sewer_grid: Array = facility.generator.chunk(coord).get("sewer_grid", [])
-	if sewer_grid.is_empty():
-		return false
-	return int(sewer_grid[posmod(cell.y, size)][posmod(cell.x, size)]) == SewerRouteGenerator.WATER
 
 
 func _on_player_ladder_finished(_to_level: int) -> void:

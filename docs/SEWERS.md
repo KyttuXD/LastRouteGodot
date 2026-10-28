@@ -6,22 +6,34 @@ coordinates from the same seed, so every peer builds the same tunnels, ladders a
 ## Layout (`src/game/sewer_route_generator.gd`)
 
 * **Main cross.** Every sewer chunk has a nine-wide brick tunnel along x = 22 and z = 22, so tunnels always meet
-  across chunk seams. Each tunnel is a three-wide dry walkway, a three-wide channel of shallow flowing water, and
+  across chunk seams. Each tunnel is a three-wide dry walkway, a three-wide channel of deep flowing water, and
   another three-wide walkway. The tunnels cross in a 13 x 13 junction chamber.
-* **Water is wading only.** It is never deep and nobody drowns. A runner in it moves at 0.55x
-  (`PlayerController3D.WADE_SPEED_SCALE`) and makes 1.6x the noise. Hunter A* weights water cells 2.5x, so hunters keep
-  to the walkways. Three-wide footbridges (grates) cross the channel at regular spacing, so a dry walker reaches
-  everything without wading (validated).
+* **Deep water, never entered.** The channel is a brick trench: its bed lies 1 m below the walkways
+  (`SewerRouteGenerator.CHANNEL_DEPTH`) and the water surface 0.3 m below them (`WATER_SURFACE`). Iron railings line
+  every edge where a walkway, room floor or deck meets open water. The channel cells carry a collider from the bed to
+  1.2 m above the walkways, so runners and hunters stay out of the water. Channel cells are blocked in the grid, so
+  hunter A* never routes through the water (validated).
+* **Crossings.** Sparse on purpose. Each tunnel arm has one bridge either side of the junction (`BRIDGE_OFFSETS`,
+  about one every 24 m). There, a 3 x 3 m riveted bridge deck (`sewerBridge`) spans the
+  channel on two girders that bear on the walkways. In the junction, a cross-shaped grate plaza (`sewerGrateDeck`
+  tiles, `PLAZA_TILES`) decks over the confluence, cells -4..+4 of both arms. The water keeps flowing under every deck,
+  visible through the grating. Within a chunk no stretch of open water runs longer than 9 cells between decks
+  (validated).
 * **Utility rooms.** One or two quadrants of each chunk hold a pump room, a valve room or an overflow chamber
   (9 x 9, with a central basin and a barred weir). Each sits on a three-wide dry branch to the tunnel. Each has one
   hiding spot.
 * **Pickups.** Relays and batteries, sometimes a tool. They spawn on dry cells only, never by a ladder, and slightly
   thinner than the maze.
 * **Look.** The `sewer` district in RefLook/FloorSets/RefDecor: brick walls, worn stone walkways, a fixed 3.2 m
-  vault, dim caged amber lamps (`sewerLamp`) and pipe runs on the walls. The flowing water is
-  `src/look/sewer_water.gdshader`.
-* **Sound.** The shared `sewer` ambience bed (AmbienceTable: water swell, drips, rats). Channel cells record
-  the `sewer_water` floor kind, so footsteps there use SurfaceSounds' splashing `water` surface. While climbing,
+  vault with a plain damp-concrete ceiling (the `vault` ceiling texture, not the maze's coffered beam grid, whose
+  1 m beams read as a dense lattice of crosses overhead), dim caged amber lamps (`sewerLamp`) and pipe runs on the
+  walls. Every wall-mounted piece (valve wheels, lamps, pipe runs, the pump) has brick directly behind it. A piece whose
+  planned wall turned into a doorway or passage slides along the wall to the nearest backed cell, or is left out
+  (`_mount_on_walls`; validated: nothing floats). The flowing water is
+  `src/look/sewer_water.gdshader`. It reads the depth buffer, so thin water at the trench edges stays see-through and
+  greenish while the middle of the channel goes dark and opaque.
+* **Sound.** The shared `sewer` ambience bed (AmbienceTable: water swell, drips, rats). Bridges and the plaza record
+  the `grate` floor kind, so footsteps on them ring metallic. While climbing,
   `Sound.ladder_rung` clanks once per rung.
 
 ## Ladders (the only way between the levels)
@@ -77,7 +89,7 @@ pointing up (and on the maze, down).
 ## Props (authored, `tools/props/rebuild_hytale_props.py` SEWER_BUILDERS -> `art/props-3d/props/sewer/`)
 
 `sewerLadder`, `sewerLadderTop`, `sewerManhole`, `sewerFloorGrate`, `sewerValveWheel`, `sewerPump` (solid),
-`sewerPipeRun`, `sewerOverflowGrate`, `sewerLamp`.
+`sewerPipeRun`, `sewerOverflowGrate`, `sewerLamp`, `sewerBridge`, `sewerGrateDeck`.
 
 Build them with:
 
