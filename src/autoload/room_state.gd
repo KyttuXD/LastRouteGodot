@@ -66,6 +66,13 @@ const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
 	Difficulty.HARD: "HARD", Difficulty.NIGHTMARE: "NIGHTMARE",
 }
+## One line per difficulty for the staging menu (tooltip and the line under the buttons); hunter abilities follow the difficulty alone.
+const DIFFICULTY_BLURBS := {
+	Difficulty.RELAXED: "Plain hunters: no extra abilities, longer clocks.",
+	Difficulty.STANDARD: "Hunters work together, with the odd pounce, burst or flank (very rare).",
+	Difficulty.HARD: "Hunters pounce, burst, flank and slam doors, and search harder.",
+	Difficulty.NIGHTMARE: "Full hunter abilities: pounces, ambushes, flanking teams, shrugging off torches.",
+}
 const DIFFICULTY_IDS := {
 	Difficulty.RELAXED: "relaxed", Difficulty.STANDARD: "standard",
 	Difficulty.HARD: "hard", Difficulty.NIGHTMARE: "nightmare",
@@ -106,8 +113,6 @@ var mode: Mode = Mode.DEFAULT
 var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
-## Host switch for the Normal/Hard/Nightmare hunter abilities (HardAbilities): the host simulates every hunter, so only the host's value matters.
-var hunter_abilities := true
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
 ## True after an ENet room handshake (or immediately for its host).

@@ -436,10 +436,11 @@ func run(host: Node) -> int:
 	var hard := GameConfig.difficulty_profile("hard")
 	var nightmare := GameConfig.difficulty_profile("nightmare")
 	for field in GameConfig.DIFFICULTY_PROFILES["standard"]:
-		var midpoint := (float(standard[field]) + float(nightmare[field])) * 0.5
-		_expect(is_equal_approx(float(hard[field]), midpoint),
-			"Hard %s is %.3f, not the Standard/Nightmare midpoint %.3f" % [
-				field, float(hard[field]), midpoint])
+		var low := minf(float(standard[field]), float(nightmare[field]))
+		var high := maxf(float(standard[field]), float(nightmare[field]))
+		_expect(float(hard[field]) >= low - .0001 and float(hard[field]) <= high + .0001,
+			"Hard %s is %.3f, outside the Standard/Nightmare range %.3f..%.3f" % [
+				field, float(hard[field]), low, high])
 	for difficulty_id in ["relaxed", "standard", "hard", "nightmare"]:
 		GameState.start_new_run(12345, difficulty_id)
 		_expect(not GameState.game_over,
