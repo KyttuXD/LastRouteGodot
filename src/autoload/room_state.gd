@@ -346,6 +346,7 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 
 
 func leave_network() -> void:
+	Backend.skin_sync.clear_cache()   # other players' skins are memory-only: gone when you leave the room
 	# Tell host authority which roster row is leaving before closing ENet. Relay
 	# guests must also drain the loopback proxy once, or the reliable RPC can be
 	# discarded when the relay socket is torn down immediately afterwards.

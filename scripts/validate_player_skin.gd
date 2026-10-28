@@ -88,14 +88,14 @@ func run(host: Node) -> int:
 	# ---- cache + active skin
 	var imported := PlayerSkin.import_bytes(good)
 	_expect(imported["ok"] and Settings.skin_hash == String(a["hash"]), "import did not make the skin active")
-	_expect(PlayerSkin.is_cached(String(a["hash"])) and PlayerSkin.load_cached(String(a["hash"])) != null, "the skin was not cached by hash")
+	_expect(FileAccess.file_exists(PlayerSkin.OWN_PATH) and PlayerSkin.load_own() != null, "your own skin was not kept")
 	_expect(PlayerSkin.texture_for(String(a["hash"])) != PlayerSkin.default_texture(), "the cached skin resolves to the default texture")
 	var bad_import := PlayerSkin.import_bytes(_png(32, 32))
 	_expect(not bad_import["ok"] and Settings.skin_hash == String(a["hash"]), "a refused import changed the active skin")
-	var tampered_file := FileAccess.open(PlayerSkin.cache_path(String(a["hash"])), FileAccess.WRITE)
+	var tampered_file := FileAccess.open(PlayerSkin.OWN_PATH, FileAccess.WRITE)
 	tampered_file.store_buffer(_png(64, 64, Color(.9, .1, .1, 1.0)))
 	tampered_file.close()
-	_expect(PlayerSkin.load_cached(String(a["hash"])) == null, "a tampered cache file was trusted")
+	_expect(PlayerSkin.load_own() == null, "a tampered skin file was trusted")
 	PlayerSkin.reset_active()
 	_expect(Settings.skin_hash.is_empty() and PlayerSkin.active_texture() == PlayerSkin.default_texture(), "reset did not return to the default")
 	Settings.skin_hash = "not-a-hash"

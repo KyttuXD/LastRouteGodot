@@ -37,6 +37,8 @@ var local_player: Node3D
 var state_overrides: Callable
 
 var _bodies := {}
+## id -> the skin hash that body shows (or is waiting for); peers' skins live in PlayerSkin's memory cache only.
+var _peer_skin := {}
 var _players := {}
 var _positions := {}
 var _facings := {}
@@ -184,6 +186,7 @@ func _local_state() -> Dictionary:
 		"display_name": RoomState.local_display_name(),
 		"player_hue": Settings.player_hue_degrees,
 		"player_skin": "mannequin",
+		"skin": _own_skin_hash(),
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -288,12 +291,15 @@ func _place(state: Dictionary) -> void:
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
 		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+		_apply_peer_skin(id, body, String(state.get("skin", "")))
 		_add_name_tag(body, String(state.get("display_name",
 			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
+	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")):
+		_apply_peer_skin(id, body, String(state.get("skin", "")))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	var clip := String(state.get("clip", "idle"))
 	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
@@ -553,10 +559,51 @@ func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
 	Sound.remote_player_footstep(clip, pan, .045 * (1.0 - distance / 12.0))
 
 
+## The skin hash to publish in the room state ("" when you wear the default or the server does not hold yours: guests and
+## offline players wear theirs locally only).
+func _own_skin_hash() -> String:
+	Backend.skin_sync.sync_own()
+	return Backend.skin_sync.shared_hash()
+
+
+func _apply_peer_skin(id: int, body: Node3D, hash: String) -> void:
+	if not PlayerSkin.valid_hash(hash):
+		hash = ""
+	var previous := String(_peer_skin.get(id, ""))
+	_peer_skin[id] = hash
+	if hash.is_empty():
+		if not previous.is_empty():
+			PlayerSkin.apply(body, PlayerSkin.default_texture())
+			PlayerSkin.release_peer(previous, _peer_skin.values())
+		return
+	var texture := PlayerSkin.peer_texture(hash)
+	if texture != null:
+		PlayerSkin.apply(body, texture)
+		return
+	if not Backend.skin_sync.fetched.is_connected(_on_skin_fetched):
+		Backend.skin_sync.fetched.connect(_on_skin_fetched)
+	Backend.skin_sync.fetch(hash)
+
+
+func _on_skin_fetched(hash: String) -> void:
+	for id in _peer_skin:
+		if String(_peer_skin[id]) == hash and _bodies.has(id):
+			PlayerSkin.apply(_bodies[id], PlayerSkin.peer_texture(hash))
+
+
+func _exit_tree() -> void:
+	# the room or run is ending: free every downloaded skin
+	PlayerSkin.clear_peer_cache()
+
+
 func _drop(id: int) -> void:
 	var body: Node3D = _bodies.get(id)
 	if body != null:
 		body.queue_free()
+	var gone := String(_peer_skin.get(id, ""))
+	_peer_skin.erase(id)
+	if not gone.is_empty():
+		PlayerSkin.release_peer(gone, _peer_skin.values())
 	_bodies.erase(id)
 	_players.erase(id)
 	_positions.erase(id)

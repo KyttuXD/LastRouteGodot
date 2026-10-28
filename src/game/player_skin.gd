@@ -8,7 +8,7 @@ extends RefCounted
 ## game would refuse.
 ##
 ##   var result := PlayerSkin.validate(bytes)          # {"ok", "reason", "image", "png", "hash"}
-##   PlayerSkin.import_bytes(bytes)                    # validate, cache by hash, make it the active skin
+##   PlayerSkin.import_bytes(bytes)                    # validate, keep as your own, make it the active skin
 ##   PlayerSkin.apply(model, PlayerSkin.texture_for(hash))
 
 const SIZE := 64
@@ -16,7 +16,6 @@ const SIZE := 64
 const MAX_BYTES := 65536
 const PNG_MAGIC := [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
 const DEFAULT_ATLAS := "res://assets/hunters_blocky/player_mannequin/player_mannequin_atlas.png"
-const CACHE_DIR := "user://skins"
 ## Where alpha is allowed: the second skin layer (head/hat, body/jacket, arm and leg sleeves/pants). Everywhere else the base is forced
 ## opaque, so nobody can go invisible.
 const OVERLAY_RECTS := [
@@ -139,68 +138,112 @@ static func _nearest(image: Image) -> ImageTexture:
 	return ImageTexture.create_from_image(image)
 
 
-# ------------------------------------------------------------------------------------------------ cache + active skin
+# ------------------------------------------------------------------------------------------------ own skin + peer cache
 
-static func cache_path(hash: String) -> String:
-	return "%s/%s.png" % [CACHE_DIR, hash]
+## Only YOUR chosen skin is written to disk (this one file, needed to wear it and to upload it). Other players' skins, downloaded
+## in co-op, live in memory for the session: `_peer` is never saved and is emptied when you leave the room, the run ends, or the
+## game quits.
+const OWN_PATH := "user://skin.png"
+const PEER_CACHE_MAX := 16
+
+static var _peer := {}   # hash -> ImageTexture (memory only)
 
 
-static func is_cached(hash: String) -> bool:
-	return valid_hash(hash) and FileAccess.file_exists(cache_path(hash))
-
-
-## Stores validated canonical bytes under their hash (idempotent). Returns the hash or "".
+## Stores a validated skin as your own (replacing the previous one). Returns the hash or "".
 static func store(result: Dictionary) -> String:
 	if not bool(result.get("ok", false)):
 		return ""
-	var hash := String(result["hash"])
-	DirAccess.make_dir_recursive_absolute(CACHE_DIR)
-	if load_cached(hash) == null:   # absent, or a damaged / tampered file: (re)write it from the validated bytes
-		var file := FileAccess.open(cache_path(hash), FileAccess.WRITE)
-		if file == null:
-			return ""
-		file.store_buffer(result["png"])
-		file.close()
-	return hash
-
-
-## Loads a cached skin by hash, re-validating it (a tampered cache file is refused). Null when absent or invalid.
-static func load_cached(hash: String) -> Image:
-	if not is_cached(hash):
-		return null
-	var file := FileAccess.open(cache_path(hash), FileAccess.READ)
+	var file := FileAccess.open(OWN_PATH, FileAccess.WRITE)
 	if file == null:
+		return ""
+	file.store_buffer(result["png"])
+	file.close()
+	_textures.erase("own")
+	return String(result["hash"])
+
+
+## Your own skin, re-validated from disk (a damaged or swapped file is refused). Null when none or invalid.
+static func load_own() -> Image:
+	if Settings.skin_hash.is_empty() or not FileAccess.file_exists(OWN_PATH):
 		return null
-	var result := validate(file.get_buffer(file.get_length()))
-	if not bool(result["ok"]) or String(result["hash"]) != hash:
+	var result := validate(read_file(OWN_PATH))
+	if not bool(result["ok"]) or String(result["hash"]) != Settings.skin_hash:
 		return null
 	return result["image"]
 
 
-## The texture for a skin hash ("" = the default skin; a missing or invalid cache entry falls back to the default).
+static func own_png() -> PackedByteArray:
+	var result := validate(read_file(OWN_PATH))
+	return result["png"] if bool(result["ok"]) and String(result["hash"]) == Settings.skin_hash else PackedByteArray()
+
+
+## The texture for a skin hash: "" and anything unknown are the default skin; your own hash is your file; a peer's is the memory cache.
 static func texture_for(hash: String) -> Texture2D:
 	if hash.is_empty():
 		return default_texture()
-	if _textures.has(hash):
-		return _textures[hash]
-	var image := load_cached(hash)
-	if image == null:
-		return default_texture()
-	_textures[hash] = _nearest(image)
-	return _textures[hash]
+	if hash == Settings.skin_hash:
+		if not _textures.has("own"):
+			var image := load_own()
+			if image == null:
+				return default_texture()
+			_textures["own"] = _nearest(image)
+		return _textures["own"]
+	var peer := peer_texture(hash)
+	return peer if peer != null else default_texture()
 
 
-## Validate + cache + make active. Returns the validation result (with "hash" set when it took).
+static func peer_texture(hash: String) -> Texture2D:
+	return _peer.get(hash)
+
+
+## A downloaded peer skin (already validated, hash already checked by the caller) into the memory cache. Never written to disk.
+static func accept_peer(hash: String, image: Image) -> void:
+	if not valid_hash(hash) or image == null:
+		return
+	if not _peer.has(hash) and _peer.size() >= PEER_CACHE_MAX:
+		_peer.erase(_peer.keys()[0])
+	_peer[hash] = _nearest(image)
+
+
+## A peer left: free their skin unless another connected peer still wears it.
+static func release_peer(hash: String, still_worn: Array) -> void:
+	if not still_worn.has(hash):
+		_peer.erase(hash)
+
+
+## Older builds cached downloads on disk; nothing is kept there any more.
+static func purge_legacy_cache() -> void:
+	var dir := DirAccess.open("user://skins")
+	if dir == null:
+		return
+	for file in dir.get_files():
+		dir.remove(file)
+	DirAccess.remove_absolute("user://skins")
+
+
+static func peer_cache_size() -> int:
+	return _peer.size()
+
+
+static func clear_peer_cache() -> void:
+	_peer.clear()
+
+
+## Validate + store as your own + make it active. Returns the validation result.
 static func import_bytes(bytes: PackedByteArray) -> Dictionary:
 	var result := validate(bytes)
-	if bool(result["ok"]) and store(result).is_empty():
+	if not bool(result["ok"]):
+		return result
+	if store(result).is_empty():
 		return _refuse("the skin could not be saved")
-	if bool(result["ok"]):
-		Settings.set_skin_hash(String(result["hash"]))
+	Settings.set_skin_hash(String(result["hash"]))
 	return result
 
 
 static func reset_active() -> void:
+	if FileAccess.file_exists(OWN_PATH):
+		DirAccess.remove_absolute(OWN_PATH)
+	_textures.erase("own")
 	Settings.set_skin_hash("")
 
 

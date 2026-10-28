@@ -142,7 +142,8 @@ func _apply() -> void:
 	var result := PlayerSkin.import_bytes(_pending["png"])
 	if bool(result["ok"]):
 		_pending = {}
-		_say("Skin applied.")
+		Backend.skin_sync.sync_own()
+		_say("Skin applied." if Backend.signed_in() else "Skin applied (only you see it; sign in to share it).")
 	else:
 		_say("Not applied: %s." % String(result["reason"]))
 	_refresh()
@@ -151,6 +152,7 @@ func _apply() -> void:
 func _reset() -> void:
 	_pending = {}
 	PlayerSkin.reset_active()
+	Backend.skin_sync.clear_own()
 	_show(PlayerSkin.default_texture())
 	_say("Back to the default skin.")
 	_refresh()
