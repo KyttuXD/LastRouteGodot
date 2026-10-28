@@ -39,11 +39,13 @@ static func pose_ids() -> Array:
 
 
 static func has_pose(pose_id: String) -> bool:
-	return data().get("poses", {}).has(pose_id)
+	return data().get("poses", {}).has(pose_id) or not HunterAddons.pose(pose_id).is_empty()
 
 
+## A core pose, or a pose a rig add-on kit brings (clips on its runtime bones, see HunterAddons).
 static func pose(pose_id: String) -> Dictionary:
-	return data().get("poses", {}).get(pose_id, {})
+	var core: Dictionary = data().get("poses", {}).get(pose_id, {})
+	return core if not core.is_empty() else HunterAddons.pose(pose_id)
 
 
 static func clip_name(pose_id: String) -> String:
@@ -70,6 +72,9 @@ static func install(model: Node, player: AnimationPlayer, hunter_id: String = ""
 	if model == null or player == null or data().is_empty():
 		return false
 	var key := hunter_id if not hunter_id.is_empty() else str(model.get_instance_id())
+	# a model with rig add-ons mounted gets its own library (the runtime bones carry tracks)
+	if HunterAddons.rig_of(model) != null:
+		key += "+addons"
 	if not _libraries.has(key):
 		_libraries[key] = build_library(model, player, hunter_id)
 	if player.has_animation_library(LIBRARY):
@@ -98,13 +103,25 @@ static func build_library(model: Node, player: AnimationPlayer, hunter_id: Strin
 	var offsets: Dictionary = data().get("hunter_offsets", {}).get(hunter_id, {})
 	leg_scale *= float(offsets.get("scale_pos", 1.0))
 	var extra_rot: Dictionary = offsets.get("bone_rot", {})
-	for pose_id in pose_ids():
-		var spec: Dictionary = pose(pose_id)
+	var all_poses: Array = pose_ids().duplicate()
+	var addon_poses: Dictionary = HunterAddons.poses_for(hunter_id) if not hunter_id.is_empty() else {}
+	for addon_id in addon_poses:
+		all_poses.append(addon_id)
+	for pose_id in all_poses:
+		var spec: Dictionary = addon_poses[pose_id] if addon_poses.has(pose_id) else pose(pose_id)
 		var animation := Animation.new()
 		animation.length = float(spec["length"])
 		animation.loop_mode = Animation.LOOP_LINEAR if spec.get("loop", true) else Animation.LOOP_NONE
 		var ease_value := float(spec.get("ease", 1.0))
 		for bone in spec["tracks"]:
+			if not nodes.has(bone):
+				# a runtime bone (a rig add-on): found on the mounted model, its rest pose is what it was mounted with
+				var extra := model.find_child(bone, true, false) as Node3D
+				if extra == null:
+					continue
+				nodes[bone] = extra
+				rest_q[bone] = extra.quaternion
+				rest_p[bone] = extra.position
 			if not nodes.has(bone):
 				continue
 			var path := NodePath(String(root.get_path_to(nodes[bone])))
