@@ -419,7 +419,8 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 		var to := _pt(stage, ev["move"], 0.0)
 		actor.target = Vector3(to.x, actor.pos.y, to.z)
 		actor.speed = float(ev.get("speed", 1.4))
-		actor.face_mode = "heading"
+		if not ev.has("face"):
+			actor.face_mode = "heading"
 	if ev.has("stop"):
 		actor.target = Vector3(NAN, NAN, NAN)
 		actor.speed = 0.0
