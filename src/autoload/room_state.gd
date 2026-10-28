@@ -106,6 +106,8 @@ var mode: Mode = Mode.DEFAULT
 var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
+## Host switch for the Normal/Hard/Nightmare hunter abilities (HardAbilities): the host simulates every hunter, so only the host's value matters.
+var hunter_abilities := true
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
 ## True after an ENet room handshake (or immediately for its host).

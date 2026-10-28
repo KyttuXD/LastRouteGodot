@@ -540,6 +540,7 @@ func _collect_hunter_report() -> void:
 			"wake": wake,
 			"gimmick": view.brain.gimmick.network_state()
 				if view.brain.gimmick != null else {},
+			"hard": view.brain.hard.network_state() if view.brain.hard != null else {},
 		})
 
 
@@ -1037,7 +1038,7 @@ func _resolve_escape_success() -> void:
 		})
 	elif capturing_view:
 		capturing_view.brain.enter_search_from(new_pos, 1.8)
-		capturing_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+		capturing_view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 		capturing_view.sync_from_brain()
 
 	hud.show_message("You broke free!")
@@ -1559,6 +1560,8 @@ func _apply_hunters(data: Array) -> void:
 			var gimmick_state = entry.get("gimmick", {})
 			if gimmick_state is Dictionary:
 				view.brain.gimmick.apply_network_state(gimmick_state)
+		if view.brain.hard != null and entry.get("hard") is Dictionary:
+			view.brain.hard.apply_network_state(entry["hard"])
 		view.sync_from_brain()
 
 
@@ -1696,7 +1699,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var at = event.get("at")
 			if view and at is Vector2:
 				view.brain.enter_search_from(at, 1.8)
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 				view.sync_from_brain()
 		"caught":
 			# The remote state packet marks this runner game-over; no hunter reset
@@ -1721,7 +1724,7 @@ func _resolve_taser_request(peer_id: int) -> void:
 	var now := Time.get_ticks_usec()
 	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
 		return
-	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
 	if target.is_empty() or bool(target.get("hidden", false)) \
 			or bool(target.get("game_over", false)):
@@ -1747,13 +1750,13 @@ func _resolve_taser_request(peer_id: int) -> void:
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "TASER // NO TARGET"})
 		return
-	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 	hit.sync_from_brain()
 	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
 	_remotes.send_player_event(peer_id, {"what": "message",
 		"message": "TASER HIT // %s STUNNED %.1fs" % [
 			String(identity.get("display_name", hit.brain.hunter_id)).to_upper(),
-			GameConfig.TASER_STUN_SECONDS]})
+			GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun")]})
 
 
 ## Something the local player did that the room shares. Sent as-is; the effect

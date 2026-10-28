@@ -1607,7 +1607,7 @@ func _fire_taser() -> void:
 			or input_frozen or stun_timer > 0.0:
 		return
 	select_inventory_slot(inventory_order.find("taser"))
-	taser_cooldown = GameConfig.TASER_COOLDOWN_SECONDS
+	taser_cooldown = GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown")
 	Sound.taser()
 	_animate_taser_fire()
 	taser_requested.emit()

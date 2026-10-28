@@ -319,6 +319,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if _void_fx != null:
 		_void_fx.tick(delta)
+	if not _slammed_doors.is_empty() and _remotes.simulates():
+		_tick_slammed_doors(delta)
 	_update_spectating()
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
@@ -2159,7 +2161,7 @@ func _spawn_anti_idle_hunter() -> bool:
 					coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
 					coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
 				var distance := position.distance_to(target_position)
-				if distance < GameConfig.HUNTER_SPAWN_DISTANCE_MIN:
+				if distance < GameConfig.profile_value(RoomState.difficulty_id(), "spawn_distance"):
 					continue
 				var candidate := spawn.duplicate(true)
 				candidate["pressure_distance"] = distance
@@ -2448,6 +2450,25 @@ func _hunter_spawn_score(spawn: Dictionary, centers: Array[Vector3i]) -> float:
 	return result
 
 
+## True when a level link (ladder, stairs, manhole, grate, elevator, and the drop links once they exist: they are LevelLinks too) is within
+## `radius` cells: the pounce never launches from or at such a spot.
+func _hunter_near_link(position: Vector2, radius: float, level: int) -> bool:
+	if facility == null or facility.generator == null or not facility.generator.has_method("sewer"):
+		return false
+	var chunk_x := floori(position.x / StreamedRouteGenerator.CHUNK_SIZE)
+	var chunk_z := floori(position.y / StreamedRouteGenerator.CHUNK_SIZE)
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var coord := Vector3i(chunk_x + dx, level, chunk_z + dz)
+			for link_value in facility.generator.sewer().links_for(coord):
+				var cell: Vector2i = LevelLink.cell_on(link_value, level)
+				var at := Vector2((coord.x) * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
+					(coord.z) * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
+				if at.distance_to(position) <= radius:
+					return true
+	return false
+
+
 func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	var hunter_id := String(state.get("hunter_id", HunterRoster.DEFAULT_ID))
 	var spawn_position: Vector2 = state.get("position", Vector2.ZERO)
@@ -2458,6 +2479,7 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
 	_configure_day_vision(view.brain)
+	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
 	view.set_meta("streamed_entity_id", entity_id)
@@ -2752,14 +2774,15 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	if spot.x < 0 or _hide_check_cooldowns.has(spot):
 		return
 	var centre := Vector2(spot) + Vector2(.5, .5)
-	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre):
+	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre,
+			GameConfig.profile_value(RoomState.difficulty_id(), "hide_trail")):
 		return
-	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.HIDE_CHECK_TELL_SECONDS,
+	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"),
 		"peer": int(target.get("peer_id", 1))}
-	_hide_check_cooldowns[spot] = GameConfig.HIDE_CHECK_COOLDOWN_SECONDS
-	brain.apply_stun(GameConfig.HIDE_CHECK_TELL_SECONDS)
+	_hide_check_cooldowns[spot] = GameConfig.profile_value(RoomState.difficulty_id(), "hide_cooldown")
+	brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))
 	_publish_stream_event({"what": "stream_hide_check", "cell": spot,
-		"seconds": GameConfig.HIDE_CHECK_TELL_SECONDS})
+		"seconds": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell")})
 
 
 static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:
@@ -2769,6 +2792,24 @@ static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector
 			if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) == cell:
 				return navigation.hiding_exit_position(spot)
 	return Vector2(cell) + Vector2(.5, .5)
+
+
+## door id -> seconds left slammed open (host only): the door is put back (closed, working) when the time is up.
+var _slammed_doors := {}
+
+
+func _slam_door(door_id: String, seconds: float) -> void:
+	_slammed_doors[door_id] = seconds
+	Sound.door_breach()
+	_publish_stream_event({"what": "stream_door", "door_id": door_id, "open": true, "broken": true})
+
+
+func _tick_slammed_doors(delta: float) -> void:
+	for door_id in _slammed_doors.keys():
+		_slammed_doors[door_id] = float(_slammed_doors[door_id]) - delta
+		if float(_slammed_doors[door_id]) <= 0.0:
+			_slammed_doors.erase(door_id)
+			_publish_stream_event({"what": "stream_door", "door_id": door_id, "open": false, "broken": false})
 
 
 func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
@@ -2793,6 +2834,11 @@ func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
 		var loxelle := view.brain.gimmick as LoxelleGimmick
 		if not loxelle.door_charge_active():
 			loxelle.start_door_breach(view.brain, nearest.room_door_id, at)
+		return
+	# Hard-mode ability: a chasing hunter may slam straight through a closed door (broken open for a while, loud).
+	var slam := view.brain.hard.door_slam_seconds(view.brain) if view.brain.hard != null else 0.0
+	if slam > 0.0:
+		_slam_door(nearest.room_door_id, slam)
 		return
 	# Every other hunter uses the handle and keeps moving. Door state is still
 	# host-authoritative and reliable, so guests see the same hinge animation.
@@ -3123,7 +3169,7 @@ func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 		or String(identity.get("category", "az")) == "void"
 	var inescapable := is_void or (view.brain.gimmick != null \
 		and view.brain.gimmick.capture_is_inescapable())
-	view.brain.calm_reset(GameConfig.ESCAPE_STUN_DURATION)
+	view.brain.calm_reset(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 	view.sync_from_brain()
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
@@ -3163,7 +3209,7 @@ func _resolve_taser(peer_id: int) -> void:
 	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
 		return
 	_taser_ready_usec_by_peer[peer_id] = now + int(
-		GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+		GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _target_state_for_peer(peer_id)
 	if target.is_empty() or bool(target.get("hidden", false)):
 		return
@@ -3195,7 +3241,7 @@ func _resolve_taser(peer_id: int) -> void:
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "TASER // NO TARGET"})
 		return
-	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 	hit.sync_from_brain()
 	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
 	_remotes.send_player_event(peer_id, {"what": "message",
@@ -3762,7 +3808,7 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
 				var spot := spot_value as RouteInteractable3D
 				if spot != null and spot.source_cell == check_cell:
-					spot.play_search_tell(float(event.get("seconds", GameConfig.HIDE_CHECK_TELL_SECONDS)))
+					spot.play_search_tell(float(event.get("seconds", GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))))
 		"stream_door":
 			var door_id := String(event.get("door_id", ""))
 			if _stream_room_door_data(door_id).is_empty():
@@ -4114,6 +4160,7 @@ func _collect_hunter_report() -> void:
 		state["climb_yaw"] = view.rotation.y
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
+		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
 		_hunter_report.append(state)
 
 
@@ -4154,6 +4201,8 @@ func _apply_hunter_report(data: Array) -> void:
 		var gimmick_state = state.get("gimmick", {})
 		if view.brain.gimmick != null and gimmick_state is Dictionary:
 			view.brain.gimmick.apply_network_state(gimmick_state)
+		if view.brain.hard != null and state.get("hard") is Dictionary:
+			view.brain.hard.apply_network_state(state["hard"])
 		view.sync_from_brain()
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
@@ -4278,7 +4327,7 @@ func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	if _remotes.simulates():
 		var view := _hunter_views.get(_escaping_entity_id) as HunterView3D
 		if view != null:
-			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION * (2.0 if with_axe else 1.0))
+			view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun") * (2.0 if with_axe else 1.0))
 			view.sync_from_brain()
 			_store_hunter(_escaping_entity_id, view)
 	else:
@@ -4404,7 +4453,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
 			if view != null:
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION \
+				view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun") \
 					* (2.0 if bool(event.get("axe", false)) else 1.0))
 				view.sync_from_brain()
 				_store_hunter(String(event.get("entity_id", "")), view)
@@ -4749,7 +4798,7 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 			for view_value in _hunter_views.values():
 				var view := view_value as HunterView3D
 				if view != null and view.brain != null:
-					view.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+					view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 					view.sync_from_brain()
 		"wake_hunters":
 			var target := _target_state_for_peer(peer_id)
