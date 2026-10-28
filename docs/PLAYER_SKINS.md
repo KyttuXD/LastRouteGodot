@@ -17,6 +17,22 @@ template to paint over.
 - **File picking:** the platform's native file dialog when the display server has one (desktop, Android and iOS document pickers),
   else Godot's own `FileDialog` (Quest). SAVE TEMPLATE writes to the chosen path, else to the Downloads folder.
 
+## More ways to pick a skin (Settings → SKIN)
+
+All of them end in the same preview → APPLY → (signed in) upload flow, with the same validation.
+
+- **FROM URL:** an `https://` link to a 64×64 PNG. https only (no credentials, no localhost / LAN / numeric hosts, standard port), a
+  5 s timeout, at most 64 KB, redirects are followed by hand (max 3) and each hop must pass the same checks. The bytes are only ever
+  decoded as an image.
+- **FROM MC NAME:** a Minecraft username → `api.mojang.com` (uuid) → `sessionserver.mojang.com` (profile textures) →
+  `textures.minecraft.net` (PNG), every hop pinned to those hosts, then converted by `PlayerSkin.from_minecraft`. The template *is* the
+  Minecraft 64×64 layout, so the only conversions are the old 64×32 format (left limbs mirrored from the right; no second layer) and
+  slim (Alex) 3 px arms → the mannequin's 4 px arms (the first column of each face repeats once, so slim arms look slightly stretched).
+  Lost: capes and elytra, and the slim-arm shape.
+- **COPY SKIN:** pick a co-op player in the list (those whose skin is downloaded and who allow copying) and copy it; the copy comes
+  from the in-memory peer cache and becomes your own skin (stored as your file, uploaded when signed in). Each player has an
+  "OTHERS MAY COPY MY SKIN" box (`Settings.skin_copyable`, published as `"skin_copy"` in the co-op state; honoured by the other client).
+
 ## Sharing in co-op
 
 - **Backend** (`backend/skins.mjs`, tests `backend/skins.test.mjs`): one skin per signed-in account, stored by the sha256 of the uploaded
@@ -31,4 +47,4 @@ template to paint over.
   whole cache is emptied when you leave the room, when the run's scene ends, and on quit.
 - **Local-only:** guests and offline players wear their skin on their own screen; it is never uploaded and no hash is published.
 
-Code: `PlayerSkin` (`src/game/player_skin.gd`), `SkinPanel` (`src/ui/skin_panel.gd`). Suites: `player_skin`, `skin_share`.
+Code: `PlayerSkin` (`src/game/player_skin.gd`), `SkinPanel` (`src/ui/skin_panel.gd`). Suites: `player_skin`, `skin_share`, `skin_sources`.

@@ -301,6 +301,7 @@ func _local_state() -> Dictionary:
 		"player_hue": Settings.player_hue_degrees,
 		"player_skin": "mannequin",
 		"skin": _own_skin_hash(),
+		"skin_copy": Settings.skin_copyable,
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -717,6 +718,7 @@ func _apply_peer_skin(id: int, body: Node3D, hash: String) -> void:
 		hash = ""
 	var previous := String(_peer_skin.get(id, ""))
 	_peer_skin[id] = hash
+	PlayerSkin.note_peer(id, String(_states.get(id, {}).get("display_name", RoomState.peer_display_name(id))), hash, bool(_states.get(id, {}).get("skin_copy", true)))
 	if hash.is_empty():
 		if not previous.is_empty():
 			PlayerSkin.apply(body, PlayerSkin.default_texture())
@@ -748,6 +750,7 @@ func _drop(id: int) -> void:
 		body.queue_free()
 	var gone := String(_peer_skin.get(id, ""))
 	_peer_skin.erase(id)
+	PlayerSkin.forget_peer(id)
 	if not gone.is_empty():
 		PlayerSkin.release_peer(gone, _peer_skin.values())
 	_bodies.erase(id)

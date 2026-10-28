@@ -116,6 +116,8 @@ var hub_last_game := ""
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 ## The custom player skin (PlayerSkin): sha256 of its canonical PNG in user://skins, "" = the default mannequin skin.
 var skin_hash := ""
+## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
+var skin_copyable := true
 ## Waypoint HUD (docs/WAYPOINTS.md): guidance "off" (pin only), "arrow" (pin + screen-edge arrow), "path" (+ floor chevrons).
 const WAYPOINT_GUIDANCE_MODES := ["off", "arrow", "path"]
 var waypoint_guidance := "arrow"
@@ -296,6 +298,11 @@ func set_pixel_effect_percent(value: float) -> void:
 	pixel_effect_percent = clampf(value, 0.0, 100.0)
 	_save()
 	visual_changed.emit()
+
+
+func set_skin_copyable(value: bool) -> void:
+	skin_copyable = value
+	_save()
 
 
 func set_skin_hash(hash: String) -> void:
@@ -504,6 +511,7 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
+	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
 	if not PlayerSkin.valid_hash(skin_hash):
 		skin_hash = ""
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
@@ -603,6 +611,7 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
+	config.set_value("player", "skin_copyable", skin_copyable)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
 	config.set_value("touch", "move", touch_move)

@@ -98,6 +98,188 @@ static func read_file(path: String) -> PackedByteArray:
 	return file.get_buffer(mini(int(file.get_length()), MAX_BYTES + 1))
 
 
+# ------------------------------------------------------------------------------------------------ URLs, Minecraft skins, copying
+
+const MC_HOSTS := ["api.mojang.com", "sessionserver.mojang.com", "textures.minecraft.net"]
+const MAX_URL_LENGTH := 512
+## Classic (Steve) arm box: width 4; slim (Alex) is 3. Boxes are [origin x, origin y]; every limb is 4 deep and 12 tall.
+const ARM_BOXES := [Vector2i(40, 16), Vector2i(40, 32), Vector2i(32, 48), Vector2i(48, 48)]
+
+
+## "" when the URL may be fetched, else why not. https only, a real public host, no credentials, no loopback / LAN / IP literals.
+static func check_url(url: String, allowed_hosts: Array = []) -> String:
+	var text := url.strip_edges()
+	if text.is_empty() or text.length() > MAX_URL_LENGTH:
+		return "that is not a usable address"
+	if not text.to_lower().begins_with("https://"):
+		return "only https:// addresses are allowed"
+	var rest := text.substr(8)
+	var host_end := rest.length()
+	for stop in ["/", "?", "#"]:
+		var at := rest.find(stop)
+		if at >= 0:
+			host_end = mini(host_end, at)
+	var authority := rest.substr(0, host_end)
+	if authority.contains("@"):
+		return "addresses with a login are not allowed"
+	var host := authority.to_lower()
+	if host.contains(":"):
+		if host.begins_with("["):
+			return "numeric addresses are not allowed"
+		var parts := host.split(":")
+		if parts.size() != 2 or parts[1] != "443":
+			return "only the standard https port is allowed"
+		host = parts[0]
+	if host.is_empty() or not host.contains(".") or host.ends_with(".") or host.begins_with("."):
+		return "that is not a usable address"
+	for i in host.length():
+		if not "abcdefghijklmnopqrstuvwxyz0123456789-.".contains(host[i]):
+			return "that is not a usable address"
+	if host == "localhost" or host.ends_with(".localhost") or host.ends_with(".local") or host.ends_with(".internal") or host.ends_with(".lan"):
+		return "local addresses are not allowed"
+	var numeric := true
+	for part in host.split("."):
+		numeric = numeric and part.is_valid_int()
+	if numeric:
+		return "numeric addresses are not allowed"
+	if not allowed_hosts.is_empty() and not allowed_hosts.has(host):
+		return "that host is not allowed here"
+	return ""
+
+
+## The skin URL and arm model out of a Mojang profile (the decoded "textures" JSON). {} when it has none or it points anywhere
+## but textures.minecraft.net.
+static func parse_textures(profile: Dictionary) -> Dictionary:
+	for property in profile.get("properties", []):
+		if not property is Dictionary or String(property.get("name", "")) != "textures":
+			continue
+		var decoded: Variant = JSON.parse_string(Marshalls.base64_to_raw(String(property.get("value", ""))).get_string_from_utf8())
+		if not decoded is Dictionary:
+			return {}
+		var skin: Variant = (decoded.get("textures", {}) as Dictionary).get("SKIN", null)
+		if not skin is Dictionary:
+			return {}
+		var url := String(skin.get("url", ""))
+		if not check_url(url, ["textures.minecraft.net"]).is_empty():
+			return {}
+		var metadata: Variant = skin.get("metadata", {})
+		var slim: bool = metadata is Dictionary and String(metadata.get("model", "")) == "slim"
+		return {"url": url, "slim": slim}
+	return {}
+
+
+static func valid_minecraft_name(name: String) -> bool:
+	if name.is_empty() or name.length() > 16:
+		return false
+	for i in name.length():
+		if not "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_".contains(name[i]):
+			return false
+	return true
+
+
+## A Minecraft skin (64x64, or the old 64x32) as our template: the layout is the same Minecraft one, so this only upgrades the old
+## format (the left limbs are mirrored from the right) and widens slim 3 px arms to the mannequin's 4 px. Returns the validation
+## result of the converted PNG (so it ends in the same normalised, opaque-base skin as any import).
+static func from_minecraft(source: Image, slim: bool = false) -> Dictionary:
+	if source == null or source.get_width() != SIZE or (source.get_height() != SIZE and source.get_height() != SIZE / 2):
+		return _refuse("a Minecraft skin is 64x64 (or the old 64x32)")
+	var image := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	var input := source.duplicate() as Image
+	if input.is_compressed():
+		input.decompress()
+	input.convert(Image.FORMAT_RGBA8)
+	image.blit_rect(input, Rect2i(0, 0, SIZE, input.get_height()), Vector2i.ZERO)
+	if input.get_height() == SIZE / 2:
+		_mirror_box(image, Vector2i(0, 16), Vector2i(16, 48))    # left leg from the right
+		_mirror_box(image, Vector2i(40, 16), Vector2i(32, 48))   # left arm from the right
+		slim = false   # the old format has only classic arms
+	if slim:
+		for origin in ARM_BOXES:
+			_widen_arm(image, origin)
+	return validate(image.save_png_to_buffer())
+
+
+## Copies a limb box (4 wide, 4 deep, 12 tall) mirrored left-right: top, bottom, front and back flip; the two side faces swap.
+static func _mirror_box(image: Image, from: Vector2i, to: Vector2i) -> void:
+	var source := image.duplicate() as Image
+	var pairs := [  # [source rect, destination rect, flip]
+		[Rect2i(from.x + 4, from.y, 4, 4), Rect2i(to.x + 4, to.y, 4, 4)],
+		[Rect2i(from.x + 8, from.y, 4, 4), Rect2i(to.x + 8, to.y, 4, 4)],
+		[Rect2i(from.x, from.y + 4, 4, 12), Rect2i(to.x + 8, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 4, from.y + 4, 4, 12), Rect2i(to.x + 4, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 8, from.y + 4, 4, 12), Rect2i(to.x, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 12, from.y + 4, 4, 12), Rect2i(to.x + 12, to.y + 4, 4, 12)],
+	]
+	for pair in pairs:
+		var src: Rect2i = pair[0]
+		var dst: Rect2i = pair[1]
+		for y in src.size.y:
+			for x in src.size.x:
+				image.set_pixel(dst.position.x + (src.size.x - 1 - x), dst.position.y + y, source.get_pixel(src.position.x + x, src.position.y + y))
+
+
+## A slim arm box (3 wide faces) rewritten as the classic 4 wide box: top/bottom/front/back stretch by repeating a column.
+static func _widen_arm(image: Image, origin: Vector2i) -> void:
+	var source := image.duplicate() as Image
+	# slim face positions -> classic face positions
+	var faces := [
+		[Rect2i(origin.x + 4, origin.y, 3, 4), Rect2i(origin.x + 4, origin.y, 4, 4)],           # top
+		[Rect2i(origin.x + 7, origin.y, 3, 4), Rect2i(origin.x + 8, origin.y, 4, 4)],           # bottom
+		[Rect2i(origin.x, origin.y + 4, 4, 12), Rect2i(origin.x, origin.y + 4, 4, 12)],         # right side
+		[Rect2i(origin.x + 4, origin.y + 4, 3, 12), Rect2i(origin.x + 4, origin.y + 4, 4, 12)], # front
+		[Rect2i(origin.x + 7, origin.y + 4, 4, 12), Rect2i(origin.x + 8, origin.y + 4, 4, 12)], # left side
+		[Rect2i(origin.x + 11, origin.y + 4, 3, 12), Rect2i(origin.x + 12, origin.y + 4, 4, 12)], # back
+	]
+	for y in 16:
+		for x in 16:
+			image.set_pixel(origin.x + x, origin.y + y, Color(0, 0, 0, 0))
+	for face in faces:
+		var src: Rect2i = face[0]
+		var dst: Rect2i = face[1]
+		for y in dst.size.y:
+			for x in dst.size.x:
+				var sx := mini(src.size.x - 1, int(floor(float(x) * src.size.x / dst.size.x)))
+				image.set_pixel(dst.position.x + x, dst.position.y + y, source.get_pixel(src.position.x + sx, src.position.y + y))
+
+
+## Copies a peer's skin (from the memory cache) as your own: same validation, stored as your file, active. Returns the result.
+static func copy_peer(hash: String) -> Dictionary:
+	var texture := peer_texture(hash)
+	if texture == null:
+		return _refuse("that skin is not loaded")
+	var image := texture.get_image()
+	if image == null:
+		return _refuse("that skin is not loaded")
+	var png := image.save_png_to_buffer()
+	var result := validate(png)
+	if not bool(result["ok"]):
+		return result
+	return import_bytes(png)
+
+
+# ------------------------------------------------------------------------------------------------ the roster of co-op skins (memory only)
+
+static var _roster := {}   # peer id -> {"name", "hash", "copyable"}
+
+
+static func note_peer(id: int, display_name: String, hash: String, copyable: bool) -> void:
+	_roster[id] = {"name": display_name, "hash": hash, "copyable": copyable}
+
+
+static func forget_peer(id: int) -> void:
+	_roster.erase(id)
+
+
+## Peers wearing a skin you can copy right now (their skin is downloaded and they allow it).
+static func copyable_peers() -> Array:
+	var found: Array = []
+	for id in _roster:
+		var entry: Dictionary = _roster[id]
+		if bool(entry["copyable"]) and not String(entry["hash"]).is_empty() and peer_texture(String(entry["hash"])) != null:
+			found.append({"id": id, "name": String(entry["name"]), "hash": String(entry["hash"])})
+	return found
+
+
 # ------------------------------------------------------------------------------------------------ default + template
 
 ## The default mannequin skin (the shipped atlas), decoded as an uncompressed RGBA8 image.
@@ -227,6 +409,7 @@ static func peer_cache_size() -> int:
 
 static func clear_peer_cache() -> void:
 	_peer.clear()
+	_roster.clear()
 
 
 ## Validate + store as your own + make it active. Returns the validation result.

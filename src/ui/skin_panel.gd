@@ -11,6 +11,12 @@ const SPIN_DEGREES_PER_SECOND := 28.0
 const TEMPLATE_NAME := "lastroute_skin_template.png"
 
 var status_label: Label
+var url_edit: LineEdit
+var name_edit: LineEdit
+var peer_list: OptionButton
+var copyable_check: CheckBox
+var _copy_button: Button
+var _busy := false
 var _preview_model: Node3D
 var _spin := 0.0
 var _pending: Dictionary = {}    # a picked, validated skin not applied yet
@@ -53,21 +59,62 @@ func _ready() -> void:
 		_show(PlayerSkin.active_texture())
 
 	var column := VBoxContainer.new()
-	column.position = Vector2(PREVIEW_SIZE.x + 12, 0)
-	column.size = Vector2(size.x - PREVIEW_SIZE.x - 12 if size.x > PREVIEW_SIZE.x + 12 else 230, PREVIEW_SIZE.y)
-	column.add_theme_constant_override("separation", 3)
+	column.position = Vector2(PREVIEW_SIZE.x + 10, 0)
+	column.size = Vector2(240, 170)
+	column.add_theme_constant_override("separation", 2)
 	add_child(column)
-	_pick_button = _button(column, "PICK A PNG SKIN", _pick)
-	_apply_button = _button(column, "APPLY", _apply)
-	_reset_button = _button(column, "RESET TO DEFAULT", _reset)
-	_template_button = _button(column, "SAVE TEMPLATE", _save_template)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
+	column.add_child(grid)
+	_pick_button = _button(grid, "PICK A PNG", _pick)
+	_apply_button = _button(grid, "APPLY", _apply)
+	_reset_button = _button(grid, "DEFAULT", _reset)
+	_template_button = _button(grid, "TEMPLATE", _save_template)
+	url_edit = _line(column, "https:// link to a 64x64 PNG skin", "FROM URL", _from_url)
+	name_edit = _line(column, "Minecraft username", "FROM MC NAME", _from_minecraft)
+	var copy_row := HBoxContainer.new()
+	copy_row.add_theme_constant_override("separation", 2)
+	column.add_child(copy_row)
+	peer_list = OptionButton.new()
+	peer_list.name = "CopyPeerList"
+	peer_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	peer_list.add_theme_font_size_override("font_size", 7)
+	peer_list.custom_minimum_size = Vector2(0, 16)
+	copy_row.add_child(peer_list)
+	_copy_button = _button(copy_row, "COPY SKIN", _copy_peer)
+	copyable_check = CheckBox.new()
+	copyable_check.text = "OTHERS MAY COPY MY SKIN"
+	copyable_check.add_theme_font_size_override("font_size", 6)
+	copyable_check.button_pressed = Settings.skin_copyable
+	copyable_check.toggled.connect(Settings.set_skin_copyable)
+	column.add_child(copyable_check)
 	status_label = Label.new()
 	status_label.name = "SkinStatus"
 	status_label.add_theme_font_size_override("font_size", 6)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.custom_minimum_size = Vector2(228, 40)
+	status_label.custom_minimum_size = Vector2(238, 26)
 	column.add_child(status_label)
+	visibility_changed.connect(_refresh_peers)
 	_refresh()
+	_refresh_peers()
+
+
+func _line(parent: Node, hint: String, go_text: String, handler: Callable) -> LineEdit:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	parent.add_child(row)
+	var edit := LineEdit.new()
+	edit.placeholder_text = hint
+	edit.max_length = PlayerSkin.MAX_URL_LENGTH
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	edit.add_theme_font_size_override("font_size", 7)
+	edit.custom_minimum_size = Vector2(0, 16)
+	edit.text_submitted.connect(func(_t: String) -> void: handler.call())
+	row.add_child(edit)
+	_button(row, go_text, handler)
+	return edit
 
 
 func _button(parent: Node, text: String, handler: Callable) -> Button:
@@ -134,6 +181,64 @@ func pick_path(path: String) -> Dictionary:
 		_say("Preview only. Press APPLY to wear it.")
 	_refresh()
 	return result
+
+
+## Every source ends the same way: a validated image becomes the preview, and APPLY stores it, wears it and uploads it.
+func _preview(result: Dictionary) -> Dictionary:
+	if not bool(result["ok"]):
+		_pending = {}
+		_say("Not applied: %s." % String(result["reason"]))
+	else:
+		_pending = result
+		_show(ImageTexture.create_from_image(result["image"]))
+		_say("Preview only. Press APPLY to wear it.")
+	_refresh()
+	return result
+
+
+func _from_url() -> Dictionary:
+	if _busy:
+		return {}
+	_busy = true
+	_say("Downloading...")
+	var result: Dictionary = await Backend.skin_sync.skin_from_url(url_edit.text)
+	_busy = false
+	return _preview(result)
+
+
+func _from_minecraft() -> Dictionary:
+	if _busy:
+		return {}
+	_busy = true
+	_say("Looking up %s..." % name_edit.text.strip_edges())
+	var result: Dictionary = await Backend.skin_sync.skin_from_minecraft(name_edit.text)
+	_busy = false
+	return _preview(result)
+
+
+func _refresh_peers() -> void:
+	if peer_list == null:
+		return
+	peer_list.clear()
+	for peer in PlayerSkin.copyable_peers():
+		peer_list.add_item(String(peer["name"]))
+		peer_list.set_item_metadata(peer_list.item_count - 1, String(peer["hash"]))
+	if peer_list.item_count == 0:
+		peer_list.add_item("(no one to copy)")
+		peer_list.disabled = true
+	else:
+		peer_list.disabled = false
+	_copy_button.disabled = peer_list.disabled
+
+
+## COPY SKIN: the chosen peer's skin (from the in-memory cache) goes to the preview, then APPLY like any other source.
+func _copy_peer() -> Dictionary:
+	if peer_list.disabled or peer_list.selected < 0:
+		return {}
+	var hash := String(peer_list.get_item_metadata(peer_list.selected))
+	var texture := PlayerSkin.peer_texture(hash)
+	var result := PlayerSkin.validate(texture.get_image().save_png_to_buffer()) if texture != null else {"ok": false, "reason": "that skin is not loaded"}
+	return _preview(result)
 
 
 func _apply() -> void:
