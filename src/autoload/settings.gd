@@ -120,7 +120,7 @@ var muted_players: Array = []
 ## 0..2, activation sensitivity 0..1 (higher hears quieter speech), input device name, loudness of other players 0..1.5 and
 ## per-player volumes by callsign. Spoken chat (RoomChat) reads aloud "everyone" else, only "own" lines, or nobody ("off") at
 ## tts_rate 0.5..2 with an optional OS voice id ("" = a stable voice per player).
-var voice_chat_on := true
+var voice_chat_on := false
 var voice_mode := "vad"
 var voice_mic_gain := 1.0
 var voice_sensitivity := 0.5
@@ -650,7 +650,7 @@ func _load() -> void:
 	voice_enabled = bool(config.get_value("voice", "enabled", true))
 	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
 	muted_players = Array(config.get_value("voice", "muted", []))
-	voice_chat_on = bool(config.get_value("voice", "chat_on", true))
+	voice_chat_on = bool(config.get_value("voice", "chat_on", false))
 	voice_mode = String(config.get_value("voice", "mode", "vad"))
 	if not voice_mode in ["vad", "ptt"]:
 		voice_mode = "vad"

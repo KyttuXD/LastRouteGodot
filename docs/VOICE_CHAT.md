@@ -2,7 +2,7 @@
 
 ## Proximity voice chat (`VoiceChat`, `VoiceCodec`)
 
-- Online rooms only. The microphone opens when you are in an online room with **Settings -> VOICE -> VOICE CHAT: ON** and closes when you
+- Online rooms only. The microphone opens when you are in an online room with **Settings -> VOICE -> VOICE CHAT: ON** (default OFF, so no microphone permission prompt until a player turns it on) and closes when you
   leave, switch it off or the host mutes you. A pill at the bottom right shows it (`MIC ON`, `MIC LIVE`, `HOLD [V] TO TALK`,
   `MIC MUTED BY HOST`). Nothing is recorded, saved or sent anywhere but the room; the packets live in memory only.
 - **Voice activated** (default): speech above the SENSITIVITY level transmits, with a 0.35 s hangover. **Push to talk**: hold `V`

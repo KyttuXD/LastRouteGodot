@@ -279,6 +279,9 @@ func _check_tts(host: Node) -> void:
 
 
 func _check_settings() -> void:
+	var fresh = Settings.get_script().new()
+	_expect(fresh.voice_chat_on == false, "voice chat must default to OFF (no mic prompt until enabled)")
+	fresh.free()
 	var on := Settings.voice_chat_on
 	var mode := Settings.voice_mode
 	var gain := Settings.voice_mic_gain
