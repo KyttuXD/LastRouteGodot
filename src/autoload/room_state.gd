@@ -411,8 +411,8 @@ func _on_peer_connected(id: int) -> void:
 	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
 	_receive_daytime.rpc_id(id, daytime)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-		session_active)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+		session_active])
 	# A room remains joinable while a route is running. The new peer first gets
 	# the room seed/config above, then enters the same scene; RemotePlayers asks
 	# the host for the current floor snapshot once that fixed RPC path exists.
@@ -433,7 +433,7 @@ func _tick_start_heal(delta: float) -> void:
 	_start_heal_elapsed += delta
 	if _start_heal_elapsed >= START_HEAL_SECONDS:
 		_start_heal_elapsed = 0.0
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers, session_active])
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -441,8 +441,8 @@ func _on_peer_disconnected(id: int) -> void:
 		return
 	peers.erase(id)
 	if is_host:
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-			session_active)
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+			session_active])
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
 
@@ -452,7 +452,7 @@ func kick_peer(id: int) -> void:
 	if not online or not is_host or id <= 1 or not peers.has(id):
 		return
 	peers.erase(id)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers, session_active])
 	Backend.update_room(peers.size(), session_active)
 	changed.emit()
 	if multiplayer.multiplayer_peer != null:
@@ -469,8 +469,8 @@ func _request_peer_leave() -> void:
 	if id <= 1 or not peers.has(id):
 		return
 	peers.erase(id)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-		session_active)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+		session_active])
 	Backend.update_room(peers.size(), session_active)
 	changed.emit()
 	if multiplayer.multiplayer_peer != null:
@@ -662,10 +662,10 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 ## so a client never generates a building from a stale route.
 func broadcast() -> void:
 	if online and is_host:
-		_receive_packs.rpc(RoomPacks.announce())
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-			session_active)
-		_receive_daytime.rpc(daytime)
+		NetPeers.send_all(multiplayer, _receive_packs, [RoomPacks.announce()])
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+			session_active])
+		NetPeers.send_all(multiplayer, _receive_daytime, [daytime])
 
 
 ## The host's content packs, sent ahead of every room update (a separate RPC so the room RPC's signature stays as it
@@ -986,8 +986,8 @@ func enter(tree: SceneTree) -> void:
 	broadcast()
 	Backend.update_room(peers.size(), session_active)
 	if online:
-		_receive_daytime.rpc(daytime)
-		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
+		NetPeers.send_all(multiplayer, _receive_daytime, [daytime])
+		NetPeers.send_all(multiplayer, _receive_start, [code, seed_text, mode, map_scale, difficulty])
 	_enter_session_scene(tree)
 
 
@@ -1076,7 +1076,7 @@ func end_session(reason: String = "ROUTE ENDED // RETURNED TO STAGING") -> void:
 	if online and not is_host:
 		return
 	if online:
-		_receive_end.rpc(reason)
+		NetPeers.send_all(multiplayer, _receive_end, [reason])
 	_receive_end(reason)
 
 

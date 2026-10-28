@@ -267,11 +267,11 @@ func _relay(sender: int, packet: PackedByteArray) -> void:
 	for peer in listeners_for(sender, peers + [1]):
 		if int(peer) == 1:
 			_play(sender, packet)
-		else:
+		elif NetPeers.is_live(multiplayer, int(peer)):
 			_voice_down.rpc_id(int(peer), sender, packet)
 
 
-@rpc("any_peer", "call_remote", "unreliable")
+@rpc("any_peer", "call_remote", "unreliable", NetChannels.VOICE)
 func _voice_up(packet: PackedByteArray) -> void:
 	if not RoomState.is_host:
 		return
@@ -282,7 +282,7 @@ func _voice_up(packet: PackedByteArray) -> void:
 	_relay(sender, packet)
 
 
-@rpc("authority", "call_remote", "unreliable")
+@rpc("authority", "call_remote", "unreliable", NetChannels.VOICE)
 func _voice_down(sender: int, packet: PackedByteArray) -> void:
 	if multiplayer.get_remote_sender_id() != 1 or sender == _local_id():
 		return

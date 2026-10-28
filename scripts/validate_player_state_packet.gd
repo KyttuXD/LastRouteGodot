@@ -201,7 +201,7 @@ func _exchange(tree: SceneTree, a: RemotePlayers, b: RemotePlayers, b_id: int) -
 	state_b["display_name"] = "PEER B"
 
 	# 1. Nobody has shown v2 yet: A must send the full Dictionary (an older build reads it unchanged).
-	await _send_until(tree, func() -> void: a._send_state(state_a.duplicate(true)),
+	await _send_until(tree, func() -> void: a._send_state(_stamped(state_a)),
 		func() -> bool: return b._states.has(1))
 	_expect(a._profile_sent.is_empty(), "A sent a v2 profile before B had shown it reads v2")
 	_expect(int(b._wire_peers.get(1, 0)) == PlayerStateWire.VERSION, "B did not learn from A's tagged full state that A reads v2")
@@ -215,13 +215,13 @@ func _exchange(tree: SceneTree, a: RemotePlayers, b: RemotePlayers, b_id: int) -
 	b._drop(4242)
 
 	# 2. B answers (tagged); A switches B to hot packets plus a reliable profile.
-	await _send_until(tree, func() -> void: b._send_state(state_b.duplicate(true)),
+	await _send_until(tree, func() -> void: b._send_state(_stamped(state_b)),
 		func() -> bool: return a._wire_peers.has(b_id))
 	var moved := state_a.duplicate(true)
 	moved["at"] = Vector3(-5.0, -48.0, 99.5)
 	moved["display_name"] = "RENAMED A"
 	moved["inventory_order"] = ["taser", "", "", "", "", "", "", ""]
-	await _send_until(tree, func() -> void: a._send_state(moved.duplicate(true)),
+	await _send_until(tree, func() -> void: a._send_state(_stamped(moved)),
 		func() -> bool: return _same(b._states.get(1, {}).get("at"), moved["at"]) \
 			and String(b._states.get(1, {}).get("display_name", "")) == "RENAMED A")
 	_expect(a._profile_sent.has(b_id), "A never used the v2 path (hot packet + profile) for B")
@@ -235,8 +235,19 @@ func _exchange(tree: SceneTree, a: RemotePlayers, b: RemotePlayers, b_id: int) -
 
 	# 3. A profile that did not change is not resent every tick.
 	var sent_hash = a._profile_sent.get(b_id)
-	a._send_state(moved.duplicate(true))
+	a._send_state(_stamped(moved))
 	_expect(a._profile_sent.get(b_id) == sent_hash, "the profile hash changed for an unchanged profile")
+
+
+var _seq := 0
+
+
+## A copy with the next sequence number, as RemotePlayers._process stamps every sample (receivers drop old ones).
+func _stamped(state: Dictionary) -> Dictionary:
+	_seq += 1
+	var copy := state.duplicate(true)
+	copy["seq"] = _seq
+	return copy
 
 
 func _send_until(tree: SceneTree, send: Callable, done: Callable) -> void:

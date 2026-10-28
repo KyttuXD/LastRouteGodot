@@ -25,12 +25,12 @@ const HOT_FIELDS: Array[String] = [
 	"seat_top", "in_safe_zone", "noise", "flashlight_on", "aim_direction", "sprinting", "facing", "lamp_charge",
 	"selected_item", "tool_swing_seq", "tool_swing_item", "tool_swing_hit", "selected_inventory_slot", "in_vent",
 	"grab", "vent_time_in", "pesticide_active", "escape_active", "capture_immune", "game_over", "spectating",
-	"visible", "exposure", "noise_meter", "temperature", "ambient", "heat_locked", "vr",
+	"visible", "exposure", "noise_meter", "temperature", "ambient", "heat_locked", "vr", "sent_ms", "syncing", "idle_s",
 ]
 ## Hot fields carried as one bit when their value is a bool.
 const BOOL_FIELDS: Array[String] = [
 	"hidden", "asleep", "in_safe_zone", "flashlight_on", "sprinting", "tool_swing_hit", "in_vent", "pesticide_active",
-	"escape_active", "capture_immune", "game_over", "spectating", "visible", "heat_locked",
+	"escape_active", "capture_immune", "game_over", "spectating", "visible", "heat_locked", "syncing",
 ]
 ## Rarely-changing fields: sent reliably on change, merged into every hot sample on receipt.
 const PROFILE_FIELDS: Array[String] = [
