@@ -47,7 +47,10 @@ func _run() -> void:
 	var failures := 0
 	for name in wanted:
 		# a suite name, or a res:// path (the runner self-test points at a broken fixture this way)
-		var path := String(name) if String(name).begins_with("res://") else "res://scripts/validate_%s.gd" % name
+		# "suite#i/n" runs shard i of n (suites that support it read VALIDATE_SHARD; see validate_hunter_real.gd)
+		var base := String(name).get_slice("#", 0)
+		OS.set_environment("VALIDATE_SHARD", String(name).get_slice("#", 1) if String(name).contains("#") else "")
+		var path := base if base.begins_with("res://") else "res://scripts/validate_%s.gd" % base
 		_current = String(name)
 		if not ResourceLoader.exists(path):
 			print("  FAIL  no suite named %s" % name)
