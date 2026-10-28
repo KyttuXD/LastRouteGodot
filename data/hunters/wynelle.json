@@ -8,5 +8,6 @@
 	"prog": 0.18,
 	"sight": 7.8,
 	"hearing": 1.15,
-	"spawn": 12
+	"spawn": 12,
+	"chase_style": "glide"
 }

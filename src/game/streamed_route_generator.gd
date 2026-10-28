@@ -22,6 +22,8 @@ const SEWER_LEVEL := -1
 ## The collector sewer under the first one, and the Inferno maze under that
 ## (docs/SEWERS.md): reached only by ramps from the sewer level above.
 const LOWER_SEWER_LEVEL := -2
+## The Mezzanine (MezzanineRouteGenerator): grated catwalks over the maze, reached by the stairwells from level 0.
+const MEZZANINE_LEVEL := 1
 const INFERNO_LEVEL := -3
 const CHUNK_CACHE_LIMIT := 192
 const REGIONS := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
@@ -52,6 +54,8 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 }
 const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
+## Share of seeds whose spawn region (level 0 around chunk 0) is the maze.
+const SPAWN_MAZE_SHARE := 0.6
 ## Regions laid out as banks of rooms along a central three-wide cross (see _linear_room_layout).
 const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
@@ -438,6 +442,31 @@ const TEMPLATE_PROP_SIZES := {
 	"cinemaSeats": Vector3(2.4, 1, .8), "cinemaScreen": Vector3(4.2, 2.2, .12), "ticketBooth": Vector3(1.7, 2.35, 1.2),
 	"concessionCounter": Vector3(2.2, 1.7, .8), "foodCourtTable": Vector3(1.7, .78, 1.7),
 	"mallPlanter": Vector3(1.3, 2.4, 1.3), "mallBench": Vector3(1.8, .5, .6),
+	# music wing
+	"micStand": Vector3(0.5, 1.6, 0.5),
+	"podiumMic": Vector3(0.6, 1.15, 0.5),
+	"deskMic": Vector3(0.15, 0.25, 0.15),
+	"drumKit": Vector3(1.8, 1.2, 1.5),
+	"electricGuitarStand": Vector3(0.4, 1, 0.35),
+	"acousticGuitarStand": Vector3(0.45, 1.05, 0.35),
+	"bassGuitarStand": Vector3(0.4, 1.15, 0.35),
+	"keyboardStand": Vector3(1.3, 0.95, 0.4),
+	"uprightPianoMusic": Vector3(1.5, 1.25, 0.95),
+	"ampStack": Vector3(0.75, 1.3, 0.4),
+	"comboAmp": Vector3(0.6, 0.5, 0.3),
+	"stageMonitor": Vector3(0.55, 0.35, 0.4),
+	"paSpeakerPole": Vector3(0.5, 2, 0.5),
+	"mixingDesk": Vector3(1.5, 0.95, 0.8),
+	"studioMonitors": Vector3(0.8, 0.35, 0.25),
+	"rackGear": Vector3(0.6, 1.2, 0.6),
+	"musicStand": Vector3(0.45, 1.2, 0.4),
+	"cableCoil": Vector3(0.4, 0.06, 0.4),
+	"cableRun": Vector3(1.4, 0.03, 0.15),
+	"stageLightRig": Vector3(3, 2.4, 0.4),
+	"acousticPanel": Vector3(1, 1, 0.08),
+	"guitarWallHanger": Vector3(1, 0.8, 0.2),
+	"instrumentCases": Vector3(1, 0.8, 0.6),
+	"onAirSign": Vector3(0.6, 0.25, 0.1),
 }
 ## Only hunters whose gimmicks depend on the shared navigation contract (or no
 ## gimmick at all) enter the streamed route today. Finite-floor objective and
@@ -457,6 +486,7 @@ var _chunk_cache_order: Array[Vector3i] = []
 
 
 var _sewer: SewerRouteGenerator
+var _mezzanine: MezzanineRouteGenerator
 var _stairwell_cache := {}
 
 
@@ -494,9 +524,9 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 ## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
 ## upper-levels lane, which builds around them.
 func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
-	if upper_level == 0:
+	if upper_level == 0 or upper_level == MEZZANINE_LEVEL:
 		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
-			if int(well["upper"]) == 0:
+			if int(well["upper"]) == upper_level:
 				return well
 		return {}
 	var key := Vector3i(x, upper_level, z)
@@ -511,17 +541,18 @@ const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
 ## The maze <-> sewer stairwell for a maze chunk being built: clear of the
 ## sewer's ramp and falls quadrants, and only where it fits the maze as built
 ## (_maze_stairwell_fits), so no suite or hall loses anything to it.
-func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary) -> Dictionary:
-	var avoid := []
+func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary,
+		upper_level: int = 0, also_avoid: Array = []) -> Dictionary:
+	var avoid := also_avoid.duplicate()
 	var ramp: Dictionary = sewer().ramp_between(x, z, SEWER_LEVEL)
 	if not ramp.is_empty():
 		avoid.append(int(ramp["quadrant"]))
 	var falls: Dictionary = sewer().falls_between(x, z)
 	if not falls.is_empty():
 		avoid.append(int(falls["quadrant"]))
-	return Stairwells.plan(world_seed, x, z, 0, avoid,
+	return Stairwells.plan(world_seed, x, z, upper_level, avoid,
 		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well),
-		Stairwells.MAZE_AREAS)
+		Stairwells.MAZE_AREAS if upper_level == 0 else Stairwells.MAZE_UP_AREAS)
 
 
 ## True when a stairwell's box (and a cell round it) touches no suite or main
@@ -610,6 +641,12 @@ func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
 
 ## The sewer layer under the maze (SewerRouteGenerator). Built lazily: it reads
 ## the maze chunk above to place each ladder on clear hallway floor.
+func mezzanine() -> MezzanineRouteGenerator:
+	if _mezzanine == null:
+		_mezzanine = MezzanineRouteGenerator.new(self)
+	return _mezzanine
+
+
 func sewer() -> SewerRouteGenerator:
 	if _sewer == null:
 		_sewer = SewerRouteGenerator.new(self)
@@ -672,6 +709,12 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
+	if coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord):
+		if _chunk_cache.has(coord):
+			return _chunk_cache[coord]
+		var mezzanine_data := mezzanine().chunk(coord)
+		adopt_chunk(coord, mezzanine_data)
+		return mezzanine_data
 	if (coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL) and is_chunk_allowed(coord):
 		# one cache for every level, so a sewer chunk the view's worker thread built
 		# (adopt_chunk) is reused here instead of being generated again
@@ -831,17 +874,30 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	}
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
 	var inferno_caverns := []
+	var breakables: Array = []
+	var sealed_cells := {}
+	var cave_tunnels: Array = []
 	if coord.y == INFERNO_LEVEL:
-		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation)
+		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation, cave_tunnels)
 		for ramp in ramps:
 			_carve_ramp_bottom(grid, layout, circulation, ramp)
+			# the landing's 3x3 reaches the chunk's edge column, which the shared carve leaves as one brick cell
+			for part in ["bottom", "connector"]:
+				for z in range((ramp[part] as Rect2i).position.y, (ramp[part] as Rect2i).end.y):
+					for x in range((ramp[part] as Rect2i).position.x, (ramp[part] as Rect2i).end.x):
+						if x == 0 or x == CHUNK_SIZE - 1:
+							grid[z][x] = 0
 		# lava is rock to the walk grid but no wall and no floor to the view
 		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
 			for cell in pit["lava"]:
 				floor_voids.append(cell)
 				structural_voids.append(cell)
 	else:
-		var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region))
+		var wide_seams := {}
+		for side in edges:
+			wide_seams[side] = wide_seam(coord, {"west": Vector2i(-1, 0), "east": Vector2i(1, 0), "north": Vector2i(0, -1),
+				"south": Vector2i(0, 1)}[side])
+		var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region), wide_seams)
 		(layout["corridors"] as Array).append_array(edge_corridors)
 		for stair in stairs:
 			_carve_stair_access(grid, stair, layout["rooms"], circulation)
@@ -850,8 +906,10 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
 		if not down.is_empty():
 			wells.append(down)
-		if is_chunk_allowed(Vector3i(coord.x, 1, coord.z)):
-			var up := stairwell_between(coord.x, coord.z, 1)
+		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)):
+			# the way up to the Mezzanine is decided here too, in a different quadrant from the way down
+			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL,
+				[int(down["quadrant"])] if not down.is_empty() else [])
 			if not up.is_empty():
 				wells.append(up)
 	var shaft_cells := {}
@@ -889,7 +947,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
 	fixtures.append_array(_prop_hiding_fixtures(coord, region_props, safe))
-	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
+	# Sealed wings (SealPlanner) are planned on the finished grid, then relays and tools are placed against them.
+	if coord.y == INFERNO_LEVEL and not safe:
+		var seal_plan := SealPlanner.plan_cave(world_seed, coord, grid, inferno_caverns, cave_tunnels)
+		breakables = SealPlanner.specs(world_seed, coord, seal_plan, coord.y)
+		for cell in seal_plan["sealed"]:
+			sealed_cells[cell] = true
+	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures, sealed_cells)
 	var music_boxes := _music_boxes(coord, grid, stairs, safe, region_props, fixtures, pickups)
 	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
@@ -919,6 +983,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
 		"inferno_caverns": inferno_caverns,
+		"landing_pile": _landing_pile(coord, grid, inferno_caverns, ramps),
+		"breakables": breakables,
+		"sealed_cells": sealed_cells.keys(),
 		"stairwells": wells,
 		"shaft_cells": shaft_cells,
 	}
@@ -1011,6 +1078,16 @@ static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dic
 			grid[z][x] = 1      # the slope itself is reached only as a ramp link
 
 
+## The breakable spec with this id (Breach.make_id), or {}: found by regenerating its chunk, so a guest can name it.
+func breakable_by_id(id: String) -> Dictionary:
+	var parsed := Breach.parse_id(id)
+	if parsed.is_empty() or not is_chunk_allowed(parsed["chunk"]):
+		return {}
+	var list: Array = chunk(parsed["chunk"]).get("breakables", [])
+	var index := int(parsed["index"])
+	return list[index] if index >= 0 and index < list.size() else {}
+
+
 ## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.
 func inferno_caverns_at(coord: Vector3i) -> Array:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
@@ -1020,6 +1097,12 @@ func inferno_caverns_at(coord: Vector3i) -> Array:
 
 ## Where something dropped into the Inferno lands: a chunk-local walkable cell with a clear 3x3, in the chunk's main
 ## cavern or a 5-wide hall (otherwise its clearest open ground). (-1, -1) if the chunk has none.
+## Chunk coordinates (level -3) that must show a landing pile because something is dumped into them (the dump holes of the
+## level above fill this); any other chunk shows one for a share of its caves.
+var dump_landing_chunks := {}
+const LANDING_PILE_SHARE := .3
+
+
 func dump_landing(coord: Vector3i) -> Vector2i:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
 		return Vector2i(-1, -1)
@@ -1032,6 +1115,8 @@ func biome_for(coord: Vector3i) -> String:
 	return region_for(coord)
 
 func region_for(coord: Vector3i) -> String:
+	if coord.y == MEZZANINE_LEVEL:
+		return "mezzanine"
 	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
 	# The Inferno is no longer a district of the maze: it is the whole level under
@@ -1055,6 +1140,14 @@ func region_for(coord: Vector3i) -> String:
 		"prison", "carnival", "mansion", "hotel", "maze",
 		"hospital", "lab", "lab", "greenhouse", "mall"]
 	if coord.y == 0:
+		if region_x == 0 and region_z == 0:
+			# KT: "make the maze the most common spawn point". The run starts in chunk (0, 0, 0), so the region around it is
+			# the maze SPAWN_MAZE_SHARE of the time, else any other level-0 region (the safe-spawn room is unchanged).
+			var spawn_rng := SeededRandom.new("%s:SPAWN-REGION" % world_seed)
+			if spawn_rng.next_float() < SPAWN_MAZE_SHARE:
+				return "maze"
+			var others := choices.filter(func(choice: String) -> bool: return choice != "maze")
+			return others[spawn_rng.next_index(others.size())]
 		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
 	# the central floor; Inferno is a deep-only region and can never leak upward.
@@ -1148,6 +1241,14 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	return [CHUNK_SIZE / 2]
 
 
+## Maze chunks on both sides of a seam: their five-wide centre halls meet through a five-wide opening. Symmetric, so
+## both chunks carve the same gap.
+func wide_seam(coord: Vector3i, direction: Vector2i) -> bool:
+	var neighbour := coord + Vector3i(direction.x, 0, direction.y)
+	return is_chunk_allowed(coord) and is_chunk_allowed(neighbour) and biome_for(coord) == "maze" \
+		and biome_for(neighbour) == "maze"
+
+
 ## The route is a single level: no stair links exist, so no chunk has a
 ## stairwell, floor void or ceiling void.
 func stair_links(_coord: Vector3i) -> Array:
@@ -1188,8 +1289,8 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# One maze level (y == 0), unbounded horizontally, over the sewer layer.
-	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
+	# One maze level (y == 0), unbounded horizontally, over the sewer layer and under the Mezzanine.
+	return coord.y <= MEZZANINE_LEVEL and coord.y >= INFERNO_LEVEL
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
@@ -1230,7 +1331,7 @@ func _solid_grid() -> Array:
 
 
 func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
-		circulation: Dictionary = {}, dense: bool = false) -> Array:
+		circulation: Dictionary = {}, dense: bool = false, wide_seams: Dictionary = {}) -> Array:
 	var corridors := []
 	var center := CHUNK_SIZE / 2
 	for side in ["west", "east", "north", "south"]:
@@ -1249,7 +1350,8 @@ func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
 				for spread in range(-1, 2):
 					grid[offset + spread][0 if side == "west" else CHUNK_SIZE - 1] = 0
 				continue
-			for spread in range(-1, 2):
+			var reach := 2 if bool(wide_seams.get(side, false)) and offset == CHUNK_SIZE / 2 else 1
+			for spread in range(-reach, reach + 1):
 				if side == "west":
 					grid[offset + spread][0] = 0
 				elif side == "east":
@@ -1517,14 +1619,19 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var center := CHUNK_SIZE / 2
 	# Maze keeps its signature office suite in the south-east quarter: the banks leave that quarter alone.
 	var office_quarter := region == "maze"
+	# KT: "5 wide maze region hallways". The maze's two main halls (the centre cross the seams meet) are five wide; its
+	# outer east-west halls stay three wide as side passages, so the banks either side keep usable room depths.
+	var wide := region == "maze"
+	var half := 2 if wide else 1
 	var plan := large_plan(coord)
-	var middle_start := center - 1 if hall_trimmed(coord, -1) else 1
-	# the maze office suite is entered from this hall (doors at x 31-32), so its east trim leaves the hall as far as the entrance
-	var middle_end := (35 if office_quarter else center + 2) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
+	var middle_start := center - half if hall_trimmed(coord, -1) else 1
+	# the maze office suite is entered from this hall (doors at x 32-33), so its east trim leaves the hall past the entrance (the wall beside the door then runs on, not a one-cell stub)
+	var middle_end := (37 if office_quarter else center + 1 + half) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
 	var mall := region == "mall"
-	# the arcade's main hall is five wide (shops on both sides); every other district keeps a three-wide centre hall
-	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
-	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3), Rect2i(middle_start, center - 1, middle_end - middle_start, 3),
+	# the arcade's and the maze's main halls are five wide; every other district keeps a three-wide centre hall
+	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall or wide else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
+	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3),
+		Rect2i(middle_start, center - half, middle_end - middle_start, 1 + 2 * half),
 		Rect2i(1, 33, 22 if office_quarter else CHUNK_SIZE - 2, 3), main_hall]
 	for hall_index in halls.size():
 		var hall: Rect2i = halls[hall_index]
@@ -1534,9 +1641,16 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			"axis": "north_south" if hall_index == 3 else "east_west", "serves_many_rooms": true})
 	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below); each
 	# side is either two 11x9 rooms sharing a wall or one 21x9 hall room, from the chunk border to the centre hall.
-	var rows := [{"y": 0, "door_top": false}, {"y": 12, "door_top": true},
-		{"y": 24, "door_top": false}, {"y": 36, "door_top": true}]
-	var side_x := [0, 25] if mall else [0, 24]
+	var rows := [{"y": 0, "h": 9, "door_top": false}, {"y": 12, "h": 9, "door_top": true},
+		{"y": 24, "h": 9, "door_top": false}, {"y": 36, "h": 9, "door_top": true}]
+	if wide:
+		# the five-wide middle hall (rows 20-24) takes a row from each middle bank
+		rows[1]["h"] = 8
+		rows[2]["y"] = 25
+		rows[2]["h"] = 8
+	var side_x := [0, 25] if mall or wide else [0, 24]
+	# a bank side runs from the border to the centre hall: 21 cells beside a three-wide hall, 20 beside a five-wide one
+	var bank_w := 20 if wide else 21
 	var big_types: Array = BANK_BIG_TYPES.get(region, [])
 	var small_types := []
 	for type_name in (_room_type_choices(region) as Array):
@@ -1555,7 +1669,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		if hall_type.is_empty():
 			continue
 		merged_sides[side] = true
-		var big := Rect2i(side_x[side], 12, LARGE_ROOM_SIZE, LARGE_ROOM_SIZE)
+		var big := Rect2i(side_x[side], 12, bank_w if wide else LARGE_ROOM_SIZE, LARGE_ROOM_SIZE)
 		_carve_rect(grid, big)
 		var big_door := Vector2i(big.end.x - 1 if side == 0 else big.position.x, center)
 		_seal_room_perimeter_except(grid, big, big_door)
@@ -1572,21 +1686,31 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		for side in 2:
 			if office_quarter and side == 1 and int(row["y"]) >= 24:
 				continue
-			if merged_sides.has(side) and (int(row["y"]) == 12 or int(row["y"]) == 24):
+			if merged_sides.has(side) and int(row["y"]) > 0 and int(row["y"]) < 36:
 				continue
 			var specs := []
+			# the maze's 8-deep banks cannot seat a restaurant's two rows of six: they cycle through the other rooms
+			var shallow := int(row["h"]) < 9
 			if pod_pending:
 				pod_pending = false
 				specs.append({"x": side_x[side], "w": 21, "type": "pod_room"})
 			elif mall:
 				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
 			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
-				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
+				var big_type: String = big_types[rng.next_index(big_types.size())]
+				if shallow and big_type == "restaurant_dining":
+					big_type = "storage"
+				specs.append({"x": side_x[side], "w": bank_w, "type": big_type})
+			elif wide:
+				# two rooms sharing a wall, the one nearer the centre hall a cell narrower
+				var outer := 0 if side == 0 else 9
+				specs.append({"x": side_x[side] + outer, "w": 11, "type": ""})
+				specs.append({"x": side_x[side] + (10 if side == 0 else 0), "w": 10, "type": ""})
 			else:
 				specs.append({"x": side_x[side], "w": 11, "type": ""})
 				specs.append({"x": side_x[side] + 10, "w": 11, "type": ""})
 			for spec in specs:
-				var rect := Rect2i(int(spec["x"]), int(row["y"]), int(spec["w"]), 9)
+				var rect := Rect2i(int(spec["x"]), int(row["y"]), int(spec["w"]), int(row["h"]))
 				_carve_rect(grid, rect)
 				var door_top: bool = row["door_top"]
 				var doorway := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y if door_top else rect.end.y - 1)
@@ -1604,6 +1728,8 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 							else ("infirmary" if room_index % 5 == 4 else "prison_cell")
 					else:
 						room_type = String(small_types[(room_index + type_offset) % small_types.size()])
+						if shallow and room_type == "restaurant_dining":
+							room_type = String(small_types[(room_index + type_offset + 1) % small_types.size()])
 				var entry := _room_entry(coord, room_index, region, rect, room_type)
 				entry["doorway"] = doorway
 				rooms.append(entry)
@@ -1615,7 +1741,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		_carve_rect(grid, bay)
 		_mark_rect_cells(circulation, bay)
 	if office_quarter:
-		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(24, 24, 17, 17), 3, "office", rng)
+		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 17), 3, "office", rng)
 		rooms.append_array(suite["rooms"])
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
@@ -2393,6 +2519,20 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved[occupied] = true
 			_exclude_neighbourhood(solid_exclusion, occupied, 1)
 	return result
+
+
+## The cell of a landing pile in a level -3 chunk, or (-1, -1): forced for dump-hole chunks, else a share of them. It stands
+## in the middle chamber, away from ramp landings.
+func _landing_pile(coord: Vector3i, grid: Array, chambers: Array, ramps: Array) -> Vector2i:
+	if coord.y != INFERNO_LEVEL or chambers.is_empty():
+		return Vector2i(-1, -1)
+	if not dump_landing_chunks.has(coord) and SeededRandom.new("%s:PILE:%s" % [world_seed, chunk_id(coord)]).next_float() >= LANDING_PILE_SHARE:
+		return Vector2i(-1, -1)
+	var cell := InfernoCaverns.landing({"grid": grid, "inferno_caverns": chambers})
+	for ramp in ramps:
+		if (ramp["bottom"] as Rect2i).grow(4).has_point(cell):
+			return Vector2i(-1, -1)
+	return cell
 
 
 ## Dressing for level -3's caves: basalt pillars, ember braziers and crystal clusters standing against the walls of each
@@ -3634,9 +3774,10 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("hospitalBed", bed_side, 0, "open", _WALL))
 				if bed_side + 2 <= half:
 					specs.append(_sp("hospitalCurtain", bed_side + 2, 1, "right"))
-				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open
+				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open; a row past the
+				# 3.2 m hunter-scale bed's foot, or the stand closes the bay's mouth (pickup_reach on REAL-B)
 				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
-				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 3, "back"))
+				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 4, "back"))
 			if depth_span >= 15:
 				# a great-hall ward: a facing bed row by the entrance wall and the nurses' desk in the middle
 				for bed_side in range(-half, half + 1, 4):
@@ -3688,13 +3829,15 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 			specs.append(_sp("xrayLightbox", 0, 0, "open", _MOUNT))
 			specs.append(_sp("hazardSign", -2 * mirror, 0, "open", _MOUNT))
 		"icu":
-			for bay in [-3, 3]:    # hunter-scale beds (1.54 m wide): the bedside kit two cells either side
+			# hunter-scale beds (1.54 m wide) sit two cells off the centre line: 1.7 m between each bed and its side wall and
+			# 2.4 m between the beds, all wider than a hunter, so no strip beside a bed is a dead pocket
+			for bay in [-2, 2]:
 				specs.append(_sp("hospitalBed", bay, 0, "open", _WALL))
-				specs.append(_sp("vitalsMonitor", bay - 2, 0, "open", _WALL))
-				specs.append(_sp("ivDripStand", bay + 2, 0, "center"))
-			specs.append(_sp("hospitalCurtain", 0, 1, "right"))
-			specs.append(_sp("instrumentTrolley", -4 * mirror, 3, "center"))
-			specs.append(_sp("medicalSupplyRack", 4 * mirror, 3, "center"))
+				specs.append(_sp("vitalsMonitor", bay * 2, 0, "open", _WALL))
+				specs.append(_sp("ivDripStand", signi(bay), 0, "center"))
+			# past the beds' feet (depth 3), so the strip between a bed and its side wall stays open at its foot
+			specs.append(_sp("instrumentTrolley", -4 * mirror, 5, "center"))
+			specs.append(_sp("medicalSupplyRack", 4 * mirror, 5, "center"))
 			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
 			specs.append(_sp("ceilingLight", -2, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 2, mid, "open", _LOOSE))
@@ -4033,10 +4176,11 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("dinerBooth", booth_side, 0, "open", _WALL))
 			specs.append(_sp("coffeeStation", 0, 0, "open", _WALL))
 			specs.append(_sp("menuBoard", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
-			specs.append(_sp("checkoutCounter", -4, 3, "open"))
-			specs.append(_sp("checkoutCounter", 4, 3, "open"))
+			# hunter-scale bodies need 1.4 m between a counter's back and the booths behind it
+			specs.append(_sp("checkoutCounter", -4, 4, "open"))
+			specs.append(_sp("checkoutCounter", 4, 4, "open"))
 			for stool_side in [-5, -3, 3, 5]:
-				specs.append(_sp("dinerStool", stool_side, 4, "back"))
+				specs.append(_sp("dinerStool", stool_side, 5, "back"))
 			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
 		"florist":
@@ -4652,7 +4796,7 @@ func _fixtures(coord: Vector3i, grid: Array, rooms: Array, stairs: Array,
 
 
 func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
-		region_props: Array = [], fixtures: Array = []) -> Array:
+		region_props: Array = [], fixtures: Array = [], sealed: Dictionary = {}) -> Array:
 	if safe:
 		return []
 	# Use the full stair-path exclusion so collectables cannot be placed on a
@@ -4669,9 +4813,24 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 			if grid[z][x] == 0 and not excluded.has(cell) \
 					and _open_spawn_neighbourhood(grid, cell):
 				candidates.append(cell)
+	# Sealed wings (SealPlanner): the first relay and the tools stay on open ground, the second relay usually sits behind a
+	# seal, and a deep wing may hold a bonus relay (SealRules).
+	var sealed_candidates := []
+	if not sealed.is_empty():
+		var open_candidates := []
+		for candidate in candidates:
+			if sealed.has(candidate):
+				sealed_candidates.append(candidate)
+			else:
+				open_candidates.append(candidate)
+		candidates = open_candidates
 	var rng := SeededRandom.new("%s:PICKUPS:%s" % [world_seed, chunk_id(coord)])
 	var result := []
 	var plans := ["relay", "relay", "battery"]
+	if not sealed_candidates.is_empty() and rng.next_float() < SealRules.BONUS_RELAY_CHANCE:
+		plans.append("relay")
+	if not sealed.is_empty() and SealRules.guaranteed_tool(coord):
+		plans.append("tool")
 	if rng.next_float() < 0.72:
 		plans.append("tool")
 	if rng.next_float() < 0.38:
@@ -4682,13 +4841,16 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 		plans.append("backpack")
 	var kind_indices := {}
 	for kind_value in plans:
-		if candidates.is_empty():
+		if candidates.is_empty() and sealed_candidates.is_empty():
 			break
 		var kind := String(kind_value)
-		var pick_index := rng.next_index(candidates.size())
-		var cell: Vector2i = candidates[pick_index]
-		candidates.remove_at(pick_index)
 		var index := int(kind_indices.get(kind, 0))
+		var from_sealed := kind == "relay" and index >= 1 and not sealed_candidates.is_empty() \
+			and (index >= 2 or rng.next_float() < SealRules.SECOND_RELAY_SEALED)
+		var pool: Array = sealed_candidates if from_sealed or candidates.is_empty() else candidates
+		var pick_index := rng.next_index(pool.size())
+		var cell: Vector2i = pool[pick_index]
+		pool.remove_at(pick_index)
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":

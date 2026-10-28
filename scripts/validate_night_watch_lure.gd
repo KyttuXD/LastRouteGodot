@@ -80,6 +80,7 @@ func _near(a: float, b: float, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_tables()
 	_streams()
 	_rules()

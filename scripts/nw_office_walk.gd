@@ -31,7 +31,7 @@ static func problems(office: NightWatchOfficeBase) -> Array:
 			free[Vector2i(ix, iz)] = space_state.intersect_shape(q, 1).is_empty()
 	var start := Vector2i(int((spec.spawn.x - fp.position.x) / CELL), int((spec.spawn.z - fp.position.y) / CELL))
 	if not bool(free.get(start, false)):
-		out.append("the spawn is blocked")
+		out.append("the spawn is blocked" + _blockers(office, space_state, capsule, spec.spawn))
 		return out
 	var seen := {start: true}
 	var queue := [start]
@@ -61,3 +61,16 @@ static func problems(office: NightWatchOfficeBase) -> Array:
 		if not near.call(e["position"], 2.5):
 			out.append("entrance '%s' cannot be reached" % e["id"])
 	return out
+
+
+## Who is standing on the spawn: the colliders a capsule there hits (a body left in the shared physics world by an earlier suite shows up here by path).
+static func _blockers(office: Node3D, space_state: PhysicsDirectSpaceState3D, capsule: CapsuleShape3D, spawn: Vector3) -> String:
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = capsule
+	q.transform = Transform3D(Basis.IDENTITY, office.global_transform * Vector3(spawn.x, CAPSULE_H * 0.5 + 0.05, spawn.z))
+	q.collision_mask = 1
+	var names := []
+	for hit in space_state.intersect_shape(q, 4):
+		var body := hit["collider"] as Node
+		names.append(str(body.get_path()) if body != null and body.is_inside_tree() else str(body))
+	return " (%s)" % ", ".join(names)

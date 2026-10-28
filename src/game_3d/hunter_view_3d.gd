@@ -60,6 +60,10 @@ var nw_pose_opts := {}
 var nw_layers := false
 var _nw_started := ""
 var _nw_layers := NightWatchPoseLayers.new()
+## Per-hunter chase style (HunterChaseStyle): an upper-body layer over the chase clip. GRAB can switch it off for a
+## grab (it blends out over a third of a second rather than popping).
+var _chase := HunterChaseStyle.new()
+var chase_layer_enabled := true
 var _nw_last_yaw := 0.0
 var _head_rest_q := Quaternion.IDENTITY
 var _head_written_q := Quaternion.IDENTITY
@@ -182,7 +186,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_doorway.restore()
+	_chase.restore()
 	_update_head_look(delta)
+	_update_chase_style(delta)
 	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
@@ -374,6 +380,7 @@ func _apply_model(model_id: String) -> void:
 			NightWatchPoses.install(_model, _animation_player, _shown_id)
 			_doorway.bind(_model)
 			_nw_layers.bind(_model)
+			_chase.bind(_model)
 			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()
 		_attach_scythe()
@@ -510,6 +517,24 @@ func _update_beam_visual(delta: float) -> void:
 		core.set_shader_parameter("beam_color", _beam_color.lerp(Color.WHITE, .35))
 		core.set_shader_parameter("strength", lerpf(.15, .24, _beam_chase_mix) * dim)
 		core.set_shader_parameter("pulse_speed", pulse_speed)
+
+
+## The chase style layer: on while she is in a live chase on foot and nothing else is posing her.
+func _update_chase_style(delta: float) -> void:
+	if brain == null or _model == null or _creature != null:
+		return
+	var flying := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne()
+	var chasing := chase_layer_enabled and brain.active and brain.state == HunterBrain.State.CHASE \
+		and brain.stun_timer <= 0.0 and _recover_left <= 0.0 and not climbing and not flying and not has_nw_pose() \
+		and not (_emote_index >= 0 and not _emote_clip.is_empty()) \
+		and not (has_method("grabbing") and bool(call("grabbing")))   # GRAB's every-peer signal (HunterGrab)
+	var aim := 0.0
+	if has_look_target and HunterChaseStyle.reaches(brain.chase_style):
+		var forward := Vector2(-sin(rotation.y), -cos(rotation.y))
+		var to_runner := look_target_position - brain.position
+		if to_runner.length() > .1:
+			aim = clampf(forward.angle_to(to_runner.normalized()), -HunterChaseStyle.AIM_LIMIT, HunterChaseStyle.AIM_LIMIT)
+	_chase.apply(brain.chase_style, chasing, delta, -aim, Time.get_ticks_msec() * .001)
 
 
 func _update_head_look(delta: float) -> void:

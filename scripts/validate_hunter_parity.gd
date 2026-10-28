@@ -39,13 +39,13 @@ func run(_host: Node) -> int:
 	return _failures
 
 
-## An open cell with at least 12 open cells straight along +x or +y, so line-of-sight tests have room.
+## An open cell with at least 16 open cells straight along +x or +y, so line-of-sight tests have room.
 func _straight_run(navigation: StreamedHunterNavigation, cells: Array) -> Dictionary:
 	for cell_value in cells:
 		var cell: Vector2i = cell_value
 		for dir in [Vector2(1, 0), Vector2(0, 1)]:
 			var ok := true
-			for i in range(0, 13):
+			for i in range(0, 17):
 				var p: Vector2 = Vector2(cell) + Vector2(.5, .5) + dir * float(i)
 				if not navigation.can_occupy(p.x, p.y, 0.3):
 					ok = false
@@ -101,10 +101,15 @@ func _void_powers(navigation: StreamedHunterNavigation, origin: Vector2, along: 
 		yellow.update(STEP, navigation, _target(origin, along, {"map_open": true}), 1, 0)
 	_expect(yellow.gimmick.speed_scale(yellow) > 1.1, "Yellow Void did not speed up while the map was open")
 	# Green: submerges after her interval when far enough away
-	var green := _brain("void_green", origin + along * 12.5)
+	# she submerges only from 14+ cells away (VoidGreenGimmick.MINIMUM_DISTANCE), so start her clear of that
+	var green := _brain("void_green", origin + along * 15.5)
 	var seen_submerged := false
+	var green_start := green.position
 	for _i in int(23.0 / STEP):
 		green.update(STEP, navigation, _target(origin, along, {"hidden": true}), 1, 0)
+		# the brain wanders by its own rules (and the geometry); the power is what is under test, so she stays far away
+		if green.position.distance_to(origin) < VoidGreenGimmick.MINIMUM_DISTANCE and not (green.gimmick as VoidGreenGimmick).submerged > 0.0:
+			green.position = green_start
 		seen_submerged = seen_submerged or (green.gimmick as VoidGreenGimmick).submerged > 0.0
 		if seen_submerged:
 			break

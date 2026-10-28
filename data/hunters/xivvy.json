@@ -8,5 +8,6 @@
 	"prog": 0.12,
 	"sight": 6.72,
 	"hearing": 0.84,
-	"spawn": 13
+	"spawn": 13,
+	"chase_style": "pump:wings"
 }

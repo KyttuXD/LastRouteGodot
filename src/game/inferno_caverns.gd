@@ -18,8 +18,8 @@ const WIGGLE := 6.0
 const CREVICES := 3
 const CREVICE_DEPTH := 4
 const PILLARS := Vector2i(3, 6)
-const PIT_CHANCE := 0.5
-const PIT_MIN_SPAN := 18
+const PIT_CHANCE := 0.6
+const PIT_MIN_SPAN := 16
 const PIT_BAND := 3                  # width of the lava channel
 const PIT_BRIDGE := 3                # width of the span across it
 const CAGE_CAP := 3.9                # the storey cap the caverns rise to (LEVEL_HEIGHT - SLAB)
@@ -36,7 +36,7 @@ const HALL_WIDTH := 3                # the narrowest a tunnel runs (kept for the
 ## (offsets along each side), `ramps` the ramp landings that must be reachable, `safe` a safe-room chunk (its middle
 ## stays one open chamber). `circulation` receives every open cell.
 static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dictionary, ramps: Array, safe: bool,
-		circulation: Dictionary) -> Array:
+		circulation: Dictionary, tunnels: Array = []) -> Array:
 	var rng := SeededRandom.new("%s:INFERNO-CAVE:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
 	var middle := Vector2i(CHUNK_SIZE / 2, CHUNK_SIZE / 2)
 	var keep_out: Array[Rect2i] = []
@@ -48,7 +48,7 @@ static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dicti
 		anchors.append(Vector2i(bottom.position.x + bottom.size.x / 2, bottom.position.y + bottom.size.y / 2))
 	# chambers: the middle one first, then up to two more that keep their distance
 	var chambers: Array = []
-	var first_rect := Rect2i(0, 0, MIN_SPAN + 4 + rng.next_index(MAX_SPAN - MIN_SPAN - 3), MIN_SPAN + 4 + rng.next_index(MAX_SPAN - MIN_SPAN - 3))
+	var first_rect := Rect2i(0, 0, MIN_SPAN + 2 + rng.next_index(MAX_SPAN - MIN_SPAN - 1), MIN_SPAN + 2 + rng.next_index(MAX_SPAN - MIN_SPAN - 1))
 	if safe:
 		first_rect.size = Vector2i(MIN_SPAN, MIN_SPAN)
 	# the middle chamber keeps off the ramp landings: try nearby spots, then a smaller chamber
@@ -68,12 +68,6 @@ static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dicti
 	if not settled:
 		first_rect.position = middle - first_rect.size / 2
 	chambers.append(_chamber(rng, first_rect))
-	var extra := CHAMBERS_EXTRA.x + rng.next_index(CHAMBERS_EXTRA.y - CHAMBERS_EXTRA.x + 1)
-	for _i in extra:
-		var placed := _place(rng, chambers, keep_out)
-		if not placed.is_empty():
-			chambers.append(placed)
-	var tunnels: Array = []
 	var links := {}
 	# every seam opening and ramp landing runs to the nearest chamber
 	var portals: Array[Vector2i] = []
@@ -96,14 +90,17 @@ static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dicti
 			stubs.append(_carve_stub(grid, edge, inner, side))
 			portals.append(inner)
 	for portal in portals:
-		_link(rng, grid, tunnels, links, portal, _nearest(chambers, portal))
+		_link(rng, grid, tunnels, links, portal, chambers, 0, "portal", -1)
 	for anchor in anchors:
-		_link(rng, grid, tunnels, links, anchor, _nearest(chambers, anchor))
-	# the extra chambers hang off the middle one, and the two outermost also join each other: a loop to run round
-	for index in range(1, chambers.size()):
-		_link(rng, grid, tunnels, links, _centre(chambers[index]), chambers[0])
-	if chambers.size() > 2:
-		_link(rng, grid, tunnels, links, _centre(chambers[1]), chambers[2])
+		_link(rng, grid, tunnels, links, anchor, chambers, 0, "anchor", -1)
+	# Side chambers go into rock the seam and ramp tunnels leave alone, and hang off the middle one by a single tunnel: so
+	# each is a real wing a gate on that tunnel can shut (SealPlanner).
+	var extra := CHAMBERS_EXTRA.x + rng.next_index(CHAMBERS_EXTRA.y - CHAMBERS_EXTRA.x + 1)
+	for _i in extra:
+		var placed := _place(rng, grid, chambers, keep_out)
+		if not placed.is_empty():
+			chambers.append(placed)
+			_link(rng, grid, tunnels, links, _centre(placed), chambers, 0, "hang", chambers.size() - 1)
 	for chamber in chambers:
 		for cell in chamber["cells"]:
 			grid[cell.y][cell.x] = 0
@@ -133,6 +130,7 @@ static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dicti
 			for entry in pit["row"]:
 				spared[entry["cell"]] = true
 	_close_slivers(grid, ramps, stubs, spared)
+	_drop_islands(grid, _centre(chambers[0]))
 	for z in CHUNK_SIZE:
 		for x in CHUNK_SIZE:
 			if grid[z][x] == 0:
@@ -154,23 +152,76 @@ static func _close_slivers(grid: Array, ramps: Array, stubs: Array[Rect2i], prot
 			for z in range(rect.position.y, rect.end.y):
 				for x in range(rect.position.x, rect.end.x):
 					protect[Vector2i(x, z)] = true
+	var n := CHUNK_SIZE
+	var protect_mask := PackedByteArray()
+	protect_mask.resize(n * n)
+	for cell_value in protect:
+		var pc: Vector2i = cell_value
+		if pc.x >= 0 and pc.y >= 0 and pc.x < n and pc.y < n:
+			protect_mask[pc.y * n + pc.x] = 1
 	for _round in 12:
-		var covered := {}
-		for z in range(1, CHUNK_SIZE - 1):
-			for x in range(1, CHUNK_SIZE - 1):
-				if clearance(grid, Vector2i(x, z), 1) >= 1:
-					for dz in range(-1, 2):
-						for dx in range(-1, 2):
-							covered[Vector2i(x + dx, z + dz)] = true
+		# open mask, then the centres of fully open 3x3 blocks (three-in-a-row twice), then every cell such a block covers
+		var open := PackedByteArray()
+		open.resize(n * n)
+		for z in n:
+			var row: Array = grid[z]
+			for x in n:
+				if row[x] == 0:
+					open[z * n + x] = 1
+		var across := PackedByteArray()
+		across.resize(n * n)
+		for z in n:
+			for x in range(1, n - 1):
+				var i := z * n + x
+				across[i] = open[i - 1] & open[i] & open[i + 1]
+		var centre := PackedByteArray()
+		centre.resize(n * n)
+		for z in range(1, n - 1):
+			for x in range(1, n - 1):
+				var i := z * n + x
+				centre[i] = across[i - n] & across[i] & across[i + n]
+		var spread := PackedByteArray()
+		spread.resize(n * n)
+		for z in n:
+			for x in range(1, n - 1):
+				var i := z * n + x
+				spread[i] = centre[i - 1] | centre[i] | centre[i + 1]
 		var closed := 0
-		for z in range(1, CHUNK_SIZE - 1):
-			for x in range(1, CHUNK_SIZE - 1):
-				var at := Vector2i(x, z)
-				if grid[z][x] == 0 and not covered.has(at) and not protect.has(at):
+		for z in range(1, n - 1):
+			for x in range(1, n - 1):
+				var i := z * n + x
+				if open[i] == 1 and protect_mask[i] == 0 and (spread[i - n] | spread[i] | spread[i + n]) == 0:
 					grid[z][x] = 1
 					closed += 1
 		if closed == 0:
 			return
+
+
+## Open ground the middle chamber cannot reach (a pocket the sliver pass or a pillar cut off) goes back to rock.
+static func _drop_islands(grid: Array, from: Vector2i) -> void:
+	var seen := PackedByteArray()
+	seen.resize(CHUNK_SIZE * CHUNK_SIZE)
+	var start := from
+	if grid[start.y][start.x] != 0:
+		return
+	var stack := PackedInt32Array([start.y * CHUNK_SIZE + start.x])
+	seen[start.y * CHUNK_SIZE + start.x] = 1
+	while not stack.is_empty():
+		var at := stack[stack.size() - 1]
+		stack.resize(stack.size() - 1)
+		var x := at % CHUNK_SIZE
+		var z := at / CHUNK_SIZE
+		for step in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+			var nx: int = x + step[0]
+			var nz: int = z + step[1]
+			if nx < 0 or nz < 0 or nx >= CHUNK_SIZE or nz >= CHUNK_SIZE or seen[nz * CHUNK_SIZE + nx] == 1 or grid[nz][nx] != 0:
+				continue
+			seen[nz * CHUNK_SIZE + nx] = 1
+			stack.append(nz * CHUNK_SIZE + nx)
+	for z in range(1, CHUNK_SIZE - 1):
+		for x in range(1, CHUNK_SIZE - 1):
+			if grid[z][x] == 0 and seen[z * CHUNK_SIZE + x] == 0:
+				grid[z][x] = 1
 
 
 static func _chamber(rng: SeededRandom, rect: Rect2i) -> Dictionary:
@@ -182,24 +233,34 @@ static func _centre(chamber: Dictionary) -> Vector2i:
 	return Vector2i(rect.position.x + rect.size.x / 2, rect.position.y + rect.size.y / 2)
 
 
-static func _nearest(chambers: Array, from: Vector2i) -> Dictionary:
-	var best: Dictionary = chambers[0]
+static func _nearest(chambers: Array, from: Vector2i) -> int:
+	var best := 0
 	var best_d := 1.0e9
-	for chamber in chambers:
-		var d := float(from.distance_to(_centre(chamber)))
+	for index in chambers.size():
+		var d := float(from.distance_to(_centre(chambers[index])))
 		if d < best_d:
 			best_d = d
-			best = chamber
+			best = index
 	return best
 
 
 ## A chamber 14-18 cells across somewhere clear of the others, the border margin and the ramp landings.
-static func _place(rng: SeededRandom, chambers: Array, keep_out: Array[Rect2i]) -> Dictionary:
-	var width := MIN_SPAN + rng.next_index(5)
-	var depth := MIN_SPAN + rng.next_index(5)
+static func _place(rng: SeededRandom, grid: Array, chambers: Array, keep_out: Array[Rect2i]) -> Dictionary:
+	# side chambers are smaller (9-14 across) and, when the chunk is crowded, smaller still (7-9)
+	for attempt in 2:
+		var low := 9 if attempt == 0 else 7
+		var width := low + rng.next_index(6 if attempt == 0 else 3)
+		var depth := low + rng.next_index(6 if attempt == 0 else 3)
+		var found := _place_sized(rng, grid, chambers, keep_out, width, depth)
+		if not found.is_empty():
+			return found
+	return {}
+
+
+static func _place_sized(rng: SeededRandom, grid: Array, chambers: Array, keep_out: Array[Rect2i], width: int, depth: int) -> Dictionary:
 	var spots: Array[Vector2i] = []
-	for z in range(MARGIN, CHUNK_SIZE - MARGIN - depth + 1, 2):
-		for x in range(MARGIN, CHUNK_SIZE - MARGIN - width + 1, 2):
+	for z in range(4, CHUNK_SIZE - 4 - depth + 1, 1):
+		for x in range(4, CHUNK_SIZE - 4 - width + 1, 1):
 			spots.append(Vector2i(x, z))
 	for i in range(spots.size() - 1, 0, -1):
 		var j := rng.next_index(i + 1)
@@ -210,13 +271,22 @@ static func _place(rng: SeededRandom, chambers: Array, keep_out: Array[Rect2i]) 
 		var rect := Rect2i(spot.x, spot.y, width, depth)
 		var clash := false
 		for other in chambers:
-			if rect.grow(3).intersects((other as Dictionary)["rect"]):
+			if rect.grow(2).intersects((other as Dictionary)["rect"]):
 				clash = true
 				break
 		for blocked in keep_out:
 			if rect.grow(1).intersects(blocked):
 				clash = true
 				break
+		# rock all round: no open cell within two of the chamber
+		if not clash:
+			for z in range(maxi(0, rect.position.y - 2), mini(CHUNK_SIZE, rect.end.y + 2)):
+				for x in range(maxi(0, rect.position.x - 2), mini(CHUNK_SIZE, rect.end.x + 2)):
+					if grid[z][x] == 0:
+						clash = true
+						break
+				if clash:
+					break
 		if not clash:
 			return _chamber(rng, rect)
 	return {}
@@ -259,8 +329,9 @@ static func _carve_stub(grid: Array, edge: Vector2i, inner: Vector2i, side: Stri
 
 ## A winding tunnel from `from` to the chamber's middle: the path bends through a couple of offset points and its radius
 ## wanders between TUNNEL_RADIUS.x and .y, so it is never narrower than three cells.
-static func _link(rng: SeededRandom, grid: Array, tunnels: Array, links: Dictionary, from: Vector2i, chamber: Dictionary) -> void:
-	var to := _centre(chamber)
+static func _link(rng: SeededRandom, grid: Array, tunnels: Array, links: Dictionary, from: Vector2i, chambers: Array,
+		to_index: int, kind: String, from_index: int) -> void:
+	var to := _centre(chambers[to_index])
 	var a := Vector2(from) + Vector2(.5, .5)
 	var b := Vector2(to) + Vector2(.5, .5)
 	var along := (b - a)
@@ -300,7 +371,14 @@ static func _link(rng: SeededRandom, grid: Array, tunnels: Array, links: Diction
 				if Vector2(cell.x + .5, cell.y + .5).distance_to(sample) <= radius:
 					grid[cell.y][cell.x] = 0
 					links[cell] = true
-	tunnels.append({"from": from, "to": to})
+	# the tunnel's path, for the seal planner: kind "portal"/"anchor" run from a seam or ramp landing (from_chamber -1) to a
+	# chamber, "hang" from an extra chamber to the middle one, "loop" between two extras
+	var radii := PackedFloat32Array()
+	var walk := 0.0
+	for k in samples.size():
+		radii.append(TUNNEL_RADIUS.x + (TUNNEL_RADIUS.y - TUNNEL_RADIUS.x) * (.5 + .5 * sin(float(k) * .5 * .35 + phase)))
+	tunnels.append({"kind": kind, "from": from, "to": to, "from_chamber": from_index, "to_chamber": to_index,
+		"samples": samples, "radii": radii})
 
 
 static func _spline(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:

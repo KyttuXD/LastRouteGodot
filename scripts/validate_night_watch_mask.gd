@@ -93,6 +93,7 @@ func _has(events: Array, type: String) -> bool:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_check_data()
 	_check_golden()
 	_check_rules()

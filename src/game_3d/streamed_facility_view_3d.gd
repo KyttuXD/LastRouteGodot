@@ -7,9 +7,13 @@ extends Node3D
 
 signal chunk_changed(coord: Vector3i, data: Dictionary)
 signal pickup_claimed(entity_id: String)
+## A tool swing hit a breakable (Breach): the route asks the host what it did.
+signal breakable_hit(id: String, tool: String)
 
 const CELL_SIZE := 1.0
 const LEVEL_HEIGHT := 4.0
+## Roof height of the ring of cells on the edge of every level -3 chunk: both neighbours use it, so seams have no step.
+const INFERNO_SEAM_ROOF := 3.4
 const STREAM_RADIUS := 1
 ## New chunks are outside the runner's already-collidable 3x3 window, giving us
 ## time to assemble them incrementally. A 45x45 GridMap used to issue more than
@@ -303,7 +307,7 @@ func current_level() -> int:
 ## the sewer once its feet are more than half a storey below the maze floor;
 ## the hysteresis margin keeps a ladder climb from flickering between the two.
 static func snapped_level_for_world_y(world_y: float) -> int:
-	return clampi(roundi(world_y / LEVEL_HEIGHT), StreamedRouteGenerator.INFERNO_LEVEL, 0)
+	return clampi(roundi(world_y / LEVEL_HEIGHT), StreamedRouteGenerator.INFERNO_LEVEL, StreamedRouteGenerator.MEZZANINE_LEVEL)
 
 
 ## The level stays put until the runner is more than half a storey plus the
@@ -432,6 +436,17 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
+	# The maze and the Mezzanine above it look through each other (grating, the open balcony edges). On the Mezzanine the
+	# 3x3 of the maze below stays loaded; in the maze only the Mezzanine chunk overhead (the neighbours stream in when a
+	# stairwell is walked, and are seen through the open-air edges only from above).
+	if center.y == 0 or center.y == StreamedRouteGenerator.MEZZANINE_LEVEL:
+		var other_level := StreamedRouteGenerator.MEZZANINE_LEVEL if center.y == 0 else 0
+		var reach := 0 if center.y == 0 else 1
+		for z in range(center.z - reach, center.z + reach + 1):
+			for x in range(center.x - reach, center.x + reach + 1):
+				var other := Vector3i(x, other_level, z)
+				if generator.is_chunk_allowed(other):
+					wanted[other] = true
 	# The far end of a ladder or ramp stays loaded while the runner is in a chunk
 	# with one, so a shaft or a ramp tunnel never opens onto an unloaded level.
 	# Chunks with no link keep the plain nine-chunk window.
@@ -1208,7 +1223,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		var cave_grid: Array = data["grid"]
 		for z in StreamedRouteGenerator.CHUNK_SIZE:
 			for x in StreamedRouteGenerator.CHUNK_SIZE:
-				if int(cave_grid[z][x]) == 0:
+				if x == 0 or z == 0 or x == StreamedRouteGenerator.CHUNK_SIZE - 1 or z == StreamedRouteGenerator.CHUNK_SIZE - 1:
+					# the seam ring has one roof height on both sides, so the two chunks' roofs and walls meet exactly
+					heights[Vector2i(x, z)] = INFERNO_SEAM_ROOF
+				elif int(cave_grid[z][x]) == 0:
 					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
 	for cavern in data.get("inferno_caverns", []):
 		for cell_value in (cavern as Dictionary)["cells"]:
@@ -1233,6 +1251,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 			for x in range(drop.position.x, drop.end.x):
 				open_above[Vector2i(x, z)] = true
 				heights[Vector2i(x, z)] = LEVEL_HEIGHT
+	# Under the Mezzanine's grating the maze has no ceiling: the grating is the roof, and hunters see up through it
+	if coord.y == 0 and generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)):
+		for cell_value in generator.mezzanine().sight_cells(coord):
+			open_above[cell_value as Vector2i] = true
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
 	for cell_value in shaft_cells:
 		# a stairwell's lower level opens straight up the well: full-storey walls
@@ -1375,12 +1397,15 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
 				_spawn_stairwells(root, data, (build["coord"] as Vector3i).y)
+				_spawn_mezzanine_rails(root, data)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
 					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				InfernoPitView.build(root, data)
+				InfernoLandingPile.build(root, data)
+				_spawn_breakables(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -1486,6 +1511,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var grid := build["grid"] as GridMap
 	var surface := build["surface"] as RefSurfaceMesh
 	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
+	if data.has("mezzanine_grid"):
+		_build_mezzanine_cell(build, cell)
+		return
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
@@ -1568,6 +1596,12 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var nx: int = x + step.x
 			var nz: int = z + step.y
 			var outside := nx < 0 or nz < 0 or nx >= size or nz >= size
+			if not outside and _is_lava(build, Vector2i(nx, nz)):
+				# the lip of a lava channel: the ground's own wall runs down to the basin, so the pit has sides
+				var lip_kind := _ref_wall_kind(build, x, z, nx, nz)
+				surface.add_wall(x, z, step, RefTextures.layer("wall", lip_kind), RefTextures.params("wall", lip_kind),
+					0.0, InfernoPitView.BASIN_Y, LEVEL_HEIGHT)
+				continue
 			if not outside and int(grid_data[nz][nx]) != 0:
 				continue
 			var neighbour_height := _seam_height(build, nx, nz) if outside \
@@ -1631,15 +1665,19 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			var face_height := float(build["corridor_h"])
 			var room_top := -1.0
 			var room_floor := 0.0
+			var face_bottom := 0.0
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
 				# ramp tunnels, channels and the falls' drop are open space too, though the
 				# grid keeps them off the walk graph
 				var open_space := (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
 					or (data.get("shaft_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
-					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]
+					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL] \
+					or _is_lava(build, Vector2i(nx, nz))
 				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
+				if _is_lava(build, Vector2i(nx, nz)):
+					face_bottom = InfernoPitView.BASIN_Y      # the rock round a lava channel runs down to its basin
 				var ramp_info: Dictionary = (data.get("ramp_cells", {}) as Dictionary).get(Vector2i(nx, nz), {})
 				if not ramp_info.is_empty():
 					# a ramp tunnel is one room two storeys tall: both levels' side walls
@@ -1651,7 +1689,75 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if room_top > 0.0:
 				wall_kind = _ramp_wall_kind(build, nx, nz)
 			surface.add_wall(x, z, step, RefTextures.layer("wall", wall_kind),
-				RefTextures.params("wall", wall_kind), face_height, 0.0, room_top, room_floor, 1 if room_top > 0.0 else 0)
+				RefTextures.params("wall", wall_kind), face_height, face_bottom, room_top, room_floor, 1 if room_top > 0.0 else 0)
+
+
+## A lava channel cell of level -3 (rock to the walk grid, no wall and no floor of its own: InfernoPitView draws it).
+static func _is_lava(build: Dictionary, cell: Vector2i) -> bool:
+	return int((build["coord"] as Vector3i).y) == StreamedRouteGenerator.INFERNO_LEVEL \
+		and (build["structural_voids"] as Dictionary).has(cell)
+
+
+## One cell of a Mezzanine chunk: grating or deck underfoot (a floor collider, drawn), open air everywhere else (no wall,
+## no collider, no ceiling: the double-height void over the maze). The railings come in _spawn_mezzanine_rails.
+func _build_mezzanine_cell(build: Dictionary, cell: Vector2i) -> void:
+	var data: Dictionary = build["data"]
+	var code := int((data["mezzanine_grid"] as Array)[cell.y][cell.x])
+	if not MezzanineRouteGenerator.is_walkable(code):
+		return
+	var kind := "grate" if code == MezzanineRouteGenerator.GRATE else "metal2"
+	(build["grid"] as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item)
+	(build["surface"] as RefSurfaceMesh).add_floor(cell.x, cell.y, RefTextures.layer("floor", kind),
+		RefTextures.params("floor", kind))
+
+
+## Railings on every Mezzanine edge that drops to open air: an iron top bar and a collider, waist high.
+func _spawn_mezzanine_rails(root: Node3D, data: Dictionary) -> void:
+	if not data.has("mezzanine_grid"):
+		return
+	var body := StaticBody3D.new()
+	body.name = "CatwalkRails"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	root.add_child(body)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var shapes := {}
+	for feature_value in data.get("features", []):
+		var feature: Dictionary = feature_value
+		if String(feature.get("type", "")) != "catwalkRail":
+			continue
+		var cell: Vector2i = feature["cell"]
+		var side: Vector2i = feature["side"]
+		var mid := Vector3(cell.x + .5 + side.x * .47, MezzanineRouteGenerator.RAIL_HEIGHT * .5, cell.y + .5 + side.y * .47)
+		var size := Vector3(.06 if side.x != 0 else 1.0, MezzanineRouteGenerator.RAIL_HEIGHT, .06 if side.y != 0 else 1.0)
+		var along_x := side.x == 0
+		if not shapes.has(along_x):    # two shared boxes, one per direction, not one per rail segment
+			var box := BoxShape3D.new()
+			box.size = size
+			shapes[along_x] = box
+		var collider := CollisionShape3D.new()
+		collider.shape = shapes[along_x]
+		collider.position = mid
+		body.add_child(collider)
+		_add_rail_bar(surface, Vector3(mid.x, MezzanineRouteGenerator.RAIL_HEIGHT - .04, mid.z), Vector3(size.x, .06, size.z))
+		_add_rail_bar(surface, Vector3(mid.x, MezzanineRouteGenerator.RAIL_HEIGHT * .5, mid.z), Vector3(size.x, .04, size.z))
+	surface.generate_normals()
+	var mesh := MeshInstance3D.new()
+	mesh.name = "Rails"
+	mesh.mesh = surface.commit()
+	mesh.material_override = _stair_iron()
+	root.add_child(mesh)
+
+
+func _add_rail_bar(surface: SurfaceTool, center: Vector3, size: Vector3) -> void:
+	var lo := center - size * .5
+	var hi := center + size * .5
+	var corners := [Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(lo.x, hi.y, lo.z),
+		Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z)]
+	for face in [[0, 2, 1, 0, 3, 2], [4, 5, 6, 4, 6, 7], [0, 4, 7, 0, 7, 3], [1, 2, 6, 1, 6, 5], [3, 7, 6, 3, 6, 2], [0, 1, 5, 0, 5, 4]]:
+		for index in face:
+			surface.add_vertex(corners[index])
 
 
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
@@ -2163,6 +2269,37 @@ void fragment() {
 	return material
 
 
+var _breakable_nodes := {}
+
+
+## One interactable per breakable spec of the chunk (seals across tunnels, boards, pipes), at its spec's state.
+func _spawn_breakables(root: Node3D, data: Dictionary) -> void:
+	for spec_value in data.get("breakables", []):
+		var spec: Dictionary = spec_value
+		var extras: Dictionary = spec.get("extras", {})
+		var centre: Vector2 = extras.get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
+		var node := RouteInteractable3D.new()
+		node.name = "Breakable_%s" % String(spec["id"]).replace(":", "_")
+		node.kind = RouteInteractable3D.Kind.BREAKABLE
+		node.position = Vector3(centre.x, 0.0, centre.y)
+		node.rotation.y = BreakableView.yaw_of(spec)
+		node.configure_breakable(spec, world_state.breach_hp(spec), world_state.breach_open(String(spec["id"])))
+		node.changed.connect(func(event: Dictionary) -> void:
+			if String(event.get("what", "")) == "breakable_hit":
+				breakable_hit.emit(String(event["id"]), String(event["tool"])))
+		root.add_child(node)
+		_breakable_nodes[String(spec["id"])] = node
+
+
+## The state of a breakable changed (the host's "stream_breach"): its piece, if its chunk is loaded.
+func apply_breach(id: String, hp: int, opened: bool) -> void:
+	var node := _breakable_nodes.get(id) as RouteInteractable3D
+	if node == null or not is_instance_valid(node):
+		_breakable_nodes.erase(id)
+		return
+	node.apply_breakable_state(hp, opened)
+
+
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
@@ -2476,6 +2613,8 @@ static func _height_in(build: Dictionary, cell: Vector2i) -> float:
 func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var coord: Vector3i = build["coord"]
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		return INFERNO_SEAM_ROOF
 	var neighbour := Vector3i(coord.x + floori(float(nx) / size), coord.y, coord.z + floori(float(nz) / size))
 	return RefLook.corridor_height(generator.region_for(neighbour), neighbour)
 
@@ -3272,6 +3411,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 			furniture.name = "Furniture_%s" % prop_type if seat_points.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
 			furniture.kind = RouteInteractable3D.Kind.FURNITURE
 			furniture.configure_furniture(furniture_action)
+			furniture.set_meta("prop_type", prop_type)
 			# PlayerController3D.rest_spot: where the body and eye go (a booth seat is one bench's half, not the table)
 			furniture.set_meta("rest_size", Vector3(float(point["width"]), blocker_size.y,
 				blocker_size.z * (.28 if PropModelCatalog.SEAT_ROWS.has(prop_type) else 1.0)) if seat_points.size() > 1 else blocker_size)

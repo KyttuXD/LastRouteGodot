@@ -10,5 +10,6 @@
 	"sight": 9.2,
 	"hearing": 1.24,
 	"spawn": 14,
-	"model": "res://art/props-3d/characters/void_orange.tscn"
+	"model": "res://art/props-3d/characters/void_orange.tscn",
+	"chase_style": "reach2"
 }

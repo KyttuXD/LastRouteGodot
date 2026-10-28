@@ -8,5 +8,6 @@
 	"prog": 0.17,
 	"sight": 8.3,
 	"hearing": 0.92,
-	"spawn": 12
+	"spawn": 12,
+	"chase_style": "stopstart"
 }

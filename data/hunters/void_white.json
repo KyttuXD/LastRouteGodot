@@ -10,5 +10,6 @@
 	"sight": 8.8,
 	"hearing": 1.38,
 	"spawn": 17,
-	"model": "res://art/props-3d/characters/void_white.tscn"
+	"model": "res://art/props-3d/characters/void_white.tscn",
+	"chase_style": "glide"
 }

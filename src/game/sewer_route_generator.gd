@@ -318,6 +318,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	if coord.y == LEVEL:
 		for well in surface.stairwells_at(coord.x, coord.z, SURFACE_LEVEL):
 			order.erase(int(well["quadrant"]))
+	# rooms never take the last free quadrant while a ladder is still wanted (the maze's wells erase up to two)
+	if wants_link:
+		room_count = mini(room_count, maxi(order.size() - 1, 0))
 	var surface_data: Dictionary = surface.chunk(Vector3i(coord.x, SURFACE_LEVEL, coord.z))
 	var blocked := _surface_blocked_cells(surface_data)
 	var covers := ["manhole", "grate"]

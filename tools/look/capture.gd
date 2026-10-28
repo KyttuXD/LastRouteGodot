@@ -4,6 +4,7 @@ extends Node
 ## the runner to one room of each type and saves viewport PNGs.
 ##
 ##   godot --path . res://tools/look/capture.tscn -- OUTDIR TAG [SEED]
+## Add CAP_FULLBRIGHT=1 (or FULLBRIGHT=1) as an extra argument for the flat fullbright look (DebugView).
 ##
 ## Environment: CAP_ONLY=<substring of "region_roomtype">, CAP_MAX=<n rooms>,
 ## CAP_YAWS="0,90" (degrees), CAP_FPS=1 to print the frame time instead of
@@ -290,6 +291,17 @@ func _run(scene: Node) -> void:
 					picks.append({"name": "ramp_bottom_side", "pos": Vector3(bot_cx, low3 + .05, rz), "yaw": 0.0,
 						"look": Vector3(bot_cx, low3 + 1.4, cz * fsize + float((ramp["connector"] as Rect2i).position.y) + (ramp["connector"] as Rect2i).size.y * .5)})
 					continue
+				if OS.get_environment("CAP_FALLS") == "seal":
+					var seal_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					for spec in facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz)).get("breakables", []):
+						var seal_centre: Vector2 = spec["extras"]["centre"]
+						var seal_dir: Vector2 = spec["extras"]["dir"]
+						var from_cell: Vector2 = seal_centre - seal_dir * 5.0
+						picks.append({"name": "seal_%s" % String(spec["variant"]), "yaw": 0.0,
+							"pos": Vector3(cx * fsize + from_cell.x, seal_y + .05, cz * fsize + from_cell.y),
+							"look": Vector3(cx * fsize + seal_centre.x, seal_y + 1.4, cz * fsize + seal_centre.y)})
+						break
+					continue
 				if OS.get_environment("CAP_FALLS") == "cave":
 					var cave_data: Dictionary = facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))
 					var cave_chambers: Array = cave_data.get("inferno_caverns", [])
@@ -368,6 +380,11 @@ func _run(scene: Node) -> void:
 				player._pitch = atan2(d.y, Vector2(d.x, d.z).length())
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
+			# CAP_FULLBRIGHT=1 (or FULLBRIGHT=1): DebugView's flat, shadowless look, so dark levels can be judged; the shot name
+			# gets a _fb suffix. Capture tools only: DebugView stays admin-gated in the game.
+			if OS.get_environment("CAP_FULLBRIGHT") != "" or OS.get_environment("FULLBRIGHT") != "":
+				DebugView.tool_override = true
+				DebugView.set_mode(DebugView.Mode.FULLBRIGHT, get_viewport())
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
 			await _wait(int(OS.get_environment("CAP_WAIT")) if OS.get_environment("CAP_WAIT") != "" else 14)
 			if OS.get_environment("CAP_FPS") != "":

@@ -8,5 +8,6 @@
 	"prog": 0.15,
 	"sight": 8.4,
 	"hearing": 0.0,
-	"spawn": 10
+	"spawn": 10,
+	"chase_style": "stalk"
 }
