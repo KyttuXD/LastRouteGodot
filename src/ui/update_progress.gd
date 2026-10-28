@@ -89,6 +89,11 @@ func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if success:
 		_return_to_menu("BUILD IS UP TO DATE")
 		return
+	if UpdateManager.available.is_empty():
+		# no update known and the server is unreachable: nothing to hold the player for
+		UpdateManager.enable_offline_mode()
+		_return_to_menu("UPDATE SERVICE UNAVAILABLE // STARTING OFFLINE")
+		return
 	_show_retry(UpdateManager.status_message if not UpdateManager.status_message.is_empty() \
 		else "UPDATE CHECK REQUIRED")
 
@@ -150,7 +155,7 @@ func _show_install_button() -> void:
 		_retry_button.get_parent().add_child(_install_button)
 		_retry_button.get_parent().move_child(_install_button, 0)
 	_install_button.visible = true
-	_continue_button.visible = true   # or keep playing on this build for now
+	_continue_button.visible = false   # the update gate: no way past this screen but installing
 	_install_button.grab_focus.call_deferred()
 
 
@@ -184,7 +189,7 @@ func _continue_offline() -> void:
 
 
 func _return_to_menu(_message: String) -> void:
-	var error := get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	var error := get_tree().change_scene_to_file("res://scenes/game_hub.tscn")
 	if error != OK:
 		_show_retry("MAIN MENU COULD NOT OPEN // ERROR %d" % error)
 
@@ -197,7 +202,7 @@ func _show_retry(message: String) -> void:
 	_status.add_theme_color_override("font_color", Palette.ALERT)
 	_set_progress(0.0, false)
 	_retry_button.visible = true
-	_continue_button.visible = true
+	_continue_button.visible = false   # stay here with RETRY; no skipping the update
 
 
 func _set_state(phase_text: String, status_text: String, amount: float,

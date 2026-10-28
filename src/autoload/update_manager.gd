@@ -605,19 +605,35 @@ func _download_failed(message: String) -> void:
 	_set_status(message)
 
 
+## Every self-updating native platform (desktop, phone, Quest) holds the player on the update screen while an update is
+## available; the web build refreshes itself and iOS updates through the App Store.
 func uses_in_progress_screen() -> bool:
-	# Native desktop is the path whose helper must stop this process. Web and
-	# Quest already stay inside an in-app installer or refresh.
-	return platform_key() in ["linux", "windows", "windows_legacy", "steamvr",
-		"macos"]
+	return gated_platform(platform_key())
+
+
+static func gated_platform(key: String) -> bool:
+	return key in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]
+
+
+## Tests replace the scene change with a Callable; the game goes to the update screen.
+var gate_override := Callable()
+
+
+func open_update_screen() -> void:
+	if gate_override.is_valid():
+		gate_override.call()
+		return
+	get_tree().change_scene_to_file.call_deferred(UPDATE_PROGRESS_SCENE)
 
 
 func _required_or_debug_update() -> bool:
 	return update_required or Build.requires_update_gate()
 
 
+## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
+## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
-	if offline_mode or not uses_in_progress_screen() or not _required_or_debug_update():
+	if offline_mode or not uses_in_progress_screen():
 		return false
 	if _gameplay_active():
 		return false

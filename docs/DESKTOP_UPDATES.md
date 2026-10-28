@@ -10,8 +10,10 @@ Same identity and rule as phones and the Quest (see [XR_ANDROID.md](XR_ANDROID.m
   native platform). An entry without a build number is never offered.
 - Download: staged to `user://updates`, sha256 checked against the manifest (HTTPS or the backend's own `/api/updates/files/`
   route only; plain localhost only in debug builds), then unpacked to a staging folder.
-- Never silent: the update screen shows **INSTALL & RESTART** (and CONTINUE OFFLINE); nothing is replaced until it is pressed.
-  The main menu shows "UPDATE READY // INSTALL & RESTART" outside the gate.
+- Update gate (desktop, phone, Quest): when the boot check finds an update the boot screen opens the update screen instead of
+  the hub, and the hub sends the player back there if one appears later. That screen offers only **INSTALL & RESTART** (still
+  the player's press, never silent) or **RETRY** after a failed download/install; no CONTINUE. If the server is unreachable or
+  the check times out (8 s) the game starts offline as normal. iOS (App Store) and the web build are never blocked.
 - Swap: a helper (shell on macOS, PowerShell on Windows) waits for the game to exit, copies the staged build beside the
   installed one, moves the old files (the whole `.app` on macOS; the exe/pck on Windows) into `.lastroute-backup-previous`
   next to the game, moves the new ones in, and relaunches. On any failure it restores the previous files.

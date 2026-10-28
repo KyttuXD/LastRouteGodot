@@ -62,6 +62,13 @@ const QUIT_DIALOG_Z := 50
 
 
 func _ready() -> void:
+	# the update gate: an available update sends the player back to the update screen before the hub is usable
+	if UpdateManager.should_open_progress_screen():
+		UpdateManager.open_update_screen()
+		return
+	UpdateManager.update_available.connect(func(_update: Dictionary) -> void:
+		if is_inside_tree() and UpdateManager.should_open_progress_screen():
+			UpdateManager.open_update_screen())
 	GameRegistry.active_game_id = GameRegistry.DEFAULT_ID
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
