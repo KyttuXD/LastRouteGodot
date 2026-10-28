@@ -28,6 +28,7 @@ func run(host: Node) -> int:
 	var total_links := 0
 	for window in WINDOWS:
 		total_links += _check_window(window)
+	_check_opaque_window(host)
 	_check_traffic()
 	_check_hunter_paths()
 	await _check_streaming(host)
@@ -449,3 +450,16 @@ func _check_live_channel(view: StreamedFacilityView3D, coord: Vector3i) -> void:
 		"the sewer chunk has no channel railings")
 	if bad == 0:
 		print("  ok    sewer channels: deep water behind railings, decks walkable, colliders right")
+
+
+## The game window is opaque (KT: the macOS desktop showed through the sewer and
+## past the far distance): no transparent window, no per-pixel transparency and
+## an opaque root viewport, so empty or unlit space shows the environment colour.
+func _check_opaque_window(host: Node) -> void:
+	_expect(not bool(ProjectSettings.get_setting("display/window/size/transparent", false)),
+		"project.godot makes the game window transparent")
+	_expect(not bool(ProjectSettings.get_setting("display/window/per_pixel_transparency/allowed", false)),
+		"project.godot allows per-pixel window transparency")
+	_expect(not host.get_tree().root.transparent_bg, "the root viewport draws a transparent background")
+	_expect(RefLook.make_environment().background_mode == Environment.BG_COLOR \
+		and RefLook.make_environment().background_color.a >= 1.0, "the route environment's background is not opaque")
