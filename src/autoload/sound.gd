@@ -397,43 +397,7 @@ func render_ambience(key: String) -> AudioStreamWAV:
 
 ## Pure: no shared state, safe on a worker thread.
 func _render_ambience_uncached(key: String) -> AudioStreamWAV:
-	var seconds := AmbienceTable.LOOP_SECONDS
-	var components := []
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(key)
-	for layer_value in AmbienceTable.layers(key):
-		var layer: Dictionary = layer_value
-		var hz := float(layer.get("hz", 200.0))
-		var vol := float(layer.get("vol", .005))
-		match String(layer.get("kind", "hum")):
-			"hum":
-				components.append({"kind": "tone", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "wave": "sine", "pan": 0.0, "flat": true})
-			"noise":
-				var swell := float(layer.get("swell", 0.0))
-				components.append({"kind": "noise", "frequency": hz, "duration": seconds, "volume": vol, "delay": 0.0, "pan": 0.0, "rate": 1.0, "flat": true, "swell": swell})
-			"pulse":
-				var every := maxf(.1, float(layer.get("every", 1.0)))
-				var t := 0.0
-				while t < seconds - .05:
-					components.append(_tone(hz, float(layer.get("len", .1)), vol, t, String(layer.get("wave", "sine")), rng.randf_range(-.3, .3)))
-					t += every
-			"chirp":
-				for _i in int(layer.get("count", 3)):
-					var at := rng.randf_range(0.0, seconds - .3)
-					for k in 3:
-						components.append(_tone(hz * rng.randf_range(.9, 1.15), .05, vol, at + k * .07, "triangle", rng.randf_range(-.6, .6)))
-	var stream := _render_components(components, abs(key.hash()), seconds)
-	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	stream.loop_begin = 0
-	stream.loop_end = int(seconds * SAMPLE_RATE)
-	# One guard frame after loop_end, a copy of frame 0 so the seam stays clean. With loop_end on the very last frame,
-	# Android's mixer interpolates one frame past the end of the buffer and the hardened allocator kills the process
-	# (SIGSEGV in the AudioTrack thread as a route starts).
-	var data := stream.data
-	data.resize(stream.loop_end * 4)
-	data.append_array(data.slice(0, 4))
-	stream.data = data
-	return stream
+	return AmbienceSynth.render(key, AmbienceTable.layers(key))
 
 
 ## Public for the headless audio check and future waveform previews. Callers
