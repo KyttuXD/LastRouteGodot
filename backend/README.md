@@ -118,6 +118,7 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 | `LASTROUTE_DATA_DIR` | `./.data` | persistent data directory |
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
+| `LASTROUTE_SAVES_DIR` | `<data>/saves` | per-account cloud saves (`<USERNAME>.json`) |
 | `LASTROUTE_MODERATION_STORE` | `moderation.json` beside the account store | flags, kick log, cooldowns, build allow-list |
 | `LASTROUTE_MODERATION_SALT` | generated and persisted in the store | salt for the sha256 of device ids and IPs |
 | `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
@@ -161,6 +162,10 @@ names from the original deployment remain accepted as compatibility aliases.
 - `POST /api/dev/login`, `reload`
 - `POST /api/moderation/integrity`, `report`, `status`, `peers`
 - `POST /api/admin/flags`, `flags/set`, `builds/add`, `builds/remove` (full owner)
+- `GET`, `PUT /api/v1/saves/:gameId/:slot` (header `x-session-token`): cloud saves. Only
+  `last-route-godot/run` exists; `PUT {data, updatedAt}` with `data: null` deletes it, an
+  older `updatedAt` than the stored one gets `409 STALE`, bodies over 64 KB get `413`, and
+  each account may write 30 times a minute (`game_saves.mjs`).
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
@@ -331,9 +336,9 @@ are never restricted automatically, only by an owner.
 | `/api/moderation/integrity` | `sessionToken?, deviceId?, commit, buildHash, platform, channel, context` | `{ok, known, status}` |
 | `/api/moderation/report` | `code, hostToken, username?, deviceId?, reason, strikes, kind:"kick"` | `{ok, flagged, status}` |
 | `/api/moderation/status` | `sessionToken?, deviceId?` | `{ok, status}` |
-| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` |
+| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` (players also carry `ads`) |
 | `/api/admin/flags` | `sessionToken` | `{ok, accounts, reviews:[NAME with open reviews], builds}` |
-| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|dismiss), hours?, note?` | `{ok, record}` |
+| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|ads_on\|ads_off\|dismiss), hours?, note?` | `{ok, record}` |
 | `/api/admin/builds/add` / `remove` | `sessionToken, buildHash, commit?, note?` | `{ok, build?, removed?, builds}` |
 
 `status` is `{flagged, permanent, until, reason, troll, restrictions:{publicRoute, hostPublic, skinUpload},

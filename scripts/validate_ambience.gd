@@ -33,8 +33,15 @@ func run(host: Node) -> int:
 	Sound.set_ambience("")
 	for key in AmbienceTable.regions():
 		var stream := Sound.render_ambience(String(key))
-		_expect(stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and stream.loop_end == int(AmbienceTable.LOOP_SECONDS * Sound.SAMPLE_RATE),
+		_expect(stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and stream.loop_end == int(AmbienceTable.LOOP_SECONDS * stream.mix_rate),
 			"bed %s is not a %.0f s loop" % [key, AmbienceTable.LOOP_SECONDS])
+		# seamless: the guard frame after loop_end repeats frame 0, and the step from the last loop frame into frame 0 is
+		# no bigger than the bed's ordinary sample-to-sample motion (a click at the seam was audible every loop)
+		var data := stream.data
+		var last := absf(data.decode_s16((stream.loop_end - 1) * 4) - data.decode_s16(0)) / 32767.0
+		_expect(data.size() == (stream.loop_end + 1) * 4 and data.decode_s16(stream.loop_end * 4) == data.decode_s16(0),
+			"bed %s lost its Android guard frame" % key)
+		_expect(last <= _typical_step(stream) * 1.5 + .0005, "bed %s clicks at its loop seam" % key)
 		_expect(_peak(stream) > .002 and _peak(stream) < .5, "bed %s is silent or clipping (peak %.3f)" % [key, _peak(stream)])
 	# floors -> surfaces -> steps
 	var kinds := {}
@@ -79,6 +86,15 @@ func run(host: Node) -> int:
 		print("  ambience  %d district beds + room beds, crossfade/duck/stop, %d floor kinds -> %d footstep surfaces x 4 gaits, run scene wired" % [
 			AmbienceTable.regions().size(), kinds.size(), SurfaceSounds.SURFACES.size()])
 	return _failures
+
+
+func _typical_step(stream: AudioStreamWAV) -> float:
+	var data := stream.data
+	var steps := []
+	for i in range(4, mini(data.size() - 4, 4 * 20000), 4):
+		steps.append(absf(data.decode_s16(i) - data.decode_s16(i - 4)) / 32767.0)
+	steps.sort()
+	return steps[int(steps.size() * .99)]
 
 
 func _peak(stream: AudioStreamWAV) -> float:

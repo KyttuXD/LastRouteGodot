@@ -47,6 +47,9 @@ var prerender_ambience := true
 var map_update_hz := 0.0
 ## 3D render resolution scale (the governor's last step; flat screens only: an XR swapchain is sized at session start).
 var render_scale := 1.0
+## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
+var prop_density := 1.0
+var decor_density := 1.0
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor
@@ -108,6 +111,8 @@ func apply_budgets() -> void:
 	prerender_ambience = budgets["prerender_ambience"]
 	map_update_hz = budgets["map_update_hz"]
 	render_scale = budgets["render_scale"]
+	prop_density = budgets["prop_density"]
+	decor_density = budgets["decor_density"]
 	frame_target_hz = budgets["frame_target_hz"]
 	worker_threads = budgets["worker_threads"]
 	if is_phone:

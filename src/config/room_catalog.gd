@@ -280,7 +280,7 @@ const TYPES := [
 		"streamed_only": true,
 		"props": ["pottingBench", "pottingBench", "seedlingRack", "compostBins",
 			"wateringCart", "irrigationManifold"]},
-	{"id": "donutShop", "label": "KYTTU DONUTS", "region": "mall",
+	{"id": "donutShop", "label": "DONUT COUNTER", "region": "mall",
 		"streamed_only": true, "landmark": true,
 		"props": ["displayCase", "checkoutCounter", "coffeeStation", "donutFryer",
 			"bakeryRack", "dinerBooth", "dinerStool", "menuBoard", "donutSign"]},

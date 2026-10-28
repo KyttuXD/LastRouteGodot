@@ -35,7 +35,7 @@ func _fake(path: String, body: Dictionary) -> Dictionary:
 				{"at": "2026-10-20T10:00", "reason": "kick", "detail": "old", "open": false, "closedBy": "KYTTU"}],
 				"kicks": [{"at": "2026-10-27", "room": "ABCDE", "host": "1a2b3c4d5e6f7a8b", "reason": "griefing", "strikes": 1}, {"at": "2026-10-28", "room": "FGHIJ", "host": "9f8e7d6c5b4a3f2e", "reason": "spam", "strikes": 2}],
 				"integrity": {"commit": "117a18a8", "hash": "cafebabe00112233", "known": false}},
-			{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true, "reason": "spam"},
+			{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true, "ads": false, "reason": "spam"},
 			{"username": "old", "permanent": true}], "builds": [{"buildHash": "deadbeef0123456789"}]}
 	if path in ["/api/admin/flags/set", "/api/admin/builds/add", "/api/admin/builds/remove"]:
 		return {"ok": true}
@@ -94,6 +94,11 @@ func run(host: Node) -> int:
 				and mod.contains("UNKNOWN BUILD") and mod.contains("KICKS: ABCDE (1a2b3c4d5e6f7a8b) @ 2026-10-27 // GRIEFING, 1 STRIKE, FGHIJ (9f8e7d6c5b4a3f2e) @ 2026-10-28 // SPAM, 2 STRIKES") and mod.contains("BUILD CAFEBABE0011 @ 117A18A8 (UNKNOWN)")
 				and not mod.contains("// old //"), "review queue not shown right: %s" % mod.replace("\n", " | "))
 			_expect(panel.find_child("Moderation_dismiss", true, false) != null, "no DISMISS button")
+			_expect(panel.find_child("Moderation_ads_on", true, false) != null and panel.find_child("Moderation_ads_off", true, false) != null, "no ADS ON / OFF buttons")
+			_expect(mod.contains("TROLL (ADS OFF)"), "the ads state is not shown")
+			await panel.moderate("griefer", "ads_off")
+			var ads: Dictionary = (_calls.filter(func(c: Array) -> bool: return c[0] == "/api/admin/flags/set")[-1] as Array)[1]
+			_expect(ads.get("action") == "ads_off", "ADS OFF did not post")
 			await panel.moderate("suspect", "dismiss")
 			var dismissed: Dictionary = (_calls.filter(func(c: Array) -> bool: return c[0] == "/api/admin/flags/set")[-1] as Array)[1]
 			_expect(dismissed.get("action") == "dismiss" and dismissed.get("username") == "SUSPECT", "DISMISS did not post: %s" % dismissed)

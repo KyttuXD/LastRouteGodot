@@ -51,14 +51,9 @@ var _held := 0.0
 ## higher-priority overlay, preventing the same keypress from opening pause.
 var dismiss_overlay: Callable
 ## Gameplay supplies persistence/statistics boundaries. Keeping storage out of
-## this presentation class lets Office/legacy modes omit saves cleanly while
-## Infinite Route exposes the complete local archive.
-var save_slots_source: Callable
-var save_new_request: Callable
-var save_overwrite_request: Callable
-var save_load_request: Callable
-var save_rename_request: Callable
-var save_delete_request: Callable
+## this presentation class lets Office/legacy modes omit saves cleanly. Last Route has one automatic save per run;
+## save_status_source returns its line ("RUN SAVED AT LEVEL -2, 14:05"), shown under RETURN.
+var save_status_source: Callable
 var statistics_source: Callable
 
 var _scrim: ColorRect
@@ -69,22 +64,17 @@ var _hold_fill: ColorRect
 var _resume_button: Button
 var _abandon_button: Button
 var _pause_view: VBoxContainer
-## PAUSE / SAVES / STATISTICS tab buttons: only the open page's tab is lit.
+## PAUSE / STATISTICS tab buttons: only the open page's tab is lit.
 var _tabs := {}
 var section := "pause"
 var _statistics_scroll: ScrollContainer
-var _saves_scroll: ScrollContainer
-var _saves_view: VBoxContainer
 var _statistics_view: VBoxContainer
-var _save_list: VBoxContainer
-var _save_name: LineEdit
 var _save_status: Label
 var _statistics_grid: GridContainer
 var _share_code: Label
 var _share_seed: Label
 var _copy_button: Button
 var _copy_status: Label
-var _selected_save_id := ""
 var _dossier_modal: ColorRect
 var _dossier_name: Label
 var _dossier_status: Label
@@ -158,8 +148,7 @@ func _build() -> void:
 	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 	tabs.add_theme_constant_override("separation", 4)
 	column.add_child(tabs)
-	for entry in [["PAUSE", "pause"], ["SAVES", "saves"],
-			["STATISTICS", "statistics"]]:
+	for entry in [["PAUSE", "pause"], ["STATISTICS", "statistics"]]:
 		var tab := Button.new()
 		tab.text = String(entry[0])
 		tab.focus_mode = Control.FOCUS_ALL
@@ -186,6 +175,12 @@ func _build() -> void:
 	_resume_button.pressed.connect(close)
 	_pause_view.add_child(_resume_button)
 
+	_save_status = Label.new()
+	_save_status.name = "PauseSaveStatus"
+	_save_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	Palette.style_label(_save_status, Palette.MUTED, 7)
+	_pause_view.add_child(_save_status)
+
 	var dossier_button := Button.new()
 	dossier_button.text = "HUNTER DOSSIER"
 	dossier_button.focus_mode = Control.FOCUS_ALL
@@ -206,91 +201,11 @@ func _build() -> void:
 	_abandon_button.pressed.connect(_ask_abandon)
 	_pause_view.add_child(_abandon_button)
 
-	_build_saves_view(column)
 	_build_statistics_view(column)
 
 	_build_confirm()
 	_build_hold_prompt()
 	_set_section("pause")
-
-
-## SAVES matches STATISTICS: one scroller for the whole page (house-style bar, wheel / touch / focus), the same tracked
-## amber section header, the same inset panel frame around the save controls, the same spacing.
-func _build_saves_view(parent: VBoxContainer) -> void:
-	_saves_view = VBoxContainer.new()
-	_saves_view.name = "PauseSaves"
-	_saves_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	parent.add_child(_saves_view)
-	var page_scroll := ScrollContainer.new()
-	page_scroll.name = "PauseSavesScroll"
-	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	page_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
-	page_scroll.follow_focus = true
-	_style_scrollbar(page_scroll.get_v_scroll_bar())
-	_saves_view.add_child(page_scroll)
-	_saves_scroll = page_scroll
-	var page := VBoxContainer.new()
-	page.name = "PauseSavesPage"
-	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	page.add_theme_constant_override("separation", 6)
-	page_scroll.add_child(page)
-
-	var heading := Label.new()
-	heading.name = "SavesHeading"
-	heading.text = Palette.track("ROUTE ARCHIVES")
-	Palette.style_label(heading, Palette.AMBER, 8)
-	page.add_child(heading)
-
-	var frame := PanelContainer.new()
-	frame.name = "SaveControls"
-	frame.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
-	page.add_child(frame)
-	var frame_stack := VBoxContainer.new()
-	frame_stack.add_theme_constant_override("separation", 4)
-	frame.add_child(frame_stack)
-
-	var help := Label.new()
-	help.text = "HOST SAVES SHARED PROGRESS // LOAD WHILE SOLO"
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	Palette.style_label(help, Palette.MUTED, 7)
-	frame_stack.add_child(help)
-
-	var create_row := HBoxContainer.new()
-	create_row.name = "SaveCreateRow"
-	create_row.add_theme_constant_override("separation", 4)
-	frame_stack.add_child(create_row)
-
-	_save_name = LineEdit.new()
-	_save_name.name = "SaveNameInput"
-	_save_name.placeholder_text = "SAVE NAME"
-	_save_name.max_length = 40
-	_save_name.custom_minimum_size = Vector2(0, 22)
-	_save_name.text_direction = Control.TEXT_DIRECTION_LTR
-	_save_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_save_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	Palette.style_line_edit(_save_name)
-	create_row.add_child(_save_name)
-	var save_new_button := _save_action_button("SAVE NEW", _save_new, true)
-	save_new_button.name = "SaveNew"
-	save_new_button.custom_minimum_size = Vector2(92, 22)
-	create_row.add_child(save_new_button)
-
-	var slots_heading := Label.new()
-	slots_heading.text = Palette.track("SAVED ROUTES")
-	Palette.style_label(slots_heading, Palette.AMBER, 8)
-	page.add_child(slots_heading)
-	_save_list = VBoxContainer.new()
-	_save_list.name = "SaveSlotList"
-	_save_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_save_list.add_theme_constant_override("separation", 5)
-	page.add_child(_save_list)
-
-	_save_status = Label.new()
-	_save_status.name = "SaveStatus"
-	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	Palette.style_label(_save_status, Palette.MUTED, 7)
-	page.add_child(_save_status)
 
 
 ## The whole STATISTICS page scrolls (wheel, touch drag, focus): nothing clips at small windows, phones or the XR panel.
@@ -338,10 +253,6 @@ static func _style_scrollbar(bar: VScrollBar) -> void:
 		bar.add_theme_stylebox_override(state, Palette.panel_box(Palette.ACCENT if state == "grabber" else Palette.ACCENT_EDGE, Palette.ACCENT_EDGE, 0))
 
 
-## Scrolls the saves page to its end (the last slot and status).
-func scroll_saves_to_end() -> void:
-	if _saves_scroll != null:
-		_saves_scroll.scroll_vertical = int(_saves_scroll.get_v_scroll_bar().max_value)
 
 
 ## Scrolls the statistics page so its last row is visible (keyboard/controller "end", tests).
@@ -444,17 +355,6 @@ func _refresh_share() -> void:
 		_copy_button.disabled = route_share_text(room, route).is_empty()
 
 
-func _save_action_button(caption: String, action: Callable,
-		primary: bool = false) -> Button:
-	var button := Button.new()
-	button.text = caption
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_theme_font_size_override("font_size", 7)
-	Palette.style_button(button, primary)
-	button.pressed.connect(action)
-	return button
-
-
 func _set_section(next: String) -> void:
 	if _pause_view == null:
 		return
@@ -462,132 +362,10 @@ func _set_section(next: String) -> void:
 	for id in _tabs:
 		Palette.style_button(_tabs[id] as Button, id == section)
 	_pause_view.visible = section == "pause"
-	_saves_view.visible = section == "saves"
 	_statistics_view.visible = section == "statistics"
-	if section == "saves":
-		_refresh_saves()
-		_save_name.grab_focus()
-	elif section == "statistics":
+	if section == "statistics":
 		_refresh_share()
 		_refresh_statistics()
-
-
-func _refresh_saves() -> void:
-	if _save_list == null:
-		return
-	for child in _save_list.get_children():
-		child.queue_free()
-	var slots: Array = save_slots_source.call() if save_slots_source.is_valid() else []
-	if slots.is_empty():
-		var empty := Label.new()
-		empty.text = "NO LOCAL SAVES"
-		Palette.style_label(empty, Palette.MUTED, 8)
-		_save_list.add_child(empty)
-		_selected_save_id = ""
-		return
-	var selected_found := false
-	for value in slots:
-		var slot: Dictionary = value
-		var slot_id := String(slot.get("slot_id", ""))
-		var selected := slot_id == _selected_save_id
-		var entry := VBoxContainer.new()
-		entry.name = "SaveEntry_%s" % slot_id
-		entry.add_theme_constant_override("separation", 2)
-		entry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_save_list.add_child(entry)
-		var row := Button.new()
-		row.name = "SaveSlot_%s" % slot_id
-		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.text = "%s  //  LEVEL %+d  //  %s  //  %s" % [
-			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
-			String(slot.get("difficulty", "STANDARD")),
-			_format_duration(float(slot.get("elapsed_seconds", 0.0)))]
-		row.tooltip_text = "SAVED %s" % _format_save_time(int(slot.get("saved_at", 0)))
-		row.add_theme_font_size_override("font_size", 7)
-		Palette.style_button(row, selected)
-		row.pressed.connect(_select_save.bind(slot_id,
-			String(slot.get("name", "ROUTE"))))
-		entry.add_child(row)
-		if selected:
-			var actions := HBoxContainer.new()
-			actions.name = "SaveSlotActions_%s" % slot_id
-			actions.add_theme_constant_override("separation", 3)
-			entry.add_child(actions)
-			for action_entry in [
-					["LOAD", _save_load, true],
-					["OVERWRITE", _save_overwrite, false],
-					["RENAME", _save_rename, false],
-					["DELETE", _save_delete, false]]:
-				var action_button := _save_action_button(String(action_entry[0]),
-					action_entry[1] as Callable, bool(action_entry[2]))
-				action_button.name = "SaveSlot%s_%s" % [
-					String(action_entry[0]).capitalize().replace(" ", ""), slot_id]
-				actions.add_child(action_button)
-		selected_found = selected_found or selected
-	if not selected_found:
-		_selected_save_id = ""
-
-
-func _select_save(slot_id: String, display_name: String) -> void:
-	_selected_save_id = slot_id
-	_save_name.text = display_name
-	_save_name.caret_column = _save_name.text.length()
-	_refresh_saves()
-
-
-func _save_new() -> void:
-	_save_call(save_new_request, [_save_name.text])
-
-
-func _save_overwrite() -> void:
-	_save_call(save_overwrite_request, [_selected_save_id], true)
-
-
-func _save_load() -> void:
-	if _selected_save_id.is_empty():
-		_set_save_status("SELECT A SAVE SLOT", false)
-		return
-	if not save_load_request.is_valid():
-		_set_save_status("SAVES ARE UNAVAILABLE IN THIS MODE", false)
-		return
-	var result = save_load_request.call(_selected_save_id)
-	if result is Dictionary:
-		_set_save_status(String(result.get("message", "SAVE LOAD FAILED")),
-			bool(result.get("ok", false)))
-
-
-func _save_rename() -> void:
-	_save_call(save_rename_request, [_selected_save_id, _save_name.text], true)
-
-
-func _save_delete() -> void:
-	_save_call(save_delete_request, [_selected_save_id], true)
-
-
-func _save_call(action: Callable, arguments: Array,
-		requires_selection: bool = false) -> void:
-	if requires_selection and _selected_save_id.is_empty():
-		_set_save_status("SELECT A SAVE SLOT", false)
-		return
-	if not action.is_valid():
-		_set_save_status("SAVES ARE UNAVAILABLE IN THIS MODE", false)
-		return
-	var result = action.callv(arguments)
-	if not result is Dictionary:
-		_set_save_status("SAVE OPERATION FAILED", false)
-		return
-	var ok := bool(result.get("ok", false))
-	_set_save_status(String(result.get("message", "ROUTE SAVED" if ok else
-		"SAVE OPERATION FAILED")), ok)
-	if ok:
-		_selected_save_id = String(result.get("slot_id", _selected_save_id))
-		_refresh_saves()
-
-
-func _set_save_status(message: String, ok: bool) -> void:
-	_save_status.text = message
-	_save_status.add_theme_color_override("font_color",
-		Palette.STABLE if ok else Palette.ALERT)
 
 
 func _open_dossier() -> void:
@@ -812,15 +590,6 @@ func _format_duration(seconds: float) -> String:
 	return "%02d:%02d:%02d" % [total / 3600, (total / 60) % 60, total % 60]
 
 
-func _format_save_time(unix_time: int) -> String:
-	if unix_time <= 0:
-		return "UNKNOWN"
-	var date := Time.get_datetime_dict_from_unix_time(unix_time)
-	return "%04d-%02d-%02d %02d:%02d" % [int(date.get("year", 0)),
-		int(date.get("month", 0)), int(date.get("day", 0)),
-		int(date.get("hour", 0)), int(date.get("minute", 0))]
-
-
 ## Leaving is a two-step question, not a button. Abandoning is irreversible and
 ## in co-op it ends the run for everybody, so the second step says so rather
 ## than assuming the first click meant it.
@@ -945,6 +714,12 @@ func _build_hold_prompt() -> void:
 	_hold_box.visible = false
 
 
+func _refresh_save_status() -> void:
+	var line = save_status_source.call() if save_status_source.is_valid() else ""
+	_save_status.text = String(line) if line is String else ""
+	_save_status.visible = not _save_status.text.is_empty()
+
+
 func open() -> void:
 	if _open:
 		return
@@ -952,6 +727,7 @@ func open() -> void:
 	_refresh_voice_history()
 	_set_copy_status("", true)
 	_refresh_share()
+	_refresh_save_status()
 	_set_section("pause")
 	_resume_button.grab_focus()
 	opened.emit()

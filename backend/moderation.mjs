@@ -84,6 +84,7 @@ export function createModeration({
       flaggedUntil: Number(value.flaggedUntil) || 0,
       permanent: Boolean(value.permanent),
       troll: Boolean(value.troll),
+      ads: value.ads === undefined ? true : Boolean(value.ads),   // troll-mode "ads" (in-universe jokes), owner toggle
       integrity: value.integrity && typeof value.integrity === "object" ? value.integrity : null,
       flaggedHashes: Array.isArray(value.flaggedHashes) ? value.flaggedHashes.slice(-MAX_LOG_ENTRIES) : [],
       reviews: Array.isArray(value.reviews) ? value.reviews.slice(-MAX_LOG_ENTRIES) : [],
@@ -300,7 +301,8 @@ export function createModeration({
       if (!USERNAME_PATTERN.test(username)) continue;
       const current = status({ username });
       // flagged accounts are trolled too, so the host turns troll mode on for both
-      players[username] = { flagged: current.flagged, permanent: current.permanent, troll: current.troll || current.flagged, reason: current.reason };
+      players[username] = { flagged: current.flagged, permanent: current.permanent, troll: current.troll || current.flagged,
+        ads: record(username)?.ads ?? true, reason: current.reason };
     }
     const devices = {};
     for (const value of (Array.isArray(body.deviceIds) ? body.deviceIds : []).slice(0, MAX_PEER_ENTRIES)) {
@@ -319,6 +321,7 @@ export function createModeration({
       permanent: entry.permanent,
       flaggedUntil: entry.flaggedUntil || null,
       troll: entry.troll,
+      ads: entry.ads,
       reason: lastReason(entry),
       flags: entry.flags,
       kicks: entry.kicks,
@@ -362,6 +365,8 @@ export function createModeration({
     else if (action === "unban") entry.permanent = false;
     else if (action === "troll_on") entry.troll = true;
     else if (action === "troll_off") entry.troll = false;
+    else if (action === "ads_on") entry.ads = true;
+    else if (action === "ads_off") entry.ads = false;
     else if (action !== "dismiss") return [400, { ok: false, code: "INVALID_ACTION", error: "Unknown moderation action" }];
     entry.flags.push({ at: timestamp, reason: `admin:${action}`, detail: text(body.note, 200),
       until: entry.permanent ? null : (entry.flaggedUntil || null), by });
