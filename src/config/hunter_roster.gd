@@ -31,13 +31,13 @@ const DEFAULT_ID := "dovelle"
 ## Read PROFILES, not this: entries marked ContentRegistry.DATA live in res://data/hunters/<id>.json
 ## (docs/DATA_DRIVEN_CONTENT.md) and PROFILES is this table with them filled in, in this order.
 const _CODE_PROFILES := {
-	"aki":      {"name": "Aki",      "tier": "easy",         "speed": 0.82, "chase": 3.55,  "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 11},
-	"briselle": {"name": "Briselle", "tier": "easy",         "speed": 0.84, "chase": 3.62,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
-	"ceryth":   {"name": "Ceryth",   "tier": "intermediate", "speed": 0.78, "chase": 3.45,  "prog": 0.17, "sight": 8.60, "hearing": 0.88, "spawn": 12},
+	"aki":      ContentRegistry.DATA,
+	"briselle": ContentRegistry.DATA,
+	"ceryth":   ContentRegistry.DATA,
 	"dovelle":  ContentRegistry.DATA,
-	"elise":    {"name": "Elise",    "tier": "difficult",    "speed": 0.82, "chase": 3.58,  "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
-	"ferryn":   {"name": "Ferryn",   "tier": "intermediate", "speed": 0.80, "chase": 2.75,  "prog": 0.17, "sight": 8.30, "hearing": 0.92, "spawn": 12},
-	"glyra":    {"name": "Glyra",    "tier": "easy",         "speed": 0.81, "chase": 3.52,  "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 12},
+	"elise":    ContentRegistry.DATA,
+	"ferryn":   ContentRegistry.DATA,
+	"glyra":    ContentRegistry.DATA,
 	"haelith":  {"name": "Haelith",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.18, "sight": 7.80, "hearing": 1.18, "spawn": 12},
 	"ilyra":    {"name": "Ilyra",    "tier": "intermediate", "speed": 0.77, "chase": 3.68,  "prog": 0.17, "sight": 8.70, "hearing": 0.80, "spawn": 12},
 	"javelle":    {"name": "Javelle",    "tier": "easy",         "speed": 0.80, "chase": 3.56,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},

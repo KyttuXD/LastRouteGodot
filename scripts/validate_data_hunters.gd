@@ -11,6 +11,18 @@ const Parity := preload("res://scripts/data_parity.gd")
 ## Dovelle as she was in HunterRoster.PROFILES before the pilot moved her to data/hunters/dovelle.json.
 const DOVELLE := {"name": "Dovelle", "tier": "easy", "speed": 0.80, "chase": 3.55, "prog": 0.18, "sight": 8.00,
 	"hearing": 1.00, "spawn": 12}
+## Phase 3 batches: each hunter as the constant was before it moved to data/hunters/<id>.json.
+const FROZEN := {
+	"dovelle": DOVELLE,
+	"aki": {"name": "Aki", "tier": "easy", "speed": 0.82, "chase": 3.55, "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 11},
+	"briselle": {"name": "Briselle", "tier": "easy", "speed": 0.84, "chase": 3.62, "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
+	"ceryth": {"name": "Ceryth", "tier": "intermediate", "speed": 0.78, "chase": 3.45, "prog": 0.17, "sight": 8.60, "hearing": 0.88, "spawn": 12},
+	"elise": {"name": "Elise", "tier": "difficult", "speed": 0.82, "chase": 3.58, "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
+	"ferryn": {"name": "Ferryn", "tier": "intermediate", "speed": 0.80, "chase": 2.75, "prog": 0.17, "sight": 8.30, "hearing": 0.92, "spawn": 12},
+	"glyra": {"name": "Glyra", "tier": "easy", "speed": 0.81, "chase": 3.52, "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 12},
+}
+## HunterRoster.PROFILES key order before Phase 3 (migrations must keep every hunter's roster position).
+const ROSTER_ORDER := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia", "void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink", "void_purple", "void_red", "void_white", "void_yellow"]
 
 var _failures := 0
 
@@ -30,12 +42,12 @@ func run(_host: Node) -> int:
 			"%s has an unknown tier" % id)
 		_expect(typeof(profile.get("spawn")) == TYPE_INT, "%s spawn is not an int" % id)
 		_expect(float(profile.get("speed", 0)) > 0.0 and float(profile.get("chase", 0)) > 0.0, "%s cannot move" % id)
-	# pilot parity: identical value, identical types, identical key order, same place in the roster
-	_expect(var_to_str(HunterRoster.PROFILES.get("dovelle", {})) == var_to_str(DOVELLE),
-		"dovelle from data differs from the old constant: %s" % var_to_str(HunterRoster.PROFILES.get("dovelle", {})))
-	var keys := HunterRoster.PROFILES.keys()
-	_expect(keys.find("dovelle") == keys.find("ceryth") + 1 and keys.find("elise") == keys.find("dovelle") + 1,
-		"dovelle moved in the roster order")
+	# migration parity: identical value, identical types, identical key order, same place in the roster
+	for id in FROZEN:
+		_expect(ContentRegistry.has("hunters", id), "%s is frozen as migrated but has no data/hunters file" % id)
+		_expect(var_to_str(HunterRoster.PROFILES.get(id, {})) == var_to_str(FROZEN[id]),
+			"%s from data differs from the old constant: %s" % [id, var_to_str(HunterRoster.PROFILES.get(id, {}))])
+	_expect(HunterRoster.PROFILES.keys() == ROSTER_ORDER, "the roster order changed: %s" % [HunterRoster.PROFILES.keys()])
 	_expect(HunterRoster.PROFILES.is_read_only(), "HunterRoster.PROFILES became writable")
 	_check_rejections()
 	print("  parity hunters %s" % Parity.hunters_hash())
