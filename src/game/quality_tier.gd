@@ -61,6 +61,15 @@ static func is_apple_silicon(specs: Dictionary) -> bool:
 	return adapter.begins_with("apple") or adapter.contains("apple m") or adapter.contains("apple a")
 
 
+## Older Intel integrated graphics (HD / Iris / UHD up to the 600 series: Haswell-era Macs and PCs, the 2013 MacBook
+## Airs, the T480's UHD 620): LOW by default, whatever the CPU and RAM. Iris Xe and Arc are newer and score normally.
+static func is_old_intel_igpu(specs: Dictionary) -> bool:
+	var adapter := String(specs.get("adapter", "")).to_lower()
+	if not adapter.contains("intel") and not adapter.contains("iris") and not adapter.contains("hd graphics"):
+		return false
+	return not (adapter.contains("iris xe") or adapter.contains(" arc") or adapter.contains("xe graphics"))
+
+
 static func score(specs: Dictionary) -> int:
 	var cores := int(specs.get("cores", 4))
 	var ram := float(specs.get("ram_bytes", 8 * GB)) / GB
@@ -72,6 +81,8 @@ static func score(specs: Dictionary) -> int:
 			return Tier.MEDIUM
 		return Tier.LOW
 	var discrete := guess_discrete(specs)
+	if not discrete and is_old_intel_igpu(specs):
+		return Tier.LOW
 	if discrete and cores >= 8 and ram >= 15.0:
 		return Tier.ULTRA
 	if (discrete or is_apple_silicon(specs)) and cores >= 6 and ram >= 7.5:
