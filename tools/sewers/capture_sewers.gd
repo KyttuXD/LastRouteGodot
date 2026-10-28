@@ -81,6 +81,8 @@ func _run() -> void:
 	_player.global_position = Vector3(foot.x, level_y + .04, foot.y)
 	_view.refresh_at_tracked_player()
 	await _settle()
+	# up the ladder shaft from its foot: the lining runs from the vault to the open lid with no gap at either end
+	await _shot("ladder_looking_up", Vector3(foot.x, level_y + 1.4, foot.y) + away * .7, Vector3(foot.x, level_y + 6.0, foot.y) - away * .1)
 	var climber := _climbing_hunter(Vector3(foot.x, level_y + 1.4, foot.y) - away * .32, wall)
 	await _shot("sewer_hunter_climbing", Vector3(foot.x, level_y + 1.1, foot.y) + away * 2.3 + Vector3(.6, 0, .6),
 		Vector3(foot.x, level_y + 2.3, foot.y))
@@ -136,6 +138,9 @@ func _run() -> void:
 		await _settle()
 		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
 			lip + Vector3(0, low_y + 1.8, 0))
+		# up the drop at the lip a storey overhead
+		await _shot("falls_looking_up", base + Vector3(chamber.position.x + 1.5, low_y + 1.2, chamber.get_center().y - toward * 3.5),
+			lip + Vector3(0, level_y + .8, 0))
 	# 6c: a maze <-> sewer stairwell, looking up it from the foot and down it from the head, with the runner on the
 	# stairs half way (where its level flips): the other storey around the doorway must be built, not blank
 	var well := {}
@@ -226,6 +231,13 @@ func _run() -> void:
 			# KT's viewpoint: a few steps down the slope, looking down at the tunnel mouth
 			var part_way := ramp_head.lerp(ramp_foot, .35)
 			await _shot(tag + "_mouth", part_way + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, 1.2, 0))
+	# 6e: the collector's vault along its north-south channel steps down under the first sewer's trench overhead
+	var low_level_y := float(SewerRouteGenerator.LOWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	_player.global_position = Vector3(c - half + .5, low_level_y + .04, c + 14.5)
+	_view.refresh_at_tracked_player()
+	await _settle()
+	await _shot("collector_channel_vault", Vector3(c - half + 1.2, low_level_y + 1.6, c + 14.5),
+		Vector3(c + 1.0, low_level_y + 3.0, c + 6.0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)

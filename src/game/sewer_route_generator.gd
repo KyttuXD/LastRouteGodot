@@ -213,6 +213,28 @@ func falls_between(x: int, z: int) -> Dictionary:
 		"edge_x0": float(qc.x - 1)}
 
 
+## Cells of the chunk (x, `level`, z) under the channel trench of the sewer storey above it: the trench bed lies
+## CHANNEL_DEPTH under that storey's floor, deeper than the slab, so this storey's vault stops short of it there.
+## The main cross's channels on both sewers, the falls' spur channel on the first sewer and its cistern pool on the
+## collector. Pure seed maths, like ramps and falls.
+func trench_cells_below(x: int, z: int, level: int) -> Array:
+	var above := level + 1
+	if above not in [LEVEL, LOWER_LEVEL] or not is_chunk_allowed(Vector3i(x, above, z)):
+		return []
+	var rects := [Rect2i(0, CENTER - CHANNEL_HALF, CHUNK_SIZE, CHANNEL_HALF * 2 + 1),
+		Rect2i(CENTER - CHANNEL_HALF, 0, CHANNEL_HALF * 2 + 1, CHUNK_SIZE)]
+	var falls := falls_between(x, z)
+	if not falls.is_empty():
+		rects.append(falls["spur"] if above == LEVEL else falls["pool"])
+	var out := []
+	for rect_value in rects:
+		var rect: Rect2i = rect_value
+		for cz in range(maxi(rect.position.y, 0), mini(rect.end.y, CHUNK_SIZE)):
+			for cx in range(maxi(rect.position.x, 0), mini(rect.end.x, CHUNK_SIZE)):
+				out.append(Vector2i(cx, cz))
+	return out
+
+
 ## Every ramp touching level `level` in the chunk column (x, z).
 func ramps_at(x: int, z: int, level: int) -> Array:
 	var out := []

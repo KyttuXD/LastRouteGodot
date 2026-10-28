@@ -1219,6 +1219,12 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 				for x in range(rect.position.x, rect.end.x):
 					if x > 0 and z > 0 and x < StreamedRouteGenerator.CHUNK_SIZE - 1 and z < StreamedRouteGenerator.CHUNK_SIZE - 1:
 						heights[Vector2i(x, z)] = LEVEL_HEIGHT - SLAB
+	# Under a sewer's channels the trench bed hangs CHANNEL_DEPTH below that storey's floor: the vault here stops
+	# under it, or the trench's sides showed through this storey's ceiling as fins along the channel line.
+	if coord.y < StreamedRouteGenerator.SEWER_LEVEL and generator.has_method("sewer"):
+		var under_trench := LEVEL_HEIGHT - SewerRouteGenerator.CHANNEL_DEPTH - SLAB
+		for cell_value in generator.sewer().trench_cells_below(coord.x, coord.z, coord.y):
+			heights[cell_value] = minf(float(heights.get(cell_value, corridor_h)), under_trench)
 	var open_above := {}
 	var falls: Dictionary = data.get("falls", {})
 	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
@@ -1444,6 +1450,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_bind_room_lights(root, data, coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
+				StoreyLayers.apply(root, coord.y)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
 				chunk_builds += 1
@@ -1489,6 +1496,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		else:
 			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 			surface.add_floor(x, z, RefTextures.layer("floor", "concrete1"), RefTextures.params("floor", "concrete1"))
+			# the well rises the full storey: over a lower room beside it (the foot landing
+			# stops a slab short of the storey line) the edge of the slab faces into the well
+			for step_value in RefDecor.DIRS:
+				var step: Vector2i = step_value
+				var n := cell + step
+				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or shaft_cells.has(n) or int(grid_data[n.y][n.x]) != 0:
+					continue
+				var below := _height_in(build, n)
+				if below < LEVEL_HEIGHT - .01:
+					var edge_kind := _ref_wall_kind(build, n.x, n.y, x, z)
+					surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", edge_kind),
+						RefTextures.params("wall", edge_kind), LEVEL_HEIGHT, below, LEVEL_HEIGHT)
 		return
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
@@ -3354,8 +3373,8 @@ func _build_shared_mirror() -> void:
 	add_child(_mirror_viewport)
 	_mirror_camera = Camera3D.new()
 	_mirror_camera.name = "MirrorCamera"
-	# Reflective quads live on layer 2, preventing feedback recursion.
-	_mirror_camera.cull_mask = 1
+	# Reflective quads live on layer 2, preventing feedback recursion (the storey layers carry the walls).
+	_mirror_camera.cull_mask = 1 | StoreyLayers.EVEN | StoreyLayers.ODD
 	_mirror_viewport.add_child(_mirror_camera)
 
 
