@@ -237,6 +237,10 @@ var _jump_requested := false
 var xr_active := false
 ## OpenXR comfort and the wrist HUD (built only once OpenXR has started).
 var xr_comfort: XRComfort
+## OpenXR hand interactions: hand-over-hand ladders, physical swings, pokes, the flashlight in the left hand.
+var xr_hands: XRHands
+## Metres a gripping hand pulled the runner up (+) or down (-) this frame (XRHands), applied by _update_ladder_climb.
+var _xr_climb_pull := 0.0
 ## Touch drags are in screen pixels on a high-DPI phone: a little gentler than mouse counts.
 const TOUCH_LOOK_SCALE := 0.6
 
@@ -984,8 +988,20 @@ func _update_ladder_climb(delta: float) -> void:
 			if input_frozen or stun_timer > 0.0:
 				axis = 0.0
 			var height := float(ladder_climb["height"])
+			var pull := _xr_climb_pull
+			_xr_climb_pull = 0.0
+			if input_frozen or stun_timer > 0.0:
+				pull = 0.0
 			if Input.is_action_just_pressed("jump") and height <= LADDER_LET_GO_HEIGHT:
 				_ladder_dismount("bottom")
+			elif pull > 0.0 and height >= rise:
+				_ladder_dismount("top")
+			elif pull < 0.0 and height <= 0.0:
+				_ladder_dismount("bottom")
+			elif pull != 0.0:
+				ladder_climb["height"] = clampf(height + pull, 0.0, rise)
+				ladder_climb["travel"] = float(ladder_climb["travel"]) + absf(pull)
+				moving = true
 			elif axis > .2 and height >= rise:
 				_ladder_dismount("top")
 			elif axis < -.2 and height <= 0.0:
@@ -1369,9 +1385,8 @@ func _physics_process(delta: float) -> void:
 	if xr_active:
 		var look := -xr_camera.global_basis.z
 		facing = Vector2(look.x, look.z).normalized()
-		flashlight.global_transform = xr_camera.global_transform.translated_local(
-			Vector3(0.0, -.08, -.18))
 		xr_comfort.step(delta, move_direction.length_squared() > 0.0)
+		xr_hands.step(delta)
 	else:
 		facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
@@ -1406,7 +1421,7 @@ func _physics_process(delta: float) -> void:
 		_set_flashlight(not flashlight_enabled)
 	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
-	var click_ready := _cursor_was_captured and MouseLock.is_captured()
+	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
 	if inventory_enabled:
 		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
@@ -1534,6 +1549,10 @@ func _try_enter_xr() -> bool:
 	xr_comfort.name = "XRComfort"
 	add_child(xr_comfort)
 	xr_comfort.setup(self, xr_origin, xr_camera, xr_left, xr_right)
+	xr_hands = XRHands.new()
+	xr_hands.name = "XRHands"
+	add_child(xr_hands)
+	xr_hands.setup(self, xr_origin, xr_left, xr_right)
 	return true
 
 
@@ -1574,6 +1593,8 @@ func _on_xr_left_pressed(action: StringName) -> void:
 			Input.action_press("crouch")
 		"by_button":
 			Input.action_press("toggle_map")
+		"grip_click":
+			Input.action_press("tool_use")
 		"menu_button":
 			_emit_xr_action_event("pause", true)
 
@@ -1586,6 +1607,8 @@ func _on_xr_left_released(action: StringName) -> void:
 			Input.action_release("crouch")
 		"by_button":
 			Input.action_release("toggle_map")
+		"grip_click":
+			Input.action_release("tool_use")
 		"menu_button":
 			_emit_xr_action_event("pause", false)
 
@@ -1806,7 +1829,7 @@ func _flashlight_beam_should_be_visible() -> bool:
 ## they looked up/down, and mounting the replicated SpotLight on their torso
 ## then let the mannequin shadow its own beam.
 func equipment_aim_direction() -> Vector3:
-	var source_basis := xr_camera.global_basis if xr_active \
+	var source_basis := xr_left.global_basis if xr_active \
 		else first_person_camera.global_basis
 	var direction := -source_basis.z
 	return direction.normalized() if direction.length_squared() > .0001 \
@@ -2506,6 +2529,31 @@ func get_interaction_prompt() -> String:
 var interaction_veto: Callable
 
 
+## Where [E] aims from: the head on desktop and phones, the right hand in XR (point and pull the trigger).
+func interaction_aim() -> Transform3D:
+	return xr_right.global_transform if xr_active else active_camera().global_transform
+
+
+## XRHands: a gripping hand moved the runner `amount` metres along the ladder this frame (+ is up).
+func xr_climb_pull(amount: float) -> void:
+	_xr_climb_pull += amount
+
+
+## XRHands: a fast right-hand swing. Only the breaching tools swing physically; returns whether it swung.
+func xr_swing() -> bool:
+	if not inventory_enabled or not BREACH_TOOLS.has(selected_inventory_item()):
+		return false
+	_use_selected_tool()
+	return true
+
+
+## XRHands: the right fingertip touched an interactable, which works it like [E].
+func xr_poke(target: RouteInteractable3D) -> void:
+	if input_frozen or stun_timer > 0.0 or is_climbing():
+		return
+	_activate_interactable(target)
+
+
 func _try_interact() -> void:
 	var target := _nearest_interactable()
 	if target == null:
@@ -2515,6 +2563,10 @@ func _try_interact() -> void:
 				interaction_message.emit(message)
 				return
 		return   # E with nothing in reach is silent (the cue is only for a visible interactable that refuses)
+	_activate_interactable(target)
+
+
+func _activate_interactable(target: RouteInteractable3D) -> void:
 	# A sabotaged relay is worked entirely through the hold in
 	# _update_resecure() -- a single press would just bounce off activate()'s
 	# "already collected" case, which is technically true but not what a
@@ -2581,11 +2633,11 @@ func _nearest_interactable() -> RouteInteractable3D:
 	var chosen: RouteInteractable3D = null
 	var chosen_alignment := -1.0
 	var chosen_distance := INF
-	var camera := active_camera()
-	if camera == null:
+	if active_camera() == null:
 		return null
-	var origin := camera.global_position
-	var look := -camera.global_basis.z.normalized()
+	var aim := interaction_aim()
+	var origin := aim.origin
+	var look := -aim.basis.z.normalized()
 	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
@@ -2614,8 +2666,7 @@ func _nearest_interactable() -> RouteInteractable3D:
 
 
 func _interaction_has_line_of_sight(focus: Vector3, candidate: RouteInteractable3D) -> bool:
-	var camera := active_camera()
-	var query := PhysicsRayQueryParameters3D.create(camera.global_position, focus)
+	var query := PhysicsRayQueryParameters3D.create(interaction_aim().origin, focus)
 	query.exclude = [get_rid()]
 	query.collide_with_areas = false
 	query.collide_with_bodies = true
@@ -2628,4 +2679,4 @@ func _interaction_has_line_of_sight(focus: Vector3, candidate: RouteInteractable
 	# A door's leaf, frame and keep-clear colliders are separate bodies (CollisionWorld / the chunk), so the ray toward
 	# its focus point stops on the door itself or its frame a few cm short. That still is the door: a hit at the focus
 	# counts. Only something well in front of it (a wall, a prop) blocks the interaction.
-	return (hit.get("position", camera.global_position) as Vector3).distance_to(focus) <= INTERACTION_FOCUS_TOLERANCE
+	return (hit.get("position", interaction_aim().origin) as Vector3).distance_to(focus) <= INTERACTION_FOCUS_TOLERANCE
