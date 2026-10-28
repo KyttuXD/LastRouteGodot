@@ -34,6 +34,7 @@ func run(host: Node) -> int:
 	await _check_deep_levels(host)
 	await _check_falls(host)
 	await _check_stairwells(host)
+	await _check_bridge_decks(host)
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
 	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
@@ -491,6 +492,100 @@ func _check_live_channel(view: StreamedFacilityView3D, coord: Vector3i) -> void:
 		"the sewer chunk has no channel railings")
 	if bad == 0:
 		print("  ok    sewer channels: deep water behind railings, decks walkable, colliders right")
+
+
+## A bridge's visible deck is where a runner stands on it (KT: "the player still goes through the bridge and
+## not up and over"; the deck was seated on its girders' bearings, 0.6 m above the floor collider): over the
+## deck the topmost visible surface and the collider agree within 3 cm, and a runner at the game's player
+## scale walks from walkway to walkway across it without stalling, dropping or bouncing.
+func _check_bridge_decks(host: Node) -> void:
+	var view := StreamedFacilityView3D.new()
+	host.add_child(view)
+	var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+	host.add_child(player)
+	var level_y := float(SewerRouteGenerator.LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	var c := SewerRouteGenerator.CENTER
+	var half := SewerRouteGenerator.TUNNEL_HALF
+	var bridge_x := float(SewerRouteGenerator.BRIDGE_OFFSETS[0]) + .5
+	var from := Vector3(bridge_x, level_y + .05, float(c - half) + 1.5)       # the north walkway's middle row
+	var to := Vector3(bridge_x, level_y, float(c + half) - .5)                # the south walkway's middle row
+	player.global_position = from
+	view.begin("SEWER-BRIDGE", player)
+	for _frame in 20:
+		await host.get_tree().physics_frame
+	var space := player.get_world_3d().direct_space_state
+	var bridges := 0
+	var worst := 0.0
+	var where := ""
+	for root_value in view._loaded.values():
+		var root: Node3D = root_value
+		for node in root.find_children("*", "Node3D", true, false):
+			if String((node as Node3D).get_meta("streamed_prop_type", "")) != "sewerBridge":
+				continue
+			bridges += 1
+			var faces := PackedVector3Array()
+			for mesh_node in (node as Node3D).find_children("*", "MeshInstance3D", true, false):
+				var instance := mesh_node as MeshInstance3D
+				if instance.mesh == null:
+					continue
+				for point in instance.mesh.get_faces():
+					faces.append(instance.global_transform * point)
+			var centre := (node as Node3D).global_position
+			var tops := {}
+			var highest := -INF
+			for i in 5:
+				for j in 5:
+					var sample := centre + Vector3(-1.2 + .6 * i, 0, -1.2 + .6 * j)
+					var top := -INF
+					for f in range(0, faces.size(), 3):
+						var hit: Variant = Geometry3D.ray_intersects_triangle(sample + Vector3.UP * 3.0, Vector3.DOWN,
+							faces[f], faces[f + 1], faces[f + 2])
+						if hit != null:
+							top = maxf(top, (hit as Vector3).y)
+					tops[sample] = top
+					highest = maxf(highest, top)
+			for sample in tops:
+				# only samples landing on the deck surface (not a slot between slats)
+				if float(tops[sample]) < highest - .05:
+					continue
+				var query := PhysicsRayQueryParameters3D.create(sample + Vector3.UP * 3.0, sample + Vector3.DOWN * 3.0)
+				query.exclude = [player.get_rid()]
+				var hit := space.intersect_ray(query)
+				var floor_y := float((hit["position"] as Vector3).y) if not hit.is_empty() else -INF
+				var gap := absf(floor_y - float(tops[sample]))
+				if gap > worst:
+					worst = gap
+					where = "deck %.2f, collider %.2f at %s" % [float(tops[sample]), floor_y, sample]
+	_expect(bridges >= 4, "only %d sewer bridges loaded around the walk" % bridges)
+	_expect(worst <= .03, "a bridge's visible deck and its walkable collider are %.2f m apart (%s)" % [worst, where])
+	# walk across, the movement keys held, facing the far walkway
+	var lowest := INF
+	var highest_y := -INF
+	var worst_pop := 0.0
+	var last_y := player.global_position.y
+	var frames := 0
+	Input.action_press("move_up")
+	while Vector2(player.global_position.x - to.x, player.global_position.z - to.z).length() > .35 and frames < 400:
+		var heading := Vector2(to.x - player.global_position.x, to.z - player.global_position.z)
+		player.rotation.y = atan2(-heading.x, -heading.y)
+		await host.get_tree().physics_frame
+		view._process(1.0 / 60.0)
+		lowest = minf(lowest, player.global_position.y)
+		highest_y = maxf(highest_y, player.global_position.y)
+		worst_pop = maxf(worst_pop, absf(player.global_position.y - last_y))
+		last_y = player.global_position.y
+		frames += 1
+	Input.action_release("move_up")
+	_expect(frames < 400, "a runner got stuck crossing a sewer bridge (at %s)" % player.global_position)
+	_expect(lowest > level_y - .05 and highest_y < level_y + .1,
+		"a runner crossing a sewer bridge left the deck height (y %.2f..%.2f, floor %.2f)" % [lowest, highest_y, level_y])
+	_expect(worst_pop < .06, "a runner crossing a sewer bridge popped %.2f m in one frame" % worst_pop)
+	if bridges >= 4 and worst <= .03 and frames < 400:
+		print("  ok    sewer bridges: %d decks flush with their colliders (worst %.3f m), crossed in %d frames" % [
+			bridges, worst, frames])
+	view.clear()
+	view.queue_free()
+	player.queue_free()
 
 
 ## The game window is opaque (KT: the macOS desktop showed through the sewer and

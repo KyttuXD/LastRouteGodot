@@ -2351,6 +2351,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	var visual_bounds := ModelSlot.combined_local_bounds(visual)
 	if not PropModelCatalog.is_wall_mounted(prop_type) \
 			and not PropModelCatalog.is_ceiling_mounted(prop_type) \
+			and not PropModelCatalog.keeps_authored_pivot(prop_type) \
 			and visual_bounds.size.length_squared() > 0.0:
 		# Preview-friendly centre pivots buried half of couches, chairs and beds
 		# below the GridMap. Seat every ordinary prop on its lowest mesh point.
