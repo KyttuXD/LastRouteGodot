@@ -159,6 +159,7 @@ var status_bar: HudStatusBar
 var _zone_panel: PanelContainer
 var _zone_label: Label
 var _minimap_available := true
+var _prompt_target := ""
 var _layout_signature := []
 var _message_time_left := 0.0
 var _hold_message := ""
@@ -186,6 +187,7 @@ var _gameplay_hud_modulates: Array[Color] = []
 
 func _process(delta: float) -> void:
 	_relayout_if_changed()
+	_fade_prompt(delta)
 	_thermal_time += delta
 	if _thermal_material != null and _thermal_surface.visible:
 		_thermal_material.set_shader_parameter("pulse_time", _thermal_time)
@@ -211,6 +213,7 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	InputGlyphs.observe(event)   # prompts follow the device the player last touched
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo \
@@ -729,9 +732,24 @@ func update_meters(meters: PlayerMeters, hunter_heat: float = 0.0,
 		maxf(meter_cold, hunter_cold))
 
 
+## The prompt sits just under the crosshair and fades in/out (self_modulate, so F1's modulate still hides it); the
+## last text stays while it fades away.
+const PROMPT_FADE_PER_SECOND := 8.0
+
+
 func set_interaction_prompt(text: String) -> void:
-	interaction_label.text = text
-	interaction_label.visible = not text.is_empty()
+	_prompt_target = text
+	if not text.is_empty():
+		interaction_label.text = text
+		interaction_label.visible = true
+
+
+func _fade_prompt(delta: float) -> void:
+	var goal := 0.0 if _prompt_target.is_empty() else 1.0
+	interaction_label.self_modulate.a = move_toward(interaction_label.self_modulate.a, goal, delta * PROMPT_FADE_PER_SECOND)
+	if goal == 0.0 and interaction_label.self_modulate.a <= 0.01:
+		interaction_label.visible = false
+		interaction_label.text = ""
 
 
 ## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line, in the top-centre status bar.

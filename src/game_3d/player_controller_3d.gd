@@ -399,8 +399,8 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	if pose == "ride":
 		Sound.menu_blip()
 		return ""
-	return "LYING DOWN // JUMP TO SLEEP // INTERACT TO GET UP" if pose == "lay" \
-		else "SEATED // INTERACT TO STAND"
+	return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")] if pose == "lay" \
+		else "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 
 
 ## Where the body and eye go on a piece of furniture (the furniture interactable sits on the prop, facing its open side;
@@ -486,7 +486,7 @@ func fall_asleep(accidental: bool) -> String:
 	_sleep_stir_cooldown = 0.0
 	_set_flashlight(false)
 	Sound.sleep_settle()
-	return "YOU DOZED OFF" if accidental else "ASLEEP // JUMP OR INTERACT TO WAKE"
+	return "YOU DOZED OFF" if accidental else "ASLEEP // %s OR %s WAKE" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
 
 
 func wake_from_sleep(message: String = "WOKE WITH A JOLT") -> String:
@@ -2510,21 +2510,25 @@ func is_in_safe_zone() -> bool:
 
 func get_interaction_prompt() -> String:
 	if hidden:
-		return ""    # E only means "come out" while hidden
+		if hiding_lock_timer > 0.0:
+			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)
+		return InputGlyphs.prompt("interact", "LEAVE")
+	if is_climbing():
+		return InputGlyphs.climb_prompt(float(ladder_climb.get("height", 0.0)) <= LADDER_LET_GO_HEIGHT)
 	var percent := resecure_percent()
 	if percent >= 0:
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target != null:
 		var prompt: String = target.get_prompt()
-		# Hiding fixtures and generic development interactables remain usable with
-		# E/right-click, but their one-word toasts add no useful information and sit
-		# directly over the first-person view. Keep contextual prompts (doors, vents,
-		# pickups, furniture) because those communicate a distinct action.
-		if prompt.strip_edges().to_upper() in ["HIDE", "USE"]:
+		# Generic development interactables ("USE") add nothing; every other prompt names its action and gets the key
+		# for the active device: "[E] HIDE", "[E] OPEN DOOR", "HOLD [E] RESTORE SABOTAGED RELAY".
+		if prompt.strip_edges().to_upper() == "USE":
 			prompt = ""
+		if prompt.begins_with("HOLD INTERACT // "):
+			return InputGlyphs.hold("interact", prompt.trim_prefix("HOLD INTERACT // "))
 		if not prompt.is_empty():
-			return prompt
+			return InputGlyphs.prompt("interact", prompt)
 	if shop_prompt_provider.is_valid():
 		var shop_prompt: String = String(shop_prompt_provider.call())
 		if not shop_prompt.is_empty():
