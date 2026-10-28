@@ -14,7 +14,8 @@ const ALLOWED := ["res://src/config/secret_creatures.gd", "res://src/game/infern
 	"res://src/game/hunter_gimmicks/white_wolf_spider_gimmick.gd", "res://src/game/hunter_gimmicks/black_wolf_spider_gimmick.gd",
 	"res://src/game/hunter_gimmicks/hunter_gimmick.gd",
 	"res://src/game_3d/creature_view.gd", "res://scripts/validate_secret_creature.gd", "res://tools/look/creature_check.gd",
-	"res://scripts/validate_runner.gd", "res://docs/SECRET_WOLF_SPIDER.md"]
+	"res://scripts/validate_runner.gd", "res://docs/SECRET_WOLF_SPIDER.md",
+	"res://data/grabs/white_wolf_spider.json", "res://data/grabs/black_wolf_spider.json"]
 const SKIP_DIRS := [".git", ".godot", "build", ".claude", "assets/city", "tools/city", "docs/secret_wolf_spider"]
 
 var _failures := 0

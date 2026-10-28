@@ -284,11 +284,15 @@ var plunge := {}
 var soaked_left := 0.0
 var _drip_left := 0.0
 var _climb_hands: Node3D
-## Neck lift (NeckLift): how far a hunter has raised this runner, and the view tilt that goes with it. Zero when free.
-var lift_height := 0.0
-var lift_pitch := 0.0
-var lift_roll := 0.0
-var _lift_hands: Node3D
+## A hunter's grab (HunterGrab): while it holds this runner the eye follows the head of the grabbed body, the view takes the
+## grab's tilt and the skinned hands react. `grab_state` is what other players need to draw it (sent with the runner's state).
+var grab_active := false
+var grab_pitch := 0.0
+var grab_roll := 0.0
+var grab_clip := ""
+var grab_state: Array = []
+var _grab_hands: Node3D
+var _grab_pivot_rest := Vector3.ZERO
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
 ## The waterfall jump (begin_plunge): an arc off the ledge into the cistern, a muffled moment under the surface, a slow swim to the
@@ -837,9 +841,9 @@ func _apply_visual_settings() -> void:
 		_climb_hands = null
 		if climbing_now:
 			_show_climb_hands(true)
-	if _lift_hands != null:
-		_lift_hands.free()
-		_lift_hands = null
+	if _grab_hands != null:
+		_grab_hands.free()
+		_grab_hands = null
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
 			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
@@ -916,10 +920,8 @@ func _update_camera_pose(delta: float, moving_on_floor: bool,
 		amplitude = 0.0
 	var target_y := base_height + sin(_bob_phase * 2.0) * amplitude
 	var target_x := cos(_bob_phase) * amplitude * .42 if moving_on_floor else 0.0
-	if lift_height > 0.0:
-		# a hunter has the runner by the neck: the eye rides the lift instead of the walking bob
-		first_person_pivot.position.y = _standing_camera_height + lift_height
-		return
+	if grab_active:
+		return   # a hunter has hold of the runner: the eye follows the grab, not the walking bob
 	first_person_pivot.position.y = move_toward(first_person_pivot.position.y,
 		target_y, delta * 3.2)
 	first_person_pivot.position.x = move_toward(first_person_pivot.position.x,
@@ -966,8 +968,8 @@ func apply_look_turn(turn: Vector2) -> void:
 
 func _apply_look_rotation() -> void:
 	rotation.y = _yaw
-	first_person_pivot.rotation.x = _pitch + lift_pitch
-	first_person_pivot.rotation.z = lift_roll
+	first_person_pivot.rotation.x = _pitch + grab_pitch
+	first_person_pivot.rotation.z = grab_roll
 	facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
 
@@ -1232,38 +1234,90 @@ static func _smooth(t: float) -> float:
 
 
 ## Two blocky fists gripping rungs in front of the camera, hand over hand.
-## A hunter's one-hand neck lift: the eye rises with `height`, the view tips back (`pitch`) and rolls, and the skinned hands come up
-## (`reach` 0..1) to the hunter's wrist. `height` 0 releases it.
-func set_lift_view(height: float, pitch: float, roll: float, reach: float) -> void:
-	lift_height = maxf(height, 0.0)
-	lift_pitch = pitch
-	lift_roll = roll
-	_apply_look_rotation()
-	if lift_height <= 0.0:
-		if _lift_hands != null:
-			_lift_hands.visible = false
+func begin_grab_view() -> void:
+	if not grab_active:
+		_grab_pivot_rest = first_person_pivot.position
+	grab_active = true
+
+
+## One frame of a grab: `head` is the eye relative to the feet in world axes, the body turned to `yaw`; `pitch` and `roll` tip the
+## view on top; `hands` names the first-person hand pose (HunterGrab / GrabStyles.pose) at amount `k`; `clip` is what others see.
+## A headset keeps its own tracked view: only the body, the clip and the state move.
+func set_grab_view(head: Vector3, yaw: float, pitch: float, roll: float, hands: String, k: float, clip: String) -> void:
+	grab_active = true
+	grab_clip = clip
+	if xr_active:
 		return
-	first_person_pivot.position.y = _standing_camera_height + lift_height
-	if _lift_hands == null:
-		_lift_hands = Node3D.new()
-		_lift_hands.name = "LiftHands"
+	_yaw = yaw
+	_pitch = 0.0
+	grab_pitch = pitch
+	grab_roll = roll
+	_apply_look_rotation()
+	first_person_pivot.position = global_basis.inverse() * head
+	_pose_grab_hands(hands, k)
+
+
+func end_grab_view() -> void:
+	if not grab_active:
+		return
+	grab_active = false
+	grab_pitch = 0.0
+	grab_roll = 0.0
+	grab_clip = ""
+	grab_state = []
+	_apply_look_rotation()
+	first_person_pivot.position = Vector3(0.0, _standing_camera_height, 0.0)
+	if _grab_hands != null:
+		_grab_hands.visible = false
+
+
+## The skinned hands while held (same source as the ladder hands): gripping the hunter's arm, pushing at it, one wrist held,
+## pinned at the sides, clawing at the floor, pushing up from the floor, or hanging (towards the floor, which is up in an
+## upside-down view). `k` 0..1 brings them from low at the sides into the pose.
+const GRAB_HAND_POSES := {
+	"grip_arm": [Vector3(.13, -.13, -.32), Vector3(0.0, 18.0, 14.0)],
+	"push": [Vector3(.16, -.12, -.36), Vector3(10.0, 8.0, 6.0)],
+	"held": [Vector3(.14, -.06, -.42), Vector3(25.0, 6.0, 0.0)],
+	"pinned": [Vector3(.2, -.36, -.3), Vector3(-10.0, -6.0, 0.0)],
+	"claw": [Vector3(.18, -.2, -.42), Vector3(-25.0, 4.0, 0.0)],
+	"push_up": [Vector3(.17, -.04, -.36), Vector3(30.0, 8.0, 4.0)],
+	"dangle": [Vector3(.22, .2, -.34), Vector3(180.0, 0.0, 0.0)],
+}
+
+
+func _pose_grab_hands(hands: String, k: float) -> void:
+	if _grab_hands == null:
+		_grab_hands = Node3D.new()
+		_grab_hands.name = "GrabHands"
 		for side in [-1.0, 1.0]:
 			var arm := Node3D.new()
 			arm.name = "L" if side < 0.0 else "R"
-			var hand := _build_skinned_hand(CLIMB_HAND_SCALE, CLIMB_ARM_TILT)   # the same skinned source as the ladder hands
+			var hand := _build_skinned_hand(CLIMB_HAND_SCALE, CLIMB_ARM_TILT)
 			if side < 0.0:
 				hand.scale.x = -hand.scale.x
 			arm.add_child(hand)
-			_lift_hands.add_child(arm)
-		first_person_camera.add_child(_lift_hands)
-	_lift_hands.visible = true
-	var wobble := sin(Time.get_ticks_msec() * .02) * .012 * reach
-	for arm_value in _lift_hands.get_children():
+			_grab_hands.add_child(arm)
+		first_person_camera.add_child(_grab_hands)
+	_grab_hands.visible = true
+	var pose: Array = GRAB_HAND_POSES.get(hands, GRAB_HAND_POSES["push"])
+	var now := Time.get_ticks_msec() * .001
+	for arm_value in _grab_hands.get_children():
 		var arm := arm_value as Node3D
 		var side := -1.0 if arm.name == "L" else 1.0
-		# from hanging low and wide at the sides up to either side of the hunter's wrist, clenching as it takes hold
-		arm.position = Vector3(lerpf(.30, .13, reach) * side, lerpf(-.42, -.13, reach) + wobble, lerpf(-.40, -.32, reach))
-		arm.rotation = Vector3(0.0, deg_to_rad(lerpf(0.0, 18.0, reach)) * -side, deg_to_rad(lerpf(0.0, 14.0, reach)) * side)
+		var at: Vector3 = pose[0]
+		var turn: Vector3 = pose[1]
+		var target := Vector3(at.x * side, at.y, at.z)
+		var wobble := Vector3(0.0, sin(now * 19.0 + side) * .012, 0.0) * k
+		if hands == "claw":
+			# alternate: one hand reaches ahead and digs in while the other drags back
+			var phase := sin(now * 5.0 + (0.0 if side < 0.0 else PI))
+			target += Vector3(0.0, absf(phase) * .03, -phase * .09)
+		elif hands == "held" and side < 0.0:
+			target = Vector3(-.26, -.3 + sin(now * 9.0) * .04, -.34)   # the free hand flails low
+		elif hands == "dangle":
+			target += Vector3(sin(now * 3.0 + side) * .03, 0.0, 0.0)
+		arm.position = Vector3(.3 * side, -.42, -.4).lerp(target, k) + wobble
+		arm.rotation = Vector3(deg_to_rad(turn.x) * k, deg_to_rad(turn.y) * k * -side, deg_to_rad(turn.z) * k * side)
 
 
 func _show_climb_hands(on: bool) -> void:
@@ -1713,7 +1767,7 @@ func _update_crouch_fade(delta: float, crouching: bool) -> void:
 
 ## What this body is playing, for RemotePlayers to send on.
 func current_clip() -> String:
-	return "fall" if lift_height > 0.0 else _clip
+	return grab_clip if grab_active and not grab_clip.is_empty() else _clip
 
 
 func active_camera() -> Camera3D:

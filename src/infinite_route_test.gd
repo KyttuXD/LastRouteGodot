@@ -104,8 +104,11 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
-## The neck-lift catch for the hunters GrabStyles lists (KT: some hunters lift the runner by the neck).
-var neck_lift: NeckLift
+## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
+var grab: HunterGrab
+## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
+var _grab_roll := -1.0
+var _grab_catches := 0
 ## Troll-mode "ads" (TrollAds, docs/ANTI_CHEAT.md): only while the host has this client in troll mode with ads on.
 var troll_ads := TrollAds.new()
 var troll_ad_overlay: TrollAdOverlay
@@ -163,8 +166,8 @@ func _ready() -> void:
 	add_child(pixel_signal_effect)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
-	neck_lift = NeckLift.new()
-	world.add_child(neck_lift)
+	grab = HunterGrab.new()
+	world.add_child(grab)
 	_waypoint_overlay = WaypointOverlay.new()
 	hud.add_child(_waypoint_overlay)
 	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
@@ -3461,8 +3464,10 @@ func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 		reason = HunterNaps.WOKE_GRAB_REASON
 	view.brain.calm_reset(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 	view.sync_from_brain()
+	_grab_catches += 1
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
+		"grab_roll": GrabStyles.roll_for(RoomState.seed_text, int(target.get("peer_id", 1)), _grab_catches),
 		"entity_id": String(view.get_meta("streamed_entity_id", "")),
 		"hunter_id": hunter_id, "inescapable": inescapable, "reason": reason})
 
@@ -4836,6 +4841,7 @@ func _apply_player_event(event: Dictionary) -> void:
 			if _death_screen_open or GameState.escape_active:
 				return
 			var hunter_id := String(event.get("hunter_id", HunterRoster.DEFAULT_ID))
+			_grab_roll = float(event.get("grab_roll", -1.0))
 			if GameState.is_capture_immune():
 				# Purely a protocol acknowledgement: releases the host's pending-
 				# capture gate without actually ending or restarting the struggle.
@@ -4983,8 +4989,8 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
-	if catcher != null and GrabStyles.lifts(hunter_id) and not player.xr_active:
-		await neck_lift.play(player, catcher)
+	if catcher != null:
+		await grab.play(player, catcher, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
@@ -5045,6 +5051,16 @@ func _death_cause(hunter_id: String) -> Dictionary:
 				cause["detail"] = "lamp"
 	return cause
 
+
+
+## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
+func _take_grab_roll() -> float:
+	var roll := _grab_roll
+	_grab_roll = -1.0
+	if roll < 0.0:
+		_grab_catches += 1
+		roll = GrabStyles.roll_for(RoomState.seed_text, multiplayer.get_unique_id() if RoomState.online else 1, _grab_catches)
+	return roll
 
 
 ## The hunter view that made this catch: the streamed entity when the event names it, else the nearest view of that hunter.
@@ -5286,7 +5302,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
-	neck_lift.release()
+	grab.release()
 	_force_disable_admin_cheats()
 	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death

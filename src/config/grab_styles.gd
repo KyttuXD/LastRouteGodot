@@ -1,21 +1,334 @@
 class_name GrabStyles
 extends RefCounted
 
-## How each hunter takes hold of a runner it has caught. "neck_lift" is NeckLift (one hand at the neck, the runner's feet leave the
-## floor, a short hold, then game over); "classic" is the plain catch every other hunter still has. Every roster id must be listed
-## so a new hunter cannot ship without someone deciding how it grabs: the `neck_lift` suite checks it.
+## How a hunter takes hold of a runner it has caught (docs/HUNTER_GRABS.md). Every hunter has a weighted pool of styles in
+## res://data/grabs/<hunter_id>.json (schema lr.grab/1, the per-id layout of docs/DATA_DRIVEN_CONTENT.md, so a content pack can
+## later ship grabs/<id>.json and list "grabs/<id>" under its manifest's overrides). On a catch the host rolls one number per
+## catch (roll_for, seeded) and sends it with the capture event; the caught runner drops every style its surroundings rule out
+## (a lift under a low ceiling, a wall pin with no wall, a tackle into a wall) and picks from the rest with that roll. The
+## runner's state then carries the chosen pose to every peer, so everybody sees the same grab.
+##
+## The poses themselves are code (pose()): data only says who uses which style how often.
+
+const SCHEMA := "lr.grab/1"
+const ROOT := "res://data/grabs"
 
 const NECK_LIFT := "neck_lift"
-const CLASSIC := "classic"
+const SHOULDER_GRAB := "shoulder_grab"
+const TACKLE := "tackle"
+const WRIST_YANK := "wrist_yank"
+const WRAP := "wrap"
+const LEG_GRAB := "leg_grab"
+const UPSIDE_DOWN := "upside_down"
+const BEAR_HUG := "bear_hug"
+const COLLAR_DRAG := "collar_drag"
+const WALL_PIN := "wall_pin"
+const POUNCE_PIN := "pounce_pin"
 
+## Every style and what it needs around the runner. `ceiling`: clear height above the runner's floor; `back`: clear floor
+## behind the runner (away from the hunter); `wall`: a wall at most this far behind the runner; `hunter_back`: clear floor
+## behind the hunter (it steps back); `creature`: only for the non-humanoid rigs (and they use nothing else).
 const STYLES := {
-	"kathy": NECK_LIFT, "xivvy": NECK_LIFT, "umbriel": NECK_LIFT, "elise": NECK_LIFT, "wynelle": NECK_LIFT, "ravelle": NECK_LIFT,
+	NECK_LIFT: {"short": "NL", "ceiling": 2.5},
+	SHOULDER_GRAB: {"short": "SG"},
+	TACKLE: {"short": "TK", "back": 1.7},
+	WRIST_YANK: {"short": "WY"},
+	WRAP: {"short": "WR"},
+	LEG_GRAB: {"short": "LG", "back": 1.6},
+	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4},
+	BEAR_HUG: {"short": "BH", "ceiling": 2.3},
+	COLLAR_DRAG: {"short": "CD", "hunter_back": 1.6},
+	WALL_PIN: {"short": "WP", "wall": 1.3},
+	POUNCE_PIN: {"short": "PP", "back": 1.7, "creature": true},
 }
+## When nothing in a pool fits the spot, these always do.
+const FALLBACK := SHOULDER_GRAB
+const CREATURE_FALLBACK := POUNCE_PIN
+
+## Seconds: the hunter reaches, the grab plays out, then holds before the run ends.
+const REACH_SECONDS := .35
+const ACT_SECONDS := .7
+const HOLD_SECONDS := .85
+const TOTAL_SECONDS := REACH_SECONDS + ACT_SECONDS + HOLD_SECONDS
+
+## Points on the 1.60 m runner body the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
+const BODY_POINTS := {
+	"neck": Vector3(0.0, 1.24, -.12),
+	"l_shoulder": Vector3(-.19, 1.28, -.04),
+	"r_shoulder": Vector3(.19, 1.28, -.04),
+	"r_wrist": Vector3(.2, 1.1, -.42),
+	"back_l": Vector3(-.12, 1.0, .14),
+	"back_r": Vector3(.12, 1.0, .14),
+	"r_ankle": Vector3(.08, .08, .02),
+}
+## Standing eye height of the runner the poses assume when no real camera is involved (the other players' view of a body).
+const BODY_EYE := 1.36
+
+static var _pools := {}
+static var _errors := PackedStringArray()
+static var _loaded := false
 
 
-static func style_for(hunter_id: String) -> String:
-	return String(STYLES.get(hunter_id, CLASSIC))
+static func ensure_loaded() -> void:
+	if _loaded:
+		return
+	_loaded = true
+	var files := Array(DirAccess.get_files_at(ROOT))
+	files.sort()
+	for file_name in files:
+		if String(file_name).ends_with(".json"):
+			var parsed := parse_file("%s/%s" % [ROOT, file_name])
+			_errors.append_array(parsed["errors"])
+			if not parsed["def"].is_empty():
+				_pools[String(parsed["def"]["id"])] = parsed["def"]["pool"]
+	for message in _errors:
+		push_error("GrabStyles: " + message)
 
 
-static func lifts(hunter_id: String) -> bool:
-	return style_for(hunter_id) == NECK_LIFT
+static func errors() -> PackedStringArray:
+	ensure_loaded()
+	return _errors
+
+
+## One lr.grab/1 file -> {"def": {"id", "pool": {style: weight}}, "errors": [...]}. Unknown keys, unknown styles and
+## non-positive weights are errors naming the file, like ContentRegistry.
+static func parse_file(path: String) -> Dictionary:
+	var out := {"def": {}, "errors": PackedStringArray()}
+	var text := FileAccess.get_file_as_string(path)
+	var data = JSON.parse_string(text)
+	if not data is Dictionary:
+		out["errors"].append("%s: not a JSON object" % path)
+		return out
+	return parse_def(data, path)
+
+
+static func parse_def(data: Dictionary, where: String) -> Dictionary:
+	var out := {"def": {}, "errors": PackedStringArray()}
+	var errors: PackedStringArray = out["errors"]
+	for key in data:
+		if not key in ["schema", "id", "pool"]:
+			errors.append("%s: unknown key \"%s\"" % [where, key])
+	if String(data.get("schema", "")) != SCHEMA:
+		errors.append("%s: schema must be %s" % [where, SCHEMA])
+	var id := String(data.get("id", ""))
+	if id.is_empty():
+		errors.append("%s: no id" % where)
+	var pool = data.get("pool")
+	if not pool is Dictionary or (pool as Dictionary).is_empty():
+		errors.append("%s: pool must be a non-empty object of style: weight" % where)
+		return out
+	var clean := {}
+	for style in pool:
+		if not STYLES.has(style):
+			errors.append("%s: unknown grab style \"%s\"" % [where, style])
+			continue
+		var weight = pool[style]
+		if not (typeof(weight) in [TYPE_INT, TYPE_FLOAT]) or float(weight) <= 0.0:
+			errors.append("%s: weight of %s must be a positive number" % [where, style])
+			continue
+		clean[String(style)] = float(weight)
+	if errors.is_empty():
+		out["def"] = {"id": id, "pool": clean}
+	return out
+
+
+## A content pack's grab definitions replace the built-in ones for the ids it names (the pack loader checks overrides).
+static func apply_defs(defs: Array) -> void:
+	ensure_loaded()
+	for def in defs:
+		_pools[String(def["id"])] = (def["pool"] as Dictionary).duplicate()
+
+
+static func pool_for(hunter_id: String) -> Dictionary:
+	ensure_loaded()
+	return _pools.get(hunter_id, {FALLBACK: 1.0})
+
+
+static func main_style(hunter_id: String) -> String:
+	var pool := pool_for(hunter_id)
+	var best := ""
+	for style in pool:
+		if best.is_empty() or float(pool[style]) > float(pool[best]):
+			best = style
+	return best
+
+
+static func is_creature(hunter_id: String) -> bool:
+	return SecretCreatures.uses_creature_rig(hunter_id)
+
+
+## The host's roll for a catch: the same on every peer for the same seed, runner and catch number.
+static func roll_for(seed_text: String, peer_id: int, catch_index: int) -> float:
+	return SeededRandom.new("%s:GRAB:%d:%d" % [seed_text, peer_id, catch_index]).next_float()
+
+
+## Can `style` play out in a spot with this much room? `room`: {"ceiling", "back", "hunter_back"} in metres (missing = open).
+static func fits(style: String, room: Dictionary) -> bool:
+	var needs: Dictionary = STYLES.get(style, {})
+	if needs.has("ceiling") and float(room.get("ceiling", 99.0)) < float(needs["ceiling"]):
+		return false
+	if needs.has("back") and float(room.get("back", 99.0)) < float(needs["back"]):
+		return false
+	if needs.has("hunter_back") and float(room.get("hunter_back", 99.0)) < float(needs["hunter_back"]):
+		return false
+	if needs.has("wall"):
+		var back := float(room.get("back", 99.0))
+		if back > float(needs["wall"]) or back < .25:
+			return false
+	return true
+
+
+## The style this catch plays: a weighted pick, with `roll` in [0, 1), over the pool styles that fit the room.
+static func pick(hunter_id: String, roll: float, room: Dictionary) -> String:
+	var pool := pool_for(hunter_id)
+	var styles := pool.keys()
+	styles.sort()   # dictionary order must not decide the pick on different peers
+	var fitting := []
+	var total := 0.0
+	for style in styles:
+		if fits(String(style), room):
+			fitting.append(style)
+			total += float(pool[style])
+	if fitting.is_empty():
+		return CREATURE_FALLBACK if is_creature(hunter_id) else FALLBACK
+	var at := clampf(roll, 0.0, .999999) * total
+	for style in fitting:
+		at -= float(pool[style])
+		if at < 0.0:
+			return String(style)
+	return String(fitting[-1])
+
+
+static func smooth(k: float) -> float:
+	k = clampf(k, 0.0, 1.0)
+	return k * k * (3.0 - 2.0 * k)
+
+
+## The whole grab at `t` seconds, in the hunter's frame: `along` is the floor direction from the hunter to the runner, `side`
+## to its right. `ctx`: {"eye", "shoulder_side", "shoulder_fwd", "shoulder_y", "arm", "back"} from the real hunter and spot.
+## Returns {
+##   "at": Vector3(side, lift, along)  the runner's feet (lift = feet off the floor),
+##   "face": 1 facing the hunter / -1 facing away,  "tilt": body lean, positive = head moves away from the hunter,
+##   "view_pitch", "view_roll": first-person camera on top of the body's own lean,  "hands": first-person hand pose, "k": its amount,
+##   "arms": [[hunter arm "R"/"L", BODY_POINTS key, amount]],  "hunter": [forward, drop, lean] for the hunter's own body,
+##   "clip": what other players' copy of the runner plays, "eye_back": first-person eye pushed away from the hunter (optional) }
+static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
+	var r := smooth(t / REACH_SECONDS)
+	var a := smooth((t - REACH_SECONDS) / ACT_SECONDS)
+	var hold := maxf(t - REACH_SECONDS - ACT_SECONDS, 0.0)
+	var shake := sin(t * 21.0) * a
+	var sway := sin(t * 7.0) * a
+	var eye := float(ctx.get("eye", BODY_EYE))
+	var shoulder_side := float(ctx.get("shoulder_side", -.45))
+	var shoulder_fwd := float(ctx.get("shoulder_fwd", 0.0))
+	var shoulder_y := float(ctx.get("shoulder_y", 1.8))
+	var arm := float(ctx.get("arm", .66))
+	var back := float(ctx.get("back", 3.0))
+	var out := {"at": Vector3(0.0, 0.0, .75), "face": 1.0, "tilt": 0.0, "view_pitch": 0.0, "view_roll": 0.0,
+		"hands": "push", "k": r, "arms": [], "hunter": [0.0, 0.0, 0.0], "clip": "stun"}
+	match style:
+		NECK_LIFT:
+			# one hand nearly straight out at shoulder height; the runner's neck rises to it
+			var grip_y := shoulder_y - arm * .1
+			var lift := clampf(grip_y - BODY_POINTS["neck"].y * eye / BODY_EYE, .3, 1.2)
+			out["at"] = Vector3(shoulder_side, lift * a, shoulder_fwd + arm * .95 + .22)
+			out["view_pitch"] = .25 * a
+			out["view_roll"] = .07 * a + sway * .03
+			out["eye_back"] = .16 * r   # the chin is pushed up and back by the hand: look over it, not into the forearm
+			out["hands"] = "grip_arm"
+			out["arms"] = [["R", "neck", r]]
+			out["clip"] = "fall"
+		SHOULDER_GRAB:
+			out["at"] = Vector3(shake * .04, .08 * a, .72)
+			out["tilt"] = shake * .06
+			out["view_roll"] = shake * .05
+			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
+		TACKLE:
+			out["at"] = Vector3(0.0, 0.0, lerpf(.75, 1.1, a))
+			out["tilt"] = lerpf(0.0, PI * .5 - .1, a)
+			out["view_pitch"] = .25 * a
+			out["hands"] = "push_up"
+			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
+			out["hunter"] = [lerpf(0.0, .45, a), .35 * a, .95 * a]
+			out["clip"] = "fall"
+		WRIST_YANK:
+			out["at"] = Vector3(.12, 0.0, lerpf(1.0, .78, a))
+			out["tilt"] = -.15 * a + shake * .03
+			out["view_pitch"] = -.12 * a
+			out["view_roll"] = -.1 * a
+			out["hands"] = "held"
+			out["arms"] = [["R", "r_wrist", r]]
+		WRAP:
+			out["at"] = Vector3(0.0, .1 * a, lerpf(.75, .5, a))
+			out["view_roll"] = sway * .04
+			out["hands"] = "pinned"
+			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
+		BEAR_HUG:
+			out["at"] = Vector3(0.0, .45 * a, lerpf(.75, .5, a))
+			out["view_pitch"] = .15 * a
+			out["view_roll"] = sway * .05
+			out["hands"] = "pinned"
+			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
+			out["clip"] = "fall"
+		LEG_GRAB:
+			# grabbed low from behind: the runner falls forward on their face and is dragged back to the hunter
+			var fall := smooth((t - REACH_SECONDS * .6) / (ACT_SECONDS * .45))
+			var drag := smooth((t - REACH_SECONDS - ACT_SECONDS * .35) / (ACT_SECONDS * .65 + HOLD_SECONDS * .6))
+			out["face"] = -1.0
+			out["at"] = Vector3(0.0, 0.0, lerpf(1.05, .6, drag))
+			out["tilt"] = lerpf(.25 * r, PI * .5 - .06, fall)
+			out["view_pitch"] = -.2 * fall
+			out["hands"] = "claw"
+			out["k"] = fall
+			out["arms"] = [["R", "r_ankle", r]]
+			out["hunter"] = [.1 * r, .7 * r, .55 * r]
+			out["clip"] = "fall"
+		UPSIDE_DOWN:
+			# a leg in one hand, hoisted to shoulder height: the runner hangs head down
+			var hoist := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .8))
+			out["at"] = Vector3(shoulder_side * .6, lerpf(0.0, shoulder_y - .15, hoist), shoulder_fwd + arm * .9)
+			out["tilt"] = PI * smooth(hoist * 1.25)
+			out["view_roll"] = PI * smooth(hoist * 1.25) + sway * .06
+			out["hands"] = "dangle"
+			out["k"] = hoist
+			out["arms"] = [["R", "r_ankle", r]]
+			out["clip"] = "fall"
+		COLLAR_DRAG:
+			# the hunter takes the runner by the collar, pulls them face down towards the floor and backs off, dragging them
+			var pull := smooth((t - REACH_SECONDS - ACT_SECONDS * .5) / (ACT_SECONDS * .5 + HOLD_SECONDS * .7))
+			out["at"] = Vector3(shoulder_side * r, 0.0, lerpf(.9, .6, pull))
+			out["tilt"] = -.9 * a
+			out["view_pitch"] = .55 * a
+			out["hands"] = "claw"
+			out["k"] = a
+			out["arms"] = [["R", "neck", r]]
+			out["hunter"] = [lerpf(0.0, -.9, a) - .4 * pull, .3 * a, .35 * a]
+			out["clip"] = "fall"
+		WALL_PIN:
+			# shoved back against the wall behind the runner, held there a little off the floor
+			var to_wall := clampf(back - .2, 0.0, 1.1)
+			var shove := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .5))
+			out["at"] = Vector3(0.0, .22 * shove, .75 + to_wall * shove)
+			out["view_pitch"] = .1 * shove
+			out["view_roll"] = sin(maxf(t - REACH_SECONDS - ACT_SECONDS * .5, 0.0) * 30.0) * .06 * exp(-hold * 4.0) * shove
+			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
+			out["hunter"] = [to_wall * shove, 0.0, .12 * shove]
+		POUNCE_PIN:
+			out["at"] = Vector3(0.0, 0.0, lerpf(.9, 1.2, a))
+			out["tilt"] = lerpf(0.0, PI * .5 - .1, a)
+			out["view_pitch"] = .25 * a
+			out["hands"] = "push_up"
+			out["hunter"] = [lerpf(0.0, .75, a), 0.0, .25 * a]
+			out["clip"] = "fall"
+	return out
+
+
+## The runner body's basis for a pose: turned to face (or face away from) the hunter, then leaned by tilt about its own X.
+static func body_basis(along: Vector3, face: float, tilt: float) -> Basis:
+	return Basis.from_euler(Vector3(tilt * face, body_yaw(along, face), 0.0))
+
+
+## The body's yaw: its front (-Z) at the hunter when face = 1, away from it when -1.
+static func body_yaw(along: Vector3, face: float) -> float:
+	var forward := -along * face
+	return atan2(-forward.x, -forward.z)

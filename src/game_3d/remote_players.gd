@@ -408,7 +408,7 @@ func _local_state() -> Dictionary:
 		"skin_copy": Settings.skin_copyable,
 		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
-		"lift": snappedf(controller.lift_height, .01),
+		"grab": controller.grab_state,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
 		"no_target": controller.admin_no_target,
@@ -529,7 +529,7 @@ func _place(state: Dictionary) -> void:
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
-	_positions[id] = (at as Vector3) + Vector3(0.0, clampf(float(state.get("lift", 0.0)), 0.0, NeckLift.MAX_LIFT), 0.0)
+	_positions[id] = (at as Vector3) + Vector3(0.0, _grab_lift(state), 0.0)
 	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
@@ -597,8 +597,33 @@ func _interpolate_bodies(delta: float) -> void:
 			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
-		if float((_states.get(id, {}) as Dictionary).get("lift", 0.0)) > 0.0:
-			NeckLift.pose_nearest_hunter(self, body, true)
+		var grab := _grab_packet(_states.get(id, {}))
+		body.rotation.x = lerp_angle(body.rotation.x, float(grab[3]) if not grab.is_empty() else 0.0, weight)
+		body.rotation.z = 0.0
+		if not grab.is_empty():
+			HunterGrab.pose_nearest_hunter(self, body, grab)
+
+
+## A held runner's grab entry ([style, t, lift, body pitch, hunter forward, drop, lean], HunterGrab), checked; [] when free.
+static func _grab_packet(state: Dictionary) -> Array:
+	var grab = state.get("grab", [])
+	if not grab is Array or (grab as Array).size() != 7 or not GrabStyles.STYLES.has(String(grab[0])):
+		return []
+	for i in range(1, 7):
+		if not (typeof(grab[i]) in [TYPE_INT, TYPE_FLOAT]):
+			return []
+	var out: Array = (grab as Array).duplicate()
+	out[1] = clampf(float(out[1]), 0.0, GrabStyles.TOTAL_SECONDS)
+	out[2] = clampf(float(out[2]), 0.0, 2.2)
+	out[3] = clampf(float(out[3]), -PI, PI)
+	for i in range(4, 7):
+		out[i] = clampf(float(out[i]), -1.5, 1.5)
+	return out
+
+
+static func _grab_lift(state: Dictionary) -> float:
+	var grab := _grab_packet(state)
+	return float(grab[2]) if not grab.is_empty() else 0.0
 
 
 const NAME_TAG_HEIGHT := 1.92

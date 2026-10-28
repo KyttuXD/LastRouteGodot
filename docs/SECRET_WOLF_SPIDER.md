@@ -21,6 +21,7 @@ the player has met one. This document and the files named in it are the only pla
 | Inferno trigger, lair choice and spawn (new file, two hooks) | `src/game/inferno_secrets.gd` |
 | Solo/pair rest and recall | `src/game/hunter_gimmicks/spider_pack.gd` |
 | Capture tool, validator | `tools/look/creature_check.tscn`, `scripts/validate_secret_creature.gd` |
+| Their catch: the pounce-and-pin grab (only style for creature rigs, docs/HUNTER_GRABS.md) | `data/grabs/white_wolf_spider.json`, `data/grabs/black_wolf_spider.json` |
 
 Rebuild the glb after editing the bbmodel: `python3 tools/city/bbmodel_creature.py tools/city/white_wolf_spider.bbmodel assets/city/white_wolf_spider/white_wolf_spider.glb --scale 0.035`
 For the black one: `python3 tools/city/spider_clip_map.py` (regenerates the retargeted clips) then
