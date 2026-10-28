@@ -199,17 +199,20 @@ def main() -> int:
                 inside = float(info.get("inside_geometry_s", 0))
                 beats = info.get("door_beats", [])
                 door_seen = min([b["visible_s"] for b in beats], default=9.0)
-                attempt = {"variant": variant, "bad_seconds": quality["bad_seconds"], "bad": quality["bad"], "tight_run_s": tight, "prop_overlap_s": overlap, "door_clip_s": door_clip, "door_beats": beats, "inside_geometry_s": inside, "blocked_s": info.get("blocked_s"), "doors_opened": info.get("doors_opened"), "max_floor_step_m": floor_step, "rooms": info.get("rooms"),
+                after = info.get("after_interaction", [])
+                bounce = max([a["back_m"] for a in after], default=0.0)
+                reversal = max([a["yaw_reversal_deg"] for a in after], default=0.0)
+                attempt = {"variant": variant, "bad_seconds": quality["bad_seconds"], "bad": quality["bad"], "tight_run_s": tight, "prop_overlap_s": overlap, "door_clip_s": door_clip, "door_beats": beats, "bounce_back_m": bounce, "yaw_reversal_deg": reversal, "inside_geometry_s": inside, "blocked_s": info.get("blocked_s"), "doors_opened": info.get("doors_opened"), "max_floor_step_m": floor_step, "rooms": info.get("rooms"),
                            "render_wall_s": round(time.time() - began), "chunk": info.get("chunk")}
                 result["attempts"].append(attempt)
-                score = quality["bad_seconds"] + 6.0 * max(tight - 0.3, 0.0) + 6.0 * max(overlap - 0.3, 0.0) + (3.0 if floor_step > 0.15 else 0.0) + 6.0 * max(door_clip - 0.1, 0.0) + 6.0 * max(0.6 - door_seen, 0.0)
-                print("    %s try %d: %d boring s %s, view<1.5 m %.1f s, inside props %.1f s, in a door %.1f s (%s opened, seen %s s), floor step %.2f m, rooms %s" % (area, variant, quality["bad_seconds"], quality["bad"][:4], tight, overlap, door_clip, info.get("doors_opened"), [b["visible_s"] for b in beats], floor_step, info.get("rooms")), flush=True)
+                score = quality["bad_seconds"] + 6.0 * max(tight - 0.3, 0.0) + 6.0 * max(overlap - 0.3, 0.0) + (3.0 if floor_step > 0.15 else 0.0) + 6.0 * max(door_clip - 0.1, 0.0) + 6.0 * max(0.6 - door_seen, 0.0) + 6.0 * max(bounce - 0.10, 0.0) + (3.0 if reversal > 20 else 0.0)
+                print("    %s try %d: %d boring s %s, view<1.5 m %.1f s, inside props %.1f s, in a door %.1f s (%s opened, seen %s s, bounce %.2f m, yaw back %.0f deg), floor step %.2f m, rooms %s" % (area, variant, quality["bad_seconds"], quality["bad"][:4], tight, overlap, door_clip, info.get("doors_opened"), [b["visible_s"] for b in beats], bounce, reversal, floor_step, info.get("rooms")), flush=True)
                 if inside > 0.05:
                     print("    %s try %d REJECTED: the camera was inside geometry for %.2f s" % (area, variant, inside), flush=True)
                     continue
                 if best is None or score < best["score"]:
                     best = {"score": score, "mp4": mp4, "info": info, "attempt": attempt}
-                if quality["bad_seconds"] <= 2 and tight <= 0.3 and overlap <= 0.3 and floor_step <= 0.15 and door_clip <= 0.1 and door_seen >= 0.6:
+                if quality["bad_seconds"] <= 2 and tight <= 0.3 and overlap <= 0.3 and floor_step <= 0.15 and door_clip <= 0.1 and door_seen >= 0.6 and bounce <= 0.10 and reversal <= 20:
                     break
             if best is None:
                 result["skipped"] = result.get("skipped") or "DROPPED: every variant had the camera inside geometry"

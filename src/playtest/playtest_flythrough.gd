@@ -1037,7 +1037,13 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	footprint.height = 1.2
 	var clip_start_frame := Engine.get_frames_drawn()
 	var played := 0
-	for i in track.size():
+	var i := -1
+	var post_watch: Dictionary = {}
+	var post_reports: Array = []
+	while true:
+		i += 1
+		if i >= track.size():
+			break
 		bridge.status = "flythrough %s: frame %d / %d" % [area, i, track.size()]
 		if track.events.has(i) and bool((track.events[i] as Dictionary).get("ladder", false)):
 			played += await _play_ladder(bridge, scene, player, generator, track.events[i] as Dictionary, fps)
@@ -1052,6 +1058,24 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				opened_doors[door.get_instance_id()] = true
 				var beat := await _door_beat(tree, player, door, track.yaw[i], track.pitch[i])
 				played += int(beat["frames"])
+				# CARRY ON from where the camera stopped: skip to the first track frame at or beyond the camera along the way through the opening,
+				# and blend the view straight into that frame's heading (never back to the pre-interaction pose)
+				var through: Vector2 = beat["through"]
+				var here := Vector2(player.global_position.x, player.global_position.z)
+				var best_j := i
+				var best_score := -1e9
+				for j in range(i, mini(i + 150, track.size())):
+					if track.ground[j] != 1:
+						break
+					var along := (Vector2(track.pos[j].x, track.pos[j].z) - here).dot(through)
+					var off := (Vector2(track.pos[j].x, track.pos[j].z) - here).length()
+					# the first frame ahead of the camera (along > 0.05) that is nearest to it
+					if along > .05:
+						best_j = j
+						break
+				i = best_j
+				p = track.pos[i]
+				post_watch = {"left": fps, "axis": through, "start": here, "yaw0": player._yaw, "max_fwd": 0.0, "back": 0.0, "yaw_dev": 0.0, "final_yaw": track.yaw[i]}
 				doors_opened += 1
 				door_beats.append({"visible_s": snappedf(float(beat["visible_frames"]) / float(fps), .1), "progress": beat["progress"], "swing_s": snappedf(float(beat["swing_frames"]) / float(fps), .1)})
 		if mode == 2:
@@ -1134,6 +1158,19 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			tight_run = 0
 		if mode == 1 and depth < 2.0:
 			view2_frames += 1
+		if not post_watch.is_empty():
+			var cam_xz := Vector2(player.global_position.x, player.global_position.z)
+			var fwd := (cam_xz - (post_watch["start"] as Vector2)).dot(post_watch["axis"] as Vector2)
+			post_watch["max_fwd"] = maxf(float(post_watch["max_fwd"]), fwd)
+			post_watch["back"] = maxf(float(post_watch["back"]), float(post_watch["max_fwd"]) - fwd)
+			var dyaw := wrapf(player._yaw - float(post_watch["yaw0"]), -PI, PI)
+			var final := wrapf(float(post_watch["final_yaw"]) - float(post_watch["yaw0"]), -PI, PI)
+			var reverse := maxf(0.0, -signf(final) * dyaw) if absf(final) > deg_to_rad(8.0) else 0.0
+			post_watch["yaw_dev"] = maxf(float(post_watch["yaw_dev"]), reverse)
+			post_watch["left"] = int(post_watch["left"]) - 1
+			if int(post_watch["left"]) <= 0:
+				post_reports.append({"back_m": snappedf(float(post_watch["back"]), .01), "yaw_reversal_deg": snappedf(rad_to_deg(float(post_watch["yaw_dev"])), .1)})
+				post_watch = {}
 		# is the CAMERA inside geometry? (a sphere at the camera itself, every frame of every shot except the game's own ladder camera)
 		if mode != 2:
 			var overlap := PhysicsShapeQueryParameters3D.new()
@@ -1173,6 +1210,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	info["blocked_s"] = snappedf(float(blocked_frames) / float(fps), .2)
 	info["doors_opened"] = doors_opened
 	info["door_beats"] = door_beats
+	info["after_interaction"] = post_reports
 	info["door_clip_s"] = snappedf(float(door_clip_frames) / float(fps), .2)
 	info["clip_frames_actual"] = Engine.get_frames_drawn() - clip_start_frame
 	info["fps"] = fps
@@ -1281,16 +1319,8 @@ static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteI
 	for _k in 8:
 		await tree.process_frame
 		count += 1
-	# 3. back to the tour's view
-	var from_yaw := player._yaw
-	for k in 14:
-		var e := float(k + 1) / 14.0
-		player._yaw = lerp_angle(from_yaw, resume_yaw, e)
-		player._pitch = lerpf(player._pitch, resume_pitch, e)
-		player._apply_look_rotation()
-		await tree.process_frame
-		count += 1
-	return {"frames": count, "visible_frames": visible_frames, "swing_frames": swing_frames, "progress": snappedf(progress, .01)}
+	# 3. no turning back: the tour carries on from here (the caller re-joins the path at the first frame beyond the camera)
+	return {"through": Vector2(-normal.x, -normal.z), "frames": count, "visible_frames": visible_frames, "swing_frames": swing_frames, "progress": snappedf(progress, .01)}
 
 
 ## Play a REAL ladder climb: the player becomes a normal, collidable runner again, stands on the ladder cell and holds up (or down); the game's own
