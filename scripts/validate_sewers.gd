@@ -101,6 +101,11 @@ func _check_window(window: Dictionary) -> int:
 					and int(grid[behind.y][behind.x]) == SewerRouteGenerator.SOLID,
 					"%s link %s ladder has no brick behind its rungs" % [seed_text, link["id"]])
 				_expect(int(sgrid[up.y][up.x]) == 0, "%s link %s lid is not open maze floor" % [seed_text, link["id"]])
+				# flush against a hallway wall up top too, never free-standing mid-hall
+				var maze_wall: Vector2i = up + Vector2i(link.get("wall", Vector2i.ZERO))
+				var front: Vector2i = up - Vector2i(link.get("wall", Vector2i.ZERO))
+				_expect(int(sgrid[maze_wall.y][maze_wall.x]) != 0 and int(sgrid[front.y][front.x]) == 0,
+					"%s link %s ladder is not against a maze hallway wall" % [seed_text, link["id"]])
 				_expect(SewerRouteGenerator.is_dry(int(grid[down.y][down.x])), "%s link %s ladder foot is not dry" % [seed_text, link["id"]])
 				for prop in surface_data["region_props"] + surface_data["fixtures"] + surface_data["pickups"]:
 					_expect(Vector2i(prop.get("cell", Vector2i(-9, -9))) != up,

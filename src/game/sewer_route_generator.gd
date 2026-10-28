@@ -125,14 +125,16 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			rooms.append({"kind": kind, "rect": rect, "center": qc})
 			features.append_array(_room_features(kind, rect, qc))
 		elif wants_link and links.size() < 2:
-			var up := _shaft_cell(qc, surface_data["grid"], blocked)
-			if up.x < 0:
+			var spot := _shaft_cell(qc, surface_data["grid"], blocked)
+			if spot.is_empty():
 				continue
+			var up: Vector2i = spot["cell"]
 			var cover: String = covers[rng.next_index(covers.size())]
-			# The ladder hangs on the brick on the far side from the tunnel: the 3x3
-			# shaft chamber opens away from that wall and its branch leaves from the
-			# chamber's middle, so the wall behind the rungs stays solid.
-			var wall := _ladder_wall(up)
+			# The ladder hangs flush on a hallway wall in the maze and on the brick of
+			# the same side below: the 3x3 shaft chamber opens away from that wall and
+			# its branch leaves from the chamber's middle, so the wall behind the rungs
+			# stays solid on both levels.
+			var wall: Vector2i = spot["wall"]
 			var chamber_center := up - wall
 			_carve_rect(grid, Rect2i(chamber_center - Vector2i(SHAFT_HALF, SHAFT_HALF), Vector2i(3, 3)), DRY)
 			_carve_branch(grid, chamber_center, SHAFT_HALF)
@@ -308,39 +310,48 @@ static func _surface_blocked_cells(data: Dictionary) -> Dictionary:
 						blocked[Vector2i(cell) + Vector2i(dx, dz)] = true
 	for room in data.get("rooms", []):
 		# Hallway cells only: rooms keep their own floor plans.
+		# The rect includes the room's wall ring, so the hall cell just outside it
+		# stays free: that is where a ladder can stand flush against the wall.
 		var rect: Rect2i = room.get("rect", Rect2i())
-		for z in range(rect.position.y - 1, rect.end.y + 1):
-			for x in range(rect.position.x - 1, rect.end.x + 1):
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
 				blocked[Vector2i(x, z)] = true
 	return blocked
 
 
-## The open maze hallway cell nearest the quadrant centre with a full 3x3 of
-## open floor around it (the lid plus clearance), or (-1, -1).
-static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked: Dictionary) -> Vector2i:
-	var best := Vector2i(-1, -1)
+## The maze hallway cell nearest the quadrant centre where a ladder can stand
+## flush against a hallway wall: open floor with solid wall directly behind it
+## (toward `wall`), open floor in front (where the lid lies) and to both sides.
+## The wall may face any way but toward the tunnel (the sewer chamber's branch
+## would then run through the brick behind the rungs). Returns {cell, wall} or {}.
+static func _shaft_cell(quadrant_center: Vector2i, surface_grid: Array, blocked: Dictionary) -> Dictionary:
+	var best := {}
 	var best_d := 1 << 30
+	var open := func(c: Vector2i) -> bool:
+		return c.x >= 0 and c.y >= 0 and c.x < CHUNK_SIZE and c.y < CHUNK_SIZE and int(surface_grid[c.y][c.x]) == 0
 	for z in range(quadrant_center.y - 7, quadrant_center.y + 8):
 		for x in range(quadrant_center.x - 7, quadrant_center.x + 8):
 			var cell := Vector2i(x, z)
-			# Stay out of the tunnel band and two cells off the chunk edge.
+			# Stay out of the tunnel band and off the chunk edge (the chamber reaches two cells out).
 			if absi(x - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1 or absi(z - CENTER) <= TUNNEL_HALF + SHAFT_HALF + 1:
 				continue
 			if x < 4 or z < 4 or x > CHUNK_SIZE - 5 or z > CHUNK_SIZE - 5:
 				continue
-			if blocked.has(cell):
+			if blocked.has(cell) or not open.call(cell):
 				continue
-			var clear := true
-			for dz in range(-1, 2):
-				for dx in range(-1, 2):
-					if int(surface_grid[z + dz][x + dx]) != 0:
-						clear = false
-			if not clear:
-				continue
-			var d := (cell - quadrant_center).length_squared()
-			if d < best_d:
-				best_d = d
-				best = cell
+			var toward_tunnel := -_ladder_wall(cell)
+			for wall_value in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var wall: Vector2i = wall_value
+				if wall == toward_tunnel or open.call(cell + wall):
+					continue
+				var side := Vector2i(absi(wall.y), absi(wall.x))
+				if not open.call(cell - wall) or blocked.has(cell - wall) \
+						or not open.call(cell + side) or not open.call(cell - side):
+					continue
+				var d := (cell - quadrant_center).length_squared()
+				if d < best_d:
+					best_d = d
+					best = {"cell": cell, "wall": wall}
 	return best
 
 

@@ -2681,7 +2681,9 @@ func _update_player_ladder(level: int) -> void:
 		return
 	var floor_y := float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + .04
 	var to_level := StreamedRouteGenerator.SEWER_LEVEL if going_down else 0
-	player.begin_ladder_climb(Vector3(point.x, floor_y, point.y),
+	# a little in from the cell centre, hands on the rungs against the wall
+	var wall: Vector2i = link.get("wall", Vector2i.ZERO)
+	player.begin_ladder_climb(Vector3(point.x + wall.x * .12, floor_y, point.y + wall.y * .12),
 		-StreamedFacilityView3D.LEVEL_HEIGHT if going_down else StreamedFacilityView3D.LEVEL_HEIGHT,
 		LadderTraffic.RUNNER_CLIMB_SECONDS, _ladder_yaw(link), to_level)
 	_ladder_rearm_id = link_id
@@ -2705,9 +2707,10 @@ func _on_player_ladder_finished(_to_level: int) -> void:
 	_update_streamed_maps()
 
 
-## Facing the rungs: the ladder hangs on the shaft's north wall.
-static func _ladder_yaw(_link: Dictionary) -> float:
-	return 0.0
+## Facing the rungs: the ladder hangs on its link's wall (the same side on both levels).
+static func _ladder_yaw(link: Dictionary) -> float:
+	var wall: Vector2i = link.get("wall", Vector2i(0, -1))
+	return atan2(-float(wall.x), -float(wall.y))
 
 
 ## Hunters search hiding spots (docs/HIDING_PROPS.md). Fair by construction: only a spot the hunter tracked the runner

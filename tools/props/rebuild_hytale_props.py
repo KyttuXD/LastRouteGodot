@@ -5909,18 +5909,19 @@ def sewer_materials(name):
 
 ## Sewer ladders hang on the north wall of a 1 x 1 m shaft (Blender +Y, Godot -Z).
 ## Origin: the ladder cell's centre on the floor of the level it stands in.
-LADDER_RAIL_Y = 0.40
-LADDER_RAIL_X = 0.22
+## Person scale: 0.6 m between the rails, stout 7 cm rails and rungs a hand can close round, every 0.3 m.
+LADDER_RAIL_Y = 0.38
+LADDER_RAIL_X = 0.30
 
 
 def _ladder_section(objects, iron, rust, count, z0, z1, rung_from, rung_step, prefix):
     for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-        box("%sRail%s" % (prefix, side), (x, LADDER_RAIL_Y, (z0 + z1) * .5), (0.05, 0.05, z1 - z0),
+        box("%sRail%s" % (prefix, side), (x, LADDER_RAIL_Y, (z0 + z1) * .5), (0.07, 0.07, z1 - z0),
             iron, 2, count, objects, bevel=0.006)
     z = rung_from
     index = 0
     while z < z1 - 0.05:
-        cylinder("%sRung%02d" % (prefix, index), (0.0, LADDER_RAIL_Y, z), 0.018, LADDER_RAIL_X * 2.0, 6,
+        cylinder("%sRung%02d" % (prefix, index), (0.0, LADDER_RAIL_Y, z), 0.026, LADDER_RAIL_X * 2.0, 8,
                  rust if index % 3 == 1 else iron, 3, count, objects, rotation=(0.0, math.pi / 2.0, 0.0))
         z += rung_step
         index += 1
@@ -5933,7 +5934,7 @@ def make_sewer_ladder():
     _ladder_section(objects, iron, rust, count, 0.0, 3.2, 0.28, 0.30, "")
     for index, z in enumerate((0.55, 1.65, 2.75)):
         for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-            box("Bracket%d%s" % (index, side), (x, 0.47, z), (0.04, 0.10, 0.04), rust, 1, count, objects)
+            box("Bracket%d%s" % (index, side), (x, 0.455, z), (0.06, 0.09, 0.06), rust, 1, count, objects)
     return objects, (2.4, -3.0, 2.2), (0.0, 0.3, 1.5)
 
 
@@ -5942,11 +5943,13 @@ def make_sewer_ladder_top():
     iron, rust, _, _, count = sewer_materials("sewer_ladder_top")
     objects = []
     _ladder_section(objects, iron, rust, count, -0.8, 0.0, -0.62, 0.30, "")
-    # hoops: the rails bend over the edge and back down, something to hold stepping on or off
+    # grab rails: the stiles carry on 1.15 m above the opening and bend back to the wall, a full
+    # handhold for stepping on or off at person height
     for side, x in (("L", -LADDER_RAIL_X), ("R", LADDER_RAIL_X)):
-        box("HoopUp%s" % side, (x, LADDER_RAIL_Y, 0.45), (0.05, 0.05, 0.90), iron, 2, count, objects, bevel=0.006)
-        box("HoopTop%s" % side, (x, LADDER_RAIL_Y + 0.07, 0.90), (0.05, 0.19, 0.05), iron, 2, count, objects, bevel=0.006)
-        box("HoopFoot%s" % side, (x, 0.49, 0.03), (0.07, 0.04, 0.06), rust, 1, count, objects)
+        box("HoopUp%s" % side, (x, LADDER_RAIL_Y, 0.575), (0.07, 0.07, 1.15), iron, 2, count, objects, bevel=0.008)
+        box("HoopTop%s" % side, (x, LADDER_RAIL_Y + 0.06, 1.15), (0.07, 0.19, 0.07), iron, 2, count, objects, bevel=0.008)
+        box("HoopMid%s" % side, (x, LADDER_RAIL_Y + 0.06, 0.6), (0.06, 0.16, 0.06), rust, 1, count, objects)
+        box("HoopFoot%s" % side, (x, 0.47, 0.04), (0.09, 0.06, 0.08), rust, 1, count, objects)
     return objects, (2.0, -2.6, 1.4), (0.0, 0.3, 0.1)
 
 
