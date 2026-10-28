@@ -942,6 +942,10 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var overlay := _coop_overlay(tree)
 	var next_shot := 30.0
 	var host_catch := String(opts.get("host_catch", "true")) != "false"
+	# no progress for 3 s while it should be moving: back off (1 s), then re-path from open floor, then (still stuck after ~9 s) hop to
+	# the host; each step is an event with a screenshot (KT saw a bot wedged in a carnival booth doorway for minutes)
+	var stuck := {"at": Vector3.INF, "since": 0.0, "stage": 0, "back_until": -1.0}
+	var stuck_log: Array = []
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -1031,14 +1035,53 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			bridge.input.apply({})
 			continue
 		# guests keep with the host (within 8 m) so the room is visible on every screen and the minimap; the host just plays
+		var host_state: Dictionary = (scene.get("_remotes").get("_states") as Dictionary).get(1, {}) if role == "guest" else {}
+		var host_at: Variant = host_state.get("position") if host_state.get("position") is Vector2 else null
 		if role == "guest" and adapter.has_method("follow"):
-			var host_state: Dictionary = (scene.get("_remotes").get("_states") as Dictionary).get(1, {})
-			adapter.call("follow", host_state.get("position") if host_state.get("position") is Vector2 else null, 8.0)
+			adapter.call("follow", host_at, 8.0)
+		var here := player.global_position
+		var far_from_host := host_at != null and Vector2(here.x, here.z).distance_to(host_at) > 8.0
+		if player.hidden or not (far_from_host or role == "host"):
+			stuck["at"] = here
+			stuck["since"] = t
+			stuck["stage"] = 0
+		elif (stuck["at"] as Vector3).distance_to(here) > .5:
+			stuck["at"] = here
+			stuck["since"] = t
+			stuck["stage"] = 0
+		elif t - float(stuck["since"]) > 3.0 * float(int(stuck["stage"]) + 1):
+			var stage := int(stuck["stage"]) + 1
+			stuck["stage"] = stage
+			var what := "back_off" if stage == 1 else ("repath" if stage == 2 else "hop_to_host")
+			var entry := {"t": snappedf(t, .1), "what": what, "pos": [snappedf(here.x, .01), snappedf(here.y, .01), snappedf(here.z, .01)],
+				"cell": [floori(here.x), floori(here.z)], "level": (scene.get("facility") as StreamedFacilityView3D).current_level(),
+				"region": String((scene.get("facility") as StreamedFacilityView3D).current_chunk_data().get("region", "")),
+				"focus": obs.get("focus", {}), "near": (obs.get("interactables", []) as Array).slice(0, 3)}
+			var shot := out.path_join("shots/%s_stuck_%04d_%s.png" % [_coop_name(role, opts), int(t), what])
+			bridge.screenshot(shot)
+			entry["shot"] = shot.get_file()
+			stuck_log.append(entry)
+			adapter.add_event("coop_stuck", entry)
+			if stage == 1:
+				stuck["back_until"] = t + 1.0
+			elif stage == 2:
+				adapter.forced_goal = Vector2i(-99999, -99999)
+				adapter.set("_path", [])
+				adapter.set("_goal", {})
+			elif host_at != null:
+				var to: Vector2 = host_at
+				bridge.admin("teleport", {"x": to.x + .8, "y": here.y, "z": to.y + .8})
+				stuck["since"] = t
+				stuck["stage"] = 0
+		if t < float(stuck["back_until"]):
+			bridge.input.apply({"move": [0.0, -1.0], "look": [.4, 0.0]})
+			continue
 		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
 	bridge.input.release_all()
 	samples.close()
 	Build.capture_rig = false
 	overlay.queue_free()
+	report["coop_stuck"] = stuck_log
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
