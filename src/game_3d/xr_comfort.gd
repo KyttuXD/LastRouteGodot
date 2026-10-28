@@ -40,11 +40,20 @@ var wrist: Label3D
 var _turn_latched := false
 var _vignette_level := 0.0
 var _wrist_left := 0.0
+## Recentre once the headset reports a real pose (at setup the runtime often has none yet, so the first centring is lost).
+var _centred_with_tracking := false
 
 
 ## The origin scale that makes a player of `real_height` metres see the world as a 1.60 m runner (clamped to sane values).
 static func world_scale_for(real_height: float) -> float:
 	return clampf(PLAYER_HEIGHT / clampf(real_height, 1.0, 2.3), 0.6, 1.6)
+
+
+## The turn axis: the right Touch stick, or a gamepad's right stick / keyboard look keys (look_left / look_right),
+## whichever is pushed further, so a headset plays without Touch controllers.
+static func turn_input(touch_x: float) -> float:
+	var look := Input.get_axis("look_left", "look_right")
+	return look if absf(look) > absf(touch_x) else touch_x
 
 
 ## Snap turn: one step per push past the dead zone, latched until the stick returns. Returns radians to turn by.
@@ -96,6 +105,9 @@ func setup(run_player: Node3D, xr_origin: XROrigin3D, xr_camera: XRCamera3D, xr_
 	wrist.rotation_degrees = Vector3(-70, 0, 0)
 	left.add_child(wrist)
 	XRServer.center_on_hmd(XRServer.RESET_BUT_KEEP_TILT, true)
+	var openxr := XRServer.find_interface("OpenXR")
+	if openxr != null and openxr.has_signal("pose_recentered"):
+		openxr.connect("pose_recentered", recenter)   # the user long-pressed the Meta button to recentre
 
 
 func apply_settings() -> void:
@@ -106,8 +118,17 @@ func apply_settings() -> void:
 
 
 ## Called every physics step by the player: turning, the vignette and the wrist readout.
+## Every physics frame, after the player's own (this node is the player's child), whatever state the player is in.
+func _physics_process(_delta: float) -> void:
+	if player != null and camera != null:
+		follow_head(true)
+
+
 func step(delta: float, moving: bool) -> void:
-	var stick_x := right.get_vector2("primary").x
+	if not _centred_with_tracking and camera.position.length_squared() > 0.0001:
+		_centred_with_tracking = true
+		recenter()
+	var stick_x := turn_input(right.get_vector2("primary").x)
 	var turn := smooth_turn(stick_x, delta) if Settings.xr_smooth_turn else snap_turn(stick_x)
 	if turn != 0.0:
 		player.rotate_y(turn)
@@ -121,6 +142,22 @@ func step(delta: float, moving: bool) -> void:
 	if _wrist_left <= 0.0:
 		_wrist_left = 0.25
 		wrist.text = wrist_text()
+
+
+## Keeps the camera over the body. Real-world steps and leans move the headset away from the capsule; the body walks
+## after the head with collision (walls stop it), then the origin shifts back by the whole offset, so the view always
+## ends over the body and never inside a wall. With `walk` false (ladder, hiding spot, frozen input) only the view is
+## pulled back. Also the spawn, teleport and level-change fix: wherever the body goes, the view follows.
+func follow_head(walk: bool) -> void:
+	var offset := camera.global_position - player.global_position
+	offset.y = 0.0
+	if offset.length_squared() < 0.0004:
+		return
+	var body := player as CharacterBody3D
+	if walk and body != null and not bool(player.call("is_climbing")) and not bool(player.get("hidden")) \
+			and not bool(player.get("input_frozen")):
+		body.move_and_collide(offset)
+	origin.global_position -= offset
 
 
 func wrist_text() -> String:

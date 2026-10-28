@@ -98,7 +98,7 @@ func step() -> bool:
 
 ## Archways: the generator opens three-cell doorways ("arch" room-door props).
 ## Each gets a header wall above the opening, stepped corner blocks and
-## pilasters with brass caps on both faces of both shoulders.
+## pilasters with caps in the district's accent on both faces of both shoulders.
 func _arches() -> void:
 	for prop_value in _data.get("region_props", []):
 		var prop: Dictionary = prop_value
@@ -123,11 +123,14 @@ func _arches() -> void:
 		var side_key := {}
 		for face in [-1.0, 1.0]:
 			var faced: Vector2i = (cells[1] as Vector2i) + outward * int(face)
-			side_key[face] = "arch_wall:" + arch_wall_kind(faced)
+			side_key[face] = "arch_wall:%s@%.1f" % [arch_wall_kind(faced), _hh(faced)]
 		for face in [-1.0, 1.0]:
 			_add(side_key[face], _box_t(centre + out3 * face * .25 + Vector3(0, (3.0 + top) * .5, 0),
 				Vector3(3.0 if along_x else .5, top - 3.0, .5 if along_x else 3.0)))
 		_arch_trim(centre, along_x, outward, top)
+		var middle_cell: Vector2i = cells[1]
+		arch_log.append({"kind": "door3", "centre": centre, "hall_centre": Vector3(middle_cell.x + .5, 0, middle_cell.y + .5),
+			"span": 3.0, "between": 3.0, "faces": [centre + out3 * .5, centre - out3 * .5], "wall_key": side_key[1.0]})
 		for side in [-1.0, 1.0]:
 			var off: Vector3 = Vector3(across.x, 0, across.y) * side
 			for face in [-1.0, 1.0]:
@@ -142,7 +145,7 @@ func _arches() -> void:
 				var size := Vector3(.42 if along_x else .34, 1.0, .34 if along_x else .42)
 				_add(side_key[face], _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
 				for cap in [.06, top - .08]:
-					_add("arch_cap", _box_t(column + Vector3(0, cap, 0),
+					_add(_trim_key(), _box_t(column + Vector3(0, cap, 0),
 						Vector3(.56 if along_x else .46, .12, .46 if along_x else .56)))
 
 
@@ -152,36 +155,141 @@ func arch_wall_kind(cell: Vector2i) -> String:
 		_coord.x * _size + cell.x, _coord.z * _size + cell.y)
 
 
+## Hall pilasters stand on wall cells every PILASTER_EVERY cells along a wall
+## run (chunk-local x for walls facing z, z for walls facing x), at this phase;
+## every second one springs an arch. Shared with placement that must keep clear
+## of them (sewer ladders: SewerRouteGenerator._shaft_cell).
+const PILASTER_EVERY := 6
+const PILASTER_PHASE := 3
+
+
+static func is_pilaster_column(along: int) -> bool:
+	return posmod(along, PILASTER_EVERY) == PILASTER_PHASE
+
+
+## True when a fixture against the wall behind `cell` (toward `wall`) would be
+## within `clearance` cells of a hall pilaster position on that wall.
+static func near_pilaster(cell: Vector2i, wall: Vector2i, clearance: int = 1) -> bool:
+	var along := cell.x if wall.y != 0 else cell.y
+	for k in range(-clearance, clearance + 1):
+		if is_pilaster_column(along + k):
+			return true
+	return false
+
+
+## How far a hall pilaster stands out of the wall.
+const PILASTER_DEPTH := .32
+
+## Every arch this decor built, for the wall_themes checks: {"kind", "centre", "hall_centre", "span", "between",
+## "spring", "top", "ceiling", "wall_key"}.
+var arch_log: Array = []
+
+
+## One arch across a hall: voussoirs on a half ellipse in the hall's wall theme, a keystone in the accent.
+func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vector3, hall_top: float, wall_key: String) -> void:
+	var width := 0
+	while width < 12 and _open(grid, x + d.x * (width + 1), z + d.y * (width + 1)):
+		width += 1
+	# the far wall must be there (and carry its pilaster: an open run on its side too)
+	var far := Vector2i(x + d.x * (width + 1), z + d.y * (width + 1))
+	if width < 2 or width >= 12 or _open(grid, far.x, far.y) or not _open_run(grid, far.x, far.y, -d):
+		return
+	var half := float(width) * .5 - PILASTER_DEPTH
+	var rise := clampf(half * .55, .45, 1.1)
+	var spring := hall_top - rise - .18
+	var centre := base + n * (float(width) * .5) + Vector3.UP * spring
+	var along := n.cross(Vector3.UP).normalized()
+	var segments := 10
+	var previous := centre + n * half
+	for i in range(1, segments + 1):
+		var theta := PI * float(i) / float(segments)
+		var point := centre + n * (half * cos(theta)) + Vector3.UP * (rise * sin(theta))
+		var tangent := point - previous
+		var radial := along.cross(tangent.normalized())
+		_add(wall_key, Transform3D(Basis(tangent * 1.06, radial * .3, along * .5), (point + previous) * .5))
+		previous = point
+	_add(_trim_key(), _box_t(centre + Vector3.UP * rise, Vector3(.3, .42, .3) + along.abs() * .26))
+	arch_log.append({"kind": "hall", "centre": centre, "hall_centre": base + n * (float(width) * .5), "span": half * 2.0,
+		"between": float(width) - PILASTER_DEPTH * 2.0, "spring": spring, "top": spring + rise + .15,
+		"ceiling": hall_top + .1, "wall_key": wall_key})
+
+
 static var _arch_materials := {}
+const PLANE_UV_SHADER := preload("res://src/look/ref_plane_uv.gdshader")
 
 
-## The wall's own material on an arch block, mapped in world space (1 m across, the 4 m wall height down) so the paper,
-## panels and brick continue across the arch on the wall's texture grid instead of restarting per block.
-static func arch_wall_material(kind: String) -> StandardMaterial3D:
-	if _arch_materials.has(kind):
-		return _arch_materials[kind]
-	var m := (RefTextures.material("wall", kind) as StandardMaterial3D).duplicate() as StandardMaterial3D
-	m.uv1_triplanar = true
-	m.uv1_world_triplanar = true
-	m.uv1_scale = Vector3(1.0, -.25, 1.0)
+## The wall's own texture on an arch block (`key` = "<wall kind>@<room height>"), mapped from each face's own plane on
+## the wall grid (ref_plane_uv.gdshader): the paper, panels and brick continue across the arch from the wall, level and
+## unstretched on rotated or sloped arches too.
+static func arch_wall_material(key: String) -> ShaderMaterial:
+	if _arch_materials.has(key):
+		return _arch_materials[key]
+	var kind := key.get_slice("@", 0)
+	var height := float(key.get_slice("@", 1)) if key.contains("@") else 4.0
+	var source := RefTextures.material("wall", kind) as StandardMaterial3D
+	var m := ShaderMaterial.new()
+	m.shader = PLANE_UV_SHADER
+	m.set_shader_parameter("albedo_tex", source.albedo_texture)
+	m.set_shader_parameter("tint", source.albedo_color)
+	m.set_shader_parameter("room_height", height)
+	m.set_shader_parameter("tiers", float(RefLook.wall_tiers(height)))
+	m.set_shader_parameter("roughness_value", maxf(source.roughness, MaterialLook.ROUGHNESS_MATTE))
+	m.set_shader_parameter("specular_value", MaterialLook.SPECULAR_DEFAULT)
 	m.set_meta("arch_wall_kind", kind)
-	_arch_materials[kind] = m
+	_arch_materials[key] = m
 	return m
 
 
-## Brass trim on both faces of an arch: a keystone over the middle, a moulding band under
+## What ref_plane_uv.gdshader computes for a point on a face (world position, world normal, the floor's world y): the
+## wall_themes check compares arches with walls and flat with rotated / sloped arches through this.
+static func plane_uv(world: Vector3, normal: Vector3, floor_y: float, room_height: float) -> Vector2:
+	var n := normal.normalized()
+	if absf(n.y) > .95:
+		return Vector2(world.x, world.z)
+	var along := Vector3.UP.cross(n).normalized()
+	return Vector2(world.dot(along), float(RefLook.wall_tiers(room_height)) * (1.0 - (world.y - floor_y) / room_height))
+
+
+static var _trim_materials := {}
+
+
+## The district's accent on arch and pilaster trim (RefLook.ARCH_ACCENT): a painted pixel texture, tinted, on the same
+## world grid as the walls, so trim is never a flat untextured face.
+static func arch_trim_material(region: String) -> ShaderMaterial:
+	if _trim_materials.has(region):
+		return _trim_materials[region]
+	var accent := RefLook.arch_accent(region)
+	var source := RefTextures.material(String(accent[0]), String(accent[1])) as StandardMaterial3D
+	var m := ShaderMaterial.new()
+	m.shader = PLANE_UV_SHADER
+	m.set_shader_parameter("albedo_tex", source.albedo_texture)
+	m.set_shader_parameter("tint", accent[2])
+	var metal := bool(accent[3])
+	m.set_shader_parameter("roughness_value", MaterialLook.ROUGHNESS_METAL if metal else MaterialLook.ROUGHNESS_MATTE)
+	m.set_shader_parameter("specular_value", MaterialLook.SPECULAR_METAL if metal else MaterialLook.SPECULAR_DEFAULT)
+	m.set_shader_parameter("metallic_value", MaterialLook.METALLIC_METAL if metal else 0.0)
+	m.set_meta("arch_accent", region)
+	_trim_materials[region] = m
+	return m
+
+
+func _trim_key() -> String:
+	return "arch_trim:" + _region
+
+
+## Trim on both faces of an arch (the district's accent): a keystone over the middle, a moulding band under
 ## the header and a frieze band near the ceiling, so the arch has more to it than a slab.
 func _arch_trim(centre: Vector3, along_x: bool, outward: Vector2i, top: float) -> void:
 	var out := Vector3(outward.x, 0, outward.y)
 	for face in [-1.0, 1.0]:
 		var lip: Vector3 = out * face * .56
 		var wide := Vector3(3.5 if along_x else .1, .1, .1 if along_x else 3.5)
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 3.06, 0), wide))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, top - .22, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 3.06, 0), wide))
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, top - .22, 0),
 			Vector3(3.9 if along_x else .1, .14, .1 if along_x else 3.9)))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 2.86, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 2.86, 0),
 			Vector3(.34 if along_x else .12, .46, .12 if along_x else .34)))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 2.62, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 2.62, 0),
 			Vector3(.2 if along_x else .14, .14, .14 if along_x else .2)))
 
 
@@ -430,7 +538,18 @@ static func _facing_basis(normal: Vector3) -> Basis:
 
 
 func _style() -> Dictionary:
-	return STYLE.get(_region, STYLE["maze"])
+	var style: Dictionary = STYLE.get(_region, STYLE["maze"])
+	var density := PlatformProfile.decor_density
+	if density >= 1.0:
+		return style
+	# Lower quality tiers (the Quest): pipes, cables, frames and teal trims are "one in N" draws; N grows so fewer spawn.
+	# Lamps keep their spacing (they light the way).
+	var thinned := style.duplicate()
+	for key in ["teal", "pipe", "cable", "frame"]:
+		var every := int(thinned.get(key, 0))
+		if every > 0 and every < 90:
+			thinned[key] = mini(89, ceili(every / maxf(density, .05)))
+	return thinned
 
 
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.
@@ -472,6 +591,12 @@ func _cell(grid: Array, x: int, z: int) -> void:
 
 
 func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
+	# In the sewers the walk grid marks channels, the falls' drop and ramp tunnels
+	# as blocked too: only real brick carries wall lamps, pipes and cables (a
+	# lamp on a channel's edge hung in the air over the water).
+	var sewer_grid: Array = _data.get("sewer_grid", [])
+	if not sewer_grid.is_empty() and int(sewer_grid[z][x]) != SewerRouteGenerator.SOLID:
+		return
 	for dir_value in DIRS:
 		var d: Vector2i = dir_value
 		if not _open(grid, x + d.x, z + d.y):
@@ -534,26 +659,20 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				_add("lantern" if String(style["lamp"]) == "lantern" else "sconce",
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
-		# pilasters down both sides of halls, between the lamps
-		if rid == "" and along % 6 == 3 and _open_run(grid, x, z, d):
+		# pilasters down both sides of halls, between the lamps, in the hall's own wall with the district's trim
+		if rid == "" and is_pilaster_column(along) and _open_run(grid, x, z, d):
 			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
 			var across_x := d.y != 0
-			var column := base + n * .16 + Vector3(0, hall_top * .5, 0)
-			_add("arch_header", _box_t(column, Vector3(.42 if across_x else .32, hall_top, .32 if across_x else .42)))
+			var wall_key := "arch_wall:%s@%.1f" % [arch_wall_kind(Vector2i(x + d.x, z + d.y)), _hh(Vector2i(x + d.x, z + d.y))]
+			var column := base + n * PILASTER_DEPTH * .5 + Vector3(0, hall_top * .5, 0)
+			_add(wall_key, _box_t(column, Vector3(.42 if across_x else PILASTER_DEPTH, hall_top, PILASTER_DEPTH if across_x else .42)))
 			for cap in [.06, hall_top - .06]:
-				_add("arch_cap", _box_t(base + n * .16 + Vector3(0, cap, 0),
+				_add(_trim_key(), _box_t(base + n * PILASTER_DEPTH * .5 + Vector3(0, cap, 0),
 					Vector3(.54 if across_x else .42, .12, .42 if across_x else .54)))
-			# every second pilaster springs a stepped (corbelled) half arch across the hall; the two
-			# facing halves leave a narrow gap, so the hall reads as an arched vault, not a box
-			if along % 12 == 3:
-				var reach: float = StreamedRouteGenerator.CORRIDOR_WIDTH * .5 - .5
-				for step in 3:
-					var proj: float = reach * (.3 + .35 * step)
-					var y: float = hall_top - .95 + .36 * step
-					var size := Vector3(.5 if across_x else proj, .34, proj if across_x else .5)
-					_add("arch_header", _box_t(base + n * (proj * .5) + Vector3(0, y, 0), size))
-				_add("arch_cap", _box_t(base + n * (reach * .65 * .5) + Vector3(0, hall_top - 1.14, 0),
-					Vector3(.58 if across_x else reach * .65, .08, reach * .65 if across_x else .58)))
+			# every second pair springs one arch across the hall: from the +x / +z wall only (the facing wall has the
+			# matching pilaster), centred on the hall's centreline and spanning pilaster face to pilaster face
+			if along % 12 == 3 and d.x + d.y > 0:
+				_hall_arch(grid, x, z, d, base, n, hall_top, wall_key)
 		# hospital corridors: a continuous handrail at hip height on every hall wall
 		if rid == "" and bool(style.get("handrail", false)):
 			var rail_axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
@@ -818,11 +937,12 @@ static func mesh_for(key: String) -> Mesh:
 		"handrail": mesh = _merge([["brass", _box(Vector3(1.0, .06, .07)), Transform3D.IDENTITY],
 			["iron", _box(Vector3(.05, .1, .1)), _t(0, -.05, -.03)]])
 		"swag": mesh = _build_swag()
-		"arch_header": mesh = _merge([["stone", _box(Vector3.ONE), Transform3D.IDENTITY]])
 		_ when key.begins_with("arch_wall:"):
 			mesh = _box(Vector3.ONE)
 			(mesh as BoxMesh).material = arch_wall_material(key.trim_prefix("arch_wall:"))
-		"arch_cap": mesh = _merge([["brass", _box(Vector3.ONE), Transform3D.IDENTITY]])
+		_ when key.begins_with("arch_trim:"):
+			mesh = _box(Vector3.ONE)
+			(mesh as BoxMesh).material = arch_trim_material(key.trim_prefix("arch_trim:"))
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
 		"chain": mesh = _build_chain()

@@ -5,9 +5,10 @@ extends Label
 ## instance (Backend.test_server_active), so nobody mistakes it for production.
 
 static func attach(parent: Node) -> void:
-	if not (Backend.test_server_active or Build.is_beta()) or parent.has_node("TestServerBadge"):
+	# only a debug build pointed at the test server is marked, and never with the server's address (ServerPrivacy)
+	if not (Backend.test_server_active and OS.is_debug_build()) or parent.has_node("TestServerBadge"):
 		return
-	var text := ("TEST SERVER  //  %s" if Backend.test_server_active else "BETA  //  %s") % Backend.base_url.trim_prefix("http://")
+	var text := "TEST SERVER"
 	if parent is HUD:
 		(parent as HUD).status_bar.set_segment("env", text, "env")
 		return

@@ -123,12 +123,37 @@ func _expect_xr_hands(controller: PlayerController3D) -> void:
 	controller.first_person_items.visible = items_visible
 
 
+## XR head follow (XRComfort.follow_head): a headset 0.6 m beside the body pulls the body after it in open space and
+## always brings the view back over the body.
+func _expect_xr_head_follow(controller: PlayerController3D) -> void:
+	var comfort := XRComfort.new()
+	comfort.player = controller
+	comfort.origin = controller.xr_origin
+	comfort.camera = controller.xr_camera
+	var start := controller.global_position
+	var origin_start := controller.xr_origin.position
+	controller.xr_camera.position = Vector3(0.6, 1.4, 0)
+	comfort.follow_head(false)
+	var offset := controller.xr_camera.global_position - controller.global_position
+	if Vector2(offset.x, offset.z).length() > 0.02 or not controller.global_position.is_equal_approx(start):
+		_fail("the XR view is not pulled back over a body that must not move (offset %s)" % offset)
+	controller.xr_origin.position = origin_start
+	controller.global_position = start
+	controller.xr_camera.position = Vector3.ZERO
+	comfort.free()
+
+
 func _expect_xr(route: Node) -> void:
 	var controller: PlayerController3D = route.player
 	if controller.xr_origin == null or controller.xr_camera == null \
 			or controller.xr_left == null or controller.xr_right == null:
 		_fail("the route player is missing its OpenXR origin/camera/controllers")
 		return
+	# OpenXR names its controller trackers left_hand / right_hand (a /user/hand/... path never tracks).
+	if controller.xr_left.tracker != &"left_hand" or controller.xr_right.tracker != &"right_hand" \
+			or controller.xr_left.pose != &"default" or controller.xr_right.pose != &"default":
+		_fail("the XR controllers listen to %s/%s %s/%s instead of left_hand/right_hand with the default pose" % [
+			controller.xr_left.tracker, controller.xr_left.pose, controller.xr_right.tracker, controller.xr_right.pose])
 	if controller.first_person_items == null or controller.flashlight_view == null \
 			or controller.taser_view == null:
 		_fail("the desktop first-person camera is missing its held equipment view")
@@ -152,6 +177,14 @@ func _expect_xr(route: Node) -> void:
 	_expect_controller_bindings()
 	_expect_keyboard_look(controller)
 	_expect_xr_hands(controller)
+	_expect_xr_head_follow(controller)
+	# A headset without a tracked right / left hand aims [E] and the flashlight with the head.
+	controller.xr_active = true
+	var head_aim := controller.interaction_aim().is_equal_approx(controller.xr_camera.global_transform)
+	var lamp_aim := controller.equipment_aim_direction().is_equal_approx(-controller.xr_camera.global_basis.z.normalized())
+	controller.xr_active = false
+	if not head_aim or not lamp_aim:
+		_fail("without tracked hands the headset does not aim [E] (%s) and the flashlight (%s) from the head" % [head_aim, lamp_aim])
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:
@@ -161,8 +194,11 @@ func _expect_xr(route: Node) -> void:
 		if not is_equal_approx(controller._flashlight_probe.target_position.z,
 				-PlayerController3D.FLASHLIGHT_MAX_RANGE):
 			_fail("the flashlight ray does not cover the beam range")
-	if not controller.flashlight.shadow_enabled:
-		_fail("the flashlight does not cast wall/prop shadows")
+	# Quality tiers: the flashlight casts shadows on every desktop tier but LOW (QualityTier); judge it per the live tier.
+	if PlatformProfile.shadows and not controller.flashlight.shadow_enabled:
+		_fail("the flashlight does not cast wall/prop shadows (tier %s keeps shadows)" % PlatformProfile.tier_readout())
+	if not PlatformProfile.shadows and controller.flashlight.shadow_enabled:
+		_fail("the flashlight casts shadows on tier %s, which drops them" % PlatformProfile.tier_readout())
 	var beam_color := controller.flashlight.light_color
 	var beam_color_error := maxf(absf(beam_color.r - 1.0), maxf(
 		absf(beam_color.g - 1.0), absf(beam_color.b - 1.0)))

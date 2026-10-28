@@ -54,7 +54,7 @@ const ANCHORED := {
 		"MetersPanel": ["left", "right", "bottom"],
 		"FpsLabel": ["left", "top"],
 		"HotbarPanel": ["hcentre", "bottom"],
-		"InteractionLabel": ["hcentre", "bottom"],
+		"InteractionLabel": ["hcentre", "vcentre"],   # just under the crosshair
 		"MessageLabel": ["hcentre", "top"],
 		"MapOverlay": ["hcentre", "vcentre"],
 		"EscapeOverlay": ["hcentre", "vcentre"],
@@ -313,8 +313,9 @@ func _check_update_progress_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("update progress failure has no retry action")
-	if continue_button == null or not continue_button.visible:
-		failures += _fail("update progress failure has no explicit offline test path")
+	# the update gate (KT): no CONTINUE OFFLINE past an available update, RETRY only
+	if continue_button != null and continue_button.visible:
+		failures += _fail("update progress failure offers a way past the update")
 	if retry != null:
 		retry.visible = false
 	if continue_button != null:
@@ -323,8 +324,8 @@ func _check_update_progress_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("update progress treats a helper-launch failure as a successful apply")
-	if continue_button == null or not continue_button.visible:
-		failures += _fail("update progress helper-launch failure has no offline test path")
+	if continue_button != null and continue_button.visible:
+		failures += _fail("update progress helper-launch failure offers a way past the update")
 	if retry != null:
 		retry.visible = false
 	if continue_button != null:
@@ -525,10 +526,11 @@ func _check_main_menu_contract(scene: Node) -> int:
 		if scene.find_child(heading, true, false) == null:
 			failures += _fail("Settings is missing its %s category" % heading)
 	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
-	if settings_tabs == null or settings_tabs.tab_count != 3 \
+	if settings_tabs == null or settings_tabs.tab_count != 4 \
 			or settings_tabs.get_tab_title(0) != "AUDIO" \
 			or settings_tabs.get_tab_title(1) != "DISPLAY" \
-			or settings_tabs.get_tab_title(2) != "CONTROLS":
+			or settings_tabs.get_tab_title(2) != "CONTROLS" \
+			or settings_tabs.get_tab_title(3) != "SKIN":
 		failures += _fail("Settings categories do not use the shared tab treatment")
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:

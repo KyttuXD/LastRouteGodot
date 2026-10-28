@@ -10,7 +10,8 @@ extends RefCounted
 ## Use the Minecraft-style block rebuilds (BlockyPropModels) where they exist.
 const USE_BLOCKY_PROPS := true
 
-const MODEL_PATHS := {
+## Read MODEL_PATHS, not this: ContentRegistry.DATA entries come from res://data/props (docs/DATA_DRIVEN_CONTENT.md).
+const _CODE_MODEL_PATHS := {
 	## Mansion pieces (tools/props/blocky_props_mansion.py), blocky-only.
 	"mansionMarbleColumn": ["res://art/props-3d/props/blocky/mansionMarbleColumn.glb"],
 	"mansionPorcelainVase": ["res://art/props-3d/props/blocky/mansionPorcelainVase_0.glb", "res://art/props-3d/props/blocky/mansionPorcelainVase_1.glb", "res://art/props-3d/props/blocky/mansionPorcelainVase_2.glb"],
@@ -36,56 +37,16 @@ const MODEL_PATHS := {
 		"res://art/props-3d/props/maze/arcade_cabinet_cyan_magenta.glb",
 	],
 	"filingCabinet": ["res://art/props-3d/props/maze/filing_cabinet.glb"],
-	"officeDesk": [
-		"res://art/props-3d/props/maze/office_desk.glb",
-		"res://art/props-3d/props/maze/office_desk_charcoal.glb",
-		"res://art/props-3d/props/maze/office_desk_teal.glb",
-	],
-	"officeChair": [
-		"res://art/props-3d/props/maze/office_task_chair.glb",
-		"res://art/props-3d/props/maze/office_task_chair_charcoal.glb",
-		"res://art/props-3d/props/maze/office_task_chair_teal.glb",
-	],
-	"officeCrtSecurityConsole": [
-		"res://art/props-3d/props/maze/office_crt_security_console.glb",
-		"res://art/props-3d/props/maze/office_crt_security_console_charcoal.glb",
-		"res://art/props-3d/props/maze/office_crt_security_console_teal.glb",
-	],
-	"officeCubiclePartition": [
-		"res://art/props-3d/props/maze/office_cubicle_partition.glb",
-		"res://art/props-3d/props/maze/office_cubicle_partition_charcoal.glb",
-		"res://art/props-3d/props/maze/office_cubicle_partition_teal.glb",
-	],
-	"officePrinter": [
-		"res://art/props-3d/props/maze/office_printer.glb",
-		"res://art/props-3d/props/maze/office_printer_charcoal.glb",
-		"res://art/props-3d/props/maze/office_printer_teal.glb",
-	],
-	"officeWaterCooler": [
-		"res://art/props-3d/props/maze/office_water_cooler.glb",
-		"res://art/props-3d/props/maze/office_water_cooler_charcoal.glb",
-		"res://art/props-3d/props/maze/office_water_cooler_teal.glb",
-	],
-	"officePhotocopier": [
-		"res://art/props-3d/props/maze/office_photocopier.glb",
-		"res://art/props-3d/props/maze/office_photocopier_charcoal.glb",
-		"res://art/props-3d/props/maze/office_photocopier_teal.glb",
-	],
-	"officeShredder": [
-		"res://art/props-3d/props/maze/office_shredder.glb",
-		"res://art/props-3d/props/maze/office_shredder_charcoal.glb",
-		"res://art/props-3d/props/maze/office_shredder_teal.glb",
-	],
-	"officeFileBoxes": [
-		"res://art/props-3d/props/maze/office_file_boxes.glb",
-		"res://art/props-3d/props/maze/office_file_boxes_charcoal.glb",
-		"res://art/props-3d/props/maze/office_file_boxes_teal.glb",
-	],
-	"officeCornerWorkstation": [
-		"res://art/props-3d/props/maze/office_corner_workstation.glb",
-		"res://art/props-3d/props/maze/office_corner_workstation_charcoal.glb",
-		"res://art/props-3d/props/maze/office_corner_workstation_teal.glb",
-	],
+	"officeDesk": ContentRegistry.DATA,
+	"officeChair": ContentRegistry.DATA,
+	"officeCrtSecurityConsole": ContentRegistry.DATA,
+	"officeCubiclePartition": ContentRegistry.DATA,
+	"officePrinter": ContentRegistry.DATA,
+	"officeWaterCooler": ContentRegistry.DATA,
+	"officePhotocopier": ContentRegistry.DATA,
+	"officeShredder": ContentRegistry.DATA,
+	"officeFileBoxes": ContentRegistry.DATA,
+	"officeCornerWorkstation": ContentRegistry.DATA,
 	"arcadeBasketballHoop": ["res://art/props-3d/props/maze/arcade_basketball_hoop.glb"],
 	"arcadeCarpetCircle": ["res://art/props-3d/props/maze/arcade_carpet_circle.glb"],
 	"arcadeCarpetRunner": ["res://art/props-3d/props/maze/arcade_carpet_runner.glb"],
@@ -563,6 +524,10 @@ const MODEL_PATHS := {
 	"ringTossStall": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
 	"strengthTester": ["res://art/props-3d/props/carnival/strength_tester.glb"],
 	"circusPedestal": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
+	# the other playable booths (CarnivalBooths) reuse a stall / pedestal body; their game board is the booth node's (docs/CARNIVAL_BOOTHS.md)
+	"shootingGallery": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"whackAMole": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"duckPond": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
 	"carouselCenterpiece": [
 		"res://art/props-3d/props/carnival/carousel_centerpiece.glb",
 	],
@@ -734,14 +699,11 @@ const LIGHT_PROFILES := {
 ## Coordinated furniture families share the same room id. Hash that room id,
 ## rather than each prop index independently, so wood furniture, computers,
 ## and themed bedroom sets never receive mismatched finishes inside one room.
-const COORDINATED_SET_TYPES := [
+const _CODE_COORDINATED_SET_TYPES := [
 	"woodenChair", "woodenChairCushion", "woodenTable",
 	"woodenDresserSideboard", "retroComputerCompact",
 	"retroComputerTower", "retroComputerDesktop", "retroComputerTerminal",
-	"officeDesk", "officeChair", "officeCrtSecurityConsole",
-	"officeCubiclePartition", "officePrinter", "officeWaterCooler",
-	"officePhotocopier", "officeShredder", "officeFileBoxes",
-	"officeCornerWorkstation",
+	ContentRegistry.DATA + ":office",
 	"singleBed", "doubleBed", "bedroomNightstand", "bedroomWardrobe",
 	"bedroomDresser", "bedroomVanity", "vanityStool", "bedsideLamp",
 	"toyChest", "laundryHamper", "bedroomRug", "bedroomWallClock",
@@ -756,7 +718,7 @@ const COORDINATED_SET_TYPES := [
 ## Families with the same four/six labels deliberately share ordering: hashing
 ## one room id therefore gives every member of a given four- or six-variant
 ## family the same indexed finish even when their individual prop ids differ.
-const VARIANT_THEMES := {
+const _CODE_VARIANT_THEMES := {
 	"woodenChair": ["oak", "walnut", "mahogany", "ash"],
 	"woodenChairCushion": ["oak", "walnut", "mahogany", "ash"],
 	"woodenTable": ["oak", "walnut", "mahogany", "ash"],
@@ -765,16 +727,16 @@ const VARIANT_THEMES := {
 	"retroComputerTower": ["ivory", "charcoal", "teal", "burgundy"],
 	"retroComputerDesktop": ["ivory", "charcoal", "teal", "burgundy"],
 	"retroComputerTerminal": ["ivory", "charcoal", "teal", "burgundy"],
-	"officeDesk": ["neutral", "charcoal", "teal"],
-	"officeChair": ["neutral", "charcoal", "teal"],
-	"officeCrtSecurityConsole": ["neutral", "charcoal", "teal"],
-	"officeCubiclePartition": ["neutral", "charcoal", "teal"],
-	"officePrinter": ["neutral", "charcoal", "teal"],
-	"officeWaterCooler": ["neutral", "charcoal", "teal"],
-	"officePhotocopier": ["neutral", "charcoal", "teal"],
-	"officeShredder": ["neutral", "charcoal", "teal"],
-	"officeFileBoxes": ["neutral", "charcoal", "teal"],
-	"officeCornerWorkstation": ["neutral", "charcoal", "teal"],
+	"officeDesk": ContentRegistry.DATA,
+	"officeChair": ContentRegistry.DATA,
+	"officeCrtSecurityConsole": ContentRegistry.DATA,
+	"officeCubiclePartition": ContentRegistry.DATA,
+	"officePrinter": ContentRegistry.DATA,
+	"officeWaterCooler": ContentRegistry.DATA,
+	"officePhotocopier": ContentRegistry.DATA,
+	"officeShredder": ContentRegistry.DATA,
+	"officeFileBoxes": ContentRegistry.DATA,
+	"officeCornerWorkstation": ContentRegistry.DATA,
 	"singleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
 	"doubleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
 	"bedroomNightstand": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
@@ -789,6 +751,11 @@ const VARIANT_THEMES := {
 	"bedroomWallClock": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
 	"bedroomBench": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
 }
+
+## The tables above with their res://data/props entries filled in (`"@data:<family>"` splices a family's coordinated ids).
+static var MODEL_PATHS: Dictionary = ContentRegistry.resolve(_CODE_MODEL_PATHS, "props", "models")
+static var COORDINATED_SET_TYPES: Array = ContentRegistry.splice(_CODE_COORDINATED_SET_TYPES, "coordinated")
+static var VARIANT_THEMES: Dictionary = ContentRegistry.resolve(_CODE_VARIANT_THEMES, "props", "themes")
 
 
 static func has_model(type: String) -> bool:
@@ -822,6 +789,19 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 	"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard", "diveHeadsetShelf",
 	"hazardSign", "menuBoard", "donutSign", "cinemaScreen",
 ]
+
+
+## Walkable decks authored with their walking surface at the model origin
+## (z = 0 in the builder) and structure hanging below it: spawned at the cell's
+## floor height as authored, never seated on their lowest point, so the deck
+## top is flush with the floor collider under it (girders reach down into the
+## channel trench). Seating the sewer bridge on its bearings raised the deck
+## 0.6 m above the walkway and runners walked through it.
+const DECK_TYPES := ["sewerBridge", "sewerGrateDeck"]
+
+
+static func keeps_authored_pivot(type: String) -> bool:
+	return DECK_TYPES.has(type)
 
 
 static func is_floor_dressing(type: String) -> bool:
@@ -910,13 +890,23 @@ static func visual_y(type: String, wall_height: float, mount_y: float = 0.0) -> 
 	return 0.0
 
 
+
+## Whether the view may batch repeated placements of `type` into one MultiMesh (docs/DATA_DRIVEN_CONTENT.md).
+## A prop's data `batchable` wins; otherwise pure dressing is batchable, doors and anything with an interaction are not.
+static func is_batchable(type: String) -> bool:
+	var def := ContentRegistry.get_def("props", type)
+	if def.has("batchable"):
+		return bool(def["batchable"])
+	return interaction_for(type).is_empty() and not is_room_door(type)
+
+
 ## Turn decorative furniture into a gameplay surface without coupling the
 ## generator to model filenames. An empty result remains ordinary dressing.
 static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
 	if type == "carouselCenterpiece":
 		return "ride"
-	if type in ["ringTossStall", "strengthTester"]:
+	if CarnivalBooths.is_booth(type):
 		return "play"
 	if type.begins_with("retroComputer"):
 		return "use"

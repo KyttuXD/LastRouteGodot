@@ -57,6 +57,10 @@ var gimmick: HunterGimmick
 var difficulty_id := "standard"
 ## The floor's relay count as of the last update (Gray's pressure resets when it rises).
 var relays_seen := 0
+## Hard-mode abilities (null on Relaxed or for a hunter without any): see HardAbilities.
+var hard: HardAbilities
+## Optional Callable(position: Vector2, radius: float) -> bool: true when a level link (ladder, stairs, manhole, grate, elevator, drop) is within `radius` cells.
+var near_link: Callable = Callable()
 var difficulty_profile: Dictionary = GameConfig.DIFFICULTY_PROFILES["standard"]
 
 ## Changes a gimmick made to the shared world, for the scene above to drain.
@@ -74,6 +78,8 @@ var facing := Vector2(0, 1)
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
+## Chasing a trolled cheater (RemotePlayers.troll_peers): a little faster.
+var troll_target := false
 var chase_speed: float
 var chase_progression_scale: float
 var sight_range: float
@@ -136,6 +142,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 	difficulty_id = route_difficulty if GameConfig.DIFFICULTY_PROFILES.has(
 		route_difficulty) else "standard"
 	difficulty_profile = GameConfig.difficulty_profile(difficulty_id)
+	hard = HardAbilities.for_brain(self)
 	gimmick = HunterGimmick.for_id(id)
 	var identity := HunterRoster.get_identity(id)
 	base_speed = identity["base_speed"]
@@ -173,6 +180,7 @@ func _tick_emote(delta: float) -> void:
 
 
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	troll_target = bool(target.get("troll", false))
 	relays_seen = relays_collected
 	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
@@ -189,6 +197,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 
 	var target_position: Vector2 = target["position"]
 	var target_hidden: bool = target.get("hidden", false)
+	var ignoring_hider := _camp_guard(delta, target_position, target_hidden)
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
@@ -198,12 +207,15 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 		gimmick.before_perception(self, delta, target, generator)
 
 	_update_beam_attention(delta, generator, target)
-	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
+	if not ignoring_hider:
+		_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
 	var before_move := position
-	_update_movement(delta, generator, depth, relays_collected)
+	var leap_drives := hard != null and hard.update(self, delta, generator, target)
+	if not leap_drives:
+		_update_movement(delta, generator, depth, relays_collected)
 	_note_displacement(delta, position.distance_to(before_move))
 
 	# Account/room-proof authorization belongs to the owning gameplay scene,
@@ -214,7 +226,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	var may_grab_hidden := target_hidden and gimmick != null and gimmick.breaches_hiding() \
 		and has_last_known and last_known.distance_to(target_position) < 0.9
 	if (not target_hidden or may_grab_hidden) and not target_in_safe_zone \
-			and not (gimmick and gimmick.immune_to_capture()):
+			and not (gimmick and gimmick.immune_to_capture()) and not (hard != null and hard.blocks_capture()):
 		# the catch reach keeps the tuned pre-scale footprint: a bigger body must not catch from further away
 		var reach := (GameConfig.PLAYER_RADIUS + GameConfig.HUNTER_CATCH_RADIUS) \
 			* GameConfig.CAPTURE_DISTANCE_SCALE \
@@ -232,6 +244,8 @@ func update_without_target(delta: float, generator,
 		depth: int, relays_collected: int) -> void:
 	relays_seen = relays_collected
 	_tick_emote(delta)
+	if hard != null:
+		hard.cancel()
 	if not active:
 		return
 	if stun_timer > 0.0:
@@ -280,20 +294,70 @@ func head_to(point: Vector2, delta: float, generator, depth: int, relays_collect
 	return position.distance_to(point) <= ARRIVAL_DISTANCE
 
 
+## Anti-camp guard: no hunter stays within CAMP_RADIUS of the same hidden runner for more than the mode's camp_limit seconds
+## without leaving. Time spent stunned (the hide-check tell) does not count. After leaving she ignores that hidden runner for
+## CAMP_COOLDOWN seconds (the hide check's own cooldown covers the spot), wanders off and searches elsewhere.
+## Returns true while she is ignoring the hidden runner (the caller skips perception that frame).
+const CAMP_RADIUS := 2.0
+const CAMP_COOLDOWN := 30.0
+const CAMP_LEAVE_DISTANCE := 12.0
+var camp_time := 0.0
+var camp_cooldown := 0.0
+var camp_leaves := 0
+
+
+func _camp_guard(delta: float, target_position: Vector2, target_hidden: bool) -> bool:
+	camp_cooldown = maxf(0.0, camp_cooldown - delta)
+	if not target_hidden or position.distance_to(target_position) > CAMP_RADIUS:
+		camp_time = maxf(0.0, camp_time - delta * 2.0)
+		return false
+	if camp_cooldown > 0.0:
+		return true
+	camp_time += delta
+	if camp_time <= float(difficulty_profile.get("camp_limit", 12.0)):
+		return false
+	camp_time = 0.0
+	camp_cooldown = CAMP_COOLDOWN
+	camp_leaves += 1
+	state = State.WANDER
+	has_last_known = false
+	has_search_target = false
+	direct_chase_visible = false
+	lost_sight_timer = 0.0
+	_path.clear()
+	_has_path_target = false
+	var away := (position - target_position).normalized() if position.distance_to(target_position) > .05 else Vector2.RIGHT
+	wander_target = position + away * CAMP_LEAVE_DISTANCE
+	has_wander_target = true
+	return true
+
+
+## The director's nudge: investigate `point` (a wandering hunter given somewhere to go). Never used on a chasing hunter.
+func direct_to(point: Vector2) -> void:
+	state = State.INVESTIGATE
+	has_last_known = true
+	last_known = point
+	_path.clear()
+	_has_path_target = false
+	direct_chase_visible = false
+
+
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
 ## `duration` seconds. Used after a broken grip (hunter-ai.js's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).
 ## Pure rule, shared with the validator: a hunter that is hunting (not wandering), whose last sighting is within
 ## HIDE_CHECK_TRAIL of the spot, and that has reached it.
 static func hide_check_triggers(state: int, has_last_known: bool, last_known: Vector2, hunter_at: Vector2,
-		spot_centre: Vector2) -> bool:
+		spot_centre: Vector2, trail: float = GameConfig.HIDE_CHECK_TRAIL) -> bool:
 	if state not in [State.CHASE, State.SEARCH, State.INVESTIGATE]:
 		return false
-	return has_last_known and last_known.distance_to(spot_centre) <= GameConfig.HIDE_CHECK_TRAIL \
+	return has_last_known and last_known.distance_to(spot_centre) <= trail \
 		and hunter_at.distance_to(spot_centre) <= GameConfig.HIDE_CHECK_REACH
 
 
 func apply_stun(duration: float) -> void:
+	if hard != null:
+		hard.cancel()
 	stun_timer = maxf(stun_timer, duration)
 	_path.clear()
 	_has_path_target = false
@@ -484,7 +548,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 	elif state == State.CHASE:
 		direct_chase_visible = _ability_direct_sight
 		lost_sight_timer += GameConfig.HUNTER_SENSE_INTERVAL
-		if lost_sight_timer > GameConfig.HUNTER_LOST_SIGHT_GRACE:
+		if lost_sight_timer > float(difficulty_profile["lost_sight_grace"]):
 			state = State.INVESTIGATE
 			direct_chase_visible = false
 	else:
@@ -493,7 +557,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 
 func _update_stamina(delta: float) -> void:
 	if state == State.CHASE:
-		stamina = maxf(0.0, stamina - GameConfig.HUNTER_STAMINA_CHASE_DRAIN * delta)
+		stamina = maxf(0.0, stamina - float(difficulty_profile["stamina_drain"]) * delta)
 		if stamina <= 0.0:
 			winded = true
 	else:
@@ -556,7 +620,7 @@ func _handle_arrival(generator) -> void:
 			has_wander_target = false
 		State.CHASE, State.INVESTIGATE:
 			state = State.SEARCH
-			search_timer = GameConfig.HUNTER_SEARCH_TIME
+			search_timer = float(difficulty_profile["search_time"])
 			search_visits = 0
 			search_target = _pick_search_target(generator)
 			has_search_target = true
@@ -579,6 +643,10 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed *= GameConfig.HUNTER_WINDED_SPEED_SCALE
 	if gimmick:
 		speed *= gimmick.speed_scale(self)
+	if hard != null:
+		speed *= hard.speed_scale()
+	if troll_target:
+		speed *= GameConfig.TROLL_HUNTER_SPEED_SCALE
 	return speed * float(difficulty_profile["hunter_speed"])
 
 
@@ -631,7 +699,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 			if state == State.CHASE or state == State.INVESTIGATE:
 				has_last_known = false
 				state = State.SEARCH
-				search_timer = GameConfig.HUNTER_SEARCH_TIME
+				search_timer = float(difficulty_profile["search_time"])
 				search_visits = 0
 				search_target = _pick_search_target(generator)
 				has_search_target = true
@@ -810,6 +878,19 @@ func _pick_wander_target(generator) -> Vector2:
 
 
 func _pick_search_target(generator) -> Vector2:
+	# Hard / Nightmare / (rarely) Normal: sometimes search the hiding spot nearest the last sighting instead of a random point beside it.
+	var hide_chance := float(difficulty_profile.get("hide_random", 0.0))
+	if hide_chance > 0.0 and "hiding_spots" in generator and _rng.next_float() < hide_chance:
+		var best := INF
+		var best_point := Vector2.INF
+		for spot in generator.hiding_spots:
+			var centre := Vector2(float(spot["x"]) + .5, float(spot["y"]) + .5)
+			var gap := centre.distance_to(last_known)
+			if gap < best and gap <= 8.0 and centre.distance_to(position) > 0.5:
+				best = gap
+				best_point = centre
+		if best_point != Vector2.INF and not generator.find_path(_cell_of(position), _cell_of(best_point)).is_empty():
+			return best_point
 	var offsets: Array = [Vector2(3, 0), Vector2(-3, 0), Vector2(0, 3), Vector2(0, -3), Vector2(2, 2), Vector2(-2, 2), Vector2(2, -2), Vector2(-2, -2)]
 	for i in range(offsets.size() - 1, 0, -1):
 		var swap_index := _rng.next_index(i + 1)
@@ -862,6 +943,9 @@ func next_random_index(exclusive_max: int) -> int:
 var beam_attention := 0.0
 var beam_alerted := false
 var flash_triggered := false
+## A new flash needs the beam to have been let go (attention back to 0). A hunter walking into the player wobbles on the
+## edge of the cone; a one-frame gap must not count as a second flash.
+var _flash_armed := true
 
 
 func _update_beam_attention(delta: float, generator, target: Dictionary) -> void:
@@ -876,7 +960,11 @@ func _update_beam_attention(delta: float, generator, target: Dictionary) -> void
 	else:
 		beam_attention = maxf(0.0, previous - delta * GameConfig.BEAM_ATTENTION_DECAY)
 	beam_alerted = lit and beam_attention >= GameConfig.BEAM_ATTENTION_TIME
-	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME
+	if beam_attention <= 0.0:
+		_flash_armed = true
+	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME and _flash_armed
+	if flash_triggered:
+		_flash_armed = false
 
 
 func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator) -> bool:

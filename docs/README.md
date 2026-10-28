@@ -36,6 +36,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [HUNTER_PARITY.md](HUNTER_PARITY.md) — 2D vs 3D hunter mechanics audit and what was ported
 - [DEATH_SCENES.md](DEATH_SCENES.md) — death lines catalog, the death moment, wipe variant
 - [GAME_SCHEMES.md](GAME_SCHEMES.md) — per-game colour/style schemes for the shared menus (Last Route vs the City)
+- [DESKTOP_UPDATES.md](DESKTOP_UPDATES.md) — macOS/Windows self-update: rule, confirm, swap, rollback, publish steps
 - [HUD_LAYOUT.md](HUD_LAYOUT.md) — in-game HUD: status bar, content-sized panels, safe margins, chat collapse, hud_overlap suite
 - [GAME_HUB.md](GAME_HUB.md) — hub shell, game registry, themes, Night Watch 3D port plan
 - [PROPS_AUDIT.md](PROPS_AUDIT.md) — props audits (DONE11 chairs and tables, DONE13 rotated parts and weak families, DONE14 materials and finishes, DONE16 performance), measured sizes, fixes, contact sheets
@@ -45,6 +46,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [MANSION_LUXURY.md](MANSION_LUXURY.md) — mansion finishes (lacquer, marble, velvet, gilt) for the ordinary furniture types, columns and vases, bed scale fix, before/after
 - [REST_AND_SLEEP.md](REST_AND_SLEEP.md) — rest camera on chairs and beds (what was wrong, the fix), runner sleep and solo drowsiness, hunter naps
 - [LIGHT_SWITCHES.md](LIGHT_SWITCHES.md) — room light switches in the streamed world: lamps per room, light sight, persistence, co-op, hunters
+- [PROP_ORIENTATION.md](PROP_ORIENTATION.md) — pairing table: what faces what, backs to walls, seats in front of screens; before/after
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators

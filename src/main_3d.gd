@@ -148,6 +148,7 @@ func _ready() -> void:
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -301,6 +302,7 @@ func _update_gameplay(delta: float) -> void:
 	# not-yet-updated sibling, then have that sibling's own update() overwrite
 	# it right back a moment later.
 	var facility_alerts: Array = []
+	_direct_hunters(delta, local_target, generator)
 	for view in hunter_views:
 		var selected := _remotes.best_target(view.brain.position,
 			local_target, GameState.depth)
@@ -441,6 +443,20 @@ func _local_hunter_target() -> Dictionary:
 ## RPC dictionaries cannot contain RefCounted objects. Remote meter values are
 ## reconstructed into the same shape hunter gimmicks expect; a baseline lets
 ## us turn host-side mutations of that copy into targeted owner events.
+var _hunter_director: HunterDirector
+
+
+## Hunters work together on every mode (HunterDirector): share sightings, split into small teams, spread out, cap per runner.
+func _direct_hunters(delta: float, local_target: Dictionary, generator) -> void:
+	if _hunter_director == null or _hunter_director.mode_id != RoomState.difficulty_id():
+		_hunter_director = HunterDirector.new(RoomState.difficulty_id(), "%s-director" % str(RoomState.seed_text if "seed_text" in RoomState else "ROUTE"))
+	var entries: Array = []
+	for view in hunter_views:
+		var selected := _remotes.best_target(view.brain.position, local_target, GameState.depth)
+		entries.append({"id": str(view.get_instance_id()), "brain": view.brain, "target": selected})
+	_hunter_director.tick(delta, entries, generator)
+
+
 func _target_with_runtime(source: Dictionary) -> Dictionary:
 	var target := source.duplicate(true)
 	if not target.has("meters"):
@@ -540,6 +556,7 @@ func _collect_hunter_report() -> void:
 			"wake": wake,
 			"gimmick": view.brain.gimmick.network_state()
 				if view.brain.gimmick != null else {},
+			"hard": view.brain.hard.network_state() if view.brain.hard != null else {},
 		})
 
 
@@ -1037,7 +1054,7 @@ func _resolve_escape_success() -> void:
 		})
 	elif capturing_view:
 		capturing_view.brain.enter_search_from(new_pos, 1.8)
-		capturing_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+		capturing_view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 		capturing_view.sync_from_brain()
 
 	hud.show_message("You broke free!")
@@ -1156,10 +1173,10 @@ func _leave_after_report() -> void:
 	elif RoomState.online:
 		RoomState.status_message = "LEFT THE ROUTE"
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 	else:
 		RoomState.session_active = false
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _update_hud() -> void:
@@ -1559,6 +1576,8 @@ func _apply_hunters(data: Array) -> void:
 			var gimmick_state = entry.get("gimmick", {})
 			if gimmick_state is Dictionary:
 				view.brain.gimmick.apply_network_state(gimmick_state)
+		if view.brain.hard != null and entry.get("hard") is Dictionary:
+			view.brain.hard.apply_network_state(entry["hard"])
 		view.sync_from_brain()
 
 
@@ -1696,7 +1715,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var at = event.get("at")
 			if view and at is Vector2:
 				view.brain.enter_search_from(at, 1.8)
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 				view.sync_from_brain()
 		"caught":
 			# The remote state packet marks this runner game-over; no hunter reset
@@ -1721,7 +1740,7 @@ func _resolve_taser_request(peer_id: int) -> void:
 	var now := Time.get_ticks_usec()
 	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
 		return
-	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
 	if target.is_empty() or bool(target.get("hidden", false)) \
 			or bool(target.get("game_over", false)):
@@ -1747,13 +1766,13 @@ func _resolve_taser_request(peer_id: int) -> void:
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "TASER // NO TARGET"})
 		return
-	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 	hit.sync_from_brain()
 	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
 	_remotes.send_player_event(peer_id, {"what": "message",
 		"message": "TASER HIT // %s STUNNED %.1fs" % [
 			String(identity.get("display_name", hit.brain.hunter_id)).to_upper(),
-			GameConfig.TASER_STUN_SECONDS]})
+			GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun")]})
 
 
 ## Something the local player did that the room shares. Sent as-is; the effect
@@ -2029,7 +2048,7 @@ func _on_abandoned() -> void:
 		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
 	else:
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _on_pause_opened() -> void:

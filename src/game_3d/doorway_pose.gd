@@ -34,6 +34,8 @@ const BONES := ["Pelvis", "Belly", "Chest", "Head", "L-Thigh", "L-Calf", "L-Foot
 
 var turn := 0.0
 var duck := 0.0
+## Arms and stride calmed without turning (a wide door with less than WIDE_SIDE_ROOM to spare at the shoulders).
+var tuck := 0.0
 ## Measured on bind, in the model's parent space (metres): rest top, top at a full duck, rest width (x) and depth (z).
 var rest_height := 0.0
 var duck_height := 0.0
@@ -41,6 +43,7 @@ var rest_width := 0.0
 var rest_depth := 0.0
 
 var _model: Node3D
+var _want_tuck := 0.0
 var _bones := {}
 var _extras: Array[String] = []
 ## Chains swept to lie along her way while she is side-on: name -> {"parent", "angle" (rest heading in the parent)}.
@@ -65,6 +68,7 @@ func bind(model: Node3D) -> void:
 	_head_offset = 0.0
 	_head_offset_ducked = 0.0
 	_head_back = 1.0
+	tuck = 0.0
 	for bone in BONES:
 		var node := model.find_child(bone, true, false) as Node3D
 		if node != null:
@@ -158,6 +162,7 @@ func wanted(frame: Dictionary, local_along: float) -> Vector2:
 	if near <= 0.0:
 		return Vector2.ZERO
 	var want_turn := 1.0 if rest_width + DoorwayFrames.SIDE_ROOM * 2.0 > float(frame["width"]) else 0.0
+	_want_tuck = near if want_turn == 0.0 and rest_width + DoorwayFrames.WIDE_SIDE_ROOM * 2.0 > float(frame["width"]) else 0.0
 	var excess := rest_height + DoorwayFrames.HEADROOM + DUCK_SPARE - float(frame["height"])
 	var gain := maxf(rest_height - duck_height, .01)
 	var want_duck := clampf(excess / gain, 0.0, 1.0) if excess > 0.0 else 0.0
@@ -183,11 +188,12 @@ func update(delta: float, frame: Dictionary, local_along: float) -> void:
 	var want := wanted(frame, local_along)
 	turn = maxf(want.x, move_toward(turn, want.x, delta * RELEASE_SPEED))
 	duck = maxf(want.y, move_toward(duck, want.y, delta * RELEASE_SPEED))
-	if turn > .001 or duck > .001:
-		_write(turn, duck)
+	tuck = maxf(_want_tuck, move_toward(tuck, _want_tuck, delta * RELEASE_SPEED))
+	if turn > .001 or duck > .001 or tuck > .001:
+		_write(turn, duck, tuck)
 
 
-func _write(turn_w: float, duck_w: float) -> void:
+func _write(turn_w: float, duck_w: float, tuck_w: float = 0.0) -> void:
 	if _bones.is_empty():
 		return
 	for entry_value in _bones.values():
@@ -195,7 +201,7 @@ func _write(turn_w: float, duck_w: float) -> void:
 		var node: Node3D = entry["node"]
 		entry["pre_q"] = node.quaternion
 		entry["pre_p"] = node.position
-	var calm := (1.0 - SWING_KEEP) * maxf(turn_w, duck_w * .6)
+	var calm := (1.0 - SWING_KEEP) * maxf(maxf(turn_w, duck_w * .6), tuck_w)
 	var still := maxf(turn_w, duck_w * .6)
 	var knee := KNEE * duck_w
 	# the clip's hip sway and bob are calmed too, so she keeps to the middle of the opening

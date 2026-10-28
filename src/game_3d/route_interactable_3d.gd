@@ -128,6 +128,8 @@ var activation_override: Callable
 ## becoming a shared mutable world object. Carnival games remain personal and
 ## deterministic; the carousel uses the same replicated resting pose as seats.
 var furniture_action := ""
+## Carnival booths: the live prompt (the game's name, the cooldown, "in use"); empty Callable = the generic one.
+var prompt_resolver: Callable
 ## Lets the controller replace routine failure text with one consistent sound
 ## without guessing from the wording returned by every interaction kind.
 var last_activation_failed := false
@@ -233,6 +235,13 @@ func _process(delta: float) -> void:
 		_update_search_tell(delta)
 		return
 	if kind != Kind.ROOM_DOOR or _door_hinge == null:
+		# Nothing to animate: stop ticking (hundreds of streamed interactables each cost a call every frame on a
+		# phone or the Quest). play_search_tell and apply_room_door_state switch processing back on.
+		set_process(false)
+		return
+	if absf(angle_difference(_door_hinge.rotation.y, _door_target_y)) < .001 \
+			and absf(angle_difference(_door_hinge.rotation.x, _door_target_x)) < .001:
+		set_process(false)   # settled
 		return
 	# A damped hinge avoids abrupt state pops when a reliable co-op event or a
 	# late-join snapshot arrives.  Broken doors pitch down from the floor-level
@@ -444,7 +453,7 @@ func get_prompt() -> String:
 			return ""
 		return "CLOSE DOOR" if room_door_open else "OPEN DOOR"
 	if kind == Kind.RELAY and sabotaged:
-		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"
+		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"  # the player turns "HOLD INTERACT // " into the held key
 	if completed or disabled:
 		return ""
 	if kind == Kind.RELAY and locked_cache:
@@ -462,7 +471,10 @@ func get_prompt() -> String:
 			"sit": return "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
-			"play": return "PLAY CARNIVAL GAME"
+			"play":
+				if prompt_resolver.is_valid():
+					return String(prompt_resolver.call())
+				return "PLAY CARNIVAL GAME"
 			_: return ""
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
@@ -626,6 +638,7 @@ func apply_room_door_state(open: bool, broken: bool) -> void:
 	# open: square to the wall (the authored open leaf stands at 68 degrees, half across a hunter's way); closed: shut
 	_door_target_y = deg_to_rad(DOOR_OPEN_EXTRA) if room_door_open else deg_to_rad(-68.0)
 	_door_target_x = deg_to_rad(82.0) if room_door_broken else 0.0
+	set_process(true)
 	if _door_collision != null:
 		_door_collision.set_deferred("disabled", room_door_open)
 
@@ -673,15 +686,19 @@ func _raise_room_door() -> void:
 			leaf_top = maxf(leaf_top, DoorwayPose.bounds(mesh as Node3D, _local_to_visual(mesh as Node3D)).end.y)
 		if leaf_top > 0.0:
 			opening = leaf_top
+		# the header's underside, where it is lower than the leaf (the gothic arch)
+		var clear := DoorwayFrames.opening(_visual, ["DoorFrame"]).y
+		if clear < INF:
+			opening = minf(opening, clear)
 		top = DoorwayPose.bounds(_visual).end.y
-		_visual.scale.y = DoorwayFrames.raise_scale(opening, top)
+		_visual.scale.y = DoorwayFrames.raise_scale(opening, top, DoorwayFrames.frame_cap(room_door_model_path.get_file()))
 		opening *= _visual.scale.y
 		# the posts stood 6.5 cm inside the wall gap on each side: widen the frame (and leaf) so the posts' inner faces
-		# meet the gap and the outer parts sit inside the neighbouring wall cells
+		# stand just proud of the gap's faces and the outer parts sit inside the neighbouring wall cells
 		var inner := DoorwayFrames.opening(_visual, ["DoorFrame"]).x
 		if inner > .1 and inner < INF:
-			_visual.scale.x = clampf(float(room_door_span) / inner, 1.0, 1.25)
-	DoorwayFrames.register(self, float(room_door_span), opening, .25)
+			_visual.scale.x = clampf((float(room_door_span) - DoorwayFrames.POST_PROUD * 2.0) / inner, 1.0, 1.25)
+	DoorwayFrames.register(self, float(room_door_span) - DoorwayFrames.POST_PROUD * 2.0, opening, .25)
 
 
 ## A mesh's parent chain up to (and including) the visual root, as a transform in this node's space.
@@ -741,7 +758,7 @@ func _raise_boarded_frame() -> void:
 	_visual.scale.y = DoorwayFrames.raise_scale(opening, DoorwayPose.bounds(_visual).end.y, FacilityView3D.WALL_HEIGHT - .005)
 	# widened like the room doors so the posts meet the 1 m wall gap (the boards span it too)
 	var across := clear.x if clear.x < INF else .84
-	_visual.scale.x = clampf(1.0 / across, 1.0, 1.25)
+	_visual.scale.x = clampf((1.0 - DoorwayFrames.POST_PROUD * 2.0) / across, 1.0, 1.25)
 	DoorwayFrames.register(self, across * _visual.scale.x, opening * _visual.scale.y, .15, _visual)
 
 

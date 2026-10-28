@@ -9,15 +9,23 @@ extends RefCounted
 ## openings were lower than their heads. The visuals are stretched up toward TARGET_OPENING, never past FRAME_TOP_CAP
 ## (just under the lowest room ceiling); what is still tight is handled by DoorwayPose (a duck and a shoulder turn).
 
-## Opening the raise aims for, and the highest a raised frame may reach (RefLook.ROOM_RANGE starts at 3.2 m).
-const TARGET_OPENING := 2.95
-const FRAME_TOP_CAP := 3.15
+## The widened posts stop this far inside the wall gap: flush, their inner faces would z-fight with the gap's faces.
+const POST_PROUD := .01
+## Opening the raise aims for (a normal hunter's 2.67 m + 40 cm, KT, + 5 cm for the clip's bob), and the highest a raised frame may reach
+## (RefLook.ROOM_RANGE starts at 3.6 m). Gothic frames carry a tall crest, so they get their own cap and soffit
+## (RefLook gives gothic rooms a higher floor of ceilings).
+const TARGET_OPENING := 3.15
+const FRAME_TOP_CAP := 3.65
+const GOTHIC_FRAME_TOP_CAP := 4.02
 ## Underside of the wall built over a room door (its soffit): just under the raised frames' tops, so frame and header
 ## overlap and nothing shows between them.
-const HEADER_Y := 3.1
+const HEADER_Y := 3.6
+const GOTHIC_HEADER_Y := 4.0
 ## Clearance the hunters keep: over the head (else they duck), and at each side (else they turn their shoulders).
 const HEADROOM := .10
 const SIDE_ROOM := .08
+## Through a wide door she keeps this much each side at the shoulders by calming her arm swing (no turn).
+const WIDE_SIDE_ROOM := .35
 ## A frame counts for a hunter this far either side of its wall plane, and this far past its posts.
 const REACH := 3.1
 const LATERAL_SLACK := .6
@@ -29,6 +37,47 @@ static var _by_cell := {}
 
 ## Vertical stretch for a frame whose opening is `opening` high and whose model top is `top` (both before the stretch).
 ## `cap`: the highest the frame may reach (FRAME_TOP_CAP, or a lower ceiling).
+static func frame_cap(door_type: String) -> float:
+	return GOTHIC_FRAME_TOP_CAP if door_type.begins_with("gothic") else FRAME_TOP_CAP
+
+
+## Where the wall over a door of this type starts: just under its raised frame's top (the frames reach their target
+## opening before the cap, so the top differs per model), never above HEADER_Y / GOTHIC_HEADER_Y.
+static func header_y(door_type: String) -> float:
+	var ceiling := GOTHIC_HEADER_Y if door_type.begins_with("gothic") else HEADER_Y
+	if not PropModelCatalog.is_room_door(door_type):
+		return ceiling
+	if not _raised_tops.has(door_type):
+		_raised_tops[door_type] = raised_frame_top(PropModelCatalog.model_path(door_type, "header"), frame_cap(door_type))
+	return minf(ceiling, float(_raised_tops[door_type]) - .02)
+
+
+static var _raised_tops := {}
+
+
+## The top of a room-door model once RouteInteractable3D has raised it (same rule as _raise_room_door).
+static func raised_frame_top(model_path: String, cap: float) -> float:
+	var visual := ModelSlot.instantiate_prop(model_path, "room_door")
+	if visual == null:
+		return HEADER_Y
+	var leaf_top := 0.0
+	for mesh in visual.find_children("*Leaf*", "MeshInstance3D", true, false):
+		var chain := Transform3D.IDENTITY
+		var walk := (mesh as Node3D).get_parent_node_3d()
+		while walk != null and walk != visual:
+			chain = walk.transform * chain
+			walk = walk.get_parent_node_3d()
+		leaf_top = maxf(leaf_top, DoorwayPose.bounds(mesh as Node3D, chain).end.y)
+	var opening := leaf_top if leaf_top > 0.0 else 2.375
+	var clear := opening(visual, ["DoorFrame"]).y
+	if clear < INF:
+		opening = minf(opening, clear)
+	var top := DoorwayPose.bounds(visual).end.y
+	var raised := top * raise_scale(opening, top, cap)
+	visual.free()
+	return raised
+
+
 static func raise_scale(opening: float, top: float, cap: float = FRAME_TOP_CAP) -> float:
 	if opening <= 0.0 or top <= 0.0:
 		return 1.0

@@ -43,3 +43,5 @@ build/
 
 # flythrough videos (docs/FLYTHROUGH.md)
 captures/videos/
+# Built by tools/android/build_installer_plugin.sh (docs/XR_ANDROID.md); never committed
+addons/kyttu_installer/bin/

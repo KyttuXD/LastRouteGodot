@@ -25,8 +25,6 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
-	"waypoint": "PLACE / REMOVE WAYPOINT",
-	"waypoint_clear": "CLEAR WAYPOINT",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -79,6 +77,7 @@ var _section_tabs: TabBar
 var _active_section := 0
 var _settings_tabs: TabBar
 var _active_settings_category := 0
+var _skin_panel: SkinPanel
 
 
 func _ready() -> void:
@@ -100,6 +99,7 @@ func _ready() -> void:
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_build_focus_pause_row()
+	_build_voice_rows()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -314,7 +314,95 @@ func _build_focus_pause_row() -> void:
 		Settings.set_pause_on_focus_loss(enabled)
 		Palette.set_state_toggle(_focus_pause_button, enabled))
 	row.add_child(_focus_pause_button)
+	# GRAPHICS: AUTO follows the detected device tier (PlatformProfile / QualityTier); the label shows what AUTO picked.
+	var graphics_button := Button.new()
+	graphics_button.name = "GraphicsQualityButton"
+	graphics_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var graphics_label := func() -> String:
+		return "GRAPHICS: %s" % (("AUTO (%s)" % QualityTier.name_of(PlatformProfile.tier)) \
+			if Settings.graphics_quality == "AUTO" else Settings.graphics_quality)
+	graphics_button.text = graphics_label.call()
+	graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout()
+	graphics_button.pressed.connect(func() -> void:
+		var choices: Array = Settings.GRAPHICS_CHOICES
+		Settings.set_graphics_quality(choices[(choices.find(Settings.graphics_quality) + 1) % choices.size()])
+		graphics_button.text = graphics_label.call()
+		graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout())
+	row.add_child(graphics_button)
+	if PlatformProfile.is_phone:
+		# Phones only: the movement control for TouchControls (desktop never shows this button).
+		var move_button := Button.new()
+		move_button.name = "TouchMoveButton"
+		move_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS")
+		move_button.pressed.connect(func() -> void:
+			Settings.set_touch_move("dpad" if Settings.touch_move == "stick" else "stick")
+			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
+		row.add_child(move_button)
 	add_child(row)
+	# In-world ads (flavour, TrollAds): OFF / GENTLE / ANNOYING, OFF by default. Troll mode overrides it for cheaters.
+	var ads_button := Button.new()
+	ads_button.name = "AdsModeButton"
+	ads_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ads_button.tooltip_text = "In-world joke ads on shop signs, plus pop-ups (GENTLE: rare, skip any time; ANNOYING: frequent, sneaky skip)."
+	ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper()
+	ads_button.pressed.connect(func() -> void:
+		var modes: Array = TrollAds.MODES
+		Settings.set_ads_mode(modes[(modes.find(Settings.ads_mode) + 1) % modes.size()])
+		ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper())
+	$DisplayRow.add_child(ads_button)
+
+
+## AUDIO: spoken chat volume, and voices / subtitles toggles (voices off = subtitles only).
+func _build_voice_rows() -> void:
+	var row := HBoxContainer.new()
+	row.name = "VoiceVolumeRow"
+	row.offset_left = 20.0
+	row.offset_top = 142.0
+	row.offset_right = 420.0
+	row.offset_bottom = 158.0
+	var label := Label.new()
+	label.text = "SPOKEN CHAT"
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.name = "VoiceVolumeSlider"
+	slider.min_value = 0
+	slider.max_value = 100
+	slider.step = 5
+	slider.value = Settings.voice_volume
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%d%%" % int(Settings.voice_volume)
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(value: float) -> void:
+		readout.text = "%d%%" % int(value)
+		Settings.set_voice(value, Settings.voice_enabled, Settings.voice_subtitles))
+	add_child(row)
+	var toggles := HBoxContainer.new()
+	toggles.name = "VoiceToggleRow"
+	toggles.offset_left = 20.0
+	toggles.offset_top = 166.0
+	toggles.offset_right = 420.0
+	toggles.offset_bottom = 182.0
+	for pair in [["VOICES", "voice_enabled"], ["SUBTITLES", "voice_subtitles"]]:
+		var button := Button.new()
+		button.name = "Voice%sButton" % String(pair[0]).capitalize()
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		Palette.style_state_toggle(button, String(pair[0]), bool(Settings.get(String(pair[1]))))
+		button.set_pressed_no_signal(bool(Settings.get(String(pair[1]))))
+		var key := String(pair[1])
+		button.toggled.connect(func(enabled: bool) -> void:
+			Settings.set_voice(Settings.voice_volume, enabled if key == "voice_enabled" else Settings.voice_enabled,
+				enabled if key == "voice_subtitles" else Settings.voice_subtitles)
+			Palette.set_state_toggle(button, enabled))
+		toggles.add_child(button)
+	add_child(toggles)
 
 
 func _build_settings_tabs() -> void:
@@ -323,21 +411,27 @@ func _build_settings_tabs() -> void:
 	_settings_tabs.position = Vector2(20, 37)
 	_settings_tabs.size = Vector2(400, 22)
 	_settings_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	for title in ["AUDIO", "DISPLAY", "CONTROLS"]:
+	for title in ["AUDIO", "DISPLAY", "CONTROLS", "SKIN"]:
 		_settings_tabs.add_tab(title)
 	_settings_tabs.tab_changed.connect(_show_settings_category)
 	add_child(_settings_tabs)
+	_skin_panel = SkinPanel.new()
+	_skin_panel.position = Vector2(20, 66)
+	_skin_panel.size = Vector2(400, 176)
+	add_child(_skin_panel)
 	_show_settings_category(0)
 
 
 func _show_settings_category(index: int) -> void:
-	_active_settings_category = clampi(index, 0, 2)
-	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
+	_active_settings_category = clampi(index, 0, 3)
+	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
 			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
+	if _skin_panel != null:
+		_skin_panel.visible = _active_settings_category == 3
 
 
 func _show_control_section(index: int) -> void:
@@ -346,6 +440,8 @@ func _show_control_section(index: int) -> void:
 		if child != _section_tabs:
 			child.queue_free()
 	_key_labels.clear()
+	if PlatformProfile.is_phone and _active_section == 0:
+		_build_touch_look_rows()
 	var active: Dictionary = SECTIONS[_active_section]
 	for action in active["actions"]:
 		if Settings.REBINDABLE_ACTIONS.has(action):
@@ -365,6 +461,79 @@ func _show_control_section(index: int) -> void:
 		controls_list.add_child(heading)
 		for action in orphans:
 			_build_control_row(action)
+
+
+## Phones only: TOUCH LOOK (TouchControls.look_turn) at the top of the first CONTROLS section. Desktop never builds it.
+func _build_touch_look_rows() -> void:
+	var heading := Label.new()
+	heading.name = "TouchLookHeading"
+	heading.text = Palette.track("TOUCH LOOK")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	_touch_slider("LOOK SPEED", 0.25, 3.0, Settings.touch_look_speed, func(value: float) -> void:
+		Settings.set_touch_look(value, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	_touch_slider("VERTICAL SPEED", 0.3, 1.5, Settings.touch_look_vertical, func(value: float) -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, value, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	var row := HBoxContainer.new()
+	row.name = "TouchLookToggles"
+	controls_list.add_child(row)
+	var invert := _touch_toggle(row, func() -> String: return "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	invert.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, not Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel)
+		invert.text = "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	var smooth := _touch_toggle(row, func() -> String: return "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	smooth.pressed.connect(func() -> void:
+		var order := ["off", "low", "high"]
+		var next: String = order[(order.find(Settings.touch_look_smoothing) + 1) % order.size()]
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			next, Settings.touch_look_accel)
+		smooth.text = "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	var accel := _touch_toggle(row, func() -> String: return "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+	accel.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, not Settings.touch_look_accel)
+		accel.text = "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+
+
+func _touch_slider(label_text: String, low: float, high: float, value: float, changed: Callable) -> void:
+	var row := HBoxContainer.new()
+	row.name = label_text.replace(" ", "") + "Row"
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = low
+	slider.max_value = high
+	slider.step = 0.05
+	slider.value = value
+	slider.custom_minimum_size = Vector2(0, 22)   # a thumb-sized track on a phone
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%.2fx" % value
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(next: float) -> void:
+		readout.text = "%.2fx" % next
+		changed.call(next))
+	controls_list.add_child(row)
+
+
+func _touch_toggle(row: HBoxContainer, label: Callable) -> Button:
+	var button := Button.new()
+	button.text = String(label.call())
+	button.custom_minimum_size = Vector2(0, 22)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 8)
+	row.add_child(button)
+	return button
 
 
 ## WAYPOINT HUD preferences, under the waypoint keys (docs/WAYPOINTS.md).

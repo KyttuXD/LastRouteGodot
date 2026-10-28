@@ -71,11 +71,9 @@ const PAIR_FLANK_DEGREES := 100.0
 ## Shown in the dossier only AFTER the player has met it. Placeholder wording for KT.
 const DOSSIER := {
 	BLACK_WOLF_SPIDER: {
-		"ability": "[PLACEHOLDER] RELENTLESS STALKER",
 		"behavior": "[PLACEHOLDER] The darker kin of the white one: hisses instead of barking, ignores your light, and only a shelter or a hiding place stops it.",
 	},
 	WHITE_WOLF_SPIDER: {
-		"ability": "[PLACEHOLDER] AMBUSH STALKER",
 		"behavior": "[PLACEHOLDER] It lurks where the city is quiet, barks once to mark you, then runs you down. Shelters stop it.",
 	},
 }

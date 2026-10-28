@@ -499,7 +499,7 @@ func _check_scene(host: Node) -> void:
 	_expect(game.monitor_up and game.hud.monitor_root.visible and not bool(game._last_input["mask"]) and bool(game._last_input["monitor"]), "the monitor did not replace the mask")
 	await host.get_tree().process_frame
 	_expect(game.hud.cam_label.text.begins_with("CAM 1 · PRIZE CORNER") and game.hud.feed_viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "the monitor did not open on CAM 1")
-	_expect(Sound.play_counts.has("office_camera"), "the monitor sound did not go through the shared Sound autoload")
+	_expect(Sound.play_counts.has("nw_camera"), "the monitor sound did not go through the shared Sound autoload")
 	game.select_camera("ductL")
 	_expect(game.hud.cam_label.text.begins_with("CAM 6 · LEFT AIR VENT") and game.hud.feed_camera.global_position.distance_to(game.world.feed_transform("ductL").origin) < 0.01, "the feed did not move to the left duct")
 	game.select_camera("hall")

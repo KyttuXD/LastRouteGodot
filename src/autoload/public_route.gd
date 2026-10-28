@@ -70,6 +70,7 @@ func use_player_key(key: String) -> void:
 
 
 func _set_status(message: String) -> void:
+	message = ServerPrivacy.scrub(message)
 	status = message
 	status_changed.emit(message)
 
@@ -110,7 +111,8 @@ func join(for_mode: RoomState.Mode = RoomState.Mode.DEFAULT) -> void:
 	active = true
 	_set_status("CONTACTING PUBLIC ROUTE")
 	_request("/api/public/join", {"playerKey": player_key, "game": game_id(),
-		"name": RoomState.local_display_name()}, _on_join)
+		"name": RoomState.local_display_name(),
+		"sessionToken": Backend.account_session_token, "deviceId": Backend.moderation.device_id()}, _on_join)
 
 
 func _on_join(ok: bool, body: Dictionary) -> void:
@@ -268,7 +270,8 @@ func _tick() -> void:
 		return
 	var body := {"sessionId": session_id,
 		"position": {"x": player.global_position.x, "z": player.global_position.z},
-		"inventory": _inventory_entries(player), "name": RoomState.local_display_name()}
+		"inventory": _inventory_entries(player), "name": RoomState.local_display_name(),
+		"sessionToken": Backend.account_session_token, "deviceId": Backend.moderation.device_id()}
 	if is_authority:
 		body["hostToken"] = Backend.host_token()
 		body["claims"] = _new_claims()
@@ -309,7 +312,8 @@ func _new_claims() -> Array:
 func _refresh_session() -> void:
 	_joining = true
 	_request("/api/public/join", {"playerKey": player_key, "game": game_id(),
-		"name": RoomState.local_display_name()}, func(ok: bool, body: Dictionary) -> void:
+		"name": RoomState.local_display_name(),
+		"sessionToken": Backend.account_session_token, "deviceId": Backend.moderation.device_id()}, func(ok: bool, body: Dictionary) -> void:
 		_joining = false
 		if ok:
 			session_id = String(body.get("sessionId", ""))

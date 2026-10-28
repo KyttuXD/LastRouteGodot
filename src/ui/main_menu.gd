@@ -45,8 +45,10 @@ func _ready() -> void:
 	_build_hint()
 	TestServerBadge.attach(self)
 	_build_public_button()
-	_build_local_saves_button()
-	_build_saved_route_buttons()
+	_build_continue_button()
+	if not RunSaves.changed.is_connected(_build_continue_button):
+		RunSaves.changed.connect(_build_continue_button)
+	RunSaves.cloud_sync()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
 	offline_button.pressed.connect(_on_offline_pressed)
@@ -64,6 +66,9 @@ func _ready() -> void:
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
 	_refresh_account_button()
 	# version_label.text = "VERSION %s // %s // %s" % [Build.VERSION, Build.update_channel().to_upper(), Build.short_revision().to_upper()]
+	if version_label != null and Build.revision() != Build.SOURCE_REVISION:
+		# every exported build updates by commit: show which one this is
+		version_label.text = "VERSION %s // BUILD %s" % [Build.VERSION, Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
 	if Build.requires_update_gate():
@@ -115,89 +120,50 @@ func _build_public_button() -> void:
 		PublicRoute.join())
 	PublicRoute.status_changed.connect(func(message: String) -> void:
 		if is_instance_valid(button) and not message.is_empty():
-			button.text = message.substr(0, 38)
+			button.text = ServerPrivacy.scrub(message).substr(0, 38)
 			button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
 				and not message.begins_with("PUBLIC ROUTE NEEDS"))
 	box.add_child(button)
 	box.move_child(button, 0)
 
 
-func _build_local_saves_button() -> void:
-	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
-	if box == null or box.has_node("LocalSavesButton"):
+## CONTINUE resumes the run's automatic save (RunSaves). It only shows when there is a run, or a save that cannot
+## load: then it stays greyed out with the reason, never a crash or a broken run.
+func _build_continue_button() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as Container
+	if box == null:
 		return
-	var button := Button.new()
-	button.name = "LocalSavesButton"
-	button.text = "LOAD LOCAL SAVE"
-	button.focus_mode = Control.FOCUS_ALL
-	Palette.style_button(button, false, true)
-	button.pressed.connect(_on_local_saves_pressed)
-	box.add_child(button)
-	box.move_child(button, mini(offline_button.get_index() + 1,
-		box.get_child_count() - 1))
+	var button := box.get_node_or_null("ContinueButton") as Button
+	if button == null:
+		button = Button.new()
+		button.name = "ContinueButton"
+		button.focus_mode = Control.FOCUS_ALL
+		Palette.style_button(button, true, true)
+		button.pressed.connect(_on_continue_pressed)
+		box.add_child(button)
+		box.move_child(button, 0)
+	var summary := RunSaves.summary()
+	var message := String(summary.get("message", ""))
+	button.visible = bool(summary.get("ok", false)) or not message.is_empty()
+	button.disabled = not bool(summary.get("ok", false))
+	button.text = "CONTINUE" if not button.disabled else message.substr(0, 38)
+	button.tooltip_text = String(summary.get("status", message))
 
 
-func _on_local_saves_pressed() -> void:
-	_close_modal()
-	var content := _modal_content("ROUTE ARCHIVE // LOCAL", "LOAD SAVED ROUTE",
-		Vector2(390, 242))
-	var note := _modal_label(
-		"TITLE-SCREEN LOAD RESUMES OFFLINE. ONLINE ROOM SAVES REMAIN HOST-AUTHORITATIVE.",
-		Palette.MUTED, 7)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(note)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.name = "LocalSaveList"
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
-	scroll.add_child(list)
-	var status := _modal_label("", Palette.ALERT, 7)
-	status.name = "LocalSaveStatus"
-	content.add_child(status)
-	var slots := RunSaves.list_slots()
-	if slots.is_empty():
-		list.add_child(_modal_label("NO LOCAL SAVES", Palette.MUTED, 8))
-		return
-	for value in slots:
-		var slot: Dictionary = value
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 4)
-		list.add_child(row)
-		var details := _modal_label("%s\nLEVEL %+d // %s // %s" % [
-			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
-			String(slot.get("difficulty", "STANDARD")),
-			_format_save_duration(float(slot.get("elapsed_seconds", 0.0)))],
-			Palette.BODY, 7)
-		details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(details)
-		var load_button := _modal_button("LOAD", true)
-		load_button.pressed.connect(_load_local_save.bind(
-			String(slot.get("slot_id", ""))))
-		row.add_child(load_button)
-
-
-func _load_local_save(slot_id: String) -> void:
-	var result := RunSaves.queue_load(slot_id)
+func _on_continue_pressed() -> void:
+	var result := RunSaves.queue_continue()
 	if not bool(result.get("ok", false)):
-		var status := _modal.find_child("LocalSaveStatus", true, false) as Label \
-			if _modal != null else null
-		if status != null:
-			status.text = String(result.get("message", "SAVE LOAD FAILED"))
+		_build_continue_button()
 		return
 	var payload: Dictionary = result.get("payload", {})
-	Backend.enable_offline_mode()
+	_close_modal()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
 	RoomState.map_scale = RoomState.Scale.INFINITE
 	RoomState.difficulty = clampi(int(payload.get("difficulty",
 		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
 		RoomState.Difficulty.HARD)
-	RoomState.status_message = "LOCAL SAVE READY // %s" % String(
-		result.get("name", "ROUTE"))
-	_close_modal()
+	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
 	RoomState.enter(get_tree())
 
 
@@ -372,76 +338,11 @@ func _on_account_pressed() -> void:
 
 func _on_account_changed(_signed_in_now: bool, _username: String, _admin: bool, _message: String) -> void:
 	_refresh_account_button()
-	_refresh_saved_route()
+	RunSaves.cloud_sync()   # signing in pulls the account's run (or pushes an offline one)
 
 
 func _on_account_progress_changed(_available: bool, _progress: Dictionary, _saved_at: int, _message: String) -> void:
-	_refresh_saved_route()
-
-
-## The saved Last Route checkpoint lives here, not in the account panel: CONTINUE ROUTE and CLEAR SAVE appear when the
-## signed-in account has one.
-func _build_saved_route_buttons() -> void:
-	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
-	if box == null or box.has_node("ContinueRouteButton"):
-		return
-	var summary := Label.new()
-	summary.name = "SavedRouteSummary"
-	summary.add_theme_color_override("font_color", Palette.BODY)
-	summary.add_theme_font_size_override("font_size", 6)
-	summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var continue_route := Button.new()
-	continue_route.name = "ContinueRouteButton"
-	continue_route.text = "CONTINUE ROUTE"
-	continue_route.focus_mode = Control.FOCUS_ALL
-	Palette.style_button(continue_route, true, true)
-	continue_route.pressed.connect(_continue_route_checkpoint)
-	var clear_route := Button.new()
-	clear_route.name = "ClearRouteButton"
-	clear_route.text = "CLEAR SAVE"
-	clear_route.focus_mode = Control.FOCUS_ALL
-	Palette.style_button(clear_route, false, true)
-	clear_route.pressed.connect(func() -> void:
-		if clear_route.text == "CLEAR SAVE":
-			clear_route.text = "SURE? CLEAR SAVE"
-			return
-		clear_route.text = "CLEAR SAVE"
-		Backend.account_clear_progress())
-	box.add_child(summary)
-	box.move_child(summary, 0)
-	box.add_child(continue_route)
-	box.move_child(continue_route, 1)
-	box.add_child(clear_route)
-	box.move_child(clear_route, 2)
-	_refresh_saved_route()
-
-
-func _refresh_saved_route() -> void:
-	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
-	if box == null or not box.has_node("ContinueRouteButton"):
-		return
-	var has_save := Backend.signed_in() and Backend.has_route_checkpoint()
-	var summary := box.get_node("SavedRouteSummary") as Label
-	summary.visible = has_save
-	if has_save:
-		summary.text = "SAVED ROUTE // %s" % String(GameRegistry.save_summary("last_route")["text"])
-	(box.get_node("ContinueRouteButton") as Button).visible = has_save
-	var clear := box.get_node("ClearRouteButton") as Button
-	clear.visible = has_save
-	if not has_save:
-		clear.text = "CLEAR SAVE"
-
-
-func _continue_route_checkpoint() -> void:
-	var error := RoomState.prepare_route_checkpoint(Backend.account_progress)
-	if not error.is_empty():
-		var summary := get_node_or_null("ButtonPanel/ButtonBox/SavedRouteSummary") as Label
-		if summary != null:
-			summary.visible = true
-			summary.text = error
-		return
-	_close_modal()
-	RoomState.enter(get_tree())
+	_build_continue_button()
 
 
 func _refresh_account_button() -> void:
@@ -464,7 +365,7 @@ func _on_tutorial_pressed() -> void:
 		+ "MOVEMENT + VIEW\n"
 		+ "WASD move, Shift sprints, C crouches, Space jumps, and the mouse looks. F1 hides or restores the gameplay HUD for a clean view. On a controller, use the left stick to move, right stick to look, A to jump, B to crouch, and left-stick click to sprint. M or View opens the discovered map. Place a waypoint on discovered floor space to draw a teal GPS route on the map and ground. The minimap shows only your current discovered floor.\n\n"
 		+ "ITEMS + INVENTORY\n"
-		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item.\n\n"
+		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item. G or LB fires the taser.\n\n"
 		+ "CO-OP\n"
 		+ "Create an online room for friends, join with its five-character code, or choose Play Offline for a server-free solo test. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
 		Palette.BODY, 7)

@@ -19,6 +19,7 @@ signal update_ready(path: String)
 
 const UPDATE_ROOT := "user://updates"
 const DOWNLOAD_PART := "pending-update.part"
+const SELF_UPDATE_TEST_APK := "user://self-update-test.apk"
 const DEBUG_RECHECK_SECONDS := 10.0
 const RELEASE_RECHECK_SECONDS := 60.0
 const MANIFEST_TIMEOUT_SECONDS := 8.0
@@ -31,6 +32,7 @@ launch=$3
 game_pid=$4
 revision=$5
 mode=$6
+relaunch=${7:-1}
 log=$(dirname "$stage")/apply-update.log
 while kill -0 "$game_pid" 2>/dev/null; do sleep 1; done
 incoming="$install/.lastroute-incoming-$revision"
@@ -67,18 +69,20 @@ fi
 rm -rf -- "$incoming"
 if [ "$mode" = "macos" ]; then
   chmod +x "$install/$launch/Contents/MacOS/"* 2>/dev/null || true
-  open "$install/$launch"
+  [ "$relaunch" = 1 ] && open "$install/$launch"
 else
   chmod +x "$install/$launch"
-  "$install/$launch" --updated-from "$revision" >/dev/null 2>&1 &
+  [ "$relaunch" = 1 ] && "$install/$launch" --updated-from "$revision" >/dev/null 2>&1 &
 fi
+exit 0
 """
 const WINDOWS_HELPER := """param(
   [Parameter(Mandatory=$true)][string]$Stage,
   [Parameter(Mandatory=$true)][string]$Install,
   [Parameter(Mandatory=$true)][string]$Launch,
   [Parameter(Mandatory=$true)][int]$GamePid,
-  [Parameter(Mandatory=$true)][string]$Revision
+  [Parameter(Mandatory=$true)][string]$Revision,
+  [int]$Relaunch = 1
 )
 $ErrorActionPreference = 'Stop'
 $Log = Join-Path (Split-Path $Stage -Parent) 'apply-update.log'
@@ -100,7 +104,7 @@ try {
     Move-Item -LiteralPath $_.FullName -Destination $Destination -Force
   }
   Remove-Item -LiteralPath $Incoming -Recurse -Force -ErrorAction SilentlyContinue
-  Start-Process -FilePath (Join-Path $Install $Launch) -ArgumentList '--updated-from', $Revision
+  if ($Relaunch -eq 1) { Start-Process -FilePath (Join-Path $Install $Launch) -ArgumentList '--updated-from', $Revision }
 } catch {
   Get-ChildItem -LiteralPath $Backup -Force -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $Install -Recurse -Force
@@ -130,15 +134,24 @@ var _recheck_timer: Timer
 var _last_progress_percent := -1
 
 
+## Debug builds only: `-- --update-smoke` checks at once (even headless), accepts the update without the confirm button and
+## prints UPDATE_SMOKE lines (tools/update_e2e). Never active in a release export.
+var smoke_test := false
+
+
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
+	smoke_test = OS.is_debug_build() and "--update-smoke" in OS.get_cmdline_user_args()
+	# closing the window first applies a staged update (apply_on_exit), then quits
+	get_tree().set_auto_accept_quit(false)
+	(func() -> void: get_tree().root.add_child(UpdateBadge.new())).call_deferred()
 	# A completed update leaves no useful player data behind in this directory.
 	# Clear archives, extracted staging trees, partial downloads and installer
 	# helpers from older revisions before beginning another check. Route saves,
 	# settings and account credentials live outside UPDATE_ROOT and are never
 	# considered by this cleanup.
 	_cleanup_update_cache()
-	_cleanup_previous_install_backup()
+	# the previous build (.lastroute-backup-previous beside the game) is KEPT for rollback; the next update replaces it
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
 	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
@@ -156,7 +169,16 @@ func _ready() -> void:
 	if OS.has_feature("ios"):
 		_finish_check(true, false, "APP STORE UPDATES")
 		return
-	if DisplayServer.get_name() != "headless" and not offline_mode:
+	# Device test of the installer hand-off without a server (debug builds only, docs/XR_ANDROID.md): an APK planted at
+	# user://self-update-test.apk (adb shell run-as <package> cp ...) is handed to the installer at boot; remove it again
+	# with run-as rm (the installer reads it after this returns, so the game cannot delete it itself).
+	if OS.is_debug_build() and is_mobile_package() and FileAccess.file_exists(SELF_UPDATE_TEST_APK):
+		get_tree().create_timer(4.0).timeout.connect(func() -> void:
+			print("SELF_UPDATE_TEST ", _install_apk(ProjectSettings.globalize_path(SELF_UPDATE_TEST_APK))))
+	if smoke_test:
+		print("UPDATE_SMOKE start revision=%s build=%d platform=%s" % [Build.revision(), Build.build_number(), platform_key()])
+		check.call_deferred()
+	if DisplayServer.get_name() != "headless" and not offline_mode and not smoke_test:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
 		_recheck_timer.wait_time = DEBUG_RECHECK_SECONDS \
@@ -182,8 +204,11 @@ func _on_recheck_timeout() -> void:
 
 
 func _process(_delta: float) -> void:
+	if staging_deferred and not _gameplay_active() and not preparing:
+		_prepare_verified_download()
 	if not downloading:
-		set_process(false)
+		if not staging_deferred:
+			set_process(false)
 		return
 	var received := _download_request.get_downloaded_bytes()
 	var total := _download_request.get_body_size()
@@ -244,21 +269,26 @@ func enable_offline_mode() -> void:
 
 
 func platform_key() -> String:
-	if OS.has_feature("web"):
+	return platform_key_for(Callable(OS, "has_feature"))
+
+
+## The update channel's platform for a build whose feature tags `has_feature` (a Callable(name) -> bool) reports.
+static func platform_key_for(has_feature: Callable) -> String:
+	if has_feature.call("web"):
 		return "web"
-	if OS.has_feature("ios"):
+	if has_feature.call("ios"):
 		return "ios"
-	if OS.has_feature("quest"):
+	if has_feature.call("quest"):
 		return "quest"
-	if OS.has_feature("android"):
-		return "android"   # sideloaded phone builds: no self-update channel on the server, the check simply fails
-	if OS.has_feature("windows") and OS.has_feature("xr"):
+	if has_feature.call("android"):
+		return "phone"   # flat Android phones and tablets (the Quest is checked first)
+	if has_feature.call("windows") and has_feature.call("xr"):
 		return "steamvr"
-	if OS.has_feature("windows") and OS.has_feature("legacy"):
+	if has_feature.call("windows") and has_feature.call("legacy"):
 		return "windows_legacy"
-	if OS.has_feature("macos"):
+	if has_feature.call("macos"):
 		return "macos"
-	if OS.has_feature("windows"):
+	if has_feature.call("windows"):
 		return "windows"
 	return "linux"
 
@@ -277,31 +307,20 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
 		return
-	var parsed = JSON.parse_string(body.get_string_from_utf8())
-	if not parsed is Dictionary or not parsed.get("update") is Dictionary:
-		_finish_check(false, false, "INVALID UPDATE RESPONSE")
+	var candidate := parse_manifest(body.get_string_from_utf8(), Backend.base_url, OS.is_debug_build())
+	if candidate.has("error"):
+		_finish_check(false, false, String(candidate["error"]))
 		return
-	var candidate: Dictionary = parsed["update"]
 	var version := String(candidate.get("version", ""))
-	var revision := String(candidate.get("revision", "")).strip_edges().to_lower()
-	var url := String(candidate.get("url", ""))
-	var sha256 := String(candidate.get("sha256", "")).strip_edges().to_lower()
-	if url.begins_with("/api/"):
-		url = "%s%s" % [Backend.base_url, url]
-		candidate["url"] = url
-	var trusted_transport := url.begins_with("https://") \
-		or url.begins_with("%s/api/updates/files/" % Backend.base_url) \
-		or (OS.is_debug_build() and (url.begins_with("http://127.0.0.1") \
-			or url.begins_with("http://localhost")))
-	if not trusted_transport or not _valid_sha256(sha256):
-		_finish_check(false, false, "UNTRUSTED UPDATE RESPONSE")
-		return
+	var revision := String(candidate.get("revision", ""))
 	# Source/editor sessions are never an installation target. Without this
 	# guard a future version bump could try to replace the Godot editor itself.
 	if Build.revision() == Build.SOURCE_REVISION:
 		_finish_check(true, false, "SOURCE BUILD // UPDATE SKIPPED")
 		return
-	if not _update_needed(version, Build.VERSION, revision, Build.revision()):
+	# every native platform: a different commit with a higher build number (desktop too, since the 2026-10 rework)
+	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number())
+	if not needed:
 		_finish_check(true, false, "UP TO DATE")
 		return
 	available = candidate.duplicate(true)
@@ -309,7 +328,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	update_available.emit(available)
 	var identity := revision.left(8) if not revision.is_empty() else version
 	_finish_check(true, true, "UPDATE %s FOUND" % identity)
-	download_update.call_deferred()
+	if not is_dev_build() or smoke_test:
+		download_update.call_deferred()   # dev builds only get the notice
 
 
 ## Downloads immediately after discovery. Calling this again is also the
@@ -326,7 +346,7 @@ func download_update(force_web_refresh := false) -> void:
 		return
 	var revision := String(available.get("revision", "")).to_lower()
 	var identity := revision if _valid_revision(revision) else String(available.get("version", ""))
-	var extension := "apk" if platform_key() == "quest" else "zip"
+	var extension := "apk" if is_mobile_package() else "zip"
 	var safe_identity := identity.replace(".", "-")
 	if safe_identity.is_empty():
 		safe_identity = "latest"
@@ -393,17 +413,28 @@ func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 	_prepare_verified_download()
 
 
+## Unpacking a large archive would stutter a run: during gameplay the verified download waits and is staged in the menus or
+## when the game quits (apply_on_exit).
+var staging_deferred := false
+
+
 func _prepare_verified_download() -> void:
+	if _gameplay_active() and not is_mobile_package() and not smoke_test and not _force_stage_now:
+		staging_deferred = true
+		set_process(true)
+		_set_status("UPDATE DOWNLOADED // APPLIES WHEN YOU RESTART")
+		return
+	staging_deferred = false
 	preparing = true
-	if platform_key() == "quest":
+	if is_mobile_package():
 		preparing = false
 		ready_to_install = true
 		update_ready.emit(downloaded_path)
 		if _should_install_automatically():
-			_set_status("UPDATE READY // OPENING QUEST INSTALLER")
+			_set_status("UPDATE READY // OPENING INSTALLER")
 			install_update.call_deferred()
 		else:
-			_set_status("UPDATE READY // INSTALL ON QUEST")
+			_set_status("UPDATE READY // TAP INSTALL")
 		return
 	_set_status("UNPACKING UPDATE")
 	await get_tree().process_frame
@@ -434,6 +465,10 @@ func _prepare_verified_download() -> void:
 	preparing = false
 	ready_to_install = true
 	update_ready.emit(staged_path)
+	if smoke_test:
+		_set_status("UPDATE READY // SMOKE TEST INSTALLS")
+		install_update.call_deferred()
+		return
 	if _should_install_automatically():
 		_set_status("UPDATE READY // RESTARTING")
 		install_update.call_deferred()
@@ -449,16 +484,11 @@ func _prepare_verified_download() -> void:
 ## only call this after the in-progress screen has staged the new build. The
 ## helper waits for this exact process ID before touching the current
 ## executable/PCK or macOS app bundle.
-func install_update() -> void:
+func install_update(relaunch: bool = true) -> void:
 	if installing or not ready_to_install:
 		return
-	if platform_key() == "quest":
-		var apk := ProjectSettings.globalize_path(downloaded_path)
-		var open_error := OS.shell_open(apk)
-		if open_error == OK:
-			_set_status("APPROVE UPDATE IN THE QUEST INSTALLER")
-		else:
-			_set_status("COULD NOT OPEN QUEST INSTALLER // RETRY")
+	if is_mobile_package():
+		_set_status(_install_apk(ProjectSettings.globalize_path(downloaded_path)))
 		return
 	var layout := _installation_layout(platform_key(), OS.get_executable_path(), staged_path)
 	if layout.is_empty():
@@ -493,7 +523,7 @@ func install_update() -> void:
 			"-Install", install_dir,
 			"-Launch", String(layout["launch"]),
 			"-GamePid", str(OS.get_process_id()),
-			"-Revision", revision]))
+			"-Revision", revision, "-Relaunch", "1" if relaunch else "0"]))
 	else:
 		var helper := "%s/apply-update.sh" % UPDATE_ROOT
 		if not _write_text(helper, UNIX_HELPER):
@@ -505,11 +535,116 @@ func install_update() -> void:
 			install_dir,
 			String(layout["launch"]),
 			str(OS.get_process_id()), revision,
-			"macos" if platform_key() == "macos" else "linux"]))
+			"macos" if platform_key() == "macos" else "linux", "1" if relaunch else "0"]))
 	if helper_pid < 0:
 		_install_launch_failed()
 		return
-	_quit_for_update.call_deferred()
+	if relaunch:
+		_quit_for_update.call_deferred()
+
+
+## The server's answer as an update candidate, or {"error": <status line>}: the JSON must hold an "update" object whose
+## package comes over HTTPS or from this backend's own file route (plain localhost only in debug builds) with a
+## 64-hex sha256. Relative "/api/" URLs become absolute; revision and sha256 are normalised to lower case.
+static func parse_manifest(text: String, base_url: String, allow_local_http: bool) -> Dictionary:
+	var parsed = JSON.parse_string(text)
+	if not parsed is Dictionary or not parsed.get("update") is Dictionary:
+		return {"error": "INVALID UPDATE RESPONSE"}
+	var candidate: Dictionary = (parsed["update"] as Dictionary).duplicate(true)
+	var url := String(candidate.get("url", ""))
+	var sha256 := String(candidate.get("sha256", "")).strip_edges().to_lower()
+	if url.begins_with("/api/"):
+		url = "%s%s" % [base_url, url]
+	var trusted_transport := url.begins_with("https://") \
+		or url.begins_with("%s/api/updates/files/" % base_url) \
+		or (allow_local_http and (url.begins_with("http://127.0.0.1") or url.begins_with("http://localhost")))
+	if not trusted_transport or not _valid_sha256(sha256):
+		return {"error": "UNTRUSTED UPDATE RESPONSE"}
+	candidate["url"] = url
+	candidate["sha256"] = sha256
+	candidate["revision"] = String(candidate.get("revision", "")).strip_edges().to_lower()
+	candidate["build"] = maxi(0, int(candidate.get("build", 0)))
+	return candidate
+
+
+## Phone and Quest updates are whole APKs, handed to Android's own installer (never installed silently).
+func is_mobile_package() -> bool:
+	return platform_key() in ["phone", "quest"]
+
+
+## A build updates when the published commit differs from this build's and its build number (commit count, also the
+## Android versionCode) is higher. Phones, the Quest, macOS and Windows all use this rule; Android also refuses a lower
+## versionCode, and on desktop it stops a stale manifest from "updating" to an older commit.
+static func mobile_update_needed(candidate_revision: String, current_revision: String, candidate_build: int,
+		current_build: int) -> bool:
+	var candidate := candidate_revision.strip_edges().to_lower()
+	var current := current_revision.strip_edges().to_lower()
+	return _valid_revision(candidate) and _valid_revision(current) and candidate != current \
+		and candidate_build > current_build
+
+
+## Opens Android's installer for the verified APK through the KyttuInstaller plugin (platform/android/kyttu_installer)
+## and returns the status line. The system screen always asks the user to confirm.
+func _install_apk(apk_path: String) -> String:
+	var fallback := "INSTALL THIS UPDATE FROM THE MINI (adb install)" if platform_key() == "quest" \
+		else "COULD NOT OPEN THE INSTALLER // RETRY"
+	if not Engine.has_singleton("KyttuInstaller"):
+		return fallback
+	var installer := Engine.get_singleton("KyttuInstaller")
+	match String(installer.call("installApk", apk_path)):
+		"ok":
+			return "CONFIRM THE UPDATE IN ANDROID'S INSTALLER"
+		"permission":
+			var opened := bool(installer.call("openInstallPermission"))
+			var where := "Quest: Settings > Apps > Unknown sources" if platform_key() == "quest" \
+				else "Settings > Apps > Special access > Install unknown apps"
+			return "ALLOW INSTALLS FROM KYTTU'S LAB (%s), THEN TAP INSTALL%s" % [
+				where, "" if opened else " // OR INSTALL FROM THE MINI"]
+		"missing":
+			ready_to_install = false
+			download_update.call_deferred()
+			return "UPDATE FILE MISSING // DOWNLOADING AGAIN"
+	return fallback
+
+
+## Called as the game exits (window closed or QUIT): a staged desktop update is swapped in by the helper once this process
+## has gone, without relaunching. A download still waiting to be unpacked is staged first (the game is closing anyway).
+func apply_on_exit() -> void:
+	if is_mobile_package() or installing or is_dev_build() and not smoke_test:
+		return
+	if staging_deferred and not preparing:
+		staging_deferred = false
+		_force_stage_now = true
+		await _prepare_verified_download()
+	if ready_to_install:
+		install_update(false)
+
+
+var _force_stage_now := false
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		await apply_on_exit()
+		get_tree().quit()
+
+
+## The top-centre badge text for the current state ("" = nothing to show).
+func badge_text() -> String:
+	if available.is_empty():
+		return ""
+	var build := int(available.get("build", 0))
+	if is_dev_build():
+		return "UPDATE AVAILABLE (BUILD %d) // DEV BUILD" % build
+	if ready_to_install or staging_deferred:
+		return "UPDATE READY // %s" % ("TAP TO INSTALL" if is_mobile_package() else "RESTART TO APPLY")
+	if downloading:
+		return "UPDATE AVAILABLE // DOWNLOADING %d%%" % maxi(0, _last_progress_percent)
+	if preparing:
+		return "UPDATE AVAILABLE // PREPARING"
+	if is_failure_status(status_message):
+		return "UPDATE AVAILABLE // DOWNLOAD FAILED"
+	return "UPDATE AVAILABLE"
 
 
 func _quit_for_update() -> void:
@@ -532,19 +667,50 @@ func _download_failed(message: String) -> void:
 	_set_status(message)
 
 
+## Every self-updating native platform (desktop, phone, Quest) holds the player on the update screen while an update is
+## available; the web build refreshes itself and iOS updates through the App Store.
 func uses_in_progress_screen() -> bool:
-	# Native desktop is the path whose helper must stop this process. Web and
-	# Quest already stay inside an in-app installer or refresh.
-	return platform_key() in ["linux", "windows", "windows_legacy", "steamvr",
-		"macos"]
+	return gated_platform(platform_key())
+
+
+## An unstamped build (no build number: update-app.sh / adb / iOS script installs of newer code from main) is a dev build:
+## it is told an update exists but is never blocked or auto-downloaded, and never offered a "downgrade" to the manifest.
+static func dev_build(build_number: int) -> bool:
+	return build_number <= 0
+
+
+## Tests pin the build number (-1 = this build's own).
+var build_number_override := -1
+
+
+func is_dev_build() -> bool:
+	return dev_build(build_number_override if build_number_override >= 0 else Build.build_number())
+
+
+static func gated_platform(key: String) -> bool:
+	return key in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]
+
+
+## Tests replace the scene change with a Callable; the game goes to the update screen.
+var gate_override := Callable()
+
+
+func open_update_screen() -> void:
+	if gate_override.is_valid():
+		gate_override.call()
+		return
+	get_tree().change_scene_to_file.call_deferred(UPDATE_PROGRESS_SCENE)
 
 
 func _required_or_debug_update() -> bool:
 	return update_required or Build.requires_update_gate()
 
 
+## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
+## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
-	if offline_mode or not uses_in_progress_screen() or not _required_or_debug_update():
+	return false   # no blocking screen any more: updates download in the background (UpdateBadge) and apply on quit / RESTART NOW
+	if offline_mode or not uses_in_progress_screen() or is_dev_build():
 		return false
 	if _gameplay_active():
 		return false
@@ -574,6 +740,7 @@ func _package_reveal_path() -> String:
 
 
 func _should_install_automatically() -> bool:
+	return false   # never: RESTART NOW in the update popup, or quitting the game, applies it
 	# Downloading and unpacking are safe in the background; replacing the live
 	# executable/PCK is not. Desktop required/debug updates stay on the
 	# in-progress screen until that screen hands off. Quest still opens its
@@ -852,6 +1019,8 @@ static func _previous_install_backup_path(platform: String, executable_path: Str
 
 
 func _set_status(message: String) -> void:
+	if smoke_test:
+		print("UPDATE_SMOKE status ", message)
 	status_message = message
 	status_changed.emit(message)
 

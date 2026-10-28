@@ -8,6 +8,7 @@ const REVISION_PATH := "res://build_revision.json"
 const SOURCE_REVISION := "source"
 
 static var _revision_cache := ""
+static var _build_number_cache := -1
 
 ## What this build is allowed to show the player.
 ##
@@ -94,6 +95,21 @@ static func revision() -> String:
 		if _valid_revision(candidate):
 			_revision_cache = candidate
 	return _revision_cache
+
+
+## The publish build number (git rev-list --count of the commit, also the Android versionCode; written beside the
+## revision by tools/android/build_apk.sh PUBLISH=1). 0 for source runs and unstamped exports.
+static func build_number() -> int:
+	if _build_number_cache >= 0:
+		return _build_number_cache
+	_build_number_cache = 0
+	if FileAccess.file_exists(REVISION_PATH):
+		var file := FileAccess.open(REVISION_PATH, FileAccess.READ)
+		if file != null:
+			var parsed = JSON.parse_string(file.get_as_text())
+			if parsed is Dictionary:
+				_build_number_cache = maxi(0, int(parsed.get("build", 0)))
+	return _build_number_cache
 
 
 static func short_revision() -> String:
