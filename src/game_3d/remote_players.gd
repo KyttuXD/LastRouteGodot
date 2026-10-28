@@ -95,9 +95,17 @@ var room_muted := {}
 var guard := GuestGuard.new()
 ## Emitted on the host when a guest's sample was corrected (and when it was kicked).
 signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
+## Host events that move the guest a long way; the guard lets the next jump through (GuestGuard.allow_jump).
+const HOST_MOVES := ["revive", "axe_rescue", "hide_found"]
 const INTERACTION_RATE_WINDOW_MS := 1000
 const INTERACTION_RATE_MAX := 8
 var _interaction_times := {}
+## Troll mode (docs/ANTI_CHEAT.md): guests the host has caught cheating this room, or the server says are flagged /
+## owner-trolled. Hunters take only them while they are on the floor; the guest's own client adds the scares.
+var troll_peers := {}
+const PEER_LOOKUP_SECONDS := 30.0
+var _lookup_elapsed := PEER_LOOKUP_SECONDS - 2.0
+var _flag_noticed := {}
 
 
 func _ready() -> void:
@@ -109,6 +117,10 @@ func _ready() -> void:
 		multiplayer.peer_disconnected.connect(_drop)
 	if not multiplayer.peer_connected.is_connected(_greet):
 		multiplayer.peer_connected.connect(_greet)
+	if RoomState.is_host:
+		Backend.moderation.peers_looked_up.connect(_on_peers_looked_up)
+	else:
+		Backend.moderation.report_integrity("join")
 
 
 func send_chat(text: String, channel: String = "team") -> void:
@@ -321,6 +333,11 @@ func _process(delta: float) -> void:
 			_snapshot_elapsed = 0.0
 			_request_snapshot.rpc_id(1)
 
+	if RoomState.is_host:
+		_lookup_elapsed += delta
+		if _lookup_elapsed >= PEER_LOOKUP_SECONDS and not _states.is_empty():
+			_lookup_elapsed = 0.0
+			_lookup_peers()
 	_since_send += delta
 	if _since_send < 1.0 / SEND_HZ:
 		return
@@ -372,6 +389,8 @@ func _local_state() -> Dictionary:
 		"inventory_capacity": controller.inventory_capacity(),
 		"equipped_backpack": controller.equipped_backpack,
 		"display_name": RoomState.local_display_name(),
+		"account": Backend.account_username if Backend.signed_in() else "",
+		"device": Backend.moderation.device_id(),
 		"player_hue": Settings.player_hue_degrees,
 		"player_skin": "mannequin",
 		"skin": _own_skin_hash(),
@@ -848,6 +867,7 @@ func _drop(id: int) -> void:
 	_remote_swing_seq.erase(id)
 	_remote_swing_tweens.erase(id)
 	_states.erase(id)
+	troll_peers.erase(id)
 	guard.forget(id)
 	_interaction_times.erase(id)
 	_pending_captures.erase(id)
@@ -917,6 +937,16 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 				and not bool(candidate.get("in_safe_zone", false)):
 			preferred.append(candidate)
 	var pool := preferred if not preferred.is_empty() else fallback
+	var trolled: Array[Dictionary] = []
+	for candidate in fallback:
+		if troll_peers.has(int(candidate.get("peer_id", local_id))):
+			var marked := candidate.duplicate()
+			marked["hidden"] = false   # no locker, bed or safe room hides a trolled guest
+			marked["in_safe_zone"] = false
+			marked["troll"] = true
+			trolled.append(marked)
+	if not trolled.is_empty():
+		pool = trolled   # and teammates are left alone while one is on this floor
 	if pool.is_empty():
 		return {}
 	var chosen: Dictionary = pool[0]
@@ -1163,6 +1193,12 @@ func _request_interaction(event: Dictionary) -> void:
 		return
 	if not _interaction_allowed(sender):
 		return
+	if what == "vent_used":
+		guard.allow_jump(sender, Time.get_ticks_msec() / 1000.0)
+	if what == "stream_pickup" and troll_peers.has(sender):
+		# It slips away from a trolled guest only: the pickup stays for everyone else.
+		_player_event.rpc_id(sender, {"what": "troll_pickup", "entity_id": String(event.get("entity_id", ""))})
+		return
 	var accepted: Dictionary
 	if what == "admin_auth":
 		accepted = {"what": what,
@@ -1268,6 +1304,11 @@ func send_player_event(peer_id: int, event: Dictionary) -> void:
 	else:
 		if String(event.get("what", "")) == "capture":
 			_pending_captures[peer_id] = Time.get_ticks_usec()
+			if troll_peers.has(peer_id):
+				event = event.duplicate()
+				event["troll"] = true
+		if String(event.get("what", "")) in HOST_MOVES:
+			guard.allow_jump(peer_id, Time.get_ticks_msec() / 1000.0)
 		if peer_is_live(peer_id):
 			_player_event.rpc_id(peer_id, event)
 
@@ -1294,6 +1335,7 @@ func _guard_sample(id: int, received: Dictionary) -> bool:
 	received["at"] = snap
 	received["position"] = Vector2(snap.x, snap.z)
 	var kicked := bool(verdict["kick"])
+	set_troll(id, true)
 	guest_violation.emit(id, String(verdict["reason"]), int(verdict["strikes"]), kicked)
 	if peer_is_live(id):
 		_player_event.rpc_id(id, {"what": "anticheat_snap", "at": snap, "reason": String(verdict["reason"])})
@@ -1308,6 +1350,9 @@ func kick_guest(id: int, reason: String) -> void:
 	if not RoomState.is_host or id <= 1:
 		return
 	send_system("%s WAS REMOVED // ANTI-CHEAT (%s)" % [RoomState.peer_display_name(id), reason.to_upper()])
+	var state: Dictionary = _states.get(id, {})
+	Backend.moderation.report_kick(String(state.get("account", "")), String(state.get("device", "")), reason,
+		guard.strikes(id))
 	if peer_is_live(id):
 		_player_event.rpc_id(id, {"what": "message", "message": "REMOVED FROM ROOM // ANTI-CHEAT"})
 	var peer := multiplayer.multiplayer_peer
@@ -1363,6 +1408,45 @@ func _submit_hunter_event(event: Dictionary) -> void:
 	var received := event.duplicate(true)
 	received["peer_id"] = sender
 	hunter_event.emit(received)
+
+
+## Host only. Turns troll mode on or off for a guest and tells that guest's client.
+func set_troll(peer_id: int, on: bool) -> void:
+	if not RoomState.is_host or peer_id <= 1 or troll_peers.has(peer_id) == on:
+		return
+	if on:
+		troll_peers[peer_id] = true
+	else:
+		troll_peers.erase(peer_id)
+	if peer_is_live(peer_id):
+		_player_event.rpc_id(peer_id, {"what": "troll", "on": on})
+
+
+func _lookup_peers() -> void:
+	var names := []
+	var devices := []
+	for id in _states:
+		var state: Dictionary = _states[id]
+		if not String(state.get("account", "")).is_empty():
+			names.append(String(state["account"]))
+		if not String(state.get("device", "")).is_empty():
+			devices.append(String(state["device"]))
+	Backend.moderation.lookup_peers(names, devices)
+
+
+## Server verdicts: flagged or owner-trolled accounts (and devices kicked lately) get troll mode; a guest the host
+## itself caught this room keeps it either way.
+func _on_peers_looked_up(players: Dictionary, devices: Dictionary) -> void:
+	for id in _states:
+		var state: Dictionary = _states[id]
+		var player = players.get(String(state.get("account", "")), {})
+		var device = devices.get(String(state.get("device", "")), {})
+		var server_troll := (player is Dictionary and (bool(player.get("troll", false)) \
+				or bool(player.get("flagged", false)))) or (device is Dictionary and bool(device.get("troll", false)))
+		set_troll(int(id), server_troll or guard.strikes(int(id)) > 0)
+		if player is Dictionary and bool(player.get("flagged", false)) and not _flag_noticed.has(id):
+			_flag_noticed[id] = true
+			send_system("NOTICE // %s IS FLAGGED BY ANTI-CHEAT" % RoomState.peer_display_name(int(id)))
 
 
 func count() -> int:

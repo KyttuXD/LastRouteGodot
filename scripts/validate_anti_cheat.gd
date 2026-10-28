@@ -119,6 +119,57 @@ func run(host: Node) -> int:
 		"walking past the wall's end was flagged")
 	root.queue_free()
 
+	# Host-caused moves (vent transit, pulled out of hiding, axe rescue, revive) never strike.
+	guard.check(60, _state(Vector3.ZERO), 0.0)
+	guard.allow_jump(60, .02)
+	_expect(guard.check(60, _state(Vector3(30, 0, 0)), .05).is_empty(), "a host-approved vent jump was flagged")
+	_expect(not guard.check(60, _state(Vector3(70, 0, 0)), 5.0).is_empty(), "the jump allowance never ran out")
+
+	# Troll mode: hunters take only the trolled guest, hiding or not, and leave the teammate alone.
+	var troll_remotes := RemotePlayers.new()
+	var now := Time.get_ticks_usec()
+	troll_remotes._states = {
+		70: {"peer_id": 70, "position": Vector2(40, 0), "depth": 0, "hidden": true, "received_usec": now},
+		71: {"peer_id": 71, "position": Vector2(2, 0), "depth": 0, "received_usec": now}}
+	var plain := troll_remotes.best_target(Vector2.ZERO, {"peer_id": 1, "position": Vector2(90, 0), "depth": 0}, 0)
+	_expect(int(plain.get("peer_id", 0)) == 71, "without troll mode the nearest visible runner is not chosen (%s)" % plain)
+	troll_remotes.troll_peers[70] = true
+	var picked := troll_remotes.best_target(Vector2.ZERO, {"peer_id": 1, "position": Vector2(1, 0), "depth": 0}, 0)
+	_expect(int(picked.get("peer_id", 0)) == 70 and not bool(picked.get("hidden", true)) \
+		and bool(picked.get("troll", false)), "a hidden trolled guest was not the hunters' target (%s)" % picked)
+	troll_remotes.free()
+	var brain := HunterBrain.new(Vector2.ZERO, "TROLL", HunterRoster.DEFAULT_ID, "standard")
+	var normal_speed := brain._current_speed(0, 0)
+	brain.troll_target = true
+	_expect(brain._current_speed(0, 0) > normal_speed * 1.1, "hunters are not faster toward a trolled guest")
+	var controller := PlayerController3D.new()
+	controller.admin_god_mode = false
+	controller._update_stamina(1.0, true)
+	var normal_drain := GameConfig.MAX_STAMINA - controller.stamina
+	controller.stamina = GameConfig.MAX_STAMINA
+	controller.troll_active = true
+	controller._update_stamina(1.0, true)
+	_expect(GameConfig.MAX_STAMINA - controller.stamina > normal_drain * 1.4, "stamina does not drain faster when trolled")
+	controller._update_troll(10.0)
+	_expect(controller._troll_step_in > 0.0, "no fake hunter footstep was scheduled")
+	controller.free()
+	var scare := HunterJumpscare.new()
+	scare.duration_scale = GameConfig.TROLL_SCARE_SCALE
+	_expect(scare.duration_scale >= 2.0, "the trolled scare is not longer")
+	scare.free()
+
+	# Client messages: a server status or a FLAGGED refusal reaches the player as an account message.
+	var heard := [""]
+	var listener := func(_signed: bool, _name: String, _admin: bool, message: String) -> void: heard[0] = message
+	Backend.account_changed.connect(listener)
+	Backend.moderation._on_status_reply({"status": {"flagged": true,
+		"message": "PUBLIC ROUTE AND SKIN UPLOADS LOCKED UNTIL 12:00"}})
+	_expect(String(heard[0]).begins_with("PUBLIC ROUTE"), "the restriction message did not reach the player")
+	_expect(Backend.moderation.restriction_message() == String(heard[0]), "restriction_message() is stale")
+	Backend.account_changed.disconnect(listener)
+	Backend.moderation._on_status_reply({"status": {}})
+	_expect(Backend.moderation.device_id().length() == 32, "the device id is not a 32-hex id")
+
 	# Interaction rate limit.
 	var remotes := RemotePlayers.new()
 	var allowed := 0

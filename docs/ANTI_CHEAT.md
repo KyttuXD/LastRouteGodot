@@ -23,3 +23,32 @@ Cost: a few comparisons per 20 Hz sample plus one shape cast when the guest move
 
 Validator: `anti_cheat` (synthetic cheaters corrected / kicked; sprint with lag, ladders, plunges, stairs, respawns,
 admins and battery use pass).
+
+Host-caused long moves never strike: a vent transit (`vent_used`), being pulled out of hiding (`hide_found`), an axe
+rescue and a revive call `GuestGuard.allow_jump` for 3 s.
+
+## Consequences (server-enforced, `backend/moderation.mjs`)
+
+Inputs: host kick reports (`/api/moderation/report`, host-token checked), the client's build report at sign-in and
+room join (`/api/moderation/integrity`: commit + SHA-256 of the PCK/executable against the published manifests and an
+owner allow-list), and server-side refusals. The build hash is a signal, not proof: a modified client can spoof it.
+
+- Strikes in a room: snap back, then kick (above).
+- Kicks reported by 2+ distinct hosts within 7 days, or an unknown build hash: the account is flagged for 24 h, 7 days
+  on any later flag. Never automatically permanent; owner accounts are never auto-flagged.
+- While flagged: no public route, no hosting public rooms, no skin uploads (403 `FLAGGED` with a clear message and the
+  end time). Solo, offline and private rooms still work; the host sees "NOTICE // <name> IS FLAGGED" in chat.
+- Every kick puts the guest's device hash (and its last IP hash) on a public-join cooldown: 1 h, doubling, max 24 h.
+  Only salted hashes are stored.
+- Owners (KYTTU/AYTTU) review in the admin panel: `/api/admin/flags`, `/api/admin/flags/set` (clear / extend / ban /
+  unban / troll_on / troll_off), `/api/admin/builds/add|remove`. Full API: `backend/README.md`.
+- The player sees the restriction via `ModerationClient` (`Backend.moderation`), shown as an account message.
+
+## Troll mode
+
+On for a guest the host caught this room (any strike), or that the server reports as flagged, owner-trolled, or a
+device kicked in the last 24 h (`/api/moderation/peers`, polled every 30 s). Host side (authoritative):
+`RemotePlayers.best_target` gives every hunter only the trolled guest on that floor, with hiding and safe rooms ignored,
+and leaves teammates alone; hunters chase it 15 % faster; its pickups are refused (they vanish on its screen only).
+Its own client (told by a `troll` player event): 1.6× sprint drain, flashlight flicker and fake hunter footsteps, and a
+2.5× longer caught scare.

@@ -44,6 +44,13 @@ func forget(peer_id: int) -> void:
 	_peers.erase(peer_id)
 
 
+## The host caused (or approved) a long move for this guest — a vent transit, a hunter pulling it out of hiding, an axe
+## rescue, a revive — so jumps within `seconds` from `now` pass and the speed budget refills.
+func allow_jump(peer_id: int, now: float, seconds := 3.0) -> void:
+	if _peers.has(peer_id):
+		_peers[peer_id]["jump_ok_until"] = now + seconds
+
+
 func strikes(peer_id: int) -> int:
 	return int((_peers.get(peer_id, {}) as Dictionary).get("strikes", 0))
 
@@ -70,6 +77,7 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	var free_pass: bool = (exempt.is_valid() and bool(exempt.call(peer_id))) \
 		or bool(state.get("spectating", false)) or bool(state.get("game_over", false))
 	var reason := ""
+	peer["now"] = now
 	if not free_pass:
 		reason = _movement_reason(peer, state, at, good, depth, dt, space)
 		if reason.is_empty():
@@ -96,7 +104,7 @@ func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Ve
 	var grid = state.get("position")
 	if grid is Vector2 and (grid as Vector2).distance_to(Vector2(at.x, at.z)) > 1.5:
 		return "position"
-	if depth != int(peer["depth"]):
+	if depth != int(peer["depth"]) or float(peer.get("jump_ok_until", -1.0)) >= float(peer.get("now", 0.0)):
 		peer["flat_credit"] = LAG_SLACK_M
 		return ""   # level links / stairs between floors: the floor change itself is the proof
 	var flat := Vector2(at.x - good.x, at.z - good.z).length()

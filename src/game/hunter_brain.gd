@@ -78,6 +78,8 @@ var facing := Vector2(0, 1)
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
+## Chasing a trolled cheater (RemotePlayers.troll_peers): a little faster.
+var troll_target := false
 var chase_speed: float
 var chase_progression_scale: float
 var sight_range: float
@@ -178,6 +180,7 @@ func _tick_emote(delta: float) -> void:
 
 
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	troll_target = bool(target.get("troll", false))
 	relays_seen = relays_collected
 	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
@@ -642,6 +645,8 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed *= gimmick.speed_scale(self)
 	if hard != null:
 		speed *= hard.speed_scale()
+	if troll_target:
+		speed *= GameConfig.TROLL_HUNTER_SPEED_SCALE
 	return speed * float(difficulty_profile["hunter_speed"])
 
 

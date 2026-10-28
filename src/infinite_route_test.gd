@@ -4756,6 +4756,12 @@ func _apply_player_event(event: Dictionary) -> void:
 			var stun_note := String(event.get("message", ""))
 			if not stun_note.is_empty():
 				hud.show_message(stun_note)
+		"troll":
+			player.troll_active = bool(event.get("on", false))
+		"troll_pickup":
+			# The host refused it; it vanishes for this client only.
+			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
+				hud.show_message("IT SLIPS AWAY")
 		"revive":
 			if player.spectator_mode and not RoomState.is_host:
 				_end_spectating()
@@ -4865,6 +4871,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
+		jumpscare.duration_scale = GameConfig.TROLL_SCARE_SCALE if player.troll_active else 1.0
 		await jumpscare.play(player.active_camera(), hunter_id)
 	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
 	# waits for it so the line is read before the end card.
