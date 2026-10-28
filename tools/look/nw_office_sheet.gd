@@ -1,7 +1,7 @@
 extends Node
 
 ## Every mode's office as the player first sees it, 960x540, one PNG per mode: the 3D side of the before/after against the 2D offices.
-##   godot --path . res://tools/look/nw_office_sheet.tscn -- OUT_DIR [tag]
+##   godot --path . res://tools/look/nw_office_sheet.tscn -- OUT_DIR [tag] [mode,mode] [level]
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var out := args[0] if args.size() > 0 else "/tmp"
@@ -11,10 +11,11 @@ func _ready() -> void:
 	NightWatchPalette.enabled = tag != "before"
 	NightWatchSignature.enabled = tag != "before"
 	var only := args[2].split(",") if args.size() > 2 else PackedStringArray()
+	var level := int(args[3]) if args.size() > 3 else 2
 	for mode_id in ["classic", "mask", "lure", "bedroom", "story", "descent", "dayshift", "extra", "mixed"]:
 		if not only.is_empty() and not only.has(String(mode_id)):
 			continue
-		NightWatchSession.start_mode(String(mode_id), 2, {}, 5)
+		NightWatchSession.start_mode(String(mode_id), level, {}, 5)
 		var game := (load(NightWatchModeRegistry.scene_for(String(mode_id))) as PackedScene).instantiate()
 		game.set("manual_clock", true)
 		add_child(game)

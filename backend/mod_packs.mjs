@@ -3,21 +3,27 @@
 //   <LASTROUTE_MOD_DOWNLOAD_BASE>/<pack_id>/<version>/<file path>      (e.g. https://<vps2>/lr3d/mods/neon_halls/1.2.0/pack.json)
 // and the client checks every downloaded file against the sha256 listed here before it loads anything.
 // Packs are registered by scripts/deploy_mod_pack.mjs after it has copied and verified the files on VPS 2.
-// Matches the DATA lane's pack.json (id, name, version, author, files); see backend/README.md "Mod packs".
+// Follows the DATA lane's loader contract (lr.pack/1, see DATA-PACKS-API / docs/DATA_DRIVEN_CONTENT.md): a pack the
+// client would refuse is refused here at deploy time, not after players download it. See backend/README.md "Mod packs".
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-export const MOD_PACK_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{2,47}$/;
+// no hyphen: content ids inside a pack are "<pack_id>_<name>" and may only use [A-Za-z0-9_]
+export const MOD_PACK_ID_PATTERN = /^[a-z0-9][a-z0-9_]{2,31}$/;
+export const MOD_PACK_SCHEMA = "lr.pack/1";
+const MANIFEST_KEYS = new Set(["schema", "id", "name", "version", "author", "description", "game_version", "overrides", "files"]);
 export const MOD_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-// relative paths only: plain segments of safe characters, no "..", no leading slash, no backslashes
-const FILE_PATH_PATTERN = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\/){0,7}[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
+// the loader's layout: pack.json; props|regions|hunters/*.json one level deep; assets/** .glb .png .ogg (lower-case)
+const SEGMENT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}";
+const FILE_PATH_PATTERN = new RegExp(`^(?:pack\\.json|(?:props|regions|hunters)/${SEGMENT}\\.json|assets/(?:${SEGMENT}/){0,6}${SEGMENT}\\.(?:glb|png|ogg))$`);
 
 export const MOD_LIMITS = Object.freeze({
-  maxFileBytes: 64 * 1024 * 1024,     // one file
-  maxPackBytes: 256 * 1024 * 1024,    // all files of one version
-  maxFiles: 500,                      // files per version
+  maxFileBytes: 16 * 1024 * 1024,     // one file      (the client loader's limits: a bigger pack would be refused there)
+  maxPackBytes: 128 * 1024 * 1024,    // all files of one version
+  maxFiles: 512,                      // files per version
   maxPacks: 2000,                     // packs in the index
   maxVersionsKept: 5,                 // older versions drop out of the index (their files stay on VPS 2 until cleaned)
   maxText: 120,                       // name / author
@@ -28,8 +34,23 @@ function text(value, max) {
   return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
 }
 
+// The pack identity the client uses for its cache and the room handshake: sha256 of "<file sha256> <path>" lines,
+// sorted by path, joined by "\n", over every file including pack.json.
+export function packIdentity(files) {
+  const lines = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .map((file) => `${file.sha256} ${file.path}`);
+  return createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+
 export function validatePackManifest(input, limits = MOD_LIMITS) {
   const manifest = input && typeof input === "object" ? input : {};
+  if (manifest.schema !== MOD_PACK_SCHEMA) return { error: "INVALID_PACK_SCHEMA" };
+  const unknown = Object.keys(manifest).find((key) => !MANIFEST_KEYS.has(key));
+  if (unknown) return { error: "UNKNOWN_PACK_FIELD", path: unknown };
+  if (manifest.overrides !== undefined && (!Array.isArray(manifest.overrides)
+      || manifest.overrides.some((entry) => !/^(?:props|regions|hunters)\/[A-Za-z0-9_]{1,64}$/.test(String(entry))))) {
+    return { error: "INVALID_PACK_OVERRIDES" };
+  }
   const id = String(manifest.id || "");
   const version = String(manifest.version || "");
   if (!MOD_PACK_ID_PATTERN.test(id)) return { error: "INVALID_PACK_ID" };
@@ -60,13 +81,16 @@ export function validatePackManifest(input, limits = MOD_LIMITS) {
   }
   if (total > limits.maxPackBytes) return { error: "PACK_TOO_LARGE" };
   if (!seen.has("pack.json")) return { error: "PACK_JSON_MISSING" };
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return {
     pack: {
       id, version, name, author,
       description: text(manifest.description, limits.maxDescription),
       gameVersion: text(manifest.game_version ?? manifest.gameVersion, 32),
-      files: files.sort((a, b) => a.path.localeCompare(b.path)),
+      overrides: Array.isArray(manifest.overrides) ? manifest.overrides.map(String) : [],
+      files,
       totalBytes: total,
+      sha256: packIdentity(files),
     },
   };
 }
@@ -116,6 +140,8 @@ export function createModPacks({
       author: chosen.author,
       description: chosen.description,
       gameVersion: chosen.gameVersion,
+      overrides: chosen.overrides || [],
+      sha256: chosen.sha256 || packIdentity(chosen.files),
       blocked: Boolean(record.blocked),
       blockedReason: record.blocked ? record.blockedReason || "" : "",
       files: chosen.files,
