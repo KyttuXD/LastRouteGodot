@@ -24,7 +24,7 @@ var station := Vector2.ZERO
 var on_station := false
 
 
-func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
+func after_perception(brain: HunterBrain, _delta: float, target: Dictionary, generator) -> void:
 	if generator.relays.is_empty():
 		return
 	# She keeps guarding the first relay still out; once it is taken she moves on to the next one.
@@ -38,6 +38,12 @@ func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, ge
 	if open.is_empty():
 		return
 	var post := Vector2(open["x"], open["y"])
+	# KT: "opalie saw me, i hid in a locker, and now shes walking away even if i go up close" / "chase further". Once
+	# she has seen or heard a runner she chases like any hunter and only walks back to her post after losing them.
+	if brain.state == HunterBrain.State.CHASE and not bool(target.get("hidden", false)):
+		on_station = false
+		station = Vector2.ZERO
+		return
 
 	if brain.position.distance_to(post) > GameConfig.OPALIE_GUARD_ARRIVAL:
 		# Still on her way. Ordinary movement carries her; she is only

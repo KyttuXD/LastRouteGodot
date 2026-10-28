@@ -347,6 +347,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 func _process(delta: float) -> void:
 	_update_troll_ads(delta)
+	_tick_seat_occupancy()
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
 	_tick_carousels(delta)
@@ -2691,6 +2692,15 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 			_store_hunter(entity_id, view)
 			continue
 		view.set_asleep(false)
+		# idle seats (docs/SEATING.md): a seated hunter is owned by the seat until a noise or a sighting gets her up
+		if not _naps.naps.has(entity_id) and _seats.update(entity_id, view.brain, navigation, target, delta, _nap_rng.randf(), RoomState.difficulty_id()):
+			view.target_peer_id = 0
+			view.set_look_target(null)
+			view.sync_from_brain()
+			view.set_seated(true, float(_seats.seat_of(entity_id).get("yaw", 0.0)))
+			_store_hunter(entity_id, view)
+			continue
+		view.set_seated(false)
 		var captured := false
 		if not target.is_empty():
 			view.target_peer_id = int(target.get("peer_id", 1))
@@ -2998,6 +3008,18 @@ var _hide_check_cooldowns := {}
 
 
 var _naps := HunterNaps.new()
+var _seats := HunterSeats.new()
+
+
+## Who sits where this frame (SeatOccupancy, docs/SEATING.md): remote runners from their replicated seat, hunters from
+## their seated views (host and guests alike), so a taken seat offers no prompt and no hunter picks it.
+func _tick_seat_occupancy() -> void:
+	var taken: Array = _remotes.occupied_seats() if _remotes != null else []
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view != null and is_instance_valid(view) and view.is_seated():
+			taken.append(SeatOccupancy.plan_of(view))
+	SeatOccupancy.rebuild(taken)
 var _nap_rng := RandomNumberGenerator.new()
 var _snore_cooldowns := {}
 
@@ -4753,6 +4775,8 @@ func _collect_hunter_report() -> void:
 		state["asleep"] = _naps.is_asleep(entity_id)
 		state["sleep_yaw"] = float(_naps.bed_of(entity_id).get("yaw", 0.0))
 		state["sleep_stage"] = _naps.stage_of(entity_id)
+		state["seated"] = _seats.is_seated(entity_id)
+		state["seat_yaw"] = float(_seats.seat_of(entity_id).get("yaw", 0.0))
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
 		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
@@ -4794,6 +4818,7 @@ func _apply_hunter_report(data: Array) -> void:
 		view.target_peer_id = int(state.get("target_peer_id", 0))
 		view.set_look_target(state.get("look_target"))
 		view.set_asleep(bool(state.get("asleep", false)), float(state.get("sleep_yaw", 0.0)), int(state.get("sleep_stage", 0)))
+		view.set_seated(bool(state.get("seated", false)), float(state.get("seat_yaw", 0.0)))
 		var gimmick_state = state.get("gimmick", {})
 		if view.brain.gimmick != null and gimmick_state is Dictionary:
 			view.brain.gimmick.apply_network_state(gimmick_state)

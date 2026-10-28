@@ -105,3 +105,37 @@ Straight up from Central Avenue (`city_central_avenue_zenith_before_after.png` (
 the ring, spokes and cyan bracket markers were the dome ribs, rings and beacons of `CityDomeFrame._build_frame`. Render
 check: `tools/look/zenith_check.tscn` (not headless) looks straight up from Central Avenue, Main Street and the Ring Road
 and fails if the dome frame darkens more than 0.2% of the zenith disc (old frame: 0.9 to 3.7%, now 0%).
+
+## Hunter model clipping (swaying parts)
+
+`hunter_clipping` (scripts/validate_hunter_clipping.gd, src/game/hunter_clip_audit.gd) loads every blocky hunter, plays every clip at 16
+timesteps and fails when a swaying/attached part (hair chain, braid, tail, ear, wing, horn, halo) cuts deeper into the body than it does at
+rest (oriented-box SAT per bone mesh), when a part's pivot drifts from its parent, or when feet sink/float. Tiers: idle/walk/chase/sprint/
+crouch/charge are strict (torso 5.5 cm, limbs 17 cm); emotes, climb, stun, jumpscare and flight only fail beyond 30 cm. Void `Cue-*`
+clouds are exempt by design.
+
+Fix: `tools/blocky_hunters/clearance.py` runs at build time (build.py) after the clips exist. For every extra bone and clip frame it does
+forward kinematics, and where the sway would clip it picks the cheapest smaller sway and/or pitch/yaw/roll offset that clears the body,
+so a part only deviates in the frames that would have clipped. Before: 9225 findings over 38 hunters (a ponytail through the belly in most
+chase frames, Porcelle's braids across torso and legs); after: 0 on the validator. Capture: docs/hunter_clipping_before_after.png.
+
+Sway amplitude: `SWAY_SCALE` (0.5) and `SWAY_FREQUENCY` (0.6) at the top of tools/blocky_hunters/bb_rig.py scale idle breathing, gait torso/head
+counter-motion, arm drift and every hanging part, for hunters and the player mannequins; `sway` in hunters/motion.py PROFILES multiplies
+it per hunter. Deliberate poses (head_roll, lean, stride, emotes) are untouched.
+
+Known: the mermaid tails (Opalie, Loxelle) still pass ~16 cm through the sprinting legs, and the extreme emote/climb/stun poses roll the
+head or lift the arms into hair/wing pivots rotation cannot clear; both need the part's root moved, not just rotated.
+
+## Hair physics and hair length
+
+`tools/blocky_hunters/hairsim.py` (build time, before clearance.py): every hair/tail chain (Pony-1..3, L/R-Pig-n, Tail-n) is simulated per
+clip as Verlet particles riding the head or pelvis: gravity, damping, a soft spring back to the rigid pose (so the strand lags the head and
+settles), a swing limit per segment (70 deg for the first from the rigid pose, 40 deg for each next), and push-out from head, shoulders,
+arms, torso and legs. Looping clips are closed by easing the last quarter onto the first key. The result is plain rotation keys on the chain
+bones: free at runtime, identical on every peer, not synced. The shared sway scale loosens or tightens the spring and damping.
+
+Length: ponytails are capped at 16 px (to about the shoulder blades; `MAX_LENGTH` in hunters/pony.py), Javelle's and Porcelle's pigtails/braids
+at two segments ending at y = 16, Wynelle's pigtails at three segments ending at y = 14. Trimmed: Aki, Briselle, Ceryth, Ferryn, Haelith,
+Loxelle, Mavrine, Opalie, Ravelle, Ysolde, Javelle, Porcelle, Wynelle. Left alone (already at or above the cap, or lore): Kathy, Glyra,
+Thessine, Umbriel, Zellia, and Nyxie, whose braid is a lore trait (testers' "braid girl", KT-Lore LORE-NOTES). Void hunters have no hair.
+Contact sheet: docs/hunter_hair_length_contact_sheet.png; Javelle/Aki/Porcelle idle, walk, sprint: docs/hunter_hair_before_after.png.

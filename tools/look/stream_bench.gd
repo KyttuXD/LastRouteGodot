@@ -49,9 +49,7 @@ func _ready() -> void:
 	var seed_text: String = args[4] if args.size() > 4 and args[4] != "-" else ("CITY-LOOK" if _mode == "city" else "STREAM-BENCH")
 	_speed = float(args[5]) if args.size() > 5 else 7.0
 	DirAccess.make_dir_recursive_absolute(_out_dir)
-	var out := []
-	OS.execute("sysctl", ["-n", "vm.loadavg"], out)
-	_loadavg = String(out[0]).strip_edges() if not out.is_empty() else ""
+	_loadavg = _load_average()
 	Backend.enable_offline_mode()
 	Settings.fps_limit = 0
 	Settings.vsync_enabled = false
@@ -85,6 +83,17 @@ func _ready() -> void:
 		_facility.take_frame_stream_cost()
 	_last_usec = Time.get_ticks_usec()
 	_running = true
+
+
+## Machine load before the run: macOS sysctl, Linux /proc/loadavg, Windows has none ("n/a").
+static func _load_average() -> String:
+	if OS.get_name() == "macOS":
+		var out := []
+		OS.execute("sysctl", ["-n", "vm.loadavg"], out)
+		return String(out[0]).strip_edges() if not out.is_empty() else "n/a"
+	if OS.get_name() in ["Linux", "FreeBSD"] and FileAccess.file_exists("/proc/loadavg"):
+		return FileAccess.get_file_as_string("/proc/loadavg").strip_edges()
+	return "n/a"
 
 
 func _settle() -> void:
@@ -316,6 +325,19 @@ static func _low_fps(sorted: PackedFloat32Array, share: float) -> float:
 
 
 ## Lowest FPS over any 0.5 s window of consecutive frames.
+static func _std(frames: PackedFloat32Array) -> float:
+	if frames.size() < 2:
+		return 0.0
+	var mean := 0.0
+	for f in frames:
+		mean += f
+	mean /= frames.size()
+	var acc := 0.0
+	for f in frames:
+		acc += (f - mean) * (f - mean)
+	return sqrt(acc / (frames.size() - 1))
+
+
 static func _min_window_fps(frames: PackedFloat32Array, window_ms: float = 500.0) -> float:
 	var best := INF
 	var start := 0
@@ -410,9 +432,14 @@ func _finish() -> void:
 	for trip in summary["trips"]:
 		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d dip_fps=%.1f" % [trip["to"], trip["t"], trip["max_ms"],
 			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"], trip["dip_fps"]])
-	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f res=%s vsync=%s" % [_tag, _mode, summary["avg_fps"],
-		summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], str(get_viewport().get_visible_rect().size),
+	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f std_ms=%.2f renderer=%s scale3d=%.2f res=%s vsync=%s" % [_tag, _mode,
+		summary["avg_fps"], summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], _std(_frames),
+		RenderingServer.get_current_rendering_method(), get_viewport().scaling_3d_scale, str(get_viewport().get_visible_rect().size),
 		str(DisplayServer.window_get_vsync_mode())])
+	print("GPU %s adapter=%s vendor=%s api=%s window=%s scale=%.2f hidpi=%s tier=%s" % [_tag, RenderingServer.get_video_adapter_name(),
+		RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version(),
+		str(DisplayServer.window_get_size()), DisplayServer.screen_get_scale(), str(ProjectSettings.get_setting("display/window/dpi/allow_hidpi")),
+		PlatformProfile.tier_readout()])
 	for hitch in _hitch_log.slice(0, 40):
 		print("HITCH t=%.2f ms=%.1f stream_cpu=%.1f step=%s process=%.1f physics=%.1f" % [hitch["t"], hitch["ms"], hitch["stream_cpu_ms"],
 			hitch["step"], hitch["process_ms"], hitch["physics_ms"]])

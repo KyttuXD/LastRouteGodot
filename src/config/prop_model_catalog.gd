@@ -902,6 +902,51 @@ static func is_batchable(type: String) -> bool:
 
 ## Turn decorative furniture into a gameplay surface without coupling the
 ## generator to model filenames. An empty result remains ordinary dressing.
+## Hunter-scale rescale (docs/SEATING.md, docs/SCALE_FIT.md): the world is built for a 2.67 m hunter, and these models were
+## authored person-sized. ModelSlot.instantiate_prop scales their children by this factor, so the view, the collider
+## emitter (PropColliderSizes) and every audit see the same scaled model. Seats, benches, sofas and stools all scale.
+const HUNTER_SCALE := {
+	# seats (every chair, stool, bench and sofa you can sit on): seat pans end up about 0.45 m x 1.5
+	"barberChair": 1.5, "beachChair": 1.5, "dinerStool": 1.5, "diningChair": 1.5, "diningChairCushion": 1.5,
+	"gothicBedroomBench": 1.5, "gothicHighbackChair": 1.5, "greenhouseBench": 1.5, "labStool": 1.5, "loungeCouch": 1.5,
+	"loungeCouchWide": 1.5, "mallBench": 1.5, "officeChair": 1.5, "publicShowerBench": 1.5, "waitingChairs": 1.5,
+	"wheelchair": 1.5, "woodenChair": 1.5, "woodenChairCushion": 1.5,
+	# beds (the gothic canopy stops at 1.48 so it stays under the hunter-scale bed length)
+	"bunkBed": 1.5, "doubleBed": 1.5, "gothicDoubleBed": 1.48, "hospitalBed": 1.5, "prisonBunk": 1.5, "singleBed": 1.5,
+	# counters, kitchens, sinks
+	"bathroomSink": 1.5, "bathroomVanity": 1.5, "bedroomDresser": 1.5, "checkoutCounter": 1.5, "concessionCounter": 1.5,
+	"diningSideboard": 1.5, "luxuryKitchenCounter": 1.5, "luxuryKitchenIsland": 1.5, "luxuryKitchenSink": 1.5,
+	"luxuryKitchenStove": 1.5, "normalKitchenCounter": 1.5, "normalKitchenIsland": 1.5, "normalKitchenSink": 1.5,
+	"normalKitchenStove": 1.5, "prisonServingCounter": 1.5, "receptionDesk": 1.5, "woodenDresserSideboard": 1.5,
+	"normalCoffeeTable": 1.5,
+	# storage, lamps, bathrooms
+	"clothesRack": 1.5, "filingCabinet": 1.5, "gasCylinderRack": 1.5, "surfboardRack": 1.5, "floorLamp": 1.5,
+	"gothicFloorCandelabra": 1.5, "deconShower": 1.5, "houseShowerEnclosure": 1.5, "publicMensShowerStall": 1.5,
+	"publicWomensShowerStall": 1.5, "houseToilet": 1.5, "publicRestroomToilet": 1.5, "publicMensUrinal": 1.5,
+}
+## Multi-seat furniture: this many separate sit points side by side along the prop's width, each its own interactable
+## (its own prompt and camera, picked by aim), and each a seat a hunter can take. Anything not listed is one seat.
+const SEAT_COUNTS := {"waitingChairs": 3, "loungeCouch": 2, "loungeCouchWide": 3, "mallBench": 2, "greenhouseBench": 2,
+	"gothicBedroomBench": 2, "publicShowerBench": 2}
+
+
+static func hunter_scale(type: String) -> float:
+	return float(HUNTER_SCALE.get(type, 1.0))
+
+
+static func seat_count(type: String) -> int:
+	return int(SEAT_COUNTS.get(type, 1)) if interaction_for(type) == "sit" else 1
+
+
+## Seat centres along a sit prop's local x, for a prop `width` wide: one at 0, or N evenly across the width.
+static func seat_offsets(type: String, width: float) -> Array:
+	var count := seat_count(type)
+	var out := []
+	for i in count:
+		out.append((float(i) + .5) / float(count) * width - width * .5)
+	return out
+
+
 static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
 	if type == "carouselCenterpiece":
