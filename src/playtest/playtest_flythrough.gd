@@ -859,6 +859,8 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 		padded.add(first_pos, first_yaw, first_pitch, first_ground)
 	for cut in track.cuts:
 		padded.cuts.append(cut + int(HOLD_SECONDS * fps))
+	for event_frame in track.events:
+		padded.events[int(event_frame) + int(HOLD_SECONDS * fps)] = track.events[event_frame]
 	for i in track.size():
 		padded.add(track.pos[i], track.yaw[i], track.pitch[i], track.ground[i], track.pivot[i])
 	padded.hold(int(HOLD_SECONDS * fps))
@@ -1073,6 +1075,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 					if along > .05:
 						best_j = j
 						break
+				for event_frame in track.events:
+					if int(event_frame) > i and int(event_frame) <= best_j:
+						best_j = int(event_frame)
 				i = best_j
 				p = track.pos[i]
 				post_watch = {"left": fps, "axis": through, "start": here, "yaw0": player._yaw, "max_fwd": 0.0, "back": 0.0, "yaw_dev": 0.0, "final_yaw": track.yaw[i]}
