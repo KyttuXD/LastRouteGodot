@@ -18,6 +18,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 	match office_id:
 		"classic_security", "hub_office":
 			_classic(office)
+		"broadcast_booth":
+			_broadcast(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -128,3 +130,24 @@ static func _poster_material(kind: String, base: Color) -> StandardMaterial3D:
 	m.roughness = 1.0
 	m.set_meta("nw_kind", "fabric")
 	return m
+
+
+## Dead Air: the 2D picture is a teal booth with a barred window on the far wall, vent grilles at the sides and a cold cyan ceiling lamp: dark bars across the studio window (every 0.35 m, over the mullions), a cyan lamp panel,
+## and a low grey box under the window.
+static func _broadcast(office: Node3D) -> void:
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var half_d: float = 2.5
+	# the acoustic foam wall is the 2D teal panelling
+	var n := 0
+	for node in office.find_children("*", "MeshInstance3D", true, false):
+		if not String(node.get_meta("nw_name", node.name)).begins_with("FoamWedge"):
+			continue
+		var shade := 0.75 + 0.1 * float(n % 3)
+		(node as MeshInstance3D).material_override = NightWatchArt.material("wall", Color(0.35 * shade, 1.0 * shade, 1.25 * shade))
+		n += 1
+	for i in range(-4, 5):
+		NightWatchArt.box(root, Vector3(0.1, 1.55, 0.07), Vector3(float(i) * 0.35, 1.75, -half_d + 0.05), {"name": "WindowBar", "kind": "metal", "tint": Color(0.12, 0.14, 0.17)})
+	NightWatchArt.box(root, Vector3(0.9, 0.04, 0.4), Vector3(0, 2.96, 0.2), {"name": "CeilingPanelCyan", "kind": "light", "tint": Color(0.8, 1.5, 1.6)})
+	NightWatchArt.box(root, Vector3(0.5, 0.3, 0.4), Vector3(-1.9, 0.15, -half_d + 0.4), {"name": "FloorBox", "kind": "metal", "tint": Color(0.4, 0.45, 0.5)})

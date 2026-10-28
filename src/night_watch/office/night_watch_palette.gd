@@ -48,9 +48,12 @@ static func apply(root: Node, office_id: String) -> int:
 		var mat := mi.material_override as StandardMaterial3D
 		var kind := String(mat.get_meta("nw_kind", ""))
 		var part := ""
-		if WALL_KINDS.has(kind):
+		var own_name := String(mi.get_meta("nw_name", mi.name))
+		if own_name == "Floor":
+			part = "floor"   # every office's floor slab, whatever its material kind (Dead Air's is carpet)
+		elif WALL_KINDS.has(kind):
 			part = "wall"
-		elif FLOOR_KINDS.has(kind):
+		elif FLOOR_KINDS.has(kind) and own_name != "Floor":
 			part = "floor"
 		elif CEILING_KINDS.has(kind) and String(mi.get_meta("nw_name", mi.name)).to_lower().contains("ceiling"):
 			part = "ceiling"
