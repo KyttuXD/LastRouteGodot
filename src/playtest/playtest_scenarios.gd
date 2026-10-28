@@ -799,7 +799,9 @@ static func _soak_level(bridge: PlaytestBridge, scene: Node, target: int) -> Dic
 				off = dir * minf(1.6, clear - .5)
 		player.global_position = landing + off
 		player.set_admin_noclip(false)
-		path.append("%s>%d" % [best["kind"], step])
+		# where it landed (world x/z, chunk, link id), so a bad spot can be visited again
+		path.append({"link": best["id"], "to": step, "chunk": [chunk.x, chunk.z],
+			"at": [snappedf(player.global_position.x, .1), snappedf(player.global_position.y, .1), snappedf(player.global_position.z, .1)]})
 	# let go and see that the runner stays there, standing on that storey's floor (not falling back through it)
 	for _i in 60:
 		await tree.physics_frame
