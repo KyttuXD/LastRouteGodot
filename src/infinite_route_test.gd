@@ -213,6 +213,7 @@ func _ready() -> void:
 	facility.begin(str(RoomState.run_seed()), player, world_state)
 	if not _loaded_from_save:
 		player.global_position = facility.spawn_position()
+		_settle_spawn.call_deferred()
 	_statistics_last_position = player.global_position
 	_navigation = StreamedHunterNavigation.new(facility.generator,
 		facility.current_level(), world_state)
@@ -803,6 +804,23 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## The spawn cell is the first chunk's centre, which a room layout can make a wall junction: once the first stream
+## window's colliders are in the physics space (the floor under the spawn exists; the window builds incrementally),
+## move the runner to the nearest clear cell.
+func _settle_spawn() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+		if not is_instance_valid(player):
+			return
+		var space := player.get_world_3d().direct_space_state
+		var at := player.global_position
+		if not space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6,
+				player.collision_mask, [player.get_rid()])).is_empty():
+			break
+	if is_instance_valid(player) and not _loaded_from_save:
+		player.global_position = player.clear_spot_near(player.global_position)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
