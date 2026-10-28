@@ -104,6 +104,8 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
+## The neck-lift catch for the hunters GrabStyles lists (KT: some hunters lift the runner by the neck).
+var neck_lift: NeckLift
 ## Troll-mode "ads" (TrollAds, docs/ANTI_CHEAT.md): only while the host has this client in troll mode with ads on.
 var troll_ads := TrollAds.new()
 var troll_ad_overlay: TrollAdOverlay
@@ -161,6 +163,8 @@ func _ready() -> void:
 	add_child(pixel_signal_effect)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	neck_lift = NeckLift.new()
+	world.add_child(neck_lift)
 	_waypoint_overlay = WaypointOverlay.new()
 	hud.add_child(_waypoint_overlay)
 	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
@@ -4839,7 +4843,7 @@ func _apply_player_event(event: Dictionary) -> void:
 					_remotes.submit_hunter_event({"what": "caught"})
 				return
 			if bool(event.get("inescapable", false)) or GameState.escape_on_cooldown():
-				await _resolve_capture_outcome(hunter_id)
+				await _resolve_capture_outcome(hunter_id, String(event.get("entity_id", "")))
 				return
 			_begin_escape_struggle(String(event.get("entity_id", "")), hunter_id)
 		"message":
@@ -4922,7 +4926,7 @@ func _update_escape_struggle(delta: float) -> void:
 	if GameState.escape_progress >= GameState.escape_required:
 		_resolve_escape_success()
 	elif GameState.escape_remaining <= 0.0:
-		await _resolve_capture_outcome(_escaping_hunter_id)
+		await _resolve_capture_outcome(_escaping_hunter_id, _escaping_entity_id)
 
 
 func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
@@ -4951,10 +4955,11 @@ func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 ## Shared by a failed struggle and an inescapable grab (void hunters, or a
 ## gimmick that declares the grab inescapable): the same local jumpscare and
 ## death report either way.
-func _resolve_capture_outcome(hunter_id: String) -> void:
+func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void:
 	if _capture_resolving:
 		return
 	_capture_resolving = true
+	var catcher := _capture_view(hunter_id, entity_id)
 	GameState.resolve_escape_failure()
 	_save_after_local_death()
 	hud.set_escape_active(false)
@@ -4978,6 +4983,8 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
+	if catcher != null and GrabStyles.lifts(hunter_id) and not player.xr_active:
+		await neck_lift.play(player, catcher)
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
@@ -5038,6 +5045,24 @@ func _death_cause(hunter_id: String) -> Dictionary:
 				cause["detail"] = "lamp"
 	return cause
 
+
+
+## The hunter view that made this catch: the streamed entity when the event names it, else the nearest view of that hunter.
+func _capture_view(hunter_id: String, entity_id: String) -> HunterView3D:
+	var named := _hunter_views.get(entity_id) as HunterView3D
+	if named != null and is_instance_valid(named):
+		return named
+	var best: HunterView3D = null
+	var best_distance := INF
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null or view.brain.hunter_id != hunter_id:
+			continue
+		var distance := view.global_position.distance_to(player.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = view
+	return best if best_distance < 4.0 else null
 
 func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Dictionary:
 	var cause := cause_override if not cause_override.is_empty() else _death_cause(hunter_id)
@@ -5261,6 +5286,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
+	neck_lift.release()
 	_force_disable_admin_cheats()
 	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death

@@ -31,6 +31,7 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
+var neck_lift: NeckLift
 var _death_moment: DeathMoment
 ## How the local runner is dying, for the death line pick: contact (default), deal (Zellia), cold (Wynelle).
 var _death_via := "contact"
@@ -128,6 +129,8 @@ func _ready() -> void:
 	run_report.leave_requested.connect(_leave_after_report)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	neck_lift = NeckLift.new()
+	world.add_child(neck_lift)
 	_death_moment = DeathMoment.new()
 	add_child(_death_moment)
 	pixel_signal_effect = PixelSignalEffect.new()
@@ -1079,6 +1082,8 @@ func _resolve_capture_outcome() -> void:
 			"what": "caught",
 			"hunter_id": hunter_id,
 		})
+	if capturing_view != null and GrabStyles.lifts(hunter_id) and not player.xr_active:
+		await neck_lift.play(player, capturing_view)
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
@@ -1144,6 +1149,7 @@ func _enter_game_over() -> void:
 
 
 func _restore_gameplay_after_report() -> void:
+	neck_lift.release()
 	run_report.close()
 	player.look_frozen = false
 	pause_menu.tap_to_pause = true

@@ -408,6 +408,7 @@ func _local_state() -> Dictionary:
 		"skin_copy": Settings.skin_copyable,
 		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
+		"lift": snappedf(controller.lift_height, .01),
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
 		"no_target": controller.admin_no_target,
@@ -528,7 +529,7 @@ func _place(state: Dictionary) -> void:
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
-	_positions[id] = at
+	_positions[id] = (at as Vector3) + Vector3(0.0, clampf(float(state.get("lift", 0.0)), 0.0, NeckLift.MAX_LIFT), 0.0)
 	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
@@ -596,6 +597,8 @@ func _interpolate_bodies(delta: float) -> void:
 			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
+		if float((_states.get(id, {}) as Dictionary).get("lift", 0.0)) > 0.0:
+			NeckLift.pose_nearest_hunter(self, body, true)
 
 
 const NAME_TAG_HEIGHT := 1.92

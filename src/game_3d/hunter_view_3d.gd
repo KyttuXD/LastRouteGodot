@@ -146,6 +146,7 @@ const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 
 
 func _ready() -> void:
+	add_to_group("hunter_views")
 	# AnimationPlayer updates at the default process priority. Apply the
 	# presentation-only neck look afterward so clips keep their pitch/roll while
 	# the head can scan independently from the body.
