@@ -2647,6 +2647,10 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
 	_inferno_secrets.update(self, delta)
+	for cell_value in _inspect_cooldowns.keys():
+		_inspect_cooldowns[cell_value] = float(_inspect_cooldowns[cell_value]) - delta
+		if float(_inspect_cooldowns[cell_value]) <= 0.0:
+			_inspect_cooldowns.erase(cell_value)
 	for cell_value in _hide_check_cooldowns.keys():
 		_hide_check_cooldowns[cell_value] = float(_hide_check_cooldowns[cell_value]) - delta
 		if float(_hide_check_cooldowns[cell_value]) <= 0.0:
@@ -3001,6 +3005,7 @@ static func _ladder_yaw(link: Dictionary) -> float:
 ## hunter logic; the result reaches the hider as a player event and the tell as a stream event.
 var _hide_checks := {}
 var _hide_check_cooldowns := {}
+var _inspect_cooldowns := {}
 
 
 var _naps := HunterNaps.new()
@@ -3063,6 +3068,7 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	var centre := Vector2(spot) + Vector2(.5, .5)
 	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre,
 			GameConfig.profile_value(RoomState.difficulty_id(), "hide_trail")):
+		_maybe_inspect_spot(brain, navigation, spot, centre)
 		return
 	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"),
 		"peer": int(target.get("peer_id", 1))}
@@ -3070,6 +3076,22 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))
 	_publish_stream_event({"what": "stream_hide_check", "cell": spot,
 		"seconds": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell")})
+
+
+## She did not see them go in (no hide check): maybe a close look through the slats instead (HunterInspect), which never
+## finds them. Only slatted spots; the same spot is left alone for SPOT_COOLDOWN.
+func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigation, cell: Vector2i, centre: Vector2) -> void:
+	if HunterInspect.chance(brain.hunter_id, RoomState.difficulty_id()) <= 0.0 or _inspect_cooldowns.has(cell) \
+			or not HunterInspect.qualifies(brain, centre, false) or navigation == null:
+		return
+	for spot_value in navigation.hiding_spots:
+		var spot: Dictionary = spot_value
+		if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) != cell or not HunterInspect.slatted(String(spot.get("style", ""))):
+			continue
+		var at: Vector2 = spot.get("prop_at", centre)
+		if brain.maybe_inspect(at, HunterInspect.door_direction(float(spot.get("yaw", 0.0))), navigation):
+			_inspect_cooldowns[cell] = HunterInspect.SPOT_COOLDOWN
+		return
 
 
 static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:

@@ -524,6 +524,9 @@ func _head_mode() -> int:
 		HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 			if has_look_target:
 				return HunterFacing.Mode.SWEEP
+		HunterBrain.State.INSPECT:
+			if brain.inspect_phase != HunterBrain.Inspect.WALK:
+				return HunterFacing.Mode.NONE   # the lean pose aims her face straight in at the slats
 	return HunterFacing.Mode.AHEAD if _facing.moving() else HunterFacing.Mode.SCAN
 
 
@@ -876,6 +879,8 @@ func _sync_peek_pose() -> void:
 	var wanted := ""
 	if brain.peeking_out() and brain.stun_timer <= 0.0:
 		wanted = "corner_peek_left" if brain.peek_side > 0 else "corner_peek_right"
+	elif brain.inspecting_close() and brain.stun_timer <= 0.0:
+		wanted = "locker_lean"   # bent in at the slats (HunterInspect); blends in over the shot's 1.6 s bow
 	if wanted == _peek_pose:
 		return
 	if wanted.is_empty():
@@ -883,8 +888,36 @@ func _sync_peek_pose() -> void:
 			nw_pose = ""
 	elif nw_pose.is_empty() or nw_pose == _peek_pose:
 		nw_pose = wanted
-		nw_pose_opts = {}
+		nw_pose_opts = {"blend": HunterInspect.LEAN_SECONDS} if wanted == "locker_lean" else {}
 	_peek_pose = wanted
+
+
+## Locker inspection: one close breath when she settles at the slats, heard only near the spot (the hider, mostly).
+var _breathed := false
+
+
+func _update_inspect_breath() -> void:
+	var lingering := brain.state == HunterBrain.State.INSPECT and brain.inspect_phase == HunterBrain.Inspect.LINGER
+	if not lingering:
+		_breathed = false
+		return
+	if _breathed or not is_inside_tree():
+		return
+	_breathed = true
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var gap := global_position.distance_to(camera.global_position)
+	if gap > 3.5:
+		return
+	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	var breaths := int(HunterInspect.tuning(brain.hunter_id)["breaths"])   # Nyxie's easter egg breathes twice, longer
+	for i in breaths:
+		if i > 0:
+			await get_tree().create_timer(1.1).timeout
+			if not is_inside_tree():
+				return
+		Sound.nw("breath", clampf(side, -1.0, 1.0), (1.0 - gap / 3.5 * .5) * (1.15 if breaths > 1 else 1.0))
 
 
 ## Glyra hums while her music box plays and falls silent when it stops (GlyraGimmick.humming, replicated mood).
@@ -1088,6 +1121,7 @@ func _update_animation() -> void:
 	_sync_peek_pose()
 	_update_peek_spot()
 	_update_glyra_hum()
+	_update_inspect_breath()
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():

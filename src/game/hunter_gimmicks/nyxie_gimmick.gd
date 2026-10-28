@@ -68,6 +68,9 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 				_darkness_elapsed = 0.0
 				return
 
+	# A close look at a locker (HunterInspect) runs to its end; she moves on afterwards.
+	if brain.state == HunterBrain.State.INSPECT:
+		return
 	# Darkness is exactly where she hunts best: she tracks through it rather
 	# than relying on the shared sight/hearing pass (her hearing scale is 0).
 	brain.state = HunterBrain.State.CHASE
