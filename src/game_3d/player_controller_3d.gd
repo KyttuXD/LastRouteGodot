@@ -1752,6 +1752,8 @@ func _xr_smoke_log() -> void:
 		xr_right.tracker, xr_right.pose, xr_right.get_has_tracking_data(), head, Vector2(head.x, head.z).length(),
 		xr_origin.world_scale, xr_comfort != null and xr_comfort.wrist != null and xr_comfort.wrist.is_visible_in_tree(),
 		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
+	for panel in get_tree().root.find_children("XRRoutePanel", "", true, false):
+		print("XR_SMOKE_PANEL canvas=%s root=%s" % [(panel as XRRoutePanel).canvas_size(), get_viewport().get_visible_rect().size])
 	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
 	var blocked := spot_blocked(global_position)
 	print("XR_SMOKE_SEED %s yaw=%.3f origin_current=%s" % [RoomState.seed_text, rotation.y, xr_origin.current])

@@ -172,6 +172,10 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
 
 - **Drawing:** every CanvasLayer of the route (HUD, pause menu, map, inventory, chat, story, death moment) draws into
   the panel's own 2D viewport through `CanvasLayer.custom_viewport`, including layers created later.
+- **Layout:** Godot skips the window's content-scale stretch while the root viewport renders XR, so the screens would
+  lay out at 1:1 on the eye buffer (about 1680 x 1760 on a Quest 3S), and the pause menu was a small box. The panel
+  re-anchors each layer's top-level Controls against the designed 480 x 270 canvas (`XRRoutePanel.fit_to_canvas`,
+  which places them exactly where the stretch would have), and the pointer maps onto that canvas.
 - **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since

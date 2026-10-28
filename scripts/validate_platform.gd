@@ -150,10 +150,33 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_vr_pose_sync(host)
 	await _check_no_touch_controllers(host)
 	await _check_xr_origin_handover(host)
+	_check_xr_canvas_fit()
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
 ## goes away with the focus.
+## In XR Godot skips the window stretch, so the route panel re-anchors screens against 480 x 270 itself: a centred
+## 380 x 236 box (the pause menu) and a full-rect screen must land where the stretch would put them.
+func _check_xr_canvas_fit() -> void:
+	var box := Control.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.offset_left = -190
+	box.offset_right = 190
+	box.offset_top = -118
+	box.offset_bottom = 118
+	XRRoutePanel.fit_to_canvas(box, Vector2(480, 270))
+	_expect(Rect2(box.offset_left, box.offset_top, box.offset_right - box.offset_left, box.offset_bottom - box.offset_top) \
+			== Rect2(50, 17, 380, 236) and box.anchor_left == 0.0 and box.anchor_right == 0.0,
+		"the XR panel places a centred 380 x 236 box at %s" % [Rect2(box.offset_left, box.offset_top, box.offset_right - box.offset_left, box.offset_bottom - box.offset_top)])
+	box.free()
+	var full := Control.new()
+	full.set_anchors_preset(Control.PRESET_FULL_RECT)
+	XRRoutePanel.fit_to_canvas(full, Vector2(480, 270))
+	_expect(full.offset_right == 480.0 and full.offset_bottom == 270.0 and full.offset_left == 0.0,
+		"the XR panel does not fit a full-rect screen to 480 x 270")
+	full.free()
+
+
 func _check_xr_keyboard(host: Node) -> void:
 	var layer := CanvasLayer.new()
 	host.add_child(layer)
