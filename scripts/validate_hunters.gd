@@ -555,7 +555,8 @@ func _hiding_spots_and_javelle(host: Node) -> void:
 	_expect(scene.player.hidden, "entering a locker did not hide the player")
 	_expect(fixture.local_hiding_view_open(),
 		"entering a locker did not enable its local inside view")
-	_expect(scene.player.get_interaction_prompt().is_empty(),
+	# Inside, the prompt is the LEAVE hint (a319611b, prompt_glyphs); the HIDE toast for the locker itself is gone.
+	_expect(not scene.player.get_interaction_prompt().contains("HIDE"),
 		"the removed HIDE toast still appears while inside a locker")
 	scene.player.leave_hiding(Vector2(cell) + Vector2(0.5, 0.5))
 	_expect(not scene.player.hidden, "the player could not get back out of a locker")
