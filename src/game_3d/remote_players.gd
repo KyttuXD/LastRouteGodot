@@ -91,6 +91,14 @@ var _recent_lines := {}
 ## Host: peers muted for the whole room by the owner/admin tools (their lines are dropped before relay).
 var room_muted := {}
 
+## Host anti-cheat (docs/ANTI_CHEAT.md): sanity-checks every guest sample and rate-limits interaction requests.
+var guard := GuestGuard.new()
+## Emitted on the host when a guest's sample was corrected (and when it was kicked).
+signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
+const INTERACTION_RATE_WINDOW_MS := 1000
+const INTERACTION_RATE_MAX := 8
+var _interaction_times := {}
+
 
 func _ready() -> void:
 	# After the peers' animation players, so VR head and arm poses are drawn over the walk/idle clips.
@@ -448,6 +456,9 @@ func _place(state: Dictionary) -> void:
 	if not at is Vector3 or not grid is Vector2:
 		return
 	var received := state.duplicate(true)
+	if RoomState.is_host and not _guard_sample(id, received):
+		return
+	at = received["at"]
 	received["peer_id"] = id
 	received["received_usec"] = Time.get_ticks_usec()
 	var previous: Dictionary = _states.get(id, {})
@@ -837,6 +848,8 @@ func _drop(id: int) -> void:
 	_remote_swing_seq.erase(id)
 	_remote_swing_tweens.erase(id)
 	_states.erase(id)
+	guard.forget(id)
+	_interaction_times.erase(id)
 	_pending_captures.erase(id)
 	_authorized_admin_peers.erase(id)
 	_floor_exit_marks.erase(id)
@@ -1148,6 +1161,8 @@ func _request_interaction(event: Dictionary) -> void:
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
 			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth"].has(what):
 		return
+	if not _interaction_allowed(sender):
+		return
 	var accepted: Dictionary
 	if what == "admin_auth":
 		accepted = {"what": what,
@@ -1259,7 +1274,61 @@ func send_player_event(peer_id: int, event: Dictionary) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _player_event(event: Dictionary) -> void:
+	if String(event.get("what", "")) == "anticheat_snap" and local_player != null and event.get("at") is Vector3:
+		local_player.global_position = event["at"]
+		if local_player is CharacterBody3D:
+			(local_player as CharacterBody3D).velocity = Vector3.ZERO
 	player_event.emit(event)
+
+
+## Host only. Runs the guard over one guest sample: a bad one is rewritten to the last good spot (so targeting,
+## pickups and relays use it) and the guest is snapped back; STRIKE_KICK strikes kick it. False drops the sample.
+func _guard_sample(id: int, received: Dictionary) -> bool:
+	if not guard.exempt.is_valid():
+		guard.exempt = func(peer_id: int) -> bool: return remote_admin_peer_allowed(peer_id)
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state if is_inside_tree() else null
+	var verdict := guard.check(id, received, Time.get_ticks_msec() / 1000.0, space)
+	if verdict.is_empty():
+		return true
+	var snap: Vector3 = verdict["snap_to"]
+	received["at"] = snap
+	received["position"] = Vector2(snap.x, snap.z)
+	var kicked := bool(verdict["kick"])
+	guest_violation.emit(id, String(verdict["reason"]), int(verdict["strikes"]), kicked)
+	if peer_is_live(id):
+		_player_event.rpc_id(id, {"what": "anticheat_snap", "at": snap, "reason": String(verdict["reason"])})
+	if kicked:
+		kick_guest(id, String(verdict["reason"]))
+		return false
+	return true
+
+
+## Host only: tells everyone, then drops the guest's connection.
+func kick_guest(id: int, reason: String) -> void:
+	if not RoomState.is_host or id <= 1:
+		return
+	send_system("%s WAS REMOVED // ANTI-CHEAT (%s)" % [RoomState.peer_display_name(id), reason.to_upper()])
+	if peer_is_live(id):
+		_player_event.rpc_id(id, {"what": "message", "message": "REMOVED FROM ROOM // ANTI-CHEAT"})
+	var peer := multiplayer.multiplayer_peer
+	if peer != null and RoomState.online:
+		get_tree().create_timer(.25).timeout.connect(func() -> void:
+			if multiplayer.multiplayer_peer == peer:
+				peer.disconnect_peer(id))
+	_drop(id)
+
+
+## Host only: true while the guest is under INTERACTION_RATE_MAX requests per window.
+func _interaction_allowed(id: int) -> bool:
+	var now := Time.get_ticks_msec()
+	var times: Array = _interaction_times.get(id, [])
+	while not times.is_empty() and now - int(times[0]) > INTERACTION_RATE_WINDOW_MS:
+		times.pop_front()
+	if times.size() >= INTERACTION_RATE_MAX:
+		return false
+	times.append(now)
+	_interaction_times[id] = times
+	return true
 
 
 ## A guest reports the result of a local escape struggle so the host can stun
