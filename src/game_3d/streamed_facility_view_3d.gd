@@ -1207,6 +1207,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
 		var kind := _ref_floor_kind(build, x, z)
+		if (data.get("crawl_cells", []) as Array).has(cell):
+			kind = "hazard"   # the hazard plate under a sewer crawl-under pipe
 		if bool(build["safe"]):
 			var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 			var edge: int = maxi(abs(x - center), abs(z - center))
@@ -2384,6 +2386,8 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		"streamed_region_prop", bool(prop.get("solid", true)), type,
 		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) else "",
 		float(prop.get("collider_y0", 0.0)))
+	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
+		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -2394,6 +2398,34 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		light.omni_range = 4.5
 		parent.add_child(light)
 		LampField.make_budgeted(light)
+
+
+## Water dripping off a sewer crawl-under pipe: a few small blue streaks falling from its underside to the floor.
+func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary) -> void:
+	var drips := GPUParticles3D.new()
+	drips.name = "PipeDrips"
+	drips.position = at
+	drips.amount = 8
+	drips.lifetime = 0.5
+	drips.visibility_aabb = AABB(Vector3(-2, -1.5, -2), Vector3(4, 2, 4))
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	var step: Vector2i = prop.get("crawl_step", Vector2i(1, 0))
+	process.emission_box_extents = Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05)
+	process.direction = Vector3.DOWN
+	process.spread = 0.0
+	process.initial_velocity_min = 0.0
+	process.initial_velocity_max = 0.2
+	process.gravity = Vector3(0, -9.8, 0)
+	drips.process_material = process
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.02, 0.07, 0.02)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.45, 0.65, 0.8)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = material
+	drips.draw_pass_1 = mesh
+	parent.add_child(drips)
 
 
 func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> void:

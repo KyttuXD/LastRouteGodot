@@ -401,7 +401,7 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		"difficulty": surface.difficulty_for_level(coord.y),
 		"links": links, "features": features, "ramps": ramps,
 		"falls": falls_between(coord.x, coord.z) if is_chunk_allowed(coord) else {},
-		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y)}
+		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y), "crawl_cells": _crawl_stripe_cells(features)}
 
 
 static func _carve_rect(grid: Array, rect: Rect2i, code: int) -> void:
@@ -644,6 +644,19 @@ func _crawl_features(rooms: Array, grid: Array, rng: SeededRandom) -> Array:
 	return out
 
 
+## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.
+static func _crawl_stripe_cells(features: Array) -> Array:
+	var cells := []
+	for feature in features:
+		if not feature.has("crawl") or int(feature["side"]) != -1:
+			continue
+		var step: Vector2i = feature["step"]
+		for cell_value in feature["cells"]:
+			for k in [-1, 0, 1]:
+				cells.append((cell_value as Vector2i) + step * k)
+	return cells
+
+
 ## Caged lamps far apart on the tunnels' outer walls, and pipe runs between them.
 static func _tunnel_features() -> Array:
 	var out := []
@@ -808,6 +821,7 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 			prop["solid"] = true
 			prop["crawl_under"] = true
 			prop["crawl_step"] = feature["step"]
+			prop["crawl_side"] = feature["side"]
 			prop["mount_y"] = CRAWL_PIPE_MOUNT_Y
 			prop["collider_size"] = CRAWL_PIPE_SIZE
 			prop["collider_y0"] = CRAWL_CLEARANCE

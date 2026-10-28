@@ -66,7 +66,9 @@ func _check_chunk(data: Dictionary, seed_text: String) -> int:
 	for room in data["rooms"]:
 		if room["room_type"] == "overflow_chamber":
 			_expect(not (room["rect"] as Rect2i).has_point(room_rect.position + Vector2i(1, 1)) or room_rect != room["rect"], "%s: crawl pipe leads into an overflow chamber" % where)
-	var start := Vector2i(SewerRouteGenerator.CENTER, SewerRouteGenerator.CENTER + SewerRouteGenerator.TUNNEL_HALF - 1)
+	# a bridge deck on the first tunnel arm: the bridges join every walkway quadrant (the confluence is open water)
+	var start := Vector2i(SewerRouteGenerator.BRIDGE_OFFSETS[0], SewerRouteGenerator.CENTER)
+	_expect(SewerRouteGenerator.is_walkable(int(grid[start.y][start.x])), "%s: flood start %s is not walkable" % [where, start])
 	var hunter := _flood(grid, start, blocked)
 	var crouched := _flood(grid, start, {})
 	var probe := room_rect.position + room_rect.size / 2
