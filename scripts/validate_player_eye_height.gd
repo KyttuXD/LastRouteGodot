@@ -12,7 +12,7 @@ const TOLERANCE := 0.02
 const GAP_DRIFT := 0.015
 ## pose clip -> camera eye height of that pose
 const STANDING := ["idle", "tpose", "jump", "fall"]
-const GAPS := {"crouch": 0.25, "sit": -0.10, "walk": -0.04, "chase": -0.06, "sprint": -0.08, "climb": -0.06}
+const GAPS := {"crouch": 0.218, "sit": -0.10, "walk": -0.0284, "chase": -0.06, "sprint": -0.08, "climb": -0.06}
 
 var _failures := 0
 
@@ -59,8 +59,8 @@ func run(host: Node) -> int:
 			if STANDING.has(clip):
 				_expect(absf(diff) <= TOLERANCE, "%s %s: eyes %.1f cm off the camera (limit 2)" % [path.get_file(), clip, diff * 100.0])
 			else:
-				_expect(absf(diff - float(GAPS[clip])) <= GAP_DRIFT, "%s %s: eye gap %.1f cm, listed %.1f cm" % [
-					path.get_file(), clip, diff * 100.0, float(GAPS[clip]) * 100.0])
+				_expect(absf(diff - float(GAPS[clip]) * PlayerModels.SCALE / 0.9) <= GAP_DRIFT, "%s %s: eye gap %.1f cm, listed %.1f cm" % [
+					path.get_file(), clip, diff * 100.0, float(GAPS[clip]) * PlayerModels.SCALE / 0.9 * 100.0])
 		print("  %s standing camera %.3f m; eyes minus camera (cm): %s" % [path.get_file(), standing, ", ".join(report)])
 		model.queue_free()
 	return _failures

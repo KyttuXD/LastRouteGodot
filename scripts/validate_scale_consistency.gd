@@ -27,6 +27,9 @@ const SAMPLES := 4
 ## Night Watch builds its own stage and draws its hunters at the authored size (ModelSlot.instantiate_hunter, no scale): its
 ## rooms are sized for that. It is one number for every NW mode, checked below; the main game's scale is HunterRoster's.
 const NW_SCALE := 1.0
+## KT ruling 2026-10-28: the runner is about 2.2 m, 0.85x of the 2.58 m hunter (slightly smaller, never as big).
+const RUNNER_HEIGHT := 2.2
+const HUNTER_HEIGHT := 2.58
 const SKIP_MESH := ["Beam", "Star", "Scythe", "Cue-", "Halo", "Glyph"]
 
 var _failures := 0
@@ -421,6 +424,8 @@ func _runners(host: Node) -> void:
 			idle_height = _top(model)
 		_expect(absf(idle_height - 1.78 * PlayerModels.SCALE) < 1.78 * PlayerModels.SCALE * TOLERANCE + .02,
 			"%s: the standing runner is %.2f m, expected %.2f m" % [label, idle_height, 1.78 * PlayerModels.SCALE])
+		_expect(absf(idle_height / RUNNER_HEIGHT - 1.0) <= TOLERANCE + .005, "%s: the standing runner is %.2f m, the ruling is %.1f m" % [label, idle_height, RUNNER_HEIGHT])
+		_expect(idle_height / HUNTER_HEIGHT < .9 and idle_height / HUNTER_HEIGHT > .8, "%s: the runner is %.2fx of a hunter, want 0.8-0.9 (slightly smaller)" % [label, idle_height / HUNTER_HEIGHT])
 		# skin and arm-style changes (PlayerSkin) and a repaint never rescale the body
 		for slim in [true, false, true, false]:
 			PlayerSkin.set_arms(model, slim)
