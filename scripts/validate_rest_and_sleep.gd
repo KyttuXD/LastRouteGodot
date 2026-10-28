@@ -79,7 +79,7 @@ func _check_rest_camera(route: Node, player: PlayerController3D) -> void:
 				mattress = StreamedFacilityView3D.mattress_top(model, PropModelCatalog.model_path(type, type))
 				furniture.set_meta("rest_top", mattress)
 			else:
-				seat = StreamedFacilityView3D.seat_top(model, PropModelCatalog.model_path(type, type))
+				seat = StreamedFacilityView3D.seat_top(model, PropModelCatalog.model_path(type, type), type)
 				furniture.set_meta("seat_top", seat)
 			model.queue_free()
 		player.use_furniture(furniture, action)

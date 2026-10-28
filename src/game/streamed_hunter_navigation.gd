@@ -147,13 +147,18 @@ func refresh(route_level: int, coords: Array) -> void:
 			var yaw := float(prop.get("yaw", 0.0))
 			var centre := origin + Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
 				+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
-			var offsets: Array = PropModelCatalog.seat_offsets(type, size.x)
-			for index in offsets.size():
-				# the prop's local +x in the plan (gameplay yaw: -Z faces out, so local x turns to (cos yaw, -sin yaw))
-				var at := centre + Vector2(cos(yaw), -sin(yaw)) * float(offsets[index])
-				var front := Vector2(-sin(yaw), -cos(yaw))
+			var points: Array = PropModelCatalog.seat_points(type, size)
+			for index in points.size():
+				var point: Dictionary = points[index]
+				# gameplay-local (x, z) turned by yaw into the plan, as the view places the sit interactables
+				var local := Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+				var at := centre + Vector2(local.x, local.z)
+				var exit_local := Vector3((point["exit"] as Vector2).x, 0.0, (point["exit"] as Vector2).y).rotated(Vector3.UP, yaw)
+				var exit_dir := Vector2(exit_local.x, exit_local.z)
+				var exit_reach := (size.x * .5 - absf(float(point["x"])) if absf(exit_dir.dot(Vector2(cos(yaw), -sin(yaw)))) > .5 \
+					else size.z * .5 + absf(float(point["z"]))) + .6
 				seat_spots.append({"id": "%s#%d" % [String(prop.get("id", "%s@%s" % [type, at])), index], "type": type,
-					"seat_at": at, "stand_at": at + front * (size.z * .5 + .6), "yaw": yaw})
+					"seat_at": at, "stand_at": at + exit_dir * exit_reach, "yaw": yaw + float(point["turn"])})
 	vents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return String(a.get("id", "")) < String(b.get("id", "")))
 	for index in vents.size():
