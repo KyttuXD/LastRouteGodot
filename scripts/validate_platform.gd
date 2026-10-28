@@ -53,6 +53,7 @@ func run(host: Node) -> int:
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
+	_check_quit()
 	_check_xr_comfort(host)
 	await _check_xr_route_panel(host)
 	if _failures == 0:
@@ -183,6 +184,20 @@ func _xr_player_script() -> GDScript:
 	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
 	script.reload()
 	return script
+
+
+## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it
+## leaves.
+func _check_quit() -> void:
+	_expect(PlatformProfile.can_quit(), "a desktop run lost its QUIT button")
+	_expect(not PlatformProfile.quit_allowed(true, false) and not PlatformProfile.quit_allowed(false, true)
+		and PlatformProfile.quit_allowed(false, false), "QUIT visibility per platform is wrong")
+	var order: Array = []
+	var on_saved := func() -> void: order.append("saved")
+	PlatformProfile.saves_flushed.connect(on_saved)
+	PlatformProfile.quit_app(func() -> void: order.append("quit"))
+	PlatformProfile.saves_flushed.disconnect(on_saved)
+	_expect(order == ["saved", "quit"], "quitting does not save first: %s" % [order])
 
 
 ## Touch look: a drag across the short side turns LOOK_DEGREES_PER_SHORT_SIDE at speed 1 on any screen (a 2400x1080
