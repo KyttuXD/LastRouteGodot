@@ -143,7 +143,9 @@ func _check_live(host: Node) -> void:
 	for dz in range(-3, 4):
 		for dx in range(-3, 4):
 			for spec_value in surface.chunk(Vector3i(dx, SewerRouteGenerator.LEVEL, dz)).get("breakables", []):
-				if spec.is_empty() and String((spec_value as Dictionary)["kind"]) == Breach.KIND_PIPE:
+				# an outflow main: it leaves its torn stump at the wall
+				if spec.is_empty() and String((spec_value as Dictionary)["kind"]) == Breach.KIND_PIPE \
+						and String((spec_value as Dictionary)["extras"]["pipe"]) == "outflow":
 					spec = spec_value
 					coord = Vector3i(dx, SewerRouteGenerator.LEVEL, dz)
 	_expect(not spec.is_empty(), "no pipe near the origin to burst")
@@ -161,7 +163,8 @@ func _check_live(host: Node) -> void:
 	if root == null:
 		return
 	var id := String(spec["id"])
-	_expect(not (view._pipe_nodes.get(id, []) as Array).is_empty(), "the view kept no nodes for pipe %s" % id)
+	var kept: Array = (view._pipe_nodes.get(id, {}) as Dictionary).get("nodes", [])
+	_expect(not kept.is_empty(), "the view kept no nodes for pipe %s" % id)
 	# the host's stream_breach on this machine: the state, the piece, the hook
 	var event := {"id": id, "kind": spec["kind"], "variant": spec["variant"], "level": coord.y, "chunk": coord,
 		"cell": cell, "hp": 0, "max": spec["hp"], "opened": true, "tool": "rescue_axe", "by": 1, "position": at}
@@ -169,7 +172,9 @@ func _check_live(host: Node) -> void:
 	view.apply_breach(id, 0, true)
 	Breach.dispatch("breached", event)
 	await host.get_tree().process_frame
-	_expect(not view._pipe_nodes.has(id), "the burst pipe %s is still drawn" % id)
+	_expect(not view._pipe_nodes.has(id) and kept.all(func(node: Variant) -> bool: return not is_instance_valid(node) or (node as Node).is_queued_for_deletion()),
+		"the burst pipe %s is still drawn" % id)
+	_expect(_stumps(view._loaded.get(coord)) == 1, "the burst main left %d torn stumps at its wall" % _stumps(view._loaded.get(coord)))
 	_expect(view._floods.flood_count() == 1 and view.world_state.flood_age(id) >= 0.0, "the burst started %d floods" % view._floods.flood_count())
 	# full depth after the rise: the runner standing in it wades
 	view.world_state.floods[id] = Time.get_unix_time_from_system() - SewerFloods.RISE - 2.0
@@ -180,6 +185,7 @@ func _check_live(host: Node) -> void:
 	view._load_chunk(coord)
 	await host.get_tree().process_frame
 	_expect(not view._pipe_nodes.has(id) and view._floods.flood_count() == 1, "a rebuilt chunk brought the pipe back or lost the flood")
+	_expect(_stumps(view._loaded.get(coord)) == 1, "the rebuilt chunk has %d torn stumps" % _stumps(view._loaded.get(coord)))
 	_expect(absf(view._floods.depth_under(at) - SewerFloods.MAX_DEPTH) < .01, "the rebuilt flood is %.2f m deep" % view._floods.depth_under(at))
 	# a snapshot (co-op join, run save): the other side's water is at the same depth, a drained flood is dropped
 	view.world_state.floods[id] = Time.get_unix_time_from_system() - SewerFloods.RISE - SewerFloods.HOLD - 30.0
@@ -196,3 +202,14 @@ func _check_live(host: Node) -> void:
 	view.clear()
 	view.queue_free()
 	player.queue_free()
+
+
+## Torn outflow stumps standing in a chunk (the broken model, sewer_outflow_pipe_broken).
+static func _stumps(root: Node) -> int:
+	if root == null:
+		return 0
+	var count := 0
+	for node in root.get_children():
+		if not node.is_queued_for_deletion() and String(node.scene_file_path) == StreamedFacilityView3D.OUTFLOW_STUMP:
+			count += 1
+	return count

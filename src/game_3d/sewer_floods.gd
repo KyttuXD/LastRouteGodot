@@ -104,7 +104,12 @@ func _spawn(id: String, spec: Dictionary, coord: Vector3i, root: Node3D) -> void
 	water.visible = false
 	root.add_child(water)
 	var centre: Vector2 = extras.get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
-	var spray := _spray(Vector3(centre.x, SewerRouteGenerator.CRAWL_CLEARANCE + .4, centre.y))
+	var wall: Vector2 = extras.get("wall", Vector2.ZERO)
+	# an outflow main gushes out of its torn stub at the wall, along the old run; a crawl pipe sprays up where it split
+	var spray := _spray(Vector3(centre.x, SewerRouteGenerator.CRAWL_CLEARANCE + .4, centre.y), Vector3.UP, 70.0)
+	if wall != Vector2.ZERO:
+		var axis_y := SewerRouteGenerator.CRAWL_CLEARANCE + SewerRouteGenerator.OUTFLOW_SIZE.y * .5
+		spray = _spray(Vector3(centre.x + wall.x * .9, axis_y, centre.y + wall.y * .9), Vector3(-wall.x, -.15, -wall.y), 18.0)
 	root.add_child(spray)
 	var gush: AudioStreamPlayer3D = null
 	if DisplayServer.get_name() != "headless":
@@ -124,9 +129,10 @@ func _spawn(id: String, spec: Dictionary, coord: Vector3i, root: Node3D) -> void
 func _forget(id: String) -> void:
 	var entry: Dictionary = _active.get(id, {})
 	for key in ["water", "spray", "gush"]:
-		var node := entry.get(key) as Node
-		if node != null and is_instance_valid(node):
-			node.queue_free()
+		# the chunk root may have taken them with it already (an unloaded chunk): never cast a freed node
+		var node: Variant = entry.get(key)
+		if is_instance_valid(node):
+			(node as Node).queue_free()
 	for cell in entry.get("cells", []):
 		var ids: Array = _cells.get(cell, [])
 		ids.erase(id)
@@ -141,7 +147,7 @@ func _process(_delta: float) -> void:
 	for id in _active.keys():
 		var entry: Dictionary = _active[id]
 		var age := view.world_state.flood_age(String(id))
-		if age < 0.0 or age >= DURATION:
+		if age < 0.0 or age >= DURATION or not is_instance_valid(entry["water"]) or not is_instance_valid(entry["spray"]):
 			_forget(String(id))
 			continue
 		var depth := depth_at(age)
@@ -193,21 +199,21 @@ static func _water_material() -> StandardMaterial3D:
 
 
 ## White water bursting out of the break while it gushes: a short, wide fan falling to the walkway.
-static func _spray(at: Vector3) -> GPUParticles3D:
+static func _spray(at: Vector3, direction: Vector3, spread: float) -> GPUParticles3D:
 	var spray := GPUParticles3D.new()
 	spray.name = "FloodSpray"
 	spray.position = at
-	spray.amount = 48
+	spray.amount = 48 if spread > 30.0 else 90
 	spray.lifetime = .7
 	spray.emitting = false
 	spray.visibility_aabb = AABB(Vector3(-3, -2, -3), Vector3(6, 3, 6))
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	process.emission_box_extents = Vector3(.5, .2, .5)
-	process.direction = Vector3.UP
-	process.spread = 70.0
-	process.initial_velocity_min = 1.5
-	process.initial_velocity_max = 3.2
+	process.emission_box_extents = Vector3(.5, .2, .5) if spread > 30.0 else Vector3(.35, .35, .35)
+	process.direction = direction.normalized()
+	process.spread = spread
+	process.initial_velocity_min = 1.5 if spread > 30.0 else 2.6
+	process.initial_velocity_max = 3.2 if spread > 30.0 else 4.4
 	process.gravity = Vector3(0, -9.8, 0)
 	spray.process_material = process
 	var mesh := BoxMesh.new()
