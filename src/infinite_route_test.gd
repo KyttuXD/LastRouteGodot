@@ -5149,6 +5149,8 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		hud.show_message("YOU DIED // SPECTATOR MODE")
 		_capture_resolving = false
 		return
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online, "host": RoomState.is_host,
 		"respawn": true, "title": "YOU DIED",
@@ -5162,6 +5164,12 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		"seed": RoomState.seed_text,
 	})
 	_capture_resolving = false
+
+
+## The end card never opens over the catcher's line (online the line plays without being awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
 
 
 ## The cause the death line is drawn for: Nyxie's dead lamp or her darkness timer, otherwise an ordinary catch.
@@ -5186,7 +5194,10 @@ func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Di
 func _play_death_moment(hunter_name: String, picked: Dictionary, hunter_id: String) -> void:
 	if _death_moment == null or not DeathMoment.plays(picked):
 		return
+	hud.set_death_flow(true)
 	await _death_moment.play(hunter_name, picked, HunterRoster.VOID_IDS.has(hunter_id))
+	if not run_report.is_open():   # the end card keeps the flow (and the HUD hidden) until it closes
+		hud.set_death_flow(false)
 
 
 func _apply_hunter_event(event: Dictionary) -> void:
@@ -5355,10 +5366,12 @@ func _update_spectating() -> void:
 	# Party wipe: the host was already spectating and the last guest just fell.
 	if RoomState.online and RoomState.is_host and not RoomState.public_route \
 			and not _death_screen_open and not _capture_resolving \
+			and not (_death_moment != null and _death_moment.is_open()) \
 			and _living_runners().is_empty():
 		_end_spectating()
 		_death_screen_open = true
 		_end_run_save()
+		hud.set_death_flow(true)
 		# Party wipe: the last catcher gets the final word, as a line on the card rather than another cutscene.
 		var wipe_line := {}
 		if not _last_death_cause.is_empty():
@@ -5403,6 +5416,7 @@ func _respawn_after_death() -> void:
 	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
+	hud.set_death_flow(false)
 	GameState.game_over = false
 	_end_spectating()
 	if RoomState.online and RoomState.is_host and _remotes != null:
