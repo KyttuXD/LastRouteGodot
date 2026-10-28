@@ -9,13 +9,15 @@ set -u
 LANE="$1"; OUT="$2"; MIN="$3"; HOSTM="$4"; shift 4; GUESTS=("$@")
 BACKEND="http://lastroute.kyttuslab.org:8205"
 SEED="${SEED:-COOPCHECK}"
-G='~/Applications/Godot.app/Contents/MacOS/Godot'
+# macOS app or the Linux binary; Linux opens its window on the logged-in Wayland session
+G='$( [ -x ~/Applications/Godot.app/Contents/MacOS/Godot ] && echo ~/Applications/Godot.app/Contents/MacOS/Godot || echo ~/Applications/godot/Godot_v4.7.2-stable_linux.x86_64 )'
+ENVL='[ "$(uname)" = Linux ] && { export XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0; DD="--display-driver wayland"; } || DD="";'
 DIR="Developer/lanes/$LANE"
 mkdir -p "$OUT"
 TIMEOUT=$(( MIN * 60 + 600 ))
 run() {  # machine role botseed
   local m="$1" role="$2" seed="$3"
-  ssh -o BatchMode=yes "$m" "cd ~/$DIR && rm -rf .share .playtest/coop_$role$seed && mkdir -p .share && ~/.local/bin/guard.pl $TIMEOUT $G --path . --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=coop_bot --coop-check --role=$role --bot-seed=$seed --seed=$SEED --minutes=$MIN --dir=\$HOME/$DIR/.share --guests=${#GUESTS[@]} --backend=$BACKEND --name=coop_$role$seed > .playtest-coop-$role$seed.log 2>&1; echo \"$m rc=\$?\"" 2>&1 | grep -v zshenv
+  ssh -o BatchMode=yes "$m" "$ENVL cd ~/$DIR && rm -rf .share .playtest/coop_$role$seed && mkdir -p .share && ~/.local/bin/guard.pl $TIMEOUT $G \$DD --path . --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=coop_bot --coop-check --role=$role --bot-seed=$seed --seed=$SEED --minutes=$MIN --dir=\$HOME/$DIR/.share --guests=${#GUESTS[@]} --backend=$BACKEND --name=coop_$role$seed > .playtest-coop-$role$seed.log 2>&1; echo \"$m rc=\$?\"" 2>&1 | grep -v zshenv
 }
 run "$HOSTM" host 0 &
 PIDS=($!)
