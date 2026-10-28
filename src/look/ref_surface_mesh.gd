@@ -13,6 +13,17 @@ var _uv: Array[PackedVector2Array] = [PackedVector2Array(), PackedVector2Array()
 var _uv2: Array[PackedVector2Array] = [PackedVector2Array(), PackedVector2Array()]
 var _col: Array[PackedColorArray] = [PackedColorArray(), PackedColorArray()]
 var _idx: Array[PackedInt32Array] = [PackedInt32Array(), PackedInt32Array()]
+## Maze culling: the TILE x TILE cell tile each quad's centre falls in, one entry per quad (6 indices), per surface.
+const TILE := 15
+var _quad_tile: Array[PackedInt32Array] = [PackedInt32Array(), PackedInt32Array()]
+
+
+static func tile_of(centre: Vector3) -> int:
+	return clampi(floori(centre.x / TILE), 0, 2) + 3 * clampi(floori(centre.z / TILE), 0, 2)
+
+
+func _tag(surface: int, centre: Vector3) -> void:
+	_quad_tile[surface].append(tile_of(centre))
 
 
 func _quad(surface: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3,
@@ -30,6 +41,7 @@ func _quad(surface: int, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3,
 		_idx[surface].append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 	else:
 		_idx[surface].append_array(PackedInt32Array([base, base + 2, base + 1, base, base + 3, base + 2]))
+	_tag(surface, (p0 + p2) * .5)
 
 
 func add_floor(x: int, z: int, layer: float, params: Color) -> void:
@@ -101,6 +113,51 @@ func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
 		_idx[1].append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 	else:
 		_idx[1].append_array(PackedInt32Array([base, base + 2, base + 1, base, base + 3, base + 2]))
+	_tag(1, (a + b) * .5 + n * .5)   # the open cell the face looks into
+
+
+## Maze culling: one mesh per 15 x 15 cell tile (tile index -> ArrayMesh), so tiles no line of sight reaches can be
+## hidden. Same geometry as build(), split by tile: every quad owns 4 consecutive vertices and 6 indices.
+func build_tiles(floor_material: Material, wall_material: Material) -> Dictionary:
+	var out := {}
+	var materials := [floor_material, wall_material]
+	var parts := {}   # tile -> [surface] -> {v, n, uv, uv2, col, idx}
+	for surface in 2:
+		for q in _quad_tile[surface].size():
+			var t := _quad_tile[surface][q]
+			if not parts.has(t):
+				parts[t] = [{}, {}]
+			var part: Dictionary = parts[t][surface]
+			if part.is_empty():
+				part.merge({"v": PackedVector3Array(), "n": PackedVector3Array(), "uv": PackedVector2Array(),
+					"uv2": PackedVector2Array(), "col": PackedColorArray(), "idx": PackedInt32Array()})
+			var base: int = (part["v"] as PackedVector3Array).size()
+			var first := q * 4
+			(part["v"] as PackedVector3Array).append_array(_v[surface].slice(first, first + 4))
+			(part["n"] as PackedVector3Array).append_array(_n[surface].slice(first, first + 4))
+			(part["uv"] as PackedVector2Array).append_array(_uv[surface].slice(first, first + 4))
+			(part["uv2"] as PackedVector2Array).append_array(_uv2[surface].slice(first, first + 4))
+			(part["col"] as PackedColorArray).append_array(_col[surface].slice(first, first + 4))
+			for i in _idx[surface].slice(q * 6, q * 6 + 6):
+				(part["idx"] as PackedInt32Array).append(i - first + base)
+	for t in parts:
+		var mesh := ArrayMesh.new()
+		for surface in 2:
+			var part: Dictionary = parts[t][surface]
+			if part.is_empty():
+				continue
+			var arrays := []
+			arrays.resize(Mesh.ARRAY_MAX)
+			arrays[Mesh.ARRAY_VERTEX] = part["v"]
+			arrays[Mesh.ARRAY_NORMAL] = part["n"]
+			arrays[Mesh.ARRAY_TEX_UV] = part["uv"]
+			arrays[Mesh.ARRAY_TEX_UV2] = part["uv2"]
+			arrays[Mesh.ARRAY_COLOR] = part["col"]
+			arrays[Mesh.ARRAY_INDEX] = part["idx"]
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			mesh.surface_set_material(mesh.get_surface_count() - 1, materials[surface])
+		out[t] = mesh
+	return out
 
 
 func build(floor_material: Material, wall_material: Material) -> ArrayMesh:

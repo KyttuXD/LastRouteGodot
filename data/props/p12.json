@@ -1,0 +1,137 @@
+{
+	"schema": "lr.prop/1",
+	"family": "p12",
+	"props": [
+		{
+			"id": "restraintChair",
+			"models": [
+				"res://art/props-3d/props/prison/restraint_chair.glb"
+			]
+		},
+		{
+			"id": "hospitalBed",
+			"models": [
+				"res://art/props-3d/props/blocky/hospitalBed_0.glb",
+				"res://art/props-3d/props/blocky/hospitalBed_1.glb",
+				"res://art/props-3d/props/blocky/hospitalBed_2.glb"
+			]
+		},
+		{
+			"id": "hospitalCurtain",
+			"models": [
+				"res://art/props-3d/props/blocky/hospitalCurtain_0.glb",
+				"res://art/props-3d/props/blocky/hospitalCurtain_1.glb",
+				"res://art/props-3d/props/blocky/hospitalCurtain_2.glb"
+			]
+		},
+		{
+			"id": "ivDripStand",
+			"models": [
+				"res://art/props-3d/props/blocky/ivDripStand.glb"
+			]
+		},
+		{
+			"id": "vitalsMonitor",
+			"models": [
+				"res://art/props-3d/props/blocky/vitalsMonitor.glb"
+			]
+		},
+		{
+			"id": "nursesStation",
+			"models": [
+				"res://art/props-3d/props/blocky/nursesStation_0.glb",
+				"res://art/props-3d/props/blocky/nursesStation_1.glb"
+			]
+		},
+		{
+			"id": "waitingChairs",
+			"models": [
+				"res://art/props-3d/props/blocky/waitingChairs_0.glb",
+				"res://art/props-3d/props/blocky/waitingChairs_1.glb",
+				"res://art/props-3d/props/blocky/waitingChairs_2.glb"
+			]
+		},
+		{
+			"id": "operatingTable",
+			"models": [
+				"res://art/props-3d/props/blocky/operatingTable.glb"
+			]
+		},
+		{
+			"id": "surgicalLight",
+			"models": [
+				"res://art/props-3d/props/blocky/surgicalLight.glb"
+			]
+		},
+		{
+			"id": "instrumentTrolley",
+			"models": [
+				"res://art/props-3d/props/blocky/instrumentTrolley.glb"
+			]
+		},
+		{
+			"id": "morgueCabinet",
+			"models": [
+				"res://art/props-3d/props/blocky/morgueCabinet.glb"
+			]
+		},
+		{
+			"id": "autopsyTable",
+			"models": [
+				"res://art/props-3d/props/blocky/autopsyTable.glb"
+			]
+		},
+		{
+			"id": "pharmacyShelf",
+			"models": [
+				"res://art/props-3d/props/blocky/pharmacyShelf.glb"
+			]
+		},
+		{
+			"id": "xrayMachine",
+			"models": [
+				"res://art/props-3d/props/blocky/xrayMachine.glb"
+			]
+		},
+		{
+			"id": "xrayLightbox",
+			"models": [
+				"res://art/props-3d/props/blocky/xrayLightbox.glb"
+			]
+		},
+		{
+			"id": "medicalSupplyRack",
+			"models": [
+				"res://art/props-3d/props/blocky/medicalSupplyRack.glb"
+			]
+		},
+		{
+			"id": "wheelchair",
+			"models": [
+				"res://art/props-3d/props/blocky/wheelchair_0.glb",
+				"res://art/props-3d/props/blocky/wheelchair_1.glb",
+				"res://art/props-3d/props/blocky/wheelchair_2.glb"
+			]
+		},
+		{
+			"id": "hospitalWardSign",
+			"models": [
+				"res://art/props-3d/props/blocky/hospitalWardSign_0.glb",
+				"res://art/props-3d/props/blocky/hospitalWardSign_1.glb",
+				"res://art/props-3d/props/blocky/hospitalWardSign_2.glb"
+			]
+		},
+		{
+			"id": "labBench",
+			"models": [
+				"res://art/props-3d/props/blocky/labBench.glb"
+			]
+		},
+		{
+			"id": "fumeHood",
+			"models": [
+				"res://art/props-3d/props/blocky/fumeHood.glb"
+			]
+		}
+	]
+}

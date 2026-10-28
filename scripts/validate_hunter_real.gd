@@ -5,6 +5,11 @@ extends RefCounted
 ## skip -- for all 26 A-Z hunters plus the 12 Void hunters at their real speeds.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- hunter_real
+##   godot --headless --path . res://scenes/validate.tscn -- hunter_real#0/4     (shard 0 of 4; dist_run runs all 4 in parallel)
+##
+## Sharding keeps every trial identical: each shard walks the same seeds, districts and random picks (the picks share one
+## rng per seed, so they must all be drawn) and only SIMULATES every n-th trial. The shards together run exactly the
+## trials of the unsharded suite.
 ##
 ## Per trial a hunter is stuck when it stays within 0.004 cells per tick for more than STUCK_LIMIT seconds while it
 ## is moving (not IDLE/SEARCH/stunned/held by a gimmick) and still more than 1.8 cells from where it wants to be.
@@ -27,6 +32,14 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
+	var shard_index := 0
+	var shard_count := 1
+	var shard := OS.get_environment("VALIDATE_SHARD")
+	if shard.contains("/"):
+		shard_index = int(shard.get_slice("/", 0))
+		shard_count = maxi(1, int(shard.get_slice("/", 1)))
+	_expect(shard_index >= 0 and shard_index < shard_count, "bad shard %s" % shard)
+	var ordinal := -1
 	var ids: Array = []
 	ids.append_array(HunterRoster.A_Z_IDS)
 	ids.append_array(HunterRoster.VOID_IDS)
@@ -34,14 +47,14 @@ func run(_host: Node) -> int:
 	var stuck := 0
 	var worst := 0.0
 	var worst_case := ""
-	var by_biome := {}
+	var by_region := {}
 	var samples: Array = []
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = hash(seed_text)
-		for biome in StreamedRouteGenerator.BIOMES:
-			var coord := _find_chunk(generator, biome)
+		for region in StreamedRouteGenerator.REGIONS:
+			var coord := _find_chunk(generator, region)
 			if coord.y == 999999:
 				continue
 			var navigation := _navigation(generator, coord)
@@ -53,41 +66,44 @@ func run(_host: Node) -> int:
 					var setup := _pick(navigation, cells, rng, mode == "direct")
 					if setup.is_empty():
 						continue
+					ordinal += 1
+					if ordinal % shard_count != shard_index:
+						continue
 					var result := _simulate(navigation, setup, String(hunter_id), mode)
 					trials += 1
 					if float(result["still"]) > STUCK_LIMIT:
 						stuck += 1
-						by_biome[biome] = int(by_biome.get(biome, 0)) + 1
+						by_region[region] = int(by_region.get(region, 0)) + 1
 						if samples.size() < 8:
-							samples.append("%s %s %s %s at %s state %s still %.1fs" % [seed_text, biome,
+							samples.append("%s %s %s %s at %s state %s still %.1fs" % [seed_text, region,
 								hunter_id, mode, result["where"], result["state"], float(result["still"])])
 					if float(result["still"]) > worst:
 						worst = float(result["still"])
-						worst_case = "%s %s %s %s" % [seed_text, biome, hunter_id, mode]
-	metrics = {"trials": trials, "stuck": stuck, "worst": worst, "by_biome": by_biome, "samples": samples}
+						worst_case = "%s %s %s %s" % [seed_text, region, hunter_id, mode]
+	metrics = {"trials": trials, "stuck": stuck, "worst": worst, "by_region": by_region, "samples": samples}
 	_expect(stuck == 0, "%d of %d real hunter trials stood still more than %.1f s (worst %.2f s %s; by district %s; e.g. %s)" % [
-		stuck, trials, STUCK_LIMIT, worst, worst_case, by_biome, samples])
+		stuck, trials, STUCK_LIMIT, worst, worst_case, by_region, samples])
 	if _failures == 0:
-		print("  hunter_real  %d real-geometry trials (38 hunters, every district), none stuck over %.1f s (worst %.2f s)" % [
-			trials, STUCK_LIMIT, worst])
+		print("  hunter_real  %d real-geometry trials (38 hunters, every district%s), none stuck over %.1f s (worst %.2f s)" % [
+			trials, "" if shard_count == 1 else ", shard %d of %d" % [shard_index + 1, shard_count], STUCK_LIMIT, worst])
 	return _failures
 
 
-func _find_chunk(generator: StreamedRouteGenerator, biome: String) -> Vector3i:
+func _find_chunk(generator: StreamedRouteGenerator, region: String) -> Vector3i:
 	for r in range(0, 14):
 		for dz in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if maxi(absi(dx), absi(dz)) != r:
 					continue
 				var coord := Vector3i(dx, 0, dz)
-				if not generator.is_chunk_allowed(coord) or generator.biome_for(coord) != biome:
+				if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != region:
 					continue
 				# the whole 3x3 window should be this district and allowed
 				var ok := true
 				for oz in range(-1, 2):
 					for ox in range(-1, 2):
 						var n := Vector3i(dx + ox, 0, dz + oz)
-						if not generator.is_chunk_allowed(n) or generator.biome_for(n) != biome:
+						if not generator.is_chunk_allowed(n) or generator.region_for(n) != region:
 							ok = false
 				if ok:
 					return coord

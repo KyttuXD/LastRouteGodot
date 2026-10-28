@@ -38,7 +38,7 @@ UDP 1205 is blocked at the provider firewall (the Linux host has no ufw rule to 
 - Create/join by code: both players see each other's bodies, flashlight, held item.
 - A relay pickup by the guest is claimed on the host. Hunters are the same on both screens.
 - One player dies: spectator mode, the other keeps playing; both die: run over; host restart revives.
-- Admin menu (key 0) appears only with a signed-in admin account; the region/biome map is off by default (F8).
+- Admin menu (key 0) appears only with a signed-in admin account; the region/region map is off by default (F8).
 - PUBLIC route: second player joins the running route; closing the first (authority) hands the route over.
 
 ## Reset the test data

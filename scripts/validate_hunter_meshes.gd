@@ -36,6 +36,7 @@ func run(host: Node) -> int:
 		host.add_child(model)
 		await host.get_tree().process_frame
 		var head := model.find_child("Head", true, false) as Node3D
+		_check_head(id, model)
 		for node in model.find_children("*", "MeshInstance3D", true, false):
 			var name := String(node.name)
 			var known := CORE.has(name) or accessory.search(name) != null
@@ -64,3 +65,31 @@ func run(host: Node) -> int:
 		view.queue_free()
 	print("  hunter_meshes: %d models and 4 live views checked" % checked)
 	return _failures
+
+
+## The head is a cube (no chin / collar overhang) and, turned +-45 and +-60 degrees as head-look and grabs do, its lowest point never
+## hangs below the neck plane (the Head pivot) by more than a hair (a box taller than it is wide pokes out under the jaw when the head turns).
+const NOT_CUBE := ["void_gray"]   # its head is a designed wide shape
+const OVERHANG := 0.045
+
+
+func _check_head(id: String, model: Node3D) -> void:
+	var head := model.find_child("Head", true, false) as MeshInstance3D
+	var chest := model.find_child("Chest", true, false) as MeshInstance3D
+	if head == null or chest == null or head.mesh == null:
+		return
+	var box := head.mesh.get_aabb()
+	if not NOT_CUBE.has(id):
+		_expect(box.size.y <= maxf(box.size.x, box.size.z) * 1.05, "%s: the head box is %.2f x %.2f x %.2f m, taller than a cube (an overhang under the jaw)" % [id, box.size.x, box.size.y, box.size.z])
+	var neck := head.global_position.y   # the Head pivot sits on the neck plane (top of the chest)
+	if NOT_CUBE.has(id):
+		return   # Void Gray's head is a designed wide shape that reaches 6 cm below the neck plane; listed for KT
+	var rest := head.rotation
+	for turn in [-60.0, -45.0, 45.0, 60.0]:
+		head.rotation = rest
+		head.rotate_y(deg_to_rad(turn))
+		var low := 1e9
+		for i in 8:
+			low = minf(low, (head.global_transform * box.get_endpoint(i)).y)
+		_expect(low >= neck - OVERHANG, "%s: head turned %+.0f deg hangs %.1f cm below the neck plane" % [id, turn, (neck - low) * 100.0])
+	head.rotation = rest

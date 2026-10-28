@@ -342,7 +342,7 @@ func run(host: Node) -> int:
 		for entry in route_menu._actions:
 			var gated: bool = entry.has("permission") or bool(entry.get("owner_only", false))
 			_expect(gated, "admin entry %s has no permission scope" % entry.get("label", entry.get("heading", "?")))
-		_expect(not route._admin_region_map, "the admin region/biome map must default to off")
+		_expect(not route._admin_region_map, "the admin region/region map must default to off")
 		var hunter_dropdown_ok := false
 		for dropdown in route_menu._dropdowns:
 			if (dropdown["ids"] as Array).size() == HunterRoster.A_Z_IDS.size() + HunterRoster.VOID_IDS.size() + SecretCreatures.admin_ids().size():

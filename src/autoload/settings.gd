@@ -132,6 +132,8 @@ var tts_mode := "everyone"
 var auto_download_mods := false
 var tts_rate := 1.0
 var tts_voice_id := ""
+## Content packs (user://mods/<id>) this player's private rooms play with; RoomPacks.host_load(). Public routes ignore it.
+var mods_enabled: Array = []
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
@@ -672,6 +674,7 @@ func _load() -> void:
 	tts_rate = clampf(float(config.get_value("voice", "tts_rate", 1.0)), 0.5, 2.0)
 	tts_voice_id = String(config.get_value("voice", "tts_voice", ""))
 	auto_download_mods = bool(config.get_value("mods", "auto_download", false))
+	mods_enabled = Array(config.get_value("mods", "enabled", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -782,6 +785,7 @@ func _save() -> void:
 	config.set_value("voice", "tts_rate", tts_rate)
 	config.set_value("voice", "tts_voice", tts_voice_id)
 	config.set_value("mods", "auto_download", auto_download_mods)
+	config.set_value("mods", "enabled", mods_enabled)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))

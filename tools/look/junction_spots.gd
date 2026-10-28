@@ -1,8 +1,8 @@
 extends Node
 
-## Prints CAP_AT strings for one T and one cross junction of a biome (GeometryAudit.junction_spots).
+## Prints CAP_AT strings for one T and one cross junction of a region (GeometryAudit.junction_spots).
 ##
-##   godot --headless --path . res://tools/look/junction_spots.tscn -- SEED BIOME
+##   godot --headless --path . res://tools/look/junction_spots.tscn -- SEED REGION
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()

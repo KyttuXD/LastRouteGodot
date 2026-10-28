@@ -1,0 +1,12 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "aki",
+	"name": "Aki",
+	"tier": "easy",
+	"speed": 0.82,
+	"chase": 3.55,
+	"prog": 0.2,
+	"sight": 8.2,
+	"hearing": 1.0,
+	"spawn": 11
+}

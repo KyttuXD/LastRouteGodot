@@ -3,7 +3,8 @@ extends Node
 ## Hunter models in clips at moments, from the side and behind: for before/after captures of swaying parts and hair. ONE process
 ## renders every shot, so nothing lingers.
 ##   godot --path . res://tools/look/clip_pose_shot.tscn -- OUT_PREFIX SPEC[,SPEC...]
-## SPEC = hunter:clip:fraction[:yaw]   e.g.  /tmp/after porcelle:chase:0.5,aki:idle:0.25:60  ->  /tmp/after_porcelle_chase_0.5.png ...
+## SPEC = hunter:clip:fraction[:yaw[:head_turn_degrees]]  (head_turn turns the Head bone about the vertical after the pose is set)
+## was: hunter:clip:fraction[:yaw]   e.g.  /tmp/after porcelle:chase:0.5,aki:idle:0.25:60  ->  /tmp/after_porcelle_chase_0.5.png ...
 ## (one argument with commas, so a shell re-splitting the command line cannot break it). Quits on success, on any error and after 60 s.
 
 func _ready() -> void:
@@ -65,12 +66,16 @@ func _ready() -> void:
 			continue
 		player.play(name)
 		player.seek(player.get_animation(name).length * fraction, true)
+		player.pause()   # keep the pose (the animation would overwrite a turned head every frame)
+		if p.size() > 4:
+			var head := model.find_child("Head", true, false) as Node3D
+			head.rotate_y(deg_to_rad(float(p[4])))
 		var centre := Vector3(0, 0.95, 0)
 		cam.position = centre + Vector3(0, 0.15, 3.4).rotated(Vector3.UP, deg_to_rad(180.0 - yaw))
 		cam.look_at(centre)
 		for i in 6:
 			await get_tree().process_frame
-		viewport.get_texture().get_image().save_png("%s_%s_%s_%s.png" % [prefix, id, clip, p[2]])
+		viewport.get_texture().get_image().save_png("%s_%s_%s_%s_%s.png" % [prefix, id, clip, p[2], p[3] if p.size() > 3 else "35"])
 		model.queue_free()
 		await get_tree().process_frame
 	get_tree().quit(status)

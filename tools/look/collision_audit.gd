@@ -1,6 +1,6 @@
 extends SceneTree
 
-## godot --headless --path . -s tools/look/collision_audit.gd -- [SEEDS_CSV] [CHUNKS_PER_BIOME]
+## godot --headless --path . -s tools/look/collision_audit.gd -- [SEEDS_CSV] [CHUNKS_PER_REGION]
 func _init() -> void:
 	var seeds := ["COL-A", "COL-B"]
 	var limit := 6

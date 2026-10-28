@@ -104,6 +104,9 @@ var generator: FacilityGenerator
 var heater_state: HeaterState = HeaterState.FROZEN
 ## Vent only -- which entry in FacilityGenerator.vents this node stands on.
 var vent_id := ""
+## MUSIC_BOX: which box (StreamedRouteGenerator._music_boxes) and the shared clock its tune follows.
+var music_box_id := ""
+var music_boxes: MusicBoxes
 ## Some deterministic relay spawns are concealed inside a locked crate or
 ## barrel. They remain ordinary relays for objective counts and late-join
 ## snapshots; this flag only adds the tool gate and container presentation.
@@ -230,6 +233,11 @@ func _ready() -> void:
 	_light.light_color = GLOW_COLORS[kind]
 	add_child(_light)
 	LampField.make_budgeted(_light)
+	if kind == Kind.MUSIC_BOX and music_boxes != null:
+		var tune := MusicBoxTune.new()
+		tune.box_id = music_box_id
+		tune.boxes = music_boxes
+		add_child(tune)
 
 	_refresh_visual()
 
@@ -413,13 +421,18 @@ func hiding_inside_position() -> Vector3:
 	# plane intersecting the door panel. Sit toward the +Z/back wall instead: the
 	# player still looks through the real eye-level slats, but the door no longer
 	# fills or clips across the camera.
-	return global_transform * Vector3(0.0, 0.02, 0.18)
+	# A locker: right up behind the vent band, so the hider's eye is LOCKER_EYE_BEHIND behind the slats.
+	return global_transform * Vector3(0.0, 0.02, LOCKER_DOOR_Z + LOCKER_EYE_BEHIND)
 
 
 ## Eye height while hidden: under a bed you lie flat and look out under the frame; a wardrobe and a locker keep standing
 ## eye height (the player's own).
 func hiding_eye_height() -> float:
-	return .16 if hide_style == "bed" else -1.0
+	if hide_style == "bed":
+		return .16
+	if hide_style.is_empty() and kind == Kind.HIDING_SPOT:
+		return (LOCKER_VENT_LO + LOCKER_VENT_HI) * .5 - .02   # centred on the vent band (the body stands 2 cm up)
+	return -1.0
 
 
 ## Hunter checking this spot (host decides, every peer plays it): the furniture rattles for `seconds` with a creak, the
@@ -475,6 +488,8 @@ func set_local_hiding_view(open: bool) -> void:
 	if kind != Kind.HIDING_SPOT:
 		return
 	_local_hiding_view_open = open
+	# A locker's model door is solid apart from its own small louvres; for the hider only, the model goes and the shell
+	# with the full vent band is the locker (applied in _refresh_visual). Everyone else sees the model with the band.
 	if not hide_style.is_empty():
 		if open and _hide_seal == null:
 			_hide_seal = _build_hide_seal()
@@ -698,7 +713,7 @@ func activate(player: PlayerController3D) -> String:
 			# plain interactable has no business knowing what a hunter is.
 			if player.music_box_resolver.is_valid():
 				Sound.music_box()
-				return String(player.music_box_resolver.call())
+				return String(player.music_box_resolver.call(music_box_id))
 			return _fail("Nothing happens.")
 		Kind.VENT:
 			# Never completes, and the prompt stays the same coming or going --
@@ -1009,6 +1024,20 @@ static func _style_hint_for_kind(interactable_kind: Kind) -> String:
 ## The locker is built from separate panels, so a few slits remain at its corners and edges (door
 ## against side, top, base). From inside, those showed the world through the walls. A closed,
 ## two-sided dark box just inside the panel thickness seals them; from outside it is hidden by the panels.
+## The locker's vent band (KT: the trailer's "locker breath" view): LOCKER_SLATS horizontal slats with real gaps across
+## the door at eye height, in the locker's root space (door face at LOCKER_DOOR_Z). Everyone sees the band on the door
+## (_add_locker_vent_band); the hider, whose eye sits LOCKER_EYE_BEHIND behind it, looks out through it (the model is
+## swapped for the seal shell while they are inside, the way wardrobes already work).
+const LOCKER_VENT_LO := 1.38
+const LOCKER_VENT_HI := 1.72
+const LOCKER_VENT_HALF_W := .24
+const LOCKER_SLATS := 6
+const LOCKER_DOOR_Z := -.29
+const LOCKER_EYE_BEHIND := .09
+var _locker_seal: Node3D
+var _locker_band: Node3D
+
+
 func _add_locker_seal() -> void:
 	var seal := Node3D.new()
 	seal.name = "LockerSeal"
@@ -1016,19 +1045,25 @@ func _add_locker_seal() -> void:
 	material.albedo_color = Color(.07, .08, .1)
 	material.roughness = 1.0
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# [size, centre] in the locker's root space; each piece sits inside the thickness of a real panel.
-	# The front is left open over the door's sight slats (x +-0.21, y 1.43-1.70) so the hider can still look out.
+	var lo := LOCKER_VENT_LO
+	var hi := LOCKER_VENT_HI
+	var hw := LOCKER_VENT_HALF_W
+	var side := (.64 - hw * 2.0) * .5
+	# [size, centre] in the locker's root space; each piece sits inside the thickness of a real panel, and the front is
+	# open over the vent band so the hider can look out between its slats.
 	var pieces := [
 		[Vector3(.64, 1.8, .02), Vector3(0, 1.04, .22)],      # back
 		[Vector3(.02, 1.8, .56), Vector3(-.315, 1.04, -.02)], # left
 		[Vector3(.02, 1.8, .56), Vector3(.315, 1.04, -.02)],  # right
 		[Vector3(.64, .02, .56), Vector3(0, 1.9, -.02)],      # top
 		[Vector3(.64, .02, .56), Vector3(0, .15, -.02)],      # bottom
-		[Vector3(.64, 1.28, .02), Vector3(0, .79, -.29)],     # front below the slats
-		[Vector3(.64, .23, .02), Vector3(0, 1.815, -.29)],    # front above the slats
-		[Vector3(.22, .27, .02), Vector3(-.21, 1.565, -.29)], # front beside the slats
-		[Vector3(.22, .27, .02), Vector3(.21, 1.565, -.29)],
+		[Vector3(.64, lo - .15, .02), Vector3(0, (lo + .15) * .5, LOCKER_DOOR_Z)],    # front below the band
+		[Vector3(.64, 1.9 - hi, .02), Vector3(0, (1.9 + hi) * .5, LOCKER_DOOR_Z)],    # front above the band
+		[Vector3(side, hi - lo, .02), Vector3(-(hw + side * .5), (lo + hi) * .5, LOCKER_DOOR_Z)],
+		[Vector3(side, hi - lo, .02), Vector3(hw + side * .5, (lo + hi) * .5, LOCKER_DOOR_Z)],
 	]
+	for y in _locker_slat_heights():
+		pieces.append([Vector3(hw * 2.0, _locker_slat_thickness(), .008), Vector3(0, y, LOCKER_DOOR_Z)])
 	for piece in pieces:
 		var mesh_node := MeshInstance3D.new()
 		var box := BoxMesh.new()
@@ -1038,7 +1073,51 @@ func _add_locker_seal() -> void:
 		mesh_node.position = piece[1]
 		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		seal.add_child(mesh_node)
-	_visual.add_child(seal)
+	seal.visible = false
+	add_child(seal)
+	_locker_seal = seal
+	_add_locker_vent_band()
+
+
+static func _locker_slat_thickness() -> float:
+	return (LOCKER_VENT_HI - LOCKER_VENT_LO) / float(LOCKER_SLATS) * .4   # 40% slat, 60% gap
+
+
+## Slat centres, evenly through the band (gaps between and at both edges).
+static func _locker_slat_heights() -> Array:
+	var heights := []
+	var step := (LOCKER_VENT_HI - LOCKER_VENT_LO) / float(LOCKER_SLATS)
+	for i in LOCKER_SLATS:
+		heights.append(LOCKER_VENT_LO + step * (float(i) + .5))
+	return heights
+
+
+## The same band as everyone else sees it on the model's door: a dark recess with the slats across it, a hair proud of
+## the door face so it reads as the vent the hider looks out of.
+func _add_locker_vent_band() -> void:
+	var band := Node3D.new()
+	band.name = "LockerVentBand"
+	var recess := StandardMaterial3D.new()
+	recess.albedo_color = Color(.02, .02, .025)
+	recess.roughness = 1.0
+	var slat := StandardMaterial3D.new()
+	slat.albedo_color = Color(.2, .25, .3)
+	slat.roughness = .7
+	slat.metallic = .3
+	var pieces := [[Vector3(LOCKER_VENT_HALF_W * 2.0, LOCKER_VENT_HI - LOCKER_VENT_LO, .006),
+		Vector3(0, (LOCKER_VENT_LO + LOCKER_VENT_HI) * .5, LOCKER_DOOR_Z - .012), recess]]
+	for y in _locker_slat_heights():
+		pieces.append([Vector3(LOCKER_VENT_HALF_W * 2.0, _locker_slat_thickness(), .018), Vector3(0, y, LOCKER_DOOR_Z - .02), slat])
+	for piece in pieces:
+		var mesh_node := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = piece[0]
+		mesh_node.mesh = box
+		mesh_node.material_override = piece[2]
+		mesh_node.position = piece[1]
+		band.add_child(mesh_node)
+	add_child(band)
+	_locker_band = band
 
 
 func _add_blocking_box(size: Vector3, at: Vector3) -> void:
@@ -1235,8 +1314,13 @@ func _refresh_visual() -> void:
 		or (kind == Kind.HIDING_SPOT and disabled)
 	if kind == Kind.BOARDED_PATH or kind == Kind.BREAKABLE:
 		taken = opened
+	var locker_inside := _locker_seal != null and _local_hiding_view_open
 	if _visual:
-		_visual.visible = not taken
+		_visual.visible = not taken and not locker_inside
+	if _locker_band != null:
+		_locker_band.visible = not taken and not locker_inside
+	if _locker_seal != null:
+		_locker_seal.visible = locker_inside and not taken
 	if kind == Kind.BOARDED_PATH and not opened:
 		_refresh_board_pieces()
 	if kind == Kind.BREAKABLE:

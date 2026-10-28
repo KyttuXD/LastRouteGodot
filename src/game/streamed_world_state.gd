@@ -267,6 +267,9 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"peek_head": brain.peek_head,
 		"peek_dir": brain.peek_dir,
 		"peek_side": brain.peek_side,
+		"inspect_phase": int(brain.inspect_phase),
+		"inspect_stand": brain.inspect_stand,
+		"inspect_face": brain.inspect_face,
 	}
 
 
@@ -276,7 +279,7 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.position = state.get("position", brain.position)
 	brain.active = bool(state.get("active", true))
 	brain.state = clampi(int(state.get("state", HunterBrain.State.WANDER)),
-		HunterBrain.State.IDLE, HunterBrain.State.PEEK)
+		HunterBrain.State.IDLE, HunterBrain.State.INSPECT)
 	brain.facing = state.get("facing", Vector2(0, 1))
 	brain.stamina = float(state.get("stamina", GameConfig.HUNTER_STAMINA_MAX))
 	brain.winded = bool(state.get("winded", false))
@@ -298,6 +301,9 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.peek_head = state.get("peek_head", brain.position)
 	brain.peek_dir = state.get("peek_dir", Vector2.ZERO)
 	brain.peek_side = 1 if int(state.get("peek_side", 1)) >= 0 else -1
+	brain.inspect_phase = clampi(int(state.get("inspect_phase", 0)), HunterBrain.Inspect.WALK, HunterBrain.Inspect.RISE)
+	brain.inspect_stand = state.get("inspect_stand", brain.position)
+	brain.inspect_face = state.get("inspect_face", Vector2.ZERO)
 
 
 func hunter_ids_on_level(level: int) -> Array:

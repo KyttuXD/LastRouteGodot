@@ -113,7 +113,7 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 
 # -- surface style tables ----------------------------------------------------
 #
-# Region = the multi-chunk biome the generator picked; room type = the finer
+# Region = the multi-chunk region the generator picked; room type = the finer
 # label on each room rectangle. Floors/walls are chosen per cell from these.
 # Kinds are RefTextures keys (floor/wall groups). The room families of the
 # references map onto the generator's regions like this:
@@ -301,7 +301,7 @@ const MAX_HEIGHT := 7.5
 const WALL_TEXTURE_SPAN := 4.0
 
 const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
-## The greenhouse biome's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
+## The greenhouse region's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
 ## its potting sheds and plant rooms keep an ordinary ceiling.
 const GLASSHOUSE_ROOMS := ["glasshouse", "palm_house", "cactus_room", "overgrown_room", "dome_atrium"]
 const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",

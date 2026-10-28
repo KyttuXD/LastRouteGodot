@@ -42,9 +42,22 @@ const _CODE_ROOM_DEFAULT := {
 	"greenhouse": ["terracotta0", "terracotta1"],
 	"mall": ContentRegistry.DATA,
 }
-static var HALLS: Dictionary = ContentRegistry.resolve_with(_CODE_HALLS, "regions",
-	func(def: Dictionary): return {"floor": def["hall_floor"], "runner": def["hall_runner"]})
+static var HALLS: Dictionary = _resolve_halls()
 static var ROOM_DEFAULT: Dictionary = ContentRegistry.resolve(_CODE_ROOM_DEFAULT, "regions", "room_default_floor")
+
+
+static func _resolve_halls() -> Dictionary:
+	return ContentRegistry.resolve_with(_CODE_HALLS, "regions",
+		func(def: Dictionary): return {"floor": def["hall_floor"], "runner": def["hall_runner"]})
+
+
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): recompute the tables read from the registry.
+static func rebuild_from_registry() -> void:
+	HALLS = _resolve_halls()
+	ROOM_DEFAULT = ContentRegistry.resolve(_CODE_ROOM_DEFAULT, "regions", "room_default_floor")
 
 ## Room purpose -> floor kinds.
 const ROOMS := {
