@@ -2647,6 +2647,40 @@ func booth_node(booth_id: String) -> CarnivalBooth3D:
 	return node if node != null and is_instance_valid(node) else null
 
 
+## Height of a bed's sleeping surface above the floor: the highest upward face over the middle of the model (the head and
+## foot boards and rails stand at the ends and sides, outside that patch). Cached per model path.
+static var _mattress_tops := {}
+
+
+static func mattress_top(visual: Node3D, path: String) -> float:
+	if _mattress_tops.has(path):
+		return float(_mattress_tops[path])
+	var inverse := visual.global_transform.affine_inverse()
+	var bounds := ModelSlot.combined_local_bounds(visual)
+	var centre := bounds.get_center()
+	var reach := Vector2(bounds.size.x * .2, bounds.size.z * .15)
+	var top := bounds.position.y
+	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		var xf := inverse * mesh_node.global_transform
+		var faces := mesh_node.mesh.get_faces()
+		for i in range(0, faces.size(), 3):
+			var a := xf * faces[i]
+			var b := xf * faces[i + 1]
+			var c := xf * faces[i + 2]
+			var normal := (b - a).cross(c - a)
+			if absf(normal.y) < normal.length() * .9:
+				continue
+			var mid := (a + b + c) / 3.0
+			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y:
+				top = maxf(top, mid.y)
+	var height := (top - bounds.position.y) * visual.scale.y
+	_mattress_tops[path] = height
+	return height
+
+
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
@@ -2686,6 +2720,8 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
 		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
+		if furniture_action == "lay":
+			furniture.set_meta("rest_top", mattress_top(visual, path))
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)

@@ -304,6 +304,7 @@ var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
 const SIT_EYE := 1.15
+const LAY_EYE_ABOVE_MATTRESS := .22
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
@@ -417,6 +418,8 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	_rest_ease = {"from": start_camera, "t": 0.0, "leaving": false}
 	_apply_rest_ease()
 	_rest_idle = 0.0
+	if first_person_items != null:
+		first_person_items.visible = false    # nothing held in view while seated, lying or asleep
 	velocity = Vector3.ZERO
 	_clip = "sit" if pose == "ride" else pose
 	ModelSlot.play_if_available(_animation_player, _clip)
@@ -441,7 +444,9 @@ static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
 	var xf := furniture.global_transform
 	if pose == "lay":
 		var head := xf * Vector3(0.0, 0.0, maxf(0.0, size.z * .5 - .5))
-		var eye := clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95
+		# the eye just above the pillow: the bed model's measured mattress top (the view's "rest_top"), else an estimate
+		var eye := float(furniture.get_meta("rest_top")) + LAY_EYE_ABOVE_MATTRESS if furniture.has_meta("rest_top") \
+			else (clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95)
 		return {"body": Vector3(head.x, floor_y, head.z), "eye": eye, "yaw": furniture.global_rotation.y, "pitch": .12}
 	var seat := xf * Vector3(0.0, 0.0, -.06)
 	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": SIT_EYE, "yaw": furniture.global_rotation.y, "pitch": -.08}
@@ -474,6 +479,8 @@ func _advance_rest_ease(delta: float) -> void:
 	_rest_ease["t"] = minf(1.0, float(_rest_ease["t"]) + delta / REST_EASE_SECONDS)
 	_apply_rest_ease()
 	if float(_rest_ease["t"]) >= 1.0:
+		if bool(_rest_ease.get("leaving", false)) and first_person_items != null:
+			first_person_items.visible = true
 		_rest_ease = {}
 		first_person_pivot.position.x = 0.0
 		first_person_pivot.position.z = 0.0
@@ -2882,6 +2889,13 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if resting_furniture != null:
+		# resting: what you can do from here, never the "LIE DOWN" of the furniture you are on
+		if asleep:
+			return "ASLEEP // %s WAKE" % InputGlyphs.key("jump")
+		if resting_pose == "lay":
+			return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
+		return "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 	if hidden:
 		if hiding_lock_timer > 0.0:
 			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)
