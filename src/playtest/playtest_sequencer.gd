@@ -84,6 +84,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		if int(track.ground[k]) == 1:
 			stage_frame = k
 			break
+	var corner_stage := _path_corner(track) if bool(shot.get("corner", false)) else {}
+	if not corner_stage.is_empty():
+		stage_frame = int(corner_stage["frame"])
 	var origin_eye := track.pos[stage_frame]
 	bridge.admin("teleport", {"x": origin_eye.x, "y": origin_eye.y - EYE, "z": origin_eye.z})
 	var frames := 0
@@ -101,9 +104,13 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var space := player.get_world_3d().direct_space_state
 	# the stage: origin on the floor, forward along the longest open run
 	var floor_origin := _floor_at(space, Vector3(origin_eye.x, origin_eye.y, origin_eye.z), player, origin_eye.y - EYE)
-	var forward := _longest_run(space, Vector3(origin_eye.x, floor_origin.y + 1.3, origin_eye.z), player, float(shot.get("min_run", 10.0)), track.yaw[0])
+	var forward: Vector3 = corner_stage.get("forward", Vector3.ZERO)
+	if forward == Vector3.ZERO:
+		forward = _longest_run(space, Vector3(origin_eye.x, floor_origin.y + 1.3, origin_eye.z), player, float(shot.get("min_run", 10.0)), track.yaw[0])
 	var right := forward.cross(Vector3.UP)
 	var stage := {"o": floor_origin, "f": forward, "r": right}
+	stage["corner"] = _find_corner(space, stage, player)
+	info["corner"] = stage["corner"]
 	info["stage_forward"] = [snappedf(forward.x, .01), snappedf(forward.z, .01)]
 
 	# actors
@@ -255,7 +262,82 @@ static func _longest_run(space: PhysicsDirectSpaceState3D, from: Vector3, player
 	return best
 
 
+## First side opening along the stage run: {"d": distance of the corner's near wall edge, "s": +1 right / -1 left, "w": half hall width}.
+## A numeric at-array may use "c" for forward: ["c", df, dr] = corner edge + df forward, side * (hall half width + dr) across.
+static func _find_corner(space: PhysicsDirectSpaceState3D, stage: Dictionary, player: Node) -> Dictionary:
+	var f: Vector3 = stage["f"]
+	var r: Vector3 = stage["r"]
+	var o: Vector3 = stage["o"] + Vector3.UP * 1.3
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var span := 0.0
+	var ray := PhysicsRayQueryParameters3D.create(o, o + f * 40.0)
+	ray.exclude = exclude
+	var hit := space.intersect_ray(ray)
+	span = 40.0 if hit.is_empty() else o.distance_to(hit["position"] as Vector3)
+	for side in [1.0, -1.0]:
+		var side_ray := PhysicsRayQueryParameters3D.create(o, o + r * side * 6.0)
+		side_ray.exclude = exclude
+		var side_hit := space.intersect_ray(side_ray)
+		var w := 6.0 if side_hit.is_empty() else o.distance_to(side_hit["position"] as Vector3)
+		if w > 3.5:
+			continue
+		var d := 4.0
+		while d < span - 1.5:
+			var p := o + f * d
+			var q := PhysicsRayQueryParameters3D.create(p, p + r * side * (w + 3.0))
+			q.exclude = exclude
+			var qh := space.intersect_ray(q)
+			var ql := w + 3.0 if qh.is_empty() else p.distance_to(qh["position"] as Vector3)
+			if ql > w + 1.6:
+				# refine the near edge backwards
+				var edge := d
+				while edge > d - .5:
+					edge -= .05
+					var pp := o + f * edge
+					var qq := PhysicsRayQueryParameters3D.create(pp, pp + r * side * (w + 3.0))
+					qq.exclude = exclude
+					var qqh := space.intersect_ray(qq)
+					if not qqh.is_empty() and pp.distance_to(qqh["position"] as Vector3) <= w + .4:
+						break
+				return {"d": snappedf(edge + .05, .01), "s": side, "w": snappedf(w, .01)}
+			d += .25
+	return {"d": span * .6, "s": 1.0, "w": 1.5, "fallback": true}
+
+
+static func _pt(stage: Dictionary, arr: Array, height: float) -> Vector3:
+	if arr.size() > 0 and arr[0] is String:
+		return _stage_point(stage, [arr[0], arr[1], arr[2], arr[3] if arr.size() > 3 else height])
+	return _stage_point(stage, [arr[0], arr[1], arr[2] if arr.size() > 2 else height])
+
+
+## A walked corner of the flythrough route: a turn of 60+ degrees after a straight approach of 7+ m. Returns the frame 9 m before it and the
+## approach direction, so the stage looks down the hall toward the corner.
+static func _path_corner(track: PlaytestFlythrough.Track) -> Dictionary:
+	var n := track.size()
+	var k := 0
+	while k < n - 1:
+		if int(track.ground[k]) != 1:
+			k += 1
+			continue
+		var back := k
+		while back > 0 and int(track.ground[back]) == 1 and Vector2(track.pos[k].x - track.pos[back].x, track.pos[k].z - track.pos[back].z).length() < 9.0:
+			back -= 1
+		var ahead := k
+		while ahead < n - 1 and int(track.ground[ahead]) == 1 and Vector2(track.pos[ahead].x - track.pos[k].x, track.pos[ahead].z - track.pos[k].z).length() < 3.0:
+			ahead += 1
+		var d_in := Vector2(track.pos[k].x - track.pos[back].x, track.pos[k].z - track.pos[back].z)
+		var d_out := Vector2(track.pos[ahead].x - track.pos[k].x, track.pos[ahead].z - track.pos[k].z)
+		if d_in.length() >= 7.0 and d_out.length() >= 2.0 and absf(rad_to_deg(d_in.angle_to(d_out))) >= 60.0:
+			var fwd := Vector3(d_in.x, 0, d_in.y).normalized()
+			return {"frame": back, "forward": fwd}
+		k += 4
+	return {}
+
+
 static func _stage_point(stage: Dictionary, at: Array) -> Vector3:
+	if at.size() > 0 and at[0] is String:
+		var c: Dictionary = stage["corner"]
+		at = [float(c["d"]) + float(at[1]), float(c["s"]) * (float(c["w"]) + float(at[2])) * (stage_r_sign(stage)), at[3] if at.size() > 3 else 0.0]
 	var p: Vector3 = stage["o"] + (stage["f"] as Vector3) * float(at[0]) + (stage["r"] as Vector3) * float(at[1])
 	p.y += float(at[2]) if at.size() > 2 else 0.0
 	return p
@@ -281,7 +363,7 @@ static func _make_actor(scene: Node, key: String, spec: Dictionary, stage: Dicti
 		NightWatchPoses.install(model, actor.anim, actor.hunter_id)
 	actor.height = 1.72 * HunterRoster.scale_for(actor.hunter_id)
 	var at: Array = spec.get("at", [8, 0])
-	actor.pos = _stage_point(stage, [at[0], at[1], 0.0])
+	actor.pos = _pt(stage, at, 0.0)
 	actor.pos = _floor_at(space, actor.pos + Vector3.UP * 1.3, player, actor.pos.y)
 	actor.face_mode = spec.get("face", "away")
 	actor.yaw = 0.0
@@ -334,7 +416,7 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 	if bool(ev.get("tag_off", false)):
 		actor.tag_goal = 0.0
 	if ev.has("move"):
-		var to := _stage_point(stage, [ev["move"][0], ev["move"][1], 0.0])
+		var to := _pt(stage, ev["move"], 0.0)
 		actor.target = Vector3(to.x, actor.pos.y, to.z)
 		actor.speed = float(ev.get("speed", 1.4))
 		actor.face_mode = "heading"
@@ -389,6 +471,10 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 
 
 # ------------------------------------------------------------------------------------------------ camera
+static func stage_r_sign(_stage: Dictionary) -> float:
+	return 1.0
+
+
 static func _resolve(spec: Variant, stage: Dictionary, actors: Dictionary, default_h: float) -> Vector3:
 	if spec is String:
 		var parts := String(spec).split(":")
@@ -397,7 +483,7 @@ static func _resolve(spec: Variant, stage: Dictionary, actors: Dictionary, defau
 			return actor.pos + Vector3.UP * (float(parts[1]) if parts.size() > 1 else actor.height * .8)
 		return Vector3.ZERO
 	var arr: Array = spec
-	return _stage_point(stage, [arr[0], arr[1], arr[2] if arr.size() > 2 else default_h])
+	return _pt(stage, arr, default_h)
 
 
 static func _camera_at(keys: Array, t: float, stage: Dictionary, actors: Dictionary) -> Dictionary:
