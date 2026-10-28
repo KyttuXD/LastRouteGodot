@@ -21,7 +21,9 @@ extends RefCounted
 ## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
 ## Nightmare and its larger active lineup remain intentionally unavailable.
 
-enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
+enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH, PEEK }
+## PEEK phases (HunterPeek): sliding into the spot, leaning out and looking, seen someone (burst reaction), ducked back.
+enum Peek { SETTLE, LOOK, SEEN, AMBUSH }
 
 const ARRIVAL_DISTANCE := 0.65
 const WAYPOINT_DISTANCE := 0.18
@@ -129,6 +131,20 @@ var _path_target_cell := Vector2i.ZERO
 var _stuck_time := 0.0
 var _center_steer_left := 0.0
 
+## Corner peek (HunterPeek). Replicated: state, peek_phase, peek_body, peek_head, peek_dir, peek_side.
+var peek_phase := Peek.SETTLE
+var peek_timer := 0.0
+var peek_body := Vector2.ZERO
+var peek_head := Vector2.ZERO
+var peek_dir := Vector2.ZERO
+var peek_side := 1
+var peek_cooldown := 0.0
+var peeks_started := 0
+## Validators only: >= 0 replaces HunterPeek.chance().
+var peek_chance_override := -1.0
+var _peek_resume := State.SEARCH
+var _peek_corner_cell := Vector2i(-99999, -99999)
+
 var _rng: SeededRandom
 
 
@@ -212,6 +228,8 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
+	peek_cooldown = maxf(0.0, peek_cooldown - delta)
+	_consider_peek(generator)
 	var before_move := position
 	var leap_drives := hard != null and hard.update(self, delta, generator, target)
 	if not leap_drives:
@@ -251,7 +269,7 @@ func update_without_target(delta: float, generator,
 	if stun_timer > 0.0:
 		stun_timer = maxf(0.0, stun_timer - delta)
 		return
-	if state == State.CHASE or state == State.INVESTIGATE or state == State.SEARCH:
+	if state == State.CHASE or state == State.INVESTIGATE or state == State.SEARCH or state == State.PEEK:
 		state = State.IDLE
 		has_last_known = false
 		has_search_target = false
@@ -470,7 +488,8 @@ func sight_limit_for(target_position: Vector2, target_flashlight_on: bool) -> fl
 
 
 func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
-	var direct_distance := position.distance_to(target_position)
+	var eye := sight_eye()
+	var direct_distance := eye.distance_to(target_position)
 	var breaches: bool = gimmick != null and gimmick.breaches_hiding()
 	var can_sense := not target_in_safe_zone and (not target_hidden or breaches)
 	if not can_sense:
@@ -496,7 +515,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 		var ray_range := maxf(sight_limit,
 			hearing_limit * GameConfig.HEARING_OPEN_AIR_SCALE)
 		if direct_distance < ray_range:
-			perception_line_clear = generator.has_line_of_sight(position, target_position)
+			perception_line_clear = generator.has_line_of_sight(eye, target_position)
 		sees_target = direct_distance < sight_limit and perception_line_clear
 
 	var hears_target := false
@@ -529,6 +548,9 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 			sees_target = false
 	elif not sees_target:
 		_notice_progress = 0.0
+	if state == State.PEEK:
+		_peek_perceive(sees_target, hears_target, target_position)
+		return
 	if sees_target:
 		state = State.CHASE
 		has_last_known = true
@@ -568,6 +590,9 @@ func _update_stamina(delta: float) -> void:
 
 func _update_movement(delta: float, generator, depth: int, relays_collected: int) -> void:
 	match state:
+		State.PEEK:
+			_update_peek(delta, generator)
+			return
 		State.IDLE:
 			idle_timer -= delta
 			if idle_timer <= 0.0:
@@ -981,3 +1006,118 @@ func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_li
 
 static func _cell_of(pos: Vector2) -> Vector2i:
 	return Vector2i(int(floor(pos.x)), int(floor(pos.y)))
+
+
+# ------------------------------------------------------------------------------------------------------ corner peek
+
+## Where her sight is taken from: the leaned-out head while she looks round a corner, her body otherwise.
+func sight_eye() -> Vector2:
+	if state == State.PEEK and (peek_phase == Peek.LOOK or peek_phase == Peek.SEEN):
+		return peek_head
+	return position
+
+
+## True while the lean pose shows (the head is past the edge).
+func peeking_out() -> bool:
+	return state == State.PEEK and (peek_phase == Peek.LOOK or peek_phase == Peek.SEEN)
+
+
+## Searching/investigating and about to turn a real corner: maybe stop behind it and look first. Never mid-chase.
+func _consider_peek(generator) -> void:
+	if state == State.PEEK or peek_cooldown > 0.0 or stun_timer > 0.0 or direct_chase_visible:
+		return
+	if state != State.INVESTIGATE and state != State.SEARCH:
+		return
+	if gimmick != null and gimmick.holds_position():
+		return
+	var odds := peek_chance_override if peek_chance_override >= 0.0 else HunterPeek.chance(hunter_id, difficulty_id)
+	if odds <= 0.0 or not generator.has_method("is_floor"):
+		return
+	var here := _cell_of(position)
+	var route: Array = [here]
+	for cell in _path:
+		if cell != route[-1]:
+			route.append(cell)
+	var corner := HunterPeek.find_corner(route, generator)
+	if corner.is_empty() or corner["c"] == _peek_corner_cell:
+		return
+	var spot := HunterPeek.body(corner)
+	if position.distance_to(spot) > 1.0:
+		return   # not at the corner yet
+	_peek_corner_cell = corner["c"]
+	if _rng.next_float() >= odds:
+		return
+	start_peek(corner)
+
+
+## Enters the peek at `corner` (HunterPeek.find_corner); the validator drives this directly too.
+func start_peek(corner: Dictionary) -> void:
+	_peek_resume = state if state == State.INVESTIGATE or state == State.SEARCH else State.SEARCH
+	state = State.PEEK
+	peek_phase = Peek.SETTLE
+	peek_timer = HunterPeek.SETTLE
+	peek_body = HunterPeek.body(corner)
+	peek_head = HunterPeek.head(corner)
+	peek_dir = Vector2(corner["d2"])
+	peek_side = HunterPeek.side(corner)
+	_peek_corner_cell = corner["c"]
+	peeks_started += 1
+	direct_chase_visible = false
+
+
+func _update_peek(delta: float, generator) -> void:
+	var offset := peek_body - position
+	if offset.length() > .01:
+		var step := minf(offset.length(), base_speed * delta)
+		_move_with_collision(offset.normalized().x * step, offset.normalized().y * step, generator)
+	facing = peek_dir
+	peek_timer -= delta
+	if peek_phase == Peek.SETTLE and position.distance_to(peek_body) > .05 and peek_timer > -1.5:
+		return   # still sliding into the spot (gives up waiting after 1.5 s if something blocks it)
+	if peek_timer > 0.0:
+		return
+	match peek_phase:
+		Peek.SETTLE:
+			peek_phase = Peek.LOOK
+			peek_timer = float(HunterPeek.tuning(hunter_id)["look"])
+			sense_timer = 0.0   # look the moment the head clears the edge
+		Peek.LOOK:
+			_end_peek(_peek_resume)   # nothing there: pull back and carry on
+		Peek.SEEN:
+			_end_peek(State.CHASE)    # burst
+		Peek.AMBUSH:
+			_end_peek(State.INVESTIGATE)   # they never came round: go to where she saw them
+
+
+func _peek_perceive(sees_target: bool, hears_target: bool, target_position: Vector2) -> void:
+	if sees_target or hears_target:
+		has_last_known = true
+		last_known = target_position
+	if not sees_target:
+		direct_chase_visible = false
+		return
+	match peek_phase:
+		Peek.SETTLE, Peek.LOOK:
+			if String(HunterPeek.tuning(hunter_id)["style"]) == "ambush":
+				peek_phase = Peek.AMBUSH   # duck back behind the corner and wait for them to come round
+				peek_timer = float(HunterPeek.difficulty(difficulty_id)["ambush"])
+			else:
+				peek_phase = Peek.SEEN
+				peek_timer = float(HunterPeek.difficulty(difficulty_id)["react"])
+		Peek.AMBUSH:
+			_end_peek(State.CHASE)   # seen from cover: they came to her
+			direct_chase_visible = true
+
+
+func _end_peek(next: State) -> void:
+	state = next
+	peek_phase = Peek.SETTLE
+	peek_cooldown = HunterPeek.COOLDOWN
+	lost_sight_timer = 0.0
+	_path.clear()
+	_has_path_target = false
+	if next == State.SEARCH and not has_search_target:
+		has_search_target = has_last_known
+		search_target = last_known
+	if next == State.SEARCH and search_timer <= 0.0:
+		search_timer = float(difficulty_profile["search_time"])

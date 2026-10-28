@@ -164,6 +164,8 @@ func _simulate(navigation: StreamedHunterNavigation, setup: Dictionary, hunter_i
 		var moving_state: bool = brain.state != HunterBrain.State.IDLE
 		var held: bool = brain.stun_timer > 0.0 or (brain.gimmick != null and brain.gimmick.holds_position()) \
 			or not brain.active or brain.emote_left > 0.0 \
+			# a corner peek stops on purpose for its look (bounded and checked by hunter_peek)
+			or brain.state == HunterBrain.State.PEEK \
 			# Haelith guards the uncollected relay she reached: standing on it is her design
 			or (hunter_id == "haelith" and brain.position.distance_to(brain.last_known) < 1.0)
 		var moved := brain.position.distance_to(previous)

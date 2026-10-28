@@ -130,6 +130,23 @@ add(t, "R-Thigh", hold((-4, 0, 6), L))
 pose("peek_left", L, True, .35, t, note="lean left, head only past the corner")
 mirrored("peek_right", "peek_left")
 
+# route corner peek (HunterPeek): the deep version. Feet planted behind the corner, the torso bends sideways from the
+# belly so the head and most of the chest clear the edge, head turned down the hall. Body/legs stay put.
+L = 2.0
+t = {}
+add_pos(t, "Pelvis", sample(L, lambda p: (0.12, -0.03 + .004 * math.sin(p * math.tau), 0)))
+add(t, "Belly", wave_keys(L, (-4, 6, 20), (1, 0, 1.2)))
+add(t, "Chest", wave_keys(L, (-6, 10, 18), (1.2, 0, 1.2)))
+add(t, "Head", wave_keys(L, (-6, 20, -22), (1.5, 5, 1), phase=.3))
+add(t, "L-Arm", hold((14, 0, -10), L))
+add(t, "L-Forearm", hold((34, 0, 0), L))
+add(t, "R-Arm", hold((-10, 0, 22), L))
+add(t, "R-Forearm", hold((20, 0, 0), L))
+add(t, "L-Thigh", hold((4, 0, -10), L))
+add(t, "R-Thigh", hold((-4, 0, 8), L))
+pose("corner_peek_left", L, True, .25, t, note="route corner peek: head and most of the chest past the edge, feet behind it")
+mirrored("corner_peek_right", "corner_peek_left")
+
 # stare at the camera: head locked square on the lens, slow tilt, arms limp
 L = 5.0
 t = {}
@@ -312,6 +329,24 @@ add(t, "R-Forearm", hold((10, 0, 0), L))
 add(t, "L-Thigh", hold((4, 0, -3), L))
 add(t, "R-Thigh", hold((4, 0, 3), L))
 pose("slump", L, True, .7, t, note="tired idle")
+
+# sit: on a hunter-scale seat (HunterSeats, docs/SEATING.md): pelvis down by a thigh, thighs level, calves hanging,
+# hands resting on the knees, slow breathing
+L = 4.0
+t = {}
+add_pos(t, "Pelvis", hold((0, -0.4, 0.06), L))
+add(t, "Belly", wave_keys(L, (-4, 0, 0), (1.2, 0, 0)))
+add(t, "Chest", wave_keys(L, (-3, 0, 0), (1, 0, 0), phase=.1))
+add(t, "Head", wave_keys(L, (-6, 0, 0), (1.5, 8, 0), phase=.3))
+add(t, "L-Thigh", hold((90, 0, -4), L))
+add(t, "R-Thigh", hold((90, 0, 4), L))
+add(t, "L-Calf", hold((-90, 0, 0), L))
+add(t, "R-Calf", hold((-90, 0, 0), L))
+add(t, "L-Arm", hold((32, 0, -4), L))
+add(t, "R-Arm", hold((32, 0, 4), L))
+add(t, "L-Forearm", hold((48, 0, 0), L))
+add(t, "R-Forearm", hold((48, 0, 0), L))
+pose("sit", L, True, .5, t, grounded=False, note="seated on a chair or bench")
 
 # point at the office: right arm straight out, head turned to it
 L = 2.0

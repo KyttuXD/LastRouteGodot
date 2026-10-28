@@ -190,35 +190,42 @@ func _run() -> void:
 			else:
 				await _shot("stairwell_foot_after_descent", well_foot + Vector3(0, 1.6, 0) - out_dir * .5,
 					well_foot + Vector3(0, 1.2, 0) + out_dir * 10.0)
-	# 6d: a sewer <-> collector ramp (KT's report on LEVEL -2: a slab across the way up at mid-height), from its foot
-	# up the slope and from its head down it
-	var deep_ramp := {}
-	var ramp_column := Vector2i.ZERO
-	for cz in range(-4, 5):
-		for cx in range(-4, 5):
-			if deep_ramp.is_empty():
-				deep_ramp = _view.generator.sewer().ramp_between(cx, cz, SewerRouteGenerator.LEVEL)
-				ramp_column = Vector2i(cx, cz)
-	if not deep_ramp.is_empty():
-		var size := StreamedRouteGenerator.CHUNK_SIZE
-		var height := StreamedFacilityView3D.LEVEL_HEIGHT
-		var corner := Vector3(ramp_column.x * size, 0, ramp_column.y * size)
-		var row := float(int(deep_ramp["row"])) + .5
-		var top_x := float(deep_ramp["top_x"])
-		var bottom_x := float(deep_ramp["bottom_x"])
-		var down := signf(bottom_x - top_x)
-		var ramp_foot := corner + Vector3(bottom_x + down * 1.5, (SewerRouteGenerator.LEVEL - 1) * height, row)
-		var ramp_head := corner + Vector3(top_x - down * 1.5, SewerRouteGenerator.LEVEL * height, row)
-		print("ramp %s at column %s: foot %s head %s" % [deep_ramp["link"]["id"], ramp_column, ramp_foot, ramp_head])
-		_player.global_position = ramp_foot + Vector3(0, .04, 0)
-		_view.refresh_at_tracked_player()
-		await _settle()
-		for _frame in 600:
-			if _view._pending_loads.is_empty() and _view._active_build.is_empty():
-				break
-			await get_tree().process_frame
-		await _shot("collector_ramp_looking_up", ramp_foot + Vector3(0, 1.6, 0), ramp_head + Vector3(0, 2.4, 0))
-		await _shot("collector_ramp_looking_down", ramp_head + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, .6, 0))
+	# 6d: the sewer -> collector and collector -> Inferno ramps (KT's report on LEVEL -2: a slab across the way down),
+	# from each foot up the slope, from each head down it, and from a few steps down at the tunnel mouth
+	for ramp_upper in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+		var tag := "collector_ramp" if ramp_upper == SewerRouteGenerator.LEVEL else "inferno_ramp"
+		var deep_ramp := {}
+		var ramp_column := Vector2i.ZERO
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if deep_ramp.is_empty():
+					deep_ramp = _view.generator.sewer().ramp_between(cx, cz, ramp_upper)
+					ramp_column = Vector2i(cx, cz)
+		if not deep_ramp.is_empty():
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			var height := StreamedFacilityView3D.LEVEL_HEIGHT
+			var corner := Vector3(ramp_column.x * size, 0, ramp_column.y * size)
+			var row := float(int(deep_ramp["row"])) + .5
+			var top_x := float(deep_ramp["top_x"])
+			var bottom_x := float(deep_ramp["bottom_x"])
+			var down := signf(bottom_x - top_x)
+			var ramp_foot := corner + Vector3(bottom_x + down * 1.5, (ramp_upper - 1) * height, row)
+			var ramp_head := corner + Vector3(top_x - down * 1.5, ramp_upper * height, row)
+			print("ramp %s at column %s: foot %s head %s" % [deep_ramp["link"]["id"], ramp_column, ramp_foot, ramp_head])
+			_player.global_position = ramp_foot + Vector3(0, .04, 0)
+			_view.refresh_at_tracked_player()
+			await _settle()
+			for _frame in 600:
+				if _view._pending_loads.is_empty() and _view._active_build.is_empty():
+					break
+				await get_tree().process_frame
+			if OS.get_environment("RAMP_DUMP") != "":
+				_dump_ramp(deep_ramp, ramp_column)
+			await _shot(tag + "_looking_up", ramp_foot + Vector3(0, 1.6, 0), ramp_head + Vector3(0, 2.4, 0))
+			await _shot(tag + "_looking_down", ramp_head + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, .6, 0))
+			# KT's viewpoint: a few steps down the slope, looking down at the tunnel mouth
+			var part_way := ramp_head.lerp(ramp_foot, .35)
+			await _shot(tag + "_mouth", part_way + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, 1.2, 0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
@@ -250,6 +257,36 @@ func _shaft_shots(name: String, well: Dictionary, base: Vector3) -> void:
 	await _shot(name + "_looking_up", foot + Vector3(0, 1.5, 0), lower + middle + Vector3(0, 5.5, 0))
 	var head: Vector3 = base + (path[path.size() - 1] as Vector3)
 	await _shot(name + "_looking_down", head + Vector3(0, 1.6, 0), lower + middle + Vector3(0, .3, 0))
+
+
+## Debug (RAMP_DUMP=1): every quad and mesh of both chunks near a ramp, chunk-local.
+func _dump_ramp(ramp: Dictionary, column: Vector2i) -> void:
+	var rect: Rect2i = ramp["ramp"]
+	print("RAMPDUMP rect %s top %s bottom %s top_x %s bottom_x %s" % [rect, ramp["top"], ramp["bottom"], ramp["top_x"], ramp["bottom_x"]])
+	for level in [int(ramp["upper"]), int(ramp["upper"]) - 1]:
+		var node := _view.get_node_or_null("Chunk_%d_%d_%d" % [column.x, level, column.y]) as Node3D
+		if node == null:
+			print("RAMPDUMP level %d missing" % level)
+			continue
+		var inv := node.global_transform.affine_inverse()
+		for m in node.find_children("*", "MeshInstance3D", true, false):
+			var mi := m as MeshInstance3D
+			if mi.mesh == null:
+				continue
+			var xf: Transform3D = inv * mi.global_transform
+			if mi.name != "Surface":
+				var at: Vector3 = xf.origin
+				if at.x > rect.position.x - 2 and at.x < rect.end.x + 2 and at.z > rect.position.y - 2 and at.z < rect.end.y + 2:
+					print("RAMPDUMP L%d mesh %s at %s" % [level, node.get_path_to(mi), at.snapped(Vector3.ONE * .01)])
+				continue
+			for si in mi.mesh.get_surface_count():
+				var v: PackedVector3Array = mi.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX]
+				for q in range(0, v.size(), 4):
+					var a: Vector3 = xf * v[q]
+					var b: Vector3 = xf * v[q + 2]
+					var c := (a + b) * .5
+					if c.x > rect.position.x - 1.5 and c.x < rect.end.x + 1.5 and c.z > rect.position.y - 1.5 and c.z < rect.end.y + 1.5:
+						print("RAMPDUMP L%d s%d %s -> %s" % [level, si, a.snapped(Vector3.ONE * .01), b.snapped(Vector3.ONE * .01)])
 
 
 func _settle() -> void:

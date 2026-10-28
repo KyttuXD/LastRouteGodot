@@ -430,9 +430,6 @@ const YSOLDE_STEAL_RANGE := 0.8
 ## settle", not a tuning choice.
 const OPALIE_SUPPRESSION_RADIUS := 1.5
 const OPALIE_GUARD_ARRIVAL := 0.75
-## She leaves her post to chase a runner she senses within this many metres of her or of the post, and walks back
-## once they are further than that or she loses them. Further out she keeps standing watch.
-const OPALIE_CHASE_LEASH := 4.0
 
 
 ## Player beam attention, from TUNING.beamAttentionTime / beamAttentionDecay.

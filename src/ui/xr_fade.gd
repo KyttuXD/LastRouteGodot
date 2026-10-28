@@ -6,8 +6,8 @@ extends MeshInstance3D
 ## the view back a frame later, so the eyes got frames with no camera, two XR viewports, or the old view torn down.
 ##
 ## Every XR camera carries one of these: a black sphere around the head, drawn over everything. A scene switch goes
-##   fade out (FADE_SECONDS) -> the menu panel's view takes over, still black -> the new scene loads -> HOLD_SECONDS of
-##   black while it settles -> fade in (FADE_SECONDS)
+##   fade out (FADE_SECONDS) on the view the headset shows -> the new scene loads (the headset keeps the last, black,
+##   frame) -> the menu panel takes the view back black / the route enters XR black -> HOLD_SECONDS -> fade in
 ## and the brightness the eye sees only ever moves by one FADE_SECONDS ramp per frame step. Desktop and phones have no
 ## XR camera, so change_scene() is exactly tree.change_scene_to_file / _packed there.
 
@@ -93,8 +93,9 @@ static func change_scene(tree: SceneTree, scene: Variant) -> void:
 	var fade := active(tree)
 	if fade != null:
 		await to_black(tree, fade)
-		for panel in tree.get_nodes_in_group(XRMenuPanel.GROUP):
-			(panel as XRMenuPanel).take_view_dark()
+		if not tree.root.use_xr:   # between menus: the panel holds black until the new scene is up
+			for panel in tree.get_nodes_in_group(XRMenuPanel.GROUP):
+				(panel as XRMenuPanel).hold_dark()
 	if scene is PackedScene:
 		tree.change_scene_to_packed(scene)
 	else:
