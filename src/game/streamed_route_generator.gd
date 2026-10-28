@@ -1492,8 +1492,8 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var half := 2 if wide else 1
 	var plan := large_plan(coord)
 	var middle_start := center - half if hall_trimmed(coord, -1) else 1
-	# the maze office suite is entered from this hall (doors at x 32-33), so its east trim leaves the hall as far as the entrance
-	var middle_end := (35 if office_quarter else center + 1 + half) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
+	# the maze office suite is entered from this hall (doors at x 32-33), so its east trim leaves the hall past the entrance (the wall beside the door then runs on, not a one-cell stub)
+	var middle_end := (37 if office_quarter else center + 1 + half) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
 	var mall := region == "mall"
 	# the arcade's and the maze's main halls are five wide; every other district keeps a three-wide centre hall
 	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall or wide else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
@@ -1556,13 +1556,18 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			if merged_sides.has(side) and int(row["y"]) > 0 and int(row["y"]) < 36:
 				continue
 			var specs := []
+			# the maze's 8-deep banks cannot seat a restaurant's two rows of six: they cycle through the other rooms
+			var shallow := int(row["h"]) < 9
 			if pod_pending:
 				pod_pending = false
 				specs.append({"x": side_x[side], "w": 21, "type": "pod_room"})
 			elif mall:
 				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
 			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
-				specs.append({"x": side_x[side], "w": bank_w, "type": big_types[rng.next_index(big_types.size())]})
+				var big_type: String = big_types[rng.next_index(big_types.size())]
+				if shallow and big_type == "restaurant_dining":
+					big_type = "storage"
+				specs.append({"x": side_x[side], "w": bank_w, "type": big_type})
 			elif wide:
 				# two rooms sharing a wall, the one nearer the centre hall a cell narrower
 				var outer := 0 if side == 0 else 9
