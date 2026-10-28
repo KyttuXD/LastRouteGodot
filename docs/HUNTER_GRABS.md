@@ -13,7 +13,7 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 | `wrist_yank` (WY) | one wrist taken, the runner yanked in off balance | - |
 | `wrap` (WR) | both arms close round the runner | - |
 | `leg_grab` (LG) | an ankle taken from behind, the runner falls on their face and is dragged back | 1.8 m clear ahead |
-| `upside_down` (UD) | a leg hoisted, the runner hung head down in front of her at arm's length; first person turns over slowly | ceiling 2.4 m |
+| `upside_down` (UD) | a leg hoisted, the runner hung head down in front of her at arm's length; first person turns over slowly | ceiling 2.4 m, 1.5 m clear behind |
 | `bear_hug` (BH) | crushed in both arms round the torso, lifted until the runner's chest is at hers | ceiling 2.75 m |
 | `collar_drag` (CD) | pulled face down by the collar and dragged as the hunter backs off | 1.6 m clear behind the hunter |
 | `wall_pin` (WP) | shoved back against a wall and held there | a wall within 1.3 m behind |
@@ -47,8 +47,10 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 ## First-person camera rules (KT, after the first sheet)
 
 `HunterGrab._solve_camera` places the camera every frame:
-- **Start:** the first-person body's real eyes.
-- **Framing:** pulled straight back from the hunter, by at most 0.9 m, until her face and upper body sit 1.45 m away. If a wall is behind, it stops short of the wall and steps to the roomier side instead.
+- **Position:** the first-person body's real eyes, never behind them (KT). It rides the eyes exactly (every pose is eased), easing in from the runner's own view over the first 0.2 s. Only a wall, the floor or her collider moves it: up or to the side, never back.
+- **Framing:** her arms are straight (she holds the runner at arm's length), the view tips up to her face, and in the hold the view widens up to 10 degrees, eased, while her face is closer than 1.2 m.
+- **Her model at the lens:** any box of her within the near plane is drawn on a layer the first-person camera skips, for that frame.
+- **On a live route:** her model is pinned where the grab began, turned square to the runner. The hunter's simulation keeps moving her (wander, turn) while she holds someone, so a model riding along would pull her hands off the body.
 - **Walls:** it is never inside a wall. A ray runs from where the runner stood, then a sphere test.
 - **Hunter:** it is never inside the hunter's collider or the boxes of her torso and head, nor the runner's own torso. Hard clearance is 0.065 m (near plane 0.06). A push moves the camera at most 0.18 m in a frame, straight up or straight back, whichever is nearer. Her arms (and the runner's own arms) reach right up to the face: any of those boxes at the lens are drawn on a layer the first-person camera skips, for that frame only, so the lens never shows the inside of a mesh.
 - **Motion:** it eases at 30/s, capped at 5 m/s and 2.4 rad/s, starting from the view the runner had when caught. The motion itself is eased in the poses: knock-downs, the upside-down hoist and the leg-grab fall are paced so the head never moves faster than that.

@@ -148,7 +148,7 @@ func _ready() -> void:
 			await _shot(out, "%s_%s_tp" % [where, style])
 			_guest.visible = false
 			_packet = []
-			HunterGrab.pose_hunter_body(view, facing, [0.0, 0.0, 0.0])
+			HunterGrab.pose_hunter_body(view, facing, [])
 			view.queue_free()
 			await get_tree().process_frame
 		if place["root"] != null:

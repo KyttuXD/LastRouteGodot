@@ -113,8 +113,8 @@ const ARENA := preload("res://scripts/grab_arena.gd")
 ## on screen and not huge where they hold something; every grip within 3 cm.
 const CAMERA_CLEARANCE := .06
 const MAX_TURN_RATE := 3.0
-const MAX_MOVE_RATE := 5.2
-const FACE_MIN := .9
+const MAX_MOVE_RATE := 6.0
+const FACE_MIN := .45
 const CONTACT := .03
 
 
@@ -229,7 +229,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 				HunterGrab.CLEARANCE + .03, true).is_empty()
 			if eye_clear and grab.pushes == pushes_seen:
 				eye_frames += 1
-				if camera.origin.distance_to(own.eye()) >= HunterGrab.MAX_PULLBACK + .2:
+				if camera.origin.distance_to(own.eye()) >= .15:
 					drift_frames += 1
 		var roll := _roll_of(camera.basis)
 		var upright := camera.basis.y.y > 0.0
@@ -247,7 +247,16 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		# she moved into the camera: it is pushed clear at once, but still never jumps
 		# a push out of her arm may be one quick step (at most 20 cm), never a jump across the room
 		_expect((pushed and previous.origin.distance_to(camera.origin) <= HunterGrab.MAX_PUSH + .05) or previous.origin.distance_to(camera.origin) / delta <= MAX_MOVE_RATE, "%s: the camera jumps %.2f m in one frame at %.2f s s" % [label, previous.origin.distance_to(camera.origin), waited])
-		_expect(is_equal_approx(player.first_person_camera.fov, fov), "%s: the FOV changed" % label)
+		# the view may only widen, at most 10 degrees and eased, and only in the hold
+		var widened := player.first_person_camera.fov - fov
+		_expect(widened > -.01 and widened <= HunterGrab.MAX_FOV_WIDEN + .01, "%s: the FOV moved %.1f deg" % [label, widened])
+		_expect(widened < .01 or waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS * .5, "%s: the view widened before the hold" % label)
+		# never behind the runner's eye plane (KT: in front of the head, not over the shoulder)
+		if own.model != null and waited > .3:
+			var front := -own.global_basis.z
+			var ahead := Vector3(front.x, 0.0, front.z).normalized()   # the plane through the eyes, square to where the body faces
+			_expect((camera.origin - own.eye()).dot(ahead) > -.03, "%s: the camera is %.2f m behind the runner's eyes at %.2f s" % [label,
+				-(camera.origin - own.eye()).dot(ahead), waited])
 		previous = camera
 		if waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS and not (grab.current["arms"] as Array).is_empty():
 			max_gap = maxf(max_gap, grab.contact_gap)
@@ -264,7 +273,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	if head != null:
 		# pinned to a wall by a hunter half again your size, her face is closer: still framed, never inside
 		# pinned to a wall, or hugged, by a hunter half again your size: her face is close (framed, never inside)
-		var face_min := .8 if style == GrabStyles.WALL_PIN else FACE_MIN
+		# crushed in a hug against a body half again your size, her face is right there: framed (and the view widened), not inside
+		var face_min := .3 if style in [GrabStyles.WRAP, GrabStyles.BEAR_HUG] else FACE_MIN
 		_expect(camera.origin.distance_to(head.global_position) >= face_min, "%s: the camera is %.2f m from her face" % [label, camera.origin.distance_to(head.global_position)])
 		var screen := player.first_person_camera.unproject_position(head.global_position)
 		var size := player.get_viewport().get_visible_rect().size
@@ -342,6 +352,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	remote.queue_free()
 	grab.release()
 	_expect(not player.grab_active and player.grab_state.is_empty() and not player.first_person_body().visible, "%s: release left the runner held" % label)
+	_expect(is_equal_approx(player.first_person_camera.fov, fov), "%s: release left the view widened" % label)
 	_expect(absf(player.first_person_pivot.rotation.z) < .001, "%s: the view stays rolled after release" % label)
 	if model != null:
 		_expect(model.transform.is_equal_approx(rest), "%s: the hunter's model was not put back" % label)

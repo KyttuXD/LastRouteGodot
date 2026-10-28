@@ -30,6 +30,8 @@ var pushes := 0
 ## Hunter meshes hidden from the camera this frame because the lens is inside them (see _cull_near).
 var culled: Array = []
 var _last_camera := Transform3D.IDENTITY
+var _base_fov := 78.0
+var _catch_camera := Transform3D.IDENTITY
 var _player: PlayerController3D
 var _view: Node3D
 var _origin := Vector3.ZERO
@@ -166,6 +168,7 @@ static func elbow_pole(arm_side: String, along: Vector3, wide: bool = false) -> 
 
 ## Leans, lowers and moves a hunter's model (not the simulated hunter) towards `along`: [forward, drop, lean]. Zeros put it back.
 static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> void:
+	var was_grabbing: bool = view.call("grabbing") if view.has_method("grabbing") else true
 	if "grab_until_msec" in view:
 		view.set("grab_until_msec", Time.get_ticks_msec() + 250)   # no beam (Kathy) while she holds someone
 	var model := view.get("_model") as Node3D if "_model" in view else null
@@ -173,13 +176,30 @@ static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> vo
 		return
 	if not model.has_meta("grab_rest"):
 		model.set_meta("grab_rest", model.transform)
-	model.transform = model.get_meta("grab_rest")
+	var releasing := offsets.is_empty()
+	if releasing:
+		model.transform = model.get_meta("grab_rest")
+		model.remove_meta("grab_rest")
+		view.remove_meta("grab_anchor")
+		return
+	# Her model is pinned where the grab began, turned square to the runner: on a live route the hunter keeps being
+	# simulated (and walks, wanders, turns) while she holds someone, and a model riding along with that would pull her hands
+	# off the body. The anchor is taken when a grab starts posing her (or after a gap of a quarter second).
+	if not was_grabbing or not view.has_meta("grab_anchor"):
+		var anchor := view.global_transform
+		model.transform = model.get_meta("grab_rest")
+		var head := view.find_child("Head", true, false) as Node3D
+		var facing := face_forward(head, GrabStyles.look_for(String(view.call("shown_id")) if view.has_method("shown_id") else ""),
+			along) if head != null else along
+		var flat := Vector3(facing.x, 0.0, facing.z).normalized()
+		if flat.length_squared() > .5:
+			anchor.basis = Basis(Vector3.UP, flat.signed_angle_to(along, Vector3.UP)) * anchor.basis
+		view.set_meta("grab_anchor", anchor)
+	var anchored: Transform3D = view.get_meta("grab_anchor")
+	model.global_transform = anchored * (model.get_meta("grab_rest") as Transform3D)
 	var forward := float(offsets[0]) if offsets.size() > 0 else 0.0
 	var drop := float(offsets[1]) if offsets.size() > 1 else 0.0
 	var lean := float(offsets[2]) if offsets.size() > 2 else 0.0
-	if is_zero_approx(forward) and is_zero_approx(drop) and is_zero_approx(lean):
-		model.remove_meta("grab_rest")
-		return
 	var placed := model.global_transform
 	var axis := Vector3.UP.cross(along).normalized()
 	if axis.length_squared() > .5:
@@ -385,11 +405,9 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 ## with CLEARANCE); it eases towards that spot and that view every frame instead of snapping; roll stays within MAX_ROLL (the
 ## upside-down hold flips slowly, then sways within FLIP_SWAY).
 const CLEARANCE := .07
-## At the body's eyes the hunter (half again the runner's size) is a wall of texture a hand's width away (KT: horrific), so the
-## camera is drawn back from the eyes, straight away from her, until her face and upper body sit FACE_DISTANCE away: at most
-## MAX_PULLBACK, never into a wall (then to the roomier side), never into the runner's own body (its head is not drawn).
-const FACE_DISTANCE := 1.45
-const MAX_PULLBACK := .9
+## The hold widens the view up to MAX_FOV_WIDEN degrees, eased, while her face is closer than FACE_DISTANCE.
+const FACE_DISTANCE := 1.2
+const MAX_FOV_WIDEN := 10.0
 const WALL_MARGIN := .12
 const EASE_RATE := 30.0
 ## Speed limits on the eased camera, so nothing ever snaps: metres and radians per second.
@@ -529,18 +547,30 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(anchor, p, mask, walls_only))
 		if not hit.is_empty():
 			p = (hit["position"] as Vector3) + (hit["normal"] as Vector3) * WALL_MARGIN
+		# then out of whatever surface it is still too close to (the floor under a body knocked flat or hung head down, a
+		# wall beside it), straight out along that surface's normal
+		var sphere := SphereShape3D.new()
+		sphere.radius = WALL_MARGIN * .8
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = sphere
+		query.collision_mask = mask
+		query.exclude = walls_only
 		for _i in 10:
-			if camera_blocked(space, p, walls_only, mask, [], WALL_MARGIN * .8).is_empty():
+			query.transform = Transform3D(Basis.IDENTITY, p)
+			var rest := space.get_rest_info(query)
+			if rest.is_empty():
 				break
-			p = p.lerp(anchor, .25)
+			p += (rest["normal"] as Vector3) * .03
 		return p
 	point = fix_walls.call(point)
 	# the runner's own torso and legs count as solid too (their own arms are just not drawn when at the lens: _cull_near)
 	var own: Array = _own_torso()
 	var blocked := func(p: Vector3) -> bool:
 		# her arms reach right up to the runner's face: those are culled at the lens (_cull_near), not dodged
-		if not camera_blocked(space, p, walls_only, mask, [_view], clearance, true).is_empty():
+		if not camera_blocked(space, p, walls_only, mask, [], clearance).is_empty():
 			return true
+		if not camera_blocked(space, p, [_player.get_rid()], mask, [], clearance).is_empty():
+			return true   # her collider (the walls-only exclusion above leaves hunters out)
 		for part in own:
 			var mesh_node := part as MeshInstance3D
 			if mesh_node.mesh.get_aabb().grow(.02).has_point(mesh_node.global_transform.affine_inverse() * p):
@@ -550,7 +580,7 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 		return point
 	# the nearest clear spot, searched straight up (over her reach) and straight back from her, whichever is closer; found
 	# continuously by bisection, so the camera never steps or jitters; walls always win
-	for axis in [Vector3.UP, _along]:
+	for axis in [Vector3.UP, _side, -_side]:   # never back behind the eyes (KT); up over her reach, or to one side
 		var hi := -1.0
 		for i in range(1, 16):
 			var probe: Vector3 = fix_walls.call(point + axis * (i * .1))
@@ -566,30 +596,8 @@ func _clear(point: Vector3, clearance: float = CLEARANCE) -> Vector3:
 				lo = mid
 			else:
 				hi = mid
-		var up_hit: Vector3 = fix_walls.call(point + axis * hi)
-		if axis == Vector3.UP and hi > .6:
-			# rising more than that would leave the head: try straight back first
-			var back := _clear_along(point, blocked, fix_walls)
-			if back != Vector3.INF and back.distance_to(point) < hi:
-				return back
-		return up_hit
+		return fix_walls.call(point + axis * hi)
 	return fix_walls.call(point + Vector3.UP * .4)
-
-
-func _clear_along(point: Vector3, blocked: Callable, fix_walls: Callable) -> Vector3:
-	for i in range(1, 16):
-		var probe: Vector3 = fix_walls.call(point + _along * (i * .1))
-		if not blocked.call(probe):
-			var lo := (i - 1) * .1
-			var hi := i * .1
-			for _j in 7:
-				var mid := (lo + hi) * .5
-				if blocked.call(fix_walls.call(point + _along * mid)):
-					lo = mid
-				else:
-					hi = mid
-			return fix_walls.call(point + _along * hi)
-	return Vector3.INF
 
 
 func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3D:
@@ -598,48 +606,33 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	if turned < 1.0:
 		var ahead := head_world - _along * float(current["face"]) * 3.0
 		look = ahead.lerp(look, turned)
+	# at the runner's own eyes (KT: in front of the head, never behind it); the framing comes from her holding them at arm's
+	# length, the view tipping up to her face and, when she is still close, a slightly wider view during the hold (_fov_for)
 	var wanted := head_world
-	var flat := Vector2(wanted.x - look.x, wanted.z - look.z).length()
-	if flat < FACE_DISTANCE:
-		var pull := minf(FACE_DISTANCE - flat, MAX_PULLBACK)
-		# never pulled back into a wall behind the runner: stop short of it
-		var behind := _player.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(head_world,
-			head_world + _along * (pull + WALL_MARGIN), _player.collision_mask, _walls_only()))
-		if not behind.is_empty():
-			pull = maxf(head_world.distance_to(behind["position"]) - WALL_MARGIN, 0.0)
-		wanted += _along * pull
-		# boxed in behind (a wall pin, a hallway's end): step to the roomier side instead, so her face is not in the lens
-		if pull < (FACE_DISTANCE - flat) * .6:
-			var space := _player.get_world_3d().direct_space_state
-			var best := Vector3.ZERO
-			var room := 0.0
-			for dir in [_side, -_side]:
-				var probe := space.intersect_ray(PhysicsRayQueryParameters3D.create(wanted, wanted + dir * 1.0,
-					_player.collision_mask, _walls_only()))
-				var free := 1.0 if probe.is_empty() else wanted.distance_to(probe["position"])
-				if free > room:
-					room = free
-					best = dir
-			wanted += best * clampf(room - WALL_MARGIN, 0.0, .7)
-	wanted = _clear(wanted, CLEARANCE)
-	# eased from where the camera was last frame (the first frame: the view the runner had when caught)
-	var previous := _last_camera
-	var at := previous.origin.lerp(wanted, 1.0 - exp(-EASE_RATE * delta))
-	var move := at - previous.origin
-	if move.length() > MAX_SPEED * delta:
-		at = previous.origin + move.normalized() * MAX_SPEED * delta
-	if not camera_blocked(_player.get_world_3d().direct_space_state, at, _walls_only(), _player.collision_mask, [_view],
-			HARD_CLEARANCE, true).is_empty():
-		# only when she moves into the eased camera itself: a short push (never a jump); whatever part of her is still at the
-		# lens after that is not drawn for this camera this frame (_cull_near)
-		var pushed := _clear(at, HARD_CLEARANCE)
-		at = at + (pushed - at).limit_length(MAX_PUSH)
+	# the eyes move smoothly (every grab pose is eased), so the camera rides them exactly: it never trails behind the head.
+	# Only her collider or a wall can move it (up or to the side, never back); any part of her model at the lens is not
+	# drawn for this camera that frame instead (_cull_near)
+	var at := _clear(wanted, CLEARANCE)
+	if at.distance_to(wanted) > .001:
 		pushes += 1
+	var previous := _last_camera
+	# the first fifth of a second eases from the runner's own view when caught to the grabbed body's eyes (a few cm apart)
+	if elapsed < .2 and playing:
+		at = _catch_camera.origin.lerp(at, GrabStyles.smooth(elapsed / .2))
+	var step := at - previous.origin
+	if pushes > 0 and step.length() > MAX_PUSH and previous.origin.distance_to(wanted) < MAX_PUSH:
+		at = previous.origin + step.limit_length(MAX_PUSH)
 	_cull_near(at)
 	var to := look - at
 	var flat_to := Vector2(to.x, to.z).length()
 	var pitch := clampf(atan2(to.y, flat_to), -MAX_LOOK_PITCH, MAX_LOOK_PITCH)
 	var yaw := atan2(-to.x, -to.z)
+	if flat_to < .35:
+		# she is almost straight overhead (knocked flat under her): keep the heading the view already has, or the turn
+		# around the vertical would flip half a circle and roll the view over on the way
+		var ahead := -previous.basis.z
+		if Vector2(ahead.x, ahead.z).length() > .05:
+			yaw = atan2(-ahead.x, -ahead.z)
 	var basis := Basis.from_euler(Vector3(pitch, yaw, 0.0))
 	basis = Basis(basis.z.normalized(), -roll) * basis   # roll about the view axis
 	var from := previous.basis.orthonormalized().get_rotation_quaternion()
@@ -651,6 +644,21 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	return Transform3D(Basis(from.slerp(to_q, weight)), at)
 
 
+## During the hold only, the view widens (eased, at most MAX_FOV_WIDEN degrees) as far as her face is closer than
+## FACE_DISTANCE, so a hunter half again the runner's size still fits the frame from the runner's own eyes.
+func _widen_view(at: Vector3, t: float, delta: float) -> void:
+	if _player.xr_active:
+		return
+	var head := _view.find_child("Head", true, false) as Node3D
+	var close := 0.0
+	if head != null:
+		close = clampf((FACE_DISTANCE - at.distance_to(head.global_position)) / .5, 0.0, 1.0)
+	var hold := GrabStyles.smooth((t - GrabStyles.REACH_SECONDS - GrabStyles.ACT_SECONDS * .5) / .5)
+	var wanted := _base_fov + MAX_FOV_WIDEN * close * hold
+	var camera := _player.first_person_camera
+	camera.fov = move_toward(camera.fov, wanted, 20.0 * maxf(delta, 0.0))
+
+
 ## Runs the grab on the local runner; returns when the hold ends (the runner stays held until release()).
 ## `roll` is the host's roll for this catch (GrabStyles.roll_for).
 func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: float, force_style: String = "") -> void:
@@ -659,6 +667,7 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 	_player = player
 	_view = view
 	_hunter_id = hunter_id
+	_base_fov = player.first_person_camera.fov
 	_origin = Vector3(view.global_position.x, player.global_position.y, view.global_position.z)
 	var flat := Vector3(player.global_position.x - view.global_position.x, 0.0, player.global_position.z - view.global_position.z)
 	_along = flat.normalized() if flat.length() > .01 else -view.global_basis.z
@@ -694,6 +703,7 @@ func _apply(t: float, delta: float) -> void:
 	culled.clear()
 	if t == 0.0:
 		_last_camera = _player.first_person_camera.global_transform
+		_catch_camera = _last_camera
 	current = GrabStyles.pose(style, t, _ctx)
 	var at: Vector3 = current["at"]
 	var r := GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
@@ -736,6 +746,7 @@ func _apply(t: float, delta: float) -> void:
 		roll = clampf(roll, -MAX_ROLL, MAX_ROLL)
 	var camera := _solve_camera(head, roll, delta)
 	_last_camera = camera
+	_widen_view(camera.origin, t, delta)
 	_player.set_grab_camera(camera, _body_yaw(face), String(current["clip"]))
 	state = [style, snappedf(t, .01), snappedf(lift, .001), snappedf(tilt * face, .001), snappedf(float(offsets[0]), .001),
 		snappedf(float(offsets[1]), .001), snappedf(float(offsets[2]), .001)]
@@ -775,11 +786,12 @@ func release() -> void:
 				(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
 				node.remove_meta("grab_layers")
 		culled.clear()
-		pose_hunter_body(_view, _along, [0.0, 0.0, 0.0])
+		pose_hunter_body(_view, _along, [])
 		for key in ["grab_head_turn", "grab_chest_turn"]:
 			_view.remove_meta(key)
 		if "grab_until_msec" in _view:
 			_view.set("grab_until_msec", 0)
 	if _player != null and is_instance_valid(_player):
+		_player.first_person_camera.fov = _base_fov
 		_player.end_grab_view()
 	_view = null

@@ -35,7 +35,7 @@ const STYLES := {
 	WRIST_YANK: {"short": "WY"},
 	WRAP: {"short": "WR"},
 	LEG_GRAB: {"short": "LG", "back": 1.8},
-	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4},
+	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4, "back": 1.5},   # the head swings out past the feet as they go up
 	BEAR_HUG: {"short": "BH", "ceiling": 2.75},
 	COLLAR_DRAG: {"short": "CD", "hunter_back": 1.6},
 	WALL_PIN: {"short": "WP", "wall": 1.3},
@@ -287,14 +287,15 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["arms"] = [["R", "neck", r]]
 			out["clip"] = "fall"
 		SHOULDER_GRAB:
-			out["at"] = Vector3(shake * .015, .08 * a, .72)
+			out["at"] = Vector3(shake * .015, .08 * a, 1.25)   # held off at arm's length (she steps in only as far as her arms need)
 			out["tilt"] = shake * .06
 			out["view_roll"] = shake * .03
 			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
 		TACKLE:
-			out["at"] = Vector3(0.0, 0.0, lerpf(.75, 1.25, a))
-			out["tilt"] = lerpf(0.0, PI * .5 - .1, a)
-			out["view_pitch"] = .25 * a
+			var flat := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .35))   # knocked flat, not snapped flat
+			out["at"] = Vector3(0.0, 0.0, lerpf(.75, 1.25, flat))
+			out["tilt"] = lerpf(0.0, PI * .5 - .1, flat)
+			out["view_pitch"] = .25 * flat
 			out["hands"] = "push_up"
 			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
 			var down := smooth((t - REACH_SECONDS - ACT_SECONDS * .4) / (ACT_SECONDS * .6 + HOLD_SECONDS * .4))
