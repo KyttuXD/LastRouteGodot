@@ -526,7 +526,8 @@ func _update_chase_style(delta: float) -> void:
 	var flying := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne()
 	var chasing := chase_layer_enabled and brain.active and brain.state == HunterBrain.State.CHASE \
 		and brain.stun_timer <= 0.0 and _recover_left <= 0.0 and not climbing and not flying and not has_nw_pose() \
-		and not (_emote_index >= 0 and not _emote_clip.is_empty())
+		and not (_emote_index >= 0 and not _emote_clip.is_empty()) \
+		and not (has_method("grabbing") and bool(call("grabbing")))   # GRAB's every-peer signal (HunterGrab)
 	var aim := 0.0
 	if has_look_target and HunterChaseStyle.reaches(brain.chase_style):
 		var forward := Vector2(-sin(rotation.y), -cos(rotation.y))
