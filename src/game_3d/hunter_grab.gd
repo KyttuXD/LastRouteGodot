@@ -111,8 +111,10 @@ static func reach_of(chain: Dictionary) -> float:
 
 
 static func _turn(node: Node3D, from: Vector3, to: Vector3) -> void:
-	if from.length_squared() < 1e-8 or to.length_squared() < 1e-8:
+	if not from.is_finite() or not to.is_finite() or from.length_squared() < 1e-8 or to.length_squared() < 1e-8:
 		return
+	if absf(node.global_basis.determinant()) < 1e-9:
+		return   # a collapsed (zero-scaled, hidden) body: nothing to turn
 	var scale := node.global_basis.get_scale()
 	node.global_basis = (Basis(Quaternion(from.normalized(), to.normalized())) * node.global_basis.orthonormalized()) \
 		* Basis.from_scale(scale)
@@ -130,6 +132,9 @@ static func solve_arm(root: Node, arm_side: String, target: Vector3, amount: flo
 	var shoulder := arm.global_position
 	var elbow := forearm.global_position
 	var grip := grip_point(chain)
+	if not (shoulder.is_finite() and elbow.is_finite() and grip.is_finite() and target.is_finite()) \
+			or absf(arm.global_basis.determinant()) < 1e-9 or shoulder.distance_to(elbow) < 1e-4 or elbow.distance_to(grip) < 1e-4:
+		return
 	var upper := shoulder.distance_to(elbow)
 	var lower := elbow.distance_to(grip)
 	var goal := grip.lerp(target, clampf(amount, 0.0, 1.0))
@@ -436,7 +441,8 @@ static func face_forward(head: Node3D, look: Dictionary, along: Vector3) -> Vect
 
 ## A guest's (or the host's) copy of a held runner: the nearest hunter takes the grab pose the runner's state describes.
 static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void:
-	if from == null or not from.is_inside_tree() or packet.size() < 7:
+	if from == null or not from.is_inside_tree() or packet.size() < 7 or not body.is_visible_in_tree() \
+			or absf(body.global_basis.determinant()) < 1e-9 or not body.global_position.is_finite():
 		return
 	var best: Node3D = null
 	var best_distance := SEARCH_RADIUS
@@ -537,6 +543,8 @@ static func camera_blocked(space: PhysicsDirectSpaceState3D, point: Vector3, exc
 				continue
 			if mesh_node.layers == FirstPersonBody.HEAD_LAYER:
 				continue   # the runner's own head: never drawn for the first-person camera
+			if absf(mesh_node.global_transform.basis.determinant()) < 1e-9:
+				continue
 			var local := mesh_node.global_transform.affine_inverse() * point
 			var scale := mesh_node.global_transform.basis.get_scale()
 			var grown := mesh_node.mesh.get_aabb().grow(clearance / maxf(minf(scale.x, minf(scale.y, scale.z)), .001))
@@ -566,6 +574,8 @@ func _cull_near(at: Vector3) -> void:
 		if mesh_node.has_meta("grab_layers"):
 			mesh_node.layers = int(mesh_node.get_meta("grab_layers"))
 			mesh_node.remove_meta("grab_layers")
+		if absf(mesh_node.global_transform.basis.determinant()) < 1e-9:
+			continue
 		var local := mesh_node.global_transform.affine_inverse() * at
 		var scale := mesh_node.global_transform.basis.get_scale()
 		if mesh_node.mesh.get_aabb().grow(HARD_CLEARANCE / maxf(minf(scale.x, minf(scale.y, scale.z)), .001)).has_point(local):
@@ -877,6 +887,9 @@ func _body_yaw(face: float) -> float:
 func _process(delta: float) -> void:
 	# keep holding after the sequence (the death line and the end card play over it), after the clips have run
 	if playing or _view == null or not is_instance_valid(_view) or current.is_empty() or _player == null:
+		return
+	if _player.spectator_mode:
+		release()   # a caught co-op runner who has moved on to spectating is no longer held (nor drawn held by anyone)
 		return
 	if _applied_frame == Engine.get_process_frames():
 		return
