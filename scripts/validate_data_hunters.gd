@@ -45,6 +45,12 @@ const FROZEN := {
 	"void_cyan": {"name": "Cyan", "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
 	"void_gray": {"name": "Gray", "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
 	"void_green": {"name": "Green", "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
+	"void_orange": {"name": "Orange", "tier": "void", "category": "void", "speed": 1.00, "chase": 4.82, "prog": 0.28, "sight": 9.2, "hearing": 1.24, "spawn": 14, "model": "res://art/props-3d/characters/void_orange.tscn"},
+	"void_pink": {"name": "Pink", "tier": "void", "category": "void", "speed": 0.93, "chase": 4.50, "prog": 0.26, "sight": 9.7, "hearing": 1.20, "spawn": 16, "model": "res://art/props-3d/characters/void_pink.tscn"},
+	"void_purple": {"name": "Purple", "tier": "void", "category": "void", "speed": 0.98, "chase": 4.75, "prog": 0.29, "sight": 9.5, "hearing": 1.15, "spawn": 16, "model": "res://art/props-3d/characters/void_purple.tscn"},
+	"void_red": {"name": "Red", "tier": "void", "category": "void", "speed": 1.02, "chase": 4.90, "prog": 0.30, "sight": 9.3, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_red.tscn"},
+	"void_white": {"name": "White", "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
+	"void_yellow": {"name": "Yellow", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
 }
 ## HunterRoster.PROFILES key order before Phase 3 (migrations must keep every hunter's roster position).
 const ROSTER_ORDER := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia", "void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink", "void_purple", "void_red", "void_white", "void_yellow"]
