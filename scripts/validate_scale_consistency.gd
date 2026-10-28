@@ -316,6 +316,17 @@ func _grabs(host: Node) -> void:
 			view.queue_free()
 			continue
 		var player: AnimationPlayer = view._animation_player
+		# at full reach both arm segments really are `arm_stretch` times longer (the stretch happens), and nothing else changed
+		if player != null and player.has_animation("idle"):
+			player.play("idle")
+			player.seek(0.0, true)
+			var rest_arm := _seg_lengths(view._model, ARM_SEGMENTS)
+			grab_script.call("stretch_arms", view, stretch_max)
+			var long_arm := _seg_lengths(view._model, ARM_SEGMENTS)
+			for key in ["L-Arm>L-Forearm", "L-Forearm>L-Hand", "R-Arm>R-Forearm", "R-Forearm>R-Hand"]:
+				_expect(absf(float(long_arm[key]) / float(rest_arm[key]) / stretch_max - 1.0) <= TOLERANCE,
+					"%s: %s is %.2fx at full reach, want %.2fx" % [id, key, float(long_arm[key]) / float(rest_arm[key]), stretch_max])
+			grab_script.call("stretch_arms", view, 1.0)
 		for style in styles_script.get("STYLES"):
 			if bool((styles_script.get("STYLES")[style] as Dictionary).get("creature", false)):
 				continue
@@ -328,12 +339,7 @@ func _grabs(host: Node) -> void:
 					player.seek(player.get_animation(clip).length * float(step) / 4.0, true)
 					grab_script.call("stretch_arms", view, t)
 					_measure_view(view, id, "hunter grab %s (arm stretch)" % style, false, maxf(t, 1.0))
-					# the hand keeps its size and the arm is only longer along itself
-					var hand := _bone(view._model, "L-Hand")
-					if hand != null:
-						_expect(hand.global_basis.get_scale().abs().is_equal_approx(Vector3.ONE * HunterRoster.scale_for(id)) or
-								(hand.global_basis.get_scale().abs() / HunterRoster.scale_for(id) - Vector3.ONE).length() <= TOLERANCE,
-							"%s [grab %s]: the hand is scaled to %s" % [id, style, hand.global_basis.get_scale()])
+					# the hand keeps its size and shape: no scale, no shear (the body-bone scale check above includes both hands)
 					_expect(t <= stretch_max + .001, "%s [grab %s]: stretched to %.2f, limit %.2f" % [id, style, t, stretch_max])
 					grab_script.call("stretch_arms", view, 1.0)
 		_measure_view(view, id, "hunter grab: arms put back")
