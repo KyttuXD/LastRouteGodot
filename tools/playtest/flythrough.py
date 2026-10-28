@@ -193,14 +193,16 @@ def main() -> int:
                     break
                 quality = frame_metrics(mp4, float(info.get("seconds", 0)))
                 tight = float(info.get("worst_tight_run_s", 0))
-                attempt = {"variant": variant, "bad_seconds": quality["bad_seconds"], "bad": quality["bad"], "tight_run_s": tight, "rooms": info.get("rooms"),
+                overlap = float(info.get("prop_overlap_s", 0))
+                floor_step = float(info.get("max_floor_step_m", 0))
+                attempt = {"variant": variant, "bad_seconds": quality["bad_seconds"], "bad": quality["bad"], "tight_run_s": tight, "prop_overlap_s": overlap, "max_floor_step_m": floor_step, "rooms": info.get("rooms"),
                            "render_wall_s": round(time.time() - began), "chunk": info.get("chunk")}
                 result["attempts"].append(attempt)
-                score = quality["bad_seconds"] + 3.0 * max(tight - 1.0, 0.0)
-                print("    %s try %d: %d boring second(s) %s, view <2 m for %.1f s, rooms %s" % (area, variant, quality["bad_seconds"], quality["bad"][:4], tight, info.get("rooms")), flush=True)
+                score = quality["bad_seconds"] + 6.0 * max(tight - 0.3, 0.0) + 6.0 * max(overlap - 0.3, 0.0) + (3.0 if floor_step > 0.15 else 0.0)
+                print("    %s try %d: %d boring s %s, view<1.5 m %.1f s, inside props %.1f s, floor step %.2f m, rooms %s" % (area, variant, quality["bad_seconds"], quality["bad"][:4], tight, overlap, floor_step, info.get("rooms")), flush=True)
                 if best is None or score < best["score"]:
                     best = {"score": score, "mp4": mp4, "info": info, "attempt": attempt}
-                if quality["bad_seconds"] <= 2 and tight <= 1.0:
+                if quality["bad_seconds"] <= 2 and tight <= 0.3 and overlap <= 0.3 and floor_step <= 0.15:
                     break
             if best is None:
                 print("  %-18s SKIPPED: %s" % (area, result.get("skipped")), flush=True)
@@ -210,7 +212,8 @@ def main() -> int:
             mp4 = out_dir / ("%s.mp4" % area)
             shutil.copy(best["mp4"], mp4)
             contact_sheet(mp4, out_dir / ("%s_sheet.jpg" % area))
-            clean_pass = best["attempt"]["bad_seconds"] <= 2 and best["attempt"]["tight_run_s"] <= 1.0
+            clean_pass = (best["attempt"]["bad_seconds"] <= 2 and best["attempt"]["tight_run_s"] <= 0.3 and best["attempt"]["prop_overlap_s"] <= 0.3
+                          and best["attempt"]["max_floor_step_m"] <= 0.15)
             result.update({"ok": True, "quality": "pass" if clean_pass else "WARN: boring stretches remain", "file": str(mp4), "sheet": str(out_dir / ("%s_sheet.jpg" % area)),
                            "size_mb": round(mp4.stat().st_size / 1e6, 2), "seconds": info.get("seconds"), "level": info.get("level"), "chunk": info.get("chunk"),
                            "rooms": info.get("rooms"), "variant": best["attempt"]["variant"], "biome_at_end": info.get("current_biome")})

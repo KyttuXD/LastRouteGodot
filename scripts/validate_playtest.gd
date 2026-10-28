@@ -43,8 +43,8 @@ func run(host: Node) -> int:
 			else:
 				var track: PlaytestFlythrough.Track = planned["track"]
 				var info: Dictionary = planned["info"]
-				if track.size() < 30 * 22 or track.size() > 30 * 60:
-					problems.append("lasts %.1f s (want 22-60)" % (float(track.size()) / 30.0))
+				if track.size() < 30 * 16 or track.size() > 30 * 60:
+					problems.append("lasts %.1f s (want 16-60)" % (float(track.size()) / 30.0))
 				var biggest_jump := 0.0
 				for i in range(2, track.size()):
 					if track.cuts.has(i) or track.cuts.has(i - 1) or track.ground[i] != track.ground[i - 1] or track.ground[i - 1] != track.ground[i - 2]:
@@ -57,8 +57,8 @@ func run(host: Node) -> int:
 					problems.append("turns %.3f rad in one frame (a snap)" % float(motion["max_yaw_step"]))
 				if float(motion["max_wobble"]) >= 1.4:
 					problems.append("zig-zags (%.2f rad of back-and-forth)" % float(motion["max_wobble"]))
-				if info.has("planned_tight_s") and float(info["planned_tight_s"]) >= 3.0:
-					problems.append("stares at a wall closer than 2 m for %.1f s" % float(info["planned_tight_s"]))
+				if info.has("planned_tight_s") and float(info["planned_tight_s"]) >= 1.0:
+					problems.append("faces a wall closer than 1.5 m while moving for %.1f s" % float(info["planned_tight_s"]))
 			if problems.is_empty():
 				break
 		if not unavailable:

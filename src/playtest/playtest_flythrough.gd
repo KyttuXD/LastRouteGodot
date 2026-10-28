@@ -51,6 +51,8 @@ class Sampler:
 	var gen: StreamedRouteGenerator
 	var level: int
 	var _grids := {}
+	## World cells covered by a solid prop collider (tables, beds, counters...): blocked like walls so tours walk AROUND them (doors are not props).
+	var _props := {}
 
 	func _init(p_gen: StreamedRouteGenerator, p_level: int) -> void:
 		gen = p_gen
@@ -65,7 +67,18 @@ class Sampler:
 			var coord := Vector3i(cx, level, cz)
 			var data: Dictionary = gen.sewer().chunk(coord) if level == StreamedRouteGenerator.SEWER_LEVEL else gen.chunk(coord)
 			_grids[key] = data.get("sewer_grid", data.get("grid", [])) if level == StreamedRouteGenerator.SEWER_LEVEL else data.get("grid", [])
+			for prop_value in data.get("region_props", []):
+				var prop: Dictionary = prop_value
+				if not bool(prop.get("solid", true)) or bool(prop.get("room_door", false)):
+					continue
+				var occupied: Array = prop.get("occupied_cells", [])
+				if occupied.is_empty():
+					occupied = [prop.get("cell", Vector2i.ZERO)]
+				for local_value in occupied:
+					_props[Vector2i(cx * size, cz * size) + (local_value as Vector2i)] = true
 		var rows: Array = _grids[key]
+		if _props.has(Vector2i(x, z)):
+			return false
 		var lz := z - cz * size
 		var lx := x - cx * size
 		if lz < 0 or lz >= rows.size() or lx < 0 or lx >= (rows[lz] as Array).size():
@@ -258,6 +271,8 @@ class Track:
 	## 1 = a walking frame: pos.y is the eye height ABOVE the physics floor (the scenario ray-casts the real collision floor, so ramps, bridges and
 	## stairs are followed); 0 = a flying frame: pos.y is an absolute world y.
 	var ground := PackedByteArray()
+	## frame -> event dictionary (a real ladder climb the scenario plays through the game's own ladder).
+	var events := {}
 	## Frame indexes where the picture cuts to a new shot: angles are not smoothed across them.
 	var cuts: Array[int] = []
 
@@ -367,7 +382,7 @@ static func smooth_route(cells: Array[Vector2], s: Sampler) -> Array[Vector2]:
 	var pruned := string_pull(cells, s, .42)
 	var dense := catmull(pruned, .05)
 	dense = push_clear(dense, s, .6)
-	return moving_average(dense, 10)
+	return moving_average(moving_average(dense, 12), 12)
 
 
 ## Walking speed along the path: slower in tight turns, gentle acceleration from rest and deceleration to rest.
@@ -375,7 +390,7 @@ static func speed_profile(path: Array[Vector2], spacing: float, vmax: float, acc
 	var n := path.size()
 	var v := PackedFloat32Array()
 	v.resize(n)
-	var span := maxi(int(.8 / spacing), 1)
+	var span := maxi(int(1.4 / spacing), 1)
 	for i in n:
 		var a := path[maxi(i - span, 0)]
 		var b := path[i]
@@ -401,7 +416,7 @@ static func bake_walk(track: Track, route: Array[Vector2], s: Sampler, pois: Arr
 	var path := smooth_route(route, s)
 	var speed := speed_profile(path, spacing, WALK_SPEED, 1.1)
 	var dt := 1.0 / float(fps)
-	var look_ahead := int(2.2 / spacing)
+	var look_ahead := int(3.0 / spacing)
 	var index := 0.0
 	var travelled := 0.0
 	var yaw_now := start_yaw if not is_nan(start_yaw) else yaw_for((path[mini(look_ahead, path.size() - 1)] - path[0]).x, (path[mini(look_ahead, path.size() - 1)] - path[0]).y)
@@ -413,6 +428,10 @@ static func bake_walk(track: Track, route: Array[Vector2], s: Sampler, pois: Arr
 		var i := int(index)
 		var here := path[i]
 		var ahead := path[mini(i + look_ahead, path.size() - 1)]
+		# a wall straight ahead of the current view (a corner coming up): look at the exit of the turn instead, 4.5 m down the path
+		var view_dir := Vector2(-sin(yaw_now), -cos(yaw_now))
+		if s.depth(here, view_dir, 3.0) < 2.5:
+			ahead = path[mini(i + int(4.5 / spacing), path.size() - 1)]
 		var heading := (ahead - here)
 		if heading.length() < .05:
 			heading = (path[path.size() - 1] - here)
@@ -456,16 +475,23 @@ static func bake_walk(track: Track, route: Array[Vector2], s: Sampler, pois: Arr
 			aim_pitch = clampf(atan2(float(current["h"]) - 1.6, maxf(to_poi.length(), 1.0)), -.5, .5) * weight
 		# damped, rate-limited follow (no snapping): about 1.1 rad/s at most
 		var yaw_diff := wrapf(aim_yaw - yaw_now, -PI, PI)
-		yaw_now += clampf(yaw_diff * 3.0 * dt, -1.1 * dt, 1.1 * dt)
+		var yaw_rate := 1.3 if open_view_ok(s, here, yaw_now) else 2.0
+		yaw_now += clampf(yaw_diff * 3.5 * dt, -yaw_rate * dt, yaw_rate * dt)
 		pitch_now += clampf((aim_pitch - pitch_now) * 3.0 * dt, -.6 * dt, .6 * dt)
 		var bob_y := sin(travelled * TAU / .95) * .022 if bob else 0.0
 		track.add(Vector3(here.x, 1.6 + bob_y, here.y), yaw_now, pitch_now, 1)
-		var v := speed[i]
+		# a wall in the view ahead (the corner is coming and the turn is not done): wait for the turn, then go on
+		var open_ahead := s.depth(here, Vector2(-sin(yaw_now), -cos(yaw_now)), 3.0)
+		var v := speed[i] * clampf((open_ahead - 1.1) / 1.6, .2, 1.0)
 		travelled += v * dt
 		index += maxf(v, .05) * dt / spacing
 	# arrive: ease to a stop, still looking where the glance was
 	for _k in int(.5 * float(fps)):
 		track.add(Vector3(path[path.size() - 1].x, 1.6, path[path.size() - 1].y), yaw_now, pitch_now, 1)
+
+
+static func open_view_ok(s: Sampler, here: Vector2, yaw_value: float) -> bool:
+	return s.depth(here, Vector2(-sin(yaw_value), -cos(yaw_value)), 3.0) >= 2.2
 
 
 static func _poi_visible(candidate: Dictionary, here: Vector2, heading: Vector2, s: Sampler, max_d: float) -> bool:
@@ -616,8 +642,8 @@ static func _tour_cells(s: Sampler, data: Dictionary, base: Vector2i, start: Vec
 	for room in rooms:
 		if total >= budget or visited.size() >= 6:
 			break
-		var centre: Vector2i = base + (room["center"] as Vector2i)
-		var door: Vector2i = base + (room["doorway"] as Vector2i) if room.has("doorway") else centre
+		var centre: Vector2i = _nearest_open(s, base + (room["center"] as Vector2i), false)
+		var door: Vector2i = _nearest_open(s, base + (room["doorway"] as Vector2i), false) if room.has("doorway") else centre
 		var field := path_field(s, at, 80)
 		var field_ok: bool = field["cost"].has(door) and field["cost"].has(centre)
 		if not field_ok:
@@ -784,10 +810,9 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			pois.append(poi(up.x + .5, up.y + .5, 2.2, 1.6, "ladder"))
 			bake_walk(track, path_to(field, chamber), s, pois, fps, bob)
 			track.hold(fps)
-			var ladder_xz := Vector2(up.x + .5, up.y + .5) - Vector2(wall) * .45
-			var from_abs := track.last_absolute(floor_y)
-			bake_rise(track, Vector2(from_abs.x, from_abs.z), Vector2(chamber.x + .5, chamber.y + .5).lerp(ladder_xz, .6), from_abs.y, 1.6, 6.0, Vector2(wall), .55, fps)
-			track.hold(fps)
+			# the climb itself is the game's: the scenario stands the player on the ladder, holds up, and the real controller mounts, climbs and dismounts
+			track.events[track.size()] = {"ladder": true, "at": Vector2(up.x + .5, up.y + .5), "level": -1, "down": false}
+			track.add(track.pos[track.size() - 1], track.yaw[track.yaw.size() - 1], 0.0, 2)
 			bake_turn(track, 300.0, ORBIT_SECONDS * .8, 0.0, fps)
 			info.merge({"level": -1, "chunk": [chunk_of.x, chunk_of.y], "ladder_cell": [up.x, up.y], "wall": [wall.x, wall.y]})
 	smooth_angles(track, fps, .45)
@@ -867,7 +892,8 @@ static func tight_seconds(track: Track, s: Sampler, fps: int) -> float:
 		if track.ground[i] != 1:
 			continue
 		var dir := Vector2(-sin(track.yaw[i]), -cos(track.yaw[i]))
-		if s.depth(Vector2(track.pos[i].x, track.pos[i].z), dir, 2.0) < 2.0:
+		var moving := i > 0 and Vector2(track.pos[i].x - track.pos[i - 1].x, track.pos[i].z - track.pos[i - 1].z).length() > .004
+		if moving and s.depth(Vector2(track.pos[i].x, track.pos[i].z), dir, 1.5) < 1.5:
 			frames += 1
 	return snappedf(float(frames) / float(fps), .1)
 
@@ -951,29 +977,63 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var space := player.get_world_3d().direct_space_state
 	var floor_base := float(int(info.get("level", 0))) * LEVEL_HEIGHT
 	var ground_y := floor_base + .05
+	var last_hit_y := NAN
 	var depth_by_second := {}
 	var tight_run := 0
 	var worst_tight_run := 0
+	var view2_frames := 0
+	var overlap_frames := 0
+	var worst_floor_jump := 0.0
+	var hold_yaw_offset := NAN
+	var footprint := CapsuleShape3D.new()
+	footprint.radius = .28
+	footprint.height = 1.2
 	var clip_start_frame := Engine.get_frames_drawn()
+	var played := 0
 	for i in track.size():
 		bridge.status = "flythrough %s: frame %d / %d" % [area, i, track.size()]
+		if track.events.has(i) and bool((track.events[i] as Dictionary).get("ladder", false)):
+			played += await _play_ladder(bridge, scene, player, generator, track.events[i] as Dictionary, fps)
+			# the real climb ended wherever the game put the player: the next frames only turn the view on the spot
+			hold_yaw_offset = NAN
 		var p := track.pos[i]
 		var eye_y := p.y
-		if track.ground[i] == 1:
-			# follow the REAL collision floor (ramps, bridges, stairs): cast down from just above the last floor height
-			var query := PhysicsRayQueryParameters3D.create(Vector3(p.x, ground_y + 1.4, p.z), Vector3(p.x, ground_y - 3.0, p.z))
-			query.exclude = [player.get_rid()]
-			var hit := space.intersect_ray(query)
-			if not hit.is_empty():
-				ground_y = move_toward(ground_y, float((hit["position"] as Vector3).y), 4.0 / float(fps))
-			eye_y = ground_y + p.y
-		player.global_position = Vector3(p.x, eye_y - eye_offset, p.z)
-		player.velocity = Vector3.ZERO
-		player._yaw = track.yaw[i]
-		player._pitch = track.pitch[i]
-		player._apply_look_rotation()
+		var mode := int(track.ground[i])
+		if mode == 2:
+			if is_nan(hold_yaw_offset):
+				hold_yaw_offset = player._yaw - track.yaw[i]
+			player._yaw = track.yaw[i] + hold_yaw_offset
+			player._pitch = track.pitch[i]
+			player._apply_look_rotation()
+		else:
+			if mode == 1:
+				# follow the REAL walkable floor: cast down from just above the last floor height, skipping prop tops (tables, beds, counters)
+				var from := Vector3(p.x, ground_y + 1.4, p.z)
+				var skip: Array[RID] = [player.get_rid()]
+				for _attempt in 5:
+					var query := PhysicsRayQueryParameters3D.create(from, Vector3(p.x, ground_y - 3.0, p.z))
+					query.exclude = skip
+					var hit := space.intersect_ray(query)
+					if hit.is_empty():
+						break
+					var collider := hit["collider"] as Node
+					if collider != null and (collider.is_in_group("streamed_region_prop") or collider.is_in_group("interactable") or collider.is_in_group("room_door")):
+						skip.append(hit["rid"])
+						continue
+					var hit_y := float((hit["position"] as Vector3).y)
+					if not is_nan(last_hit_y):
+						worst_floor_jump = maxf(worst_floor_jump, absf(hit_y - last_hit_y))
+					last_hit_y = hit_y
+					ground_y = move_toward(ground_y, hit_y, 4.0 / float(fps))
+					break
+				eye_y = ground_y + p.y
+			player.global_position = Vector3(p.x, eye_y - eye_offset, p.z)
+			player.velocity = Vector3.ZERO
+			player._yaw = track.yaw[i]
+			player._pitch = track.pitch[i]
+			player._apply_look_rotation()
 		if lamp != null:
-			var above := maxf(eye_y - floor_base - 2.0, 0.0)
+			var above := maxf(player.active_camera().global_position.y - floor_base - 2.0, 0.0)
 			lamp.omni_range = 11.0 + above * 2.2
 			lamp.light_energy = 1.1 + above * .12
 		if i % 45 == 0:
@@ -986,13 +1046,24 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		look.exclude = [player.get_rid()]
 		var seen := space.intersect_ray(look)
 		var depth := 12.0 if seen.is_empty() else camera.global_position.distance_to(seen["position"] as Vector3)
-		var second := i / fps
+		var second := (i + played) / fps
 		depth_by_second[second] = minf(float(depth_by_second.get(second, 99.0)), depth)
-		if track.ground[i] == 1 and depth < 2.0:
+		var moving := i > 0 and Vector2(track.pos[i].x - track.pos[i - 1].x, track.pos[i].z - track.pos[i - 1].z).length() > .004
+		if mode == 1 and moving and depth < 1.5:
 			tight_run += 1
 			worst_tight_run = maxi(worst_tight_run, tight_run)
 		else:
 			tight_run = 0
+		if mode == 1 and depth < 2.0:
+			view2_frames += 1
+		# is the camera body inside a prop or wall? (a small capsule at the camera's footprint, torso to head)
+		if mode == 1:
+			var overlap := PhysicsShapeQueryParameters3D.new()
+			overlap.shape = footprint
+			overlap.transform = Transform3D(Basis.IDENTITY, Vector3(p.x, ground_y + .85, p.z))
+			overlap.exclude = [player.get_rid()]
+			if not space.intersect_shape(overlap, 1).is_empty():
+				overlap_frames += 1
 		# a camera that does not move "for real" counts as idle: keep the anti-idle clocks (they send hunters) at zero
 		scene.set("_relay_inactivity_seconds", 0.0)
 		scene.set("_party_afk_seconds", 0.0)
@@ -1003,9 +1074,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		depth_list.append(snappedf(float(depth_by_second.get(second, 0.0)), .1))
 	info["depth_per_second"] = depth_list
 	info["worst_tight_run_s"] = snappedf(float(worst_tight_run) / float(fps), .2)
+	info["view_under_2m_s"] = snappedf(float(view2_frames) / float(fps), .1)
+	info["prop_overlap_s"] = snappedf(float(overlap_frames) / float(fps), .2)
+	info["max_floor_step_m"] = snappedf(worst_floor_jump, .01)
+	info["ladder_frames"] = played
+	info["clip_frames_actual"] = Engine.get_frames_drawn() - clip_start_frame
 	info["fps"] = fps
 	info["clip_start_frame"] = clip_start_frame
-	info["clip_frames"] = track.size()
+	info["clip_frames"] = int(info.get("clip_frames_actual", track.size()))
+	info["seconds"] = snappedf(float(info["clip_frames"]) / float(fps), .1)
 	info["eye_offset"] = snappedf(eye_offset, .01)
 	info["current_biome"] = String((facility.call("current_chunk_data") as Dictionary).get("biome", "?"))
 	info["available"] = true
@@ -1015,6 +1092,50 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 
 static func floor_y_of(info: Dictionary) -> float:
 	return float(int(info.get("level", 0))) * LEVEL_HEIGHT
+
+
+## Play a REAL ladder climb: the player becomes a normal, collidable runner again, stands on the ladder cell and holds up (or down); the game's own
+## controller mounts, climbs and dismounts, so the view is centred on the rungs facing the wall. Returns the number of frames it took.
+static func _play_ladder(bridge: PlaytestBridge, scene: Node, player: PlayerController3D, generator: StreamedRouteGenerator, event: Dictionary, fps: int) -> int:
+	var tree := bridge.get_tree()
+	var level := int(event["level"])
+	var at: Vector2 = event["at"]
+	var link := LadderTraffic.nearest_ladder(generator, level, at)
+	if link.is_empty():
+		return 0
+	var point := LadderTraffic.ladder_point(link, level)
+	var floor_y := float(level) * LEVEL_HEIGHT + (.04 if level != 0 else .04)
+	var count := 0
+	player.set_admin_noclip(false)
+	player.input_frozen = false
+	player.look_frozen = false
+	player.first_person_items.visible = false if player.first_person_items != null else false
+	scene.call("_admin_teleport_to", Vector3(point.x, floor_y, point.y))
+	var action := "move_down" if bool(event.get("down", false)) else "move_up"
+	# wait for the game to start the climb (standing on the ladder cell does it), then hold the direction until it has dismounted
+	for _k in 90:
+		await tree.process_frame
+		count += 1
+		if player.is_climbing():
+			break
+	if player.is_climbing():
+		Input.action_press(action, 1.0)
+		var guard := 0
+		while player.is_climbing() and guard < fps * 40:
+			bridge.status = "flythrough ladder: climbing (%s)" % action
+			await tree.process_frame
+			count += 1
+			guard += 1
+		Input.action_release(action)
+		for _k in fps / 2:
+			await tree.process_frame
+			count += 1
+	player.input_frozen = true
+	player.look_frozen = true
+	player.set_admin_noclip(true)
+	if player.first_person_items != null:
+		player.first_person_items.visible = false
+	return count
 
 
 ## Capture-only clean scene: hide pickups, tools and the waypoint trail by VISIBILITY only (the world state is untouched). `keep` is a whitelist of
