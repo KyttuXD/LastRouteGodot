@@ -28,8 +28,8 @@ def local_sync(src):
     subprocess.run(["rsync", "-a", "--delete", "--exclude", ".git", "--exclude", ".claude", "--exclude", "captures", "--exclude", "._*", "--exclude", ".DS_Store",
                     "--exclude", ".godot", "--exclude", ".playtest", str(src) + "/", str(LOCAL_LANE) + "/"], check=True)
     (LOCAL_LANE / ".playtest/fly").mkdir(parents=True, exist_ok=True)
-    if not (LOCAL_LANE / ".godot").exists():
-        subprocess.run([GODOT, "--headless", "--path", str(LOCAL_LANE), "--import"], capture_output=True)
+    # always re-import: a merge that adds script classes leaves a stale class cache, and every scene then fails to parse
+    subprocess.run([GODOT, "--headless", "--path", str(LOCAL_LANE), "--import"], capture_output=True)
 
 
 def local_scene(godot_args, timeout):
@@ -42,8 +42,15 @@ def preview_checks(name, args, src, lane, out_dir, tmp):
     base = ("--resolution 960x540 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=sequence --shot=%s --preview --seed=%s --fps=%d --clean=true --deadline=250 --name=pre_%s"
             % (name, args.seed, args.fps, name))
     if args.local:
-        local_scene(base, 300)
+        # never read the previous run's report or stills by accident
+        shutil.rmtree(LOCAL_LANE / (".playtest/pre_%s" % name), ignore_errors=True)
+        for old in (LOCAL_LANE / ".playtest/preview").glob(name + "_*.png") if (LOCAL_LANE / ".playtest/preview").exists() else []:
+            old.unlink()
+        run = local_scene(base, 300)
         report_file = LOCAL_LANE / (".playtest/pre_%s/report.json" % name)
+        if not report_file.exists():
+            errors = [l for l in (run.stdout + run.stderr).splitlines() if "ERROR" in l or "at: " in l][:12]
+            print("  %-16s preview run produced no report:\n      %s" % (name, "\n      ".join(errors) or "(no error lines)"))
         still = LOCAL_LANE / (".playtest/preview")
     else:
         fl.mini(src, lane, "--scene", base, timeout=400)
@@ -53,6 +60,8 @@ def preview_checks(name, args, src, lane, out_dir, tmp):
         report_file, still = local / "report.json", local
     report = json.loads(report_file.read_text()) if report_file.exists() else {}
     checks = report.get("flythrough", {}).get("checks", {})
+    if report and not checks:
+        print("  %-16s preview did not reach its beats: %s" % (name, report.get("flythrough", {}).get("reason") or report.get("scenario_failure") or "?"))
     saved = None
     if still.exists():
         for png in sorted(still.glob(name + "*.png")):
@@ -136,7 +145,8 @@ def main():
                 fl.mini(src, lane, "--pull", avi_rel, str(local))
             avi = local / ("%s.avi" % name)
             mp4 = out_dir / ("%s.mp4" % name)
-            good, err = fl.encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, 1280)
+            good, err = fl.encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, 1280,
+                                  float(spec.get("fade_in", .6)), float(spec.get("fade_out", .9)))
             if args.local:
                 (LOCAL_LANE / avi_rel).unlink(missing_ok=True)
             else:

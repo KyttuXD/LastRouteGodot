@@ -45,6 +45,27 @@ collector gets a preset when it lands (add it to `AREAS` in `src/playtest/playte
   marked WARN if it still has boring stretches. Each clip gets a `<area>_sheet.jpg` contact sheet.
 * **Clean scene (optional).** `--clean` hides pickups, tools, coins and the waypoint trail by visibility only (`--keep relay,battery` whitelists kinds).
 
+## Trailer shots (sequencer)
+
+`tools/playtest/shots.py --local --working-tree --shots nyxie_peek` renders scripted shots from `tools/playtest/shots/<shot>.json`
+(`src/playtest/playtest_sequencer.gd`) on this Mac; without `--local` they render on the mini. A shot stages hunter models (no AI) on a
+real part of the level:
+
+* `corner_grid`: a corridor corner found on the level grid (two perpendicular corridors), its edge measured with rays.
+* `lamp_corridor`: a straight corridor with real ceiling lamps from the LampField. `blackout` events cut the level's own lights.
+* `locker`: a real hiding locker. The camera is the player, hidden in it through the game's own interaction.
+
+Before rendering, a low-resolution preview runs from the same shot camera to each `expects` beat. It saves `<shot>_preview_<beat>.png`
+and checks what the shot file asks for:
+
+* facing, lean side and smoothness;
+* bone rays against the corner faces, and body boxes against walls;
+* a flat-colour mask render that counts visible leg, hip, torso and head pixels (rays can disagree with the drawn wall faces);
+* root motion, and that every reposition happens in the dark.
+
+A shot that fails is not rendered (`--force` overrides). `tools/playtest/trailer.py tools/playtest/trailers/hunters.json --clips <dir>`
+cuts the trailer: title cards, lower-third name overlays, and `"fade_out": 0` for a hard cut.
+
 ## Notes
 
 * The maze is dark on purpose; the flythrough adds a soft lamp on the camera (`--lamp=false` in the runner's own arguments turns it off).

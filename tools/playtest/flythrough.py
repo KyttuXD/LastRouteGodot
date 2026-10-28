@@ -112,12 +112,15 @@ def mini(src, lane, *args, timeout=1500, nosync=True):
 HW = False
 
 
-def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: int, scale_w: int) -> tuple:
+def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: int, scale_w: int, fade_in: float = 0.6, fade_out: float = 0.9) -> tuple:
     start = start_frame / fps
     length = frames / fps
-    fade_out = max(length - 0.9, 0.0)
-    vf = f"scale={scale_w}:-2:flags=lanczos,fade=t=in:st=0:d=0.6,fade=t=out:st={fade_out:.2f}:d=0.9,format=yuv420p"
-    af = f"afade=t=in:st=0:d=0.6,afade=t=out:st={fade_out:.2f}:d=0.9"
+    # fade_out 0 = the clip ends on its last frame (a hard cut in the trailer)
+    out_at = max(length - fade_out, 0.0)
+    vfades = (f",fade=t=in:st=0:d={fade_in}" if fade_in > 0 else "") + (f",fade=t=out:st={out_at:.2f}:d={fade_out}" if fade_out > 0 else "")
+    afades = [f"afade=t=in:st=0:d={max(fade_in, .02)}"] + ([f"afade=t=out:st={out_at:.2f}:d={fade_out}"] if fade_out > 0 else [])
+    vf = f"scale={scale_w}:-2:flags=lanczos{vfades},format=yuv420p"
+    af = ",".join(afades)
     # -ss BEFORE -i: the clip's timestamps start at 0, so the fades land on the clip (MJPEG frames are all key frames, the seek is exact)
     base = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(avi), "-t", f"{length:.3f}", "-vf", vf]
     audio = ["-af", af, "-c:a", "aac", "-b:a", "64k", "-ac", "1"]

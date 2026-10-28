@@ -116,28 +116,33 @@
    "actor": "nyxie",
    "react": {
     "dur": 0.25,
-    "hold": 0.35,
+    "hold": 0.25,
     "release": 0.35,
     "away_yaw": -55,
     "arm": "auto",
     "hunch": 14
+   },
+   "recoil": {
+    "dist": 0.45,
+    "dur": 0.25
    }
   },
   {
-   "t": 7.05,
+   "t": 6.5,
    "actor": "nyxie",
-   "waist_off": 0.35,
+   "waist_off": 0.3,
    "move": [
     "c",
-    0.45,
-    3.4
+    0.95,
+    4.2
    ],
    "speed": 3.6,
+   "accel": 9.0,
    "clip": "sprint",
    "blend": 0.45
   },
   {
-   "t": 7.1,
+   "t": 6.55,
    "steps": {
     "count": 18,
     "interval": 0.22,
@@ -147,7 +152,7 @@
    }
   },
   {
-   "t": 8.2,
+   "t": 7.45,
    "actor": "nyxie",
    "hide": true
   }
@@ -231,7 +236,7 @@
    "actor": "nyxie",
    "no_labels": true,
    "no_mesh_in_wall": true,
-   "t": 6.75,
+   "t": 6.5,
    "label": "cover",
    "occluded_by_corner": [
     "Pelvis",
@@ -261,7 +266,8 @@
     "hips": false,
     "legs": false
    },
-   "smooth_max_deg": 24
+   "smooth_max_deg": 24,
+   "static_max_frames": 2
   }
  ],
  "corner_light": {
@@ -273,5 +279,9 @@
    -0.6,
    2.3
   ]
+ },
+ "motion": {
+  "from": 6.3,
+  "to": 7.45
  }
 }

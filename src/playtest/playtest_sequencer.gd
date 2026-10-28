@@ -31,6 +31,12 @@ static var _actors: Dictionary = {}
 static var _scene: Node
 static var _smooth := {}   # bone -> {last: Quaternion, max: float} over the shot's smoothness window
 static var _smooth_window := Vector2(-1, -1)
+## Root-motion watch: the longest run of frames her root did not move, inside the shot's motion window (while she is visible).
+static var _motion := {}
+## Teleports (a root jump > 0.15 m in one frame) and whether the lamps were dark that frame (the flicker approach).
+static var _jumps: Array = []
+static var _blackout := false
+static var _lamp_debug := {}
 
 
 class Actor:
@@ -62,9 +68,17 @@ class Actor:
 	var blend_dur := .3
 	var waist := Vector2.ZERO        # extra Belly / Chest roll (degrees, for a corner opening on the camera's right; mirrored otherwise)
 	var waist_w := 0.0
+	var bow := Vector2.ZERO          # forward bend (Belly / Chest pitch, degrees), e.g. leaning down into the lens
+	var bow_w := 0.0
+	var bow_goal := 0.0
+	var bow_rate := 1.0 / .8
+	var rest_pose: Dictionary = {}   # every rig bone at rest: reset before each frame's animation, so overlays never pile up
 	var rest_legs: Dictionary = {}   # leg bones at rest (straight, feet under the hips), blended in with the lean
 	var waist_goal := 0.0
 	var waist_rate := 1.0 / .8
+	var recoil: Dictionary = {}      # {t0, dur, dist, dir, done}: an eased step back (root motion) when the light hits
+	var speed_now := 0.0
+	var accel := 0.0
 	var react: Dictionary = {}   # {t0, dur, hold, release, away_yaw, arm, hunch}: a fast eased flinch layered on the pose
 
 
@@ -135,8 +149,35 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	camera.near = .08
 	var space := player.get_world_3d().direct_space_state
 	# the stage: origin on the floor, forward along the longest open run
+	var lamp_stage := {}
+	if shot.has("lamp_corridor"):
+		# a straight corridor with real ceiling lamps along it (the LampField's own lamp lists), camera at one end
+		lamp_stage = _lamp_corridor(facility, track, space, player, shot["lamp_corridor"])
+		if lamp_stage.is_empty():
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no straight corridor with %s lamps near the %s route %s" % [(shot["lamp_corridor"] as Dictionary).get("min_lamps", 5), area, _lamp_debug]}
+			return {"scenario_failure": "no lamp corridor found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
+		origin_eye = lamp_stage["eye"]
+		player.global_position = origin_eye - Vector3.UP * EYE
+		for _settle in 20:
+			await tree.process_frame
+			frames += 1
+	var locker: RouteInteractable3D = null
+	var locker_out := Vector3.ZERO
+	if shot.has("locker"):
+		locker = _find_locker(scene, space, player, shot["locker"])
+		if locker == null:
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no locker with open floor in front near the %s route" % area}
+			return {"scenario_failure": "no locker found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
+		var lyaw := locker.hiding_outward_yaw()
+		locker_out = Vector3(-sin(lyaw), 0.0, -cos(lyaw))
+		var door := locker.global_position + locker_out * .55
+		origin_eye = Vector3(door.x, origin_eye.y, door.z)
 	var floor_origin := _floor_at(space, Vector3(origin_eye.x, origin_eye.y, origin_eye.z), player, origin_eye.y - EYE)
 	var forward: Vector3 = corner_stage.get("forward", Vector3.ZERO)
+	if locker != null:
+		forward = locker_out
+	if not lamp_stage.is_empty():
+		forward = lamp_stage["f"]
 	if not grid_corner.is_empty():
 		var f2: Vector2 = grid_corner["F"]
 		forward = Vector3(f2.x, 0.0, f2.y)
@@ -156,6 +197,31 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		var rel := Vector3(v2.x, floor_origin.y, v2.y) - floor_origin
 		stage["corner"] = {"d": snappedf(rel.dot(forward), .01), "w": snappedf(rel.dot(r3), .01), "s": signf(r3.dot(right)), "a_far": grid_corner["a_far"],
 			"grid": true, "vertex": [snappedf(v2.x, .01), snappedf(v2.y, .01)], "b_cells": grid_corner["b_cells"]}
+	if not lamp_stage.is_empty():
+		stage["lamps"] = lamp_stage["lamps"]
+		info["lamps"] = lamp_stage["lamps"]
+	var hiding_cam := locker != null
+	var eye_hold := Callable()
+	if hiding_cam:
+		# the camera is the player's own, hidden in the locker: the game puts it inside and faces it out through the door slats
+		player.set_admin_noclip(false)
+		player.global_position = floor_origin + locker_out * .4
+		info["locker_enter"] = locker.activate(player)
+		info["locker_at"] = [snappedf(locker.global_position.x, .01), snappedf(locker.global_position.z, .01)]
+		for _settle in 40:
+			await tree.process_frame
+			frames += 1
+		var eye_h := float((shot["locker"] as Dictionary).get("eye_height", -1.0))
+		if eye_h > 0.0:
+			# the door's slats are visual only (no collider to measure), so their height comes from the shot file; the player's own
+			# update sets the hiding eye every frame, so this runs right before each frame is drawn, after it
+			var pivot := player.first_person_pivot
+			var floor_y := floor_origin.y
+			eye_hold = func() -> void:
+				if is_instance_valid(pivot):
+					pivot.global_position.y = floor_y + eye_h
+			RenderingServer.frame_pre_draw.connect(eye_hold)
+			info["eye_height"] = eye_h
 	info["corner"] = stage["corner"]
 	info["stage_forward"] = [snappedf(forward.x, .01), snappedf(forward.z, .01)]
 
@@ -187,6 +253,16 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	torch.shadow_enabled = false
 	camera.add_child(torch)
 	var torch_peak := float(shot.get("torch_energy", 9.0))
+	if shot.has("stage_light"):
+		# one dim practical light placed in stage metres (outside the locker, over a doorway...)
+		var sl: Dictionary = shot["stage_light"]
+		var stage_lamp := OmniLight3D.new()
+		stage_lamp.light_energy = float(sl.get("energy", .6))
+		stage_lamp.omni_range = float(sl.get("range", 4.0))
+		stage_lamp.light_color = Color(sl.get("color", "#ffd9a8"))
+		stage_lamp.shadow_enabled = true
+		scene.add_child(stage_lamp)
+		stage_lamp.global_position = _stage_point(stage, sl.get("at", [1.5, 0.0, 2.4]))
 	if shot.has("corner_light") and (stage["corner"] as Dictionary).has("vertex"):
 		# one dim practical light near the corner, so the peek reads in the dark before the flashlight
 		var cl: Dictionary = shot["corner_light"]
@@ -228,6 +304,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var steps: Array = []
 	_scene = scene
 	_smooth.clear()
+	_jumps.clear()
+	_blackout = false
+	var mo: Dictionary = shot.get("motion", {})
+	_motion = {} if mo.is_empty() else {"from": float(mo["from"]), "to": float(mo["to"]), "run": 0, "max": 0, "frames": 0, "at": -1.0}
 	var sm: Dictionary = shot.get("smooth", {})
 	_smooth_window = Vector2(float(sm.get("from", -1.0)), float(sm.get("to", -1.0))) if not sm.is_empty() else Vector2(-1, -1)
 	var inside_frames := 0
@@ -252,6 +332,17 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				flicker_left = float(ev["flicker"])
 			if ev.has("flash"):
 				flash_left = float(ev["flash"])
+			if ev.has("sound"):
+				# the game's own cues: "breath" is the office breathing
+				Sound.queue_office_cue(str(ev["sound"]), float(ev.get("pan", 0.0)), float(ev.get("intensity", 1.0)))
+			if ev.has("fill"):
+				dark = float(ev["fill"])   # the camera-side fill (also cut by every blackout)
+			if ev.has("blackout"):
+				# the level's own lamps (real lights, the lamp pool, the bulbs' glow) cut out / come back, with the click and the buzz
+				_set_blackout(facility, bool(ev["blackout"]))
+				Sound.light_switch(0.0, float(ev.get("click", .7)))
+				if not bool(ev["blackout"]):
+					Sound.radar_static(0.0, float(ev.get("buzz", .3)))
 			if ev.has("game_torch"):
 				# the game's own flashlight (same SpotLight and viewmodel-less beam as gameplay) with its click
 				player.call("_set_flashlight", bool(ev["game_torch"]))
@@ -265,10 +356,17 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				_apply_event(actors[str(ev["actor"])] as Actor, ev, stage, actors, camera)
 		# camera
 		var cam := _camera_at(camera_keys, t, stage, actors)
-		player.global_position = Vector3(cam["pos"].x, cam["pos"].y - EYE, cam["pos"].z)
-		player.first_person_pivot.position.y = EYE
-		player.velocity = Vector3.ZERO
-		var dir: Vector3 = (cam["look"] as Vector3) - (cam["pos"] as Vector3)
+		var dir: Vector3
+		if hiding_cam:
+			# stay where the game put the hider (the locker's own inside position); only the view is aimed
+			if not player.hide_move_active():
+				player.global_position = locker.hiding_inside_position()
+			dir = (cam["look"] as Vector3) - camera.global_position
+		else:
+			player.global_position = Vector3(cam["pos"].x, cam["pos"].y - EYE, cam["pos"].z)
+			player.first_person_pivot.position.y = EYE
+			player.velocity = Vector3.ZERO
+			dir = (cam["look"] as Vector3) - (cam["pos"] as Vector3)
 		player._yaw = PlaytestFlythrough.yaw_for(dir.x, dir.z)
 		player._pitch = PlaytestFlythrough.pitch_for(dir.normalized())
 		player._apply_look_rotation()
@@ -292,7 +390,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		if flash_left > 0.0:
 			flash_left -= dt
 			torch_flick = 0.0 if (int(t * 22.0) % 4 == 0) else 1.0
-		lamp.light_energy = 1.1 * dark * flick
+		lamp.light_energy = 0.0 if _blackout else 1.1 * dark * flick
 		torch.light_energy = torch_peak * torch_level * torch_flick
 		if i % 45 == 0:
 			PlaytestFlythrough._clear_hunters(scene, false)
@@ -303,7 +401,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		overlap.shape = camera_probe
 		overlap.transform = Transform3D(Basis.IDENTITY, camera.global_position)
 		overlap.exclude = [player.get_rid()]
-		if not space.intersect_shape(overlap, 4).is_empty():
+		if not hiding_cam and not space.intersect_shape(overlap, 4).is_empty():
 			inside_frames += 1
 		var look := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position - camera.global_basis.z * 12.0)
 		look.exclude = [player.get_rid()]
@@ -330,6 +428,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			beat_index += 1
 		await tree.process_frame
 		frames += 1
+	if eye_hold.is_valid() and RenderingServer.frame_pre_draw.is_connected(eye_hold):
+		RenderingServer.frame_pre_draw.disconnect(eye_hold)
 	if preview and not beat_reports.is_empty():
 		var rows_all: Array = []
 		var all_ok := true
@@ -607,7 +707,17 @@ static func _corner_at(grid: PlaytestFlythrough.Sampler, j: Vector2i, f: Vector2
 
 
 static func _stage_point(stage: Dictionary, at: Array) -> Vector3:
-	if at.size() > 0 and at[0] is String and String(at[0]) == "N":
+	if at.size() > 0 and at[0] is String and String(at[0]) == "Lc":
+		# ["Lc", lamp index, offset from the corridor's centre line, height]: level with that lamp, on the centre line
+		var lamps_c: Array = stage.get("lamps", [])
+		var lamp_c: Array = lamps_c[clampi(int(at[1]), 0, lamps_c.size() - 1)]
+		at = [float(lamp_c[0]), float(at[2]), at[3] if at.size() > 3 else 0.0]
+	elif at.size() > 0 and at[0] is String and String(at[0]) == "L":
+		# ["L", lamp index (0 = nearest the camera), sideways offset, height]: right under one of the corridor's real lamps
+		var lamps: Array = stage.get("lamps", [])
+		var lamp: Array = lamps[clampi(int(at[1]), 0, lamps.size() - 1)]
+		at = [float(lamp[0]), float(lamp[1]) + float(at[2]), at[3] if at.size() > 3 else 0.0]
+	elif at.size() > 0 and at[0] is String and String(at[0]) == "N":
 		# ["N", metres back from the corner edge, fraction of the way from A's centre line to the corner's own wall, height]: a camera on the
 		# corner's side of corridor A, looking along that wall, so only what crosses the wall plane shows
 		var cn: Dictionary = stage["corner"]
@@ -646,6 +756,10 @@ static func _make_actor(scene: Node, key: String, spec: Dictionary, stage: Dicti
 		var leg := model.find_child(bone, true, false) as Node3D
 		if leg != null:
 			actor.rest_legs[bone] = leg.quaternion
+	for bone in NightWatchPoses.BONES:
+		var rig_bone := model.find_child(bone, true, false) as Node3D
+		if rig_bone != null:
+			actor.rest_pose[bone] = [rig_bone.quaternion, rig_bone.position]
 	var pelvis_node := model.find_child("Pelvis", true, false) as Node3D
 	if pelvis_node != null:
 		actor.rest_legs["@pelvis_pos"] = pelvis_node.position
@@ -735,6 +849,17 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 		actor.waist = Vector2(float(wv[0]), float(wv[1]))
 		actor.waist_goal = 1.0
 		actor.waist_rate = 1.0 / maxf(float(ev.get("waist_in", .8)), .05)
+	if ev.has("bow"):
+		var bv: Array = ev["bow"]
+		actor.bow = Vector2(float(bv[0]), float(bv[1]))
+		actor.bow_goal = 1.0
+		var bow_in := float(ev.get("bow_in", .8))
+		actor.bow_rate = 1e6 if bow_in <= 0.0 else 1.0 / bow_in
+		if bow_in <= 0.0:
+			actor.bow_w = 1.0   # set in the dark: already bent when the lights come back
+	if ev.has("bow_off"):
+		actor.bow_goal = 0.0
+		actor.bow_rate = 1.0 / maxf(float(ev["bow_off"]), .05)
 	if ev.has("waist_off"):
 		actor.waist_goal = 0.0
 		actor.waist_rate = 1.0 / maxf(float(ev["waist_off"]), .05)
@@ -746,10 +871,23 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 		_set_tag(actor, str(ev["tag"]))
 	if bool(ev.get("tag_off", false)):
 		actor.tag_goal = 0.0
+	if ev.has("recoil"):
+		# step back AWAY from the shot camera (decided now, from where the camera is)
+		var rc: Dictionary = ev["recoil"]
+		var away := actor.pos - camera.global_position
+		away.y = 0.0
+		actor.recoil = {"t0": actor.clock, "dur": float(rc.get("dur", .25)), "dist": float(rc.get("dist", .45)), "dir": away.normalized(), "done": 0.0}
+	if ev.has("place"):
+		# an instant reposition (only ever during a blackout in the flicker shot; the check below proves it)
+		var at := _pt(stage, ev["place"], 0.0)
+		actor.pos = Vector3(at.x, actor.pos.y, at.z)
+		actor.target = Vector3(NAN, NAN, NAN)
 	if ev.has("move"):
 		var to := _pt(stage, ev["move"], 0.0)
 		actor.target = Vector3(to.x, actor.pos.y, to.z)
 		actor.speed = float(ev.get("speed", 1.4))
+		actor.accel = float(ev.get("accel", 0.0))
+		actor.speed_now = 0.0 if actor.accel > 0.0 else actor.speed
 		if not ev.has("face"):
 			actor.face_mode = "heading"
 	if ev.has("stop"):
@@ -762,13 +900,17 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 	var moving := false
 	if is_finite(actor.target.x):
 		var to := Vector3(actor.target.x - actor.pos.x, 0, actor.target.z - actor.pos.z)
-		if to.length() <= actor.speed * dt + .01:
+		if actor.accel > 0.0:
+			actor.speed_now = move_toward(actor.speed_now, actor.speed, actor.accel * dt)
+		else:
+			actor.speed_now = actor.speed
+		if to.length() <= actor.speed_now * dt + .01:
 			actor.pos.x = actor.target.x
 			actor.pos.z = actor.target.z
 			actor.target = Vector3(NAN, NAN, NAN)
 			actor.speed = 0.0
 		else:
-			var step := to.normalized() * actor.speed * dt
+			var step := to.normalized() * actor.speed_now * dt
 			actor.pos.x += step.x
 			actor.pos.z += step.z
 			moving = true
@@ -782,9 +924,21 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 		elif fm is float or fm is int:
 			want = deg_to_rad(float(fm))
 		actor.yaw = lerp_angle(actor.yaw, want, clampf(dt * 8.0, 0.0, 1.0))
+	if not actor.recoil.is_empty():
+		# ease-out: fast first, settling at `dist`
+		var ru := clampf((actor.clock - float(actor.recoil["t0"])) / maxf(float(actor.recoil["dur"]), .05), 0.0, 1.0)
+		var reached := 1.0 - (1.0 - ru) * (1.0 - ru)
+		var step_back := (reached - float(actor.recoil["done"])) * float(actor.recoil["dist"])
+		actor.pos += (actor.recoil["dir"] as Vector3) * step_back
+		actor.recoil["done"] = reached
+		moving = moving or step_back > 0.0
+		if ru >= 1.0:
+			actor.recoil = {}
 	var floor_hit := _floor_at(space, actor.pos + Vector3.UP * 1.0, player, actor.pos.y)
 	actor.pos.y = floor_hit.y
+	var before := actor.root.global_position
 	actor.root.global_position = actor.pos
+	_track_motion(actor, before)
 	actor.root.rotation.y = actor.yaw
 	if absf(actor.lean_deg) > .01 and _stage.has("corner"):
 		var c: Dictionary = _stage["corner"]
@@ -793,13 +947,20 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 	# travel clip speed from the stride table, only while a move runs without a pose
 	if moving and actor.anim != null:
 		var preferred := "sprint" if actor.speed > 4.2 else ("chase" if actor.speed > 2.4 else "walk")
-		var pick := HunterStride.choose(actor.hunter_id, preferred, actor.speed)
+		var pick := HunterStride.choose(actor.hunter_id, preferred, maxf(actor.speed_now, .3))
 		if not actor.posed and actor.anim.has_animation(String(pick["clip"])):
 			if actor.anim.current_animation != String(pick["clip"]):
 				_crossfade(actor, .2)
 				actor.anim.play(String(pick["clip"]), 0.0)
 			actor.anim.speed_scale = float(pick["scale"])
 	if actor.anim != null:
+		# a pose without a track for a bone leaves that bone alone: without this reset, last frame's overlay (bend, flinch) would be
+		# applied again on top of itself every frame
+		for bone in actor.rest_pose:
+			var rig_bone := actor.model.find_child(str(bone), true, false) as Node3D
+			if rig_bone != null:
+				rig_bone.quaternion = (actor.rest_pose[bone] as Array)[0]
+				rig_bone.position = (actor.rest_pose[bone] as Array)[1]
 		actor.anim.advance(dt)
 	actor.clock += dt
 	_apply_pose_blend(actor)
@@ -838,6 +999,15 @@ static func _apply_pose_blend(actor: Actor) -> void:
 ## The lean out from behind the corner: a bend at the waist (Belly, then Chest), eased in and out, so the legs and hips stay planted behind the
 ## wall while the head and upper torso cross the edge. Mirrored with the corner side.
 static func _apply_waist(actor: Actor, dt: float) -> void:
+	actor.bow_w = move_toward(actor.bow_w, actor.bow_goal, dt * actor.bow_rate)
+	if actor.bow_w > 0.0 and actor.bow != Vector2.ZERO:
+		var bw := actor.bow_w * actor.bow_w * (3.0 - 2.0 * actor.bow_w)
+		var belly_b := actor.model.find_child("Belly", true, false) as Node3D
+		var chest_b := actor.model.find_child("Chest", true, false) as Node3D
+		if belly_b != null:
+			belly_b.quaternion = NightWatchPoses.key_quaternion(Vector3(actor.bow.x, 0.0, 0.0) * bw) * belly_b.quaternion
+		if chest_b != null:
+			chest_b.quaternion = NightWatchPoses.key_quaternion(Vector3(actor.bow.y, 0.0, 0.0) * bw) * chest_b.quaternion
 	actor.waist_w = move_toward(actor.waist_w, actor.waist_goal, dt * actor.waist_rate)
 	if actor.waist_w <= 0.0 or actor.waist == Vector2.ZERO:
 		return
@@ -905,6 +1075,26 @@ static func _apply_react(actor: Actor) -> void:
 	var chest := actor.model.find_child("Chest", true, false) as Node3D
 	if chest != null:
 		chest.quaternion = NightWatchPoses.key_quaternion(Vector3(float(actor.react.get("hunch", 14.0)), 0.0, 0.0) * w) * chest.quaternion
+
+
+static func _track_motion(actor: Actor, before: Vector3) -> void:
+	var moved := Vector2(actor.pos.x - before.x, actor.pos.z - before.z).length()
+	if before == Vector3.ZERO:
+		return   # the first placement of the actor, not a move
+	if moved > .15:
+		_jumps.append({"t": snappedf(actor.clock, .01), "m": snappedf(moved, .01), "dark": _blackout})
+	if _motion.is_empty() or not actor.root.visible:
+		return
+	if actor.clock < float(_motion["from"]) or actor.clock > float(_motion["to"]):
+		return
+	if moved < .001:
+		_motion["run"] = int(_motion["run"]) + 1
+		if int(_motion["run"]) > int(_motion["max"]):
+			_motion["max"] = int(_motion["run"])
+			_motion["at"] = snappedf(actor.clock, .01)
+	else:
+		_motion["run"] = 0
+	_motion["frames"] = int(_motion["frames"]) + 1
 
 
 ## Per-frame bone rotation deltas inside the shot's smoothness window (the self-check reports the worst single-frame step).
@@ -1104,6 +1294,15 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	if expect.has("aim_deg") and head_node != null:
 		var aim := rad_to_deg((-camera.global_basis.z).angle_to((head_node.global_position - cam_pos).normalized()))
 		rows.append({"name": "beam centred on her face", "pass": aim <= float(expect["aim_deg"]), "detail": "%.1f deg between the camera axis and her head (max %s)" % [aim, expect["aim_deg"]]})
+	if expect.has("static_max_frames") and not _motion.is_empty():
+		rows.append({"name": "keeps moving after the hit", "pass": int(_motion["max"]) <= int(expect["static_max_frames"]) and int(_motion["frames"]) > 0,
+			"detail": "longest still run %d frame(s) at %ss over %d visible frames (max %s)" % [int(_motion["max"]), _motion["at"], int(_motion["frames"]), expect["static_max_frames"]]})
+	if bool(expect.get("jumps_only_in_dark", false)):
+		var lit_jumps: Array = []
+		for j in _jumps:
+			if not bool(j["dark"]):
+				lit_jumps.append(j)
+		rows.append({"name": "repositions only in the dark", "pass": lit_jumps.is_empty() and not _jumps.is_empty(), "detail": "%d jump(s), in the light: %s" % [_jumps.size(), lit_jumps]})
 	if expect.has("smooth_max_deg"):
 		var worst := 0.0
 		var worst_bone := ""
@@ -1183,6 +1382,10 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 			query.shape = box
 			query.transform = Transform3D(mi.global_basis.orthonormalized(), mi.global_transform * box_aabb.get_center() + Vector3.UP * .04)
 			query.exclude = [(player as CollisionObject3D).get_rid()]
+			if _part_group(mi) == "legs":
+				var rest := space.get_rest_info(query)
+				if not rest.is_empty() and (rest["normal"] as Vector3).y > .7:
+					continue   # a foot on the floor
 			for hit in space.intersect_shape(query, 4):
 				var body := hit["collider"] as Node
 				parts_in.append(str(mi.get_parent().name) + "/" + str(mi.name))
@@ -1192,12 +1395,17 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var shown: Array = []
 		for node in _scene.find_children("*", "Label3D", true, false):
 			var label := node as Label3D
-			# floating tags on or near any hunter in the shot (the level signage the world itself carries is not a hunter tag)
+			# a tag carried by a hunter: under one of the shot's actors or any game hunter view (shop and level signs are not tags)
 			var near_hunter := false
 			for key in _actors:
 				var other := _actors[key] as Actor
-				if other.root.visible and (other.root.is_ancestor_of(label) or label.global_position.distance_to(other.pos + Vector3.UP * other.height) < 2.5):
+				if other.root.visible and other.root.is_ancestor_of(label):
 					near_hunter = true
+			var up := label.get_parent()
+			while up != null and not near_hunter:
+				if up is HunterView3D:
+					near_hunter = true
+				up = up.get_parent()
 			if near_hunter and label.is_visible_in_tree() and label.modulate.a > .02:
 				shown.append(str(label.text))
 		rows.append({"name": "no name tags / Label3D on hunters", "pass": shown.is_empty(), "detail": "visible labels: %s" % [shown]})
@@ -1216,6 +1424,13 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 				count += 1
 		var luma := total_luma / float(count)
 		rows.append({"name": "face readable (lit)", "pass": luma >= float(expect["face_luma_min"]), "detail": "luminance %.2f (min %s)" % [luma, expect["face_luma_min"]]})
+	# where everything really is, in stage metres (forward along the stage, right of it)
+	var o3: Vector3 = stage["o"]
+	var f3: Vector3 = stage["f"]
+	var r3s: Vector3 = stage["r"]
+	var cam_rel := cam_pos - o3
+	var act_rel := actor.pos - o3
+	rows.append({"name": "stage positions", "pass": true, "detail": "camera f %.2f r %.2f h %.2f | %s f %.2f r %.2f | head h %.2f" % [cam_rel.dot(f3), cam_rel.dot(r3s), cam_rel.y, actor.key, act_rel.dot(f3), act_rel.dot(r3s), _bone_pos(actor, "Head").y - o3.y]})
 	var ok := true
 	for row in rows:
 		ok = ok and bool(row["pass"])
@@ -1353,6 +1568,10 @@ static func _mask_render(scene: Node, meshes: Array, depth_test: bool, only: Str
 			if top < 0:
 				top = y
 			bottom = y
+	var any_px := 0
+	for k in ["legs", "hips", "torso", "head", "arms"]:
+		any_px += int(counts.get(k, 0))
+	counts["any"] = any_px
 	counts["_height"] = 0 if top < 0 else bottom - top
 	counts["_rows"] = image.get_height()
 	counts["_image"] = image
@@ -1371,3 +1590,146 @@ static func _pixel_part(c: Color) -> String:
 	if c.r > .6 and c.g < .25 and c.b < .25:
 		return "arms"
 	return ""
+
+
+# ------------------------------------------------------------------------------------------------ lamps
+## A straight corridor with `min_lamps` real ceiling lamps ahead of a walked route point, in line (within 0.9 m of the centre line),
+## at least 2 m apart, all within the lamp pool's reach, the view down the corridor clear past the farthest one and room on both
+## sides of the camera. Lamps come from the LampField's per-chunk lists (the same positions the game lights and draws).
+static func _lamp_corridor(facility: Object, track: PlaytestFlythrough.Track, space: PhysicsDirectSpaceState3D, player: Node, cfg: Dictionary) -> Dictionary:
+	var field: Object = facility.get("_lamp_field")
+	if field == null:
+		return {}
+	var all: Array = []
+	for list_value in (field.get("_chunks") as Dictionary).values():
+		for lamp_value in list_value:
+			all.append((lamp_value as Array)[0] as Vector3)
+	var min_lamps := int(cfg.get("min_lamps", 5))
+	var max_d := float(cfg.get("max_dist", 16.0))
+	_lamp_debug = {"lamps_loaded": all.size(), "best_in_line": 0, "blocked": 0, "cramped": 0}
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var best := {}
+	var best_score := -1e9
+	var k := 0
+	while k < track.size():
+		if int(track.ground[k]) != 1:
+			k += 8
+			continue
+		var p := track.pos[k]
+		k += 8
+		for dir in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+			var right: Vector3 = dir.cross(Vector3.UP)
+			var picks: Array = []
+			for lp_value in all:
+				var rel: Vector3 = (lp_value as Vector3) - p
+				if absf(rel.y) > 3.0:
+					continue
+				var along: float = rel.dot(dir)
+				var lat: float = rel.dot(right)
+				if along < float(cfg.get("min_first", 2.5)) or along > max_d or absf(lat) > float(cfg.get("max_lateral", .9)):
+					continue
+				picks.append([along, lat])
+			picks.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+			var spaced: Array = []
+			for pk in picks:
+				if spaced.is_empty() or float(pk[0]) - float((spaced[spaced.size() - 1] as Array)[0]) >= float(cfg.get("min_spacing", 2.0)):
+					spaced.append(pk)
+			_lamp_debug["best_in_line"] = maxi(int(_lamp_debug["best_in_line"]), spaced.size())
+			if spaced.size() < min_lamps:
+				continue
+			spaced = spaced.slice(0, min_lamps)
+			# the line Nyxie needs: from the camera to the floor under the farthest lamp, at chest height (below hanging fixtures)
+			var far := float((spaced[min_lamps - 1] as Array)[0]) - .3
+			var low := p - Vector3.UP * (EYE - 1.2)
+			var ray := PhysicsRayQueryParameters3D.create(low, low + dir * far)
+			ray.exclude = exclude
+			if not space.intersect_ray(ray).is_empty():
+				_lamp_debug["blocked"] = int(_lamp_debug["blocked"]) + 1
+				continue
+			var roomy := true
+			for side in [right, -right]:
+				var side_ray := PhysicsRayQueryParameters3D.create(p, p + (side as Vector3) * .5)
+				side_ray.exclude = exclude
+				if not space.intersect_ray(side_ray).is_empty():
+					roomy = false
+			if not roomy:
+				_lamp_debug["cramped"] = int(_lamp_debug["cramped"]) + 1
+				continue
+			# prefer a long, evenly spaced run of lamps close to the centre line
+			var span := float((spaced[min_lamps - 1] as Array)[0]) - float((spaced[0] as Array)[0])
+			var gaps: Array = []
+			for gi in range(1, spaced.size()):
+				gaps.append(float((spaced[gi] as Array)[0]) - float((spaced[gi - 1] as Array)[0]))
+			var unevenness := 0.0
+			for g in gaps:
+				unevenness += absf(float(g) - span / float(maxi(gaps.size(), 1)))
+			var score := span - unevenness * 1.5
+			for pk in spaced:
+				score -= absf(float(pk[1])) * 3.0
+			if score > best_score:
+				best_score = score
+				var rounded: Array = []
+				for pk in spaced:
+					rounded.append([snappedf(float(pk[0]), .01), snappedf(float(pk[1]), .01)])
+				best = {"eye": p, "f": dir, "lamps": rounded}
+	return best
+
+
+## Cuts (or restores) the level's lighting at once: the facility's own all-lights switch, the lamp pool's fade skipped (a flicker is
+## instant), and the shared bulb materials' glow, so the fixtures themselves go dark too.
+static func _set_blackout(facility: Object, on: bool) -> void:
+	_blackout = on
+	if facility.has_method("set_all_lights"):
+		facility.call("set_all_lights", not on)
+	var field: Object = facility.get("_lamp_field")
+	if field != null:
+		var levels: Array = field.get("_levels")
+		var lights: Array = field.get("_lights")
+		var targets: Array = field.get("_targets")
+		for i in levels.size():
+			var lit := not on and targets[i] != null
+			levels[i] = 1.0 if lit else 0.0
+			(lights[i] as OmniLight3D).visible = lit
+	for mat_value in RefDecor._mat_cache.values():
+		var mat := mat_value as StandardMaterial3D
+		if mat == null or not mat.emission_enabled:
+			continue
+		if not mat.has_meta("trailer_emission"):
+			mat.set_meta("trailer_emission", mat.emission_energy_multiplier)
+		mat.emission_energy_multiplier = 0.0 if on else float(mat.get_meta("trailer_emission"))
+
+
+# ------------------------------------------------------------------------------------------------ lockers
+## A real hiding locker (HIDING_SPOT with the authored locker model, not a bed or wardrobe) whose door opens onto open floor:
+## clear 2.4 m straight out and 2 m to each side at walking distance in front, so a hunter can walk past, stop and lean in.
+static func _find_locker(scene: Node, space: PhysicsDirectSpaceState3D, player: Node, cfg: Dictionary) -> RouteInteractable3D:
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var best: RouteInteractable3D = null
+	var best_score := -1.0
+	var need_side := float(cfg.get("side_clear", 2.0))
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it == null or it.kind != RouteInteractable3D.Kind.HIDING_SPOT or not it.hide_style.is_empty():
+			continue
+		var yaw := it.hiding_outward_yaw()
+		var out := Vector3(-sin(yaw), 0.0, -cos(yaw))
+		var right := out.cross(Vector3.UP)
+		var front := it.global_position + out * .6 + Vector3.UP * 1.2
+		var ahead := PhysicsRayQueryParameters3D.create(front, front + out * 2.4)
+		ahead.exclude = exclude
+		if not space.intersect_ray(ahead).is_empty():
+			continue
+		var walk := front + out * .7
+		var clear := 99.0
+		for side in [right, -right]:
+			var side_ray := PhysicsRayQueryParameters3D.create(walk, walk + (side as Vector3) * 3.5)
+			side_ray.exclude = exclude
+			var hit := space.intersect_ray(side_ray)
+			clear = minf(clear, 3.5 if hit.is_empty() else walk.distance_to(hit["position"] as Vector3))
+		if clear < need_side:
+			continue
+		var score := clear - it.global_position.distance_to((player as Node3D).global_position) * .01
+		if score > best_score:
+			best_score = score
+			best = it
+	return best

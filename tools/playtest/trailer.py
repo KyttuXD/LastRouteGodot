@@ -217,7 +217,15 @@ def main():
         seg = tmp / ("seg%02d.mp4" % index)
         dur = float(shot["t"])
         fade = min(.45, dur / 4)
-        vf_fade = "fade=t=in:st=0:d=%.2f,fade=t=out:st=%.2f:d=%.2f" % (fade, dur - fade, fade)
+        # per-shot override: "fade_out": 0 is a hard cut (the flicker approach ends on a cut to black)
+        fade_in = float(shot.get("fade_in", fade))
+        fade_out = float(shot.get("fade_out", fade))
+        parts = []
+        if fade_in > 0:
+            parts.append("fade=t=in:st=0:d=%.2f" % fade_in)
+        if fade_out > 0:
+            parts.append("fade=t=out:st=%.2f:d=%.2f" % (dur - fade_out, fade_out))
+        vf_fade = ",".join(parts) or "null"
         common = ["-c:v", "libx264", "-preset", "medium", "-crf", "24", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "96k", "-ar", "44100", "-ac", "2"]
         if "card" in shot:
             png = tmp / ("card%02d.png" % index)
@@ -228,7 +236,9 @@ def main():
             src = clips / ("%s.mp4" % shot["clip"])
             if not src.exists():
                 sys.exit("missing clip %s (render it with tools/playtest/flythrough.py --areas %s)" % (src, shot["clip"]))
-            af = "volume=%.2f,afade=t=in:st=0:d=%.2f,afade=t=out:st=%.2f:d=%.2f" % (float(shot.get("game_audio", .45)), fade, dur - fade, fade)
+            af = "volume=%.2f,afade=t=in:st=0:d=%.2f" % (float(shot.get("game_audio", .45)), max(fade_in, .02))
+            if fade_out > 0:
+                af += ",afade=t=out:st=%.2f:d=%.2f" % (dur - fade_out, fade_out)
             if "lower" in shot:
                 low = shot["lower"]
                 png = tmp / ("lower%02d.png" % index)
