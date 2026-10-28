@@ -134,6 +134,9 @@ func _ladder_point(t: float) -> Vector3:
 
 
 func _build_path() -> void:
+	if _mode == "flashlight":
+		_path = [_player.global_position, _player.global_position]
+		return
 	if _mode == "ladder":
 		if not _find_ladder():
 			push_error("stream_bench: no ladder near the spawn")
@@ -194,6 +197,8 @@ func _process(delta: float) -> void:
 	var dir: Vector3 = point["dir"]
 	_player.global_position = point["pos"]
 	_player._yaw = atan2(-dir.x, -dir.z)
+	if _mode == "flashlight":
+		_track_flashlight(frame_ms)
 	if _mode == "ladder":
 		_player.global_position = _ladder_point(_elapsed)
 		_player._yaw = _elapsed * .6   # look around: the whole window is on screen over a stay
@@ -246,6 +251,23 @@ func _trip_summary() -> Array:
 			"dip_fps": snappedf(_min_window_fps(frames), .1),
 			"mean_ms": snappedf(total / maxf(frames.size(), 1), .01), "builds": trip.get("builds", 0), "loaded_max": trip["loaded_max"]})
 	return out
+
+
+## Flashlight mode: the runner stands at the spawn and toggles the flashlight every 1.5 s; each toggle's worst frame in
+## the next 0.5 s is kept (the first toggle used to compile the shadowed SpotLight's shaders and allocate its atlas).
+var _toggles: Array = []
+var _toggle_clock := 0.0
+func _track_flashlight(frame_ms: float) -> void:
+	_path = [_path[0], _path[0]]
+	if not _toggles.is_empty() and _elapsed - float(_toggles[-1]["t"]) <= .5:
+		_toggles[-1]["max_ms"] = maxf(float(_toggles[-1]["max_ms"]), frame_ms)
+	_toggle_clock += get_process_delta_time()
+	if _toggle_clock >= 1.5:
+		_toggle_clock = 0.0
+		# exactly what the flashlight key does (PlayerController3D input): select the slot, then toggle
+		_player.select_inventory_slot(_player.inventory_order.find("flashlight"))
+		_player._set_flashlight(not _player.flashlight_enabled)
+		_toggles.append({"t": _elapsed, "on": _player.flashlight_enabled, "beam": _player.flashlight.visible, "max_ms": 0.0})
 
 
 func _sample() -> Dictionary:
@@ -383,6 +405,8 @@ func _finish() -> void:
 		_tag, _mode, summary["startup_ms"], summary["avg_fps"], summary["p50_ms"], summary["p95_ms"], summary["p99_ms"],
 		summary["max_ms"], summary["stream_max_ms"], summary["hitches_33"], summary["stream_hitches_33"]]
 	print(line)
+	for toggle in _toggles:
+		print("TOGGLE t=%.1f on=%s beam=%s max=%.1f" % [toggle["t"], str(toggle["on"]), str(toggle.get("beam")), toggle["max_ms"]])
 	for trip in summary["trips"]:
 		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d dip_fps=%.1f" % [trip["to"], trip["t"], trip["max_ms"],
 			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"], trip["dip_fps"]])
