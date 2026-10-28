@@ -400,6 +400,10 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 ## backrest), eye at seated height, facing out. Lying: the body at the pillow end, eye just above the mattress, looking
 ## along the bed toward its foot, tipped up a little.
 static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
+	if not furniture.has_meta("rest_size"):
+		# authored seats (Night Watch's office chair, its bedroom bed) place the body exactly on their own point
+		return {"body": furniture.global_position, "eye": .72 if pose == "lay" else 1.02,
+			"yaw": furniture.global_rotation.y, "pitch": 0.0}
 	var size: Vector3 = furniture.get_meta("rest_size", Vector3(1.0, .8, 2.0) if pose == "lay" else Vector3(.5, .9, .5))
 	var floor_y := furniture.global_position.y - (.48 if pose == "lay" else .03)
 	var xf := furniture.global_transform
