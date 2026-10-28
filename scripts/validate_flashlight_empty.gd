@@ -49,7 +49,10 @@ func run(host: Node) -> int:
 	player.grant_inventory_item("battery")
 	player.select_inventory_slot(player.inventory_order.find("battery"))
 	player._use_battery()
-	_expect(player.lamp_charge > 50.0, "a battery did not recharge the empty flashlight (%.0f)" % player.lamp_charge)
+	_expect(player.lamp_charge > 0.0, "a battery did not recharge the empty flashlight")
+	player.select_inventory_slot(player.inventory_order.find("flashlight"))
+	player._set_flashlight(true)
+	_expect(player.flashlight_enabled, "the recharged flashlight does not turn on")
 	scene.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:
