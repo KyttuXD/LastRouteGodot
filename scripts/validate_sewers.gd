@@ -32,6 +32,7 @@ func run(host: Node) -> int:
 	_check_traffic()
 	_check_hunter_paths()
 	await _check_deep_levels(host)
+	await _check_falls(host)
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
 	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
@@ -622,3 +623,79 @@ func _walk_ramp(host: Node, generator: StreamedRouteGenerator, ramp: Dictionary)
 	view.clear()
 	view.queue_free()
 	player.queue_free()
+
+
+## The first sewer feeds the collector: at each falls site the spur channel runs
+## to an open drop whose every cell lies over the cistern below (pool or its
+## walkway ring), in a quadrant no ramp uses; the collector itself keeps the
+## sewer rules (three-wide dry walkways, all reachable); and the live chunks
+## carry the waterfall sheet, the mist and the drop's blocking colliders.
+func _check_falls(host: Node) -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-FALLS")
+	var sites := 0
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var lower_cells := {}
+	var site := {}
+	for z in range(-3, 4):
+		for x in range(-3, 4):
+			var low: Dictionary = generator.chunk(Vector3i(x, SewerRouteGenerator.LOWER_LEVEL, z))
+			var low_grid: Array = low["sewer_grid"]
+			for cz in size:
+				for cx in size:
+					if SewerRouteGenerator.is_walkable(int(low_grid[cz][cx])):
+						lower_cells[Vector2i(x * size + cx, z * size + cz)] = int(low_grid[cz][cx])
+			var falls: Dictionary = generator.sewer().falls_between(x, z)
+			if falls.is_empty():
+				continue
+			sites += 1
+			if site.is_empty():
+				site = falls.merged({"x": x, "z": z})
+			var up_grid: Array = generator.chunk(Vector3i(x, SewerRouteGenerator.LEVEL, z))["sewer_grid"]
+			var drop: Rect2i = falls["void"]
+			var under_ok := true
+			for cz in range(drop.position.y, drop.end.y):
+				for cx in range(drop.position.x, drop.end.x):
+					if int(up_grid[cz][cx]) != SewerRouteGenerator.FALL or int(low_grid[cz][cx]) == SewerRouteGenerator.SOLID:
+						under_ok = false
+			_expect(under_ok, "falls at %s: the drop is not open over the cistern below" % Vector2i(x, z))
+			var lip_z := int(float(falls["edge_z"])) + (0 if bool(falls["north"]) else -1)
+			_expect(int(up_grid[lip_z][int(float(falls["edge_x0"])) + 1]) == SewerRouteGenerator.WATER,
+				"falls at %s: the spur's water does not reach the lip" % Vector2i(x, z))
+			for upper in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+				var ramp: Dictionary = generator.sewer().ramp_between(x, z, upper)
+				_expect(ramp.is_empty() or int(ramp["quadrant"]) != int(falls["quadrant"]),
+					"falls at %s share a quadrant with a ramp" % Vector2i(x, z))
+	_expect(sites >= 6, "only %d falls sites around the origin" % sites)
+	_check_widths("SEWER-FALLS collector", lower_cells)
+	var start := Vector2i(-3 * size + SewerRouteGenerator.CENTER - SewerRouteGenerator.TUNNEL_HALF,
+		-3 * size + SewerRouteGenerator.CENTER - SewerRouteGenerator.TUNNEL_HALF)
+	var reach := _flood(lower_cells, start, true)
+	var dry := 0
+	for cell in lower_cells:
+		if SewerRouteGenerator.is_dry(int(lower_cells[cell])):
+			dry += 1
+	_expect(reach.size() == dry, "collector: %d of %d dry cells cut off" % [dry - reach.size(), dry])
+	if not site.is_empty():
+		var view := StreamedFacilityView3D.new()
+		host.add_child(view)
+		var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+		host.add_child(player)
+		var qc: Vector2i = site["center"]
+		var overlook: Rect2i = site["overlook"]
+		player.global_position = Vector3(int(site["x"]) * size + overlook.position.x + 1.5,
+			float(SewerRouteGenerator.LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT + .1, int(site["z"]) * size + overlook.position.y + 1.5)
+		view.begin("SEWER-FALLS", player)
+		var upper_root: Node3D = view._loaded.get(Vector3i(int(site["x"]), SewerRouteGenerator.LEVEL, int(site["z"])))
+		var lower_root: Node3D = view._loaded.get(Vector3i(int(site["x"]), SewerRouteGenerator.LOWER_LEVEL, int(site["z"])))
+		_expect(upper_root != null and upper_root.get_node_or_null("Waterfall") != null, "the falls chunk has no waterfall sheet")
+		_expect(lower_root != null and lower_root.get_node_or_null("FallsMist") != null,
+			"the cistern below the falls is not loaded or has no mist")
+		if upper_root != null:
+			var structure := upper_root.get_node("Structure") as GridMap
+			_expect(structure.get_cell_item(Vector3i(qc.x, 0, qc.y)) == view._col_channel_item,
+				"the falls' drop is not blocked to walk")
+		_check_colliders_below_maze(view)
+		view.clear()
+		view.queue_free()
+		player.queue_free()
+	print("  ok    falls: %d sites feed the collector, drops over the cisterns, collector walkable" % sites)

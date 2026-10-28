@@ -2723,6 +2723,33 @@ func _update_sewer_ambience(delta: float, _level: int) -> void:
 		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
 
 
+## The roar of the falls into the collector drowns out a runner's own noise for
+## the hunters: full masking within FALLS_MASK_NEAR cells of a fall's lip (on
+## either sewer level), fading out by FALLS_MASK_FAR.
+const FALLS_MASK_NEAR := 7.0
+const FALLS_MASK_FAR := 13.0
+const FALLS_MASK_FLOOR := .35
+
+
+func _falls_noise_mask(at: Vector2, level: int) -> float:
+	if level != StreamedRouteGenerator.SEWER_LEVEL and level != StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		return 1.0
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var nearest := INF
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var falls: Dictionary = facility.generator.sewer().falls_between(cx + dx, cz + dz)
+			if falls.is_empty():
+				continue
+			var lip := Vector2((cx + dx) * size + float(falls["edge_x0"]) + 1.5, (cz + dz) * size + float(falls["edge_z"]))
+			nearest = minf(nearest, lip.distance_to(at))
+	if nearest == INF:
+		return 1.0
+	return lerpf(FALLS_MASK_FLOOR, 1.0, clampf((nearest - FALLS_MASK_NEAR) / (FALLS_MASK_FAR - FALLS_MASK_NEAR), 0.0, 1.0))
+
+
 func _on_player_ladder_finished(_to_level: int) -> void:
 	_ladders.release("runner:%d" % (multiplayer.get_unique_id() if RoomState.online else 1))
 	facility.refresh_at_tracked_player()
@@ -3007,7 +3034,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
 		"in_safe_zone": in_safe_room,
-		"noise": player.noise,
+		"noise": player.noise * _falls_noise_mask(player.grid_position(), facility.current_level()),
 		"flashlight_on": player.flashlight_enabled,
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		"facing": player.facing,

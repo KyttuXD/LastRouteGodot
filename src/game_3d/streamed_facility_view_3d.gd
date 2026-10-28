@@ -57,6 +57,10 @@ const CHANNEL_BLOCK_TOP := 1.2
 ## Ramp tunnels: the slope's collider thickness and its painted floor.
 const RAMP_THICKNESS := 0.3
 const RAMP_FLOOR_KIND := "concrete1"
+## The falls: rough stone on the drop's cliffs, and how far the roar carries.
+const CLIFF_WALL_KIND := "stone1"
+const FALLS_SOUND_RANGE := 28.0
+const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -365,6 +369,13 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 		var vertical := Vector3i(center.x, far, center.z)
 		if generator.is_chunk_allowed(vertical):
 			wanted[vertical] = true
+	# You can see across the falls' drop between the two sewers: in a chunk with
+	# falls the other level's chamber stays loaded.
+	if (center.y == StreamedRouteGenerator.SEWER_LEVEL or center.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL) \
+			and not generator.sewer().falls_between(center.x, center.z).is_empty():
+		var across := Vector3i(center.x, StreamedRouteGenerator.LOWER_SEWER_LEVEL \
+			if center.y == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL, center.z)
+		wanted[across] = true
 	return wanted
 
 
@@ -661,6 +672,14 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
+	var open_above := {}
+	var falls: Dictionary = data.get("falls", {})
+	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		var drop: Rect2i = falls["void"]
+		for z in range(drop.position.y, drop.end.y):
+			for x in range(drop.position.x, drop.end.x):
+				open_above[Vector2i(x, z)] = true
+				heights[Vector2i(x, z)] = LEVEL_HEIGHT
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	for cell_value in ramp_cells:
 		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
@@ -700,6 +719,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"coord": coord,
 		"region_props": region_props,
 		"link_cells": link_cells,
+		"open_above": open_above,
 		"sewer_grid": data.get("sewer_grid", []),
 		"data": data,
 		"root": root,
@@ -768,6 +788,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not (build["sewer_grid"] as Array).is_empty():
 					_spawn_sewer_water(root, build["sewer_grid"])
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
+				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -900,7 +921,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				RefTextures.params("floor", kind))
 		else:
 			_add_shaft_lining(build, cell)
-		if not (link_here and coord_y == StreamedRouteGenerator.SEWER_LEVEL):
+		if not (link_here and coord_y == StreamedRouteGenerator.SEWER_LEVEL) \
+				and not (build["open_above"] as Dictionary).has(cell):
 			surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
 				RefTextures.params("ceiling", ceiling_kind))
 		# Where a taller room meets a lower cell (a doorway or corridor mouth) the
@@ -932,8 +954,23 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		# the walkways and decks; the vault continues overhead.
 		grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
 		_add_channel_trench(build, cell)
+		if not (build["open_above"] as Dictionary).has(cell):
+			surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
+	elif _sewer_code(build, x, z) == SewerRouteGenerator.FALL:
+		# The drop to the collector: blocked to walk like the channels, the vault
+		# overhead, and rough stone cliffs from the floor's edge down a full storey.
+		grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
 		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 			RefTextures.params("ceiling", ceiling_kind))
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var n := cell + step
+			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
+					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
+				continue
+			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", CLIFF_WALL_KIND),
+				RefTextures.params("wall", CLIFF_WALL_KIND), 0.0, -LEVEL_HEIGHT)
 	else:
 		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
@@ -946,8 +983,11 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			# than a missing one
 			var face_height := float(build["corridor_h"])
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
-				# ramp tunnels are open space too, though the grid keeps them off the walk graph
-				if int(grid_data[nz][nx]) != 0 and not (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)):
+				# ramp tunnels, channels and the falls' drop are open space too, though the
+				# grid keeps them off the walk graph
+				var open_space := (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
+					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]
+				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
@@ -985,6 +1025,78 @@ static func _ramp_surface_y(ramp: Dictionary, x: float) -> float:
 	var bottom_x := float(ramp["bottom_x"])
 	var t := clampf((x - top_x) / (bottom_x - top_x), 0.0, 1.0)
 	return -LEVEL_HEIGHT * t
+
+
+## The waterfall in a chunk with falls: on the first sewer the sheet of water
+## pouring over the lip into the drop; on the collector the spray and mist where
+## it lands in the cistern's pool. Both carry the loud looping roar.
+func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
+	var falls: Dictionary = data.get("falls", {})
+	if falls.is_empty():
+		return
+	var lip := Vector3(float(falls["edge_x0"]) + 1.5, 0.0, float(falls["edge_z"]))
+	if level == StreamedRouteGenerator.SEWER_LEVEL:
+		var sheet := MeshInstance3D.new()
+		sheet.name = "Waterfall"
+		var quad := QuadMesh.new()
+		quad.size = Vector2(3.0, LEVEL_HEIGHT)
+		sheet.mesh = quad
+		var material := ShaderMaterial.new()
+		material.shader = SEWER_FALLS_SHADER
+		sheet.material_override = material
+		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# just past the lip, from the channel's surface down to the pool's
+		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
+			lip.z + (-.12 if bool(falls["north"]) else .12))
+		root.add_child(sheet)
+		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
+	elif level == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		var mist := GPUParticles3D.new()
+		mist.name = "FallsMist"
+		mist.amount = 48
+		mist.lifetime = 2.6
+		var process := ParticleProcessMaterial.new()
+		process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		process.emission_box_extents = Vector3(1.4, .15, .5)
+		process.direction = Vector3(0, 1, 0)
+		process.spread = 55.0
+		process.initial_velocity_min = .3
+		process.initial_velocity_max = 1.1
+		process.gravity = Vector3(0, -.15, 0)
+		process.scale_min = .6
+		process.scale_max = 1.6
+		mist.process_material = process
+		var puff := QuadMesh.new()
+		puff.size = Vector2(.7, .7)
+		var puff_material := StandardMaterial3D.new()
+		puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff_material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		puff_material.albedo_color = Color(.78, .84, .8, .16)
+		puff.material = puff_material
+		mist.draw_pass_1 = puff
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-.7 if bool(falls["north"]) else .7))
+		root.add_child(mist)
+		_add_falls_sound(root, mist.position)
+
+
+func _add_falls_sound(root: Node3D, at: Vector3) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var stream := (Sound.render_cue("waterfall") as AudioStreamWAV).duplicate() as AudioStreamWAV
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = stream.data.size() / 4      # 16-bit stereo frames
+	var roar := AudioStreamPlayer3D.new()
+	roar.name = "FallsRoar"
+	roar.stream = stream
+	roar.bus = &"SFX"
+	roar.unit_size = 7.0
+	roar.max_distance = FALLS_SOUND_RANGE
+	roar.volume_db = 3.0
+	roar.autoplay = true
+	roar.position = at
+	root.add_child(roar)
 
 
 ## The sloped collider of every ramp whose upper end is this chunk's level: one
@@ -1101,7 +1213,7 @@ func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
 				var step: Vector2i = step_value
 				var n := Vector2i(x, z) + step
 				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
-						or int(sewer_grid[n.y][n.x]) != SewerRouteGenerator.WATER:
+						or not int(sewer_grid[n.y][n.x]) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]:
 					continue
 				# on the walkway side of the edge, running along it
 				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))

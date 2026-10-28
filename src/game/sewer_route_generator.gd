@@ -33,6 +33,11 @@ const BRIDGE := 3
 ## A cell of a sloped ramp tunnel between two levels (on both of them): no floor
 ## on the upper level, no ceiling on the lower one, walled on both sides.
 const RAMP := 4
+## An open drop on the first sewer: the floor is gone and the spur channel pours
+## over the edge as a waterfall into the collector's cistern below (blocked to walk).
+const FALL := 5
+## About one chunk in four has falls from the sewer into the collector.
+const FALLS_CHANCE := .28
 
 ## Ramps (docs/SEWERS.md): a three-wide tunnel dropping one storey over RAMP_RUN
 ## cells (about 18 degrees), in one quadrant of a chunk that both levels reserve.
@@ -144,6 +149,45 @@ func ramp_between(x: int, z: int, upper_level: int) -> Dictionary:
 		"link": link}
 
 
+## The waterfall from the first sewer into the collector in chunk column (x, z),
+## or {}. Deterministic and in a quadrant no ramp uses on either level.
+## {quadrant, void (the drop on -1, open above the cistern on -2), spur (the
+## channel running to the edge), spur_deck (where it crosses the walkway),
+## overlook (a railed ledge beside it), chamber + pool (the cistern on -2),
+## edge_z / edge_x0 (the lip the water pours over), north}.
+func falls_between(x: int, z: int) -> Dictionary:
+	var rng := SeededRandom.new("%s:FALLS:%d:%d" % [world_seed, x, z])
+	if rng.next_float() >= FALLS_CHANCE:
+		return {}
+	var free := [0, 1, 2, 3]
+	for upper in [LEVEL, LOWER_LEVEL]:
+		var ramp := ramp_between(x, z, upper)
+		if not ramp.is_empty():
+			free.erase(int(ramp["quadrant"]))
+	if free.is_empty():
+		return {}
+	var quadrant: int = free[rng.next_index(free.size())]
+	var qc: Vector2i = QUADRANT_CENTERS[quadrant]
+	var north := qc.y < CENTER
+	var walk_lo := CENTER - TUNNEL_HALF if north else CENTER + CHANNEL_HALF + 1
+	# north quadrants: the drop is rows qc-3..qc+3 and the spur comes up from the
+	# main channel (south of it); south quadrants mirror that
+	var void_rect := Rect2i(qc.x - 3, qc.y - 3, 7, 7)
+	var spur_z0 := qc.y + 4 if north else CENTER + CHANNEL_HALF + 1
+	var spur_z1 := CENTER - CHANNEL_HALF - 1 if north else qc.y - 4
+	var spur := Rect2i(qc.x - 1, spur_z0, 3, spur_z1 - spur_z0 + 1)
+	var deck := Rect2i(qc.x - 1, walk_lo, 3, 3)
+	var ledge_z0 := qc.y + 4 if north else CENTER + TUNNEL_HALF + 1
+	var ledge_z1 := CENTER - TUNNEL_HALF - 1 if north else qc.y - 4
+	var overlook := Rect2i(qc.x + 2, ledge_z0, 3, ledge_z1 - ledge_z0 + 1)
+	var chamber := Rect2i(qc.x - 5, qc.y - 5 if north else qc.y - 6, 11, 12)
+	var pool := Rect2i(qc.x - 2, qc.y - 2 if north else qc.y - 3, 5, 6)
+	return {"quadrant": quadrant, "north": north, "void": void_rect, "spur": spur, "spur_deck": deck,
+		"overlook": overlook, "chamber": chamber, "pool": pool, "center": qc,
+		"edge_z": float(void_rect.end.y) if north else float(void_rect.position.y),
+		"edge_x0": float(qc.x - 1)}
+
+
 ## Every ramp touching level `level` in the chunk column (x, z).
 func ramps_at(x: int, z: int, level: int) -> Array:
 	var out := []
@@ -198,6 +242,14 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	for ramp in ramps:
 		order.erase(int(ramp["quadrant"]))
 		_carve_ramp(grid, ramp, coord.y)
+	var falls := falls_between(coord.x, coord.z)
+	if not falls.is_empty():
+		order.erase(int(falls["quadrant"]))
+		_carve_falls(grid, falls, coord.y)
+		if coord.y == LEVEL:
+			# the spur crosses the tunnel walkway on a bridge like the channels do
+			var deck: Rect2i = falls["spur_deck"]
+			features.append({"type": "sewerBridge", "cell": deck.position + Vector2i(1, 1), "yaw": PI / 2.0})
 	var surface_data: Dictionary = surface.chunk(Vector3i(coord.x, SURFACE_LEVEL, coord.z))
 	var blocked := _surface_blocked_cells(surface_data)
 	var covers := ["manhole", "grate"]
@@ -241,6 +293,22 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	return _streamed_schema(coord, grid, rooms, links, features, ramps)
 
 
+## The falls' cells on this level. On the first sewer: the drop, the spur
+## channel to its edge (decked where it crosses the walkway) and the railed
+## overlook ledge beside it. On the collector: the cistern chamber with its deep
+## pool under the drop, joined to the tunnel by a branch.
+static func _carve_falls(grid: Array, falls: Dictionary, level: int) -> void:
+	if level == LEVEL:
+		_carve_rect(grid, falls["overlook"], DRY)
+		_carve_rect(grid, falls["spur"], WATER)
+		_carve_rect(grid, falls["spur_deck"], BRIDGE)
+		_carve_rect(grid, falls["void"], FALL)
+	else:
+		_carve_rect(grid, falls["chamber"], DRY)
+		_carve_branch(grid, falls["center"], 5)
+		_carve_rect(grid, falls["pool"], WATER)
+
+
 ## One ramp's cells on this level: the top landing and slope on the upper level,
 ## the slope, bottom landing and connector on the lower one.
 static func _carve_ramp(grid: Array, ramp: Dictionary, level: int) -> void:
@@ -280,6 +348,7 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 		"difficulty": surface.difficulty_for_level(coord.y),
 		"links": links, "features": features, "ramps": ramps,
+		"falls": falls_between(coord.x, coord.z) if is_chunk_allowed(coord) else {},
 		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y)}
 
 

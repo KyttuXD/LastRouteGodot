@@ -111,6 +111,31 @@ func _run() -> void:
 		var back := (top - bottom).normalized()
 		await _shot("ramp_from_%d" % upper, Vector3(top.x + back.x * 1.2, upper_y + 1.7, top.y + back.y * 1.2),
 			Vector3(bottom.x, upper_y - 3.2, bottom.y))
+	# 6b: the falls from the first sewer into the collector: from the overlook, and from the cistern below
+	var site := {}
+	var site_column := Vector2i.ZERO
+	for cz in range(-3, 4):
+		for cx in range(-3, 4):
+			if site.is_empty():
+				site = _view.generator.sewer().falls_between(cx, cz)
+				site_column = Vector2i(cx, cz)
+	if not site.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var base := Vector3(site_column.x * size, 0.0, site_column.y * size)
+		var lip := base + Vector3(float(site["edge_x0"]) + 1.5, 0.0, float(site["edge_z"]))
+		var toward := 1.0 if bool(site["north"]) else -1.0     # from the lip back along the spur
+		var overlook: Rect2i = site["overlook"]
+		_player.global_position = base + Vector3(overlook.position.x + 1.5, level_y + .04, overlook.get_center().y)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		await _shot("falls_overlook", lip + Vector3(3.2, level_y + 1.7, toward * 3.0), lip + Vector3(0, level_y - 2.5, -toward * 1.5))
+		var low_y := float(SewerRouteGenerator.LOWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+		var chamber: Rect2i = site["chamber"]
+		_player.global_position = base + Vector3(chamber.position.x + 1.5, low_y + .04, chamber.get_center().y)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
+			lip + Vector3(0, low_y + 1.8, 0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)

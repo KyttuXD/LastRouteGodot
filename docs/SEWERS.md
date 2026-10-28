@@ -26,6 +26,20 @@ both levels reserve (about 35 % of chunks for -1 to -2, 30 % for -2 to -3).
 * Below the maze every storey is capped to `LEVEL_HEIGHT` - slab, so tall Inferno halls never rise into the sewer
   above.
 
+**Falls** (`SewerRouteGenerator.falls_between`): the first sewer feeds the collector. In about 28 % of chunks, in a
+quadrant no ramp uses:
+
+* On -1 a spur leaves the main channel, crosses the tunnel walkway on a bridge, and runs beside a railed overlook ledge
+  to a 7 x 7 drop. The floor is gone there, the drop's cells block movement like the channels, and rough stone cliffs
+  fall a full storey.
+* The water pours over the lip as a waterfall sheet (`sewer_falls.gdshader`) into an 11 x 12 cistern on -2. The
+  cistern has a deep pool under the drop, mist where the falls land, and a walkway ring joined to the collector's
+  tunnel. The cistern is open overhead to the drop.
+* A looping positional roar (`Sound` cue `waterfall`) carries about 28 m on both levels. Within about 7-13 m of a lip
+  it masks a runner's noise for the hunters (`InfiniteRouteTest._falls_noise_mask`).
+* In a falls chunk the other sewer level stays loaded, so you can see across the drop.
+* There's no jump-down shortcut: the drop is railed and blocked.
+
 ## Layout (`src/game/sewer_route_generator.gd`)
 
 * **Main cross.** Every sewer chunk has a nine-wide brick tunnel along x = 22 and z = 22, so tunnels always meet
