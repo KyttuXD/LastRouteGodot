@@ -946,6 +946,10 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	# the host; each step is an event with a screenshot (KT saw a bot wedged in a carnival booth doorway for minutes)
 	var stuck := {"at": Vector3.INF, "since": 0.0, "stage": 0, "back_until": -1.0}
 	var stuck_log: Array = []
+	# host: every guest request as it arrives (the game drops refused ones silently), guard verdicts, and each peer's
+	# refusal-relevant state once a second, to <out>/coop_host_requests.jsonl
+	var reqlog: FileAccess = FileAccess.open(out.path_join("coop_host_requests.jsonl"), FileAccess.WRITE) if role == "host" else null
+	var hooked := []
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -969,6 +973,11 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			gate_ok = (live.size() >= int(opts["guests"])) if role == "host" else live.has(1)
 			if gate_ok:
 				report["coop_gate"] = {"t": snappedf(t, .1), "live": live}
+			elif t > 60.0 and String(opts.get("gate_strict", "true")) == "false":
+				# a long-lived room for testers: note it and carry on rather than take the room down
+				report["coop_gate"] = {"t": snappedf(t, .1), "live": live, "failed": true}
+				adapter.add_event("coop_gate_failed", {"t": snappedf(t, .1), "live": live})
+				gate_ok = true
 			elif t > 60.0:
 				bridge.screenshot(out.path_join("shots/%s_gate_failed.png" % _coop_name(role, opts)))
 				samples.close()
@@ -976,6 +985,11 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 				return {"outcome": "error", "game_seconds": snappedf(t, .1), "frames": frames, "deaths": [],
 					"scenario_failure": "co-op gate: after 60 s in the route %s hears %s (want %s)" % [role, live,
 						"%d guests" % int(opts["guests"]) if role == "host" else "the host"]}
+		if reqlog != null and not hooked.has(scene.get_instance_id()):
+			hooked.append(scene.get_instance_id())
+			_coop_hook_requests(scene, reqlog, started)
+		if reqlog != null and t >= next_sample:
+			_coop_peer_states(scene, reqlog, t)
 		player.admin_no_target = not ((me == a and t >= 235.0) or (role == "host" and t >= 470.0))
 		# the timeline, each step once
 		var step := ""
@@ -1079,12 +1093,47 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
 	bridge.input.release_all()
 	samples.close()
+	if reqlog != null:
+		reqlog.close()
 	Build.capture_rig = false
 	overlay.queue_free()
 	report["coop_stuck"] = stuck_log
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
+
+
+static func _coop_hook_requests(scene: Node, sink: FileAccess, started: int) -> void:
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return
+	var write := func(kind: String, peer: int, data: Variant) -> void:
+		sink.store_line(JSON.stringify({"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0),
+			"t": snappedf(float(Time.get_ticks_msec() - started) / 1000.0, .01), "kind": kind, "peer": peer, "data": data}))
+		sink.flush()
+	remotes.connect("world_event_requested", func(peer: int, event: Dictionary) -> void: write.call("world_event_requested", peer, event))
+	remotes.connect("interaction_requested", func(peer: int, event: Dictionary) -> void: write.call("interaction_accepted", peer, event))
+	remotes.connect("guest_violation", func(peer: int, reason: String, strikes: int, kicked: bool) -> void:
+		write.call("guest_violation", peer, {"reason": reason, "strikes": strikes, "kicked": kicked}))
+
+
+## Each guest's standing with the host once a second: trolled, guard strikes / lagging, and requests in the rate window.
+static func _coop_peer_states(scene: Node, sink: FileAccess, t: float) -> void:
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return
+	var guard: Object = remotes.get("guard")
+	var times: Dictionary = remotes.get("_interaction_times")
+	var trolls: Dictionary = remotes.get("troll_peers")
+	var rows := {}
+	for id in RoomState.peers:
+		if int(id) == 1:
+			continue
+		rows[str(id)] = {"troll": trolls.has(int(id)), "strikes": int(guard.call("strikes", int(id))) if guard != null else -1,
+			"lagging": bool(guard.call("lagging", int(id))) if guard != null else false,
+			"rate_window": (times.get(int(id), []) as Array).size(), "name": RoomState.peer_display_name(int(id))}
+	sink.store_line(JSON.stringify({"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0), "t": snappedf(t, .01), "kind": "peers", "data": rows}))
+	sink.flush()
 
 
 static func _coop_name(role: String, opts: Dictionary) -> String:
@@ -1155,6 +1204,7 @@ static func _coop_sample(scene: Node, role: String, me: int, t: float) -> Dictio
 	var hud: Object = scene.get("hud")
 	var grab: Object = scene.get("grab")
 	var row := {"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0), "t": snappedf(t, .01), "role": role, "me": me,
+		"fps": Engine.get_frames_per_second(),
 		"pos": [snappedf(player.global_position.x, .01), snappedf(player.global_position.y, .01), snappedf(player.global_position.z, .01)],
 		"hidden": player.hidden, "grab_state": player.grab_state.duplicate(),
 		"grab_playing": grab != null and not (grab.get("current") as Dictionary).is_empty(), "grab_style": str(grab.get("style")) if grab != null else "",

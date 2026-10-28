@@ -44,6 +44,7 @@ var _use_time := 0.0             # seconds spent at the current "use" goal
 var _use_swings := 0
 var _dark_check := 0.0
 var _dark := false
+var _jump_ready := 0.0
 var _interact_tries := 0
 var _relays_at_interact := 0
 var _hide_clear_time := 0.0
@@ -1121,13 +1122,38 @@ func _record_stuck(obs: Dictionary, p: Vector3) -> void:
 	stats["stuck_events"] = int(stats["stuck_events"]) + 1
 
 
+## Jumps when walking forward into a low obstacle with room above it (a step, a crate, a ledge), on a 1.2 s cooldown. True if it jumped.
+func _jump_ahead(player: PlayerController3D, act: Dictionary) -> bool:
+	if _clock < _jump_ready or float((act["move"] as Array)[1]) < .5:
+		return false
+	var space := player.get_world_3d().direct_space_state
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var base := player.global_position
+	var knee := PhysicsRayQueryParameters3D.create(base + Vector3.UP * .35, base + Vector3.UP * .35 + forward * .8)
+	knee.exclude = [player.get_rid()]
+	var head := PhysicsRayQueryParameters3D.create(base + Vector3.UP * 1.5, base + Vector3.UP * 1.5 + forward * .8)
+	head.exclude = [player.get_rid()]
+	if space.intersect_ray(knee).is_empty() or not space.intersect_ray(head).is_empty():
+		return false
+	act["pulse"].append("jump")
+	_jump_ready = _clock + 1.2
+	stats["jumps"] = int(stats.get("jumps", 0)) + 1
+	return true
+
+
 func _recover(scene: Node, player: PlayerController3D, p: Vector3, act: Dictionary) -> void:
 	match _stuck_level:
 		1:
-			act["pulse"].append("jump")
+			# a jump only over something real in front (a knee-high edge with headroom above it), at most every 1.2 s; otherwise
+			# plan again (KT saw a bot hop in place in an empty carnival hallway: this used to jump every frame of the stuck stage)
+			if not _jump_ahead(player, act):
+				_path = []
+				_path_age = 99.0
 		2:
 			act["pulse"].append("interact")   # a closed door in the way opens with interact
-			act["pulse"].append("jump")
+			_jump_ahead(player, act)
 		3:
 			if _clock > _strafe_until:
 				_strafe_until = _clock + .9
