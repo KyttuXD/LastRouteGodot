@@ -795,6 +795,7 @@ func _ready() -> void:
 		first_person_camera.far = PlatformProfile.camera_far
 		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
+	_warm_flashlight.call_deferred()
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
@@ -2182,6 +2183,27 @@ func _update_first_person_item_lights() -> void:
 	var lit := flashlight != null and flashlight.visible
 	_flashlight_lens_material.emission_enabled = lit
 	_flashlight_lens_material.albedo_color = Color("eee3ad") if lit else Color("3c3b35")
+
+
+## The first time the shadowed SpotLight becomes visible the renderer compiles its shader variants and allocates the
+## positional shadow atlas, a long frame. Do that once right after spawning, at zero energy, so the player's first
+## toggle (and every later one) only flips visibility.
+func _warm_flashlight() -> void:
+	if flashlight == null:
+		return
+	for _i in 2:
+		await get_tree().process_frame
+	if flashlight == null or flashlight.visible:
+		return
+	var energy := flashlight.light_energy
+	flashlight.light_energy = 0.0
+	flashlight.visible = true
+	for _i in 3:
+		await get_tree().process_frame
+	if flashlight == null:
+		return
+	flashlight.light_energy = energy
+	flashlight.visible = _flashlight_beam_should_be_visible()
 
 
 func _flashlight_beam_should_be_visible() -> bool:
