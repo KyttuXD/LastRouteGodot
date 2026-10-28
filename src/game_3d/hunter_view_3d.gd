@@ -282,6 +282,25 @@ func _apply_sleep_pose() -> void:
 		_model.remove_meta("awake_position")
 
 
+## Seated on a seat (HunterSeats, docs/SEATING.md): facing out of the seat, in the shared "sit" pose. Set every sync by
+## the host and from the hunter report on guests.
+var _seated := false
+
+
+func set_seated(on: bool, yaw: float = 0.0) -> void:
+	if on:
+		rotation.y = yaw
+		if nw_pose != HunterSeats.POSE:
+			NightWatchPoses.play(self, HunterSeats.POSE)
+	elif _seated and nw_pose == HunterSeats.POSE:
+		NightWatchPoses.stop(self)
+	_seated = on
+
+
+func is_seated() -> bool:
+	return _seated
+
+
 func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
 	climb_clip = clip
 	if on:

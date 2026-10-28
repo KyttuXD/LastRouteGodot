@@ -69,21 +69,28 @@ func _check_rest_camera(route: Node, player: PlayerController3D) -> void:
 		var start := player.global_position
 		var furniture := _furniture(route, type, action, Vector3(start.x, floor_y, start.z) - forward * 1.5, yaw)
 		var mattress := -1.0
-		if action == "lay":
-			# the bed's own model gives the mattress top, as the streamed view does
-			var model := ModelSlot.instantiate_prop(PropModelCatalog.model_path(type, type), type)
-			if model != null:
-				route.add_child(model)
-				model.global_position = Vector3(furniture.global_position.x, floor_y, furniture.global_position.z)
+		var seat := -1.0
+		# the prop's own (hunter-scaled) model gives the mattress top or the seat pan, as the streamed view does
+		var model := ModelSlot.instantiate_prop(PropModelCatalog.model_path(type, type), type)
+		if model != null:
+			route.add_child(model)
+			model.global_position = Vector3(furniture.global_position.x, floor_y, furniture.global_position.z)
+			if action == "lay":
 				mattress = StreamedFacilityView3D.mattress_top(model, PropModelCatalog.model_path(type, type))
 				furniture.set_meta("rest_top", mattress)
-				model.queue_free()
+			else:
+				seat = StreamedFacilityView3D.seat_top(model, PropModelCatalog.model_path(type, type), type)
+				furniture.set_meta("seat_top", seat)
+			model.queue_free()
 		player.use_furniture(furniture, action)
 		var jump := _step(player, 30)
 		_expect(not player.rest_ease_active(), "%s: the mount never finished easing" % type)
 		_expect(jump < MAX_FRAME_STEP, "%s: the camera jumped %.2f m in one frame mounting" % [type, jump])
 		var eye := player.first_person_pivot.global_position.y - floor_y
-		if mattress >= 0.0:
+		if seat > .2:
+			_expect(absf(eye - seat - PlayerController3D.SIT_EYE_ABOVE_SEAT) < .05, "%s: seated eye %.2f m above its seat (%.2f), wants %.2f" % [
+				type, eye - seat, seat, PlayerController3D.SIT_EYE_ABOVE_SEAT])
+		elif mattress >= 0.0:
 			_expect(eye - mattress >= .15 and eye - mattress <= .35, "%s: lying eye %.2f m above its mattress (%.2f), wants 0.15-0.35" % [type, eye - mattress, mattress])
 		else:
 			var band := LAY_EYE if action == "lay" else SIT_EYE

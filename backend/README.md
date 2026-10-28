@@ -320,15 +320,17 @@ godot4 --headless --path .. res://scenes/backend_smoke.tscn
 The pack **index** lives here (VPS 3); the pack **files** live only on VPS 2. The index never serves pack files.
 
 - `GET /api/mods/packs` lists every pack (newest version each): `id`, `name`, `version`, `author`, `description`,
-  `gameVersion`, `blocked`, `blockedReason`, `files` (`path`, `sha256`, `size`), `totalBytes`, `downloadBase`,
-  `versions`. Clients must skip `blocked` packs and verify every downloaded file against its `sha256` before loading it.
+  `gameVersion`, `overrides`, `sha256` (pack identity, below), `blocked`, `blockedReason`, `files` (`path`, `sha256`,
+  `size`; `pack.json` included), `totalBytes`, `downloadBase`, `versions`. Clients must skip `blocked` packs and verify
+  every downloaded file against its `sha256` before loading it.
 - `GET /api/mods/packs/<id>[?version=<v>]` returns one pack (404 `PACK_NOT_FOUND`).
 - Owner only (body `sessionToken` of an admin owner, as for `/api/admin/flags`):
   - `POST /api/admin/mods/register` with `{ pack, replace? }` (used by the deploy script). A version that already
     exists is refused with 409 `VERSION_EXISTS` unless `replace` is set.
   - `POST /api/admin/mods/block` with `{ id, reason? }` and `POST /api/admin/mods/unblock` with `{ id }`.
-- Caps: 64 MB per file, 256 MB per version, 500 files, 2000 packs, the 5 newest versions kept in the index. Paths
-  must be relative (no `..`, no leading `/`, no backslashes or dotfiles), and `pack.json` must be one of the files.
+- Caps follow the client loader: 16 MB per file, 128 MB per version, 512 files. The index holds at most 2000 packs and
+  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters/*.json`
+  one level deep; `assets/**` `.glb` `.png` `.ogg` (lower case). Anything else is refused at deploy time.
   The register body may be up to 256 KB; every other route keeps the 64 KB cap. `/api/mods/*` has its own
   rate-limit bucket (`LASTROUTE_MOD_RATE_LIMIT`).
 
@@ -336,9 +338,16 @@ Layout on VPS 2: `<remote-root>/<pack_id>/<version>/<files>` (default remote roo
 `<LASTROUTE_MOD_DOWNLOAD_BASE>/<pack_id>/<version>/<path>`. A version folder is never changed in place: publish a new
 version instead.
 
-`pack.json` fields read here: `id` (`[a-z0-9][a-z0-9_-]{2,47}`), `name`, `version` (`[0-9A-Za-z.+-]`, max 32),
-`author`, optional `description` and `game_version`, and an optional `files` list whose hashes must match the files.
-This is a draft until the DATA lane publishes its loader's `pack.json` schema; the two must stay in step.
+`pack.json` (`lr.pack/1`, the DATA lane's loader schema; see `docs/DATA_DRIVEN_CONTENT.md`):
+- `schema: "lr.pack/1"` is required, and unknown keys refuse the pack.
+- `id` is `[a-z0-9][a-z0-9_]{2,31}`, with no hyphen: content ids are `<pack_id>_<name>`.
+- `version` is `[0-9A-Za-z.+-]`, at most 32 characters.
+- `name` and `author` are required here.
+- `description`, `game_version` and `overrides` (`"<kind>/<id>"`) are optional.
+- `files` is optional; if present, it must list every file except `pack.json` with its exact sha256 and size.
+
+Pack identity (the client's cache key and room-handshake value) is the sha256 of the `"<file sha256> <path>"` lines,
+sorted by path and joined by `\n`, over every file including `pack.json`.
 
 Deploying a pack (dry run unless `--apply`; the owner session comes only from the environment):
 
