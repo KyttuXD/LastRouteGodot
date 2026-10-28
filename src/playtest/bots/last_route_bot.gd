@@ -719,7 +719,12 @@ func _use(player: PlayerController3D, p: Vector3, goal: Dictionary, act: Diction
 	var at: Vector3 = goal["at"]
 	var aimed := _aim_at(player, at, act, delta)
 	var flat := Vector2(at.x - p.x, at.z - p.z)
-	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 else 0.0]
+	# edge closer only over floor the navigation calls open: a box behind a booth counter is used from where we stand (stepping onto
+	# a prop's footprint is how a bot got wedged in a carnival booth doorway: no path out of a blocked cell)
+	var nav: StreamedHunterNavigation = tree.current_scene.get("_navigation") if _route_ready(tree.current_scene) else null
+	var step := Vector2(p.x, p.z) + flat.normalized() * .45
+	var may_step := nav == null or nav.can_occupy(step.x, step.y)
+	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 and may_step else 0.0]
 	_use_time += delta
 	var done := false
 	if aimed:
