@@ -27,7 +27,7 @@ const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
-const MAX_CHAT_LENGTH := 160
+const MAX_CHAT_LENGTH := 80   # spoken aloud (text to speech): short lines
 const FLOOR_EXIT_MARK_TIMEOUT_USEC := 20_000_000
 
 var local_player: Node3D
@@ -75,12 +75,20 @@ signal chat_received(peer_id: int, display_name: String, message: String)
 signal chat_message(peer_id: int, display_name: String, payload: Dictionary)
 
 const CHAT_CHANNELS := ["team", "nearby"]
-## Rate limits (checked by the host for every sender, and locally): messages per window, and the gap between map pings.
-const CHAT_RATE_WINDOW_MS := 5000
-const CHAT_RATE_MAX := 5
+## Moderation, enforced by the host for every sender (and locally): at most CHAT_RATE_MAX lines (quick-chat pings
+## included) per CHAT_RATE_WINDOW_MS, then a CHAT_COOLDOWN_MS cooldown; one map ping per PING_MIN_INTERVAL_MS; an exact or
+## near-duplicate of a line sent in the last DUPLICATE_WINDOW_MS is dropped; owner/admin room mutes drop everything.
+const CHAT_RATE_WINDOW_MS := 10000
+const CHAT_RATE_MAX := 3
+const CHAT_COOLDOWN_MS := 5000
 const PING_MIN_INTERVAL_MS := 2000
+const DUPLICATE_WINDOW_MS := 20000
 var _chat_times := {}
 var _ping_times := {}
+var _cooldown_until := {}
+var _recent_lines := {}
+## Host: peers muted for the whole room by the owner/admin tools (their lines are dropped before relay).
+var room_muted := {}
 
 
 func _ready() -> void:
@@ -144,7 +152,7 @@ func send_chat_payload(payload: Dictionary) -> bool:
 	clean["at"] = state.get("position", Vector2.ZERO)
 	clean["world"] = local_player.global_position if local_player != null else Vector3.ZERO
 	clean["depth"] = GameState.depth
-	if String(clean["text"]).is_empty() or not rate_ok(local_id, bool(clean["ping"])):
+	if String(clean["text"]).is_empty() or not accept_line(local_id, clean):
 		return false
 	if not RoomState.online:
 		_emit_payload(local_id, RoomState.local_display_name(), clean)
@@ -168,7 +176,7 @@ func _submit_chat_payload(payload: Dictionary) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var clean := sanitize_payload(payload, false)   # guests never send system lines
-	if sender <= 1 or String(clean["text"]).is_empty() or not rate_ok(sender, bool(clean["ping"])):
+	if sender <= 1 or String(clean["text"]).is_empty() or not accept_line(sender, clean):
 		return
 	_deliver_payload(sender, RoomState.peer_display_name(sender), clean)
 
@@ -215,9 +223,12 @@ static func sanitize_payload(payload: Dictionary, allow_system: bool) -> Diction
 ## At most CHAT_RATE_MAX lines per CHAT_RATE_WINDOW_MS per peer, and one map ping per PING_MIN_INTERVAL_MS.
 func rate_ok(peer_id: int, ping: bool, now_ms: int = -1) -> bool:
 	var now := now_ms if now_ms >= 0 else Time.get_ticks_msec()
+	if now < int(_cooldown_until.get(peer_id, 0)):
+		return false
 	var times: Array = (_chat_times.get(peer_id, []) as Array).filter(func(t: int) -> bool: return now - t < CHAT_RATE_WINDOW_MS)
 	if times.size() >= CHAT_RATE_MAX:
 		_chat_times[peer_id] = times
+		_cooldown_until[peer_id] = now + CHAT_COOLDOWN_MS
 		return false
 	if ping and now - int(_ping_times.get(peer_id, -PING_MIN_INTERVAL_MS)) < PING_MIN_INTERVAL_MS:
 		return false
@@ -229,8 +240,62 @@ func rate_ok(peer_id: int, ping: bool, now_ms: int = -1) -> bool:
 
 
 static func _sanitize_chat(text: String) -> String:
-	return text.replace("\r", " ").replace("\n", " ").strip_edges().substr(
-		0, MAX_CHAT_LENGTH)
+	return collapse_repeats(text.replace("\r", " ").replace("\n", " ").strip_edges()).substr(0, MAX_CHAT_LENGTH)
+
+
+## "aaaaaaa" -> "aaa", "!!!!!!" -> "!!!": any character repeated more than 3 times in a row is cut to 3.
+static func collapse_repeats(text: String) -> String:
+	var out := ""
+	var run := 0
+	for index in text.length():
+		run = run + 1 if index > 0 and text[index] == text[index - 1] else 1
+		if run <= 3:
+			out += text[index]
+	return out
+
+
+## Lines that are the same once case, spacing, punctuation and repeats are ignored count as duplicates.
+static func line_key(text: String) -> String:
+	var key := ""
+	for character in collapse_repeats(text.to_lower()):
+		if character.is_valid_identifier() or "0123456789".contains(character):
+			key += character
+	return key
+
+
+## True (and remembered) when `text` repeats a line this peer sent in the last DUPLICATE_WINDOW_MS.
+func is_duplicate(peer_id: int, text: String, now_ms: int = -1) -> bool:
+	var now := now_ms if now_ms >= 0 else Time.get_ticks_msec()
+	var key := line_key(text)
+	var recent: Array = (_recent_lines.get(peer_id, []) as Array).filter(func(entry: Array) -> bool: return now - int(entry[1]) < DUPLICATE_WINDOW_MS)
+	for entry in recent:
+		var other := String(entry[0])
+		if other == key or (key.length() >= 6 and (other.begins_with(key) or key.begins_with(other))
+				and absi(other.length() - key.length()) <= 3):
+			_recent_lines[peer_id] = recent
+			return true
+	recent.append([key, now])
+	_recent_lines[peer_id] = recent
+	return false
+
+
+## Host-side moderation in one place: room mute, rate limit (pings included), duplicates.
+func accept_line(peer_id: int, payload: Dictionary, now_ms: int = -1) -> bool:
+	if room_muted.has(peer_id):
+		return false
+	if bool(payload.get("system", false)):
+		return true   # host/owner notices are not rate limited
+	if is_duplicate(peer_id, String(payload.get("text", "")), now_ms):
+		return false
+	return rate_ok(peer_id, bool(payload.get("ping", false)), now_ms)
+
+
+## Owner/admin tools (host): mute a guest for the whole room, or remove them.
+func set_room_muted(peer_id: int, muted: bool) -> void:
+	if muted:
+		room_muted[peer_id] = true
+	else:
+		room_muted.erase(peer_id)
 
 
 func _process(delta: float) -> void:

@@ -43,6 +43,8 @@ func _collect(hud: Node, route: Node) -> Dictionary:
 	var chat := route.get("_room_chat") as RoomChat
 	if chat != null and chat.panel_rect().size != Vector2.ZERO:
 		rects["RoomChat"] = chat.panel_rect()
+	if chat != null and chat.subtitle_rect().size != Vector2.ZERO:
+		rects["ChatSubtitle"] = chat.subtitle_rect()
 	return rects
 
 
@@ -124,14 +126,14 @@ func run(host: Node) -> int:
 		hud.status_bar.set_segment("admin", "ADMIN ACTIVE // PUBLIC ROUTE // DEBUG RUN (NOT RECORDED)", "admin")
 		hud.set_public_line("PUBLIC ROUTE // 12 ONLINE // 120 RELAYS")
 		await _check_state(host, hud, route, "status bar full", size, ["HudStatusBar"])
-		# 3. co-op: chat with messages (collapsed panel is zero-size without them)
+		# 3. co-op: spoken chat shows a subtitle (no log panel); the input panel only while typing
 		if chat != null:
 			_expect(chat.panel_rect().size == Vector2.ZERO, "chat shows an empty panel at %s: %s" % [size, chat.panel_rect()])
 			for line in ["hello there", "the second relay is past the red door and down the stairs, bring a battery", "ok"]:
-				chat._on_chat_received(1, "Kyttu", line)
-			await _check_state(host, hud, route, "co-op chat", size, ["RoomChat"])
-			var rect := chat.panel_rect()
-			_expect(rect.size.y <= window.get_visible_rect().size.y * .25 + 8.0, "chat is taller than a quarter of the window at %s: %s" % [size, rect])
+				chat._on_chat_received(2, "Kyttu", line)
+			await _check_state(host, hud, route, "co-op chat", size, ["ChatSubtitle"])
+			_expect(chat.panel_rect().size == Vector2.ZERO, "spoken chat opened a log panel at %s" % size)
+			chat._subtitle_left = 0.0
 			chat.open()
 			await _check_state(host, hud, route, "chat open", size, ["RoomChat"])
 			chat.close()

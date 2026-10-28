@@ -598,6 +598,12 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("mute")},
+		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("unmute")},
+		{"label": "KICK LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("kick")},
 		{"heading": "ITEMS", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
@@ -5576,3 +5582,28 @@ func _aimed_hunter_mark() -> Dictionary:
 			best_dot = dot
 			best = {"at": view.brain.position, "depth": GameState.depth}
 	return best
+
+
+## Owner/admin room moderation (host): the last guest heard in chat is room-muted (their lines are dropped before relay)
+## or removed from the room.
+func _admin_room_chat(what: String) -> void:
+	if _remotes == null or not RoomState.is_host:
+		hud.show_message("ROOM MODERATION NEEDS THE HOST")
+		return
+	var target := 0
+	for entry_value in RoomChat.history:
+		var entry: Dictionary = entry_value
+		if int(entry.get("peer", 0)) > 1 and not bool(entry.get("system", false)):
+			target = int(entry["peer"])
+	match what:
+		"unmute":
+			_remotes.room_muted.clear()
+			_remotes.send_system("ROOM CHAT UNMUTED")
+		"mute":
+			if target > 1:
+				_remotes.set_room_muted(target, true)
+				_remotes.send_system("%s IS MUTED IN THIS ROOM" % RoomState.peer_display_name(target).to_upper())
+		"kick":
+			if target > 1:
+				_remotes.send_system("%s WAS REMOVED FROM THE ROOM" % RoomState.peer_display_name(target).to_upper())
+				RoomState.kick_peer(target)

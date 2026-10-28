@@ -435,6 +435,18 @@ func _on_peer_disconnected(id: int) -> void:
 	changed.emit()
 
 
+## Host only (owner/admin tools): remove a guest from the room, the same way a guest's own leave is handled.
+func kick_peer(id: int) -> void:
+	if not online or not is_host or id <= 1 or not peers.has(id):
+		return
+	peers.erase(id)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+	Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.disconnect_peer(id)
+
+
 ## A graceful guest exit reaches host authority before its relay tunnel closes.
 ## The transport's later peer_disconnected signal is intentionally idempotent.
 @rpc("any_peer", "call_remote", "reliable")
