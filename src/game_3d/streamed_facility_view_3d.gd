@@ -1797,6 +1797,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.name = "Furniture_%s" % prop_type
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
+		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)

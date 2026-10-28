@@ -2192,11 +2192,36 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
+	result = one_ceiling_family(result)
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## Ceiling fixtures by family (KT: "chandeliers AND ceiling fans together"). A room keeps one family: a chandelier
+## wins over a fan, a fan (which has its own light kit) over a plain ceiling light; the others are dropped.
+const CEILING_FIXTURE_FAMILY := {"diningChandelier": "chandelier", "ceilingFan": "fan", "ceilingLight": "light"}
+const CEILING_FAMILY_ORDER := ["chandelier", "fan", "light"]
+
+
+static func one_ceiling_family(props: Array) -> Array:
+	var families := {}
+	for prop in props:
+		var family := String(CEILING_FIXTURE_FAMILY.get(String(prop.get("type", "")), ""))
+		if not family.is_empty():
+			families[family] = true
+	if families.size() <= 1:
+		return props
+	var keep := ""
+	for family in CEILING_FAMILY_ORDER:
+		if families.has(family):
+			keep = family
+			break
+	return props.filter(func(prop: Dictionary) -> bool:
+		var family := String(CEILING_FIXTURE_FAMILY.get(String(prop.get("type", "")), ""))
+		return family.is_empty() or family == keep)
 
 
 ## Big props claim their space first: solid specs by footprint (largest first), then the rest; ties keep recipe order, so
@@ -2904,6 +2929,11 @@ static func _room_template_specs(template: String, region: String,
 				var copy: Dictionary = (original as Dictionary).duplicate()
 				copy["side"] = int(copy.get("side", 0)) + shift
 				specs.append(copy)
+	if region == "mansion":
+		# no plain fans or strip lights in the mansion: its ceiling fixture is a chandelier (crystal-and-brass finish)
+		for spec_value in specs:
+			if String(spec_value.get("type", "")) in ["ceilingFan", "ceilingLight"]:
+				spec_value["type"] = "diningChandelier"
 	if region == "mansion" and template in ["bedroom", "lounge", "mansion_dining", "dining_hall"]:
 		# Mansion luxury (docs/MANSION_LUXURY.md): marble columns in the back corners, porcelain vases on the back wall.
 		var corner := maxi(2, side_span / 2 - 1)
