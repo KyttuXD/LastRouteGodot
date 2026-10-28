@@ -164,6 +164,10 @@ func _expect_xr(route: Node) -> void:
 			"*", "MeshInstance3D", true, false)
 		if item_meshes.size() < 20:
 			_fail("the authored equipment views contain only %d visible parts" % item_meshes.size())
+		# camera-local equipment sits right beside the shadowed flashlight: any of it casting a shadow throws a striped smear over the floor in the beam
+		for node in controller.first_person_items.find_children("*", "GeometryInstance3D", true, false):
+			if (node as GeometryInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+				_fail("first-person equipment %s casts a shadow" % controller.first_person_items.get_path_to(node))
 		for item_id in PlayerController3D.INVENTORY_ITEMS:
 			var view: Node3D = controller.flashlight_view if item_id == "flashlight" \
 				else (controller.taser_view if item_id == "taser" \
