@@ -957,7 +957,7 @@ func _enter_session_scene(tree: SceneTree) -> void:
 	# Resource dependencies are loaded on the worker thread by the intermediate
 	# scene. Main3D then keeps the same visual over a joining guest until her
 	# authoritative host snapshot is installed.
-	tree.change_scene_to_file(ROUTE_LOADING_SCENE)
+	XRFade.change_scene(tree, ROUTE_LOADING_SCENE)
 
 
 ## The two-process ENet harness verifies the start RPC while deliberately
@@ -1036,7 +1036,7 @@ func _return_to_staging() -> void:
 	if tree.current_scene != null \
 			and tree.current_scene.scene_file_path == "res://scenes/room_lobby.tscn":
 		return
-	tree.change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(tree, "res://scenes/room_lobby.tscn")
 
 
 static func _make_code() -> String:

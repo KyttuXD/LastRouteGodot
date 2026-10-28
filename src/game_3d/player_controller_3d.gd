@@ -250,6 +250,8 @@ var xr_active := false
 var xr_comfort: XRComfort
 ## OpenXR hand interactions: hand-over-hand ladders, physical swings, pokes, the flashlight in the left hand.
 var xr_hands: XRHands
+var xr_fade: XRFade
+const XR_REVEAL_FALLBACK_SECONDS := 2.5
 ## Metres a gripping hand pulled the runner up (+) or down (-) this frame (XRHands), applied by _update_ladder_climb.
 var _xr_climb_pull := 0.0
 
@@ -1694,6 +1696,12 @@ func _wants_xr() -> bool:
 	return OS.has_feature("xr") or OS.get_cmdline_user_args().has("--xr")
 
 
+## Fades the headset in from black (after the spawn settles; see _try_enter_xr).
+func reveal_xr_view() -> void:
+	if xr_fade != null and is_instance_valid(xr_fade):
+		xr_fade.fade_to(0.0)
+
+
 func _try_enter_xr() -> bool:
 	if not _wants_xr():
 		return false
@@ -1711,6 +1719,10 @@ func _try_enter_xr() -> bool:
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
+	# Comfort (XRFade): the route starts black and fades in once the spawn has settled (reveal_xr_view), so the eye never
+	# sees the world stream in or the spawn move; a fallback fades in anyway.
+	xr_fade = XRFade.attach(xr_camera, 1.0)
+	get_tree().create_timer(XR_REVEAL_FALLBACK_SECONDS).timeout.connect(reveal_xr_view)
 	body_visual.visible = false
 	# Desktop viewmodels are camera-framed props, not world-scale VR hands.
 	# Hide them in OpenXR until controller-held models get their own pass.

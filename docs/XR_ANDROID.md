@@ -176,6 +176,29 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   lay out at 1:1 on the eye buffer (about 1680 x 1760 on a Quest 3S), and the pause menu was a small box. The panel
   re-anchors each layer's top-level Controls against the designed 480 x 270 canvas (`XRRoutePanel.fit_to_canvas`,
   which places them exactly where the stretch would have), and the pointer maps onto that canvas.
+- **Death:** the death screen stays in front of the head (re-placed once the head turns more than 50 degrees away), and
+  an alert cue plus a haptic pulse on both controllers repeat every 15 s while it is up. Respawn, a new run or CONTINUE,
+  and leaving the route call `Sound.reset_run_effects()` (underwater muffle and chase duck off) and, in XR, make the
+  XR camera current again (the audio listener follows it; the jumpscare borrows the camera).
+- **Hands:** the controllers track Godot's `default` pose, which OpenXR binds to the aim pose. The hand models (skinned
+  hands and gloves) are turned each frame by aim to grip from the controller's own tracker (`XRHands.grip_offset`).
+
+### Scene changes in a headset
+
+Leaving a route and switching menus used to flash in VR: the scene change freed the camera the headset rendered from,
+and the menu panel only took the view back a frame later. Every XR camera now carries an `XRFade` (a black sphere
+around the head, drawn over everything), and switches go through `XRFade.change_scene(tree, scene)`:
+
+- fade to black over 0.3 s on whatever the headset sees;
+- the menu panel takes the view at once, still black (`XRMenuPanel.take_view_dark`), so no frame renders from a
+  camera that is being freed;
+- the new scene loads, then 0.25 s of black, then a 0.3 s fade in (`scene_changed`);
+- entering a route: the player enters XR black and fades in once the spawn has settled (`reveal_xr_view`, with a
+  2.5 s fallback).
+
+Leave route, pause to hub, death to menu, the hub, title and lobby switches and route loading use it. Desktop and phones
+have no XR camera, so it is a plain `change_scene_to_file` / `_packed` there. `validate_platform` steps each of those
+transitions in a fake XR setup at 72 Hz and fails on a frame with no XR camera or a brightness jump above 0.05 per frame.
 - **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
