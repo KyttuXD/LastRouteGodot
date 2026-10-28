@@ -397,7 +397,7 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO GAMES"
+	leave.text = RoomState.menu_back_label()   # "BACK TO LAST ROUTE": this game's menu, not the games hub
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)

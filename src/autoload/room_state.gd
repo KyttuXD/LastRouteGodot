@@ -435,6 +435,18 @@ func _on_peer_disconnected(id: int) -> void:
 	changed.emit()
 
 
+## Host only (owner/admin tools): remove a guest from the room, the same way a guest's own leave is handled.
+func kick_peer(id: int) -> void:
+	if not online or not is_host or id <= 1 or not peers.has(id):
+		return
+	peers.erase(id)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+	Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.disconnect_peer(id)
+
+
 ## A graceful guest exit reaches host authority before its relay tunnel closes.
 ## The transport's later peer_disconnected signal is intentionally idempotent.
 @rpc("any_peer", "call_remote", "reliable")
@@ -966,9 +978,20 @@ func is_city() -> bool:
 	return false   # KYTTU: The City is archived
 
 
-## Where "back to the menu" goes for this room's game: the City has its own menu, Last Route's menu is the hub.
+## Where "back" goes for this room's game: that game's own menu (Last Route's title menu, main_menu.tscn), so leaving staging
+## or a route lands on the game, not the general games hub. Falls back to the hub for a game without a menu scene.
 func menu_scene_path() -> String:
-	return GameRegistry.HUB_SCENE
+	var game := GameRegistry.get_game(game_id())
+	var scene := String(game.get("scene", "")) if not game.is_empty() else ""
+	Settings.hub_last_game = game_id()   # the hub opens on this game's card if the player goes on to it
+	return scene if not scene.is_empty() and ResourceLoader.exists(scene) else GameRegistry.HUB_SCENE
+
+
+## "BACK TO LAST ROUTE": the label of the back button that returns to menu_scene_path().
+func menu_back_label() -> String:
+	var game := GameRegistry.get_game(game_id())
+	var title := String(game.get("title", "")).trim_prefix("THE ").trim_prefix("KYTTU: ") if not game.is_empty() else ""
+	return "BACK TO %s" % title if not title.is_empty() else "BACK"
 
 
 ## Directory answers from servers that predate the `game` field are Last Route rooms.

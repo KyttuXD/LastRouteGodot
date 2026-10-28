@@ -76,15 +76,18 @@ button (shown with the jump key for the active device) or the jump key brings it
 zoom is remembered between opens (`FacilityMap.remembered_zoom`). Teammates, hunters and waypoints draw as before; the title shows the
 current floor. Test: `map_follow`.
 
-## Chat, channels and quick chat
+## Spoken chat, channels and quick chat
 
-`RoomChat` (`src/ui/room_chat.gd`), bottom-left above the stamina bar. Closed: the last 5 lines, fading 8 s after the last one;
-open (chat key / CHAT touch button): the scrollable history (60 lines), the input and a TEAM / NEARBY toggle (button or TAB).
-Lines read `[TEAM] 12:04 CALLSIGN  text`, the callsign in the sender's peer colour; system lines (`RemotePlayers.send_system`,
-host only) are amber. NEARBY: same level within 20 m reads normally, further on the same level is greyed, another level is not
-shown. Quick chat (`quick_chat`: ` key, D-pad up, the Quest's left X held with the stick, QUICK touch button): a radial of
-OVER HERE!, HUNTER!, RELAY HERE, NEED LIGHT, HIDE!, FOLLOW ME, THANKS, YES, NO; hold and point (stick / WASD / mouse) then
-release, or tap and click. Each sends the line and a 6 s ping in the sender's colour on the minimap and full map (HUNTER! on the
-hunter under the crosshair when one is visible). The host rate-limits every sender (5 lines / 5 s, one ping / 2 s) and peers can
-never send system lines. Phones lift the panel above the on-screen keyboard; the Quest's headset keyboard types into the field.
-Test: `chat`.
+`RoomChat` (`src/ui/room_chat.gd`). Typed lines (80 characters, chat key / CHAT touch button / headset keyboard) are SPOKEN with
+the OS text-to-speech voice of their sender (`DisplayServer.tts_speak`; a stable voice, pitch and rate per peer,
+`RoomChat.voice_for`). Loudness: NEARBY falls off over 25 m on the same level, halved through walls (a ray from the camera),
+silent beyond and from other levels; TEAM is at least a quiet radio (35 %) for everyone. Each line shows as a speech bubble over
+the speaker and a subtitle at the bottom (Settings, on by default); there is no chat log, only "SAID RECENTLY" in the pause menu
+with MUTE per speaker. Speaking makes a hunter noise sized by length (a SHOUT or "!" is louder). No voices installed: subtitle +
+a soft blip. Settings > AUDIO: SPOKEN CHAT volume, VOICES (off = subtitles only), SUBTITLES.
+Moderation (host-side, `RemotePlayers.accept_line`): 3 lines per 10 s then a 5 s cooldown, quick-chat pings included (and one
+ping per 2 s); exact or near-duplicate repeats within 20 s dropped; long repeated characters collapsed ("aaaaa" -> "aaa"); local
+mute (pause menu); owner/admin ROOM MUTE / UNMUTE EVERYONE / KICK in the admin tools; peers cannot send system lines.
+Quick chat (`quick_chat`: ` key, D-pad up, Quest left X + stick, QUICK touch button): a radial of OVER HERE!, HUNTER!, RELAY HERE,
+NEED LIGHT, HIDE!, FOLLOW ME, THANKS, YES, NO, spoken like a line, plus a 6 s ping in the sender's colour on both maps (HUNTER!
+on the aimed hunter). Test: `chat`.

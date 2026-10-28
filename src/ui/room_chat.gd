@@ -1,6 +1,12 @@
 class_name RoomChat
 extends CanvasLayer
 
+## SPOKEN room chat (like R.E.P.O.): a typed line is said aloud by every client in range with the OS text-to-speech voice of
+## its sender (DisplayServer.tts_speak), louder the closer they are (25 m on the same level, quieter through walls, silent
+## beyond); TEAM lines also reach everyone as a quieter "radio". It shows as a speech bubble over the speaker and a short
+## subtitle at the bottom (Settings.voice_subtitles); there is no on-screen log, only a small history in the pause menu.
+## Speaking makes a noise for the hunters (louder for SHOUTED lines). Without TTS voices it falls back to subtitles + a blip.
+##
 ## Room chat shared by the finite and Infinite scenes. Transport derives the sender name from RoomState; clients never get to
 ## claim another player's identity in the message packet.
 ##
@@ -26,7 +32,14 @@ const SAFE_MARGIN := 8.0
 const BOTTOM_CLEARANCE := 58.0
 const PROMPT_CLEARANCE := 34.0
 const FONT_SIZE := 9
-const NEARBY_RANGE := 20.0
+const NEARBY_RANGE := 25.0
+const TEAM_RADIO_VOLUME := 0.35
+const OCCLUDED_FACTOR := 0.5
+const SUBTITLE_SECONDS := 4.0
+const BUBBLE_SECONDS := 3.5
+const HISTORY_SIZE := 12
+## The pause menu's short history of what was said: {peer, name, text, channel, system}.
+static var history: Array = []
 const QUICK_ACTION := "quick_chat"
 const PRESETS := ["OVER HERE!", "HUNTER!", "RELAY HERE", "NEED LIGHT", "HIDE!", "FOLLOW ME", "THANKS", "YES", "NO"]
 const QUICK_RADIUS := 52.0
@@ -44,6 +57,10 @@ var _messages: Array[String] = []
 var _open := false
 var _fresh_left := 0.0
 var _view_size := Vector2.ZERO
+var _subtitle: Label
+var _subtitle_left := 0.0
+## What was last spoken (tests): {text, voice, volume, pitch, rate, blip}.
+var last_spoken := {}
 var _quick: Control
 var _quick_buttons: Array[Button] = []
 var _quick_open := false
@@ -85,18 +102,30 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_fresh_left = maxf(0.0, _fresh_left - delta)
+	_subtitle_left = maxf(0.0, _subtitle_left - delta)
+	_subtitle.visible = _subtitle_left > 0.0
+	_subtitle.modulate.a = clampf(_subtitle_left / 0.6, 0.0, 1.0)
+	if _subtitle.visible:
+		var view := get_viewport().get_visible_rect().size
+		_subtitle.custom_minimum_size.x = minf(320.0, view.x - 2.0 * SAFE_MARGIN)
+		_subtitle.reset_size()
+		_subtitle.position = Vector2((view.x - _subtitle.size.x) * .5, view.y - BOTTOM_CLEARANCE - _subtitle.size.y - 2.0)
 	_refresh_panel()
 	_update_quick()
 
 
 ## Screen rect the panel occupies (zero-size while collapsed).
+func subtitle_rect() -> Rect2:
+	return Rect2(_subtitle.position, _subtitle.size) if _subtitle.visible else Rect2()
+
+
 func panel_rect() -> Rect2:
 	return Rect2(_panel.position, _panel.size) if _panel.visible else Rect2()
 
 
 func _refresh_panel() -> void:
 	var has_messages := not _messages.is_empty()
-	var show_log := has_messages and (_open or _fresh_left > 0.0)
+	var show_log := false   # spoken chat: no on-screen log (the pause menu keeps a short history)
 	_log.visible = show_log
 	(_field.get_parent() as Control).visible = _open
 	_panel.visible = _open or show_log
@@ -217,9 +246,29 @@ func _submit(text: String) -> void:
 		close()
 		return
 	if remotes != null:
-		if not remotes.send_chat_payload({"text": message, "channel": channel}):
-			add_system("SLOW DOWN // TOO MANY MESSAGES")
+		if remotes.send_chat_payload({"text": message, "channel": channel}):
+			_make_speech_noise(message)
+		else:
+			add_system("NOT SENT // SLOW DOWN OR NO REPEATS")
 	close()
+
+
+## The speaker is heard by the hunters: a noise burst sized by length, louder when shouted.
+func _make_speech_noise(text: String) -> void:
+	var player := remotes.local_player if remotes != null else null
+	if player != null and player.has_method("emit_noise_burst"):
+		var noise := noise_for(text)
+		player.call("emit_noise_burst", noise.x, noise.y)
+
+
+## (level 0..1, seconds) of the noise a spoken line makes: longer lines last longer, ALL CAPS or "!" is a shout.
+static func noise_for(text: String) -> Vector2:
+	var length := mini(text.length(), RemotePlayers.MAX_CHAT_LENGTH)
+	var level := 0.25 + 0.35 * float(length) / float(RemotePlayers.MAX_CHAT_LENGTH)
+	var letters := text.to_lower() != text.to_upper()
+	if text.contains("!") or (letters and text == text.to_upper() and text.length() > 3):
+		level *= 1.6
+	return Vector2(clampf(level, 0.0, 1.0), 0.8 + float(length) / 40.0)
 
 
 ## Local system line (owner/admin notices arrive through RemotePlayers.send_system as system payloads).
@@ -233,28 +282,123 @@ func _on_chat_received(peer_id: int, display_name: String, message: String) -> v
 
 
 func _on_chat_message(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	if Settings.is_player_muted(display_name):
+		return   # muted players are neither spoken nor shown
+	var own := peer_id == _local_id()
+	var system := bool(payload.get("system", false))
+	var volume := 1.0 if system else speech_volume(payload, _local_world(), GameState.depth, own,
+		_occluded(payload.get("world", Vector3.ZERO)))
+	if volume <= 0.0:
+		return   # out of range: silent and not shown
+	var text := String(payload.get("text", ""))
 	var nearby := String(payload.get("channel", "team")) == "nearby"
-	var verdict := hear(payload, _local_world(), GameState.depth, peer_id == _local_id())
-	if verdict == "hidden":
-		return
-	_add_entry({"peer": peer_id, "name": display_name, "text": String(payload.get("text", "")),
-		"channel": "nearby" if nearby else "team", "system": bool(payload.get("system", false)), "faint": verdict == "faint"})
-	if bool(payload.get("ping", false)) and verdict != "hidden":
+	_add_entry({"peer": peer_id, "name": display_name, "text": text, "channel": "nearby" if nearby else "team",
+		"system": system, "faint": volume < .35})
+	if Settings.voice_subtitles:
+		show_subtitle(peer_id, display_name, text, system)
+	if not system:
+		_show_bubble(peer_id, text)
+		if not own:
+			_speak(text, peer_id, volume)
+	if bool(payload.get("ping", false)):
 		var target = payload.get("target")
 		ping_posted.emit(peer_id, target if target is Vector2 else payload.get("at", Vector2.ZERO), int(payload.get("depth", 0)),
-			String(payload.get("preset", payload.get("text", ""))), RemotePlayers.peer_colour(peer_id))
+			String(payload.get("preset", text)), RemotePlayers.peer_colour(peer_id))
 
 
-## Whether this client hears a line: "clear", "faint" (NEARBY, same level, beyond NEARBY_RANGE) or "hidden" (NEARBY from
-## another level). TEAM and system lines and the player's own lines are always clear.
+## 0..1 loudness of a line at the listener: NEARBY falls off over NEARBY_RANGE on the same level (OCCLUDED_FACTOR through
+## walls), nothing from another level or beyond range; TEAM is at least the quiet TEAM_RADIO_VOLUME for everyone.
+static func speech_volume(payload: Dictionary, listener_world: Vector3, listener_depth: int, own: bool, occluded: bool) -> float:
+	if own:
+		return 1.0
+	var proximity := 0.0
+	if int(payload.get("depth", listener_depth)) == listener_depth:
+		var speaker: Vector3 = payload.get("world", listener_world)
+		var flat := Vector2(speaker.x - listener_world.x, speaker.z - listener_world.z).length()
+		proximity = clampf(1.0 - flat / NEARBY_RANGE, 0.0, 1.0) * (OCCLUDED_FACTOR if occluded else 1.0)
+	if String(payload.get("channel", "team")) == "team":
+		return maxf(proximity, TEAM_RADIO_VOLUME)
+	return proximity
+
+
+## Kept for older callers: "clear", "faint" or "hidden" from the speech volume.
 static func hear(payload: Dictionary, listener_world: Vector3, listener_depth: int, own: bool) -> String:
-	if own or bool(payload.get("system", false)) or String(payload.get("channel", "team")) != "nearby":
+	if own or bool(payload.get("system", false)):
 		return "clear"
-	if int(payload.get("depth", listener_depth)) != listener_depth:
-		return "hidden"
-	var speaker: Vector3 = payload.get("world", listener_world)
-	var flat := Vector2(speaker.x - listener_world.x, speaker.z - listener_world.z).length()
-	return "clear" if flat <= NEARBY_RANGE else "faint"
+	var volume := speech_volume(payload, listener_world, listener_depth, own, false)
+	return "hidden" if volume <= 0.0 else ("faint" if volume < .35 else "clear")
+
+
+## A wall between the listener's camera and the speaker's head (same physics the footsteps' world uses).
+func _occluded(speaker_world) -> bool:
+	if not speaker_world is Vector3 or remotes == null or remotes.local_player == null:
+		return false
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return false
+	var space := camera.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(camera.global_position, (speaker_world as Vector3) + Vector3(0, 1.4, 0))
+	query.collide_with_areas = false
+	if remotes.local_player is CollisionObject3D:
+		query.exclude = [(remotes.local_player as CollisionObject3D).get_rid()]
+	return not space.intersect_ray(query).is_empty()
+
+
+## A stable voice per peer: one of the OS voices (English first) plus a pitch and rate offset.
+static func voice_for(peer_id: int, voices: Array) -> Dictionary:
+	var english := voices.filter(func(v: Dictionary) -> bool: return String(v.get("language", "")).begins_with("en"))
+	var pool: Array = english if not english.is_empty() else voices
+	var id := String((pool[posmod(peer_id * 31 + 7, pool.size())] as Dictionary).get("id", "")) if not pool.is_empty() else ""
+	return {"id": id, "pitch": 0.85 + 0.08 * float(posmod(peer_id * 13, 5)), "rate": 0.95 + 0.05 * float(posmod(peer_id * 7, 3))}
+
+
+func _speak(text: String, peer_id: int, volume: float) -> void:
+	if not Settings.voice_enabled:
+		last_spoken = {"text": text, "volume": 0, "blip": false, "voice": ""}
+		return   # subtitles only
+	var voices: Array = DisplayServer.tts_get_voices() if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH) else []
+	var voice := voice_for(peer_id, voices)
+	var loudness := int(round(clampf(volume, 0.0, 1.0) * Settings.voice_volume))
+	if String(voice["id"]).is_empty():
+		Sound.menu_blip()   # no TTS voice on this device: subtitle + a soft blip
+		last_spoken = {"text": text, "volume": loudness, "blip": true, "voice": ""}
+		return
+	DisplayServer.tts_speak(text, String(voice["id"]), loudness, float(voice["pitch"]), float(voice["rate"]))
+	last_spoken = {"text": text, "volume": loudness, "blip": false, "voice": voice["id"], "pitch": voice["pitch"], "rate": voice["rate"]}
+
+
+func show_subtitle(peer_id: int, display_name: String, text: String, system: bool = false) -> void:
+	_subtitle.text = ("// %s" % text) if system else "%s: %s" % [display_name.to_upper(), text]
+	_subtitle.add_theme_color_override("font_color", Palette.AMBER if system else RemotePlayers.peer_colour(peer_id).lightened(.3))
+	_subtitle_left = SUBTITLE_SECONDS
+	_subtitle.visible = true
+
+
+## A speech bubble over the speaker's head (remote players' bodies) in their colour, for a few seconds.
+func _show_bubble(peer_id: int, text: String) -> void:
+	var body: Node3D = remotes._bodies.get(peer_id) if remotes != null else null
+	if body == null or not is_instance_valid(body):
+		return
+	var bubble := body.get_node_or_null("SpeechBubble") as Label3D
+	if bubble == null:
+		bubble = Label3D.new()
+		bubble.name = "SpeechBubble"
+		bubble.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		bubble.no_depth_test = true
+		bubble.font_size = 22
+		bubble.outline_size = 6
+		bubble.width = 360.0
+		bubble.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		bubble.position = Vector3(0, RemotePlayers.NAME_TAG_HEIGHT + 0.32, 0)
+		body.add_child(bubble)
+	bubble.text = text
+	bubble.modulate = Color(RemotePlayers.peer_colour(peer_id).lightened(.25), 1.0)
+	bubble.visible = true
+	var token := Time.get_ticks_msec()
+	bubble.set_meta("shown_at", token)
+	get_tree().create_timer(BUBBLE_SECONDS + text.length() * 0.04).timeout.connect(func() -> void:
+		if is_instance_valid(bubble) and int(bubble.get_meta("shown_at", 0)) == token:
+			bubble.visible = false)
 
 
 func _local_world() -> Vector3:
@@ -268,6 +412,9 @@ func _local_id() -> int:
 func _add_entry(entry: Dictionary) -> void:
 	entry["time"] = Time.get_time_string_from_system().substr(0, 5)
 	_entries.append(entry)
+	history.append(entry)
+	while history.size() > HISTORY_SIZE:
+		history.pop_front()
 	while _entries.size() > HISTORY_MAX:
 		_entries.pop_front()
 	_fresh_left = FADE_AFTER
@@ -335,7 +482,7 @@ func _build_ui() -> void:
 	_field = LineEdit.new()
 	_field.name = "ChatInput"
 	_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_field.placeholder_text = "MESSAGE // ENTER SENDS // TAB CHANNEL"
+	_field.placeholder_text = "SAY SOMETHING // ENTER SPEAKS // TAB CHANNEL"
 	_field.max_length = RemotePlayers.MAX_CHAT_LENGTH
 	_field.add_theme_font_size_override("font_size", FONT_SIZE)
 	_field.text_submitted.connect(_submit)
@@ -346,6 +493,20 @@ func _build_ui() -> void:
 	row.add_child(_field)
 	set_channel(channel)
 	_panel.visible = false
+	_subtitle = Label.new()
+	_subtitle.name = "ChatSubtitle"
+	_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_subtitle.add_theme_font_size_override("font_size", FONT_SIZE)
+	_subtitle.add_theme_color_override("font_outline_color", Color(0, 0, 0, .9))
+	_subtitle.add_theme_constant_override("outline_size", 3)
+	var subtitle_box := StyleBoxFlat.new()
+	subtitle_box.bg_color = Color(0, 0, 0, .55)
+	subtitle_box.set_content_margin_all(3)
+	_subtitle.add_theme_stylebox_override("normal", subtitle_box)
+	_subtitle.visible = false
+	add_child(_subtitle)
 
 
 # -- quick chat ---------------------------------------------------------------
@@ -431,6 +592,7 @@ func send_preset(index: int) -> bool:
 		if not hunter.is_empty():
 			payload["target"] = hunter.get("at", Vector2.ZERO)   # everyone's ping lands on the hunter, not on me
 	if not remotes.send_chat_payload(payload):
-		add_system("SLOW DOWN // PINGS ARE RATE LIMITED")
+		add_system("NOT SENT // PINGS ARE RATE LIMITED")
 		return false
+	_make_speech_noise(PRESETS[index])
 	return true
