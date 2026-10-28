@@ -37,8 +37,13 @@ func _model(id: String, with_addons: bool = true) -> Node3D:
 func run(host: Node) -> int:
 	var tree := host.get_tree()
 	await tree.process_frame
+	# the proof of concept lives in a TEST-ONLY fixture: no live hunter wears a tail or a lantern
 	HunterAddons.reset()
-	HunterAddons.reset(JSON.parse_string(FileAccess.get_file_as_string(HunterAddons.DATA_PATH)) as Dictionary)
+	var live := HunterAddons.data()
+	_expect((live.get("hunters", {}) as Dictionary).is_empty() and (live.get("shared", []) as Array).is_empty(), "the shipped addons.json must not assign any add-on to a hunter")
+	for id in HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS:
+		_expect(not HunterAddons.has_addons(id), "%s wears an add-on in the shipped data" % id)
+	HunterAddons.reset(JSON.parse_string(FileAccess.get_file_as_string("res://scripts/fixtures/addons/hunter_addons_fixture.json")) as Dictionary)
 	var data := HunterAddons.data()
 	_expect(not data.is_empty() and data.has("kits") and data.has("hunters"), "addons.json did not load")
 	_expect(HunterRoster.get_identity("dovelle")["id"] == "dovelle", "the roster identity carries the hunter id the mount keys on")
@@ -169,7 +174,7 @@ func run(host: Node) -> int:
 	var bad_rig := HunterAddons.mount(broken, "kathy", bad)
 	_expect(bad_rig != null and bad_rig.errors.size() == 4, "a missing parent / bone and a name collision are reported as errors, nothing crashes (%s)" % [bad_rig.errors if bad_rig != null else "no rig"])
 	broken.queue_free()
-	HunterAddons.reset()
+	HunterAddons.reset()   # back to the shipped data
 	HunterAddons.enabled = true
 
 	if _failures == 0:

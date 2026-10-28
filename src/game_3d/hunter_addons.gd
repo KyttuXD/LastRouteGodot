@@ -42,12 +42,13 @@ static func data() -> Dictionary:
 
 
 ## Drops every cache (tests swap the data in and out).
-static func reset(replacement: Dictionary = {}) -> void:
+static func reset(replacement: Variant = null) -> void:
 	_plans.clear()
 	_meshes.clear()
 	_materials.clear()
-	_loaded = true
-	_data = replacement
+	# null: forget the data so the next use reloads the shipped file; a Dictionary: use it instead (tests)
+	_loaded = replacement != null
+	_data = replacement if replacement is Dictionary else {}
 
 
 static func kits_for(hunter_id: String, source: Dictionary = {}) -> Array:

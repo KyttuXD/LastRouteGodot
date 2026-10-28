@@ -71,7 +71,10 @@ HunterAddons.reset(replacement_data)            # swap the data in tests
 - The creature rig (spiders) is not a blocky rig; add-ons are ignored there.
 - A removed entry leaves the model node-for-node identical to the shipped `.glb` (checked by the suite).
 
-## Proof of concept
+## Nothing ships yet: the test fixture
 
-`test_tail` gives Dovelle a four-segment tail (runtime bones off `Pelvis`, cube parts, a sway that grows with speed and a `test_tail_flick` bone pose) and
-`test_lantern` gives Aki a cube lantern hanging from her right hand that swings as she walks. Remove the two lines under `"hunters"` in `addons.json` and both are gone.
+The shipped `addons.json` assigns no add-on to any hunter (no live hunter wears a tail or a lantern; the suite checks this). The proof of concept is a test-only fixture,
+`scripts/fixtures/addons/hunter_addons_fixture.json` (+ `lantern.tscn`), which `hunter_addons` swaps in with `HunterAddons.reset(fixture)`: `test_tail` is a four-segment tail
+(runtime bones off `Pelvis`, cube parts, a sway that grows with speed and a `test_tail_flick` bone pose) on Dovelle, and `test_lantern` a cube lantern on Aki's right hand that swings as she
+walks. To use the system for real, add a kit to the shipped `addons.json` and list its hunters (the fixture is a worked example of every field). `docs/addons_back.png` and
+`docs/addons_side.png` were captured with the fixture assigned.
