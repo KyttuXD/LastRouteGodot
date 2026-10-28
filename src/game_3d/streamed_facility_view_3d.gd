@@ -1079,6 +1079,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		# a stairwell's lower level opens straight up the well: full-storey walls
 		if not bool((shaft_cells[cell_value] as Dictionary)["upper"]):
 			heights[cell_value] = LEVEL_HEIGHT
+			# and so does its foot landing, under the head landing one storey up: a
+			# sewer-height ceiling there was a slab across the well at mid-height (KT)
+			for landing_value in ((shaft_cells[cell_value] as Dictionary)["well"] as Dictionary)["lower_landing"]:
+				heights[landing_value] = LEVEL_HEIGHT - SLAB
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	for cell_value in ramp_cells:
 		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
