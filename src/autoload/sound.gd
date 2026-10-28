@@ -92,6 +92,12 @@ func collect() -> bool:
 	return _play_named("collect")
 
 
+## Carnival booth sounds (CarnivalBooth3D): "start" a bell ding, "throw" a ring whoosh, "ring_on" a clink, "ring_miss" a soft thud, "windup" a rising whine, "swing" the mallet, "thud" a puck that fell short,
+## "bell" the strength tester's bell, "win" a little fanfare, "lose" a sad slide, "tick" a light click, "pop" / "clang" / "splash" / "motor" / "grip" for the other booths.
+func carnival(kind: String, pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("carnival_" + kind, pan, intensity)
+
+
 func recharge(amount: float = 10.0) -> bool:
 	return _play_named("recharge", 0.0, clampf(amount / 10.0, 0.0, 4.0))
 
@@ -562,6 +568,22 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 	if cue.begins_with("step:"):
 		return _surface_step(cue, pan, intensity)
 	match cue:
+		"carnival_start": c = [_tone(1318, .22, .07, 0, "triangle", pan), _tone(1760, .3, .05, .08, "triangle", pan)]
+		"carnival_throw": c = [_noise(.16, .05, 1500, 0, pan, .8), _tone(420, .12, .04, 0, "triangle", pan)]
+		"carnival_ring_on": c = [_tone(1568, .12, .09, 0, "triangle", pan), _tone(2093, .2, .07, .06, "triangle", pan), _thump(300, .05, .05, 0, pan)]
+		"carnival_ring_miss": c = [_thump(120, .12, .09, 0, pan), _noise(.09, .04, 500, 0, pan, .7)]
+		"carnival_windup": c = [_tone(180, .35, .05, 0, "saw", pan), _tone(270, .3, .04, .2, "saw", pan)]
+		"carnival_swing": c = [_noise(.18, .08, 900, 0, pan, .7), _thump(70, .22, .16, .1, pan)]
+		"carnival_thud": c = [_thump(90, .25, .14, 0, pan), _noise(.1, .06, 400, 0, pan, .6)]
+		"carnival_bell": c = [_tone(880, 1.6, .2 * minf(intensity, 1.5), 0, "sine", pan), _tone(1320, 1.3, .13, 0, "sine", pan), _tone(1760, 1.0, .1, 0, "triangle", pan), _thump(60, .3, .15, 0, pan)]
+		"carnival_win": c = [_tone(523, .12, .08, 0, "square", pan), _tone(659, .12, .08, .1, "square", pan), _tone(784, .12, .08, .2, "square", pan), _tone(1046, .3, .09, .3, "triangle", pan)]
+		"carnival_lose": c = [_tone(330, .18, .07, 0, "triangle", pan), _tone(262, .2, .07, .15, "triangle", pan), _tone(196, .4, .07, .3, "triangle", pan)]
+		"carnival_tick": c = [_tone(1400, .02, .03, 0, "square", pan)]
+		"carnival_pop": c = [_thump(160, .08, .1, 0, pan), _tone(700, .05, .05, 0, "square", pan)]
+		"carnival_clang": c = [_tone(1200, .3, .1, 0, "square", pan), _tone(1900, .25, .06, 0, "triangle", pan), _noise(.06, .08, 3000, 0, pan, 1.2)]
+		"carnival_splash": c = [_noise(.3, .06, 900, 0, pan, .9), _tone(500, .08, .04, .02, "sine", pan)]
+		"carnival_motor": c = [_tone(90, .3, .05, 0, "saw", pan), _tone(120, .3, .03, 0, "square", pan)]
+		"carnival_grip": c = [_tone(240, .1, .06, 0, "square", pan), _thump(110, .12, .08, .05, pan)]
 		"collect":
 			c = [_tone(220, .12, .13, 0, "square"), _tone(330, .16, .10, .09, "square"), _tone(660, .22, .07, .19)]
 		"recharge":
