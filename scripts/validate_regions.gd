@@ -37,6 +37,7 @@ const KEY_PROPS := {
 	"electronics": ["tvWall"], "night_diner": ["dinerBooth", "dinerStool"], "drugstore": ["pharmacyShelf", "checkoutCounter"],
 	"florist": ["flowerStand"], "barber": ["barberChair", "barberStation"], "pawn_shop": ["displayCase", "shopShelf"],
 	"stationery": ["shopShelf"],
+	"music_store": ["guitarWallHanger", "checkoutCounter"],
 	"pod_room": ["divePod", "divePodLit", "diveConsole", "diveHeadsetShelf", "diveHeadsetStand"],
 }
 
