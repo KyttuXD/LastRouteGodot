@@ -47,6 +47,8 @@ var _facing := HunterFacing.new()
 ## Night Watch: a pose from NightWatchPoses held until stop() (one-shots end on their own), and the
 ## procedural breathing / sway / lean layers (off elsewhere).
 var nw_pose := ""
+## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
+var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
 var nw_layers := false
 var _nw_started := ""
@@ -133,6 +135,8 @@ const MAX_PRESENTATION_SPEED := 12.0
 const PRESENTATION_DEAD_ZONE := .006
 ## View collider: slightly wider than the brain footprint (GameConfig.HUNTER_RADIUS) and as tall as the scaled model.
 const HUNTER_BODY_RADIUS := GameConfig.HUNTER_RADIUS + .05
+## Beyond this distance from the camera nobody sees the doorway pose, so it is not worked out.
+const DOORWAY_POSE_RANGE := 45.0
 const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 ## Body yaw / head look live in HunterFacing so other creature views share them.
 
@@ -161,11 +165,25 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_doorway.restore()
 	_update_head_look(delta)
 	_update_nw_layers(delta)
 	_update_beam_visual(delta)
 	_update_expression(delta)
 	_update_stars(delta)
+	_update_doorway(delta)
+
+
+## In a door frame: duck under a low lintel and turn the shoulders through a narrow opening (DoorwayPose), last of
+## the layers so it bends whatever the clip and the head look made of the pose.
+func _update_doorway(delta: float) -> void:
+	if _model == null or not _doorway.bound() or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera != null and global_position.distance_squared_to(camera.global_position) > DOORWAY_POSE_RANGE * DOORWAY_POSE_RANGE:
+		return
+	var frame := DoorwayFrames.nearest(global_position)
+	_doorway.update(delta, frame, float(frame.get("along", INF)))
 
 
 func _physics_process(delta: float) -> void:
@@ -258,6 +276,7 @@ func _apply_model(model_id: String) -> void:
 		_expression = ""
 		_stars = null
 		_creature = null
+		_doorway = DoorwayPose.new()
 		_wing_nodes.clear()
 		_wings_searched = false
 		_wing_fold_applied = 0.0
@@ -272,6 +291,7 @@ func _apply_model(model_id: String) -> void:
 			_creature = CreatureView.new(self, _model)
 		else:
 			NightWatchPoses.install(_model, _animation_player, _shown_id)
+			_doorway.bind(_model)
 			_nw_layers.bind(_model)
 			_nw_layers.phase = float(abs(hash(_shown_id)) % 628) / 100.0
 		_configure_character_lights()

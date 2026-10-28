@@ -806,6 +806,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"fixture_index": 0,
 		"pickup_index": 0,
 		"prison_tasks": _prison_prop_tasks(data) if region == "prison" else [],
+		"door_headers": door_headers(region_props, heights, corridor_h),
 	}
 
 
@@ -1017,6 +1018,14 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	else:
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
 			if (build["coord"] as Vector3i).y == StreamedRouteGenerator.SEWER_LEVEL else _col_wall_item)
+		# a room door's cell: wall over the frame up to both rooms' ceilings, and a soffit on the frame (no see-through)
+		var header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
+		if not header.is_empty():
+			var across: Vector2i = header["normal"]
+			var front_kind := _ref_wall_kind(build, x, z, x + across.x, z + across.y)
+			var back_kind := _ref_wall_kind(build, x, z, x - across.x, z - across.y)
+			add_door_header(surface, cell, header, [RefTextures.layer("wall", front_kind), RefTextures.params("wall", front_kind)],
+				[RefTextures.layer("wall", back_kind), RefTextures.params("wall", back_kind)])
 		for step_value in RefDecor.DIRS:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
@@ -1213,6 +1222,45 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 					continue
 				map[Vector2i(x, z)] = room_type
 	return map
+
+
+## The cells a room door stands in -> {"normal" (through the door), "front_h" / "back_h" (the ceilings either side)}:
+## the header over the frame closes the opening up to both ceilings (docs/DOORWAY_CLEARANCE.md).
+static func door_headers(region_props: Array, heights: Dictionary, corridor_h: float) -> Dictionary:
+	var out := {}
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		if not PropModelCatalog.is_room_door(String(prop.get("type", ""))):
+			continue
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		var centre := Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
+		var yaw := float(prop.get("yaw", 0.0))
+		var along := Vector2(cos(yaw), -sin(yaw))
+		var through := Vector2(sin(yaw), cos(yaw))
+		var normal := Vector2i(roundi(through.x), roundi(through.y))
+		var span := int(prop.get("door_span", 1))
+		var cells: Array[Vector2i] = []
+		if span == 2:
+			cells = [Vector2i((centre - along * .5).floor()), Vector2i((centre + along * .5).floor())]
+		else:
+			cells = [Vector2i(centre.floor())]
+		for door_cell in cells:
+			out[door_cell] = {"normal": normal,
+				"front_h": float(heights.get(door_cell + normal, corridor_h)),
+				"back_h": float(heights.get(door_cell - normal, corridor_h))}
+	return out
+
+
+## The header's faces on `surface`: a wall face toward each side from the soffit up to that side's ceiling, and the
+## soffit itself. `front` / `back`: [texture layer, params] of the wall theme on each side.
+static func add_door_header(surface: RefSurfaceMesh, cell: Vector2i, header: Dictionary, front: Array, back: Array) -> void:
+	var across: Vector2i = header["normal"]
+	for side in [across, -across]:
+		var look: Array = front if side == across else back
+		var top := float(header["front_h"] if side == across else header["back_h"])
+		if top > DoorwayFrames.HEADER_Y:
+			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, DoorwayFrames.HEADER_Y, top)
+	surface.add_ceiling(cell.x, cell.y, DoorwayFrames.HEADER_Y, float(front[0]), front[1])
 
 
 static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
@@ -1514,6 +1562,9 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 						"size": Vector3(run_end - run_start, 2.4, .16),
 						"group": "streamed_prison_prop", "solid": true, "type": ""})
 				run_start = gx + 1
+				if is_door:
+					# no lintel, but the jambs stand a cell apart: the hunters turn side-on (DoorwayFrames)
+					tasks.append({"doorway": true, "at": Vector3(gx + .5, 0.0, gate_z), "width": 1.0})
 		# The dedicated cage fills this cell; do not bury a bunk/chair through it.
 		if room_index == cage_room_index:
 			continue
@@ -1549,6 +1600,13 @@ func _prison_prop_tasks(data: Dictionary) -> Array:
 
 
 func _spawn_prison_prop_task(parent: Node3D, task: Dictionary) -> void:
+	if bool(task.get("doorway", false)):
+		var marker := Node3D.new()
+		marker.name = "PrisonDoorway"
+		marker.position = task.get("at", Vector3.ZERO)
+		parent.add_child(marker)
+		DoorwayFrames.register(marker, float(task.get("width", 1.0)), DoorwayFrames.NO_HEADER, .34)
+		return
 	_spawn_authored_prop(parent, String(task.get("path", "")),
 		task.get("at", Vector3.ZERO), float(task.get("yaw", 0.0)),
 		task.get("size", Vector3.ONE),
