@@ -86,6 +86,10 @@ func stop_all() -> void:
 
 func _exit_tree() -> void:
 	stop_all()
+	# a bed still rendering on the worker pool must finish before this autoload goes away (it runs our method)
+	for key in _ambience_jobs.keys():
+		WorkerThreadPool.wait_for_task_completion(int(_ambience_jobs[key]["task"]))
+	_ambience_jobs.clear()
 
 
 func collect() -> bool:
@@ -349,6 +353,12 @@ func _fade_in_ambience(new_player: AudioStreamPlayer, key: String, fade: Tween) 
 
 
 var _ambience_jobs := {}   # key -> {"task": WorkerThreadPool id, "out": [stream]}
+
+
+## Render a bed in the background ahead of need (PlatformProfile.prerender_ambience at boot).
+func prerender_ambience(key: String) -> void:
+	if key != "" and not _ambience_cache.has(key):
+		_render_ambience_async(key)
 
 
 func _render_ambience_async(key: String) -> void:

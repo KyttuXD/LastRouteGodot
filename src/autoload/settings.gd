@@ -95,6 +95,9 @@ var touch_move := "dpad"
 var xr_smooth_turn := false
 var xr_vignette := true
 var xr_seated := false
+## GRAPHICS: "AUTO" (PlatformProfile's detected tier with live adaptation) or a fixed LOW / MEDIUM / HIGH / ULTRA.
+var graphics_quality := "AUTO"
+const GRAPHICS_CHOICES := ["AUTO", "LOW", "MEDIUM", "HIGH", "ULTRA"]
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
@@ -187,6 +190,12 @@ func focus_loss_pauses() -> bool:
 	if not pause_on_focus_loss:
 		return false
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
+
+
+func set_graphics_quality(choice: String) -> void:
+	graphics_quality = choice if GRAPHICS_CHOICES.has(choice) else "AUTO"
+	PlatformProfile.set_graphics_quality(graphics_quality)
+	_save()
 
 
 func set_touch_move(mode: String) -> void:
@@ -458,6 +467,11 @@ func _load() -> void:
 	xr_smooth_turn = bool(config.get_value("xr", "smooth_turn", false))
 	xr_vignette = bool(config.get_value("xr", "vignette", true))
 	xr_seated = bool(config.get_value("xr", "seated", false))
+	graphics_quality = String(config.get_value("display", "graphics_quality", "AUTO"))
+	if not GRAPHICS_CHOICES.has(graphics_quality):
+		graphics_quality = "AUTO"
+	if graphics_quality != "AUTO":
+		PlatformProfile.set_graphics_quality(graphics_quality)
 	var guidance := String(config.get_value("waypoint", "guidance", "arrow"))
 	waypoint_guidance = guidance if WAYPOINT_GUIDANCE_MODES.has(guidance) else "arrow"
 	waypoint_show_distance = bool(config.get_value("waypoint", "show_distance", true))
@@ -518,6 +532,7 @@ func _save() -> void:
 	config.set_value("xr", "smooth_turn", xr_smooth_turn)
 	config.set_value("xr", "vignette", xr_vignette)
 	config.set_value("xr", "seated", xr_seated)
+	config.set_value("display", "graphics_quality", graphics_quality)
 	config.set_value("waypoint", "guidance", waypoint_guidance)
 	config.set_value("waypoint", "show_distance", waypoint_show_distance)
 	config.set_value("waypoint", "scale", waypoint_scale)

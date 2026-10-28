@@ -124,12 +124,15 @@ var _dormant_data := {}
 ## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
 ## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
 const PREBUILD_LEVEL_RANGE := 1
+## Only links this close to the runner are pre-built (re-checked as the runner moves, see _process).
+const PREBUILD_LINK_RADIUS := 24.0
 const PREDATA_LEVEL_RANGE := 2
 var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
 var _ready_dirty := false
+var _ready_recheck := 0.0
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -366,6 +369,13 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	_ready_recheck -= _delta
+	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
+		_ready_recheck = .5
+		var ready := _vertical_ready_set(_last_player_chunk)
+		if ready != _ready_set:
+			_ready_set = ready
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	_drain_stream_queue()
 	_collect_taken_pickups()
 	_update_shared_mirror(_delta)
@@ -572,6 +582,9 @@ func _vertical_ready_set(center: Vector3i) -> Dictionary:
 		var column: Vector3i = entry["chunk"]
 		var cell: Vector2i = link.get("from_cell", Vector2i(size / 2, size / 2))
 		var at := Vector2(column.x * size + cell.x + .5, column.z * size + cell.y + .5)
+		if tracked_player != null and Vector2(tracked_player.global_position.x, tracked_player.global_position.z) \
+				.distance_to(at) > PREBUILD_LINK_RADIUS:
+			continue   # a ladder the runner is only passing: walking past it must not build the other storey
 		for key in ["from_level", "to_level"]:
 			var level := int(link.get(key, center.y))
 			if level == center.y or absi(level - center.y) > PREBUILD_LEVEL_RANGE:
@@ -789,7 +802,8 @@ func _drain_stream_queue() -> void:
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
-	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
+	var budget := minf(PlatformProfile.stream_budget_ms + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(),
+		PlatformProfile.stream_budget_max_ms)
 	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
 	while true:
 		# Never register new collision and retire an old physics island in the same
@@ -2045,6 +2059,7 @@ func _limit_prop_visibility(visual: Node3D, bounds: AABB, prop_type: String) -> 
 	var range_end := prop_visibility_range(bounds, prop_type) if limit_prop_visibility else 0.0
 	if range_end <= 0.0:
 		return
+	range_end *= PlatformProfile.prop_range_scale   # quality tier: lower tiers stop drawing small props sooner
 	for node in visual.find_children("*", "GeometryInstance3D", true, false):
 		var geometry := node as GeometryInstance3D
 		geometry.visibility_range_end = range_end
