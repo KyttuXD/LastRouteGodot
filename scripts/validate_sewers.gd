@@ -1033,6 +1033,39 @@ func _link_view_report(unseen: Dictionary, where: String) -> void:
 
 
 ## Follows the stair path with the movement keys, up then down.
+## KT: a slab across a sewer stairwell at mid-height, with the brick band of the storey above showing through it. In
+## the well's lower chunk no ceiling or floor face may lie over the well or its foot landing between the floor and
+## the underside of the storey above (the head landing sits on that underside, the well opens straight up to it).
+func _check_well_clear(view: StreamedFacilityView3D, well: Dictionary) -> void:
+	var coord := Vector3i(int(well["x"]), int(well["upper"]) - 1, int(well["z"]))
+	var root := view.get_node_or_null("Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z])
+	_expect(root != null, "%s stairwell: its lower chunk %s was not built" % [well["kind"], coord])
+	if root == null:
+		return
+	var inside := {}
+	for cell in well["shaft"]:
+		inside[cell] = true
+	for cell in well["lower_landing"]:
+		inside[cell] = true
+	var top := StreamedFacilityView3D.LEVEL_HEIGHT - StreamedFacilityView3D.SLAB - .02
+	var bad := []
+	for node in root.find_children("Surface", "MeshInstance3D", true, false):
+		var mesh := (node as MeshInstance3D).mesh
+		if mesh == null or mesh.get_surface_count() == 0:
+			continue
+		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		for q in range(0, verts.size(), 4):
+			var y := verts[q].y
+			if absf(verts[q + 2].y - y) > .001 or y < .3 or y > top:
+				continue      # not flat, or the floor itself, or at the storey above's underside
+			var centre := (verts[q] + verts[q + 2]) * .5
+			var cell := Vector2i(floori(centre.x), floori(centre.z))
+			if inside.has(cell):
+				bad.append("%s at y %.2f" % [cell, y])
+	_expect(bad.is_empty(), "%s stairwell %s: %d slab faces across the well below the storey above (%s)" % [
+		well["kind"], well["link"]["id"], bad.size(), ", ".join(bad.slice(0, 6))])
+
+
 func _walk_stairwell(host: Node, well: Dictionary) -> void:
 	var view := StreamedFacilityView3D.new()
 	host.add_child(view)
@@ -1083,6 +1116,7 @@ func _walk_stairwell(host: Node, well: Dictionary) -> void:
 		_expect(worst_pop < .12, "%s stairwell: the runner popped %.2f m in one frame going %s (snag or step)" % [
 			well["kind"], worst_pop, leg])
 	_link_view_report(unseen, "%s stairwell" % well["kind"])
+	_check_well_clear(view, well)
 	_check_colliders_below_maze(view)
 	view.clear()
 	view.queue_free()
