@@ -133,6 +133,16 @@ var _ready_dirty := false
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
+## Room light switches (docs/LIGHT_SWITCHES.md): room id -> [[lamp, full energy], ...] for every lamp (decor and fixture
+## props) of a lit room, the switch node per room, and the chunk each room's lamps came from. Switching zeroes the lamps'
+## energy in place: the LampField pool and LightField.exposure_at read the same arrays, so the rendered light and the
+## mutual-light-sight rule go dark together, and parked storeys keep the state (their lamp arrays are kept).
+var _room_lamps := {}
+var _switch_nodes := {}
+var _room_lamp_coord := {}
+## Callable(on: bool, room_id: String) -> String, set by the route (host-authoritative toggle; the room id is bound).
+var room_light_requester: Callable
+const SWITCH_HEIGHT := 1.45      # hunter-scale world, still within a 1.60 m runner's reach (2.15 m)
 var _fixture_nodes := {}
 var _last_player_chunk := Vector3i(999999, 999999, 999999)
 var _pending_loads: Array[Vector3i] = []
@@ -1026,6 +1036,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					var lamp_list: Array = (build["decor"] as RefDecor).lamps + (root.get_meta("extra_lamps", []) as Array)
 					root.set_meta("lamp_list", lamp_list)
 					_lamp_field.register(coord, lamp_list)
+					_bind_room_lights(root, data, coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
@@ -1480,6 +1491,11 @@ func _discard_active_build() -> void:
 func _unload_chunk(coord: Vector3i) -> void:
 	if _lamp_field != null:
 		_lamp_field.unregister(coord)
+	for room_id in _room_lamp_coord.keys().duplicate():
+		if _room_lamp_coord[room_id] == coord:
+			_room_lamps.erase(room_id)
+			_room_lamp_coord.erase(room_id)
+			_switch_nodes.erase(room_id)
 	var root := _loaded.get(coord) as Node
 	if root != null:
 		_forget_chunk_entities(root)
@@ -1740,6 +1756,90 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 		int(prop.get("door_span", 1)))
 	parent.add_child(door)
 	_door_nodes[door_id] = door
+
+
+## Groups a built chunk's lamps by room, applies each room's saved/seeded state, and puts a switch inside every lit room
+## beside its main doorway, on the wall at SWITCH_HEIGHT, facing into the room.
+func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_list: Array) -> void:
+	var room_ids := RefLook.chunk_room_ids(data)
+	var groups := {}
+	for lamp_value in lamp_list:
+		var lamp: Array = lamp_value
+		var local: Vector3 = (lamp[0] as Vector3) - root.position
+		var room_id := String(room_ids.get(Vector2i(floori(local.x), floori(local.z)), ""))
+		if room_id.is_empty():
+			continue
+		if not groups.has(room_id):
+			groups[room_id] = []
+		(groups[room_id] as Array).append([lamp, float(lamp[2])])
+	var doors := {}
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if bool(prop.get("room_door", false)) and not doors.has(String(prop.get("room_id", ""))):
+			doors[String(prop.get("room_id", ""))] = prop
+	for room_id in groups:
+		_room_lamps[room_id] = groups[room_id]
+		_room_lamp_coord[room_id] = coord
+		var on := world_state.room_light_on(room_id)
+		_set_room_lamps(room_id, on)
+		if not doors.has(room_id):
+			continue
+		var door: Dictionary = doors[room_id]
+		var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+		var centre := Vector2.ZERO
+		for cell_value in cells:
+			centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+		centre /= float(maxi(1, cells.size()))
+		var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+		var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+		var at := centre + inward * .54 + across * (cells.size() * .5 + .35)
+		var switch := RouteInteractable3D.new()
+		switch.name = "LightSwitch_%s" % room_id.replace(":", "_")
+		switch.kind = RouteInteractable3D.Kind.LIGHT_SWITCH
+		switch.prompt_text = "TOGGLE ROOM LIGHT"
+		switch.position = Vector3(at.x, SWITCH_HEIGHT, at.y)
+		switch.rotation.y = atan2(-inward.x, -inward.y)
+		switch.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + floori(at.x),
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + floori(at.y))
+		switch.add_to_group("streamed_light_switch")
+		switch.set_meta("room_id", room_id)
+		root.add_child(switch)
+		switch.configure_room_light(room_id, on,
+			room_light_requester.bind(room_id) if room_light_requester.is_valid() else Callable())
+		_switch_nodes[room_id] = switch
+
+
+func _set_room_lamps(room_id: String, on: bool) -> void:
+	for entry_value in _room_lamps.get(room_id, []):
+		var entry: Array = entry_value
+		(entry[0] as Array)[2] = float(entry[1]) if on else 0.0
+
+
+## Applies a room's light state (from the world state, any peer): lamps, light field and the switch's position.
+func apply_room_light(room_id: String, on: bool) -> bool:
+	var changed := world_state.set_room_light(room_id, on)
+	_set_room_lamps(room_id, on)
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	if switch != null and is_instance_valid(switch) and switch.light_enabled != on:
+		switch.light_enabled = on
+		switch.configure_room_light(room_id, on, switch.light_resolver)
+	return changed
+
+
+func room_light_switch(room_id: String) -> RouteInteractable3D:
+	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
+	return switch if switch != null and is_instance_valid(switch) else null
+
+
+func lit_rooms() -> Array:
+	return _room_lamps.keys()
+
+
+func room_lamp_energy(room_id: String) -> float:
+	var total := 0.0
+	for entry_value in _room_lamps.get(room_id, []):
+		total += float(((entry_value as Array)[0] as Array)[2])
+	return total
 
 
 func apply_room_door_state(door_id: String, open: bool, broken: bool) -> bool:
