@@ -1,33 +1,56 @@
 class_name RoomChat
 extends CanvasLayer
 
-## Lightweight room chat shared by the finite and Infinite scenes. Transport
-## derives the sender name from RoomState; clients never get to claim another
-## player's identity in the message packet.
+## Room chat shared by the finite and Infinite scenes. Transport derives the sender name from RoomState; clients never get to
+## claim another player's identity in the message packet.
+##
+## Bottom-left above the stamina bar: while closed only fresh lines show and fade FADE_AFTER seconds after the last one; open
+## (chat key / CHAT touch button) it shows the scrollable history and the input with its channel toggle. Lines read
+## "[TEAM] 12:04 CALLSIGN  text", the callsign in the sender's peer colour; NEARBY lines from further than NEARBY_RANGE on the
+## same level are greyed, NEARBY lines from another level are not shown; system lines are amber. Quick chat (quick_chat
+## action: ` key, D-pad up, Quest left X, QUICK touch button) opens a radial of presets that send a line plus a map ping.
 
 signal open_changed(shown: bool)
+## A quick-chat ping to show on the maps: map position (scene units, like player marks), depth, label, the sender's colour.
+signal ping_posted(peer_id: int, at: Vector2, depth: int, label: String, colour: Color)
 
-const MAX_VISIBLE_MESSAGES := 7
-## The panel only exists while chat is open or a message is fresh: it grows with the messages (never taller than
-## MAX_HEIGHT_FRACTION of the window) and fades out FADE_AFTER seconds after the last one unless the input is open.
+const MAX_VISIBLE_MESSAGES := 5
+const HISTORY_MAX := 60
 const MAX_WIDTH := 220.0
 const MAX_HEIGHT_FRACTION := .25
-const FADE_AFTER := 6.0
+const FADE_AFTER := 8.0
 const FADE_SECONDS := 1.5
 const SAFE_MARGIN := 8.0
 ## Bottom of the panel, measured from the window bottom: clear of the hotbar and stamina bar; its top stays below the
 ## interaction prompt under the crosshair (PROMPT_CLEARANCE from the window centre).
 const BOTTOM_CLEARANCE := 58.0
 const PROMPT_CLEARANCE := 34.0
+const FONT_SIZE := 9
+const NEARBY_RANGE := 20.0
+const QUICK_ACTION := "quick_chat"
+const PRESETS := ["OVER HERE!", "HUNTER!", "RELAY HERE", "NEED LIGHT", "HIDE!", "FOLLOW ME", "THANKS", "YES", "NO"]
+const QUICK_RADIUS := 52.0
 
 var remotes: RemotePlayers
+## Scene hook: the hunter the player aims at, {"at": Vector2 map position, "depth": int} or {} (for "HUNTER!").
+var hunter_aim_provider := Callable()
+var channel := "team"
 var _panel: PanelContainer
 var _log: RichTextLabel
-var _input: LineEdit
+var _field: LineEdit
+var _channel_button: Button
+var _entries: Array = []
 var _messages: Array[String] = []
 var _open := false
 var _fresh_left := 0.0
 var _view_size := Vector2.ZERO
+var _quick: Control
+var _quick_buttons: Array[Button] = []
+var _quick_open := false
+var _quick_sticky := false
+var _quick_held_ms := 0
+var _quick_pick := -1
+var _quick_mouse := Vector2.ZERO
 
 
 static func attach(parent: Node, transport: RemotePlayers) -> RoomChat:
@@ -38,17 +61,32 @@ static func attach(parent: Node, transport: RemotePlayers) -> RoomChat:
 	return chat
 
 
+static func ensure_quick_action() -> void:
+	if InputMap.has_action(QUICK_ACTION):
+		return
+	InputMap.add_action(QUICK_ACTION)
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_QUOTELEFT
+	InputMap.action_add_event(QUICK_ACTION, key)
+	var pad := InputEventJoypadButton.new()
+	pad.button_index = JOY_BUTTON_DPAD_UP
+	InputMap.action_add_event(QUICK_ACTION, pad)
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 90
+	ensure_quick_action()
 	_build_ui()
+	_build_quick()
 	if remotes != null:
-		remotes.chat_received.connect(_on_chat_received)
+		remotes.chat_message.connect(_on_chat_message)
 
 
 func _process(delta: float) -> void:
 	_fresh_left = maxf(0.0, _fresh_left - delta)
 	_refresh_panel()
+	_update_quick()
 
 
 ## Screen rect the panel occupies (zero-size while collapsed).
@@ -60,7 +98,7 @@ func _refresh_panel() -> void:
 	var has_messages := not _messages.is_empty()
 	var show_log := has_messages and (_open or _fresh_left > 0.0)
 	_log.visible = show_log
-	_input.visible = _open
+	(_field.get_parent() as Control).visible = _open
 	_panel.visible = _open or show_log
 	_panel.modulate.a = 1.0 if _open else clampf(_fresh_left / FADE_SECONDS, 0.0, 1.0)
 	if not _panel.visible:
@@ -69,17 +107,26 @@ func _refresh_panel() -> void:
 	var width := minf(MAX_WIDTH, view.x * .45)
 	var inner := width - _panel_margin().x
 	_log.custom_minimum_size.x = inner
-	var column_min := (_panel.get_child(0) as Control).get_combined_minimum_size()
-	var max_h := minf(view.y * MAX_HEIGHT_FRACTION, (view.y - BOTTOM_CLEARANCE) - (view.y * 0.5 + PROMPT_CLEARANCE))
+	var bottom := view.y - BOTTOM_CLEARANCE
+	# phones: the on-screen keyboard never covers the input
+	var keyboard_px := DisplayServer.virtual_keyboard_get_height() if _open else 0
+	if keyboard_px > 0:
+		var scale := get_viewport().get_final_transform().get_scale().y
+		bottom = minf(bottom, view.y - float(keyboard_px) / maxf(scale, .01) - 4.0)
+	var input_h: float = (_field.get_parent() as Control).get_combined_minimum_size().y + 4.0 if _open else 0.0
+	var max_h := minf(view.y * MAX_HEIGHT_FRACTION, bottom - (view.y * 0.5 + PROMPT_CLEARANCE))
+	if _open:
+		max_h = maxf(max_h, view.y * MAX_HEIGHT_FRACTION)   # the open history may rise past the prompt line
 	var log_h := minf(_log.get_content_height() if show_log else 0.0,
-		maxf(0.0, max_h - _panel_margin().y - (_input.get_combined_minimum_size().y + 4.0 if _open else 0.0)))
+		maxf(0.0, max_h - _panel_margin().y - input_h))
 	_log.custom_minimum_size.y = log_h
+	var column_min := (_panel.get_child(0) as Control).get_combined_minimum_size()
 	var height := maxf(_panel.get_combined_minimum_size().y, column_min.y + _panel_margin().y)
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_panel.offset_left = SAFE_MARGIN
 	_panel.offset_right = SAFE_MARGIN + width
-	_panel.offset_bottom = view.y - BOTTOM_CLEARANCE
-	_panel.offset_top = _panel.offset_bottom - height
+	_panel.offset_bottom = bottom
+	_panel.offset_top = bottom - height
 	_panel.size = Vector2(width, height)
 	_view_size = view
 
@@ -101,11 +148,41 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+func _input(event: InputEvent) -> void:
+	if _open:
+		return
+	if event.is_action_pressed(QUICK_ACTION) and not (event is InputEventKey and (event as InputEventKey).echo):
+		if _quick_open and _quick_sticky:
+			close_quick()
+		else:
+			open_quick()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_released(QUICK_ACTION) and _quick_open and not _quick_sticky:
+		# a held press: release sends the picked preset; a quick tap keeps the radial open for a click / tap
+		if _quick_pick >= 0:
+			send_preset(_quick_pick)
+			close_quick()
+		elif Time.get_ticks_msec() - _quick_held_ms < 250:
+			_quick_sticky = true
+			MouseLock.claim("quick_chat", true)
+		else:
+			close_quick()
+		get_viewport().set_input_as_handled()
+	elif _quick_open and event is InputEventMouseMotion:
+		_quick_mouse += (event as InputEventMouseMotion).relative
+	elif _quick_open and event is InputEventKey and (event as InputEventKey).pressed \
+			and (event as InputEventKey).physical_keycode == KEY_ESCAPE:
+		close_quick()
+		get_viewport().set_input_as_handled()
+
+
 func open() -> void:
+	close_quick()
 	_open = true
 	MouseLock.claim("room_chat", true)
-	_input.clear()
-	_input.call_deferred("grab_focus")
+	_field.clear()
+	_field.call_deferred("grab_focus")
+	DisplayServer.virtual_keyboard_show("", Rect2(), DisplayServer.KEYBOARD_TYPE_DEFAULT, RemotePlayers.MAX_CHAT_LENGTH)
 	open_changed.emit(true)
 
 
@@ -115,12 +192,23 @@ func close() -> void:
 	_open = false
 	_fresh_left = FADE_AFTER
 	MouseLock.claim("room_chat", false)
-	_input.release_focus()
+	_field.release_focus()
+	DisplayServer.virtual_keyboard_hide()
 	open_changed.emit(false)
 
 
 func is_open() -> bool:
 	return _open
+
+
+func set_channel(value: String) -> void:
+	channel = value if RemotePlayers.CHAT_CHANNELS.has(value) else "team"
+	if _channel_button != null:
+		_channel_button.text = channel.to_upper()
+
+
+func toggle_channel() -> void:
+	set_channel("nearby" if channel == "team" else "team")
 
 
 func _submit(text: String) -> void:
@@ -129,43 +217,220 @@ func _submit(text: String) -> void:
 		close()
 		return
 	if remotes != null:
-		remotes.send_chat(message)
+		if not remotes.send_chat_payload({"text": message, "channel": channel}):
+			add_system("SLOW DOWN // TOO MANY MESSAGES")
 	close()
 
 
-func _on_chat_received(_peer_id: int, display_name: String, message: String) -> void:
-	_messages.append("[color=#d7bd65]%s[/color]  %s" % [
-		display_name.to_upper(), message])
-	while _messages.size() > MAX_VISIBLE_MESSAGES:
-		_messages.pop_front()
-	_log.text = "\n".join(_messages)
+## Local system line (owner/admin notices arrive through RemotePlayers.send_system as system payloads).
+func add_system(text: String) -> void:
+	_add_entry({"peer": 0, "name": "", "text": text.to_upper(), "channel": "team", "system": true, "faint": false})
+
+
+## Backwards-compatible text entry point (tests and older callers): a TEAM line from `display_name`.
+func _on_chat_received(peer_id: int, display_name: String, message: String) -> void:
+	_on_chat_message(peer_id, display_name, {"text": message, "channel": "team"})
+
+
+func _on_chat_message(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	var nearby := String(payload.get("channel", "team")) == "nearby"
+	var verdict := hear(payload, _local_world(), GameState.depth, peer_id == _local_id())
+	if verdict == "hidden":
+		return
+	_add_entry({"peer": peer_id, "name": display_name, "text": String(payload.get("text", "")),
+		"channel": "nearby" if nearby else "team", "system": bool(payload.get("system", false)), "faint": verdict == "faint"})
+	if bool(payload.get("ping", false)) and verdict != "hidden":
+		var target = payload.get("target")
+		ping_posted.emit(peer_id, target if target is Vector2 else payload.get("at", Vector2.ZERO), int(payload.get("depth", 0)),
+			String(payload.get("preset", payload.get("text", ""))), RemotePlayers.peer_colour(peer_id))
+
+
+## Whether this client hears a line: "clear", "faint" (NEARBY, same level, beyond NEARBY_RANGE) or "hidden" (NEARBY from
+## another level). TEAM and system lines and the player's own lines are always clear.
+static func hear(payload: Dictionary, listener_world: Vector3, listener_depth: int, own: bool) -> String:
+	if own or bool(payload.get("system", false)) or String(payload.get("channel", "team")) != "nearby":
+		return "clear"
+	if int(payload.get("depth", listener_depth)) != listener_depth:
+		return "hidden"
+	var speaker: Vector3 = payload.get("world", listener_world)
+	var flat := Vector2(speaker.x - listener_world.x, speaker.z - listener_world.z).length()
+	return "clear" if flat <= NEARBY_RANGE else "faint"
+
+
+func _local_world() -> Vector3:
+	return remotes.local_player.global_position if remotes != null and remotes.local_player != null else Vector3.ZERO
+
+
+func _local_id() -> int:
+	return multiplayer.get_unique_id() if RoomState.online else 1
+
+
+func _add_entry(entry: Dictionary) -> void:
+	entry["time"] = Time.get_time_string_from_system().substr(0, 5)
+	_entries.append(entry)
+	while _entries.size() > HISTORY_MAX:
+		_entries.pop_front()
 	_fresh_left = FADE_AFTER
+	_render()
+
+
+func _render() -> void:
+	var lines: Array[String] = []
+	for entry_value in _entries:
+		lines.append(format_entry(entry_value))
+	_messages = lines
+	var shown := _messages if _open else _messages.slice(maxi(0, _messages.size() - MAX_VISIBLE_MESSAGES))
+	_log.text = "\n".join(shown)
+
+
+## One rendered line (BBCode): "[TEAM] 12:04 CALLSIGN  text"; NEARBY faint lines greyed; system lines amber.
+static func format_entry(entry: Dictionary) -> String:
+	var time := "[color=#%s]%s[/color] " % [Palette.MUTED.to_html(false), String(entry.get("time", ""))]
+	var text := String(entry.get("text", "")).replace("[", "(")
+	if bool(entry.get("system", false)):
+		return "%s[color=#%s]// %s[/color]" % [time, Palette.AMBER.to_html(false), text]
+	var tag := "[NEAR]" if String(entry.get("channel", "team")) == "nearby" else "[TEAM]"
+	var colour := RemotePlayers.peer_colour(int(entry.get("peer", 1)))
+	var body := "[color=#%s]%s[/color] %s[color=#%s]%s[/color]  %s" % [Palette.MUTED.to_html(false), tag, time,
+		colour.to_html(false), String(entry.get("name", "?")).to_upper(), text]
+	if bool(entry.get("faint", false)):
+		return "[color=#%s]%s[/color]" % [Palette.DIM.to_html(false), body.replace(colour.to_html(false), Palette.DIM.to_html(false))]
+	return body
 
 
 func _build_ui() -> void:
 	_panel = PanelContainer.new()
+	_panel.name = "ChatPanel"
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.add_theme_stylebox_override("panel",
-		Palette.panel_box(Color(0.025, 0.035, 0.04, .92), Palette.PANEL_EDGE, 7))
+		Palette.panel_box(Color(Palette.PANEL, .88), Palette.PANEL_EDGE, 5))
 	add_child(_panel)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 4)
+	column.add_theme_constant_override("separation", 3)
 	_panel.add_child(column)
 	_log = RichTextLabel.new()
+	_log.name = "ChatLog"
 	_log.bbcode_enabled = true
 	_log.fit_content = false
 	_log.scroll_active = true
 	_log.scroll_following = true
 	_log.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_log.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_log.add_theme_font_size_override("normal_font_size", 9)
+	_log.mouse_filter = Control.MOUSE_FILTER_PASS
+	_log.add_theme_font_size_override("normal_font_size", FONT_SIZE)
 	column.add_child(_log)
 	_log.get_v_scroll_bar().modulate.a = 0.0
-	_input = LineEdit.new()
-	_input.name = "ChatInput"
-	_input.placeholder_text = "ROOM MESSAGE // ENTER TO SEND"
-	_input.max_length = RemotePlayers.MAX_CHAT_LENGTH
-	_input.text_submitted.connect(_submit)
-	column.add_child(_input)
+	var row := HBoxContainer.new()
+	row.name = "ChatInputRow"
+	row.add_theme_constant_override("separation", 3)
+	column.add_child(row)
+	_channel_button = Button.new()
+	_channel_button.name = "ChatChannelButton"
+	_channel_button.focus_mode = Control.FOCUS_NONE
+	_channel_button.add_theme_font_size_override("font_size", 7)
+	_channel_button.tooltip_text = "TEAM: everyone // NEARBY: players close by on this level (TAB)"
+	Palette.style_button(_channel_button, false, true)
+	_channel_button.pressed.connect(toggle_channel)
+	row.add_child(_channel_button)
+	_field = LineEdit.new()
+	_field.name = "ChatInput"
+	_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_field.placeholder_text = "MESSAGE // ENTER SENDS // TAB CHANNEL"
+	_field.max_length = RemotePlayers.MAX_CHAT_LENGTH
+	_field.add_theme_font_size_override("font_size", FONT_SIZE)
+	_field.text_submitted.connect(_submit)
+	_field.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).physical_keycode == KEY_TAB:
+			toggle_channel()
+			_field.accept_event())
+	row.add_child(_field)
+	set_channel(channel)
 	_panel.visible = false
+
+
+# -- quick chat ---------------------------------------------------------------
+
+func _build_quick() -> void:
+	_quick = Control.new()
+	_quick.name = "QuickChat"
+	_quick.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_quick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_quick.visible = false
+	add_child(_quick)
+	for index in PRESETS.size():
+		var button := Button.new()
+		button.name = "Quick_%d" % index
+		button.text = PRESETS[index]
+		button.focus_mode = Control.FOCUS_NONE
+		button.add_theme_font_size_override("font_size", 7)
+		Palette.style_button(button, false, true)
+		button.pressed.connect(func() -> void:
+			send_preset(index)
+			close_quick())
+		_quick.add_child(button)
+		_quick_buttons.append(button)
+
+
+func quick_is_open() -> bool:
+	return _quick_open
+
+
+func open_quick() -> void:
+	if _open:
+		return
+	_quick_open = true
+	_quick_sticky = false
+	_quick_pick = -1
+	_quick_mouse = Vector2.ZERO
+	_quick_held_ms = Time.get_ticks_msec()
+	_quick.visible = true
+
+
+func close_quick() -> void:
+	if not _quick_open:
+		return
+	_quick_open = false
+	_quick_sticky = false
+	_quick.visible = false
+	MouseLock.claim("quick_chat", false)
+
+
+## Radial layout around the screen centre; the stick / WASD / mouse direction highlights a preset.
+func _update_quick() -> void:
+	if not _quick_open:
+		return
+	var view := get_viewport().get_visible_rect().size
+	var centre := view * .5
+	for index in _quick_buttons.size():
+		var angle := -PI * .5 + TAU * float(index) / float(_quick_buttons.size())
+		var button := _quick_buttons[index]
+		button.reset_size()
+		button.position = centre + Vector2(cos(angle), sin(angle)) * QUICK_RADIUS - button.size * .5
+	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if direction.length() < .5 and _quick_mouse.length() > 18.0:
+		direction = _quick_mouse.normalized()
+	if direction.length() >= .5:
+		_quick_pick = pick_for_direction(direction, _quick_buttons.size())
+	for index in _quick_buttons.size():
+		Palette.set_state_toggle(_quick_buttons[index], index == _quick_pick)
+
+
+## The preset a stick/mouse direction points at (index 0 straight up, clockwise).
+static func pick_for_direction(direction: Vector2, count: int) -> int:
+	var angle := fposmod(atan2(direction.y, direction.x) + PI * .5, TAU)
+	return roundi(angle / (TAU / float(count))) % count
+
+
+## Sends preset `index` as a line on the current channel with a map ping at the player (HUNTER! pings the aimed hunter).
+func send_preset(index: int) -> bool:
+	if index < 0 or index >= PRESETS.size() or remotes == null:
+		return false
+	var payload := {"text": PRESETS[index], "preset": PRESETS[index], "channel": channel, "ping": true}
+	if PRESETS[index] == "HUNTER!" and hunter_aim_provider.is_valid():
+		var hunter: Dictionary = hunter_aim_provider.call()
+		if not hunter.is_empty():
+			payload["target"] = hunter.get("at", Vector2.ZERO)   # everyone's ping lands on the hunter, not on me
+	if not remotes.send_chat_payload(payload):
+		add_system("SLOW DOWN // PINGS ARE RATE LIMITED")
+		return false
+	return true

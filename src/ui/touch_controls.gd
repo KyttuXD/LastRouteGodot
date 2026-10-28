@@ -41,6 +41,7 @@ const BUTTONS := [
 	["TouchBag", "BAG", "inventory", false],
 	["TouchMap", "MAP", "toggle_map", false],
 	["TouchChat", "CHAT", "chat", false],
+	["TouchQuick", "QUICK", "quick_chat", false],
 	["TouchPause", "II", "pause", false],
 ]
 ## Buttons that stay while the inventory is open (it owns every other touch).
@@ -261,7 +262,7 @@ func _layout() -> void:
 	var arrow_y := hotbar.position.y + hotbar.size.y - MIN_TARGET
 	prev.position = Vector2(hotbar.position.x - MIN_TARGET - gap * .5, arrow_y)
 	next.position = Vector2(hotbar.end.x + gap * .5, arrow_y)
-	var top := ["TouchPause", "TouchMap", "TouchBag", "TouchChat"]
+	var top := ["TouchPause", "TouchMap", "TouchBag", "TouchChat", "TouchQuick"]
 	for index in top.size():
 		var button: Button = _buttons[top[index]]["button"]
 		button.size = Vector2(MIN_TARGET, MIN_TARGET)

@@ -70,6 +70,17 @@ var _snapshot_elapsed := SNAPSHOT_RETRY_SECONDS
 var _snapshot_received := false
 
 signal chat_received(peer_id: int, display_name: String, message: String)
+## Every chat line with its context: {text, channel ("team" | "nearby"), preset, ping, at (map position), world (Vector3),
+## depth, system}. chat_received still fires for plain-text listeners.
+signal chat_message(peer_id: int, display_name: String, payload: Dictionary)
+
+const CHAT_CHANNELS := ["team", "nearby"]
+## Rate limits (checked by the host for every sender, and locally): messages per window, and the gap between map pings.
+const CHAT_RATE_WINDOW_MS := 5000
+const CHAT_RATE_MAX := 5
+const PING_MIN_INTERVAL_MS := 2000
+var _chat_times := {}
+var _ping_times := {}
 
 
 func _ready() -> void:
@@ -83,7 +94,11 @@ func _ready() -> void:
 		multiplayer.peer_connected.connect(_greet)
 
 
-func send_chat(text: String) -> void:
+func send_chat(text: String, channel: String = "team") -> void:
+	send_chat_payload({"text": text, "channel": channel})
+
+
+func _send_chat_legacy(text: String) -> void:
 	var message := _sanitize_chat(text)
 	if message.is_empty():
 		return
@@ -119,6 +134,98 @@ func _chat(peer_id: int, display_name: String, message: String) -> void:
 	if clean.is_empty():
 		return
 	chat_received.emit(peer_id, display_name.strip_edges().substr(0, 32), clean)
+
+
+## Sends a chat line or quick-chat preset with the sender's position (for NEARBY filtering and map pings).
+func send_chat_payload(payload: Dictionary) -> bool:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var clean := sanitize_payload(payload, local_id == 1 and bool(payload.get("system", false)))
+	var state := _local_state() if local_player != null else {}
+	clean["at"] = state.get("position", Vector2.ZERO)
+	clean["world"] = local_player.global_position if local_player != null else Vector3.ZERO
+	clean["depth"] = GameState.depth
+	if String(clean["text"]).is_empty() or not rate_ok(local_id, bool(clean["ping"])):
+		return false
+	if not RoomState.online:
+		_emit_payload(local_id, RoomState.local_display_name(), clean)
+	elif RoomState.is_host:
+		_deliver_payload(local_id, RoomState.local_display_name(), clean)
+	else:
+		_submit_chat_payload.rpc_id(1, clean)
+	return true
+
+
+## Host only: a system line (owner/admin notices) to everyone.
+func send_system(text: String) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	send_chat_payload({"text": text, "system": true})
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_chat_payload(payload: Dictionary) -> void:
+	if not RoomState.is_host:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	var clean := sanitize_payload(payload, false)   # guests never send system lines
+	if sender <= 1 or String(clean["text"]).is_empty() or not rate_ok(sender, bool(clean["ping"])):
+		return
+	_deliver_payload(sender, RoomState.peer_display_name(sender), clean)
+
+
+func _deliver_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	_emit_payload(peer_id, display_name, payload)
+	if RoomState.online and RoomState.is_host:
+		_chat_payload.rpc(peer_id, display_name, payload)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _chat_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	var clean := sanitize_payload(payload, bool(payload.get("system", false)))
+	if String(clean["text"]).is_empty():
+		return
+	_emit_payload(peer_id, display_name.strip_edges().substr(0, 32), clean)
+
+
+func _emit_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	chat_message.emit(peer_id, display_name, payload)
+	if not bool(payload.get("system", false)):
+		chat_received.emit(peer_id, display_name, String(payload["text"]))
+
+
+## Only known fields with bounded values survive; a peer can never mark its own line as a system message.
+static func sanitize_payload(payload: Dictionary, allow_system: bool) -> Dictionary:
+	var channel := String(payload.get("channel", "team"))
+	var at = payload.get("at", Vector2.ZERO)
+	var world = payload.get("world", Vector3.ZERO)
+	return {
+		"text": _sanitize_chat(String(payload.get("text", ""))),
+		"channel": channel if CHAT_CHANNELS.has(channel) else "team",
+		"preset": String(payload.get("preset", "")).substr(0, 24),
+		"ping": bool(payload.get("ping", false)),
+		"at": at if at is Vector2 else Vector2.ZERO,
+		"world": world if world is Vector3 else Vector3.ZERO,
+		"depth": int(payload.get("depth", 0)),
+		"system": allow_system and bool(payload.get("system", false)),
+		# a quick-chat ping aimed at something else than the sender (HUNTER! at the aimed hunter)
+		"target": payload.get("target") if payload.get("target") is Vector2 else null,
+	}
+
+
+## At most CHAT_RATE_MAX lines per CHAT_RATE_WINDOW_MS per peer, and one map ping per PING_MIN_INTERVAL_MS.
+func rate_ok(peer_id: int, ping: bool, now_ms: int = -1) -> bool:
+	var now := now_ms if now_ms >= 0 else Time.get_ticks_msec()
+	var times: Array = (_chat_times.get(peer_id, []) as Array).filter(func(t: int) -> bool: return now - t < CHAT_RATE_WINDOW_MS)
+	if times.size() >= CHAT_RATE_MAX:
+		_chat_times[peer_id] = times
+		return false
+	if ping and now - int(_ping_times.get(peer_id, -PING_MIN_INTERVAL_MS)) < PING_MIN_INTERVAL_MS:
+		return false
+	times.append(now)
+	_chat_times[peer_id] = times
+	if ping:
+		_ping_times[peer_id] = now
+	return true
 
 
 static func _sanitize_chat(text: String) -> String:

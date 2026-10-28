@@ -1773,6 +1773,9 @@ func _on_xr_right_released(action: StringName) -> void:
 
 func _on_xr_left_pressed(action: StringName) -> void:
 	match String(action):
+		"ax_button":
+			if InputMap.has_action("quick_chat"):   # registered by RoomChat in co-op scenes
+				_emit_xr_action_event("quick_chat", true)   # hold X and tilt the stick to pick a quick-chat preset
 		"trigger_click":
 			Input.action_press("taser")
 		"primary_click":
@@ -1787,6 +1790,9 @@ func _on_xr_left_pressed(action: StringName) -> void:
 
 func _on_xr_left_released(action: StringName) -> void:
 	match String(action):
+		"ax_button":
+			if InputMap.has_action("quick_chat"):
+				_emit_xr_action_event("quick_chat", false)
 		"trigger_click":
 			Input.action_release("taser")
 		"primary_click":

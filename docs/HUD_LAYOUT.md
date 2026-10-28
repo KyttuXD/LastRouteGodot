@@ -75,3 +75,16 @@ zooming about them. Dragging, the stick, arrow keys, a trackpad or a one-finger 
 button (shown with the jump key for the active device) or the jump key brings it back. Pinch / trackpad magnify zooms on touch. The
 zoom is remembered between opens (`FacilityMap.remembered_zoom`). Teammates, hunters and waypoints draw as before; the title shows the
 current floor. Test: `map_follow`.
+
+## Chat, channels and quick chat
+
+`RoomChat` (`src/ui/room_chat.gd`), bottom-left above the stamina bar. Closed: the last 5 lines, fading 8 s after the last one;
+open (chat key / CHAT touch button): the scrollable history (60 lines), the input and a TEAM / NEARBY toggle (button or TAB).
+Lines read `[TEAM] 12:04 CALLSIGN  text`, the callsign in the sender's peer colour; system lines (`RemotePlayers.send_system`,
+host only) are amber. NEARBY: same level within 20 m reads normally, further on the same level is greyed, another level is not
+shown. Quick chat (`quick_chat`: ` key, D-pad up, the Quest's left X held with the stick, QUICK touch button): a radial of
+OVER HERE!, HUNTER!, RELAY HERE, NEED LIGHT, HIDE!, FOLLOW ME, THANKS, YES, NO; hold and point (stick / WASD / mouse) then
+release, or tap and click. Each sends the line and a 6 s ping in the sender's colour on the minimap and full map (HUNTER! on the
+hunter under the crosshair when one is visible). The host rate-limits every sender (5 lines / 5 s, one ping / 2 s) and peers can
+never send system lines. Phones lift the panel above the on-screen keyboard; the Quest's headset keyboard types into the field.
+Test: `chat`.
