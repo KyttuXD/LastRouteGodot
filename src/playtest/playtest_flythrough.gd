@@ -272,12 +272,15 @@ class Track:
 	## 1 = a walking frame: pos.y is the eye height ABOVE the physics floor (the scenario ray-casts the real collision floor, so ramps, bridges and
 	## stairs are followed); 0 = a flying frame: pos.y is an absolute world y.
 	var ground := PackedByteArray()
+	## Spring-arm pivot of a flying frame (the point the camera orbits / looks from): the camera is pulled in toward it when geometry is in the way. INF = none.
+	var pivot := PackedVector3Array()
 	## frame -> event dictionary (a real ladder climb the scenario plays through the game's own ladder).
 	var events := {}
 	## Frame indexes where the picture cuts to a new shot: angles are not smoothed across them.
 	var cuts: Array[int] = []
 
-	func add(p: Vector3, y: float, pt: float, on_ground: int = 0) -> void:
+	func add(p: Vector3, y: float, pt: float, on_ground: int = 0, pv: Vector3 = Vector3.INF) -> void:
+		pivot.append(pv)
 		pos.append(p)
 		yaw.append(y)
 		pitch.append(pt)
@@ -524,7 +527,7 @@ static func bake_orbit(track: Track, center: Vector3, degrees: float, seconds: f
 			# on top of the centre there is no direction to look in: keep the last view until the orbit opens out
 			track.add(p, track.yaw[track.yaw.size() - 1], track.pitch[track.pitch.size() - 1])
 		else:
-			track.add(p, yaw_for(d.x, d.z), pitch_for(d))
+			track.add(p, yaw_for(d.x, d.z), pitch_for(d), 0, Vector3(center.x, center.y + 1.2, center.z))
 
 
 ## A hard cut to an overview: starts high and wide on the side of `center` the walk ended on, then orbits slowly and drifts a little higher.
@@ -540,7 +543,7 @@ static func bake_overview(track: Track, center: Vector3, from_xz: Vector2, degre
 		var h := height * (1.0 + .25 * e)
 		var p := Vector3(center.x + cos(a) * r, h, center.z + sin(a) * r)
 		var d := Vector3(center.x, center.y + 1.0, center.z) - p
-		track.add(p, yaw_for(d.x, d.z), pitch_for(d))
+		track.add(p, yaw_for(d.x, d.z), pitch_for(d), 0, Vector3(center.x, center.y + 1.2, center.z))
 
 
 static func bake_rise(track: Track, xz_from: Vector2, xz_to: Vector2, from_y: float, to_y: float, seconds: float, face: Vector2, up_pitch: float, fps: int) -> void:
@@ -857,7 +860,7 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 	for cut in track.cuts:
 		padded.cuts.append(cut + int(HOLD_SECONDS * fps))
 	for i in track.size():
-		padded.add(track.pos[i], track.yaw[i], track.pitch[i], track.ground[i])
+		padded.add(track.pos[i], track.yaw[i], track.pitch[i], track.ground[i], track.pivot[i])
 	padded.hold(int(HOLD_SECONDS * fps))
 	info["frames"] = padded.size()
 	info["seconds"] = snappedf(float(padded.size()) / float(fps), .1)
@@ -993,13 +996,16 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	player._apply_look_rotation()
 	await tree.process_frame
 	var camera := player.active_camera()
+	camera.near = .1
 	var eye_offset := camera.global_position.y - player.global_position.y
 	var lamp: OmniLight3D = null
+	# the sewers are much darker than the maze: a stronger capture fill light there
+	var lamp_base := 2.4 if String(info.get("kind", "")).begins_with("sewer") or String(info.get("kind", "")) == "maze_ladder_down" else 1.1
 	if bool(opts.get("lamp", true)):
 		# the maze is dark on purpose: a soft lamp riding on the camera lets a viewer read the architecture (rooms, props, colours)
 		lamp = OmniLight3D.new()
 		lamp.shadow_enabled = false
-		lamp.light_energy = 1.1
+		lamp.light_energy = lamp_base
 		lamp.omni_range = 11.0
 		lamp.light_color = Color(1.0, .95, .85)
 		camera.add_child(lamp)
@@ -1019,8 +1025,14 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var opened_doors := {}
 	var doors_opened := 0
 	var door_clip_frames := 0
+	var blocked_frames := 0
+	var inside_frames := 0
+	var camera_probe := SphereShape3D.new()
+	camera_probe.radius = .2
+	var arm_shape := SphereShape3D.new()
+	arm_shape.radius = .35
 	var footprint := CapsuleShape3D.new()
-	footprint.radius = .28
+	footprint.radius = .2
 	footprint.height = 1.2
 	var clip_start_frame := Engine.get_frames_drawn()
 	var played := 0
@@ -1045,29 +1057,52 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			player._yaw = track.yaw[i] + hold_yaw_offset
 			player._pitch = track.pitch[i]
 			player._apply_look_rotation()
+		elif mode == 1:
+			# WALKING: the camera is the real player body (collision capsule, gravity, the real floor: ramps, bridges, stairs). It is moved by
+			# move_and_collide and slides along walls, jambs and props, so it physically cannot enter geometry.
+			if player.admin_noclip:
+				player.set_admin_noclip(false)
+				player.global_position = Vector3(p.x, ground_y + .08, p.z)
+				for _settle in 12:
+					await tree.process_frame
+					frames += 1
+			var feet := player.global_position
+			var motion := Vector3(p.x - feet.x, 0.0, p.z - feet.z)
+			if motion.length() > .3:
+				motion = motion.normalized() * .3
+			var hit := player.move_and_collide(motion)
+			if hit != null:
+				var rest := hit.get_remainder().slide(hit.get_normal())
+				rest.y = 0.0
+				player.move_and_collide(rest)
+				blocked_frames += 1
+			var floor_now := player.global_position.y
+			if not is_nan(last_hit_y):
+				worst_floor_jump = maxf(worst_floor_jump, absf(floor_now - last_hit_y))
+			last_hit_y = floor_now
+			ground_y = floor_now
+			player.first_person_pivot.position.y = 1.6 + (p.y - 1.6)
+			player.velocity = Vector3.ZERO
+			player._yaw = track.yaw[i]
+			player._pitch = track.pitch[i]
+			player._apply_look_rotation()
 		else:
-			if mode == 1:
-				# follow the REAL walkable floor: cast down from just above the last floor height, skipping prop tops (tables, beds, counters)
-				var from := Vector3(p.x, ground_y + 1.4, p.z)
-				var skip: Array[RID] = [player.get_rid()]
-				for _attempt in 5:
-					var query := PhysicsRayQueryParameters3D.create(from, Vector3(p.x, ground_y - 3.0, p.z))
-					query.exclude = skip
-					var hit := space.intersect_ray(query)
-					if hit.is_empty():
-						break
-					var collider := hit["collider"] as Node
-					if collider != null and (collider.is_in_group("streamed_region_prop") or collider.is_in_group("interactable") or collider.is_in_group("room_door")):
-						skip.append(hit["rid"])
-						continue
-					var hit_y := float((hit["position"] as Vector3).y)
-					if not is_nan(last_hit_y):
-						worst_floor_jump = maxf(worst_floor_jump, absf(hit_y - last_hit_y))
-					last_hit_y = hit_y
-					ground_y = move_toward(ground_y, hit_y, 4.0 / float(fps))
-					break
-				eye_y = ground_y + p.y
-			player.global_position = Vector3(p.x, eye_y - eye_offset, p.z)
+			# FLYING (establishing orbit, overview): a spring arm. A sphere is cast from the pivot to the wanted camera spot and the camera is pulled in on a hit.
+			if not player.admin_noclip:
+				player.set_admin_noclip(true)
+			var want := Vector3(p.x, p.y, p.z)
+			var pv := track.pivot[i]
+			if pv.is_finite():
+				var arm := PhysicsShapeQueryParameters3D.new()
+				arm.shape = arm_shape
+				arm.transform = Transform3D(Basis.IDENTITY, pv)
+				arm.motion = want - pv
+				arm.exclude = [player.get_rid()]
+				var fractions := space.cast_motion(arm)
+				if fractions.size() >= 2:
+					want = pv + (want - pv) * (clampf(float(fractions[0]), 0.0, 1.0) * .97)
+			player.first_person_pivot.position.y = 1.6
+			player.global_position = Vector3(want.x, want.y - 1.6, want.z)
 			player.velocity = Vector3.ZERO
 			player._yaw = track.yaw[i]
 			player._pitch = track.pitch[i]
@@ -1075,7 +1110,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		if lamp != null:
 			var above := maxf(player.active_camera().global_position.y - floor_base - 2.0, 0.0)
 			lamp.omni_range = 11.0 + above * 2.2
-			lamp.light_energy = 1.1 + above * .12
+			lamp.light_energy = lamp_base + above * .12
 		if i % 45 == 0:
 			_clear_hunters(scene, show_hunters)
 		if clean and i % 30 == 0:
@@ -1096,11 +1131,11 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			tight_run = 0
 		if mode == 1 and depth < 2.0:
 			view2_frames += 1
-		# is the camera body inside a prop or wall? (a small capsule at the camera's footprint, torso to head)
-		if mode == 1:
+		# is the CAMERA inside geometry? (a sphere at the camera itself, every frame of every shot except the game's own ladder camera)
+		if mode != 2:
 			var overlap := PhysicsShapeQueryParameters3D.new()
-			overlap.shape = footprint
-			overlap.transform = Transform3D(Basis.IDENTITY, Vector3(p.x, ground_y + .85, p.z))
+			overlap.shape = camera_probe
+			overlap.transform = Transform3D(Basis.IDENTITY, camera.global_position)
 			overlap.exclude = [player.get_rid()]
 			var inside_door := false
 			var inside_other := false
@@ -1115,6 +1150,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				door_clip_frames += 1
 			if inside_other:
 				overlap_frames += 1
+			if inside_door or inside_other:
+				inside_frames += 1
 		# a camera that does not move "for real" counts as idle: keep the anti-idle clocks (they send hunters) at zero
 		scene.set("_relay_inactivity_seconds", 0.0)
 		scene.set("_party_afk_seconds", 0.0)
@@ -1129,6 +1166,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	info["prop_overlap_s"] = snappedf(float(overlap_frames) / float(fps), .2)
 	info["max_floor_step_m"] = snappedf(worst_floor_jump, .01)
 	info["ladder_frames"] = played
+	info["inside_geometry_s"] = snappedf(float(inside_frames) / float(fps), .2)
+	info["blocked_s"] = snappedf(float(blocked_frames) / float(fps), .2)
 	info["doors_opened"] = doors_opened
 	info["door_clip_s"] = snappedf(float(door_clip_frames) / float(fps), .2)
 	info["clip_frames_actual"] = Engine.get_frames_drawn() - clip_start_frame
