@@ -20,7 +20,7 @@ static var _beds := {
 	"prison": [{"kind": "hum", "hz": 50.0, "vol": .008}, {"kind": "pulse", "hz": 140.0, "vol": .014, "every": 3.0, "len": .12, "wave": "square"}],
 	"hospital": [{"kind": "hum", "hz": 120.0, "vol": .011}, {"kind": "hum", "hz": 240.0, "vol": .004},
 		{"kind": "pulse", "hz": 980.0, "vol": .006, "every": 1.5, "len": .09}],
-	"lab": [{"kind": "noise", "hz": 650.0, "vol": .009}, {"kind": "hum", "hz": 85.0, "vol": .008},
+	"lab": [{"kind": "noise", "hz": 650.0, "vol": .009}, {"kind": "hum", "hz": 120.0, "vol": .003},
 		{"kind": "pulse", "hz": 3000.0, "vol": .004, "every": 6.0, "len": .7, "wave": "saw"}],
 	"greenhouse": [{"kind": "noise", "hz": 2200.0, "vol": .004, "swell": 3.0}, {"kind": "pulse", "hz": 1400.0, "vol": .004, "every": 1.2, "len": .04},
 		{"kind": "chirp", "hz": 3200.0, "vol": .005, "count": 4}],
