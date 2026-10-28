@@ -1,0 +1,44 @@
+{
+ "name": "the_hunters",
+ "music": "02_Exploration_DesolateHalls.mid",
+ "music_volume": 0.8,
+ "shots": [
+  {
+   "card": [
+    "THE HUNTERS"
+   ],
+   "t": 3.0
+  },
+  {
+   "clip": "nyxie_peek",
+   "ss": 0,
+   "t": 11
+  },
+  {
+   "clip": "quenelle",
+   "ss": 0,
+   "t": 5.5
+  },
+  {
+   "clip": "javelle",
+   "ss": 0,
+   "t": 5.5
+  },
+  {
+   "clip": "zellia",
+   "ss": 0,
+   "t": 5.5
+  },
+  {
+   "clip": "elise_sprint",
+   "ss": 0,
+   "t": 6
+  },
+  {
+   "card": [
+    "LAST ROUTE"
+   ],
+   "t": 3.4
+  }
+ ]
+}

@@ -78,7 +78,13 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	player.input_frozen = true
 	player.look_frozen = true
 	player.set_admin_noclip(true)
-	var origin_eye := track.pos[0]
+	# the stage starts where the flythrough first WALKS (frame 0 is the high establishing shot)
+	var stage_frame := 0
+	for k in track.size():
+		if int(track.ground[k]) == 1:
+			stage_frame = k
+			break
+	var origin_eye := track.pos[stage_frame]
 	bridge.admin("teleport", {"x": origin_eye.x, "y": origin_eye.y - EYE, "z": origin_eye.z})
 	var frames := 0
 	for _i in 120:
@@ -308,7 +314,7 @@ static func _set_tag(actor: Actor, text: String) -> void:
 		label.outline_size = 14
 		label.modulate = Color(.92, .92, .92, 0.0)
 		label.outline_modulate = Color(0, 0, 0, 0.9)
-		label.no_depth_test = false
+		label.no_depth_test = true
 		label.position = Vector3(0, actor.height + .32, 0)
 		actor.root.add_child(label)
 		actor.tag = label
