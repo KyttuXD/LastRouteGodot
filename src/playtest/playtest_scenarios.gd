@@ -550,3 +550,339 @@ static func death_tour(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	adapter.stats["deaths"] = rows.size() - no_kill.size()
 	return {"outcome": "death_tour_done", "game_seconds": snappedf(frames / 60.0, .1), "frames": frames, "scenario_failure": "; ".join(problems),
 		"death_tour_summary": {"hunters": ids.size(), "killed": rows.size() - no_kill.size(), "no_kill": no_kill.map(func(row): return row["hunter"])}}
+
+
+# ------------------------------------------------------------------------------------------------ soak
+const SOAK_LEVELS := [0, 1, -1, -2, -3]
+const SOAK_SAVE_DIR := "user://playtest_soak_saves"
+
+
+## soak: a long run on the real streamed route for leak hunting (the measuring is PerfLog's, --soak-log). Plays like survive (chases,
+## catches, restarts, hiding) and on timers, in game seconds:
+##   --level-every=150   change level along 0, +1, -1, -2, -3 through real level links (the bot does not climb yet: it is put at the
+##                       far end of the nearest link, one storey at a time, so every storey streams in and out); --hop-every=20 overrides
+##   --save-every=600    save the run (the route's own payload, into a scratch save folder, cloud off), leave to the menu, CONTINUE it
+##   --pause-every=60    open and close the pause menu, flip the graphics quality and put it back
+##   --seam-every=90     sprint across the nearest chunk seam
+##   a music box within 2.5 m is wound (interact held), at most once per box
+##   --hunters=all | N | id,id   summoned again after every restart and resume (the stress variant)
+## Stuck and unreachable limits scale with the length (the defaults are per 2 minutes) unless given.
+static func soak(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var hz := float(Engine.physics_ticks_per_second)
+	var saves_dir := RunSaves.save_dir
+	var saves_cloud := RunSaves.cloud_disabled
+	RunSaves.save_dir = SOAK_SAVE_DIR   # never the player's own run
+	RunSaves.cloud_disabled = true
+	var quality := String(Settings.graphics_quality)
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"],
+		"bot_seed": opts["bot_seed"], "debug": true})
+	if not bool(start.get("ok", false)):
+		RunSaves.save_dir = saves_dir
+		RunSaves.cloud_disabled = saves_cloud
+		return {"scenario_failure": "start_run failed: %s" % start.get("error", "?"), "outcome": "error", "game_seconds": 0.0, "frames": 0}
+	var given := " ".join(OS.get_cmdline_user_args())
+	var scale := maxf(float(opts["minutes"]) / 2.0, 1.0)
+	for key in ["max_stuck", "max_unreachable"]:
+		if not given.contains("--" + key.replace("_", "-")):
+			opts[key] = int(ceil(float(opts[key]) * scale))
+	var every := {"level": float(opts["hop_every"]) if float(opts["hop_every"]) > 0.0 else float(opts["level_every"]),
+		"save": float(opts["save_every"]), "pause": float(opts["pause_every"]), "seam": float(opts["seam_every"])}
+	var due := every.duplicate()
+	var counts := {"level_changes": 0, "level_failed": 0, "save_loads": 0, "save_load_failed": 0, "pauses": 0, "setting_flips": 0,
+		"seam_sprints": 0, "music_boxes": 0, "deaths": 0, "hunters_summoned": 0}
+	var levels_seen := {}
+	var actions: Array = []
+	var wound := {}
+	var cycle := 0
+	var override := {}
+	var fps: Array = []
+	var frame_ms: Array = []
+	var limit := int(float(opts["minutes"]) * 60.0 * hz)
+	var frames := 0
+	var last_over := false
+	counts["hunters_summoned"] = int(counts["hunters_summoned"]) + _soak_hunters(tree, String(opts["hunters"]))
+	while frames < limit:
+		await tree.physics_frame
+		frames += 1
+		var t := float(frames) / hz
+		var obs := bridge.observe()
+		var scene := tree.current_scene
+		var level := int(obs.get("world", {}).get("level", 0))
+		levels_seen[level] = int(levels_seen.get(level, 0)) + 1
+		if frames % 120 == 0:
+			bridge.status = "soak %d/%d s, level %d, %s" % [int(t), int(limit / hz), level, counts]
+		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
+			fps.append(float(obs["fps"]))
+			frame_ms.append(float(obs["frame_ms"]))
+		var over := adapter.run_over(obs)
+		if over and not last_over:
+			counts["deaths"] = int(counts["deaths"]) + 1
+			adapter.add_event("death", {"t": snappedf(t, .1), "level": level})
+			for _i in 180:
+				await tree.physics_frame
+			frames += 180
+			bridge.input.release_all()
+			adapter.after_run_over(obs)
+			for _i in 120:
+				await tree.physics_frame
+			frames += 120
+			override = {}
+			counts["hunters_summoned"] = int(counts["hunters_summoned"]) + _soak_hunters(tree, String(opts["hunters"]))
+			continue
+		last_over = over
+		if over or not _soak_route(scene):
+			continue
+		# timed actions, one per frame at most
+		var did := ""
+		if every["save"] > 0.0 and t >= float(due["save"]):
+			due["save"] = t + float(every["save"])
+			did = "save_load"
+			var saved := await _soak_save_load(bridge, adapter, opts)
+			frames += int(saved.get("frames", 0))
+			counts["save_loads" if bool(saved["ok"]) else "save_load_failed"] = int(counts["save_loads" if bool(saved["ok"]) else "save_load_failed"]) + 1
+			saved["t"] = snappedf(t, .1)
+			actions.append(saved)
+			counts["hunters_summoned"] = int(counts["hunters_summoned"]) + _soak_hunters(tree, String(opts["hunters"]))
+		elif every["level"] > 0.0 and t >= float(due["level"]):
+			due["level"] = t + float(every["level"])
+			did = "level"
+			cycle = (cycle + 1) % SOAK_LEVELS.size()
+			var moved := await _soak_level(bridge, scene, int(SOAK_LEVELS[cycle]))
+			frames += int(moved.get("frames", 0))
+			counts["level_changes" if bool(moved["ok"]) else "level_failed"] = int(counts["level_changes" if bool(moved["ok"]) else "level_failed"]) + 1
+			moved["t"] = snappedf(t, .1)
+			actions.append(moved)
+		elif every["pause"] > 0.0 and t >= float(due["pause"]):
+			due["pause"] = t + float(every["pause"])
+			did = "pause"
+			frames += await _soak_pause(tree, scene, quality)
+			counts["pauses"] = int(counts["pauses"]) + 1
+			counts["setting_flips"] = int(counts["setting_flips"]) + 1
+		elif every["seam"] > 0.0 and t >= float(due["seam"]):
+			due["seam"] = t + float(every["seam"])
+			did = "seam"
+			override = _soak_seam(scene, frames + int(4.0 * hz))
+			counts["seam_sprints"] = int(counts["seam_sprints"]) + 1
+		elif frames % 30 == 0 and override.is_empty():
+			var box := _soak_music_box(scene, wound)
+			if box != null:
+				did = "music_box"
+				wound[box.get_instance_id()] = true
+				override = {"until": frames + int(2.6 * hz), "hold_interact": true, "aim": box.global_position + Vector3.UP * .3}
+				counts["music_boxes"] = int(counts["music_boxes"]) + 1
+		if not did.is_empty():
+			adapter.add_event("soak_" + did, {"t": snappedf(t, .1), "level": level})
+		# the bot plays, unless an action is steering
+		scene = tree.current_scene   # a save/load replaced it
+		var player: PlayerController3D = scene.get("player") if _soak_route(scene) else null
+		if not override.is_empty() and frames < int(override["until"]) and player != null:
+			if override.has("aim"):
+				var to: Vector3 = (override["aim"] as Vector3) - player.first_person_camera.global_position
+				player._yaw = PlaytestFlythrough.yaw_for(to.x, to.z)
+				player._pitch = PlaytestFlythrough.pitch_for(to.normalized())
+				player._apply_look_rotation()
+				Input.action_press("interact")
+				bridge.input.apply({})
+			else:
+				player._yaw = float(override["yaw"])
+				player._apply_look_rotation()
+				bridge.input.apply({"move": [0.0, 1.0], "hold": {"sprint": true}})
+			continue
+		if not override.is_empty():
+			if bool(override.get("hold_interact", false)):
+				Input.action_release("interact")
+			override = {}
+		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
+	bridge.input.release_all()
+	Input.action_release("interact")
+	if Settings.graphics_quality != quality:
+		Settings.set_graphics_quality(quality)
+	RunSaves.clear()
+	RunSaves.save_dir = saves_dir
+	RunSaves.cloud_disabled = saves_cloud
+	var seen := {}
+	for key in levels_seen:
+		seen[str(key)] = snappedf(float(levels_seen[key]) / hz, .1)
+	report["soak"] = {"counts": counts, "seconds_per_level": seen, "actions": actions}
+	var failure := ""
+	if int(counts["save_load_failed"]) > 0:
+		failure = "%d save/load cycle(s) did not resume the run" % int(counts["save_load_failed"])
+	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
+		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": failure}
+
+
+static func _soak_route(scene: Node) -> bool:
+	return scene != null and scene.get("player") is PlayerController3D and scene.get("facility") != null
+
+
+## --hunters: all (every A-Z and Void hunter), a count (the first N), or ids. The route's own admin summon (peer 1 offline).
+static func _soak_hunters(tree: SceneTree, wanted: String) -> int:
+	var scene := tree.current_scene
+	if wanted.is_empty() or not _soak_route(scene) or not scene.has_method("_admin_summon_hunter_authoritative"):
+		return 0
+	var roster: Array = HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS
+	var ids: Array = roster if wanted == "all" else (roster.slice(0, int(wanted)) if wanted.is_valid_int() else Array(wanted.split(",", false)))
+	for id in ids:
+		scene.call("_admin_summon_hunter_authoritative", 1, String(id))
+	return ids.size()
+
+
+## Moves one storey at a time toward `target` through the nearest real level link (within 3 chunks) to the next storey, landing at
+## its far end; noclip holds the runner until that storey's floor has streamed in.
+static func _soak_level(bridge: PlaytestBridge, scene: Node, target: int) -> Dictionary:
+	var tree := bridge.get_tree()
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var player: PlayerController3D = scene.get("player")
+	var from := facility.current_level()
+	var path: Array = [from]
+	var frames := 0
+	var cs := float(StreamedRouteGenerator.CHUNK_SIZE)
+	for _hop in 6:
+		var here := facility.current_level()
+		if here == target:
+			break
+		var step := here + signi(target - here)
+		var centre := facility.current_chunk_coord()
+		var best := {}
+		var best_d := INF
+		for dz in range(-3, 4):
+			for dx in range(-3, 4):
+				var coord := Vector3i(centre.x + dx, here, centre.z + dz)
+				if not facility.generator.is_chunk_allowed(coord):
+					continue
+				for link_value in facility.generator.vertical_links(coord):
+					var link: Dictionary = link_value
+					if LevelLink.cell_on(link, here) == Vector2i(-1, -1) or int(LevelLink.other_end(link, here)["level"]) != step:
+						continue
+					var d := float(dx * dx + dz * dz)
+					if d < best_d:
+						best_d = d
+						best = link
+		if best.is_empty():
+			return {"action": "level", "ok": false, "from": from, "to": target, "path": path, "frames": frames,
+				"why": "no link from %d to %d within 3 chunks" % [here, step]}
+		var far: Dictionary = LevelLink.other_end(best, here)
+		var cell: Vector2i = far["cell"]
+		var chunk: Vector3i = best["chunk"]
+		var landing := facility.global_position + Vector3(float(chunk.x) * cs + float(cell.x) + .5,
+			float(step) * StreamedFacilityView3D.LEVEL_HEIGHT + .1, float(chunk.z) * cs + float(cell.y) + .5)
+		player.set_admin_noclip(true)
+		bridge.admin("teleport", {"x": landing.x, "y": landing.y, "z": landing.z})
+		for _i in 90:
+			await tree.physics_frame
+			player.global_position = landing
+			player.velocity = Vector3.ZERO
+		frames += 90
+		# step off the link (the bot does not use ladders: left on one it climbs straight back) onto the most open floor beside it
+		var space := player.get_world_3d().direct_space_state
+		var off := Vector3.ZERO
+		var room := 0.0
+		for k in 8:
+			var dir := Vector3(sin(TAU * float(k) / 8.0), 0.0, cos(TAU * float(k) / 8.0))
+			var ray := PhysicsRayQueryParameters3D.create(landing + Vector3.UP, landing + Vector3.UP + dir * 4.0)
+			ray.exclude = [player.get_rid()]
+			var hit := space.intersect_ray(ray)
+			var clear := 4.0 if hit.is_empty() else landing.distance_to((hit["position"] as Vector3) - Vector3.UP)
+			if clear > room:
+				room = clear
+				off = dir * minf(1.6, clear - .5)
+		player.global_position = landing + off
+		player.set_admin_noclip(false)
+		path.append("%s>%d" % [best["kind"], step])
+	# let go and see that the runner stays there, standing on that storey's floor (not falling back through it)
+	for _i in 60:
+		await tree.physics_frame
+	frames += 60
+	var floor_y := facility.global_position.y + float(target) * StreamedFacilityView3D.LEVEL_HEIGHT
+	var ok := facility.current_level() == target and absf(player.global_position.y - floor_y) < 1.5
+	return {"action": "level", "ok": ok, "from": from, "to": target, "path": path, "frames": frames,
+		"settled": [facility.current_level(), snappedf(player.global_position.y - floor_y, .01)]}
+
+
+## Saves the run (the route's own save payload, into the soak's scratch folder), leaves to the menu and resumes it through the title's
+## CONTINUE path; ok when the resumed runner is back on the saved level within 6 m of the saved spot.
+static func _soak_save_load(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var scene := tree.current_scene
+	var player: PlayerController3D = scene.get("player")
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var at := player.global_position
+	var level := facility.current_level()
+	var written := RunSaves.write(scene.call("_build_route_save_payload"), "LEVEL %+d" % level)
+	if not bool(written.get("ok", false)):
+		return {"action": "save_load", "ok": false, "why": "write: %s" % written.get("message", "?"), "frames": 0}
+	bridge.input.release_all()
+	adapter.leave_run()
+	var frames := 0
+	for _i in 600:
+		await tree.physics_frame
+		frames += 1
+		if not _soak_route(tree.current_scene):
+			break
+	for _i in 60:
+		await tree.physics_frame
+	frames += 60
+	var queued := RunSaves.queue_continue()
+	if not bool(queued.get("ok", false)):
+		return {"action": "save_load", "ok": false, "why": "continue: %s" % queued.get("message", "?"), "frames": frames}
+	var start := await bridge.start_run({"game": adapter.game_id, "seed": opts["seed"], "difficulty": opts["difficulty"],
+		"bot_seed": opts["bot_seed"], "debug": true})
+	frames += 120
+	if not bool(start.get("ok", false)):
+		return {"action": "save_load", "ok": false, "why": "start_run: %s" % start.get("error", "?"), "frames": frames}
+	var resumed := tree.current_scene
+	var back: PlayerController3D = resumed.get("player")
+	var back_level := (resumed.get("facility") as StreamedFacilityView3D).current_level()
+	var gap := Vector2(back.global_position.x - at.x, back.global_position.z - at.z).length()
+	return {"action": "save_load", "ok": back_level == level and gap <= 6.0, "level": level, "resumed_level": back_level,
+		"gap_m": snappedf(gap, .1), "frames": frames}
+
+
+## The pause menu opened and closed again, the graphics quality flipped to another tier and back.
+static func _soak_pause(tree: SceneTree, scene: Node, quality: String) -> int:
+	# the player's own pause key, so the menu opens the way it does in play
+	var menu: PauseMenu = scene.get("pause_menu")
+	Playtest.input.pulse("pause")
+	for _i in 60:
+		await tree.physics_frame
+	var other := "LOW" if quality != "LOW" else "MEDIUM"
+	Settings.set_graphics_quality(other)
+	for _i in 30:
+		await tree.physics_frame
+	Settings.set_graphics_quality(quality)
+	if menu != null and menu.is_open():
+		Playtest.input.pulse("pause")
+	for _i in 10:
+		await tree.physics_frame
+	if menu != null and menu.is_open():
+		menu.close()   # the key did not close it: count it in the report through the log, never leave a run paused
+	for _i in 10:
+		await tree.physics_frame
+	return 110
+
+
+## Faces the nearest chunk seam (x or z) and sprints at it until `until`.
+static func _soak_seam(scene: Node, until: int) -> Dictionary:
+	var player: PlayerController3D = scene.get("player")
+	var cs := float(StreamedRouteGenerator.CHUNK_SIZE)
+	var p := player.global_position
+	var fx := fposmod(p.x, cs)
+	var fz := fposmod(p.z, cs)
+	var options := [[fx, Vector3(-1, 0, 0)], [cs - fx, Vector3(1, 0, 0)], [fz, Vector3(0, 0, -1)], [cs - fz, Vector3(0, 0, 1)]]
+	options.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	var dir: Vector3 = options[0][1]
+	return {"until": until, "yaw": PlaytestFlythrough.yaw_for(dir.x, dir.z)}
+
+
+## An unwound music box within 2.5 m on this storey, in line of sight.
+static func _soak_music_box(scene: Node, wound: Dictionary) -> RouteInteractable3D:
+	var player: PlayerController3D = scene.get("player")
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it == null or it.kind != RouteInteractable3D.Kind.MUSIC_BOX or wound.has(it.get_instance_id()) or not it.is_visible_in_tree():
+			continue
+		var gap := it.global_position - player.global_position
+		if absf(gap.y) < 1.5 and Vector2(gap.x, gap.z).length() <= 2.5:
+			return it
+	return null

@@ -22,6 +22,8 @@ var adapter: BotAdapter
 var active_game := ""
 ## What the running scenario is doing right now (shown when the wall-clock watchdog has to kill a run: "stuck at <status>").
 var status := ""
+## Bot runs keep the cursor free (re-claimed every frame: a scene change releases every claim), so the look stick alone aims.
+var hold_cursor := false
 var _server: TCPServer
 var _peers: Array = []
 
@@ -72,6 +74,8 @@ func _ready() -> void:
 
 func _physics_process(_delta: float) -> void:
 	input.begin_frame()
+	if hold_cursor:
+		MouseLock.claim("playtest_bot", true)
 	_poll_network()
 
 

@@ -9,7 +9,7 @@ extends Node
 ## Scenarios: survive, explore_coverage (--target=chunks), collect_relays (--target=n), reach_depth (--target=n), menu_tour,
 ##   death_scene_tour (--hunters=a,b). Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
 
-const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit", "flythrough", "sequence"]
+const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit", "flythrough", "sequence", "soak"]
 
 var _driver := false
 var _opts := {}
@@ -71,7 +71,8 @@ func _watch(seconds: float) -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0, "lamp": true, "variant": 0, "bob": true, "clean": false, "keep": "", "doors": true, "shot": "", "preview": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0, "lamp": true, "variant": 0, "bob": true, "clean": false, "keep": "", "doors": true, "shot": "", "preview": false,
+		"level_every": 150.0, "hop_every": 0.0, "save_every": 600.0, "pause_every": 60.0, "seam_every": 90.0}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -107,6 +108,9 @@ func _run() -> void:
 	if not SCENARIOS.has(scenario):
 		_finish(_blank_report(game, scenario, "unknown scenario '%s'" % scenario), 2)
 		return
+	if scenario not in ["flythrough", "sequence"]:
+		# a bot aims with the look stick: a captured mouse would let anyone using this machine turn its view (and lock their pointer)
+		bridge.hold_cursor = true
 	var report := _blank_report(game, scenario, "")
 	var log_start := bridge.log_sink.sequence()
 	var result: Dictionary = {}
@@ -125,6 +129,8 @@ func _run() -> void:
 			result = await PlaytestFlythrough.run(bridge, adapter, _opts, report)
 		"sequence":
 			result = await PlaytestSequencer.run(bridge, adapter, _opts, report)
+		"soak":
+			result = await PlaytestScenarios.soak(bridge, adapter, _opts, report)
 		"death_scene_tour":
 			result = await PlaytestScenarios.death_tour(bridge, adapter, _opts, report)
 		_:
