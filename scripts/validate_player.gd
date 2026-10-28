@@ -109,6 +109,7 @@ func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
 	var right := hands.get_node("R").get_child(0) as Node3D
 	if left.scale.x * right.scale.x >= 0.0:
 		_fail("the left climb hand is not mirrored")
+	_expect_climb_motion_and_size(controller)
 	var was_arms := Settings.skin_arms
 	var was_slim := Settings.skin_slim
 	Settings.skin_arms = "slim"
@@ -119,6 +120,63 @@ func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
 	Settings.skin_arms = was_arms
 	Settings.skin_slim = was_slim
 	controller._apply_visual_settings()
+
+
+## The hands alternate rung by rung with the climb height, reverse going down, stay put when the climb stops, and read as real
+## arms: their on-screen size is a fixed share of the view at the default FOV and at both FOV extremes.
+func _expect_climb_motion_and_size(controller: PlayerController3D) -> void:
+	var snapshot := func(height: float) -> Array:
+		controller._animate_climb_hands(height)
+		var out := []
+		for arm in controller._climb_hands.get_children():
+			out.append((arm as Node3D).position)
+		return out
+	var base: Array = snapshot.call(1.0)
+	var same: Array = snapshot.call(1.0)
+	_expect_equal_poses(base, same, "the climb hands moved while the climb was stopped")
+	var moved: Array = snapshot.call(1.15)
+	if base[0].is_equal_approx(moved[0]) and base[1].is_equal_approx(moved[1]):
+		_fail("the climb hands did not move when the climb moved 15 cm")
+	var left_a := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var right_a := PlayerController3D.climb_hand_pose(1.0, 1.0)
+	if bool(left_a["grip"]) == bool(right_a["grip"]):
+		_fail("both climb hands grip or reach at the same time; they must alternate")
+	var up := PlayerController3D.climb_hand_pose(1.2, -1.0)
+	var back := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var down := PlayerController3D.climb_hand_pose(0.8, -1.0)
+	if is_equal_approx(float(up["y"]), float(down["y"])) or is_equal_approx(float(up["y"]), float(back["y"])):
+		_fail("climbing up and down do not give different hand poses")
+	if not PlayerController3D.climb_hand_pose(0.3, -1.0)["pull"] is float:
+		_fail("no grip pull value")
+	var camera := controller.first_person_camera
+	var viewport_size := controller.get_viewport().get_visible_rect().size
+	var was_fov := Settings.field_of_view
+	for fov in [Settings.MIN_FIELD_OF_VIEW, Settings.DEFAULT_FIELD_OF_VIEW, Settings.MAX_FIELD_OF_VIEW]:
+		camera.fov = fov
+		controller._animate_climb_hands(1.0)
+		var top := 1.0e9
+		var bottom := -1.0e9
+		for mesh_value in controller._climb_hands.find_children("*", "MeshInstance3D", true, false):
+			var mesh_node := mesh_value as MeshInstance3D
+			var box := mesh_node.mesh.get_aabb()
+			for corner in 8:
+				var point := mesh_node.global_transform * box.get_endpoint(corner)
+				if camera.is_position_behind(point):
+					continue
+				var screen := camera.unproject_position(point)
+				top = minf(top, screen.y)
+				bottom = maxf(bottom, screen.y)
+		var share := (bottom - top) / viewport_size.y
+		if share < .2 or share > .8:
+			_fail("the climb hand is %.0f%% of the screen height at FOV %.0f (want 20-80%%)" % [share * 100.0, fov])
+	camera.fov = was_fov
+
+
+func _expect_equal_poses(a: Array, b: Array, message: String) -> void:
+	for i in a.size():
+		if not (a[i] as Vector3).is_equal_approx(b[i]):
+			_fail(message)
+			return
 
 
 ## XR hand interactions (XRHands, milestone 4): a flat run builds none of the XR helpers and still aims [E] from the head;
@@ -155,11 +213,89 @@ func _expect_xr_hands(controller: PlayerController3D) -> void:
 	_expect_skinned_climb_hands(controller)
 	controller.ladder_climb = {}
 	controller._show_climb_hands(false)
+	_expect_climb_body(controller, saved_position, saved_rotation.y)
+	controller.ladder_climb = {}
+	controller._show_climb_hands(false)
 	controller.global_position = saved_position
 	controller.rotation = saved_rotation
 	controller.collision_layer = saved_layer
 	controller.collision_mask = saved_mask
 	controller.first_person_items.visible = items_visible
+
+
+## True first person on a ladder (KT): the runner sees their own player model (the one others see) climb, from its eyes, head
+## hidden; each gripping hand is on its rung within 3 cm (the sewer ladder's layout: rungs every .3 m from .28 m, .4 m in
+## front of the climbing line), the hands move with the climb and stay put when it stops, no floating hands beside it, and
+## the dismount gives back the normal first-person view.
+func _expect_climb_body(controller: PlayerController3D, foot: Vector3, yaw: float) -> void:
+	var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var rungs := Node3D.new()
+	controller.get_parent().add_child(rungs)
+	for i in 14:
+		var rung := Node3D.new()
+		rung.name = "Rung%02d" % i
+		rungs.add_child(rung)
+		rung.global_position = foot + forward * .4 + Vector3.UP * (.28 + i * .3)
+		rung.look_at(rung.global_position + forward, Vector3.UP)
+	controller.begin_ladder_climb(foot, 3.0, 1.0, yaw, foot + Vector3(0, 3, -1), foot + Vector3(0, 0, 1), 0, 0)
+	controller.ladder_climb["phase"] = "climb"
+	controller._update_ladder_climb(1.0 / 60.0)
+	var body := controller.first_person_body()
+	body._process(0.0)
+	if not body.visible or body.model != controller._body_model:
+		_fail("climbing does not show the runner's own player model in first person")
+	else:
+		for step_check in 3:
+			controller.ladder_climb["height"] = 1.0 + step_check * .2
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			if not preload("res://scripts/validate_grabs.gd")._head_hidden(body.model, controller.first_person_camera):
+				_fail("the climbing model's head is visible to the first-person camera")
+		if controller.first_person_camera.global_position.distance_to(body.eye()) > .02:
+			_fail("the climbing camera is %.2f m from the model's eyes" % controller.first_person_camera.global_position.distance_to(body.eye()))
+		var gripped := 0
+		var before := {}
+		for step in 4:
+			controller.ladder_climb["height"] = 1.0 + step * .17
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			var targets := controller.climb_hand_targets(float(controller.ladder_climb["height"]))
+			for key in ["L", "R"]:
+				var grip := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key))
+				if step == 0:
+					before[key] = grip
+				if bool(targets.get("grip_" + key, false)):
+					gripped += 1
+					if grip.distance_to(targets[key]) > .03:
+						_fail("the climbing %s hand is %.1f cm off its rung" % [key, grip.distance_to(targets[key]) * 100.0])
+		if gripped == 0:
+			_fail("no climbing hand ever gripped a rung")
+		var moved := false
+		for key in ["L", "R"]:
+			moved = moved or HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key)).distance_to(before[key]) > .05
+		if not moved:
+			_fail("the climbing hands did not move with the climb")
+		var held := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L"))
+		controller._update_ladder_climb(1.0 / 60.0)
+		body._process(0.0)
+		if HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L")).distance_to(held) > .01:
+			_fail("the climbing hands moved while the climb was stopped")
+		if controller._climb_hands != null and controller._climb_hands.visible:
+			_fail("the floating ladder hands still show beside the climbing model")
+	controller._ladder_dismount("top")
+	for _i in 120:
+		controller._update_ladder_climb(1.0 / 60.0)
+		if controller.ladder_climb.is_empty():
+			break
+	if controller.ladder_climb.is_empty():
+		if body.visible or controller.body_visual.visible:
+			_fail("the player model stays drawn in first person after the dismount")
+		for mesh in body.model.find_child("Head", true, false).find_children("*", "GeometryInstance3D", true, false) + [body.model.find_child("Head", true, false)]:
+			if mesh is VisualInstance3D and (mesh as VisualInstance3D).layers == FirstPersonBody.HEAD_LAYER:
+				_fail("the model's head stays off the first-person layer after the dismount")
+		if not is_equal_approx(controller.first_person_camera.near, PlayerController3D.FIRST_PERSON_NEAR):
+			_fail("the near plane stays small after the dismount")
+	rungs.queue_free()
 
 
 ## XR head follow (XRComfort.follow_head): a headset 0.6 m beside the body pulls the body after it in open space and

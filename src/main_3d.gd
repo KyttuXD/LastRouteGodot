@@ -31,6 +31,11 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
+## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
+var grab: HunterGrab
+## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
+var _grab_roll := -1.0
+var _grab_catches := 0
 var _death_moment: DeathMoment
 ## How the local runner is dying, for the death line pick: contact (default), deal (Zellia), cold (Wynelle).
 var _death_via := "contact"
@@ -128,6 +133,8 @@ func _ready() -> void:
 	run_report.leave_requested.connect(_leave_after_report)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	grab = HunterGrab.new()
+	world.add_child(grab)
 	_death_moment = DeathMoment.new()
 	add_child(_death_moment)
 	pixel_signal_effect = PixelSignalEffect.new()
@@ -935,8 +942,10 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 			or bool(target.get("god_mode", false))):
 		return
 	var peer_id := int(target.get("peer_id", 1))
+	_grab_catches += 1
 	_remotes.send_player_event(peer_id, {
 		"what": "capture",
+		"grab_roll": GrabStyles.roll_for(RoomState.seed_text, peer_id, _grab_catches),
 		"hunter_id": view.brain.hunter_id,
 		"inescapable": force_inescapable or (view.brain.gimmick != null
 			and view.brain.gimmick.capture_is_inescapable()),
@@ -1079,6 +1088,9 @@ func _resolve_capture_outcome() -> void:
 			"what": "caught",
 			"hunter_id": hunter_id,
 		})
+	if capturing_view != null:
+		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
+		await grab.play(player, capturing_view, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
@@ -1106,10 +1118,38 @@ func _play_death_moment(hunter_id: String) -> void:
 	if not DeathMoment.plays(picked):
 		return
 	var is_void := HunterRoster.VOID_IDS.has(hunter_id)
+	hud.set_death_flow(true)   # the line owns the screen: the gameplay HUD is faded out under it
 	if RoomState.online:
 		_death_moment.play(name, picked, is_void)
 	else:
 		await _death_moment.play(name, picked, is_void)
+		if not run_report.is_open():
+			hud.set_death_flow(false)
+
+
+## The end card never opens over the catcher's line (online the line is not awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
+
+
+## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
+func _take_grab_roll() -> float:
+	var roll := _grab_roll
+	_grab_roll = -1.0
+	if roll < 0.0:
+		_grab_catches += 1
+		roll = GrabStyles.roll_for(RoomState.seed_text, multiplayer.get_unique_id() if RoomState.online else 1, _grab_catches)
+	return roll
+
+
+## Debug/recording hook (playtest sequencer, capture rigs): `view` grabs the local runner now with `style` (GrabStyles), the
+## same presentation a real catch plays, without the run ending. Returns when the hold starts; call grab.release() after.
+func admin_force_grab(view: HunterView3D, style: String) -> void:
+	if view == null or grab == null or not GrabStyles.STYLES.has(style):
+		return
+	grab.release()
+	await grab.play(player, view, view.brain.hunter_id, .5, style)
 
 
 func _enter_game_over() -> void:
@@ -1127,6 +1167,8 @@ func _enter_game_over() -> void:
 	# A completed solo run must not remain available as a Continue checkpoint.
 	if not RoomState.online and Backend.signed_in():
 		Backend.account_clear_progress()
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online,
 		"host": RoomState.is_host,
@@ -1144,7 +1186,9 @@ func _enter_game_over() -> void:
 
 
 func _restore_gameplay_after_report() -> void:
+	grab.release()
 	run_report.close()
+	hud.set_death_flow(false)
 	player.look_frozen = false
 	pause_menu.tap_to_pause = true
 	pause_menu.set_process(true)
@@ -1656,6 +1700,7 @@ func _apply_player_event(event: Dictionary) -> void:
 				_death_via = String(event.get("via", "contact"))
 			var view := _find_hunter(String(event.get("hunter_id", "")))
 			if view:
+				_grab_roll = float(event.get("grab_roll", -1.0))
 				_trigger_capture(view, bool(event.get("inescapable", false)))
 		"stun":
 			player.stun_timer = maxf(player.stun_timer,

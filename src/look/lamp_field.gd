@@ -162,6 +162,7 @@ func _home(i: int) -> void:
 	l.global_position = (lamp as Array)[0]
 	l.light_color = (lamp as Array)[1]
 	l.omni_range = float((lamp as Array)[4]) if (lamp as Array).size() > 4 else LIGHT_RANGE
+	l.light_cull_mask = StoreyLayers.light_mask(StoreyLayers.level_at(l.global_position.y))
 
 
 func _assign(origin: Vector3) -> void:

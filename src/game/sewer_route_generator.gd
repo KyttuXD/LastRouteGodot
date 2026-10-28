@@ -46,6 +46,8 @@ const FALLS_CHANCE := .28
 const RAMP_RUN := 12
 const RAMP_CHANCE := {-1: .35, -2: .3}
 
+## Seal ids start here so they never meet the pipes' (Breach ids count up from 0)
+const SEAL_FIRST_INDEX := 100
 const CENTER := CHUNK_SIZE / 2
 const TUNNEL_HALF := 4           # 22 - 4 .. 22 + 4: walkway 18-20, water 21-23, walkway 24-26
 const CHANNEL_HALF := 1
@@ -74,6 +76,16 @@ const CRAWL_CLEARANCE := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
 const CRAWL_PIPE_MOUNT_Y := CRAWL_CLEARANCE + 0.11
 const CRAWL_PIPE_SIZE := Vector3(2.0, 0.55, 0.5)
 const CRAWL_CHANCE := 0.6
+## Outflow mains (KT: "a massive rusted pipe you crawl under or go around"): a 1.5 m main out of a tunnel's outer wall
+## straight across its three-wide walkway, the mouth over the channel. Its underside is CRAWL_CLEARANCE, so a crouched
+## runner crawls under; hunters go round over a bridge and the junction (it only sits between the two). At most one per
+## chunk, on either sewer, from its own seed stream (the rest of the layout is unchanged).
+const OUTFLOW_CHANCE := 0.35
+## Collider (local x across the main, z along it from the wall to the mouth), from CRAWL_CLEARANCE up.
+const OUTFLOW_SIZE := Vector3(1.64, 1.64, 3.2)
+## Offsets along a tunnel arm between its bridge (BRIDGE_OFFSETS) and the junction (CENTER +- JUNCTION_HALF): a hunter
+## at the pipe always has a crossing on both sides of it.
+const OUTFLOW_OFFSETS := [13, 14, 30, 31]
 ## Deep channels: the bed lies CHANNEL_DEPTH below the walkways and the water
 ## surface WATER_SURFACE below them (negative = down). Nobody wades: railings
 ## line every walkway edge and the channel cells block movement, so the water
@@ -213,6 +225,28 @@ func falls_between(x: int, z: int) -> Dictionary:
 		"edge_x0": float(qc.x - 1)}
 
 
+## Cells of the chunk (x, `level`, z) under the channel trench of the sewer storey above it: the trench bed lies
+## CHANNEL_DEPTH under that storey's floor, deeper than the slab, so this storey's vault stops short of it there.
+## The main cross's channels on both sewers, the falls' spur channel on the first sewer and its cistern pool on the
+## collector. Pure seed maths, like ramps and falls.
+func trench_cells_below(x: int, z: int, level: int) -> Array:
+	var above := level + 1
+	if above not in [LEVEL, LOWER_LEVEL] or not is_chunk_allowed(Vector3i(x, above, z)):
+		return []
+	var rects := [Rect2i(0, CENTER - CHANNEL_HALF, CHUNK_SIZE, CHANNEL_HALF * 2 + 1),
+		Rect2i(CENTER - CHANNEL_HALF, 0, CHANNEL_HALF * 2 + 1, CHUNK_SIZE)]
+	var falls := falls_between(x, z)
+	if not falls.is_empty():
+		rects.append(falls["spur"] if above == LEVEL else falls["pool"])
+	var out := []
+	for rect_value in rects:
+		var rect: Rect2i = rect_value
+		for cz in range(maxi(rect.position.y, 0), mini(rect.end.y, CHUNK_SIZE)):
+			for cx in range(maxi(rect.position.x, 0), mini(rect.end.x, CHUNK_SIZE)):
+				out.append(Vector2i(cx, cz))
+	return out
+
+
 ## Every ramp touching level `level` in the chunk column (x, z).
 func ramps_at(x: int, z: int, level: int) -> Array:
 	var out := []
@@ -328,6 +362,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	features = _centre_room_lamps(grid, rooms, features)
 	features = _pair_tunnel_lamps(grid, features)
 	features = _mount_on_walls(grid, features)
+	features.append_array(_outflow_features(coord, grid, features, links))
 	var schema := _streamed_schema(coord, grid, rooms, links, features, ramps)
 	schema["stairwells"] = wells
 	schema["shaft_cells"] = shaft_cells
@@ -392,13 +427,28 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		room_entries.append({"id": "%s:ROOM:%d" % [chunk_id(coord), index], "room_type": room["kind"],
 			"rect": room["rect"], "center": room["center"]})
 	var seam := range(CENTER - TUNNEL_HALF, CENTER + TUNNEL_HALF + 1)
+	# sealed utility rooms (SealPlanner / SealRules, "more sealed"): a gate across each shut room's branch
+	var breakables: Array = []
+	var sealed := {}
+	var gate_cells := {}
+	if is_chunk_allowed(coord) and not rooms.is_empty():
+		var seal_plan := SealPlanner.plan_rooms(world_seed, coord, grid, room_entries)
+		breakables = SealPlanner.specs(world_seed, coord, seal_plan, coord.y, SEAL_FIRST_INDEX)
+		for cell in seal_plan["sealed"]:
+			sealed[cell] = true
+		for spec in breakables:
+			for cell in spec["extras"]["cells"]:
+				StreamedRouteGenerator._exclude_neighbourhood(gate_cells, cell, 1)
+	var region_props := _feature_props(coord, features)
+	breakables = _pipe_breakables(coord, sewer_grid, region_props) + breakables   # the pipes' ids count from 0, the seals' from 100
 	return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord), "level": coord.y,
 		"biome": "sewer", "region": "sewer", "grid": grid, "sewer_grid": sewer_grid,
 		"rooms": room_entries, "corridors": [], "suites": [],
 		"edges": {"west": seam, "east": seam, "north": seam, "south": seam},
-		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": _feature_props(coord, features),
+		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": region_props,
 		"fixtures": _fixtures(coord, grid, room_entries, features),
-		"pickups": _pickups(coord, sewer_grid, grid, features, links),
+		"pickups": _pickups(coord, sewer_grid, grid, features, links, sealed, gate_cells),
+		"breakables": breakables, "sealed_cells": sealed.keys(),
 		"hunter_spawns": [], "dual_level_room": {},
 		"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 		"difficulty": surface.difficulty_for_level(coord.y),
@@ -477,8 +527,9 @@ func _fixtures(coord: Vector3i, grid: Array, rooms: Array, features: Array) -> A
 
 ## Relays and batteries on dry walkways (never in the water, on a bridge or by
 ## a ladder), at a little under the maze's density, sometimes a tool.
-func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, links: Array) -> Array:
-	var excluded := {}
+func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, links: Array,
+		sealed: Dictionary = {}, gate_cells: Dictionary = {}) -> Array:
+	var excluded := gate_cells.duplicate()   # nothing lies in a seal's gate or against it
 	for feature in features:
 		StreamedRouteGenerator._exclude_neighbourhood(excluded, feature["cell"], 1)
 		for behind in feature.get("behind", []):
@@ -492,24 +543,37 @@ func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, 
 			if int(sewer_grid[z][x]) == DRY and not excluded.has(cell) \
 					and StreamedRouteGenerator._open_spawn_neighbourhood(grid, cell):
 				candidates.append(cell)
+	# Sealed rooms (SealRules): the first relay and the tools stay on open ground, the second relay usually sits behind a seal
+	var sealed_candidates := []
+	if not sealed.is_empty():
+		var open_candidates := []
+		for candidate in candidates:
+			if sealed.has(candidate):
+				sealed_candidates.append(candidate)
+			else:
+				open_candidates.append(candidate)
+		candidates = open_candidates
 	var rng := SeededRandom.new("%s:SEWER-PICKUPS:%d:%d" % [world_seed, coord.x, coord.z])
 	var plans := ["relay", "battery"]
-	if rng.next_float() < 0.55:
+	if rng.next_float() < 0.55 or not sealed_candidates.is_empty():
 		plans.append("relay")
-	if rng.next_float() < 0.45:
+	if rng.next_float() < 0.45 or (not sealed.is_empty() and SealRules.guaranteed_tool(coord)):
 		plans.append("tool")
 	var result := []
 	var kind_indices := {}
 	for kind_value in plans:
-		if candidates.is_empty():
+		if candidates.is_empty() and sealed_candidates.is_empty():
 			break
 		var kind := String(kind_value)
-		var cell: Vector2i = candidates.pop_at(rng.next_index(candidates.size()))
 		var index := int(kind_indices.get(kind, 0))
+		var from_sealed := kind == "relay" and index >= 1 and not sealed_candidates.is_empty() \
+			and (index >= 2 or rng.next_float() < SealRules.SECOND_RELAY_SEALED)
+		var pool: Array = sealed_candidates if from_sealed or candidates.is_empty() else candidates
+		var cell: Vector2i = pool.pop_at(rng.next_index(pool.size()))
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
-			item = StreamedRouteGenerator.PICKUP_TYPES[rng.next_index(StreamedRouteGenerator.PICKUP_TYPES.size())]
+			item = StreamedRouteGenerator.pick_tool(rng)
 		result.append({"id": surface.pickup_id(coord, index, kind), "cell": cell, "kind": kind, "item": item})
 	return result
 
@@ -645,6 +709,116 @@ func _crawl_features(rooms: Array, grid: Array, rng: SeededRandom) -> Array:
 				"cells": cells, "behind": behind})
 		break
 	return out
+
+
+## The chunk's outflow main, or nothing: a walkway row at one of OUTFLOW_OFFSETS on one of the four arms and either
+## walkway, all three cells dry with dry walkway either side along the arm, solid brick behind it (no doorway within a
+## cell, so no branch, stairwell, ladder chamber or ramp opens at it), the channel in front of its mouth, and no
+## other piece (lamps, wall mains, bridges) within a cell.
+func _outflow_features(coord: Vector3i, grid: Array, features: Array, links: Array) -> Array:
+	var rng := SeededRandom.new("%s:OUTFLOW:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
+	if rng.next_float() >= OUTFLOW_CHANCE:
+		return []
+	var taken := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, feature["cell"], 1)
+	for link in links:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, link["to_cell"], 2)
+	var options := []
+	for offset in OUTFLOW_OFFSETS:
+		for along_x in [true, false]:
+			for side in [-1, 1]:
+				# the walkway row's outer, middle and channel-side cells, and the step toward the wall
+				var wall: Vector2i = Vector2i(0, int(side)) if along_x else Vector2i(int(side), 0)
+				var outer: int = CENTER + int(side) * TUNNEL_HALF
+				var middle: Vector2i = Vector2i(int(offset), outer - int(side)) if along_x else Vector2i(outer - int(side), int(offset))
+				options.append({"middle": middle, "wall": wall, "along": Vector2i(1, 0) if along_x else Vector2i(0, 1)})
+	var start := rng.next_index(options.size())
+	for k in options.size():
+		var option: Dictionary = options[(start + k) % options.size()]
+		var middle: Vector2i = option["middle"]
+		var wall: Vector2i = option["wall"]
+		var along: Vector2i = option["along"]
+		var cells := [middle + wall, middle, middle - wall]
+		var fits := int(grid[(middle - wall * 2).y][(middle - wall * 2).x]) == WATER
+		for cell_value in cells:
+			var cell: Vector2i = cell_value
+			for a in [-1, 0, 1]:
+				var c: Vector2i = cell + along * int(a)
+				fits = fits and int(grid[c.y][c.x]) == DRY and not taken.has(c)
+		for a in [-1, 0, 1]:
+			var brick: Vector2i = middle + wall * 2 + along * int(a)
+			fits = fits and int(grid[brick.y][brick.x]) == SOLID
+		if fits:
+			# its brick is two cells behind the middle one: "outflow_wall", not a wall-backed "wall"
+			return [{"type": "sewerOutflowPipe", "cell": middle, "yaw": wall_yaw(wall), "outflow_wall": wall,
+				"outflow": true, "cells": cells, "step": along}]
+	return []
+
+
+## The Axe breaks the sewer's pipes (docs/BREACH.md, KIND_PIPE, variant "authored": the view draws and removes the pipe
+## itself). One spec per crawl pipe (its two mains) and per outflow main, in feature order so the ids are stable per seed.
+## Each names its props (they carry "breakable_id") and the walkway cells its burst floods: dry floor within
+## FLOOD_REACH steps of the pipe's cells, at most FLOOD_MAX_CELLS of them.
+const PIPE_TOOLS := ["rescue_axe"]
+const PIPE_HP := {"crawl": 3, "outflow": 4}
+const FLOOD_REACH := 4
+const FLOOD_MAX_CELLS := 40
+
+
+func _pipe_breakables(coord: Vector3i, sewer_grid: Array, region_props: Array) -> Array:
+	var out := []
+	var by_cells := {}     # a crawl pipe's two mains share their cells: one spec for both
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		var pipe := "outflow" if bool(prop.get("outflow", false)) else ("crawl" if bool(prop.get("crawl_under", false)) else "")
+		if pipe.is_empty():
+			continue
+		var cells: Array = prop["occupied_cells"]
+		var key := str(cells)
+		if by_cells.has(key):
+			var spec: Dictionary = out[int(by_cells[key])]
+			(spec["extras"]["props"] as Array).append(prop["id"])
+			prop["breakable_id"] = spec["id"]
+			continue
+		var middle: Vector2i = cells[cells.size() / 2]
+		var along: Vector2i = prop["crawl_step"]
+		var id := Breach.make_id(coord, out.size())
+		prop["breakable_id"] = id
+		by_cells[key] = out.size()
+		out.append(Breach.make_spec(id, Breach.KIND_PIPE, "authored", coord, middle, int(PIPE_HP[pipe]), PIPE_TOOLS, {
+			"pipe": pipe, "props": [prop["id"]], "cells": cells.duplicate(),
+			"centre": Vector2(middle) + Vector2(.5, .5), "dir": Vector2(along),
+			"flood_cells": _flood_cells(sewer_grid, cells),
+			"wall": Vector2(prop.get("outflow_wall", Vector2i.ZERO))}))
+	return out
+
+
+## Dry walkway cells a burst pipe floods: a walk outward from its cells over dry floor and decks, FLOOD_REACH steps,
+## nearest first, at most FLOOD_MAX_CELLS (the pipe's own cells included).
+static func _flood_cells(sewer_grid: Array, cells: Array) -> Array:
+	var seen := {}
+	var queue := []
+	for cell in cells:
+		seen[cell] = 0
+		queue.append(cell)
+	var cursor := 0
+	while cursor < queue.size() and queue.size() < FLOOD_MAX_CELLS:
+		var cell: Vector2i = queue[cursor]
+		cursor += 1
+		if int(seen[cell]) >= FLOOD_REACH:
+			continue
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + (step as Vector2i)
+			if seen.has(next) or next.x < 0 or next.y < 0 or next.x >= CHUNK_SIZE or next.y >= CHUNK_SIZE:
+				continue
+			if not is_walkable(int(sewer_grid[next.y][next.x])):
+				continue
+			seen[next] = int(seen[cell]) + 1
+			queue.append(next)
+			if queue.size() >= FLOOD_MAX_CELLS:
+				break
+	return queue
 
 
 ## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.
@@ -829,6 +1003,16 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 			prop["collider_size"] = CRAWL_PIPE_SIZE
 			prop["collider_y0"] = CRAWL_CLEARANCE
 			prop["placement_offset"] = Vector2(across) * (.5 * float(feature["side"]))
+			prop["occupied_cells"] = (feature["cells"] as Array).duplicate()
+		elif feature.has("outflow"):
+			# the main stands on its own (authored at its height): solid across its three cells, the box from the
+			# crawl clearance up to its flanges' top
+			prop["solid"] = true
+			prop["outflow"] = true
+			prop["outflow_wall"] = feature["outflow_wall"]
+			prop["crawl_step"] = feature["step"]
+			prop["collider_size"] = OUTFLOW_SIZE
+			prop["collider_y0"] = CRAWL_CLEARANCE
 			prop["occupied_cells"] = (feature["cells"] as Array).duplicate()
 		elif FEATURE_MOUNT_Y.has(type):
 			prop["mount_y"] = FEATURE_MOUNT_Y[type]

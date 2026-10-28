@@ -244,6 +244,7 @@ const _CODE_MODEL_PATHS := {
 	"sewerValveWheel": ContentRegistry.DATA,
 	"sewerPump": ContentRegistry.DATA,
 	"sewerPipeRun": ContentRegistry.DATA,
+	"sewerOutflowPipe": ContentRegistry.DATA,
 	"sewerOverflowGrate": ContentRegistry.DATA,
 	"sewerLamp": ContentRegistry.DATA,
 	"sewerBridge": ContentRegistry.DATA,
@@ -506,8 +507,13 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 const DECK_TYPES := ["sewerBridge", "sewerGrateDeck"]
 
 
+## Pieces authored standing on the floor at their own height, the lowest point well above it: the sewer's outflow
+## main hangs at the crawl clearance on its vault straps (seating it on its underside dropped it to the floor).
+const AUTHORED_HEIGHT_TYPES := ["sewerOutflowPipe"]
+
+
 static func keeps_authored_pivot(type: String) -> bool:
-	return DECK_TYPES.has(type)
+	return DECK_TYPES.has(type) or AUTHORED_HEIGHT_TYPES.has(type)
 
 
 static func is_floor_dressing(type: String) -> bool:

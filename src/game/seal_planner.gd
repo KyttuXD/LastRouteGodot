@@ -13,6 +13,7 @@ const CHUNK_SIZE := 45
 const SLAB_HALF := .8
 const FRACTION_LOW := .3
 const FRACTION_HIGH := .7
+const MIN_ROOM := 20              # a sewer room (7 x 7) shut in by its gate
 const MIN_WING := 24              # fewest cells a wing must hold to be worth a seal
 
 
@@ -86,6 +87,85 @@ static func plan_cave(world_seed: String, coord: Vector3i, grid: Array, chambers
 	result["sealed"] = sealed
 	result["open_share"] = float(_count(reach_all, open)) / maxf(1.0, float(total_open - _count(blocked_all, open)))
 	return result
+
+
+## Sealed utility rooms on the sewer levels (-1, -2): a gate across the three-wide branch that leads into a pump or valve
+## room, one cell out from the room. Entrances: the tunnel junction (everything the rules keep open hangs off the cross).
+## Same plan shape as plan_cave; the sewer generator places relays and tools against `sealed`.
+static func plan_rooms(world_seed: String, coord: Vector3i, grid: Array, rooms: Array) -> Dictionary:
+	var result := {"gates": [], "sealed": [], "open_share": 1.0, "entries": []}
+	# a corner of the 13 x 13 junction chamber: floor on both sewer levels (its middle is the water channel crossing)
+	var centre_cell := Vector2i(CHUNK_SIZE / 2 - 6, CHUNK_SIZE / 2 - 6)
+	if rooms.is_empty() or int(grid[centre_cell.y][centre_cell.x]) != 0:
+		return result
+	var entries: Array[Vector2i] = [centre_cell]
+	result["entries"] = entries
+	var candidates: Array = []
+	for index in rooms.size():
+		var gate := _room_gate(grid, (rooms[index] as Dictionary)["rect"] as Rect2i, index)
+		if not gate.is_empty():
+			candidates.append(gate)
+	if candidates.is_empty():
+		return result
+	var rng := SeededRandom.new("%s:SEALS:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
+	var base := SealRules.seals_per_chunk(coord)
+	var want := floori(base) + (1 if rng.next_float() < base - floor(base) else 0)
+	var open := _open_mask(grid)
+	var base_reach := _reach_mask(open, entries, _block_mask([]))
+	var usable: Array = []
+	for gate in candidates:
+		var blocked := _block_mask([gate])
+		var reach := _reach_mask(open, entries, blocked)
+		var shut := _count(base_reach, open) - _count(reach, open) - _count(blocked, open)
+		if _all_reached(reach, entries) and shut >= MIN_ROOM:
+			(gate as Dictionary)["shut"] = shut
+			usable.append(gate)
+	if usable.is_empty():
+		return result
+	for i in range(usable.size() - 1, 0, -1):
+		var j := rng.next_index(i + 1)
+		var swap = usable[i]
+		usable[i] = usable[j]
+		usable[j] = swap
+	var chosen: Array = usable.slice(0, mini(maxi(1, want), usable.size()))
+	var blocked_all := _block_mask(chosen)
+	var reach_all := _reach_mask(open, entries, blocked_all)
+	var sealed: Array[Vector2i] = []
+	for z in CHUNK_SIZE:
+		for x in CHUNK_SIZE:
+			var at := z * CHUNK_SIZE + x
+			if base_reach[at] == 1 and reach_all[at] == 0 and blocked_all[at] == 0:
+				sealed.append(Vector2i(x, z))
+	if sealed.is_empty():
+		return result
+	result["gates"] = chosen
+	result["sealed"] = sealed
+	result["open_share"] = float(_count(reach_all, open)) / maxf(1.0, float(_count(base_reach, open)))
+	return result
+
+
+## The gate across a room's doorway: the three cells just outside the side of the rect whose middle outside cell is open
+## (the branch the sewer carved), one deep, facing away from the room.
+static func _room_gate(grid: Array, rect: Rect2i, index: int) -> Dictionary:
+	var middle := rect.position + rect.size / 2
+	for side in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+		var along := Vector2i(-side.y, side.x)
+		var edge := Vector2i(middle.x + side.x * (rect.size.x / 2 + 1), middle.y + side.y * (rect.size.y / 2 + 1))
+		var cells: Array[Vector2i] = []
+		for k in range(-1, 2):
+			var cell: Vector2i = edge + along * k
+			if cell.x < 1 or cell.y < 1 or cell.x > CHUNK_SIZE - 2 or cell.y > CHUNK_SIZE - 2 or int(grid[cell.y][cell.x]) != 0:
+				break
+			cells.append(cell)
+		if cells.size() != 3:
+			continue
+		# a doorway is a real branch: the cell beyond the gate is open too
+		var beyond: Vector2i = edge + side
+		if int(grid[beyond.y][beyond.x]) != 0:
+			continue
+		var dir := Vector2(side.x, side.y)
+		return {"cells": cells, "centre": Vector2(edge.x + .5, edge.y + .5), "dir": dir, "radius": 1.5, "tunnel": index}
+	return {}
 
 
 ## The Breach specs of a plan's gates: each draws a seal kind from the level's mix.

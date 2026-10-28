@@ -1,0 +1,69 @@
+{
+ "name": "gp_corner_sprint",
+ "area": "hospital",
+ "seconds": 2.2,
+ "gameplay": true,
+ "dark": 0.0,
+ "torch_energy": 0,
+ "corner_grid": true,
+ "camera_back": 6.5,
+ "start": [
+  "A",
+  6.0,
+  0.0
+ ],
+ "face_at": [
+  "A",
+  -2.0,
+  0.0,
+  1.6
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 2.2,
+   "move": [
+    0.0,
+    1.0
+   ],
+   "hold": {
+    "sprint": true
+   }
+  }
+ ],
+ "events": [],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 0.5,
+   "label": "approach",
+   "player_moving": 3.0
+  },
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.9,
+   "label": "round",
+   "player_moving": 3.0
+  }
+ ],
+ "triggers": [
+  {
+   "edge_past": 0.35,
+   "turn": {
+    "corner": 90,
+    "dur": 0.3
+   }
+  }
+ ],
+ "fade_in": 0.12,
+ "fade_out": 0.12
+}
