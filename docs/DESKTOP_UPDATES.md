@@ -14,6 +14,9 @@ Same identity and rule as phones and the Quest (see [XR_ANDROID.md](XR_ANDROID.m
   the hub, and the hub sends the player back there if one appears later. That screen offers only **INSTALL & RESTART** (still
   the player's press, never silent) or **RETRY** after a failed download/install; no CONTINUE. If the server is unreachable or
   the check times out (8 s) the game starts offline as normal. iOS (App Store) and the web build are never blocked.
+- Dev (unstamped) builds, i.e. `build_revision.json` without a build number (update-app.sh, adb and iOS script installs of main),
+  are never gated or auto-downloaded: the boot screen shows "UPDATE AVAILABLE (BUILD n)" with CONTINUE, which goes on online.
+  A stamped build is only offered a strictly higher build number, so a build newer than the manifest is never "downgraded".
 - Swap: a helper (shell on macOS, PowerShell on Windows) waits for the game to exit, copies the staged build beside the
   installed one, moves the old files (the whole `.app` on macOS; the exe/pck on Windows) into `.lastroute-backup-previous`
   next to the game, moves the new ones in, and relaunches. On any failure it restores the previous files.

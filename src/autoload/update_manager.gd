@@ -319,7 +319,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	update_available.emit(available)
 	var identity := revision.left(8) if not revision.is_empty() else version
 	_finish_check(true, true, "UPDATE %s FOUND" % identity)
-	download_update.call_deferred()
+	if not is_dev_build() or smoke_test:
+		download_update.call_deferred()   # dev builds only get the notice
 
 
 ## Downloads immediately after discovery. Calling this again is also the
@@ -611,6 +612,20 @@ func uses_in_progress_screen() -> bool:
 	return gated_platform(platform_key())
 
 
+## An unstamped build (no build number: update-app.sh / adb / iOS script installs of newer code from main) is a dev build:
+## it is told an update exists but is never blocked or auto-downloaded, and never offered a "downgrade" to the manifest.
+static func dev_build(build_number: int) -> bool:
+	return build_number <= 0
+
+
+## Tests pin the build number (-1 = this build's own).
+var build_number_override := -1
+
+
+func is_dev_build() -> bool:
+	return dev_build(build_number_override if build_number_override >= 0 else Build.build_number())
+
+
 static func gated_platform(key: String) -> bool:
 	return key in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]
 
@@ -633,7 +648,7 @@ func _required_or_debug_update() -> bool:
 ## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
 ## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
-	if offline_mode or not uses_in_progress_screen():
+	if offline_mode or not uses_in_progress_screen() or is_dev_build():
 		return false
 	if _gameplay_active():
 		return false

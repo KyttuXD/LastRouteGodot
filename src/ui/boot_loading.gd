@@ -107,6 +107,9 @@ func _handoff_desktop_update() -> bool:
 
 
 func _sync_update_state() -> void:
+	if UpdateManager.is_dev_build() and not UpdateManager.available.is_empty():
+		_show_dev_notice()
+		return
 	if _handoff_desktop_update():
 		_update_discovered = true
 		_open_update_screen()
@@ -134,6 +137,8 @@ func _sync_update_state() -> void:
 
 
 func _on_update_available(update: Dictionary) -> void:
+	if UpdateManager.is_dev_build():
+		return   # _on_update_check_finished shows the dev notice
 	_update_discovered = true
 	var revision := String(update.get("revision", "")).strip_edges()
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
@@ -143,7 +148,25 @@ func _on_update_available(update: Dictionary) -> void:
 		_open_update_screen()
 
 
+var _dev_notice := false
+
+
+## A dev (unstamped) build hears about the published build but is never held: notice + CONTINUE (online).
+func _show_dev_notice() -> void:
+	_dev_notice = true
+	_may_open_menu = false
+	_set_state("UPDATE AVAILABLE (BUILD %d)" % int(UpdateManager.available.get("build", 0)),
+		"DEV BUILD // NOT UPDATED AUTOMATICALLY", 1.0, false)
+	_retry_button.visible = false
+	_continue_button.text = "CONTINUE"
+	_continue_button.visible = true
+	_continue_button.grab_focus.call_deferred()
+
+
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
+	if update_needed and UpdateManager.is_dev_build():
+		_show_dev_notice()
+		return
 	if update_needed:
 		_update_discovered = true
 		if not UpdateManager.downloading and not UpdateManager.preparing \
@@ -218,6 +241,9 @@ func _retry_update() -> void:
 
 
 func _continue_offline() -> void:
+	if _dev_notice:
+		_allow_main_menu("DEV BUILD // UPDATE SKIPPED")
+		return
 	Backend.enable_offline_mode()
 	UpdateManager.enable_offline_mode()
 	_allow_main_menu("UPDATE DEFERRED // STARTING OFFLINE")
