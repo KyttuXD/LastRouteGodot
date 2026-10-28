@@ -1426,6 +1426,8 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
+		if lamp_charge <= 0.0 and not flashlight_enabled:
+			Sound.light_switch()    # an empty flashlight just clicks
 		_set_flashlight(not flashlight_enabled)
 	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
@@ -1658,7 +1660,10 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	lamp_charge = maxf(0.0, lamp_charge - drain * meters.drain_scale() * delta)
 	_save_active_flashlight_charge()
 	if lamp_charge <= 0.0:
-		_break_inventory_item("flashlight", _active_flashlight_slot)
+		# KT: the flashlight never breaks. An empty one sputters out and stays in its slot until a battery recharges it.
+		_set_flashlight(false)
+		Sound.light_switch()
+		interaction_message.emit("FLASHLIGHT DEAD // FIND A BATTERY")
 
 
 func _update_flashlight_flicker(delta: float) -> void:
@@ -1753,7 +1758,75 @@ func _build_first_person_items() -> void:
 	_build_utility_view("crowbar")
 	_build_utility_view("rescue_axe")
 	_build_utility_view("battery")
+	for view in [flashlight_view, taser_view] + tool_views.values():
+		_add_first_person_hand(view as Node3D)
 	_refresh_inventory_view()
+
+
+## First-person hands (docs/RESCUE_AXE.md): the mannequin's own right forearm and hand (same meshes, atlas and player
+## hue as the body), with the hand's prop point (R-HandProp) on the held item's grip, the view origin, and the forearm
+## running back and down toward the camera. `first_person_hands` turns them off (held items only).
+static var first_person_hands := true
+const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
+const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
+static var _fp_hand_parts: Array = []   # [[mesh, material_override or null, transform relative to R-HandProp], ...]
+
+
+static func _mannequin_hand_parts() -> Array:
+	if not _fp_hand_parts.is_empty():
+		return _fp_hand_parts
+	var scene := load(PlayerModels.BLOCKY.replace(".tscn", ".glb")) as PackedScene
+	if scene == null:
+		return []
+	var root := scene.instantiate()
+	var prop := root.find_child("R-HandProp", true, false) as Node3D
+	if prop != null:
+		var prop_xf := _local_to(root, prop)
+		for part_name in ["R-Forearm", "R-Hand"]:
+			var part := root.find_child(part_name, true, false) as MeshInstance3D
+			if part != null:
+				_fp_hand_parts.append([part.mesh, part.material_override, prop_xf.affine_inverse() * _local_to(root, part)])
+	root.free()
+	return _fp_hand_parts
+
+
+static func _local_to(root: Node, node: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var at: Node = node
+	while at != null and at != root:
+		if at is Node3D:
+			xf = (at as Node3D).transform * xf
+		at = at.get_parent()
+	return xf
+
+
+func _add_first_person_hand(view: Node3D) -> void:
+	var parts := _mannequin_hand_parts()
+	if parts.is_empty():
+		return
+	var hand := Node3D.new()
+	hand.name = "FirstPersonHand"
+	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
+	for part_value in parts:
+		var part: Array = part_value
+		var mesh_node := MeshInstance3D.new()
+		mesh_node.mesh = part[0]
+		if part[1] != null:
+			mesh_node.material_override = part[1]
+		mesh_node.transform = part[2]
+		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		hand.add_child(mesh_node)
+	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
+	hand.visible = first_person_hands
+	view.add_child(hand)
+
+
+func set_first_person_hands(on: bool) -> void:
+	first_person_hands = on
+	if first_person_items == null:
+		return
+	for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+		(hand as Node3D).visible = on
 
 
 func _build_utility_view(item_id: String) -> void:
