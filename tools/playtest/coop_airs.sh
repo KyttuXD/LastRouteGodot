@@ -5,6 +5,7 @@
 #
 #   tools/playtest/coop_airs.sh <lane> <out-dir> <minutes> <host> <guest> [<guest> ...]
 #   a guest written machine@otherlane runs plain coop_bot from that lane (a stock build joining, no --coop-check)
+#   ROOM_CODE=KTAMB gives the host a fixed code (5 of A-H J-N P-Z 2-9)
 #   PROD=1 uses the live service (KT's call: private rooms only, joined by code); EXTRA="..." adds runner arguments
 # Pulls every peer's report, coop_samples.jsonl and screenshots into <out-dir>/<machine>/; compare with tools/playtest/coop_compare.py.
 set -u
@@ -25,6 +26,7 @@ run() {  # machine[@lane] role botseed
   local dir="Developer/lanes/$lane"
   ssh -o BatchMode=yes "$m" "$ENVL cd ~/$dir && rm -rf .share .playtest/coop_$role$seed && mkdir -p .share && GUARD_STALL=0 ~/.local/bin/guard.pl $TIMEOUT $G \$DD --path . --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=coop_bot $check --role=$role --bot-seed=$seed --seed=$SEED --minutes=$MIN --dir=\$HOME/$dir/.share --guests=${#GUESTS[@]} $BACKEND_ARG --name=coop_$role$seed > .playtest-coop-$role$seed.log 2>&1; echo \"$m rc=\$?\"" 2>&1 | grep -v zshenv
 }
+[ -n "${ROOM_CODE:-}" ] && EXTRA="$EXTRA --room-code=$ROOM_CODE"
 run "$HOSTM" host 0 &
 PIDS=($!)
 sleep 4

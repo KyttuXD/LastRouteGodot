@@ -134,6 +134,10 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		RoomState.create_local(RoomState.Mode.DEFAULT)
 		RoomState.seed_text = String(opts["seed"])
 		RoomState.set_map_scale(RoomState.Scale.INFINITE)
+		# --room-code: a fixed code so testers can always join the same room (5 of A-H J-N P-Z 2-9; the backend's first claim wins)
+		var fixed := String(opts.get("room_code", "")).to_upper()
+		if not fixed.is_empty():
+			RoomState.code = fixed
 		var error := RoomState.host_primary_room(int(opts["port"]))
 		if not error.is_empty():
 			return {"scenario_failure": "host failed: %s" % error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
