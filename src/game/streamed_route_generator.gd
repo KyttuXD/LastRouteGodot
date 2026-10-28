@@ -900,6 +900,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
 		"inferno_caverns": inferno_caverns,
+		"landing_pile": _landing_pile(coord, grid, inferno_caverns, ramps),
 		"stairwells": wells,
 		"shaft_cells": shaft_cells,
 	}
@@ -992,6 +993,16 @@ static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dic
 			grid[z][x] = 1      # the slope itself is reached only as a ramp link
 
 
+## The breakable spec with this id (Breach.make_id), or {}: found by regenerating its chunk, so a guest can name it.
+func breakable_by_id(id: String) -> Dictionary:
+	var parsed := Breach.parse_id(id)
+	if parsed.is_empty() or not is_chunk_allowed(parsed["chunk"]):
+		return {}
+	var list: Array = chunk(parsed["chunk"]).get("breakables", [])
+	var index := int(parsed["index"])
+	return list[index] if index >= 0 and index < list.size() else {}
+
+
 ## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.
 func inferno_caverns_at(coord: Vector3i) -> Array:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
@@ -1001,6 +1012,12 @@ func inferno_caverns_at(coord: Vector3i) -> Array:
 
 ## Where something dropped into the Inferno lands: a chunk-local walkable cell with a clear 3x3, in the chunk's main
 ## cavern or a 5-wide hall (otherwise its clearest open ground). (-1, -1) if the chunk has none.
+## Chunk coordinates (level -3) that must show a landing pile because something is dumped into them (the dump holes of the
+## level above fill this); any other chunk shows one for a share of its caves.
+var dump_landing_chunks := {}
+const LANDING_PILE_SHARE := .3
+
+
 func dump_landing(coord: Vector3i) -> Vector2i:
 	if coord.y != INFERNO_LEVEL or not is_chunk_allowed(coord):
 		return Vector2i(-1, -1)
@@ -2368,6 +2385,20 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved[occupied] = true
 			_exclude_neighbourhood(solid_exclusion, occupied, 1)
 	return result
+
+
+## The cell of a landing pile in a level -3 chunk, or (-1, -1): forced for dump-hole chunks, else a share of them. It stands
+## in the middle chamber, away from ramp landings.
+func _landing_pile(coord: Vector3i, grid: Array, chambers: Array, ramps: Array) -> Vector2i:
+	if coord.y != INFERNO_LEVEL or chambers.is_empty():
+		return Vector2i(-1, -1)
+	if not dump_landing_chunks.has(coord) and SeededRandom.new("%s:PILE:%s" % [world_seed, chunk_id(coord)]).next_float() >= LANDING_PILE_SHARE:
+		return Vector2i(-1, -1)
+	var cell := InfernoCaverns.landing({"grid": grid, "inferno_caverns": chambers})
+	for ramp in ramps:
+		if (ramp["bottom"] as Rect2i).grow(4).has_point(cell):
+			return Vector2i(-1, -1)
+	return cell
 
 
 ## Dressing for level -3's caves: basalt pillars, ember braziers and crystal clusters standing against the walls of each

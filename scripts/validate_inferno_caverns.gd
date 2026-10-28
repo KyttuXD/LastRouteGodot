@@ -11,6 +11,7 @@ const RADIUS := 3
 
 var _failures := 0
 var _pits_seen := 0
+var _piles := 0
 
 
 func _expect(condition: bool, message: String) -> void:
@@ -24,6 +25,11 @@ func run(host: Node) -> int:
 	for seed_text in SEEDS:
 		_check_seed(seed_text)
 		pits += _pits_seen
+	_expect(_piles >= 8, "only %d landing piles across the windows" % _piles)
+	var forced := StreamedRouteGenerator.new("PILE-FORCE")
+	var spot := Vector3i(1, StreamedRouteGenerator.INFERNO_LEVEL, 1)
+	forced.dump_landing_chunks[spot] = true
+	_expect((forced.chunk(spot)["landing_pile"] as Vector2i).x >= 0, "a dump-hole chunk shows no landing pile")
 	_expect(pits >= 4, "only %d cage pits across the windows" % pits)
 	await _check_pit_view(host)
 	return _failures
@@ -52,6 +58,11 @@ func _check_seed(seed_text: String) -> void:
 						if InfernoCaverns.clearance(grid, Vector2i(x, z)) >= InfernoCaverns.OPEN_CLEARANCE:
 							wide_cells += 1
 			var caverns := generator.inferno_caverns_at(coord)
+			var pile: Vector2i = data.get("landing_pile", Vector2i(-1, -1))
+			if pile.x >= 0:
+				_piles += 1
+				_expect(InfernoCaverns.clearance(grid, pile, 1) >= 1 and pile == generator.dump_landing(coord),
+					"%s %s: the landing pile at %s is not on the clear landing cell" % [seed_text, coord, pile])
 			_check_wide_enough(seed_text, coord, data)
 			_check_seams(seed_text, coord, data, generator)
 			chunks_with += 1 if not caverns.is_empty() else 0

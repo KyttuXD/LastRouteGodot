@@ -1228,6 +1228,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				InfernoPitView.build(root, data)
+				InfernoLandingPile.build(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
