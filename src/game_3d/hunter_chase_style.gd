@@ -44,7 +44,7 @@ static func style_for(hunter_id: String) -> String:
 	var override := String(_overrides.get(hunter_id, ""))
 	if not override.is_empty():
 		return override
-	var from_data := String(ContentRegistry.get_def("hunters", hunter_id).get("chase_style", ""))
+	var from_data := String((HunterRoster.PROFILES.get(hunter_id, {}) as Dictionary).get("chase_style", ""))   # packs too
 	return from_data if valid(from_data) else DEFAULT
 
 
