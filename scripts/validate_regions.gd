@@ -8,6 +8,9 @@ extends RefCounted
 ##
 ## The full run is split into one suite per region (regions_hospital, regions_lab, regions_greenhouse, regions_mall:
 ## each extends this script and sets `regions`) so the parallel runner can spread it; "regions" still runs all four.
+## A shard can be split again with the runner's `name#i/n` (VALIDATE_SHARD="i/n"): every shard walks the same seeds and
+## chunks and generates only every n-th chunk of its regions, so the shards together check exactly the unsharded
+## chunks. Each shard still requires every room type of its regions (the split is deterministic per seed).
 
 ## Seed strings, not names: kept as they were before the biome -> region rename so the same worlds are checked.
 const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
@@ -54,6 +57,14 @@ func run(_host: Node) -> int:
 	var pockets := []
 	var pocket_types := {}
 	var room_count := 0
+	var shard_index := 0
+	var shard_count := 1
+	var shard := OS.get_environment("VALIDATE_SHARD")
+	if shard.contains("/"):
+		shard_index = int(shard.get_slice("/", 0))
+		shard_count = maxi(1, int(shard.get_slice("/", 1)))
+	_expect(shard_index >= 0 and shard_index < shard_count, "bad shard %s" % shard)
+	var ordinal := -1
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		for dz in range(-RADIUS, RADIUS + 1):
@@ -63,6 +74,9 @@ func run(_host: Node) -> int:
 					continue
 				var region := generator.region_for(coord)
 				if not regions.has(region):
+					continue
+				ordinal += 1
+				if ordinal % shard_count != shard_index:
 					continue
 				chunks_by_region[region] = int(chunks_by_region.get(region, 0)) + 1
 				var data := generator.chunk(coord)
@@ -110,7 +124,7 @@ func run(_host: Node) -> int:
 							pockets.append("%s: %d cells" % [where, stranded])
 							pocket_types[room_type] = int(pocket_types.get(room_type, 0)) + 1
 	for region in regions:
-		_expect(int(chunks_by_region.get(region, 0)) >= MIN_CHUNKS,
+		_expect(int(chunks_by_region.get(region, 0)) >= ceili(float(MIN_CHUNKS) / shard_count),
 			"%s generated only %d chunks over %d seeds" % [region, int(chunks_by_region.get(region, 0)), SEEDS.size()])
 	for room_type in _expected_room_types():
 		_expect(rooms_by_type.has(room_type), "no %s room was ever generated" % room_type)
