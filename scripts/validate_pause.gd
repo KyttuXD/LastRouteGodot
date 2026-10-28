@@ -44,7 +44,8 @@ func _frame() -> Signal:
 var _failures := 0
 ## Keep validation off the real gameplay port so this suite can run while a
 ## developer has an ordinary local room open in another window.
-const TEST_PORT := 28422
+## VALIDATE_PORT_OFFSET lets parallel runs on one machine use distinct ports.
+var TEST_PORT := 28422 + int(OS.get_environment("VALIDATE_PORT_OFFSET"))
 
 
 func _fail(message: String) -> void:

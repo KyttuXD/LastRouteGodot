@@ -71,7 +71,12 @@ func _run() -> void:
 			print("  FAIL  suite %s (%s) has no run(host)" % [name, path])
 			get_tree().quit(1)
 			return
-		failures += await suite.run(self)
+		var started := Time.get_ticks_msec()
+		var suite_failures: int = await suite.run(self)
+		failures += suite_failures
+		# One machine-readable line per suite: the parallel runner (scripts/run_suites.py) reads
+		# durations and verdicts from these instead of guessing from the free-form output.
+		print("-- suite %s %s %.2fs" % [name, "FAIL" if suite_failures > 0 else "PASS", (Time.get_ticks_msec() - started) / 1000.0])
 		# Most gameplay suites queue their temporary scenes for deletion. Starting
 		# the next suite in the same frame leaves those worlds, group members and
 		# input callbacks alive long enough to contaminate its physics assertions.

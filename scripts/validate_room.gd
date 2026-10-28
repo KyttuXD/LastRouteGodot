@@ -12,7 +12,8 @@ extends RefCounted
 ##   godot4 --headless res://scenes/validate.tscn -- room
 
 var _failures := 0
-const TEST_PORT := 28421
+## VALIDATE_PORT_OFFSET lets parallel runs on one machine use distinct ports.
+var TEST_PORT := 28421 + int(OS.get_environment("VALIDATE_PORT_OFFSET"))
 
 
 func _fail(message: String) -> void:
