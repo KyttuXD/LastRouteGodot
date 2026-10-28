@@ -56,7 +56,7 @@ var governor_fps_cap := 0
 var prop_density := 1.0
 var decor_density := 1.0
 ## Maze culling (StreamedFacilityView3D): hide prop visuals no open line of sight can reach. EXPERIMENT branch: on.
-var maze_culling := OS.get_environment("MAZE_CULLING") != "0"
+var maze_culling := OS.get_environment("MAZE_CULLING") != "0" and not OS.get_cmdline_user_args().has("--no-cull")
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor
@@ -83,6 +83,9 @@ func _ready() -> void:
 			and not args.has("--no-hidpi-scale"):
 		hidpi_scale = 1.0 / DisplayServer.screen_get_scale()
 	apply_budgets()
+	for arg in args:
+		if String(arg).begins_with("--graphics="):   # benchmarks: force a tier (LOW / MEDIUM / HIGH / ULTRA)
+			set_graphics_quality.call_deferred(String(arg).trim_prefix("--graphics=").to_upper())
 	governor = QualityGovernor.new()
 	governor.name = "QualityGovernor"
 	governor.target_ms = 1000.0 / frame_target_hz
