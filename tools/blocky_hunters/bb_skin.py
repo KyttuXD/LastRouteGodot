@@ -105,7 +105,14 @@ def joint_plug(c, by_name):
         x, y, w, h = src.uv[f]
         uv[f] = (x, y + h - 1, w, 1) if row_last else (x, y, w, 1)
     uv["U"] = uv["D"] = (uv["N"][0], uv["N"][1], 1, 1)           # caps: one texel of the row, so the plug is closed
-    return Cube(c.name + "-plug", c.bone, (c.lo[0] + inset, y0, c.lo[2] + inset), (c.hi[0] - inset, y1, c.hi[2] - inset),
+    bone = c.bone
+    if c.bone == "Head" and parent is not None:
+        # The neck filler rides on the CHEST (the neighbour it is textured from), reaching up into the head: it is hidden inside the
+        # head cube when the head is straight and still fills the wedge when it tilts, but it no longer hangs under the chin and
+        # rotates with the head (it read as a double chin, textured with the torso).
+        bone = parent.bone
+        y0, y1 = plane - 0.4 * U, plane + ext * U
+    return Cube(c.name + "-plug", bone, (c.lo[0] + inset, y0, c.lo[2] + inset), (c.hi[0] - inset, y1, c.hi[2] - inset),
                 faces="ENWSUD", uv=uv)
 
 

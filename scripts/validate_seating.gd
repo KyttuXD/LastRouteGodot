@@ -59,15 +59,18 @@ func run(host: Node) -> int:
 			_expect(false, "%s: no model" % type)
 			continue
 		host.add_child(model)
-		var pan := StreamedFacilityView3D.seat_top(model, path)
+		var pan := StreamedFacilityView3D.seat_top(model, path, type)
 		model.queue_free()
 		pans[type] = snappedf(pan, .01)
 		var band: Vector2 = SEAT_PAN[seat_kind(type)]
 		_expect(pan >= band.x and pan <= band.y, "%s: %s seat pan %.2f m up, wants %.2f-%.2f (hunter scale)" % [type, seat_kind(type), pan, band.x, band.y])
 		var size: Vector3 = PropColliderSizes.SIZES[type]
-		var count := PropModelCatalog.seat_count(type)
-		_expect(size.x / float(count) >= HUNTER_SEAT_WIDTH, "%s: %d seats of %.2f m, narrower than a seated hunter" % [type, count, size.x / float(count)])
-		_expect(size.z >= HUNTER_SEAT_DEPTH, "%s: %.2f m deep, shallower than a seated hunter's thighs" % [type, size.z])
+		var points := PropModelCatalog.seat_points(type, size)
+		var seat_width := float((points[0] as Dictionary)["width"])
+		var depth := size.z / float(PropModelCatalog.SEAT_ROWS.get(type, [0]).size()) * (.9 if PropModelCatalog.SEAT_ROWS.has(type) else 1.0)
+		_expect(points.size() == PropModelCatalog.seat_count(type), "%s: %d sit points, wants %d" % [type, points.size(), PropModelCatalog.seat_count(type)])
+		_expect(seat_width >= HUNTER_SEAT_WIDTH, "%s: %d seats of %.2f m, narrower than a seated hunter" % [type, points.size(), seat_width])
+		_expect(depth >= HUNTER_SEAT_DEPTH * (.6 if PropModelCatalog.SEAT_ROWS.has(type) else 1.0), "%s: %.2f m deep per row, shallower than a seated hunter's thighs" % [type, depth])
 	for type in PropModelCatalog.SEAT_COUNTS:
 		_expect(PropModelCatalog.seat_count(String(type)) >= 2, "%s is listed as a multi-seat but is not a seat" % type)
 		var offsets := PropModelCatalog.seat_offsets(String(type), 3.0)
@@ -137,8 +140,8 @@ func _check_world() -> void:
 					var seat_size: Vector3 = PropColliderSizes.SIZES.get(String(spot["type"]), Vector3.ONE)
 					var sides := [(spot["stand_at"] as Vector2) - origin]
 					var yaw := float(spot["yaw"])
-					var across := Vector2(cos(yaw), -sin(yaw))
-					var width := seat_size.x / float(PropModelCatalog.seat_count(String(spot["type"])))
+					var across := Vector2(cos(yaw), -sin(yaw))    # a booth seat's own yaw is turned, its across stays the bench line
+					var width := float((PropModelCatalog.seat_points(String(spot["type"]), seat_size)[0] as Dictionary)["width"])
 					sides.append(at + across * (width * .5 + .5))
 					sides.append(at - across * (width * .5 + .5))
 					var blocked := true

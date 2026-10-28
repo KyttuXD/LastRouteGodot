@@ -22,6 +22,7 @@ seats.
 
 | Prop | Seats |
 | --- | --- |
+| `dinerBooth` | 4: two per bench, the benches facing each other across the table (`SEAT_ROWS`) |
 | `waitingChairs` | 3 |
 | `loungeCouchWide` | 3 |
 | `loungeCouch` | 2 |
@@ -34,7 +35,10 @@ Everything else is one seat.
 
 - **Interactables:** each seat is its own interactable, spaced evenly across the prop's width, with its own prompt and
   camera, so you pick a seat by looking at it.
-- **For hunters:** each seat is also its own entry in the hunters' navigation (`seat_spots`).
+- **For hunters:** each seat is also its own entry in the hunters' navigation (`seat_spots`). A hunter gets up out of the
+  front of a seat, or out of the nearer open end of a booth bench.
+- **The diner booth** was a work bench and is now sittable, at hunter scale too (1.5x). Its seat pan is measured over a
+  bench, not the table.
 
 ## Who sits where (`src/game/seat_occupancy.gd`)
 
@@ -48,6 +52,7 @@ Everything else is one seat.
 
 ![Three on one waiting-room row](seating_three_on_a_row.png)
 ![The same row from the side](seating_three_on_a_row_side.png)
+![A diner booth: two per bench, facing across the table](seating_diner_booth.png)
 
 The captures come from `tools/look/bench_seats.tscn`.
 

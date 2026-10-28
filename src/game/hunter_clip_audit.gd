@@ -26,6 +26,8 @@ const FOOT_TOLERANCE := 0.07
 ## clear, so those only fail beyond EXTREME_TOLERANCE (a part passing clean through the body).
 const STRICT := ["idle", "walk", "chase", "sprint", "crouch", "charge"]
 const EXTREME_TOLERANCE := 0.30
+## Xivvy's wings: flat feathers beside the head and arms; clearing them would widen her past a one-cell door.
+const WING_TOLERANCE := 0.35
 ## Soles are the foot box's lowest corner: a toe or heel dips past the pivot-based sole at stride.
 const FOOT_SINK_TOLERANCE := 0.13
 ## Clips where a foot should stay on the floor.
@@ -73,6 +75,8 @@ static func audit(model: Node3D, hunter_id: String) -> Array:
 					continue
 				var torso := TORSO.has(String(pair).split(">")[1])
 				var allowed := TOLERANCE if torso else LIMB_TOLERANCE
+				if String(pair).split(">")[0].ends_with("Wing"):
+					allowed = maxf(allowed, WING_TOLERANCE)   # wings only fold (they must fit a one-cell door), they cannot be swung clear
 				if not STRICT.has(name.replace("-loop", "")):
 					allowed = maxf(allowed, EXTREME_TOLERANCE)
 				if extra > allowed and extra > float(worst.get("sway:" + pair, {}).get("depth", 0.0)):
