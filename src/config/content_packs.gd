@@ -36,10 +36,17 @@ const BUILTIN_PORTRAIT_ROOT := "res://assets/ui/hunter_portraits/"
 const DRAW_TIERS := ["easy", "intermediate", "difficult"]
 
 
+## `path` as an absolute OS path for DirAccess. Listing a user:// folder through DirAccess goes wrong when the user data
+## dir itself contains "//" (a TMPDIR or HOME ending in "/"): it lists the working directory instead. FileAccess is not
+## affected, so only directory operations go through this.
+static func os_path(path: String) -> String:
+	return ProjectSettings.globalize_path(path).simplify_path() if path.begins_with("user://") else path
+
+
 ## Hand-installed packs: every folder under `root` holding a pack.json, sorted.
 static func discover(root: String = ROOT) -> PackedStringArray:
 	var out := PackedStringArray()
-	for name in DirAccess.get_directories_at(root):
+	for name in DirAccess.get_directories_at(os_path(root)):
 		if not String(name).begins_with(".") and FileAccess.file_exists(root.path_join(name).path_join("pack.json")):
 			out.append(root.path_join(name))
 	out.sort()
@@ -142,7 +149,7 @@ static func _strip(node: Node, root: Node) -> void:
 
 
 static func _list(dir: String, rel: String, out: Array, errors: PackedStringArray) -> void:
-	var access := DirAccess.open(dir.path_join(rel))
+	var access := DirAccess.open(os_path(dir.path_join(rel)))
 	if access == null:
 		errors.append("%s: cannot be opened" % dir.path_join(rel))
 		return

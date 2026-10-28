@@ -31,8 +31,8 @@ func installed_packs() -> Array:
 	for dir in ContentPacks.discover(RoomPacks.mods_root):
 		_append_entry(out, dir, "local", true)
 	var cache := _cache()
-	if DirAccess.dir_exists_absolute(cache):
-		for name in DirAccess.get_directories_at(cache):
+	if DirAccess.dir_exists_absolute(ContentPacks.os_path(cache)):
+		for name in DirAccess.get_directories_at(ContentPacks.os_path(cache)):
 			if not String(name).begins_with("."):
 				_append_entry(out, cache.path_join(name), "downloaded", false)
 	return out
@@ -41,12 +41,12 @@ func installed_packs() -> Array:
 ## Delete every downloaded pack (hand-installed ones stay). Returns how many were removed.
 func remove_downloaded() -> int:
 	var cache := _cache()
-	if not DirAccess.dir_exists_absolute(cache):
+	if not DirAccess.dir_exists_absolute(ContentPacks.os_path(cache)):
 		return 0
 	if ContentRegistry.loaded_packs().any(func(pack: Dictionary): return String(pack["dir"]).begins_with(cache)):
 		ContentRegistry.unload_packs()
 	var count := 0
-	for name in DirAccess.get_directories_at(cache):
+	for name in DirAccess.get_directories_at(ContentPacks.os_path(cache)):
 		if not String(name).begins_with("."):
 			count += 1
 	_wipe(cache)
@@ -119,7 +119,7 @@ func _download(packs: Array, on_progress: Callable) -> String:
 				pack["errors"][0] if not pack["errors"].is_empty() else "contents differ from the host"]
 		var target := _cache().path_join(String(plan["sha"]))
 		_wipe(target)
-		DirAccess.rename_absolute(staging, target)
+		DirAccess.rename_absolute(ContentPacks.os_path(staging), ContentPacks.os_path(target))
 	return ""
 
 
@@ -171,11 +171,17 @@ static func _cache() -> String:
 	return RoomPacks.mods_root.path_join(".cache")
 
 
+## Delete `dir` (inside user://mods/.cache only) and everything in it.
 static func _wipe(dir: String) -> void:
-	if not DirAccess.dir_exists_absolute(dir):
+	var path := ContentPacks.os_path(dir)
+	if not path.contains("/.cache") or not DirAccess.dir_exists_absolute(path):
 		return
-	for name in DirAccess.get_files_at(dir):
-		DirAccess.remove_absolute(dir.path_join(name))
-	for name in DirAccess.get_directories_at(dir):
-		_wipe(dir.path_join(name))
-	DirAccess.remove_absolute(dir)
+	_remove_tree(path)
+
+
+static func _remove_tree(path: String) -> void:
+	for name in DirAccess.get_files_at(path):
+		DirAccess.remove_absolute(path.path_join(name))
+	for name in DirAccess.get_directories_at(path):
+		_remove_tree(path.path_join(name))
+	DirAccess.remove_absolute(path)
