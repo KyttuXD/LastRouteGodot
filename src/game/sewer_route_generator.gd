@@ -46,6 +46,8 @@ const FALLS_CHANCE := .28
 const RAMP_RUN := 12
 const RAMP_CHANCE := {-1: .35, -2: .3}
 
+## Seal ids start here so they never meet the pipes' (Breach ids count up from 0)
+const SEAL_FIRST_INDEX := 100
 const CENTER := CHUNK_SIZE / 2
 const TUNNEL_HALF := 4           # 22 - 4 .. 22 + 4: walkway 18-20, water 21-23, walkway 24-26
 const CHANNEL_HALF := 1
@@ -425,13 +427,26 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		room_entries.append({"id": "%s:ROOM:%d" % [chunk_id(coord), index], "room_type": room["kind"],
 			"rect": room["rect"], "center": room["center"]})
 	var seam := range(CENTER - TUNNEL_HALF, CENTER + TUNNEL_HALF + 1)
+	# sealed utility rooms (SealPlanner / SealRules, "more sealed"): a gate across each shut room's branch
+	var breakables: Array = []
+	var sealed := {}
+	var gate_cells := {}
+	if is_chunk_allowed(coord) and not rooms.is_empty():
+		var seal_plan := SealPlanner.plan_rooms(world_seed, coord, grid, room_entries)
+		breakables = SealPlanner.specs(world_seed, coord, seal_plan, coord.y, SEAL_FIRST_INDEX)
+		for cell in seal_plan["sealed"]:
+			sealed[cell] = true
+		for spec in breakables:
+			for cell in spec["extras"]["cells"]:
+				StreamedRouteGenerator._exclude_neighbourhood(gate_cells, cell, 1)
 	return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord), "level": coord.y,
 		"biome": "sewer", "region": "sewer", "grid": grid, "sewer_grid": sewer_grid,
 		"rooms": room_entries, "corridors": [], "suites": [],
 		"edges": {"west": seam, "east": seam, "north": seam, "south": seam},
 		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": _feature_props(coord, features),
 		"fixtures": _fixtures(coord, grid, room_entries, features),
-		"pickups": _pickups(coord, sewer_grid, grid, features, links),
+		"pickups": _pickups(coord, sewer_grid, grid, features, links, sealed, gate_cells),
+		"breakables": breakables, "sealed_cells": sealed.keys(),
 		"hunter_spawns": [], "dual_level_room": {},
 		"floor_voids": [], "ceiling_voids": [], "structural_voids": [],
 		"difficulty": surface.difficulty_for_level(coord.y),
@@ -510,8 +525,9 @@ func _fixtures(coord: Vector3i, grid: Array, rooms: Array, features: Array) -> A
 
 ## Relays and batteries on dry walkways (never in the water, on a bridge or by
 ## a ladder), at a little under the maze's density, sometimes a tool.
-func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, links: Array) -> Array:
-	var excluded := {}
+func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, links: Array,
+		sealed: Dictionary = {}, gate_cells: Dictionary = {}) -> Array:
+	var excluded := gate_cells.duplicate()   # nothing lies in a seal's gate or against it
 	for feature in features:
 		StreamedRouteGenerator._exclude_neighbourhood(excluded, feature["cell"], 1)
 		for behind in feature.get("behind", []):
@@ -525,20 +541,33 @@ func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, 
 			if int(sewer_grid[z][x]) == DRY and not excluded.has(cell) \
 					and StreamedRouteGenerator._open_spawn_neighbourhood(grid, cell):
 				candidates.append(cell)
+	# Sealed rooms (SealRules): the first relay and the tools stay on open ground, the second relay usually sits behind a seal
+	var sealed_candidates := []
+	if not sealed.is_empty():
+		var open_candidates := []
+		for candidate in candidates:
+			if sealed.has(candidate):
+				sealed_candidates.append(candidate)
+			else:
+				open_candidates.append(candidate)
+		candidates = open_candidates
 	var rng := SeededRandom.new("%s:SEWER-PICKUPS:%d:%d" % [world_seed, coord.x, coord.z])
 	var plans := ["relay", "battery"]
-	if rng.next_float() < 0.55:
+	if rng.next_float() < 0.55 or not sealed_candidates.is_empty():
 		plans.append("relay")
-	if rng.next_float() < 0.45:
+	if rng.next_float() < 0.45 or (not sealed.is_empty() and SealRules.guaranteed_tool(coord)):
 		plans.append("tool")
 	var result := []
 	var kind_indices := {}
 	for kind_value in plans:
-		if candidates.is_empty():
+		if candidates.is_empty() and sealed_candidates.is_empty():
 			break
 		var kind := String(kind_value)
-		var cell: Vector2i = candidates.pop_at(rng.next_index(candidates.size()))
 		var index := int(kind_indices.get(kind, 0))
+		var from_sealed := kind == "relay" and index >= 1 and not sealed_candidates.is_empty() \
+			and (index >= 2 or rng.next_float() < SealRules.SECOND_RELAY_SEALED)
+		var pool: Array = sealed_candidates if from_sealed or candidates.is_empty() else candidates
+		var cell: Vector2i = pool.pop_at(rng.next_index(pool.size()))
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
