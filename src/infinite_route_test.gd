@@ -2169,7 +2169,9 @@ func _gray_target(entity_id: String, local_target: Dictionary, depth: int) -> Di
 	var peer_id := int((world_state.hunters.get(entity_id, {}) as Dictionary).get("gray_peer", 0))
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	var target := {}
-	if peer_id == local_id or (peer_id == 0 and not RoomState.online):
+	if peer_id == 0:
+		return {}   # an unbound Gray (one the population spawned) hunts nobody until anti-idle binds her
+	if peer_id == local_id:
 		target = local_target
 	else:
 		for candidate_value in _remotes.target_states({}):
@@ -2184,10 +2186,10 @@ func _gray_target(entity_id: String, local_target: Dictionary, depth: int) -> Di
 	return target
 
 
-## best_target for every hunter but a bound Gray, who only ever gets her own runner.
+## best_target for every hunter but Gray, who only ever gets the runner anti-idle bound her to (or nobody).
 func _target_for_hunter(entity_id: String, position: Vector2, local_target: Dictionary, depth: int) -> Dictionary:
 	var state: Dictionary = world_state.hunters.get(entity_id, {})
-	if String(state.get("hunter_id", "")) == "void_gray" and int(state.get("gray_peer", 0)) != 0:
+	if String(state.get("hunter_id", "")) == "void_gray":
 		return _gray_target(entity_id, local_target, depth)
 	return _remotes.best_target(position, local_target, depth)
 
