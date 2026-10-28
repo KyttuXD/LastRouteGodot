@@ -18,6 +18,13 @@ const MOVING_SPEED := 0.15
 ## Added to the model's yaw. The glb's head is at -Z, which is Godot's forward, so 0 is correct (checked in the real scene).
 const FACING_YAW := 0.0
 const BARK_CUE_RADIUS := 60.0
+## Inferno ambience (level -3): a moving spider skitters within SKITTER_RADIUS (faster when it runs), and any one within LAIR_RADIUS now and then
+## lets something crack in the dark; both fade with distance, both play from the creature's own side.
+const SKITTER_RADIUS := 30.0
+const LAIR_RADIUS := 45.0
+const SKITTER_EVERY_WALK := 0.7
+const SKITTER_EVERY_RUN := 0.3
+const LAIR_CRACKLE_EVERY := Vector2(5.0, 11.0)
 
 var view: HunterView3D
 var model: Node3D
@@ -28,6 +35,8 @@ var _oneshot := ""
 var _oneshot_left := 0.0
 var _attack_cooldown := 0.0
 var _dead := false
+var _skitter_left := 0.0
+var _crackle_left := 3.0
 
 
 func _init(p_view: HunterView3D, p_model: Node3D) -> void:
@@ -97,7 +106,32 @@ func tick(delta: float) -> String:
 	else:
 		ModelSlot.play_if_available(animation_player, clip)
 	animation_player.speed_scale = speed
+	_ambience_cues(delta, clip)
 	return clip
+
+
+## The Inferno cues of a living spider (never while dead or off the tree): skitter while it moves, an occasional crackle in its lair.
+func _ambience_cues(delta: float, clip: String) -> void:
+	if _dead or not view.is_inside_tree():
+		return
+	_skitter_left -= delta
+	_crackle_left -= delta
+	if _skitter_left > 0.0 and _crackle_left > 0.0:
+		return
+	var camera := view.get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var distance := view.global_position.distance_to(camera.global_position)
+	var side := (view.global_position - camera.global_position).dot(camera.global_basis.x)
+	var pan := clampf(side / maxf(distance, 1.0), -1.0, 1.0)
+	if _skitter_left <= 0.0 and (clip == CLIP_WALK or clip == CLIP_SPRINT):
+		_skitter_left = SKITTER_EVERY_RUN if clip == CLIP_SPRINT else SKITTER_EVERY_WALK
+		if distance < SKITTER_RADIUS:
+			Sound.spider_skitter(pan, clampf(1.3 - distance / SKITTER_RADIUS, .15, 1.3))
+	if _crackle_left <= 0.0:
+		_crackle_left = randf_range(LAIR_CRACKLE_EVERY.x, LAIR_CRACKLE_EVERY.y)
+		if distance < LAIR_RADIUS:
+			Sound.inferno_crackle(pan, clampf(1.2 - distance / LAIR_RADIUS, .15, 1.2))
 
 
 ## Test and future hook: the creature collapses (nothing in the game kills it yet).

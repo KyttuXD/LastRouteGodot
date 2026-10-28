@@ -62,6 +62,7 @@ var _ladder_rung_timer := 0.0
 var _ladder_hint_id := ""
 ## Decides when hunters emote (host only); see docs/HUNTER_EMOTES.md.
 var _hunter_emoter := HunterEmoter.new()
+var _inferno_secrets := InfernoSecrets.new()   # the Inferno's secret creatures: trigger on level -3 (InfernoSecrets)
 var _taser_ready_usec_by_peer := {}
 var _last_checkpoint_request := ""
 var _last_checkpoint_request_usec := 0
@@ -2497,6 +2498,7 @@ func _store_hunter(entity_id: String, view: HunterView3D) -> void:
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
+	_inferno_secrets.update(self, delta)
 	for cell_value in _hide_check_cooldowns.keys():
 		_hide_check_cooldowns[cell_value] = float(_hide_check_cooldowns[cell_value]) - delta
 		if float(_hide_check_cooldowns[cell_value]) <= 0.0:
@@ -2582,8 +2584,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		navigation: StreamedHunterNavigation, target: Dictionary, local_target: Dictionary, delta: float) -> bool:
 	var brain := view.brain
-	if brain == null or not brain.active:
-		return false
+	if brain == null or not brain.active or SecretCreatures.stays_home(brain.hunter_id):
+		return false   # a secret creature never takes a ramp or a ladder: it stays on its home level
 	var depth := maxi(1, -level + 1)
 	if _ladders.is_climbing(entity_id):
 		var climb := _ladders.advance(entity_id, delta)
@@ -4877,6 +4879,9 @@ func _admin_summon_hunter_authoritative(peer_id: int, hunter_id: String) -> void
 		_admin_feedback(peer_id, "ADMIN SUMMON FAILED // RUNNER NOT AVAILABLE")
 		return
 	var level := -int(target.get("depth", 0))
+	if SecretCreatures.stays_home(hunter_id) and level != SecretCreatures.HOME_LEVEL:
+		_admin_feedback(peer_id, "ADMIN SUMMON FAILED // THIS ONE LIVES ON LEVEL %+d" % SecretCreatures.HOME_LEVEL)
+		return
 	var navigation := _navigations.get(level) as StreamedHunterNavigation
 	if navigation == null:
 		var target_coord := Vector3i(
