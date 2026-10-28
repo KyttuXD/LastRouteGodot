@@ -1786,7 +1786,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
-		"streamed_region_prop", bool(prop.get("solid", true)), type)
+		"streamed_region_prop", bool(prop.get("solid", true)), type, float(prop.get("collider_y0", 0.0)))
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -1946,7 +1946,7 @@ func room_doors_on_level(level: int) -> Array[RouteInteractable3D]:
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
-		prop_type: String = "") -> void:
+		prop_type: String = "", collider_y0: float = 0.0) -> void:
 	var visual := ModelSlot.instantiate_prop(path, prop_type)
 	if visual == null:
 		return
@@ -1993,6 +1993,9 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		var collision := CollisionShape3D.new()
 		collision.shape = _shared_box_shape(Vector3(half.x * 2.0, blocker_size.y, half.y * 2.0))
 		collision.position = at + Vector3(local.x, 0.0, local.y).rotated(Vector3.UP, yaw) + Vector3.UP * (blocker_size.y * .5)
+		if collider_y0 > 0.0:
+			# a raised collider (a crawl-under pipe): its underside is collider_y0 above the floor, whatever the visual's origin
+			collision.position.y = collider_y0 + blocker_size.y * .5
 		collision.rotation.y = yaw
 		body.add_child(collision)
 	parent.add_child(body)
