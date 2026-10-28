@@ -149,8 +149,8 @@ const PORTRAIT_DIR := "res://assets/ui/hunter_portraits/"
 const SILHOUETTE := Color(0.02, 0.015, 0.03, 1.0)
 
 
-## The baked dossier tile (tools/look/hunter_portraits.tscn). A hunter data file may name its own "portrait"; otherwise it is
-## <PORTRAIT_DIR><id>.png, so a new hunter only needs a re-bake. Null when the hunter has none.
+## The dossier tile: the 2D Last Route portrait (96x96 pixel art), <PORTRAIT_DIR><id>.png. A hunter data file may name its own
+## "portrait". (tools/look/hunter_portraits.tscn bakes 3D-model renders into assets/ui/hunter_portraits_3d/ as an unused alternative.) Null when the hunter has none.
 static func portrait(hunter_id: String) -> Texture2D:
 	var id := HunterIdAliases.canonical(hunter_id)
 	var path := PORTRAIT_DIR + id + ".png"

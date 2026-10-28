@@ -374,7 +374,8 @@ func _on_dossier_pressed() -> void:
 	roster.custom_minimum_size = Vector2(108, 0)
 	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	roster.allow_reselect = true
-	roster.fixed_icon_size = Vector2i(34, 34)
+	roster.fixed_icon_size = Vector2i(48, 48)
+	roster.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # 2D pixel-art portraits
 	roster.icon_mode = ItemList.ICON_MODE_LEFT
 	roster.add_theme_font_size_override("font_size", 7)
 	roster.add_theme_color_override("font_color", Palette.BODY)

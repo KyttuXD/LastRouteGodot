@@ -2,7 +2,7 @@ extends Node
 
 ## Bakes one dossier portrait per hunter: the in-game blocky model, head and shoulders, 3/4 view, one fixed light rig,
 ## transparent background (the dossier tints the tile and draws locked ones as a silhouette). Run at build time, never per frame:
-##   godot --path . res://tools/look/hunter_portraits.tscn -- [res://assets/ui/hunter_portraits] [id,id,...]
+##   godot --path . res://tools/look/hunter_portraits.tscn -- [res://assets/ui/hunter_portraits_3d] [id,id,...]
 ## The files are <id>.png; HunterDossier.portrait_path() finds them, so a new hunter only needs a re-bake.
 
 const SIZE := 192
@@ -10,7 +10,7 @@ const YAW := 32.0
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
-	var out_dir := args[0] if args.size() > 0 else "res://assets/ui/hunter_portraits"
+	var out_dir := args[0] if args.size() > 0 else "res://assets/ui/hunter_portraits_3d"
 	var ids: Array = []
 	if args.size() > 1:
 		ids = Array(args[1].split(","))
