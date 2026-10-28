@@ -30,6 +30,8 @@ static var _stage: Dictionary = {}
 static var _actors: Dictionary = {}
 static var _scene: Node
 static var _pickup: RouteInteractable3D
+## Over-the-shoulder glance: a spring on the camera's own yaw (the body keeps its heading), {target, pos, vel, k, c, roll}
+static var _glance := {}
 static var _player_camera: Camera3D   # gameplay clips: "face the camera" means the player's own camera
 static var _smooth := {}   # bone -> {last: Quaternion, max: float} over the shot's smoothness window
 static var _smooth_window := Vector2(-1, -1)
@@ -363,6 +365,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var overlap_frames := 0
 	var depth_min := 99.0
 	var input := PlaytestInput.new()
+	var glance_hook := Callable()
+	_glance = {}
 	var turns: Array = []          # {t0, dur, yaw, pitch, done}: quick mouse-style turns (the mouse handler's own math)
 	var summoned: Array = []
 	if gameplay:
@@ -415,6 +419,27 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			if ev.has("pulse"):
 				for action in ev["pulse"]:
 					input.pulse(str(action))
+			if ev.has("glance"):
+				# a quick look back over the shoulder: only the CAMERA turns, the run keeps its heading (the game moves the
+				# player relative to the body's yaw, so turning the view would turn the run toward the hunter)
+				var gv: Dictionary = ev["glance"]
+				var out_s := float(gv.get("out", .22))
+				var w := 1.8 / maxf(out_s, .05)
+				var zeta := float(gv.get("damping", .62))   # under 1: a slight lag-then-overshoot, like a neck
+				if _glance.is_empty():
+					_glance = {"pos": 0.0, "vel": 0.0, "target": 0.0}
+				_glance["k"] = w * w
+				_glance["c"] = 2.0 * zeta * w
+				_glance["roll"] = float(gv.get("roll", .07))
+				_glance["target"] = deg_to_rad(float(gv.get("yaw", 150.0)))
+				_glance["back_at"] = t + out_s + float(gv.get("hold", .35))
+				if not glance_hook.is_valid():
+					var glance_cam := camera
+					glance_hook = func() -> void:
+						if is_instance_valid(glance_cam) and not _glance.is_empty():
+							glance_cam.rotation.y = float(_glance["pos"])
+							glance_cam.rotation.z = -float(_glance["pos"]) * float(_glance["roll"])
+					RenderingServer.frame_pre_draw.connect(glance_hook)
 			if ev.has("turn"):
 				var tv: Dictionary = ev["turn"]
 				var yaw_deg := float(tv.get("yaw", 0.0))
@@ -474,6 +499,14 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				hud.set("_message_time_left", 0.0)
 			for turn in turns:
 				_apply_turn(player, turn, t)
+			if not _glance.is_empty():
+				if _glance.has("back_at") and t >= float(_glance["back_at"]):
+					_glance["target"] = 0.0
+					_glance.erase("back_at")
+				# semi-implicit spring step at the clip's fixed rate
+				var acc := float(_glance["k"]) * (float(_glance["target"]) - float(_glance["pos"])) - float(_glance["c"]) * float(_glance["vel"])
+				_glance["vel"] = float(_glance["vel"]) + acc * dt
+				_glance["pos"] = float(_glance["pos"]) + float(_glance["vel"]) * dt
 			dir = Vector3.ZERO
 		elif hiding_cam:
 			# stay where the game put the hider (the locker's own inside position); only the view is aimed
@@ -536,6 +569,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			DirAccess.make_dir_recursive_absolute(snap_dir)
 			var label := str(beat.get("label", str(beat_index)))
 			snap.save_png("%s/%s_%s.png" % [snap_dir, shot_name, label])
+			if beat.has("dump_meshes") and actors.has(str(beat["dump_meshes"])):
+				info["mesh_dump"] = _mesh_dump(actors[str(beat["dump_meshes"])] as Actor)
 			var one := _check(beat, actors, camera, player, space, stage, snap)
 			if beat.has("pixels"):
 				var px := await _pixel_check(scene, camera, actors.get(str(beat.get("actor", ""))) as Actor, beat["pixels"], "%s/%s_%s_mask.png" % [snap_dir, shot_name, label])
@@ -549,6 +584,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		input.begin_frame()
 		frames += 1
 	input.release_all()
+	if glance_hook.is_valid() and RenderingServer.frame_pre_draw.is_connected(glance_hook):
+		RenderingServer.frame_pre_draw.disconnect(glance_hook)
+	camera.rotation.y = 0.0
+	camera.rotation.z = 0.0
 	info["summoned"] = summoned
 	if eye_hold.is_valid() and RenderingServer.frame_pre_draw.is_connected(eye_hold):
 		RenderingServer.frame_pre_draw.disconnect(eye_hold)
@@ -1963,7 +2002,11 @@ static func _gameplay_check(expect: Dictionary, camera: Camera3D, player: Player
 			ray.exclude = [player.get_rid(), view.get_rid()]
 			var hit := space.intersect_ray(ray)
 			var visible := hit.is_empty() and _on_screen(camera, head)
-			detail = "%s at %.1f m, head on screen and unblocked: %s" % [view.brain.hunter_id, camera.global_position.distance_to(head), visible]
+			var gap := Vector2(view.global_position.x - player.global_position.x, view.global_position.z - player.global_position.z).length()
+			detail = "%s at %.1f m, head on screen and unblocked: %s" % [view.brain.hunter_id, gap, visible]
+			if want.has("min_gap") and gap < float(want["min_gap"]):
+				visible = false
+				detail += " (closer than %s m)" % want["min_gap"]
 			seen_any = seen_any or visible
 		rows.append({"name": "%s really on screen" % want.get("id", ""), "pass": seen_any == bool(want.get("visible", true)), "detail": detail})
 	if expect.has("pickup_taken"):
@@ -2047,3 +2090,21 @@ static func _near_node(scene: Node, space: PhysicsDirectSpaceState3D, player: No
 				best_d = d
 				best = {"eye": Vector3(stand.x, fy + EYE, stand.z), "f": dir, "at": [snappedf(centre.x, .01), snappedf(centre.y, .01), snappedf(centre.z, .01)]}
 	return best
+
+
+## Every mesh of an actor's model with its parent chain, local box and texture (finding stray parts).
+static func _mesh_dump(actor: Actor) -> Array:
+	var out: Array = []
+	for n in actor.model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		var chain: Array = []
+		var up := mi.get_parent()
+		while up != null and up != actor.model and chain.size() < 4:
+			chain.append(str(up.name))
+			up = up.get_parent()
+		var mat := mi.get_active_material(0)
+		var tex := ""
+		if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture != null:
+			tex = (mat as BaseMaterial3D).albedo_texture.resource_path.get_file()
+		out.append("%s <- %s size=%s at=%s tex=%s vis=%s" % [mi.name, "/".join(chain), mi.get_aabb().size, mi.position, tex, mi.visible])
+	return out

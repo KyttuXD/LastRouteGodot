@@ -12,7 +12,7 @@
   0.0
  ],
  "face_at": [
-  12.0,
+  14.0,
   0.0,
   1.6
  ],
@@ -37,45 +37,51 @@
    "t": 0.0,
    "summon": "kathy",
    "at": [
-    -1.5,
+    -1.2,
     0.0
    ]
   },
   {
-   "t": 0.7,
-   "turn": {
-    "yaw": -170,
-    "dur": 0.28
-   }
-  },
-  {
-   "t": 1.35,
-   "turn": {
-    "yaw": 170,
-    "dur": 0.3
+   "t": 0.75,
+   "glance": {
+    "yaw": 150,
+    "out": 0.22,
+    "hold": 0.4,
+    "damping": 0.62,
+    "roll": 0.07
    }
   }
  ],
  "expects": [
   {
-   "t": 1.1,
-   "label": "lookback",
-   "hud": true,
-   "hands": true,
-   "no_alerts": true,
-   "no_labels": true,
-   "hunter_seen": {
-    "id": "kathy"
-   }
-  },
-  {
-   "t": 2.2,
+   "t": 0.5,
    "label": "run",
    "hud": true,
    "hands": true,
    "no_alerts": true,
    "no_labels": true,
-   "player_moving": 3.0
+   "player_moving": 4.0
+  },
+  {
+   "t": 1.15,
+   "label": "glance",
+   "hud": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "player_moving": 4.0,
+   "hunter_seen": {
+    "id": "kathy",
+    "min_gap": 3.0
+   }
+  },
+  {
+   "t": 2.2,
+   "label": "away",
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "player_moving": 4.0
   }
  ],
  "fade_in": 0.12,

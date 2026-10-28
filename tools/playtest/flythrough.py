@@ -158,7 +158,14 @@ def frame_metrics(mp4: Path, seconds: float) -> dict:
 
 
 def contact_sheet(mp4: Path, sheet: Path) -> None:
-    sh(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-vf", "fps=1/3,scale=320:-2,tile=4x3", "-frames:v", "1", "-q:v", "4", str(sheet)])
+    """12 frames spread over the clip's real length (a fixed 1-in-3 s rate gave a 2 s clip one tile and eleven black ones)."""
+    probe = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(mp4)])
+    try:
+        seconds = max(float(probe.stdout.strip()), 0.1)
+    except ValueError:
+        seconds = 36.0
+    rate = 12.0 / seconds
+    sh(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-vf", "fps=%.4f,scale=320:-2,tile=4x3" % rate, "-frames:v", "1", "-q:v", "4", str(sheet)])
 
 
 def main() -> int:
