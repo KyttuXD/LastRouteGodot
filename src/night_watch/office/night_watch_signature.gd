@@ -24,6 +24,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 			_mask(office)
 		"child_bedroom":
 			_bedroom(office)
+		"control_room":
+			_facility(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -214,3 +216,26 @@ static func _bedroom(office: Node3D) -> void:
 	wall.set_meta("nw_palette", "poster")
 	root.add_child(wall)
 	NightWatchArt.box(root, Vector3(1.2, 0.04, 0.4), Vector3(0, BedroomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelWarm", "kind": "light", "tint": Color(1.6, 1.35, 0.6)})
+
+
+## The Facility (story): the 2D picture is a steel-blue corridor with yellow and black hazard tape along the top of the side walls, a panelled far wall with the lift (a red lamp over its door) and a cold white ceiling lamp:
+## hazard tape over both side walls, panel lines on the far wall, the red lift lamp and the white ceiling panel.
+static func _facility(office: Node3D) -> void:
+	var w: float = ControlRoomOffice.ROOM_W
+	var d: float = ControlRoomOffice.ROOM_D
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var gap := 1.0   # the door slabs are at z 0 on both side walls
+	var seg: float = d * 0.5 - gap - 0.15
+	for side in [-1.0, 1.0]:
+		for zs in [-1.0, 1.0]:
+			NightWatchArt.box(root, Vector3(0.03, 0.18, seg), Vector3(side * (w * 0.5 - 0.05), 2.7, zs * (gap + seg * 0.5)), {"name": "HazardTape", "kind": "hazard"})
+	var z: float = -d * 0.5 + 0.04
+	for y in [0.8, 1.6, 2.4]:
+		NightWatchArt.box(root, Vector3(w - 0.3, 0.03, 0.02), Vector3(0, y, z), {"name": "PanelLineH", "kind": "metal", "tint": Color(0.1, 0.16, 0.26)})
+	for i in range(-3, 4):
+		if absf(float(i) * 0.8) > 1.0:
+			NightWatchArt.box(root, Vector3(0.03, 2.5, 0.02), Vector3(float(i) * 0.8, 1.5, z), {"name": "PanelLineV", "kind": "metal", "tint": Color(0.1, 0.16, 0.26)})
+	NightWatchArt.box(root, Vector3(0.14, 0.08, 0.04), Vector3(0, 2.55, z + 0.02), {"name": "LiftLampRed", "kind": "light", "tint": Color(2.0, 0.25, 0.2)})
+	NightWatchArt.box(root, Vector3(1.4, 0.04, 0.4), Vector3(0, ControlRoomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelCool", "kind": "light", "tint": Color(1.4, 1.6, 1.8)})
