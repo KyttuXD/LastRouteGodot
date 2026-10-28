@@ -91,7 +91,7 @@ func _check_office(host: Node, mode_id: String) -> void:
 			q.collision_mask = 1
 			free[Vector2i(ix, iz)] = space_state.intersect_shape(q, 1).is_empty()
 	var start := Vector2i(int((spec.spawn.x - fp.position.x) / CELL), int((spec.spawn.z - fp.position.y) / CELL))
-	_expect(bool(free.get(start, false)), "%s: the spawn is blocked" % mode_id)
+	_expect(bool(free.get(start, false)), "%s: the spawn is blocked (%s)" % [mode_id, NwOfficeWalk._blockers(office, space_state, capsule, spec.spawn)])
 	var seen := {start: true}
 	var queue := [start]
 	while not queue.is_empty():
