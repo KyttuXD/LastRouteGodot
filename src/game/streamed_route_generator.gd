@@ -107,8 +107,8 @@ const MUSIC_WING_REGIONS := ["hotel"]
 const MUSIC_WING_CHANCE := .06
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
-## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through.
-const CLEAR_WALKWAYS := true
+## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through (off only for audits).
+static var clear_walkways := true
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -937,8 +937,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		_remove_wall_humps(grid, layout["rooms"], region_props)
 	# Props a few centimetres inside a wall slide clear of it first (GeometryAudit prop_in_wall), then the walkway checks run.
 	region_props = GeometryResolve.push_out(grid, region_props)
+	scale_surface_mounts(region_props)
 	# Keep-clear zones at every door and a margin-wide walk from each door into its room (docs/COLLISION.md).
-	if CLEAR_WALKWAYS:
+	if clear_walkways:
 		region_props = PlacementClearance.clear(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
@@ -2699,12 +2700,13 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 				and not result.any(func(other: Dictionary) -> bool:
 					return RoomCatalog.surface_parent_covers(other, entry)):
 			continue
-		if not _collider_clear(entry, result):
+		if not _collider_clear(entry, result) and not _nudge_seat_clear(entry, result, grid, rect):
 			continue
 		entry["spec_index"] = spec_index
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
-			reserved[occupied_value as Vector2i] = true
+			if not reserved.has(occupied_value as Vector2i):
+				reserved[occupied_value as Vector2i] = SEAT_SHAREABLE    # a placed prop's cell: a seat may tuck into it
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	orient_props(result, grid)
 	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
@@ -2733,6 +2735,10 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 						result.erase(e)
 						for cell_value in e.get("occupied_cells", []):
 							reserved.erase(cell_value as Vector2i)
+				# a lamp whose nightstand made way for the bed would float: it goes too
+				result = result.filter(func(e: Dictionary) -> bool:
+					return not RoomCatalog.is_surface_prop(String(e.get("type", ""))) or float(e.get("mount_y", 0.0)) <= 0.0 \
+						or result.any(func(other: Dictionary) -> bool: return RoomCatalog.surface_parent_covers(other, e)))
 		if not bed.is_empty():
 			bed["spec_index"] = specs.size()
 			result.append(bed)
@@ -2743,6 +2749,23 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## Things standing on furniture (a lamp on a dresser, a computer on a desk) are authored at the person-sized parent's top
+## (`mount_y`). The parent is drawn at its hunter scale (PropModelCatalog.HUNTER_SCALE), so its top is that much higher:
+## raise the mount with it, or the lamp sinks into the dresser (docs/PROP_SIZES.md).
+static func scale_surface_mounts(props: Array) -> void:
+	for prop_value in props:
+		var prop: Dictionary = prop_value
+		var mount := float(prop.get("mount_y", 0.0))
+		if mount <= 0.0 or not RoomCatalog.is_surface_prop(String(prop.get("type", ""))) or bool(prop.get("mount_scaled", false)):
+			continue
+		for parent_value in props:
+			var parent: Dictionary = parent_value
+			if parent != prop and RoomCatalog.surface_parent_covers(parent, prop):
+				prop["mount_y"] = mount * PropModelCatalog.hunter_scale(String(parent.get("type", "")))
+				prop["mount_scaled"] = true
+				break
 
 
 ## KT: "a gothic bedroom is nearly empty, no bed". A bedroom never goes without a bed: when the recipe's bed could not be
@@ -2998,6 +3021,15 @@ static func one_ceiling_family(props: Array) -> Array:
 ## Big props claim their space first: solid specs by footprint (largest first), then the rest; ties keep recipe order, so
 ## a bed or counter is never dropped because a chair or crate listed earlier took its cell. Surface props come after the
 ## desks and tables that carry them. Deterministic (depends only on the recipe).
+## `reserved` value for a cell a placed recipe prop took (doors and thresholds are `true`): only seats may share it.
+const SEAT_SHAREABLE := "prop"
+
+
+## An authored (person-sized) blocker size, as big as the view draws the prop (PropModelCatalog.HUNTER_SCALE).
+static func hunter_sized(type: String, size: Vector3) -> Vector3:
+	return size * PropModelCatalog.hunter_scale(type)
+
+
 static func _claim_order(specs: Array) -> Array:
 	var order := []
 	for i in specs.size():
@@ -3005,8 +3037,10 @@ static func _claim_order(specs: Array) -> Array:
 		var type := String(spec.get("type", ""))
 		var area := 0.0
 		if bool(spec.get("solid", not bool(spec.get("wall_mount", false)))) and not RoomCatalog.is_surface_prop(type):
-			var size: Vector3 = TEMPLATE_PROP_SIZES.get(type, PropColliderSizes.SIZES.get(type, Vector3.ZERO))
+			var size: Vector3 = PropColliderSizes.SIZES.get(type, hunter_sized(type, TEMPLATE_PROP_SIZES.get(type, Vector3.ZERO)))
 			area = size.x * size.z
+		if bool(spec.get("claim_first", false)):
+			area = INF
 		order.append([area, i])
 	order.sort_custom(func(a: Array, b: Array) -> bool:
 		return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
@@ -3014,6 +3048,29 @@ static func _claim_order(specs: Array) -> Array:
 	for pair in order:
 		out.append(pair[1])
 	return out
+
+
+## A seat set around a table at fixed cells (dining sets, cafeteria rows, desks) hits its hunter-scale table: slide it
+## straight back from what it faces, 15 cm at a time up to 1.2 m, until it is clear and still inside the room on open
+## floor (docs/PROP_SIZES.md). Only seats move; anything else that collides is dropped as before.
+static func _nudge_seat_clear(entry: Dictionary, placed: Array, grid: Array, rect: Rect2i) -> bool:
+	if PropModelCatalog.interaction_for(String(entry.get("type", ""))) != "sit":
+		return false
+	var yaw := float(entry.get("yaw", 0.0))
+	var back := Vector2(sin(yaw), cos(yaw))    # gameplay yaw: -Z faces the target, the back is +Z
+	var start: Vector2 = entry.get("placement_offset", Vector2.ZERO)
+	var cell: Vector2i = entry.get("cell", Vector2i.ZERO)
+	for step in range(1, 9):
+		var offset := start + back * .15 * float(step)
+		var at := Vector2(cell) + Vector2(.5, .5) + offset
+		var at_cell := Vector2i(floori(at.x), floori(at.y))
+		if not rect.has_point(at_cell) or not _grid_cell_open(grid, at_cell):
+			return false
+		entry["placement_offset"] = offset
+		if _collider_clear(entry, placed):
+			return true
+	entry["placement_offset"] = start
+	return false
 
 
 ## Prop clearance as a placement rule: a solid prop's collision boxes may not interpenetrate an already placed solid's
@@ -3229,16 +3286,22 @@ static func _room_template_specs(template: String, region: String,
 			# aisle and repeated bolted tables rather than loose room scatter.
 			# 5-deep / 5-wide wings only have a 3x3 interior, so the counter
 			# must be centred and side equipment stays on the front corners.
+			# the serving line is the room's point: it claims before the (hunter-scale) tables
 			specs.append({"type": "prisonServingCounter", "side": 0,
-				"depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "prisonKitchenRack", "side": -1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open", "claim_first": true})
+			# side kit beside the table line (hunter-scale tables are 3.9 m long), at the walls where the room is wide enough
+			var kit_side := 3 if side_span >= 7 else 1
+			specs.append({"type": "prisonKitchenRack", "side": -kit_side * mirror,
 				"depth": maxi(2, mid_depth), "facing": "open"})
 			# Linear prison wings are only five cells deep. A middle-row table
 			# keeps the serving line clear; wider halls can take a second row.
 			var table_depths := [1]
+			# hunter-scale tables are 2.6 m deep: rows stand clear of the 1.5 m serving counter and of the door row
 			if depth_span >= 9:
-				table_depths = [mid_depth - 2, mid_depth + 2]
+				table_depths = [mid_depth]
 			if depth_span >= 12:
+				table_depths = [mid_depth - 1, mid_depth + 2]
+			if depth_span >= 15:
 				table_depths.append(mid_depth + 6)
 			for table_depth in table_depths:
 				if table_depth <= 0:
@@ -3247,8 +3310,8 @@ static func _room_template_specs(template: String, region: String,
 					"depth": table_depth, "facing": "open"})
 			# The tray return sits at the side of the queue, not in the aisle
 			# and not on the sealed side wall of a 5-wide wing.
-			specs.append({"type": "prisonTrayReturn", "side": 1 * mirror,
-				"depth": maxi(2, mid_depth), "facing": "open"})
+			specs.append({"type": "prisonTrayReturn", "side": kit_side * mirror,
+				"depth": maxi(2, mid_depth), "facing": "open", "claim_first": true})
 			specs.append({"type": "ceilingLight", "side": -2,
 				"depth": mid_depth, "facing": "open", "solid": false})
 			specs.append({"type": "ceilingLight", "side": 2,
@@ -3733,9 +3796,19 @@ static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int)
 			kept.append(entry)
 			continue
 		var size: Vector3 = PropColliderSizes.SIZES.get(String(entry.get("type", "")), Vector3.ONE)
-		var half := maxf(size.x, size.z) * .5
-		var covers_door := absf(float(entry.get("side", 0))) - half < .5 \
-			and float(entry.get("depth", 0)) + half > float(depth_span) - 3.5
+		# its extents across the room and toward the door, by its facing (a long table set along the back wall reaches
+		# sideways, not toward the door); "center" can face any way, so it keeps the long side both ways
+		var across_half := maxf(size.x, size.z) * .5
+		var toward_half := across_half
+		match String(entry.get("facing", "open")):
+			"open", "back":
+				across_half = size.x * .5
+				toward_half = size.z * .5
+			"left", "right":
+				across_half = size.z * .5
+				toward_half = size.x * .5
+		var covers_door := absf(float(entry.get("side", 0))) - across_half < .5 \
+			and float(entry.get("depth", 0)) + toward_half > float(depth_span) - 3.5
 		if not covers_door:
 			kept.append(entry)
 	return kept
@@ -3772,9 +3845,10 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("hospitalBed", bed_side, 0, "open", _WALL))
 				if bed_side + 2 <= half:
 					specs.append(_sp("hospitalCurtain", bed_side + 2, 1, "right"))
-				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open
+				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open; a row past the
+				# 3.2 m hunter-scale bed's foot, or the stand closes the bay's mouth
 				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
-				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 3, "back"))
+				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 4, "back"))
 			if depth_span >= 15:
 				# a great-hall ward: a facing bed row by the entrance wall and the nurses' desk in the middle
 				for bed_side in range(-half, half + 1, 4):
@@ -3911,7 +3985,8 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("serverRack", rack_side, 0, "open", _WALL))
 			var island := 2
 			while island + 1 <= front - 3:
-				for rack_side in range(-half + 2, half - 1):
+				# the islands stop a rack short of each side wall: hunter-scale racks need a wider end aisle to walk round
+				for rack_side in range(-half + 3, half - 2):
 					specs.append(_sp("serverRack", rack_side, island, "back"))
 					specs.append(_sp("serverRack", rack_side, island + 1, "open"))
 				specs.append(_sp("labCoolingUnit", -half, island, "center"))
@@ -4345,7 +4420,11 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 		# do not pinch the shared route; applying that mask here dropped desks,
 		# nightstands, and cafeteria furniture while leaving non-solid lamps
 		# and computers in the same cells.
-		if not rect.has_point(at) or reserved.has(at) \
+		# a seat may share a cell with its table (never a door or threshold cell): the collider check and
+		# _nudge_seat_clear decide whether it fits
+		var shareable := reserved.get(at) is String and String(reserved.get(at)) == SEAT_SHAREABLE \
+			and PropModelCatalog.interaction_for(prop_type) == "sit"
+		if not rect.has_point(at) or (reserved.has(at) and not shareable) \
 				or not _grid_cell_open(grid, at):
 			return {}
 	var room_token := String(room.get("id", "ROOM")).replace(":", "-")

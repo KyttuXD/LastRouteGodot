@@ -1,0 +1,630 @@
+{
+	"schema": "lr.size/1",
+	"note": "Typical real-world (person-scale) size ranges per prop category, metres. In game they are judged x hunter_factor (the world is built for a 2.67 m hunter). First matching category wins; words match the prop id (case-sensitive substring), 'not' words veto. 'exempt' categories are architecture or set pieces sized to the level, not to a person. Read by ScaleFit (scale_fit suite) and tools/props/prop_size_table.py; mod packs' props are checked against the same ranges.",
+	"hunter_factor": 1.5,
+	"categories": [
+		{
+			"id": "architecture",
+			"exempt": "sized to the level geometry (doors, stairs, ladders, gates, sewer works, columns)",
+			"words": [
+				"Door",
+				"Staircase",
+				"sewer",
+				"Ladder",
+				"Bridge",
+				"Manhole",
+				"CellGate",
+				"MarbleColumn",
+				"basaltPillar",
+				"containmentCell",
+				"dungeonCage",
+				"Partition",
+				"Curtain",
+				"Drapes",
+				"RoomDivider"
+			]
+		},
+		{
+			"id": "set_piece",
+			"exempt": "room-scale set pieces and landscape (rides, pools, stages, screens, trees)",
+			"words": [
+				"arousel",
+				"Fountain",
+				"Pool",
+				"stagePlatform",
+				"cinemaScreen",
+				"monitorWall",
+				"giantTree",
+				"palmTree",
+				"frozenBeachHut",
+				"Tideline",
+				"grassFern",
+				"overgrowthPatch",
+				"basaltRubble",
+				"lavaVent",
+				"magmaCrystal",
+				"saguaro",
+				"cactusCluster",
+				"sandCastle"
+			]
+		},
+		{
+			"id": "flat",
+			"exempt": "floor dressing: rugs, carpets and mats only need a footprint",
+			"words": [
+				"Carpet",
+				"Rug",
+				"Mat",
+				"beachMat"
+			]
+		},
+		{
+			"id": "light_fixture",
+			"exempt": "ceiling and wall light fittings hang from the room, not sized to a person",
+			"words": [
+				"ceiling",
+				"Chandelier",
+				"surgicalLight",
+				"ChainLantern",
+				"wallSconce",
+				"hangingVines"
+			]
+		},
+		{
+			"id": "bed",
+			"words": [
+				"Bed",
+				"Bunk"
+			],
+			"not": [
+				"Bedroom",
+				"Bench",
+				"Nightstand",
+				"Bedside"
+			],
+			"height": [
+				0.4,
+				2.4
+			],
+			"long": [
+				1.9,
+				2.35
+			],
+			"short": [
+				0.9,
+				2.05
+			]
+		},
+		{
+			"id": "stool",
+			"words": [
+				"Stool"
+			],
+			"height": [
+				0.42,
+				0.85
+			],
+			"short": [
+				0.3,
+				0.5
+			]
+		},
+		{
+			"id": "seat",
+			"words": [
+				"Chair",
+				"wheelchair",
+				"cinemaSeats"
+			],
+			"not": [
+				"Cushion"
+			],
+			"height": [
+				0.75,
+				1.35
+			],
+			"short": [
+				0.4,
+				0.8
+			]
+		},
+		{
+			"id": "seat_cushioned",
+			"words": [
+				"ChairCushion"
+			],
+			"height": [
+				0.75,
+				1.35
+			],
+			"short": [
+				0.4,
+				0.8
+			]
+		},
+		{
+			"id": "couch",
+			"words": [
+				"Couch",
+				"Sofa",
+				"Chaise",
+				"dinerBooth"
+			],
+			"height": [
+				0.75,
+				1.15
+			],
+			"long": [
+				1.5,
+				2.6
+			]
+		},
+		{
+			"id": "bench",
+			"words": [
+				"Bench"
+			],
+			"not": [
+				"labBench",
+				"pottingBench",
+				"PlanterBench"
+			],
+			"height": [
+				0.35,
+				0.95
+			],
+			"long": [
+				0.9,
+				2.0
+			]
+		},
+		{
+			"id": "work_bench",
+			"words": [
+				"labBench",
+				"pottingBench",
+				"PlanterBench",
+				"autopsyTable",
+				"operatingTable",
+				"backstageRepairStand"
+			],
+			"height": [
+				0.85,
+				1.05
+			]
+		},
+		{
+			"id": "coffee_table",
+			"words": [
+				"CoffeeTable"
+			],
+			"height": [
+				0.35,
+				0.55
+			]
+		},
+		{
+			"id": "surface_item",
+			"words": [
+				"retroComputer",
+				"officePrinter",
+				"labMicroscope",
+				"tableLamp",
+				"bedsideLamp",
+				"Candelabra",
+				"Centerpiece"
+			],
+			"height": [
+				0.1,
+				0.9
+			],
+			"not": [
+				"Floor"
+			]
+		},
+		{
+			"id": "table",
+			"words": [
+				"Table",
+				"Desk",
+				"Workstation"
+			],
+			"not": [
+				"reception",
+				"TeaCart",
+				"PartyTable",
+				"Coffee"
+			],
+			"height": [
+				0.68,
+				0.9
+			]
+		},
+		{
+			"id": "booth_stall",
+			"words": [
+				"TicketBooth",
+				"ticketBooth",
+				"Stall",
+				"whackAMole",
+				"shootingGallery",
+				"ringToss",
+				"BasketballHoop",
+				"prizeCounter",
+				"snackKiosk",
+				"tikiBar"
+			],
+			"not": [
+				"bathroomStall",
+				"ShowerStall"
+			],
+			"height": [
+				1.2,
+				2.7
+			]
+		},
+		{
+			"id": "counter_with_top",
+			"words": [
+				"checkoutCounter",
+				"concessionCounter",
+				"prisonServingCounter"
+			],
+			"height": [
+				1.2,
+				1.8
+			]
+		},
+		{
+			"id": "counter",
+			"words": [
+				"Counter",
+				"Island",
+				"Stove",
+				"Sideboard",
+				"Dresser",
+				"receptionDesk",
+				"nursesStation",
+				"coffeeStation",
+				"donutFryer",
+				"prisonTrayReturn"
+			],
+			"height": [
+				0.85,
+				1.2
+			]
+		},
+		{
+			"id": "vanity",
+			"words": [
+				"Vanity"
+			],
+			"not": [
+				"VanityStool"
+			],
+			"height": [
+				1.4,
+				1.9
+			]
+		},
+		{
+			"id": "sink",
+			"words": [
+				"Sink"
+			],
+			"height": [
+				0.8,
+				1.2
+			]
+		},
+		{
+			"id": "toilet",
+			"words": [
+				"Toilet",
+				"Urinal"
+			],
+			"height": [
+				0.7,
+				1.1
+			]
+		},
+		{
+			"id": "bath",
+			"words": [
+				"Bathtub"
+			],
+			"height": [
+				0.5,
+				0.8
+			],
+			"long": [
+				1.5,
+				1.85
+			]
+		},
+		{
+			"id": "shower",
+			"words": [
+				"Shower"
+			],
+			"not": [
+				"Bench"
+			],
+			"height": [
+				1.9,
+				2.6
+			]
+		},
+		{
+			"id": "stall",
+			"words": [
+				"bathroomStall"
+			],
+			"height": [
+				1.7,
+				2.1
+			]
+		},
+		{
+			"id": "arcade_vending",
+			"words": [
+				"arcadeCabinet",
+				"vendingMachine",
+				"prizeClaw",
+				"TokenChanger",
+				"strengthTester"
+			],
+			"height": [
+				1.6,
+				2.0
+			]
+		},
+		{
+			"id": "low_storage",
+			"words": [
+				"filingCabinet",
+				"WallCabinet",
+				"MedicineCabinet",
+				"BathroomShelf",
+				"HeadsetShelf",
+				"TowelRack",
+				"magazineRack",
+				"toyChest",
+				"mansionConsoleTable"
+			],
+			"height": [
+				0.3,
+				1.4
+			]
+		},
+		{
+			"id": "tall_storage",
+			"words": [
+				"Fridge",
+				"Wardrobe",
+				"Bookcase",
+				"Bookshelf",
+				"Cabinet",
+				"Rack",
+				"locker",
+				"Locker",
+				"Shelf",
+				"Shelving",
+				"serverRack",
+				"dryerStack",
+				"coldStorage",
+				"CoolingUnit",
+				"fumeHood",
+				"morgueCabinet",
+				"GrandfatherClock",
+				"shopFridge"
+			],
+			"not": [
+				"Counter",
+				"clothesRack"
+			],
+			"height": [
+				1.6,
+				2.2
+			]
+		},
+		{
+			"id": "clothes_rack",
+			"words": [
+				"clothesRack"
+			],
+			"height": [
+				1.4,
+				1.9
+			]
+		},
+		{
+			"id": "appliance",
+			"words": [
+				"washingMachine",
+				"Photocopier",
+				"WaterCooler",
+				"Shredder",
+				"officePrinter"
+			],
+			"not": [
+				"officePrinter"
+			],
+			"height": [
+				0.8,
+				1.4
+			]
+		},
+		{
+			"id": "machine",
+			"words": [
+				"xrayMachine",
+				"breakerCabinet",
+				"specimenTank",
+				"Aquarium",
+				"divePod",
+				"diveConsole",
+				"controlConsole",
+				"SecurityConsole",
+				"sewerPump",
+				"irrigationManifold",
+				"lavaPipeManifold",
+				"popcornCart",
+				"tvWall",
+				"TvConsole",
+				"Piano",
+				"Fireplace",
+				"stageSpeaker",
+				"displayCase",
+				"mansionDisplayCabinet"
+			],
+			"height": [
+				0.8,
+				2.2
+			]
+		},
+		{
+			"id": "game_table",
+			"words": [
+				"duckPond",
+				"circusPedestal"
+			],
+			"height": [
+				0.6,
+				1.0
+			]
+		},
+		{
+			"id": "stand_decor",
+			"words": [
+				"Pedestal",
+				"Statue",
+				"Globe",
+				"CoatRack",
+				"Mirror",
+				"Brazier",
+				"Altar",
+				"mistingPost",
+				"diveHeadsetStand",
+				"Vase",
+				"Umbrella",
+				"maintenance",
+				"Kiosk",
+				"PartyTable",
+				"barberStation"
+			],
+			"height": [
+				0.3,
+				2.3
+			]
+		},
+		{
+			"id": "cart",
+			"words": [
+				"Cart",
+				"Trolley"
+			],
+			"not": [
+				"popcornCart",
+				"maintenance"
+			],
+			"height": [
+				0.8,
+				1.1
+			]
+		},
+		{
+			"id": "floor_lamp",
+			"words": [
+				"floorLamp",
+				"FloorLamp",
+				"FloorCandelabra"
+			],
+			"height": [
+				1.4,
+				1.95
+			]
+		},
+		{
+			"id": "medical_stand",
+			"words": [
+				"ivStand",
+				"ivDripStand",
+				"vitalsMonitor"
+			],
+			"height": [
+				1.5,
+				2.0
+			]
+		},
+		{
+			"id": "container",
+			"words": [
+				"Crate",
+				"Boxes",
+				"Barrel",
+				"Bin",
+				"Chest",
+				"Hamper",
+				"compostBins",
+				"officeFileBoxes"
+			],
+			"height": [
+				0.3,
+				1.1
+			]
+		},
+		{
+			"id": "nightstand",
+			"words": [
+				"Nightstand"
+			],
+			"height": [
+				0.5,
+				0.8
+			]
+		},
+		{
+			"id": "plant",
+			"words": [
+				"Plant",
+				"Palm",
+				"flower",
+				"Planter",
+				"banana",
+				"seedlingRack"
+			],
+			"not": [
+				"palmTree"
+			],
+			"height": [
+				0.3,
+				2.0
+			]
+		},
+		{
+			"id": "wall_sign",
+			"words": [
+				"Sign",
+				"Frame",
+				"Portrait",
+				"Painting",
+				"menuBoard",
+				"Whiteboard",
+				"Lightbox",
+				"Clock",
+				"HandDryer",
+				"Dispenser",
+				"BabyChange",
+				"trashBin"
+			],
+			"height": [
+				0.1,
+				1.8
+			]
+		}
+	],
+	"keep_person_size": {
+		"locker": "you hide inside it and look out of its door slats at the runner's 1.44 m eye height"
+	}
+}
