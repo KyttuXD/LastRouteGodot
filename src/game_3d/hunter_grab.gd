@@ -439,6 +439,7 @@ const FACE_DISTANCE := 1.2
 ## a capture rig can set both; every peer uses the same values.
 static var arm_stretch := 1.6
 static var fov_widen := 10.0
+const UPSIDE_DOWN_HIDDEN := ["Chest", "Belly", "Pelvis", "L-Thigh", "R-Thigh", "L-Arm", "R-Arm"]
 const STRETCH_STYLES := [GrabStyles.NECK_LIFT, GrabStyles.SHOULDER_GRAB, GrabStyles.WRIST_YANK, GrabStyles.WALL_PIN,
 	GrabStyles.COLLAR_DRAG, GrabStyles.LEG_GRAB, GrabStyles.UPSIDE_DOWN]
 const WALL_MARGIN := .12
@@ -772,6 +773,9 @@ func _apply(t: float, delta: float) -> void:
 	var body := _player.first_person_body()
 	if not _player.xr_active:
 		body.pose(body_feet, basis, String(current["clip"]))
+		# hung head down, the runner looks up along their own body at her: their torso and thighs are left out of their own
+		# view (others still see them; the calves and feet in her hand stay)
+		body.hide_parts(UPSIDE_DOWN_HIDDEN if style == GrabStyles.UPSIDE_DOWN else [])
 		_player.first_person_camera.near = PlayerController3D.MODEL_EYE_NEAR
 	if body.model != null:
 		pose_runner_arms(body.model, _view, current, _along, t)

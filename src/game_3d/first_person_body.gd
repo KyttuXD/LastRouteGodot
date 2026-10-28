@@ -15,6 +15,8 @@ var _hidden_head: Array = []
 ## Render layer for the runner's own head while the camera sits in it: the first-person camera skips it, everything else
 ## (other cameras, the capture rigs, and the lights' shadows) still has it.
 const HEAD_LAYER := 1 << 17
+const BONES := ["Pelvis", "Belly", "Chest", "Head", "L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand", "L-Thigh",
+	"L-Calf", "L-Foot", "R-Thigh", "R-Calf", "R-Foot"]
 ## The arm bones' rest transforms: put back before each frame's IK, so a clip that does not key the arms (idle) never leaves
 ## last frame's bend (or its rounding) to build on.
 var _arm_rest := {}
@@ -56,6 +58,7 @@ func set_active(on: bool) -> void:
 	if on:
 		hide_head()
 	else:
+		hide_parts([])
 		for mesh in _hidden_head:
 			if is_instance_valid(mesh):
 				(mesh as VisualInstance3D).layers = int(mesh.get_meta("fp_layers", 1))
@@ -83,6 +86,38 @@ func hide_head() -> void:
 				mesh.set_meta("fp_layers", (mesh as VisualInstance3D).layers)
 				_hidden_head.append(mesh)
 			(mesh as VisualInstance3D).layers = HEAD_LAYER
+
+
+## Body parts (by bone name, that bone's own box and its skin layers, not the bones below it) that join the head on HEAD_LAYER for the first-person camera
+## only: hanging upside down the runner looks up along their own torso and legs at her, which would otherwise fill the view.
+var _hidden_parts: Array = []
+var _extra: Array = []
+
+
+func hide_parts(names: Array) -> void:
+	if names == _hidden_parts:
+		return
+	for mesh in _extra:
+		if is_instance_valid(mesh) and mesh.has_meta("fp_layers"):
+			(mesh as VisualInstance3D).layers = int(mesh.get_meta("fp_layers"))
+			mesh.remove_meta("fp_layers")
+	_extra.clear()
+	_hidden_parts = names.duplicate()
+	if model == null:
+		return
+	for bone_name in names:
+		var bone := model.find_child(bone_name, true, false)
+		if bone == null:
+			continue
+		var own := [bone]
+		for child in bone.get_children():
+			if child is GeometryInstance3D and not String(child.name) in BONES:
+				own.append(child)   # a skin's outer layer on that bone; child bones are left alone
+		for mesh in own:
+			if mesh is VisualInstance3D and not mesh.has_meta("fp_layers"):
+				mesh.set_meta("fp_layers", (mesh as VisualInstance3D).layers)
+				(mesh as VisualInstance3D).layers = HEAD_LAYER
+				_extra.append(mesh)
 
 
 ## Feet at `feet`, turned and leaned by `basis` (GrabStyles.body_basis), playing `clip`.
