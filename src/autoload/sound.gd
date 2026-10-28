@@ -277,6 +277,17 @@ func set_muffled(on: bool) -> void:
 			AudioServer.set_bus_effect_enabled(bus, index, on)
 
 
+
+## Hard legs on hot stone: a quick dry run of ticks (the Inferno's secret creatures, heard before they are seen).
+func spider_skitter(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("spider_skitter", pan, clampf(intensity, 0.1, 2.0))
+
+
+## Something cracking and settling in the dark of the Inferno's halls: a low ember crackle with a hollow knock (the secret creatures' lair ambience).
+func inferno_crackle(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("inferno_crackle", pan, clampf(intensity, 0.1, 2.0))
+
+
 ## A hand or boot on an iron ladder rung.
 func ladder_rung(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("ladder_rung", pan, clampf(intensity, 0.1, 2.0))
@@ -727,6 +738,10 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"splash_big": c = [_noise(.9, .22 * intensity, 700, 0, pan, .8), _noise(.5, .16 * intensity, 2200, .02, pan, 1.2), _thump(70, .35, .16 * intensity, 0, pan),
 			_noise(.7, .08 * intensity, 1400, .25, pan, 1.0)]
 		"water_drip": c = [_tone(980, .05, .05 * intensity, 0, "triangle", pan), _tone(640, .09, .04 * intensity, .04, "triangle", pan), _noise(.05, .03 * intensity, 3000, 0, pan, 1.2)]
+		"spider_skitter": c = [_noise(.04, .07 * intensity, 3100, 0, pan, 1.3), _noise(.04, .06 * intensity, 2700, .07, pan, 1.3), _noise(.04, .065 * intensity, 3300, .13, pan, 1.3),
+			_noise(.04, .055 * intensity, 2500, .21, pan, 1.3), _noise(.04, .06 * intensity, 3000, .26, pan, 1.3), _thump(150, .05, .03 * intensity, .0, pan)]
+		"inferno_crackle": c = [_noise(.5, .05 * intensity, 1500, 0, pan, 1.4), _noise(.06, .08 * intensity, 2600, .12, pan, 1.5), _noise(.05, .07 * intensity, 2200, .31, pan, 1.5),
+			_thump(70, .22, .06 * intensity, .4, pan), _tone(46, .6, .05 * intensity, .38, "triangle", pan)]
 		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
 			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]
