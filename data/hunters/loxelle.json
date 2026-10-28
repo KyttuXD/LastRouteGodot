@@ -8,5 +8,6 @@
 	"prog": 0.18,
 	"sight": 7.9,
 	"hearing": 1.12,
-	"spawn": 13
+	"spawn": 13,
+	"chase_style": "lope"
 }

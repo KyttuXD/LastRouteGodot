@@ -8,5 +8,6 @@
 	"prog": 0.18,
 	"sight": 7.7,
 	"hearing": 1.1,
-	"spawn": 13
+	"spawn": 13,
+	"chase_style": "skitter"
 }

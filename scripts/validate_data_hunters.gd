@@ -74,10 +74,13 @@ func run(_host: Node) -> int:
 		_expect(typeof(profile.get("spawn")) == TYPE_INT, "%s spawn is not an int" % id)
 		_expect(float(profile.get("speed", 0)) > 0.0 and float(profile.get("chase", 0)) > 0.0, "%s cannot move" % id)
 	# migration parity: identical value, identical types, identical key order, same place in the roster
+	# (chase_style is presentation added after the migration -- HunterChaseStyle reads it -- so it is not part of parity)
 	for id in FROZEN:
 		_expect(ContentRegistry.has("hunters", id), "%s is frozen as migrated but has no data/hunters file" % id)
-		_expect(var_to_str(HunterRoster.PROFILES.get(id, {})) == var_to_str(FROZEN[id]),
-			"%s from data differs from the old constant: %s" % [id, var_to_str(HunterRoster.PROFILES.get(id, {}))])
+		var migrated: Dictionary = HunterRoster.PROFILES.get(id, {}).duplicate()
+		migrated.erase("chase_style")
+		_expect(var_to_str(migrated) == var_to_str(FROZEN[id]),
+			"%s from data differs from the old constant: %s" % [id, var_to_str(migrated)])
 	_expect(HunterRoster.PROFILES.keys() == ROSTER_ORDER, "the roster order changed: %s" % [HunterRoster.PROFILES.keys()])
 	_expect(HunterRoster.PROFILES.is_read_only(), "HunterRoster.PROFILES became writable")
 	_check_rejections()

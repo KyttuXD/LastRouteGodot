@@ -10,5 +10,6 @@
 	"sight": 9.5,
 	"hearing": 1.15,
 	"spawn": 16,
-	"model": "res://art/props-3d/characters/void_purple.tscn"
+	"model": "res://art/props-3d/characters/void_purple.tscn",
+	"chase_style": "lope"
 }

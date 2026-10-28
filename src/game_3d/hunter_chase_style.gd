@@ -15,28 +15,17 @@ extends RefCounted
 ##   stalk      head tilted, straightening and leaning in the longer the chase goes on
 ##   stopstart  every couple of seconds the arms lock and the head twitches for half a second
 ##
-## The style comes from the hunter's data (a "chase_style" field, packs may override it) and falls back to TABLE; the
-## brain carries the id, so co-op only syncs that string.
+## The style comes from the hunter's data file (data/hunters/<id>.json "chase_style", "style" or "style:variant"; a
+## pack's hunter file sets its own) or a runtime override, else DEFAULT; the brain carries the id, so co-op only syncs
+## that string.
 
 const STYLES := ["reach2", "reach1", "pump", "lope", "glide", "skitter", "stalk", "stopstart"]
 const DEFAULT := "pump"
 const AIM_LIMIT := deg_to_rad(35.0)
 const BLEND_SPEED := 3.0          # weight per second, in and out of a chase
 
-## hunter id -> style or "style:variant". Fallback until every hunter is in data/hunters (then the data field wins).
-const TABLE := {
-	"aki": "reach1", "briselle": "reach1", "ceryth": "glide", "dovelle": "pump", "elise": "pump:fast",
-	"ferryn": "stopstart", "glyra": "stalk", "haelith": "pump:big", "ilyra": "lope", "javelle": "reach2",
-	"kathy": "reach1", "loxelle": "lope", "mavrine": "glide", "nyxie": "stalk", "opalie": "reach2",
-	"porcelle": "glide", "quenelle": "reach2", "ravelle": "stopstart", "solyth": "pump:fists", "thessine": "stalk",
-	"umbriel": "lope", "verrine": "skitter", "wynelle": "glide", "xivvy": "pump:wings", "ysolde": "reach1",
-	"zellia": "pump",
-	"void_red": "reach2", "void_orange": "reach2", "void_yellow": "reach2", "void_pink": "reach2",
-	"void_white": "glide", "void_gray": "glide", "void_cyan": "glide", "void_blue": "glide",
-	"void_black": "lope", "void_purple": "lope", "void_green": "lope", "void_brown": "lope",
-}
 
-## Pack/data overrides: hunter id -> style string (HunterChaseStyle.set_override, or the data "chase_style" field).
+## Runtime overrides (tools, tests): hunter id -> style string; they win over the data file.
 static var _overrides := {}
 
 
@@ -52,10 +41,11 @@ static func valid(style: String) -> bool:
 
 
 static func style_for(hunter_id: String) -> String:
-	var from_data := String(_overrides.get(hunter_id, ""))
-	if not from_data.is_empty():
-		return from_data
-	return String(TABLE.get(hunter_id, DEFAULT))
+	var override := String(_overrides.get(hunter_id, ""))
+	if not override.is_empty():
+		return override
+	var from_data := String(ContentRegistry.get_def("hunters", hunter_id).get("chase_style", ""))
+	return from_data if valid(from_data) else DEFAULT
 
 
 static func base(style: String) -> String:

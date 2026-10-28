@@ -10,5 +10,6 @@
 	"sight": 9.7,
 	"hearing": 1.2,
 	"spawn": 16,
-	"model": "res://art/props-3d/characters/void_pink.tscn"
+	"model": "res://art/props-3d/characters/void_pink.tscn",
+	"chase_style": "reach2"
 }

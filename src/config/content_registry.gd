@@ -20,7 +20,8 @@ const KINDS := ["props", "regions", "hunters"]
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
 const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?", "speed": "float",
-	"chase": "float", "prog": "float", "sight": "float", "hearing": "float", "spawn": "int", "model": "string?", "portrait": "string?"}
+	"chase": "float", "prog": "float", "sight": "float", "hearing": "float", "spawn": "int", "model": "string?", "portrait": "string?",
+	"chase_style": "string?"}
 ## `batchable`: may the view draw repeated placements of this prop in one MultiMesh. Absent = the default in
 ## PropModelCatalog.is_batchable() (pure dressing yes, anything interactive no).
 const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?"}

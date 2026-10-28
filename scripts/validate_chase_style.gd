@@ -1,7 +1,7 @@
 extends RefCounted
 
-## Per-hunter chase styles (HunterChaseStyle). Every route hunter has a valid style (data / pack override first, the
-## approved fallback table otherwise), the style id replicates, and on a real HunterView3D in a chase: the reaching
+## Per-hunter chase styles (HunterChaseStyle). Every route hunter has a valid style in her data file
+## (data/hunters/<id>.json "chase_style"; a runtime override wins), the style id replicates, and on a real HunterView3D in a chase: the reaching
 ## styles put the arm(s) out at shoulder height toward the runner, aimed and clamped to +-35 degrees; the glide keeps
 ## the arms at the sides; the layer blends in (no pop), never builds up over frames, switches off for GRAB and when not
 ## chasing, and touches no leg bone (the planted foot stays where foot_slip measured it).
@@ -60,6 +60,11 @@ func run(host: Node) -> int:
 		_expect(HunterBrain.new(Vector2.ZERO, "S", id).chase_style == style, "%s's brain does not carry her style" % id)
 	for style in HunterChaseStyle.STYLES:
 		_expect(used.has(style), "no hunter uses %s" % style)
+	# the styles live in the hunters' data files (data/hunters/<id>.json "chase_style")
+	for id in ids:
+		var field := String(ContentRegistry.get_def("hunters", id).get("chase_style", ""))
+		_expect(HunterChaseStyle.valid(field) and field == HunterChaseStyle.style_for(id),
+			"%s's data file has no valid chase_style (%s)" % [id, field])
 	HunterChaseStyle.set_override("dovelle", "skitter")
 	_expect(HunterChaseStyle.style_for("dovelle") == "skitter", "a pack override is ignored")
 	HunterChaseStyle.set_override("dovelle", "moonwalk")
