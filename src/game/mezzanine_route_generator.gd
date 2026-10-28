@@ -171,6 +171,7 @@ func _build_void_chunk(coord: Vector3i) -> Dictionary:
 		data[key] = []
 	data["safe_room"] = false
 	data["safe_room_data"] = {}
+	data["ambience_level"] = "void"   # the shaft's own bed on every level of it (LevelAmbience.key_for)
 	data["void_cap"] = level == VoidRegion.TOP_LEVEL
 	data["void_floor"] = level == VoidRegion.BOTTOM_LEVEL
 	return data
