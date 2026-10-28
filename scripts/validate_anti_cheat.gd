@@ -288,6 +288,10 @@ func _troll_ad_checks(host: Node) -> void:
 		var text := ("%s %s %s" % [ad["title"], ad["body"], ad["footer"]]).to_lower()
 		for banned in ["http", "www.", ".com", "$", "€", "£", "{"]:
 			_expect(not text.contains(banned), "ad %s has '%s' (real links/prices/placeholders are not allowed)" % [ad["id"], banned])
+		# KT / LORE rulings: no Kyttu tie, no private company canon (testers, stability, dimensions), hunters are "she".
+		for banned in ["kyttu", "dimensional", "dimension", "tester", "route is stable", "makes it look", "make it go away",
+				"come to the vents", "sorry about earlier"]:
+			_expect(not text.contains(banned), "ad %s still has the banned phrase '%s'" % [ad["id"], banned])
 		_expect(String(ad["source"]) in ["mall", "company", "safety", "hunter", "lore"], "ad %s has source %s" % [ad["id"], ad["source"]])
 	# The schedule: first delay, minimum gap, cap per window, nothing while blocked or off.
 	var schedule := TrollAds.new(7)
