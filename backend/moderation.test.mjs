@@ -62,34 +62,29 @@ function png() {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
 
-test("two kicks from distinct hosts flag for 24 h, a later flag lasts 7 days; one host alone never flags", async () => {
+test("kicks never restrict an account; they open review entries, 2 distinct hosts marked as the stronger signal", async () => {
   const app = await fixture();
   try {
+    const owner = await signUp(app.url, "KYTTU", { adminProof: "server setup proof" });
     const player = await signUp(app.url, "CHEATER");
     const roomA = await host(app.url, await signUp(app.url, "HOST_A"));
     const roomB = await host(app.url, await signUp(app.url, "HOST_B"));
-    let result = await kick(app.url, roomA, { username: "cheater" });
-    assert.equal(result.body.flagged, false);
-    result = await kick(app.url, roomA, { username: "CHEATER" });
-    assert.equal(result.body.flagged, false, "the same host twice does not escalate");
-    result = await kick(app.url, roomB, { username: "CHEATER" });
-    assert.equal(result.body.flagged, true);
-    assert.equal(result.body.status.until, app.clock.t + 24 * HOUR);
-    assert.equal(result.body.status.reason, "kicks");
-
-    result = await post(app.url, "/api/moderation/status", { sessionToken: player });
-    assert.equal(result.body.status.flagged, true);
-    assert.deepEqual(result.body.status.restrictions, { publicRoute: true, hostPublic: true, skinUpload: true });
-    assert.match(result.body.status.message, /flagged until 2026-10-29 12:00 UTC/);
-    assert.match(result.body.status.message, /Public Route.*host public rooms.*upload skins.*private rooms still work/);
-
-    app.clock.t += 25 * HOUR;
-    result = await post(app.url, "/api/moderation/status", { sessionToken: player });
-    assert.equal(result.body.status.flagged, false);
-    assert.equal(result.body.status.message, "");
-    result = await kick(app.url, roomA, { username: "CHEATER" });
-    assert.equal(result.body.flagged, true, "two distinct hosts within 7 days again");
-    assert.equal(result.body.status.until, app.clock.t + 7 * 24 * HOUR);
+    for (const room of [roomA, roomA, roomB, roomB]) {
+      const result = await kick(app.url, room, { username: "cheater" });
+      assert.equal(result.body.flagged, false, "no automatic flag");
+      assert.deepEqual(result.body.status.restrictions, { publicRoute: false, hostPublic: false, skinUpload: false });
+    }
+    const status = await post(app.url, "/api/moderation/status", { sessionToken: player });
+    assert.equal(status.body.status.flagged, false);
+    assert.equal(status.body.status.message, "");
+    assert.equal((await join_(app.url, { sessionToken: player })).status, 200, "kicked accounts still join the Public Route");
+    const list = await post(app.url, "/api/admin/flags", { sessionToken: owner });
+    assert.deepEqual(list.body.reviews, ["CHEATER"]);
+    const entry = list.body.accounts.find((account) => account.username === "CHEATER");
+    assert.equal(entry.reviewOpen, 4);
+    assert.deepEqual(entry.reviews.map((review) => review.reason), ["kick", "kick", "kicks", "kicks"]);
+    assert.equal(entry.kicks.length, 4);
+    assert.equal(entry.flagged, false);
   } finally { await app.close(); }
 });
 
@@ -109,7 +104,7 @@ test("owner accounts are never auto-flagged; unknown accounts record nothing", a
   } finally { await app.close(); }
 });
 
-test("integrity: unknown flags once per hash, manifest and allow-list pass, owner debug passes", async () => {
+test("integrity: an unknown build opens one review per hash and never flags; manifest, allow-list and owner debug pass", async () => {
   const app = await fixture();
   try {
     const player = await signUp(app.url, "MODDER");
@@ -120,12 +115,12 @@ test("integrity: unknown flags once per hash, manifest and allow-list pass, owne
     assert.equal(result.body.known, true, "manifest sha256 is known");
     result = await post(app.url, "/api/moderation/integrity", { sessionToken: player, buildHash: RELEASE_HASH, channel: "release", platform: "linux" });
     assert.equal(result.body.known, false, "manifest match is per channel/platform");
-    assert.equal(result.body.status.flagged, true);
-    const until = result.body.status.until;
-    app.clock.t += 25 * HOUR;
-    result = await post(app.url, "/api/moderation/integrity", { sessionToken: player, buildHash: RELEASE_HASH, channel: "release", platform: "linux" });
-    assert.equal(result.body.status.flagged, false, "the same hash does not flag twice");
-    assert.ok(until > 0);
+    assert.equal(result.body.status.flagged, false, "an unknown build is never an automatic flag");
+    await post(app.url, "/api/moderation/integrity", { sessionToken: player, buildHash: RELEASE_HASH, channel: "release", platform: "linux" });
+    const list = await post(app.url, "/api/admin/flags", { sessionToken: owner });
+    const entry = list.body.accounts.find((account) => account.username === "MODDER");
+    assert.deepEqual(entry.reviews.map((review) => review.reason), ["integrity"], "one review per distinct hash");
+    assert.equal(entry.integrity.hash, RELEASE_HASH);
     result = await post(app.url, "/api/moderation/integrity", { sessionToken: owner, buildHash: BUILD, channel: "debug", platform: "macos" });
     assert.equal(result.body.known, true, "owner debug builds are always known");
     result = await post(app.url, "/api/admin/builds/add", { sessionToken: owner, buildHash: BUILD, commit: "1234567", note: "test" });
@@ -138,11 +133,12 @@ test("integrity: unknown flags once per hash, manifest and allow-list pass, owne
   } finally { await app.close(); }
 });
 
-test("flagged accounts cannot join or host PUBLIC or upload skins; private rooms still work", async () => {
+test("owner-flagged accounts cannot join or host PUBLIC or upload skins; private rooms still work", async () => {
   const app = await fixture();
   try {
+    const owner = await signUp(app.url, "KYTTU", { adminProof: "server setup proof" });
     const player = await signUp(app.url, "MODDER");
-    await post(app.url, "/api/moderation/integrity", { sessionToken: player, buildHash: BUILD, channel: "release", platform: "windows" });
+    await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "MODDER", action: "extend", hours: 24 });
     let result = await join_(app.url, { sessionToken: player });
     assert.equal(result.status, 403);
     assert.equal(result.body.code, "FLAGGED");
@@ -163,42 +159,21 @@ test("flagged accounts cannot join or host PUBLIC or upload skins; private rooms
   } finally { await app.close(); }
 });
 
-test("kicked devices get a public cooldown that doubles per kick and caps at 24 h", async () => {
-  const app = await fixture();
-  try {
-    const room = await host(app.url);
-    const deviceId = "device-123";
-    let result = await kick(app.url, room, { deviceId });
-    assert.equal(result.body.status.cooldownUntil, app.clock.t + HOUR);
-    result = await join_(app.url, { deviceId });
-    assert.equal(result.status, 403);
-    assert.equal(result.body.code, "FLAGGED");
-    assert.equal(result.body.cooldown, true);
-    assert.match(result.body.error, /recently kicked/);
-    const durations = [];
-    for (let i = 0; i < 6; i++) {
-      app.clock.t += 2 * HOUR;   // let the previous cooldown lapse so each new one is visible on its own
-      durations.push((await kick(app.url, room, { deviceId })).body.status.cooldownUntil - app.clock.t);
-    }
-    assert.deepEqual(durations, [2, 4, 8, 16, 24, 24].map((h) => h * HOUR));
-    app.clock.t += 25 * HOUR;
-    assert.equal((await join_(app.url, { deviceId })).status, 200);
-  } finally { await app.close(); }
-});
-
-test("a kick also cools the IP the device last used", async () => {
+test("kicks never put a device or IP on a public-join cooldown", async () => {
   const app = await fixture();
   try {
     const room = await host(app.url);
     await post(app.url, "/api/moderation/status", { deviceId: "device-1" });
+    for (let i = 0; i < 4; i++) {
+      const result = await kick(app.url, room, { deviceId: "device-1" });
+      assert.equal(result.body.status.cooldownUntil, null);
+    }
     assert.equal((await join_(app.url, { deviceId: "device-1" })).status, 200);
-    await kick(app.url, room, { deviceId: "device-1" });
-    const result = await join_(app.url, { deviceId: "fresh-device" });
-    assert.equal(result.status, 403, "same IP with a new device id stays on cooldown");
+    assert.equal((await join_(app.url, { deviceId: "fresh-device" })).status, 200, "nor the IP it last used");
   } finally { await app.close(); }
 });
 
-test("peers and report require the room's host token; peers return troll for flagged and recently kicked", async () => {
+test("peers and report require the room's host token; troll and flags come only from owners", async () => {
   const app = await fixture();
   try {
     const owner = await signUp(app.url, "KYTTU", { adminProof: "server setup proof" });
@@ -213,11 +188,12 @@ test("peers and report require the room's host token; peers return troll for fla
     assert.equal(result.status, 200);
     assert.deepEqual(result.body.players.PRANKER, { flagged: false, permanent: false, troll: true, reason: "" });
     assert.equal(result.body.players.KYTTU.troll, false);
-    assert.deepEqual(result.body.devices, { "dev-x": { cooldown: true, troll: true }, "dev-y": { cooldown: false, troll: false } });
+    assert.deepEqual(result.body.devices, { "dev-x": { cooldown: false, troll: false }, "dev-y": { cooldown: false, troll: false } },
+      "a kicked device is never trolled or cooled down by the server");
     await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "PRANKER", action: "troll_off" });
     await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "PRANKER", action: "extend", hours: 2 });
     const flagged = await post(app.url, "/api/moderation/peers", { ...room, usernames: ["PRANKER"] });
-    assert.equal(flagged.body.players.PRANKER.troll, true, "flagged accounts are trolled too");
+    assert.equal(flagged.body.players.PRANKER.troll, true, "owner-flagged accounts are trolled too");
     const many = await post(app.url, "/api/moderation/peers", { ...room, deviceIds: Array.from({ length: 30 }, (_, i) => `d${i}`) });
     assert.equal(Object.keys(many.body.devices).length, 16);
   } finally { await app.close(); }
@@ -256,6 +232,12 @@ test("admin endpoints require a full owner and every action is logged", async ()
     assert.ok(result.body.record.flags.every((flag) => flag.by === "KYTTU"));
     assert.equal(result.body.record.flags[0].detail, "manual");
     assert.equal((await set("explode")).status, 400);
+    const room = await host(app.url);
+    await kick(app.url, room, { username: "TARGET" });
+    result = await set("dismiss", { note: "lag" });
+    assert.equal(result.body.record.reviewOpen, 0, "an owner action closes the open reviews");
+    assert.equal(result.body.record.reviews[0].closedBy, "KYTTU");
+    assert.equal(result.body.record.flagged, false, "dismiss restricts nothing");
     assert.equal((await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "GHOST", action: "ban" })).status, 404);
     await post(app.url, "/api/admin/builds/add", { sessionToken: owner, buildHash: BUILD });
     result = await post(app.url, "/api/admin/flags", { sessionToken: owner });
@@ -264,7 +246,7 @@ test("admin endpoints require a full owner and every action is logged", async ()
   } finally { await app.close(); }
 });
 
-test("renaming keeps the flag and the store holds no raw IP or device id", async () => {
+test("renaming keeps the owner flag and reviews and the store holds no raw IP or device id", async () => {
   const app = await fixture();
   try {
     const player = await signUp(app.url, "MODDER");
@@ -272,6 +254,8 @@ test("renaming keeps the flag and the store holds no raw IP or device id", async
     await post(app.url, "/api/moderation/status", { deviceId: "secret-device-id-42" });
     await kick(app.url, room, { deviceId: "secret-device-id-42", username: "MODDER" });
     await post(app.url, "/api/moderation/integrity", { sessionToken: player, deviceId: "secret-device-id-42", buildHash: BUILD, channel: "release", platform: "windows" });
+    const owner = await signUp(app.url, "KYTTU", { adminProof: "server setup proof" });
+    await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "MODDER", action: "extend", hours: 24 });
     await post(app.url, "/api/account/rename", { sessionToken: player, username: "NEW_NAME" });
     const status = await post(app.url, "/api/moderation/status", { sessionToken: player });
     assert.equal(status.body.status.flagged, true);

@@ -309,18 +309,20 @@ godot4 --headless --path .. res://scenes/backend_smoke.tscn
 
 ## Moderation
 
-The host client's anti-cheat kicks cheaters; the server adds escalating consequences in `moderation.mjs`
+The host client's anti-cheat kicks cheaters in-room; the server keeps the record in `moderation.mjs`. KT ruling: accounts
+are never restricted automatically, only by an owner.
 (store: `moderation.json` beside the accounts, atomic writes). Device ids and IPs are only stored as
 `sha256(salt + value)`. Restrictions cover shared play only: joining the PUBLIC route
 (`/api/public/join`), registering a PUBLIC ENet room (`/api/enet/rooms/register` with a public code), and
 `/api/skins/upload`. Sign-in, solo play and private rooms are never blocked. Refusals are HTTP 403
 `{ok:false, code:"FLAGGED", error, until, permanent, cooldown}`.
 
-- **Flags.** Kicks reported by 2+ *distinct* hosts within 7 days, or an integrity report with an unknown build
-  hash (once per hash per account). First automatic flag 24 h, later ones 7 days; never automatically
-  permanent; built-in owners are never auto-flagged. A rename carries the record along.
-- **Cooldowns.** Each reported kick puts the guest's device hash (and the IP hash that device last used
-  with this server) on a PUBLIC-join cooldown: 1 h, doubling per kick within 7 days, capped at 24 h.
+- **Review queue.** Every reported kick (`kick`; `kicks` once 2+ *distinct* hosts reported it within 7 days) and
+  every unknown build hash (`integrity`, once per hash per account) opens a review entry
+  `{at, reason, detail, open}` on the account. Nothing is restricted by it; built-in owners are never queued.
+- **Owner actions only.** A flag (`extend`), `ban` and `troll_on` from `/api/admin/flags/set` are the only things
+  that restrict an account or troll it server-side. Any action (including `dismiss`) closes the open reviews.
+  A rename carries the record along. There are no automatic device/IP cooldowns (`cooldownUntil` stays null).
 - **Known builds.** Owner allow-list, or the `sha256` of the published update manifest entry for that
   channel/platform; owner sessions on the `debug` channel are always known.
 
@@ -330,8 +332,8 @@ The host client's anti-cheat kicks cheaters; the server adds escalating conseque
 | `/api/moderation/report` | `code, hostToken, username?, deviceId?, reason, strikes, kind:"kick"` | `{ok, flagged, status}` |
 | `/api/moderation/status` | `sessionToken?, deviceId?` | `{ok, status}` |
 | `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` |
-| `/api/admin/flags` | `sessionToken` | `{ok, accounts, builds}` |
-| `/api/admin/flags/set` | `sessionToken, username, action, hours?, note?` | `{ok, record}` |
+| `/api/admin/flags` | `sessionToken` | `{ok, accounts, reviews:[NAME with open reviews], builds}` |
+| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|dismiss), hours?, note?` | `{ok, record}` |
 | `/api/admin/builds/add` / `remove` | `sessionToken, buildHash, commit?, note?` | `{ok, build?, removed?, builds}` |
 
 `status` is `{flagged, permanent, until, reason, troll, restrictions:{publicRoute, hostPublic, skinUpload},

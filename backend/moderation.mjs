@@ -1,9 +1,10 @@
 // Server-side moderation: the escalating consequences behind the host-side anti-cheat.
 //
 // The host client detects and kicks cheaters; it reports each kick here (authenticated by its ENet host token).
-// This module turns those reports, plus build-integrity reports, into account flags and device/IP cooldowns that
-// restrict only the shared spaces: joining the PUBLIC route, hosting a public room, uploading a skin. Solo play and
-// private rooms are never restricted. Raw IP addresses and device ids are never stored, only sha256(salt + value).
+// KT: "accounts shouldnt be auto banned, only manually". Those reports and build-integrity reports only open REVIEW
+// entries; owners read them in the admin MODERATION list and decide. Only an owner's action (flag/extend, ban, troll)
+// restricts an account, and only the shared spaces: joining the PUBLIC route, hosting a public room, uploading a skin.
+// Nothing here applies a restriction or a device/IP cooldown by itself. Solo play and private rooms are never restricted. Raw IP addresses and device ids are never stored, only sha256(salt + value).
 
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -13,10 +14,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 export const KICK_WINDOW_MS = 7 * DAY_MS;
 export const KICK_FLAG_THRESHOLD = 2;
-export const FIRST_FLAG_MS = DAY_MS;
-export const REPEAT_FLAG_MS = 7 * DAY_MS;
-export const COOLDOWN_BASE_MS = HOUR_MS;
-export const COOLDOWN_CAP_MS = DAY_MS;
+const AUTOMATIC_COOLDOWNS = false;
 export const MAX_EXTEND_HOURS = 24 * 90;
 export const MAX_PEER_ENTRIES = 16;
 const MAX_LOG_ENTRIES = 100;
@@ -88,6 +86,7 @@ export function createModeration({
       troll: Boolean(value.troll),
       integrity: value.integrity && typeof value.integrity === "object" ? value.integrity : null,
       flaggedHashes: Array.isArray(value.flaggedHashes) ? value.flaggedHashes.slice(-MAX_LOG_ENTRIES) : [],
+      reviews: Array.isArray(value.reviews) ? value.reviews.slice(-MAX_LOG_ENTRIES) : [],
     };
   }
 
@@ -146,17 +145,17 @@ export function createModeration({
     return entry?.flags?.length ? entry.flags[entry.flags.length - 1].reason : "";
   }
 
-  // An automatic flag. Owners are never auto-flagged and nothing automatic is ever permanent.
-  function autoFlag(entry, reason, detail) {
+  // Opens a review entry for owners. Never restricts anything by itself; owner accounts are never queued.
+  function addReview(entry, reason, detail) {
     if (!entry || isOwner(entry.username)) return false;
-    const timestamp = now();
-    const previous = entry.flags.filter((flag) => flag.by === "server").length;
-    const until = Math.max(entry.flaggedUntil, timestamp + (previous ? REPEAT_FLAG_MS : FIRST_FLAG_MS));
-    entry.flaggedUntil = until;
-    entry.flags.push({ at: timestamp, reason, detail: text(detail, 200), until, by: "server" });
-    entry.flags = entry.flags.slice(-MAX_LOG_ENTRIES);
-    logger.log?.(`moderation: flagged ${entry.username} (${reason}) until ${formatUtc(until)}`);
+    entry.reviews.push({ at: now(), reason, detail: text(detail, 200), open: true });
+    entry.reviews = entry.reviews.slice(-MAX_LOG_ENTRIES);
+    logger.log?.(`moderation: review opened for ${entry.username} (${reason})`);
     return true;
+  }
+
+  function openReviews(entry) {
+    return entry.reviews.filter((review) => review.open);
   }
 
   function linkDevice(deviceId, address) {
@@ -169,19 +168,9 @@ export function createModeration({
     if (previous?.ip !== ip) persist();
   }
 
-  function addCooldown(hash) {
-    if (!hash) return 0;
-    const timestamp = now();
-    const entry = cooldowns.get(hash) || { kicks: [], until: 0 };
-    entry.kicks = entry.kicks.filter((at) => timestamp - at < KICK_WINDOW_MS);
-    entry.kicks.push(timestamp);
-    const duration = Math.min(COOLDOWN_CAP_MS, COOLDOWN_BASE_MS * 2 ** (entry.kicks.length - 1));
-    entry.until = Math.max(entry.until, timestamp + duration);
-    cooldowns.set(hash, entry);
-    return entry.until;
-  }
-
+  // Automatic device/IP cooldowns are off (manual moderation only); kept as a hook so refusals stay uniform.
   function cooldownUntil(deviceId, address) {
+    if (!AUTOMATIC_COOLDOWNS) return 0;
     const timestamp = now();
     let until = 0;
     const device = hashOf(deviceId);
@@ -272,7 +261,7 @@ export function createModeration({
       const entry = record(username, true);
       entry.integrity = { commit: COMMIT_PATTERN.test(commit) ? commit : "", hash: buildHash, known, at: now() };
       if (!known && !entry.flaggedHashes.includes(buildHash)) {
-        if (autoFlag(entry, "integrity", `unknown ${channel}/${platform} build ${buildHash.slice(0, 12)} (${text(body.context, 8) || "signin"})`)) {
+        if (addReview(entry, "integrity", `unknown ${channel}/${platform} build ${buildHash.slice(0, 12)} (${text(body.context, 8) || "signin"})`)) {
           entry.flaggedHashes.push(buildHash);
         }
       }
@@ -296,15 +285,9 @@ export function createModeration({
       entry.kicks = entry.kicks.slice(-MAX_LOG_ENTRIES);
       const recent = new Set(entry.kicks.filter((kick) => timestamp - kick.at < KICK_WINDOW_MS)
         .map((kick) => kick.host || `${kick.room}:${kick.at}`)).size;
-      if (recent >= KICK_FLAG_THRESHOLD && !active(entry, timestamp)) {
-        flagged = autoFlag(entry, "kicks", `kicks by ${recent} different hosts in 7 days (last: ${reason})`);
-      }
-    }
-    const device = hashOf(body.deviceId);
-    if (device) {
-      addCooldown(device);
-      const ip = deviceAddress.get(device)?.ip;
-      if (ip) addCooldown(ip);
+      // every kick is reviewable; kicks by 2+ different hosts in 7 days are marked as the stronger signal
+      addReview(entry, recent >= KICK_FLAG_THRESHOLD ? "kicks" : "kick",
+        recent >= KICK_FLAG_THRESHOLD ? `kicked by ${recent} different hosts in 7 days (last: ${reason})` : `kicked: ${reason}`);
     }
     persist();
     return [200, { ok: true, flagged, status: status({ username, deviceId: body.deviceId }) }];
@@ -324,7 +307,7 @@ export function createModeration({
       const key = String(value ?? "").slice(0, 256);
       if (!key) continue;
       const kicks = cooldowns.get(hashOf(key))?.kicks || [];
-      devices[key] = { cooldown: Boolean(cooldownUntil(key, "")), troll: kicks.some((at) => now() - at < DAY_MS) };
+      devices[key] = { cooldown: Boolean(cooldownUntil(key, "")), troll: false };   // server troll is owner-set only
     }
     return [200, { ok: true, players, devices }];
   }
@@ -340,19 +323,23 @@ export function createModeration({
       flags: entry.flags,
       kicks: entry.kicks,
       integrity: entry.integrity,
+      reviews: entry.reviews,
+      reviewOpen: openReviews(entry).length,
     };
   }
 
   function latestAt(entry) {
-    return Math.max(0, ...entry.flags.map((flag) => flag.at), ...entry.kicks.map((kick) => kick.at), entry.integrity?.at || 0);
+    return Math.max(0, ...entry.flags.map((flag) => flag.at), ...entry.kicks.map((kick) => kick.at),
+      ...entry.reviews.map((review) => review.at), entry.integrity?.at || 0);
   }
 
   function adminList() {
     const list = [...accounts.values()]
-      .filter((entry) => active(entry) || entry.kicks.length || entry.troll || entry.flags.length)
-      .sort((a, b) => latestAt(b) - latestAt(a))
+      .filter((entry) => active(entry) || entry.kicks.length || entry.troll || entry.flags.length || entry.reviews.length)
+      .sort((a, b) => (openReviews(b).length > 0) - (openReviews(a).length > 0) || latestAt(b) - latestAt(a))
       .map(summary);
-    return [200, { ok: true, accounts: list, builds: [...builds.values()] }];
+    const reviews = list.filter((entry) => entry.reviewOpen > 0).map((entry) => entry.username);
+    return [200, { ok: true, accounts: list, reviews, builds: [...builds.values()] }];
   }
 
   function adminSet(body = {}, by) {
@@ -375,10 +362,11 @@ export function createModeration({
     else if (action === "unban") entry.permanent = false;
     else if (action === "troll_on") entry.troll = true;
     else if (action === "troll_off") entry.troll = false;
-    else return [400, { ok: false, code: "INVALID_ACTION", error: "Unknown moderation action" }];
+    else if (action !== "dismiss") return [400, { ok: false, code: "INVALID_ACTION", error: "Unknown moderation action" }];
     entry.flags.push({ at: timestamp, reason: `admin:${action}`, detail: text(body.note, 200),
       until: entry.permanent ? null : (entry.flaggedUntil || null), by });
     entry.flags = entry.flags.slice(-MAX_LOG_ENTRIES);
+    for (const review of entry.reviews) if (review.open) Object.assign(review, { open: false, closedBy: by, closedAt: timestamp, action });
     persist();
     return [200, { ok: true, record: summary(entry) }];
   }

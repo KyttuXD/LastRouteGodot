@@ -27,27 +27,29 @@ admins and battery use pass).
 Host-caused long moves never strike: a vent transit (`vent_used`), being pulled out of hiding (`hide_found`), an axe
 rescue and a revive call `GuestGuard.allow_jump` for 3 s.
 
-## Consequences (server-enforced, `backend/moderation.mjs`)
+## Consequences (manual only, `backend/moderation.mjs`)
 
-Inputs: host kick reports (`/api/moderation/report`, host-token checked), the client's build report at sign-in and
-room join (`/api/moderation/integrity`: commit + SHA-256 of the PCK/executable against the published manifests and an
-owner allow-list), and server-side refusals. The build hash is a signal, not proof: a modified client can spoof it.
+KT: "accounts shouldnt be auto banned, only manually". Automatic consequences stay inside the room: snap-back,
+strikes, the host kick after 5 strikes, and in-room troll mode from strikes.
 
-- Strikes in a room: snap back, then kick (above).
-- Kicks reported by 2+ distinct hosts within 7 days, or an unknown build hash: the account is flagged for 24 h, 7 days
-  on any later flag. Never automatically permanent; owner accounts are never auto-flagged.
-- While flagged: no public route, no hosting public rooms, no skin uploads (403 `FLAGGED` with a clear message and the
-  end time). Solo, offline and private rooms still work; the host sees "NOTICE // <name> IS FLAGGED" in chat.
-- Every kick puts the guest's device hash (and its last IP hash) on a public-join cooldown: 1 h, doubling, max 24 h.
-  Only salted hashes are stored.
-- Owners (KYTTU/AYTTU) review in the admin panel: `/api/admin/flags`, `/api/admin/flags/set` (clear / extend / ban /
-  unban / troll_on / troll_off), `/api/admin/builds/add|remove`. Full API: `backend/README.md`.
-- The player sees the restriction via `ModerationClient` (`Backend.moderation`), shown as an account message.
+Signals go to a review queue, never a restriction: host kick reports (`/api/moderation/report`, host-token checked),
+and the client's build report at sign-in and room join (`/api/moderation/integrity`: commit + SHA-256 of the
+PCK/executable against the published manifests and an owner allow-list). The build hash is a signal, not proof: a
+modified client can spoof it. Each opens a review entry (account, reason, kick reports, build hash, timestamps); kicks
+from 2+ different hosts in 7 days are marked `kicks` as the stronger signal.
+
+- Owners (KYTTU/AYTTU) read the queue in the hub admin MODERATION list (`/api/admin/flags`, `reviews` = accounts with
+  open entries) and act with `/api/admin/flags/set`: `extend` (flag for N hours), `clear`, `ban`, `unban`,
+  `troll_on` / `troll_off`, or `dismiss`. Any action closes the open reviews.
+- Only an owner flag or ban restricts an account: no public route, no hosting public rooms, no skin uploads (403
+  `FLAGGED` with a clear message and the end time). Solo, offline and private rooms still work; the host sees
+  "NOTICE // <name> IS FLAGGED" in chat.
+- No automatic device/IP cooldowns. Only salted hashes of device ids and IPs are stored.
+- The player sees an owner restriction via `ModerationClient` (`Backend.moderation`), shown as an account message.
 
 ## Troll mode
 
-On for a guest the host caught this room (any strike), or that the server reports as flagged, owner-trolled, or a
-device kicked in the last 24 h (`/api/moderation/peers`, polled every 30 s). Host side (authoritative):
+On for a guest the host caught this room (any strike), or that an owner flagged or trolled on the server (`/api/moderation/peers`, polled every 30 s). Host side (authoritative):
 `RemotePlayers.best_target` gives every hunter only the trolled guest on that floor, with hiding and safe rooms ignored,
 and leaves teammates alone; hunters chase it 15 % faster; its pickups are refused (they vanish on its screen only).
 Its own client (told by a `troll` player event): 1.6× sprint drain, flashlight flicker and fake hunter footsteps, and a
