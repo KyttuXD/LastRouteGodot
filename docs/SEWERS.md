@@ -171,6 +171,26 @@ flange weeps into the water. The underside is `CRAWL_CLEARANCE`, so a crouched r
 Hunter navigation reads its three `occupied_cells` like any solid prop, and the minimap draws its collider. `sewer_crawl`
 checks the clearance, the placement and that hunters still reach every cell a crawler can.
 
+## Breaking pipes and floods
+
+The Axe breaks the sewer's pipes: every crawl pipe (hp 3) and outflow main (hp 4) is one `Breach` pipe spec (docs/BREACH.md,
+variant `"authored"`, Axe only) from `SewerRouteGenerator._pipe_breakables`. Its props carry `breakable_id`.
+
+A swing is loud: `Breach.NOISE_LEVEL` brings hunters. When the pipe gives way ("breached", on every machine):
+
+* the view removes its mains, collider and drips, and a rebuilt chunk leaves it out;
+* hunter navigation and the minimap drop it;
+* `SewerFloods` starts a flood over the spec's `flood_cells`: dry walkway within `FLOOD_REACH` steps, at most
+  `FLOOD_MAX_CELLS`.
+
+The water is one flat plane per flood, built once; only its height moves. It rises to `MAX_DEPTH` (0.35 m, shin) over
+`RISE` seconds while the pipe sprays and gushes, holds for `HOLD` seconds, then drains over `DRAIN` seconds (90 s).
+`StreamedWorldState.floods` keeps the burst time; a snapshot carries the seconds since, so a co-op join or a reloaded
+run picks up at the same depth.
+
+A runner wading in it is slowed (`WADE_SPEED_SCALE`) and soaked. Each step splashes at `WADE_NOISE`, louder than a
+sprint, so hunters hear it. Hunters wade at their normal pace. Validator: `sewer_floods`.
+
 Build them with:
 
     /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/props/rebuild_hytale_props.py -- sewer
