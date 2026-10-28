@@ -37,6 +37,8 @@ var slab_progress := {"doorL": 0.0, "doorR": 0.0}
 func _ready() -> void:
 	if slabs.is_empty():
 		build()
+	NightWatchPalette.apply(self, spec.id)   # the 2D office's colours on the shell
+	NightWatchSignature.apply(self, spec.id)   # and its signature pieces (bands, posters, lamps)
 
 
 func _make_spec() -> NightWatchOfficeSpec:

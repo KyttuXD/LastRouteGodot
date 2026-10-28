@@ -88,6 +88,11 @@ static func _room_tone(left: PackedFloat32Array, right: PackedFloat32Array, laye
 
 
 ## A two-pole resonator (bandpass) driven by noise: a hum with body and no pure-tone whine, plus a faint sine for pitch.
+## The resonator's level is ridden by a fast envelope follower (LEVEL_SECONDS): raw narrowband noise lurches by ~8 dB at
+## random moments, which in a low hum reads as thuds (KT on the lab bed: "some sort of banging").
+const LEVEL_SECONDS := .03
+
+
 static func _drone(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
 	var hz := clampf(float(layer.get("hz", 100.0)), 30.0, MAX_TONE_HZ)
 	var vol := float(layer.get("vol", .008))
@@ -96,13 +101,18 @@ static func _drone(left: PackedFloat32Array, right: PackedFloat32Array, layer: D
 	var y1 := 0.0
 	var y2 := 0.0
 	var wobble := rng.randf_range(.07, .13)
+	var follow := 1.0 - exp(-1.0 / (LEVEL_SECONDS * RATE))
+	# expected resonator power for unit-range drive, so the follower starts settled
+	var power := pow((1.0 - r) * 4.0, 2.0) / 3.0 / ((1.0 - r) * 4.0 * (1.0 - r))
 	for i in left.size():
 		var t := float(i) / RATE
 		var y := rng.randf_range(-1.0, 1.0) * (1.0 - r) * 4.0 + c * y1 - r * r * y2
 		y2 = y1
 		y1 = y
-		var breath := .75 + .25 * sin(TAU * wobble * t)
-		var v := (y * 1.4 + .18 * sin(TAU * hz * t)) * vol * breath
+		power += (y * y - power) * follow
+		var level := y / sqrt(power + 1e-12) * .25
+		var breath := .85 + .15 * sin(TAU * wobble * t)
+		var v := (level + .18 * sin(TAU * hz * t)) * vol * breath
 		left[i] += v
 		right[i] += v * .92
 
