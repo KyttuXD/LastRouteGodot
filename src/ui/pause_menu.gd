@@ -383,6 +383,8 @@ func _open_dossier() -> void:
 	roster.custom_minimum_size = Vector2(108, 0)
 	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	roster.allow_reselect = true
+	roster.fixed_icon_size = Vector2i(34, 34)
+	roster.icon_mode = ItemList.ICON_MODE_LEFT
 	roster.add_theme_font_size_override("font_size", 7)
 	roster.add_theme_color_override("font_color", Palette.BODY)
 	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
@@ -439,9 +441,11 @@ func _open_dossier() -> void:
 			var discovered := Backend.hunter_discovered(hunter_id)
 			var profile: Dictionary = HunterDossier.profile(hunter_id)
 			var label := String(profile["name"]).to_upper() if discovered \
-				else "???? // UNDISCOVERED"
-			var index := roster.add_item(label)
+				else "???"
+			var index := roster.add_item(label, HunterDossier.portrait(hunter_id))
 			roster.set_item_metadata(index, hunter_id)
+			if not discovered:
+				roster.set_item_icon_modulate(index, HunterDossier.SILHOUETTE)
 	roster.item_selected.connect(func(index: int) -> void:
 		_show_dossier_entry(String(roster.get_item_metadata(index))))
 	if not ids.is_empty():
