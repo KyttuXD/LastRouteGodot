@@ -757,6 +757,10 @@ func run(host: Node) -> int:
 		await host.get_tree().physics_frame
 	_expect(not player.spot_blocked(player.global_position),
 		"the runner starts inside level geometry or off the floor at %s" % player.global_position)
+	var spawn_marker := live_scene.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	_expect(spawn_marker == null or Vector2(spawn_marker.global_position.x - player.global_position.x,
+		spawn_marker.global_position.z - player.global_position.z).length() >= 0.6,
+		"the runner starts on the safe-zone marker post (a headset camera ends up inside it)")
 	var pixel_effect := live_scene.get("pixel_signal_effect") as PixelSignalEffect
 	_expect(pixel_effect != null and Settings.DEFAULT_PIXEL_EFFECT_PERCENT > 0.0 \
 		and PixelSignalEffect.SHADER_CODE.contains("floor(pixel / block_size)"),
