@@ -98,9 +98,21 @@ const DRIFT_TOLERANCE := 1.5
 
 func run(host: Node) -> int:
 	_host = host
+	# Leave the root window as found: later suites in the same process (platform's XR laser click) read its size.
+	var root := _root()
+	var before := {"size": root.size, "mode": root.content_scale_mode, "aspect": root.content_scale_aspect,
+		"scale_size": root.content_scale_size, "factor": root.content_scale_factor}
 	var failures := 0
 	for path in ANCHORED:
 		failures += await _check_scene(path)
+	root.size = before["size"]
+	root.content_scale_mode = before["mode"]
+	root.content_scale_aspect = before["aspect"]
+	root.content_scale_size = before["scale_size"]
+	root.content_scale_factor = before["factor"]
+	root.gui_release_focus()
+	await _frame()
+	await _frame()
 	if failures == 0:
 		print("layout OK")
 	return failures
