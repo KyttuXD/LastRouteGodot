@@ -42,6 +42,12 @@ func _tiers() -> void:
 	_expect(float(quest["frame_target_hz"]) == 72.0 and float(quest["camera_far"]) == 60.0, "the Quest does not target a fixed 72 Hz with its 60 m far plane")
 	_expect(float(QualityTier.budgets(QualityTier.Tier.ULTRA, {"refresh": 144.0})["frame_target_hz"]) == 60.0,
 		"a 144 Hz desktop defends more than 60 fps (it would shed quality it does not need to)")
+	# the flashlight's wall/prop shadows are core to the horror: on for every desktop tier but LOW, off on phones and the Quest
+	for tier in [QualityTier.Tier.ULTRA, QualityTier.Tier.HIGH, QualityTier.Tier.MEDIUM]:
+		_expect(bool(QualityTier.budgets(tier, {"cores": 8, "ram_bytes": 16 * GB})["shadows"]), "desktop %s drops the flashlight shadows" % QualityTier.name_of(tier))
+	_expect(not bool(QualityTier.budgets(QualityTier.Tier.LOW, {})["shadows"]), "LOW keeps shadows")
+	_expect(not bool(QualityTier.budgets(QualityTier.Tier.MEDIUM, {"phone": true})["shadows"]), "a phone keeps shadows")
+	_expect(not bool(quest["shadows"]), "the Quest keeps shadows")
 	var previous := -1.0
 	for tier in [QualityTier.Tier.ULTRA, QualityTier.Tier.HIGH, QualityTier.Tier.MEDIUM, QualityTier.Tier.LOW]:
 		var b := QualityTier.budgets(tier, {"cores": 8, "ram_bytes": 16 * GB})

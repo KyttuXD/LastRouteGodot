@@ -194,8 +194,11 @@ func _expect_xr(route: Node) -> void:
 		if not is_equal_approx(controller._flashlight_probe.target_position.z,
 				-PlayerController3D.FLASHLIGHT_MAX_RANGE):
 			_fail("the flashlight ray does not cover the beam range")
-	if not controller.flashlight.shadow_enabled:
-		_fail("the flashlight does not cast wall/prop shadows")
+	# Quality tiers: the flashlight casts shadows on every desktop tier but LOW (QualityTier); judge it per the live tier.
+	if PlatformProfile.shadows and not controller.flashlight.shadow_enabled:
+		_fail("the flashlight does not cast wall/prop shadows (tier %s keeps shadows)" % PlatformProfile.tier_readout())
+	if not PlatformProfile.shadows and controller.flashlight.shadow_enabled:
+		_fail("the flashlight casts shadows on tier %s, which drops them" % PlatformProfile.tier_readout())
 	var beam_color := controller.flashlight.light_color
 	var beam_color_error := maxf(absf(beam_color.r - 1.0), maxf(
 		absf(beam_color.g - 1.0), absf(beam_color.b - 1.0)))

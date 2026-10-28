@@ -90,15 +90,17 @@ static func budgets(tier: int, specs: Dictionary) -> Dictionary:
 		Tier.HIGH: {"map_update_hz": 30.0, "stream_budget_ms": 4.0, "stream_budget_max_ms": 8.0, "prebuild_linked_levels": true,
 			"lamp_pool": 8, "shadows": true, "camera_far": 0.0, "prop_range_scale": 1.0, "prerender_ambience": true},
 		Tier.MEDIUM: {"map_update_hz": 20.0, "stream_budget_ms": 3.0, "stream_budget_max_ms": 6.0, "prebuild_linked_levels": not low_memory,
-			"lamp_pool": 6, "shadows": false, "camera_far": 140.0, "prop_range_scale": .8, "prerender_ambience": true},
+			"lamp_pool": 6, "shadows": true, "camera_far": 140.0, "prop_range_scale": .8, "prerender_ambience": true},
 		Tier.LOW: {"map_update_hz": 15.0, "stream_budget_ms": 2.0, "stream_budget_max_ms": 4.0, "prebuild_linked_levels": false,
 			"lamp_pool": 4, "shadows": false, "camera_far": 90.0, "prop_range_scale": .6, "prerender_ambience": true},
 	}
 	var out: Dictionary = (table[clampi(tier, Tier.LOW, Tier.ULTRA)] as Dictionary).duplicate()
 	if bool(specs.get("phone", false)):
+		out["shadows"] = false   # the flashlight's shadows stay on every desktop tier but LOW; phones and the Quest drop them
 		out["lamp_pool"] = mini(int(out["lamp_pool"]), 4)
 		out["camera_far"] = 140.0 if tier >= Tier.MEDIUM else 90.0
 	if bool(specs.get("quest", false)):
+		out["shadows"] = false
 		out["lamp_pool"] = 4
 		out["camera_far"] = 60.0
 	out["worker_threads"] = maxi(1, int(specs.get("cores", 4)) - 1)
