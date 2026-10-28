@@ -464,7 +464,7 @@ func _on_tutorial_pressed() -> void:
 		+ "MOVEMENT + VIEW\n"
 		+ "WASD move, Shift sprints, C crouches, Space jumps, and the mouse looks. F1 hides or restores the gameplay HUD for a clean view. On a controller, use the left stick to move, right stick to look, A to jump, B to crouch, and left-stick click to sprint. M or View opens the discovered map. Place a waypoint on discovered floor space to draw a teal GPS route on the map and ground. The minimap shows only your current discovered floor.\n\n"
 		+ "ITEMS + INVENTORY\n"
-		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item.\n\n"
+		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item. G or LB fires the taser.\n\n"
 		+ "CO-OP\n"
 		+ "Create an online room for friends, join with its five-character code, or choose Play Offline for a server-free solo test. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
 		Palette.BODY, 7)
