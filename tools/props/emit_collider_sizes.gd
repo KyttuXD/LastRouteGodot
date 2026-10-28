@@ -15,7 +15,9 @@ const MAX_HEIGHT := 2.2
 ## Things that stand above the part you collide with (the restaurant table's balloon cluster) are cut off here.
 const HEIGHT_CAP := {"restaurantPartyTable": 0.85,
 	# the wall mirror over the vanity and the sneeze hood over the serving counter stand above what you bump into (docs/SCALE_FIT.md)
-	"bathroomVanity": 0.95, "prisonServingCounter": 1.1}
+	"bathroomVanity": 0.95, "prisonServingCounter": 1.1,
+	# the register display and the popcorn machine / soda fountain sit on the worktop, above what you bump into
+	"checkoutCounter": 0.96, "concessionCounter": 0.99}
 ## Irregular pieces get several boxes. Rectangles in the MODEL frame (x0, z0, x1, z1) read off the top-down occupancy of
 ## the mesh (tools/look/dump_occupancy.gd); the emitter mirrors them into the collider frame (the view turns the model by yaw + PI).
 const MULTI_BOX := {

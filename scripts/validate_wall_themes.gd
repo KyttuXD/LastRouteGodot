@@ -19,6 +19,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
+	_check_plane_uv()
 	for region in StreamedRouteGenerator.BIOMES:
 		_expect(FloorSets.HALLS.has(region), "district %s has no hall floor set" % region)
 		_expect(FloorSets.ROOM_DEFAULT.has(region), "district %s has no room floor default" % region)
@@ -36,6 +37,8 @@ func run(_host: Node) -> int:
 	var purposes := {}
 	var mismatches := 0
 	var arches := 0
+	var hall_arches := 0
+	var multi_kind_rooms := {}
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		var view := StreamedFacilityView3D.new()
@@ -50,7 +53,10 @@ func run(_host: Node) -> int:
 				var grid: Array = data["grid"]
 				var room_map := StreamedFacilityView3D._room_type_map(data)
 				var build := {"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]), "coord": coord,
-					"room_map": room_map, "region": region, "data": data}
+					"room_map": room_map, "room_anchor": StreamedFacilityView3D.room_anchor_map(data), "region": region,
+					"data": data}
+				# one floor kind per room: kind seen per room origin
+				var room_floor := {}
 				for room_value in data.get("rooms", []):
 					var room: Dictionary = room_value
 					var room_type := String(room.get("room_type", ""))
@@ -76,11 +82,17 @@ func run(_host: Node) -> int:
 				for prop_value in data.get("region_props", []):
 					if bool((prop_value as Dictionary).get("arch", false)):
 						has_arch = true
+				if has_arch or (cx + cz) % 2 == 0:
+					var holder := Node3D.new()
+					var decor := RefDecor.new(holder, data, room_map)
+					while not decor.step():
+						pass
+					hall_arches += _check_arch_log(decor, data, region, "%s %s" % [seed_text, coord])
+					holder.free()
 				if has_arch:
 					var holder := Node3D.new()
 					var decor := RefDecor.new(holder, data, room_map)
 					decor._arches()
-					_expect(not decor._transforms.has("arch_header"), "%s %s: an arch still uses the default stone block" % [seed_text, coord])
 					for prop_value in data.get("region_props", []):
 						var prop: Dictionary = prop_value
 						if not bool(prop.get("arch", false)) or (prop.get("doorway_cells", []) as Array).size() != 3:
@@ -92,9 +104,11 @@ func run(_host: Node) -> int:
 							var faced: Vector2i = middle + outward * face
 							var want := RefLook.wall_kind(region, String(room_map.get(faced, "")), coord.x * 45 + faced.x, coord.z * 45 + faced.y)
 							var got: String = decor.arch_wall_kind(faced)
-							_expect(got == want and decor._transforms.has("arch_wall:" + got), "%s %s: arch side facing %s is %s, its wall is %s" % [seed_text, coord, faced, got, want])
-							var material := (RefDecor.mesh_for("arch_wall:" + got) as BoxMesh).material as StandardMaterial3D
-							_expect(material != null and material.albedo_texture == RefTextures.material("wall", got).albedo_texture and material.uv1_world_triplanar,
+							var key := "arch_wall:%s@%.1f" % [got, decor._hh(faced)]
+							_expect(got == want and decor._transforms.has(key), "%s %s: arch side facing %s is %s, its wall is %s" % [seed_text, coord, faced, got, want])
+							var material := (RefDecor.mesh_for(key) as BoxMesh).material as ShaderMaterial
+							_expect(material != null and material.get_shader_parameter("albedo_tex") == RefTextures.material("wall", got).albedo_texture \
+								and material.shader == RefDecor.PLANE_UV_SHADER,
 								"arch material for %s is not the wall's own texture on the wall grid" % got)
 					holder.free()
 				# every wall face takes the theme of the cell it faces
@@ -103,6 +117,18 @@ func run(_host: Node) -> int:
 						if int(grid[z][x]) == 0:
 							var floor_kind: String = view._ref_floor_kind(build, x, z)
 							var owner := String(room_map.get(Vector2i(x, z), ""))
+							if owner == "" and not floor_kind.begins_with("runner"):
+								if room_floor.has("hall") and room_floor["hall"] != floor_kind:
+									_expect(false, "%s %s: hall floor mixes %s and %s" % [seed_text, coord, room_floor["hall"], floor_kind])
+								room_floor["hall"] = floor_kind
+							if owner != "":
+								var origin := str((build["room_anchor"] as Dictionary)[Vector2i(x, z)], owner)
+								if FloorSets.room(region, owner).size() > 1:
+									multi_kind_rooms[str(seed_text, coord, origin)] = true
+								if room_floor.has(origin) and room_floor[origin] != floor_kind:
+									_expect(false, "%s %s: room %s at %s is laid in two floors (%s and %s)" % [seed_text, coord,
+										owner, origin, room_floor[origin], floor_kind])
+								room_floor[origin] = floor_kind
 							var allowed: Array = FloorSets.room(region, owner) if owner != "" else FloorSets.hall(region)
 							if not allowed.has(floor_kind) and not floor_kind.begins_with("runner"):
 								mismatches += 1
@@ -123,9 +149,89 @@ func run(_host: Node) -> int:
 								mismatches += 1
 								_expect(false, "%s %s: wall face %s->%s is %s, not from the %s set" % [seed_text, coord, Vector2i(x, z), n, kind, facing if facing != "" else "hall"])
 		view.free()
+	_expect(multi_kind_rooms.size() > 20, "only %d rooms with a multi-kind floor set sampled" % multi_kind_rooms.size())
 	_expect(doors > 50, "only %d doorways sampled" % doors)
 	_expect(arches > 5, "only %d archways sampled" % arches)
+	_expect(hall_arches > 20, "only %d hall arches sampled" % hall_arches)
 	if _failures == 0:
-		print("  wall_themes  %d wall faces and every floor cell themed by the space they face (0 mismatches), %d doorways on the hall theme, %d room purposes with their own floors, %d districts, %d arches in their walls' themes on both sides" % [
-			faces, doors, purposes.size(), StreamedRouteGenerator.BIOMES.size(), arches])
+		print("  wall_themes  %d wall faces and every floor cell themed by the space they face (0 mismatches), %d doorways on the hall theme, %d room purposes with their own floors, %d districts, %d arches in their walls' themes on both sides, %d hall arches centred and flush with district trim" % [
+			faces, doors, purposes.size(), StreamedRouteGenerator.BIOMES.size(), arches, hall_arches])
 	return _failures
+
+
+## Archways and hall pilasters (KT): themed by the hall's wall with the district's accent (no default gray stone, no
+## brass outside the districts that use it, no untextured trim), centred on the hall (under 2 cm), archway faces on the
+## wall planes, the span exactly pilaster face to pilaster face, under the ceiling.
+func _check_arch_log(decor: RefDecor, data: Dictionary, region: String, where: String) -> int:
+	_expect(not decor._transforms.has("arch_header") and not decor._transforms.has("arch_cap"),
+		"%s: an arch or pilaster still uses the default gray stone / gold block" % where)
+	for key in decor._transforms:
+		if not String(key).begins_with("arch_trim:"):
+			continue
+		_expect(key == "arch_trim:" + region, "%s: trim %s in a %s district" % [where, key, region])
+		var m := (RefDecor.mesh_for(key) as BoxMesh).material as ShaderMaterial
+		var accent := RefLook.arch_accent(region)
+		_expect(m != null and m.shader == RefDecor.PLANE_UV_SHADER and m.get_shader_parameter("albedo_tex") != null \
+			and m.get_shader_parameter("albedo_tex") == RefTextures.material(String(accent[0]), String(accent[1])).albedo_texture,
+			"%s: trim %s is not the district's textured accent %s" % [where, key, accent[1]])
+	var hall := 0
+	for entry_value in decor.arch_log:
+		var entry: Dictionary = entry_value
+		var centre: Vector3 = entry["centre"]
+		var hall_centre: Vector3 = entry["hall_centre"]
+		var offset := Vector2(centre.x - hall_centre.x, centre.z - hall_centre.z).length()
+		_expect(offset < .02, "%s: %s arch is %.3f m off the hall centreline" % [where, entry["kind"], offset])
+		_expect(absf(float(entry["span"]) - float(entry["between"])) < .02, "%s: arch span %.2f m, opening %.2f m" % [where, entry["span"], entry["between"]])
+		_expect(String(entry["wall_key"]).begins_with("arch_wall:"), "%s: arch not in a wall theme" % where)
+		if entry["kind"] == "door3":
+			for face_value in entry["faces"]:
+				var face: Vector3 = face_value
+				var on_grid: bool = absf(face.x - roundf(face.x)) < .005 or absf(face.z - roundf(face.z)) < .005
+				_expect(on_grid, "%s: archway face at %s is not on the wall plane" % [where, face])
+		else:
+			hall += 1
+			_expect(float(entry["top"]) <= float(entry["ceiling"]) + .001, "%s: hall arch top %.2f over the ceiling %.2f" % [where, entry["top"], entry["ceiling"]])
+	return hall
+
+
+## Rotated and sloped arches (KT): the arch texture (RefDecor.plane_uv = ref_plane_uv.gdshader) matches the wall faces
+## exactly on all four sides and at every ceiling height, and keeps the flat arch's texel density and level courses on an
+## arch turned 30 / 45 / 117 degrees and on one standing on a 12 degree ramp, with no seam between blocks in one plane.
+## (Measured on the mapping itself: the headless validator has no renderer.)
+func _check_plane_uv() -> void:
+	for height in [3.3, 4.0, 5.9]:
+		for dir in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+			var surface := RefSurfaceMesh.new()
+			surface.add_wall(3, 5, dir, 0.0, Color.WHITE, height, 0.0, height)
+			var verts: PackedVector3Array = surface._v[1]
+			var uvs: PackedVector2Array = surface._uv[1]
+			for index in verts.size():
+				var mapped := RefDecor.plane_uv(verts[index], Vector3(dir.x, 0, dir.y), 0.0, height)
+				var du := absf(mapped.x - uvs[index].x)
+				_expect(absf(du - roundf(du)) < .001 and absf(mapped.y - uvs[index].y) < .001,
+					"arch texture does not line up with the wall facing %s at %.1f m: %s vs %s" % [dir, height, mapped, uvs[index]])
+	var flat := _density(Vector3(0, 0, 1), 0.0)
+	for yaw in [30.0, 45.0, 117.0]:
+		var n := Vector3(0, 0, 1).rotated(Vector3.UP, deg_to_rad(yaw))
+		_expect((_density(n, 0.0) - flat).length() < .001, "a %d degree arch has texel density %s, flat %s" % [yaw, _density(n, 0.0), flat])
+		# blocks side by side in the turned wall plane: the texture runs on across the join at the same rate
+		var along := Vector3.UP.cross(n).normalized()
+		var edge := Vector3(2.3, 1.7, 4.1)
+		var step := RefDecor.plane_uv(edge + along * .25, n, 0.0, 4.0) - RefDecor.plane_uv(edge, n, 0.0, 4.0)
+		_expect(absf(step.x - .25) < .0001 and absf(step.y) < .0001, "a %d degree arch has a seam or skew between blocks" % yaw)
+	# on a ramp the jambs stay plumb and the courses level: same v at the same height above the local floor
+	var ramp := deg_to_rad(12.0)
+	for run in [0.0, 1.5, 3.0]:
+		var floor_y: float = tan(ramp) * float(run)
+		var mapped := RefDecor.plane_uv(Vector3(run, floor_y + 1.0, 0.0), Vector3(0, 0, 1), floor_y, 4.0)
+		_expect(absf(mapped.y - .75) < .0001, "courses on a ramp arch are not level with the floor")
+		_expect((_density(Vector3(0, 0, 1), floor_y) - flat).length() < .001, "a ramp arch is stretched")
+
+
+## Texture change per metre across and up a face with normal `n`: Vector2(du/dm along, dv/dm up).
+func _density(n: Vector3, floor_y: float) -> Vector2:
+	var along := Vector3.UP.cross(n).normalized()
+	var at := Vector3(1.2, floor_y + 1.4, -.7)
+	var base := RefDecor.plane_uv(at, n, floor_y, 4.0)
+	return Vector2(absf(RefDecor.plane_uv(at + along * .01, n, floor_y, 4.0).x - base.x) / .01,
+		absf(RefDecor.plane_uv(at + Vector3.UP * .01, n, floor_y, 4.0).y - base.y) / .01)

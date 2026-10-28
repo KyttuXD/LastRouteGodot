@@ -910,6 +910,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
 		"room_map": room_map,
+		"room_anchor": room_anchor_map(data),
 		"heights": heights,
 		"corridor_h": corridor_h,
 		"decor": null,
@@ -1340,6 +1341,22 @@ static func _room_type_map(data: Dictionary) -> Dictionary:
 	return map
 
 
+## Cell -> the rect origin of the room it belongs to, built by the same pass as _room_type_map (same cells, same
+## last-room-wins order), so a room's floor is one kind.
+static func room_anchor_map(data: Dictionary) -> Dictionary:
+	var map := {}
+	var grid: Array = data.get("grid", [])
+	for room_value in data.get("rooms", []):
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				var on_border := x == rect.position.x or z == rect.position.y or x == rect.end.x - 1 or z == rect.end.y - 1
+				if on_border and (_is_wall_at(grid, x, z) or _is_doorway(grid, rect, x, z)):
+					continue
+				map[Vector2i(x, z)] = rect.position
+	return map
+
+
 ## The cells a room door stands in -> {"normal" (through the door), "front_h" / "back_h" (the ceilings either side)}:
 ## the header over the frame closes the opening up to both ceilings (docs/DOORWAY_CLEARANCE.md).
 static func door_headers(region_props: Array, heights: Dictionary, corridor_h: float) -> Dictionary:
@@ -1361,7 +1378,7 @@ static func door_headers(region_props: Array, heights: Dictionary, corridor_h: f
 		else:
 			cells = [Vector2i(centre.floor())]
 		for door_cell in cells:
-			out[door_cell] = {"normal": normal,
+			out[door_cell] = {"normal": normal, "header_y": DoorwayFrames.header_y(String(prop.get("type", ""))),
 				"front_h": float(heights.get(door_cell + normal, corridor_h)),
 				"back_h": float(heights.get(door_cell - normal, corridor_h))}
 	return out
@@ -1374,9 +1391,10 @@ static func add_door_header(surface: RefSurfaceMesh, cell: Vector2i, header: Dic
 	for side in [across, -across]:
 		var look: Array = front if side == across else back
 		var top := float(header["front_h"] if side == across else header["back_h"])
-		if top > DoorwayFrames.HEADER_Y:
-			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, DoorwayFrames.HEADER_Y, top)
-	surface.add_ceiling(cell.x, cell.y, DoorwayFrames.HEADER_Y, float(front[0]), front[1])
+		var soffit := float(header.get("header_y", DoorwayFrames.HEADER_Y))
+		if top > soffit:
+			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, soffit, top)
+	surface.add_ceiling(cell.x, cell.y, float(header.get("header_y", DoorwayFrames.HEADER_Y)), float(front[0]), front[1])
 
 
 static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
@@ -1413,23 +1431,28 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var style: Dictionary = build["style"]
-	var coord: Vector3i = build["coord"]
+	var region := String(build.get("region", generator.biome_for(build["coord"])))
+	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
+
+
+## The floor kind of cell (x, z): one kind per room (FloorSets.room_kind, keyed on the room's origin) and one per chunk
+## for its halls (the carpet runner strips still follow the hall). Picking per cell scattered two floors checkerboard-style.
+static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionary, room_anchor: Dictionary,
+		x: int, z: int) -> String:
+	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var gx := coord.x * size + x
-	var gz := coord.z * size + z
-	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(x, z), "")
-	var region := String(build.get("region", generator.biome_for(coord)))
-	var kinds: Array
+	var cell := Vector2i(x, z)
+	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
-		kinds = FloorSets.room(region, room_type)
-	else:
-		kinds = FloorSets.hall(region)
-		if FloorSets.hall_runner(region):
-			var runner := _runner_kind(build["data"]["grid"], x, z)
-			if runner != "":
-				return runner
-	return kinds[RefLook.pick(gx, gz, 1, kinds.size())]
+		var origin: Vector2i = room_anchor.get(cell, cell)
+		return FloorSets.room_kind(region, room_type, Vector2i(coord.x * size, coord.z * size) + origin)
+	if FloorSets.hall_runner(region):
+		var runner := _runner_kind(data["grid"], x, z)
+		if runner != "":
+			return runner
+	# One hall floor per chunk: the set varies chunk to chunk, never tile to tile.
+	var kinds := FloorSets.hall(region)
+	return kinds[RefLook.pick(coord.x, coord.z, 1, kinds.size())]
 
 
 ## Carpet runner down the middle three cells of a hall, oriented along the hall:

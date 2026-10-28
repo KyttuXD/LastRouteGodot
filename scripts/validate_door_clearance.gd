@@ -11,12 +11,17 @@ const WALL_DEPTH := 1.0
 const DUCK_ON := .05
 const MIN_DUCKED := .02
 const MIN_SIDE := .005
+## KT: doors are sized for the hunters. A normal-class hunter (body up to NORMAL_HEIGHT) walks through every door with
+## 40 cm over her head and never ducks; through a two-cell door she has 25 cm each side at the shoulders without turning.
+const NORMAL_HEIGHT := 2.70
+const NORMAL_HEADROOM := .40
+const WIDE_SIDE_ROOM := .25
 ## Hair, ears, horns, tails, wings may brush a frame by this much (the body parts may not touch it at all); every brush is
 ## listed in the summary so it stays visible.
 const ACCESSORY_BRUSH := .10
-## Parts wider than a 1 m door however she turns (floating glyphs). They still pass through the frame side; listed every
+## Parts wider than a one-cell (0.98 m) door however she turns (floating glyphs, two ponytails). They still pass through the frame side; listed every
 ## run, never failed, until the models change or the doors widen (docs/DOORWAY_CLEARANCE.md).
-const WIDER_THAN_A_DOOR := {"nyxie": ["R-Glyph"], "solyth": ["R-Glyph"]}
+const WIDER_THAN_A_DOOR := {"nyxie": ["R-Glyph", "Pony-1", "Pony-2"], "solyth": ["R-Glyph"], "wynelle": ["Pony-1"]}
 const SPEEDS := {"walk": 1.7, "sprint": 4.8}
 const DT := 1.0 / 60.0
 
@@ -121,7 +126,7 @@ func _check_frames(doors: Array) -> void:
 		var visual_top := 0.0
 		for mesh in node.find_children("*", "MeshInstance3D", true, false):
 			visual_top = maxf(visual_top, _in_space(node, mesh as MeshInstance3D).end.y)
-		_expect(visual_top <= DoorwayFrames.FRAME_TOP_CAP + .01, "%s frame reaches %.2f m, over the %.2f m cap (lowest room ceiling)" \
+		_expect(visual_top <= DoorwayFrames.frame_cap(name) + .01, "%s frame reaches %.2f m, over the %.2f m cap (lowest room ceiling)" \
 			% [name, visual_top, DoorwayFrames.FRAME_TOP_CAP])
 		print("    %s  opening %.2f x %.2f m, frame top %.2f m" % [name, float(door["width"]), float(door["height"]), visual_top])
 
@@ -135,9 +140,10 @@ func _check_headers(doors: Array) -> void:
 			var top := 0.0
 			for mesh in (door["node"] as Node3D).find_children("*", "MeshInstance3D", true, false):
 				top = maxf(top, _in_space(door["node"], mesh as MeshInstance3D).end.y)
-			_expect(top >= DoorwayFrames.HEADER_Y, "%s frame top %.2f m stops under the header soffit (%.2f m): a gap" \
-				% [door["name"], top, DoorwayFrames.HEADER_Y])
+			var soffit := DoorwayFrames.header_y(String(door["name"]))
+			_expect(top >= soffit, "%s frame top %.2f m stops under the header soffit (%.2f m): a gap" % [door["name"], top, soffit])
 	var checked := 0
+	var spans := {1: 0, 2: 0}
 	var tallest := 0.0
 	for seed_text in ["DOOR-HEAD-A", "DOOR-HEAD-B", "DOOR-HEAD-C"]:
 		var generator := StreamedRouteGenerator.new(seed_text)
@@ -148,6 +154,10 @@ func _check_headers(doors: Array) -> void:
 					var data := generator.chunk(coord)
 					var region := String(data.get("region", "maze"))
 					var heights := RefLook.chunk_heights(data)
+					for prop_value in data.get("region_props", []):
+						if PropModelCatalog.is_room_door(String((prop_value as Dictionary).get("type", ""))):
+							var span := int((prop_value as Dictionary).get("door_span", 1))
+							spans[span] = int(spans.get(span, 0)) + 1
 					var headers := StreamedFacilityView3D.door_headers(data.get("region_props", []), heights,
 						RefLook.corridor_height(region, coord))
 					for cell_value in headers:
@@ -157,6 +167,7 @@ func _check_headers(doors: Array) -> void:
 						tallest = maxf(tallest, maxf(float(header["front_h"]), float(header["back_h"])))
 						_check_header_rays(cell, header, "%s %s %s" % [seed_text, coord, cell])
 	_expect(checked >= 20, "only %d door cells found to check headers on" % checked)
+	print("    doors with leaves: %d two-cell, %d one-cell (rooms under 4 cells and inside suites)" % [spans[2], spans[1]])
 	print("    headers: %d door cells, ceilings up to %.1f m, no ray through the opening above a frame" % [checked, tallest])
 
 
@@ -169,14 +180,16 @@ func _check_header_rays(cell: Vector2i, header: Dictionary, where: String) -> vo
 	for side in [across, -across]:
 		var top := float(header["front_h"] if side == across else header["back_h"])
 		var out := Vector3(side.x, 0, side.y)
-		for y in [DoorwayFrames.HEADER_Y + .05, (DoorwayFrames.HEADER_Y + top) * .5, top - .05]:
+		var soffit := float(header["header_y"])
+		_expect(top > soffit + .05, "door at %s: the ceiling %.2f m is not above the header soffit %.2f m" % [where, top, soffit])
+		for y in [soffit + .05, (soffit + top) * .5, top - .05]:
 			if y >= top:
 				continue
 			for slide in [-.4, 0.0, .4]:
 				var along: Vector3 = Vector3(-out.z, 0, out.x) * float(slide)
 				_expect(_hits(faces, centre + along + out * 1.2 + Vector3.UP * y, -out),
 					"gap over the door at %s: a ray at %.2f m from the %s side passes (ceiling %.2f m)" % [where, y, side, top])
-	_expect(_hits(faces, centre + Vector3.UP * 2.0, Vector3.UP), "no soffit over the door frame at %s" % where)
+	_expect(_hits(faces, centre + Vector3.UP * (float(header["header_y"]) - 1.0), Vector3.UP), "no soffit over the door frame at %s" % where)
 
 
 func _hits(faces: PackedVector3Array, from: Vector3, direction: Vector3) -> bool:
@@ -223,6 +236,7 @@ func _walk_hunter(host: Node, id: String, doors: Array) -> Dictionary:
 			# bound once at rest (as the game does on spawn); each pass starts out of the pose
 			pose.turn = 0.0
 			pose.duck = 0.0
+			pose.tuck = 0.0
 			var worst := _pass(model, player, pose, frame, float(SPEEDS[clip]), door, id, String(clip))
 			stats["headroom"] = minf(float(stats["headroom"]), worst["headroom"])
 			stats["side"] = minf(float(stats["side"]), worst["side"])
@@ -239,6 +253,8 @@ func _pass(model: Node3D, player: AnimationPlayer, pose: DoorwayPose, frame: Dic
 	var half := float(door["width"]) * .5
 	var height := float(door["height"])
 	var worst := {"headroom": INF, "side": INF, "ducked": false, "turned": false}
+	var normal := pose.rest_height <= NORMAL_HEIGHT
+	var wide := float(door["width"]) > 1.5
 	var reported := false
 	var along := 2.6
 	var seconds := 0.0
@@ -251,6 +267,9 @@ func _pass(model: Node3D, player: AnimationPlayer, pose: DoorwayPose, frame: Dic
 		var ducked := pose.duck > DUCK_ON
 		worst["ducked"] = worst["ducked"] or ducked
 		worst["turned"] = worst["turned"] or pose.turn > .5
+		if normal and ducked and not reported:
+			_expect(false, "%s %s ducks through the %s: a normal hunter must walk through" % [id, clip, name])
+			reported = true
 		var space := Transform3D(Basis.IDENTITY, Vector3(0, 0, along))
 		var names := []
 		var boxes := DoorwayPose.mesh_boxes(model, space, names)
@@ -264,14 +283,16 @@ func _pass(model: Node3D, player: AnimationPlayer, pose: DoorwayPose, frame: Dic
 				var side_room := minf(box.position.x + half, half - box.end.x)
 				if core:
 					worst["side"] = minf(worst["side"], side_room)
-				if side_room < MIN_SIDE - slack:
+				if core and wide and side_room < WIDE_SIDE_ROOM:
+					problem = "only %.2f m side room in the two-cell %s (needs %.2f)" % [side_room, name, WIDE_SIDE_ROOM]
+				elif side_room < MIN_SIDE - slack:
 					problem = "side through the %s (x %.2f..%.2f, opening +-%.2f)" % [name, box.position.x, box.end.x, half]
 				elif side_room < MIN_SIDE:
 					_brush(id, String(names[index]), name)
 			# headroom under the header
 			if box.position.z < .2 and box.end.z > -.2:
 				var room := height - box.end.y
-				var needed := MIN_DUCKED if ducked else DoorwayFrames.HEADROOM
+				var needed := MIN_DUCKED if ducked else (NORMAL_HEADROOM if normal and core else DoorwayFrames.HEADROOM)
 				if core:
 					worst["headroom"] = minf(worst["headroom"], room)
 				if room < needed - slack:
@@ -287,7 +308,7 @@ func _pass(model: Node3D, player: AnimationPlayer, pose: DoorwayPose, frame: Dic
 				(_wide.get_or_add("%s %s" % [id, names[index]], {}) as Dictionary)[name] = true
 				problem = ""
 			if not problem.is_empty() and not reported:
-				_expect(false, "%s %s at %.2f m: %s %s (turn %.2f duck %.2f)" % [id, clip, along, names[index], problem, pose.turn, pose.duck])
+				_expect(false, "%s %s at %.2f m: %s %s (turn %.2f duck %.2f tuck %.2f)" % [id, clip, along, names[index], problem, pose.turn, pose.duck, pose.tuck])
 				reported = true
 		along -= speed * DT
 		seconds += DT

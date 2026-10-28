@@ -77,7 +77,7 @@ func tick(entity_id: String, brain: HunterBrain, delta: float, ctx: Dictionary =
 		return
 	var distance := float(ctx.get("target_distance", INF))
 	if previous != HunterBrain.State.CHASE and state == HunterBrain.State.CHASE and previous != -1:
-		_try(brain, s, "spot", SPOT_P)
+		_try(brain, s, "spot", float(brain.difficulty_profile.get("emote_spot_p", SPOT_P)))
 	elif previous == HunterBrain.State.CHASE and state != HunterBrain.State.CHASE:
 		_try(brain, s, "lose", LOSE_P)
 	if state == HunterBrain.State.SEARCH:
@@ -89,7 +89,7 @@ func tick(entity_id: String, brain: HunterBrain, delta: float, ctx: Dictionary =
 		s["search_for"] = 0.0
 		s["search_done"] = false
 	if state == HunterBrain.State.CHASE and distance >= CHASE_MIN_DISTANCE and float(s["chase_cd"]) <= 0.0 \
-			and rng.randf() < CHASE_PER_SECOND * delta * probability_scale:
+			and rng.randf() < CHASE_PER_SECOND * float(brain.difficulty_profile.get("emote_chase_scale", 1.0)) * delta * probability_scale:
 		if _try(brain, s, "chase", 1.0):
 			s["chase_cd"] = CHASE_COOLDOWN
 	if state == HunterBrain.State.IDLE:

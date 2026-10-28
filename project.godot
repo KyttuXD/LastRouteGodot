@@ -46,7 +46,7 @@ window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [gui]
 
@@ -317,6 +317,7 @@ environment/defaults/default_clear_color=Color(0.015, 0.02, 0.028, 1)
 
 [xr]
 
+openxr/enabled.quest=true
 openxr/foveation_level=3
 openxr/foveation_dynamic=true
 openxr/startup_alert=false

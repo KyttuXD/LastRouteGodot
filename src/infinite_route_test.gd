@@ -235,7 +235,9 @@ func _ready() -> void:
 	_refresh_hunter_stream()
 
 	if PlatformProfile.is_phone:
-		TouchControls.attach(self, player)   # phones only (docs/XR_ANDROID.md); desktop never creates it
+		TouchControls.attach(self, player, hud)   # phones only (docs/XR_ANDROID.md); desktop never creates it
+	if PlatformProfile.is_xr:
+		XRRoutePanel.attach(self, player, _xr_overlay_open)   # 2D screens on a panel once the player is in XR
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
@@ -322,6 +324,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if _void_fx != null:
 		_void_fx.tick(delta)
+	if not _slammed_doors.is_empty() and _remotes.simulates():
+		_tick_slammed_doors(delta)
 	_update_spectating()
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
@@ -448,8 +452,7 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 		_navigation.refresh(coord.y, facility.loaded_horizontal_coords())
 	if _navigation != null and _remotes != null and _remotes.simulates():
 		_refresh_hunter_stream()
-	var region := String(data.get("region", "maze")).to_upper()
-	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
+	hud.depth_label.text = RegionNames.level_line(coord.y, String(data.get("region", "maze")))
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
 	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")
@@ -763,6 +766,16 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
+func _xr_overlay_open() -> bool:
+	return _death_screen_open or hud.map_is_open() or hud.inventory_is_open() or GameState.escape_active \
+		or (_death_moment != null and _death_moment.is_open()) \
+		or (pause_menu != null and pause_menu.is_open()) \
+		or (_room_chat != null and _room_chat.is_open()) \
+		or (_admin_menu != null and _admin_menu.is_open()) \
+		or (_story != null and _story.is_active())
 
 
 func _on_inventory_open_changed(_shown: bool) -> void:
@@ -2015,52 +2028,7 @@ func _reset_gray_void_pressure(despawn_gray: bool) -> bool:
 
 
 func _party_moved_since_pressure_sample(targets: Array) -> bool:
-	var moved := false
-	var present := {}
-	for target_value in targets:
-		var target: Dictionary = target_value
-		var position_value = target.get("position")
-		if not position_value is Vector2 or bool(target.get("game_over", false)):
-			continue
-		var peer_id := int(target.get("peer_id", 1))
-		var position: Vector2 = position_value
-		var facing_value = target.get("facing")
-		var facing := Vector2.ZERO
-		if facing_value is Vector2:
-			facing = facing_value
-		present[peer_id] = true
-		var previous = _party_activity_anchors.get(peer_id)
-		var prev_position := position
-		var prev_facing := Vector2.ZERO
-		var had_anchor := false
-		if previous is Dictionary:
-			had_anchor = true
-			var stored_position = previous.get("position")
-			if stored_position is Vector2:
-				prev_position = stored_position
-			var stored_facing = previous.get("facing")
-			if stored_facing is Vector2:
-				prev_facing = stored_facing
-		elif previous is Vector2:
-			had_anchor = true
-			prev_position = previous
-		var walked := had_anchor and prev_position.distance_to(position) >= .35
-		var looked := false
-		if had_anchor and facing.length_squared() > .0001 \
-				and prev_facing.length_squared() > .0001 \
-				and prev_facing.distance_to(facing) >= .22:
-			looked = true
-		if not had_anchor or walked or looked:
-			_party_activity_anchors[peer_id] = {
-				"position": position, "facing": facing}
-			moved = true
-		elif facing.length_squared() > .0001 and prev_facing.length_squared() <= .0001:
-			_party_activity_anchors[peer_id] = {
-				"position": prev_position, "facing": facing}
-	for peer_id_value in _party_activity_anchors.keys().duplicate():
-		if not present.has(peer_id_value):
-			_party_activity_anchors.erase(peer_id_value)
-	return moved or present.is_empty()
+	return AntiIdle.party_moved(_party_activity_anchors, targets)
 
 
 func _afk_void_warning_remaining() -> float:
@@ -2104,6 +2072,18 @@ func _present_afk_void_warning() -> void:
 		_afk_void_warning_shown = false
 
 
+## entity id -> where the idle runner stood when the anti-idle pressure woke Gray there (applied when her brain exists).
+var _gray_hunts := {}
+
+
+## The anti-idle trigger is a hunt, not a rumour: Gray is told the runner's exact position and keeps it while they stay put.
+func _lock_gray_on(entity_id: String, brain: HunterBrain) -> void:
+	if not _gray_hunts.has(entity_id) or not brain.gimmick is VoidGrayGimmick:
+		return
+	(brain.gimmick as VoidGrayGimmick).force_hunt(brain, Vector2(_gray_hunts[entity_id]))
+	_gray_hunts.erase(entity_id)
+
+
 func _spawn_anti_idle_hunter() -> bool:
 	var local_target := _hunter_target(
 		_player_in_intact_safe_room(facility.current_chunk_data()))
@@ -2135,6 +2115,8 @@ func _spawn_anti_idle_hunter() -> bool:
 		var existing_view := _hunter_views.get(existing_id) as HunterView3D
 		if existing_view != null and existing_view.brain != null:
 			existing_view.brain.activate_at(target_position)
+			_gray_hunts[existing_id] = target_position
+			_lock_gray_on(existing_id, existing_view.brain)
 			existing_view.target_peer_id = int(target.get("peer_id", 1))
 			existing_view.sync_from_brain()
 			_store_hunter(existing_id, existing_view)
@@ -2163,7 +2145,7 @@ func _spawn_anti_idle_hunter() -> bool:
 					coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
 					coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
 				var distance := position.distance_to(target_position)
-				if distance < GameConfig.HUNTER_SPAWN_DISTANCE_MIN:
+				if distance < GameConfig.profile_value(RoomState.difficulty_id(), "spawn_distance"):
 					continue
 				var candidate := spawn.duplicate(true)
 				candidate["pressure_distance"] = distance
@@ -2193,9 +2175,11 @@ func _spawn_anti_idle_hunter() -> bool:
 	_anti_idle_spawn_sequence += 1
 	_hunter_stream_signature = ""
 	_refresh_hunter_stream()
+	_gray_hunts[entity_id] = target_position
 	var view := _hunter_views.get(entity_id) as HunterView3D
 	if view != null and view.brain != null:
 		view.brain.activate_at(target_position)
+		_lock_gray_on(entity_id, view.brain)
 		view.target_peer_id = int(target.get("peer_id", 1))
 		view.sync_from_brain()
 		_store_hunter(entity_id, view)
@@ -2452,6 +2436,25 @@ func _hunter_spawn_score(spawn: Dictionary, centers: Array[Vector3i]) -> float:
 	return result
 
 
+## True when a level link (ladder, stairs, manhole, grate, elevator, and the drop links once they exist: they are LevelLinks too) is within
+## `radius` cells: the pounce never launches from or at such a spot.
+func _hunter_near_link(position: Vector2, radius: float, level: int) -> bool:
+	if facility == null or facility.generator == null or not facility.generator.has_method("sewer"):
+		return false
+	var chunk_x := floori(position.x / StreamedRouteGenerator.CHUNK_SIZE)
+	var chunk_z := floori(position.y / StreamedRouteGenerator.CHUNK_SIZE)
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var coord := Vector3i(chunk_x + dx, level, chunk_z + dz)
+			for link_value in facility.generator.sewer().links_for(coord):
+				var cell: Vector2i = LevelLink.cell_on(link_value, level)
+				var at := Vector2((coord.x) * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
+					(coord.z) * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
+				if at.distance_to(position) <= radius:
+					return true
+	return false
+
+
 func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	var hunter_id := String(state.get("hunter_id", HunterRoster.DEFAULT_ID))
 	var spawn_position: Vector2 = state.get("position", Vector2.ZERO)
@@ -2462,7 +2465,9 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
 	_configure_day_vision(view.brain)
+	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
+	_lock_gray_on(entity_id, view.brain)
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
 	view.set_meta("streamed_entity_id", entity_id)
 	view.add_to_group("streamed_hunter")
@@ -2498,6 +2503,32 @@ func _store_hunter(entity_id: String, view: HunterView3D) -> void:
 		_hunter_origins.get(entity_id, Vector3i.ZERO))
 
 
+var _hunter_directors := {}
+
+
+## Hunters on a level work together on every mode (HunterDirector): share sightings, split into small teams, spread out, cap per runner.
+func _direct_hunters(delta: float, local_target: Dictionary) -> void:
+	var by_level := {}
+	for entity_id_value in _hunter_views:
+		var view := _hunter_views[entity_id_value] as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			continue
+		var level := int(_hunter_levels.get(entity_id_value, 0))
+		if not by_level.has(level):
+			by_level[level] = []
+		by_level[level].append({"id": str(entity_id_value), "brain": view.brain,
+			"target": _remotes.best_target(view.brain.position, local_target, -level)})
+	for level in by_level:
+		var navigation := _navigations.get(level) as StreamedHunterNavigation
+		if navigation == null:
+			continue
+		var director := _hunter_directors.get(level) as HunterDirector
+		if director == null or director.mode_id != RoomState.difficulty_id():
+			director = HunterDirector.new(RoomState.difficulty_id(), "DIRECTOR-%d" % level)
+			_hunter_directors[level] = director
+		director.tick(delta, by_level[level], navigation)
+
+
 func _update_hunters(delta: float, _data: Dictionary) -> void:
 	if _remotes == null or not _remotes.simulates():
 		return
@@ -2508,6 +2539,7 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 	var local_safe := _player_in_intact_safe_room(facility.current_chunk_data())
 	var local_target := _hunter_target(local_safe)
 	var breach_rooms := {}
+	_direct_hunters(delta, local_target)
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
 		var view := _hunter_views.get(entity_id) as HunterView3D
@@ -2684,7 +2716,7 @@ func _update_player_ladder(level: int) -> void:
 	var going_down := level == 0
 	if distance <= 1.4 and _ladder_hint_id != link_id:
 		_ladder_hint_id = link_id
-		hud.show_message("[E] LADDER %s // HOLD W / S TO CLIMB" % ("DOWN INTO THE SEWER" if going_down else "UP"))
+		hud.show_message(InputGlyphs.prompt("interact", "LADDER %s" % ("DOWN INTO THE SEWER" if going_down else "UP")))
 	elif distance > 2.0 and _ladder_hint_id == link_id:
 		_ladder_hint_id = ""
 	var wants := distance <= 0.45 or (distance <= 1.4 and Input.is_action_just_pressed("interact"))
@@ -2799,14 +2831,15 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	if spot.x < 0 or _hide_check_cooldowns.has(spot):
 		return
 	var centre := Vector2(spot) + Vector2(.5, .5)
-	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre):
+	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre,
+			GameConfig.profile_value(RoomState.difficulty_id(), "hide_trail")):
 		return
-	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.HIDE_CHECK_TELL_SECONDS,
+	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"),
 		"peer": int(target.get("peer_id", 1))}
-	_hide_check_cooldowns[spot] = GameConfig.HIDE_CHECK_COOLDOWN_SECONDS
-	brain.apply_stun(GameConfig.HIDE_CHECK_TELL_SECONDS)
+	_hide_check_cooldowns[spot] = GameConfig.profile_value(RoomState.difficulty_id(), "hide_cooldown")
+	brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))
 	_publish_stream_event({"what": "stream_hide_check", "cell": spot,
-		"seconds": GameConfig.HIDE_CHECK_TELL_SECONDS})
+		"seconds": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell")})
 
 
 static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:
@@ -2816,6 +2849,24 @@ static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector
 			if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) == cell:
 				return navigation.hiding_exit_position(spot)
 	return Vector2(cell) + Vector2(.5, .5)
+
+
+## door id -> seconds left slammed open (host only): the door is put back (closed, working) when the time is up.
+var _slammed_doors := {}
+
+
+func _slam_door(door_id: String, seconds: float) -> void:
+	_slammed_doors[door_id] = seconds
+	Sound.door_breach()
+	_publish_stream_event({"what": "stream_door", "door_id": door_id, "open": true, "broken": true})
+
+
+func _tick_slammed_doors(delta: float) -> void:
+	for door_id in _slammed_doors.keys():
+		_slammed_doors[door_id] = float(_slammed_doors[door_id]) - delta
+		if float(_slammed_doors[door_id]) <= 0.0:
+			_slammed_doors.erase(door_id)
+			_publish_stream_event({"what": "stream_door", "door_id": door_id, "open": false, "broken": false})
 
 
 func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
@@ -2840,6 +2891,11 @@ func _operate_hunter_room_door(view: HunterView3D, level: int) -> void:
 		var loxelle := view.brain.gimmick as LoxelleGimmick
 		if not loxelle.door_charge_active():
 			loxelle.start_door_breach(view.brain, nearest.room_door_id, at)
+		return
+	# Hard-mode ability: a chasing hunter may slam straight through a closed door (broken open for a while, loud).
+	var slam := view.brain.hard.door_slam_seconds(view.brain) if view.brain.hard != null else 0.0
+	if slam > 0.0:
+		_slam_door(nearest.room_door_id, slam)
 		return
 	# Every other hunter uses the handle and keeps moving. Door state is still
 	# host-authoritative and reliable, so guests see the same hinge animation.
@@ -3175,7 +3231,7 @@ func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 	if _naps.instant_catch(String(view.get_meta("streamed_entity_id", ""))):
 		inescapable = true
 		reason = HunterNaps.WOKE_GRAB_REASON
-	view.brain.calm_reset(GameConfig.ESCAPE_STUN_DURATION)
+	view.brain.calm_reset(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 	view.sync_from_brain()
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
@@ -3215,7 +3271,7 @@ func _resolve_taser(peer_id: int) -> void:
 	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
 		return
 	_taser_ready_usec_by_peer[peer_id] = now + int(
-		GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+		GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _target_state_for_peer(peer_id)
 	if target.is_empty() or bool(target.get("hidden", false)):
 		return
@@ -3247,7 +3303,7 @@ func _resolve_taser(peer_id: int) -> void:
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "TASER // NO TARGET"})
 		return
-	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 	hit.sync_from_brain()
 	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
 	_remotes.send_player_event(peer_id, {"what": "message",
@@ -3858,7 +3914,7 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
 				var spot := spot_value as RouteInteractable3D
 				if spot != null and spot.source_cell == check_cell:
-					spot.play_search_tell(float(event.get("seconds", GameConfig.HIDE_CHECK_TELL_SECONDS)))
+					spot.play_search_tell(float(event.get("seconds", GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"))))
 		"stream_door":
 			var door_id := String(event.get("door_id", ""))
 			if _stream_room_door_data(door_id).is_empty():
@@ -4213,6 +4269,7 @@ func _collect_hunter_report() -> void:
 		state["sleep_stage"] = _naps.stage_of(entity_id)
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
+		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
 		_hunter_report.append(state)
 
 
@@ -4254,6 +4311,8 @@ func _apply_hunter_report(data: Array) -> void:
 		var gimmick_state = state.get("gimmick", {})
 		if view.brain.gimmick != null and gimmick_state is Dictionary:
 			view.brain.gimmick.apply_network_state(gimmick_state)
+		if view.brain.hard != null and state.get("hard") is Dictionary:
+			view.brain.hard.apply_network_state(state["hard"])
 		view.sync_from_brain()
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
@@ -4380,7 +4439,7 @@ func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	if _remotes.simulates():
 		var view := _hunter_views.get(_escaping_entity_id) as HunterView3D
 		if view != null:
-			view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION * (2.0 if with_axe else 1.0))
+			view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun") * (2.0 if with_axe else 1.0))
 			view.sync_from_brain()
 			_store_hunter(_escaping_entity_id, view)
 	else:
@@ -4506,7 +4565,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
 			if view != null:
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION \
+				view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun") \
 					* (2.0 if bool(event.get("axe", false)) else 1.0))
 				view.sync_from_brain()
 				_store_hunter(String(event.get("entity_id", "")), view)
@@ -4851,7 +4910,7 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 			for view_value in _hunter_views.values():
 				var view := view_value as HunterView3D
 				if view != null and view.brain != null:
-					view.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+					view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 					view.sync_from_brain()
 		"wake_hunters":
 			var target := _target_state_for_peer(peer_id)

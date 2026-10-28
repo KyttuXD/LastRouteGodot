@@ -9,6 +9,9 @@ extends Node
 ##   --xr        handled by PlayerController3D (OpenXR); the profile only reads it
 ##   --lowmem    force the low-memory budget
 
+## Emitted by flush_saves (quitting, or the app going to the background): anything holding unsaved state saves now.
+signal saves_flushed
+
 ## A flat Android phone or tablet (touch controls, phone UI scale).
 var is_phone := false
 ## An XR export or `--xr` (OpenXR headset; the player rig decides whether it actually started).
@@ -44,6 +47,9 @@ func _ready() -> void:
 	if is_phone or is_quest:
 		# A run must not dim and lock the screen while the runner is standing still in a locker.
 		DisplayServer.screen_set_keep_on(true)
+	if is_xr:
+		# The menus are 2D: with OpenXR running, show them on a floating panel (XRMenuPanel) until a route takes over.
+		XRMenuPanel.attach.call_deferred(self)
 
 
 ## The budgets for the detected class (also called by the platform validator on a fresh instance with faked flags).
@@ -57,6 +63,44 @@ func apply_budgets() -> void:
 		camera_far = PHONE_CAMERA_FAR
 		default_pixel_effect_percent = 0.0
 		prebuild_linked_levels = not low_memory
+
+
+## Whether the app can offer a QUIT button. iOS apps may not terminate themselves (the user swipes them away) and a
+## web build has no desktop to return to, so both hide it.
+func can_quit() -> bool:
+	return quit_allowed(OS.has_feature("ios"), OS.has_feature("web"))
+
+
+static func quit_allowed(ios: bool, web: bool) -> bool:
+	return not ios and not web
+
+
+## Leaves the app: saves first (flush_saves), ends the OpenXR session on a headset so it returns cleanly to the home
+## environment, then quits. On Android get_tree().quit() finishes the activity. Desktop behaves as before. `quit` replaces
+## the final step (the platform validator checks the order without leaving).
+func quit_app(quit := Callable()) -> void:
+	flush_saves()
+	if is_xr:
+		var openxr := XRServer.find_interface("OpenXR")
+		if openxr != null and openxr.is_initialized():
+			get_tree().root.use_xr = false
+			openxr.uninitialize()
+	if quit.is_valid():
+		quit.call()
+	else:
+		get_tree().quit()
+
+
+## Writes everything that is kept between launches. Called before quitting and when a phone or headset sends the app
+## to the background (iOS may then end it without notice).
+func flush_saves() -> void:
+	Settings.call("_save")
+	saves_flushed.emit()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		flush_saves()
 
 
 ## One line for logs and the debug overlay.
