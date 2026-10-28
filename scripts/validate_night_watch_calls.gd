@@ -16,7 +16,57 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
+## A call is READ: on the plain office view and on the camera screen (where it used to be drawn under the opaque monitor and vanish), at the three test sizes, the call box is shown, above the monitor in the draw order,
+## inside the window, clear of the camera map and the close strip, its text is non-empty, big enough, opaque and 4.5:1 against its box. Real mode scenes too: each with a call, in real time, shows its text.
+func _check_call_visible(host: Node) -> void:
+	for size in [Vector2i(480, 270), Vector2i(854, 480), Vector2i(1920, 1080)]:
+		for monitor_up in [false, true]:
+			var vp := SubViewport.new()
+			vp.size = size
+			host.add_child(vp)
+			NightWatchControls.register()
+			var hud := NightWatchHud.new()
+			vp.add_child(hud)
+			await host.get_tree().process_frame
+			hud.show_monitor(monitor_up)
+			hud.show_call("Aki has started moving. She only moves while you aren't looking at a camera, so keep your checks short.")
+			await host.get_tree().process_frame
+			await host.get_tree().process_frame
+			var tag := "[call %s monitor %s] " % [str(size), monitor_up]
+			var panel := hud.call_panel
+			_expect(panel.is_visible_in_tree() and hud.call_label.text.length() > 20, tag + "the call box is not showing its text")
+			_expect(Rect2(Vector2.ZERO, Vector2(size)).encloses(panel.get_global_rect().grow(-0.01)), tag + "the call box leaves the window: %s" % str(panel.get_global_rect()))
+			_expect(panel.get_index() > hud.monitor_root.get_index(), tag + "the call box is drawn under the camera screen")
+			var covers: Array = [hud.cam_map, hud.close_button]
+			for c in covers:
+				if monitor_up and (c as Control).is_visible_in_tree():
+					_expect(not panel.get_global_rect().intersects((c as Control).get_global_rect().grow(-0.5)), tag + "the call box covers %s" % c.name)
+			var label := hud.call_label
+			_expect(label.get_global_rect().size.x > 20.0 and label.get_global_rect().size.y > 4.0 and label.get_theme_font_size("font_size") >= 5, tag + "the call text has no room or is too small")
+			var fg := label.get_theme_color("font_color")
+			var ratio := NightWatchUiAudit.contrast(fg, Color(0.0, 0.0, 0.0))
+			_expect(fg.a >= 0.99 and ratio >= 4.5 and label.modulate.a >= 0.99 and panel.modulate.a >= 0.99, tag + "the call text is not opaque and readable (%.1f:1, alpha %.2f)" % [ratio, fg.a])
+			vp.queue_free()
+			await host.get_tree().process_frame
+	# the real scenes, real time: the text arrives and is visible
+	for mode_id in ["classic", "mask", "lure"]:
+		NightWatchSession.start_mode(String(mode_id), 2, {}, 5)
+		var game := (load(NightWatchModeRegistry.scene_for(String(mode_id))) as PackedScene).instantiate()
+		host.add_child(game)
+		var got := false
+		var game_hud = game.get("hud")
+		for _i in 40:
+			await host.get_tree().create_timer(0.5).timeout
+			if game_hud.call_panel.is_visible_in_tree() and game_hud.call_label.text.length() > 12 and not game_hud.call_label.text.begins_with("Incoming"):
+				got = true
+				break
+		_expect(got, "[%s real time] Zellia's call never showed its text within 20 s" % mode_id)
+		game.queue_free()
+		await host.get_tree().process_frame
+
+
 func run(host: Node) -> int:
+	await _check_call_visible(host)
 	var golden = JSON.parse_string(FileAccess.get_file_as_string(GOLDEN))
 	_expect(golden is Dictionary, "the golden 2D call file is missing or not JSON")
 	if not (golden is Dictionary):
