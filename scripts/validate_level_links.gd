@@ -2,7 +2,7 @@ extends RefCounted
 
 ## Up/down bleed audit (KT: "can we check for other UP/DOWN bleeding spots"): every vertical connection the streamed
 ## world builds, on every level pair, over several seeds. For each ladder (maze <-> sewer), stairwell (sewer <-> maze;
-## the storeys above once they stream), ramp (sewer <-> collector, collector <-> Inferno) and waterfall drop (sewer -> collector)
+## the Mezzanine over the maze is open catwalk with no slab, so it is out of scope), ramp (sewer <-> collector, collector <-> Inferno) and waterfall drop (sewer -> collector)
 ## both chunks of the link's column are built and their visible surface (RefSurfaceMesh) is checked:
 ##  - clear: no floor or ceiling face across the opening between the lower floor and the upper storey's floor
 ##    (a slab through the well, a lid of ceiling over the ladder shaft);
@@ -50,8 +50,8 @@ func run(host: Node) -> int:
 		await _audit_seed(host, seed_text)
 	for kind in ["ladder", "stairs", "spiral", "ramp", "falls"]:
 		_expect(int(_counts.get(kind, 0)) >= 2, "only %d %s links audited (want at least 2)" % [_counts.get(kind, 0), kind])
-	# the storeys over the maze are not streamed yet (StreamedRouteGenerator.is_chunk_allowed stops at the maze), so
-	# their stairwells are audited when they are; upper_levels checks their slabs meanwhile
+	# over the maze the Mezzanine is open catwalk in a double-height void (no slab to bleed through: mezzanine_view
+	# owns it); the slabbed storeys above it are checked by upper_levels until they stream
 	for pair in ["0/-1", "-1/-2", "-2/-3"]:
 		_expect(_pairs.has(pair), "no link audited between levels %s" % pair)
 	print("  level_links: StoreyLayers.apply worst %.2f ms per chunk" % (_worst_layers_usec / 1000.0))
@@ -86,7 +86,8 @@ func _links(generator: StreamedRouteGenerator) -> Array:
 					var link: Dictionary = link_value
 					add.call({"kind": "ladder", "x": x, "z": z, "lo": SewerRouteGenerator.LEVEL, "hi": 0,
 						"cells": [LevelLink.cell_on(link, SewerRouteGenerator.LEVEL)], "landings": [], "label": link["id"]})
-			for upper in [0, 1, 2, 3]:
+			# the slabbed storeys only: the Mezzanine (+1) is open catwalk in the maze's double-height void, no slab between
+			for upper in [0]:
 				if not generator.is_chunk_allowed(Vector3i(x, upper, z)) or not generator.is_chunk_allowed(Vector3i(x, upper - 1, z)):
 					continue
 				var well: Dictionary = generator.stairwell_between(x, z, upper)
@@ -150,7 +151,7 @@ func _audit_seed(host: Node, seed_text: String) -> void:
 		_check_z_fighting(seed_text, coord, built[coord])
 	for coord in built:
 		var above := Vector3i(coord.x, coord.y + 1, coord.z)
-		if built.has(above):
+		if built.has(above) and above.y <= 0:
 			_check_contained(view, seed_text, coord, built[coord], built[above])
 	view.clear()
 	view.queue_free()
