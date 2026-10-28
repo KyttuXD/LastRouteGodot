@@ -125,7 +125,10 @@ var connecting := false
 ## into the live scene and catch up from the host's world snapshot.
 var session_active := false
 ## Player-facing transport/lifecycle feedback which survives scene changes.
-var status_message := ""
+## Shown in menus and staging, so never with a server address (ServerPrivacy.scrub).
+var status_message := "":
+	set(value):
+		status_message = ServerPrivacy.scrub(value)
 
 ## Peer id -> callsign. The host is always peer 1. Kept as a dictionary rather
 ## than a list so a player leaving removes the right row without the others
