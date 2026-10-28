@@ -3668,13 +3668,15 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 			specs.append(_sp("xrayLightbox", 0, 0, "open", _MOUNT))
 			specs.append(_sp("hazardSign", -2 * mirror, 0, "open", _MOUNT))
 		"icu":
-			for bay in [-3, 3]:    # hunter-scale beds (1.54 m wide): the bedside kit two cells either side
+			# hunter-scale beds (1.54 m wide) sit two cells off the centre line: 1.7 m between each bed and its side wall and
+			# 2.4 m between the beds, all wider than a hunter, so no strip beside a bed is a dead pocket
+			for bay in [-2, 2]:
 				specs.append(_sp("hospitalBed", bay, 0, "open", _WALL))
-				specs.append(_sp("vitalsMonitor", bay - 2, 0, "open", _WALL))
-				specs.append(_sp("ivDripStand", bay + 2, 0, "center"))
-			specs.append(_sp("hospitalCurtain", 0, 1, "right"))
-			specs.append(_sp("instrumentTrolley", -4 * mirror, 3, "center"))
-			specs.append(_sp("medicalSupplyRack", 4 * mirror, 3, "center"))
+				specs.append(_sp("vitalsMonitor", bay * 2, 0, "open", _WALL))
+				specs.append(_sp("ivDripStand", signi(bay), 0, "center"))
+			# past the beds' feet (depth 3), so the strip between a bed and its side wall stays open at its foot
+			specs.append(_sp("instrumentTrolley", -4 * mirror, 5, "center"))
+			specs.append(_sp("medicalSupplyRack", 4 * mirror, 5, "center"))
 			specs.append(_sp("hospitalWardSign", 0, 0, "open", _MOUNT))
 			specs.append(_sp("ceilingLight", -2, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 2, mid, "open", _LOOSE))
@@ -4013,10 +4015,11 @@ static func _biome_room_specs(template: String, half: int, depth_span: int, mirr
 				specs.append(_sp("dinerBooth", booth_side, 0, "open", _WALL))
 			specs.append(_sp("coffeeStation", 0, 0, "open", _WALL))
 			specs.append(_sp("menuBoard", 0, 0, "open", {"wall_mount": true, "solid": false, "mount_y": 1.9}))
-			specs.append(_sp("checkoutCounter", -4, 3, "open"))
-			specs.append(_sp("checkoutCounter", 4, 3, "open"))
+			# hunter-scale bodies need 1.4 m between a counter's back and the booths behind it
+			specs.append(_sp("checkoutCounter", -4, 4, "open"))
+			specs.append(_sp("checkoutCounter", 4, 4, "open"))
 			for stool_side in [-5, -3, 3, 5]:
-				specs.append(_sp("dinerStool", stool_side, 4, "back"))
+				specs.append(_sp("dinerStool", stool_side, 5, "back"))
 			specs.append(_sp("ceilingLight", -3, mid, "open", _LOOSE))
 			specs.append(_sp("ceilingLight", 3, mid, "open", _LOOSE))
 		"florist":
