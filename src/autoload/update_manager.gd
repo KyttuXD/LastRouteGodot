@@ -319,7 +319,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	update_available.emit(available)
 	var identity := revision.left(8) if not revision.is_empty() else version
 	_finish_check(true, true, "UPDATE %s FOUND" % identity)
-	download_update.call_deferred()
+	if not is_dev_build() or smoke_test:
+		download_update.call_deferred()   # dev builds only get the notice
 
 
 ## Downloads immediately after discovery. Calling this again is also the
@@ -605,19 +606,49 @@ func _download_failed(message: String) -> void:
 	_set_status(message)
 
 
+## Every self-updating native platform (desktop, phone, Quest) holds the player on the update screen while an update is
+## available; the web build refreshes itself and iOS updates through the App Store.
 func uses_in_progress_screen() -> bool:
-	# Native desktop is the path whose helper must stop this process. Web and
-	# Quest already stay inside an in-app installer or refresh.
-	return platform_key() in ["linux", "windows", "windows_legacy", "steamvr",
-		"macos"]
+	return gated_platform(platform_key())
+
+
+## An unstamped build (no build number: update-app.sh / adb / iOS script installs of newer code from main) is a dev build:
+## it is told an update exists but is never blocked or auto-downloaded, and never offered a "downgrade" to the manifest.
+static func dev_build(build_number: int) -> bool:
+	return build_number <= 0
+
+
+## Tests pin the build number (-1 = this build's own).
+var build_number_override := -1
+
+
+func is_dev_build() -> bool:
+	return dev_build(build_number_override if build_number_override >= 0 else Build.build_number())
+
+
+static func gated_platform(key: String) -> bool:
+	return key in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]
+
+
+## Tests replace the scene change with a Callable; the game goes to the update screen.
+var gate_override := Callable()
+
+
+func open_update_screen() -> void:
+	if gate_override.is_valid():
+		gate_override.call()
+		return
+	get_tree().change_scene_to_file.call_deferred(UPDATE_PROGRESS_SCENE)
 
 
 func _required_or_debug_update() -> bool:
 	return update_required or Build.requires_update_gate()
 
 
+## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
+## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
-	if offline_mode or not uses_in_progress_screen() or not _required_or_debug_update():
+	if offline_mode or not uses_in_progress_screen() or is_dev_build():
 		return false
 	if _gameplay_active():
 		return false
