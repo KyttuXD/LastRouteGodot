@@ -114,6 +114,8 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## The route scene's shared music-box clock; each box's tune follows it (MusicBoxTune).
+var music_boxes: MusicBoxes
 ## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
 var booth_requester: Callable
 var booth_reporter: Callable
@@ -402,6 +404,8 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	if PlatformProfile.maze_culling:
+		_update_maze_culling()
 	_ready_recheck -= _delta
 	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
 		_ready_recheck = .5
@@ -603,6 +607,123 @@ func _thinned_out(prop: Dictionary, type: String) -> bool:
 			or not PropModelCatalog.interaction_for(type).is_empty():
 		return false
 	return absi(hash(String(prop.get("id", "")) + ":thin")) % 100 >= int(density * 100.0)
+
+
+## Maze culling (every renderer, the web included): when the runner enters a new cell, a worker floods out through open
+## cells (closed room doors block) to MAZE_CULL_RADIUS metres and the prop visuals on the runner's level whose cell the
+## flood did not reach are hidden. Any straight line of sight through the maze is a run of open cells, so the flood is
+## a superset of what can be seen; one extra ring of cells covers lines that graze a corner. Only visuals hide:
+## colliders, hunters, audio and lamps are untouched. scripts/validate_maze_culling.gd guards against popping.
+const MAZE_CULL_RADIUS := 64
+var _cull_task := -1
+var _cull_result := {}
+var _cull_cell := Vector2i(999999, 999999)
+var _cull_level := 999999
+var _cull_visible := {}
+var maze_cull_hidden := 0
+var maze_cull_props := 0
+var maze_cull_tiles_hidden := 0
+var maze_cull_tiles := 0
+
+
+func _update_maze_culling() -> void:
+	if _cull_task != -1:
+		if not WorkerThreadPool.is_task_completed(_cull_task):
+			return
+		WorkerThreadPool.wait_for_task_completion(_cull_task)
+		_cull_task = -1
+		_cull_visible = _cull_result.get("visible", {})
+		_apply_maze_culling()
+	var local := tracked_player.global_position - global_position
+	var cell := Vector2i(floori(local.x), floori(local.z))
+	var level := current_level()
+	if cell == _cull_cell and level == _cull_level:
+		return
+	_cull_cell = cell
+	_cull_level = level
+	var grids := {}
+	for coord_value in _loaded:
+		var coord: Vector3i = coord_value
+		if coord.y == level and _chunk_data.has(coord):
+			grids[Vector2i(coord.x, coord.z)] = (_chunk_data[coord] as Dictionary).get("grid", [])
+	var closed := {}
+	for door_value in _door_nodes.values():
+		var door := door_value as Node3D
+		if door != null and is_instance_valid(door) and not bool(door.get("room_door_open")):
+			var at := door.global_position - global_position
+			if floori(at.y / LEVEL_HEIGHT + .5) == level:
+				closed[Vector2i(floori(at.x), floori(at.z))] = true
+	var result := {}
+	_cull_result = result
+	_cull_task = WorkerThreadPool.add_task(func() -> void:
+		result["visible"] = maze_visible_cells(grids, closed, cell, MAZE_CULL_RADIUS), false, "maze culling")
+
+
+## Cells reachable through open cells from `start` within `radius` (closed doors block), plus one ring around them.
+static func maze_visible_cells(grids: Dictionary, closed: Dictionary, start: Vector2i, radius: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var open := func(c: Vector2i) -> bool:
+		var chunk := Vector2i(floori(float(c.x) / size), floori(float(c.y) / size))
+		var grid: Array = grids.get(chunk, [])
+		if grid.is_empty() or closed.has(c):
+			return false
+		var lx := posmod(c.x, size)
+		var lz := posmod(c.y, size)
+		return lz < grid.size() and lx < (grid[lz] as Array).size() and int(grid[lz][lx]) == 0
+	var seen := {start: true}
+	var frontier: Array[Vector2i] = [start]
+	var r2 := radius * radius
+	while not frontier.is_empty():
+		var c: Vector2i = frontier.pop_back()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = c + d
+			if seen.has(n) or (n - start).length_squared() > r2 or not open.call(n):
+				continue
+			seen[n] = true
+			frontier.append(n)
+	var out := seen.duplicate()
+	for c in seen:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				out[Vector2i(c.x + dx, c.y + dz)] = true
+	return out
+
+
+func _apply_maze_culling() -> void:
+	var hidden := 0
+	var total := 0
+	for node in get_tree().get_nodes_in_group("cull_prop"):
+		var prop := node as Node3D
+		var root := prop.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		total += 1
+		var show := _cull_visible.has(prop.get_meta("cull_cell", Vector2i.ZERO))
+		if prop.visible != show:
+			prop.visible = show
+		if not show:
+			hidden += 1
+	maze_cull_hidden = hidden
+	maze_cull_props = total
+	var tiles_seen := {}
+	for c in _cull_visible:
+		var cell: Vector2i = c
+		tiles_seen[Vector2i(floori(float(cell.x) / RefSurfaceMesh.TILE), floori(float(cell.y) / RefSurfaceMesh.TILE))] = true
+	var tiles_hidden := 0
+	var tiles_total := 0
+	for node in get_tree().get_nodes_in_group("cull_tile"):
+		var tile := node as Node3D
+		var root := tile.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		tiles_total += 1
+		var show := tiles_seen.has(tile.get_meta("cull_tile", Vector2i.ZERO))
+		if tile.visible != show:
+			tile.visible = show
+		if not show:
+			tiles_hidden += 1
+	maze_cull_tiles_hidden = tiles_hidden
+	maze_cull_tiles = tiles_total
 
 
 ## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
@@ -1092,7 +1213,14 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		corridor_h = minf(corridor_h, cap)
 		for cell_value in heights:
 			heights[cell_value] = minf(float(heights[cell_value]), cap)
-	# Inferno caverns rise to the full storey; the maze around them keeps its low ceilings.
+	# Cave ceilings are uneven: the tunnels' roof steps between 3.1 and 3.7 m in 3-cell patches, the chambers rise to the
+	# full storey.
+	if coord.y == StreamedRouteGenerator.INFERNO_LEVEL:
+		var cave_grid: Array = data["grid"]
+		for z in StreamedRouteGenerator.CHUNK_SIZE:
+			for x in StreamedRouteGenerator.CHUNK_SIZE:
+				if int(cave_grid[z][x]) == 0:
+					heights[Vector2i(x, z)] = 3.1 + .2 * RefLook.pick(coord.x * StreamedRouteGenerator.CHUNK_SIZE / 3 + x / 3, coord.z * StreamedRouteGenerator.CHUNK_SIZE / 3 + z / 3, 9, 4)
 	for cavern in data.get("inferno_caverns", []):
 		for cell_value in (cavern as Dictionary)["cells"]:
 			heights[cell_value] = LEVEL_HEIGHT - SLAB
@@ -1218,12 +1346,28 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				if not immediate:
 					return false
 			2:
-				var surface_node := MeshInstance3D.new()
-				surface_node.name = "Surface"
-				surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
-					RefTextures.array_material("floor"), RefTextures.array_material("wall"))
-				surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-				root.add_child(surface_node)
+				if PlatformProfile.maze_culling:
+					# maze culling: one surface mesh per 15 x 15 tile, hidden when no line of sight reaches it
+					var tiles: Dictionary = (build["surface"] as RefSurfaceMesh).build_tiles(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					var coord: Vector3i = build["coord"]
+					var size := StreamedRouteGenerator.CHUNK_SIZE
+					for t in tiles:
+						var tile_node := MeshInstance3D.new()
+						tile_node.name = "Surface%d" % t
+						tile_node.mesh = tiles[t]
+						tile_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						tile_node.set_meta("cull_tile", Vector2i(coord.x * size / RefSurfaceMesh.TILE + t % 3,
+							coord.z * size / RefSurfaceMesh.TILE + t / 3))
+						tile_node.add_to_group("cull_tile")
+						root.add_child(tile_node)
+				else:
+					var surface_node := MeshInstance3D.new()
+					surface_node.name = "Surface"
+					surface_node.mesh = (build["surface"] as RefSurfaceMesh).build(
+						RefTextures.array_material("floor"), RefTextures.array_material("wall"))
+					surface_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					root.add_child(surface_node)
 				build["phase"] = 3
 				if not immediate:
 					return false
@@ -1293,6 +1437,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					if not immediate:
 						return false
 					continue
+				_spawn_music_boxes(root, data)
 				build["phase"] = 7
 			7:
 				var pickups: Array = data.get("pickups", [])
@@ -2399,6 +2544,15 @@ static func ref_floor_kind(data: Dictionary, region: String, room_map: Dictionar
 	var coord: Vector3i = data["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cell := Vector2i(x, z)
+	if region == "inferno":
+		# the caves are rock; only walkways (the chain bridge, a ramp's landing and its connector) are plated
+		for pit in InfernoCaverns.pits_in(data):
+			if (pit["bridge"] as Rect2i).has_point(cell):
+				return "hazard"
+		for ramp in data.get("ramps", []):
+			if (ramp["bottom"] as Rect2i).has_point(cell) or (ramp["connector"] as Rect2i).has_point(cell):
+				return "hazard"
+		return "rock%d" % posmod(RefLook.pick(coord.x * size + x, coord.z * size + z, 7, 3), 3)
 	var room_type: String = room_map.get(cell, "")
 	if room_type != "":
 		var origin: Vector2i = room_anchor.get(cell, cell)
@@ -3130,6 +3284,10 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.rotation.y = PropModelCatalog.authored_visual_yaw(yaw)
 	visual.set_meta("streamed_prop_type", prop_type)
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
+	# maze culling: the world cell this prop stands in (its visual hides when no open path of sight reaches the cell)
+	var world_at := (parent.position if parent != null else Vector3.ZERO) + at
+	visual.set_meta("cull_cell", Vector2i(floori(world_at.x), floori(world_at.z)))
+	visual.add_to_group("cull_prop")
 	visual.add_to_group(group_name)
 	_limit_prop_visibility(visual, visual_bounds, prop_type)
 	parent.add_child(visual)
@@ -3423,6 +3581,25 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	parent.add_child(spot)
 	if not entity_id.is_empty():
 		_fixture_nodes[entity_id] = spot
+
+
+## Music boxes (at most one per chunk): hold [E] to wind, resolved by the route scene's player.music_box_resolver.
+func _spawn_music_boxes(parent: Node3D, data: Dictionary) -> void:
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	for box_value in data.get("music_boxes", []):
+		var box: Dictionary = box_value
+		var cell: Vector2i = box.get("cell", Vector2i.ZERO)
+		var node := RouteInteractable3D.new()
+		node.kind = RouteInteractable3D.Kind.MUSIC_BOX
+		node.music_box_id = String(box.get("id", ""))
+		node.music_boxes = music_boxes
+		node.name = "MusicBox_%s" % node.music_box_id.replace(":", "_")
+		node.prompt_text = "HOLD INTERACT // WIND MUSIC BOX"
+		node.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
+		node.position = Vector3(cell.x + .5, .04, cell.y + .5)
+		node.add_to_group("streamed_music_box")
+		parent.add_child(node)
 
 
 func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:

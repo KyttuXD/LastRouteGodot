@@ -1,24 +1,24 @@
 class_name InfernoCaverns
 extends RefCounted
 
-## Level -3 is a maze of narrow halls with a few wide places in it. A cavern is a rough blob 14-22 cells across that
-## replaces whatever rooms it overlaps, with a high ceiling (the view lifts its cells to the storey cap) and a rim of
-## pillars and one-cell crevices: the open middle is where a chase can run, the crevices are where a runner can hide.
-## A hall 5 cells wide ties each cavern to the circulation the maze already has, so nothing is cut off.
-##
-## Everything here is deterministic from the world seed and the chunk coordinate, and runs on the grid only.
+## Level -3 is a cave network, not a maze (KT: "a different style of layout instead of copying the maze above it").
+## Per chunk, deterministic from the world seed and the chunk coordinate: a middle chamber and one or two more
+## (rough blobs 10-22 cells across, some with natural pillars, a rim of one-cell dead-end crevices, high ceilings),
+## joined to each other, to every seam opening and to the ramp landings by winding tunnels 3-5 cells wide whose width
+## wanders. The cage-pit district (lava channel, chain bridge, hanging cages) is one chamber type.
+## Everything runs on the walk grid only; the view reads the chamber data.
 
 const CHUNK_SIZE := 45
-const MARGIN := 5                    # keeps a cavern off the seam openings
+const MARGIN := 6                    # keeps a chamber off the seam openings
 const MIN_SPAN := 14
 const MAX_SPAN := 22
-const HALL_WIDTH := 5
-const CAVERN_CHANCE := 1.0
-const SECOND_CHANCE := 0.6
+const CHAMBERS_EXTRA := Vector2i(1, 2)
+const TUNNEL_RADIUS := Vector2(2.0, 2.9)   # a cell centre within this of the path is open: 3 to 5 wide
+const WIGGLE := 6.0
 const CREVICES := 3
 const CREVICE_DEPTH := 4
-const KEEP_CLEAR := 2                # cells between a cavern and a ramp or stairwell footprint
-const PIT_CHANCE := 0.28
+const PILLARS := Vector2i(3, 6)
+const PIT_CHANCE := 0.5
 const PIT_MIN_SPAN := 18
 const PIT_BAND := 3                  # width of the lava channel
 const PIT_BRIDGE := 3                # width of the span across it
@@ -28,46 +28,175 @@ const CAGE_HIGH := 2.5               # bottom heights above the floor: high, low
 const CAGE_UNDER := 2.1
 const CAGE_LOW := 0.75
 const OPEN_CLEARANCE := 3            # a 7x7 fully open block is clearance 3
+const HALL_WIDTH := 3                # the narrowest a tunnel runs (kept for the checks)
 
 
-## Carves caverns into `grid` and returns them as {"rect", "cells", "halls", "crevices"} dictionaries.
-## `blocked` holds footprints the carve must not touch (ramps, stairwells); `circulation` is the set of cells the
-## maze guarantees walkable, which each hall reaches for.
-static func carve(world_seed: String, coord: Vector3i, grid: Array, layout: Dictionary, circulation: Dictionary,
-		blocked: Array[Rect2i]) -> Array:
-	var rng := SeededRandom.new("%s:INFERNO-CAVERN:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
-	var caverns: Array = []
-	var count := 0
-	if rng.next_float() < CAVERN_CHANCE:
-		count = 1
-		if rng.next_float() < SECOND_CHANCE:
-			count = 2
-	var taken: Array[Rect2i] = blocked.duplicate()
-	for _i in count:
-		var cavern := _place(rng, taken, caverns.is_empty())
-		if cavern.is_empty():
-			continue
-		_remove_rooms(grid, layout, (cavern["rect"] as Rect2i).grow(1))
-		_stamp(grid, cavern)
-		cavern["crevices"] = _crevices(rng, grid, cavern)
-		cavern["halls"] = _halls(rng, grid, layout, circulation, cavern, blocked)
-		if rng.next_float() < PIT_CHANCE:
-			cavern["pit"] = _pit(rng, grid, cavern)
-		for hall in cavern["halls"]:
-			_mark(circulation, hall)
-		for cell in cavern["cells"]:
-			circulation[cell] = true
-		taken.append((cavern["rect"] as Rect2i).grow(2))
-		caverns.append(cavern)
-	return caverns
+## Carves the cave network into `grid` (all rock on entry) and returns the chambers as
+## {"rect", "cells", "halls", "crevices", "pillars", "tunnel_cells", "pit"?} dictionaries. `edges` are the seam openings
+## (offsets along each side), `ramps` the ramp landings that must be reachable, `safe` a safe-room chunk (its middle
+## stays one open chamber). `circulation` receives every open cell.
+static func carve(world_seed: String, coord: Vector3i, grid: Array, edges: Dictionary, ramps: Array, safe: bool,
+		circulation: Dictionary) -> Array:
+	var rng := SeededRandom.new("%s:INFERNO-CAVE:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
+	var middle := Vector2i(CHUNK_SIZE / 2, CHUNK_SIZE / 2)
+	var keep_out: Array[Rect2i] = []
+	var anchors: Array[Vector2i] = []
+	for ramp in ramps:
+		for part in ["ramp", "bottom", "connector"]:
+			keep_out.append((ramp[part] as Rect2i).grow(3))
+		var bottom: Rect2i = ramp["bottom"]
+		anchors.append(Vector2i(bottom.position.x + bottom.size.x / 2, bottom.position.y + bottom.size.y / 2))
+	# chambers: the middle one first, then up to two more that keep their distance
+	var chambers: Array = []
+	var first_rect := Rect2i(0, 0, MIN_SPAN + 4 + rng.next_index(MAX_SPAN - MIN_SPAN - 3), MIN_SPAN + 4 + rng.next_index(MAX_SPAN - MIN_SPAN - 3))
+	if safe:
+		first_rect.size = Vector2i(MIN_SPAN, MIN_SPAN)
+	# the middle chamber keeps off the ramp landings: try nearby spots, then a smaller chamber
+	var settled := false
+	for attempt in 30:
+		var jitter := Vector2i(rng.next_index(17) - 8, rng.next_index(17) - 8) if attempt > 0 else Vector2i.ZERO
+		first_rect.position = middle - first_rect.size / 2 + jitter
+		var clash := first_rect.position.x < MARGIN or first_rect.position.y < MARGIN or first_rect.end.x > CHUNK_SIZE - MARGIN or first_rect.end.y > CHUNK_SIZE - MARGIN
+		for blocked in keep_out:
+			if first_rect.grow(1).intersects(blocked):
+				clash = true
+		if not clash:
+			settled = true
+			break
+		if attempt == 20:
+			first_rect.size = Vector2i(MIN_SPAN, MIN_SPAN)
+	if not settled:
+		first_rect.position = middle - first_rect.size / 2
+	chambers.append(_chamber(rng, first_rect))
+	var extra := CHAMBERS_EXTRA.x + rng.next_index(CHAMBERS_EXTRA.y - CHAMBERS_EXTRA.x + 1)
+	for _i in extra:
+		var placed := _place(rng, chambers, keep_out)
+		if not placed.is_empty():
+			chambers.append(placed)
+	var tunnels: Array = []
+	var links := {}
+	# every seam opening and ramp landing runs to the nearest chamber
+	var portals: Array[Vector2i] = []
+	var stubs: Array[Rect2i] = []
+	for side in ["west", "east", "north", "south"]:
+		for offset_value in edges.get(side, []):
+			var offset := int(offset_value)
+			var edge := Vector2i(0, offset)
+			var inner := Vector2i(3, offset)
+			match side:
+				"east":
+					edge = Vector2i(CHUNK_SIZE - 1, offset)
+					inner = Vector2i(CHUNK_SIZE - 4, offset)
+				"north":
+					edge = Vector2i(offset, 0)
+					inner = Vector2i(offset, 3)
+				"south":
+					edge = Vector2i(offset, CHUNK_SIZE - 1)
+					inner = Vector2i(offset, CHUNK_SIZE - 4)
+			stubs.append(_carve_stub(grid, edge, inner, side))
+			portals.append(inner)
+	for portal in portals:
+		_link(rng, grid, tunnels, links, portal, _nearest(chambers, portal))
+	for anchor in anchors:
+		_link(rng, grid, tunnels, links, anchor, _nearest(chambers, anchor))
+	# the extra chambers hang off the middle one, and the two outermost also join each other: a loop to run round
+	for index in range(1, chambers.size()):
+		_link(rng, grid, tunnels, links, _centre(chambers[index]), chambers[0])
+	if chambers.size() > 2:
+		_link(rng, grid, tunnels, links, _centre(chambers[1]), chambers[2])
+	for chamber in chambers:
+		for cell in chamber["cells"]:
+			grid[cell.y][cell.x] = 0
+	_close_slivers(grid, ramps, stubs)
+	for chamber in chambers:
+		chamber["tunnel_cells"] = links
+		chamber["pillars"] = _pillars(rng, grid, chamber, links)
+	_close_slivers(grid, ramps, stubs)
+	for chamber in chambers:
+		chamber["crevices"] = _crevices(rng, grid, chamber)
+		if rng.next_float() < PIT_CHANCE and not safe:
+			chamber["pit"] = _pit(rng, grid, chamber, keep_out)
+	# a last pass over everything the pits and crevices left behind, sparing what they placed
+	var spared := {}
+	for chamber in chambers:
+		for slit in chamber["crevices"]:
+			spared[slit["mouth"]] = true
+			for at in slit["cells"]:
+				spared[at] = true
+		var pit: Dictionary = chamber.get("pit", {})
+		if not pit.is_empty():
+			for z in range((pit["bridge"] as Rect2i).position.y - 1, (pit["bridge"] as Rect2i).end.y + 1):
+				for x in range((pit["bridge"] as Rect2i).position.x - 1, (pit["bridge"] as Rect2i).end.x + 1):
+					spared[Vector2i(x, z)] = true
+			for cage in pit["cages"]:
+				spared[cage["cell"]] = true
+			for entry in pit["row"]:
+				spared[entry["cell"]] = true
+	_close_slivers(grid, ramps, stubs, spared)
+	for z in CHUNK_SIZE:
+		for x in CHUNK_SIZE:
+			if grid[z][x] == 0:
+				circulation[Vector2i(x, z)] = true
+	return chambers
 
 
-static func _place(rng: SeededRandom, taken: Array[Rect2i], first: bool) -> Dictionary:
-	# the first is big; a second must squeeze in beside it
-	var low := MIN_SPAN + 2 if first else MIN_SPAN
-	var high := MAX_SPAN if first else MIN_SPAN + 2
-	var width := low + rng.next_index(high - low + 1)
-	var depth := low + rng.next_index(high - low + 1)
+## Rock fills any open cell that is not in a fully open 3x3 block (ragged rims, notches between a tunnel and a chamber),
+## until none is left; the seam mouths and the ramp landings are kept as carved.
+static func _close_slivers(grid: Array, ramps: Array, stubs: Array[Rect2i], protect: Dictionary = {}) -> void:
+	protect = protect.duplicate()
+	for rect in stubs:
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				protect[Vector2i(x, z)] = true
+	for ramp in ramps:
+		for part in ["bottom", "connector"]:
+			var rect: Rect2i = ramp[part]
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					protect[Vector2i(x, z)] = true
+	for _round in 12:
+		var covered := {}
+		for z in range(1, CHUNK_SIZE - 1):
+			for x in range(1, CHUNK_SIZE - 1):
+				if clearance(grid, Vector2i(x, z), 1) >= 1:
+					for dz in range(-1, 2):
+						for dx in range(-1, 2):
+							covered[Vector2i(x + dx, z + dz)] = true
+		var closed := 0
+		for z in range(1, CHUNK_SIZE - 1):
+			for x in range(1, CHUNK_SIZE - 1):
+				var at := Vector2i(x, z)
+				if grid[z][x] == 0 and not covered.has(at) and not protect.has(at):
+					grid[z][x] = 1
+					closed += 1
+		if closed == 0:
+			return
+
+
+static func _chamber(rng: SeededRandom, rect: Rect2i) -> Dictionary:
+	return {"rect": rect, "cells": _blob(rng, rect), "halls": [], "crevices": [], "pillars": [], "tunnel_cells": {}}
+
+
+static func _centre(chamber: Dictionary) -> Vector2i:
+	var rect: Rect2i = chamber["rect"]
+	return Vector2i(rect.position.x + rect.size.x / 2, rect.position.y + rect.size.y / 2)
+
+
+static func _nearest(chambers: Array, from: Vector2i) -> Dictionary:
+	var best: Dictionary = chambers[0]
+	var best_d := 1.0e9
+	for chamber in chambers:
+		var d := float(from.distance_to(_centre(chamber)))
+		if d < best_d:
+			best_d = d
+			best = chamber
+	return best
+
+
+## A chamber 14-18 cells across somewhere clear of the others, the border margin and the ramp landings.
+static func _place(rng: SeededRandom, chambers: Array, keep_out: Array[Rect2i]) -> Dictionary:
+	var width := MIN_SPAN + rng.next_index(5)
+	var depth := MIN_SPAN + rng.next_index(5)
 	var spots: Array[Vector2i] = []
 	for z in range(MARGIN, CHUNK_SIZE - MARGIN - depth + 1, 2):
 		for x in range(MARGIN, CHUNK_SIZE - MARGIN - width + 1, 2):
@@ -80,13 +209,16 @@ static func _place(rng: SeededRandom, taken: Array[Rect2i], first: bool) -> Dict
 	for spot in spots:
 		var rect := Rect2i(spot.x, spot.y, width, depth)
 		var clash := false
-		for other in taken:
-			if rect.grow(KEEP_CLEAR).intersects(other):
+		for other in chambers:
+			if rect.grow(3).intersects((other as Dictionary)["rect"]):
 				clash = true
 				break
-		if clash:
-			continue
-		return {"rect": rect, "cells": _blob(rng, rect), "halls": [], "crevices": []}
+		for blocked in keep_out:
+			if rect.grow(1).intersects(blocked):
+				clash = true
+				break
+		if not clash:
+			return _chamber(rng, rect)
 	return {}
 
 
@@ -101,32 +233,103 @@ static func _blob(rng: SeededRandom, rect: Rect2i) -> Array[Vector2i]:
 	var cells: Array[Vector2i] = []
 	for z in range(rect.position.y, rect.end.y):
 		for x in range(rect.position.x, rect.end.x):
+			if x < 1 or z < 1 or x > CHUNK_SIZE - 2 or z > CHUNK_SIZE - 2:
+				continue
 			var dx := (x + .5 - cx) / rx
 			var dz := (z + .5 - cz) / rz
 			var angle := atan2(dz, dx)
-			var edge := 0.96 + .04 * sin(angle * 3.0 + phase_a) - .03 * sin(angle * 5.0 + phase_b)
+			var edge := 0.94 + .06 * sin(angle * 3.0 + phase_a) - .04 * sin(angle * 5.0 + phase_b)
 			if sqrt(dx * dx + dz * dz) <= edge:
 				cells.append(Vector2i(x, z))
 	return cells
 
 
-static func _stamp(grid: Array, cavern: Dictionary) -> void:
-	for cell in cavern["cells"]:
-		grid[cell.y][cell.x] = 0
+## The three-wide mouth on the seam and the stub in to where the tunnel proper starts.
+static func _carve_stub(grid: Array, edge: Vector2i, inner: Vector2i, side: String) -> Rect2i:
+	var horizontal := side == "west" or side == "east"
+	var lo := Vector2i(mini(edge.x, inner.x), mini(edge.y, inner.y))
+	var hi := Vector2i(maxi(edge.x, inner.x), maxi(edge.y, inner.y))
+	var rect := Rect2i(lo.x - (0 if horizontal else 1), lo.y - (1 if horizontal else 0), hi.x - lo.x + (1 if horizontal else 3),
+		hi.y - lo.y + (3 if horizontal else 1))
+	for z in range(rect.position.y, rect.end.y):
+		for x in range(rect.position.x, rect.end.x):
+			grid[z][x] = 0
+	return rect
 
 
-## Rooms the cavern would cut into are dropped whole and filled back to rock, as a ramp bottom does.
-static func _remove_rooms(grid: Array, layout: Dictionary, area: Rect2i) -> void:
-	var kept := []
-	for room_value in layout.get("rooms", []):
-		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
-		if rect.grow(1).intersects(area):
-			for z in range(rect.position.y, rect.end.y):
-				for x in range(rect.position.x, rect.end.x):
-					grid[z][x] = 1
-		else:
-			kept.append(room_value)
-	layout["rooms"] = kept
+## A winding tunnel from `from` to the chamber's middle: the path bends through a couple of offset points and its radius
+## wanders between TUNNEL_RADIUS.x and .y, so it is never narrower than three cells.
+static func _link(rng: SeededRandom, grid: Array, tunnels: Array, links: Dictionary, from: Vector2i, chamber: Dictionary) -> void:
+	var to := _centre(chamber)
+	var a := Vector2(from) + Vector2(.5, .5)
+	var b := Vector2(to) + Vector2(.5, .5)
+	var along := (b - a)
+	var length := along.length()
+	if length < 2.0:
+		return
+	var side := Vector2(-along.y, along.x).normalized()
+	var points: Array[Vector2] = [a]
+	var bends := 1 + int(length / 18.0)
+	for k in range(1, bends + 1):
+		var t := float(k) / (bends + 1)
+		points.append(a + along * t + side * (rng.next_float() * 2.0 - 1.0) * minf(WIGGLE, length * .3))
+	points.append(b)
+	var phase := rng.next_float() * TAU
+	var walked := 0.0
+	var samples: Array[Vector2] = []
+	for i in range(points.size() - 1):
+		var p0 := points[maxi(i - 1, 0)]
+		var p1 := points[i]
+		var p2 := points[i + 1]
+		var p3 := points[mini(i + 2, points.size() - 1)]
+		var segment := p1.distance_to(p2)
+		var steps := maxi(2, int(segment / .5))
+		for k in steps:
+			var t := float(k) / steps
+			samples.append(_spline(p0, p1, p2, p3, t))
+	samples.append(b)
+	for sample in samples:
+		var radius := TUNNEL_RADIUS.x + (TUNNEL_RADIUS.y - TUNNEL_RADIUS.x) * (.5 + .5 * sin(walked * .35 + phase))
+		walked += .5
+		var reach := int(ceil(radius))
+		for dz in range(-reach, reach + 1):
+			for dx in range(-reach, reach + 1):
+				var cell := Vector2i(int(floor(sample.x)) + dx, int(floor(sample.y)) + dz)
+				if cell.x < 1 or cell.y < 1 or cell.x > CHUNK_SIZE - 2 or cell.y > CHUNK_SIZE - 2:
+					continue
+				if Vector2(cell.x + .5, cell.y + .5).distance_to(sample) <= radius:
+					grid[cell.y][cell.x] = 0
+					links[cell] = true
+	tunnels.append({"from": from, "to": to})
+
+
+static func _spline(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var t2 := t * t
+	var t3 := t2 * t
+	return .5 * ((2.0 * p1) + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+
+
+## Natural pillars: single rock cells standing in a chamber's open ground, off the tunnels' mouths and apart.
+static func _pillars(rng: SeededRandom, grid: Array, chamber: Dictionary, links: Dictionary) -> Array:
+	var want := PILLARS.x + rng.next_index(PILLARS.y - PILLARS.x + 1)
+	var centre := _centre(chamber)
+	var pillars: Array = []
+	var cells: Array = chamber["cells"]
+	var tries := 0
+	while pillars.size() < want and tries < 80:
+		tries += 1
+		var cell: Vector2i = cells[rng.next_index(cells.size())]
+		if cell.distance_to(centre) < 3.5 or links.has(cell) or clearance(grid, cell, 3) < 2:
+			continue
+		var apart := true
+		for other in pillars:
+			if (other as Vector2i).distance_to(cell) < 4.0:
+				apart = false
+		if apart:
+			pillars.append(cell)
+	for cell in pillars:
+		grid[cell.y][cell.x] = 1
+	return pillars
 
 
 ## One-cell slits cut into the rim, each ending in a dead end: tight places that only a runner fits.
@@ -151,10 +354,18 @@ static func _crevices(rng: SeededRandom, grid: Array, cavern: Dictionary) -> Arr
 			if at.x < 2 or at.y < 2 or at.x > CHUNK_SIZE - 3 or at.y > CHUNK_SIZE - 3 or grid[at.y][at.x] != 1:
 				ok = false
 				break
-			# the slit's sides must be rock, or it is a corridor, not a crevice
-			var side := Vector2i(dir.y, dir.x)
-			if grid[(at + side).y][(at + side).x] != 1 or grid[(at - side).y][(at - side).x] != 1:
-				ok = false
+			# everything around the slit must be rock (bar its own path and mouth), or it is a corridor or touches
+			# another slit, not a crevice
+			for dz in range(-1, 2):
+				for dx in range(-1, 2):
+					var near := at + Vector2i(dx, dz)
+					if near == cell + dir * (step - 1) or near == at:
+						continue
+					if slit.has(near) or (step == 1 and near.distance_to(cell) <= 1.5):
+						continue
+					if grid[near.y][near.x] != 1:
+						ok = false
+			if not ok:
 				break
 			slit.append(at)
 		var cap := cell + dir * (CREVICE_DEPTH + 1)
@@ -173,151 +384,29 @@ static func _crevices(rng: SeededRandom, grid: Array, cavern: Dictionary) -> Arr
 	return found
 
 
-## A 5-wide hall from the cavern's middle to the nearest circulation cell outside it: along one axis, then the other.
-static func _halls(rng: SeededRandom, grid: Array, layout: Dictionary, circulation: Dictionary, cavern: Dictionary,
-		blocked: Array[Rect2i]) -> Array:
-	var rect: Rect2i = cavern["rect"]
-	var centre := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y + rect.size.y / 2)
-	var inside := {}
-	for cell in cavern["cells"]:
-		inside[cell] = true
-	var best := Vector2i(-1, -1)
-	var best_d := 1.0e9
-	for cell_value in circulation:
-		var cell: Vector2i = cell_value
-		if inside.has(cell) or cell.x < 1 or cell.y < 1 or cell.x > CHUNK_SIZE - 2 or cell.y > CHUNK_SIZE - 2:
-			continue
-		var d := float(absi(cell.x - centre.x) + absi(cell.y - centre.y))
-		if d < best_d:
-			best_d = d
-			best = cell
-	var halls: Array = []
-	if best.x < 0:
-		return halls
-	var horizontal_first := rng.next_float() < .5
-	var half := HALL_WIDTH / 2
-	var legs: Array[Rect2i] = []
-	if horizontal_first:
-		legs.append(_span(Vector2i(centre.x, centre.y), Vector2i(best.x, centre.y), half))
-		legs.append(_span(Vector2i(best.x, centre.y), Vector2i(best.x, best.y), half))
-	else:
-		legs.append(_span(Vector2i(centre.x, centre.y), Vector2i(centre.x, best.y), half))
-		legs.append(_span(Vector2i(centre.x, best.y), Vector2i(best.x, best.y), half))
-	for leg in legs:
-		_remove_rooms(grid, layout, leg.grow(1))
-		for z in range(maxi(1, leg.position.y), mini(CHUNK_SIZE - 1, leg.end.y)):
-			for x in range(maxi(1, leg.position.x), mini(CHUNK_SIZE - 1, leg.end.x)):
-				if not _in_any(blocked, Vector2i(x, z)):
-					grid[z][x] = 0
-		halls.append(leg)
-	return halls
-
-
-static func _in_any(rects: Array[Rect2i], cell: Vector2i) -> bool:
-	for rect in rects:
-		if rect.has_point(cell):
-			return true
-	return false
-
-
-static func _span(a: Vector2i, b: Vector2i, half: int) -> Rect2i:
-	var lo := Vector2i(mini(a.x, b.x), mini(a.y, b.y))
-	var hi := Vector2i(maxi(a.x, b.x), maxi(a.y, b.y))
-	return Rect2i(lo.x - half, lo.y - half, hi.x - lo.x + 2 * half + 1, hi.y - lo.y + 2 * half + 1)
-
-
-static func _mark(circulation: Dictionary, rect: Rect2i) -> void:
-	for z in range(maxi(0, rect.position.y), mini(CHUNK_SIZE, rect.end.y)):
-		for x in range(maxi(0, rect.position.x), mini(CHUNK_SIZE, rect.end.x)):
-			circulation[Vector2i(x, z)] = true
-
-
-## Largest n such that the (2n+1)-square around `cell` is entirely walkable, capped at `limit`.
-static func clearance(grid: Array, cell: Vector2i, limit: int = OPEN_CLEARANCE) -> int:
-	var n := 0
-	while n < limit:
-		var next := n + 1
-		for dz in range(-next, next + 1):
-			for dx in range(-next, next + 1):
-				var x := cell.x + dx
-				var z := cell.y + dz
-				if x < 0 or z < 0 or x >= CHUNK_SIZE or z >= CHUNK_SIZE or int(grid[z][x]) != 0:
-					return n
-		n = next
-	return n
-
-
-## The cells of every cavern in a built chunk's data, as a set.
-static func cells_in(data: Dictionary) -> Dictionary:
-	var set := {}
-	for cavern in data.get("inferno_caverns", []):
-		for cell in (cavern as Dictionary)["cells"]:
-			set[cell] = true
-	return set
-
-
-## The cavern (or hall of one) a chunk-local cell stands in: its index in data["inferno_caverns"], or -1.
-static func cavern_index_at(data: Dictionary, cell: Vector2i) -> int:
-	var caverns: Array = data.get("inferno_caverns", [])
-	for index in caverns.size():
-		var cavern: Dictionary = caverns[index]
-		if (cavern["cells"] as Array).has(cell):
-			return index
-		for hall in cavern["halls"]:
-			if (hall as Rect2i).has_point(cell):
-				return index
-	return -1
-
-
-## A chunk-local walkable cell with a clear 3x3, in the main cavern or a 5-wide hall: where a thrown-down item or
-## a dump-hole drop lands. Falls back to the clearest cell nearest the middle. (-1, -1) if the chunk has none.
-static func landing(data: Dictionary) -> Vector2i:
-	var grid: Array = data.get("grid", [])
-	if grid.is_empty():
-		return Vector2i(-1, -1)
-	var caverns: Array = data.get("inferno_caverns", [])
-	if not caverns.is_empty():
-		var rect: Rect2i = (caverns[0] as Dictionary)["rect"]
-		var middle := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y + rect.size.y / 2)
-		if clearance(grid, middle, 1) >= 1:
-			return middle
-	var best := Vector2i(-1, -1)
-	var best_score := -1.0e9
-	var centre := Vector2i(CHUNK_SIZE / 2, CHUNK_SIZE / 2)
-	for z in range(1, CHUNK_SIZE - 1):
-		for x in range(1, CHUNK_SIZE - 1):
-			var cell := Vector2i(x, z)
-			if int(grid[z][x]) != 0 or clearance(grid, cell, 3) < 1:
-				continue
-			var score := float(clearance(grid, cell, 3)) * 10.0 - float(absi(x - centre.x) + absi(z - centre.y)) * .1
-			if score > best_score:
-				best_score = score
-				best = cell
-	return best
-
-
 ## The cage-pit district: a lava channel across the cavern (never walkable: its cells are rock to the walk grid) with a
 ## chain bridge over it, iron cages hanging from the ceiling at three heights, a row of cages standing against a wall
 ## and cracks glowing in the floor. Returns {} when the cavern is too small or the channel would cut it in two.
 ## "lava" cells are rock in `grid`; the generator also lists them as floor/structural voids, and the view draws them.
-static func _pit(rng: SeededRandom, grid: Array, cavern: Dictionary) -> Dictionary:
+static func _pit(rng: SeededRandom, grid: Array, cavern: Dictionary, keep_out: Array[Rect2i]) -> Dictionary:
 	var rect: Rect2i = cavern["rect"]
 	if rect.size.x < PIT_MIN_SPAN or rect.size.y < PIT_MIN_SPAN:
 		return {}
 	var open := {}
 	for cell in cavern["cells"]:
 		open[cell] = true
-	var keep := {}             # halls, their margin and the crevices stay clear of lava
-	for hall in cavern["halls"]:
-		for z in range((hall as Rect2i).position.y - 2, (hall as Rect2i).end.y + 2):
-			for x in range((hall as Rect2i).position.x - 2, (hall as Rect2i).end.x + 2):
+	var keep := {}             # tunnel mouths, pillars, crevices and the ramp landings stay clear of lava
+	for cell_value in cavern["tunnel_cells"]:
+		var cell: Vector2i = cell_value
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				keep[cell + Vector2i(dx, dz)] = true
+	for blocked in keep_out:
+		for z in range(blocked.position.y, blocked.end.y):
+			for x in range(blocked.position.x, blocked.end.x):
 				keep[Vector2i(x, z)] = true
-	# the maze's own central cross (three wide) is never lava
-	var middle := CHUNK_SIZE / 2
-	for k in CHUNK_SIZE:
-		for off in range(-2, 3):
-			keep[Vector2i(k, middle + off)] = true
-			keep[Vector2i(middle + off, k)] = true
+	for pillar in cavern["pillars"]:
+		keep[pillar] = true
 	for crevice in cavern["crevices"]:
 		for at in crevice["cells"]:
 			keep[at] = true
@@ -349,6 +438,10 @@ static func _pit(rng: SeededRandom, grid: Array, cavern: Dictionary) -> Dictiona
 	for cell in lava:
 		lava_set[cell] = true
 	var span := Rect2i(bridge_x, band_z, PIT_BRIDGE, PIT_BAND)
+	for z in range(span.position.y, span.end.y):
+		for x in range(span.position.x, span.end.x):
+			grid[z][x] = 0                      # a pillar in the way of the span comes out
+	cavern["pillars"] = (cavern["pillars"] as Array).filter(func(p): return not span.has_point(p))
 	# hanging cages: spread out, off the lava and the bridge, in open ground
 	var cages: Array = []
 	var tries := 0
@@ -421,3 +514,67 @@ static func pits_in(data: Dictionary) -> Array:
 		if not (cavern as Dictionary).get("pit", {}).is_empty():
 			pits.append(cavern["pit"])
 	return pits
+
+
+## Largest n such that the (2n+1)-square around `cell` is entirely walkable, capped at `limit`.
+static func clearance(grid: Array, cell: Vector2i, limit: int = OPEN_CLEARANCE) -> int:
+	var n := 0
+	while n < limit:
+		var next := n + 1
+		for dz in range(-next, next + 1):
+			for dx in range(-next, next + 1):
+				var x := cell.x + dx
+				var z := cell.y + dz
+				if x < 0 or z < 0 or x >= CHUNK_SIZE or z >= CHUNK_SIZE or int(grid[z][x]) != 0:
+					return n
+		n = next
+	return n
+
+
+## The cells of every cavern in a built chunk's data, as a set.
+static func cells_in(data: Dictionary) -> Dictionary:
+	var set := {}
+	for cavern in data.get("inferno_caverns", []):
+		for cell in (cavern as Dictionary)["cells"]:
+			set[cell] = true
+	return set
+
+
+## The cavern (or hall of one) a chunk-local cell stands in: its index in data["inferno_caverns"], or -1.
+static func cavern_index_at(data: Dictionary, cell: Vector2i) -> int:
+	var caverns: Array = data.get("inferno_caverns", [])
+	for index in caverns.size():
+		var cavern: Dictionary = caverns[index]
+		if (cavern["cells"] as Array).has(cell):
+			return index
+		for hall in cavern["halls"]:
+			if (hall as Rect2i).has_point(cell):
+				return index
+	return -1
+
+
+## A chunk-local walkable cell with a clear 3x3, in the main cavern or a 5-wide hall: where a thrown-down item or
+## a dump-hole drop lands. Falls back to the clearest cell nearest the middle. (-1, -1) if the chunk has none.
+static func landing(data: Dictionary) -> Vector2i:
+	var grid: Array = data.get("grid", [])
+	if grid.is_empty():
+		return Vector2i(-1, -1)
+	var caverns: Array = data.get("inferno_caverns", [])
+	if not caverns.is_empty():
+		var rect: Rect2i = (caverns[0] as Dictionary)["rect"]
+		var middle := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y + rect.size.y / 2)
+		if clearance(grid, middle, 1) >= 1:
+			return middle
+	var best := Vector2i(-1, -1)
+	var best_score := -1.0e9
+	var centre := Vector2i(CHUNK_SIZE / 2, CHUNK_SIZE / 2)
+	for z in range(1, CHUNK_SIZE - 1):
+		for x in range(1, CHUNK_SIZE - 1):
+			var cell := Vector2i(x, z)
+			if int(grid[z][x]) != 0 or clearance(grid, cell, 3) < 1:
+				continue
+			var score := float(clearance(grid, cell, 3)) * 10.0 - float(absi(x - centre.x) + absi(z - centre.y)) * .1
+			if score > best_score:
+				best_score = score
+				best = cell
+	return best

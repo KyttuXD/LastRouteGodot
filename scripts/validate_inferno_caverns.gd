@@ -52,6 +52,8 @@ func _check_seed(seed_text: String) -> void:
 						if InfernoCaverns.clearance(grid, Vector2i(x, z)) >= InfernoCaverns.OPEN_CLEARANCE:
 							wide_cells += 1
 			var caverns := generator.inferno_caverns_at(coord)
+			_check_wide_enough(seed_text, coord, data)
+			_check_seams(seed_text, coord, data, generator)
 			chunks_with += 1 if not caverns.is_empty() else 0
 			caverns_total += caverns.size()
 			_expect(JSON.stringify(_digest(caverns)) == JSON.stringify(_digest(other.inferno_caverns_at(coord))),
@@ -85,6 +87,48 @@ func _check_seed(seed_text: String) -> void:
 	_expect(stray == 0, "%s: %d cavern cells are cut off from the main walk" % [seed_text, stray])
 
 
+## Every open cell outside the crevices sits in a fully open 3x3 block: no passage is narrower than three cells.
+func _check_wide_enough(seed_text: String, coord: Vector3i, data: Dictionary) -> void:
+	var grid: Array = data["grid"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var covered := {}
+	for z in range(1, size - 1):
+		for x in range(1, size - 1):
+			if InfernoCaverns.clearance(grid, Vector2i(x, z), 1) >= 1:
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						covered[Vector2i(x + dx, z + dz)] = true
+	var crevice := {}
+	for cavern in data.get("inferno_caverns", []):
+		for slit in cavern["crevices"]:
+			for at in slit["cells"]:
+				crevice[at] = true
+	for ramp in data.get("ramps", []):      # the ramp landings are SEWER's carve (clamped at the chunk edge)
+		for part in ["ramp", "bottom", "connector"]:
+			var grown: Rect2i = (ramp[part] as Rect2i).grow(1)
+			for z in range(grown.position.y, grown.end.y):
+				for x in range(grown.position.x, grown.end.x):
+					crevice[Vector2i(x, z)] = true
+	# a ledge beside the lava or a crevice's mouth may be narrow, and so may the corner pockets a seam stub leaves
+	for source in [[crevice.keys(), 1], [_lava_cells(data), 3], [_pillar_cells(data), 1]]:
+		var reach: int = source[1]
+		for cell in source[0]:
+			for dz in range(-reach, reach + 1):
+				for dx in range(-reach, reach + 1):
+					crevice[(cell as Vector2i) + Vector2i(dx, dz)] = true
+	var narrow := 0
+	var where: Array[Vector2i] = []
+	for z in range(1, size - 1):
+		for x in range(1, size - 1):
+			var at := Vector2i(x, z)
+			var near_border := x < 5 or z < 5 or x > size - 6 or z > size - 6
+			if int(grid[z][x]) == 0 and not covered.has(at) and not crevice.has(at) and not near_border:
+				narrow += 1
+				if where.size() < 6:
+					where.append(at)
+	_expect(narrow <= 2, "%s %s: %d open cells are in passages narrower than three (two stray cells beside a pillar or cage are allowed), e.g. %s" % [seed_text, coord, narrow, where])
+
+
 func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern: Dictionary) -> void:
 	var tag := "%s %s" % [seed_text, coord]
 	var rect: Rect2i = cavern["rect"]
@@ -98,10 +142,6 @@ func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern:
 			open_middle = true
 			break
 	_expect(open_middle, "%s: cavern %s has no clear 7x7" % [tag, rect])
-	_expect(not (cavern["halls"] as Array).is_empty(), "%s: cavern %s has no hall" % [tag, rect])
-	for hall in cavern["halls"]:
-		var h: Rect2i = hall
-		_expect(mini(h.size.x, h.size.y) >= InfernoCaverns.HALL_WIDTH, "%s: hall %s is narrower than 5" % [tag, h])
 	for crevice in cavern["crevices"]:
 		var mouth: Vector2i = crevice["mouth"]
 		var cells: Array = crevice["cells"]
@@ -117,6 +157,37 @@ func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern:
 	for room in rooms:
 		_expect(not rect.intersects((room as Dictionary).get("rect", Rect2i())),
 			"%s: cavern %s overlaps a room" % [tag, rect])
+
+
+## Each seam opening is open on both sides of the line, three cells wide, and a ramp's bottom landing is open.
+func _check_seams(seed_text: String, coord: Vector3i, data: Dictionary, generator: StreamedRouteGenerator) -> void:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var grid: Array = data["grid"]
+	for side in ["west", "east", "north", "south"]:
+		for offset in (data["edges"] as Dictionary)[side]:
+			for spread in range(-1, 2):
+				var x := 0 if side == "west" else size - 1 if side == "east" else int(offset) + spread
+				var z := 0 if side == "north" else size - 1 if side == "south" else int(offset) + spread
+				if side == "west" or side == "east":
+					z = int(offset) + spread
+				_expect(int(grid[z][x]) == 0, "%s %s: the %s seam opening %d is closed at %s" % [seed_text, coord, side, offset, Vector2i(x, z)])
+	for ramp in data.get("ramps", []):
+		var bottom: Rect2i = ramp["bottom"]
+		_expect(int(grid[bottom.position.y + 1][bottom.position.x + 1]) == 0, "%s %s: a ramp's bottom landing is closed" % [seed_text, coord])
+
+
+static func _pillar_cells(data: Dictionary) -> Array:
+	var cells := []
+	for cavern in data.get("inferno_caverns", []):
+		cells.append_array(cavern["pillars"])
+	return cells
+
+
+static func _lava_cells(data: Dictionary) -> Array:
+	var cells := []
+	for pit in InfernoCaverns.pits_in(data):
+		cells.append_array(pit["lava"])
+	return cells
 
 
 static func _digest(caverns: Array) -> Array:

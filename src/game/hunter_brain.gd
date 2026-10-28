@@ -21,7 +21,9 @@ extends RefCounted
 ## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
 ## Nightmare and its larger active lineup remain intentionally unavailable.
 
-enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH, PEEK }
+enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH, PEEK, INSPECT }
+## INSPECT phases (HunterInspect): stepping up to the slats, turning to them, bending in, lingering, straightening.
+enum Inspect { WALK, TURN, LEAN, LINGER, RISE }
 ## PEEK phases (HunterPeek): sliding into the spot, leaning out and looking, seen someone (burst reaction), ducked back.
 enum Peek { SETTLE, LOOK, SEEN, AMBUSH }
 
@@ -145,6 +147,15 @@ var peek_chance_override := -1.0
 var _peek_resume := State.SEARCH
 var _peek_corner_cell := Vector2i(-99999, -99999)
 
+## Locker inspection (HunterInspect). Replicated: state, inspect_phase, inspect_stand, inspect_face.
+var inspect_phase := Inspect.WALK
+var inspect_timer := 0.0
+var inspect_stand := Vector2.ZERO
+var inspect_face := Vector2.ZERO
+var inspect_cooldown := 0.0
+var inspections := 0
+var _inspect_resume := Vector2.ZERO
+
 var _rng: SeededRandom
 
 
@@ -229,6 +240,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
 	peek_cooldown = maxf(0.0, peek_cooldown - delta)
+	inspect_cooldown = maxf(0.0, inspect_cooldown - delta)
 	_consider_peek(generator)
 	var before_move := position
 	var leap_drives := hard != null and hard.update(self, delta, generator, target)
@@ -269,7 +281,7 @@ func update_without_target(delta: float, generator,
 	if stun_timer > 0.0:
 		stun_timer = maxf(0.0, stun_timer - delta)
 		return
-	if state == State.CHASE or state == State.INVESTIGATE or state == State.SEARCH or state == State.PEEK:
+	if state in [State.CHASE, State.INVESTIGATE, State.SEARCH, State.PEEK, State.INSPECT]:
 		state = State.IDLE
 		has_last_known = false
 		has_search_target = false
@@ -592,6 +604,9 @@ func _update_movement(delta: float, generator, depth: int, relays_collected: int
 	match state:
 		State.PEEK:
 			_update_peek(delta, generator)
+			return
+		State.INSPECT:
+			_update_inspect(delta, generator)
 			return
 		State.IDLE:
 			idle_timer -= delta
@@ -1030,7 +1045,11 @@ func _consider_peek(generator) -> void:
 		return
 	if gimmick != null and gimmick.holds_position():
 		return
-	var odds := peek_chance_override if peek_chance_override >= 0.0 else HunterPeek.chance(hunter_id, difficulty_id)
+	var odds := HunterPeek.chance(hunter_id, difficulty_id)
+	if gimmick != null:
+		odds = gimmick.peek_chance(self, odds)
+	if peek_chance_override >= 0.0:
+		odds = peek_chance_override
 	if odds <= 0.0 or not generator.has_method("is_floor"):
 		return
 	var here := _cell_of(position)
@@ -1121,3 +1140,92 @@ func _end_peek(next: State) -> void:
 		search_target = last_known
 	if next == State.SEARCH and search_timer <= 0.0:
 		search_timer = float(difficulty_profile["search_time"])
+
+
+# ------------------------------------------------------------------------------------------------------ locker inspection
+
+## Rolls the dice for a qualifying pass (HunterInspect.qualifies) and starts the inspection if it lands and a stand
+## clears her body.
+func maybe_inspect(spot_centre: Vector2, door: Vector2, generator) -> bool:
+	if _rng.next_float() >= HunterInspect.chance(hunter_id, difficulty_id):
+		inspect_cooldown = 4.0   # a missed roll: not again on the very next frame of the same pass
+		return false
+	return start_inspect(spot_centre, door, generator)
+
+
+## `door`: unit direction out through the spot's door. She walks (pathing round the locker if she came from behind or
+## the side) to her stand point and faces back into the slats. False when no stand clears her.
+func start_inspect(spot_centre: Vector2, door: Vector2, generator) -> bool:
+	var stand := HunterInspect.stand_point(hunter_id, spot_centre, door, generator, radius)
+	if stand == Vector2.INF:
+		return false
+	_inspect_resume = position + facing * HunterInspect.LEAVE_DISTANCE
+	state = State.INSPECT
+	inspect_phase = Inspect.WALK
+	inspect_stand = stand
+	inspect_face = -door.normalized()
+	inspect_timer = 0.0
+	inspections += 1
+	direct_chase_visible = false
+	_path.clear()
+	_has_path_target = false
+	return true
+
+
+## True while she is bent in at the slats (the lean pose shows, the breath plays).
+func inspecting_close() -> bool:
+	return state == State.INSPECT and inspect_phase in [Inspect.LEAN, Inspect.LINGER]
+
+
+func _update_inspect(delta: float, generator) -> void:
+	inspect_timer += delta
+	match inspect_phase:
+		Inspect.WALK:
+			var offset := inspect_stand - position
+			if offset.length() > .05 and inspect_timer < HunterInspect.WALK_LIMIT:
+				var speed := base_speed * HunterInspect.WALK_SCALE
+				if offset.length() > ARRIVAL_DISTANCE:
+					_pursue(inspect_stand, speed, delta, generator)   # round the locker if she came from behind it
+				else:
+					var step := minf(offset.length(), speed * delta)
+					facing = offset.normalized()
+					_move_with_collision(facing.x * step, facing.y * step, generator)
+				return
+			_next_inspect(Inspect.TURN)
+		Inspect.TURN:
+			facing = facing.slerp(inspect_face, clampf(delta / maxf(.05, HunterInspect.TURN_SECONDS - inspect_timer + delta), 0.0, 1.0))
+			if inspect_timer >= HunterInspect.TURN_SECONDS:
+				facing = inspect_face
+				_next_inspect(Inspect.LEAN)
+		Inspect.LEAN:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.LEAN_SECONDS:
+				_next_inspect(Inspect.LINGER)
+		Inspect.LINGER:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.linger(hunter_id, difficulty_id):
+				_next_inspect(Inspect.RISE)
+		Inspect.RISE:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.RISE_SECONDS:
+				_end_inspect(generator)
+
+
+func _next_inspect(phase: Inspect) -> void:
+	inspect_phase = phase
+	inspect_timer = 0.0
+
+
+## Moves on the way she was going (nothing found), and leaves inspections alone for the difficulty's cooldown.
+func _end_inspect(generator) -> void:
+	state = State.WANDER
+	inspect_phase = Inspect.WALK
+	inspect_cooldown = float(HunterInspect.difficulty(difficulty_id)["cooldown"])
+	var goal := _inspect_resume
+	if generator.has_method("is_floor") and not generator.is_floor(goal.x, goal.y):
+		goal = inspect_stand - inspect_face * HunterInspect.LEAVE_DISTANCE
+	wander_target = goal
+	has_wander_target = true
+	has_last_known = false
+	_path.clear()
+	_has_path_target = false

@@ -5,6 +5,11 @@ extends RefCounted
 ## skip -- for all 26 A-Z hunters plus the 12 Void hunters at their real speeds.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- hunter_real
+##   godot --headless --path . res://scenes/validate.tscn -- hunter_real#0/4     (shard 0 of 4; dist_run runs all 4 in parallel)
+##
+## Sharding keeps every trial identical: each shard walks the same seeds, districts and random picks (the picks share one
+## rng per seed, so they must all be drawn) and only SIMULATES every n-th trial. The shards together run exactly the
+## trials of the unsharded suite.
 ##
 ## Per trial a hunter is stuck when it stays within 0.004 cells per tick for more than STUCK_LIMIT seconds while it
 ## is moving (not IDLE/SEARCH/stunned/held by a gimmick) and still more than 1.8 cells from where it wants to be.
@@ -27,6 +32,14 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(_host: Node) -> int:
+	var shard_index := 0
+	var shard_count := 1
+	var shard := OS.get_environment("VALIDATE_SHARD")
+	if shard.contains("/"):
+		shard_index = int(shard.get_slice("/", 0))
+		shard_count = maxi(1, int(shard.get_slice("/", 1)))
+	_expect(shard_index >= 0 and shard_index < shard_count, "bad shard %s" % shard)
+	var ordinal := -1
 	var ids: Array = []
 	ids.append_array(HunterRoster.A_Z_IDS)
 	ids.append_array(HunterRoster.VOID_IDS)
@@ -53,6 +66,9 @@ func run(_host: Node) -> int:
 					var setup := _pick(navigation, cells, rng, mode == "direct")
 					if setup.is_empty():
 						continue
+					ordinal += 1
+					if ordinal % shard_count != shard_index:
+						continue
 					var result := _simulate(navigation, setup, String(hunter_id), mode)
 					trials += 1
 					if float(result["still"]) > STUCK_LIMIT:
@@ -68,8 +84,8 @@ func run(_host: Node) -> int:
 	_expect(stuck == 0, "%d of %d real hunter trials stood still more than %.1f s (worst %.2f s %s; by district %s; e.g. %s)" % [
 		stuck, trials, STUCK_LIMIT, worst, worst_case, by_biome, samples])
 	if _failures == 0:
-		print("  hunter_real  %d real-geometry trials (38 hunters, every district), none stuck over %.1f s (worst %.2f s)" % [
-			trials, STUCK_LIMIT, worst])
+		print("  hunter_real  %d real-geometry trials (38 hunters, every district%s), none stuck over %.1f s (worst %.2f s)" % [
+			trials, "" if shard_count == 1 else ", shard %d of %d" % [shard_index + 1, shard_count], STUCK_LIMIT, worst])
 	return _failures
 
 
