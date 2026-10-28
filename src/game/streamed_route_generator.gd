@@ -3634,9 +3634,10 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("hospitalBed", bed_side, 0, "open", _WALL))
 				if bed_side + 2 <= half:
 					specs.append(_sp("hospitalCurtain", bed_side + 2, 1, "right"))
-				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open
+				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open; a row past the
+				# 3.2 m hunter-scale bed's foot, or the stand closes the bay's mouth (pickup_reach on REAL-B)
 				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
-				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 3, "back"))
+				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 4, "back"))
 			if depth_span >= 15:
 				# a great-hall ward: a facing bed row by the entrance wall and the nurses' desk in the middle
 				for bed_side in range(-half, half + 1, 4):
