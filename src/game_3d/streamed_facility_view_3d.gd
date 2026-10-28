@@ -637,6 +637,14 @@ func _nearby_links(center: Vector3i) -> Array:
 				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
 					_pending_data.append(sewer_coord)
 					_ready_dirty = true
+			# The waterfall plunge (-1 -> -2) is a jump, not a LevelLink: pre-build its landing like a link's far end.
+			if center.y in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL] and generator.has_method("sewer"):
+				var falls: Dictionary = generator.sewer().falls_between(x, z)
+				if not falls.is_empty():
+					var jump: Dictionary = falls["jump"]
+					var land: Vector2 = jump["land"]
+					links = links + [{"from_level": SewerRouteGenerator.LEVEL, "to_level": SewerRouteGenerator.LOWER_LEVEL,
+						"from_cell": jump["cell"], "to_cell": Vector2i(floori(land.x), floori(land.y))}]
 			for link_value in links:
 				var link: Dictionary = link_value
 				out.append({"chunk": Vector3i(x, 0, z), "link": link})
@@ -659,19 +667,24 @@ func _vertical_ready_set(center: Vector3i) -> Dictionary:
 		if tracked_player != null and Vector2(tracked_player.global_position.x, tracked_player.global_position.z) \
 				.distance_to(at) > PREBUILD_LINK_RADIUS:
 			continue   # a ladder the runner is only passing: walking past it must not build the other storey
+		# both ends: the cell the link leaves from and the cell it lands on (a plunge or drop lands metres away)
+		var landing: Vector2i = link.get("to_cell", cell)
+		var points: Array[Vector2] = [at, Vector2(column.x * size + landing.x + .5, column.z * size + landing.y + .5)]
 		for key in ["from_level", "to_level"]:
 			var level := int(link.get(key, center.y))
 			if level == center.y or absi(level - center.y) > PREBUILD_LEVEL_RANGE:
 				continue
-			for dz in range(-1, 2):
-				for dx in range(-1, 2):
-					var coord := Vector3i(column.x + dx, level, column.z + dz)
-					var lo := Vector2(coord.x * size, coord.z * size)
-					var nearest := Vector2(clampf(at.x, lo.x, lo.x + size), clampf(at.y, lo.y, lo.y + size))
-					# inside the runner's 3x3 column only: parked chunks outside it are freed on the next level change
-					if (dx == 0 and dz == 0 or nearest.distance_to(at) < IMMEDIATE_MARGIN) and _near_column(coord, center) \
-							and generator.is_chunk_allowed(coord):
-						out[coord] = true
+			for point in points:
+				var home := Vector2i(floori(point.x / size), floori(point.y / size))
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						var coord := Vector3i(home.x + dx, level, home.y + dz)
+						var lo := Vector2(coord.x * size, coord.z * size)
+						var nearest := Vector2(clampf(point.x, lo.x, lo.x + size), clampf(point.y, lo.y, lo.y + size))
+						# inside the runner's 3x3 column only: parked chunks outside it are freed on the next level change
+						if (dx == 0 and dz == 0 or nearest.distance_to(point) < IMMEDIATE_MARGIN) \
+								and _near_column(coord, center) and generator.is_chunk_allowed(coord):
+							out[coord] = true
 	return out
 
 
