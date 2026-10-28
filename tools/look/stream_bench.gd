@@ -422,6 +422,10 @@ func _finish() -> void:
 	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f res=%s vsync=%s" % [_tag, _mode, summary["avg_fps"],
 		summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], str(get_viewport().get_visible_rect().size),
 		str(DisplayServer.window_get_vsync_mode())])
+	print("GPU %s adapter=%s vendor=%s api=%s window=%s scale=%.2f hidpi=%s tier=%s" % [_tag, RenderingServer.get_video_adapter_name(),
+		RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version(),
+		str(DisplayServer.window_get_size()), DisplayServer.screen_get_scale(), str(ProjectSettings.get_setting("display/window/dpi/allow_hidpi")),
+		PlatformProfile.tier_readout()])
 	for hitch in _hitch_log.slice(0, 40):
 		print("HITCH t=%.2f ms=%.1f stream_cpu=%.1f step=%s process=%.1f physics=%.1f" % [hitch["t"], hitch["ms"], hitch["stream_cpu_ms"],
 			hitch["step"], hitch["process_ms"], hitch["physics_ms"]])
