@@ -44,6 +44,8 @@ var _navigations := {}
 var _hunter_views := {}
 var _hunter_origins := {}
 var _hunter_levels := {}
+const FALLS_ITEM_DROP_CHANCE := .08            # the waterfall jump: chance the item in hand slips away
+var _jump_hint_shown := false
 var _safe_damage_accumulators := {}
 var _capture_cooldown := 0.0
 var _was_chased := false
@@ -69,6 +71,8 @@ var _hunter_activation_announced := false
 var _hunter_simulation_accumulator := 0.0
 var _hunter_broadcast_elapsed := HUNTER_BROADCAST_SECONDS
 var _hunter_stream_signature := ""
+## A neighbouring level's chunks are still being generated: refresh again until they all joined.
+var _hunter_stream_waiting := false
 ## Compact copies of only the chunks the local runner has discovered. Keeping
 ## this separate from the renderer means unloaded history remains map-visible
 ## without retaining any 3D scene nodes.
@@ -180,6 +184,7 @@ func _ready() -> void:
 	player.ladder_climb_finished.connect(_on_player_ladder_finished)
 	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
+	player.plunge_finished.connect(_on_player_plunge_finished)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
@@ -390,6 +395,7 @@ func _process(delta: float) -> void:
 	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
+	_update_falls_jump(level)
 	_update_sewer_ambience(delta, level)
 	if not _awaiting_snapshot:
 		_update_checkpoint(data)
@@ -1250,9 +1256,12 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			for x in side:
 				water[z * side + x] = 1 if int(sewer_grid[z][x]) == SewerRouteGenerator.WATER else 0
 	var ladders := []
-	for link_value in facility.generator.sewer().links_for(coord):
+	for link_value in facility.generator.vertical_links(coord):
 		var link: Dictionary = link_value
-		ladders.append({"cell": LevelLink.cell_on(link, coord.y),
+		var cell := LevelLink.cell_on(link, coord.y)
+		if cell.x < 0:
+			continue
+		ladders.append({"cell": cell, "kind": String(link["kind"]),
 			"direction": "down" if coord.y == int(link["from_level"]) else "up"})
 	_discovered_chunks[coord] = {"walls": walls, "pickups": visible_pickups,
 		"props": visible_props,
@@ -2194,6 +2203,22 @@ func _spawn_anti_idle_hunter() -> bool:
 	return true
 
 
+## The levels a hunter window around `center` covers: its own, and each level
+## one step up or down that a ladder or ramp in the surrounding 3x3 actually
+## leads to. Keeping every neighbouring level generated whether or not anything
+## connects to it built a whole Inferno window the moment a runner reached the
+## collector (a 110-180 ms frame on the level change).
+func _hunter_window_levels(center: Vector3i) -> Array:
+	var levels := [center.y]
+	for z in range(center.z - 1, center.z + 2):
+		for x in range(center.x - 1, center.x + 2):
+			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z)):
+				var far := int(LevelLink.other_end(link_value, center.y)["level"])
+				if absi(far - center.y) <= HUNTER_VERTICAL_STREAM_RADIUS and not levels.has(far):
+					levels.append(far)
+	return levels
+
+
 func _refresh_hunter_stream() -> void:
 	if _remotes == null or not _remotes.simulates() or facility.generator == null:
 		return
@@ -2207,9 +2232,10 @@ func _refresh_hunter_stream() -> void:
 		return a.y < b.y or (a.y == b.y and (a.x < b.x \
 			or (a.x == b.x and a.z < b.z))))
 	var stream_signature := _build_hunter_stream_signature(centers)
-	if stream_signature == _hunter_stream_signature:
+	if stream_signature == _hunter_stream_signature and not _hunter_stream_waiting:
 		return
 	_hunter_stream_signature = stream_signature
+	_hunter_stream_waiting = false
 	var active_coords := {}
 	var coords_by_level := {}
 	var navigation_centers: Array[Vector3i] = centers.duplicate()
@@ -2234,9 +2260,7 @@ func _refresh_hunter_stream() -> void:
 	# hunter resident across successive stair transfers instead of unloading
 	# immediately when the player climbs twice.
 	for center in navigation_centers:
-		for level_offset in range(-HUNTER_VERTICAL_STREAM_RADIUS,
-				HUNTER_VERTICAL_STREAM_RADIUS + 1):
-			var level := center.y + level_offset
+		for level in _hunter_window_levels(center):
 			if not coords_by_level.has(level):
 				coords_by_level[level] = []
 			var level_coords: Array = coords_by_level[level]
@@ -2244,6 +2268,12 @@ func _refresh_hunter_stream() -> void:
 				for x in range(center.x - 1, center.x + 2):
 					var coord := Vector3i(x, level, z)
 					if not facility.generator.is_chunk_allowed(coord):
+						continue
+					# another level's chunks join once the view's worker has generated them,
+					# so reaching a level never generates a whole window on this thread
+					if level != center.y and not facility.chunk_ready(coord):
+						facility.request_generation(coord)
+						_hunter_stream_waiting = true
 						continue
 					active_coords[coord] = true
 					if not level_coords.has(coord):
@@ -2641,8 +2671,31 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		var climb := _ladders.advance(entity_id, delta)
 		var link: Dictionary = (_ladders.climb_of(entity_id).get("link", {}) as Dictionary) \
 			if not bool(climb.get("done", false)) else (_ladder_plans.get(entity_id, {}) as Dictionary).get("link", {})
-		var lower_y := float(StreamedRouteGenerator.SEWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
-		view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
+		var lower_y := float(mini(int(link.get("from_level", 0)), int(link.get("to_level", 0)))) \
+			* StreamedFacilityView3D.LEVEL_HEIGHT
+		if link.has("path"):
+			# a stairwell: round its landings and up (or down) its flights or helix
+			var going_up := int(climb.get("to_level", level)) > int(climb.get("from_level", level))
+			var p := LadderTraffic.path_point(link, float(climb.get("progress", 0.0)), going_up)
+			var origin := Vector2((link["chunk"] as Vector3i).x, (link["chunk"] as Vector3i).z) * StreamedRouteGenerator.CHUNK_SIZE
+			var ahead := LadderTraffic.path_point(link, minf(1.0, float(climb.get("progress", 0.0)) + .02), going_up)
+			brain.position = origin + Vector2(p.x, p.z)
+			var heading := Vector2(ahead.x - p.x, ahead.z - p.z)
+			view.set_climbing(true, lower_y + p.y, atan2(-heading.x, -heading.y) if heading.length() > .001 else view.rotation.y,
+				"walk")
+		elif String(link.get("kind", "")) == "ramp":
+			# a ramp is walked, not climbed: down the slope from one landing to the other
+			var start := LadderTraffic.ladder_point(link, int(climb.get("from_level", level)))
+			var finish := LadderTraffic.ladder_point(link, int(climb.get("to_level", level)))
+			brain.position = start.lerp(finish, float(climb.get("progress", 0.0)))
+			var heading := finish - start
+			# on the ramp's own surface: flat over the landings, the slope between them
+			var upper_y := float(int(link["from_level"])) * StreamedFacilityView3D.LEVEL_HEIGHT
+			var local_x := brain.position.x - float((link["chunk"] as Vector3i).x * StreamedRouteGenerator.CHUNK_SIZE)
+			view.set_climbing(true, upper_y + StreamedFacilityView3D._ramp_surface_y(link, local_x),
+				atan2(-heading.x, -heading.y), "walk")
+		else:
+			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
 		if bool(climb.get("done", false)):
 			var to_level := int(climb["to_level"])
 			_hunter_levels[entity_id] = to_level
@@ -2669,8 +2722,11 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		_ladder_plans.erase(entity_id)
 		plan = {}
 	if plan.is_empty():
-		var other_level := 0 if level == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL
-		var other := _remotes.best_target(brain.position, local_target, -other_level)
+		# the runner she was after may be one level up or one level down
+		var other := {}
+		for other_level in [level + 1, level - 1]:
+			if other.is_empty() and facility.generator.is_chunk_allowed(Vector3i(0, other_level, 0)):
+				other = _remotes.best_target(brain.position, local_target, -other_level)
 		var pursuing := brain.state == HunterBrain.State.CHASE or brain.state == HunterBrain.State.INVESTIGATE
 		if not other.is_empty() and pursuing:
 			var goal: Vector2 = other["position"]
@@ -2691,8 +2747,13 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 	var point := LadderTraffic.ladder_point(link, level)
 	var arrived := brain.head_to(point, delta, navigation, depth, GameState.relays_collected)
 	if arrived and String(plan["mode"]) != "wait":
-		# One climber at a time: she waits at the ladder while it is taken.
-		_ladders.begin(entity_id, link, level, LadderTraffic.climb_seconds_for_speed(brain.base_speed))
+		# One at a time on a ladder (and a ramp): she waits at it while it is taken.
+		var seconds := LadderTraffic.climb_seconds_for_speed(brain.base_speed)
+		if link.has("path"):
+			seconds = LadderTraffic.path_seconds(link, brain.base_speed)
+		elif String(link["kind"]) == "ramp":
+			seconds = LadderTraffic.ramp_seconds_for_speed(brain.base_speed)
+		_ladders.begin(entity_id, link, level, seconds)
 	return true
 
 
@@ -2706,7 +2767,8 @@ func _update_player_ladder(level: int) -> void:
 			or player.input_frozen or player.admin_noclip:
 		return
 	var at := player.grid_position()
-	var link := LadderTraffic.nearest_ladder(facility.generator, level, at)
+	# runners climb ladders; ramps they simply walk
+	var link := LadderTraffic.nearest_ladder(facility.generator, level, at, ["ladder"])
 	if link.is_empty():
 		_ladder_rearm_id = ""
 		return
@@ -2755,6 +2817,89 @@ func _update_sewer_ambience(delta: float, _level: int) -> void:
 	if _ladder_rung_timer <= 0.0:
 		_ladder_rung_timer = .42
 		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
+
+
+## The roar of the falls into the collector drowns out a runner's own noise for
+## the hunters: full masking within FALLS_MASK_NEAR cells of a fall's lip (on
+## either sewer level), fading out by FALLS_MASK_FAR.
+const FALLS_MASK_NEAR := 7.0
+const FALLS_MASK_FAR := 13.0
+const FALLS_MASK_FLOOR := .35
+
+
+func _falls_noise_mask(at: Vector2, level: int) -> float:
+	if level != StreamedRouteGenerator.SEWER_LEVEL and level != StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		return 1.0
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var nearest := INF
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var falls: Dictionary = facility.generator.sewer().falls_between(cx + dx, cz + dz)
+			if falls.is_empty():
+				continue
+			var lip := Vector2((cx + dx) * size + float(falls["edge_x0"]) + 1.5, (cz + dz) * size + float(falls["edge_z"]))
+			nearest = minf(nearest, lip.distance_to(at))
+	if nearest == INF:
+		return 1.0
+	return lerpf(FALLS_MASK_FLOOR, 1.0, clampf((nearest - FALLS_MASK_NEAR) / (FALLS_MASK_FAR - FALLS_MASK_NEAR), 0.0, 1.0))
+
+
+## The waterfall jump (docs/SEWERS.md): on the first sewer, stepping through the railing gap off an overlook ledge into the open drop is a
+## deliberate plunge into the collector's cistern. Nothing happens by accident: the gap is the only open cell, and walking into it is the choice.
+func _update_falls_jump(level: int) -> void:
+	if player == null or level != StreamedRouteGenerator.SEWER_LEVEL or player.is_plunging() or player.is_climbing() \
+			or player.hidden or player.spectator_mode or player.admin_noclip:
+		return
+	var jump := _falls_jump_near(player.grid_position(), level)
+	if jump.is_empty():
+		_jump_hint_shown = false
+		return
+	var at := player.grid_position()
+	var cell: Vector2 = jump["cell_world"]
+	if at.distance_to(cell) <= 2.4 and not _jump_hint_shown:
+		_jump_hint_shown = true
+		hud.show_message("THE FALLS // STEP THROUGH THE GAP TO JUMP")
+	if Vector2i(floori(at.x), floori(at.y)) != Vector2i(floori(cell.x), floori(cell.y)):
+		return
+	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+	var surface_y := float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise + SewerRouteGenerator.WATER_SURFACE
+	var land: Vector2 = jump["land_world"]
+	var exit: Vector2 = jump["exit_world"]
+	player.begin_plunge(Vector3(cell.x, player.global_position.y, cell.y), Vector3(land.x, surface_y, land.y),
+		Vector3(exit.x, float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise, exit.y), surface_y)
+
+
+## {"cell_world", "land_world", "exit_world"} of the falls jump in the chunk column around `at`, or {}.
+func _falls_jump_near(at: Vector2, level: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
+	if falls.is_empty() or not falls.has("jump"):
+		return {}
+	var jump: Dictionary = falls["jump"]
+	var origin := Vector2(cx * size, cz * size)
+	return {"cell_world": origin + Vector2(jump["cell"]) + Vector2(.5, .5), "land_world": origin + Vector2(jump["land"]),
+		"exit_world": origin + Vector2(jump["exit"]), "level": level}
+
+
+## Out of the pool: a small chance the item in hand slipped away; it floats to where the runner climbed out. (Soaked runs for SOAKED_SECONDS.)
+func _on_player_plunge_finished(exit_position: Vector3) -> void:
+	hud.show_message("SOAKED // YOUR STEPS CARRY")
+	var item := player.selected_inventory_item()
+	if item.is_empty() or randf() >= FALLS_ITEM_DROP_CHANCE:
+		return
+	var slot: int = player.selected_inventory_slot
+	var event := {"what": "stream_drop", "action": "create", "item": item, "durability": 0, "slot": slot,
+		"at_override": exit_position + Vector3(0, .0, 0)}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_stream_drop(multiplayer.get_unique_id() if RoomState.online else 1, event)
+	hud.show_message("YOUR %s SLIPPED AWAY // IT FLOATED TO THE EDGE" % String(
+		PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
 
 
 func _on_player_ladder_finished(_to_level: int) -> void:
@@ -3096,7 +3241,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
 		"in_safe_zone": in_safe_room,
-		"noise": player.noise,
+		"noise": player.noise * _falls_noise_mask(player.grid_position(), facility.current_level()),
 		"flashlight_on": player.flashlight_enabled,
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		"facing": player.facing,
@@ -3719,6 +3864,8 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 				return
 			var drop_position: Vector3 = at
 			drop_position += Vector3(facing.x, 0.0, facing.y) * .72
+			if event.has("at_override") and event["at_override"] is Vector3:
+				drop_position = event["at_override"]      # a drop that floated to the pool's edge
 			drop_position.y = facility.streamed_surface_height(Vector2(
 				drop_position.x, drop_position.z), -int(target.get("depth", 0))) + .12
 			var record := world_state.create_drop(item_id, durability, drop_position,
@@ -4427,6 +4574,7 @@ func _collect_hunter_report() -> void:
 		state["presentation_y"] = view.position.y
 		state["climbing"] = view.climbing
 		state["climb_yaw"] = view.rotation.y
+		state["climb_clip"] = view.climb_clip
 		state["asleep"] = _naps.is_asleep(entity_id)
 		state["sleep_yaw"] = float(_naps.bed_of(entity_id).get("yaw", 0.0))
 		state["sleep_stage"] = _naps.stage_of(entity_id)
@@ -4464,7 +4612,7 @@ func _apply_hunter_report(data: Array) -> void:
 		# A host hunter on a sewer ladder: guests show the same climb at the host's height.
 		if bool(state.get("climbing", false)):
 			view.set_climbing(true, float(state.get("presentation_y", view.position.y)),
-				float(state.get("climb_yaw", view.rotation.y)))
+				float(state.get("climb_yaw", view.rotation.y)), String(state.get("climb_clip", "climb")))
 		else:
 			view.set_climbing(false)
 			view.clear_streamed_height_override()

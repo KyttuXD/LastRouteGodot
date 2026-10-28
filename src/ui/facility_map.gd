@@ -494,8 +494,13 @@ func _draw_streamed() -> void:
 			var ladder: Dictionary = ladder_value
 			var ladder_cell: Vector2i = ladder.get("cell", Vector2i.ZERO)
 			if world_bounds.has_point(chunk_world_origin + ladder_cell):
-				_draw_ladder_icon(local_origin + (Vector2(ladder_cell) + Vector2(.5, .5)) * cell, cell,
-					String(ladder.get("direction", "")) == "up")
+				var icon_at := local_origin + (Vector2(ladder_cell) + Vector2(.5, .5)) * cell
+				var up := String(ladder.get("direction", "")) == "up"
+				# ramps, switchback stairwells and spiral stairs: the stair icon (up or down)
+				if String(ladder.get("kind", "ladder")) in ["ramp", "stairs", "spiral"]:
+					_draw_stair_icon(icon_at, cell, up)
+				else:
+					_draw_ladder_icon(icon_at, cell, up)
 		for prop_value in chunk.get("props", []):
 			var prop: Dictionary = prop_value
 			var local: Vector2i = prop.get("cell", Vector2i.ZERO)

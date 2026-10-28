@@ -12,6 +12,7 @@ extends RefCounted
 const RISE := 4.0                       # StreamedFacilityView3D.LEVEL_HEIGHT
 const BASE_CLIMB_RATE := 1.6            # metres per second for a hunter of base speed 0.8
 const RUNNER_CLIMB_SECONDS := 2.4
+const RAMP_WALK_SECONDS := 7.0
 ## How close (cells) a body must be to the ladder cell's centre to get on it.
 const MOUNT_DISTANCE := 0.95
 
@@ -21,6 +22,42 @@ var _climbs := {}                       # climber id -> {link, from_level, to_le
 
 static func climb_seconds_for_speed(base_speed: float) -> float:
 	return RISE / (BASE_CLIMB_RATE * clampf(base_speed / 0.8, 0.6, 1.4))
+
+
+## Stairwells (and anything else with a "path"): walked along the path at a
+## steady 1.3 m/s for a hunter of base speed 0.8.
+static func path_seconds(link: Dictionary, base_speed: float) -> float:
+	return path_length(link) / (1.3 * clampf(base_speed / 0.8, 0.6, 1.4))
+
+
+static func path_length(link: Dictionary) -> float:
+	var path: Array = link.get("path", [])
+	var total := 0.0
+	for i in range(1, path.size()):
+		total += (path[i] as Vector3).distance_to(path[i - 1])
+	return total
+
+
+## The point `progress` (0..1) of the way along a link's path, in chunk-local
+## x/z and metres above the link's lower floor; reversed when climbing down.
+static func path_point(link: Dictionary, progress: float, going_up: bool) -> Vector3:
+	var path: Array = link.get("path", [])
+	if path.is_empty():
+		return Vector3.ZERO
+	var want := path_length(link) * (progress if going_up else 1.0 - progress)
+	for i in range(1, path.size()):
+		var a: Vector3 = path[i - 1]
+		var b: Vector3 = path[i]
+		var d := a.distance_to(b)
+		if want <= d:
+			return a.lerp(b, want / maxf(d, .001))
+		want -= d
+	return path[path.size() - 1]
+
+
+## A hunter walking a ramp tunnel: its 13 m of slope at a steady walk.
+static func ramp_seconds_for_speed(base_speed: float) -> float:
+	return RAMP_WALK_SECONDS / clampf(base_speed / 0.8, 0.6, 1.4)
 
 
 func is_free(link_id: String, climber_id: String = "") -> bool:
@@ -79,9 +116,10 @@ func clear() -> void:
 	_climbs.clear()
 
 
-## The ladder on `level` nearest to the global cell `near`, searching the chunk
+## The ladder or ramp (`kinds`) on `level` nearest to the global cell `near`, searching the chunk
 ## holding it and its eight neighbours. Returns {} when there is none.
-static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: Vector2) -> Dictionary:
+static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: Vector2,
+		kinds: Array = ["ladder", "ramp"]) -> Dictionary:
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var cx := floori(near.x / size)
 	var cz := floori(near.y / size)
@@ -90,8 +128,10 @@ static func nearest_ladder(generator: StreamedRouteGenerator, level: int, near: 
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
 			var coord := Vector3i(cx + dx, level, cz + dz)
-			for link_value in generator.sewer().links_for(coord):
+			for link_value in generator.vertical_links(coord):
 				var link: Dictionary = link_value
+				if not kinds.has(String(link["kind"])):
+					continue
 				var cell := LevelLink.cell_on(link, level)
 				if cell.x < 0:
 					continue

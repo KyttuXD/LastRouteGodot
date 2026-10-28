@@ -16,6 +16,8 @@ var brain: HunterBrain
 var surface_height_provider: Callable
 ## True while on a sewer ladder (set_climbing).
 var climbing := false
+## The clip played while `climbing`: "climb" on a ladder, "walk" down a ramp tunnel.
+var climb_clip := "climb"
 var _collider: CollisionShape3D
 ## Host-selected runner this brain is currently evaluating. Replicated with
 ## presentation state so only the pursued client receives chase audio.
@@ -275,7 +277,8 @@ func _apply_sleep_pose() -> void:
 		_model.remove_meta("awake_position")
 
 
-func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0) -> void:
+func set_climbing(on: bool, height: float = 0.0, facing_yaw: float = 0.0, clip: String = "climb") -> void:
+	climb_clip = clip
 	if on:
 		set_streamed_height_override(height)
 		rotation.y = facing_yaw
@@ -948,7 +951,7 @@ func _update_animation() -> void:
 	elif brain.stun_timer > 0.0:
 		pass
 	elif climbing:
-		clip_name = "climb"
+		clip_name = climb_clip
 	elif brain.gimmick is XivvyGimmick \
 			and (brain.gimmick as XivvyGimmick).airborne():
 		clip_name = "flight"

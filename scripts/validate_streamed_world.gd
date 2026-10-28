@@ -17,8 +17,10 @@ func run(host: Node) -> int:
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
 	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
-		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and not world.is_chunk_allowed(Vector3i(0, -2, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not one unbounded maze level over the sewer layer")
+		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
+		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
+		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
+		"the route is not one unbounded maze level over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -150,11 +152,12 @@ func run(host: Node) -> int:
 	var saw_dual_upper := false
 	var saw_dual_carousel := false
 	var saw_two_cell_double_door := false
-	for level in [0]:
+	# the maze level, and a window of the Inferno (no longer a maze district: the whole of level -3)
+	for level in [0, StreamedRouteGenerator.INFERNO_LEVEL]:
 		for z in range(-12, 13):
 			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
-				if not world.is_chunk_allowed(sampled_coord):
+				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
 					continue
 				var data := world.chunk(sampled_coord)
 				biomes[data["biome"]] = true

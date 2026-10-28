@@ -37,6 +37,14 @@ func add_floor(x: int, z: int, layer: float, params: Color) -> void:
 		Vector3(x, 0, z + 1), Vector3.UP, layer, params)
 
 
+## A floor quad through four arbitrary corners (a ramp's slope), facing up.
+func add_quad_floor(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, layer: float, params: Color) -> void:
+	var normal := (p3 - p0).cross(p1 - p0).normalized()
+	if normal.y < 0.0:
+		normal = -normal
+	_quad(0, p0, p1, p2, p3, normal, layer, params)
+
+
 ## A floor quad at height `y` (the bed of a sewer channel below the walkways).
 func add_floor_at(x: int, z: int, y: float, layer: float, params: Color) -> void:
 	_quad(0, Vector3(x, y, z), Vector3(x + 1, y, z), Vector3(x + 1, y, z + 1),
