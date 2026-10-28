@@ -38,11 +38,14 @@ func _check_marks() -> void:
 		3: _state(4, Vector2(6, 6)),
 		4: _state(3, Vector2(7, 7), {"spectating": true}),
 		5: _state(3, Vector2(8, 8), {"received_usec": Time.get_ticks_usec() - 600_000_000}),
+		6: _state(3, Vector2(9, 9), {"received_usec": Time.get_ticks_usec() - 10_000_000}),
 	})
 	var same := source.remote_player_marks(3)
-	_expect(same.size() == 2, "default marks should be the 2 fresh same-floor peers, not %d" % same.size())
+	_expect(same.size() == 3, "default marks should be the 2 fresh + 1 stale same-floor peers, not %d" % same.size())
+	var stale := same.filter(func(m: Dictionary) -> bool: return bool(m.get("stale", false)))
+	_expect(stale.size() == 1 and int(stale[0]["peer_id"]) == 6, "a peer quiet for 10 s should stay as a stale last-known mark")
 	var all := source.remote_player_marks(3, true)
-	_expect(all.size() == 3, "include_other_floors should add the other-floor peer (stale one still dropped), got %d" % all.size())
+	_expect(all.size() == 4, "include_other_floors should add the other-floor peer (the 10-minute-old one still dropped), got %d" % all.size())
 	var other := all.filter(func(m: Dictionary) -> bool: return bool(m.get("other_floor", false)))
 	_expect(other.size() == 1 and int(other[0]["level"]) == -4, "the other-floor mark should carry its own level -4 (%s)" % [other])
 	var downed := all.filter(func(m: Dictionary) -> bool: return bool(m.get("spectating", false)))

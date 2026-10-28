@@ -25,6 +25,8 @@ const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
 const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
+## The maps keep a quiet teammate at their last known spot (dimmed) this long instead of dropping them on one late packet.
+const MAP_STALE_GRACE_USEC := 60_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
 const MAX_CHAT_LENGTH := 80   # spoken aloud (text to speech): short lines
@@ -1084,7 +1086,8 @@ func remote_player_marks(depth: int, include_other_floors: bool = false) -> Arra
 	for id_value in _states:
 		var id := int(id_value)
 		var state: Dictionary = _states[id]
-		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
+		var age := now - int(state.get("received_usec", 0))
+		if age > MAP_STALE_GRACE_USEC:
 			continue
 		var other_floor := int(state.get("depth", -999999)) != depth
 		if other_floor and not include_other_floors:
@@ -1101,6 +1104,7 @@ func remote_player_marks(depth: int, include_other_floors: bool = false) -> Arra
 			"colour": peer_colour(id),
 			"spectating": bool(state.get("spectating", false)) or bool(state.get("game_over", false)),
 			"other_floor": other_floor,
+			"stale": age > REMOTE_STATE_TIMEOUT_USEC,
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)

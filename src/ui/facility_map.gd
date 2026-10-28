@@ -809,6 +809,8 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 		return
 	var radius := maxf(3.2 if interactive else 2.8, cell * .48)
 	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
+	if bool(mark.get("stale", false)):
+		colour = Color(colour, .45)   # no news for a while: last known spot, dimmed
 	var layout := teammate_layout(at, radius, mark)
 	var other_floor: bool = layout["kind"] == "updown"
 	var inert: bool = layout["kind"] == "downed"
