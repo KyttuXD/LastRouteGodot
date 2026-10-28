@@ -33,7 +33,7 @@ func _fake(path: String, body: Dictionary) -> Dictionary:
 				{"at": "2026-10-28T09:00", "reason": "kicks", "detail": "HOST A, HOST B", "open": true},
 				{"at": "2026-10-28T10:00", "reason": "integrity", "detail": "build not in list", "open": true},
 				{"at": "2026-10-20T10:00", "reason": "kick", "detail": "old", "open": false, "closedBy": "KYTTU"}],
-				"kicks": [{"by": "HOSTA", "at": "2026-10-27"}, {"by": "HOSTB", "at": "2026-10-28"}],
+				"kicks": [{"at": "2026-10-27", "room": "ABCDE", "host": "1a2b3c4d5e6f7a8b", "reason": "griefing", "strikes": 1}, {"at": "2026-10-28", "room": "FGHIJ", "host": "9f8e7d6c5b4a3f2e", "reason": "spam", "strikes": 2}],
 				"integrity": {"commit": "117a18a8", "hash": "cafebabe00112233", "known": false}},
 			{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true, "reason": "spam"},
 			{"username": "old", "permanent": true}], "builds": [{"buildHash": "deadbeef0123456789"}]}
@@ -91,7 +91,7 @@ func run(host: Node) -> int:
 			_expect(mod.contains("GRIEFER: FLAGGED UNTIL") and mod.contains("TROLL") and mod.contains("OLD: BANNED") and mod.contains("DEADBEEF0123"),
 				"moderation list not shown: %s" % mod)
 			_expect(mod.contains("REVIEW QUEUE: 2 OPEN") and mod.contains("[REVIEW] SUSPECT") and mod.contains("KICKED BY 2+ HOSTS IN 7 DAYS // HOST A, HOST B")
-				and mod.contains("UNKNOWN BUILD") and mod.contains("KICKS: HOSTA @ 2026-10-27") and mod.contains("BUILD CAFEBABE0011 @ 117A18A8 (UNKNOWN)")
+				and mod.contains("UNKNOWN BUILD") and mod.contains("KICKS: ABCDE (1a2b3c4d5e6f7a8b) @ 2026-10-27 // GRIEFING, 1 STRIKE, FGHIJ (9f8e7d6c5b4a3f2e) @ 2026-10-28 // SPAM, 2 STRIKES") and mod.contains("BUILD CAFEBABE0011 @ 117A18A8 (UNKNOWN)")
 				and not mod.contains("// old //"), "review queue not shown right: %s" % mod.replace("\n", " | "))
 			_expect(panel.find_child("Moderation_dismiss", true, false) != null, "no DISMISS button")
 			await panel.moderate("suspect", "dismiss")

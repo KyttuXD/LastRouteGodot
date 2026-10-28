@@ -341,12 +341,19 @@ static func format_account(record: Dictionary) -> Array:
 	var kicks: Array = record.get("kicks", [])
 	if not kicks.is_empty():
 		lines.append("   KICKS: %s" % ", ".join(kicks.map(func(k) -> String:
-			return ("%s @ %s" % [String(k.get("by", k.get("host", "?"))), str(k.get("at", ""))]) if k is Dictionary else str(k))))
+			return format_kick(k) if k is Dictionary else str(k))))
 	var integrity = record.get("integrity")
 	if integrity is Dictionary and not (integrity as Dictionary).is_empty():
 		lines.append("   BUILD %s @ %s%s" % [String(integrity.get("hash", "")).left(12).to_upper(), String(integrity.get("commit", "")).left(8).to_upper(),
 			"" if bool(integrity.get("known", true)) else " (UNKNOWN)"])
 	return lines
+
+
+## A kick entry {at, room, host (hashed reporting host id), reason, strikes} as "room (host) @ at // reason, N strikes".
+static func format_kick(kick: Dictionary) -> String:
+	return "%s (%s) @ %s // %s, %d STRIKE%s" % [String(kick.get("room", "?")).to_upper(), String(kick.get("host", "?")),
+		str(kick.get("at", "")), String(kick.get("reason", "")).to_upper(), int(kick.get("strikes", 0)),
+		"" if int(kick.get("strikes", 0)) == 1 else "S"]
 
 
 ## /api/admin/flags/set {sessionToken, username, action, hours?}.
