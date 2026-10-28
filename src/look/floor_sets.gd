@@ -78,7 +78,7 @@ const ROOMS := {
 	# research lab (Kyttu's Lab)
 	"clean_room": ["epoxy0"], "containment": ["epoxy1", "hazard"], "server_hall": ["grate", "epoxy0"],
 	"control_room": ["carpet_tile1", "epoxy0"], "decon": ["grate", "epoxy1"], "chem_lab": ["epoxy0", "epoxy1"],
-	"bio_lab": ["epoxy0"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
+	"bio_lab": ["epoxy0"], "pod_room": ["epoxy0"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
 	# greenhouse
 	"glasshouse": ["terracotta0", "terracotta1"], "palm_house": ["terracotta1", "stone2"], "cactus_room": ["stone2"],
 	"potting_shed": ["parquet1", "terracotta1"], "irrigation_room": ["grate", "terracotta0"],
@@ -103,6 +103,14 @@ static func room(region: String, room_type: String) -> Array:
 	if ROOMS.has(room_type):
 		return ROOMS[room_type]
 	return ROOM_DEFAULT.get(region, ROOM_DEFAULT["maze"])
+
+
+## The one floor kind a whole room is laid in. A purpose may list several kinds, but they vary from room to room, never
+## cell to cell: picking per cell made a patchwork of two floors underfoot (KT: "lab rooms have 2 floor types"). `anchor`
+## is the room's rect origin in world cells, so every peer and every cell of the room agree.
+static func room_kind(region: String, room_type: String, anchor: Vector2i) -> String:
+	var kinds := room(region, room_type)
+	return kinds[RefLook.pick(anchor.x, anchor.y, 7, kinds.size())]
 
 
 ## True when this purpose has its own entry (the validator wants every generated purpose listed).

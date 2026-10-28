@@ -516,6 +516,15 @@ func _ensure_inventory_menu_capacity(capacity: int) -> void:
 		_inventory_menu_bars.append(bar)
 
 
+## The hotbar's rect on the HUD canvas (the union of its slots), for TouchControls to keep clear of.
+func hotbar_rect() -> Rect2:
+	var rect := Rect2()
+	for slot in _inventory_slots:
+		if slot != null and slot.is_visible_in_tree():
+			rect = slot.get_global_rect() if rect.size == Vector2.ZERO else rect.merge(slot.get_global_rect())
+	return rect
+
+
 func inventory_is_open() -> bool:
 	return _inventory_overlay != null and _inventory_overlay.visible
 
@@ -863,7 +872,8 @@ func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 ## Name of the area the player stands in. Shown in the minimap's slot while the minimap has no map to draw
 ## (the City has zones, not a facility plan). Empty clears it.
 func set_zone_text(text: String) -> void:
-	_zone_label.text = text
+	# a zone / district name is an admin-only readout (RegionNames)
+	_zone_label.text = text if RegionNames.visible() else ""
 
 
 ## A scene with no map to show (the City) turns the minimap off so only the zone name takes its slot.

@@ -83,6 +83,46 @@ func run(host: Node) -> int:
 	return _failures
 
 
+## XR hand interactions (XRHands, milestone 4): a flat run builds none of the XR helpers and still aims [E] from the head;
+## the climb and swing maths hold; and a gripping hand's pull moves a real ladder climb by exactly that much.
+func _expect_xr_hands(controller: PlayerController3D) -> void:
+	if controller.xr_hands != null or controller.xr_comfort != null:
+		_fail("a flat run built the XR comfort or hand helpers")
+	if not controller.interaction_aim().is_equal_approx(controller.active_camera().global_transform):
+		_fail("[E] no longer aims from the head on a flat run")
+	if not is_equal_approx(XRHands.climb_pull(1.2, 1.0), 0.2) or not is_equal_approx(XRHands.climb_pull(1.0, 1.1), -0.1):
+		_fail("pulling a gripping hand down does not climb up by the same distance")
+	if not XRHands.is_swing(Vector3(0, 0, .05), 1.0 / 72.0) or XRHands.is_swing(Vector3(0, 0, .01), 1.0 / 72.0):
+		_fail("the swing speed threshold is wrong (3.6 m/s must swing, 0.7 m/s must not)")
+	var saved_position := controller.global_position
+	var saved_rotation := controller.rotation
+	var saved_layer := controller.collision_layer
+	var saved_mask := controller.collision_mask
+	var items_visible := controller.first_person_items.visible
+	controller.begin_ladder_climb(saved_position, 3.0, 1.0, saved_rotation.y, saved_position + Vector3(0, 3, -1),
+		saved_position + Vector3(0, 0, 1), 0, 0)
+	if controller.is_climbing():
+		controller.ladder_climb["phase"] = "climb"
+		controller.xr_climb_pull(.4)
+		controller._update_ladder_climb(1.0 / 60.0)
+		var height := float(controller.ladder_climb.get("height", 0.0))
+		if not is_equal_approx(height, 1.4):
+			_fail("a 0.4 m hand pull moved the climb to %.2f m instead of 1.40 m" % height)
+		controller.xr_climb_pull(-5.0)
+		controller._update_ladder_climb(1.0 / 60.0)
+		if String(controller.ladder_climb.get("phase", "")) != "climb" or float(controller.ladder_climb["height"]) > 0.001:
+			_fail("pushing a hand far up does not stop the climb at the foot of the ladder")
+	else:
+		_fail("the test ladder climb did not start")
+	controller.ladder_climb = {}
+	controller._show_climb_hands(false)
+	controller.global_position = saved_position
+	controller.rotation = saved_rotation
+	controller.collision_layer = saved_layer
+	controller.collision_mask = saved_mask
+	controller.first_person_items.visible = items_visible
+
+
 func _expect_xr(route: Node) -> void:
 	var controller: PlayerController3D = route.player
 	if controller.xr_origin == null or controller.xr_camera == null \
@@ -111,6 +151,7 @@ func _expect_xr(route: Node) -> void:
 	_expect_player_camera_and_crouch(controller)
 	_expect_controller_bindings()
 	_expect_keyboard_look(controller)
+	_expect_xr_hands(controller)
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:

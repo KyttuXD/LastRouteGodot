@@ -234,6 +234,8 @@ func _ready() -> void:
 		_remotes.request_interaction({"what": "admin_auth"})
 	_refresh_hunter_stream()
 
+	if PlatformProfile.is_phone:
+		TouchControls.attach(self, player, hud)   # phones only (docs/XR_ANDROID.md); desktop never creates it
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
@@ -448,8 +450,7 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 		_navigation.refresh(coord.y, facility.loaded_horizontal_coords())
 	if _navigation != null and _remotes != null and _remotes.simulates():
 		_refresh_hunter_stream()
-	var region := String(data.get("region", "maze")).to_upper()
-	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
+	hud.depth_label.text = RegionNames.level_line(coord.y, String(data.get("region", "maze")))
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
 	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")

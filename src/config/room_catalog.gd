@@ -344,6 +344,7 @@ const WALL_BACKED_TYPES := [
 	"hospitalBed", "nursesStation", "waitingChairs", "morgueCabinet",
 	"pharmacyShelf", "xrayLightbox", "medicalSupplyRack", "hospitalWardSign",
 	"labBench", "fumeHood", "containmentCell", "labCoolingUnit", "monitorWall",
+	"divePod", "divePodFilm", "divePodLit", "diveConsole", "diveHeadsetShelf",
 	"deconShower", "coldStorageUnit", "labWhiteboard", "hazardSign",
 	"gasCylinderRack", "raisedPlanter", "pottingBench", "seedlingRack",
 	"irrigationManifold", "shopShelf", "shopFridge", "coffeeStation", "donutFryer",
@@ -550,6 +551,8 @@ const FOOTPRINTS := {
 	"hospitalWardSign": Vector2(.45, .03), "labBench": Vector2(.98, .38), "fumeHood": Vector2(.73, .43),
 	"specimenTank": Vector2(.45, .45), "containmentCell": Vector2(1.08, .83),
 	"labCoolingUnit": Vector2(.48, .40), "controlConsole": Vector2(1.18, .48),
+	"divePod": Vector2(.50, 1.10), "divePodFilm": Vector2(.50, 1.10), "divePodLit": Vector2(.50, 1.10),
+	"diveHeadsetStand": Vector2(.16, .16), "diveHeadsetShelf": Vector2(.95, .16), "diveConsole": Vector2(.98, .40),
 	"monitorWall": Vector2(1.18, .05), "deconShower": Vector2(.63, .63), "coldStorageUnit": Vector2(.68, .40),
 	"labWhiteboard": Vector2(.88, .04), "hazardSign": Vector2(.28, .03), "labGlassPartition": Vector2(.95, .07),
 	"labStool": Vector2(.19, .19), "labMicroscope": Vector2(.15, .16), "gasCylinderRack": Vector2(.45, .21),
@@ -707,7 +710,7 @@ static func is_solid(type: String) -> bool:
 		"houseTowelRack", "houseBathMat", "houseBathroomShelf",
 		"grandStaircase", "grandFoyerStaircase",
 		"surgicalLight", "hangingVines", "overgrowthPatch", "labMicroscope",
-		"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard",
+		"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard", "diveHeadsetShelf",
 		"hazardSign", "menuBoard", "donutSign", "cinemaScreen"]
 
 
