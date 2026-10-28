@@ -41,7 +41,7 @@ collector gets a preset when it lands (add it to `AREAS` in `src/playtest/playte
 * **Follows the real floor.** Each walking frame ray-casts the physics collision floor (ramps, bridge slopes, stairs); the flying shots are absolute.
 * **Checks itself.** The planner counts seconds facing a wall under 2 m and motion stats (largest yaw step, zig-zag); the runner records the real
   view depth through the collision every frame; `flythrough.py` samples a frame per second and flags blank or flat-wall frames. A clip with more
-  than 2 boring seconds, or the view under 2 m for over 1 s, is re-planned with the next `--variants` try (default 3); the best try is kept and
+  than 2 boring seconds, or the view under 2 m for over 1 s, is re-planned with the next `--variants` try (default 6); the best try is kept and
   marked WARN if it still has boring stretches. Each clip gets a `<area>_sheet.jpg` contact sheet.
 * **Clean scene (optional).** `--clean` hides pickups, tools, coins and the waypoint trail by visibility only (`--keep relay,battery` whitelists kinds).
 

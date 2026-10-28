@@ -182,7 +182,7 @@ def main() -> int:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--timeout", type=int, default=1500, help="per-area wall-clock limit on the mini, seconds")
     ap.add_argument("--keep-avi", action="store_true", help="keep the raw captures next to the mp4s")
-    ap.add_argument("--variants", type=int, default=3, help="tries per area: a clip that stares at walls or goes blank is re-planned with the next variant")
+    ap.add_argument("--variants", type=int, default=6, help="tries per area: a clip that stares at walls or goes blank is re-planned with the next variant")
     ap.add_argument("--clean", action="store_true", help="capture-only clean scene: hide pickups, tools and the waypoint trail (visibility only)")
     ap.add_argument("--keep", default="", help="with --clean: kinds to keep visible (relay,battery,coin,tool_pickup,music_box)")
     ap.add_argument("--no-bob", action="store_true", help="no head bob (dolly style)")

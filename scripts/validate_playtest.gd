@@ -28,10 +28,10 @@ func run(host: Node) -> int:
 	# 0b. the flythrough planner builds a camera track for every default area (or says the build has none), no scene needed
 	var generator := StreamedRouteGenerator.new("FLYTHROUGH")
 	for area in PlaytestFlythrough.DEFAULT_SET:
-		# the renderer retries a boring tour with the next variant, so an area passes when ONE of the first three variants is clean
+		# the renderer retries a boring tour with the next variant, so an area passes when ONE of the first six variants is clean (flythrough.py --variants)
 		var problems: Array = []
 		var unavailable := false
-		for variant in 3:
+		for variant in 6:
 			var planned: Dictionary = PlaytestFlythrough.plan(generator, String(area), 30, 0.0, variant)
 			if bool(planned.get("unavailable", false)):
 				print("  note  flythrough area %s unavailable on this build: %s" % [area, planned.get("error", "")])

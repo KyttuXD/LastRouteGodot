@@ -178,6 +178,8 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 	for _i in 60:
 		await tree.physics_frame
 	report["role"] = role
+	if bool(opts.get("coop_check", false)):
+		return await coop_check(bridge, adapter, opts, report)
 	return await run_loop(bridge, adapter, opts, report)
 
 
@@ -898,3 +900,270 @@ static func _soak_music_box(scene: Node, wound: Dictionary) -> RouteInteractable
 		if absf(gap.y) < 1.5 and Vector2(gap.x, gap.z).length() <= 2.5:
 			return it
 	return null
+
+
+
+# ------------------------------------------------------------------------------------------------ coop_check
+## coop_bot --coop-check: a scripted live co-op test. Every peer plays with the bot and, on the same timeline (seconds since it entered the
+## route), does its part; every peer writes a state sample each wall-clock second (epoch ms) to <out>/coop_samples.jsonl and screenshots
+## at the key moments, so tools/playtest/coop_compare.py can line the peers up afterwards.
+##   guests are ordered by peer id: A (first), B (second or A), C (third or A)
+##   t 50   host summons Glyra beside B          t 60   B winds the nearest music box (its own interaction)
+##   t 110  C hides in the nearest slatted locker t 118  host summons Dovelle beside C and has her inspect that locker (lean in)
+##   t 235  A stands still                        t 240  host summons Kathy beside A: a real catch (grab, death flow) on A
+##   t 470  host stands still                     t 480  host summons Kathy beside itself: the host's own catch
+const COOP_SHOTS := [5.0, 58.0, 63.0, 68.0, 116.0, 124.0, 130.0, 138.0, 242.0, 244.5, 247.0, 252.0, 300.0, 360.0, 420.0, 482.0, 484.5, 488.0, 540.0]
+
+
+static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
+	var tree := bridge.get_tree()
+	var role := String(report.get("role", "host"))
+	var me := tree.get_multiplayer().get_unique_id()
+	var out := String(opts["out"]) if String(opts["out"]) != "" else ProjectSettings.globalize_path("res://.playtest/%s" % opts["name"])
+	DirAccess.make_dir_recursive_absolute(out.path_join("shots"))
+	var samples := FileAccess.open(out.path_join("coop_samples.jsonl"), FileAccess.WRITE)
+	var started := Time.get_ticks_msec()
+	var limit := float(opts["minutes"]) * 60.0
+	var hz := float(Engine.physics_ticks_per_second)
+	var shot_i := 0
+	var next_sample := 0.0
+	var done := {}
+	var passive_until := -1.0
+	var hidden_spot := {}
+	var steps: Array = []
+	var fps: Array = []
+	var frame_ms: Array = []
+	var frames := 0
+	var obs := {}
+	while true:
+		await tree.physics_frame
+		frames += 1
+		var t := float(Time.get_ticks_msec() - started) / 1000.0
+		if t >= limit:
+			break
+		var scene := tree.current_scene
+		if not _soak_route(scene):
+			continue
+		var guests := _coop_guests(scene)
+		var a := int(guests[0]) if guests.size() > 0 else -1
+		var b := int(guests[1]) if guests.size() > 1 else a
+		var c := int(guests[2]) if guests.size() > 2 else a
+		var player: PlayerController3D = scene.get("player")
+		# the timeline, each step once
+		var step := ""
+		if role == "host" and t >= 50.0 and not done.has("glyra"):
+			step = "glyra"
+			scene.call("_admin_summon_hunter_authoritative", b, "glyra")
+		elif me == b and t >= 60.0 and not done.has("wind"):
+			step = "wind"
+			steps.append(await _coop_wind(bridge, scene, player))
+		elif me == c and t >= 110.0 and not done.has("hide"):
+			step = "hide"
+			hidden_spot = await _coop_hide(bridge, scene, player)
+			steps.append(hidden_spot)
+			passive_until = 200.0
+		elif role == "host" and t >= 118.0 and not done.has("summon_c"):
+			step = "summon_c"
+			scene.call("_admin_summon_hunter_authoritative", c, "dovelle")
+		elif role == "host" and t >= 120.0 and not done.has("inspect"):
+			step = "inspect"
+			steps.append(_coop_inspect(scene, c))
+		elif me == a and t >= 235.0 and not done.has("still_a"):
+			step = "still_a"
+			passive_until = 330.0
+		elif role == "host" and t >= 240.0 and not done.has("catch_a"):
+			step = "catch_a"
+			scene.call("_admin_summon_hunter_authoritative", a, "kathy")
+		elif role == "host" and t >= 470.0 and not done.has("still_host"):
+			step = "still_host"
+			passive_until = 560.0
+		elif role == "host" and t >= 480.0 and not done.has("catch_host"):
+			step = "catch_host"
+			scene.call("_admin_summon_hunter_authoritative", me, "kathy")
+		if not step.is_empty():
+			done[step] = snappedf(t, .1)
+			adapter.add_event("coop_" + step, {"t": snappedf(t, .1), "epoch_ms": int(Time.get_unix_time_from_system() * 1000.0)})
+		# sample every wall second
+		if t >= next_sample:
+			next_sample += 1.0
+			var row := _coop_sample(scene, role, me, t)
+			row["run_over"] = adapter.run_over(obs) if not obs.is_empty() else null
+			samples.store_line(JSON.stringify(row))
+			samples.flush()
+		if shot_i < COOP_SHOTS.size() and t >= float(COOP_SHOTS[shot_i]):
+			bridge.screenshot(out.path_join("shots/%s_%03d.png" % [role if role == "host" else "guest%d" % int(opts["bot_seed"]), int(COOP_SHOTS[shot_i])]))
+			shot_i += 1
+		if frames % 3 == 0 or obs.is_empty():
+			obs = bridge.observe()
+		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
+			fps.append(float(obs["fps"]))
+			frame_ms.append(float(obs["frame_ms"]))
+		# a caught runner spectates (co-op): nothing to steer; a passive window stands still (and stays in the locker)
+		if adapter.run_over(obs) or t < passive_until:
+			bridge.input.apply({})
+			continue
+		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
+	bridge.input.release_all()
+	samples.close()
+	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
+	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
+		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
+
+
+static func _coop_guests(scene: Node) -> Array:
+	var ids: Array = []
+	for id in RoomState.peers:
+		if int(id) != 1:
+			ids.append(int(id))
+	ids.sort()
+	return ids
+
+
+## What this peer sees, for the cross-peer comparison: its runner, every hunter view (state, inspect phase, chase style and its blend,
+## Kathy's beam), every remote runner's grab packet, the music boxes' clocks and Glyra's mood.
+static func _coop_sample(scene: Node, role: String, me: int, t: float) -> Dictionary:
+	var player: PlayerController3D = scene.get("player")
+	var hud: Object = scene.get("hud")
+	var grab: Object = scene.get("grab")
+	var row := {"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0), "t": snappedf(t, .01), "role": role, "me": me,
+		"pos": [snappedf(player.global_position.x, .01), snappedf(player.global_position.y, .01), snappedf(player.global_position.z, .01)],
+		"hidden": player.hidden, "grab_state": player.grab_state.duplicate(),
+		"grab_playing": grab != null and not (grab.get("current") as Dictionary).is_empty(), "grab_style": str(grab.get("style")) if grab != null else "",
+		"hud_hidden": bool(hud.call("hud_is_hidden")) if hud != null and hud.has_method("hud_is_hidden") else null,
+		"death_flow": bool(hud.call("death_flow_active")) if hud != null and hud.has_method("death_flow_active") else null,
+		"spectating": player.spectator_mode}
+	var hunters := {}
+	for key in (scene.get("_hunter_views") as Dictionary):
+		var view := (scene.get("_hunter_views") as Dictionary)[key] as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			continue
+		var brain := view.brain
+		var beam := view.get("_kathy_beam") as SpotLight3D
+		var chase: Object = view.get("_chase")
+		var entry := {"id": brain.hunter_id, "state": HunterBrain.State.keys()[brain.state],
+			"pos": [snappedf(view.global_position.x, .01), snappedf(view.global_position.z, .01)],
+			"inspect": HunterBrain.Inspect.keys()[brain.inspect_phase] if brain.state == HunterBrain.State.INSPECT else "",
+			"chase_style": str(brain.get("chase_style")), "chase_weight": snappedf(float(chase.get("weight")), .01) if chase != null else 0.0,
+			"beam": beam != null and is_instance_valid(beam) and beam.is_visible_in_tree() and beam.light_energy > .01,
+			"beam_energy": snappedf(beam.light_energy, .01) if beam != null and is_instance_valid(beam) else 0.0}
+		if brain.gimmick is GlyraGimmick:
+			entry["mood"] = MusicBoxes.Mood.keys()[(brain.gimmick as GlyraGimmick).mood]
+		hunters[str(key)] = entry
+	row["hunters"] = hunters
+	var remotes := {}
+	var remote_node: Object = scene.get("_remotes")
+	if remote_node != null:
+		var states: Dictionary = remote_node.get("_states")
+		for id in states:
+			var st: Dictionary = states[id]
+			remotes[str(id)] = {"grab": st.get("grab", []), "hidden": st.get("hidden", null), "pos": str(st.get("position", ""))}
+	row["remotes"] = remotes
+	var boxes := {}
+	var clocks: MusicBoxes = scene.get("_music_boxes")
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it != null and it.kind == RouteInteractable3D.Kind.MUSIC_BOX and it.music_box_id != "" and clocks != null \
+				and it.global_position.distance_to(player.global_position) < 40.0:
+			boxes[it.music_box_id] = snappedf(clocks.seconds_left(it.music_box_id), .1)
+	row["boxes"] = boxes
+	return row
+
+
+## B: walk-free wind of the nearest music box: put in front of it, faced at it, and its own interaction (what holding E calls).
+static func _coop_wind(bridge: PlaytestBridge, scene: Node, player: PlayerController3D) -> Dictionary:
+	var best: RouteInteractable3D = null
+	var best_d := INF
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it == null or it.kind != RouteInteractable3D.Kind.MUSIC_BOX or it.music_box_id == "" or absf(it.global_position.y - player.global_position.y) > 2.0:
+			continue
+		var d := it.global_position.distance_to(player.global_position)
+		if d < best_d:
+			best_d = d
+			best = it
+	if best == null:
+		return {"step": "wind", "ok": false, "why": "no music box on this storey in the loaded chunks"}
+	var stand := _coop_stand(player, best.global_position)
+	bridge.admin("teleport", {"x": stand.x, "y": stand.y, "z": stand.z})
+	for _i in 20:
+		await bridge.get_tree().physics_frame
+	var to := best.global_position - player.first_person_camera.global_position
+	player._yaw = PlaytestFlythrough.yaw_for(to.x, to.z)
+	player._pitch = PlaytestFlythrough.pitch_for(to.normalized())
+	player._apply_look_rotation()
+	var said := best.activate(player)
+	return {"step": "wind", "ok": true, "box": best.music_box_id, "said": said, "epoch_ms": int(Time.get_unix_time_from_system() * 1000.0),
+		"at": [snappedf(best.global_position.x, .1), snappedf(best.global_position.z, .1)]}
+
+
+## C: into the nearest slatted hiding spot (a locker), through its own interaction.
+static func _coop_hide(bridge: PlaytestBridge, scene: Node, player: PlayerController3D) -> Dictionary:
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var best: RouteInteractable3D = null
+	var best_d := INF
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var it := node as RouteInteractable3D
+		if it == null or it.kind != RouteInteractable3D.Kind.HIDING_SPOT or absf(it.global_position.y - player.global_position.y) > 2.0:
+			continue
+		var slatted := false
+		if nav != null:
+			for spot_value in nav.hiding_spots:
+				var spot: Dictionary = spot_value
+				if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) == Vector2i(floori(it.global_position.x), floori(it.global_position.z)):
+					slatted = HunterInspect.slatted(String(spot.get("style", "")))
+		var d := it.global_position.distance_to(player.global_position)
+		if slatted and d < best_d:
+			best_d = d
+			best = it
+	if best == null:
+		return {"step": "hide", "ok": false, "why": "no slatted hiding spot on this storey in the loaded chunks"}
+	var yaw := best.hiding_outward_yaw()
+	var out_dir := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var stand := best.global_position + out_dir * .9
+	bridge.admin("teleport", {"x": stand.x, "y": player.global_position.y, "z": stand.z})
+	for _i in 20:
+		await bridge.get_tree().physics_frame
+	var said := best.activate(player)
+	for _i in 60:
+		await bridge.get_tree().physics_frame
+	return {"step": "hide", "ok": player.hidden, "said": said, "cell": [floori(best.global_position.x), floori(best.global_position.z)],
+		"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0)}
+
+
+## Host: the Dovelle summoned beside C is sent to inspect C's locker, the way the route does when she passes one unseen
+## (HunterInspect never finds the hider).
+static func _coop_inspect(scene: Node, peer: int) -> Dictionary:
+	var target: Dictionary = scene.call("_target_state_for_peer", peer)
+	if target.is_empty():
+		return {"step": "inspect", "ok": false, "why": "peer %d not found" % peer}
+	var at: Vector2 = target.get("position", Vector2.ZERO)
+	var view: HunterView3D = null
+	var best := INF
+	for key in (scene.get("_hunter_views") as Dictionary):
+		var candidate := (scene.get("_hunter_views") as Dictionary)[key] as HunterView3D
+		if candidate != null and candidate.brain != null and candidate.brain.hunter_id == "dovelle" and candidate.brain.position.distance_to(at) < best:
+			best = candidate.brain.position.distance_to(at)
+			view = candidate
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	if view == null or nav == null:
+		return {"step": "inspect", "ok": false, "why": "no Dovelle view near peer %d" % peer}
+	var cell := Vector2i(floori(at.x), floori(at.y))
+	for spot_value in nav.hiding_spots:
+		var spot: Dictionary = spot_value
+		if Vector2(Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0)))).distance_to(Vector2(cell)) <= 1.5:
+			var started := view.brain.start_inspect(spot.get("prop_at", at), HunterInspect.door_direction(float(spot.get("yaw", 0.0))), nav)
+			return {"step": "inspect", "ok": started, "spot": [spot.get("x"), spot.get("y")], "dovelle_gap_m": snappedf(best, .1),
+				"epoch_ms": int(Time.get_unix_time_from_system() * 1000.0)}
+	return {"step": "inspect", "ok": false, "why": "no hiding spot at C's cell %s" % cell}
+
+
+## A standing point 1.2 m from `target` on the side of open floor (four axis directions, chest-height ray).
+static func _coop_stand(player: PlayerController3D, target: Vector3) -> Vector3:
+	var space := player.get_world_3d().direct_space_state
+	for dir in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		var from: Vector3 = target + Vector3.UP * .8
+		var ray := PhysicsRayQueryParameters3D.create(from, from + dir * 1.6)
+		ray.exclude = [player.get_rid()]
+		if space.intersect_ray(ray).is_empty():
+			return Vector3(target.x, player.global_position.y, target.z) + dir * 1.2
+	return Vector3(target.x + 1.2, player.global_position.y, target.z)

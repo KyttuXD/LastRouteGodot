@@ -818,27 +818,62 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			bake_turn(track, 120.0, ORBIT_SECONDS * .5, 0.0, fps)
 			info.merge({"level": 0, "chunk": [chunk_of.x, chunk_of.y], "manhole": [manhole.x, manhole.y]})
 		"sewer_ladder":
-			var link := {}
-			var chunk_of := Vector2i.ZERO
+			# every sewer ladder within four chunks, nearest first: the first whose chamber (the cell in front of the ladder, or a
+			# neighbour of the ladder cell when the wall side changed) the walk can reach from that chunk's junction
+			var candidates: Array = []
 			for cz in range(-4, 5):
 				for cx in range(-4, 5):
-					if not link.is_empty():
-						break
-					var links: Array = gen.sewer().chunk(Vector3i(cx, -1, cz)).get("links", [])
-					if not links.is_empty():
-						link = links[0]
-						chunk_of = Vector2i(cx, cz)
-			if link.is_empty():
+					for link_value in gen.sewer().chunk(Vector3i(cx, -1, cz)).get("links", []):
+						candidates.append({"link": link_value, "chunk": Vector2i(cx, cz), "d": cx * cx + cz * cz})
+			if candidates.is_empty():
 				return {"ok": false, "error": "no sewer ladder within four chunks of the origin", "unavailable": true}
-			var base := _chunk_start(chunk_of)
-			var up: Vector2i = base + (link["to_cell"] as Vector2i)
-			var wall: Vector2i = link.get("wall", Vector2i(0, -1))
-			var chamber := up - wall
+			candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["d"]) < int(b["d"]))
 			var s := Sampler.new(gen, -1)
 			sampler = s
-			var field := path_field(s, base + Vector2i(CHUNK / 2, CHUNK / 2), 60)
-			if not field["cost"].has(chamber):
-				return {"ok": false, "error": "ladder chamber %s not reachable from the junction" % chamber}
+			var link := {}
+			var chunk_of := Vector2i.ZERO
+			var base := Vector2i.ZERO
+			var up := Vector2i.ZERO
+			var wall := Vector2i(0, -1)
+			var chamber := Vector2i.ZERO
+			var field := {}
+			var tried: Array = []
+			var skip := variant
+			for candidate in candidates:
+				var c_base := _chunk_start(candidate["chunk"])
+				var c_up: Vector2i = c_base + ((candidate["link"] as Dictionary)["to_cell"] as Vector2i)
+				var c_wall: Vector2i = (candidate["link"] as Dictionary).get("wall", Vector2i(0, -1))
+				# the walk starts in the tunnels nearest the chunk's middle (main's ladder quadrant can leave the middle cell itself solid)
+				var c_field := path_field(s, _nearest_open(s, c_base + Vector2i(CHUNK / 2, CHUNK / 2), false), 60)
+				for cell in [c_up - c_wall, c_up + Vector2i(1, 0), c_up + Vector2i(-1, 0), c_up + Vector2i(0, 1), c_up + Vector2i(0, -1)]:
+					if c_field["cost"].has(cell) and skip > 0:
+						skip -= 1   # variant N walks to the Nth reachable ladder
+						break
+					if c_field["cost"].has(cell):
+						link = candidate["link"]
+						chunk_of = candidate["chunk"]
+						base = c_base
+						up = c_up
+						wall = c_up - cell
+						chamber = cell
+						field = c_field
+						break
+				if not link.is_empty():
+					break
+				if tried.is_empty():
+					# what the walk sees around the first one: o = open to the sampler, * = reached by the field
+					var rows: Array = []
+					for dz in range(-3, 4):
+						var row := ""
+						for dx in range(-3, 4):
+							var q := c_up + Vector2i(dx, dz)
+							row += ("o" if s.open(q.x, q.y) else "#") + ("*" if c_field["cost"].has(q) else " ")
+						rows.append(row)
+					tried.append("%s wall %s field %d cells [%s]" % [c_up, c_wall, (c_field["cost"] as Dictionary).size(), " | ".join(rows)])
+				else:
+					tried.append(str(c_up - c_wall))
+			if link.is_empty():
+				return {"ok": false, "error": "no ladder chamber reachable from its junction (tried %s)" % ", ".join(tried), "unavailable": true}
 			var floor_y := -LEVEL_HEIGHT
 			var pois := _sewer_pois(gen, [chunk_of])
 			pois.append(poi(up.x + .5, up.y + .5, 2.2, 1.6, "ladder"))
