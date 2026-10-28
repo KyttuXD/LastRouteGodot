@@ -805,7 +805,7 @@ static func _paint_rock_floor(variant: int) -> Image:
 static func _paint_wall_rock(variant: int) -> Image:
 	var rng := _rng("rockwall%d" % variant)
 	var img := _new_image(PX, WALL_H)
-	var base := Color("2a2224") if variant == 0 else Color("2f2325")
+	var base := Color("2a2224") if variant % 2 == 0 else Color("2f2325")
 	_noise(img, 0, 0, PX, WALL_H, base, .16, rng, 2)
 	var y := 0
 	while y < WALL_H:
@@ -818,8 +818,10 @@ static func _paint_wall_rock(variant: int) -> Image:
 		y += band
 	for i in 10:
 		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, WALL_H - 8), Color("0c0808"), 1, rng.randi_range(4, 20))
-	for i in 5:
-		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(12, WALL_H - 16), rng.randi_range(10, 26),
+	# ember cracks: how many (none on some variants) and where differs per variant, so no pattern repeats along a wall
+	var cracks: int = [3, 0, 2, 4, 1, 0, 3, 2][variant % 8]
+	for i in cracks:
+		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(12, WALL_H - 16), rng.randi_range(8, 24),
 			Color("c8481a") if i % 2 == 0 else Color("7a2a14"))
 	# ragged top: the rock above the cave ceiling bites down unevenly
 	for x in PX:
@@ -926,7 +928,9 @@ const WALL_PAINTERS := {
 	"office0": [&"_paint_wall_office", 0], "office1": [&"_paint_wall_office", 1],
 	"corridor0": [&"_paint_wall_corridor", 0], "corridor1": [&"_paint_wall_corridor", 1],
 	"inferno0": [&"_paint_wall_inferno", 0],
-	"rockwall0": [&"_paint_wall_rock", 0], "rockwall1": [&"_paint_wall_rock", 1],
+	"rockwall0": [&"_paint_wall_rock", 0], "rockwall1": [&"_paint_wall_rock", 1], "rockwall2": [&"_paint_wall_rock", 2],
+	"rockwall3": [&"_paint_wall_rock", 3], "rockwall4": [&"_paint_wall_rock", 4], "rockwall5": [&"_paint_wall_rock", 5], "rockwall6": [&"_paint_wall_rock", 6],
+	"rockwall7": [&"_paint_wall_rock", 7],
 	"hospital0": [&"_paint_wall_hospital", 0], "hospital1": [&"_paint_wall_hospital", 1],
 	"lab0": [&"_paint_wall_lab", 0], "lab1": [&"_paint_wall_lab", 1],
 	"mall0": [&"_paint_wall_mall", 0], "mall1": [&"_paint_wall_mall", 1],

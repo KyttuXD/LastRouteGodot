@@ -149,7 +149,8 @@ const REGION_STYLE := {
 	"prison": {"corridor": ["metal1", "metal2", "grate"], "room": ["metal2", "metal3"],
 		"wall": ["corridor0", "corridor1", "panel0"], "ceiling": "ceil0", "runner": false},
 	"inferno": {"corridor": ["rock0", "rock1"], "room": ["rock0", "rock1"],
-		"wall": ["rockwall0", "rockwall1", "rockwall0"], "ceiling": "rockceil", "runner": false},
+		"wall": ["rockwall0", "rockwall1", "rockwall2", "rockwall3", "rockwall4", "rockwall5", "rockwall6", "rockwall7"],
+		"ceiling": "rockceil", "runner": false},
 	# the sewer under the maze: brick tunnels over worn stone walkways
 	"sewer": {"corridor": ["stone0", "stone1"], "room": ["concrete0", "concrete1"],
 		"wall": ["brick0", "brick1", "brick1"], "ceiling": "vault", "runner": false},
@@ -236,6 +237,9 @@ const ROOM_STYLE := {
 static func wall_kind(region: String, room_type: String, gx: int, gz: int) -> String:
 	var style: Dictionary = REGION_STYLE.get(region, REGION_STYLE["maze"])
 	var kinds: Array = (ROOM_STYLE.get(room_type, {}) as Dictionary).get("wall", style["wall"]) if room_type != "" else style["wall"]
+	# cave rock changes every cell (no 4-cell blocks of one texture), so nothing tiles along a wall
+	if region == "inferno":
+		return kinds[pick(gx, gz, 2, kinds.size())]
 	return kinds[pick(gx / 4, gz / 4, 2, kinds.size())]
 
 
