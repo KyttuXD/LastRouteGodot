@@ -42,10 +42,16 @@ func run(host: Node) -> int:
 			_expect(String(presets.get_value(section, "platform")) == "Android", "the phone preset is not Android")
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 0, "the phone preset enables OpenXR")
 			_expect(String(presets.get_value(options, "package/unique_name")) != "org.kyttuslab.lastroute", "the phone preset reuses the Quest package")
+		elif name == "iPhone Debug":
+			found["iphone"] = true
+			_expect(String(presets.get_value(section, "platform")) == "iOS", "the iPhone preset is not iOS")
+			_expect(String(presets.get_value(section, "custom_features")).contains("phone"), "the iPhone preset lost the phone feature")
+			_expect(String(presets.get_value(options, "application/bundle_identifier")) == "org.kyttuslab.lastroute.phone",
+				"the iPhone preset has the wrong bundle id")
 		elif name == "Meta Quest OpenXR Debug":
 			found["quest"] = true
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
-	_expect(found.has("phone") and found.has("quest"), "missing Android presets: %s" % [found.keys()])
+	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
 	_check_xr_comfort(host)
 	if _failures == 0:

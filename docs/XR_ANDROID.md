@@ -24,6 +24,11 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 - **Android Phone Debug** (`builds/KyttusLab-Android-Debug.apk`): arm64, flat (OpenXR off), feature `phone`, package
   `org.kyttuslab.lastroute.phone`, so it installs next to the Quest build.
 - **Meta Quest OpenXR Debug** (`builds/KyttusLab-Quest-Debug.apk`): arm64, OpenXR, features `xr,quest`.
+- **iPhone Debug** (`builds/ios/`): exports an Xcode project only, with feature `phone` (same profile and touch controls
+  as Android), bundle id `org.kyttuslab.lastroute.phone`, and KT's free Personal Team (7-day signing). Build, sign and
+  install on the mini with `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration` and
+  `xcrun devicectl device install app`. The phone must be unlocked, in Developer Mode, and trust the developer
+  certificate.
 - **Windows SteamVR Debug**: feature `xr` (PC VR; waits for VR-capable hardware).
 
 ## Building (KT-Mini4-2 only)
