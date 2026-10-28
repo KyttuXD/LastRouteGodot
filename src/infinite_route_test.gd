@@ -1321,6 +1321,8 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 		var prop_id := String(prop.get("id", ""))
 		if prop_id.is_empty():
 			continue
+		if prop.has("breakable_id") and world_state.breach_open(String(prop["breakable_id"])):
+			continue     # a burst sewer pipe is gone from the map too
 		visible_props.append({"id": prop_id, "discovery_id": prop_id,
 			"cell": prop.get("cell", Vector2i.ZERO),
 			"kind": "prop", "type": String(prop.get("type", "")),

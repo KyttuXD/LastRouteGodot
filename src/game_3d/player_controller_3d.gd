@@ -283,6 +283,10 @@ var ladder_climb := {}
 var plunge := {}
 var soaked_left := 0.0
 var _drip_left := 0.0
+## Flood water over the floor where the runner stands (SewerFloods sets it every frame; 0 when dry). Wading slows, every
+## step splashes (hunters hear it) and keeps the runner soaked; it never muffles or swims at this depth.
+var wading_depth := 0.0
+var _splash_left := 0.0
 var _climb_hands: Node3D
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
@@ -299,6 +303,11 @@ const PLUNGE_SWIM_NOISE := .8
 const SOAKED_SECONDS := 30.0
 const SOAKED_NOISE_SCALE := 1.45
 const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
+## Wading a sewer flood (SewerFloods.MAX_DEPTH deep): the speed at full depth, the noise of a splashing step (louder than a
+## sprint on stone) and how often a step splashes.
+const WADE_SPEED_SCALE := .6
+const WADE_NOISE := 12.0
+const WADE_SPLASH_EVERY := .42
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -1098,6 +1107,21 @@ func _update_plunge(delta: float) -> void:
 	_clip = "idle"
 
 
+## Splashing through flood water: loud steps (even crouched), a splash every WADE_SPLASH_EVERY, and soaked while in it.
+func _update_wading(delta: float, is_moving: bool) -> void:
+	if wading_depth <= 0.0:
+		_splash_left = 0.0
+		return
+	soaked_left = maxf(soaked_left, SOAKED_SECONDS * .5)
+	if not is_moving:
+		return
+	noise = maxf(noise, WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0))
+	_splash_left -= delta
+	if _splash_left <= 0.0:
+		_splash_left = WADE_SPLASH_EVERY
+		Sound.water_drip(randf_range(-.3, .3), 1.0)
+
+
 func _update_soaked(delta: float) -> void:
 	if soaked_left <= 0.0:
 		return
@@ -1486,12 +1510,15 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "walk"
 
 	movement_speed *= admin_speed_scale
+	if wading_depth > 0.0:
+		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.MAX_DEPTH, 0.0, 1.0))
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 	if soaked_left > 0.0:
 		noise *= SOAKED_NOISE_SCALE
+	_update_wading(delta, is_moving)
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,
