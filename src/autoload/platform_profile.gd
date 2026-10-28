@@ -44,6 +44,9 @@ func _ready() -> void:
 	if is_phone or is_quest:
 		# A run must not dim and lock the screen while the runner is standing still in a locker.
 		DisplayServer.screen_set_keep_on(true)
+	if is_xr:
+		# The menus are 2D: with OpenXR running, show them on a floating panel (XRMenuPanel) until a route takes over.
+		XRMenuPanel.attach.call_deferred(self)
 
 
 ## The budgets for the detected class (also called by the platform validator on a fresh instance with faked flags).

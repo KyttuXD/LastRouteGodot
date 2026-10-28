@@ -91,6 +91,14 @@ func _check_xr_comfort(host: Node) -> void:
 	_expect(XRComfort.smooth_turn(0.1, 0.1) == 0.0 and XRComfort.smooth_turn(1.0, 0.5) < XRComfort.smooth_turn(0.5, 0.5),
 		"smooth turn ignores the dead zone or is not proportional")
 	_expect(host.get_tree().root.find_children("XRComfort", "", true, false).is_empty(), "a desktop run built the XR comfort node")
+	# The XR menu panel: a desktop run has none, and the laser maps onto the panel's UV (top-left 0,0) and misses off it.
+	_expect(PlatformProfile.find_children("XRMenuPanel", "", true, false).is_empty(), "a desktop run built the XR menu panel")
+	var panel := Transform3D(Basis.IDENTITY, Vector3(0, 1.5, -1.5))
+	var centre := XRMenuPanel.panel_uv(Vector3(0, 1.5, 0), Vector3.FORWARD, panel, Vector2(1.6, 0.9))
+	var corner := XRMenuPanel.panel_uv(Vector3(-0.79, 1.94, 0), Vector3.FORWARD, panel, Vector2(1.6, 0.9))
+	var miss := XRMenuPanel.panel_uv(Vector3(0, 1.5, 0), Vector3.BACK, panel, Vector2(1.6, 0.9))
+	_expect(centre.is_equal_approx(Vector2(0.5, 0.5)) and corner.distance_to(Vector2.ZERO) < 0.02 and miss.x < 0.0,
+		"the XR menu laser maps wrongly onto the panel (%s %s %s)" % [centre, corner, miss])
 
 
 ## Touch controls build headless, every button drives a real Input action, the stick maps to move/sprint, and every
