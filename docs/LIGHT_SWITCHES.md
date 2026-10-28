@@ -8,7 +8,9 @@ too, reusing the same `RouteInteractable3D.Kind.LIGHT_SWITCH` interactable and i
 - **Lamps grouped by room.** When a chunk finishes building, every lamp in it is grouped by the room it sits in. That
   covers the ref-look decor lamps (chandeliers, strip lamps, sconces) and the fixture props' lights (ceiling fans,
   ceiling lights, chandelier props), which since the ceiling pass are one family per room.
-- **One switch per lit room with a door.** It sits inside, on the wall beside the main doorway, facing into the room, at
+- **One switch per lit room with a door.** It sits inside, on the wall beside the main doorway, 0.75 m past the
+  opening's edge, so it is clear of the frame and of the leaf's swing (KT: "doors collide with light switches"). It goes
+  on whichever side of the door the wall carries on, and is skipped when neither side has room. It faces into the room, at
   1.45 m (`StreamedFacilityView3D.SWITCH_HEIGHT`). The world is hunter-scale, and the switch stays well within a
   1.60 m runner's reach (2.15 m). SCALE_FIT has no switch-height ruling yet; this is the value to audit. A lit room
   without a door gets no switch.
@@ -46,6 +48,8 @@ The movie system can drive the same switch, `facility.room_light_switch(room_id)
 ## Check
 
 The `light_switches` suite covers:
+- door clearance: across four seeds (about 2,700 switches), no switch is within a door's frame plus 0.5 m, inside its
+  swing on either side of the wall. Wall-mounted props in a door zone are counted too (currently 0);
 - lit rooms have switches at a reachable height;
 - rooms that start dark have dark lamps;
 - flipping a switch changes the lamps, the light field, the switch's own state and the click;
