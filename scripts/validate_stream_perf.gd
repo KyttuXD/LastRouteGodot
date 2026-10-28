@@ -438,8 +438,12 @@ func _plunge(host: Node) -> void:
 	var rebuilds := 0
 	for trip in 4:
 		player.global_position = top
-		for _i in 30:
+		# back on the ledge: let the queue and the background pre-build settle (a busy machine needs more than 30 frames,
+		# and anything still building then was counted as a rebuild of the jump)
+		for _i in 600:
 			await host.get_tree().process_frame
+			if _i >= 30 and not facility.is_streaming() and not facility.is_preloading():
+				break
 		var builds_before := facility.chunk_builds
 		var last := Time.get_ticks_usec()
 		for i in 60:   # the arc: about a second
