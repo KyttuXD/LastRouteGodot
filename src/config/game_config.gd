@@ -69,12 +69,9 @@ const SAFE_ZONE_LIMITS_BY_DIFFICULTY := {
 const MAX_STAMINA := 100.0
 const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
-const STAMINA_RECOVERY_DELAY := 0.65
+## KT: "no delay before stamina regeneration": regen starts the frame sprinting stops, at the normal rate.
+const STAMINA_RECOVERY_DELAY := 0.0
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
-## KT: "if stamina doesnt fully run out or super low it regenerates instantly". Stop sprinting above this and stamina
-## refills over STAMINA_QUICK_REFILL_TIME; at or below it the slow delayed regen (and exhaustion) applies.
-const STAMINA_QUICK_THRESHOLD := 20.0
-const STAMINA_QUICK_REFILL_TIME := 0.3
 ## Troll mode for caught / flagged cheaters (docs/ANTI_CHEAT.md).
 const TROLL_HUNTER_SPEED_SCALE := 1.15
 const TROLL_STAMINA_DRAIN_SCALE := 1.6
