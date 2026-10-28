@@ -717,6 +717,8 @@ static func _resolve(spec: Variant, stage: Dictionary, actors: Dictionary, defau
 		var parts := String(spec).split(":")
 		var actor := actors.get(parts[0]) as Actor
 		if actor != null:
+			if parts.size() > 1 and parts[1].begins_with("@"):
+				return _bone_pos(actor, parts[1].substr(1))
 			return actor.pos + Vector3.UP * (float(parts[1]) if parts.size() > 1 else actor.height * .8)
 		return Vector3.ZERO
 	var arr: Array = spec
@@ -801,7 +803,7 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	if bool(expect.get("lean_open_side", false)):
 		rows.append({"name": "leans to the open side", "pass": lean > .06, "detail": "head %.2f m toward the open side of the pelvis (needs > 0.06)" % lean})
 	# 3. visible parts and torso fraction
-	var parts := {"head": ["Head"], "chest": ["Chest"], "hand": ["L-Hand", "R-Hand"], "legs": ["L-Calf", "R-Calf", "L-Foot", "R-Foot"], "hips": ["Pelvis"]}
+	var parts := {"head": ["Head"], "chest": ["Chest"], "hand": ["L-Hand", "R-Hand"], "legs": ["L-Calf", "R-Calf", "L-Foot", "R-Foot", "L-Thigh", "R-Thigh"], "hips": ["Pelvis", "Belly"]}
 	var want: Dictionary = expect.get("visible_parts", {})
 	var vis := {}
 	for part in parts:
@@ -854,6 +856,9 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var frac := (low - top) / camera.get_viewport().get_visible_rect().size.y
 		var limits: Array = expect["screen_fraction"]
 		rows.append({"name": "screen size", "pass": frac >= float(limits[0]) and frac <= float(limits[1]), "detail": "%.0f%% of frame height (wanted %d-%d%%)" % [frac * 100.0, int(float(limits[0]) * 100), int(float(limits[1]) * 100)]})
+	if expect.has("aim_deg") and head_node != null:
+		var aim := rad_to_deg((-camera.global_basis.z).angle_to((head_node.global_position - cam_pos).normalized()))
+		rows.append({"name": "beam centred on her face", "pass": aim <= float(expect["aim_deg"]), "detail": "%.1f deg between the camera axis and her head (max %s)" % [aim, expect["aim_deg"]]})
 	if expect.has("smooth_max_deg"):
 		var worst := 0.0
 		var worst_bone := ""
