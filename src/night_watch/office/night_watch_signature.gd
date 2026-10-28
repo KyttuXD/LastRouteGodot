@@ -28,6 +28,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 			_facility(office)
 		"lift_landing":
 			_descent(office)
+		"cargo_bay":
+			_dayshift(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -266,3 +268,31 @@ static func _descent(office: Node3D) -> void:
 		NightWatchArt.box(root, Vector3(pw - 0.06, 0.015, 0.012), Vector3(cx, cy - ph * 0.5 + ph * float(i) / 5.0, z + 0.01), {"name": "PanelGridH", "kind": "metal", "tint": Color(0.3, 0.33, 0.45)})
 	NightWatchArt.box(root, Vector3(0.14, 0.09, 0.04), Vector3(0, cy + ph * 0.5 + 0.3, z + 0.01), {"name": "LampAmber", "kind": "light", "tint": Color(2.0, 1.4, 0.3)})
 	NightWatchArt.box(root, Vector3(1.0, 0.04, 0.3), Vector3(0, NightWatchDescentOffice.W.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelAmber", "kind": "light", "tint": Color(1.9, 1.4, 0.4)})
+
+
+## Day shift: the 2D picture is the one office that reads as day: cream ceiling tiles, warm wood walls, a red rail round the room, two green and cream posters and a bright daylight lamp (the yard window is the room's own):
+## a red rail on the side walls and the window wall, tile lines on the ceiling, a green star poster and a balloon poster by the window, and a very bright ceiling panel.
+static func _dayshift(office: Node3D) -> void:
+	var hw: float = CargoBay.HALF_W
+	var hd: float = CargoBay.HALF_D
+	var height: float = CargoBay.HEIGHT
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var red := Color(1.8, 0.28, 0.25)
+	for side in [-1.0, 1.0]:
+		NightWatchArt.box(root, Vector3(0.03, 0.1, hd * 2.0 - 0.2), Vector3(side * (hw - 0.04), 1.0, 0.0), {"name": "RedRail", "kind": "wall", "tint": red})
+	NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.1, 0.03), Vector3(0, 1.0, hd - 0.04), {"name": "RedRail", "kind": "wall", "tint": red})
+	NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.1, 0.03), Vector3(0, 1.0, -hd + 0.04), {"name": "RedRail", "kind": "wall", "tint": red})
+	var tile := Color(1.6, 1.5, 1.25)
+	for i in range(-int(hw), int(hw) + 1):
+		NightWatchArt.box(root, Vector3(0.03, 0.02, hd * 2.0 - 0.2), Vector3(float(i), height - 0.03, 0.0), {"name": "CeilingTileLine", "kind": "wall", "tint": tile * 0.6})
+	for i in range(-int(hd), int(hd) + 1):
+		NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.02, 0.03), Vector3(0, height - 0.03, float(i)), {"name": "CeilingTileLine", "kind": "wall", "tint": tile * 0.6})
+	NightWatchArt.box(root, Vector3(1.6, 0.04, 0.5), Vector3(0, height - 0.03, 0.0), {"name": "CeilingPanelDay", "kind": "light", "tint": Color(2.2, 2.0, 1.5)})
+	# two posters either side of the window wall
+	for p in [[-0.5, Color8(60, 130, 80)], [0.5, Color8(235, 200, 150)]]:
+		var x: float = float(p[0]) + (hw - 0.6) * (1.0 if float(p[0]) > 0.0 else -1.0)
+		NightWatchArt.box(root, Vector3(0.5, 0.7, 0.03), Vector3(x, 1.9, hd - 0.05), {"name": "PosterFrameDay", "kind": "wall", "tint": Color(0.45, 0.3, 0.2)})
+		var q := NightWatchArt.box(root, Vector3(0.42, 0.62, 0.02), Vector3(x, 1.9, hd - 0.07), {"name": "PosterDay", "kind": "fabric", "tint": p[1] as Color})
+		q.set_meta("nw_palette", "poster")
