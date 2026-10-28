@@ -89,6 +89,12 @@ static func family(name: String) -> Array:
 ## `code` with every DATA value replaced by `field` of the def with that key (field "" = the whole def minus id/family).
 ## A DATA key with no def is an error and is dropped, so a missing file fails the data_* suites instead of half-loading.
 static func resolve(code: Dictionary, kind: String, field: String = "") -> Dictionary:
+	return resolve_with(code, kind, func(def: Dictionary): return _without_meta(def) if field.is_empty() else def.get(field),
+		field)
+
+
+## resolve() with `project` turning a def into the table's value (for tables built from several fields).
+static func resolve_with(code: Dictionary, kind: String, project: Callable, field: String = "") -> Dictionary:
 	var out := {}
 	for key in code:
 		var value = code[key]
@@ -98,7 +104,7 @@ static func resolve(code: Dictionary, kind: String, field: String = "") -> Dicti
 				push_error("ContentRegistry: %s \"%s\" is marked as data but res://data has no %s for it"
 					% [kind, key, field if not field.is_empty() else "definition"])
 				continue
-			value = _without_meta(def) if field.is_empty() else def[field]
+			value = project.call(def)
 		out[key] = value
 	out.make_read_only()
 	return out
