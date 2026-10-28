@@ -19,6 +19,7 @@ func run(host: Node) -> int:
 	_check_data()
 	_check_ring_toss()
 	_check_strength()
+	_check_other_games()
 	_check_world_state()
 	await _check_node(host)
 	await _check_route(host)
@@ -149,6 +150,80 @@ func _check_strength() -> void:
 	_expect(seen.has("windup") and seen.has("swing") and seen.has("bell") and seen.has("end"), "strength tester events missing: %s" % str(seen.keys()))
 
 
+func _check_other_games() -> void:
+	# CLAW: steer over a prize and drop; the grip is a chance, so a bot may need both drops: over many seeds it wins most, an idle one never
+	var wins := 0
+	for seed_value in 20:
+		var claw := ClawGame.new(seed_value)
+		_run_game(claw, func(g: ClawGame, _t: float) -> void:
+			if g.phase != "idle":
+				return
+			var best := -1
+			for i in g.prizes.size():
+				if not g.prizes[i]["gone"]:
+					best = i
+					break
+			if best < 0:
+				return
+			var to: Vector2 = (g.prizes[best]["at"] as Vector2) - g.pos
+			if to.length() > 0.02:
+				g.set_move(to.normalized())
+			else:
+				g.set_move(Vector2.ZERO)
+				g.fire())
+		wins += int(claw.won())
+		_expect(claw.booth_score <= claw.max_score(), "claw scored above its maximum")
+	_expect(wins >= 12 and wins < 20 + 1, "a centred claw bot should win most games but the grip is a chance (won %d of 20)" % wins)
+	var idle_claw := ClawGame.new(1)
+	_run_game(idle_claw, func(_g, _t) -> void: pass)
+	_expect(not idle_claw.won() and idle_claw.drops_left == ClawGame.DROPS, "an idle claw machine must not win")
+	# SHOOTING GALLERY: a bot that fires at whichever target is up hits plenty; one that fires at the sky none
+	var shooter := ShootingGame.new(4)
+	_run_game(shooter, func(g: ShootingGame, _t: float) -> void:
+		for t in g.targets:
+			if bool(t["up"]) and not bool(t["hit"]):
+				g.set_aim(t["at"])
+				g.fire()
+				return)
+	_expect(shooter.won() and shooter.booth_score <= shooter.max_score(), "a bot that shoots targets that are up should win (hits %d)" % shooter.booth_score)
+	var sky := ShootingGame.new(4)
+	_run_game(sky, func(g: ShootingGame, t: float) -> void:
+		g.set_aim(Vector2(0, 3))
+		if int(t * 4.0) != int((t - 0.02) * 4.0):
+			g.fire())
+	_expect(sky.booth_score == 0 and not sky.won(), "shooting at the sky must not score")
+	# WHACK-A-MOLE
+	var whacker := MoleGame.new(8)
+	_run_game(whacker, func(g: MoleGame, _t: float) -> void:
+		for i in g.up.keys():
+			g.set_aim(g.holes[i])
+			g.fire()
+			return)
+	_expect(whacker.won(), "a bot that hits every mole should win (whacked %d)" % whacker.booth_score)
+	var wild := MoleGame.new(8)
+	_run_game(wild, func(g: MoleGame, _t: float) -> void:
+		g.set_aim(Vector2(5, 5))
+		g.fire())
+	_expect(wild.booth_score == 0, "swinging at nothing whacked a mole")
+	# DUCK POND
+	var angler := DuckGame.new(2)
+	_run_game(angler, func(g: DuckGame, t: float) -> void:
+		g.set_aim(g.duck_position(g.marked))
+		if g.hooks_left > 0 and int(t * 2.0) != int((t - 0.02) * 2.0):
+			g.fire())
+	_expect(angler.won() and angler.booth_score <= angler.max_score(), "an angler aiming at the marked duck should win (caught %d)" % angler.booth_score)
+	var dud := DuckGame.new(2)
+	_run_game(dud, func(g: DuckGame, t: float) -> void:
+		g.set_aim(Vector2(3, 3))
+		if int(t * 2.0) != int((t - 0.02) * 2.0):
+			g.fire())
+	_expect(dud.booth_score == 0 and not dud.won(), "hooking at nothing caught a duck")
+	for type in ["prizeClawMachine", "shootingGallery", "whackAMole", "duckPond"]:
+		var a := CarnivalBooths.make_game(type, 6)
+		var b := CarnivalBooths.make_game(type, 6)
+		_expect(a.state().hash() == b.state().hash(), "%s is not deterministic for a seed" % type)
+
+
 func _check_world_state() -> void:
 	var state := StreamedWorldState.new()
 	var now := 1_800_000_000.0
@@ -247,6 +322,16 @@ func _check_route(host: Node) -> void:
 	host.get_tree().root.add_child(route)
 	for _i in 8:
 		await host.get_tree().process_frame
+	var kinds := {}
+	for y in range(0, -6, -1):
+		for x in range(-12, 13):
+			for z in range(-12, 13):
+				for value in route.facility.generator.chunk(Vector3i(x, y, z)).get("region_props", []):
+					var kind := String((value as Dictionary).get("type", ""))
+					if CarnivalBooths.is_booth(kind):
+						kinds[kind] = true
+	for type in CarnivalBooths.BOOTHS:
+		_expect(kinds.has(type), "the generator never places a %s within the search window: that game is not in the district (found %s)" % [type, str(kinds.keys())])
 	var found := {}
 	for y in range(0, -6, -1):
 		for x in range(-12, 13):

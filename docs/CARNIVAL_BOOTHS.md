@@ -9,7 +9,12 @@ The carnival district's game stalls are playable: walk up, interact, play a 10-3
 | `ringTossStall` | RING TOSS: five necks on a turning disc, three rings, two on to win | aim (look), throw (`tool_use`) | battery | quiet |
 | `strengthTester` | STRENGTH TESTER: hold to wind up, release on a high meter, ring the bell at 92% | hold / release `tool_use` | relay hint (where the nearest unsecured relay is) | the bell is the loudest thing in the carnival |
 
-(More booths follow: claw machine, shooting gallery, whack-a-mole, duck pond.) The table is `CarnivalBooths.BOOTHS` (`src/game/carnival/carnival_booths.gd`): game, length, cooldowns, noise per event, prize.
+| `prizeClawMachine` | CLAW MACHINE: steer the claw (`move_*`), drop it (`tool_use`), a grip that is a chance; two drops, one prize wins | tool (lockpick or crowbar) | quiet motor |
+| `shootingGallery` | SHOOTING GALLERY: two rails of flip-up tin targets, eight shots, four hits win | aim, `tool_use` | tool | LOUD |
+| `whackAMole` | WHACK-A-MOLE: six holes, 20 s, six whacks win | aim, `tool_use` | battery | medium |
+| `duckPond` | DUCK POND: hook the marked duck as the ducks circle; five hooks, two caught wins | aim, `tool_use` | battery | quiet |
+
+Placement: a 21-wide midway has ring toss, shooting gallery and whack-a-mole along the back wall, the claw machine beside the ticket booth and a strength tester at each end; the big top's centre is the duck pond. The shooting gallery and whack-a-mole reuse the ring-toss stall model and the duck pond the circus pedestal (their game boards are the booth node's); the props lane can give them their own models. The table is `CarnivalBooths.BOOTHS` (`src/game/carnival/carnival_booths.gd`): game, length, cooldowns, noise per event, prize.
 
 ## How it works
 

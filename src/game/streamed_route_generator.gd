@@ -185,6 +185,10 @@ const REGION_PROP_SETS := {
 		{"type": "popcornCart", "size": Vector3(1.45, 1.9, .9)},
 		{"type": "ringTossStall", "size": Vector3(2.6, 2.65, 1.55)},
 		{"type": "strengthTester", "size": Vector3(1.0, 2.95, .8)},
+		{"type": "shootingGallery", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "whackAMole", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "duckPond", "size": Vector3(1.7, .8, 1.7)},
+		{"type": "prizeClawMachine", "size": Vector3(.9, 2.0, .8)},
 		{"type": "circusPedestal", "size": Vector3(1.7, .8, 1.7)},
 		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
 		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
@@ -326,6 +330,10 @@ const TEMPLATE_PROP_SIZES := {
 	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
 	"popcornCart": Vector3(1.45, 1.9, .9),
 	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"shootingGallery": Vector3(2.6, 2.65, 1.55),
+	"whackAMole": Vector3(2.6, 2.65, 1.55),
+	"duckPond": Vector3(1.7, .8, 1.7),
+	"prizeClawMachine": Vector3(.9, 2.0, .8),
 	"strengthTester": Vector3(1.0, 2.95, .8),
 	"circusPedestal": Vector3(1.7, .8, 1.7),
 	"frozenTidelinePool": Vector3(6.2, .2, 5.2),
@@ -2645,10 +2653,11 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_midway":
 			if side_span >= 17:
 				# a 21-wide midway: a row of stalls along the back wall and carts and pedestals down the middle
-				for stall_side in [-7, 0, 7]:
-					specs.append({"type": "ringTossStall", "side": stall_side, "depth": 0, "wall_backed": true, "facing": "open"})
-				for booth_side in [-4, 4]:
-					specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
+				var stall_types := ["ringTossStall", "shootingGallery", "whackAMole"]
+				for stall_index in 3:
+					specs.append({"type": stall_types[stall_index], "side": [-7, 0, 7][stall_index], "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "carnivalTicketBooth", "side": -4, "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "prizeClawMachine", "side": 4, "depth": 0, "wall_backed": true, "facing": "open"})
 				# Backed against the SIDE walls and facing the middle: with the back wall as its backing a 1.4 m wide tester
 				# stood 0.2 m into the side wall (GeometryAudit prop_in_wall) and pushing it clear hit the end stall.
 				specs.append({"type": "strengthTester", "side": -9, "depth": 1, "facing": "center"})
@@ -2668,7 +2677,7 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 			for pedestal_side in [-6, 0, 6]:
-				specs.append({"type": "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
+				specs.append({"type": "duckPond" if pedestal_side == 0 else "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:

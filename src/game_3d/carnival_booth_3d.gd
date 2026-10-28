@@ -348,6 +348,14 @@ func _build_board() -> void:
 			_build_ring_toss_board()
 		"strength":
 			_build_strength_board()
+		"claw":
+			_build_claw_board()
+		"shooting":
+			_build_shooting_board()
+		"mole":
+			_build_mole_board()
+		"duck":
+			_build_duck_board()
 
 
 func _player_in_world() -> bool:
@@ -377,7 +385,12 @@ func plane_hit(origin: Vector3, dir: Vector3) -> Vector2:
 
 
 func _board_center_height() -> float:
-	return BOARD_HEIGHT if CarnivalBooths.game_for(prop_type) == "ring_toss" else 1.1
+	match CarnivalBooths.game_for(prop_type):
+		"ring_toss":
+			return BOARD_HEIGHT
+		"shooting", "mole", "duck":
+			return PANEL_CENTER
+	return 1.1
 
 
 func _pop_board(show: bool) -> void:
@@ -508,6 +521,88 @@ func _ring_bell() -> void:
 	tween.tween_property(bell, "rotation:z", 0.0, 0.1)
 
 
+# --- the wall games (shooting gallery, whack-a-mole, duck pond) and the claw machine ---------------------------------------------------
+
+const PANEL_CENTER := 1.3
+
+
+func _panel(size: Vector2, color: Color) -> void:
+	_box(board, Vector3(size.x, size.y, 0.06), Vector3(0, PANEL_CENTER, -0.03), color, 0.0, "Panel")
+	_box(board, Vector3(size.x + 0.12, 0.08, 0.12), Vector3(0, PANEL_CENTER + size.y * 0.5 + 0.04, 0), Color(1.0, 0.8, 0.3), 0.7, "Header")
+	_box(board, Vector3(0.1, PANEL_CENTER - size.y * 0.5, 0.1), Vector3(-size.x * 0.5, (PANEL_CENTER - size.y * 0.5) * 0.5, -0.05), Color(0.3, 0.2, 0.15), 0.0, "Leg")
+	_box(board, Vector3(0.1, PANEL_CENTER - size.y * 0.5, 0.1), Vector3(size.x * 0.5, (PANEL_CENTER - size.y * 0.5) * 0.5, -0.05), Color(0.3, 0.2, 0.15), 0.0, "Leg")
+
+
+func _build_shooting_board() -> void:
+	_panel(Vector2(1.9, 1.3), Color(0.12, 0.14, 0.3))
+	var pivots := []
+	var g := game as ShootingGame
+	for t in g.targets:
+		var pivot := Node3D.new()
+		pivot.position = Vector3((t["at"] as Vector2).x, PANEL_CENTER + (t["at"] as Vector2).y - 0.15, 0.04)
+		board.add_child(pivot)
+		_box(pivot, Vector3(0.26, 0.26, 0.03), Vector3(0, 0.13, 0), Color(0.95, 0.9, 0.85), 0.2, "Target")
+		_box(pivot, Vector3(0.14, 0.14, 0.035), Vector3(0, 0.13, 0.005), Color(0.9, 0.2, 0.2), 0.5, "Bull")
+		pivot.rotation.x = -PI * 0.5
+		pivots.append(pivot)
+	_board_parts["pivots"] = pivots
+
+
+func _build_mole_board() -> void:
+	_panel(Vector2(1.7, 1.2), Color(0.3, 0.22, 0.12))
+	var g := game as MoleGame
+	var moles := []
+	for h in g.holes:
+		_box(board, Vector3(0.34, 0.34, 0.02), Vector3((h as Vector2).x, PANEL_CENTER + (h as Vector2).y, 0.005), Color(0.04, 0.03, 0.03), 0.0, "Hole")
+		var mole := _box(board, Vector3(0.24, 0.26, 0.16), Vector3((h as Vector2).x, PANEL_CENTER + (h as Vector2).y, -0.12), Color(0.5, 0.33, 0.2), 0.3, "Mole")
+		_box(mole, Vector3(0.06, 0.06, 0.03), Vector3(0, 0.04, 0.09), Color(0.95, 0.5, 0.5), 0.4, "Nose")
+		moles.append(mole)
+	_board_parts["moles"] = moles
+
+
+func _build_duck_board() -> void:
+	_panel(Vector2(1.8, 0.9), Color(0.1, 0.35, 0.5))
+	var g := game as DuckGame
+	var ducks := []
+	for i in g.ducks.size():
+		var duck := _box(board, Vector3(0.2, 0.14, 0.12), Vector3(0, PANEL_CENTER, 0.08), Color(1.0, 0.85, 0.2), 0.5, "Duck")
+		_box(duck, Vector3(0.1, 0.1, 0.1), Vector3(0.09, 0.09, 0), Color(1.0, 0.85, 0.2), 0.5, "Head")
+		_box(duck, Vector3(0.05, 0.03, 0.04), Vector3(0.16, 0.08, 0), Color(1.0, 0.5, 0.1), 0.4, "Beak")
+		ducks.append(duck)
+	_board_parts["ducks"] = ducks
+	_board_parts["marker"] = _box(board, Vector3(0.1, 0.1, 0.1), Vector3(0, PANEL_CENTER + 0.3, 0.1), Color(1.0, 0.2, 0.25), 1.2, "Marker")
+
+
+func _build_claw_board() -> void:
+	# a glass-fronted cabinet seen from the front: x across, the claw running on a top rail, prizes on the floor
+	for sx in [-0.62, 0.62]:
+		for sz in [-0.4, 0.4]:
+			_box(board, Vector3(0.05, 1.7, 0.05), Vector3(sx, 0.85, sz), Color(0.8, 0.2, 0.5), 0.5, "Post")
+	_box(board, Vector3(1.34, 0.08, 0.9), Vector3(0, 1.74, 0), Color(0.9, 0.3, 0.6), 0.6, "Roof")
+	_box(board, Vector3(1.34, 0.3, 0.9), Vector3(0, 0.15, 0), Color(0.25, 0.1, 0.2), 0.0, "Base")
+	var gantry := Node3D.new()
+	gantry.position = Vector3(0, 1.65, 0)
+	board.add_child(gantry)
+	_box(gantry, Vector3(1.2, 0.05, 0.05), Vector3(0, 0, 0), Color(0.7, 0.7, 0.75), 0.3, "Rail")
+	var carriage := Node3D.new()
+	gantry.add_child(carriage)
+	_box(carriage, Vector3(0.14, 0.1, 0.14), Vector3(0, 0, 0), Color(0.9, 0.9, 0.9), 0.4, "Carriage")
+	var cable := _box(carriage, Vector3(0.02, 1.0, 0.02), Vector3(0, -0.5, 0), Color(0.6, 0.6, 0.6), 0.2, "Cable")
+	var claw := Node3D.new()
+	carriage.add_child(claw)
+	for sx in [-1.0, 1.0]:
+		_box(claw, Vector3(0.03, 0.2, 0.03), Vector3(sx * 0.07, -0.1, 0), Color(0.85, 0.85, 0.9), 0.3, "Prong")
+	_board_parts["gantry"] = gantry
+	_board_parts["carriage"] = carriage
+	_board_parts["claw"] = claw
+	_board_parts["cable"] = cable
+	var prizes := []
+	for p in (game as ClawGame).prizes:
+		var prize := _box(board, Vector3(0.16, 0.16, 0.16), Vector3((p["at"] as Vector2).x * 1.2, 0.38, (p["at"] as Vector2).y * 0.8), COLORS[prizes.size() % 5], 0.5, "Prize")
+		prizes.append(prize)
+	_board_parts["prizes"] = prizes
+
+
 # --- drawing the game state -------------------------------------------------------------------------------------------------------------
 
 func _update_board() -> void:
@@ -518,6 +613,55 @@ func _update_board() -> void:
 		var disc := _board_parts.get("disc") as Node3D
 		if disc != null:
 			disc.rotation.z = float(st["angle"])
+	elif game is ShootingGame:
+		var pivots: Array = _board_parts.get("pivots", [])
+		for i in mini(pivots.size(), (game as ShootingGame).targets.size()):
+			var up := bool((game as ShootingGame).targets[i]["up"])
+			var pv := pivots[i] as Node3D
+			pv.rotation.x = lerpf(pv.rotation.x, 0.0 if up else -PI * 0.5, 0.35)
+	elif game is MoleGame:
+		var moles: Array = _board_parts.get("moles", [])
+		var up_map: Dictionary = (game as MoleGame).up
+		for i in moles.size():
+			var m := moles[i] as Node3D
+			var lift := 0.17 if up_map.has(i) else 0.0
+			m.position.z = lerpf(m.position.z, -0.12 + lift, 0.4)
+	elif game is DuckGame:
+		var dg := game as DuckGame
+		var ducks: Array = _board_parts.get("ducks", [])
+		for i in ducks.size():
+			var p := dg.duck_position(i)
+			var d := ducks[i] as Node3D
+			d.position = Vector3(p.x, PANEL_CENTER + p.y, 0.08)
+			d.scale.x = 1.0 if int(dg.ducks[i] / TAU * 2.0) % 2 == 0 else -1.0
+		var marker := _board_parts.get("marker") as Node3D
+		if marker != null:
+			var mp := dg.duck_position(dg.marked)
+			marker.position = Vector3(mp.x, PANEL_CENTER + mp.y + 0.18 + sin(_t * 6.0) * 0.03, 0.1)
+	elif game is ClawGame:
+		var cg := game as ClawGame
+		var carriage := _board_parts.get("carriage") as Node3D
+		var gantry := _board_parts.get("gantry") as Node3D
+		var claw := _board_parts.get("claw") as Node3D
+		var cable := _board_parts.get("cable") as MeshInstance3D
+		if gantry != null:
+			gantry.position.z = cg.pos.y * 0.8
+		if carriage != null:
+			carriage.position.x = cg.pos.x * 1.2
+		var drop := (1.0 - cg.claw_height()) * 1.0
+		if claw != null:
+			claw.position.y = -0.5 - drop
+		if cable != null:
+			cable.mesh.size.y = 1.0 + drop
+			cable.position.y = -(1.0 + drop) * 0.5 + 0.0
+			claw.position.y = -(1.0 + drop)
+		var prizes: Array = _board_parts.get("prizes", [])
+		for i in prizes.size():
+			var pr := prizes[i] as Node3D
+			pr.visible = not bool(cg.prizes[i]["gone"]) and not (cg.carried == i and cg.phase == "up")
+			if cg.carried == i and cg.phase == "up":
+				pr.visible = true
+				pr.position = Vector3(cg.pos.x * 1.2, 1.65 - (1.0 + drop) - 0.2, cg.pos.y * 0.8)   # hangs from the prongs
 	elif game is StrengthGame:
 		var puck := _board_parts.get("puck") as Node3D
 		var meter := _board_parts.get("meter") as MeshInstance3D
@@ -538,6 +682,9 @@ func _idle_board(delta: float) -> void:
 	elif game is StrengthGame:
 		var g := game as StrengthGame
 		g.meter = 0.5 + 0.5 * sin(_t * 3.0)
+	elif not game.finished:
+		game.step(delta)
+		game.take_events()
 	_update_board()
 
 
