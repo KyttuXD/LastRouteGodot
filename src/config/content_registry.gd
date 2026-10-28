@@ -95,7 +95,8 @@ static func load_packs(dirs: Array, limits: Dictionary = ContentPacks.LIMITS, fo
 	var report := {"ok": false, "packs": [], "errors": PackedStringArray(), "hash": pack_hash()}
 	var read := []
 	for dir in dirs:
-		var pack := ContentPacks.read(String(dir), limits, folder_is_id)
+		# downloaded packs live in user://mods/.cache/<sha256>, so their folder is named by hash, not by pack id
+		var pack := ContentPacks.read(String(dir), limits, folder_is_id and not String(dir).contains("/.cache/"))
 		report["errors"].append_array(pack["errors"])
 		read.append(pack)
 	if report["errors"].is_empty():
