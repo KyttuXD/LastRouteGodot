@@ -2536,6 +2536,35 @@ func _spawn_room_door(parent: Node3D, coord: Vector3i,
 	_door_nodes[door_id] = door
 
 
+## How far past the door opening's edge a light switch sits (KT: "doors collide with light switches"): clear of the
+## frame post and its trim, and of the leaf, which swings on the opening's side of its hinge and stands square to the wall.
+const SWITCH_PAST_OPENING := .75
+
+
+## Where a room's light switch goes beside its door (chunk-local plan position), on the inside wall face: one side of the
+## door, else the other, wherever the wall carries on past the frame (solid behind, open room in front). INF: no room.
+static func switch_spot(door: Dictionary, grid: Array = []) -> Vector2:
+	var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
+	var centre := Vector2.ZERO
+	for cell_value in cells:
+		centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
+	centre /= float(maxi(1, cells.size()))
+	var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
+	var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
+	for side in [1.0, -1.0]:
+		var at: Vector2 = centre + inward * .54 + across * side * (cells.size() * .5 + SWITCH_PAST_OPENING)
+		if grid.is_empty() or (_grid_solid(grid, at - inward * .6) and not _grid_solid(grid, at + inward * .3)):
+			return at
+	return Vector2(INF, INF)
+
+
+static func _grid_solid(grid: Array, at: Vector2) -> bool:
+	var cell := Vector2i(floori(at.x), floori(at.y))
+	if cell.y < 0 or cell.y >= grid.size() or cell.x < 0 or cell.x >= (grid[cell.y] as Array).size():
+		return true
+	return int(grid[cell.y][cell.x]) != 0
+
+
 ## Groups a built chunk's lamps by room, applies each room's saved/seeded state, and puts a switch inside every lit room
 ## beside its main doorway, on the wall at SWITCH_HEIGHT, facing into the room.
 func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_list: Array) -> void:
@@ -2563,14 +2592,10 @@ func _bind_room_lights(root: Node3D, data: Dictionary, coord: Vector3i, lamp_lis
 		if not doors.has(room_id):
 			continue
 		var door: Dictionary = doors[room_id]
-		var cells: Array = door.get("doorway_cells", [door.get("cell", Vector2i.ZERO)])
-		var centre := Vector2.ZERO
-		for cell_value in cells:
-			centre += Vector2(cell_value as Vector2i) + Vector2(.5, .5)
-		centre /= float(maxi(1, cells.size()))
 		var inward := Vector2(door.get("inward", Vector2i(0, 1)) as Vector2i)
-		var across := Vector2(door.get("across", Vector2i(1, 0)) as Vector2i)
-		var at := centre + inward * .54 + across * (cells.size() * .5 + .35)
+		var at := switch_spot(door, data.get("grid", []))
+		if at.x == INF:
+			continue
 		var switch := RouteInteractable3D.new()
 		switch.name = "LightSwitch_%s" % room_id.replace(":", "_")
 		switch.kind = RouteInteractable3D.Kind.LIGHT_SWITCH
@@ -2704,10 +2729,67 @@ static var _mattress_tops := {}
 static func mattress_top(visual: Node3D, path: String) -> float:
 	if _mattress_tops.has(path):
 		return float(_mattress_tops[path])
+	var height := _upward_top(visual, Vector2(.2, .15), 0.0, 1.0)
+	_mattress_tops[path] = height
+	return height
+
+
+## Height of a seat pan above the floor: the level with the most upward-facing area over the middle of the seat, a little
+## in front of centre (the model's back is -Z), above the bottom fifth (bases, feet, star legs). Armrest caps and
+## backrest tops are narrow; the pan is the widest flat. Cached per model path.
+static var _seat_tops := {}
+
+
+static func seat_top(visual: Node3D, path: String) -> float:
+	if _seat_tops.has(path):
+		return float(_seat_tops[path])
+	var height := _largest_flat(visual, Vector2(.18, .3), .08)
+	_seat_tops[path] = height
+	return height
+
+
+static func _largest_flat(visual: Node3D, reach_frac: Vector2, z_shift: float) -> float:
 	var inverse := visual.global_transform.affine_inverse()
 	var bounds := ModelSlot.combined_local_bounds(visual)
-	var centre := bounds.get_center()
-	var reach := Vector2(bounds.size.x * .2, bounds.size.z * .15)
+	var centre := bounds.get_center() + Vector3(0.0, 0.0, bounds.size.z * z_shift)
+	var reach := Vector2(bounds.size.x * reach_frac.x, bounds.size.z * reach_frac.y)
+	var floor_cut := bounds.position.y + bounds.size.y * .2
+	var areas := {}
+	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		var xf := inverse * mesh_node.global_transform
+		var faces := mesh_node.mesh.get_faces()
+		for i in range(0, faces.size(), 3):
+			var a := xf * faces[i]
+			var b := xf * faces[i + 1]
+			var c := xf * faces[i + 2]
+			var normal := (b - a).cross(c - a)
+			if normal.y <= normal.length() * .9:
+				continue
+			var mid := (a + b + c) / 3.0
+			if mid.y < floor_cut or absf(mid.x - centre.x) > reach.x or absf(mid.z - centre.z) > reach.y:
+				continue
+			var level := int(roundf(mid.y / .03))
+			areas[level] = float(areas.get(level, 0.0)) + normal.length() * .5
+	var best := -1
+	for level in areas:
+		if best < 0 or float(areas[level]) > float(areas[best]):
+			best = int(level)
+	if best < 0:
+		return 0.0
+	return (float(best) * .03 - bounds.position.y) * visual.scale.y
+
+
+## The highest upward-facing triangle within a patch around the model's centre (`reach` x and z as fractions of the
+## bounds, the patch shifted `z_shift` of the depth toward the front), below `cap` of the model's height.
+static func _upward_top(visual: Node3D, reach_frac: Vector2, z_shift: float, cap: float) -> float:
+	var inverse := visual.global_transform.affine_inverse()
+	var bounds := ModelSlot.combined_local_bounds(visual)
+	var centre := bounds.get_center() + Vector3(0.0, 0.0, bounds.size.z * z_shift)
+	var reach := Vector2(bounds.size.x * reach_frac.x, bounds.size.z * reach_frac.y)
+	var ceiling := bounds.position.y + bounds.size.y * cap
 	var top := bounds.position.y
 	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
 		var mesh_node := mesh_value as MeshInstance3D
@@ -2723,11 +2805,9 @@ static func mattress_top(visual: Node3D, path: String) -> float:
 			if absf(normal.y) < normal.length() * .9:
 				continue
 			var mid := (a + b + c) / 3.0
-			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y:
+			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y and mid.y <= ceiling + .001:
 				top = maxf(top, mid.y)
-	var height := (top - bounds.position.y) * visual.scale.y
-	_mattress_tops[path] = height
-	return height
+	return (top - bounds.position.y) * visual.scale.y
 
 
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
@@ -2771,18 +2851,27 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
-		var furniture := RouteInteractable3D.new()
-		furniture.name = "Furniture_%s" % prop_type
-		furniture.kind = RouteInteractable3D.Kind.FURNITURE
-		furniture.configure_furniture(furniture_action)
-		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
-		if furniture_action == "lay":
-			furniture.set_meta("rest_top", mattress_top(visual, path))
-		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
-		furniture.rotation.y = yaw
-		parent.add_child(furniture)
-		if furniture_action == "play" and not booth_id.is_empty():
-			_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
+		# a multi-seat (waiting-room row, bench, couch) gets one interactable per seat along its width (docs/SEATING.md)
+		var seat_xs: Array = PropModelCatalog.seat_offsets(prop_type, blocker_size.x) if furniture_action == "sit" else [0.0]
+		var seat_size := Vector3(blocker_size.x / float(seat_xs.size()), blocker_size.y, blocker_size.z)
+		var seat_height := seat_top(visual, path) if furniture_action == "sit" else 0.0
+		for seat_index in seat_xs.size():
+			var furniture := RouteInteractable3D.new()
+			furniture.name = "Furniture_%s" % prop_type if seat_xs.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
+			furniture.kind = RouteInteractable3D.Kind.FURNITURE
+			furniture.configure_furniture(furniture_action)
+			furniture.set_meta("rest_size", seat_size)    # PlayerController3D.rest_spot: where the body and eye go
+			if furniture_action == "lay":
+				furniture.set_meta("rest_top", mattress_top(visual, path))
+			elif furniture_action == "sit":
+				furniture.set_meta("seat_top", seat_height)
+				furniture.set_meta("seat_index", seat_index)
+			furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03) \
+				+ Vector3(float(seat_xs[seat_index]), 0.0, 0.0).rotated(Vector3.UP, yaw)
+			furniture.rotation.y = yaw
+			parent.add_child(furniture)
+			if furniture_action == "play" and not booth_id.is_empty():
+				_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
 	if not solid:
 		return
 	var body := StaticBody3D.new()

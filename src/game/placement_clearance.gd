@@ -238,6 +238,10 @@ static func _blocking_prop(world: CollisionWorld, door: Dictionary, rect: Rect2i
 		var score := mini(near_blocked, maxi(near_open, 1)) * 1000 + near_blocked
 		if door_blocked:
 			score += 100000 if CollisionWorld.rect_distance(inside, prop) <= reach else 0
+		elif PropModelCatalog.interaction_for(String(prop.get("type", ""))) == "lay":
+			# a bed is the room's point (hunter-scale beds reach far into a 9x9 bedroom): anything else near the pocket
+			# goes first, the bed only when it alone seals it
+			score = score / 1000
 		if score > best_score:
 			best_score = score
 			best = String(prop["id"])

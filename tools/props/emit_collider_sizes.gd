@@ -7,17 +7,21 @@ extends Node
 ## (a scene, not -s: the generator it reads needs the autoloads)
 ## Props whose model overhangs the part you collide with keep their authored box (see KEEP_AUTHORED).
 
-const KEEP_AUTHORED := ["beachUmbrella"]
+## the merry-go-round is a code-built ride with its own blocker (CarouselRide3D); its model is hidden
+const KEEP_AUTHORED := ["beachUmbrella", "carouselCenterpiece"]
 const PAD := 0.04
 ## A variant whose footprint edge sits further than this inside the type's union gets its own box.
 const VARIANT_SLACK := 0.04
-const MAX_HEIGHT := 2.2
+## hunter scale: a 3.3 m shower stall is a solid 3.3 m box (the ceiling is 4 m)
+const MAX_HEIGHT := 3.4
 ## Things that stand above the part you collide with (the restaurant table's balloon cluster) are cut off here.
 const HEIGHT_CAP := {"restaurantPartyTable": 0.85,
 	# the wall mirror over the vanity and the sneeze hood over the serving counter stand above what you bump into (docs/SCALE_FIT.md)
-	"bathroomVanity": 0.95, "prisonServingCounter": 1.1,
-	# the register display and the popcorn machine / soda fountain sit on the worktop, above what you bump into
-	"checkoutCounter": 0.96, "concessionCounter": 0.99}
+	"bathroomVanity": 1.43, "prisonServingCounter": 1.65,
+	# the register display and the popcorn machine / soda fountain sit on the worktop, above what you bump into (caps at hunter scale, x1.5)
+	"checkoutCounter": 1.44, "concessionCounter": 1.49,
+	# the canopy finials and the decon shower head rise past what you bump into (hunter-scale bed / shower range tops at 3.375)
+	"gothicDoubleBed": 3.35, "deconShower": 3.35}
 ## Irregular pieces get several boxes. Rectangles in the MODEL frame (x0, z0, x1, z1) read off the top-down occupancy of
 ## the mesh (tools/look/dump_occupancy.gd); the emitter mirrors them into the collider frame (the view turns the model by yaw + PI).
 const MULTI_BOX := {
@@ -56,6 +60,8 @@ func _model_box(type: String) -> AABB:
 		var node := scene.instantiate()
 		var box := _extent(node)
 		node.free()
+		var factor := PropModelCatalog.hunter_scale(type)    # the view scales these models (ModelSlot.instantiate_prop)
+		box = AABB(box.position * factor, box.size * factor)
 		total = box if not have else total.merge(box)
 		have = true
 	return total if have else AABB()

@@ -128,3 +128,15 @@ generator it reads needs the autoloads, which `-s` scripts do not get.
 While you are in a wardrobe, its model is hidden for your own camera only, because the model's doors are solid. The
 shell then forms the wardrobe, with slats to peek through. Everyone else still sees the real wardrobe.
 
+
+## Aiming at a hiding spot (KT: "locker instruction hitbox too big")
+
+- **Before:** a hiding spot offered its prompt to anything inside the general aim cone within about 4 m, so "[E] HIDE"
+  showed while you looked at the machine beside a locker.
+- **Now:** the aim ray has to hit the prop itself, plus 8 cm (`RouteInteractable3D.aim_box`), within 1.9 m
+  (`PlayerController3D.HIDE_AIM_REACH`).
+  - When two hiding spots are on the ray, the nearer hit wins.
+  - A hiding spot also wins over a cone pick that is farther along the ray.
+  - There is no prompt through a wall: the line-of-sight ray to the hit point must reach the prop.
+- **Check:** the `hiding_aim` suite. It covers aiming at a spot, 23° beside it, at the floor in front, and out of reach,
+  plus two spots side by side and two in line.

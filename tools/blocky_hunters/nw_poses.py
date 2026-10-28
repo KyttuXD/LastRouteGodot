@@ -313,6 +313,24 @@ add(t, "L-Thigh", hold((4, 0, -3), L))
 add(t, "R-Thigh", hold((4, 0, 3), L))
 pose("slump", L, True, .7, t, note="tired idle")
 
+# sit: on a hunter-scale seat (HunterSeats, docs/SEATING.md): pelvis down by a thigh, thighs level, calves hanging,
+# hands resting on the knees, slow breathing
+L = 4.0
+t = {}
+add_pos(t, "Pelvis", hold((0, -0.4, 0.06), L))
+add(t, "Belly", wave_keys(L, (-4, 0, 0), (1.2, 0, 0)))
+add(t, "Chest", wave_keys(L, (-3, 0, 0), (1, 0, 0), phase=.1))
+add(t, "Head", wave_keys(L, (-6, 0, 0), (1.5, 8, 0), phase=.3))
+add(t, "L-Thigh", hold((90, 0, -4), L))
+add(t, "R-Thigh", hold((90, 0, 4), L))
+add(t, "L-Calf", hold((-90, 0, 0), L))
+add(t, "R-Calf", hold((-90, 0, 0), L))
+add(t, "L-Arm", hold((32, 0, -4), L))
+add(t, "R-Arm", hold((32, 0, 4), L))
+add(t, "L-Forearm", hold((48, 0, 0), L))
+add(t, "R-Forearm", hold((48, 0, 0), L))
+pose("sit", L, True, .5, t, grounded=False, note="seated on a chair or bench")
+
 # point at the office: right arm straight out, head turned to it
 L = 2.0
 t = {}

@@ -305,6 +305,12 @@ var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
 const SIT_EYE := 1.15
+## How far along the aim ray a hiding spot can be entered (the 1.60 m runner reaches about this far into a locker).
+const HIDE_AIM_REACH := 1.9
+## The 1.60 m runner's seated eye above the seat pan (eye 1.36 standing, hip 0.81, plus the thigh under her).
+const SIT_EYE_ABOVE_SEAT := .7
+## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
+const SIT_CLIP_SEAT := .42
 const LAY_EYE_ABOVE_MATTRESS := .22
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
@@ -450,7 +456,10 @@ static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
 			else (clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95)
 		return {"body": Vector3(head.x, floor_y, head.z), "eye": eye, "yaw": furniture.global_rotation.y, "pitch": .12}
 	var seat := xf * Vector3(0.0, 0.0, -.06)
-	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": SIT_EYE, "yaw": furniture.global_rotation.y, "pitch": -.08}
+	# seated eye over the seat model's measured pan (the view's "seat_top"; hunter-scale seats are about 0.68 m)
+	var sit_eye := float(furniture.get_meta("seat_top")) + SIT_EYE_ABOVE_SEAT \
+		if furniture.has_meta("seat_top") and float(furniture.get_meta("seat_top")) > .2 else SIT_EYE
+	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": sit_eye, "yaw": furniture.global_rotation.y, "pitch": -.08}
 
 
 func leave_furniture() -> String:
@@ -3053,6 +3062,11 @@ func _nearest_interactable() -> RouteInteractable3D:
 	var origin := aim.origin
 	var look := -aim.basis.z.normalized()
 	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE * PlayerModels.SCALE
+	# hiding spots: the aim ray must hit the prop (RouteInteractable3D.aim_box), nearest hit wins (KT: "locker hitbox
+	# too big"); everything else keeps the aim cone
+	var hit_spot: RouteInteractable3D = null
+	var hit_distance := INF
+	var chosen_ray := INF
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
 			continue
@@ -3060,6 +3074,13 @@ func _nearest_interactable() -> RouteInteractable3D:
 			candidate.global_position.z - global_position.z)
 		var horizontal_distance := horizontal_offset.length()
 		if horizontal_distance > maximum_distance or candidate.get_prompt().is_empty():
+			continue
+		if candidate.has_aim_box():
+			var along: float = candidate.aim_hit_distance(origin, look)
+			if along >= 0.0 and along <= HIDE_AIM_REACH and along < hit_distance \
+					and _interaction_has_line_of_sight(origin + look * maxf(along, .01), candidate):
+				hit_spot = candidate
+				hit_distance = along
 			continue
 		var focus: Vector3 = candidate.interaction_focus()
 		var to_focus := focus - origin
@@ -3076,6 +3097,9 @@ func _nearest_interactable() -> RouteInteractable3D:
 			chosen = candidate
 			chosen_alignment = alignment
 			chosen_distance = horizontal_distance
+			chosen_ray = ray_distance
+	if hit_spot != null and hit_distance <= chosen_ray:
+		return hit_spot
 	return chosen
 
 

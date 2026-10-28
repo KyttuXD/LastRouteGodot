@@ -278,6 +278,43 @@ func interaction_focus() -> Vector3:
 	return global_transform * _interaction_focus_local
 
 
+## Hiding spots are aimed at, not just looked toward (KT: "locker instruction hitbox too big"): the prompt needs the aim
+## ray to hit this local box (the prop itself plus AIM_BOX_MARGIN) within PlayerController3D.HIDE_AIM_REACH.
+const AIM_BOX_MARGIN := .08
+
+
+func has_aim_box() -> bool:
+	return kind == Kind.HIDING_SPOT
+
+
+func aim_box() -> AABB:
+	if _visual != null:
+		var boxes: Array[AABB] = []
+		_collect_mesh_bounds(_visual, boxes)
+		if not boxes.is_empty():
+			var combined := boxes[0]
+			for i in range(1, boxes.size()):
+				combined = combined.merge(boxes[i])
+			return combined.grow(AIM_BOX_MARGIN)
+	# furniture hiding spots (bed, wardrobe): the placed prop's footprint and height
+	var height := maxf(hide_size.y, .5)
+	return AABB(Vector3(-hide_size.x * .5, 0.0, -hide_size.z * .5), Vector3(hide_size.x, height, hide_size.z)).grow(AIM_BOX_MARGIN)
+
+
+## Distance along the ray (world origin, unit direction) to where it enters the aim box, or -1 for a miss.
+func aim_hit_distance(origin: Vector3, direction: Vector3) -> float:
+	var inverse := global_transform.affine_inverse()
+	var local_origin := inverse * origin
+	var local_dir := (inverse.basis * direction)
+	var box := aim_box()
+	if box.has_point(local_origin):
+		return 0.0
+	var hit: Variant = box.intersects_ray(local_origin, local_dir)
+	if hit == null:
+		return -1.0
+	return (global_transform * (hit as Vector3)).distance_to(origin)
+
+
 func hiding_inside_position() -> Vector3:
 	if hide_style == "bed":
 		return global_transform * Vector3(0.0, 0.02, 0.0)
@@ -468,7 +505,7 @@ func get_prompt() -> String:
 	if kind == Kind.FURNITURE:
 		match furniture_action:
 			"lay": return "LIE DOWN"
-			"sit": return "SIT DOWN"
+			"sit": return "" if SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)) else "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
 			"play":
@@ -541,6 +578,8 @@ func activate(player: PlayerController3D) -> String:
 			if furniture_action == "play":
 				Sound.menu_blip()
 				return ""
+			if furniture_action == "sit" and player.resting_furniture != self and SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)):
+				return "Someone is already sitting there."
 			return player.use_furniture(self, furniture_action)
 		Kind.SAFE_ZONE:
 			player.restore_at_safe_zone()
