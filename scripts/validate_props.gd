@@ -94,11 +94,21 @@ func run(host: Node) -> int:
 		for slat_index in range(1, 4):
 			_expect(model.find_child("SightSlat_%d" % slat_index, true, false) != null,
 				"locker door is missing authored sight slat %d" % slat_index)
+		# The hider looks out through the door's vent band (the trailer's "locker breath" view): for them only the
+		# detailed model is swapped for the dark shell, which keeps every wall but the band and carries its slats.
 		item.set_local_hiding_view(true)
-		_expect(item.local_hiding_view_open() and model.visible,
-			"hiding erased the locker instead of preserving its narrow sight cracks")
+		var seal := item.find_child("LockerSeal", false, false) as Node3D
+		var band := item.find_child("LockerVentBand", false, false) as Node3D
+		_expect(item.local_hiding_view_open() and not model.visible and seal != null and seal.visible,
+			"hiding did not swap the locker for its slatted hider shell")
+		_expect(seal != null and seal.get_child_count() >= 9 + RouteInteractable3D.LOCKER_SLATS,
+			"the hider shell lost its walls or its %d vent slats" % RouteInteractable3D.LOCKER_SLATS)
+		var pitch := (RouteInteractable3D.LOCKER_VENT_HI - RouteInteractable3D.LOCKER_VENT_LO) / RouteInteractable3D.LOCKER_SLATS
+		_expect(RouteInteractable3D._locker_slat_thickness() < pitch * .6,
+			"the vent slats leave no real gaps to look through")
 		item.set_local_hiding_view(false)
-		_expect(model.visible, "leaving hiding did not restore the local locker shell")
+		_expect(model.visible and band != null and band.visible and not seal.visible,
+			"leaving hiding did not restore the locker with its vent band")
 
 		item.set_disabled(true)
 		_expect(not model.visible, "a burned hiding spot left its detailed locker visible")
