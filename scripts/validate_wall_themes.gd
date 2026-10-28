@@ -38,6 +38,7 @@ func run(_host: Node) -> int:
 	var mismatches := 0
 	var arches := 0
 	var hall_arches := 0
+	var multi_kind_rooms := {}
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		var view := StreamedFacilityView3D.new()
@@ -52,7 +53,10 @@ func run(_host: Node) -> int:
 				var grid: Array = data["grid"]
 				var room_map := StreamedFacilityView3D._room_type_map(data)
 				var build := {"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]), "coord": coord,
-					"room_map": room_map, "region": region, "data": data}
+					"room_map": room_map, "room_anchor": StreamedFacilityView3D.room_anchor_map(data), "region": region,
+					"data": data}
+				# one floor kind per room: kind seen per room origin
+				var room_floor := {}
 				for room_value in data.get("rooms", []):
 					var room: Dictionary = room_value
 					var room_type := String(room.get("room_type", ""))
@@ -113,6 +117,18 @@ func run(_host: Node) -> int:
 						if int(grid[z][x]) == 0:
 							var floor_kind: String = view._ref_floor_kind(build, x, z)
 							var owner := String(room_map.get(Vector2i(x, z), ""))
+							if owner == "" and not floor_kind.begins_with("runner"):
+								if room_floor.has("hall") and room_floor["hall"] != floor_kind:
+									_expect(false, "%s %s: hall floor mixes %s and %s" % [seed_text, coord, room_floor["hall"], floor_kind])
+								room_floor["hall"] = floor_kind
+							if owner != "":
+								var origin := str((build["room_anchor"] as Dictionary)[Vector2i(x, z)], owner)
+								if FloorSets.room(region, owner).size() > 1:
+									multi_kind_rooms[str(seed_text, coord, origin)] = true
+								if room_floor.has(origin) and room_floor[origin] != floor_kind:
+									_expect(false, "%s %s: room %s at %s is laid in two floors (%s and %s)" % [seed_text, coord,
+										owner, origin, room_floor[origin], floor_kind])
+								room_floor[origin] = floor_kind
 							var allowed: Array = FloorSets.room(region, owner) if owner != "" else FloorSets.hall(region)
 							if not allowed.has(floor_kind) and not floor_kind.begins_with("runner"):
 								mismatches += 1
@@ -133,6 +149,7 @@ func run(_host: Node) -> int:
 								mismatches += 1
 								_expect(false, "%s %s: wall face %s->%s is %s, not from the %s set" % [seed_text, coord, Vector2i(x, z), n, kind, facing if facing != "" else "hall"])
 		view.free()
+	_expect(multi_kind_rooms.size() > 20, "only %d rooms with a multi-kind floor set sampled" % multi_kind_rooms.size())
 	_expect(doors > 50, "only %d doorways sampled" % doors)
 	_expect(arches > 5, "only %d archways sampled" % arches)
 	_expect(hall_arches > 20, "only %d hall arches sampled" % hall_arches)

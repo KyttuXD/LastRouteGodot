@@ -234,6 +234,10 @@ func _ready() -> void:
 		_remotes.request_interaction({"what": "admin_auth"})
 	_refresh_hunter_stream()
 
+	if PlatformProfile.is_phone:
+		TouchControls.attach(self, player, hud)   # phones only (docs/XR_ANDROID.md); desktop never creates it
+	if PlatformProfile.is_xr:
+		XRRoutePanel.attach(self, player, _xr_overlay_open)   # 2D screens on a panel once the player is in XR
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online
@@ -446,8 +450,7 @@ func _on_chunk_changed(coord: Vector3i, data: Dictionary) -> void:
 		_navigation.refresh(coord.y, facility.loaded_horizontal_coords())
 	if _navigation != null and _remotes != null and _remotes.simulates():
 		_refresh_hunter_stream()
-	var region := String(data.get("region", "maze")).to_upper()
-	hud.depth_label.text = "LEVEL %+d // %s" % [coord.y, region]
+	hud.depth_label.text = RegionNames.level_line(coord.y, String(data.get("region", "maze")))
 	hud.update_infinite_status(GameState.relays_collected,
 		facility.loaded_chunk_count(), _live_danger_percent(data))
 	hud.set_public_line(PublicRoute.line() if RoomState.public_route else "")
@@ -761,6 +764,16 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
+func _xr_overlay_open() -> bool:
+	return _death_screen_open or hud.map_is_open() or hud.inventory_is_open() or GameState.escape_active \
+		or (_death_moment != null and _death_moment.is_open()) \
+		or (pause_menu != null and pause_menu.is_open()) \
+		or (_room_chat != null and _room_chat.is_open()) \
+		or (_admin_menu != null and _admin_menu.is_open()) \
+		or (_story != null and _story.is_active())
 
 
 func _on_inventory_open_changed(_shown: bool) -> void:
