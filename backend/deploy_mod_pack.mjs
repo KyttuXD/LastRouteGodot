@@ -40,15 +40,18 @@ export function buildPack(directory, limits = MOD_LIMITS) {
     const data = readFileSync(join(directory, ...path.split("/")));
     return { path, size: data.length, sha256: createHash("sha256").update(data).digest("hex") };
   });
-  // a pack.json that lists its own files must agree with what is actually on disk
+  // a pack.json "files" list (optional) must list every file except pack.json itself, with exact sha256 and size --
+  // the client loader refuses the pack otherwise
   if (Array.isArray(manifest.files)) {
-    const actual = new Map(files.map((f) => [f.path, f.sha256]));
-    for (const listed of manifest.files) {
-      if (!listed?.path || listed.path === "pack.json" || !listed.sha256) continue;
-      if (actual.get(listed.path) !== String(listed.sha256).toLowerCase()) {
-        throw new Error(`pack.json lists ${listed.path} with a sha256 that does not match the file`);
-      }
+    const actual = new Map(files.filter((f) => f.path !== "pack.json").map((f) => [f.path, f]));
+    const listed = new Map(manifest.files.map((f) => [String(f?.path || ""), f]));
+    for (const [path, file] of actual) {
+      const entry = listed.get(path);
+      if (!entry) throw new Error(`pack.json "files" does not list ${path}`);
+      if (String(entry.sha256 || "").toLowerCase() !== file.sha256) throw new Error(`pack.json lists ${path} with a sha256 that does not match the file`);
+      if (Number(entry.size) !== file.size) throw new Error(`pack.json lists ${path} with the wrong size`);
     }
+    for (const path of listed.keys()) if (!actual.has(path)) throw new Error(`pack.json "files" lists ${path}, which is not in the pack`);
   }
   const checked = validatePackManifest({ ...manifest, files }, limits);
   if (checked.error) throw new Error(`pack refused: ${checked.error}${checked.path ? ` (${checked.path})` : ""}`);
