@@ -26,6 +26,12 @@ const FROZEN := {
 	"kathy": {"name": "Kathy", "tier": "difficult", "speed": 0.82, "chase": 4.15, "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 16},
 	"loxelle": {"name": "Loxelle", "tier": "easy", "speed": 0.80, "chase": 3.555, "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 13},
 	"mavrine": {"name": "Mavrine", "tier": "intermediate", "speed": 0.80, "chase": 3.50, "prog": 0.17, "sight": 8.20, "hearing": 0.95, "spawn": 12},
+	"nyxie": {"name": "Nyxie", "tier": "special", "speed": 0.90, "chase": 3.90, "prog": 0.15, "sight": 8.40, "hearing": 0.00, "spawn": 10},
+	"opalie": {"name": "Opalie", "tier": "easy", "speed": 0.83, "chase": 3.47, "prog": 0.18, "sight": 7.70, "hearing": 1.10, "spawn": 13},
+	"porcelle": {"name": "Porcelle", "tier": "intermediate", "speed": 0.80, "chase": 3.55, "prog": 0.17, "sight": 8.00, "hearing": 0.90, "spawn": 13},
+	"quenelle": {"name": "Quenelle", "tier": "easy", "speed": 0.81, "chase": 3.50, "prog": 0.17, "sight": 8.10, "hearing": 0.85, "spawn": 12},
+	"ravelle": {"name": "Ravelle", "tier": "difficult", "speed": 0.81, "chase": 3.15, "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
+	"solyth": {"name": "Solyth", "tier": "special", "speed": 0.80, "chase": 3.00, "prog": 0.17, "sight": 7.60, "hearing": 0.95, "spawn": 12},
 }
 ## HunterRoster.PROFILES key order before Phase 3 (migrations must keep every hunter's roster position).
 const ROSTER_ORDER := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia", "void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink", "void_purple", "void_red", "void_white", "void_yellow"]
