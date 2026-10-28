@@ -208,6 +208,32 @@ static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> vo
 	model.global_transform = placed
 
 
+## How far a style stretches her arms at `t`: up to arm_stretch, eased in with her reach.
+static func stretch_for(style: String, t: float) -> float:
+	if not STRETCH_STYLES.has(style):
+		return 1.0
+	return 1.0 + (arm_stretch - 1.0) * GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
+
+
+## Her upper arms stretched `factor` along their length (the forearm rides along, the hand keeps its size), from their own
+## scale; 1 puts them back. HunterView3D puts them back too once nothing grabs with her any more.
+static func stretch_arms(view: Node3D, factor: float) -> void:
+	for side in ["R", "L"]:
+		var chain := arm_chain(view, side)
+		var arm := chain["arm"] as Node3D
+		var hand := chain["hand"] as Node3D
+		if arm == null or hand == null:
+			continue
+		if not arm.has_meta("grab_scale"):
+			arm.set_meta("grab_scale", arm.scale)
+			hand.set_meta("grab_scale", hand.scale)
+		arm.scale = (arm.get_meta("grab_scale") as Vector3) * Vector3(1.0, factor, 1.0)
+		hand.scale = (hand.get_meta("grab_scale") as Vector3) * Vector3(1.0, 1.0 / factor, 1.0)
+		if is_equal_approx(factor, 1.0):
+			arm.remove_meta("grab_scale")
+			hand.remove_meta("grab_scale")
+
+
 ## The body points the hunter's hands go to: [[arm side, world point, amount]] for a body placed by `feet` and `basis`.
 static func contacts(feet: Vector3, basis: Basis, arms: Array) -> Array:
 	var out := []
@@ -388,6 +414,7 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 	if along.length_squared() < .5:
 		along = Vector3(body.global_position.x - best.global_position.x, 0.0, body.global_position.z - best.global_position.z).normalized()
 	pose_hunter_body(best, along, [packet[4], packet[5], packet[6]])
+	stretch_arms(best, stretch_for(String(packet[0]), float(packet[1])))
 	var basis := body.global_basis.orthonormalized()
 	var points := contacts(body.global_position, basis, pose["arms"])
 	# her head (and the chest share of the turn) first: the arms hang from the chest, so they are bent onto the body after it
@@ -405,9 +432,15 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 ## with CLEARANCE); it eases towards that spot and that view every frame instead of snapping; roll stays within MAX_ROLL (the
 ## upside-down hold flips slowly, then sways within FLIP_SWAY).
 const CLEARANCE := .07
-## The hold widens the view up to MAX_FOV_WIDEN degrees, eased, while her face is closer than FACE_DISTANCE.
+## The hold widens the view up to fov_widen degrees, eased, while her face is closer than FACE_DISTANCE.
 const FACE_DISTANCE := 1.2
-const MAX_FOV_WIDEN := 10.0
+## KT is comparing (docs/HUNTER_GRABS.md): her arms stretched along their length while she reaches for and holds the runner
+## (arm_stretch, for the styles in STRETCH_STYLES), and how far the hold may widen the view (fov_widen, degrees). Static so
+## a capture rig can set both; every peer uses the same values.
+static var arm_stretch := 1.6
+static var fov_widen := 10.0
+const STRETCH_STYLES := [GrabStyles.NECK_LIFT, GrabStyles.SHOULDER_GRAB, GrabStyles.WRIST_YANK, GrabStyles.WALL_PIN,
+	GrabStyles.COLLAR_DRAG, GrabStyles.LEG_GRAB, GrabStyles.UPSIDE_DOWN]
 const WALL_MARGIN := .12
 const EASE_RATE := 30.0
 ## Speed limits on the eased camera, so nothing ever snaps: metres and radians per second.
@@ -418,7 +451,7 @@ const HARD_CLEARANCE := .065
 ## The most a push may move the camera in one frame.
 const MAX_PUSH := .18
 ## Render layer for hunter parts hidden from the held runner's camera (inside its near plane this frame).
-const NEAR_CULL_LAYER := 1 << 18
+const NEAR_CULL_LAYER := 1 << 16
 const MAX_ROLL := .26
 const FLIP_SWAY := .17
 const MAX_LOOK_PITCH := 1.2
@@ -450,6 +483,8 @@ static func camera_blocked(space: PhysicsDirectSpaceState3D, point: Vector3, exc
 				continue   # her body, not the see-through vision beam
 			if skip_arms and _is_arm(mesh_node):
 				continue
+			if mesh_node.layers == FirstPersonBody.HEAD_LAYER:
+				continue   # the runner's own head: never drawn for the first-person camera
 			var local := mesh_node.global_transform.affine_inverse() * point
 			var scale := mesh_node.global_transform.basis.get_scale()
 			var grown := mesh_node.mesh.get_aabb().grow(clearance / maxf(minf(scale.x, minf(scale.y, scale.z)), .001))
@@ -494,7 +529,8 @@ func _own_torso() -> Array:
 	var out := []
 	for node in body.model.find_children("*", "MeshInstance3D", true, false):
 		var mesh_node := node as MeshInstance3D
-		if mesh_node.mesh != null and mesh_node.is_visible_in_tree() and not _is_arm(mesh_node):
+		if mesh_node.mesh != null and mesh_node.is_visible_in_tree() and not _is_arm(mesh_node) \
+				and mesh_node.layers != FirstPersonBody.HEAD_LAYER:
 			out.append(mesh_node)
 	return out
 
@@ -644,7 +680,7 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	return Transform3D(Basis(from.slerp(to_q, weight)), at)
 
 
-## During the hold only, the view widens (eased, at most MAX_FOV_WIDEN degrees) as far as her face is closer than
+## During the hold only, the view widens (eased, at most fov_widen degrees) as far as her face is closer than
 ## FACE_DISTANCE, so a hunter half again the runner's size still fits the frame from the runner's own eyes.
 func _widen_view(at: Vector3, t: float, delta: float) -> void:
 	if _player.xr_active:
@@ -654,7 +690,7 @@ func _widen_view(at: Vector3, t: float, delta: float) -> void:
 	if head != null:
 		close = clampf((FACE_DISTANCE - at.distance_to(head.global_position)) / .5, 0.0, 1.0)
 	var hold := GrabStyles.smooth((t - GrabStyles.REACH_SECONDS - GrabStyles.ACT_SECONDS * .5) / .5)
-	var wanted := _base_fov + MAX_FOV_WIDEN * close * hold
+	var wanted := _base_fov + fov_widen * close * hold
 	var camera := _player.first_person_camera
 	camera.fov = move_toward(camera.fov, wanted, 20.0 * maxf(delta, 0.0))
 
@@ -681,6 +717,8 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 	style = force_style if GrabStyles.STYLES.has(force_style) else GrabStyles.pick(hunter_id, roll, room)
 	last_room = room
 	_ctx = context(view, player.global_position, _along, player._standing_camera_height, room)
+	if STRETCH_STYLES.has(style):
+		_ctx["arm"] = float(_ctx.get("arm", .66)) * arm_stretch   # she holds the runner at her (stretched) arm's length
 	_start = player.global_position
 	for key in ["grab_head_turn", "grab_chest_turn"]:
 		view.remove_meta(key)
@@ -718,6 +756,7 @@ func _apply(t: float, delta: float) -> void:
 	# the hunter steps in or back until every hand reaches its contact, then the arms bend onto it
 	var offsets: Array = (current["hunter"] as Array).duplicate()
 	pose_hunter_body(_view, _along, offsets)
+	stretch_arms(_view, stretch_for(style, t))
 	var points := contacts(body_feet, basis, current["arms"])
 	for _i in 3:
 		var fix := reach_correction(_view, _along, points)
@@ -782,6 +821,7 @@ func release() -> void:
 			(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
 			node.remove_meta("grab_layers")
 	if _view != null and is_instance_valid(_view):
+		stretch_arms(_view, 1.0)
 		for node in _view.find_children("*", "MeshInstance3D", true, false):
 			if node.has_meta("grab_layers"):
 				(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))

@@ -49,7 +49,8 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 
 `HunterGrab._solve_camera` places the camera every frame:
 - **Position:** the first-person body's real eyes, never behind them (KT). It rides the eyes exactly (every pose is eased), easing in from the runner's own view over the first 0.2 s. Only a wall, the floor or her collider moves it: up or to the side, never back.
-- **Framing:** her arms are straight (she holds the runner at arm's length), the view tips up to her face, and in the hold the view widens up to 10 degrees, eased, while her face is closer than 1.2 m.
+- **Framing:** her arms are straight (she holds the runner at arm's length) and, for the reaching styles (`HunterGrab.STRETCH_STYLES`), stretched along their length up to `arm_stretch` (1.6), eased in with the reach. The hand keeps its size, and HunterView3D puts the arms back once nothing grabs with her. The view tips up to her face, and in the hold it widens up to `fov_widen` degrees (10), eased, while her face is closer than 1.2 m. KT is comparing 1.6x/+10, 1x/+25 and 1.6x/+25 (the sheet); both are static vars.
+- **The runner's own head:** the whole head group (head box and everything parented to it) is moved onto `FirstPersonBody.HEAD_LAYER`, which the first-person camera's cull mask skips. Other cameras and the lights' shadows still have it. This is re-applied every frame, so a skin refresh cannot bring it back. Tested every frame of every grab and on ladders.
 - **Her model at the lens:** any box of her within the near plane is drawn on a layer the first-person camera skips, for that frame.
 - **On a live route:** her model is pinned where the grab began, turned square to the runner. The hunter's simulation keeps moving her (wander, turn) while she holds someone, so a model riding along would pull her hands off the body.
 - **Walls:** it is never inside a wall. A ray runs from where the runner stood, then a sphere test.

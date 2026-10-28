@@ -12,6 +12,9 @@ var _body_visual: Node3D
 var _rest := Transform3D.IDENTITY
 var _clip := ""
 var _hidden_head: Array = []
+## Render layer for the runner's own head while the camera sits in it: the first-person camera skips it, everything else
+## (other cameras, the capture rigs, and the lights' shadows) still has it.
+const HEAD_LAYER := 1 << 17
 ## The arm bones' rest transforms: put back before each frame's IK, so a clip that does not key the arms (idle) never leaves
 ## last frame's bend (or its rounding) to build on.
 var _arm_rest := {}
@@ -51,17 +54,12 @@ func set_active(on: bool) -> void:
 	visible = on
 	_body_visual.visible = on
 	if on:
-		_hidden_head.clear()
-		var head := model.find_child("Head", true, false)
-		if head != null:
-			for mesh in [head] + head.find_children("*", "MeshInstance3D", true, false):
-				if mesh is MeshInstance3D and (mesh as MeshInstance3D).visible:
-					(mesh as MeshInstance3D).visible = false
-					_hidden_head.append(mesh)
+		hide_head()
 	else:
 		for mesh in _hidden_head:
 			if is_instance_valid(mesh):
-				(mesh as MeshInstance3D).visible = true
+				(mesh as VisualInstance3D).layers = int(mesh.get_meta("fp_layers", 1))
+				mesh.remove_meta("fp_layers")
 		_hidden_head.clear()
 		model.transform = _rest
 		for bone in _arm_rest:
@@ -73,11 +71,26 @@ func set_active(on: bool) -> void:
 		_clip = ""
 
 
+## The whole head group (the head box and every layer, hair, hat, accessory or face quad parented to it) moves onto
+## HEAD_LAYER; called again every frame while on, so a skin refresh that rebuilds or re-shows a part cannot bring it back.
+func hide_head() -> void:
+	var head := model.find_child("Head", true, false) if model != null else null
+	if head == null:
+		return
+	for mesh in [head] + head.find_children("*", "GeometryInstance3D", true, false):
+		if mesh is VisualInstance3D and (mesh as VisualInstance3D).layers != HEAD_LAYER:
+			if not mesh.has_meta("fp_layers"):
+				mesh.set_meta("fp_layers", (mesh as VisualInstance3D).layers)
+				_hidden_head.append(mesh)
+			(mesh as VisualInstance3D).layers = HEAD_LAYER
+
+
 ## Feet at `feet`, turned and leaned by `basis` (GrabStyles.body_basis), playing `clip`.
 func pose(feet: Vector3, basis: Basis, clip: String) -> void:
 	if model == null:
 		return
 	set_active(true)
+	hide_head()
 	model.global_transform = Transform3D(basis.orthonormalized() * Basis.from_scale(Vector3.ONE * PlayerModels.SCALE), feet)
 	if clip != _clip or (animation != null and not animation.is_playing()):
 		_clip = clip

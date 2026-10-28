@@ -118,6 +118,18 @@ const FACE_MIN := .45
 const CONTACT := .03
 
 
+## No part of the model's head group (head box, hair, hat, accessories, face) is drawn for `camera`.
+static func _head_hidden(model: Node3D, camera: Camera3D) -> bool:
+	var head := model.find_child("Head", true, false)
+	if head == null:
+		return true
+	for node in [head] + head.find_children("*", "GeometryInstance3D", true, false):
+		if node is VisualInstance3D and (node as VisualInstance3D).is_visible_in_tree() \
+				and ((node as VisualInstance3D).layers & camera.cull_mask) != 0:
+			return false
+	return true
+
+
 func _roll_of(basis: Basis) -> float:
 	return asin(clampf(basis.x.normalized().y, -1.0, 1.0))
 
@@ -215,6 +227,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		if not blocked.is_empty() and worst.is_empty():
 			worst = "the camera is inside a %s at %.2f s" % [blocked, waited]
 		var own := player.first_person_body()
+		if own.model != null and own.visible and not _head_hidden(own.model, player.first_person_camera) and worst.is_empty():
+			worst = "the runner's own head is visible to the first-person camera at %.2f s" % waited
 		if waited > .3 and own.model != null:
 			var inside_self := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], 0, [own.model], .02)
 			if not inside_self.is_empty():
@@ -249,7 +263,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		_expect((pushed and previous.origin.distance_to(camera.origin) <= HunterGrab.MAX_PUSH + .05) or previous.origin.distance_to(camera.origin) / delta <= MAX_MOVE_RATE, "%s: the camera jumps %.2f m in one frame at %.2f s s" % [label, previous.origin.distance_to(camera.origin), waited])
 		# the view may only widen, at most 10 degrees and eased, and only in the hold
 		var widened := player.first_person_camera.fov - fov
-		_expect(widened > -.01 and widened <= HunterGrab.MAX_FOV_WIDEN + .01, "%s: the FOV moved %.1f deg" % [label, widened])
+		_expect(widened > -.01 and widened <= HunterGrab.fov_widen + .01, "%s: the FOV moved %.1f deg" % [label, widened])
 		_expect(widened < .01 or waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS * .5, "%s: the view widened before the hold" % label)
 		# never behind the runner's eye plane (KT: in front of the head, not over the shoulder)
 		if own.model != null and waited > .3:

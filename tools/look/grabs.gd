@@ -51,6 +51,11 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(out)
 	get_window().size = Vector2i(1280, 720)
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+	# KT's comparison: GRAB_STRETCH (her arm stretch while grabbing) and GRAB_FOV (how far the hold may widen the view)
+	if not OS.get_environment("GRAB_STRETCH").is_empty():
+		HunterGrab.arm_stretch = float(OS.get_environment("GRAB_STRETCH"))
+	if not OS.get_environment("GRAB_FOV").is_empty():
+		HunterGrab.fov_widen = float(OS.get_environment("GRAB_FOV"))
 	var scene: Node = (load("res://scenes/main_3d.tscn") as PackedScene).instantiate()
 	add_child(scene)
 	for _i in 20:

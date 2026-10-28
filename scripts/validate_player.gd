@@ -245,9 +245,12 @@ func _expect_climb_body(controller: PlayerController3D, foot: Vector3, yaw: floa
 	if not body.visible or body.model != controller._body_model:
 		_fail("climbing does not show the runner's own player model in first person")
 	else:
-		for mesh in [body.model.find_child("Head", true, false)] + body.model.find_child("Head", true, false).find_children("*", "MeshInstance3D", true, false):
-			if mesh is MeshInstance3D and (mesh as MeshInstance3D).visible:
-				_fail("the climbing model draws its head in front of the camera")
+		for step_check in 3:
+			controller.ladder_climb["height"] = 1.0 + step_check * .2
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			if not preload("res://scripts/validate_grabs.gd")._head_hidden(body.model, controller.first_person_camera):
+				_fail("the climbing model's head is visible to the first-person camera")
 		if controller.first_person_camera.global_position.distance_to(body.eye()) > .02:
 			_fail("the climbing camera is %.2f m from the model's eyes" % controller.first_person_camera.global_position.distance_to(body.eye()))
 		var gripped := 0
@@ -287,9 +290,9 @@ func _expect_climb_body(controller: PlayerController3D, foot: Vector3, yaw: floa
 	if controller.ladder_climb.is_empty():
 		if body.visible or controller.body_visual.visible:
 			_fail("the player model stays drawn in first person after the dismount")
-		for mesh in body.model.find_child("Head", true, false).find_children("*", "MeshInstance3D", true, false) + [body.model.find_child("Head", true, false)]:
-			if mesh is MeshInstance3D and not (mesh as MeshInstance3D).visible:
-				_fail("the model's head stays hidden after the dismount (others would see a headless runner)")
+		for mesh in body.model.find_child("Head", true, false).find_children("*", "GeometryInstance3D", true, false) + [body.model.find_child("Head", true, false)]:
+			if mesh is VisualInstance3D and (mesh as VisualInstance3D).layers == FirstPersonBody.HEAD_LAYER:
+				_fail("the model's head stays off the first-person layer after the dismount")
 		if not is_equal_approx(controller.first_person_camera.near, PlayerController3D.FIRST_PERSON_NEAR):
 			_fail("the near plane stays small after the dismount")
 	rungs.queue_free()

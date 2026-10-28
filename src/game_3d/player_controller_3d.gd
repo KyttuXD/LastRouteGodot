@@ -1254,6 +1254,7 @@ func first_person_body() -> FirstPersonBody:
 		_first_person_body = FirstPersonBody.new()
 		add_child(_first_person_body)
 		_first_person_body.attach(_body_model, body_visual, _animation_player)
+		first_person_camera.cull_mask &= ~FirstPersonBody.HEAD_LAYER   # never the runner's own head, from inside it
 	return _first_person_body
 
 

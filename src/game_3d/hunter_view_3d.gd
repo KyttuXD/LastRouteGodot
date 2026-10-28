@@ -184,6 +184,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_end_grab_pose()
 	_doorway.restore()
 	_update_head_look(delta)
 	_update_nw_layers(delta)
@@ -494,6 +495,15 @@ func _build_beam_visual() -> void:
 ## Neutral colour while patrolling, red while chasing; the light itself follows so the lit floor matches the beam.
 func grabbing() -> bool:
 	return Time.get_ticks_msec() < grab_until_msec
+
+
+## A grab (on this peer or drawn for another) stretched her arms: once nothing grabs with her, they are put back.
+func _end_grab_pose() -> void:
+	if grabbing() or _model == null:
+		return
+	var arm := _model.find_child("R-Arm", true, false)
+	if arm != null and arm.has_meta("grab_scale"):
+		HunterGrab.stretch_arms(self, 1.0)
 
 
 func _update_beam_visual(delta: float) -> void:

@@ -76,6 +76,15 @@ func _ready() -> void:
 		for _i in 4:
 			await get_tree().process_frame
 		await _shot(out, "climb_%s_down" % style)
+		# looking straight up the ladder and down at your own feet: where the runner's own head would show if it were drawn
+		for look in [["look_up", 1.2], ["look_down", -1.25]]:
+			player._pitch = float(look[1])
+			player._apply_look_rotation()
+			for _i in 3:
+				await get_tree().process_frame
+			await _shot(out, "climb_%s_%s" % [style, look[0]])
+		player._pitch = -.15
+		player._apply_look_rotation()
 		if style == "classic":
 			# the same climb from beside the ladder, as another player sees the model
 			side_camera.global_position = foot + forward.cross(Vector3.UP) * 1.8 - forward * .4 + Vector3.UP * 2.0
