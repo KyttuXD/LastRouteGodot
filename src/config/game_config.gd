@@ -75,6 +75,11 @@ const STAMINA_EXHAUSTED_RECOVERY := 25.0
 ## refills over STAMINA_QUICK_REFILL_TIME; at or below it the slow delayed regen (and exhaustion) applies.
 const STAMINA_QUICK_THRESHOLD := 20.0
 const STAMINA_QUICK_REFILL_TIME := 0.3
+## Troll mode for caught / flagged cheaters (docs/ANTI_CHEAT.md).
+const TROLL_HUNTER_SPEED_SCALE := 1.15
+const TROLL_STAMINA_DRAIN_SCALE := 1.6
+const TROLL_SCARE_SCALE := 2.5
+const TROLL_FAKE_STEP_SECONDS := Vector2(2.5, 6.0)
 
 ## A modest first-person hop rather than a platforming jump. These produce a
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to

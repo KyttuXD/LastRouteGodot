@@ -25,7 +25,8 @@ static func install(root: Node, enabled: bool) -> void:
 		var perf := PerfLog.new()
 		perf.name = "PerfLog"
 		root.add_child.call_deferred(perf)
-	if FileAccess.file_exists(AUTORUN_FILE):
+	# Player Release builds leave tools/ out (export exclude filter): only an internal build has the bench scene.
+	if FileAccess.file_exists(AUTORUN_FILE) and ResourceLoader.exists(BENCH_SCENE):
 		root.get_tree().change_scene_to_file.call_deferred(BENCH_SCENE)
 
 

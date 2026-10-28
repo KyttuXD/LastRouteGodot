@@ -1,12 +1,12 @@
 class_name AmbienceTable
 extends RefCounted
 
-## Ambient beds by region / room purpose (docs/AMBIENCE.md). Each bed is a loop rendered procedurally by the Sound system
-## from layers: "hum" (steady tone), "noise" (steady filtered noise), "pulse" (repeating short tone: beeps, drips, clanks),
-## "chirp" (scattered short tones: birds, rats). A biome registers its own with AmbienceTable.register(key, layers);
+## Ambient beds by region / room purpose (docs/AMBIENCE.md). Each bed is a seamless loop rendered by AmbienceSynth from
+## layers: "hum" (a drone at the frequency), "noise" (low-passed room tone), "pulse" (sparse details at jittered
+## intervals: drips, clanks, relay ticks; long ones are soft chimes), "chirp" (scattered soft trills: birds, rats). A biome registers its own with AmbienceTable.register(key, layers);
 ## room purposes override the district bed when they have one.
 
-const LOOP_SECONDS := 6.0
+const LOOP_SECONDS := AmbienceSynth.LOOP_SECONDS
 
 static var _beds := {
 	"maze": [{"kind": "hum", "hz": 120.0, "vol": .010}, {"kind": "noise", "hz": 260.0, "vol": .006}],
@@ -69,3 +69,7 @@ static func layers(key: String) -> Array:
 
 static func regions() -> Array:
 	return _beds.keys()
+
+
+static func room_purposes() -> Array:
+	return _rooms.keys()

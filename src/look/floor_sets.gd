@@ -7,7 +7,8 @@ extends RefCounted
 ## junction take the hall's floor (the room floor starts inside the door line).
 
 ## District halls: floor kinds, and whether the hall gets the brass-edged carpet runner down its middle.
-const HALLS := {
+## Read HALLS / ROOM_DEFAULT, not these: ContentRegistry.DATA districts come from res://data/regions/<id>.json.
+const _CODE_HALLS := {
 	"maze": {"floor": ["concrete0", "concrete1"], "runner": false},     # service corridors: bare concrete
 	"mansion": {"floor": ["parquet0", "parquet1"], "runner": true},
 	"hotel": {"floor": ["carpet_teal"], "runner": false},               # teal and gold hotel carpet
@@ -21,11 +22,11 @@ const HALLS := {
 	"hospital": {"floor": ["vinyl0", "vinyl1"], "runner": false},      # clinic sheet vinyl
 	"lab": {"floor": ["epoxy0", "epoxy0", "epoxy1"], "runner": false}, # white epoxy, hatched keep-clear joints
 	"greenhouse": {"floor": ["terracotta0", "terracotta1", "stone2"], "runner": false},
-	"mall": {"floor": ["terrazzo0", "terrazzo1"], "runner": false},      # polished terrazzo arcade
+	"mall": ContentRegistry.DATA,      # polished terrazzo arcade
 }
 
 ## District default for rooms whose purpose is not in ROOMS.
-const ROOM_DEFAULT := {
+const _CODE_ROOM_DEFAULT := {
 	"maze": ["carpet_tile0", "carpet_tile1"],
 	"mansion": ["parquet0", "parquet1"],
 	"hotel": ["floral0", "floral1"],
@@ -39,8 +40,11 @@ const ROOM_DEFAULT := {
 	"hospital": ["vinyl0", "vinyl1"],
 	"lab": ["epoxy0"],
 	"greenhouse": ["terracotta0", "terracotta1"],
-	"mall": ["terrazzo0"],
+	"mall": ContentRegistry.DATA,
 }
+static var HALLS: Dictionary = ContentRegistry.resolve_with(_CODE_HALLS, "regions",
+	func(def: Dictionary): return {"floor": def["hall_floor"], "runner": def["hall_runner"]})
+static var ROOM_DEFAULT: Dictionary = ContentRegistry.resolve(_CODE_ROOM_DEFAULT, "regions", "room_default_floor")
 
 ## Room purpose -> floor kinds.
 const ROOMS := {

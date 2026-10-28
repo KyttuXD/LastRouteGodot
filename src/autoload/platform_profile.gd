@@ -45,6 +45,11 @@ var prop_range_scale := 1.0
 var prerender_ambience := true
 ## Minimap redraws per second (0 = every frame, the ULTRA reference).
 var map_update_hz := 0.0
+## 3D render resolution scale (the governor's last step; flat screens only: an XR swapchain is sized at session start).
+var render_scale := 1.0
+## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
+var prop_density := 1.0
+var decor_density := 1.0
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor
@@ -105,6 +110,9 @@ func apply_budgets() -> void:
 	prop_range_scale = budgets["prop_range_scale"]
 	prerender_ambience = budgets["prerender_ambience"]
 	map_update_hz = budgets["map_update_hz"]
+	render_scale = budgets["render_scale"]
+	prop_density = budgets["prop_density"]
+	decor_density = budgets["decor_density"]
 	frame_target_hz = budgets["frame_target_hz"]
 	worker_threads = budgets["worker_threads"]
 	if is_phone:
@@ -138,6 +146,8 @@ func _on_notch_changed(value: int) -> void:
 ## frame; lamp pool, prop ranges and pre-building apply to what streams in next.
 func _apply_live() -> void:
 	var viewport := get_viewport()
+	if viewport != null and not is_xr:
+		viewport.scaling_3d_scale = render_scale
 	var camera := viewport.get_camera_3d() if viewport != null else null
 	if camera != null:
 		if not camera.has_meta("tier_base_far"):
@@ -157,6 +167,15 @@ func _on_node_added(node: Node) -> void:
 		if not light.has_meta("tier_shadow"):
 			light.set_meta("tier_shadow", light.shadow_enabled)
 		light.set_deferred("shadow_enabled", false)
+
+
+## The frame rate a device can hold when the player sets no limit: phones 60, the Quest its fixed 72 (desktop: none).
+func default_fps_cap() -> int:
+	if is_quest:
+		return 72
+	if is_phone:
+		return 60
+	return 0
 
 
 func tier_readout() -> String:
