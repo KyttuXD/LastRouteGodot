@@ -47,6 +47,9 @@ var prerender_ambience := true
 var map_update_hz := 0.0
 ## 3D render resolution scale (the governor's last step; flat screens only: an XR swapchain is sized at session start).
 var render_scale := 1.0
+## HiDPI (Retina) desktops: the canvas stretch renders 3D at the window's physical pixels, 4x the pixels of the same
+## window on a 1x screen. 3D renders at logical resolution instead (the art is low-res pixels); 1.0 on 1x screens.
+var hidpi_scale := 1.0
 ## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
 var prop_density := 1.0
 var decor_density := 1.0
@@ -72,11 +75,16 @@ func _ready() -> void:
 	specs = QualityTier.detect()
 	detected_tier = QualityTier.score(specs)
 	tier = detected_tier
+	if not is_phone and not is_xr and DisplayServer.get_name() != "headless" and DisplayServer.screen_get_scale() > 1.01 \
+			and not args.has("--no-hidpi-scale"):
+		hidpi_scale = 1.0 / DisplayServer.screen_get_scale()
 	apply_budgets()
 	governor = QualityGovernor.new()
 	governor.name = "QualityGovernor"
 	governor.target_ms = 1000.0 / frame_target_hz
 	governor.notch_changed.connect(_on_notch_changed)
+	if hidpi_scale < 1.0:
+		_apply_live.call_deferred()
 	add_child(governor)
 	get_tree().node_added.connect(_on_node_added)
 	if prerender_ambience and DisplayServer.get_name() != "headless":
@@ -147,7 +155,7 @@ func _on_notch_changed(value: int) -> void:
 func _apply_live() -> void:
 	var viewport := get_viewport()
 	if viewport != null and not is_xr:
-		viewport.scaling_3d_scale = render_scale
+		viewport.scaling_3d_scale = render_scale * hidpi_scale
 	var camera := viewport.get_camera_3d() if viewport != null else null
 	if camera != null:
 		if not camera.has_meta("tier_base_far"):

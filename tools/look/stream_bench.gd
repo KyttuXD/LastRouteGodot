@@ -325,6 +325,19 @@ static func _low_fps(sorted: PackedFloat32Array, share: float) -> float:
 
 
 ## Lowest FPS over any 0.5 s window of consecutive frames.
+static func _std(frames: PackedFloat32Array) -> float:
+	if frames.size() < 2:
+		return 0.0
+	var mean := 0.0
+	for f in frames:
+		mean += f
+	mean /= frames.size()
+	var acc := 0.0
+	for f in frames:
+		acc += (f - mean) * (f - mean)
+	return sqrt(acc / (frames.size() - 1))
+
+
 static func _min_window_fps(frames: PackedFloat32Array, window_ms: float = 500.0) -> float:
 	var best := INF
 	var start := 0
@@ -419,8 +432,9 @@ func _finish() -> void:
 	for trip in summary["trips"]:
 		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d dip_fps=%.1f" % [trip["to"], trip["t"], trip["max_ms"],
 			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"], trip["dip_fps"]])
-	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f res=%s vsync=%s" % [_tag, _mode, summary["avg_fps"],
-		summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], str(get_viewport().get_visible_rect().size),
+	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f std_ms=%.2f renderer=%s scale3d=%.2f res=%s vsync=%s" % [_tag, _mode,
+		summary["avg_fps"], summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], _std(_frames),
+		RenderingServer.get_current_rendering_method(), get_viewport().scaling_3d_scale, str(get_viewport().get_visible_rect().size),
 		str(DisplayServer.window_get_vsync_mode())])
 	print("GPU %s adapter=%s vendor=%s api=%s window=%s scale=%.2f hidpi=%s tier=%s" % [_tag, RenderingServer.get_video_adapter_name(),
 		RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version(),
