@@ -75,6 +75,41 @@ class Sampler:
 			return code == 0 or code == 3
 		return code == 0
 
+	## Distance along `dir` (unit) from `p` to the first closed cell, capped at `max_d` (grid ray march: walls only, props are not in the grid).
+	func depth(p: Vector2, dir: Vector2, max_d: float) -> float:
+		var d := 0.0
+		while d < max_d:
+			var q := p + dir * d
+			if not open(floori(q.x), floori(q.y)):
+				return d
+			d += .25
+		return max_d
+
+	func circle_clear(p: Vector2, r: float) -> bool:
+		if not open(floori(p.x), floori(p.y)):
+			return false
+		for k in 8:
+			var a := TAU * float(k) / 8.0
+			var q := p + Vector2(cos(a), sin(a)) * r
+			if not open(floori(q.x), floori(q.y)):
+				return false
+		return true
+
+	## Distance to the nearest closed cell box within two cells of `p`, and the unit vector pointing away from it.
+	func nearest_wall(p: Vector2) -> Array:
+		var best := 99.0
+		var away := Vector2.ZERO
+		for cz in range(floori(p.y) - 2, floori(p.y) + 3):
+			for cx in range(floori(p.x) - 2, floori(p.x) + 3):
+				if open(cx, cz):
+					continue
+				var q := Vector2(clampf(p.x, cx, cx + 1.0), clampf(p.y, cz, cz + 1.0))
+				var d := p.distance_to(q)
+				if d < best:
+					best = d
+					away = (p - q).normalized() if d > .001 else Vector2.ZERO
+		return [best, away]
+
 	func roomy(x: int, z: int) -> int:
 		var blocked := 0
 		for dz in range(-1, 2):
@@ -220,39 +255,232 @@ class Track:
 	var pos := PackedVector3Array()
 	var yaw := PackedFloat32Array()
 	var pitch := PackedFloat32Array()
+	## 1 = a walking frame: pos.y is the eye height ABOVE the physics floor (the scenario ray-casts the real collision floor, so ramps, bridges and
+	## stairs are followed); 0 = a flying frame: pos.y is an absolute world y.
+	var ground := PackedByteArray()
 	## Frame indexes where the picture cuts to a new shot: angles are not smoothed across them.
 	var cuts: Array[int] = []
 
-	func add(p: Vector3, y: float, pt: float) -> void:
+	func add(p: Vector3, y: float, pt: float, on_ground: int = 0) -> void:
 		pos.append(p)
 		yaw.append(y)
 		pitch.append(pt)
+		ground.append(on_ground)
 
 	func hold(count: int) -> void:
 		if pos.is_empty():
 			return
 		for _i in count:
-			add(pos[pos.size() - 1], yaw[yaw.size() - 1], pitch[pitch.size() - 1])
+			add(pos[pos.size() - 1], yaw[yaw.size() - 1], pitch[pitch.size() - 1], ground[ground.size() - 1])
 
 	func size() -> int:
 		return pos.size()
 
+	## The last camera position with y as an absolute world y (a walking frame stores the height above the floor).
+	func last_absolute(floor_y: float) -> Vector3:
+		var p := pos[pos.size() - 1]
+		return Vector3(p.x, p.y + (floor_y if ground[ground.size() - 1] == 1 else 0.0), p.z)
 
-static func bake_walk(track: Track, points: Array[Vector2], floor_y: float, fps: int) -> void:
-	var dense := resample(chaikin(points, 3), WALK_SPEED / float(fps))
-	var look_ahead := int(3.0 * float(fps) / WALK_SPEED)
-	for i in dense.size():
-		var ahead := dense[mini(i + look_ahead, dense.size() - 1)]
-		var here := dense[i]
-		var yaw_value := track.yaw[track.yaw.size() - 1] if ahead.distance_to(here) < .05 and track.size() > 0 else yaw_for(ahead.x - here.x, ahead.y - here.y)
-		var t := float(i) / float(fps)
-		var bob := sin(t * 2.0 * PI * WALK_SPEED * .5) * .025
-		track.add(Vector3(here.x, floor_y + 1.6 + bob, here.y), yaw_value, sin(t * 1.3) * .02)
+
+## A point of interest the camera likes to look at: world xz, look height above the floor, weight.
+static func poi(x: float, z: float, height: float, weight: float, kind: String) -> Dictionary:
+	return {"p": Vector2(x, z), "h": height, "w": weight, "kind": kind}
+
+
+## Line-of-sight pruning: drop every waypoint the straight segment can skip while a body of radius `margin` stays clear of the walls.
+static func string_pull(points: Array[Vector2], s: Sampler, margin: float) -> Array[Vector2]:
+	if points.size() < 3:
+		return points
+	var out: Array[Vector2] = [points[0]]
+	var i := 0
+	while i < points.size() - 1:
+		var far := i + 1
+		for j in range(points.size() - 1, i, -1):
+			if _segment_clear(points[i], points[j], s, margin):
+				far = j
+				break
+		out.append(points[far])
+		i = far
+	return out
+
+
+static func _segment_clear(a: Vector2, b: Vector2, s: Sampler, margin: float) -> bool:
+	var length := a.distance_to(b)
+	var steps := maxi(int(length / .2), 1)
+	for k in steps + 1:
+		if not s.circle_clear(a.lerp(b, float(k) / float(steps)), margin):
+			return false
+	return true
+
+
+## Catmull-Rom through the pruned points, sampled about every 5 cm: straight runs stay straight, corners take a rounded turn.
+static func catmull(points: Array[Vector2], spacing: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for i in points.size() - 1:
+		var p0 := points[maxi(i - 1, 0)]
+		var p1 := points[i]
+		var p2 := points[i + 1]
+		var p3 := points[mini(i + 2, points.size() - 1)]
+		var n := maxi(int(p1.distance_to(p2) / spacing), 2)
+		for k in n:
+			var t := float(k) / float(n)
+			var t2 := t * t
+			var t3 := t2 * t
+			out.append(.5 * ((2.0 * p1) + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3))
+	out.append(points[points.size() - 1])
+	return out
+
+
+## Keep the path `want` metres off the walls where the hall is wide enough (a one-cell doorway keeps its centre line).
+static func push_clear(path: Array[Vector2], s: Sampler, want: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for point in path:
+		var p := point
+		for _k in 3:
+			var wall := s.nearest_wall(p)
+			var d: float = wall[0]
+			if d >= want or (wall[1] as Vector2) == Vector2.ZERO:
+				break
+			var moved := p + (wall[1] as Vector2) * (want - d)
+			if (s.nearest_wall(moved)[0] as float) > d:
+				p = moved
+			else:
+				break
+		out.append(p)
+	return out
+
+
+static func moving_average(path: Array[Vector2], window: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for i in path.size():
+		var sum := Vector2.ZERO
+		var n := 0
+		for k in range(maxi(i - window, 0), mini(i + window, path.size() - 1) + 1):
+			sum += path[k]
+			n += 1
+		out.append(sum / float(n))
+	return out
+
+
+## Cell-centre route -> a smooth, clear, rounded path (about 5 cm spacing).
+static func smooth_route(cells: Array[Vector2], s: Sampler) -> Array[Vector2]:
+	var pruned := string_pull(cells, s, .42)
+	var dense := catmull(pruned, .05)
+	dense = push_clear(dense, s, .6)
+	return moving_average(dense, 10)
+
+
+## Walking speed along the path: slower in tight turns, gentle acceleration from rest and deceleration to rest.
+static func speed_profile(path: Array[Vector2], spacing: float, vmax: float, accel: float) -> PackedFloat32Array:
+	var n := path.size()
+	var v := PackedFloat32Array()
+	v.resize(n)
+	var span := maxi(int(.8 / spacing), 1)
+	for i in n:
+		var a := path[maxi(i - span, 0)]
+		var b := path[i]
+		var c := path[mini(i + span, n - 1)]
+		var angle := absf(wrapf((c - b).angle() - (b - a).angle(), -PI, PI))
+		var curvature := angle / (2.0 * span * spacing)
+		v[i] = clampf(vmax / (1.0 + 3.0 * curvature), .9, vmax)
+	v[0] = .35
+	v[n - 1] = .0
+	for i in range(1, n):
+		v[i] = minf(v[i], sqrt(v[i - 1] * v[i - 1] + 2.0 * accel * spacing))
+	for i in range(n - 2, -1, -1):
+		v[i] = minf(v[i], sqrt(v[i + 1] * v[i + 1] + 2.0 * accel * spacing))
+	return v
+
+
+## Walk the route like a player would: player walking speed with gentle acceleration, yaw following the direction of travel with a slight lead and
+## damping, eased glances at points of interest (never into a wall closer than 3 m), optional head bob. Frames are appended to `track`.
+static func bake_walk(track: Track, route: Array[Vector2], s: Sampler, pois: Array, fps: int, bob: bool = true, start_yaw: float = NAN) -> void:
+	if route.size() < 2:
+		return
+	var spacing := .05
+	var path := smooth_route(route, s)
+	var speed := speed_profile(path, spacing, WALK_SPEED, 1.1)
+	var dt := 1.0 / float(fps)
+	var look_ahead := int(2.2 / spacing)
+	var index := 0.0
+	var travelled := 0.0
+	var yaw_now := start_yaw if not is_nan(start_yaw) else yaw_for((path[mini(look_ahead, path.size() - 1)] - path[0]).x, (path[mini(look_ahead, path.size() - 1)] - path[0]).y)
+	var pitch_now := 0.0
+	var aim_w := 0.0
+	var current: Dictionary = {}
+	var lost := 0.0
+	while int(index) < path.size() - 1:
+		var i := int(index)
+		var here := path[i]
+		var ahead := path[mini(i + look_ahead, path.size() - 1)]
+		var heading := (ahead - here)
+		if heading.length() < .05:
+			heading = (path[path.size() - 1] - here)
+		var travel_yaw := yaw_for(heading.x, heading.y) if heading.length() > .001 else yaw_now
+		var heading_unit := heading.normalized() if heading.length() > .001 else Vector2(-sin(yaw_now), -cos(yaw_now))
+		# choose / keep a point of interest: close, inside the view cone, with a clear line of sight
+		var valid := false
+		if not current.is_empty():
+			valid = _poi_visible(current, here, heading_unit, s, 11.0)
+		if not valid:
+			var best := {}
+			var best_score := -1.0
+			for candidate in pois:
+				if _poi_visible(candidate, here, heading_unit, s, 9.0):
+					var score := float(candidate["w"]) / maxf((candidate["p"] as Vector2).distance_to(here), 1.0)
+					if score > best_score:
+						best_score = score
+						best = candidate
+			if best.is_empty():
+				lost += dt
+				if lost > .6:
+					current = {}
+			else:
+				current = best
+				lost = 0.0
+		else:
+			lost = 0.0
+		var wants_poi := not current.is_empty() and lost <= .6
+		aim_w = clampf(aim_w + (dt / .9 if wants_poi else -dt / .9), 0.0, 1.0)
+		var aim_yaw := travel_yaw
+		var aim_pitch := 0.0
+		if not current.is_empty():
+			var to_poi := (current["p"] as Vector2) - here
+			var poi_yaw := yaw_for(to_poi.x, to_poi.y)
+			var weight := aim_w * .85
+			# never point the camera into a wall closer than 3 m: no glance if the glance direction is walled off
+			var glance_dir := Vector2(-sin(lerp_angle(travel_yaw, poi_yaw, weight)), -cos(lerp_angle(travel_yaw, poi_yaw, weight)))
+			if s.depth(here, glance_dir, 3.0) < 3.0 and to_poi.length() > 3.0:
+				weight = 0.0
+			aim_yaw = lerp_angle(travel_yaw, poi_yaw, weight)
+			aim_pitch = clampf(atan2(float(current["h"]) - 1.6, maxf(to_poi.length(), 1.0)), -.5, .5) * weight
+		# damped, rate-limited follow (no snapping): about 1.1 rad/s at most
+		var yaw_diff := wrapf(aim_yaw - yaw_now, -PI, PI)
+		yaw_now += clampf(yaw_diff * 3.0 * dt, -1.1 * dt, 1.1 * dt)
+		pitch_now += clampf((aim_pitch - pitch_now) * 3.0 * dt, -.6 * dt, .6 * dt)
+		var bob_y := sin(travelled * TAU / .95) * .022 if bob else 0.0
+		track.add(Vector3(here.x, 1.6 + bob_y, here.y), yaw_now, pitch_now, 1)
+		var v := speed[i]
+		travelled += v * dt
+		index += maxf(v, .05) * dt / spacing
+	# arrive: ease to a stop, still looking where the glance was
+	for _k in int(.5 * float(fps)):
+		track.add(Vector3(path[path.size() - 1].x, 1.6, path[path.size() - 1].y), yaw_now, pitch_now, 1)
+
+
+static func _poi_visible(candidate: Dictionary, here: Vector2, heading: Vector2, s: Sampler, max_d: float) -> bool:
+	var to_poi: Vector2 = (candidate["p"] as Vector2) - here
+	var d := to_poi.length()
+	if d < 1.5 or d > max_d:
+		return false
+	if absf(heading.angle_to(to_poi)) > deg_to_rad(75.0):
+		return false
+	return s.depth(here, to_poi / d, d) >= d - .35
 
 
 ## Orbit `center` starting from the camera's current spot, rising/zooming to `to_height`/`to_radius`; always looking at the centre at `look_y`.
 static func bake_orbit(track: Track, center: Vector3, degrees: float, seconds: float, to_height: float, to_radius: float, look_y: float, fps: int) -> void:
-	var from := track.pos[track.pos.size() - 1]
+	var from := track.last_absolute(center.y)
 	var rel := Vector2(from.x - center.x, from.z - center.z)
 	var r0 := rel.length()
 	var a0 := atan2(rel.y, rel.x) if r0 > .001 else 0.0
@@ -307,7 +535,7 @@ static func bake_turn(track: Track, degrees: float, seconds: float, pitch: float
 	for i in frames:
 		var t := float(i + 1) / float(frames)
 		var e := t * t * (3.0 - 2.0 * t)
-		track.add(at, yaw0 + deg_to_rad(degrees) * e, lerpf(track.pitch[track.pitch.size() - 1], pitch, .08))
+		track.add(at, yaw0 + deg_to_rad(degrees) * e, lerpf(track.pitch[track.pitch.size() - 1], pitch, .08), track.ground[track.ground.size() - 1])
 
 
 ## Low-pass the view angles (unwrapped) so joins between segments turn smoothly instead of snapping.
@@ -345,9 +573,10 @@ static func _chunk_start(coord: Vector2i) -> Vector2i:
 
 
 ## Find the chunk of `biome` on `level` nearest the spawn, preferring region interiors; returns {} when the build has none within the search radius.
-static func find_biome_chunk(gen: StreamedRouteGenerator, biome: String, level: int) -> Dictionary:
+static func find_biome_chunk(gen: StreamedRouteGenerator, biome: String, level: int, variant: int = 0) -> Dictionary:
 	var best := {}
 	var best_score := 1e9
+	var candidates: Array = []
 	for cz in range(-SEARCH_RADIUS, SEARCH_RADIUS + 1):
 		for cx in range(-SEARCH_RADIUS, SEARCH_RADIUS + 1):
 			var coord := Vector3i(cx, level, cz)
@@ -357,68 +586,151 @@ static func find_biome_chunk(gen: StreamedRouteGenerator, biome: String, level: 
 			var rz := posmod(cz, StreamedRouteGenerator.BIOME_REGION_SIZE)
 			var interior := (rx == 1 or rx == 2) and (rz == 1 or rz == 2)
 			var score := float(absi(cx) + absi(cz)) + (0.0 if interior else 30.0)
-			if score < best_score:
-				best_score = score
-				best = {"coord": coord}
-	return best
+			candidates.append([score, coord])
+	candidates.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	if candidates.is_empty():
+		return {}
+	# a retry (variant) takes the next-nearest region interior instead of the same chunk
+	return {"coord": (candidates[mini(variant * 3, candidates.size() - 1)] as Array)[1]}
 
 
-## Build the camera track of an area. Returns {"ok", "track", "info"}; "info" says where it went (chunk, level, biome, start, goal).
-static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_override: float) -> Dictionary:
+## Tour waypoints through the layout: the hall start, then (doorway, centre) of a few rooms, ending where the walk has covered about `budget` metres.
+static func _tour_cells(s: Sampler, data: Dictionary, base: Vector2i, start: Vector2i, budget: float, variant: int) -> Dictionary:
+	var rooms: Array = []
+	for room in data.get("rooms", []):
+		rooms.append(room)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7919 * (variant + 1)
+	# nearest first for variant 0, shuffled for the retries
+	rooms.sort_custom(func(a, b): return (base + (a["center"] as Vector2i)).distance_to(start) < (base + (b["center"] as Vector2i)).distance_to(start))
+	if variant > 0:
+		for i in range(rooms.size() - 1, 0, -1):
+			var j := rng.randi_range(0, i)
+			var swap = rooms[i]
+			rooms[i] = rooms[j]
+			rooms[j] = swap
+	var legs: Array[Vector2] = []
+	var at := start
+	var total := 0.0
+	var visited: Array = []
+	for room in rooms:
+		if total >= budget or visited.size() >= 6:
+			break
+		var centre: Vector2i = base + (room["center"] as Vector2i)
+		var door: Vector2i = base + (room["doorway"] as Vector2i) if room.has("doorway") else centre
+		var field := path_field(s, at, 80)
+		var field_ok: bool = field["cost"].has(door) and field["cost"].has(centre)
+		if not field_ok:
+			continue
+		var leg := path_to(field, door)
+		var field2 := path_field(s, door, 40)
+		if not field2["cost"].has(centre):
+			continue
+		leg.append_array(path_to(field2, centre))
+		if total > 0.0 and leg.size() + total > budget * 1.5:
+			continue
+		legs.append_array(leg)
+		total += leg.size()
+		at = centre
+		visited.append(String(room.get("room_type", "room")))
+	if total < budget and not legs.is_empty():
+		# still short: finish with a walk down the halls from the last room to the farthest reachable spot
+		var tail_field := path_field(s, at, 70)
+		var tail_goal := far_goal(tail_field, at, mini(int((budget - total) * .6), 40), int(budget - total) + 40)
+		if tail_goal == at:
+			tail_goal = far_goal(tail_field, at, 6, 120)
+		if tail_goal != at:
+			legs.append_array(path_to(tail_field, tail_goal))
+			visited.append("hall")
+	return {"cells": legs, "rooms": visited, "length": total}
+
+
+## Points of interest of a district chunk: room centres, relays, the district's signature props.
+static func _chunk_pois(data: Dictionary, base: Vector2i) -> Array:
+	var out: Array = []
+	for room in data.get("rooms", []):
+		var c: Vector2i = base + (room["center"] as Vector2i)
+		out.append(poi(c.x + .5, c.y + .5, 1.2, 1.0, "room:%s" % room.get("room_type", "")))
+	for pick in data.get("pickups", []):
+		if String(pick.get("kind", "")) == "relay":
+			var c: Vector2i = base + (pick["cell"] as Vector2i)
+			out.append(poi(c.x + .5, c.y + .5, .9, 1.3, "relay"))
+	var boring := ["ceilingLight", "rug", "lampPost", "wallLight"]
+	var seen := {}
+	for prop in data.get("region_props", []):
+		var type := String(prop.get("type", ""))
+		if boring.has(type) or int(seen.get(type, 0)) >= 3:
+			continue
+		seen[type] = int(seen.get(type, 0)) + 1
+		var c: Vector2i = base + (prop["cell"] as Vector2i)
+		out.append(poi(c.x + .5, c.y + .5, 1.0, .8, "prop:%s" % type))
+	return out
+
+
+## Build the camera track of an area. Returns {"ok", "track", "info"}; "info" says where it went (chunk, level, biome, rooms toured, planned tight spots).
+## `variant` picks a different tour (the renderer retries a boring clip with the next variant).
+static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_override: float, variant: int = 0, bob: bool = true) -> Dictionary:
 	if not AREAS.has(area):
 		return {"ok": false, "error": "unknown area '%s' (have: %s)" % [area, ", ".join(area_names())]}
 	var preset: Dictionary = AREAS[area]
 	var kind := String(preset["kind"])
 	var track := Track.new()
-	var info := {"area": area, "kind": kind}
+	var info := {"area": area, "kind": kind, "variant": variant}
 	var walk_seconds := WALK_SECONDS if seconds_override <= 0.0 else maxf(seconds_override - ORBIT_SECONDS - HOLD_SECONDS, 6.0)
+	var sampler: Sampler = null
 	match kind:
 		"district":
 			var level := int(preset["level"])
-			var found := find_biome_chunk(gen, String(preset["biome"]), level)
+			var found := find_biome_chunk(gen, String(preset["biome"]), level, variant)
 			if found.is_empty():
 				return {"ok": false, "error": "this build has no '%s' district on level %d within %d chunks of the spawn" % [preset["biome"], level, SEARCH_RADIUS], "unavailable": true}
 			var coord: Vector3i = found["coord"]
 			var s := Sampler.new(gen, level)
+			sampler = s
+			var data: Dictionary = gen.chunk(coord)
 			var base := _chunk_start(Vector2i(coord.x, coord.z))
 			var start := _nearest_open(s, base + Vector2i(CHUNK / 2, CHUNK / 2))
-			var field := path_field(s, start, 70)
-			var wanted := int(walk_seconds * WALK_SPEED)
-			var goal := far_goal(field, start, int(wanted * .7), wanted)
-			if goal == start:
-				goal = far_goal(field, start, 8, wanted)
 			var floor_y := float(level) * LEVEL_HEIGHT
-			track.hold(0)
-			var points := path_to(field, goal)
-			bake_walk(track, points, floor_y, fps)
-			if track.size() < 10:
-				return {"ok": false, "error": "no walkable route from the middle of chunk %s" % coord}
 			var centre := Vector3(base.x + CHUNK * .5, floor_y, base.y + CHUNK * .5)
-			bake_overview(track, centre, points[points.size() - 1], 80.0, ORBIT_SECONDS, floor_y + 8.0, 13.0, fps)
-			info.merge({"level": level, "chunk": [coord.x, coord.z], "biome": gen.biome_for(coord), "start": [start.x, start.y], "goal": [goal.x, goal.y], "path_cells": points.size()})
+			# 1. establishing shot: a slow high orbit over the whole district chunk
+			bake_overview(track, centre, Vector2(start) + Vector2(.5, .5), 60.0, 6.0, floor_y + 8.0, 13.0, fps)
+			# 2. the tour: down the halls, through doorways, into rooms, looking at what is in them
+			var tour := _tour_cells(s, data, base, start, walk_seconds * 2.8, variant)
+			var cells: Array[Vector2] = []
+			for c in (tour["cells"] as Array[Vector2]):
+				cells.append(c)
+			if cells.size() < 8:
+				# a chunk with no usable rooms: a long hall walk instead
+				var field := path_field(s, start, 70)
+				var goal := far_goal(field, start, 30, int(walk_seconds * 2.0))
+				cells = path_to(field, goal)
+			track.cuts.append(track.size())
+			bake_walk(track, cells, s, _chunk_pois(data, base), fps, bob)
+			if track.size() < 40:
+				return {"ok": false, "error": "no walkable route from the middle of chunk %s" % coord}
+			info.merge({"level": level, "chunk": [coord.x, coord.z], "biome": gen.biome_for(coord), "start": [start.x, start.y], "rooms": tour["rooms"], "path_cells": cells.size()})
 		"sewer_tunnels":
-			var base := Vector2i.ZERO
 			var s := Sampler.new(gen, -1)
-			var start := Vector2i(base.x + 19, base.y + 2)
-			var goal := Vector2i(base.x + 19, base.y + 2 + int(walk_seconds * WALK_SPEED))
+			sampler = s
+			var start := Vector2i(19, 2)
+			var goal := Vector2i(19, 2 + int(walk_seconds * 2.0))
 			var field := path_field(s, start, 90)
 			if not field["cost"].has(goal):
 				return {"ok": false, "error": "sewer tunnel lane is not walkable end to end"}
-			var floor_y := -LEVEL_HEIGHT
-			bake_walk(track, path_to(field, goal), floor_y, fps)
-			bake_turn(track, 180.0, ORBIT_SECONDS * .8, -.05, fps)
+			var pois := _sewer_pois(gen, [Vector2i(0, 0), Vector2i(0, 1)])
+			bake_walk(track, path_to(field, goal), s, pois, fps, bob)
+			bake_turn(track, 180.0, ORBIT_SECONDS * .7, -.05, fps)
 			info.merge({"level": -1, "chunk": [0, 0], "start": [start.x, start.y], "goal": [goal.x, goal.y]})
 		"sewer_junction":
 			var s := Sampler.new(gen, -1)
-			var start := Vector2i(19, 6)
-			var centre_cell := Vector2i(CHUNK / 2, CHUNK / 2)
+			sampler = s
+			var start := Vector2i(19, 4)
 			var field := path_field(s, start, 40)
 			var floor_y := -LEVEL_HEIGHT
-			bake_walk(track, path_to(field, Vector2i(19, 18)), floor_y, fps)
-			bake_orbit(track, Vector3(centre_cell.x + .5, floor_y, centre_cell.y + .5), 330.0, maxf(walk_seconds, 14.0) - 4.0 + ORBIT_SECONDS * .5, floor_y + 3.0, 4.2, floor_y + 1.0, fps)
+			bake_walk(track, path_to(field, Vector2i(19, 19)), s, _sewer_pois(gen, [Vector2i(0, 0)]), fps, bob)
+			bake_orbit(track, Vector3(CHUNK / 2 + .5, floor_y, CHUNK / 2 + .5), 330.0, maxf(walk_seconds, 14.0) - 2.0, floor_y + 3.0, 4.2, floor_y + 1.0, fps)
 			info.merge({"level": -1, "chunk": [0, 0], "start": [start.x, start.y]})
 		"sewer_room":
-			var data: Dictionary = gen.sewer().chunk(Vector3i(0, -1, 0))
 			var wanted := String(preset["room"])
 			var room := {}
 			for cz in range(-4, 5):
@@ -435,13 +747,14 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			var base := _chunk_start(room["chunk"])
 			var junction := base + Vector2i(19, 19)
 			var s := Sampler.new(gen, -1)
+			sampler = s
 			var centre: Vector2i = base + (room["centre"] as Vector2i)
 			var walk_to := _nearest_open(s, centre, false)
 			var field := path_field(s, junction, 60)
 			var floor_y := -LEVEL_HEIGHT
 			if not field["cost"].has(walk_to):
 				return {"ok": false, "error": "room centre %s not reachable from the junction" % centre}
-			bake_walk(track, path_to(field, walk_to), floor_y, fps)
+			bake_walk(track, path_to(field, walk_to), s, _sewer_pois(gen, [room["chunk"]]), fps, bob)
 			bake_orbit(track, Vector3(centre.x + .5, floor_y, centre.y + .5), 300.0, ORBIT_SECONDS + 4.0, floor_y + 2.4, 3.6, floor_y + 1.0, fps)
 			info.merge({"level": -1, "chunk": [room["chunk"].x, room["chunk"].y], "room": wanted, "start": [junction.x, junction.y], "goal": [centre.x, centre.y]})
 		"sewer_ladder":
@@ -462,33 +775,101 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			var wall: Vector2i = link.get("wall", Vector2i(0, -1))
 			var chamber := up - wall
 			var s := Sampler.new(gen, -1)
+			sampler = s
 			var field := path_field(s, base + Vector2i(CHUNK / 2, CHUNK / 2), 60)
 			if not field["cost"].has(chamber):
 				return {"ok": false, "error": "ladder chamber %s not reachable from the junction" % chamber}
 			var floor_y := -LEVEL_HEIGHT
-			bake_walk(track, path_to(field, chamber), floor_y, fps)
+			var pois := _sewer_pois(gen, [chunk_of])
+			pois.append(poi(up.x + .5, up.y + .5, 2.2, 1.6, "ladder"))
+			bake_walk(track, path_to(field, chamber), s, pois, fps, bob)
 			track.hold(fps)
 			var ladder_xz := Vector2(up.x + .5, up.y + .5) - Vector2(wall) * .45
-			bake_rise(track, Vector2(chamber.x + .5, chamber.y + .5), Vector2(chamber.x + .5, chamber.y + .5).lerp(ladder_xz, .6), floor_y + 1.6, 1.6, 6.0, Vector2(wall), .55, fps)
+			var from_abs := track.last_absolute(floor_y)
+			bake_rise(track, Vector2(from_abs.x, from_abs.z), Vector2(chamber.x + .5, chamber.y + .5).lerp(ladder_xz, .6), from_abs.y, 1.6, 6.0, Vector2(wall), .55, fps)
 			track.hold(fps)
 			bake_turn(track, 300.0, ORBIT_SECONDS * .8, 0.0, fps)
 			info.merge({"level": -1, "chunk": [chunk_of.x, chunk_of.y], "ladder_cell": [up.x, up.y], "wall": [wall.x, wall.y]})
 	smooth_angles(track, fps, .45)
-	# a short still at the start (fade-in) and at the end (fade-out)
 	var first_pos := track.pos[0]
 	var first_yaw := track.yaw[0]
 	var first_pitch := track.pitch[0]
+	var first_ground := track.ground[0]
 	var padded := Track.new()
 	for _i in int(HOLD_SECONDS * fps):
-		padded.add(first_pos, first_yaw, first_pitch)
+		padded.add(first_pos, first_yaw, first_pitch, first_ground)
 	for cut in track.cuts:
 		padded.cuts.append(cut + int(HOLD_SECONDS * fps))
 	for i in track.size():
-		padded.add(track.pos[i], track.yaw[i], track.pitch[i])
+		padded.add(track.pos[i], track.yaw[i], track.pitch[i], track.ground[i])
 	padded.hold(int(HOLD_SECONDS * fps))
 	info["frames"] = padded.size()
 	info["seconds"] = snappedf(float(padded.size()) / float(fps), .1)
+	info["motion"] = motion_stats(padded, fps)
+	if sampler != null:
+		info["planned_tight_s"] = tight_seconds(padded, sampler, fps)
 	return {"ok": true, "track": padded, "info": info}
+
+
+static func _sewer_pois(gen: StreamedRouteGenerator, chunks: Array) -> Array:
+	var out: Array = []
+	for chunk_coord in chunks:
+		var base := _chunk_start(chunk_coord)
+		for feature in gen.sewer().chunk(Vector3i(chunk_coord.x, -1, chunk_coord.y)).get("features", []):
+			var type := String(feature.get("type", ""))
+			var weights := {"sewerValveWheel": [1.3, 1.5], "sewerLadder": [1.4, 2.0], "sewerBridge": [1.0, 1.0], "sewerPipeRun": [.7, 2.2], "sewerLamp": [.9, 2.4]}
+			if not weights.has(type) or not feature.has("cell"):
+				continue
+			var cell: Vector2i = base + (feature["cell"] as Vector2i)
+			out.append(poi(cell.x + .5, cell.y + .5, float((weights[type] as Array)[1]), float((weights[type] as Array)[0]), type))
+	return out
+
+
+## Per-clip motion numbers the validator checks: the biggest per-frame heading change of the WALKING frames (not across cuts) and a zig-zag measure
+## (turning done minus net turning over 2 s windows, in radians: a straight corridor walk scores about 0, a back-and-forth wobble scores high).
+static func motion_stats(track: Track, fps: int) -> Dictionary:
+	var biggest := 0.0
+	var wobble := 0.0
+	var window := fps * 2
+	var headings: Array[float] = []
+	for i in range(1, track.size()):
+		if track.cuts.has(i) or track.ground[i] != 1 or track.ground[i - 1] != 1:
+			headings.append(NAN)
+			continue
+		var step := Vector2(track.pos[i].x - track.pos[i - 1].x, track.pos[i].z - track.pos[i - 1].z)
+		headings.append(step.angle() if step.length() > .004 else NAN)
+		biggest = maxf(biggest, absf(wrapf(track.yaw[i] - track.yaw[i - 1], -PI, PI)))
+	for i in range(0, headings.size() - window, fps):
+		var total := 0.0
+		var net := 0.0
+		var prev := NAN
+		var first := NAN
+		var valid := true
+		for k in range(i, i + window):
+			var h := headings[k]
+			if is_nan(h):
+				continue
+			if is_nan(first):
+				first = h
+			if not is_nan(prev):
+				total += absf(wrapf(h - prev, -PI, PI))
+				net += wrapf(h - prev, -PI, PI)
+			prev = h
+		if valid and not is_nan(first):
+			wobble = maxf(wobble, total - absf(net))
+	return {"max_yaw_step": snappedf(biggest, .001), "max_wobble": snappedf(wobble, .01)}
+
+
+## Seconds of walking frames whose view direction faces a wall closer than 2 m (grid ray march): the planner-side half of the "staring at walls" check.
+static func tight_seconds(track: Track, s: Sampler, fps: int) -> float:
+	var frames := 0
+	for i in track.size():
+		if track.ground[i] != 1:
+			continue
+		var dir := Vector2(-sin(track.yaw[i]), -cos(track.yaw[i]))
+		if s.depth(Vector2(track.pos[i].x, track.pos[i].z), dir, 2.0) < 2.0:
+			frames += 1
+	return snappedf(float(frames) / float(fps), .1)
 
 
 static func _nearest_open(s: Sampler, cell: Vector2i, strict: bool = true) -> Vector2i:
@@ -522,7 +903,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var player := scene.get("player") as PlayerController3D
 	if generator == null or player == null:
 		return {"scenario_failure": "no generator or player in the route scene", "outcome": "error", "game_seconds": 0.0, "frames": 0}
-	var planned := plan(generator, area, fps, float(opts.get("seconds", 0.0)))
+	var planned := plan(generator, area, fps, float(opts.get("seconds", 0.0)), int(opts.get("variant", 0)), bool(opts.get("bob", true)))
 	if not bool(planned.get("ok", false)):
 		report["flythrough"] = {"area": area, "available": false, "reason": planned.get("error", "?")}
 		return {"scenario_failure": "" if bool(planned.get("unavailable", false)) else String(planned.get("error", "plan failed")), "outcome": "unavailable" if bool(planned.get("unavailable", false)) else "error",
@@ -565,26 +946,63 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		lamp.omni_range = 11.0
 		lamp.light_color = Color(1.0, .95, .85)
 		camera.add_child(lamp)
+	var clean := bool(opts.get("clean", false))
+	var keep := String(opts.get("keep", "")).split(",", false)
+	var space := player.get_world_3d().direct_space_state
+	var floor_base := float(int(info.get("level", 0))) * LEVEL_HEIGHT
+	var ground_y := floor_base + .05
+	var depth_by_second := {}
+	var tight_run := 0
+	var worst_tight_run := 0
 	var clip_start_frame := Engine.get_frames_drawn()
 	for i in track.size():
 		bridge.status = "flythrough %s: frame %d / %d" % [area, i, track.size()]
 		var p := track.pos[i]
-		player.global_position = Vector3(p.x, p.y - eye_offset, p.z)
+		var eye_y := p.y
+		if track.ground[i] == 1:
+			# follow the REAL collision floor (ramps, bridges, stairs): cast down from just above the last floor height
+			var query := PhysicsRayQueryParameters3D.create(Vector3(p.x, ground_y + 1.4, p.z), Vector3(p.x, ground_y - 3.0, p.z))
+			query.exclude = [player.get_rid()]
+			var hit := space.intersect_ray(query)
+			if not hit.is_empty():
+				ground_y = move_toward(ground_y, float((hit["position"] as Vector3).y), 4.0 / float(fps))
+			eye_y = ground_y + p.y
+		player.global_position = Vector3(p.x, eye_y - eye_offset, p.z)
 		player.velocity = Vector3.ZERO
 		player._yaw = track.yaw[i]
 		player._pitch = track.pitch[i]
 		player._apply_look_rotation()
 		if lamp != null:
-			var above := maxf(p.y - (floor_y_of(info)) - 2.0, 0.0)
+			var above := maxf(eye_y - floor_base - 2.0, 0.0)
 			lamp.omni_range = 11.0 + above * 2.2
 			lamp.light_energy = 1.1 + above * .12
 		if i % 45 == 0:
 			_clear_hunters(scene, show_hunters)
+		if clean and i % 30 == 0:
+			_clean_scene(scene, keep)
+		# what the camera really sees: depth of the view straight ahead through the REAL collision (walls, props, doors)
+		var forward := -camera.global_basis.z
+		var look := PhysicsRayQueryParameters3D.create(camera.global_position, camera.global_position + forward * 12.0)
+		look.exclude = [player.get_rid()]
+		var seen := space.intersect_ray(look)
+		var depth := 12.0 if seen.is_empty() else camera.global_position.distance_to(seen["position"] as Vector3)
+		var second := i / fps
+		depth_by_second[second] = minf(float(depth_by_second.get(second, 99.0)), depth)
+		if track.ground[i] == 1 and depth < 2.0:
+			tight_run += 1
+			worst_tight_run = maxi(worst_tight_run, tight_run)
+		else:
+			tight_run = 0
 		# a camera that does not move "for real" counts as idle: keep the anti-idle clocks (they send hunters) at zero
 		scene.set("_relay_inactivity_seconds", 0.0)
 		scene.set("_party_afk_seconds", 0.0)
 		await tree.process_frame
 		frames += 1
+	var depth_list: Array = []
+	for second in range(0, int(depth_by_second.size())):
+		depth_list.append(snappedf(float(depth_by_second.get(second, 0.0)), .1))
+	info["depth_per_second"] = depth_list
+	info["worst_tight_run_s"] = snappedf(float(worst_tight_run) / float(fps), .2)
 	info["fps"] = fps
 	info["clip_start_frame"] = clip_start_frame
 	info["clip_frames"] = track.size()
@@ -597,6 +1015,23 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 
 static func floor_y_of(info: Dictionary) -> float:
 	return float(int(info.get("level", 0))) * LEVEL_HEIGHT
+
+
+## Capture-only clean scene: hide pickups, tools and the waypoint trail by VISIBILITY only (the world state is untouched). `keep` is a whitelist of
+## kind names (relay, battery, coin, tool_pickup, music_box) a shot wants to keep visible.
+static func _clean_scene(scene: Node, keep: PackedStringArray) -> void:
+	var hide_kinds := {"relay": RouteInteractable3D.Kind.RELAY, "battery": RouteInteractable3D.Kind.BATTERY, "coin": RouteInteractable3D.Kind.COIN,
+		"tool_pickup": RouteInteractable3D.Kind.TOOL_PICKUP, "music_box": RouteInteractable3D.Kind.MUSIC_BOX}
+	for node in scene.get_tree().get_nodes_in_group("interactable"):
+		var item := node as RouteInteractable3D
+		if item == null or not is_instance_valid(item):
+			continue
+		for name in hide_kinds:
+			if int(hide_kinds[name]) == int(item.kind) and not keep.has(name):
+				item.visible = false
+	var trail: Variant = scene.get("_waypoint_trail")
+	if trail is Node3D:
+		(trail as Node3D).visible = false
 
 
 static func _clear_hunters(scene: Node, keep: bool) -> void:

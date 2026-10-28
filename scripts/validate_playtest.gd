@@ -28,21 +28,41 @@ func run(host: Node) -> int:
 	# 0b. the flythrough planner builds a camera track for every default area (or says the build has none), no scene needed
 	var generator := StreamedRouteGenerator.new("FLYTHROUGH")
 	for area in PlaytestFlythrough.DEFAULT_SET:
-		var planned: Dictionary = PlaytestFlythrough.plan(generator, String(area), 30, 0.0)
-		if bool(planned.get("unavailable", false)):
-			print("  note  flythrough area %s unavailable on this build: %s" % [area, planned.get("error", "")])
-			continue
-		_expect(bool(planned.get("ok", false)), "flythrough plan for %s must succeed (%s)" % [area, planned.get("error", "")])
-		if bool(planned.get("ok", false)):
-			var track: PlaytestFlythrough.Track = planned["track"]
-			_expect(track.size() > 30 * 15 and track.size() < 30 * 60, "flythrough %s should last 15-60 s, got %.1f s" % [area, float(track.size()) / 30.0])
-			var biggest_jump := 0.0
-			for i in range(2, track.size()):
-				if track.cuts.has(i) or track.cuts.has(i - 1):
-					continue    # a planned hard cut to the overview shot
-				# a jump is a sudden change of the per-frame step, not the (fast) crane move itself
-				biggest_jump = maxf(biggest_jump, absf(track.pos[i].distance_to(track.pos[i - 1]) - track.pos[i - 1].distance_to(track.pos[i - 2])))
-			_expect(biggest_jump < .12, "flythrough %s camera speed jumps by %.2f m/frame" % [area, biggest_jump])
+		# the renderer retries a boring tour with the next variant, so an area passes when ONE of the first three variants is clean
+		var problems: Array = []
+		var unavailable := false
+		for variant in 3:
+			var planned: Dictionary = PlaytestFlythrough.plan(generator, String(area), 30, 0.0, variant)
+			if bool(planned.get("unavailable", false)):
+				print("  note  flythrough area %s unavailable on this build: %s" % [area, planned.get("error", "")])
+				unavailable = true
+				break
+			problems = []
+			if not bool(planned.get("ok", false)):
+				problems.append("plan failed (%s)" % planned.get("error", ""))
+			else:
+				var track: PlaytestFlythrough.Track = planned["track"]
+				var info: Dictionary = planned["info"]
+				if track.size() < 30 * 22 or track.size() > 30 * 60:
+					problems.append("lasts %.1f s (want 22-60)" % (float(track.size()) / 30.0))
+				var biggest_jump := 0.0
+				for i in range(2, track.size()):
+					if track.cuts.has(i) or track.cuts.has(i - 1) or track.ground[i] != track.ground[i - 1] or track.ground[i - 1] != track.ground[i - 2]:
+						continue    # a planned hard cut to another shot
+					biggest_jump = maxf(biggest_jump, absf(track.pos[i].distance_to(track.pos[i - 1]) - track.pos[i - 1].distance_to(track.pos[i - 2])))
+				if biggest_jump >= .12:
+					problems.append("camera speed jumps by %.2f m/frame" % biggest_jump)
+				var motion: Dictionary = info["motion"]
+				if float(motion["max_yaw_step"]) >= .06:
+					problems.append("turns %.3f rad in one frame (a snap)" % float(motion["max_yaw_step"]))
+				if float(motion["max_wobble"]) >= 1.4:
+					problems.append("zig-zags (%.2f rad of back-and-forth)" % float(motion["max_wobble"]))
+				if info.has("planned_tight_s") and float(info["planned_tight_s"]) >= 3.0:
+					problems.append("stares at a wall closer than 2 m for %.1f s" % float(info["planned_tight_s"]))
+			if problems.is_empty():
+				break
+		if not unavailable:
+			_expect(problems.is_empty(), "flythrough %s has no clean variant: %s" % [area, "; ".join(problems)])
 
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")

@@ -11,6 +11,7 @@ tree, pulls the .avi back and encodes it with ffmpeg (trim to the clip, fade in/
 Videos go to <repo>/captures/videos/<commit>/ (gitignored) together with index.md and index.json. Stdlib only.
 """
 import argparse
+import statistics
 import json
 import os
 import shutil
@@ -73,6 +74,33 @@ def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: i
     return out.returncode == 0, out.stderr.strip()
 
 
+def frame_metrics(mp4: Path, seconds: float) -> dict:
+    """Sample one frame per second and flag the boring ones: blank (almost one colour / black) or flat (one featureless surface filling the view)."""
+    bad = []
+    stats = []
+    t = 1.0
+    while t < seconds - 1.0:
+        raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", str(mp4), "-frames:v", "1", "-vf", "scale=96:54,format=gray",
+                              "-f", "rawvideo", "-"], capture_output=True).stdout
+        if len(raw) == 96 * 54:
+            px = list(raw)
+            mean = sum(px) / len(px)
+            sd = statistics.pstdev(px)
+            grad = [abs(px[y * 96 + x] - px[y * 96 + x + 1]) + abs(px[y * 96 + x] - px[(y + 1) * 96 + x]) for y in range(53) for x in range(95)]
+            flat_share = sum(1 for g in grad if g < 4) / len(grad)
+            blank = mean < 9 or sd < 5
+            flat = flat_share > .86 and not blank
+            stats.append((round(t, 1), round(mean), round(sd, 1), round(flat_share, 2)))
+            if blank or flat:
+                bad.append((round(t, 1), "blank" if blank else "flat wall"))
+        t += 1.0
+    return {"bad_seconds": len(bad), "bad": bad, "samples": len(stats)}
+
+
+def contact_sheet(mp4: Path, sheet: Path) -> None:
+    sh(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-vf", "fps=1/3,scale=320:-2,tile=4x3", "-frames:v", "1", "-q:v", "4", str(sheet)])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--commit", default="HEAD", help="rev to render (exported with git archive; default HEAD)")
@@ -87,6 +115,10 @@ def main() -> int:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--timeout", type=int, default=1500, help="per-area wall-clock limit on the mini, seconds")
     ap.add_argument("--keep-avi", action="store_true", help="keep the raw captures next to the mp4s")
+    ap.add_argument("--variants", type=int, default=3, help="tries per area: a clip that stares at walls or goes blank is re-planned with the next variant")
+    ap.add_argument("--clean", action="store_true", help="capture-only clean scene: hide pickups, tools and the waypoint trail (visibility only)")
+    ap.add_argument("--keep", default="", help="with --clean: kinds to keep visible (relay,battery,coin,tool_pickup,music_box)")
+    ap.add_argument("--no-bob", action="store_true", help="no head bob (dolly style)")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
 
@@ -127,42 +159,62 @@ def main() -> int:
         if prep.returncode != 0:
             sys.exit("sync to the mini failed:\n" + (prep.stdout + prep.stderr)[-800:])
         for area in areas:
-            began = time.time()
-            avi_rel = ".playtest/fly/%s.avi" % area
-            cmd = ("--write-movie %s --fixed-fps %d --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
-                   "--scenario=flythrough --area=%s --seed=%s --fps=%d --seconds=%s --hunters=%s --deadline=%d --name=fly_%s"
-                   % (avi_rel, args.fps, area, args.seed, args.fps, args.seconds, args.hunters, args.timeout - 120, area))
-            run = mini(src, lane, "--scene", cmd, timeout=args.timeout)
-            log = run.stdout + run.stderr
-            result = {"area": area, "blurb": BLURB.get(area, ""), "ok": False, "render_wall_s": round(time.time() - began)}
-            local = tmp / area
-            pulled_report = mini(src, lane, "--pull", ".playtest/fly_%s/report.json" % area, str(local))
-            report_file = local / "report.json"
-            report = json.loads(report_file.read_text()) if report_file.exists() else {}
-            info = report.get("flythrough", {})
-            if not info.get("available", False):
-                result["skipped"] = info.get("reason") or report.get("scenario_failure") or "no report (see log tail)"
-                result["log_tail"] = log.strip().splitlines()[-4:]
-                print("  %-18s SKIPPED: %s" % (area, result["skipped"]), flush=True)
+            result = {"area": area, "blurb": BLURB.get(area, ""), "ok": False, "attempts": []}
+            best = None
+            for variant in range(max(args.variants, 1)):
+                began = time.time()
+                avi_rel = ".playtest/fly/%s.avi" % area
+                cmd = ("--write-movie %s --fixed-fps %d --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
+                       "--scenario=flythrough --area=%s --seed=%s --fps=%d --seconds=%s --hunters=%s --variant=%d --bob=%s --clean=%s --keep=%s --deadline=%d --name=fly_%s"
+                       % (avi_rel, args.fps, area, args.seed, args.fps, args.seconds, args.hunters, variant, "false" if args.no_bob else "true",
+                          "true" if args.clean else "false", args.keep or "none", args.timeout - 120, area))
+                run = mini(src, lane, "--scene", cmd, timeout=args.timeout)
+                log = run.stdout + run.stderr
+                local = tmp / ("%s_%d" % (area, variant))
+                mini(src, lane, "--pull", ".playtest/fly_%s/report.json" % area, str(local))
+                report_file = local / "report.json"
+                report = json.loads(report_file.read_text()) if report_file.exists() else {}
+                info = report.get("flythrough", {})
+                if not info.get("available", False):
+                    result["skipped"] = info.get("reason") or report.get("scenario_failure") or "no report (see log tail)"
+                    result["log_tail"] = log.strip().splitlines()[-4:]
+                    break
+                mini(src, lane, "--pull", avi_rel, str(local))
+                avi = local / ("%s.avi" % area)
+                if not avi.exists():
+                    result["skipped"] = "the capture file was not written"
+                    result["log_tail"] = log.strip().splitlines()[-4:]
+                    break
+                mp4 = tmp / ("%s_v%d.mp4" % (area, variant))
+                ok, err = encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, args.width)
+                mini(src, lane, "--cmd", "rm -f %s" % avi_rel)
+                if not ok:
+                    result["skipped"] = "encode failed: " + err[-200:]
+                    break
+                quality = frame_metrics(mp4, float(info.get("seconds", 0)))
+                tight = float(info.get("worst_tight_run_s", 0))
+                attempt = {"variant": variant, "bad_seconds": quality["bad_seconds"], "bad": quality["bad"], "tight_run_s": tight, "rooms": info.get("rooms"),
+                           "render_wall_s": round(time.time() - began), "chunk": info.get("chunk")}
+                result["attempts"].append(attempt)
+                score = quality["bad_seconds"] + 3.0 * max(tight - 1.0, 0.0)
+                print("    %s try %d: %d boring second(s) %s, view <2 m for %.1f s, rooms %s" % (area, variant, quality["bad_seconds"], quality["bad"][:4], tight, info.get("rooms")), flush=True)
+                if best is None or score < best["score"]:
+                    best = {"score": score, "mp4": mp4, "info": info, "attempt": attempt}
+                if quality["bad_seconds"] <= 2 and tight <= 1.0:
+                    break
+            if best is None:
+                print("  %-18s SKIPPED: %s" % (area, result.get("skipped")), flush=True)
                 results.append(result)
                 continue
-            mini(src, lane, "--pull", avi_rel, str(local))
-            avi = local / ("%s.avi" % area)
-            if not avi.exists():
-                result["skipped"] = "the capture file was not written"
-                result["log_tail"] = log.strip().splitlines()[-4:]
-                print("  %-18s FAILED: no capture" % area, flush=True)
-                results.append(result)
-                continue
+            info = best["info"]
             mp4 = out_dir / ("%s.mp4" % area)
-            ok, err = encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, args.width)
-            if args.keep_avi:
-                shutil.copy(avi, out_dir / avi.name)
-            mini(src, lane, "--cmd", "rm -f %s" % avi_rel)
-            result.update({"ok": ok, "file": str(mp4), "size_mb": round(mp4.stat().st_size / 1e6, 2) if ok else 0, "seconds": info.get("seconds"),
-                           "level": info.get("level"), "chunk": info.get("chunk"), "start": info.get("start"), "goal": info.get("goal"),
-                           "biome_at_end": info.get("current_biome"), "encode_error": "" if ok else err[-300:]})
-            print("  %-18s %s  %5.1f s  %s MB  (render %d s)" % (area, "OK " if ok else "ENC-FAIL", info.get("seconds", 0), result["size_mb"], result["render_wall_s"]), flush=True)
+            shutil.copy(best["mp4"], mp4)
+            contact_sheet(mp4, out_dir / ("%s_sheet.jpg" % area))
+            clean_pass = best["attempt"]["bad_seconds"] <= 2 and best["attempt"]["tight_run_s"] <= 1.0
+            result.update({"ok": True, "quality": "pass" if clean_pass else "WARN: boring stretches remain", "file": str(mp4), "sheet": str(out_dir / ("%s_sheet.jpg" % area)),
+                           "size_mb": round(mp4.stat().st_size / 1e6, 2), "seconds": info.get("seconds"), "level": info.get("level"), "chunk": info.get("chunk"),
+                           "rooms": info.get("rooms"), "variant": best["attempt"]["variant"], "biome_at_end": info.get("current_biome")})
+            print("  %-18s %s  %5.1f s  %s MB  variant %d  %s" % (area, "OK ", info.get("seconds", 0), result["size_mb"], best["attempt"]["variant"], result["quality"]), flush=True)
             results.append(result)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -173,10 +225,11 @@ def main() -> int:
     lines = ["# Last Route flythroughs - commit %s" % rev, "", "Seed `%s`, %d fps, 1280x720 source. Re-render: `tools/playtest/flythrough.py --commit %s`." % (args.seed, args.fps, rev), ""]
     for r in results:
         if r.get("ok"):
-            lines.append("- **%s** (%s) - [%s.mp4](%s.mp4), %.0f s, %s MB%s" % (r["area"], r["blurb"], r["area"], r["area"], r.get("seconds") or 0, r["size_mb"],
-                         (", level %s chunk %s" % (r.get("level"), r.get("chunk"))) if r.get("chunk") else ""))
+            lines.append("- **%s** (%s) - [%s.mp4](%s.mp4) ([sheet](%s_sheet.jpg)), %.0f s, %s MB%s, quality %s%s" % (r["area"], r["blurb"], r["area"], r["area"], r["area"], r.get("seconds") or 0, r["size_mb"],
+                         (", level %s chunk %s" % (r.get("level"), r.get("chunk"))) if r.get("chunk") else "", r.get("quality"),
+                         (", rooms %s" % r.get("rooms")) if r.get("rooms") else ""))
         else:
-            lines.append("- %s - not rendered: %s" % (r["area"], r.get("skipped") or r.get("encode_error")))
+            lines.append("- %s - not rendered: %s" % (r["area"], r.get("skipped")))
     (out_dir / "index.md").write_text("\n".join(lines) + "\n")
     good = sum(1 for r in results if r.get("ok"))
     print("%d/%d clips in %s" % (good, len(results), out_dir))

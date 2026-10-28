@@ -29,6 +29,22 @@ Sewer (level -1): `sewer_tunnels` (the long tunnel with its bridges, then a look
 the ladder to the maze, look round). `inferno` (-3) exists as a preset and is skipped with a note until the build has that district; the -2
 collector gets a preset when it lands (add it to `AREAS` in `src/playtest/playtest_flythrough.gd` and to the lists in `flythrough.py`).
 
+## How a clip is made (v2)
+
+* **Planned from the layout.** A district clip opens with a slow high orbit over the chunk (the establishing shot), cuts to a tour that goes down the
+  halls, through the real doorways of two or three rooms and out again. Cell paths are smoothed like a player's walk: line-of-sight pruning (a
+  0.4 m body must clear the walls), a Catmull-Rom curve, a push-off keeping 0.6 m from walls where the hall allows, walking speed with gentle
+  acceleration and slower rounded turns, optional head bob (`--no-bob`).
+* **Looks at things.** Room centres, relays, signature props (district) and valve wheels, lamps, pipes, ladders (sewer) are points of interest. The
+  camera glances at one when it is within ~9 m, inside a 75 degree cone and in line of sight, with a rate-limited turn (no snapping); it never glances
+  toward a wall closer than 3 m.
+* **Follows the real floor.** Each walking frame ray-casts the physics collision floor (ramps, bridge slopes, stairs); the flying shots are absolute.
+* **Checks itself.** The planner counts seconds facing a wall under 2 m and motion stats (largest yaw step, zig-zag); the runner records the real
+  view depth through the collision every frame; `flythrough.py` samples a frame per second and flags blank or flat-wall frames. A clip with more
+  than 2 boring seconds, or the view under 2 m for over 1 s, is re-planned with the next `--variants` try (default 3); the best try is kept and
+  marked WARN if it still has boring stretches. Each clip gets a `<area>_sheet.jpg` contact sheet.
+* **Clean scene (optional).** `--clean` hides pickups, tools, coins and the waypoint trail by visibility only (`--keep relay,battery` whitelists kinds).
+
 ## Notes
 
 * The maze is dark on purpose; the flythrough adds a soft lamp on the camera (`--lamp=false` in the runner's own arguments turns it off).
