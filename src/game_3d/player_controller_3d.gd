@@ -1737,6 +1737,9 @@ func _xr_smoke_log() -> void:
 		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
 	if blocked:
 		problems.append("the body is inside level geometry or off the floor")
+	var marker := get_tree().root.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	if marker != null and Vector2(marker.global_position.x - global_position.x, marker.global_position.z - global_position.z).length() < 0.6:
+		problems.append("the body stands on the safe-zone marker post")
 	if get_tree().root.find_children("XRRoutePanel", "", true, false).is_empty():
 		problems.append("no route panel")
 	print("XR_SMOKE_RESULT %s" % ("PASS" if problems.is_empty() else "FAIL: " + ", ".join(problems)))
@@ -2760,11 +2763,14 @@ func spot_blocked(at: Vector3) -> bool:
 	return space.intersect_ray(floor_ray).is_empty()
 
 
-## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor, else the nearest cell centre
-## (the route's 1 m grid) within `radius` cells that does. Spawning on a wall junction put a headset camera inside the
-## walls; flat players were pushed out by the capsule but started wedged too.
-func clear_spot_near(at: Vector3, radius := 4) -> Vector3:
-	if not spot_blocked(at):
+## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor (and it is at least
+## `avoid_distance` from `avoid`), else the nearest cell centre (the route's 1 m grid) within `radius` cells that is.
+## The route spawn sits on the starting safe-zone marker post, which has no collider: a headset camera started inside
+## it ("between four rooms"), so the spawn avoids it.
+func clear_spot_near(at: Vector3, radius := 4, avoid := Vector3.INF, avoid_distance := 0.0) -> Vector3:
+	var near_avoid := func(spot: Vector3) -> bool:
+		return avoid != Vector3.INF and Vector2(spot.x - avoid.x, spot.z - avoid.z).length() < avoid_distance
+	if not spot_blocked(at) and not near_avoid.call(at):
 		return at
 	var cell := Vector2i(floori(at.x), floori(at.z))
 	var best := at
@@ -2773,7 +2779,7 @@ func clear_spot_near(at: Vector3, radius := 4) -> Vector3:
 		for dx in range(-radius, radius + 1):
 			var candidate := Vector3(cell.x + dx + 0.5, at.y, cell.y + dz + 0.5)
 			var distance := Vector2(candidate.x - at.x, candidate.z - at.z).length()
-			if distance < best_distance and not spot_blocked(candidate):
+			if distance < best_distance and not near_avoid.call(candidate) and not spot_blocked(candidate):
 				best = candidate
 				best_distance = distance
 	return best
