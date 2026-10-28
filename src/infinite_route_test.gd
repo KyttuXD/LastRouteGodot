@@ -97,6 +97,13 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
+## Troll-mode "ads" (TrollAds, docs/ANTI_CHEAT.md): only while the host has this client in troll mode with ads on.
+var troll_ads := TrollAds.new()
+var troll_ad_overlay: TrollAdOverlay
+var _billboard_in := 0.0
+## Set by the host's troll event: troll mode forces ANNOYING ads (unless an owner turned this player's ads off).
+var _troll_ads_forced := false
+var _troll_ads_muted := false
 var _story
 var _death_screen_open := false
 var _death_moment: DeathMoment
@@ -336,6 +343,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	_update_troll_ads(delta)
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
 	_tick_carousels(delta)
@@ -4846,6 +4854,8 @@ func _apply_player_event(event: Dictionary) -> void:
 			hud.show_message("CONNECTION UNSTABLE" if bool(event.get("lag", false)) else "POSITION CORRECTED")
 		"troll":
 			player.troll_active = bool(event.get("on", false))
+			_troll_ads_forced = player.troll_active and bool(event.get("ads", true))
+			_troll_ads_muted = player.troll_active and not bool(event.get("ads", true))
 		"troll_pickup":
 			# The host refused it; it vanishes for this client only.
 			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
@@ -5728,3 +5738,86 @@ func _admin_room_chat(what: String) -> void:
 			if target > 1:
 				_remotes.send_system("%s WAS REMOVED FROM THE ROOM" % RoomState.peer_display_name(target).to_upper())
 				RoomState.kick_peer(target)
+
+
+## The ads mode in force: a cheater in troll mode gets ANNOYING whatever their setting (or none if an owner muted their
+## ads); everyone else gets their own Settings.ads_mode (OFF by default).
+func ads_mode() -> String:
+	if _troll_ads_forced:
+		return "annoying"
+	if _troll_ads_muted:
+		return "off"
+	return Settings.ads_mode
+
+
+func _apply_ads_mode() -> void:
+	var wanted := ads_mode()
+	if wanted == troll_ads.mode:
+		return
+	troll_ads.set_mode(wanted, Time.get_ticks_msec() / 1000.0)
+	if troll_ad_overlay != null:
+		troll_ad_overlay.dismiss()
+	if wanted == "off":
+		_restore_billboards()
+
+
+## Never over a capture, an escape struggle, a death screen, spectating, a menu, a chase, or in VR (comfort), in
+## any mode.
+func troll_ads_blocked() -> bool:
+	return _death_screen_open or GameState.escape_active or GameState.game_over or player.spectator_mode \
+		or (pause_menu != null and pause_menu.is_open()) or _was_chased or player.xr_active
+
+
+func _update_troll_ads(delta: float) -> void:
+	_apply_ads_mode()
+	if not troll_ads.enabled():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if troll_ads_blocked():
+		if troll_ad_overlay != null:
+			troll_ad_overlay.dismiss()
+		return
+	if troll_ad_overlay == null:
+		troll_ad_overlay = TrollAdOverlay.new()
+		troll_ad_overlay.name = "TrollAdOverlay"
+		add_child(troll_ad_overlay)
+	if not troll_ad_overlay.showing() and troll_ads.due(now, false):
+		troll_ads.mark_shown(now)
+		troll_ad_overlay.show_ad(troll_ads.pick(), troll_ads.profile())
+	_billboard_in -= delta
+	if _billboard_in <= 0.0:
+		_billboard_in = TrollAds.BILLBOARD_SWAP_SECONDS
+		_swap_billboards()
+
+
+## Shop signs near the player turn into ads; they go back to the shop name when ads stop.
+func _swap_billboards() -> void:
+	for node in get_tree().get_nodes_in_group(&"troll_billboard") + _shop_signs_near(player.global_position):
+		var label := node as Label3D
+		if label == null or not is_instance_valid(label):
+			continue
+		if not label.has_meta("troll_original"):
+			label.set_meta("troll_original", label.text)
+			label.add_to_group(&"troll_billboard")
+		label.text = String(troll_ads.pick().get("title", label.text))
+
+
+func _restore_billboards() -> void:
+	if not is_inside_tree():
+		return
+	for node in get_tree().get_nodes_in_group(&"troll_billboard"):
+		var label := node as Label3D
+		if label != null and label.has_meta("troll_original"):
+			label.text = String(label.get_meta("troll_original"))
+			label.remove_meta("troll_original")
+			label.remove_from_group(&"troll_billboard")
+
+
+func _shop_signs_near(at: Vector3) -> Array:
+	var out := []
+	if facility == null:
+		return out
+	for node in facility.find_children("ShopSign*", "Label3D", true, false):
+		if (node as Node3D).global_position.distance_to(at) <= TrollAds.BILLBOARD_RANGE:
+			out.append(node)
+	return out

@@ -1,0 +1,30 @@
+{
+  "schema": "kyttu-troll-ads/v1",
+  "game": "last-route",
+  "note": "In-universe joke/horror 'ads' shown only to players in troll mode (docs/ANTI_CHEAT.md). Not real ads: no real brands, products, links, purchases or tracking. {hunter} is replaced by a hunter's roster name; {shop} by a mall shop sign (StreamedRouteGenerator.SHOP_NAMES).",
+  "ads": [
+    {"id": "donuts_dozen", "source": "mall", "title": "DONUT COUNTER", "body": "BUY 12, GET 0 FREE.\nGLAZED IN THE DARK SINCE THE LIGHTS WENT OUT.", "footer": "OPEN 24/7 // DOORS DO NOT OPEN"},
+    {"id": "corner_store", "source": "mall", "shop": "corner_store", "title": "24/7 CORNER", "body": "BATTERIES: SOLD OUT.\nBATTERIES: STILL SOLD OUT.\nTRY AGAIN NEVER.", "footer": "THANK YOU FOR SHOPPING WHILE HUNTED"},
+    {"id": "cinema_now", "source": "mall", "shop": "cinema", "title": "NOW SHOWING", "body": "\"YOU, RUNNING\"\nA FILM STARRING YOU.\nRATED R FOR RUNNING.", "footer": "CINEMA // NO REFUNDS, NO EXITS"},
+    {"id": "pawn_loan", "source": "mall", "shop": "pawn_shop", "title": "PAWN & LOAN", "body": "WE BUY USED FLASHLIGHTS.\nWE SELL THEM BACK AT 300%.", "footer": "ALL SALES FINAL // ALL RUNS TOO"},
+    {"id": "pharmacy_calm", "source": "mall", "shop": "drugstore", "title": "PHARMACY", "body": "FEELING WATCHED?\nTHAT'S NORMAL HERE.", "footer": "ASK YOUR HUNTER IF RUNNING IS RIGHT FOR YOU"},
+    {"id": "arcade_highscore", "source": "mall", "shop": "electronics", "title": "ARCADE & ELECTRONICS", "body": "NEW HIGH SCORE:\nTHE HUNTERS.\nINSERT COIN TO CONTINUE.", "footer": "CONTINUE? 9..8..7.."},
+    {"id": "diner_special", "source": "mall", "shop": "night_diner", "title": "NIGHT DINER", "body": "TONIGHT'S SPECIAL:\nWHATEVER IS LEFT.", "footer": "KITCHEN CLOSES WHEN YOU DO"},
+    {"id": "laundromat", "source": "mall", "shop": "laundromat", "title": "LAUNDROMAT", "body": "SPIN CYCLE: 4 MIN.\nYOUR LEAD ON THE HUNTER: 3 SEC.", "footer": "COINS ONLY // NO DRYING OFF"},
+    {"id": "florist", "source": "mall", "shop": "florist", "title": "FLORIST", "body": "SAY IT WITH FLOWERS.\nSAY IT QUIETLY.", "footer": "WREATHS HALF PRICE TONIGHT"},
+    {"id": "voss_tomorrow", "source": "company", "title": "VOSS' ROBOTIC LABS", "body": "BUILDING A SAFER TOMORROW.\nTODAY IS NOT INCLUDED.", "footer": "A MESSAGE FROM THE COMPANY"},
+    {"id": "voss_hold", "source": "company", "title": "VOSS' ROBOTIC LABS", "body": "YOUR CALL IS IMPORTANT TO US.\nPLEASE CONTINUE TO HOLD.", "footer": "A MESSAGE FROM THE COMPANY"},
+    {"id": "voss_robotics", "source": "company", "title": "VOSS' ROBOTIC LABS", "body": "INNOVATION. PRECISION. ROBOTICS.\nHAVE A PRODUCTIVE DAY.", "footer": "A MESSAGE FROM THE COMPANY"},
+    {"id": "psa_flashlight", "source": "safety", "title": "SAFETY NOTICE", "body": "POINTING A FLASHLIGHT AT A HUNTER\nDOES NOT MAKE HER GO AWAY.\nIT MAKES HER LOOK.", "footer": "THIS HAS BEEN A SAFETY NOTICE"},
+    {"id": "psa_running", "source": "safety", "title": "SAFETY NOTICE", "body": "NO RUNNING IN THE HALLS.\nALSO NO WALKING.\nPLEASE STAND STILL.", "footer": "FACILITY MANAGEMENT THANKS YOU"},
+    {"id": "psa_lockers", "source": "safety", "title": "SAFETY NOTICE", "body": "LOCKERS ARE FOR STORAGE.\nYOU ARE BEING STORED.", "footer": "REPORT ANY LOOSE RUNNERS"},
+    {"id": "psa_cheats", "source": "safety", "title": "A FRIENDLY REMINDER", "body": "THE HALLS NOTICE\nWHEN YOU BEND THE RULES.", "footer": "THEY ALWAYS NOTICE"},
+    {"id": "sponsor_stand_still", "source": "hunter", "hunter": "aki", "title": "SPONSORED BY {hunter}", "body": "\"SORRY.\nPLEASE JUST STAND STILL.\nIT'S EASIER FOR BOTH OF US.\"", "footer": "{hunter} // HUNTER-APPROVED ADVICE"},
+    {"id": "sponsor_show", "source": "hunter", "hunter": "briselle", "title": "{hunter} PRESENTS", "body": "TONIGHT ONLY:\nYOUR LAST PERFORMANCE.\nFRONT ROW SEATS: YOU.", "footer": "APPLAUSE, PLEASE"},
+    {"id": "sponsor_vents", "source": "hunter", "hunter": "verrine", "title": "{hunter} RECOMMENDS", "body": "STAY OUT OF THE VENTS.\nTHEY'RE MINE.", "footer": "{hunter} // NOT TAKING VISITORS"},
+    {"id": "sponsor_relay", "source": "hunter", "hunter": "opalie", "title": "BROUGHT TO YOU BY {hunter}", "body": "THIS RELAY IS RESERVED.\nI'M TELLING EVERYONE YOU'RE HERE!", "footer": "{hunter} // LOUDLY KEEPING WATCH"},
+    {"id": "night_watch_hiring", "source": "lore", "title": "NIGHT WATCH", "body": "NOW HIRING FOR THE NIGHT SHIFT.\nWATCH THE CAMERAS.\nTHE CAMERAS WATCH BACK.", "footer": "SHIFT ENDS AT 6 AM // ALLEGEDLY"},
+    {"id": "route_travel", "source": "lore", "title": "VISIT THE ROUTE", "body": "ENDLESS HALLS. ENDLESS FLOORS.\nENDLESS STAY.", "footer": "CHECK-OUT TIME: NEVER"},
+    {"id": "route_relays", "source": "lore", "title": "RELAYS: COLLECT THEM ALL", "body": "THE MORE YOU COLLECT,\nTHE MORE THEY COLLECT YOU.", "footer": "THE ROUTE // TERMS APPLY"}
+  ]
+}

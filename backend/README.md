@@ -331,9 +331,9 @@ are never restricted automatically, only by an owner.
 | `/api/moderation/integrity` | `sessionToken?, deviceId?, commit, buildHash, platform, channel, context` | `{ok, known, status}` |
 | `/api/moderation/report` | `code, hostToken, username?, deviceId?, reason, strikes, kind:"kick"` | `{ok, flagged, status}` |
 | `/api/moderation/status` | `sessionToken?, deviceId?` | `{ok, status}` |
-| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` |
+| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` (players also carry `ads`) |
 | `/api/admin/flags` | `sessionToken` | `{ok, accounts, reviews:[NAME with open reviews], builds}` |
-| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|dismiss), hours?, note?` | `{ok, record}` |
+| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|ads_on\|ads_off\|dismiss), hours?, note?` | `{ok, record}` |
 | `/api/admin/builds/add` / `remove` | `sessionToken, buildHash, commit?, note?` | `{ok, build?, removed?, builds}` |
 
 `status` is `{flagged, permanent, until, reason, troll, restrictions:{publicRoute, hostPublic, skinUpload},

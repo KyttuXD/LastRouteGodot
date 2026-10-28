@@ -340,6 +340,17 @@ func _build_focus_pause_row() -> void:
 			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
 		row.add_child(move_button)
 	add_child(row)
+	# In-world ads (flavour, TrollAds): OFF / GENTLE / ANNOYING, OFF by default. Troll mode overrides it for cheaters.
+	var ads_button := Button.new()
+	ads_button.name = "AdsModeButton"
+	ads_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ads_button.tooltip_text = "In-world joke ads on shop signs, plus pop-ups (GENTLE: rare, skip any time; ANNOYING: frequent, sneaky skip)."
+	ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper()
+	ads_button.pressed.connect(func() -> void:
+		var modes: Array = TrollAds.MODES
+		Settings.set_ads_mode(modes[(modes.find(Settings.ads_mode) + 1) % modes.size()])
+		ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper())
+	$DisplayRow.add_child(ads_button)
 
 
 ## AUDIO: spoken chat volume, and voices / subtitles toggles (voices off = subtitles only).
