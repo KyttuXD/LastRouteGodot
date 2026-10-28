@@ -441,6 +441,14 @@ func run(host: Node) -> int:
 		_expect(float(hard[field]) >= low - .0001 and float(hard[field]) <= high + .0001,
 			"Hard %s is %.3f, outside the Standard/Nightmare range %.3f..%.3f" % [
 				field, float(hard[field]), low, high])
+	# the approved tweak table for Hard (docs/HUNTER_HARD_ABILITIES.md)
+	var approved_hard := {"hunter_sight": 1.10, "hunter_hearing": 1.12, "search_time": 4.0, "lost_sight_grace": 3.6,
+		"stamina_drain": 12.0, "hide_tell": 1.3, "hide_trail": 3.5, "hide_cooldown": 16.0, "hide_random": .25,
+		"taser_stun": 2.4, "taser_cooldown": 9.0, "escape_stun": 2.6, "spawn_distance": 11.0, "emote_chase_scale": .5,
+		"emote_spot_p": .15, "relay_alert_radius": 18.0, "relay_alert_chance": 1.0}
+	for field in approved_hard:
+		_expect(is_equal_approx(float(hard[field]), float(approved_hard[field])),
+			"Hard %s is %.3f, the approved table says %.3f" % [field, float(hard[field]), float(approved_hard[field])])
 	for difficulty_id in ["relaxed", "standard", "hard", "nightmare"]:
 		GameState.start_new_run(12345, difficulty_id)
 		_expect(not GameState.game_over,
