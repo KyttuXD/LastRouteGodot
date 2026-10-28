@@ -81,10 +81,13 @@ export function createEnetRelay({
   maximumGuestsPerRoom = 15,
   guestAllocationWindowMs = 10_000,
   maximumGuestAllocationsPerAddress = 4,
+  // A 4-player room moves ~400 KB/s through one host endpoint; the kernel default (~208 KB on Linux) leaves
+  // little room for an event-loop pause. Linux caps this at net.core.rmem_max / wmem_max.
+  socketBufferBytes = 4 * 1024 * 1024,
 } = {}) {
   if (typeof roomByCode !== "function") throw new TypeError("roomByCode is required");
 
-  const socket = createSocket("udp4");
+  const socket = createSocket({ type: "udp4", recvBufferSize: socketBufferBytes, sendBufferSize: socketBufferBytes });
   const hosts = new Map();
   const sessions = new Map();
   const guestSessions = new Map();
@@ -94,11 +97,24 @@ export function createEnetRelay({
   let listening = false;
   let relayPort = 0;
   let lastError = "";
+  // What happened to every datagram since start; relayStatus() reports it so a deploy shows real numbers.
+  const counters = {
+    forwardedGuest: 0,
+    forwardedHost: 0,
+    forwardedBytes: 0,
+    droppedInvalid: 0,
+    droppedUnknownSession: 0,
+    droppedNoHost: 0,
+    droppedWrongEndpoint: 0,
+    sendErrors: 0,
+  };
 
   function send(type, sessionId, code, payload, endpoint) {
     if (!endpoint || !listening) return;
     const frame = encodeRelayFrame(type, sessionId, code, payload);
-    socket.send(frame, endpoint.port, endpoint.address);
+    socket.send(frame, endpoint.port, endpoint.address, (error) => {
+      if (error) counters.sendErrors += 1;
+    });
   }
 
   function sendError(code, endpoint, message) {
@@ -212,7 +228,10 @@ export function createEnetRelay({
 
   socket.on("message", (packet, remote) => {
     const frame = decodeRelayFrame(packet);
-    if (!frame) return;
+    if (!frame) {
+      counters.droppedInvalid += 1;
+      return;
+    }
     const endpoint = { address: remote.address, port: remote.port };
     const room = roomByCode(frame.code);
 
@@ -289,22 +308,46 @@ export function createEnetRelay({
     }
 
     const session = sessions.get(frame.sessionId);
-    if (!session || session.code !== frame.code || !room) return;
+    if (!session || session.code !== frame.code || !room) {
+      counters.droppedUnknownSession += 1;
+      return;
+    }
 
     if (frame.type === RelayFrame.GUEST_DATA) {
-      if (session.guest.address !== remote.address || session.guest.port !== remote.port) return;
+      if (session.guest.address !== remote.address || session.guest.port !== remote.port) {
+        counters.droppedWrongEndpoint += 1;
+        return;
+      }
       const host = hosts.get(frame.code);
-      if (!host || now() - host.lastSeen > hostTtlMs) return;
+      if (!host || now() - host.lastSeen > hostTtlMs) {
+        counters.droppedNoHost += 1;
+        return;
+      }
       session.lastSeen = now();
+      counters.forwardedGuest += 1;
+      counters.forwardedBytes += frame.payload.length;
       send(RelayFrame.GUEST_DATA, frame.sessionId, frame.code, frame.payload, host);
     } else if (frame.type === RelayFrame.HOST_DATA) {
       const host = hosts.get(frame.code);
-      if (!host || host.address !== remote.address || host.port !== remote.port) return;
+      if (!host || host.address !== remote.address || host.port !== remote.port) {
+        counters.droppedWrongEndpoint += 1;
+        return;
+      }
       host.lastSeen = now();
       session.lastSeen = now();
+      counters.forwardedHost += 1;
+      counters.forwardedBytes += frame.payload.length;
       send(RelayFrame.HOST_DATA, frame.sessionId, frame.code, frame.payload, session.guest);
     }
   });
+
+  function safeBufferSizes() {
+    try {
+      return { receive: socket.getRecvBufferSize(), send: socket.getSendBufferSize() };
+    } catch {
+      return undefined;
+    }
+  }
 
   socket.on("listening", () => {
     listening = true;
@@ -336,6 +379,8 @@ export function createEnetRelay({
     port: relayPort,
     hosts: hosts.size,
     sessions: sessions.size,
+    counters: { ...counters },
+    socketBuffers: listening ? safeBufferSizes() : undefined,
     error: lastError || undefined,
   });
   socket.requestHostMigration = (code) => beginHostMigration(String(code || "").trim().toUpperCase());

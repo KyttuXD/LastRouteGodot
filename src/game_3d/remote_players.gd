@@ -107,6 +107,11 @@ const PEER_LOOKUP_SECONDS := 30.0
 var _lookup_elapsed := PEER_LOOKUP_SECONDS - 2.0
 var _flag_noticed := {}
 var _send_seq := 0
+## PlayerStateWire: peer id -> wire version it has shown; its last profile; the profile hash last sent to it.
+var _wire_peers := {}
+var _profiles := {}
+var _profile_sent := {}
+var _hot_size_warned := false
 ## Proximity voice chat (created with the online room; null offline).
 var voice: VoiceChat
 
@@ -353,7 +358,39 @@ func _process(delta: float) -> void:
 	var state := _local_state()
 	_send_seq += 1
 	state["seq"] = _send_seq   # lets the host drop duplicated / reordered samples (GuestGuard)
-	_send_to_live(_place, [state])
+	_send_state(state)
+
+
+## Peers that have shown they read PlayerStateWire.VERSION get the small hot packet plus a reliable profile when it
+## changes; anyone else (an older build in the same room) keeps getting the full Dictionary, tagged so it can tell.
+func _send_state(state: Dictionary) -> void:
+	state["wire"] = PlayerStateWire.VERSION
+	var profile := PlayerStateWire.profile_of(state)
+	var profile_hash := profile.hash()
+	var hot: Array = []
+	for peer_id in multiplayer.get_peers():
+		if not peer_is_live(peer_id):
+			continue
+		if int(_wire_peers.get(peer_id, 0)) < PlayerStateWire.VERSION:
+			_place.rpc_id(peer_id, state)
+			continue
+		if int(_profile_sent.get(peer_id, 0)) != profile_hash:
+			_profile_sent[peer_id] = profile_hash
+			_wire_profile.rpc_id(peer_id, profile)
+		if hot.is_empty():
+			hot = PlayerStateWire.encode_hot(state)
+			_check_hot_size(hot, state)
+		_place.rpc_id(peer_id, hot)
+
+
+func _check_hot_size(hot: Array, state: Dictionary) -> void:
+	var size := PlayerStateWire.size_of(hot)
+	if size <= PlayerStateWire.HOT_MAX_BYTES or _hot_size_warned:
+		return
+	_hot_size_warned = true
+	push_warning("RemotePlayers: hot state packet is %d B (budget %d, MTU ~1392); unclassified keys %s, extras %s" % [
+		size, PlayerStateWire.HOT_MAX_BYTES, PlayerStateWire.unclassified(state),
+		hot[-1].keys() if hot[-1] is Dictionary else []])
 
 
 func _local_state() -> Dictionary:
@@ -482,10 +519,45 @@ func _visible_from_state(state: Dictionary, fallback: bool = true) -> bool:
 	return fallback
 
 
-@rpc("any_peer", "call_remote", "unreliable_ordered")
-func _place(state: Dictionary) -> void:
+## A sample as the long-key Dictionary every reader expects: a hot packet plus that peer's last profile, or an older
+## build's full Dictionary (whose `wire` tag, when present, says the peer reads the hot packet too). {} = drop it.
+func _unpack_state(id: int, packet: Variant) -> Dictionary:
+	if packet is Array:
+		var state := PlayerStateWire.decode_hot(packet)
+		if state.is_empty():
+			return {}
+		_wire_peers[id] = PlayerStateWire.VERSION
+		state.merge(_profiles.get(id, {}), false)
+		return state
+	if packet is Dictionary:
+		var full: Dictionary = packet
+		if int(full.get("wire", 0)) >= PlayerStateWire.VERSION:
+			_wire_peers[id] = PlayerStateWire.VERSION
+		_profiles[id] = PlayerStateWire.profile_of(full)
+		return full
+	return {}
+
+
+## Reliable, sent only when it changes: a peer's identity / skin / inventory / admin flags (PlayerStateWire).
+## The name sorts after every other RPC here, so older builds keep the same RPC ids for the rest.
+@rpc("any_peer", "call_remote", "reliable")
+func _wire_profile(profile: Dictionary) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	if id <= 0 or id == multiplayer.get_unique_id():
+		return
+	var kept := PlayerStateWire.profile_of(profile)
+	_profiles[id] = kept
+	if _states.has(id):
+		(_states[id] as Dictionary).merge(kept, true)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _place(packet: Variant) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if id <= 0 or id == multiplayer.get_unique_id():
+		return
+	var state := _unpack_state(id, packet)
+	if state.is_empty():
 		return
 	var at = state.get("at")
 	var grid = state.get("position")
@@ -953,6 +1025,9 @@ func _drop(id: int) -> void:
 	_remote_swing_seq.erase(id)
 	_remote_swing_tweens.erase(id)
 	_states.erase(id)
+	_wire_peers.erase(id)
+	_profiles.erase(id)
+	_profile_sent.erase(id)
 	troll_peers.erase(id)
 	guard.forget(id)
 	_interaction_times.erase(id)

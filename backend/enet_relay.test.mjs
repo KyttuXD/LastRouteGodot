@@ -30,6 +30,14 @@ function receive(socket, timeoutMs = 1000) {
   });
 }
 
+async function waitFor(check, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("condition not reached");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function send(socket, port, frame) {
   socket.send(frame, port, "127.0.0.1");
 }
@@ -88,7 +96,8 @@ test("authenticated relay tunnels ENet datagrams through one public UDP port", a
     assert.equal(atGuest.type, RelayFrame.HOST_DATA);
     assert.deepEqual(atGuest.payload, response);
 
-    assert.deepEqual(relay.relayStatus(), {
+    const { counters, socketBuffers, ...status } = relay.relayStatus();
+    assert.deepEqual(status, {
       enabled: true,
       listening: true,
       port: relayPort,
@@ -96,6 +105,22 @@ test("authenticated relay tunnels ENet datagrams through one public UDP port", a
       sessions: 1,
       error: undefined,
     });
+    assert.equal(counters.forwardedGuest, 1);
+    assert.equal(counters.forwardedHost, 1);
+    assert.equal(counters.forwardedBytes, request.length + response.length);
+    assert.ok(socketBuffers.receive > 0 && socketBuffers.send > 0, "buffer sizes are reported");
+
+    // Every datagram the relay refuses is counted, so a deploy shows where co-op traffic goes.
+    send(attacker, relayPort, encodeRelayFrame(
+      RelayFrame.GUEST_DATA, joined.sessionId, room.code, request));
+    send(attacker, relayPort, encodeRelayFrame(
+      RelayFrame.GUEST_DATA, joined.sessionId ^ 1, room.code, request));
+    send(attacker, relayPort, Buffer.from("not a relay packet"));
+    await waitFor(() => {
+      const seen = relay.relayStatus().counters;
+      return seen.droppedWrongEndpoint === 1 && seen.droppedUnknownSession === 1 && seen.droppedInvalid === 1;
+    });
+    assert.equal(relay.relayStatus().counters.forwardedGuest, 1, "refused frames are not forwarded");
   } finally {
     host.close();
     guest.close();

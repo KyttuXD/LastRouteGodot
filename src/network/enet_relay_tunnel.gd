@@ -28,6 +28,10 @@ const HOST_REGISTER_INTERVAL_MSEC := 3000
 const GUEST_JOIN_INTERVAL_MSEC := 750
 const BRIDGE_TTL_MSEC := 60_000
 const MAX_PENDING_PACKETS := 64
+# PacketPeerUDP's ring buffer defaults to 64 KB and is drained once per frame. A 4-player room pushes ~400 KB/s
+# through the host's relay socket, so any frame over ~160 ms overflowed it ("Buffer full, dropping packets!" in
+# VIDEO's co-op logs, 2026-10-28) and dropped ENet fragments. 1 MB rides out multi-second hitches.
+const RECEIVE_BUFFER_BYTES := 1 << 20
 const MAGIC_BYTES := [76, 82, 82, 49] # "LRR1"
 
 var mode: Mode = Mode.CLOSED
@@ -134,7 +138,7 @@ func _open(code: String, address: String, port: int) -> String:
 			or relay_port < 1 or relay_port > 65_535:
 		return "INVALID GAMEPLAY RELAY ENDPOINT"
 	_socket = PacketPeerUDP.new()
-	var error := _socket.bind(0, "0.0.0.0")
+	var error := _socket.bind(0, "0.0.0.0", RECEIVE_BUFFER_BYTES)
 	if error != OK:
 		_socket = null
 		return "COULD NOT OPEN OUTBOUND GAMEPLAY RELAY (%d)" % error
@@ -247,7 +251,7 @@ func _forward_to_host_enet(session: int, packet: PackedByteArray) -> void:
 	var bridge = entry.get("peer") as PacketPeerUDP
 	if bridge == null:
 		bridge = PacketPeerUDP.new()
-		if bridge.bind(0, "127.0.0.1") != OK:
+		if bridge.bind(0, "127.0.0.1", RECEIVE_BUFFER_BYTES) != OK:
 			return
 		entry = {"peer": bridge, "last_seen": Time.get_ticks_msec()}
 		_bridges[session] = entry
@@ -289,7 +293,7 @@ func _send_relay(kind: int, session: int, payload: PackedByteArray) -> void:
 static func encode_frame(kind: int, session: int, code: String,
 		payload := PackedByteArray()) -> PackedByteArray:
 	var result := PackedByteArray()
-	result.resize(HEADER_BYTES + payload.size())
+	result.resize(HEADER_BYTES)
 	for index in 4:
 		result[index] = MAGIC_BYTES[index]
 	result[4] = kind
@@ -297,8 +301,8 @@ static func encode_frame(kind: int, session: int, code: String,
 	var code_bytes := code.to_ascii_buffer()
 	for index in 5:
 		result[9 + index] = code_bytes[index] if index < code_bytes.size() else 0
-	for index in payload.size():
-		result[HEADER_BYTES + index] = payload[index]
+	# append_array, not a per-byte GDScript loop: ~30x cheaper at hundreds of frames a second
+	result.append_array(payload)
 	return result
 
 
