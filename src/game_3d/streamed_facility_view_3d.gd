@@ -402,6 +402,8 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	if PlatformProfile.maze_culling:
+		_update_maze_culling()
 	_ready_recheck -= _delta
 	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
 		_ready_recheck = .5
@@ -592,6 +594,102 @@ func _thinned_out(prop: Dictionary, type: String) -> bool:
 			or not PropModelCatalog.interaction_for(type).is_empty():
 		return false
 	return absi(hash(String(prop.get("id", "")) + ":thin")) % 100 >= int(density * 100.0)
+
+
+## Maze culling (every renderer, the web included): when the runner enters a new cell, a worker floods out through open
+## cells (closed room doors block) to MAZE_CULL_RADIUS metres and the prop visuals on the runner's level whose cell the
+## flood did not reach are hidden. Any straight line of sight through the maze is a run of open cells, so the flood is
+## a superset of what can be seen; one extra ring of cells covers lines that graze a corner. Only visuals hide:
+## colliders, hunters, audio and lamps are untouched. scripts/validate_maze_culling.gd guards against popping.
+const MAZE_CULL_RADIUS := 64
+var _cull_task := -1
+var _cull_result := {}
+var _cull_cell := Vector2i(999999, 999999)
+var _cull_level := 999999
+var _cull_visible := {}
+var maze_cull_hidden := 0
+var maze_cull_props := 0
+
+
+func _update_maze_culling() -> void:
+	if _cull_task != -1:
+		if not WorkerThreadPool.is_task_completed(_cull_task):
+			return
+		WorkerThreadPool.wait_for_task_completion(_cull_task)
+		_cull_task = -1
+		_cull_visible = _cull_result.get("visible", {})
+		_apply_maze_culling()
+	var local := tracked_player.global_position - global_position
+	var cell := Vector2i(floori(local.x), floori(local.z))
+	var level := current_level()
+	if cell == _cull_cell and level == _cull_level:
+		return
+	_cull_cell = cell
+	_cull_level = level
+	var grids := {}
+	for coord_value in _loaded:
+		var coord: Vector3i = coord_value
+		if coord.y == level and _chunk_data.has(coord):
+			grids[Vector2i(coord.x, coord.z)] = (_chunk_data[coord] as Dictionary).get("grid", [])
+	var closed := {}
+	for door_value in _door_nodes.values():
+		var door := door_value as Node3D
+		if door != null and is_instance_valid(door) and not bool(door.get("room_door_open")):
+			var at := door.global_position - global_position
+			if floori(at.y / LEVEL_HEIGHT + .5) == level:
+				closed[Vector2i(floori(at.x), floori(at.z))] = true
+	var result := {}
+	_cull_result = result
+	_cull_task = WorkerThreadPool.add_task(func() -> void:
+		result["visible"] = maze_visible_cells(grids, closed, cell, MAZE_CULL_RADIUS), false, "maze culling")
+
+
+## Cells reachable through open cells from `start` within `radius` (closed doors block), plus one ring around them.
+static func maze_visible_cells(grids: Dictionary, closed: Dictionary, start: Vector2i, radius: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var open := func(c: Vector2i) -> bool:
+		var chunk := Vector2i(floori(float(c.x) / size), floori(float(c.y) / size))
+		var grid: Array = grids.get(chunk, [])
+		if grid.is_empty() or closed.has(c):
+			return false
+		var lx := posmod(c.x, size)
+		var lz := posmod(c.y, size)
+		return lz < grid.size() and lx < (grid[lz] as Array).size() and int(grid[lz][lx]) == 0
+	var seen := {start: true}
+	var frontier: Array[Vector2i] = [start]
+	var r2 := radius * radius
+	while not frontier.is_empty():
+		var c: Vector2i = frontier.pop_back()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = c + d
+			if seen.has(n) or (n - start).length_squared() > r2 or not open.call(n):
+				continue
+			seen[n] = true
+			frontier.append(n)
+	var out := seen.duplicate()
+	for c in seen:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				out[Vector2i(c.x + dx, c.y + dz)] = true
+	return out
+
+
+func _apply_maze_culling() -> void:
+	var hidden := 0
+	var total := 0
+	for node in get_tree().get_nodes_in_group("cull_prop"):
+		var prop := node as Node3D
+		var root := prop.get_parent() as Node3D
+		if root == null or not root.visible or roundi(root.position.y / LEVEL_HEIGHT) != _cull_level:
+			continue
+		total += 1
+		var show := _cull_visible.has(prop.get_meta("cull_cell", Vector2i.ZERO))
+		if prop.visible != show:
+			prop.visible = show
+		if not show:
+			hidden += 1
+	maze_cull_hidden = hidden
+	maze_cull_props = total
 
 
 ## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
@@ -3046,6 +3144,10 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	visual.rotation.y = PropModelCatalog.authored_visual_yaw(yaw)
 	visual.set_meta("streamed_prop_type", prop_type)
 	visual.set_meta("streamed_prop_bounds", visual_bounds)
+	# maze culling: the world cell this prop stands in (its visual hides when no open path of sight reaches the cell)
+	var world_at := (parent.position if parent != null else Vector3.ZERO) + at
+	visual.set_meta("cull_cell", Vector2i(floori(world_at.x), floori(world_at.z)))
+	visual.add_to_group("cull_prop")
 	visual.add_to_group(group_name)
 	_limit_prop_visibility(visual, visual_bounds, prop_type)
 	parent.add_child(visual)
