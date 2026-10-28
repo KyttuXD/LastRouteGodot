@@ -85,3 +85,14 @@ optional `hunter` / `shop` placeholders) so the data registry can absorb it. Mal
 - Shop signs within 14 m swap to ad titles every 8 s and go back when ads stop.
 - Validator: `anti_cheat` (data has no links or prices, schedule cap and blocking, live route: normal player none,
   ads-off none, trolled player gets one with the countdown, death screen closes and blocks it, troll off stops it).
+
+### Ads for everyone (opt-in)
+
+`Settings.ads_mode` (DISPLAY tab, "ADS: OFF / GENTLE / ANNOYING", saved under `[gameplay] ads_mode`), OFF by default:
+- GENTLE: shop signs swap to ads, plus rare pop-ups (first after 2 min, 5 min apart, at most 2 per 10 min) with a plain
+  SKIP that works at once and never moves.
+- ANNOYING: the troll profile by choice (countdown, hopping SKIP AD, 12 s / 40 s / 6 per 10 min).
+- Troll mode forces ANNOYING whatever the setting (an owner's `ads_off` turns it off instead); the cheater can't
+  change it.
+- Every mode: never during a chase, in VR, over a capture, escape, death screen, spectating or a menu.
+- Preview: `godot --path . res://tools/capture_troll_ad.tscn -- annoying|gentle` saves `captures/troll_ad_<mode>.png`.

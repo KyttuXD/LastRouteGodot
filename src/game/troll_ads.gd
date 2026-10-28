@@ -6,8 +6,11 @@ extends RefCounted
 ## purchases or tracking. This is the schedule and the content; TrollAdOverlay draws the pop-up and the route swaps
 ## nearby shop signs.
 ##
-## Cap: at most MAX_PER_WINDOW pop-ups per WINDOW_SECONDS, MIN_GAP_SECONDS apart, each COUNTDOWN_SECONDS long before
-## its (moving) SKIP AD works. Never while `blocked` (caught, escaping, death screen, menus).
+## Modes (Settings.ads_mode for normal players, OFF by default; troll mode forces ANNOYING):
+## - "gentle": shop signs swap, rare pop-ups (GENTLE profile) with a plain Skip that works at once;
+## - "annoying": the troll experience: frequent pop-ups with a countdown and a SKIP AD that hops away first.
+## Cap per profile: at most `max` pop-ups per WINDOW_SECONDS, `gap` apart, the first `first` seconds after turning on.
+## Never while `blocked` (caught, escaping, death screen, menus, a chase, VR) in any mode.
 
 const PATH := "res://assets/data/troll_ads.json"
 const COUNTDOWN_SECONDS := 5.0
@@ -17,11 +20,17 @@ const WINDOW_SECONDS := 600.0
 const MAX_PER_WINDOW := 6
 const BILLBOARD_SWAP_SECONDS := 8.0
 const BILLBOARD_RANGE := 14.0
+const MODES := ["off", "gentle", "annoying"]
+const PROFILES := {
+	"gentle": {"first": 120.0, "gap": 300.0, "max": 2, "countdown": 0.0, "dodges": 0},
+	"annoying": {"first": FIRST_DELAY_SECONDS, "gap": MIN_GAP_SECONDS, "max": MAX_PER_WINDOW,
+		"countdown": COUNTDOWN_SECONDS, "dodges": 2},
+}
 
 static var _ads: Array = []
 
 var _shown_at: Array[float] = []
-var _enabled := false
+var mode := "off"
 var _enabled_at := 0.0
 var _rng := RandomNumberGenerator.new()
 
@@ -59,25 +68,37 @@ func pick() -> Dictionary:
 	return render(ads[_rng.randi() % ads.size()]) if not ads.is_empty() else {}
 
 
-## Call when ads turn on (or off: `on` false) so the first pop-up waits FIRST_DELAY_SECONDS.
-func set_enabled(on: bool, now: float) -> void:
-	_enabled = on
+## Switches the mode ("off" / "gentle" / "annoying"); the first pop-up then waits the profile's `first` seconds.
+func set_mode(value: String, now: float) -> void:
+	value = value if value in MODES else "off"
+	if value == mode:
+		return
+	mode = value
 	_enabled_at = now
 
 
+func set_enabled(on: bool, now: float) -> void:
+	set_mode("annoying" if on else "off", now)
+
+
 func enabled() -> bool:
-	return _enabled
+	return mode != "off"
+
+
+func profile() -> Dictionary:
+	return PROFILES.get(mode, PROFILES["gentle"])
 
 
 ## Whether a pop-up may start now. `blocked`: caught / escaping / death screen / a menu open.
 func due(now: float, blocked: bool) -> bool:
-	if not enabled() or blocked or now - _enabled_at < FIRST_DELAY_SECONDS:
+	var rules := profile()
+	if not enabled() or blocked or now - _enabled_at < float(rules["first"]):
 		return false
 	while not _shown_at.is_empty() and now - _shown_at[0] > WINDOW_SECONDS:
 		_shown_at.pop_front()
-	if _shown_at.size() >= MAX_PER_WINDOW:
+	if _shown_at.size() >= int(rules["max"]):
 		return false
-	return _shown_at.is_empty() or now - _shown_at[-1] >= MIN_GAP_SECONDS
+	return _shown_at.is_empty() or now - _shown_at[-1] >= float(rules["gap"])
 
 
 func mark_shown(now: float) -> void:

@@ -8,6 +8,10 @@ extends CanvasLayer
 signal closed
 
 const SKIP_DODGES := 2
+## In the UI's base pixels (the 440x254 canvas): about two thirds of the width, so the run stays visible around it.
+const PANEL_WIDTH := 280.0
+
+var _max_dodges := SKIP_DODGES
 
 var ad := {}
 var remaining := 0.0
@@ -30,31 +34,32 @@ func _ready() -> void:
 	_panel = PanelContainer.new()
 	_panel.name = "AdPanel"
 	_panel.add_theme_stylebox_override("panel", Palette.panel_box(Color(0.06, 0.04, 0.09, 0.96), Color(1.0, 0.55, 0.8)))
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.custom_minimum_size = Vector2(440, 250)
-	_panel.position = Vector2(-220, -125)
+	_panel.custom_minimum_size = Vector2(PANEL_WIDTH, 0)
+	_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	root.add_child(_panel)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
+	column.add_theme_constant_override("separation", 4)
 	_panel.add_child(column)
 	var tag := Label.new()
-	Palette.style_label(tag, Color(1.0, 0.85, 0.3), 12)
+	Palette.style_label(tag, Color(1.0, 0.85, 0.3), 6)
 	tag.text = Palette.track("ADVERTISEMENT")
 	column.add_child(tag)
 	_title = Label.new()
-	Palette.style_label(_title, Color(1.0, 0.55, 0.8), 26)
+	Palette.style_label(_title, Color(1.0, 0.55, 0.8), 12)
 	column.add_child(_title)
 	_body = Label.new()
-	Palette.style_label(_body, Color(0.92, 0.95, 0.95), 16)
+	Palette.style_label(_body, Color(0.92, 0.95, 0.95), 8)
 	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_body)
 	_footer = Label.new()
-	Palette.style_label(_footer, Color(0.55, 0.95, 0.95), 11)
+	Palette.style_label(_footer, Color(0.55, 0.95, 0.95), 6)
 	column.add_child(_footer)
 	var row := HBoxContainer.new()
 	column.add_child(row)
 	_count = Label.new()
-	Palette.style_label(_count, Color(1.0, 0.85, 0.3), 14)
+	Palette.style_label(_count, Color(1.0, 0.85, 0.3), 7)
 	row.add_child(_count)
 	_hop = Control.new()   # the gap SKIP AD hops across
 	_hop.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -69,9 +74,12 @@ func _ready() -> void:
 	visible = false
 
 
-func show_ad(value: Dictionary) -> void:
+## `rules`: a TrollAds profile (countdown, dodges). Gentle ads skip at once with a Skip that stays put.
+func show_ad(value: Dictionary, rules: Dictionary = TrollAds.PROFILES["annoying"]) -> void:
 	ad = value
-	remaining = TrollAds.COUNTDOWN_SECONDS
+	remaining = float(rules.get("countdown", TrollAds.COUNTDOWN_SECONDS))
+	_max_dodges = int(rules.get("dodges", SKIP_DODGES))
+	_skip.text = "SKIP AD >" if _max_dodges > 0 else "SKIP"
 	_dodges = 0
 	_title.text = String(ad.get("title", ""))
 	_body.text = String(ad.get("body", ""))
@@ -107,7 +115,7 @@ func _refresh() -> void:
 
 ## The fake SKIP AD runs away a couple of times before it lets you click it.
 func _dodge() -> void:
-	if remaining > 0.0 or _dodges >= SKIP_DODGES:
+	if remaining > 0.0 or _dodges >= _max_dodges:
 		return
 	_dodges += 1
 	# Jump to the other end of the row: swap the gap from before the button to after it.
@@ -118,7 +126,7 @@ func _dodge() -> void:
 func _on_skip() -> void:
 	if remaining > 0.0:
 		return
-	if _dodges < SKIP_DODGES:
+	if _dodges < _max_dodges:
 		_dodge()
 		return
 	dismiss()
