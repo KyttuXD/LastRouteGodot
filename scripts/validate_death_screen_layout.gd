@@ -25,6 +25,7 @@ func run(host: Node) -> int:
 	for size in SIZES:
 		await _check_layers(host, size)
 	await _check_flow(host)
+	await _check_main_3d(host)
 	if _failures == 0:
 		print("  death_screen_layout  the death line and the run card lay out clean at %d sizes, never together; the HUD is hidden for both" % SIZES.size())
 		print("death_screen_layout OK")
@@ -112,4 +113,32 @@ func _check_flow(host: Node) -> void:
 	_expect(route.run_report.is_open() and not bool(state["waited"]), "the run card did not open once the line was dismissed")
 	route._respawn_after_death_for_test() if route.has_method("_respawn_after_death_for_test") else null
 	route.queue_free()
+	await host.get_tree().process_frame
+
+
+## The solo/co-op scene (main_3d.gd), KT's exact case: "YOU DIED / CAUGHT BY AKI" with the catcher's box ("AKI: Sorry about earlier..") drawn on top of the card. The card is asked to open while the line is up (online the line is
+## not awaited): it must wait, and open once the line is dismissed, with the HUD hidden for both.
+func _check_main_3d(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "DEATH-MAIN"
+	var scene: Node = (load("res://scenes/main_3d.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	for i in 10:
+		await host.get_tree().process_frame
+	var picked := {"text": "Sorry about earlier.. and about everything after it, if I am honest with you.", "source": "hunter", "style": ""}
+	scene._death_moment.play("AKI", picked, false)
+	scene.hud.set_death_flow(true)
+	for i in 6:
+		await host.get_tree().process_frame
+	scene._enter_game_over()
+	for i in 6:
+		await host.get_tree().process_frame
+	_expect(scene._death_moment.is_open() and not scene.run_report.is_open(), "main_3d: the run card opened over the catcher's line")
+	_expect(scene.hud.hud_is_hidden(), "main_3d: the HUD is showing under the death line")
+	scene._death_moment.dismiss()
+	for i in 6:
+		await host.get_tree().process_frame
+	_expect(scene.run_report.is_open() and not scene._death_moment.is_open(), "main_3d: the run card did not open once the line was dismissed")
+	_expect(scene.hud.hud_is_hidden(), "main_3d: the HUD came back under the run card")
+	scene.queue_free()
 	await host.get_tree().process_frame
