@@ -322,3 +322,7 @@ openxr/foveation_level=3
 openxr/foveation_dynamic=true
 openxr/startup_alert=false
 shaders/enabled=true
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/kyttu_installer/plugin.cfg")

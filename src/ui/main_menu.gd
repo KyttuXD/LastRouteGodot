@@ -64,6 +64,9 @@ func _ready() -> void:
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
 	_refresh_account_button()
 	# version_label.text = "VERSION %s // %s // %s" % [Build.VERSION, Build.update_channel().to_upper(), Build.short_revision().to_upper()]
+	if version_label != null and UpdateManager.is_mobile_package() and Build.revision() != Build.SOURCE_REVISION:
+		# Phone and Quest builds update by commit: show which one this is (desktop keeps its label as it was).
+		version_label.text = "VERSION %s // BUILD %s" % [Build.VERSION, Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
 	if Build.requires_update_gate():

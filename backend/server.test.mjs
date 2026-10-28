@@ -631,6 +631,33 @@ test("serves validated debug/release update manifests", async () => {
   }
 });
 
+test("phone and quest channels publish APKs only with a revision and a build number", async () => {
+  const sha256 = "e".repeat(64);
+  const app = await fixtureWith(() => createLastRouteServer({
+    updates: {
+      debug: {
+        phone: { version: "0.0.1.0", revision: "f".repeat(40), build: 812, url: "https://example.test/phone.apk", bytes: 9, sha256 },
+        quest: { version: "0.0.1.0", revision: "f".repeat(40), url: "https://example.test/quest.apk", sha256 },
+      },
+      release: { phone: { version: "0.0.1.0", build: 900, url: "https://example.test/phone.apk", sha256 } },
+    },
+  }));
+  try {
+    let response = await fetch(`${app.url}/api/updates/debug/phone`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.update.build, 812);
+    assert.equal(payload.update.revision, "f".repeat(40));
+    assert.equal(payload.update.url, "https://example.test/phone.apk");
+    response = await fetch(`${app.url}/api/updates/debug/quest`);
+    assert.equal(response.status, 404, "a quest APK without a build number must not be offered");
+    response = await fetch(`${app.url}/api/updates/release/phone`);
+    assert.equal(response.status, 404, "a phone APK without a revision must not be offered");
+  } finally {
+    await app.close();
+  }
+});
+
 test("reloads update metadata without restarting the backend", async () => {
   const sha256 = "d".repeat(64);
   let revision = "a".repeat(40);
