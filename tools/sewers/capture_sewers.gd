@@ -81,6 +81,8 @@ func _run() -> void:
 	_player.global_position = Vector3(foot.x, level_y + .04, foot.y)
 	_view.refresh_at_tracked_player()
 	await _settle()
+	# up the ladder shaft from its foot: the lining runs from the vault to the open lid with no gap at either end
+	await _shot("ladder_looking_up", Vector3(foot.x, level_y + 1.4, foot.y) + away * .7, Vector3(foot.x, level_y + 6.0, foot.y) - away * .1)
 	var climber := _climbing_hunter(Vector3(foot.x, level_y + 1.4, foot.y) - away * .32, wall)
 	await _shot("sewer_hunter_climbing", Vector3(foot.x, level_y + 1.1, foot.y) + away * 2.3 + Vector3(.6, 0, .6),
 		Vector3(foot.x, level_y + 2.3, foot.y))
@@ -136,6 +138,9 @@ func _run() -> void:
 		await _settle()
 		await _shot("falls_cistern", base + Vector3(chamber.position.x + 1.5, low_y + 1.6, chamber.get_center().y - toward * 3.5),
 			lip + Vector3(0, low_y + 1.8, 0))
+		# up the drop at the lip a storey overhead
+		await _shot("falls_looking_up", base + Vector3(chamber.position.x + 1.5, low_y + 1.2, chamber.get_center().y - toward * 3.5),
+			lip + Vector3(0, level_y + .8, 0))
 	# 6c: a maze <-> sewer stairwell, looking up it from the foot and down it from the head, with the runner on the
 	# stairs half way (where its level flips): the other storey around the doorway must be built, not blank
 	var well := {}
@@ -226,6 +231,45 @@ func _run() -> void:
 			# KT's viewpoint: a few steps down the slope, looking down at the tunnel mouth
 			var part_way := ramp_head.lerp(ramp_foot, .35)
 			await _shot(tag + "_mouth", part_way + Vector3(0, 1.6, 0), ramp_foot + Vector3(0, 1.2, 0))
+	# 6e: the collector's vault along its north-south channel steps down under the first sewer's trench overhead
+	var low_level_y := float(SewerRouteGenerator.LOWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	_player.global_position = Vector3(c - half + .5, low_level_y + .04, c + 14.5)
+	_view.refresh_at_tracked_player()
+	await _settle()
+	await _shot("collector_channel_vault", Vector3(c - half + 1.2, low_level_y + 1.6, c + 14.5),
+		Vector3(c + 1.0, low_level_y + 3.0, c + 6.0))
+	# 6f: an outflow main across a walkway (KT: crawl under it or go round): from down the walkway, and crouched under it
+	var main := {}
+	var main_coord := Vector3i.ZERO
+	for cz in range(-3, 4):
+		for cx in range(-3, 4):
+			if main.is_empty():
+				for prop in _view.generator.chunk(Vector3i(cx, SewerRouteGenerator.LEVEL, cz))["region_props"]:
+					if bool((prop as Dictionary).get("outflow", false)):
+						main = prop
+						main_coord = Vector3i(cx, SewerRouteGenerator.LEVEL, cz)
+	if not main.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var corner := Vector3(main_coord.x * size, level_y, main_coord.z * size)
+		var middle: Vector2i = main["cell"]
+		var along: Vector2i = main["crawl_step"]
+		var at := corner + Vector3(middle.x + .5, 0, middle.y + .5)
+		var back := Vector3(along.x, 0, along.y)
+		_player.global_position = at + back * 6.0 + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		var to_wall: Vector2i = main["outflow_wall"]
+		var wall_dir := Vector3(to_wall.x, 0, to_wall.y)
+		DebugView.tool_override = true     # a capture tool, not a player: fullbright is allowed
+		for mode in [DebugView.Mode.OFF, DebugView.Mode.FULLBRIGHT]:
+			DebugView.set_mode(mode, get_viewport())
+			var tag := "" if mode == DebugView.Mode.OFF else "_fullbright"
+			await _shot("outflow_main" + tag, at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, 1.4, 0))
+			await _shot("outflow_crawl" + tag, at + back * 1.4 + Vector3(0, .8, 0), at - back * 3.0 + Vector3(0, .6, 0))
+			# across the channel from the far walkway: wall plate, run, elbow and the drop into the water
+			await _shot("outflow_across" + tag, at - wall_dir * 6.5 + back * 2.5 + Vector3(0, 1.6, 0),
+				at - wall_dir * 1.0 + Vector3(0, 1.2, 0))
+		DebugView.set_mode(DebugView.Mode.OFF, get_viewport())
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)
