@@ -872,6 +872,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		region_props, safe)
 	fixtures.append_array(_prop_hiding_fixtures(coord, region_props, safe))
 	var pickups := _pickups(coord, grid, stairs, safe, region_props, fixtures)
+	var music_boxes := _music_boxes(coord, grid, stairs, safe, region_props, fixtures, pickups)
 	var hunters := _hunter_spawns(coord, grid, stairs, safe, region_props)
 	return {
 		"schema": 2,
@@ -891,6 +892,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"region_props": region_props,
 		"fixtures": fixtures,
 		"pickups": pickups,
+		"music_boxes": music_boxes,
 		"hunter_spawns": hunters,
 		"dual_level_room": dual_level,
 		"floor_voids": floor_voids,
@@ -4617,6 +4619,43 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 			"item": item,
 		})
 	return result
+
+
+## Which chunks of a 4x4 region hold one of its MUSIC_BOXES_PER_REGION music boxes: picked from the region's own seed,
+## so every chunk agrees without loading its neighbours. A picked chunk that turns out to be a safe room keeps none.
+func music_box_chunk(coord: Vector3i) -> bool:
+	var region_x := floori(float(coord.x) / BIOME_REGION_SIZE)
+	var region_z := floori(float(coord.z) / BIOME_REGION_SIZE)
+	var rng := SeededRandom.new("%s:MUSICBOX:%d:%d:%d" % [world_seed, region_x, coord.y, region_z])
+	var slots: Array = range(BIOME_REGION_SIZE * BIOME_REGION_SIZE)
+	var local := (coord.x - region_x * BIOME_REGION_SIZE) + (coord.z - region_z * BIOME_REGION_SIZE) * BIOME_REGION_SIZE
+	for i in GameConfig.MUSIC_BOXES_PER_REGION:
+		var pick := rng.next_index(slots.size())
+		if int(slots[pick]) == local:
+			return true
+		slots.remove_at(pick)
+	return false
+
+
+## A music box (Glyra's counterplay, a random route item) on open floor clear of props, fixtures and pickups. Its own
+## seed, so adding it moved no other item.
+func _music_boxes(coord: Vector3i, grid: Array, stairs: Array, safe: bool, region_props: Array, fixtures: Array,
+		pickups: Array) -> Array:
+	if safe or not music_box_chunk(coord):
+		return []
+	var excluded := _stair_door_exclusion(stairs)
+	for entry in region_props + fixtures + pickups:
+		_exclude_neighbourhood(excluded, entry.get("cell", Vector2i.ZERO), 1)
+	var candidates := []
+	for z in range(1, CHUNK_SIZE - 1):
+		for x in range(1, CHUNK_SIZE - 1):
+			var cell := Vector2i(x, z)
+			if grid[z][x] == 0 and not excluded.has(cell) and _open_spawn_neighbourhood(grid, cell):
+				candidates.append(cell)
+	if candidates.is_empty():
+		return []
+	var rng := SeededRandom.new("%s:MUSICBOX-CELL:%s" % [world_seed, chunk_id(coord)])
+	return [{"id": "%s:music_box" % chunk_id(coord), "cell": candidates[rng.next_index(candidates.size())]}]
 
 
 static func _exclude_neighbourhood(excluded: Dictionary, cell: Vector2i,

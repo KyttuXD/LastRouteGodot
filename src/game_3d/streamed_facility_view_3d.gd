@@ -114,6 +114,8 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## The route scene's shared music-box clock; each box's tune follows it (MusicBoxTune).
+var music_boxes: MusicBoxes
 ## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
 var booth_requester: Callable
 var booth_reporter: Callable
@@ -1412,6 +1414,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					if not immediate:
 						return false
 					continue
+				_spawn_music_boxes(root, data)
 				build["phase"] = 7
 			7:
 				var pickups: Array = data.get("pickups", [])
@@ -3481,6 +3484,25 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 	parent.add_child(spot)
 	if not entity_id.is_empty():
 		_fixture_nodes[entity_id] = spot
+
+
+## Music boxes (at most one per chunk): hold [E] to wind, resolved by the route scene's player.music_box_resolver.
+func _spawn_music_boxes(parent: Node3D, data: Dictionary) -> void:
+	var coord: Vector3i = data.get("coord", Vector3i.ZERO)
+	for box_value in data.get("music_boxes", []):
+		var box: Dictionary = box_value
+		var cell: Vector2i = box.get("cell", Vector2i.ZERO)
+		var node := RouteInteractable3D.new()
+		node.kind = RouteInteractable3D.Kind.MUSIC_BOX
+		node.music_box_id = String(box.get("id", ""))
+		node.music_boxes = music_boxes
+		node.name = "MusicBox_%s" % node.music_box_id.replace(":", "_")
+		node.prompt_text = "HOLD INTERACT // WIND MUSIC BOX"
+		node.source_cell = Vector2i(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x,
+			coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y)
+		node.position = Vector3(cell.x + .5, .04, cell.y + .5)
+		node.add_to_group("streamed_music_box")
+		parent.add_child(node)
 
 
 func _spawn_pickups(parent: Node3D, data: Dictionary) -> void:

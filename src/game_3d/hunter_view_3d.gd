@@ -122,10 +122,13 @@ void vertex() {
 	along = clamp(0.5 - VERTEX.y / length_m, 0.0, 1.0);
 }
 void fragment() {
-	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 1.4);
+	// soft edges: the rim falls off steeply, so the cone's silhouette fades out instead of drawing a hard outline
+	float rim = pow(clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0), 2.6);
 	float pulse = 1.0 + 0.14 * sin(TIME * pulse_speed);
+	// a camera inside or right next to the cone sees it fade away instead of filling the screen
+	float near_fade = smoothstep(0.4, 3.0, length(VERTEX));
 	ALBEDO = beam_color.rgb;
-	ALPHA = clamp(strength * pulse * rim * (1.0 - along * 0.8), 0.0, 1.0);
+	ALPHA = clamp(strength * pulse * rim * near_fade * (1.0 - smoothstep(0.0, 1.0, along) * 0.9), 0.0, 0.35);
 }
 """
 const SCYTHE_PATH := "res://assets/props_3d/kathy_scythe.glb"
@@ -455,7 +458,7 @@ func _build_beam_visual() -> void:
 		cone.top_radius = 0.0
 		cone.bottom_radius = shell_radius if part == "Shell" else shell_radius * .28
 		cone.height = length
-		cone.radial_segments = 20
+		cone.radial_segments = 36   # enough sides that the soft rim does not show facets
 		cone.rings = 1
 		var material := ShaderMaterial.new()
 		material.shader = shader
@@ -490,12 +493,13 @@ func _update_beam_visual(delta: float) -> void:
 	if _beam_shell != null:
 		var shell := _beam_shell.material_override as ShaderMaterial
 		shell.set_shader_parameter("beam_color", _beam_color)
-		shell.set_shader_parameter("strength", lerpf(.22, .34, _beam_chase_mix) * dim)
+		# KT: "much less visible" -- about 30% of the old .22-.34; the light on the floor and walls carries the cue
+		shell.set_shader_parameter("strength", lerpf(.066, .10, _beam_chase_mix) * dim)
 		shell.set_shader_parameter("pulse_speed", pulse_speed)
 	if _beam_core != null:
 		var core := _beam_core.material_override as ShaderMaterial
 		core.set_shader_parameter("beam_color", _beam_color.lerp(Color.WHITE, .35))
-		core.set_shader_parameter("strength", lerpf(.5, .8, _beam_chase_mix) * dim)
+		core.set_shader_parameter("strength", lerpf(.15, .24, _beam_chase_mix) * dim)
 		core.set_shader_parameter("pulse_speed", pulse_speed)
 
 
@@ -543,6 +547,9 @@ func _head_mode() -> int:
 		HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH:
 			if has_look_target:
 				return HunterFacing.Mode.SWEEP
+		HunterBrain.State.INSPECT:
+			if brain.inspect_phase != HunterBrain.Inspect.WALK:
+				return HunterFacing.Mode.NONE   # the lean pose aims her face straight in at the slats
 	return HunterFacing.Mode.AHEAD if _facing.moving() else HunterFacing.Mode.SCAN
 
 
@@ -895,6 +902,8 @@ func _sync_peek_pose() -> void:
 	var wanted := ""
 	if brain.peeking_out() and brain.stun_timer <= 0.0:
 		wanted = "corner_peek_left" if brain.peek_side > 0 else "corner_peek_right"
+	elif brain.inspecting_close() and brain.stun_timer <= 0.0:
+		wanted = "locker_lean"   # bent in at the slats (HunterInspect); blends in over the shot's 1.6 s bow
 	if wanted == _peek_pose:
 		return
 	if wanted.is_empty():
@@ -902,8 +911,66 @@ func _sync_peek_pose() -> void:
 			nw_pose = ""
 	elif nw_pose.is_empty() or nw_pose == _peek_pose:
 		nw_pose = wanted
-		nw_pose_opts = {}
+		nw_pose_opts = {"blend": HunterInspect.LEAN_SECONDS} if wanted == "locker_lean" else {}
 	_peek_pose = wanted
+
+
+## Locker inspection: one close breath when she settles at the slats, heard only near the spot (the hider, mostly).
+var _breathed := false
+
+
+func _update_inspect_breath() -> void:
+	var lingering := brain.state == HunterBrain.State.INSPECT and brain.inspect_phase == HunterBrain.Inspect.LINGER
+	if not lingering:
+		_breathed = false
+		return
+	if _breathed or not is_inside_tree():
+		return
+	_breathed = true
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var gap := global_position.distance_to(camera.global_position)
+	if gap > 3.5:
+		return
+	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	var breaths := int(HunterInspect.tuning(brain.hunter_id)["breaths"])   # Nyxie's easter egg breathes twice, longer
+	for i in breaths:
+		if i > 0:
+			await get_tree().create_timer(1.1).timeout
+			if not is_inside_tree():
+				return
+		Sound.nw("breath", clampf(side, -1.0, 1.0), (1.0 - gap / 3.5 * .5) * (1.15 if breaths > 1 else 1.0))
+
+
+## Glyra hums while her music box plays and falls silent when it stops (GlyraGimmick.humming, replicated mood).
+var _hum: AudioStreamPlayer3D
+
+
+func _update_glyra_hum() -> void:
+	if not brain.gimmick is GlyraGimmick:
+		return
+	var on := brain.active and (brain.gimmick as GlyraGimmick).humming()
+	if _hum == null:
+		if not on:
+			return
+		_hum = AudioStreamPlayer3D.new()
+		_hum.name = "GlyraHum"
+		_hum.unit_size = 4.0
+		_hum.max_distance = 14.0
+		_hum.volume_db = 3.0
+		_hum.position = Vector3(0, 1.5, 0)
+		var hum := Sound.render_cue("glyra_hum").duplicate() as AudioStreamWAV
+		if hum != null:
+			hum.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			hum.loop_begin = 0
+			hum.loop_end = int(hum.data.size() / 4)
+			_hum.stream = hum
+		add_child(_hum)
+	if on and not _hum.playing and _hum.stream != null and DisplayServer.get_name() != "headless":
+		_hum.play()
+	elif not on and _hum.playing:
+		_hum.stop()
 
 
 ## Runs on every peer from replicated state: when this machine's camera has a clear line to her leaned-out head, play
@@ -1076,6 +1143,8 @@ func _update_animation() -> void:
 		speed = _stride_scale
 	_sync_peek_pose()
 	_update_peek_spot()
+	_update_glyra_hum()
+	_update_inspect_breath()
 	if _play_nw_pose():
 		return
 	if _emote_clip != "" and _animation_player != null and _emote_plays_now():
