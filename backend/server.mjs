@@ -5,6 +5,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
 import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
+import { SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
@@ -55,7 +56,7 @@ function responseHeaders() {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}`,
+    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}, ${SKIN_TOKEN_HEADER}`,
   };
 }
 
@@ -157,7 +158,9 @@ function publicUpdateManifest(updates, channel, platform) {
   // install a higher one, so a missing or invalid number withholds the entry rather than offering an unusable update.
   const mobile = platform === "phone" || platform === "quest";
   const build = Number.isSafeInteger(entry.build) && entry.build > 0 ? entry.build : undefined;
-  if (mobile && (!build || !revision)) return null;
+  // phones/Quest and (since the 2026-10 rework) macOS / Windows / Linux clients compare build numbers: withhold entries
+  // without one rather than offer an update no client will take. The web build refreshes by revision only.
+  if (platform !== "web" && (!build || !revision)) return null;
   return {
     version,
     revision,
@@ -258,6 +261,8 @@ export function createLastRouteServer({
   publicDirectory = null,
   customMapDirectory = null,
   cityMaps: cityMapOptions = {},
+  skinDirectory = null,
+  skinOptions = {},
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -299,6 +304,7 @@ export function createLastRouteServer({
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
   const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
     roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
+  const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
   const devTokens = new Set();
   const requestRates = new Map();
   let enetRelay = null;
@@ -413,6 +419,16 @@ export function createLastRouteServer({
       if (result) return json(response, result[0], result[1]);
     }
 
+    if (new Set(["GET", "HEAD"]).has(request.method) && url.pathname.startsWith("/api/skins/files/")) {
+      const result = skins.file(url.pathname);
+      if (result[0] === 200) {
+        response.writeHead(200, { ...responseHeaders(), "cache-control": "public, max-age=31536000, immutable",
+          "content-type": "image/png", "content-length": result[1].length, etag: `"${result[2]}"` });
+        return response.end(request.method === "HEAD" ? undefined : result[1]);
+      }
+      return json(response, result[0], result[1]);
+    }
+
     const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
     if (new Set(["GET", "HEAD"]).has(request.method) && customMapFile) {
       if (tryStaticFile(request, response, customMapDirectory, `/${customMapFile[1]}`)) return;
@@ -455,6 +471,22 @@ export function createLastRouteServer({
         return json(response, 200, { ok: true, service: "Last Route backend", health: "/api/health", staticFiles: Boolean(publicDirectory) });
       }
       return json(response, 404, { ok: false, code: "NOT_FOUND", error: "Not found" });
+    }
+
+    if (url.pathname === "/api/skins/upload") {
+      // the one raw-body route: a PNG of at most SKIN_MAX_BYTES, the session in a header (a JSON wrapper would not fit the body limit)
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }   // never read an unbounded body
+        if (received <= SKIN_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SKIN_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "BAD_SKIN", error: "Skin refused: the file is too large" });
+      }
+      const uploaded = skins.upload(String(request.headers[SKIN_TOKEN_HEADER] || ""), Buffer.concat(chunks));
+      return json(response, uploaded[0], uploaded[1]);
     }
 
     let body;
@@ -613,6 +645,9 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/rooms/custom-map") result = roomService.setCustomMap(body);
     else if (url.pathname === "/api/rooms/dialog-start") result = roomService.startDialog(body);
     else if (url.pathname === "/api/rooms/dialog-advance") result = roomService.advanceDialog(body);
+    else if (url.pathname === "/api/skins/mine") result = skins.mine(body);
+    else if (url.pathname === "/api/skins/clear") result = skins.clear(body);
+    else if (url.pathname === "/api/skins/remove") result = skins.remove(body);
     else if (url.pathname === "/api/city-maps/list") result = cityMaps.list(body);
     else if (url.pathname === "/api/city-maps/ticket") result = cityMaps.ticket(body);
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
@@ -753,6 +788,7 @@ export function startLastRouteServerFromEnvironment() {
       publicKeyPem: cityMapKeyPath && existsSync(cityMapKeyPath) ? readFileSync(cityMapKeyPath, "utf8") : "",
     },
     accountStorePath,
+    skinDirectory: environmentPath("LASTROUTE_SKINS_DIR") || join(dataDirectory, "skins"),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,

@@ -27,7 +27,7 @@ const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
-const MAX_CHAT_LENGTH := 160
+const MAX_CHAT_LENGTH := 80   # spoken aloud (text to speech): short lines
 const FLOOR_EXIT_MARK_TIMEOUT_USEC := 20_000_000
 
 var local_player: Node3D
@@ -37,6 +37,9 @@ var local_player: Node3D
 var state_overrides: Callable
 
 var _bodies := {}
+## id -> the skin hash that body shows (or is waiting for); peers' skins live in PlayerSkin's memory cache only.
+var _peer_skin := {}
+var _peer_slim := {}   # id -> whether that body has the slim (Alex) arms
 var _players := {}
 var _positions := {}
 var _facings := {}
@@ -47,6 +50,11 @@ var _remote_held_items := {}
 var _remote_held_item_ids := {}
 var _remote_swing_seq := {}
 var _remote_swing_tweens := {}
+## VR peers (VRPoseSync): the latest received head/hand pose and the smoothed one drawn on their body.
+var _vr_targets := {}
+var _vr_current := {}
+## The local VR runner's standing head height (running maximum, slowly relaxing), for real-life crouch.
+var _vr_standing_height := 0.0
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 var _floor_exit_marks := {}
@@ -63,9 +71,30 @@ var _snapshot_elapsed := SNAPSHOT_RETRY_SECONDS
 var _snapshot_received := false
 
 signal chat_received(peer_id: int, display_name: String, message: String)
+## Every chat line with its context: {text, channel ("team" | "nearby"), preset, ping, at (map position), world (Vector3),
+## depth, system}. chat_received still fires for plain-text listeners.
+signal chat_message(peer_id: int, display_name: String, payload: Dictionary)
+
+const CHAT_CHANNELS := ["team", "nearby"]
+## Moderation, enforced by the host for every sender (and locally): at most CHAT_RATE_MAX lines (quick-chat pings
+## included) per CHAT_RATE_WINDOW_MS, then a CHAT_COOLDOWN_MS cooldown; one map ping per PING_MIN_INTERVAL_MS; an exact or
+## near-duplicate of a line sent in the last DUPLICATE_WINDOW_MS is dropped; owner/admin room mutes drop everything.
+const CHAT_RATE_WINDOW_MS := 10000
+const CHAT_RATE_MAX := 3
+const CHAT_COOLDOWN_MS := 5000
+const PING_MIN_INTERVAL_MS := 2000
+const DUPLICATE_WINDOW_MS := 20000
+var _chat_times := {}
+var _ping_times := {}
+var _cooldown_until := {}
+var _recent_lines := {}
+## Host: peers muted for the whole room by the owner/admin tools (their lines are dropped before relay).
+var room_muted := {}
 
 
 func _ready() -> void:
+	# After the peers' animation players, so VR head and arm poses are drawn over the walk/idle clips.
+	process_priority = 50
 	if not RoomState.online:
 		return
 	if not multiplayer.peer_disconnected.is_connected(_drop):
@@ -74,7 +103,11 @@ func _ready() -> void:
 		multiplayer.peer_connected.connect(_greet)
 
 
-func send_chat(text: String) -> void:
+func send_chat(text: String, channel: String = "team") -> void:
+	send_chat_payload({"text": text, "channel": channel})
+
+
+func _send_chat_legacy(text: String) -> void:
 	var message := _sanitize_chat(text)
 	if message.is_empty():
 		return
@@ -112,9 +145,158 @@ func _chat(peer_id: int, display_name: String, message: String) -> void:
 	chat_received.emit(peer_id, display_name.strip_edges().substr(0, 32), clean)
 
 
+## Sends a chat line or quick-chat preset with the sender's position (for NEARBY filtering and map pings).
+func send_chat_payload(payload: Dictionary) -> bool:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var clean := sanitize_payload(payload, local_id == 1 and bool(payload.get("system", false)))
+	var state := _local_state() if local_player != null else {}
+	clean["at"] = state.get("position", Vector2.ZERO)
+	clean["world"] = local_player.global_position if local_player != null else Vector3.ZERO
+	clean["depth"] = GameState.depth
+	if String(clean["text"]).is_empty() or not accept_line(local_id, clean):
+		return false
+	if not RoomState.online:
+		_emit_payload(local_id, RoomState.local_display_name(), clean)
+	elif RoomState.is_host:
+		_deliver_payload(local_id, RoomState.local_display_name(), clean)
+	else:
+		_submit_chat_payload.rpc_id(1, clean)
+	return true
+
+
+## Host only: a system line (owner/admin notices) to everyone.
+func send_system(text: String) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	send_chat_payload({"text": text, "system": true})
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_chat_payload(payload: Dictionary) -> void:
+	if not RoomState.is_host:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	var clean := sanitize_payload(payload, false)   # guests never send system lines
+	if sender <= 1 or String(clean["text"]).is_empty() or not accept_line(sender, clean):
+		return
+	_deliver_payload(sender, RoomState.peer_display_name(sender), clean)
+
+
+func _deliver_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	_emit_payload(peer_id, display_name, payload)
+	if RoomState.online and RoomState.is_host:
+		_chat_payload.rpc(peer_id, display_name, payload)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _chat_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	var clean := sanitize_payload(payload, bool(payload.get("system", false)))
+	if String(clean["text"]).is_empty():
+		return
+	_emit_payload(peer_id, display_name.strip_edges().substr(0, 32), clean)
+
+
+func _emit_payload(peer_id: int, display_name: String, payload: Dictionary) -> void:
+	chat_message.emit(peer_id, display_name, payload)
+	if not bool(payload.get("system", false)):
+		chat_received.emit(peer_id, display_name, String(payload["text"]))
+
+
+## Only known fields with bounded values survive; a peer can never mark its own line as a system message.
+static func sanitize_payload(payload: Dictionary, allow_system: bool) -> Dictionary:
+	var channel := String(payload.get("channel", "team"))
+	var at = payload.get("at", Vector2.ZERO)
+	var world = payload.get("world", Vector3.ZERO)
+	return {
+		"text": _sanitize_chat(String(payload.get("text", ""))),
+		"channel": channel if CHAT_CHANNELS.has(channel) else "team",
+		"preset": String(payload.get("preset", "")).substr(0, 24),
+		"ping": bool(payload.get("ping", false)),
+		"at": at if at is Vector2 else Vector2.ZERO,
+		"world": world if world is Vector3 else Vector3.ZERO,
+		"depth": int(payload.get("depth", 0)),
+		"system": allow_system and bool(payload.get("system", false)),
+		# a quick-chat ping aimed at something else than the sender (HUNTER! at the aimed hunter)
+		"target": payload.get("target") if payload.get("target") is Vector2 else null,
+	}
+
+
+## At most CHAT_RATE_MAX lines per CHAT_RATE_WINDOW_MS per peer, and one map ping per PING_MIN_INTERVAL_MS.
+func rate_ok(peer_id: int, ping: bool, now_ms: int = -1) -> bool:
+	var now := now_ms if now_ms >= 0 else Time.get_ticks_msec()
+	if now < int(_cooldown_until.get(peer_id, 0)):
+		return false
+	var times: Array = (_chat_times.get(peer_id, []) as Array).filter(func(t: int) -> bool: return now - t < CHAT_RATE_WINDOW_MS)
+	if times.size() >= CHAT_RATE_MAX:
+		_chat_times[peer_id] = times
+		_cooldown_until[peer_id] = now + CHAT_COOLDOWN_MS
+		return false
+	if ping and now - int(_ping_times.get(peer_id, -PING_MIN_INTERVAL_MS)) < PING_MIN_INTERVAL_MS:
+		return false
+	times.append(now)
+	_chat_times[peer_id] = times
+	if ping:
+		_ping_times[peer_id] = now
+	return true
+
+
 static func _sanitize_chat(text: String) -> String:
-	return text.replace("\r", " ").replace("\n", " ").strip_edges().substr(
-		0, MAX_CHAT_LENGTH)
+	return collapse_repeats(text.replace("\r", " ").replace("\n", " ").strip_edges()).substr(0, MAX_CHAT_LENGTH)
+
+
+## "aaaaaaa" -> "aaa", "!!!!!!" -> "!!!": any character repeated more than 3 times in a row is cut to 3.
+static func collapse_repeats(text: String) -> String:
+	var out := ""
+	var run := 0
+	for index in text.length():
+		run = run + 1 if index > 0 and text[index] == text[index - 1] else 1
+		if run <= 3:
+			out += text[index]
+	return out
+
+
+## Lines that are the same once case, spacing, punctuation and repeats are ignored count as duplicates.
+static func line_key(text: String) -> String:
+	var key := ""
+	for character in collapse_repeats(text.to_lower()):
+		if character.is_valid_identifier() or "0123456789".contains(character):
+			key += character
+	return key
+
+
+## True (and remembered) when `text` repeats a line this peer sent in the last DUPLICATE_WINDOW_MS.
+func is_duplicate(peer_id: int, text: String, now_ms: int = -1) -> bool:
+	var now := now_ms if now_ms >= 0 else Time.get_ticks_msec()
+	var key := line_key(text)
+	var recent: Array = (_recent_lines.get(peer_id, []) as Array).filter(func(entry: Array) -> bool: return now - int(entry[1]) < DUPLICATE_WINDOW_MS)
+	for entry in recent:
+		var other := String(entry[0])
+		if other == key or (key.length() >= 6 and (other.begins_with(key) or key.begins_with(other))
+				and absi(other.length() - key.length()) <= 3):
+			_recent_lines[peer_id] = recent
+			return true
+	recent.append([key, now])
+	_recent_lines[peer_id] = recent
+	return false
+
+
+## Host-side moderation in one place: room mute, rate limit (pings included), duplicates.
+func accept_line(peer_id: int, payload: Dictionary, now_ms: int = -1) -> bool:
+	if room_muted.has(peer_id):
+		return false
+	if bool(payload.get("system", false)):
+		return true   # host/owner notices are not rate limited
+	if is_duplicate(peer_id, String(payload.get("text", "")), now_ms):
+		return false
+	return rate_ok(peer_id, bool(payload.get("ping", false)), now_ms)
+
+
+## Owner/admin tools (host): mute a guest for the whole room, or remove them.
+func set_room_muted(peer_id: int, muted: bool) -> void:
+	if muted:
+		room_muted[peer_id] = true
+	else:
+		room_muted.erase(peer_id)
 
 
 func _process(delta: float) -> void:
@@ -184,6 +366,9 @@ func _local_state() -> Dictionary:
 		"display_name": RoomState.local_display_name(),
 		"player_hue": Settings.player_hue_degrees,
 		"player_skin": "mannequin",
+		"skin": _own_skin_hash(),
+		"skin_copy": Settings.skin_copyable,
+		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -204,6 +389,14 @@ func _local_state() -> Dictionary:
 		"ambient": controller.meters.ambient,
 		"heat_locked": controller.meters.heat_locked,
 	}
+	if controller.xr_active:
+		var head_height := controller.xr_camera.global_position.y - controller.global_position.y
+		_vr_standing_height = maxf(head_height, _vr_standing_height - 0.002)
+		var packet := VRPoseSync.local_pose(controller, controller.xr_camera, controller.xr_left, controller.xr_right,
+			_vr_standing_height)
+		state["vr"] = packet
+		if packet.decode_u8(0) & VRPoseSync.FLAG_CROUCH and String(state["clip"]) in ["idle", "walk"]:
+			state["clip"] = "crouch"   # crouching in real life lowers the body for everyone else
 	return _merge_state_overrides(state)
 
 
@@ -288,13 +481,23 @@ func _place(state: Dictionary) -> void:
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
 		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 		_add_name_tag(body, String(state.get("display_name",
 			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
+	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
+		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
+	var vr_pose := VRPoseSync.decode(state.get("vr"))
+	if vr_pose.is_empty():
+		_vr_targets.erase(id)
+		_vr_current.erase(id)
+	else:
+		_vr_targets[id] = vr_pose
+		_facings[id] = float(_facings[id]) + VRPoseSync.body_follow(vr_pose)
 	var clip := String(state.get("clip", "idle"))
 	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
 	# PlayerController3D.HIDE_MOVE_SECONDS), crouched for a bed, then disappears.
@@ -347,20 +550,34 @@ func _interpolate_bodies(delta: float) -> void:
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
 		ModelSlot.set_character_fade(body, fade)
+		if _vr_targets.has(id):
+			_vr_current[id] = VRPoseSync.blend(_vr_current.get(id, {}), _vr_targets[id], weight)
+			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
+
+
+const NAME_TAG_HEIGHT := 1.92
+## One colour per teammate, stable for a peer id, shared by the 3D nametag and the minimap / full-map markers.
+const PEER_COLOURS := [Color("4fd1ff"), Color("ff8a3d"), Color("7ee26b"), Color("ff5fb4"), Color("ffd84a"), Color("a98bff"),
+	Color("3fe0c0"), Color("ff6b6b")]
+
+
+static func peer_colour(peer_id: int) -> Color:
+	return PEER_COLOURS[posmod(peer_id * 7 + 3, PEER_COLOURS.size())]
 
 
 func _add_name_tag(body: Node3D, display_name: String) -> void:
 	var label := Label3D.new()
 	label.name = "PlayerNameTag"
 	label.text = display_name.strip_edges().to_upper().substr(0, 32)
-	label.position = Vector3(0.0, 2.08, 0.0)
+	# just over a 1.60 m runner's head (it floated half a metre above after the scale change)
+	label.position = Vector3(0.0, NAME_TAG_HEIGHT, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
 	label.font_size = 24
 	label.outline_size = 5
-	label.modulate = Color(0.78, 0.92, 0.94, .94)
+	label.modulate = Color(peer_colour(int(String(body.name).to_int())).lightened(.35), .96)
 	body.add_child(label)
 
 
@@ -521,6 +738,9 @@ func _update_remote_equipment_pose(id: int, body: Node3D,
 	var anchor := _remote_hand_anchors.get(id) as Node3D
 	var origin := anchor.global_position if anchor != null \
 		else body.global_position + Vector3.UP * 1.1
+	var vr_left = VRPoseSync.left_hand_world(body, _vr_current.get(id, {}))
+	if vr_left is Vector3:
+		origin = vr_left   # a VR runner holds the flashlight in the left hand
 	# Start beyond the hand/mannequin silhouette so the remote body cannot cast
 	# a shadow across its own beam. The same aim still strikes nearby walls.
 	light.global_position = origin + aim * REMOTE_BEAM_HAND_OFFSET
@@ -553,11 +773,59 @@ func _update_remote_footstep(id: int, body: Node3D, previous: Vector3) -> void:
 	Sound.remote_player_footstep(clip, pan, .045 * (1.0 - distance / 12.0))
 
 
+## The skin hash to publish in the room state ("" when you wear the default or the server does not hold yours: guests and
+## offline players wear theirs locally only).
+func _own_skin_hash() -> String:
+	Backend.skin_sync.sync_own()
+	return Backend.skin_sync.shared_hash()
+
+
+func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -> void:
+	if not PlayerSkin.valid_hash(hash):
+		hash = ""
+	var previous := String(_peer_skin.get(id, ""))
+	_peer_skin[id] = hash
+	_peer_slim[id] = slim
+	PlayerSkin.set_arms(body, slim and not hash.is_empty())
+	PlayerSkin.note_peer(id, String(_states.get(id, {}).get("display_name", RoomState.peer_display_name(id))), hash, bool(_states.get(id, {}).get("skin_copy", true)), slim)
+	if hash.is_empty():
+		if not previous.is_empty():
+			PlayerSkin.apply(body, PlayerSkin.default_texture())
+			PlayerSkin.release_peer(previous, _peer_skin.values())
+		return
+	var texture := PlayerSkin.peer_texture(hash)
+	if texture != null:
+		PlayerSkin.apply(body, texture)
+		return
+	if not Backend.skin_sync.fetched.is_connected(_on_skin_fetched):
+		Backend.skin_sync.fetched.connect(_on_skin_fetched)
+	Backend.skin_sync.fetch(hash)
+
+
+func _on_skin_fetched(hash: String) -> void:
+	for id in _peer_skin:
+		if String(_peer_skin[id]) == hash and _bodies.has(id):
+			PlayerSkin.apply(_bodies[id], PlayerSkin.peer_texture(hash))
+
+
+func _exit_tree() -> void:
+	# the room or run is ending: free every downloaded skin
+	PlayerSkin.clear_peer_cache()
+
+
 func _drop(id: int) -> void:
 	var body: Node3D = _bodies.get(id)
 	if body != null:
 		body.queue_free()
+	var gone := String(_peer_skin.get(id, ""))
+	_peer_skin.erase(id)
+	_peer_slim.erase(id)
+	PlayerSkin.forget_peer(id)
+	if not gone.is_empty():
+		PlayerSkin.release_peer(gone, _peer_skin.values())
 	_bodies.erase(id)
+	_vr_targets.erase(id)
+	_vr_current.erase(id)
 	_players.erase(id)
 	_positions.erase(id)
 	_facings.erase(id)
@@ -688,6 +956,7 @@ func remote_player_marks(depth: int) -> Array:
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
 			"level": -depth,
+			"colour": peer_colour(id),
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)

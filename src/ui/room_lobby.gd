@@ -397,7 +397,7 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO GAMES"
+	leave.text = RoomState.menu_back_label()   # "BACK TO LAST ROUTE": this game's menu, not the games hub
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
@@ -512,15 +512,19 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
 	if not Backend.hunter_discovered(hunter_id):
-		_dossier_name.text = "UNDISCOVERED SIGNAL"
-		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
-			else "SIGN IN TO RETAIN DISCOVERIES"
-		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
-		_dossier_gimmick_heading.visible = false
-		_dossier_gimmick.visible = false
-		_dossier_gimmick.text = ""
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ENCOUNTER IN THE ROUTE TO UNLOCK // ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
 		_dossier_counter.text = ""
-		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
 	var category := String(profile.get("category", "az"))
@@ -529,15 +533,11 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
-	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
-		String(entry["behavior"])]
+	_dossier_behavior.text = String(entry["behavior"])
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s" % [
-		String(entry.get("gimmick_title", "UNASSIGNED")),
-		String(entry.get("gimmick_behavior", "")),
-	] if has_chart else ""
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
 	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),

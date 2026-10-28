@@ -1025,3 +1025,11 @@ func _apply_scheme_frames() -> void:
 		frame.bg_color = Color(Palette.PANEL, 0.9)
 		frame.border_color = Palette.PANEL_EDGE
 		frame.set_corner_radius_all(Palette.CORNER)
+
+
+## A quick-chat ping on both maps (RoomChat.ping_posted), on this floor only.
+func add_map_ping(_peer_id: int, at: Vector2, depth: int, label: String, colour: Color) -> void:
+	if depth != GameState.depth:
+		return
+	minimap.add_ping(at, colour, label)
+	plan.add_ping(at, colour, label)

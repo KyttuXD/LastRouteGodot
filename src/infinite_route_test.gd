@@ -213,6 +213,7 @@ func _ready() -> void:
 	facility.begin(str(RoomState.run_seed()), player, world_state)
 	if not _loaded_from_save:
 		player.global_position = facility.spawn_position()
+		_settle_spawn.call_deferred()
 	_statistics_last_position = player.global_position
 	_navigation = StreamedHunterNavigation.new(facility.generator,
 		facility.current_level(), world_state)
@@ -231,6 +232,8 @@ func _ready() -> void:
 	_remotes.snapshot_source = _build_stream_snapshot
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
+	_room_chat.hunter_aim_provider = _aimed_hunter_mark
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -382,12 +385,14 @@ func _process(delta: float) -> void:
 	GameState.depth = -level
 	var data := facility.current_chunk_data()
 	_update_map_discovery(data)
+	if not _discovery_queue.is_empty():
+		_pump_map_discovery()
 	# Story presentation freezes both input and host AI. This preserves the
 	# original dialog/cutscene contract instead of letting a hunter capture a
 	# player while every client's choices are on screen.
 	if _story != null and _story.is_active():
 		player.velocity = Vector3.ZERO
-		_update_hud()
+		_update_hud(_map_due())
 		return
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
@@ -419,7 +424,7 @@ func _process(delta: float) -> void:
 	_update_hunter_audio(delta, data)
 	_update_player_sleep(delta)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
-	_update_hud()
+	_update_hud(_map_due())
 
 
 func _update_checkpoint(data: Dictionary) -> void:
@@ -473,7 +478,23 @@ func _on_pickup_claimed(entity_id: String) -> void:
 	pass
 
 
-func _update_hud() -> void:
+var _map_update_clock := 0.0
+
+
+## The minimap redraw is the largest steady script cost on a phone or the Quest (~5.7 ms a frame on the Quest 3S):
+## lower quality tiers redraw it at PlatformProfile.map_update_hz from the frame loop instead of every frame.
+func _map_due() -> bool:
+	if PlatformProfile.map_update_hz <= 0.0:
+		return true
+	_map_update_clock -= get_process_delta_time()
+	if _map_update_clock > 0.0:
+		return false
+	_map_update_clock = 1.0 / PlatformProfile.map_update_hz
+	return true
+
+
+## update_map false skips the minimap redraw (the per-frame caller throttles it; see _map_due).
+func _update_hud(update_map: bool = true) -> void:
 	var data := facility.current_chunk_data()
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
@@ -487,7 +508,8 @@ func _update_hud() -> void:
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
-	_update_streamed_maps()
+	if update_map:
+		_update_streamed_maps()
 	_present_afk_void_warning()
 
 
@@ -529,7 +551,7 @@ func _admin_status() -> String:
 	var afk_remaining := maxi(0, ceili(
 		GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id()) \
 		- _party_afk_seconds))
-	var result := "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
+	var result := ServerPrivacy.debug_line() + "\nROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
 		coord.x, coord.y, coord.z, String(data.get("region", "maze")).to_upper(),
 		facility.loaded_chunk_count(), _discovered_chunks.size(), _hunter_views.size(), safe_text,
 		world_state.active_checkpoint if not world_state.active_checkpoint.is_empty()
@@ -577,6 +599,12 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("mute")},
+		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("unmute")},
+		{"label": "KICK LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("kick")},
 		{"heading": "ITEMS", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
@@ -776,6 +804,28 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## How far the runner starts from the starting safe-zone marker post (it has no collider; a headset camera was inside it).
+const SPAWN_MARKER_CLEARANCE := 0.9
+
+## The spawn cell is the first chunk's centre, which a room layout can make a wall junction: once the first stream
+## window's colliders are in the physics space (the floor under the spawn exists; the window builds incrementally),
+## move the runner to the nearest clear cell.
+func _settle_spawn() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+		if not is_instance_valid(player):
+			return
+		var space := player.get_world_3d().direct_space_state
+		var at := player.global_position
+		if not space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6,
+				player.collision_mask, [player.get_rid()])).is_empty():
+			break
+	if is_instance_valid(player) and not _loaded_from_save:
+		var marker := find_child("StartingSafeZoneMarker", true, false) as Node3D
+		player.global_position = player.clear_spot_near(player.global_position, 4,
+			marker.global_position if marker != null else Vector3.INF, SPAWN_MARKER_CLEARANCE)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
@@ -1184,8 +1234,13 @@ func _force_disable_admin_cheats() -> void:
 func _discover_loaded_chunks() -> void:
 	if facility.generator == null:
 		return
+	# Each chunk is read into the map once (2025 cells plus collider boxes: ~4 ms a chunk, so all nine at every crossing
+	# was a 35 ms frame on a level change). New chunks queue and _pump_map_discovery takes one per frame; the map
+	# filters collected pickups at draw time, so a chunk seen before needs no second pass.
 	for coord in facility.loaded_horizontal_coords():
-		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		if not _discovered_chunks.has(coord) and not _discovery_queue.has(coord):
+			_discovery_queue.append(coord)
+	_pump_map_discovery()
 	if _admin_reveal_map:
 		var center := facility.current_chunk_coord()
 		for z in range(center.z - 4, center.z + 5):
@@ -1194,6 +1249,19 @@ func _discover_loaded_chunks() -> void:
 				if not facility.generator.is_chunk_allowed(coord):
 					continue
 				_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+
+
+var _discovery_queue: Array[Vector3i] = []
+
+
+## One queued chunk into the map per frame (the one under the runner first, as queued).
+func _pump_map_discovery() -> void:
+	while not _discovery_queue.is_empty():
+		var coord: Vector3i = _discovery_queue.pop_front()
+		if _discovered_chunks.has(coord) or not facility._loaded.has(coord):
+			continue
+		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		return
 
 
 func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
@@ -5515,3 +5583,50 @@ func _leave_test() -> void:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+## Quick chat "HUNTER!": the hunter in front of the crosshair (within 30 m, close to the view direction), as a map mark.
+func _aimed_hunter_mark() -> Dictionary:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return {}
+	var look := -camera.global_basis.z
+	var best := {}
+	var best_dot := 0.97
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or view.brain == null or not view.brain.active or not view.visible:
+			continue
+		var to := view.global_position + Vector3(0, 1.2, 0) - camera.global_position
+		if to.length() > 30.0:
+			continue
+		var dot := look.dot(to.normalized())
+		if dot > best_dot:
+			best_dot = dot
+			best = {"at": view.brain.position, "depth": GameState.depth}
+	return best
+
+
+## Owner/admin room moderation (host): the last guest heard in chat is room-muted (their lines are dropped before relay)
+## or removed from the room.
+func _admin_room_chat(what: String) -> void:
+	if _remotes == null or not RoomState.is_host:
+		hud.show_message("ROOM MODERATION NEEDS THE HOST")
+		return
+	var target := 0
+	for entry_value in RoomChat.history:
+		var entry: Dictionary = entry_value
+		if int(entry.get("peer", 0)) > 1 and not bool(entry.get("system", false)):
+			target = int(entry["peer"])
+	match what:
+		"unmute":
+			_remotes.room_muted.clear()
+			_remotes.send_system("ROOM CHAT UNMUTED")
+		"mute":
+			if target > 1:
+				_remotes.set_room_muted(target, true)
+				_remotes.send_system("%s IS MUTED IN THIS ROOM" % RoomState.peer_display_name(target).to_upper())
+		"kick":
+			if target > 1:
+				_remotes.send_system("%s WAS REMOVED FROM THE ROOM" % RoomState.peer_display_name(target).to_upper())
+				RoomState.kick_peer(target)

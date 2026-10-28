@@ -71,6 +71,10 @@ const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
 const STAMINA_RECOVERY_DELAY := 0.65
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
+## KT: "if stamina doesnt fully run out or super low it regenerates instantly". Stop sprinting above this and stamina
+## refills over STAMINA_QUICK_REFILL_TIME; at or below it the slow delayed regen (and exhaustion) applies.
+const STAMINA_QUICK_THRESHOLD := 20.0
+const STAMINA_QUICK_REFILL_TIME := 0.3
 
 ## A modest first-person hop rather than a platforming jump. These produce a
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to

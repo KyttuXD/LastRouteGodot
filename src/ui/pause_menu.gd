@@ -614,15 +614,19 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
 	if not Backend.hunter_discovered(hunter_id):
-		_dossier_name.text = "UNDISCOVERED SIGNAL"
-		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
-			else "SIGN IN TO RETAIN DISCOVERIES"
-		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
-		_dossier_gimmick_heading.visible = false
-		_dossier_gimmick.visible = false
-		_dossier_gimmick.text = ""
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ENCOUNTER IN THE ROUTE TO UNLOCK // ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
 		_dossier_counter.text = ""
-		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
 	var category := String(profile.get("category", "az"))
@@ -631,15 +635,11 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
-	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
-		String(entry["behavior"])]
+	_dossier_behavior.text = String(entry["behavior"])
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s" % [
-		String(entry.get("gimmick_title", "UNASSIGNED")),
-		String(entry.get("gimmick_behavior", "")),
-	] if has_chart else ""
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
 	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
@@ -877,6 +877,7 @@ func open() -> void:
 	if _open:
 		return
 	_set_open(true)
+	_refresh_voice_history()
 	_set_copy_status("", true)
 	_refresh_share()
 	_set_section("pause")
@@ -1026,3 +1027,44 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif tap_to_pause:
 		open()
 		get_viewport().set_input_as_handled()
+
+
+
+## The only chat log: the last lines said in the room (RoomChat.history), each speaker with a local MUTE toggle.
+func _refresh_voice_history() -> void:
+	if _pause_view == null:
+		return
+	var old := _pause_view.get_node_or_null("VoiceHistory")
+	if old != null:
+		old.free()
+	if RoomChat.history.is_empty():
+		return
+	var box := VBoxContainer.new()
+	box.name = "VoiceHistory"
+	box.add_theme_constant_override("separation", 1)
+	_pause_view.add_child(box)
+	var heading := Label.new()
+	heading.text = Palette.track("SAID RECENTLY")
+	Palette.style_label(heading, Palette.AMBER, 6)
+	box.add_child(heading)
+	var speakers := {}
+	for entry_value in RoomChat.history.slice(maxi(0, RoomChat.history.size() - 6)):
+		var entry: Dictionary = entry_value
+		var line := Label.new()
+		line.text = ("// %s" % entry["text"]) if bool(entry.get("system", false)) else "%s: %s" % [String(entry["name"]).to_upper(), entry["text"]]
+		Palette.style_label(line, Palette.BODY, 6)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size = Vector2(220, 0)
+		box.add_child(line)
+		if not bool(entry.get("system", false)) and int(entry.get("peer", 0)) != (multiplayer.get_unique_id() if RoomState.online else 1):
+			speakers[String(entry["name"]).to_upper()] = true
+	for callsign in speakers:
+		var mute := Button.new()
+		mute.name = "Mute_%s" % callsign
+		mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign
+		mute.add_theme_font_size_override("font_size", 6)
+		Palette.style_button(mute, false, true)
+		mute.pressed.connect(func() -> void:
+			Settings.set_player_muted(callsign, not Settings.is_player_muted(callsign))
+			mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign)
+		box.add_child(mute)

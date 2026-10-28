@@ -131,15 +131,21 @@ var _recheck_timer: Timer
 var _last_progress_percent := -1
 
 
+## Debug builds only: `-- --update-smoke` checks at once (even headless), accepts the update without the confirm button and
+## prints UPDATE_SMOKE lines (tools/update_e2e). Never active in a release export.
+var smoke_test := false
+
+
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
+	smoke_test = OS.is_debug_build() and "--update-smoke" in OS.get_cmdline_user_args()
 	# A completed update leaves no useful player data behind in this directory.
 	# Clear archives, extracted staging trees, partial downloads and installer
 	# helpers from older revisions before beginning another check. Route saves,
 	# settings and account credentials live outside UPDATE_ROOT and are never
 	# considered by this cleanup.
 	_cleanup_update_cache()
-	_cleanup_previous_install_backup()
+	# the previous build (.lastroute-backup-previous beside the game) is KEPT for rollback; the next update replaces it
 	_manifest_request = HTTPRequest.new()
 	_manifest_request.name = "UpdateManifestRequest"
 	_manifest_request.timeout = MANIFEST_TIMEOUT_SECONDS
@@ -163,7 +169,10 @@ func _ready() -> void:
 	if OS.is_debug_build() and is_mobile_package() and FileAccess.file_exists(SELF_UPDATE_TEST_APK):
 		get_tree().create_timer(4.0).timeout.connect(func() -> void:
 			print("SELF_UPDATE_TEST ", _install_apk(ProjectSettings.globalize_path(SELF_UPDATE_TEST_APK))))
-	if DisplayServer.get_name() != "headless" and not offline_mode:
+	if smoke_test:
+		print("UPDATE_SMOKE start revision=%s build=%d platform=%s" % [Build.revision(), Build.build_number(), platform_key()])
+		check.call_deferred()
+	if DisplayServer.get_name() != "headless" and not offline_mode and not smoke_test:
 		_recheck_timer = Timer.new()
 		_recheck_timer.name = "UpdateRecheckTimer"
 		_recheck_timer.wait_time = DEBUG_RECHECK_SECONDS \
@@ -300,8 +309,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	if Build.revision() == Build.SOURCE_REVISION:
 		_finish_check(true, false, "SOURCE BUILD // UPDATE SKIPPED")
 		return
-	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number()) \
-		if is_mobile_package() else _update_needed(version, Build.VERSION, revision, Build.revision())
+	# every native platform: a different commit with a higher build number (desktop too, since the 2026-10 rework)
+	var needed := mobile_update_needed(revision, Build.revision(), int(candidate.get("build", 0)), Build.build_number())
 	if not needed:
 		_finish_check(true, false, "UP TO DATE")
 		return
@@ -310,7 +319,8 @@ func _on_manifest_response(result: int, code: int, _headers: PackedStringArray,
 	update_available.emit(available)
 	var identity := revision.left(8) if not revision.is_empty() else version
 	_finish_check(true, true, "UPDATE %s FOUND" % identity)
-	download_update.call_deferred()
+	if not is_dev_build() or smoke_test:
+		download_update.call_deferred()   # dev builds only get the notice
 
 
 ## Downloads immediately after discovery. Calling this again is also the
@@ -435,6 +445,10 @@ func _prepare_verified_download() -> void:
 	preparing = false
 	ready_to_install = true
 	update_ready.emit(staged_path)
+	if smoke_test:
+		_set_status("UPDATE READY // SMOKE TEST INSTALLS")
+		install_update.call_deferred()
+		return
 	if _should_install_automatically():
 		_set_status("UPDATE READY // RESTARTING")
 		install_update.call_deferred()
@@ -537,8 +551,9 @@ func is_mobile_package() -> bool:
 	return platform_key() in ["phone", "quest"]
 
 
-## A phone or Quest build updates when the published commit differs from this build's and its build number (commit
-## count, the Android versionCode) is higher: Android refuses to install a lower versionCode over a higher one.
+## A build updates when the published commit differs from this build's and its build number (commit count, also the
+## Android versionCode) is higher. Phones, the Quest, macOS and Windows all use this rule; Android also refuses a lower
+## versionCode, and on desktop it stops a stale manifest from "updating" to an older commit.
 static func mobile_update_needed(candidate_revision: String, current_revision: String, candidate_build: int,
 		current_build: int) -> bool:
 	var candidate := candidate_revision.strip_edges().to_lower()
@@ -591,19 +606,49 @@ func _download_failed(message: String) -> void:
 	_set_status(message)
 
 
+## Every self-updating native platform (desktop, phone, Quest) holds the player on the update screen while an update is
+## available; the web build refreshes itself and iOS updates through the App Store.
 func uses_in_progress_screen() -> bool:
-	# Native desktop is the path whose helper must stop this process. Web and
-	# Quest already stay inside an in-app installer or refresh.
-	return platform_key() in ["linux", "windows", "windows_legacy", "steamvr",
-		"macos"]
+	return gated_platform(platform_key())
+
+
+## An unstamped build (no build number: update-app.sh / adb / iOS script installs of newer code from main) is a dev build:
+## it is told an update exists but is never blocked or auto-downloaded, and never offered a "downgrade" to the manifest.
+static func dev_build(build_number: int) -> bool:
+	return build_number <= 0
+
+
+## Tests pin the build number (-1 = this build's own).
+var build_number_override := -1
+
+
+func is_dev_build() -> bool:
+	return dev_build(build_number_override if build_number_override >= 0 else Build.build_number())
+
+
+static func gated_platform(key: String) -> bool:
+	return key in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]
+
+
+## Tests replace the scene change with a Callable; the game goes to the update screen.
+var gate_override := Callable()
+
+
+func open_update_screen() -> void:
+	if gate_override.is_valid():
+		gate_override.call()
+		return
+	get_tree().change_scene_to_file.call_deferred(UPDATE_PROGRESS_SCENE)
 
 
 func _required_or_debug_update() -> bool:
 	return update_required or Build.requires_update_gate()
 
 
+## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
+## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
-	if offline_mode or not uses_in_progress_screen() or not _required_or_debug_update():
+	if offline_mode or not uses_in_progress_screen() or is_dev_build():
 		return false
 	if _gameplay_active():
 		return false
@@ -911,6 +956,8 @@ static func _previous_install_backup_path(platform: String, executable_path: Str
 
 
 func _set_status(message: String) -> void:
+	if smoke_test:
+		print("UPDATE_SMOKE status ", message)
 	status_message = message
 	status_changed.emit(message)
 

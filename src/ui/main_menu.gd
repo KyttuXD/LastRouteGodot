@@ -64,8 +64,8 @@ func _ready() -> void:
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
 	_refresh_account_button()
 	# version_label.text = "VERSION %s // %s // %s" % [Build.VERSION, Build.update_channel().to_upper(), Build.short_revision().to_upper()]
-	if version_label != null and UpdateManager.is_mobile_package() and Build.revision() != Build.SOURCE_REVISION:
-		# Phone and Quest builds update by commit: show which one this is (desktop keeps its label as it was).
+	if version_label != null and Build.revision() != Build.SOURCE_REVISION:
+		# every exported build updates by commit: show which one this is
 		version_label.text = "VERSION %s // BUILD %s" % [Build.VERSION, Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
@@ -118,7 +118,7 @@ func _build_public_button() -> void:
 		PublicRoute.join())
 	PublicRoute.status_changed.connect(func(message: String) -> void:
 		if is_instance_valid(button) and not message.is_empty():
-			button.text = message.substr(0, 38)
+			button.text = ServerPrivacy.scrub(message).substr(0, 38)
 			button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
 				and not message.begins_with("PUBLIC ROUTE NEEDS"))
 	box.add_child(button)
