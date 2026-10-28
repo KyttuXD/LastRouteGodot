@@ -457,7 +457,7 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		var index := 0
 		for entry in root[list]:
 			var def := _parse_entry(entry, SOUND_FIELDS if list == "sounds" else SURFACE_FIELDS,
-				"%s: %s[%d]" % [path, list, index], errors)
+				"%s: %s[%d]" % [path, list, index], errors, kind == "ambience")
 			if not def.is_empty():
 				defs.append(def)
 			index += 1
@@ -484,13 +484,14 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 	return {"defs": defs if errors.is_empty() else [], "errors": errors}
 
 
-static func _parse_entry(entry, fields: Dictionary, where: String, errors: PackedStringArray) -> Dictionary:
+static func _parse_entry(entry, fields: Dictionary, where: String, errors: PackedStringArray,
+		colon: bool = false) -> Dictionary:
 	if typeof(entry) != TYPE_DICTIONARY:
 		errors.append("%s: not an object" % where)
 		return {}
 	var id = entry.get("id")
-	if typeof(id) != TYPE_STRING or not _is_id(id):
-		errors.append("%s: \"id\" must be letters, digits or _" % where)
+	if typeof(id) != TYPE_STRING or not _is_id(id, colon):
+		errors.append("%s: \"id\" must be letters, digits or _%s" % [where, " (and : for bed families)" if colon else ""])
 		return {}
 	for key in entry:
 		if key != "id" and not fields.has(key):
@@ -562,10 +563,13 @@ static func _convert(value, type: String):
 	return null
 
 
-static func _is_id(value: String) -> bool:
-	if value.is_empty():
+## Letters, digits and _; with `colon`, also ":" inside the id (ambience beds are keyed "room:<purpose>",
+## "level:<level>", "emitter:<id>").
+static func _is_id(value: String, colon: bool = false) -> bool:
+	if value.is_empty() or value.begins_with(":") or value.ends_with(":"):
 		return false
 	for c in value:
-		if not (c == "_" or (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9")):
+		if not (c == "_" or (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9")
+				or (colon and c == ":")):
 			return false
 	return true

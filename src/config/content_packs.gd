@@ -228,7 +228,7 @@ static func _read_manifest(dir: String, folder_is_id: bool, errors: PackedString
 		errors.append("%s: version must be 1-32 of 0-9 A-Z a-z . + -, starting with a letter or digit" % path)
 	for entry in data.get("overrides", []):
 		var parts := String(entry).split("/")
-		if parts.size() != 2 or not KINDS.has(parts[0]) or not ContentRegistry._is_id(parts[1]):
+		if parts.size() != 2 or not KINDS.has(parts[0]) or not ContentRegistry._is_id(parts[1], parts[0] == "ambience"):
 			errors.append("%s: override \"%s\" must be <kind>/<id> with kind one of %s" % [path, entry, KINDS])
 	return data if errors.size() == start else {}
 

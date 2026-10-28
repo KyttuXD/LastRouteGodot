@@ -68,6 +68,11 @@ func _surface_pixel(group: String, kind: String) -> String:
 		arr.get_layers() == RefTextures._array_kinds(group).size()]
 
 
+## A room bed AmbienceTable has (keyed "room:<purpose>").
+func _room_bed() -> String:
+	return String(AmbienceTable._rooms.keys()[0])
+
+
 ## Every hunter's grab pool and look, in a stable order.
 func _grabs() -> Array:
 	GrabStyles.ensure_loaded()
@@ -101,6 +106,7 @@ func _check_loaded(dir: String) -> void:
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
 	_expect(Sound._cue_overrides.has("alert") and Sound._ambience_overrides.has("mall"), "pack sounds not loaded")
+	_expect(Sound._ambience_overrides.has("room:" + _room_bed()), "a room bed (id with a colon) was not replaced")
 	var floor := _surface_pixel("floor", "terrazzo0")
 	_expect(floor == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
 		"floor replacement not painted at 32x32 RGBA8 into a complete array: %s" % floor)
@@ -220,7 +226,8 @@ func _check_rejections(vanilla: String) -> void:
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
 	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
-		"ambience/mall", "floors/terrazzo0", "walls/panel0"] if overrides.is_empty() else overrides
+		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0"] if overrides.is_empty() \
+		else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
 			"author": "validator", "overrides": all_overrides}),
@@ -243,7 +250,7 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 		files["sounds/cues.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "alert",
 			"files": ["assets/tone.ogg"], "gain_db": -3}]})
 		files["ambience/beds.json"] = JSON.stringify({"schema": "lr.sound/1", "sounds": [{"id": "mall",
-			"files": ["assets/tone.ogg"]}]})
+			"files": ["assets/tone.ogg"]}, {"id": "room:%s" % _room_bed(), "files": ["assets/tone.ogg"]}]})
 		files["floors/floors.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "terrazzo0",
 			"image": "assets/floor.png"}]})
 		files["walls/walls.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "panel0",
