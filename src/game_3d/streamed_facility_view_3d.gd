@@ -529,7 +529,10 @@ func _refresh_stream(force: bool) -> void:
 	if not _active_build.is_empty():
 		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
 		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
-		if not wanted.has(active_coord) and not _ready_set.has(active_coord):
+		# so does one in the runner's column a storey or two away: it gets parked when done (cancelling it on a level
+		# change meant building it again on the way back)
+		if not wanted.has(active_coord) and not _ready_set.has(active_coord) \
+				and not (_near_column(active_coord, center) and absi(active_coord.y - center.y) <= PARK_LEVEL_RANGE):
 			_discard_active_build()
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
@@ -568,6 +571,12 @@ func _refresh_stream(force: bool) -> void:
 					pass
 				_active_build = {}
 				urgent = urgent.filter(func(c: Vector3i) -> bool: return not _loaded.has(c))
+			if not _active_build.is_empty():
+				var keep: Vector3i = _active_build.get("coord")
+				if _near_column(keep, center) and absi(keep.y - center.y) <= PARK_LEVEL_RANGE:
+					while not _advance_chunk_build(_active_build, true):   # finish it: it is parked, not rebuilt later
+						pass
+					_active_build = {}
 			_discard_active_build()
 			_generate_parallel(urgent)
 			for coord in urgent:
@@ -1054,10 +1063,12 @@ func _load_chunk(coord: Vector3i) -> void:
 		pass
 
 
-## Chunk builds started since begin() (benchmarks count rebuilds of chunks that were just unloaded).
+## Chunk builds finished since begin() (benchmarks count rebuilds of chunks that were just unloaded). Counted when a
+## build completes, so a background pre-build that a level change cancels and restarts is not a "rebuild".
 var chunk_builds := 0
+## The last chunks whose build finished (validators name a rebuilt chunk with it).
+var recent_builds: Array[Vector3i] = []
 func _create_chunk_build(coord: Vector3i) -> Dictionary:
-	chunk_builds += 1
 	var data := generator.chunk(coord)
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]
@@ -1306,7 +1317,12 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_set_lights_recursive(root, false)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
-				if _ready_set.has(coord) and not _wanted_now.has(coord):
+				chunk_builds += 1
+				recent_builds.append(coord)
+				if recent_builds.size() > 32:
+					recent_builds.pop_front()
+				if not _wanted_now.has(coord) and (_ready_set.has(coord) or coord.y != _last_player_chunk.y \
+						and _near_column(coord, _last_player_chunk)):
 					_make_dormant(coord)
 				return true
 			_:
@@ -3020,10 +3036,13 @@ static func mattress_top(visual: Node3D, path: String) -> float:
 static var _seat_tops := {}
 
 
-static func seat_top(visual: Node3D, path: String) -> float:
+static func seat_top(visual: Node3D, path: String, type: String = "") -> float:
 	if _seat_tops.has(path):
 		return float(_seat_tops[path])
-	var height := _largest_flat(visual, Vector2(.18, .3), .08)
+	# a booth's middle is its table: measure over its first bench row (model frame: the gameplay z is mirrored)
+	var rows: Array = PropModelCatalog.SEAT_ROWS.get(type, [])
+	var height := _largest_flat(visual, Vector2(.18, .12), -float((rows[0] as Dictionary)["z"])) if not rows.is_empty() \
+		else _largest_flat(visual, Vector2(.18, .3), .08)
 	_seat_tops[path] = height
 	return height
 
@@ -3131,24 +3150,27 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
-		# a multi-seat (waiting-room row, bench, couch) gets one interactable per seat along its width (docs/SEATING.md)
-		var seat_xs: Array = PropModelCatalog.seat_offsets(prop_type, blocker_size.x) if furniture_action == "sit" else [0.0]
-		var seat_size := Vector3(blocker_size.x / float(seat_xs.size()), blocker_size.y, blocker_size.z)
-		var seat_height := seat_top(visual, path) if furniture_action == "sit" else 0.0
-		for seat_index in seat_xs.size():
+		# a multi-seat (waiting-room row, bench, couch, booth) gets one interactable per seat (docs/SEATING.md)
+		var seat_points: Array = PropModelCatalog.seat_points(prop_type, blocker_size) if furniture_action == "sit" \
+			else [{"x": 0.0, "z": 0.0, "turn": 0.0, "width": blocker_size.x}]
+		var seat_height := seat_top(visual, path, prop_type) if furniture_action == "sit" else 0.0
+		for seat_index in seat_points.size():
+			var point: Dictionary = seat_points[seat_index]
 			var furniture := RouteInteractable3D.new()
-			furniture.name = "Furniture_%s" % prop_type if seat_xs.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
+			furniture.name = "Furniture_%s" % prop_type if seat_points.size() == 1 else "Furniture_%s_%d" % [prop_type, seat_index]
 			furniture.kind = RouteInteractable3D.Kind.FURNITURE
 			furniture.configure_furniture(furniture_action)
-			furniture.set_meta("rest_size", seat_size)    # PlayerController3D.rest_spot: where the body and eye go
+			# PlayerController3D.rest_spot: where the body and eye go (a booth seat is one bench's half, not the table)
+			furniture.set_meta("rest_size", Vector3(float(point["width"]), blocker_size.y,
+				blocker_size.z * (.28 if PropModelCatalog.SEAT_ROWS.has(prop_type) else 1.0)) if seat_points.size() > 1 else blocker_size)
 			if furniture_action == "lay":
 				furniture.set_meta("rest_top", mattress_top(visual, path))
 			elif furniture_action == "sit":
 				furniture.set_meta("seat_top", seat_height)
 				furniture.set_meta("seat_index", seat_index)
 			furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03) \
-				+ Vector3(float(seat_xs[seat_index]), 0.0, 0.0).rotated(Vector3.UP, yaw)
-			furniture.rotation.y = yaw
+				+ Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+			furniture.rotation.y = yaw + float(point["turn"])
 			parent.add_child(furniture)
 			if furniture_action == "play" and not booth_id.is_empty():
 				_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)

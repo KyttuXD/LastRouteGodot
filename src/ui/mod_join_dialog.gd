@@ -4,7 +4,7 @@ extends Control
 ## Joining a private room whose host runs mod packs. begin(host_packs) compares the host's list with the installed packs and shows
 ## one of: nothing (identical, join_allowed fires), the CONFIRM list (each missing pack's name, author, size, hash + the own-risk
 ## warning; DOWNLOAD & JOIN / CANCEL, "don't ask again" turns on auto-download), the DOWNLOAD progress bar, an ERROR, or PACKS DIFFER
-## (the guest has packs the host does not, so the join is refused). With Settings.auto_download_mods on, confirm is skipped and the
+## (public/ranked room with a modded host). With Settings.auto_download_mods on, confirm is skipped and the
 ## own-risk notice shows once per session. The guest never joins with a partial pack set: join_allowed only fires when every pack is in.
 
 signal join_allowed
@@ -123,11 +123,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func begin(host_packs: Array, private_room: bool = true) -> void:
 	var diff := ModPackApi.diff(host_packs, ModPackApi.installed())
 	var to_get: Array = diff["missing"] + diff["different"]
-	if to_get.is_empty() and diff["extra"].is_empty():
-		join_allowed.emit()
-		return
-	if not private_room or not diff["extra"].is_empty():
+	# A guest loads exactly the host's packs, so installed packs the host does not use change nothing and never refuse a join.
+	if not private_room and not host_packs.is_empty():
 		show_differ(host_packs, ModPackApi.installed())
+		return
+	if to_get.is_empty():
+		join_allowed.emit()
 		return
 	_pending = to_get
 	if Settings.auto_download_mods:
@@ -222,9 +223,7 @@ func show_differ(host_packs: Array, local_packs: Array) -> void:
 		_pack_line(pack, "MISSING: ")
 	for pack in diff["different"]:
 		_pack_line(pack, "OTHER VERSION: ")
-	for pack in diff["extra"]:
-		_pack_line(pack, "NOT IN THIS ROOM: ")
-	if host_packs.is_empty() and diff["extra"].is_empty():
+	if host_packs.is_empty():
 		body.text += "\nTHE HOST RUNS NO MODS."
 
 

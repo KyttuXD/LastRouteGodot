@@ -116,7 +116,7 @@ const SIZES := {
 	"containmentCell": Vector3(2.29, 2.62, 1.79),
 	"controlConsole": Vector3(2.42, 1.38, 1.04),
 	"deconShower": Vector3(2.01, 3.35, 2.01),
-	"dinerBooth": Vector3(1.67, 1.12, 1.54),
+	"dinerBooth": Vector3(2.48, 1.69, 2.29),
 	"dinerStool": Vector3(0.60, 1.22, 0.60),
 	"diningChair": Vector3(0.79, 1.41, 0.70),
 	"diningChairCushion": Vector3(0.79, 1.41, 0.70),
