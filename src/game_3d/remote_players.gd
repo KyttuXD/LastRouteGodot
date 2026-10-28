@@ -348,6 +348,7 @@ func _process(delta: float) -> void:
 		if _lookup_elapsed >= PEER_LOOKUP_SECONDS and not _states.is_empty():
 			_lookup_elapsed = 0.0
 			_lookup_peers()
+	_tick_pings(delta)
 	_since_send += delta
 	if _since_send < 1.0 / SEND_HZ:
 		return
@@ -356,6 +357,57 @@ func _process(delta: float) -> void:
 	_send_seq += 1
 	state["seq"] = _send_seq   # lets the host drop duplicated / reordered samples (GuestGuard)
 	_send_to_live(_place, [state])
+
+
+## Host: measure each guest's round trip and tell everyone once a second, so every client's player list can show pings.
+const PING_BROADCAST_SECONDS := 1.0
+var _peer_pings := {}
+var _ping_elapsed := 0.0
+
+
+func _tick_pings(delta: float) -> void:
+	if not RoomState.is_host:
+		return
+	_ping_elapsed += delta
+	if _ping_elapsed < PING_BROADCAST_SECONDS:
+		return
+	_ping_elapsed = 0.0
+	var pings := {1: 0}
+	for id in RoomState.peers:
+		if int(id) > 1 and peer_is_live(int(id)):
+			pings[int(id)] = int(_peer_rtt_ms(int(id)))
+	_peer_pings = pings
+	_receive_pings.rpc(pings)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func _receive_pings(pings: Dictionary) -> void:
+	var clean := {}
+	for id in pings:
+		clean[int(id)] = clampi(int(pings[id]), 0, 9999)
+	_peer_pings = clean
+
+
+## The replicated state of one peer ({} when unknown); the host's answer to an admin pulse reads it.
+func peer_state(id: int) -> Dictionary:
+	return (_states.get(id, {}) as Dictionary)
+
+
+func peer_body(id: int) -> Node3D:
+	return _bodies.get(id) as Node3D
+
+
+func peer_pings() -> Dictionary:
+	return _peer_pings
+
+
+## Rows for the player list: the room roster joined with each peer's replicated state, the host's ping figures and who is talking.
+func player_list_rows(can_pulse: bool) -> Array:
+	var controller := local_player as PlayerController3D
+	var local := {"depth": GameState.depth, "spectating": controller != null and controller.spectator_mode,
+		"game_over": GameState.game_over, "escape_active": GameState.escape_active}
+	return RoomPlayerList.build(RoomState.roster_rows(), _states, local, _peer_pings,
+		voice.talking_peers() if voice != null else {}, can_pulse, Time.get_ticks_usec())
 
 
 func _local_state() -> Dictionary:
@@ -1321,11 +1373,13 @@ func _request_interaction(event: Dictionary) -> void:
 				"stun_hunters", "wake_hunters", "calm_hunters",
 				"damage_checkpoint", "repair_checkpoint", "lights_on",
 				"lights_off", "summon_hunter", "remove_hunter",
-				"story_start", "story_stop", "story_reset"].has(action):
+				"story_start", "story_stop", "story_reset", "pulse_player"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
-		if action in ["summon_hunter", "remove_hunter"]:
+		if action == "pulse_player":
+			accepted["target"] = clampi(int(event.get("target", 0)), 1, 2147483647)
+		elif action in ["summon_hunter", "remove_hunter"]:
 			var hunter_id := String(event.get("hunter_id", ""))
 			if not HunterRoster.A_Z_IDS.has(hunter_id) \
 					and not HunterRoster.VOID_IDS.has(hunter_id):

@@ -70,7 +70,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
-	"inventory", "drop_item", "chat", "toggle_map", "pause",
+	"inventory", "drop_item", "chat", "toggle_map", "player_list", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",

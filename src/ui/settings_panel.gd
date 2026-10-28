@@ -25,6 +25,7 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
+	"player_list": "PLAYER LIST (HOLD)",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",

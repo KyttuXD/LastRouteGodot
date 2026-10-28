@@ -355,6 +355,19 @@ func _play(sender: int, packet: PackedByteArray) -> bool:
 	return true
 
 
+## Peers whose voice is playing right now (and this player while their own gate is open): {peer_id: true}. For the player list.
+func talking_peers() -> Dictionary:
+	var out := {}
+	if not Settings.voice_chat_on:
+		return out
+	for id in _players:
+		if bool((_players[id] as Dictionary).get("talking", false)):
+			out[int(id)] = true
+	if speaking:
+		out[_local_id()] = true
+	return out
+
+
 static func gain_db(volume: float, occluded: bool) -> float:
 	var db := linear_to_db(maxf(volume, 0.0001))
 	return db + (OCCLUDED_DB if occluded else 0.0)

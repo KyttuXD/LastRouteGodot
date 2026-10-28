@@ -75,6 +75,8 @@ var radar_time := -1.0:
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
 var players: Array = []
+## Admin pulses (host-approved, a few seconds): [{at: Vector2, level: int, until_msec: int, name: String}] drawn as expanding rings.
+var pulses: Array = []
 var dropped_tools: Array = []
 var safe_rooms: Array = []
 ## Infinite mode supplies compact discovered chunks rather than a finite
@@ -140,8 +142,8 @@ func view_center() -> Vector2:
 
 
 func _process(delta: float) -> void:
-	if not pings.is_empty() and is_visible_in_tree():
-		queue_redraw()   # pings pulse and expire
+	if (not pings.is_empty() or not pulses.is_empty()) and is_visible_in_tree():
+		queue_redraw()   # pings and admin pulses animate and expire
 	# Porcelle's ping animates, so a minimap with her mark redraws every frame
 	if ghost_ping and is_visible_in_tree():
 		for mark in hunters:
@@ -408,6 +410,7 @@ func _draw() -> void:
 		_draw_remote_player(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
 	_draw_pings(origin, Vector2.ZERO, cell)
+	_draw_pulses(origin, Vector2.ZERO, cell)
 	for mark in dropped_tools:
 		_draw_dropped_tool(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
@@ -580,6 +583,7 @@ func _draw_streamed() -> void:
 			continue
 		_draw_remote_player(origin + (mark_world - world_origin) * cell, cell, mark)
 	_draw_pings(origin, world_origin, cell)
+	_draw_pulses(origin, world_origin, cell)
 	for mark in dropped_tools:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
 		if not Rect2(world_bounds).has_point(mark_world):
@@ -800,6 +804,36 @@ func teammate_layout(at: Vector2, radius: float, mark: Dictionary) -> Dictionary
 		kind = "downed"
 	return {"kind": kind, "shown": shown, "off_view": off_view, "outward": outward,
 		"up": int(mark.get("level", 0)) > streamed_level}
+
+
+func set_pulses(marks: Array) -> void:
+	pulses = marks.duplicate(true)
+	queue_redraw()
+
+
+func _draw_pulses(origin: Vector2, world_origin: Vector2, cell: float) -> void:
+	var now := Time.get_ticks_msec()
+	for mark in pulses:
+		if int(mark.get("until_msec", 0)) <= now:
+			continue
+		var world: Vector2 = mark.get("at", Vector2.ZERO)
+		var at := origin + (world - world_origin) * cell
+		var layout := teammate_layout(at, 4.0, {"other_floor": int(mark.get("level", streamed_level)) != streamed_level,
+			"level": int(mark.get("level", streamed_level))})
+		var shown: Vector2 = layout["shown"]
+		var phase := fposmod(float(now) / 900.0, 1.0)
+		var tint := Color("37e6d9")
+		draw_circle(shown, 2.5, tint)
+		draw_arc(shown, 4.0 + phase * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - phase), 1.6, true)
+		draw_arc(shown, 4.0 + fposmod(phase + .5, 1.0) * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - fposmod(phase + .5, 1.0)), 1.2, true)
+		var label := String(mark.get("name", "")).to_upper().substr(0, 12)
+		if not label.is_empty():
+			var font := ThemeDB.fallback_font
+			var at_label := shown + Vector2(7.0, 3.0)
+			if at_label.x + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x > size.x:
+				at_label.x = shown.x - 8.0 - font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x
+			draw_string_outline(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, 3, Color(0.01, 0.04, 0.05, .95))
+			draw_string(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, tint.lightened(.3))
 
 
 func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:

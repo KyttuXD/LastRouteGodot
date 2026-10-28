@@ -58,7 +58,13 @@ static func remote_guest_tools_allowed() -> bool:
 static var capture_rig := false
 
 
+## Validators set this to see what a player WITHOUT admin sees (the headless exception would otherwise grant everything).
+static var deny_admin_for_test := false
+
+
 static func _headless_validation() -> bool:
+	if deny_admin_for_test:
+		return false
 	return OS.is_debug_build() and (DisplayServer.get_name() == "headless" or capture_rig)
 
 
