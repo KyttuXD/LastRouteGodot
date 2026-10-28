@@ -86,67 +86,28 @@ const _CODE_MODEL_PATHS := {
 	"retroComputerTerminal": ContentRegistry.DATA,
 
 	"diningTable": ContentRegistry.DATA,
-	"diningChair": [
-		"res://art/props-3d/props/mansion/dining_chair_burgundy.glb",
-		"res://art/props-3d/props/mansion/dining_chair_ivory.glb",
-	],
-	"diningChairCushion": [
-		"res://art/props-3d/props/mansion/dining_chair_cushion_burgundy.glb",
-	],
-	"diningChandelier": [
-		"res://art/props-3d/props/mansion/dining_chandelier.glb",
-		"res://art/props-3d/props/mansion/dining_chandelier_crystal.glb",
-		"res://art/props-3d/props/mansion/dining_chandelier_gothic.glb",
-	],
-	"diningSideboard": ["res://art/props-3d/props/mansion/ornate_sideboard.glb"],
-	"flowerCenterpiece": [
-		"res://art/props-3d/props/mansion/flower_centerpiece.glb",
-	],
-	"framedWallPortrait": [
-		"res://art/props-3d/props/mansion/framed_wall_portrait.glb",
-	],
+	"diningChair": ContentRegistry.DATA,
+	"diningChairCushion": ContentRegistry.DATA,
+	"diningChandelier": ContentRegistry.DATA,
+	"diningSideboard": ContentRegistry.DATA,
+	"flowerCenterpiece": ContentRegistry.DATA,
+	"framedWallPortrait": ContentRegistry.DATA,
 	# Empty residential frames deliberately contain no canvas/image mesh. The
 	# wall remains visible through their centre until authored artwork is added.
-	"normalPictureFrameEmpty": [
-		"res://art/props-3d/props/mansion/normal_picture_frame_empty.glb",
-	],
-	"normalPaintingFrameEmpty": [
-		"res://art/props-3d/props/mansion/normal_painting_frame_empty.glb",
-	],
-	"luxuryPictureFrameEmpty": [
-		"res://art/props-3d/props/mansion/luxury_picture_frame_empty.glb",
-	],
-	"luxuryPaintingFrameEmpty": [
-		"res://art/props-3d/props/mansion/luxury_painting_frame_empty.glb",
-	],
-	"gothicPictureFrameEmpty": [
-		"res://art/props-3d/props/mansion/gothic_picture_frame_empty.glb",
-	],
-	"gothicPaintingFrameEmpty": [
-		"res://art/props-3d/props/mansion/gothic_painting_frame_empty.glb",
-	],
-	"normalRoomDoor": [
-		"res://art/props-3d/props/mansion/normal_room_door.glb",
-	],
-	"luxuryRoomDoor": [
-		"res://art/props-3d/props/mansion/luxury_room_door.glb",
-	],
-	"gothicRoomDoor": [
-		"res://art/props-3d/props/mansion/gothic_room_door.glb",
-	],
-	"normalDoubleRoomDoor": [
-		"res://art/props-3d/props/mansion/normal_double_room_door.glb",
-	],
-	"luxuryDoubleRoomDoor": [
-		"res://art/props-3d/props/mansion/luxury_double_room_door.glb",
-	],
-	"gothicDoubleRoomDoor": [
-		"res://art/props-3d/props/mansion/gothic_double_room_door.glb",
-	],
-	"heavyMansionDrapes": [
-		"res://art/props-3d/props/mansion/heavy_mansion_drapes.glb",
-	],
-	"mansionAreaRug": ["res://art/props-3d/props/mansion/mansion_area_rug.glb"],
+	"normalPictureFrameEmpty": ContentRegistry.DATA,
+	"normalPaintingFrameEmpty": ContentRegistry.DATA,
+	"luxuryPictureFrameEmpty": ContentRegistry.DATA,
+	"luxuryPaintingFrameEmpty": ContentRegistry.DATA,
+	"gothicPictureFrameEmpty": ContentRegistry.DATA,
+	"gothicPaintingFrameEmpty": ContentRegistry.DATA,
+	"normalRoomDoor": ContentRegistry.DATA,
+	"luxuryRoomDoor": ContentRegistry.DATA,
+	"gothicRoomDoor": ContentRegistry.DATA,
+	"normalDoubleRoomDoor": ContentRegistry.DATA,
+	"luxuryDoubleRoomDoor": ContentRegistry.DATA,
+	"gothicDoubleRoomDoor": ContentRegistry.DATA,
+	"heavyMansionDrapes": ContentRegistry.DATA,
+	"mansionAreaRug": ContentRegistry.DATA,
 	"corridorCarpet": [
 		"res://art/props-3d/props/mansion/corridor_carpet_teal.glb",
 		"res://art/props-3d/props/mansion/corridor_carpet_burgundy.glb",
