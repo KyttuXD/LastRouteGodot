@@ -1680,6 +1680,9 @@ func _try_enter_xr() -> bool:
 		push_warning("OPENXR // runtime initialization failed; using desktop camera")
 		return false
 	xr_active = true
+	# The headset renders from the CURRENT XROrigin3D. The menu panel (XRMenuPanel) has its own; unless this one takes
+	# over, the route is drawn from that origin, i.e. world (0, 0, 0), a corner between rooms, not from the runner.
+	xr_origin.current = true
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
@@ -1723,8 +1726,22 @@ func _xr_smoke_log() -> void:
 		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
 	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
 	var blocked := spot_blocked(global_position)
+	print("XR_SMOKE_SEED %s yaw=%.3f origin_current=%s" % [RoomState.seed_text, rotation.y, xr_origin.current])
 	print("XR_SMOKE_PLACE body=%s camera=%s origin=%s cell_offset=%s origin_parent=%s body_blocked=%s" % [global_position,
 		xr_camera.global_position, xr_origin.global_position, cell, xr_origin.get_parent().name, blocked])
+	var eye := xr_camera.global_position
+	for node in get_tree().root.find_children("*", "GeometryInstance3D", true, false):
+		var shape := node as GeometryInstance3D
+		if not shape.is_visible_in_tree() or not (shape.global_transform * shape.get_aabb()).grow(0.35).has_point(eye):
+			continue
+		var many := shape as MultiMeshInstance3D
+		if many != null and many.multimesh != null and many.multimesh.mesh != null:
+			for i in many.multimesh.instance_count:
+				var box := many.global_transform * many.multimesh.get_instance_transform(i) * many.multimesh.mesh.get_aabb()
+				if box.grow(0.35).has_point(eye):
+					print("XR_SMOKE_NEAR_EYE %s #%d aabb=%s" % [shape.name, i, box])
+		elif (shape.global_transform * shape.get_aabb()).size.length() < 20.0:
+			print("XR_SMOKE_NEAR_EYE %s aabb=%s" % [shape.get_path(), shape.global_transform * shape.get_aabb()])
 	var problems := []
 	if not xr_active:
 		problems.append("xr_active is false")
@@ -1737,6 +1754,8 @@ func _xr_smoke_log() -> void:
 		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
 	if blocked:
 		problems.append("the body is inside level geometry or off the floor")
+	if not xr_origin.current:
+		problems.append("the runner's XROrigin3D is not the current origin (the headset renders from another one)")
 	var marker := get_tree().root.find_child("StartingSafeZoneMarker", true, false) as Node3D
 	if marker != null and Vector2(marker.global_position.x - global_position.x, marker.global_position.z - global_position.z).length() < 0.6:
 		problems.append("the body stands on the safe-zone marker post")
