@@ -50,3 +50,26 @@ luxury bathroom of the `MANSION-LOOK` seed, from a back corner, with the finishe
 ![mansion before/after: bedroom, drawing room, dining room, luxury bathroom](mansion_before_after.png)
 
 ![mansion finishes](mansion_props_catalog.png)
+
+## Ceilings and lighting
+
+**One fixture family per room.** KT found rooms with chandeliers and ceiling fans together. Two placers caused it: the
+room recipes (ceiling fan, ceiling light and chandelier props) and the ref-look decor (`src/look/ref_decor.gd`, which
+hangs a chandelier in each room centre plus pendants and strip lamps on a lattice). The fix has two parts:
+- `StreamedRouteGenerator.one_ceiling_family` keeps one family per room: a chandelier wins over a fan, and a fan, which
+  has its own light kit, wins over a plain ceiling light.
+- The decor adds nothing to a room whose recipe placed its own ceiling fixture.
+
+**Mansion ceilings:**
+- Fans and ceiling lights in mansion recipes become chandeliers, which use the crystal-and-brass mansion finish.
+- The decor chandelier is the grand three-tier one in rooms of 150 m² or more.
+- Every mansion chandelier, from the decor or the recipe, gets a plaster-and-brass ceiling medallion.
+- Rooms get crown moulding along every wall and a coffered ceiling, with a beam grid every two cells and brass edges.
+- Every room is lit, by wall sconces and warm candle-gold light (tint `ffc27a`). Pipes and floor cables are gone from
+  the mansion.
+
+The `ceiling_fixtures` suite checks across three seeds that no room mixes families, that no decor fixture sits in a
+recipe-lit room, that the mansion has no fans or strip lights, and that each mansion chandelier has a medallion,
+moulding and coffers.
+
+![mansion ceilings: before (left) and after (right)](mansion_ceilings_before_after.png)
