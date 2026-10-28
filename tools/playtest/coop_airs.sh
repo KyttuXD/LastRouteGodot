@@ -23,7 +23,7 @@ run() {  # machine[@lane] role botseed
   local m="${1%@*}" lane="$LANE" role="$2" seed="$3" check="--coop-check $EXTRA"
   case "$1" in *@*) lane="${1#*@}"; check="" ;; esac
   local dir="Developer/lanes/$lane"
-  ssh -o BatchMode=yes "$m" "$ENVL cd ~/$dir && rm -rf .share .playtest/coop_$role$seed && mkdir -p .share && ~/.local/bin/guard.pl $TIMEOUT $G \$DD --path . --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=coop_bot $check --role=$role --bot-seed=$seed --seed=$SEED --minutes=$MIN --dir=\$HOME/$dir/.share --guests=${#GUESTS[@]} $BACKEND_ARG --name=coop_$role$seed > .playtest-coop-$role$seed.log 2>&1; echo \"$m rc=\$?\"" 2>&1 | grep -v zshenv
+  ssh -o BatchMode=yes "$m" "$ENVL cd ~/$dir && rm -rf .share .playtest/coop_$role$seed && mkdir -p .share && GUARD_STALL=0 ~/.local/bin/guard.pl $TIMEOUT $G \$DD --path . --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=coop_bot $check --role=$role --bot-seed=$seed --seed=$SEED --minutes=$MIN --dir=\$HOME/$dir/.share --guests=${#GUESTS[@]} $BACKEND_ARG --name=coop_$role$seed > .playtest-coop-$role$seed.log 2>&1; echo \"$m rc=\$?\"" 2>&1 | grep -v zshenv
 }
 run "$HOSTM" host 0 &
 PIDS=($!)
@@ -39,7 +39,7 @@ for _ in $(seq 1 120); do
 done
 echo "room code: ${code:-NONE}"
 for g in "${GUESTS[@]}"; do gl="$LANE"; case "$g" in *@*) gl="${g#*@}" ;; esac
-  ssh -o BatchMode=yes "${g%@*}" "printf %s '$code' > ~/Developer/lanes/$gl/.share/code.txt" 2>&1 | grep -v zshenv; done
+  ssh -o BatchMode=yes "${g%@*}" "mkdir -p ~/Developer/lanes/$gl/.share && printf %s '$code' > ~/Developer/lanes/$gl/.share/code.txt" 2>&1 | grep -v zshenv; done
 for p in "${PIDS[@]}"; do wait "$p"; done
 i=1
 pull() { local m="${1%@*}" d="$DIR"; case "$1" in *@*) d="Developer/lanes/${1#*@}" ;; esac
