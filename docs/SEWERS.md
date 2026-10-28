@@ -155,7 +155,21 @@ pointing up (and on the maze, down).
 ## Props (authored, `tools/props/rebuild_hytale_props.py` SEWER_BUILDERS -> `art/props-3d/props/sewer/`)
 
 `sewerLadder`, `sewerLadderTop`, `sewerManhole`, `sewerFloorGrate`, `sewerValveWheel`, `sewerPump` (solid),
-`sewerPipeRun`, `sewerOverflowGrate`, `sewerLamp`, `sewerBridge`, `sewerGrateDeck`.
+`sewerPipeRun`, `sewerOutflowPipe` (solid, crawl-under), `sewerOverflowGrate`, `sewerLamp`, `sewerBridge`, `sewerGrateDeck`.
+
+## Outflow mains
+
+A 1.5 m rusted main (`sewerOutflowPipe`) comes out of a tunnel's outer wall through a riveted wall plate and runs across
+its three-wide walkway. Over the railing it turns down an elbow into the channel with its foot in the flow, and the drop's
+flange weeps into the water. The underside is `CRAWL_CLEARANCE`, so a crouched runner crawls under it. A standing runner or any hunter goes round: the main only sits between an arm's bridge and the junction
+(`OUTFLOW_OFFSETS`), so there is a crossing on both sides of it. Placement:
+
+* at most one per chunk on either sewer, from its own seed stream (`SewerRouteGenerator._outflow_features`);
+* brick behind it with no doorway within a cell, and no lamp, wall main, link or bridge within a cell;
+* the corridor ceiling lamp over its cells is skipped (`RefDecor._overhead_cells`).
+
+Hunter navigation reads its three `occupied_cells` like any solid prop, and the minimap draws its collider. `sewer_crawl`
+checks the clearance, the placement and that hunters still reach every cell a crawler can.
 
 Build them with:
 

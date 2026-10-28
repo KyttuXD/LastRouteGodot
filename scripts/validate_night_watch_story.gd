@@ -74,6 +74,7 @@ func _solve(g: StoryLogic) -> Array:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_tables()
 	_rules()
 	_hunters()

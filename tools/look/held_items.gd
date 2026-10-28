@@ -58,7 +58,7 @@ func _ready() -> void:
 	var stage := Node3D.new()
 	stage.name = "TpStage"
 	scene.add_child(stage)
-	stage.global_position = Vector3(camera_node.global_position.x, player.global_position.y, camera_node.global_position.z) + forward * 2.6
+	stage.global_position = Vector3(camera_node.global_position.x, player.global_position.y, camera_node.global_position.z) + forward * 2.3
 	var remote := RemotePlayers.new()
 	scene.add_child(remote)
 	var yaw := atan2(-forward.x, -forward.z)
@@ -79,7 +79,7 @@ func _ready() -> void:
 		remote._attach_remote_flashlight(id, body)
 		remote._sync_remote_held_item(id, body, item_id)
 		ModelSlot.play_if_available(ModelSlot.find_animation_player(body), "idle")
-		for view in [["front", PI * .78], ["side", PI * .5]]:
+		for view in [["front", PI * .78], ["side", PI * .5], ["back", 0.0]]:
 			body.rotation.y = yaw + float(view[1])
 			for _i in 6:
 				await get_tree().process_frame

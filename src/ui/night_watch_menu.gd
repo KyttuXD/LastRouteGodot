@@ -763,7 +763,7 @@ func _build_custom() -> void:
 		presets.add_child(qb)
 	var score := _label("", 7, INK)
 	score.name = "Score"
-	score.position = Vector2(8, 42 + (m["custom"] as Array).size() * 12 + 24)
+	score.position = Vector2(8, 42 + (m["custom"] as Array).size() * 12 + 28)   # the preset row is 16 px high on the Mac and 17 on Windows (font metrics)
 	_screen_root.add_child(score)
 	_update_custom_score(m, vals)
 	var go := _button("▶ START NIGHT", 8)

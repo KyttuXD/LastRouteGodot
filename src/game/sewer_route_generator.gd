@@ -74,6 +74,16 @@ const CRAWL_CLEARANCE := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
 const CRAWL_PIPE_MOUNT_Y := CRAWL_CLEARANCE + 0.11
 const CRAWL_PIPE_SIZE := Vector3(2.0, 0.55, 0.5)
 const CRAWL_CHANCE := 0.6
+## Outflow mains (KT: "a massive rusted pipe you crawl under or go around"): a 1.5 m main out of a tunnel's outer wall
+## straight across its three-wide walkway, the mouth over the channel. Its underside is CRAWL_CLEARANCE, so a crouched
+## runner crawls under; hunters go round over a bridge and the junction (it only sits between the two). At most one per
+## chunk, on either sewer, from its own seed stream (the rest of the layout is unchanged).
+const OUTFLOW_CHANCE := 0.35
+## Collider (local x across the main, z along it from the wall to the mouth), from CRAWL_CLEARANCE up.
+const OUTFLOW_SIZE := Vector3(1.64, 1.64, 3.2)
+## Offsets along a tunnel arm between its bridge (BRIDGE_OFFSETS) and the junction (CENTER +- JUNCTION_HALF): a hunter
+## at the pipe always has a crossing on both sides of it.
+const OUTFLOW_OFFSETS := [13, 14, 30, 31]
 ## Deep channels: the bed lies CHANNEL_DEPTH below the walkways and the water
 ## surface WATER_SURFACE below them (negative = down). Nobody wades: railings
 ## line every walkway edge and the channel cells block movement, so the water
@@ -213,6 +223,28 @@ func falls_between(x: int, z: int) -> Dictionary:
 		"edge_x0": float(qc.x - 1)}
 
 
+## Cells of the chunk (x, `level`, z) under the channel trench of the sewer storey above it: the trench bed lies
+## CHANNEL_DEPTH under that storey's floor, deeper than the slab, so this storey's vault stops short of it there.
+## The main cross's channels on both sewers, the falls' spur channel on the first sewer and its cistern pool on the
+## collector. Pure seed maths, like ramps and falls.
+func trench_cells_below(x: int, z: int, level: int) -> Array:
+	var above := level + 1
+	if above not in [LEVEL, LOWER_LEVEL] or not is_chunk_allowed(Vector3i(x, above, z)):
+		return []
+	var rects := [Rect2i(0, CENTER - CHANNEL_HALF, CHUNK_SIZE, CHANNEL_HALF * 2 + 1),
+		Rect2i(CENTER - CHANNEL_HALF, 0, CHANNEL_HALF * 2 + 1, CHUNK_SIZE)]
+	var falls := falls_between(x, z)
+	if not falls.is_empty():
+		rects.append(falls["spur"] if above == LEVEL else falls["pool"])
+	var out := []
+	for rect_value in rects:
+		var rect: Rect2i = rect_value
+		for cz in range(maxi(rect.position.y, 0), mini(rect.end.y, CHUNK_SIZE)):
+			for cx in range(maxi(rect.position.x, 0), mini(rect.end.x, CHUNK_SIZE)):
+				out.append(Vector2i(cx, cz))
+	return out
+
+
 ## Every ramp touching level `level` in the chunk column (x, z).
 func ramps_at(x: int, z: int, level: int) -> Array:
 	var out := []
@@ -328,6 +360,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	features = _centre_room_lamps(grid, rooms, features)
 	features = _pair_tunnel_lamps(grid, features)
 	features = _mount_on_walls(grid, features)
+	features.append_array(_outflow_features(coord, grid, features, links))
 	var schema := _streamed_schema(coord, grid, rooms, links, features, ramps)
 	schema["stairwells"] = wells
 	schema["shaft_cells"] = shaft_cells
@@ -647,6 +680,51 @@ func _crawl_features(rooms: Array, grid: Array, rng: SeededRandom) -> Array:
 	return out
 
 
+## The chunk's outflow main, or nothing: a walkway row at one of OUTFLOW_OFFSETS on one of the four arms and either
+## walkway, all three cells dry with dry walkway either side along the arm, solid brick behind it (no doorway within a
+## cell, so no branch, stairwell, ladder chamber or ramp opens at it), the channel in front of its mouth, and no
+## other piece (lamps, wall mains, bridges) within a cell.
+func _outflow_features(coord: Vector3i, grid: Array, features: Array, links: Array) -> Array:
+	var rng := SeededRandom.new("%s:OUTFLOW:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
+	if rng.next_float() >= OUTFLOW_CHANCE:
+		return []
+	var taken := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, feature["cell"], 1)
+	for link in links:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, link["to_cell"], 2)
+	var options := []
+	for offset in OUTFLOW_OFFSETS:
+		for along_x in [true, false]:
+			for side in [-1, 1]:
+				# the walkway row's outer, middle and channel-side cells, and the step toward the wall
+				var wall: Vector2i = Vector2i(0, int(side)) if along_x else Vector2i(int(side), 0)
+				var outer: int = CENTER + int(side) * TUNNEL_HALF
+				var middle: Vector2i = Vector2i(int(offset), outer - int(side)) if along_x else Vector2i(outer - int(side), int(offset))
+				options.append({"middle": middle, "wall": wall, "along": Vector2i(1, 0) if along_x else Vector2i(0, 1)})
+	var start := rng.next_index(options.size())
+	for k in options.size():
+		var option: Dictionary = options[(start + k) % options.size()]
+		var middle: Vector2i = option["middle"]
+		var wall: Vector2i = option["wall"]
+		var along: Vector2i = option["along"]
+		var cells := [middle + wall, middle, middle - wall]
+		var fits := int(grid[(middle - wall * 2).y][(middle - wall * 2).x]) == WATER
+		for cell_value in cells:
+			var cell: Vector2i = cell_value
+			for a in [-1, 0, 1]:
+				var c: Vector2i = cell + along * int(a)
+				fits = fits and int(grid[c.y][c.x]) == DRY and not taken.has(c)
+		for a in [-1, 0, 1]:
+			var brick: Vector2i = middle + wall * 2 + along * int(a)
+			fits = fits and int(grid[brick.y][brick.x]) == SOLID
+		if fits:
+			# its brick is two cells behind the middle one: "outflow_wall", not a wall-backed "wall"
+			return [{"type": "sewerOutflowPipe", "cell": middle, "yaw": wall_yaw(wall), "outflow_wall": wall,
+				"outflow": true, "cells": cells, "step": along}]
+	return []
+
+
 ## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.
 static func _crawl_stripe_cells(features: Array) -> Array:
 	var cells := []
@@ -829,6 +907,16 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 			prop["collider_size"] = CRAWL_PIPE_SIZE
 			prop["collider_y0"] = CRAWL_CLEARANCE
 			prop["placement_offset"] = Vector2(across) * (.5 * float(feature["side"]))
+			prop["occupied_cells"] = (feature["cells"] as Array).duplicate()
+		elif feature.has("outflow"):
+			# the main stands on its own (authored at its height): solid across its three cells, the box from the
+			# crawl clearance up to its flanges' top
+			prop["solid"] = true
+			prop["outflow"] = true
+			prop["outflow_wall"] = feature["outflow_wall"]
+			prop["crawl_step"] = feature["step"]
+			prop["collider_size"] = OUTFLOW_SIZE
+			prop["collider_y0"] = CRAWL_CLEARANCE
 			prop["occupied_cells"] = (feature["cells"] as Array).duplicate()
 		elif FEATURE_MOUNT_Y.has(type):
 			prop["mount_y"] = FEATURE_MOUNT_Y[type]

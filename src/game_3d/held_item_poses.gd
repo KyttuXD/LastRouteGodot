@@ -40,9 +40,18 @@ const THIRD_PERSON := {
 	"taser": {"upright": false},
 	"lockpick": {"upright": false},
 	"battery": {"upright": false},
-	"crowbar": {"upright": true, "tilt": -52.0},
-	"rescue_axe": {"upright": true, "tilt": -55.0},
+	"crowbar": {"upright": true, "tilt": -52.0, "grip": 0.17},
+	"rescue_axe": {"upright": true, "tilt": -55.0, "grip": 0.08},
 }
+
+## Where the model is held in third person: the table's "grip" (nearer the butt, so the long tools do not hang through the hip),
+## else the first-person grip.
+static func third_person_grip(item_id: String) -> Vector3:
+	var pose: Dictionary = THIRD_PERSON.get(item_id, {})
+	if pose.has("grip"):
+		return Vector3(0.0, float(pose["grip"]), 0.0)
+	return GRIP.get(item_id, Vector3.ZERO) as Vector3
+
 
 ## Items that get a swing (first and third person) and how it reads.
 const SWINGS := {
@@ -69,7 +78,7 @@ static func first_person_hand(item_id: String) -> Vector3:
 ## Local transform of a held model under the remote hand anchor (+X right, +Y forward, +Z up).
 static func third_person_transform(item_id: String, scale_amount: float) -> Transform3D:
 	var pose: Dictionary = THIRD_PERSON.get(item_id, {})
-	var grip := GRIP.get(item_id, Vector3.ZERO) as Vector3
+	var grip := third_person_grip(item_id)
 	var basis := Basis.IDENTITY
 	if bool(pose.get("upright", false)):
 		# model +Y (handle) -> anchor +Z, blade/claw +X -> anchor +Y (forward), model +Z -> anchor +X

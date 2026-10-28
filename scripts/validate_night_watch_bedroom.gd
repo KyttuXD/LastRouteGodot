@@ -49,6 +49,7 @@ func _first_move(night: int, id: String) -> float:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_table()
 	_rules()
 	_variety()

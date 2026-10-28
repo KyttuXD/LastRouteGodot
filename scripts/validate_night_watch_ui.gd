@@ -66,6 +66,7 @@ func _shoot(vp: SubViewport, win: Vector2i, name_value: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	_capture_dir = OS.get_environment("NW_UI_CAPTURE")
 	if not _capture_dir.is_empty():
 		Build.capture_rig = true   # the capture run has a window: the admin menu attaches for the rig the way headless validation does

@@ -30,6 +30,7 @@ func _game(host: Node, level: int, custom := {}) -> NightWatchGame:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	var game := _game(host, 3)
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame

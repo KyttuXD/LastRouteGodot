@@ -32,6 +32,7 @@ func _stress_layout() -> Dictionary:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	var layouts := {"classic": NightWatchMapRegistry.classic_layout(), "stress": _stress_layout()}
 	for mode_id in NightWatchMapRegistry.MAPS:
 		if mode_id == "classic":

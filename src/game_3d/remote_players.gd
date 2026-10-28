@@ -19,7 +19,7 @@ const REMOTE_HELD_MODELS := {
 }
 const REMOTE_HELD_SCALES := {
 	"flashlight": .34, "taser": .32, "lockpick": .29,
-	"crowbar": .30, "rescue_axe": .29, "battery": .40,
+	"crowbar": .58, "rescue_axe": .62, "battery": .40,
 }
 const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
@@ -413,6 +413,7 @@ func _local_state() -> Dictionary:
 		"skin_copy": Settings.skin_copyable,
 		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
+		"grab": controller.grab_state,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
 		"no_target": controller.admin_no_target,
@@ -516,27 +517,13 @@ func _place(state: Dictionary) -> void:
 
 	var body: Node3D = _bodies.get(id)
 	if body == null:
-		body = ModelSlot.instantiate(MODEL)
+		body = _make_body(id, state, at)
 		if body == null:
 			return
-		body.name = "Peer%d" % id
-		body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
-		add_child(body)
-		body.global_position = at
-		body.rotation.y = float(state.get("facing_y", 0.0))
-		_bodies[id] = body
-		_players[id] = ModelSlot.find_animation_player(body)
-		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
-		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
-		_add_name_tag(body, String(state.get("display_name",
-			RoomState.peer_display_name(id))))
-		body.set_meta("fade_current", 0.0)
-		_step_distances[id] = 0.0
-		_attach_remote_flashlight(id, body)
 	# seated on a hunter-scale seat: the "sit" clip is authored for a person chair, so lift the body by the difference
 	if received.get("seat_at") is Vector2:
 		at = (at as Vector3) + Vector3.UP * maxf(0.0, float(received.get("seat_top", 0.0)) - PlayerController3D.SIT_CLIP_SEAT)
-	_positions[id] = at
+	_positions[id] = (at as Vector3) + Vector3(0.0, _grab_lift(state), 0.0)
 	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
@@ -570,6 +557,29 @@ func _place(state: Dictionary) -> void:
 
 
 ## A sleeping teammate shows "z Z" over their head (docs/REST_AND_SLEEP.md).
+
+## The guest's copy of runner `id`: the mannequin at PlayerModels.SCALE (the same size as the runner's own body), skinned and tagged.
+func _make_body(id: int, state: Dictionary, at: Vector3) -> Node3D:
+	var body: Node3D = ModelSlot.instantiate(MODEL)
+	if body == null:
+		return null
+	body.name = "Peer%d" % id
+	body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
+	add_child(body)
+	body.global_position = at
+	body.rotation.y = float(state.get("facing_y", 0.0))
+	_bodies[id] = body
+	_players[id] = ModelSlot.find_animation_player(body)
+	ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+	_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
+	_add_name_tag(body, String(state.get("display_name",
+		RoomState.peer_display_name(id))))
+	body.set_meta("fade_current", 0.0)
+	_step_distances[id] = 0.0
+	_attach_remote_flashlight(id, body)
+	return body
+
+
 func _sync_sleep_tag(body: Node3D, asleep: bool) -> void:
 	var tag := body.get_node_or_null("SleepTag") as Label3D
 	if tag == null:
@@ -604,6 +614,60 @@ func _interpolate_bodies(delta: float) -> void:
 			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
+		var grab := _grab_packet(_states.get(id, {}))
+		body.rotation.x = lerp_angle(body.rotation.x, float(grab[3]) if not grab.is_empty() else 0.0, weight)
+		body.rotation.z = 0.0
+		if not grab.is_empty():
+			# after every hunter view has run its clips and head look this frame
+			(func(): if is_instance_valid(body): HunterGrab.pose_nearest_hunter(self, body, grab)).call_deferred()
+		_pose_remote_climb(body)
+
+
+## Another runner on a ladder: their copy's hands on the rungs, the same way their own first-person model holds them
+## (PlayerController3D.climb_hand_targets_for), after the climb clip has run this frame.
+func _pose_remote_climb(body: Node3D) -> void:
+	if String(body.get_meta("movement_clip", "")) != "climb":
+		if body.has_meta("climb_rungs"):
+			body.remove_meta("climb_rungs")
+			body.remove_meta("climb_foot")
+		return
+	if not body.has_meta("climb_rungs"):
+		body.set_meta("climb_foot", body.global_position)
+		body.set_meta("climb_rungs", PlayerController3D.find_ladder_rungs(get_tree(), body.global_position, body.rotation.y, 6.0))
+	var rungs: Array = body.get_meta("climb_rungs")
+	var height := body.global_position.y - (body.get_meta("climb_foot") as Vector3).y
+	var targets := PlayerController3D.climb_hand_targets_for(rungs, body.global_position, height)
+	var back := Vector3(sin(body.rotation.y), 0.0, cos(body.rotation.y))
+	(func():
+		if not is_instance_valid(body):
+			return
+		for key in ["L", "R"]:
+			if targets.has(key):
+				var right := Vector3(cos(body.rotation.y), 0.0, -sin(body.rotation.y))
+				HunterGrab.solve_arm(body, key, targets[key], 1.0, Vector3.DOWN + back * .6 + right * (-.5 if key == "L" else .5))
+	).call_deferred()
+
+
+## A held runner's grab entry ([style, t, lift, body pitch, hunter forward, drop, lean], HunterGrab), checked; [] when free.
+static func _grab_packet(state: Dictionary) -> Array:
+	var grab = state.get("grab", [])
+	if not grab is Array or (grab as Array).size() != 7 or not GrabStyles.STYLES.has(String(grab[0])):
+		return []
+	for i in range(1, 7):
+		if not (typeof(grab[i]) in [TYPE_INT, TYPE_FLOAT]):
+			return []
+	var out: Array = (grab as Array).duplicate()
+	out[1] = clampf(float(out[1]), 0.0, GrabStyles.TOTAL_SECONDS)
+	out[2] = clampf(float(out[2]), 0.0, 2.2)
+	out[3] = clampf(float(out[3]), -PI, PI)
+	for i in range(4, 7):
+		out[i] = clampf(float(out[i]), -1.5, 1.5)
+	return out
+
+
+static func _grab_lift(state: Dictionary) -> float:
+	var grab := _grab_packet(state)
+	return float(grab[2]) if not grab.is_empty() else 0.0
 
 
 const NAME_TAG_HEIGHT := 1.92
