@@ -359,7 +359,7 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 		item_id, "EMPTY SLOT")).to_upper()
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
-		bar.value = clampf(1.0 - taser_cooldown / GameConfig.TASER_COOLDOWN_SECONDS,
+		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
 			0.0, 1.0) * 100.0
 	else:
 		var max_value := maxi(1, int(maximums.get(item_id, 1)))

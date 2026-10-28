@@ -206,7 +206,7 @@ func _taser_is_host_authoritative(scene: Node) -> void:
 	hunter.brain.stun_timer = 0.0
 	scene._taser_ready_usec_by_peer.clear()
 	scene._resolve_taser_request(1)
-	_expect(is_equal_approx(hunter.brain.stun_timer, GameConfig.TASER_STUN_SECONDS),
+	_expect(is_equal_approx(hunter.brain.stun_timer, GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun")),
 		"an aimed in-range taser request did not stun the authoritative hunter")
 	var first_stun := hunter.brain.stun_timer
 	scene._resolve_taser_request(1)
